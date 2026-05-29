@@ -1,0 +1,17 @@
+# fyai "vivid" markdown theme (libfymd4c schema).
+#
+# Higher-contrast card and a colourful code theme. Selected with
+# display.markdown_theme: vivid (or --markdown-theme vivid).
+
+elements:
+  # a blue-tinted bubble for the user turn on dark terminals, warm on light
+  reverse:
+    on:  "\e[48;5;24;38;5;231m"
+    off: "\e[0m"
+    light:
+      on:  "\e[48;5;153;38;5;17m"
+      off: "\e[0m"
+
+code:
+  enabled: true
+  theme:   tokyonight

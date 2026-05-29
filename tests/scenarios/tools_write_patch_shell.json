@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-w1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_write_1",
+                  "type": "function",
+                  "function": { "name": "write_file", "arguments": "{\"path\":\"out.txt\",\"content\":\"written by mock\\n\"}" }
+                },
+                {
+                  "id": "call_patch_1",
+                  "type": "function",
+                  "function": { "name": "apply_patch", "arguments": "{\"patch\":\"*** Begin Patch\\n*** Add File: patched.txt\\n+patched line\\n*** End Patch\\n\"}" }
+                },
+                {
+                  "id": "call_shell_1",
+                  "type": "function",
+                  "function": { "name": "shell", "arguments": "{\"command\":\"echo shell-ran-ok\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-w2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "All three tools executed." },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

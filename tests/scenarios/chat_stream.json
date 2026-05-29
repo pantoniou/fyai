@@ -1,0 +1,15 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "id": "chatcmpl-s1", "object": "chat.completion.chunk", "created": 1735689600, "model": "mock-model", "choices": [ { "index": 0, "delta": { "role": "assistant", "content": "Streaming " }, "finish_reason": null } ] },
+        { "id": "chatcmpl-s1", "object": "chat.completion.chunk", "created": 1735689600, "model": "mock-model", "choices": [ { "index": 0, "delta": { "content": "hello " }, "finish_reason": null } ] },
+        { "id": "chatcmpl-s1", "object": "chat.completion.chunk", "created": 1735689600, "model": "mock-model", "choices": [ { "index": 0, "delta": { "content": "from the mock." }, "finish_reason": null } ] },
+        { "id": "chatcmpl-s1", "object": "chat.completion.chunk", "created": 1735689600, "model": "mock-model", "choices": [ { "index": 0, "delta": {}, "finish_reason": "stop" } ] },
+        { "id": "chatcmpl-s1", "object": "chat.completion.chunk", "created": 1735689600, "model": "mock-model", "choices": [], "usage": { "prompt_tokens": 20, "completion_tokens": 9, "total_tokens": 29 } }
+      ],
+      "done": true,
+      "chunk_split": [7, 40, 41, 200, 333]
+    }
+  ]
+}

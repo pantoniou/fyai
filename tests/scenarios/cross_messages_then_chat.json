@@ -1,0 +1,43 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "msg_x1",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [
+          { "type": "tool_use", "id": "toolu_x1", "name": "read_file", "input": { "path": "data.txt" } }
+        ],
+        "stop_reason": "tool_use",
+        "usage": { "input_tokens": 20, "output_tokens": 10 }
+      }
+    },
+    {
+      "response": {
+        "id": "msg_x2",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [ { "type": "text", "text": "Read it under Anthropic." } ],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 40, "output_tokens": 8 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-x3",
+        "object": "chat.completion",
+        "created": 1735689700,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Continued under Chat Completions." },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+*.dirstamp
+*.la
+*.lo
+*.o
+.deps/
+.libs/
+build/
+output/
+stamp-h1
+tags
+TAGS
+artifacts/
+build*/
+__pycache__/
+.*.swp
+worktrees/
+*-apikey.txt
+*.env
+.cache/
+.fyai/
+
+# Static binary extracted by scripts/build-static-docker.sh
+/fyai

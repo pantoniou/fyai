@@ -1,0 +1,21 @@
+{
+  "steps": [
+    {
+      "delay": 5.0,
+      "response": {
+        "id": "chatcmpl-i1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "This reply should never be delivered." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19 }
+      }
+    }
+  ]
+}

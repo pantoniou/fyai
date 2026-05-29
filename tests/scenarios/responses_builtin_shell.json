@@ -1,0 +1,43 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_sh1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_item_1",
+            "call_id": "sc_1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [ "echo builtin-shell-ran" ],
+              "max_output_length": 4096
+            }
+          }
+        ],
+        "usage": { "input_tokens": 25, "output_tokens": 10, "total_tokens": 35 }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_sh2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_sh2",
+            "role": "assistant",
+            "content": [ { "type": "output_text", "text": "Builtin shell round trip done." } ]
+          }
+        ],
+        "usage": { "input_tokens": 40, "output_tokens": 8, "total_tokens": 48 }
+      }
+    }
+  ]
+}

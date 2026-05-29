@@ -1,0 +1,23 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_mock_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_mock_1",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "Hello from the mock responses provider." }
+            ]
+          }
+        ],
+        "usage": { "input_tokens": 12, "output_tokens": 7, "total_tokens": 19 }
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# Truest "virgin user" test: nothing local is copied in - fyai itself is cloned
+# from GitHub, then CMake FetchContent pulls libfyaml/libfymd4c/libfyts. Same
+# minimal base as Dockerfile.fetch (toolchain + CMake + git + system libcurl).
+#
+# Build:
+#   docker build -f docker/Dockerfile.clone \
+#     --build-arg FYAI_REF=master -t fyai-clone .
+#   docker run --rm fyai-clone fyai --help
+#
+# ASAN build: add --build-arg BUILD_TYPE=Debug --build-arg ENABLE_ASAN=ON.
+FROM ubuntu:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# python3/yq/zstd are libfyts' codegen tools (see Dockerfile.fetch).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        pkg-config \
+        libcurl4-openssl-dev \
+        python3 \
+        yq \
+        zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG FYAI_REPO=https://github.com/pantoniou/fyai
+ARG FYAI_REF=master
+ARG BUILD_TYPE=Release
+ARG ENABLE_ASAN=OFF
+
+RUN git clone "$FYAI_REPO" /src \
+    && git -C /src checkout "$FYAI_REF" \
+    && cmake -S /src -B /build \
+        -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+        -DENABLE_ASAN="$ENABLE_ASAN" \
+    && cmake --build /build -j"$(nproc)"
+
+RUN install -m 0755 /build/fyai /usr/local/bin/fyai
+RUN fyai --help >/dev/null && echo "fyai built and runs"

@@ -1,0 +1,36 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-mock-1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Hello from the mock provider." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-mock-2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Hello again from the mock provider." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19 }
+      }
+    }
+  ]
+}

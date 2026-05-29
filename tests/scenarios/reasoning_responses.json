@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_r1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_r1",
+            "role": "assistant",
+            "content": [ { "type": "output_text", "text": "Reasoned responses answer." } ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 30,
+          "output_tokens_details": { "reasoning_tokens": 18 },
+          "total_tokens": 50
+        }
+      }
+    }
+  ]
+}

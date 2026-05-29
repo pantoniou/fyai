@@ -1,0 +1,4 @@
+# Keep the Docker build context small and reproducible. .git is intentionally
+# NOT ignored: scripts/git-version-gen reads it to derive the version.
+build/
+build-*/

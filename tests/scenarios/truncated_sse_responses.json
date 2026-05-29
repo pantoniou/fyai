@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "response.created", "response": { "id": "resp_x1", "status": "in_progress" } },
+        { "type": "response.output_text.delta", "delta": "cut " },
+        { "type": "response.output_text.delta", "delta": "off" },
+        { "type": "response.completed", "response": { "id": "resp_x1", "status": "completed", "output": [] } }
+      ],
+      "close_after": 3
+    }
+  ]
+}

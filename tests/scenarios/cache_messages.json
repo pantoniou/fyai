@@ -1,0 +1,45 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "msg_cm1",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [
+          { "type": "tool_use", "id": "toolu_cache_1", "name": "read_file", "input": { "path": "data.txt" } }
+        ],
+        "stop_reason": "tool_use",
+        "usage": { "input_tokens": 30, "output_tokens": 10 }
+      }
+    },
+    {
+      "response": {
+        "id": "msg_cm2",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [ { "type": "text", "text": "First messages answer." } ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 30, "output_tokens": 8,
+          "cache_read_input_tokens": 30, "cache_creation_input_tokens": 12
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "msg_cm3",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [ { "type": "text", "text": "Second messages answer." } ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 20, "output_tokens": 8,
+          "cache_read_input_tokens": 64
+        }
+      }
+    }
+  ]
+}

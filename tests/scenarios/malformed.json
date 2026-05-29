@@ -1,0 +1,5 @@
+{
+  "steps": [
+    { "raw": "{this is not json at all" }
+  ]
+}

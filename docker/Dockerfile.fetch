@@ -1,0 +1,44 @@
+# Verify fyai's FetchContent path from a virgin Ubuntu with only a C toolchain
+# and CMake installed: libfyaml, libfymd4c and (transitively) libfyts are all
+# cloned and built by CMake. libcurl comes from apt (the CMake build would fetch
+# it from source too if absent, but installing it keeps the image simple).
+#
+# Build (from the repo root):
+#   docker build -f docker/Dockerfile.fetch -t fyai-fetch .
+#   docker run --rm fyai-fetch fyai --help
+#
+# ASAN build (libasan ships with build-essential, so the binary runs in-image):
+#   docker build -f docker/Dockerfile.fetch \
+#     --build-arg BUILD_TYPE=Debug --build-arg ENABLE_ASAN=ON -t fyai-asan .
+FROM ubuntu:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Toolchain + CMake + git (FetchContent clones over https) + system libcurl.
+# python3/yq/zstd are libfyts' codegen tools: it turns its grammar catalogue
+# into build inputs at configure time (yq is the jq-style apt package).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        pkg-config \
+        libcurl4-openssl-dev \
+        python3 \
+        yq \
+        zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bring in the working tree. Configure out-of-source into /build so any local
+# build-*/ dirs in the checkout are ignored. FetchContent runs at configure time
+# and needs network (Docker build has it by default).
+ARG BUILD_TYPE=Release
+ARG ENABLE_ASAN=OFF
+COPY . /src
+RUN cmake -S /src -B /build \
+        -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+        -DENABLE_ASAN="$ENABLE_ASAN" \
+    && cmake --build /build -j"$(nproc)"
+
+RUN install -m 0755 /build/fyai /usr/local/bin/fyai
+RUN fyai --help >/dev/null && echo "fyai built and runs"

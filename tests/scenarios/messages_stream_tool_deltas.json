@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "message_start", "message": { "id": "msg_d1", "type": "message", "role": "assistant", "model": "mock-model", "content": [], "usage": { "input_tokens": 22, "output_tokens": 1 } } },
+        { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+        { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Reading now." } },
+        { "type": "content_block_stop", "index": 0 },
+        { "type": "content_block_start", "index": 1, "content_block": { "type": "tool_use", "id": "toolu_delta_1", "name": "read_file", "input": {} } },
+        { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"pa" } },
+        { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "th\": \"da" } },
+        { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "ta.txt\"}" } },
+        { "type": "content_block_stop", "index": 1 },
+        { "type": "message_delta", "delta": { "stop_reason": "tool_use", "stop_sequence": null }, "usage": { "output_tokens": 15 } },
+        { "type": "message_stop" }
+      ],
+      "chunk_split": [45, 200, 201, 500]
+    },
+    {
+      "sse": [
+        { "type": "message_start", "message": { "id": "msg_d2", "type": "message", "role": "assistant", "model": "mock-model", "content": [], "usage": { "input_tokens": 48, "output_tokens": 1 } } },
+        { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+        { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Tool deltas assembled fine." } },
+        { "type": "content_block_stop", "index": 0 },
+        { "type": "message_delta", "delta": { "stop_reason": "end_turn", "stop_sequence": null }, "usage": { "output_tokens": 7 } },
+        { "type": "message_stop" }
+      ]
+    }
+  ]
+}

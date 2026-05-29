@@ -1,0 +1,25 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-as1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "bar",
+        "choices": [ { "index": 0, "message": { "role": "assistant", "content": "Chat grammar answer." }, "finish_reason": "stop" } ],
+        "usage": { "prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14 }
+      }
+    },
+    {
+      "response": {
+        "id": "msg_as2",
+        "type": "message",
+        "role": "assistant",
+        "model": "bar",
+        "content": [ { "type": "text", "text": "Messages grammar answer." } ],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 20, "output_tokens": 5 }
+      }
+    }
+  ]
+}

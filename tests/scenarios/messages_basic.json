@@ -1,0 +1,15 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "msg_mock_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [ { "type": "text", "text": "Hello from the mock messages provider." } ],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 12, "output_tokens": 7 }
+      }
+    }
+  ]
+}

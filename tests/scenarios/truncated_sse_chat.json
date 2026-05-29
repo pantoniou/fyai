@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "id": "chatcmpl-x1", "object": "chat.completion.chunk", "created": 1, "model": "mock-model", "choices": [ { "index": 0, "delta": { "role": "assistant", "content": "cut " }, "finish_reason": null } ] },
+        { "id": "chatcmpl-x1", "object": "chat.completion.chunk", "created": 1, "model": "mock-model", "choices": [ { "index": 0, "delta": { "content": "off" }, "finish_reason": null } ] },
+        { "id": "chatcmpl-x1", "object": "chat.completion.chunk", "created": 1, "model": "mock-model", "choices": [ { "index": 0, "delta": {}, "finish_reason": "stop" } ] }
+      ],
+      "done": true,
+      "close_after": 2
+    }
+  ]
+}

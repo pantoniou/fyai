@@ -1,0 +1,24 @@
+Vendored from https://github.com/antirez/linenoise
+Upstream commit: a473823d74b93eab2ba83480df16ed37617493f2
+
+Local modification: a Ctrl-G hook (linenoiseSetEditorCallback) that hands the
+current line to an external editor and replaces it with the result. Search for
+"editorCallback" / "CTRL_G" to find the delta.
+
+Local modification: linenoiseSetPromptStyle(ansi) wraps the prompt and edited
+line in a host-supplied zero-width SGR sequence (reset with \033[0m after),
+applied on both the initial paint and every refresh. The styled rows are filled
+to the terminal edge with EL (\033[K) under the active background. Search for
+"promptStyle".
+
+Local modification: linenoiseSetTopInfo(text)/linenoiseSetBottomInfo(text)
+reserve a single status row immediately above and below the prompt, styled like
+the prompt bar (NULL removes the row, "" keeps it blank). They are folded into
+the multi-line row/cursor accounting and the initial paint. Search for
+"topInfo" / "bottomInfo" / "emitInfoRow".
+
+Local modification: when the prompt is styled or has status rows,
+linenoiseEditStop() erases the whole prompt block and clears any active SGR,
+leaving the cursor where the block began (instead of just printing a newline),
+so exit (e.g. Ctrl-D) leaves the terminal clean and the host can redraw from a
+known position. Search for "linenoiseEditStop".

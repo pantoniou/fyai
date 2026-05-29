@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "status": 500,
+      "response": { "error": { "message": "mock boom", "type": "server_error" } }
+    }
+  ]
+}

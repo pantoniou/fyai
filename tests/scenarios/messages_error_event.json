@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "message_start", "message": { "id": "msg_e1", "type": "message", "role": "assistant", "model": "mock-model", "content": [], "usage": { "input_tokens": 10, "output_tokens": 1 } } },
+        { "type": "error", "error": { "type": "overloaded_error", "message": "mock stream failure" } }
+      ]
+    }
+  ]
+}

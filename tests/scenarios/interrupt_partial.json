@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-p1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_read_1",
+                  "type": "function",
+                  "function": { "name": "read_file", "arguments": "{\"path\":\"data.txt\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": { "prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42 }
+      }
+    },
+    {
+      "delay": 5.0,
+      "response": {
+        "id": "chatcmpl-p2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "This final answer should never arrive." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 55, "completion_tokens": 9, "total_tokens": 64 }
+      }
+    }
+  ]
+}

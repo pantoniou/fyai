@@ -1,0 +1,34 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-c1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "First mock reply." },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-c2",
+        "object": "chat.completion",
+        "created": 1735689700,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Second mock reply." },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

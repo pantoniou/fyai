@@ -1,0 +1,111 @@
+# Static fyai builds from a virgin Ubuntu.
+#
+# Unlike the shared build, the static link needs an installed static libfyaml
+# archive (libfyaml.a) - the CMake refuses to fetch libfyaml for a static build -
+# plus static OpenSSL/zlib archives. libfymd4c, libfyts and a minimal libcurl are
+# still fetched and built static by CMake. So the one extra step here is to build
+# and install libfyaml as a static archive before configuring fyai.
+#
+# Build (from the repo root):
+#   docker build -f docker/Dockerfile.static --build-arg STATIC_MODE=mostly -t fyai-mostly-static .
+#   docker build -f docker/Dockerfile.static --build-arg STATIC_MODE=musl -t fyai-musl-static .
+#
+# No ASAN option here: a fully static ASAN binary is not possible - the compiler
+# rejects it outright ("gcc: error: cannot specify -static with -fsanitize=
+# address"), since the sanitizer runtime needs a dynamically-linked libc. Use
+# Dockerfile.fetch with --build-arg ENABLE_ASAN=ON for a sanitized build.
+FROM ubuntu:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Toolchain + CMake + git, and the static TLS/compression archives used by the
+# glibc modes. python3/yq/zstd are libfyts' codegen tools.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        pkg-config \
+        linux-libc-dev \
+        libssl-dev \
+        zlib1g-dev \
+        python3 \
+        yq \
+        zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG STATIC_MODE=mostly
+
+# musl mode cannot use Ubuntu's glibc-built libssl.a/libz.a, so build the libc,
+# zlib and OpenSSL stack with musl-gcc under one prefix.
+ARG MUSL_REPO=https://git.musl-libc.org/git/musl
+ARG MUSL_REF=v1.2.5
+ARG ZLIB_REPO=https://github.com/madler/zlib
+ARG ZLIB_REF=v1.3.1
+ARG OPENSSL_REPO=https://github.com/openssl/openssl
+ARG OPENSSL_REF=openssl-3.3.2
+RUN if [ "$STATIC_MODE" = musl ]; then \
+        git clone "$MUSL_REPO" /musl \
+        && git -C /musl checkout "$MUSL_REF" \
+        && cd /musl \
+        && ./configure --prefix=/opt/musl \
+        && make -j"$(nproc)" \
+        && make install \
+        && cp -a /usr/include/linux /usr/include/asm-generic /opt/musl/include/ \
+        && cp -a /usr/include/x86_64-linux-gnu/asm /opt/musl/include/ \
+        && git clone "$ZLIB_REPO" /zlib \
+        && git -C /zlib checkout "$ZLIB_REF" \
+        && cmake -S /zlib -B /zlib/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=/opt/musl/bin/musl-gcc \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_INSTALL_PREFIX=/opt/musl \
+        && cmake --build /zlib/build -j"$(nproc)" \
+        && cmake --install /zlib/build \
+        && git clone "$OPENSSL_REPO" /openssl \
+        && git -C /openssl checkout "$OPENSSL_REF" \
+        && cd /openssl \
+        && CC=/opt/musl/bin/musl-gcc ./Configure linux-x86_64 no-shared no-tests no-secure-memory no-afalgeng --prefix=/opt/musl --openssldir=/opt/musl/ssl \
+        && make -j"$(nproc)" \
+        && make install_sw \
+        && rm -rf /musl /zlib /openssl; \
+    fi
+
+# Build and install a static libfyaml (libfyaml.a + libfyaml.pc + headers). Pin
+# matches fyai's FetchContent libfyaml GIT_TAG; override with --build-arg.
+ARG LIBFYAML_REPO=https://github.com/pantoniou/libfyaml
+ARG LIBFYAML_REF=a6886c587ef2855f4f2e2c16a361743747f85f8d
+RUN git clone "$LIBFYAML_REPO" /libfyaml \
+    && git -C /libfyaml checkout "$LIBFYAML_REF" \
+    && if [ "$STATIC_MODE" = musl ]; then export CC=/opt/musl/bin/musl-gcc PKG_CONFIG_PATH=/opt/musl/lib/pkgconfig; fi \
+    && cmake -S /libfyaml -B /libfyaml/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_TESTING=OFF \
+        -DCMAKE_INSTALL_PREFIX="$(if [ "$STATIC_MODE" = musl ]; then echo /opt/musl; else echo /usr/local; fi)" \
+    && cmake --build /libfyaml/build -j"$(nproc)" \
+    && cmake --install /libfyaml/build \
+    && rm -rf /libfyaml
+
+# Build fyai. libfymd4c/libfyts/curl are fetched at configure time.
+COPY . /src
+RUN if [ "$STATIC_MODE" = musl ]; then \
+        PKG_CONFIG_PATH=/opt/musl/lib/pkgconfig cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=/opt/musl/bin/musl-gcc \
+            -DCMAKE_PREFIX_PATH=/opt/musl \
+            -DFYAI_MUSL_STATIC=ON; \
+    elif [ "$STATIC_MODE" = full ]; then \
+        cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DFYAI_STATIC=ON; \
+    else \
+        cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DFYAI_MOSTLY_STATIC=ON; \
+    fi \
+    && cmake --build /build -j"$(nproc)"
+
+# Confirm the selected linkage, then install it.
+RUN if [ "$STATIC_MODE" = musl ] || [ "$STATIC_MODE" = full ]; then \
+        ldd /build/fyai 2>&1 | grep -q "not a dynamic executable"; \
+    else \
+        ldd /build/fyai | grep -q "libc\\.so"; \
+    fi \
+    && install -m 0755 /build/fyai /usr/local/bin/fyai \
+    && fyai --help >/dev/null && echo "$STATIC_MODE static fyai built and runs"

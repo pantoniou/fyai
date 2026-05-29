@@ -1,0 +1,55 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-y1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_y1",
+                  "type": "function",
+                  "function": { "name": "read_file", "arguments": "{\"path\":\"data.txt\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-y2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Read it under Chat Completions." },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "msg_y3",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [ { "type": "text", "text": "Continued under Anthropic." } ],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 60, "output_tokens": 8 }
+      }
+    }
+  ]
+}

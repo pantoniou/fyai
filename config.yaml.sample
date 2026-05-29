@@ -1,0 +1,118 @@
+# fyai configuration (sample)
+#
+# Use it as:
+#   $XDG_CONFIG_HOME/fyai/config.yaml   (user bootstrap file,
+#                                        else ~/.config/fyai/config.yaml)
+#   fyai init / fyai config import <file>   (repository: ingested into the
+#                                            .fyai/arena container root)
+# or pass any file explicitly with --config/-C (overrides the other layers).
+# Edit the repository config in place with `fyai config edit`, inspect it
+# with `fyai config export`. Individual keys can be poked from the command
+# line with `--set <key[=value]>` / `--get <key>` / `--delete <key>` (or the
+# matching `fyai config set|get|delete` subcommands); keys are slash paths,
+# e.g. `fyai --set display/color=on`. Add `--transient` to keep a session's
+# edits (and its conversation state) in memory only.
+#
+# Layers apply lowest-to-highest precedence:
+#   built-in defaults / environment
+#     -> catalogue-derived resolution (model -> provider/url/grammar/wire-id)
+#       -> user file -> arena config -> --config file
+#         -> command-line options (including --set)
+#
+# All keys are optional; only what is present overrides the layer beneath.
+# Stylistic options live under `display:`, logging controls under `logging:`.
+
+# --- Model selection -------------------------------------------------------
+#
+# A single `model` key drives provider selection. The catalogue
+# (`fyai catalog list`) maps the model to its canonical provider, endpoint
+# URL, API grammar and provider wire-id. Prefix with `provider/` to pin a
+# specific provider that also offers the model, e.g. `openrouter/glm-5.2`.
+# Override on the command line with `--model`/`-m`.
+provider: openai
+model: gpt-5.4-mini
+api: responses
+api_url: https://api.openai.com/v1/responses
+
+# The API key is taken (in order) from `--api-key`/`-k`, the `api_key` env
+# mapping below, or the provider's conventional environment variable:
+# <PROVIDER>_API_KEY (OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
+# DEEPSEEK_API_KEY, ...). Secrets are never written as raw values; reference
+# an environment variable instead.
+# api_key:
+#   type: env
+#   value: OPENAI_API_KEY
+
+# API grammar values: responses | chat-completions | messages
+
+# --- Top-level defaults ----------------------------------------------------
+system_prompt: You are a concise assistant.
+temperature: 0
+max_tool_iterations: 16
+# Output-token cap per model call. Required by the Anthropic Messages API
+# (sent on every request there); defaults from the catalogue otherwise.
+max_tokens: 8192
+
+# Reasoning / thinking effort for reasoning-capable models. Maps to the
+# Responses API `reasoning: { effort, summary }` and to Chat Completions
+# `reasoning_effort` (summary is Responses-only and ignored otherwise).
+# reasoning:
+#   effort: medium      # minimal | low | medium | high
+#   summary: auto       # auto | concise | detailed
+tools: true
+builtin_shell: true
+# Landlock-confine shell-tool sub-executions (Linux only; no-op elsewhere):
+# read-only system paths, read/write the project and temp dirs, everything else
+# denied. Best-effort - the allow-list/prompt remains the portable floor when
+# Landlock is unavailable. Either a bool (enable with defaults) or a mapping:
+#   sandbox:
+#     enabled: true
+#     deny:                 # carved out of the project (the .fyai arena is
+#       - secrets           # always denied); paths are project-relative,
+#       - ~/.ssh            # absolute (/...), or ~-relative
+#     allow:                # extra grants outside the project
+#       - /opt/toolchain            # string => read/write (rw)
+#       - { path: /ro/data, mode: ro }      # read + execute only
+#       - { path: /src, mode: edit }        # modify existing, no create/delete
+#       - { path: /logs, mode: append }     # write without truncating
+#       # modes: rw (default) | ro | edit | append
+#     network:              # present => restrict egress to these TCP ports
+#       ports: [443]        # (omit `network` entirely to leave egress open;
+#                           #  empty ports denies all egress)
+# `fyai sandbox on` stores this canned policy:
+# sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { ports: [443] } }
+sandbox: false
+# logprobs: false
+# top_logprobs: -1
+# token_extents: false   # record streamed token extents in turn metadata
+# no_obfuscation: false
+# response_chain: false
+# arena_dir: /path/to/.fyai/arena
+
+logging:
+  wire: false
+  stream: false
+  conversation: false
+
+# --- Display / theming ------------------------------------------------------
+#
+# All stylistic options are grouped here (this nested form is the only one).
+display:
+  markdown: true          # default on; set false to disable markdown rendering
+  stream: true            # default on; set false to disable streaming
+  tool_preview_lines: 3   # lines of a tool result shown before truncation
+  # How streamed markdown is rendered (only with markdown + stream):
+  markdown_mode: line     # line (per line, default) | stream (redraw per chunk) | oneshot (at end)
+  color: auto             # auto (colour iff a terminal) | off | on (force, even piped)
+  theme: dark             # background: auto (probe terminal) | dark | light
+  # Named markdown palette -> stylings/fyai-<name>.yaml (markdown|plain|vivid)
+  # markdown_theme: markdown
+  # Fenced-code syntax-highlight theme: a libfyts built-in name (default,
+  # catppuccin, kanagawa, solarized, tokyonight, vscode, vscode-nvim) or a
+  # path to a styling YAML. Omit to use the styling file's code.theme.
+  # code_theme: default
+  # Explicit-path escape hatch overriding any named theme:
+  # markdown_style: /path/to/fyai-markdown.yaml
+  # pretty: true
+  # cache_info: false
+  # stats: false          # print session token usage to stderr

@@ -1,0 +1,28 @@
+# fyai markdown styling (libfymd4c schema).
+#
+# Overrides libfymd4c's built-in theme where fyai differs; any element, glyph or
+# code key left unset inherits the library default. Passed to the renderer as a
+# parsed generic (style_generic), so it drives both the Markdown element colours
+# (libfymd4c) and the fenced-code highlighter (libfyts, via the `code:` section).
+#
+# YAML escape \e is ESC; an on/off value that is not a named style is used
+# verbatim. See libfymd4c stylings/md4c-default.yaml for the full vocabulary.
+
+elements:
+  # The user-turn "bubble": libfymd4c fills every line of a reverse card with
+  # this background. An explicit readable grey card - dark card / light text on a
+  # dark terminal, light card / dark text on a light one - instead of the muddy
+  # terminal-default reverse. fyai draws its blank fence rows from this same pair.
+  reverse:
+    on:  "\e[48;5;238;38;5;253m"
+    off: "\e[0m"
+    light:
+      on:  "\e[48;5;253;38;5;238m"
+      off: "\e[0m"
+
+# Fenced-code syntax highlighting (libfyts). `theme` is a libfyts built-in name
+# (see `fyts_list_stylings`) or a path to a styling YAML; the config `code_theme`
+# key / --code-theme option overrides it at the renderer boundary.
+code:
+  enabled: true
+  theme:   default

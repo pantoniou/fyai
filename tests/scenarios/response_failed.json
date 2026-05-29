@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "response.created", "response": { "id": "resp_f1", "status": "in_progress" } },
+        { "type": "response.failed", "response": { "id": "resp_f1", "status": "failed", "error": { "code": "server_error", "message": "mock failure" } } }
+      ]
+    }
+  ]
+}

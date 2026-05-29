@@ -1,0 +1,52 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-c1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Seeded reply." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-c2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "SUMMARY: seeded exchange, all good." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 30, "completion_tokens": 8, "total_tokens": 38 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-c3",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Post-compact reply." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 18, "completion_tokens": 4, "total_tokens": 22 }
+      }
+    }
+  ]
+}
