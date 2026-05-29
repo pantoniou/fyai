@@ -1,0 +1,15 @@
+*.dirstamp
+*.la
+*.lo
+*.o
+.deps/
+.libs/
+build/
+output/
+stamp-h1
+tags
+TAGS
+artifacts/
+build
+__pycache__/
+.*.swp
