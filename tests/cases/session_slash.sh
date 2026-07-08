@@ -98,8 +98,17 @@ assert_stdout_contains "/effort"
 assert_stdout_contains "Index │ Role"
 assert_stdout_contains "Index │ Provider"
 
-# Exactly the four prompts hit the wire; slash lines never did.
-mock_stop 4
+# Continuation after leaving the REPL keeps the switched provider/model.
+set +e
+"$FYAI_BIN" --color off --no-markdown --no-stream "hello five" \
+	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
+FYAI_STATUS=$?
+set -e
+assert_status 0
+assert_stdout_contains "Reply five."
+
+# Exactly the five prompts hit the wire; slash lines never did.
+mock_stop 5
 
 # Request 0: original provider, wire id, env-derived key.
 assert_request 0 'r["path"] == "/v1/chat/completions"'
@@ -119,6 +128,11 @@ assert_request 2 'not any("hello one" in str(m.get("content","")) for m in r["bo
 
 # Request 3: after /effort high - the Chat Completions reasoning field.
 assert_request 3 'r["body"].get("reasoning_effort") == "high"'
+
+# Request 4: a new process continues on the /model-selected provider.
+assert_request 4 'r["path"] == "/v2/chat/completions"'
+assert_request 4 'r["auth"] == "Bearer other-secret"'
+assert_request 4 'r["body"]["model"] == "qux"'
 
 # The /clear + later turns persisted: state carries the post-clear turns only.
 assert_state_contains "hello four" dump state

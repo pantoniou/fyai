@@ -63,6 +63,22 @@
         ],
         "usage": { "prompt_tokens": 14, "completion_tokens": 4, "total_tokens": 18 }
       }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-s5",
+        "object": "chat.completion",
+        "created": 1735689604,
+        "model": "qux",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Reply five." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 18, "completion_tokens": 4, "total_tokens": 22 }
+      }
     }
   ]
 }

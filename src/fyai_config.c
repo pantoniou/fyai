@@ -1386,6 +1386,11 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 					fy_sprintfa("%s/%s", lt.provider,
 						    lt.model) :
 					lt.model);
+			cfg->api_url = NULL;
+			cfg->provider = NULL;
+			cfg->max_tokens = DEFAULT_MAX_TOKENS;
+			if (!cfg->api_key_explicit)
+				cfg->api_key = NULL;
 		}
 		if (lt.api) {
 			if (!strcmp(lt.api, "chat-completions"))
