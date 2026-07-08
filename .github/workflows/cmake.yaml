@@ -69,25 +69,15 @@ jobs:
       run: |
         sudo apt-get update -qq
         sudo apt-get install --no-install-recommends -y \
-          pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev zstd
+          libcurl4-openssl-dev libssl-dev zlib1g-dev zstd
         python -m pip install --upgrade yq
 
     - name: "Install dependencies (macOS)"
       if: runner.os == 'macOS'
       run: |
         brew update
-        brew install pkg-config curl openssl zstd
+        brew install curl openssl zstd
         python -m pip install --upgrade yq
-
-    - name: "Build & install libfyaml"
-      run: |
-        git clone https://github.com/pantoniou/libfyaml /tmp/libfyaml
-        git -C /tmp/libfyaml checkout a6886c587ef2855f4f2e2c16a361743747f85f8d
-        cmake -S /tmp/libfyaml -B /tmp/libfyaml/build -G Ninja \
-          -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-          -DCMAKE_INSTALL_PREFIX=/usr/local
-        cmake --build /tmp/libfyaml/build
-        sudo cmake --install /tmp/libfyaml/build
 
     - name: "Configure"
       run: |
