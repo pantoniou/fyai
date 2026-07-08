@@ -1,0 +1,102 @@
+name: CMake CI
+
+run-name: >-
+  ${{ github.event_name == 'pull_request'      && format('CMake CI · PR #{0}', github.event.pull_request.number) ||
+      github.event_name == 'workflow_dispatch' && format('CMake CI · manual · os={0}', inputs.os || 'all') ||
+      format('CMake CI · {0} · {1}', github.ref_name, github.event.head_commit.message) }}
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: ${{ vars.NUMBER_OF_PROCESSORS || 2 }}
+  CTEST_PARALLEL_LEVEL: ${{ vars.NUMBER_OF_PROCESSORS || 2 }}
+  CTEST_OUTPUT_ON_FAILURE: 1
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "OS to run (e.g. ubuntu-latest, macos-latest)"
+        required: false
+        default: ""
+        type: string
+      asan:
+        description: "Enable ASAN (ON or OFF)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  build:
+    name: ${{ matrix.os }} - ${{ matrix.build_type }}${{ matrix.asan == 'ON' && ' (ASAN)' || '' }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build_type: Release
+            asan: OFF
+          - os: ubuntu-latest
+            build_type: Debug
+            asan: ON
+          - os: macos-latest
+            build_type: Release
+            asan: OFF
+          - os: macos-latest
+            build_type: Debug
+            asan: ON
+
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: "Setup python"
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: "Install CMake/Ninja"
+      uses: lukka/get-cmake@latest
+
+    - name: "Install dependencies (Ubuntu)"
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install --no-install-recommends -y \
+          pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev yq zstd
+
+    - name: "Install dependencies (macOS)"
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install pkg-config curl openssl zstd yq
+
+    - name: "Configure"
+      run: |
+        cmake -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          -DENABLE_ASAN=${{ matrix.asan }}
+
+    - name: "Build"
+      run: |
+        cmake --build build
+
+    - name: "Test"
+      working-directory: build
+      run: |
+        ctest --output-on-failure
+
+    - name: "Upload test logs on failure"
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: "test-logs-${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.asan }}-${{ github.run_id }}"
+        path: |
+          build/Testing/Temporary/
+          build/**/*.log
