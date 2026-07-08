@@ -37,10 +37,28 @@ The run directory (default: cwd) receives:
 
 import json
 import os
+import socketserver
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+class QuietHTTPServer(HTTPServer):
+    """HTTPServer without the reverse-DNS lookup on bind.
+
+    HTTPServer.server_bind() calls socket.getfqdn() on the bind address to
+    set self.server_name. On some hosts (observed on macOS GitHub Actions
+    runners) that reverse lookup for 127.0.0.1 stalls for ~15s, blowing past
+    the test harness's few-second wait for the "port" file. server_name is
+    only used for logging here, so skip the lookup and use the raw address.
+    """
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
 
 class MockState:
@@ -173,7 +191,7 @@ def main():
 
     STATE = MockState(scenario, rundir)
 
-    server = HTTPServer(("127.0.0.1", 0), Handler)
+    server = QuietHTTPServer(("127.0.0.1", 0), Handler)
     port_path = os.path.join(rundir, "port")
     with open(port_path + ".tmp", "w") as f:
         f.write("%d\n" % server.server_address[1])
