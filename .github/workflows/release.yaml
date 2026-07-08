@@ -40,6 +40,11 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: "Setup python"
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
     - name: "Install CMake/Ninja"
       uses: lukka/get-cmake@latest
 
@@ -54,7 +59,8 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         brew update
-        brew install pkg-config openssl zstd yq
+        brew install pkg-config openssl zstd
+        python -m pip install --upgrade yq
 
     - name: "Build & install static libfyaml"
       run: |
