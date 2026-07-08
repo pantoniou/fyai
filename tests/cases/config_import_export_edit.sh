@@ -39,7 +39,7 @@ case "$1" in
 *.yaml) ;;
 *) echo "not a .yaml tempfile: $1" >&2; exit 1 ;;
 esac
-sed -i 's/imported-model/edited-model/' "$1"
+sed -i.bak 's/imported-model/edited-model/' "$1" && rm -f "$1.bak"
 EOF
 chmod +x editor.sh
 EDITOR="$PWD/editor.sh" run_fyai config edit
