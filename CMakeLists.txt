@@ -201,7 +201,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
    NOT TARGET libfymd4c::libfymd4c_static)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG c88902440377657cc20c238a509688986922f25b
+        GIT_TAG a3af3330355491621d26e5ac70d974afb385eca1
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
