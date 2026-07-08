@@ -180,7 +180,7 @@ if(NOT TARGET libfyaml::libfyaml)
     endif()
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
-        GIT_TAG a6886c587ef2855f4f2e2c16a361743747f85f8d
+        GIT_TAG v1.0.0-alpha8
     )
     FetchContent_MakeAvailable(libfyaml)
 endif()
@@ -201,7 +201,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
    NOT TARGET libfymd4c::libfymd4c_static)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG 1d847e77072372848a4569c1b791468794231252
+        GIT_TAG e1ec8adeeba225531232eeccb92cf42c0cf77bda
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
