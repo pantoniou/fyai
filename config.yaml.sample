@@ -51,8 +51,8 @@ api: responses
 # The API key is taken (in order) from `--api-key`/`-k`, the `api_key` env
 # mapping below, or the provider's conventional environment variable:
 # <PROVIDER>_API_KEY (OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
-# DEEPSEEK_API_KEY, ...). Secrets are never written as raw values; reference
-# an environment variable instead. No default - omitted here on purpose.
+# DEEPSEEK_API_KEY, GOOGLE_API_KEY...). Secrets are never written as raw values;
+# reference an environment variable instead. No default - omitted here on purpose.
 # api_key:
 #   type: env
 #   value: OPENAI_API_KEY

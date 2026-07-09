@@ -91,10 +91,11 @@ This creates the local arena used for durable conversation state and installs
 the starting configuration for the repository.
 
 Configuration never contains raw provider secrets. Set `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, or another provider's conventional
-`<PROVIDER>_API_KEY` variable, or use an `api_key: { type: env, value: NAME }`
-configuration mapping. The configured `model` is resolved through the
-catalogue to its provider, endpoint, API grammar, and wire model ID.
+`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or another
+provider's conventional `<PROVIDER>_API_KEY` variable, or use an
+`api_key: { type: env, value: NAME }` configuration mapping.
+The configured `model` is resolved through the catalogue to its provider,
+endpoint, API grammar, and wire model ID.
 
 Run `fyai` with a prompt to use it as a normal coding-agent command:
 

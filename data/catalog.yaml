@@ -123,6 +123,86 @@ models:
     rank: 38
     elo: 1457.08
     votes: 37116
+- name: gemini-3.1-flash-lite
+  display_name: 'Google: Gemini 3.1 Flash Lite'
+  context_window: 1048576
+  max_output_tokens: 65536
+  modalities:
+  - text
+  - image
+  - video
+  - file
+  - audio
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: false
+- name: gemini-3.1-pro-preview
+  display_name: 'Google: Gemini 3.1 Pro Preview'
+  context_window: 1048576
+  max_output_tokens: 65536
+  modalities:
+  - audio
+  - file
+  - image
+  - text
+  - video
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: false
+  arena:
+    rank: 7
+    elo: 1485.8038850942223
+    votes: 73099
+- name: gemini-3.5-flash
+  display_name: 'Google: Gemini 3.5 Flash'
+  context_window: 1048576
+  max_output_tokens: 65536
+  modalities:
+  - text
+  - image
+  - video
+  - file
+  - audio
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: false
+  arena:
+    rank: 11
+    elo: 1479.4578740598904
+    votes: 15261
 - name: glm-5.2
   display_name: 'Z.ai: GLM 5.2'
   context_window: 1048576
@@ -411,6 +491,48 @@ providers:
       output: 0.28
       extra:
         cache_read: 0.0028
+- name: google
+  root_url: https://generativelanguage.googleapis.com
+  endpoints:
+  - protocol: generate_content
+    endpoint: /v1beta/models/{model}:generateContent
+    hosted_tools:
+    - web_search
+    - code_execution
+    local_tools:
+    - function_calling
+  - protocol: chat_completions
+    endpoint: /v1beta/openai/chat/completions
+    local_tools:
+    - function_calling
+  models:
+  - canonical_id: gemini-3.1-pro-preview
+    provider_model_id: gemini-3.1-pro-preview
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 12.0
+      extra:
+        cache_read: 0.2
+  - canonical_id: gemini-3.5-flash
+    provider_model_id: gemini-3.5-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.5
+      output: 9.0
+      extra:
+        cache_read: 0.15
+  - canonical_id: gemini-3.1-flash-lite
+    provider_model_id: gemini-3.1-flash-lite
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.25
+      output: 1.5
+      extra:
+        cache_read: 0.025
 - name: openai
   root_url: https://api.openai.com
   endpoints:
