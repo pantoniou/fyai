@@ -200,6 +200,8 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 					cfg->token_extents);
 	cfg->no_obfuscation = apply_bool(root, "no_obfuscation",
 					 cfg->no_obfuscation);
+	cfg->whitewash_api_keys = apply_bool(root, "whitewash_api_keys",
+					     cfg->whitewash_api_keys);
 	cfg->response_chain = apply_bool(root, "response_chain",
 					 cfg->response_chain);
 
@@ -1439,67 +1441,34 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 }
 
 enum {
-	OPT_LOGPROBS = 256,
-	OPT_TOP_LOGPROBS,
-	OPT_TOKEN_EXTENTS,
-	OPT_NO_OBFUSCATION,
-	OPT_SANDBOX,
-	OPT_MARKDOWN,
+	OPT_SANDBOX = 256,
 	OPT_NEW,
-	OPT_REASONING_EFFORT,
-	OPT_REASONING_SUMMARY,
-	OPT_STATS,
 	OPT_ANSWER,
-	OPT_MARKDOWN_MODE,
-	OPT_NO_MARKDOWN,
-	OPT_NO_STREAM,
 	OPT_COLOR,
 	OPT_THEME,
 	OPT_CODE_THEME,
-	OPT_MARKDOWN_THEME,
-	OPT_MARKDOWN_STYLE,
 	OPT_SET,
 	OPT_GET,
 	OPT_DELETE,
 	OPT_TRANSIENT,
-	OPT_TEMPERATURE,
-	OPT_NO_WHITEWASH,
 };
 
 static const struct option long_options[] = {
 	{ "help", no_argument, NULL, 'h' },
-	{ "system", required_argument, NULL, 's' },
 	{ "config", required_argument, NULL, 'C' },
 	{ "env", required_argument, NULL, 'e' },
 	{ "model", required_argument, NULL, 'm' },
-	{ "temperature", required_argument, NULL, OPT_TEMPERATURE },
-	{ "reasoning-effort", required_argument, NULL, OPT_REASONING_EFFORT },
-	{ "reasoning-summary", required_argument, NULL, OPT_REASONING_SUMMARY },
 	{ "api-key", required_argument, NULL, 'k' },
 	{ "url", required_argument, NULL, 'u' },
 	{ "tools", no_argument, NULL, 't' },
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
-	{ "markdown", no_argument, NULL, OPT_MARKDOWN },
-	{ "no-markdown", no_argument, NULL, OPT_NO_MARKDOWN },
-	{ "markdown-mode", required_argument, NULL, OPT_MARKDOWN_MODE },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
 	{ "code-theme", required_argument, NULL, OPT_CODE_THEME },
-	{ "markdown-theme", required_argument, NULL, OPT_MARKDOWN_THEME },
-	{ "markdown-style", required_argument, NULL, OPT_MARKDOWN_STYLE },
 	{ "new", no_argument, NULL, OPT_NEW },
 	{ "interactive", no_argument, NULL, 'i' },
 	{ "debug", no_argument, NULL, 'd' },
-	{ "pretty", no_argument, NULL, 'p' },
 	{ "cache-info", no_argument, NULL, 'c' },
-	{ "stats", no_argument, NULL, OPT_STATS },
-	{ "stream", no_argument, NULL, 'S' },
-	{ "no-stream", no_argument, NULL, OPT_NO_STREAM },
-	{ "logprobs", no_argument, NULL, OPT_LOGPROBS },
-	{ "top-logprobs", required_argument, NULL, OPT_TOP_LOGPROBS },
-	{ "token-extents", no_argument, NULL, OPT_TOKEN_EXTENTS },
-	{ "no-obfuscation", no_argument, NULL, OPT_NO_OBFUSCATION },
-	{ "no-whitewash", no_argument, NULL, OPT_NO_WHITEWASH },
 	{ "answer", required_argument, NULL, OPT_ANSWER },
 	{ "set", required_argument, NULL, OPT_SET },
 	{ "get", required_argument, NULL, OPT_GET },
@@ -1855,8 +1824,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	struct fy_generic_builder_cfg gb_cfg;
 	const char *cli_config, *cli_env, *cli_api_key;
 	int opt, rc, arg_index;
-	char *endp, *def_arena_dir = NULL;
-	long v;
+	char *def_arena_dir = NULL;
 	const char *verb = NULL;
 	bool stdin_prompt;
 	char *prompt = NULL;
@@ -1885,18 +1853,13 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	optarg = NULL;
 
 	/* '+' stops parsing at the first non-option (the verb or prompt). */
-	while ((opt = getopt_long(argc, argv, "+hs:C:e:m:k:u:tipdcS",
+	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:u:tidc",
 				  long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
 			fyai_usage(stdout, "fyai", cfg->color);
 			ret = 1;
 			goto out;
-		case 's':
-			if (config_queue_set_quoted(cfg, "system_prompt", optarg,
-						    false, false))
-				goto err_out;
-			break;
 		case 'C':
 			cli_config = fy_gb_intern_string(cfg->gb, optarg);
 			break;
@@ -1906,17 +1869,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		case 'm':
 			if (config_queue_set_quoted(cfg, "model", optarg,
 						    false, false))
-				goto err_out;
-			break;
-		case OPT_TEMPERATURE:
-			errno = 0;
-			(void)strtod(optarg, &endp);
-			if (errno || *endp) {
-				fprintf(stderr, "invalid temperature: %s\n", optarg);
-				goto err_out;
-			}
-			if (config_queue_set_literal(cfg, "temperature", optarg,
-						     false, false))
 				goto err_out;
 			break;
 		case 'k':
@@ -1937,16 +1889,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 						     false, false))
 				goto err_out;
 			break;
-		case OPT_MARKDOWN:
-			if (config_queue_set_literal(cfg, "display/markdown",
-						     "true", false, false))
-				goto err_out;
-			break;
-		case OPT_NO_MARKDOWN:
-			if (config_queue_set_literal(cfg, "display/markdown",
-						     "false", false, false))
-				goto err_out;
-			break;
 		case OPT_NEW:
 			cfg->new_conversation = true;
 			break;
@@ -1956,75 +1898,9 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		case 'd':
 			cfg->debug++;
 			break;
-		case 'p':
-			if (config_queue_set_literal(cfg, "display/pretty", "true",
-						     false, false))
-				goto err_out;
-			break;
 		case 'c':
 			if (config_queue_set_literal(cfg, "display/cache_info",
 						     "true", false, false))
-				goto err_out;
-			break;
-		case 'S':
-			if (config_queue_set_literal(cfg, "display/stream", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_NO_STREAM:
-			if (config_queue_set_literal(cfg, "display/stream", "false",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_LOGPROBS:
-			if (config_queue_set_literal(cfg, "logprobs", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_TOP_LOGPROBS:
-			errno = 0;
-			v = strtol(optarg, &endp, 10);
-			if (errno || *endp || v < 0 || v > 20) {
-				fprintf(stderr, "invalid top-logprobs: %s\n", optarg);
-				goto err_out;
-			}
-			if (config_queue_set_literal(cfg, "logprobs", "true",
-						     false, false) ||
-			    config_queue_set_literal(cfg, "top_logprobs", optarg,
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_TOKEN_EXTENTS:
-			if (config_queue_set_literal(cfg, "token_extents", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_STATS:
-			if (config_queue_set_literal(cfg, "display/stats", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_REASONING_EFFORT:
-			if (config_queue_set_quoted(cfg, "reasoning/effort", optarg,
-						    false, false))
-				goto err_out;
-			break;
-		case OPT_REASONING_SUMMARY:
-			if (config_queue_set_quoted(cfg, "reasoning/summary", optarg,
-						    false, false))
-				goto err_out;
-			break;
-		case OPT_NO_OBFUSCATION:
-			if (config_queue_set_literal(cfg, "no_obfuscation", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_NO_WHITEWASH:
-			cfg->whitewash_api_keys = false;
-			break;
-		case OPT_MARKDOWN_MODE:
-			if (config_queue_set_quoted(cfg, "display/markdown_mode",
-						    optarg, false, false))
 				goto err_out;
 			break;
 		case OPT_COLOR:
@@ -2039,16 +1915,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case OPT_CODE_THEME:
 			if (config_queue_set_quoted(cfg, "display/code_theme",
-						    optarg, false, false))
-				goto err_out;
-			break;
-		case OPT_MARKDOWN_THEME:
-			if (config_queue_set_quoted(cfg, "display/markdown_theme",
-						    optarg, false, false))
-				goto err_out;
-			break;
-		case OPT_MARKDOWN_STYLE:
-			if (config_queue_set_quoted(cfg, "display/markdown_style",
 						    optarg, false, false))
 				goto err_out;
 			break;
@@ -2152,12 +2018,15 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	/* A known verb at optind dispatches; otherwise it's a prompt. */
 	verb = arg_index < argc && fyai_is_verb(argv[arg_index]) ? argv[arg_index] : NULL;
 
-	if (!verb && arg_index >= argc && config_has_command_ops(cfg)) {
+	if (!verb && arg_index >= argc && !cfg->interactive &&
+	    config_has_command_ops(cfg)) {
 		/*
-		 * A bare --set/--get/--delete run (no verb, no prompt) is a
-		 * config-only invocation: dispatch the config verb as a no-op so
-		 * storage opens without requiring an API key; the global ops run
-		 * in fyai_run.
+		 * A bare --set/--get/--delete run (no verb, no prompt, and not
+		 * -i) is a config-only invocation: dispatch the config verb as
+		 * a no-op so storage opens without requiring an API key; the
+		 * global ops run in fyai_run. An explicit -i still wants the
+		 * interactive prompt loop even with pending --set ops queued -
+		 * those still run in fyai_run either way.
 		 */
 		cfg->cmd.id = FYAIVID_CONFIG;
 		cfg->cmd.args.config.type = FYAICT_NOOP;

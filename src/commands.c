@@ -72,40 +72,28 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--config, -C <file>", "Load an explicit config file");
 	ITEM("--env, -e <file>", "Source a .env file (used vars only)");
 	ITEM("--model, -m <model>", "Model, optionally provider/model");
-	ITEM("--temperature <n>", "Sampling temperature");
 	ITEM("--set <key[=val]>", "Set a config key (slash path); repeatable");
 	ITEM("--get <key>", "Print a config key as one-line flow");
 	ITEM("--delete <key>", "Delete a config key; repeatable");
 	ITEM("--transient", "Keep this session's edits/state in memory only");
 	ITEM("--api-key, -k <key>", "API key (else PROVIDER_API_KEY env)");
 	ITEM("--url, -u <url>", "API endpoint URL");
-	ITEM("--system, -s <text>", "System prompt");
 	ITEM("--new", "Start a new conversation");
 	ITEM("--tools", "Enable function tools");
 	ITEM("--sandbox", "Landlock-confine shell tools (Linux)");
-	ITEM("--reasoning-effort <lvl>", "minimal|low|medium|high");
-	ITEM("--reasoning-summary <m>", "auto|concise|detailed");
-	ITEM("--stream, -S", "Stream the response (default on)");
-	ITEM("--no-stream", "Disable streaming");
-	ITEM("--markdown", "Render markdown output (default on)");
-	ITEM("--no-markdown", "Disable markdown rendering");
-	ITEM("--markdown-mode <m>", "Stream render cadence: oneshot|line|stream");
 	ITEM("--color <c>", "Colour output: auto|off|on");
 	ITEM("--theme <t>", "Markdown theme: auto|dark|light");
 	ITEM("--code-theme <t>", "Fenced-code theme: a libfyts name or a path");
-	ITEM("--markdown-theme <t>", "Named markdown theme (markdown|plain|vivid)");
-	ITEM("--markdown-style <f>", "Override the markdown styling YAML path");
-	ITEM("--stats", "Print this run's token usage to stderr");
 	ITEM("--cache-info, -c", "Print provider cache info");
-	ITEM("--logprobs", "Request logprobs");
-	ITEM("--top-logprobs <n>", "Request top-n logprobs (0-20)");
-	ITEM("--token-extents", "Record streamed token extents in turn metadata");
-	ITEM("--no-obfuscation", "Disable stream obfuscation");
-	ITEM("--no-whitewash", "Do not redact API keys in wire logs");
 	ITEM("--interactive, -i", "Interactive prompt loop");
 	ITEM("--answer <text>", "Pre-supply an ask_user answer (repeatable)");
 	ITEM("--debug, -d", "Increase debug verbosity");
-	ITEM("--pretty, -p", "Pretty (YAML) debug dumps");
+	fprintf(fp, "  %severything else (temperature, reasoning, streaming,%s\n",
+		"", "");
+	fprintf(fp, "  %smarkdown rendering, stats, logprobs, ...) is a config key -%s\n",
+		"", "");
+	fprintf(fp, "  %s`config set <key> <val>` / `--set <key>=<val>`%s\n",
+		"", "");
 
 #undef SECTION
 #undef ITEM
