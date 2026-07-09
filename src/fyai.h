@@ -38,6 +38,8 @@
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_COLOR "auto"		/* auto | off | on */
 #define DEFAULT_THEME "auto"		/* auto | dark | light */
+/* Display reasoning/thinking model output (live stream + history view). */
+#define DEFAULT_THINKING true
 /*
  * Durable arena root schema version. The root ref is a container mapping
  * { fyai: <version>, config: <doc|null>, catalog: <doc|null>, head: <turn|null> }
@@ -95,6 +97,7 @@ struct fyai_cfg {
 	int debug;
 	bool pretty;
 	bool markdown;
+	bool thinking;
 	bool cache_info;
 	bool stats;
 	bool stream;

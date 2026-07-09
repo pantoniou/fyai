@@ -279,6 +279,9 @@ static void stream_write_reasoning(struct stream_response *stream,
 	struct fyai_cfg *cfg = ctx->cfg;
 	bool color;
 
+	if (!cfg->thinking)
+		return;
+
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
 	if (!*text)
 		return;

@@ -266,6 +266,12 @@ properties:
         type: boolean
         default: false
         description: Pretty (YAML) debug dumps.
+      thinking:
+        type: boolean
+        default: true
+        description: >-
+          Display model reasoning/thinking output (streamed live to stderr
+          and in the history view). Set false to suppress it.
       cache_info:
         type: boolean
         default: false

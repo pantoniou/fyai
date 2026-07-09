@@ -774,7 +774,8 @@ static fy_generic fyai_reasoning_text(struct fy_generic_builder *tgb,
  */
 static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 				  const struct fyai_msg_class *c,
-				  int preview_lines, const char *result_lang)
+				  int preview_lines, const char *result_lang,
+				  bool thinking)
 {
 	const char *cmd;
 	const char *r;
@@ -789,6 +790,8 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 	m = c->msg;
 
 	if (fy_equal(c->type, "reasoning")) {
+		if (!thinking)
+			return;
 		r = fy_cast(fyai_reasoning_text(tgb, m), "");
 		if (*r) {
 			fprintf(mf, "**💭 reasoning**\n\n");
@@ -842,7 +845,8 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 
 static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
 				 const struct fyai_msg_class *c,
-				 int preview_lines, const char *result_lang)
+				 int preview_lines, const char *result_lang,
+				 bool thinking)
 {
 	fy_generic part;
 	const char *text;
@@ -851,7 +855,8 @@ static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
 	text = fyai_msg_text(c);
 
 	if (c->is_native) {
-		fyai_emit_native_item(mf, tgb, c, preview_lines, result_lang);
+		fyai_emit_native_item(mf, tgb, c, preview_lines, result_lang,
+				      thinking);
 		return;
 	}
 
@@ -896,7 +901,7 @@ static fy_generic fyai_turn_provider(fy_generic turn);
  * emitted anything.
  */
 static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
-				     fy_generic turn)
+				     fy_generic turn, bool thinking)
 {
 	const char *prov;
 	const char *rc;
@@ -912,7 +917,7 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 	prov = fy_castp(&tp, "");
 	emitted = false;
 
-	if (!prov)
+	if (!prov || !thinking)
 		return false;
 
 	items = fy_get(ps, prov);
@@ -1029,7 +1034,8 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	} else {
 		msg = fy_mapping("role", "tool", "content", tool_result);
 		c = fyai_classify_message(msg);
-		fyai_emit_message_md(mf, tgb, &c, cfg->tool_preview_lines, NULL);
+		fyai_emit_message_md(mf, tgb, &c, cfg->tool_preview_lines, NULL,
+				     cfg->thinking);
 	}
 
 	fclose(mf);
@@ -1273,7 +1279,8 @@ int fyai_display_view(struct fyai_ctx *ctx)
 			rlen = 0;
 			rf = open_memstream(&rmd, &rlen);
 			if (rf) {
-				any = fyai_emit_turn_reasoning(rf, tgb, stack.items[i]);
+				any = fyai_emit_turn_reasoning(rf, tgb,
+					stack.items[i], cfg->thinking);
 				fclose(rf);
 				if (any) {
 					if (emitted)
@@ -1333,7 +1340,8 @@ int fyai_display_view(struct fyai_ctx *ctx)
 
 			rlang = fyai_read_result_lang(&reads, &c);
 			fyai_emit_message_md(mf, tgb, &c,
-					     cfg->tool_preview_lines, rlang);
+					     cfg->tool_preview_lines, rlang,
+					     cfg->thinking);
 			free(rlang);
 
 			prev_tool = c.tool_related;
