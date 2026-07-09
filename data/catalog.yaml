@@ -20,7 +20,7 @@ models:
   open_source: false
   arena:
     rank: 1
-    elo: 1508.51
+    elo: 1508.5103421348297
     votes: 4350
   agents:
   - claude_code
@@ -43,7 +43,7 @@ models:
   open_source: false
   arena:
     rank: 108
-    elo: 1411.45
+    elo: 1411.451532163971
     votes: 100212
   agents:
   - claude_code
@@ -68,7 +68,7 @@ models:
   open_source: false
   arena:
     rank: 13
-    elo: 1476.51
+    elo: 1476.5131110224881
     votes: 22687
   agents:
   - claude_code
@@ -106,7 +106,7 @@ models:
   open_source: true
   arena:
     rank: 66
-    elo: 1435.74
+    elo: 1435.738691173074
     votes: 36817
 - name: deepseek-v4-pro
   display_name: DeepSeek-V4-Pro
@@ -121,7 +121,7 @@ models:
   open_source: true
   arena:
     rank: 38
-    elo: 1457.08
+    elo: 1457.0762660237153
     votes: 37116
 - name: gemini-3.1-flash-lite
   display_name: 'Google: Gemini 3.1 Flash Lite'
@@ -206,7 +206,7 @@ models:
 - name: glm-5.2
   display_name: 'Z.ai: GLM 5.2'
   context_window: 1048576
-  max_output_tokens: 128000
+  max_output_tokens: 101376
   modalities:
   - text
   capabilities:
@@ -245,6 +245,7 @@ models:
   - max_completion_tokens
   - max_tokens
   - reasoning
+  - reasoning_effort
   - response_format
   - seed
   - structured_outputs
@@ -266,6 +267,7 @@ models:
   - max_completion_tokens
   - max_tokens
   - reasoning
+  - reasoning_effort
   - response_format
   - seed
   - structured_outputs
@@ -287,6 +289,7 @@ models:
   - max_completion_tokens
   - max_tokens
   - reasoning
+  - reasoning_effort
   - response_format
   - seed
   - structured_outputs
@@ -295,7 +298,7 @@ models:
   open_source: false
   arena:
     rank: 16
-    elo: 1474.62
+    elo: 1474.618866623038
     votes: 38470
   agents:
   - codex
@@ -311,6 +314,7 @@ models:
   - include_reasoning
   - max_tokens
   - reasoning
+  - reasoning_effort
   - response_format
   - seed
   - structured_outputs
@@ -319,10 +323,168 @@ models:
   open_source: false
   agents:
   - codex
+- name: gpt-5.6-luna
+  display_name: 'OpenAI: GPT-5.6 Luna'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - file
+  - image
+  - text
+  capabilities:
+  - include_reasoning
+  - max_completion_tokens
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+  agents:
+  - codex
+- name: gpt-5.6-luna-pro
+  display_name: 'OpenAI: GPT-5.6 Luna Pro'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - file
+  - image
+  - text
+  capabilities:
+  - include_reasoning
+  - max_completion_tokens
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+  agents:
+  - codex
+- name: gpt-5.6-sol
+  display_name: 'OpenAI: GPT-5.6 Sol'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - file
+  - image
+  - text
+  capabilities:
+  - include_reasoning
+  - max_completion_tokens
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+  agents:
+  - codex
+- name: gpt-5.6-terra
+  display_name: 'OpenAI: GPT-5.6 Terra'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - file
+  - image
+  - text
+  capabilities:
+  - include_reasoning
+  - max_completion_tokens
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+  agents:
+  - codex
+- name: gpt-5.6-terra-pro
+  display_name: 'OpenAI: GPT-5.6 Terra Pro'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - file
+  - image
+  - text
+  capabilities:
+  - include_reasoning
+  - max_completion_tokens
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+  agents:
+  - codex
+- name: hy3
+  display_name: 'Tencent: Hy3'
+  context_window: 262144
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_p
+  open_source: false
+- name: hy3:free
+  display_name: 'Tencent: Hy3 (free)'
+  context_window: 262144
+  max_output_tokens: 262144
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_p
+  open_source: false
 - name: kimi-k2.7-code
   display_name: 'MoonshotAI: Kimi K2.7 Code'
   context_window: 262144
-  max_output_tokens: 16384
+  max_output_tokens: 262144
   modalities:
   - text
   - image
@@ -336,7 +498,6 @@ models:
   - parallel_tool_calls
   - presence_penalty
   - reasoning
-  - reasoning_effort
   - repetition_penalty
   - response_format
   - seed
@@ -349,6 +510,72 @@ models:
   - top_logprobs
   - top_p
   open_source: true
+- name: mimo-v2.5
+  display_name: 'Xiaomi: MiMo-V2.5'
+  context_window: 1048576
+  modalities:
+  - text
+  - audio
+  - image
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: false
+  arena:
+    rank: 71
+    elo: 1433.1801233003314
+    votes: 35255
+- name: minimax-m3
+  display_name: 'MiniMax: MiniMax M3'
+  context_window: 1048576
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: false
+  arena:
+    rank: 54
+    elo: 1446.5436765542318
+    votes: 19761
 - name: mistral-small-2603
   display_name: 'Mistral: Mistral Small 4'
   context_window: 262144
@@ -361,6 +588,7 @@ models:
   - max_tokens
   - presence_penalty
   - reasoning
+  - reasoning_effort
   - response_format
   - seed
   - stop
@@ -369,6 +597,49 @@ models:
   - tool_choice
   - tools
   - top_k
+  - top_p
+  open_source: true
+- name: nemotron-3-ultra-550b-a55b
+  display_name: 'NVIDIA: Nemotron 3 Ultra'
+  context_window: 1000000
+  max_output_tokens: 16384
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_p
+  open_source: true
+- name: nemotron-3-ultra-550b-a55b:free
+  display_name: 'NVIDIA: Nemotron 3 Ultra (free)'
+  context_window: 1000000
+  max_output_tokens: 65536
+  modalities:
+  - text
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - seed
+  - temperature
+  - tool_choice
+  - tools
   - top_p
   open_source: true
 - name: qwen3.5-397b-a17b
@@ -401,7 +672,7 @@ models:
   open_source: true
   arena:
     rank: 60
-    elo: 1442.97
+    elo: 1442.970241764861
     votes: 50832
 providers:
 - name: anthropic
@@ -553,6 +824,24 @@ providers:
     local_tools:
     - function_calling
   models:
+  - canonical_id: gpt-5.4-nano
+    provider_model_id: gpt-5.4-nano
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.2
+      output: 1.25
+      extra:
+        cache_read: 0.02
+  - canonical_id: gpt-5.4-mini
+    provider_model_id: gpt-5.4-mini
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.75
+      output: 4.5
+      extra:
+        cache_read: 0.075
   - canonical_id: gpt-5.5
     provider_model_id: gpt-5.5
     pricing:
@@ -569,24 +858,55 @@ providers:
       unit: per_million_tokens
       input: 30.0
       output: 180.0
-  - canonical_id: gpt-5.4-mini
-    provider_model_id: gpt-5.4-mini
+  - canonical_id: gpt-5.6-sol
+    provider_model_id: gpt-5.6-sol
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.75
-      output: 4.5
+      input: 5.0
+      output: 30.0
       extra:
-        cache_read: 0.075
-  - canonical_id: gpt-5.4-nano
-    provider_model_id: gpt-5.4-nano
+        cache_read: 0.5
+  - canonical_id: gpt-5.6-terra
+    provider_model_id: gpt-5.6-terra
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.2
-      output: 1.25
+      input: 2.5
+      output: 15.0
       extra:
-        cache_read: 0.02
+        cache_read: 0.25
+  - canonical_id: gpt-5.6-terra-pro
+    provider_model_id: gpt-5.6-terra-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.5
+      output: 15.0
+      extra:
+        cache_read: 0.25
+        cache_write: 3.125
+        web_search: 10000.0
+  - canonical_id: gpt-5.6-luna
+    provider_model_id: gpt-5.6-luna
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.0
+      output: 6.0
+      extra:
+        cache_read: 0.1
+  - canonical_id: gpt-5.6-luna-pro
+    provider_model_id: gpt-5.6-luna-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.0
+      output: 6.0
+      extra:
+        cache_read: 0.1
+        cache_write: 1.25
+        web_search: 10000.0
 - name: openrouter
   root_url: https://openrouter.ai
   endpoints:
@@ -602,10 +922,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.91
-      output: 2.86
+      input: 0.54
+      output: 1.76
       extra:
-        cache_read: 0.169
+        cache_read: 0.1
   - canonical_id: qwen3.5-397b-a17b
     provider_model_id: qwen/qwen3.5-397b-a17b
     pricing:
@@ -613,6 +933,8 @@ providers:
       unit: per_million_tokens
       input: 0.385
       output: 2.45
+      extra:
+        cache_read: 0.111
   - canonical_id: mistral-small-2603
     provider_model_id: mistralai/mistral-small-2603
     pricing:
@@ -627,10 +949,60 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.74
-      output: 3.5
+      input: 0.72
+      output: 3.49
       extra:
-        cache_read: 0.15
+        cache_read: 0.159
+  - canonical_id: hy3
+    provider_model_id: tencent/hy3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.14
+      output: 0.58
+      extra:
+        cache_read: 0.035
+  - canonical_id: hy3:free
+    provider_model_id: tencent/hy3:free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+  - canonical_id: mimo-v2.5
+    provider_model_id: xiaomi/mimo-v2.5
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.105
+      output: 0.28
+      extra:
+        cache_read: 0.028
+  - canonical_id: minimax-m3
+    provider_model_id: minimax/minimax-m3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.3
+      output: 1.2
+      extra:
+        cache_read: 0.06
+  - canonical_id: nemotron-3-ultra-550b-a55b
+    provider_model_id: nvidia/nemotron-3-ultra-550b-a55b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.5
+      output: 2.2
+      extra:
+        cache_read: 0.1
+  - canonical_id: nemotron-3-ultra-550b-a55b:free
+    provider_model_id: nvidia/nemotron-3-ultra-550b-a55b:free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
 agents:
 - name: claude_code
   developer: Anthropic
