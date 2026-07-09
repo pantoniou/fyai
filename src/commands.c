@@ -861,6 +861,289 @@ int fyai_execute_list(struct fyai_ctx *ctx)
 	return rc;
 }
 
+/*
+ * `config describe [path]` - render a markdown table (name | type |
+ * constraint | description) for a config.schema.yaml node, resolved by a
+ * slash path into `properties` (transparently descending oneOf/anyOf
+ * branches too, e.g. "sandbox/enabled"). An object node lists its
+ * properties, one row each; a leaf node prints a single-row table for
+ * itself. No path describes the whole document.
+ */
+static void describe_escape_cell(FILE *fp, const char *s)
+{
+	if (!s)
+		return;
+	for (; *s; s++) {
+		if (*s == '|')
+			fputc('\\', fp);
+		fputc(*s == '\n' ? ' ' : *s, fp);
+	}
+}
+
+static void describe_row(FILE *fp, const char *name, const char *type,
+			 const char *constraint, const char *desc)
+{
+	fprintf(fp, "| ");
+	describe_escape_cell(fp, name);
+	fprintf(fp, " | ");
+	describe_escape_cell(fp, type);
+	fprintf(fp, " | ");
+	describe_escape_cell(fp, constraint && *constraint ? constraint : "-");
+	fprintf(fp, " | ");
+	describe_escape_cell(fp, desc);
+	fprintf(fp, " |\n");
+}
+
+static void schema_type_str(fy_generic node, char *buf, size_t bufsz)
+{
+	fy_generic type, v, branches;
+	char sub[64];
+	size_t off;
+	int n;
+
+	type = fy_get(node, "type");
+	if (fy_generic_is_string(type)) {
+		snprintf(buf, bufsz, "%s", fy_castp(&type, ""));
+		return;
+	}
+	off = 0;
+	if (fy_generic_is_sequence(type)) {
+		fy_foreach(v, type) {
+			n = snprintf(buf + off, off < bufsz ? bufsz - off : 0,
+				    "%s%s", off ? "|" : "", fy_castp(&v, ""));
+			if (n > 0)
+				off += (size_t)n;
+		}
+		if (off)
+			return;
+	}
+	branches = fy_get(node, "oneOf");
+	if (fy_generic_is_invalid(branches))
+		branches = fy_get(node, "anyOf");
+	if (fy_generic_is_sequence(branches)) {
+		off = 0;
+		fy_foreach(v, branches) {
+			schema_type_str(v, sub, sizeof(sub));
+			n = snprintf(buf + off, off < bufsz ? bufsz - off : 0,
+				    "%s%s", off ? " or " : "", sub);
+			if (n > 0)
+				off += (size_t)n;
+		}
+		if (off)
+			return;
+	}
+	snprintf(buf, bufsz, "any");
+}
+
+static double schema_num(fy_generic v)
+{
+	if (fy_generic_is_int(v))
+		return (double)fy_cast(v, 0LL);
+	if (fy_generic_is_float(v))
+		return fy_cast(v, 0.0);
+	return 0.0;
+}
+
+static void schema_constraint_str(fy_generic node, bool required, char *buf,
+				  size_t bufsz)
+{
+	fy_generic v, sub;
+	char items[192], itype[64];
+	size_t off, ioff;
+	bool first, ifirst;
+	int n;
+
+	off = 0;
+	first = true;
+
+#define ADD(...) do { \
+	n = snprintf(buf + off, off < bufsz ? bufsz - off : 0, "%s", \
+		    first ? "" : "; "); \
+	if (n > 0) \
+		off += (size_t)n; \
+	n = snprintf(buf + off, off < bufsz ? bufsz - off : 0, __VA_ARGS__); \
+	if (n > 0) \
+		off += (size_t)n; \
+	first = false; \
+} while (0)
+
+	if (required)
+		ADD("required");
+
+	v = fy_get(node, "const");
+	if (fy_generic_is_valid(v))
+		ADD("const: %s", fy_castp(&v, ""));
+
+	v = fy_get(node, "enum");
+	if (fy_generic_is_sequence(v)) {
+		ioff = 0;
+		ifirst = true;
+		fy_foreach(sub, v) {
+			n = snprintf(items + ioff,
+				    ioff < sizeof(items) ? sizeof(items) - ioff : 0,
+				    "%s%s", ifirst ? "" : ", ", fy_castp(&sub, ""));
+			if (n > 0)
+				ioff += (size_t)n;
+			ifirst = false;
+		}
+		ADD("one of: %s", items);
+	}
+
+	v = fy_get(node, "minimum");
+	if (fy_generic_is_valid(v))
+		ADD(">= %g", schema_num(v));
+	v = fy_get(node, "maximum");
+	if (fy_generic_is_valid(v))
+		ADD("<= %g", schema_num(v));
+	v = fy_get(node, "exclusiveMinimum");
+	if (fy_generic_is_valid(v))
+		ADD("> %g", schema_num(v));
+	v = fy_get(node, "exclusiveMaximum");
+	if (fy_generic_is_valid(v))
+		ADD("< %g", schema_num(v));
+
+	v = fy_get(node, "minLength");
+	if (fy_generic_is_valid(v))
+		ADD("minLength %g", schema_num(v));
+	v = fy_get(node, "maxLength");
+	if (fy_generic_is_valid(v))
+		ADD("maxLength %g", schema_num(v));
+
+	v = fy_get(node, "pattern");
+	if (fy_generic_is_string(v))
+		ADD("pattern: `%s`", fy_castp(&v, ""));
+
+	v = fy_get(node, "minItems");
+	if (fy_generic_is_valid(v))
+		ADD("minItems %g", schema_num(v));
+	v = fy_get(node, "maxItems");
+	if (fy_generic_is_valid(v))
+		ADD("maxItems %g", schema_num(v));
+
+	v = fy_get(node, "items");
+	if (fy_generic_is_mapping(v)) {
+		schema_type_str(v, itype, sizeof(itype));
+		ADD("items: %s", itype);
+	}
+
+#undef ADD
+	if (first)
+		snprintf(buf, bufsz, "-");
+}
+
+/* Descend into `properties`, transparently trying oneOf/anyOf branches. */
+static fy_generic schema_child(fy_generic node, const char *key)
+{
+	fy_generic props, v, branches, b;
+
+	props = fy_get(node, "properties");
+	if (fy_generic_is_mapping(props)) {
+		v = fy_get(props, key);
+		if (fy_generic_is_valid(v))
+			return v;
+	}
+	branches = fy_get(node, "oneOf");
+	if (fy_generic_is_invalid(branches))
+		branches = fy_get(node, "anyOf");
+	fy_foreach(b, branches) {
+		v = schema_child(b, key);
+		if (fy_generic_is_valid(v))
+			return v;
+	}
+	return fy_invalid;
+}
+
+static bool schema_key_required(fy_generic node, const char *key)
+{
+	fy_generic req, v;
+
+	req = fy_get(node, "required");
+	if (!fy_generic_is_sequence(req))
+		return false;
+	fy_foreach(v, req)
+		if (!strcmp(fy_castp(&v, ""), key))
+			return true;
+	return false;
+}
+
+static int config_describe(struct fyai_cfg *cfg, const char *path)
+{
+	fy_generic schema, node, props, desc, key, sub, subdesc;
+	char seg[256], type_buf[128], cons_buf[384];
+	const char *p, *slash, *last;
+	size_t seglen, i, n;
+	char *md;
+	size_t mdlen;
+	FILE *mf;
+
+	schema = fyai_config_schema(cfg->gb);
+	node = schema;
+	last = "config";
+
+	if (path && *path) {
+		p = path;
+		while (*p) {
+			slash = strchr(p, '/');
+			seglen = slash ? (size_t)(slash - p) : strlen(p);
+			if (seglen >= sizeof(seg))
+				seglen = sizeof(seg) - 1;
+			memcpy(seg, p, seglen);
+			seg[seglen] = '\0';
+			node = schema_child(node, seg);
+			if (fy_generic_is_invalid(node)) {
+				fprintf(stderr,
+					"config: describe: unknown property '%s'\n",
+					path);
+				return -1;
+			}
+			last = seg;
+			p = slash ? slash + 1 : p + seglen;
+		}
+	}
+
+	md = NULL;
+	mdlen = 0;
+	mf = open_memstream(&md, &mdlen);
+	if (!mf)
+		return -1;
+
+	desc = fy_get(node, "description");
+	fprintf(mf, "## %s\n\n", (path && *path) ? path : "config");
+	if (fy_generic_is_string(desc))
+		fprintf(mf, "%s\n\n", fy_castp(&desc, ""));
+
+	fprintf(mf, "| name | type | constraint | description |\n");
+	fprintf(mf, "|---|---|---|---|\n");
+
+	props = fy_get(node, "properties");
+	if (!fy_generic_is_mapping(props)) {
+		schema_type_str(node, type_buf, sizeof(type_buf));
+		schema_constraint_str(node, false, cons_buf, sizeof(cons_buf));
+		describe_row(mf, last, type_buf, cons_buf,
+			    fy_generic_is_string(desc) ? fy_castp(&desc, "") : "");
+	} else {
+		n = fy_generic_mapping_get_pair_count(props);
+		for (i = 0; i < n; i++) {
+			key = fy_generic_mapping_get_at_key(props, i);
+			sub = fy_generic_mapping_get_at_value(props, i);
+			schema_type_str(sub, type_buf, sizeof(type_buf));
+			schema_constraint_str(sub, schema_key_required(node,
+						fy_castp(&key, "")), cons_buf,
+					      sizeof(cons_buf));
+			subdesc = fy_get(sub, "description");
+			describe_row(mf, fy_castp(&key, ""), type_buf, cons_buf,
+				    fy_generic_is_string(subdesc) ?
+					    fy_castp(&subdesc, "") : "");
+		}
+	}
+	fclose(mf);
+
+	if (fyai_print_markdown(md, cfg))
+		fputs(md, stdout);
+	free(md);
+	return 0;
+}
+
 static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	struct fyai_config_args *args = &cfg->cmd.args.config;
@@ -875,6 +1158,7 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 		[FYAICT_EXPORT] = "export",
 		[FYAICT_VALIDATE] = "validate",
 		[FYAICT_SCHEMA] = "schema",
+		[FYAICT_DESCRIBE] = "describe",
 		NULL
 	};
 	const char *what;
@@ -887,7 +1171,7 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 	if (idx < 0) {	/* not any of ours */
 		fprintf(stderr,
 			"config: unknown type '%s' "
-			"(show|effective|get|set|delete|edit|import|export|validate|schema)\n",
+			"(show|effective|get|set|delete|edit|import|export|validate|schema|describe)\n",
 			what);
 		return -1;
 	}
@@ -932,6 +1216,7 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 	case FYAICT_EDIT:
 	case FYAICT_VALIDATE:
 	case FYAICT_SCHEMA:
+	case FYAICT_DESCRIBE:	/* optional slash path in args->key */
 		break;
 	default:
 		break;
@@ -998,6 +1283,11 @@ int fyai_execute_config(struct fyai_ctx *ctx)
 		break;
 	case FYAICT_SCHEMA:
 		emit_generic_to_stdout(NULL, fyai_config_schema(cfg->gb), true);
+		break;
+	case FYAICT_DESCRIBE:
+		rc = config_describe(cfg, args->key);
+		if (rc)
+			return -1;
 		break;
 	}
 	return 0;
@@ -1319,7 +1609,7 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "config",
 		.configure = configure_config,
 		.execute   = fyai_execute_config,
-		.synopsis  = "config [show | effective | get <key> | set <key> <value> | delete <key> | import <file> | export [file] | edit | validate | schema]",
+		.synopsis  = "config [show | effective | get <key> | set <key> <value> | delete <key> | import <file> | export [file] | edit | validate | schema | describe [path]]",
 		.help	   = "Inspect or edit the arena-resident configuration (default: show).\n"
 			     "  show              print the stored arena config\n"
 			     "  effective         print the merged effective config (no secrets)\n"
@@ -1330,7 +1620,9 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  export [file]     emit the arena config as YAML (stdout by default)\n"
 			     "  edit              edit the arena config with $VISUAL/$EDITOR\n"
 			     "  validate          check the stored config against the JSON Schema\n"
-			     "  schema            print the config document JSON Schema (YAML)",
+			     "  schema            print the config document JSON Schema (YAML)\n"
+			     "  describe [path]   markdown table of a schema node (slash path,\n"
+			     "                    e.g. display/color); whole document if omitted",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.config = {
 		},

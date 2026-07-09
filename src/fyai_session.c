@@ -855,6 +855,10 @@ static int slash_config(struct fyai_ctx *ctx, const char *arg)
 		args->type = FYAICT_SCHEMA;
 		args->key = NULL;
 		args->value = NULL;
+	} else if (len == 8 && !strncmp(arg, "describe", len)) {
+		args->type = FYAICT_DESCRIBE;
+		args->key = *key ? fy_gb_intern_string(ctx->cfg->gb, key) : NULL;
+		args->value = NULL;
 	} else if (len == 3 && !strncmp(arg, "get", len)) {
 		if (!*key)
 			goto usage;
@@ -883,7 +887,7 @@ static int slash_config(struct fyai_ctx *ctx, const char *arg)
 	*args = saved;
 	return rc;
 usage:
-	fprintf(stderr, "config: use /config [show|effective|edit|validate|schema|get <key>|set <key> <value>|delete <key>]\n");
+	fprintf(stderr, "config: use /config [show|effective|edit|validate|schema|describe [path]|get <key>|set <key> <value>|delete <key>]\n");
 	*args = saved;
 	return -1;
 }
@@ -1299,6 +1303,7 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 		session_complete_value(lc, buf + 1, len, word, "edit");
 		session_complete_value(lc, buf + 1, len, word, "validate");
 		session_complete_value(lc, buf + 1, len, word, "schema");
+		session_complete_value(lc, buf + 1, len, word, "describe");
 		session_complete_value(lc, buf + 1, len, word, "get");
 		session_complete_value(lc, buf + 1, len, word, "set");
 		session_complete_value(lc, buf + 1, len, word, "delete");
