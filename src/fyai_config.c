@@ -1203,7 +1203,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 						 fy_generic doc,
 						 const char *origin)
 {
-	fy_generic problems, v;
+	fy_generic problems, v, schema, schema_report, schema_problems, p;
 
 	problems = fy_seq_empty;
 	if (!fy_generic_is_mapping(doc))
@@ -1215,6 +1215,23 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				origin);
 	if (!fy_generic_is_mapping(doc))
 		goto out;
+
+	/*
+	 * Structural/type/enum check against the vendored JSON Schema
+	 * (data/config.schema.yaml), ahead of the semantic checks below -
+	 * catches shape errors (wrong type, bad enum value, missing required
+	 * api_key.value, ...) with one rule set shared with `config
+	 * validate`/`config schema` instead of duplicating them by hand.
+	 */
+	schema = fyai_config_schema(cfg->gb);
+	schema_report = fyai_schema_validate(cfg->gb, schema, doc);
+	if (!fyai_schema_valid(schema_report)) {
+		schema_problems = fy_get(schema_report, "problems", fy_seq_empty);
+		fy_foreach(p, schema_problems)
+			problems = config_problem_add(cfg->gb, problems,
+					"%s: schema: %s", origin,
+					fy_castp(&p, ""));
+	}
 
 	v = fy_get(doc, "api");
 	if (!fy_generic_is_invalid(v) &&
