@@ -19,6 +19,16 @@ int fyai_close_storage(struct fyai_ctx *ctx);
 int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
 		     fy_generic *catalogp);
 
+/* The predecessor root in the ref log, or fy_invalid at the chain start. */
+fy_generic fyai_root_prev(fy_generic root);
+
+/*
+ * Validate a root ref before trusting it: a mapping, contained in @a (pass NULL
+ * to skip containment), with a good version and integrity checksum and all
+ * referenced parts contained. True if safe to decode/dereference.
+ */
+bool fyai_root_validate(struct fy_allocator *a, fy_generic root);
+
 /*
  * Publish a new container root. Valid arguments replace the corresponding
  * part; fy_invalid keeps the current one. On a concurrent-change CAS

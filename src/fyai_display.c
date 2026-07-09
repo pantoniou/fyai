@@ -18,6 +18,7 @@
 #include "fyai_display.h"
 #include "fyai_markdown.h"
 #include "fyai_provider.h"
+#include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_turn.h"
 
@@ -1538,6 +1539,65 @@ fy_generic fyai_list_turns_data(struct fyai_ctx *ctx,
 
 out:
 	fyai_turn_stack_cleanup(&stack);
+	return out;
+}
+
+/*
+ * Walk the root ref log from the current head back along each root's prev link,
+ * newest first: one row per root update - turn commits and turnless config
+ * changes alike. The ref column is the content-addressed root value (our commit
+ * id); kind distinguishes a head-advancing "turn" from a "config"-only update
+ * (head unchanged from the predecessor). Capped so a very long history cannot
+ * produce unbounded output. Pre-chain roots (no prev) simply end the walk.
+ */
+#define FYAI_REFLOG_MAX 500
+fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb)
+{
+	fy_generic out, root, prev, cfg, head, prevhead;
+	const char *kind;
+	char ref[24];
+	long long idx;
+
+	out = fy_seq_empty;
+	if (!ctx->refs_head)
+		return out;
+
+	root = (fy_generic){ .v = ctx->refs_head };
+	for (idx = 0; idx < FYAI_REFLOG_MAX && fy_generic_is_valid(root); idx++) {
+		if (fyai_root_decode(root, &head, &cfg, NULL) < 0)
+			break;
+		prev = fyai_root_prev(root);
+
+		/* A turnless (config-only) update leaves head equal to the
+		 * predecessor's; a turn advances it. */
+		if (fy_generic_is_valid(prev)) {
+			if (fyai_root_decode(prev, &prevhead, NULL, NULL) < 0)
+				prevhead = fy_invalid;
+			if (fy_generic_is_invalid(head) &&
+			    fy_generic_is_invalid(prevhead))
+				kind = "config";
+			else if (fy_generic_is_valid(head) &&
+				 fy_generic_is_valid(prevhead) &&
+				 fy_equal(head, prevhead))
+				kind = "config";
+			else
+				kind = "turn";
+		} else {
+			kind = fy_generic_is_valid(head) ? "turn" : "config";
+		}
+
+		snprintf(ref, sizeof(ref), "%llx",
+			 (unsigned long long)root.v);
+
+		out = fy_append(gb, out,
+			fy_mapping(gb,
+				   "index", idx,
+				   "ref", fy_value(gb, ref),
+				   "model", fy_value(gb, fy_get(cfg, "model", "-")),
+				   "kind", fy_value(gb, kind)));
+		root = prev;
+	}
 	return out;
 }
 

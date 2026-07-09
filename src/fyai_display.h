@@ -12,6 +12,8 @@ fy_generic fyai_list_turns_data(struct fyai_ctx *ctx,
 				struct fy_generic_builder *gb);
 fy_generic fyai_list_exchanges_data(struct fyai_ctx *ctx,
 				    struct fy_generic_builder *gb);
+fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb);
 int fyai_list_turns(struct fyai_ctx *ctx);
 char *fyai_edit_line(const char *current);
 void fyai_interactive_recap(struct fyai_ctx *ctx);

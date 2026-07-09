@@ -54,6 +54,9 @@ static void *fyai_reserved_index;
 #endif
 #endif
 
+/* Upper bound on ref-log roots rebuilt in a single gc --keep-reflogs pass. */
+#define FYAI_REFLOG_KEEP_MAX 4096
+
 struct fyai_arena_boot {
 	uint8_t magic[8];
 	uint32_t version;
@@ -70,6 +73,7 @@ static fy_generic fyai_root_entry(fy_generic root, const char *key)
 		v = fy_invalid;
 	return v;
 }
+
 
 int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
 		     fy_generic *catalogp)
@@ -96,6 +100,79 @@ int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
 	if (catalogp)
 		*catalogp = fyai_root_entry(root, "catalog");
 	return FYAI_ROOT_VERSION;
+}
+
+/*
+ * Build a container root mapping. The single point where a root is constructed,
+ * so publish and ref-log truncation stay consistent. prev links to the
+ * predecessor root (the ref log).
+ *
+ * NOTE: an integrity checksum field is intentionally not stamped here. A
+ * checksum over the raw generic words does not survive `gc`, which relocates
+ * objects (rewriting the address-bearing words) without touching a stored
+ * scalar sum; and libfyaml exposes no relocation-stable content id to hash
+ * instead. A content-emit hash or a gc-aware re-stamp would be needed - left
+ * for a deliberate follow-up. Structural + containment validation
+ * (fyai_root_validate) is relocation-stable and covers the memory-safety case.
+ */
+static fy_generic fyai_root_build(struct fy_generic_builder *gb,
+				  fy_generic config, fy_generic catalog,
+				  fy_generic head, fy_generic prev)
+{
+	return fy_gb_mapping(gb,
+			     "fyai", (long long)FYAI_ROOT_VERSION,
+			     "config", config,
+			     "catalog", catalog,
+			     "head", head,
+			     "prev", prev);
+}
+
+/*
+ * Validate a root reference before it is trusted: it must be a mapping
+ * contained in the arena allocator, its version and checksum must check out
+ * (via decode), and every out-of-place field it references must also live in
+ * the allocator - so a stray or hostile ref value cannot make us dereference
+ * memory outside the arena. @a may be NULL to skip the containment checks
+ * (structural + checksum only). Deep nested references are covered
+ * transitively by the checksum's tamper detection.
+ */
+static bool root_ref_contained(struct fy_allocator *a, fy_generic v)
+{
+	if (fy_generic_is_invalid(v) || !fy_generic_is_mapping(v))
+		return true;	/* null / inplace: no out-of-place pointer */
+	return fy_allocator_contains(a, -1, fy_generic_resolve_collection_ptr(v));
+}
+
+bool fyai_root_validate(struct fy_allocator *a, fy_generic root)
+{
+	fy_generic head, config, catalog, prev;
+
+	if (!fy_generic_is_mapping(root))
+		return false;
+	if (a && !fy_allocator_contains(a, -1,
+					fy_generic_resolve_collection_ptr(root)))
+		return false;
+	if (fyai_root_decode(root, &head, &config, &catalog) < 0)
+		return false;
+	prev = fyai_root_prev(root);
+	if (a && (!root_ref_contained(a, head) ||
+		  !root_ref_contained(a, config) ||
+		  !root_ref_contained(a, catalog) ||
+		  !root_ref_contained(a, prev)))
+		return false;
+	return true;
+}
+
+/*
+ * The predecessor root in the ref log, or fy_invalid at the start of the chain
+ * (or for a pre-chain root that carries no prev). Walk it to replay root
+ * history - turn commits and turnless config updates alike.
+ */
+fy_generic fyai_root_prev(fy_generic root)
+{
+	if (!fy_generic_is_mapping(root))
+		return fy_invalid;
+	return fyai_root_entry(root, "prev");
 }
 
 void fyai_reserve_arena_ranges(void)
@@ -325,7 +402,12 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 
 	if (ctx->refs_head) {
 		root = (fy_generic){ .v = ctx->refs_head };
-		if (fyai_root_decode(root, &head, &ctx->arena_config,
+		/*
+		 * Validate before trusting: mapping-ness, arena containment of the
+		 * root and its referenced parts, version and integrity checksum.
+		 */
+		if (!fyai_root_validate(ctx->durable_allocator, root) ||
+		    fyai_root_decode(root, &head, &ctx->arena_config,
 				     &ctx->arena_catalog) < 0) {
 			fprintf(stderr,
 				"unrecognized arena root at %s; re-run fyai init\n",
@@ -422,7 +504,7 @@ out:
  */
 static int fyai_root_publish_try(struct fyai_ctx *ctx)
 {
-	fy_generic cfgv, catv, headv, root;
+	fy_generic cfgv, catv, headv, prevv, root;
 	struct timespec t_commit;
 	uint64_t desired;
 	int rc;
@@ -442,11 +524,16 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 */
 	if (ctx->cfg && ctx->cfg->transient)
 		return 0;
-	root = fy_gb_mapping(ctx->gb,
-			     "fyai", (long long)FYAI_ROOT_VERSION,
-			     "config", cfgv,
-			     "catalog", catv,
-			     "head", headv);
+	/*
+	 * Chain each root to its predecessor (the current refs head) so root
+	 * updates form a ref log: a navigable history where a turnless update
+	 * (a config change with head unmoved) is a first-class entry just like a
+	 * turn commit. The link is a reference into the immutable arena, O(1) per
+	 * publish. NOTE: gc must bound how far back this chain is retained, else
+	 * following prev keeps all history reachable.
+	 */
+	prevv = ctx->refs_head ? (fy_generic){ .v = ctx->refs_head } : fy_null;
+	root = fyai_root_build(ctx->gb, cfgv, catv, headv, prevv);
 	if (!fy_generic_is_valid(root))
 		return -1;
 	desired = (uint64_t)root.v;
@@ -614,13 +701,61 @@ int fyai_close_storage(struct fyai_ctx *ctx)
 	return 0;
 }
 
+/*
+ * Truncate the ref-log chain to at most @keep entries (the current root plus
+ * keep-1 predecessors). Rebuilds the retained roots bottom-up with the oldest
+ * kept root's prev cut to null, then publishes the rebuilt head; the older
+ * roots become unreachable and are freed by the arena gc that follows. A no-op
+ * when keep < 1 or the chain is already within the limit. Must run with storage
+ * open (uses ctx->gb and the durable refs).
+ */
+static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
+{
+	fy_generic roots[FYAI_REFLOG_KEEP_MAX];
+	fy_generic node, head, cfgv, catv, rebuilt;
+	uint64_t desired;
+	int n, i, rc;
+
+	if (keep < 1 || !ctx->refs_head || !ctx->durable_allocator || !ctx->gb)
+		return 0;
+	if (keep > FYAI_REFLOG_KEEP_MAX)
+		keep = FYAI_REFLOG_KEEP_MAX;
+
+	node = (fy_generic){ .v = ctx->refs_head };
+	for (n = 0; n < keep && fy_generic_is_valid(node); n++) {
+		roots[n] = node;
+		node = fyai_root_prev(node);
+	}
+	/* Nothing beyond the kept window: the chain is already short enough. */
+	if (fy_generic_is_invalid(node))
+		return 0;
+
+	rebuilt = fy_null;	/* prev of the oldest kept root: cut here */
+	for (i = n - 1; i >= 0; i--) {
+		if (fyai_root_decode(roots[i], &head, &cfgv, &catv) < 0)
+			return -1;
+		rebuilt = fyai_root_build(ctx->gb,
+				fy_generic_is_valid(cfgv) ? cfgv : fy_null,
+				fy_generic_is_valid(catv) ? catv : fy_null,
+				fy_generic_is_valid(head) ? head : fy_null,
+				rebuilt);
+		if (!fy_generic_is_valid(rebuilt))
+			return -1;
+	}
+	desired = (uint64_t)rebuilt.v;
+	rc = fy_allocator_refs_publish(ctx->durable_allocator, ctx->refs_head,
+				       desired, FY_ALLOC_REFS_CHECKPOINT);
+	if (rc)
+		return -1;
+	ctx->refs_head = desired;
+	return 0;
+}
+
 int fyai_gc_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_gc_args *args = &cfg->cmd.args.gc;
 	int rc;
-
-	(void)args;
 
 	if (access(cfg->arena_dir, F_OK)) {
 		if (errno == ENOENT) {
@@ -629,7 +764,23 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 		}
 		return -1;
 	}
-	fyai_close_storage(ctx);
+	/*
+	 * Cut the ref log to the requested window before compacting, so the
+	 * dropped roots (and anything only they referenced) become collectable.
+	 * gc runs with storage closed (NO_STORAGE), so open the arena just for
+	 * the rewrite and release it again - the compaction needs a quiescent
+	 * arena.
+	 */
+	if (args->keep_reflogs >= 1) {
+		if (fyai_setup_storage(ctx))
+			return -1;
+		rc = fyai_reflog_truncate(ctx, args->keep_reflogs);
+		fyai_close_storage(ctx);
+		if (rc) {
+			fprintf(stderr, "gc: failed to truncate ref log\n");
+			return -1;
+		}
+	}
 	rc = fy_durable_arena_gc(cfg->arena_dir);
 	if (rc == 1) {
 		fprintf(stderr, "gc: arena is busy\n");

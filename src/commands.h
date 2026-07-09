@@ -167,6 +167,7 @@ enum fyai_list_type {
 	FYAILT_MODELS,
 	FYAILT_TURNS,
 	FYAILT_EXCHANGES,
+	FYAILT_REFLOG,
 };
 
 struct fyai_list_args {
@@ -176,7 +177,10 @@ struct fyai_list_args {
 };
 
 struct fyai_gc_args {
-	/* nothing */
+	/* Retain at most this many ref-log entries (current root + N-1
+	 * predecessors); the rest are cut from the chain and freed. -1 keeps
+	 * the whole chain. */
+	int keep_reflogs;
 };
 
 struct fyai_clear_args {

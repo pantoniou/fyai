@@ -14,6 +14,7 @@
 #include "config.h"
 #endif
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -331,10 +332,28 @@ static int configure_stats(int argc, char **argv, struct fyai_cfg *cfg)
 
 static int configure_gc(int argc, char **argv, struct fyai_cfg *cfg)
 {
-	(void)argc;
-	(void)argv;
-	(void)cfg;
+	struct fyai_gc_args *args = &cfg->cmd.args.gc;
+	char *endp;
+	long v;
+	int i;
 
+	args->keep_reflogs = -1;	/* keep the whole ref log */
+
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--keep-reflogs") && i + 1 < argc) {
+			errno = 0;
+			v = strtol(argv[++i], &endp, 10);
+			if (errno || *endp || v < 1) {
+				fprintf(stderr,
+					"gc: --keep-reflogs needs a count >= 1\n");
+				return -1;
+			}
+			args->keep_reflogs = (int)v;
+			continue;
+		}
+		fprintf(stderr, "gc: unknown option '%s'\n", argv[i]);
+		return -1;
+	}
 	return 0;
 }
 
@@ -453,6 +472,7 @@ static int configure_list(int argc, char **argv, struct fyai_cfg *cfg)
 		[FYAILT_MODELS] = "models",
 		[FYAILT_TURNS] = "turns",
 		[FYAILT_EXCHANGES] = "exchanges",
+		[FYAILT_REFLOG] = "reflog",
 		NULL
 	};
 	const char *what;
@@ -501,7 +521,7 @@ static int configure_list(int argc, char **argv, struct fyai_cfg *cfg)
 
 	idx = str_in_set(what, types);
 	if (idx < 0) {	/* not any of ours */
-		fprintf(stderr, "list: unknown target '%s' (providers|models|turns|exchanges)\n", what);
+		fprintf(stderr, "list: unknown target '%s' (providers|models|turns|exchanges|reflog)\n", what);
 		return -1;
 	}
 	args->type = (enum fyai_list_type)idx;
@@ -599,6 +619,12 @@ static int list_emit_markdown(struct fyai_ctx *ctx, fy_generic data)
 		{ "API", "api", "---", MD_CELL_STRING },
 		{ "Tokens", "tokens", "---:", MD_CELL_INT },
 	};
+	static const struct md_table_col reflog_cols[] = {
+		{ "Index", "index", "---:", MD_CELL_INT },
+		{ "Ref", "ref", "---", MD_CELL_STRING },
+		{ "Model", "model", "---", MD_CELL_STRING },
+		{ "Kind", "kind", "---", MD_CELL_STRING },
+	};
 	static const struct md_table_col model_cols[] = {
 		{ "Model", "name", "---", MD_CELL_STRING },
 		{ "Providers", "providers", "---", MD_CELL_SEQ },
@@ -642,6 +668,10 @@ static int list_emit_markdown(struct fyai_ctx *ctx, fy_generic data)
 	case FYAILT_EXCHANGES:
 		md_table_emit(mf, data, exchange_cols, ARRAY_SIZE(exchange_cols),
 			      "no exchanges");
+		break;
+	case FYAILT_REFLOG:
+		md_table_emit(mf, data, reflog_cols, ARRAY_SIZE(reflog_cols),
+			      "no ref log");
 		break;
 	case FYAILT_MODELS:
 		md_table_emit(mf, data,
@@ -821,6 +851,9 @@ int fyai_execute_list(struct fyai_ctx *ctx)
 		break;
 	case FYAILT_EXCHANGES:
 		data = fyai_list_exchanges_data(ctx, gb);
+		break;
+	case FYAILT_REFLOG:
+		data = fyai_list_reflog_data(ctx, gb);
 		break;
 	}
 	if (fy_generic_is_invalid(data)) {
