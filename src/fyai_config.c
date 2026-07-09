@@ -649,6 +649,36 @@ char *fyai_project_instructions(void)
 	return buf;
 }
 
+/*
+ * Deep-merge @over onto @base: mappings merge key-wise recursively, any
+ * other type (scalars, sequences) is replaced wholesale by @over. Either
+ * side may be fy_invalid, meaning "absent".
+ */
+static fy_generic config_merge(struct fy_generic_builder *gb,
+			       fy_generic base, fy_generic over)
+{
+	fy_generic key, val, bval, out;
+	size_t i, n;
+
+	if (fy_generic_is_invalid(over))
+		return base;
+	if (fy_generic_is_invalid(base) ||
+	    !fy_generic_is_mapping(base) || !fy_generic_is_mapping(over))
+		return over;
+
+	out = base;
+	n = fy_generic_mapping_get_pair_count(over);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(over, i);
+		val = fy_generic_mapping_get_at_value(over, i);
+		bval = fy_get(out, key, fy_invalid);
+		if (fy_generic_is_mapping(bval) && fy_generic_is_mapping(val))
+			val = config_merge(gb, bval, val);
+		out = fy_assoc(gb, out, key, val);
+	}
+	return out;
+}
+
 int fyai_config_load(struct fyai_cfg *cfg,
 		     const char *cli_config, const char *cli_env)
 {
@@ -706,57 +736,36 @@ int fyai_config_load(struct fyai_cfg *cfg,
 			return -1;
 	}
 
-	/* Top-level keys: user, then repository, then explicit (most specific). */
-	if (apply_config(cfg, root_user))
-		return -1;
-	if (apply_config(cfg, root_repo))
-		return -1;
-	if (apply_config(cfg, root_explicit))
+	/*
+	 * The single configuration source: the arena config is the base (the
+	 * user file only bootstraps a project with no arena config yet), with
+	 * an explicit --config merged on top. One document, one apply pass;
+	 * `config effective` emits it verbatim.
+	 */
+	cfg->config_doc = config_merge(gb,
+				       fy_generic_is_valid(root_repo) ?
+						root_repo : root_user,
+				       root_explicit);
+	if (apply_config(cfg, cfg->config_doc))
 		return -1;
 
 	return 0;
 }
 
+/*
+ * The effective config is the merged document itself - the single source -
+ * not a re-synthesized view of the struct fields. Catalog-derived values
+ * (provider, endpoint, max_tokens) are deliberately absent: they are
+ * derivations, not configuration.
+ */
 int fyai_config_show(struct fyai_cfg *cfg)
 {
-	fy_generic m;
-
-	m = fy_null_filtered_mapping(
-		"provider", cfg->provider ? cfg->provider : "",
-		"model", cfg->model ? cfg->model : "",
-		"api", fyai_api_to_string(cfg->api_mode),
-		"api_url", cfg->api_url ? cfg->api_url : "",
-		"system_prompt", cfg->system_prompt ? cfg->system_prompt : "",
-		"temperature", cfg->temperature,
-		"max_tool_iterations", cfg->max_tool_iterations,
-		"max_tokens", cfg->max_tokens,
-		"sandbox", cfg->enable_sandbox,
-		"reasoning_effort", cfg->reasoning_effort && *cfg->reasoning_effort ?
-					fy_value(cfg->reasoning_effort) : fy_null,
-		"reasoning_summary", cfg->reasoning_summary && *cfg->reasoning_summary ?
-					fy_value(cfg->reasoning_summary) : fy_null,
-		"logging", fy_mapping(
-			"wire", cfg->wire_logging,
-			"stream", cfg->stream_logging,
-			"conversation", cfg->conversation_logging),
-		"display", fy_null_filtered_mapping(
-			"markdown", cfg->markdown,
-			"stream", cfg->stream,
-			"tool_preview_lines", cfg->tool_preview_lines,
-			"markdown_mode", cfg->markdown_mode ?
-					fy_value(cfg->markdown_mode) : fy_null,
-			"color", cfg->color ?
-					fy_value(cfg->color) : fy_null,
-			"theme", cfg->theme ?
-					fy_value(cfg->theme) : fy_null,
-			"code_theme", cfg->code_theme ?
-					fy_value(cfg->code_theme) : fy_null,
-			"markdown_theme", cfg->markdown_theme ?
-					fy_value(cfg->markdown_theme) : fy_null,
-			"markdown_style", cfg->markdown_style ?
-					fy_value(cfg->markdown_style) : fy_null));
-
-	emit_generic_to_stdout(NULL, m, true);
+	if (fy_generic_is_invalid(cfg->config_doc)) {
+		fprintf(stderr,
+			"config: no configuration; run fyai init or fyai config import\n");
+		return -1;
+	}
+	emit_generic_to_stdout(NULL, cfg->config_doc, true);
 	return 0;
 }
 
@@ -815,6 +824,12 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 	if (config_report_commit(report, &root)) {
 		return -1;
 	}
+	/* The merged doc tracks the edit (validated form) so the effective
+	 * view and this run stay on the single source. */
+	ctx->cfg->config_doc = fy_set_at_pathstr(gb,
+			fy_generic_is_valid(ctx->cfg->config_doc) ?
+				ctx->cfg->config_doc : fy_map_empty,
+			key, fy_get_at_pathstr(gb, root, key));
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
@@ -1172,6 +1187,9 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 	report = fyai_config_validate_report(ctx->cfg, root, "config");
 	if (config_report_commit(report, &root))
 		return -1;
+	if (fy_generic_is_valid(ctx->cfg->config_doc))
+		ctx->cfg->config_doc = fy_delete_at_pathstr(gb,
+				ctx->cfg->config_doc, key);
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
@@ -1309,6 +1327,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->markdown_style = NULL;	/* NULL => shipped styling, located at runtime */
 	cfg->markdown_style_doc = fy_invalid;
 	cfg->catalog = fy_invalid;
+	cfg->config_doc = fy_invalid;
 	cfg->sandbox = fy_invalid;
 	cfg->cmd.id = FYAIVID_INVALID;
 }
@@ -1697,10 +1716,13 @@ static bool config_has_command_ops(struct fyai_cfg *cfg)
 static int apply_config_set_ops(struct fyai_cfg *cfg)
 {
 	struct fyai_config_op *co;
-	fy_generic delta, v;
+	fy_generic doc, v;
 	size_t i;
 
-	delta = fy_map_empty;
+	if (!cfg->config_op_count)
+		return 0;
+	doc = fy_generic_is_valid(cfg->config_doc) ?
+	      cfg->config_doc : fy_map_empty;
 	for (i = 0; i < cfg->config_op_count; i++) {
 		co = &cfg->config_ops[i];
 		switch (co->op) {
@@ -1712,16 +1734,16 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 					co->key, co->value);
 				return -1;
 			}
-			delta = fy_set_at_pathstr(cfg->gb, delta, co->key, v);
-			if (fy_generic_is_invalid(delta)) {
+			doc = fy_set_at_pathstr(cfg->gb, doc, co->key, v);
+			if (fy_generic_is_invalid(doc)) {
 				fprintf(stderr, "config override %s: failed\n",
 					co->key);
 				return -1;
 			}
 			break;
 		case 'd':
-			delta = fy_delete_at_pathstr(cfg->gb, delta, co->key);
-			if (fy_generic_is_invalid(delta)) {
+			doc = fy_delete_at_pathstr(cfg->gb, doc, co->key);
+			if (fy_generic_is_invalid(doc)) {
 				fprintf(stderr, "config override %s: delete failed\n",
 					co->key);
 				return -1;
@@ -1731,16 +1753,14 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 			break;
 		}
 	}
-	return apply_config(cfg, delta);
+	cfg->config_doc = doc;
+	return apply_config(cfg, doc);
 }
 
 int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 {
 	struct fy_generic_builder_cfg gb_cfg;
 	const char *cli_config, *cli_env, *cli_api_key;
-	struct fyai_last_turn lt = { };
-	bool got_lt = false;
-	bool pin;
 	int opt, rc, arg_index;
 	char *endp, *def_arena_dir = NULL;
 	long v;
@@ -2029,57 +2049,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	}
 
 	/*
-	 * Carry the conversation's settings over from its last turn (unless
-	 * --new) so a continuation defaults to them; the command line still
-	 * overrides below.
-	 */
-	if (!cfg->new_conversation) {
-		fyai_peek_last_turn(cfg, &lt);
-		got_lt = true;
-
-		if (lt.has_temperature)
-			cfg->temperature = lt.temperature;
-		/*
-		 * The conversation continues on the model/provider/grammar its
-		 * last turn used, so /model and /api switches stick. The model
-		 * is pinned to the recorded provider (provider/model form) so
-		 * resolution stays on that provider's offering; the resolver
-		 * strips the prefix only when the catalogue knows the provider.
-		 */
-		if (lt.model && *lt.model) {
-			pin = lt.provider && *lt.provider &&
-			      fy_generic_is_valid(fyai_catalog_provider(
-					fyai_catalog_effective(cfg->catalog,
-							       cfg->gb),
-					lt.provider));
-			cfg->model = fy_gb_intern_string(cfg->gb, pin ?
-					fy_sprintfa("%s/%s", lt.provider,
-						    lt.model) :
-					lt.model);
-			cfg->api_url = NULL;
-			cfg->provider = NULL;
-			cfg->max_tokens = DEFAULT_MAX_TOKENS;
-			if (!cfg->api_key_explicit)
-				cfg->api_key = NULL;
-		}
-		if (lt.api) {
-			if (!strcmp(lt.api, "chat-completions"))
-				cfg->api_mode = FYAI_API_CHAT_COMPLETIONS;
-			else if (!strcmp(lt.api, "messages"))
-				cfg->api_mode = FYAI_API_MESSAGES;
-			else if (!strcmp(lt.api, "responses"))
-				cfg->api_mode = FYAI_API_RESPONSES;
-		}
-		if (lt.reasoning_effort && *lt.reasoning_effort)
-			cfg->reasoning_effort = fy_gb_intern_string(cfg->gb, lt.reasoning_effort);
-		if (lt.reasoning_summary && *lt.reasoning_summary)
-			cfg->reasoning_summary = fy_gb_intern_string(cfg->gb, lt.reasoning_summary);
-
-		fyai_last_turn_cleanup(&lt);
-		got_lt = false;
-	}
-
-	/*
 	 * Fold pending --set edits into this run before model/theme resolution,
 	 * so `--set model=X` (or display/theme, etc.) takes effect immediately.
 	 * They also persist at storage-open time (see fyai_apply_config_ops).
@@ -2188,8 +2157,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	return ret;
 
 out:
-	if (got_lt)
-		fyai_last_turn_cleanup(&lt);
 	fyai_config_cleanup(cfg);
 	return ret;
 

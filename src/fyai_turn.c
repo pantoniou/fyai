@@ -39,10 +39,9 @@ static fy_generic fyai_make_turn(struct fyai_ctx *ctx, fy_generic previous,
 	fy_generic turn;
 
 	/*
-	 * Record how the turn was produced. Besides identifying the provider/API
-	 * (so a continuation can stay on them), the sampling parameters are kept
-	 * here so a continuation defaults to the same settings the conversation
-	 * was using - see fyai_peek_last_turn().
+	 * Record how the turn was produced: provider/API identity and the
+	 * sampling parameters. Pure provenance for dump/stats - continuations
+	 * take their settings from the arena config published with the root.
 	 */
 	meta = fy_null_filtered_mapping(
 		"api", fyai_api_to_string(cfg->api_mode),

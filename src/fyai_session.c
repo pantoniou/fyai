@@ -9,8 +9,10 @@
  * and the CLI verb forms (fyai clear|compact|context). A second, data-driven
  * family handles simple session settings (/effort, /theme, ...): each entry
  * points at a fyai_cfg field, optionally with an enum value list used for
- * both validation and tab completion. Session-command edits are session-only;
- * the durable forms remain `config set` / `--set`.
+ * both validation and tab completion. Request-shaping switches (/model, /api,
+ * the reasoning options, /temperature) persist into the arena config through
+ * the one commit path, so a continuation resumes on them; display settings
+ * stay session-only and `config set` / `--set` remain the durable forms.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -188,6 +190,43 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	return 0;
 }
 
+/*
+ * Persist a session switch into the arena config through the one commit
+ * path (validate -> commit -> publish root); under --transient the publish
+ * stays in the in-memory overlay. The session already runs on the new
+ * value, so a failed persist only warns. @value is spliced verbatim into a
+ * YAML flow document, so string values must arrive single-quoted.
+ */
+static void session_persist(struct fyai_ctx *ctx, const char *key,
+			    const char *value)
+{
+	if (fyai_config_set(ctx, key, value))
+		fprintf(stderr, "%s: warning: could not persist to config\n",
+			key);
+}
+
+/*
+ * Persist the active model, pinned to the resolved provider (provider/model
+ * form) when the catalogue knows it, so the continuation re-resolves onto
+ * the same provider's offering.
+ */
+static void session_persist_model(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic catalog;
+	bool pin;
+
+	if (!cfg->model || !*cfg->model)
+		return;
+	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
+	pin = cfg->provider && *cfg->provider &&
+	      fy_generic_is_valid(fyai_catalog_provider(catalog,
+							cfg->provider));
+	session_persist(ctx, "model", pin ?
+			fy_sprintfa("'%s/%s'", cfg->provider, cfg->model) :
+			fy_sprintfa("'%s'", cfg->model));
+}
+
 int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -239,6 +278,8 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 	if (ctx->curl && fyai_request_state_apply(ctx))
 		return -1;
 
+	session_persist_model(ctx);
+
 	printf("model: %s (provider %s, api %s)\n",
 	       cfg->model, cfg->provider ? cfg->provider : "?",
 	       fyai_api_to_string(cfg->api_mode));
@@ -267,11 +308,12 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	fy_generic prov;
 
 	if (!arg || !*arg) {
-		printf("api: %s (model %s, provider %s, url %s)\n",
+		printf("api: %s (model %s, provider %s, url %s, max_tokens %d)\n",
 		       fyai_api_to_string(cfg->api_mode),
 		       cfg->model ? cfg->model : "",
 		       cfg->provider ? cfg->provider : "?",
-		       cfg->api_url ? cfg->api_url : "?");
+		       cfg->api_url ? cfg->api_url : "?",
+		       cfg->max_tokens);
 		return 0;
 	}
 
@@ -333,6 +375,12 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	/* Rebuild the derived request state when a live session exists. */
 	if (ctx->curl && fyai_request_state_apply(ctx))
 		return -1;
+
+	/* Persist the grammar and the provider-pinned model, so the
+	 * continuation stays on the provider this switch re-targeted. */
+	session_persist(ctx, "api",
+			fy_sprintfa("'%s'", fyai_api_to_string(cfg->api_mode)));
+	session_persist_model(ctx);
 
 	printf("api: %s (model %s, provider %s, url %s)\n",
 	       fyai_api_to_string(cfg->api_mode),
@@ -573,6 +621,7 @@ struct fyai_slash_opt {
 	const char *const *values;	/* enum for validation/completion */
 	bool restyle;			/* reload markdown styling on change */
 	bool reasoning;			/* rejected under the Messages API */
+	const char *ckey;		/* config path to persist to (or NULL) */
 	const char *help;
 };
 
@@ -594,31 +643,31 @@ static const char *const bool_vals[] = {
 
 static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "reasoning-effort", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_effort),
-	  effort_vals, false, true, "reasoning effort" },
+	  effort_vals, false, true, "reasoning/effort", "reasoning effort" },
 	{ "reasoning-summary", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_summary),
-	  summary_vals, false, true, "reasoning summary" },
+	  summary_vals, false, true, "reasoning/summary", "reasoning summary" },
 	{ "effort", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_effort),
-	  effort_vals, false, true, "reasoning effort (alias)" },
+	  effort_vals, false, true, "reasoning/effort", "reasoning effort (alias)" },
 	{ "summary", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_summary),
-	  summary_vals, false, true, "reasoning summary (alias)" },
+	  summary_vals, false, true, "reasoning/summary", "reasoning summary (alias)" },
 	{ "theme", FYAIOK_STR, offsetof(struct fyai_cfg, theme),
-	  theme_vals, true, false, "background theme" },
+	  theme_vals, true, false, NULL, "background theme" },
 	{ "markdown-theme", FYAIOK_STR, offsetof(struct fyai_cfg, markdown_theme),
-	  markdown_theme_vals, true, false, "markdown palette" },
+	  markdown_theme_vals, true, false, NULL, "markdown palette" },
 	{ "code-theme", FYAIOK_STR, offsetof(struct fyai_cfg, code_theme),
-	  NULL, true, false, "fenced-code theme" },
+	  NULL, true, false, NULL, "fenced-code theme" },
 	{ "markdown", FYAIOK_BOOL, offsetof(struct fyai_cfg, markdown),
-	  NULL, false, false, "markdown rendering" },
+	  NULL, false, false, NULL, "markdown rendering" },
 	{ "stream", FYAIOK_BOOL, offsetof(struct fyai_cfg, stream),
-	  NULL, false, false, "response streaming" },
+	  NULL, false, false, NULL, "response streaming" },
 	{ "sandbox", FYAIOK_BOOL, offsetof(struct fyai_cfg, enable_sandbox),
-	  NULL, false, false, "tool sandbox" },
+	  NULL, false, false, NULL, "tool sandbox" },
 	{ "token-extents", FYAIOK_BOOL, offsetof(struct fyai_cfg, token_extents),
-	  NULL, false, false, "record streamed token extents" },
+	  NULL, false, false, NULL, "record streamed token extents" },
 	{ "print-stats", FYAIOK_BOOL, offsetof(struct fyai_cfg, stats),
-	  NULL, false, false, "end-of-run usage stats" },
+	  NULL, false, false, NULL, "end-of-run usage stats" },
 	{ "temperature", FYAIOK_FLOAT, offsetof(struct fyai_cfg, temperature),
-	  NULL, false, false, "sampling temperature" },
+	  NULL, false, false, "temperature", "sampling temperature" },
 };
 
 static void session_opt_print(struct fyai_cfg *cfg,
@@ -699,6 +748,9 @@ static int session_opt_run(struct fyai_ctx *ctx,
 
 	if (o->restyle && cfg->markdown)
 		fyai_markdown_load_style(cfg);
+	if (o->ckey)
+		session_persist(ctx, o->ckey, o->kind == FYAIOK_STR ?
+				fy_sprintfa("'%s'", arg) : arg);
 	session_opt_print(cfg, o);
 	return 0;
 }
@@ -952,8 +1004,9 @@ static void slash_help_plain(void)
 		c = &fyai_slash_cmds[i];
 		printf("  /%-16s %-8s %s\n", c->name, c->args, c->help);
 	}
-	printf("settings (no value prints the current one; session-only, "
-	       "use `config set` to persist):\n");
+	printf("settings (no value prints the current one; reasoning and "
+	       "temperature persist to the config, display settings are "
+	       "session-only):\n");
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {
 		o = &fyai_slash_opts[i];
 		printf("  /%-16s %s", o->name, o->help);
@@ -1004,8 +1057,9 @@ static int slash_help(struct fyai_ctx *ctx, const char *arg)
 	}
 
 	fprintf(fp, "\n## Settings\n\n");
-	fprintf(fp, "No value prints the current one; session-only, use "
-		"`config set` to persist.\n\n");
+	fprintf(fp, "No value prints the current one; reasoning and "
+		"temperature persist to the config, display settings are "
+		"session-only.\n\n");
 	fprintf(fp, "| Setting | Values | Description |\n");
 	fprintf(fp, "| --- | --- | --- |\n");
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {

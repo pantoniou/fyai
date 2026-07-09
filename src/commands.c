@@ -1416,8 +1416,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.help	   = "Show the resolved API grammar (endpoint, provider, model), or\n"
 			     "switch to another one the provider offers and persist it as the\n"
 			     "arena config `api` key (the project default). The interactive\n"
-			     "/api switches the live session; a continuation keeps the grammar\n"
-			     "the conversation's last turn used.",
+			     "/api switches the live session and persists the same way, so a\n"
+			     "continuation resumes on the switched grammar.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.api = {
 		},

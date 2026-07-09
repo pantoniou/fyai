@@ -415,8 +415,15 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 				cfg->arena_dir);
 			goto err_out;
 		}
+		/*
+		 * --new is a clear: drop the head and publish the reset as a
+		 * turnless reflog entry, exactly like the /clear command; the
+		 * config and catalog ride along unchanged.
+		 */
 		if (!cfg->new_conversation)
 			ctx->last_message = head;
+		else if (fyai_publish_state(ctx))
+			goto err_out;
 	}
 
 	return 0;
@@ -424,78 +431,6 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 err_out:
 	fyai_close_storage(ctx);
 	return -1;
-}
-
-void fyai_last_turn_cleanup(struct fyai_last_turn *lt)
-{
-	if (!lt)
-		return;
-	memset(lt, 0, sizeof(*lt));
-}
-
-void fyai_peek_last_turn(struct fyai_cfg *cfg, struct fyai_last_turn *out)
-{
-	struct fy_durable_allocator_cfg dur_cfg = {};
-	struct fy_allocator *allocator;
-	const char *arena_dir_opt = cfg->arena_dir;
-	char *arena_dir = NULL;
-	uint64_t refs;
-	fy_generic root, head, cur, meta, temp, tp;
-	const char *prov, *e, *s;
-
-	memset(out, 0, sizeof(*out));
-
-	arena_dir = arena_dir_opt ? strdup(arena_dir_opt) : fyai_default_arena_dir();
-	if (!arena_dir)
-		return;
-	dur_cfg.region_base = fyai_arena_boot_base(arena_dir);
-	if (!dur_cfg.region_base)
-		goto out;
-	dur_cfg.dir = arena_dir;
-	dur_cfg.flags = FY_DURABLE_ARENA_CREATE | FY_DURABLE_ARENA_DEDUP |
-			FY_DURABLE_ARENA_SPARSE | FY_DURABLE_ARENA_SEPARATE_INDEX;
-	/* an ASAN-based arena maps at the reserved ranges; release them */
-	fyai_unreserve_arena_ranges(&dur_cfg);
-	allocator = fy_allocator_create("durable", &dur_cfg);
-	if (!allocator)
-		goto out;
-	head = fy_invalid;
-	refs = fy_allocator_refs_get(allocator);
-	if (refs) {
-		root = (fy_generic){ .v = refs };
-		if (fyai_root_decode(root, &head, NULL, NULL) < 0)
-			head = fy_invalid;
-	}
-	for (cur = head; fy_generic_is_valid(cur); cur = fy_get(cur, "previous")) {
-
-		meta = fyai_turn_meta(cur);
-		tp = fy_get(meta, "provider");
-		if (fy_generic_is_invalid(tp))
-			tp = fyai_turn_provider(cur);
-		prov = fy_castp(&tp, "");
-		if (!*prov)
-			continue;
-
-		out->provider = fy_gb_intern_string(cfg->gb, prov);
-
-		temp = fy_get(meta, "temperature");
-		if (fy_generic_is_valid(temp)) {
-			out->temperature = fy_cast(temp, (double)0.0);
-			out->has_temperature = true;
-		}
-		e = fy_get(meta, "model", "");
-		out->model = fy_gb_intern_string(cfg->gb, e);
-		e = fy_get(meta, "api", "");
-		out->api = fy_gb_intern_string(cfg->gb, e);
-		e = fy_get(meta, "reasoning_effort", "");
-		out->reasoning_effort = fy_gb_intern_string(cfg->gb, e);
-		s = fy_get(meta, "reasoning_summary", "");
-		out->reasoning_summary = fy_gb_intern_string(cfg->gb, s);
-		break;
-	}
-	fy_allocator_destroy(allocator);
-out:
-	free(arena_dir);
 }
 
 /*

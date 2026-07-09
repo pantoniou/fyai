@@ -123,6 +123,16 @@ struct fyai_cfg {
 	 * fy_invalid when the arena carries none - the embedded snapshot is
 	 * the fallback). */
 	fy_generic catalog;
+	/*
+	 * The single configuration source: one merged document (arena config
+	 * as base - the user file is bootstrap-only when no arena config
+	 * exists - then --config, then --set deltas on top). The struct
+	 * fields below are a derived cache filled by one apply_config pass;
+	 * `config effective` emits this document verbatim. Catalog-derived
+	 * values (endpoint, provider, max_tokens) are never folded in - they
+	 * are re-derived read-only from the catalogue at resolve time.
+	 */
+	fy_generic config_doc;
 	/* Pre-supplied answers for the ask_user tool, consumed in order
 	 * (batch/non-interactive use). */
 	const char *answers[10];	/* maximum 10 answers */
@@ -240,30 +250,6 @@ struct fyai_ctx {
 	 * injected for token_extents, so the session stops asking. */
 	bool token_extents_off;
 };
-
-/*
- * Settings carried over from the most recent stored turn so a continuation
- * defaults to what the conversation was using - model (pinned to the recorded
- * provider), API grammar, sampling parameters; /model and /api switches stick.
- * The command line still overrides and --new escapes. Strings are interned
- * into cfg->gb and freed with the config builder. Release with
- * fyai_last_turn_cleanup() (now a memset-only no-op for the strings).
- */
-struct fyai_last_turn {
-	const char *provider;
-	const char *model;
-	const char *api;
-	const char *reasoning_effort;
-	const char *reasoning_summary;
-	double temperature;
-	bool has_temperature;
-};
-
-void
-fyai_peek_last_turn(struct fyai_cfg *cfg, struct fyai_last_turn *out);
-
-void
-fyai_last_turn_cleanup(struct fyai_last_turn *lt);
 
 int
 fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *in_cfg);
