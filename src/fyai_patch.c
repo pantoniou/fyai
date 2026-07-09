@@ -44,6 +44,39 @@ struct patch_op {
 	struct patch_op *next;
 };
 
+/* A growable array of owned (malloc'd) C strings. */
+struct str_list {
+	char **item;
+	size_t count;
+	size_t cap;
+};
+
+/*
+ * One Codex "@@"-delimited chunk of an Update File hunk: an optional
+ * single-line change_context to narrow the search window, followed by the
+ * old/new line blocks. Mirrors codex-rs apply-patch's UpdateFileChunk.
+ */
+struct update_chunk {
+	char *context;
+	struct str_list old;
+	struct str_list new;
+	bool is_eof;
+};
+
+struct update_chunk_list {
+	struct update_chunk *item;
+	size_t count;
+	size_t cap;
+};
+
+/* A single (start_index, old_len, new_lines) splice, as codex computes it. */
+struct replacement {
+	size_t idx;
+	size_t old_len;
+	char **new_item;
+	size_t new_count;
+};
+
 static bool patch_next_line(struct patch_reader *r, struct patch_line *line)
 {
 	const char *nl;
@@ -65,14 +98,6 @@ static bool patch_next_line(struct patch_reader *r, struct patch_line *line)
 	return true;
 }
 
-static bool line_eq(struct patch_line *line, const char *s)
-{
-	size_t len;
-
-	len = strlen(s);
-	return line->len == len && !memcmp(line->p, s, len);
-}
-
 static bool line_starts(struct patch_line *line, const char *s)
 {
 	size_t len;
@@ -81,22 +106,167 @@ static bool line_starts(struct patch_line *line, const char *s)
 	return line->len >= len && !memcmp(line->p, s, len);
 }
 
-static char *line_suffix_dup(struct patch_line *line, const char *prefix)
+static bool str_starts(const char *s, const char *pfx)
 {
-	size_t prefix_len;
 	size_t len;
-	char *out;
 
-	prefix_len = strlen(prefix);
-	if (line->len < prefix_len)
-		return NULL;
-	len = line->len - prefix_len;
+	len = strlen(pfx);
+	return !strncmp(s, pfx, len);
+}
+
+static char *line_dup_offset(struct patch_line *line, size_t off)
+{
+	char *out;
+	size_t len;
+
+	len = line->len - off;
 	out = malloc(len + 1);
 	if (!out)
 		return NULL;
-	memcpy(out, line->p + prefix_len, len);
+	memcpy(out, line->p + off, len);
 	out[len] = '\0';
 	return out;
+}
+
+static bool is_ascii_space(unsigned char c)
+{
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+	       c == '\f' || c == '\v';
+}
+
+/*
+ * Trim ASCII whitespace from both ends of a patch line and return a fresh
+ * NUL-terminated copy. Used only for marker-line matching (Begin/End Patch,
+ * "*** ..." headers, "@@" context lines): codex-rs's parser tolerates
+ * leading/trailing whitespace padding around these lines.
+ */
+static char *patch_line_trim_dup(struct patch_line *line)
+{
+	size_t start, end;
+	char *out;
+
+	start = 0;
+	end = line->len;
+	while (start < end && is_ascii_space((unsigned char)line->p[start]))
+		start++;
+	while (end > start && is_ascii_space((unsigned char)line->p[end - 1]))
+		end--;
+	out = malloc(end - start + 1);
+	if (!out)
+		return NULL;
+	memcpy(out, line->p + start, end - start);
+	out[end - start] = '\0';
+	return out;
+}
+
+static char *rstrip_dup(const char *s)
+{
+	size_t len;
+
+	len = strlen(s);
+	while (len && is_ascii_space((unsigned char)s[len - 1]))
+		len--;
+	return strndup(s, len);
+}
+
+static char *trim_dup(const char *s)
+{
+	size_t start, end;
+
+	start = 0;
+	end = strlen(s);
+	while (start < end && is_ascii_space((unsigned char)s[start]))
+		start++;
+	while (end > start && is_ascii_space((unsigned char)s[end - 1]))
+		end--;
+	return strndup(s + start, end - start);
+}
+
+/*
+ * Fold a handful of "typographic" Unicode code points (dashes, curly
+ * quotes, exotic spaces) down to their ASCII equivalents, mirroring
+ * codex-rs's seek_sequence::normalise(). This is the last, most permissive
+ * matching tier, so a diff authored in plain ASCII can still find context
+ * that a formatter turned into em-dashes/smart quotes.
+ */
+static const struct {
+	unsigned char seq[3];
+	size_t len;
+	char repl;
+} uni_fold[] = {
+	{ { 0xE2, 0x80, 0x90 }, 3, '-' },	/* U+2010 hyphen */
+	{ { 0xE2, 0x80, 0x91 }, 3, '-' },	/* U+2011 nb-hyphen */
+	{ { 0xE2, 0x80, 0x92 }, 3, '-' },	/* U+2012 figure dash */
+	{ { 0xE2, 0x80, 0x93 }, 3, '-' },	/* U+2013 en dash */
+	{ { 0xE2, 0x80, 0x94 }, 3, '-' },	/* U+2014 em dash */
+	{ { 0xE2, 0x80, 0x95 }, 3, '-' },	/* U+2015 horizontal bar */
+	{ { 0xE2, 0x88, 0x92 }, 3, '-' },	/* U+2212 minus sign */
+	{ { 0xE2, 0x80, 0x98 }, 3, '\'' },	/* U+2018 */
+	{ { 0xE2, 0x80, 0x99 }, 3, '\'' },	/* U+2019 */
+	{ { 0xE2, 0x80, 0x9A }, 3, '\'' },	/* U+201A */
+	{ { 0xE2, 0x80, 0x9B }, 3, '\'' },	/* U+201B */
+	{ { 0xE2, 0x80, 0x9C }, 3, '"' },	/* U+201C */
+	{ { 0xE2, 0x80, 0x9D }, 3, '"' },	/* U+201D */
+	{ { 0xE2, 0x80, 0x9E }, 3, '"' },	/* U+201E */
+	{ { 0xE2, 0x80, 0x9F }, 3, '"' },	/* U+201F */
+	{ { 0xC2, 0xA0, 0x00 }, 2, ' ' },	/* U+00A0 nbsp */
+	{ { 0xE2, 0x80, 0x82 }, 3, ' ' },	/* U+2002 */
+	{ { 0xE2, 0x80, 0x83 }, 3, ' ' },	/* U+2003 */
+	{ { 0xE2, 0x80, 0x84 }, 3, ' ' },	/* U+2004 */
+	{ { 0xE2, 0x80, 0x85 }, 3, ' ' },	/* U+2005 */
+	{ { 0xE2, 0x80, 0x86 }, 3, ' ' },	/* U+2006 */
+	{ { 0xE2, 0x80, 0x87 }, 3, ' ' },	/* U+2007 */
+	{ { 0xE2, 0x80, 0x88 }, 3, ' ' },	/* U+2008 */
+	{ { 0xE2, 0x80, 0x89 }, 3, ' ' },	/* U+2009 */
+	{ { 0xE2, 0x80, 0x8A }, 3, ' ' },	/* U+200A */
+	{ { 0xE2, 0x80, 0xAF }, 3, ' ' },	/* U+202F */
+	{ { 0xE2, 0x81, 0x9F }, 3, ' ' },	/* U+205F */
+	{ { 0xE3, 0x80, 0x80 }, 3, ' ' },	/* U+3000 */
+};
+
+static char *normalize_dup(const char *s)
+{
+	struct response_buffer out = {};
+	char *trimmed;
+	const unsigned char *p;
+	size_t i, n, k;
+	bool matched;
+
+	trimmed = trim_dup(s);
+	if (!trimmed)
+		return NULL;
+	p = (const unsigned char *)trimmed;
+	n = strlen(trimmed);
+	for (i = 0; i < n;) {
+		matched = false;
+		for (k = 0; k < ARRAY_SIZE(uni_fold); k++) {
+			if (i + uni_fold[k].len <= n &&
+			    !memcmp(p + i, uni_fold[k].seq, uni_fold[k].len)) {
+				if (response_buffer_reserve(&out, out.len + 2)) {
+					free(trimmed);
+					free(out.data);
+					return NULL;
+				}
+				out.data[out.len++] = uni_fold[k].repl;
+				out.data[out.len] = '\0';
+				i += uni_fold[k].len;
+				matched = true;
+				break;
+			}
+		}
+		if (matched)
+			continue;
+		if (response_buffer_reserve(&out, out.len + 2)) {
+			free(trimmed);
+			free(out.data);
+			return NULL;
+		}
+		out.data[out.len++] = (char)p[i];
+		out.data[out.len] = '\0';
+		i++;
+	}
+	free(trimmed);
+	return out.data ? out.data : strdup("");
 }
 
 static bool patch_path_ok(const char *path)
@@ -120,23 +290,20 @@ static bool patch_path_ok(const char *path)
 	return true;
 }
 
-static int buf_append_line(struct response_buffer *buf,
-			   struct patch_line *line, size_t off)
-{
-	if (response_buffer_reserve(buf, buf->len + line->len - off + 2))
-		return -1;
-	memcpy(buf->data + buf->len, line->p + off, line->len - off);
-	buf->len += line->len - off;
-	buf->data[buf->len++] = '\n';
-	buf->data[buf->len] = '\0';
-	return 0;
-}
-
 static char *patch_err(const char *msg)
 {
 	char *out;
 
 	if (asprintf(&out, "tool error: %s", msg) < 0)
+		return NULL;
+	return out;
+}
+
+static char *patch_errf(const char *fmt, const char *arg)
+{
+	char *out;
+
+	if (asprintf(&out, fmt, arg) < 0)
 		return NULL;
 	return out;
 }
@@ -214,6 +381,10 @@ static int write_text_file_atomic(const char *path, const char *content)
 	if (fclose(fp))
 		goto out;
 	fp = NULL;
+	/* rename(2) atomically replaces an existing destination, so this is
+	 * also how Add File / Update File's Move to overwrite in place -
+	 * matching codex-rs, which does not guard against clobbering.
+	 */
 	if (rename(tmp, path))
 		goto out;
 	rc = 0;
@@ -239,47 +410,415 @@ static int append_range(struct response_buffer *buf, const char *p, size_t len)
 	return 0;
 }
 
-static char *apply_hunk(char *content, struct response_buffer *old,
-			struct response_buffer *new, char **cursor)
+static int buf_append_line(struct response_buffer *buf,
+			   struct patch_line *line, size_t off)
+{
+	if (response_buffer_reserve(buf, buf->len + line->len - off + 2))
+		return -1;
+	memcpy(buf->data + buf->len, line->p + off, line->len - off);
+	buf->len += line->len - off;
+	buf->data[buf->len++] = '\n';
+	buf->data[buf->len] = '\0';
+	return 0;
+}
+
+/* ---- str_list ------------------------------------------------------- */
+
+static int str_list_push(struct str_list *l, char *s)
+{
+	char **n;
+	size_t newcap;
+
+	if (!s)
+		return -1;
+	if (l->count == l->cap) {
+		newcap = l->cap ? l->cap * 2 : 8;
+		n = realloc(l->item, newcap * sizeof(*n));
+		if (!n)
+			return -1;
+		l->item = n;
+		l->cap = newcap;
+	}
+	l->item[l->count++] = s;
+	return 0;
+}
+
+static void str_list_free(struct str_list *l)
+{
+	size_t i;
+
+	for (i = 0; i < l->count; i++)
+		free(l->item[i]);
+	free(l->item);
+	l->item = NULL;
+	l->count = 0;
+	l->cap = 0;
+}
+
+/*
+ * Split file content into lines the way Rust's `str::split('\n')` does,
+ * then drop exactly one trailing empty element - i.e. one trailing
+ * newline is implicit and not represented as its own line. This matches
+ * codex-rs's derive_new_contents_from_chunks() exactly, including its
+ * quirk of collapsing a run of blank trailing lines by one.
+ */
+static int lines_from_content(const char *content, struct str_list *out)
+{
+	const char *p, *nl;
+	size_t len;
+	char *s;
+
+	p = content;
+	for (;;) {
+		nl = strchr(p, '\n');
+		len = nl ? (size_t)(nl - p) : strlen(p);
+		s = malloc(len + 1);
+		if (!s)
+			return -1;
+		memcpy(s, p, len);
+		s[len] = '\0';
+		if (str_list_push(out, s))
+			return -1;
+		if (!nl)
+			break;
+		p = nl + 1;
+	}
+	if (out->count && !out->item[out->count - 1][0]) {
+		free(out->item[out->count - 1]);
+		out->count--;
+	}
+	return 0;
+}
+
+static char *join_lines(struct str_list *lines)
 {
 	struct response_buffer out = {};
-	char *match;
-	size_t prefix_len;
+	size_t i;
+	char *pad;
 
-	match = strstr(*cursor, old->data ? old->data : "");
-	if (!match)
-		return NULL;
+	if (!lines->count || lines->item[lines->count - 1][0] != '\0') {
+		pad = strdup("");
+		if (!pad || str_list_push(lines, pad))
+			return NULL;
+	}
+	for (i = 0; i < lines->count; i++) {
+		if (i && append_range(&out, "\n", 1))
+			return NULL;
+		if (append_range(&out, lines->item[i], strlen(lines->item[i])))
+			return NULL;
+	}
+	return out.data ? out.data : strdup("");
+}
 
-	prefix_len = (size_t)(match - content);
-	if (append_range(&out, content, prefix_len) ||
-	    append_range(&out, new->data ? new->data : "", new->len) ||
-	    append_range(&out, match + old->len, strlen(match + old->len))) {
-		free(out.data);
-		return NULL;
+static int str_list_splice(struct str_list *l, size_t idx, size_t old_len,
+			    char **newitems, size_t new_count)
+{
+	char **n;
+	size_t i, tail, need;
+
+	for (i = 0; i < old_len; i++)
+		free(l->item[idx + i]);
+	tail = l->count - (idx + old_len);
+	memmove(&l->item[idx], &l->item[idx + old_len], tail * sizeof(char *));
+	l->count -= old_len;
+
+	need = l->count + new_count;
+	if (need > l->cap) {
+		n = realloc(l->item, need * sizeof(*n));
+		if (!n)
+			return -1;
+		l->item = n;
+		l->cap = need;
+	}
+	memmove(&l->item[idx + new_count], &l->item[idx],
+		(l->count - idx) * sizeof(char *));
+	for (i = 0; i < new_count; i++) {
+		l->item[idx + i] = strdup(newitems[i]);
+		if (!l->item[idx + i])
+			return -1;
+	}
+	l->count += new_count;
+	return 0;
+}
+
+/* ---- context-anchored line matching (codex-rs seek_sequence) -------- */
+
+/*
+ * Find `pattern` (an ordered run of `pat_count` lines) within `lines`,
+ * starting the search at line `start`. Tries, in order of decreasing
+ * strictness: an exact match, trailing-whitespace-insensitive, fully
+ * trimmed, then Unicode-punctuation-normalized. When `eof` is set the
+ * search is pinned to the last `pat_count` lines of the file instead of
+ * scanning forward from `start` - this is what lets a "*** End of File"
+ * hunk anchor to the tail of the file. Returns the 0-based line index of
+ * the match, or -1 if none of the four tiers found one.
+ */
+static long seek_sequence(struct str_list *lines, char **pattern,
+			   size_t pat_count, size_t start, bool eof)
+{
+	size_t hi, search_start, i, j;
+	char *a, *b;
+	bool ok;
+
+	if (pat_count == 0)
+		return (long)start;
+	if (pat_count > lines->count)
+		return -1;
+	hi = lines->count - pat_count;
+	search_start = eof ? hi : start;
+
+	for (i = search_start; i <= hi; i++) {
+		for (j = 0; j < pat_count; j++)
+			if (strcmp(lines->item[i + j], pattern[j]))
+				break;
+		if (j == pat_count)
+			return (long)i;
+	}
+	for (i = search_start; i <= hi; i++) {
+		ok = true;
+		for (j = 0; j < pat_count; j++) {
+			a = rstrip_dup(lines->item[i + j]);
+			b = rstrip_dup(pattern[j]);
+			if (strcmp(a, b))
+				ok = false;
+			free(a);
+			free(b);
+			if (!ok)
+				break;
+		}
+		if (ok)
+			return (long)i;
+	}
+	for (i = search_start; i <= hi; i++) {
+		ok = true;
+		for (j = 0; j < pat_count; j++) {
+			a = trim_dup(lines->item[i + j]);
+			b = trim_dup(pattern[j]);
+			if (strcmp(a, b))
+				ok = false;
+			free(a);
+			free(b);
+			if (!ok)
+				break;
+		}
+		if (ok)
+			return (long)i;
+	}
+	for (i = search_start; i <= hi; i++) {
+		ok = true;
+		for (j = 0; j < pat_count; j++) {
+			a = normalize_dup(lines->item[i + j]);
+			b = normalize_dup(pattern[j]);
+			if (!a || !b || strcmp(a, b))
+				ok = false;
+			free(a);
+			free(b);
+			if (!ok)
+				break;
+		}
+		if (ok)
+			return (long)i;
+	}
+	return -1;
+}
+
+/* ---- update chunk list ------------------------------------------------ */
+
+static int chunk_list_push(struct update_chunk_list *l, char *context)
+{
+	struct update_chunk *n;
+	size_t newcap;
+
+	if (l->count == l->cap) {
+		newcap = l->cap ? l->cap * 2 : 4;
+		n = realloc(l->item, newcap * sizeof(*n));
+		if (!n)
+			return -1;
+		l->item = n;
+		l->cap = newcap;
+	}
+	memset(&l->item[l->count], 0, sizeof(l->item[l->count]));
+	l->item[l->count].context = context;
+	l->count++;
+	return 0;
+}
+
+static void chunk_list_free(struct update_chunk_list *l)
+{
+	size_t i;
+
+	for (i = 0; i < l->count; i++) {
+		free(l->item[i].context);
+		str_list_free(&l->item[i].old);
+		str_list_free(&l->item[i].new);
+	}
+	free(l->item);
+	l->item = NULL;
+	l->count = 0;
+	l->cap = 0;
+}
+
+static int repl_push(struct replacement **repl, size_t *count, size_t *cap,
+		     size_t idx, size_t old_len, char **new_item,
+		     size_t new_count)
+{
+	struct replacement *n;
+	size_t newcap;
+
+	if (*count == *cap) {
+		newcap = *cap ? *cap * 2 : 4;
+		n = realloc(*repl, newcap * sizeof(*n));
+		if (!n)
+			return -1;
+		*repl = n;
+		*cap = newcap;
+	}
+	(*repl)[*count].idx = idx;
+	(*repl)[*count].old_len = old_len;
+	(*repl)[*count].new_item = new_item;
+	(*repl)[*count].new_count = new_count;
+	(*count)++;
+	return 0;
+}
+
+static int repl_cmp(const void *a, const void *b)
+{
+	const struct replacement *ra = a, *rb = b;
+
+	if (ra->idx < rb->idx)
+		return -1;
+	if (ra->idx > rb->idx)
+		return 1;
+	return 0;
+}
+
+/*
+ * Turn a hunk's chunk list into an ordered set of line-range splices
+ * against `lines`, exactly as codex-rs's compute_replacements() does:
+ * each chunk's change_context (if any) narrows the search window for the
+ * chunks that follow it, a chunk with no old_lines is a pure insertion
+ * appended at end-of-file, and a chunk with old_lines is matched via
+ * seek_sequence and scheduled for replacement.
+ */
+static char *compute_replacements(struct str_list *lines,
+				  struct update_chunk_list *chunks,
+				  struct replacement **out_repl,
+				  size_t *out_count)
+{
+	struct replacement *repl;
+	size_t repl_count, repl_cap;
+	size_t line_index;
+	size_t i, insertion_idx, pat_count, new_count;
+	struct update_chunk *ck;
+	long idx;
+	char *err;
+
+	repl = NULL;
+	repl_count = 0;
+	repl_cap = 0;
+	line_index = 0;
+
+	for (i = 0; i < chunks->count; i++) {
+		ck = &chunks->item[i];
+
+		if (ck->context) {
+			idx = seek_sequence(lines, &ck->context, 1,
+					     line_index, false);
+			if (idx < 0) {
+				err = patch_errf("tool error: context '%s' not found",
+						  ck->context);
+				free(repl);
+				return err ? err : patch_err("out of memory");
+			}
+			line_index = (size_t)idx + 1;
+		}
+
+		if (ck->old.count == 0) {
+			insertion_idx = (lines->count &&
+					  !lines->item[lines->count - 1][0]) ?
+					 lines->count - 1 : lines->count;
+			if (repl_push(&repl, &repl_count, &repl_cap,
+				      insertion_idx, 0, ck->new.item,
+				      ck->new.count)) {
+				free(repl);
+				return patch_err("out of memory");
+			}
+			continue;
+		}
+
+		pat_count = ck->old.count;
+		new_count = ck->new.count;
+		idx = seek_sequence(lines, ck->old.item, pat_count,
+				     line_index, ck->is_eof);
+		if (idx < 0 && pat_count && !ck->old.item[pat_count - 1][0]) {
+			pat_count--;
+			if (new_count && !ck->new.item[new_count - 1][0])
+				new_count--;
+			idx = seek_sequence(lines, ck->old.item, pat_count,
+					     line_index, ck->is_eof);
+		}
+		if (idx < 0) {
+			free(repl);
+			return patch_err("hunk context not found");
+		}
+		if (repl_push(&repl, &repl_count, &repl_cap, (size_t)idx,
+			      pat_count, ck->new.item, new_count)) {
+			free(repl);
+			return patch_err("out of memory");
+		}
+		line_index = (size_t)idx + pat_count;
 	}
 
-	*cursor = out.data + prefix_len + new->len;
-	free(content);
-	return out.data;
+	qsort(repl, repl_count, sizeof(*repl), repl_cmp);
+	*out_repl = repl;
+	*out_count = repl_count;
+	return NULL;
 }
+
+static char *apply_replacements(struct str_list *lines,
+				struct replacement *repl, size_t count)
+{
+	size_t i;
+
+	for (i = count; i-- > 0;) {
+		if (str_list_splice(lines, repl[i].idx, repl[i].old_len,
+				     repl[i].new_item, repl[i].new_count))
+			return patch_err("out of memory");
+	}
+	return NULL;
+}
+
+/* ---- parsing ---------------------------------------------------------- */
 
 static char *parse_update(struct patch_reader *r, const char *path,
 			  struct patch_line *line, bool *have_line,
 			  char **out_path, char **out_content)
 {
-	struct response_buffer old = {};
-	struct response_buffer new = {};
+	struct str_list lines = {};
+	struct update_chunk_list chunks = {};
+	struct replacement *repl;
+	size_t repl_count;
+	struct update_chunk *ck;
 	char *content;
-	char *cursor;
-	char *next;
+	char *ltrim;
+	char *ctx;
+	char *text;
+	char *err;
+	const char *rest;
 	bool saw_hunk;
 	bool saw_marker;
+	char c;
 
 	content = read_text_file(path);
 	if (!content)
 		return patch_errno("read", path);
+	if (lines_from_content(content, &lines)) {
+		free(content);
+		str_list_free(&lines);
+		return patch_err("out of memory");
+	}
+	free(content);
 
-	cursor = content;
 	saw_hunk = false;
 	saw_marker = false;
 	for (;;) {
@@ -288,99 +827,120 @@ static char *parse_update(struct patch_reader *r, const char *path,
 		else if (!patch_next_line(r, line))
 			break;
 		*have_line = true;
-		if (!saw_hunk && line_starts(line, "*** Move to: ")) {
-			*out_path = line_suffix_dup(line, "*** Move to: ");
-			if (!patch_path_ok(*out_path))
+
+		ltrim = patch_line_trim_dup(line);
+		if (!ltrim)
+			goto oom;
+
+		if (!saw_hunk && str_starts(ltrim, "*** Move to: ")) {
+			free(*out_path);
+			*out_path = strdup(ltrim + strlen("*** Move to: "));
+			free(ltrim);
+			if (!*out_path || !patch_path_ok(*out_path))
 				goto invalid_path;
-			if (strcmp(path, *out_path) && !access(*out_path, F_OK))
-				goto exists;
 			*have_line = false;
 			continue;
 		}
-		if (line_starts(line, "*** ")) {
-			saw_marker = true;
-			break;
-		}
-		if (!line_starts(line, "@@"))
-			goto malformed;
-
-		free(old.data);
-		free(new.data);
-		old = (struct response_buffer){};
-		new = (struct response_buffer){};
-		while (patch_next_line(r, line)) {
-			*have_line = true;
-			if (line_eq(line, "*** End of File")) {
-				*have_line = false;
-				break;
-			}
-			if (line_starts(line, "@@") || line_starts(line, "*** "))
-				break;
-			if (line->len < 1)
-				goto malformed;
-			switch (line->p[0]) {
-			case ' ':
-				if (buf_append_line(&old, line, 1) ||
-				    buf_append_line(&new, line, 1))
-					goto oom;
-				break;
-			case '-':
-				if (buf_append_line(&old, line, 1))
-					goto oom;
-				break;
-			case '+':
-				if (buf_append_line(&new, line, 1))
-					goto oom;
-				break;
-			default:
-				goto malformed;
-			}
+		if (!strcmp(ltrim, "*** End of File")) {
+			if (chunks.count)
+				chunks.item[chunks.count - 1].is_eof = true;
+			free(ltrim);
 			*have_line = false;
+			continue;
 		}
-		next = apply_hunk(content, &old, &new, &cursor);
-		if (!next) {
-			free(content);
-			free(old.data);
-			free(new.data);
-			return patch_err("hunk context not found");
-		}
-		content = next;
-		saw_hunk = true;
-		if (*have_line && line_starts(line, "*** "))
+		if (str_starts(ltrim, "*** ")) {
+			saw_marker = true;
+			free(ltrim);
 			break;
+		}
+		if (str_starts(ltrim, "@@")) {
+			rest = ltrim + 2;
+			while (*rest == ' ')
+				rest++;
+			ctx = *rest ? strdup(rest) : NULL;
+			if (*rest && !ctx) {
+				free(ltrim);
+				goto oom;
+			}
+			if (chunk_list_push(&chunks, ctx)) {
+				free(ctx);
+				free(ltrim);
+				goto oom;
+			}
+			free(ltrim);
+			saw_hunk = true;
+			*have_line = false;
+			continue;
+		}
+		free(ltrim);
+
+		if (line->len < 1)
+			goto malformed;
+		c = line->p[0];
+		if (c != ' ' && c != '-' && c != '+')
+			goto malformed;
+		if (!chunks.count && chunk_list_push(&chunks, NULL))
+			goto oom;
+		ck = &chunks.item[chunks.count - 1];
+		if (c == ' ' || c == '-') {
+			text = line_dup_offset(line, 1);
+			if (!text || str_list_push(&ck->old, text))
+				goto oom;
+		}
+		if (c == ' ' || c == '+') {
+			text = line_dup_offset(line, 1);
+			if (!text || str_list_push(&ck->new, text))
+				goto oom;
+		}
+		saw_hunk = true;
+		*have_line = false;
 	}
 
 	if (!saw_marker && !*have_line)
 		goto malformed;
-	*out_content = content;
-	free(old.data);
-	free(new.data);
+	if (!saw_hunk)
+		goto empty_hunk;
+
+	err = compute_replacements(&lines, &chunks, &repl, &repl_count);
+	if (err)
+		goto fail_err;
+	err = apply_replacements(&lines, repl, repl_count);
+	free(repl);
+	if (err)
+		goto fail_err;
+
+	*out_content = join_lines(&lines);
+	if (!*out_content) {
+		err = patch_err("out of memory");
+		goto fail_err;
+	}
+
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
 	return NULL;
 
 malformed:
-	free(content);
-	free(old.data);
-	free(new.data);
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
 	return patch_err("malformed update hunk");
+empty_hunk:
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
+	return patch_err("empty update hunk");
 oom:
-	free(content);
-	free(old.data);
-	free(new.data);
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
 	return patch_err("out of memory");
 invalid_path:
-	free(content);
-	free(old.data);
-	free(new.data);
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
 	free(*out_path);
 	*out_path = NULL;
 	return patch_err("invalid patch path");
-exists:
-	free(content);
-	free(old.data);
-	free(new.data);
-	free(*out_path);
-	*out_path = NULL;
-	return patch_err("move target already exists");
+fail_err:
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
+	return err;
 }
 
 static char *parse_add(struct patch_reader *r, const char *path,
@@ -388,15 +948,13 @@ static char *parse_add(struct patch_reader *r, const char *path,
 		       char **out_content)
 {
 	struct response_buffer content = {};
-	FILE *fp;
 	bool saw_marker;
 
-	fp = fopen(path, "rb");
-	if (fp) {
-		fclose(fp);
-		return patch_err("add file already exists");
-	}
-
+	(void)path;
+	/* codex-rs's Add File silently overwrites an existing file (the
+	 * mkstemp+rename in write_text_file_atomic() already does this at
+	 * commit time); no existence check here.
+	 */
 	saw_marker = false;
 	while (patch_next_line(r, line)) {
 		*have_line = true;
@@ -511,11 +1069,22 @@ char *fyai_apply_patch_text(const char *patch)
 	char *new_path;
 	char *content;
 	char *err;
+	char *ltrim;
 	size_t changed;
 	bool have_line;
 
-	if (!patch_next_line(&r, &line) || !line_eq(&line, "*** Begin Patch"))
+	/* codex-rs tolerates leading/trailing whitespace around every "*** "
+	 * marker line, so every marker comparison below runs against a
+	 * trimmed copy rather than the raw line.
+	 */
+	if (!patch_next_line(&r, &line))
 		return patch_err("patch must start with *** Begin Patch");
+	ltrim = patch_line_trim_dup(&line);
+	if (!ltrim || strcmp(ltrim, "*** Begin Patch")) {
+		free(ltrim);
+		return patch_err("patch must start with *** Begin Patch");
+	}
+	free(ltrim);
 
 	changed = 0;
 	have_line = false;
@@ -524,13 +1093,21 @@ char *fyai_apply_patch_text(const char *patch)
 			return patch_err("patch missing *** End Patch");
 		have_line = false;
 
-		if (line_eq(&line, "*** End Patch"))
+		ltrim = patch_line_trim_dup(&line);
+		if (!ltrim) {
+			patch_ops_free(ops);
+			return patch_err("out of memory");
+		}
+		if (!strcmp(ltrim, "*** End Patch")) {
+			free(ltrim);
 			break;
+		}
 		new_path = NULL;
 		content = NULL;
-		if (line_starts(&line, "*** Add File: ")) {
-			path = line_suffix_dup(&line, "*** Add File: ");
-			if (!patch_path_ok(path)) {
+		if (str_starts(ltrim, "*** Add File: ")) {
+			path = strdup(ltrim + strlen("*** Add File: "));
+			free(ltrim);
+			if (!path || !patch_path_ok(path)) {
 				free(path);
 				return patch_err("invalid patch path");
 			}
@@ -539,9 +1116,10 @@ char *fyai_apply_patch_text(const char *patch)
 			if (!err)
 				err = patch_ops_append(&ops, &tail, PATCH_OP_ADD,
 						       path, NULL, content);
-		} else if (line_starts(&line, "*** Delete File: ")) {
-			path = line_suffix_dup(&line, "*** Delete File: ");
-			if (!patch_path_ok(path)) {
+		} else if (str_starts(ltrim, "*** Delete File: ")) {
+			path = strdup(ltrim + strlen("*** Delete File: "));
+			free(ltrim);
+			if (!path || !patch_path_ok(path)) {
 				free(path);
 				return patch_err("invalid patch path");
 			}
@@ -550,9 +1128,10 @@ char *fyai_apply_patch_text(const char *patch)
 				err = patch_ops_append(&ops, &tail,
 						       PATCH_OP_DELETE,
 						       path, NULL, NULL);
-		} else if (line_starts(&line, "*** Update File: ")) {
-			path = line_suffix_dup(&line, "*** Update File: ");
-			if (!patch_path_ok(path)) {
+		} else if (str_starts(ltrim, "*** Update File: ")) {
+			path = strdup(ltrim + strlen("*** Update File: "));
+			free(ltrim);
+			if (!path || !patch_path_ok(path)) {
 				free(path);
 				return patch_err("invalid patch path");
 			}
@@ -565,6 +1144,7 @@ char *fyai_apply_patch_text(const char *patch)
 						       path, new_path,
 						       content);
 		} else {
+			free(ltrim);
 			patch_ops_free(ops);
 			return patch_err("expected file operation");
 		}

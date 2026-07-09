@@ -121,7 +121,8 @@ int main(void)
 		"+bad\n"));
 	expect_file("a.txt", "one\nthree\n");
 
-	expect_ok(fyai_apply_patch_text(
+	/* An Update File hunk with no chunks is rejected, matching codex-rs. */
+	expect_error(fyai_apply_patch_text(
 		"*** Begin Patch\n"
 		"*** Update File: a.txt\n"
 		"*** End Patch\n"));
@@ -207,17 +208,27 @@ int main(void)
 		    "nested add worked\nwith multiple lines\n");
 
 	write_file_or_die("partial.txt", "old\n");
-	write_file_or_die("exists.txt", "exists\n");
 	expect_error(fyai_apply_patch_text(
 		"*** Begin Patch\n"
 		"*** Update File: partial.txt\n"
 		"@@\n"
 		"-old\n"
 		"+new\n"
-		"*** Add File: exists.txt\n"
-		"+bad\n"
+		"*** Update File: missing.txt\n"
+		"@@\n"
+		"-old\n"
+		"+new\n"
 		"*** End Patch\n"));
 	expect_file("partial.txt", "old\n");
+
+	/* Add File overwrites an existing destination, matching codex-rs. */
+	write_file_or_die("exists.txt", "exists\n");
+	expect_ok(fyai_apply_patch_text(
+		"*** Begin Patch\n"
+		"*** Add File: exists.txt\n"
+		"+overwritten\n"
+		"*** End Patch\n"));
+	expect_file("exists.txt", "overwritten\n");
 
 	write_file_or_die("move.txt", "hello\n");
 	expect_ok(fyai_apply_patch_text(
@@ -247,17 +258,21 @@ int main(void)
 	}
 	expect_file("moved/pure.txt", "hello moved\n");
 
+	/* Move to overwrites an existing destination, matching codex-rs. */
 	write_file_or_die("move_exists.txt", "exists\n");
-	expect_error(fyai_apply_patch_text(
+	expect_ok(fyai_apply_patch_text(
 		"*** Begin Patch\n"
 		"*** Update File: moved/pure.txt\n"
 		"*** Move to: move_exists.txt\n"
 		"@@\n"
 		"-hello moved\n"
-		"+bad\n"
+		"+overwritten\n"
 		"*** End Patch\n"));
-	expect_file("moved/pure.txt", "hello moved\n");
-	expect_file("move_exists.txt", "exists\n");
+	if (!access("moved/pure.txt", F_OK)) {
+		fprintf(stderr, "move-overwrite source still exists\n");
+		return 1;
+	}
+	expect_file("move_exists.txt", "overwritten\n");
 
 	expect_ok(fyai_apply_patch_text(
 		"*** Begin Patch\n"
