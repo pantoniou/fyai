@@ -1306,7 +1306,8 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 
 	problems = config_validate_report_shallow(cfg, doc, origin);
 	if (config_problem_any(problems))
-		return fy_mapping("result", "failed", "problems", problems);
+		return fy_gb_mapping(cfg->gb, "result", "failed",
+				     "problems", problems);
 
 	memset(&tmp, 0, sizeof(tmp));
 	tmp.gb = cfg->gb;
@@ -1322,12 +1323,13 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 				"%s fails semantic validation after resolution", origin);
 
 	if (config_problem_any(problems))
-		return fy_mapping("result", "failed", "problems", problems);
+		return fy_gb_mapping(cfg->gb, "result", "failed",
+				     "problems", problems);
 
 	sanitized = config_doc_sanitize(cfg, doc, &changes);
-	return fy_mapping("result", "ok",
-			  "config", sanitized,
-			  "changes", changes);
+	return fy_gb_mapping(cfg->gb, "result", "ok",
+			     "config", sanitized,
+			     "changes", changes);
 }
 
 int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
