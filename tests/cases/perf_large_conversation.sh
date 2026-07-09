@@ -73,7 +73,7 @@ last_ms=0
 i=1
 while [ "$i" -le "$TURNS" ]; do
 	t0=$(now_ms)
-	run_fyai --no-stream "${MODE_ARGS[@]}" -m mock-model "question $i"
+	run_fyai --set display/stream=false "${MODE_ARGS[@]}" -m mock-model "question $i"
 	t1=$(now_ms)
 	assert_status 0
 	last_ms=$(( t1 - t0 ))

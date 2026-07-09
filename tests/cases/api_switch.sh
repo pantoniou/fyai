@@ -35,7 +35,7 @@ export MOCKPROV_API_KEY=mock-secret
 # Drive the REPL over a pipe: chat call, switch to messages, messages call,
 # then a grammar the provider does not offer.
 set +e
-"$FYAI_BIN" --color off --no-markdown --no-stream -i -m foo \
+"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i -m foo \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
 first question
 /api messages

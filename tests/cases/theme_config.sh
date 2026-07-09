@@ -28,8 +28,8 @@ assert_stdout_contains "markdown_mode: oneshot"
 
 # a themed markdown run works end to end (markdown forced on over the
 # harness default; --color on exercises the styling load path)
-"$FYAI_BIN" -k test-key --color on --markdown --markdown-mode oneshot \
-	--set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+"$FYAI_BIN" -k test-key --color on --set display/markdown=true --set display/markdown_mode=oneshot \
+	--set api=chat-completions --set display/stream=false -u "$MOCK_URL/v1/chat/completions" \
 	-m mock-model "hello" >"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr"
 FYAI_STATUS=$?
 assert_status 0
@@ -40,9 +40,9 @@ mock_stop_quiet
 # an unknown theme falls back to the default with a warning, not a failure
 # (the styling loads only when markdown rendering is actually on)
 mock_start chat_basic.json
-"$FYAI_BIN" -k test-key --color on --markdown --markdown-mode oneshot \
-	--markdown-theme no-such-theme --new \
-	--set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+"$FYAI_BIN" -k test-key --color on --set display/markdown=true --set display/markdown_mode=oneshot \
+	--set display/markdown_theme=no-such-theme --new \
+	--set api=chat-completions --set display/stream=false -u "$MOCK_URL/v1/chat/completions" \
 	-m mock-model "hello" >"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr"
 FYAI_STATUS=$?
 assert_status 0

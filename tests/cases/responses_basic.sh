@@ -7,8 +7,8 @@ set -eu
 fyai_test_setup
 mock_start responses_basic.json
 
-run_fyai --set api=responses --no-stream -u "$MOCK_URL/v1/responses" \
-	 -s "You are a test assistant." -m mock-model "hello mock"
+run_fyai --set api=responses --set display/stream=false -u "$MOCK_URL/v1/responses" \
+	 --set "system_prompt=You are a test assistant." -m mock-model "hello mock"
 assert_status 0
 assert_stdout_contains "Hello from the mock responses provider."
 

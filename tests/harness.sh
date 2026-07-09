@@ -100,7 +100,10 @@ mock_stop() {
 # The exit status lands in FYAI_STATUS (never aborts the case by itself).
 run_fyai() {
 	set +e
-	"$FYAI_BIN" -k test-key --color off --no-markdown "$@" \
+	# markdown is off via the arena config seeded by fyai_test_setup, not a
+	# CLI flag: --set is a durable command op that needs an existing arena,
+	# which the init/no-storage verbs don't have yet.
+	"$FYAI_BIN" -k test-key --color off "$@" \
 		>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
 	FYAI_STATUS=$?
 	set -e

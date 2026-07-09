@@ -5,7 +5,7 @@
 # byte-stable - every request's message list must extend the previous
 # request's list without altering a single element, across the tool loop and
 # across separate invocations. Verified for all three APIs, along with the
-# provider-reported cache counters flowing into --stats.
+# provider-reported cache counters flowing into --set display/stats=true (--stats).
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -41,11 +41,11 @@ printf 'mock data payload\n' > data.txt
 
 # --- Chat Completions ---
 mock_start cache_chat.json
-run_fyai --set api=chat-completions --no-stream -t \
-	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --stats "read data.txt"
+run_fyai --set api=chat-completions --set display/stream=false -t \
+	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --set display/stats=true "read data.txt"
 assert_status 0
-run_fyai --set api=chat-completions --no-stream -t \
-	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --stats "and again"
+run_fyai --set api=chat-completions --set display/stream=false -t \
+	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --set display/stats=true "and again"
 assert_status 0
 check_prefix 0 1 messages	# within the tool loop
 check_prefix 1 2 messages	# across invocations (arena reconstruction)
@@ -54,11 +54,11 @@ mock_stop 3
 
 # --- Responses ---
 mock_start cache_responses.json
-run_fyai --set api=responses --no-stream -t -u "$MOCK_URL/v1/responses" \
-	 -m mock-model --new --stats "read data.txt"
+run_fyai --set api=responses --set display/stream=false -t -u "$MOCK_URL/v1/responses" \
+	 -m mock-model --new --set display/stats=true "read data.txt"
 assert_status 0
-run_fyai --set api=responses --no-stream -t -u "$MOCK_URL/v1/responses" \
-	 -m mock-model --stats "and again"
+run_fyai --set api=responses --set display/stream=false -t -u "$MOCK_URL/v1/responses" \
+	 -m mock-model --set display/stats=true "and again"
 assert_status 0
 check_prefix 0 1 input
 check_prefix 1 2 input
@@ -69,11 +69,11 @@ mock_stop 3
 
 # --- Anthropic Messages ---
 mock_start cache_messages.json
-run_fyai --set api=messages --no-stream -t -u "$MOCK_URL/v1/messages" \
-	 -m mock-model --new --stats "read data.txt"
+run_fyai --set api=messages --set display/stream=false -t -u "$MOCK_URL/v1/messages" \
+	 -m mock-model --new --set display/stats=true "read data.txt"
 assert_status 0
-run_fyai --set api=messages --no-stream -t -u "$MOCK_URL/v1/messages" \
-	 -m mock-model --stats "and again"
+run_fyai --set api=messages --set display/stream=false -t -u "$MOCK_URL/v1/messages" \
+	 -m mock-model --set display/stats=true "and again"
 assert_status 0
 check_prefix 0 1 messages
 check_prefix 1 2 messages

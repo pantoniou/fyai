@@ -34,7 +34,7 @@ export MOCKPROV_API_KEY=mock-secret
 run_bare() {
 	set +e
 	# No -k: the key must come from MOCKPROV_API_KEY (derived from provider).
-	"$FYAI_BIN" --color off --no-markdown --no-stream "$@" \
+	"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false "$@" \
 		>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
 	FYAI_STATUS=$?
 	set -e

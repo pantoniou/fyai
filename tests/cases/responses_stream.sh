@@ -8,7 +8,7 @@ fyai_test_setup
 mock_start responses_stream.json
 
 run_fyai --set logging/stream true --set api=responses -u "$MOCK_URL/v1/responses" -m mock-model \
-	 --stats "stream please"
+	 --set display/stats=true "stream please"
 assert_status 0
 assert_stdout_contains "Streamed responses answer."
 test -s .fyai/logs/stream.yaml || fail "missing stream log"

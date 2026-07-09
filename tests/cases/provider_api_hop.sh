@@ -22,7 +22,7 @@ run_hop() {
 	local flags="$1"; shift
 	set +e
 	# shellcheck disable=SC2086
-	"$FYAI_BIN" --color off --no-markdown --no-stream $flags "$@" \
+	"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false $flags "$@" \
 		>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
 	FYAI_STATUS=$?
 	set -e

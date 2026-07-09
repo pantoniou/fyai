@@ -93,14 +93,14 @@ for mode in chat-completions responses messages; do
 	esac
 
 	t0=$(now_ms)
-	run_fyai --no-stream --new -t "${args[@]}" -m mock-model "read big.txt"
+	run_fyai --set display/stream=false --new -t "${args[@]}" -m mock-model "read big.txt"
 	t1=$(now_ms)
 	assert_status 0
 	assert_stdout_contains "digested the big file."
 	turn1=$(( t1 - t0 ))
 
 	t0=$(now_ms)
-	run_fyai --no-stream "${args[@]}" -m mock-model "follow up"
+	run_fyai --set display/stream=false "${args[@]}" -m mock-model "follow up"
 	t1=$(now_ms)
 	assert_status 0
 	assert_stdout_contains "follow-up done."

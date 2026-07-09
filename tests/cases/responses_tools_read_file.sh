@@ -10,7 +10,7 @@ mock_start responses_tools_read_file.json
 
 printf 'mock data payload\n' > data.txt
 
-run_fyai --set api=responses --no-stream -t -u "$MOCK_URL/v1/responses" \
+run_fyai --set api=responses --set display/stream=false -t -u "$MOCK_URL/v1/responses" \
 	 -m mock-model "read data.txt"
 assert_status 0
 assert_stdout_contains "The file says: mock data payload."

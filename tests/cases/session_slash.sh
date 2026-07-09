@@ -46,7 +46,7 @@ export OTHERPROV_API_KEY=other-secret
 
 # Drive the REPL over a pipe (non-tty stdin; -i forces the loop).
 set +e
-"$FYAI_BIN" --color off --no-markdown --no-stream -i -m foo \
+"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i -m foo \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
 /help
 /log all start
@@ -100,7 +100,7 @@ assert_stdout_contains "Index │ Provider"
 
 # Continuation after leaving the REPL keeps the switched provider/model.
 set +e
-"$FYAI_BIN" --color off --no-markdown --no-stream "hello five" \
+"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false "hello five" \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
 FYAI_STATUS=$?
 set -e

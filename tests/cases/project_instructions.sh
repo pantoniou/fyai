@@ -16,7 +16,7 @@ printf 'ROOT_CLAUDE_MARKER: and the root claude file.\n' > CLAUDE.md
 mkdir -p sub
 printf 'SUB_AGENTS_MARKER: nested guidance wins recency.\n' > sub/AGENTS.md
 
-run_fyai --set api=chat-completions --no-stream \
+run_fyai --set api=chat-completions --set display/stream=false \
 	 -u "$MOCK_URL/v1/chat/completions" -m mock-model "first turn"
 assert_status 0
 
@@ -29,7 +29,7 @@ assert_request 0 'any(m["role"]=="system" and "ROOT_CLAUDE_MARKER" in m["content
 # the root one in the concatenated system text.
 mock_stop 1
 mock_start state_continuation.json
-( cd sub && run_fyai --set api=chat-completions --no-stream \
+( cd sub && run_fyai --set api=chat-completions --set display/stream=false \
 	--new -u "$MOCK_URL/v1/chat/completions" -m mock-model "from subdir" )
 assert_status 0
 assert_request 0 'next(m["content"] for m in r["body"]["messages"] if m["role"]=="system").find("SUB_AGENTS_MARKER") > next(m["content"] for m in r["body"]["messages"] if m["role"]=="system").find("ROOT_AGENTS_MARKER")'

@@ -8,8 +8,8 @@ fyai_test_setup
 mock_start chat_basic_twice.json
 
 run_fyai --set logging/wire true --set logging/conversation true \
-	 --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
-	 -s "You are a test assistant." -m mock-model "hello mock"
+	 --set api=chat-completions --set display/stream=false -u "$MOCK_URL/v1/chat/completions" \
+	 --set "system_prompt=You are a test assistant." -m mock-model "hello mock"
 assert_status 0
 assert_stdout_contains "Hello from the mock provider."
 
@@ -34,11 +34,11 @@ run_fyai log wire clear
 assert_status 0
 test ! -s .fyai/logs/wire.yaml || fail "wire log not cleared"
 
-run_fyai --no-whitewash --set logging/wire true \
-	 --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
-	 -s "You are a test assistant." -m mock-model "hello again"
+run_fyai --set whitewash_api_keys=false --set logging/wire true \
+	 --set api=chat-completions --set display/stream=false -u "$MOCK_URL/v1/chat/completions" \
+	 --set "system_prompt=You are a test assistant." -m mock-model "hello again"
 assert_status 0
-grep -q 'test-key' .fyai/logs/wire.yaml || fail "wire log did not honor --no-whitewash"
+grep -q 'test-key' .fyai/logs/wire.yaml || fail "wire log did not honor --set whitewash_api_keys=false"
 
 cat > editor.sh <<'EOF'
 #!/bin/sh

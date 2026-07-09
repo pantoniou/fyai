@@ -26,7 +26,7 @@ assert_status 0
 assert_stdout_contains "shell-ran-42"
 
 # arguments may come from stdin when omitted on the command line
-"$FYAI_BIN" -k test-key --color off --no-markdown tool read_file \
+"$FYAI_BIN" -k test-key --color off --set display/markdown=false tool read_file \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'JSON'
 {"path": "w.txt"}
 JSON

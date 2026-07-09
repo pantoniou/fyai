@@ -66,7 +66,7 @@ assert_stdout_contains "| **cat-model** | **mock** | 32000 | 1234 | no |"
 
 # no -u / no api selection: the catalogue resolves endpoint, grammar and
 # wire model id from the canonical name
-run_fyai --no-stream -m cat-model "hello"
+run_fyai --set display/stream=false -m cat-model "hello"
 assert_status 0
 assert_stdout_contains "Hello from the mock"
 assert_request 0 'r["path"] == "/v1/chat/completions"'
@@ -113,7 +113,7 @@ EOF
 run_fyai catalog import cat.yaml
 assert_status 0
 
-run_fyai --no-stream -m reasoning-model "hello"
+run_fyai --set display/stream=false -m reasoning-model "hello"
 assert_status 0
 assert_request 1 'r["body"]["model"] == "reasoning-wire-model"'
 assert_request 1 '"temperature" not in r["body"]'
@@ -125,7 +125,7 @@ assert_status 0
 assert_stdout_contains "max_tokens 1234"
 
 # reasoning options on a non-reasoning model are rejected up front
-run_fyai --no-stream -m cat-model --reasoning-effort high "hello"
+run_fyai --set display/stream=false -m cat-model --set reasoning/effort=high "hello"
 assert_status_nonzero
 assert_stderr_contains "not reasoning-capable"
 

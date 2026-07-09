@@ -11,7 +11,7 @@ set -eu
 fyai_test_setup
 mock_start tools_write_patch_shell.json
 
-run_fyai --set sandbox=true --set api=chat-completions --no-stream -t \
+run_fyai --set sandbox=true --set api=chat-completions --set display/stream=false -t \
 	 -u "$MOCK_URL/v1/chat/completions" -m mock-model "do the three things"
 assert_status 0
 assert_stdout_contains "All three tools executed."
