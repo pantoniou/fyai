@@ -405,22 +405,6 @@ void shell_command_result_cleanup(struct shell_command_result *result)
 	memset(result, 0, sizeof(*result));
 }
 
-#if 0
-fy_generic assert_valid_generic(fy_generic v, const char *assert_msg)
-{
-	if (fy_generic_is_valid(v))
-		return v;
-
-	if (!assert_msg)
-		assert_msg = "internal error or out of memory";
-
-	fprintf(stderr, "invalid generic: %s\n", assert_msg);
-	assert(fy_generic_is_valid(v));
-	abort();
-	return fy_invalid;
-}
-#endif
-
 void emit_generic_to_stdout(const char *label, fy_generic value, bool pretty)
 {
 	emit_generic_to_stdout_anchored(label, value, pretty, false);
@@ -530,6 +514,7 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 				"content", make_string_property(gb, "Complete UTF-8 file contents.")),
 			fy_sequence("path", "content")));
 
+	/* claude distilled models have a big issue with that */
 	apply_patch_tool = make_function_tool(gb,
 		"apply_patch",
 		"Apply a raw Codex-style patch to workspace files. Use "
@@ -565,7 +550,7 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 			fy_sequence("question")));
 
 	tools = fy_sequence(read_file_tool, write_file_tool, apply_patch_tool,
-			    shell_tool, ask_user_tool);
+				shell_tool, ask_user_tool);
 
 	tools = fy_gb_internalize(gb, tools);
 	return assert_valid_generic(tools, "Unable to make tools (utils)");

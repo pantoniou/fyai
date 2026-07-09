@@ -360,6 +360,7 @@ add_executable(fyai
     src/fyai_storage.c
     src/fyai_stream.c
     src/fyai_terminal.c
+    src/fyai_schema.c
     src/fyai_tools.c
     src/fyai_turn.c
     src/utils.c
@@ -446,6 +447,26 @@ if(BUILD_TESTING)
     target_link_libraries(fyai_stackcheck_test PRIVATE libfyaml::libfyaml CURL::libcurl
         ${ASAN_LINK_OPTS})
     add_test(NAME fyai/generic_stackcheck COMMAND fyai_stackcheck_test)
+
+    add_executable(fyai_schema_test
+        tests/fyai_schema_test.c
+        src/fyai_schema.c
+        src/fyai_sandbox.c
+        src/utils.c
+    )
+    target_compile_options(fyai_schema_test PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+    target_compile_definitions(fyai_schema_test PRIVATE
+        _GNU_SOURCE
+        HAVE_CONFIG_H
+        VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(fyai_schema_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(fyai_schema_test PRIVATE libfyaml::libfyaml CURL::libcurl
+        ${ASAN_LINK_OPTS})
+    add_test(NAME fyai/schema_validate COMMAND fyai_schema_test)
 
     add_executable(fyai_config_test
         tests/fyai_config_test.c
