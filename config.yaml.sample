@@ -33,10 +33,17 @@
 # URL, API grammar and provider wire-id. Prefix with `provider/` to pin a
 # specific provider that also offers the model, e.g. `openrouter/glm-5.2`.
 # Override on the command line with `--model`/`-m`.
-provider: openai
 model: gpt-5.4-mini
+
+# `provider` is never a config key - it is derived read-only from `model` at
+# resolve time and shown by `/model`, `/config`, `fyai catalog`, etc.
+
+# API grammar: intent, not derived - responses | chat-completions | messages
 api: responses
-api_url: https://api.openai.com/v1/responses
+
+# `api_url` is derived from the catalogue by default; set explicitly only to
+# override the endpoint the catalogue resolves for the current model/api.
+# api_url: https://api.openai.com/v1/responses
 
 # The API key is taken (in order) from `--api-key`/`-k`, the `api_key` env
 # mapping below, or the provider's conventional environment variable:
@@ -46,8 +53,6 @@ api_url: https://api.openai.com/v1/responses
 # api_key:
 #   type: env
 #   value: OPENAI_API_KEY
-
-# API grammar values: responses | chat-completions | messages
 
 # --- Top-level defaults ----------------------------------------------------
 system_prompt: You are a concise assistant.

@@ -973,12 +973,84 @@ static fy_generic config_change_add(struct fy_generic_builder *gb,
 }
 
 /*
+ * Parse the `api` intent key into an enum, defaulting when absent/unknown.
+ */
+static enum fyai_api_mode config_doc_api_mode(fy_generic doc,
+					      enum fyai_api_mode dflt)
+{
+	fy_generic v = fy_get(doc, "api");
+
+	if (fy_equal(v, "chat-completions") || fy_equal(v, "chat"))
+		return FYAI_API_CHAT_COMPLETIONS;
+	if (fy_equal(v, "responses"))
+		return FYAI_API_RESPONSES;
+	if (fy_equal(v, "messages"))
+		return FYAI_API_MESSAGES;
+	return dflt;
+}
+
+/*
+ * On a model change that lands on a catalogue entry, clear `api`/`api_url`
+ * and re-derive them from the catalogue (preferring the grammar @doc already
+ * asked for, falling back to whatever the provider actually offers) - the
+ * same explicit values `fyai init` would produce importing a fresh sample.
+ * A no-op when the model resolved to the same catalogue entry as before.
+ */
+static fy_generic config_doc_sync_derived_api(struct fy_generic_builder *gb,
+					      fy_generic cat_prov,
+					      fy_generic doc,
+					      fy_generic *changesp)
+{
+	fy_generic cat_ep, before, after, new_api, new_api_url;
+	enum fyai_api_mode mode;
+	int i;
+
+	/* Preference must be read before clearing, or it is always lost. */
+	mode = config_doc_api_mode(doc, FYAI_API_RESPONSES);
+	doc = fy_delete_at_pathstr(gb, doc, "api");
+	doc = fy_delete_at_pathstr(gb, doc, "api_url");
+
+	cat_ep = fyai_catalog_endpoint(cat_prov, mode);
+	for (i = 0; i < 3 && fy_generic_is_invalid(cat_ep); i++) {
+		cat_ep = fyai_catalog_endpoint(cat_prov, (enum fyai_api_mode)i);
+		if (fy_generic_is_valid(cat_ep))
+			mode = (enum fyai_api_mode)i;
+	}
+	if (fy_generic_is_invalid(cat_ep))
+		return doc;
+
+	new_api = fy_value(fyai_api_to_string(mode));
+	new_api_url = fy_value(fy_sprintfa("%s%s",
+					   fy_get(cat_prov, "root_url", ""),
+					   fy_get(cat_ep, "endpoint", "")));
+
+	before = fy_invalid;
+	doc = fy_set_at_pathstr(gb, doc, "api", new_api);
+	if (changesp) {
+		after = fy_get(doc, "api");
+		*changesp = config_change_add(gb, *changesp, "api",
+					      "changed", before, after);
+	}
+
+	before = fy_invalid;
+	doc = fy_set_at_pathstr(gb, doc, "api_url", new_api_url);
+	if (changesp) {
+		after = fy_get(doc, "api_url");
+		*changesp = config_change_add(gb, *changesp, "api_url",
+					      "changed", before, after);
+	}
+	return doc;
+}
+
+/*
  * Re-derive the read-only `catalog:` block on @doc from @catalog: the full
  * models[] entry for the configured model, plus `canonical_provider` (the
  * default, unprefixed provider offering it). Keyed off `model`, honouring a
  * `provider/` prefix only when it names a catalogue provider (same rule as
  * fyai_config_resolve_model). Removed entirely when the model is unknown to
  * @catalog, so switching to an uncatalogued model drops stale properties.
+ * A model change onto a known catalogue entry also re-derives `api`/
+ * `api_url` (config_doc_sync_derived_api).
  */
 static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
 					  fy_generic catalog, fy_generic doc,
@@ -1028,6 +1100,8 @@ static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
 					      fy_generic_is_invalid(before) ?
 					      "added" : "changed", before, after);
 	}
+	if (fy_generic_is_valid(cat_prov))
+		doc = config_doc_sync_derived_api(gb, cat_prov, doc, changesp);
 	return doc;
 }
 
@@ -1549,20 +1623,31 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	}
 
 	/*
-	 * Catalog-derived resolution: when nothing supplied an endpoint, look
-	 * the model up in the effective catalogue (pinned to the prefixed
-	 * provider when given, else the canonical provider) and derive provider
-	 * URL, API grammar and wire model id from its offering. Unknown models
+	 * Look the model up in the effective catalogue (pinned to the
+	 * prefixed provider when given, else the canonical provider) so the
+	 * provider name - and, unless an endpoint was already supplied, the
+	 * URL, API grammar and wire model id - come from its offering.
+	 * Provider resolution runs regardless of whether api_url is already
+	 * set (e.g. a persisted override): the two are independent, and
+	 * skipping it left cfg->provider on the "unknown model" default
+	 * below whenever an api_url happened to be preset. Unknown models
 	 * fall through to the static defaults below.
 	 */
+	if (fy_generic_is_valid(pinned_prov)) {
+		cat_prov = pinned_prov;
+		fyai_catalog_offering(cat_prov, cfg->model, &cat_offer);
+	} else {
+		cat_prov = fyai_catalog_provider_for_model(catalog,
+					cfg->model, &cat_offer);
+	}
+	if (fy_generic_is_valid(cat_prov))
+		cfg->provider = fy_gb_intern_string(cfg->gb,
+					fy_get(cat_prov, "name", ""));
+	pmid = fy_get(cat_offer, "provider_model_id", "");
+	if (*pmid)
+		cfg->model = fy_gb_intern_string(cfg->gb, pmid);
+
 	if (!cfg->api_url || !*cfg->api_url) {
-		if (fy_generic_is_valid(pinned_prov)) {
-			cat_prov = pinned_prov;
-			fyai_catalog_offering(cat_prov, cfg->model, &cat_offer);
-		} else {
-			cat_prov = fyai_catalog_provider_for_model(catalog,
-						cfg->model, &cat_offer);
-		}
 		cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
 		if (fy_generic_is_invalid(cat_ep) &&
 		    fy_generic_is_valid(cat_prov)) {
@@ -1575,22 +1660,11 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 					cfg->api_mode = (enum fyai_api_mode)i;
 			}
 		}
-		if (fy_generic_is_valid(cat_ep)) {
+		if (fy_generic_is_valid(cat_ep))
 			cfg->api_url = fy_gb_intern_string(cfg->gb,
 					fy_sprintfa("%s%s",
 						fy_get(cat_prov, "root_url", ""),
 						fy_get(cat_ep, "endpoint", "")));
-			cfg->provider = fy_gb_intern_string(cfg->gb,
-						fy_get(cat_prov, "name", ""));
-			pmid = fy_get(cat_offer, "provider_model_id", "");
-			if (*pmid)
-				cfg->model = fy_gb_intern_string(cfg->gb, pmid);
-		}
-	} else if (fy_generic_is_valid(pinned_prov)) {
-		/* Endpoint already fixed (e.g. --url), but honour the pin for
-		 * display, turn metadata and the api-key env mapping. */
-		cfg->provider = fy_gb_intern_string(cfg->gb,
-					fy_get(pinned_prov, "name", ""));
 	}
 
 	/*

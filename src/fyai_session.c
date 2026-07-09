@@ -208,7 +208,10 @@ static void session_persist(struct fyai_ctx *ctx, const char *key,
 /*
  * Persist the active model, pinned to the resolved provider (provider/model
  * form) when the catalogue knows it, so the continuation re-resolves onto
- * the same provider's offering.
+ * the same provider's offering. `api`/`api_url` are re-derived from the
+ * catalogue as part of the same commit (config_doc_sync_derived_api, hooked
+ * into catalog_sync_config_doc) whenever the model lands on a known
+ * catalogue entry, so they need no persisting here.
  */
 static void session_persist_model(struct fyai_ctx *ctx)
 {
@@ -376,10 +379,18 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	if (ctx->curl && fyai_request_state_apply(ctx))
 		return -1;
 
-	/* Persist the grammar and the provider-pinned model, so the
-	 * continuation stays on the provider this switch re-targeted. */
+	/*
+	 * Persist the grammar, its resolved endpoint and the provider-pinned
+	 * model, so the continuation stays on the provider this switch
+	 * re-targeted. api_url is persisted explicitly here (rather than via
+	 * the model-change catalogue sync, which only fires when the model
+	 * itself changes) since an /api switch alone moves the endpoint.
+	 */
 	session_persist(ctx, "api",
 			fy_sprintfa("'%s'", fyai_api_to_string(cfg->api_mode)));
+	if (cfg->api_url && *cfg->api_url)
+		session_persist(ctx, "api_url",
+				fy_sprintfa("'%s'", cfg->api_url));
 	session_persist_model(ctx);
 
 	printf("api: %s (model %s, provider %s, url %s)\n",
