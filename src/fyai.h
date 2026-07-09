@@ -111,6 +111,14 @@ struct fyai_cfg {
 	 */
 	bool token_extents;
 	bool no_obfuscation;
+	/*
+	 * Chain via previous_response_id (Responses API only): config-only,
+	 * no CLI flag - default off, since a stale/evicted stored response
+	 * (provider retention expiry, or one made with store:false) makes
+	 * the provider hard-error the request rather than degrade to full
+	 * replay, so this is an explicit opt-in via `config set response_chain
+	 * true` / `--set response_chain=true`.
+	 */
 	bool response_chain;
 	bool new_conversation;
 	/*

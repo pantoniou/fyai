@@ -146,8 +146,11 @@ scenario-driven mock provider (`tests/mock/mock_provider.py`,
 builds too.
 
 Three provider modes: Responses API (default), Chat Completions, and the
-Anthropic Messages API (`--responses` / `--chat-completions` / `--messages`).
-Messages mode authenticates with `x-api-key` + `anthropic-version` headers and
+Anthropic Messages API, selected via `config set api <mode>` / `--set
+api=<mode>` (`responses|chat-completions|messages`) — there are no dedicated
+`--responses`/`--chat-completions`/`--messages` flags; the config document is
+the single place API grammar is chosen, durably, from the command line or
+otherwise. Messages mode authenticates with `x-api-key` + `anthropic-version` headers and
 always sends `max_tokens`; inbound `tool_use` blocks are normalized to
 Responses-style `function_call` items at the parse boundary, so canonical
 state, display and cross-provider replay share one shape. Credentials come

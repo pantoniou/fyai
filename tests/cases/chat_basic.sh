@@ -8,7 +8,7 @@ fyai_test_setup
 mock_start chat_basic_twice.json
 
 run_fyai --set logging/wire true --set logging/conversation true \
-	 --chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+	 --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
 	 -s "You are a test assistant." -m mock-model "hello mock"
 assert_status 0
 assert_stdout_contains "Hello from the mock provider."
@@ -35,7 +35,7 @@ assert_status 0
 test ! -s .fyai/logs/wire.yaml || fail "wire log not cleared"
 
 run_fyai --no-whitewash --set logging/wire true \
-	 --chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+	 --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
 	 -s "You are a test assistant." -m mock-model "hello again"
 assert_status 0
 grep -q 'test-key' .fyai/logs/wire.yaml || fail "wire log did not honor --no-whitewash"

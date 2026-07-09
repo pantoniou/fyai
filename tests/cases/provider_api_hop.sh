@@ -14,9 +14,9 @@ mock_start api_hop.json
 
 # Per-hop endpoint/model/grammar/key are supplied entirely on the command line
 # (no provider presets): --url + the API-mode flag + -m + -k.
-HOP_RESP="--responses -u $MOCK_URL/v1/responses -m model-resp -k key-resp"
-HOP_CHAT="--chat-completions -u $MOCK_URL/v1/chat/completions -m model-chat -k key-chat"
-HOP_MSGS="--messages -u $MOCK_URL/v1/messages -m model-msgs -k key-msgs"
+HOP_RESP="--set api=responses -u $MOCK_URL/v1/responses -m model-resp -k key-resp"
+HOP_CHAT="--set api=chat-completions -u $MOCK_URL/v1/chat/completions -m model-chat -k key-chat"
+HOP_MSGS="--set api=messages -u $MOCK_URL/v1/messages -m model-msgs -k key-msgs"
 
 run_hop() {
 	local flags="$1"; shift

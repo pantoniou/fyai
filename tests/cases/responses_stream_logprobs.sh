@@ -9,7 +9,7 @@ set -eu
 fyai_test_setup
 mock_start responses_stream_logprobs.json
 
-run_fyai --responses -u "$MOCK_URL/v1/responses" \
+run_fyai --set api=responses -u "$MOCK_URL/v1/responses" \
 	 -m mock-model --token-extents "stream please"
 assert_status 0
 assert_stdout_contains "For sure."

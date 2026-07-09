@@ -8,7 +8,7 @@ set -eu
 fyai_test_setup
 mock_start messages_stream.json
 
-run_fyai --messages -u "$MOCK_URL/v1/messages" -m mock-model \
+run_fyai --set api=messages -u "$MOCK_URL/v1/messages" -m mock-model \
 	 --stats "stream please"
 assert_status 0
 assert_stdout_contains "Streamed messages answer."

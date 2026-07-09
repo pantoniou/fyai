@@ -56,9 +56,9 @@ EOF
 mock_start "$TEST_DIR/perf.json"
 
 case "$MODE" in
-chat-completions) MODE_ARGS=(--chat-completions -u "$MOCK_URL/v1/chat/completions") ;;
-responses)        MODE_ARGS=(--responses -u "$MOCK_URL/v1/responses") ;;
-messages)         MODE_ARGS=(--messages -u "$MOCK_URL/v1/messages") ;;
+chat-completions) MODE_ARGS=(--set api=chat-completions -u "$MOCK_URL/v1/chat/completions") ;;
+responses)        MODE_ARGS=(--set api=responses -u "$MOCK_URL/v1/responses") ;;
+messages)         MODE_ARGS=(--set api=messages -u "$MOCK_URL/v1/messages") ;;
 *) fail "unknown FYAI_PERF_MODE: $MODE" ;;
 esac
 

@@ -8,12 +8,12 @@ set -eu
 fyai_test_setup
 mock_start state_continuation.json
 
-run_fyai --chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "first question"
 assert_status 0
 assert_stdout_contains "First mock reply."
 
-run_fyai --chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "second question"
 assert_status 0
 assert_stdout_contains "Second mock reply."
@@ -30,7 +30,7 @@ mock_stop 2
 
 # --new drops the history
 mock_start state_continuation.json
-run_fyai --chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
 	 -m mock-model --new "fresh start"
 assert_status 0
 assert_request 0 'all(m.get("content") != "first question" for m in r["body"]["messages"])'

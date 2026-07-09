@@ -8,7 +8,7 @@ set -eu
 fyai_test_setup
 
 mock_start messages_errors.json
-run_fyai --messages --no-stream -u "$MOCK_URL/v1/messages" \
+run_fyai --set api=messages --no-stream -u "$MOCK_URL/v1/messages" \
 	 -m mock-model "boom please"
 assert_status_nonzero
 [ "$FYAI_STATUS" -lt 128 ] || fail "crashed (status $FYAI_STATUS), not a clean error"
@@ -17,7 +17,7 @@ assert_stderr_contains "mock overloaded"
 mock_stop 1
 
 mock_start messages_error_event.json
-run_fyai --messages -u "$MOCK_URL/v1/messages" -m mock-model "fail please"
+run_fyai --set api=messages -u "$MOCK_URL/v1/messages" -m mock-model "fail please"
 assert_status_nonzero
 [ "$FYAI_STATUS" -lt 128 ] || fail "crashed (status $FYAI_STATUS), not a clean error"
 mock_stop 1

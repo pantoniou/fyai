@@ -7,7 +7,7 @@ set -eu
 fyai_test_setup
 mock_start chat_stream.json
 
-run_fyai --chat-completions -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions -u "$MOCK_URL/v1/chat/completions" \
 	 -m mock-model --stats "stream please"
 assert_status 0
 assert_stdout_contains "Streaming hello from the mock."

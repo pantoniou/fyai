@@ -41,10 +41,10 @@ printf 'mock data payload\n' > data.txt
 
 # --- Chat Completions ---
 mock_start cache_chat.json
-run_fyai --chat-completions --no-stream -t \
+run_fyai --set api=chat-completions --no-stream -t \
 	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --stats "read data.txt"
 assert_status 0
-run_fyai --chat-completions --no-stream -t \
+run_fyai --set api=chat-completions --no-stream -t \
 	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --stats "and again"
 assert_status 0
 check_prefix 0 1 messages	# within the tool loop
@@ -54,10 +54,10 @@ mock_stop 3
 
 # --- Responses ---
 mock_start cache_responses.json
-run_fyai --responses --no-stream -t -u "$MOCK_URL/v1/responses" \
+run_fyai --set api=responses --no-stream -t -u "$MOCK_URL/v1/responses" \
 	 -m mock-model --new --stats "read data.txt"
 assert_status 0
-run_fyai --responses --no-stream -t -u "$MOCK_URL/v1/responses" \
+run_fyai --set api=responses --no-stream -t -u "$MOCK_URL/v1/responses" \
 	 -m mock-model --stats "and again"
 assert_status 0
 check_prefix 0 1 input
@@ -69,10 +69,10 @@ mock_stop 3
 
 # --- Anthropic Messages ---
 mock_start cache_messages.json
-run_fyai --messages --no-stream -t -u "$MOCK_URL/v1/messages" \
+run_fyai --set api=messages --no-stream -t -u "$MOCK_URL/v1/messages" \
 	 -m mock-model --new --stats "read data.txt"
 assert_status 0
-run_fyai --messages --no-stream -t -u "$MOCK_URL/v1/messages" \
+run_fyai --set api=messages --no-stream -t -u "$MOCK_URL/v1/messages" \
 	 -m mock-model --stats "and again"
 assert_status 0
 check_prefix 0 1 messages

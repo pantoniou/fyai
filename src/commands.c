@@ -80,13 +80,8 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--api-key, -k <key>", "API key (else PROVIDER_API_KEY env)");
 	ITEM("--url, -u <url>", "API endpoint URL");
 	ITEM("--system, -s <text>", "System prompt");
-	ITEM("--responses", "Use the Responses API");
-	ITEM("--chat-completions", "Use the Chat Completions API");
-	ITEM("--messages", "Use the Anthropic Messages API");
-	ITEM("--response-chain", "Chain via previous_response_id");
 	ITEM("--new", "Start a new conversation");
 	ITEM("--tools", "Enable function tools");
-	ITEM("--builtin-shell", "Enable the built-in shell tool");
 	ITEM("--sandbox", "Landlock-confine shell tools (Linux)");
 	ITEM("--reasoning-effort <lvl>", "minimal|low|medium|high");
 	ITEM("--reasoning-summary <m>", "auto|concise|detailed");

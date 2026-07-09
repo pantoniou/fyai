@@ -7,7 +7,7 @@ set -eu
 fyai_test_setup
 mock_start chat_tools_read_file.json
 
-run_fyai --chat-completions --no-stream -t \
+run_fyai --set api=chat-completions --no-stream -t \
 	 -u "$MOCK_URL/v1/chat/completions" -m mock-model "read missing.py"
 assert_status 0
 assert_stdout_contains "Could not read missing.py."

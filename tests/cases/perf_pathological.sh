@@ -87,9 +87,9 @@ for mode in chat-completions responses messages; do
 	mock_start "$TEST_DIR/patho.json"
 
 	case "$mode" in
-	chat-completions) args=(--chat-completions -u "$MOCK_URL/v1/chat/completions") ;;
-	responses)        args=(--responses -u "$MOCK_URL/v1/responses") ;;
-	messages)         args=(--messages -u "$MOCK_URL/v1/messages") ;;
+	chat-completions) args=(--set api=chat-completions -u "$MOCK_URL/v1/chat/completions") ;;
+	responses)        args=(--set api=responses -u "$MOCK_URL/v1/responses") ;;
+	messages)         args=(--set api=messages -u "$MOCK_URL/v1/messages") ;;
 	esac
 
 	t0=$(now_ms)

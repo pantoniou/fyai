@@ -90,7 +90,7 @@ assert_stdout_contains "false"
 cd ..
 
 # messages-mode feature notes stay off config verbs
-run_fyai --messages config get model
+run_fyai --set api=messages config get model
 assert_status 0
 assert_stderr_not_contains "built-in shell tool"
 

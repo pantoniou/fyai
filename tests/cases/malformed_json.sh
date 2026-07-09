@@ -7,7 +7,7 @@ set -eu
 fyai_test_setup
 
 mock_start malformed.json
-run_fyai --chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions --no-stream -u "$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "garbage please"
 assert_status_nonzero
 [ "$FYAI_STATUS" -lt 128 ] || fail "crashed (status $FYAI_STATUS), not a clean error"

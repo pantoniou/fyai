@@ -1443,13 +1443,8 @@ enum {
 	OPT_TOP_LOGPROBS,
 	OPT_TOKEN_EXTENTS,
 	OPT_NO_OBFUSCATION,
-	OPT_RESPONSES,
-	OPT_CHAT_COMPLETIONS,
-	OPT_MESSAGES,
-	OPT_BUILTIN_SHELL,
 	OPT_SANDBOX,
 	OPT_MARKDOWN,
-	OPT_RESPONSE_CHAIN,
 	OPT_NEW,
 	OPT_REASONING_EFFORT,
 	OPT_REASONING_SUMMARY,
@@ -1482,11 +1477,7 @@ static const struct option long_options[] = {
 	{ "reasoning-summary", required_argument, NULL, OPT_REASONING_SUMMARY },
 	{ "api-key", required_argument, NULL, 'k' },
 	{ "url", required_argument, NULL, 'u' },
-	{ "responses", no_argument, NULL, OPT_RESPONSES },
-	{ "chat-completions", no_argument, NULL, OPT_CHAT_COMPLETIONS },
-	{ "messages", no_argument, NULL, OPT_MESSAGES },
 	{ "tools", no_argument, NULL, 't' },
-	{ "builtin-shell", no_argument, NULL, OPT_BUILTIN_SHELL },
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "markdown", no_argument, NULL, OPT_MARKDOWN },
 	{ "no-markdown", no_argument, NULL, OPT_NO_MARKDOWN },
@@ -1496,7 +1487,6 @@ static const struct option long_options[] = {
 	{ "code-theme", required_argument, NULL, OPT_CODE_THEME },
 	{ "markdown-theme", required_argument, NULL, OPT_MARKDOWN_THEME },
 	{ "markdown-style", required_argument, NULL, OPT_MARKDOWN_STYLE },
-	{ "response-chain", no_argument, NULL, OPT_RESPONSE_CHAIN },
 	{ "new", no_argument, NULL, OPT_NEW },
 	{ "interactive", no_argument, NULL, 'i' },
 	{ "debug", no_argument, NULL, 'd' },
@@ -1937,29 +1927,8 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 						    false, false))
 				goto err_out;
 			break;
-		case OPT_RESPONSES:
-			if (config_queue_set_quoted(cfg, "api", "responses",
-						    false, false))
-				goto err_out;
-			break;
-		case OPT_CHAT_COMPLETIONS:
-			if (config_queue_set_quoted(cfg, "api",
-						    "chat-completions",
-						    false, false))
-				goto err_out;
-			break;
-		case OPT_MESSAGES:
-			if (config_queue_set_quoted(cfg, "api", "messages",
-						    false, false))
-				goto err_out;
-			break;
 		case 't':
 			if (config_queue_set_literal(cfg, "tools", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_BUILTIN_SHELL:
-			if (config_queue_set_literal(cfg, "builtin_shell", "true",
 						     false, false))
 				goto err_out;
 			break;
@@ -1976,11 +1945,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		case OPT_NO_MARKDOWN:
 			if (config_queue_set_literal(cfg, "display/markdown",
 						     "false", false, false))
-				goto err_out;
-			break;
-		case OPT_RESPONSE_CHAIN:
-			if (config_queue_set_literal(cfg, "response_chain", "true",
-						     false, false))
 				goto err_out;
 			break;
 		case OPT_NEW:

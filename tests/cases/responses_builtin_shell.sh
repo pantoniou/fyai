@@ -8,7 +8,7 @@ set -eu
 fyai_test_setup
 mock_start responses_builtin_shell.json
 
-run_fyai --responses --no-stream --builtin-shell \
+run_fyai --set api=responses --no-stream --set builtin_shell=true \
 	 -u "$MOCK_URL/v1/responses" -m mock-model "run the builtin shell"
 assert_status 0
 assert_stdout_contains "Builtin shell round trip done."

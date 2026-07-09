@@ -8,14 +8,14 @@ set -eu
 fyai_test_setup
 
 mock_start truncated_sse_chat.json
-run_fyai --chat-completions -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions -u "$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "cut me off"
 assert_status_nonzero
 [ "$FYAI_STATUS" -lt 128 ] || fail "crashed (status $FYAI_STATUS), not a clean error"
 mock_stop 1
 
 mock_start truncated_sse_responses.json
-run_fyai --responses -u "$MOCK_URL/v1/responses" -m mock-model "cut me off"
+run_fyai --set api=responses -u "$MOCK_URL/v1/responses" -m mock-model "cut me off"
 assert_status_nonzero
 [ "$FYAI_STATUS" -lt 128 ] || fail "crashed (status $FYAI_STATUS), not a clean error"
 mock_stop 1
