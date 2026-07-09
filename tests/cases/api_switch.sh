@@ -58,12 +58,12 @@ assert_request 1 'r["x_api_key"] == "mock-secret"'
 assert_request 1 'r["body"]["max_tokens"] > 0'
 
 # a continuation keeps the conversation's model, provider and grammar
-# (last turn metadata) - the switch sticks completely
+# (persisted arena config) - the switch sticks completely
 run_fyai api
 assert_status 0
 assert_stdout_contains "api: messages (model bar, provider mockprov"
 
-# the verb persists the project default; --new escapes the carryover
+# the verb persists the project default; --new (a clear) keeps it too
 run_fyai api chat-completions
 assert_status 0
 run_fyai config get api

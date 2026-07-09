@@ -50,10 +50,14 @@ assert_request 0 'r["auth"] == "Bearer mock-secret"'
 assert_request 0 'r["body"]["model"] == "bar"'
 mock_stop 1
 
-# An explicit provider/ prefix pins the same provider and wire id (no request).
+# An explicit provider/ prefix pins the same provider and wire id (no
+# request). The effective config carries the intent (the pinned model key);
+# the resolved derivation shows on the api verb, never in the config.
 run_bare -m mockprov/foo config effective
 assert_status 0
-assert_stdout_contains "provider: mockprov"
-assert_stdout_contains "model: bar"
+assert_stdout_contains "model: mockprov/foo"
+run_bare -m mockprov/foo api
+assert_status 0
+assert_stdout_contains "model bar, provider mockprov"
 
 pass

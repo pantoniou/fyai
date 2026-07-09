@@ -107,10 +107,11 @@ assert_status 0
 assert_request 1 'r["body"]["model"] == "reasoning-wire-model"'
 assert_request 1 '"temperature" not in r["body"]'
 
-# max_tokens defaults from the model's max_output_tokens
-run_fyai -m cat-model config effective
+# max_tokens defaults from the model's max_output_tokens - a catalog
+# derivation, visible on the api verb but never persisted into the config
+run_fyai -m cat-model api
 assert_status 0
-assert_stdout_contains "max_tokens: 1234"
+assert_stdout_contains "max_tokens 1234"
 
 # reasoning options on a non-reasoning model are rejected up front
 run_fyai --no-stream -m cat-model --reasoning-effort high "hello"
