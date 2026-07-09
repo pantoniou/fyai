@@ -47,7 +47,8 @@ fyai_test_setup() {
 	export XDG_STATE_HOME="$TEST_DIR/home/.local/state"
 	export XDG_CONFIG_HOME="$TEST_DIR/home/.config"
 	mkdir -p "$HOME"
-	unset OPENAI_API_KEY OPENROUTER_API_KEY DEEPSEEK_API_KEY ANTHROPIC_API_KEY || true
+	unset OPENAI_API_KEY OPENROUTER_API_KEY DEEPSEEK_API_KEY ANTHROPIC_API_KEY \
+	      GOOGLE_API_KEY || true
 
 	printf 'display:\n  markdown: false\n' > config.yaml
 	"$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"

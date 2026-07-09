@@ -93,7 +93,7 @@ the starting configuration for the repository.
 The internal bundled config does not contain raw provider secrets.
 Each provider preset expects its API key in the named environment variable from
 the `api_key` mapping, for example `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
-`ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`.
+`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, or `GOOGLE_API_KEY`.
 
 Run `fyai` with a prompt to use it as a normal coding-agent command:
 
