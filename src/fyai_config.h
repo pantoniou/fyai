@@ -60,6 +60,18 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx);
 int fyai_config_import(struct fyai_ctx *ctx, const char *path);
 int fyai_config_export(struct fyai_ctx *ctx, const char *path);
 int fyai_config_edit(struct fyai_ctx *ctx);
+
+/*
+ * Re-derive the read-only `catalog:` block on @config_doc: the full models[]
+ * entry for the document's `model` (display_name, context_window,
+ * capabilities, open_source, ...) plus `canonical_provider`. Removed
+ * entirely when the model is unknown to @catalog. Used both on every config
+ * commit path (via config_doc_sanitize) and by `catalog import`, which must
+ * re-sync the existing arena config against the newly ingested catalogue.
+ */
+fy_generic fyai_config_sync_catalog(struct fy_generic_builder *gb,
+				    fy_generic catalog, fy_generic config_doc);
+
 fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 				       const char *origin);
 int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,

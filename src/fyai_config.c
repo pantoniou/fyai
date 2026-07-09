@@ -83,6 +83,9 @@ static int config_validate_api(fy_generic root)
 
 static bool config_has_command_ops(struct fyai_cfg *cfg);
 static int config_report_commit(fy_generic report, fy_generic *docp);
+static fy_generic config_doc_mirror_key(struct fy_generic_builder *gb,
+					fy_generic config_doc, fy_generic root,
+					const char *key);
 
 /*
  * Build the user config path: $XDG_CONFIG_HOME/fyai/config.yaml, falling
@@ -824,12 +827,13 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 	if (config_report_commit(report, &root)) {
 		return -1;
 	}
-	/* The merged doc tracks the edit (validated form) so the effective
-	 * view and this run stay on the single source. */
-	ctx->cfg->config_doc = fy_set_at_pathstr(gb,
-			fy_generic_is_valid(ctx->cfg->config_doc) ?
-				ctx->cfg->config_doc : fy_map_empty,
-			key, fy_get_at_pathstr(gb, root, key));
+	/* The merged doc tracks the edit (validated form, including any
+	 * re-derived catalog: block) so the effective view and this run
+	 * stay on the single source. */
+	ctx->cfg->config_doc = config_doc_mirror_key(gb, ctx->cfg->config_doc,
+						     root, key);
+	ctx->cfg->config_doc = config_doc_mirror_key(gb, ctx->cfg->config_doc,
+						     root, "catalog");
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
@@ -966,6 +970,71 @@ static fy_generic config_change_add(struct fy_generic_builder *gb,
 					     after : fy_null));
 }
 
+/*
+ * Re-derive the read-only `catalog:` block on @doc from @catalog: the full
+ * models[] entry for the configured model, plus `canonical_provider` (the
+ * default, unprefixed provider offering it). Keyed off `model`, honouring a
+ * `provider/` prefix only when it names a catalogue provider (same rule as
+ * fyai_config_resolve_model). Removed entirely when the model is unknown to
+ * @catalog, so switching to an uncatalogued model drops stale properties.
+ */
+static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
+					  fy_generic catalog, fy_generic doc,
+					  fy_generic *changesp)
+{
+	fy_generic model_v, cat_model, cat_prov, pinned, block, before, after;
+	const char *model, *bare, *slash;
+	char *pfx;
+
+	model_v = fy_get(doc, "model");
+	model = fy_castp(&model_v, "");
+	bare = model;
+	pinned = fy_invalid;
+	slash = (model && *model) ? strchr(model, '/') : NULL;
+	if (slash) {
+		pfx = strndup(model, slash - model);
+		if (pfx) {
+			pinned = fyai_catalog_provider(catalog, pfx);
+			if (fy_generic_is_valid(pinned))
+				bare = slash + 1;
+			free(pfx);
+		}
+	}
+
+	cat_model = fyai_catalog_resolved_model(catalog, bare);
+	before = fy_get(doc, "catalog");
+	if (fy_generic_is_invalid(cat_model)) {
+		if (fy_generic_is_invalid(before))
+			return doc;
+		doc = fy_delete_at_pathstr(gb, doc, "catalog");
+		if (changesp)
+			*changesp = config_change_add(gb, *changesp, "catalog",
+						      "removed", before, fy_invalid);
+		return doc;
+	}
+
+	cat_prov = fyai_catalog_provider_for_model(catalog, bare, NULL);
+	block = fy_assoc(gb, cat_model, "canonical_provider",
+			 fy_generic_is_valid(cat_prov) ?
+				 fy_get(cat_prov, "name", "") : "");
+	if (fy_equal(before, block))
+		return doc;
+	doc = fy_set_at_pathstr(gb, doc, "catalog", block);
+	if (changesp) {
+		after = fy_get(doc, "catalog");
+		*changesp = config_change_add(gb, *changesp, "catalog",
+					      fy_generic_is_invalid(before) ?
+					      "added" : "changed", before, after);
+	}
+	return doc;
+}
+
+fy_generic fyai_config_sync_catalog(struct fy_generic_builder *gb,
+				    fy_generic catalog, fy_generic config_doc)
+{
+	return catalog_sync_config_doc(gb, catalog, config_doc, NULL);
+}
+
 static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 				      fy_generic *changesp)
 {
@@ -1018,8 +1087,35 @@ static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 		}
 	}
 
+	doc = catalog_sync_config_doc(cfg->gb,
+				      fyai_catalog_effective(cfg->catalog, cfg->gb),
+				      doc, &changes);
+
 	*changesp = changes;
 	return doc;
+}
+
+/*
+ * Mirror @key from @root into @config_doc: set when present in @root, delete
+ * when absent (and only if @config_doc actually carries it, since deleting a
+ * missing key is an error).
+ */
+static fy_generic config_doc_mirror_key(struct fy_generic_builder *gb,
+					fy_generic config_doc, fy_generic root,
+					const char *key)
+{
+	fy_generic v;
+
+	v = fy_get_at_pathstr(gb, root, key);
+	if (fy_generic_is_valid(v))
+		return fy_set_at_pathstr(gb,
+				fy_generic_is_valid(config_doc) ?
+					config_doc : fy_map_empty,
+				key, v);
+	if (fy_generic_is_invalid(config_doc) ||
+	    fy_generic_is_invalid(fy_get_at_pathstr(gb, config_doc, key)))
+		return config_doc;
+	return fy_delete_at_pathstr(gb, config_doc, key);
 }
 
 static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
@@ -1187,9 +1283,10 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 	report = fyai_config_validate_report(ctx->cfg, root, "config");
 	if (config_report_commit(report, &root))
 		return -1;
-	if (fy_generic_is_valid(ctx->cfg->config_doc))
-		ctx->cfg->config_doc = fy_delete_at_pathstr(gb,
-				ctx->cfg->config_doc, key);
+	ctx->cfg->config_doc = config_doc_mirror_key(gb, ctx->cfg->config_doc,
+						     root, key);
+	ctx->cfg->config_doc = config_doc_mirror_key(gb, ctx->cfg->config_doc,
+						     root, "catalog");
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
@@ -1753,6 +1850,12 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 			break;
 		}
 	}
+	/* CLI --set/-m overrides never touch the arena, but `config effective`
+	 * (and anything else reading cfg->config_doc this run) should still
+	 * see the catalog: block for whatever model they landed on. */
+	doc = fyai_config_sync_catalog(cfg->gb,
+				       fyai_catalog_effective(cfg->catalog, cfg->gb),
+				       doc);
 	cfg->config_doc = doc;
 	return apply_config(cfg, doc);
 }

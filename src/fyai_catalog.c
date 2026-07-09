@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "fyai_catalog.h"
+#include "fyai_config.h"
 #include "fyai_storage.h"
 
 /* FYAI_EMBEDDED_CATALOG[] / FYAI_EMBEDDED_CATALOG_LEN - the vendored
@@ -178,7 +179,7 @@ fy_generic fyai_catalog_endpoint(fy_generic provider, enum fyai_api_mode api)
 
 int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 {
-	fy_generic doc, models, providers;
+	fy_generic doc, models, providers, new_config;
 
 	if (!ctx->durable_gb) {
 		fprintf(stderr, "catalog: no arena; run fyai init\n");
@@ -200,7 +201,16 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 			path);
 		return -1;
 	}
-	if (fyai_publish_root(ctx, fy_invalid, doc, fy_invalid))
+	/*
+	 * A new catalogue can change or drop the read-only catalog: block
+	 * (canonical_provider, open_source) on the currently configured
+	 * model, so re-derive it against the incoming catalogue rather than
+	 * whatever it was pinned against before.
+	 */
+	new_config = fy_generic_is_valid(ctx->arena_config) ?
+		fyai_config_sync_catalog(ctx->gb, doc, ctx->arena_config) :
+		fy_invalid;
+	if (fyai_publish_root(ctx, new_config, doc, fy_invalid))
 		return -1;
 	printf("catalog: imported %s (%zu models, %zu providers)\n",
 	       path, fy_len(models), fy_len(providers));
