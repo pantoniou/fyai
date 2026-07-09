@@ -201,7 +201,7 @@ static int parse_turn_selector(const char *cmd, int argc, char **argv,
 static int configure_dump(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	static const char *const targets[] = {
-		"state", "provider", "anchors", NULL,
+		"state", "providers", "anchors", NULL,
 	};
 	struct fy_generic_builder *gb = cfg->gb;
 	struct fyai_dump_args *args = &cfg->cmd.args.dump;
@@ -249,7 +249,7 @@ static int configure_dump(int argc, char **argv, struct fyai_cfg *cfg)
 	case 0:	/* state */
 		args->state = true;
 		break;
-	case 1:	/* provider */
+	case 1:	/* providers */
 		args->provider_stream = true;
 		break;
 	case 2:	/* anchors */

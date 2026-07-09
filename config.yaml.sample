@@ -5,7 +5,8 @@
 #                                        else ~/.config/fyai/config.yaml)
 #   fyai init / fyai config import <file>   (repository: ingested into the
 #                                            .fyai/arena container root)
-# or pass any file explicitly with --config/-C (overrides the other layers).
+# or pass any file explicitly with --config/-C (overlays the arena or bootstrap
+# config; later --set deltas still take precedence).
 # Edit the repository config in place with `fyai config edit`, inspect it
 # with `fyai config export`. Individual keys can be poked from the command
 # line with `--set <key[=value]>` / `--get <key>` / `--delete <key>` (or the
@@ -13,11 +14,13 @@
 # e.g. `fyai --set display/color=on`. Add `--transient` to keep a session's
 # edits (and its conversation state) in memory only.
 #
-# Layers apply lowest-to-highest precedence:
-#   built-in defaults / environment
-#     -> catalogue-derived resolution (model -> provider/url/grammar/wire-id)
-#       -> user file -> arena config -> --config file
-#         -> command-line options (including --set)
+# There is one persisted configuration source: the arena config. The user file
+# above is bootstrap-only: it becomes the base only when the arena has no
+# config, and is never overlaid onto one. The merged document is, in order:
+#   arena config (or user bootstrap) -> --config file -> --set deltas
+# Built-in defaults back any key the merged document omits. The catalogue
+# derives provider/url/grammar/wire-id read-only when the model resolves; those
+# resolved values are not persisted as configuration intent.
 #
 # Every key below is set to its actual compiled-in default, explicitly -
 # nothing is left to an invisible C-level default. Most run-shaping switches

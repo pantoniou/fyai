@@ -44,8 +44,8 @@ content-addressed storage engine rather than in a resident process.
 ## Beta status
 
 This is a first beta drop. The core direction is in place: local durable state,
-provider-independent operation, markdown rendering through native C libraries,
-and a Unix-shaped tool surface for coding work.
+catalogue-driven provider selection, markdown rendering through native C
+libraries, and a Unix-shaped tool surface for coding work.
 
 Expect rough edges. The point of this beta is to make the architecture usable
 early, gather real workflows, and keep tightening the storage, provider, and
@@ -90,10 +90,11 @@ fyai init
 This creates the local arena used for durable conversation state and installs
 the starting configuration for the repository.
 
-The internal bundled config does not contain raw provider secrets.
-Each provider preset expects its API key in the named environment variable from
-the `api_key` mapping, for example `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
-`ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`.
+Configuration never contains raw provider secrets. Set `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, or another provider's conventional
+`<PROVIDER>_API_KEY` variable, or use an `api_key: { type: env, value: NAME }`
+configuration mapping. The configured `model` is resolved through the
+catalogue to its provider, endpoint, API grammar, and wire model ID.
 
 Run `fyai` with a prompt to use it as a normal coding-agent command:
 
@@ -146,5 +147,6 @@ List configured providers:
 fyai list providers
 ```
 
-See `config.yaml.sample` and `doc/cli.md` for current configuration and command
-details.
+Use `fyai help` for the current command reference. See `config.yaml.sample`
+for the configuration keys and `doc/srd/fyai-srd.md` for the Phase 1 storage
+and provider contract.

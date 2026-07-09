@@ -4,287 +4,116 @@
 **Status:** Phase 1
 **Author:** Pantelis Antoniou
 
-*Revision note (0.11): phase-1-only cut of the SRD. Deferred phase references and companion appendices have been removed. The remaining text describes the stateless CLI, canonical arena storage, configuration, provider access, tool execution, and human-facing views currently implemented or actively supported in the tree.*
+This document describes the implemented and supported Phase 1 contract. It supersedes earlier design material that mentioned sessions, named branches, provider presets, repository YAML sidecars, \`--yolo\`, \`--dry-run\`, or portable session bundles.
 
 -----
 
 ## 1. Purpose
 
-fyai is a stateless command-line AI coding assistant. It performs AI-assisted tasks as a standard Unix tool: starts, does work, exits. Conversation history, parsed context, tool state, and configuration persist in files and content-addressed storage rather than in a resident process.
+\`fyai\` is a stateless command-line AI coding assistant. One invocation opens the local durable arena, runs a complete tool-use loop or management command, publishes canonical state when required, and exits. There is no daemon, resident process, TUI, or hidden process state.
 
-The name is pronounced “FYI.” The binary is `fyai`.
-
------
+Conversation state, repository configuration, catalogue snapshots, and turn metadata are durable \`fy_generic\` values in a libfyaml content-addressed arena. The process is stateless between invocations; the arena is the source of truth.
 
 ## 2. Design Principles
 
-**Stateless between invocations.** No daemon, no resident process, no hidden process state. Each invocation is self-contained. State that needs to persist lives in files.
+**Unix-shaped operation.** \`fyai\` reads prompts from arguments or stdin, writes canonical response content to stdout, writes diagnostics and optional statistics to stderr, and returns a conventional exit status.
 
-**Stateful within an invocation.** A single invocation runs the full tool-use loop: many model calls, many tool executions, many turns of reasoning.
+**Provider-independent durable content.** Provider wire streams are preserved for observability, while canonical conversation content remains independent of the API grammar used to produce it.
 
-**Composability with Unix.** stdin, stdout, stderr, exit codes, pipes. fyai is usable as a building block in shell pipelines, makefiles, git hooks, and CI jobs without special accommodation.
+**Immutable canonical state.** Published arena values are immutable, deterministic, and address-stable. Persistent arena relocation is forbidden.
 
-**Files as the source of truth.** Conversation history, tool state, configuration, and trust policy all live in files. Anything fyai needs to remember between invocations is on disk in a form a human can read and a tool can diff.
+**Explicit configuration and credentials.** YAML configuration stores intent; the catalogue resolves provider details. API keys are environment references or explicit command-line values, never raw configuration values.
 
-**Address-stable persistent storage.** Persistent arenas are mapped at fixed, configured base addresses across all processes. This preserves canonical 64-bit pointer identity across process boundaries, which is the foundation of cross-process structural sharing and dedup. Relocation is forbidden for persistent storage.
+**Small tool surface.** The model may read files, apply/write files, invoke a shell, and ask the user for input. Tool execution is bounded by configured policy and optional sandboxing.
 
------
+## 3. Invocation Model
 
-## 3. Non-Goals
+The grammar is:
 
-- TUI or interactive full-screen interface.
-- Resident process, daemon, or background service.
-- Lock-in to a single model provider or inference backend.
-- Built-in editor, file browser, or any UI beyond stdin/stdout streaming.
-- Multi-machine shared arena access.
+\`\`\`
+fyai [global-options] <verb> [verb-args]
+fyai [global-options] <prompt...>
+\`\`\`
 
------
+Global parsing stops at the first non-option. If that token is a known verb it is dispatched as a verb; otherwise the remaining arguments form a prompt. A lone \`-\` reads the prompt from stdin. No prompt on a terminal, or \`-i\`, starts the line-oriented interactive REPL.
 
-## 4. Functional Requirements
+Supported verbs are \`init\`, \`dump\`, \`history\` (\`display\` is an alias), \`stats\`, \`config\`, \`list\`, \`catalog\`, \`clear\`, \`compact\`, \`context\`, \`api\`, \`log\`, \`sandbox\`, \`gc\`, \`tool\`, and \`help\`. \`fyai help\` is the authoritative command reference for flags and verb arguments.
 
-### 4.1 Invocation Model
+Management verbs require no API key. A prompt invocation may make multiple model calls and tool calls until it reaches a terminal response, a configured iteration limit, an interrupt, or an unrecoverable error.
 
-fyai accepts a task description as command-line argument, stdin, or both. It executes the task, which may involve many internal model calls and tool uses, and exits with a status code reflecting outcome.
+## 4. Durable Storage
 
-```
-fyai 'write a commit message'
-make 2>&1 | fyai 'explain this build error'
-git diff --name-only | xargs -P8 -I{} fyai 'review {}'
-fyai --session=design 'continue the discussion'
-```
+### 4.1 Arena discovery and root
 
-### 4.2 Session Management
+\`fyai init\` creates \`./.fyai/arena/\`. Subsequent commands discover the nearest \`.fyai\` directory by walking upward from the current working directory, unless \`arena_dir\` explicitly selects an arena.
 
-Conversations persist in the project fyai arena. Default session location is discovered by walking upward from the current directory looking for a `.fyai/` directory, analogous to git. If none is found, a new session is created in `.fyai/` in the current directory on first write.
+The arena root is an immutable container mapping:
 
-A session is a directed acyclic graph of turns. Branches are first-class: free to create, named, switchable, exportable. Convergent branches that arrive at identical conversation states share storage and identity by construction.
+\`\`\`
+{ fyai: 1, config: <mapping|null>, catalog: <mapping|null>,
+  head: <turn|null>, prev: <root|null> }
+\`\`\`
 
-Required operations: create session, list branches, switch branch, fork branch, prune branch, export branch as portable bundle, import bundle.
+Each publish CAS-updates the allocator refs pointer to a new root. \`prev\` forms a reflog: a turnless configuration update is a first-class root update and does not discard prior conversation state. This is audit/history machinery, not a user-facing branch API.
 
-### 4.3 Tool-Use Loop
+### 4.2 Address stability and lifecycle
 
-A single invocation drives a complete tool-use loop until the task is finished or a stop condition is met:
+Persistent libfyaml arenas map at their configured fixed virtual addresses in every process. Pointer identity is consequently usable for canonical sharing across processes. Arena content is immutable after publication; roots are the only mutable publication point.
 
-- Model produces output, possibly including tool-call requests.
-- fyai executes requested tools subject to approval policy.
-- Tool results are appended to context.
-- Loop continues until model produces a terminal response, hits a configured maximum iteration count, or encounters an unrecoverable error.
+\`clear\` publishes a null conversation head. \`compact\` makes one summary model call and starts a fresh chain, retaining the previous head as \`compacted_from\` metadata. \`gc\` compacts unreachable data and requires arena quiescence; \`gc --keep-reflogs N\` first bounds the retained root-reflog window.
 
-Stop conditions include maximum iteration count, cost limit, wall-clock timeout, and repetition detection.
+### 4.3 Transient mode
 
-### 4.4 Tool Surface
+\`--transient\` stacks in-memory builders over the durable arena. Configuration edits and conversation state behave normally within the invocation but are not published to the arena.
 
-The tool surface is intentionally minimal and Unix-shaped:
+## 5. Configuration and Catalogue
 
-- Read file.
-- Write file, including structured patch semantics.
-- Execute shell command, returning stdout, stderr, exit code.
+Configuration is YAML parsed through libfyaml. The persisted repository configuration is the \`config\` entry in the arena root; there is no \`.fyai/config.yaml\` sidecar.
 
-Higher-level operations are achieved by the model invoking shell commands. The shell is the tool taxonomy.
+The user file at \`$XDG_CONFIG_HOME/fyai/config.yaml\` (or \`~/.config/fyai/config.yaml\`) is bootstrap-only: it supplies the base only when the arena has no configuration. The merged document is, in order:
 
-### 4.5 Approval Policy
+\`\`\`
+arena configuration (or user bootstrap) -> --config file -> --set deltas
+\`\`\`
 
-Tool execution is governed by config-backed admission policy. The `sandbox` mapping holds path grants, path denies, and optional network limits; the non-interactive default is fail-closed unless the configured policy allows the command. Commands outside the configured policy either prompt the user (interactive mode) or fail (non-interactive mode, e.g. CI).
+Built-in defaults back keys absent from that document. \`config effective\` emits the merged document; \`config show\` emits the stored arena document. \`config get\`, \`set\`, and \`delete\`, as well as repeatable global \`--get\`, \`--set\`, and \`--delete\`, use slash paths and YAML-flow typed values.
 
-A `--yolo` flag bypasses prompts entirely.
+The top-level \`model\` is the provider-selection input. The catalogue maps it to a canonical provider, endpoint URL, API grammar, and wire model ID. A \`provider/model\` form pins a catalogue provider offering that model. Resolved catalogue values are read-only derivations; they are not configuration presets and are not persisted as user intent. The arena's \`catalog\` block is refreshed when configuration commits resolve a known model or when \`catalog import\` re-syncs the current model.
 
-`--dry-run` is limited to single-shot generation: it surfaces the first proposed tool call or terminal response without executing it, and stops.
+\`api_key\` in YAML must be \`{ type: env, value: NAME }\`. An explicit \`--api-key\` takes precedence; otherwise fyai uses the configured environment reference or the provider's conventional \`<PROVIDER>_API_KEY\` variable. \`--env\` accepts literal \`.env\` assignments, rejects variable substitution, and exports only variables fyai actually uses.
 
-### 4.6 Streaming Output
+Project \`AGENTS.md\` and \`CLAUDE.md\` instructions are folded into the system prompt only for a new conversation. Global instructions and files from the project root through the current directory are concatenated outermost-first; continuations preserve the already-frozen canonical system turn.
 
-Model output streams to stdout as it is generated. Tool calls interrupt streaming, execute, and the loop resumes with results appended. The user sees progress in real time; long invocations are not silent.
+## 6. Provider Requests and Canonical Turns
 
-Reasoning text, tool calls, tool results, and final output are visually distinguished on the terminal but produced as a single stdout stream suitable for piping. A `--quiet` flag suppresses everything except the final response. A `--json` flag produces structured output for programmatic consumption.
+The supported provider grammars are OpenAI Responses, Chat Completions, and Anthropic Messages. Request and response JSON are constructed and parsed as libfyaml generics; compact JSON exists only at the provider boundary.
 
-**Observability vs. canonicality.** Streamed stdout output is observable but not authoritative. Only canonical turns committed to the arena are authoritative.
+A persisted turn links to its predecessor and records canonical content, provider-specific stream data, metadata, and normalized usage. Provider request IDs, tool-call IDs, finish reasons, timestamps, and wire details are not semantic canonical content. A logical assistant turn may contain multiple model/tool steps.
 
-### 4.7 Provider Abstraction
+Streaming output is observable, not authoritative. Completed turns are published canonically. During an interactive Ctrl-C, completed steps are preserved and the in-flight step diagnostic is reported; batch mode keeps the default signal dispositions.
 
-fyai supports multiple inference backends through a thin provider interface:
+The \`reasoning.effort\` and \`reasoning.summary\` configuration values are sampling/request parameters. They do not affect canonical equality. Current wire translations support Responses and Chat Completions; expanding this into a provider-specific translation layer remains future work.
 
-- Cloud APIs.
-- Local inference.
+## 7. Tools, Sandboxing, and Secrets
 
-Provider selection is per-invocation or per-session through configuration. The canonical content layer of the schema is provider-agnostic; switching providers mid-session is supported. Provider-specific wire-format streams and metadata are stored alongside canonical content but do not break canonical identity.
+The tool surface is \`read_file\`, structured file writing/patching, \`shell\`, and \`ask_user\`. Tool calls are represented distinctly from assistant text so they can be replayed and rendered. \`tool\` runs one named tool without a model call.
 
-### 4.8 Configuration
+The \`sandbox\` configuration enables Landlock confinement for shell tool subprocesses on Linux. It supports project-relative and external allow/deny grants plus optional TCP-port restrictions. The \`.fyai\` arena is always denied to sandboxed tools. Landlock is best-effort on unsupported platforms; the configured approval/policy behavior remains the portable control plane.
 
-Configuration is layered:
+Secrets are never persisted as raw YAML values. Wire logging can redact API keys, and \`whitewash_api_keys\` defaults to enabled.
 
-- System default.
-- User config (`$XDG_CONFIG_HOME/fyai/config.yaml`).
-- Repository config (`.fyai/config.yaml`).
-- Environment variables.
-- Command-line flags.
+## 8. Human-Facing Views and Observability
 
-Later layers override earlier ones. All configuration is YAML, read using libfyaml.
+\`history\` renders the canonical conversation as a readable markdown-oriented view. It is deliberately not a faithful serialization; use \`dump state\`, \`dump anchors\`, or \`dump providers\` for YAML inspection of canonical state, turn graph/metadata, or provider streams respectively.
 
-Arena base addresses and reserve sizes are configured under the `arenas` section. The durable project arena base is derived once at `fyai init` time from a stable hash of repository identity, and the resulting value is recorded in the repository config. After init, the recorded value is authoritative for the arena's entire lifetime.
+\`list\` reports catalogue, turn, exchange, and reflog summaries. \`stats\` sums persisted normalized token/cost usage over the current turn chain; the \`stats\` configuration option reports the current invocation's usage to stderr. \`context\` reports context-window fill using catalogued capacity, recorded usage, and a tokenizer-free bytes/4 estimate.
 
-### 4.9 REPL and Slash Commands
+## 9. Platform and Performance
 
-The interactive REPL dispatches `/`-prefixed lines as slash commands. Commands share the same backends as the CLI verbs where that makes sense. Slash commands include session management, display controls, model selection, context reporting, stats, and other per-session toggles. A slash line never reaches the model; `//...` escapes to send a literal slash-prefixed prompt.
+fyai is Linux-first and supports normal Unix command-line use. Fixed arena mapping is currently specified for the supported 64-bit process layouts. Stateless startup and durable replay must remain fast enough for repeated interactive and scripting use.
 
------
+## 10. Deferred Work
 
-## 5. Storage Architecture
-
-### 5.1 Single Storage Mechanism
-
-fyai has one storage mechanism: the libfyaml content-addressed arena. All persistent canonical data is stored as `fy_generic` values in this arena. There is no separate session file format, no sidecar store, no parallel filesystem layout.
-
-The arena is otherwise immutable; the single category of mutable state is the head pointer of the branch references directory generic, updated atomically via the same CAS mechanism that the arena uses for chunk-list publication and allocator bump pointers.
-
-### 5.2 Arena Stack
-
-The arena is stacked, typically in three layers:
-
-- **Project arena** at `.fyai/arena/` within a project root: durable across invocations and travels with the repository when archived. Holds canonical content, provider streams, metadata, and branch references scoped to that project.
-- **Scratch arena**: in-memory, lives only for the duration of one fyai invocation. Holds in-progress turns during streaming and any work not yet committed to a persistent layer.
-
-Lookup walks the stack from top to bottom; allocation goes to the topmost writable layer. Canonicalization is global within a stack: any logical value has exactly one 64-bit generic representation, making value equality equivalent to pointer equality.
-
-Each persistent arena layer is implemented as a directory containing one or more chunk files. The directory is the unit of arena identity; the chunk files within it collectively comprise the arena's address space and contain all persistent state, including branch references.
-
-### 5.3 VMA Layout and Address Stability
-
-Each persistent arena occupies a fixed virtual address range. The range is reserved at process startup before any other allocation has a chance to claim it.
-
-The default address layout reserves regions in the upper half of the user address space, well above typical heap/mmap/stack regions but below the loader's preferred mmap base. The sizes and base addresses are configurable per arena and recorded in each arena's bootstrap chunk.
-
-Persistent arena chunks are subsequently mapped with `MAP_FIXED` over portions of the reserved region. Relocation is not attempted at map time. This is necessary because relocation would break cross-process pointer identity: process A mapping the arena at one base and process B mapping it at another would produce non-pointer-comparable representations of the same canonical generic.
-
-### 5.4 Multi-Chunk Arena Layout
-
-A persistent arena is a sequence of fixed-size chunk files within the arena directory. Each chunk is a separate file mapped at a deterministic address within the arena region.
-
-Chunk 0 is special: it always exists, it cannot grow, and it holds the synchronization roots for the rest of the arena. Specifically, chunk 0's header contains:
-
-- Magic number and arena format version.
-- Expected region base address.
-- Region size and chunk size.
-- Generation counter.
-- Head pointer to the singly-linked chunk list.
-- Refs head pointer, pointing at the current branch references directory generic.
-- Bootstrap allocator state for chunk 0's own allocation region.
-
-Chunk 0 is created at `fyai init` time as a single-writer operation. Its size is fixed at creation; it never grows. The remaining chunks are created on demand.
-
-### 5.5 Chunk Growth Protocol
-
-When a process exhausts the allocable space in the current set of chunks, it grows the arena by adding a new chunk. The protocol is optimistic, lock-free, and resolves contention by discarding wasted parallel work rather than serializing.
-
-The winner publishes the new chunk by CAS on the chunk list head. Losers discard their work and retry against the published head. No process can publish a chunk at the same generation twice.
-
-### 5.6 Immutability and Concurrency
-
-Canonical arena content is immutable once published. Concurrent readers may traverse the arena without locking. Writers allocate new generics and publish them with compare-and-swap on the relevant root or directory head.
-
-### 5.7 Cache vs. Data Distinction
-
-The arena stores canonical generics only. Reconstructible non-canonical data, such as parse caches, may use separate transient caches, but they are not part of canonical identity.
-
-### 5.8 Parse Cache Relocation (Transient Only)
-
-Transient parse caches may relocate because they are not part of the canonical arena contract and are not address-identity load-bearing.
-
-### 5.9 Parallel Access and Memory Sharing
-
-Multiple processes may map the same arena concurrently. The kernel page cache provides sharing of physical pages for identical mapped chunks.
-
-### 5.10 Branch References Directory Generic
-
-The branch references directory generic is the mutable root for session navigation. It stores the current head of the active branch and any named branch heads.
-
-### 5.11 Xmit Cache
-
-The xmit cache is a transient acceleration structure for serialized provider I/O and does not participate in canonical identity.
-
-### 5.12 Garbage Collection
-
-Garbage collection is a quiesced operation that removes unreachable canonical data and compacts the arena. The arena remains content-addressed and deterministic after compaction.
-
-### 5.13 Required libfyaml Invariants
-
-Canonical generics obey deterministic emission, immutable views, and stable identity within the arena. Values that are part of canonical content must round-trip through libfyaml without changing identity.
-
------
-
-## 6. Schema
-
-### 6.1 Reference Structure
-
-A turn consists of canonical content, provider streams, metadata, and references to earlier content as needed for branch navigation and replay.
-
-### 6.2 Canonicalization Layers
-
-Canonical content is the semantic turn record. Provider-specific wire details, transport diagnostics, and other observability data are separate from canonical content unless they are required to reconstruct meaning.
-
-### 6.3 Canonical Content
-
-Canonical content contains the user-visible and model-visible message sequence for the turn.
-
-### 6.4 Multi-Step Assistant Turns
-
-Assistant turns may be composed from multiple internal steps, including tool calls and tool results, while still appearing as one logical response to the user.
-
-### 6.5 Tool Call Identity
-
-Tool calls are represented distinctly from normal assistant text so they can be rendered and replayed correctly.
-
-### 6.6 System Prompts
-
-System prompts are part of the canonical context and are preserved across invocations.
-
-### 6.7 Streaming and Partial Turns
-
-Partial streamed output is allowed during execution, but only completed canonical turns are authoritative.
-
-### 6.8 Refusals, Errors, and Non-Standard Outcomes
-
-Refusals, tool failures, and other non-standard outcomes are represented explicitly rather than being collapsed into generic failure text.
-
-### 6.9 Branch Heads and Turn Sequences
-
-Branch heads identify the current continuation of a session. Turn sequences are append-only, with branch navigation achieved by choosing a different head.
-
------
-
-## 7. Human-Facing Views
-
-### 7.1 YAML as a Derived View
-
-YAML is a derived view of the arena state for inspection and debugging. It is not the canonical storage format of user-facing terminal output.
-
-### 7.2 Editability
-
-Human-facing views are editable only through supported commands and structured patch operations, not by manually mutating canonical arena bytes.
-
-### 7.3 Export and Bundling
-
-Sessions can be exported and imported as bundles for portability and review.
-
------
-
-## 8. Performance Requirements
-
-Context reload should be fast enough that stateless invocation remains practical for normal interactive use. Warm-start cost should stay low enough that repeated invocations do not feel materially slower than a resident process.
-
------
-
-## 9. Platform Requirements
-
-fyai is Linux-first. The address-stability and fixed-mapping model is specified against Linux on x86-64 and ARM64. Other platforms are secondary and may require platform-specific address selection and failure modes.
-
------
-
-## 10. Security and Trust
-
-Security boundaries are explicit. The command policy is reviewable in config, `--yolo` is an opt-in bypass, and secrets are not stored as raw values in configuration.
-
------
-
-## 11. Open Questions
-
-- Which provider capabilities should be treated as mandatory for the first stable release.
-- How to present history, exchange, and turn views without confusing internal storage structure with user-visible conversation structure.
+- Provider-specific reasoning translation beyond the current OpenAI request shapes, with reasoning metadata events separated from canonical content.
+- The three-layer canonical turn schema described by the design notes.
+- Any future session/branch/bundle model, if adopted, requires a new explicit storage and command contract; it is not a Phase 1 feature.
