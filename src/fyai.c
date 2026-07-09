@@ -599,12 +599,15 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 
 	if (cfg->debug)
 		emit_generic_to_stdout("request", request, cfg->pretty);
-	(void)fyai_log_generic(ctx, "conversation",
-		fy_mapping(ctx->transient_gb,
-			"kind", "request",
-			"api", fyai_api_to_string(cfg->api_mode),
-			"url", cfg->api_url,
-			"body", request));
+
+	if (cfg->conversation_logging) {
+		(void)fyai_log_generic(ctx, "conversation",
+			fy_mapping(ctx->transient_gb,
+				"kind", "request",
+				"api", fyai_api_to_string(cfg->api_mode),
+				"url", cfg->api_url,
+				"body", request));
+	}
 
 	request_body = emit_request_body(ctx->transient_gb, request);
 
@@ -674,11 +677,13 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	}
 
 	response_doc = fy_gb_internalize(ctx->transient_gb, response_doc);
-	(void)fyai_log_generic(ctx, "conversation",
-		fy_mapping(ctx->transient_gb,
-			"kind", "response",
-			"api", fyai_api_to_string(cfg->api_mode),
-			"body", response_doc));
+	if (cfg->conversation_logging) {
+		(void)fyai_log_generic(ctx, "conversation",
+			fy_mapping(ctx->transient_gb,
+				"kind", "response",
+				"api", fyai_api_to_string(cfg->api_mode),
+				"body", response_doc));
+	}
 	return assert_valid_generic(response_doc, NULL);
 }
 

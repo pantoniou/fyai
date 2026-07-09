@@ -753,11 +753,14 @@ static int stream_handle_data(struct stream_response *stream,
 
 	if (cfg->debug > 1)
 		emit_generic_to_stdout("stream", chunk, true);
-	if (fyai_log_generic(ctx, "stream", fy_mapping(stream->gb,
-			"kind", "event",
-			"api", fyai_api_to_string(cfg->api_mode),
-			"data", chunk)))
-		return -1;
+
+	if (cfg->stream_logging) {
+		(void)fyai_log_generic(ctx, "stream",
+				fy_mapping(stream->gb,
+					"kind", "event",
+					"api", fyai_api_to_string(cfg->api_mode),
+					"data", chunk));
+	}
 
 	switch (cfg->api_mode) {
 
