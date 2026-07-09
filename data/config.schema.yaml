@@ -3,74 +3,130 @@
 # min/maxLength, pattern, format, min/maximum, exclusive{Min,Max}imum,
 # properties, required, propertyNames, additionalProperties, items,
 # min/maxItems, anyOf/allOf/oneOf/not - no $ref, no patternProperties).
+# `description` is decorative only (not a validated keyword); kept in sync
+# with config.yaml.sample, the authoritative source of the key list and
+# their compiled-in defaults.
 #
 # Deliberately permissive at every level (additionalProperties left unset,
-# i.e. true): this validates the shape/type/enum of keys fyai actually reads
-# (config.yaml.sample is the authoritative list of those, with their
-# defaults), not a closed vocabulary - an unknown key is silently ignored by
-# the loader today, so rejecting it here would just be a second, divergent
-# source of truth. Nothing in this file is wired into the config commit path
-# yet; it is meant for validation callers (`fyai config validate`, editors,
-# CI) to point at explicitly.
+# i.e. true): this validates the shape/type/enum of keys fyai actually reads,
+# not a closed vocabulary - an unknown key is silently ignored by the loader
+# today, so rejecting it here would just be a second, divergent source of
+# truth. Wired into the commit-time validation gate
+# (config_validate_report_shallow in src/fyai_config.c), so every commit
+# path (set/import/edit/--set) is checked against it; also available
+# directly via `fyai config validate` and `fyai config schema`.
 type: object
+description: >-
+  Top-level fyai config document (arena-resident; see config.yaml.sample).
 properties:
   model:
     type: string
+    description: >-
+      Selects the model; the catalogue maps it to provider/endpoint/grammar/
+      wire-id. May carry a `provider/` prefix to pin a specific provider
+      offering it (e.g. openrouter/glm-5.2). No default; falls back to a
+      built-in model when unset.
   api:
     type: string
     enum: [responses, chat-completions, chat, messages]
+    description: >-
+      API grammar intent (not derived): responses | chat-completions |
+      messages. Re-derived alongside api_url when `model` changes onto a
+      known catalogue entry.
   api_url:
     type: string
+    description: >-
+      Endpoint URL. Derived from the catalogue by default; set explicitly
+      only to override the endpoint the catalogue resolves for the current
+      model/api (e.g. a self-hosted mirror).
   api_key:
     type: object
     required: [type, value]
+    description: >-
+      Non-secret pointer to the credential: never a raw value (raw
+      api_key is rejected on every ingestion path). Falls back to
+      --api-key/-k, then the provider's conventional
+      <PROVIDER>_API_KEY environment variable.
     properties:
       type:
         type: string
         const: env
+        description: The only supported kind - an environment variable reference.
       value:
         type: string
+        description: Name of the environment variable holding the key.
   system_prompt:
     type: string
+    description: The system prompt prepended to every conversation.
   temperature:
     type: number
     minimum: 0
     maximum: 2
+    description: Sampling temperature.
   max_tool_iterations:
     type: integer
     exclusiveMinimum: 0
+    description: Tool-call loop iteration cap per turn.
   max_tokens:
     type: integer
     exclusiveMinimum: 0
+    description: >-
+      Output-token cap per model call. Required by the Anthropic Messages
+      API (sent on every request there); defaults from the catalogue
+      otherwise.
   reasoning:
     type: object
+    description: >-
+      Reasoning/thinking effort for reasoning-capable models. Maps to the
+      Responses API `reasoning: { effort, summary }` and to Chat
+      Completions `reasoning_effort` (summary is Responses-only). Default
+      is unset (no reasoning requested) - there is no valid enum value for
+      "off", so the whole key is normally absent rather than null.
     properties:
       effort:
         type: string
         enum: [minimal, low, medium, high]
+        description: Requested reasoning effort.
       summary:
         type: string
         enum: [auto, concise, detailed]
+        description: Requested reasoning summary verbosity (Responses API only).
   tools:
     type: boolean
+    description: Enable tool calling.
   builtin_shell:
     type: boolean
+    description: >-
+      Enable the built-in shell tool. Forced off automatically for the
+      Messages API grammar (which has no native shell tool support).
   sandbox:
+    description: >-
+      Landlock-confine shell-tool sub-executions (Linux only; a no-op
+      elsewhere). `false` disables it; `true` or a mapping enables it -
+      read-only system paths, read/write the project and temp dirs,
+      everything else denied by default. Best-effort: the allow-list/prompt
+      remains the portable floor when Landlock is unavailable.
     oneOf:
       - type: boolean
       - type: object
         properties:
           enabled:
             type: boolean
+            description: Turn the sandbox on/off (default true when this mapping is given).
           deny:
             type: array
+            description: >-
+              Paths carved out of the project grant (project-relative,
+              absolute, or ~-relative). The .fyai arena is always denied.
             items:
               type: string
           allow:
             type: array
+            description: Extra grants outside the project.
             items:
               anyOf:
                 - type: string
+                  description: A path, granted read/write (rw).
                 - type: object
                   required: [path]
                   properties:
@@ -79,8 +135,16 @@ properties:
                     mode:
                       type: string
                       enum: [rw, ro, edit, append]
+                      description: >-
+                        rw (default) | ro (read+execute only) | edit
+                        (modify existing, no create/delete) | append
+                        (write without truncating).
           network:
             type: object
+            description: >-
+              Present => restrict egress to the listed TCP ports; omit
+              entirely to leave egress open; empty ports denies all
+              egress.
             properties:
               ports:
                 type: array
@@ -90,89 +154,142 @@ properties:
                   maximum: 65535
   logprobs:
     type: boolean
+    description: Request token log-probabilities.
   top_logprobs:
     type: integer
     minimum: -1
+    description: Number of top log-probability candidates per token (-1 = unset).
   token_extents:
     type: boolean
+    description: Record streamed token extents in turn metadata.
   no_obfuscation:
     type: boolean
+    description: Disable provider-side response obfuscation, where supported.
   whitewash_api_keys:
     type: boolean
+    description: Redact API keys from wire logs.
   response_chain:
     type: boolean
+    description: >-
+      Chain via previous_response_id (Responses API only). Off by default:
+      a stale/evicted stored response (provider retention expiry, or one
+      made with store:false) makes the provider hard-error the request
+      rather than degrade to full replay, so this is an explicit opt-in.
   arena_dir:
     type: string
+    description: >-
+      Pins a specific .fyai arena location. No default - computed at
+      runtime by walking up from cwd.
   logging:
     type: object
+    description: Trace logging under .fyai/logs.
     properties:
       wire:
         type: boolean
+        description: Log raw provider request/response bodies.
       stream:
         type: boolean
+        description: Log streamed SSE events.
       conversation:
         type: boolean
+        description: Log the canonical conversation turns.
   display:
     type: object
+    description: >-
+      Stylistic/output options; the only supported form is this nested
+      group (no top-level equivalents).
     properties:
       markdown:
         type: boolean
+        description: Render markdown output.
       stream:
         type: boolean
+        description: Stream the response as it arrives.
       tool_preview_lines:
         type: integer
         minimum: 0
+        description: Lines of a tool result shown before truncation.
       markdown_mode:
         type: string
         enum: [line, stream, oneshot]
+        description: >-
+          How streamed markdown is rendered (only with markdown + stream):
+          line (per line) | stream (redraw per chunk) | oneshot (at end).
       color:
         type: string
         enum: [auto, off, on]
+        description: auto (colour iff a terminal) | off | on (force, even piped).
       theme:
         type: string
         enum: [auto, dark, light]
+        description: "Background: auto (probe terminal) | dark | light."
       markdown_theme:
         type: string
+        description: >-
+          Named markdown palette -> stylings/fyai-<name>.yaml
+          (markdown|plain|vivid). Default is unset (the shipped default
+          styling).
       code_theme:
         type: string
+        description: >-
+          Fenced-code syntax-highlight theme: a libfyts built-in name
+          (default, catppuccin, kanagawa, solarized, tokyonight, vscode,
+          vscode-nvim) or a path to a styling YAML.
       markdown_style:
         type: string
+        description: Explicit-path escape hatch overriding any named theme.
       pretty:
         type: boolean
+        description: Pretty (YAML) debug dumps.
       cache_info:
         type: boolean
+        description: Print provider cache info.
       stats:
         type: boolean
-  # Read-only, re-derived from the catalogue on every commit
-  # (catalog_sync_config_doc in src/fyai_config.c) - never hand-edit.
+        description: Print session token usage to stderr.
   catalog:
     type: object
     required: [name]
+    description: >-
+      Read-only, re-derived from the catalogue on every commit
+      (catalog_sync_config_doc in src/fyai_config.c) - never hand-edit.
+      The full models[] entry for the configured model plus
+      canonical_provider.
     properties:
       name:
         type: string
+        description: Catalogue canonical model id.
       display_name:
         type: string
+        description: Human-readable model name.
       context_window:
         type: integer
+        description: Total context window in tokens.
       max_output_tokens:
         type: integer
+        description: Maximum output tokens the model supports.
       modalities:
         type: array
+        description: Supported input/output modalities (e.g. text).
         items:
           type: string
       capabilities:
         type: array
+        description: Supported capability flags (e.g. tool_calls, json_output).
         items:
           type: string
       open_source:
         type: boolean
+        description: Whether the model is open-weight.
       native_provider:
         type: string
+        description: The provider that originates the model, when relevant.
       canonical_provider:
         type: string
+        description: The model's default, unprefixed provider.
       arena:
         type: object
+        description: LMSYS/Chatbot Arena-style ranking metadata, when known.
         properties:
           rank:
             type: integer
