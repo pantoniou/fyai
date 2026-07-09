@@ -873,6 +873,8 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 		[FYAICT_EDIT] = "edit",
 		[FYAICT_IMPORT] = "import",
 		[FYAICT_EXPORT] = "export",
+		[FYAICT_VALIDATE] = "validate",
+		[FYAICT_SCHEMA] = "schema",
 		NULL
 	};
 	const char *what;
@@ -884,7 +886,8 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 	idx = str_in_set(what, types);
 	if (idx < 0) {	/* not any of ours */
 		fprintf(stderr,
-			"config: unknown type '%s' (show|effective|get|set|delete|edit|import|export)\n",
+			"config: unknown type '%s' "
+			"(show|effective|get|set|delete|edit|import|export|validate|schema)\n",
 			what);
 		return -1;
 	}
@@ -927,6 +930,8 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 		break;
 	case FYAICT_EXPORT:	/* optional output file in args->key */
 	case FYAICT_EDIT:
+	case FYAICT_VALIDATE:
+	case FYAICT_SCHEMA:
 		break;
 	default:
 		break;
@@ -983,6 +988,16 @@ int fyai_execute_config(struct fyai_ctx *ctx)
 		rc = fyai_config_export(ctx, args->key);
 		if (rc)
 			return -1;
+		break;
+	case FYAICT_VALIDATE:
+		rc = fyai_config_validate_schema(cfg, ctx->arena_config,
+						 "config");
+		if (rc)
+			return -1;
+		printf("config: valid\n");
+		break;
+	case FYAICT_SCHEMA:
+		emit_generic_to_stdout(NULL, fyai_config_schema(cfg->gb), true);
 		break;
 	}
 	return 0;
@@ -1304,7 +1319,7 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "config",
 		.configure = configure_config,
 		.execute   = fyai_execute_config,
-		.synopsis  = "config [show | effective | get <key> | set <key> <value> | delete <key> | import <file> | export [file] | edit]",
+		.synopsis  = "config [show | effective | get <key> | set <key> <value> | delete <key> | import <file> | export [file] | edit | validate | schema]",
 		.help	   = "Inspect or edit the arena-resident configuration (default: show).\n"
 			     "  show              print the stored arena config\n"
 			     "  effective         print the merged effective config (no secrets)\n"
@@ -1313,7 +1328,9 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  delete <key>      remove a key (slash path)\n"
 			     "  import <file>     ingest a YAML config file into the arena\n"
 			     "  export [file]     emit the arena config as YAML (stdout by default)\n"
-			     "  edit              edit the arena config with $VISUAL/$EDITOR",
+			     "  edit              edit the arena config with $VISUAL/$EDITOR\n"
+			     "  validate          check the stored config against the JSON Schema\n"
+			     "  schema            print the config document JSON Schema (YAML)",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.config = {
 		},

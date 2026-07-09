@@ -22,11 +22,16 @@
 
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_schema.h"
 #include "fyai_terminal.h"
 #include "fyai_markdown.h"
 #include "fyai_storage.h"
 #include "commands.h"
 #include "utils.h"
+
+/* FYAI_EMBEDDED_CONFIG_SCHEMA[] / FYAI_EMBEDDED_CONFIG_SCHEMA_LEN - the
+ * vendored data/config.schema.yaml, generated at configure time. */
+#include "embedded_config_schema.inc"
 
 /* Environment variables fyai reads directly, always allowed from --env. */
 static const char *const fyai_env_direct[] = {
@@ -1319,6 +1324,37 @@ int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
 	problems = fy_get(report, "problems", fy_seq_empty);
 	fy_foreach(problem, problems)
 		fprintf(stderr, "config: %s\n", fy_castp(&problem, ""));
+	return -1;
+}
+
+static fy_generic embedded_config_schema = fy_invalid;
+
+fy_generic fyai_config_schema(struct fy_generic_builder *gb)
+{
+	fy_generic_sized_string embedded;
+
+	if (fy_generic_is_valid(embedded_config_schema))
+		return embedded_config_schema;
+	embedded.data = (const char *)FYAI_EMBEDDED_CONFIG_SCHEMA;
+	embedded.size = FYAI_EMBEDDED_CONFIG_SCHEMA_LEN;
+	embedded_config_schema = fy_parse(gb, embedded,
+					  FYOPPF_DISABLE_DIRECTORY |
+					  FYOPPF_MODE_YAML_1_2 |
+					  FYOPPF_INPUT_TYPE_STRING, NULL);
+	return embedded_config_schema;
+}
+
+int fyai_config_validate_schema(struct fyai_cfg *cfg, fy_generic doc,
+				const char *origin)
+{
+	fy_generic schema, report;
+
+	schema = fyai_config_schema(cfg->gb);
+	report = fyai_schema_validate(cfg->gb, schema, doc);
+	if (fyai_schema_valid(report))
+		return 0;
+	fprintf(stderr, "%s: schema validation failed\n", origin);
+	fyai_schema_report_print(report);
 	return -1;
 }
 

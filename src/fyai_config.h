@@ -77,6 +77,21 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
 				       const char *origin);
 
+/*
+ * The vendored config document JSON Schema (data/config.schema.yaml,
+ * embedded at build time), parsed once into @gb. Structural/type/enum
+ * validation only, over and above fyai_config_validate_report's semantic
+ * checks - see fyai_schema.h.
+ */
+fy_generic fyai_config_schema(struct fy_generic_builder *gb);
+
+/*
+ * Validate @doc against fyai_config_schema(), printing problems to stderr
+ * (fyai_schema_report_print convention). Returns 0 when it matches.
+ */
+int fyai_config_validate_schema(struct fyai_cfg *cfg, fy_generic doc,
+				const char *origin);
+
 void fyai_config_set_defaults(struct fyai_cfg *cfg);
 
 /*

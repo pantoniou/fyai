@@ -57,7 +57,7 @@ api: responses
 # --- Top-level defaults ----------------------------------------------------
 system_prompt: You are a concise assistant.
 temperature: 0
-max_tool_iterations: 16
+max_tool_iterations: 50
 # Output-token cap per model call. Required by the Anthropic Messages API
 # (sent on every request there); defaults from the catalogue otherwise.
 max_tokens: 8192

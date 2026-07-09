@@ -136,6 +136,8 @@ enum fyai_config_type {
 	FYAICT_EDIT,
 	FYAICT_IMPORT,
 	FYAICT_EXPORT,
+	FYAICT_VALIDATE,
+	FYAICT_SCHEMA,
 	/*
 	 * Not user-typable: synthesized for a bare --set/--get/--delete run with
 	 * no verb, so storage opens (no API key, no requests) and the global ops

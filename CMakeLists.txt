@@ -338,6 +338,21 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_config.inc"
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${FYAI_CONFIG_SAMPLE}")
 
+# Embed the config document JSON Schema (`fyai config validate`).
+set(FYAI_CONFIG_SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/data/config.schema.yaml")
+file(READ "${FYAI_CONFIG_SCHEMA}" _fyai_config_schema_hex HEX)
+string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1,"
+    _fyai_config_schema_bytes "${_fyai_config_schema_hex}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_config_schema.inc"
+    "/* Generated from ${FYAI_CONFIG_SCHEMA}. */\n"
+    "static const unsigned char FYAI_EMBEDDED_CONFIG_SCHEMA[] = {\n"
+    "${_fyai_config_schema_bytes}"
+    "\n};\n"
+    "static const size_t FYAI_EMBEDDED_CONFIG_SCHEMA_LEN = sizeof(FYAI_EMBEDDED_CONFIG_SCHEMA);\n"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${FYAI_CONFIG_SCHEMA}")
+
 # Generate config.h
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
@@ -475,6 +490,7 @@ if(BUILD_TESTING)
         src/fyai_config.c
         src/fyai_prof.c
         src/fyai_sandbox.c
+        src/fyai_schema.c
         src/fyai_storage.c
         src/fyai_terminal.c
         src/utils.c

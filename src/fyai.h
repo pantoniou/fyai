@@ -30,7 +30,7 @@
 /* Anthropic requires an explicit output-token cap on every request. */
 #define DEFAULT_MAX_TOKENS 8192
 #define DEFAULT_SYSTEM_PROMPT "You are a concise assistant."
-#define MAX_TOOL_LOOP_ITERATIONS 16
+#define MAX_TOOL_LOOP_ITERATIONS 50
 #define DEFAULT_TEMPERATURE 0.0
 /* Default lines of a tool result shown in the display view before truncation. */
 #define DEFAULT_TOOL_PREVIEW_LINES 3
