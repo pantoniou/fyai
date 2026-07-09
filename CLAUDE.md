@@ -196,9 +196,10 @@ top-level. `display/markdown_theme` selects a shipped styling by name
 background dark/light only.
 
 The provider/model catalogue (scrape-providers document) is the root's
-`catalog` entry (`fyai catalog import|show|list`, `src/fyai_catalog.c`),
+`catalog` entry (`fyai catalog show|list|import|export`, `src/fyai_catalog.c`),
 with a vendored snapshot (`data/catalog.yaml`) embedded at build time as
-fallback. A single top-level `model` key drives selection: the catalogue maps
+fallback. Unlike `config`, the catalogue verb is view/import/export only —
+there is no in-place edit. A single top-level `model` key drives selection: the catalogue maps
 it to the canonical provider's endpoint/grammar/wire-id, validates reasoning
 capability, and defaults `max_tokens` from `max_output_tokens`. A model may
 carry an optional `provider/` prefix (`openrouter/glm-5.2`) that pins a

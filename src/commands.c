@@ -1012,6 +1012,7 @@ static int configure_catalog(int argc, char **argv, struct fyai_cfg *cfg)
 		[FYAICAT_SHOW] = "show",
 		[FYAICAT_LIST] = "list",
 		[FYAICAT_IMPORT] = "import",
+		[FYAICAT_EXPORT] = "export",
 		NULL
 	};
 	const char *what;
@@ -1023,7 +1024,7 @@ static int configure_catalog(int argc, char **argv, struct fyai_cfg *cfg)
 	idx = str_in_set(what, types);
 	if (idx < 0) {
 		fprintf(stderr,
-			"catalog: unknown type '%s' (show|list|import)\n",
+			"catalog: unknown type '%s' (show|list|import|export)\n",
 			what);
 		return -1;
 	}
@@ -1055,6 +1056,8 @@ static int execute_catalog(struct fyai_ctx *ctx)
 		return fyai_catalog_list(ctx, args->arg);
 	case FYAICAT_IMPORT:
 		return fyai_catalog_import(ctx, args->arg);
+	case FYAICAT_EXPORT:
+		return fyai_catalog_export(ctx, args->arg);
 	}
 	return -1;
 }
@@ -1357,12 +1360,15 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "catalog",
 		.configure = configure_catalog,
 		.execute   = execute_catalog,
-		.synopsis  = "catalog [show | list [models|providers] | import <file>]",
-		.help	   = "Inspect or ingest the provider/model catalogue (default: show).\n"
+		.synopsis  = "catalog [show | list [models|providers] | import <file> | export [file]]",
+		.help	   = "Inspect, ingest or export the provider/model catalogue (default: show).\n"
 			     "  show              emit the effective catalogue as YAML\n"
 			     "  list [what]       tabulate models and/or providers\n"
 			     "  import <file>     ingest a scrape-providers YAML into the arena\n"
-			     "Without an arena catalogue the build-time embedded snapshot is used.",
+			     "  export [file]     write the effective catalogue as YAML (stdout if omitted)\n"
+			     "Without an arena catalogue the build-time embedded snapshot is used.\n"
+			     "The catalogue is view/import/export only: there is no in-place edit,\n"
+			     "unlike config.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.catalog = {
 		},

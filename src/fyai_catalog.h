@@ -75,6 +75,7 @@ fy_generic fyai_catalog_endpoint(fy_generic provider, enum fyai_api_mode api);
 
 /* verb backends */
 int fyai_catalog_import(struct fyai_ctx *ctx, const char *path);
+int fyai_catalog_export(struct fyai_ctx *ctx, const char *path);
 int fyai_catalog_show(struct fyai_ctx *ctx);
 int fyai_catalog_list(struct fyai_ctx *ctx, const char *what);
 

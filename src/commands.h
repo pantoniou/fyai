@@ -155,6 +155,7 @@ enum fyai_catalog_type {
 	FYAICAT_SHOW,
 	FYAICAT_LIST,
 	FYAICAT_IMPORT,
+	FYAICAT_EXPORT,
 };
 
 struct fyai_catalog_args {

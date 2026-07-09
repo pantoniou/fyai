@@ -207,6 +207,33 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 	return 0;
 }
 
+int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
+{
+	fy_generic cat, emitted;
+	const char *text;
+
+	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	if (fy_generic_is_invalid(cat)) {
+		fprintf(stderr, "catalog: none available\n");
+		return -1;
+	}
+	if (!path) {
+		emit_generic_to_stdout(NULL, cat, true);
+		return 0;
+	}
+	emitted = fy_emit(cat,
+			  FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_YAML_1_2 |
+			  FYOPEF_STYLE_PRETTY | FYOPEF_WIDTH_INF, NULL);
+	if (fy_generic_is_invalid(emitted))
+		return -1;
+	text = fy_castp(&emitted, "");
+	if (write_text_file(path, text)) {
+		fprintf(stderr, "catalog: cannot write %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
 int fyai_catalog_show(struct fyai_ctx *ctx)
 {
 	fy_generic cat;

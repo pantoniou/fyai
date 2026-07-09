@@ -43,6 +43,17 @@ assert_status 0
 assert_stdout_contains "cat-model"
 assert_stdout_not_contains "claude-fable-5"
 
+# export round-trips the arena catalogue, to stdout or a file
+run_fyai catalog export
+assert_status 0
+assert_stdout_contains "cat-model"
+assert_stdout_contains "mock-model"
+
+run_fyai catalog export cat-export.yaml
+assert_status 0
+grep -q "cat-model" cat-export.yaml
+grep -q "mock-model" cat-export.yaml
+
 run_fyai -m cat-model list --raw providers
 assert_status 0
 assert_stdout_contains "| Provider | Models |"

@@ -132,7 +132,9 @@ Verbs: `init [path]` (create `./.fyai`, optionally copy a config),
 `dump [state|anchors|providers]`, `stats [--json]` (cumulative usage summed
 from per-turn `usage` metadata in the arena),
 `config [show|get <k>|set <k> <v>|delete <k>|import|export|edit]`,
-`list [providers|models|turns] [--brief|--full]`, `catalog`,
+`list [providers|models|turns] [--brief|--full]`,
+`catalog [show|list [models|providers]|import <file>|export [file]]` (view/
+import/export only, no in-place edit, unlike `config`),
 `clear` (publish a null head; old turns stay in the arena until gc),
 `compact [hint]` (one summary model call restarts the chain from the summary;
 the old head is kept as `compacted_from` turn metadata),
