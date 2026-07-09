@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include "fyai_prof.h"
+#include "fyai_config.h"
 #include "fyai_storage.h"
 #include "fyai_turn.h"
 
@@ -851,6 +852,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	struct fyai_init_args *args = &cfg->cmd.args.init;
 	char *arena_dir = NULL;
 	char *enclosing;
+	fy_generic report;
 	fy_generic root, head, config, catalog;
 	int rc, ret;
 
@@ -914,12 +916,18 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			fprintf(stderr, "init: cannot parse %s\n", args->config);
 			goto out;
 		}
-		if (fyai_config_has_raw_secret(config)) {
-			fprintf(stderr,
-				"init: %s carries a raw api_key; use { type: env, value: NAME }\n",
-				args->config);
+		report = fyai_config_validate_report(ctx->cfg, config,
+						     args->config);
+		if (fy_not_equal(fy_get(report, "result"), "ok")) {
+			fy_generic problems, problem;
+
+			problems = fy_get(report, "problems", fy_seq_empty);
+			fy_foreach(problem, problems)
+				fprintf(stderr, "config: %s\n",
+					fy_castp(&problem, ""));
 			goto out;
 		}
+		config = fy_get(report, "config", config);
 	} else if (fy_generic_is_invalid(config)) {
 		/* No config supplied and none inherited: seed the arena with the
 		 * embedded config.yaml.sample so the project starts from a
@@ -938,6 +946,18 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 				"init: cannot parse embedded config sample\n");
 			goto out;
 		}
+		report = fyai_config_validate_report(ctx->cfg, config,
+						     "embedded config sample");
+		if (fy_not_equal(fy_get(report, "result"), "ok")) {
+			fy_generic problems, problem;
+
+			problems = fy_get(report, "problems", fy_seq_empty);
+			fy_foreach(problem, problems)
+				fprintf(stderr, "config: %s\n",
+					fy_castp(&problem, ""));
+			goto out;
+		}
+		config = fy_get(report, "config", config);
 	}
 
 	ctx->arena_config = config;

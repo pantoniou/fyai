@@ -449,9 +449,13 @@ if(BUILD_TESTING)
 
     add_executable(fyai_config_test
         tests/fyai_config_test.c
+        tests/fyai_config_test_stubs.c
+        src/fyai_catalog.c
+        src/fyai_config.c
         src/fyai_prof.c
         src/fyai_sandbox.c
         src/fyai_storage.c
+        src/fyai_terminal.c
         src/utils.c
     )
     target_compile_options(fyai_config_test PRIVATE ${FYAI_C_DIALECT}

@@ -138,6 +138,8 @@ struct fyai_cfg {
 		char op;
 		const char *key;
 		const char *value;
+		bool persistent;	/* commit to the stored arena config */
+		bool command;		/* explicit --set/--get/--delete */
 	} config_ops[32];
 	size_t config_op_count;
 

@@ -12,6 +12,7 @@
 
 #include <ctype.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,56 @@ static const char *const fyai_env_direct[] = {
 	"OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_URL",
 	"ANTHROPIC_API_KEY",
 };
+
+static int config_bad_value(const char *key, fy_generic value,
+			    fy_generic choices)
+{
+	fprintf(stderr, "config: invalid %s '%s' (%s)\n",
+		key, fy_cast(fy_convert(value, FYGT_STRING), ""),
+		fy_cast(choices, ""));
+	return -1;
+}
+
+static bool config_contains(fy_generic values, fy_generic value)
+{
+	return fy_cast(fy_contains(values, value), (_Bool)false);
+}
+
+static int config_validate_enum(fy_generic root, const char *key,
+				fy_generic values, fy_generic choices)
+{
+	fy_generic v;
+
+	v = fy_get(root, key);
+	if (fy_generic_is_invalid(v))
+		return 0;
+	return config_contains(values, v) ? 0 :
+	       config_bad_value(key, v, choices);
+}
+
+#define CONFIG_VALIDATE_ENUM(_root, _key, ...) \
+	config_validate_enum((_root), (_key), \
+			     fy_sequence(__VA_ARGS__), \
+			     fy_join("|", __VA_ARGS__))
+
+static int config_validate_api(fy_generic root)
+{
+	fy_generic v;
+
+	v = fy_get(root, "api");
+	if (fy_generic_is_invalid(v))
+		return 0;
+	if (config_contains(fy_sequence("responses", "messages", "chat",
+					"chat-completions"), v))
+		return 0;
+	fprintf(stderr,
+		"config: invalid api '%s' (responses|chat-completions|messages)\n",
+		fy_cast(fy_convert(v, FYGT_STRING), ""));
+	return -1;
+}
+
+static bool config_has_command_ops(struct fyai_cfg *cfg);
+static int config_report_commit(fy_generic report, fy_generic *docp);
 
 /*
  * Build the user config path: $XDG_CONFIG_HOME/fyai/config.yaml, falling
@@ -101,7 +152,6 @@ static int resolve_secret(const char **out, fy_generic v)
  */
 static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 {
-	const char *mode;
 	fy_generic v, sb;
 
 	if (fy_generic_is_invalid(root))
@@ -109,6 +159,9 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 
 	if (!resolve_secret(&cfg->api_key, fy_get(root, "api_key")))
 		cfg->api_key_explicit = true;
+
+	if (config_validate_api(root))
+		return -1;
 
 	cfg->model = fy_get(root, "model", cfg->model);
 	cfg->system_prompt = fy_get(root, "system_prompt", cfg->system_prompt);
@@ -158,6 +211,15 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 
 	v = fy_get(root, "reasoning");
 	if (!fy_generic_is_invalid(v)) {
+		if (!fy_generic_is_mapping(v)) {
+			fprintf(stderr, "config: reasoning must be a mapping\n");
+			return -1;
+		}
+		if (CONFIG_VALIDATE_ENUM(v, "effort",
+					 "minimal", "low", "medium", "high") ||
+		    CONFIG_VALIDATE_ENUM(v, "summary",
+					 "auto", "concise", "detailed"))
+			return -1;
 		cfg->reasoning_effort = fy_get(v, "effort",
 					       cfg->reasoning_effort);
 		cfg->reasoning_summary = fy_get(v, "summary",
@@ -165,19 +227,27 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 	}
 
 	v = fy_get(root, "api");
-	if (!fy_generic_is_invalid(v)) {
-		mode = fy_cast(v, "");
-		if (!strcmp(mode, "chat-completions") || !strcmp(mode, "chat"))
-			cfg->api_mode = FYAI_API_CHAT_COMPLETIONS;
-		else if (!strcmp(mode, "responses"))
-			cfg->api_mode = FYAI_API_RESPONSES;
-		else if (!strcmp(mode, "messages"))
-			cfg->api_mode = FYAI_API_MESSAGES;
-	}
+	if (fy_equal(v, "chat-completions") || fy_equal(v, "chat"))
+		cfg->api_mode = FYAI_API_CHAT_COMPLETIONS;
+	else if (fy_equal(v, "responses"))
+		cfg->api_mode = FYAI_API_RESPONSES;
+	else if (fy_equal(v, "messages"))
+		cfg->api_mode = FYAI_API_MESSAGES;
 
 	/* Stylistic options live in the display: group (the only form). */
 	v = fy_get(root, "display");
 	if (!fy_generic_is_invalid(v)) {
+		if (!fy_generic_is_mapping(v)) {
+			fprintf(stderr, "config: display must be a mapping\n");
+			return -1;
+		}
+		if (CONFIG_VALIDATE_ENUM(v, "markdown_mode",
+					 "oneshot", "line", "stream") ||
+		    CONFIG_VALIDATE_ENUM(v, "color",
+					 "auto", "off", "on") ||
+		    CONFIG_VALIDATE_ENUM(v, "theme",
+					 "auto", "dark", "light"))
+			return -1;
 		cfg->markdown_mode = fy_get(v, "markdown_mode",
 					    cfg->markdown_mode);
 		cfg->color = fy_get(v, "color", cfg->color);
@@ -722,6 +792,7 @@ static fy_generic config_parse_value(struct fy_generic_builder *gb,
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 {
 	struct fy_generic_builder *gb = ctx->gb;
+	fy_generic report;
 	fy_generic root, v;
 
 	if (!gb) {
@@ -740,9 +811,8 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 		fprintf(stderr, "config: set failed\n");
 		return -1;
 	}
-	if (fyai_config_has_raw_secret(root)) {
-		fprintf(stderr,
-			"config: refusing a raw api_key; use { type: env, value: NAME }\n");
+	report = fyai_config_validate_report(ctx->cfg, root, "config");
+	if (config_report_commit(report, &root)) {
 		return -1;
 	}
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
@@ -757,41 +827,333 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_config_op *co;
+	fy_generic report;
+	fy_generic root, v;
+	bool dirty;
 	size_t i;
-	int rc;
 
-	if (!cfg->config_op_count)
+	if (!config_has_command_ops(cfg))
 		return 0;
 	if (!ctx->gb) {
 		fprintf(stderr,
 			"--set/--get/--delete need an arena; run fyai init\n");
 		return -1;
 	}
+	root = fy_generic_is_valid(ctx->arena_config) ?
+	       ctx->arena_config : fy_map_empty;
+	dirty = false;
 	for (i = 0; i < cfg->config_op_count; i++) {
 		co = &cfg->config_ops[i];
+		if (!co->command)
+			continue;
 		switch (co->op) {
 		case 's':
-			rc = fyai_config_set(ctx, co->key, co->value);
+			v = config_parse_value(ctx->gb, co->value);
+			if (fy_generic_is_invalid(v)) {
+				fprintf(stderr, "config: cannot parse value '%s'\n",
+					co->value);
+				return -1;
+			}
+			root = fy_set_at_pathstr(ctx->gb, root, co->key, v);
+			if (fy_generic_is_invalid(root)) {
+				fprintf(stderr, "config: set failed\n");
+				return -1;
+			}
+			dirty = co->persistent || dirty;
 			break;
 		case 'd':
-			rc = fyai_config_delete(ctx, co->key);
+			root = fy_delete_at_pathstr(ctx->gb, root, co->key);
+			if (fy_generic_is_invalid(root)) {
+				fprintf(stderr, "config: delete failed\n");
+				return -1;
+			}
+			dirty = co->persistent || dirty;
 			break;
 		case 'g':
-			rc = fyai_config_get(ctx, co->key);
+			v = fy_get_at_pathstr(ctx->gb, root, co->key);
+			if (fy_generic_is_invalid(v)) {
+				fprintf(stderr, "config: key '%s' not set\n",
+					co->key);
+				return -1;
+			}
+			(void)fy_emit(v, FYOPEF_DISABLE_DIRECTORY |
+					 FYOPEF_OUTPUT_TYPE_STDOUT |
+					 FYOPEF_MODE_YAML_1_2 |
+					 FYOPEF_STYLE_ONELINE |
+					 FYOPEF_WIDTH_INF, NULL);
 			break;
 		default:
-			rc = 0;
 			break;
 		}
-		if (rc)
+	}
+	if (dirty) {
+		report = fyai_config_validate_report(cfg, root, "config");
+		if (config_report_commit(report, &root))
+			return -1;
+		if (fyai_publish_root(ctx, root, fy_invalid, fy_invalid))
 			return -1;
 	}
 	return 0;
 }
 
+static int config_doc_finalize(struct fyai_cfg *cfg)
+{
+	struct fyai_cfg tmp;
+
+	tmp = *cfg;
+	if (tmp.theme && !strcmp(tmp.theme, "auto"))
+		tmp.theme = "dark";
+	if (fyai_config_resolve_model(&tmp))
+		return -1;
+	if (fyai_config_messages_gate(&tmp))
+		return -1;
+	return 0;
+}
+
+static fy_generic config_problem_add(struct fy_generic_builder *gb,
+				       fy_generic problems,
+				       const char *fmt, ...)
+{
+	va_list ap;
+	char *msg = NULL;
+	fy_generic out;
+
+	va_start(ap, fmt);
+	(void)vasprintf(&msg, fmt, ap);
+	va_end(ap);
+	if (!msg)
+		return problems;
+	out = fy_append(gb, problems, msg);
+	free(msg);
+	return out;
+}
+
+static bool config_problem_any(fy_generic problems)
+{
+	fy_generic problem;
+
+	fy_foreach(problem, problems)
+		return true;
+	return false;
+}
+
+static fy_generic config_change_add(struct fy_generic_builder *gb,
+				    fy_generic changes, const char *path,
+				    const char *action, fy_generic before,
+				    fy_generic after)
+{
+	return fy_append(gb, changes,
+			 fy_mapping("path", path,
+				    "action", action,
+				    "before", fy_generic_is_valid(before) ?
+					      before : fy_null,
+				    "after", fy_generic_is_valid(after) ?
+					     after : fy_null));
+}
+
+static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
+				      fy_generic *changesp)
+{
+	fy_generic changes, before, after;
+	fy_generic api;
+	bool builtin_shell, tools, logprobs;
+	long long top_logprobs;
+
+	changes = fy_seq_empty;
+
+	api = fy_get(doc, "api");
+	if (fy_equal(api, "chat")) {
+		before = fy_get(doc, "api");
+		doc = fy_set_at_pathstr(cfg->gb, doc, "api",
+					fy_value("chat-completions"));
+		after = fy_get(doc, "api");
+		changes = config_change_add(cfg->gb, changes, "api", "changed",
+					    before, after);
+		api = after;
+	}
+
+	top_logprobs = fy_get(doc, "top_logprobs", -1LL);
+	logprobs = fy_get(doc, "logprobs", false);
+	if (top_logprobs >= 0 && !logprobs) {
+		before = fy_get(doc, "logprobs");
+		doc = fy_set_at_pathstr(cfg->gb, doc, "logprobs", true);
+		after = fy_get(doc, "logprobs");
+		changes = config_change_add(cfg->gb, changes, "logprobs",
+					    fy_generic_is_invalid(before) ?
+					    "added" : "changed",
+					    before, after);
+	}
+
+	builtin_shell = fy_get(doc, "builtin_shell", false);
+	tools = fy_get(doc, "tools", false);
+	if (fy_equal(api, "messages") && builtin_shell) {
+		before = fy_get(doc, "builtin_shell");
+		doc = fy_set_at_pathstr(cfg->gb, doc, "builtin_shell", false);
+		after = fy_get(doc, "builtin_shell");
+		changes = config_change_add(cfg->gb, changes, "builtin_shell",
+					    "changed", before, after);
+		if (!tools) {
+			before = fy_get(doc, "tools");
+			doc = fy_set_at_pathstr(cfg->gb, doc, "tools", true);
+			after = fy_get(doc, "tools");
+			changes = config_change_add(cfg->gb, changes, "tools",
+						    fy_generic_is_invalid(before) ?
+						    "added" : "changed",
+						    before, after);
+		}
+	}
+
+	*changesp = changes;
+	return doc;
+}
+
+static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
+						 fy_generic doc,
+						 const char *origin)
+{
+	fy_generic problems, v;
+
+	problems = fy_seq_empty;
+	if (!fy_generic_is_mapping(doc))
+		problems = config_problem_add(cfg->gb, problems,
+				"%s is not a YAML mapping", origin);
+	if (fyai_config_has_raw_secret(doc))
+		problems = config_problem_add(cfg->gb, problems,
+				"%s carries a raw api_key; use { type: env, value: NAME }",
+				origin);
+	if (!fy_generic_is_mapping(doc))
+		goto out;
+
+	v = fy_get(doc, "api");
+	if (!fy_generic_is_invalid(v) &&
+	    !config_contains(fy_sequence("responses", "messages", "chat",
+					 "chat-completions"), v))
+		problems = config_problem_add(cfg->gb, problems,
+				"invalid api '%s' (responses|chat-completions|messages)",
+				fy_cast(fy_convert(v, FYGT_STRING), ""));
+
+	v = fy_get(doc, "reasoning");
+	if (!fy_generic_is_invalid(v) && !fy_generic_is_mapping(v))
+		problems = config_problem_add(cfg->gb, problems,
+				"reasoning must be a mapping");
+	if (fy_generic_is_mapping(v)) {
+		fy_generic e, s;
+
+		e = fy_get(v, "effort");
+		if (!fy_generic_is_invalid(e) &&
+		    !config_contains(fy_sequence("minimal", "low",
+						 "medium", "high"), e))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid reasoning.effort '%s' (minimal|low|medium|high)",
+				fy_cast(fy_convert(e, FYGT_STRING), ""));
+		s = fy_get(v, "summary");
+		if (!fy_generic_is_invalid(s) &&
+		    !config_contains(fy_sequence("auto", "concise",
+						 "detailed"), s))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid reasoning.summary '%s' (auto|concise|detailed)",
+				fy_cast(fy_convert(s, FYGT_STRING), ""));
+	}
+
+	v = fy_get(doc, "display");
+	if (!fy_generic_is_invalid(v) && !fy_generic_is_mapping(v))
+		problems = config_problem_add(cfg->gb, problems,
+				"display must be a mapping");
+	if (fy_generic_is_mapping(v)) {
+		fy_generic mode, color, theme;
+
+		mode = fy_get(v, "markdown_mode");
+		if (!fy_generic_is_invalid(mode) &&
+		    !config_contains(fy_sequence("oneshot", "line",
+						 "stream"), mode))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid display.markdown_mode '%s' (oneshot|line|stream)",
+				fy_cast(fy_convert(mode, FYGT_STRING), ""));
+		color = fy_get(v, "color");
+		if (!fy_generic_is_invalid(color) &&
+		    !config_contains(fy_sequence("auto", "off",
+						 "on"), color))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid display.color '%s' (auto|off|on)",
+				fy_cast(fy_convert(color, FYGT_STRING), ""));
+		theme = fy_get(v, "theme");
+		if (!fy_generic_is_invalid(theme) &&
+		    !config_contains(fy_sequence("auto", "dark",
+						 "light"), theme))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid display.theme '%s' (auto|dark|light)",
+				fy_cast(fy_convert(theme, FYGT_STRING), ""));
+	}
+
+out:
+	return problems;
+}
+
+fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
+				       const char *origin)
+{
+	struct fyai_cfg tmp;
+	fy_generic problems, changes, sanitized;
+
+	problems = config_validate_report_shallow(cfg, doc, origin);
+	if (config_problem_any(problems))
+		return fy_mapping("result", "failed", "problems", problems);
+
+	memset(&tmp, 0, sizeof(tmp));
+	tmp.gb = cfg->gb;
+	tmp.catalog = cfg->catalog;
+	fyai_config_set_defaults(&tmp);
+	tmp.gb = cfg->gb;
+	tmp.catalog = cfg->catalog;
+	if (apply_config(&tmp, doc))
+		problems = config_problem_add(cfg->gb, problems,
+				"%s has invalid values", origin);
+	else if (config_doc_finalize(&tmp))
+		problems = config_problem_add(cfg->gb, problems,
+				"%s fails semantic validation after resolution", origin);
+
+	if (config_problem_any(problems))
+		return fy_mapping("result", "failed", "problems", problems);
+
+	sanitized = config_doc_sanitize(cfg, doc, &changes);
+	return fy_mapping("result", "ok",
+			  "config", sanitized,
+			  "changes", changes);
+}
+
+int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
+				       const char *origin)
+{
+	fy_generic report, problems, problem;
+
+	report = fyai_config_validate_report(cfg, doc, origin);
+	if (fy_equal(fy_get(report, "result"), "ok"))
+		return 0;
+	problems = fy_get(report, "problems", fy_seq_empty);
+	fy_foreach(problem, problems)
+		fprintf(stderr, "config: %s\n", fy_castp(&problem, ""));
+	return -1;
+}
+
+static int config_report_commit(fy_generic report, fy_generic *docp)
+{
+	fy_generic problems, problem;
+
+	if (fy_equal(fy_get(report, "result"), "ok")) {
+		if (docp)
+			*docp = fy_get(report, "config", *docp);
+		return 0;
+	}
+	problems = fy_get(report, "problems", fy_seq_empty);
+	fy_foreach(problem, problems)
+		fprintf(stderr, "config: %s\n", fy_castp(&problem, ""));
+	return -1;
+}
+
 int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 {
 	struct fy_generic_builder *gb = ctx->gb;
+	fy_generic report;
 	fy_generic root;
 
 	if (!gb) {
@@ -807,27 +1169,15 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 		fprintf(stderr, "config: delete failed\n");
 		return -1;
 	}
+	report = fyai_config_validate_report(ctx->cfg, root, "config");
+	if (config_report_commit(report, &root))
+		return -1;
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
-}
-
-/* Validate an incoming config doc before it enters the immutable arena. */
-static int config_doc_check(fy_generic doc, const char *origin)
-{
-	if (!fy_generic_is_mapping(doc)) {
-		fprintf(stderr, "config: %s is not a YAML mapping\n", origin);
-		return -1;
-	}
-	if (fyai_config_has_raw_secret(doc)) {
-		fprintf(stderr,
-			"config: %s carries a raw api_key; use { type: env, value: NAME }\n",
-			origin);
-		return -1;
-	}
-	return 0;
 }
 
 int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 {
+	fy_generic report;
 	fy_generic doc;
 
 	if (!ctx->gb) {
@@ -837,7 +1187,8 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 	doc = fy_parse_file(ctx->gb,
 			    FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
 			    path);
-	if (config_doc_check(doc, path))
+	report = fyai_config_validate_report(ctx->cfg, doc, path);
+	if (config_report_commit(report, &doc))
 		return -1;
 	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid))
 		return -1;
@@ -875,6 +1226,7 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 {
 	const char *tmpdir, *text;
 	char tmpl[PATH_MAX];
+	fy_generic report;
 	fy_generic emitted, doc;
 	int fd;
 
@@ -920,7 +1272,8 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	doc = fy_parse_file(ctx->gb,
 			    FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
 			    tmpl);
-	if (config_doc_check(doc, "edited config")) {
+	report = fyai_config_validate_report(ctx->cfg, doc, "edited config");
+	if (config_report_commit(report, &doc)) {
 		fprintf(stderr, "config: edits kept at %s\n", tmpl);
 		return -1;
 	}
@@ -1048,22 +1401,6 @@ static const struct option long_options[] = {
 	{ "transient", no_argument, NULL, OPT_TRANSIENT },
 	{ "ephemeral", no_argument, NULL, OPT_TRANSIENT },
 	{ NULL, 0, NULL, 0 },
-};
-
-static const char *const effort_opts[] = {
-	"minimal", "low", "medium", "high", NULL,
-};
-static const char *const summary_opts[] = {
-	"auto", "concise", "detailed", NULL,
-};
-static const char *const mode_opts[] = {
-	"oneshot", "line", "stream", NULL,
-};
-static const char *const color_opts[] = {
-	"auto", "off", "on", NULL,
-};
-static const char *const theme_opts[] = {
-	"auto", "dark", "light", NULL,
 };
 
 /*
@@ -1282,11 +1619,80 @@ int fyai_config_messages_gate(struct fyai_cfg *cfg)
 	return 0;
 }
 
+static int config_queue_op(struct fyai_cfg *cfg, char op, const char *key,
+			   const char *value, bool persistent, bool command)
+{
+	struct fyai_config_op *co;
+
+	if (cfg->config_op_count >= ARRAY_SIZE(cfg->config_ops)) {
+		fprintf(stderr, "too many config operations, max %zu\n",
+			ARRAY_SIZE(cfg->config_ops));
+		return -1;
+	}
+	co = &cfg->config_ops[cfg->config_op_count++];
+	co->op = op;
+	co->key = fy_gb_intern_string(cfg->gb, key);
+	co->value = value ? fy_gb_intern_string(cfg->gb, value) : NULL;
+	co->persistent = persistent;
+	co->command = command;
+	return 0;
+}
+
+static int config_queue_set_literal(struct fyai_cfg *cfg, const char *key,
+				    const char *value, bool persistent,
+				    bool command)
+{
+	return config_queue_op(cfg, 's', key, value, persistent, command);
+}
+
+static int config_queue_set_quoted(struct fyai_cfg *cfg, const char *key,
+				   const char *value, bool persistent,
+				   bool command)
+{
+	char *buf, *p;
+	const char *s;
+	size_t len, extra;
+	int rc;
+
+	extra = 2;
+	for (s = value; *s; s++) {
+		extra++;
+		if (*s == '\'')
+			extra++;
+	}
+	buf = malloc(extra + 1);
+	if (!buf)
+		return -1;
+	p = buf;
+	*p++ = '\'';
+	for (s = value; *s; s++) {
+		*p++ = *s;
+		if (*s == '\'')
+			*p++ = '\'';
+	}
+	*p++ = '\'';
+	*p = '\0';
+	rc = config_queue_set_literal(cfg, key, buf, persistent, command);
+	len = strlen(buf);
+	memset(buf, 0, len);
+	free(buf);
+	return rc;
+}
+
+static bool config_has_command_ops(struct fyai_cfg *cfg)
+{
+	size_t i;
+
+	for (i = 0; i < cfg->config_op_count; i++)
+		if (cfg->config_ops[i].command)
+			return true;
+	return false;
+}
+
 /*
  * Fold every pending --set into @cfg as the highest-precedence layer, so this
- * invocation sees the edited values (deletes and gets act on the arena at
- * storage-open time instead). Builds a single delta mapping from the set paths
- * and overlays it via apply_config.
+ * invocation sees the edited values. Builds one transient document by replaying
+ * every queued set/delete in order, then overlays it via apply_config.
  */
 static int apply_config_set_ops(struct fyai_cfg *cfg)
 {
@@ -1297,18 +1703,32 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 	delta = fy_map_empty;
 	for (i = 0; i < cfg->config_op_count; i++) {
 		co = &cfg->config_ops[i];
-		if (co->op != 's')
-			continue;
-		v = config_parse_value(cfg->gb, co->value);
-		if (fy_generic_is_invalid(v)) {
-			fprintf(stderr, "--set %s: cannot parse value '%s'\n",
-				co->key, co->value);
-			return -1;
-		}
-		delta = fy_set_at_pathstr(cfg->gb, delta, co->key, v);
-		if (fy_generic_is_invalid(delta)) {
-			fprintf(stderr, "--set %s: failed\n", co->key);
-			return -1;
+		switch (co->op) {
+		case 's':
+			v = config_parse_value(cfg->gb, co->value);
+			if (fy_generic_is_invalid(v)) {
+				fprintf(stderr,
+					"config override %s: cannot parse value '%s'\n",
+					co->key, co->value);
+				return -1;
+			}
+			delta = fy_set_at_pathstr(cfg->gb, delta, co->key, v);
+			if (fy_generic_is_invalid(delta)) {
+				fprintf(stderr, "config override %s: failed\n",
+					co->key);
+				return -1;
+			}
+			break;
+		case 'd':
+			delta = fy_delete_at_pathstr(cfg->gb, delta, co->key);
+			if (fy_generic_is_invalid(delta)) {
+				fprintf(stderr, "config override %s: delete failed\n",
+					co->key);
+				return -1;
+			}
+			break;
+		default:
+			break;
 		}
 	}
 	return apply_config(cfg, delta);
@@ -1317,22 +1737,19 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 {
 	struct fy_generic_builder_cfg gb_cfg;
-	struct fyai_config_op *co;
-	const char *cli_config, *cli_env, *cli_color;
+	const char *cli_config, *cli_env, *cli_api_key;
 	struct fyai_last_turn lt = { };
 	bool got_lt = false;
 	bool pin;
-	int opt, rc;
+	int opt, rc, arg_index;
 	char *endp, *def_arena_dir = NULL;
 	long v;
-	double d;
 	const char *verb = NULL;
 	bool stdin_prompt;
 	char *prompt = NULL;
 	int ret = -1;
 	char tmp_prompt[16];
 	char *tmp_argv[2];
-	char *eq, *k;
 
 	if (!cfg)
 		return -1;
@@ -1347,23 +1764,276 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 
 	fyai_config_set_defaults(cfg);
 
-	cli_config = find_cli_option(argc, argv, "--config", 'C');
-	cli_env = find_cli_option(argc, argv, "--env", 'e');
-	cli_color = find_cli_option(argc, argv, "--color", 0);
+	cli_config = NULL;
+	cli_env = NULL;
+	cli_api_key = NULL;
+
+	optind = 0;
+	optarg = NULL;
+
+	/* '+' stops parsing at the first non-option (the verb or prompt). */
+	while ((opt = getopt_long(argc, argv, "+hs:C:e:m:k:u:tipdcS",
+				  long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'h':
+			fyai_usage(stdout, "fyai", cfg->color);
+			ret = 1;
+			goto out;
+		case 's':
+			if (config_queue_set_quoted(cfg, "system_prompt", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case 'C':
+			cli_config = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case 'e':
+			cli_env = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case 'm':
+			if (config_queue_set_quoted(cfg, "model", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_TEMPERATURE:
+			errno = 0;
+			(void)strtod(optarg, &endp);
+			if (errno || *endp) {
+				fprintf(stderr, "invalid temperature: %s\n", optarg);
+				goto err_out;
+			}
+			if (config_queue_set_literal(cfg, "temperature", optarg,
+						     false, false))
+				goto err_out;
+			break;
+		case 'k':
+			cli_api_key = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case 'u':
+			if (config_queue_set_quoted(cfg, "api_url", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_RESPONSES:
+			if (config_queue_set_quoted(cfg, "api", "responses",
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_CHAT_COMPLETIONS:
+			if (config_queue_set_quoted(cfg, "api",
+						    "chat-completions",
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_MESSAGES:
+			if (config_queue_set_quoted(cfg, "api", "messages",
+						    false, false))
+				goto err_out;
+			break;
+		case 't':
+			if (config_queue_set_literal(cfg, "tools", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_BUILTIN_SHELL:
+			if (config_queue_set_literal(cfg, "builtin_shell", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_SANDBOX:
+			if (config_queue_set_literal(cfg, "sandbox", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_MARKDOWN:
+			if (config_queue_set_literal(cfg, "display/markdown",
+						     "true", false, false))
+				goto err_out;
+			break;
+		case OPT_NO_MARKDOWN:
+			if (config_queue_set_literal(cfg, "display/markdown",
+						     "false", false, false))
+				goto err_out;
+			break;
+		case OPT_RESPONSE_CHAIN:
+			if (config_queue_set_literal(cfg, "response_chain", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_NEW:
+			cfg->new_conversation = true;
+			break;
+		case 'i':
+			cfg->interactive = true;
+			break;
+		case 'd':
+			cfg->debug++;
+			break;
+		case 'p':
+			if (config_queue_set_literal(cfg, "display/pretty", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case 'c':
+			if (config_queue_set_literal(cfg, "display/cache_info",
+						     "true", false, false))
+				goto err_out;
+			break;
+		case 'S':
+			if (config_queue_set_literal(cfg, "display/stream", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_NO_STREAM:
+			if (config_queue_set_literal(cfg, "display/stream", "false",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_LOGPROBS:
+			if (config_queue_set_literal(cfg, "logprobs", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_TOP_LOGPROBS:
+			errno = 0;
+			v = strtol(optarg, &endp, 10);
+			if (errno || *endp || v < 0 || v > 20) {
+				fprintf(stderr, "invalid top-logprobs: %s\n", optarg);
+				goto err_out;
+			}
+			if (config_queue_set_literal(cfg, "logprobs", "true",
+						     false, false) ||
+			    config_queue_set_literal(cfg, "top_logprobs", optarg,
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_TOKEN_EXTENTS:
+			if (config_queue_set_literal(cfg, "token_extents", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_STATS:
+			if (config_queue_set_literal(cfg, "display/stats", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_REASONING_EFFORT:
+			if (config_queue_set_quoted(cfg, "reasoning/effort", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_REASONING_SUMMARY:
+			if (config_queue_set_quoted(cfg, "reasoning/summary", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_NO_OBFUSCATION:
+			if (config_queue_set_literal(cfg, "no_obfuscation", "true",
+						     false, false))
+				goto err_out;
+			break;
+		case OPT_NO_WHITEWASH:
+			cfg->whitewash_api_keys = false;
+			break;
+		case OPT_MARKDOWN_MODE:
+			if (config_queue_set_quoted(cfg, "display/markdown_mode",
+						    optarg, false, false))
+				goto err_out;
+			break;
+		case OPT_COLOR:
+			if (config_queue_set_quoted(cfg, "display/color", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_THEME:
+			if (config_queue_set_quoted(cfg, "display/theme", optarg,
+						    false, false))
+				goto err_out;
+			break;
+		case OPT_CODE_THEME:
+			if (config_queue_set_quoted(cfg, "display/code_theme",
+						    optarg, false, false))
+				goto err_out;
+			break;
+		case OPT_MARKDOWN_THEME:
+			if (config_queue_set_quoted(cfg, "display/markdown_theme",
+						    optarg, false, false))
+				goto err_out;
+			break;
+		case OPT_MARKDOWN_STYLE:
+			if (config_queue_set_quoted(cfg, "display/markdown_style",
+						    optarg, false, false))
+				goto err_out;
+			break;
+		case OPT_ANSWER:
+			if (cfg->answer_count >= ARRAY_SIZE(cfg->answers)) {
+				fprintf(stderr, "too many answers, max %zu\n",
+					ARRAY_SIZE(cfg->answers));
+				goto err_out;
+			}
+			cfg->answers[cfg->answer_count++] =
+				fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case OPT_SET:
+			{
+				char *eq, *k;
+
+				eq = strchr(optarg, '=');
+				if (eq) {
+					k = strndup(optarg, eq - optarg);
+					if (!k)
+						goto err_out;
+					rc = config_queue_op(cfg, 's', k, eq + 1,
+							    true, true);
+					free(k);
+				} else {
+					if (optind >= argc) {
+						fprintf(stderr,
+							"--set %s: missing value\n",
+							optarg);
+						goto err_out;
+					}
+					rc = config_queue_op(cfg, 's', optarg,
+							    argv[optind++],
+							    true, true);
+				}
+				if (rc)
+					goto err_out;
+			}
+			break;
+		case OPT_GET:
+			if (config_queue_op(cfg, 'g', optarg, NULL, false, true))
+				goto err_out;
+			break;
+		case OPT_DELETE:
+			if (config_queue_op(cfg, 'd', optarg, NULL, true, true))
+				goto err_out;
+			break;
+		case OPT_TRANSIENT:
+			cfg->transient = true;
+			break;
+		default:
+			fyai_usage(stderr, "fyai", cfg->color);
+			ret = 0;
+			goto out;
+		}
+	}
+	arg_index = optind;
 
 	rc = fyai_config_load(cfg, cli_config, cli_env);
 	if (rc)
 		goto err_out;
-
-	if (cli_color)
-		cfg->color = cli_color;
+	if (cli_api_key) {
+		cfg->api_key = cli_api_key;
+		cfg->api_key_explicit = true;
+	}
 
 	/*
 	 * Carry the conversation's settings over from its last turn (unless
 	 * --new) so a continuation defaults to them; the command line still
 	 * overrides below.
 	 */
-	if (!has_cli_flag(argc, argv, "--new")) {
+	if (!cfg->new_conversation) {
 		fyai_peek_last_turn(cfg, &lt);
 		got_lt = true;
 
@@ -1409,222 +2079,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		got_lt = false;
 	}
 
-	optind = 0;
-	optarg = NULL;
-
-	/* '+' stops parsing at the first non-option (the verb or prompt). */
-	while ((opt = getopt_long(argc, argv, "+hs:C:e:m:k:u:tipdcS",
-				  long_options, NULL)) != -1) {
-		switch (opt) {
-		case 'h':
-			fyai_usage(stdout, "fyai", cfg->color);
-			ret = 1;
-			goto out;
-		case 's':
-			cfg->system_prompt = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case 'C':
-		case 'e':
-			/* Consumed before config load by find_cli_option(). */
-			break;
-		case 'm':
-			cfg->model = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_TEMPERATURE:
-			errno = 0;
-			d = strtod(optarg, &endp);
-			if (errno || *endp) {
-				fprintf(stderr, "invalid temperature: %s\n", optarg);
-				goto err_out;
-			}
-			cfg->temperature = (float)d;
-			break;
-		case 'k':
-			cfg->api_key = fy_gb_intern_string(cfg->gb, optarg);
-			cfg->api_key_explicit = true;
-			break;
-		case 'u':
-			cfg->api_url = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_RESPONSES:
-			cfg->api_mode = FYAI_API_RESPONSES;
-			break;
-		case OPT_CHAT_COMPLETIONS:
-			cfg->api_mode = FYAI_API_CHAT_COMPLETIONS;
-			break;
-		case OPT_MESSAGES:
-			cfg->api_mode = FYAI_API_MESSAGES;
-			break;
-		case 't':
-			cfg->enable_tools = true;
-			break;
-		case OPT_BUILTIN_SHELL:
-			cfg->enable_builtin_shell = true;
-			break;
-		case OPT_SANDBOX:
-			cfg->enable_sandbox = true;
-			break;
-		case OPT_MARKDOWN:
-			cfg->markdown = true;
-			break;
-		case OPT_NO_MARKDOWN:
-			cfg->markdown = false;
-			break;
-		case OPT_RESPONSE_CHAIN:
-			cfg->response_chain = true;
-			break;
-		case OPT_NEW:
-			cfg->new_conversation = true;
-			break;
-		case 'i':
-			cfg->interactive = true;
-			break;
-		case 'd':
-			cfg->debug++;
-			break;
-		case 'p':
-			cfg->pretty = true;
-			break;
-		case 'c':
-			cfg->cache_info = true;
-			break;
-		case 'S':
-			cfg->stream = true;
-			break;
-		case OPT_NO_STREAM:
-			cfg->stream = false;
-			break;
-		case OPT_LOGPROBS:
-			cfg->logprobs = true;
-			break;
-		case OPT_TOP_LOGPROBS:
-			errno = 0;
-			v = strtol(optarg, &endp, 10);
-			if (errno || *endp || v < 0 || v > 20) {
-				fprintf(stderr, "invalid top-logprobs: %s\n", optarg);
-				goto err_out;
-			}
-			cfg->logprobs = true;
-			cfg->top_logprobs = (int)v;
-			break;
-		case OPT_TOKEN_EXTENTS:
-			cfg->token_extents = true;
-			break;
-		case OPT_STATS:
-			cfg->stats = true;
-			break;
-		case OPT_REASONING_EFFORT:
-			if (str_in_set(optarg, effort_opts) < 0) {
-				fprintf(stderr,
-					"invalid reasoning effort '%s' (minimal|low|medium|high)\n",
-					optarg);
-				goto err_out;
-			}
-			cfg->reasoning_effort = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_REASONING_SUMMARY:
-			if (str_in_set(optarg, summary_opts) < 0) {
-				fprintf(stderr,
-					"invalid reasoning summary '%s' (auto|concise|detailed)\n",
-					optarg);
-				goto err_out;
-			}
-			cfg->reasoning_summary = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_NO_OBFUSCATION:
-			cfg->no_obfuscation = true;
-			break;
-		case OPT_NO_WHITEWASH:
-			cfg->whitewash_api_keys = false;
-			break;
-		case OPT_MARKDOWN_MODE:
-			if (str_in_set(optarg, mode_opts) < 0) {
-				fprintf(stderr,
-					"invalid markdown mode '%s' (oneshot|line|stream)\n",
-					optarg);
-				goto err_out;
-			}
-			cfg->markdown_mode = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_COLOR:
-			cfg->color = optarg;
-			if (str_in_set(optarg, color_opts) < 0) {
-				fprintf(stderr, "invalid color '%s' (auto|off|on)\n",
-					optarg);
-				goto err_out;
-			}
-			cfg->color = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_THEME:
-			if (str_in_set(optarg, theme_opts) < 0) {
-				fprintf(stderr, "invalid theme '%s' (auto|dark|light)\n",
-					optarg);
-				return -1;
-			}
-			cfg->theme = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_CODE_THEME:
-			cfg->code_theme = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_MARKDOWN_THEME:
-			cfg->markdown_theme = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_MARKDOWN_STYLE:
-			cfg->markdown_style = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_ANSWER:
-			if (cfg->answer_count >= ARRAY_SIZE(cfg->answers)) {
-				fprintf(stderr, "too many answers, max %zu\n", ARRAY_SIZE(cfg->answers));
-				goto err_out;
-			}
-			cfg->answers[cfg->answer_count++] = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_SET:
-		case OPT_GET:
-		case OPT_DELETE:
-			if (cfg->config_op_count >= ARRAY_SIZE(cfg->config_ops)) {
-				fprintf(stderr, "too many --set/--get/--delete ops, max %zu\n",
-					ARRAY_SIZE(cfg->config_ops));
-				goto err_out;
-			}
-			co = &cfg->config_ops[cfg->config_op_count];
-			eq = opt == OPT_SET ? strchr(optarg, '=') : NULL;
-
-			co->value = NULL;
-			if (opt == OPT_SET && eq) {
-				k = strndup(optarg, eq - optarg);
-				if (!k)
-					goto err_out;
-				co->key = fy_gb_intern_string(cfg->gb, k);
-				free(k);
-				co->value = fy_gb_intern_string(cfg->gb, eq + 1);
-			} else if (opt == OPT_SET) {
-				co->key = fy_gb_intern_string(cfg->gb, optarg);
-				if (optind >= argc) {
-					fprintf(stderr,
-						"--set %s: missing value\n", optarg);
-					goto err_out;
-				}
-				co->value = fy_gb_intern_string(cfg->gb,
-							argv[optind++]);
-			} else {
-				co->key = fy_gb_intern_string(cfg->gb, optarg);
-			}
-			co->op = opt == OPT_SET ? 's' :
-				 opt == OPT_GET ? 'g' : 'd';
-			cfg->config_op_count++;
-			break;
-		case OPT_TRANSIENT:
-			cfg->transient = true;
-			break;
-
-		default:
-			fyai_usage(stderr, "fyai", cfg->color);
-			ret = 0;
-			goto out;
-		}
-	}
-
 	/*
 	 * Fold pending --set edits into this run before model/theme resolution,
 	 * so `--set model=X` (or display/theme, etc.) takes effect immediately.
@@ -1660,9 +2114,9 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	}
 
 	/* A known verb at optind dispatches; otherwise it's a prompt. */
-	verb = optind < argc && fyai_is_verb(argv[optind]) ? argv[optind] : NULL;
+	verb = arg_index < argc && fyai_is_verb(argv[arg_index]) ? argv[arg_index] : NULL;
 
-	if (!verb && optind >= argc && cfg->config_op_count) {
+	if (!verb && arg_index >= argc && config_has_command_ops(cfg)) {
 		/*
 		 * A bare --set/--get/--delete run (no verb, no prompt) is a
 		 * config-only invocation: dispatch the config verb as a no-op so
@@ -1674,14 +2128,16 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		ret = 0;
 	} else if (verb) {
 		cfg->cmd.id = fyai_get_verb_id(verb);
-		argv += optind;
-		argc -= optind;
+		argv += arg_index;
+		argc -= arg_index;
 	} else {
-		stdin_prompt = (!cfg->interactive && optind >= argc && !terminal_is_tty(STDIN_FILENO)) ||
-			       (optind < argc && argc - optind == 1 && !strcmp(argv[optind], "-"));
+		stdin_prompt = (!cfg->interactive && arg_index >= argc &&
+				!terminal_is_tty(STDIN_FILENO)) ||
+			       (arg_index < argc && argc - arg_index == 1 &&
+				!strcmp(argv[arg_index], "-"));
 
 		/* No prompt and a terminal on stdin: drop into interactive mode. */
-		if (optind >= argc && !stdin_prompt)
+		if (arg_index >= argc && !stdin_prompt)
 			cfg->interactive = true;
 
 		prompt = NULL;
@@ -1691,8 +2147,8 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 				fprintf(stderr, "failed to read prompt from stdin\n");
 				goto err_out;
 			}
-		} else if (optind < argc) {
-			prompt = join_args(argc - optind, argv + optind);
+		} else if (arg_index < argc) {
+			prompt = join_args(argc - arg_index, argv + arg_index);
 			if (!prompt) {
 				fprintf(stderr, "Out of memory\n");
 				goto err_out;;

@@ -60,6 +60,10 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx);
 int fyai_config_import(struct fyai_ctx *ctx, const char *path);
 int fyai_config_export(struct fyai_ctx *ctx, const char *path);
 int fyai_config_edit(struct fyai_ctx *ctx);
+fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
+				       const char *origin);
+int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
+				       const char *origin);
 
 void fyai_config_set_defaults(struct fyai_cfg *cfg);
 
