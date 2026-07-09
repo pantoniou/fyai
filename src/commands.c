@@ -55,7 +55,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("display [opts]", "Alias for history");
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
-	ITEM("list [what]", "List providers, models, turns, or exchanges (--brief|--full)");
+	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
 	ITEM("clear", "Reset the conversation (publish a null head)");
 	ITEM("compact [hint]", "Summarize history into a fresh chain");
 	ITEM("context", "Context fill and token estimate");
@@ -1701,12 +1701,13 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "list",
 		.configure = configure_list,
 		.execute   = fyai_execute_list,
-		.synopsis  = "list [--raw|--json|--yaml] [providers|models|turns|exchanges]",
+		.synopsis  = "list [--raw|--json|--yaml] [providers|models|turns|exchanges|reflog]",
 		.help      = "List configured items as rendered markdown (default: providers).\n"
 			     "  providers  configured providers (api, model; * = active)\n"
 			     "  models     catalogue models (context and max output)\n"
 			     "  turns      one compact row per internal storage turn\n"
 			     "  exchanges  one compact row per user exchange\n"
+			     "  reflog     one compact row per arena root update\n"
 			     "  --raw      print generated markdown without rendering\n"
 			     "  --json     emit JSON\n"
 			     "  --yaml     emit YAML\n"

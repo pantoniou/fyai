@@ -923,7 +923,7 @@ static int slash_list(struct fyai_ctx *ctx, const char *arg)
 		return rc;
 	}
 
-	fprintf(stderr, "list: unknown target '%s' (providers|models|turns|exchanges)\n",
+	fprintf(stderr, "list: unknown target '%s' (providers|models|turns|exchanges|reflog)\n",
 		arg);
 	return -1;
 }
@@ -1003,7 +1003,7 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "api", "[mode]", "show or switch the API grammar", slash_api },
 	{ "config", "[show|effective|edit|get|set|delete]", "inspect or edit config",
 	  slash_config },
-	{ "list", "[what]", "list providers, models, turns, or exchanges",
+	{ "list", "[what]", "list providers, models, turns, exchanges, or reflog",
 	  slash_list },
 	{ "history", "[last N]", "show conversation history", slash_history },
 	{ "log", "[target action]", "control trace logging", slash_log },
@@ -1299,6 +1299,7 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 		session_complete_value(lc, buf + 1, len, word, "providers");
 		session_complete_value(lc, buf + 1, len, word, "turns");
 		session_complete_value(lc, buf + 1, len, word, "exchanges");
+		session_complete_value(lc, buf + 1, len, word, "reflog");
 	} else if (cmd && !strcmp(cmd->name, "config")) {
 		session_complete_value(lc, buf + 1, len, word, "show");
 		session_complete_value(lc, buf + 1, len, word, "effective");
