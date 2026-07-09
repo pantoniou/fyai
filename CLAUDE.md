@@ -239,10 +239,23 @@ just before it is frozen into the canonical system turn. A continuation keeps
 the copy it was started with, so editing the files only affects new
 conversations.
 
-Reasoning effort is set via `--reasoning-effort` (`minimal|low|medium|high`) /
-`--reasoning-summary` (`auto|concise|detailed`) or a config `reasoning:`
-mapping; it maps to the Responses `reasoning` object and Chat Completions
-`reasoning_effort`, validated in `fyai_setup`.
+Reasoning effort is set via the config `reasoning: { effort, summary }`
+mapping (`effort`: `minimal|low|medium|high`, `summary`:
+`auto|concise|detailed`), e.g. `config set reasoning/effort high` / `--set
+reasoning/effort=high`; it maps to the Responses `reasoning` object and Chat
+Completions `reasoning_effort`, validated in `fyai_setup`.
+
+Most run-shaping switches (temperature, reasoning, streaming, markdown
+rendering/theme, stats, logprobs, token extents, obfuscation/whitewash) have
+no dedicated CLI flag at all — they are config keys only, set via `config
+set <key> <val>` / `--set <key>=<val>` (see `config.yaml.sample` for the
+full key set). A handful of flags remain because they are not config-backed
+run-local state: `-C`/`-e`/`-k` name external files/secrets, `-m`/`-u`
+resolve through the catalogue, `-t`/`--sandbox` gate tool execution,
+`--color`/`--theme`/`--code-theme` are display-only conveniences kept for
+ergonomics, `--new`/`-i`/`-d`/`--answer` control process behavior, not
+config state, and `--set`/`--get`/`--delete`/`--transient` are the config
+mechanism itself.
 
 ## Coding style
 

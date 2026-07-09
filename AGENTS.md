@@ -77,12 +77,23 @@ the canonical system turn (`fyai_project_instructions()`,
 `src/fyai_config.c`). Continuations keep the frozen copy; editing the files
 affects only new conversations.
 
-**Reasoning effort** is controlled by `--reasoning-effort`
-(`minimal|low|medium|high`) and `--reasoning-summary` (`auto|concise|detailed`),
-or a config `reasoning: { effort, summary }` mapping. It maps to the Responses
-API `reasoning` object and to Chat Completions `reasoning_effort` (summary is
-Responses-only). Values are validated in `fyai_setup`; omit to leave the model
-default untouched.
+**Reasoning effort** is controlled by the config `reasoning: { effort, summary
+}` mapping only, no dedicated flag (`config set reasoning/effort high` /
+`--set reasoning/effort=high`, `effort`: `minimal|low|medium|high`,
+`summary`: `auto|concise|detailed`). It maps to the Responses API
+`reasoning` object and to Chat Completions `reasoning_effort` (summary is
+Responses-only). Values are validated in `fyai_setup`; omit to leave the
+model default untouched.
+
+Most other run-shaping switches (temperature, streaming, markdown
+rendering/theme, stats, logprobs, token extents, obfuscation/whitewash) are
+likewise config-only — `config set <key> <val>` / `--set <key>=<val>`, see
+`config.yaml.sample`. The surviving CLI flags either name external
+files/secrets (`-C`/`-e`/`-k`), resolve through the catalogue (`-m`/`-u`),
+gate tool execution (`-t`/`--sandbox`), are display-only conveniences
+(`--color`/`--theme`/`--code-theme`), control process behavior rather than
+config state (`--new`/`-i`/`-d`/`--answer`), or are the config mechanism
+itself (`--set`/`--get`/`--delete`/`--transient`).
 
 *Canonical-schema note (deferred).* Per SRD §6.1–6.2 and decision-log §2.2,
 reasoning effort/summary are **sampling parameters**: they belong in the
