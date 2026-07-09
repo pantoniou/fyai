@@ -287,5 +287,4 @@ Security boundaries are explicit. The command policy is reviewable in config, `-
 ## 11. Open Questions
 
 - Which provider capabilities should be treated as mandatory for the first stable release.
-- How much of the REPL slash-command surface should remain session-only versus promoted to persistent configuration.
 - How to present history, exchange, and turn views without confusing internal storage structure with user-visible conversation structure.

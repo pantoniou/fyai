@@ -51,13 +51,18 @@ long-lived holder, never cache a `fy_cast` result past the generic's scope.
 - `src/fyai.c` — core engine orchestration; functional modules live beside it.
 - `src/fyai_session.c` — session commands: shared backends for the interactive
   slash commands (`/clear`, `/compact`, `/model`, `/api`, `/context`, plus a
-  data-driven table of session-only settings like `/effort`, `/theme`,
-  `/markdown`) and the `clear`/`compact`/`context` verbs; the tokenizer-free
-  context estimator (bytes/4) and linenoise tab completion (command names,
-  enum values, catalogue model names). In the REPL a `/`-prefixed line never
-  reaches the model; `//` escapes a literal slash line. `/model` re-runs
+  data-driven table of settings like `/effort`, `/theme`, `/markdown`) and
+  the `clear`/`compact`/`context` verbs; the tokenizer-free context estimator
+  (bytes/4) and linenoise tab completion (command names, enum values,
+  catalogue model names). In the REPL a `/`-prefixed line never reaches the
+  model; `//` escapes a literal slash line. `/model` re-runs
   `fyai_config_resolve_model()` and `fyai_request_state_apply()` mid-session,
-  re-deriving `<PROVIDER>_API_KEY` unless the key was explicit; `/compact`
+  re-deriving `<PROVIDER>_API_KEY` unless the key was explicit. Request-shaping
+  switches (`/model`, `/api`, the reasoning options, `/temperature`) persist
+  into the arena config via the one commit path, so a continuation resumes on
+  them (`--transient` keeps the publish in-memory); display settings stay
+  session-only. `--new` behaves exactly like `/clear`: it publishes a turnless
+  head reset. `/compact`
   makes one tools-off summary call and restarts the chain from the summary,
   keeping the old head under turn metadata `compacted_from`.
 - `src/fyai_signal.c` — interactive-session signal handling (installed only in
@@ -157,10 +162,21 @@ The durable arena root ref is a versioned container mapping
 repository config is the root's `config` entry — there is no
 `.fyai/config.yaml`. `fyai init` ingests an initial config;
 `fyai config import|export|edit|show|get|set|delete` operate on the arena
-document ($VISUAL/$EDITOR round-trip through a `.yaml` tempfile). Precedence,
-low→high: defaults/env → catalog-derived resolution → user file
-(`$XDG_CONFIG_HOME/fyai/config.yaml`, a plain-file bootstrap) → arena config
-→ `--config` file → CLI options (`--set` on top). See `config.yaml.sample`.
+document ($VISUAL/$EDITOR round-trip through a `.yaml` tempfile).
+
+There is a single configuration source: one merged document
+(`cfg->config_doc`), built as arena config → `--config` file → `--set`
+deltas, deep-merged mapping-wise (`config_merge`). The user file
+(`$XDG_CONFIG_HOME/fyai/config.yaml`) is bootstrap-only — used as the base
+only when the arena carries no config, never overlaid onto one. The struct
+fields are a derived cache filled by a single `apply_config` pass;
+`config effective` emits the merged document verbatim, `config show` the
+arena entry. Catalog-derived values (endpoint, provider, `max_tokens` from
+`max_output_tokens`) are re-derived read-only from the catalogue at resolve
+time and never persisted into the config — the config stores intent (the
+`model` key), the `api` verb shows the resolved derivation. Compiled-in
+defaults still back any key the document does not set. See
+`config.yaml.sample`.
 
 Config keys are addressed by slash paths of arbitrary depth (`display/color`);
 `config get`/`--get` prints one-line flow, `config set`/`--set` parses the

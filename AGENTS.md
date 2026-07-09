@@ -32,17 +32,21 @@ Map provider-specific wire details into provider-stream generics, then derive pr
 
 ## Configuration
 
-Configuration is layered YAML, parsed with libfyaml (`src/fyai_config.c`). Up to
-three files are consulted: the user config (`$XDG_CONFIG_HOME/fyai/config.yaml`,
-else `~/.config/fyai/config.yaml`), the repository config (nearest
-`.fyai/config.yaml` walking up from the cwd), and an explicit file passed with
-`--config`/`-C` (which must exist when named). See `config.yaml.sample` for the
-full key set.
+Configuration is YAML, parsed with libfyaml (`src/fyai_config.c`). Three
+inputs are consulted: the user config (`$XDG_CONFIG_HOME/fyai/config.yaml`,
+else `~/.config/fyai/config.yaml`), the repository config (the arena root's
+`config` entry — there is no `.fyai/config.yaml`), and an explicit file
+passed with `--config`/`-C` (which must exist when named). See
+`config.yaml.sample` for the full key set.
 
-Layers apply lowest-to-highest precedence: built-in defaults/environment →
-catalogue-derived resolution → top-level keys (user file, then repository, then
-`--config` file) → command-line options (with `--set` folded in on top). Each
-layer overrides only the keys it sets.
+There is a single configuration source: one merged document, built as arena
+(repository) config → `--config` file → `--set` deltas, deep-merged
+mapping-wise. The user file is bootstrap-only — it is the base only when the
+arena carries no config, and is never overlaid onto one. `config effective`
+emits the merged document verbatim; built-in defaults back any key it does
+not set. Catalogue-derived values (endpoint, provider, `max_tokens`) are
+re-derived read-only at resolve time and never persisted into the config —
+the config stores intent, the `api` verb shows the resolved derivation.
 
 **Model & provider.** A single top-level `model` key drives selection; the
 catalogue (`fyai catalog list`) maps it to the canonical provider's endpoint
@@ -141,13 +145,16 @@ them; `-h` prints it.
 The interactive REPL (`-i`, or verb-less with a tty) dispatches `/`-prefixed
 lines as slash commands sharing the verb backends (`src/fyai_session.c`):
 `/clear`, `/compact [hint]`, `/model [name]` (mid-session catalogue
-re-resolution + request-state rebuild; session-only), `/context`, `/stats`,
-`/help`, `/exit`/`/quit`, and a data-driven family of session-only settings
+re-resolution + request-state rebuild), `/context`, `/stats`,
+`/help`, `/exit`/`/quit`, and a data-driven family of settings
 (`/effort`, `/summary`, `/theme`, `/markdown-theme`, `/code-theme`,
 `/markdown`, `/stream`, `/print-stats`, `/temperature`) with tab completion for
 command names, enum values and catalogue model names. A slash line never
 reaches the model; `//...` escapes to send a literal slash-prefixed prompt.
-Durable edits remain `config set` / `--set`.
+Request-shaping switches (`/model`, `/api`, the reasoning options,
+`/temperature`) persist into the arena config so a continuation resumes on
+them; display settings stay session-only, with `config set` / `--set` as the
+durable forms.
 
 The REPL installs signal handlers (`src/fyai_signal.c`, interactive only —
 batch keeps the default dispositions): Ctrl-C during a model request/tool run
