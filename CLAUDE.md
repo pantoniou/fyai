@@ -178,6 +178,17 @@ time and never persisted into the config — the config stores intent (the
 defaults still back any key the document does not set. See
 `config.yaml.sample`.
 
+A separate, explicitly-informational `catalog:` block *is* persisted: it
+mirrors the full catalogue `models[]` entry for the current `model` plus
+`canonical_provider` (the model's default, unprefixed provider), read-only
+and re-derived on every commit (`catalog_sync_config_doc` in
+`src/fyai_config.c`, hooked into `config_doc_sanitize` so every commit path —
+`set`/`delete`/`import`/`edit`/`--set`/`--delete` — picks it up, plus the
+CLI-overlay path in `apply_config_set_ops` for `config effective` on a
+run-local `-m`). It disappears entirely when `model` names something the
+catalogue does not know, and `catalog import` re-syncs it against the newly
+ingested catalogue for whatever model is already configured.
+
 Config keys are addressed by slash paths of arbitrary depth (`display/color`);
 `config get`/`--get` prints one-line flow, `config set`/`--set` parses the
 value as a YAML flow document (typed scalars, mappings, sequences), and

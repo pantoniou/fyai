@@ -56,6 +56,12 @@ it names a catalogue provider. There are no `providers:` presets and no
 `--provider`/`-P`; the API key comes from `--api-key`/`-k`, a config `api_key`
 env mapping, or the provider's `<PROVIDER>_API_KEY` env var.
 
+The config document also carries a read-only `catalog:` block: the full
+catalogue `models[]` entry for the current `model` plus `canonical_provider`,
+re-derived on every config commit and dropped entirely when `model` is not
+in the catalogue; `catalog import` re-syncs it for whatever model is already
+configured.
+
 **Config editing.** Keys are slash paths of arbitrary depth. `fyai config
 get|set|delete <key>` and the repeatable global `--get`/`--set`/`--delete`
 options share one implementation: `get` prints one-line flow, `set` parses the
