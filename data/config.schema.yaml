@@ -29,6 +29,7 @@ properties:
   api:
     type: string
     enum: [responses, chat-completions, chat, messages]
+    default: responses
     description: >-
       API grammar intent (not derived): responses | chat-completions |
       messages. Re-derived alongside api_url when `model` changes onto a
@@ -57,19 +58,23 @@ properties:
         description: Name of the environment variable holding the key.
   system_prompt:
     type: string
+    default: You are a concise assistant.
     description: The system prompt prepended to every conversation.
   temperature:
     type: number
     minimum: 0
     maximum: 2
+    default: 0
     description: Sampling temperature.
   max_tool_iterations:
     type: integer
     exclusiveMinimum: 0
+    default: 50
     description: Tool-call loop iteration cap per turn.
   max_tokens:
     type: integer
     exclusiveMinimum: 0
+    default: 8192
     description: >-
       Output-token cap per model call. Required by the Anthropic Messages
       API (sent on every request there); defaults from the catalogue
@@ -93,13 +98,16 @@ properties:
         description: Requested reasoning summary verbosity (Responses API only).
   tools:
     type: boolean
+    default: true
     description: Enable tool calling.
   builtin_shell:
     type: boolean
+    default: true
     description: >-
       Enable the built-in shell tool. Forced off automatically for the
       Messages API grammar (which has no native shell tool support).
   sandbox:
+    default: false
     description: >-
       Landlock-confine shell-tool sub-executions (Linux only; a no-op
       elsewhere). `false` disables it; `true` or a mapping enables it -
@@ -112,6 +120,7 @@ properties:
         properties:
           enabled:
             type: boolean
+            default: true
             description: Turn the sandbox on/off (default true when this mapping is given).
           deny:
             type: array
@@ -154,22 +163,28 @@ properties:
                   maximum: 65535
   logprobs:
     type: boolean
+    default: false
     description: Request token log-probabilities.
   top_logprobs:
     type: integer
     minimum: -1
+    default: -1
     description: Number of top log-probability candidates per token (-1 = unset).
   token_extents:
     type: boolean
+    default: false
     description: Record streamed token extents in turn metadata.
   no_obfuscation:
     type: boolean
+    default: false
     description: Disable provider-side response obfuscation, where supported.
   whitewash_api_keys:
     type: boolean
+    default: true
     description: Redact API keys from wire logs.
   response_chain:
     type: boolean
+    default: false
     description: >-
       Chain via previous_response_id (Responses API only). Off by default:
       a stale/evicted stored response (provider retention expiry, or one
@@ -186,12 +201,15 @@ properties:
     properties:
       wire:
         type: boolean
+        default: false
         description: Log raw provider request/response bodies.
       stream:
         type: boolean
+        default: false
         description: Log streamed SSE events.
       conversation:
         type: boolean
+        default: false
         description: Log the canonical conversation turns.
   display:
     type: object
@@ -201,27 +219,33 @@ properties:
     properties:
       markdown:
         type: boolean
+        default: true
         description: Render markdown output.
       stream:
         type: boolean
+        default: true
         description: Stream the response as it arrives.
       tool_preview_lines:
         type: integer
         minimum: 0
+        default: 3
         description: Lines of a tool result shown before truncation.
       markdown_mode:
         type: string
         enum: [line, stream, oneshot]
+        default: line
         description: >-
           How streamed markdown is rendered (only with markdown + stream):
           line (per line) | stream (redraw per chunk) | oneshot (at end).
       color:
         type: string
         enum: [auto, off, on]
+        default: auto
         description: auto (colour iff a terminal) | off | on (force, even piped).
       theme:
         type: string
         enum: [auto, dark, light]
+        default: dark
         description: "Background: auto (probe terminal) | dark | light."
       markdown_theme:
         type: string
@@ -240,12 +264,15 @@ properties:
         description: Explicit-path escape hatch overriding any named theme.
       pretty:
         type: boolean
+        default: false
         description: Pretty (YAML) debug dumps.
       cache_info:
         type: boolean
+        default: false
         description: Print provider cache info.
       stats:
         type: boolean
+        default: false
         description: Print session token usage to stderr.
   catalog:
     type: object

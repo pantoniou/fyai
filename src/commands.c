@@ -869,19 +869,36 @@ int fyai_execute_list(struct fyai_ctx *ctx)
  * properties, one row each; a leaf node prints a single-row table for
  * itself. No path describes the whole document.
  */
+/*
+ * A schema `default` (system_prompt's, notably) can be arbitrarily long in
+ * a live config; cap every cell so one oversized value can't blow up the
+ * table.
+ */
+#define DESCRIBE_CELL_MAX 160
+
 static void describe_escape_cell(FILE *fp, const char *s)
 {
+	size_t n;
+
 	if (!s)
 		return;
-	for (; *s; s++) {
-		if (*s == '|')
+	for (n = 0; *s; s++) {
+		if (n >= DESCRIBE_CELL_MAX) {
+			fputs("...", fp);
+			return;
+		}
+		if (*s == '|') {
 			fputc('\\', fp);
+			n++;
+		}
 		fputc(*s == '\n' ? ' ' : *s, fp);
+		n++;
 	}
 }
 
 static void describe_row(FILE *fp, const char *name, const char *type,
-			 const char *constraint, const char *desc)
+			 const char *constraint, const char *deflt,
+			 const char *desc)
 {
 	fprintf(fp, "| ");
 	describe_escape_cell(fp, name);
@@ -890,8 +907,26 @@ static void describe_row(FILE *fp, const char *name, const char *type,
 	fprintf(fp, " | ");
 	describe_escape_cell(fp, constraint && *constraint ? constraint : "-");
 	fprintf(fp, " | ");
+	describe_escape_cell(fp, deflt && *deflt ? deflt : "-");
+	fprintf(fp, " | ");
 	describe_escape_cell(fp, desc);
 	fprintf(fp, " |\n");
+}
+
+/* @node's `default`, stringified into @buf; empty when absent. */
+static void schema_default_str(fy_generic node, char *buf, size_t bufsz)
+{
+	fy_generic v;
+
+	v = fy_get(node, "default");
+	if (fy_generic_is_invalid(v)) {
+		buf[0] = '\0';
+		return;
+	}
+	/* fy_convert()'s result has stack lifetime bound to this frame -
+	 * copy it out with snprintf before returning, never cache the
+	 * pointer itself. */
+	snprintf(buf, bufsz, "%s", fy_cast(fy_convert(v, FYGT_STRING), ""));
 }
 
 static void schema_type_str(fy_generic node, char *buf, size_t bufsz)
@@ -1053,6 +1088,30 @@ static fy_generic schema_child(fy_generic node, const char *key)
 	return fy_invalid;
 }
 
+/*
+ * @node itself if it has `properties` directly; otherwise the first
+ * oneOf/anyOf branch that does (recursively) - so describing a node like
+ * `sandbox` (oneOf [boolean, object-with-properties]) still lists the
+ * object branch's properties instead of falling back to a single leaf row.
+ */
+static fy_generic schema_object_node(fy_generic node)
+{
+	fy_generic props, branches, b, sub;
+
+	props = fy_get(node, "properties");
+	if (fy_generic_is_mapping(props))
+		return node;
+	branches = fy_get(node, "oneOf");
+	if (fy_generic_is_invalid(branches))
+		branches = fy_get(node, "anyOf");
+	fy_foreach(b, branches) {
+		sub = schema_object_node(b);
+		if (fy_generic_is_valid(sub))
+			return sub;
+	}
+	return fy_invalid;
+}
+
 static bool schema_key_required(fy_generic node, const char *key)
 {
 	fy_generic req, v;
@@ -1068,8 +1127,9 @@ static bool schema_key_required(fy_generic node, const char *key)
 
 static int config_describe(struct fyai_cfg *cfg, const char *path)
 {
-	fy_generic schema, node, props, desc, key, sub, subdesc;
+	fy_generic schema, node, object_node, props, desc, key, sub, subdesc;
 	char seg[256], type_buf[128], cons_buf[384];
+	char def_buf[DESCRIBE_CELL_MAX + 8];
 	const char *p, *slash, *last;
 	size_t seglen, i, n;
 	char *md;
@@ -1112,14 +1172,21 @@ static int config_describe(struct fyai_cfg *cfg, const char *path)
 	if (fy_generic_is_string(desc))
 		fprintf(mf, "%s\n\n", fy_castp(&desc, ""));
 
-	fprintf(mf, "| name | type | constraint | description |\n");
-	fprintf(mf, "|---|---|---|---|\n");
+	fprintf(mf, "| name | type | constraint | default | description |\n");
+	fprintf(mf, "|---|---|---|---|---|\n");
 
-	props = fy_get(node, "properties");
+	/* Transparently prefer an object oneOf/anyOf branch (e.g. sandbox's
+	 * object form) over treating the node as a leaf, so a node with no
+	 * *direct* `properties` but a nested object branch still drills down
+	 * into that branch's properties instead of describing itself. */
+	object_node = schema_object_node(node);
+	props = fy_generic_is_valid(object_node) ?
+		fy_get(object_node, "properties") : fy_invalid;
 	if (!fy_generic_is_mapping(props)) {
 		schema_type_str(node, type_buf, sizeof(type_buf));
 		schema_constraint_str(node, false, cons_buf, sizeof(cons_buf));
-		describe_row(mf, last, type_buf, cons_buf,
+		schema_default_str(node, def_buf, sizeof(def_buf));
+		describe_row(mf, last, type_buf, cons_buf, def_buf,
 			    fy_generic_is_string(desc) ? fy_castp(&desc, "") : "");
 	} else {
 		n = fy_generic_mapping_get_pair_count(props);
@@ -1127,11 +1194,13 @@ static int config_describe(struct fyai_cfg *cfg, const char *path)
 			key = fy_generic_mapping_get_at_key(props, i);
 			sub = fy_generic_mapping_get_at_value(props, i);
 			schema_type_str(sub, type_buf, sizeof(type_buf));
-			schema_constraint_str(sub, schema_key_required(node,
+			schema_constraint_str(sub, schema_key_required(object_node,
 						fy_castp(&key, "")), cons_buf,
 					      sizeof(cons_buf));
+			schema_default_str(sub, def_buf, sizeof(def_buf));
 			subdesc = fy_get(sub, "description");
 			describe_row(mf, fy_castp(&key, ""), type_buf, cons_buf,
+				    def_buf,
 				    fy_generic_is_string(subdesc) ?
 					    fy_castp(&subdesc, "") : "");
 		}
