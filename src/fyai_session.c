@@ -35,6 +35,7 @@
 #include "fyai_markdown.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
+#include "fyai_terminal.h"
 #include "fyai_turn.h"
 #include "utils.h"
 
@@ -600,12 +601,61 @@ static void fyai_expand_template(char *buf, size_t bufsz, const char *tmpl,
 }
 
 /*
+ * prompt_top/prompt_bottom are configured as markdown, but linenoise exposes
+ * them as a single status row each. Render through libfymd4c, then fold any
+ * markdown block layout (newlines) into spaces so tables/lists do not corrupt
+ * the prompt block accounting. The returned string is heap-owned by the caller;
+ * NULL means "use the unrendered template expansion".
+ */
+static char *fyai_prompt_row_markdown(struct fyai_cfg *cfg, const char *text)
+{
+	struct response_buffer out = {0};
+	const char *start;
+	const char *end;
+	char *row;
+	size_t len;
+	size_t i;
+	int rc;
+
+	if (!text || !*text)
+		return strdup("");
+
+	rc = markdown_render(cfg, text, strlen(text), &out,
+			     markdown_color_enabled(cfg->color), cfg->theme);
+	if (rc || !out.data)
+		goto err;
+
+	start = out.data;
+	end = out.data + out.len;
+	while (start < end && (*start == '\n' || *start == '\r'))
+		start++;
+	while (end > start && (end[-1] == '\n' || end[-1] == '\r'))
+		end--;
+
+	len = (size_t)(end - start);
+	row = malloc(len + 1);
+	if (!row)
+		goto err;
+	memcpy(row, start, len);
+	row[len] = '\0';
+	for (i = 0; i < len; i++)
+		if (row[i] == '\n' || row[i] == '\r')
+			row[i] = ' ';
+	free(out.data);
+	return row;
+
+err:
+	free(out.data);
+	return NULL;
+}
+
+/*
  * The REPL prompt bubble decorations: a top row (display/prompt_top), and a
  * bottom status row (display/prompt_bottom) that replaces the built-in banner.
  * Both are {key} templates over the session variables built below (the default
- * bottom template reproduces the classic "model · provider · api · ..." banner).
- * Rendered into linenoise's top/bottom info rows, which only exist in the
- * interactive markdown-on-a-tty layout; values may carry SGR colour escapes.
+ * bottom template reproduces the classic "model · provider · api · ..." banner),
+ * then rendered as markdown into linenoise's top/bottom info rows. Linenoise
+ * rows are single-line, so block markdown is folded to one row after rendering.
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
@@ -614,6 +664,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char top[256], bottom[256];
+	char *top_md;
+	char *bottom_md;
 	const char *src;
 	const char *tmpl;
 	long long window, used;
@@ -667,12 +719,16 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
 	fyai_expand_template(bottom, sizeof(bottom), tmpl,
 			     vars, sizeof(vars) / sizeof(vars[0]));
-	linenoiseSetBottomInfo(bottom);
+	bottom_md = fyai_prompt_row_markdown(cfg, bottom);
+	linenoiseSetBottomInfo(bottom_md ? bottom_md : bottom);
+	free(bottom_md);
 
 	fyai_expand_template(top, sizeof(top),
 			     cfg->prompt_top ? cfg->prompt_top : "",
 			     vars, sizeof(vars) / sizeof(vars[0]));
-	linenoiseSetTopInfo(top);
+	top_md = fyai_prompt_row_markdown(cfg, top);
+	linenoiseSetTopInfo(top_md ? top_md : top);
+	free(top_md);
 }
 
 /* ---- simple config-item slash commands ---------------------------------- */
