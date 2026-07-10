@@ -15,7 +15,9 @@
 
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_markdown.h"
 #include "fyai_storage.h"
+#include "utils.h"
 
 /* FYAI_EMBEDDED_CATALOG[] / FYAI_EMBEDDED_CATALOG_LEN - the vendored
  * data/catalog.yaml snapshot, generated at configure time. */
@@ -292,6 +294,241 @@ static void catalog_list_providers(fy_generic cat)
 		}
 		printf("\n");
 	}
+}
+
+static void catalog_md_cell(FILE *fp, const char *s)
+{
+	if (!s)
+		return;
+	for (; *s; s++) {
+		if (*s == '|') {
+			fputc('\\', fp);
+		}
+		fputc(*s == '\n' || *s == '\r' ? ' ' : *s, fp);
+	}
+}
+
+static void catalog_tool_description(FILE *fp, const char *desc, bool full)
+{
+	const char *p;
+
+	if (!desc)
+		return;
+	if (full) {
+		catalog_md_cell(fp, desc);
+		return;
+	}
+	p = strchr(desc, '.');
+	if (p)
+		p++;
+	else
+		p = desc + strlen(desc);
+	while (desc < p) {
+		if (*desc == '|')
+			fputc('\\', fp);
+		fputc(*desc == '\n' || *desc == '\r' || *desc == '\t' ?
+		       ' ' : *desc, fp);
+		desc++;
+	}
+}
+
+static void catalog_tool_full_description(FILE *fp, const char *desc)
+{
+	if (!desc)
+		return;
+	fputs("  > ", fp);
+	for (; *desc; desc++) {
+		if (*desc == '\n' || *desc == '\r')
+			fputs("\n  > ", fp);
+		else
+			fputc(*desc, fp);
+	}
+	fputs("\n", fp);
+}
+
+static void catalog_tool_schema(FILE *fp, struct fy_generic_builder *gb,
+				fy_generic schema)
+{
+	fy_generic emitted;
+	const char *json;
+
+	if (fy_generic_is_invalid(schema) || fy_generic_is_null(schema))
+		return;
+	emitted = fy_emit(gb, schema,
+		FYOPEF_DISABLE_DIRECTORY |
+		FYOPEF_OUTPUT_TYPE_STRING |
+		FYOPEF_MODE_YAML_1_2 |
+		FYOPEF_STYLE_PRETTY |
+		FYOPEF_WIDTH_80 |
+		FYOPEF_NO_ENDING_NEWLINE,
+		NULL);
+	if (fy_generic_is_invalid(emitted))
+		return;
+	json = fy_cast(emitted, "");
+	fputs("\n  ```yaml\n  ", fp);
+	for (; *json; json++) {
+		fputc(*json == '\n' ? '\n' : *json, fp);
+		if (json[0] == '\n' && json[1])
+			fputs("  ", fp);
+	}
+	fputs("\n  ```\n", fp);
+}
+
+static void catalog_full_heading(FILE *fp, const char *name)
+{
+	fprintf(fp, "%s\n%.*s\n\n", name, (int)strlen(name),
+		"--------------------------------------------------------------------------------");
+}
+
+static void catalog_agent_tools_markdown(FILE *mf, struct fy_generic_builder *gb,
+					 fy_generic agent, bool full)
+{
+	fy_generic tools, key, tool, desc, schema;
+	const char *name;
+	size_t i, n;
+
+	if (full)
+		catalog_full_heading(mf, fy_cast(fy_get(agent, "name", ""), ""));
+	else
+		fprintf(mf, "## %s\n\n", fy_get(agent, "name", ""));
+	if (!full) {
+		fprintf(mf, "| Tool | Description |\n");
+		fprintf(mf, "|---|---|\n");
+	}
+
+	tools = fy_get(agent, "tools");
+	if (!fy_generic_is_mapping(tools)) {
+		fprintf(mf, "\n_no tools_\n");
+		return;
+	}
+	n = fy_generic_mapping_get_pair_count(tools);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(tools, i);
+		tool = fy_generic_mapping_get_at_value(tools, i);
+		name = fy_castp(&key, "");
+		desc = fy_get(tool, "description");
+		schema = fy_get(tool, "schema");
+		if (full) {
+			fprintf(mf, "- **%s**\n\n", name);
+			catalog_tool_full_description(mf, fy_castp(&desc, ""));
+			catalog_tool_schema(mf, gb, schema);
+			fprintf(mf, "\n");
+		} else {
+			fprintf(mf, "| `");
+			catalog_md_cell(mf, name);
+			fprintf(mf, "` | ");
+			catalog_tool_description(mf, fy_castp(&desc, ""), false);
+			fprintf(mf, " |\n");
+		}
+	}
+}
+
+static void catalog_builtin_tools_markdown(FILE *mf,
+					   struct fy_generic_builder *gb,
+					   bool full)
+{
+	fy_generic tools, tool, function, name, desc, schema;
+
+	if (full)
+		catalog_full_heading(mf, "fyai");
+	else {
+		fprintf(mf, "## fyai tools\n\n");
+		fprintf(mf, "| Tool | Description |\n");
+		fprintf(mf, "|---|---|\n");
+	}
+	tools = make_tools(gb);
+	fy_foreach(tool, tools) {
+		function = fy_get(tool, "function");
+		name = fy_get(function, "name");
+		desc = fy_get(function, "description");
+		schema = fy_get(function, "parameters");
+		if (full) {
+			fprintf(mf, "- **%s**\n\n", fy_castp(&name, ""));
+			catalog_tool_full_description(mf, fy_castp(&desc, ""));
+			catalog_tool_schema(mf, gb, schema);
+			fprintf(mf, "\n");
+		} else {
+			fprintf(mf, "| `");
+			catalog_md_cell(mf, fy_castp(&name, ""));
+			fprintf(mf, "` | ");
+			catalog_tool_description(mf, fy_castp(&desc, ""), false);
+			fprintf(mf, " |\n");
+		}
+	}
+}
+
+int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
+{
+	fy_generic cat, agents, a;
+	char *md;
+	size_t mdlen;
+	FILE *mf;
+	bool found;
+	int rc;
+
+	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
+	if (fy_generic_is_invalid(cat)) {
+		fprintf(stderr, "catalog: none available\n");
+		return -1;
+	}
+	if (!agent_name || !*agent_name || !strcmp(agent_name, "fyai")) {
+		md = NULL;
+		mdlen = 0;
+		mf = open_memstream(&md, &mdlen);
+		if (!mf)
+			return -1;
+		catalog_builtin_tools_markdown(mf, ctx->cfg->gb, full);
+		fclose(mf);
+		rc = 0;
+		if (ctx->cfg->markdown) {
+			rc = fyai_print_markdown(md, ctx->cfg);
+			if (rc)
+				fputs(md, stdout);
+		} else {
+			fputs(md, stdout);
+		}
+		free(md);
+		return 0;
+	}
+	agents = fy_get(cat, "agents");
+	if (!fy_generic_is_sequence(agents)) {
+		fprintf(stderr, "catalog: no agents section\n");
+		return -1;
+	}
+
+	md = NULL;
+	mdlen = 0;
+	mf = open_memstream(&md, &mdlen);
+	if (!mf)
+		return -1;
+
+	found = false;
+	fy_foreach(a, agents) {
+		if (agent_name && *agent_name &&
+		    !fy_equal(fy_get(a, "name"), agent_name))
+			continue;
+		if (found)
+			fprintf(mf, "\n");
+		catalog_agent_tools_markdown(mf, ctx->cfg->gb, a, full);
+		found = true;
+	}
+	fclose(mf);
+
+	if (!found) {
+		fprintf(stderr, "catalog: no such agent '%s'\n", agent_name);
+		free(md);
+		return -1;
+	}
+	rc = 0;
+	if (ctx->cfg->markdown) {
+		rc = fyai_print_markdown(md, ctx->cfg);
+		if (rc)
+			fputs(md, stdout);
+	} else {
+		fputs(md, stdout);
+	}
+	free(md);
+	return 0;
 }
 
 int fyai_catalog_list(struct fyai_ctx *ctx, const char *what)

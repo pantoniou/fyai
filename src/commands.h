@@ -157,6 +157,7 @@ struct fyai_config_args {
 enum fyai_catalog_type {
 	FYAICAT_SHOW,
 	FYAICAT_LIST,
+	FYAICAT_TOOLS,
 	FYAICAT_IMPORT,
 	FYAICAT_EXPORT,
 };
@@ -164,6 +165,7 @@ enum fyai_catalog_type {
 struct fyai_catalog_args {
 	enum fyai_catalog_type type;
 	const char *arg;	/* import file or list selector */
+	bool full;		/* --full: show complete tool descriptions */
 };
 
 enum fyai_list_type {

@@ -72,3 +72,10 @@ bool markdown_theme_valid(const char *name)
 	(void)name;
 	return true;
 }
+
+int fyai_print_markdown(const char *text, struct fyai_cfg *cfg)
+{
+	(void)text;
+	(void)cfg;
+	return -1;
+}

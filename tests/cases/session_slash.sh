@@ -37,6 +37,16 @@ providers:
   models:
   - canonical_id: baz
     provider_model_id: qux
+agents:
+- name: test-agent
+  tools:
+    sample_tool:
+      description: First sentence. Full tool description.
+      schema:
+        type: object
+        properties:
+          path:
+            type: string
 EOF
 run_fyai catalog import catalog.yaml
 assert_status 0
@@ -58,6 +68,9 @@ set +e
 /sandbox on
 /sandbox
 /context
+/tools
+/tools test-agent
+/tools test-agent --full
 /nope
 hello one
 /model baz
@@ -85,6 +98,10 @@ assert_stdout_contains "logging: cleared conversation"
 assert_stdout_contains "7"
 assert_stdout_contains "sandbox: on"
 assert_stdout_contains "Metric       │ Value"
+assert_stdout_contains '| `read_file` | Read a UTF-8 text file from the workspace. |'
+assert_stdout_contains '| `sample_tool` | First sentence. |'
+assert_stdout_contains $'- **sample_tool**\n\n  > First sentence. Full tool description.'
+assert_stdout_contains '```yaml'
 assert_stderr_contains "unknown or ambiguous command '/nope'"
 assert_stdout_contains "Reply one."
 assert_stdout_contains "model: qux (provider otherprov, api chat-completions)"

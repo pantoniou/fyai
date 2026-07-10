@@ -931,6 +931,38 @@ static int slash_stats(struct fyai_ctx *ctx, const char *arg)
 	return fyai_show_stats(ctx);
 }
 
+static int slash_tools(struct fyai_ctx *ctx, const char *arg)
+{
+	char input[512], *save, *word;
+	const char *agent;
+	bool full;
+
+	if (!arg)
+		arg = "";
+	if (strlen(arg) >= sizeof(input)) {
+		fprintf(stderr, "tools: arguments are too long\n");
+		return -1;
+	}
+	strcpy(input, arg);
+	agent = NULL;
+	full = false;
+	word = strtok_r(input, " \t", &save);
+	while (word) {
+		if (!strcmp(word, "--full"))
+			full = true;
+		else if (!strcmp(word, "--brief"))
+			full = false;
+		else if (!agent)
+			agent = word;
+		else {
+			fprintf(stderr, "tools: use /tools [agent] [--brief|--full]\n");
+			return -1;
+		}
+		word = strtok_r(NULL, " \t", &save);
+	}
+	return fyai_catalog_tools(ctx, agent, full);
+}
+
 static int slash_config(struct fyai_ctx *ctx, const char *arg)
 {
 	struct fyai_config_args *args = &ctx->cfg->cmd.args.config;
@@ -1139,6 +1171,7 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "logging", "[target action]", "alias for /log", slash_log },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "stats", "", "this session's token usage", slash_stats },
+	{ "tools", "[agent] [--brief|--full]", "list catalog agent tools", slash_tools },
 	{ "help", "", "list slash commands", slash_help },
 	{ "exit", "", "leave the session", NULL },
 	{ "quit", "", "leave the session", NULL },
@@ -1366,7 +1399,7 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 	const struct fyai_slash_opt *opt;
 	const char *sp, *word, *s;
 	const char *const *v;
-	fy_generic cat, models, m, nm;
+	fy_generic cat, models, m, nm, agents, a;
 	const char *cand;
 	size_t i, len;
 
@@ -1429,6 +1462,21 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 		session_complete_value(lc, buf + 1, len, word, "turns");
 		session_complete_value(lc, buf + 1, len, word, "exchanges");
 		session_complete_value(lc, buf + 1, len, word, "reflog");
+	} else if (cmd && !strcmp(cmd->name, "tools")) {
+		if (word[0] != '-') {
+			session_complete_value(lc, buf + 1, len, word, "fyai");
+			cat = fyai_catalog_effective(ctx->cfg->catalog, ctx->cfg->gb);
+			agents = fy_get(cat, "agents");
+			fy_foreach(a, agents) {
+				nm = fy_get(a, "name");
+				s = fy_castp(&nm, "");
+				if (*s)
+					session_complete_value(lc, buf + 1, len,
+							       word, s);
+			}
+		}
+		session_complete_value(lc, buf + 1, len, word, "--brief");
+		session_complete_value(lc, buf + 1, len, word, "--full");
 	} else if (cmd && !strcmp(cmd->name, "config")) {
 		session_complete_value(lc, buf + 1, len, word, "show");
 		session_complete_value(lc, buf + 1, len, word, "effective");

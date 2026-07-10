@@ -29,13 +29,49 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 2.0
+    input: 1.0
+    output: 2.0
+agents:
+- name: test-agent
+  tools:
+    sample_tool:
+      description: First sentence. Additional implementation details should only appear in full mode.
+      schema:
+        type: object
+        properties:
+          path:
+            type: string
 EOF
 
 run_fyai catalog import cat.yaml
 assert_status 0
 assert_stdout_contains "1 models, 1 providers"
+
+run_fyai catalog tools test-agent
+assert_status 0
+assert_stdout_contains "| Tool | Description |"
+assert_stdout_contains '| `sample_tool` | First sentence. |'
+assert_stdout_not_contains "Additional implementation details"
+assert_stdout_not_contains "| Kind |"
+assert_stdout_not_contains "| Required |"
+
+run_fyai catalog tools
+assert_status 0
+assert_stdout_contains "## fyai tools"
+assert_stdout_contains '| `read_file` | Read a UTF-8 text file from the workspace. |'
+
+run_fyai catalog tools test-agent --full
+assert_status 0
+assert_stdout_contains $'test-agent\n----------'
+assert_stdout_contains $'- **sample_tool**\n\n  > First sentence. Additional implementation details should only appear in full mode.'
+assert_stdout_contains '```yaml'
+assert_stdout_contains 'properties:'
+assert_stdout_contains 'path:'
+
+run_fyai catalog tools fyai --full
+assert_status 0
+assert_stdout_contains '```yaml'
+assert_stdout_contains 'properties:'
 
 # the arena catalogue shows (not the embedded snapshot)
 run_fyai catalog list models

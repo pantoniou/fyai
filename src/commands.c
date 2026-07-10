@@ -60,6 +60,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("compact [hint]", "Summarize history into a fresh chain");
 	ITEM("context", "Context fill and token estimate");
 	ITEM("api [mode]", "Show or persist the API grammar");
+	ITEM("catalog tools [agent] [--brief|--full]", "List catalog agent tools and descriptions");
 	ITEM("log [target] [action]", "Control wire/conversation trace logs");
 	ITEM("sandbox [cmd]", "Show or configure the stored sandbox policy");
 	ITEM("gc", "Garbage-collect the arena");
@@ -1368,6 +1369,7 @@ static int configure_catalog(int argc, char **argv, struct fyai_cfg *cfg)
 	static const char * const types[] = {
 		[FYAICAT_SHOW] = "show",
 		[FYAICAT_LIST] = "list",
+		[FYAICAT_TOOLS] = "tools",
 		[FYAICAT_IMPORT] = "import",
 		[FYAICAT_EXPORT] = "export",
 		NULL
@@ -1381,13 +1383,32 @@ static int configure_catalog(int argc, char **argv, struct fyai_cfg *cfg)
 	idx = str_in_set(what, types);
 	if (idx < 0) {
 		fprintf(stderr,
-			"catalog: unknown type '%s' (show|list|import|export)\n",
+			"catalog: unknown type '%s' (show|list|tools|import|export)\n",
 			what);
 		return -1;
 	}
 	args->type = (enum fyai_catalog_type)idx;
 	i++;
-	args->arg = i < argc ? fy_gb_intern_string(cfg->gb, argv[i++]) : NULL;
+	args->arg = NULL;
+	for (; i < argc; i++) {
+		if (!strcmp(argv[i], "--full")) {
+			args->full = true;
+			continue;
+		}
+		if (!strcmp(argv[i], "--brief")) {
+			args->full = false;
+			continue;
+		}
+		if (argv[i][0] == '-') {
+			fprintf(stderr, "catalog: unknown option '%s'\n", argv[i]);
+			return -1;
+		}
+		if (args->arg) {
+			fprintf(stderr, "catalog: too many arguments\n");
+			return -1;
+		}
+		args->arg = fy_gb_intern_string(cfg->gb, argv[i]);
+	}
 
 	if (args->type == FYAICAT_IMPORT && !args->arg) {
 		fprintf(stderr, "catalog: import: missing file\n");
@@ -1411,6 +1432,8 @@ static int execute_catalog(struct fyai_ctx *ctx)
 		return fyai_catalog_show(ctx);
 	case FYAICAT_LIST:
 		return fyai_catalog_list(ctx, args->arg);
+	case FYAICAT_TOOLS:
+		return fyai_catalog_tools(ctx, args->arg, args->full);
 	case FYAICAT_IMPORT:
 		return fyai_catalog_import(ctx, args->arg);
 	case FYAICAT_EXPORT:
@@ -1722,12 +1745,13 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "catalog",
 		.configure = configure_catalog,
 		.execute   = execute_catalog,
-		.synopsis  = "catalog [show | list [models|providers] | import <file> | export [file]]",
+		.synopsis  = "catalog [show | list [models|providers] | tools [agent] | import <file> | export [file]]",
 		.help	   = "Inspect, ingest or export the provider/model catalogue (default: show).\n"
 			     "  show              emit the effective catalogue as YAML\n"
 			     "  list [what]       tabulate models and/or providers\n"
 			     "  import <file>     ingest a scrape-providers YAML into the arena\n"
 			     "  export [file]     write the effective catalogue as YAML (stdout if omitted)\n"
+			     "  tools [agent]     list agent tools (--brief|--full)\n"
 			     "Without an arena catalogue the build-time embedded snapshot is used.\n"
 			     "The catalogue is view/import/export only: there is no in-place edit,\n"
 			     "unlike config.",

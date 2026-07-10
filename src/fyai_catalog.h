@@ -78,5 +78,6 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path);
 int fyai_catalog_export(struct fyai_ctx *ctx, const char *path);
 int fyai_catalog_show(struct fyai_ctx *ctx);
 int fyai_catalog_list(struct fyai_ctx *ctx, const char *what);
+int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent, bool full);
 
 #endif
