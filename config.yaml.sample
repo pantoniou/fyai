@@ -150,14 +150,14 @@ display:
   section_separator: ""
   # Interactive prompt bubble. prompt is the input marker; prompt_top and
   # prompt_bottom are {key} templates over the session vars (model, provider,
-  # api, effort, summary, temp, ctx). prompt_bottom replaces the banner; empty
-  # reproduces it. All may carry SGR colour escapes (e.g. "\e[36m{model}\e[0m").
-  # Each empty string below selects the built-in: prompt => "  > ", prompt_top
-  # => a blank styled row, prompt_bottom =>
-  # " {model} · {provider} · {api}{effort}{summary}{temp}{ctx}".
-  prompt: ""
+  # api, effort, summary, temp, ctx). prompt_bottom replaces the banner. All
+  # may carry SGR colour escapes (e.g. "\e[36m{model}\e[0m"). The values below
+  # are the built-in defaults; an empty string re-selects them (prompt then
+  # falls back to "> " when markdown is off, "  > " with markdown; prompt_top's
+  # default is genuinely a blank styled row).
+  prompt: "  > "
   prompt_top: ""
-  prompt_bottom: ""
+  prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
   pretty: false           # pretty (YAML) debug dumps
   thinking: true           # display model reasoning/thinking output
   cache_info: false       # print provider cache info

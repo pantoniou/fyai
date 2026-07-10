@@ -285,7 +285,7 @@ properties:
           (default) is a blank line only.
       prompt:
         type: string
-        default: ""
+        default: "  > "
         description: >-
           Interactive prompt marker. Empty uses the built-in ("  > " with
           markdown, "> " otherwise). May carry SGR colour escapes.
@@ -298,7 +298,7 @@ properties:
           Empty is a blank styled row. May carry SGR colour escapes.
       prompt_bottom:
         type: string
-        default: ""
+        default: " {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
         description: >-
           Bottom status row of the prompt bubble, a {key} template that
           replaces the built-in banner. Empty reproduces
