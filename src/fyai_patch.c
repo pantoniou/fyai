@@ -796,8 +796,8 @@ static char *parse_update(struct patch_reader *r, const char *path,
 {
 	struct str_list lines = {};
 	struct update_chunk_list chunks = {};
-	struct replacement *repl;
-	size_t repl_count;
+	struct replacement *repl = NULL;
+	size_t repl_count = 0;
 	struct update_chunk *ck;
 	char *content;
 	char *ltrim;
