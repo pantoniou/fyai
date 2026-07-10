@@ -463,7 +463,7 @@ static void fyai_emit_patch(FILE *mf, const char *patch)
 		fprintf(mf, "```\n\n");
 }
 
-static void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
+void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 				const char *name, fy_generic args,
 				int preview_lines)
 {
@@ -661,7 +661,12 @@ static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
 	size_t total;
 	int len;
 
-	limit = preview_lines > 0 ? (size_t)preview_lines : 0;
+	/*
+	 * preview_lines <= 0 means emit the full result unchanged; the caller
+	 * bounds the *rendered* height via the renderer's row limit instead of
+	 * truncating the markdown source here.
+	 */
+	limit = preview_lines > 0 ? (size_t)preview_lines : SIZE_MAX;
 	total = 0;
 	shown = 0;
 
@@ -729,6 +734,51 @@ static void fyai_emit_shell_output(FILE *mf, fy_generic out, int preview_lines)
 	if (*se) {
 		fprintf(mf, "_stderr_\n\n");
 		fyai_emit_tool_result(mf, se, preview_lines, NULL);
+	}
+}
+
+/*
+ * Live counterpart to fyai_emit_shell_output(): render a structured builtin
+ * shell result straight to stdout, each stdout/stderr stream as its own
+ * decoration-free fenced block bounded to @preview_lines rendered rows. Failure
+ * markers stay Markdown (rendered small and unbounded). @out is the sequence or
+ * a single { stdout, stderr, outcome } mapping.
+ */
+static void fyai_print_shell_output(struct fyai_cfg *cfg, fy_generic out,
+				    int preview_lines)
+{
+	char marker[64];
+	fy_generic outcome;
+	fy_generic item;
+	const char *se;
+	const char *so;
+
+	if (fy_generic_is_sequence(out)) {
+		fy_foreach(item, out)
+			fyai_print_shell_output(cfg, item, preview_lines);
+		return;
+	}
+
+	outcome = fy_get(out, "outcome");
+	if (fy_equal(fy_get(outcome, "type", "exit"), "signal")) {
+		snprintf(marker, sizeof(marker), "**✗ signal %lld**",
+			 fy_get(outcome, "signal", 0LL));
+		fyai_print_markdown(marker, cfg);
+	} else if (fy_get(outcome, "exit_code", 0LL) != 0) {
+		snprintf(marker, sizeof(marker), "**✗ exit %lld**",
+			 fy_get(outcome, "exit_code", 0LL));
+		fyai_print_markdown(marker, cfg);
+	}
+
+	so = fy_get(out, "stdout", "");
+	se = fy_get(out, "stderr", "");
+	if (*so)
+		fyai_print_fenced(cfg, so, strlen(so), NULL, fy_invalid,
+				  preview_lines);
+	if (*se) {
+		fyai_print_markdown("_stderr_", cfg);
+		fyai_print_fenced(cfg, se, strlen(se), NULL, fy_invalid,
+				  preview_lines);
 	}
 }
 
@@ -948,11 +998,44 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 }
 
 /*
+ * The single tool-result rendering path shared by the live loop and the
+ * `history` view: a string result is a decoration-free fenced block (highlighted
+ * with @lang unless it is a tool error, which stays plain), a structured
+ * builtin-shell result is rendered per stream, both bounded to @preview_lines
+ * rendered rows. @content is the result generic (string or shell mapping/seq).
+ */
+/* Render the configured tool-output separator (display/tool_separator) before a
+ * tool result, as themed markdown. Empty (the default) emits nothing. */
+static void fyai_print_tool_separator(struct fyai_cfg *cfg)
+{
+	if (cfg->tool_separator && *cfg->tool_separator)
+		fyai_print_markdown(cfg->tool_separator, cfg);
+}
+
+void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
+			     const char *lang, int preview_lines)
+{
+	const char *s = fy_castp(&content, "");
+
+	fyai_print_tool_separator(cfg);
+	if (fy_generic_is_string(content)) {
+		if (fyai_tool_result_is_error(s))
+			lang = NULL;
+		fyai_print_fenced(cfg, s, strlen(s), lang, fy_invalid,
+				  preview_lines);
+	} else if (fy_generic_is_valid(content) &&
+		   !fy_generic_is_null_type(content)) {
+		fyai_print_shell_output(cfg, content, preview_lines);
+	}
+}
+
+/*
  * Render one live tool exchange (the call header plus the result preview)
- * during execution, using the same markdown emitters as the `history` verb
- * so live output matches what `fyai history` shows afterwards. The tool call
- * is normalized to (name, args) here so both API modes (Responses items and
- * Chat function calls, including the built-in shell_call) share one path.
+ * during execution. The call header uses the same fyai_emit_tool_call() emitter
+ * as the `history` verb; the result goes through the shared
+ * fyai_render_tool_result() path. The tool call is normalized to (name, args)
+ * here so both API modes (Responses items and Chat function calls, including the
+ * built-in shell_call) share one path.
  */
 void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 				      fy_generic tool_call,
@@ -961,13 +1044,11 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder_cfg gcfg;
 	struct fy_generic_builder *tgb;
-	struct fyai_msg_class c;
 	const char *args_text;
 	const char *cmd;
 	const char *name;
 	const char *res_str;
 	fy_generic args;
-	fy_generic msg;
 	char *lang;
 	char *md;
 	size_t mdlen;
@@ -1017,32 +1098,26 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 		return;
 	}
 
+	/* The tool-call header renders in full (never row-bounded). */
 	fyai_emit_tool_call(mf, tgb, name, args, cfg->tool_preview_lines);
-
-	/*
-	 * A read_file result is the file's contents, so highlight the preview
-	 * with the language inferred from the requested path. A tool error is
-	 * left as a plain fence. Every other tool falls back to the shared
-	 * message previewer (faking a tool message).
-	 */
-	res_str = fy_castp(&tool_result, "");
-	if (fy_equal(name, "read_file") && *res_str &&
-	    !fyai_tool_result_is_error(res_str)) {
-		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
-		fyai_emit_tool_result(mf, res_str, cfg->tool_preview_lines, lang);
-		free(lang);
-	} else {
-		msg = fy_mapping("role", "tool", "content", tool_result);
-		c = fyai_classify_message(msg);
-		fyai_emit_message_md(mf, tgb, &c, cfg->tool_preview_lines, NULL,
-				     cfg->thinking);
-	}
-
 	fclose(mf);
-
-	if (md && fyai_print_markdown(md, ctx->cfg))
+	if (md && *md && fyai_print_markdown(md, ctx->cfg))
 		fputs(md, stdout);
 	free(md);
+
+	/*
+	 * A read_file result is the file's contents, so highlight it with the
+	 * language inferred from the requested path; the shared renderer draws it
+	 * frameless and row-bounded (see fyai_render_tool_result).
+	 */
+	res_str = fy_castp(&tool_result, "");
+	lang = NULL;
+	if (fy_equal(name, "read_file") && *res_str &&
+	    !fyai_tool_result_is_error(res_str))
+		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
+	fyai_render_tool_result(cfg, tool_result, lang, cfg->tool_preview_lines);
+	free(lang);
+
 	fy_generic_builder_destroy(tgb);
 }
 
@@ -1198,6 +1273,30 @@ static char *fyai_read_result_lang(const struct fyai_read_map *rm,
 }
 
 /*
+ * True when @c is a tool result (a chat tool message or a Responses
+ * function_call_output/shell_call_output), returning its result content generic
+ * (string or shell mapping/sequence) in *out. Lets the history view route the
+ * result through the shared frameless fyai_render_tool_result() path, exactly as
+ * the live loop does, so tool output renders identically in both.
+ */
+static bool fyai_msg_is_tool_result(const struct fyai_msg_class *c,
+				    fy_generic *out)
+{
+	if (c->is_native) {
+		if (fy_not_equal(c->type, "function_call_output") &&
+		    fy_not_equal(c->type, "shell_call_output"))
+			return false;
+		*out = fy_get(c->msg, "output");
+		return true;
+	}
+	if (c->is_tool_msg) {
+		*out = c->content;
+		return true;
+	}
+	return false;
+}
+
+/*
  * Human-digestible rendering of the canonical conversation: each message
  * becomes prose rendered through markdown. Unlike `dump`, this is
  * not a faithful serialization - tool results (command output) are reduced
@@ -1217,6 +1316,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	fy_generic msgs;
 	fy_generic m;
 	struct fyai_read_map reads = { 0 };
+	fy_generic result;
 	char *rlang;
 	char *rmd;
 	char *md;
@@ -1284,7 +1384,8 @@ int fyai_display_view(struct fyai_ctx *ctx)
 				fclose(rf);
 				if (any) {
 					if (emitted)
-						fprintf(mf, "---\n\n");
+						fprintf(mf, "%s\n\n",
+							cfg->turn_separator);
 					fputs(rmd, mf);
 					prev_tool = true;
 					emitted = true;
@@ -1325,6 +1426,35 @@ int fyai_display_view(struct fyai_ctx *ctx)
 			}
 
 			/*
+			 * A tool result renders through the same frameless
+			 * fyai_render_tool_result() path as the live loop: flush
+			 * the pending markdown (the tool-call header and any
+			 * preceding prose), draw the result, then reopen the
+			 * buffer. Markdown display mode only; the raw/plain path
+			 * keeps the fenced markdown emission below.
+			 */
+			if (!args->raw && cfg->markdown &&
+			    fyai_msg_is_tool_result(&c, &result)) {
+				fclose(mf);
+				mf = NULL;
+				if (md && fyai_print_markdown(md, cfg))
+					fputs(md, stdout);
+				free(md);
+				md = NULL;
+				mdlen = 0;
+				rlang = fyai_read_result_lang(&reads, &c);
+				fyai_render_tool_result(cfg, result, rlang,
+							cfg->tool_preview_lines);
+				free(rlang);
+				mf = open_memstream(&md, &mdlen);
+				if (!mf)
+					goto err_out;
+				prev_tool = c.tool_related;
+				emitted = true;
+				continue;
+			}
+
+			/*
 			 * A thematic break renders as a full-width rule in
 			 * markdown, so turns visibly separate. Roles are conveyed
 			 * by style (system italic, user blockquote, assistant
@@ -1336,7 +1466,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 			 */
 			if (emitted &&
 			    !(prev_tool && (c.tool_related || c.is_assistant)))
-				fprintf(mf, "---\n\n");
+				fprintf(mf, "%s\n\n", cfg->turn_separator);
 
 			rlang = fyai_read_result_lang(&reads, &c);
 			fyai_emit_message_md(mf, tgb, &c,

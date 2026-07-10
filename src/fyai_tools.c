@@ -24,6 +24,8 @@
 #include <linenoise.h>
 
 #include "fyai_config.h"
+#include "fyai_display.h"
+#include "fyai_markdown.h"
 #include "fyai_patch.h"
 #include "fyai_sandbox.h"
 #include "fyai_terminal.h"
@@ -67,6 +69,29 @@ static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_cal
 	return fy_gb_intern_string(ctx->transient_gb, fy_cast(v, ""));
 }
 
+/*
+ * Render the live shell header to stderr through the one shared emitter the
+ * history view uses (fyai_emit_tool_call), so the live and history headers stay
+ * in sync - bold "shell" plus the inline-code command, themed identically.
+ */
+static void fyai_print_shell_header(struct fyai_ctx *ctx, const char *command)
+{
+	char *md = NULL;
+	size_t mdlen = 0;
+	FILE *mf = open_memstream(&md, &mdlen);
+
+	if (!mf) {
+		fprintf(stderr, "  shell %s\n", command);
+		return;
+	}
+	fyai_emit_tool_call(mf, ctx->transient_gb, "shell",
+			    fy_mapping("command", command), 0);
+	fclose(mf);
+	if (md && fyai_fprint_markdown(stderr, md, ctx->cfg))
+		fputs(md, stderr);
+	free(md);
+}
+
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -103,11 +128,23 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 	}
 
 	if (cfg->markdown && fy_equal(name, "shell")) {
-		fprintf(stderr, "  shell %s\n\n  ", *command ? command : name);
-		for (int i = 0, n = markdown_render_width(); i < (n > 4 ? n - 4 : 72); i++)
-			fputs("─", stderr);
-		fputc('\n', stderr);
-		ctx->shell_live_open = true;
+		/*
+		 * Live shell output streams progressively into a bounded,
+		 * indented, in-place region - the same libfymd4c fenced render
+		 * (row limit + indent) as the history view, only updated live as
+		 * the command's output arrives, so live and history match.
+		 */
+		fyai_print_shell_header(ctx, *command ? command : name);
+		ctx->shell_stream = calloc(1, sizeof(*ctx->shell_stream));
+		if (ctx->shell_stream != NULL &&
+		    fyai_fenced_stream_start(ctx->shell_stream, cfg, NULL,
+					     cfg->tool_preview_lines > 0 ?
+					     (size_t) cfg->tool_preview_lines : 0,
+					     FYAI_TOOL_OUTPUT_INDENT, stderr,
+					     terminal_is_tty(STDERR_FILENO)) != 0) {
+			free(ctx->shell_stream);
+			ctx->shell_stream = NULL;
+		}
 		ctx->tool_output_displayed = true;
 	} else if (*command) {
 		fprintf(stderr, "fyai $ %s\n", command);
@@ -118,32 +155,13 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		ctx->tool_output_displayed = true;
 }
 
-static void fyai_shell_live_line(struct fyai_ctx *ctx,
-				 const char *data, size_t len)
-{
-	if (!ctx || !ctx->cfg->markdown) {
-		fwrite(data, 1, len, stderr);
-		return;
-	}
-	fprintf(stderr, "    %.*s\n", (int)len, data);
-}
-
 static void fyai_shell_live_close(struct fyai_ctx *ctx)
 {
-	if (!ctx || !ctx->shell_live_open)
+	if (!ctx || !ctx->shell_stream)
 		return;
-	if (ctx->shell_live_line.len) {
-		fyai_shell_live_line(ctx, ctx->shell_live_line.data,
-				     ctx->shell_live_line.len);
-		ctx->shell_live_line.len = 0;
-		if (ctx->shell_live_line.data)
-			ctx->shell_live_line.data[0] = '\0';
-	}
-	fprintf(stderr, "  ");
-	for (int i = 0, n = markdown_render_width(); i < (n > 4 ? n - 4 : 72); i++)
-		fputs("─", stderr);
-	fprintf(stderr, "\n\n");
-	ctx->shell_live_open = false;
+	fyai_fenced_stream_finish(ctx->shell_stream);
+	free(ctx->shell_stream);
+	ctx->shell_stream = NULL;
 }
 
 static void fyai_shell_output(void *userdata,
@@ -151,51 +169,30 @@ static void fyai_shell_output(void *userdata,
 			      const char *data, size_t len)
 {
 	struct fyai_ctx *ctx = userdata;
-	const char *p, *nl;
-	size_t n;
 
 	if (!len)
 		return;
-
-	if (ctx)
-		ctx->tool_output_displayed = true;
 	(void)stream;
 
 	/*
-	 * Don't dump binary chunks onto the terminal; the post-capture
-	 * site prints a "binary output: N bytes" summary with the true
-	 * total length instead.
+	 * Don't feed binary chunks to the terminal or the fenced renderer; the
+	 * post-capture site prints a "binary output: N bytes" summary with the
+	 * true total length instead.
 	 */
 	if (data_is_binary(data, len))
 		return;
 
-	if (!ctx || !ctx->cfg->markdown) {
-		fwrite(data, 1, len, stderr);
-		if (data[len - 1] != '\n')
-			fputc('\n', stderr);
+	/* Markdown streams progressively into the bounded live region; plain
+	 * mode dumps raw output for scripting visibility. */
+	if (ctx && ctx->cfg->markdown) {
+		if (ctx->shell_stream)
+			fyai_fenced_stream_push(ctx->shell_stream, data, len);
 		return;
 	}
 
-	p = data;
-	while (p < data + len) {
-		nl = memchr(p, '\n', (data + len) - p);
-		n = nl ? (size_t)(nl - p) : (size_t)((data + len) - p);
-		if (response_buffer_reserve(&ctx->shell_live_line,
-					    ctx->shell_live_line.len + n + 1))
-			return;
-		memcpy(ctx->shell_live_line.data + ctx->shell_live_line.len, p, n);
-		ctx->shell_live_line.len += n;
-		ctx->shell_live_line.data[ctx->shell_live_line.len] = '\0';
-		if (nl) {
-			fyai_shell_live_line(ctx, ctx->shell_live_line.data,
-					     ctx->shell_live_line.len);
-			ctx->shell_live_line.len = 0;
-			ctx->shell_live_line.data[0] = '\0';
-			p = nl + 1;
-		} else {
-			break;
-		}
-	}
+	fwrite(data, 1, len, stderr);
+	if (data[len - 1] != '\n')
+		fputc('\n', stderr);
 }
 
 /*

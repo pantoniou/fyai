@@ -14,12 +14,6 @@
 #define FYAI_ANSI_ERASE_DOWN		"\r\033[J"
 #define FYAI_ANSI_CURSOR_UP		"\033[1A"
 #define FYAI_ANSI_CURSOR_UP_FMT		"\033[%zuA"
-#define FYAI_ANSI_BG_LIGHT		"\033[47m"	/* white */
-#define FYAI_ANSI_BG_DARK		"\033[40m"	/* black */
-#define FYAI_ANSI_FG_LIGHT		"\033[37m"	/* white */
-#define FYAI_ANSI_FG_DARK		"\033[30m"	/* black */
-#define FYAI_ANSI_BOLD			"\033[1m"
-#define FYAI_ANSI_BOLD_OFF		"\033[2m"
 #define FYAI_OSC_QUERY_BACKGROUND	"\033]11;?\033\\"
 
 int markdown_render_width(void);

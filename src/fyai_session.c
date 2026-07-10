@@ -549,72 +549,130 @@ int fyai_session_context(struct fyai_ctx *ctx)
 	return 0;
 }
 
+/* One {key} -> value binding for the prompt decorator templates. */
+struct fyai_tmpl_var {
+	const char *key;
+	const char *val;
+};
+
 /*
- * The REPL footer: one status row under the prompt with the settings that
- * shape the next request. Rendered into the linenoise bottom-info row, which
- * only exists in the interactive markdown-on-a-tty layout.
+ * Expand {key} tokens in @tmpl from @vars into @buf. "{{"/"}}" are literal
+ * braces; an unknown {key} expands to empty. Values may carry SGR colour
+ * escapes - they are copied verbatim (linenoise treats them as zero width).
+ */
+static void fyai_expand_template(char *buf, size_t bufsz, const char *tmpl,
+				 const struct fyai_tmpl_var *vars, size_t nvars)
+{
+	const char *p;
+	const char *e;
+	const char *val;
+	size_t off;
+	size_t klen;
+	size_t i;
+
+	off = 0;
+	if (!bufsz)
+		return;
+	for (p = tmpl; *p && off + 1 < bufsz; ) {
+		if ((p[0] == '{' && p[1] == '{') ||
+		    (p[0] == '}' && p[1] == '}')) {
+			buf[off++] = *p;
+			p += 2;
+			continue;
+		}
+		if (*p == '{' && (e = strchr(p, '}')) != NULL) {
+			klen = (size_t)(e - p - 1);
+			val = "";
+			for (i = 0; i < nvars; i++)
+				if (!strncmp(vars[i].key, p + 1, klen) &&
+				    vars[i].key[klen] == '\0') {
+					val = vars[i].val;
+					break;
+				}
+			while (*val && off + 1 < bufsz)
+				buf[off++] = *val++;
+			p = e + 1;
+			continue;
+		}
+		buf[off++] = *p++;
+	}
+	buf[off] = '\0';
+}
+
+/*
+ * The REPL prompt bubble decorations: a top row (display/prompt_top), and a
+ * bottom status row (display/prompt_bottom) that replaces the built-in banner.
+ * Both are {key} templates over the session variables built below (the default
+ * bottom template reproduces the classic "model · provider · api · ..." banner).
+ * Rendered into linenoise's top/bottom info rows, which only exist in the
+ * interactive markdown-on-a-tty layout; values may carry SGR colour escapes.
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_tmpl_var vars[7];
 	fy_generic model_entry;
-	char buf[256];
+	char effort[64], summary[64], temp[32], ctxpct[32];
+	char top[256], bottom[256];
 	const char *src;
+	const char *tmpl;
 	long long window, used;
-	size_t off;
-	int n;
 
 	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
 		return;
 	model_entry = session_model_entry(ctx);
 
-	off = 0;
-	n = snprintf(buf + off, sizeof(buf) - off, " %s · %s · %s",
-		     cfg->model ? cfg->model : "?",
-		     cfg->provider ? cfg->provider : "?",
-		     fyai_api_to_string(cfg->api_mode));
-	if (n > 0)
-		off += (size_t)n;
-
-	if (cfg->reasoning_effort && *cfg->reasoning_effort && off < sizeof(buf)) {
-		n = snprintf(buf + off, sizeof(buf) - off, " · effort %s",
-			     cfg->reasoning_effort);
-		if (n > 0)
-			off += (size_t)n;
-	}
-	if (cfg->reasoning_summary && *cfg->reasoning_summary && off < sizeof(buf)) {
-		n = snprintf(buf + off, sizeof(buf) - off, " · summary %s",
-			     cfg->reasoning_summary);
-		if (n > 0)
-			off += (size_t)n;
-	}
+	/* Each optional field carries its own " · label" so a template can place
+	 * it unconditionally; empty when the field does not apply. */
+	effort[0] = summary[0] = temp[0] = ctxpct[0] = '\0';
+	if (cfg->reasoning_effort && *cfg->reasoning_effort)
+		snprintf(effort, sizeof(effort), " · effort %s",
+			 cfg->reasoning_effort);
+	if (cfg->reasoning_summary && *cfg->reasoning_summary)
+		snprintf(summary, sizeof(summary), " · summary %s",
+			 cfg->reasoning_summary);
 	if (fyai_model_supports_temperature(model_entry) &&
 	    (!cfg->reasoning_effort || !*cfg->reasoning_effort) &&
-	    (!cfg->reasoning_summary || !*cfg->reasoning_summary) &&
-	    off < sizeof(buf)) {
-		n = snprintf(buf + off, sizeof(buf) - off, " · temp %g",
-			     (double)cfg->temperature);
-		if (n > 0)
-			off += (size_t)n;
-	}
+	    (!cfg->reasoning_summary || !*cfg->reasoning_summary))
+		snprintf(temp, sizeof(temp), " · temp %g", (double)cfg->temperature);
 
 	window = session_context_window(ctx);
-	if (window > 0 && off < sizeof(buf)) {
+	if (window > 0) {
 		used = session_last_usage(ctx, &src);
 		if (used)
-			n = snprintf(buf + off, sizeof(buf) - off,
-				     " · ctx %.0f%%",
-				     (double)used * 100.0 / (double)window);
+			snprintf(ctxpct, sizeof(ctxpct), " · ctx %.0f%%",
+				 (double)used * 100.0 / (double)window);
 		else
-			n = snprintf(buf + off, sizeof(buf) - off,
-				     " · ctx ~%.0f%%",
-				     (double)session_estimate_tokens(ctx) *
-				     100.0 / (double)window);
-		if (n > 0)
-			off += (size_t)n;
+			snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
+				 (double)session_estimate_tokens(ctx) * 100.0 /
+				 (double)window);
 	}
 
-	linenoiseSetBottomInfo(buf);
+	vars[0].key = "model";
+	vars[0].val = cfg->model ? cfg->model : "?";
+	vars[1].key = "provider";
+	vars[1].val = cfg->provider ? cfg->provider : "?";
+	vars[2].key = "api";
+	vars[2].val = fyai_api_to_string(cfg->api_mode);
+	vars[3].key = "effort";
+	vars[3].val = effort;
+	vars[4].key = "summary";
+	vars[4].val = summary;
+	vars[5].key = "temp";
+	vars[5].val = temp;
+	vars[6].key = "ctx";
+	vars[6].val = ctxpct;
+
+	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
+		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
+	fyai_expand_template(bottom, sizeof(bottom), tmpl,
+			     vars, sizeof(vars) / sizeof(vars[0]));
+	linenoiseSetBottomInfo(bottom);
+
+	fyai_expand_template(top, sizeof(top),
+			     cfg->prompt_top ? cfg->prompt_top : "",
+			     vars, sizeof(vars) / sizeof(vars[0]));
+	linenoiseSetTopInfo(top);
 }
 
 /* ---- simple config-item slash commands ---------------------------------- */
@@ -645,8 +703,15 @@ static const char *const summary_vals[] = {
 static const char *const theme_vals[] = {
 	"dark", "light", NULL,
 };
+/*
+ * libfymd4c embedded theme names for tab completion. The authoritative check is
+ * markdown_theme_valid() (queried from libfymd4c), so this list may lag the
+ * library's catalogue without rejecting a valid name.
+ */
 static const char *const markdown_theme_vals[] = {
-	"markdown", "plain", "vivid", NULL,
+	"default", "catppuccin", "catppuccin-borderless",
+	"kanagawa", "kanagawa-borderless", "solarized", "solarized-borderless",
+	"tokyonight", "tokyonight-borderless", NULL,
 };
 static const char *const bool_vals[] = {
 	"on", "off", "true", "false", NULL,

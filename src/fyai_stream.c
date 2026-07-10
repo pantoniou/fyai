@@ -314,6 +314,8 @@ static void stream_finish_reasoning(struct stream_response *stream)
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
 	if (stream->reasoning_active_rows) {
+		if (*cfg->section_separator)
+			fputs(cfg->section_separator, stderr);
 		fputs("\n\n", stderr);
 		fflush(stderr);
 		stream->reasoning_active_rows = 0;
@@ -321,7 +323,11 @@ static void stream_finish_reasoning(struct stream_response *stream)
 		return;
 	}
 	if (stream->printed_reasoning) {
-		fputs(color ? FYAI_ANSI_RESET "\n\n" : "\n\n", stderr);
+		if (color)
+			fputs(FYAI_ANSI_RESET, stderr);
+		if (*cfg->section_separator)
+			fputs(cfg->section_separator, stderr);
+		fputs("\n\n", stderr);
 		fflush(stderr);
 		stream->printed_reasoning = false;
 	}

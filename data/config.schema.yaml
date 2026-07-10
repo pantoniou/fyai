@@ -226,8 +226,8 @@ properties:
       tool_preview_lines:
         type: integer
         minimum: 0
-        default: 3
-        description: Lines of a tool result shown before truncation.
+        default: 5
+        description: Rendered rows of a tool result shown before it is bounded.
       markdown_mode:
         type: string
         enum: [line, stream, oneshot]
@@ -248,18 +248,62 @@ properties:
       markdown_theme:
         type: string
         description: >-
-          Named markdown palette -> stylings/fyai-<name>.yaml
-          (markdown|plain|vivid). Default is unset (the shipped default
-          styling).
+          libfymd4c embedded theme name (default, catppuccin, kanagawa,
+          solarized, tokyonight, each also with a -borderless variant). Unset
+          uses the library default theme.
       code_theme:
         type: string
         description: >-
           Fenced-code syntax-highlight theme: a libfyts built-in name
           (default, catppuccin, kanagawa, solarized, tokyonight, vscode,
           vscode-nvim) or a path to a styling YAML.
-      markdown_style:
+      table_border:
         type: string
-        description: Explicit-path escape hatch overriding any named theme.
+        enum: [theme, grid, none]
+        default: theme
+        description: >-
+          Override the theme's table border: theme (follow the selected
+          theme), grid (force borders), or none (borderless), independent of
+          markdown_theme.
+      turn_separator:
+        type: string
+        default: "---"
+        description: >-
+          Separator rendered (as markdown, themed) between turns in the
+          history view. "---" is a themed rule; empty is a blank line.
+      tool_separator:
+        type: string
+        default: ""
+        description: >-
+          Separator rendered (as markdown, themed) before each tool result,
+          in both the live loop and history. Empty (default) emits nothing.
+      section_separator:
+        type: string
+        default: ""
+        description: >-
+          Separator emitted between streamed reasoning and the answer. Empty
+          (default) is a blank line only.
+      prompt:
+        type: string
+        default: ""
+        description: >-
+          Interactive prompt marker. Empty uses the built-in ("  > " with
+          markdown, "> " otherwise). May carry SGR colour escapes.
+      prompt_top:
+        type: string
+        default: ""
+        description: >-
+          Top row of the interactive prompt bubble, a {key} template over the
+          session vars (model, provider, api, effort, summary, temp, ctx).
+          Empty is a blank styled row. May carry SGR colour escapes.
+      prompt_bottom:
+        type: string
+        default: ""
+        description: >-
+          Bottom status row of the prompt bubble, a {key} template that
+          replaces the built-in banner. Empty reproduces
+          "{model} · {provider} · {api}{effort}{summary}{temp}{ctx}". May
+          carry SGR colour escapes.
       pretty:
         type: boolean
         default: false

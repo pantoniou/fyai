@@ -205,9 +205,13 @@ config and state write that session is ephemeral — `ctx->gb` is that builder
 Stylistic options live only under the nested `display:` group (markdown,
 markdown_mode, color, theme, markdown_theme, code_theme, stream, pretty,
 cache_info, stats, tool_preview_lines); the `model` and other options are
-top-level. `display/markdown_theme` selects a shipped styling by name
-(`stylings/fyai-<name>.yaml`: markdown, plain, vivid); `theme` means
-background dark/light only.
+top-level. Theming is fully delegated to libfymd4c: `display/markdown_theme`
+names one of its embedded themes (`default`, `catppuccin`, `kanagawa`,
+`solarized`, `tokyonight`, each with a `-borderless` variant; unset => the
+library default), validated via `markdown_theme_valid()`; fyai ships no styling
+YAML of its own. `code_theme` overrides the fenced-code (libfyts) highlighter.
+The user-turn "bubble" reverse card is read back from the active theme through
+`fymd_renderer_get_reverse_pair()`. `theme` means background dark/light only.
 
 The provider/model catalogue (scrape-providers document) is the root's
 `catalog` entry (`fyai catalog show|list|import|export`, `src/fyai_catalog.c`),

@@ -66,3 +66,9 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 {
 	(void)cfg;
 }
+
+bool markdown_theme_valid(const char *name)
+{
+	(void)name;
+	return true;
+}

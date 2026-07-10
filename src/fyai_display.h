@@ -20,5 +20,14 @@ void fyai_interactive_recap(struct fyai_ctx *ctx);
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line);
 void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			       fy_generic tool_result);
+void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
+			     const char *lang, int preview_lines);
+/*
+ * Emit a tool-call header as markdown into @mf (bold tool name plus the
+ * command/path, with input-body previews for write_file/apply_patch). Shared by
+ * the history view and the live loop so a tool's header stays identical in both.
+ */
+void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
+			 const char *name, fy_generic args, int preview_lines);
 
 #endif

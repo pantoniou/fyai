@@ -281,29 +281,9 @@ option(BUILD_TESTING "Build tests" ON)
 
 set(FYAI_PROGRAMS fyai)
 
-# Markdown styling: shipped as a YAML file, located at runtime relative to the
-# binary (installed tree) and falling back to the source tree for in-place runs.
-set(FYAI_STYLING_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/stylings")
-set(FYAI_STYLING_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/share/fyai/stylings")
-
-# Embed the shipped styling YAML as a byte array so a relocated or fully static
-# binary still renders with full styling when the on-disk stylings/ dir is not
-# reachable. The runtime file lookup still wins; this is the built-in fallback.
-# Same embed approach libfyts uses for its language catalogue.
-set(FYAI_STYLING_YAML "${FYAI_STYLING_SOURCE_DIR}/fyai-markdown.yaml")
-file(READ "${FYAI_STYLING_YAML}" _fyai_style_hex HEX)
-string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1," _fyai_style_bytes
-    "${_fyai_style_hex}")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_styling.inc"
-    "/* Generated from ${FYAI_STYLING_YAML}. */\n"
-    "static const unsigned char FYAI_EMBEDDED_STYLING[] = {\n"
-    "${_fyai_style_bytes}"
-    "\n};\n"
-    "static const size_t FYAI_EMBEDDED_STYLING_LEN = sizeof(FYAI_EMBEDDED_STYLING);\n"
-)
-# Re-run CMake when the styling changes so the embedded copy stays in sync.
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${FYAI_STYLING_YAML}")
+# Markdown styling and theming are fully delegated to libfymd4c's embedded theme
+# catalogue (selected by the display/markdown_theme config key); fyai ships no
+# styling YAML of its own.
 
 # Embed the vendored provider/model catalogue snapshot (a scrape-providers
 # document) as the out-of-the-box fallback; `fyai catalog import` supersedes
@@ -548,13 +528,6 @@ install(FILES
     README.md
     config.yaml.sample
     DESTINATION share/doc/fyai
-)
-
-# Install markdown styling(s)
-install(DIRECTORY
-    stylings/
-    DESTINATION share/fyai/stylings
-    FILES_MATCHING PATTERN "*.yaml"
 )
 
 # tags and cscope support

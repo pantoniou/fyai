@@ -21,6 +21,8 @@
 #include "utils.h"
 #include "commands.h"
 
+struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
+
 #define OPENAI_RESPONSES_URL "https://api.openai.com/v1/responses"
 #define OPENAI_CHAT_COMPLETIONS_URL "https://api.openai.com/v1/chat/completions"
 #define ANTHROPIC_MESSAGES_URL "https://api.anthropic.com/v1/messages"
@@ -32,8 +34,20 @@
 #define DEFAULT_SYSTEM_PROMPT "You are a concise assistant."
 #define MAX_TOOL_LOOP_ITERATIONS 50
 #define DEFAULT_TEMPERATURE 0.0
-/* Default lines of a tool result shown in the display view before truncation. */
-#define DEFAULT_TOOL_PREVIEW_LINES 3
+/* Default rendered rows of a tool result shown in the display view. */
+#define DEFAULT_TOOL_PREVIEW_LINES 5
+/* Left indent applied to each rendered tool-output row (nests it under the
+ * tool-call header), so the live loop and the history view match. */
+#define FYAI_TOOL_OUTPUT_INDENT "    "
+/* Default separators (markdown, themed by the renderer). The turn break is a
+ * thematic-break rule; tool/section separators are empty (blank line only). */
+#define DEFAULT_TURN_SEPARATOR "---"
+#define DEFAULT_TOOL_SEPARATOR ""
+#define DEFAULT_SECTION_SEPARATOR ""
+/* Interactive prompt bubble: an empty prompt marker/top row keep the built-in
+ * defaults; the bottom row is a {key} template reproducing the classic banner. */
+#define DEFAULT_PROMPT_BOTTOM \
+	" {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_COLOR "auto"		/* auto | off | on */
@@ -77,13 +91,17 @@ struct fyai_cfg {
 	const char *color;		/* auto | off | on */
 	const char *theme;		/* auto | dark | light (resolved in setup) */
 	const char *code_theme;		/* libfyts styling name/path for fenced code */
-	const char *markdown_theme;	/* named palette -> stylings/fyai-<name>.yaml */
-	const char *markdown_style;	/* path override for the styling YAML */
-	fy_generic markdown_style_doc;
-	const char *markdown_code_theme;
-	const char *markdown_rev_on[2];
+	const char *markdown_theme;	/* libfymd4c embedded theme name */
+	const char *markdown_code_theme; /* resolved fenced-code theme (= code_theme) */
+	const char *markdown_rev_on[2];	/* reverse-card pair, [0] dark [1] light */
 	const char *markdown_rev_off[2];
-	char markdown_style_path[PATH_MAX];
+	const char *turn_separator;	/* history inter-turn break (markdown) */
+	const char *tool_separator;	/* rendered before a tool result (markdown) */
+	const char *section_separator;	/* reasoning -> answer break (live stream) */
+	const char *prompt_marker;	/* interactive prompt marker (SGR ok) */
+	const char *prompt_top;		/* REPL bubble top row template (SGR ok) */
+	const char *prompt_bottom;	/* REPL bubble bottom {key} template (SGR ok) */
+	int table_border;		/* 0 theme (default) | 1 grid | 2 none */
 	int max_tool_iterations;
 	int max_tokens;			/* output cap (required by Messages) */
 	int top_logprobs;
@@ -230,8 +248,7 @@ struct fyai_ctx {
 	char *user_agent;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
 	bool tool_output_displayed;
-	bool shell_live_open;
-	struct response_buffer shell_live_line;
+	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */
 	/* Set inside a forked tool sub-execution once the environment has been
 	 * sanitized and the sandbox applied, so inner steps (the shell tool's
 	 * own fork) do not re-derive and re-apply the confinement. */

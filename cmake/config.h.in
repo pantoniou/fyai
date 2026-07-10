@@ -9,9 +9,4 @@
 /* set maximum builder size on stack to 128 MB */
 #define FY_GENERIC_BUILDER_IN_PLACE_MAX_SIZE	(128LU << 20)
 
-/* Markdown styling directories: installed (relative to CMAKE_INSTALL_PREFIX)
- * and the source tree, for locating the shipped styling YAML at runtime. */
-#define FYAI_STYLING_INSTALL_DIR "@FYAI_STYLING_INSTALL_DIR@"
-#define FYAI_STYLING_SOURCE_DIR  "@FYAI_STYLING_SOURCE_DIR@"
-
 #endif /* CONFIG_H */

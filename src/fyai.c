@@ -139,27 +139,33 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	fy_generic tool_call_type;
 	const char *tool_call_id, *tool_call_output_type;
 	const char *name;
+	bool shell;
 
 	assert(ctx->transient_gb);
 
 	tool_call_type = fy_get(tool_call, "type");
-	name = "";
 	if (fy_equal(tool_call_type, "shell_call"))
 		name = "shell";
 	else if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
 		name = fy_get(fy_get(tool_call, "function"), "name", "");
 	else
 		name = fy_get(tool_call, "name", "");
+	shell = fy_equal(name, "shell");
 
-	if (!cfg->markdown || fy_equal(name, "shell"))
+	/*
+	 * Shell streams its output live as it runs, so it prints its own header
+	 * and its result progressively (bounded + indented, the same fenced
+	 * render as history); every other tool renders after the fact through
+	 * fyai_render_tool_exchange(). Non-markdown always streams raw.
+	 */
+	if (!cfg->markdown || shell)
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	tool_result = fyai_execute_tool_call(ctx, tool_call);
 
-	if (cfg->markdown &&
-	    (fy_not_equal(name, "shell") || !ctx->tool_output_displayed))
+	if (cfg->markdown && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
@@ -842,8 +848,11 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->user_agent);
 		ctx->user_agent = NULL;
 	}
-	free(ctx->shell_live_line.data);
-	ctx->shell_live_line = (struct response_buffer){};
+	if (ctx->shell_stream) {
+		fyai_fenced_stream_finish(ctx->shell_stream);
+		free(ctx->shell_stream);
+		ctx->shell_stream = NULL;
+	}
 
 	if (ctx->curl) {
 		curl_easy_cleanup(ctx->curl);
@@ -1082,6 +1091,8 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_prompt_args *args = &cfg->cmd.args.prompt;
 	const char *prompt;
+	const char *rev_on;
+	const char *rev_off;
 	char *histfile = NULL;
 	char *line = NULL;
 	fy_generic v;
@@ -1114,24 +1125,24 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	linenoiseSetMultiLine(1);
 	linenoiseSetEditorCallback(fyai_edit_line);	/* Ctrl-G */
 	/*
-	 * Style the interactive prompt with the inverted user-turn colours so the
-	 * input matches the echoed bubble: a dark terminal gets the light bubble
-	 * (light bg, dark text), a light terminal the dark bubble (dark bg, light
-	 * text). Only when colour is on; linenoise treats the SGR as zero-width.
+	 * Style the interactive prompt with the theme's reverse-card colours -
+	 * the same pair the echoed user turn uses (markdown_reverse_pair) - so the
+	 * input bubble follows the selected libfymd4c theme instead of a hardwired
+	 * black/white card. Only when colour is on; linenoise treats the SGR as
+	 * zero-width.
 	 */
-	prompt = "> ";
+	prompt = cfg->prompt_marker && *cfg->prompt_marker ?
+		cfg->prompt_marker : "> ";
 	if (cfg->markdown && ctx->stdout_tty) {
-		linenoiseSetPromptStyle(
-			cfg->theme && !strcmp(cfg->theme, "light") ?
-			FYAI_ANSI_BG_DARK FYAI_ANSI_FG_LIGHT :
-			FYAI_ANSI_BG_LIGHT FYAI_ANSI_FG_DARK);
-		/* A blank row above, the session banner (model, provider,
-		 * effort, context fill) below; together they frame the input. */
-		linenoiseSetTopInfo("");
+		if (markdown_reverse_pair(cfg, &rev_on, &rev_off))
+			linenoiseSetPromptStyle(rev_on);
+		/* The top row and the bottom status row (both {key} templates)
+		 * are installed by the banner update, which frames the input. */
 		fyai_session_banner_update(ctx);
 
-		/* match the markdown */
-		prompt = "  > ";
+		/* Default marker aligns with the markdown "  " indent. */
+		if (!(cfg->prompt_marker && *cfg->prompt_marker))
+			prompt = "  > ";
 	}
 	linenoiseHistorySetMaxLen(1000);
 	if (histfile)

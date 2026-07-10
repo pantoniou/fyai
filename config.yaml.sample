@@ -124,20 +124,36 @@ logging:
 display:
   markdown: true          # render markdown output
   stream: true             # stream the response
-  tool_preview_lines: 3    # lines of a tool result shown before truncation
+  tool_preview_lines: 5    # rendered rows of a tool result shown before it is bounded
   # How streamed markdown is rendered (only with markdown + stream):
   markdown_mode: line      # line (per line, default) | stream (redraw per chunk) | oneshot (at end)
   color: auto               # auto (colour iff a terminal) | off | on (force, even piped)
   theme: dark                # background: auto (probe terminal) | dark | light
-  # Named markdown palette -> stylings/fyai-<name>.yaml (markdown|plain|vivid).
-  # Default is unset (the default shipped styling); no value below is "off".
-  # markdown_theme: markdown
+  # libfymd4c embedded theme: default | catppuccin | kanagawa | solarized |
+  # tokyonight (each also with a -borderless variant). Unset uses the library
+  # default theme.
+  # markdown_theme: default
   # Fenced-code syntax-highlight theme: a libfyts built-in name (default,
   # catppuccin, kanagawa, solarized, tokyonight, vscode, vscode-nvim) or a
-  # path to a styling YAML. Default is unset (the styling file's code.theme).
+  # path to a styling YAML. Default is unset (the theme's own code.theme).
   # code_theme: default
-  # Explicit-path escape hatch overriding any named theme. Default is unset.
-  # markdown_style: /path/to/fyai-markdown.yaml
+  # Override the theme's table border, independent of markdown_theme:
+  # theme (follow the theme) | grid (force borders) | none (borderless).
+  # table_border: theme
+  # Separators (rendered as markdown, themed by the renderer). turn_separator
+  # breaks turns in the history view ("---" => a themed rule, "" => blank line);
+  # tool_separator is rendered before each tool result; section_separator sits
+  # between streamed reasoning and the answer.
+  turn_separator: "---"
+  # tool_separator: ""
+  # section_separator: ""
+  # Interactive prompt bubble. prompt is the input marker; prompt_top and
+  # prompt_bottom are {key} templates over the session vars (model, provider,
+  # api, effort, summary, temp, ctx). prompt_bottom replaces the banner; empty
+  # reproduces it. All may carry SGR colour escapes (e.g. "\e[36m{model}\e[0m").
+  # prompt: "  > "
+  # prompt_top: ""
+  # prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
   pretty: false           # pretty (YAML) debug dumps
   thinking: true           # display model reasoning/thinking output
   cache_info: false       # print provider cache info

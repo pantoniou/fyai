@@ -160,7 +160,7 @@ static int resolve_secret(const char **out, fy_generic v)
  */
 static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 {
-	fy_generic v, sb;
+	fy_generic v, sb, tbv;
 
 	if (fy_generic_is_invalid(root))
 		return 0;
@@ -265,8 +265,31 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		cfg->code_theme = fy_get(v, "code_theme", cfg->code_theme);
 		cfg->markdown_theme = fy_get(v, "markdown_theme",
 					     cfg->markdown_theme);
-		cfg->markdown_style = fy_get(v, "markdown_style",
-					     cfg->markdown_style);
+		/*
+		 * Intern the separators: they are read back only at render time
+		 * (well after this doc may be freed), so a raw fy_get pointer to a
+		 * short inline string would dangle (see CLAUDE.md fy_castp note).
+		 */
+		cfg->turn_separator = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "turn_separator", cfg->turn_separator));
+		cfg->tool_separator = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "tool_separator", cfg->tool_separator));
+		cfg->section_separator = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "section_separator", cfg->section_separator));
+		cfg->prompt_marker = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "prompt", cfg->prompt_marker));
+		cfg->prompt_top = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "prompt_top", cfg->prompt_top));
+		cfg->prompt_bottom = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "prompt_bottom", cfg->prompt_bottom));
+		/* Table-border override (int, so no string-lifetime concern). */
+		tbv = fy_get(v, "table_border");
+		if (fy_equal(tbv, "grid"))
+			cfg->table_border = 1;
+		else if (fy_equal(tbv, "none"))
+			cfg->table_border = 2;
+		else if (fy_equal(tbv, "theme"))
+			cfg->table_border = 0;
 		cfg->tool_preview_lines = fy_get(v, "tool_preview_lines",
 						cfg->tool_preview_lines);
 		cfg->markdown = apply_bool(v, "markdown", cfg->markdown);
@@ -1270,7 +1293,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 		problems = config_problem_add(cfg->gb, problems,
 				"display must be a mapping");
 	if (fy_generic_is_mapping(v)) {
-		fy_generic mode, color, theme;
+		fy_generic mode, color, theme, mdtheme, tborder;
 
 		mode = fy_get(v, "markdown_mode");
 		if (!fy_generic_is_invalid(mode) &&
@@ -1293,6 +1316,20 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.theme '%s' (auto|dark|light)",
 				fy_cast(fy_convert(theme, FYGT_STRING), ""));
+		mdtheme = fy_get(v, "markdown_theme");
+		if (!fy_generic_is_invalid(mdtheme) &&
+		    !markdown_theme_valid(fy_cast(fy_convert(mdtheme,
+							     FYGT_STRING), "")))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid display.markdown_theme '%s' (see 'fyai config' / libfymd4c themes)",
+				fy_cast(fy_convert(mdtheme, FYGT_STRING), ""));
+		tborder = fy_get(v, "table_border");
+		if (!fy_generic_is_invalid(tborder) &&
+		    !config_contains(fy_sequence("theme", "grid", "none"),
+				     tborder))
+			problems = config_problem_add(cfg->gb, problems,
+				"invalid display.table_border '%s' (theme|grid|none)",
+				fy_cast(fy_convert(tborder, FYGT_STRING), ""));
 	}
 
 out:
@@ -1552,10 +1589,15 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->markdown_mode = DEFAULT_MARKDOWN_MODE;
 	cfg->color = DEFAULT_COLOR;
 	cfg->theme = DEFAULT_THEME;
-	cfg->code_theme = NULL;		/* NULL => the styling file's code.theme */
-	cfg->markdown_theme = NULL;	/* NULL => the default shipped styling */
-	cfg->markdown_style = NULL;	/* NULL => shipped styling, located at runtime */
-	cfg->markdown_style_doc = fy_invalid;
+	cfg->code_theme = NULL;		/* NULL => the theme's own code.theme */
+	cfg->markdown_theme = NULL;	/* NULL => the libfymd4c default theme */
+	cfg->turn_separator = DEFAULT_TURN_SEPARATOR;
+	cfg->tool_separator = DEFAULT_TOOL_SEPARATOR;
+	cfg->section_separator = DEFAULT_SECTION_SEPARATOR;
+	cfg->prompt_marker = "";	/* empty => built-in prompt marker */
+	cfg->prompt_top = "";		/* empty => blank styled top row */
+	cfg->prompt_bottom = "";	/* empty => DEFAULT_PROMPT_BOTTOM banner */
+	cfg->table_border = 0;		/* 0 => follow the theme's table.border */
 	cfg->catalog = fy_invalid;
 	cfg->config_doc = fy_invalid;
 	cfg->sandbox = fy_invalid;
