@@ -1,8 +1,6 @@
-# fyai configuration document schema (JSON Schema 2020-12 subset; see
-# src/fyai_schema.c for the supported keyword set: type, const, enum,
-# min/maxLength, pattern, format, min/maximum, exclusive{Min,Max}imum,
-# properties, required, propertyNames, additionalProperties, items,
-# min/maxItems, anyOf/allOf/oneOf/not - no $ref, no patternProperties).
+# fyai configuration document schema (JSON Schema 2020-12 subset). The exact
+# supported, ignored, and explicitly rejected keyword sets are documented in
+# doc/schema-validator-plan.md.
 # `description` is decorative only (not a validated keyword); kept in sync
 # with config.yaml.sample, the authoritative source of the key list and
 # their compiled-in defaults.

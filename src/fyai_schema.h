@@ -14,7 +14,9 @@
  *
  * Problems carry a path prefix (e.g. "questions/0/options/1/label: expected
  * string") so the caller can point at the failing node. All strings are
- * interned in @gb.
+ * interned in @gb. Standardized but unsupported keywords fail validation with
+ * a specific diagnostic; annotations and provider extension keywords are
+ * accepted. See doc/schema-validator-plan.md for the exact support contract.
  */
 fy_generic fyai_schema_validate(struct fy_generic_builder *gb,
 				fy_generic schema,

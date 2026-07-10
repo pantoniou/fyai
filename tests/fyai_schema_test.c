@@ -98,6 +98,8 @@ static void test_type(void)
 
 	s = schema("{\"type\":\"integer\"}");
 	must_pass("type/int", s, instance("42"));
+	must_pass("type/integral-float", s, instance("42.0"));
+	must_fail("type/fractional-float", s, instance("1.5"));
 	must_fail("type/int-not", s, instance("\"x\""));
 
 	s = schema("{\"type\":\"number\"}");
@@ -126,6 +128,31 @@ static void test_type(void)
 	must_pass("type/array-str", s, instance("\"hi\""));
 	must_pass("type/array-int", s, instance("42"));
 	must_fail("type/array-bool", s, instance("true"));
+}
+
+static void test_boolean_schema(void)
+{
+	fy_generic s;
+
+	must_pass("boolean-schema/true", schema("true"), instance("42"));
+	must_fail("boolean-schema/false", schema("false"), instance("42"));
+
+	s = schema("{\"type\":\"object\",\"properties\":{\"x\":false}}");
+	must_fail("boolean-schema/property", s, instance("{\"x\":1}"));
+
+	s = schema("{\"type\":\"array\",\"items\":false}");
+	must_pass("boolean-schema/empty-items", s, instance("[]"));
+	must_fail("boolean-schema/items", s, instance("[1]"));
+
+	s = schema("{\"type\":\"object\",\"additionalProperties\":false}");
+	must_fail("boolean-schema/additional-property", s, instance("{\"x\":1}"));
+
+	s = schema("{\"not\":false}");
+	must_pass("boolean-schema/not", s, instance("1"));
+
+	s = schema("{\"type\":\"object\",\"propertyNames\":false}");
+	must_pass("boolean-schema/empty-property-names", s, instance("{}"));
+	must_fail("boolean-schema/property-names", s, instance("{\"x\":1}"));
 }
 
 static void test_required(void)
@@ -164,6 +191,46 @@ static void test_additional_properties_schema(void)
 		  instance("{\"a\":\"x\",\"b\":1}"));
 	must_fail("addl-schema/invalid", s,
 		  instance("{\"a\":\"x\",\"b\":\"nope\"}"));
+}
+
+static void test_pattern_properties(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"object\",\"patternProperties\":{"
+		   "\"^x-\":{\"type\":\"integer\"}},"
+		   "\"additionalProperties\":false}");
+	must_pass("patternProperties/pass", s, instance("{\"x-one\":1}"));
+	must_fail("patternProperties/type", s, instance("{\"x-one\":\"no\"}"));
+	must_fail_containing("patternProperties/additional", s,
+			     instance("{\"other\":1}"), "additional property");
+
+	s = schema("{\"type\":\"object\",\"properties\":{"
+		   "\"x\":{\"minimum\":0}},\"patternProperties\":{"
+		   "\"^x$\":{\"maximum\":10}}}");
+	must_pass("patternProperties/both", s, instance("{\"x\":5}"));
+	must_fail("patternProperties/both-properties", s, instance("{\"x\":-1}"));
+	must_fail("patternProperties/both-pattern", s, instance("{\"x\":11}"));
+}
+
+static void test_dependencies(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"object\",\"dependentRequired\":{"
+		   "\"credit_card\":[\"billing_address\"]}}");
+	must_pass("dependentRequired/absent", s, instance("{}"));
+	must_pass("dependentRequired/present", s,
+		  instance("{\"credit_card\":1,\"billing_address\":\"x\"}"));
+	must_fail_containing("dependentRequired/missing", s,
+			     instance("{\"credit_card\":1}"), "requires key");
+
+	s = schema("{\"type\":\"object\",\"dependentSchemas\":{"
+		   "\"name\":{\"required\":[\"age\"]}}}");
+	must_pass("dependentSchemas/absent", s, instance("{}"));
+	must_pass("dependentSchemas/present", s,
+		  instance("{\"name\":\"n\",\"age\":1}"));
+	must_fail("dependentSchemas/fail", s, instance("{\"name\":\"n\"}"));
 }
 
 static void test_enum(void)
@@ -236,6 +303,89 @@ static void test_not(void)
 	must_pass("not/nomatch", s, instance("42"));
 }
 
+static void test_conditional(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"object\",\"if\":{\"properties\":{"
+		   "\"kind\":{\"const\":\"number\"}},\"required\":[\"kind\"]},"
+		   "\"then\":{\"properties\":{\"value\":{\"type\":\"number\"}},"
+		   "\"required\":[\"value\"]},\"else\":{\"properties\":{"
+		   "\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}}");
+	must_pass("conditional/then", s,
+		  instance("{\"kind\":\"number\",\"value\":1}"));
+	must_fail("conditional/then-fail", s,
+		  instance("{\"kind\":\"number\",\"value\":\"x\"}"));
+	must_pass("conditional/else", s,
+		  instance("{\"kind\":\"text\",\"value\":\"x\"}"));
+	must_fail("conditional/else-fail", s,
+		  instance("{\"kind\":\"text\",\"value\":1}"));
+}
+
+static void test_local_ref(void)
+{
+	fy_generic s;
+
+	s = schema("{\"$defs\":{\"positive\":{\"type\":\"integer\","
+		   "\"minimum\":1}},\"$ref\":\"#/$defs/positive\"}");
+	must_pass("ref/basic", s, instance("2"));
+	must_fail("ref/basic-fail", s, instance("0"));
+
+	s = schema("{\"$defs\":{\"a/b~c\":{\"const\":1}},"
+		   "\"$ref\":\"#/$defs/a~1b~0c\"}");
+	must_pass("ref/escaped", s, instance("1"));
+	must_fail("ref/escaped-fail", s, instance("2"));
+
+	s = schema("{\"$defs\":{\"\":{\"type\":\"string\"},"
+		   "\"0\":{\"type\":\"integer\"}},\"anyOf\":["
+		   "{\"$ref\":\"#/$defs/\"},{\"$ref\":\"#/$defs/0\"}]}");
+	must_pass("ref/empty-key", s, instance("\"x\""));
+	must_pass("ref/numeric-map-key", s, instance("1"));
+
+	s = schema("{\"$defs\":[{\"type\":\"boolean\"}],"
+		   "\"$ref\":\"#/$defs/0\"}");
+	must_pass("ref/sequence-index", s, instance("true"));
+	must_fail("ref/sequence-index-fail", s, instance("0"));
+
+	s = schema("{\"$ref\":\"#/$defs/missing\",\"$defs\":{}}");
+	must_fail_containing("ref/unresolved", s, instance("1"),
+			     "unresolved local $ref");
+
+	s = schema("{\"$ref\":\"#\"}");
+	must_fail_containing("ref/cycle", s, instance("1"),
+			     "recursion limit");
+
+	s = schema("{\"$ref\":\"https://example.com/schema\"}");
+	must_fail_containing("ref/external", s, instance("1"),
+			     "external $ref is unsupported");
+
+	s = schema("{\"$ref\":\"#named\"}");
+	must_fail_containing("ref/anchor", s, instance("1"),
+			     "anchor $ref is unsupported");
+}
+
+static void test_unsupported_keywords(void)
+{
+	fy_generic s;
+
+	s = schema("{\"unevaluatedProperties\":false}");
+	must_fail_containing("unsupported/unevaluated", s, instance("{}"),
+			     "unsupported JSON Schema keyword 'unevaluatedProperties'");
+
+	s = schema("{\"$id\":\"https://example.com/schema\"}");
+	must_fail_containing("unsupported/id", s, instance("1"),
+			     "unsupported JSON Schema keyword '$id'");
+
+	s = schema("{\"properties\":{\"absent\":{"
+		   "\"unevaluatedItems\":false}}}");
+	must_fail_containing("unsupported/unvisited-branch", s, instance("{}"),
+			     "<schema>/properties/absent");
+
+	/* Annotations and provider extension keywords remain permissible. */
+	s = schema("{\"description\":\"x\",\"x-provider-option\":true}");
+	must_pass("unsupported/extensions-accepted", s, instance("1"));
+}
+
 static void test_string_bounds(void)
 {
 	fy_generic s;
@@ -248,6 +398,9 @@ static void test_string_bounds(void)
 			     "minLength");
 	must_fail_containing("len/too-long", s, instance("\"abcde\""),
 			     "maxLength");
+
+	s = schema("{\"type\":\"string\",\"minLength\":1,\"maxLength\":1}");
+	must_pass("len/unicode-codepoint", s, instance("\"é\""));
 }
 
 static void test_pattern(void)
@@ -280,6 +433,35 @@ static void test_numeric_bounds(void)
 			     "exclusiveMaximum");
 }
 
+static void test_multiple_of(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"integer\",\"multipleOf\":3}");
+	must_pass("multipleOf/integer", s, instance("12"));
+	must_fail_containing("multipleOf/integer-fail", s, instance("10"),
+			     "multiple");
+
+	s = schema("{\"type\":\"number\",\"multipleOf\":0.1}");
+	must_pass("multipleOf/decimal", s, instance("0.3"));
+	must_fail("multipleOf/decimal-fail", s, instance("0.35"));
+}
+
+static void test_property_bounds(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"object\",\"minProperties\":1,"
+		   "\"maxProperties\":2}");
+	must_pass("properties/min", s, instance("{\"a\":1}"));
+	must_pass("properties/max", s, instance("{\"a\":1,\"b\":2}"));
+	must_fail_containing("properties/too-few", s, instance("{}"),
+			     "minProperties");
+	must_fail_containing("properties/too-many", s,
+			     instance("{\"a\":1,\"b\":2,\"c\":3}"),
+			     "maxProperties");
+}
+
 static void test_items(void)
 {
 	fy_generic s;
@@ -289,6 +471,61 @@ static void test_items(void)
 	must_fail_containing("items/one-invalid", s,
 			     instance("[1,\"x\",3]"),
 			     "type mismatch");
+}
+
+static void test_prefix_items(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"array\",\"prefixItems\":["
+		   "{\"type\":\"string\"},{\"type\":\"integer\"}],"
+		   "\"items\":{\"type\":\"boolean\"}}");
+	must_pass("prefixItems/pass", s, instance("[\"x\",1,true,false]"));
+	must_fail("prefixItems/first", s, instance("[1,1]"));
+	must_fail("prefixItems/second", s, instance("[\"x\",\"no\"]"));
+	must_fail("prefixItems/items", s, instance("[\"x\",1,2]"));
+
+	s = schema("{\"type\":\"array\",\"prefixItems\":[true],"
+		   "\"items\":false}");
+	must_pass("prefixItems/closed-pass", s, instance("[1]"));
+	must_fail("prefixItems/closed-fail", s, instance("[1,2]"));
+}
+
+static void test_unique_items(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"array\",\"uniqueItems\":true}");
+	must_pass("uniqueItems/pass", s, instance("[1,2,{\"a\":1}]"));
+	must_fail_containing("uniqueItems/scalar", s, instance("[1,2,1]"),
+			     "not unique");
+	must_fail_containing("uniqueItems/numeric-equality", s,
+			     instance("[1,1.0]"), "not unique");
+	must_fail_containing("uniqueItems/structural", s,
+			     instance("[{\"a\":1},{\"a\":1}]"),
+			     "not unique");
+	must_fail_containing("uniqueItems/structural-numeric", s,
+			     instance("[{\"a\":1},{\"a\":1.0}]"),
+			     "not unique");
+}
+
+static void test_contains(void)
+{
+	fy_generic s;
+
+	s = schema("{\"type\":\"array\",\"contains\":{\"type\":\"integer\"}}");
+	must_pass("contains/default-min", s, instance("[\"x\",1]"));
+	must_fail_containing("contains/default-min-fail", s,
+			     instance("[\"x\",true]"), "contains matched");
+
+	s = schema("{\"type\":\"array\",\"contains\":{\"type\":\"integer\"},"
+		   "\"minContains\":2,\"maxContains\":3}");
+	must_pass("contains/range", s, instance("[1,2,\"x\"]"));
+	must_fail("contains/too-few", s, instance("[1,\"x\"]"));
+	must_fail("contains/too-many", s, instance("[1,2,3,4]"));
+
+	s = schema("{\"type\":\"array\",\"contains\":false,\"minContains\":0}");
+	must_pass("contains/boolean-min-zero", s, instance("[1,2]"));
 }
 
 static void test_property_names(void)
@@ -343,6 +580,10 @@ static void test_format_uri(void)
 	must_pass("uri/valid", s, instance("\"https://example.com\""));
 	must_fail_containing("uri/invalid", s, instance("\"not a uri\""),
 			     "format");
+	must_fail_containing("uri/numeric-scheme", s, instance("\"1:test\""),
+			     "format");
+	must_fail_containing("uri/punctuation-scheme", s, instance("\"+:test\""),
+			     "format");
 }
 
 static void test_problem_collection(void)
@@ -385,19 +626,30 @@ int main(void)
 	test_ctx.durable_gb = test_ctx.transient_gb;
 
 	test_type();
+	test_boolean_schema();
 	test_required();
 	test_additional_properties_false();
 	test_additional_properties_schema();
+	test_pattern_properties();
+	test_dependencies();
 	test_enum();
 	test_const();
 	test_any_of();
 	test_all_of();
 	test_one_of();
 	test_not();
+	test_conditional();
+	test_local_ref();
+	test_unsupported_keywords();
 	test_string_bounds();
 	test_pattern();
 	test_numeric_bounds();
+	test_multiple_of();
+	test_property_bounds();
 	test_items();
+	test_prefix_items();
+	test_unique_items();
+	test_contains();
 	test_property_names();
 	test_nested();
 	test_non_standard_type();
