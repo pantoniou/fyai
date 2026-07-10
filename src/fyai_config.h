@@ -62,6 +62,15 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path);
 int fyai_config_edit(struct fyai_ctx *ctx);
 
 /*
+ * Rebuild the live derived config cache from the arena config after an
+ * in-session mutation (/config set|delete|edit|import). Re-merges config_doc
+ * from the freshly published arena_config, re-runs the apply_config pass,
+ * reloads the markdown styling, and re-resolves the model, so a REPL config
+ * change takes effect immediately instead of only on the next process.
+ */
+int fyai_config_rederive(struct fyai_ctx *ctx);
+
+/*
  * Re-derive the read-only `catalog:` block on @config_doc: the full models[]
  * entry for the document's `model` (display_name, context_window,
  * capabilities, open_source, ...) plus `canonical_provider`. Removed

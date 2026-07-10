@@ -951,6 +951,14 @@ static int slash_config(struct fyai_ctx *ctx, const char *arg)
 	}
 
 	rc = fyai_execute_config(ctx);
+	/*
+	 * A successful in-session mutation only touched the arena; refresh the
+	 * live derived cache (colours, renderer, model) so the change is visible
+	 * on the next prompt instead of only after a restart.
+	 */
+	if (!rc && (args->type == FYAICT_SET || args->type == FYAICT_DELETE ||
+		    args->type == FYAICT_EDIT || args->type == FYAICT_IMPORT))
+		rc = fyai_config_rederive(ctx);
 	*args = saved;
 	return rc;
 usage:

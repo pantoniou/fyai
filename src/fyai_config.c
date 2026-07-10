@@ -1569,6 +1569,35 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	return 0;
 }
 
+int fyai_config_rederive(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+
+	if (!cfg || !cfg->gb)
+		return -1;
+
+	/*
+	 * The arena is authoritative after a mutation; rebuild the merged doc
+	 * from it (edit/import replace the whole document, set/delete already
+	 * mirrored it) and re-run the single apply pass so the derived cache
+	 * matches what a fresh process would compute.
+	 */
+	if (fy_generic_is_valid(ctx->arena_config))
+		cfg->config_doc = ctx->arena_config;
+	if (apply_config(cfg, cfg->config_doc))
+		return -1;
+
+	/* Re-resolve theme=auto to a concrete value before reloading style. */
+	if (cfg->theme && !strcmp(cfg->theme, "auto"))
+		cfg->theme = (cfg->markdown &&
+			      markdown_color_enabled(cfg->color)) ?
+				terminal_detect_theme() : "dark";
+	if (cfg->markdown)
+		fyai_markdown_load_style(cfg);
+
+	return fyai_config_resolve_model(cfg);
+}
+
 void fyai_config_set_defaults(struct fyai_cfg *cfg)
 {
 	cfg->api_mode = FYAI_API_RESPONSES;
