@@ -42,6 +42,17 @@ Use `fy_castp(&v, "")`, which takes the *address* of the stored generic and
 returns a pointer into that stable storage; compute it at the use site from a
 long-lived holder, never cache a `fy_cast` result past the generic's scope.
 
+**Empty strings must survive a YAML round-trip.** An empty-string generic is a
+string, not null — but under the core/1.1 schemas a *bare* plain empty scalar
+(`key:`) reads back as null. libfyaml's generic emitter therefore quotes an
+empty string (`key: ""`) whenever the style is unspecified, so it round-trips
+as the empty string in block, pretty and flow output alike. fyai relies on this:
+config keys whose default is `""` (e.g. `display/tool_separator`, `prompt_top`)
+are stored as empty strings and must re-parse as strings, or the `type: string`
+schema check fails on the next commit (an in-session `/config edit` save). Keep
+these keys `type: string` in `data/config.schema.yaml` — do not widen them to
+accept null to paper over an emitter that drops the quotes.
+
 ## Source map
 
 - `src/main.c` — CLI grammar: parse global options, then dispatch a verb or run a
