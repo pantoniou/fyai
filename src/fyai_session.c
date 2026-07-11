@@ -231,6 +231,22 @@ static void session_persist_model(struct fyai_ctx *ctx)
 			fy_sprintfa("'%s'", cfg->model));
 }
 
+/*
+ * ChatGPT subscription auth stands in for an API key, but only for the OpenAI
+ * provider on the Responses grammar. When a session is already running on it
+ * (cfg->chatgpt_auth), or the user pinned it (auth_mode CHATGPT), a switch to
+ * another such model must not be rejected for lacking an API key.
+ */
+static bool session_chatgpt_capable(const struct fyai_cfg *cfg,
+				    const struct fyai_cfg *tmp)
+{
+	if (!tmp->provider || fy_not_equal(tmp->provider, "openai"))
+		return false;
+	if (tmp->api_mode != FYAI_API_RESPONSES)
+		return false;
+	return cfg->auth_mode == FYAI_AUTH_CHATGPT || cfg->chatgpt_auth;
+}
+
 int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -267,7 +283,8 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 		return -1;
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
-	if (!tmp.api_key || !*tmp.api_key) {
+	if ((!tmp.api_key || !*tmp.api_key) &&
+	    !session_chatgpt_capable(cfg, &tmp)) {
 		fprintf(stderr,
 			"model: no API key for provider '%s' (set %s%s)\n",
 			tmp.provider ? tmp.provider : "?",
@@ -277,6 +294,13 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 	}
 
 	*cfg = tmp;
+
+	/* Re-derive ChatGPT subscription routing (endpoint + token) for the
+	 * new model; resolve returns early and harmlessly when an API key is
+	 * in use. */
+	cfg->chatgpt_auth = false;
+	if (fyai_auth_resolve(ctx))
+		return -1;
 
 	/* Rebuild the derived request state when a live session exists. */
 	if (ctx->curl && fyai_request_state_apply(ctx))
@@ -365,7 +389,8 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	}
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
-	if (!tmp.api_key || !*tmp.api_key) {
+	if ((!tmp.api_key || !*tmp.api_key) &&
+	    !session_chatgpt_capable(cfg, &tmp)) {
 		fprintf(stderr,
 			"api: no API key for provider '%s' (set %s%s)\n",
 			tmp.provider ? tmp.provider : "?",
@@ -375,6 +400,12 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	}
 
 	*cfg = tmp;
+
+	/* Re-derive ChatGPT subscription routing for the new grammar; resolve
+	 * returns early and harmlessly when an API key is in use. */
+	cfg->chatgpt_auth = false;
+	if (fyai_auth_resolve(ctx))
+		return -1;
 
 	/* Rebuild the derived request state when a live session exists. */
 	if (ctx->curl && fyai_request_state_apply(ctx))
