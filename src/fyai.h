@@ -20,6 +20,7 @@
 
 #include "utils.h"
 #include "commands.h"
+#include "fyai_auth.h"
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 
@@ -76,6 +77,8 @@ struct fyai_cfg {
 	const char *system_prompt;
 	const char *model;
 	const char *api_key;
+	enum fyai_auth_mode auth_mode;
+	bool chatgpt_auth;
 	bool model_explicit;
 	/*
 	 * Set when the key was supplied explicitly (--api-key or a config
@@ -248,6 +251,8 @@ struct fyai_ctx {
 	struct curl_slist *headers;
 	char *auth_header;
 	char *user_agent;
+	struct fyai_credentials auth;
+	bool auth_retry_done;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
 	bool tool_output_displayed;
 	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */

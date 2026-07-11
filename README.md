@@ -90,10 +90,56 @@ fyai init
 This creates the local arena used for durable conversation state and installs
 the starting configuration for the repository.
 
-Configuration never contains raw provider secrets. Set `OPENAI_API_KEY`,
+Configuration never contains raw provider secrets. The default
+`api_key: { type: auto }` lookup uses an explicit `--api-key`, then the
+provider's conventional environment variable, then `api-key/<provider>` from
+the logical secret store. Set `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or another
-provider's conventional `<PROVIDER>_API_KEY` variable, or use an
-`api_key: { type: env, value: NAME }` configuration mapping.
+provider's conventional `<PROVIDER>_API_KEY` variable, or pin an
+`api_key: { type: env, value: NAME }` configuration mapping. Linux can instead
+hold API keys dependency-free in its logical secret store:
+
+```sh
+fyai secret set api-key/openai
+fyai config set api_key '{ type: secret, value: api-key/openai }'
+fyai secret status api-key/openai
+fyai secret delete api-key/openai
+```
+
+`secret set` reads from `/dev/tty` with echo disabled; `--stdin` supports scripts.
+Kernel entries survive process and login-session boundaries but not reboot.
+The implementation uses Linux syscalls directly and is compiled out on macOS.
+The interactive forms `/secret set api-key/openai`, `/secret status
+api-key/openai`, and `/secret delete api-key/openai` share the same backend;
+the value prompt is separate from the slash line and never enters history.
+
+OpenAI Responses requests may instead use an eligible ChatGPT subscription:
+
+```sh
+fyai auth openai login                 # browser + loopback callback
+fyai auth openai login --device-code   # SSH/headless login
+fyai config set auth chatgpt
+fyai auth openai status                # credential health
+fyai auth openai info                  # subscription/account details
+fyai auth openai usage                 # live limits and credits
+fyai auth openai usage --json          # machine-readable report
+```
+
+The Markdown status report shows both the configured mode and the effective
+method used for model calls. Switch explicitly with `fyai config set auth
+chatgpt` or `fyai config set auth api-key`; `auto` prefers an available API key
+and otherwise falls back to the signed-in subscription.
+
+`auth: auto` is the default and preserves API-key precedence. `auth: chatgpt`
+explicitly selects subscription access; `auth: api-key` disables the fallback.
+The provider argument keeps credential management unambiguous as more
+subscription backends are added; `fyai auth status` remains an OpenAI shorthand.
+OAuth tokens are machine-local credentials in macOS Keychain or, when enabled
+with `-DENABLE_LIBSECRET=ON`, Linux Secret Service, with an atomic mode-0600 XDG
+state file as the default Linux backend. Secret Service is opt-in because
+libsecret carries the GLib runtime dependency; static builds use the file
+backend. Tokens are never stored
+in the repository arena or exposed to model tools.
 The configured `model` is resolved through the catalogue to its provider,
 endpoint, API grammar, and wire model ID.
 

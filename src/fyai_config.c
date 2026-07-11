@@ -202,6 +202,19 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		cfg->model = fy_cast(v, cfg->model);
 		cfg->model_explicit = true;
 	}
+	v = fy_get(root, "auth");
+	if (fy_generic_is_invalid(v)) {
+		/* Absent keys preserve the lower-precedence layer/default. */
+	} else if (fy_equal(v, "api-key"))
+		cfg->auth_mode = FYAI_AUTH_API_KEY;
+	else if (fy_equal(v, "chatgpt"))
+		cfg->auth_mode = FYAI_AUTH_CHATGPT;
+	else if (fy_equal(v, "auto"))
+		cfg->auth_mode = FYAI_AUTH_AUTO;
+	else {
+		fprintf(stderr, "config: auth must be auto, api-key, or chatgpt\n");
+		return -1;
+	}
 	cfg->system_prompt = fy_get(root, "system_prompt", cfg->system_prompt);
 	cfg->api_url = fy_get(root, "api_url", cfg->api_url);
 	cfg->arena_dir = fy_get(root, "arena_dir", cfg->arena_dir);
@@ -1639,6 +1652,7 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 void fyai_config_set_defaults(struct fyai_cfg *cfg)
 {
 	cfg->api_key_auto = true;
+	cfg->auth_mode = FYAI_AUTH_AUTO;
 	cfg->api_mode = FYAI_API_RESPONSES;
 	cfg->api_url = NULL;
 	cfg->system_prompt = DEFAULT_SYSTEM_PROMPT;

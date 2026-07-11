@@ -1098,6 +1098,12 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
+		if (fyai_auth_should_retry(ctx, status)) {
+			stream_response_cleanup(&stream);
+			if (!fyai_auth_prepare_retry(ctx))
+				return fyai_perform_streaming_request(ctx);
+			return fy_invalid;
+		}
 		fprintf(stderr, "Request returned HTTP %ld\n", status);
 		if (stream.raw.data)
 			fprintf(stderr, "%s\n", stream.raw.data);
@@ -1160,6 +1166,12 @@ fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
+		if (fyai_auth_should_retry(ctx, status)) {
+			free(response.data);
+			if (!fyai_auth_prepare_retry(ctx))
+				return fyai_perform_buffered_request(ctx);
+			return fy_invalid;
+		}
 		fprintf(stderr, "OpenAI request returned HTTP %ld\n", status);
 		if (response.data)
 			fprintf(stderr, "%s\n", response.data);
