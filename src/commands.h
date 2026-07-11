@@ -254,6 +254,7 @@ enum fyai_verb_flags {
 	FYAIVF_NEEDS_API_KEYS	= FY_BIT(1),	/* will use api keys if available, will fail without */
 	FYAIVF_NO_STORAGE	= FY_BIT(2),	/* does not need storage */
 	FYAIVF_NO_REQUESTS	= FY_BIT(3),	/* does not make requests */
+	FYAIVF_NEEDS_TRANSIENT_BUILDER = FY_BIT(4),
 };
 
 struct fyai_verb {

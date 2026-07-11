@@ -1773,7 +1773,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  --yaml     emit YAML\n"
 			     "  --full     include per-item detail where available\n"
 			     "  --brief    summary output (default)",
-		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 		.default_args.list = {
 		},
 	},

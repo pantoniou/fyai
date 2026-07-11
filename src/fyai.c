@@ -1264,6 +1264,7 @@ int fyai_execute(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg;
 	const struct fyai_verb *v;
+	bool cleanup_transient;
 	int rc;
 
 	assert(ctx);
@@ -1276,7 +1277,17 @@ int fyai_execute(struct fyai_ctx *ctx)
 		return EXIT_FAILURE;
 	}
 
+	cleanup_transient = false;
+	if ((v->flags & FYAIVF_NEEDS_TRANSIENT_BUILDER) && !ctx->transient_gb) {
+		rc = fyai_setup_transient_builder(ctx);
+		if (rc)
+			return EXIT_FAILURE;
+		cleanup_transient = true;
+	}
+
 	rc = v->execute ? v->execute(ctx) : 0;
+	if (cleanup_transient)
+		fyai_cleanup_transient_builder(ctx);
 
 	if (rc) {
 		fprintf(stderr, "%s:%d @%s\n", __FILE__, __LINE__, __func__);
