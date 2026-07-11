@@ -390,7 +390,7 @@ if(ENABLE_LIBSECRET)
     target_compile_definitions(fyai PRIVATE HAVE_LIBSECRET)
 endif()
 if(APPLE)
-    target_link_libraries(fyai PRIVATE "-framework Security")
+    target_link_libraries(fyai PRIVATE "-framework Security" "-framework CoreFoundation")
 endif()
 target_compile_definitions(fyai PRIVATE
     _GNU_SOURCE
