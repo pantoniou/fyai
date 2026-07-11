@@ -1586,6 +1586,43 @@ static int configure_sandbox(int argc, char **argv, struct fyai_cfg *cfg)
 	return 0;
 }
 
+static int configure_secret(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_secret_args *a = &cfg->cmd.args.secret;
+	int i = 1;
+
+	if (i >= argc || fy_equal(argv[i], "status")) {
+		a->command = FYAI_SECRET_STATUS;
+		if (i < argc)
+			i++;
+	} else if (fy_equal(argv[i], "set")) {
+		a->command = FYAI_SECRET_SET;
+		i++;
+	} else if (fy_equal(argv[i], "delete")) {
+		a->command = FYAI_SECRET_DELETE;
+		i++;
+	} else {
+		fprintf(stderr, "secret: use status [name]|set <name>|delete <name>\n");
+		return -1;
+	}
+	if (i < argc && strcmp(argv[i], "--stdin"))
+		a->name = fy_gb_intern_string(cfg->gb, argv[i++]);
+	if (i < argc && a->command == FYAI_SECRET_SET && !strcmp(argv[i], "--stdin")) {
+		a->stdin_value = true;
+		i++;
+	}
+	if ((a->command == FYAI_SECRET_SET || a->command == FYAI_SECRET_DELETE) &&
+	    (!a->name || !*a->name)) {
+		fprintf(stderr, "secret: a logical name is required\n");
+		return -1;
+	}
+	if (i < argc) {
+		fprintf(stderr, "secret: unexpected argument '%s'\n", argv[i]);
+		return -1;
+	}
+	return 0;
+}
+
 static int configure_help(int argc, char **argv, struct fyai_cfg *cfg);
 static int execute_help(struct fyai_ctx *ctx);
 
@@ -1845,6 +1882,22 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.config = {
 		},
+	},
+	[FYAIVID_SECRET] = {
+		.id	   = FYAIVID_SECRET,
+		.name	   = "secret",
+		.configure = configure_secret,
+		.execute   = fyai_secret_execute,
+		.synopsis  = "secret [status [name]|set <name> [--stdin]|delete <name>]",
+		.help	   = "Manage logical secrets without exposing their values.\n"
+			     "Provider API keys conventionally use api-key/<provider>;\n"
+			     "api_key: { type: auto } discovers that name automatically.\n"
+			     "  status [name] show backend availability or entry presence\n"
+			     "  set <name>    read from /dev/tty with echo disabled\n"
+			     "  --stdin       read the value from stdin for scripts\n"
+			     "  delete <name> remove an entry",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_STORAGE | FYAIVF_NO_REQUESTS,
+		.default_args.secret = { .command = FYAI_SECRET_STATUS },
 	},
 	[FYAIVID_GC] = {
 		.id	   = FYAIVID_GC,

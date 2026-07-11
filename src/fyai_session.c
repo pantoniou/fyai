@@ -1154,6 +1154,44 @@ static int slash_log(struct fyai_ctx *ctx, const char *arg)
 	return fyai_log_control(ctx, arg);
 }
 
+static int slash_secret(struct fyai_ctx *ctx, const char *arg)
+{
+	char *copy, *action, *name = NULL, *extra;
+	enum fyai_secret_command command;
+	int rc;
+
+	(void)ctx;
+	copy = strdup(arg ? arg : "");
+	if (!copy)
+		return -1;
+	action = strtok(copy, " \t");
+	if (!action || fy_equal(action, "status"))
+		command = FYAI_SECRET_STATUS;
+	else if (fy_equal(action, "set"))
+		command = FYAI_SECRET_SET;
+	else if (fy_equal(action, "delete"))
+		command = FYAI_SECRET_DELETE;
+	else {
+		fprintf(stderr, "secret: use status [name]|set <name>|delete <name>\n");
+		free(copy);
+		return -1;
+	}
+	if (action)
+		name = strtok(NULL, " \t");
+	extra = strtok(NULL, " \t");
+	if (extra || ((command == FYAI_SECRET_SET || command == FYAI_SECRET_DELETE) &&
+		      (!name || !*name))) {
+		fprintf(stderr, "secret: invalid arguments\n");
+		free(copy);
+		return -1;
+	}
+	/* The slash line contains only the logical name. SET prompts separately
+	 * on /dev/tty, so secret material never enters linenoise history. */
+	rc = fyai_secret_action(command, name, false);
+	free(copy);
+	return rc;
+}
+
 static int slash_help(struct fyai_ctx *ctx, const char *arg);
 
 static const struct fyai_slash_cmd fyai_slash_cmds[] = {
@@ -1169,6 +1207,7 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "history", "[last N]", "show conversation history", slash_history },
 	{ "log", "[target action]", "control trace logging", slash_log },
 	{ "logging", "[target action]", "alias for /log", slash_log },
+	{ "secret", "[status [name]|set name|delete name]", "manage secrets (API keys: api-key/<provider>)", slash_secret },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "stats", "", "this session's token usage", slash_stats },
 	{ "tools", "[agent] [--brief|--full]", "list catalog agent tools", slash_tools },

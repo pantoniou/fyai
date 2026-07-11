@@ -23,6 +23,7 @@
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_schema.h"
+#include "fyai_secret.h"
 #include "fyai_terminal.h"
 #include "fyai_markdown.h"
 #include "fyai_storage.h"
@@ -129,19 +130,33 @@ static bool apply_bool(fy_generic root, const char *key, bool cur)
 	return fy_cast(v, cur);
 }
 
-static int resolve_secret(const char **out, fy_generic v)
+static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 {
 	const char *name;
 	const char *value;
+	char *key_name = NULL, *secret = NULL;
+	size_t len = 0;
+	int rc;
 
 	if (fy_generic_is_invalid(v))
 		return -1;
 
-	if (fy_not_equal(fy_get(v, "type"), "env"))
-		return -1;
-
 	name = fy_get(v, "value", "");
 	if (!*name)
+		return -1;
+	if (fy_equal(fy_get(v, "type"), "secret")) {
+		if (asprintf(&key_name, "fyai:%s", name) < 0)
+			return -1;
+		rc = fyai_secret_kernel_get(key_name, &secret, &len);
+		free(key_name);
+		if (rc != FYAI_SECRET_OK)
+			return -1;
+		*out = fy_gb_intern_string(cfg->gb, secret);
+		fyai_secret_clear(secret, len);
+		free(secret);
+		return *out && **out ? 0 : -1;
+	}
+	if (fy_not_equal(fy_get(v, "type"), "env"))
 		return -1;
 
 	value = getenv(name);
@@ -160,18 +175,33 @@ static int resolve_secret(const char **out, fy_generic v)
  */
 static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 {
-	fy_generic v, sb, tbv;
+	fy_generic v, sb, tbv, secret_ref;
 
 	if (fy_generic_is_invalid(root))
 		return 0;
 
-	if (!resolve_secret(&cfg->api_key, fy_get(root, "api_key")))
-		cfg->api_key_explicit = true;
+	secret_ref = fy_get(root, "api_key");
+	if (fy_generic_is_mapping(secret_ref)) {
+		if (fy_equal(fy_get(secret_ref, "type"), "auto")) {
+			cfg->api_key = NULL;
+			cfg->api_key_auto = true;
+			cfg->api_key_explicit = false;
+		} else {
+			cfg->api_key = NULL;
+			cfg->api_key_auto = false;
+			cfg->api_key_explicit = true;
+			(void)resolve_secret(cfg, &cfg->api_key, secret_ref);
+		}
+	}
 
 	if (config_validate_api(root))
 		return -1;
 
-	cfg->model = fy_get(root, "model", cfg->model);
+	v = fy_get(root, "model");
+	if (!fy_generic_is_invalid(v)) {
+		cfg->model = fy_cast(v, cfg->model);
+		cfg->model_explicit = true;
+	}
 	cfg->system_prompt = fy_get(root, "system_prompt", cfg->system_prompt);
 	cfg->api_url = fy_get(root, "api_url", cfg->api_url);
 	cfg->arena_dir = fy_get(root, "arena_dir", cfg->arena_dir);
@@ -1235,10 +1265,18 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				"%s is not a YAML mapping", origin);
 	if (fyai_config_has_raw_secret(doc))
 		problems = config_problem_add(cfg->gb, problems,
-				"%s carries a raw api_key; use { type: env, value: NAME }",
+				"%s carries a raw api_key; use { type: env|secret, value: NAME }",
 				origin);
 	if (!fy_generic_is_mapping(doc))
 		goto out;
+	v = fy_get(doc, "api_key");
+	if (fy_generic_is_mapping(v) &&
+	    (fy_equal(fy_get(v, "type"), "env") ||
+	     fy_equal(fy_get(v, "type"), "secret")) &&
+	    !*fy_get(v, "value", ""))
+		problems = config_problem_add(cfg->gb, problems,
+				"%s: api_key.value is required for type %s", origin,
+				fy_get(v, "type", ""));
 
 	/*
 	 * Structural/type/enum check against the vendored JSON Schema
@@ -1600,6 +1638,7 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 
 void fyai_config_set_defaults(struct fyai_cfg *cfg)
 {
+	cfg->api_key_auto = true;
 	cfg->api_mode = FYAI_API_RESPONSES;
 	cfg->api_url = NULL;
 	cfg->system_prompt = DEFAULT_SYSTEM_PROMPT;
@@ -1715,6 +1754,8 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	fy_generic catalog, cat_prov, cat_offer, cat_ep, cat_model, pinned_prov;
 	const char *pmid, *slash;
 	const char *env, *val;
+	char *secret_name = NULL, *secret = NULL;
+	size_t secret_len = 0;
 	char *pfx;
 	long long max_out;
 	int i;
@@ -1833,13 +1874,22 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	 * mapping), fall back to the provider's conventional environment
 	 * variable, e.g. OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY.
 	 */
-	if ((!cfg->api_key || !*cfg->api_key) && cfg->provider && *cfg->provider) {
+	if (cfg->api_key_auto && (!cfg->api_key || !*cfg->api_key) &&
+	    cfg->provider && *cfg->provider) {
 		env = provider_env_key(cfg->gb, cfg->provider);
 		if (env) {
 			val = getenv(env);
 			if (val && *val)
 				cfg->api_key = fy_gb_intern_string(cfg->gb, val);
 		}
+		if ((!cfg->api_key || !*cfg->api_key) &&
+		    asprintf(&secret_name, "fyai:api-key/%s", cfg->provider) >= 0 &&
+		    fyai_secret_kernel_get(secret_name, &secret, &secret_len) == FYAI_SECRET_OK) {
+			cfg->api_key = fy_gb_intern_string(cfg->gb, secret);
+			fyai_secret_clear(secret, secret_len);
+			free(secret);
+		}
+		free(secret_name);
 	}
 
 	if (!cfg->api_url || !*cfg->api_url) {
@@ -2178,10 +2228,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	rc = fyai_config_load(cfg, cli_config, cli_env);
 	if (rc)
 		goto err_out;
-	if (cli_api_key) {
-		cfg->api_key = cli_api_key;
-		cfg->api_key_explicit = true;
-	}
 
 	/*
 	 * Fold pending --set edits into this run before model/theme resolution,
@@ -2190,6 +2236,13 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 */
 	if (apply_config_set_ops(cfg))
 		goto err_out;
+	/* Command-line secrets have absolute precedence over configuration
+	 * intent, including a pending --set api_key operation. */
+	if (cli_api_key) {
+		cfg->api_key = cli_api_key;
+		cfg->api_key_explicit = true;
+		cfg->api_key_auto = false;
+	}
 
 	/*
 	 * Resolve theme=auto to a concrete dark/light once, so the render path

@@ -48,14 +48,16 @@ api: responses
 # override the endpoint the catalogue resolves for the current model/api.
 # api_url: https://api.openai.com/v1/responses
 
-# The API key is taken (in order) from `--api-key`/`-k`, the `api_key` env
-# mapping below, or the provider's conventional environment variable:
+# Automatic API-key lookup tries `--api-key`/`-k`, the provider's conventional
+# environment variable, then the logical secret `api-key/<provider>`.
 # <PROVIDER>_API_KEY (OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
 # DEEPSEEK_API_KEY, GOOGLE_API_KEY...). Secrets are never written as raw values;
-# reference an environment variable instead. No default - omitted here on purpose.
-# api_key:
-#   type: env
-#   value: OPENAI_API_KEY
+# Pin `type: env` or `type: secret` to require a particular indirection.
+# The Linux backend is volatile across reboot; create an entry with
+# `fyai secret set api-key/openai`. No default - omitted here on purpose.
+api_key: { type: auto }
+# api_key: { type: env, value: OPENAI_API_KEY }
+# api_key: { type: secret, value: api-key/openai }
 
 # --- Top-level defaults ----------------------------------------------------
 system_prompt: You are a concise assistant.
