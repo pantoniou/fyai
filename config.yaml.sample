@@ -57,6 +57,19 @@ api: responses
 #   type: env
 #   value: OPENAI_API_KEY
 
+# --- Local / self-hosted models ---------------------------------------------
+#
+# Ollama, llama.cpp's llama-server, vLLM, LM Studio, text-generation-webui,
+# ... all speak the OpenAI Chat Completions wire format already implemented
+# above, and normally need no key. Point api_url at the local server, set
+# no_auth so fyai neither requires nor sends a key, and pick whatever model
+# name the server reports (`ollama list`, etc.) - no catalogue entry needed,
+# since api_url is set explicitly.
+# model: llama3
+# api: chat-completions
+# api_url: http://localhost:11434/v1/chat/completions
+# no_auth: true
+
 # --- Top-level defaults ----------------------------------------------------
 system_prompt: You are a concise assistant.
 temperature: 0
@@ -108,6 +121,9 @@ response_chain: false    # chain via previous_response_id (Responses API
                           # only); off by default - a stale/evicted stored
                           # response hard-errors rather than degrading to
                           # full replay
+no_auth: false           # skip the api_key requirement and the auth header,
+                          # for local no-auth model servers (see "Local /
+                          # self-hosted models" above)
 
 # No default - computed at runtime (nearest .fyai walking up from cwd);
 # override only to pin a specific arena location.

@@ -97,6 +97,21 @@ provider's conventional `<PROVIDER>_API_KEY` variable, or use an
 The configured `model` is resolved through the catalogue to its provider,
 endpoint, API grammar, and wire model ID.
 
+Locally-hosted servers (Ollama, llama.cpp's `llama-server`, vLLM, LM Studio,
+...) speak the same OpenAI Chat Completions wire format and normally need no
+key at all. Point `api_url` at the local server and set `no_auth: true` (or
+`--set no_auth=true`) so fyai neither requires nor sends a key:
+
+```sh
+fyai --set api=chat-completions \
+     --set api_url=http://localhost:11434/v1/chat/completions \
+     --set no_auth=true \
+     -m llama3 "inspect this tree and suggest the next cleanup"
+```
+
+No catalogue entry is needed since `api_url` is set explicitly; see the
+"Local / self-hosted models" section of `config.yaml.sample` to persist it.
+
 Run `fyai` with a prompt to use it as a normal coding-agent command:
 
 ```sh

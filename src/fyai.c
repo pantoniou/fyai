@@ -888,25 +888,32 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	ctx->tools = fy_invalid;
 
 	/* Anthropic authenticates with x-api-key (no Bearer scheme) and
-	 * requires a protocol version header on every request. */
-	ctx->auth_header = make_header(cfg->api_mode == FYAI_API_MESSAGES ?
-				       "x-api-key: " : "Authorization: Bearer ",
-				       cfg->api_key);
-	if (!ctx->auth_header) {
-		if (!cfg->api_key || !*cfg->api_key)
-			fprintf(stderr, "fyai: no API key (set one via "
-				"--api-key, the provider's <PROVIDER>_API_KEY "
-				"env var, or the env mapping in config)\n");
-		return -1;
+	 * requires a protocol version header on every request. no_auth
+	 * (local no-auth model servers: Ollama, llama-server, vLLM, ...)
+	 * skips the auth header entirely rather than requiring a key. */
+	if (!cfg->no_auth) {
+		ctx->auth_header = make_header(cfg->api_mode == FYAI_API_MESSAGES ?
+					       "x-api-key: " : "Authorization: Bearer ",
+					       cfg->api_key);
+		if (!ctx->auth_header) {
+			if (!cfg->api_key || !*cfg->api_key)
+				fprintf(stderr, "fyai: no API key (set one via "
+					"--api-key, the provider's <PROVIDER>_API_KEY "
+					"env var, the env mapping in config, or "
+					"--set no_auth=true for a local server)\n");
+			return -1;
+		}
 	}
 
 	rc = append_header(&ctx->headers, "Content-Type: application/json");
 	if (rc)
 		return -1;
 
-	rc = append_header(&ctx->headers, ctx->auth_header);
-	if (rc)
-		return -1;
+	if (ctx->auth_header) {
+		rc = append_header(&ctx->headers, ctx->auth_header);
+		if (rc)
+			return -1;
+	}
 
 	if (cfg->api_mode == FYAI_API_MESSAGES) {
 		rc = append_header(&ctx->headers,
@@ -1244,7 +1251,7 @@ int fyai_prompt(struct fyai_ctx *ctx)
 	(void)args;
 	assert(ctx);
 
-	if (!cfg->api_key || !*cfg->api_key) {
+	if (!cfg->no_auth && (!cfg->api_key || !*cfg->api_key)) {
 		fprintf(stderr, "ERROR: api key is not set\n");
 		return -1;
 	}

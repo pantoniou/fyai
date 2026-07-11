@@ -141,6 +141,14 @@ struct fyai_cfg {
 	 * true` / `--set response_chain=true`.
 	 */
 	bool response_chain;
+	/*
+	 * Skip the api_key requirement and the Authorization/x-api-key
+	 * header, for local no-auth model servers (Ollama, llama.cpp's
+	 * llama-server, vLLM, ...) speaking the Chat Completions wire
+	 * format. Config-only, no CLI flag - `config set no_auth true` /
+	 * `--set no_auth=true`.
+	 */
+	bool no_auth;
 	bool new_conversation;
 	/*
 	 * Stack an in-memory builder over the durable arena so every config and

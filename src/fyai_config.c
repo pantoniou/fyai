@@ -209,6 +209,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 					     cfg->whitewash_api_keys);
 	cfg->response_chain = apply_bool(root, "response_chain",
 					 cfg->response_chain);
+	cfg->no_auth = apply_bool(root, "no_auth", cfg->no_auth);
 
 	v = fy_get(root, "logging");
 	if (fy_generic_is_mapping(v)) {
