@@ -50,4 +50,24 @@ run_fyai --set api_key=sk-raw
 assert_status_nonzero
 assert_stderr_contains "raw api_key"
 
+# Logical secret references are non-secret configuration even when the current
+# host does not provide a secret-store backend.
+run_fyai config set api_key '{ type: secret, value: api-key/openai }'
+assert_status 0
+run_fyai config get api_key
+assert_status 0
+assert_stdout_contains 'type: secret'
+run_fyai config delete api_key
+assert_status 0
+
+run_fyai config set api_key '{ type: auto }'
+assert_status 0
+run_fyai config get api_key
+assert_status 0
+assert_stdout_contains 'type: auto'
+
+run_fyai config set api_key '{ type: secret }'
+assert_status_nonzero
+assert_stderr_contains 'api_key.value is required'
+
 pass
