@@ -332,7 +332,7 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 		tools = make_tools(ctx->gb);
 		fy_foreach(tool, tools) {
 			function = fy_get(tool, "function");
-			if (cfg->enable_builtin_shell &&
+			if (cfg->enable_builtin_shell && !cfg->chatgpt_auth &&
 			    fy_equal(fy_get(function, "name"), "shell"))
 				continue;
 			response_tool = fy_mapping(
@@ -344,7 +344,14 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 		}
 	}
 
-	if (cfg->enable_builtin_shell) {
+	/*
+	 * The public Responses API calls its native tool "shell".  The
+	 * ChatGPT Codex backend does not accept that declaration; Codex clients
+	 * expose local execution as a function tool instead.  make_tools()
+	 * already supplied that function above, preserving fyai's approval and
+	 * sandbox path.
+	 */
+	if (cfg->enable_builtin_shell && !cfg->chatgpt_auth) {
 		response_tool = fy_mapping(
 				"type", "shell",
 				"environment", fy_mapping("type", "local"));

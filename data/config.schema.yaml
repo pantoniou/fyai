@@ -17,6 +17,14 @@ type: object
 description: >-
   Top-level fyai config document (arena-resident; see config.yaml.sample).
 properties:
+  auth:
+    type: string
+    enum: [auto, api-key, chatgpt]
+    default: auto
+    description: >-
+      Credential selection. auto preserves API-key precedence and otherwise
+      uses a saved ChatGPT login for the OpenAI Responses provider; api-key
+      and chatgpt force the selected method.
   model:
     type: string
     description: >-

@@ -278,6 +278,7 @@ target_compile_options(linenoise PRIVATE -w)
 
 option(ENABLE_ASAN "Enable ASAN support" OFF)
 option(BUILD_TESTING "Build tests" ON)
+option(ENABLE_LIBSECRET "Store credentials in the Linux Secret Service" OFF)
 
 set(FYAI_PROGRAMS fyai)
 
@@ -340,6 +341,14 @@ configure_file(
 )
 
 # fyai
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+if(ENABLE_LIBSECRET)
+    if(FYAI_STATIC_DEPS)
+        message(FATAL_ERROR "ENABLE_LIBSECRET is incompatible with static dependency builds")
+    endif()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
+endif()
 add_executable(fyai
     src/main.c
     src/fyai_display.c
@@ -361,6 +370,8 @@ add_executable(fyai
     src/utils.c
     src/fyai_catalog.c
     src/fyai_config.c
+    src/fyai_auth.c
+    src/fyai_auth_util.c
     src/fyai_secret.c
     src/commands.c
 )
@@ -373,7 +384,14 @@ endif()
 target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
-    CURL::libcurl linenoise ${ASAN_LINK_OPTS})
+    CURL::libcurl OpenSSL::Crypto linenoise ${ASAN_LINK_OPTS})
+if(ENABLE_LIBSECRET)
+    target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
+    target_compile_definitions(fyai PRIVATE HAVE_LIBSECRET)
+endif()
+if(APPLE)
+    target_link_libraries(fyai PRIVATE "-framework Security")
+endif()
 target_compile_definitions(fyai PRIVATE
     _GNU_SOURCE
     HAVE_CONFIG_H
@@ -547,5 +565,6 @@ message(STATUS "C compiler:            ${CMAKE_C_COMPILER}")
 message(STATUS "Build type:            ${CMAKE_BUILD_TYPE}")
 message(STATUS "HAVE_ASAN:             ${HAVE_ASAN}")
 message(STATUS "FYAI_MOSTLY_STATIC:    ${FYAI_MOSTLY_STATIC}")
+message(STATUS "ENABLE_LIBSECRET:      ${ENABLE_LIBSECRET}")
 message(STATUS "FYAI_STATIC:           ${FYAI_STATIC}")
 message(STATUS "FYAI_MUSL_STATIC:      ${FYAI_MUSL_STATIC}")

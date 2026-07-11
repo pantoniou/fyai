@@ -927,6 +927,21 @@ fy_generic parse_json_string(struct fy_generic_builder *gb, const char *str)
 		NULL);
 }
 
+fy_generic parse_json_string_size(struct fy_generic_builder *gb,
+				  const char *str, size_t len)
+{
+	const fy_generic_sized_string szstr = {
+		.data = str,
+		.size = len,
+	};
+
+	return fy_parse(gb, szstr,
+		FYOPPF_DISABLE_DIRECTORY |
+		FYOPPF_INPUT_TYPE_STRING |
+		FYOPPF_MODE_JSON,
+		NULL);
+}
+
 fy_generic parse_json_generic(struct fy_generic_builder *gb, fy_generic v)
 {
 	return parse_json_string(gb, fy_cast(v, ""));
@@ -1076,6 +1091,19 @@ int fyai_spawn_editor_readonly(const char *path)
 	ret = system(cmd);
 	free(cmd);
 	if (ret == -1 || (WIFEXITED(ret) && WEXITSTATUS(ret)))
+		return -1;
+	return 0;
+}
+
+int mkdir_private(const char *path)
+{
+	struct stat st;
+
+	if (!mkdir(path, 0700))
+		return 0;
+	if (errno != EEXIST || lstat(path, &st) || !S_ISDIR(st.st_mode))
+		return -1;
+	if ((st.st_mode & 077) && chmod(path, 0700))
 		return -1;
 	return 0;
 }

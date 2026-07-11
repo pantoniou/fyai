@@ -45,6 +45,7 @@ unsigned char *fyai_base64url_decode(const char *text, size_t *lenp)
 
 	if (!tmp)
 		return NULL;
+
 	memcpy(tmp, text, len);
 	for (size_t i = 0; i < len; i++) {
 		if (tmp[i] == '-')

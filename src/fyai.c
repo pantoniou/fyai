@@ -633,6 +633,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_prof_once_from_base("start_to_first_send");
 	fyai_prof_stamp(&t_send);
 
+	ctx->auth_retry_done = false;
 	if (cfg->stream)
 		response_doc = fyai_perform_streaming_request(ctx);
 	else
@@ -858,6 +859,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		curl_easy_cleanup(ctx->curl);
 		ctx->curl = NULL;
 	}
+	fyai_auth_cleanup(ctx);
 
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
@@ -889,10 +891,11 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	/* Anthropic authenticates with x-api-key (no Bearer scheme) and
 	 * requires a protocol version header on every request. */
-	ctx->auth_header = make_header(cfg->api_mode == FYAI_API_MESSAGES ?
-				       "x-api-key: " : "Authorization: Bearer ",
-				       cfg->api_key);
-	if (!ctx->auth_header) {
+	ctx->auth_header = cfg->chatgpt_auth ? NULL :
+		make_header(cfg->api_mode == FYAI_API_MESSAGES ?
+			    "x-api-key: " : "Authorization: Bearer ",
+			    cfg->api_key);
+	if (!cfg->chatgpt_auth && !ctx->auth_header) {
 		if (!cfg->api_key || !*cfg->api_key)
 			fprintf(stderr, "fyai: no API key (set one via "
 				"--api-key, the provider's <PROVIDER>_API_KEY "
@@ -904,7 +907,10 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	if (rc)
 		return -1;
 
-	rc = append_header(&ctx->headers, ctx->auth_header);
+	if (cfg->chatgpt_auth)
+		rc = fyai_auth_apply_headers(ctx, &ctx->headers);
+	else
+		rc = append_header(&ctx->headers, ctx->auth_header);
 	if (rc)
 		return -1;
 
@@ -984,6 +990,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGDATA, ctx);
 
 	(void)fyai_setup_transient_builder(ctx);
+	if (fyai_auth_resolve(ctx))
+		goto err;
 
 	rc = fyai_request_state_apply(ctx);
 	if (rc)
@@ -1244,8 +1252,8 @@ int fyai_prompt(struct fyai_ctx *ctx)
 	(void)args;
 	assert(ctx);
 
-	if (!cfg->api_key || !*cfg->api_key) {
-		fprintf(stderr, "ERROR: api key is not set\n");
+	if ((!cfg->api_key || !*cfg->api_key) && !cfg->chatgpt_auth) {
+		fprintf(stderr, "ERROR: no API key or ChatGPT login is available\n");
 		return -1;
 	}
 

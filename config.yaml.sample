@@ -41,6 +41,10 @@ model: gpt-5.4-mini
 # `provider` is never a config key - it is derived read-only from `model` at
 # resolve time and shown by `/model`, `/config`, `fyai catalog`, etc.
 
+# Authentication selection. `auto` preserves API-key precedence and falls
+# back to a machine-local ChatGPT login for OpenAI Responses requests.
+auth: auto # auto | api-key | chatgpt
+
 # API grammar: intent, not derived - responses | chat-completions | messages
 api: responses
 

@@ -151,7 +151,12 @@ bool is_readable_directory(const char *path);
 bool is_writable_directory(const char *path);
 
 fy_generic parse_json_string(struct fy_generic_builder *gb, const char *str);
+fy_generic parse_json_string_size(struct fy_generic_builder *gb,
+				  const char *str, size_t len);
+
 fy_generic parse_json_generic(struct fy_generic_builder *gb, fy_generic v);
 const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v);
+
+int mkdir_private(const char *path);
 
 #endif

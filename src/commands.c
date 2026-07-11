@@ -828,7 +828,9 @@ int fyai_execute_list(struct fyai_ctx *ctx)
 		data = list_catalog_providers_data(cfg, gb, args->full);
 		break;
 	case FYAILT_MODELS:
-		data = list_catalog_models_data(cfg, gb, args->full);
+		data = cfg->auth_mode == FYAI_AUTH_CHATGPT ?
+			fyai_auth_models(ctx, gb, args->full) :
+			list_catalog_models_data(cfg, gb, args->full);
 		break;
 	case FYAILT_TURNS:
 		data = fyai_list_turns_data(ctx, gb);
@@ -1586,6 +1588,55 @@ static int configure_sandbox(int argc, char **argv, struct fyai_cfg *cfg)
 	return 0;
 }
 
+static int configure_auth(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_auth_args *args = &cfg->cmd.args.auth;
+	const char *what;
+	int i = 1;
+
+	args->provider = "openai";
+	if (i < argc && fy_not_equal(argv[i], "status") &&
+	    fy_not_equal(argv[i], "info") && fy_not_equal(argv[i], "usage") &&
+	    fy_not_equal(argv[i], "login") && fy_not_equal(argv[i], "logout"))
+		args->provider = fy_gb_intern_string(cfg->gb, argv[i++]);
+	what = i < argc ? argv[i++] : "status";
+
+	if (fy_equal(what, "status"))
+		args->command = FYAI_AUTH_STATUS;
+	else if (fy_equal(what, "info"))
+		args->command = FYAI_AUTH_INFO;
+	else if (fy_equal(what, "usage"))
+		args->command = FYAI_AUTH_USAGE;
+	else if (fy_equal(what, "login"))
+		args->command = FYAI_AUTH_LOGIN;
+	else if (fy_equal(what, "logout"))
+		args->command = FYAI_AUTH_LOGOUT;
+	else {
+		fprintf(stderr, "auth: unknown command '%s' (status|info|usage|login|logout)\n",
+			what);
+		return -1;
+	}
+
+	for (; i < argc; i++) {
+		if (args->command == FYAI_AUTH_LOGIN &&
+		    !strcmp(argv[i], "--device-code"))
+			args->device_code = true;
+		else if (args->command == FYAI_AUTH_LOGIN &&
+			 !strcmp(argv[i], "--no-browser"))
+			args->no_browser = true;
+		else if ((args->command == FYAI_AUTH_STATUS ||
+			  args->command == FYAI_AUTH_INFO ||
+			  args->command == FYAI_AUTH_USAGE) &&
+			 !strcmp(argv[i], "--json"))
+			args->json = true;
+		else {
+			fprintf(stderr, "auth: unexpected argument '%s'\n", argv[i]);
+			return -1;
+		}
+	}
+	return 0;
+}
+
 static int configure_secret(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	struct fyai_secret_args *a = &cfg->cmd.args.secret;
@@ -1882,6 +1933,28 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  edit      edit the full stored config YAML",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.config = {
+		},
+	},
+	[FYAIVID_AUTH] = {
+		.id	   = FYAIVID_AUTH,
+		.name	   = "auth",
+		.configure = configure_auth,
+		.execute   = fyai_auth_execute,
+		.synopsis  = "auth [provider] [status|info|usage|login|logout] [options]",
+		.help	   = "Manage machine-local ChatGPT subscription credentials.\n"
+			     "  provider     subscription provider (currently openai)\n"
+			     "  status       show login and credential health\n"
+			     "  info         show subscription and account details\n"
+			     "  usage        show live subscription limits and credits\n"
+			     "  --json       emit status, info, or usage as JSON\n"
+			     "  login        sign in with browser OAuth and a loopback callback\n"
+			     "  --device-code use the headless device-code flow\n"
+			     "  --no-browser print the URL without launching a browser\n"
+			     "  logout       revoke when possible and remove local credentials",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_STORAGE | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
+		.default_args.auth = {
+			.command = FYAI_AUTH_STATUS,
 		},
 	},
 	[FYAIVID_SECRET] = {

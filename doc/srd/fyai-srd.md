@@ -80,7 +80,44 @@ Built-in defaults back keys absent from that document. \`config effective\` emit
 
 The top-level \`model\` is the provider-selection input. The catalogue maps it to a canonical provider, endpoint URL, API grammar, and wire model ID. A \`provider/model\` form pins a catalogue provider offering that model. Resolved catalogue values are read-only derivations; they are not configuration presets and are not persisted as user intent. The arena's \`catalog\` block is refreshed when configuration commits resolve a known model or when \`catalog import\` re-syncs the current model.
 
-\`api_key\` in YAML must be \`{ type: env, value: NAME }\`. An explicit \`--api-key\` takes precedence; otherwise fyai uses the configured environment reference or the provider's conventional \`<PROVIDER>_API_KEY\` variable. \`--env\` accepts literal \`.env\` assignments, rejects variable substitution, and exports only variables fyai actually uses.
+\`api_key\` in YAML must be an indirection. The default \`{ type: auto }\`
+resolves, after the provider is known, in this order: explicit \`--api-key\`,
+the conventional \`<PROVIDER>_API_KEY\` environment variable, then logical
+secret \`api-key/<provider>\`. \`{ type: env, value: NAME }\` and
+\`{ type: secret, value: NAME }\` pin an explicit source. Kernel entries use the UID
+persistent keyring through direct syscalls on Linux, remain volatile across
+reboot, and never enter the arena; that backend is compiled out on macOS.
+\`fyai secret set|status|delete\` and the matching \`/secret\` family manage
+logical names without exposing values. \`--env\` accepts
+literal \`.env\` assignments, rejects variable substitution, and exports only
+variables fyai actually uses.
+
+The top-level \`auth\` intent is \`auto | api-key | chatgpt\` (default
+\`auto\`). Auto preserves all API-key precedence and uses a saved ChatGPT
+login only when no key resolves. ChatGPT authentication is restricted to the
+OpenAI Responses provider, forces the ChatGPT Codex backend with \`store:false\`,
+and refuses custom endpoints or response chaining so subscription bearer
+tokens cannot be redirected.
+
+\`fyai auth login\` implements browser authorization-code login with PKCE and
+a loopback callback; \`--device-code\` supports headless machines. \`auth
+status\` displays non-secret account/workspace/plan metadata and \`auth
+logout\` performs best-effort revocation before deleting local credentials.
+Access, refresh, and ID tokens are the explicit exception to arena-only
+persistence: they must never enter an immutable arena. They live in the
+machine's macOS Keychain or, when explicitly enabled at build time, Linux
+Secret Service keyring; otherwise they use an atomic mode-0600
+\`$XDG_STATE_HOME/fyai/auth.json\`. Linux Secret Service support is opt-in
+because libsecret carries the GLib runtime dependency; static builds use the
+file backend. A cross-process lock
+protects refresh-token rotation between concurrent stateless invocations.
+
+Subscription requests use the Codex source contract rather than the public
+OpenAI API contract: the ChatGPT Codex endpoint, bearer token,
+\`ChatGPT-Account-ID\`, optional FedRAMP routing header, live account-scoped
+model catalogue, proactive refresh, and one refresh/retry after HTTP 401.
+This is an upstream compatibility surface and must be revalidated when the
+pinned Codex implementation changes.
 
 Project \`AGENTS.md\` and \`CLAUDE.md\` instructions are folded into the system prompt only for a new conversation. Global instructions and files from the project root through the current directory are concatenated outermost-first; continuations preserve the already-frozen canonical system turn.
 

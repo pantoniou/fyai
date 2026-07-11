@@ -14,6 +14,7 @@
 #include <libfyaml/libfyaml-generic.h>
 
 #include "utils.h"
+#include "fyai_auth.h"
 #include "fyai_secret.h"
 
 /* fwd decl */
@@ -38,6 +39,7 @@ enum fyai_verb_id {
 	FYAIVID_API,
 	FYAIVID_LOG,
 	FYAIVID_SANDBOX,
+	FYAIVID_AUTH,
 	FYAIVID_SECRET,
 	FYAIVID_GC,
 	FYAIVID_TOOL,
@@ -238,6 +240,7 @@ union fyai_cmd_args {
 	struct fyai_log_args log;
 	struct fyai_help_args help;
 	struct fyai_tool_args tool;
+	struct fyai_auth_args auth;
 	struct fyai_secret_args secret;
 };
 
