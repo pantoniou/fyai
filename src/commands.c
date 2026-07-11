@@ -1624,6 +1624,10 @@ static int configure_auth(int argc, char **argv, struct fyai_cfg *cfg)
 		else if (args->command == FYAI_AUTH_LOGIN &&
 			 !strcmp(argv[i], "--no-browser"))
 			args->no_browser = true;
+		else if (args->command == FYAI_AUTH_LOGIN &&
+			 (!strcmp(argv[i], "--manual") ||
+			  !strcmp(argv[i], "--paste")))
+			args->manual = true;
 		else if ((args->command == FYAI_AUTH_STATUS ||
 			  args->command == FYAI_AUTH_INFO ||
 			  args->command == FYAI_AUTH_USAGE) &&
@@ -1950,6 +1954,7 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  login        sign in with browser OAuth and a loopback callback\n"
 			     "  --device-code use the headless device-code flow\n"
 			     "  --no-browser print the URL without launching a browser\n"
+			     "  --manual     paste the redirect URL back (for SSH/remote browsers)\n"
 			     "  logout       revoke when possible and remove local credentials",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_STORAGE | FYAIVF_NO_REQUESTS |
 			     FYAIVF_NEEDS_TRANSIENT_BUILDER,

@@ -27,6 +27,7 @@ struct fyai_auth_args {
 	const char *provider;
 	bool device_code;
 	bool no_browser;
+	bool manual;
 	bool json;
 };
 

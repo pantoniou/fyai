@@ -935,7 +935,57 @@ static void open_browser(const char *url)
 		(void)pid;
 }
 
-static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c, bool no_browser)
+/* Read a pasted callback URL (or bare code) from stdin, verify the CSRF
+ * state, and exchange the code.  Used when no localhost socket is reachable
+ * from the browser (e.g. signing in from another machine over SSH). */
+static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
+			const char *redirect, const char *verifier,
+			const char *state)
+{
+	char line[8192], request[8192];
+	char *code = NULL, *got_state = NULL;
+	char *nl;
+	int rc = -1;
+
+	printf("\nAfter authorizing, your browser is redirected to a URL that\n"
+	       "cannot load (it points at this machine's localhost). Copy that\n"
+	       "URL from the address bar and paste it here.\n\n"
+	       "Paste redirect URL (or code): ");
+	fflush(stdout);
+
+	if (!fgets(line, sizeof(line), stdin))
+		return -1;
+	nl = strpbrk(line, "\r\n");
+	if (nl)
+		*nl = '\0';
+	if (!*line)
+		return -1;
+
+	/* query_value scans a "GET <target> ..." request line for ?key=val. */
+	snprintf(request, sizeof(request), "GET %s \r\n", line);
+
+	code = query_value(ctx->curl, request, "code");
+	got_state = query_value(ctx->curl, request, "state");
+	if (!code) {
+		/* No query string: treat the whole paste as the bare code. */
+		code = strdup(line);
+		if (!code)
+			goto out;
+	} else if (!got_state || strcmp(got_state, state)) {
+		fprintf(stderr, "auth: state mismatch in pasted URL\n");
+		goto out;
+	}
+
+	rc = exchange_code(ctx, c, code, redirect, verifier);
+
+out:
+	free(code);
+	free(got_state);
+	return rc;
+}
+
+static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
+			 bool no_browser, bool manual)
 {
 	unsigned char verifier_random[48], state_random[32];
 	unsigned char digest[SHA256_DIGEST_LENGTH];
@@ -962,9 +1012,16 @@ static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c, bool 
 	SHA256((unsigned char *)verifier, strlen(verifier), digest);
 	challenge = fyai_base64url_encode(digest, sizeof(digest));
 
-	server = bind_callback(&port);
-	if (!challenge || server < 0)
+	if (!challenge)
 		goto err_out;
+
+	if (manual) {
+		port = AUTH_PORT;
+	} else {
+		server = bind_callback(&port);
+		if (server < 0)
+			goto err_out;
+	}
 
 	redirect = fy_sprintfa("http://localhost:%u/auth/callback", port);
 	url = fy_sprintfa(
@@ -978,8 +1035,13 @@ static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c, bool 
 	printf("Open this URL to sign in:\n%s\n", url);
 	fflush(stdout);
 
-	if (!no_browser)
+	if (!no_browser && !manual)
 		open_browser(url);
+
+	if (manual) {
+		rc = manual_login(ctx, c, redirect, verifier, state);
+		goto out;
+	}
 
 	pfd.fd = server;
 	pfd.events = POLLIN;
@@ -1647,7 +1709,8 @@ static int auth_logout(struct fyai_ctx *ctx)
 	return 0;
 }
 
-static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser)
+static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
+		      bool manual)
 {
 	struct fyai_credentials c;
 	int lockfd = -1;
@@ -1662,10 +1725,11 @@ static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser)
 			goto err_out;
 		}
 	} else {
-		rc = browser_login(ctx, &c, no_browser);
+		rc = browser_login(ctx, &c, no_browser, manual);
 		if (rc) {
-			fprintf(stderr, "auth: %sbrowser login failed\n",
-					no_browser ? "no-" : "");
+			fprintf(stderr, "auth: %s login failed\n",
+					manual ? "manual" :
+					no_browser ? "no-browser" : "browser");
 			goto err_out;
 		}
 	}
@@ -1727,7 +1791,7 @@ int fyai_auth_execute(struct fyai_ctx *ctx)
 		break;
 
 	case FYAI_AUTH_LOGIN:
-		rc = auth_login(ctx, a->device_code, a->no_browser);
+		rc = auth_login(ctx, a->device_code, a->no_browser, a->manual);
 		if (rc)
 			fprintf(stderr, "auth: login failed\n");
 		break;
