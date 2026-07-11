@@ -76,6 +76,7 @@ struct fyai_cfg {
 	const char *system_prompt;
 	const char *model;
 	const char *api_key;
+	bool model_explicit;
 	/*
 	 * Set when the key was supplied explicitly (--api-key or a config
 	 * api_key env mapping); a mid-session /model switch keeps it. A key
@@ -83,6 +84,7 @@ struct fyai_cfg {
 	 * explicit and is re-derived for the new provider.
 	 */
 	bool api_key_explicit;
+	bool api_key_auto;
 	const char *provider;
 	const char *prompt;
 	const char *reasoning_effort;

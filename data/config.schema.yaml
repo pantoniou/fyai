@@ -40,7 +40,7 @@ properties:
       model/api (e.g. a self-hosted mirror).
   api_key:
     type: object
-    required: [type, value]
+    required: [type]
     description: >-
       Non-secret pointer to the credential: never a raw value (raw
       api_key is rejected on every ingestion path). Falls back to
@@ -49,11 +49,11 @@ properties:
     properties:
       type:
         type: string
-        const: env
-        description: The only supported kind - an environment variable reference.
+        enum: [auto, env, secret]
+        description: Automatic provider lookup, environment, or logical secret reference.
       value:
         type: string
-        description: Name of the environment variable holding the key.
+        description: Environment variable or logical fyai secret name; omitted for auto.
   system_prompt:
     type: string
     default: You are a concise assistant.

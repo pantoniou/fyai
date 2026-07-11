@@ -731,7 +731,7 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 /*
  * Refuse to ingest a config document carrying a raw api_key string; the
  * content-addressed arena is immutable, a leaked secret cannot be removed.
- * Only the { type: env, value: NAME } indirection is allowed.
+ * Only an { type: env|secret, value: NAME } indirection is allowed.
  */
 bool fyai_config_has_raw_secret(fy_generic doc)
 {

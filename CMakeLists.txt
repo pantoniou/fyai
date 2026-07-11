@@ -361,6 +361,7 @@ add_executable(fyai
     src/utils.c
     src/fyai_catalog.c
     src/fyai_config.c
+    src/fyai_secret.c
     src/commands.c
 )
 # The C23 __isoc23_* redirect wrappers exist only so portable mostly-static
@@ -469,6 +470,7 @@ if(BUILD_TESTING)
         src/fyai_catalog.c
         src/fyai_config.c
         src/fyai_prof.c
+        src/fyai_secret.c
         src/fyai_sandbox.c
         src/fyai_schema.c
         src/fyai_storage.c
