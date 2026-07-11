@@ -390,81 +390,142 @@ static const char *auth_json(struct fyai_ctx *ctx, struct fyai_credentials *c)
 #endif
 
 #if defined(__APPLE__)
-static int auth_load_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
+/*
+ * The legacy SecKeychain* file-based API is deprecated since macOS 10.10.
+ * Use the modern keychain-item API (SecItem*) with a generic-password class
+ * keyed by service/account, matching the semantics of the previous code.
+ */
+static CFDictionaryRef auth_keychain_query(void)
 {
 	const char service[] = "org.fyai.Auth";
 	const char account[] = "default";
-	void *data;
-	UInt32 len;
+	const void *keys[3];
+	const void *vals[3];
+	CFStringRef svc, acct;
+	CFDictionaryRef query;
+
+	svc = CFStringCreateWithCString(NULL, service, kCFStringEncodingUTF8);
+	acct = CFStringCreateWithCString(NULL, account, kCFStringEncodingUTF8);
+	if (!svc || !acct) {
+		if (svc)
+			CFRelease(svc);
+		if (acct)
+			CFRelease(acct);
+		return NULL;
+	}
+
+	keys[0] = kSecClass;
+	vals[0] = kSecClassGenericPassword;
+	keys[1] = kSecAttrService;
+	vals[1] = svc;
+	keys[2] = kSecAttrAccount;
+	vals[2] = acct;
+
+	query = CFDictionaryCreate(NULL, keys, vals, 3,
+		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	CFRelease(svc);
+	CFRelease(acct);
+
+	return query;
+}
+
+static int auth_load_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
+{
+	CFMutableDictionaryRef query;
+	CFDictionaryRef base;
+	CFTypeRef result;
 	OSStatus status;
 	int rc;
 
-	data = NULL;
-	len = 0;
-	status = SecKeychainFindGenericPassword(NULL,
-		(UInt32)strlen(service), service,
-		(UInt32)strlen(account), account,
-		&len, &data, NULL);
-	if (status != errSecSuccess || !data)
+	base = auth_keychain_query();
+	if (!base)
 		return -1;
 
-	rc = auth_parse_content(ctx, c, data, (size_t)len, "keychain");
-	SecKeychainItemFreeContent(NULL, data);
+	query = CFDictionaryCreateMutableCopy(NULL, 0, base);
+	CFRelease(base);
+	if (!query)
+		return -1;
+	CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
+	CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
+
+	result = NULL;
+	status = SecItemCopyMatching(query, &result);
+	CFRelease(query);
+	if (status != errSecSuccess || !result)
+		return -1;
+
+	rc = auth_parse_content(ctx, c,
+		(const char *)CFDataGetBytePtr((CFDataRef)result),
+		(size_t)CFDataGetLength((CFDataRef)result), "keychain");
+	CFRelease(result);
 
 	return rc;
 }
 
 static int auth_save_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
-	const char service[] = "org.fyai.Auth";
-	const char account[] = "default";
-	SecKeychainItemRef item = NULL;
-	UInt32 old_len = 0;
-	void *old_data = NULL;
+	CFDictionaryRef query, update, add;
+	CFDataRef value;
 	const char *json;
+	const void *ukey, *uval;
 	OSStatus status;
 
 	json = auth_json(ctx, c);
 	if (!json || !*json)
 		return -1;
 
-	status = SecKeychainFindGenericPassword(NULL,
-		(UInt32)strlen(service), service, (UInt32)strlen(account), account,
-		&old_len, &old_data, &item);
-	if (old_data)
-		SecKeychainItemFreeContent(NULL, old_data);
-	if (status == errSecSuccess)
-		status = SecKeychainItemModifyAttributesAndData(item, NULL,
-			(UInt32)strlen(json), json);
-	else if (status == errSecItemNotFound)
-		status = SecKeychainAddGenericPassword(NULL,
-			(UInt32)strlen(service), service,
-			(UInt32)strlen(account), account,
-			(UInt32)strlen(json), json, NULL);
-	if (item)
-		CFRelease(item);
+	query = auth_keychain_query();
+	if (!query)
+		return -1;
+
+	value = CFDataCreate(NULL, (const UInt8 *)json, (CFIndex)strlen(json));
+	if (!value) {
+		CFRelease(query);
+		return -1;
+	}
+
+	ukey = kSecValueData;
+	uval = value;
+	update = CFDictionaryCreate(NULL, &ukey, &uval, 1,
+		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	status = SecItemUpdate(query, update);
+	if (update)
+		CFRelease(update);
+
+	if (status == errSecItemNotFound) {
+		add = CFDictionaryCreateMutableCopy(NULL, 0, query);
+		if (add) {
+			CFDictionarySetValue((CFMutableDictionaryRef)add,
+				kSecValueData, value);
+			status = SecItemAdd(add, NULL);
+			CFRelease(add);
+		} else {
+			status = errSecAllocate;
+		}
+	}
+
+	CFRelease(value);
+	CFRelease(query);
 
 	return status == errSecSuccess ? 0 : -1;
 }
 
 static int auth_delete_keyring(struct fyai_ctx *ctx)
 {
-	const char service[] = "org.fyai.Auth";
-	const char account[] = "default";
-	SecKeychainItemRef item = NULL;
+	CFDictionaryRef query;
 	OSStatus status;
 
 	(void)ctx;
 
-	status = SecKeychainFindGenericPassword(NULL,
-		(UInt32)strlen(service), service, (UInt32)strlen(account), account,
-		NULL, NULL, &item);
+	query = auth_keychain_query();
+	if (!query)
+		return -1;
+
+	status = SecItemDelete(query);
+	CFRelease(query);
+
 	if (status == errSecItemNotFound)
 		return 0;
-	if (status == errSecSuccess)
-		status = SecKeychainItemDelete(item);
-	if (item)
-		CFRelease(item);
 	return status == errSecSuccess ? 0 : -1;
 }
 #elif defined(HAVE_LIBSECRET)
