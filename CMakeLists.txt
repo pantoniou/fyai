@@ -507,6 +507,10 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_config_test PRIVATE libfyaml::libfyaml CURL::libcurl
         ${ASAN_LINK_OPTS})
+    if(APPLE)
+        target_link_libraries(fyai_config_test PRIVATE
+            "-framework Security" "-framework CoreFoundation")
+    endif()
     add_test(NAME fyai/config_root COMMAND fyai_config_test)
 
     # Functional cases: each script drives the real fyai binary against the
