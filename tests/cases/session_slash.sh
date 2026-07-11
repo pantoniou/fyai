@@ -67,6 +67,7 @@ set +e
 /config delete display/tool_preview_lines
 /sandbox on
 /sandbox
+/secret status api-key/not-configured
 /context
 /tools
 /tools test-agent
@@ -97,6 +98,7 @@ assert_stdout_contains "logging: wire on, stream on, conversation on"
 assert_stdout_contains "logging: cleared conversation"
 assert_stdout_contains "7"
 assert_stdout_contains "sandbox: on"
+assert_stdout_contains "secret api-key/not-configured: absent"
 assert_stdout_contains "Metric       │ Value"
 assert_stdout_contains '| `read_file` | Read a UTF-8 text file from the workspace. |'
 assert_stdout_contains '| `sample_tool` | First sentence. |'
