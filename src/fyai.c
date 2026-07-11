@@ -891,17 +891,19 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	ctx->tools = fy_invalid;
 
 	/* Anthropic authenticates with x-api-key (no Bearer scheme) and
-	 * requires a protocol version header on every request. */
-	ctx->auth_header = cfg->chatgpt_auth ? NULL :
-		make_header(cfg->api_mode == FYAI_API_MESSAGES ?
-			    "x-api-key: " : "Authorization: Bearer ",
-			    cfg->api_key);
-	if (!cfg->chatgpt_auth && !ctx->auth_header) {
-		if (!cfg->api_key || !*cfg->api_key)
-			fyai_error(ctx, "no API key (set one via --api-key, the "
-				   "provider's <PROVIDER>_API_KEY env var, or "
-				   "the env mapping in config)");
-		return -1;
+	 * requires a protocol version header on every request.  Local no-auth
+	 * servers skip the API-key header entirely. */
+	if (!cfg->chatgpt_auth && !cfg->no_auth) {
+		ctx->auth_header = make_header(cfg->api_mode == FYAI_API_MESSAGES ?
+					       "x-api-key: " : "Authorization: Bearer ",
+					       cfg->api_key);
+		if (!ctx->auth_header) {
+			if (!cfg->api_key || !*cfg->api_key)
+				fyai_error(ctx, "no API key (set one via --api-key, the "
+					   "provider's <PROVIDER>_API_KEY env var, or "
+					   "the env mapping in config)");
+			return -1;
+		}
 	}
 
 	rc = append_header(&ctx->headers, "Content-Type: application/json");
@@ -910,7 +912,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	if (cfg->chatgpt_auth)
 		rc = fyai_auth_apply_headers(ctx, &ctx->headers);
-	else
+	else if (ctx->auth_header)
 		rc = append_header(&ctx->headers, ctx->auth_header);
 	if (rc)
 		return -1;
@@ -1263,7 +1265,8 @@ int fyai_prompt(struct fyai_ctx *ctx)
 	(void)args;
 	assert(ctx);
 
-	if ((!cfg->api_key || !*cfg->api_key) && !cfg->chatgpt_auth) {
+	if ((!cfg->api_key || !*cfg->api_key) &&
+	    !cfg->chatgpt_auth && !cfg->no_auth) {
 		fyai_error(ctx, "no API key or ChatGPT login is available");
 		return -1;
 	}

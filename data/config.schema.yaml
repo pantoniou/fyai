@@ -196,6 +196,13 @@ properties:
       a stale/evicted stored response (provider retention expiry, or one
       made with store:false) makes the provider hard-error the request
       rather than degrade to full replay, so this is an explicit opt-in.
+  no_auth:
+    type: boolean
+    default: false
+    description: >-
+      Skip the api_key requirement and the Authorization/x-api-key header,
+      for local no-auth model servers (Ollama, llama.cpp's llama-server,
+      vLLM, ...) speaking the Chat Completions wire format.
   arena_dir:
     type: string
     description: >-

@@ -199,7 +199,10 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 
 	v = fy_get(root, "model");
 	if (!fy_generic_is_invalid(v)) {
-		cfg->model = fy_cast(v, cfg->model);
+		/* A short string may live inline in the local generic word. Keep
+		 * cfg from pointing into @v after this function returns. */
+		cfg->model = fy_gb_intern_string(cfg->gb,
+					fy_castp(&v, cfg->model));
 		cfg->model_explicit = true;
 	}
 	v = fy_get(root, "auth");
@@ -252,6 +255,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 					     cfg->whitewash_api_keys);
 	cfg->response_chain = apply_bool(root, "response_chain",
 					 cfg->response_chain);
+	cfg->no_auth = apply_bool(root, "no_auth", cfg->no_auth);
 
 	v = fy_get(root, "logging");
 	if (fy_generic_is_mapping(v)) {
