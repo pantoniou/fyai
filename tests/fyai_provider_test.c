@@ -184,6 +184,25 @@ static void test_extract_usage(void)
 	}
 }
 
+static void test_chatgpt_shell_tool(void)
+{
+	const char *out;
+
+	test_cfg.enable_tools = true;
+	test_cfg.enable_builtin_shell = true;
+	test_cfg.chatgpt_auth = true;
+	out = emit(fyai_make_responses_tools(&test_ctx));
+	expect_contains("chatgpt_tools", out,
+			"\"type\": \"function\", \"name\": \"shell\"");
+	expect_absent("chatgpt_tools", out, "\"type\": \"shell\"");
+
+	test_cfg.chatgpt_auth = false;
+	out = emit(fyai_make_responses_tools(&test_ctx));
+	expect_contains("responses_tools", out, "\"type\": \"shell\"");
+	test_cfg.enable_tools = false;
+	test_cfg.enable_builtin_shell = false;
+}
+
 static void test_response_accessors(void)
 {
 	fy_generic doc;
@@ -398,11 +417,13 @@ int main(void)
 	test_ctx.transient_gb = fy_generic_builder_create(&gb_cfg);
 	if (!test_ctx.transient_gb)
 		return 1;
+	test_ctx.gb = test_ctx.transient_gb;
 	test_ctx.durable_gb = test_ctx.transient_gb;
 
 	test_responses_input();
 	test_chat_input();
 	test_extract_usage();
+	test_chatgpt_shell_tool();
 	test_response_accessors();
 	test_token_extents();
 	test_messages_input();
