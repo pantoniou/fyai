@@ -1666,6 +1666,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->stream_logging = false;
 	cfg->conversation_logging = false;
 	cfg->whitewash_api_keys = true;
+	/* This is an opt-in because provider-side response retention is lossy. */
+	cfg->response_chain = false;
 	cfg->markdown_mode = DEFAULT_MARKDOWN_MODE;
 	cfg->color = DEFAULT_COLOR;
 	cfg->theme = DEFAULT_THEME;

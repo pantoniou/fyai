@@ -98,7 +98,12 @@ assert_stdout_contains "logging: wire on, stream on, conversation on"
 assert_stdout_contains "logging: cleared conversation"
 assert_stdout_contains "7"
 assert_stdout_contains "sandbox: on"
-assert_stdout_contains "secret api-key/not-configured: absent"
+# A named status is absent where the OS secret backend is available, and
+# unavailable on runners without a usable backend (for example a locked
+# keychain).  Either result is correct here: this command must not affect the
+# session or require a configured secret backend.
+grep -Eq 'secret api-key/not-configured: (absent|unavailable)' "$TEST_DIR/stdout" || \
+	fail "secret status did not report absent or unavailable"
 assert_stdout_contains "Metric       │ Value"
 assert_stdout_contains '| `read_file` | Read a UTF-8 text file from the workspace. |'
 assert_stdout_contains '| `sample_tool` | First sentence. |'
