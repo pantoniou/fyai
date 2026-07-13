@@ -112,6 +112,15 @@ char *fyai_project_instructions(void);
 char *fyai_discover_project_root(void);
 
 /*
+ * True when @path, resolved exactly as fopen() would resolve it (relative to
+ * the process cwd) and lexically normalized, names the project's ".fyai"
+ * arena directory or something beneath it. The always-on, portable floor for
+ * the read_file/write_file tools: it runs on every platform, independent of
+ * whether the opt-in Landlock `sandbox` is enabled.
+ */
+bool fyai_arena_path_denied(const char *path);
+
+/*
  * Resolve `model` against the effective catalogue (provider pin, endpoint,
  * wire id, capability check, max_tokens default, provider env api-key
  * fallback). Re-runnable for a mid-session model switch once the caller

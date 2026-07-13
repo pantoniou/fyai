@@ -90,15 +90,26 @@ accept null to paper over an emitter that drops the quotes.
   (`third_party/linenoise`, fyai-local extensions).
 - `src/utils.c` — HTTP response buffers, shell exec capture, generic emit/parse.
   The shell `fork`/`exec` optionally applies a `fyai_sandbox_spec` in the child
-  before exec.
+  before exec. `fyai_arena_path_denied()` is the always-on, portable floor
+  (every platform, independent of the `sandbox` config): it lexically resolves
+  a `read_file`/`write_file` path exactly as `fopen()` would (relative to cwd,
+  `.`/`..` collapsed, no symlink following) and rejects it if it names the
+  discovered project's `.fyai` arena or anything beneath it. `apply_patch`
+  gets the equivalent check inline in `patch_path_ok()` (`fyai_patch.c`),
+  since patch targets are already confined to non-traversing relative paths so
+  a leading `.fyai` component is sufficient. This is best-effort against
+  symlink tricks; Landlock is the syscall-level boundary for that.
 - `src/fyai_sandbox.c` — Landlock confinement for shell-tool sub-executions
-  (`--sandbox` / config `sandbox`, default off). ABI-probed and masked; grants
-  read-only system paths + read/write project (children of the root minus the
-  hidden `.fyai`) + temp dirs, denies the rest; applied one-way in the child so
-  it is inherited across the exec and every process it spawns. Linux-only: on
-  other platforms (macOS) it compiles to no-op stubs behind the same interface,
-  where a Seatbelt (`sandbox_init`) back-end would slot in. It is the §4.5/§10
-  enforcement floor only; command admission (allow-list/prompt) stays elsewhere.
+  (`--sandbox` / config `sandbox`, default **on**). ABI-probed and masked;
+  grants read-only system paths + read/write project (children of the root
+  minus the hidden `.fyai`) + temp dirs, denies the rest; applied one-way in
+  the child so it is inherited across the exec and every process it spawns.
+  Linux-only: on other platforms (macOS) it compiles to no-op stubs behind the
+  same interface, where a Seatbelt (`sandbox_init`) back-end would slot in. It
+  is the §4.5/§10 enforcement floor only; command admission (allow-list/prompt)
+  stays elsewhere. The `.fyai` arena denial does not depend on this being
+  enabled — see `fyai_arena_path_denied()` above for the always-on floor that
+  covers `read_file`/`write_file`/`apply_patch` on every platform.
 - `src/fyai_config.c` — layered config loading (arena-resident repo config),
   slash-path config verb (import/export/edit/show/get/set/delete) and the
   global --set/--get/--delete ops.

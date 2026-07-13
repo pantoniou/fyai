@@ -272,10 +272,21 @@ static char *normalize_dup(const char *s)
 static bool patch_path_ok(const char *path)
 {
 	const char *p;
+	size_t len;
 
 	if (!path || !*path || path[0] == '/')
 		return false;
 	if (strstr(path, "//"))
+		return false;
+
+	/*
+	 * Patch targets are already confined to non-traversing relatives
+	 * (checked below), so the only way one can name the arena is a
+	 * leading ".fyai" component - reject it outright.
+	 */
+	len = strlen(".fyai");
+	if (!strncmp(path, ".fyai", len) &&
+	    (path[len] == '/' || path[len] == '\0'))
 		return false;
 
 	p = path;

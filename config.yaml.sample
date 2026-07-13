@@ -103,7 +103,7 @@ builtin_shell: true
 #                           #  empty ports denies all egress)
 # `fyai sandbox on` stores this canned policy:
 # sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { ports: [443] } }
-sandbox: false
+sandbox: true
 
 logprobs: false
 top_logprobs: -1

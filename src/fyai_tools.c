@@ -598,12 +598,18 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 
 	if (fy_equal(name, "read_file")) {
 		path = fy_get(args, "path", "");
-		result = read_text_file(path);
+		result = fyai_arena_path_denied(path) ?
+			strdup("tool error: path is inside the .fyai arena; denied") :
+			read_text_file(path);
 	} else if (fy_equal(name, "write_file")) {
 		path = fy_get(args, "path", "");
 		content = fy_get(args, "content", "");
-		rc = write_text_file(path, content);
-		result = strdup(!rc ? "ok" : "error");
+		if (fyai_arena_path_denied(path)) {
+			result = strdup("tool error: path is inside the .fyai arena; denied");
+		} else {
+			rc = write_text_file(path, content);
+			result = strdup(!rc ? "ok" : "error");
+		}
 	} else if (fy_equal(name, "apply_patch")) {
 		result = fyai_apply_patch_text(fy_get(args, "patch", ""));
 	} else if (fy_equal(name, "shell")) {

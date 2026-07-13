@@ -653,6 +653,99 @@ char *fyai_discover_project_root(void)
 }
 
 /*
+ * Join @path onto the process cwd when relative (matching the fopen()
+ * semantics read_text_file/write_text_file actually use), then lexically
+ * collapse "." and ".." components - no stat()/realpath(), so it works for a
+ * path that does not exist yet (write_file creating a new file). Returns a
+ * malloc'd absolute path, or NULL on allocation failure.
+ */
+static char *lexical_absolute(const char *path)
+{
+	char *joined, *out, *copy, *tok, *save;
+	char *comps[PATH_MAX / 2];
+	char cwd[PATH_MAX];
+	size_t ncomp = 0, len, i;
+
+	if (path[0] != '/') {
+		if (!getcwd(cwd, sizeof(cwd)))
+			return NULL;
+		if (asprintf(&joined, "%s/%s", cwd, path) < 0)
+			return NULL;
+	} else {
+		joined = strdup(path);
+		if (!joined)
+			return NULL;
+	}
+
+	copy = joined;
+	for (tok = strtok_r(copy, "/", &save); tok;
+	     tok = strtok_r(NULL, "/", &save)) {
+		if (!strcmp(tok, "."))
+			continue;
+		if (!strcmp(tok, "..")) {
+			if (ncomp > 0)
+				ncomp--;
+			continue;
+		}
+		if (ncomp < ARRAY_SIZE(comps))
+			comps[ncomp++] = tok;
+	}
+
+	len = 1;
+	for (i = 0; i < ncomp; i++)
+		len += strlen(comps[i]) + 1;
+	out = malloc(len);
+	if (!out) {
+		free(joined);
+		return NULL;
+	}
+	out[0] = '\0';
+	for (i = 0; i < ncomp; i++) {
+		strcat(out, "/");
+		strcat(out, comps[i]);
+	}
+	if (!ncomp)
+		strcpy(out, "/");
+	free(joined);
+	return out;
+}
+
+bool fyai_arena_path_denied(const char *path)
+{
+	char *root, *abs, *fyai_dir;
+	bool denied;
+	size_t len;
+
+	if (!path || !*path)
+		return false;
+
+	root = fyai_discover_project_root();
+	if (!root)
+		return false;
+
+	abs = lexical_absolute(path);
+	if (!abs) {
+		free(root);
+		return false;
+	}
+
+	if (asprintf(&fyai_dir, "%s/.fyai", root) < 0) {
+		free(root);
+		free(abs);
+		return false;
+	}
+
+	len = strlen(fyai_dir);
+	denied = !strcmp(abs, fyai_dir) ||
+		 (!strncmp(abs, fyai_dir, len) && abs[len] == '/');
+
+	free(root);
+	free(abs);
+	free(fyai_dir);
+	return denied;
+}
+
+/*
  * Discover the project instruction text, or NULL when there is none. Ordered
  * outermost-first: the global config dir, then the project root down to the
  * cwd. When no project marker (.git/.fyai) is found between the cwd and the

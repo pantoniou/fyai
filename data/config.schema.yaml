@@ -113,13 +113,15 @@ properties:
       Enable the built-in shell tool. Forced off automatically for the
       Messages API grammar (which has no native shell tool support).
   sandbox:
-    default: false
+    default: true
     description: >-
       Landlock-confine shell-tool sub-executions (Linux only; a no-op
-      elsewhere). `false` disables it; `true` or a mapping enables it -
-      read-only system paths, read/write the project and temp dirs,
-      everything else denied by default. Best-effort: the allow-list/prompt
-      remains the portable floor when Landlock is unavailable.
+      elsewhere). `false` disables it; `true` (the default) or a mapping
+      enables it - read-only system paths, read/write the project and temp
+      dirs, everything else (including the `.fyai` arena) denied by default.
+      Best-effort: the allow-list/prompt remains the portable floor when
+      Landlock is unavailable. The `.fyai` arena is also denied to
+      read_file/write_file/apply_patch independently of this setting.
     oneOf:
       - type: boolean
       - type: object

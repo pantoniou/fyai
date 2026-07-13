@@ -86,7 +86,7 @@ assert_status 0
 assert_stdout_contains "gpt-5.4-mini"
 run_fyai config get sandbox
 assert_status 0
-assert_stdout_contains "false"
+assert_stdout_contains "true"
 cd ..
 
 # messages-mode feature notes stay off config verbs
