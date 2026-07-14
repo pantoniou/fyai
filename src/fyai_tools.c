@@ -234,11 +234,13 @@ static char *sandbox_resolve(const char *base, const char *p)
 }
 
 /*
- * Build the tool sandbox spec from cfg->sandbox, or return NULL when disabled.
- * Confinement is scoped to the project root (or cwd when none is found), with
- * the arena .fyai plus every config deny entry carved out, the config allow
- * entries added, and egress restricted to config network.ports when a network
- * policy is present.
+ * Build the tool sandbox spec from cfg->sandbox. Confinement is not
+ * user-disableable, so this only returns NULL when a sandbox is already
+ * applied to this process (ctx->sandbox_applied). Confinement is scoped to
+ * the project root (or cwd when none is found), with the arena .fyai plus
+ * every config deny entry carved out, the config allow entries added, and
+ * egress restricted to config network.ports when a network policy is
+ * present.
  */
 static const struct fyai_sandbox_spec *
 fyai_shell_sandbox_begin(struct fyai_ctx *ctx, struct fyai_shell_sandbox *sb)
@@ -253,7 +255,7 @@ fyai_shell_sandbox_begin(struct fyai_ctx *ctx, struct fyai_shell_sandbox *sb)
 	size_t n;
 
 	memset(sb, 0, sizeof(*sb));
-	if (!ctx->cfg->enable_sandbox || ctx->sandbox_applied)
+	if (ctx->sandbox_applied)
 		return NULL;
 
 	sb->root = fyai_discover_project_root();
@@ -793,14 +795,12 @@ static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
 /*
  * Whether this tool call should run in a forked, sandboxed child rather than
  * in-process. ask_user is interactive (needs the tty and cannot pipe its
- * result), so it always runs in-process. Only meaningful on Linux and when the
- * sandbox is enabled; the fork path is the isolation/parallelism substrate.
+ * result), so it always runs in-process. Only meaningful on Linux, where the
+ * fork path is the isolation substrate for the always-on Landlock sandbox.
  */
 static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name)
 {
 	if (ctx->sandbox_applied)	/* already inside a tool child */
-		return false;
-	if (!ctx->cfg->enable_sandbox)
 		return false;
 	if (fy_equal(name, "ask_user"))
 		return false;

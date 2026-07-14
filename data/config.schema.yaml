@@ -116,11 +116,14 @@ properties:
     default: true
     description: >-
       Landlock-confine shell-tool sub-executions (Linux only; a no-op
-      elsewhere). `false` disables it; `true` (the default) or a mapping
-      enables it - read-only system paths, read/write the project and temp
-      dirs, everything else (including the `.fyai` arena) denied by default.
-      Best-effort: the allow-list/prompt remains the portable floor when
-      Landlock is unavailable. The `.fyai` arena is also denied to
+      elsewhere): read-only system paths, read/write the project and temp
+      dirs, everything else (including the `.fyai` arena) denied by
+      default. Confinement is always enforced and cannot be disabled - a
+      bare `false`, or a mapping's `enabled: false`, is accepted for
+      backward compatibility but has no effect. A mapping's
+      `allow`/`deny`/`network` still tune the grants. Best-effort: the
+      allow-list/prompt remains the portable floor when Landlock is
+      unavailable. The `.fyai` arena is also denied to
       read_file/write_file/apply_patch independently of this setting.
     oneOf:
       - type: boolean
@@ -129,7 +132,9 @@ properties:
           enabled:
             type: boolean
             default: true
-            description: Turn the sandbox on/off (default true when this mapping is given).
+            description: >-
+              Accepted for backward compatibility; confinement cannot be
+              turned off and this has no effect.
           deny:
             type: array
             description: >-

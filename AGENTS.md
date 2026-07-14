@@ -90,7 +90,7 @@ rendering/theme, stats, logprobs, token extents, obfuscation/whitewash) are
 likewise config-only — `config set <key> <val>` / `--set <key>=<val>`, see
 `config.yaml.sample`. The surviving CLI flags either name external
 files/secrets (`-C`/`-e`/`-k`), resolve through the catalogue (`-m`/`-u`),
-gate tool execution (`-t`/`--sandbox`), are display-only conveniences
+gate tool execution (`-t`), are display-only conveniences
 (`--color`/`--theme`/`--code-theme`), control process behavior rather than
 config state (`--new`/`-i`/`-d`/`--answer`), or are the config mechanism
 itself (`--set`/`--get`/`--delete`/`--transient`).

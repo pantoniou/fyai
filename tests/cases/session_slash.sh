@@ -65,8 +65,6 @@ set +e
 /config set display/tool_preview_lines 7
 /config get display/tool_preview_lines
 /config delete display/tool_preview_lines
-/sandbox on
-/sandbox
 /secret status api-key/not-configured
 /context
 /tools
@@ -97,7 +95,6 @@ assert_stdout_contains "logging: wire off, stream on, conversation on"
 assert_stdout_contains "logging: wire on, stream on, conversation on"
 assert_stdout_contains "logging: cleared conversation"
 assert_stdout_contains "7"
-assert_stdout_contains "sandbox: on"
 # A named status is absent where the OS secret backend is available, and
 # unavailable on runners without a usable backend (for example a locked
 # keychain).  Either result is correct here: this command must not affect the

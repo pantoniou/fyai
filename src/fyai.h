@@ -114,8 +114,7 @@ struct fyai_cfg {
 	float temperature;
 	bool enable_tools;
 	bool enable_builtin_shell;
-	bool enable_sandbox;	/* Landlock-confine shell tool sub-executions */
-	fy_generic sandbox;	/* config sandbox: mapping (allow/deny/network) */
+	fy_generic sandbox;	/* config sandbox: mapping (allow/deny/network tuning) */
 	bool interactive;
 	int debug;
 	bool pretty;

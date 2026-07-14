@@ -29,10 +29,6 @@ run_fyai config get display/code_theme
 assert_status 0
 assert_stdout_contains "kanagawa"
 
-run_fyai --sandbox config effective
-assert_status 0
-assert_stdout_contains "sandbox: true"
-
 run_fyai config set sandbox true
 assert_status 0
 run_fyai config show
@@ -42,16 +38,15 @@ run_fyai config effective
 assert_status 0
 assert_stdout_contains "sandbox: true"
 
+# Landlock confinement cannot be disabled: the dedicated verb refuses.
 run_fyai sandbox off
-assert_status 0
-run_fyai sandbox show
-assert_status 0
-assert_stdout_contains "false"
+assert_status_nonzero
+assert_stderr_contains "cannot be disabled"
+
 run_fyai sandbox on
 assert_status 0
 run_fyai sandbox show
 assert_status 0
-assert_stdout_contains "enabled: true"
 assert_stdout_contains "~/.ssh"
 assert_stdout_contains "443"
 

@@ -825,8 +825,6 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	  NULL, false, false, NULL, "response streaming" },
 	{ "thinking", FYAIOK_BOOL, offsetof(struct fyai_cfg, thinking),
 	  NULL, false, false, NULL, "display reasoning/thinking output" },
-	{ "sandbox", FYAIOK_BOOL, offsetof(struct fyai_cfg, enable_sandbox),
-	  NULL, false, false, NULL, "tool sandbox" },
 	{ "token-extents", FYAIOK_BOOL, offsetof(struct fyai_cfg, token_extents),
 	  NULL, false, false, NULL, "record streamed token extents" },
 	{ "print-stats", FYAIOK_BOOL, offsetof(struct fyai_cfg, stats),

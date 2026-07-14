@@ -99,11 +99,13 @@ accept null to paper over an emitter that drops the quotes.
   since patch targets are already confined to non-traversing relative paths so
   a leading `.fyai` component is sufficient. This is best-effort against
   symlink tricks; Landlock is the syscall-level boundary for that.
-- `src/fyai_sandbox.c` — Landlock confinement for shell-tool sub-executions
-  (`--sandbox` / config `sandbox`, default **on**). ABI-probed and masked;
-  grants read-only system paths + read/write project (children of the root
-  minus the hidden `.fyai`) + temp dirs, denies the rest; applied one-way in
-  the child so it is inherited across the exec and every process it spawns.
+- `src/fyai_sandbox.c` — Landlock confinement for shell-tool sub-executions,
+  always enforced (config `sandbox` tunes its `allow`/`deny`/`network` grants
+  but cannot disable it — there is no `--sandbox` flag or config bit that
+  turns confinement off). ABI-probed and masked; grants read-only system
+  paths + read/write project (children of the root minus the hidden `.fyai`)
+  + temp dirs, denies the rest; applied one-way in the child so it is
+  inherited across the exec and every process it spawns.
   Linux-only: on other platforms (macOS) it compiles to no-op stubs behind the
   same interface, where a Seatbelt (`sandbox_init`) back-end would slot in. It
   is the §4.5/§10 enforcement floor only; command admission (allow-list/prompt)
@@ -277,7 +279,7 @@ no dedicated CLI flag at all — they are config keys only, set via `config
 set <key> <val>` / `--set <key>=<val>` (see `config.yaml.sample` for the
 full key set). A handful of flags remain because they are not config-backed
 run-local state: `-C`/`-e`/`-k` name external files/secrets, `-m`/`-u`
-resolve through the catalogue, `-t`/`--sandbox` gate tool execution,
+resolve through the catalogue, `-t` gates tool execution,
 `--color`/`--theme`/`--code-theme` are display-only conveniences kept for
 ergonomics, `--new`/`-i`/`-d`/`--answer` control process behavior, not
 config state, and `--set`/`--get`/`--delete`/`--transient` are the config

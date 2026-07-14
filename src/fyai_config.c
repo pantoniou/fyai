@@ -230,17 +230,16 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 				cfg->enable_tools);
 	cfg->enable_builtin_shell = apply_bool(root, "builtin_shell",
 					       cfg->enable_builtin_shell);
-	/* sandbox is either a bool (enable with defaults) or a mapping
-	 * { enabled, allow, deny, network }. A mapping enables unless it says
-	 * otherwise and is retained for the tool path to read grants from. */
+	/*
+	 * Landlock confinement of shell/tool sub-executions is the enforcement
+	 * floor for the arena and secrets and is not user-disableable: a bare
+	 * `sandbox: false` (or a mapping's `enabled: false`) is accepted by
+	 * the schema for backward compatibility but has no effect. Only a
+	 * mapping's `allow`/`deny`/`network` are read, to tune the grants.
+	 */
 	sb = fy_get(root, "sandbox");
-	if (fy_generic_is_mapping(sb)) {
+	if (fy_generic_is_mapping(sb))
 		cfg->sandbox = sb;
-		cfg->enable_sandbox = apply_bool(sb, "enabled", true);
-	} else {
-		cfg->enable_sandbox = apply_bool(root, "sandbox",
-				cfg->enable_sandbox);
-	}
 	cfg->logprobs = apply_bool(root, "logprobs", cfg->logprobs);
 	cfg->token_extents = apply_bool(root, "token_extents",
 					cfg->token_extents);
@@ -1789,8 +1788,7 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 }
 
 enum {
-	OPT_SANDBOX = 256,
-	OPT_NEW,
+	OPT_NEW = 256,
 	OPT_ANSWER,
 	OPT_COLOR,
 	OPT_THEME,
@@ -1809,7 +1807,6 @@ static const struct option long_options[] = {
 	{ "api-key", required_argument, NULL, 'k' },
 	{ "url", required_argument, NULL, 'u' },
 	{ "tools", no_argument, NULL, 't' },
-	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
 	{ "code-theme", required_argument, NULL, OPT_CODE_THEME },
@@ -2240,11 +2237,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case 't':
 			if (config_queue_set_literal(cfg, "tools", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_SANDBOX:
-			if (config_queue_set_literal(cfg, "sandbox", "true",
 						     false, false))
 				goto err_out;
 			break;

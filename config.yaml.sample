@@ -85,10 +85,11 @@ tools: true
 builtin_shell: true
 # Landlock-confine shell-tool sub-executions (Linux only; no-op elsewhere):
 # read-only system paths, read/write the project and temp dirs, everything else
-# denied. Best-effort - the allow-list/prompt remains the portable floor when
-# Landlock is unavailable. Either a bool (enable with defaults) or a mapping:
+# (including the .fyai arena) denied. Best-effort - the allow-list/prompt
+# remains the portable floor when Landlock is unavailable. Confinement itself
+# is always enforced and cannot be disabled - `false` here is accepted but
+# has no effect. A mapping only tunes the grants:
 #   sandbox:
-#     enabled: true
 #     deny:                 # carved out of the project (the .fyai arena is
 #       - secrets           # always denied); paths are project-relative,
 #       - ~/.ssh            # absolute (/...), or ~-relative
@@ -101,8 +102,8 @@ builtin_shell: true
 #     network:              # present => restrict egress to these TCP ports
 #       ports: [443]        # (omit `network` entirely to leave egress open;
 #                           #  empty ports denies all egress)
-# `fyai sandbox on` stores this canned policy:
-# sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { ports: [443] } }
+# `fyai sandbox on` stores this canned tightening:
+# sandbox: { deny: [secrets, ~/.ssh], network: { ports: [443] } }
 sandbox: true
 
 logprobs: false

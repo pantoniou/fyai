@@ -81,7 +81,6 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--url, -u <url>", "API endpoint URL");
 	ITEM("--new", "Start a new conversation");
 	ITEM("--tools", "Enable function tools");
-	ITEM("--sandbox", "Landlock-confine shell tools (Linux)");
 	ITEM("--color <c>", "Colour output: auto|off|on");
 	ITEM("--theme <t>", "Markdown theme: auto|dark|light");
 	ITEM("--code-theme <t>", "Fenced-code theme: a libfyts name or a path");
@@ -1567,11 +1566,13 @@ static int configure_sandbox(int argc, char **argv, struct fyai_cfg *cfg)
 	} else if (!strcmp(what, "enable") || !strcmp(what, "on")) {
 		args->type = FYAICT_SET;
 		args->key = "sandbox";
-		args->value = "{ enabled: true, deny: [secrets, ~/.ssh], network: { ports: [443] } }";
+		args->value = "{ deny: [secrets, ~/.ssh], network: { ports: [443] } }";
 	} else if (!strcmp(what, "disable") || !strcmp(what, "off")) {
-		args->type = FYAICT_SET;
-		args->key = "sandbox";
-		args->value = "false";
+		fprintf(stderr,
+			"sandbox: Landlock confinement is always enforced and "
+			"cannot be disabled; use `sandbox edit` to adjust "
+			"allow/deny/network\n");
+		return -1;
 	} else if (!strcmp(what, "edit")) {
 		args->type = FYAICT_EDIT;
 		args->key = NULL;
@@ -1928,12 +1929,14 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.execute   = fyai_execute_config,
 		.synopsis  = "sandbox [show|on|off|edit]",
 		.help	   = "Show or configure the stored arena `sandbox` key.\n"
+			     "Landlock confinement itself is always enforced and\n"
+			     "cannot be disabled; this only tunes its allow/deny/\n"
+			     "network grants.\n"
 			     "  show      print the stored sandbox value\n"
-			     "  on        store the canned sandbox policy\n"
-			     "            { enabled: true,\n"
-			     "              deny: [secrets, ~/.ssh],\n"
+			     "  on        store the canned hardening extras\n"
+			     "            { deny: [secrets, ~/.ssh],\n"
 			     "              network: { ports: [443] } }\n"
-			     "  off       store sandbox: false\n"
+			     "  off       refuse (confinement cannot be disabled)\n"
 			     "  edit      edit the full stored config YAML",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.config = {

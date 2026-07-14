@@ -135,7 +135,7 @@ The \`reasoning.effort\` and \`reasoning.summary\` configuration values are samp
 
 The tool surface is \`read_file\`, structured file writing/patching, \`shell\`, and \`ask_user\`. Tool calls are represented distinctly from assistant text so they can be replayed and rendered. \`tool\` runs one named tool without a model call.
 
-The \`sandbox\` configuration enables Landlock confinement for shell tool subprocesses on Linux, on by default. It supports project-relative and external allow/deny grants plus optional TCP-port restrictions. The \`.fyai\` arena is always denied to sandboxed tools. Landlock is best-effort on unsupported platforms; the configured approval/policy behavior remains the portable control plane.
+Landlock confinement of shell tool subprocesses on Linux is always enforced and cannot be disabled by configuration, CLI flag, or session command. The \`sandbox\` configuration only tunes it - project-relative and external allow/deny grants plus optional TCP-port restrictions; a bare \`false\` or a mapping's \`enabled: false\` is accepted for backward compatibility but has no effect. The \`.fyai\` arena is always denied to sandboxed tools. Landlock is best-effort on unsupported platforms; the configured approval/policy behavior remains the portable control plane.
 
 Independently of the \`sandbox\` setting, \`read_file\`, \`write_file\`, and \`apply_patch\` always refuse a path that resolves to the \`.fyai\` arena or anything beneath it. This portable, lexical check runs on every platform and requires no opt-in; Landlock remains the syscall-level boundary for \`shell\` and for symlink-based evasion of the lexical check.
 
