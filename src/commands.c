@@ -27,6 +27,7 @@
 #include "fyai_log.h"
 #include "fyai_terminal.h"
 #include "fyai_display.h"
+#include "fyai_render.h"
 #include "fyai_markdown.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
@@ -512,173 +513,73 @@ static int configure_list(int argc, char **argv, struct fyai_cfg *cfg)
 	return 0;
 }
 
-enum md_cell_type {
-	MD_CELL_STRING,
-	MD_CELL_INT,
-	MD_CELL_BOOL_MARK,
-	MD_CELL_BOOL_YESNO,
-	MD_CELL_SEQ,
-};
-
-struct md_table_col {
-	const char *header;
-	const char *key;
-	const char *align;
-	enum md_cell_type type;
-};
-
-static void md_table_emit_cell(FILE *mf, fy_generic item,
-			       const struct md_table_col *col)
+/*
+ * `list` renders through the one generic-to-Markdown renderer: the data is a
+ * sequence of mappings, so the renderopts only carry the column selection and
+ * the few headers whose humanized key is not what we want.
+ */
+static fy_generic list_renderopts(struct fy_generic_builder *gb,
+				  struct fyai_list_args *args)
 {
-	fy_generic seq, v;
-	int i;
-
-	switch (col->type) {
-	case MD_CELL_INT:
-		fprintf(mf, "%lld", fy_get(item, col->key, 0LL));
-		break;
-	case MD_CELL_BOOL_MARK:
-		fprintf(mf, "%s", fy_get(item, col->key, false) ? "*" : "");
-		break;
-	case MD_CELL_BOOL_YESNO:
-		fprintf(mf, "%s", fy_get(item, col->key, false) ? "yes" : "no");
-		break;
-	case MD_CELL_SEQ:
-		i = 0;
-		seq = fy_get(item, col->key, fy_seq_empty);
-		fy_foreach(v, seq)
-			fprintf(mf, "%s%s", i++ ? ", " : "", fy_castp(&v, ""));
-		break;
-	case MD_CELL_STRING:
-	default:
-		fprintf(mf, "%s", fy_get(item, col->key, ""));
-		break;
-	}
-}
-
-static void md_table_emit(FILE *mf, fy_generic data,
-			  const struct md_table_col *cols, size_t ncols,
-			  const char *empty)
-{
-	fy_generic item;
-	size_t j, n;
-
-	fprintf(mf, "|");
-	for (j = 0; j < ncols; j++)
-		fprintf(mf, " %s |", cols[j].header);
-	fprintf(mf, "\n|");
-	for (j = 0; j < ncols; j++)
-		fprintf(mf, "%s|", cols[j].align);
-	fprintf(mf, "\n");
-
-	n = fy_len(data);
-	fy_foreach(item, data) {
-		fprintf(mf, "|");
-		for (j = 0; j < ncols; j++) {
-			fprintf(mf, " ");
-			md_table_emit_cell(mf, item, &cols[j]);
-			fprintf(mf, " |");
-		}
-		fprintf(mf, "\n");
-	}
-
-	if (!n)
-		fprintf(mf, "\n_%s_\n", empty);
-}
-
-static int list_emit_markdown(struct fyai_ctx *ctx, fy_generic data)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_list_args *args = &cfg->cmd.args.list;
-	static const struct md_table_col turn_cols[] = {
-		{ "Index", "index", "---:", MD_CELL_INT },
-		{ "Role", "role", "---", MD_CELL_STRING },
-		{ "Provider", "provider", "---", MD_CELL_STRING },
-		{ "API", "api", "---", MD_CELL_STRING },
-		{ "Tokens", "tokens", "---:", MD_CELL_INT },
-	};
-	static const struct md_table_col exchange_cols[] = {
-		{ "Index", "index", "---:", MD_CELL_INT },
-		{ "Provider", "provider", "---", MD_CELL_STRING },
-		{ "API", "api", "---", MD_CELL_STRING },
-		{ "Tokens", "tokens", "---:", MD_CELL_INT },
-	};
-	static const struct md_table_col reflog_cols[] = {
-		{ "Index", "index", "---:", MD_CELL_INT },
-		{ "Ref", "ref", "---", MD_CELL_STRING },
-		{ "Model", "model", "---", MD_CELL_STRING },
-		{ "Kind", "kind", "---", MD_CELL_STRING },
-	};
-	static const struct md_table_col model_cols[] = {
-		{ "Model", "name", "---", MD_CELL_STRING },
-		{ "Providers", "providers", "---", MD_CELL_SEQ },
-		{ "Context", "context_window", "---:", MD_CELL_INT },
-		{ "Max Output", "max_output_tokens", "---:", MD_CELL_INT },
-		{ "Open", "open_source", "---", MD_CELL_BOOL_YESNO },
-	};
-	static const struct md_table_col model_full_cols[] = {
-		{ "Model", "name", "---", MD_CELL_STRING },
-		{ "Display", "display_name", "---", MD_CELL_STRING },
-		{ "Providers", "providers", "---", MD_CELL_SEQ },
-		{ "Context", "context_window", "---:", MD_CELL_INT },
-		{ "Max Output", "max_output_tokens", "---:", MD_CELL_INT },
-		{ "Open", "open_source", "---", MD_CELL_BOOL_YESNO },
-		{ "Modalities", "modalities", "---", MD_CELL_SEQ },
-		{ "Capabilities", "capabilities", "---", MD_CELL_SEQ },
-	};
-	static const struct md_table_col provider_cols[] = {
-		{ "Provider", "name", "---", MD_CELL_STRING },
-		{ "Models", "models", "---", MD_CELL_SEQ },
-	};
-	static const struct md_table_col provider_full_cols[] = {
-		{ "Provider", "name", "---", MD_CELL_STRING },
-		{ "Models", "models", "---", MD_CELL_SEQ },
-	};
-	char *md;
-	size_t mdlen;
-	FILE *mf;
-
-	md = NULL;
-	mdlen = 0;
-	mf = open_memstream(&md, &mdlen);
-	if (!mf)
-		return -1;
+	fy_generic api = fy_mapping(gb, "api", fy_mapping(gb, "name", "API"));
 
 	switch (args->type) {
 	case FYAILT_TURNS:
-		md_table_emit(mf, data, turn_cols, ARRAY_SIZE(turn_cols),
-			      "no turns");
-		break;
+		return fy_mapping(gb,
+			"empty", "no turns",
+			"keys", fy_sequence(gb, "index", "role", "provider", "api",
+					    "tokens"),
+			"columns", api);
 	case FYAILT_EXCHANGES:
-		md_table_emit(mf, data, exchange_cols, ARRAY_SIZE(exchange_cols),
-			      "no exchanges");
-		break;
+		return fy_mapping(gb,
+			"empty", "no exchanges",
+			"keys", fy_sequence(gb, "index", "provider", "api",
+					    "tokens"),
+			"columns", api);
 	case FYAILT_REFLOG:
-		md_table_emit(mf, data, reflog_cols, ARRAY_SIZE(reflog_cols),
-			      "no ref log");
-		break;
+		return fy_mapping(gb,
+			"empty", "no ref log",
+			"keys", fy_sequence(gb, "index", "ref", "model", "kind"));
 	case FYAILT_MODELS:
-		md_table_emit(mf, data,
-			      args->full ? model_full_cols : model_cols,
-			      args->full ? ARRAY_SIZE(model_full_cols) :
-					   ARRAY_SIZE(model_cols),
-			      "no models");
-		break;
+		return fy_mapping(gb,
+			"empty", "no models",
+			"keys", args->full ?
+				fy_sequence(gb, "name", "display_name", "providers",
+					    "context_window", "max_output_tokens",
+					    "open_source", "modalities",
+					    "capabilities") :
+				fy_sequence(gb, "name", "providers",
+					    "context_window", "max_output_tokens",
+					    "open_source"),
+			"columns", fy_mapping(gb,
+				"name", fy_mapping(gb, "name", "Model"),
+				"context_window", fy_mapping(gb, "name", "Context"),
+				"max_output_tokens", fy_mapping(gb, "name", "Max Output"),
+				"open_source", fy_mapping(gb, "name", "Open",
+							  "align", "left"),
+				"display_name", fy_mapping(gb, "name", "Display")));
 	case FYAILT_PROVIDERS:
 	default:
-		md_table_emit(mf, data,
-			      args->full ? provider_full_cols : provider_cols,
-			      args->full ? ARRAY_SIZE(provider_full_cols) :
-					   ARRAY_SIZE(provider_cols),
-			      "no providers configured");
-		break;
+		return fy_mapping(gb,
+			"empty", "no providers configured",
+			"keys", fy_sequence(gb, "name", "models"),
+			"columns", fy_mapping(gb,
+				"name", fy_mapping(gb, "name", "Provider")));
 	}
-	fclose(mf);
+}
 
-	if (args->format == FYAIOF_RAW || fyai_print_markdown(md, cfg))
-		fputs(md, stdout);
-	free(md);
-	return 0;
+/* The renderopts are display-only: build them in the transient builder so
+ * they never reach the durable arena. */
+static int list_emit_markdown(struct fyai_ctx *ctx, fy_generic data)
+{
+	struct fyai_list_args *args = &ctx->cfg->cmd.args.list;
+	fy_generic opts;
+
+	assert(ctx->transient_gb);
+	opts = list_renderopts(ctx->transient_gb, args);
+	if (args->format == FYAIOF_RAW)
+		opts = fy_assoc(ctx->transient_gb, opts, "raw", true);
+	return fyai_generic_to_markdown(ctx, opts, data);
 }
 
 static int list_emit_generic(fy_generic data, bool json)
