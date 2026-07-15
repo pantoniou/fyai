@@ -21,6 +21,7 @@
 #include "utils.h"
 #include "commands.h"
 #include "fyai_auth.h"
+#include "fyai_diag.h"
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 
@@ -192,6 +193,14 @@ struct fyai_cfg {
 
 	/* auth state in cfg builder */
 	const char *auth_state_dir;
+
+	/*
+	 * Collected diagnostics. Lives here rather than on the context because
+	 * it has to outlive it: option parsing and the verb argument hooks run
+	 * before fyai_run() declares a context, and raise a third of the
+	 * diagnostics in the tree.
+	 */
+	struct fyai_diag diag;
 };
 
 static inline const struct fyai_verb *

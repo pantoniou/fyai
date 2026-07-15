@@ -353,6 +353,7 @@ add_executable(fyai
     src/main.c
     src/fyai_display.c
     src/fyai.c
+    src/fyai_diag.c
     src/fyai_log.c
     src/fyai_markdown.c
     src/fyai_patch.c
@@ -404,6 +405,10 @@ target_include_directories(fyai PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR})
 
 if(BUILD_TESTING)
+    # The diagnostics test races raisers against each other to prove the
+    # lock-free publish drops nothing.
+    find_package(Threads REQUIRED)
+
     add_executable(fyai_patch_test
         tests/fyai_patch_test.c
         src/fyai_patch.c
@@ -423,6 +428,24 @@ if(BUILD_TESTING)
     target_link_libraries(fyai_patch_test PRIVATE libfyaml::libfyaml CURL::libcurl
         ${ASAN_LINK_OPTS})
     add_test(NAME fyai/patch_apply COMMAND fyai_patch_test)
+
+    add_executable(fyai_diag_test
+        tests/fyai_diag_test.c
+        src/fyai_diag.c
+    )
+    target_compile_options(fyai_diag_test PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+    target_compile_definitions(fyai_diag_test PRIVATE
+        _GNU_SOURCE
+        HAVE_CONFIG_H
+        VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(fyai_diag_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(fyai_diag_test PRIVATE libfyaml::libfyaml CURL::libcurl
+        Threads::Threads ${ASAN_LINK_OPTS})
+    add_test(NAME fyai/diag COMMAND fyai_diag_test)
 
     add_executable(fyai_provider_test
         tests/fyai_provider_test.c
@@ -488,6 +511,7 @@ if(BUILD_TESTING)
         tests/fyai_config_test_stubs.c
         src/fyai_catalog.c
         src/fyai_config.c
+        src/fyai_diag.c
         src/fyai_prof.c
         src/fyai_secret.c
         src/fyai_sandbox.c

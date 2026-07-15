@@ -1705,6 +1705,8 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 	if (!cfg)
 		return;
 
+	/* Drains whatever no earlier boundary reported. */
+	fyai_diag_cleanup(&cfg->diag);
 	fy_generic_builder_destroy(cfg->gb);
 	memset(cfg, 0, sizeof(*cfg));
 }
@@ -2121,6 +2123,11 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	cfg->gb = fy_generic_builder_create(&gb_cfg);
 	if (!cfg->gb)
+		goto err_out;
+
+	/* Before anything that can fail below: the option parsing that follows
+	 * reports through it. */
+	if (fyai_diag_setup(&cfg->diag))
 		goto err_out;
 
 	fyai_config_set_defaults(cfg);

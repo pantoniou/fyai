@@ -99,6 +99,26 @@ accept null to paper over an emitter that drops the quotes.
   Build renderopts in the **transient** builder (or frame-locally, in the same
   frame as the call) — never the durable arena; a builder-less `fy_mapping()`
   is `alloca` storage and must not be returned from a helper.
+- `src/fyai_diag.c` — the diagnostic layer, following libfyaml's
+  `fyp_error_check()` shape: `fyai_error_check(ctx, cond, err_out, fmt, ...)`
+  reports and jumps to the common cleanup label; `fyai_error`/`_warning`/
+  `_notice`/`_info`/`_debug` report without jumping, and `fyai_cfg_*` variants
+  serve the option parsing and `configure_*` hooks that run before there is a
+  context. Each `.c` names its subsystem once (`#define FYAI_MODULE
+  FYAIEM_CONFIG`) and the module supplies the message prefix, so `config: ` is
+  never hand-typed. Diagnostics are *collected* into `cfg->diag`, not printed,
+  and drained at the turn/verb/slash boundaries — a mid-turn write would tear
+  the spinner or the streamed render. An error prints bare (`config: msg`, as
+  the subsystems always did); lower severities are labelled; the captured
+  file/line/func surfaces only under `debug`. A NULL sink prints immediately, so
+  callers with no `cfg` still report. The sink owns its **own** builder: never
+  the durable arena, and not `transient_gb` (destroyed per turn, absent for most
+  verbs, nonexistent for the pre-context callers). `fyai_diagf()` expands the
+  format before interning, so a diagnostic never points into another builder —
+  that is what makes `fy_generic_builder_reset()` safe on every drain. Raising
+  is lock-free from any thread (CAS on the list word; a plain store loses ~80%
+  of concurrent raises, which `tests/fyai_diag_test.c` proves), but a drain's
+  reset invalidates `gb` for everyone, so drain only where raisers are quiescent.
 - `src/utils.c` — HTTP response buffers, shell exec capture, generic emit/parse.
   The shell `fork`/`exec` optionally applies a `fyai_sandbox_spec` in the child
   before exec.
@@ -160,7 +180,8 @@ show only libc/libm/ld.so in `ldd build-static/fyai`; musl/static verification
 should show `not a dynamic executable`.
 
 Run the test suite with `ctest --test-dir build --output-on-failure`. Unit
-tests (`tests/fyai_patch_test.c`, `tests/fyai_provider_test.c`) run everywhere;
+tests (`tests/fyai_patch_test.c`, `tests/fyai_provider_test.c`,
+`tests/fyai_diag_test.c`) run everywhere;
 the functional cases (`tests/cases/*.sh`) drive the real binary against the
 scenario-driven mock provider (`tests/mock/mock_provider.py`,
 `tests/scenarios/*.json`) in a hermetic sandbox — localhost only, private
