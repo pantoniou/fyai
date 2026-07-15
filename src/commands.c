@@ -1888,7 +1888,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.help	   = "Report context fill for the stored conversation: the model's\n"
 			     "context window (catalogue), the last recorded call's token total,\n"
 			     "and a tokenizer-free estimate (bytes/4) of the next request.",
-		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 		.default_args.context = {
 		},
 	},
