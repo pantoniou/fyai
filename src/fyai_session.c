@@ -148,6 +148,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	v = fyai_run_model_loop(ctx, turn);
 	cfg->enable_tools = tools_save;
 	cfg->enable_builtin_shell = shell_save;
+	/* The loop carries why it failed on the result; without this a ^C here
+	 * reported the generic failure below instead of "interrupted". */
+	v = fyai_report_diag(ctx, v);
 	if (fy_generic_is_invalid(v) || fy_generic_is_null_type(v)) {
 		fyai_error(ctx, "compact: summary request failed");
 		return -1;
