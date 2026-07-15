@@ -898,9 +898,9 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 			    cfg->api_key);
 	if (!cfg->chatgpt_auth && !ctx->auth_header) {
 		if (!cfg->api_key || !*cfg->api_key)
-			fprintf(stderr, "fyai: no API key (set one via "
-				"--api-key, the provider's <PROVIDER>_API_KEY "
-				"env var, or the env mapping in config)\n");
+			fyai_error(ctx, "no API key (set one via --api-key, the "
+				   "provider's <PROVIDER>_API_KEY env var, or "
+				   "the env mapping in config)");
 		return -1;
 	}
 
@@ -1264,7 +1264,7 @@ int fyai_prompt(struct fyai_ctx *ctx)
 	assert(ctx);
 
 	if ((!cfg->api_key || !*cfg->api_key) && !cfg->chatgpt_auth) {
-		fprintf(stderr, "ERROR: no API key or ChatGPT login is available\n");
+		fyai_error(ctx, "no API key or ChatGPT login is available");
 		return -1;
 	}
 
