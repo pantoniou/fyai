@@ -5,6 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
+/*
+ * Several verbs report from here (init, gc, config), so each message names
+ * its own rather than taking one module prefix for the file.
+ */
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -410,9 +416,8 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		if (!fyai_root_validate(ctx->durable_allocator, root) ||
 		    fyai_root_decode(root, &head, &ctx->arena_config,
 				     &ctx->arena_catalog) < 0) {
-			fprintf(stderr,
-				"unrecognized arena root at %s; re-run fyai init\n",
-				cfg->arena_dir);
+			fyai_error(ctx, "unrecognized arena root at %s; re-run fyai init",
+				   cfg->arena_dir);
 			goto err_out;
 		}
 		/*
@@ -524,6 +529,7 @@ int fyai_peek_arena_config(const char *arena_dir_opt,
 	if (refs) {
 		root = (fy_generic){ .v = refs };
 		if (fyai_root_decode(root, NULL, &config, &catalog) < 0) {
+			/* A probe: no context to collect into, so report here. */
 			fprintf(stderr,
 				"unrecognized arena root at %s; re-run fyai init\n",
 				arena_dir);
@@ -559,8 +565,8 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 		return 0;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {
-		fprintf(stderr, rc > 0 ? "fyai state changed concurrently\n" :
-			"failed to publish fyai state\n");
+		fyai_error(ctx, rc > 0 ? "fyai state changed concurrently" :
+			   "failed to publish fyai state");
 		return -1;
 	}
 	return 0;
@@ -604,8 +610,8 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 	}
 out:
 	if (rc) {
-		fprintf(stderr, rc > 0 ? "fyai state changed concurrently\n" :
-			"failed to publish fyai state\n");
+		fyai_error(ctx, rc > 0 ? "fyai state changed concurrently" :
+			   "failed to publish fyai state");
 		return -1;
 	}
 	return 0;
@@ -713,13 +719,13 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 		rc = fyai_reflog_truncate(ctx, args->keep_reflogs);
 		fyai_close_storage(ctx);
 		if (rc) {
-			fprintf(stderr, "gc: failed to truncate ref log\n");
+			fyai_error(ctx, "gc: failed to truncate ref log");
 			return -1;
 		}
 	}
 	rc = fy_durable_arena_gc(cfg->arena_dir);
 	if (rc == 1) {
-		fprintf(stderr, "gc: arena is busy\n");
+		fyai_error(ctx, "gc: arena is busy");
 		return -1;
 	}
 	if (rc)
@@ -781,6 +787,28 @@ static char *fyai_enclosing_project(const char *dir)
 	}
 }
 
+/*
+ * An invalid config is one failure however many things are wrong with it, so
+ * report every problem as a single diagnostic: raised one by one, all but the
+ * first would be demoted behind it and lost. The separator carries the prefix
+ * so each problem still reads as its own line.
+ */
+static void report_config_problems(struct fyai_ctx *ctx, fy_generic report)
+{
+	struct response_buffer msg = {0};
+	fy_generic problems, problem;
+
+	problems = fy_get(report, "problems", fy_seq_empty);
+	fy_foreach(problem, problems) {
+		if (msg.len && response_buffer_append(&msg, "\nconfig: "))
+			break;
+		if (response_buffer_append(&msg, fy_castp(&problem, "")))
+			break;
+	}
+	fyai_error(ctx, "config: %s", msg.len ? msg.data : "invalid");
+	free(msg.data);
+}
+
 int fyai_init_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -793,9 +821,8 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 
 	enclosing = fyai_enclosing_project(args->dir);
 	if (enclosing) {
-		fprintf(stderr,
-			"init: new project nested inside the fyai project at %s\n",
-			enclosing);
+		fyai_error(ctx, "init: new project nested inside the fyai project at %s",
+			   enclosing);
 		free(enclosing);
 	}
 
@@ -805,14 +832,15 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	catalog = fy_invalid;
 
 	if (asprintf(&arena_dir, "%s/.fyai/arena", args->dir) < 0) {
-		fprintf(stderr, "init: OOM\n");
+		fyai_error(ctx, "init: OOM");
 		return -1;
 	}
 
+	/* Where init is putting things: normal output, not a diagnostic. */
 	fprintf(stderr, "arena: %s\n", arena_dir);
 
 	if (fyai_open_arena(ctx, arena_dir)) {
-		fprintf(stderr, "init: cannot open arena at %s\n", arena_dir);
+		fyai_error(ctx, "init: cannot open arena at %s", arena_dir);
 		goto out;
 	}
 
@@ -820,8 +848,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		root = (fy_generic){ .v = ctx->refs_head };
 		rc = fyai_root_decode(root, &head, &config, &catalog);
 		if (rc < 0 && !args->force) {
-			fprintf(stderr,
-				"init: unrecognized arena root (use --force to reset)\n");
+			fyai_error(ctx, "init: unrecognized arena root (use --force to reset)");
 			goto out;
 		}
 		if (rc < 0) {
@@ -831,8 +858,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		}
 		if (args->config && fy_generic_is_valid(config) &&
 		    !args->force) {
-			fprintf(stderr,
-				"init: arena already carries a config (use --force)\n");
+			fyai_error(ctx, "init: arena already carries a config (use --force)");
 			goto out;
 		}
 		if (!args->config && rc >= 0) {
@@ -848,18 +874,13 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 				       FYOPPF_MODE_YAML_1_2,
 				       args->config);
 		if (!fy_generic_is_valid(config)) {
-			fprintf(stderr, "init: cannot parse %s\n", args->config);
+			fyai_error(ctx, "init: cannot parse %s", args->config);
 			goto out;
 		}
 		report = fyai_config_validate_report(ctx->cfg, config,
 						     args->config);
 		if (fy_not_equal(fy_get(report, "result"), "ok")) {
-			fy_generic problems, problem;
-
-			problems = fy_get(report, "problems", fy_seq_empty);
-			fy_foreach(problem, problems)
-				fprintf(stderr, "config: %s\n",
-					fy_castp(&problem, ""));
+			report_config_problems(ctx, report);
 			goto out;
 		}
 		config = fy_get(report, "config", config);
@@ -877,19 +898,13 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 				  FYOPPF_MODE_YAML_1_2 |
 				  FYOPPF_INPUT_TYPE_STRING, NULL);
 		if (!fy_generic_is_valid(config)) {
-			fprintf(stderr,
-				"init: cannot parse embedded config sample\n");
+			fyai_error(ctx, "init: cannot parse embedded config sample");
 			goto out;
 		}
 		report = fyai_config_validate_report(ctx->cfg, config,
 						     "embedded config sample");
 		if (fy_not_equal(fy_get(report, "result"), "ok")) {
-			fy_generic problems, problem;
-
-			problems = fy_get(report, "problems", fy_seq_empty);
-			fy_foreach(problem, problems)
-				fprintf(stderr, "config: %s\n",
-					fy_castp(&problem, ""));
+			report_config_problems(ctx, report);
 			goto out;
 		}
 		config = fy_get(report, "config", config);
@@ -900,7 +915,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	ctx->last_message = head;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {
-		fprintf(stderr, "init: cannot publish arena root\n");
+		fyai_error(ctx, "init: cannot publish arena root");
 		goto out;
 	}
 
