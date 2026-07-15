@@ -14,6 +14,7 @@
 #include "config.h"
 #endif
 
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -780,43 +781,6 @@ int fyai_execute_list(struct fyai_ctx *ctx)
  */
 #define DESCRIBE_CELL_MAX 160
 
-static void describe_escape_cell(FILE *fp, const char *s)
-{
-	size_t n;
-
-	if (!s)
-		return;
-	for (n = 0; *s; s++) {
-		if (n >= DESCRIBE_CELL_MAX) {
-			fputs("...", fp);
-			return;
-		}
-		if (*s == '|') {
-			fputc('\\', fp);
-			n++;
-		}
-		fputc(*s == '\n' ? ' ' : *s, fp);
-		n++;
-	}
-}
-
-static void describe_row(FILE *fp, const char *name, const char *type,
-			 const char *constraint, const char *deflt,
-			 const char *desc)
-{
-	fprintf(fp, "| ");
-	describe_escape_cell(fp, name);
-	fprintf(fp, " | ");
-	describe_escape_cell(fp, type);
-	fprintf(fp, " | ");
-	describe_escape_cell(fp, constraint && *constraint ? constraint : "-");
-	fprintf(fp, " | ");
-	describe_escape_cell(fp, deflt && *deflt ? deflt : "-");
-	fprintf(fp, " | ");
-	describe_escape_cell(fp, desc);
-	fprintf(fp, " |\n");
-}
-
 /* @node's `default`, stringified into @buf; empty when absent. */
 static void schema_default_str(fy_generic node, char *buf, size_t bufsz)
 {
@@ -1029,17 +993,36 @@ static bool schema_key_required(fy_generic node, const char *key)
 	return false;
 }
 
-static int config_describe(struct fyai_cfg *cfg, const char *path)
+/* One row of the describe table. */
+static fy_generic describe_row(struct fy_generic_builder *gb, const char *name,
+			       fy_generic node, bool required, fy_generic desc)
 {
-	fy_generic schema, node, object_node, props, desc, key, sub, subdesc;
-	char seg[256], type_buf[128], cons_buf[384];
+	char type_buf[128], cons_buf[384];
 	char def_buf[DESCRIBE_CELL_MAX + 8];
+
+	schema_type_str(node, type_buf, sizeof(type_buf));
+	schema_constraint_str(node, required, cons_buf, sizeof(cons_buf));
+	schema_default_str(node, def_buf, sizeof(def_buf));
+	return fy_mapping(gb,
+		"name", name,
+		"type", type_buf,
+		"constraint", *cons_buf ? cons_buf : "-",
+		"default", *def_buf ? def_buf : "-",
+		"description", fy_generic_is_string(desc) ?
+			fy_castp(&desc, "") : "");
+}
+
+static int config_describe(struct fyai_ctx *ctx, const char *path)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic schema, node, object_node, props, desc, key, sub;
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic rows;
+	char seg[256];
 	const char *p, *slash, *last;
 	size_t seglen, i, n;
-	char *md;
-	size_t mdlen;
-	FILE *mf;
 
+	assert(gb);
 	schema = fyai_config_schema(cfg->gb);
 	node = schema;
 	last = "config";
@@ -1065,19 +1048,8 @@ static int config_describe(struct fyai_cfg *cfg, const char *path)
 		}
 	}
 
-	md = NULL;
-	mdlen = 0;
-	mf = open_memstream(&md, &mdlen);
-	if (!mf)
-		return -1;
-
 	desc = fy_get(node, "description");
-	fprintf(mf, "## %s\n\n", (path && *path) ? path : "config");
-	if (fy_generic_is_string(desc))
-		fprintf(mf, "%s\n\n", fy_castp(&desc, ""));
-
-	fprintf(mf, "| name | type | constraint | default | description |\n");
-	fprintf(mf, "|---|---|---|---|---|\n");
+	rows = fy_seq_empty;
 
 	/* Transparently prefer an object oneOf/anyOf branch (e.g. sandbox's
 	 * object form) over treating the node as a leaf, so a node with no
@@ -1087,34 +1059,38 @@ static int config_describe(struct fyai_cfg *cfg, const char *path)
 	props = fy_generic_is_valid(object_node) ?
 		fy_get(object_node, "properties") : fy_invalid;
 	if (!fy_generic_is_mapping(props)) {
-		schema_type_str(node, type_buf, sizeof(type_buf));
-		schema_constraint_str(node, false, cons_buf, sizeof(cons_buf));
-		schema_default_str(node, def_buf, sizeof(def_buf));
-		describe_row(mf, last, type_buf, cons_buf, def_buf,
-			    fy_generic_is_string(desc) ? fy_castp(&desc, "") : "");
+		rows = fy_append(gb, rows,
+				 describe_row(gb, last, node, false, desc));
 	} else {
 		n = fy_generic_mapping_get_pair_count(props);
 		for (i = 0; i < n; i++) {
 			key = fy_generic_mapping_get_at_key(props, i);
 			sub = fy_generic_mapping_get_at_value(props, i);
-			schema_type_str(sub, type_buf, sizeof(type_buf));
-			schema_constraint_str(sub, schema_key_required(object_node,
-						fy_castp(&key, "")), cons_buf,
-					      sizeof(cons_buf));
-			schema_default_str(sub, def_buf, sizeof(def_buf));
-			subdesc = fy_get(sub, "description");
-			describe_row(mf, fy_castp(&key, ""), type_buf, cons_buf,
-				    def_buf,
-				    fy_generic_is_string(subdesc) ?
-					    fy_castp(&subdesc, "") : "");
+			rows = fy_append(gb, rows,
+				describe_row(gb, fy_castp(&key, ""), sub,
+					     schema_key_required(object_node,
+						fy_castp(&key, "")),
+					     fy_get(sub, "description")));
 		}
 	}
-	fclose(mf);
 
-	if (fyai_print_markdown(md, cfg))
-		fputs(md, stdout);
-	free(md);
-	return 0;
+	return fyai_generic_to_markdown(ctx,
+		fy_mapping(gb,
+			"preamble", fy_sprintfa("## %s%s%s",
+				(path && *path) ? path : "config",
+				fy_generic_is_string(desc) ? "\n\n" : "",
+				fy_generic_is_string(desc) ?
+					fy_castp(&desc, "") : ""),
+			"columns", fy_mapping(gb,
+				"name", fy_mapping(gb, "name", "name"),
+				"type", fy_mapping(gb, "name", "type"),
+				"constraint", fy_mapping(gb, "name",
+							 "constraint"),
+				"default", fy_mapping(gb, "name",
+						      "default"),
+				"description", fy_mapping(gb, "name",
+							  "description"))),
+		rows);
 }
 
 static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
@@ -1258,7 +1234,7 @@ int fyai_execute_config(struct fyai_ctx *ctx)
 		emit_generic_to_stdout(NULL, fyai_config_schema(cfg->gb), true);
 		break;
 	case FYAICT_DESCRIBE:
-		rc = config_describe(cfg, args->key);
+		rc = config_describe(ctx, args->key);
 		if (rc)
 			return -1;
 		break;
@@ -1708,7 +1684,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  schema            print the config document JSON Schema (YAML)\n"
 			     "  describe [path]   markdown table of a schema node (slash path,\n"
 			     "                    e.g. display/color); whole document if omitted",
-		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 		.default_args.config = {
 		},
 	},
