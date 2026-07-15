@@ -315,15 +315,19 @@ fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,
 	return fy_generic_is_direct_valid(v) ? v : value;
 }
 
-/* Print a generic's attached diagnostic (if any) to stderr and return the
- * unwrapped value. */
-fy_generic fyai_report_diag(fy_generic v)
+/*
+ * Move a diagnostic attached to @v into the collected sink and return the
+ * unwrapped value. It is raised as the error rather than printed here, so it
+ * lands in order with the rest and, being the cause, demotes the caller's own
+ * "could not do X" behind it.
+ */
+fy_generic fyai_report_diag(struct fyai_ctx *ctx, fy_generic v)
 {
 	fy_generic diag;
 
 	diag = fy_generic_get_diag(v);
 	if (fy_generic_is_valid(diag) && !fy_generic_is_null_type(diag)) {
-		fprintf(stderr, "%s\n", fy_castp(&diag, ""));
+		fyai_error(ctx, "%s", fy_castp(&diag, ""));
 		return fy_generic_indirect_get_value(v);
 	}
 	return v;
@@ -1072,7 +1076,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 
 	/* not interactive? single run */
 	v = fyai_run_model_loop(ctx, ctx->last_message);
-	v = fyai_report_diag(v);
+	v = fyai_report_diag(ctx, v);
 	if (fy_generic_is_invalid(v))
 		goto err_out;
 	ctx->last_message = v;
@@ -1114,7 +1118,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 
 	if (cfg->prompt && *cfg->prompt) {
 		v = fyai_run_model_loop(ctx, ctx->last_message);
-		v = fyai_report_diag(v);
+		v = fyai_report_diag(ctx, v);
 		if (fy_generic_is_invalid(v))
 			goto err_out;
 		ctx->last_message = v;
@@ -1212,7 +1216,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		v = fyai_run_model_loop(ctx, v);
 		/* A failed/interrupted run may carry a diagnostic; print it and
 		 * unwrap to the (possibly partial) turn. */
-		v = fyai_report_diag(v);
+		v = fyai_report_diag(ctx, v);
 		if (fy_generic_is_invalid(v)) {
 			/* nothing completed: keep the prior state, stay in the
 			 * loop so the user can retry or exit */

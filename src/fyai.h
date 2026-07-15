@@ -336,7 +336,7 @@ fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,
 			  const char *msg);
 
 /* Print an attached diagnostic to stderr; returns the unwrapped value. */
-fy_generic fyai_report_diag(fy_generic v);
+fy_generic fyai_report_diag(struct fyai_ctx *ctx, fy_generic v);
 
 /*
  * (Re)build the per-session request state derived from cfg: auth header,
