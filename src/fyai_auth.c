@@ -38,7 +38,9 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_auth_util.h"
+#include "fyai_display.h"
 #include "fyai_markdown.h"
+#include "fyai_render.h"
 #include "fyai_config.h"
 
 #if defined(__APPLE__) || defined(HAVE_LIBSECRET)
@@ -1476,57 +1478,24 @@ static const char *auth_effective_method(struct fyai_ctx *ctx, bool logged_in)
 	return logged_in ? "chatgpt" : "unavailable";
 }
 
-static void auth_switching_report(FILE *fp)
-{
-	fprintf(fp, "\n## Switching authentication\n\n"
-	       "```sh\n"
-	       "fyai config set auth chatgpt  # require the subscription\n"
-	       "fyai config set auth api-key  # require an API key\n"
-	       "fyai config set auth auto     # prefer an available API key\n"
-	       "```\n");
-}
-
-static int auth_status(struct fyai_ctx *ctx, bool json, bool info)
+/* Return the status data without choosing an output format. */
+fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
+				 struct fy_generic_builder *gb, bool info)
 {
 	struct fyai_credentials c = {};
 	fy_generic doc;
-	const char *out;
-	char *markdown = NULL;
-	size_t markdown_len = 0;
-	FILE *fp;
 	char when[64] = "unknown";
 	struct tm tm;
 
-	if (auth_load(ctx, &c)) {
-		if (json)
-			printf("{\"provider\":\"openai\",\"status\":\"signed_out\","
-			       "\"configured_mode\":\"%s\",\"effective_method\":\"%s\"}\n",
-			       fyai_auth_mode_string(ctx->cfg->auth_mode),
-			       auth_effective_method(ctx, false));
-		else {
-			fp = open_memstream(&markdown, &markdown_len);
-			if (!fp)
-				return -1;
-			fprintf(fp, "# Authentication\n\n"
-			       "| Field | Value |\n"
-			       "|---|---|\n"
-			       "| Provider | `openai` |\n"
-			       "| Status | Signed out |\n"
-			       "| Configured mode | `%s` |\n"
-			       "| Effective method | `%s` |\n",
-			       fyai_auth_mode_string(ctx->cfg->auth_mode),
-			       auth_effective_method(ctx, false));
-			auth_switching_report(fp);
-			fclose(fp);
-			fyai_print_markdown(markdown, ctx->cfg);
-			free(markdown);
-		}
-		return 0;
-	}
+	if (auth_load(ctx, &c))
+		return fy_mapping(gb,
+			"provider", "openai", "status", "signed_out",
+			"configured_mode", fyai_auth_mode_string(ctx->cfg->auth_mode),
+			"effective_method", auth_effective_method(ctx, false));
 	if (c.expires_at && gmtime_r(&c.expires_at, &tm))
 		strftime(when, sizeof(when), "%Y-%m-%dT%H:%M:%SZ", &tm);
-	if (json) {
-		doc = fy_mapping(
+	if (info)
+		doc = fy_mapping(gb,
 			"provider", "openai", "status", "signed_in",
 			"configured_mode", fyai_auth_mode_string(ctx->cfg->auth_mode),
 			"effective_method", auth_effective_method(ctx, true),
@@ -1534,42 +1503,47 @@ static int auth_status(struct fyai_ctx *ctx, bool json, bool info)
 			"account_id", c.account_id, "plan", c.plan ? c.plan : "",
 			"expires_at", when, "storage", c.storage ? c.storage : "file",
 			"fedramp", c.fedramp);
-		out = emit_request_body(ctx->transient_gb, doc);
-		if (out)
-			printf("%s\n", out);
-		credentials_clear(&c);
-		return out ? 0 : -1;
-	}
-	fp = open_memstream(&markdown, &markdown_len);
-	if (!fp) {
-		credentials_clear(&c);
-		return -1;
-	}
-	fprintf(fp, "# Authentication\n\n"
-	       "| Field | Value |\n"
-	       "|---|---|\n"
-	       "| Provider | `openai` |\n"
-	       "| Status | Signed in |\n"
-	       "| Configured mode | `%s` |\n"
-	       "| Effective method | `%s` |\n"
-	       "| Subscription | `%s` |\n"
-	       "| Email | `%s` |\n"
-	       "| Account | `%s` |\n"
-	       "| Token expires | `%s` |\n",
-		fyai_auth_mode_string(ctx->cfg->auth_mode),
-		auth_effective_method(ctx, true),
-		c.plan ? c.plan : "unknown",
-		c.email && *c.email ? c.email : "unknown",
-		c.account_id, when);
-	if (info)
-		fprintf(fp, "| Credential storage | `%s` |\n| FedRAMP account | `%s` |\n",
-			c.storage ? c.storage : "file", c.fedramp ? "yes" : "no");
-	auth_switching_report(fp);
-	fclose(fp);
-	fyai_print_markdown(markdown, ctx->cfg);
-	free(markdown);
+	else
+		doc = fy_mapping(gb,
+			"provider", "openai", "status", "signed_in",
+			"configured_mode", fyai_auth_mode_string(ctx->cfg->auth_mode),
+			"effective_method", auth_effective_method(ctx, true),
+			"auth", "chatgpt", "email", c.email ? c.email : "",
+			"account_id", c.account_id, "plan", c.plan ? c.plan : "",
+			"expires_at", when, "fedramp", c.fedramp);
 	credentials_clear(&c);
-	return 0;
+	return doc;
+}
+
+int fyai_auth_status(struct fyai_ctx *ctx, bool json, bool info)
+{
+	fy_generic doc;
+	const char *out;
+	doc = fyai_auth_status_data(ctx, ctx->transient_gb, info || json);
+	if (fy_generic_is_invalid(doc))
+		return -1;
+	/*
+	 * Column overrides: the keys whose humanized form is not the label we
+	 * want, plus the humanized `status` value (signed_in -> "Signed in").
+	 * fy_mapping() without a builder is frame-local storage, so the
+	 * renderopts must be built here, in the frame that renders them.
+	 */
+	if (!json)
+		return fyai_generic_to_markdown(ctx,
+			fy_mapping(
+				"title", "Authentication",
+				"columns", fy_mapping(
+					"status", fy_mapping("format", "humanize"),
+					"account_id", fy_mapping("name", "Account"),
+					"plan", fy_mapping("name", "Subscription"),
+					"expires_at", fy_mapping("name", "Token expires"),
+					"fedramp", fy_mapping("name", "FedRAMP account"),
+					"storage", fy_mapping("name", "Credential storage"))),
+			doc);
+	out = emit_request_body(ctx->transient_gb, doc);
+	if (out)
+		printf("%s\n", out);
+	return out ? 0 : -1;
 }
 
 static void print_limit_window(FILE *fp, const char *name, fy_generic window)
@@ -1780,7 +1754,7 @@ int fyai_auth_execute(struct fyai_ctx *ctx)
 	switch (a->command) {
 	case FYAI_AUTH_STATUS:
 	case FYAI_AUTH_INFO:
-		rc = auth_status(ctx, a->json, a->command == FYAI_AUTH_INFO);
+		rc = fyai_auth_status(ctx, a->json, a->command == FYAI_AUTH_INFO);
 		if (rc)
 			fprintf(stderr, "auth: status failed\n");
 		break;
