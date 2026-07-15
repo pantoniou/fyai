@@ -85,6 +85,12 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 				       const char *origin);
 int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
 				       const char *origin);
+/*
+ * Report every problem in a validation report as a single diagnostic. An
+ * invalid config is one failure however many things are wrong with it: raised
+ * one by one, all but the first would be demoted behind it and lost.
+ */
+void fyai_config_report_problems(struct fyai_cfg *cfg, fy_generic report);
 
 /*
  * The vendored config document JSON Schema (data/config.schema.yaml,

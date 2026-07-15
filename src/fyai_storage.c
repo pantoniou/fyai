@@ -787,28 +787,6 @@ static char *fyai_enclosing_project(const char *dir)
 	}
 }
 
-/*
- * An invalid config is one failure however many things are wrong with it, so
- * report every problem as a single diagnostic: raised one by one, all but the
- * first would be demoted behind it and lost. The separator carries the prefix
- * so each problem still reads as its own line.
- */
-static void report_config_problems(struct fyai_ctx *ctx, fy_generic report)
-{
-	struct response_buffer msg = {0};
-	fy_generic problems, problem;
-
-	problems = fy_get(report, "problems", fy_seq_empty);
-	fy_foreach(problem, problems) {
-		if (msg.len && response_buffer_append(&msg, "\nconfig: "))
-			break;
-		if (response_buffer_append(&msg, fy_castp(&problem, "")))
-			break;
-	}
-	fyai_error(ctx, "config: %s", msg.len ? msg.data : "invalid");
-	free(msg.data);
-}
-
 int fyai_init_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -821,8 +799,10 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 
 	enclosing = fyai_enclosing_project(args->dir);
 	if (enclosing) {
-		fyai_error(ctx, "init: new project nested inside the fyai project at %s",
-			   enclosing);
+		/* init goes ahead and makes it; an error here would also demote
+		 * whatever actually goes wrong below. */
+		fyai_warning(ctx, "init: new project nested inside the fyai "
+			     "project at %s", enclosing);
 		free(enclosing);
 	}
 
@@ -880,7 +860,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		report = fyai_config_validate_report(ctx->cfg, config,
 						     args->config);
 		if (fy_not_equal(fy_get(report, "result"), "ok")) {
-			report_config_problems(ctx, report);
+			fyai_config_report_problems(ctx->cfg, report);
 			goto out;
 		}
 		config = fy_get(report, "config", config);
@@ -904,7 +884,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		report = fyai_config_validate_report(ctx->cfg, config,
 						     "embedded config sample");
 		if (fy_not_equal(fy_get(report, "result"), "ok")) {
-			report_config_problems(ctx, report);
+			fyai_config_report_problems(ctx->cfg, report);
 			goto out;
 		}
 		config = fy_get(report, "config", config);

@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_CONFIG
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -210,7 +212,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 	else if (fy_equal(v, "auto"))
 		cfg->auth_mode = FYAI_AUTH_AUTO;
 	else {
-		fprintf(stderr, "config: auth must be auto, api-key, or chatgpt\n");
+		fyai_cfg_error(cfg, "auth must be auto, api-key, or chatgpt");
 		return -1;
 	}
 	cfg->system_prompt = fy_get(root, "system_prompt", cfg->system_prompt);
@@ -263,7 +265,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 	v = fy_get(root, "reasoning");
 	if (!fy_generic_is_invalid(v)) {
 		if (!fy_generic_is_mapping(v)) {
-			fprintf(stderr, "config: reasoning must be a mapping\n");
+			fyai_cfg_error(cfg, "reasoning must be a mapping");
 			return -1;
 		}
 		if (CONFIG_VALIDATE_ENUM(v, "effort",
@@ -289,7 +291,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 	v = fy_get(root, "display");
 	if (!fy_generic_is_invalid(v)) {
 		if (!fy_generic_is_mapping(v)) {
-			fprintf(stderr, "config: display must be a mapping\n");
+			fyai_cfg_error(cfg, "display must be a mapping");
 			return -1;
 		}
 		if (CONFIG_VALIDATE_ENUM(v, "markdown_mode",
@@ -786,7 +788,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	/* An explicitly named config file must exist and parse. */
 	if (cli_config) {
 		if (access(cli_config, R_OK)) {
-			fprintf(stderr, "config: cannot read %s\n", cli_config);
+			fyai_cfg_error(cfg, "cannot read %s", cli_config);
 			return -1;
 		}
 		if (parse_config_file(gb, cli_config, &root_explicit))
@@ -836,8 +838,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 int fyai_config_show(struct fyai_cfg *cfg)
 {
 	if (fy_generic_is_invalid(cfg->config_doc)) {
-		fprintf(stderr,
-			"config: no configuration; run fyai init or fyai config import\n");
+		fyai_cfg_error(cfg, "no configuration; run fyai init or fyai config import");
 		return -1;
 	}
 	emit_generic_to_stdout(NULL, cfg->config_doc, true);
@@ -849,12 +850,12 @@ int fyai_config_get(struct fyai_ctx *ctx, const char *key)
 	fy_generic v;
 
 	if (fy_generic_is_invalid(ctx->arena_config)) {
-		fprintf(stderr, "config: no config in arena; run fyai init or fyai config import\n");
+		fyai_error(ctx, "no config in arena; run fyai init or fyai config import");
 		return -1;
 	}
 	v = fy_get_at_pathstr(ctx->gb, ctx->arena_config, key);
 	if (fy_generic_is_invalid(v)) {
-		fprintf(stderr, "config: key '%s' not set\n", key);
+		fyai_error(ctx, "key '%s' not set", key);
 		return -1;
 	}
 	/* Single-line document: bare scalar, or { a: b } / [ 1, 2 ]. */
@@ -880,19 +881,19 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 	fy_generic root, v;
 
 	if (!gb) {
-		fprintf(stderr, "config: no arena; run fyai init\n");
+		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
 	v = config_parse_value(gb, value);
 	if (fy_generic_is_invalid(v)) {
-		fprintf(stderr, "config: cannot parse value '%s'\n", value);
+		fyai_error(ctx, "cannot parse value '%s'", value);
 		return -1;
 	}
 	root = fy_generic_is_valid(ctx->arena_config) ?
 	       ctx->arena_config : fy_map_empty;
 	root = fy_set_at_pathstr(gb, root, key, v);
 	if (fy_generic_is_invalid(root)) {
-		fprintf(stderr, "config: set failed\n");
+		fyai_error(ctx, "set failed");
 		return -1;
 	}
 	report = fyai_config_validate_report(ctx->cfg, root, "config");
@@ -932,13 +933,11 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 	 */
 	if (!ctx->gb) {
 		if (fyai_cfg_no_storage(cfg))
-			fprintf(stderr,
-				"--set/--get/--delete are not available for '%s'; it runs without arena storage\n",
+			fyai_error(ctx, "--set/--get/--delete are not available for '%s'; it runs without arena storage",
 				fyai_cfg_verb(cfg) ?
 					fyai_cfg_verb(cfg)->name : "this command");
 		else
-			fprintf(stderr,
-				"--set/--get/--delete need an arena; run fyai init\n");
+			fyai_error(ctx, "--set/--get/--delete need an arena; run fyai init");
 		return -1;
 	}
 	root = fy_generic_is_valid(ctx->arena_config) ?
@@ -952,13 +951,13 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 		case 's':
 			v = config_parse_value(ctx->gb, co->value);
 			if (fy_generic_is_invalid(v)) {
-				fprintf(stderr, "config: cannot parse value '%s'\n",
+				fyai_error(ctx, "cannot parse value '%s'",
 					co->value);
 				return -1;
 			}
 			root = fy_set_at_pathstr(ctx->gb, root, co->key, v);
 			if (fy_generic_is_invalid(root)) {
-				fprintf(stderr, "config: set failed\n");
+				fyai_error(ctx, "set failed");
 				return -1;
 			}
 			dirty = co->persistent || dirty;
@@ -966,7 +965,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 		case 'd':
 			root = fy_delete_at_pathstr(ctx->gb, root, co->key);
 			if (fy_generic_is_invalid(root)) {
-				fprintf(stderr, "config: delete failed\n");
+				fyai_error(ctx, "delete failed");
 				return -1;
 			}
 			dirty = co->persistent || dirty;
@@ -974,7 +973,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 		case 'g':
 			v = fy_get_at_pathstr(ctx->gb, root, co->key);
 			if (fy_generic_is_invalid(v)) {
-				fprintf(stderr, "config: key '%s' not set\n",
+				fyai_error(ctx, "key '%s' not set",
 					co->key);
 				return -1;
 			}
@@ -1433,17 +1432,31 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 			     "changes", changes);
 }
 
+void fyai_config_report_problems(struct fyai_cfg *cfg, fy_generic report)
+{
+	struct response_buffer msg = {0};
+	fy_generic problems, problem;
+
+	problems = fy_get(report, "problems", fy_seq_empty);
+	fy_foreach(problem, problems) {
+		if (msg.len && response_buffer_append(&msg, "\nconfig: "))
+			break;
+		if (response_buffer_append(&msg, fy_castp(&problem, "")))
+			break;
+	}
+	fyai_cfg_error(cfg, "%s", msg.len ? msg.data : "invalid");
+	free(msg.data);
+}
+
 int fyai_config_validate_document(struct fyai_cfg *cfg, fy_generic doc,
 				       const char *origin)
 {
-	fy_generic report, problems, problem;
+	fy_generic report;
 
 	report = fyai_config_validate_report(cfg, doc, origin);
 	if (fy_equal(fy_get(report, "result"), "ok"))
 		return 0;
-	problems = fy_get(report, "problems", fy_seq_empty);
-	fy_foreach(problem, problems)
-		fprintf(stderr, "config: %s\n", fy_castp(&problem, ""));
+	fyai_config_report_problems(cfg, report);
 	return -1;
 }
 
@@ -1473,7 +1486,7 @@ int fyai_config_validate_schema(struct fyai_cfg *cfg, fy_generic doc,
 	report = fyai_schema_validate(cfg->gb, schema, doc);
 	if (fyai_schema_valid(report))
 		return 0;
-	fprintf(stderr, "%s: schema validation failed\n", origin);
+	fyai_cfg_error(cfg, "%s: schema validation failed", origin);
 	fyai_schema_report_print(report);
 	return -1;
 }
@@ -1500,16 +1513,16 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 	fy_generic root;
 
 	if (!gb) {
-		fprintf(stderr, "config: no arena; run fyai init\n");
+		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
 	if (fy_generic_is_invalid(ctx->arena_config)) {
-		fprintf(stderr, "config: no config in arena\n");
+		fyai_error(ctx, "no config in arena");
 		return -1;
 	}
 	root = fy_delete_at_pathstr(gb, ctx->arena_config, key);
 	if (fy_generic_is_invalid(root)) {
-		fprintf(stderr, "config: delete failed\n");
+		fyai_error(ctx, "delete failed");
 		return -1;
 	}
 	report = fyai_config_validate_report(ctx->cfg, root, "config");
@@ -1528,7 +1541,7 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 	fy_generic doc;
 
 	if (!ctx->gb) {
-		fprintf(stderr, "config: no arena; run fyai init\n");
+		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
 	doc = fy_parse_file(ctx->gb,
@@ -1549,7 +1562,7 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 	const char *text;
 
 	if (fy_generic_is_invalid(ctx->arena_config)) {
-		fprintf(stderr, "config: no config in arena\n");
+		fyai_error(ctx, "no config in arena");
 		return -1;
 	}
 	if (!path) {
@@ -1563,7 +1576,7 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	text = fy_castp(&emitted, "");
 	if (write_text_file(path, text)) {
-		fprintf(stderr, "config: cannot write %s\n", path);
+		fyai_error(ctx, "cannot write %s", path);
 		return -1;
 	}
 	return 0;
@@ -1578,7 +1591,7 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	int fd;
 
 	if (!ctx->gb) {
-		fprintf(stderr, "config: no arena; run fyai init\n");
+		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
 
@@ -1611,7 +1624,7 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	close(fd);
 
 	if (fyai_spawn_editor(tmpl)) {
-		fprintf(stderr, "config: editor failed; edits kept at %s\n",
+		fyai_error(ctx, "editor failed; edits kept at %s",
 			tmpl);
 		return -1;
 	}
@@ -1621,11 +1634,11 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 			    tmpl);
 	report = fyai_config_validate_report(ctx->cfg, doc, "edited config");
 	if (config_report_commit(report, &doc)) {
-		fprintf(stderr, "config: edits kept at %s\n", tmpl);
+		fyai_error(ctx, "edits kept at %s", tmpl);
 		return -1;
 	}
 	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid)) {
-		fprintf(stderr, "config: edits kept at %s\n", tmpl);
+		fyai_error(ctx, "edits kept at %s", tmpl);
 		return -1;
 	}
 	unlink(tmpl);
@@ -1876,8 +1889,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		if (((cfg->reasoning_effort && *cfg->reasoning_effort) ||
 		     (cfg->reasoning_summary && *cfg->reasoning_summary)) &&
 		    fyai_model_supports_temperature(cat_model)) {
-			fprintf(stderr,
-				"model '%s' is not reasoning-capable (catalog)\n",
+			fyai_cfg_error(cfg, "model '%s' is not reasoning-capable (catalog)",
 				cfg->model);
 			return -1;
 		}
@@ -1952,8 +1964,8 @@ int fyai_config_messages_gate(struct fyai_cfg *cfg)
 		return 0;
 	if ((cfg->reasoning_effort && *cfg->reasoning_effort) ||
 	    (cfg->reasoning_summary && *cfg->reasoning_summary)) {
-		fprintf(stderr, "reasoning options are not supported "
-			"with the Messages API yet\n");
+		fyai_cfg_error(cfg, "reasoning options are not supported "
+			"with the Messages API yet");
 		return -1;
 	}
 	/*
@@ -1962,15 +1974,17 @@ int fyai_config_messages_gate(struct fyai_cfg *cfg)
 	 * tool instead of failing the run.
 	 */
 	if (cfg->enable_builtin_shell) {
-		fprintf(stderr, "note: the built-in shell tool is not "
-			"available with the Messages API; using the "
-			"function shell tool\n");
+		/* Not a failure: the run continues on the function shell tool.
+		 * An error here would also demote the next real one. */
+		fyai_cfg_notice(cfg, "the built-in shell tool is not "
+				"available with the Messages API; using the "
+				"function shell tool");
 		cfg->enable_builtin_shell = false;
 		cfg->enable_tools = true;
 	}
 	if (cfg->logprobs || cfg->top_logprobs >= 0) {
-		fprintf(stderr, "logprobs are not supported with the "
-			"Messages API\n");
+		fyai_cfg_error(cfg, "logprobs are not supported with the "
+			"Messages API");
 		return -1;
 	}
 	return 0;
@@ -1982,7 +1996,7 @@ static int config_queue_op(struct fyai_cfg *cfg, char op, const char *key,
 	struct fyai_config_op *co;
 
 	if (cfg->config_op_count >= ARRAY_SIZE(cfg->config_ops)) {
-		fprintf(stderr, "too many config operations, max %zu\n",
+		fyai_cfg_error(cfg, "too many config operations, max %zu",
 			ARRAY_SIZE(cfg->config_ops));
 		return -1;
 	}
@@ -2067,14 +2081,13 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 		case 's':
 			v = config_parse_value(cfg->gb, co->value);
 			if (fy_generic_is_invalid(v)) {
-				fprintf(stderr,
-					"config override %s: cannot parse value '%s'\n",
+				fyai_cfg_error(cfg, "config override %s: cannot parse value '%s'",
 					co->key, co->value);
 				return -1;
 			}
 			doc = fy_set_at_pathstr(cfg->gb, doc, co->key, v);
 			if (fy_generic_is_invalid(doc)) {
-				fprintf(stderr, "config override %s: failed\n",
+				fyai_cfg_error(cfg, "config override %s: failed",
 					co->key);
 				return -1;
 			}
@@ -2082,7 +2095,7 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 		case 'd':
 			doc = fy_delete_at_pathstr(cfg->gb, doc, co->key);
 			if (fy_generic_is_invalid(doc)) {
-				fprintf(stderr, "config override %s: delete failed\n",
+				fyai_cfg_error(cfg, "config override %s: delete failed",
 					co->key);
 				return -1;
 			}
@@ -2215,7 +2228,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case OPT_ANSWER:
 			if (cfg->answer_count >= ARRAY_SIZE(cfg->answers)) {
-				fprintf(stderr, "too many answers, max %zu\n",
+				fyai_cfg_error(cfg, "too many answers, max %zu",
 					ARRAY_SIZE(cfg->answers));
 				goto err_out;
 			}
@@ -2236,8 +2249,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 					free(k);
 				} else {
 					if (optind >= argc) {
-						fprintf(stderr,
-							"--set %s: missing value\n",
+						fyai_cfg_error(cfg, "--set %s: missing value",
 							optarg);
 						goto err_out;
 					}
@@ -2347,13 +2359,13 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		if (stdin_prompt) {
 			prompt = read_all_stdin();
 			if (!prompt) {
-				fprintf(stderr, "failed to read prompt from stdin\n");
+				fyai_cfg_error(cfg, "failed to read prompt from stdin");
 				goto err_out;
 			}
 		} else if (arg_index < argc) {
 			prompt = join_args(argc - arg_index, argv + arg_index);
 			if (!prompt) {
-				fprintf(stderr, "Out of memory\n");
+				fyai_cfg_error(cfg, "Out of memory");
 				goto err_out;;
 			}
 		}
