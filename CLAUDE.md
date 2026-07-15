@@ -126,6 +126,18 @@ accept null to paper over an emitter that drops the quotes.
   is lock-free from any thread (CAS on the list word; a plain store loses ~80%
   of concurrent raises, which `tests/fyai_diag_test.c` proves), but a drain's
   reset invalidates `gb` for everyone, so drain only where raisers are quiescent.
+  Two rules follow from the demotion and are easy to get wrong: **detail
+  belonging to a failure is part of that diagnostic, not another one** — an HTTP
+  body, or a config's list of problems (`fyai_config_report_problems()`), raised
+  separately would be demoted behind the status and lost; and **a non-fatal
+  report must not be an error** — it would latch the state and silence the next
+  real one. Files serving several verbs (`commands.c`, `fyai_storage.c`,
+  `fyai_session.c`) take `FYAIEM_UNKNOWN` and keep naming their verb in the
+  message. Output that is not a report about a failure stays a direct write: the
+  banner, the spinner, the shell echo and `ask_user` prompt, `init`'s arena path,
+  the stats line, per-verb usage, and the leaf helpers holding neither a context
+  nor a configuration (`fyai_peek_arena_config()`, `fyai_secret_action()`,
+  `parse_turn_selector()`, the `--env` parser).
 - `src/utils.c` — HTTP response buffers, shell exec capture, generic emit/parse.
   The shell `fork`/`exec` optionally applies a `fyai_sandbox_spec` in the child
   before exec.
