@@ -1,0 +1,18 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "response.created", "response": { "id": "resp_fail_1", "status": "in_progress" } },
+        { "type": "response.failed", "response": {
+            "id": "resp_fail_1",
+            "object": "response",
+            "model": "mock-model",
+            "status": "failed",
+            "error": { "code": "server_error", "message": "the model stumbled" }
+          }
+        }
+      ],
+      "done": true
+    }
+  ]
+}

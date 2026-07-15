@@ -576,6 +576,47 @@ static void responses_collect_extents(struct stream_response *stream,
 	stream->extents_pos += strlen(delta);
 }
 
+/*
+ * Report a provider failure event. The reason sits in one of a few places
+ * depending on the grammar and the kind of failure:
+ *
+ *	{ type: error, message }                          - a stream error
+ *	{ type: error, error: { message } }               - the Messages form
+ *	{ response: { error: { message } } }              - response.failed
+ *	{ response: { incomplete_details: { reason } } }  - response.incomplete
+ *
+ * None of them is guaranteed, so fall back to naming the event: even that
+ * beats the bare "request failed" the engine reports when the result carries
+ * nothing.
+ */
+static void stream_report_failure(struct stream_response *stream,
+				  fy_generic type, fy_generic event)
+{
+	struct fyai_ctx *ctx = stream->ctx;
+	fy_generic err, msg, resp;
+	const char *what;
+
+	msg = fy_get(event, "message", fy_invalid);
+	if (fy_generic_is_invalid(msg)) {
+		err = fy_get(event, "error", fy_invalid);
+		msg = fy_get(err, "message", fy_invalid);
+	}
+	if (fy_generic_is_invalid(msg)) {
+		resp = fy_get(event, "response", fy_invalid);
+		err = fy_get(resp, "error", fy_invalid);
+		msg = fy_get(err, "message", fy_invalid);
+		if (fy_generic_is_invalid(msg))
+			msg = fy_get(fy_get(resp, "incomplete_details",
+					    fy_invalid), "reason", fy_invalid);
+	}
+
+	what = fy_castp(&type, "error");
+	if (fy_generic_is_valid(msg) && !fy_generic_is_null_type(msg))
+		fyai_error(ctx, "%s: %s", what, fy_castp(&msg, ""));
+	else
+		fyai_error(ctx, "provider sent %s and no reason", what);
+}
+
 static int responses_stream_apply_event(struct stream_response *stream,
 					fy_generic event)
 {
@@ -609,9 +650,16 @@ static int responses_stream_apply_event(struct stream_response *stream,
 		return fy_generic_is_invalid(stream->completed_response) ? -1 : 0;
 	}
 
+	/*
+	 * The provider says why on the event itself: an error object, or
+	 * incomplete_details naming the limit that stopped it (commonly
+	 * max_output_tokens). Report it - dropping it leaves the engine with
+	 * nothing but a bare "request failed".
+	 */
 	if (fy_equal(type, "response.failed") ||
 	    fy_equal(type, "response.incomplete") ||
 	    fy_equal(type, "error")) {
+		stream_report_failure(stream, type, event);
 		stream->failed = true;
 		return -1;
 	}
@@ -734,6 +782,7 @@ static int messages_stream_apply_event(struct stream_response *stream,
 	}
 
 	if (fy_equal(type, "error")) {
+		stream_report_failure(stream, type, event);
 		stream->failed = true;
 		return -1;
 	}
@@ -1113,8 +1162,18 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 		goto out;
 	}
 
-	if (stream.failed || !stream.done)
+	/*
+	 * A failure event already said why (and demotes this); a stream that
+	 * simply stopped never did. Say so rather than leave the engine to
+	 * report a bare "request failed".
+	 */
+	if (stream.failed)
 		goto out;
+	if (!stream.done) {
+		fyai_error(ctx, "the response stream ended before it completed "
+			   "(after %zu bytes)", stream.received_bytes);
+		goto out;
+	}
 
 	switch (cfg->api_mode) {
 	case FYAI_API_RESPONSES:
