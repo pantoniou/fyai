@@ -110,7 +110,14 @@ accept null to paper over an emitter that drops the quotes.
   and drained at the turn/verb/slash boundaries — a mid-turn write would tear
   the spinner or the streamed render. An error prints bare (`config: msg`, as
   the subsystems always did); lower severities are labelled; the captured
-  file/line/func surfaces only under `debug`. A NULL sink prints immediately, so
+  file/line/func surfaces only under `debug`. **Only the first error is the
+  cause**: an error raised while one is already collected is demoted to debug
+  (libfyaml's `on_error` latch, but derived by scanning the sequence, so a drain
+  *is* the reset). That is why a cleanup path may keep its generic "X failed" —
+  it prints only when nothing else explained why, and otherwise it disappears
+  instead of burying the reason. `fyai_diag_reset()` drops the collected
+  diagnostics for a caller that recovered (a tried-then-worked-around failure),
+  so the next one reports as a cause again. `-d` unmasks the whole unwind chain. A NULL sink prints immediately, so
   callers with no `cfg` still report. The sink owns its **own** builder: never
   the durable arena, and not `transient_gb` (destroyed per turn, absent for most
   verbs, nonexistent for the pre-context callers). `fyai_diagf()` expands the
