@@ -95,6 +95,17 @@ void fyai_diag_cleanup(struct fyai_diag *diag);
  */
 void fyai_diag_drain(struct fyai_diag *diag);
 
+/* True once an error has been raised and not yet drained or reset. */
+bool fyai_diag_got_error(struct fyai_diag *diag);
+
+/*
+ * Discard the collected diagnostics without reporting them: the caller
+ * recovered, so its complaints are moot - and dropping the error with them lets
+ * the next failure be reported as the cause again. Use it where a failure is
+ * tried and then worked around, not to silence one.
+ */
+void fyai_diag_reset(struct fyai_diag *diag);
+
 /*
  * Raise one diagnostic. @diag may be NULL, in which case the message goes
  * straight to stderr - which is what keeps the sink-less callers (anything
@@ -105,6 +116,12 @@ void fyai_diag_drain(struct fyai_diag *diag);
  * result never points into another builder's storage. Do not hand a foreign
  * fy_generic to a diagnostic; format it first, or fyai_diag_drain()'s reset
  * would leave a dangling reference behind.
+ *
+ * An error raised while an error is already collected is demoted to debug: the
+ * first one is the cause, and the ones behind it are only each caller noticing
+ * that its callee failed. That is what lets a cleanup path keep its "could not
+ * do X" without burying the reason underneath it. Draining reports the cause
+ * and clears the state, so the next failure is a cause again.
  */
 void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 		enum fyai_error_module module, const char *file, int line,

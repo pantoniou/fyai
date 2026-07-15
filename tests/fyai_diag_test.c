@@ -91,15 +91,80 @@ static void test_order(struct fyai_diag *diag)
 	char *out;
 	int i;
 
+	/* Warnings: errors after the first are demoted, see test_demote(). */
 	for (i = 0; i < 3; i++)
-		fyai_error(&test_ctx, "message %d", i);
+		fyai_warning(&test_ctx, "message %d", i);
 
 	out = drain_to_string(diag);
 	expect_str("raise order",
 		   out,
-		   "config: message 0\n"
-		   "config: message 1\n"
-		   "config: message 2\n");
+		   "config: warning: message 0\n"
+		   "config: warning: message 1\n"
+		   "config: warning: message 2\n");
+	free(out);
+}
+
+/*
+ * Only the first error is the cause; the ones raised behind it as the callers
+ * unwind become debug detail, so a generic "X failed" cannot bury the reason.
+ */
+static void test_demote(struct fyai_diag *diag)
+{
+	char *out;
+
+	fyai_error(&test_ctx, "the real reason");
+	fyai_error(&test_ctx, "status failed");
+	fyai_error(&test_ctx, "fyai execution failed");
+
+	if (fyai_diag_got_error(diag) != true) {
+		fprintf(stderr, "FAIL: got_error() false after an error\n");
+		failures++;
+	}
+
+	out = drain_to_string(diag);
+	expect_str("errors while unwinding are demoted",
+		   out, "config: the real reason\n");
+	free(out);
+
+	/* Draining cleared the state, so the next failure is a cause again. */
+	if (fyai_diag_got_error(diag) != false) {
+		fprintf(stderr, "FAIL: got_error() true after a drain\n");
+		failures++;
+	}
+	fyai_error(&test_ctx, "a new cause");
+	out = drain_to_string(diag);
+	expect_str("a drain rearms the cause", out, "config: a new cause\n");
+	free(out);
+
+	/* Unmasked, the unwind chain is there for whoever is debugging. */
+	diag->mask |= 1u << FYAIET_DEBUG;
+	fyai_error(&test_ctx, "the real reason");
+	fyai_error(&test_ctx, "status failed");
+	out = drain_to_string(diag);
+	expect_str("the unwind chain under debug",
+		   out,
+		   "config: the real reason\n"
+		   "config: debug: status failed\n");
+	free(out);
+	diag->mask &= ~(1u << FYAIET_DEBUG);
+}
+
+/* A recovered caller drops its complaints, so a later failure reports as the
+ * cause rather than being demoted behind a handled one. */
+static void test_reset(struct fyai_diag *diag)
+{
+	char *out;
+
+	fyai_error(&test_ctx, "keyring unavailable");
+	fyai_diag_reset(diag);
+
+	out = drain_to_string(diag);
+	expect_str("reset discards without reporting", out, "");
+	free(out);
+
+	fyai_error(&test_ctx, "the next cause");
+	out = drain_to_string(diag);
+	expect_str("reset rearms the cause", out, "config: the next cause\n");
 	free(out);
 }
 
@@ -157,8 +222,10 @@ static void *raise_worker(void *arg)
 {
 	int i;
 
+	/* Warnings, so every raise is collected: errors would be demoted behind
+	 * the first one and there would be nothing to count. */
 	for (i = 0; i < DIAG_PER_THREAD; i++)
-		fyai_error(&test_ctx, "thread %d message %d", *(int *)arg, i);
+		fyai_warning(&test_ctx, "thread %d message %d", *(int *)arg, i);
 	return NULL;
 }
 
@@ -203,7 +270,7 @@ static void test_reset_reclaims(struct fyai_diag *diag)
 	int i;
 
 	for (i = 0; i < 10000; i++) {
-		fyai_error(&test_ctx, "message %d", i);
+		fyai_warning(&test_ctx, "message %d", i);
 		out = drain_to_string(diag);
 		if (!*out) {
 			fprintf(stderr, "FAIL reset: drain %d empty\n", i);
@@ -244,6 +311,8 @@ int main(void)
 
 	test_format(diag);
 	test_order(diag);
+	test_demote(diag);
+	test_reset(diag);
 	test_mask(diag);
 	test_source(diag);
 	test_drain_clears(diag);

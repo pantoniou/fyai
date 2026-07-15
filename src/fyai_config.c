@@ -2184,6 +2184,14 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case 'd':
 			cfg->debug++;
+			/*
+			 * Unmask the detail behind a failure: the routine
+			 * fallbacks, and the chain of callers unwinding behind
+			 * the error that caused it, each with its origin.
+			 */
+			cfg->diag.mask |= (1u << FYAIET_DEBUG) |
+					  (1u << FYAIET_INFO);
+			cfg->diag.source = true;
 			break;
 		case 'c':
 			if (config_queue_set_literal(cfg, "display/cache_info",

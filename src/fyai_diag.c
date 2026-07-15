@@ -110,6 +110,30 @@ static void diag_emit(FILE *fp, bool source, enum fyai_error_type type,
 		fprintf(fp, "  at %s:%d %s()\n", file, line, func ? func : "");
 }
 
+bool fyai_diag_got_error(struct fyai_diag *diag)
+{
+	fy_generic item, list;
+
+	if (!diag || !diag->gb)
+		return false;
+
+	list.v = fy_atomic_load(&diag->list);
+	fy_foreach(item, list) {
+		if (fy_get(item, "type", 0LL) == (long long)FYAIET_ERROR)
+			return true;
+	}
+	return false;
+}
+
+void fyai_diag_reset(struct fyai_diag *diag)
+{
+	if (!diag || !diag->gb)
+		return;
+
+	fy_atomic_store(&diag->list, fy_seq_empty_value);
+	fy_generic_builder_reset(diag->gb);
+}
+
 void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 		enum fyai_error_module module, const char *file, int line,
 		const char *func, const char *fmt, ...)
@@ -118,6 +142,15 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	va_list ap;
 	char *msg;
 	int rc;
+
+	/*
+	 * The first error is the cause; the errors behind it are the callers
+	 * unwinding, each noticing its callee failed. Demote those to debug so
+	 * a generic "X failed" cannot bury the reason - and so a cleanup path
+	 * does not have to choose between saying nothing and adding noise.
+	 */
+	if (type == FYAIET_ERROR && fyai_diag_got_error(diag))
+		type = FYAIET_DEBUG;
 
 	if (diag && !(diag->mask & (1u << type)))
 		return;

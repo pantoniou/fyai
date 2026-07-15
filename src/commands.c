@@ -10,6 +10,12 @@
  * into sections.
  */
 
+/*
+ * Dispatch speaks for fyai itself rather than one subsystem, and the verb
+ * hooks below name their own verb, so nothing here takes a module prefix.
+ */
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -109,24 +115,21 @@ int fyai_run(struct fyai_cfg *cfg)
 	struct fyai_ctx ctx;
 	int rc;
 
+	/*
+	 * Scoped to cfg, not ctx: a failed setup may not have left one. Each of
+	 * these is the stage noticing its callee failed, so it is demoted to
+	 * debug whenever the callee said why - and stays the reported error when
+	 * nothing else did.
+	 */
 	rc = fyai_setup(&ctx, cfg);
-	if (rc) {
-		fprintf(stderr, "Failed to initialize fyai\n");
-		goto err_out;
-	}
+	fyai_cfg_error_check(cfg, !rc, err_out, "failed to initialize fyai");
 
 	/* Persist/replay any global --set/--delete/--get before the verb runs. */
 	rc = fyai_apply_config_ops(&ctx);
-	if (rc) {
-		fprintf(stderr, "config operation failed\n");
-		goto err_out;
-	}
+	fyai_cfg_error_check(cfg, !rc, err_out, "config operation failed");
 
 	rc = fyai_execute(&ctx);
-	if (rc) {
-		fprintf(stderr, "fyai execution failed\n");
-		goto err_out;
-	}
+	fyai_cfg_error_check(cfg, !rc, err_out, "fyai execution failed");
 
 out:
 	/*
