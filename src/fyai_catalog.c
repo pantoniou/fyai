@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_CATALOG
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -184,23 +186,21 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 	fy_generic doc, models, providers, new_config;
 
 	if (!ctx->durable_gb) {
-		fprintf(stderr, "catalog: no arena; run fyai init\n");
+		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
 	doc = fy_parse_file(ctx->gb,
 			    FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
 			    path);
 	if (!fy_generic_is_mapping(doc)) {
-		fprintf(stderr, "catalog: cannot parse %s\n", path);
+		fyai_error(ctx, "cannot parse %s", path);
 		return -1;
 	}
 	models = fy_get(doc, "models");
 	providers = fy_get(doc, "providers");
 	if (!fy_generic_is_sequence(models) ||
 	    !fy_generic_is_sequence(providers)) {
-		fprintf(stderr,
-			"catalog: %s lacks models:/providers: sections\n",
-			path);
+		fyai_error(ctx, "%s lacks models:/providers: sections", path);
 		return -1;
 	}
 	/*
@@ -226,7 +226,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
 	if (fy_generic_is_invalid(cat)) {
-		fprintf(stderr, "catalog: none available\n");
+		fyai_error(ctx, "none available");
 		return -1;
 	}
 	if (!path) {
@@ -240,7 +240,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	text = fy_castp(&emitted, "");
 	if (write_text_file(path, text)) {
-		fprintf(stderr, "catalog: cannot write %s\n", path);
+		fyai_error(ctx, "cannot write %s", path);
 		return -1;
 	}
 	return 0;
@@ -252,7 +252,7 @@ int fyai_catalog_show(struct fyai_ctx *ctx)
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
 	if (fy_generic_is_invalid(cat)) {
-		fprintf(stderr, "catalog: none available\n");
+		fyai_error(ctx, "none available");
 		return -1;
 	}
 	if (fy_generic_is_invalid(ctx->arena_catalog))
@@ -468,7 +468,7 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
 	if (fy_generic_is_invalid(cat)) {
-		fprintf(stderr, "catalog: none available\n");
+		fyai_error(ctx, "none available");
 		return -1;
 	}
 	if (!agent_name || !*agent_name || !strcmp(agent_name, "fyai")) {
@@ -492,7 +492,7 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 	}
 	agents = fy_get(cat, "agents");
 	if (!fy_generic_is_sequence(agents)) {
-		fprintf(stderr, "catalog: no agents section\n");
+		fyai_error(ctx, "no agents section");
 		return -1;
 	}
 
@@ -515,7 +515,7 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 	fclose(mf);
 
 	if (!found) {
-		fprintf(stderr, "catalog: no such agent '%s'\n", agent_name);
+		fyai_error(ctx, "no such agent '%s'", agent_name);
 		free(md);
 		return -1;
 	}
@@ -537,7 +537,7 @@ int fyai_catalog_list(struct fyai_ctx *ctx, const char *what)
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
 	if (fy_generic_is_invalid(cat)) {
-		fprintf(stderr, "catalog: none available\n");
+		fyai_error(ctx, "none available");
 		return -1;
 	}
 	if (!what || !strcmp(what, "models"))
