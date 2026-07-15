@@ -28,9 +28,11 @@
 
 #include "commands.h"
 #include "fyai.h"
+#include "fyai_auth.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
+#include "fyai_render.h"
 #include "fyai_log.h"
 #include "fyai_markdown.h"
 #include "fyai_session.h"
@@ -497,88 +499,50 @@ static long long session_last_usage(struct fyai_ctx *ctx, const char **srcp)
 	long long total;
 
 	if (ctx->last_call_total) {
-		*srcp = "last call";
+		if (srcp)
+			*srcp = "last call";
 		return ctx->last_call_total;
 	}
 	fyai_turn_foreach(cur, ctx->last_message) {
 		usage = fy_get(fyai_turn_meta(cur), "usage");
 		total = fy_get(usage, "total", 0LL);
 		if (total) {
-			*srcp = "stored";
+			if (srcp)
+				*srcp = "stored";
 			return total;
 		}
 	}
-	*srcp = NULL;
+	if (srcp)
+		*srcp = NULL;
 	return 0;
 }
 
 int fyai_session_context(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	const char *src;
-	char md[512];
+	fy_generic context, data;
 	long long window, used, est;
 
 	window = session_context_window(ctx);
-	used = session_last_usage(ctx, &src);
+	used = session_last_usage(ctx, NULL);
 	est = session_estimate_tokens(ctx);
-
-	if (markdown_available(cfg)) {
-		if (!window)
-			snprintf(md, sizeof(md),
-				 "| Metric | Value |\n"
-				 "|---|---|\n"
-				 "| Model | %s |\n"
-				 "| Provider | %s |\n"
-				 "| API | %s |\n"
-				 "| Context | unknown |\n"
-				 "| Next request | ~%lld tokens |\n",
-				 cfg->model ? cfg->model : "",
-				 cfg->provider ? cfg->provider : "?",
-				 fyai_api_to_string(cfg->api_mode), est);
-		else
-			snprintf(md, sizeof(md),
-				 "| Metric | Value |\n"
-				 "|---|---|\n"
-				 "| Model | %s |\n"
-				 "| Provider | %s |\n"
-				 "| API | %s |\n"
-				 "| Context | %s%lld / %lld (%.1f%%) |\n"
-				 "| Next request | ~%lld tokens |\n",
-				 cfg->model ? cfg->model : "",
-				 cfg->provider ? cfg->provider : "?",
-				 fyai_api_to_string(cfg->api_mode),
-				 used ? "" : "~", used ? used : est, window,
-				 (double)(used ? used : est) * 100.0 /
-				 (double)window, est);
-		if (!fyai_print_markdown(md, cfg))
-			return 0;
-	}
-
-	printf("model: %s (provider %s, api %s)\n",
-	       cfg->model ? cfg->model : "",
-	       cfg->provider ? cfg->provider : "?",
-	       fyai_api_to_string(cfg->api_mode));
-
-	if (!window)
-		printf("context: window unknown\n");
-	else if (used)
-		printf("context: %lld / %lld (%.1f%%) [%s]\n",
-		       used, window,
-		       (double)used * 100.0 / (double)window, src);
+	if (window)
+		context = fy_stringf("%s%lld / %lld (%.1f%%)", used ? "" : "~",
+			used ? used : est, window,
+			(double)(used ? used : est) * 100.0 / (double)window);
 	else
-		printf("context: ~%lld / %lld (%.1f%%) [estimate]\n",
-		       est, window,
-		       (double)est * 100.0 / (double)window);
-
-	printf("next request: ~%lld tokens (estimate)\n", est);
-
-	if (ctx->usage_calls)
-		printf("session: calls=%d input=%lld cached=%lld output=%lld "
-		       "total=%lld\n",
-		       ctx->usage_calls, ctx->usage_input, ctx->usage_cached,
-		       ctx->usage_output, ctx->usage_total);
-	return 0;
+		context = fy_value("unknown");
+	data = fy_mapping(ctx->transient_gb,
+		"model", cfg->model ? cfg->model : "",
+		"provider", cfg->provider ? cfg->provider : "?",
+		"api", fyai_api_to_string(cfg->api_mode),
+		"context", context,
+		"next_request", fy_stringf("~%lld tokens", est));
+	return fyai_generic_to_markdown(ctx,
+		fy_mapping("title", "Context",
+			   "columns", fy_mapping(
+				"api", fy_mapping("name", "API"))),
+		data);
 }
 
 /* One {key} -> value binding for the prompt decorator templates. */
