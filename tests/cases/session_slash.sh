@@ -59,6 +59,7 @@ set +e
 "$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i -m foo \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
 /help
+/usage extra
 /log all start
 /log wire stop
 /log
@@ -93,6 +94,8 @@ set -e
 assert_status 0
 
 assert_stdout_contains "start a fresh conversation"
+assert_stdout_contains "live subscription limits and credits"
+assert_stderr_contains "usage: /usage takes no arguments"
 assert_stdout_contains "logging: wire off, stream on, conversation on"
 assert_stdout_contains "logging: wire on, stream on, conversation on"
 assert_stdout_contains "logging: cleared conversation"

@@ -1020,6 +1020,15 @@ static int slash_status(struct fyai_ctx *ctx, const char *arg)
 	return fyai_session_status(ctx);
 }
 
+static int slash_usage(struct fyai_ctx *ctx, const char *arg)
+{
+	if (*arg) {
+		fyai_error(ctx, "usage: /usage takes no arguments");
+		return -1;
+	}
+	return fyai_auth_usage(ctx, false);
+}
+
 static int slash_tools(struct fyai_ctx *ctx, const char *arg)
 {
 	char input[512], *save, *word;
@@ -1302,6 +1311,7 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },
+	{ "usage", "", "live subscription limits and credits", slash_usage },
 	{ "tools", "[agent] [--brief|--full]", "list catalog agent tools", slash_tools },
 	{ "help", "", "list slash commands", slash_help },
 	{ "exit", "", "leave the session", NULL },

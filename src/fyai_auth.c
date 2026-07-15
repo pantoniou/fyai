@@ -1555,40 +1555,32 @@ int fyai_auth_status(struct fyai_ctx *ctx, bool json, bool info)
 	return out ? 0 : -1;
 }
 
-static void print_limit_window(FILE *fp, const char *name, fy_generic window)
+static const char *limit_reset_local(fy_generic window, char *buf, size_t size)
 {
-	long long used;
-	long long seconds, resets;
-	char when[64] = "unknown";
+	long long resets;
 	time_t t;
 	struct tm tm;
 
-	if (!fy_generic_is_mapping(window))
-		return;
-	used = fy_get(window, "used_percent", 0LL);
-	seconds = fy_get(window, "limit_window_seconds", 0LL);
+	strncpy(buf, "unknown", size);
 	resets = fy_get(window, "reset_at", 0LL);
 	t = (time_t)resets;
-	if (t && gmtime_r(&t, &tm))
-		strftime(when, sizeof(when), "%Y-%m-%dT%H:%M:%SZ", &tm);
-	fprintf(fp, "| %s | %lld%% | ", name, used);
-	if (seconds)
-		fprintf(fp, "%lldh", seconds / 3600);
-	else
-		fprintf(fp, "unknown");
-	fprintf(fp, " | `%s` |\n", when);
+	/* reset_at is an absolute provider epoch. Present it in the user's local
+	 * timezone; %z makes the conversion explicit without assuming a provider
+	 * zone or silently labelling local wall time as UTC. */
+	if (t && localtime_r(&t, &tm))
+		strftime(buf, size, "%Y-%m-%d %H:%M:%S %z", &tm);
+	return buf;
 }
 
-static int auth_usage(struct fyai_ctx *ctx, bool json)
+int fyai_auth_usage(struct fyai_ctx *ctx, bool json)
 {
 	struct auth_http r = {};
 	struct curl_slist *headers = NULL;
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb = NULL;
-	fy_generic doc, rate, credits, reset_credits;
-	char *markdown = NULL;
-	size_t markdown_len = 0;
-	FILE *fp = NULL;
+	fy_generic doc, rate, credits, reset_credits, display, credit_balance;
+	fy_generic primary, secondary;
+	char primary_reset[64], secondary_reset[64];
 	int rc = -1;
 
 	ctx->cfg->chatgpt_auth = true;
@@ -1626,47 +1618,43 @@ static int auth_usage(struct fyai_ctx *ctx, bool json)
 			goto out;
 		printf("%s\n", out_json);
 	} else {
-		fp = open_memstream(&markdown, &markdown_len);
-		if (!fp)
-			goto out;
-		fprintf(fp, "# OpenAI subscription usage\n\n"
-		       "| Field | Value |\n"
-		       "|---|---|\n"
-		       "| Effective method | `%s` |\n"
-		       "| Subscription | `%s` |\n",
-			auth_effective_method(ctx, true),
-			fy_get(doc, "plan_type", ctx->auth.plan ? ctx->auth.plan : "unknown"));
 		rate = fy_get(doc, "rate_limit");
-		fprintf(fp, "| Requests allowed | `%s` |\n"
-		       "| Limit reached | `%s` |\n",
-			fy_get(rate, "allowed", false) ? "yes" : "no",
-			fy_get(rate, "limit_reached", false) ? "yes" : "no");
+		primary = fy_get(rate, "primary_window");
+		secondary = fy_get(rate, "secondary_window");
 		reset_credits = fy_get(doc, "rate_limit_reset_credits");
-		if (fy_generic_is_mapping(reset_credits))
-			fprintf(fp, "| Reset credits | `%lld` |\n",
-				fy_get(reset_credits, "available_count", 0LL));
-		fprintf(fp, "\n## Limits\n\n");
-		fprintf(fp, "| Limit | Used | Window | Resets at |\n"
-		       "|---|---:|---:|---|\n");
-		print_limit_window(fp, "primary", fy_get(rate, "primary_window"));
-		print_limit_window(fp, "secondary", fy_get(rate, "secondary_window"));
 		credits = fy_get(doc, "credits");
+		credit_balance = fy_null;
 		if (fy_generic_is_mapping(credits))
-			fprintf(fp, "\n## Credits\n\n| Field | Value |\n|---|---|\n"
-			       "| Balance | `%s`%s |\n",
-				fy_get(credits, "unlimited", false) ? "unlimited" :
-				fy_get(credits, "balance", "unknown"),
-				fy_get(credits, "has_credits", false) ? " available" : "");
-		fclose(fp);
-		fp = NULL;
-		if (fyai_print_markdown(markdown, ctx->cfg))
+			credit_balance = fy_get(credits, "unlimited", false) ?
+				fy_string("unlimited") :
+				fy_get(credits, "balance", fy_string("unknown"));
+		display = fy_null_filtered_mapping(gb,
+			"effective_method", auth_effective_method(ctx, true),
+			"subscription", fy_get(doc, "plan_type",
+				ctx->auth.plan ? ctx->auth.plan : "unknown"),
+			"requests_allowed", fy_get(rate, "allowed", false),
+			"limit_reached", fy_get(rate, "limit_reached", false),
+			"reset_credits", fy_generic_is_mapping(reset_credits) ?
+				fy_get(reset_credits, "available_count") : fy_null,
+			"primary_used", fy_generic_is_mapping(primary) ?
+				fy_sprintfa("%lld%%", fy_get(primary, "used_percent", 0LL)) : "unknown",
+			"primary_window_hours", fy_generic_is_mapping(primary) ?
+				fy_get(primary, "limit_window_seconds", 0LL) / 3600 : 0LL,
+			"primary_resets", limit_reset_local(primary, primary_reset,
+							 sizeof(primary_reset)),
+			"secondary_used", fy_generic_is_mapping(secondary) ?
+				fy_sprintfa("%lld%%", fy_get(secondary, "used_percent", 0LL)) : "unknown",
+			"secondary_window_hours", fy_generic_is_mapping(secondary) ?
+				fy_get(secondary, "limit_window_seconds", 0LL) / 3600 : 0LL,
+			"secondary_resets", limit_reset_local(secondary, secondary_reset,
+							   sizeof(secondary_reset)),
+			"credit_balance", credit_balance);
+		if (fyai_generic_to_markdown(ctx,
+			fy_mapping("title", "OpenAI subscription usage"), display))
 			goto out;
 	}
 	rc = 0;
 out:
-	if (fp)
-		fclose(fp);
-	free(markdown);
 	free(r.data);
 	curl_slist_free_all(headers);
 	if (gb)
@@ -1758,7 +1746,7 @@ int fyai_auth_execute(struct fyai_ctx *ctx)
 		break;
 
 	case FYAI_AUTH_USAGE:
-		rc = auth_usage(ctx, a->json);
+		rc = fyai_auth_usage(ctx, a->json);
 		if (rc)
 			fyai_error(ctx, "usage failed");
 		break;
