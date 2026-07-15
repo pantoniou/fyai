@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_AUTH
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -297,14 +299,19 @@ static int auth_parse_content(struct fyai_ctx *ctx, struct fyai_credentials *c,
 	c->expires_at = (time_t)fy_get(doc, "expires_at", 0LL);
 	c->storage = fy_gb_intern_string(auth_builder(ctx), storage);
 
+	/*
+	 * Detail behind a failed load: the caller falls back and the use site
+	 * reports the actionable "not logged in", so this only has to explain
+	 * why to whoever is debugging it.
+	 */
 	if (!*c->access_token || !*c->refresh_token || !*c->id_token) {
-		fprintf(stderr, "invalid doc\n");
+		fyai_debug(ctx, "%s credentials incomplete", storage);
 		goto err_out;
 	}
 
 	rc = token_claims(ctx, c);
 	if (rc) {
-		fprintf(stderr, "token_claims failed\n");
+		fyai_debug(ctx, "%s credentials carry no usable claims", storage);
 		goto err_out;
 	}
 	rc = 0;
@@ -324,19 +331,43 @@ static int auth_load_file(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	ssize_t n;
 	size_t size, total;
 
+	/*
+	 * Not being logged in is the ordinary case - the caller falls back to
+	 * an API key - so an absent store is only debug. A store that exists
+	 * but cannot be used is a different matter: it leaves the user looking
+	 * logged in while every request is anonymous, so say so.
+	 */
 	path = auth_path(ctx, "auth.json", false);
-	if (!*path)
+	if (!*path) {
+		fyai_debug(ctx, "no credential store path");
 		goto err_out;
+	}
 
 	fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-	if (fd < 0)
+	if (fd < 0) {
+		if (errno == ENOENT)
+			fyai_debug(ctx, "no stored credentials at %s", path);
+		else
+			fyai_warning(ctx, "ignoring %s: %s", path,
+				     strerror(errno));
 		goto err_out;
+	}
 
-	if (fstat(fd, &st) || !S_ISREG(st.st_mode) || (st.st_mode & 077))
+	if (fstat(fd, &st) || !S_ISREG(st.st_mode)) {
+		fyai_warning(ctx, "ignoring %s: not a regular file", path);
 		goto err_out;
+	}
 
-	if (st.st_size < 0 || st.st_size > 1024 * 1024)
+	if (st.st_mode & 077) {
+		fyai_warning(ctx, "ignoring %s: group or world accessible; "
+			     "run chmod 600 on it", path);
 		goto err_out;
+	}
+
+	if (st.st_size < 0 || st.st_size > 1024 * 1024) {
+		fyai_warning(ctx, "ignoring %s: implausible size", path);
+		goto err_out;
+	}
 	size = (size_t)st.st_size;
 
 	/* read the whole file */
@@ -348,8 +379,10 @@ static int auth_load_file(struct fyai_ctx *ctx, struct fyai_credentials *c)
 		do {
 			n = read(fd, text + total, size - total);
 		} while (n == -1 && (errno == EINTR || errno == EAGAIN));
-		if (n <= 0)
+		if (n <= 0) {
+			fyai_warning(ctx, "ignoring %s: short read", path);
 			goto err_out;
+		}
 	}
 	close(fd);
 	fd = -1;
@@ -852,15 +885,10 @@ static int exchange_code(struct fyai_ctx *ctx,
 		goto err_out;
 
 	rc = auth_http_request(ctx, AUTH_ISSUER "/oauth/token", body, h, &r);
-	if (rc) {
-		fprintf(stderr, "auth_http_request failed\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, !rc, err_out, "token exchange request failed");
 
-	if (!(r.status >= 200 && r.status < 300)) {
-		fprintf(stderr, "auth: token exchange failed (HTTP %ld)\n", r.status);
-		goto err_out;
-	}
+	fyai_error_check(ctx, r.status >= 200 && r.status < 300, err_out,
+			 "token exchange failed (HTTP %ld)", r.status);
 
 	rc = parse_tokens(ctx, c, r.data);
 	if (rc)
@@ -975,7 +1003,7 @@ static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 		if (!code)
 			goto err_out;
 	} else if (!got_state || strcmp(got_state, state)) {
-		fprintf(stderr, "auth: state mismatch in pasted URL\n");
+		fyai_error(ctx, "state mismatch in pasted URL");
 		goto err_out;
 	}
 
@@ -1125,14 +1153,9 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	rc = auth_http_request(ctx,
 		AUTH_ISSUER "/api/accounts/deviceauth/usercode",
 		request_json, json_headers, &r);
-	if (rc) {
-		fprintf(stderr, "failed to create auth_http_request\n");
-		goto err_out;
-	}
-	if (r.status / 100 != 2) {
-		fprintf(stderr, "failed to create request header\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, !rc, err_out, "device code request failed");
+	fyai_error_check(ctx, r.status / 100 == 2, err_out,
+			 "device code request failed (HTTP %ld)", r.status);
 
 	doc = parse_json_string(ctx->transient_gb, r.data);
 
@@ -1144,10 +1167,8 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	interval = atoi(fy_get(doc, "interval", "5"));
 	if (interval < 1)
 		interval = 5;
-	if (!*device_id || !*user_code) {
-		fprintf(stderr, "user_code or device_auth_id missing\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, *device_id && *user_code, err_out,
+			 "device code response is missing the code");
 
 	printf("Open https://auth.openai.com/codex/device and enter code %s\n", user_code);
 	fflush(stdout);
@@ -1165,10 +1186,7 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 		rc = auth_http_request(ctx,
 				      AUTH_ISSUER "/api/accounts/deviceauth/token",
 				      body, json_headers, &r);
-		if (rc) {
-			fprintf(stderr, "failed to create auth_http_request\n");
-			goto err_out;
-		}
+		fyai_error_check(ctx, !rc, err_out, "device token request failed");
 		if (r.status == 403 || r.status == 404) {
 			/* retry */
 			free(r.data);
@@ -1176,18 +1194,15 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 			continue;
 		}
 
-		if (r.status / 100 != 2) {
-			fprintf(stderr, "request returned code %ld\n", r.status);
-			goto err_out;
-		}
+		fyai_error_check(ctx, r.status / 100 == 2, err_out,
+				 "device token request failed (HTTP %ld)",
+				 r.status);
 
 		req_ok = true;
 	}
 
-	if (!req_ok) {
-		fprintf(stderr, "request elapsed\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, req_ok, err_out,
+			 "timed out waiting for the code to be entered");
 
 	doc = parse_json_string(ctx->transient_gb, r.data);
 	free(r.data);
@@ -1196,16 +1211,11 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	code = fy_get(doc, "authorization_code", "");
 	verifier = fy_get(doc, "code_verifier", "");
 
-	if (!*code || !*verifier) {
-		fprintf(stderr, "missing code or verifier\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, *code && *verifier, err_out,
+			 "device token response is missing the code");
 
 	rc = exchange_code(ctx, c, code, AUTH_ISSUER "/deviceauth/callback", verifier);
-	if (rc) {
-		fprintf(stderr, "failed to exchange code\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, !rc, err_out, "could not exchange the device code");
 
 	rc = 0;
 out:
@@ -1249,16 +1259,13 @@ static int refresh_locked(struct fyai_ctx *ctx, struct fyai_credentials *c)
 		goto out;
 
 	if (r.status / 100 != 2) {
-		fprintf(stderr, "auth: refresh failed (HTTP %ld); run `fyai auth login`\n",
-			r.status);
+		fyai_error(ctx, "refresh failed (HTTP %ld); run `fyai auth login`",
+			   r.status);
 		goto out;
 	}
 
 	rc = parse_tokens(ctx, c, r.data);
-	if (rc) {
-		fprintf(stderr, "auth: failed to parse tokens\n");
-		goto out;
-	}
+	fyai_error_check(ctx, !rc, out, "failed to parse tokens");
 
 	rc = 0;
 out:
@@ -1294,7 +1301,7 @@ static void revoke_token(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	curl_slist_free_all(headers);
 
 	if (rc)
-		fprintf(stderr, "auth: revoke request failed\n");
+		fyai_error(ctx, "revoke request failed");
 }
 
 int fyai_auth_refresh(struct fyai_ctx *ctx, bool force)
@@ -1378,23 +1385,23 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 
 	if (!cfg->provider || fy_not_equal(cfg->provider, "openai")) {
 		if (cfg->auth_mode == FYAI_AUTH_CHATGPT)
-			fprintf(stderr, "auth: ChatGPT subscriptions support only the OpenAI provider\n");
+			fyai_error(ctx, "ChatGPT subscriptions support only the OpenAI provider");
 		return cfg->auth_mode == FYAI_AUTH_CHATGPT ? -1 : 0;
 	}
 
 	if (cfg->api_mode != FYAI_API_RESPONSES || cfg->response_chain) {
-		fprintf(stderr, "auth: ChatGPT requires Responses API with response_chain disabled\n");
+		fyai_error(ctx, "ChatGPT requires Responses API with response_chain disabled");
 		return -1;
 	}
 
 	if (cfg->api_url && fy_not_equal(cfg->api_url, OPENAI_RESPONSES_URL)) {
-		fprintf(stderr, "auth: refusing to send ChatGPT credentials to custom api_url\n");
+		fyai_error(ctx, "refusing to send ChatGPT credentials to custom api_url");
 		return -1;
 	}
 
 	if (auth_load(ctx, &ctx->auth)) {
 		if (cfg->auth_mode == FYAI_AUTH_CHATGPT)
-			fprintf(stderr, "auth: not logged in; run `fyai auth login`\n");
+			fyai_error(ctx, "not logged in; run `fyai auth login`");
 		return cfg->auth_mode == FYAI_AUTH_CHATGPT ? -1 : 0;
 	}
 	cfg->chatgpt_auth = true;
@@ -1424,9 +1431,10 @@ fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 
 	if (auth_http_request(ctx, url, NULL, headers, &r) || r.status / 100 != 2) {
 		if (r.status)
-			fprintf(stderr, "auth: model discovery failed (HTTP %ld)\n", r.status);
+			fyai_error(ctx, "model discovery failed (HTTP %ld)",
+				   r.status);
 		else
-			fprintf(stderr, "auth: model discovery failed\n");
+			fyai_error(ctx, "model discovery failed");
 		free(r.data);
 		goto err;
 	}
@@ -1584,12 +1592,12 @@ static int auth_usage(struct fyai_ctx *ctx, bool json)
 
 	ctx->cfg->chatgpt_auth = true;
 	if (auth_load(ctx, &ctx->auth)) {
-		fprintf(stderr, "auth: openai: not logged in; run `fyai auth openai login`\n");
+		fyai_error(ctx, "openai: not logged in; run `fyai auth openai login`");
 		return -1;
 	}
 	if (ctx->auth.expires_at <= time(NULL) + AUTH_REFRESH_WINDOW &&
 	    fyai_auth_refresh(ctx, false)) {
-		fprintf(stderr, "auth: openai: token refresh failed\n");
+		fyai_error(ctx, "openai: token refresh failed");
 		return -1;
 	}
 	if (fyai_auth_apply_headers(ctx, &headers))
@@ -1597,10 +1605,10 @@ static int auth_usage(struct fyai_ctx *ctx, bool json)
 	if (auth_http_request(ctx, CHATGPT_BACKEND_URL "/wham/usage", NULL, headers, &r) ||
 	    r.status / 100 != 2) {
 		if (r.status)
-			fprintf(stderr, "auth: openai: usage request failed (HTTP %ld)\n",
-				r.status);
+			fyai_error(ctx, "openai: usage request failed (HTTP %ld)",
+				   r.status);
 		else
-			fprintf(stderr, "auth: openai: usage request failed\n");
+			fyai_error(ctx, "openai: usage request failed");
 		goto out;
 	}
 	gb = fy_generic_builder_create(&cfg);
@@ -1608,7 +1616,7 @@ static int auth_usage(struct fyai_ctx *ctx, bool json)
 		goto out;
 	doc = parse_json_string(gb, r.data);
 	if (!fy_generic_is_mapping(doc)) {
-		fprintf(stderr, "auth: openai: malformed usage response\n");
+		fyai_error(ctx, "openai: malformed usage response");
 		goto out;
 	}
 	if (json) {
@@ -1674,7 +1682,7 @@ static int auth_logout(struct fyai_ctx *ctx)
 
 	lockfd = auth_lock(ctx);
 	if (lockfd < 0) {
-		fprintf(stderr, "auth: cannot lock credential store\n");
+		fyai_error(ctx, "cannot lock credential store");
 		return -1;
 	}
 	if (!auth_load(ctx, &c))
@@ -1701,31 +1709,20 @@ static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 
 	if (device_code) {
 		rc = device_login(ctx, &c);
-		if (rc) {
-			fprintf(stderr, "auth: device login failed\n");
-			goto err_out;
-		}
+		fyai_error_check(ctx, !rc, err_out, "device login failed");
 	} else {
 		rc = browser_login(ctx, &c, no_browser, manual);
-		if (rc) {
-			fprintf(stderr, "auth: %s login failed\n",
-					manual ? "manual" :
-					no_browser ? "no-browser" : "browser");
-			goto err_out;
-		}
+		fyai_error_check(ctx, !rc, err_out, "%s login failed",
+				 manual ? "manual" :
+				 no_browser ? "no-browser" : "browser");
 	}
 
 	lockfd = auth_lock(ctx);
-	if (lockfd < 0) {
-		fprintf(stderr, "auth: cannot lock credential store\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, lockfd >= 0, err_out,
+			 "cannot lock credential store");
 
 	rc = auth_save(ctx, &c);
-	if (rc) {
-		fprintf(stderr, "auth: cannot save\n");
-		goto err_out;
-	}
+	fyai_error_check(ctx, !rc, err_out, "cannot save");
 
 	printf("auth: logged in as %s (%s)\n",
 		c.email && *c.email ? c.email : "unknown",
@@ -1747,7 +1744,7 @@ int fyai_auth_execute(struct fyai_ctx *ctx)
 	int rc = -1;
 
 	if (fy_not_equal(a->provider, "openai")) {
-		fprintf(stderr, "auth: provider '%s' is not supported yet\n", a->provider);
+		fyai_error(ctx, "provider '%s' is not supported yet", a->provider);
 		return -1;
 	}
 
@@ -1756,25 +1753,25 @@ int fyai_auth_execute(struct fyai_ctx *ctx)
 	case FYAI_AUTH_INFO:
 		rc = fyai_auth_status(ctx, a->json, a->command == FYAI_AUTH_INFO);
 		if (rc)
-			fprintf(stderr, "auth: status failed\n");
+			fyai_error(ctx, "status failed");
 		break;
 
 	case FYAI_AUTH_USAGE:
 		rc = auth_usage(ctx, a->json);
 		if (rc)
-			fprintf(stderr, "auth: usage failed\n");
+			fyai_error(ctx, "usage failed");
 		break;
 
 	case FYAI_AUTH_LOGOUT:
 		rc = auth_logout(ctx);
 		if (rc)
-			fprintf(stderr, "auth: logout failed\n");
+			fyai_error(ctx, "logout failed");
 		break;
 
 	case FYAI_AUTH_LOGIN:
 		rc = auth_login(ctx, a->device_code, a->no_browser, a->manual);
 		if (rc)
-			fprintf(stderr, "auth: login failed\n");
+			fyai_error(ctx, "login failed");
 		break;
 
 	default:
