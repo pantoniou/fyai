@@ -28,6 +28,8 @@ bool markdown_available(struct fyai_cfg *cfg);
  * library default). Used to validate display/markdown_theme.
  */
 bool markdown_theme_valid(const char *name);
+/* The valid theme names, comma separated, into @buf; returns @buf. */
+const char *markdown_theme_names(char *buf, size_t bufsz);
 
 /*
  * Highlighter language name for a file path (from its extension), using the same

@@ -229,9 +229,12 @@ markdown_mode, color, theme, markdown_theme, code_theme, stream, pretty,
 cache_info, stats, tool_preview_lines); the `model` and other options are
 top-level. Theming is fully delegated to libfymd4c: `display/markdown_theme`
 names one of its embedded themes (`default`, `catppuccin`, `kanagawa`,
-`solarized`, `tokyonight`, each with a `-borderless` variant; unset => the
-library default), validated via `markdown_theme_valid()`; fyai ships no styling
-YAML of its own. `code_theme` overrides the fenced-code (libfyts) highlighter.
+`solarized`, `tokyonight`, every one *except* `default` also having a
+`-borderless` variant that drops the border glyphs; unset => the library
+default), validated via `markdown_theme_valid()` and enumerated for the error
+message by `markdown_theme_names()` — both query libfymd4c, so neither can
+drift from the embedded set; fyai ships no styling YAML of its own.
+`code_theme` overrides the fenced-code (libfyts) highlighter.
 The user-turn "bubble" reverse card is read back from the active theme through
 `fymd_renderer_get_reverse_pair()`. `theme` means background dark/light only.
 

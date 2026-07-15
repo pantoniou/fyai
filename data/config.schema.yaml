@@ -257,8 +257,9 @@ properties:
         type: string
         description: >-
           libfymd4c embedded theme name (default, catppuccin, kanagawa,
-          solarized, tokyonight, each also with a -borderless variant). Unset
-          uses the library default theme.
+          solarized, tokyonight; every one except default also has a
+          -borderless variant, e.g. tokyonight-borderless, which drops the
+          table/quote border glyphs). Unset uses the library default theme.
       code_theme:
         type: string
         description: >-

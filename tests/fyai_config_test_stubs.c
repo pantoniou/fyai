@@ -73,6 +73,12 @@ bool markdown_theme_valid(const char *name)
 	return true;
 }
 
+const char *markdown_theme_names(char *buf, size_t bufsz)
+{
+	snprintf(buf, bufsz, "%s", "default");
+	return buf;
+}
+
 int fyai_print_markdown(const char *text, struct fyai_cfg *cfg)
 {
 	(void)text;

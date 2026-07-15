@@ -116,6 +116,32 @@ bool markdown_theme_valid(const char *name)
 	return false;
 }
 
+/*
+ * The embedded theme names, comma separated, into @buf. Queried from
+ * libfymd4c so the list cannot drift from what markdown_theme_valid()
+ * accepts - note only some themes carry a `-borderless` variant.
+ */
+const char *markdown_theme_names(char *buf, size_t bufsz)
+{
+	size_t i, n, off;
+	int rc;
+
+	off = 0;
+	n = fymd_theme_count();
+	for (i = 0; i < n; i++) {
+		rc = snprintf(buf + off, off < bufsz ? bufsz - off : 0,
+			      "%s%s", off ? ", " : "", fymd_theme_name(i));
+		if (rc <= 0)
+			break;
+		off += (size_t)rc;
+		if (off >= bufsz)
+			break;
+	}
+	if (bufsz)
+		buf[bufsz - 1] = '\0';
+	return buf;
+}
+
 bool markdown_reverse_pair(struct fyai_cfg *cfg, const char **on,
 			   const char **off)
 {

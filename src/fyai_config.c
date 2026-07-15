@@ -1343,6 +1343,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				"display must be a mapping");
 	if (fy_generic_is_mapping(v)) {
 		fy_generic mode, color, theme, mdtheme, tborder;
+		char theme_names[256];
 
 		mode = fy_get(v, "markdown_mode");
 		if (!fy_generic_is_invalid(mode) &&
@@ -1370,8 +1371,10 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 		    !markdown_theme_valid(fy_cast(fy_convert(mdtheme,
 							     FYGT_STRING), "")))
 			problems = config_problem_add(cfg->gb, problems,
-				"invalid display.markdown_theme '%s' (see 'fyai config' / libfymd4c themes)",
-				fy_cast(fy_convert(mdtheme, FYGT_STRING), ""));
+				"invalid display.markdown_theme '%s' (%s)",
+				fy_cast(fy_convert(mdtheme, FYGT_STRING), ""),
+				markdown_theme_names(theme_names,
+						     sizeof(theme_names)));
 		tborder = fy_get(v, "table_border");
 		if (!fy_generic_is_invalid(tborder) &&
 		    !config_contains(fy_sequence("theme", "grid", "none"),
