@@ -129,6 +129,11 @@ int fyai_run(struct fyai_cfg *cfg)
 	}
 
 out:
+	/*
+	 * The backstop: err_out falls through here, so one drain covers every
+	 * path out of a verb and nothing collected can be dropped unreported.
+	 */
+	fyai_diag_drain(&cfg->diag);
 	fyai_cleanup(&ctx);
 	return rc ? -1 : 0;
 

@@ -1479,10 +1479,16 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 		rc = cmd->run(ctx, arg);
 	else
 		rc = session_opt_run(ctx, opt, arg);
-	(void)rc;	/* errors were reported; the REPL continues */
+	(void)rc;	/* the REPL continues regardless; see the drain below */
 
 	if (own_transient)
 		fyai_cleanup_transient_builder(ctx);
+
+	/*
+	 * A backend collects rather than prints, so report here - before the
+	 * banner repaints the footer - or the command would fail silently.
+	 */
+	fyai_diag_drain(&ctx->cfg->diag);
 
 	/* Settings/model/context may have changed; reflect it in the footer. */
 	fyai_session_banner_update(ctx);

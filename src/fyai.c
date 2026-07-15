@@ -6,6 +6,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+/* The engine speaks for fyai itself, so its diagnostics stay unprefixed. */
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -1213,6 +1216,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		if (fy_generic_is_invalid(v)) {
 			/* nothing completed: keep the prior state, stay in the
 			 * loop so the user can retry or exit */
+			fyai_diag_drain(&cfg->diag);
 			fyai_cleanup_transient_builder(ctx);
 			continue;
 		}
@@ -1222,6 +1226,12 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 			goto err_out;
 
 		fyai_cleanup_transient_builder(ctx);
+
+		/*
+		 * The turn is over and the render is done: report now, before
+		 * the banner repaints the footer under it.
+		 */
+		fyai_diag_drain(&cfg->diag);
 
 		/* Usage moved; refresh the context fill in the footer. */
 		fyai_session_banner_update(ctx);
@@ -1281,7 +1291,7 @@ int fyai_execute(struct fyai_ctx *ctx)
 
 	v = fyai_cfg_verb(cfg);
 	if (!v) {
-		fprintf(stderr, "%s:%d @%s\n", __FILE__, __LINE__, __func__);
+		fyai_error(ctx, "no verb selected");
 		return EXIT_FAILURE;
 	}
 
@@ -1297,12 +1307,8 @@ int fyai_execute(struct fyai_ctx *ctx)
 	if (cleanup_transient)
 		fyai_cleanup_transient_builder(ctx);
 
-	if (rc) {
-		fprintf(stderr, "%s:%d @%s\n", __FILE__, __LINE__, __func__);
-		return EXIT_FAILURE;
-	}
-
-	return EXIT_SUCCESS;
+	/* The verb reported why; printing where it was noticed only buried it. */
+	return rc ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
 const char *fyai_api_to_string(enum fyai_api_mode api)

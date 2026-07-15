@@ -49,6 +49,12 @@ int main(int argc, char **argv)
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
 	rc = fyai_config_setup(&cfg, argc, argv);
+	/*
+	 * Report what the option parsing raised before the verb runs - it has
+	 * no context, so this is the only boundary its diagnostics reach. A
+	 * failed setup released cfg itself, leaving a zeroed sink this skips.
+	 */
+	fyai_diag_drain(&cfg.diag);
 	if (rc)
 		return rc > 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 
