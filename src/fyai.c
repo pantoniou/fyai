@@ -1088,11 +1088,14 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	if (rc)
 		goto err_out;
 
+	rc = 0;
+out:
 	fyai_cleanup_transient_builder(ctx);
-	return 0;
+	return rc;
 
 err_out:
-	return -1;
+	rc = -1;
+	goto out;
 }
 
 int fyai_prompt_interactive(struct fyai_ctx *ctx)
