@@ -735,12 +735,6 @@ int fyai_setup_transient_builder(struct fyai_ctx *ctx)
 	return 0;
 }
 
-int fyai_reset_transient_builder(struct fyai_ctx *ctx)
-{
-	(void)ctx;
-	return 0;
-}
-
 fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 {
 	struct fyai_cfg *cfg = ctx->cfg;

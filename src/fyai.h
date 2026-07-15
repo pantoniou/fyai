@@ -320,7 +320,6 @@ const char *fyai_api_to_string(enum fyai_api_mode api);
 
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx);
 int fyai_setup_transient_builder(struct fyai_ctx *ctx);
-int fyai_reset_transient_builder(struct fyai_ctx *ctx);
 
 /*
  * Run one complete tool-use loop on @turn; returns the final turn (or
