@@ -517,6 +517,64 @@ static long long session_last_usage(struct fyai_ctx *ctx, const char **srcp)
 	return 0;
 }
 
+static fy_generic session_status_data(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic context, reasoning;
+	const char *src;
+	long long window, used, est, shown;
+
+	window = session_context_window(ctx);
+	used = session_last_usage(ctx, &src);
+	est = session_estimate_tokens(ctx);
+	shown = used ? used : est;
+	if (cfg->reasoning_effort && *cfg->reasoning_effort)
+		reasoning = fy_stringf("%s%s%s", cfg->reasoning_effort,
+			cfg->reasoning_summary && *cfg->reasoning_summary ?
+			" / " : "", cfg->reasoning_summary ?
+			cfg->reasoning_summary : "");
+	else
+		reasoning = fy_value("off");
+	if (window)
+		context = fy_stringf("%s%lld / %lld (%.1f%%)",
+			used ? "" : "~", shown, window,
+			(double)shown * 100.0 / (double)window);
+	else
+		context = fy_stringf("%s%lld / unknown", used ? "" : "~", shown);
+	return fy_mapping(ctx->transient_gb,
+		"Model", cfg->model ? cfg->model : "",
+		"Provider", cfg->provider ? cfg->provider : "?",
+		"API", fyai_api_to_string(cfg->api_mode),
+		"Endpoint", cfg->api_url ? cfg->api_url : "(derived)",
+		"Reasoning", reasoning,
+		"Temperature", cfg->temperature,
+		"Context", context,
+		"Next request", fy_stringf("~%lld tokens", est));
+}
+
+static fy_generic mapping_prefixed(struct fyai_ctx *ctx, fy_generic out,
+				   const char *prefix, fy_generic add)
+{
+	fy_generic key, value;
+	char *name;
+	size_t i, n;
+
+	if (!fy_generic_is_mapping(add))
+		return out;
+	n = fy_generic_mapping_get_pair_count(add);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(add, i);
+		value = fy_generic_mapping_get_at_value(add, i);
+		if (fy_generic_is_mapping(value) || fy_generic_is_sequence(value))
+			continue;
+		if (asprintf(&name, "%s%s", prefix, fy_castp(&key, "")) < 0)
+			return out;
+		out = fy_assoc(ctx->transient_gb, out, name, value);
+		free(name);
+	}
+	return out;
+}
+
 int fyai_session_context(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -543,6 +601,25 @@ int fyai_session_context(struct fyai_ctx *ctx)
 			   "columns", fy_mapping(
 				"api", fy_mapping("name", "API"))),
 		data);
+}
+
+/*
+ * /status: a one-shot overview of the session's model/provider selection,
+ * request shaping, context fill, then the auth status and token usage
+ * sections (reusing their own renderers).
+ */
+int fyai_session_status(struct fyai_ctx *ctx)
+{
+	fy_generic status, auth, stats;
+
+	status = session_status_data(ctx);
+	auth = fyai_auth_status_data(ctx, ctx->transient_gb, false);
+	stats = fyai_stats_data(ctx, ctx->transient_gb);
+	status = mapping_prefixed(ctx, status, "Auth / ", auth);
+	status = mapping_prefixed(ctx, status, "Usage / ", stats);
+	(void)fyai_generic_to_markdown(ctx, fy_mapping("title", "Session"),
+				       status);
+	return 0;
 }
 
 /* One {key} -> value binding for the prompt decorator templates. */
@@ -926,6 +1003,12 @@ static int slash_stats(struct fyai_ctx *ctx, const char *arg)
 	return fyai_show_stats(ctx);
 }
 
+static int slash_status(struct fyai_ctx *ctx, const char *arg)
+{
+	(void)arg;
+	return fyai_session_status(ctx);
+}
+
 static int slash_tools(struct fyai_ctx *ctx, const char *arg)
 {
 	char input[512], *save, *word;
@@ -1204,6 +1287,7 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "logging", "[target action]", "alias for /log", slash_log },
 	{ "secret", "[status [name]|set name|delete name]", "manage secrets (API keys: api-key/<provider>)", slash_secret },
 	{ "context", "", "context fill and token estimate", slash_context },
+	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },
 	{ "tools", "[agent] [--brief|--full]", "list catalog agent tools", slash_tools },
 	{ "help", "", "list slash commands", slash_help },

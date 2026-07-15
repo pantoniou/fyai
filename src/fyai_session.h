@@ -40,6 +40,9 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg);
 /* Report context fill: window, last-call tokens, next-request estimate. */
 int fyai_session_context(struct fyai_ctx *ctx);
 
+/* Overview: model/provider selection, request shaping, auth, token usage. */
+int fyai_session_status(struct fyai_ctx *ctx);
+
 /*
  * Dispatch one REPL line starting with '/'. Returns 1 when the session
  * should end (/exit, /quit), 0 otherwise (handled, even on error - the
