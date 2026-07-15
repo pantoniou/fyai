@@ -358,6 +358,7 @@ add_executable(fyai
     src/fyai_patch.c
     src/fyai_prof.c
     src/fyai_provider.c
+    src/fyai_render.c
     src/fyai_sandbox.c
     src/fyai_session.c
     src/fyai_signal.c

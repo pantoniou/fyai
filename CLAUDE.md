@@ -88,6 +88,17 @@ accept null to paper over an emitter that drops the quotes.
   still tests invalid everywhere, so no assert-valid churn. Ctrl-Z suspend at
   the prompt and the SIGWINCH reflow live in the vendored linenoise
   (`third_party/linenoise`, fyai-local extensions).
+- `src/fyai_render.c` — the one generic-to-Markdown table renderer
+  (`fyai_generic_to_markdown()`). Every Markdown table goes through it: a
+  mapping renders as a two-column key/value table, a sequence of mappings as
+  one column per key. Callers pass a `renderopts` generic (title, preamble,
+  `keys` column selection, per-key `columns` overrides of name/align/format)
+  rather than a hand-written table; without an override a column's name is the
+  humanized key and its alignment is right for numbers/booleans, left
+  otherwise. Cells are escaped and truncated, so no value can break a table.
+  Build renderopts in the **transient** builder (or frame-locally, in the same
+  frame as the call) — never the durable arena; a builder-less `fy_mapping()`
+  is `alloca` storage and must not be returned from a helper.
 - `src/utils.c` — HTTP response buffers, shell exec capture, generic emit/parse.
   The shell `fork`/`exec` optionally applies a `fyai_sandbox_spec` in the child
   before exec.
