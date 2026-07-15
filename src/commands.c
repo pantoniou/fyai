@@ -238,7 +238,7 @@ static int configure_dump(int argc, char **argv, struct fyai_cfg *cfg)
 				args->decorate = true;
 				continue;
 			}
-			fprintf(stderr, "dump: unknown option '%s'\n", a);
+			fyai_cfg_error(cfg, "dump: unknown option '%s'", a);
 			return -1;
 		}
 
@@ -252,8 +252,8 @@ static int configure_dump(int argc, char **argv, struct fyai_cfg *cfg)
 
 	idx = str_in_set(target, targets);
 	if (idx < 0) {
-		fprintf(stderr, "dump: unknown target '%s' "
-			"(state|anchors|providers)\n", target);
+		fyai_cfg_error(cfg, "dump: unknown target '%s' "
+			"(state|anchors|providers)", target);
 		return -1;
 	}
 	switch (idx) {
@@ -296,7 +296,7 @@ static int configure_history(int argc, char **argv, struct fyai_cfg *cfg)
 		if (!strcmp(a, "--raw")) {
 			args->raw = true;
 		} else {
-			fprintf(stderr, "%s: unknown option '%s'\n", cmd, a);
+			fyai_cfg_error(cfg, "%s: unknown option '%s'", cmd, a);
 			return -1;
 		}
 	}
@@ -317,7 +317,7 @@ static int configure_stats(int argc, char **argv, struct fyai_cfg *cfg)
 		else if (!strcmp(argv[i], "--raw"))
 			args->format = FYAIOF_RAW;
 		else {
-			fprintf(stderr, "stats: unknown option '%s'\n", argv[i]);
+			fyai_cfg_error(cfg, "stats: unknown option '%s'", argv[i]);
 			return -1;
 		}
 	}
@@ -338,14 +338,13 @@ static int configure_gc(int argc, char **argv, struct fyai_cfg *cfg)
 			errno = 0;
 			v = strtol(argv[++i], &endp, 10);
 			if (errno || *endp || v < 1) {
-				fprintf(stderr,
-					"gc: --keep-reflogs needs a count >= 1\n");
+				fyai_cfg_error(cfg, "gc: --keep-reflogs needs a count >= 1");
 				return -1;
 			}
 			args->keep_reflogs = (int)v;
 			continue;
 		}
-		fprintf(stderr, "gc: unknown option '%s'\n", argv[i]);
+		fyai_cfg_error(cfg, "gc: unknown option '%s'", argv[i]);
 		return -1;
 	}
 	return 0;
@@ -359,7 +358,7 @@ static int configure_tool(int argc, char **argv, struct fyai_cfg *cfg)
 	args->name = NULL;
 	args->args_json = NULL;
 	if (argc < 2) {
-		fprintf(stderr, "tool: usage: fyai tool <name> [json-args]\n");
+		fyai_cfg_error(cfg, "tool: usage: fyai tool <name> [json-args]");
 		return -1;
 	}
 	args->name = fy_gb_intern_string(cfg->gb, argv[1]);
@@ -397,14 +396,14 @@ static int configure_init(int argc, char **argv, struct fyai_cfg *cfg)
 			src_cfg = argv[i];
 			cfg_explicit = true;
 		} else {
-			fprintf(stderr, "init: unknown option '%s'\n", argv[i]);
+			fyai_cfg_error(cfg, "init: unknown option '%s'", argv[i]);
 			goto err_out;
 		}
 	}
 	if (!dir) {
 		cwd = getcwd(NULL, 0);
 		if (!cwd) {
-			fprintf(stderr, "init: unable to get current directory\n");
+			fyai_cfg_error(cfg, "init: unable to get current directory");
 			goto err_out;
 		}
 		dir = cwd;
@@ -413,7 +412,7 @@ static int configure_init(int argc, char **argv, struct fyai_cfg *cfg)
 	real = realpath(dir, NULL);
 
 	if (!real) {
-		fprintf(stderr, "init: realpath of directory %s not found\n", dir);
+		fyai_cfg_error(cfg, "init: realpath of directory %s not found", dir);
 		goto err_out;
 	}
 
@@ -425,7 +424,7 @@ static int configure_init(int argc, char **argv, struct fyai_cfg *cfg)
 	real = NULL;
 
 	if (!is_writable_directory(args->dir)) {
-		fprintf(stderr, "init: bad directory %s\n", args->dir);
+		fyai_cfg_error(cfg, "init: bad directory %s", args->dir);
 		goto err_out;
 	}
 
@@ -437,7 +436,7 @@ static int configure_init(int argc, char **argv, struct fyai_cfg *cfg)
 
 	real = realpath(src_cfg, NULL);
 	if (!real) {
-		fprintf(stderr, "init: realpath of config %s not found\n", src_cfg);
+		fyai_cfg_error(cfg, "init: realpath of config %s not found", src_cfg);
 		goto err_out;
 	}
 	free(real);
@@ -446,7 +445,7 @@ static int configure_init(int argc, char **argv, struct fyai_cfg *cfg)
 	args->config = fy_gb_intern_string(cfg->gb, src_cfg);
 
 	if (!is_readable_file(args->config)) {
-		fprintf(stderr, "init: bad config %s\n", args->config);
+		fyai_cfg_error(cfg, "init: bad config %s", args->config);
 		goto err_out;
 	}
 
@@ -502,11 +501,11 @@ static int configure_list(int argc, char **argv, struct fyai_cfg *cfg)
 			continue;
 		}
 		if (argv[i][0] == '-') {
-			fprintf(stderr, "list: unknown option '%s'\n", argv[i]);
+			fyai_cfg_error(cfg, "list: unknown option '%s'", argv[i]);
 			return -1;
 		}
 		if (have_target) {
-			fprintf(stderr, "list: too many targets\n");
+			fyai_cfg_error(cfg, "list: too many targets");
 			return -1;
 		}
 		what = argv[i];
@@ -515,7 +514,8 @@ static int configure_list(int argc, char **argv, struct fyai_cfg *cfg)
 
 	idx = str_in_set(what, types);
 	if (idx < 0) {	/* not any of ours */
-		fprintf(stderr, "list: unknown target '%s' (providers|models|turns|exchanges|reflog)\n", what);
+		fyai_cfg_error(cfg, "list: unknown target '%s' "
+			       "(providers|models|turns|exchanges|reflog)", what);
 		return -1;
 	}
 	args->type = (enum fyai_list_type)idx;
@@ -1046,8 +1046,7 @@ static int config_describe(struct fyai_ctx *ctx, const char *path)
 			seg[seglen] = '\0';
 			node = schema_child(node, seg);
 			if (fy_generic_is_invalid(node)) {
-				fprintf(stderr,
-					"config: describe: unknown property '%s'\n",
+				fyai_error(ctx, "config: describe: unknown property '%s'",
 					path);
 				return -1;
 			}
@@ -1126,9 +1125,8 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 
 	idx = str_in_set(what, types);
 	if (idx < 0) {	/* not any of ours */
-		fprintf(stderr,
-			"config: unknown type '%s' "
-			"(show|effective|get|set|delete|edit|import|export|validate|schema|describe)\n",
+		fyai_cfg_error(cfg, "config: unknown type '%s' "
+			"(show|effective|get|set|delete|edit|import|export|validate|schema|describe)",
 			what);
 		return -1;
 	}
@@ -1143,29 +1141,29 @@ static int configure_config(int argc, char **argv, struct fyai_cfg *cfg)
 		break;
 	case FYAICT_GET:
 		if (!args->key) {
-			fprintf(stderr, "config: get: missing key\n");
+			fyai_cfg_error(cfg, "config: get: missing key");
 			return -1;
 		}
 		break;
 	case FYAICT_SET:
 		if (!args->key) {
-			fprintf(stderr, "config: set: missing key\n");
+			fyai_cfg_error(cfg, "config: set: missing key");
 			return -1;
 		}
 		if (!args->value) {
-			fprintf(stderr, "config: set: missing value\n");
+			fyai_cfg_error(cfg, "config: set: missing value");
 			return -1;
 		}
 		break;
 	case FYAICT_DELETE:
 		if (!args->key) {
-			fprintf(stderr, "config: delete: missing key\n");
+			fyai_cfg_error(cfg, "config: delete: missing key");
 			return -1;
 		}
 		break;
 	case FYAICT_IMPORT:
 		if (!args->key) {
-			fprintf(stderr, "config: import: missing file\n");
+			fyai_cfg_error(cfg, "config: import: missing file");
 			return -1;
 		}
 		break;
@@ -1269,8 +1267,8 @@ static int configure_catalog(int argc, char **argv, struct fyai_cfg *cfg)
 
 	idx = str_in_set(what, types);
 	if (idx < 0) {
-		fprintf(stderr,
-			"catalog: unknown type '%s' (show|list|tools|import|export)\n",
+		fyai_cfg_error(cfg, "catalog: unknown type '%s' "
+			       "(show|list|tools|import|export)",
 			what);
 		return -1;
 	}
@@ -1287,23 +1285,23 @@ static int configure_catalog(int argc, char **argv, struct fyai_cfg *cfg)
 			continue;
 		}
 		if (argv[i][0] == '-') {
-			fprintf(stderr, "catalog: unknown option '%s'\n", argv[i]);
+			fyai_cfg_error(cfg, "catalog: unknown option '%s'", argv[i]);
 			return -1;
 		}
 		if (args->arg) {
-			fprintf(stderr, "catalog: too many arguments\n");
+			fyai_cfg_error(cfg, "catalog: too many arguments");
 			return -1;
 		}
 		args->arg = fy_gb_intern_string(cfg->gb, argv[i]);
 	}
 
 	if (args->type == FYAICAT_IMPORT && !args->arg) {
-		fprintf(stderr, "catalog: import: missing file\n");
+		fyai_cfg_error(cfg, "catalog: import: missing file");
 		return -1;
 	}
 	if (args->type == FYAICAT_LIST && args->arg &&
 	    strcmp(args->arg, "models") && strcmp(args->arg, "providers")) {
-		fprintf(stderr, "catalog: list: models or providers\n");
+		fyai_cfg_error(cfg, "catalog: list: models or providers");
 		return -1;
 	}
 	return 0;
@@ -1333,7 +1331,7 @@ static int configure_clear(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)cfg;
 	if (argc > 1) {
-		fprintf(stderr, "clear: unexpected argument '%s'\n", argv[1]);
+		fyai_cfg_error(cfg, "clear: unexpected argument '%s'", argv[1]);
 		return -1;
 	}
 	return 0;
@@ -1378,7 +1376,7 @@ static int configure_context(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)cfg;
 	if (argc > 1) {
-		fprintf(stderr, "context: unexpected argument '%s'\n", argv[1]);
+		fyai_cfg_error(cfg, "context: unexpected argument '%s'", argv[1]);
 		return -1;
 	}
 	return 0;
@@ -1395,7 +1393,7 @@ static int configure_api(int argc, char **argv, struct fyai_cfg *cfg)
 
 	args->mode = NULL;
 	if (argc > 2) {
-		fprintf(stderr, "api: unexpected argument '%s'\n", argv[2]);
+		fyai_cfg_error(cfg, "api: unexpected argument '%s'", argv[2]);
 		return -1;
 	}
 	if (argc > 1)
@@ -1462,12 +1460,11 @@ static int configure_sandbox(int argc, char **argv, struct fyai_cfg *cfg)
 		args->key = NULL;
 		args->value = NULL;
 	} else {
-		fprintf(stderr,
-			"sandbox: use show|on|off|edit\n");
+		fyai_cfg_error(cfg, "sandbox: use show|on|off|edit");
 		return -1;
 	}
 	if (argc > 2) {
-		fprintf(stderr, "sandbox: unexpected argument '%s'\n", argv[2]);
+		fyai_cfg_error(cfg, "sandbox: unexpected argument '%s'", argv[2]);
 		return -1;
 	}
 	return 0;
@@ -1497,7 +1494,8 @@ static int configure_auth(int argc, char **argv, struct fyai_cfg *cfg)
 	else if (fy_equal(what, "logout"))
 		args->command = FYAI_AUTH_LOGOUT;
 	else {
-		fprintf(stderr, "auth: unknown command '%s' (status|info|usage|login|logout)\n",
+		fyai_cfg_error(cfg, "auth: unknown command '%s' "
+			       "(status|info|usage|login|logout)",
 			what);
 		return -1;
 	}
@@ -1519,7 +1517,7 @@ static int configure_auth(int argc, char **argv, struct fyai_cfg *cfg)
 			 !strcmp(argv[i], "--json"))
 			args->json = true;
 		else {
-			fprintf(stderr, "auth: unexpected argument '%s'\n", argv[i]);
+			fyai_cfg_error(cfg, "auth: unexpected argument '%s'", argv[i]);
 			return -1;
 		}
 	}
@@ -1542,7 +1540,7 @@ static int configure_secret(int argc, char **argv, struct fyai_cfg *cfg)
 		a->command = FYAI_SECRET_DELETE;
 		i++;
 	} else {
-		fprintf(stderr, "secret: use status [name]|set <name>|delete <name>\n");
+		fyai_cfg_error(cfg, "secret: use status [name]|set <name>|delete <name>");
 		return -1;
 	}
 	if (i < argc && strcmp(argv[i], "--stdin"))
@@ -1553,11 +1551,11 @@ static int configure_secret(int argc, char **argv, struct fyai_cfg *cfg)
 	}
 	if ((a->command == FYAI_SECRET_SET || a->command == FYAI_SECRET_DELETE) &&
 	    (!a->name || !*a->name)) {
-		fprintf(stderr, "secret: a logical name is required\n");
+		fyai_cfg_error(cfg, "secret: a logical name is required");
 		return -1;
 	}
 	if (i < argc) {
-		fprintf(stderr, "secret: unexpected argument '%s'\n", argv[i]);
+		fyai_cfg_error(cfg, "secret: unexpected argument '%s'", argv[i]);
 		return -1;
 	}
 	return 0;
@@ -1943,7 +1941,7 @@ static int configure_help(int argc, char **argv, struct fyai_cfg *cfg)
 	} else {
 		v = fyai_find_verb(argv[1]);
 		if (!v) {
-			fprintf(stderr, "help: unknown verb '%s'\n", argv[1]);
+			fyai_cfg_error(cfg, "help: unknown verb '%s'", argv[1]);
 			return -1;
 		}
 		args->verb = v->name;
