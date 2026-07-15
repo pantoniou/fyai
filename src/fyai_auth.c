@@ -1390,7 +1390,8 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 	}
 
 	if (cfg->api_mode != FYAI_API_RESPONSES || cfg->response_chain) {
-		fyai_error(ctx, "ChatGPT requires Responses API with response_chain disabled");
+		fyai_error(ctx, "ChatGPT requires Responses API with "
+			   "response_chain disabled");
 		return -1;
 	}
 

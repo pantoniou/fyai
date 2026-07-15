@@ -15,6 +15,12 @@
  * stay session-only and `config set` / `--set` remain the durable forms.
  */
 
+/*
+ * Many verbs report from here (compact, api, list, history, secret), so each
+ * message names its own rather than taking one module prefix for the file.
+ */
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -110,7 +116,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	size_t n;
 
 	if (!cfg->api_key || !*cfg->api_key) {
-		fprintf(stderr, "compact: no API key\n");
+		fyai_error(ctx, "compact: no API key");
 		return -1;
 	}
 	if (fy_generic_is_invalid(ctx->last_message) ||
@@ -143,7 +149,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	cfg->enable_tools = tools_save;
 	cfg->enable_builtin_shell = shell_save;
 	if (fy_generic_is_invalid(v) || fy_generic_is_null_type(v)) {
-		fprintf(stderr, "compact: summary request failed\n");
+		fyai_error(ctx, "compact: summary request failed");
 		return -1;
 	}
 
@@ -154,7 +160,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	content = fy_get(m, "content");
 	summary = fy_castp(&content, "");
 	if (!*summary) {
-		fprintf(stderr, "compact: empty summary\n");
+		fyai_error(ctx, "compact: empty summary");
 		return -1;
 	}
 
@@ -204,8 +210,7 @@ static void session_persist(struct fyai_ctx *ctx, const char *key,
 			    const char *value)
 {
 	if (fyai_config_set(ctx, key, value))
-		fprintf(stderr, "%s: warning: could not persist to config\n",
-			key);
+		fyai_warning(ctx, "%s: could not persist to config", key);
 }
 
 /*
@@ -287,9 +292,8 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 		return -1;
 	if ((!tmp.api_key || !*tmp.api_key) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
-		fprintf(stderr,
-			"model: no API key for provider '%s' (set %s%s)\n",
-			tmp.provider ? tmp.provider : "?",
+		fyai_error(ctx, "model: no API key for provider '%s' (set %s%s)",
+			   tmp.provider ? tmp.provider : "?",
 			tmp.provider ? tmp.provider : "PROVIDER",
 			"_API_KEY or use --api-key");
 		return -1;
@@ -348,8 +352,8 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	}
 
 	if (session_api_parse(arg, &mode)) {
-		fprintf(stderr, "api: unknown grammar '%s' "
-			"(responses|chat-completions|messages)\n", arg);
+		fyai_error(ctx, "api: unknown grammar '%s' "
+			   "(responses|chat-completions|messages)", arg);
 		return -1;
 	}
 	if (mode == cfg->api_mode) {
@@ -384,18 +388,17 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	/* The resolver falls back to a grammar the provider does offer; an
 	 * explicit switch must not silently land somewhere else. */
 	if (tmp.api_mode != mode) {
-		fprintf(stderr, "api: provider '%s' does not offer %s\n",
-			cfg->provider ? cfg->provider : "?",
-			fyai_api_to_string(mode));
+		fyai_error(ctx, "api: provider '%s' does not offer %s",
+			   cfg->provider ? cfg->provider : "?",
+			   fyai_api_to_string(mode));
 		return -1;
 	}
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
 	if ((!tmp.api_key || !*tmp.api_key) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
-		fprintf(stderr,
-			"api: no API key for provider '%s' (set %s%s)\n",
-			tmp.provider ? tmp.provider : "?",
+		fyai_error(ctx, "api: no API key for provider '%s' (set %s%s)",
+			   tmp.provider ? tmp.provider : "?",
 			tmp.provider ? tmp.provider : "PROVIDER",
 			"_API_KEY or use --api-key");
 		return -1;
@@ -912,21 +915,28 @@ static int session_opt_run(struct fyai_ctx *ctx,
 		return 0;
 	}
 	if (o->reasoning && cfg->api_mode == FYAI_API_MESSAGES) {
-		fprintf(stderr,
-			"%s: reasoning options are not supported with the "
-			"Messages API yet\n", o->name);
+		fyai_error(ctx, "%s: reasoning options are not supported with "
+			   "the Messages API yet", o->name);
 		return -1;
 	}
 
 	switch (o->kind) {
 	case FYAIOK_STR:
 		if (o->values && str_in_set(arg, o->values) < 0) {
-			fprintf(stderr, "%s: invalid value '%s' (", o->name,
-				arg);
-			for (v = o->values; *v; v++)
-				fprintf(stderr, "%s%s", v == o->values ?
-					"" : "|", *v);
-			fprintf(stderr, ")\n");
+			struct response_buffer vals = {0};
+
+			/* One diagnostic: the accepted set is part of the
+			 * complaint, not a separate one. */
+			for (v = o->values; *v; v++) {
+				if (v != o->values &&
+				    response_buffer_append(&vals, "|"))
+					break;
+				if (response_buffer_append(&vals, *v))
+					break;
+			}
+			fyai_error(ctx, "%s: invalid value '%s' (%s)", o->name,
+				   arg, vals.len ? vals.data : "");
+			free(vals.data);
 			return -1;
 		}
 		*(const char **)field = fy_gb_intern_string(cfg->gb, arg);
@@ -934,8 +944,7 @@ static int session_opt_run(struct fyai_ctx *ctx,
 	case FYAIOK_BOOL:
 		idx = str_in_set(arg, bool_vals);
 		if (idx < 0) {
-			fprintf(stderr, "%s: invalid value '%s' (on|off)\n",
-				o->name, arg);
+			fyai_error(ctx, "%s: invalid value '%s' (on|off)", o->name, arg);
 			return -1;
 		}
 		*(bool *)field = !(idx & 1);
@@ -944,8 +953,7 @@ static int session_opt_run(struct fyai_ctx *ctx,
 		errno = 0;
 		f = strtof(arg, &endp);
 		if (errno || *endp) {
-			fprintf(stderr, "%s: invalid number '%s'\n",
-				o->name, arg);
+			fyai_error(ctx, "%s: invalid number '%s'", o->name, arg);
 			return -1;
 		}
 		*(float *)field = f;
@@ -1018,7 +1026,7 @@ static int slash_tools(struct fyai_ctx *ctx, const char *arg)
 	if (!arg)
 		arg = "";
 	if (strlen(arg) >= sizeof(input)) {
-		fprintf(stderr, "tools: arguments are too long\n");
+		fyai_error(ctx, "tools: arguments are too long");
 		return -1;
 	}
 	strcpy(input, arg);
@@ -1033,7 +1041,7 @@ static int slash_tools(struct fyai_ctx *ctx, const char *arg)
 		else if (!agent)
 			agent = word;
 		else {
-			fprintf(stderr, "tools: use /tools [agent] [--brief|--full]\n");
+			fyai_error(ctx, "tools: use /tools [agent] [--brief|--full]");
 			return -1;
 		}
 		word = strtok_r(NULL, " \t", &save);
@@ -1128,7 +1136,9 @@ static int slash_config(struct fyai_ctx *ctx, const char *arg)
 	*args = saved;
 	return rc;
 usage:
-	fprintf(stderr, "config: use /config [show|effective|edit|validate|schema|describe [path]|get <key>|set <key> <value>|delete <key>]\n");
+	fyai_error(ctx, "config: use /config [show|effective|edit|validate|"
+		   "schema|describe [path]|get <key>|set <key> <value>|"
+		   "delete <key>]");
 	*args = saved;
 	return -1;
 }
@@ -1162,8 +1172,8 @@ static int slash_list(struct fyai_ctx *ctx, const char *arg)
 		return rc;
 	}
 
-	fprintf(stderr, "list: unknown target '%s' (providers|models|turns|exchanges|reflog)\n",
-		arg);
+	fyai_error(ctx, "list: unknown target '%s' "
+		   "(providers|models|turns|exchanges|reflog)", arg);
 	return -1;
 }
 
@@ -1199,7 +1209,7 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			if (sep)
 				end++;
 			if (*end < '0' || *end > '9') {
-				fprintf(stderr, "history: use first N, last N, or range A,B\n");
+				fyai_error(ctx, "history: use first N, last N, or range A,B");
 				return -1;
 			}
 			hi = strtoul(end, &end, 10);
@@ -1207,17 +1217,17 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			args->turn_sel.range_lo = n;
 			args->turn_sel.range_hi = hi;
 			if (!sep) {
-				fprintf(stderr, "history: use first N, last N, or range A,B\n");
+				fyai_error(ctx, "history: use first N, last N, or range A,B");
 				return -1;
 			}
 		} else {
-			fprintf(stderr, "history: use first N, last N, or range A,B\n");
+			fyai_error(ctx, "history: use first N, last N, or range A,B");
 			return -1;
 		}
 		while (*end == ' ' || *end == '\t')
 			end++;
 		if (*p < '0' || *p > '9' || *end) {
-			fprintf(stderr, "history: use first N, last N, or range A,B\n");
+			fyai_error(ctx, "history: use first N, last N, or range A,B");
 			return -1;
 		}
 	}
@@ -1250,7 +1260,7 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 	else if (fy_equal(action, "delete"))
 		command = FYAI_SECRET_DELETE;
 	else {
-		fprintf(stderr, "secret: use status [name]|set <name>|delete <name>\n");
+		fyai_error(ctx, "secret: use status [name]|set <name>|delete <name>");
 		free(copy);
 		return -1;
 	}
@@ -1259,7 +1269,7 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 	extra = strtok(NULL, " \t");
 	if (extra || ((command == FYAI_SECRET_SET || command == FYAI_SECRET_DELETE) &&
 		      (!name || !*name))) {
-		fprintf(stderr, "secret: invalid arguments\n");
+		fyai_error(ctx, "secret: invalid arguments");
 		free(copy);
 		return -1;
 	}
@@ -1454,17 +1464,17 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	name = line + 1;	/* skip '/' */
 	len = strcspn(name, " \t");
 	if (!len) {
-		fprintf(stderr, "unknown command '%s' (try /help)\n", line);
-		return 0;
+		fyai_error(ctx, "unknown command '%s' (try /help)", line);
+		goto out_report;
 	}
 	arg = name + len;
 	while (*arg == ' ' || *arg == '\t')
 		arg++;
 
 	if (session_slash_lookup(name, len, &cmd, &opt)) {
-		fprintf(stderr, "unknown or ambiguous command '%.*s' "
-			"(try /help)\n", (int)(len + 1), line);
-		return 0;
+		fyai_error(ctx, "unknown or ambiguous command '%.*s' (try /help)",
+			   (int)(len + 1), line);
+		goto out_report;
 	}
 
 	if (cmd && !cmd->run)	/* /exit, /quit */
@@ -1492,6 +1502,14 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 
 	/* Settings/model/context may have changed; reflect it in the footer. */
 	fyai_session_banner_update(ctx);
+	return 0;
+
+out_report:
+	/*
+	 * Nothing ran, so the footer is still good; report and go straight back
+	 * to the prompt rather than leaving the complaint until the next drain.
+	 */
+	fyai_diag_drain(&ctx->cfg->diag);
 	return 0;
 }
 
