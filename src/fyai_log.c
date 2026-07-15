@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_LOG
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -133,7 +135,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 	first[0] = second[0] = extra[0] = '\0';
 	n = sscanf(arg, "%31s %31s %1s", first, second, extra);
 	if (n < 1 || n > 2 || extra[0]) {
-		fprintf(stderr, "logging: use [wire|stream|conversation|all] start|stop|clear|view\n");
+		fyai_error(ctx, "use [wire|stream|conversation|all] start|stop|clear|view");
 		return -1;
 	}
 
@@ -143,7 +145,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 		action = n == 2 ? second : "";
 	} else {
 		if (n == 2) {
-			fprintf(stderr, "logging: use [wire|stream|conversation|all] start|stop|clear|view\n");
+			fyai_error(ctx, "use [wire|stream|conversation|all] start|stop|clear|view");
 			return -1;
 		}
 		target = "all";
@@ -162,7 +164,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 	}
 	if (!strcmp(action, "clear")) {
 		if (fyai_log_clear_target(ctx, target)) {
-			fprintf(stderr, "logging: clear failed\n");
+			fyai_error(ctx, "clear failed");
 			return -1;
 		}
 		printf("logging: cleared %s\n", target);
@@ -180,7 +182,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 		return 0;
 	}
 
-	fprintf(stderr, "logging: use [wire|stream|conversation|all] start|stop|clear|view\n");
+	fyai_error(ctx, "use [wire|stream|conversation|all] start|stop|clear|view");
 	return -1;
 }
 
