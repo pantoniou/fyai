@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_STREAM
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -1090,11 +1092,8 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
 		goto out;
 	}
-	if (res != CURLE_OK) {
-		fprintf(stderr, "Request failed: %s\n",
-			curl_easy_strerror(res));
-		goto out;
-	}
+	fyai_error_check(ctx, res == CURLE_OK, out, "request failed: %s",
+			 curl_easy_strerror(res));
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
@@ -1104,9 +1103,13 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 				return fyai_perform_streaming_request(ctx);
 			return fy_invalid;
 		}
-		fprintf(stderr, "Request returned HTTP %ld\n", status);
-		if (stream.raw.data)
-			fprintf(stderr, "%s\n", stream.raw.data);
+		/*
+		 * The body is detail on this failure, not a second one: raised
+		 * separately it would be demoted behind the status and lost.
+		 */
+		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
+			   stream.raw.data ? "\n" : "",
+			   stream.raw.data ? stream.raw.data : "");
 		goto out;
 	}
 
@@ -1158,11 +1161,8 @@ fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
 		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
 		goto out;
 	}
-	if (res != CURLE_OK) {
-		fprintf(stderr, "OpenAI request failed: %s\n",
-			curl_easy_strerror(res));
-		goto out;
-	}
+	fyai_error_check(ctx, res == CURLE_OK, out, "request failed: %s",
+			 curl_easy_strerror(res));
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
@@ -1172,9 +1172,10 @@ fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
 				return fyai_perform_buffered_request(ctx);
 			return fy_invalid;
 		}
-		fprintf(stderr, "OpenAI request returned HTTP %ld\n", status);
-		if (response.data)
-			fprintf(stderr, "%s\n", response.data);
+		/* One diagnostic; see the streaming path above. */
+		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
+			   response.data ? "\n" : "",
+			   response.data ? response.data : "");
 		goto out;
 	}
 
