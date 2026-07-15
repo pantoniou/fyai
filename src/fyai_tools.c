@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_TOOLS
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -448,8 +450,8 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	 * to abort rather than letting the model proceed on a guess.
 	 */
 	if (!terminal_is_tty(STDIN_FILENO)) {
-		fprintf(stderr, "\nask_user: an answer is expected but none is "
-			"available (non-interactive; supply --answer)\n");
+		fyai_error(ctx, "ask_user: an answer is expected but none is "
+			   "available (non-interactive; supply --answer)");
 		ctx->ask_abort = true;
 		return fy_value(ctx->transient_gb, "tool error: no answer available (non-interactive)");
 	}
@@ -820,8 +822,9 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	const char *args_text;
 	int ret = -1;
 
+	/* Before the transient builder exists, so there is no out: to jump to. */
 	if (!a->name || !*a->name) {
-		fprintf(stderr, "tool: missing tool name\n");
+		fyai_error(ctx, "missing tool name");
 		return -1;
 	}
 
@@ -838,10 +841,8 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 		args_text = "{}";
 
 	args = parse_json_string(ctx->transient_gb, args_text);
-	if (fy_generic_is_invalid(args)) {
-		fprintf(stderr, "tool: invalid JSON arguments\n");
-		goto out;
-	}
+	fyai_error_check(ctx, fy_generic_is_valid(args), out,
+			 "invalid JSON arguments");
 
 	/*
 	 * Sanitize the environment and confine this process before running the
