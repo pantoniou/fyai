@@ -942,8 +942,8 @@ static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 			const char *redirect, const char *verifier,
 			const char *state)
 {
-	char line[8192], request[8192];
-	char *code = NULL, *got_state = NULL;
+	char line[8192];
+	char *code = NULL, *got_state = NULL, *request = NULL;
 	char *nl;
 	int rc = -1;
 
@@ -955,14 +955,15 @@ static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 
 	if (!fgets(line, sizeof(line), stdin))
 		return -1;
+	line[sizeof(line) - 1] = '\0';
 	nl = strpbrk(line, "\r\n");
 	if (nl)
 		*nl = '\0';
 	if (!*line)
-		return -1;
+		goto err_out;
 
 	/* query_value scans a "GET <target> ..." request line for ?key=val. */
-	snprintf(request, sizeof(request), "GET %s \r\n", line);
+	request = fy_sprintfa("GET %s \r\n", line);
 
 	code = query_value(ctx->curl, request, "code");
 	got_state = query_value(ctx->curl, request, "state");
@@ -970,18 +971,24 @@ static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 		/* No query string: treat the whole paste as the bare code. */
 		code = strdup(line);
 		if (!code)
-			goto out;
+			goto err_out;
 	} else if (!got_state || strcmp(got_state, state)) {
 		fprintf(stderr, "auth: state mismatch in pasted URL\n");
-		goto out;
+		goto err_out;
 	}
 
 	rc = exchange_code(ctx, c, code, redirect, verifier);
+	if (rc)
+		goto err_out;
 
+	rc = 0;
 out:
 	free(code);
 	free(got_state);
 	return rc;
+err_out:
+	rc = -1;
+	goto out;
 }
 
 static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
@@ -997,8 +1004,8 @@ static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 	struct pollfd pfd;
 	int server = -1, client = -1, rc = -1;
 	ssize_t n;
-	const char ok[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nLogin complete. You may close this window.\n";
-	const char bad[] = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nLogin failed.\n";
+	static const char ok[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nLogin complete. You may close this window.\n";
+	static const char bad[] = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nLogin failed.\n";
 
 	if (RAND_bytes(verifier_random, sizeof(verifier_random)) != 1 ||
 	    RAND_bytes(state_random, sizeof(state_random)) != 1)
