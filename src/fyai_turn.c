@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -28,7 +30,9 @@ static fy_generic fyai_turn_meta_set(struct fyai_ctx *ctx, fy_generic turn,
 	v = fy_assoc(turn, "metadata", meta);
 
 	v = fy_gb_internalize(ctx->transient_gb, v);
-	return assert_valid_generic(v, NULL);
+	if (fy_generic_is_invalid(v))
+		fyai_error(ctx, "could not update the turn metadata");
+	return v;
 }
 
 static fy_generic fyai_make_turn(struct fyai_ctx *ctx, fy_generic previous,
@@ -59,7 +63,9 @@ static fy_generic fyai_make_turn(struct fyai_ctx *ctx, fy_generic previous,
 		"metadata", meta);
 
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
-	return assert_valid_generic(turn, NULL);
+	if (fy_generic_is_invalid(turn))
+		fyai_error(ctx, "could not build the turn");
+	return turn;
 }
 
 fy_generic fyai_turn_append(struct fyai_ctx *ctx, fy_generic turn,
@@ -129,9 +135,10 @@ fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 	fy_generic stream;
 	size_t i;
 
-	if (fyai_turn_stack_init(&stack, turn, previous))
-		return assert_valid_generic(fy_invalid,
-					    "Unable to allocate turn stack");
+	if (fyai_turn_stack_init(&stack, turn, previous)) {
+		fyai_error(ctx, "could not allocate the turn stack");
+		return fy_invalid;
+	}
 
 	stream = fy_seq_empty;
 	for (i = 0; i < stack.count; i++)
@@ -141,7 +148,9 @@ fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_turn_stack_cleanup(&stack);
 
 	stream = fy_gb_internalize(ctx->transient_gb, stream);
-	return assert_valid_generic(stream, NULL);
+	if (fy_generic_is_invalid(stream))
+		fyai_error(ctx, "could not collect the turn messages");
+	return stream;
 }
 
 /*
@@ -168,7 +177,9 @@ static fy_generic fyai_canonical_assistant_message(struct fyai_ctx *ctx,
 		msg = fy_assoc(msg, "tool_calls", tool_calls);
 
 	msg = fy_gb_internalize(ctx->transient_gb, msg);
-	return assert_valid_generic(msg, NULL);
+	if (fy_generic_is_invalid(msg))
+		fyai_error(ctx, "could not build the assistant message");
+	return msg;
 }
 
 /*
@@ -185,15 +196,23 @@ static fy_generic fyai_turn_attach_provider(struct fyai_ctx *ctx,
 	const char *name = cfg->provider ? cfg->provider : cfg->model;
 	fy_generic stream;
 
-	assert_valid_generic(turn, NULL);
-	assert_valid_generic(provider_messages, NULL);
+	if (fy_generic_is_invalid(turn) ||
+	    fy_generic_is_invalid(provider_messages)) {
+		fyai_error(ctx, "could not attach the provider messages");
+		return fy_invalid;
+	}
 
 	stream = fy_mapping(name ? name : "", provider_messages);
 	turn = fy_assoc(turn, "provider_stream", stream);
 
-	assert_valid_generic(turn, NULL);
+	if (fy_generic_is_invalid(turn)) {
+		fyai_error(ctx, "could not attach the provider messages");
+		return fy_invalid;
+	}
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
-	return assert_valid_generic(turn, NULL);
+	if (fy_generic_is_invalid(turn))
+		fyai_error(ctx, "could not retain the provider messages");
+	return turn;
 }
 
 /* Persist a turn's normalized token usage in the metadata layer. */

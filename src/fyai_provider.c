@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -13,6 +15,14 @@
 #include <string.h>
 
 #include "fyai_provider.h"
+
+static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
+				  const char *what)
+{
+	if (fy_generic_is_invalid(v))
+		fyai_error(ctx, "%s", what);
+	return v;
+}
 
 fy_generic fyai_response_output_text(struct fyai_ctx *ctx,
 					    fy_generic response_doc)
@@ -71,7 +81,7 @@ fy_generic fyai_response_output_text(struct fyai_ctx *ctx,
 	}
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return assert_valid_generic(out, "fail fyai_response_output_text");
+	return provider_result(ctx, out, "could not extract the response text");
 }
 
 fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
@@ -143,7 +153,8 @@ fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 		return fy_seq_empty;
 
 	tool_calls = fy_gb_internalize(ctx->transient_gb, tool_calls);
-	return assert_valid_generic(tool_calls, NULL);
+	return provider_result(ctx, tool_calls,
+			       "could not collect the response tool calls");
 }
 
 fy_generic fyai_response_id(struct fyai_ctx *ctx, fy_generic response_doc)
@@ -157,7 +168,7 @@ fy_generic fyai_response_id(struct fyai_ctx *ctx, fy_generic response_doc)
 	v = fy_value(id);
 
 	v = fy_gb_internalize(ctx->transient_gb, v);
-	return assert_valid_generic(v, NULL);
+	return provider_result(ctx, v, "could not retain the response id");
 }
 
 bool fyai_response_needs_tool_calls(struct fyai_ctx *ctx,
@@ -241,7 +252,7 @@ fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc)
 		"cost", cost);
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return assert_valid_generic(out, "Unable to extract usage");
+	return provider_result(ctx, out, "could not extract the response usage");
 }
 
 /*
@@ -359,7 +370,8 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 	}
 
 	response_tools = fy_gb_internalize(ctx->gb, response_tools);
-	return assert_valid_generic(response_tools, "Unable to make tools");
+	return provider_result(ctx, response_tools,
+			       "could not build the Responses tool definitions");
 }
 
 fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
@@ -383,7 +395,8 @@ fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
 	}
 
 	messages_tools = fy_gb_internalize(ctx->gb, messages_tools);
-	return assert_valid_generic(messages_tools, "Unable to make messages tools");
+	return provider_result(ctx, messages_tools,
+			       "could not build the Messages tool definitions");
 }
 
 fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
@@ -476,7 +489,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 	}
 
 	input = fy_gb_internalize(ctx->transient_gb, input);
-	return assert_valid_generic(input, "unable to create responses input");
+	return provider_result(ctx, input, "could not build the Responses input");
 }
 
 fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item)
@@ -584,7 +597,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 	}
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return assert_valid_generic(out, NULL);
+	return provider_result(ctx, out, "could not build the Chat input");
 }
 
 /*
@@ -779,5 +792,5 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 	}
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return assert_valid_generic(out, NULL);
+	return provider_result(ctx, out, "could not build the Messages input");
 }

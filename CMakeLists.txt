@@ -450,6 +450,7 @@ if(BUILD_TESTING)
     add_executable(fyai_provider_test
         tests/fyai_provider_test.c
         src/fyai_provider.c
+        src/fyai_diag.c
         src/fyai_sandbox.c
         src/utils.c
     )

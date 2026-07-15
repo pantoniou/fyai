@@ -474,13 +474,17 @@ have_line:
 			if (fy_generic_is_invalid(result))
 				result = fy_value("");
 			free(line);
-			return assert_valid_generic(result, NULL);
+			if (fy_generic_is_invalid(result))
+				fyai_error(ctx, "ask_user: could not retain the answer");
+			return result;
 		}
 	}
 
 	result = fy_value(ctx->transient_gb, line);
 	free(line);
-	return assert_valid_generic(result, NULL);
+	if (fy_generic_is_invalid(result))
+		fyai_error(ctx, "ask_user: could not retain the answer");
+	return result;
 }
 
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
@@ -587,7 +591,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		result_generic = fyai_tool_run_one(ctx, name, args);
 out:
 	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
-	return assert_valid_generic(result_generic, NULL);
+	if (fy_generic_is_invalid(result_generic))
+		fyai_error(ctx, "could not retain the tool result");
+	return result_generic;
 }
 
 fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,

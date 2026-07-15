@@ -235,7 +235,11 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	out = fyai_turn_append(ctx, turn, fy_sequence(tool_message));
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return assert_valid_generic(out, __func__);
+	fyai_error_check(ctx, fy_generic_is_valid(out), err,
+			 "could not append the tool result");
+	return out;
+err:
+	return fy_invalid;
 }
 
 static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
@@ -258,7 +262,11 @@ static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
 	}
 
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
-	return assert_valid_generic(turn, __func__);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), err,
+			 "could not append the tool calls");
+	return turn;
+err:
+	return fy_invalid;
 }
 
 /*
@@ -483,7 +491,9 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 		break;
 	}
 
-	request = assert_valid_generic(v, NULL);
+	fyai_error_check(ctx, fy_generic_is_valid(v), out,
+			 "could not build the model request");
+	request = v;
 
 	/*
 	 * Reasoning models reject an explicit `temperature` (the Responses API
@@ -698,7 +708,11 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 				"api", fyai_api_to_string(cfg->api_mode),
 				"body", response_doc));
 	}
-	return assert_valid_generic(response_doc, NULL);
+	fyai_error_check(ctx, fy_generic_is_valid(response_doc), out,
+			 "could not retain the provider response");
+	return response_doc;
+out:
+	return fy_invalid;
 }
 
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
@@ -825,7 +839,9 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 
 	out = fy_gb_internalize(ctx->gb, out);
 
-	return assert_valid_generic(out, "fyai_run_model_loop");
+	if (fy_generic_is_invalid(out))
+		fyai_error(ctx, "could not retain the completed turn");
+	return out;
 }
 
 void fyai_cleanup(struct fyai_ctx *ctx)
@@ -944,10 +960,13 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	if (fy_generic_is_valid(ctx->tools)) {
 		ctx->tools = fy_gb_internalize(ctx->gb, ctx->tools);
-		assert_valid_generic(ctx->tools, __func__);
+		fyai_error_check(ctx, fy_generic_is_valid(ctx->tools), err,
+				 "could not retain the tool definitions");
 	}
 
 	return 0;
+err:
+	return -1;
 }
 
 int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
@@ -1039,7 +1058,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 
 	/* intern all to durable */
 	ctx->last_message = fy_gb_internalize(ctx->gb, ctx->last_message);
-	assert_valid_generic(ctx->last_message, __func__);
+	fyai_error_check(ctx, fy_generic_is_valid(ctx->last_message), err,
+			 "could not retain the initial turn");
 
 	(void)fyai_cleanup_transient_builder(ctx);
 
@@ -1210,7 +1230,12 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		v = fyai_turn_append(ctx, ctx->last_message, fy_sequence(fyai_make_user_message(ctx, line)));
 		linenoiseFree(line);
 		line = NULL;
-		v = assert_valid_generic(v, NULL);
+		if (fy_generic_is_invalid(v)) {
+			fyai_error(ctx, "could not append the user turn");
+			fyai_diag_drain(&cfg->diag);
+			fyai_cleanup_transient_builder(ctx);
+			continue;
+		}
 
 		v = fyai_run_model_loop(ctx, v);
 		/* A failed/interrupted run may carry a diagnostic; print it and

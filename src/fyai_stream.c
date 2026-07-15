@@ -927,7 +927,9 @@ static fy_generic stream_build_tool_calls(struct stream_response *stream)
 	}
 
 	tool_calls = fy_gb_internalize(gb, tool_calls);
-	return assert_valid_generic(tool_calls, NULL);
+	if (fy_generic_is_invalid(tool_calls))
+		fyai_error(stream->ctx, "could not build the streamed tool calls");
+	return tool_calls;
 }
 
 static fy_generic stream_build_response_doc(struct stream_response *stream)
@@ -974,9 +976,14 @@ static fy_generic stream_build_response_doc(struct stream_response *stream)
 		"system_fingerprint", fy_get(stream->metadata,
 					     "system_fingerprint", ""));
 
-	doc = assert_valid_generic(doc, NULL);
+	if (fy_generic_is_invalid(doc)) {
+		fyai_error(ctx, "could not build the streamed response");
+		return fy_invalid;
+	}
 	doc = fy_gb_internalize(gb, doc);
-	return assert_valid_generic(doc, NULL);
+	if (fy_generic_is_invalid(doc))
+		fyai_error(ctx, "could not retain the streamed response");
+	return doc;
 }
 
 /*
@@ -1027,9 +1034,14 @@ static fy_generic messages_build_response_doc(struct stream_response *stream)
 	if (!fy_generic_is_invalid(stream->usage))
 		doc = fy_assoc(doc, "usage", stream->usage);
 
-	doc = assert_valid_generic(doc, NULL);
+	if (fy_generic_is_invalid(doc)) {
+		fyai_error(stream->ctx, "could not build the streamed message");
+		return fy_invalid;
+	}
 	doc = fy_gb_internalize(gb, doc);
-	return assert_valid_generic(doc, NULL);
+	if (fy_generic_is_invalid(doc))
+		fyai_error(stream->ctx, "could not retain the streamed message");
+	return doc;
 }
 
 /*
