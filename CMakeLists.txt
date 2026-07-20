@@ -180,7 +180,7 @@ if(NOT TARGET libfyaml::libfyaml)
     endif()
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
-        GIT_TAG 5831c092d31753c9acc037dd427e515ecb88aecf
+        GIT_TAG 2bec20ead28d952f671ecc5c83f79a6685191175
     )
     FetchContent_MakeAvailable(libfyaml)
 endif()
