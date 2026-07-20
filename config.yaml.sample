@@ -123,10 +123,8 @@ top_logprobs: -1
 token_extents: false     # record streamed token extents in turn metadata
 no_obfuscation: false
 whitewash_api_keys: true # redact API keys in wire logs
-response_chain: false    # chain via previous_response_id (Responses API
-                          # only); off by default - a stale/evicted stored
-                          # response hard-errors rather than degrading to
-                          # full replay
+response_chain: false    # chain via previous_response_id (Responses API;
+                          # missing server state falls back to local history)
 no_auth: false           # skip the api_key requirement and the auth header,
                           # for local no-auth model servers (see "Local /
                           # self-hosted models" above)

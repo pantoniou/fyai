@@ -430,6 +430,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	struct fyai_spinner spinner = {};
 	struct timespec t_emit, t_send;
 	bool want_extents_lp;
+	bool response_linked;
 	fy_generic diag;
 	long status;
 
@@ -510,9 +511,11 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	    cfg->api_mode != FYAI_API_MESSAGES)
 		request = fy_assoc(request, "temperature", cfg->temperature);
 
-	if (cfg->response_chain &&
+	response_linked = cfg->api_mode == FYAI_API_RESPONSES &&
+	    cfg->response_chain &&
 	    fy_generic_is_valid(previous_response_id) &&
-	    !fy_generic_is_null_type(previous_response_id)) {
+	    !fy_generic_is_null_type(previous_response_id);
+	if (response_linked) {
 
 		switch (cfg->api_mode) {
 		case FYAI_API_RESPONSES:
@@ -652,6 +655,8 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_prof_stamp(&t_send);
 
 	ctx->auth_retry_done = false;
+	ctx->response_chain_linked = response_linked;
+	ctx->response_chain_miss = false;
 	if (cfg->stream)
 		response_doc = fyai_perform_streaming_request(ctx);
 	else
@@ -679,6 +684,12 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	 * - pass it through untouched so the loop can surface "interrupted".
 	 */
 	if (fy_generic_is_invalid(response_doc)) {
+		/* A response-id chain is only an optimization over the canonical
+		 * arena history. If the provider no longer has the referenced
+		 * response, rebuild this step with the full local turn chain. */
+		if (response_linked && ctx->response_chain_miss)
+			return fyai_run_model_step(ctx, turn, fy_null);
+
 		/*
 		 * Fail-soft backstop: when the logprobs params were injected
 		 * only for token_extents (never for an explicit --logprobs)

@@ -141,11 +141,9 @@ struct fyai_cfg {
 	bool no_obfuscation;
 	/*
 	 * Chain via previous_response_id (Responses API only): config-only,
-	 * no CLI flag - default off, since a stale/evicted stored response
-	 * (provider retention expiry, or one made with store:false) makes
-	 * the provider hard-error the request rather than degrade to full
-	 * replay, so this is an explicit opt-in via `config set response_chain
-	 * true` / `--set response_chain=true`.
+	 * no CLI flag and default off. A stale/evicted response automatically
+	 * falls back to replaying the canonical local turn chain. Enable with
+	 * `config set response_chain true` / `--set response_chain=true`.
 	 */
 	bool response_chain;
 	/*
@@ -319,6 +317,10 @@ struct fyai_ctx {
 	/* Fail-soft latch: set when a provider rejected the logprobs params we
 	 * injected for token_extents, so the session stops asking. */
 	bool token_extents_off;
+	/* The last Responses request failed because previous_response_id could
+	 * not be resolved. The model loop retries that step from local history. */
+	bool response_chain_linked;
+	bool response_chain_miss;
 };
 
 int

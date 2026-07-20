@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_first",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "First answer." }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "status": 404,
+      "response": {
+        "error": {
+          "message": "Previous response with id 'resp_first' not found.",
+          "type": "invalid_request_error",
+          "param": "previous_response_id",
+          "code": "previous_response_not_found"
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_recovered",
+        "object": "response",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "Recovered answer." }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

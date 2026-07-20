@@ -104,6 +104,20 @@ static void stream_response_cleanup(struct stream_response *stream)
 		fy_generic_builder_destroy(stream->gb);
 }
 
+static bool response_chain_miss(struct fyai_ctx *ctx, long status,
+				const char *body)
+{
+	if (!ctx->response_chain_linked ||
+	    ctx->cfg->api_mode != FYAI_API_RESPONSES ||
+	    (status != 400 && status != 404) || !body)
+		return false;
+
+	/* OpenAI identifies this either through error.param or in the message.
+	 * Keep the match narrow so an unrelated endpoint 404 is not replayed. */
+	return strstr(body, "previous_response_id") ||
+	       strstr(body, "Previous response");
+}
+
 static size_t count_newlines(const char *s, size_t len)
 {
 	size_t i;
@@ -1164,6 +1178,10 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 				return fyai_perform_streaming_request(ctx);
 			return fy_invalid;
 		}
+		ctx->response_chain_miss =
+			response_chain_miss(ctx, status, stream.raw.data);
+		if (ctx->response_chain_miss)
+			goto out;
 		/*
 		 * The body is detail on this failure, not a second one: raised
 		 * separately it would be demoted behind the status and lost.
@@ -1243,6 +1261,10 @@ fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
 				return fyai_perform_buffered_request(ctx);
 			return fy_invalid;
 		}
+		ctx->response_chain_miss =
+			response_chain_miss(ctx, status, response.data);
+		if (ctx->response_chain_miss)
+			goto out;
 		/* One diagnostic; see the streaming path above. */
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
 			   response.data ? "\n" : "",
