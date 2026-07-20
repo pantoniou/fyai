@@ -946,8 +946,9 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, ctx->headers);
 
 	if (cfg->mcp_enabled) {
-		if (fyai_mcp_refresh(ctx))
-			return -1;
+		rc = fyai_mcp_refresh(ctx);
+		fyai_error_check(ctx, !rc, err,
+				 "could not initialize MCP servers");
 	} else {
 		fyai_mcp_cleanup(ctx);
 		ctx->mcp_tools = fy_invalid;

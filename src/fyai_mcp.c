@@ -101,38 +101,48 @@ static fy_generic mcp_http_request_once(struct fyai_ctx *ctx,
 	struct mcp_headers mh = { .ctx = ctx, .mcp = mcp };
 	struct curl_slist *headers = NULL;
 	char *auth = NULL, *session = NULL, *version = NULL;
-	fy_generic request, doc, error;
+	fy_generic request, doc, error, out;
 	const char *body, *json;
 	char *sse_json = NULL;
 	CURLcode rc;
 	long status = 0;
-	struct timespec start, end;
+	struct timespec start_ts, end_ts;
 	double elapsed_ms;
-	bool logging = ctx->cfg->mcp_logging;
+	const char *data, *end;
+	bool logging;
+	int ret;
 
+	logging = ctx->cfg->mcp_logging;
 	request = fy_mapping(ctx->transient_gb, "jsonrpc", "2.0",
 			     "method", method, "params", params);
 	if (!notification)
-		request = fy_assoc(ctx->transient_gb, request, "id",
-				   id);
+		request = fy_assoc(ctx->transient_gb, request, "id", id);
 	body = emit_request_body(ctx->transient_gb, request);
-	if (!body)
-		return fy_invalid;
+	fyai_error_check(ctx, body, err_out,
+			 "MCP %s could not encode request", method);
 
-	append_header(&headers, "Content-Type: application/json");
-	append_header(&headers, "Accept: application/json, text/event-stream");
+	ret = append_header(&headers, "Content-Type: application/json");
+	fyai_error_check(ctx, !ret,
+		err_out, "MCP %s could not create request headers", method);
+	ret = append_header(&headers,
+			    "Accept: application/json, text/event-stream");
+	fyai_error_check(ctx, !ret,
+		err_out, "MCP %s could not create request headers", method);
 	version = make_header("MCP-Protocol-Version: ", mcp->protocol_version);
-	if (version)
-		append_header(&headers, version);
+	ret = version ? append_header(&headers, version) : -1;
+	fyai_error_check(ctx, !ret,
+			err_out, "MCP %s could not create protocol header", method);
 	if (mcp->auth_token && *mcp->auth_token) {
 		auth = make_header("Authorization: Bearer ", mcp->auth_token);
-		if (auth)
-			append_header(&headers, auth);
+		ret = auth ? append_header(&headers, auth) : -1;
+		fyai_error_check(ctx, !ret,
+				err_out, "MCP %s could not create auth header", method);
 	}
 	if (mcp->session_id) {
 		session = make_header("Mcp-Session-Id: ", mcp->session_id);
-		if (session)
-			append_header(&headers, session);
+		ret = session ? append_header(&headers, session) : -1;
+		fyai_error_check(ctx, !ret,
+				err_out, "MCP %s could not create session header", method);
 	}
 	curl_easy_setopt(mcp->curl, CURLOPT_URL, mcp->endpoint);
 	curl_easy_setopt(mcp->curl, CURLOPT_HTTPHEADER, headers);
@@ -144,16 +154,16 @@ static fy_generic mcp_http_request_once(struct fyai_ctx *ctx,
 	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT, (long)mcp->timeout);
 	curl_easy_setopt(mcp->curl, CURLOPT_USERAGENT, ctx->user_agent);
 	if (logging)
-		clock_gettime(CLOCK_MONOTONIC, &start);
+		clock_gettime(CLOCK_MONOTONIC, &start_ts);
 	rc = curl_easy_perform(mcp->curl);
 	if (rc == CURLE_OK)
 		curl_easy_getinfo(mcp->curl, CURLINFO_RESPONSE_CODE, &status);
 	*rcp = rc;
 	*statusp = status;
 	if (logging) {
-		clock_gettime(CLOCK_MONOTONIC, &end);
-		elapsed_ms = (double)(end.tv_sec - start.tv_sec) * 1000.0 +
-			(double)(end.tv_nsec - start.tv_nsec) / 1000000.0;
+		clock_gettime(CLOCK_MONOTONIC, &end_ts);
+		elapsed_ms = (double)(end_ts.tv_sec - start_ts.tv_sec) * 1000.0 +
+			(double)(end_ts.tv_nsec - start_ts.tv_nsec) / 1000000.0;
 		(void)fyai_log_generic(ctx, "mcp", fy_null_filtered_mapping(
 			"event", "request",
 			"server", mcp->name,
@@ -166,23 +176,24 @@ static fy_generic mcp_http_request_once(struct fyai_ctx *ctx,
 			"session", mcp->session_id ? "active" : "none"));
 	}
 	curl_slist_free_all(headers);
+	headers = NULL;
 	free(auth);
 	free(session);
 	free(version);
-	if (rc != CURLE_OK || status < 200 || status >= 300) {
-		free(response.data);
-		return fy_invalid;
-	}
+	auth = session = version = NULL;
+
+	if (rc != CURLE_OK || status < 200 || status >= 300)
+		goto err_out;
+
 	if (notification) {
 		free(response.data);
 		return fy_null;
 	}
+
 	json = response.data ? response.data : "";
 	/* Streamable HTTP may return one JSON-RPC response as an SSE event. */
 	if (!strncmp(json, "event:", 6) || !strncmp(json, "data:", 5)) {
-		const char *data = strstr(json, "data:");
-		const char *end;
-
+		data = strstr(json, "data:");
 		if (data) {
 			data += 5;
 			while (*data == ' ' || *data == '\t')
@@ -195,18 +206,29 @@ static fy_generic mcp_http_request_once(struct fyai_ctx *ctx,
 	}
 	doc = parse_json_string(ctx->transient_gb, json);
 	free(sse_json);
+	sse_json = NULL;
 	free(response.data);
-	if (fy_generic_is_invalid(doc)) {
-		fyai_error(ctx, "MCP %s returned invalid JSON", method);
-		return fy_invalid;
-	}
+	response.data = NULL;
+
+	fyai_error_check(ctx, fy_generic_is_valid(doc), err_out,
+			 "MCP %s returned invalid JSON", method);
 	error = fy_get(doc, "error");
-	if (fy_generic_is_valid(error)) {
-		fyai_error(ctx, "MCP %s: %s", method,
-			   fy_get(error, "message", "server error"));
-		return fy_invalid;
-	}
-	return fy_get(doc, "result", fy_invalid);
+	fyai_error_check(ctx, fy_generic_is_invalid(error), err_out,
+			 "MCP %s: %s", method,
+			 fy_get(error, "message", "server error"));
+	out = fy_get(doc, "result", fy_invalid);
+	fyai_error_check(ctx, fy_generic_is_valid(out), err_out,
+			 "MCP %s response has no result", method);
+
+	return out;
+
+err_out:
+	curl_slist_free_all(headers);
+	free(auth);
+	free(session);
+	free(version);
+	free(response.data);
+	return fy_invalid;
 }
 
 static int mcp_write_all(int fd, const char *data, size_t len)
@@ -255,7 +277,7 @@ static fy_generic mcp_stdio_request_once(struct fyai_ctx *ctx,
 {
 	struct response_buffer response = {};
 	struct pollfd pfd = { .fd = mcp->stdout_fd, .events = POLLIN };
-	fy_generic request, doc, error;
+	fy_generic request, doc, error, out;
 	const char *body;
 	char ch;
 	ssize_t n;
@@ -270,13 +292,11 @@ static fy_generic mcp_stdio_request_once(struct fyai_ctx *ctx,
 	if (!notification)
 		request = fy_assoc(ctx->transient_gb, request, "id", id);
 	body = emit_request_body(ctx->transient_gb, request);
-	if (!body || mcp_write_all(mcp->stdin_fd, body, strlen(body)) ||
-	    mcp_write_all(mcp->stdin_fd, "\n", 1)) {
-		fyai_error(ctx, "MCP %s stdio write failed", method);
-		mcp_log_stdio_request(ctx, mcp, method, id, notification, false,
-				      &start);
-		return fy_invalid;
-	}
+	rc = body ? mcp_write_all(mcp->stdin_fd, body, strlen(body)) : -1;
+	if (!rc)
+		rc = mcp_write_all(mcp->stdin_fd, "\n", 1);
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP %s stdio write failed", method);
 	if (notification) {
 		mcp_log_stdio_request(ctx, mcp, method, id, true, true, &start);
 		return fy_null;
@@ -290,45 +310,49 @@ static fy_generic mcp_stdio_request_once(struct fyai_ctx *ctx,
 			rc = poll(&pfd, 1, mcp->timeout * 1000);
 			if (rc < 0 && errno == EINTR)
 				continue;
-			if (rc <= 0 || !(pfd.revents & (POLLIN | POLLHUP))) {
-				fyai_error(ctx, "MCP %s stdio response timed out", method);
-				goto err;
-			}
+			fyai_error_check(ctx, rc > 0 &&
+					 (pfd.revents & (POLLIN | POLLHUP)), err_out,
+					 "MCP %s stdio response timed out", method);
 			n = read(mcp->stdout_fd, &ch, 1);
-			if (n <= 0) {
-				fyai_error(ctx, "MCP %s stdio server closed", method);
-				goto err;
-			}
+			fyai_error_check(ctx, n > 0, err_out,
+					 "MCP %s stdio server closed", method);
 			if (ch == '\n')
 				break;
-			if (response_buffer_reserve(&response, response.len + 2))
-				goto err;
+			rc = response_buffer_reserve(&response, response.len + 2);
+			fyai_error_check(ctx, !rc,
+					 err_out, "MCP %s response is too large", method);
 			response.data[response.len++] = ch;
 			response.data[response.len] = '\0';
 		}
 		if (!response.len)
 			continue;
 		doc = parse_json_string(ctx->transient_gb, response.data);
-		if (!fy_generic_is_mapping(doc)) {
-			fyai_error(ctx, "MCP %s returned invalid stdio JSON", method);
-			goto err;
-		}
+		fyai_error_check(ctx, fy_generic_is_mapping(doc), err_out,
+				 "MCP %s returned invalid stdio JSON", method);
 		/* Ignore asynchronous notifications while waiting for our response. */
 		if (fy_generic_is_invalid(fy_get(doc, "id", fy_invalid)))
 			continue;
 		if (fy_get(doc, "id", -1LL) != id)
 			continue;
 		error = fy_get(doc, "error", fy_invalid);
-		if (fy_generic_is_valid(error)) {
-			fyai_error(ctx, "MCP %s: %s", method,
-				   fy_get(error, "message", "server error"));
-			goto err;
-		}
-		free(response.data);
-		mcp_log_stdio_request(ctx, mcp, method, id, false, true, &start);
-		return fy_get(doc, "result", fy_invalid);
+		fyai_error_check(ctx, fy_generic_is_invalid(error), err_out,
+				 "MCP %s: %s", method,
+				 fy_get(error, "message", "server error"));
+		/* done */
+		break;
 	}
-err:
+
+	free(response.data);
+	response.data = NULL;
+
+	out = fy_get(doc, "result", fy_invalid);
+	fyai_error_check(ctx, fy_generic_is_valid(out), err_out,
+			 "MCP %s response has no result", method);
+	mcp_log_stdio_request(ctx, mcp, method, id, false, true, &start);
+
+	return out;
+
+err_out:
 	free(response.data);
 	mcp_log_stdio_request(ctx, mcp, method, id, notification, false, &start);
 	return fy_invalid;
@@ -411,23 +435,20 @@ static const char *mcp_server_auth_token(struct fyai_ctx *ctx,
 
 	if (fy_generic_is_invalid(ref))
 		return ctx->cfg->mcp_auth_token;
-	if (!fy_generic_is_mapping(ref)) {
-		fyai_error(ctx, "MCP auth_token must be a secret indirection mapping");
-		return NULL;
-	}
+	fyai_error_check(ctx, fy_generic_is_mapping(ref), err_out,
+			 "MCP auth_token must be a secret indirection mapping");
 	type = fy_get(ref, "type", "");
 	if (!strcmp(type, "auto"))
 		return NULL;
-	if (strcmp(type, "env")) {
-		fyai_error(ctx, "MCP auth_token has unsupported secret type '%s'", type);
-		return NULL;
-	}
+	fyai_error_check(ctx, !strcmp(type, "env"), err_out,
+			 "MCP auth_token has unsupported secret type '%s'", type);
 	value = fy_get(ref, "value", "");
 	token = *value ? getenv(value) : NULL;
-	if (!token || !*token)
-		fyai_error(ctx, "MCP auth_token environment variable '%s' is unset",
-			   value);
+	fyai_error_check(ctx, token && *token, err_out,
+			 "MCP auth_token environment variable '%s' is unset", value);
 	return token;
+err_out:
+	return NULL;
 }
 
 static int mcp_initialize(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
@@ -440,17 +461,24 @@ static int mcp_initialize(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 			"capabilities", fy_map_empty,
 			"clientInfo", fy_mapping("name", "fyai",
 						 "version", VERSION)), false);
-	if (fy_generic_is_invalid(result))
-		return -1;
+	fyai_error_check(ctx, fy_generic_is_valid(result), err_out,
+			 "MCP server '%s' initialization failed", mcp->name);
 	protocol = fy_get(result, "protocolVersion", "");
 	if (*protocol) {
 		protocol = fy_gb_intern_string(ctx->cfg->gb, protocol);
-		if (!protocol)
-			return -1;
+		fyai_error_check(ctx, protocol, err_out,
+				 "MCP server '%s' could not retain protocol version",
+				 mcp->name);
 		mcp->protocol_version = protocol;
 	}
-	return fy_generic_is_invalid(mcp_request(ctx, mcp,
-			"notifications/initialized", fy_map_empty, true)) ? -1 : 0;
+	result = mcp_request(ctx, mcp, "notifications/initialized",
+			     fy_map_empty, true);
+	fyai_error_check(ctx, fy_generic_is_valid(result), err_out,
+			 "MCP server '%s' initialization notification failed",
+			 mcp->name);
+	return 0;
+err_out:
+	return -1;
 }
 
 static int mcp_discover_tools(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
@@ -462,8 +490,8 @@ static int mcp_discover_tools(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 
 	do {
 		result = mcp_request(ctx, mcp, "tools/list", params, false);
-		if (fy_generic_is_invalid(result))
-			return -1;
+		fyai_error_check(ctx, fy_generic_is_valid(result), err_out,
+				 "MCP server '%s' tool discovery failed", mcp->name);
 		tools = fy_get(result, "tools", fy_seq_empty);
 		fy_foreach(tool, tools) {
 			tool_name = fy_get(tool, "name", "");
@@ -476,6 +504,9 @@ static int mcp_discover_tools(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 					"description", fy_get(tool, "description", ""),
 					"parameters", fy_get(tool, "inputSchema",
 							     fy_mapping("type", "object")))));
+			fyai_error_check(ctx, fy_generic_is_valid(*toolsp), err_out,
+					 "MCP server '%s' could not retain tool '%s'",
+					 mcp->name, tool_name);
 			count++;
 		}
 		cursor = fy_get(result, "nextCursor", "");
@@ -487,65 +518,77 @@ static int mcp_discover_tools(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 			"event", "discovery", "server", mcp->name,
 			"tools", count));
 	return 0;
+err_out:
+	return -1;
 }
 
 static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 			   fy_generic config)
 {
-	fy_generic args = fy_get(config, "args", fy_seq_empty);
-	fy_generic env = fy_get(config, "env", fy_invalid);
+	int inpipe[2] = { -1, -1 }, outpipe[2] = { -1, -1 };
+	fy_generic args, env;
 	fy_generic item, key;
-	const char *command = fy_get(config, "command", "");
-	const char *cwd = fy_get(config, "cwd", "");
+	const char *command, *cwd, *name, *value;
 	char **argv;
-	int inpipe[2], outpipe[2];
 	pid_t pid;
-	size_t i = 0, argc = fy_generic_is_sequence(args) ? fy_len(args) : 0;
+	size_t i, argc;
+	int rc;
 
-	if (!*command) {
-		fyai_error(ctx, "MCP stdio server '%s' has no command", mcp->name);
-		return -1;
-	}
-	argv = calloc(argc + 2, sizeof(*argv));
-	if (!argv)
-		return -1;
+	args = fy_get(config, "args", fy_seq_empty);
+	env = fy_get(config, "env", fy_invalid);
+	command = fy_get(config, "command", "");
+	cwd = fy_get(config, "cwd", "");
+	fyai_error_check(ctx, fy_generic_is_sequence(args), err_out,
+			 "MCP stdio server '%s' args must be a sequence", mcp->name);
+	fyai_error_check(ctx, fy_generic_is_invalid(env) ||
+			 fy_generic_is_mapping(env), err_out,
+			 "MCP stdio server '%s' env must be a mapping", mcp->name);
+
+	argc = fy_len(args);
+	fyai_error_check(ctx, *command, err_out,
+			 "MCP stdio server '%s' has no command", mcp->name);
+
+	argv = alloca((argc + 2) * sizeof(*argv));
+
+	i = 0;
 	argv[i++] = (char *)command;
 	fy_foreach(item, args)
-		argv[i++] = (char *)fy_cast(item, "");
-	if (pipe(inpipe)) {
-		free(argv);
-		return -1;
-	}
-	if (pipe(outpipe)) {
-		close(inpipe[0]);
-		close(inpipe[1]);
-		free(argv);
-		return -1;
-	}
+		argv[i++] = fy_castp(&item, "");
+	argv[i] = NULL;
+
+	rc = pipe(inpipe);
+	if (!rc)
+		rc = pipe(outpipe);
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP stdio server '%s' could not create pipes: %s",
+			 mcp->name, strerror(errno));
+
 	pid = fork();
-	if (pid < 0) {
-		close(inpipe[0]);
-		close(inpipe[1]);
-		close(outpipe[0]);
-		close(outpipe[1]);
-		free(argv);
-		return -1;
-	}
+	fyai_error_check(ctx, pid >= 0, err_out,
+			 "MCP stdio server '%s' could not fork: %s",
+			 mcp->name, strerror(errno));
+
 	if (!pid) {
 		signal(SIGPIPE, SIG_DFL);
 		close(inpipe[1]);
 		close(outpipe[0]);
+		inpipe[1] = outpipe[0] = -1;
+
 		if (dup2(inpipe[0], STDIN_FILENO) < 0 ||
 		    dup2(outpipe[1], STDOUT_FILENO) < 0)
 			_exit(126);
+
 		close(inpipe[0]);
 		close(outpipe[1]);
+		inpipe[0] = outpipe[1] = -1;
+
 		if (*cwd && chdir(cwd))
 			_exit(126);
+
 		if (fy_generic_is_mapping(env)) {
 			fy_foreach(key, env) {
-				const char *name = fy_cast(key, "");
-				const char *value = fy_get(env, key, "");
+				name = fy_castp(&key, "");
+				value = fy_get(env, key, "");
 
 				if (setenv(name, value, 1))
 					_exit(126);
@@ -554,57 +597,67 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 		execvp(command, argv);
 		_exit(127);
 	}
-	free(argv);
 	signal(SIGPIPE, SIG_IGN);
 	close(inpipe[0]);
 	close(outpipe[1]);
+	inpipe[0] = outpipe[1] = -1;
+
 	mcp->pid = pid;
 	mcp->stdin_fd = inpipe[1];
 	mcp->stdout_fd = outpipe[0];
 	return 0;
+
+err_out:
+	for (i = 0; i < ARRAY_SIZE(inpipe); i++) {
+		if (inpipe[i] >= 0)
+			close(inpipe[i]);
+	}
+	for (i = 0; i < ARRAY_SIZE(outpipe); i++) {
+		if (outpipe[i] >= 0)
+			close(outpipe[i]);
+	}
+	return -1;
 }
 
 static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 			  fy_generic config, fy_generic *toolsp)
 {
-	struct fyai_mcp_ctx *mcp, **tail;
+	struct fyai_mcp_ctx *mcp = NULL, **tail, *prev;
+	fy_generic auth_ref;
 	const char *endpoint, *protocol, *token, *transport, *command;
 	bool enabled;
+	int rc;
 
 	enabled = fy_get(config, "enabled", true);
 	if (!enabled)
 		return 0;
-	if (!mcp_server_name_valid(server_name)) {
-		fyai_error(ctx, "invalid MCP server name '%s'", server_name);
-		return -1;
-	}
+
+	fyai_error_check(ctx, mcp_server_name_valid(server_name), err_out,
+			 "invalid MCP server name '%s'", server_name);
 	command = fy_get(config, "command", "");
 	transport = fy_get(config, "transport", *command ? "stdio" :
 						       "streamable-http");
-	if (strcmp(transport, "stdio") && strcmp(transport, "streamable-http") &&
-	    strcmp(transport, "http")) {
-		fyai_error(ctx, "MCP server '%s' has unknown transport '%s'",
-			   server_name, transport);
-		return -1;
-	}
+	fyai_error_check(ctx, !strcmp(transport, "stdio") ||
+			 !strcmp(transport, "streamable-http") ||
+			 !strcmp(transport, "http"), err_out,
+			 "MCP server '%s' has unknown transport '%s'",
+			 server_name, transport);
 	endpoint = fy_get(config, "endpoint", "");
-	if (strcmp(transport, "stdio") && !*endpoint) {
-		fyai_error(ctx, "MCP HTTP server '%s' has no endpoint", server_name);
-		return -1;
-	}
+	fyai_error_check(ctx, !strcmp(transport, "stdio") || *endpoint, err_out,
+			 "MCP HTTP server '%s' has no endpoint", server_name);
 	protocol = fy_get(config, "protocol_version",
 			  ctx->cfg->mcp_protocol_version);
+	auth_ref = fy_get(config, "auth_token", fy_invalid);
 	token = !strcmp(transport, "stdio") ? NULL :
 		mcp_server_auth_token(ctx, config);
-	if (strcmp(transport, "stdio") &&
-	    fy_generic_is_valid(fy_get(config, "auth_token", fy_invalid)) &&
-	    !token && !fy_equal(fy_get(fy_get(config, "auth_token"), "type"),
-				 "auto"))
-		return -1;
+	fyai_error_check(ctx, !strcmp(transport, "stdio") ||
+			 fy_generic_is_invalid(auth_ref) || token ||
+			 fy_equal(fy_get(auth_ref, "type"), "auto"), err_out,
+			 "MCP server '%s' could not resolve auth token", server_name);
 
 	mcp = calloc(1, sizeof(*mcp));
-	if (!mcp)
-		return -1;
+	fyai_error_check(ctx, mcp, err_out,
+			 "MCP server '%s' could not allocate context", server_name);
 	mcp->pid = -1;
 	mcp->stdin_fd = -1;
 	mcp->stdout_fd = -1;
@@ -617,40 +670,51 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 						 protocol);
 	if (token)
 		mcp->auth_token = fy_gb_intern_string(ctx->cfg->gb, token);
-	mcp->timeout = (int)fy_get(config, "timeout",
-				   (long long)ctx->cfg->mcp_timeout);
+	mcp->timeout = fy_get(config, "timeout", ctx->cfg->mcp_timeout);
 	if (mcp->timeout <= 0)
 		mcp->timeout = ctx->cfg->mcp_timeout;
+
 	if (mcp->transport == MCP_TRANSPORT_HTTP)
 		mcp->curl = curl_easy_init();
-	if (!mcp->name ||
-	    (mcp->transport == MCP_TRANSPORT_HTTP &&
-	     (!mcp->endpoint || !mcp->curl)) || !mcp->protocol_version ||
-	    (token && !mcp->auth_token))
-		goto err;
-	if (mcp->transport == MCP_TRANSPORT_STDIO &&
-	    mcp_stdio_spawn(ctx, mcp, config))
-		goto err;
+
+	fyai_error_check(ctx, mcp->name && mcp->protocol_version &&
+			 (!token || mcp->auth_token) &&
+			 (mcp->transport != MCP_TRANSPORT_HTTP ||
+			  (mcp->endpoint && mcp->curl)), err_out,
+			 "MCP server '%s' could not initialize context", server_name);
+
+	rc = mcp->transport == MCP_TRANSPORT_STDIO ?
+		mcp_stdio_spawn(ctx, mcp, config) : 0;
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP stdio server '%s' could not start", server_name);
+
 	tail = &ctx->mcp;
 	while (*tail)
 		tail = &(*tail)->next;
 	*tail = mcp;
+
 	if (ctx->cfg->mcp_logging)
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "connect", "server", mcp->name,
 			"transport", mcp->transport == MCP_TRANSPORT_STDIO ?
 				"stdio" : "streamable-http"));
-	if (mcp_initialize(ctx, mcp))
-		goto err;
-	if (mcp_discover_tools(ctx, mcp, toolsp))
-		goto err;
+
+	rc = mcp_initialize(ctx, mcp);
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP server '%s' initialization failed", server_name);
+
+	rc = mcp_discover_tools(ctx, mcp, toolsp);
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP server '%s' discovery failed", server_name);
+
 	return 0;
-err:
+
+err_out:
+	if (!mcp)
+		return -1;
 	if (ctx->mcp == mcp)
 		ctx->mcp = mcp->next;
 	else {
-		struct fyai_mcp_ctx *prev;
-
 		for (prev = ctx->mcp; prev && prev->next != mcp;
 		     prev = prev->next)
 			;
@@ -669,6 +733,7 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx)
 	fy_generic servers = ctx->cfg->mcp_servers;
 	fy_generic key, config, out = fy_seq_empty;
 	const char *name;
+	int rc;
 
 	if (ctx->mcp && fy_generic_is_valid(ctx->mcp_tools)) {
 		if (ctx->cfg->mcp_logging)
@@ -681,33 +746,35 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx)
 	ctx->mcp_tools = fy_invalid;
 	if (fy_generic_is_mapping(servers) && fy_len(servers)) {
 		fy_foreach(key, servers) {
-			name = fy_cast(key, "");
+			name = fy_castp(&key, "");
 			config = fy_get(servers, key, fy_invalid);
-			if (!fy_generic_is_mapping(config)) {
-				fyai_error(ctx, "MCP server '%s' configuration is not a mapping",
-					   name);
-				goto err;
-			}
-			if (mcp_add_server(ctx, name, config, &out))
-				goto err;
+			fyai_error_check(ctx, fy_generic_is_mapping(config), err_out,
+					 "MCP server '%s' configuration is not a mapping",
+					 name);
+			rc = mcp_add_server(ctx, name, config, &out);
+			fyai_error_check(ctx, !rc,
+					 err_out, "MCP server '%s' setup failed", name);
 		}
 	} else {
-		if (!ctx->cfg->mcp_endpoint || !*ctx->cfg->mcp_endpoint) {
-			fyai_error(ctx, "MCP is enabled but no servers are configured");
-			goto err;
-		}
+		fyai_error_check(ctx, ctx->cfg->mcp_endpoint &&
+				 *ctx->cfg->mcp_endpoint, err_out,
+				 "MCP is enabled but no servers are configured");
 		config = fy_mapping(ctx->transient_gb,
 			"endpoint", ctx->cfg->mcp_endpoint,
 			"protocol_version", ctx->cfg->mcp_protocol_version,
 			"timeout", ctx->cfg->mcp_timeout);
-		if (mcp_add_server(ctx, "default", config, &out))
-			goto err;
+
+		rc = mcp_add_server(ctx, "default", config, &out);
+		fyai_error_check(ctx, !rc,
+				 err_out, "default MCP server setup failed");
 	}
+
 	ctx->mcp_tools = fy_gb_internalize(ctx->gb, out);
-	if (fy_generic_is_invalid(ctx->mcp_tools))
-		goto err;
+	fyai_error_check(ctx, fy_generic_is_valid(ctx->mcp_tools), err_out,
+			 "could not retain MCP tool definitions");
+
 	return 0;
-err:
+err_out:
 	fyai_mcp_cleanup(ctx);
 	ctx->mcp_tools = fy_invalid;
 	return -1;
@@ -725,6 +792,7 @@ fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
 	sep = strstr(server_name, "__");
 	if (!sep)
 		return fy_value(ctx->transient_gb, "tool error: invalid MCP tool name");
+
 	server_len = (size_t)(sep - server_name);
 	tool_name = sep + 2;
 	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
@@ -733,14 +801,18 @@ fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
 			break;
 	if (!mcp)
 		return fy_value(ctx->transient_gb, "tool error: MCP server not found");
+
 	if (ctx->cfg->mcp_logging)
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "tool_call", "server", mcp->name,
 			"tool", tool_name));
+
 	result = mcp_request(ctx, mcp, "tools/call", fy_mapping(ctx->transient_gb,
 			"name", tool_name, "arguments", args), false);
+
 	if (fy_generic_is_invalid(result))
 		return fy_value(ctx->transient_gb, "tool error: MCP call failed");
+
 	content = fy_get(result, "content", fy_seq_empty);
 	output = fy_seq_empty;
 	fy_foreach(item, content) {
@@ -750,8 +822,10 @@ fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
 	}
 	if (fy_len(output) == 1)
 		return fy_get(output, 0);
+
 	if (fy_len(output))
 		return output;
+
 	return fy_gb_internalize(ctx->transient_gb, result);
 }
 
@@ -765,6 +839,7 @@ static void mcp_delete_session(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 
 	if (!mcp->curl || !mcp->session_id)
 		return;
+
 	version = make_header("MCP-Protocol-Version: ", mcp->protocol_version);
 	session = make_header("Mcp-Session-Id: ", mcp->session_id);
 	if (version)
