@@ -20,8 +20,8 @@ models:
   open_source: false
   arena:
     rank: 1
-    elo: 1508.5103421348297
-    votes: 4350
+    elo: 1507.1920430768187
+    votes: 8819
   agents:
   - claude_code
 - name: claude-haiku-4-5-20251001
@@ -42,9 +42,9 @@ models:
   - thinking
   open_source: false
   arena:
-    rank: 108
-    elo: 1411.451532163971
-    votes: 100212
+    rank: 114
+    elo: 1412.0811547208177
+    votes: 106107
   agents:
   - claude_code
 - name: claude-opus-4-8
@@ -67,9 +67,9 @@ models:
   - thinking
   open_source: false
   arena:
-    rank: 13
-    elo: 1476.5131110224881
-    votes: 22687
+    rank: 17
+    elo: 1475.5891117510726
+    votes: 29233
   agents:
   - claude_code
 - name: claude-sonnet-5
@@ -105,9 +105,9 @@ models:
   - tool_calls
   open_source: true
   arena:
-    rank: 66
-    elo: 1435.738691173074
-    votes: 36817
+    rank: 72
+    elo: 1437.5531030028544
+    votes: 42807
 - name: deepseek-v4-pro
   display_name: DeepSeek-V4-Pro
   context_window: 1000000
@@ -120,9 +120,9 @@ models:
   - tool_calls
   open_source: true
   arena:
-    rank: 38
-    elo: 1457.0762660237153
-    votes: 37116
+    rank: 43
+    elo: 1457.588209720437
+    votes: 43082
 - name: gemini-3.1-flash-lite
   display_name: 'Google: Gemini 3.1 Flash Lite'
   context_window: 1048576
@@ -172,9 +172,9 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 7
-    elo: 1485.8038850942223
-    votes: 73099
+    rank: 11
+    elo: 1485.4035546382927
+    votes: 81473
 - name: gemini-3.5-flash
   display_name: 'Google: Gemini 3.5 Flash'
   context_window: 1048576
@@ -199,14 +199,10 @@ models:
   - tools
   - top_p
   open_source: false
-  arena:
-    rank: 11
-    elo: 1479.4578740598904
-    votes: 15261
 - name: glm-5.2
   display_name: 'Z.ai: GLM 5.2'
   context_window: 1048576
-  max_output_tokens: 101376
+  max_output_tokens: 131072
   modalities:
   - text
   capabilities:
@@ -297,9 +293,9 @@ models:
   - tools
   open_source: false
   arena:
-    rank: 16
-    elo: 1474.618866623038
-    votes: 38470
+    rank: 19
+    elo: 1474.8691930626142
+    votes: 44872
   agents:
   - codex
 - name: gpt-5.5-pro
@@ -433,9 +429,39 @@ models:
   open_source: false
   agents:
   - codex
+- name: grok-4.5
+  display_name: 'xAI: Grok 4.5'
+  context_window: 500000
+  modalities:
+  - text
+  - image
+  - file
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logprobs
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_logprobs
+  - top_p
+  open_source: false
+  arena:
+    rank: 34
+    elo: 1465.3853128340502
+    votes: 5493
 - name: hy3
   display_name: 'Tencent: Hy3'
   context_window: 262144
+  max_output_tokens: 131072
   modalities:
   - text
   capabilities:
@@ -481,6 +507,34 @@ models:
   - top_k
   - top_p
   open_source: false
+- name: inkling
+  display_name: 'Thinking Machines: Inkling'
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  - audio
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - stop
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_p
+  open_source: false
+  arena:
+    rank: 67
+    elo: 1441.2147983870057
+    votes: 1543
 - name: kimi-k2.7-code
   display_name: 'MoonshotAI: Kimi K2.7 Code'
   context_window: 262144
@@ -510,9 +564,33 @@ models:
   - top_logprobs
   - top_p
   open_source: true
+- name: kimi-k3
+  display_name: 'MoonshotAI: Kimi K3'
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - stop
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: true
+  arena:
+    rank: 9
+    elo: 1485.7599192427713
+    votes: 3024
 - name: mimo-v2.5
   display_name: 'Xiaomi: MiMo-V2.5'
   context_window: 1048576
+  max_output_tokens: 131072
   modalities:
   - text
   - audio
@@ -540,13 +618,13 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 71
-    elo: 1433.1801233003314
-    votes: 35255
+    rank: 78
+    elo: 1432.4702435781712
+    votes: 41017
 - name: minimax-m3
   display_name: 'MiniMax: MiniMax M3'
   context_window: 1048576
-  max_output_tokens: 131072
+  max_output_tokens: 512000
   modalities:
   - text
   - image
@@ -573,9 +651,9 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 54
-    elo: 1446.5436765542318
-    votes: 19761
+    rank: 60
+    elo: 1444.7708419838632
+    votes: 25824
 - name: mistral-small-2603
   display_name: 'Mistral: Mistral Small 4'
   context_window: 262144
@@ -599,10 +677,36 @@ models:
   - top_k
   - top_p
   open_source: true
+- name: muse-spark-1.1
+  display_name: 'Meta: Muse Spark 1.1'
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  - video
+  - file
+  - audio
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_p
+  open_source: false
+  arena:
+    rank: 6
+    elo: 1493.4521666111732
+    votes: 5729
 - name: nemotron-3-ultra-550b-a55b
   display_name: 'NVIDIA: Nemotron 3 Ultra'
   context_window: 1000000
-  max_output_tokens: 16384
   modalities:
   - text
   capabilities:
@@ -644,7 +748,8 @@ models:
   open_source: true
 - name: qwen3.5-397b-a17b
   display_name: 'Qwen: Qwen3.5 397B A17B'
-  context_window: 256000
+  context_window: 262144
+  max_output_tokens: 65536
   modalities:
   - text
   - image
@@ -671,9 +776,9 @@ models:
   - top_p
   open_source: true
   arena:
-    rank: 60
-    elo: 1442.970241764861
-    votes: 50832
+    rank: 66
+    elo: 1441.5243260790949
+    votes: 56154
 providers:
 - name: anthropic
   root_url: https://api.anthropic.com
@@ -922,19 +1027,17 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.54
-      output: 1.76
+      input: 0.9618
+      output: 3.0228
       extra:
-        cache_read: 0.1
+        cache_read: 0.17862
   - canonical_id: qwen3.5-397b-a17b
     provider_model_id: qwen/qwen3.5-397b-a17b
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.385
-      output: 2.45
-      extra:
-        cache_read: 0.111
+      input: 0.39
+      output: 2.34
   - canonical_id: mistral-small-2603
     provider_model_id: mistralai/mistral-small-2603
     pricing:
@@ -949,19 +1052,28 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.72
-      output: 3.49
+      input: 0.85
+      output: 3.8
       extra:
-        cache_read: 0.159
+        cache_read: 0.17
+  - canonical_id: kimi-k3
+    provider_model_id: moonshotai/kimi-k3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 3.0
+      output: 15.0
+      extra:
+        cache_read: 0.3
   - canonical_id: hy3
     provider_model_id: tencent/hy3
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.14
-      output: 0.58
+      input: 0.2
+      output: 0.8
       extra:
-        cache_read: 0.035
+        cache_read: 0.05
   - canonical_id: hy3:free
     provider_model_id: tencent/hy3:free
     pricing:
@@ -974,10 +1086,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.105
+      input: 0.14
       output: 0.28
       extra:
-        cache_read: 0.028
+        cache_read: 0.0028
   - canonical_id: minimax-m3
     provider_model_id: minimax/minimax-m3
     pricing:
@@ -992,10 +1104,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.5
-      output: 2.2
+      input: 0.6
+      output: 3.6
       extra:
-        cache_read: 0.1
+        cache_read: 0.2
   - canonical_id: nemotron-3-ultra-550b-a55b:free
     provider_model_id: nvidia/nemotron-3-ultra-550b-a55b:free
     pricing:
@@ -1003,6 +1115,35 @@ providers:
       unit: per_million_tokens
       input: 0.0
       output: 0.0
+  - canonical_id: inkling
+    provider_model_id: thinkingmachines/inkling
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.0
+      output: 4.05
+      extra:
+        cache_read: 0.17
+  - canonical_id: muse-spark-1.1
+    provider_model_id: meta/muse-spark-1.1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.25
+      output: 4.25
+      extra:
+        cache_read: 0.15
+        web_search: 2500.0
+  - canonical_id: grok-4.5
+    provider_model_id: x-ai/grok-4.5
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 6.0
+      extra:
+        cache_read: 0.3
+        web_search: 5000.0
 agents:
 - name: claude_code
   developer: Anthropic
