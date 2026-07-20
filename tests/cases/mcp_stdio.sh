@@ -16,11 +16,13 @@ assert_status 0
 assert_stdout_contains "Stdio MCP completed."
 
 "$PYTHON" - "$STDIO_LOG" "$TEST_DIR" <<'PY'
-import json, sys
+import json, os, sys
 rows = [json.loads(line) for line in open(sys.argv[1])]
 assert [r["request"]["method"] for r in rows[:-1]] == [
     "initialize", "notifications/initialized", "tools/list", "tools/call"]
-assert rows[0]["cwd"] == sys.argv[2]
+# compare resolved paths: on macOS the sandbox lives under /var/folders, which
+# is a symlink to /private/var/folders, so the child reports the resolved form
+assert os.path.realpath(rows[0]["cwd"]) == os.path.realpath(sys.argv[2])
 assert rows[0]["env"] == "configured"
 assert rows[-1] == {"eof": True}
 PY
