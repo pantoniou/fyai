@@ -204,10 +204,13 @@ Or disable it for the active interactive session with:
 
 ## Current scope and implementation priorities
 
-Named Streamable HTTP servers and text tool results are supported. Synchronous
-lifecycle handling includes paginated tool discovery, bounded retries for
-idempotent initialization/discovery requests, reinitialization and request
-retry after an expired-session HTTP 404, and session deletion at shutdown.
+Named Streamable HTTP and local stdio servers and text tool results are
+supported. Synchronous HTTP lifecycle handling includes paginated tool
+discovery, bounded retries for idempotent initialization/discovery requests,
+reinitialization and request retry after an expired-session HTTP 404, and
+session deletion at shutdown. Stdio servers are persistent children configured
+with `command`, optional `args`, `env`, and `cwd`; each JSON-RPC message occupies
+one line on stdin/stdout, while server diagnostics may use inherited stderr.
 
 MCP-specific approval policy is intentionally deferred. Approval modes,
 allow/deny rules, and sandbox grants will be added as part of a later unified
@@ -219,10 +222,9 @@ parallel execution.
 
 The remaining MCP implementation order is:
 
-1. Add the stdio transport for locally launched servers.
-2. Handle `isError`, structured output, resource links, and non-text tool
+1. Handle `isError`, structured output, resource links, and non-text tool
    content.
-3. Add arbitrary HTTP headers and native MCP OAuth authentication. This is a
+2. Add arbitrary HTTP headers and native MCP OAuth authentication. This is a
    future change: reuse the existing OpenAI subscription OAuth primitives for
    PKCE, loopback/manual login, refresh, locking, and secure storage, while
    adding MCP protected-resource and authorization-server discovery,
@@ -231,6 +233,6 @@ The remaining MCP implementation order is:
    Linear, Notion, Atlassian Rovo, and Stripe; Slack additionally requires a
    configured confidential client. Until then, use bearer-token/PAT
    authentication where a server supports it.
-4. Expose MCP resources and prompts.
-5. Load tool schemas lazily when many servers are configured and extend
+3. Expose MCP resources and prompts.
+4. Load tool schemas lazily when many servers are configured and extend
    `/mcp` with server management and detailed status.

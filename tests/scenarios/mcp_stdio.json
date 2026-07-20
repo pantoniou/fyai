@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_stdio","type":"function","function":{"name":"mcp__local__echo","arguments":"{\"text\":\"hello\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":"Stdio MCP completed."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":4,"total_tokens":24}}
+    }
+  ]
+}

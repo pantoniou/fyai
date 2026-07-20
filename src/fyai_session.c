@@ -1299,7 +1299,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic key, server;
-	const char *name;
+	const char *name, *command;
 
 	if (!arg || !*arg || !strcmp(arg, "show")) {
 		printf("mcp: enabled=%s protocol=%s timeout=%d\n",
@@ -1311,9 +1311,17 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 			fy_foreach(key, cfg->mcp_servers) {
 				name = fy_cast(key, "");
 				server = fy_get(cfg->mcp_servers, key, fy_invalid);
-				printf("  %s: enabled=%s endpoint=%s\n", name,
-					fy_get(server, "enabled", true) ? "true" : "false",
-					fy_get(server, "endpoint", "(none)"));
+				command = fy_get(server, "command", "");
+				if (*command)
+					printf("  %s: enabled=%s transport=stdio command=%s\n",
+						name, fy_get(server, "enabled", true) ?
+						"true" : "false",
+						command);
+				else
+					printf("  %s: enabled=%s transport=http endpoint=%s\n",
+						name, fy_get(server, "enabled", true) ?
+						"true" : "false",
+						fy_get(server, "endpoint", "(none)"));
 			}
 		} else {
 			printf("  default: endpoint=%s\n",

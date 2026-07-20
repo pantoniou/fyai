@@ -195,8 +195,9 @@ mcp:
   auth_token: { type: env, value: MCP_API_KEY }
   protocol_version: "2024-11-05"
   timeout: 30
-  # Named Streamable HTTP servers. Per-server values override the group
-  # protocol version, timeout and auth token; disabled entries are skipped.
+  # Named Streamable HTTP or local stdio servers. Per-server values override
+  # the group protocol version, timeout and auth token; disabled entries are
+  # skipped.
   # Tool names are exposed as mcp__<server>__<tool>.
   servers: {}
   # servers:
@@ -205,3 +206,9 @@ mcp:
   #     auth_token: { type: env, value: GITHUB_TOKEN }
   #     enabled: true
   #     timeout: 30
+  #   local:
+  #     transport: stdio
+  #     command: npx
+  #     args: [-y, "@modelcontextprotocol/server-filesystem", .]
+  #     env: { LOG_LEVEL: warn }
+  #     cwd: .

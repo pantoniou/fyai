@@ -12,9 +12,14 @@
 #endif
 
 #include <ctype.h>
+#include <errno.h>
+#include <poll.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "fyai_log.h"
 #include "fyai_tools.h"
@@ -22,9 +27,18 @@
 
 #define MCP_PREFIX "mcp__"
 
+enum mcp_transport {
+	MCP_TRANSPORT_HTTP,
+	MCP_TRANSPORT_STDIO,
+};
+
 struct fyai_mcp_ctx {
 	struct fyai_mcp_ctx *next;
+	enum mcp_transport transport;
 	CURL *curl;
+	pid_t pid;
+	int stdin_fd;
+	int stdout_fd;
 	const char *session_id;
 	long long request_id;
 	const char *name;
@@ -62,6 +76,7 @@ static size_t mcp_header(void *ptr, size_t size, size_t nmemb, void *userdata)
 }
 
 static int mcp_initialize(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
+static void mcp_stdio_stop(struct fyai_mcp_ctx *mcp);
 
 static bool mcp_transient_status(CURLcode rc, long status)
 {
@@ -76,7 +91,7 @@ static bool mcp_idempotent_method(const char *method)
 	return !strcmp(method, "initialize") || !strcmp(method, "tools/list");
 }
 
-static fy_generic mcp_request_once(struct fyai_ctx *ctx,
+static fy_generic mcp_http_request_once(struct fyai_ctx *ctx,
 				   struct fyai_mcp_ctx *mcp,
 				   const char *method, fy_generic params,
 				   bool notification, long long id,
@@ -194,6 +209,131 @@ static fy_generic mcp_request_once(struct fyai_ctx *ctx,
 	return fy_get(doc, "result", fy_invalid);
 }
 
+static int mcp_write_all(int fd, const char *data, size_t len)
+{
+	ssize_t n;
+
+	while (len) {
+		n = write(fd, data, len);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+		data += n;
+		len -= (size_t)n;
+	}
+	return 0;
+}
+
+static void mcp_log_stdio_request(struct fyai_ctx *ctx,
+				  struct fyai_mcp_ctx *mcp,
+				  const char *method, long long id,
+				  bool notification, bool success,
+				  const struct timespec *start)
+{
+	struct timespec end;
+	double elapsed_ms;
+
+	if (!ctx->cfg->mcp_logging)
+		return;
+	clock_gettime(CLOCK_MONOTONIC, &end);
+	elapsed_ms = (double)(end.tv_sec - start->tv_sec) * 1000.0 +
+		(double)(end.tv_nsec - start->tv_nsec) / 1000000.0;
+	(void)fyai_log_generic(ctx, "mcp", fy_null_filtered_mapping(
+		"event", "request", "server", mcp->name,
+		"transport", "stdio", "method", method,
+		"id", notification ? fy_null : fy_value(id),
+		"notification", notification, "success", success,
+		"elapsed_ms", elapsed_ms));
+}
+
+static fy_generic mcp_stdio_request_once(struct fyai_ctx *ctx,
+					 struct fyai_mcp_ctx *mcp,
+					 const char *method, fy_generic params,
+					 bool notification, long long id)
+{
+	struct response_buffer response = {};
+	struct pollfd pfd = { .fd = mcp->stdout_fd, .events = POLLIN };
+	fy_generic request, doc, error;
+	const char *body;
+	char ch;
+	ssize_t n;
+	int rc;
+	struct timespec start;
+
+	if (ctx->cfg->mcp_logging)
+		clock_gettime(CLOCK_MONOTONIC, &start);
+
+	request = fy_mapping(ctx->transient_gb, "jsonrpc", "2.0",
+			     "method", method, "params", params);
+	if (!notification)
+		request = fy_assoc(ctx->transient_gb, request, "id", id);
+	body = emit_request_body(ctx->transient_gb, request);
+	if (!body || mcp_write_all(mcp->stdin_fd, body, strlen(body)) ||
+	    mcp_write_all(mcp->stdin_fd, "\n", 1)) {
+		fyai_error(ctx, "MCP %s stdio write failed", method);
+		mcp_log_stdio_request(ctx, mcp, method, id, notification, false,
+				      &start);
+		return fy_invalid;
+	}
+	if (notification) {
+		mcp_log_stdio_request(ctx, mcp, method, id, true, true, &start);
+		return fy_null;
+	}
+
+	for (;;) {
+		response.len = 0;
+		if (response.data)
+			response.data[0] = '\0';
+		for (;;) {
+			rc = poll(&pfd, 1, mcp->timeout * 1000);
+			if (rc < 0 && errno == EINTR)
+				continue;
+			if (rc <= 0 || !(pfd.revents & (POLLIN | POLLHUP))) {
+				fyai_error(ctx, "MCP %s stdio response timed out", method);
+				goto err;
+			}
+			n = read(mcp->stdout_fd, &ch, 1);
+			if (n <= 0) {
+				fyai_error(ctx, "MCP %s stdio server closed", method);
+				goto err;
+			}
+			if (ch == '\n')
+				break;
+			if (response_buffer_reserve(&response, response.len + 2))
+				goto err;
+			response.data[response.len++] = ch;
+			response.data[response.len] = '\0';
+		}
+		if (!response.len)
+			continue;
+		doc = parse_json_string(ctx->transient_gb, response.data);
+		if (!fy_generic_is_mapping(doc)) {
+			fyai_error(ctx, "MCP %s returned invalid stdio JSON", method);
+			goto err;
+		}
+		/* Ignore asynchronous notifications while waiting for our response. */
+		if (fy_generic_is_invalid(fy_get(doc, "id", fy_invalid)))
+			continue;
+		if (fy_get(doc, "id", -1LL) != id)
+			continue;
+		error = fy_get(doc, "error", fy_invalid);
+		if (fy_generic_is_valid(error)) {
+			fyai_error(ctx, "MCP %s: %s", method,
+				   fy_get(error, "message", "server error"));
+			goto err;
+		}
+		free(response.data);
+		mcp_log_stdio_request(ctx, mcp, method, id, false, true, &start);
+		return fy_get(doc, "result", fy_invalid);
+	}
+err:
+	free(response.data);
+	mcp_log_stdio_request(ctx, mcp, method, id, notification, false, &start);
+	return fy_invalid;
+}
+
 static fy_generic mcp_request(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 			      const char *method,
 			      fy_generic params, bool notification)
@@ -205,8 +345,12 @@ static fy_generic mcp_request(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 	struct timespec delay = { .tv_nsec = 100000000 };
 	unsigned int attempt;
 
+	if (mcp->transport == MCP_TRANSPORT_STDIO)
+		return mcp_stdio_request_once(ctx, mcp, method, params,
+					      notification, id);
+
 	for (attempt = 0; attempt < 3; attempt++) {
-		result = mcp_request_once(ctx, mcp, method, params, notification,
+		result = mcp_http_request_once(ctx, mcp, method, params, notification,
 					  id, &rc, &status);
 		if (fy_generic_is_valid(result))
 			return result;
@@ -216,7 +360,7 @@ static fy_generic mcp_request(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 			mcp->recovering = true;
 			if (!mcp_initialize(ctx, mcp)) {
 				mcp->recovering = false;
-				result = mcp_request_once(ctx, mcp, method, params,
+				result = mcp_http_request_once(ctx, mcp, method, params,
 						notification, id, &rc, &status);
 				if (fy_generic_is_valid(result))
 					return result;
@@ -345,11 +489,86 @@ static int mcp_discover_tools(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 	return 0;
 }
 
+static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
+			   fy_generic config)
+{
+	fy_generic args = fy_get(config, "args", fy_seq_empty);
+	fy_generic env = fy_get(config, "env", fy_invalid);
+	fy_generic item, key;
+	const char *command = fy_get(config, "command", "");
+	const char *cwd = fy_get(config, "cwd", "");
+	char **argv;
+	int inpipe[2], outpipe[2];
+	pid_t pid;
+	size_t i = 0, argc = fy_generic_is_sequence(args) ? fy_len(args) : 0;
+
+	if (!*command) {
+		fyai_error(ctx, "MCP stdio server '%s' has no command", mcp->name);
+		return -1;
+	}
+	argv = calloc(argc + 2, sizeof(*argv));
+	if (!argv)
+		return -1;
+	argv[i++] = (char *)command;
+	fy_foreach(item, args)
+		argv[i++] = (char *)fy_cast(item, "");
+	if (pipe(inpipe)) {
+		free(argv);
+		return -1;
+	}
+	if (pipe(outpipe)) {
+		close(inpipe[0]);
+		close(inpipe[1]);
+		free(argv);
+		return -1;
+	}
+	pid = fork();
+	if (pid < 0) {
+		close(inpipe[0]);
+		close(inpipe[1]);
+		close(outpipe[0]);
+		close(outpipe[1]);
+		free(argv);
+		return -1;
+	}
+	if (!pid) {
+		signal(SIGPIPE, SIG_DFL);
+		close(inpipe[1]);
+		close(outpipe[0]);
+		if (dup2(inpipe[0], STDIN_FILENO) < 0 ||
+		    dup2(outpipe[1], STDOUT_FILENO) < 0)
+			_exit(126);
+		close(inpipe[0]);
+		close(outpipe[1]);
+		if (*cwd && chdir(cwd))
+			_exit(126);
+		if (fy_generic_is_mapping(env)) {
+			fy_foreach(key, env) {
+				const char *name = fy_cast(key, "");
+				const char *value = fy_get(env, key, "");
+
+				if (setenv(name, value, 1))
+					_exit(126);
+			}
+		}
+		execvp(command, argv);
+		_exit(127);
+	}
+	free(argv);
+	signal(SIGPIPE, SIG_IGN);
+	close(inpipe[0]);
+	close(outpipe[1]);
+	mcp->pid = pid;
+	mcp->stdin_fd = inpipe[1];
+	mcp->stdout_fd = outpipe[0];
+	return 0;
+}
+
 static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 			  fy_generic config, fy_generic *toolsp)
 {
 	struct fyai_mcp_ctx *mcp, **tail;
-	const char *endpoint, *protocol, *token;
+	const char *endpoint, *protocol, *token, *transport, *command;
 	bool enabled;
 
 	enabled = fy_get(config, "enabled", true);
@@ -359,15 +578,26 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 		fyai_error(ctx, "invalid MCP server name '%s'", server_name);
 		return -1;
 	}
+	command = fy_get(config, "command", "");
+	transport = fy_get(config, "transport", *command ? "stdio" :
+						       "streamable-http");
+	if (strcmp(transport, "stdio") && strcmp(transport, "streamable-http") &&
+	    strcmp(transport, "http")) {
+		fyai_error(ctx, "MCP server '%s' has unknown transport '%s'",
+			   server_name, transport);
+		return -1;
+	}
 	endpoint = fy_get(config, "endpoint", "");
-	if (!*endpoint) {
-		fyai_error(ctx, "MCP server '%s' has no endpoint", server_name);
+	if (strcmp(transport, "stdio") && !*endpoint) {
+		fyai_error(ctx, "MCP HTTP server '%s' has no endpoint", server_name);
 		return -1;
 	}
 	protocol = fy_get(config, "protocol_version",
 			  ctx->cfg->mcp_protocol_version);
-	token = mcp_server_auth_token(ctx, config);
-	if (fy_generic_is_valid(fy_get(config, "auth_token", fy_invalid)) &&
+	token = !strcmp(transport, "stdio") ? NULL :
+		mcp_server_auth_token(ctx, config);
+	if (strcmp(transport, "stdio") &&
+	    fy_generic_is_valid(fy_get(config, "auth_token", fy_invalid)) &&
 	    !token && !fy_equal(fy_get(fy_get(config, "auth_token"), "type"),
 				 "auto"))
 		return -1;
@@ -375,8 +605,14 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 	mcp = calloc(1, sizeof(*mcp));
 	if (!mcp)
 		return -1;
+	mcp->pid = -1;
+	mcp->stdin_fd = -1;
+	mcp->stdout_fd = -1;
+	mcp->transport = !strcmp(transport, "stdio") ? MCP_TRANSPORT_STDIO :
+		MCP_TRANSPORT_HTTP;
 	mcp->name = fy_gb_intern_string(ctx->cfg->gb, server_name);
-	mcp->endpoint = fy_gb_intern_string(ctx->cfg->gb, endpoint);
+	if (*endpoint)
+		mcp->endpoint = fy_gb_intern_string(ctx->cfg->gb, endpoint);
 	mcp->protocol_version = fy_gb_intern_string(ctx->cfg->gb,
 						 protocol);
 	if (token)
@@ -385,9 +621,15 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 				   (long long)ctx->cfg->mcp_timeout);
 	if (mcp->timeout <= 0)
 		mcp->timeout = ctx->cfg->mcp_timeout;
-	mcp->curl = curl_easy_init();
-	if (!mcp->name || !mcp->endpoint || !mcp->protocol_version ||
-	    (token && !mcp->auth_token) || !mcp->curl)
+	if (mcp->transport == MCP_TRANSPORT_HTTP)
+		mcp->curl = curl_easy_init();
+	if (!mcp->name ||
+	    (mcp->transport == MCP_TRANSPORT_HTTP &&
+	     (!mcp->endpoint || !mcp->curl)) || !mcp->protocol_version ||
+	    (token && !mcp->auth_token))
+		goto err;
+	if (mcp->transport == MCP_TRANSPORT_STDIO &&
+	    mcp_stdio_spawn(ctx, mcp, config))
 		goto err;
 	tail = &ctx->mcp;
 	while (*tail)
@@ -396,7 +638,8 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 	if (ctx->cfg->mcp_logging)
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "connect", "server", mcp->name,
-			"transport", "streamable-http"));
+			"transport", mcp->transport == MCP_TRANSPORT_STDIO ?
+				"stdio" : "streamable-http"));
 	if (mcp_initialize(ctx, mcp))
 		goto err;
 	if (mcp_discover_tools(ctx, mcp, toolsp))
@@ -416,6 +659,7 @@ err:
 	}
 	if (mcp->curl)
 		curl_easy_cleanup(mcp->curl);
+	mcp_stdio_stop(mcp);
 	free(mcp);
 	return -1;
 }
@@ -556,6 +800,39 @@ static void mcp_delete_session(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	mcp->session_id = NULL;
 }
 
+static void mcp_stdio_stop(struct fyai_mcp_ctx *mcp)
+{
+	struct timespec delay = { .tv_nsec = 10000000 };
+	int status, i;
+
+	if (mcp->stdin_fd >= 0) {
+		close(mcp->stdin_fd);
+		mcp->stdin_fd = -1;
+	}
+	if (mcp->stdout_fd >= 0) {
+		close(mcp->stdout_fd);
+		mcp->stdout_fd = -1;
+	}
+	if (mcp->pid <= 0)
+		return;
+	for (i = 0; i < 100; i++) {
+		if (waitpid(mcp->pid, &status, WNOHANG) == mcp->pid)
+			goto out;
+		nanosleep(&delay, NULL);
+	}
+	kill(mcp->pid, SIGTERM);
+	for (i = 0; i < 50; i++) {
+		if (waitpid(mcp->pid, &status, WNOHANG) == mcp->pid)
+			goto out;
+		nanosleep(&delay, NULL);
+	}
+	kill(mcp->pid, SIGKILL);
+	while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
+		;
+out:
+	mcp->pid = -1;
+}
+
 void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 {
 	struct fyai_mcp_ctx *mcp, *next;
@@ -570,6 +847,7 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 				"event", "disconnect", "server", mcp->name));
 		if (mcp->curl)
 			curl_easy_cleanup(mcp->curl);
+		mcp_stdio_stop(mcp);
 		free(mcp);
 	}
 	ctx->mcp = NULL;
