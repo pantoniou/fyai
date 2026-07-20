@@ -46,11 +46,8 @@ The environment variable must be present whenever `fyai` starts.
 Run these commands from an initialized repository:
 
 ```sh
-./build/fyai config set mcp/endpoint \
-  '"https://api.githubcopilot.com/mcp/readonly"'
-
-./build/fyai config set mcp/auth_token \
-  '{type: env, value: GITHUB_MCP_PAT}'
+./build/fyai config set mcp/servers/github \
+  '{endpoint: "https://api.githubcopilot.com/mcp/readonly", auth_token: {type: env, value: GITHUB_MCP_PAT}}'
 
 ./build/fyai config set mcp/enabled true
 ```
@@ -65,10 +62,26 @@ reference, never the token itself:
 The result should contain values equivalent to:
 
 ```yaml
-endpoint: https://api.githubcopilot.com/mcp/readonly
-auth_token: {type: env, value: GITHUB_MCP_PAT}
 enabled: true
+servers:
+  github:
+    endpoint: https://api.githubcopilot.com/mcp/readonly
+    auth_token: {type: env, value: GITHUB_MCP_PAT}
 ```
+
+`fyai` supports multiple named Streamable HTTP servers. Each enabled entry in
+`mcp.servers` owns an independent persistent HTTP connection, MCP session and
+request sequence. For example, add another server without replacing GitHub:
+
+```sh
+./build/fyai config set mcp/servers/internal \
+  '{endpoint: "https://mcp.example.com/", auth_token: {type: env, value: INTERNAL_MCP_TOKEN}, timeout: 60}'
+```
+
+Set `enabled: false` in an individual server mapping to retain its
+configuration without connecting to it. The older top-level `mcp.endpoint`,
+`mcp.auth_token`, and related keys remain supported as a single server named
+`default` when `mcp.servers` is empty.
 
 ## 4. Run read-only tests
 
@@ -111,9 +124,9 @@ Using GitHub MCP, show my open pull requests in OWNER/REPOSITORY.
 Discovered tools are namespaced internally, for example:
 
 ```text
-mcp__default__get_file_contents
-mcp__default__issue_read
-mcp__default__pull_request_read
+mcp__github__get_file_contents
+mcp__github__issue_read
+mcp__github__pull_request_read
 ```
 
 Prompts normally do not need to mention these internal names.
@@ -123,7 +136,7 @@ Prompts normally do not need to mention these internal names.
 After read-only access works, switch to the default endpoint:
 
 ```sh
-./build/fyai config set mcp/endpoint \
+./build/fyai config set mcp/servers/github/endpoint \
   '"https://api.githubcopilot.com/mcp/"'
 ```
 
@@ -150,8 +163,8 @@ In an interactive session, it can also be controlled with:
 
 The YAML log is stored at `.fyai/logs/mcp.yaml`. It records connection reuse,
 JSON-RPC methods and IDs, HTTP status, elapsed time, discovery counts, and tool
-names. Authorization values, request arguments, and response bodies are not
-logged.
+names, including the server name for each event. Authorization values, request
+arguments, and response bodies are not logged.
 
 Confirm that the token exists in the current shell without printing it:
 
@@ -162,8 +175,8 @@ test -n "$GITHUB_MCP_PAT" && echo "token is set"
 Inspect the non-secret configuration:
 
 ```sh
-./build/fyai config get mcp/endpoint
-./build/fyai config get mcp/auth_token
+./build/fyai config get mcp/servers/github/endpoint
+./build/fyai config get mcp/servers/github/auth_token
 ./build/fyai config get mcp/enabled
 ```
 
@@ -188,3 +201,20 @@ Or disable it for the active interactive session with:
 ```text
 /mcp off
 ```
+
+## Current scope and implementation priorities
+
+Named Streamable HTTP servers and text tool results are supported. Remaining
+MCP work, in priority order, is:
+
+1. Integrate server and per-tool allow, deny, and approval modes with tool
+   execution.
+2. Complete the Streamable HTTP lifecycle: list pagination, session recovery,
+   shutdown, reconnect/backoff, and GET/SSE notifications.
+3. Add the stdio transport for locally launched servers.
+4. Handle `isError`, structured output, resource links, and non-text tool
+   content.
+5. Add arbitrary HTTP headers and OAuth authentication.
+6. Expose MCP resources and prompts.
+7. Load tool schemas lazily when many servers are configured and extend
+   `/mcp` with server management and detailed status.

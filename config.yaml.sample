@@ -189,8 +189,19 @@ display:
 # --- MCP (Model Context Protocol) server support --------------------------
 mcp:
   enabled: false
+  # Legacy single-server form. Used as the server named "default" when
+  # servers is empty.
   endpoint: ""
   auth_token: { type: env, value: MCP_API_KEY }
   protocol_version: "2024-11-05"
-  servers: {}
   timeout: 30
+  # Named Streamable HTTP servers. Per-server values override the group
+  # protocol version, timeout and auth token; disabled entries are skipped.
+  # Tool names are exposed as mcp__<server>__<tool>.
+  servers: {}
+  # servers:
+  #   github:
+  #     endpoint: "https://api.githubcopilot.com/mcp/"
+  #     auth_token: { type: env, value: GITHUB_TOKEN }
+  #     enabled: true
+  #     timeout: 30

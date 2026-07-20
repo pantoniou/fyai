@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "headers": {"Mcp-Session-Id": "alpha-session"},
+      "response": {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"alpha","version":"1"}}}
+    },
+    {"status": 202, "raw": ""},
+    {
+      "response": {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Alpha echo","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}}}]}}
+    },
+    {
+      "headers": {"Mcp-Session-Id": "beta-session"},
+      "response": {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"beta","version":"1"}}}
+    },
+    {"status": 202, "raw": ""},
+    {
+      "response": {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Beta echo","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}}}]}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_mcp_beta","type":"function","function":{"name":"mcp__beta__echo","arguments":"{\"text\":\"hello\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+    },
+    {
+      "response": {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"beta: hello"}]}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":"Multiple MCP servers work."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":4,"total_tokens":24}}
+    }
+  ]
+}
