@@ -24,6 +24,8 @@
     },
     {
       "response": {"choices":[{"message":{"role":"assistant","content":"Multiple MCP servers work."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":4,"total_tokens":24}}
-    }
+    },
+    {"status": 200, "raw": ""},
+    {"status": 200, "raw": ""}
   ]
 }

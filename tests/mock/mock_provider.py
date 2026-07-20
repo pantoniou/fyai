@@ -187,6 +187,38 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def do_DELETE(self):
+        st = STATE
+        with st.lock:
+            idx = st.served
+            st.served += 1
+            step = st.steps[idx] if idx < len(st.steps) else None
+            record = {
+                "path": self.path,
+                "method": "DELETE",
+                "auth": self.headers.get("Authorization", ""),
+                "mcp_session_id": self.headers.get("Mcp-Session-Id", ""),
+                "mcp_protocol_version": self.headers.get("MCP-Protocol-Version", ""),
+                "client_port": self.client_address[1],
+                "body": "",
+            }
+            with open(os.path.join(st.rundir, "requests.jsonl"), "a") as f:
+                f.write(json.dumps(record) + "\n")
+            with open(os.path.join(st.rundir, "served"), "w") as f:
+                f.write("%d\n" % st.served)
+
+        if step is None:
+            status = 500
+            payload = b'{"error":{"message":"mock: scenario exhausted"}}'
+        else:
+            status = step.get("status", 200)
+            payload = step.get("raw", "").encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
 
 def main():
     global STATE

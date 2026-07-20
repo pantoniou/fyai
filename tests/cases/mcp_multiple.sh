@@ -27,6 +27,8 @@ assert_request 7 'r["body"]["method"] == "tools/call" and r["body"]["params"]["n
 assert_request 7 'r["auth"] == "Bearer mcp-beta-secret"'
 assert_request 7 'len({reqs[i]["client_port"] for i in (3,4,5,7)}) == 1'
 assert_request 8 'any(m.get("role") == "tool" and m.get("content") == "beta: hello" for m in r["body"]["messages"])'
+assert_request 9 'r["method"] == "DELETE" and r["mcp_session_id"] == "alpha-session"'
+assert_request 10 'r["method"] == "DELETE" and r["mcp_session_id"] == "beta-session"'
 
-mock_stop 9
+mock_stop 11
 pass

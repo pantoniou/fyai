@@ -204,17 +204,33 @@ Or disable it for the active interactive session with:
 
 ## Current scope and implementation priorities
 
-Named Streamable HTTP servers and text tool results are supported. Remaining
-MCP work, in priority order, is:
+Named Streamable HTTP servers and text tool results are supported. Synchronous
+lifecycle handling includes paginated tool discovery, bounded retries for
+idempotent initialization/discovery requests, reinitialization and request
+retry after an expired-session HTTP 404, and session deletion at shutdown.
 
-1. Integrate server and per-tool allow, deny, and approval modes with tool
-   execution.
-2. Complete the Streamable HTTP lifecycle: list pagination, session recovery,
-   shutdown, reconnect/backoff, and GET/SSE notifications.
-3. Add the stdio transport for locally launched servers.
-4. Handle `isError`, structured output, resource links, and non-text tool
+MCP-specific approval policy is intentionally deferred. Approval modes,
+allow/deny rules, and sandbox grants will be added as part of a later unified
+approval and sandbox policy design rather than as a separate MCP mechanism.
+
+Persistent GET/SSE notifications, including dynamic tool-list changes, are
+intentionally deferred until fyai gains an event loop for agent spawning and
+parallel execution.
+
+The remaining MCP implementation order is:
+
+1. Add the stdio transport for locally launched servers.
+2. Handle `isError`, structured output, resource links, and non-text tool
    content.
-5. Add arbitrary HTTP headers and OAuth authentication.
-6. Expose MCP resources and prompts.
-7. Load tool schemas lazily when many servers are configured and extend
+3. Add arbitrary HTTP headers and native MCP OAuth authentication. This is a
+   future change: reuse the existing OpenAI subscription OAuth primitives for
+   PKCE, loopback/manual login, refresh, locking, and secure storage, while
+   adding MCP protected-resource and authorization-server discovery,
+   per-server credentials, dynamic or configured client registration, and the
+   required resource indicator. Initial interoperability targets are GitHub,
+   Linear, Notion, Atlassian Rovo, and Stripe; Slack additionally requires a
+   configured confidential client. Until then, use bearer-token/PAT
+   authentication where a server supports it.
+4. Expose MCP resources and prompts.
+5. Load tool schemas lazily when many servers are configured and extend
    `/mcp` with server management and detailed status.

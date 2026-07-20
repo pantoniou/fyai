@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {"status": 503, "response": {"error": {"message": "try again"}}},
+    {
+      "headers": {"Mcp-Session-Id": "old-session"},
+      "response": {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"lifecycle","version":"1"}}}
+    },
+    {"status": 202, "raw": ""},
+    {
+      "response": {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"first","description":"First page","inputSchema":{"type":"object"}}],"nextCursor":"next-page"}}
+    },
+    {
+      "response": {"jsonrpc":"2.0","id":3,"result":{"tools":[{"name":"second","description":"Second page","inputSchema":{"type":"object"}}]}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_mcp_2","type":"function","function":{"name":"mcp__default__second","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+    },
+    {"status": 404, "response": {"error": {"message": "session expired"}}},
+    {
+      "headers": {"Mcp-Session-Id": "new-session"},
+      "response": {"jsonrpc":"2.0","id":5,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"lifecycle","version":"1"}}}
+    },
+    {"status": 202, "raw": ""},
+    {
+      "response": {"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"recovered"}]}}
+    },
+    {
+      "response": {"choices":[{"message":{"role":"assistant","content":"MCP lifecycle completed."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":4,"total_tokens":24}}
+    },
+    {"status": 200, "raw": ""}
+  ]
+}

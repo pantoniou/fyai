@@ -27,8 +27,9 @@ assert_request 3 'all(t["function"]["name"].startswith("mcp__") for t in r["body
 assert_request 4 'r["path"] == "/mcp" and r["body"]["method"] == "tools/call" and r["body"]["params"] == {"name":"echo","arguments":{"text":"hello"}}'
 assert_request 4 'len({reqs[i]["client_port"] for i in (0,1,2,4)}) == 1'
 assert_request 5 'any(m.get("role") == "tool" and m.get("content") == "echo: hello" for m in r["body"]["messages"])'
+assert_request 6 'r["method"] == "DELETE" and r["mcp_session_id"] == "test-session"'
 
-mock_stop 6
+mock_stop 7
 test -s .fyai/logs/mcp.yaml || fail "missing MCP log"
 grep -q 'event: discovery' .fyai/logs/mcp.yaml || fail "MCP log missing discovery"
 grep -q 'event: tool_call' .fyai/logs/mcp.yaml || fail "MCP log missing tool call"
