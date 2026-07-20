@@ -365,8 +365,7 @@ static int parse_config_file(struct fy_generic_builder *gb, const char *path,
 		return 0;
 
 	root = fy_parse_file(gb,
-				FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
-				path);
+				FYAI_YAML_PARSE_FLAGS, path);
 	if (fy_generic_is_invalid(root)) {
 		fprintf(stderr, "failed to parse config file: %s\n", path);
 		return -1;
@@ -874,8 +873,7 @@ static fy_generic config_parse_value(struct fy_generic_builder *gb,
 				     const char *value)
 {
 	return fy_parse(gb, value,
-			FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2 |
-			FYOPPF_INPUT_TYPE_STRING, NULL);
+			FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING, NULL);
 }
 
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
@@ -1475,8 +1473,7 @@ fy_generic fyai_config_schema(struct fy_generic_builder *gb)
 	embedded.data = (const char *)FYAI_EMBEDDED_CONFIG_SCHEMA;
 	embedded.size = FYAI_EMBEDDED_CONFIG_SCHEMA_LEN;
 	embedded_config_schema = fy_parse(gb, embedded,
-					  FYOPPF_DISABLE_DIRECTORY |
-					  FYOPPF_MODE_YAML_1_2 |
+					  FYAI_YAML_PARSE_FLAGS |
 					  FYOPPF_INPUT_TYPE_STRING, NULL);
 	return embedded_config_schema;
 }
@@ -1549,8 +1546,7 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	}
 	doc = fy_parse_file(ctx->gb,
-			    FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
-			    path);
+			    FYAI_YAML_PARSE_FLAGS, path);
 	report = fyai_config_validate_report(ctx->cfg, doc, path);
 	if (config_report_commit(report, &doc))
 		return -1;
@@ -1558,6 +1554,11 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	printf("config: imported %s\n", path);
 	return 0;
+}
+
+static fy_generic config_emit_yaml(struct fy_generic_builder *gb, fy_generic v)
+{
+	return fy_gb_emit(gb, v, FYAI_YAML_EMIT_FLAGS, NULL);
 }
 
 int fyai_config_export(struct fyai_ctx *ctx, const char *path)
@@ -1570,12 +1571,12 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	}
 	if (!path) {
-		emit_generic_to_stdout(NULL, ctx->arena_config, true);
-		return 0;
+		emitted = fy_emit(ctx->arena_config,
+			  FYAI_YAML_EMIT_FLAGS | FYOPEF_OUTPUT_TYPE_STDOUT,
+			  NULL);
+		return fy_generic_is_invalid(emitted) ? -1 : 0;
 	}
-	emitted = fy_emit(ctx->arena_config,
-			  FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_YAML_1_2 |
-			  FYOPEF_STYLE_PRETTY | FYOPEF_WIDTH_INF, NULL);
+	emitted = config_emit_yaml(ctx->gb, ctx->arena_config);
 	if (fy_generic_is_invalid(emitted))
 		return -1;
 	text = fy_castp(&emitted, "");
@@ -1612,11 +1613,7 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	text = "# fyai configuration\n";
 	emitted = fy_invalid;
 	if (fy_generic_is_valid(ctx->arena_config)) {
-		emitted = fy_emit(ctx->arena_config,
-				  FYOPEF_DISABLE_DIRECTORY |
-				  FYOPEF_MODE_YAML_1_2 |
-				  FYOPEF_STYLE_PRETTY | FYOPEF_WIDTH_INF,
-				  NULL);
+		emitted = config_emit_yaml(ctx->gb, ctx->arena_config);
 		if (fy_generic_is_invalid(emitted)) {
 			close(fd);
 			unlink(tmpl);
@@ -1634,8 +1631,7 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	}
 
 	doc = fy_parse_file(ctx->gb,
-			    FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
-			    tmpl);
+			    FYAI_YAML_PARSE_FLAGS, tmpl);
 	report = fyai_config_validate_report(ctx->cfg, doc, "edited config");
 	if (config_report_commit(report, &doc)) {
 		fyai_error(ctx, "edits kept at %s", tmpl);

@@ -14,6 +14,27 @@
 #include "fyai.h"
 
 /*
+ * Parse flags for every human-authored YAML document fyai ingests (config
+ * files, the config sample, an editor round-trip, a catalogue import).
+ * FYOPPF_KEEP_COMMENTS captures comments and FYOPPF_KEEP_STYLE captures the
+ * original scalar styles (quoted/literal/plain) into the generic, so they
+ * survive the content-addressed arena and a config edit/export can reproduce
+ * the comments and scalar spelling the user wrote.
+ */
+#define FYAI_YAML_PARSE_FLAGS \
+	(FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2 | \
+	 FYOPPF_KEEP_COMMENTS | FYOPPF_KEEP_STYLE)
+
+/*
+ * Emit flags for every human-editable YAML document fyai writes back out
+ * (config export, the config edit tempfile). FYOPEF_OUTPUT_COMMENTS
+ * reproduces the comments captured by FYAI_YAML_PARSE_FLAGS.
+ */
+#define FYAI_YAML_EMIT_FLAGS \
+	(FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_YAML_1_2 | \
+	 FYOPEF_STYLE_PRETTY | FYOPEF_WIDTH_INF | FYOPEF_OUTPUT_COMMENTS)
+
+/*
  * Load layered configuration into @cfg.
  *
  * Up to three config files are consulted: the user config

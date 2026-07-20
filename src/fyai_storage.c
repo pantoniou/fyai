@@ -850,8 +850,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 
 	if (args->config) {
 		config = fy_parse_file(ctx->gb,
-				       FYOPPF_DISABLE_DIRECTORY |
-				       FYOPPF_MODE_YAML_1_2,
+				       FYAI_YAML_PARSE_FLAGS,
 				       args->config);
 		if (!fy_generic_is_valid(config)) {
 			fyai_error(ctx, "init: cannot parse %s", args->config);
@@ -874,8 +873,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		};
 
 		config = fy_parse(ctx->gb, sample,
-				  FYOPPF_DISABLE_DIRECTORY |
-				  FYOPPF_MODE_YAML_1_2 |
+				  FYAI_YAML_PARSE_FLAGS |
 				  FYOPPF_INPUT_TYPE_STRING, NULL);
 		if (!fy_generic_is_valid(config)) {
 			fyai_error(ctx, "init: cannot parse embedded config sample");

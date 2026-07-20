@@ -420,7 +420,8 @@ void emit_generic_to_stdout_anchored(const char *label, fy_generic value,
 			FYOPEF_OUTPUT_TYPE_STDOUT |
 			FYOPEF_MODE_YAML_1_2 |
 			FYOPEF_STYLE_PRETTY |
-			FYOPEF_WIDTH_INF;
+			FYOPEF_WIDTH_INF |
+			FYOPEF_OUTPUT_COMMENTS;
 	} else {
 		flags = FYOPEF_DISABLE_DIRECTORY |
 			FYOPEF_OUTPUT_TYPE_STDOUT |

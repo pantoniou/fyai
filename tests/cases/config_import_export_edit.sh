@@ -8,8 +8,9 @@ set -eu
 fyai_test_setup
 
 cat > import.yaml << 'EOF'
-model: imported-model
-temperature: 0.5
+# imported configuration
+model: imported-model # selected model
+temperature: 0.5 # sampling temperature
 providers:
   mock:
     api: chat-completions
@@ -26,6 +27,9 @@ assert_stdout_contains "imported-model"
 # export to a file and diff the YAML round-trip
 run_fyai config export exported.yaml
 assert_status 0
+grep -qF '# imported configuration' exported.yaml || fail "top comment was lost on export"
+grep -qF 'imported-model # selected model' exported.yaml || fail "model comment was lost on export"
+grep -qF '0.5 # sampling temperature' exported.yaml || fail "temperature comment was lost on export"
 run_fyai config import exported.yaml
 assert_status 0
 run_fyai config export reexported.yaml
@@ -47,6 +51,9 @@ assert_status 0
 run_fyai config get model
 assert_status 0
 assert_stdout_contains "edited-model"
+run_fyai config export edited.yaml
+assert_status 0
+grep -qF 'edited-model # selected model' edited.yaml || fail "model comment was lost on edit"
 
 # an editor that fails leaves the config untouched
 EDITOR="false" run_fyai config edit

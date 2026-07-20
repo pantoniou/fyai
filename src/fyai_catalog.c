@@ -39,8 +39,7 @@ fy_generic fyai_catalog_effective(fy_generic arena_catalog,
 	embedded.data = (const char *)FYAI_EMBEDDED_CATALOG;
 	embedded.size = FYAI_EMBEDDED_CATALOG_LEN;
 	embedded_catalog = fy_parse(gb, embedded,
-				    FYOPPF_DISABLE_DIRECTORY |
-				    FYOPPF_MODE_YAML_1_2 |
+				    FYAI_YAML_PARSE_FLAGS |
 				    FYOPPF_INPUT_TYPE_STRING, NULL);
 	return embedded_catalog;
 }
@@ -190,8 +189,7 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	}
 	doc = fy_parse_file(ctx->gb,
-			    FYOPPF_DISABLE_DIRECTORY | FYOPPF_MODE_YAML_1_2,
-			    path);
+			    FYAI_YAML_PARSE_FLAGS, path);
 	if (!fy_generic_is_mapping(doc)) {
 		fyai_error(ctx, "cannot parse %s", path);
 		return -1;
@@ -234,8 +232,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 		return 0;
 	}
 	emitted = fy_emit(cat,
-			  FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_YAML_1_2 |
-			  FYOPEF_STYLE_PRETTY | FYOPEF_WIDTH_INF, NULL);
+			  FYAI_YAML_EMIT_FLAGS, NULL);
 	if (fy_generic_is_invalid(emitted))
 		return -1;
 	text = fy_castp(&emitted, "");
