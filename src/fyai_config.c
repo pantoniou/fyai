@@ -40,6 +40,7 @@
 static const char *const fyai_env_direct[] = {
 	"OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_URL",
 	"ANTHROPIC_API_KEY",
+	"MCP_API_KEY",
 };
 
 static int config_bad_value(const char *key, fy_generic value,
@@ -246,6 +247,43 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		cfg->enable_sandbox = apply_bool(root, "sandbox",
 				cfg->enable_sandbox);
 	}
+
+	/* MCP server group: nested mapping; read enabled, endpoint, timeout,
+	 * auth_token indirection, protocol_version, servers mapping. */
+	v = fy_get(root, "mcp");
+	if (fy_generic_is_mapping(v)) {
+		cfg->mcp_enabled = apply_bool(v, "enabled",
+			cfg->mcp_enabled);
+		cfg->mcp_endpoint = fy_get(v, "endpoint",
+			cfg->mcp_endpoint ? cfg->mcp_endpoint : NULL);
+		cfg->mcp_protocol_version = fy_get(v, "protocol_version",
+			cfg->mcp_protocol_version ? cfg->mcp_protocol_version : "2024-11-05");
+		cfg->mcp_timeout = (int)fy_get(v, "timeout",
+			cfg->mcp_timeout > 0 ? cfg->mcp_timeout : 30);
+		/* auth_token: must be an indirection mapping; resolve env. */
+		{
+			fy_generic at = fy_get(v, "auth_token", fy_invalid);
+			if (fy_generic_is_mapping(at)) {
+				if (fy_equal(fy_get(at, "type"), "auto")) {
+					cfg->mcp_auth_token = NULL;
+					cfg->mcp_auth_token_auto = true;
+				} else {
+					cfg->mcp_auth_token_auto = false;
+					if (resolve_secret(cfg, &cfg->mcp_auth_token, at) &&
+					    cfg->mcp_enabled) {
+						fyai_cfg_error(cfg, "mcp.auth_token could not be resolved");
+						return -1;
+					}
+				}
+			}
+		}
+		cfg->mcp_servers = fy_get(v, "servers", fy_invalid);
+	} else {
+		/* Flat key fallback for --set mcp/enabled=true etc. */
+		cfg->mcp_enabled = apply_bool(root, "mcp/enabled",
+			cfg->mcp_enabled);
+	}
+
 	cfg->logprobs = apply_bool(root, "logprobs", cfg->logprobs);
 	cfg->token_extents = apply_bool(root, "token_extents",
 					cfg->token_extents);
@@ -264,6 +302,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 						  cfg->stream_logging);
 		cfg->conversation_logging = apply_bool(v, "conversation",
 						       cfg->conversation_logging);
+		cfg->mcp_logging = apply_bool(v, "mcp", cfg->mcp_logging);
 	}
 
 	v = fy_get(root, "reasoning");
@@ -1692,6 +1731,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->wire_logging = false;
 	cfg->stream_logging = false;
 	cfg->conversation_logging = false;
+	cfg->mcp_logging = false;
 	cfg->whitewash_api_keys = true;
 	/* This is an opt-in because provider-side response retention is lossy. */
 	cfg->response_chain = false;
@@ -1710,6 +1750,13 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->catalog = fy_invalid;
 	cfg->config_doc = fy_invalid;
 	cfg->sandbox = fy_invalid;
+	cfg->mcp_enabled = false;
+	cfg->mcp_endpoint = NULL;
+	cfg->mcp_auth_token = NULL;
+	cfg->mcp_auth_token_auto = true;
+	cfg->mcp_protocol_version = "2024-11-05";
+	cfg->mcp_servers = fy_invalid;
+	cfg->mcp_timeout = 30;
 	cfg->cmd.id = FYAIVID_INVALID;
 }
 

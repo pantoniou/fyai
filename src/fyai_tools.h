@@ -7,6 +7,13 @@
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 
+int fyai_mcp_refresh(struct fyai_ctx *ctx);
+fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);
+bool fyai_mcp_tool_name(const char *name);
+fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
+			 fy_generic args);
+void fyai_mcp_cleanup(struct fyai_ctx *ctx);
+
 /*
  * Execute a single named built-in tool (read_file, write_file, apply_patch,
  * shell, ask_user) with already-parsed @args, returning the result generic in

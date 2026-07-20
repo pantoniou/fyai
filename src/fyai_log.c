@@ -92,6 +92,8 @@ int fyai_log_clear(struct fyai_ctx *ctx)
 		ret = -1;
 	if (fyai_log_truncate(ctx, "conversation"))
 		ret = -1;
+	if (fyai_log_truncate(ctx, "mcp"))
+		ret = -1;
 	return ret;
 }
 
@@ -104,10 +106,11 @@ static int fyai_log_clear_target(struct fyai_ctx *ctx, const char *target)
 
 static void fyai_log_print(struct fyai_cfg *cfg)
 {
-	printf("logging: wire %s, stream %s, conversation %s\n",
+	printf("logging: wire %s, stream %s, conversation %s, mcp %s\n",
 	       cfg->wire_logging ? "on" : "off",
 	       cfg->stream_logging ? "on" : "off",
-	       cfg->conversation_logging ? "on" : "off");
+	       cfg->conversation_logging ? "on" : "off",
+	       cfg->mcp_logging ? "on" : "off");
 }
 
 static void fyai_log_set(struct fyai_cfg *cfg, const char *target, bool on)
@@ -118,6 +121,8 @@ static void fyai_log_set(struct fyai_cfg *cfg, const char *target, bool on)
 		cfg->stream_logging = on;
 	if (!strcmp(target, "conversation") || !strcmp(target, "all"))
 		cfg->conversation_logging = on;
+	if (!strcmp(target, "mcp") || !strcmp(target, "all"))
+		cfg->mcp_logging = on;
 }
 
 int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
@@ -135,17 +140,18 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 	first[0] = second[0] = extra[0] = '\0';
 	n = sscanf(arg, "%31s %31s %1s", first, second, extra);
 	if (n < 1 || n > 2 || extra[0]) {
-		fyai_error(ctx, "use [wire|stream|conversation|all] start|stop|clear|view");
+		fyai_error(ctx, "use [wire|stream|conversation|mcp|all] start|stop|clear|view");
 		return -1;
 	}
 
 	if (!strcmp(first, "wire") || !strcmp(first, "stream") ||
-	    !strcmp(first, "conversation") || !strcmp(first, "all")) {
+	    !strcmp(first, "conversation") || !strcmp(first, "mcp") ||
+	    !strcmp(first, "all")) {
 		target = first;
 		action = n == 2 ? second : "";
 	} else {
 		if (n == 2) {
-			fyai_error(ctx, "use [wire|stream|conversation|all] start|stop|clear|view");
+			fyai_error(ctx, "use [wire|stream|conversation|mcp|all] start|stop|clear|view");
 			return -1;
 		}
 		target = "all";
@@ -174,7 +180,8 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 		if (!strcmp(target, "all")) {
 			if (fyai_log_view_target(ctx, "wire") ||
 			    fyai_log_view_target(ctx, "stream") ||
-			    fyai_log_view_target(ctx, "conversation"))
+			    fyai_log_view_target(ctx, "conversation") ||
+			    fyai_log_view_target(ctx, "mcp"))
 				return -1;
 		} else if (fyai_log_view_target(ctx, target)) {
 			return -1;
@@ -182,7 +189,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 		return 0;
 	}
 
-	fyai_error(ctx, "use [wire|stream|conversation|all] start|stop|clear|view");
+	fyai_error(ctx, "use [wire|stream|conversation|mcp|all] start|stop|clear|view");
 	return -1;
 }
 
@@ -201,6 +208,8 @@ int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc)
 	if (!strcmp(name, "stream") && !cfg->stream_logging)
 		return 0;
 	if (!strcmp(name, "conversation") && !cfg->conversation_logging)
+		return 0;
+	if (!strcmp(name, "mcp") && !cfg->mcp_logging)
 		return 0;
 
 	path = fyai_log_path(ctx, name);

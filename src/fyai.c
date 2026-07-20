@@ -33,6 +33,7 @@
 #include "fyai_session.h"
 #include "fyai_prof.h"
 #include "fyai_signal.h"
+#include "fyai_tools.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
@@ -551,7 +552,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 		}
 	}
 
-	if (cfg->enable_tools || cfg->enable_builtin_shell) {
+	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled) {
 		/* Messages spells tool_choice as an object, not a string. */
 		tool_choice = cfg->api_mode == FYAI_API_MESSAGES ?
 				fy_mapping("type", "auto") : fy_value("auto");
@@ -871,6 +872,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->shell_stream);
 		ctx->shell_stream = NULL;
 	}
+	fyai_mcp_cleanup(ctx);
 
 	if (ctx->curl) {
 		curl_easy_cleanup(ctx->curl);
@@ -943,18 +945,52 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	curl_easy_setopt(ctx->curl, CURLOPT_URL, cfg->api_url);
 	curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, ctx->headers);
 
-	if (cfg->enable_tools || cfg->enable_builtin_shell) {
+	if (cfg->mcp_enabled) {
+		if (fyai_mcp_refresh(ctx))
+			return -1;
+	} else {
+		fyai_mcp_cleanup(ctx);
+		ctx->mcp_tools = fy_invalid;
+	}
+
+	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled) {
 
 		switch (cfg->api_mode) {
 		case FYAI_API_RESPONSES:
 			ctx->tools = fyai_make_responses_tools(ctx);
 			break;
 		case FYAI_API_CHAT_COMPLETIONS:
-			ctx->tools = make_tools(ctx->gb);
+			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ?
+				make_tools(ctx->gb) : fy_seq_empty;
 			break;
 		case FYAI_API_MESSAGES:
-			ctx->tools = fyai_make_messages_tools(ctx);
+			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ?
+				fyai_make_messages_tools(ctx) : fy_seq_empty;
 			break;
+		}
+
+		if (cfg->mcp_enabled) {
+			fy_generic mt, tool, fn, converted = fy_seq_empty;
+
+			mt = fyai_mcp_tools(ctx);
+			if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
+				converted = mt;
+			} else {
+				fy_foreach(tool, mt) {
+					fn = fy_get(tool, "function");
+					if (cfg->api_mode == FYAI_API_RESPONSES)
+						tool = fy_mapping("type", "function",
+							"name", fy_get(fn, "name", ""),
+							"description", fy_get(fn, "description", ""),
+							"parameters", fy_get(fn, "parameters"));
+					else
+						tool = fy_mapping("name", fy_get(fn, "name", ""),
+							"description", fy_get(fn, "description", ""),
+							"input_schema", fy_get(fn, "parameters"));
+					converted = fy_append(ctx->gb, converted, tool);
+				}
+			}
+			ctx->tools = fy_concat(ctx->gb, ctx->tools, converted);
 		}
 	}
 

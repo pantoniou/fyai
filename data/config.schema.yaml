@@ -224,6 +224,10 @@ properties:
         type: boolean
         default: false
         description: Log the canonical conversation turns.
+      mcp:
+        type: boolean
+        default: false
+        description: Log MCP lifecycle and JSON-RPC request metadata.
   display:
     type: object
     description: >-
@@ -388,3 +392,45 @@ properties:
             type: number
           votes:
             type: integer
+
+  mcp:
+    type: object
+    default: { enabled: false, endpoint: "", auth_token: { type: env, value: MCP_API_KEY }, protocol_version: "2024-11-05", servers: {}, timeout: 30 }
+    description: >-
+      Model Context Protocol (MCP) server connection. Disabled by default;
+      set enabled: true and configure endpoint (or servers) to connect.
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: Turn MCP server connection on.
+      endpoint:
+        type: string
+        default: ""
+        description: Default MCP server URL.
+      auth_token:
+        type: object
+        required: [type]
+        description: >-
+          Non-secret pointer to the MCP auth credential: never a raw value.
+        properties:
+          type:
+            type: string
+            enum: [auto, env, secret]
+            default: env
+          value:
+            type: string
+            default: MCP_API_KEY
+      protocol_version:
+        type: string
+        default: "2024-11-05"
+        description: MCP protocol version.
+      servers:
+        type: object
+        default: {}
+        description: Named server mappings.
+      timeout:
+        type: integer
+        default: 30
+        exclusiveMinimum: 0
+        description: Request timeout in seconds.

@@ -356,6 +356,7 @@ add_executable(fyai
     src/fyai_diag.c
     src/fyai_log.c
     src/fyai_markdown.c
+    src/fyai_mcp.c
     src/fyai_patch.c
     src/fyai_prof.c
     src/fyai_provider.c

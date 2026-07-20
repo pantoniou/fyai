@@ -44,7 +44,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
-class QuietHTTPServer(HTTPServer):
+class QuietHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """HTTPServer without the reverse-DNS lookup on bind.
 
     HTTPServer.server_bind() calls socket.getfqdn() on the bind address to
@@ -53,6 +53,8 @@ class QuietHTTPServer(HTTPServer):
     the test harness's few-second wait for the "port" file. server_name is
     only used for logging here, so skip the lookup and use the raw address.
     """
+
+    daemon_threads = True
 
     def server_bind(self):
         socketserver.TCPServer.server_bind(self)
@@ -114,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
                 "auth": self.headers.get("Authorization", ""),
                 "x_api_key": self.headers.get("x-api-key", ""),
                 "anthropic_version": self.headers.get("anthropic-version", ""),
+                "mcp_session_id": self.headers.get("Mcp-Session-Id", ""),
+                "mcp_protocol_version": self.headers.get("MCP-Protocol-Version", ""),
+                "client_port": self.client_address[1],
                 "content_type": self.headers.get("Content-Type", ""),
                 "body": parsed if parsed is not None else body,
             }
@@ -176,6 +181,8 @@ class Handler(BaseHTTPRequestHandler):
                                  separators=(",", ":")).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        for key, value in step.get("headers", {}).items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)

@@ -582,6 +582,10 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	args = parse_json_string(ctx->transient_gb, args_text);
 	if (fy_generic_is_invalid(args))
 		return fy_value(ctx->transient_gb, "tool error: invalid JSON arguments");
+	if (fyai_mcp_tool_name(name)) {
+		result_generic = fyai_mcp_call(ctx, name, args);
+		goto out;
+	}
 
 #if defined(__linux__)
 	if (fyai_should_fork_tool(ctx, name))

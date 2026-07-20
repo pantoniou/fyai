@@ -139,6 +139,7 @@ logging:
   wire: false
   stream: false
   conversation: false
+  mcp: false
 
 # --- Display / theming ------------------------------------------------------
 #
@@ -184,3 +185,12 @@ display:
   thinking: true           # display model reasoning/thinking output
   cache_info: false       # print provider cache info
   stats: false            # print session token usage to stderr
+
+# --- MCP (Model Context Protocol) server support --------------------------
+mcp:
+  enabled: false
+  endpoint: ""
+  auth_token: { type: env, value: MCP_API_KEY }
+  protocol_version: "2024-11-05"
+  servers: {}
+  timeout: 30

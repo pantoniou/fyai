@@ -128,6 +128,7 @@ struct fyai_cfg {
 	bool wire_logging;
 	bool stream_logging;
 	bool conversation_logging;
+	bool mcp_logging;
 	bool whitewash_api_keys;
 	bool logprobs;
 	/*
@@ -161,6 +162,15 @@ struct fyai_cfg {
 	 * state write this session is ephemeral (never published to the arena).
 	 */
 	bool transient;
+	/* MCP (Model Context Protocol) server settings. */
+	bool mcp_enabled;
+	const char *mcp_endpoint;		/* server URL or empty */
+	const char *mcp_auth_token;	/* env/secret indirection (like api_key) */
+	bool mcp_auth_token_auto;
+	const char *mcp_protocol_version;
+	fy_generic mcp_servers;		/* named server mapping (mapping generic) */
+	int mcp_timeout;			/* seconds (default 30) */
+
 	const char *arena_dir;
 	/* Repo arena catalog document (internalized into gb at config load;
 	 * fy_invalid when the arena carries none - the embedded snapshot is
@@ -246,6 +256,8 @@ fyai_cfg_uses_storage(struct fyai_cfg *cfg)
 	return !fyai_cfg_no_storage(cfg);
 }
 
+struct fyai_mcp_ctx;
+
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
 	struct fy_allocator *durable_allocator;
@@ -271,6 +283,8 @@ struct fyai_ctx {
 	struct curl_slist *headers;
 	char *auth_header;
 	char *user_agent;
+	fy_generic mcp_tools;
+	struct fyai_mcp_ctx *mcp;
 	struct fyai_credentials auth;
 	struct fy_generic_builder *auth_gb;
 	bool auth_retry_done;

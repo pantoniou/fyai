@@ -1294,6 +1294,48 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 
 static int slash_help(struct fyai_ctx *ctx, const char *arg);
 
+
+static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	if (!arg || !*arg || !strcmp(arg, "show")) {
+		printf("mcp: enabled=%s endpoint=%s protocol=%s timeout=%d\n",
+			cfg->mcp_enabled ? "true" : "false",
+			cfg->mcp_endpoint ? cfg->mcp_endpoint : "(none)",
+			cfg->mcp_protocol_version ? cfg->mcp_protocol_version : "-",
+			cfg->mcp_timeout);
+		return 0;
+	}
+	if (!strcmp(arg, "on")) {
+		if (cfg->mcp_enabled) {
+			printf("mcp: already enabled\n");
+			return 0;
+		}
+		cfg->mcp_enabled = true;
+		session_persist(ctx, "mcp/enabled", "true");
+		if (fyai_request_state_apply(ctx)) {
+			cfg->mcp_enabled = false;
+			return -1;
+		}
+		printf("mcp: enabled\n");
+		return 0;
+	}
+	if (!strcmp(arg, "off")) {
+		if (!cfg->mcp_enabled) {
+			printf("mcp: already disabled\n");
+			return 0;
+		}
+		cfg->mcp_enabled = false;
+		session_persist(ctx, "mcp/enabled", "false");
+		if (fyai_request_state_apply(ctx))
+			return -1;
+		printf("mcp: disabled\n");
+		return 0;
+	}
+	fyai_error(ctx, "mcp: use [show | on | off]");
+	return -1;
+}
+
 static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "clear", "", "start a fresh conversation", slash_clear },
 	{ "compact", "[hint]", "summarize history into a fresh chain",
@@ -1308,6 +1350,7 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "log", "[target action]", "control trace logging", slash_log },
 	{ "logging", "[target action]", "alias for /log", slash_log },
 	{ "secret", "[status [name]|set name|delete name]", "manage secrets (API keys: api-key/<provider>)", slash_secret },
+	{ "mcp", "[show|on|off]", "show or toggle MCP server connection", slash_mcp },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },
@@ -1617,6 +1660,10 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 		session_complete_value(lc, buf + 1, len, word, "turns");
 		session_complete_value(lc, buf + 1, len, word, "exchanges");
 		session_complete_value(lc, buf + 1, len, word, "reflog");
+	} else if (cmd && !strcmp(cmd->name, "mcp")) {
+		session_complete_value(lc, buf + 1, len, word, "show");
+		session_complete_value(lc, buf + 1, len, word, "on");
+		session_complete_value(lc, buf + 1, len, word, "off");
 	} else if (cmd && !strcmp(cmd->name, "tools")) {
 		if (word[0] != '-') {
 			session_complete_value(lc, buf + 1, len, word, "fyai");
@@ -1651,6 +1698,7 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 		session_complete_value(lc, buf + 1, len, word, "wire");
 		session_complete_value(lc, buf + 1, len, word, "stream");
 		session_complete_value(lc, buf + 1, len, word, "conversation");
+		session_complete_value(lc, buf + 1, len, word, "mcp");
 		session_complete_value(lc, buf + 1, len, word, "all");
 		session_complete_value(lc, buf + 1, len, word, "start");
 		session_complete_value(lc, buf + 1, len, word, "stop");
