@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Guidance for working in this repository. See [AGENTS.md](AGENTS.md) for the full
-contributor guide and `doc/srd/fyai-srd.md` for the authoritative spec.
+Guidance for working in this repository. See `doc/srd/fyai-srd.md` for the
+authoritative spec.
 
 ## What this is
 
