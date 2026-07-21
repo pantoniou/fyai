@@ -21,6 +21,11 @@
 /* Diagnostics raised from this file are the test harness's own. */
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
+/* These cases drive the loop from inside assert(), so a -DNDEBUG build would
+ * elide the calls themselves and then run on uninitialized sources. Keep
+ * assertions live regardless of build type. */
+#undef NDEBUG
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>

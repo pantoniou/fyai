@@ -14,6 +14,11 @@
  * Every wait is bounded so a hang fails the run instead of hanging CI.
  */
 
+/* These cases drive the flow from inside assert(), so a -DNDEBUG build would
+ * elide the calls themselves and then run on uninitialized state. Keep
+ * assertions live regardless of build type. */
+#undef NDEBUG
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
