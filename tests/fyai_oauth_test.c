@@ -14,12 +14,6 @@
  * Every wait is bounded so a hang fails the run instead of hanging CI.
  */
 
-/* These cases drive the flow from inside assert(), so a -DNDEBUG build would
- * elide the calls themselves and then run on uninitialized state. Keep
- * assertions live regardless of build type. */
-#undef NDEBUG
-
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -36,6 +30,7 @@
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_oauth.h"
+#include "fyai_test.h"
 
 #define TEST_BOUND_MS	5000
 #define TEST_STATE	"s3cr3t-state"
@@ -136,7 +131,7 @@ static int client_connect(struct fyai_event_loop *el, struct client *c,
 	c->fd = -1;
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
-	assert(fd >= 0);
+	FYAI_TCHECK(fd >= 0);
 	(void)fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
 
 	memset(&sa, 0, sizeof(sa));
@@ -145,7 +140,7 @@ static int client_connect(struct fyai_event_loop *el, struct client *c,
 	sa.sin_port = htons(port);
 
 	rc = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
-	assert(!rc || errno == EINPROGRESS);
+	FYAI_TCHECK(!rc || errno == EINPROGRESS);
 
 	c->fd = fd;
 	c->send = payload ? payload : "";
@@ -159,7 +154,7 @@ static int client_connect(struct fyai_event_loop *el, struct client *c,
 
 	rc = fyai_event_add_fd(el, fd, FYAIEV_WRITE, cb ? cb : client_cb, c,
 			       &c->src);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 	return 0;
 }
 
@@ -193,9 +188,11 @@ static const char *resp_status(const struct client *c)
 static char *redirect_request(const char *code, const char *state)
 {
 	char *s;
+	int rc;
 
-	assert(asprintf(&s, "GET %s?code=%s&state=%s HTTP/1.1\r\n"
-			"Host: localhost\r\n\r\n", TEST_PATH, code, state) > 0);
+	rc = asprintf(&s, "GET %s?code=%s&state=%s HTTP/1.1\r\n"
+		      "Host: localhost\r\n\r\n", TEST_PATH, code, state);
+	FYAI_TCHECK(rc > 0);
 	return s;
 }
 
@@ -220,20 +217,20 @@ static void test_plain_redirect(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
-	assert(fyai_oauth_flow_port(f) != 0);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
+	FYAI_TCHECK(fyai_oauth_flow_port(f) != 0);
 
 	req = redirect_request("THECODE", TEST_STATE);
 	client_connect(el, &c, fyai_oauth_flow_port(f), req, 1, NULL);
 
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
-	assert(fyai_oauth_flow_code(f));
-	assert(!strcmp(fyai_oauth_flow_code(f), "THECODE"));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(fyai_oauth_flow_code(f));
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_code(f), "THECODE"));
 
 	/* the winning connection is held open until the verdict is reported */
 	fyai_oauth_flow_finish(f, true);
@@ -257,9 +254,9 @@ static void test_favicon_does_not_fail_login(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	client_connect(el, &fav, fyai_oauth_flow_port(f),
 		       "GET /favicon.ico HTTP/1.1\r\nHost: localhost\r\n\r\n",
@@ -270,16 +267,16 @@ static void test_favicon_does_not_fail_login(void)
 	while (fyai_event_now_ms() < end && !fav.resplen)
 		fyai_event_loop_step(el, 20);
 
-	assert(!strcmp(resp_status(&fav), "HTTP/1.1 404 Not Found"));
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
+	FYAI_TCHECK(!strcmp(resp_status(&fav), "HTTP/1.1 404 Not Found"));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
 
 	/* and the real redirect still wins afterwards */
 	req = redirect_request("AFTERFAV", TEST_STATE);
 	client_connect(el, &cb, fyai_oauth_flow_port(f), req, 1, NULL);
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
-	assert(!strcmp(fyai_oauth_flow_code(f), "AFTERFAV"));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_code(f), "AFTERFAV"));
 
 	free(req);
 	client_close(&fav);
@@ -300,21 +297,21 @@ static void test_silent_preconnect(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	/* opens, never speaks */
 	client_connect(el, &idle, fyai_oauth_flow_port(f), NULL, 0, NULL);
 	fyai_event_loop_step(el, 50);
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
 
 	req = redirect_request("PRECONN", TEST_STATE);
 	client_connect(el, &cb, fyai_oauth_flow_port(f), req, 1, NULL);
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
-	assert(!strcmp(fyai_oauth_flow_code(f), "PRECONN"));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_code(f), "PRECONN"));
 
 	free(req);
 	client_close(&idle);
@@ -335,17 +332,17 @@ static void test_split_request(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	req = redirect_request("SPLITCODE", TEST_STATE);
 	client_connect(el, &c, fyai_oauth_flow_port(f), req, 6, NULL);
 
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
-	assert(!strcmp(fyai_oauth_flow_code(f), "SPLITCODE"));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_code(f), "SPLITCODE"));
 
 	free(req);
 	client_close(&c);
@@ -364,17 +361,17 @@ static void test_bad_state_rejected(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	req = redirect_request("EVILCODE", "not-the-state");
 	client_connect(el, &c, fyai_oauth_flow_port(f), req, 1, NULL);
 
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_BAD_STATE);
-	assert(!fyai_oauth_flow_code(f));	/* never surfaced */
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_BAD_STATE);
+	FYAI_TCHECK(!fyai_oauth_flow_code(f));	/* never surfaced */
 
 	free(req);
 	client_close(&c);
@@ -391,14 +388,14 @@ static void test_timeout(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_TIMED_OUT);
-	assert(!fyai_oauth_flow_code(f));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_TIMED_OUT);
+	FYAI_TCHECK(!fyai_oauth_flow_code(f));
 
 	fyai_oauth_flow_destroy(f);
 	fyai_event_loop_destroy(el);
@@ -427,20 +424,20 @@ static void test_completion_callback(void)
 
 	done_calls = 0;
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, on_done, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	req = redirect_request("CBCODE", TEST_STATE);
 	client_connect(el, &c, fyai_oauth_flow_port(f), req, 1, NULL);
 	run_until_settled(el, f);
 
-	assert(done_calls == 1);
-	assert(done_state == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(done_calls == 1);
+	FYAI_TCHECK(done_state == FYAI_OAUTH_GOT_CODE);
 
 	/* extra loop turns must not re-fire it */
 	fyai_event_loop_step(el, 20);
-	assert(done_calls == 1);
+	FYAI_TCHECK(done_calls == 1);
 
 	free(req);
 	client_close(&c);
@@ -472,25 +469,25 @@ static void test_shares_the_loop(void)
 
 	tick_count = 0;
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
 	rc = fyai_event_add_timer(el, 10, 10, on_tick, NULL, &tick);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	/* the login is outstanding; the loop keeps serving the timer */
 	while (tick_count < 3)
 		fyai_event_loop_step(el, 50);
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
 
 	req = redirect_request("SHARED", TEST_STATE);
 	client_connect(el, &c, fyai_oauth_flow_port(f), req, 1, NULL);
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
-	assert(tick_count >= 3);
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(tick_count >= 3);
 
 	free(req);
 	client_close(&c);
@@ -513,16 +510,16 @@ static void test_connection_flood(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 
 	for (i = 0; i < 16; i++)
 		client_connect(el, &flood[i], fyai_oauth_flow_port(f), NULL, 0,
 			       NULL);
 	fyai_event_loop_step(el, 50);
 	fyai_event_loop_step(el, 50);
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_LISTENING);
 
 	/* drop them, then the real redirect must still be served */
 	for (i = 0; i < 16; i++)
@@ -533,8 +530,8 @@ static void test_connection_flood(void)
 	client_connect(el, &cb, fyai_oauth_flow_port(f), req, 1, NULL);
 	run_until_settled(el, f);
 
-	assert(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
-	assert(!strcmp(fyai_oauth_flow_code(f), "FLOOD"));
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_code(f), "FLOOD"));
 
 	free(req);
 	client_close(&cb);
@@ -553,19 +550,19 @@ static void test_destroy_while_listening(void)
 	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
+	FYAI_TCHECK(!rc);
 	port = fyai_oauth_flow_port(f);
-	assert(port);
+	FYAI_TCHECK(port);
 
 	fyai_oauth_flow_destroy(f);
 
 	/* the same port binds again immediately */
 	p.ports = &port;
 	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
-	assert(!rc);
-	assert(fyai_oauth_flow_port(f) == port);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(fyai_oauth_flow_port(f) == port);
 
 	fyai_oauth_flow_destroy(f);
 	fyai_event_loop_destroy(el);
@@ -578,27 +575,27 @@ static void test_pkce(void)
 	int rc;
 
 	rc = fyai_oauth_pkce_generate(&a);
-	assert(!rc);
-	assert(a.verifier && a.challenge && a.state);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(a.verifier && a.challenge && a.state);
 
 	/* base64url: no padding, no + or / */
-	assert(!strchr(a.verifier, '=') && !strchr(a.verifier, '+') &&
+	FYAI_TCHECK(!strchr(a.verifier, '=') && !strchr(a.verifier, '+') &&
 	       !strchr(a.verifier, '/'));
-	assert(!strchr(a.challenge, '=') && !strchr(a.challenge, '+') &&
+	FYAI_TCHECK(!strchr(a.challenge, '=') && !strchr(a.challenge, '+') &&
 	       !strchr(a.challenge, '/'));
 
 	/* the challenge is a SHA-256 digest, so always 43 base64url chars */
-	assert(strlen(a.challenge) == 43);
-	assert(strcmp(a.verifier, a.challenge));
+	FYAI_TCHECK(strlen(a.challenge) == 43);
+	FYAI_TCHECK(strcmp(a.verifier, a.challenge));
 
 	rc = fyai_oauth_pkce_generate(&b);
-	assert(!rc);
-	assert(strcmp(a.verifier, b.verifier));	/* never reused */
-	assert(strcmp(a.state, b.state));
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(strcmp(a.verifier, b.verifier));	/* never reused */
+	FYAI_TCHECK(strcmp(a.state, b.state));
 
 	fyai_oauth_pkce_cleanup(&a);
 	fyai_oauth_pkce_cleanup(&b);
-	assert(!a.verifier && !a.challenge && !a.state);
+	FYAI_TCHECK(!a.verifier && !a.challenge && !a.state);
 	printf("  pkce generation: ok\n");
 }
 
@@ -608,41 +605,44 @@ static void test_query_value(void)
 	char *v;
 
 	v = fyai_oauth_query_value(curl, "GET /cb?code=abc&state=xyz HTTP/1.1", "code");
-	assert(v && !strcmp(v, "abc"));
+	FYAI_TCHECK(v && !strcmp(v, "abc"));
 	free(v);
 
 	v = fyai_oauth_query_value(curl, "GET /cb?code=abc&state=xyz HTTP/1.1", "state");
-	assert(v && !strcmp(v, "xyz"));
+	FYAI_TCHECK(v && !strcmp(v, "xyz"));
 	free(v);
 
 	/* percent-decoding */
 	v = fyai_oauth_query_value(curl, "GET /cb?code=a%20b HTTP/1.1", "code");
-	assert(v && !strcmp(v, "a b"));
+	FYAI_TCHECK(v && !strcmp(v, "a b"));
 	free(v);
 
 	/* absent key, and a prefix that must not match */
 	v = fyai_oauth_query_value(curl, "GET /cb?code=abc HTTP/1.1", "state");
-	assert(!v);
+	FYAI_TCHECK(!v);
 	v = fyai_oauth_query_value(curl, "GET /cb?xcode=abc HTTP/1.1", "code");
-	assert(!v);
+	FYAI_TCHECK(!v);
 
 	/* no query string at all */
 	v = fyai_oauth_query_value(curl, "GET /cb HTTP/1.1", "code");
-	assert(!v);
+	FYAI_TCHECK(!v);
 
 	printf("  query value parsing: ok\n");
 }
 
 int main(void)
 {
+	int rc;
+
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
 	test_ctx.cfg = &test_cfg;
-	assert(!fyai_diag_setup(&test_cfg.diag));
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	test_ctx.curl = curl_easy_init();
-	assert(test_ctx.curl);
+	FYAI_TCHECK(test_ctx.curl);
 
 	printf("fyai_oauth tests\n");
 

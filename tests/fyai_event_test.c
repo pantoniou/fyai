@@ -21,12 +21,6 @@
 /* Diagnostics raised from this file are the test harness's own. */
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
-/* These cases drive the loop from inside assert(), so a -DNDEBUG build would
- * elide the calls themselves and then run on uninitialized sources. Keep
- * assertions live regardless of build type. */
-#undef NDEBUG
-
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -39,6 +33,7 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+#include "fyai_test.h"
 
 /* A minimal context so the loop reports through the real diagnostic layer
  * rather than a special test path. */
@@ -97,21 +92,25 @@ static void test_create_destroy(void)
 	struct fyai_event_loop *el;
 	struct counter c;
 	int p[2];
+	int rc;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(fyai_event_loop_source_count(el) == 0);
+	FYAI_TCHECK(el);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 	fyai_event_loop_destroy(el);
 
 	/* Destroying a loop that still owns sources is the ordinary error unwind, not
 	 * a leak. */
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!pipe(p));
-	assert(!fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL));
-	assert(!fyai_event_add_timer(el, 10, 0, cb_count, &c, NULL));
-	assert(fyai_event_loop_source_count(el) == 2);
+	FYAI_TCHECK(el);
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_timer(el, 10, 0, cb_count, &c, NULL);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 2);
 	fyai_event_loop_destroy(el);
 	close(p[0]);
 	close(p[1]);
@@ -126,6 +125,7 @@ static void test_pool_reuse(void)
 	struct counter c;
 	bool pooled;
 	int p[2];
+	int rc;
 
 	/* Steady state must not allocate. */
 	pooled = fyai_event_pool_enabled(&test_ctx);
@@ -133,18 +133,21 @@ static void test_pool_reuse(void)
 	fyai_event_pool_drain(&test_ctx);
 
 	e1 = fyai_event_loop_create(&test_ctx);
-	assert(e1);
+	FYAI_TCHECK(e1);
 	fyai_event_loop_destroy(e1);
 	e2 = fyai_event_loop_create(&test_ctx);
-	assert(e2);
-	assert(!pooled || e2 == e1);
+	FYAI_TCHECK(e2);
+	FYAI_TCHECK(!pooled || e2 == e1);
 
-	assert(!pipe(p));
-	assert(!fyai_event_add_fd(e2, p[0], FYAIEV_READ, cb_count, &c, &s1));
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_fd(e2, p[0], FYAIEV_READ, cb_count, &c, &s1);
+	FYAI_TCHECK(!rc);
 	fyai_event_source_remove(s1);
-	assert(!fyai_event_add_fd(e2, p[0], FYAIEV_READ, cb_count, &c, &s2));
-	assert(s2);
-	assert(!pooled || s2 == s1);
+	rc = fyai_event_add_fd(e2, p[0], FYAIEV_READ, cb_count, &c, &s2);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(s2);
+	FYAI_TCHECK(!pooled || s2 == s1);
 
 	fyai_event_loop_destroy(e2);
 	close(p[0]);
@@ -162,25 +165,31 @@ static void test_arm_failure_is_clean(void)
 	struct fyai_event_loop *el;
 	struct counter c;
 	int p[2];
+	int rc;
 
 	/* A registration that fails to arm must leave nothing behind. */
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
-	assert(!pipe(p));
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
 	close(p[0]);
 	close(p[1]);
-	assert(fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL));
-	assert(fyai_event_loop_source_count(el) == 0);
+	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL);
+	FYAI_TCHECK(rc);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 
 	/* Rejected before any source exists at all. */
-	assert(fyai_event_add_signal(el, 0, cb_count, &c, NULL));
-	assert(fyai_event_add_child(el, -1, cb_count, &c, NULL));
-	assert(fyai_event_loop_source_count(el) == 0);
+	rc = fyai_event_add_signal(el, 0, cb_count, &c, NULL);
+	FYAI_TCHECK(rc);
+	rc = fyai_event_add_child(el, -1, cb_count, &c, NULL);
+	FYAI_TCHECK(rc);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 
 	/* A loop with nothing registered still runs and returns. */
-	assert(!fyai_event_loop_run_until(el, NULL, -1));
+	rc = fyai_event_loop_run_until(el, NULL, -1);
+	FYAI_TCHECK(!rc);
 
 	fyai_event_loop_destroy(el);
 
@@ -200,13 +209,15 @@ struct reuse_case {
 static enum fyai_event_action cb_reuse(const struct fyai_event *ev)
 {
 	struct reuse_case *r = ev->userdata;
+	int rc;
 
 	/* Retire this source and immediately register a new one on the same
 	 * descriptor, from inside a dispatch pass. */
 	r->swapped++;
 	fyai_event_source_remove(ev->src);
-	assert(!fyai_event_add_fd(r->el, r->fd, FYAIEV_READ, cb_stop,
-				  r->second, NULL));
+	rc = fyai_event_add_fd(r->el, r->fd, FYAIEV_READ, cb_stop,
+			       r->second, NULL);
+	FYAI_TCHECK(!rc);
 	return FYAIEA_CONTINUE;
 }
 
@@ -216,29 +227,36 @@ static void test_fd_reregister_in_dispatch(void)
 	struct counter first, second;
 	struct reuse_case r;
 	int p[2];
+	ssize_t nbytes;
+	int rc;
 
 	/* The replacement source must keep working. */
 	memset(&first, 0, sizeof(first));
 	memset(&second, 0, sizeof(second));
 	memset(&r, 0, sizeof(r));
 
-	assert(!pipe(p));
-	assert(fcntl(p[0], F_SETFL, O_NONBLOCK) == 0);
-	assert(write(p[1], "x", 1) == 1);
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+	rc = fcntl(p[0], F_SETFL, O_NONBLOCK);
+	FYAI_TCHECK(rc == 0);
+	nbytes = write(p[1], "x", 1);
+	FYAI_TCHECK(nbytes == 1);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	r.el = el;
 	r.fd = p[0];
 	r.second = &second;
 
-	assert(!fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_reuse, &r, NULL));
+	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_reuse, &r, NULL);
+	FYAI_TCHECK(!rc);
 
 	/* The byte is never read, so a working registration keeps firing. */
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
-	assert(r.swapped == 1);
-	assert(second.fired == 1);
+	FYAI_TCHECK(r.swapped == 1);
+	FYAI_TCHECK(second.fired == 1);
 
 	fyai_event_loop_destroy(el);
 	close(p[0]);
@@ -249,12 +267,14 @@ static void test_fd_reregister_in_dispatch(void)
 static void test_idle_returns(void)
 {
 	struct fyai_event_loop *el;
+	int rc;
 
 	/* With nothing registered a run must return rather than block on an event
 	 * that can never arrive. */
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_loop_run_until(el, NULL, -1));
+	FYAI_TCHECK(el);
+	rc = fyai_event_loop_run_until(el, NULL, -1);
+	FYAI_TCHECK(!rc);
 	fyai_event_loop_destroy(el);
 
 	printf("ok - idle loop returns\n");
@@ -264,19 +284,22 @@ static void test_timer_oneshot(void)
 {
 	struct fyai_event_loop *el;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
-	assert(!fyai_event_add_timer(el, 5, 0, cb_stop, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(c.fired == 1);
-	assert(c.last_events & FYAIEV_TIMER);
-	assert(c.last_count >= 1);
+	rc = fyai_event_add_timer(el, 5, 0, cb_stop, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(c.last_events & FYAIEV_TIMER);
+	FYAI_TCHECK(c.last_count >= 1);
 
 	/* One-shot stays registered but disarmed, so it can be re-armed. */
-	assert(fyai_event_loop_source_count(el) == 1);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - one-shot timer\n");
@@ -294,14 +317,17 @@ static void test_timer_repeating(void)
 {
 	struct fyai_event_loop *el;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
-	assert(!fyai_event_add_timer(el, 1, 1, cb_repeat, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(c.fired == 3);
+	rc = fyai_event_add_timer(el, 1, 1, cb_repeat, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 3);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - repeating timer\n");
@@ -310,13 +336,15 @@ static void test_timer_repeating(void)
 static enum fyai_event_action cb_rearm(const struct fyai_event *ev)
 {
 	struct counter *c = ev->userdata;
+	int rc;
 
 	c->fired++;
 	if (c->fired >= 3)
 		return FYAIEA_STOP;
 
 	/* Re-arm the one-shot from inside its own callback. */
-	assert(!fyai_event_timer_rearm(ev->src, 1, 0));
+	rc = fyai_event_timer_rearm(ev->src, 1, 0);
+	FYAI_TCHECK(!rc);
 	return FYAIEA_CONTINUE;
 }
 
@@ -324,14 +352,17 @@ static void test_timer_rearm_in_callback(void)
 {
 	struct fyai_event_loop *el;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
-	assert(!fyai_event_add_timer(el, 1, 0, cb_rearm, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(c.fired == 3);
+	rc = fyai_event_add_timer(el, 1, 0, cb_rearm, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 3);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - one-shot timer re-armed from its own callback\n");
@@ -341,6 +372,7 @@ static void test_timer_order(void)
 {
 	struct fyai_event_loop *el;
 	struct counter early, late;
+	int rc;
 
 	/* Both backends must agree that the nearer deadline comes first. */
 	memset(&early, 0, sizeof(early));
@@ -348,17 +380,19 @@ static void test_timer_order(void)
 	order_tick = 0;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_timer(el, TEST_BOUND_MS, 0, cb_count, &late, NULL));
-	assert(!fyai_event_add_timer(el, 1, 0, cb_count, &early, NULL));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_timer(el, TEST_BOUND_MS, 0, cb_count, &late, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_timer(el, 1, 0, cb_count, &early, NULL);
+	FYAI_TCHECK(!rc);
 
 	while (!early.fired) {
 		if (fyai_event_loop_step(el, TEST_BOUND_MS) < 0)
 			break;
 	}
 
-	assert(early.fired == 1);
-	assert(!late.fired);
+	FYAI_TCHECK(early.fired == 1);
+	FYAI_TCHECK(!late.fired);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - timers fire in deadline order\n");
@@ -397,22 +431,29 @@ static void test_fd_read_eof(void)
 	struct fyai_event_loop *el;
 	struct counter c;
 	int p[2];
+	ssize_t nbytes;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
-	assert(!pipe(p));
-	assert(fcntl(p[0], F_SETFL, O_NONBLOCK) == 0);
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+	rc = fcntl(p[0], F_SETFL, O_NONBLOCK);
+	FYAI_TCHECK(rc == 0);
 
 	/* Payload written and the write end closed *before* the loop is entered. */
-	assert(write(p[1], "hello", 5) == 5);
+	nbytes = write(p[1], "hello", 5);
+	FYAI_TCHECK(nbytes == 5);
 	close(p[1]);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_drain, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_drain, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
-	assert(c.len == 5);
-	assert(!memcmp(c.buf, "hello", 5));
+	FYAI_TCHECK(c.len == 5);
+	FYAI_TCHECK(!memcmp(c.buf, "hello", 5));
 
 	fyai_event_loop_destroy(el);
 	close(p[0]);
@@ -425,32 +466,39 @@ static void test_fd_write(void)
 	struct counter c;
 	char blob[4096];
 	int p[2];
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	memset(blob, 'x', sizeof(blob));
-	assert(!pipe(p));
-	assert(fcntl(p[1], F_SETFL, O_NONBLOCK) == 0);
-	assert(fcntl(p[0], F_SETFL, O_NONBLOCK) == 0);
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+	rc = fcntl(p[1], F_SETFL, O_NONBLOCK);
+	FYAI_TCHECK(rc == 0);
+	rc = fcntl(p[0], F_SETFL, O_NONBLOCK);
+	FYAI_TCHECK(rc == 0);
 
 	/* Fill the pipe so the write end is not immediately writable. */
 	while (write(p[1], blob, sizeof(blob)) > 0)
 		;
-	assert(errno == EAGAIN || errno == EWOULDBLOCK);
+	FYAI_TCHECK(errno == EAGAIN || errno == EWOULDBLOCK);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_fd(el, p[1], FYAIEV_WRITE, cb_stop, &c, NULL));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_fd(el, p[1], FYAIEV_WRITE, cb_stop, &c, NULL);
+	FYAI_TCHECK(!rc);
 
 	/* Nothing drained yet: must not fire. */
-	assert(fyai_event_loop_step(el, 20) == 0);
-	assert(c.fired == 0);
+	rc = fyai_event_loop_step(el, 20);
+	FYAI_TCHECK(rc == 0);
+	FYAI_TCHECK(c.fired == 0);
 
 	/* Drain the reader; now it must become writable. */
 	while (read(p[0], blob, sizeof(blob)) > 0)
 		;
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(c.fired == 1);
-	assert(c.last_events & FYAIEV_WRITE);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(c.last_events & FYAIEV_WRITE);
 
 	fyai_event_loop_destroy(el);
 	close(p[0]);
@@ -472,24 +520,27 @@ static void test_child_exit(void)
 	struct fyai_event_loop *el;
 	struct counter c;
 	pid_t pid;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid)
 		_exit(42);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_child(el, pid, cb_child, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_child(el, pid, cb_child, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
-	assert(c.fired == 1);
-	assert(WIFEXITED(c.status));
-	assert(WEXITSTATUS(c.status) == 42);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(WIFEXITED(c.status));
+	FYAI_TCHECK(WEXITSTATUS(c.status) == 42);
 
 	/* One-shot: the source is gone once it has fired. */
-	assert(fyai_event_loop_source_count(el) == 0);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - child exit status\n");
@@ -500,23 +551,26 @@ static void test_child_signalled(void)
 	struct fyai_event_loop *el;
 	struct counter c;
 	pid_t pid;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		raise(SIGKILL);
 		_exit(0);
 	}
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_child(el, pid, cb_child, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_child(el, pid, cb_child, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
-	assert(c.fired == 1);
-	assert(WIFSIGNALED(c.status));
-	assert(WTERMSIG(c.status) == SIGKILL);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(WIFSIGNALED(c.status));
+	FYAI_TCHECK(WTERMSIG(c.status) == SIGKILL);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - child killed by signal\n");
@@ -529,34 +583,41 @@ static void test_child_already_exited(void)
 	pid_t pid;
 	int sync[2];
 	char b;
+	ssize_t nbytes;
+	int rc;
 
 	/* The case most likely to be broken and most often missed. */
 	memset(&c, 0, sizeof(c));
-	assert(!pipe(sync));
+	rc = pipe(sync);
+	FYAI_TCHECK(!rc);
 
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		close(sync[0]);
 		/* Tell the parent we are about to exit, then do so. */
-		assert(write(sync[1], "x", 1) == 1);
+		nbytes = write(sync[1], "x", 1);
+		FYAI_TCHECK(nbytes == 1);
 		close(sync[1]);
 		_exit(7);
 	}
 	close(sync[1]);
 
 	/* Wait for the child's write, then give it a moment to actually exit. */
-	assert(read(sync[0], &b, 1) == 1);
+	nbytes = read(sync[0], &b, 1);
+	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_child(el, pid, cb_child, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_child(el, pid, cb_child, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
-	assert(c.fired == 1);
-	assert(WIFEXITED(c.status));
-	assert(WEXITSTATUS(c.status) == 7);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(WIFEXITED(c.status));
+	FYAI_TCHECK(WEXITSTATUS(c.status) == 7);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - child already exited before registration\n");
@@ -569,26 +630,32 @@ static void test_child_terminate_polite(void)
 	pid_t pid;
 	int sync[2];
 	char b;
+	ssize_t nbytes;
+	int rc;
 
 	/* Exits on its own during the grace stage: never signalled. */
-	assert(!pipe(sync));
+	rc = pipe(sync);
+	FYAI_TCHECK(!rc);
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		close(sync[0]);
-		assert(write(sync[1], "x", 1) == 1);
+		nbytes = write(sync[1], "x", 1);
+		FYAI_TCHECK(nbytes == 1);
 		close(sync[1]);
 		_exit(5);
 	}
 	close(sync[1]);
-	assert(read(sync[0], &b, 1) == 1);
+	nbytes = read(sync[0], &b, 1);
+	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_child_terminate(el, pid, TEST_BOUND_MS, 100, &status));
-	assert(WIFEXITED(status));
-	assert(WEXITSTATUS(status) == 5);
+	FYAI_TCHECK(el);
+	rc = fyai_event_child_terminate(el, pid, TEST_BOUND_MS, 100, &status);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(WIFEXITED(status));
+	FYAI_TCHECK(WEXITSTATUS(status) == 5);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - child terminate, voluntary exit\n");
@@ -599,10 +666,11 @@ static void test_child_terminate_sigterm(void)
 	struct fyai_event_loop *el;
 	int status = 0;
 	pid_t pid;
+	int rc;
 
 	/* Never exits on its own, but takes SIGTERM. */
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		for (;;)
 			pause();
@@ -610,10 +678,11 @@ static void test_child_terminate_sigterm(void)
 	}
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_child_terminate(el, pid, 0, TEST_BOUND_MS, &status));
-	assert(WIFSIGNALED(status));
-	assert(WTERMSIG(status) == SIGTERM);
+	FYAI_TCHECK(el);
+	rc = fyai_event_child_terminate(el, pid, 0, TEST_BOUND_MS, &status);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(WIFSIGNALED(status));
+	FYAI_TCHECK(WTERMSIG(status) == SIGTERM);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - child terminate, SIGTERM stage\n");
@@ -626,29 +695,35 @@ static void test_child_terminate_sigkill(void)
 	pid_t pid;
 	int sync[2];
 	char b;
+	ssize_t nbytes;
+	int rc;
 
 	/* Ignores SIGTERM, so only SIGKILL ends it. */
-	assert(!pipe(sync));
+	rc = pipe(sync);
+	FYAI_TCHECK(!rc);
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		signal(SIGTERM, SIG_IGN);
 		close(sync[0]);
-		assert(write(sync[1], "x", 1) == 1);
+		nbytes = write(sync[1], "x", 1);
+		FYAI_TCHECK(nbytes == 1);
 		close(sync[1]);
 		for (;;)
 			pause();
 		_exit(0);
 	}
 	close(sync[1]);
-	assert(read(sync[0], &b, 1) == 1);
+	nbytes = read(sync[0], &b, 1);
+	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_child_terminate(el, pid, 0, 50, &status));
-	assert(WIFSIGNALED(status));
-	assert(WTERMSIG(status) == SIGKILL);
+	FYAI_TCHECK(el);
+	rc = fyai_event_child_terminate(el, pid, 0, 50, &status);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(WIFSIGNALED(status));
+	FYAI_TCHECK(WTERMSIG(status) == SIGKILL);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - child terminate, SIGKILL stage\n");
@@ -682,15 +757,19 @@ static pid_t spawn_term_victim(int kind)
 	int sync[2];
 	pid_t pid;
 	char b;
+	ssize_t nbytes;
+	int rc;
 
-	assert(!pipe(sync));
+	rc = pipe(sync);
+	FYAI_TCHECK(!rc);
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		if (kind == 2)
 			signal(SIGTERM, SIG_IGN);
 		close(sync[0]);
-		assert(write(sync[1], "x", 1) == 1);
+		nbytes = write(sync[1], "x", 1);
+		FYAI_TCHECK(nbytes == 1);
 		close(sync[1]);
 		if (!kind)
 			_exit(3);
@@ -701,7 +780,8 @@ static pid_t spawn_term_victim(int kind)
 	close(sync[1]);
 	/* Wait until the child has installed its disposition, or a SIGTERM
 	 * sent with a zero grace budget could beat it. */
-	assert(read(sync[0], &b, 1) == 1);
+	nbytes = read(sync[0], &b, 1);
+	FYAI_TCHECK(nbytes == 1);
 	close(sync[0]);
 	return pid;
 }
@@ -711,6 +791,7 @@ static void test_child_terminate_concurrent(void)
 	struct fyai_event_loop *el;
 	struct term_group g;
 	unsigned int i;
+	int rc;
 
 	/* The reason the ladder is loop state and not a sequence of waits: three
 	 * children, three different shutdown behaviours, one loop run. */
@@ -727,28 +808,30 @@ static void test_child_terminate_concurrent(void)
 	g.want = 3;
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
 	for (i = 0; i < g.want; i++) {
 		g.pid[i] = spawn_term_victim((int)i);
-		assert(!fyai_event_add_child_terminate(el, g.pid[i],
-						       budget[i].grace_ms,
-						       budget[i].term_ms,
-						       cb_term_group, &g, NULL));
+		rc = fyai_event_add_child_terminate(el, g.pid[i],
+						    budget[i].grace_ms,
+						    budget[i].term_ms,
+						    cb_term_group, &g, NULL);
+		FYAI_TCHECK(!rc);
 	}
 
-	assert(!fyai_event_loop_run_until(el, &g.done, TEST_BOUND_MS));
-	assert(g.reaped == 3);
+	rc = fyai_event_loop_run_until(el, &g.done, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(g.reaped == 3);
 
 	/* Exited on its own before any signal landed. */
-	assert(WIFEXITED(g.status[0]) && WEXITSTATUS(g.status[0]) == 3);
+	FYAI_TCHECK(WIFEXITED(g.status[0]) && WEXITSTATUS(g.status[0]) == 3);
 	/* Took SIGTERM at the first escalation. */
-	assert(WIFSIGNALED(g.status[1]) && WTERMSIG(g.status[1]) == SIGTERM);
+	FYAI_TCHECK(WIFSIGNALED(g.status[1]) && WTERMSIG(g.status[1]) == SIGTERM);
 	/* Ignored it, so only SIGKILL ended it. */
-	assert(WIFSIGNALED(g.status[2]) && WTERMSIG(g.status[2]) == SIGKILL);
+	FYAI_TCHECK(WIFSIGNALED(g.status[2]) && WTERMSIG(g.status[2]) == SIGKILL);
 
 	/* Every source retired itself: child sources and their timers. */
-	assert(fyai_event_loop_source_count(el) == 0);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - concurrent child termination in one loop\n");
@@ -771,31 +854,39 @@ static void test_signal(void)
 	struct sigaction before, after;
 	sigset_t mask_before, mask_after;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
-	assert(!sigaction(SIGUSR1, NULL, &before));
-	assert(!sigprocmask(SIG_SETMASK, NULL, &mask_before));
+	rc = sigaction(SIGUSR1, NULL, &before);
+	FYAI_TCHECK(!rc);
+	rc = sigprocmask(SIG_SETMASK, NULL, &mask_before);
+	FYAI_TCHECK(!rc);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_signal(el, SIGUSR1, cb_signal, &c, &src));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_signal(el, SIGUSR1, cb_signal, &c, &src);
+	FYAI_TCHECK(!rc);
 
 	/* Process-directed, not raise(): macOS EVFILT_SIGNAL observes only
 	 * process-directed signals, so a thread-directed raise() never trips
 	 * the knote. Linux signalfd sees either, which is why this passed
 	 * there and not here. */
-	assert(!kill(getpid(), SIGUSR1));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(c.fired == 1);
-	assert(c.signo == SIGUSR1);
-	assert(c.last_count >= 1);
+	rc = kill(getpid(), SIGUSR1);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(c.signo == SIGUSR1);
+	FYAI_TCHECK(c.last_count >= 1);
 
 	/* Removal must hand back the disposition and mask it took over. */
 	fyai_event_source_remove(src);
-	assert(!sigaction(SIGUSR1, NULL, &after));
-	assert(!sigprocmask(SIG_SETMASK, NULL, &mask_after));
-	assert(after.sa_handler == before.sa_handler);
-	assert(sigismember(&mask_after, SIGUSR1) ==
+	rc = sigaction(SIGUSR1, NULL, &after);
+	FYAI_TCHECK(!rc);
+	rc = sigprocmask(SIG_SETMASK, NULL, &mask_after);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(after.sa_handler == before.sa_handler);
+	FYAI_TCHECK(sigismember(&mask_after, SIGUSR1) ==
 	       sigismember(&mask_before, SIGUSR1));
 
 	fyai_event_loop_destroy(el);
@@ -812,11 +903,13 @@ struct nested {
 static enum fyai_event_action cb_outer(const struct fyai_event *ev)
 {
 	struct nested *n = ev->userdata;
+	int rc;
 
 	n->outer_fired++;
 
 	/* An inner run must unwind on its own STOP, leaving the outer alone. */
-	assert(!fyai_event_add_timer(n->el, 1, 0, cb_stop, &n->inner, NULL));
+	rc = fyai_event_add_timer(n->el, 1, 0, cb_stop, &n->inner, NULL);
+	FYAI_TCHECK(!rc);
 	n->inner_rc = fyai_event_loop_run_until(n->el, NULL, TEST_BOUND_MS);
 
 	return FYAIEA_STOP;
@@ -826,18 +919,21 @@ static void test_nested_run(void)
 {
 	struct fyai_event_loop *el;
 	struct nested n;
+	int rc;
 
 	memset(&n, 0, sizeof(n));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	n.el = el;
 
-	assert(!fyai_event_add_timer(el, 1, 0, cb_outer, &n, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
+	rc = fyai_event_add_timer(el, 1, 0, cb_outer, &n, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
-	assert(n.outer_fired == 1);
-	assert(!n.inner_rc);
-	assert(n.inner.fired == 1);
+	FYAI_TCHECK(n.outer_fired == 1);
+	FYAI_TCHECK(!n.inner_rc);
+	FYAI_TCHECK(n.inner.fired == 1);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - nested run unwinds only the inner\n");
@@ -852,10 +948,13 @@ struct nested_remove {
 static enum fyai_event_action cb_nested_remove(const struct fyai_event *ev)
 {
 	struct nested_remove *n = ev->userdata;
+	int rc;
 
 	n->outer_fired++;
-	assert(!fyai_event_add_timer(n->el, 1, 0, cb_stop, &n->inner, NULL));
-	assert(!fyai_event_loop_run_until(n->el, NULL, TEST_BOUND_MS));
+	rc = fyai_event_add_timer(n->el, 1, 0, cb_stop, &n->inner, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(n->el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
 	/* Removal must remain deferred through the outer dispatch. */
 	fyai_event_source_remove(ev->src);
@@ -866,17 +965,20 @@ static void test_remove_after_nested_run(void)
 {
 	struct fyai_event_loop *el;
 	struct nested_remove n;
+	int rc;
 
 	memset(&n, 0, sizeof(n));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 	n.el = el;
 
-	assert(!fyai_event_add_timer(el, 1, 0, cb_nested_remove, &n, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(n.outer_fired == 1);
-	assert(n.inner.fired == 1);
-	assert(fyai_event_loop_source_count(el) == 1); /* spent inner timer */
+	rc = fyai_event_add_timer(el, 1, 0, cb_nested_remove, &n, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(n.outer_fired == 1);
+	FYAI_TCHECK(n.inner.fired == 1);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1); /* spent inner timer */
 
 	fyai_event_loop_destroy(el);
 	printf("ok - removal after a nested run stays deferred\n");
@@ -886,14 +988,17 @@ static void test_abort(void)
 {
 	struct fyai_event_loop *el;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
-	assert(!fyai_event_add_timer(el, 1, 0, cb_abort, &c, NULL));
-	assert(fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS) == -1);
-	assert(c.fired == 1);
+	rc = fyai_event_add_timer(el, 1, 0, cb_abort, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(rc == -1);
+	FYAI_TCHECK(c.fired == 1);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - abort propagates\n");
@@ -913,15 +1018,18 @@ static void test_self_remove(void)
 {
 	struct fyai_event_loop *el;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
-	assert(!fyai_event_add_timer(el, 1, 0, cb_self_remove, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
-	assert(c.fired == 1);
-	assert(fyai_event_loop_source_count(el) == 0);
+	rc = fyai_event_add_timer(el, 1, 0, cb_self_remove, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - remove from within own callback\n");
@@ -932,14 +1040,16 @@ static void test_done_flag(void)
 	struct fyai_event_loop *el;
 	volatile bool done = false;
 	struct counter c;
+	int rc;
 
 	memset(&c, 0, sizeof(c));
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
+	FYAI_TCHECK(el);
 
 	/* Already-true done flag must return before waiting on anything. */
 	done = true;
-	assert(!fyai_event_loop_run_until(el, &done, TEST_BOUND_MS));
+	rc = fyai_event_loop_run_until(el, &done, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - done flag short-circuits\n");
@@ -951,18 +1061,22 @@ static void test_timeout(void)
 	volatile bool done = false;
 	struct counter c;
 	int p[2];
+	int rc;
 
 	/* A timeout is a normal stop (rc 0) with the done flag still false - that is
 	 * how a caller tells "finished" from "timed out". */
 	memset(&c, 0, sizeof(c));
-	assert(!pipe(p));
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
 
 	el = fyai_event_loop_create(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL));
-	assert(!fyai_event_loop_run_until(el, &done, 20));
-	assert(!done);
-	assert(c.fired == 0);
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, &done, 20);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!done);
+	FYAI_TCHECK(c.fired == 0);
 
 	fyai_event_loop_destroy(el);
 	close(p[0]);
@@ -991,17 +1105,23 @@ static void test_fork_child_abandons_loop(void)
 	int reads = 0;
 	pid_t pid;
 	int status;
+	ssize_t nbytes;
+	pid_t w;
+	int rc;
 
-	assert(!pipe(p));
-	assert(!pipe(q));
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+	rc = pipe(q);
+	FYAI_TCHECK(!rc);
 
 	el = fyai_ctx_loop(&test_ctx);
-	assert(el);
-	assert(!fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count_reads,
-				  &reads, &src));
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count_reads,
+			       &reads, &src);
+	FYAI_TCHECK(!rc);
 
 	pid = fork();
-	assert(pid >= 0);
+	FYAI_TCHECK(pid >= 0);
 	if (!pid) {
 		struct fyai_event_loop *cel;
 		struct fyai_event_source *csrc = NULL;
@@ -1020,15 +1140,19 @@ static void test_fork_child_abandons_loop(void)
 					 &reads, &csrc) ? 0 : 1);
 	}
 
-	assert(waitpid(pid, &status, 0) == pid);
-	assert(WIFEXITED(status) && !WEXITSTATUS(status));
+	w = waitpid(pid, &status, 0);
+	FYAI_TCHECK(w == pid);
+	FYAI_TCHECK(WIFEXITED(status) && !WEXITSTATUS(status));
 
 	/* The parent's loop is intact: its own source still reports, and
 	 * nothing the child registered shows up here. */
-	assert(write(p[1], "x", 1) == 1);
-	assert(write(q[1], "y", 1) == 1);
-	assert(fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS) == 0);
-	assert(reads == 1);
+	nbytes = write(p[1], "x", 1);
+	FYAI_TCHECK(nbytes == 1);
+	nbytes = write(q[1], "y", 1);
+	FYAI_TCHECK(nbytes == 1);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(rc == 0);
+	FYAI_TCHECK(reads == 1);
 
 	fyai_event_source_remove(src);
 	close(p[0]); close(p[1]);
@@ -1038,7 +1162,10 @@ static void test_fork_child_abandons_loop(void)
 
 int main(void)
 {
-	assert(!fyai_diag_setup(&test_cfg.diag));
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
 
 	test_create_destroy();
 	test_pool_reuse();
