@@ -349,6 +349,14 @@ if(ENABLE_LIBSECRET)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
 endif()
+set(FYAI_DIAG_SOURCES src/fyai_diag.c)
+set(FYAI_EVENT_SOURCES src/fyai_event.c)
+if(APPLE)
+    list(APPEND FYAI_EVENT_SOURCES src/fyai_event_mac.c)
+else()
+    list(APPEND FYAI_EVENT_SOURCES src/fyai_event_linux.c)
+endif()
+
 add_executable(fyai
     src/main.c
     src/fyai_display.c
@@ -429,6 +437,25 @@ if(BUILD_TESTING)
     target_link_libraries(fyai_patch_test PRIVATE libfyaml::libfyaml CURL::libcurl
         ${ASAN_LINK_OPTS})
     add_test(NAME fyai/patch_apply COMMAND fyai_patch_test)
+
+    add_executable(fyai_event_test
+        tests/fyai_event_test.c
+        src/fyai_diag.c
+        ${FYAI_EVENT_SOURCES}
+    )
+    target_compile_options(fyai_event_test PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+    target_compile_definitions(fyai_event_test PRIVATE
+        _GNU_SOURCE
+        HAVE_CONFIG_H
+        VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(fyai_event_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(fyai_event_test PRIVATE libfyaml::libfyaml
+        ${ASAN_LINK_OPTS})
+    add_test(NAME fyai/event COMMAND fyai_event_test)
 
     add_executable(fyai_diag_test
         tests/fyai_diag_test.c

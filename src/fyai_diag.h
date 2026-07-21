@@ -46,6 +46,7 @@ enum fyai_error_module {
 	FYAIEM_SECRET,
 	FYAIEM_INIT,
 	FYAIEM_LOG,
+	FYAIEM_EVENT,
 	FYAIEM_COUNT,
 };
 

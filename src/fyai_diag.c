@@ -44,6 +44,7 @@ static const char *const diag_module_names[FYAIEM_COUNT] = {
 	[FYAIEM_SECRET]		= "secret",
 	[FYAIEM_INIT]		= "init",
 	[FYAIEM_LOG]		= "logging",
+	[FYAIEM_EVENT]		= "event",
 };
 
 int fyai_diag_setup(struct fyai_diag *diag)
