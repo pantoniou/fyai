@@ -29,7 +29,7 @@ assert_stdout_contains "markdown_mode: oneshot"
 # a themed markdown run works end to end (markdown forced on over the
 # harness default; --color on exercises the styling load path)
 "$FYAI_BIN" -k test-key --color on --set display/markdown=true --set display/markdown_mode=oneshot \
-	--set api=chat-completions --set display/stream=false -u "$MOCK_URL/v1/chat/completions" \
+	--set api=chat-completions --set display/stream=false --set api_url="$MOCK_URL/v1/chat/completions" \
 	-m mock-model "hello" >"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr"
 FYAI_STATUS=$?
 assert_status 0

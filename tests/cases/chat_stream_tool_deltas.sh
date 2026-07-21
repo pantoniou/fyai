@@ -10,7 +10,7 @@ mock_start chat_stream_tool_deltas.json
 
 printf 'delta payload\n' > data.txt
 
-run_fyai --set api=chat-completions -t -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions --set tools=true --set api_url="$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "read data.txt"
 assert_status 0
 assert_stdout_contains "Tool deltas assembled fine."

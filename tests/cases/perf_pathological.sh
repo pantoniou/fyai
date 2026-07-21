@@ -87,13 +87,13 @@ for mode in chat-completions responses messages; do
 	mock_start "$TEST_DIR/patho.json"
 
 	case "$mode" in
-	chat-completions) args=(--set api=chat-completions -u "$MOCK_URL/v1/chat/completions") ;;
-	responses)        args=(--set api=responses -u "$MOCK_URL/v1/responses") ;;
-	messages)         args=(--set api=messages -u "$MOCK_URL/v1/messages") ;;
+	chat-completions) args=(--set api=chat-completions --set api_url="$MOCK_URL/v1/chat/completions") ;;
+	responses)        args=(--set api=responses --set api_url="$MOCK_URL/v1/responses") ;;
+	messages)         args=(--set api=messages --set api_url="$MOCK_URL/v1/messages") ;;
 	esac
 
 	t0=$(now_ms)
-	run_fyai --set display/stream=false --new -t "${args[@]}" -m mock-model "read big.txt"
+	run_fyai --set display/stream=false --new --set tools=true "${args[@]}" -m mock-model "read big.txt"
 	t1=$(now_ms)
 	assert_status 0
 	assert_stdout_contains "digested the big file."

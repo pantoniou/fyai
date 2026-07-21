@@ -86,14 +86,11 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--delete <key>", "Delete a config key; repeatable");
 	ITEM("--transient", "Keep this session's edits/state in memory only");
 	ITEM("--api-key, -k <key>", "API key (else PROVIDER_API_KEY env)");
-	ITEM("--url, -u <url>", "API endpoint URL");
 	ITEM("--new", "Start a new conversation");
-	ITEM("--tools", "Enable function tools");
 	ITEM("--sandbox", "Landlock-confine shell tools (Linux)");
 	ITEM("--color <c>", "Colour output: auto|off|on");
 	ITEM("--theme <t>", "Markdown theme: auto|dark|light");
 	ITEM("--code-theme <t>", "Fenced-code theme: a libfyts name or a path");
-	ITEM("--cache-info, -c", "Print provider cache info");
 	ITEM("--interactive, -i", "Interactive prompt loop");
 	ITEM("--answer <text>", "Pre-supply an ask_user answer (repeatable)");
 	ITEM("--debug, -d", "Increase debug verbosity");

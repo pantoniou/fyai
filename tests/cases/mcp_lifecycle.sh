@@ -9,7 +9,7 @@ mock_start mcp_lifecycle.json
 
 run_fyai --set api=chat-completions --set display/stream=false \
 	--set mcp/enabled=true --set "mcp/endpoint='$MOCK_URL/mcp'" \
-	-u "$MOCK_URL/v1/chat/completions" -m mock-model "use the second MCP tool"
+	--set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "use the second MCP tool"
 assert_status 0
 assert_stdout_contains "MCP lifecycle completed."
 

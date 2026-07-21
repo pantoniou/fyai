@@ -33,7 +33,7 @@ assert_status 0
 export MOCKPROV_API_KEY=mock-secret
 
 set +e
-"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i -t -m foo \
+"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i --set tools=true -m foo \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF' &
 read data.txt and summarize
 EOF

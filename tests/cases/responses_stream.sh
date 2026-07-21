@@ -7,7 +7,7 @@ set -eu
 fyai_test_setup
 mock_start responses_stream.json
 
-run_fyai --set logging/stream true --set api=responses -u "$MOCK_URL/v1/responses" -m mock-model \
+run_fyai --set logging/stream true --set api=responses --set api_url="$MOCK_URL/v1/responses" -m mock-model \
 	 --set display/stats=true "stream please"
 assert_status 0
 assert_stdout_contains "Streamed responses answer."

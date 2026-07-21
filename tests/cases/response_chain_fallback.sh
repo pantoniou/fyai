@@ -9,13 +9,13 @@ fyai_test_setup
 mock_start response_chain_fallback.json
 
 run_fyai --set api=responses --set display/stream=false \
-	--set response_chain=true -u "$MOCK_URL/v1/responses" \
+	--set response_chain=true --set api_url="$MOCK_URL/v1/responses" \
 	-m mock-model --new "first turn"
 assert_status 0
 assert_stdout_contains "First answer."
 
 run_fyai --set api=responses --set display/stream=false \
-	--set response_chain=true -u "$MOCK_URL/v1/responses" \
+	--set response_chain=true --set api_url="$MOCK_URL/v1/responses" \
 	-m mock-model "second turn"
 assert_status 0
 assert_stdout_contains "Recovered answer."

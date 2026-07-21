@@ -7,7 +7,7 @@ set -eu
 fyai_test_setup
 
 mock_start response_failed.json
-run_fyai --set api=responses -u "$MOCK_URL/v1/responses" -m mock-model "fail please"
+run_fyai --set api=responses --set api_url="$MOCK_URL/v1/responses" -m mock-model "fail please"
 assert_status_nonzero
 [ "$FYAI_STATUS" -lt 128 ] || fail "crashed (status $FYAI_STATUS), not a clean error"
 mock_stop 1

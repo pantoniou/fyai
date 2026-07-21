@@ -11,7 +11,7 @@ mock_start messages_stream_tool_deltas.json
 
 printf 'delta payload\n' > data.txt
 
-run_fyai --set api=messages -t -u "$MOCK_URL/v1/messages" -m mock-model "read data.txt"
+run_fyai --set api=messages --set tools=true --set api_url="$MOCK_URL/v1/messages" -m mock-model "read data.txt"
 assert_status 0
 assert_stdout_contains "Tool deltas assembled fine."
 

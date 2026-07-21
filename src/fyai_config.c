@@ -1790,8 +1790,6 @@ static const struct option long_options[] = {
 	{ "env", required_argument, NULL, 'e' },
 	{ "model", required_argument, NULL, 'm' },
 	{ "api-key", required_argument, NULL, 'k' },
-	{ "url", required_argument, NULL, 'u' },
-	{ "tools", no_argument, NULL, 't' },
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -1799,7 +1797,6 @@ static const struct option long_options[] = {
 	{ "new", no_argument, NULL, OPT_NEW },
 	{ "interactive", no_argument, NULL, 'i' },
 	{ "debug", no_argument, NULL, 'd' },
-	{ "cache-info", no_argument, NULL, 'c' },
 	{ "answer", required_argument, NULL, OPT_ANSWER },
 	{ "set", required_argument, NULL, OPT_SET },
 	{ "get", required_argument, NULL, OPT_GET },
@@ -2200,7 +2197,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	optarg = NULL;
 
 	/* '+' stops parsing at the first non-option (the verb or prompt). */
-	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:u:tidc",
+	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:id",
 				  long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
@@ -2220,16 +2217,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case 'k':
 			cli_api_key = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case 'u':
-			if (config_queue_set_quoted(cfg, "api_url", optarg,
-						    false, false))
-				goto err_out;
-			break;
-		case 't':
-			if (config_queue_set_literal(cfg, "tools", "true",
-						     false, false))
-				goto err_out;
 			break;
 		case OPT_SANDBOX:
 			if (config_queue_set_literal(cfg, "sandbox", "true",
@@ -2252,11 +2239,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			cfg->diag.mask |= (1u << FYAIET_DEBUG) |
 					  (1u << FYAIET_INFO);
 			cfg->diag.source = true;
-			break;
-		case 'c':
-			if (config_queue_set_literal(cfg, "display/cache_info",
-						     "true", false, false))
-				goto err_out;
 			break;
 		case OPT_COLOR:
 			if (config_queue_set_quoted(cfg, "display/color", optarg,

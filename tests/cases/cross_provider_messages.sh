@@ -12,12 +12,12 @@ fyai_test_setup
 mock_start cross_messages_then_chat.json
 printf 'mock data payload\n' > data.txt
 
-run_fyai --set api=messages --set display/stream=false -t -u "$MOCK_URL/v1/messages" \
+run_fyai --set api=messages --set display/stream=false --set tools=true --set api_url="$MOCK_URL/v1/messages" \
 	 -m mock-model "read data.txt"
 assert_status 0
 assert_stdout_contains "Read it under Anthropic."
 
-run_fyai --set api=chat-completions --set display/stream=false -u "$MOCK_URL/v1/chat/completions" \
+run_fyai --set api=chat-completions --set display/stream=false --set api_url="$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "follow up"
 assert_status 0
 assert_stdout_contains "Continued under Chat Completions."
@@ -31,12 +31,12 @@ mock_stop 3
 # --- Chat Completions first, continue under Messages ---
 mock_start cross_chat_then_messages.json
 
-run_fyai --set api=chat-completions --set display/stream=false -t \
-	 -u "$MOCK_URL/v1/chat/completions" -m mock-model --new "read data.txt"
+run_fyai --set api=chat-completions --set display/stream=false --set tools=true \
+	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model --new "read data.txt"
 assert_status 0
 assert_stdout_contains "Read it under Chat Completions."
 
-run_fyai --set api=messages --set display/stream=false -u "$MOCK_URL/v1/messages" \
+run_fyai --set api=messages --set display/stream=false --set api_url="$MOCK_URL/v1/messages" \
 	 -m mock-model "follow up"
 assert_status 0
 assert_stdout_contains "Continued under Anthropic."

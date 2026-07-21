@@ -12,7 +12,7 @@ run_fyai --set api=chat-completions --set display/stream=false \
 	--set logging/mcp=true \
 	--set mcp/enabled=true --set "mcp/endpoint='$MOCK_URL/mcp'" \
 	--set 'mcp/auth_token={type: env, value: MCP_TEST_TOKEN}' \
-	-u "$MOCK_URL/v1/chat/completions" -m mock-model "use the MCP echo tool"
+	--set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "use the MCP echo tool"
 assert_status 0
 assert_stdout_contains "MCP call completed."
 

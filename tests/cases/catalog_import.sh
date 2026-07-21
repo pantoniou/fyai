@@ -100,7 +100,7 @@ assert_status 0
 assert_stdout_contains "| Model | Providers | Context | Max Output | Open |"
 assert_stdout_contains "| **cat-model** | **mock** | 32000 | 1234 | no |"
 
-# no -u / no api selection: the catalogue resolves endpoint, grammar and
+# no api_url / no api selection: the catalogue resolves endpoint, grammar and
 # wire model id from the canonical name
 run_fyai --set display/stream=false -m cat-model "hello"
 assert_status 0

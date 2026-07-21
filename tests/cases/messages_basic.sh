@@ -8,7 +8,7 @@ set -eu
 fyai_test_setup
 mock_start messages_basic.json
 
-run_fyai --set api=messages --set display/stream=false -u "$MOCK_URL/v1/messages" \
+run_fyai --set api=messages --set display/stream=false --set api_url="$MOCK_URL/v1/messages" \
 	 --set "system_prompt=You are a test assistant." -m mock-model "hello mock"
 assert_status 0
 assert_stdout_contains "Hello from the mock messages provider."

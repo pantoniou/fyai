@@ -11,7 +11,7 @@ export MCP_BETA_TOKEN=mcp-beta-secret
 run_fyai --set api=chat-completions --set display/stream=false \
 	--set mcp/enabled=true \
 	--set "mcp/servers={alpha: {endpoint: '$MOCK_URL/mcp'}, beta: {endpoint: '$MOCK_URL/mcp', auth_token: {type: env, value: MCP_BETA_TOKEN}}}" \
-	-u "$MOCK_URL/v1/chat/completions" -m mock-model "use the beta MCP tool"
+	--set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "use the beta MCP tool"
 assert_status 0
 assert_stdout_contains "Multiple MCP servers work."
 

@@ -13,10 +13,10 @@ fyai_test_setup
 mock_start api_hop.json
 
 # Per-hop endpoint/model/grammar/key are supplied entirely on the command line
-# (no provider presets): --url + the API-mode flag + -m + -k.
-HOP_RESP="--set api=responses -u $MOCK_URL/v1/responses -m model-resp -k key-resp"
-HOP_CHAT="--set api=chat-completions -u $MOCK_URL/v1/chat/completions -m model-chat -k key-chat"
-HOP_MSGS="--set api=messages -u $MOCK_URL/v1/messages -m model-msgs -k key-msgs"
+# (no provider presets): --set api_url + the API-mode flag + -m + -k.
+HOP_RESP="--set api=responses --set api_url=$MOCK_URL/v1/responses -m model-resp -k key-resp"
+HOP_CHAT="--set api=chat-completions --set api_url=$MOCK_URL/v1/chat/completions -m model-chat -k key-chat"
+HOP_MSGS="--set api=messages --set api_url=$MOCK_URL/v1/messages -m model-msgs -k key-msgs"
 
 run_hop() {
 	local flags="$1"; shift
@@ -31,7 +31,7 @@ run_hop() {
 printf 'mock data payload\n' > data.txt
 
 # Hop 1: Responses, with a tool round trip (requests 0 and 1).
-run_hop "$HOP_RESP" -t "read data.txt"
+run_hop "$HOP_RESP" --set tools=true "read data.txt"
 assert_status 0
 assert_stdout_contains "Hop one done under Responses."
 assert_request 0 'r["path"] == "/v1/responses"'
