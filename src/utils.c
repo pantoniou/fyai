@@ -12,10 +12,10 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -24,6 +24,7 @@
 #include <libfyaml/libfyaml-align.h>
 
 #include "fyai.h"
+#include "fyai_event.h"
 #include "fyai_sandbox.h"
 #include "fyai_terminal.h"
 
@@ -257,7 +258,86 @@ static int read_shell_pipe(int fd, struct response_buffer *buf,
 	return 1;
 }
 
-int run_shell_command_capture_cb(const char *command,
+/* Shell-capture state carried through the event callbacks. */
+/* Each participant owns its own source pointer so that withdrawing is
+ * idempotent. */
+struct shell_capture {
+	struct response_buffer *buf;
+	enum shell_output_stream stream;
+	shell_output_fn output_fn;
+	void *userdata;
+	struct shell_capture_job *job;
+	struct fyai_event_source *src;
+	bool open;
+	bool failed;
+};
+
+struct shell_capture_job {
+	struct shell_capture out;
+	struct shell_capture err;
+	struct fyai_event_source *csrc;
+	bool reaped;
+	int status;
+	bool done;
+};
+
+static void shell_capture_drop(struct fyai_event_source **srcp)
+{
+	fyai_event_source_remove(*srcp);
+	*srcp = NULL;
+}
+
+static void shell_capture_update_done(struct shell_capture_job *job)
+{
+	job->done = !job->out.open && !job->err.open && job->reaped;
+}
+
+static enum fyai_event_action shell_capture_readable(const struct fyai_event *ev)
+{
+	struct shell_capture *cap = ev->userdata;
+	int rc;
+
+	if (ev->events & (FYAIEV_READ | FYAIEV_EOF)) {
+		/* Drain greedily rather than one read per wakeup. */
+		for (;;) {
+			rc = read_shell_pipe(ev->fd, cap->buf, cap->stream,
+					     cap->output_fn, cap->userdata);
+			if (rc > 0)
+				continue;
+			if (rc < 0 && errno == EINTR)
+				continue;
+			break;
+		}
+		if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+			return FYAIEA_CONTINUE;
+		if (rc < 0)
+			cap->failed = true;
+	} else if (ev->events & FYAIEV_ERROR) {
+		cap->failed = true;
+	} else {
+		return FYAIEA_CONTINUE;
+	}
+
+	cap->open = false;
+	shell_capture_drop(&cap->src);
+	shell_capture_update_done(cap->job);
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action shell_capture_child(const struct fyai_event *ev)
+{
+	struct shell_capture_job *job = ev->userdata;
+
+	/* One-shot: the loop retires this source as soon as we return, so drop
+	 * our reference rather than leaving it dangling for the cleanup path. */
+	job->csrc = NULL;
+	job->reaped = true;
+	job->status = ev->status;
+	shell_capture_update_done(job);
+	return FYAIEA_CONTINUE;
+}
+
+int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 struct shell_command_result *result,
 				 shell_output_fn output_fn,
 				 void *userdata,
@@ -265,14 +345,11 @@ int run_shell_command_capture_cb(const char *command,
 {
 	struct response_buffer stdout_buf = {};
 	struct response_buffer stderr_buf = {};
-	fd_set rfds;
+	struct shell_capture_job job = {};
+	struct fyai_event_loop *el = NULL;
 	int stdout_pipe[2] = { -1, -1 };
 	int stderr_pipe[2] = { -1, -1 };
-	int stdout_open = 1;
-	int stderr_open = 1;
-	int maxfd;
-	int rc;
-	int status;
+	int status = 0;
 	pid_t pid = -1;
 	int ret = -1;
 
@@ -309,51 +386,40 @@ int run_shell_command_capture_cb(const char *command,
 	stdout_pipe[1] = -1;
 	stderr_pipe[1] = -1;
 
-	while (stdout_open || stderr_open) {
-		maxfd = -1;
-		FD_ZERO(&rfds);
-		if (stdout_open) {
-			FD_SET(stdout_pipe[0], &rfds);
-			maxfd = stdout_pipe[0] > maxfd ? stdout_pipe[0] : maxfd;
-		}
-		if (stderr_open) {
-			FD_SET(stderr_pipe[0], &rfds);
-			maxfd = stderr_pipe[0] > maxfd ? stderr_pipe[0] : maxfd;
-		}
+	fcntl(stdout_pipe[0], F_SETFL, O_NONBLOCK);
+	fcntl(stderr_pipe[0], F_SETFL, O_NONBLOCK);
 
-		rc = select(maxfd + 1, &rfds, NULL, NULL, NULL);
-		if (rc < 0)
-			goto out_wait;
+	/* Watch both pipes and the child together. */
+	job.out.buf = &stdout_buf;
+	job.out.stream = SHELL_OUTPUT_STDOUT;
+	job.err.buf = &stderr_buf;
+	job.err.stream = SHELL_OUTPUT_STDERR;
+	job.out.output_fn = job.err.output_fn = output_fn;
+	job.out.userdata = job.err.userdata = userdata;
+	job.out.job = job.err.job = &job;
+	job.out.open = job.err.open = true;
 
-		if (stdout_open && FD_ISSET(stdout_pipe[0], &rfds)) {
-			rc = read_shell_pipe(stdout_pipe[0], &stdout_buf,
-					     SHELL_OUTPUT_STDOUT, output_fn,
-					     userdata);
-			if (rc < 0)
-				goto out_wait;
-			if (!rc) {
-				close(stdout_pipe[0]);
-				stdout_pipe[0] = -1;
-				stdout_open = 0;
-			}
-		}
-		if (stderr_open && FD_ISSET(stderr_pipe[0], &rfds)) {
-			rc = read_shell_pipe(stderr_pipe[0], &stderr_buf,
-					     SHELL_OUTPUT_STDERR, output_fn,
-					     userdata);
-			if (rc < 0)
-				goto out_wait;
-			if (!rc) {
-				close(stderr_pipe[0]);
-				stderr_pipe[0] = -1;
-				stderr_open = 0;
-			}
-		}
-	}
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		goto out_wait;
 
-	if (waitpid(pid, &status, 0) < 0)
-		goto out;
-	pid = -1;
+	if (fyai_event_add_fd(el, stdout_pipe[0], FYAIEV_READ,
+			      shell_capture_readable, &job.out, &job.out.src) ||
+	    fyai_event_add_fd(el, stderr_pipe[0], FYAIEV_READ,
+			      shell_capture_readable, &job.err, &job.err.src) ||
+	    fyai_event_add_child(el, pid, shell_capture_child, &job, &job.csrc))
+		goto out_wait;
+
+	/* Clear the pid once the loop owns the reap. */
+	if (fyai_event_loop_run_until(el, &job.done, -1))
+		goto out_wait;
+
+	if (job.reaped)
+		pid = -1;
+	if (!job.done || job.out.failed || job.err.failed)
+		goto out_wait;
+
+	status = job.status;
 
 	result->stdout_data = stdout_buf.data ? stdout_buf.data : strdup("");
 	result->stderr_data = stderr_buf.data ? stderr_buf.data : strdup("");
@@ -375,11 +441,20 @@ int run_shell_command_capture_cb(const char *command,
 	goto out;
 
 out_wait:
-	waitpid(pid, &status, 0);
-	pid = -1;
+	if (pid > 0) {
+		while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+			;
+		pid = -1;
+	}
 out:
+	/* Withdraw sources before closing their pipes. */
+	shell_capture_drop(&job.out.src);
+	shell_capture_drop(&job.err.src);
+	shell_capture_drop(&job.csrc);
+
 	if (pid > 0)
-		waitpid(pid, NULL, 0);
+		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+			;
 	if (stdout_pipe[0] >= 0)
 		close(stdout_pipe[0]);
 	if (stdout_pipe[1] >= 0)

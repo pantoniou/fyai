@@ -423,6 +423,8 @@ if(BUILD_TESTING)
         src/fyai_patch.c
         src/fyai_sandbox.c
         src/utils.c
+        ${FYAI_EVENT_SOURCES}
+        ${FYAI_DIAG_SOURCES}
     )
     target_compile_options(fyai_patch_test PRIVATE ${FYAI_C_DIALECT}
         ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
@@ -481,6 +483,8 @@ if(BUILD_TESTING)
         src/fyai_diag.c
         src/fyai_sandbox.c
         src/utils.c
+        ${FYAI_EVENT_SOURCES}
+        ${FYAI_DIAG_SOURCES}
     )
     target_compile_options(fyai_provider_test PRIVATE ${FYAI_C_DIALECT}
         ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
@@ -500,6 +504,8 @@ if(BUILD_TESTING)
         tests/fyai_stackcheck_test.c
         src/fyai_sandbox.c
         src/utils.c
+        ${FYAI_EVENT_SOURCES}
+        ${FYAI_DIAG_SOURCES}
     )
     target_compile_options(fyai_stackcheck_test PRIVATE ${FYAI_C_DIALECT}
         ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
@@ -520,6 +526,8 @@ if(BUILD_TESTING)
         src/fyai_schema.c
         src/fyai_sandbox.c
         src/utils.c
+        ${FYAI_EVENT_SOURCES}
+        ${FYAI_DIAG_SOURCES}
     )
     target_compile_options(fyai_schema_test PRIVATE ${FYAI_C_DIALECT}
         ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
@@ -548,6 +556,8 @@ if(BUILD_TESTING)
         src/fyai_storage.c
         src/fyai_terminal.c
         src/utils.c
+        ${FYAI_EVENT_SOURCES}
+        ${FYAI_DIAG_SOURCES}
     )
     target_compile_options(fyai_config_test PRIVATE ${FYAI_C_DIALECT}
         ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})

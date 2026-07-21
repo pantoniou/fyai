@@ -105,7 +105,9 @@ char *join_args(int argc, char **argv);
 char *read_text_file(const char *path);
 int write_text_file(const char *path, const char *content);
 struct fyai_sandbox_spec;
-int run_shell_command_capture_cb(const char *command,
+struct fyai_ctx;
+/* @ctx is the diagnostic sink for the capture loop; it must not be NULL. */
+int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 struct shell_command_result *result,
 				 shell_output_fn output_fn,
 				 void *userdata,
