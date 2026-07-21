@@ -17,27 +17,24 @@
 #include <string.h>
 #include <unistd.h>
 
-#if defined(__linux__)
-#include <sys/syscall.h>
+#include <fcntl.h>
 #include <sys/wait.h>
-#include <poll.h>
-#endif
 
 #include <linenoise.h>
 
 #include "fyai_config.h"
 #include "fyai_display.h"
+#include "fyai_event.h"
 #include "fyai_markdown.h"
 #include "fyai_patch.h"
 #include "fyai_sandbox.h"
+#include "fyai_session.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
 
 static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name);
-#if defined(__linux__)
 static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
 				       fy_generic args);
-#endif
 
 static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
 {
@@ -348,7 +345,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command)
 
 	sandbox = fyai_shell_sandbox_begin(ctx, &sb);
 
-	if (run_shell_command_capture_cb(command, &result,
+	if (run_shell_command_capture_cb(ctx, command, &result,
 					 fyai_shell_output, ctx, sandbox))
 		goto out;
 	fyai_shell_live_close(ctx);
@@ -457,7 +454,7 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	}
 
 	/* Editable input via linenoise (only reached on an interactive tty). */
-	line = linenoise(n ? "choose a number or type an answer> " : "> ");
+	line = fyai_readline(ctx, n ? "choose a number or type an answer> " : "> ");
 have_line:
 	if (!line || !*line) {
 		free(line);
@@ -516,7 +513,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		sandbox = fyai_shell_sandbox_begin(ctx, &sb);
 
 		fy_foreach(command, commands) {
-			if (run_shell_command_capture_cb(fy_castp(&command, ""),
+			if (run_shell_command_capture_cb(ctx,
+							 fy_castp(&command, ""),
 							 &shell_result,
 							 fyai_shell_output,
 							 ctx, sandbox)) {
@@ -587,11 +585,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		goto out;
 	}
 
-#if defined(__linux__)
 	if (fyai_should_fork_tool(ctx, name))
 		result_generic = fyai_tool_run_forked(ctx, name, args);
 	else
-#endif
 		result_generic = fyai_tool_run_one(ctx, name, args);
 out:
 	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
@@ -660,34 +656,96 @@ static void fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 	ctx->sandbox_applied = true;
 }
 
-#if defined(__linux__)
-
 /*
  * Fork-per-tool execution. Each tool call runs in its own child that creates a
  * fresh transient builder, internalizes the arguments, sanitizes the
  * environment, applies the sandbox, runs the tool, and writes the result string
- * back over a pipe. The parent tracks the child by a pidfd (a pollable fd), so
- * a later change can spawn several jobs and wait on all their pidfds at once for
- * parallel tool-call execution; today collect() runs right after spawn().
+ * back over a pipe. The parent waits on the result pipe and the child together
+ * through fyai_event, so spawning several jobs and collecting them from one
+ * loop is a change to the caller, not to the job lifecycle; today collect()
+ * still runs right after spawn().
  *
- * macOS keeps the in-process path (fyai_should_fork_tool is false there); the
- * analog when we get to it is CLONE-free fork(2) plus kqueue EVFILT_PROC
- * (NOTE_EXIT) for the pollable child handle that pidfd provides here.
+ * The pollable-child handle (pidfd on Linux, EVFILT_PROC/NOTE_EXIT on macOS)
+ * now lives in the event backend, so nothing here is Linux-specific any more -
+ * only fyai_should_fork_tool() still gates the path per platform.
  *
  * Result transport is the raw result string for now (every forked tool returns
  * a string; ask_user, which returns structure, stays in-process). A framed or
  * shared-arena transport can replace it without touching the job lifecycle.
  */
+/*
+ * The job owns its source pointers so withdrawing is idempotent: the callbacks
+ * retire a source when it is spent and the collect path retires whatever is
+ * left, and neither has to know what the other did. The loop is shared and
+ * outlives the job, so a source left behind would point at freed storage.
+ */
 struct fyai_tool_job {
 	pid_t pid;
-	int pidfd;		/* -1 when pidfd_open is unavailable */
 	int rfd;		/* result pipe read end */
 	struct response_buffer buf;
+	struct fyai_event_source *rsrc;
+	struct fyai_event_source *csrc;
+	bool out_open;		/* result pipe not yet at EOF */
+	bool reaped;
+	bool failed;
+	bool done;
 };
 
-static int fyai_pidfd_open(pid_t pid)
+static void fyai_tool_job_drop(struct fyai_event_source **srcp)
 {
-	return (int)syscall(__NR_pidfd_open, pid, 0U);
+	fyai_event_source_remove(*srcp);
+	*srcp = NULL;
+}
+
+static void fyai_tool_job_update_done(struct fyai_tool_job *job)
+{
+	job->done = !job->out_open && job->reaped;
+}
+
+/* Drain the result pipe. */
+static enum fyai_event_action fyai_tool_job_readable(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+	char chunk[4096];
+	ssize_t r;
+
+	for (;;) {
+		r = read(ev->fd, chunk, sizeof(chunk));
+		if (r > 0) {
+			if (response_buffer_reserve(&job->buf,
+						    job->buf.len + (size_t)r + 1)) {
+				job->failed = true;
+				break;
+			}
+			memcpy(job->buf.data + job->buf.len, chunk, (size_t)r);
+			job->buf.len += (size_t)r;
+			job->buf.data[job->buf.len] = '\0';
+			continue;
+		}
+		if (r < 0 && errno == EINTR)
+			continue;
+		break;
+	}
+
+	if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && !job->failed)
+		return FYAIEA_CONTINUE;
+
+	job->out_open = false;
+	fyai_tool_job_drop(&job->rsrc);
+	fyai_tool_job_update_done(job);
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+
+	/* One-shot: the loop retires this source as soon as we return, so drop
+	 * our reference rather than leaving it dangling for the collect path. */
+	job->csrc = NULL;
+	job->reaped = true;
+	fyai_tool_job_update_done(job);
+	return FYAIEA_CONTINUE;
 }
 
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
@@ -701,7 +759,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	ssize_t w;
 
 	memset(job, 0, sizeof(*job));
-	job->pidfd = -1;
+	job->rfd = -1;
 	if (pipe(p))
 		return -1;
 
@@ -714,6 +772,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 
 	if (!pid) {			/* child */
 		close(p[0]);
+		fyai_ctx_loop_abandon(ctx);
 		/* Fresh builder, then internalize the arguments into it. */
 		fyai_setup_transient_builder(ctx);
 		args = fy_gb_internalize(ctx->transient_gb, args);
@@ -738,44 +797,43 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	close(p[1]);
 	job->pid = pid;
 	job->rfd = p[0];
-	job->pidfd = fyai_pidfd_open(pid);
+	job->out_open = true;
+	/* The collector drains greedily, so the read end must not block. */
+	fcntl(job->rfd, F_SETFL, O_NONBLOCK);
 	return 0;
 }
 
 static fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 					struct fyai_tool_job *job)
 {
-#ifdef P_PIDFD
-	siginfo_t si = {0};
-#endif
-	char chunk[4096];
-	ssize_t r;
+	struct fyai_event_loop *el;
 
-	/* Drain the result pipe to EOF (child closes it on exit). */
-	while ((r = read(job->rfd, chunk, sizeof(chunk))) != 0) {
-		if (r < 0) {
-			if (errno == EINTR)
-				continue;
-			break;
-		}
-		if (response_buffer_reserve(&job->buf,
-					    job->buf.len + (size_t)r + 1))
-			break;
-		memcpy(job->buf.data + job->buf.len, chunk, (size_t)r);
-		job->buf.len += (size_t)r;
-		job->buf.data[job->buf.len] = '\0';
+	/* Wait on the result pipe and the child together. */
+	el = fyai_ctx_loop(ctx);
+	if (el) {
+		if (fyai_event_add_fd(el, job->rfd, FYAIEV_READ,
+				      fyai_tool_job_readable, job, &job->rsrc) ||
+		    fyai_event_add_child(el, job->pid, fyai_tool_job_child,
+					 job, &job->csrc))
+			job->failed = true;
+		else if (fyai_event_loop_run_until(el, &job->done, -1))
+			job->failed = true;
+
+		/* Drop sources before their job state and fd. */
+		fyai_tool_job_drop(&job->rsrc);
+		fyai_tool_job_drop(&job->csrc);
+	} else {
+		job->failed = true;
 	}
-	close(job->rfd);
 
-	/* Reap. waitid(P_PIDFD) exercises the pidfd; fall back to waitpid. */
-#ifdef P_PIDFD
-	if (job->pidfd >= 0) {
-		waitid(P_PIDFD, (id_t)job->pidfd, &si, WEXITED);
-	} else
-#endif
-		waitpid(job->pid, NULL, 0);
-	if (job->pidfd >= 0)
-		close(job->pidfd);
+	if (job->rfd >= 0)
+		close(job->rfd);
+	job->rfd = -1;
+
+	/* Reap a child the loop never acquired. */
+	if (!job->reaped && job->pid > 0)
+		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
+			;
 
 	return fy_gb_internalize(ctx->transient_gb,
 				 fy_value(job->buf.data ? job->buf.data : ""));
@@ -796,12 +854,7 @@ static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
 	return result;
 }
 
-/*
- * Whether this tool call should run in a forked, sandboxed child rather than
- * in-process. ask_user is interactive (needs the tty and cannot pipe its
- * result), so it always runs in-process. Only meaningful on Linux and when the
- * sandbox is enabled; the fork path is the isolation/parallelism substrate.
- */
+/* Whether this tool call should run in a forked child rather than in-process. */
 static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name)
 {
 	if (ctx->sandbox_applied)	/* already inside a tool child */
@@ -812,17 +865,6 @@ static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name)
 		return false;
 	return true;
 }
-
-#else /* !__linux__ */
-
-static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name)
-{
-	(void)ctx;
-	(void)name;
-	return false;			/* macOS: in-process, as before */
-}
-
-#endif /* __linux__ */
 
 int fyai_run_tool_verb(struct fyai_ctx *ctx)
 {

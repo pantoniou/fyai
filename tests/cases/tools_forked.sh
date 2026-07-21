@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# With the sandbox enabled on Linux, each built-in tool call runs in its own
+# With the sandbox enabled, each built-in tool call runs in its own
 # forked, sandboxed child and its result is piped back to the parent. This
 # reuses the write_file/apply_patch/shell scenario and asserts the same
 # outcomes, proving the fork-per-tool transport round-trips. (Where Landlock is

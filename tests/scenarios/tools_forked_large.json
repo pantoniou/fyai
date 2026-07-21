@@ -1,0 +1,46 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-fl1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_shell_big",
+                  "type": "function",
+                  "function": { "name": "shell", "arguments": "{\"command\":\"seq 1 40000\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": { "prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-fl2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "large result received" },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 55, "completion_tokens": 9, "total_tokens": 64 }
+      }
+    }
+  ]
+}
