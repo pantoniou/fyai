@@ -21,6 +21,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fyai_curl.h"
+#include "fyai_event.h"
 #include "fyai_log.h"
 #include "fyai_tools.h"
 #include "utils.h"
@@ -76,7 +78,7 @@ static size_t mcp_header(void *ptr, size_t size, size_t nmemb, void *userdata)
 }
 
 static int mcp_initialize(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
-static void mcp_stdio_stop(struct fyai_mcp_ctx *mcp);
+static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
 
 static bool mcp_transient_status(CURLcode rc, long status)
 {
@@ -155,7 +157,7 @@ static fy_generic mcp_http_request_once(struct fyai_ctx *ctx,
 	curl_easy_setopt(mcp->curl, CURLOPT_USERAGENT, ctx->user_agent);
 	if (logging)
 		clock_gettime(CLOCK_MONOTONIC, &start_ts);
-	rc = curl_easy_perform(mcp->curl);
+	rc = fyai_curl_perform(ctx, mcp->curl);
 	if (rc == CURLE_OK)
 		curl_easy_getinfo(mcp->curl, CURLINFO_RESPONSE_CODE, &status);
 	*rcp = rc;
@@ -723,7 +725,7 @@ err_out:
 	}
 	if (mcp->curl)
 		curl_easy_cleanup(mcp->curl);
-	mcp_stdio_stop(mcp);
+	mcp_stdio_stop(ctx, mcp);
 	free(mcp);
 	return -1;
 }
@@ -854,15 +856,21 @@ static void mcp_delete_session(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	curl_easy_setopt(mcp->curl, CURLOPT_URL, mcp->endpoint);
 	curl_easy_setopt(mcp->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(mcp->curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDS, NULL);
+	/* A body-less DELETE. */
+	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDS, "");
+	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDSIZE, 0L);
 	curl_easy_setopt(mcp->curl, CURLOPT_WRITEFUNCTION, write_response);
 	curl_easy_setopt(mcp->curl, CURLOPT_WRITEDATA, &response);
 	curl_easy_setopt(mcp->curl, CURLOPT_HEADERFUNCTION, NULL);
 	curl_easy_setopt(mcp->curl, CURLOPT_HEADERDATA, NULL);
 	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT, (long)mcp->timeout);
-	rc = curl_easy_perform(mcp->curl);
+	rc = fyai_curl_perform(ctx, mcp->curl);
 	if (rc == CURLE_OK)
 		curl_easy_getinfo(mcp->curl, CURLINFO_RESPONSE_CODE, &status);
+	/* Teardown failure is nonfatal; the server will time the session out. */
+	if (rc != CURLE_OK || status < 200 || status >= 300)
+		fyai_warning(ctx, "MCP %s session delete failed: %s (HTTP %ld)",
+			     mcp->name, curl_easy_strerror(rc), status);
 	if (ctx->cfg->mcp_logging)
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "session_delete", "server", mcp->name,
@@ -875,10 +883,12 @@ static void mcp_delete_session(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	mcp->session_id = NULL;
 }
 
-static void mcp_stdio_stop(struct fyai_mcp_ctx *mcp)
+/* Shut the server down: close its pipes so it sees EOF and leaves on its own,
+ * then escalate through SIGTERM to SIGKILL if it does not. */
+static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 {
-	struct timespec delay = { .tv_nsec = 10000000 };
-	int status, i;
+	struct fyai_event_loop *el;
+	int status;
 
 	if (mcp->stdin_fd >= 0) {
 		close(mcp->stdin_fd);
@@ -890,21 +900,14 @@ static void mcp_stdio_stop(struct fyai_mcp_ctx *mcp)
 	}
 	if (mcp->pid <= 0)
 		return;
-	for (i = 0; i < 100; i++) {
-		if (waitpid(mcp->pid, &status, WNOHANG) == mcp->pid)
-			goto out;
-		nanosleep(&delay, NULL);
+
+	el = fyai_ctx_loop(ctx);
+	if (!el || fyai_event_child_terminate(el, mcp->pid, 1000, 500, NULL)) {
+		/* No loop, or it failed: the reap is still ours to do. */
+		kill(mcp->pid, SIGKILL);
+		while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
+			;
 	}
-	kill(mcp->pid, SIGTERM);
-	for (i = 0; i < 50; i++) {
-		if (waitpid(mcp->pid, &status, WNOHANG) == mcp->pid)
-			goto out;
-		nanosleep(&delay, NULL);
-	}
-	kill(mcp->pid, SIGKILL);
-	while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
-		;
-out:
 	mcp->pid = -1;
 }
 
@@ -922,7 +925,7 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 				"event", "disconnect", "server", mcp->name));
 		if (mcp->curl)
 			curl_easy_cleanup(mcp->curl);
-		mcp_stdio_stop(mcp);
+		mcp_stdio_stop(ctx, mcp);
 		free(mcp);
 	}
 	ctx->mcp = NULL;

@@ -138,6 +138,8 @@ out:
 	 */
 	fyai_diag_drain(&cfg->diag);
 	fyai_cleanup(&ctx);
+	/* Teardown can report after the first drain. */
+	fyai_diag_drain(&cfg->diag);
 	return rc ? -1 : 0;
 
 err_out:
