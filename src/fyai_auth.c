@@ -10,25 +10,17 @@
 #include "config.h"
 #endif
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/in.h>
-#include <poll.h>
 #include <signal.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
-#include <openssl/rand.h>
-#include <openssl/sha.h>
 
 #ifdef HAVE_LIBSECRET
 #include <libsecret/secret.h>
@@ -38,8 +30,10 @@
 #endif
 
 #include "fyai.h"
-#include "fyai_curl.h"
+#include "fyai_event.h"
+#include "fyai_oauth.h"
 #include "fyai_auth.h"
+#include "fyai_curl.h"
 #include "fyai_auth_util.h"
 #include "fyai_display.h"
 #include "fyai_markdown.h"
@@ -52,52 +46,6 @@
 #undef HAVE_KEYRING
 #endif
 
-static char *query_value(CURL *curl, const char *request, const char *key)
-{
-	const char *q, *end, *p;
-	size_t klen;
-	const char *v, *amp;
-	char *decoded;
-	char *result;
-	int n;
-
-	klen = strlen(key);
-	q = strchr(request, '?');
-	if (!q)
-		return NULL;
-	q++;
-	end = strchr(q, ' ');
-	if (!end)
-		return NULL;
-
-	/* find the key */
-	v = NULL;
-	for (p = q; p && p < end; p++) {
-		if ((size_t)(end - p) > klen && !strncmp(p, key, klen) && p[klen] == '=') {
-			v = p + klen + 1;
-			break;
-		}
-		p = memchr(p, '&', (size_t)(end - p));
-	}
-	if (!v)
-		return NULL;
-
-	/* find the next & or end */
-	amp = memchr(v, '&', (size_t)(end - v));
-	if (amp)
-		end = amp;
-
-	/* decode */
-	decoded = curl_easy_unescape(curl, v, (size_t)(end - v), &n);
-	if (!decoded)
-		return NULL;
-
-	result = strndup(decoded, (size_t)n);
-	curl_free(decoded);
-
-	return result;
-}
-
 #define CHATGPT_BASE_URL "https://chatgpt.com/backend-api/codex"
 #define CHATGPT_BACKEND_URL "https://chatgpt.com/backend-api"
 #define AUTH_ISSUER "https://auth.openai.com"
@@ -107,6 +55,9 @@ static char *query_value(CURL *curl, const char *request, const char *key)
  * a project to redirect machine-local subscription credentials. */
 #define CODEX_OAUTH_CLIENT_ID "app_EMoamEEZ73f0CkXaXp7hrann"
 #define CODEX_OAUTH_SCOPE_URL "openid%20profile%20email%20offline_access%20api.connectors.read%20api.connectors.invoke"
+#define AUTH_CALLBACK_PATH "/auth/callback"
+#define AUTH_CALLBACK_TIMEOUT_MS 600000
+#define AUTH_DEVICE_TIMEOUT_MS 900000
 #define AUTH_PORT 1455
 #define AUTH_FALLBACK_PORT 1457
 #define AUTH_REFRESH_WINDOW 300
@@ -269,8 +220,9 @@ static int token_claims(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	c->plan = fy_gb_intern_string(auth_builder(ctx), fy_get(auth, "chatgpt_plan_type", "unknown"));
 	c->fedramp = fy_get(auth, "chatgpt_account_is_fedramp", false);
 
+	/* Do not replace the access token's expiry with the ID token's. */
 	exp = fy_get(doc, "exp", 0LL);
-	if (exp > 0)
+	if (exp > 0 && !c->expires_at)
 		c->expires_at = (time_t)exp;
 
 	if (!*c->account_id)
@@ -804,8 +756,6 @@ static int auth_http_request(struct fyai_ctx *ctx,
 	CURL *curl;
 	CURLcode code;
 
-	(void)ctx;
-
 	memset(out, 0, sizeof(*out));
 	curl = curl_easy_init();
 	if (!curl)
@@ -908,64 +858,6 @@ err_out:
 	goto out;
 }
 
-static int bind_callback(unsigned short *portp)
-{
-	const unsigned short ports[] = { AUTH_PORT, AUTH_FALLBACK_PORT };
-	struct sockaddr_in sa;
-	int fd = -1;
-	size_t i;
-	int rc;
-
-	for (i = 0; i < ARRAY_SIZE(ports); i++) {
-
-		if (fd >= 0)
-			close(fd);
-		fd = socket(AF_INET, SOCK_STREAM, 0);
-		if (fd < 0)
-			break;
-
-		fcntl(fd, F_SETFD, FD_CLOEXEC);
-
-		memset(&sa, 0, sizeof(sa));
-		sa.sin_family = AF_INET;
-		sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-		sa.sin_port = htons(ports[i]);
-		rc = bind(fd, (struct sockaddr *)&sa, sizeof(sa));
-		if (rc)
-			continue;
-
-		rc = listen(fd, 4);
-		if (rc)
-			continue;
-
-		/* we're good */
-		*portp = ports[i];
-		return fd;
-	}
-
-	/* can't work */
-
-	if (fd >= 0)
-		close(fd);
-	return -1;
-}
-
-static void open_browser(const char *url)
-{
-	extern char **environ;
-	pid_t pid;
-#ifdef __APPLE__
-	char *const argv[] = { "open", (char *)url, NULL };
-	const char *program = "open";
-#else
-	char *const argv[] = { "xdg-open", (char *)url, NULL };
-	const char *program = "xdg-open";
-#endif
-
-	if (!posix_spawnp(&pid, program, NULL, NULL, argv, environ))
-		(void)pid;
-}
-
 /* Read a pasted callback URL (or bare code) from stdin, verify the CSRF
  * state, and exchange the code.  Used when no localhost socket is reachable
  * from the browser (e.g. signing in from another machine over SSH). */
@@ -996,8 +888,8 @@ static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 	/* query_value scans a "GET <target> ..." request line for ?key=val. */
 	request = fy_sprintfa("GET %s \r\n", line);
 
-	code = query_value(ctx->curl, request, "code");
-	got_state = query_value(ctx->curl, request, "state");
+	code = fyai_oauth_query_value(ctx->curl, request, "code");
+	got_state = fyai_oauth_query_value(ctx->curl, request, "state");
 	if (!code) {
 		/* No query string: treat the whole paste as the bare code. */
 		code = strdup(line);
@@ -1025,106 +917,77 @@ err_out:
 static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 			 bool no_browser, bool manual)
 {
-	unsigned char verifier_random[48], state_random[32];
-	unsigned char digest[SHA256_DIGEST_LENGTH];
-	char *verifier = NULL, *challenge = NULL, *state = NULL;
-	char *code = NULL, *got_state = NULL;
-	char request[8192];
+	static const unsigned short ports[] = { AUTH_PORT, AUTH_FALLBACK_PORT };
+	struct fyai_oauth_params params = {
+		.path		= AUTH_CALLBACK_PATH,
+		.ports		= ports,
+		.nports		= ARRAY_SIZE(ports),
+		.timeout_ms	= AUTH_CALLBACK_TIMEOUT_MS,
+	};
+	struct fyai_oauth_flow *flow = NULL;
+	struct fyai_event_loop *el = NULL;
+	struct fyai_oauth_pkce pkce;
 	const char *redirect, *url;
 	unsigned short port;
-	struct pollfd pfd;
-	int server = -1, client = -1, rc = -1;
-	ssize_t n;
-	static const char ok[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nLogin complete. You may close this window.\n";
-	static const char bad[] = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nLogin failed.\n";
+	int rc = -1;
 
-	if (RAND_bytes(verifier_random, sizeof(verifier_random)) != 1 ||
-	    RAND_bytes(state_random, sizeof(state_random)) != 1)
+	rc = fyai_oauth_pkce_generate(&pkce);
+	if (rc)
 		return -1;
 
-	verifier = fyai_base64url_encode(verifier_random, sizeof(verifier_random));
-	state = fyai_base64url_encode(state_random, sizeof(state_random));
-	if (!verifier || !state)
-		goto err_out;
+	params.state = pkce.state;
 
-	SHA256((unsigned char *)verifier, strlen(verifier), digest);
-	challenge = fyai_base64url_encode(digest, sizeof(digest));
-
-	if (!challenge)
-		goto err_out;
-
+	/* Arm the receiver before the URL is built. */
 	if (manual) {
 		port = AUTH_PORT;
 	} else {
-		server = bind_callback(&port);
-		if (server < 0)
+		el = fyai_ctx_loop(ctx);
+		if (!el)
 			goto err_out;
+		rc = fyai_oauth_flow_start(ctx, el, &params, NULL, NULL, &flow);
+		if (rc)
+			goto err_out;
+		port = fyai_oauth_flow_port(flow);
 	}
 
-	redirect = fy_sprintfa("http://localhost:%u/auth/callback", port);
+	redirect = fy_sprintfa("http://localhost:%u" AUTH_CALLBACK_PATH, port);
 	url = fy_sprintfa(
 		AUTH_ISSUER "/oauth/authorize?response_type=code&client_id=" CODEX_OAUTH_CLIENT_ID
 		"&redirect_uri=http%%3A%%2F%%2Flocalhost%%3A%u%%2Fauth%%2Fcallback"
 		"&scope=%s"
 		"&code_challenge=%s&code_challenge_method=S256&id_token_add_organizations=true"
 		"&codex_cli_simplified_flow=true&state=%s&originator=fyai",
-		port, CODEX_OAUTH_SCOPE_URL, challenge, state);
+		port, CODEX_OAUTH_SCOPE_URL, pkce.challenge, pkce.state);
 
 	printf("Open this URL to sign in:\n%s\n", url);
 	fflush(stdout);
 
 	if (!no_browser && !manual)
-		open_browser(url);
+		fyai_oauth_open_browser(url);
 
 	if (manual) {
-		rc = manual_login(ctx, c, redirect, verifier, state);
+		rc = manual_login(ctx, c, redirect, pkce.verifier, pkce.state);
 		goto out;
 	}
 
-	pfd.fd = server;
-	pfd.events = POLLIN;
-	if (poll(&pfd, 1, 600000) <= 0)
-		goto err_out;
-
-	client = accept(server, NULL, NULL);
-	if (client < 0)
-		goto err_out;
-
-	(void)fcntl(client, F_SETFD, FD_CLOEXEC);
-
-	n = read(client, request, sizeof(request) - 1);
-	if (n <= 0)
-		goto err_out;
-	request[n] = '\0';
-
-	if (strncmp(request, "GET /auth/callback?", 19))
-		goto respond;
-
-	code = query_value(ctx->curl, request, "code");
-	got_state = query_value(ctx->curl, request, "state");
-	if (!code || !got_state || strcmp(got_state, state))
-		goto respond;
-
-	rc = exchange_code(ctx, c, code, redirect, verifier);
+	rc = fyai_oauth_flow_wait(ctx, flow);
 	if (rc)
-		goto respond;
+		goto err_out;
 
-	(void)write(client, ok, sizeof(ok) - 1);
+	rc = exchange_code(ctx, c, fyai_oauth_flow_code(flow), redirect,
+			   pkce.verifier);
+
+	/* Report the exchange's verdict on the browser's own connection - a
+	 * token exchange that failed after a valid redirect still owes the
+	 * user a page that says so. */
+	fyai_oauth_flow_finish(flow, rc == 0);
+	if (rc)
+		goto err_out;
+
 	rc = 0;
-	goto out;
-
-respond:
-	(void)write(client, bad, sizeof(bad) - 1);
 out:
-	if (client >= 0)
-		close(client);
-	if (server >= 0)
-		close(server);
-	free(verifier);
-	free(challenge);
-	free(state);
-	free(code);
-	free(got_state);
+	fyai_oauth_flow_destroy(flow);
+	fyai_oauth_pkce_cleanup(&pkce);
 	return rc;
 
 err_out:
@@ -1135,9 +998,11 @@ err_out:
 static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
 	struct auth_http r = {};
+	struct fyai_event_loop *el = NULL;
+	fyai_event_ms_t deadline_ms;
 	fy_generic doc;
 	const char *device_id, *user_code, *body;
-	int interval = 5, rc = -1, elapsed;
+	int interval = 5, rc = -1;
 	const char *code, *verifier;
 	struct curl_slist *json_headers = NULL;
 	const char *request_json;
@@ -1179,10 +1044,20 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 				"device_auth_id", device_id,
 				"user_code", user_code));
 
-	req_ok = false;
-	for (elapsed = 0; !req_ok && elapsed < 900; elapsed += interval) {
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err_out, "could not create the poll loop");
 
-		sleep((unsigned int)interval);
+	/* Poll against a real deadline. */
+	deadline_ms = fyai_event_now_ms() + AUTH_DEVICE_TIMEOUT_MS;
+
+	req_ok = false;
+	while (!req_ok) {
+
+		rc = fyai_event_sleep(el, interval * 1000);
+		fyai_error_check(ctx, !rc, err_out, "device poll wait failed");
+
+		if (fyai_event_now_ms() >= deadline_ms)
+			break;
 
 		rc = auth_http_request(ctx,
 				      AUTH_ISSUER "/api/accounts/deviceauth/token",
@@ -1203,7 +1078,8 @@ static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	}
 
 	fyai_error_check(ctx, req_ok, err_out,
-			 "timed out waiting for the code to be entered");
+			 "timed out waiting for the code to be entered (%d seconds)",
+			 AUTH_DEVICE_TIMEOUT_MS / 1000);
 
 	doc = parse_json_string(ctx->transient_gb, r.data);
 	free(r.data);
