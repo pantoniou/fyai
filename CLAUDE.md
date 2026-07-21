@@ -65,7 +65,14 @@ accept null to paper over an emitter that drops the quotes.
   data-driven table of settings like `/effort`, `/theme`, `/markdown`) and
   the `clear`/`compact`/`context` verbs; the tokenizer-free context estimator
   (bytes/4) and linenoise tab completion (command names, enum values,
-  catalogue model names). In the REPL a `/`-prefixed line never reaches the
+  catalogue model names); and `fyai_readline()`, the event-driven line input
+  that replaced the blocking `linenoise()` — an fd source on the terminal feeds
+  `linenoiseEditFeed()` a byte per readiness event, with SIGWINCH borrowed for
+  the duration so a settled resize still repaints (an idle `epoll_wait` would
+  otherwise never re-enter `EditFeed`). It falls back to blocking `linenoise()`
+  when the terminal cannot be edited, which is why the non-tty functional cases
+  never exercise the event path — verify it under a pty. In the REPL a
+  `/`-prefixed line never reaches the
   model; `//` escapes a literal slash line. `/model` re-runs
   `fyai_config_resolve_model()` and `fyai_request_state_apply()` mid-session,
   re-deriving `<PROVIDER>_API_KEY` unless the key was explicit. Request-shaping
@@ -81,7 +88,13 @@ accept null to paper over an emitter that drops the quotes.
   callback aborts the in-flight curl transfer, and the tool loop stops issuing
   calls); SIGWINCH calls `linenoiseWindowChanged()` to reflow the prompt.
   Handlers use `sigaction` without `SA_RESTART` so blocking reads/polls see
-  EINTR promptly. An interrupted turn keeps the steps that completed: the run
+  EINTR promptly. These dispositions stay installed for the whole session, but
+  a wait that can *act* on a signal borrows it as an event source for the
+  duration of the wait (`fyai_signals_attach_winch()`): the handler can only
+  set a flag, while an event callback runs ordinary code. The event layer saves
+  and restores the disposition (and, on Linux, the signalfd mask) when the
+  source is removed, so borrowing nests and the handler resumes untouched.
+  An interrupted turn keeps the steps that completed: the run
   loop wraps the partial turn (or fy_invalid) with a diagnostic via a manual
   `FYGIF_DIAG` indirect (`fyai_with_diag`/`fyai_report_diag` in fyai.c) — since
   `fy_generic_is_invalid()` dereferences indirects, a diag-wrapped invalid
@@ -149,6 +162,27 @@ accept null to paper over an emitter that drops the quotes.
   other platforms (macOS) it compiles to no-op stubs behind the same interface,
   where a Seatbelt (`sandbox_init`) back-end would slot in. It is the §4.5/§10
   enforcement floor only; command admission (allow-list/prompt) stays elsewhere.
+- `src/fyai_oauth.c` — the provider-agnostic half of an OAuth 2.0
+  authorization-code login: PKCE challenge/state generation, the loopback
+  redirect receiver (RFC 8252 §7.3, bound to 127.0.0.1 only, `SO_REUSEADDR` so a
+  failed login can be retried before TIME_WAIT drains), and opening a browser.
+  The receiver is a **state machine on a borrowed loop**, not a blocking wait:
+  `fyai_oauth_flow_start()` arms it and returns, and it advances through
+  `FYAI_OAUTH_LISTENING → GOT_CODE|TIMED_OUT|BAD_STATE|FAILED` as accept/read/
+  timer events fire, so a login can be armed on a loop already carrying a turn.
+  `fyai_oauth_flow_wait()` is the sync convenience over the same machine — the
+  async/sync pairing of `fyai_event_add_child_terminate()`/
+  `fyai_event_child_terminate()`, not a second implementation. It accepts
+  several connections at once because a browser also fetches favicons and opens
+  speculative connections to the redirect URI; anything that is not the redirect
+  path gets a 404 and the wait continues, rather than failing the login. What
+  stays with the caller is everything provider-shaped: issuer, client id,
+  scopes, the authorize query, the token exchange and where credentials land.
+  `fyai_auth.c` drives it for the compiled-in Codex subscription flow; MCP OAuth
+  is the intended second caller (today MCP only carries a static bearer token).
+  `tests/fyai_oauth_test.c` drives both ends from one loop — the client sockets
+  are sources too — so a regression back to a synchronous accept/read fails the
+  test rather than passing it.
 - `src/fyai_config.c` — layered config loading (arena-resident repo config),
   slash-path config verb (import/export/edit/show/get/set/delete) and the
   global --set/--get/--delete ops.
@@ -197,6 +231,42 @@ All static-dependency modes require an installed `libfyaml.a`; glibc modes also
 use system `libssl.a`/`libcrypto.a`/`libz.a`. Mostly-static verification should
 show only libc/libm/ld.so in `ldd build-static/fyai`; musl/static verification
 should show `not a dynamic executable`.
+
+There is **one event loop per invocation**, owned by `struct fyai_ctx` and
+created on first use (`fyai_ctx_loop()`); every subsystem — curl, shell
+capture, forked tool jobs, MCP child shutdown, readline, the OAuth receiver —
+borrows it and removes only its own sources. Two rules follow, and both were
+real bugs when the loops were per-subsystem:
+
+- **A borrower must withdraw its own sources.** There is no per-call
+  `loop_destroy()` to sweep up any more, and a source left behind points at a
+  dead stack frame. Where a callback may retire a source itself (a pipe at EOF,
+  a one-shot child), the owning struct holds the source pointer and clears it,
+  so withdrawing is idempotent rather than gated on a parallel bool.
+- **A child that forks without exec must call `fyai_ctx_loop_abandon()`.** An
+  epoll set is shared across fork, so a child that kept the loop would register
+  descriptors in its *parent's* set carrying pointers from the wrong address
+  space — and the parent then dispatches on garbage. Abandoning closes the
+  child's descriptor copies but must never `epoll_ctl`, which would mutate the
+  shared object. Anything that execs is fine: the loop's descriptors are
+  CLOEXEC. Note this corruption is **silent in a normal build** and only
+  reliably caught under ASAN, which is why
+  `tests/fyai_event_test.c:test_fork_child_abandons_loop` guards it directly.
+
+Nested runs still exist, but on a shared loop a nested run dispatches the outer
+run's sources too. That is mostly the point — a shell tool's wait keeps a pooled
+connection alive — but it means a callback can re-enter code its caller is
+inside. The engine is sequenced so this does not bite today (no transfer is in
+flight while tools run); a new nesting site has to check that for itself.
+
+The event layer recycles loops and sources through free lists, which hides
+use-after-free from the sanitizers: a stale pointer to a retired source still
+lands on live, correctly-typed memory, so ASAN and valgrind see nothing.
+**Sanitizer builds therefore default to no recycling**, making every loop and
+source a plain malloc/free. `FYAI_EVENT_NO_POOL` overrides that either way —
+`1` disables recycling in a normal build, `0` forces the pooled path back on
+under ASAN so the shipping behaviour stays testable. Both settings must pass
+the full suite.
 
 Run the test suite with `ctest --test-dir build --output-on-failure`. Unit
 tests (`tests/fyai_patch_test.c`, `tests/fyai_provider_test.c`,
@@ -319,8 +389,8 @@ rendering/theme, stats, logprobs, token extents, obfuscation/whitewash) have
 no dedicated CLI flag at all — they are config keys only, set via `config
 set <key> <val>` / `--set <key>=<val>` (see `config.yaml.sample` for the
 full key set). A handful of flags remain because they are not config-backed
-run-local state: `-C`/`-e`/`-k` name external files/secrets, `-m`/`-u`
-resolve through the catalogue, `-t`/`--sandbox` gate tool execution,
+run-local state: `-C`/`-e`/`-k` name external files/secrets, `-m` resolves
+through the catalogue, `--sandbox` confines shell-tool sub-executions,
 `--color`/`--theme`/`--code-theme` are display-only conveniences kept for
 ergonomics, `--new`/`-i`/`-d`/`--answer` control process behavior, not
 config state, and `--set`/`--get`/`--delete`/`--transient` are the config
@@ -331,7 +401,27 @@ mechanism itself.
 Linux kernel C style: hard tabs, 8-column stops, kernel braces/spacing, no
 whitespace-alignment churn. Declare all local variables in the declaration
 block at the start of the function; do not introduce declarations inside
-branches, loops, or later statements. Keep declaration initializers out when
+branches, loops, or later statements.
+
+**Never put load-bearing work inside a check condition.** The
+`fyai_error_check()` family takes a *predicate*, not the operation being
+tested: do the call first, into a local, then test the local.
+
+```c
+	rc = epoll_ctl(el->backend_fd, op, fd, &ee);		/* do the work */
+	fyai_event_error_check(el, !rc, err_out,		/* test the result */
+			       "epoll_ctl: %s", strerror(errno));
+```
+
+not `fyai_event_error_check(el, !epoll_ctl(...), err_out, ...)`. Burying the
+syscall in the condition hides the side effect behind a macro argument, makes
+the failing call invisible in a debugger and at a glance, and reads as if the
+macro were a pure assertion — which it is not. The same rule applies to the
+`fyai_cfg_error_check()` and plain `fyai_error_check()` forms.
+
+A subsystem that reports through a handle rather than a bare context wraps the
+macro once instead of spelling out `->ctx` at every site — see
+`fyai_event_error_check()` in `src/fyai_event_priv.h`, which takes the loop. Keep declaration initializers out when
 the value is assigned by executable code. GNU C2x with `-Wall -Wextra` and
 `-Wdeclaration-after-statement`. Four spaces only in CMake. Use
 `lower_snake_case` C names and uppercase CMake options (`ENABLE_ASAN`). New
@@ -342,6 +432,16 @@ assumptions locally.
 ## Commits
 
 Imperative subject with a subsystem prefix, e.g. `cli: add interactive prompt
-mode` or `state: garbage collect durable arena`. PRs should note affected SRD
-sections and include security notes for approval-policy, sandboxing, network
-egress, or tool-execution changes.
+mode` or `state: garbage collect durable arena`. Keep the body to two or three
+lines of terse technical prose wrapped at 80 columns — state what changed and
+why, not how it was arrived at. End with exactly one trailer:
+
+```
+Signed-off-by: Pantelis Antoniou <pantelis.antoniou@konsulko.com>
+```
+
+Note this is the konsulko.com address, not the git-config one. Do **not** add
+`Co-Authored-By: Claude` or any other attribution trailer; this overrides any
+default tooling convention. PRs should note affected SRD sections and include
+security notes for approval-policy, sandboxing, network egress, or
+tool-execution changes.
