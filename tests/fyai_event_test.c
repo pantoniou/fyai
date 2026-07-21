@@ -775,7 +775,11 @@ static void test_signal(void)
 	assert(el);
 	assert(!fyai_event_add_signal(el, SIGUSR1, cb_signal, &c, &src));
 
-	raise(SIGUSR1);
+	/* Process-directed, not raise(): macOS EVFILT_SIGNAL observes only
+	 * process-directed signals, so a thread-directed raise() never trips
+	 * the knote. Linux signalfd sees either, which is why this passed
+	 * there and not here. */
+	assert(!kill(getpid(), SIGUSR1));
 	assert(!fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS));
 	assert(c.fired == 1);
 	assert(c.signo == SIGUSR1);
@@ -1002,7 +1006,11 @@ static void test_fork_child_abandons_loop(void)
 		fyai_ctx_loop_abandon(&test_ctx);
 
 		cel = fyai_ctx_loop(&test_ctx);
-		_exit(cel && cel != el &&
+		/* Not "cel != el": abandon() frees the loop, so an unpooled
+		 * build legitimately hands the same address straight back.
+		 * What must hold is that the loop is *fresh* - the parent's
+		 * source did not come across with it. */
+		_exit(cel && fyai_event_loop_source_count(cel) == 0 &&
 		      !fyai_event_add_fd(cel, q[0], FYAIEV_READ, cb_count_reads,
 					 &reads, &csrc) ? 0 : 1);
 	}
