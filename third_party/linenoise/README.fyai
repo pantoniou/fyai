@@ -17,6 +17,13 @@ the prompt bar (NULL removes the row, "" keeps it blank). They are folded into
 the multi-line row/cursor accounting and the initial paint. Search for
 "topInfo" / "bottomInfo" / "emitInfoRow".
 
+Local modification: linenoiseSupportsEditing() reports whether the terminal can
+be line-edited (tty and not in the unsupported list), and
+linenoiseEditOpen()/linenoiseEditClose() wrap the multiplexed
+EditStart/EditFeed/EditStop API with the same library-owned growable buffer the
+blocking wrapper uses, so an event-driven host does not have to reproduce the
+internal buffer-size constants. Search for "linenoiseEditOpen".
+
 Local modification: when the prompt is styled or has status rows,
 linenoiseEditStop() erases the whole prompt block and clears any active SGR,
 leaving the cursor where the block began (instead of just printing a newline),

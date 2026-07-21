@@ -27,6 +27,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,10 +39,12 @@
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
+#include "fyai_event.h"
 #include "fyai_render.h"
 #include "fyai_log.h"
 #include "fyai_markdown.h"
 #include "fyai_session.h"
+#include "fyai_signal.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_turn.h"
@@ -1593,6 +1596,109 @@ out_report:
 }
 
 /* ---- tab completion ------------------------------------------------------ */
+
+/* Event-driven line input. */
+struct session_readline {
+	struct linenoiseState ls;
+	char *line;
+	bool done;
+	bool failed;
+};
+
+static enum fyai_event_action session_readline_feed(struct session_readline *rl)
+{
+	char *res;
+
+	res = linenoiseEditFeed(&rl->ls);
+	if (res == linenoiseEditMore)
+		return FYAIEA_CONTINUE;
+
+	/* NULL is a normal outcome: EAGAIN is ^C (cancel the line), ENOENT is
+	 * ^D (end the session). The caller reads errno to tell them apart, so
+	 * preserve it across the unwind. */
+	rl->line = res;
+	rl->done = true;
+	return FYAIEA_STOP;
+}
+
+static enum fyai_event_action session_readline_input_cb(const struct fyai_event *ev)
+{
+	struct session_readline *rl = ev->userdata;
+
+	return session_readline_feed(rl);
+}
+
+/* The resize half: fyai_signal.c has already marked the width stale, so all
+ * that is left is to give linenoise the EditFeed it needs to repaint. */
+static enum fyai_event_action session_readline_winch(void *user)
+{
+	return session_readline_feed(user);
+}
+
+char *fyai_readline(struct fyai_ctx *ctx, const char *prompt)
+{
+	struct session_readline rl;
+	struct fyai_signal_winch winch;
+	struct fyai_event_loop *el = NULL;
+	struct fyai_event_source *in_src = NULL;
+	struct fyai_event_source *winch_src = NULL;
+	int rc;
+	int saved_errno;
+
+	assert(ctx);
+
+	/* Fall back when linenoise cannot edit this terminal. */
+	if (!linenoiseSupportsEditing())
+		return linenoise(prompt);
+
+	memset(&rl, 0, sizeof(rl));
+
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		return NULL;
+
+	rc = linenoiseEditOpen(&rl.ls, prompt);
+	fyai_error_check(ctx, !rc, err_out,
+			 "prompt: could not start line editing: %s",
+			 strerror(errno));
+
+	rc = fyai_event_add_fd(el, rl.ls.ifd, FYAIEV_READ,
+			       session_readline_input_cb, &rl, &in_src);
+	if (rc)
+		goto err_close;
+
+	winch.fn = session_readline_winch;
+	winch.user = &rl;
+	rc = fyai_signals_attach_winch(el, &winch, &winch_src);
+	if (rc)
+		goto err_close;
+
+	rc = fyai_event_loop_run_until(el, &rl.done, -1);
+	if (rc) {
+		rl.failed = true;
+		rl.line = NULL;
+	}
+
+	/* An idle loop (no sources left) would end the run without a line. */
+	if (!rl.done && !rl.failed)
+		errno = ENOENT;
+
+	saved_errno = errno;
+	fyai_event_source_remove(winch_src);
+	fyai_event_source_remove(in_src);
+	linenoiseEditClose(&rl.ls);
+	errno = saved_errno;
+
+	return rl.line;
+
+err_close:
+	fyai_event_source_remove(winch_src);
+	fyai_event_source_remove(in_src);
+	linenoiseEditClose(&rl.ls);
+err_out:
+	errno = EIO;
+	return NULL;
+}
 
 static struct fyai_ctx *session_completion_ctx;
 

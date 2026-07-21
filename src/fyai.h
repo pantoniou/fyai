@@ -255,6 +255,7 @@ fyai_cfg_uses_storage(struct fyai_cfg *cfg)
 }
 
 struct fyai_mcp_ctx;
+
 struct fyai_event_loop;
 struct fyai_event_source;
 
@@ -275,7 +276,10 @@ struct fyai_ctx {
 	struct fy_allocator *transient_allocator;
 	struct fy_generic_builder *transient_gb;
 	CURL *curl;
+	/* Per-invocation curl multi state. */
 	struct fyai_curl_state *curl_state;
+
+	/* The one application event loop. */
 	struct fyai_event_loop *el;
 	struct fyai_event_loop *event_loop_pool;
 	struct fyai_event_source *event_source_pool;

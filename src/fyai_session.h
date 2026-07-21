@@ -57,6 +57,10 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx);
 
+/* Read one edited line, waiting on the event loop instead of blocking in
+ * linenoise. */
+char *fyai_readline(struct fyai_ctx *ctx, const char *prompt);
+
 /* linenoise tab completion for slash commands and their values. */
 void fyai_session_completion_init(struct fyai_ctx *ctx);
 void fyai_session_completion(const char *buf, linenoiseCompletions *lc);

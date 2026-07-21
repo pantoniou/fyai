@@ -11,9 +11,11 @@
 #endif
 
 #include <signal.h>
+#include <stddef.h>
 
 #include <linenoise.h>
 
+#include "fyai_event.h"
 #include "fyai_signal.h"
 
 static volatile sig_atomic_t fyai_sig_intr;
@@ -34,11 +36,7 @@ void fyai_signals_install(void)
 {
 	struct sigaction sa;
 
-	/*
-	 * Deliberately no SA_RESTART: linenoise's read() and curl's poll must
-	 * come back with EINTR so a resize reflows the prompt immediately and
-	 * a ^C aborts the in-flight request at the next progress callback.
-	 */
+	/* Leave waits interruptible so ^C reaches curl's progress callback. */
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = 0;
 
@@ -47,6 +45,24 @@ void fyai_signals_install(void)
 
 	sa.sa_handler = fyai_sigwinch_handler;
 	sigaction(SIGWINCH, &sa, NULL);
+}
+
+/* The forwarding shim. */
+static enum fyai_event_action fyai_sigwinch_cb(const struct fyai_event *ev)
+{
+	const struct fyai_signal_winch *w = ev->userdata;
+
+	linenoiseWindowChanged();
+	if (!w || !w->fn)
+		return FYAIEA_CONTINUE;
+	return w->fn(w->user);
+}
+
+int fyai_signals_attach_winch(struct fyai_event_loop *el,
+			      struct fyai_signal_winch *w,
+			      struct fyai_event_source **srcp)
+{
+	return fyai_event_add_signal(el, SIGWINCH, fyai_sigwinch_cb, w, srcp);
 }
 
 bool fyai_sig_intr_pending(void)

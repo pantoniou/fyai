@@ -349,6 +349,12 @@ if(ENABLE_LIBSECRET)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
 endif()
+# The event-poll layer: one backend-independent core plus exactly one native
+# backend. else() rather than a UNIX check on purpose - an unsupported platform
+# then fails at link with a clear missing symbol instead of quietly building a
+# loop with no backend behind it.
+# The event layer reports through the diagnostic layer, so any target that
+# links it needs fyai_diag.c as well.
 set(FYAI_DIAG_SOURCES src/fyai_diag.c)
 set(FYAI_EVENT_SOURCES src/fyai_event.c)
 if(APPLE)
@@ -384,6 +390,7 @@ add_executable(fyai
     src/fyai_config.c
     src/fyai_curl.c
     src/fyai_auth.c
+    src/fyai_oauth.c
     src/fyai_auth_util.c
     src/fyai_secret.c
     src/commands.c
@@ -442,6 +449,7 @@ if(BUILD_TESTING)
         ${ASAN_LINK_OPTS})
     add_test(NAME fyai/patch_apply COMMAND fyai_patch_test)
 
+    # Links only the event layer, so it stays the cheapest target in the suite.
     add_executable(fyai_event_test
         tests/fyai_event_test.c
         src/fyai_diag.c
@@ -460,6 +468,27 @@ if(BUILD_TESTING)
     target_link_libraries(fyai_event_test PRIVATE libfyaml::libfyaml
         ${ASAN_LINK_OPTS})
     add_test(NAME fyai/event COMMAND fyai_event_test)
+
+    add_executable(fyai_oauth_test
+        tests/fyai_oauth_test.c
+        src/fyai_oauth.c
+        src/fyai_auth_util.c
+        src/fyai_diag.c
+        ${FYAI_EVENT_SOURCES}
+    )
+    target_compile_options(fyai_oauth_test PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+    target_compile_definitions(fyai_oauth_test PRIVATE
+        _GNU_SOURCE
+        HAVE_CONFIG_H
+        VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(fyai_oauth_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(fyai_oauth_test PRIVATE libfyaml::libfyaml
+        CURL::libcurl OpenSSL::Crypto Threads::Threads ${ASAN_LINK_OPTS})
+    add_test(NAME fyai/oauth COMMAND fyai_oauth_test)
 
     add_executable(fyai_diag_test
         tests/fyai_diag_test.c

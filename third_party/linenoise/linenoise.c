@@ -2524,6 +2524,38 @@ void linenoiseEditStop(struct linenoiseState *l) {
     printf("\n");
 }
 
+/* fyai-local extension: whether this terminal can be line-edited at all. */
+int linenoiseSupportsEditing(void) {
+    if (!isatty(STDIN_FILENO) && !getenv("LINENOISE_ASSUME_TTY")) return 0;
+    return !isUnsupportedTerm();
+}
+
+/* fyai-local extension: the multiplexed API with the same buffer ownership the
+ * blocking wrapper has. */
+int linenoiseEditOpen(struct linenoiseState *l, const char *prompt) {
+    char *buf = malloc(LINENOISE_INITIAL_BUFLEN);
+
+    if (buf == NULL) {
+        errno = ENOMEM;
+        return -1;
+    }
+    if (linenoiseEditStart(l,-1,-1,buf,LINENOISE_INITIAL_BUFLEN,prompt) == -1) {
+        free(buf);
+        return -1;
+    }
+    l->buflen_max = LINENOISE_MAX_LINE;
+    return 0;
+}
+
+/* Counterpart of linenoiseEditOpen(): leave raw mode and release the buffer.
+ * The line returned by linenoiseEditFeed() is a separate allocation and stays
+ * valid; free it with linenoiseFree(). */
+void linenoiseEditClose(struct linenoiseState *l) {
+    linenoiseEditStop(l);
+    free(l->buf);
+    l->buf = NULL;
+}
+
 /* This just implements a blocking loop for the multiplexed API.
  * In many applications that are not event-drivern, we can just call
  * the blocking linenoise API, wait for the user to complete the editing
