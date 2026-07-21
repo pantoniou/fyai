@@ -38,6 +38,7 @@
 #endif
 
 #include "fyai.h"
+#include "fyai_curl.h"
 #include "fyai_auth.h"
 #include "fyai_auth_util.h"
 #include "fyai_display.h"
@@ -818,7 +819,7 @@ static int auth_http_request(struct fyai_ctx *ctx,
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
 	if (headers)
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-	code = curl_easy_perform(curl);
+	code = fyai_curl_perform(ctx, curl);
 	if (code == CURLE_OK)
 		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &out->status);
 	curl_easy_cleanup(curl);

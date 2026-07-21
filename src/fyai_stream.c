@@ -20,6 +20,7 @@
 #include "fyai_markdown.h"
 #include "fyai_log.h"
 #include "fyai_provider.h"
+#include "fyai_curl.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 
@@ -1161,7 +1162,7 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_stream_response);
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &stream);
 
-	res = curl_easy_perform(ctx->curl);
+	res = fyai_curl_perform(ctx, ctx->curl);
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
 		/* ^C: carry the reason on the (invalid) result, don't print. */
 		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
@@ -1245,7 +1246,7 @@ fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
 	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &response);
 
-	res = curl_easy_perform(ctx->curl);
+	res = fyai_curl_perform(ctx, ctx->curl);
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
 		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
 		goto out;

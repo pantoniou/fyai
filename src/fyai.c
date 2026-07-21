@@ -26,6 +26,8 @@
 #include "fyai.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_curl.h"
+#include "fyai_event.h"
 #include "fyai_display.h"
 #include "fyai_log.h"
 #include "fyai_markdown.h"
@@ -885,11 +887,21 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	}
 	fyai_mcp_cleanup(ctx);
 
+	/* Before the easy handle: the multi still references it. */
+	fyai_curl_cleanup(ctx);
 	if (ctx->curl) {
 		curl_easy_cleanup(ctx->curl);
 		ctx->curl = NULL;
 	}
 	fyai_auth_cleanup(ctx);
+
+	/* Destroy the loop after every borrower has dropped its sources. */
+	if (ctx->el) {
+		fyai_event_loop_destroy(ctx->el);
+		ctx->el = NULL;
+	}
+
+	fyai_event_pool_drain(ctx);
 
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
@@ -1232,7 +1244,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 
 	for (;;) {
 		errno = 0;
-		line = linenoise(prompt);
+		line = fyai_readline(ctx, prompt);
 		if (!line) {
 			/* Ctrl-C cancels the line; Ctrl-D / EOF exits. */
 			if (errno == EAGAIN)

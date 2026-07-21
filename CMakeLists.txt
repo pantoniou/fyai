@@ -358,6 +358,7 @@ else()
 endif()
 
 add_executable(fyai
+    ${FYAI_EVENT_SOURCES}
     src/main.c
     src/fyai_display.c
     src/fyai.c
@@ -381,6 +382,7 @@ add_executable(fyai
     src/utils.c
     src/fyai_catalog.c
     src/fyai_config.c
+    src/fyai_curl.c
     src/fyai_auth.c
     src/fyai_auth_util.c
     src/fyai_secret.c
