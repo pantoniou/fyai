@@ -26,6 +26,7 @@
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
+struct fyai_display_output;
 
 #define OPENAI_RESPONSES_URL "https://api.openai.com/v1/responses"
 #define OPENAI_CHAT_COMPLETIONS_URL "https://api.openai.com/v1/chat/completions"
@@ -307,6 +308,9 @@ struct fyai_ctx {
 	bool auth_retry_done;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
 	bool tool_output_displayed;
+	/* The sole progressive transcript document for the active user or
+	 * assistant output. Owned by this context, never by a signal handler. */
+	struct fyai_display_output *display_output;
 	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */
 	/* Set inside a forked tool sub-execution once the environment has been
 	 * sanitized and the sandbox applied, so inner steps (the shell tool's

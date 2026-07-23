@@ -375,6 +375,7 @@ add_executable(fyai
     ${FYAI_EVENT_SOURCES}
     src/main.c
     src/fyai_display.c
+    src/fyai_output.c
     src/fyai.c
     src/fyai_diag.c
     src/fyai_log.c

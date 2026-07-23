@@ -74,6 +74,29 @@ fy_generic fyai_turn_append(struct fyai_ctx *ctx, fy_generic turn,
 	return fyai_make_turn(ctx, turn, messages);
 }
 
+fy_generic fyai_turn_append_display_output(struct fyai_ctx *ctx,
+					    fy_generic turn,
+					    fy_generic output)
+{
+	fy_generic outputs;
+
+	if (fy_generic_is_invalid(turn) || fy_generic_is_invalid(output))
+		return turn;
+	outputs = fy_get(turn, "display_outputs", fy_seq_empty);
+	outputs = fy_append(ctx->transient_gb ? ctx->transient_gb : ctx->gb,
+			    outputs, output);
+	fyai_error_check(ctx, fy_generic_is_valid(outputs), err,
+			 "could not append display output");
+	turn = fy_assoc(turn, "display_outputs", outputs);
+	turn = fy_gb_internalize(ctx->transient_gb ? ctx->transient_gb : ctx->gb,
+				 turn);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), err,
+			 "could not retain display output");
+	return turn;
+err:
+	return fy_invalid;
+}
+
 fy_generic fyai_turn_set_response_id(struct fyai_ctx *ctx,
 					    fy_generic turn,
 					    fy_generic response_id)

@@ -16,6 +16,9 @@ struct fyai_turn_stack {
 
 fy_generic fyai_turn_append(struct fyai_ctx *ctx, fy_generic turn,
 			    fy_generic messages);
+fy_generic fyai_turn_append_display_output(struct fyai_ctx *ctx,
+					    fy_generic turn,
+					    fy_generic output);
 fy_generic fyai_turn_set_response_id(struct fyai_ctx *ctx, fy_generic turn,
 				     fy_generic response_id);
 int fyai_turn_stack_init(struct fyai_turn_stack *stack, fy_generic turn,

@@ -33,7 +33,6 @@ struct fyai_ui {
 	bool quit;
 	bool busy;
 	struct fytim_workband *tool_band;
-	struct fytim_workband *reasoning_band;
 	struct fytim_workband *pending_band;
 	char *tool_title;
 	char *tool_body;
@@ -424,24 +423,4 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok)
 	ui->tool_band = NULL;
 	free(ui->tool_title); ui->tool_title = NULL;
 	free(ui->tool_body); ui->tool_body = NULL; ui->tool_body_len = 0;
-}
-
-void fyai_ui_reasoning_update(struct fyai_ctx *ctx, const char *body, size_t len)
-{
-	struct fyai_ui *ui;
-	if (!fyai_ui_active(ctx)) return;
-	ui = ctx->ui;
-	if (!ui->reasoning_band) {
-		ui->reasoning_band = fytim_workband_create(ui->ft);
-		if (!ui->reasoning_band) return;
-		(void)fytim_workband_set_max_rows(ui->reasoning_band, 6);
-	}
-	(void)fytim_workband_set(ui->reasoning_band, body, len);
-}
-
-void fyai_ui_reasoning_end(struct fyai_ctx *ctx)
-{
-	if (!fyai_ui_active(ctx) || !ctx->ui->reasoning_band) return;
-	(void)fytim_workband_commit(ctx->ui->reasoning_band);
-	ctx->ui->reasoning_band = NULL;
 }

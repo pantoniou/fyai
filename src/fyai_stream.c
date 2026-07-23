@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "fyai_markdown.h"
+#include "fyai_output.h"
 #include "fyai_log.h"
 #include "fyai_provider.h"
 #include "fyai_curl.h"
@@ -175,6 +176,12 @@ static void stream_write_content(struct stream_response *stream,
 	bool tty_stream;
 
 	len = strlen(text);
+	if (fyai_output_append(ctx, text, len))
+		stream->failed = true;
+	if (fyai_output_renders_live(ctx)) {
+		stream->printed_content = true;
+		return;
+	}
 	if (stream->markdown.active) {
 		mode = cfg->markdown_mode;
 		tty_stream = stream->md_tty && strcmp(mode, "oneshot");
@@ -274,12 +281,6 @@ static int stream_write_reasoning_md(struct stream_response *stream)
 		free(out.data);
 		return -1;
 	}
-	if (fyai_ui_active(ctx)) {
-		fyai_ui_reasoning_update(ctx, out.data, out.len);
-		free(out.data);
-		return 0;
-	}
-
 	if (stream->reasoning_active_rows) {
 		fprintf(stderr, FYAI_ANSI_CURSOR_UP_FMT,
 			stream->reasoning_active_rows);
@@ -313,6 +314,12 @@ static void stream_write_reasoning(struct stream_response *stream,
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
 	if (!*text)
 		return;
+	if (fyai_output_reasoning_append(ctx, text))
+		stream->failed = true;
+	if (fyai_output_renders_live(ctx)) {
+		stream->printed_reasoning = true;
+		return;
+	}
 	if (!stream->printed_reasoning) {
 		if (cfg->markdown && markdown_available(cfg) &&
 		    terminal_is_tty(STDERR_FILENO)) {
@@ -341,8 +348,9 @@ static void stream_finish_reasoning(struct stream_response *stream)
 	bool color;
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
-	if (fyai_ui_active(ctx)) {
-		fyai_ui_reasoning_end(ctx);
+	if (fyai_output_reasoning_finish(ctx))
+		stream->failed = true;
+	if (fyai_output_renders_live(ctx)) {
 		stream->reasoning_active_rows = 0;
 		stream->printed_reasoning = false;
 		return;
@@ -379,6 +387,10 @@ static void stream_finish_content(struct stream_response *stream)
 	stream_finish_reasoning(stream);
 	if (!stream->printed_content)
 		return;
+	if (fyai_output_renders_live(ctx)) {
+		stream->printed_content = false;
+		return;
+	}
 
 	if (stream->markdown.active) {
 		stream_spinner_clear(&stream->spinner);
@@ -1173,7 +1185,8 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 	if (!stream.gb)
 		return fy_invalid;
 
-	if (cfg->markdown && markdown_available(cfg)) {
+	if (!fyai_output_renders_live(ctx) &&
+	    cfg->markdown && markdown_available(cfg)) {
 		stream.md_tty = ctx->stdout_tty;
 		if (stream.md_tty && strcmp(cfg->markdown_mode, "oneshot")) {
 			if (markdown_renderer_start(cfg, &stream.markdown,

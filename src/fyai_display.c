@@ -17,6 +17,7 @@
 
 #include "fyai_display.h"
 #include "fyai_markdown.h"
+#include "fyai_output.h"
 #include "fyai_provider.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
@@ -1123,6 +1124,70 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 }
 
 /*
+ * Append the canonical Markdown for a tool exchange to the one active
+ * assistant output. Execution and terminal rendering are intentionally not
+ * involved: this exact source is what is persisted and replayed by history.
+ */
+void fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
+			       fy_generic tool_result)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fy_generic_builder_cfg gcfg = {0};
+	struct fy_generic_builder *tgb;
+	const char *args_text, *cmd, *name, *res_str;
+	fy_generic args;
+	char *lang = NULL;
+	char *md = NULL;
+	size_t mdlen = 0;
+	FILE *mf;
+
+	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
+	tgb = fy_generic_builder_create(&gcfg);
+	if (!tgb)
+		return;
+	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
+		name = "shell";
+		cmd = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
+		args = fy_mapping("command", cmd);
+	} else {
+		if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
+			name = fy_get(fy_get(tool_call, "function"), "name", "");
+			args_text = fy_get(fy_get(tool_call, "function"),
+					   "arguments", "");
+		} else {
+			name = fy_get(tool_call, "name", "");
+			args_text = fy_get(tool_call, "arguments", "");
+		}
+		args = parse_json_string(tgb, args_text);
+	}
+	if (!*name)
+		name = "tool";
+	res_str = fy_castp(&tool_result, "");
+	if (fy_equal(name, "read_file") && *res_str &&
+	    !fyai_tool_result_is_error(res_str))
+		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
+
+	mf = open_memstream(&md, &mdlen);
+	if (mf) {
+		fyai_emit_tool_call(mf, tgb, name, args,
+				    cfg->tool_preview_lines);
+		if (cfg->tool_separator && *cfg->tool_separator)
+			fprintf(mf, "%s\n\n", cfg->tool_separator);
+		if (fy_generic_is_string(tool_result))
+			fyai_emit_tool_result(mf, res_str,
+					      cfg->tool_preview_lines, lang);
+		else
+			fyai_emit_shell_output(mf, tool_result,
+					      cfg->tool_preview_lines);
+		fclose(mf);
+		(void)fyai_output_append(ctx, md, mdlen);
+	}
+	free(md);
+	free(lang);
+	fy_generic_builder_destroy(tgb);
+}
+
+/*
  * A read_file call and its result are separate canonical messages linked by a
  * call id (Responses `call_id`, Chat `tool_call_id`). Unlike the live loop,
  * the offline `history` walk sees them apart, so to fence a read result in the
@@ -1297,6 +1362,79 @@ static bool fyai_msg_is_tool_result(const struct fyai_msg_class *c,
 	return false;
 }
 
+static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
+					   size_t lo, size_t hi)
+{
+	fy_generic outputs, output, msgs, msg;
+	size_t users = 0, assistants = 0;
+	size_t user_outputs = 0, assistant_outputs = 0;
+	size_t i;
+
+	for (i = lo; i < hi; i++) {
+		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
+		fy_foreach(msg, msgs) {
+			if (fy_equal(fy_get(msg, "role"), "user"))
+				users++;
+		}
+		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
+		fy_foreach(output, outputs) {
+			if (fy_equal(fy_get(output, "tag"), "user"))
+				user_outputs++;
+			else if (fy_equal(fy_get(output, "tag"), "assistant"))
+				assistant_outputs++;
+		}
+	}
+	/* Each selected user exchange must have both its user card and the
+	 * consolidated assistant document. A system-only window is replayable
+	 * whenever it has any stored output. */
+	assistants = users;
+	if (users)
+		return user_outputs == users && assistant_outputs == assistants;
+	for (i = lo; i < hi; i++)
+		if (fy_len(fy_get(stack->items[i], "display_outputs",
+				  fy_seq_empty)))
+			return true;
+	return false;
+}
+
+static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
+				       const struct fyai_turn_stack *stack,
+				       size_t lo, size_t hi)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_display_args *args = &cfg->cmd.args.display;
+	fy_generic outputs, output;
+	const char *tag, *md;
+	size_t i;
+	bool emitted = false;
+
+	for (i = lo; i < hi; i++) {
+		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
+		fy_foreach(output, outputs) {
+			tag = fy_get(output, "tag", "assistant");
+			md = fy_get(output, "markdown", "");
+			if (emitted &&
+			    (fy_equal(tag, "user") || fy_equal(tag, "system")) &&
+			    cfg->turn_separator &&
+			    *cfg->turn_separator) {
+				if (args->raw)
+					printf("%s\n\n", cfg->turn_separator);
+				else
+					fyai_print_markdown(cfg->turn_separator,
+							   cfg);
+			}
+			if (args->raw)
+				fputs(md, stdout);
+			else
+				(void)fyai_render_display_output(ctx, tag, md);
+			emitted = true;
+		}
+	}
+	if (ctx->stdout_tty && !args->raw)
+		putchar('\n');
+	return 0;
+}
+
 /*
  * Human-digestible rendering of the canonical conversation: each message
  * becomes prose rendered through markdown. Unlike `dump`, this is
@@ -1351,6 +1489,10 @@ int fyai_display_view(struct fyai_ctx *ctx)
 		goto err_out;
 
 	fyai_exchange_window(&args->turn_sel, &stack, &lo, &hi);
+	if (fyai_display_outputs_complete(&stack, lo, hi)) {
+		rc = fyai_display_stored_outputs(ctx, &stack, lo, hi);
+		goto err_out;
+	}
 
 	/* Record read_file call id -> path across the window so a read result
 	 * can be fenced in the file's language when it is later rendered. */
@@ -2113,5 +2255,45 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line)
 {
-	fyai_print_user_turn(ctx, line, true);
+	if (ctx && ctx->cfg->markdown && ctx->stdout_tty)
+		(void)fyai_render_display_output(ctx, "user", line);
+}
+
+int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
+			       const char *markdown)
+{
+	struct fyai_cfg *cfg;
+	char *quoted = NULL;
+	size_t quotedlen = 0;
+	char *styled;
+	FILE *mf;
+
+	if (!ctx || !tag || !markdown)
+		return -1;
+	cfg = ctx->cfg;
+	if (!strcmp(tag, "user")) {
+		if (cfg->markdown && ctx->stdout_tty) {
+			fyai_print_user_turn(ctx, markdown, false);
+			return 0;
+		}
+		mf = open_memstream(&quoted, &quotedlen);
+		if (!mf)
+			return -1;
+		fyai_emit_blockquote(mf, markdown);
+		fclose(mf);
+		fputs(quoted, stdout);
+		free(quoted);
+		return 0;
+	}
+	if (!strcmp(tag, "system")) {
+		styled = fy_sprintfa("**System**\n\n*%s*\n\n", markdown);
+		if (!styled)
+			return -1;
+		if (fyai_print_markdown(styled, cfg))
+			fputs(styled, stdout);
+		return 0;
+	}
+	if (fyai_print_markdown(markdown, cfg))
+		fputs(markdown, stdout);
+	return 0;
 }

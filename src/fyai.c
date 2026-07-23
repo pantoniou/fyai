@@ -31,6 +31,7 @@
 #include "fyai_log.h"
 #include "fyai_markdown.h"
 #include "fyai_provider.h"
+#include "fyai_output.h"
 #include "fyai_session.h"
 #include "fyai_prof.h"
 #include "fyai_ui.h"
@@ -192,15 +193,16 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	 * render as history); every other tool renders after the fact through
 	 * fyai_render_tool_exchange(). Non-markdown always streams raw.
 	 */
-	if (!cfg->markdown || shell)
+	if (!fyai_output_renders_live(ctx) && (!cfg->markdown || shell))
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	tool_result = fyai_execute_tool_call(ctx, tool_call);
 	result_text = fy_castp(&tool_result, "");
+	fyai_record_tool_exchange(ctx, tool_call, tool_result);
 
-	if (cfg->markdown && !shell)
+	if (!fyai_output_renders_live(ctx) && cfg->markdown && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
@@ -208,7 +210,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	/* Shell owns the only progressive tool work-band. Other tools are
 	 * rendered atomically by fyai_render_tool_exchange(), so adding a second
 	 * UI-only work-band merely duplicates their canonical transcript form. */
-	if (shell && fyai_ui_active(ctx))
+	if (!fyai_output_renders_live(ctx) && shell && fyai_ui_active(ctx))
 		fyai_ui_tool_end(ctx,
 			strncmp(result_text, "tool error:", 11) != 0);
 
@@ -817,6 +819,9 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 	(void)rc;
 
 	ctx->tool_output_displayed = false;
+	fyai_error_check(ctx,
+		!fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT), err,
+		"could not start assistant display output");
 	previous = fy_get(turn, "previous", fy_null);
 	turn_in = turn;
 	out = fy_invalid;
@@ -842,14 +847,20 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 				fy_castp(&diag, "request failed") :
 				"request failed";
 			if (turn.v != turn_in.v) {
+				turn = fyai_output_finalize(ctx, turn, true);
 				out = fy_gb_internalize(ctx->gb, turn);
 				out = fyai_with_diag(ctx->gb, out, msg);
 			} else {
+				fyai_output_abort(ctx);
 				out = fyai_with_diag(ctx->gb, fy_invalid, msg);
 			}
 			return out;
 		}
 		response_id = fyai_response_id(ctx, response_doc);
+		if (!cfg->stream)
+			(void)fyai_output_append_string(ctx,
+				fy_cast(fyai_response_output_text(ctx,
+								 response_doc), ""));
 
 		turn = fyai_append_assistant_response(ctx, turn, response_doc);
 
@@ -887,13 +898,19 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 
 	/* A failed run stays invalid; the caller decides how to surface it. */
 	if (fy_generic_is_invalid(out))
+		fyai_output_abort(ctx);
+	if (fy_generic_is_invalid(out))
 		return fy_invalid;
 
+	out = fyai_output_finalize(ctx, out, false);
 	out = fy_gb_internalize(ctx->gb, out);
 
 	if (fy_generic_is_invalid(out))
 		fyai_error(ctx, "could not retain the completed turn");
 	return out;
+err:
+	fyai_output_abort(ctx);
+	return fy_invalid;
 }
 
 void fyai_cleanup(struct fyai_ctx *ctx)
@@ -905,6 +922,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	cfg = ctx->cfg;
 
 	fyai_cleanup_transient_builder(ctx);
+	fyai_output_cleanup(ctx);
 
 	if (ctx->headers) {
 		curl_slist_free_all(ctx->headers);
@@ -1150,11 +1168,15 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	if (fy_generic_is_invalid(ctx->last_message)) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
+		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+			FYAI_OUTPUT_SYSTEM, cfg->system_prompt);
 	}
 
 	if (cfg->prompt && *cfg->prompt) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_user_message(ctx, cfg->prompt)));
+		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+			FYAI_OUTPUT_USER, cfg->prompt);
 	}
 
 	/* intern all to durable */
@@ -1325,6 +1347,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		assert(!rc);
 
 		v = fyai_turn_append(ctx, ctx->last_message, fy_sequence(fyai_make_user_message(ctx, line)));
+		v = fyai_output_record(ctx, v, FYAI_OUTPUT_USER, line);
 		free(line);
 		line = NULL;
 		if (fy_generic_is_invalid(v)) {
