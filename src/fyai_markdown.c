@@ -608,6 +608,7 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 	markdown_set_line_limit(fs->r, max_lines);
 	fs->lang = lang;
 	fs->indent = indent;
+	fs->max_lines = max_lines;
 	fs->fp = fp;
 	fs->live = live;
 	fs->active = true;
@@ -695,12 +696,29 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 {
 	struct fymd_fenced_block_opts opts;
+	struct fymd_renderer_cfg rcfg;
 	char *rendered = NULL;
 	size_t rlen = 0;
 
 	if (!fs->active)
 		return;
-	if (fs->live && !fyai_ui_active(fs->ctx)) {
+	if (fs->live && fyai_ui_active(fs->ctx)) {
+		/*
+		 * The live body is rendered at the width in effect when the tool
+		 * started. Never promote those transient bytes into scrollback:
+		 * rebuild from the raw accumulator at the settled/current width
+		 * before fyai_ui_tool_end() creates the final commit payload.
+		 */
+		fymd_renderer_destroy(fs->r);
+		markdown_renderer_cfg(fs->ctx->cfg, &rcfg,
+			markdown_color_enabled(fs->ctx->cfg->color),
+			fs->ctx->cfg->theme, 0);
+		fs->r = fymd_renderer_create(&rcfg);
+		if (fs->r) {
+			markdown_set_line_limit(fs->r, fs->max_lines);
+			(void)fyai_fenced_stream_push(fs, NULL, 0);
+		}
+	} else if (fs->live) {
 		fputc('\n', fs->fp);
 	} else if (!fs->live) {
 		/* Non-terminal: render the whole accumulated block once, bounded,

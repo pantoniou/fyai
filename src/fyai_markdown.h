@@ -117,6 +117,7 @@ struct fyai_fenced_stream {
 	struct response_buffer shown;	/* last rendered (un-indented) output */
 	const char *lang;		/* highlighter language, NULL => plain */
 	const char *indent;		/* per-line indent decoration */
+	size_t max_lines;		/* final rerender uses current terminal width */
 	FILE *fp;
 	bool live;			/* true: repaint in place; false: buffer */
 	bool active;
