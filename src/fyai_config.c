@@ -1777,10 +1777,12 @@ enum {
 	OPT_GET,
 	OPT_DELETE,
 	OPT_TRANSIENT,
+	OPT_VERSION,
 };
 
 static const struct option long_options[] = {
 	{ "help", no_argument, NULL, 'h' },
+	{ "version", no_argument, NULL, OPT_VERSION },
 	{ "config", required_argument, NULL, 'C' },
 	{ "env", required_argument, NULL, 'e' },
 	{ "model", required_argument, NULL, 'm' },
@@ -2196,6 +2198,10 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		switch (opt) {
 		case 'h':
 			fyai_usage(stdout, "fyai", cfg->color);
+			ret = 1;
+			goto out;
+		case OPT_VERSION:
+			printf("fyai %s\n", VERSION);
 			ret = 1;
 			goto out;
 		case 'C':

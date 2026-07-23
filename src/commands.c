@@ -79,6 +79,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 		"", "");
 
 	SECTION("Global options");
+	ITEM("--version", "Print the fyai version");
 	ITEM("--config, -C <file>", "Load an explicit config file");
 	ITEM("--env, -e <file>", "Source a .env file (used vars only)");
 	ITEM("--model, -m <model>", "Model, optionally provider/model");
