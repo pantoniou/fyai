@@ -1684,51 +1684,202 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 	return fyai_perform_streaming_request_tools(ctx, NULL, NULL);
 }
 
-fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
+struct fyai_buffered_request {
+	struct fyai_ctx *ctx;
+	struct fyai_curl_transfer *transfer;
+	fyai_buffered_complete_fn complete;
+	void *userdata;
+	struct response_buffer response;
+	fy_generic result;
+	bool done;
+};
+
+static void buffered_request_complete(struct fyai_curl_transfer *transfer,
+				      void *userdata);
+
+static int
+buffered_request_start(struct fyai_buffered_request *request)
 {
-	struct response_buffer response = {};
+	struct fyai_ctx *ctx;
+
+	ctx = request->ctx;
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &request->response);
+	request->transfer = fyai_curl_submit(ctx, ctx->curl,
+					     buffered_request_complete,
+					     request);
+	return request->transfer ? 0 : -1;
+}
+
+static void buffered_request_notify(struct fyai_buffered_request *request)
+{
+	fyai_buffered_complete_fn complete;
+	void *userdata;
+
+	complete = request->complete;
+	userdata = request->userdata;
+	if (complete)
+		complete(request, userdata);
+}
+
+static void buffered_request_complete(struct fyai_curl_transfer *transfer,
+				      void *userdata)
+{
+	struct fyai_buffered_request *request;
+	struct fyai_ctx *ctx;
 	fy_generic response_doc;
 	CURLcode res;
-	long status = 0;
-	fy_generic ret = fy_invalid;
+	long status;
+	int rc;
 
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &response);
+	request = userdata;
+	ctx = request->ctx;
+	status = 0;
+	request->result = fy_invalid;
+	res = fyai_curl_collect(transfer);
+	fyai_curl_transfer_destroy(transfer);
+	request->transfer = NULL;
 
-	res = fyai_curl_perform(ctx, ctx->curl);
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
-		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
-		goto out;
+		request->result = fyai_with_diag(ctx->transient_gb,
+						 fy_invalid,
+						 "interrupted");
+		goto done;
 	}
-	fyai_error_check(ctx, res == CURLE_OK, out, "request failed: %s",
-			 curl_easy_strerror(res));
+	if (res != CURLE_OK) {
+		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
+		goto done;
+	}
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
 		if (fyai_auth_should_retry(ctx, status)) {
-			free(response.data);
-			if (!fyai_auth_prepare_retry(ctx))
-				return fyai_perform_buffered_request(ctx);
-			return fy_invalid;
+			free(request->response.data);
+			memset(&request->response, 0,
+			       sizeof(request->response));
+			rc = fyai_auth_prepare_retry(ctx);
+			if (!rc)
+				rc = buffered_request_start(request);
+			if (!rc)
+				return;
+			goto done;
 		}
 		ctx->response_chain_miss =
-			response_chain_miss(ctx, status, response.data);
+			response_chain_miss(ctx, status,
+					    request->response.data);
 		if (ctx->response_chain_miss)
-			goto out;
-		/* One diagnostic; see the streaming path above. */
+			goto done;
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
-			   response.data ? "\n" : "",
-			   response.data ? response.data : "");
-		goto out;
+			   request->response.data ? "\n" : "",
+			   request->response.data ?
+				request->response.data : "");
+		goto done;
 	}
 
-	if (!response.data)
+	if (!request->response.data)
+		goto done;
+
+	response_doc = parse_response(ctx->transient_gb,
+				      request->response.data);
+	request->result = response_doc;
+done:
+	request->done = true;
+	buffered_request_notify(request);
+}
+
+struct fyai_buffered_request *
+fyai_buffered_request_submit(struct fyai_ctx *ctx,
+			     fyai_buffered_complete_fn complete,
+			     void *userdata)
+{
+	struct fyai_buffered_request *request;
+	int rc;
+
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_out, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->result = fy_invalid;
+	rc = buffered_request_start(request);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not submit buffered request");
+	return request;
+
+err_free:
+	free(request);
+err_out:
+	return NULL;
+}
+
+void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
+{
+	if (request && request->transfer && !request->done)
+		fyai_curl_cancel(request->transfer);
+}
+
+bool fyai_buffered_request_done(
+		const struct fyai_buffered_request *request)
+{
+	return request && request->done;
+}
+
+fy_generic fyai_buffered_request_collect(
+		const struct fyai_buffered_request *request)
+{
+	return fyai_buffered_request_done(request) ?
+		request->result : fy_invalid;
+}
+
+void fyai_buffered_request_destroy(struct fyai_buffered_request *request)
+{
+	if (!request)
+		return;
+	if (request->transfer)
+		fyai_curl_transfer_destroy(request->transfer);
+	free(request->response.data);
+	free(request);
+}
+
+struct buffered_sync {
+	volatile bool done;
+};
+
+static void
+buffered_sync_complete(struct fyai_buffered_request *request, void *userdata)
+{
+	struct buffered_sync *sync;
+
+	(void)request;
+	sync = userdata;
+	sync->done = true;
+}
+
+fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
+{
+	struct fyai_buffered_request *request;
+	struct fyai_event_loop *el;
+	struct buffered_sync sync;
+	fy_generic ret;
+	int rc;
+
+	memset(&sync, 0, sizeof(sync));
+	ret = fy_invalid;
+	request = fyai_buffered_request_submit(ctx, buffered_sync_complete,
+					       &sync);
+	if (!request)
+		return fy_invalid;
+	el = fyai_ctx_loop(ctx);
+	if (!el)
 		goto out;
+	rc = fyai_event_loop_run_until(el, &sync.done, -1);
+	if (rc)
+		fyai_buffered_request_cancel(request);
+	if (!sync.done && !rc)
+		goto out;
+	ret = fyai_buffered_request_collect(request);
 
-	response_doc = parse_response(ctx->transient_gb, response.data);
-	ret = response_doc;
 out:
-	free(response.data);
-
+	fyai_buffered_request_destroy(request);
 	return ret;
 }

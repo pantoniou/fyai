@@ -204,6 +204,25 @@ Authentication and response-chain retries must be explicit state transitions.
 They must not recursively call `fyai_perform_streaming_request()` or
 `fyai_run_model_step()`.
 
+The model step is now a separate heap-owned operation around that execution
+stream. It owns request construction, the active streamed or buffered request,
+response-chain and token-extents retries, cancellation, and the final response.
+Its states are:
+
+```text
+NEW -> BUILDING -> REQUEST_PENDING
+                       |
+                       +-> RETRYING -> REQUEST_PENDING
+                       |
+                       +-> COMPLETED | CANCELLED | FAILED
+```
+
+Buffered requests now have the same submit, cancel, collect, and completion
+callback lifecycle as streamed requests. `fyai_run_model_step()` remains a
+compatibility wrapper that submits the operation and pumps the context event
+loop until the model step completes. The future turn machine can use the same
+operation without entering a nested pump.
+
 ## Tool job groups
 
 Tool job groups now have the desired lifecycle:
