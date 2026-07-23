@@ -14,6 +14,18 @@
 
 #include "commands.h"
 #include "fyai.h"
+
+int fyai_ui_external_begin(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return 0;
+}
+
+int fyai_ui_external_end(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return 0;
+}
 #include "fyai_markdown.h"
 
 const char *fyai_api_to_string(enum fyai_api_mode api)

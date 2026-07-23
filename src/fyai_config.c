@@ -27,6 +27,7 @@
 #include "fyai_schema.h"
 #include "fyai_secret.h"
 #include "fyai_terminal.h"
+#include "fyai_ui.h"
 #include "fyai_markdown.h"
 #include "fyai_storage.h"
 #include "commands.h"
@@ -1633,6 +1634,7 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	fy_generic report;
 	fy_generic emitted, doc;
 	int fd;
+	bool ui_external = false;
 
 	if (!ctx->gb) {
 		fyai_error(ctx, "no arena; run fyai init");
@@ -1663,25 +1665,30 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	(void)!write(fd, text, strlen(text));
 	close(fd);
 
-	if (fyai_spawn_editor(tmpl)) {
-		fyai_error(ctx, "editor failed; edits kept at %s",
-			tmpl);
-		return -1;
-	}
+	fyai_error_check(ctx, !fyai_ui_external_begin(ctx), err_keep,
+			 "cannot suspend UI; edits kept at %s", tmpl);
+	ui_external = true;
+	fyai_error_check(ctx, !fyai_spawn_editor(ctx, tmpl), err_resume,
+			 "editor failed; edits kept at %s", tmpl);
+	fyai_error_check(ctx, !fyai_ui_external_end(ctx), err_keep,
+			 "cannot resume UI; edits kept at %s", tmpl);
+	ui_external = false;
 
 	doc = fy_parse_file(ctx->gb,
 			    FYAI_YAML_PARSE_FLAGS, tmpl);
 	report = fyai_config_validate_report(ctx->cfg, doc, "edited config");
-	if (config_report_commit(report, &doc)) {
-		fyai_error(ctx, "edits kept at %s", tmpl);
-		return -1;
-	}
-	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid)) {
-		fyai_error(ctx, "edits kept at %s", tmpl);
-		return -1;
-	}
+	fyai_error_check(ctx, !config_report_commit(report, &doc), err_keep,
+			 "edits kept at %s", tmpl);
+	fyai_error_check(ctx,
+			 !fyai_publish_root(ctx, doc, fy_invalid, fy_invalid),
+			 err_keep, "edits kept at %s", tmpl);
 	unlink(tmpl);
 	return 0;
+err_resume:
+	if (ui_external)
+		(void)fyai_ui_external_end(ctx);
+err_keep:
+	return -1;
 }
 
 int fyai_config_rederive(struct fyai_ctx *ctx)

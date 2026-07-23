@@ -35,6 +35,7 @@ struct fyai_ui {
 	bool quit;
 	bool busy;
 	bool activity_paused;
+	bool external;
 	struct fytim_workband *tool_band;
 	struct fytim_workband *pending_band;
 	char *tool_title;
@@ -291,13 +292,10 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_EDIT: {
 			char *edited;
-			(void)fytim_suspend(ui->ft);
-			spool_restore(&ui->out, STDOUT_FILENO);
-			spool_restore(&ui->err, STDERR_FILENO);
-			edited = fyai_edit_line(fytim_input(ui->ft));
-			(void)spool_open(&ui->out, STDOUT_FILENO);
-			(void)spool_open(&ui->err, STDERR_FILENO);
-			(void)fytim_resume(ui->ft);
+			if (fyai_ui_external_begin(ui->ctx))
+				break;
+			edited = fyai_edit_line(ui->ctx, fytim_input(ui->ft));
+			(void)fyai_ui_external_end(ui->ctx);
 			if (edited) { (void)fytim_set_input(ui->ft, edited); free(edited); }
 			break;
 		}
@@ -409,6 +407,49 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 }
 
 bool fyai_ui_active(const struct fyai_ctx *ctx) { return ctx && ctx->ui; }
+
+int fyai_ui_external_begin(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
+		return 0;
+	fyai_error_check(ctx, !ui->external, err_out,
+			 "external editor is already active");
+	fyai_ui_drain_output(ctx);
+	fyai_error_check(ctx, fytim_suspend(ui->ft) == FYTIM_OK, err_out,
+			 "could not suspend terminal UI");
+	spool_restore(&ui->out, STDOUT_FILENO);
+	spool_restore(&ui->err, STDERR_FILENO);
+	ui->external = true;
+	return 0;
+err_out:
+	return -1;
+}
+
+int fyai_ui_external_end(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	bool out_open = false;
+
+	if (!ui)
+		return 0;
+	fyai_error_check(ctx, ui->external, err_out,
+			 "external editor is not active");
+	fyai_error_check(ctx, !spool_open(&ui->out, STDOUT_FILENO), err_out,
+			 "could not restore UI output spool");
+	out_open = true;
+	fyai_error_check(ctx, !spool_open(&ui->err, STDERR_FILENO), err_out,
+			 "could not restore UI error spool");
+	ui->external = false;
+	fyai_error_check(ctx, fytim_resume(ui->ft) == FYTIM_OK, err_out,
+			 "could not resume terminal UI");
+	return 0;
+err_out:
+	if (out_open && ui->err.saved < 0)
+		spool_restore(&ui->out, STDOUT_FILENO);
+	return -1;
+}
 
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 {

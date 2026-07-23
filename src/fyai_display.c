@@ -2122,7 +2122,7 @@ int fyai_list_turns(struct fyai_ctx *ctx)
  * Returns the edited contents (malloc'd, trailing newlines stripped) for
  * linenoise to adopt as the new line, or NULL on error so the line is kept.
  */
-char *fyai_edit_line(const char *current)
+char *fyai_edit_line(struct fyai_ctx *ctx, const char *current)
 {
 	const char *tmpdir;
 	struct response_buffer buf = {0};
@@ -2150,7 +2150,7 @@ char *fyai_edit_line(const char *current)
 	close(fd);
 
 	/* keep whatever was saved even when the editor exits unhappily */
-	(void)fyai_spawn_editor(tmpl);
+	(void)fyai_spawn_editor(ctx, tmpl);
 
 	f = fopen(tmpl, "rb");
 	if (f) {

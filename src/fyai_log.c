@@ -17,7 +17,9 @@
 #include <string.h>
 #include <strings.h>
 
+#include "fyai_diag.h"
 #include "fyai_log.h"
+#include "fyai_ui.h"
 
 static char *fyai_log_path(struct fyai_ctx *ctx, const char *name)
 {
@@ -68,19 +70,29 @@ static int fyai_log_view_target(struct fyai_ctx *ctx, const char *target)
 	char *path;
 	FILE *fp;
 	int ret;
+	bool ui_external = false;
 
 	path = fyai_log_path(ctx, target);
-	if (!path)
-		return -1;
+	fyai_error_check(ctx, path, err_out, "cannot resolve log path");
 	fp = fopen(path, "a");
-	if (!fp) {
-		free(path);
-		return -1;
-	}
+	fyai_error_check(ctx, fp, err_path, "cannot open log %s", path);
 	fclose(fp);
-	ret = fyai_spawn_editor_readonly(path);
+	fyai_error_check(ctx, !fyai_ui_external_begin(ctx), err_path,
+			 "cannot suspend UI for log viewer");
+	ui_external = true;
+	ret = fyai_spawn_editor_readonly(ctx, path);
+	fyai_error_check(ctx, !fyai_ui_external_end(ctx), err_path,
+			 "cannot resume UI after log viewer");
+	ui_external = false;
+	fyai_error_check(ctx, !ret, err_path, "log viewer failed");
 	free(path);
-	return ret;
+	return 0;
+err_path:
+	if (ui_external)
+		(void)fyai_ui_external_end(ctx);
+	free(path);
+err_out:
+	return -1;
 }
 
 int fyai_log_clear(struct fyai_ctx *ctx)

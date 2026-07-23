@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -13,6 +15,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +27,7 @@
 #include <libfyaml/libfyaml-align.h>
 
 #include "fyai.h"
+#include "fyai_diag.h"
 #include "fyai_event.h"
 #include "fyai_sandbox.h"
 #include "fyai_terminal.h"
@@ -1134,44 +1138,58 @@ bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor)
  * Run $VISUAL/$EDITOR (else vi) on @path, blocking until the editor exits.
  * Returns 0 when the editor exited cleanly, -1 otherwise.
  */
-int fyai_spawn_editor(const char *path)
+static int fyai_spawn_editor_mode(struct fyai_ctx *ctx, const char *path,
+				  bool readonly)
 {
 	const char *editor;
-	char *cmd;
-	int ret;
+	char *cmd = NULL;
+	pid_t pid, ret;
+	int status, rc = -1;
 
 	editor = getenv("VISUAL");
 	if (!editor || !*editor)
 		editor = getenv("EDITOR");
 	if (!editor || !*editor)
 		editor = "vi";
-	if (asprintf(&cmd, "%s '%s'", editor, path) < 0)
-		return -1;
-	ret = system(cmd);
+	fyai_error_check(ctx,
+			 asprintf(&cmd, readonly ? "%s -R '%s'" : "%s '%s'",
+				  editor, path) >= 0,
+			 err_out, "could not format editor command");
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, err_out, "could not start editor: %s",
+			 strerror(errno));
+	if (!pid) {
+		if (ctx && ctx->signal_mask_valid)
+			(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+		_exit(127);
+	}
+	/*
+	 * The editor handoff is synchronous today. If external editing becomes
+	 * long-lived, register this pid as an event-loop child source and keep
+	 * pumping non-UI work while the terminal frontend remains suspended.
+	 */
+	do {
+		ret = waitpid(pid, &status, 0);
+	} while (ret < 0 && errno == EINTR);
+	fyai_error_check(ctx, ret >= 0, err_out, "could not wait for editor: %s",
+			 strerror(errno));
+	fyai_error_check(ctx, WIFEXITED(status) && !WEXITSTATUS(status), err_out,
+			 "editor exited unsuccessfully");
+	rc = 0;
+err_out:
 	free(cmd);
-	if (ret == -1 || (WIFEXITED(ret) && WEXITSTATUS(ret)))
-		return -1;
-	return 0;
+	return rc;
 }
 
-int fyai_spawn_editor_readonly(const char *path)
+int fyai_spawn_editor(struct fyai_ctx *ctx, const char *path)
 {
-	const char *editor;
-	char *cmd;
-	int ret;
+	return fyai_spawn_editor_mode(ctx, path, false);
+}
 
-	editor = getenv("VISUAL");
-	if (!editor || !*editor)
-		editor = getenv("EDITOR");
-	if (!editor || !*editor)
-		editor = "vi";
-	if (asprintf(&cmd, "%s -R '%s'", editor, path) < 0)
-		return -1;
-	ret = system(cmd);
-	free(cmd);
-	if (ret == -1 || (WIFEXITED(ret) && WEXITSTATUS(ret)))
-		return -1;
-	return 0;
+int fyai_spawn_editor_readonly(struct fyai_ctx *ctx, const char *path)
+{
+	return fyai_spawn_editor_mode(ctx, path, true);
 }
 
 int mkdir_private(const char *path)

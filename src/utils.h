@@ -125,9 +125,10 @@ fy_generic response_message(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic response_tool_calls(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic fyai_join_strings(struct fy_generic_builder *gb, fy_generic chunks);
 
-/* run $VISUAL/$EDITOR (else vi) on @path; 0 = clean editor exit */
-int fyai_spawn_editor(const char *path);
-int fyai_spawn_editor_readonly(const char *path);
+/* Run $VISUAL/$EDITOR (else vi) on @path. The child restores the signal
+ * mask captured in @ctx before fyai took ownership of its signals. */
+int fyai_spawn_editor(struct fyai_ctx *ctx, const char *path);
+int fyai_spawn_editor_readonly(struct fyai_ctx *ctx, const char *path);
 
 bool self_is_traced(void);
 int raise_stack(size_t bytes, char **argv);
