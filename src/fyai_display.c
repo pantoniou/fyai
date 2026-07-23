@@ -1141,6 +1141,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	char *lang = NULL;
 	char *md = NULL;
 	size_t mdlen = 0;
+	size_t start, end;
 	FILE *mf;
 
 	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
@@ -1174,15 +1175,32 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	fyai_emit_tool_call(mf, tgb, name, args, cfg->tool_preview_lines);
 	if (cfg->tool_separator && *cfg->tool_separator)
 		fprintf(mf, "%s\n\n", cfg->tool_separator);
+	fyai_error_check(ctx, !fclose(mf), err_closed,
+			 "could not finish tool call display output");
+	mf = NULL;
+	fyai_error_check(ctx, !fyai_output_append(ctx, md, mdlen), err,
+			 "could not append tool call display output");
+	free(md);
+	md = NULL;
+	mdlen = 0;
+
+	start = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err, "could not format tool result output");
 	if (fy_generic_is_string(tool_result))
-		fyai_emit_tool_result(mf, res_str, cfg->tool_preview_lines, lang);
+		fyai_emit_tool_result(mf, res_str, 0, lang);
 	else
-		fyai_emit_shell_output(mf, tool_result, cfg->tool_preview_lines);
+		fyai_emit_shell_output(mf, tool_result, 0);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
 			 "could not finish tool display output");
 	mf = NULL;
 	fyai_error_check(ctx, !fyai_output_append(ctx, md, mdlen), err,
 			 "could not append tool display output");
+	end = start + mdlen;
+	fyai_error_check(ctx,
+		!fyai_output_add_fragment(ctx, "tool_result", start, end,
+					  lang), err,
+		"could not record tool result fragment");
 	free(md);
 	free(lang);
 	fy_generic_builder_destroy(tgb);
@@ -1375,9 +1393,11 @@ static bool fyai_msg_is_tool_result(const struct fyai_msg_class *c,
 static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 					   size_t lo, size_t hi)
 {
-	fy_generic outputs, output, msgs, msg;
+	struct fyai_msg_class c;
+	fy_generic outputs, output, fragments, fragment, msgs, msg, result;
 	size_t users = 0, assistants = 0;
 	size_t user_outputs = 0, assistant_outputs = 0;
+	size_t tool_results = 0, tool_fragments = 0;
 	size_t i;
 
 	for (i = lo; i < hi; i++) {
@@ -1385,6 +1405,9 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 		fy_foreach(msg, msgs) {
 			if (fy_equal(fy_get(msg, "role"), "user"))
 				users++;
+			c = fyai_classify_message(msg);
+			if (fyai_msg_is_tool_result(&c, &result))
+				tool_results++;
 		}
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
 		fy_foreach(output, outputs) {
@@ -1392,6 +1415,11 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 				user_outputs++;
 			else if (fy_equal(fy_get(output, "tag"), "assistant"))
 				assistant_outputs++;
+			fragments = fy_get(output, "fragments", fy_seq_empty);
+			fy_foreach(fragment, fragments)
+				if (fy_equal(fy_get(fragment, "kind"),
+					     "tool_result"))
+					tool_fragments++;
 		}
 	}
 	/* Each selected user exchange must have both its user card and the
@@ -1399,12 +1427,79 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 	 * whenever it has any stored output. */
 	assistants = users;
 	if (users)
-		return user_outputs == users && assistant_outputs == assistants;
+		return user_outputs == users &&
+		       assistant_outputs == assistants &&
+		       tool_fragments == tool_results;
 	for (i = lo; i < hi; i++)
 		if (fy_len(fy_get(stack->items[i], "display_outputs",
 				  fy_seq_empty)))
 			return true;
 	return false;
+}
+
+static int fyai_display_markdown_range(struct fyai_cfg *cfg, const char *md,
+				       size_t start, size_t end)
+{
+	char *slice;
+	int rc;
+
+	if (end <= start)
+		return 0;
+	slice = strndup(md + start, end - start);
+	if (!slice)
+		return -1;
+	rc = fyai_print_markdown(slice, cfg);
+	if (rc)
+		fputs(slice, stdout);
+	free(slice);
+	return 0;
+}
+
+static int fyai_display_assistant_output(struct fyai_ctx *ctx,
+					 fy_generic output,
+					 const char *md,
+					 const fy_generic *tool_results,
+					 size_t tool_result_count,
+					 size_t *tool_result_pos)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic fragments, fragment, content, glang;
+	const char *lang;
+	long long llstart, llend;
+	size_t start, end, pos, len;
+
+	fragments = fy_get(output, "fragments", fy_seq_empty);
+	if (!fy_len(fragments))
+		return fyai_render_display_output(ctx, "assistant", md);
+
+	len = strlen(md);
+	pos = 0;
+	fy_foreach(fragment, fragments) {
+		llstart = fy_get(fragment, "start", -1LL);
+		llend = fy_get(fragment, "end", -1LL);
+		if (llstart < 0 || llend < llstart ||
+		    (unsigned long long)llend > len ||
+		    (size_t)llstart < pos)
+			return -1;
+		start = (size_t)llstart;
+		end = (size_t)llend;
+		if (fyai_display_markdown_range(cfg, md, pos, start))
+			return -1;
+		if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
+			if (*tool_result_pos >= tool_result_count)
+				return -1;
+			content = tool_results[(*tool_result_pos)++];
+			glang = fy_get(fragment, "lang");
+			lang = fy_generic_is_string(glang) ?
+				fy_castp(&glang, "") : NULL;
+			fyai_render_tool_result(cfg, content, lang,
+						cfg->tool_preview_lines);
+		} else if (fyai_display_markdown_range(cfg, md, start, end)) {
+			return -1;
+		}
+		pos = end;
+	}
+	return fyai_display_markdown_range(cfg, md, pos, len);
 }
 
 static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
@@ -1414,9 +1509,37 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_display_args *args = &cfg->cmd.args.display;
 	fy_generic outputs, output;
+	struct fyai_msg_class c;
+	fy_generic msgs, msg, result;
+	fy_generic *tool_results = NULL;
 	const char *tag, *md;
 	size_t i;
+	size_t tool_result_count = 0, tool_result_pos = 0;
 	bool emitted = false;
+
+	for (i = lo; i < hi; i++) {
+		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
+		fy_foreach(msg, msgs) {
+			c = fyai_classify_message(msg);
+			if (fyai_msg_is_tool_result(&c, &result))
+				tool_result_count++;
+		}
+	}
+	if (tool_result_count) {
+		size_t n = 0;
+
+		tool_results = calloc(tool_result_count, sizeof(*tool_results));
+		if (!tool_results)
+			return -1;
+		for (i = lo; i < hi; i++) {
+			msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
+			fy_foreach(msg, msgs) {
+				c = fyai_classify_message(msg);
+				if (fyai_msg_is_tool_result(&c, &result))
+					tool_results[n++] = result;
+			}
+		}
+	}
 
 	for (i = lo; i < hi; i++) {
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
@@ -1435,6 +1558,14 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 			}
 			if (args->raw)
 				fputs(md, stdout);
+			else if (fy_equal(tag, "assistant")) {
+				if (fyai_display_assistant_output(ctx, output, md,
+						tool_results, tool_result_count,
+						&tool_result_pos)) {
+					free(tool_results);
+					return -1;
+				}
+			}
 			else
 				(void)fyai_render_display_output(ctx, tag, md);
 			emitted = true;
@@ -1442,6 +1573,7 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 	}
 	if (ctx->stdout_tty && !args->raw)
 		putchar('\n');
+	free(tool_results);
 	return 0;
 }
 

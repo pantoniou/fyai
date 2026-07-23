@@ -42,6 +42,21 @@ grep -qF "0" "$TEST_DIR/history.out" ||
     fail "stored shell output missing from history"
 grep -qF "Interactive shell rendering done." "$TEST_DIR/history.out" ||
     fail "stored final answer missing from history"
+"$PYTHON" - "$TEST_DIR/history.out" <<'EOF' ||
+    fail "history tool fragment diverged from frameless live rendering"
+import re
+import sys
+
+data = open(sys.argv[1], "rb").read()
+if b"\xe2\x94\x80" * 8 in data:
+    raise SystemExit("ordinary Markdown fence rules appeared in tool output")
+if not re.search(rb"(?:^|\n)    0\n", data):
+    raise SystemExit("history tool output lost the live indentation")
+if not re.search(rb"(?:^|\n)    10\n", data):
+    raise SystemExit("history tool output lost the live tail")
+if "\u22ef".encode() not in data:
+    raise SystemExit("history tool output lost the bounded omission row")
+EOF
 
 assert_request 1 'any(i.get("type") == "shell_call_output" for i in r["body"]["input"])'
 mock_stop 2

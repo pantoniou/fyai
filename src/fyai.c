@@ -174,7 +174,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *tool_call_id, *tool_call_output_type;
 	const char *name;
 	bool shell;
-	bool progressive_tool;
+	bool isolated_tool;
 	const char *result_text;
 
 	assert(ctx->transient_gb);
@@ -187,7 +187,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	else
 		name = fy_get(tool_call, "name", "");
 	shell = fy_equal(name, "shell");
-	progressive_tool = shell && fyai_output_renders_live(ctx);
+	isolated_tool = fyai_output_renders_live(ctx);
 
 	/*
 	 * Checkpoint the assistant tail before opening the temporary bounded
@@ -196,7 +196,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	 * silently to the durable document and assistant rendering resumes.
 	 */
 	fyai_error_check(ctx,
-		!progressive_tool || !fyai_output_checkpoint(ctx), err,
+		!isolated_tool || !fyai_output_checkpoint(ctx), err,
 		"could not checkpoint output before tool call");
 	if (!cfg->markdown || shell)
 		fyai_print_tool_call(ctx, tool_call);
@@ -208,14 +208,16 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (shell && fyai_ui_active(ctx))
 		fyai_ui_tool_end(ctx,
 			strncmp(result_text, "tool error:", 11) != 0);
+	if (isolated_tool && !shell)
+		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	fyai_error_check(ctx,
 		!fyai_record_tool_exchange(ctx, tool_call, tool_result), err_resume,
 		"could not record tool display output");
 	fyai_error_check(ctx,
-		!progressive_tool || !fyai_output_resume(ctx), err,
+		!isolated_tool || !fyai_output_resume(ctx), err,
 		"could not resume output after tool call");
 
-	if (!fyai_output_renders_live(ctx) && cfg->markdown && !shell)
+	if (!isolated_tool && cfg->markdown && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
@@ -285,7 +287,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 			 "could not append the tool result");
 	return out;
 err_resume:
-	if (progressive_tool)
+	if (isolated_tool)
 		(void)fyai_output_resume(ctx);
 err:
 	return fy_invalid;

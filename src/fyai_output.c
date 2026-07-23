@@ -22,6 +22,7 @@ struct fyai_display_output {
 	struct response_buffer markdown;
 	struct response_buffer pending;
 	struct markdown_renderer renderer;
+	fy_generic fragments;
 	size_t active_rows;
 	bool render_live;
 	bool reasoning;
@@ -79,6 +80,7 @@ int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 	fyai_error_check(ctx, output, err,
 			 "could not allocate display output");
 	output->tag = tag;
+	output->fragments = fy_seq_empty;
 	fyai_error_check(ctx, !fyai_output_renderer_start(ctx, output),
 			 err_output, "could not start display output");
 	ctx->display_output = output;
@@ -264,6 +266,29 @@ bool fyai_output_renders_live(const struct fyai_ctx *ctx)
 	       ctx->display_output->render_live;
 }
 
+int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
+			     size_t start, size_t end, const char *lang)
+{
+	struct fyai_display_output *output;
+	fy_generic fragment;
+
+	if (!ctx || !ctx->display_output || end < start)
+		return -1;
+	output = ctx->display_output;
+	fragment = fy_null_filtered_mapping(
+		"kind", kind,
+		"start", (long long)start,
+		"end", (long long)end,
+		"lang", lang && *lang ? fy_value(lang) : fy_null);
+	output->fragments = fy_append(ctx->transient_gb, output->fragments,
+				      fragment);
+	fyai_error_check(ctx, fy_generic_is_valid(output->fragments), err,
+			 "could not append display fragment");
+	return 0;
+err:
+	return -1;
+}
+
 static int fyai_output_render_finish(struct fyai_ctx *ctx)
 {
 	struct fyai_display_output *output = ctx->display_output;
@@ -350,7 +375,8 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 	record = fy_mapping(
 		"tag", fyai_output_tag_name(output->tag),
 		"markdown", output->markdown.data ? output->markdown.data : "",
-		"state", aborted ? "aborted" : "finalized");
+		"state", aborted ? "aborted" : "finalized",
+		"fragments", output->fragments);
 	turn = fyai_turn_append_display_output(ctx, turn, record);
 	fyai_output_cleanup(ctx);
 	return turn;
