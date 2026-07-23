@@ -44,15 +44,37 @@ struct fyai_ui {
 
 static int ui_status_render(struct fyai_ui *ui, const char *activity)
 {
-	char *line;
+	struct response_buffer out = {0};
+	char *line, *p;
+	size_t start, end, i;
 	int rc;
 
 	if (!ui->status_bottom)
 		return 0;
-	if (asprintf(&line, "%s%s", activity, ui->status_bottom) < 0)
+	if (markdown_render_margins(ui->ctx->cfg, ui->status_bottom,
+			strlen(ui->status_bottom), &out, activity, activity))
 		return -1;
+	start = 0;
+	end = out.len;
+	while (start < end &&
+	       (out.data[start] == '\n' || out.data[start] == '\r'))
+		start++;
+	while (end > start &&
+	       (out.data[end - 1] == '\n' || out.data[end - 1] == '\r'))
+		end--;
+	line = malloc(end - start + 1);
+	if (!line) {
+		free(out.data);
+		return -1;
+	}
+	memcpy(line, out.data + start, end - start);
+	line[end - start] = '\0';
+	for (p = line, i = 0; i < end - start; i++)
+		if (p[i] == '\n' || p[i] == '\r')
+			p[i] = ' ';
 	rc = fytim_set_status_row(ui->ft, 1, line) == FYTIM_OK ? 0 : -1;
 	free(line);
+	free(out.data);
 	return rc;
 }
 
@@ -99,7 +121,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 {
 	struct timespec ts;
 	int phase;
-	const char *dot;
+	const char *dot, *status_activity;
 
 	if (!ui->busy && !ui->tool_band)
 		return 0;
@@ -116,9 +138,10 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	 * activity uses a fixed-width slot in the existing status line.
 	 */
 	dot = phase ? "  " : "\033[93m●\033[0m ";
+	status_activity = phase ? "  " : "\033[93m●\033[0m ";
 	if (ui->tool_band && ui_tool_render(ui, dot, false))
 		return -1;
-	if (ui->busy && ui_status_render(ui, dot))
+	if (ui->busy && ui_status_render(ui, status_activity))
 		return -1;
 	return 0;
 }

@@ -748,7 +748,6 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char top[256], bottom[256];
 	char *top_md;
-	char *bottom_md;
 	const char *src;
 	const char *tmpl;
 	long long window, used;
@@ -802,17 +801,14 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
 	fyai_expand_template(bottom, sizeof(bottom), tmpl,
 			     vars, sizeof(vars) / sizeof(vars[0]));
-	bottom_md = fyai_prompt_row_markdown(cfg, bottom);
-
 	fyai_expand_template(top, sizeof(top),
 			     cfg->prompt_top ? cfg->prompt_top : "",
 			     vars, sizeof(vars) / sizeof(vars[0]));
 	top_md = fyai_prompt_row_markdown(cfg, top);
 	if (fyai_ui_active(ctx))
 		fyai_ui_update_banner(ctx, top_md ? top_md : top,
-				      bottom_md ? bottom_md : bottom);
+				      bottom);
 	free(top_md);
-	free(bottom_md);
 }
 
 /* ---- simple config-item slash commands ---------------------------------- */
