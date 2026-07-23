@@ -32,6 +32,15 @@ if not re.search(rb"(?:^|\r?\n)    0\r?\n", plain):
     raise SystemExit("fenced output is not indented")
 EOF
 
+"$FYAI_BIN" --color off history --last 1 >"$TEST_DIR/history.out" 2>&1 ||
+    fail "history replay of unified shell output failed"
+grep -qF "shell" "$TEST_DIR/history.out" ||
+    fail "stored shell call missing from history"
+grep -qF "0" "$TEST_DIR/history.out" ||
+    fail "stored shell output missing from history"
+grep -qF "Interactive shell rendering done." "$TEST_DIR/history.out" ||
+    fail "stored final answer missing from history"
+
 assert_request 1 'any(i.get("type") == "shell_call_output" for i in r["body"]["input"])'
 mock_stop 2
 pass

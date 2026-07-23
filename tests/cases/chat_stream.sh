@@ -19,5 +19,15 @@ assert_request 0 'r["body"]["stream_options"]["include_usage"] is True'
 assert_stderr_contains "input=20"
 assert_stderr_contains "output=9"
 
+# The exact progressive source, including its role tag, is durable and is the
+# source history replays instead of reconstructing the provider messages.
+assert_state_contains "display_outputs" dump anchors
+"$FYAI_BIN" history --last 1 >"$TEST_DIR/history.out" 2>&1 ||
+	fail "fyai history --last 1"
+grep -qF "stream please" "$TEST_DIR/history.out" ||
+	fail "stored user display output missing from history"
+grep -qF "Streaming hello from the mock." "$TEST_DIR/history.out" ||
+	fail "stored assistant display output missing from history"
+
 mock_stop 1
 pass

@@ -60,6 +60,14 @@ accept null to paper over an emitter that drops the quotes.
 - `src/commands.c` — verb dispatch (`init`/`dump`/`stats`/`config`/`gc`), the
   `fyai_run` engine runner, and the colorized `fyai_usage` (fy-tool style).
 - `src/fyai.c` — core engine orchestration; functional modules live beside it.
+- `src/fyai_output.c` — the context-owned transcript output. One tagged
+  (`system`, `user`, or `assistant`) Markdown document stays open across an
+  entire assistant model/tool loop, owns progressive rendering, and is
+  finalized into the durable turn as `display_outputs`. History replays these
+  exact documents; message/provider reconstruction is legacy-arena fallback.
+  Add generated fragments with the checked `fyai_output_printf()` API and
+  provider byte streams with `fyai_output_append()`. Do not create a parallel
+  renderer or print transcript content from a tool/reasoning producer.
 - `src/fyai_session.c` — session commands: shared backends for the interactive
   slash commands (`/clear`, `/compact`, `/model`, `/api`, `/context`, plus a
   data-driven table of settings like `/effort`, `/theme`, `/markdown`) and
