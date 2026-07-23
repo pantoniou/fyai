@@ -869,6 +869,10 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "tool-detail", FYAIOK_STR, offsetof(struct fyai_cfg, tool_detail),
 	  tool_detail_vals, false, false, "display/tool_detail",
 	  "tool output detail" },
+	{ "transcript-system", FYAIOK_BOOL,
+	  offsetof(struct fyai_cfg, transcript_system),
+	  NULL, false, false, "display/transcript_system",
+	  "include system messages in transcripts" },
 	{ "markdown", FYAIOK_BOOL, offsetof(struct fyai_cfg, markdown),
 	  NULL, true, false, NULL, "markdown rendering" },
 	{ "stream", FYAIOK_BOOL, offsetof(struct fyai_cfg, stream),
@@ -912,6 +916,7 @@ static int session_opt_run(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	void *field = (char *)cfg + o->off;
 	const char *const *v;
+	const char *value;
 	char *endp;
 	float f;
 	int idx;
@@ -982,9 +987,14 @@ static int session_opt_run(struct fyai_ctx *ctx,
 		fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), err_out,
 				 "failed to update input bubble style");
 	}
-	if (o->ckey)
-		session_persist(ctx, o->ckey, o->kind == FYAIOK_STR ?
-				fy_sprintfa("'%s'", arg) : arg);
+	if (o->ckey) {
+		value = arg;
+		if (o->kind == FYAIOK_STR)
+			value = fy_sprintfa("'%s'", arg);
+		else if (o->kind == FYAIOK_BOOL)
+			value = *(bool *)field ? "true" : "false";
+		session_persist(ctx, o->ckey, value);
+	}
 	session_opt_print(cfg, o);
 	return 0;
 
@@ -1558,8 +1568,11 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	const struct fyai_slash_cmd *cmd;
 	const struct fyai_slash_opt *opt;
 	const char *name, *arg;
+	char title[64];
 	size_t len;
 	bool own_transient;
+	bool error;
+	bool pane_output;
 	int rc;
 
 	name = line + 1;	/* skip '/' */
@@ -1581,17 +1594,20 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	if (cmd && !cmd->run)	/* /exit, /quit */
 		return 1;
 
+	snprintf(title, sizeof(title), "%.*s", (int)len, name);
+	fyai_ui_pane_begin(ctx);
+
 	/* Backends build turns/generics; give them a transient builder. */
 	own_transient = !ctx->transient_gb;
-	if (own_transient && fyai_setup_transient_builder(ctx))
+	if (own_transient && fyai_setup_transient_builder(ctx)) {
+		fyai_ui_pane_end(ctx, title, true, true);
 		return 0;
+	}
 
 	if (cmd)
 		rc = cmd->run(ctx, arg);
 	else
 		rc = session_opt_run(ctx, opt, arg);
-	(void)rc;	/* the REPL continues regardless; see the drain below */
-
 	if (own_transient)
 		fyai_cleanup_transient_builder(ctx);
 
@@ -1599,7 +1615,14 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	 * A backend collects rather than prints, so report here - before the
 	 * banner repaints the footer - or the command would fail silently.
 	 */
+	error = rc || fyai_diag_got_error(&ctx->cfg->diag);
 	fyai_diag_drain(&ctx->cfg->diag);
+	pane_output = opt ||
+		(cmd && strcmp(cmd->name, "history") &&
+		 strcmp(cmd->name, "transcript") &&
+		 strcmp(cmd->name, "help") &&
+		 strcmp(cmd->name, "list"));
+	fyai_ui_pane_end(ctx, title, error, pane_output);
 
 	/* Settings/model/context may have changed; reflect it in the footer. */
 	fyai_session_banner_update(ctx);
@@ -1610,7 +1633,9 @@ out_report:
 	 * Nothing ran, so the footer is still good; report and go straight back
 	 * to the prompt rather than leaving the complaint until the next drain.
 	 */
+	fyai_ui_pane_begin(ctx);
 	fyai_diag_drain(&ctx->cfg->diag);
+	fyai_ui_pane_end(ctx, "error", true, true);
 	return 0;
 }
 

@@ -117,6 +117,7 @@ struct fyai_cfg {
 	int top_logprobs;
 	int tool_preview_lines;
 	const char *tool_detail;
+	bool transcript_system;
 	float temperature;
 	bool enable_tools;
 	bool enable_builtin_shell;

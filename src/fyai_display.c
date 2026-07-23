@@ -1595,6 +1595,8 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 		fy_foreach(output, outputs) {
 			tag = fy_get(output, "tag", "assistant");
 			md = fy_get(output, "markdown", "");
+			if (!cfg->transcript_system && fy_equal(tag, "system"))
+				continue;
 			if (emitted &&
 			    (fy_equal(tag, "user") || fy_equal(tag, "system")) &&
 			    cfg->turn_separator &&
@@ -1732,6 +1734,9 @@ int fyai_display_view(struct fyai_ctx *ctx)
 		fy_foreach(m, msgs) {
 			c = fyai_classify_message(m);
 			if (c.skip)
+				continue;
+			if (!cfg->transcript_system &&
+			    fy_equal(c.role, "system"))
 				continue;
 			if (c.is_str && fy_equal(c.role, "user") &&
 					!args->raw && cfg->markdown && ctx->stdout_tty) {

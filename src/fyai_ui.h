@@ -31,5 +31,9 @@ struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx);
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title);
 void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len);
 void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok);
+void fyai_ui_pane_begin(struct fyai_ctx *ctx);
+void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
+		      bool show_output);
+void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title);
 
 #endif

@@ -380,6 +380,8 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		cfg->markdown = apply_bool(v, "markdown", cfg->markdown);
 		cfg->stream = apply_bool(v, "stream", cfg->stream);
 		cfg->thinking = apply_bool(v, "thinking", cfg->thinking);
+		cfg->transcript_system = apply_bool(v, "transcript_system",
+						    cfg->transcript_system);
 		cfg->pretty = apply_bool(v, "pretty", cfg->pretty);
 		cfg->cache_info = apply_bool(v, "cache_info", cfg->cache_info);
 		cfg->stats = apply_bool(v, "stats", cfg->stats);
@@ -1718,6 +1720,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->top_logprobs = -1;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
+	cfg->transcript_system = false;
 	cfg->markdown = true;
 	cfg->stream = true;
 	cfg->thinking = DEFAULT_THINKING;

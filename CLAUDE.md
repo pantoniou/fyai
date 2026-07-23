@@ -382,8 +382,11 @@ tool_preview_lines, tool_detail); the `model` and other options are
 top-level.
 `display/tool_detail` selects `none`, `brief`, `default`, or `full` tool
 presentation. The default hides read/write bodies, bounds shell output with
-`tool_preview_lines`, and renders patches in full. Theming is
-fully delegated to libfymd4c. `display/theme` is the single selector, written
+`tool_preview_lines`, and renders patches in full.
+`display/transcript_system` controls whether transcript views include system
+messages and defaults to false.
+Theming is fully delegated to libfymd4c. `display/theme` is the single
+selector, written
 as an embedded theme name plus optional `:auto`, `:dark`, or `:light` variant
 (for example `default:auto` or `catppuccin:dark`). It controls the Markdown
 palette, the libfyts fenced-code theme, and libfytimui chrome. The name is

@@ -38,11 +38,15 @@ struct fyai_ui {
 	bool external;
 	struct fytim_workband *tool_band;
 	struct fytim_workband *pending_band;
+	struct fytim_workband *message_band;
 	char *tool_title;
 	char *tool_body;
 	char *status_bottom;
 	size_t tool_body_len;
 	int activity_phase;
+	off_t capture_out;
+	off_t capture_err;
+	bool capture;
 };
 
 static int ui_status_render(struct fyai_ui *ui, const char *activity)
@@ -238,6 +242,25 @@ static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 	free(out.data);
 }
 
+static void spool_capture(struct ui_spool *s, off_t start,
+			  struct response_buffer *out)
+{
+	char buf[4096];
+	ssize_t n;
+
+	if (s->reader < 0)
+		return;
+	while ((n = pread(s->reader, buf, sizeof(buf), start)) > 0) {
+		if (response_buffer_reserve(out, out->len + (size_t)n + 1))
+			break;
+		memcpy(out->data + out->len, buf, (size_t)n);
+		out->len += (size_t)n;
+		out->data[out->len] = '\0';
+		start += n;
+	}
+	s->off = start;
+}
+
 void fyai_ui_drain_output(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
@@ -406,6 +429,81 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ctx->ui = NULL;
 }
 
+void fyai_ui_pane_begin(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
+		return;
+	fyai_ui_drain_output(ctx);
+	if (ui->message_band)
+		fytim_workband_destroy(ui->message_band);
+	ui->message_band = NULL;
+	ui->capture_out = ui->out.off;
+	ui->capture_err = ui->err.off;
+	ui->capture = true;
+}
+
+void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
+		      bool show_output)
+{
+	struct response_buffer out = {0};
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	const char *color;
+	char *heading;
+	size_t len;
+
+	if (!ui || !ui->capture)
+		return;
+	fflush(stdout);
+	fflush(stderr);
+	spool_capture(&ui->out, ui->capture_out, &out);
+	spool_capture(&ui->err, ui->capture_err, &out);
+	ui->capture = false;
+	if (!out.len) {
+		free(out.data);
+		return;
+	}
+	if (!show_output && !error) {
+		(void)fytim_commit(ui->ft, out.data, out.len);
+		free(out.data);
+		return;
+	}
+	color = error ? "\033[31m" : "\033[36m";
+	len = strlen(title ? title : "status") + 24;
+	heading = malloc(len);
+	if (!heading) {
+		free(out.data);
+		return;
+	}
+	snprintf(heading, len, "%s● %s\033[0m", color,
+		 title ? title : (error ? "error" : "status"));
+	ui->message_band = fytim_workband_create(ui->ft);
+	if (ui->message_band) {
+		(void)fytim_workband_set_max_rows(ui->message_band, 12);
+		(void)fytim_workband_set_top(ui->message_band, heading);
+		(void)fytim_workband_set(ui->message_band, out.data, out.len);
+	}
+	free(heading);
+	free(out.data);
+}
+
+void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title)
+{
+	struct fyai_diag *diag;
+
+	if (!ctx || !ctx->cfg)
+		return;
+	diag = &ctx->cfg->diag;
+	if (!fyai_ui_active(ctx) || !fyai_diag_got_error(diag)) {
+		fyai_diag_drain(diag);
+		return;
+	}
+	fyai_ui_pane_begin(ctx);
+	fyai_diag_drain(diag);
+	fyai_ui_pane_end(ctx, title ? title : "error", true, true);
+}
+
 bool fyai_ui_active(const struct fyai_ctx *ctx) { return ctx && ctx->ui; }
 
 int fyai_ui_external_begin(struct fyai_ctx *ctx)
@@ -441,6 +539,10 @@ int fyai_ui_external_end(struct fyai_ctx *ctx)
 	out_open = true;
 	fyai_error_check(ctx, !spool_open(&ui->err, STDERR_FILENO), err_out,
 			 "could not restore UI error spool");
+	if (ui->capture) {
+		ui->capture_out = 0;
+		ui->capture_err = 0;
+	}
 	ui->external = false;
 	fyai_error_check(ctx, fytim_resume(ui->ft) == FYTIM_OK, err_out,
 			 "could not resume terminal UI");

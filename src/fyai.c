@@ -1361,7 +1361,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		line = NULL;
 		if (fy_generic_is_invalid(v)) {
 			fyai_error(ctx, "could not append the user turn");
-			fyai_diag_drain(&cfg->diag);
+			fyai_ui_diag_drain(ctx, "error");
 			fyai_cleanup_transient_builder(ctx);
 			continue;
 		}
@@ -1375,7 +1375,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		if (fy_generic_is_invalid(v)) {
 			/* nothing completed: keep the prior state, stay in the
 			 * loop so the user can retry or exit */
-			fyai_diag_drain(&cfg->diag);
+			fyai_ui_diag_drain(ctx, "error");
 			fyai_cleanup_transient_builder(ctx);
 			continue;
 		}
@@ -1390,7 +1390,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		 * The turn is over and the render is done: report now, before
 		 * the banner repaints the footer under it.
 		 */
-		fyai_diag_drain(&cfg->diag);
+		fyai_ui_diag_drain(ctx, "error");
 		fyai_ui_drain_output(ctx);
 
 		/* Usage moved; refresh the context fill in the footer. */

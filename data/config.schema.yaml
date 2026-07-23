@@ -254,6 +254,10 @@ properties:
           Tool presentation policy: none hides every body, brief bounds every
           body, default hides read/write bodies, bounds shell output, and
           shows patches fully; full shows every body.
+      transcript_system:
+        type: boolean
+        default: false
+        description: Include system messages in transcript output.
       markdown_mode:
         type: string
         enum: [line, stream, oneshot]

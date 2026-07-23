@@ -28,4 +28,42 @@ if "│ hello".encode() not in plain:
 EOF
 assert_request 0 'r["body"]["messages"][-1]["content"] == "hello"'
 mock_stop 1
+
+EDITOR=false \
+FYAI_PTY_INPUT="/config edit" \
+FYAI_PTY_NEEDLE="editor exited unsuccessfully" \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/error-pane.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true -m mock-model -i
+
+"$PYTHON" - "$TEST_DIR/error-pane.out" <<'EOF' || \
+    fail "config editor failure was not rendered in a non-modal error pane"
+import re
+import sys
+
+data = open(sys.argv[1], "rb").read()
+plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
+if "● config".encode() not in plain:
+    raise SystemExit("error pane heading missing")
+if b"editor exited unsuccessfully" not in plain:
+    raise SystemExit("error pane detail missing")
+EOF
+
+FYAI_PTY_INPUT="/status" \
+FYAI_PTY_NEEDLE="● status" \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/status-pane.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true -m mock-model -i
+
+"$PYTHON" - "$TEST_DIR/status-pane.out" <<'EOF' || \
+    fail "slash-command status was not rendered in a non-modal pane"
+import re
+import sys
+
+data = open(sys.argv[1], "rb").read()
+plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
+if "● status".encode() not in plain or b"Usage / total" not in plain:
+    raise SystemExit("status pane content missing")
+EOF
+
 pass

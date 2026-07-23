@@ -30,6 +30,14 @@ grep -q '^---$' .fyai/logs/conversation.yaml || fail "conversation log missing Y
 grep -q 'kind: request' .fyai/logs/conversation.yaml || fail "conversation log missing request"
 grep -q 'kind: response' .fyai/logs/conversation.yaml || fail "conversation log missing response"
 
+run_fyai transcript --raw
+assert_status 0
+assert_stdout_not_contains "You are a test assistant."
+
+run_fyai --transient --set display/transcript_system=true transcript --raw
+assert_status 0
+assert_stdout_contains "You are a test assistant."
+
 run_fyai log wire clear
 assert_status 0
 test ! -s .fyai/logs/wire.yaml || fail "wire log not cleared"

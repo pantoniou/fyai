@@ -149,6 +149,7 @@ display:
   tool_preview_lines: 5
   # none hides bodies; brief bounds all; default specializes; full shows all.
   tool_detail: default
+  transcript_system: false # include system messages in transcript output
   # How streamed markdown is rendered (only with markdown + stream):
   markdown_mode: line      # line (per line, default) | stream (redraw per chunk) | oneshot (at end)
   color: auto               # auto (colour iff a terminal) | off | on (force, even piped)

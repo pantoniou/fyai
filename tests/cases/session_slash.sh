@@ -68,6 +68,8 @@ set +e
 /config delete display/tool_preview_lines
 /tool-detail full
 /tool-detail
+/transcript-system on
+/transcript-system
 /sandbox on
 /sandbox
 /secret status api-key/not-configured
@@ -181,6 +183,9 @@ assert_stderr_contains "not set"
 run_fyai config get display/tool_detail
 assert_status 0
 assert_stdout_contains "full"
+run_fyai config get display/transcript_system
+assert_status 0
+assert_stdout_contains "true"
 
 run_fyai clear
 assert_status 0
