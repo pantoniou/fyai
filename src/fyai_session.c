@@ -1238,7 +1238,14 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 		p = arg + strlen(which);
 		while (*p == ' ' || *p == '\t')
 			p++;
-		if (!strcmp(which, "first")) {
+		if (!strcmp(which, "all")) {
+			if (*p) {
+				fyai_error(ctx, "history: use all, first N, last N, "
+					   "or range A,B");
+				return -1;
+			}
+			return fyai_display_view(ctx);
+		} else if (!strcmp(which, "first")) {
 			n = strtoul(p, &end, 10);
 			args->turn_sel.type = FYAITST_FIRST;
 			args->turn_sel.first = n;
@@ -1252,7 +1259,8 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			if (sep)
 				end++;
 			if (*end < '0' || *end > '9') {
-				fyai_error(ctx, "history: use first N, last N, or range A,B");
+				fyai_error(ctx, "history: use all, first N, "
+					   "last N, or range A,B");
 				return -1;
 			}
 			hi = strtoul(end, &end, 10);
@@ -1260,17 +1268,20 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			args->turn_sel.range_lo = n;
 			args->turn_sel.range_hi = hi;
 			if (!sep) {
-				fyai_error(ctx, "history: use first N, last N, or range A,B");
+				fyai_error(ctx, "history: use all, first N, "
+					   "last N, or range A,B");
 				return -1;
 			}
 		} else {
-			fyai_error(ctx, "history: use first N, last N, or range A,B");
+			fyai_error(ctx, "history: use all, first N, last N, "
+				   "or range A,B");
 			return -1;
 		}
 		while (*end == ' ' || *end == '\t')
 			end++;
 		if (*p < '0' || *p > '9' || *end) {
-			fyai_error(ctx, "history: use first N, last N, or range A,B");
+			fyai_error(ctx, "history: use all, first N, last N, "
+				   "or range A,B");
 			return -1;
 		}
 	}
@@ -1735,6 +1746,7 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 		}
 	} else if (cmd && (!strcmp(cmd->name, "history") ||
 			   !strcmp(cmd->name, "transcript"))) {
+		session_complete_value(lc, buf + 1, len, word, "all");
 		session_complete_value(lc, buf + 1, len, word, "last");
 		session_complete_value(lc, buf + 1, len, word, "first");
 		session_complete_value(lc, buf + 1, len, word, "range");

@@ -764,7 +764,17 @@ char *fyai_ui_readline(struct fyai_ctx *ctx)
 
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
-	return fyai_ui_active(ctx) && fytim_commit(ctx->ui->ft, buf, len) == FYTIM_OK ? 0 : -1;
+	struct fyai_ui *ui;
+	size_t written;
+
+	if (!fyai_ui_active(ctx))
+		return -1;
+	ui = ctx->ui;
+	if (ui->capture) {
+		written = fwrite(buf, 1, len, stdout);
+		return written == len ? 0 : -1;
+	}
+	return fytim_commit(ui->ft, buf, len) == FYTIM_OK ? 0 : -1;
 }
 
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *u)

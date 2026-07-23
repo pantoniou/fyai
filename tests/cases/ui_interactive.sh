@@ -101,6 +101,33 @@ assert_request 1 \
     'r["body"]["messages"][-1]["content"] == "queued prompt"'
 mock_stop 2
 
+FYAI_PTY_INPUT="/transcript all" \
+FYAI_PTY_NEEDLE="Queued input completed." \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/transcript-order.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true -m mock-model -i
+
+"$PYTHON" - "$TEST_DIR/transcript-order.out" <<'EOF' || \
+    fail "slash transcript did not preserve turn order"
+import re
+import sys
+
+data = open(sys.argv[1], "rb").read()
+plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
+needles = [
+    b"first prompt",
+    b"First streamed reply.",
+    b"queued prompt",
+    b"Queued input completed.",
+]
+position = 0
+for needle in needles:
+    position = plain.find(needle, position)
+    if position < 0:
+        raise SystemExit("slash transcript omitted or reordered %r" % needle)
+    position += len(needle)
+EOF
+
 mock_start chat_stream_queued_input.json
 FYAI_PTY_INPUT="first prompt" \
 FYAI_PTY_DURING_INPUT="unfinished typing" \
