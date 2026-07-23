@@ -277,6 +277,40 @@ scenario-driven mock provider (`tests/mock/mock_provider.py`,
 `HOME`/`XDG_*`. The whole suite, functional cases included, runs under ASAN
 builds too.
 
+### Debugging terminal rendering with libvterm
+
+Use libvterm whenever correctness depends on terminal cells rather than the
+presence of escape bytes: background fill, blank styled rows, wrapping,
+cursor placement, repaint damage, or SGR state carried across rows. Grepping a
+PTY capture is useful for text, but cannot prove any of those properties.
+
+For renderer/libfytimui bugs, use the direct-render oracle pattern in
+`libfytimui/tests/test_fytim_md_vt.c`:
+
+1. Render the Markdown directly with libfymd4c and feed those bytes into one
+   `VTerm`.
+2. Send the exact same rendered bytes through `fytim_commit()`,
+   `fytim_tail_apply()`, or the relevant public libfytimui path; pump the UI
+   through a pipe transport and feed its terminal output into a second
+   `VTerm`.
+3. Locate a stable text row in both screens, then compare the relevant
+   `VTermScreenCell` fields across the complete row and any adjacent blank
+   rows. Always inspect cells after the final glyph: erase-to-EOL and
+   background-fill regressions hide there.
+4. Normalize colors through each screen's palette with
+   `vterm_screen_convert_color_to_rgb()`, then compare with
+   `vterm_color_is_equal()`. Never `memcmp(VTermColor)` or assume indexed and
+   RGB representations compare byte-for-byte.
+5. Observe the new test fail against the broken implementation, register it
+   individually with CTest, and run both the libfytimui and fyai suites after
+   the fix.
+
+If the cell grids differ while the renderer bytes look correct, trace the
+actual transport writes (`strace -e trace=write -s 1000 ...` on Linux).
+Inspect later compositor cleanup as well as the original render: a correct
+background `CSI K` can be undone by a subsequent SGR reset plus another
+`CSI K`.
+
 Three provider modes: Responses API (default), Chat Completions, and the
 Anthropic Messages API, selected via `config set api <mode>` / `--set
 api=<mode>` (`responses|chat-completions|messages`) — there are no dedicated
