@@ -37,9 +37,24 @@ struct fyai_ui {
 	struct fytim_workband *pending_band;
 	char *tool_title;
 	char *tool_body;
+	char *status_bottom;
 	size_t tool_body_len;
 	int activity_phase;
 };
+
+static int ui_status_render(struct fyai_ui *ui, const char *activity)
+{
+	char *line;
+	int rc;
+
+	if (!ui->status_bottom)
+		return 0;
+	if (asprintf(&line, "%s%s", activity, ui->status_bottom) < 0)
+		return -1;
+	rc = fytim_set_status_row(ui->ft, 1, line) == FYTIM_OK ? 0 : -1;
+	free(line);
+	return rc;
+}
 
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
@@ -84,7 +99,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 {
 	struct timespec ts;
 	int phase;
-	const char *dot, *marker;
+	const char *dot;
 
 	if (!ui->busy && !ui->tool_band)
 		return 0;
@@ -97,13 +112,13 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	/*
 	 * Host-side blinking is intentional. SGR blink is inconsistently
 	 * implemented by terminals. The invocation itself is the work-band
-	 * header, so only its leading activity cell changes.
+	 * header, so only its leading activity cell changes. General turn
+	 * activity uses a fixed-width slot in the existing status line.
 	 */
 	dot = phase ? "  " : "\033[93m●\033[0m ";
-	marker = phase ? "  " : "\033[93m●\033[0m ";
 	if (ui->tool_band && ui_tool_render(ui, dot, false))
 		return -1;
-	if (ui->busy && fytim_set_marker(ui->ft, marker) != FYTIM_OK)
+	if (ui->busy && ui_status_render(ui, dot))
 		return -1;
 	return 0;
 }
@@ -349,6 +364,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 		close(ui->tty_fd);
 	free(ui->tool_title);
 	free(ui->tool_body);
+	free(ui->status_bottom);
 	ctx->cfg->color = ui->saved_color;
 	ctx->cfg->render_width = 0;
 	for (l = ui->head; l; l = n) { n = l->next; free(l->text); free(l); }
@@ -446,14 +462,11 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->ui;
 	ui->busy = busy;
-	(void)fytim_set_status_row(ui->ft, 0, busy ? " working" : " ready");
 	if (busy) {
 		ui->activity_phase = -1;
 		(void)ui_activity_refresh(ui);
 	} else {
-		(void)fytim_set_marker(ui->ft,
-			ctx->cfg->prompt_marker && *ctx->cfg->prompt_marker ?
-			ctx->cfg->prompt_marker : "❯ ");
+		(void)ui_status_render(ui, "  ");
 	}
 }
 
@@ -468,9 +481,20 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top, const char *bottom)
 {
+	struct fyai_ui *ui;
+	char *copy;
+
 	if (!fyai_ui_active(ctx)) return;
-	(void)fytim_set_header(ctx->ui->ft, top);
-	(void)fytim_set_status_row(ctx->ui->ft, 1, bottom);
+	ui = ctx->ui;
+	copy = strdup(bottom ? bottom : "");
+	if (!copy)
+		return;
+	free(ui->status_bottom);
+	ui->status_bottom = copy;
+	(void)fytim_set_header(ui->ft, top);
+	(void)ui_status_render(ui,
+		ui->busy && !ui->activity_phase ?
+		"\033[93m●\033[0m " : "  ");
 }
 
 struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx)

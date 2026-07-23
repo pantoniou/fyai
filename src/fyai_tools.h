@@ -5,7 +5,8 @@
 #include "fyai.h"
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
-fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
+fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
+				  bool *okp);
 
 int fyai_mcp_refresh(struct fyai_ctx *ctx);
 fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);
@@ -21,7 +22,7 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx);
  * sandbox path, and the `fyai tool` verb.
  */
 fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
-			     fy_generic args);
+			     fy_generic args, bool *okp);
 
 /*
  * `fyai tool <name> [json]` verb: a one-shot sandboxed tool sub-execution of

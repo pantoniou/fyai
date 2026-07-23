@@ -175,7 +175,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *name;
 	bool shell;
 	bool isolated_tool;
-	const char *result_text;
+	bool tool_ok;
 
 	assert(ctx->transient_gb);
 
@@ -203,11 +203,9 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
-	tool_result = fyai_execute_tool_call(ctx, tool_call);
-	result_text = fy_castp(&tool_result, "");
+	tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
 	if (shell && fyai_ui_active(ctx))
-		fyai_ui_tool_end(ctx,
-			strncmp(result_text, "tool error:", 11) != 0);
+		fyai_ui_tool_end(ctx, tool_ok);
 	if (isolated_tool && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	fyai_error_check(ctx,

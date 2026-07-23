@@ -33,7 +33,7 @@
 
 static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name);
 static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
-				       fy_generic args);
+				       fy_generic args, bool *okp);
 
 static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
 {
@@ -337,7 +337,8 @@ static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb)
 	memset(sb, 0, sizeof(*sb));
 }
 
-static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command)
+static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command,
+				    bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct shell_command_result result = {};
@@ -348,6 +349,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command)
 	char *ret = NULL;
 
 	sandbox = fyai_shell_sandbox_begin(ctx, &sb);
+	*okp = false;
 
 	if (run_shell_command_capture_cb(ctx, command, &result,
 					 fyai_shell_output, ctx, sandbox))
@@ -386,6 +388,8 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command)
 				  result.exit_code);
 		if (response_buffer_append(&buf, msg))
 			goto out;
+	} else {
+		*okp = true;
 	}
 
 	ret = buf.data;
@@ -489,7 +493,7 @@ have_line:
 }
 
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
-				  fy_generic tool_call)
+				  fy_generic tool_call, bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct shell_command_result shell_result = {};
@@ -508,6 +512,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	const char *out_text;
 	const char *err_text;
 
+	*okp = false;
 	type = fy_get(tool_call, "type");
 	if (fy_equal(type, "shell_call")) {
 
@@ -515,6 +520,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		commands = fy_get(action, "commands");
 		outputs = fy_seq_empty;
 		sandbox = fyai_shell_sandbox_begin(ctx, &sb);
+		*okp = true;
 
 		fy_foreach(command, commands) {
 			if (run_shell_command_capture_cb(ctx,
@@ -555,6 +561,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 						"exit_code",
 						shell_result.exit_code));
 			outputs = fy_append(outputs, output);
+			if (shell_result.signaled || shell_result.exit_code)
+				*okp = false;
 			shell_command_result_cleanup(&shell_result);
 		}
 		fyai_shell_sandbox_end(&sb);
@@ -590,9 +598,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	}
 
 	if (fyai_should_fork_tool(ctx, name))
-		result_generic = fyai_tool_run_forked(ctx, name, args);
+		result_generic = fyai_tool_run_forked(ctx, name, args, okp);
 	else
-		result_generic = fyai_tool_run_one(ctx, name, args);
+		result_generic = fyai_tool_run_one(ctx, name, args, okp);
 out:
 	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
 	if (fy_generic_is_invalid(result_generic))
@@ -601,27 +609,35 @@ out:
 }
 
 fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
-			     fy_generic args)
+			     fy_generic args, bool *okp)
 {
 	fy_generic result_generic;
 	const char *path, *content;
 	char *result;
 	int rc;
 
+	*okp = false;
 	if (fy_equal(name, "read_file")) {
 		path = fy_get(args, "path", "");
 		result = read_text_file(path);
+		*okp = result != NULL;
 	} else if (fy_equal(name, "write_file")) {
 		path = fy_get(args, "path", "");
 		content = fy_get(args, "content", "");
 		rc = write_text_file(path, content);
 		result = strdup(!rc ? "ok" : "error");
+		*okp = !rc;
 	} else if (fy_equal(name, "apply_patch")) {
 		result = fyai_apply_patch_text(fy_get(args, "patch", ""));
+		*okp = result && strncmp(result, "tool error:", 11);
 	} else if (fy_equal(name, "shell")) {
-		result = fyai_run_shell_command(ctx, fy_get(args, "command", ""));
+		result = fyai_run_shell_command(ctx, fy_get(args, "command", ""),
+						okp);
 	} else if (fy_equal(name, "ask_user")) {
-		return fyai_ask_user(ctx, args);
+		result_generic = fyai_ask_user(ctx, args);
+		*okp = strncmp(fy_castp(&result_generic, ""),
+			      "tool error:", 11) != 0;
+		return result_generic;
 	} else {
 		return fy_gb_internalize(ctx->transient_gb,
 				fy_stringf("tool error: unknown tool %s", name));
@@ -692,6 +708,7 @@ struct fyai_tool_job {
 	bool out_open;		/* result pipe not yet at EOF */
 	bool reaped;
 	bool failed;
+	bool result_ok;
 	bool done;
 };
 
@@ -748,6 +765,7 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	 * our reference rather than leaving it dangling for the collect path. */
 	job->csrc = NULL;
 	job->reaped = true;
+	job->result_ok = WIFEXITED(ev->status) && WEXITSTATUS(ev->status) == 0;
 	fyai_tool_job_update_done(job);
 	return FYAIEA_CONTINUE;
 }
@@ -758,6 +776,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	int p[2];
 	pid_t pid;
 	fy_generic result;
+	bool ok;
 	const char *s;
 	size_t len, off;
 	ssize_t w;
@@ -783,7 +802,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 		fyai_env_sanitize();
 		fyai_tool_apply_sandbox(ctx);
 
-		result = fyai_tool_run_one(ctx, name, args);
+		result = fyai_tool_run_one(ctx, name, args, &ok);
 		s = fy_castp(&result, "");
 		len = strlen(s);
 		for (off = 0; off < len; off += (size_t)w) {
@@ -795,7 +814,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 					_exit(1);
 			}
 		}
-		_exit(0);
+		_exit(ok ? 0 : 1);
 	}
 
 	close(p[1]);
@@ -845,7 +864,7 @@ static fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 
 /* Run one named tool in a forked, sandboxed child and return its result. */
 static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
-				       fy_generic args)
+				       fy_generic args, bool *okp)
 {
 	struct fyai_tool_job job;
 	fy_generic result;
@@ -854,6 +873,7 @@ static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
 		return fy_value(ctx->transient_gb,
 				"tool error: failed to spawn tool process");
 	result = fyai_tool_job_collect(ctx, &job);
+	*okp = job.result_ok && !job.failed;
 	free(job.buf.data);
 	return result;
 }
@@ -873,6 +893,7 @@ static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name)
 int fyai_run_tool_verb(struct fyai_ctx *ctx)
 {
 	struct fyai_tool_args *a = &ctx->cfg->cmd.args.tool;
+	bool ok;
 	fy_generic args, result;
 	char *stdin_buf = NULL;
 	const char *args_text;
@@ -909,7 +930,7 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	fyai_env_sanitize();
 	fyai_tool_apply_sandbox(ctx);
 
-	result = fyai_tool_run_one(ctx, a->name, args);
+	result = fyai_tool_run_one(ctx, a->name, args, &ok);
 	result = fy_gb_internalize(ctx->transient_gb, result);
 
 	if (fy_generic_is_string(result))
