@@ -800,6 +800,7 @@ struct fyai_tool_job {
 	bool json_result;
 	bool native_shell;
 	int term_signal;
+	struct fyai_tool_job_group *group;
 };
 
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
@@ -828,6 +829,8 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 			FYMD_INDICATOR_SUCCESS : FYMD_INDICATOR_FAILURE, 0);
 		(void)fyai_fenced_stream_push(&job->stream, NULL, 0);
 	}
+	if (!was_done && job->done && job->group)
+		fyai_tool_job_group_service(job->group);
 }
 
 static enum fyai_event_action
@@ -1342,8 +1345,12 @@ struct fyai_tool_job_group {
 	size_t parked;
 	size_t max_parallel;
 	bool submitted;
+	bool sealed;
 	bool cancelled;
 	bool exclusive;
+	bool notified;
+	fyai_tool_group_complete_fn complete;
+	void *userdata;
 };
 
 static int fyai_tool_job_group_reserve(struct fyai_tool_job_group *group)
@@ -1378,6 +1385,22 @@ struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx)
 	return group;
 }
 
+struct fyai_tool_job_group *
+fyai_tool_job_group_create_open(struct fyai_ctx *ctx,
+				fyai_tool_group_complete_fn complete,
+				void *userdata)
+{
+	struct fyai_tool_job_group *group;
+
+	group = fyai_tool_job_group_create(ctx);
+	if (!group)
+		return NULL;
+	group->complete = complete;
+	group->userdata = userdata;
+	group->submitted = true;
+	return group;
+}
+
 int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 			    fy_generic tool_call)
 {
@@ -1385,19 +1408,28 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 	char *copy;
 	bool parallel;
 	int rc;
+	size_t i;
 
-	if (!group || group->submitted)
+	if (!group || group->sealed)
 		return -1;
 	rc = fyai_tool_job_group_reserve(group);
 	if (rc)
 		return -1;
 	parallel = fyai_tool_call_parallel_eligible(group->ctx, tool_call);
+	if (group->submitted && !parallel)
+		return 1;
 	if (group->count && (group->exclusive || !parallel))
 		return -1;
 	text = emit_json_string(group->ctx->transient_gb, tool_call);
 	copy = text ? strdup(text) : NULL;
 	if (!copy)
 		return -1;
+	for (i = 0; i < group->count; i++) {
+		if (!strcmp(group->entries[i].call_text, copy)) {
+			free(copy);
+			return 0;
+		}
+	}
 	group->entries[group->count].call_text = copy;
 	group->entries[group->count].parallel = parallel;
 	group->entries[group->count].state = FYAITGS_QUEUED;
@@ -1406,6 +1438,8 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 		group->max_parallel = 1;
 	}
 	group->count++;
+	if (group->submitted)
+		fyai_tool_job_group_service(group);
 	return 0;
 }
 
@@ -1441,8 +1475,24 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			continue;
 		}
 		entry->state = FYAITGS_RUNNING;
+		entry->job->group = group;
 		group->active++;
 	}
+}
+
+static void fyai_tool_job_group_notify(struct fyai_tool_job_group *group)
+{
+	fyai_tool_group_complete_fn complete;
+	void *userdata;
+
+	if (!group->sealed || group->parked != group->count ||
+	    group->notified)
+		return;
+	group->notified = true;
+	complete = group->complete;
+	userdata = group->userdata;
+	if (complete)
+		complete(group, userdata);
 }
 
 void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
@@ -1461,11 +1511,13 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
 		if (!fyai_tool_job_done(entry->job))
 			continue;
+		entry->job->group = NULL;
 		entry->state = FYAITGS_PARKED;
 		group->active--;
 		group->parked++;
 	}
 	fyai_tool_job_group_dispatch(group);
+	fyai_tool_job_group_notify(group);
 }
 
 int fyai_tool_job_group_submit(struct fyai_tool_job_group *group)
@@ -1473,13 +1525,30 @@ int fyai_tool_job_group_submit(struct fyai_tool_job_group *group)
 	if (!group || group->submitted || !group->count)
 		return -1;
 	group->submitted = true;
+	group->sealed = true;
 	fyai_tool_job_group_dispatch(group);
+	fyai_tool_job_group_notify(group);
+	return 0;
+}
+
+int fyai_tool_job_group_seal(struct fyai_tool_job_group *group)
+{
+	if (!group || !group->submitted || group->sealed)
+		return -1;
+	group->sealed = true;
+	fyai_tool_job_group_service(group);
 	return 0;
 }
 
 bool fyai_tool_job_group_done(const struct fyai_tool_job_group *group)
 {
-	return group && group->submitted && group->parked == group->count;
+	return group && group->submitted && group->sealed &&
+	       group->parked == group->count;
+}
+
+size_t fyai_tool_job_group_count(const struct fyai_tool_job_group *group)
+{
+	return group ? group->count : 0;
 }
 
 void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
@@ -1490,6 +1559,7 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 	if (!group || group->cancelled)
 		return;
 	group->cancelled = true;
+	group->sealed = true;
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
 		if (entry->state == FYAITGS_RUNNING)
@@ -1500,6 +1570,7 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 		}
 	}
 	group->next = group->count;
+	fyai_tool_job_group_notify(group);
 }
 
 static fy_generic

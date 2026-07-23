@@ -176,6 +176,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *name;
 	bool shell;
 	bool isolated_tool;
+	int rc;
 
 	assert(ctx->transient_gb);
 
@@ -190,13 +191,21 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	isolated_tool = fyai_output_renders_live(ctx);
 
 	/*
+	 * Providers do not have to terminate assistant prose with a newline, but
+	 * the invocation must start on its own row in both the live display and
+	 * durable output.
+	 */
+	rc = fyai_output_start_block(ctx);
+	fyai_error_check(ctx, !rc, err,
+		"could not separate tool call from assistant output");
+	/*
 	 * Checkpoint the assistant tail before opening the temporary bounded
 	 * shell work-band. The committed band is the live representation of the
 	 * tool-result fragment; after it closes, the same Markdown is appended
 	 * silently to the durable document and assistant rendering resumes.
 	 */
-	fyai_error_check(ctx,
-		!isolated_tool || !fyai_output_checkpoint(ctx), err,
+	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
+	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
 	if (!cfg->markdown || shell)
 		fyai_print_tool_call(ctx, tool_call);
@@ -209,11 +218,11 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		fyai_ui_tool_end(ctx, tool_ok);
 	if (isolated_tool && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
-	fyai_error_check(ctx,
-		!fyai_record_tool_exchange(ctx, tool_call, tool_result), err_resume,
+	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result);
+	fyai_error_check(ctx, !rc, err_resume,
 		"could not record tool display output");
-	fyai_error_check(ctx,
-		!isolated_tool || !fyai_output_resume(ctx), err,
+	rc = isolated_tool ? fyai_output_resume(ctx) : 0;
+	fyai_error_check(ctx, !rc, err,
 		"could not resume output after tool call");
 
 	if (!isolated_tool && cfg->markdown && !shell)
@@ -294,7 +303,8 @@ err:
 
 static fy_generic
 fyai_run_tool_group(struct fyai_ctx *ctx, fy_generic turn,
-		    fy_generic tool_calls, bool parallel, size_t exclusive_index)
+		    fy_generic tool_calls, bool parallel, size_t exclusive_index,
+		    struct fyai_tool_job_group *submitted_group)
 {
 	fy_generic tool_call;
 	fy_generic result;
@@ -306,23 +316,26 @@ fyai_run_tool_group(struct fyai_ctx *ctx, fy_generic turn,
 	size_t i, group_index, total;
 
 	total = fy_len(tool_calls);
-	group = fyai_tool_job_group_create(ctx);
+	group = submitted_group ? submitted_group :
+		fyai_tool_job_group_create(ctx);
 	fyai_error_check(ctx, group, err,
 			 "could not create tool job group");
-	for (i = 0; i < total; i++) {
-		tool_call = fy_get_at(tool_calls, i);
-		if (parallel !=
-		    fyai_tool_call_parallel_eligible(ctx, tool_call))
-			continue;
-		if (!parallel && i != exclusive_index)
-			continue;
-		rc = fyai_tool_job_group_add(group, tool_call);
+	if (!submitted_group) {
+		for (i = 0; i < total; i++) {
+			tool_call = fy_get_at(tool_calls, i);
+			if (parallel !=
+			    fyai_tool_call_parallel_eligible(ctx, tool_call))
+				continue;
+			if (!parallel && i != exclusive_index)
+				continue;
+			rc = fyai_tool_job_group_add(group, tool_call);
+			fyai_error_check(ctx, !rc, err,
+				"could not add tool call to job group");
+		}
+		rc = fyai_tool_job_group_submit(group);
 		fyai_error_check(ctx, !rc, err,
-			"could not add tool call to job group");
+				 "could not submit tool job group");
 	}
-	rc = fyai_tool_job_group_submit(group);
-	fyai_error_check(ctx, !rc, err,
-			 "could not submit tool job group");
 
 	el = fyai_ctx_loop(ctx);
 	fyai_error_check(ctx, el, err,
@@ -369,22 +382,34 @@ err:
 
 static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
 					       fy_generic turn,
-					       fy_generic response_doc)
+					       fy_generic response_doc,
+					       struct fyai_tool_job_group *prefetch)
 {
 	fy_generic tool_calls;
 	fy_generic tool_call;
 	bool have_parallel = false;
-	size_t i, total;
+	size_t i, parallel_total, total;
 
 	tool_calls = fyai_response_tool_calls(ctx, response_doc);
 	total = fy_len(tool_calls);
+	parallel_total = 0;
 	fy_foreach(tool_call, tool_calls)
 		if (fyai_tool_call_parallel_eligible(ctx, tool_call)) {
 			have_parallel = true;
-			break;
+			parallel_total++;
 		}
-	if (have_parallel)
-		turn = fyai_run_tool_group(ctx, turn, tool_calls, true, 0);
+	if (have_parallel) {
+		fyai_error_check(ctx,
+			!prefetch ||
+			fyai_tool_job_group_count(prefetch) == parallel_total,
+			err, "streamed tool group does not match response");
+		turn = fyai_run_tool_group(ctx, turn, tool_calls, true, 0,
+					   prefetch);
+		prefetch = NULL;
+	} else {
+		fyai_tool_job_group_destroy(prefetch);
+		prefetch = NULL;
+	}
 
 	for (i = 0; i < total && fy_generic_is_valid(turn); i++) {
 		if (fyai_interrupt_pending(ctx))
@@ -392,7 +417,8 @@ static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
 		tool_call = fy_get_at(tool_calls, i);
 		if (fyai_tool_call_parallel_eligible(ctx, tool_call))
 			continue;
-		turn = fyai_run_tool_group(ctx, turn, tool_calls, false, i);
+		turn = fyai_run_tool_group(ctx, turn, tool_calls, false, i,
+					   NULL);
 	}
 
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
@@ -400,6 +426,7 @@ static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
 			 "could not append the tool calls");
 	return turn;
 err:
+	fyai_tool_job_group_destroy(prefetch);
 	return fy_invalid;
 }
 
@@ -544,8 +571,48 @@ static int fyai_spinner_xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 	return 0;
 }
 
+struct fyai_stream_tool_sink {
+	struct fyai_ctx *ctx;
+	struct fyai_tool_job_group *group;
+	bool separated;
+};
+
+static void fyai_stream_tool_ready(fyai_stream_request *request,
+				   fy_generic tool_call, size_t index,
+				   void *userdata)
+{
+	struct fyai_stream_tool_sink *sink;
+	bool checkpointed;
+	int rc;
+	int resume_rc;
+
+	(void)index;
+	sink = userdata;
+	checkpointed = false;
+	rc = 0;
+	if (!sink->separated) {
+		rc = fyai_output_start_block(sink->ctx);
+		if (!rc && fyai_output_renders_live(sink->ctx)) {
+			rc = fyai_output_checkpoint(sink->ctx);
+			checkpointed = !rc;
+		}
+		if (!rc)
+			sink->separated = true;
+	}
+	if (!rc)
+		rc = fyai_tool_job_group_add(sink->group, tool_call);
+	if (checkpointed) {
+		resume_rc = fyai_output_resume(sink->ctx);
+		if (!rc)
+			rc = resume_rc;
+	}
+	if (rc < 0)
+		fyai_stream_request_cancel(request);
+}
+
 static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
-				      fy_generic previous)
+				      fy_generic previous,
+				      struct fyai_tool_job_group *tool_group)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *request_body;
@@ -562,6 +629,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	fy_generic m;
 	fy_generic v;
 	struct fyai_spinner spinner = {};
+	struct fyai_stream_tool_sink tool_sink;
 	struct timespec t_emit, t_send;
 	bool want_extents_lp;
 	bool response_linked;
@@ -569,6 +637,9 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	long status;
 
 	spinner.ctx = ctx;
+	tool_sink.ctx = ctx;
+	tool_sink.group = tool_group;
+	tool_sink.separated = false;
 
 	fyai_prof_stamp(&t_emit);
 
@@ -801,7 +872,9 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	ctx->response_chain_linked = response_linked;
 	ctx->response_chain_miss = false;
 	if (cfg->stream)
-		response_doc = fyai_perform_streaming_request(ctx);
+		response_doc = fyai_perform_streaming_request_tools(ctx,
+				tool_group ? fyai_stream_tool_ready : NULL,
+				&tool_sink);
 	else
 		response_doc = fyai_perform_buffered_request(ctx);
 
@@ -831,7 +904,8 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 		 * arena history. If the provider no longer has the referenced
 		 * response, rebuild this step with the full local turn chain. */
 		if (response_linked && ctx->response_chain_miss)
-			return fyai_run_model_step(ctx, turn, fy_null);
+			return fyai_run_model_step(ctx, turn, fy_null,
+						   tool_group);
 
 		/*
 		 * Fail-soft backstop: when the logprobs params were injected
@@ -849,7 +923,8 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 					  &status);
 			if (status >= 400 && status < 500) {
 				ctx->token_extents_off = true;
-				return fyai_run_model_step(ctx, turn, previous);
+				return fyai_run_model_step(ctx, turn, previous,
+							   tool_group);
 			}
 		}
 		return response_doc;
@@ -914,6 +989,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 	fy_generic turn_in;
 	fy_generic diag;
 	fy_generic out;
+	struct fyai_tool_job_group *tool_group;
 	const char *msg;
 	int i, rc;
 
@@ -926,6 +1002,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 	previous = fy_get(turn, "previous", fy_null);
 	turn_in = turn;
 	out = fy_invalid;
+	tool_group = NULL;
 
 	/* Drop any ^C that arrived while we were idle at the prompt. */
 	fyai_interrupt_check(ctx);
@@ -933,8 +1010,18 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 	for (i = 0; i < cfg->max_tool_iterations; i++) {
 
 		previous_turn = cfg->response_chain ? previous : (i ? previous : fy_null);
+		tool_group = cfg->stream ?
+			fyai_tool_job_group_create_open(ctx, NULL, NULL) : NULL;
+		fyai_error_check(ctx, !cfg->stream || tool_group, err,
+				 "could not create streaming tool group");
 
-		response_doc = fyai_run_model_step(ctx, turn, previous_turn);
+		response_doc = fyai_run_model_step(ctx, turn, previous_turn,
+						   tool_group);
+		if (tool_group) {
+			rc = fyai_tool_job_group_seal(tool_group);
+			fyai_error_check(ctx, !rc, err,
+					 "could not seal streaming tool group");
+		}
 		if (fy_generic_is_invalid(response_doc)) {
 			/*
 			 * Request failed or was interrupted: keep the steps
@@ -955,6 +1042,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 				fyai_output_abort(ctx);
 				out = fyai_with_diag(ctx->gb, fy_invalid, msg);
 			}
+			fyai_tool_job_group_destroy(tool_group);
 			return out;
 		}
 		response_id = fyai_response_id(ctx, response_doc);
@@ -969,6 +1057,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 			turn = fyai_turn_set_response_id(ctx, turn, response_id);
 
 		if (fyai_response_is_final(ctx, response_doc)) {
+			fyai_tool_job_group_destroy(tool_group);
 			if (!cfg->stream)
 				fyai_print_final_response(ctx, response_doc);
 			out = turn;
@@ -980,7 +1069,10 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 			if (cfg->response_chain)
 				previous = turn;
 
-			turn = fyai_run_response_tool_calls(ctx, turn, response_doc);
+			turn = fyai_run_response_tool_calls(ctx, turn,
+							    response_doc,
+							    tool_group);
+			tool_group = NULL;
 			if (ctx->ask_abort) {
 				out = fy_null;
 				break;
@@ -1010,6 +1102,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 		fyai_error(ctx, "could not retain the completed turn");
 	return out;
 err:
+	fyai_tool_job_group_destroy(tool_group);
 	fyai_output_abort(ctx);
 	return fy_invalid;
 }
