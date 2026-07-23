@@ -20,9 +20,8 @@
  *    registered them. A per-transfer loop recycles them underneath curl and
  *    hands the next transfer a source belonging to a destroyed loop.
  *
- * The transfer is still *awaited* synchronously, which keeps this a drop-in for
- * curl_easy_perform() at every call site. Making the wait asynchronous is a
- * later change to the callers, not to this file.
+ * Transfers are submitted asynchronously. fyai_curl_perform() remains as a
+ * compatibility wrapper for callers that have not moved to callbacks yet.
  */
 
 #define FYAI_MODULE FYAIEM_STREAM
@@ -42,19 +41,32 @@
 
 struct fyai_curl_sock;
 
+struct fyai_curl_transfer {
+	struct fyai_curl_transfer *next;
+	struct fyai_curl_state *state;
+	CURL *easy;
+	fyai_curl_complete_fn complete;
+	void *userdata;
+	CURLcode result;
+	bool active;
+	bool done;
+	bool notified;
+	bool cancel_pending;
+};
+
 /* Per-invocation curl plumbing. */
 struct fyai_curl_state {
 	struct fyai_ctx *ctx;
 	struct fyai_event_loop *el;
 	struct fyai_event_source *timer;
+	struct fyai_event_source *notify_timer;
 	struct fyai_curl_sock *socks;
+	struct fyai_curl_transfer *transfers;
 	CURLM *multi;
 
-	CURL *easy;
-	CURLcode result;
 	int running;
-	bool done;
 	bool failed;
+	bool dispatching;
 };
 
 /* One watched socket. curl_multi_assign() keeps this on the socket itself. */
@@ -65,10 +77,85 @@ struct fyai_curl_sock {
 	curl_socket_t fd;
 };
 
+static struct fyai_curl_transfer *
+fyai_curl_transfer_find(struct fyai_curl_state *state, CURL *easy)
+{
+	struct fyai_curl_transfer *transfer;
+
+	for (transfer = state->transfers; transfer; transfer = transfer->next)
+		if (transfer->easy == easy)
+			return transfer;
+	return NULL;
+}
+
+static void
+fyai_curl_transfer_unlink(struct fyai_curl_transfer *transfer)
+{
+	struct fyai_curl_state *state;
+	struct fyai_curl_transfer **pp;
+
+	state = transfer->state;
+	if (!state)
+		return;
+	for (pp = &state->transfers; *pp; pp = &(*pp)->next) {
+		if (*pp == transfer) {
+			*pp = transfer->next;
+			break;
+		}
+	}
+	transfer->next = NULL;
+	transfer->state = NULL;
+}
+
+static void fyai_curl_transfer_finish(struct fyai_curl_transfer *transfer,
+				      CURLcode result)
+{
+	struct fyai_curl_state *state;
+
+	if (!transfer || transfer->done)
+		return;
+	state = transfer->state;
+	if (transfer->active && state) {
+		(void)curl_multi_remove_handle(state->multi, transfer->easy);
+		transfer->active = false;
+	}
+	transfer->result = result;
+	transfer->done = true;
+	if (state)
+		(void)fyai_event_timer_rearm(state->notify_timer, 1, 0);
+}
+
+static void fyai_curl_fail_all(struct fyai_curl_state *state, CURLcode result)
+{
+	struct fyai_curl_transfer *transfer;
+	struct fyai_curl_transfer *next;
+
+	for (transfer = state->transfers; transfer; transfer = next) {
+		next = transfer->next;
+		fyai_curl_transfer_finish(transfer, result);
+	}
+}
+
+static void fyai_curl_cancel_pending(struct fyai_curl_state *state)
+{
+	struct fyai_curl_transfer *transfer;
+	struct fyai_curl_transfer *next;
+
+	for (transfer = state->transfers; transfer; transfer = next) {
+		next = transfer->next;
+		if (!transfer->cancel_pending)
+			continue;
+		transfer->cancel_pending = false;
+		fyai_curl_transfer_finish(transfer,
+					  CURLE_ABORTED_BY_CALLBACK);
+	}
+}
+
 /* Collect finished transfers. */
 static void fyai_curl_reap(struct fyai_curl_state *state)
 {
 	struct CURLMsg *msg;
+	struct fyai_curl_transfer *transfer;
 	int left;
 
 	for (;;) {
@@ -77,10 +164,9 @@ static void fyai_curl_reap(struct fyai_curl_state *state)
 			break;
 		if (msg->msg != CURLMSG_DONE)
 			continue;
-		if (msg->easy_handle == state->easy) {
-			state->result = msg->data.result;
-			state->done = true;
-		}
+		transfer = fyai_curl_transfer_find(state, msg->easy_handle);
+		if (transfer)
+			fyai_curl_transfer_finish(transfer, msg->data.result);
 	}
 }
 
@@ -90,12 +176,15 @@ static void fyai_curl_action(struct fyai_curl_state *state, curl_socket_t fd,
 {
 	CURLMcode mc;
 
+	state->dispatching = true;
 	mc = curl_multi_socket_action(state->multi, fd, mask, &state->running);
+	state->dispatching = false;
+	fyai_curl_cancel_pending(state);
 	if (mc != CURLM_OK) {
 		state->failed = true;
-		state->done = true;
 		fyai_error(state->ctx, "curl multi failed: %s",
 			   curl_multi_strerror(mc));
+		fyai_curl_fail_all(state, CURLE_FAILED_INIT);
 		return;
 	}
 	fyai_curl_reap(state);
@@ -124,6 +213,31 @@ static enum fyai_event_action fyai_curl_on_timeout(const struct fyai_event *ev)
 	struct fyai_curl_state *state = ev->userdata;
 
 	fyai_curl_action(state, CURL_SOCKET_TIMEOUT, 0);
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action
+fyai_curl_on_notify(const struct fyai_event *ev)
+{
+	struct fyai_curl_state *state;
+	struct fyai_curl_transfer *transfer;
+	fyai_curl_complete_fn complete;
+	void *userdata;
+
+	state = ev->userdata;
+	for (;;) {
+		for (transfer = state->transfers; transfer;
+		     transfer = transfer->next)
+			if (transfer->done && !transfer->notified)
+				break;
+		if (!transfer)
+			break;
+		transfer->notified = true;
+		complete = transfer->complete;
+		userdata = transfer->userdata;
+		if (complete)
+			complete(transfer, userdata);
+	}
 	return FYAIEA_CONTINUE;
 }
 
@@ -236,6 +350,11 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 				  &state->timer);
 	fyai_error_check(ctx, !rc, err_multi, "could not create the curl timer");
 	fyai_event_timer_disarm(state->timer);
+	rc = fyai_event_add_timer(state->el, 0, 0, fyai_curl_on_notify, state,
+				  &state->notify_timer);
+	fyai_error_check(ctx, !rc, err_timer,
+			 "could not create the curl completion timer");
+	fyai_event_timer_disarm(state->notify_timer);
 
 	curl_multi_setopt(state->multi, CURLMOPT_SOCKETFUNCTION,
 			  fyai_curl_socket_cb);
@@ -247,6 +366,8 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 	ctx->curl_state = state;
 	return state;
 
+err_timer:
+	fyai_event_source_remove(state->timer);
 err_multi:
 	curl_multi_cleanup(state->multi);
 err_loop:
@@ -259,12 +380,18 @@ err_out:
 void fyai_curl_cleanup(struct fyai_ctx *ctx)
 {
 	struct fyai_curl_state *state;
+	struct fyai_curl_transfer *transfer;
 
 	if (!ctx || !ctx->curl_state)
 		return;
 	state = ctx->curl_state;
 	ctx->curl_state = NULL;
 
+	while (state->transfers) {
+		transfer = state->transfers;
+		fyai_curl_transfer_finish(transfer, CURLE_ABORTED_BY_CALLBACK);
+		fyai_curl_transfer_unlink(transfer);
+	}
 	/* Tear the multi down first: it releases the sockets it still holds for
 	 * pooled connections. */
 	if (state->multi)
@@ -274,41 +401,126 @@ void fyai_curl_cleanup(struct fyai_ctx *ctx)
 	free(state);
 }
 
-CURLcode fyai_curl_perform(struct fyai_ctx *ctx, CURL *easy)
+struct fyai_curl_transfer *
+fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
+		 fyai_curl_complete_fn complete, void *userdata)
 {
 	struct fyai_curl_state *state;
-	CURLcode result = CURLE_FAILED_INIT;
+	struct fyai_curl_transfer *transfer;
 	CURLMcode mc;
-	int rc;
 
 	state = fyai_curl_state_get(ctx);
-	fyai_error_check(ctx, state, out, "curl is not usable");
+	fyai_error_check(ctx, state, err_out, "curl is not usable");
+	fyai_error_check(ctx, !state->failed, err_out,
+			 "curl multi is in a failed state");
+	fyai_error_check(ctx, easy, err_out, "curl transfer needs an easy handle");
+	fyai_error_check(ctx, !fyai_curl_transfer_find(state, easy), err_out,
+			 "curl easy handle is already active");
 
-	state->easy = easy;
-	state->result = CURLE_FAILED_INIT;
-	state->done = false;
-	state->failed = false;
+	transfer = calloc(1, sizeof(*transfer));
+	fyai_error_check(ctx, transfer, err_out, "out of memory");
+	transfer->state = state;
+	transfer->easy = easy;
+	transfer->complete = complete;
+	transfer->userdata = userdata;
+	transfer->result = CURLE_FAILED_INIT;
+	transfer->next = state->transfers;
+	state->transfers = transfer;
 
 	mc = curl_multi_add_handle(state->multi, easy);
-	fyai_error_check(ctx, mc == CURLM_OK, out, "curl multi failed: %s",
+	fyai_error_check(ctx, mc == CURLM_OK, err_unlink,
+			 "curl multi failed: %s",
 			 curl_multi_strerror(mc));
+	transfer->active = true;
 
-	/* Kick it off; curl arms its timer and asks for sockets from here. */
-	fyai_curl_action(state, CURL_SOCKET_TIMEOUT, 0);
+	/*
+	 * Never enter curl from submit(). Apart from making submission truly
+	 * asynchronous, this guarantees that a write callback can refer to the
+	 * transfer pointer returned to its owner. curl normally arms the timer
+	 * from curl_multi_add_handle(); rearming also covers implementations
+	 * that do not.
+	 */
+	(void)fyai_event_timer_rearm(state->timer, 1, 0);
+	return transfer;
 
-	if (!state->done) {
-		rc = fyai_event_loop_run_until(state->el, &state->done, -1);
-		if (rc)
-			state->failed = true;
+err_unlink:
+	fyai_curl_transfer_unlink(transfer);
+	free(transfer);
+err_out:
+	return NULL;
+}
+
+void fyai_curl_cancel(struct fyai_curl_transfer *transfer)
+{
+	if (transfer && transfer->state && transfer->state->dispatching) {
+		transfer->cancel_pending = true;
+		return;
 	}
+	fyai_curl_transfer_finish(transfer, CURLE_ABORTED_BY_CALLBACK);
+}
 
-	if (state->done && !state->failed)
-		result = state->result;
+bool fyai_curl_done(const struct fyai_curl_transfer *transfer)
+{
+	return transfer && transfer->done;
+}
 
-	/* Removing the handle returns its connection to the multi's pool rather than
-	 * closing it, which is what keeps keep-alive working across transfers. */
-	curl_multi_remove_handle(state->multi, easy);
-	state->easy = NULL;
+CURLcode fyai_curl_collect(const struct fyai_curl_transfer *transfer)
+{
+	if (!transfer || !transfer->done)
+		return CURLE_FAILED_INIT;
+	return transfer->result;
+}
+
+void fyai_curl_transfer_destroy(struct fyai_curl_transfer *transfer)
+{
+	if (!transfer)
+		return;
+	if (!transfer->done)
+		fyai_curl_cancel(transfer);
+	/*
+	 * Explicit destruction withdraws the owner's interest in completion.
+	 * In the normal lifecycle the owner destroys from, or after, its
+	 * completion callback.
+	 */
+	transfer->complete = NULL;
+	fyai_curl_transfer_unlink(transfer);
+	free(transfer);
+}
+
+static void fyai_curl_sync_complete(struct fyai_curl_transfer *transfer,
+				    void *userdata)
+{
+	volatile bool *done;
+
+	(void)transfer;
+	done = userdata;
+	*done = true;
+}
+
+CURLcode fyai_curl_perform(struct fyai_ctx *ctx, CURL *easy)
+{
+	struct fyai_curl_transfer *transfer;
+	struct fyai_event_loop *el;
+	CURLcode result;
+	volatile bool done;
+	int rc;
+
+	done = false;
+	result = CURLE_FAILED_INIT;
+	transfer = fyai_curl_submit(ctx, easy, fyai_curl_sync_complete,
+				    (void *)&done);
+	fyai_error_check(ctx, transfer, out, "could not submit curl transfer");
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, out_destroy,
+			 "curl transfer requires an event loop");
+	if (!done) {
+		rc = fyai_event_loop_run_until(el, &done, -1);
+		if (rc)
+			fyai_curl_cancel(transfer);
+	}
+	result = fyai_curl_collect(transfer);
+out_destroy:
+	fyai_curl_transfer_destroy(transfer);
 out:
 	return result;
 }
