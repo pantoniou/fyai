@@ -14,6 +14,16 @@ mock_start chat_stream.json
 
 grep -qF "Streaming hello from the mock." "$TEST_DIR/pty.out" || \
     fail "assistant reply was not rendered in the PTY"
+"$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || \
+    fail "submitted user turn was not committed to the transcript"
+import re
+import sys
+
+data = open(sys.argv[1], "rb").read()
+plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
+if "│ hello".encode() not in plain:
+    raise SystemExit(1)
+EOF
 assert_request 0 'r["body"]["messages"][-1]["content"] == "hello"'
 mock_stop 1
 pass

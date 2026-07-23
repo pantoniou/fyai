@@ -2008,8 +2008,27 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
  * markdown_reverse_pair() - no escapes are hard-coded here. @on/@off are that
  * pair; EL and the reset are terminal control, not styling.
  */
-static void fyai_bubble_fence(const char *on, const char *off)
+static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
+			      const char *off)
 {
+	char *line;
+	size_t on_len;
+	size_t off_len;
+
+	if (fyai_ui_active(ctx)) {
+		on_len = strlen(on);
+		off_len = strlen(off);
+		line = malloc(on_len + 3 + off_len + 1);
+		if (!line)
+			return;
+		memcpy(line, on, on_len);
+		memcpy(line + on_len, "\033[K", 3);
+		memcpy(line + on_len + 3, off, off_len);
+		line[on_len + 3 + off_len] = '\n';
+		(void)fyai_ui_commit(ctx, line, on_len + 3 + off_len + 1);
+		free(line);
+		return;
+	}
 	fputs(on, stdout);
 	fputs("\033[K", stdout);
 	fputs(off, stdout);
@@ -2066,9 +2085,14 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	end = rb.len;
 	while (end && (rb.data[end - 1] == '\n' || rb.data[end - 1] == '\r'))
 		end--;
+	fenced = markdown_reverse_pair(cfg, &on, &off);
 	if (fyai_ui_active(ctx)) {
+		if (fenced)
+			fyai_bubble_fence(ctx, on, off);
 		if (end)
 			(void)fyai_ui_commit(ctx, rb.data, end);
+		if (fenced)
+			fyai_bubble_fence(ctx, on, off);
 		(void)fyai_ui_commit(ctx, "\n", 1);
 		free(rb.data);
 		return;
@@ -2076,13 +2100,12 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 
 	/* One blank card row fences the content top and bottom (styling
 	 * permitting; without a loaded styling the card renders unfenced). */
-	fenced = markdown_reverse_pair(cfg, &on, &off);
 	if (fenced)
-		fyai_bubble_fence(on, off);
+		fyai_bubble_fence(ctx, on, off);
 	fwrite(rb.data, 1, end, stdout);
 	fputc('\n', stdout);
 	if (fenced)
-		fyai_bubble_fence(on, off);
+		fyai_bubble_fence(ctx, on, off);
 	fputc('\n', stdout);	/* separate the bubble from the answer */
 	fflush(stdout);
 	free(rb.data);
