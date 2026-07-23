@@ -201,7 +201,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
    NOT TARGET libfymd4c::libfymd4c_static)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG 47aedda7e9a72c557a71b9b927addb62bf66797e
+        GIT_TAG 46dd9d5486773999dcf15307e4046130bc85735b
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
@@ -217,14 +217,17 @@ else()
     set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
 endif()
 
-if(NOT TARGET libfytimui::libfytimui)
+if(NOT TARGET libfytimui::libfytimui AND
+   NOT TARGET libfytimui::fytimui)
     find_package(libfytimui CONFIG QUIET)
 endif()
 if(NOT TARGET libfytimui::libfytimui AND
-   NOT TARGET libfytimui::libfytimui_static)
+   NOT TARGET libfytimui::fytimui AND
+   NOT TARGET libfytimui::libfytimui_static AND
+   NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG 2036b2c
+        GIT_TAG ab3bf04
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
@@ -232,8 +235,12 @@ if(NOT TARGET libfytimui::libfytimui AND
 endif()
 if(FYAI_STATIC_DEPS AND TARGET libfytimui::libfytimui_static)
     set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui_static)
-else()
+elseif(FYAI_STATIC_DEPS AND TARGET libfytimui::fytimui_static)
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui_static)
+elseif(TARGET libfytimui::libfytimui)
     set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui)
+else()
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
 endif()
 
 # Fetch and build a minimal libcurl from source as a static archive linked
