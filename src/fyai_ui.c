@@ -194,14 +194,22 @@ static void spool_restore(struct ui_spool *s, int target)
 
 static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 {
+	struct response_buffer out = {0};
 	char buf[4096];
 	ssize_t n;
 
 	if (s->reader < 0) return;
 	while ((n = pread(s->reader, buf, sizeof(buf), s->off)) > 0) {
-		(void)fytim_commit(ui->ft, buf, (size_t)n);
+		if (response_buffer_reserve(&out, out.len + (size_t)n + 1))
+			break;
+		memcpy(out.data + out.len, buf, (size_t)n);
+		out.len += (size_t)n;
+		out.data[out.len] = '\0';
 		s->off += n;
 	}
+	if (out.len)
+		(void)fytim_commit(ui->ft, out.data, out.len);
+	free(out.data);
 }
 
 void fyai_ui_drain_output(struct fyai_ctx *ctx)
