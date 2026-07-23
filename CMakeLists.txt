@@ -647,6 +647,10 @@ if(BUILD_TESTING)
         COMMAND fyai history --range invalid)
     set_tests_properties(fyai/cli_history_invalid_range PROPERTIES
         WILL_FAIL TRUE)
+    add_test(NAME fyai/cli_invalid_option
+        COMMAND fyai --invalid-option)
+    set_tests_properties(fyai/cli_invalid_option PROPERTIES
+        WILL_FAIL TRUE)
 endif()
 
 if(FYAI_STATIC)

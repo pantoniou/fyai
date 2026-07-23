@@ -2298,7 +2298,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		default:
 			fyai_usage(stderr, "fyai", cfg->color);
-			ret = 0;
+			ret = -1;
 			goto out;
 		}
 	}
