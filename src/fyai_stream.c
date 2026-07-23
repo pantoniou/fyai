@@ -38,8 +38,7 @@ struct stream_spinner {
 struct stream_response {
 	struct fyai_ctx *ctx;
 	struct fyai_curl_transfer *transfer;
-	fyai_stream_complete_fn complete;
-	void *userdata;
+	struct fyai_stream_callbacks callbacks;
 	fy_generic result;
 	enum fyai_stream_state state;
 	struct fy_generic_builder *gb;
@@ -55,6 +54,7 @@ struct stream_response {
 	long md_last_ms;			/* monotonic ms of last stream redraw */
 	fy_generic content_chunks;
 	fy_generic tool_calls;
+	fy_generic emitted_tools;
 	fy_generic metadata;
 	fy_generic logprob_content;
 	fy_generic logprob_refusal;
@@ -195,6 +195,7 @@ static int stream_response_init(struct stream_response *stream,
 	stream->ctx = ctx;
 	stream->content_chunks = fy_seq_empty;
 	stream->tool_calls = fy_seq_empty;
+	stream->emitted_tools = fy_seq_empty;
 	stream->metadata = fy_map_empty;
 	stream->logprob_content = fy_seq_empty;
 	stream->logprob_refusal = fy_invalid;
@@ -635,6 +636,96 @@ static int stream_apply_tool_call_delta(struct stream_response *stream,
 	return fy_generic_is_invalid(stream->tool_calls) ? -1 : 0;
 }
 
+static int stream_emit_tool(struct stream_response *stream, size_t index,
+			    fy_generic tool_call)
+{
+	struct fy_generic_builder *gb;
+	fy_generic emitted;
+	fy_generic slot;
+
+	if (!stream->callbacks.tool)
+		return 0;
+	fy_foreach(emitted, stream->emitted_tools)
+		if (fy_cast(emitted, -1LL) == (long long)index)
+			return 0;
+	if (index < fy_len(stream->tool_calls)) {
+		slot = fy_get(stream->tool_calls, index);
+		if (fy_get(slot, "_emitted", false))
+			return 0;
+		slot = fy_assoc(stream->gb, slot, "_emitted", true);
+		stream->tool_calls = fy_replace(stream->gb, stream->tool_calls,
+						index, slot);
+		if (fy_generic_is_invalid(stream->tool_calls))
+			return -1;
+	}
+	gb = stream->gb;
+	tool_call = fy_gb_internalize(gb, tool_call);
+	if (fy_generic_is_invalid(tool_call))
+		return -1;
+	stream->emitted_tools = fy_append(gb, stream->emitted_tools,
+					  (long long)index);
+	if (fy_generic_is_invalid(stream->emitted_tools))
+		return -1;
+	stream->callbacks.tool(stream, tool_call, index,
+			       stream->callbacks.userdata);
+	return 0;
+}
+
+static fy_generic stream_chat_tool_call(struct stream_response *stream,
+					size_t index)
+{
+	struct fy_generic_builder *gb;
+	fy_generic tool_call;
+	fy_generic function;
+	fy_generic name;
+	fy_generic arguments;
+
+	gb = stream->gb;
+	tool_call = fy_get(stream->tool_calls, index);
+	function = fy_get(tool_call, "function");
+	name = fyai_join_strings(gb,
+			fy_get(function, "name_chunks", fy_seq_empty));
+	arguments = fyai_join_strings(gb,
+			fy_get(function, "argument_chunks", fy_seq_empty));
+	return fy_mapping(gb,
+		"id", fy_get(tool_call, "id", ""),
+		"type", fy_get(tool_call, "type", "function"),
+		"function", fy_mapping(
+			"name", name,
+			"arguments", arguments));
+}
+
+static fy_generic stream_messages_tool_call(struct stream_response *stream,
+					    size_t index)
+{
+	struct fy_generic_builder *gb;
+	fy_generic tool_call;
+	fy_generic function;
+	fy_generic arguments;
+
+	gb = stream->gb;
+	tool_call = fy_get(stream->tool_calls, index);
+	function = fy_get(tool_call, "function");
+	arguments = fyai_join_strings(gb,
+			fy_get(function, "argument_chunks", fy_seq_empty));
+	return fy_mapping(gb,
+		"type", "function_call",
+		"call_id", fy_get(tool_call, "id", ""),
+		"name", fy_get(tool_call, "name", ""),
+		"arguments", arguments);
+}
+
+static int stream_emit_chat_tools(struct stream_response *stream)
+{
+	size_t i;
+
+	for (i = 0; i < fy_len(stream->tool_calls); i++)
+		if (stream_emit_tool(stream, i,
+				     stream_chat_tool_call(stream, i)))
+			return -1;
+	return 0;
+}
+
 static int chat_stream_apply_chunk(struct stream_response *stream,
 				   fy_generic chunk)
 {
@@ -712,6 +803,8 @@ static int chat_stream_apply_chunk(struct stream_response *stream,
 		if (stream_apply_tool_call_delta(stream, tool_call))
 			return -1;
 	}
+	if (fy_equal(stream->finish_reason, "tool_calls"))
+		return stream_emit_chat_tools(stream);
 
 	return 0;
 }
@@ -792,8 +885,10 @@ static int responses_stream_apply_event(struct stream_response *stream,
 					fy_generic event)
 {
 	struct fyai_cfg *cfg = stream->ctx->cfg;
+	fy_generic item;
 	fy_generic type;
 	const char *delta;
+	long long index;
 
 	type = fy_get(event, "type");
 
@@ -812,6 +907,18 @@ static int responses_stream_apply_event(struct stream_response *stream,
 			stream_write_content(stream, delta);
 		}
 		return 0;
+	}
+
+	if (fy_equal(type, "response.output_item.done")) {
+		item = fy_get(event, "item");
+		type = fy_get(item, "type");
+		if (fy_not_equal(type, "function_call") &&
+		    fy_not_equal(type, "shell_call"))
+			return 0;
+		index = fy_get(event, "output_index", 0LL);
+		if (index < 0)
+			return -1;
+		return stream_emit_tool(stream, (size_t)index, item);
 	}
 
 	if (fy_equal(type, "response.completed")) {
@@ -930,6 +1037,17 @@ static int messages_stream_apply_event(struct stream_response *stream,
 		}
 
 		return 0;
+	}
+
+	if (fy_equal(type, "content_block_stop")) {
+		index = fy_get(event, "index", -1LL);
+		if (index < 0 || (size_t)index >= fy_len(stream->tool_calls))
+			return 0;
+		tool_call = fy_get(stream->tool_calls, (size_t)index);
+		if (!*fy_get(tool_call, "id", ""))
+			return 0;
+		return stream_emit_tool(stream, (size_t)index,
+			stream_messages_tool_call(stream, (size_t)index));
 	}
 
 	if (fy_equal(type, "message_delta")) {
@@ -1283,8 +1401,8 @@ static void stream_request_notify(struct stream_response *stream)
 	fyai_stream_complete_fn complete;
 	void *userdata;
 
-	complete = stream->complete;
-	userdata = stream->userdata;
+	complete = stream->callbacks.complete;
+	userdata = stream->callbacks.userdata;
 	if (complete)
 		complete(stream, userdata);
 }
@@ -1295,20 +1413,17 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 static int stream_request_resubmit(struct stream_response *stream)
 {
 	struct fyai_ctx *ctx;
-	fyai_stream_complete_fn complete;
-	void *userdata;
+	struct fyai_stream_callbacks callbacks;
 	int rc;
 
 	ctx = stream->ctx;
-	complete = stream->complete;
-	userdata = stream->userdata;
+	callbacks = stream->callbacks;
 	stream_state_transition(stream, FYAISS_RETRYING);
 	if (stream->state != FYAISS_RETRYING)
 		return -1;
 	stream_response_cleanup(stream);
 	memset(stream, 0, sizeof(*stream));
-	stream->complete = complete;
-	stream->userdata = userdata;
+	stream->callbacks = callbacks;
 	rc = stream_response_init(stream, ctx);
 	if (rc)
 		return -1;
@@ -1416,14 +1531,14 @@ done:
 
 fyai_stream_request *
 fyai_stream_request_submit(struct fyai_ctx *ctx,
-			   fyai_stream_complete_fn complete, void *userdata)
+			   const struct fyai_stream_callbacks *callbacks)
 {
 	struct stream_response *stream;
 
 	stream = calloc(1, sizeof(*stream));
 	fyai_error_check(ctx, stream, err_out, "out of memory");
-	stream->complete = complete;
-	stream->userdata = userdata;
+	if (callbacks)
+		stream->callbacks = *callbacks;
 	fyai_error_check(ctx, !stream_response_init(stream, ctx), err_free,
 			 "could not initialize response stream");
 
@@ -1493,6 +1608,7 @@ static void stream_sync_complete(fyai_stream_request *request, void *userdata)
 
 fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 {
+	struct fyai_stream_callbacks callbacks;
 	fyai_stream_request *request;
 	struct fyai_event_loop *el;
 	volatile bool done;
@@ -1501,8 +1617,10 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 
 	done = false;
 	ret = fy_invalid;
-	request = fyai_stream_request_submit(ctx, stream_sync_complete,
-					     (void *)&done);
+	memset(&callbacks, 0, sizeof(callbacks));
+	callbacks.complete = stream_sync_complete;
+	callbacks.userdata = (void *)&done;
+	request = fyai_stream_request_submit(ctx, &callbacks);
 	if (!request)
 		return fy_invalid;
 	el = fyai_ctx_loop(ctx);

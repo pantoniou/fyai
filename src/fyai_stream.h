@@ -20,10 +20,19 @@ enum fyai_stream_state {
 
 typedef void (*fyai_stream_complete_fn)(fyai_stream_request *request,
 					void *userdata);
+typedef void (*fyai_stream_tool_fn)(fyai_stream_request *request,
+				    fy_generic tool_call, size_t index,
+				    void *userdata);
+
+struct fyai_stream_callbacks {
+	fyai_stream_complete_fn complete;
+	fyai_stream_tool_fn tool;
+	void *userdata;
+};
 
 fyai_stream_request *
 fyai_stream_request_submit(struct fyai_ctx *ctx,
-			   fyai_stream_complete_fn complete, void *userdata);
+			   const struct fyai_stream_callbacks *callbacks);
 void fyai_stream_request_cancel(fyai_stream_request *request);
 enum fyai_stream_state
 fyai_stream_request_state(const fyai_stream_request *request);
