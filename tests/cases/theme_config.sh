@@ -44,6 +44,17 @@ EOF
 
 mock_stop_quiet
 
+# The interactive selector is a durable preference, not merely a restyle of
+# the current process.
+"$FYAI_BIN" -k test-key --color off -m mock-model -i \
+	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
+/theme solarized:light
+/exit
+EOF
+run_fyai config get display/theme
+assert_status 0
+assert_stdout_contains "solarized:light"
+
 # an unknown theme is rejected at config validation (no libfymd4c theme by
 # that name), rather than silently falling back
 run_fyai --set display/theme=no-such-theme:dark --new -m mock-model "hello"

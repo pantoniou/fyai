@@ -865,7 +865,8 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "summary", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_summary),
 	  summary_vals, false, true, "reasoning/summary", "reasoning summary (alias)" },
 	{ "theme", FYAIOK_STR, offsetof(struct fyai_cfg, theme),
-	  theme_vals, true, false, NULL, "Markdown theme[:auto|dark|light]" },
+	  theme_vals, true, false, "display/theme",
+	  "Markdown theme[:auto|dark|light]" },
 	{ "tool-detail", FYAIOK_STR, offsetof(struct fyai_cfg, tool_detail),
 	  tool_detail_vals, false, false, "display/tool_detail",
 	  "tool output detail" },
@@ -1430,9 +1431,8 @@ static void slash_help_plain(void)
 		c = &fyai_slash_cmds[i];
 		printf("  /%-16s %-8s %s\n", c->name, c->args, c->help);
 	}
-	printf("settings (no value prints the current one; reasoning and "
-	       "temperature persist to the config, display settings are "
-	       "session-only):\n");
+	printf("settings (no value prints the current one; selected settings "
+	       "persist to the config):\n");
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {
 		o = &fyai_slash_opts[i];
 		printf("  /%-16s %s", o->name, o->help);
@@ -1483,9 +1483,8 @@ static int slash_help(struct fyai_ctx *ctx, const char *arg)
 	}
 
 	fprintf(fp, "\n## Settings\n\n");
-	fprintf(fp, "No value prints the current one; reasoning and "
-		"temperature persist to the config, display settings are "
-		"session-only.\n\n");
+	fprintf(fp, "No value prints the current one; selected settings "
+		"persist to the config.\n\n");
 	fprintf(fp, "| Setting | Values | Description |\n");
 	fprintf(fp, "| --- | --- | --- |\n");
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {
