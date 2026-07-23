@@ -22,6 +22,7 @@
 #include "fyai_log.h"
 #include "fyai_provider.h"
 #include "fyai_curl.h"
+#include "fyai_event.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
@@ -36,6 +37,11 @@ struct stream_spinner {
 
 struct stream_response {
 	struct fyai_ctx *ctx;
+	struct fyai_curl_transfer *transfer;
+	fyai_stream_complete_fn complete;
+	void *userdata;
+	fy_generic result;
+	enum fyai_stream_state state;
 	struct fy_generic_builder *gb;
 	struct markdown_renderer markdown;
 	struct stream_spinner spinner;
@@ -74,6 +80,73 @@ struct stream_response {
 	bool extents_lp;
 };
 
+static bool stream_state_terminal(enum fyai_stream_state state)
+{
+	return state == FYAISS_COMPLETED ||
+	       state == FYAISS_CANCELLED ||
+	       state == FYAISS_FAILED;
+}
+
+static const char *stream_state_name(enum fyai_stream_state state)
+{
+	static const char * const names[] = {
+		[FYAISS_NEW] = "new",
+		[FYAISS_SUBMITTED] = "submitted",
+		[FYAISS_STREAMING] = "streaming",
+		[FYAISS_RETRYING] = "retrying",
+		[FYAISS_CANCELLING] = "cancelling",
+		[FYAISS_COMPLETED] = "completed",
+		[FYAISS_CANCELLED] = "cancelled",
+		[FYAISS_FAILED] = "failed",
+	};
+
+	if ((unsigned int)state >= ARRAY_SIZE(names) ||
+	    !names[state])
+		return "unknown";
+	return names[state];
+}
+
+static bool stream_state_transition_valid(enum fyai_stream_state from,
+					  enum fyai_stream_state to)
+{
+	switch (from) {
+	case FYAISS_NEW:
+		return to == FYAISS_SUBMITTED || to == FYAISS_FAILED;
+	case FYAISS_SUBMITTED:
+	case FYAISS_STREAMING:
+		return to == FYAISS_STREAMING ||
+		       to == FYAISS_RETRYING ||
+		       to == FYAISS_CANCELLING ||
+		       to == FYAISS_COMPLETED ||
+		       to == FYAISS_CANCELLED ||
+		       to == FYAISS_FAILED;
+	case FYAISS_RETRYING:
+		return to == FYAISS_SUBMITTED || to == FYAISS_FAILED;
+	case FYAISS_CANCELLING:
+		return to == FYAISS_CANCELLED || to == FYAISS_FAILED;
+	case FYAISS_COMPLETED:
+	case FYAISS_CANCELLED:
+	case FYAISS_FAILED:
+		return false;
+	}
+	return false;
+}
+
+static void stream_state_transition(struct stream_response *stream,
+				    enum fyai_stream_state state)
+{
+	if (!stream_state_transition_valid(stream->state, state)) {
+		fyai_error(stream->ctx, "invalid response stream transition "
+			   "from %s to %s",
+			   stream_state_name(stream->state),
+			   stream_state_name(state));
+		if (!stream_state_terminal(stream->state))
+			stream->state = FYAISS_FAILED;
+		return;
+	}
+	stream->state = state;
+}
+
 static int append_mem(struct response_buffer *buf, const char *data, size_t len)
 {
 	if (response_buffer_reserve(buf, buf->len + len + 1))
@@ -105,6 +178,49 @@ static void stream_response_cleanup(struct stream_response *stream)
 	markdown_renderer_destroy(&stream->markdown);
 	if (stream->gb)
 		fy_generic_builder_destroy(stream->gb);
+}
+
+static int stream_response_init(struct stream_response *stream,
+				struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder_cfg gb_cfg;
+	struct fyai_cfg *cfg;
+
+	memset(&gb_cfg, 0, sizeof(gb_cfg));
+	gb_cfg.flags = FYGBCF_CREATE_ALLOCATOR |
+		       FYGBCF_SCOPE_LEADER |
+		       FYGBCF_DEDUP_ENABLED;
+	gb_cfg.parent = ctx->gb;
+
+	stream->ctx = ctx;
+	stream->content_chunks = fy_seq_empty;
+	stream->tool_calls = fy_seq_empty;
+	stream->metadata = fy_map_empty;
+	stream->logprob_content = fy_seq_empty;
+	stream->logprob_refusal = fy_invalid;
+	stream->finish_reason = fy_invalid;
+	stream->usage = fy_invalid;
+	stream->completed_response = fy_invalid;
+	stream->token_extents = fy_seq_empty;
+	stream->result = fy_invalid;
+	stream->gb = fy_generic_builder_create(&gb_cfg);
+	if (!stream->gb)
+		return -1;
+
+	cfg = ctx->cfg;
+	if (!fyai_output_renders_live(ctx) &&
+	    cfg->markdown && markdown_available(cfg)) {
+		stream->md_tty = ctx->stdout_tty;
+		if (stream->md_tty && strcmp(cfg->markdown_mode, "oneshot")) {
+			if (markdown_renderer_start(cfg, &stream->markdown,
+					markdown_color_enabled(cfg->color),
+					cfg->theme_variant))
+				stream->markdown.active = false;
+		} else {
+			stream->markdown.active = true;
+		}
+	}
+	return 0;
 }
 
 static bool response_chain_miss(struct fyai_ctx *ctx, long status,
@@ -514,11 +630,13 @@ static int stream_apply_tool_call_delta(struct stream_response *stream,
 		tool_call = fy_assoc(gb, tool_call, "function", function);
 	}
 
-	stream->tool_calls = fy_replace(gb, stream->tool_calls, (size_t)index, tool_call);
+	stream->tool_calls = fy_replace(gb, stream->tool_calls,
+					(size_t)index, tool_call);
 	return fy_generic_is_invalid(stream->tool_calls) ? -1 : 0;
 }
 
-static int chat_stream_apply_chunk(struct stream_response *stream, fy_generic chunk)
+static int chat_stream_apply_chunk(struct stream_response *stream,
+				   fy_generic chunk)
 {
 	struct fy_generic_builder *gb = stream->gb;
 	struct fyai_cfg *cfg = stream->ctx->cfg;
@@ -922,6 +1040,10 @@ static size_t write_stream_response(void *ptr, size_t size, size_t nmemb,
 	const char *newline;
 	size_t len;
 
+	if (stream->state == FYAISS_SUBMITTED)
+		stream_state_transition(stream, FYAISS_STREAMING);
+	if (stream->state == FYAISS_FAILED)
+		return 0;
 	if (!bytes)
 		return 0;
 
@@ -1156,121 +1278,244 @@ static void stream_store_token_extents(struct stream_response *stream,
 	ctx->last_token_extents = fy_gb_internalize(ctx->transient_gb, extents);
 }
 
-fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
+static void stream_request_notify(struct stream_response *stream)
 {
-	struct stream_response stream = {
-		.ctx = ctx,
-		.content_chunks = fy_seq_empty,
-		.tool_calls = fy_seq_empty,
-		.metadata = fy_map_empty,
-		.logprob_content = fy_seq_empty,
-		.logprob_refusal = fy_invalid,
-		.finish_reason = fy_invalid,
-		.usage = fy_invalid,
-		.completed_response = fy_invalid,
-		.token_extents = fy_seq_empty,
-	};
-	struct fy_generic_builder_cfg gb_cfg = {
-		.flags = FYGBCF_CREATE_ALLOCATOR |
-			 FYGBCF_SCOPE_LEADER |
-			 FYGBCF_DEDUP_ENABLED,
-		.parent = ctx->gb,
-	};
+	fyai_stream_complete_fn complete;
+	void *userdata;
+
+	complete = stream->complete;
+	userdata = stream->userdata;
+	if (complete)
+		complete(stream, userdata);
+}
+
+static void stream_request_complete(struct fyai_curl_transfer *transfer,
+				    void *userdata);
+
+static int stream_request_resubmit(struct stream_response *stream)
+{
+	struct fyai_ctx *ctx;
+	fyai_stream_complete_fn complete;
+	void *userdata;
+	int rc;
+
+	ctx = stream->ctx;
+	complete = stream->complete;
+	userdata = stream->userdata;
+	stream_state_transition(stream, FYAISS_RETRYING);
+	if (stream->state != FYAISS_RETRYING)
+		return -1;
+	stream_response_cleanup(stream);
+	memset(stream, 0, sizeof(*stream));
+	stream->complete = complete;
+	stream->userdata = userdata;
+	rc = stream_response_init(stream, ctx);
+	if (rc)
+		return -1;
+	stream->state = FYAISS_RETRYING;
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION,
+			 write_stream_response);
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, stream);
+	stream_state_transition(stream, FYAISS_SUBMITTED);
+	if (stream->state != FYAISS_SUBMITTED)
+		return -1;
+	stream->transfer = fyai_curl_submit(ctx, ctx->curl,
+					    stream_request_complete, stream);
+	return stream->transfer ? 0 : -1;
+}
+
+static void stream_request_complete(struct fyai_curl_transfer *transfer,
+				    void *userdata)
+{
+	struct stream_response *stream;
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
 	CURLcode res;
-	long status = 0;
-	fy_generic ret = fy_invalid;
-	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic ret;
+	long status;
+	int rc;
 
-	stream.gb = fy_generic_builder_create(&gb_cfg);
-	if (!stream.gb)
-		return fy_invalid;
+	stream = userdata;
+	ctx = stream->ctx;
+	cfg = ctx->cfg;
+	status = 0;
+	ret = fy_invalid;
+	res = fyai_curl_collect(transfer);
+	fyai_curl_transfer_destroy(transfer);
+	stream->transfer = NULL;
 
-	if (!fyai_output_renders_live(ctx) &&
-	    cfg->markdown && markdown_available(cfg)) {
-		stream.md_tty = ctx->stdout_tty;
-		if (stream.md_tty && strcmp(cfg->markdown_mode, "oneshot")) {
-			if (markdown_renderer_start(cfg, &stream.markdown,
-						    markdown_color_enabled(cfg->color),
-						    cfg->theme_variant))
-				stream.markdown.active = false;
-		} else {
-			stream.markdown.active = true;
-		}
-	}
-
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_stream_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &stream);
-
-	res = fyai_curl_perform(ctx, ctx->curl);
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
-		/* ^C: carry the reason on the (invalid) result, don't print. */
 		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
-		goto out;
+		stream_state_transition(stream, FYAISS_CANCELLED);
+		goto done;
 	}
-	fyai_error_check(ctx, res == CURLE_OK, out, "request failed: %s",
-			 curl_easy_strerror(res));
+	if (res != CURLE_OK) {
+		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
+		stream_state_transition(stream, FYAISS_FAILED);
+		goto done;
+	}
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
 		if (fyai_auth_should_retry(ctx, status)) {
-			stream_response_cleanup(&stream);
-			if (!fyai_auth_prepare_retry(ctx))
-				return fyai_perform_streaming_request(ctx);
-			return fy_invalid;
+			rc = fyai_auth_prepare_retry(ctx);
+			if (!rc && !stream_request_resubmit(stream))
+				return;
+			stream_state_transition(stream, FYAISS_FAILED);
+			goto done;
 		}
 		ctx->response_chain_miss =
-			response_chain_miss(ctx, status, stream.raw.data);
-		if (ctx->response_chain_miss)
-			goto out;
-		/*
-		 * The body is detail on this failure, not a second one: raised
-		 * separately it would be demoted behind the status and lost.
-		 */
+			response_chain_miss(ctx, status, stream->raw.data);
+		if (ctx->response_chain_miss) {
+			stream_state_transition(stream, FYAISS_FAILED);
+			goto done;
+		}
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
-			   stream.raw.data ? "\n" : "",
-			   stream.raw.data ? stream.raw.data : "");
-		goto out;
+			   stream->raw.data ? "\n" : "",
+			   stream->raw.data ? stream->raw.data : "");
+		stream_state_transition(stream, FYAISS_FAILED);
+		goto done;
 	}
 
-	/*
-	 * A failure event already said why (and demotes this); a stream that
-	 * simply stopped never did. Say so rather than leave the engine to
-	 * report a bare "request failed".
-	 */
-	if (stream.failed)
-		goto out;
-	if (!stream.done) {
+	if (stream->failed) {
+		stream_state_transition(stream, FYAISS_FAILED);
+		goto done;
+	}
+	if (!stream->done) {
 		fyai_error(ctx, "the response stream ended before it completed "
-			   "(after %zu bytes)", stream.received_bytes);
-		goto out;
+			   "(after %zu bytes)", stream->received_bytes);
+		stream_state_transition(stream, FYAISS_FAILED);
+		goto done;
 	}
 
 	switch (cfg->api_mode) {
 	case FYAI_API_RESPONSES:
-		ret = stream.completed_response;
+		ret = stream->completed_response;
 		break;
 	case FYAI_API_CHAT_COMPLETIONS:
-		ret = stream_build_response_doc(&stream);
+		ret = stream_build_response_doc(stream);
 		break;
 	case FYAI_API_MESSAGES:
-		ret = messages_build_response_doc(&stream);
+		ret = messages_build_response_doc(stream);
 		break;
 	}
 
 	if (fy_generic_is_valid(ret))
-		stream_store_token_extents(&stream, ret);
+		stream_store_token_extents(stream, ret);
+	if (fy_generic_is_valid(ret))
+		stream_state_transition(stream, FYAISS_COMPLETED);
+	else
+		stream_state_transition(stream, FYAISS_FAILED);
 
-out:
-
-	/*
-	 * A failed request (transport error, non-2xx, provider failure event,
-	 * stream cut before completion) leaves ret invalid; return it as-is so
-	 * the engine can fail the run cleanly instead of asserting.
-	 */
+done:
 	if (fy_generic_is_valid(ret))
 		ret = fy_gb_internalize(ctx->transient_gb, ret);
-	stream_response_cleanup(&stream);
+	stream->result = ret;
+	stream_request_notify(stream);
+}
 
+fyai_stream_request *
+fyai_stream_request_submit(struct fyai_ctx *ctx,
+			   fyai_stream_complete_fn complete, void *userdata)
+{
+	struct stream_response *stream;
+
+	stream = calloc(1, sizeof(*stream));
+	fyai_error_check(ctx, stream, err_out, "out of memory");
+	stream->complete = complete;
+	stream->userdata = userdata;
+	fyai_error_check(ctx, !stream_response_init(stream, ctx), err_free,
+			 "could not initialize response stream");
+
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_stream_response);
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, stream);
+	stream_state_transition(stream, FYAISS_SUBMITTED);
+	fyai_error_check(ctx, stream->state == FYAISS_SUBMITTED, err_cleanup,
+			 "could not submit response stream");
+	stream->transfer = fyai_curl_submit(ctx, ctx->curl,
+					    stream_request_complete, stream);
+	fyai_error_check(ctx, stream->transfer, err_cleanup,
+			 "could not submit response stream");
+	return stream;
+
+err_cleanup:
+	stream_response_cleanup(stream);
+err_free:
+	free(stream);
+err_out:
+	return NULL;
+}
+
+void fyai_stream_request_cancel(fyai_stream_request *request)
+{
+	if (request && request->transfer &&
+	    !stream_state_terminal(request->state)) {
+		stream_state_transition(request, FYAISS_CANCELLING);
+		fyai_curl_cancel(request->transfer);
+	}
+}
+
+enum fyai_stream_state
+fyai_stream_request_state(const fyai_stream_request *request)
+{
+	return request ? request->state : FYAISS_FAILED;
+}
+
+bool fyai_stream_request_done(const fyai_stream_request *request)
+{
+	return request && stream_state_terminal(request->state);
+}
+
+fy_generic fyai_stream_request_collect(const fyai_stream_request *request)
+{
+	return fyai_stream_request_done(request) ?
+		request->result : fy_invalid;
+}
+
+void fyai_stream_request_destroy(fyai_stream_request *request)
+{
+	if (!request)
+		return;
+	if (request->transfer)
+		fyai_curl_transfer_destroy(request->transfer);
+	stream_response_cleanup(request);
+	free(request);
+}
+
+static void stream_sync_complete(fyai_stream_request *request, void *userdata)
+{
+	volatile bool *done;
+
+	(void)request;
+	done = userdata;
+	*done = true;
+}
+
+fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
+{
+	fyai_stream_request *request;
+	struct fyai_event_loop *el;
+	volatile bool done;
+	fy_generic ret;
+	int rc;
+
+	done = false;
+	ret = fy_invalid;
+	request = fyai_stream_request_submit(ctx, stream_sync_complete,
+					     (void *)&done);
+	if (!request)
+		return fy_invalid;
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		goto out;
+	rc = fyai_event_loop_run_until(el, &done, -1);
+	if (rc)
+		fyai_stream_request_cancel(request);
+	if (!done && !rc)
+		goto out;
+	ret = fyai_stream_request_collect(request);
+out:
+	fyai_stream_request_destroy(request);
 	return ret;
 }
 
