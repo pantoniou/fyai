@@ -18,6 +18,7 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len);
 int fyai_output_append_string(struct fyai_ctx *ctx, const char *text);
 int fyai_output_printf(struct fyai_ctx *ctx, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));
+int fyai_output_start_block(struct fyai_ctx *ctx);
 int fyai_output_reasoning_append(struct fyai_ctx *ctx, const char *text);
 int fyai_output_reasoning_finish(struct fyai_ctx *ctx);
 const char *fyai_output_markdown(const struct fyai_ctx *ctx, size_t *len);

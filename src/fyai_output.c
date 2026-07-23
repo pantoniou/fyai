@@ -202,10 +202,15 @@ err:
 	return -1;
 }
 
-static int fyai_output_start_block(struct fyai_ctx *ctx)
+int fyai_output_start_block(struct fyai_ctx *ctx)
 {
-	struct fyai_display_output *output = ctx->display_output;
-	size_t len = output->markdown.len;
+	struct fyai_display_output *output;
+	size_t len;
+
+	if (!ctx || !ctx->display_output)
+		return -1;
+	output = ctx->display_output;
+	len = output->markdown.len;
 
 	if (!len)
 		return 0;
@@ -312,6 +317,7 @@ static int fyai_output_render_finish(struct fyai_ctx *ctx)
 	struct fyai_display_output *output = ctx->display_output;
 	struct response_buffer rendered = {0};
 	size_t end;
+	bool line_start;
 
 	if (!output || !output->render_live)
 		return 0;
@@ -320,13 +326,13 @@ static int fyai_output_render_finish(struct fyai_ctx *ctx)
 		free(rendered.data);
 		return -1;
 	}
-	end = rendered.len;
-	while (end && (rendered.data[end - 1] == '\n' ||
-		       rendered.data[end - 1] == '\r'))
-		end--;
-	if (fyai_ui_active(ctx))
+	end = terminal_trim_blank_rows(rendered.data, rendered.len);
+	line_start = terminal_text_at_line_start(rendered.data, end);
+	if (fyai_ui_active(ctx)) {
 		fyai_ui_tail_finish(ctx, rendered.data, end);
-	else {
+		if (!line_start)
+			(void)fyai_ui_commit(ctx, "\n", 1);
+	} else {
 		if (output->active_rows) {
 			fprintf(stdout, FYAI_ANSI_CURSOR_UP_FMT,
 				output->active_rows);
@@ -334,7 +340,8 @@ static int fyai_output_render_finish(struct fyai_ctx *ctx)
 		}
 		if (end)
 			fwrite(rendered.data, 1, end, stdout);
-		fputc('\n', stdout);
+		if (!line_start)
+			fputc('\n', stdout);
 		fflush(stdout);
 	}
 	output->active_rows = 0;

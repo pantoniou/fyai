@@ -176,6 +176,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *name;
 	bool shell;
 	bool isolated_tool;
+	int rc;
 
 	assert(ctx->transient_gb);
 
@@ -190,13 +191,21 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	isolated_tool = fyai_output_renders_live(ctx);
 
 	/*
+	 * Providers do not have to terminate assistant prose with a newline, but
+	 * the invocation must start on its own row in both the live display and
+	 * durable output.
+	 */
+	rc = fyai_output_start_block(ctx);
+	fyai_error_check(ctx, !rc, err,
+		"could not separate tool call from assistant output");
+	/*
 	 * Checkpoint the assistant tail before opening the temporary bounded
 	 * shell work-band. The committed band is the live representation of the
 	 * tool-result fragment; after it closes, the same Markdown is appended
 	 * silently to the durable document and assistant rendering resumes.
 	 */
-	fyai_error_check(ctx,
-		!isolated_tool || !fyai_output_checkpoint(ctx), err,
+	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
+	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
 	if (!cfg->markdown || shell)
 		fyai_print_tool_call(ctx, tool_call);
@@ -209,11 +218,11 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		fyai_ui_tool_end(ctx, tool_ok);
 	if (isolated_tool && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
-	fyai_error_check(ctx,
-		!fyai_record_tool_exchange(ctx, tool_call, tool_result), err_resume,
+	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result);
+	fyai_error_check(ctx, !rc, err_resume,
 		"could not record tool display output");
-	fyai_error_check(ctx,
-		!isolated_tool || !fyai_output_resume(ctx), err,
+	rc = isolated_tool ? fyai_output_resume(ctx) : 0;
+	fyai_error_check(ctx, !rc, err,
 		"could not resume output after tool call");
 
 	if (!isolated_tool && cfg->markdown && !shell)
@@ -562,16 +571,41 @@ static int fyai_spinner_xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 	return 0;
 }
 
+struct fyai_stream_tool_sink {
+	struct fyai_ctx *ctx;
+	struct fyai_tool_job_group *group;
+	bool separated;
+};
+
 static void fyai_stream_tool_ready(fyai_stream_request *request,
 				   fy_generic tool_call, size_t index,
 				   void *userdata)
 {
-	struct fyai_tool_job_group *group;
+	struct fyai_stream_tool_sink *sink;
+	bool checkpointed;
 	int rc;
+	int resume_rc;
 
 	(void)index;
-	group = userdata;
-	rc = fyai_tool_job_group_add(group, tool_call);
+	sink = userdata;
+	checkpointed = false;
+	rc = 0;
+	if (!sink->separated) {
+		rc = fyai_output_start_block(sink->ctx);
+		if (!rc && fyai_output_renders_live(sink->ctx)) {
+			rc = fyai_output_checkpoint(sink->ctx);
+			checkpointed = !rc;
+		}
+		if (!rc)
+			sink->separated = true;
+	}
+	if (!rc)
+		rc = fyai_tool_job_group_add(sink->group, tool_call);
+	if (checkpointed) {
+		resume_rc = fyai_output_resume(sink->ctx);
+		if (!rc)
+			rc = resume_rc;
+	}
 	if (rc < 0)
 		fyai_stream_request_cancel(request);
 }
@@ -595,6 +629,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	fy_generic m;
 	fy_generic v;
 	struct fyai_spinner spinner = {};
+	struct fyai_stream_tool_sink tool_sink;
 	struct timespec t_emit, t_send;
 	bool want_extents_lp;
 	bool response_linked;
@@ -602,6 +637,9 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	long status;
 
 	spinner.ctx = ctx;
+	tool_sink.ctx = ctx;
+	tool_sink.group = tool_group;
+	tool_sink.separated = false;
 
 	fyai_prof_stamp(&t_emit);
 
@@ -836,7 +874,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	if (cfg->stream)
 		response_doc = fyai_perform_streaming_request_tools(ctx,
 				tool_group ? fyai_stream_tool_ready : NULL,
-				tool_group);
+				&tool_sink);
 	else
 		response_doc = fyai_perform_buffered_request(ctx);
 
