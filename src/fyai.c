@@ -174,6 +174,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *tool_call_id, *tool_call_output_type;
 	const char *name;
 	bool shell;
+	bool progressive_tool;
 	const char *result_text;
 
 	assert(ctx->transient_gb);
@@ -186,34 +187,39 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	else
 		name = fy_get(tool_call, "name", "");
 	shell = fy_equal(name, "shell");
+	progressive_tool = shell && fyai_output_renders_live(ctx);
 
 	/*
-	 * Shell streams its output live as it runs, so it prints its own header
-	 * and its result progressively (bounded + indented, the same fenced
-	 * render as history); every other tool renders after the fact through
-	 * fyai_render_tool_exchange(). Non-markdown always streams raw.
+	 * Checkpoint the assistant tail before opening the temporary bounded
+	 * shell work-band. The committed band is the live representation of the
+	 * tool-result fragment; after it closes, the same Markdown is appended
+	 * silently to the durable document and assistant rendering resumes.
 	 */
-	if (!fyai_output_renders_live(ctx) && (!cfg->markdown || shell))
+	fyai_error_check(ctx,
+		!progressive_tool || !fyai_output_checkpoint(ctx), err,
+		"could not checkpoint output before tool call");
+	if (!cfg->markdown || shell)
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	tool_result = fyai_execute_tool_call(ctx, tool_call);
 	result_text = fy_castp(&tool_result, "");
-	fyai_record_tool_exchange(ctx, tool_call, tool_result);
+	if (shell && fyai_ui_active(ctx))
+		fyai_ui_tool_end(ctx,
+			strncmp(result_text, "tool error:", 11) != 0);
+	fyai_error_check(ctx,
+		!fyai_record_tool_exchange(ctx, tool_call, tool_result), err_resume,
+		"could not record tool display output");
+	fyai_error_check(ctx,
+		!progressive_tool || !fyai_output_resume(ctx), err,
+		"could not resume output after tool call");
 
 	if (!fyai_output_renders_live(ctx) && cfg->markdown && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
 				       cfg->pretty);
-	/* Shell owns the only progressive tool work-band. Other tools are
-	 * rendered atomically by fyai_render_tool_exchange(), so adding a second
-	 * UI-only work-band merely duplicates their canonical transcript form. */
-	if (!fyai_output_renders_live(ctx) && shell && fyai_ui_active(ctx))
-		fyai_ui_tool_end(ctx,
-			strncmp(result_text, "tool error:", 11) != 0);
-
 	switch (cfg->api_mode) {
 	case FYAI_API_RESPONSES:
 		tool_call_id = fy_get(tool_call, "call_id", "");
@@ -278,6 +284,9 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_error_check(ctx, fy_generic_is_valid(out), err,
 			 "could not append the tool result");
 	return out;
+err_resume:
+	if (progressive_tool)
+		(void)fyai_output_resume(ctx);
 err:
 	return fy_invalid;
 }

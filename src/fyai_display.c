@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_DISPLAY
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -1128,8 +1130,8 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
  * assistant output. Execution and terminal rendering are intentionally not
  * involved: this exact source is what is persisted and replayed by history.
  */
-void fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
-			       fy_generic tool_result)
+int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
+			      fy_generic tool_result)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder_cfg gcfg = {0};
@@ -1144,7 +1146,7 @@ void fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	tgb = fy_generic_builder_create(&gcfg);
 	if (!tgb)
-		return;
+		return -1;
 	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
 		name = "shell";
 		cmd = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
@@ -1168,23 +1170,31 @@ void fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
 
 	mf = open_memstream(&md, &mdlen);
-	if (mf) {
-		fyai_emit_tool_call(mf, tgb, name, args,
-				    cfg->tool_preview_lines);
-		if (cfg->tool_separator && *cfg->tool_separator)
-			fprintf(mf, "%s\n\n", cfg->tool_separator);
-		if (fy_generic_is_string(tool_result))
-			fyai_emit_tool_result(mf, res_str,
-					      cfg->tool_preview_lines, lang);
-		else
-			fyai_emit_shell_output(mf, tool_result,
-					      cfg->tool_preview_lines);
-		fclose(mf);
-		(void)fyai_output_append(ctx, md, mdlen);
-	}
+	fyai_error_check(ctx, mf, err, "could not format tool display output");
+	fyai_emit_tool_call(mf, tgb, name, args, cfg->tool_preview_lines);
+	if (cfg->tool_separator && *cfg->tool_separator)
+		fprintf(mf, "%s\n\n", cfg->tool_separator);
+	if (fy_generic_is_string(tool_result))
+		fyai_emit_tool_result(mf, res_str, cfg->tool_preview_lines, lang);
+	else
+		fyai_emit_shell_output(mf, tool_result, cfg->tool_preview_lines);
+	fyai_error_check(ctx, !fclose(mf), err_closed,
+			 "could not finish tool display output");
+	mf = NULL;
+	fyai_error_check(ctx, !fyai_output_append(ctx, md, mdlen), err,
+			 "could not append tool display output");
 	free(md);
 	free(lang);
 	fy_generic_builder_destroy(tgb);
+	return 0;
+err:
+	if (mf)
+		fclose(mf);
+err_closed:
+	free(md);
+	free(lang);
+	fy_generic_builder_destroy(tgb);
+	return -1;
 }
 
 /*

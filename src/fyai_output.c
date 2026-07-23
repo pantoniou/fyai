@@ -27,6 +27,23 @@ struct fyai_display_output {
 	bool reasoning;
 };
 
+static int fyai_output_renderer_start(struct fyai_ctx *ctx,
+				      struct fyai_display_output *output)
+{
+	if (output->tag != FYAI_OUTPUT_ASSISTANT || !ctx->cfg->markdown ||
+	    !ctx->stdout_tty || !markdown_available(ctx->cfg))
+		return 0;
+	fyai_error_check(ctx,
+		!markdown_renderer_start(ctx->cfg, &output->renderer,
+			markdown_color_enabled(ctx->cfg->color),
+			ctx->cfg->theme), err,
+		"could not start display renderer");
+	output->render_live = true;
+	return 0;
+err:
+	return -1;
+}
+
 const char *fyai_output_tag_name(enum fyai_output_tag tag)
 {
 	switch (tag) {
@@ -62,15 +79,8 @@ int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 	fyai_error_check(ctx, output, err,
 			 "could not allocate display output");
 	output->tag = tag;
-	if (tag == FYAI_OUTPUT_ASSISTANT && ctx->cfg->markdown &&
-	    ctx->stdout_tty && markdown_available(ctx->cfg)) {
-		fyai_error_check(ctx,
-			!markdown_renderer_start(ctx->cfg, &output->renderer,
-				markdown_color_enabled(ctx->cfg->color),
-				ctx->cfg->theme), err_output,
-			"could not start display renderer");
-		output->render_live = true;
-	}
+	fyai_error_check(ctx, !fyai_output_renderer_start(ctx, output),
+			 err_output, "could not start display output");
 	ctx->display_output = output;
 	return 0;
 err_output:
@@ -288,6 +298,34 @@ static int fyai_output_render_finish(struct fyai_ctx *ctx)
 	output->render_live = false;
 	free(rendered.data);
 	return 0;
+}
+
+int fyai_output_checkpoint(struct fyai_ctx *ctx)
+{
+	if (!fyai_output_renders_live(ctx))
+		return 0;
+	fyai_error_check(ctx, !fyai_output_render_finish(ctx), err,
+			 "could not checkpoint display output");
+	markdown_renderer_destroy(&ctx->display_output->renderer);
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_output_resume(struct fyai_ctx *ctx)
+{
+	struct fyai_display_output *output;
+
+	if (!ctx || !ctx->display_output)
+		return -1;
+	output = ctx->display_output;
+	if (output->render_live)
+		return 0;
+	fyai_error_check(ctx, !fyai_output_renderer_start(ctx, output), err,
+			 "could not resume display output");
+	return 0;
+err:
+	return -1;
 }
 
 fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,

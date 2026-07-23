@@ -22,6 +22,8 @@ int fyai_output_reasoning_append(struct fyai_ctx *ctx, const char *text);
 int fyai_output_reasoning_finish(struct fyai_ctx *ctx);
 const char *fyai_output_markdown(const struct fyai_ctx *ctx, size_t *len);
 bool fyai_output_renders_live(const struct fyai_ctx *ctx);
+int fyai_output_checkpoint(struct fyai_ctx *ctx);
+int fyai_output_resume(struct fyai_ctx *ctx);
 fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 				bool aborted);
 fy_generic fyai_output_record(struct fyai_ctx *ctx, fy_generic turn,

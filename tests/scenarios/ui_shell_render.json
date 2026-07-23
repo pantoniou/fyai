@@ -14,7 +14,7 @@
             "status": "completed",
             "action": {
               "type": "exec",
-              "commands": [ "printf '0\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n'" ],
+              "commands": [ "printf '\\164\\157\\157\\154\\055\\160\\162\\157\\147\\162\\145\\163\\163\\012'; sleep 2; printf '0\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n'" ],
               "max_output_length": 4096
             }
           }

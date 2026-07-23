@@ -32,6 +32,9 @@ def main():
     prompt = os.environ.get("FYAI_PTY_INPUT", "hello").encode()
     needle = os.environ.get(
         "FYAI_PTY_NEEDLE", "Streaming hello from the mock.").encode()
+    progress_needle = os.environ.get("FYAI_PTY_PROGRESS_NEEDLE", "").encode()
+    progress_timeout = float(
+        os.environ.get("FYAI_PTY_PROGRESS_TIMEOUT", "1.5"))
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     pid = os.fork()
@@ -48,6 +51,9 @@ def main():
     try:
         time.sleep(0.2)
         os.write(master, prompt + b"\n")
+        if progress_needle:
+            data = read_until(master, data, progress_needle,
+                              time.monotonic() + progress_timeout)
         data = read_until(master, data, needle, deadline)
         os.write(master, b"/exit\n")
         while time.monotonic() < deadline:

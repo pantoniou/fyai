@@ -9,6 +9,8 @@ fyai_test_setup
 mock_start ui_shell_render.json
 
 FYAI_PTY_INPUT="run it" \
+FYAI_PTY_PROGRESS_NEEDLE="tool-progress" \
+FYAI_PTY_PROGRESS_TIMEOUT="1.5" \
 FYAI_PTY_NEEDLE="Interactive shell rendering done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
