@@ -283,7 +283,8 @@ bool fyai_output_renders_live(const struct fyai_ctx *ctx)
 }
 
 int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
-			     size_t start, size_t end, const char *lang)
+			     size_t start, size_t end, const char *lang,
+			     const char *tool)
 {
 	struct fyai_display_output *output;
 	fy_generic fragment;
@@ -295,7 +296,8 @@ int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
 		"kind", kind,
 		"start", (long long)start,
 		"end", (long long)end,
-		"lang", lang && *lang ? fy_value(lang) : fy_null);
+		"lang", lang && *lang ? fy_value(lang) : fy_null,
+		"tool", tool && *tool ? fy_value(tool) : fy_null);
 	output->fragments = fy_append(ctx->transient_gb, output->fragments,
 				      fragment);
 	fyai_error_check(ctx, fy_generic_is_valid(output->fragments), err,

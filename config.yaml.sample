@@ -145,7 +145,10 @@ logging:
 display:
   markdown: true          # render markdown output
   stream: true             # stream the response
-  tool_preview_lines: 5    # rendered rows of a tool result shown before it is bounded
+  # Rendered rows of a bounded tool result.
+  tool_preview_lines: 5
+  # none hides bodies; brief bounds all; default specializes; full shows all.
+  tool_detail: default
   # How streamed markdown is rendered (only with markdown + stream):
   markdown_mode: line      # line (per line, default) | stream (redraw per chunk) | oneshot (at end)
   color: auto               # auto (colour iff a terminal) | off | on (force, even piped)

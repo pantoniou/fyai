@@ -378,7 +378,11 @@ config and state write that session is ephemeral — `ctx->gb` is that builder
 
 Stylistic options live only under the nested `display:` group (markdown,
 markdown_mode, color, theme, stream, pretty, cache_info, stats,
-tool_preview_lines); the `model` and other options are top-level. Theming is
+tool_preview_lines, tool_detail); the `model` and other options are
+top-level.
+`display/tool_detail` selects `none`, `brief`, `default`, or `full` tool
+presentation. The default hides read/write bodies, bounds shell output with
+`tool_preview_lines`, and renders patches in full. Theming is
 fully delegated to libfymd4c. `display/theme` is the single selector, written
 as an embedded theme name plus optional `:auto`, `:dark`, or `:light` variant
 (for example `default:auto` or `catppuccin:dark`). It controls the Markdown

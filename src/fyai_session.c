@@ -851,6 +851,9 @@ static const char *const theme_vals[] = {
 static const char *const bool_vals[] = {
 	"on", "off", "true", "false", NULL,
 };
+static const char *const tool_detail_vals[] = {
+	"none", "brief", "default", "full", NULL,
+};
 
 static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "reasoning-effort", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_effort),
@@ -863,6 +866,9 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	  summary_vals, false, true, "reasoning/summary", "reasoning summary (alias)" },
 	{ "theme", FYAIOK_STR, offsetof(struct fyai_cfg, theme),
 	  theme_vals, true, false, NULL, "Markdown theme[:auto|dark|light]" },
+	{ "tool-detail", FYAIOK_STR, offsetof(struct fyai_cfg, tool_detail),
+	  tool_detail_vals, false, false, "display/tool_detail",
+	  "tool output detail" },
 	{ "markdown", FYAIOK_BOOL, offsetof(struct fyai_cfg, markdown),
 	  NULL, true, false, NULL, "markdown rendering" },
 	{ "stream", FYAIOK_BOOL, offsetof(struct fyai_cfg, stream),
@@ -1384,6 +1390,8 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "list", "[what]", "list providers, models, turns, exchanges, or reflog",
 	  slash_list },
 	{ "history", "[last N]", "show conversation history", slash_history },
+	{ "transcript", "[last N]", "show conversation transcript",
+	  slash_history },
 	{ "log", "[target action]", "control trace logging", slash_log },
 	{ "logging", "[target action]", "alias for /log", slash_log },
 	{ "secret", "[status [name]|set name|delete name]", "manage secrets (API keys: api-key/<provider>)", slash_secret },
@@ -1700,7 +1708,8 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 				session_complete_value(lc, buf + 1, len,
 						       word, s);
 		}
-	} else if (cmd && !strcmp(cmd->name, "history")) {
+	} else if (cmd && (!strcmp(cmd->name, "history") ||
+			   !strcmp(cmd->name, "transcript"))) {
 		session_complete_value(lc, buf + 1, len, word, "last");
 		session_complete_value(lc, buf + 1, len, word, "first");
 		session_complete_value(lc, buf + 1, len, word, "range");

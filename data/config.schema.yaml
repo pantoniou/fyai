@@ -246,6 +246,14 @@ properties:
         minimum: 0
         default: 5
         description: Rendered rows of a tool result shown before it is bounded.
+      tool_detail:
+        type: string
+        enum: [none, brief, default, full]
+        default: default
+        description: >-
+          Tool presentation policy: none hides every body, brief bounds every
+          body, default hides read/write bodies, bounds shell output, and
+          shows patches fully; full shows every body.
       markdown_mode:
         type: string
         enum: [line, stream, oneshot]
@@ -279,13 +287,13 @@ properties:
         default: "---"
         description: >-
           Separator rendered (as markdown, themed) between turns in the
-          history view. "---" is a themed rule; empty is a blank line.
+          transcript view. "---" is a themed rule; empty is a blank line.
       tool_separator:
         type: string
         default: ""
         description: >-
           Separator rendered (as markdown, themed) before each tool result,
-          in both the live loop and history. Empty (default) emits nothing.
+          in both the live loop and transcript. Empty (default) emits nothing.
       section_separator:
         type: string
         default: ""
@@ -322,7 +330,7 @@ properties:
         default: true
         description: >-
           Display model reasoning/thinking output (streamed live to stderr
-          and in the history view). Set false to suppress it.
+          and in the transcript view). Set false to suppress it.
       cache_info:
         type: boolean
         default: false

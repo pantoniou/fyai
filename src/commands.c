@@ -59,8 +59,9 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	SECTION("Verbs");
 	ITEM("init [path]", "Create ./.fyai (copy [path] to its config.yaml)");
 	ITEM("dump [target]", "Dump state (state|anchors|providers)");
-	ITEM("history [opts]", "Human-digestible conversation history");
-	ITEM("display [opts]", "Alias for history");
+	ITEM("transcript [opts]", "Human-digestible conversation transcript");
+	ITEM("history [opts]", "Alias for transcript");
+	ITEM("display [opts]", "Alias for transcript");
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
 	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
@@ -1627,7 +1628,7 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.configure = configure_history,
 		.execute   = fyai_display_view,
 		.synopsis  = "display [--raw] [--first n|--last n|--range x,y]",
-		.help	   = "Alias for `history`.\n",
+		.help	   = "Alias for `transcript`.\n",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.display = {
 			.raw = false,
@@ -1640,10 +1641,26 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.configure = configure_history,
 		.execute   = fyai_display_view,
 		.synopsis  = "history [--raw] [--first n|--last n|--range x,y]",
-		.help	   = "Render the canonical conversation history in a human-digestible form\n"
-			     "(markdown via libfymd4c): exchanges separated by a rule, assistant tool\n"
-			     "calls as the invoked command, and tool results collapsed to a\n"
-			     "one-line size summary rather than reproduced. Unlike dump it is\n"
+		.help	   = "Alias for `transcript`.\n",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.default_args.display = {
+			.raw = false,
+			.turn_sel.type = FYAITST_ALL,
+		},
+	},
+	[FYAIVID_TRANSCRIPT] = {
+		.id	   = FYAIVID_TRANSCRIPT,
+		.name	   = "transcript",
+		.configure = configure_history,
+		.execute   = fyai_display_view,
+		.synopsis  = "transcript [--raw] "
+			     "[--first n|--last n|--range x,y]",
+		.help	   = "Render the canonical conversation transcript in a "
+			     "human-digestible form\n"
+			     "(markdown via libfymd4c): exchanges separated by a "
+			     "rule, assistant tool\n"
+			     "calls as the invoked command, with tool results rendered according\n"
+			     "to display.tool_detail. Unlike dump it is\n"
 			     "not a faithful serialization. --raw prints the generated markdown.\n"
 			     "--first/--last/--range select exchanges\n"
 			     "(0-based, range inclusive).",

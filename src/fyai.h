@@ -57,6 +57,7 @@ struct fyai_display_output;
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_COLOR "auto"		/* auto | off | on */
 #define DEFAULT_THEME "default:auto"	/* markdown theme[:auto|dark|light] */
+#define DEFAULT_TOOL_DETAIL "default"	/* none | brief | default | full */
 /* Display reasoning/thinking model output (live stream + history view). */
 #define DEFAULT_THINKING true
 /*
@@ -115,6 +116,7 @@ struct fyai_cfg {
 	int max_tokens;			/* output cap (required by Messages) */
 	int top_logprobs;
 	int tool_preview_lines;
+	const char *tool_detail;
 	float temperature;
 	bool enable_tools;
 	bool enable_builtin_shell;

@@ -341,7 +341,9 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		if (CONFIG_VALIDATE_ENUM(v, "markdown_mode",
 					 "oneshot", "line", "stream") ||
 		    CONFIG_VALIDATE_ENUM(v, "color",
-					 "auto", "off", "on"))
+					 "auto", "off", "on") ||
+		    CONFIG_VALIDATE_ENUM(v, "tool_detail",
+					 "none", "brief", "default", "full"))
 			return -1;
 		cfg->markdown_mode = fy_get(v, "markdown_mode",
 					    cfg->markdown_mode);
@@ -374,6 +376,7 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 			cfg->table_border = 0;
 		cfg->tool_preview_lines = fy_get(v, "tool_preview_lines",
 						cfg->tool_preview_lines);
+		cfg->tool_detail = fy_get(v, "tool_detail", cfg->tool_detail);
 		cfg->markdown = apply_bool(v, "markdown", cfg->markdown);
 		cfg->stream = apply_bool(v, "stream", cfg->stream);
 		cfg->thinking = apply_bool(v, "thinking", cfg->thinking);
@@ -1714,6 +1717,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
+	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
 	cfg->markdown = true;
 	cfg->stream = true;
 	cfg->thinking = DEFAULT_THINKING;

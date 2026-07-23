@@ -61,6 +61,23 @@ if "\u22ef".encode() not in data:
     raise SystemExit("history tool output lost the bounded omission row")
 EOF
 
+"$FYAI_BIN" --transient --color off \
+    --set display/tool_detail=none transcript --last 1 \
+    >"$TEST_DIR/transcript-none.out" 2>&1 ||
+    fail "transcript with hidden tool bodies failed"
+! grep -qE '^    0$' "$TEST_DIR/transcript-none.out" ||
+    fail "tool-detail none rendered a shell body"
+
+"$FYAI_BIN" --transient --color off \
+    --set display/tool_detail=full transcript --last 1 \
+    >"$TEST_DIR/transcript-full.out" 2>&1 ||
+    fail "transcript with full tool bodies failed"
+grep -qE '^    5$' "$TEST_DIR/transcript-full.out" ||
+    fail "tool-detail full did not render the middle of shell output"
+if grep -qF "more lines" "$TEST_DIR/transcript-full.out"; then
+    fail "tool-detail full still bounded shell output"
+fi
+
 assert_request 1 'any(i.get("type") == "shell_call_output" for i in r["body"]["input"])'
 mock_stop 2
 pass

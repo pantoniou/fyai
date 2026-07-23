@@ -515,8 +515,10 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 	if (fy_equal(name, "apply_patch")) {
 		gc = fy_get(args, "patch");
 		c = fy_castp(&gc, "");
-		if (*c)
+		if (*c && preview_lines < 0)
 			fyai_emit_patch(mf, c);
+		else if (*c && preview_lines > 0)
+			fyai_emit_tool_result(mf, c, preview_lines, "diff");
 		else
 			fprintf(mf, "**patch**\n\n");
 		return;
@@ -666,10 +668,12 @@ static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
 	int len;
 
 	/*
-	 * preview_lines <= 0 means emit the full result unchanged; the caller
-	 * bounds the *rendered* height via the renderer's row limit instead of
-	 * truncating the markdown source here.
+	 * Zero suppresses the body, a negative value emits it in full, and a
+	 * positive value limits the source preview. Rendered-row bounding is
+	 * applied separately by the terminal renderer.
 	 */
+	if (!preview_lines)
+		return;
 	limit = preview_lines > 0 ? (size_t)preview_lines : SIZE_MAX;
 	total = 0;
 	shown = 0;
@@ -700,6 +704,28 @@ static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
 				total - shown,
 				total - shown == 1 ? "" : "s");
 	}
+}
+
+/*
+ * Presentation policy belongs to the tool, not to the result's data shape.
+ * The canonical messages and fragment source remain complete.
+ */
+static int fyai_tool_preview_lines(const struct fyai_cfg *cfg,
+				   const char *name)
+{
+	if (!strcmp(cfg->tool_detail, "none"))
+		return 0;
+	if (!strcmp(cfg->tool_detail, "full"))
+		return -1;
+	if (!strcmp(cfg->tool_detail, "brief"))
+		return cfg->tool_preview_lines;
+	if (!name)
+		return cfg->tool_preview_lines;
+	if (!strcmp(name, "read_file") || !strcmp(name, "write_file"))
+		return 0;
+	if (!strcmp(name, "apply_patch"))
+		return -1;
+	return cfg->tool_preview_lines;
 }
 
 /*
@@ -1020,16 +1046,21 @@ void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
 			     const char *lang, int preview_lines)
 {
 	const char *s = fy_castp(&content, "");
+	size_t max_lines;
 
+	if (!preview_lines)
+		return;
+	max_lines = preview_lines < 0 ? 0 : (size_t)preview_lines;
 	fyai_print_tool_separator(cfg);
 	if (fy_generic_is_string(content)) {
 		if (fyai_tool_result_is_error(s))
 			lang = NULL;
 		fyai_print_fenced(cfg, s, strlen(s), lang, fy_invalid,
-				  preview_lines);
+				  max_lines);
 	} else if (fy_generic_is_valid(content) &&
 		   !fy_generic_is_null_type(content)) {
-		fyai_print_shell_output(cfg, content, preview_lines);
+		fyai_print_shell_output(cfg, content,
+					preview_lines < 0 ? 0 : preview_lines);
 	}
 }
 
@@ -1052,6 +1083,7 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	const char *cmd;
 	const char *name;
 	const char *res_str;
+	int preview_lines;
 	fy_generic args;
 	char *lang;
 	char *md;
@@ -1095,6 +1127,7 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	}
 	if (!*name)
 		name = "tool";
+	preview_lines = fyai_tool_preview_lines(cfg, name);
 
 	mf = open_memstream(&md, &mdlen);
 	if (!mf) {
@@ -1103,7 +1136,7 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	}
 
 	/* The tool-call header renders in full (never row-bounded). */
-	fyai_emit_tool_call(mf, tgb, name, args, cfg->tool_preview_lines);
+	fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
 	fclose(mf);
 	if (md && *md && fyai_print_markdown(md, ctx->cfg))
 		fputs(md, stdout);
@@ -1119,7 +1152,7 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	if (fy_equal(name, "read_file") && *res_str &&
 	    !fyai_tool_result_is_error(res_str))
 		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
-	fyai_render_tool_result(cfg, tool_result, lang, cfg->tool_preview_lines);
+	fyai_render_tool_result(cfg, tool_result, lang, preview_lines);
 	free(lang);
 
 	fy_generic_builder_destroy(tgb);
@@ -1137,6 +1170,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	struct fy_generic_builder_cfg gcfg = {0};
 	struct fy_generic_builder *tgb;
 	const char *args_text, *cmd, *name, *res_str;
+	int preview_lines;
 	fy_generic args;
 	char *lang = NULL;
 	char *md = NULL;
@@ -1165,6 +1199,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	}
 	if (!*name)
 		name = "tool";
+	preview_lines = fyai_tool_preview_lines(cfg, name);
 	res_str = fy_castp(&tool_result, "");
 	if (fy_equal(name, "read_file") && *res_str &&
 	    !fyai_tool_result_is_error(res_str))
@@ -1172,7 +1207,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool display output");
-	fyai_emit_tool_call(mf, tgb, name, args, cfg->tool_preview_lines);
+	fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
 	if (cfg->tool_separator && *cfg->tool_separator)
 		fprintf(mf, "%s\n\n", cfg->tool_separator);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
@@ -1188,9 +1223,9 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool result output");
 	if (fy_generic_is_string(tool_result))
-		fyai_emit_tool_result(mf, res_str, 0, lang);
+		fyai_emit_tool_result(mf, res_str, -1, lang);
 	else
-		fyai_emit_shell_output(mf, tool_result, 0);
+		fyai_emit_shell_output(mf, tool_result, -1);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
 			 "could not finish tool display output");
 	mf = NULL;
@@ -1199,7 +1234,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	end = start + mdlen;
 	fyai_error_check(ctx,
 		!fyai_output_add_fragment(ctx, "tool_result", start, end,
-					  lang), err,
+					  lang, name), err,
 		"could not record tool result fragment");
 	free(md);
 	free(lang);
@@ -1463,8 +1498,10 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 					 size_t *tool_result_pos)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic fragments, fragment, content, glang;
+	fy_generic fragments, fragment, content, glang, gtool;
 	const char *lang;
+	const char *tool;
+	int preview_lines;
 	long long llstart, llend;
 	size_t start, end, pos, len;
 
@@ -1492,8 +1529,20 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 			glang = fy_get(fragment, "lang");
 			lang = fy_generic_is_string(glang) ?
 				fy_castp(&glang, "") : NULL;
+			gtool = fy_get(fragment, "tool");
+			tool = fy_generic_is_string(gtool) ?
+				fy_castp(&gtool, "") : NULL;
+			/*
+			 * Pre-tool-metadata fragments can still identify the
+			 * two important shapes without parsing rendered Markdown.
+			 */
+			if (!tool && lang && *lang)
+				tool = "read_file";
+			else if (!tool && !fy_generic_is_string(content))
+				tool = "shell";
+			preview_lines = fyai_tool_preview_lines(cfg, tool);
 			fyai_render_tool_result(cfg, content, lang,
-						cfg->tool_preview_lines);
+						preview_lines);
 		} else if (fyai_display_markdown_range(cfg, md, start, end)) {
 			return -1;
 		}

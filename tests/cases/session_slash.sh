@@ -66,6 +66,8 @@ set +e
 /config set display/tool_preview_lines 7
 /config get display/tool_preview_lines
 /config delete display/tool_preview_lines
+/tool-detail full
+/tool-detail
 /sandbox on
 /sandbox
 /secret status api-key/not-configured
@@ -80,6 +82,7 @@ hello one
 /log conversation clear
 hello two
 /history last 2
+/transcript last 2
 /clear
 hello three
 /reasoning-effort high
@@ -175,6 +178,9 @@ assert_stdout_contains "Next request"
 run_fyai config get display/tool_preview_lines
 assert_status_nonzero
 assert_stderr_contains "not set"
+run_fyai config get display/tool_detail
+assert_status 0
+assert_stdout_contains "full"
 
 run_fyai clear
 assert_status 0
