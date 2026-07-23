@@ -728,9 +728,6 @@ static int fyai_tool_child_fds(int result_fd, int progress_fd)
 	rc = syscall(SYS_close_range, 5U, ~0U, 0U);
 	if (!rc)
 		return 0;
-#elif defined(__APPLE__)
-	closefrom(5);
-	return 0;
 #endif
 	max_fd = sysconf(_SC_OPEN_MAX);
 	if (max_fd < 0)
