@@ -1101,6 +1101,9 @@ static void test_fork_child_abandons_loop(void)
 {
 	struct fyai_event_loop *el;
 	struct fyai_event_source *src = NULL;
+	struct fyai_event_source *signal_src = NULL;
+	struct sigaction signal_before;
+	sigset_t mask_before;
 	int p[2], q[2];
 	int reads = 0;
 	pid_t pid;
@@ -1113,11 +1116,19 @@ static void test_fork_child_abandons_loop(void)
 	FYAI_TCHECK(!rc);
 	rc = pipe(q);
 	FYAI_TCHECK(!rc);
+	rc = sigaction(SIGTERM, NULL, &signal_before);
+	FYAI_TCHECK(!rc);
+	rc = sigprocmask(SIG_SETMASK, NULL, &mask_before);
+	FYAI_TCHECK(!rc);
+	test_ctx.signal_mask = mask_before;
+	test_ctx.signal_mask_valid = true;
 
 	el = fyai_ctx_loop(&test_ctx);
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_fd(el, p[0], FYAIEV_READ, cb_count_reads,
 			       &reads, &src);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_signal(el, SIGTERM, cb_count, NULL, &signal_src);
 	FYAI_TCHECK(!rc);
 
 	pid = fork();
@@ -1125,17 +1136,27 @@ static void test_fork_child_abandons_loop(void)
 	if (!pid) {
 		struct fyai_event_loop *cel;
 		struct fyai_event_source *csrc = NULL;
+		struct sigaction signal_after;
+		sigset_t mask_after;
+		bool signal_restored;
 
 		/* Without this the child's registration lands in the parent's
 		 * epoll set and the parent dispatches a child-address pointer. */
 		fyai_ctx_loop_abandon(&test_ctx);
+		signal_restored =
+			!sigaction(SIGTERM, NULL, &signal_after) &&
+			!sigprocmask(SIG_SETMASK, NULL, &mask_after) &&
+			signal_after.sa_handler == signal_before.sa_handler &&
+			sigismember(&mask_after, SIGTERM) ==
+			sigismember(&mask_before, SIGTERM);
 
 		cel = fyai_ctx_loop(&test_ctx);
 		/* Not "cel != el": abandon() frees the loop, so an unpooled
 		 * build legitimately hands the same address straight back.
 		 * What must hold is that the loop is *fresh* - the parent's
 		 * source did not come across with it. */
-		_exit(cel && fyai_event_loop_source_count(cel) == 0 &&
+		_exit(signal_restored && cel &&
+		      fyai_event_loop_source_count(cel) == 0 &&
 		      !fyai_event_add_fd(cel, q[0], FYAIEV_READ, cb_count_reads,
 					 &reads, &csrc) ? 0 : 1);
 	}
@@ -1155,6 +1176,8 @@ static void test_fork_child_abandons_loop(void)
 	FYAI_TCHECK(reads == 1);
 
 	fyai_event_source_remove(src);
+	fyai_event_source_remove(signal_src);
+	test_ctx.signal_mask_valid = false;
 	close(p[0]); close(p[1]);
 	close(q[0]); close(q[1]);
 	printf("ok - forked child abandons the inherited loop\n");

@@ -143,6 +143,14 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 		 * watched fd belongs to the caller and is left alone. */
 		if (src->kind != FYAIEK_FD && src->fd >= 0)
 			close(src->fd);
+		/*
+		 * kqueue suppresses a signal's default action with SIG_IGN.
+		 * Do not carry that application-loop disposition across exec.
+		 * Linux only changes the mask, so restoring saved_sa there is
+		 * harmless (and saved_sa is not marked valid independently).
+		 */
+		if (src->kind == FYAIEK_SIGNAL && src->saved_valid)
+			(void)sigaction(src->signo, &src->saved_sa, NULL);
 		free(src);
 	}
 	/* signalfd requires blocked signals. They are application-loop state,
