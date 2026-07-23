@@ -81,7 +81,10 @@ def main():
     data = b""
     deadline = time.monotonic() + 15
     try:
-        time.sleep(0.2)
+        # Wait until the initial synchronized update has made the input cursor
+        # visible. Fixed sleeps race ASAN and slower CI runners, causing input
+        # to be echoed by the tty before fytimui enters raw mode.
+        data = read_until(master, data, b"\x1b[?25h", deadline)
         os.write(master, prompt + b"\n")
         if during_input:
             time.sleep(during_delay)
