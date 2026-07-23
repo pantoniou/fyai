@@ -217,6 +217,25 @@ else()
     set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
 endif()
 
+if(NOT TARGET libfytimui::libfytimui)
+    find_package(libfytimui CONFIG QUIET)
+endif()
+if(NOT TARGET libfytimui::libfytimui AND
+   NOT TARGET libfytimui::libfytimui_static)
+    FetchContent_Declare(libfytimui
+        GIT_REPOSITORY https://github.com/pantoniou/libfytimui
+        GIT_TAG 8969e81
+    )
+    set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(libfytimui)
+endif()
+if(FYAI_STATIC_DEPS AND TARGET libfytimui::libfytimui_static)
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui_static)
+else()
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui)
+endif()
+
 # Fetch and build a minimal libcurl from source as a static archive linked
 # straight into fyai: OpenSSL TLS + zlib only, with the curl CLI and the heavy
 # optional deps (HTTP/2, libssh, ldap, rtmp, psl, brotli, idn2, gssapi) disabled
@@ -264,17 +283,6 @@ else()
         fyai_fetch_curl()
     endif()
 endif()
-
-# linenoise: tiny line-editing library, vendored under third_party/linenoise
-# (single drop-in source file, the way upstream intends it to be embedded). It
-# carries a local Ctrl-G external-editor hook, so it lives in-tree rather than
-# fetched. Built as an isolated static lib with warnings off since it predates
-# our -Wall -Wextra and GNU C dialect warnings.
-add_library(linenoise STATIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/linenoise/linenoise.c")
-target_include_directories(linenoise PUBLIC
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/linenoise")
-target_compile_options(linenoise PRIVATE -w)
 
 option(ENABLE_ASAN "Enable ASAN support" OFF)
 option(BUILD_TESTING "Build tests" ON)
@@ -371,6 +379,7 @@ add_executable(fyai
     src/fyai_diag.c
     src/fyai_log.c
     src/fyai_markdown.c
+    src/fyai_ui.c
     src/fyai_mcp.c
     src/fyai_patch.c
     src/fyai_prof.c
@@ -378,7 +387,6 @@ add_executable(fyai
     src/fyai_render.c
     src/fyai_sandbox.c
     src/fyai_session.c
-    src/fyai_signal.c
     src/fyai_storage.c
     src/fyai_stream.c
     src/fyai_terminal.c
@@ -404,7 +412,8 @@ endif()
 target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
-    CURL::libcurl OpenSSL::Crypto linenoise ${ASAN_LINK_OPTS})
+    ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl OpenSSL::Crypto
+    ${ASAN_LINK_OPTS})
 if(ENABLE_LIBSECRET)
     target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
     target_compile_definitions(fyai PRIVATE HAVE_LIBSECRET)

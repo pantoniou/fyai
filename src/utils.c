@@ -363,6 +363,9 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		goto out;
 
 	if (!pid) {
+		/* The application loop (including its signal mask/signalfd or
+		 * kqueue state) belongs to fyai, never to the executed command. */
+		fyai_ctx_loop_abandon(ctx);
 		close(stdout_pipe[0]);
 		close(stderr_pipe[0]);
 		dup2(stdout_pipe[1], STDOUT_FILENO);

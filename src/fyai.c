@@ -15,13 +15,12 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
-#include <linenoise.h>
 
 #include "fyai.h"
 #include "fyai_catalog.h"
@@ -34,13 +33,41 @@
 #include "fyai_provider.h"
 #include "fyai_session.h"
 #include "fyai_prof.h"
-#include "fyai_signal.h"
+#include "fyai_ui.h"
 #include "fyai_tools.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
 #include "fyai_turn.h"
+
+static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
+{
+	struct fyai_ctx *ctx = ev->userdata;
+
+	ctx->interrupt_pending = true;
+	if (ev->signo != SIGINT)
+		ctx->terminate_pending = true;
+	fyai_ui_signal(ctx, ev->signo);
+	return FYAIEA_CONTINUE;
+}
+
+static int fyai_signals_open(struct fyai_ctx *ctx)
+{
+	static const int signals[] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT };
+	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	size_t i;
+
+	if (!el) return -1;
+	if (sigprocmask(SIG_SETMASK, NULL, &ctx->signal_mask))
+		return -1;
+	ctx->signal_mask_valid = true;
+	for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++)
+		if (fyai_event_add_signal(el, signals[i], fyai_signal_cb, ctx,
+					  &ctx->signal_src[i]))
+			return -1;
+	return 0;
+}
 
 static void fyai_print_final_response(struct fyai_ctx *ctx,
 				      fy_generic response_doc)
@@ -146,6 +173,7 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *tool_call_id, *tool_call_output_type;
 	const char *name;
 	bool shell;
+	const char *result_text;
 
 	assert(ctx->transient_gb);
 
@@ -157,6 +185,8 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	else
 		name = fy_get(tool_call, "name", "");
 	shell = fy_equal(name, "shell");
+	if (fyai_ui_active(ctx))
+		fyai_ui_tool_begin(ctx, name);
 
 	/*
 	 * Shell streams its output live as it runs, so it prints its own header
@@ -170,12 +200,16 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	tool_result = fyai_execute_tool_call(ctx, tool_call);
+	result_text = fy_castp(&tool_result, "");
 
 	if (cfg->markdown && !shell)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
 				       cfg->pretty);
+	if (fyai_ui_active(ctx))
+		fyai_ui_tool_end(ctx,
+			strncmp(result_text, "tool error:", 11) != 0);
 
 	switch (cfg->api_mode) {
 	case FYAI_API_RESPONSES:
@@ -259,7 +293,7 @@ static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
 			break;
 		/* ^C during a tool run: stop issuing further calls; the loop
 		 * wraps what completed with an "interrupted" diagnostic. */
-		if (fyai_sig_intr_pending())
+		if (fyai_interrupt_pending(ctx))
 			break;
 		turn = fyai_run_tool_call(ctx, turn, tool_call);
 	}
@@ -353,6 +387,7 @@ fy_generic fyai_report_diag(struct fyai_ctx *ctx, fy_generic v)
  * byte-clean.
  */
 struct fyai_spinner {
+	struct fyai_ctx *ctx;
 	bool enabled;
 	bool visible;
 	struct timespec last;
@@ -384,7 +419,7 @@ static int fyai_spinner_xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 
 	/* ^C: abort the transfer (curl returns CURLE_ABORTED_BY_CALLBACK).
 	 * Checked for the whole transfer, not just while the spinner shows. */
-	if (fyai_sig_intr_pending()) {
+	if (fyai_interrupt_pending(sp->ctx)) {
 		fyai_spinner_erase(sp);
 		return 1;
 	}
@@ -435,6 +470,8 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	bool response_linked;
 	fy_generic diag;
 	long status;
+
+	spinner.ctx = ctx;
 
 	fyai_prof_stamp(&t_emit);
 
@@ -645,7 +682,7 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 
 	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, request_body);
 
-	spinner.enabled = terminal_is_tty(STDERR_FILENO);
+	spinner.enabled = !fyai_ui_active(ctx) && terminal_is_tty(STDERR_FILENO);
 	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFOFUNCTION,
 			 fyai_spinner_xferinfo);
 	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFODATA, &spinner);
@@ -784,7 +821,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 	out = fy_invalid;
 
 	/* Drop any ^C that arrived while we were idle at the prompt. */
-	fyai_sig_intr_check();
+	fyai_interrupt_check(ctx);
 
 	for (i = 0; i < cfg->max_tool_iterations; i++) {
 
@@ -837,7 +874,7 @@ fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn)
 			}
 			/* ^C during the tool run: commit what completed, tagged
 			 * interrupted, and stop the loop. */
-			if (fyai_sig_intr_check()) {
+			if (fyai_interrupt_check(ctx)) {
 				out = fy_gb_internalize(ctx->gb, turn);
 				return fyai_with_diag(ctx->gb, out, "interrupted");
 			}
@@ -886,6 +923,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		ctx->shell_stream = NULL;
 	}
 	fyai_mcp_cleanup(ctx);
+	fyai_ui_close(ctx);
 
 	/* Before the easy handle: the multi still references it. */
 	fyai_curl_cleanup(ctx);
@@ -1047,6 +1085,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
 	ctx->last_token_extents = fy_invalid;
+	if (fyai_signals_open(ctx))
+		goto err;
 
 	if (!fyai_cfg_no_storage(cfg)) {
 		if (fyai_setup_storage(ctx))
@@ -1185,8 +1225,6 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_prompt_args *args = &cfg->cmd.args.prompt;
 	const char *prompt;
-	const char *rev_on;
-	const char *rev_off;
 	char *histfile = NULL;
 	char *line = NULL;
 	fy_generic v;
@@ -1194,6 +1232,11 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 
 	(void)args;
 	assert(ctx);
+
+	if (fyai_ui_open(ctx)) {
+		fyai_error(ctx, "could not initialize the interactive terminal UI");
+		goto err_out;
+	}
 
 	if (cfg->prompt && *cfg->prompt) {
 		v = fyai_run_model_loop(ctx, ctx->last_message);
@@ -1207,17 +1250,12 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 
 	histfile = fyai_history_path();
+	if (fyai_ui_active(ctx))
+		fyai_ui_history_load(ctx, histfile);
 
 	fyai_interactive_recap(ctx);
+	fyai_ui_drain_output(ctx);
 
-	/* From here on ^C aborts the in-flight turn (not the session) and
-	 * SIGWINCH reflows the prompt; batch mode keeps the default exit. */
-	fyai_signals_install();
-
-	fyai_session_completion_init(ctx);
-	linenoiseSetCompletionCallback(fyai_session_completion);
-	linenoiseSetMultiLine(1);
-	linenoiseSetEditorCallback(fyai_edit_line);	/* Ctrl-G */
 	/*
 	 * Style the interactive prompt with the theme's reverse-card colours -
 	 * the same pair the echoed user turn uses (markdown_reverse_pair) - so the
@@ -1228,8 +1266,6 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	prompt = cfg->prompt_marker && *cfg->prompt_marker ?
 		cfg->prompt_marker : "> ";
 	if (cfg->markdown && ctx->stdout_tty) {
-		if (markdown_reverse_pair(cfg, &rev_on, &rev_off))
-			linenoiseSetPromptStyle(rev_on);
 		/* The top row and the bottom status row (both {key} templates)
 		 * are installed by the banner update, which frames the input. */
 		fyai_session_banner_update(ctx);
@@ -1238,13 +1274,13 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		if (!(cfg->prompt_marker && *cfg->prompt_marker))
 			prompt = "  > ";
 	}
-	linenoiseHistorySetMaxLen(1000);
-	if (histfile)
-		linenoiseHistoryLoad(histfile);
 
 	for (;;) {
+		if (ctx->terminate_pending)
+			break;
 		errno = 0;
-		line = fyai_readline(ctx, prompt);
+		line = fyai_ui_active(ctx) ? fyai_ui_readline(ctx) :
+			fyai_readline(ctx, prompt);
 		if (!line) {
 			/* Ctrl-C cancels the line; Ctrl-D / EOF exits. */
 			if (errno == EAGAIN)
@@ -1252,7 +1288,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 			break;
 		}
 		if (!*line) {
-			linenoiseFree(line);
+			free(line);
 			line = NULL;
 			continue;
 		}
@@ -1263,14 +1299,14 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		 * literal slash-prefixed prompt line.
 		 */
 		if (line[0] == '/' && line[1] != '/') {
-			linenoiseHistoryAdd(line);
-			if (histfile)
-				linenoiseHistorySave(histfile);
+			if (fyai_ui_active(ctx))
+				fyai_ui_history_save(ctx, histfile, line);
 			fyai_echo_user_turn(ctx, line);
 			rc = fyai_session_slash(ctx, line);
 			if (cfg->markdown && ctx->stdout_tty)
 				putchar('\n');
-			linenoiseFree(line);
+			fyai_ui_drain_output(ctx);
+			free(line);
 			line = NULL;
 			if (rc > 0)
 				break;
@@ -1279,16 +1315,16 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		if (line[0] == '/' && line[1] == '/')
 			memmove(line, line + 1, strlen(line));
 
-		linenoiseHistoryAdd(line);
-		if (histfile)
-			linenoiseHistorySave(histfile);
+		if (fyai_ui_active(ctx))
+			fyai_ui_history_save(ctx, histfile, line);
 		fyai_echo_user_turn(ctx, line);
+		fyai_ui_drain_output(ctx);
 
 		rc = fyai_setup_transient_builder(ctx);
 		assert(!rc);
 
 		v = fyai_turn_append(ctx, ctx->last_message, fy_sequence(fyai_make_user_message(ctx, line)));
-		linenoiseFree(line);
+		free(line);
 		line = NULL;
 		if (fy_generic_is_invalid(v)) {
 			fyai_error(ctx, "could not append the user turn");
@@ -1297,7 +1333,9 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 			continue;
 		}
 
+		fyai_ui_set_busy(ctx, true);
 		v = fyai_run_model_loop(ctx, v);
+		fyai_ui_set_busy(ctx, false);
 		/* A failed/interrupted run may carry a diagnostic; print it and
 		 * unwrap to the (possibly partial) turn. */
 		v = fyai_report_diag(ctx, v);
@@ -1320,6 +1358,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		 * the banner repaints the footer under it.
 		 */
 		fyai_diag_drain(&cfg->diag);
+		fyai_ui_drain_output(ctx);
 
 		/* Usage moved; refresh the context fill in the footer. */
 		fyai_session_banner_update(ctx);

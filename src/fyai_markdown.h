@@ -107,6 +107,7 @@ void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
  * live view and the history view match). Drive it start -> push* -> finish.
  */
 struct fyai_fenced_stream {
+	struct fyai_ctx *ctx;
 	struct fymd_renderer *r;
 	struct response_buffer accum;	/* raw source accumulated so far */
 	struct response_buffer shown;	/* last rendered (un-indented) output */
@@ -117,7 +118,8 @@ struct fyai_fenced_stream {
 	bool active;
 };
 
-int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_cfg *cfg,
+int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx,
+			     struct fyai_cfg *cfg,
 			     const char *lang, size_t max_lines,
 			     const char *indent, FILE *fp, bool live);
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs, const char *data,

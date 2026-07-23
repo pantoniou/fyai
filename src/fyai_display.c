@@ -20,6 +20,7 @@
 #include "fyai_provider.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
+#include "fyai_ui.h"
 #include "fyai_turn.h"
 
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
@@ -2065,6 +2066,13 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	end = rb.len;
 	while (end && (rb.data[end - 1] == '\n' || rb.data[end - 1] == '\r'))
 		end--;
+	if (fyai_ui_active(ctx)) {
+		if (end)
+			(void)fyai_ui_commit(ctx, rb.data, end);
+		(void)fyai_ui_commit(ctx, "\n", 1);
+		free(rb.data);
+		return;
+	}
 
 	/* One blank card row fences the content top and bottom (styling
 	 * permitting; without a loaded styling the card renders unfenced). */

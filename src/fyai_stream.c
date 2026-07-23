@@ -23,6 +23,7 @@
 #include "fyai_curl.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
+#include "fyai_ui.h"
 
 /* Min interval between streamed-markdown redraws. */
 #define STREAM_REDRAW_MS 50
@@ -207,9 +208,14 @@ static void stream_write_content(struct stream_response *stream,
 							   &update)) {
 					stream->failed = true;
 				} else {
-					stream_md_apply(stdout,
+					if (fyai_ui_active(ctx)) {
+						if (fyai_ui_tail_apply(ctx, &update))
+							stream->failed = true;
+					} else {
+						stream_md_apply(stdout,
 							&stream->md_active_rows,
 							&update);
+					}
 					stream->md_full.len = 0;
 					stream->md_full.data[0] = '\0';
 				}
@@ -267,6 +273,11 @@ static int stream_write_reasoning_md(struct stream_response *stream)
 	if (rc) {
 		free(out.data);
 		return -1;
+	}
+	if (fyai_ui_active(ctx)) {
+		fyai_ui_reasoning_update(ctx, out.data, out.len);
+		free(out.data);
+		return 0;
 	}
 
 	if (stream->reasoning_active_rows) {
@@ -330,6 +341,12 @@ static void stream_finish_reasoning(struct stream_response *stream)
 	bool color;
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
+	if (fyai_ui_active(ctx)) {
+		fyai_ui_reasoning_end(ctx);
+		stream->reasoning_active_rows = 0;
+		stream->printed_reasoning = false;
+		return;
+	}
 	if (stream->reasoning_active_rows) {
 		if (*cfg->section_separator)
 			fputs(cfg->section_separator, stderr);
@@ -371,9 +388,13 @@ static void stream_finish_content(struct stream_response *stream)
 			    !markdown_renderer_push(&stream->markdown,
 						    stream->md_full.data,
 						    stream->md_full.len,
-						    &update))
-				stream_md_apply(stdout, &stream->md_active_rows,
-						&update);
+						    &update)) {
+				if (fyai_ui_active(ctx))
+					(void)fyai_ui_tail_apply(ctx, &update);
+				else
+					stream_md_apply(stdout, &stream->md_active_rows,
+							&update);
+			}
 			stream->md_full.len = 0;
 			if (stream->md_full.data)
 				stream->md_full.data[0] = '\0';
@@ -385,7 +406,7 @@ static void stream_finish_content(struct stream_response *stream)
 			 * text replaces the active region instead of appending a
 			 * duplicate copy below it.
 			 */
-			if (stream->md_active_rows) {
+			if (!fyai_ui_active(ctx) && stream->md_active_rows) {
 				fprintf(stdout, FYAI_ANSI_CURSOR_UP_FMT,
 					stream->md_active_rows);
 				fputs(FYAI_ANSI_ERASE_DOWN, stdout);
@@ -397,11 +418,16 @@ static void stream_finish_content(struct stream_response *stream)
 				while (end && (out.data[end - 1] == '\n' ||
 					       out.data[end - 1] == '\r'))
 					end--;
-				if (end)
+				if (fyai_ui_active(ctx))
+					fyai_ui_tail_finish(ctx, out.data, end);
+				else if (end)
 					fwrite(out.data, 1, end, stdout);
 			}
+			if (fyai_ui_active(ctx) && !out.len)
+				fyai_ui_tail_finish(ctx, NULL, 0);
 			free(out.data);
-			putchar('\n');
+			if (!fyai_ui_active(ctx))
+				putchar('\n');
 		} else if (stream->md_full.len) {
 			fyai_print_markdown(stream->md_full.data, cfg);
 		}

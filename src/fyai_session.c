@@ -33,6 +33,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <libfytimui.h>
+
 #include "commands.h"
 #include "fyai.h"
 #include "fyai_auth.h"
@@ -44,7 +46,7 @@
 #include "fyai_log.h"
 #include "fyai_markdown.h"
 #include "fyai_session.h"
-#include "fyai_signal.h"
+#include "fyai_ui.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_turn.h"
@@ -801,15 +803,16 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	fyai_expand_template(bottom, sizeof(bottom), tmpl,
 			     vars, sizeof(vars) / sizeof(vars[0]));
 	bottom_md = fyai_prompt_row_markdown(cfg, bottom);
-	linenoiseSetBottomInfo(bottom_md ? bottom_md : bottom);
-	free(bottom_md);
 
 	fyai_expand_template(top, sizeof(top),
 			     cfg->prompt_top ? cfg->prompt_top : "",
 			     vars, sizeof(vars) / sizeof(vars[0]));
 	top_md = fyai_prompt_row_markdown(cfg, top);
-	linenoiseSetTopInfo(top_md ? top_md : top);
+	if (fyai_ui_active(ctx))
+		fyai_ui_update_banner(ctx, top_md ? top_md : top,
+				      bottom_md ? bottom_md : bottom);
 	free(top_md);
+	free(bottom_md);
 }
 
 /* ---- simple config-item slash commands ---------------------------------- */
@@ -1597,117 +1600,27 @@ out_report:
 
 /* ---- tab completion ------------------------------------------------------ */
 
-/* Event-driven line input. */
-struct session_readline {
-	struct linenoiseState ls;
-	char *line;
-	bool done;
-	bool failed;
-};
-
-static enum fyai_event_action session_readline_feed(struct session_readline *rl)
-{
-	char *res;
-
-	res = linenoiseEditFeed(&rl->ls);
-	if (res == linenoiseEditMore)
-		return FYAIEA_CONTINUE;
-
-	/* NULL is a normal outcome: EAGAIN is ^C (cancel the line), ENOENT is
-	 * ^D (end the session). The caller reads errno to tell them apart, so
-	 * preserve it across the unwind. */
-	rl->line = res;
-	rl->done = true;
-	return FYAIEA_STOP;
-}
-
-static enum fyai_event_action session_readline_input_cb(const struct fyai_event *ev)
-{
-	struct session_readline *rl = ev->userdata;
-
-	return session_readline_feed(rl);
-}
-
-/* The resize half: fyai_signal.c has already marked the width stale, so all
- * that is left is to give linenoise the EditFeed it needs to repaint. */
-static enum fyai_event_action session_readline_winch(void *user)
-{
-	return session_readline_feed(user);
-}
-
 char *fyai_readline(struct fyai_ctx *ctx, const char *prompt)
 {
-	struct session_readline rl;
-	struct fyai_signal_winch winch;
-	struct fyai_event_loop *el = NULL;
-	struct fyai_event_source *in_src = NULL;
-	struct fyai_event_source *winch_src = NULL;
-	int rc;
-	int saved_errno;
+	char *line = NULL;
+	size_t cap = 0;
+	ssize_t len;
 
 	assert(ctx);
-
-	/* Fall back when linenoise cannot edit this terminal. */
-	if (!linenoiseSupportsEditing())
-		return linenoise(prompt);
-
-	memset(&rl, 0, sizeof(rl));
-
-	el = fyai_ctx_loop(ctx);
-	if (!el)
-		return NULL;
-
-	rc = linenoiseEditOpen(&rl.ls, prompt);
-	fyai_error_check(ctx, !rc, err_out,
-			 "prompt: could not start line editing: %s",
-			 strerror(errno));
-
-	rc = fyai_event_add_fd(el, rl.ls.ifd, FYAIEV_READ,
-			       session_readline_input_cb, &rl, &in_src);
-	if (rc)
-		goto err_close;
-
-	winch.fn = session_readline_winch;
-	winch.user = &rl;
-	rc = fyai_signals_attach_winch(el, &winch, &winch_src);
-	if (rc)
-		goto err_close;
-
-	rc = fyai_event_loop_run_until(el, &rl.done, -1);
-	if (rc) {
-		rl.failed = true;
-		rl.line = NULL;
+	if (fyai_ui_active(ctx))
+		return fyai_ui_readline(ctx);
+	if (isatty(STDIN_FILENO) && prompt) {
+		fputs(prompt, stderr);
+		fflush(stderr);
 	}
-
-	/* An idle loop (no sources left) would end the run without a line. */
-	if (!rl.done && !rl.failed)
-		errno = ENOENT;
-
-	saved_errno = errno;
-	fyai_event_source_remove(winch_src);
-	fyai_event_source_remove(in_src);
-	linenoiseEditClose(&rl.ls);
-	errno = saved_errno;
-
-	return rl.line;
-
-err_close:
-	fyai_event_source_remove(winch_src);
-	fyai_event_source_remove(in_src);
-	linenoiseEditClose(&rl.ls);
-err_out:
-	errno = EIO;
-	return NULL;
+	len = getline(&line, &cap, stdin);
+	if (len < 0) { free(line); return NULL; }
+	while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		line[--len] = '\0';
+	return line;
 }
 
-static struct fyai_ctx *session_completion_ctx;
-
-void fyai_session_completion_init(struct fyai_ctx *ctx)
-{
-	session_completion_ctx = ctx;
-}
-
-static void session_complete_value(linenoiseCompletions *lc, const char *cmd,
+static void session_complete_value(struct fytim_completions *lc, const char *cmd,
 				   size_t cmdlen, const char *word,
 				   const char *value)
 {
@@ -1716,12 +1629,12 @@ static void session_complete_value(linenoiseCompletions *lc, const char *cmd,
 	if (strncmp(value, word, strlen(word)))
 		return;
 	cand = fy_sprintfa("/%.*s %s", (int)cmdlen, cmd, value);
-	linenoiseAddCompletion(lc, cand);
+	(void)fytim_completion_add(lc, cand);
 }
 
-void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
+void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
+			     struct fytim_completions *lc)
 {
-	struct fyai_ctx *ctx = session_completion_ctx;
 	const struct fyai_slash_cmd *cmd;
 	const struct fyai_slash_opt *opt;
 	const char *sp, *word, *s;
@@ -1741,13 +1654,13 @@ void fyai_session_completion(const char *buf, linenoiseCompletions *lc)
 			if (!strncmp(fyai_slash_cmds[i].name, buf + 1, len)) {
 				cand = fy_sprintfa("/%s",
 						   fyai_slash_cmds[i].name);
-				linenoiseAddCompletion(lc, cand);
+				(void)fytim_completion_add(lc, cand);
 			}
 		for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++)
 			if (!strncmp(fyai_slash_opts[i].name, buf + 1, len)) {
 				cand = fy_sprintfa("/%s",
 						   fyai_slash_opts[i].name);
-				linenoiseAddCompletion(lc, cand);
+				(void)fytim_completion_add(lc, cand);
 			}
 		return;
 	}

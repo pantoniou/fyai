@@ -20,8 +20,6 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 
-#include <linenoise.h>
-
 #include "fyai_config.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
@@ -31,6 +29,7 @@
 #include "fyai_session.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
+#include "fyai_ui.h"
 
 static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name);
 static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
@@ -134,12 +133,15 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		 * the command's output arrives, so live and history match.
 		 */
 		fyai_print_shell_header(ctx, *command ? command : name);
+		if (fyai_ui_active(ctx))
+			fyai_ui_tool_begin(ctx, *command ? command : name);
 		ctx->shell_stream = calloc(1, sizeof(*ctx->shell_stream));
 		if (ctx->shell_stream != NULL &&
-		    fyai_fenced_stream_start(ctx->shell_stream, cfg, NULL,
+		    fyai_fenced_stream_start(ctx->shell_stream, ctx, cfg, NULL,
 					     cfg->tool_preview_lines > 0 ?
 					     (size_t) cfg->tool_preview_lines : 0,
 					     FYAI_TOOL_OUTPUT_INDENT, stderr,
+					     fyai_ui_active(ctx) ||
 					     terminal_is_tty(STDERR_FILENO)) != 0) {
 			free(ctx->shell_stream);
 			ctx->shell_stream = NULL;

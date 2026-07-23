@@ -145,6 +145,10 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 			close(src->fd);
 		free(src);
 	}
+	/* signalfd requires blocked signals. They are application-loop state,
+	 * not part of the execution environment inherited by a tool child. */
+	if (ctx->signal_mask_valid)
+		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
 	if (el->backend_fd >= 0)
 		close(el->backend_fd);
 	free(el);

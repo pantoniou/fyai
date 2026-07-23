@@ -10,6 +10,7 @@
 #define FYAI_H
 
 #include <stdbool.h>
+#include <signal.h>
 #include <stdint.h>
 #include <limits.h>
 
@@ -24,6 +25,7 @@
 #include "fyai_diag.h"
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
+struct fyai_ui;
 
 #define OPENAI_RESPONSES_URL "https://api.openai.com/v1/responses"
 #define OPENAI_CHAT_COMPLETIONS_URL "https://api.openai.com/v1/chat/completions"
@@ -94,6 +96,7 @@ struct fyai_cfg {
 	const char *reasoning_effort;
 	const char *reasoning_summary;
 	const char *markdown_mode;	/* oneshot | line | stream */
+	int render_width;		/* runtime renderer width; 0 => terminal */
 	const char *color;		/* auto | off | on */
 	const char *theme;		/* auto | dark | light (resolved in setup) */
 	const char *code_theme;		/* libfyts styling name/path for fenced code */
@@ -283,6 +286,12 @@ struct fyai_ctx {
 	struct fyai_event_loop *el;
 	struct fyai_event_loop *event_loop_pool;
 	struct fyai_event_source *event_source_pool;
+	struct fyai_event_source *signal_src[4];
+	sigset_t signal_mask;
+	bool signal_mask_valid;
+	struct fyai_ui *ui;
+	bool interrupt_pending;
+	bool terminate_pending;
 	fy_generic tools;
 	fy_generic last_message;
 	fy_generic arena_config;	/* root["config"] or fy_invalid */
@@ -332,6 +341,22 @@ struct fyai_ctx {
 	bool response_chain_linked;
 	bool response_chain_miss;
 };
+
+static inline bool fyai_interrupt_pending(const struct fyai_ctx *ctx)
+{
+	return ctx && ctx->interrupt_pending;
+}
+
+static inline bool fyai_interrupt_check(struct fyai_ctx *ctx)
+{
+	bool pending;
+
+	if (!ctx)
+		return false;
+	pending = ctx->interrupt_pending;
+	ctx->interrupt_pending = false;
+	return pending;
+}
 
 int
 fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *in_cfg);

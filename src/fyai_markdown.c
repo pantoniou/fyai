@@ -16,6 +16,7 @@
 #include <libfymd4c.h>
 
 #include "fyai_markdown.h"
+#include "fyai_ui.h"
 #include "fyai.h"
 #include "fyai_terminal.h"
 
@@ -36,7 +37,8 @@ static void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 
 	memset(cfg, 0, sizeof(*cfg));
 
-	width = markdown_render_width();
+	width = fcfg->render_width > 0 ? fcfg->render_width :
+		markdown_render_width();
 	cfg->flags = FYMD_RF_DEFAULT | FYMD_RF_TABLE_FIT | extra;
 	if (!color)
 		cfg->flags |= FYMD_RF_NO_COLOR;
@@ -542,13 +544,15 @@ size_t fyai_count_newlines(const char *data, size_t len)
  * only here it updates in place as output streams in. fyai decorates the raw
  * output manually with a uniform indent.
  */
-int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_cfg *cfg,
+int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx,
+			     struct fyai_cfg *cfg,
 			     const char *lang, size_t max_lines,
 			     const char *indent, FILE *fp, bool live)
 {
 	struct fymd_renderer_cfg rcfg;
 
 	memset(fs, 0, sizeof(*fs));
+	fs->ctx = ctx;
 	markdown_renderer_cfg(cfg, &rcfg, markdown_color_enabled(cfg->color),
 			      cfg->theme, 0);
 	fs->r = fymd_renderer_create(&rcfg);
@@ -592,6 +596,11 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	if (fymd_render_fenced_block(fs->r, fs->accum.data, fs->accum.len,
 				     &opts, &rendered, &rlen))
 		return -1;
+	if (fyai_ui_active(fs->ctx)) {
+		fyai_ui_tool_update(fs->ctx, rendered, rlen);
+		fymd_free(rendered);
+		return 0;
+	}
 	/*
 	 * Keep the trailing newline: each repaint must leave the cursor on a
 	 * fresh line so the next diff's backtrack lands at a line start. Trimming
@@ -629,9 +638,9 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 
 	if (!fs->active)
 		return;
-	if (fs->live) {
+	if (fs->live && !fyai_ui_active(fs->ctx)) {
 		fputc('\n', fs->fp);
-	} else {
+	} else if (!fs->live) {
 		/* Non-terminal: render the whole accumulated block once, bounded,
 		 * and write it indented (matches the history view). */
 		memset(&opts, 0, sizeof(opts));
