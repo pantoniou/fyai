@@ -377,18 +377,16 @@ config and state write that session is ephemeral — `ctx->gb` is that builder
 (durable_gb otherwise) and the refs-publish is skipped.
 
 Stylistic options live only under the nested `display:` group (markdown,
-markdown_mode, color, theme, markdown_theme, code_theme, stream, pretty,
-cache_info, stats, tool_preview_lines); the `model` and other options are
-top-level. Theming is fully delegated to libfymd4c: `display/markdown_theme`
-names one of its embedded themes (`default`, `catppuccin`, `kanagawa`,
-`solarized`, `tokyonight`, every one *except* `default` also having a
-`-borderless` variant that drops the border glyphs; unset => the library
-default), validated via `markdown_theme_valid()` and enumerated for the error
-message by `markdown_theme_names()` — both query libfymd4c, so neither can
-drift from the embedded set; fyai ships no styling YAML of its own.
-`code_theme` overrides the fenced-code (libfyts) highlighter.
+markdown_mode, color, theme, stream, pretty, cache_info, stats,
+tool_preview_lines); the `model` and other options are top-level. Theming is
+fully delegated to libfymd4c. `display/theme` is the single selector, written
+as an embedded theme name plus optional `:auto`, `:dark`, or `:light` variant
+(for example `default:auto` or `catppuccin:dark`). It controls the Markdown
+palette, the libfyts fenced-code theme, and libfytimui chrome. The name is
+validated against libfymd4c's embedded catalogue, so fyai cannot drift from
+the library. fyai ships no styling YAML or independent code/UI theme.
 The user-turn "bubble" reverse card is read back from the active theme through
-`fymd_renderer_get_reverse_pair()`. `theme` means background dark/light only.
+`fymd_renderer_get_reverse_pair()`.
 
 The provider/model catalogue (scrape-providers document) is the root's
 `catalog` entry (`fyai catalog show|list|import|export`, `src/fyai_catalog.c`),
@@ -433,7 +431,7 @@ set <key> <val>` / `--set <key>=<val>` (see `config.yaml.sample` for the
 full key set). A handful of flags remain because they are not config-backed
 run-local state: `-C`/`-e`/`-k` name external files/secrets, `-m` resolves
 through the catalogue, `--sandbox` confines shell-tool sub-executions,
-`--color`/`--theme`/`--code-theme` are display-only conveniences kept for
+`--color`/`--theme` are display-only conveniences kept for
 ergonomics, `--new`/`-i`/`-d`/`--answer` control process behavior, not
 config state, and `--set`/`--get`/`--delete`/`--transient` are the config
 mechanism itself.

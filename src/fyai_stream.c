@@ -275,7 +275,7 @@ static int stream_write_reasoning_md(struct stream_response *stream)
 	if (!rc)
 		rc = markdown_render(cfg, md.data, md.len, &out,
 				     ansi_color_on(cfg->color, STDERR_FILENO),
-				     cfg->theme);
+				     cfg->theme_variant);
 	free(md.data);
 	if (rc) {
 		free(out.data);
@@ -1191,7 +1191,7 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 		if (stream.md_tty && strcmp(cfg->markdown_mode, "oneshot")) {
 			if (markdown_renderer_start(cfg, &stream.markdown,
 						    markdown_color_enabled(cfg->color),
-						    cfg->theme))
+						    cfg->theme_variant))
 				stream.markdown.active = false;
 		} else {
 			stream.markdown.active = true;

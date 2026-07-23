@@ -341,17 +341,12 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		if (CONFIG_VALIDATE_ENUM(v, "markdown_mode",
 					 "oneshot", "line", "stream") ||
 		    CONFIG_VALIDATE_ENUM(v, "color",
-					 "auto", "off", "on") ||
-		    CONFIG_VALIDATE_ENUM(v, "theme",
-					 "auto", "dark", "light"))
+					 "auto", "off", "on"))
 			return -1;
 		cfg->markdown_mode = fy_get(v, "markdown_mode",
 					    cfg->markdown_mode);
 		cfg->color = fy_get(v, "color", cfg->color);
 		cfg->theme = fy_get(v, "theme", cfg->theme);
-		cfg->code_theme = fy_get(v, "code_theme", cfg->code_theme);
-		cfg->markdown_theme = fy_get(v, "markdown_theme",
-					     cfg->markdown_theme);
 		/*
 		 * Intern the separators: they are read back only at render time
 		 * (well after this doc may be freed), so a raw fy_get pointer to a
@@ -1044,8 +1039,6 @@ static int config_doc_finalize(struct fyai_cfg *cfg)
 	struct fyai_cfg tmp;
 
 	tmp = *cfg;
-	if (tmp.theme && !strcmp(tmp.theme, "auto"))
-		tmp.theme = "dark";
 	if (fyai_config_resolve_model(&tmp))
 		return -1;
 	if (fyai_config_messages_gate(&tmp))
@@ -1394,7 +1387,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 		problems = config_problem_add(cfg->gb, problems,
 				"display must be a mapping");
 	if (fy_generic_is_mapping(v)) {
-		fy_generic mode, color, theme, mdtheme, tborder;
+		fy_generic mode, color, theme, tborder;
 		char theme_names[256];
 
 		mode = fy_get(v, "markdown_mode");
@@ -1413,18 +1406,12 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				fy_cast(fy_convert(color, FYGT_STRING), ""));
 		theme = fy_get(v, "theme");
 		if (!fy_generic_is_invalid(theme) &&
-		    !config_contains(fy_sequence("auto", "dark",
-						 "light"), theme))
+		    !markdown_theme_selector_valid(
+			    fy_cast(fy_convert(theme, FYGT_STRING), "")))
 			problems = config_problem_add(cfg->gb, problems,
-				"invalid display.theme '%s' (auto|dark|light)",
-				fy_cast(fy_convert(theme, FYGT_STRING), ""));
-		mdtheme = fy_get(v, "markdown_theme");
-		if (!fy_generic_is_invalid(mdtheme) &&
-		    !markdown_theme_valid(fy_cast(fy_convert(mdtheme,
-							     FYGT_STRING), "")))
-			problems = config_problem_add(cfg->gb, problems,
-				"invalid display.markdown_theme '%s' (%s)",
-				fy_cast(fy_convert(mdtheme, FYGT_STRING), ""),
+				"invalid display.theme '%s' "
+				"(%s[:auto|dark|light])",
+				fy_cast(fy_convert(theme, FYGT_STRING), ""),
 				markdown_theme_names(theme_names,
 						     sizeof(theme_names)));
 		tborder = fy_get(v, "table_border");
@@ -1709,11 +1696,6 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 	if (apply_config(cfg, cfg->config_doc))
 		return -1;
 
-	/* Re-resolve theme=auto to a concrete value before reloading style. */
-	if (cfg->theme && !strcmp(cfg->theme, "auto"))
-		cfg->theme = (cfg->markdown &&
-			      markdown_color_enabled(cfg->color)) ?
-				terminal_detect_theme() : "dark";
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);
 
@@ -1745,8 +1727,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->markdown_mode = DEFAULT_MARKDOWN_MODE;
 	cfg->color = DEFAULT_COLOR;
 	cfg->theme = DEFAULT_THEME;
-	cfg->code_theme = NULL;		/* NULL => the theme's own code.theme */
-	cfg->markdown_theme = NULL;	/* NULL => the libfymd4c default theme */
+	cfg->theme_variant = NULL;
+	cfg->markdown_theme = NULL;
 	cfg->turn_separator = DEFAULT_TURN_SEPARATOR;
 	cfg->tool_separator = DEFAULT_TOOL_SEPARATOR;
 	cfg->section_separator = DEFAULT_SECTION_SEPARATOR;
@@ -1784,7 +1766,6 @@ enum {
 	OPT_ANSWER,
 	OPT_COLOR,
 	OPT_THEME,
-	OPT_CODE_THEME,
 	OPT_SET,
 	OPT_GET,
 	OPT_DELETE,
@@ -1800,7 +1781,6 @@ static const struct option long_options[] = {
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
-	{ "code-theme", required_argument, NULL, OPT_CODE_THEME },
 	{ "new", no_argument, NULL, OPT_NEW },
 	{ "interactive", no_argument, NULL, 'i' },
 	{ "debug", no_argument, NULL, 'd' },
@@ -2257,11 +2237,6 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 						    false, false))
 				goto err_out;
 			break;
-		case OPT_CODE_THEME:
-			if (config_queue_set_quoted(cfg, "display/code_theme",
-						    optarg, false, false))
-				goto err_out;
-			break;
 		case OPT_ANSWER:
 			if (cfg->answer_count >= ARRAY_SIZE(cfg->answers)) {
 				fyai_cfg_error(cfg, "too many answers, max %zu",
@@ -2336,17 +2311,9 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	}
 
 	/*
-	 * Resolve theme=auto to a concrete dark/light once, so the render path
-	 * never probes per chunk. Only probe when markdown is actually rendered
-	 * in colour: the probe reads /dev/tty, which must not run (and possibly
-	 * swallow typed-ahead input) when we are not even rendering markdown.
+	 * Resolve the Markdown selector once. Its palette, background variant,
+	 * fenced-code theme, and terminal chrome feed every subsequent render.
 	 */
-	if (cfg->theme && !strcmp(cfg->theme, "auto"))
-		cfg->theme = (cfg->markdown && markdown_color_enabled(cfg->color)) ?
-				terminal_detect_theme() : "dark";
-
-	/* Load the shipped markdown styling (element colours + fenced-code theme)
-	 * now that the theme is concrete; applied to every subsequent render. */
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);
 

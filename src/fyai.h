@@ -56,7 +56,7 @@ struct fyai_display_output;
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_COLOR "auto"		/* auto | off | on */
-#define DEFAULT_THEME "auto"		/* auto | dark | light */
+#define DEFAULT_THEME "default:auto"	/* markdown theme[:auto|dark|light] */
 /* Display reasoning/thinking model output (live stream + history view). */
 #define DEFAULT_THINKING true
 /*
@@ -99,10 +99,9 @@ struct fyai_cfg {
 	const char *markdown_mode;	/* oneshot | line | stream */
 	int render_width;		/* runtime renderer width; 0 => terminal */
 	const char *color;		/* auto | off | on */
-	const char *theme;		/* auto | dark | light (resolved in setup) */
-	const char *code_theme;		/* libfyts styling name/path for fenced code */
-	const char *markdown_theme;	/* libfymd4c embedded theme name */
-	const char *markdown_code_theme; /* resolved fenced-code theme (= code_theme) */
+	const char *theme;		/* canonical markdown theme selector */
+	const char *theme_variant;	/* resolved dark | light */
+	const char *markdown_theme;	/* resolved libfymd4c theme name */
 	const char *markdown_rev_on[2];	/* reverse-card pair, [0] dark [1] light */
 	const char *markdown_rev_off[2];
 	const char *turn_separator;	/* history inter-turn break (markdown) */

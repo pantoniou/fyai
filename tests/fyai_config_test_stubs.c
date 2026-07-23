@@ -85,6 +85,12 @@ bool markdown_theme_valid(const char *name)
 	return true;
 }
 
+bool markdown_theme_selector_valid(const char *selector)
+{
+	(void)selector;
+	return true;
+}
+
 const char *markdown_theme_names(char *buf, size_t bufsz)
 {
 	snprintf(buf, bufsz, "%s", "default");

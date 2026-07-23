@@ -7,7 +7,7 @@ fyai_test_setup
 mock_start chat_stream.json
 
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
@@ -20,6 +20,8 @@ import re
 import sys
 
 data = open(sys.argv[1], "rb").read()
+if b"\x1b[38;2;127;132;156m" not in data:
+    raise SystemExit("catppuccin status chrome did not reach libfytimui")
 plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 if "│ hello".encode() not in plain:
     raise SystemExit(1)

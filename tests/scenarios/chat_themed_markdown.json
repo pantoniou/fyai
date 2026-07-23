@@ -1,0 +1,20 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-themed",
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "# Heading\n\n```c\nint value = 42;\n```"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

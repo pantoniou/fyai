@@ -704,7 +704,8 @@ static char *fyai_prompt_row_markdown(struct fyai_cfg *cfg, const char *text)
 		return strdup("");
 
 	rc = markdown_render(cfg, text, strlen(text), &out,
-			     markdown_color_enabled(cfg->color), cfg->theme);
+			     markdown_color_enabled(cfg->color),
+			     cfg->theme_variant);
 	if (rc || !out.data)
 		goto err;
 
@@ -836,18 +837,16 @@ static const char *const effort_vals[] = {
 static const char *const summary_vals[] = {
 	"auto", "concise", "detailed", NULL,
 };
-static const char *const theme_vals[] = {
-	"dark", "light", NULL,
-};
 /*
- * libfymd4c embedded theme names for tab completion. The authoritative check is
- * markdown_theme_valid() (queried from libfymd4c), so this list may lag the
- * library's catalogue without rejecting a valid name.
+ * Common selectors for completion. Validation is authoritative in libfymd4c,
+ * so a newly added embedded theme remains usable before this list is updated.
  */
-static const char *const markdown_theme_vals[] = {
-	"default", "catppuccin", "catppuccin-borderless",
-	"kanagawa", "kanagawa-borderless", "solarized", "solarized-borderless",
-	"tokyonight", "tokyonight-borderless", NULL,
+static const char *const theme_vals[] = {
+	"default:auto", "default:dark", "default:light",
+	"catppuccin:auto", "catppuccin:dark", "catppuccin:light",
+	"kanagawa:auto", "kanagawa:dark", "kanagawa:light",
+	"solarized:auto", "solarized:dark", "solarized:light",
+	"tokyonight:auto", "tokyonight:dark", "tokyonight:light", NULL,
 };
 static const char *const bool_vals[] = {
 	"on", "off", "true", "false", NULL,
@@ -863,13 +862,9 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "summary", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_summary),
 	  summary_vals, false, true, "reasoning/summary", "reasoning summary (alias)" },
 	{ "theme", FYAIOK_STR, offsetof(struct fyai_cfg, theme),
-	  theme_vals, true, false, NULL, "background theme" },
-	{ "markdown-theme", FYAIOK_STR, offsetof(struct fyai_cfg, markdown_theme),
-	  markdown_theme_vals, true, false, NULL, "markdown palette" },
-	{ "code-theme", FYAIOK_STR, offsetof(struct fyai_cfg, code_theme),
-	  NULL, true, false, NULL, "fenced-code theme" },
+	  theme_vals, true, false, NULL, "Markdown theme[:auto|dark|light]" },
 	{ "markdown", FYAIOK_BOOL, offsetof(struct fyai_cfg, markdown),
-	  NULL, false, false, NULL, "markdown rendering" },
+	  NULL, true, false, NULL, "markdown rendering" },
 	{ "stream", FYAIOK_BOOL, offsetof(struct fyai_cfg, stream),
 	  NULL, false, false, NULL, "response streaming" },
 	{ "thinking", FYAIOK_BOOL, offsetof(struct fyai_cfg, thinking),
@@ -927,7 +922,18 @@ static int session_opt_run(struct fyai_ctx *ctx,
 
 	switch (o->kind) {
 	case FYAIOK_STR:
-		if (o->values && str_in_set(arg, o->values) < 0) {
+		if (!strcmp(o->name, "theme") &&
+		    !markdown_theme_selector_valid(arg)) {
+			char names[256];
+
+			fyai_error(ctx, "%s: invalid value '%s' "
+				   "(%s[:auto|dark|light])",
+				   o->name, arg,
+				   markdown_theme_names(names, sizeof(names)));
+			return -1;
+		}
+		if (strcmp(o->name, "theme") && o->values &&
+		    str_in_set(arg, o->values) < 0) {
 			struct response_buffer vals = {0};
 
 			/* One diagnostic: the accepted set is part of the

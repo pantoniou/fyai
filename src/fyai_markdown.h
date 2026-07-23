@@ -27,9 +27,10 @@ bool markdown_available(struct fyai_cfg *cfg);
 
 /*
  * True if @name is a selectable libfymd4c theme (or NULL/empty, meaning the
- * library default). Used to validate display/markdown_theme.
+ * library default). Used to validate the name part of display/theme.
  */
 bool markdown_theme_valid(const char *name);
+bool markdown_theme_selector_valid(const char *selector);
 /* The valid theme names, comma separated, into @buf; returns @buf. */
 const char *markdown_theme_names(char *buf, size_t bufsz);
 

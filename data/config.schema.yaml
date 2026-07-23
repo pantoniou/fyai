@@ -260,22 +260,12 @@ properties:
         description: auto (colour iff a terminal) | off | on (force, even piped).
       theme:
         type: string
-        enum: [auto, dark, light]
-        default: dark
-        description: "Background: auto (probe terminal) | dark | light."
-      markdown_theme:
-        type: string
+        default: "default:auto"
         description: >-
-          libfymd4c embedded theme name (default, catppuccin, kanagawa,
-          solarized, tokyonight; every one except default also has a
-          -borderless variant, e.g. tokyonight-borderless, which drops the
-          table/quote border glyphs). Unset uses the library default theme.
-      code_theme:
-        type: string
-        description: >-
-          Fenced-code syntax-highlight theme: a libfyts built-in name
-          (default, catppuccin, kanagawa, solarized, tokyonight, vscode,
-          vscode-nvim) or a path to a styling YAML.
+          libfymd4c embedded theme name with an optional background variant,
+          for example default:auto, catppuccin:dark, or solarized:light.
+          The selected theme also controls fenced-code highlighting and
+          terminal UI chrome.
       table_border:
         type: string
         enum: [theme, grid, none]
@@ -283,7 +273,7 @@ properties:
         description: >-
           Override the theme's table border: theme (follow the selected
           theme), grid (force borders), or none (borderless), independent of
-          markdown_theme.
+          the selected Markdown theme.
       turn_separator:
         type: string
         default: "---"

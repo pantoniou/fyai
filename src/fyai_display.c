@@ -2355,7 +2355,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	}
 
 	rc = quoted ? markdown_render_reverse(cfg, quoted, quotedlen, &rb, true,
-					      cfg->theme) : -1;
+					      cfg->theme_variant) : -1;
 	if (rc != 0) {
 		/* renderer failed or no width: plain fallback. */
 		printf("> %s\n", line);

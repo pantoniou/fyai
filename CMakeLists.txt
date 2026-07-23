@@ -298,7 +298,7 @@ option(ENABLE_LIBSECRET "Store credentials in the Linux Secret Service" OFF)
 set(FYAI_PROGRAMS fyai)
 
 # Markdown styling and theming are fully delegated to libfymd4c's embedded theme
-# catalogue (selected by the display/markdown_theme config key); fyai ships no
+# catalogue (selected by the display/theme config key); fyai ships no
 # styling YAML of its own.
 
 # Embed the vendored provider/model catalogue snapshot (a scrape-providers

@@ -37,7 +37,7 @@ static int fyai_output_renderer_start(struct fyai_ctx *ctx,
 	fyai_error_check(ctx,
 		!markdown_renderer_start(ctx->cfg, &output->renderer,
 			markdown_color_enabled(ctx->cfg->color),
-			ctx->cfg->theme), err,
+			ctx->cfg->theme_variant), err,
 		"could not start display renderer");
 	output->render_live = true;
 	return 0;

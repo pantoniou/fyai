@@ -29,6 +29,46 @@ static enum fymd_background markdown_background(const char *theme)
 	return FYMD_BG_AUTO;
 }
 
+static bool markdown_theme_split(const char *selector, char *name,
+				 size_t namesz, const char **variant)
+{
+	const char *colon;
+	size_t len;
+
+	if (!selector || !*selector)
+		selector = DEFAULT_THEME;
+	if (!strcmp(selector, "auto") || !strcmp(selector, "dark") ||
+	    !strcmp(selector, "light")) {
+		snprintf(name, namesz, "%s", "default");
+		*variant = selector;
+		return true;
+	}
+	colon = strrchr(selector, ':');
+	if (colon && (!strcmp(colon + 1, "auto") ||
+		      !strcmp(colon + 1, "dark") ||
+		      !strcmp(colon + 1, "light"))) {
+		len = (size_t)(colon - selector);
+		if (!len || len >= namesz)
+			return false;
+		memcpy(name, selector, len);
+		name[len] = '\0';
+		*variant = colon + 1;
+	} else {
+		if (snprintf(name, namesz, "%s", selector) >= (int)namesz)
+			return false;
+		*variant = "auto";
+	}
+	return markdown_theme_valid(name);
+}
+
+bool markdown_theme_selector_valid(const char *selector)
+{
+	char name[128];
+	const char *variant;
+
+	return markdown_theme_split(selector, name, sizeof(name), &variant);
+}
+
 void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 			   struct fymd_renderer_cfg *cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra)
@@ -51,11 +91,12 @@ void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 	 * while untrusted content still cannot smuggle control sequences.
 	 */
 	cfg->sgr_input = FYMD_SGR_SAFE;
-	/* Theming is surrendered to libfymd4c: the palette is one of its embedded
-	 * theme names (NULL/empty => the library "default"); the fenced-code
-	 * highlighter theme still comes from our code_theme override. */
+	/*
+	 * libfymd4c owns the palette and passes the selected theme's code.theme
+	 * through to libfyts. No independent UI or syntax theme exists here.
+	 */
 	cfg->theme = fcfg->markdown_theme;
-	cfg->code_theme = fcfg->markdown_code_theme;
+	cfg->code_theme = NULL;
 	/* Table-border override on top of the theme: 1 grid, 2 none, else theme. */
 	cfg->table_border = fcfg->table_border == 1 ? FYMD_TB_GRID :
 			    fcfg->table_border == 2 ? FYMD_TB_NONE :
@@ -92,9 +133,16 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 
 void fyai_markdown_load_style(struct fyai_cfg *cfg)
 {
-	/* The fenced-code highlighter theme is our override; the element palette
-	 * is now the libfymd4c theme selected by cfg->markdown_theme. */
-	cfg->markdown_code_theme = cfg->code_theme;
+	char name[128];
+	const char *variant;
+
+	if (!markdown_theme_split(cfg->theme, name, sizeof(name), &variant))
+		return;
+	if (!strcmp(variant, "auto"))
+		variant = markdown_color_enabled(cfg->color) ?
+				terminal_detect_theme() : "dark";
+	cfg->markdown_theme = fy_gb_intern_string(cfg->gb, name);
+	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
 	memset(cfg->markdown_rev_on, 0, sizeof(cfg->markdown_rev_on));
 	memset(cfg->markdown_rev_off, 0, sizeof(cfg->markdown_rev_off));
 
@@ -147,7 +195,8 @@ const char *markdown_theme_names(char *buf, size_t bufsz)
 bool markdown_reverse_pair(struct fyai_cfg *cfg, const char **on,
 			   const char **off)
 {
-	int i = (cfg->theme && !strcmp(cfg->theme, "light")) ? 1 : 0;
+	int i = (cfg->theme_variant &&
+		 !strcmp(cfg->theme_variant, "light")) ? 1 : 0;
 
 	if (!cfg->markdown_rev_on[i] || !*cfg->markdown_rev_on[i])
 		return false;
@@ -334,7 +383,7 @@ int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 
 	markdown_renderer_cfg(fcfg, &cfg,
 			      markdown_color_enabled(fcfg->color),
-			      fcfg->theme, 0);
+			      fcfg->theme_variant, 0);
 	r = fymd_renderer_create(&cfg);
 	if (!r)
 		return -1;
@@ -377,7 +426,7 @@ static int markdown_fprint(FILE *fp, const char *text, struct fyai_cfg *cfg,
 	color = markdown_color_enabled(cfg->color);
 	fflush(fp);
 	rc = markdown_render_flags(cfg, text, strlen(text), &out, color,
-				   cfg->theme, 0, max_lines);
+				   cfg->theme_variant, 0, max_lines);
 	end = out.len;
 	if (rc) {
 		/* Fallback: raw input was appended, emit it untouched. */
@@ -449,7 +498,7 @@ static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 	before = out->len;
 	s = NULL;
 
-	markdown_renderer_cfg(fcfg, &cfg, color, fcfg->theme, 0);
+	markdown_renderer_cfg(fcfg, &cfg, color, fcfg->theme_variant, 0);
 	r = fymd_renderer_create(&cfg);
 	if (!r)
 		goto raw;
@@ -601,7 +650,7 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 	memset(fs, 0, sizeof(*fs));
 	fs->ctx = ctx;
 	markdown_renderer_cfg(cfg, &rcfg, markdown_color_enabled(cfg->color),
-			      cfg->theme, 0);
+			      cfg->theme_variant, 0);
 	fs->r = fymd_renderer_create(&rcfg);
 	if (!fs->r)
 		return -1;
@@ -712,7 +761,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		fymd_renderer_destroy(fs->r);
 		markdown_renderer_cfg(fs->ctx->cfg, &rcfg,
 			markdown_color_enabled(fs->ctx->cfg->color),
-			fs->ctx->cfg->theme, 0);
+			fs->ctx->cfg->theme_variant, 0);
 		fs->r = fymd_renderer_create(&rcfg);
 		if (fs->r) {
 			markdown_set_line_limit(fs->r, fs->max_lines);

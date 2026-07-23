@@ -477,7 +477,8 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 			(void)fytim_set_chrome_style(ui->ft, styles[i].slot, NULL);
 		return 0;
 	}
-	markdown_renderer_cfg(ctx->cfg, &rcfg, true, ctx->cfg->theme, 0);
+	markdown_renderer_cfg(ctx->cfg, &rcfg, true,
+			      ctx->cfg->theme_variant, 0);
 	renderer = fymd_renderer_create(&rcfg);
 	if (!renderer)
 		return -1;

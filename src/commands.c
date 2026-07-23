@@ -90,7 +90,6 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--sandbox", "Landlock-confine shell tools (Linux)");
 	ITEM("--color <c>", "Colour output: auto|off|on");
 	ITEM("--theme <t>", "Markdown theme: auto|dark|light");
-	ITEM("--code-theme <t>", "Fenced-code theme: a libfyts name or a path");
 	ITEM("--interactive, -i", "Interactive prompt loop");
 	ITEM("--answer <text>", "Pre-supply an ask_user answer (repeatable)");
 	ITEM("--debug, -d", "Increase debug verbosity");

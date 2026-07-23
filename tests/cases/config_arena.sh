@@ -23,11 +23,11 @@ assert_status 0
 assert_stdout_contains "arena-model"
 
 # slash-separated keys reach nested levels
-run_fyai config set display/code_theme kanagawa
+run_fyai config set display/theme catppuccin:dark
 assert_status 0
-run_fyai config get display/code_theme
+run_fyai config get display/theme
 assert_status 0
-assert_stdout_contains "kanagawa"
+assert_stdout_contains "catppuccin:dark"
 
 run_fyai --sandbox config effective
 assert_status 0
@@ -64,7 +64,7 @@ assert_stdout_contains "model: arena-model"
 run_fyai config export
 assert_status 0
 assert_stdout_contains "model: arena-model"
-assert_stdout_contains "code_theme: kanagawa"
+assert_stdout_contains "theme: catppuccin:dark"
 
 # a raw api_key never enters the arena
 run_fyai config set api_key sk-raw-secret

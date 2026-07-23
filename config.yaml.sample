@@ -149,16 +149,10 @@ display:
   # How streamed markdown is rendered (only with markdown + stream):
   markdown_mode: line      # line (per line, default) | stream (redraw per chunk) | oneshot (at end)
   color: auto               # auto (colour iff a terminal) | off | on (force, even piped)
-  theme: dark                # background: auto (probe terminal) | dark | light
-  # libfymd4c embedded theme: default | catppuccin | kanagawa | solarized |
-  # tokyonight (each also with a -borderless variant). Unset uses the library
-  # default theme.
-  # markdown_theme: default
-  # Fenced-code syntax-highlight theme: a libfyts built-in name (default,
-  # catppuccin, kanagawa, solarized, tokyonight, vscode, vscode-nvim) or a
-  # path to a styling YAML. Default is unset (the theme's own code.theme).
-  # code_theme: default
-  # Override the theme's table border, independent of markdown_theme:
+  # One libfymd4c theme controls Markdown, fenced code, and terminal chrome.
+  # Append :auto, :dark, or :light to select its background variant.
+  theme: default:auto
+  # Override the selected theme's table border:
   # theme (follow the theme) | grid (force borders) | none (borderless).
   table_border: theme
   # Separators (rendered as markdown, themed by the renderer). turn_separator
