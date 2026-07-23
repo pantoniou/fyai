@@ -1319,7 +1319,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 				continue;
 			break;
 		}
-		if (!*line) {
+		if (strspn(line, " \t\r\n") == strlen(line)) {
 			free(line);
 			line = NULL;
 			continue;

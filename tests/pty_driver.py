@@ -27,6 +27,25 @@ def read_until(fd, data, needle, deadline):
     return data
 
 
+def read_until_count(fd, data, needle, count, deadline):
+    while data.count(needle) < count and time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if not ready:
+            continue
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        data += chunk
+    if data.count(needle) < count:
+        raise RuntimeError(
+            "PTY output did not repeat %r; tail=%r" %
+            (needle, data[-2000:]))
+    return data
+
+
 def main():
     output, *argv = sys.argv[1:]
     prompt = os.environ.get("FYAI_PTY_INPUT", "hello").encode()
@@ -39,6 +58,12 @@ def main():
     during_delay = float(os.environ.get("FYAI_PTY_DURING_DELAY", "0.2"))
     during_submit = os.environ.get(
         "FYAI_PTY_DURING_SUBMIT", "1") not in ("0", "false", "no")
+    interrupt_after_during = os.environ.get(
+        "FYAI_PTY_INTERRUPT_AFTER_DURING", "0") in ("1", "true", "yes")
+    interrupt_delay = float(
+        os.environ.get("FYAI_PTY_INTERRUPT_DELAY", "0.2"))
+    submit_recalled = os.environ.get(
+        "FYAI_PTY_SUBMIT_RECALLED", "0") in ("1", "true", "yes")
     clear_before_exit = os.environ.get(
         "FYAI_PTY_CLEAR_BEFORE_EXIT", "0") in ("1", "true", "yes")
     resize_cols = int(os.environ.get("FYAI_PTY_RESIZE_COLS", "0"))
@@ -61,6 +86,17 @@ def main():
         if during_input:
             time.sleep(during_delay)
             os.write(master, during_input + (b"\n" if during_submit else b""))
+        if interrupt_after_during:
+            time.sleep(interrupt_delay)
+            data = read_until(master, data, during_input,
+                              time.monotonic() + progress_timeout)
+            occurrences = data.count(during_input)
+            os.write(master, b"\x1b\x1b")
+            data = read_until_count(master, data, during_input,
+                                    occurrences + 1,
+                                    time.monotonic() + progress_timeout)
+            if submit_recalled:
+                os.write(master, b"\n")
         if progress_needle:
             data = read_until(master, data, progress_needle,
                               time.monotonic() + progress_timeout)

@@ -47,6 +47,7 @@ struct fyai_ui {
 	off_t capture_out;
 	off_t capture_err;
 	bool capture;
+	bool recalled;
 };
 
 static int ui_status_render(struct fyai_ui *ui, const char *activity)
@@ -276,11 +277,42 @@ static void ui_queue(struct fyai_ui *ui, const char *text)
 	if (!line) return;
 	line->text = strdup(text ? text : "");
 	if (!line->text) { free(line); return; }
-	*ui->tail = line;
-	ui->tail = &line->next;
+	if (ui->recalled) {
+		line->next = ui->head;
+		ui->head = line;
+		if (!line->next)
+			ui->tail = &line->next;
+		ui->recalled = false;
+	} else {
+		*ui->tail = line;
+		ui->tail = &line->next;
+	}
 	ui->ready = true;
 	if (ui->busy)
 		ui_pending_refresh(ui);
+}
+
+static bool ui_line_blank(const char *text)
+{
+	return !text || strspn(text, " \t\r\n") == strlen(text);
+}
+
+static void ui_recall_pending(struct fyai_ui *ui)
+{
+	struct ui_line *line;
+
+	if (!ui || ui->recalled || !ui->head)
+		return;
+	line = ui->head;
+	ui->head = line->next;
+	if (!ui->head)
+		ui->tail = &ui->head;
+	(void)fytim_set_input(ui->ft, line->text);
+	ui->recalled = true;
+	free(line->text);
+	free(line);
+	ui_pending_refresh(ui);
+	ui->ready = ui->head != NULL;
 }
 
 static void ui_message_clear(struct fyai_ui *ui)
@@ -311,11 +343,15 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		switch (ev.type) {
 		case FYTIM_EVENT_LINE:
 			ui_message_clear(ui);
-			ui_queue(ui, ev.text);
-			(void)fytim_history_add(ui->ft, ev.text);
+			if (!ui_line_blank(ev.text)) {
+				ui_queue(ui, ev.text);
+				(void)fytim_history_add(ui->ft, ev.text);
+			}
 			break;
 		case FYTIM_EVENT_INTERRUPT:
 			ui->ctx->interrupt_pending = true;
+			if (ui->busy)
+				ui_recall_pending(ui);
 			break;
 		case FYTIM_EVENT_QUIT:
 			ui->quit = true;

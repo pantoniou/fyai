@@ -117,4 +117,31 @@ assert_request 0 \
     'r["body"]["messages"][-1]["content"] == "first prompt"'
 mock_stop 1
 
+mock_start chat_stream_queued_input.json
+FYAI_PTY_INPUT="first prompt" \
+FYAI_PTY_DURING_INPUT="recalled prompt" \
+FYAI_PTY_DURING_DELAY="0.2" \
+FYAI_PTY_INTERRUPT_AFTER_DURING="1" \
+FYAI_PTY_SUBMIT_RECALLED="1" \
+FYAI_PTY_NEEDLE="Queued input completed." \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/interrupt-recall.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true --set display/stream=true \
+    --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
+assert_request 0 \
+    'r["body"]["messages"][-1]["content"] == "first prompt"'
+assert_request 1 \
+    'r["body"]["messages"][-1]["content"] == "recalled prompt"'
+mock_stop 2
+
+mock_start chat_stream.json
+FYAI_PTY_INPUT="   " \
+FYAI_PTY_NEEDLE="interactive" \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/blank-input.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
+mock_stop 0
+
 pass
