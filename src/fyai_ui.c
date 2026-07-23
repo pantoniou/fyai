@@ -33,6 +33,7 @@ struct fyai_ui {
 	volatile bool ready;
 	bool quit;
 	bool busy;
+	bool activity_paused;
 	struct fytim_workband *tool_band;
 	struct fytim_workband *pending_band;
 	char *tool_title;
@@ -123,7 +124,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	int phase;
 	const char *dot, *status_activity;
 
-	if (!ui->busy && !ui->tool_band)
+	if (ui->activity_paused || (!ui->busy && !ui->tool_band))
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
@@ -301,6 +302,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		}
 		case FYTIM_EVENT_RESIZE:
 			ui->ctx->cfg->render_width = ev.width > 1 ? ev.width - 1 : 0;
+			break;
+		case FYTIM_EVENT_SCROLLBACK:
+			ui->activity_paused = true;
 			break;
 		default:
 			break;
@@ -494,6 +498,7 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 	ui = ctx->ui;
 	ui->busy = busy;
 	if (busy) {
+		ui->activity_paused = false;
 		ui->activity_phase = -1;
 		(void)ui_activity_refresh(ui);
 	} else {
