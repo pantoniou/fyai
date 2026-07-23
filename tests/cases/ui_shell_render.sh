@@ -26,8 +26,10 @@ import sys
 
 data = open(sys.argv[1], "rb").read()
 plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
-if b"\xe2\x97\x8f tool" in plain:
-    raise SystemExit("UI-only tool chrome leaked into transcript")
+if not re.search(rb"(?:^|[\r\n])\xe2\x97\x8f shell\s+printf", plain):
+    raise SystemExit("live activity dot is not beside the shell invocation")
+if b"\xe2\x97\x8f working" in plain:
+    raise SystemExit("activity dot was rendered on a separate chrome row")
 if b"shell printf" not in plain:
     raise SystemExit("canonical shell header missing")
 if not re.search(rb"(?:^|\r?\n)    0\r?\n", plain):

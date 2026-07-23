@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <libfytimui.h>
@@ -37,7 +38,75 @@ struct fyai_ui {
 	char *tool_title;
 	char *tool_body;
 	size_t tool_body_len;
+	int activity_phase;
 };
+
+static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
+			  bool commit)
+{
+	struct response_buffer out = {0};
+	size_t title_len;
+	int rc = -1;
+
+	if (!ui->tool_band)
+		return 0;
+	title_len = ui->tool_title ? strlen(ui->tool_title) : 0;
+	if (markdown_render_margins(ui->ctx->cfg,
+			ui->tool_title ? ui->tool_title : "shell",
+			title_len ? title_len : 5, &out, first_margin, "  "))
+		goto out;
+	if (ui->tool_body_len) {
+		if (out.len && out.data[out.len - 1] != '\n') {
+			if (response_buffer_reserve(&out, out.len + 2))
+				goto out;
+			out.data[out.len++] = '\n';
+			out.data[out.len] = '\0';
+		}
+		if (response_buffer_reserve(&out,
+					    out.len + ui->tool_body_len + 1))
+			goto out;
+		memcpy(out.data + out.len, ui->tool_body, ui->tool_body_len);
+		out.len += ui->tool_body_len;
+		out.data[out.len] = '\0';
+	}
+	if (fytim_workband_set(ui->tool_band, out.data, out.len) != FYTIM_OK)
+		goto out;
+	if (commit &&
+	    fytim_workband_set_commit(ui->tool_band, out.data, out.len) != FYTIM_OK)
+		goto out;
+	rc = 0;
+out:
+	free(out.data);
+	return rc;
+}
+
+static int ui_activity_refresh(struct fyai_ui *ui)
+{
+	struct timespec ts;
+	int phase;
+	const char *dot, *marker;
+
+	if (!ui->busy && !ui->tool_band)
+		return 0;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts))
+		return -1;
+	phase = (int)((ts.tv_sec * 2 + ts.tv_nsec / 500000000L) & 1);
+	if (phase == ui->activity_phase)
+		return 0;
+	ui->activity_phase = phase;
+	/*
+	 * Host-side blinking is intentional. SGR blink is inconsistently
+	 * implemented by terminals. The invocation itself is the work-band
+	 * header, so only its leading activity cell changes.
+	 */
+	dot = phase ? "  " : "\033[93m●\033[0m ";
+	marker = phase ? "  " : "\033[93m●\033[0m ";
+	if (ui->tool_band && ui_tool_render(ui, dot, false))
+		return -1;
+	if (ui->busy && fytim_set_marker(ui->ft, marker) != FYTIM_OK)
+		return -1;
+	return 0;
+}
 
 static void ui_pending_refresh(struct fyai_ui *ui)
 {
@@ -154,6 +223,8 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	struct fytim_event ev;
 
 	fyai_ui_drain_output(ui->ctx);
+	if (ui_activity_refresh(ui))
+		return FYAIEA_ABORT;
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
 	while (fytim_next_event(ui->ft, &ev)) {
@@ -239,6 +310,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	}
 	if (!ctx->cfg->color || !strcmp(ctx->cfg->color, "auto"))
 		ctx->cfg->color = "on";
+	fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), fail,
+			 "failed to apply input bubble style");
 	el = fyai_ctx_loop(ctx);
 	if (!el || fyai_event_add_fd(el, fytim_poll_fd(ui->ft), FYAIEV_READ,
 				     ui_cb, ui, &ui->input_src) ||
@@ -284,6 +357,20 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 }
 
 bool fyai_ui_active(const struct fyai_ctx *ctx) { return ctx && ctx->ui; }
+
+int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	const char *on, *off = NULL;
+
+	if (!ui)
+		return 0;
+	if (!ctx->cfg->markdown ||
+	    !markdown_reverse_pair(ctx->cfg, &on, &off))
+		on = NULL;
+	(void)off;
+	return fytim_set_prompt_style(ui->ft, on) == FYTIM_OK ? 0 : -1;
+}
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)
 {
@@ -354,10 +441,20 @@ void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 
 void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 {
+	struct fyai_ui *ui;
+
 	if (!fyai_ui_active(ctx)) return;
-	ctx->ui->busy = busy;
-	(void)fytim_set_status_row(ctx->ui->ft, 0, busy ? " working" : " ready");
-	(void)fytim_set_marker(ctx->ui->ft, busy ? "● " : "❯ ");
+	ui = ctx->ui;
+	ui->busy = busy;
+	(void)fytim_set_status_row(ui->ft, 0, busy ? " working" : " ready");
+	if (busy) {
+		ui->activity_phase = -1;
+		(void)ui_activity_refresh(ui);
+	} else {
+		(void)fytim_set_marker(ui->ft,
+			ctx->cfg->prompt_marker && *ctx->cfg->prompt_marker ?
+			ctx->cfg->prompt_marker : "❯ ");
+	}
 }
 
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
@@ -394,13 +491,16 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	ui->tool_title = strdup(title ? title : "tool");
 	ui->tool_band = fytim_workband_create(ui->ft);
 	if (!ui->tool_band) return;
+	ui->activity_phase = -1;
 	(void)fytim_workband_set_max_rows(ui->tool_band,
 		ctx->cfg->tool_preview_lines + 2);
+	(void)ui_activity_refresh(ui);
 }
 
 void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 {
 	struct fyai_ui *ui;
+	const char *margin;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
 	free(ui->tool_body);
@@ -408,17 +508,19 @@ void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 	ui->tool_body_len = ui->tool_body ? len : 0;
 	if (ui->tool_body)
 		memcpy(ui->tool_body, body, len);
-	(void)fytim_workband_set(ui->tool_band, body, len);
+	margin = ui->activity_phase ?
+		 "  " : "\033[93m●\033[0m ";
+	(void)ui_tool_render(ui, margin, false);
 }
 
 void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok)
 {
 	struct fyai_ui *ui;
-	(void)ok;
+	const char *margin;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
-	(void)fytim_workband_set(ui->tool_band, ui->tool_body,
-				 ui->tool_body_len);
+	margin = ok ? "\033[32m●\033[0m " : "\033[31m●\033[0m ";
+	(void)ui_tool_render(ui, margin, true);
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	free(ui->tool_title); ui->tool_title = NULL;

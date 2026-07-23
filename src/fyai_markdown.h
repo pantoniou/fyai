@@ -66,6 +66,10 @@ int markdown_renderer_finish(struct markdown_renderer *renderer,
 void markdown_renderer_destroy(struct markdown_renderer *renderer);
 int markdown_render(struct fyai_cfg *cfg, const char *text, size_t len,
 		    struct response_buffer *out, bool color, const char *theme);
+int markdown_render_margins(struct fyai_cfg *cfg, const char *text, size_t len,
+			    struct response_buffer *out,
+			    const char *first_margin,
+			    const char *next_margin);
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme);

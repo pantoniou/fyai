@@ -309,6 +309,53 @@ int markdown_render(struct fyai_cfg *cfg, const char *text, size_t len,
 	return markdown_render_flags(cfg, text, len, out, color, theme, 0, 0);
 }
 
+struct markdown_margin_ctx {
+	const char *first;
+	const char *next;
+};
+
+static const char *markdown_margin_cb(void *userdata, size_t row)
+{
+	struct markdown_margin_ctx *m = userdata;
+
+	return row ? m->next : m->first;
+}
+
+int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
+			    struct response_buffer *out,
+			    const char *first_margin,
+			    const char *next_margin)
+{
+	struct markdown_margin_ctx margins = { first_margin, next_margin };
+	struct fymd_renderer_cfg cfg;
+	struct fymd_renderer *r;
+	char *s = NULL;
+	size_t slen = 0;
+
+	markdown_renderer_cfg(fcfg, &cfg,
+			      markdown_color_enabled(fcfg->color),
+			      fcfg->theme, 0);
+	r = fymd_renderer_create(&cfg);
+	if (!r)
+		return -1;
+	if (fymd_render_with_margins(r, text, len, markdown_margin_cb, &margins,
+				     &s, &slen)) {
+		fymd_renderer_destroy(r);
+		return -1;
+	}
+	if (response_buffer_reserve(out, out->len + slen + 1)) {
+		fymd_free(s);
+		fymd_renderer_destroy(r);
+		return -1;
+	}
+	memcpy(out->data + out->len, s, slen);
+	out->len += slen;
+	out->data[out->len] = '\0';
+	fymd_free(s);
+	fymd_renderer_destroy(r);
+	return 0;
+}
+
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme)

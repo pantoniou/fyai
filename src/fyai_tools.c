@@ -67,27 +67,20 @@ static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_cal
 	return fy_gb_intern_string(ctx->transient_gb, fy_cast(v, ""));
 }
 
-/*
- * Render the live shell header to stderr through the one shared emitter the
- * history view uses (fyai_emit_tool_call), so the live and history headers stay
- * in sync - bold "shell" plus the inline-code command, themed identically.
- */
-static void fyai_print_shell_header(struct fyai_ctx *ctx, const char *command)
+/* Format the invocation Markdown through the same emitter used by history. */
+static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command)
 {
 	char *md = NULL;
 	size_t mdlen = 0;
-	FILE *mf = open_memstream(&md, &mdlen);
+	FILE *mf;
 
-	if (!mf) {
-		fprintf(stderr, "  shell %s\n", command);
-		return;
-	}
+	mf = open_memstream(&md, &mdlen);
+	if (!mf)
+		return NULL;
 	fyai_emit_tool_call(mf, ctx->transient_gb, "shell",
 			    fy_mapping("command", command), 0);
 	fclose(mf);
-	if (md && fyai_fprint_markdown(stderr, md, ctx->cfg))
-		fputs(md, stderr);
-	free(md);
+	return md;
 }
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
@@ -96,6 +89,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 	const char *name;
 	const char *args_text;
 	const char *command;
+	char *header;
 	fy_generic args;
 
 	name = fyai_tool_call_name(ctx, tool_call);
@@ -132,9 +126,17 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		 * (row limit + indent) as the history view, only updated live as
 		 * the command's output arrives, so live and history match.
 		 */
-		fyai_print_shell_header(ctx, *command ? command : name);
-		if (fyai_ui_active(ctx))
-			fyai_ui_tool_begin(ctx, *command ? command : name);
+		header = fyai_format_shell_header(ctx, *command ? command : name);
+		if (fyai_ui_active(ctx)) {
+			fyai_ui_tool_begin(ctx, header ? header : "shell");
+		} else if (header) {
+			if (fyai_fprint_markdown(stderr, header, ctx->cfg))
+				fputs(header, stderr);
+		} else {
+			fprintf(stderr, "  shell %s\n",
+				*command ? command : name);
+		}
+		free(header);
 		ctx->shell_stream = calloc(1, sizeof(*ctx->shell_stream));
 		if (ctx->shell_stream != NULL &&
 		    fyai_fenced_stream_start(ctx->shell_stream, ctx, cfg, NULL,

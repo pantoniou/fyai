@@ -969,13 +969,19 @@ static int session_opt_run(struct fyai_ctx *ctx,
 		break;
 	}
 
-	if (o->restyle && cfg->markdown)
+	if (o->restyle && cfg->markdown) {
 		fyai_markdown_load_style(cfg);
+		fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), err_out,
+				 "failed to update input bubble style");
+	}
 	if (o->ckey)
 		session_persist(ctx, o->ckey, o->kind == FYAIOK_STR ?
 				fy_sprintfa("'%s'", arg) : arg);
 	session_opt_print(cfg, o);
 	return 0;
+
+err_out:
+	return -1;
 }
 
 /* ---- slash dispatch ------------------------------------------------------ */

@@ -24,6 +24,7 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy);
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo);
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 			   const char *bottom);
+int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx);
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title);
 void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len);
