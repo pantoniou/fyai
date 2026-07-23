@@ -483,7 +483,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_event_test PRIVATE libfyaml::libfyaml
-        ${ASAN_LINK_OPTS})
+        CURL::libcurl ${ASAN_LINK_OPTS})
     add_test(NAME fyai/event COMMAND fyai_event_test)
 
     add_executable(fyai_oauth_test

@@ -93,11 +93,14 @@ RUN if [ "$STATIC_MODE" = musl ]; then \
         PKG_CONFIG_PATH=/opt/musl/lib/pkgconfig cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=/opt/musl/bin/musl-gcc \
             -DCMAKE_PREFIX_PATH=/opt/musl \
-            -DFYAI_MUSL_STATIC=ON; \
+            -DFYAI_MUSL_STATIC=ON \
+            -DBUILD_TESTING=OFF; \
     elif [ "$STATIC_MODE" = full ]; then \
-        cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DFYAI_STATIC=ON; \
+        cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
+            -DFYAI_STATIC=ON -DBUILD_TESTING=OFF; \
     else \
-        cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DFYAI_MOSTLY_STATIC=ON; \
+        cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release \
+            -DFYAI_MOSTLY_STATIC=ON -DBUILD_TESTING=OFF; \
     fi \
     && cmake --build /build -j"$(nproc)"
 
