@@ -41,6 +41,9 @@ fy_generic fyai_stream_request_collect(const fyai_stream_request *request);
 void fyai_stream_request_destroy(fyai_stream_request *request);
 
 fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx);
+fy_generic fyai_perform_streaming_request_tools(
+		struct fyai_ctx *ctx, fyai_stream_tool_fn tool,
+		void *userdata);
 fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx);
 
 #endif

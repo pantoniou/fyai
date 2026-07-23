@@ -642,11 +642,16 @@ static int stream_emit_tool(struct stream_response *stream, size_t index,
 	struct fy_generic_builder *gb;
 	fy_generic emitted;
 	fy_generic slot;
+	const char *key;
 
 	if (!stream->callbacks.tool)
 		return 0;
+	if (stream->ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
+		key = fy_get(tool_call, "id", "");
+	else
+		key = fy_get(tool_call, "call_id", "");
 	fy_foreach(emitted, stream->emitted_tools)
-		if (fy_cast(emitted, -1LL) == (long long)index)
+		if (*key && fy_equal(emitted, key))
 			return 0;
 	if (index < fy_len(stream->tool_calls)) {
 		slot = fy_get(stream->tool_calls, index);
@@ -662,8 +667,9 @@ static int stream_emit_tool(struct stream_response *stream, size_t index,
 	tool_call = fy_gb_internalize(gb, tool_call);
 	if (fy_generic_is_invalid(tool_call))
 		return -1;
-	stream->emitted_tools = fy_append(gb, stream->emitted_tools,
-					  (long long)index);
+	if (*key)
+		stream->emitted_tools = fy_append(gb, stream->emitted_tools,
+						  key);
 	if (fy_generic_is_invalid(stream->emitted_tools))
 		return -1;
 	stream->callbacks.tool(stream, tool_call, index,
@@ -1447,8 +1453,11 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 	struct fyai_cfg *cfg;
 	CURLcode res;
 	fy_generic ret;
+	fy_generic tool_calls;
+	fy_generic tool_call;
 	long status;
 	int rc;
+	size_t tool_index;
 
 	stream = userdata;
 	ctx = stream->ctx;
@@ -1517,6 +1526,17 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 
 	if (fy_generic_is_valid(ret))
 		stream_store_token_extents(stream, ret);
+	if (fy_generic_is_valid(ret) && stream->callbacks.tool) {
+		tool_calls = fyai_response_tool_calls(ctx, ret);
+		tool_index = 0;
+		fy_foreach(tool_call, tool_calls) {
+			rc = stream_emit_tool(stream, tool_index++, tool_call);
+			if (rc) {
+				ret = fy_invalid;
+				break;
+			}
+		}
+	}
 	if (fy_generic_is_valid(ret))
 		stream_state_transition(stream, FYAISS_COMPLETED);
 	else
@@ -1597,44 +1617,71 @@ void fyai_stream_request_destroy(fyai_stream_request *request)
 	free(request);
 }
 
+struct stream_sync {
+	volatile bool done;
+	fyai_stream_tool_fn tool;
+	void *userdata;
+};
+
 static void stream_sync_complete(fyai_stream_request *request, void *userdata)
 {
-	volatile bool *done;
+	struct stream_sync *sync;
 
 	(void)request;
-	done = userdata;
-	*done = true;
+	sync = userdata;
+	sync->done = true;
 }
 
-fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
+static void stream_sync_tool(fyai_stream_request *request,
+			     fy_generic tool_call, size_t index,
+			     void *userdata)
+{
+	struct stream_sync *sync;
+
+	sync = userdata;
+	if (sync->tool)
+		sync->tool(request, tool_call, index, sync->userdata);
+}
+
+fy_generic fyai_perform_streaming_request_tools(
+		struct fyai_ctx *ctx, fyai_stream_tool_fn tool,
+		void *userdata)
 {
 	struct fyai_stream_callbacks callbacks;
+	struct stream_sync sync;
 	fyai_stream_request *request;
 	struct fyai_event_loop *el;
-	volatile bool done;
 	fy_generic ret;
 	int rc;
 
-	done = false;
+	memset(&sync, 0, sizeof(sync));
+	sync.tool = tool;
+	sync.userdata = userdata;
 	ret = fy_invalid;
 	memset(&callbacks, 0, sizeof(callbacks));
 	callbacks.complete = stream_sync_complete;
-	callbacks.userdata = (void *)&done;
+	callbacks.tool = stream_sync_tool;
+	callbacks.userdata = &sync;
 	request = fyai_stream_request_submit(ctx, &callbacks);
 	if (!request)
 		return fy_invalid;
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		goto out;
-	rc = fyai_event_loop_run_until(el, &done, -1);
+	rc = fyai_event_loop_run_until(el, &sync.done, -1);
 	if (rc)
 		fyai_stream_request_cancel(request);
-	if (!done && !rc)
+	if (!sync.done && !rc)
 		goto out;
 	ret = fyai_stream_request_collect(request);
 out:
 	fyai_stream_request_destroy(request);
 	return ret;
+}
+
+fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
+{
+	return fyai_perform_streaming_request_tools(ctx, NULL, NULL);
 }
 
 fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)

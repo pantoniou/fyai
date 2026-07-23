@@ -6,6 +6,8 @@
 
 struct fyai_tool_job;
 struct fyai_tool_job_group;
+typedef void (*fyai_tool_group_complete_fn)(
+		struct fyai_tool_job_group *group, void *userdata);
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
@@ -20,17 +22,24 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);
 
 struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx);
+struct fyai_tool_job_group *
+fyai_tool_job_group_create_open(struct fyai_ctx *ctx,
+				fyai_tool_group_complete_fn complete,
+				void *userdata);
 int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 			    fy_generic tool_call);
 /*
- * Submission starts the FIFO. Concurrent jobs share one group; an exclusive
- * tool uses the same lifecycle in a group of one. The application event loop
- * pumps descriptors, then calls service() to park completions and fill newly
- * available slots. Collection is non-blocking and valid only after done().
+ * A regular submission seals and starts the FIFO immediately. An open group
+ * may accept parallel calls while a model response is still streaming; seal()
+ * declares that no more calls will arrive. Job callbacks park completions,
+ * fill available FIFO slots, and notify a sealed group exactly once.
+ * Collection is non-blocking and valid only after done().
  */
 int fyai_tool_job_group_submit(struct fyai_tool_job_group *group);
+int fyai_tool_job_group_seal(struct fyai_tool_job_group *group);
 void fyai_tool_job_group_service(struct fyai_tool_job_group *group);
 bool fyai_tool_job_group_done(const struct fyai_tool_job_group *group);
+size_t fyai_tool_job_group_count(const struct fyai_tool_job_group *group);
 void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group);
 int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 				size_t index, fy_generic *result, bool *okp);
