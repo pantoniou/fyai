@@ -597,7 +597,22 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 				     &opts, &rendered, &rlen))
 		return -1;
 	if (fyai_ui_active(fs->ctx)) {
-		fyai_ui_tool_update(fs->ctx, rendered, rlen);
+		char *indented = NULL;
+		size_t ilen = 0;
+		FILE *mf = open_memstream(&indented, &ilen);
+
+		if (!mf) {
+			fymd_free(rendered);
+			return -1;
+		}
+		fyai_fwrite_indented(mf, fs->indent, rendered, rlen);
+		if (fclose(mf)) {
+			free(indented);
+			fymd_free(rendered);
+			return -1;
+		}
+		fyai_ui_tool_update(fs->ctx, indented, ilen);
+		free(indented);
 		fymd_free(rendered);
 		return 0;
 	}

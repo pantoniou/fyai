@@ -29,6 +29,9 @@ def read_until(fd, data, needle, deadline):
 
 def main():
     output, *argv = sys.argv[1:]
+    prompt = os.environ.get("FYAI_PTY_INPUT", "hello").encode()
+    needle = os.environ.get(
+        "FYAI_PTY_NEEDLE", "Streaming hello from the mock.").encode()
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     pid = os.fork()
@@ -44,8 +47,8 @@ def main():
     deadline = time.monotonic() + 15
     try:
         time.sleep(0.2)
-        os.write(master, b"hello\n")
-        data = read_until(master, data, b"Streaming hello from the mock.", deadline)
+        os.write(master, prompt + b"\n")
+        data = read_until(master, data, needle, deadline)
         os.write(master, b"/exit\n")
         while time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.1)

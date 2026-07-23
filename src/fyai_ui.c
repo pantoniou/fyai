@@ -385,7 +385,6 @@ struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx)
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 {
 	struct fyai_ui *ui;
-	char line[512];
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->ui;
 	if (ui->tool_band) fytim_workband_destroy(ui->tool_band);
@@ -396,9 +395,6 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	ui->tool_title = strdup(title ? title : "tool");
 	ui->tool_band = fytim_workband_create(ui->ft);
 	if (!ui->tool_band) return;
-	snprintf(line, sizeof(line), "\n\033[93m●\033[0m \033[1mtool\033[0m %s",
-		 ui->tool_title ? ui->tool_title : "tool");
-	(void)fytim_workband_set(ui->tool_band, line, strlen(line));
 	(void)fytim_workband_set_max_rows(ui->tool_band,
 		ctx->cfg->tool_preview_lines + 2);
 }
@@ -406,8 +402,6 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 {
 	struct fyai_ui *ui;
-	char *full;
-	int n;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
 	free(ui->tool_body);
@@ -415,36 +409,17 @@ void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 	ui->tool_body_len = ui->tool_body ? len : 0;
 	if (ui->tool_body)
 		memcpy(ui->tool_body, body, len);
-	full = malloc(strlen(ui->tool_title ? ui->tool_title : "tool") + len + 64);
-	if (!full) return;
-	n = sprintf(full, "\n\033[93m●\033[0m \033[1mtool\033[0m %s",
-		    ui->tool_title ? ui->tool_title : "tool");
-	if (len) { full[n++] = '\n'; memcpy(full + n, body, len); n += (int)len; }
-	(void)fytim_workband_set(ui->tool_band, full, (size_t)n);
-	free(full);
+	(void)fytim_workband_set(ui->tool_band, body, len);
 }
 
 void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok)
 {
 	struct fyai_ui *ui;
-	char *line;
-	size_t cap, n;
+	(void)ok;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
-	cap = strlen(ui->tool_title ? ui->tool_title : "tool") +
-		ui->tool_body_len + 64;
-	line = malloc(cap);
-	if (!line) return;
-	n = (size_t)snprintf(line, cap, "\n%s \033[1mtool\033[0m %s",
-		ok ? "\033[32m●\033[0m" : "\033[31m●\033[0m",
-		ui->tool_title ? ui->tool_title : "tool");
-	if (ui->tool_body_len) {
-		line[n++] = '\n';
-		memcpy(line + n, ui->tool_body, ui->tool_body_len);
-		n += ui->tool_body_len;
-	}
-	(void)fytim_workband_set(ui->tool_band, line, n);
-	free(line);
+	(void)fytim_workband_set(ui->tool_band, ui->tool_body,
+				 ui->tool_body_len);
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	free(ui->tool_title); ui->tool_title = NULL;

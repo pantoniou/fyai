@@ -1,0 +1,45 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_ui_shell_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_ui_item_1",
+            "call_id": "sc_ui_1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [ "printf '0\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n'" ],
+              "max_output_length": 4096
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 5, "total_tokens": 15 }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_ui_shell_2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_ui_shell_2",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "Interactive shell rendering done." }
+            ]
+          }
+        ],
+        "usage": { "input_tokens": 20, "output_tokens": 5, "total_tokens": 25 }
+      }
+    }
+  ]
+}

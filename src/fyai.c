@@ -185,8 +185,6 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	else
 		name = fy_get(tool_call, "name", "");
 	shell = fy_equal(name, "shell");
-	if (fyai_ui_active(ctx))
-		fyai_ui_tool_begin(ctx, name);
 
 	/*
 	 * Shell streams its output live as it runs, so it prints its own header
@@ -207,7 +205,10 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
 				       cfg->pretty);
-	if (fyai_ui_active(ctx))
+	/* Shell owns the only progressive tool work-band. Other tools are
+	 * rendered atomically by fyai_render_tool_exchange(), so adding a second
+	 * UI-only work-band merely duplicates their canonical transcript form. */
+	if (shell && fyai_ui_active(ctx))
 		fyai_ui_tool_end(ctx,
 			strncmp(result_text, "tool error:", 11) != 0);
 
