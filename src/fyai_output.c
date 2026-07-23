@@ -202,6 +202,20 @@ err:
 	return -1;
 }
 
+static int fyai_output_start_block(struct fyai_ctx *ctx)
+{
+	struct fyai_display_output *output = ctx->display_output;
+	size_t len = output->markdown.len;
+
+	if (!len)
+		return 0;
+	if (output->markdown.data[len - 1] != '\n')
+		return fyai_output_append_string(ctx, "\n\n");
+	if (len < 2 || output->markdown.data[len - 2] != '\n')
+		return fyai_output_append_string(ctx, "\n");
+	return 0;
+}
+
 /*
  * Reasoning is ordinary Markdown inside the assistant document. A blockquote
  * is deliberately used instead of per-line emphasis: it remains well-formed
@@ -217,6 +231,8 @@ int fyai_output_reasoning_append(struct fyai_ctx *ctx, const char *text)
 		return 0;
 	output = ctx->display_output;
 	if (!output->reasoning) {
+		if (fyai_output_start_block(ctx))
+			return -1;
 		if (fyai_output_printf(ctx, "> **%s**\n>\n> ",
 				       "💭 reasoning"))
 			return -1;
