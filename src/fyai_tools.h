@@ -6,8 +6,11 @@
 
 struct fyai_tool_job;
 struct fyai_tool_job_group;
+struct fyai_mcp_call_request;
 typedef void (*fyai_tool_group_complete_fn)(
 		struct fyai_tool_job_group *group, void *userdata);
+typedef void (*fyai_mcp_call_complete_fn)(
+		struct fyai_mcp_call_request *request, void *userdata);
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
@@ -22,6 +25,10 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);
 
 struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx);
+struct fyai_tool_job_group *
+fyai_tool_job_group_create_notify(struct fyai_ctx *ctx,
+				  fyai_tool_group_complete_fn complete,
+				  void *userdata);
 struct fyai_tool_job_group *
 fyai_tool_job_group_create_open(struct fyai_ctx *ctx,
 				fyai_tool_group_complete_fn complete,
@@ -50,6 +57,15 @@ fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);
 bool fyai_mcp_tool_name(const char *name);
 fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
 			 fy_generic args);
+struct fyai_mcp_call_request *
+fyai_mcp_call_submit(struct fyai_ctx *ctx, const char *name,
+		     fy_generic args, fyai_mcp_call_complete_fn complete,
+		     void *userdata);
+void fyai_mcp_call_cancel(struct fyai_mcp_call_request *request);
+bool fyai_mcp_call_done(const struct fyai_mcp_call_request *request);
+fy_generic fyai_mcp_call_collect(struct fyai_mcp_call_request *request,
+				 bool *okp);
+void fyai_mcp_call_destroy(struct fyai_mcp_call_request *request);
 void fyai_mcp_cleanup(struct fyai_ctx *ctx);
 
 /*

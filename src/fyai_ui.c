@@ -743,23 +743,37 @@ void fyai_ui_history_save(struct fyai_ctx *ctx, const char *path,
 char *fyai_ui_readline(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct ui_line *line;
 	if (!ui) return NULL;
 	while (!ui->head && !ui->quit) {
 		ui->ready = false;
 		if (fyai_event_loop_run_until(fyai_ctx_loop(ctx), &ui->ready, -1))
 			return NULL;
 	}
-	if (ui->quit) return NULL;
+	return fyai_ui_take_line(ctx);
+}
+
+char *fyai_ui_take_line(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct ui_line *line;
+	char *text;
+
+	if (!ui || ui->quit || !ui->head)
+		return NULL;
 	line = ui->head; ui->head = line->next;
 	if (!ui->head) ui->tail = &ui->head;
 	ui_pending_refresh(ui);
 	ui->ready = ui->head != NULL;
-	{
-		char *text = line->text;
-		free(line);
-		return text;
-	}
+	text = line->text;
+	free(line);
+	return text;
+}
+
+bool fyai_ui_quit_requested(const struct fyai_ctx *ctx)
+{
+	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	return !ui || ui->quit;
 }
 
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)

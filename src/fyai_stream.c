@@ -38,6 +38,7 @@ struct stream_spinner {
 struct stream_response {
 	struct fyai_ctx *ctx;
 	struct fyai_curl_transfer *transfer;
+	struct fyai_auth_refresh_request *auth_refresh;
 	struct fyai_stream_callbacks callbacks;
 	fy_generic result;
 	enum fyai_stream_state state;
@@ -65,6 +66,7 @@ struct stream_response {
 	bool printed_content;
 	bool printed_reasoning;
 	bool failed;
+	bool cancel_requested;
 	size_t received_bytes;
 	size_t content_bytes;
 	size_t content_chunks_count;
@@ -121,7 +123,9 @@ static bool stream_state_transition_valid(enum fyai_stream_state from,
 		       to == FYAISS_CANCELLED ||
 		       to == FYAISS_FAILED;
 	case FYAISS_RETRYING:
-		return to == FYAISS_SUBMITTED || to == FYAISS_FAILED;
+		return to == FYAISS_SUBMITTED ||
+		       to == FYAISS_CANCELLING ||
+		       to == FYAISS_FAILED;
 	case FYAISS_CANCELLING:
 		return to == FYAISS_CANCELLED || to == FYAISS_FAILED;
 	case FYAISS_COMPLETED:
@@ -144,6 +148,10 @@ static void stream_state_transition(struct stream_response *stream,
 			stream->state = FYAISS_FAILED;
 		return;
 	}
+	if (stream->ctx->cfg->debug)
+		fyai_debug(stream->ctx, "response stream state %s -> %s",
+			   stream_state_name(stream->state),
+			   stream_state_name(state));
 	stream->state = state;
 }
 
@@ -1415,6 +1423,8 @@ static void stream_request_notify(struct stream_response *stream)
 
 static void stream_request_complete(struct fyai_curl_transfer *transfer,
 				    void *userdata);
+static void stream_auth_complete(
+		struct fyai_auth_refresh_request *request, void *userdata);
 
 static int stream_request_resubmit(struct stream_response *stream)
 {
@@ -1424,7 +1434,6 @@ static int stream_request_resubmit(struct stream_response *stream)
 
 	ctx = stream->ctx;
 	callbacks = stream->callbacks;
-	stream_state_transition(stream, FYAISS_RETRYING);
 	if (stream->state != FYAISS_RETRYING)
 		return -1;
 	stream_response_cleanup(stream);
@@ -1443,6 +1452,38 @@ static int stream_request_resubmit(struct stream_response *stream)
 	stream->transfer = fyai_curl_submit(ctx, ctx->curl,
 					    stream_request_complete, stream);
 	return stream->transfer ? 0 : -1;
+}
+
+static void stream_auth_complete(
+		struct fyai_auth_refresh_request *request, void *userdata)
+{
+	struct stream_response *stream;
+	struct fyai_ctx *ctx;
+	fy_generic result;
+	int rc;
+
+	stream = userdata;
+	ctx = stream->ctx;
+	rc = fyai_auth_refresh_collect(request);
+	fyai_auth_refresh_destroy(request);
+	stream->auth_refresh = NULL;
+	if (stream->cancel_requested) {
+		result = fyai_with_diag(ctx->transient_gb, fy_invalid,
+				       "interrupted");
+		stream_state_transition(stream, FYAISS_CANCELLED);
+		stream->result = result;
+		stream_request_notify(stream);
+		return;
+	}
+	if (!rc)
+		rc = fyai_request_state_apply(ctx);
+	if (!rc)
+		rc = stream_request_resubmit(stream);
+	if (!rc)
+		return;
+	stream_state_transition(stream, FYAISS_FAILED);
+	stream->result = fy_invalid;
+	stream_request_notify(stream);
 }
 
 static void stream_request_complete(struct fyai_curl_transfer *transfer,
@@ -1482,8 +1523,12 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
 		if (fyai_auth_should_retry(ctx, status)) {
-			rc = fyai_auth_prepare_retry(ctx);
-			if (!rc && !stream_request_resubmit(stream))
+			ctx->auth_retry_done = true;
+			stream_state_transition(stream, FYAISS_RETRYING);
+			stream->auth_refresh = fyai_auth_refresh_submit(
+					ctx, true, stream_auth_complete,
+					stream);
+			if (stream->auth_refresh)
 				return;
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
@@ -1583,10 +1628,15 @@ err_out:
 
 void fyai_stream_request_cancel(fyai_stream_request *request)
 {
-	if (request && request->transfer &&
-	    !stream_state_terminal(request->state)) {
+	if (!request || stream_state_terminal(request->state))
+		return;
+	request->cancel_requested = true;
+	if (request->transfer) {
 		stream_state_transition(request, FYAISS_CANCELLING);
 		fyai_curl_cancel(request->transfer);
+	} else if (request->auth_refresh) {
+		stream_state_transition(request, FYAISS_CANCELLING);
+		fyai_auth_refresh_cancel(request->auth_refresh);
 	}
 }
 
@@ -1613,6 +1663,8 @@ void fyai_stream_request_destroy(fyai_stream_request *request)
 		return;
 	if (request->transfer)
 		fyai_curl_transfer_destroy(request->transfer);
+	if (request->auth_refresh)
+		fyai_auth_refresh_destroy(request->auth_refresh);
 	stream_response_cleanup(request);
 	free(request);
 }
@@ -1684,51 +1736,242 @@ fy_generic fyai_perform_streaming_request(struct fyai_ctx *ctx)
 	return fyai_perform_streaming_request_tools(ctx, NULL, NULL);
 }
 
-fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
+struct fyai_buffered_request {
+	struct fyai_ctx *ctx;
+	struct fyai_curl_transfer *transfer;
+	struct fyai_auth_refresh_request *auth_refresh;
+	fyai_buffered_complete_fn complete;
+	void *userdata;
+	struct response_buffer response;
+	fy_generic result;
+	bool done;
+	bool cancel_requested;
+};
+
+static void buffered_request_complete(struct fyai_curl_transfer *transfer,
+				      void *userdata);
+static void buffered_auth_complete(
+		struct fyai_auth_refresh_request *request, void *userdata);
+
+static int
+buffered_request_start(struct fyai_buffered_request *request)
 {
-	struct response_buffer response = {};
+	struct fyai_ctx *ctx;
+
+	ctx = request->ctx;
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &request->response);
+	request->transfer = fyai_curl_submit(ctx, ctx->curl,
+					     buffered_request_complete,
+					     request);
+	return request->transfer ? 0 : -1;
+}
+
+static void buffered_request_notify(struct fyai_buffered_request *request)
+{
+	fyai_buffered_complete_fn complete;
+	void *userdata;
+
+	complete = request->complete;
+	userdata = request->userdata;
+	if (complete)
+		complete(request, userdata);
+}
+
+static void buffered_auth_complete(
+		struct fyai_auth_refresh_request *refresh, void *userdata)
+{
+	struct fyai_buffered_request *request;
+	struct fyai_ctx *ctx;
+	int rc;
+
+	request = userdata;
+	ctx = request->ctx;
+	rc = fyai_auth_refresh_collect(refresh);
+	fyai_auth_refresh_destroy(refresh);
+	request->auth_refresh = NULL;
+	if (request->cancel_requested) {
+		request->result = fyai_with_diag(ctx->transient_gb,
+						 fy_invalid,
+						 "interrupted");
+		goto done;
+	}
+	if (!rc)
+		rc = fyai_request_state_apply(ctx);
+	if (!rc)
+		rc = buffered_request_start(request);
+	if (!rc)
+		return;
+done:
+	request->done = true;
+	buffered_request_notify(request);
+}
+
+static void buffered_request_complete(struct fyai_curl_transfer *transfer,
+				      void *userdata)
+{
+	struct fyai_buffered_request *request;
+	struct fyai_ctx *ctx;
 	fy_generic response_doc;
 	CURLcode res;
-	long status = 0;
-	fy_generic ret = fy_invalid;
+	long status;
 
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &response);
+	request = userdata;
+	ctx = request->ctx;
+	status = 0;
+	request->result = fy_invalid;
+	res = fyai_curl_collect(transfer);
+	fyai_curl_transfer_destroy(transfer);
+	request->transfer = NULL;
 
-	res = fyai_curl_perform(ctx, ctx->curl);
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
-		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
-		goto out;
+		request->result = fyai_with_diag(ctx->transient_gb,
+						 fy_invalid,
+						 "interrupted");
+		goto done;
 	}
-	fyai_error_check(ctx, res == CURLE_OK, out, "request failed: %s",
-			 curl_easy_strerror(res));
+	if (res != CURLE_OK) {
+		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
+		goto done;
+	}
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
 		if (fyai_auth_should_retry(ctx, status)) {
-			free(response.data);
-			if (!fyai_auth_prepare_retry(ctx))
-				return fyai_perform_buffered_request(ctx);
-			return fy_invalid;
+			free(request->response.data);
+			memset(&request->response, 0,
+			       sizeof(request->response));
+			ctx->auth_retry_done = true;
+			request->auth_refresh = fyai_auth_refresh_submit(
+					ctx, true, buffered_auth_complete,
+					request);
+			if (request->auth_refresh)
+				return;
+			goto done;
 		}
 		ctx->response_chain_miss =
-			response_chain_miss(ctx, status, response.data);
+			response_chain_miss(ctx, status,
+					    request->response.data);
 		if (ctx->response_chain_miss)
-			goto out;
-		/* One diagnostic; see the streaming path above. */
+			goto done;
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
-			   response.data ? "\n" : "",
-			   response.data ? response.data : "");
-		goto out;
+			   request->response.data ? "\n" : "",
+			   request->response.data ?
+				request->response.data : "");
+		goto done;
 	}
 
-	if (!response.data)
+	if (!request->response.data)
+		goto done;
+
+	response_doc = parse_response(ctx->transient_gb,
+				      request->response.data);
+	request->result = response_doc;
+done:
+	request->done = true;
+	buffered_request_notify(request);
+}
+
+struct fyai_buffered_request *
+fyai_buffered_request_submit(struct fyai_ctx *ctx,
+			     fyai_buffered_complete_fn complete,
+			     void *userdata)
+{
+	struct fyai_buffered_request *request;
+	int rc;
+
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_out, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->result = fy_invalid;
+	rc = buffered_request_start(request);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not submit buffered request");
+	return request;
+
+err_free:
+	free(request);
+err_out:
+	return NULL;
+}
+
+void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
+{
+	if (!request || request->done)
+		return;
+	request->cancel_requested = true;
+	if (request->transfer)
+		fyai_curl_cancel(request->transfer);
+	else if (request->auth_refresh)
+		fyai_auth_refresh_cancel(request->auth_refresh);
+}
+
+bool fyai_buffered_request_done(
+		const struct fyai_buffered_request *request)
+{
+	return request && request->done;
+}
+
+fy_generic fyai_buffered_request_collect(
+		const struct fyai_buffered_request *request)
+{
+	return fyai_buffered_request_done(request) ?
+		request->result : fy_invalid;
+}
+
+void fyai_buffered_request_destroy(struct fyai_buffered_request *request)
+{
+	if (!request)
+		return;
+	if (request->transfer)
+		fyai_curl_transfer_destroy(request->transfer);
+	if (request->auth_refresh)
+		fyai_auth_refresh_destroy(request->auth_refresh);
+	free(request->response.data);
+	free(request);
+}
+
+struct buffered_sync {
+	volatile bool done;
+};
+
+static void
+buffered_sync_complete(struct fyai_buffered_request *request, void *userdata)
+{
+	struct buffered_sync *sync;
+
+	(void)request;
+	sync = userdata;
+	sync->done = true;
+}
+
+fy_generic fyai_perform_buffered_request(struct fyai_ctx *ctx)
+{
+	struct fyai_buffered_request *request;
+	struct fyai_event_loop *el;
+	struct buffered_sync sync;
+	fy_generic ret;
+	int rc;
+
+	memset(&sync, 0, sizeof(sync));
+	ret = fy_invalid;
+	request = fyai_buffered_request_submit(ctx, buffered_sync_complete,
+					       &sync);
+	if (!request)
+		return fy_invalid;
+	el = fyai_ctx_loop(ctx);
+	if (!el)
 		goto out;
+	rc = fyai_event_loop_run_until(el, &sync.done, -1);
+	if (rc)
+		fyai_buffered_request_cancel(request);
+	if (!sync.done && !rc)
+		goto out;
+	ret = fyai_buffered_request_collect(request);
 
-	response_doc = parse_response(ctx->transient_gb, response.data);
-	ret = response_doc;
 out:
-	free(response.data);
-
+	fyai_buffered_request_destroy(request);
 	return ret;
 }
