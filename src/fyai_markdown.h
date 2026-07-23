@@ -8,6 +8,8 @@
 
 struct fyai_cfg;
 struct fymd_renderer;
+struct fymd_renderer_cfg;
+enum fymd_cfg_flags;
 
 struct markdown_renderer {
 	struct fymd_renderer *renderer;
@@ -54,6 +56,9 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg);
  */
 bool markdown_reverse_pair(struct fyai_cfg *cfg, const char **on,
 			   const char **off);
+void markdown_renderer_cfg(struct fyai_cfg *cfg,
+			   struct fymd_renderer_cfg *renderer_cfg, bool color,
+			   const char *theme, enum fymd_cfg_flags extra);
 
 int markdown_renderer_start(struct fyai_cfg *cfg,
 			    struct markdown_renderer *renderer, bool color,

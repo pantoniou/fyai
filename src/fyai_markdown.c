@@ -29,9 +29,9 @@ static enum fymd_background markdown_background(const char *theme)
 	return FYMD_BG_AUTO;
 }
 
-static void markdown_renderer_cfg(struct fyai_cfg *fcfg,
-				  struct fymd_renderer_cfg *cfg, bool color,
-				  const char *theme, enum fymd_cfg_flags extra)
+void markdown_renderer_cfg(struct fyai_cfg *fcfg,
+			   struct fymd_renderer_cfg *cfg, bool color,
+			   const char *theme, enum fymd_cfg_flags extra)
 {
 	int width;
 

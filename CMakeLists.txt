@@ -201,7 +201,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
    NOT TARGET libfymd4c::libfymd4c_static)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG 46dd9d5486773999dcf15307e4046130bc85735b
+        GIT_TAG 1e9629810b52adf0229430ca3088edcea4d352f4
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
@@ -227,7 +227,7 @@ if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG ab3bf04
+        GIT_TAG fdb0aff8025e06706113da44c9753708720baae6
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)

@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <libfytimui.h>
+#include <libfymd4c.h>
 
 #include "fyai.h"
 #include "fyai_diag.h"
@@ -412,15 +413,47 @@ bool fyai_ui_active(const struct fyai_ctx *ctx) { return ctx && ctx->ui; }
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fymd_renderer_cfg rcfg;
+	struct fymd_renderer *renderer = NULL;
 	const char *on, *off = NULL;
+	static const struct {
+		enum fymd_style_element element;
+		enum fytim_chrome_style slot;
+	} styles[] = {
+		{ FYMD_STYLE_HEADING, FYTIM_CHROME_HEADER },
+		{ FYMD_STYLE_BLOCKQUOTE, FYTIM_CHROME_STATUS },
+		{ FYMD_STYLE_RULE, FYTIM_CHROME_WORKBAND },
+		{ FYMD_STYLE_STRONG, FYTIM_CHROME_MARKER },
+	};
+	size_t i;
+	int rc = -1;
 
 	if (!ui)
 		return 0;
-	if (!ctx->cfg->markdown ||
-	    !markdown_reverse_pair(ctx->cfg, &on, &off))
-		on = NULL;
+	if (!ctx->cfg->markdown) {
+		(void)fytim_set_prompt_style(ui->ft, NULL);
+		for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++)
+			(void)fytim_set_chrome_style(ui->ft, styles[i].slot, NULL);
+		return 0;
+	}
+	markdown_renderer_cfg(ctx->cfg, &rcfg, true, ctx->cfg->theme, 0);
+	renderer = fymd_renderer_create(&rcfg);
+	if (!renderer)
+		return -1;
+	if (fymd_renderer_get_reverse_pair(renderer, &on, &off) ||
+	    fytim_set_prompt_style(ui->ft, on) != FYTIM_OK)
+		goto out;
+	for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++) {
+		if (fymd_renderer_get_style_pair(renderer, styles[i].element,
+						 &on, &off) ||
+		    fytim_set_chrome_style(ui->ft, styles[i].slot, on) != FYTIM_OK)
+			goto out;
+	}
+	rc = 0;
+out:
+	fymd_renderer_destroy(renderer);
 	(void)off;
-	return fytim_set_prompt_style(ui->ft, on) == FYTIM_OK ? 0 : -1;
+	return rc;
 }
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)
