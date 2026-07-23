@@ -126,6 +126,10 @@ for needle in needles:
     if position < 0:
         raise SystemExit("slash transcript omitted or reordered %r" % needle)
     position += len(needle)
+user_end = plain.find(b"first prompt") + len(b"first prompt")
+assistant_start = plain.find(b"First streamed reply.", user_end)
+if plain[user_end:assistant_start].count(b"\n") < 3:
+    raise SystemExit("slash transcript omitted the bubble's bottom row")
 EOF
 
 mock_start chat_stream_queued_input.json

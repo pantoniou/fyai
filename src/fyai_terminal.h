@@ -3,6 +3,7 @@
 #define FYAI_TERMINAL_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #define FYAI_ANSI_RESET			"\033[0m"
 #define FYAI_ANSI_BOLD			"\033[1m"
@@ -21,5 +22,7 @@ bool terminal_is_tty(int fd);
 bool ansi_color_on(const char *color, int fd);
 bool markdown_color_enabled(const char *color);
 const char *terminal_detect_theme(void);
+bool terminal_text_at_line_start(const char *text, size_t len);
+size_t terminal_trim_blank_rows(const char *text, size_t len);
 
 #endif

@@ -2384,6 +2384,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	size_t quotedlen;
 	size_t end;
 	bool fenced;
+	bool line_start;
 	int rc;
 	FILE *mf;
 
@@ -2419,16 +2420,18 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	}
 	free(quoted);
 
-	/* Trim the renderer's trailing blank line(s) to the last card row. */
-	end = rb.len;
-	while (end && (rb.data[end - 1] == '\n' || rb.data[end - 1] == '\r'))
-		end--;
+	/* Drop renderer padding rows, including ANSI-only SGR/EL rows. */
+	end = terminal_trim_blank_rows(rb.data, rb.len);
+	line_start = terminal_text_at_line_start(rb.data, end);
 	fenced = markdown_reverse_pair(cfg, &on, &off);
 	if (fyai_ui_active(ctx)) {
 		if (fenced)
 			fyai_bubble_fence(ctx, on, off);
-		if (end)
+		if (end) {
 			(void)fyai_ui_commit(ctx, rb.data, end);
+			if (!line_start)
+				(void)fyai_ui_commit(ctx, "\n", 1);
+		}
 		if (fenced)
 			fyai_bubble_fence(ctx, on, off);
 		(void)fyai_ui_commit(ctx, "\n", 1);
@@ -2441,7 +2444,8 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off);
 	fwrite(rb.data, 1, end, stdout);
-	fputc('\n', stdout);
+	if (!line_start)
+		fputc('\n', stdout);
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off);
 	fputc('\n', stdout);	/* separate the bubble from the answer */

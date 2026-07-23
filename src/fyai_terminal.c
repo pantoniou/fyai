@@ -66,6 +66,71 @@ bool markdown_color_enabled(const char *color)
 	return ansi_color_on(color, STDOUT_FILENO);
 }
 
+bool terminal_text_at_line_start(const char *text, size_t len)
+{
+	size_t i;
+	bool line_start;
+
+	line_start = true;
+	for (i = 0; i < len; i++) {
+		if (text[i] == '\033' && i + 1 < len && text[i + 1] == '[') {
+			i += 2;
+			while (i < len &&
+			       ((unsigned char)text[i] < 0x40 ||
+				(unsigned char)text[i] > 0x7e))
+				i++;
+			continue;
+		}
+		if (text[i] == '\n' || text[i] == '\r')
+			line_start = true;
+		else
+			line_start = false;
+	}
+	return line_start;
+}
+
+size_t terminal_trim_blank_rows(const char *text, size_t len)
+{
+	size_t end;
+	size_t line_end;
+	size_t start;
+	size_t i;
+	bool blank;
+
+	end = len;
+	while (end) {
+		line_end = end;
+		while (line_end &&
+		       (text[line_end - 1] == '\n' ||
+			text[line_end - 1] == '\r'))
+			line_end--;
+		start = line_end;
+		while (start && text[start - 1] != '\n')
+			start--;
+		blank = true;
+		for (i = start; i < line_end; i++) {
+			if (text[i] == '\033' && i + 1 < line_end &&
+			    text[i + 1] == '[') {
+				i += 2;
+				while (i < line_end &&
+				       ((unsigned char)text[i] < 0x40 ||
+					(unsigned char)text[i] > 0x7e))
+					i++;
+				continue;
+			}
+			if (text[i] != '\r' && text[i] != ' ' &&
+			    text[i] != '\t') {
+				blank = false;
+				break;
+			}
+		}
+		if (!blank)
+			break;
+		end = start;
+	}
+	return end;
+}
+
 #ifndef __APPLE__
 static bool osc11_reply_is_light(const char *s)
 {
