@@ -17,6 +17,7 @@ assert_stdout_contains "The file says: mock data payload."
 
 # first request advertises flat Responses-style function tools
 assert_request 0 'any(t.get("type") == "function" and t.get("name") == "read_file" for t in r["body"]["tools"])'
+assert_request 0 'r["body"]["parallel_tool_calls"] is True'
 
 # second request replays the call and answers it
 assert_request 1 'any(i.get("type") == "function_call" and i.get("call_id") == "call_read_1" for i in r["body"]["input"])'

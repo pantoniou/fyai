@@ -1,0 +1,69 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_native_parallel_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_native_wait",
+            "call_id": "call_native_wait",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "i=0; while [ ! -f native.marker ] && [ $i -lt 100 ]; do i=$((i + 1)); sleep .02; done; test -f native.marker && touch native.first && echo native-first"
+              ]
+            }
+          },
+          {
+            "type": "shell_call",
+            "id": "sc_native_mark",
+            "call_id": "call_native_mark",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "sleep .1; touch native.marker; echo native-second"
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 10,
+          "total_tokens": 30
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_native_parallel_2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_native_parallel_2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Native parallel tools done."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 8,
+          "total_tokens": 48
+        }
+      }
+    }
+  ]
+}

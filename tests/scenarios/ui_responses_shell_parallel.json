@@ -1,0 +1,69 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_ui_native_parallel_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_ui_native_a",
+            "call_id": "call_ui_native_a",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "echo native-early-a; sleep 2; echo native-late-a"
+              ]
+            }
+          },
+          {
+            "type": "shell_call",
+            "id": "sc_ui_native_b",
+            "call_id": "call_ui_native_b",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "echo native-early-b; sleep 3; echo native-late-b"
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 10,
+          "total_tokens": 30
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_ui_native_parallel_2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_ui_native_parallel_2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Native interactive tools done."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 8,
+          "total_tokens": 48
+        }
+      }
+    }
+  ]
+}

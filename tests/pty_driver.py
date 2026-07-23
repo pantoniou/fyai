@@ -54,6 +54,11 @@ def main():
     progress_needle = os.environ.get("FYAI_PTY_PROGRESS_NEEDLE", "").encode()
     progress_timeout = float(
         os.environ.get("FYAI_PTY_PROGRESS_TIMEOUT", "1.5"))
+    mid_needle = os.environ.get("FYAI_PTY_MID_NEEDLE", "").encode()
+    mid_timeout = float(os.environ.get("FYAI_PTY_MID_TIMEOUT", "3"))
+    interrupt_after_progress = os.environ.get(
+        "FYAI_PTY_INTERRUPT_AFTER_PROGRESS", "0") in ("1", "true", "yes")
+    interrupt_key = os.environ.get("FYAI_PTY_INTERRUPT_KEY", "escape")
     during_input = os.environ.get("FYAI_PTY_DURING_INPUT", "").encode()
     during_delay = float(os.environ.get("FYAI_PTY_DURING_DELAY", "0.2"))
     during_submit = os.environ.get(
@@ -103,9 +108,15 @@ def main():
         if progress_needle:
             data = read_until(master, data, progress_needle,
                               time.monotonic() + progress_timeout)
+            if interrupt_after_progress:
+                os.write(master, b"\x03" if interrupt_key == "ctrl-c"
+                         else b"\x1b")
             if resize_cols:
                 fcntl.ioctl(master, termios.TIOCSWINSZ,
                             struct.pack("HHHH", 30, resize_cols, 0, 0))
+        if mid_needle:
+            data = read_until(master, data, mid_needle,
+                              time.monotonic() + mid_timeout)
         data = read_until(master, data, needle, deadline)
         if clear_before_exit:
             os.write(master, b"\x15")

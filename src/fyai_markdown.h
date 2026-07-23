@@ -2,15 +2,15 @@
 #ifndef FYAI_MARKDOWN_H
 #define FYAI_MARKDOWN_H
 
+#include <stdint.h>
+
 #include <libfyaml/libfyaml-generic.h>
+#include <libfymd4c.h>
 
 #include "utils.h"
 
 struct fyai_cfg;
-struct fymd_renderer;
-struct fymd_renderer_cfg;
-enum fymd_cfg_flags;
-
+struct fytim_workband;
 struct markdown_renderer {
 	struct fymd_renderer *renderer;
 	bool active;
@@ -118,12 +118,19 @@ void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
  */
 struct fyai_fenced_stream {
 	struct fyai_ctx *ctx;
+	struct fytim_workband *band; /* optional independently owned UI band */
+	const char *title;	     /* band invocation header */
+	char *first_margin;	     /* theme-rendered activity marker */
 	struct fymd_renderer *r;
 	struct response_buffer accum;	/* raw source accumulated so far */
 	struct response_buffer shown;	/* last rendered (un-indented) output */
 	const char *lang;		/* highlighter language, NULL => plain */
 	const char *indent;		/* per-line indent decoration */
 	size_t max_lines;		/* final rerender uses current terminal width */
+	size_t indicator_frame;
+	int64_t indicator_next_ms;
+	unsigned int indicator_interval_ms;
+	enum fymd_indicator_state indicator_state;
 	FILE *fp;
 	bool live;			/* true: repaint in place; false: buffer */
 	bool active;
@@ -135,6 +142,11 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 			     const char *indent, FILE *fp, bool live);
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs, const char *data,
 			    size_t len);
+int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
+				     enum fymd_indicator_state state,
+				     size_t frame);
+int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
+			       int64_t now);
 void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs);
 size_t fyai_common_complete_lines(const char *a, size_t alen,
 				  const char *b, size_t blen);

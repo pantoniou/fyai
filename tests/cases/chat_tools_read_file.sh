@@ -15,6 +15,7 @@ assert_stdout_contains "Could not read missing.py."
 # first request advertises the function tools
 assert_request 0 'any(t["function"]["name"] == "read_file" for t in r["body"]["tools"])'
 assert_request 0 'r["body"]["tool_choice"] == "auto"'
+assert_request 0 'r["body"]["parallel_tool_calls"] is True'
 
 # second request replays the assistant tool call and carries the tool result
 assert_request 1 'any(m.get("role") == "assistant" and m.get("tool_calls") for m in r["body"]["messages"])'

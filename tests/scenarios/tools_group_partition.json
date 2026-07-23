@@ -1,0 +1,60 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-partition-1",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [{
+          "index": 0,
+          "finish_reason": "tool_calls",
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_partition_a",
+                "type": "function",
+                "function": {
+                  "name": "shell",
+                  "arguments": "{\"command\":\"echo partition-a\"}"
+                }
+              },
+              {
+                "id": "call_partition_ask",
+                "type": "function",
+                "function": {
+                  "name": "ask_user",
+                  "arguments": "{\"question\":\"continue?\"}"
+                }
+              },
+              {
+                "id": "call_partition_b",
+                "type": "function",
+                "function": {
+                  "name": "shell",
+                  "arguments": "{\"command\":\"echo partition-b\"}"
+                }
+              }
+            ]
+          }
+        }]
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-partition-2",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [{
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "partition completed"
+          }
+        }]
+      }
+    }
+  ]
+}

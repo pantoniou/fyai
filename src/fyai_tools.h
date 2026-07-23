@@ -4,9 +4,37 @@
 
 #include "fyai.h"
 
+struct fyai_tool_job;
+struct fyai_tool_job_group;
+
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 				  bool *okp);
+bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
+				      fy_generic tool_call);
+struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
+					    fy_generic tool_call);
+bool fyai_tool_job_done(const struct fyai_tool_job *job);
+void fyai_tool_job_cancel(struct fyai_tool_job *job);
+fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
+				 struct fyai_tool_job *job, bool *okp);
+
+struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx);
+int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
+			    fy_generic tool_call);
+/*
+ * Submission starts the FIFO. Concurrent jobs share one group; an exclusive
+ * tool uses the same lifecycle in a group of one. The application event loop
+ * pumps descriptors, then calls service() to park completions and fill newly
+ * available slots. Collection is non-blocking and valid only after done().
+ */
+int fyai_tool_job_group_submit(struct fyai_tool_job_group *group);
+void fyai_tool_job_group_service(struct fyai_tool_job_group *group);
+bool fyai_tool_job_group_done(const struct fyai_tool_job_group *group);
+void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group);
+int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
+				size_t index, fy_generic *result, bool *okp);
+void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group);
 
 int fyai_mcp_refresh(struct fyai_ctx *ctx);
 fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);

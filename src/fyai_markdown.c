@@ -661,7 +661,60 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 	fs->fp = fp;
 	fs->live = live;
 	fs->active = true;
+	if (fyai_fenced_stream_set_indicator(fs, FYMD_INDICATOR_PENDING, 0)) {
+		fymd_renderer_destroy(fs->r);
+		memset(fs, 0, sizeof(*fs));
+		return -1;
+	}
 	return 0;
+}
+
+int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
+				     enum fymd_indicator_state state,
+				     size_t frame)
+{
+	const char *glyph, *on, *off;
+	char *margin;
+	size_t len;
+	unsigned int interval_ms;
+	int rc;
+
+	rc = fymd_renderer_get_indicator(fs->r, state, frame, &glyph, &on,
+					 &off, &interval_ms);
+	if (rc)
+		return -1;
+	len = strlen(on) + strlen(glyph) + strlen(off) + 2;
+	margin = malloc(len);
+	if (!margin)
+		return -1;
+	snprintf(margin, len, "%s%s%s ", on, glyph, off);
+	free(fs->first_margin);
+	fs->first_margin = margin;
+	fs->indicator_state = state;
+	fs->indicator_frame = frame;
+	fs->indicator_interval_ms = interval_ms;
+	return 0;
+}
+
+int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
+			       int64_t now)
+{
+	int rc;
+
+	if (!fs->active ||
+	    fs->indicator_state != FYMD_INDICATOR_PENDING ||
+	    now < fs->indicator_next_ms)
+		return 0;
+	if (!fs->indicator_next_ms) {
+		fs->indicator_next_ms = now + fs->indicator_interval_ms;
+		return 0;
+	}
+	rc = fyai_fenced_stream_set_indicator(fs, FYMD_INDICATOR_PENDING,
+					      fs->indicator_frame + 1);
+	if (rc)
+		return -1;
+	fs->indicator_next_ms = now + fs->indicator_interval_ms;
+	return fyai_fenced_stream_push(fs, NULL, 0);
 }
 
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
@@ -708,7 +761,12 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 			fymd_free(rendered);
 			return -1;
 		}
-		fyai_ui_tool_update(fs->ctx, indented, ilen);
+		if (fs->band)
+			fyai_ui_workband_update(fs->ctx, fs->band, fs->title,
+						indented, ilen,
+						fs->first_margin);
+		else
+			fyai_ui_tool_update(fs->ctx, indented, ilen);
 		free(indented);
 		fymd_free(rendered);
 		return 0;
@@ -791,7 +849,8 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 	}
 	fflush(fs->fp);
 	if (fs->r)
-		fymd_renderer_destroy(fs->r);
+	fymd_renderer_destroy(fs->r);
+	free(fs->first_margin);
 	free(fs->accum.data);
 	free(fs->shown.data);
 	memset(fs, 0, sizeof(*fs));

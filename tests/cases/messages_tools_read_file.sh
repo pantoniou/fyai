@@ -18,7 +18,12 @@ assert_stdout_contains "The file says: mock data payload."
 
 # first request advertises flat Anthropic tools (input_schema, no wrapper)
 assert_request 0 'any(t.get("name") == "read_file" and "input_schema" in t for t in r["body"]["tools"])'
-assert_request 0 'r["body"]["tool_choice"] == {"type": "auto"}'
+choice='r["body"]["tool_choice"]'
+assert_request 0 "$choice[\"type\"] == \"auto\""
+assert_request 0 \
+	"type($choice[\"disable_parallel_tool_use\"]) is bool"
+assert_request 0 \
+	"$choice[\"disable_parallel_tool_use\"] is False"
 
 # second request replays the tool_use block and answers with tool_result
 assert_request 1 'any(b.get("type") == "tool_use" and b.get("id") == "toolu_read_1" and b.get("input") == {"path": "data.txt"} for m in r["body"]["messages"] if m["role"] == "assistant" for b in m["content"])'

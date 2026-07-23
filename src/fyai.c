@@ -162,12 +162,13 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 	fprintf(stderr, "\n");
 }
 
-static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
-				     fy_generic tool_call)
+static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
+					fy_generic tool_call,
+					fy_generic tool_result, bool tool_ok,
+					bool execute)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic tool_message;
-	fy_generic tool_result;
 	fy_generic max_output_length;
 	fy_generic out;
 	fy_generic tool_call_type;
@@ -175,7 +176,6 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *name;
 	bool shell;
 	bool isolated_tool;
-	bool tool_ok;
 
 	assert(ctx->transient_gb);
 
@@ -203,7 +203,8 @@ static fy_generic fyai_run_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
-	tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
+	if (execute)
+		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
 	if (shell && fyai_ui_active(ctx))
 		fyai_ui_tool_end(ctx, tool_ok);
 	if (isolated_tool && !shell)
@@ -291,23 +292,107 @@ err:
 	return fy_invalid;
 }
 
+static fy_generic
+fyai_run_tool_group(struct fyai_ctx *ctx, fy_generic turn,
+		    fy_generic tool_calls, bool parallel, size_t exclusive_index)
+{
+	fy_generic tool_call;
+	fy_generic result;
+	struct fyai_tool_job_group *group;
+	struct fyai_event_loop *el;
+	bool ok;
+	bool done;
+	int rc;
+	size_t i, group_index, total;
+
+	total = fy_len(tool_calls);
+	group = fyai_tool_job_group_create(ctx);
+	fyai_error_check(ctx, group, err,
+			 "could not create tool job group");
+	for (i = 0; i < total; i++) {
+		tool_call = fy_get_at(tool_calls, i);
+		if (parallel !=
+		    fyai_tool_call_parallel_eligible(ctx, tool_call))
+			continue;
+		if (!parallel && i != exclusive_index)
+			continue;
+		rc = fyai_tool_job_group_add(group, tool_call);
+		fyai_error_check(ctx, !rc, err,
+			"could not add tool call to job group");
+	}
+	rc = fyai_tool_job_group_submit(group);
+	fyai_error_check(ctx, !rc, err,
+			 "could not submit tool job group");
+
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err,
+			 "tool job group requires an event loop");
+	done = fyai_tool_job_group_done(group);
+	while (!done) {
+		if (fyai_interrupt_pending(ctx))
+			fyai_tool_job_group_cancel(group);
+		rc = fyai_event_loop_step(el, -1);
+		fyai_error_check(ctx, rc >= 0, err,
+				 "tool job group event loop failed");
+		fyai_tool_job_group_service(group);
+		done = fyai_tool_job_group_done(group);
+	}
+	fyai_error_check(ctx, done, err,
+			 "tool job group did not complete");
+
+	group_index = 0;
+	for (i = 0; i < total; i++) {
+		tool_call = fy_get_at(tool_calls, i);
+		if (parallel !=
+		    fyai_tool_call_parallel_eligible(ctx, tool_call))
+			continue;
+		if (!parallel && i != exclusive_index)
+			continue;
+		result = fy_invalid;
+		ok = false;
+		rc = fyai_tool_job_group_collect(group, group_index++,
+						 &result, &ok);
+		fyai_error_check(ctx, !rc, err,
+			"could not collect tool job result");
+		turn = fyai_finish_tool_call(ctx, turn, tool_call,
+					    result, ok, false);
+		fyai_error_check(ctx, fy_generic_is_valid(turn), err,
+				 "could not append tool job result");
+	}
+	fyai_tool_job_group_destroy(group);
+	return turn;
+
+err:
+	fyai_tool_job_group_destroy(group);
+	return fy_invalid;
+}
+
 static fy_generic fyai_run_response_tool_calls(struct fyai_ctx *ctx,
 					       fy_generic turn,
 					       fy_generic response_doc)
 {
 	fy_generic tool_calls;
 	fy_generic tool_call;
+	bool have_parallel = false;
+	size_t i, total;
 
 	tool_calls = fyai_response_tool_calls(ctx, response_doc);
-
-	fy_foreach(tool_call, tool_calls) {
-		if (fy_generic_is_invalid(turn))
+	total = fy_len(tool_calls);
+	fy_foreach(tool_call, tool_calls)
+		if (fyai_tool_call_parallel_eligible(ctx, tool_call)) {
+			have_parallel = true;
 			break;
-		/* ^C during a tool run: stop issuing further calls; the loop
-		 * wraps what completed with an "interrupted" diagnostic. */
+		}
+	if (have_parallel)
+		turn = fyai_run_tool_group(ctx, turn, tool_calls, true, 0);
+
+	for (i = 0; i < total && fy_generic_is_valid(turn); i++) {
 		if (fyai_interrupt_pending(ctx))
 			break;
-		turn = fyai_run_tool_call(ctx, turn, tool_call);
+		tool_call = fy_get_at(tool_calls, i);
+		if (fyai_tool_call_parallel_eligible(ctx, tool_call))
+			continue;
+		turn = fyai_run_tool_group(ctx, turn, tool_calls, false, i);
 	}
 
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
@@ -609,10 +694,17 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled) {
 		/* Messages spells tool_choice as an object, not a string. */
 		tool_choice = cfg->api_mode == FYAI_API_MESSAGES ?
-				fy_mapping("type", "auto") : fy_value("auto");
+				fy_mapping("type", "auto",
+					   "disable_parallel_tool_use",
+					   cfg->parallel_tool_calls ?
+						fy_false : fy_true) :
+				fy_value("auto");
 		request = fy_assoc(request,
 				"tools", ctx->tools,
 				"tool_choice", tool_choice);
+		if (cfg->parallel_tool_calls &&
+		    cfg->api_mode != FYAI_API_MESSAGES)
+			request = fy_assoc(request, "parallel_tool_calls", true);
 	}
 	/*
 	 * token_extents wants per-token delimitation, which only logprobs
@@ -1155,6 +1247,18 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	 * an existing chain already carries its own system turn.
 	 */
 	if (fy_generic_is_invalid(ctx->last_message)) {
+		if (cfg->parallel_tool_calls &&
+		    cfg->parallel_tool_calls_prompt &&
+		    *cfg->parallel_tool_calls_prompt) {
+			cfg->system_prompt = fy_gb_intern_string(ctx->gb,
+				fy_sprintfa("%s%s%s",
+					cfg->system_prompt ?
+						cfg->system_prompt : "",
+					cfg->system_prompt &&
+						*cfg->system_prompt ?
+						"\n\n" : "",
+					cfg->parallel_tool_calls_prompt));
+		}
 		instr = fyai_project_instructions();
 
 		if (instr) {

@@ -78,6 +78,11 @@ api_key: { type: auto }
 
 # --- Top-level defaults ----------------------------------------------------
 system_prompt: You are a concise assistant.
+parallel_tool_calls: true
+parallel_tool_calls_prompt: >-
+  Independent tool calls may be issued together in one response and will
+  execute in parallel. Keep dependent or potentially conflicting tool calls
+  in separate responses.
 temperature: 0
 max_tool_iterations: 50
 # Output-token cap per model call. Required by the Anthropic Messages API
@@ -147,6 +152,8 @@ display:
   stream: true             # stream the response
   # Rendered rows of a bounded tool result.
   tool_preview_lines: 5
+  # Minimum progressive tool redraw period; 0 redraws every update.
+  tool_update_interval_ms: 33
   # none hides bodies; brief bounds all; default specializes; full shows all.
   tool_detail: default
   transcript_system: false # include system messages in transcript output

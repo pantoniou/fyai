@@ -66,6 +66,22 @@ properties:
     type: string
     default: You are a concise assistant.
     description: The system prompt prepended to every conversation.
+  parallel_tool_calls_prompt:
+    type: string
+    default: >-
+      Independent tool calls may be issued together in one response and will
+      execute in parallel. Keep dependent or potentially conflicting tool
+      calls in separate responses.
+    description: >-
+      Guidance appended to a new conversation's system prompt while parallel
+      tool calls are enabled. Set to an empty string to suppress the guidance
+      without disabling parallel execution.
+  parallel_tool_calls:
+    type: boolean
+    default: true
+    description: >-
+      Allow independent built-in tool calls returned in one model response to
+      execute concurrently.
   temperature:
     type: number
     minimum: 0
@@ -246,6 +262,14 @@ properties:
         minimum: 0
         default: 5
         description: Rendered rows of a tool result shown before it is bounded.
+      tool_update_interval_ms:
+        type: integer
+        minimum: 0
+        maximum: 1000
+        default: 33
+        description: >-
+          Minimum interval between progressive tool-output redraws. Zero
+          repaints every update.
       tool_detail:
         type: string
         enum: [none, brief, default, full]

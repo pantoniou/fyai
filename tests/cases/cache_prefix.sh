@@ -63,7 +63,8 @@ assert_status 0
 check_prefix 0 1 input
 check_prefix 1 2 input
 # the instructions field must be stable across invocations too
-assert_request 2 'r["body"]["instructions"] == "You are a concise assistant."'
+assert_request 2 \
+	'r["body"]["instructions"].startswith("You are a concise assistant.")'
 assert_stderr_contains "cached=64"
 mock_stop 3
 
@@ -77,7 +78,8 @@ run_fyai --set api=messages --set display/stream=false --set tools=true --set ap
 assert_status 0
 check_prefix 0 1 messages
 check_prefix 1 2 messages
-assert_request 2 'r["body"]["system"][0]["text"] == "You are a concise assistant."'
+assert_request 2 \
+	'r["body"]["system"][0]["text"].startswith("You are a concise assistant.")'
 # exactly two breakpoints: the system block and the history's last block
 assert_request 2 'r["body"]["system"][0]["cache_control"] == {"type": "ephemeral"}'
 assert_request 2 'r["body"]["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}'

@@ -26,6 +26,7 @@ struct ui_spool { int saved, reader; off_t off; };
 struct fyai_ui {
 	struct fyai_ctx *ctx;
 	struct fytim *ft;
+	struct fymd_renderer *chrome_renderer;
 	struct fyai_event_source *input_src, *timer_src;
 	struct ui_line *head, **tail;
 	struct ui_spool out, err;
@@ -48,7 +49,35 @@ struct fyai_ui {
 	off_t capture_err;
 	bool capture;
 	bool recalled;
+	bool frame_pending;
+	fyai_event_ms_t next_frame_ms;
 };
+
+static char *ui_indicator(struct fyai_ui *ui,
+			  enum fymd_indicator_state state, size_t frame,
+			  unsigned int *interval_msp)
+{
+	const char *glyph, *on, *off;
+	char *margin;
+	size_t len;
+	unsigned int interval_ms;
+	int rc;
+
+	if (!ui->chrome_renderer)
+		return strdup("  ");
+	rc = fymd_renderer_get_indicator(ui->chrome_renderer, state, frame,
+					 &glyph, &on, &off, &interval_ms);
+	if (rc)
+		return NULL;
+	len = strlen(on) + strlen(glyph) + strlen(off) + 2;
+	margin = malloc(len);
+	if (!margin)
+		return NULL;
+	snprintf(margin, len, "%s%s%s ", on, glyph, off);
+	if (interval_msp)
+		*interval_msp = interval_ms;
+	return margin;
+}
 
 static int ui_status_render(struct fyai_ui *ui, const char *activity)
 {
@@ -128,14 +157,24 @@ out:
 static int ui_activity_refresh(struct fyai_ui *ui)
 {
 	struct timespec ts;
+	unsigned int interval_ms = 500;
 	int phase;
-	const char *dot, *status_activity;
+	char *activity;
+	int rc = -1;
 
 	if (ui->activity_paused || (!ui->busy && !ui->tool_band))
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
-	phase = (int)((ts.tv_sec * 2 + ts.tv_nsec / 500000000L) & 1);
+	activity = ui_indicator(ui, FYMD_INDICATOR_PENDING, 0,
+				&interval_ms);
+	if (!activity)
+		return -1;
+	free(activity);
+	if (!interval_ms)
+		interval_ms = 500;
+	phase = (int)(((uint64_t)ts.tv_sec * 1000 +
+		       (uint64_t)ts.tv_nsec / 1000000) / interval_ms);
 	if (phase == ui->activity_phase)
 		return 0;
 	ui->activity_phase = phase;
@@ -145,13 +184,18 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	 * header, so only its leading activity cell changes. General turn
 	 * activity uses a fixed-width slot in the existing status line.
 	 */
-	dot = phase ? "  " : "\033[93m●\033[0m ";
-	status_activity = phase ? "  " : "\033[93m●\033[0m ";
-	if (ui->tool_band && ui_tool_render(ui, dot, false))
+	activity = ui_indicator(ui, FYMD_INDICATOR_PENDING,
+				(size_t)phase, NULL);
+	if (!activity)
 		return -1;
-	if (ui->busy && ui_status_render(ui, status_activity))
-		return -1;
-	return 0;
+	if (ui->tool_band && ui_tool_render(ui, activity, false))
+		goto out;
+	if (ui->busy && ui_status_render(ui, activity))
+		goto out;
+	rc = 0;
+out:
+	free(activity);
+	return rc;
 }
 
 static void ui_pending_refresh(struct fyai_ui *ui)
@@ -326,6 +370,16 @@ static void ui_message_clear(struct fyai_ui *ui)
 static void ui_rearm(struct fyai_ui *ui)
 {
 	int ms = fytim_poll_timeout_ms(ui->ft);
+	fyai_event_ms_t now, frame_ms;
+
+	if (ui->frame_pending) {
+		now = fyai_event_now_ms();
+		frame_ms = ui->next_frame_ms - now;
+		if (frame_ms < 1)
+			frame_ms = 1;
+		if (ms < 1 || frame_ms < ms)
+			ms = (int)frame_ms;
+	}
 	if (ms < 1) ms = 1;
 	(void)fyai_event_timer_rearm(ui->timer_src, ms, 0);
 }
@@ -333,12 +387,20 @@ static void ui_rearm(struct fyai_ui *ui)
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
+	bool painted_frame;
 
 	fyai_ui_drain_output(ui->ctx);
 	if (ui_activity_refresh(ui))
 		return FYAIEA_ABORT;
+	painted_frame = ui->frame_pending;
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
+	if (painted_frame) {
+		ui->frame_pending = false;
+		ui->next_frame_ms =
+			fyai_event_now_ms() +
+			ui->ctx->cfg->tool_update_interval_ms;
+	}
 	while (fytim_next_event(ui->ft, &ev)) {
 		switch (ev.type) {
 		case FYTIM_EVENT_LINE:
@@ -463,6 +525,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	spool_restore(&ui->out, STDOUT_FILENO);
 	spool_restore(&ui->err, STDERR_FILENO);
 	fytim_destroy(ui->ft);
+	fymd_renderer_destroy(ui->chrome_renderer);
 	if (ui->tty_fd >= 0)
 		close(ui->tty_fd);
 	free(ui->tool_title);
@@ -620,6 +683,8 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	if (!ui)
 		return 0;
 	if (!ctx->cfg->markdown) {
+		fymd_renderer_destroy(ui->chrome_renderer);
+		ui->chrome_renderer = NULL;
 		(void)fytim_set_prompt_style(ui->ft, NULL);
 		for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++)
 			(void)fytim_set_chrome_style(ui->ft, styles[i].slot, NULL);
@@ -640,6 +705,9 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 			goto out;
 	}
 	rc = 0;
+	fymd_renderer_destroy(ui->chrome_renderer);
+	ui->chrome_renderer = renderer;
+	renderer = NULL;
 out:
 	fymd_renderer_destroy(renderer);
 	(void)off;
@@ -742,6 +810,7 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top, const char *bo
 {
 	struct fyai_ui *ui;
 	char *copy;
+	char *activity;
 
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->ui;
@@ -751,14 +820,89 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top, const char *bo
 	free(ui->status_bottom);
 	ui->status_bottom = copy;
 	(void)fytim_set_header(ui->ft, top);
-	(void)ui_status_render(ui,
-		ui->busy && !ui->activity_phase ?
-		"\033[93m●\033[0m " : "  ");
+	activity = ui->busy ?
+		ui_indicator(ui, FYMD_INDICATOR_PENDING,
+			     (size_t)ui->activity_phase, NULL) :
+		strdup("  ");
+	if (activity) {
+		(void)ui_status_render(ui, activity);
+		free(activity);
+	}
 }
 
 struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx)
 {
-	return fyai_ui_active(ctx) ? fytim_workband_create(ctx->ui->ft) : NULL;
+	struct fytim_workband *band;
+
+	if (!fyai_ui_active(ctx))
+		return NULL;
+	band = fytim_workband_create(ctx->ui->ft);
+	if (band)
+		(void)fytim_workband_set_max_rows(band,
+			ctx->cfg->tool_preview_lines + 2);
+	return band;
+}
+
+void fyai_ui_workband_update(struct fyai_ctx *ctx,
+			     struct fytim_workband *band,
+			     const char *title, const char *body, size_t len,
+			     const char *first_margin)
+{
+	struct fyai_ui *ui;
+	struct response_buffer out = { 0 };
+	fyai_event_ms_t now;
+	size_t title_len;
+	char *margin = NULL;
+
+	if (!fyai_ui_active(ctx) || !band)
+		return;
+	ui = ctx->ui;
+	title = title ? title : "tool";
+	title_len = strlen(title);
+	margin = first_margin ? strdup(first_margin) :
+		ui_indicator(ui, FYMD_INDICATOR_PENDING, 0, NULL);
+	if (!margin)
+		goto out;
+	if (markdown_render_margins(ctx->cfg, title,
+				    title_len ? title_len : 4, &out,
+				    margin, "  "))
+		goto out;
+	if (len) {
+		if (out.len && out.data[out.len - 1] != '\n') {
+			if (response_buffer_reserve(&out, out.len + 2))
+				goto out;
+			out.data[out.len++] = '\n';
+			out.data[out.len] = '\0';
+		}
+		if (response_buffer_reserve(&out, out.len + len + 1))
+			goto out;
+		memcpy(out.data + out.len, body, len);
+		out.len += len;
+		out.data[out.len] = '\0';
+	}
+	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
+		goto out;
+	now = fyai_event_now_ms();
+	if (!ctx->cfg->tool_update_interval_ms ||
+	    now >= ui->next_frame_ms) {
+		if (fytim_pump(ui->ft) == FYTIM_OK) {
+			ui->frame_pending = false;
+			ui->next_frame_ms = now +
+				ctx->cfg->tool_update_interval_ms;
+		}
+	} else {
+		ui->frame_pending = true;
+		ui_rearm(ui);
+	}
+out:
+	free(margin);
+	free(out.data);
+}
+
+void fyai_ui_workband_destroy(struct fytim_workband *band)
+{
+	if (band)
+		fytim_workband_destroy(band);
 }
 
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
@@ -783,7 +927,7 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 {
 	struct fyai_ui *ui;
-	const char *margin;
+	char *margin;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
 	free(ui->tool_body);
@@ -791,19 +935,26 @@ void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 	ui->tool_body_len = ui->tool_body ? len : 0;
 	if (ui->tool_body)
 		memcpy(ui->tool_body, body, len);
-	margin = ui->activity_phase ?
-		 "  " : "\033[93m●\033[0m ";
-	(void)ui_tool_render(ui, margin, false);
+	margin = ui_indicator(ui, FYMD_INDICATOR_PENDING,
+			      (size_t)ui->activity_phase, NULL);
+	if (margin) {
+		(void)ui_tool_render(ui, margin, false);
+		free(margin);
+	}
 }
 
 void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok)
 {
 	struct fyai_ui *ui;
-	const char *margin;
+	char *margin;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
-	margin = ok ? "\033[32m●\033[0m " : "\033[31m●\033[0m ";
-	(void)ui_tool_render(ui, margin, true);
+	margin = ui_indicator(ui, ok ? FYMD_INDICATOR_SUCCESS :
+			      FYMD_INDICATOR_FAILURE, 0, NULL);
+	if (margin) {
+		(void)ui_tool_render(ui, margin, true);
+		free(margin);
+	}
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	free(ui->tool_title); ui->tool_title = NULL;

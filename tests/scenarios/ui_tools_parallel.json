@@ -1,0 +1,56 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-ui-parallel-1",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_ui_parallel_a",
+                  "type": "function",
+                  "function": {
+                    "name": "shell",
+                    "arguments": "{\"command\":\"echo parallel-early-a; sleep 2; echo parallel-late-a\"}"
+                  }
+                },
+                {
+                  "id": "call_ui_parallel_b",
+                  "type": "function",
+                  "function": {
+                    "name": "shell",
+                    "arguments": "{\"command\":\"echo parallel-early-b; sleep 3; echo parallel-late-b\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-ui-parallel-2",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Parallel interactive tools done."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

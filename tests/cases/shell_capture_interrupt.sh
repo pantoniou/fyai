@@ -1,14 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# A signal arriving while a shell tool is being captured must not lose the
-# tool's output.
-#
-# The interactive REPL installs SIGINT/SIGWINCH handlers without SA_RESTART
-# (src/fyai_signal.c), so a signal delivered mid-capture interrupts the wait.
-# The old select() loop treated any -1 as fatal: EINTR abandoned the capture
-# and dropped into a blocking waitpid(), losing everything the command had
-# already written and everything it wrote afterwards. The event loop reports
-# EINTR as a spurious wakeup instead, so the capture simply resumes.
+# A signal terminating an asynchronous shell worker must preserve output
+# already captured and produce a valid failed tool result.
 #
 # The shell command signals fyai itself ("kill -INT $PPID", the capturing
 # parent) rather than the case script doing it on a timer. That is deliberate:
@@ -17,9 +10,8 @@
 # against the buggy code roughly half the time. Signalling from inside the
 # command puts the delivery squarely in the middle of the capture, every run.
 #
-# The signal goes to fyai alone, not to the process group, so the shell child
-# keeps running - which is what makes this discriminating: the capture has to
-# survive the interruption and still collect the output produced after it.
+# The signal targets the worker that captures the shell, exercising the same
+# missing-final-JSON path as user cancellation.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -70,13 +62,15 @@ set -e
 # Output written before the signal survives...
 grep -qxF "early-marker" "$TEST_DIR/stderr" || \
 	{ cat "$TEST_DIR/stderr" >&2; fail "output before the signal was lost"; }
-# ...and so does output written after it, proving the capture resumed rather
-# than being abandoned at the first EINTR.
-grep -qxF "late-marker" "$TEST_DIR/stderr" || \
-	{ cat "$TEST_DIR/stderr" >&2; fail "capture abandoned on EINTR: post-signal output lost"; }
+# The terminated worker must not continue to its late output.
+if grep -qxF "late-marker" "$TEST_DIR/stderr"; then
+	fail "terminated shell worker produced late output"
+fi
 
-# The interrupt still took effect - it aborts the follow-up model call, it does
-# not silently vanish.
-assert_stderr_contains "interrupted"
+# Collection synthesizes a valid failed result when the worker cannot emit
+# its normal final JSON.
+assert_request 1 \
+	'any(m.get("role") == "tool" and "interrupted" in '\
+'m.get("content", "") for m in r["body"]["messages"])'
 
 pass

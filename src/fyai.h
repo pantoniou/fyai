@@ -37,10 +37,15 @@ struct fyai_display_output;
 /* Anthropic requires an explicit output-token cap on every request. */
 #define DEFAULT_MAX_TOKENS 8192
 #define DEFAULT_SYSTEM_PROMPT "You are a concise assistant."
+#define DEFAULT_PARALLEL_TOOL_CALLS_PROMPT \
+	"Independent tool calls may be issued together in one response and " \
+	"will execute in parallel. Keep dependent or potentially conflicting " \
+	"tool calls in separate responses."
 #define MAX_TOOL_LOOP_ITERATIONS 50
 #define DEFAULT_TEMPERATURE 0.0
 /* Default rendered rows of a tool result shown in the display view. */
 #define DEFAULT_TOOL_PREVIEW_LINES 5
+#define DEFAULT_TOOL_UPDATE_INTERVAL_MS 33
 /* Left indent applied to each rendered tool-output row (nests it under the
  * tool-call header), so the live loop and the history view match. */
 #define FYAI_TOOL_OUTPUT_INDENT "    "
@@ -80,6 +85,7 @@ struct fyai_cfg {
 	enum fyai_api_mode api_mode;
 	const char *api_url;
 	const char *system_prompt;
+	const char *parallel_tool_calls_prompt;
 	const char *model;
 	const char *api_key;
 	enum fyai_auth_mode auth_mode;
@@ -116,10 +122,12 @@ struct fyai_cfg {
 	int max_tokens;			/* output cap (required by Messages) */
 	int top_logprobs;
 	int tool_preview_lines;
+	int tool_update_interval_ms;
 	const char *tool_detail;
 	bool transcript_system;
 	float temperature;
 	bool enable_tools;
+	bool parallel_tool_calls;
 	bool enable_builtin_shell;
 	bool enable_sandbox;	/* Landlock-confine shell tool sub-executions */
 	fy_generic sandbox;	/* config sandbox: mapping (allow/deny/network) */
@@ -314,6 +322,7 @@ struct fyai_ctx {
 	 * assistant output. Owned by this context, never by a signal handler. */
 	struct fyai_display_output *display_output;
 	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */
+	int tool_progress_fd;	/* child-to-parent progressive tool channel */
 	/* Set inside a forked tool sub-execution once the environment has been
 	 * sanitized and the sandbox applied, so inner steps (the shell tool's
 	 * own fork) do not re-derive and re-apply the confinement. */

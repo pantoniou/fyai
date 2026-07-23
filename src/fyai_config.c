@@ -221,6 +221,9 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		return -1;
 	}
 	cfg->system_prompt = fy_get(root, "system_prompt", cfg->system_prompt);
+	cfg->parallel_tool_calls_prompt =
+		fy_get(root, "parallel_tool_calls_prompt",
+		       cfg->parallel_tool_calls_prompt);
 	cfg->api_url = fy_get(root, "api_url", cfg->api_url);
 	cfg->arena_dir = fy_get(root, "arena_dir", cfg->arena_dir);
 
@@ -235,6 +238,8 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 
 	cfg->enable_tools = apply_bool(root, "tools",
 				cfg->enable_tools);
+	cfg->parallel_tool_calls = apply_bool(root, "parallel_tool_calls",
+					     cfg->parallel_tool_calls);
 	cfg->enable_builtin_shell = apply_bool(root, "builtin_shell",
 					       cfg->enable_builtin_shell);
 	/* sandbox is either a bool (enable with defaults) or a mapping
@@ -376,6 +381,9 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 			cfg->table_border = 0;
 		cfg->tool_preview_lines = fy_get(v, "tool_preview_lines",
 						cfg->tool_preview_lines);
+		cfg->tool_update_interval_ms =
+			fy_get(v, "tool_update_interval_ms",
+			       cfg->tool_update_interval_ms);
 		cfg->tool_detail = fy_get(v, "tool_detail", cfg->tool_detail);
 		cfg->markdown = apply_bool(v, "markdown", cfg->markdown);
 		cfg->stream = apply_bool(v, "stream", cfg->stream);
@@ -1714,14 +1722,18 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->api_mode = FYAI_API_RESPONSES;
 	cfg->api_url = NULL;
 	cfg->system_prompt = DEFAULT_SYSTEM_PROMPT;
+	cfg->parallel_tool_calls_prompt =
+		DEFAULT_PARALLEL_TOOL_CALLS_PROMPT;
 	cfg->max_tool_iterations = MAX_TOOL_LOOP_ITERATIONS;
 	cfg->max_tokens = DEFAULT_MAX_TOKENS;
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
+	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
 	cfg->transcript_system = false;
 	cfg->markdown = true;
+	cfg->parallel_tool_calls = true;
 	cfg->stream = true;
 	cfg->thinking = DEFAULT_THINKING;
 	cfg->wire_logging = false;

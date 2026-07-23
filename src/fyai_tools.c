@@ -18,6 +18,9 @@
 #include <unistd.h>
 
 #include <fcntl.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 #include <sys/wait.h>
 
 #include "fyai_config.h"
@@ -172,10 +175,23 @@ static void fyai_shell_output(void *userdata,
 			      const char *data, size_t len)
 {
 	struct fyai_ctx *ctx = userdata;
+	size_t off;
+	ssize_t w;
 
 	if (!len)
 		return;
 	(void)stream;
+	if (ctx && ctx->tool_progress_fd > STDERR_FILENO) {
+		for (off = 0; off < len; off += (size_t)w) {
+			w = write(ctx->tool_progress_fd, data + off, len - off);
+			if (w < 0) {
+				if (errno == EINTR)
+					w = 0;
+				else
+					break;
+			}
+		}
+	}
 
 	/*
 	 * Don't feed binary chunks to the terminal or the fenced renderer; the
@@ -677,6 +693,69 @@ static void fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 }
 
 /*
+ * A tool child must not carry the application's event descriptors, or result
+ * pipes belonging to sibling jobs, across exec. Move the result and optional
+ * progress descriptors to fd 3/4 and close everything above them.
+ */
+static int fyai_tool_child_fds(int result_fd, int progress_fd)
+{
+	int result_dup = -1;
+	int progress_dup = -1;
+	int rc;
+	long max_fd, fd;
+	bool result_moved = false;
+	bool progress_moved = false;
+
+	result_dup = fcntl(result_fd, F_DUPFD_CLOEXEC, 5);
+	if (result_dup < 0)
+		goto err;
+	if (progress_fd >= 0) {
+		progress_dup = fcntl(progress_fd, F_DUPFD_CLOEXEC, 5);
+		if (progress_dup < 0)
+			goto err;
+	}
+	rc = dup2(result_dup, 3);
+	if (rc < 0)
+		goto err;
+	result_moved = true;
+	if (progress_dup >= 0) {
+		rc = dup2(progress_dup, 4);
+		if (rc < 0)
+			goto err;
+		progress_moved = true;
+	}
+#if defined(__linux__) && defined(SYS_close_range)
+	rc = syscall(SYS_close_range, 5U, ~0U, 0U);
+	if (!rc)
+		return 0;
+#elif defined(__APPLE__)
+	closefrom(5);
+	return 0;
+#endif
+	max_fd = sysconf(_SC_OPEN_MAX);
+	if (max_fd < 0)
+		max_fd = 1024;
+	for (fd = 5; fd < max_fd; fd++)
+		close((int)fd);
+	return 0;
+
+err:
+	if (result_dup >= 0) {
+		close(result_dup);
+		result_dup = -1;
+	}
+	if (progress_dup >= 0) {
+		close(progress_dup);
+		progress_dup = -1;
+	}
+	if (result_moved)
+		close(3);
+	if (progress_moved)
+		close(4);
+	return -1;
+}
+
+/*
  * Fork-per-tool execution. Each tool call runs in its own child that creates a
  * fresh transient builder, internalizes the arguments, sanitizes the
  * environment, applies the sandbox, runs the tool, and writes the result string
@@ -689,9 +768,10 @@ static void fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
  * now lives in the event backend, so nothing here is Linux-specific any more -
  * only fyai_should_fork_tool() still gates the path per platform.
  *
- * Result transport is the raw result string for now (every forked tool returns
- * a string; ask_user, which returns structure, stays in-process). A framed or
- * shared-arena transport can replace it without touching the job lifecycle.
+ * Asynchronous jobs transport the canonical JSON result separately from raw
+ * progress. Legacy single-tool forks retain their string result transport.
+ * A framed or shared-arena transport can replace either pipe without changing
+ * the submission and collection lifecycle.
  */
 /*
  * The job owns its source pointers so withdrawing is idempotent: the callbacks
@@ -701,16 +781,34 @@ static void fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
  */
 struct fyai_tool_job {
 	pid_t pid;
-	int rfd;		/* result pipe read end */
+	int rfd;
+	int pfd;
 	struct response_buffer buf;
+	struct fyai_fenced_stream stream;
+	struct fytim_workband *band;
+	char *title;
 	struct fyai_event_source *rsrc;
+	struct fyai_event_source *psrc;
 	struct fyai_event_source *csrc;
-	bool out_open;		/* result pipe not yet at EOF */
+	bool out_open;
+	bool progress_open;
 	bool reaped;
 	bool failed;
 	bool result_ok;
 	bool done;
+	bool json_result;
+	bool native_shell;
+	int term_signal;
 };
+
+bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
+				      fy_generic tool_call)
+{
+	const char *name;
+
+	name = fyai_tool_call_name(ctx, tool_call);
+	return !fy_equal(name, "ask_user") && !fyai_mcp_tool_name(name);
+}
 
 static void fyai_tool_job_drop(struct fyai_event_source **srcp)
 {
@@ -720,11 +818,19 @@ static void fyai_tool_job_drop(struct fyai_event_source **srcp)
 
 static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 {
-	job->done = !job->out_open && job->reaped;
+	bool was_done = job->done;
+
+	job->done = job->reaped && !job->out_open && !job->progress_open;
+	if (!was_done && job->done && job->stream.active) {
+		(void)fyai_fenced_stream_set_indicator(&job->stream,
+			job->result_ok && !job->failed ?
+			FYMD_INDICATOR_SUCCESS : FYMD_INDICATOR_FAILURE, 0);
+		(void)fyai_fenced_stream_push(&job->stream, NULL, 0);
+	}
 }
 
-/* Drain the result pipe. */
-static enum fyai_event_action fyai_tool_job_readable(const struct fyai_event *ev)
+static enum fyai_event_action
+fyai_tool_job_readable(const struct fyai_event *ev)
 {
 	struct fyai_tool_job *job = ev->userdata;
 	char chunk[4096];
@@ -747,12 +853,41 @@ static enum fyai_event_action fyai_tool_job_readable(const struct fyai_event *ev
 			continue;
 		break;
 	}
-
-	if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && !job->failed)
+	if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) &&
+	    !job->failed)
 		return FYAIEA_CONTINUE;
 
 	job->out_open = false;
 	fyai_tool_job_drop(&job->rsrc);
+	fyai_tool_job_update_done(job);
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action
+fyai_tool_job_progress(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+	char chunk[4096];
+	ssize_t r;
+
+	for (;;) {
+		r = read(ev->fd, chunk, sizeof(chunk));
+		if (r > 0) {
+			if (job->stream.active &&
+			    !data_is_binary(chunk, (size_t)r))
+				(void)fyai_fenced_stream_push(&job->stream,
+							      chunk,
+							      (size_t)r);
+			continue;
+		}
+		if (r < 0 && errno == EINTR)
+			continue;
+		break;
+	}
+	if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+		return FYAIEA_CONTINUE;
+	job->progress_open = false;
+	fyai_tool_job_drop(&job->psrc);
 	fyai_tool_job_update_done(job);
 	return FYAIEA_CONTINUE;
 }
@@ -766,44 +901,108 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	job->csrc = NULL;
 	job->reaped = true;
 	job->result_ok = WIFEXITED(ev->status) && WEXITSTATUS(ev->status) == 0;
+	job->term_signal = WIFSIGNALED(ev->status) ?
+				WTERMSIG(ev->status) : 0;
 	fyai_tool_job_update_done(job);
 	return FYAIEA_CONTINUE;
 }
 
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
-			       fy_generic args, struct fyai_tool_job *job)
+			       const char *args_text,
+			       struct fyai_tool_job *job, bool async_job)
 {
-	int p[2];
+	int p[2] = { -1, -1 };
+	int progress[2] = { -1, -1 };
 	pid_t pid;
-	fy_generic result;
+	fy_generic args, result;
 	bool ok;
 	const char *s;
 	size_t len, off;
 	ssize_t w;
+	int rc;
 
 	memset(job, 0, sizeof(*job));
 	job->rfd = -1;
-	if (pipe(p))
-		return -1;
-
-	pid = fork();
-	if (pid < 0) {
-		close(p[0]);
-		close(p[1]);
-		return -1;
+	job->pfd = -1;
+	job->json_result = async_job;
+	rc = pipe(p);
+	fyai_error_check(ctx, !rc, err,
+			 "could not create tool result pipe: %s",
+			 strerror(errno));
+	rc = async_job ? pipe(progress) : 0;
+	fyai_error_check(ctx, !rc, err,
+			 "could not create tool progress pipe: %s",
+			 strerror(errno));
+	rc = fcntl(p[0], F_SETFD, FD_CLOEXEC);
+	fyai_error_check(ctx, !rc, err,
+		"could not protect tool pipe descriptors: %s",
+		strerror(errno));
+	rc = fcntl(p[1], F_SETFD, FD_CLOEXEC);
+	fyai_error_check(ctx, !rc, err,
+		"could not protect tool pipe descriptors: %s",
+		strerror(errno));
+	if (async_job) {
+		rc = fcntl(progress[0], F_SETFD, FD_CLOEXEC);
+		fyai_error_check(ctx, !rc, err,
+			"could not protect tool pipe descriptors: %s",
+			strerror(errno));
+		rc = fcntl(progress[1], F_SETFD, FD_CLOEXEC);
+		fyai_error_check(ctx, !rc, err,
+			"could not protect tool pipe descriptors: %s",
+			strerror(errno));
 	}
+	rc = fcntl(p[0], F_SETFL, O_NONBLOCK);
+	fyai_error_check(ctx, !rc, err,
+			 "could not make tool result pipe non-blocking: %s",
+			 strerror(errno));
+	if (async_job) {
+		rc = fcntl(progress[0], F_SETFL, O_NONBLOCK);
+		fyai_error_check(ctx, !rc, err,
+			"could not make tool progress pipe non-blocking: %s",
+			strerror(errno));
+	}
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, err,
+			 "could not fork tool process: %s", strerror(errno));
 
 	if (!pid) {			/* child */
 		close(p[0]);
+		p[0] = -1;
+		if (progress[0] >= 0)
+			close(progress[0]);
+		progress[0] = -1;
+		if (async_job)
+			(void)setpgid(0, 0);
 		fyai_ctx_loop_abandon(ctx);
+		if (async_job) {
+			if (fyai_tool_child_fds(p[1], progress[1]))
+				_exit(126);
+			p[1] = 3;
+			progress[1] = 4;
+			ctx->tool_progress_fd = progress[1];
+			ctx->ui = NULL;
+			ctx->shell_stream = NULL;
+		}
 		/* Fresh builder, then internalize the arguments into it. */
-		fyai_setup_transient_builder(ctx);
-		args = fy_gb_internalize(ctx->transient_gb, args);
+		rc = fyai_setup_transient_builder(ctx);
+		if (rc)
+			_exit(1);
+		args = parse_json_string(ctx->transient_gb, args_text);
+		if (fy_generic_is_invalid(args))
+			_exit(1);
 		fyai_env_sanitize();
 		fyai_tool_apply_sandbox(ctx);
-
-		result = fyai_tool_run_one(ctx, name, args, &ok);
-		s = fy_castp(&result, "");
+		result = async_job ?
+			fyai_execute_tool_call(ctx, args, &ok) :
+			fyai_tool_run_one(ctx, name, args, &ok);
+		if (async_job)
+			s = emit_json_string(ctx->transient_gb, result);
+		else
+			s = fy_generic_is_valid(result) ?
+				fy_castp(&result, "") :
+				"tool error: invalid tool result";
+		if (!s)
+			_exit(1);
 		len = strlen(s);
 		for (off = 0; off < len; off += (size_t)w) {
 			w = write(p[1], s + off, len - off);
@@ -818,37 +1017,67 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	}
 
 	close(p[1]);
+	p[1] = -1;
+	if (progress[1] >= 0)
+		close(progress[1]);
+	progress[1] = -1;
+	if (async_job)
+		(void)setpgid(pid, pid);
 	job->pid = pid;
 	job->rfd = p[0];
+	p[0] = -1;
+	job->pfd = progress[0];
+	progress[0] = -1;
 	job->out_open = true;
-	/* The collector drains greedily, so the read end must not block. */
-	fcntl(job->rfd, F_SETFL, O_NONBLOCK);
+	job->progress_open = async_job;
 	return 0;
+
+err:
+	if (p[0] >= 0) {
+		close(p[0]);
+		p[0] = -1;
+	}
+	if (p[1] >= 0) {
+		close(p[1]);
+		p[1] = -1;
+	}
+	if (progress[0] >= 0) {
+		close(progress[0]);
+		progress[0] = -1;
+	}
+	if (progress[1] >= 0) {
+		close(progress[1]);
+		progress[1] = -1;
+	}
+	return -1;
 }
 
-static fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
-					struct fyai_tool_job *job)
+static fy_generic fyai_tool_job_wait_result(struct fyai_ctx *ctx,
+					     struct fyai_tool_job *job)
 {
 	struct fyai_event_loop *el;
+	int rc;
 
-	/* Wait on the result pipe and the child together. */
 	el = fyai_ctx_loop(ctx);
-	if (el) {
-		if (fyai_event_add_fd(el, job->rfd, FYAIEV_READ,
-				      fyai_tool_job_readable, job, &job->rsrc) ||
-		    fyai_event_add_child(el, job->pid, fyai_tool_job_child,
-					 job, &job->csrc))
-			job->failed = true;
-		else if (fyai_event_loop_run_until(el, &job->done, -1))
-			job->failed = true;
+	fyai_error_check(ctx, el, err,
+			 "forked tool requires an event loop");
+	rc = fyai_event_add_fd(el, job->rfd, FYAIEV_READ,
+			       fyai_tool_job_readable, job, &job->rsrc);
+	fyai_error_check(ctx, !rc, err,
+			 "could not attach forked tool output");
+	rc = fyai_event_add_child(el, job->pid, fyai_tool_job_child,
+				  job, &job->csrc);
+	fyai_error_check(ctx, !rc, err,
+			 "could not attach forked tool process");
+	rc = fyai_event_loop_run_until(el, &job->done, -1);
+	fyai_error_check(ctx, !rc, err,
+			 "forked tool event loop failed");
 
-		/* Drop sources before their job state and fd. */
-		fyai_tool_job_drop(&job->rsrc);
-		fyai_tool_job_drop(&job->csrc);
-	} else {
-		job->failed = true;
-	}
-
+err:
+	job->failed = !job->done;
+	/* Drop sources before their job state and fd. */
+	fyai_tool_job_drop(&job->rsrc);
+	fyai_tool_job_drop(&job->csrc);
 	if (job->rfd >= 0)
 		close(job->rfd);
 	job->rfd = -1;
@@ -862,17 +1091,494 @@ static fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 fy_value(job->buf.data ? job->buf.data : ""));
 }
 
+static void fyai_tool_job_live_close(struct fyai_tool_job *job)
+{
+	if (job->stream.active)
+		fyai_fenced_stream_finish(&job->stream);
+	fyai_ui_workband_destroy(job->band);
+	job->band = NULL;
+	free(job->title);
+	job->title = NULL;
+}
+
+static int fyai_tool_job_attach(struct fyai_ctx *ctx,
+				struct fyai_tool_job *job);
+
+static void fyai_tool_job_discard(struct fyai_tool_job *job)
+{
+	if (!job)
+		return;
+	fyai_tool_job_cancel(job);
+	fyai_tool_job_drop(&job->rsrc);
+	fyai_tool_job_drop(&job->psrc);
+	fyai_tool_job_drop(&job->csrc);
+	if (job->rfd >= 0)
+		close(job->rfd);
+	job->rfd = -1;
+	if (job->pfd >= 0)
+		close(job->pfd);
+	job->pfd = -1;
+	if (!job->reaped && job->pid > 0)
+		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
+			;
+	fyai_tool_job_live_close(job);
+	free(job->buf.data);
+	free(job);
+}
+
+struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
+					    fy_generic tool_call)
+{
+	struct fyai_tool_job *job = NULL;
+	const char *name, *args_text, *call_text, *command;
+	fy_generic args;
+	bool native_call;
+	bool eligible;
+	int rc;
+
+	eligible = fyai_tool_call_parallel_eligible(ctx, tool_call);
+	fyai_error_check(ctx, eligible, err,
+		"tool call is not eligible for asynchronous submission");
+	name = fyai_tool_call_name(ctx, tool_call);
+	native_call = fy_equal(fy_get(tool_call, "type"), "shell_call");
+	if (native_call) {
+		args_text = NULL;
+	} else if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
+		args_text = fy_get(fy_get(tool_call, "function"),
+				   "arguments", "");
+	} else if (ctx->cfg->api_mode == FYAI_API_RESPONSES ||
+		   ctx->cfg->api_mode == FYAI_API_MESSAGES) {
+		args_text = fy_get(tool_call, "arguments", "");
+	} else {
+		fyai_error_check(ctx, false, err,
+				 "unsupported API mode for tool submission");
+	}
+	args = native_call ? tool_call :
+		parse_json_string(ctx->transient_gb, args_text);
+	fyai_error_check(ctx, fy_generic_is_valid(args), err,
+			 "invalid tool call arguments");
+	call_text = emit_json_string(ctx->transient_gb, tool_call);
+	fyai_error_check(ctx, call_text, err,
+			 "could not serialize tool call");
+	job = calloc(1, sizeof(*job));
+	fyai_error_check(ctx, job, err,
+			 "could not allocate tool job");
+	rc = fyai_tool_job_spawn(ctx, name, call_text, job, true);
+	fyai_error_check(ctx, !rc, err,
+		"could not spawn tool job");
+	job->native_shell = native_call;
+	if (fy_equal(name, "shell") && fyai_ui_active(ctx)) {
+		command = native_call ?
+			fy_cast(fy_get_at_path(tool_call, "action",
+					       "commands", 0), "") :
+			fy_get(args, "command", "");
+		job->title = fyai_format_shell_header(ctx,
+					     *command ? command : name);
+		job->band = fyai_ui_workband_create(ctx);
+		if (job->band &&
+		    !fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
+				NULL, ctx->cfg->tool_preview_lines > 0 ?
+				(size_t)ctx->cfg->tool_preview_lines : 0,
+				FYAI_TOOL_OUTPUT_INDENT, stderr, true)) {
+			job->stream.band = job->band;
+			job->stream.title = job->title;
+			fyai_ui_workband_update(ctx, job->band,
+						job->title, NULL, 0, NULL);
+		} else {
+			fyai_tool_job_live_close(job);
+		}
+	}
+	rc = fyai_tool_job_attach(ctx, job);
+	fyai_error_check(ctx, !rc, err,
+			 "could not attach tool job to event loop");
+	return job;
+
+err:
+	fyai_tool_job_discard(job);
+	return NULL;
+}
+
+static int fyai_tool_job_attach(struct fyai_ctx *ctx,
+				struct fyai_tool_job *job)
+{
+	struct fyai_event_loop *el;
+	int rc;
+
+	fyai_error_check(ctx, job, err,
+			 "cannot attach an empty tool job");
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err,
+			 "tool job requires an event loop");
+	rc = fyai_event_add_fd(el, job->rfd, FYAIEV_READ,
+			       fyai_tool_job_readable, job, &job->rsrc);
+	fyai_error_check(ctx, !rc, err,
+			 "could not attach tool result pipe");
+	if (job->pfd >= 0) {
+		rc = fyai_event_add_fd(el, job->pfd, FYAIEV_READ,
+				       fyai_tool_job_progress, job,
+				       &job->psrc);
+		fyai_error_check(ctx, !rc, err,
+				 "could not attach tool progress pipe");
+	}
+	rc = fyai_event_add_child(el, job->pid, fyai_tool_job_child,
+				  job, &job->csrc);
+	fyai_error_check(ctx, !rc, err,
+			 "could not attach tool process");
+	return 0;
+
+err:
+	if (job)
+		job->failed = true;
+	return -1;
+}
+
+bool fyai_tool_job_done(const struct fyai_tool_job *job)
+{
+	return job && job->done;
+}
+
+void fyai_tool_job_cancel(struct fyai_tool_job *job)
+{
+	int rc;
+
+	if (!job || job->reaped || job->pid <= 0)
+		return;
+	rc = kill(-job->pid, SIGTERM);
+	if (rc && errno == ESRCH)
+		(void)kill(job->pid, SIGTERM);
+}
+
+fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
+				 struct fyai_tool_job *job, bool *okp)
+{
+	fy_generic result;
+	int status;
+	pid_t rc;
+
+	if (!job)
+		return fy_invalid;
+	/*
+	 * Collection is deliberately non-blocking. The application event loop
+	 * owns progress until done becomes true; callers may collect afterward
+	 * without re-entering or privately driving that loop.
+	 */
+	if (!job->done) {
+		*okp = false;
+		return fy_invalid;
+	}
+	fyai_tool_job_live_close(job);
+	fyai_tool_job_drop(&job->rsrc);
+	fyai_tool_job_drop(&job->psrc);
+	fyai_tool_job_drop(&job->csrc);
+	if (job->rfd >= 0)
+		close(job->rfd);
+	job->rfd = -1;
+	if (job->pfd >= 0)
+		close(job->pfd);
+	job->pfd = -1;
+	if (!job->reaped && job->pid > 0) {
+		do {
+			rc = waitpid(job->pid, &status, 0);
+		} while (rc < 0 && errno == EINTR);
+		if (rc == job->pid) {
+			job->reaped = true;
+			job->result_ok = WIFEXITED(status) &&
+					 WEXITSTATUS(status) == 0;
+			job->term_signal = WIFSIGNALED(status) ?
+						WTERMSIG(status) : 0;
+		}
+	}
+	if (job->term_signal)
+		result = fy_invalid;
+	else if (job->json_result)
+		result = parse_json_string(ctx->transient_gb,
+				job->buf.data ? job->buf.data : "");
+	else
+		result = fy_gb_internalize(ctx->transient_gb,
+				fy_value(job->buf.data ? job->buf.data : ""));
+	if (fy_generic_is_invalid(result) && job->term_signal) {
+		if (job->native_shell)
+			result = fy_sequence(fy_mapping(
+				"stdout", "",
+				"stderr", "",
+				"outcome", fy_mapping(
+					"type", "signal",
+					"signal", job->term_signal)));
+		else
+			result = fy_value(ctx->transient_gb,
+					  "tool error: interrupted");
+	}
+	*okp = job->result_ok && !job->failed;
+	free(job->buf.data);
+	free(job);
+	return result;
+}
+
+enum fyai_tool_group_state {
+	FYAITGS_QUEUED,
+	FYAITGS_RUNNING,
+	FYAITGS_PARKED,
+	FYAITGS_COLLECTED,
+	FYAITGS_SUBMIT_FAILED,
+};
+
+struct fyai_tool_group_entry {
+	char *call_text;
+	char *result_text;
+	struct fyai_tool_job *job;
+	enum fyai_tool_group_state state;
+	bool parallel;
+	bool result_ok;
+};
+
+struct fyai_tool_job_group {
+	struct fyai_ctx *ctx;
+	struct fyai_tool_group_entry *entries;
+	size_t count;
+	size_t capacity;
+	size_t next;
+	size_t active;
+	size_t parked;
+	size_t max_parallel;
+	bool submitted;
+	bool cancelled;
+	bool exclusive;
+};
+
+static int fyai_tool_job_group_reserve(struct fyai_tool_job_group *group)
+{
+	struct fyai_tool_group_entry *entries;
+	size_t capacity;
+
+	if (group->count < group->capacity)
+		return 0;
+	capacity = group->capacity ? group->capacity * 2 : 8;
+	entries = realloc(group->entries, capacity * sizeof(*entries));
+	if (!entries)
+		return -1;
+	memset(entries + group->capacity, 0,
+	       (capacity - group->capacity) * sizeof(*entries));
+	group->entries = entries;
+	group->capacity = capacity;
+	return 0;
+}
+
+struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx)
+{
+	struct fyai_tool_job_group *group;
+
+	if (!ctx)
+		return NULL;
+	group = calloc(1, sizeof(*group));
+	if (!group)
+		return NULL;
+	group->ctx = ctx;
+	group->max_parallel = ctx->cfg->parallel_tool_calls ? 16 : 1;
+	return group;
+}
+
+int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
+			    fy_generic tool_call)
+{
+	const char *text;
+	char *copy;
+	bool parallel;
+	int rc;
+
+	if (!group || group->submitted)
+		return -1;
+	rc = fyai_tool_job_group_reserve(group);
+	if (rc)
+		return -1;
+	parallel = fyai_tool_call_parallel_eligible(group->ctx, tool_call);
+	if (group->count && (group->exclusive || !parallel))
+		return -1;
+	text = emit_json_string(group->ctx->transient_gb, tool_call);
+	copy = text ? strdup(text) : NULL;
+	if (!copy)
+		return -1;
+	group->entries[group->count].call_text = copy;
+	group->entries[group->count].parallel = parallel;
+	group->entries[group->count].state = FYAITGS_QUEUED;
+	if (!parallel) {
+		group->exclusive = true;
+		group->max_parallel = 1;
+	}
+	group->count++;
+	return 0;
+}
+
+static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
+{
+	struct fyai_tool_group_entry *entry;
+	fy_generic call;
+	fy_generic result;
+	const char *text;
+
+	while (!group->cancelled && group->next < group->count &&
+	       group->active < group->max_parallel) {
+		entry = &group->entries[group->next++];
+		call = parse_json_string(group->ctx->transient_gb,
+					 entry->call_text);
+		if (!entry->parallel) {
+			result = fyai_execute_tool_call(group->ctx, call,
+							&entry->result_ok);
+			text = fy_generic_is_valid(result) ?
+				emit_json_string(group->ctx->transient_gb,
+						 result) : NULL;
+			entry->result_text = text ? strdup(text) : NULL;
+			entry->state = entry->result_text ?
+				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
+			group->parked++;
+			continue;
+		}
+		entry->job = fy_generic_is_valid(call) ?
+			fyai_tool_job_submit(group->ctx, call) : NULL;
+		if (!entry->job) {
+			entry->state = FYAITGS_SUBMIT_FAILED;
+			group->parked++;
+			continue;
+		}
+		entry->state = FYAITGS_RUNNING;
+		group->active++;
+	}
+}
+
+void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
+{
+	struct fyai_tool_group_entry *entry;
+	fyai_event_ms_t now;
+	size_t i;
+
+	if (!group || !group->submitted)
+		return;
+	now = fyai_event_now_ms();
+	for (i = 0; i < group->next; i++) {
+		entry = &group->entries[i];
+		if (entry->state != FYAITGS_RUNNING)
+			continue;
+		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
+		if (!fyai_tool_job_done(entry->job))
+			continue;
+		entry->state = FYAITGS_PARKED;
+		group->active--;
+		group->parked++;
+	}
+	fyai_tool_job_group_dispatch(group);
+}
+
+int fyai_tool_job_group_submit(struct fyai_tool_job_group *group)
+{
+	if (!group || group->submitted || !group->count)
+		return -1;
+	group->submitted = true;
+	fyai_tool_job_group_dispatch(group);
+	return 0;
+}
+
+bool fyai_tool_job_group_done(const struct fyai_tool_job_group *group)
+{
+	return group && group->submitted && group->parked == group->count;
+}
+
+void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
+{
+	struct fyai_tool_group_entry *entry;
+	size_t i;
+
+	if (!group || group->cancelled)
+		return;
+	group->cancelled = true;
+	for (i = 0; i < group->count; i++) {
+		entry = &group->entries[i];
+		if (entry->state == FYAITGS_RUNNING)
+			fyai_tool_job_cancel(entry->job);
+		else if (entry->state == FYAITGS_QUEUED) {
+			entry->state = FYAITGS_PARKED;
+			group->parked++;
+		}
+	}
+	group->next = group->count;
+}
+
+static fy_generic
+fyai_tool_job_group_cancelled_result(struct fyai_tool_job_group *group,
+				     struct fyai_tool_group_entry *entry)
+{
+	fy_generic call;
+
+	call = parse_json_string(group->ctx->transient_gb, entry->call_text);
+	if (fy_equal(fy_get(call, "type"), "shell_call"))
+		return fy_sequence(fy_mapping(
+			"stdout", "",
+			"stderr", "",
+			"outcome", fy_mapping(
+				"type", "signal",
+				"signal", SIGTERM)));
+	return fy_value(group->ctx->transient_gb, "tool error: interrupted");
+}
+
+int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
+				size_t index, fy_generic *result, bool *okp)
+{
+	struct fyai_tool_group_entry *entry;
+
+	if (!group || !result || !okp || index >= group->count)
+		return -1;
+	entry = &group->entries[index];
+	if (entry->state != FYAITGS_PARKED &&
+	    entry->state != FYAITGS_SUBMIT_FAILED)
+		return -1;
+	if (entry->job) {
+		*result = fyai_tool_job_collect(group->ctx, entry->job, okp);
+		entry->job = NULL;
+	} else if (entry->result_text) {
+		*result = parse_json_string(group->ctx->transient_gb,
+					    entry->result_text);
+		*okp = entry->result_ok;
+	} else if (group->cancelled) {
+		*result = fyai_tool_job_group_cancelled_result(group, entry);
+		*okp = false;
+	} else {
+		return -1;
+	}
+	entry->state = FYAITGS_COLLECTED;
+	return 0;
+}
+
+void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
+{
+	struct fyai_tool_group_entry *entry;
+	size_t i;
+
+	if (!group)
+		return;
+	fyai_tool_job_group_cancel(group);
+	for (i = 0; i < group->count; i++) {
+		entry = &group->entries[i];
+		if (entry->job)
+			fyai_tool_job_discard(entry->job);
+		free(entry->call_text);
+		free(entry->result_text);
+	}
+	free(group->entries);
+	free(group);
+}
+
 /* Run one named tool in a forked, sandboxed child and return its result. */
 static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
 				       fy_generic args, bool *okp)
 {
 	struct fyai_tool_job job;
 	fy_generic result;
+	const char *args_text;
 
-	if (fyai_tool_job_spawn(ctx, name, args, &job))
+	args_text = emit_json_string(ctx->transient_gb, args);
+	if (!args_text ||
+	    fyai_tool_job_spawn(ctx, name, args_text, &job, false))
 		return fy_value(ctx->transient_gb,
 				"tool error: failed to spawn tool process");
-	result = fyai_tool_job_collect(ctx, &job);
+	result = fyai_tool_job_wait_result(ctx, &job);
 	*okp = job.result_ok && !job.failed;
 	free(job.buf.data);
 	return result;
