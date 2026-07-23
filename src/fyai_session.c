@@ -1621,7 +1621,8 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 		(cmd && strcmp(cmd->name, "history") &&
 		 strcmp(cmd->name, "transcript") &&
 		 strcmp(cmd->name, "help") &&
-		 strcmp(cmd->name, "list"));
+		 strcmp(cmd->name, "list") &&
+		 strcmp(cmd->name, "config"));
 	fyai_ui_pane_end(ctx, title, error, pane_output);
 
 	/* Settings/model/context may have changed; reflect it in the footer. */

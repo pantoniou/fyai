@@ -283,6 +283,14 @@ static void ui_queue(struct fyai_ui *ui, const char *text)
 		ui_pending_refresh(ui);
 }
 
+static void ui_message_clear(struct fyai_ui *ui)
+{
+	if (!ui || !ui->message_band)
+		return;
+	fytim_workband_destroy(ui->message_band);
+	ui->message_band = NULL;
+}
+
 static void ui_rearm(struct fyai_ui *ui)
 {
 	int ms = fytim_poll_timeout_ms(ui->ft);
@@ -302,6 +310,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	while (fytim_next_event(ui->ft, &ev)) {
 		switch (ev.type) {
 		case FYTIM_EVENT_LINE:
+			ui_message_clear(ui);
 			ui_queue(ui, ev.text);
 			(void)fytim_history_add(ui->ft, ev.text);
 			break;
@@ -315,6 +324,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_EDIT: {
 			char *edited;
+			ui_message_clear(ui);
 			if (fyai_ui_external_begin(ui->ctx))
 				break;
 			edited = fyai_edit_line(ui->ctx, fytim_input(ui->ft));

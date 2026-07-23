@@ -66,4 +66,55 @@ if "● status".encode() not in plain or b"Usage / total" not in plain:
     raise SystemExit("status pane content missing")
 EOF
 
+FYAI_PTY_INPUT="/config describe display" \
+FYAI_PTY_NEEDLE="tool_detail" \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/config-scroll.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true -m mock-model -i
+
+"$PYTHON" - "$TEST_DIR/config-scroll.out" <<'EOF' || \
+    fail "config report was incorrectly rendered as a status pane"
+import re
+import sys
+
+data = open(sys.argv[1], "rb").read()
+plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
+if "● config".encode() in plain:
+    raise SystemExit("config report received status-pane chrome")
+if b"tool_detail" not in plain:
+    raise SystemExit("config report did not reach terminal scrollback")
+EOF
+
+mock_start chat_stream_queued_input.json
+FYAI_PTY_INPUT="first prompt" \
+FYAI_PTY_DURING_INPUT="queued prompt" \
+FYAI_PTY_DURING_DELAY="0.2" \
+FYAI_PTY_NEEDLE="Queued input completed." \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/queued-input.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true --set display/stream=true \
+    --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
+assert_request 0 \
+    'r["body"]["messages"][-1]["content"] == "first prompt"'
+assert_request 1 \
+    'r["body"]["messages"][-1]["content"] == "queued prompt"'
+mock_stop 2
+
+mock_start chat_stream_queued_input.json
+FYAI_PTY_INPUT="first prompt" \
+FYAI_PTY_DURING_INPUT="unfinished typing" \
+FYAI_PTY_DURING_SUBMIT="0" \
+FYAI_PTY_CLEAR_BEFORE_EXIT="1" \
+FYAI_PTY_DURING_DELAY="0.2" \
+FYAI_PTY_NEEDLE="First streamed reply." \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/typing-input.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true --set display/stream=true \
+    --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
+assert_request 0 \
+    'r["body"]["messages"][-1]["content"] == "first prompt"'
+mock_stop 1
+
 pass

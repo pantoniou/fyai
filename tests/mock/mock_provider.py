@@ -156,6 +156,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             splits = step.get("chunk_split", [])
+            chunk_delay = float(step.get("chunk_delay", 0))
             pos = 0
             for split in splits:
                 if split <= pos or split >= len(payload):
@@ -163,6 +164,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(payload[pos:split])
                 self.wfile.flush()
                 pos = split
+                if chunk_delay:
+                    time.sleep(chunk_delay)
             self.wfile.write(payload[pos:])
             self.wfile.flush()
             if truncated:
