@@ -7,6 +7,10 @@
 #include <libfyaml/libfyaml-generic.h>
 
 struct fyai_ctx;
+struct fyai_auth_refresh_request;
+
+typedef void (*fyai_auth_refresh_complete_fn)(
+		struct fyai_auth_refresh_request *request, void *userdata);
 
 enum fyai_auth_mode {
 	FYAI_AUTH_AUTO,
@@ -53,10 +57,19 @@ int fyai_auth_status(struct fyai_ctx *ctx, bool json, bool info);
 int fyai_auth_usage(struct fyai_ctx *ctx, bool json);
 int fyai_auth_resolve(struct fyai_ctx *ctx);
 int fyai_auth_refresh(struct fyai_ctx *ctx, bool force);
+struct fyai_auth_refresh_request *
+fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
+			 fyai_auth_refresh_complete_fn complete,
+			 void *userdata);
+void fyai_auth_refresh_cancel(struct fyai_auth_refresh_request *request);
+bool fyai_auth_refresh_done(
+		const struct fyai_auth_refresh_request *request);
+int fyai_auth_refresh_collect(
+		const struct fyai_auth_refresh_request *request);
+void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request);
 int fyai_auth_apply_headers(struct fyai_ctx *ctx,
 			    struct curl_slist **headers);
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status);
-int fyai_auth_prepare_retry(struct fyai_ctx *ctx);
 fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 			    struct fy_generic_builder *gb, bool full);
 void fyai_auth_cleanup(struct fyai_ctx *ctx);

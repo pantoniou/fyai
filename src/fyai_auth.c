@@ -1152,6 +1152,245 @@ out:
 	return rc;
 }
 
+enum fyai_auth_refresh_state {
+	FYAIARS_NEW,
+	FYAIARS_REQUEST_PENDING,
+	FYAIARS_COMPLETED,
+	FYAIARS_CANCELLED,
+	FYAIARS_FAILED,
+};
+
+struct fyai_auth_refresh_request {
+	struct fyai_ctx *ctx;
+	struct fyai_curl_transfer *transfer;
+	fyai_auth_refresh_complete_fn complete;
+	void *userdata;
+	CURL *curl;
+	struct curl_slist *headers;
+	struct auth_http response;
+	char *body;
+	int lockfd;
+	int result;
+	enum fyai_auth_refresh_state state;
+};
+
+static bool
+fyai_auth_refresh_state_final(enum fyai_auth_refresh_state state)
+{
+	return state == FYAIARS_COMPLETED ||
+	       state == FYAIARS_CANCELLED ||
+	       state == FYAIARS_FAILED;
+}
+
+static const char *
+fyai_auth_refresh_state_name(enum fyai_auth_refresh_state state)
+{
+	switch (state) {
+	case FYAIARS_NEW:
+		return "new";
+	case FYAIARS_REQUEST_PENDING:
+		return "request-pending";
+	case FYAIARS_COMPLETED:
+		return "completed";
+	case FYAIARS_CANCELLED:
+		return "cancelled";
+	case FYAIARS_FAILED:
+		return "failed";
+	}
+	return "unknown";
+}
+
+static bool
+fyai_auth_refresh_transition_valid(enum fyai_auth_refresh_state from,
+				   enum fyai_auth_refresh_state to)
+{
+	switch (from) {
+	case FYAIARS_NEW:
+		return to == FYAIARS_REQUEST_PENDING ||
+		       to == FYAIARS_COMPLETED ||
+		       to == FYAIARS_FAILED;
+	case FYAIARS_REQUEST_PENDING:
+		return to == FYAIARS_COMPLETED ||
+		       to == FYAIARS_CANCELLED ||
+		       to == FYAIARS_FAILED;
+	case FYAIARS_COMPLETED:
+	case FYAIARS_CANCELLED:
+	case FYAIARS_FAILED:
+		return false;
+	}
+	return false;
+}
+
+static void
+fyai_auth_refresh_transition(struct fyai_auth_refresh_request *request,
+			     enum fyai_auth_refresh_state state)
+{
+	if (!fyai_auth_refresh_transition_valid(request->state, state)) {
+		fyai_error(request->ctx,
+			   "invalid auth refresh transition %s -> %s",
+			   fyai_auth_refresh_state_name(request->state),
+			   fyai_auth_refresh_state_name(state));
+		if (!fyai_auth_refresh_state_final(request->state))
+			request->state = FYAIARS_FAILED;
+		return;
+	}
+	if (request->ctx->cfg->debug)
+		fyai_debug(request->ctx, "auth refresh state %s -> %s",
+			   fyai_auth_refresh_state_name(request->state),
+			   fyai_auth_refresh_state_name(state));
+	request->state = state;
+}
+
+static void fyai_auth_refresh_complete(
+		struct fyai_curl_transfer *transfer, void *userdata)
+{
+	struct fyai_auth_refresh_request *request;
+	struct fyai_ctx *ctx;
+	CURLcode code;
+	long status;
+	int rc;
+
+	request = userdata;
+	ctx = request->ctx;
+	status = 0;
+	request->result = -1;
+	code = fyai_curl_collect(transfer);
+	fyai_curl_transfer_destroy(transfer);
+	request->transfer = NULL;
+	if (code == CURLE_ABORTED_BY_CALLBACK) {
+		fyai_auth_refresh_transition(request, FYAIARS_CANCELLED);
+		goto done;
+	}
+	fyai_error_check(ctx, code == CURLE_OK, done,
+			 "token refresh request failed: %s",
+			 curl_easy_strerror(code));
+	curl_easy_getinfo(request->curl, CURLINFO_RESPONSE_CODE, &status);
+	request->response.status = status;
+	fyai_error_check(ctx, status / 100 == 2, done,
+			 "refresh failed (HTTP %ld); run `fyai auth login`",
+			 status);
+	rc = parse_tokens(ctx, &ctx->auth, request->response.data);
+	fyai_error_check(ctx, !rc, done, "failed to parse tokens");
+	rc = auth_save(ctx, &ctx->auth);
+	fyai_error_check(ctx, !rc, done, "failed to save refreshed tokens");
+	request->result = 0;
+	fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
+done:
+	if (!fyai_auth_refresh_state_final(request->state))
+		fyai_auth_refresh_transition(request, FYAIARS_FAILED);
+	auth_unlock(ctx, request->lockfd);
+	request->lockfd = -1;
+	if (request->complete)
+		request->complete(request, request->userdata);
+}
+
+struct fyai_auth_refresh_request *
+fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
+			 fyai_auth_refresh_complete_fn complete,
+			 void *userdata)
+{
+	struct fyai_auth_refresh_request *request;
+	char *token;
+	int rc;
+
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_out, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->lockfd = -1;
+	request->result = -1;
+	request->state = FYAIARS_NEW;
+	request->lockfd = auth_lock(ctx);
+	fyai_error_check(ctx, request->lockfd >= 0, err_free,
+			 "could not lock authentication state");
+	rc = auth_load(ctx, &ctx->auth);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not load authentication state");
+	if (!force &&
+	    ctx->auth.expires_at > time(NULL) + AUTH_REFRESH_WINDOW) {
+		request->result = 0;
+		fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
+		auth_unlock(ctx, request->lockfd);
+		request->lockfd = -1;
+		return request;
+	}
+	fyai_error_check(ctx, ctx->auth.refresh_token &&
+			 *ctx->auth.refresh_token, err_free,
+			 "authentication state has no refresh token");
+	request->curl = curl_easy_init();
+	fyai_error_check(ctx, request->curl, err_free,
+			 "could not create token refresh transfer");
+	token = curl_easy_escape(request->curl, ctx->auth.refresh_token, 0);
+	fyai_error_check(ctx, token, err_free,
+			 "could not encode refresh token");
+	rc = asprintf(&request->body,
+		      "grant_type=refresh_token&refresh_token=%s&client_id=%s",
+		      token, CODEX_OAUTH_CLIENT_ID);
+	curl_free(token);
+	fyai_error_check(ctx, rc >= 0, err_free,
+			 "could not build token refresh request");
+	request->headers = curl_slist_append(request->headers,
+			"Content-Type: application/x-www-form-urlencoded");
+	fyai_error_check(ctx, request->headers, err_free,
+			 "could not create token refresh headers");
+	curl_easy_setopt(request->curl, CURLOPT_URL,
+			 AUTH_ISSUER "/oauth/token");
+	curl_easy_setopt(request->curl, CURLOPT_WRITEFUNCTION, auth_write);
+	curl_easy_setopt(request->curl, CURLOPT_WRITEDATA,
+			 &request->response);
+	curl_easy_setopt(request->curl, CURLOPT_TIMEOUT, 120L);
+	curl_easy_setopt(request->curl, CURLOPT_USERAGENT, "fyai/" VERSION);
+	curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
+	curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER,
+			 request->headers);
+	fyai_auth_refresh_transition(request, FYAIARS_REQUEST_PENDING);
+	request->transfer = fyai_curl_submit(ctx, request->curl,
+					     fyai_auth_refresh_complete,
+					     request);
+	fyai_error_check(ctx, request->transfer, err_free,
+			 "could not submit token refresh");
+	return request;
+
+err_free:
+	fyai_auth_refresh_destroy(request);
+err_out:
+	return NULL;
+}
+
+void fyai_auth_refresh_cancel(struct fyai_auth_refresh_request *request)
+{
+	if (request && request->transfer &&
+	    !fyai_auth_refresh_state_final(request->state))
+		fyai_curl_cancel(request->transfer);
+}
+
+bool fyai_auth_refresh_done(
+		const struct fyai_auth_refresh_request *request)
+{
+	return request && fyai_auth_refresh_state_final(request->state);
+}
+
+int fyai_auth_refresh_collect(
+		const struct fyai_auth_refresh_request *request)
+{
+	return fyai_auth_refresh_done(request) ? request->result : -1;
+}
+
+void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request)
+{
+	if (!request)
+		return;
+	if (request->transfer)
+		fyai_curl_transfer_destroy(request->transfer);
+	auth_unlock(request->ctx, request->lockfd);
+	curl_easy_cleanup(request->curl);
+	curl_slist_free_all(request->headers);
+	free(request->response.data);
+	free(request->body);
+	free(request);
+}
+
 static void revoke_token(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
 	struct curl_slist *headers = NULL;
@@ -1239,14 +1478,6 @@ bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status)
 {
 	return status == 401 && ctx->cfg->chatgpt_auth &&
 	       !ctx->auth_retry_done;
-}
-
-int fyai_auth_prepare_retry(struct fyai_ctx *ctx)
-{
-	ctx->auth_retry_done = true;
-	if (fyai_auth_refresh(ctx, true))
-		return -1;
-	return fyai_request_state_apply(ctx);
 }
 
 int fyai_auth_resolve(struct fyai_ctx *ctx)
