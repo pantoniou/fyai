@@ -420,6 +420,7 @@ struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
  * wrapped value is the partial turn, otherwise fy_invalid.
  */
 fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn);
+fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
 
 /* Wrap @value (possibly fy_invalid) with a diagnostic message. */
 fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,

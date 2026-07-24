@@ -150,7 +150,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	shell_save = cfg->enable_builtin_shell;
 	cfg->enable_tools = false;
 	cfg->enable_builtin_shell = false;
-	v = fyai_run_model_loop(ctx, turn);
+	v = fyai_run_turn(ctx, turn);
 	cfg->enable_tools = tools_save;
 	cfg->enable_builtin_shell = shell_save;
 	/* The loop carries why it failed on the result; without this a ^C here

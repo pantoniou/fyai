@@ -1886,6 +1886,39 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	free(run);
 }
 
+/*
+ * Synchronous driver over the async turn op. The batch, one-shot and non-tty
+ * interactive fallbacks run one turn to completion on a bare pump: this is the
+ * top-level event loop for those paths, so stepping it here is not nested under
+ * another pump. The op self-finalizes and carries its diagnostic on the result,
+ * so the return matches the old fyai_run_model_loop() - a turn on success, a
+ * diag-wrapped invalid or partial turn on failure - and callers keep using
+ * fyai_report_diag()/fyai_publish_state().
+ */
+fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
+{
+	struct fyai_turn_run *run;
+	struct fyai_event_loop *el;
+	fy_generic result;
+	int rc;
+
+	result = fy_invalid;
+	run = fyai_turn_run_submit(ctx, turn);
+	if (!run)
+		return fy_invalid;
+	el = fyai_ctx_loop(ctx);
+	while (el && !fyai_turn_run_done(run)) {
+		if (ctx->interrupt_pending)
+			fyai_turn_run_cancel(run);
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0)
+			break;
+	}
+	result = fyai_turn_run_collect(run);
+	fyai_turn_run_destroy(run);
+	return result;
+}
+
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
 {
 	if (ctx->transient_gb) {
@@ -2398,7 +2431,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	assert(!rc);
 
 	/* not interactive? single run */
-	v = fyai_run_model_loop(ctx, ctx->last_message);
+	v = fyai_run_turn(ctx, ctx->last_message);
 	v = fyai_report_diag(ctx, v);
 	if (fy_generic_is_invalid(v))
 		goto err_out;
@@ -2753,7 +2786,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 
 	if (cfg->prompt && *cfg->prompt) {
-		v = fyai_run_model_loop(ctx, ctx->last_message);
+		v = fyai_run_turn(ctx, ctx->last_message);
 		v = fyai_report_diag(ctx, v);
 		if (fy_generic_is_invalid(v))
 			goto err_out;
@@ -2849,7 +2882,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		}
 
 		fyai_ui_set_busy(ctx, true);
-		v = fyai_run_model_loop(ctx, v);
+		v = fyai_run_turn(ctx, v);
 		fyai_ui_set_busy(ctx, false);
 		/* A failed/interrupted run may carry a diagnostic; print it and
 		 * unwrap to the (possibly partial) turn. */
