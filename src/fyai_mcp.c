@@ -726,6 +726,7 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx)
 }
 
 enum fyai_mcp_call_state {
+	FYAIMCS_WAITING,		/* target server not yet READY; parked */
 	FYAIMCS_PRIMARY,
 	FYAIMCS_RECOVER_INITIALIZE,
 	FYAIMCS_RECOVER_NOTIFY,
@@ -734,10 +735,15 @@ enum fyai_mcp_call_state {
 	FYAIMCS_FAILED,
 };
 
+/* Poll interval while a call is parked waiting for its server to settle. */
+#define FYAI_MCP_CALL_WAIT_TICK_MS 50
+
 struct fyai_mcp_call_request {
 	struct fyai_ctx *ctx;
 	struct fyai_mcp_ctx *mcp;
 	struct jsonrpc_request *req;
+	struct fyai_event_source *wait_timer;	/* armed while FYAIMCS_WAITING */
+	int wait_remaining_ms;			/* park budget left */
 	fyai_mcp_call_complete_fn complete;
 	void *userdata;
 	char *tool_name;
@@ -865,6 +871,100 @@ err_out:
 	return -1;
 }
 
+static void fyai_mcp_call_wait_disarm(struct fyai_mcp_call_request *request)
+{
+	if (request->wait_timer) {
+		fyai_event_source_remove(request->wait_timer);
+		request->wait_timer = NULL;
+	}
+}
+
+/*
+ * Poll a parked call's target server. A terminally failed server fails the call
+ * fast; a server that becomes READY admits it to the PRIMARY phase; a server
+ * still connecting keeps the call parked until it settles or the budget runs
+ * out. Runs off the poll timer, so completion never re-enters the submit path.
+ */
+static enum fyai_event_action
+fyai_mcp_call_wait_tick(const struct fyai_event *ev)
+{
+	struct fyai_mcp_call_request *request = ev->userdata;
+	struct fyai_ctx *ctx = request->ctx;
+	char msg[160];
+
+	if (request->cancel_requested) {
+		fyai_mcp_call_wait_disarm(request);
+		fyai_mcp_call_finish(request, FYAIMCS_CANCELLED,
+			fy_value(ctx->transient_gb, "tool error: interrupted"),
+			false);
+		return FYAIEA_CONTINUE;
+	}
+	switch (request->mcp->state) {
+	case MCP_SRV_READY:
+		fyai_mcp_call_wait_disarm(request);
+		request->state = FYAIMCS_PRIMARY;
+		if (fyai_mcp_call_submit_phase(request))
+			fyai_mcp_call_finish(request, FYAIMCS_FAILED,
+				fy_value(ctx->transient_gb,
+					 "tool error: MCP call failed"),
+				false);
+		break;
+	case MCP_SRV_FAILED:
+		fyai_mcp_call_wait_disarm(request);
+		snprintf(msg, sizeof(msg),
+			 "tool error: MCP server '%s' is unavailable",
+			 request->mcp->name);
+		fyai_mcp_call_finish(request, FYAIMCS_FAILED,
+				     fy_value(ctx->transient_gb, msg), false);
+		break;
+	case MCP_SRV_CONNECTING:
+		request->wait_remaining_ms -= FYAI_MCP_CALL_WAIT_TICK_MS;
+		if (request->wait_remaining_ms <= 0) {
+			fyai_mcp_call_wait_disarm(request);
+			snprintf(msg, sizeof(msg), "tool error: MCP server '%s' "
+				 "did not become ready", request->mcp->name);
+			fyai_mcp_call_finish(request, FYAIMCS_FAILED,
+					     fy_value(ctx->transient_gb, msg),
+					     false);
+		}
+		break;
+	}
+	return FYAIEA_CONTINUE;
+}
+
+/*
+ * Gate 2: admit a call to its server. A READY server goes straight to the
+ * PRIMARY request. Any other state parks the call on a poll timer rather than
+ * finishing here - the tool group wires the request handle up only after submit
+ * returns, so completion must stay out of the submit path.
+ */
+static int fyai_mcp_call_gate(struct fyai_mcp_call_request *request)
+{
+	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_event_loop *el;
+	int rc;
+
+	if (request->mcp->state == MCP_SRV_READY) {
+		request->state = FYAIMCS_PRIMARY;
+		return fyai_mcp_call_submit_phase(request);
+	}
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err_out,
+			 "could not acquire the application event loop");
+	request->state = FYAIMCS_WAITING;
+	request->wait_remaining_ms = request->mcp->timeout > 0 ?
+		request->mcp->timeout * 1000 : 30000;
+	rc = fyai_event_add_timer(el, 0, FYAI_MCP_CALL_WAIT_TICK_MS,
+				  fyai_mcp_call_wait_tick, request,
+				  &request->wait_timer);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not park MCP call for '%s'", request->mcp->name);
+	return 0;
+
+err_out:
+	return -1;
+}
+
 /*
  * One request phase completed. Advance the tool-call state machine: deliver the
  * tool output, walk the session-recovery handshake, or fail. HTTP 404 with a
@@ -973,7 +1073,7 @@ fyai_mcp_call_submit(struct fyai_ctx *ctx, const char *name,
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "tool_call", "server", mcp->name,
 			"tool", tool_name));
-	rc = fyai_mcp_call_submit_phase(request);
+	rc = fyai_mcp_call_gate(request);
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not submit MCP call");
 	return request;
@@ -1011,6 +1111,7 @@ void fyai_mcp_call_destroy(struct fyai_mcp_call_request *request)
 {
 	if (!request)
 		return;
+	fyai_mcp_call_wait_disarm(request);
 	jsonrpc_request_destroy(request->req);
 	free(request->tool_name);
 	free(request->params_text);
