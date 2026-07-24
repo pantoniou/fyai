@@ -266,7 +266,11 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 			cfg->mcp_protocol_version ? cfg->mcp_protocol_version : "2024-11-05");
 		cfg->mcp_timeout = (int)fy_get(v, "timeout",
 			cfg->mcp_timeout > 0 ? cfg->mcp_timeout : 30);
-		/* auth_token: must be an indirection mapping; resolve env. */
+		/*
+		 * auth_token is durable configuration, so an unavailable
+		 * credential does not make the document invalid. MCP startup
+		 * diagnoses an unresolved token for the server that needs it.
+		 */
 		{
 			fy_generic at = fy_get(v, "auth_token", fy_invalid);
 			if (fy_generic_is_mapping(at)) {
@@ -275,11 +279,9 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 					cfg->mcp_auth_token_auto = true;
 				} else {
 					cfg->mcp_auth_token_auto = false;
-					if (resolve_secret(cfg, &cfg->mcp_auth_token, at) &&
-					    cfg->mcp_enabled) {
-						fyai_cfg_error(cfg, "mcp.auth_token could not be resolved");
-						return -1;
-					}
+					cfg->mcp_auth_token = NULL;
+					(void)resolve_secret(cfg,
+						&cfg->mcp_auth_token, at);
 				}
 			}
 		}

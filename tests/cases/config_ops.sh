@@ -70,4 +70,14 @@ run_fyai config set api_key '{ type: secret }'
 assert_status_nonzero
 assert_stderr_contains 'api_key.value is required'
 
+# Credential references remain valid configuration when their environment
+# variables are unavailable. Resolution and its diagnostic belong to the MCP
+# server startup that actually needs the credential.
+unset MCP_API_KEY
+run_fyai config set mcp/enabled true
+assert_status 0
+run_fyai config get mcp/enabled
+assert_status 0
+assert_stdout_contains 'true'
+
 pass
