@@ -2100,11 +2100,33 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 }
 
 /*
+ * Bring the MCP layer to a known state for the current config: connect (and
+ * discover tools on) every configured server when MCP is enabled, or tear any
+ * prior session down when it is not. Idempotent - fyai_mcp_refresh() reuses a
+ * live session and fyai_mcp_cleanup() is a no-op with nothing connected - so a
+ * caller may run it again after a /model switch or an application restart.
+ *
+ * This is the seam the asynchronous, concurrent server-connect work replaces:
+ * today it blocks until discovery finishes; the application STARTING state
+ * calls it so that becomes a pumped barrier without moving the call site.
+ */
+static int fyai_mcp_bringup(struct fyai_ctx *ctx)
+{
+	if (ctx->cfg->mcp_enabled)
+		return fyai_mcp_refresh(ctx);
+	fyai_mcp_cleanup(ctx);
+	ctx->mcp_tools = fy_invalid;
+	return 0;
+}
+
+/*
  * (Re)build every piece of per-session request state derived from cfg: the
  * auth header, the header list, the endpoint URL on the curl handle and the
- * tools document. Idempotent, so a mid-session /model switch just calls it
- * again after re-resolving the model. Requires an active transient builder
- * (the tools construction goes through it).
+ * tools document. It folds whatever MCP tools are already discovered
+ * (fyai_mcp_tools() is empty until fyai_mcp_bringup() has run), so callers that
+ * want MCP tools in the catalogue bring MCP up first. Idempotent, so a
+ * mid-session /model switch just calls it again after re-resolving the model.
+ * Requires an active transient builder (the tools construction goes through it).
  */
 int fyai_request_state_apply(struct fyai_ctx *ctx)
 {
@@ -2159,15 +2181,6 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 
 	curl_easy_setopt(ctx->curl, CURLOPT_URL, cfg->api_url);
 	curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, ctx->headers);
-
-	if (cfg->mcp_enabled) {
-		rc = fyai_mcp_refresh(ctx);
-		fyai_error_check(ctx, !rc, err,
-				 "could not initialize MCP servers");
-	} else {
-		fyai_mcp_cleanup(ctx);
-		ctx->mcp_tools = fy_invalid;
-	}
 
 	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled) {
 
@@ -2272,6 +2285,19 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	rc = fyai_request_state_apply(ctx);
 	if (rc)
 		goto err;
+
+	/*
+	 * Bring MCP up here for the non-interactive modes, then re-apply so its
+	 * tools land in the catalogue. The interactive path owns bring-up in its
+	 * STARTING state instead, so the UI appears before servers connect.
+	 */
+	if (!cfg->interactive) {
+		rc = fyai_mcp_bringup(ctx);
+		fyai_error_check(ctx, !rc, err, "could not initialize MCP servers");
+		rc = fyai_request_state_apply(ctx);
+		if (rc)
+			goto err;
+	}
 
 	/*
 	 * Fold repo-scoped instruction files (AGENTS.md/CLAUDE.md) into the
@@ -2461,11 +2487,32 @@ err:
 	return -1;
 }
 
+/*
+ * Application lifecycle around the interactive turn pump:
+ *
+ *   STARTING -> RUNNING -> STOPPING -> DONE
+ *
+ * STARTING fires MCP bring-up and folds its tools into the catalogue; today it
+ * blocks until discovery finishes, but it is the barrier the concurrent async
+ * server-connect work turns into a pumped phase. RUNNING is the event pump.
+ * STOPPING drains MCP and waits for its servers to terminate; it is reached on
+ * every exit - including the RUNNING error unwind - so teardown belongs to the
+ * application rather than to fyai_cleanup(). The synchronous fyai_mcp_cleanup()
+ * here becomes the awaited async drain next.
+ */
+enum fyai_app_state {
+	FYAIAS_STARTING,
+	FYAIAS_RUNNING,
+	FYAIAS_STOPPING,
+	FYAIAS_DONE,
+};
+
 static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg;
 	struct fyai_event_loop *el;
 	struct fyai_turn_run *run;
+	enum fyai_app_state state;
 	char *histfile;
 	char *line;
 	bool initial;
@@ -2475,6 +2522,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	cfg = ctx->cfg;
 	el = fyai_ctx_loop(ctx);
 	run = NULL;
+	state = FYAIAS_STARTING;
 	histfile = fyai_history_path();
 	line = NULL;
 	initial = cfg->prompt && *cfg->prompt;
@@ -2482,10 +2530,26 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	rc = -1;
 	fyai_error_check(ctx, el, out,
 			 "interactive UI requires an event loop");
+
+	/*
+	 * STARTING: bring the UI up first, then connect MCP and re-apply the
+	 * request state so discovered tools land in the catalogue before the
+	 * first turn is submitted.
+	 */
 	fyai_ui_history_load(ctx, histfile);
 	fyai_interactive_recap(ctx);
 	fyai_ui_drain_output(ctx);
 	fyai_session_banner_update(ctx);
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, out,
+			 "could not create the transient builder");
+	rc = fyai_mcp_bringup(ctx);
+	if (!rc)
+		rc = fyai_request_state_apply(ctx);
+	fyai_cleanup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, out, "could not initialize MCP servers");
+	state = FYAIAS_RUNNING;
+
 	if (initial) {
 		run = fyai_turn_run_submit(ctx, ctx->last_message);
 		fyai_error_check(ctx, run, out,
@@ -2494,8 +2558,8 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	}
 
 	/*
-	 * Main interactive application pump
-	 * =================================
+	 * RUNNING: the interactive application pump
+	 * =========================================
 	 *
 	 * This is the only event-loop driver in the asynchronous terminal path.
 	 * No model, tool-group, or readline operation below it may call
@@ -2564,12 +2628,21 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	}
 	rc = 0;
 out:
+	/*
+	 * STOPPING: cancel any active turn, then drain MCP and wait for its
+	 * servers to terminate. Reached on every exit, so shutdown is owned
+	 * here; fyai_cleanup()'s later fyai_mcp_cleanup() is then a no-op.
+	 */
+	state = FYAIAS_STOPPING;
 	if (run) {
 		fyai_turn_run_cancel(run);
 		fyai_turn_run_destroy(run);
 		fyai_ui_set_busy(ctx, false);
 		fyai_cleanup_transient_builder(ctx);
 	}
+	fyai_mcp_cleanup(ctx);
+	state = FYAIAS_DONE;
+	(void)state;
 	free(line);
 	free(histfile);
 	return rc;
@@ -2594,6 +2667,24 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 	if (fyai_ui_active(ctx) && cfg->async_model_step)
 		return fyai_prompt_interactive_async(ctx);
+
+	/*
+	 * Setup defers MCP bring-up for interactive to the async STARTING state,
+	 * so this synchronous fallback connects it here before the first turn.
+	 */
+	if (cfg->mcp_enabled) {
+		if (fyai_setup_transient_builder(ctx))
+			goto err_out;
+		rc = fyai_mcp_bringup(ctx);
+		if (!rc)
+			rc = fyai_request_state_apply(ctx);
+		fyai_cleanup_transient_builder(ctx);
+		if (rc) {
+			fyai_error(ctx, "could not initialize MCP servers");
+			goto err_out;
+		}
+		rc = -1;
+	}
 
 	if (cfg->prompt && *cfg->prompt) {
 		v = fyai_run_model_loop(ctx, ctx->last_message);

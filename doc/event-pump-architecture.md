@@ -457,10 +457,19 @@ An interrupt cancels the active model transfer or tool group. Completed model
 and tool steps remain eligible for publication, matching current partial-turn
 semantics.
 
+The model and tool completion callbacks do not transition the machine directly -
+a callback runs inside event dispatch and could otherwise free the very step or
+group whose completion is on the stack. They instead defer
+`fyai_turn_run_service()` (`fyai_event_defer()`), which runs outside dispatch and
+re-derives readiness from the child operation's own latched completion
+(`fyai_model_step_done()` / `fyai_tool_job_group_done()`) rather than a cached
+flag. The turn therefore keeps its coarse `MODEL`/`TOOLS` states with no
+intermediate "notified" state.
+
 ## Interactive application pump
 
-The outer interactive loop should become event callbacks around one top-level
-run:
+This pump is the RUNNING phase of the application state machine below. The outer
+interactive loop should become event callbacks around one top-level run:
 
 - a UI line event queues or starts a turn;
 - model completion advances the turn machine;
@@ -478,6 +487,39 @@ the existing UI semantics.
 The main event loop may still be pumped while an external editor is open in a
 future change. That operation should eventually be represented as another
 child-backed asynchronous operation rather than a special nested mode.
+
+## Application state machine
+
+The interactive invocation advances through an explicit lifecycle around the
+pump (`fyai_prompt_interactive_async()`):
+
+```text
+STARTING -> RUNNING -> STOPPING -> DONE
+```
+
+- **STARTING** brings the UI up first, then connects MCP and folds its
+  discovered tools into the request catalogue (`fyai_mcp_bringup()` followed by
+  `fyai_request_state_apply()`). Discovery is a startup barrier: RUNNING - and
+  therefore the first model request, which needs the tool list - is entered only
+  once bring-up completes.
+- **RUNNING** is the interactive application pump.
+- **STOPPING** drains MCP and waits for its servers to terminate
+  (`fyai_mcp_cleanup()`). It is reached on every exit, including the RUNNING
+  error unwind, so teardown belongs to the application rather than to
+  `fyai_cleanup()` (whose later MCP teardown is then an idempotent no-op).
+
+`fyai_setup()` defers MCP bring-up for the interactive modes to STARTING so the
+UI appears before servers connect; the one-shot and batch modes keep synchronous
+bring-up at setup time. The synchronous non-async interactive fallback connects
+MCP itself before its first turn.
+
+This is currently a synchronous skeleton: `fyai_mcp_bringup()` still blocks until
+every server has connected serially, and `fyai_mcp_cleanup()` still blocks on
+session DELETE and child reaping. The states are the seams the MCP conversion
+fills in - STARTING becomes a concurrent, pumped discovery barrier and STOPPING
+becomes an awaited shutdown group over the child-termination ladder (see the MCP
+lifecycle section and migration step 7) - without re-architecting the loop
+again.
 
 ## Compatibility during migration
 
