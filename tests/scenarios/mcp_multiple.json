@@ -1,31 +1,50 @@
 {
   "steps": [
     {
+      "match": {"http": "POST", "path": "/mcp", "method": "initialize", "auth": ""},
       "headers": {"Mcp-Session-Id": "alpha-session"},
       "response": {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"alpha","version":"1"}}}
     },
-    {"status": 202, "raw": ""},
     {
+      "match": {"http": "POST", "path": "/mcp", "method": "notifications/initialized", "auth": ""},
+      "status": 202, "raw": ""
+    },
+    {
+      "match": {"http": "POST", "path": "/mcp", "method": "tools/list", "auth": ""},
       "response": {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Alpha echo","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}}}]}}
     },
     {
+      "match": {"http": "POST", "path": "/mcp", "method": "initialize", "auth": "Bearer mcp-beta-secret"},
       "headers": {"Mcp-Session-Id": "beta-session"},
       "response": {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"beta","version":"1"}}}
     },
-    {"status": 202, "raw": ""},
     {
+      "match": {"http": "POST", "path": "/mcp", "method": "notifications/initialized", "auth": "Bearer mcp-beta-secret"},
+      "status": 202, "raw": ""
+    },
+    {
+      "match": {"http": "POST", "path": "/mcp", "method": "tools/list", "auth": "Bearer mcp-beta-secret"},
       "response": {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"Beta echo","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}}}]}}
     },
     {
-      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_mcp_beta","type":"function","function":{"name":"mcp__beta__echo","arguments":"{\"text\":\"hello\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
-    },
-    {
+      "match": {"http": "POST", "path": "/mcp", "method": "tools/call", "auth": "Bearer mcp-beta-secret"},
       "response": {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"beta: hello"}]}}
     },
     {
+      "match": {"http": "POST", "path": "/v1/chat/completions"},
+      "response": {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_mcp_beta","type":"function","function":{"name":"mcp__beta__echo","arguments":"{\"text\":\"hello\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions"},
       "response": {"choices":[{"message":{"role":"assistant","content":"Multiple MCP servers work."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":4,"total_tokens":24}}
     },
-    {"status": 200, "raw": ""},
-    {"status": 200, "raw": ""}
+    {
+      "match": {"http": "DELETE", "path": "/mcp", "session": "alpha-session"},
+      "status": 200, "raw": ""
+    },
+    {
+      "match": {"http": "DELETE", "path": "/mcp", "session": "beta-session"},
+      "status": 200, "raw": ""
+    }
   ]
 }

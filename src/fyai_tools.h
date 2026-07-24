@@ -53,6 +53,11 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group);
 
 int fyai_mcp_refresh(struct fyai_ctx *ctx);
+/* Fire concurrent server startup without waiting; observe fyai_mcp_settled()
+ * then call fyai_mcp_publish_tools(). fyai_mcp_refresh() is the sync wrapper. */
+int fyai_mcp_start(struct fyai_ctx *ctx);
+bool fyai_mcp_settled(struct fyai_ctx *ctx);
+void fyai_mcp_publish_tools(struct fyai_ctx *ctx);
 fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);
 bool fyai_mcp_tool_name(const char *name);
 fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,

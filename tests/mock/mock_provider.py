@@ -71,6 +71,27 @@ class MockState:
         self.rundir = rundir
         self.lock = threading.Lock()
         self.served = 0
+        self.consumed = set()
+        # A scenario that declares any "match" opts into content-based
+        # dispatch: responses are chosen by the request rather than by arrival
+        # order, so concurrently-interleaved requests each get the right reply.
+        self.matched = any(isinstance(s, dict) and "match" in s
+                           for s in self.steps)
+
+    def pick(self, req):
+        if not self.matched:
+            idx = self.served
+            self.served += 1
+            return idx, (self.steps[idx] if idx < len(self.steps) else None)
+        for i, step in enumerate(self.steps):
+            if i in self.consumed:
+                continue
+            m = step.get("match", {})
+            if all(req.get(k, "") == v for k, v in m.items()):
+                self.consumed.add(i)
+                self.served = len(self.consumed)
+                return i, step
+        return None, None
 
 
 STATE = None
@@ -117,9 +138,14 @@ class Handler(BaseHTTPRequestHandler):
             parsed = None
 
         with st.lock:
-            idx = st.served
-            st.served += 1
-            step = st.steps[idx] if idx < len(st.steps) else None
+            idx, step = st.pick({
+                "http": "POST",
+                "path": self.path,
+                "method": parsed.get("method") if isinstance(parsed, dict)
+                          else "",
+                "auth": self.headers.get("Authorization", ""),
+                "session": self.headers.get("Mcp-Session-Id", ""),
+            })
             record = {
                 "path": self.path,
                 "auth": self.headers.get("Authorization", ""),
@@ -221,9 +247,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         st = STATE
         with st.lock:
-            idx = st.served
-            st.served += 1
-            step = st.steps[idx] if idx < len(st.steps) else None
+            idx, step = st.pick({
+                "http": "DELETE",
+                "path": self.path,
+                "auth": self.headers.get("Authorization", ""),
+                "session": self.headers.get("Mcp-Session-Id", ""),
+            })
             record = {
                 "path": self.path,
                 "method": "DELETE",

@@ -158,6 +158,21 @@ if not eval(expr):
 EOF
 }
 
+# assert_any_request <python-expression over r>: true for at least one request.
+# Use when request order is not deterministic (e.g. concurrent MCP startup).
+assert_any_request() {
+	local expr="$1"
+
+	"$PYTHON" - "$TEST_DIR/requests.jsonl" "$expr" <<'EOF' || fail "no request matched: $expr"
+import json, sys
+path, expr = sys.argv[1], sys.argv[2]
+reqs = [json.loads(l) for l in open(path)]
+if not any(eval(expr) for r in reqs):
+    sys.exit("no request matched: %s\n%s" %
+             (expr, json.dumps(reqs, indent=2)))
+EOF
+}
+
 # assert_state <fyai dump/display args...> then grep the fixed string $LAST arg
 assert_state_contains() {
 	local needle="$1"; shift

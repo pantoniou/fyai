@@ -35,10 +35,21 @@ enum mcp_transport {
 	MCP_TRANSPORT_STDIO,
 };
 
+enum mcp_server_state {
+	MCP_SRV_CONNECTING,	/* startup handshake in flight */
+	MCP_SRV_READY,		/* initialized and tools discovered */
+	MCP_SRV_FAILED,		/* terminal failure; dropped from the catalogue */
+};
+
+struct mcp_startup;
+
 struct fyai_mcp_ctx {
 	struct fyai_mcp_ctx *next;
 	struct fyai_ctx *ctx;
 	struct jsonrpc_conn *conn;
+	struct mcp_startup *startup;
+	fy_generic tools;
+	enum mcp_server_state state;
 	enum mcp_transport transport;
 	CURL *curl;
 	pid_t pid;
@@ -53,7 +64,6 @@ struct fyai_mcp_ctx {
 	bool recovering;
 };
 
-static int mcp_initialize(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
 static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
 
 static bool mcp_transient_status(CURLcode rc, long status)
@@ -62,11 +72,6 @@ static bool mcp_transient_status(CURLcode rc, long status)
 		rc == CURLE_RECV_ERROR || rc == CURLE_SEND_ERROR ||
 		rc == CURLE_OPERATION_TIMEDOUT || status == 408 || status == 429 ||
 		status == 500 || status == 502 || status == 503 || status == 504;
-}
-
-static bool mcp_idempotent_method(const char *method)
-{
-	return !strcmp(method, "initialize") || !strcmp(method, "tools/list");
 }
 
 /*
@@ -117,88 +122,6 @@ static void mcp_http_response_header(void *userdata, const char *line,
 			fy_sprintfa("%.*s", (int)(end - p), p));
 }
 
-/* Submit one JSON-RPC request on the server connection and pump the shared loop
- * until it completes. Startup uses this synchronous form; concurrency is a
- * later step, but every request rides the shared jsonrpc transport. */
-static fy_generic mcp_request_once(struct fyai_ctx *ctx,
-				   struct fyai_mcp_ctx *mcp, const char *method,
-				   fy_generic params, bool notification,
-				   long long id, CURLcode *rcp, long *statusp)
-{
-	struct jsonrpc_request *req;
-	struct fyai_event_loop *el;
-	fy_generic out = fy_invalid;
-	int step_rc;
-
-	req = jsonrpc_request_submit(mcp->conn, method, params, id, notification,
-				     NULL, NULL);
-	fyai_error_check(ctx, req, err_out,
-			 "MCP %s could not submit request", method);
-	el = fyai_ctx_loop(ctx);
-	fyai_error_check(ctx, el, err_destroy,
-			 "MCP %s request requires an event loop", method);
-	while (!jsonrpc_request_done(req)) {
-		step_rc = fyai_event_loop_step(el, -1);
-		fyai_error_check(ctx, step_rc >= 0, err_destroy,
-				 "MCP %s event loop failed", method);
-	}
-	*rcp = jsonrpc_request_curl_code(req);
-	*statusp = jsonrpc_request_http_status(req);
-	if (jsonrpc_request_ok(req))
-		out = jsonrpc_request_result(req);
-	jsonrpc_request_destroy(req);
-	return out;
-
-err_destroy:
-	jsonrpc_request_destroy(req);
-err_out:
-	return fy_invalid;
-}
-
-static fy_generic mcp_request(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
-			      const char *method, fy_generic params,
-			      bool notification)
-{
-	fy_generic result;
-	CURLcode rc = CURLE_OK;
-	long status = 0;
-	long long id = notification ? 0 : jsonrpc_conn_next_id(mcp->conn);
-	struct timespec delay = { .tv_nsec = 100000000 };
-	unsigned int attempt;
-
-	for (attempt = 0; attempt < 3; attempt++) {
-		result = mcp_request_once(ctx, mcp, method, params, notification,
-					  id, &rc, &status);
-		if (fy_generic_is_valid(result))
-			return result;
-		if (status == 404 && mcp->session_id && !mcp->recovering &&
-		    strcmp(method, "initialize")) {
-			mcp->session_id = NULL;
-			mcp->recovering = true;
-			if (!mcp_initialize(ctx, mcp)) {
-				mcp->recovering = false;
-				result = mcp_request_once(ctx, mcp, method,
-						params, notification, id, &rc,
-						&status);
-				if (fy_generic_is_valid(result))
-					return result;
-			} else {
-				mcp->recovering = false;
-			}
-			break;
-		}
-		if (!mcp_idempotent_method(method) ||
-		    !mcp_transient_status(rc, status) || attempt == 2)
-			break;
-		nanosleep(&delay, NULL);
-		delay.tv_nsec *= 2;
-	}
-	if (mcp->transport == MCP_TRANSPORT_HTTP)
-		fyai_error(ctx, "MCP %s failed: %s (HTTP %ld)", method,
-			   curl_easy_strerror(rc), status);
-	return fy_invalid;
-}
-
 bool fyai_mcp_tool_name(const char *name)
 {
 	return name && !strncmp(name, MCP_PREFIX, sizeof(MCP_PREFIX) - 1) &&
@@ -246,75 +169,215 @@ err_out:
 	return NULL;
 }
 
-static int mcp_initialize(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
-{
-	fy_generic result;
-	const char *protocol;
+#define MCP_STARTUP_RETRIES 3
 
-	result = mcp_request(ctx, mcp, "initialize", fy_mapping(ctx->transient_gb,
+enum mcp_startup_phase {
+	MCP_SU_INIT,
+	MCP_SU_NOTIFY,
+	MCP_SU_DISCOVER,
+};
+
+/* One server's asynchronous startup handshake: initialize, initialized, then
+ * paginated tools/list. It settles the server READY or FAILED and drives the
+ * next step from each request completion. */
+struct mcp_startup {
+	struct fyai_mcp_ctx *mcp;
+	struct jsonrpc_request *req;
+	struct fyai_event_source *timer;
+	char *cursor;
+	long long id;			/* current request id, reused across retry */
+	enum mcp_startup_phase phase;
+	int attempt;
+};
+
+static void mcp_startup_step(struct mcp_startup *su);
+static void mcp_startup_enter(struct mcp_startup *su,
+			      enum mcp_startup_phase phase);
+
+static void mcp_startup_settle(struct mcp_startup *su,
+			       enum mcp_server_state state)
+{
+	struct fyai_mcp_ctx *mcp = su->mcp;
+	struct fyai_ctx *ctx = mcp->ctx;
+
+	if (su->timer) {
+		fyai_event_source_remove(su->timer);
+		su->timer = NULL;
+	}
+	if (su->req) {
+		jsonrpc_request_destroy(su->req);
+		su->req = NULL;
+	}
+	mcp->state = state;
+	mcp->startup = NULL;
+	free(su->cursor);
+	free(su);
+	if (ctx->cfg->mcp_logging)
+		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
+			"event", state == MCP_SRV_READY ? "discovery" : "failed",
+			"server", mcp->name, "tools",
+			(long long)(fy_generic_is_valid(mcp->tools) ?
+				    fy_len(mcp->tools) : 0)));
+	if (state == MCP_SRV_FAILED)
+		fyai_warning(ctx, "MCP server '%s' is unavailable", mcp->name);
+}
+
+static enum fyai_event_action mcp_startup_retry(const struct fyai_event *ev)
+{
+	struct mcp_startup *su = ev->userdata;
+
+	su->timer = NULL;
+	mcp_startup_step(su);
+	return FYAIEA_CONTINUE;
+}
+
+/* Bad auth, an unretryable status, or any stdio error is terminal at this stage
+ * (mid-session reconnect is a later step); transient statuses retry. */
+static bool mcp_startup_terminal(struct fyai_mcp_ctx *mcp, long status,
+				 CURLcode code)
+{
+	if (mcp->transport == MCP_TRANSPORT_STDIO)
+		return true;
+	if (status == 401 || status == 403)
+		return true;
+	return !mcp_transient_status(code, status);
+}
+
+static void mcp_startup_collect(struct fyai_mcp_ctx *mcp, fy_generic result)
+{
+	struct fyai_ctx *ctx = mcp->ctx;
+	fy_generic tools = fy_get(result, "tools", fy_seq_empty), tool;
+	const char *tool_name;
+
+	fy_foreach(tool, tools) {
+		tool_name = fy_get(tool, "name", "");
+		if (!*tool_name)
+			continue;
+		mcp->tools = fy_append(ctx->gb, mcp->tools, fy_mapping(ctx->gb,
+			"type", "function", "function", fy_mapping(
+				"name", fy_sprintfa(MCP_PREFIX "%s__%s",
+						    mcp->name, tool_name),
+				"description", fy_get(tool, "description", ""),
+				"parameters", fy_get(tool, "inputSchema",
+						fy_mapping("type", "object")))));
+	}
+}
+
+static void mcp_startup_req_done(struct jsonrpc_request *req, void *userdata)
+{
+	struct mcp_startup *su = userdata;
+	struct fyai_mcp_ctx *mcp = su->mcp;
+	struct fyai_ctx *ctx = mcp->ctx;
+	bool ok = jsonrpc_request_ok(req);
+	fy_generic result = jsonrpc_request_result(req);
+	long status = jsonrpc_request_http_status(req);
+	CURLcode code = jsonrpc_request_curl_code(req);
+	struct fyai_event_loop *el;
+	const char *protocol, *cursor;
+
+	jsonrpc_request_destroy(req);
+	su->req = NULL;
+
+	if (!ok) {
+		if (!mcp_startup_terminal(mcp, status, code) &&
+		    su->attempt + 1 < MCP_STARTUP_RETRIES) {
+			su->attempt++;
+			el = fyai_ctx_loop(ctx);
+			if (el && !fyai_event_add_timer(el, 100 << su->attempt,
+					0, mcp_startup_retry, su, &su->timer))
+				return;
+		}
+		mcp_startup_settle(su, MCP_SRV_FAILED);
+		return;
+	}
+	switch (su->phase) {
+	case MCP_SU_INIT:
+		protocol = fy_get(result, "protocolVersion", "");
+		if (*protocol)
+			mcp->protocol_version =
+				fy_gb_intern_string(ctx->cfg->gb, protocol);
+		mcp_startup_enter(su, MCP_SU_NOTIFY);
+		break;
+	case MCP_SU_NOTIFY:
+		mcp_startup_enter(su, MCP_SU_DISCOVER);
+		break;
+	case MCP_SU_DISCOVER:
+		mcp_startup_collect(mcp, result);
+		cursor = fy_get(result, "nextCursor", "");
+		free(su->cursor);
+		su->cursor = *cursor ? strdup(cursor) : NULL;
+		if (su->cursor)
+			mcp_startup_enter(su, MCP_SU_DISCOVER);
+		else
+			mcp_startup_settle(su, MCP_SRV_READY);
+		break;
+	}
+}
+
+/* (Re)submit the request for the current phase. The id is fixed on phase entry
+ * and reused here so a retry replays with the same id, as the protocol wants. */
+static void mcp_startup_step(struct mcp_startup *su)
+{
+	struct fyai_mcp_ctx *mcp = su->mcp;
+	struct fyai_ctx *ctx = mcp->ctx;
+	const char *method;
+	fy_generic params;
+	bool notification = false;
+
+	switch (su->phase) {
+	case MCP_SU_INIT:
+		method = "initialize";
+		params = fy_mapping(ctx->transient_gb,
 			"protocolVersion", mcp->protocol_version,
 			"capabilities", fy_map_empty,
 			"clientInfo", fy_mapping("name", "fyai",
-						 "version", VERSION)), false);
-	fyai_error_check(ctx, fy_generic_is_valid(result), err_out,
-			 "MCP server '%s' initialization failed", mcp->name);
-	protocol = fy_get(result, "protocolVersion", "");
-	if (*protocol) {
-		protocol = fy_gb_intern_string(ctx->cfg->gb, protocol);
-		fyai_error_check(ctx, protocol, err_out,
-				 "MCP server '%s' could not retain protocol version",
-				 mcp->name);
-		mcp->protocol_version = protocol;
+						 "version", VERSION));
+		break;
+	case MCP_SU_NOTIFY:
+		method = "notifications/initialized";
+		notification = true;
+		params = fy_map_empty;
+		break;
+	case MCP_SU_DISCOVER:
+		method = "tools/list";
+		params = su->cursor ? fy_mapping(ctx->transient_gb,
+				"cursor", su->cursor) : fy_map_empty;
+		break;
+	default:
+		mcp_startup_settle(su, MCP_SRV_FAILED);
+		return;
 	}
-	result = mcp_request(ctx, mcp, "notifications/initialized",
-			     fy_map_empty, true);
-	fyai_error_check(ctx, fy_generic_is_valid(result), err_out,
-			 "MCP server '%s' initialization notification failed",
-			 mcp->name);
-	return 0;
-err_out:
-	return -1;
+	su->req = jsonrpc_request_submit(mcp->conn, method, params, su->id,
+			notification, mcp_startup_req_done, su);
+	if (!su->req)
+		mcp_startup_settle(su, MCP_SRV_FAILED);
 }
 
-static int mcp_discover_tools(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
-			      fy_generic *toolsp)
+/* Advance to @phase with a fresh retry budget and, for a request phase, a fresh
+ * id (a notification keeps id 0), then submit it. */
+static void mcp_startup_enter(struct mcp_startup *su,
+			      enum mcp_startup_phase phase)
 {
-	fy_generic result, tools, tool, params = fy_map_empty;
-	const char *tool_name, *cursor;
-	long long count = 0;
+	su->phase = phase;
+	su->attempt = 0;
+	su->id = phase == MCP_SU_NOTIFY ? 0 :
+		jsonrpc_conn_next_id(su->mcp->conn);
+	mcp_startup_step(su);
+}
 
-	do {
-		result = mcp_request(ctx, mcp, "tools/list", params, false);
-		fyai_error_check(ctx, fy_generic_is_valid(result), err_out,
-				 "MCP server '%s' tool discovery failed", mcp->name);
-		tools = fy_get(result, "tools", fy_seq_empty);
-		fy_foreach(tool, tools) {
-			tool_name = fy_get(tool, "name", "");
-			if (!*tool_name)
-				continue;
-			*toolsp = fy_append(ctx->gb, *toolsp, fy_mapping(ctx->gb,
-				"type", "function", "function", fy_mapping(
-					"name", fy_sprintfa(MCP_PREFIX "%s__%s",
-							mcp->name, tool_name),
-					"description", fy_get(tool, "description", ""),
-					"parameters", fy_get(tool, "inputSchema",
-							     fy_mapping("type", "object")))));
-			fyai_error_check(ctx, fy_generic_is_valid(*toolsp), err_out,
-					 "MCP server '%s' could not retain tool '%s'",
-					 mcp->name, tool_name);
-			count++;
-		}
-		cursor = fy_get(result, "nextCursor", "");
-		params = *cursor ? fy_mapping(ctx->transient_gb, "cursor", cursor) :
-			fy_map_empty;
-	} while (*cursor);
-	if (ctx->cfg->mcp_logging)
-		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
-			"event", "discovery", "server", mcp->name,
-			"tools", count));
-	return 0;
-err_out:
-	return -1;
+/* Begin a created server's asynchronous startup. */
+static void mcp_startup_begin(struct fyai_mcp_ctx *mcp)
+{
+	struct mcp_startup *su;
+
+	su = calloc(1, sizeof(*su));
+	if (!su) {
+		mcp->state = MCP_SRV_FAILED;
+		return;
+	}
+	su->mcp = mcp;
+	mcp->startup = su;
+	mcp_startup_enter(su, MCP_SU_INIT);
 }
 
 static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
@@ -424,8 +487,8 @@ err_out:
 	return -1;
 }
 
-static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
-			  fy_generic config, fy_generic *toolsp)
+static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
+			     fy_generic config)
 {
 	struct fyai_mcp_ctx *mcp = NULL, **tail, *prev;
 	fy_generic auth_ref;
@@ -464,6 +527,8 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 	fyai_error_check(ctx, mcp, err_out,
 			 "MCP server '%s' could not allocate context", server_name);
 	mcp->ctx = ctx;
+	mcp->tools = fy_seq_empty;
+	mcp->state = MCP_SRV_CONNECTING;
 	mcp->pid = -1;
 	mcp->stdin_fd = -1;
 	mcp->stdout_fd = -1;
@@ -521,14 +586,6 @@ static int mcp_add_server(struct fyai_ctx *ctx, const char *server_name,
 			"transport", mcp->transport == MCP_TRANSPORT_STDIO ?
 				"stdio" : "streamable-http"));
 
-	rc = mcp_initialize(ctx, mcp);
-	fyai_error_check(ctx, !rc, err_out,
-			 "MCP server '%s' initialization failed", server_name);
-
-	rc = mcp_discover_tools(ctx, mcp, toolsp);
-	fyai_error_check(ctx, !rc, err_out,
-			 "MCP server '%s' discovery failed", server_name);
-
 	return 0;
 
 err_out:
@@ -551,12 +608,81 @@ err_out:
 	return -1;
 }
 
-int fyai_mcp_refresh(struct fyai_ctx *ctx)
+/* True once every configured server has settled (READY or FAILED). */
+bool fyai_mcp_settled(struct fyai_ctx *ctx)
+{
+	struct fyai_mcp_ctx *mcp;
+
+	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+		if (mcp->state == MCP_SRV_CONNECTING)
+			return false;
+	return true;
+}
+
+/* Fold every ready server's discovered tools into ctx->mcp_tools, in
+ * configuration order (ctx->mcp is built in that order). */
+void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
+{
+	struct fyai_mcp_ctx *mcp;
+	fy_generic out = fy_seq_empty;
+
+	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+		if (mcp->state == MCP_SRV_READY &&
+		    fy_generic_is_valid(mcp->tools))
+			out = fy_concat(ctx->gb, out, mcp->tools);
+	ctx->mcp_tools = fy_gb_internalize(ctx->gb, out);
+}
+
+/*
+ * Create and connect every configured server, then submit its startup
+ * handshake. The servers initialize concurrently; a server that cannot even be
+ * created is warned and skipped (degrade gracefully). This does not wait -
+ * callers observe fyai_mcp_settled() and then fyai_mcp_publish_tools().
+ */
+int fyai_mcp_start(struct fyai_ctx *ctx)
 {
 	fy_generic servers = ctx->cfg->mcp_servers;
-	fy_generic key, config, out = fy_seq_empty;
+	fy_generic key, config;
+	struct fyai_mcp_ctx *mcp;
 	const char *name;
-	int rc;
+
+	fyai_mcp_cleanup(ctx);
+	ctx->mcp_tools = fy_invalid;
+
+	if (fy_generic_is_mapping(servers) && fy_len(servers)) {
+		fy_foreach(key, servers) {
+			name = fy_castp(&key, "");
+			config = fy_get(servers, key, fy_invalid);
+			if (!fy_generic_is_mapping(config)) {
+				fyai_warning(ctx, "MCP server '%s' configuration "
+					     "is not a mapping; skipped", name);
+				continue;
+			}
+			(void)mcp_create_server(ctx, name, config);
+		}
+	} else if (ctx->cfg->mcp_endpoint && *ctx->cfg->mcp_endpoint) {
+		config = fy_mapping(ctx->transient_gb,
+			"endpoint", ctx->cfg->mcp_endpoint,
+			"protocol_version", ctx->cfg->mcp_protocol_version,
+			"timeout", ctx->cfg->mcp_timeout);
+		(void)mcp_create_server(ctx, "default", config);
+	} else {
+		fyai_error(ctx, "MCP is enabled but no servers are configured");
+		return -1;
+	}
+
+	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+		mcp_startup_begin(mcp);
+	return 0;
+}
+
+/*
+ * Synchronous compatibility wrapper: start every server, pump the shared loop
+ * until all have settled, then publish their tools. A live catalogue is reused.
+ */
+int fyai_mcp_refresh(struct fyai_ctx *ctx)
+{
+	struct fyai_event_loop *el;
 
 	if (ctx->mcp && fy_generic_is_valid(ctx->mcp_tools)) {
 		if (ctx->cfg->mcp_logging)
@@ -565,42 +691,15 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx)
 				(long long)fy_len(ctx->mcp_tools)));
 		return 0;
 	}
-	fyai_mcp_cleanup(ctx);
-	ctx->mcp_tools = fy_invalid;
-	if (fy_generic_is_mapping(servers) && fy_len(servers)) {
-		fy_foreach(key, servers) {
-			name = fy_castp(&key, "");
-			config = fy_get(servers, key, fy_invalid);
-			fyai_error_check(ctx, fy_generic_is_mapping(config), err_out,
-					 "MCP server '%s' configuration is not a mapping",
-					 name);
-			rc = mcp_add_server(ctx, name, config, &out);
-			fyai_error_check(ctx, !rc,
-					 err_out, "MCP server '%s' setup failed", name);
-		}
-	} else {
-		fyai_error_check(ctx, ctx->cfg->mcp_endpoint &&
-				 *ctx->cfg->mcp_endpoint, err_out,
-				 "MCP is enabled but no servers are configured");
-		config = fy_mapping(ctx->transient_gb,
-			"endpoint", ctx->cfg->mcp_endpoint,
-			"protocol_version", ctx->cfg->mcp_protocol_version,
-			"timeout", ctx->cfg->mcp_timeout);
-
-		rc = mcp_add_server(ctx, "default", config, &out);
-		fyai_error_check(ctx, !rc,
-				 err_out, "default MCP server setup failed");
+	if (fyai_mcp_start(ctx))
+		return -1;
+	el = fyai_ctx_loop(ctx);
+	while (el && !fyai_mcp_settled(ctx)) {
+		if (fyai_event_loop_step(el, -1) < 0)
+			break;
 	}
-
-	ctx->mcp_tools = fy_gb_internalize(ctx->gb, out);
-	fyai_error_check(ctx, fy_generic_is_valid(ctx->mcp_tools), err_out,
-			 "could not retain MCP tool definitions");
-
+	fyai_mcp_publish_tools(ctx);
 	return 0;
-err_out:
-	fyai_mcp_cleanup(ctx);
-	ctx->mcp_tools = fy_invalid;
-	return -1;
 }
 
 enum fyai_mcp_call_state {
@@ -1022,6 +1121,16 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 		return;
 	for (mcp = ctx->mcp; mcp; mcp = next) {
 		next = mcp->next;
+		if (mcp->startup) {
+			struct mcp_startup *su = mcp->startup;
+
+			if (su->timer)
+				fyai_event_source_remove(su->timer);
+			jsonrpc_request_destroy(su->req);
+			free(su->cursor);
+			free(su);
+			mcp->startup = NULL;
+		}
 		mcp_delete_session(ctx, mcp);
 		if (ctx->cfg->mcp_logging)
 			(void)fyai_log_generic(ctx, "mcp", fy_mapping(

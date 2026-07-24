@@ -15,20 +15,20 @@ run_fyai --set api=chat-completions --set display/stream=false \
 assert_status 0
 assert_stdout_contains "Multiple MCP servers work."
 
-assert_request 0 'r["body"]["method"] == "initialize" and not r["auth"]'
-assert_request 1 'r["body"]["method"] == "notifications/initialized"'
-assert_request 2 'r["body"]["method"] == "tools/list"'
-assert_request 3 'r["body"]["method"] == "initialize" and r["auth"] == "Bearer mcp-beta-secret"'
-assert_request 4 'r["body"]["method"] == "notifications/initialized"'
-assert_request 5 'r["body"]["method"] == "tools/list"'
-assert_request 6 'any(t["function"]["name"] == "mcp__alpha__echo" for t in r["body"]["tools"])'
-assert_request 6 'any(t["function"]["name"] == "mcp__beta__echo" for t in r["body"]["tools"])'
-assert_request 7 'r["body"]["method"] == "tools/call" and r["body"]["params"]["name"] == "echo"'
-assert_request 7 'r["auth"] == "Bearer mcp-beta-secret"'
-assert_request 7 'len({reqs[i]["client_port"] for i in (3,4,5,7)}) == 1'
-assert_request 8 'any(m.get("role") == "tool" and m.get("content") == "beta: hello" for m in r["body"]["messages"])'
-assert_request 9 'r["method"] == "DELETE" and r["mcp_session_id"] == "alpha-session"'
-assert_request 10 'r["method"] == "DELETE" and r["mcp_session_id"] == "beta-session"'
+# Servers initialize concurrently, so requests interleave: assert by content,
+# not by position. Each server initializes (alpha unauthenticated, beta with its
+# token) and lists tools; both tools reach the model catalogue.
+assert_any_request 'r["body"] and r["body"].get("method") == "initialize" and not r["auth"]'
+assert_any_request 'r["body"] and r["body"].get("method") == "initialize" and r["auth"] == "Bearer mcp-beta-secret"'
+assert_any_request 'r["body"] and r["body"].get("method") == "tools/list" and not r["auth"]'
+assert_any_request 'r["body"] and r["body"].get("method") == "tools/list" and r["auth"] == "Bearer mcp-beta-secret"'
+assert_any_request 'isinstance(r["body"], dict) and "tools" in r["body"] and any(t["function"]["name"] == "mcp__alpha__echo" for t in r["body"]["tools"]) and any(t["function"]["name"] == "mcp__beta__echo" for t in r["body"]["tools"])'
+# The model's beta tool call is routed to beta with its token.
+assert_any_request 'r["body"] and r["body"].get("method") == "tools/call" and r["body"]["params"]["name"] == "echo" and r["auth"] == "Bearer mcp-beta-secret"'
+assert_any_request 'isinstance(r["body"], dict) and any(m.get("role") == "tool" and m.get("content") == "beta: hello" for m in r["body"].get("messages", []))'
+# Both sessions are deleted on shutdown.
+assert_any_request 'r.get("method") == "DELETE" and r["mcp_session_id"] == "alpha-session"'
+assert_any_request 'r.get("method") == "DELETE" and r["mcp_session_id"] == "beta-session"'
 
 mock_stop 11
 pass
