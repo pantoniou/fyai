@@ -395,8 +395,12 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command,
 	}
 
 	if (result.signaled) {
-		msg = fy_sprintfa("\ntool error: command killed by signal %d\n",
-				  result.signal);
+		if (fyai_interrupt_pending(ctx))
+			msg = "\ntool error: interrupted\n";
+		else
+			msg = fy_sprintfa(
+				"\ntool error: command killed by signal %d\n",
+				result.signal);
 		if (response_buffer_append(&buf, msg))
 			goto out;
 	} else if (result.exit_code) {

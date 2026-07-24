@@ -280,7 +280,11 @@ struct shell_capture_job {
 	struct shell_capture out;
 	struct shell_capture err;
 	struct fyai_event_source *csrc;
+	struct fyai_event_source *isrc;
+	struct fyai_ctx *ctx;
 	bool reaped;
+	bool cancelling;
+	bool isolated_pgrp;
 	int status;
 	bool done;
 };
@@ -341,6 +345,30 @@ static enum fyai_event_action shell_capture_child(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+static enum fyai_event_action shell_capture_signal(const struct fyai_event *ev)
+{
+	struct shell_capture_job *job = ev->userdata;
+
+	if (job && job->ctx && ev->signo == SIGINT)
+		job->ctx->interrupt_pending = true;
+	return FYAIEA_CONTINUE;
+}
+
+static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
+{
+	if (pid <= 0 || !job || job->reaped || job->cancelling)
+		return;
+
+	job->cancelling = true;
+	if (job->isolated_pgrp) {
+		if (!kill(-pid, SIGTERM))
+			return;
+		if (errno != ESRCH)
+			return;
+	}
+	(void)kill(pid, SIGTERM);
+}
+
 int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 struct shell_command_result *result,
 				 shell_output_fn output_fn,
@@ -370,6 +398,8 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		/* The application loop (including its signal mask/signalfd or
 		 * kqueue state) belongs to fyai, never to the executed command. */
 		fyai_ctx_loop_abandon(ctx);
+		if (getpgrp() != getppid())
+			(void)setpgid(0, 0);
 		close(stdout_pipe[0]);
 		close(stderr_pipe[0]);
 		dup2(stdout_pipe[1], STDOUT_FILENO);
@@ -387,6 +417,9 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		execl("/bin/sh", "sh", "-c", command, NULL);
 		_exit(127);
 	}
+	job.isolated_pgrp = getpgrp() != getpid();
+	if (job.isolated_pgrp)
+		(void)setpgid(pid, pid);
 
 	close(stdout_pipe[1]);
 	close(stderr_pipe[1]);
@@ -405,6 +438,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	job.out.userdata = job.err.userdata = userdata;
 	job.out.job = job.err.job = &job;
 	job.out.open = job.err.open = true;
+	job.ctx = ctx;
 
 	el = fyai_ctx_loop(ctx);
 	if (!el)
@@ -414,12 +448,18 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 			      shell_capture_readable, &job.out, &job.out.src) ||
 	    fyai_event_add_fd(el, stderr_pipe[0], FYAIEV_READ,
 			      shell_capture_readable, &job.err, &job.err.src) ||
-	    fyai_event_add_child(el, pid, shell_capture_child, &job, &job.csrc))
+	    fyai_event_add_child(el, pid, shell_capture_child, &job, &job.csrc) ||
+	    fyai_event_add_signal(el, SIGINT, shell_capture_signal, &job,
+				  &job.isrc))
 		goto out_wait;
 
 	/* Clear the pid once the loop owns the reap. */
-	if (fyai_event_loop_run_until(el, &job.done, -1))
-		goto out_wait;
+	while (!job.done) {
+		if (fyai_interrupt_pending(ctx))
+			shell_capture_cancel(pid, &job);
+		if (fyai_event_loop_step(el, -1) < 0)
+			goto out_wait;
+	}
 
 	if (job.reaped)
 		pid = -1;
@@ -448,6 +488,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	goto out;
 
 out_wait:
+	shell_capture_cancel(pid, &job);
 	if (pid > 0) {
 		while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
 			;
@@ -458,6 +499,7 @@ out:
 	shell_capture_drop(&job.out.src);
 	shell_capture_drop(&job.err.src);
 	shell_capture_drop(&job.csrc);
+	shell_capture_drop(&job.isrc);
 
 	if (pid > 0)
 		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
