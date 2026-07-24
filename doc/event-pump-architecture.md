@@ -554,8 +554,13 @@ Completed. Per-transfer state and callback completion are in place;
 
 ### 3. Heap-own model streams
 
-Streaming requests are heap-owned and callback-driven. Buffered requests and
-model-step retry ownership still need to move into the turn machine.
+Completed. Streaming and buffered requests are heap-owned and callback-driven
+(`fyai_stream_request_*` / `fyai_buffered_request_*`), and the async model step
+submits through them without a nested pump. Model-step retry ownership lives on
+the step (`fyai_model_step_retry` re-enters `fyai_model_step_start`), covering
+the response-chain-miss and token-extents retries in both modes. The synchronous
+`fyai_perform_*` wrappers remain only for the batch driver (see step 5's
+`fyai_run_model_loop`).
 
 ### 4. Make tool groups self-servicing
 
