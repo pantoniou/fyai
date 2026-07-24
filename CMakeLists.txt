@@ -617,8 +617,8 @@ if(BUILD_TESTING)
     target_include_directories(fyai_config_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_BINARY_DIR})
-    target_link_libraries(fyai_config_test PRIVATE libfyaml::libfyaml CURL::libcurl
-        ${ASAN_LINK_OPTS})
+    target_link_libraries(fyai_config_test PRIVATE libfyaml::libfyaml
+        CURL::libcurl ${FYAI_LIBFYMD4C_TARGET} ${ASAN_LINK_OPTS})
     if(APPLE)
         target_link_libraries(fyai_config_test PRIVATE
             "-framework Security" "-framework CoreFoundation")
