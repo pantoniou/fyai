@@ -1326,10 +1326,11 @@ out:
  *   3. submit the next model step after every tool result is appended.
  *
  * The model and tool completion callbacks do not perform these transitions.
- * They only set model_ready or tool_ready. The outer application pump calls
- * fyai_turn_run_service() after event dispatch, and that function advances the
- * machine. Keeping transitions out of callbacks prevents callback reentrancy
- * from freeing a curl transfer, model step, or tool group while its dispatcher
+ * They defer fyai_turn_run_service(), which runs outside event dispatch and
+ * advances the machine, re-deriving readiness from the child operation's own
+ * latched completion (fyai_model_step_done() / fyai_tool_job_group_done()).
+ * Keeping transitions out of callbacks prevents callback reentrancy from
+ * freeing a curl transfer, model step, or tool group while its dispatcher
  * still has that object on the stack.
  *
  * Cancellation follows ownership. A MODEL cancellation cancels both the model
@@ -1358,8 +1359,6 @@ struct fyai_turn_run {
 	size_t exclusive_index;
 	int iteration;
 	bool group_parallel;
-	bool model_ready;
-	bool tool_ready;
 	bool cancel_requested;
 };
 
@@ -1427,24 +1426,26 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 	return 0;
 }
 
+static void fyai_turn_run_service(void *userdata);
+
 static void fyai_turn_run_model_complete(struct fyai_model_step *step,
 					 void *userdata)
 {
-	struct fyai_turn_run *run;
+	struct fyai_turn_run *run = userdata;
 
 	(void)step;
-	run = userdata;
-	run->model_ready = true;
+	(void)fyai_event_defer(fyai_ctx_loop(run->ctx),
+			       fyai_turn_run_service, run);
 }
 
 static void
 fyai_turn_run_tool_complete(struct fyai_tool_job_group *group, void *userdata)
 {
-	struct fyai_turn_run *run;
+	struct fyai_turn_run *run = userdata;
 
 	(void)group;
-	run = userdata;
-	run->tool_ready = true;
+	(void)fyai_event_defer(fyai_ctx_loop(run->ctx),
+			       fyai_turn_run_service, run);
 }
 
 static void fyai_turn_run_drop_tool_group(struct fyai_turn_run *run)
@@ -1533,8 +1534,6 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 			fyai_turn_run_tool_complete, run) : NULL;
 	fyai_error_check(ctx, !cfg->stream || run->tool_group, err,
 			 "could not create streaming tool group");
-	run->model_ready = false;
-	run->tool_ready = false;
 	rc = fyai_turn_run_transition(run, FYAITRS_MODEL);
 	fyai_error_check(ctx, !rc, err,
 			 "could not advance turn to model request");
@@ -1574,7 +1573,6 @@ fyai_turn_run_submit_exclusive(struct fyai_turn_run *run, size_t start)
 	}
 	run->exclusive_index = i;
 	run->group_parallel = false;
-	run->tool_ready = false;
 	run->tool_group = fyai_tool_job_group_create_notify(ctx,
 				fyai_turn_run_tool_complete, run);
 	fyai_error_check(ctx, run->tool_group, err,
@@ -1661,7 +1659,6 @@ static fy_generic fyai_turn_run_take_model_response(
 	response = fyai_model_step_collect(run->model_step);
 	fyai_model_step_destroy(run->model_step);
 	run->model_step = NULL;
-	run->model_ready = false;
 	return response;
 }
 
@@ -1832,25 +1829,29 @@ err:
 	return NULL;
 }
 
-static void fyai_turn_run_service(struct fyai_turn_run *run)
+static void fyai_turn_run_service(void *userdata)
 {
+	struct fyai_turn_run *run = userdata;
 	bool progress;
 
 	/*
-	 * Callbacks only raise readiness flags. Consume them here, outside the
-	 * event dispatcher. A transition may complete synchronously, such as an
-	 * in-process read_file tool, so keep advancing until the turn is parked
-	 * on a genuinely asynchronous operation or reaches a terminal state.
+	 * Deferred by the completion callbacks and run outside the event
+	 * dispatcher. Readiness is the child operation's own latched
+	 * completion, not a cached flag. A transition may complete
+	 * synchronously, such as an in-process read_file tool, so keep
+	 * advancing until the turn is parked on a genuinely asynchronous
+	 * operation or reaches a terminal state.
 	 */
 	if (!run)
 		return;
 	do {
 		progress = false;
-		if (run->state == FYAITRS_MODEL && run->model_ready) {
+		if (run->state == FYAITRS_MODEL &&
+		    fyai_model_step_done(run->model_step)) {
 			(void)fyai_turn_run_process_model(run);
 			progress = true;
-		} else if (run->state == FYAITRS_TOOLS && run->tool_ready) {
-			run->tool_ready = false;
+		} else if (run->state == FYAITRS_TOOLS &&
+			   fyai_tool_job_group_done(run->tool_group)) {
 			(void)fyai_turn_run_collect_tools(run);
 			progress = true;
 		}
@@ -1877,6 +1878,9 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 {
 	if (!run)
 		return;
+	/* Drop a deferred service still pointing at the run we are freeing. */
+	fyai_event_defer_cancel(fyai_ctx_loop(run->ctx), fyai_turn_run_service,
+				run);
 	fyai_model_step_destroy(run->model_step);
 	fyai_turn_run_drop_tool_group(run);
 	free(run);
@@ -2507,11 +2511,12 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	 *                        |                             |
 	 *                        +-> model/tool callback ------+
 	 *
-	 * Each pass first consumes completion flags left by the preceding event
-	 * dispatch. A completed turn is then published and destroyed. While
-	 * idle, one queued line starts a turn or executes a slash command.
-	 * Otherwise event_loop_step() blocks until input, curl, child, signal,
-	 * resize, or timer activity gives the machine something new to do.
+	 * A model or tool completion defers fyai_turn_run_service(), which the
+	 * next event_loop_step() runs to advance the turn. A completed turn is
+	 * then published and destroyed. While idle, one queued line starts a
+	 * turn or executes a slash command. Otherwise event_loop_step() blocks
+	 * until input, curl, child, signal, resize, or timer activity gives the
+	 * machine something new to do.
 	 *
 	 * Input received while busy remains in the UI queue. ESC or Ctrl-C sets
 	 * ctx->interrupt_pending; the pump forwards it to the operation currently
@@ -2519,7 +2524,6 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	 * only after the active turn has reached a terminal state.
 	 */
 	for (;;) {
-		fyai_turn_run_service(run);
 		if (run && fyai_turn_run_done(run)) {
 			rc = fyai_interactive_finish_turn(ctx, &run);
 			fyai_error_check(ctx, !rc, out,
