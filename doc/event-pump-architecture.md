@@ -569,14 +569,17 @@ when a sealed group is parked.
 
 ### 5. Introduce the turn machine
 
-Completed for the interactive path. The heap-owned turn operation advances
-model requests, streamed tool prefetch, parallel groups, exclusive groups,
-retries, cancellation, and final publication without a nested event pump.
-`fyai_run_model_loop()` remains the synchronous batch compatibility path.
+Completed for every path. The heap-owned turn operation advances model
+requests, streamed tool prefetch, parallel groups, exclusive groups, retries,
+cancellation, and final publication without a nested event pump. The batch,
+one-shot, non-tty interactive and compact paths now drive the same operation
+through `fyai_run_turn()`, a bare top-level pump; the synchronous
+`fyai_run_model_loop()`, its per-step model/tool nested `run_until`, and the
+`async_model_step` compatibility switch are gone.
 
 ### 6. Convert the interactive frontend
 
-Completed for the terminal UI when `async_model_step` is enabled. UI events
+Completed for the terminal UI. UI events
 queue input, the application loop starts turns while idle, and model and tool
 callbacks wake the turn operation. The compatibility switch retains the old
 nested path intentionally.
@@ -636,3 +639,10 @@ calls `fyai_event_loop_run_until()`, manually drives
 Synchronous wrappers may remain for standalone command paths, provided they
 are thin adapters over the same asynchronous operations and are never used
 from the interactive application state machine.
+
+Status: the model and turn path meets this criterion - no model, tool, or MCP
+step beneath the pump calls `run_until()` or blocks; the batch and one-shot
+drivers are themselves the top-level pump (`fyai_run_turn()`). What remains is
+migration step 8: the OAuth wrappers and external-command capture still nest a
+loop, and the MCP shutdown keeps a last-resort synchronous `waitpid()` force-
+reap for a child that outlives the bounded drain.
