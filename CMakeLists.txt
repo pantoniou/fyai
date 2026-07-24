@@ -507,6 +507,29 @@ if(BUILD_TESTING)
         CURL::libcurl ${ASAN_LINK_OPTS})
     add_test(NAME fyai/curl COMMAND fyai_curl_test)
 
+    add_executable(fyai_jsonrpc_test
+        tests/fyai_jsonrpc_test.c
+        src/fyai_jsonrpc.c
+        src/fyai_curl.c
+        src/fyai_diag.c
+        src/fyai_sandbox.c
+        src/utils.c
+        ${FYAI_EVENT_SOURCES}
+    )
+    target_compile_options(fyai_jsonrpc_test PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+    target_compile_definitions(fyai_jsonrpc_test PRIVATE
+        _GNU_SOURCE
+        HAVE_CONFIG_H
+        VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(fyai_jsonrpc_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(fyai_jsonrpc_test PRIVATE libfyaml::libfyaml
+        CURL::libcurl ${ASAN_LINK_OPTS})
+    add_test(NAME fyai/jsonrpc COMMAND fyai_jsonrpc_test)
+
     add_executable(fyai_oauth_test
         tests/fyai_oauth_test.c
         src/fyai_oauth.c
