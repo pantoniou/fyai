@@ -34,10 +34,6 @@
 #include "fyai_tools.h"
 #include "fyai_ui.h"
 
-static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name);
-static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
-				       fy_generic args, bool *okp);
-
 static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -638,10 +634,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		goto out;
 	}
 
-	if (fyai_should_fork_tool(ctx, name))
-		result_generic = fyai_tool_run_forked(ctx, name, args, okp);
-	else
-		result_generic = fyai_tool_run_one(ctx, name, args, okp);
+	result_generic = fyai_tool_run_one(ctx, name, args, okp);
 out:
 	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
 	if (fy_generic_is_invalid(result_generic))
@@ -780,20 +773,16 @@ err:
 /*
  * Fork-per-tool execution. Each tool call runs in its own child that creates a
  * fresh transient builder, internalizes the arguments, sanitizes the
- * environment, applies the sandbox, runs the tool, and writes the result string
- * back over a pipe. The parent waits on the result pipe and the child together
- * through fyai_event, so spawning several jobs and collecting them from one
- * loop is a change to the caller, not to the job lifecycle; today collect()
- * still runs right after spawn().
+ * environment, applies the sandbox, runs the tool, and writes the canonical
+ * JSON result back over a pipe (raw progress travels on a second pipe). The
+ * parent attaches the result pipe and the child to the shared loop and collects
+ * them as the turn machine pumps it, so several jobs spawn and collect
+ * concurrently from one loop.
  *
  * The pollable-child handle (pidfd on Linux, EVFILT_PROC/NOTE_EXIT on macOS)
- * now lives in the event backend, so nothing here is Linux-specific any more -
- * only fyai_should_fork_tool() still gates the path per platform.
- *
- * Asynchronous jobs transport the canonical JSON result separately from raw
- * progress. Legacy single-tool forks retain their string result transport.
- * A framed or shared-arena transport can replace either pipe without changing
- * the submission and collection lifecycle.
+ * lives in the event backend, so nothing here is Linux-specific. A framed or
+ * shared-arena transport can replace either pipe without changing the
+ * submission and collection lifecycle.
  */
 /*
  * The job owns its source pointers so withdrawing is idempotent: the callbacks
@@ -932,9 +921,9 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
-static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
+static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			       const char *args_text,
-			       struct fyai_tool_job *job, bool async_job)
+			       struct fyai_tool_job *job)
 {
 	int p[2] = { -1, -1 };
 	int progress[2] = { -1, -1 };
@@ -949,12 +938,12 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	memset(job, 0, sizeof(*job));
 	job->rfd = -1;
 	job->pfd = -1;
-	job->json_result = async_job;
+	job->json_result = true;
 	rc = pipe(p);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create tool result pipe: %s",
 			 strerror(errno));
-	rc = async_job ? pipe(progress) : 0;
+	rc = pipe(progress);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create tool progress pipe: %s",
 			 strerror(errno));
@@ -966,26 +955,22 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	fyai_error_check(ctx, !rc, err,
 		"could not protect tool pipe descriptors: %s",
 		strerror(errno));
-	if (async_job) {
-		rc = fcntl(progress[0], F_SETFD, FD_CLOEXEC);
-		fyai_error_check(ctx, !rc, err,
-			"could not protect tool pipe descriptors: %s",
-			strerror(errno));
-		rc = fcntl(progress[1], F_SETFD, FD_CLOEXEC);
-		fyai_error_check(ctx, !rc, err,
-			"could not protect tool pipe descriptors: %s",
-			strerror(errno));
-	}
+	rc = fcntl(progress[0], F_SETFD, FD_CLOEXEC);
+	fyai_error_check(ctx, !rc, err,
+		"could not protect tool pipe descriptors: %s",
+		strerror(errno));
+	rc = fcntl(progress[1], F_SETFD, FD_CLOEXEC);
+	fyai_error_check(ctx, !rc, err,
+		"could not protect tool pipe descriptors: %s",
+		strerror(errno));
 	rc = fcntl(p[0], F_SETFL, O_NONBLOCK);
 	fyai_error_check(ctx, !rc, err,
 			 "could not make tool result pipe non-blocking: %s",
 			 strerror(errno));
-	if (async_job) {
-		rc = fcntl(progress[0], F_SETFL, O_NONBLOCK);
-		fyai_error_check(ctx, !rc, err,
-			"could not make tool progress pipe non-blocking: %s",
-			strerror(errno));
-	}
+	rc = fcntl(progress[0], F_SETFL, O_NONBLOCK);
+	fyai_error_check(ctx, !rc, err,
+		"could not make tool progress pipe non-blocking: %s",
+		strerror(errno));
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, err,
 			 "could not fork tool process: %s", strerror(errno));
@@ -996,18 +981,15 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 		if (progress[0] >= 0)
 			close(progress[0]);
 		progress[0] = -1;
-		if (async_job)
-			(void)setpgid(0, 0);
+		(void)setpgid(0, 0);
 		fyai_ctx_loop_abandon(ctx);
-		if (async_job) {
-			if (fyai_tool_child_fds(p[1], progress[1]))
-				_exit(126);
-			p[1] = 3;
-			progress[1] = 4;
-			ctx->tool_progress_fd = progress[1];
-			ctx->ui = NULL;
-			ctx->shell_stream = NULL;
-		}
+		if (fyai_tool_child_fds(p[1], progress[1]))
+			_exit(126);
+		p[1] = 3;
+		progress[1] = 4;
+		ctx->tool_progress_fd = progress[1];
+		ctx->ui = NULL;
+		ctx->shell_stream = NULL;
 		/* Fresh builder, then internalize the arguments into it. */
 		rc = fyai_setup_transient_builder(ctx);
 		if (rc)
@@ -1017,15 +999,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 			_exit(1);
 		fyai_env_sanitize();
 		fyai_tool_apply_sandbox(ctx);
-		result = async_job ?
-			fyai_execute_tool_call(ctx, args, &ok) :
-			fyai_tool_run_one(ctx, name, args, &ok);
-		if (async_job)
-			s = emit_json_string(ctx->transient_gb, result);
-		else
-			s = fy_generic_is_valid(result) ?
-				fy_castp(&result, "") :
-				"tool error: invalid tool result";
+		result = fyai_execute_tool_call(ctx, args, &ok);
+		s = emit_json_string(ctx->transient_gb, result);
 		if (!s)
 			_exit(1);
 		len = strlen(s);
@@ -1046,15 +1021,14 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx, const char *name,
 	if (progress[1] >= 0)
 		close(progress[1]);
 	progress[1] = -1;
-	if (async_job)
-		(void)setpgid(pid, pid);
+	(void)setpgid(pid, pid);
 	job->pid = pid;
 	job->rfd = p[0];
 	p[0] = -1;
 	job->pfd = progress[0];
 	progress[0] = -1;
 	job->out_open = true;
-	job->progress_open = async_job;
+	job->progress_open = true;
 	return 0;
 
 err:
@@ -1075,45 +1049,6 @@ err:
 		progress[1] = -1;
 	}
 	return -1;
-}
-
-static fy_generic fyai_tool_job_wait_result(struct fyai_ctx *ctx,
-					     struct fyai_tool_job *job)
-{
-	struct fyai_event_loop *el;
-	int rc;
-
-	el = fyai_ctx_loop(ctx);
-	fyai_error_check(ctx, el, err,
-			 "forked tool requires an event loop");
-	rc = fyai_event_add_fd(el, job->rfd, FYAIEV_READ,
-			       fyai_tool_job_readable, job, &job->rsrc);
-	fyai_error_check(ctx, !rc, err,
-			 "could not attach forked tool output");
-	rc = fyai_event_add_child(el, job->pid, fyai_tool_job_child,
-				  job, &job->csrc);
-	fyai_error_check(ctx, !rc, err,
-			 "could not attach forked tool process");
-	rc = fyai_event_loop_run_until(el, &job->done, -1);
-	fyai_error_check(ctx, !rc, err,
-			 "forked tool event loop failed");
-
-err:
-	job->failed = !job->done;
-	/* Drop sources before their job state and fd. */
-	fyai_tool_job_drop(&job->rsrc);
-	fyai_tool_job_drop(&job->csrc);
-	if (job->rfd >= 0)
-		close(job->rfd);
-	job->rfd = -1;
-
-	/* Reap a child the loop never acquired. */
-	if (!job->reaped && job->pid > 0)
-		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
-			;
-
-	return fy_gb_internalize(ctx->transient_gb,
-				 fy_value(job->buf.data ? job->buf.data : ""));
 }
 
 static void fyai_tool_job_live_close(struct fyai_tool_job *job)
@@ -1188,7 +1123,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	job = calloc(1, sizeof(*job));
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
-	rc = fyai_tool_job_spawn(ctx, name, call_text, job, true);
+	rc = fyai_tool_job_spawn(ctx, call_text, job);
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
 	job->native_shell = native_call;
@@ -1720,37 +1655,6 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 	}
 	free(group->entries);
 	free(group);
-}
-
-/* Run one named tool in a forked, sandboxed child and return its result. */
-static fy_generic fyai_tool_run_forked(struct fyai_ctx *ctx, const char *name,
-				       fy_generic args, bool *okp)
-{
-	struct fyai_tool_job job;
-	fy_generic result;
-	const char *args_text;
-
-	args_text = emit_json_string(ctx->transient_gb, args);
-	if (!args_text ||
-	    fyai_tool_job_spawn(ctx, name, args_text, &job, false))
-		return fy_value(ctx->transient_gb,
-				"tool error: failed to spawn tool process");
-	result = fyai_tool_job_wait_result(ctx, &job);
-	*okp = job.result_ok && !job.failed;
-	free(job.buf.data);
-	return result;
-}
-
-/* Whether this tool call should run in a forked child rather than in-process. */
-static bool fyai_should_fork_tool(struct fyai_ctx *ctx, const char *name)
-{
-	if (ctx->sandbox_applied)	/* already inside a tool child */
-		return false;
-	if (!ctx->cfg->enable_sandbox)
-		return false;
-	if (fy_equal(name, "ask_user"))
-		return false;
-	return true;
 }
 
 int fyai_run_tool_verb(struct fyai_ctx *ctx)
