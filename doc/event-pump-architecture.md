@@ -615,11 +615,11 @@ each site in one of three permitted classes:
   runs after `fyai_ctx_loop_abandon()`, on the child's own loop; the `waitpid()`
   sites are forked-child reaps and MCP shutdown force-reaps.
 
-Genuinely open: `fyai_tool_run_forked()` still carries a parent-side
-`run_until` (`fyai_tools.c`), but with the async turn machine both callers make
-`fyai_should_fork_tool()` false (exclusive path sees only `ask_user`/MCP; the
-forked child has `sandbox_applied`), so it appears unreachable - a dead-code
-cleanup to confirm against the sandbox path, not a live nested pump.
+The one dead site the audit turned up - `fyai_tool_run_forked()`'s parent-side
+`run_until`, unreachable once tool dispatch became async - has been removed,
+along with the `fyai_tool_job_spawn()` synchronous-job branches. The tool path
+now has no parent-side `run_until` at all; the fork itself is unchanged and the
+sandbox is still applied in every tool child.
 
 ## Verification
 
