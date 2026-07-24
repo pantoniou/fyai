@@ -47,6 +47,8 @@ static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 {
 	struct fyai_ctx *ctx = ev->userdata;
 
+	if (ev->signo == SIGPIPE)
+		return FYAIEA_CONTINUE;
 	ctx->interrupt_pending = true;
 	if (ev->signo != SIGINT)
 		ctx->terminate_pending = true;
@@ -56,7 +58,9 @@ static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 
 static int fyai_signals_open(struct fyai_ctx *ctx)
 {
-	static const int signals[] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT };
+	static const int signals[] = {
+		SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGPIPE,
+	};
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	size_t i;
 
@@ -64,7 +68,7 @@ static int fyai_signals_open(struct fyai_ctx *ctx)
 	if (sigprocmask(SIG_SETMASK, NULL, &ctx->signal_mask))
 		return -1;
 	ctx->signal_mask_valid = true;
-	for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++)
+	for (i = 0; i < ARRAY_SIZE(signals); i++)
 		if (fyai_event_add_signal(el, signals[i], fyai_signal_cb, ctx,
 					  &ctx->signal_src[i]))
 			return -1;

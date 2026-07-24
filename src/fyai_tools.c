@@ -70,6 +70,27 @@ static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_cal
 	return fy_gb_intern_string(ctx->transient_gb, fy_cast(v, ""));
 }
 
+static fy_generic
+fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	const char *args_text;
+
+	switch (ctx->cfg->api_mode) {
+	case FYAI_API_RESPONSES:
+	case FYAI_API_MESSAGES:
+		args_text = fy_get(tool_call, "arguments", "");
+		break;
+	case FYAI_API_CHAT_COMPLETIONS:
+		args_text = fy_get(fy_get(tool_call, "function"),
+				   "arguments", "");
+		break;
+	default:
+		assert(0);
+		__builtin_unreachable();
+	}
+	return parse_json_string(ctx->transient_gb, args_text);
+}
+
 /* Format the invocation Markdown through the same emitter used by history. */
 static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command)
 {
@@ -1330,10 +1351,23 @@ struct fyai_tool_group_entry {
 	char *call_text;
 	char *result_text;
 	struct fyai_tool_job *job;
+	struct fyai_mcp_call_request *mcp_request;
 	enum fyai_tool_group_state state;
 	bool parallel;
 	bool result_ok;
 };
+
+static void
+fyai_tool_job_group_mcp_complete(struct fyai_mcp_call_request *request,
+				 void *userdata)
+{
+	struct fyai_tool_job_group *group;
+
+	if (!fyai_mcp_call_done(request))
+		return;
+	group = userdata;
+	fyai_tool_job_group_service(group);
+}
 
 struct fyai_tool_job_group {
 	struct fyai_ctx *ctx;
@@ -1455,7 +1489,9 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 {
 	struct fyai_tool_group_entry *entry;
 	fy_generic call;
+	fy_generic args;
 	fy_generic result;
+	const char *name;
 	const char *text;
 
 	while (!group->cancelled && group->next < group->count &&
@@ -1463,6 +1499,30 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 		entry = &group->entries[group->next++];
 		call = parse_json_string(group->ctx->transient_gb,
 					 entry->call_text);
+		name = fy_generic_is_valid(call) ?
+			fyai_tool_call_name(group->ctx, call) : NULL;
+		if (name && fyai_mcp_tool_name(name)) {
+			args = fyai_tool_call_args(group->ctx, call);
+			entry->mcp_request =
+				fy_generic_is_valid(args) ?
+				fyai_mcp_call_submit(group->ctx, name, args,
+					fyai_tool_job_group_mcp_complete,
+					group) : NULL;
+			if (entry->mcp_request) {
+				entry->state = FYAITGS_RUNNING;
+				group->active++;
+				continue;
+			}
+			result = fy_value(group->ctx->transient_gb,
+					  "tool error: MCP call failed");
+			text = emit_json_string(group->ctx->transient_gb,
+						result);
+			entry->result_text = text ? strdup(text) : NULL;
+			entry->state = entry->result_text ?
+				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
+			group->parked++;
+			continue;
+		}
 		if (!entry->parallel) {
 			result = fyai_execute_tool_call(group->ctx, call,
 							&entry->result_ok);
@@ -1516,6 +1576,14 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 		entry = &group->entries[i];
 		if (entry->state != FYAITGS_RUNNING)
 			continue;
+		if (entry->mcp_request) {
+			if (!fyai_mcp_call_done(entry->mcp_request))
+				continue;
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
+			continue;
+		}
 		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
 		if (!fyai_tool_job_done(entry->job))
 			continue;
@@ -1570,8 +1638,12 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 	group->sealed = true;
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
-		if (entry->state == FYAITGS_RUNNING)
-			fyai_tool_job_cancel(entry->job);
+		if (entry->state == FYAITGS_RUNNING) {
+			if (entry->mcp_request)
+				fyai_mcp_call_cancel(entry->mcp_request);
+			else
+				fyai_tool_job_cancel(entry->job);
+		}
 		else if (entry->state == FYAITGS_QUEUED) {
 			entry->state = FYAITGS_PARKED;
 			group->parked++;
@@ -1612,6 +1684,10 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 	if (entry->job) {
 		*result = fyai_tool_job_collect(group->ctx, entry->job, okp);
 		entry->job = NULL;
+	} else if (entry->mcp_request) {
+		*result = fyai_mcp_call_collect(entry->mcp_request, okp);
+		fyai_mcp_call_destroy(entry->mcp_request);
+		entry->mcp_request = NULL;
 	} else if (entry->result_text) {
 		*result = parse_json_string(group->ctx->transient_gb,
 					    entry->result_text);
@@ -1638,6 +1714,7 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 		entry = &group->entries[i];
 		if (entry->job)
 			fyai_tool_job_discard(entry->job);
+		fyai_mcp_call_destroy(entry->mcp_request);
 		free(entry->call_text);
 		free(entry->result_text);
 	}

@@ -298,7 +298,7 @@ struct fyai_ctx {
 	struct fyai_event_loop *el;
 	struct fyai_event_loop *event_loop_pool;
 	struct fyai_event_source *event_source_pool;
-	struct fyai_event_source *signal_src[4];
+	struct fyai_event_source *signal_src[5];
 	sigset_t signal_mask;
 	bool signal_mask_valid;
 	struct fyai_ui *ui;

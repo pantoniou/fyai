@@ -13,6 +13,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -719,6 +720,16 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 	fyai_error_check(ctx, !rc, err_out,
 			 "MCP stdio server '%s' could not create pipes: %s",
 			 mcp->name, strerror(errno));
+	rc = fcntl(inpipe[0], F_SETFD, FD_CLOEXEC);
+	if (!rc)
+		rc = fcntl(inpipe[1], F_SETFD, FD_CLOEXEC);
+	if (!rc)
+		rc = fcntl(outpipe[0], F_SETFD, FD_CLOEXEC);
+	if (!rc)
+		rc = fcntl(outpipe[1], F_SETFD, FD_CLOEXEC);
+	fyai_error_check(ctx, !rc, err_out,
+			 "MCP stdio server '%s' could not protect pipes: %s",
+			 mcp->name, strerror(errno));
 
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, err_out,
@@ -726,6 +737,7 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 			 mcp->name, strerror(errno));
 
 	if (!pid) {
+		fyai_ctx_loop_abandon(ctx);
 		signal(SIGPIPE, SIG_DFL);
 		close(inpipe[1]);
 		close(outpipe[0]);
@@ -754,7 +766,6 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 		execvp(command, argv);
 		_exit(127);
 	}
-	signal(SIGPIPE, SIG_IGN);
 	close(inpipe[0]);
 	close(outpipe[1]);
 	inpipe[0] = outpipe[1] = -1;
@@ -950,16 +961,38 @@ struct fyai_mcp_call_request {
 	struct fyai_ctx *ctx;
 	struct fyai_mcp_ctx *mcp;
 	struct mcp_http_exchange *exchange;
+	struct fyai_event_source *read_src;
+	struct fyai_event_source *write_src;
+	struct fyai_event_source *timer_src;
+	struct response_buffer stdio_response;
 	fyai_mcp_call_complete_fn complete;
 	void *userdata;
 	char *tool_name;
 	char *params_text;
+	char *stdio_request;
+	size_t stdio_request_len;
+	size_t stdio_request_off;
 	long long id;
+	struct timespec started;
 	fy_generic result;
 	enum fyai_mcp_call_state state;
 	bool result_ok;
 	bool cancel_requested;
 };
+
+static void fyai_mcp_call_drop_source(struct fyai_event_source **srcp)
+{
+	fyai_event_source_remove(*srcp);
+	*srcp = NULL;
+}
+
+static void fyai_mcp_call_stdio_sources_drop(
+		struct fyai_mcp_call_request *request)
+{
+	fyai_mcp_call_drop_source(&request->read_src);
+	fyai_mcp_call_drop_source(&request->write_src);
+	fyai_mcp_call_drop_source(&request->timer_src);
+}
 
 static bool
 fyai_mcp_call_state_final(enum fyai_mcp_call_state state)
@@ -1019,11 +1052,234 @@ fyai_mcp_call_finish(struct fyai_mcp_call_request *request,
 		     enum fyai_mcp_call_state state,
 		     fy_generic result, bool ok)
 {
+	fyai_mcp_call_stdio_sources_drop(request);
 	request->state = state;
 	request->result = result;
 	request->result_ok = ok;
+	if (request->mcp->transport == MCP_TRANSPORT_STDIO)
+		mcp_log_stdio_request(request->ctx, request->mcp,
+				      "tools/call", request->id, false, ok,
+				      &request->started);
 	if (request->complete)
 		request->complete(request, request->userdata);
+}
+
+static void
+fyai_mcp_call_stdio_fail(struct fyai_mcp_call_request *request,
+			 const char *message)
+{
+	fy_generic result;
+
+	fyai_error(request->ctx, "MCP %s %s", request->mcp->name, message);
+	result = fy_value(request->ctx->transient_gb,
+			  "tool error: MCP call failed");
+	fyai_mcp_call_finish(request, FYAIMCS_FAILED, result, false);
+}
+
+static bool
+fyai_mcp_call_stdio_line(struct fyai_mcp_call_request *request)
+{
+	struct fyai_ctx *ctx;
+	fy_generic doc;
+	fy_generic error;
+	fy_generic result;
+
+	ctx = request->ctx;
+	if (!request->stdio_response.len)
+		return false;
+	doc = parse_json_string(ctx->transient_gb,
+				request->stdio_response.data);
+	if (!fy_generic_is_mapping(doc)) {
+		fyai_mcp_call_stdio_fail(request,
+					"returned invalid stdio JSON");
+		return true;
+	}
+	if (fy_generic_is_invalid(fy_get(doc, "id", fy_invalid)))
+		return false;
+	if (fy_get(doc, "id", -1LL) != request->id)
+		return false;
+	error = fy_get(doc, "error", fy_invalid);
+	if (fy_generic_is_valid(error)) {
+		fyai_error(ctx, "MCP tools/call: %s",
+			   fy_get(error, "message", "server error"));
+		fyai_mcp_call_stdio_fail(request,
+					"returned a tool-call error");
+		return true;
+	}
+	result = fy_get(doc, "result", fy_invalid);
+	if (fy_generic_is_invalid(result)) {
+		fyai_mcp_call_stdio_fail(request,
+					"response has no result");
+		return true;
+	}
+	result = mcp_tool_output(ctx, result);
+	fyai_mcp_call_finish(request, FYAIMCS_COMPLETED, result, true);
+	return true;
+}
+
+static enum fyai_event_action
+fyai_mcp_call_stdio_readable(const struct fyai_event *ev)
+{
+	struct fyai_mcp_call_request *request;
+	char chunk[4096];
+	char *newline;
+	size_t consumed;
+	size_t remaining;
+	ssize_t n;
+	int rc;
+
+	request = ev->userdata;
+	for (;;) {
+		n = read(ev->fd, chunk, sizeof(chunk));
+		if (n > 0) {
+			rc = response_buffer_reserve(&request->stdio_response,
+				request->stdio_response.len + (size_t)n + 1);
+			if (rc) {
+				fyai_mcp_call_stdio_fail(request,
+						"response is too large");
+				return FYAIEA_CONTINUE;
+			}
+			memcpy(request->stdio_response.data +
+			       request->stdio_response.len, chunk, (size_t)n);
+			request->stdio_response.len += (size_t)n;
+			request->stdio_response.data[
+				request->stdio_response.len] = '\0';
+			while ((newline = memchr(request->stdio_response.data,
+					'\n',
+					request->stdio_response.len))) {
+				*newline = '\0';
+				consumed = (size_t)(newline -
+					request->stdio_response.data) + 1;
+				if (fyai_mcp_call_stdio_line(request))
+					return FYAIEA_CONTINUE;
+				remaining = request->stdio_response.len -
+					consumed;
+				memmove(request->stdio_response.data,
+					request->stdio_response.data + consumed,
+					remaining);
+				request->stdio_response.len = remaining;
+				request->stdio_response.data[remaining] = '\0';
+			}
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		break;
+	}
+	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+		return FYAIEA_CONTINUE;
+	fyai_mcp_call_stdio_fail(request, "stdio server closed");
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action
+fyai_mcp_call_stdio_writable(const struct fyai_event *ev)
+{
+	struct fyai_mcp_call_request *request;
+	fy_generic result;
+	ssize_t n;
+
+	request = ev->userdata;
+	while (request->stdio_request_off < request->stdio_request_len) {
+		n = write(ev->fd,
+			  request->stdio_request + request->stdio_request_off,
+			  request->stdio_request_len -
+			  request->stdio_request_off);
+		if (n > 0) {
+			request->stdio_request_off += (size_t)n;
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+			return FYAIEA_CONTINUE;
+		fyai_mcp_call_stdio_fail(request, "stdio write failed");
+		return FYAIEA_CONTINUE;
+	}
+	fyai_mcp_call_drop_source(&request->write_src);
+	if (!request->id) {
+		result = fy_null;
+		fyai_mcp_call_finish(request, FYAIMCS_COMPLETED, result, true);
+	}
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action
+fyai_mcp_call_stdio_timeout(const struct fyai_event *ev)
+{
+	struct fyai_mcp_call_request *request;
+
+	request = ev->userdata;
+	request->timer_src = NULL;
+	fyai_mcp_call_stdio_fail(request, "stdio response timed out");
+	return FYAIEA_CONTINUE;
+}
+
+static int
+fyai_mcp_call_stdio_submit(struct fyai_mcp_call_request *request,
+			   fy_generic params)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_event_loop *el;
+	fy_generic rpc;
+	const char *body;
+	size_t body_len;
+	int flags;
+	int rc;
+
+	ctx = request->ctx;
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err_out,
+			 "could not acquire the application event loop");
+	rpc = fy_mapping(ctx->transient_gb, "jsonrpc", "2.0",
+			 "method", "tools/call", "params", params,
+			 "id", request->id);
+	body = emit_request_body(ctx->transient_gb, rpc);
+	fyai_error_check(ctx, body, err_out,
+			 "could not encode MCP stdio request");
+	body_len = strlen(body);
+	request->stdio_request = malloc(body_len + 2);
+	fyai_error_check(ctx, request->stdio_request, err_out,
+			 "out of memory");
+	memcpy(request->stdio_request, body, body_len);
+	request->stdio_request[body_len] = '\n';
+	request->stdio_request[body_len + 1] = '\0';
+	request->stdio_request_len = body_len + 1;
+
+	flags = fcntl(request->mcp->stdin_fd, F_GETFL);
+	fyai_error_check(ctx, flags >= 0, err_out,
+			 "could not inspect MCP stdin: %s", strerror(errno));
+	rc = fcntl(request->mcp->stdin_fd, F_SETFL, flags | O_NONBLOCK);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not make MCP stdin non-blocking: %s",
+			 strerror(errno));
+	flags = fcntl(request->mcp->stdout_fd, F_GETFL);
+	fyai_error_check(ctx, flags >= 0, err_out,
+			 "could not inspect MCP stdout: %s", strerror(errno));
+	rc = fcntl(request->mcp->stdout_fd, F_SETFL, flags | O_NONBLOCK);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not make MCP stdout non-blocking: %s",
+			 strerror(errno));
+	rc = fyai_event_add_fd(el, request->mcp->stdout_fd, FYAIEV_READ,
+			       fyai_mcp_call_stdio_readable, request,
+			       &request->read_src);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not watch MCP stdout");
+	rc = fyai_event_add_fd(el, request->mcp->stdin_fd, FYAIEV_WRITE,
+			       fyai_mcp_call_stdio_writable, request,
+			       &request->write_src);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not watch MCP stdin");
+	rc = fyai_event_add_timer(el, request->mcp->timeout * 1000, 0,
+				  fyai_mcp_call_stdio_timeout, request,
+				  &request->timer_src);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not arm MCP response timeout");
+	return 0;
+
+err_out:
+	fyai_mcp_call_stdio_sources_drop(request);
+	return -1;
 }
 
 static void fyai_mcp_call_exchange_complete(
@@ -1169,7 +1425,7 @@ fyai_mcp_call_submit(struct fyai_ctx *ctx, const char *name,
 
 	tool_name = NULL;
 	mcp = mcp_find_tool_server(ctx, name, &tool_name);
-	if (!mcp || mcp->transport != MCP_TRANSPORT_HTTP)
+	if (!mcp)
 		return NULL;
 	params = fy_mapping(ctx->transient_gb,
 			    "name", tool_name, "arguments", args);
@@ -1187,13 +1443,17 @@ fyai_mcp_call_submit(struct fyai_ctx *ctx, const char *name,
 	request->id = ++mcp->request_id;
 	request->result = fy_invalid;
 	request->state = FYAIMCS_PRIMARY;
+	if (mcp->transport == MCP_TRANSPORT_STDIO)
+		clock_gettime(CLOCK_MONOTONIC, &request->started);
 	fyai_error_check(ctx, request->tool_name && request->params_text,
 			 err_free, "out of memory");
 	if (ctx->cfg->mcp_logging)
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "tool_call", "server", mcp->name,
 			"tool", tool_name));
-	rc = fyai_mcp_call_submit_phase(request);
+	rc = mcp->transport == MCP_TRANSPORT_STDIO ?
+		fyai_mcp_call_stdio_submit(request, params) :
+		fyai_mcp_call_submit_phase(request);
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not submit MCP call");
 	return request;
@@ -1209,8 +1469,13 @@ void fyai_mcp_call_cancel(struct fyai_mcp_call_request *request)
 	if (!request || fyai_mcp_call_state_final(request->state))
 		return;
 	request->cancel_requested = true;
-	if (request->exchange && request->exchange->transfer)
+	if (request->mcp->transport == MCP_TRANSPORT_STDIO) {
+		fyai_mcp_call_finish(request, FYAIMCS_CANCELLED,
+			fy_value(request->ctx->transient_gb,
+				 "tool error: interrupted"), false);
+	} else if (request->exchange && request->exchange->transfer) {
 		fyai_curl_cancel(request->exchange->transfer);
+	}
 }
 
 bool fyai_mcp_call_done(const struct fyai_mcp_call_request *request)
@@ -1231,7 +1496,10 @@ void fyai_mcp_call_destroy(struct fyai_mcp_call_request *request)
 {
 	if (!request)
 		return;
+	fyai_mcp_call_stdio_sources_drop(request);
 	mcp_http_exchange_destroy(request->exchange);
+	free(request->stdio_response.data);
+	free(request->stdio_request);
 	free(request->tool_name);
 	free(request->params_text);
 	free(request);
