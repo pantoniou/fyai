@@ -176,6 +176,8 @@ struct fyai_cfg {
 	bool transient;
 	/* MCP (Model Context Protocol) server settings. */
 	bool mcp_enabled;
+	/* Wait for all MCP servers before the first model step. */
+	bool mcp_startup_wait;
 	const char *mcp_endpoint;		/* server URL or empty */
 	const char *mcp_auth_token;	/* env/secret indirection (like api_key) */
 	bool mcp_auth_token_auto;
@@ -289,6 +291,8 @@ struct fyai_ctx {
 	struct fy_allocator *overlay_allocator;
 	struct fy_allocator *transient_allocator;
 	struct fy_generic_builder *transient_gb;
+	/* Release idle-operation scratch storage on the next loop iteration. */
+	bool transient_autorelease;
 	CURL *curl;
 	/* Per-invocation curl multi state. */
 	struct fyai_curl_state *curl_state;
@@ -394,6 +398,11 @@ const char *fyai_api_to_string(enum fyai_api_mode api);
 
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx);
 int fyai_setup_transient_builder(struct fyai_ctx *ctx);
+/*
+ * Return scratch storage for the current operation. Create temporary storage
+ * when no active turn owns it.
+ */
+struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
 
 /*
  * Run one complete tool-use loop on @turn; returns the final turn (or

@@ -389,6 +389,7 @@ add_executable(fyai
     src/fyai_markdown.c
     src/fyai_ui.c
     src/fyai_mcp.c
+    src/fyai_jsonrpc.c
     src/fyai_patch.c
     src/fyai_prof.c
     src/fyai_provider.c

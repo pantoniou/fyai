@@ -1892,6 +1892,17 @@ void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
 		fy_allocator_destroy(ctx->transient_allocator);
 		ctx->transient_allocator = NULL;
 	}
+	ctx->transient_autorelease = false;
+}
+
+struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
+{
+	if (ctx->transient_gb)
+		return ctx->transient_gb;
+	if (fyai_setup_transient_builder(ctx))
+		return NULL;
+	ctx->transient_autorelease = true;
+	return ctx->transient_gb;
 }
 
 int fyai_setup_transient_builder(struct fyai_ctx *ctx)
@@ -2480,17 +2491,40 @@ err:
 }
 
 /*
+ * Open the first-model-step gate: fold whatever tools the settled servers
+ * discovered into the request state so the first turn sees them. Called once,
+ * from the pump, after fyai_mcp_settled() (or immediately when MCP is disabled
+ * or startup_wait is off). Owns its own transient builder - the request-state
+ * rebuild needs one and this runs outside any turn.
+ */
+static int fyai_interactive_mcp_gate(struct fyai_ctx *ctx)
+{
+	int rc;
+
+	if (!ctx->cfg->mcp_enabled)
+		return 0;
+	fyai_mcp_publish_tools(ctx);
+	rc = fyai_setup_transient_builder(ctx);
+	if (rc)
+		return rc;
+	rc = fyai_request_state_apply(ctx);
+	fyai_cleanup_transient_builder(ctx);
+	return rc;
+}
+
+/*
  * Application lifecycle around the interactive turn pump:
  *
  *   STARTING -> RUNNING -> STOPPING -> DONE
  *
- * STARTING fires MCP bring-up and folds its tools into the catalogue; today it
- * blocks until discovery finishes, but it is the barrier the concurrent async
- * server-connect work turns into a pumped phase. RUNNING is the event pump.
- * STOPPING drains MCP and waits for its servers to terminate; it is reached on
- * every exit - including the RUNNING error unwind - so teardown belongs to the
- * application rather than to fyai_cleanup(). The synchronous fyai_mcp_cleanup()
- * here becomes the awaited async drain next.
+ * STARTING fires every MCP server's startup concurrently and enters RUNNING
+ * immediately - it does not wait for discovery. Input is live while servers
+ * connect. RUNNING is the event pump; a one-time gate (fyai_interactive_mcp_gate)
+ * holds the first turn's submission until the servers have settled (unless
+ * mcp/startup_wait is false, which submits optimistically). STOPPING drains MCP
+ * and waits for its servers to terminate; it is reached on every exit -
+ * including the RUNNING error unwind - so teardown belongs to the application
+ * rather than to fyai_cleanup().
  */
 enum fyai_app_state {
 	FYAIAS_STARTING,
@@ -2508,6 +2542,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	char *histfile;
 	char *line;
 	bool initial;
+	bool gated;
 	bool quit;
 	int rc;
 
@@ -2518,36 +2553,25 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	histfile = fyai_history_path();
 	line = NULL;
 	initial = cfg->prompt && *cfg->prompt;
+	gated = false;
 	quit = false;
 	rc = -1;
 	fyai_error_check(ctx, el, out,
 			 "interactive UI requires an event loop");
 
-	/*
-	 * STARTING: bring the UI up first, then connect MCP and re-apply the
-	 * request state so discovered tools land in the catalogue before the
-	 * first turn is submitted.
-	 */
+	/* Start all MCP servers after the UI opens. */
 	fyai_ui_history_load(ctx, histfile);
 	fyai_interactive_recap(ctx);
 	fyai_ui_drain_output(ctx);
 	fyai_session_banner_update(ctx);
-	rc = fyai_setup_transient_builder(ctx);
-	fyai_error_check(ctx, !rc, out,
-			 "could not create the transient builder");
-	rc = fyai_mcp_bringup(ctx);
-	if (!rc)
-		rc = fyai_request_state_apply(ctx);
-	fyai_cleanup_transient_builder(ctx);
-	fyai_error_check(ctx, !rc, out, "could not initialize MCP servers");
-	state = FYAIAS_RUNNING;
-
-	if (initial) {
-		run = fyai_turn_run_submit(ctx, ctx->last_message);
-		fyai_error_check(ctx, run, out,
-				 "could not submit initial turn");
-		fyai_ui_set_busy(ctx, true);
+	if (cfg->mcp_enabled) {
+		rc = fyai_mcp_start(ctx);
+		fyai_error_check(ctx, !rc, out, "could not start MCP servers");
+	} else {
+		fyai_mcp_cleanup(ctx);
+		ctx->mcp_tools = fy_invalid;
 	}
+	state = FYAIAS_RUNNING;
 
 	/*
 	 * RUNNING: the interactive application pump
@@ -2580,6 +2604,10 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	 * only after the active turn has reached a terminal state.
 	 */
 	for (;;) {
+		/* Release scratch storage that an idle operation created. */
+		if (ctx->transient_autorelease)
+			fyai_cleanup_transient_builder(ctx);
+
 		if (run && fyai_turn_run_done(run)) {
 			rc = fyai_interactive_finish_turn(ctx, &run);
 			fyai_error_check(ctx, !rc, out,
@@ -2596,7 +2624,30 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			quit = true;
 		if (!run && quit)
 			break;
-		if (!run) {
+
+		/* Apply MCP tools before the first turn when startup_wait is set. */
+		if (!run && !gated &&
+		    (!cfg->mcp_enabled || !cfg->mcp_startup_wait ||
+		     fyai_mcp_settled(ctx))) {
+			rc = fyai_interactive_mcp_gate(ctx);
+			fyai_error_check(ctx, !rc, out,
+					 "could not apply MCP tools");
+			gated = true;
+		}
+
+		if (!run && gated && initial) {
+			rc = fyai_setup_transient_builder(ctx);
+			fyai_error_check(ctx, !rc, out,
+					 "could not create transient turn storage");
+			run = fyai_turn_run_submit(ctx, ctx->last_message);
+			if (!run)
+				fyai_cleanup_transient_builder(ctx);
+			fyai_error_check(ctx, run, out,
+					 "could not submit initial turn");
+			fyai_ui_set_busy(ctx, true);
+		}
+
+		if (!run && gated) {
 			line = fyai_ui_take_line(ctx);
 			if (line) {
 				rc = fyai_interactive_start_line(ctx, histfile,
@@ -2630,8 +2681,9 @@ out:
 		fyai_turn_run_cancel(run);
 		fyai_turn_run_destroy(run);
 		fyai_ui_set_busy(ctx, false);
-		fyai_cleanup_transient_builder(ctx);
 	}
+	/* Reclaim the active turn's builder or a lingering idle scratch one. */
+	fyai_cleanup_transient_builder(ctx);
 	fyai_mcp_cleanup(ctx);
 	state = FYAIAS_DONE;
 	(void)state;
