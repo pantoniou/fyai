@@ -80,6 +80,16 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key);
 int fyai_apply_config_ops(struct fyai_ctx *ctx);
 int fyai_config_import(struct fyai_ctx *ctx, const char *path);
 int fyai_config_export(struct fyai_ctx *ctx, const char *path);
+
+struct fyai_config_edit_request;
+struct fyai_config_edit_request *
+fyai_config_edit_submit(struct fyai_ctx *ctx);
+void fyai_config_edit_cancel(struct fyai_config_edit_request *request);
+bool fyai_config_edit_done(
+		const struct fyai_config_edit_request *request);
+int fyai_config_edit_collect(
+		const struct fyai_config_edit_request *request);
+void fyai_config_edit_destroy(struct fyai_config_edit_request *request);
 int fyai_config_edit(struct fyai_ctx *ctx);
 
 /*

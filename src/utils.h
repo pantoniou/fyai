@@ -125,8 +125,24 @@ fy_generic response_message(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic response_tool_calls(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic fyai_join_strings(struct fy_generic_builder *gb, fy_generic chunks);
 
-/* Run $VISUAL/$EDITOR (else vi) on @path. The child restores the signal
- * mask captured in @ctx before fyai took ownership of its signals. */
+struct fyai_editor_request;
+typedef void (*fyai_editor_complete_fn)(
+		struct fyai_editor_request *request, void *userdata);
+
+/*
+ * External editor child operation. Submission never pumps; completion is
+ * latched before @complete runs, cancellation is idempotent, and collection
+ * never blocks.
+ */
+struct fyai_editor_request *
+fyai_editor_submit(struct fyai_ctx *ctx, const char *path, bool readonly,
+		   fyai_editor_complete_fn complete, void *userdata);
+void fyai_editor_cancel(struct fyai_editor_request *request);
+bool fyai_editor_done(const struct fyai_editor_request *request);
+int fyai_editor_collect(const struct fyai_editor_request *request);
+void fyai_editor_destroy(struct fyai_editor_request *request);
+
+/* Synchronous standalone-command adapters over the editor operation. */
 int fyai_spawn_editor(struct fyai_ctx *ctx, const char *path);
 int fyai_spawn_editor_readonly(struct fyai_ctx *ctx, const char *path);
 

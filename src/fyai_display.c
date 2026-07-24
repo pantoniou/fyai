@@ -2170,66 +2170,6 @@ int fyai_list_turns(struct fyai_ctx *ctx)
 	return 0;
 }
 
-/*
- * linenoise Ctrl-G hook: open the current line in $VISUAL/$EDITOR (else vi),
- * primed into a temp .md file so editors syntax-highlight it as markdown.
- * Returns the edited contents (malloc'd, trailing newlines stripped) for
- * linenoise to adopt as the new line, or NULL on error so the line is kept.
- */
-char *fyai_edit_line(struct fyai_ctx *ctx, const char *current)
-{
-	const char *tmpdir;
-	struct response_buffer buf = {0};
-	char tmpl[PATH_MAX];
-	char *out;
-	char chunk[4096];
-	size_t r;
-	FILE *f;
-	int fd;
-
-	tmpdir = getenv("TMPDIR");
-	out = NULL;
-
-	if (!tmpdir || !*tmpdir)
-		tmpdir = "/tmp";
-
-	if (snprintf(tmpl, sizeof(tmpl), "%s/fyai-XXXXXX.md", tmpdir) >=
-	    (int)sizeof(tmpl))
-		return NULL;
-	fd = mkstemps(tmpl, 3);	/* ".md" suffix */
-	if (fd < 0)
-		return NULL;
-	if (current && *current)
-		(void)!write(fd, current, strlen(current));
-	close(fd);
-
-	/* keep whatever was saved even when the editor exits unhappily */
-	(void)fyai_spawn_editor(ctx, tmpl);
-
-	f = fopen(tmpl, "rb");
-	if (f) {
-		while ((r = fread(chunk, 1, sizeof(chunk), f)) > 0) {
-			if (response_buffer_reserve(&buf, buf.len + r + 1)) {
-				free(buf.data);
-				buf.data = NULL;
-				break;
-			}
-			memcpy(buf.data + buf.len, chunk, r);
-			buf.len += r;
-			buf.data[buf.len] = '\0';
-		}
-		fclose(f);
-	}
-	unlink(tmpl);
-
-	if (buf.data) {
-		while (buf.len && (buf.data[buf.len - 1] == '\n' ||
-				   buf.data[buf.len - 1] == '\r'))
-			buf.data[--buf.len] = '\0';
-		out = buf.data;
-	}
-	return out;
-}
 
 /*
  * On entering the interactive loop, print a short recap of where the

@@ -271,6 +271,7 @@ fyai_cfg_uses_storage(struct fyai_cfg *cfg)
 }
 
 struct fyai_mcp_ctx;
+struct fyai_config_edit_request;
 
 struct fyai_event_loop;
 struct fyai_event_source;
@@ -305,6 +306,7 @@ struct fyai_ctx {
 	sigset_t signal_mask;
 	bool signal_mask_valid;
 	struct fyai_ui *ui;
+	struct fyai_config_edit_request *config_edit;
 	bool interrupt_pending;
 	bool terminate_pending;
 	fy_generic tools;
@@ -317,6 +319,7 @@ struct fyai_ctx {
 	char *user_agent;
 	fy_generic mcp_tools;
 	struct fyai_mcp_ctx *mcp;
+	bool mcp_stopping;
 	struct fyai_credentials auth;
 	struct fy_generic_builder *auth_gb;
 	bool auth_retry_done;
@@ -411,7 +414,7 @@ struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
  * generic (FYGIF_DIAG indirect); when steps completed before the failure the
  * wrapped value is the partial turn, otherwise fy_invalid.
  */
-fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn);
+fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
 
 /* Wrap @value (possibly fy_invalid) with a diagnostic message. */
 fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,

@@ -2,6 +2,7 @@
 #define FYAI_MODULE FYAIEM_DISPLAY
 
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@
 #include "fyai_markdown.h"
 #include "fyai_session.h"
 #include "fyai_ui.h"
+#include "utils.h"
 
 struct ui_line { struct ui_line *next; char *text; };
 struct ui_spool { int saved, reader; off_t off; };
@@ -40,11 +42,14 @@ struct fyai_ui {
 	struct fytim_workband *tool_band;
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
+	struct fyai_editor_request *editor_request;
 	char *tool_title;
 	char *tool_body;
 	char *status_bottom;
+	char *editor_path;
 	size_t tool_body_len;
 	int activity_phase;
+	unsigned int activity_interval_ms;
 	off_t capture_out;
 	off_t capture_err;
 	bool capture;
@@ -173,6 +178,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	free(activity);
 	if (!interval_ms)
 		interval_ms = 500;
+	ui->activity_interval_ms = interval_ms;
 	phase = (int)(((uint64_t)ts.tv_sec * 1000 +
 		       (uint64_t)ts.tv_nsec / 1000000) / interval_ms);
 	if (phase == ui->activity_phase)
@@ -367,11 +373,107 @@ static void ui_message_clear(struct fyai_ui *ui)
 	ui->message_band = NULL;
 }
 
+static void ui_edit_complete_service(void *userdata)
+{
+	struct fyai_ui *ui;
+	char *edited;
+	size_t len;
+
+	ui = userdata;
+	edited = read_text_file(ui->editor_path);
+	if (edited) {
+		len = strlen(edited);
+		while (len && (edited[len - 1] == '\n' ||
+			       edited[len - 1] == '\r'))
+			edited[--len] = '\0';
+		(void)fytim_set_input(ui->ft, edited);
+	}
+	if (fyai_editor_collect(ui->editor_request))
+		fyai_error(ui->ctx, "editor exited unsuccessfully");
+	fyai_editor_destroy(ui->editor_request);
+	ui->editor_request = NULL;
+	(void)unlink(ui->editor_path);
+	free(ui->editor_path);
+	ui->editor_path = NULL;
+	(void)fyai_ui_external_end(ui->ctx);
+	free(edited);
+}
+
+static void ui_edit_complete(struct fyai_editor_request *request,
+			     void *userdata)
+{
+	struct fyai_ui *ui;
+	int rc;
+
+	(void)request;
+	ui = userdata;
+	rc = fyai_event_defer(fyai_ctx_loop(ui->ctx),
+			      ui_edit_complete_service, ui);
+	if (rc)
+		fyai_error(ui->ctx, "could not resume from external editor");
+}
+
+static int ui_edit_begin(struct fyai_ui *ui)
+{
+	const char *tmpdir;
+	const char *current;
+	char path[PATH_MAX];
+	char *copy;
+	int fd;
+	int rc;
+
+	tmpdir = getenv("TMPDIR");
+	if (!tmpdir || !*tmpdir)
+		tmpdir = "/tmp";
+	rc = snprintf(path, sizeof(path), "%s/fyai-XXXXXX.md", tmpdir);
+	fyai_error_check(ui->ctx, rc >= 0 && rc < (int)sizeof(path),
+			 err_out, "could not format editor path");
+	fd = mkstemps(path, 3);
+	fyai_error_check(ui->ctx, fd >= 0, err_out,
+			 "could not create editor file");
+	current = fytim_input(ui->ft);
+	if (current && *current) {
+		rc = write(fd, current, strlen(current));
+		fyai_error_check(ui->ctx, rc == (int)strlen(current), err_fd,
+				 "could not write editor file");
+	}
+	close(fd);
+	fd = -1;
+	copy = strdup(path);
+	fyai_error_check(ui->ctx, copy, err_file,
+			 "could not retain editor path");
+	rc = fyai_ui_external_begin(ui->ctx);
+	fyai_error_check(ui->ctx, !rc, err_copy,
+			 "could not suspend terminal UI");
+	ui->editor_request = fyai_editor_submit(ui->ctx, path, false,
+						ui_edit_complete, ui);
+	fyai_error_check(ui->ctx, ui->editor_request, err_external,
+			 "could not start editor");
+	ui->editor_path = copy;
+	return 0;
+
+err_external:
+	(void)fyai_ui_external_end(ui->ctx);
+err_copy:
+	free(copy);
+err_file:
+	(void)unlink(path);
+err_fd:
+	if (fd >= 0)
+		close(fd);
+err_out:
+	return -1;
+}
+
 static void ui_rearm(struct fyai_ui *ui)
 {
 	int ms = fytim_poll_timeout_ms(ui->ft);
 	fyai_event_ms_t now, frame_ms;
 
+	if (!ui->activity_paused && (ui->busy || ui->tool_band) &&
+	    ui->activity_interval_ms &&
+	    (ms < 1 || ui->activity_interval_ms < (unsigned int)ms))
+		ms = (int)ui->activity_interval_ms;
 	if (ui->frame_pending) {
 		now = fyai_event_now_ms();
 		frame_ms = ui->next_frame_ms - now;
@@ -420,16 +522,11 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			ui->ready = true;
 			ui->ctx->interrupt_pending = true;
 			break;
-		case FYTIM_EVENT_EDIT: {
-			char *edited;
+		case FYTIM_EVENT_EDIT:
 			ui_message_clear(ui);
-			if (fyai_ui_external_begin(ui->ctx))
-				break;
-			edited = fyai_edit_line(ui->ctx, fytim_input(ui->ft));
-			(void)fyai_ui_external_end(ui->ctx);
-			if (edited) { (void)fytim_set_input(ui->ft, edited); free(edited); }
+			if (!ui->editor_request)
+				(void)ui_edit_begin(ui);
 			break;
-		}
 		case FYTIM_EVENT_RESIZE:
 			ui->ctx->cfg->render_width = ev.width > 1 ? ev.width - 1 : 0;
 			break;
@@ -522,6 +619,15 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 		(void)fytim_pump(ui->ft);
 	fyai_event_source_remove(ui->timer_src);
 	fyai_event_source_remove(ui->input_src);
+	if (ui->editor_request) {
+		fyai_editor_destroy(ui->editor_request);
+		ui->editor_request = NULL;
+	}
+	if (ui->editor_path) {
+		(void)unlink(ui->editor_path);
+		free(ui->editor_path);
+		ui->editor_path = NULL;
+	}
 	spool_restore(&ui->out, STDOUT_FILENO);
 	spool_restore(&ui->err, STDERR_FILENO);
 	fytim_destroy(ui->ft);
@@ -773,7 +879,7 @@ bool fyai_ui_quit_requested(const struct fyai_ctx *ctx)
 {
 	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 
-	return !ui || ui->quit;
+	return !ui || (ui->quit && !ui->editor_request);
 }
 
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
@@ -827,6 +933,7 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 	if (signo != SIGINT) {
 		ctx->ui->quit = true;
 		ctx->ui->ready = true;
+		fyai_editor_cancel(ctx->ui->editor_request);
 	}
 }
 

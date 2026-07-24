@@ -24,6 +24,7 @@
 
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_event.h"
 #include "fyai_schema.h"
 #include "fyai_secret.h"
 #include "fyai_terminal.h"
@@ -1633,68 +1634,215 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 	return 0;
 }
 
-int fyai_config_edit(struct fyai_ctx *ctx)
+/*
+ * The config editor is an operation because /config edit runs beneath the
+ * interactive application pump:
+ *
+ *   NEW -> EDITOR -> APPLYING -> DONE
+ *             |          |
+ *             +----------+-> FAILED
+ *
+ * The editor child callback only defers APPLYING. The deferred service owns
+ * editor collection, UI resume, parsing, validation, and publication, so no
+ * child callback frees the operation currently on the dispatch stack.
+ */
+struct fyai_config_edit_request {
+	struct fyai_ctx *ctx;
+	struct fyai_editor_request *editor;
+	char *path;
+	bool ui_external;
+	bool done;
+	bool cancelled;
+	int result;
+};
+
+static void fyai_config_edit_service(void *userdata)
 {
+	struct fyai_config_edit_request *request;
+	struct fyai_ctx *ctx;
+	fy_generic report;
+	fy_generic doc;
+	int rc;
+
+	request = userdata;
+	ctx = request->ctx;
+	rc = fyai_editor_collect(request->editor);
+	fyai_editor_destroy(request->editor);
+	request->editor = NULL;
+	if (request->ui_external) {
+		if (fyai_ui_external_end(ctx))
+			rc = -1;
+		request->ui_external = false;
+	}
+	if (rc) {
+		fyai_error(ctx, "editor exited unsuccessfully");
+		fyai_error(ctx, "editor failed; edits kept at %s",
+			   request->path);
+		goto out;
+	}
+	doc = fy_parse_file(ctx->gb, FYAI_YAML_PARSE_FLAGS, request->path);
+	report = fyai_config_validate_report(ctx->cfg, doc, "edited config");
+	if (config_report_commit(report, &doc)) {
+		fyai_error(ctx, "edits kept at %s", request->path);
+		rc = -1;
+		goto out;
+	}
+	rc = fyai_publish_root(ctx, doc, fy_invalid, fy_invalid);
+	if (rc) {
+		fyai_error(ctx, "edits kept at %s", request->path);
+		goto out;
+	}
+	(void)unlink(request->path);
+out:
+	request->result = rc;
+	request->done = true;
+}
+
+static void
+fyai_config_edit_editor_complete(struct fyai_editor_request *editor,
+				 void *userdata)
+{
+	struct fyai_config_edit_request *request;
+	int rc;
+
+	(void)editor;
+	request = userdata;
+	rc = fyai_event_defer(fyai_ctx_loop(request->ctx),
+			      fyai_config_edit_service, request);
+	if (rc) {
+		fyai_error(request->ctx,
+			   "could not resume configuration edit");
+		request->result = -1;
+		request->done = true;
+	}
+}
+
+struct fyai_config_edit_request *
+fyai_config_edit_submit(struct fyai_ctx *ctx)
+{
+	struct fyai_config_edit_request *request;
 	const char *tmpdir, *text;
 	char tmpl[PATH_MAX];
-	fy_generic report;
-	fy_generic emitted, doc;
+	fy_generic emitted;
+	char *path;
 	int fd;
-	bool ui_external = false;
+	ssize_t wr;
+	int rc;
 
 	if (!ctx->gb) {
 		fyai_error(ctx, "no arena; run fyai init");
-		return -1;
+		return NULL;
 	}
-
+	request = calloc(1, sizeof(*request));
+	if (!request)
+		return NULL;
+	request->ctx = ctx;
+	request->result = -1;
 	tmpdir = getenv("TMPDIR");
 	if (!tmpdir || !*tmpdir)
 		tmpdir = "/tmp";
-	if (snprintf(tmpl, sizeof(tmpl), "%s/fyai-config-XXXXXX.yaml",
-		     tmpdir) >= (int)sizeof(tmpl))
-		return -1;
+	rc = snprintf(tmpl, sizeof(tmpl), "%s/fyai-config-XXXXXX.yaml",
+		      tmpdir);
+	fyai_error_check(ctx, rc >= 0 && rc < (int)sizeof(tmpl), err,
+			 "cannot format configuration editor path");
 	fd = mkstemps(tmpl, 5);	/* ".yaml" suffix */
-	if (fd < 0)
-		return -1;
+	fyai_error_check(ctx, fd >= 0, err,
+			 "cannot create configuration editor file");
 
 	text = "# fyai configuration\n";
 	emitted = fy_invalid;
 	if (fy_generic_is_valid(ctx->arena_config)) {
 		emitted = config_emit_yaml(ctx->gb, ctx->arena_config);
-		if (fy_generic_is_invalid(emitted)) {
-			close(fd);
-			unlink(tmpl);
-			return -1;
-		}
+		fyai_error_check(ctx, fy_generic_is_valid(emitted), err_fd,
+				 "cannot render configuration for editing");
 		text = fy_castp(&emitted, "");
 	}
-	(void)!write(fd, text, strlen(text));
+	wr = write(fd, text, strlen(text));
+	fyai_error_check(ctx, wr == (ssize_t)strlen(text), err_fd,
+			 "cannot write configuration editor file");
 	close(fd);
-
-	fyai_error_check(ctx, !fyai_ui_external_begin(ctx), err_keep,
+	fd = -1;
+	path = strdup(tmpl);
+	fyai_error_check(ctx, path, err_file,
+			 "cannot retain configuration editor path");
+	request->path = path;
+	rc = fyai_ui_external_begin(ctx);
+	fyai_error_check(ctx, !rc, err_file,
 			 "cannot suspend UI; edits kept at %s", tmpl);
-	ui_external = true;
-	fyai_error_check(ctx, !fyai_spawn_editor(ctx, tmpl), err_resume,
+	request->ui_external = true;
+	request->editor = fyai_editor_submit(ctx, tmpl, false,
+				fyai_config_edit_editor_complete, request);
+	fyai_error_check(ctx, request->editor, err_external,
 			 "editor failed; edits kept at %s", tmpl);
-	fyai_error_check(ctx, !fyai_ui_external_end(ctx), err_keep,
-			 "cannot resume UI; edits kept at %s", tmpl);
-	ui_external = false;
+	return request;
 
-	doc = fy_parse_file(ctx->gb,
-			    FYAI_YAML_PARSE_FLAGS, tmpl);
-	report = fyai_config_validate_report(ctx->cfg, doc, "edited config");
-	fyai_error_check(ctx, !config_report_commit(report, &doc), err_keep,
-			 "edits kept at %s", tmpl);
-	fyai_error_check(ctx,
-			 !fyai_publish_root(ctx, doc, fy_invalid, fy_invalid),
-			 err_keep, "edits kept at %s", tmpl);
-	unlink(tmpl);
-	return 0;
-err_resume:
-	if (ui_external)
+err_external:
+	if (request->ui_external)
 		(void)fyai_ui_external_end(ctx);
-err_keep:
-	return -1;
+err_file:
+	if (!request->path)
+		(void)unlink(tmpl);
+err_fd:
+	if (fd >= 0)
+		close(fd);
+err:
+	free(request->path);
+	free(request);
+	return NULL;
+}
+
+void fyai_config_edit_cancel(struct fyai_config_edit_request *request)
+{
+	if (!request || request->done || request->cancelled)
+		return;
+	request->cancelled = true;
+	fyai_editor_cancel(request->editor);
+}
+
+bool fyai_config_edit_done(
+		const struct fyai_config_edit_request *request)
+{
+	return request && request->done;
+}
+
+int fyai_config_edit_collect(
+		const struct fyai_config_edit_request *request)
+{
+	return request && request->done ? request->result : -1;
+}
+
+void fyai_config_edit_destroy(struct fyai_config_edit_request *request)
+{
+	if (!request)
+		return;
+	fyai_config_edit_cancel(request);
+	fyai_editor_destroy(request->editor);
+	if (request->ui_external)
+		(void)fyai_ui_external_end(request->ctx);
+	free(request->path);
+	free(request);
+}
+
+int fyai_config_edit(struct fyai_ctx *ctx)
+{
+	struct fyai_config_edit_request *request;
+	struct fyai_event_loop *el;
+	int rc;
+
+	request = fyai_config_edit_submit(ctx);
+	if (!request)
+		return -1;
+	el = fyai_ctx_loop(ctx);
+	while (!fyai_config_edit_done(request)) {
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0) {
+			fyai_config_edit_cancel(request);
+			break;
+		}
+	}
+	rc = fyai_config_edit_collect(request);
+	fyai_config_edit_destroy(request);
+	return rc;
 }
 
 int fyai_config_rederive(struct fyai_ctx *ctx)

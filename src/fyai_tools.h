@@ -72,6 +72,9 @@ fy_generic fyai_mcp_call_collect(struct fyai_mcp_call_request *request,
 				 bool *okp);
 void fyai_mcp_call_destroy(struct fyai_mcp_call_request *request);
 void fyai_mcp_cleanup(struct fyai_ctx *ctx);
+int fyai_mcp_stop(struct fyai_ctx *ctx);
+bool fyai_mcp_stop_done(const struct fyai_ctx *ctx);
+void fyai_mcp_stop_finish(struct fyai_ctx *ctx);
 
 /*
  * Execute a single named built-in tool (read_file, write_file, apply_patch,

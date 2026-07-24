@@ -1206,7 +1206,8 @@ static bool mcp_delete_session_begin(struct fyai_ctx *ctx,
 	curl_easy_setopt(mcp->curl, CURLOPT_WRITEDATA, &mcp->del_resp);
 	curl_easy_setopt(mcp->curl, CURLOPT_HEADERFUNCTION, NULL);
 	curl_easy_setopt(mcp->curl, CURLOPT_HEADERDATA, NULL);
-	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT, (long)mcp->timeout);
+	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT,
+			 (long)(mcp->timeout < 5 ? mcp->timeout : 5));
 	mcp->del_xfer = fyai_curl_submit(ctx, mcp->curl, mcp_delete_complete,
 					 mcp);
 	return mcp->del_xfer != NULL;
@@ -1250,16 +1251,27 @@ static void mcp_teardown_begin(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 		mcp->term_done = false;
 		return;
 	}
-	/* No loop, or registration failed: reap synchronously as a fallback. */
-	kill(mcp->pid, SIGKILL);
+	/*
+	 * Registration failure is exceptional, but teardown must still remain
+	 * nonblocking. Kill now and make one final attempt to register a plain
+	 * child source whose only job is reaping.
+	 */
+	(void)kill(mcp->pid, SIGKILL);
+	if (el && !fyai_event_add_child(el, mcp->pid, mcp_term_complete,
+					mcp, &mcp->term_src)) {
+		mcp->term_done = false;
+		return;
+	}
+	fyai_warning(ctx, "MCP %s child could not be watched for shutdown",
+		     mcp->name);
 	while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
 		;
 	mcp->pid = -1;
 }
 
-static bool mcp_teardown_settled(struct fyai_ctx *ctx)
+static bool mcp_teardown_settled(const struct fyai_ctx *ctx)
 {
-	struct fyai_mcp_ctx *mcp;
+	const struct fyai_mcp_ctx *mcp;
 
 	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
 		if (!mcp->del_done || !mcp->term_done)
@@ -1295,18 +1307,15 @@ static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	mcp->pid = -1;
 }
 
-/* Bounded deadline for the whole shutdown group, ms. */
-#define MCP_SHUTDOWN_DEADLINE_MS 5000
-
-void fyai_mcp_cleanup(struct fyai_ctx *ctx)
+int fyai_mcp_stop(struct fyai_ctx *ctx)
 {
-	struct fyai_mcp_ctx *mcp, *next;
-	struct fyai_event_loop *el;
-	fyai_event_ms_t deadline, now;
-	int status;
+	struct fyai_mcp_ctx *mcp;
 
 	if (!ctx || !ctx->mcp)
-		return;
+		return 0;
+	if (ctx->mcp_stopping)
+		return 0;
+	ctx->mcp_stopping = true;
 
 	/* Cancel any in-flight startup, then fire every server's teardown so
 	 * they drain concurrently. */
@@ -1323,30 +1332,24 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 		}
 		mcp_teardown_begin(ctx, mcp);
 	}
+	return 0;
+}
 
-	/* Pump the shared loop until every teardown settles or the deadline. */
-	el = fyai_ctx_loop(ctx);
-	deadline = fyai_event_now_ms() + MCP_SHUTDOWN_DEADLINE_MS;
-	while (el && !mcp_teardown_settled(ctx)) {
-		now = fyai_event_now_ms();
-		if (now >= deadline)
-			break;
-		if (fyai_event_loop_step(el, deadline - now) < 0)
-			break;
-	}
+bool fyai_mcp_stop_done(const struct fyai_ctx *ctx)
+{
+	return !ctx || !ctx->mcp ||
+	       (ctx->mcp_stopping &&
+		mcp_teardown_settled(ctx));
+}
 
+void fyai_mcp_stop_finish(struct fyai_ctx *ctx)
+{
+	struct fyai_mcp_ctx *mcp, *next;
+
+	if (!ctx || !fyai_mcp_stop_done(ctx))
+		return;
 	for (mcp = ctx->mcp; mcp; mcp = next) {
 		next = mcp->next;
-		/* Force any teardown that did not finish in time. */
-		if (mcp->del_xfer)
-			fyai_curl_transfer_destroy(mcp->del_xfer);
-		if (mcp->term_src)
-			fyai_event_source_remove(mcp->term_src);
-		if (mcp->pid > 0) {
-			kill(mcp->pid, SIGKILL);
-			while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
-				;
-		}
 		if (ctx->cfg->mcp_logging)
 			(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 				"event", "disconnect", "server", mcp->name));
@@ -1358,4 +1361,23 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 		free(mcp);
 	}
 	ctx->mcp = NULL;
+	ctx->mcp_stopping = false;
+}
+
+void fyai_mcp_cleanup(struct fyai_ctx *ctx)
+{
+	struct fyai_event_loop *el;
+	int rc;
+
+	if (!ctx || !ctx->mcp)
+		return;
+	if (fyai_mcp_stop(ctx))
+		return;
+	el = fyai_ctx_loop(ctx);
+	while (el && !fyai_mcp_stop_done(ctx)) {
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0)
+			return;
+	}
+	fyai_mcp_stop_finish(ctx);
 }
