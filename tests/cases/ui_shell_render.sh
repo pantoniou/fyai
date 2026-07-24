@@ -33,7 +33,7 @@ if b"\xe2\x97\x8f working" in plain:
     raise SystemExit("activity dot was rendered on a separate chrome row")
 if b"shell printf" not in plain:
     raise SystemExit("canonical shell header missing")
-if not re.search(rb"(?:^|\r?\n)    0\r?\n", plain):
+if not re.search(rb"(?:^|[\r\n])    tool-progress\r?\n", plain):
     raise SystemExit("fenced output is not indented")
 EOF
 

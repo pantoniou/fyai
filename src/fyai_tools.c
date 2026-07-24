@@ -1307,6 +1307,7 @@ fyai_tool_job_group_mcp_complete(struct fyai_mcp_call_request *request,
 struct fyai_tool_job_group {
 	struct fyai_ctx *ctx;
 	struct fyai_tool_group_entry *entries;
+	struct fyai_event_source *animation_timer;
 	size_t count;
 	size_t capacity;
 	size_t next;
@@ -1321,6 +1322,63 @@ struct fyai_tool_job_group {
 	fyai_tool_group_complete_fn complete;
 	void *userdata;
 };
+
+static unsigned int
+fyai_tool_job_group_animation_interval(struct fyai_tool_job_group *group)
+{
+	struct fyai_tool_group_entry *entry;
+	unsigned int interval;
+	size_t i;
+
+	interval = 0;
+	for (i = 0; i < group->next; i++) {
+		entry = &group->entries[i];
+		if (entry->state != FYAITGS_RUNNING || !entry->job ||
+		    !entry->job->stream.active ||
+		    entry->job->stream.indicator_state !=
+			    FYMD_INDICATOR_PENDING)
+			continue;
+		if (!entry->job->stream.indicator_interval_ms)
+			continue;
+		if (!interval ||
+		    entry->job->stream.indicator_interval_ms < interval)
+			interval = entry->job->stream.indicator_interval_ms;
+	}
+	return interval;
+}
+
+static enum fyai_event_action
+fyai_tool_job_group_animation_cb(const struct fyai_event *ev)
+{
+	struct fyai_tool_job_group *group;
+
+	group = ev->userdata;
+	fyai_tool_job_group_service(group);
+	return FYAIEA_CONTINUE;
+}
+
+static void
+fyai_tool_job_group_animation_sync(struct fyai_tool_job_group *group)
+{
+	unsigned int interval;
+	int rc;
+
+	interval = fyai_tool_job_group_animation_interval(group);
+	if (!interval) {
+		fyai_event_source_remove(group->animation_timer);
+		group->animation_timer = NULL;
+		return;
+	}
+	if (group->animation_timer)
+		return;
+	rc = fyai_event_add_timer(fyai_ctx_loop(group->ctx), interval,
+				  interval,
+				  fyai_tool_job_group_animation_cb, group,
+				  &group->animation_timer);
+	if (rc)
+		fyai_warning(group->ctx,
+			     "tool indicator animation timer could not start");
+}
 
 static int fyai_tool_job_group_reserve(struct fyai_tool_job_group *group)
 {
@@ -1528,6 +1586,7 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 		group->parked++;
 	}
 	fyai_tool_job_group_dispatch(group);
+	fyai_tool_job_group_animation_sync(group);
 	fyai_tool_job_group_notify(group);
 }
 
@@ -1538,6 +1597,7 @@ int fyai_tool_job_group_submit(struct fyai_tool_job_group *group)
 	group->submitted = true;
 	group->sealed = true;
 	fyai_tool_job_group_dispatch(group);
+	fyai_tool_job_group_animation_sync(group);
 	fyai_tool_job_group_notify(group);
 	return 0;
 }
@@ -1645,6 +1705,8 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 	if (!group)
 		return;
 	fyai_tool_job_group_cancel(group);
+	fyai_event_source_remove(group->animation_timer);
+	group->animation_timer = NULL;
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
 		if (entry->job)

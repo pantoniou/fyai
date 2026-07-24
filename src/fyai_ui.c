@@ -45,6 +45,7 @@ struct fyai_ui {
 	char *status_bottom;
 	size_t tool_body_len;
 	int activity_phase;
+	unsigned int activity_interval_ms;
 	off_t capture_out;
 	off_t capture_err;
 	bool capture;
@@ -173,6 +174,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	free(activity);
 	if (!interval_ms)
 		interval_ms = 500;
+	ui->activity_interval_ms = interval_ms;
 	phase = (int)(((uint64_t)ts.tv_sec * 1000 +
 		       (uint64_t)ts.tv_nsec / 1000000) / interval_ms);
 	if (phase == ui->activity_phase)
@@ -372,6 +374,10 @@ static void ui_rearm(struct fyai_ui *ui)
 	int ms = fytim_poll_timeout_ms(ui->ft);
 	fyai_event_ms_t now, frame_ms;
 
+	if (!ui->activity_paused && (ui->busy || ui->tool_band) &&
+	    ui->activity_interval_ms &&
+	    (ms < 1 || ui->activity_interval_ms < (unsigned int)ms))
+		ms = (int)ui->activity_interval_ms;
 	if (ui->frame_pending) {
 		now = fyai_event_now_ms();
 		frame_ms = ui->next_frame_ms - now;
