@@ -240,6 +240,8 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 				cfg->enable_tools);
 	cfg->parallel_tool_calls = apply_bool(root, "parallel_tool_calls",
 					     cfg->parallel_tool_calls);
+	cfg->async_model_step = apply_bool(root, "async_model_step",
+					   cfg->async_model_step);
 	cfg->enable_builtin_shell = apply_bool(root, "builtin_shell",
 					       cfg->enable_builtin_shell);
 	/* sandbox is either a bool (enable with defaults) or a mapping
@@ -1736,6 +1738,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->transcript_system = false;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;
+	cfg->async_model_step = true;
 	cfg->stream = true;
 	cfg->thinking = DEFAULT_THINKING;
 	cfg->wire_logging = false;

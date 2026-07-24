@@ -1373,6 +1373,14 @@ static int fyai_tool_job_group_reserve(struct fyai_tool_job_group *group)
 
 struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx)
 {
+	return fyai_tool_job_group_create_notify(ctx, NULL, NULL);
+}
+
+struct fyai_tool_job_group *
+fyai_tool_job_group_create_notify(struct fyai_ctx *ctx,
+				  fyai_tool_group_complete_fn complete,
+				  void *userdata)
+{
 	struct fyai_tool_job_group *group;
 
 	if (!ctx)
@@ -1381,6 +1389,8 @@ struct fyai_tool_job_group *fyai_tool_job_group_create(struct fyai_ctx *ctx)
 	if (!group)
 		return NULL;
 	group->ctx = ctx;
+	group->complete = complete;
+	group->userdata = userdata;
 	group->max_parallel = ctx->cfg->parallel_tool_calls ? 16 : 1;
 	return group;
 }
@@ -1392,11 +1402,9 @@ fyai_tool_job_group_create_open(struct fyai_ctx *ctx,
 {
 	struct fyai_tool_job_group *group;
 
-	group = fyai_tool_job_group_create(ctx);
+	group = fyai_tool_job_group_create_notify(ctx, complete, userdata);
 	if (!group)
 		return NULL;
-	group->complete = complete;
-	group->userdata = userdata;
 	group->submitted = true;
 	return group;
 }

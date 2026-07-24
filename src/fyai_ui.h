@@ -13,6 +13,8 @@ int fyai_ui_open(struct fyai_ctx *ctx);
 void fyai_ui_close(struct fyai_ctx *ctx);
 bool fyai_ui_active(const struct fyai_ctx *ctx);
 char *fyai_ui_readline(struct fyai_ctx *ctx);
+char *fyai_ui_take_line(struct fyai_ctx *ctx);
+bool fyai_ui_quit_requested(const struct fyai_ctx *ctx);
 void fyai_ui_drain_output(struct fyai_ctx *ctx);
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path);
 void fyai_ui_history_save(struct fyai_ctx *ctx, const char *path,

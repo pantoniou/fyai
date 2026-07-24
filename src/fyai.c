@@ -596,6 +596,7 @@ struct fyai_model_step {
 	bool response_linked;
 	bool notified;
 	bool cancel_requested;
+	bool asynchronous;
 };
 
 static bool fyai_model_step_terminal(enum fyai_model_step_state state)
@@ -603,6 +604,28 @@ static bool fyai_model_step_terminal(enum fyai_model_step_state state)
 	return state == FYAIMSS_COMPLETED ||
 	       state == FYAIMSS_CANCELLED ||
 	       state == FYAIMSS_FAILED;
+}
+
+static const char *
+fyai_model_step_state_name(enum fyai_model_step_state state)
+{
+	switch (state) {
+	case FYAIMSS_NEW:
+		return "new";
+	case FYAIMSS_BUILDING:
+		return "building";
+	case FYAIMSS_REQUEST_PENDING:
+		return "request-pending";
+	case FYAIMSS_RETRYING:
+		return "retrying";
+	case FYAIMSS_COMPLETED:
+		return "completed";
+	case FYAIMSS_CANCELLED:
+		return "cancelled";
+	case FYAIMSS_FAILED:
+		return "failed";
+	}
+	return "unknown";
 }
 
 static bool
@@ -634,12 +657,18 @@ fyai_model_step_transition(struct fyai_model_step *step,
 			   enum fyai_model_step_state state)
 {
 	if (!fyai_model_step_transition_valid(step->state, state)) {
-		fyai_error(step->ctx, "invalid model step transition %d -> %d",
-			   step->state, state);
+		fyai_error(step->ctx,
+			   "invalid model step transition %s -> %s",
+			   fyai_model_step_state_name(step->state),
+			   fyai_model_step_state_name(state));
 		if (!fyai_model_step_terminal(step->state))
 			step->state = FYAIMSS_FAILED;
 		return -1;
 	}
+	if (step->ctx->cfg->debug)
+		fyai_debug(step->ctx, "model step state %s -> %s",
+			   fyai_model_step_state_name(step->state),
+			   fyai_model_step_state_name(state));
 	step->state = state;
 	return 0;
 }
@@ -683,6 +712,8 @@ static void fyai_model_step_stream_complete(fyai_stream_request *request,
 					    void *userdata);
 static void fyai_model_step_buffered_complete(
 		struct fyai_buffered_request *request, void *userdata);
+static void fyai_model_step_request_complete(struct fyai_model_step *step,
+					     fy_generic response_doc);
 
 static int fyai_model_step_start(struct fyai_model_step *step)
 {
@@ -706,6 +737,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	bool want_extents_lp;
 	bool response_linked;
 	struct fyai_stream_callbacks callbacks;
+	fy_generic response_doc;
 	int rc;
 
 	ctx = step->ctx;
@@ -952,6 +984,18 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	rc = fyai_model_step_transition(step, FYAIMSS_REQUEST_PENDING);
 	fyai_error_check(ctx, !rc, out,
 			 "could not advance model step");
+	if (!step->asynchronous) {
+		if (cfg->stream)
+			response_doc = fyai_perform_streaming_request_tools(
+					ctx,
+					step->tool_group ?
+						fyai_stream_tool_ready : NULL,
+					step);
+		else
+			response_doc = fyai_perform_buffered_request(ctx);
+		fyai_model_step_request_complete(step, response_doc);
+		return 0;
+	}
 	if (cfg->stream) {
 		memset(&callbacks, 0, sizeof(callbacks));
 		callbacks.complete = fyai_model_step_stream_complete;
@@ -1116,12 +1160,12 @@ static void fyai_model_step_buffered_complete(
 	fyai_model_step_request_complete(step, response_doc);
 }
 
-struct fyai_model_step *
-fyai_model_step_submit(struct fyai_ctx *ctx, fy_generic turn,
-		       fy_generic previous,
-		       struct fyai_tool_job_group *tool_group,
-		       fyai_model_step_complete_fn complete,
-		       void *userdata)
+static struct fyai_model_step *
+fyai_model_step_submit_mode(struct fyai_ctx *ctx, fy_generic turn,
+			    fy_generic previous,
+			    struct fyai_tool_job_group *tool_group,
+			    fyai_model_step_complete_fn complete,
+			    void *userdata, bool asynchronous)
 {
 	struct fyai_model_step *step;
 	int rc;
@@ -1134,6 +1178,7 @@ fyai_model_step_submit(struct fyai_ctx *ctx, fy_generic turn,
 	step->tool_group = tool_group;
 	step->complete = complete;
 	step->userdata = userdata;
+	step->asynchronous = asynchronous;
 	step->result = fy_invalid;
 	step->state = FYAIMSS_NEW;
 	rc = fyai_model_step_transition(step, FYAIMSS_BUILDING);
@@ -1148,6 +1193,17 @@ err_free:
 	fyai_model_step_destroy(step);
 err:
 	return NULL;
+}
+
+struct fyai_model_step *
+fyai_model_step_submit(struct fyai_ctx *ctx, fy_generic turn,
+		       fy_generic previous,
+		       struct fyai_tool_job_group *tool_group,
+		       fyai_model_step_complete_fn complete,
+		       void *userdata)
+{
+	return fyai_model_step_submit_mode(ctx, turn, previous, tool_group,
+					   complete, userdata, true);
 }
 
 void fyai_model_step_cancel(struct fyai_model_step *step)
@@ -1217,14 +1273,16 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 
 	memset(&sync, 0, sizeof(sync));
 	result = fy_invalid;
-	step = fyai_model_step_submit(ctx, turn, previous, tool_group,
-				      fyai_model_step_sync_complete, &sync);
+	step = fyai_model_step_submit_mode(ctx, turn, previous, tool_group,
+					  fyai_model_step_sync_complete,
+					  &sync, ctx->cfg->async_model_step);
 	if (!step)
 		return fy_invalid;
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		goto out;
-	rc = fyai_event_loop_run_until(el, &sync.done, -1);
+	rc = sync.done ? 0 :
+		fyai_event_loop_run_until(el, &sync.done, -1);
 	if (rc)
 		fyai_model_step_cancel(step);
 	if (!sync.done && !rc)
@@ -1233,6 +1291,591 @@ static fy_generic fyai_run_model_step(struct fyai_ctx *ctx, fy_generic turn,
 out:
 	fyai_model_step_destroy(step);
 	return result;
+}
+
+/*
+ * Asynchronous turn state machine
+ * ===============================
+ *
+ * A turn owns one model step or one tool group at a time. The exception is
+ * streamed tool prefetch: an open parallel group may collect tool calls and
+ * execute them while the model step is still receiving the response.
+ *
+ *                         model response needs tools
+ *                    +--------------------------------+
+ *                    |                                v
+ *   NEW ---------> MODEL --------------------------> TOOLS
+ *                    ^                                |
+ *                    |                                |
+ *                    +--------------------------------+
+ *                      all tool results were appended
+ *
+ *    MODEL ---------> DONE       final model response
+ *    MODEL ---------> FAILED     request or construction failure
+ *    TOOLS ---------> DONE       interrupted or ask_user aborted
+ *    TOOLS ---------> FAILED     submission or collection failure
+ *
+ * A TOOLS state may contain several groups, but never concurrently:
+ *
+ *   1. collect the parallel group, including streamed prefetch;
+ *   2. submit and collect each exclusive tool as a group of one;
+ *   3. submit the next model step after every tool result is appended.
+ *
+ * The model and tool completion callbacks do not perform these transitions.
+ * They only set model_ready or tool_ready. The outer application pump calls
+ * fyai_turn_run_service() after event dispatch, and that function advances the
+ * machine. Keeping transitions out of callbacks prevents callback reentrancy
+ * from freeing a curl transfer, model step, or tool group while its dispatcher
+ * still has that object on the stack.
+ *
+ * Cancellation follows ownership. A MODEL cancellation cancels both the model
+ * step and any open prefetch group. A TOOLS cancellation cancels the current
+ * group. Completion still arrives through the normal callback, so collection,
+ * partial-turn publication, and destruction all use the ordinary path.
+ */
+enum fyai_turn_run_state {
+	FYAITRS_NEW,
+	FYAITRS_MODEL,
+	FYAITRS_TOOLS,
+	FYAITRS_DONE,
+	FYAITRS_FAILED,
+};
+
+struct fyai_turn_run {
+	struct fyai_ctx *ctx;
+	fy_generic turn;
+	fy_generic turn_in;
+	fy_generic previous;
+	fy_generic tool_calls;
+	fy_generic result;
+	struct fyai_model_step *model_step;
+	struct fyai_tool_job_group *tool_group;
+	enum fyai_turn_run_state state;
+	size_t exclusive_index;
+	int iteration;
+	bool group_parallel;
+	bool model_ready;
+	bool tool_ready;
+	bool cancel_requested;
+};
+
+static bool fyai_turn_run_done(const struct fyai_turn_run *run)
+{
+	return run && (run->state == FYAITRS_DONE ||
+		       run->state == FYAITRS_FAILED);
+}
+
+static const char *
+fyai_turn_run_state_name(enum fyai_turn_run_state state)
+{
+	switch (state) {
+	case FYAITRS_NEW:
+		return "new";
+	case FYAITRS_MODEL:
+		return "model";
+	case FYAITRS_TOOLS:
+		return "tools";
+	case FYAITRS_DONE:
+		return "done";
+	case FYAITRS_FAILED:
+		return "failed";
+	}
+	return "unknown";
+}
+
+static bool
+fyai_turn_run_transition_valid(enum fyai_turn_run_state from,
+			       enum fyai_turn_run_state to)
+{
+	switch (from) {
+	case FYAITRS_NEW:
+		return to == FYAITRS_MODEL || to == FYAITRS_FAILED;
+	case FYAITRS_MODEL:
+		return to == FYAITRS_MODEL || to == FYAITRS_TOOLS ||
+		       to == FYAITRS_DONE || to == FYAITRS_FAILED;
+	case FYAITRS_TOOLS:
+		return to == FYAITRS_MODEL || to == FYAITRS_TOOLS ||
+		       to == FYAITRS_DONE || to == FYAITRS_FAILED;
+	case FYAITRS_DONE:
+	case FYAITRS_FAILED:
+		return false;
+	}
+	return false;
+}
+
+static int
+fyai_turn_run_transition(struct fyai_turn_run *run,
+			 enum fyai_turn_run_state state)
+{
+	if (!fyai_turn_run_transition_valid(run->state, state)) {
+		fyai_error(run->ctx, "invalid turn transition %s -> %s",
+			   fyai_turn_run_state_name(run->state),
+			   fyai_turn_run_state_name(state));
+		if (!fyai_turn_run_done(run))
+			run->state = FYAITRS_FAILED;
+		return -1;
+	}
+	if (run->ctx->cfg->debug)
+		fyai_debug(run->ctx, "turn state %s -> %s",
+			   fyai_turn_run_state_name(run->state),
+			   fyai_turn_run_state_name(state));
+	run->state = state;
+	return 0;
+}
+
+static void fyai_turn_run_model_complete(struct fyai_model_step *step,
+					 void *userdata)
+{
+	struct fyai_turn_run *run;
+
+	(void)step;
+	run = userdata;
+	run->model_ready = true;
+}
+
+static void
+fyai_turn_run_tool_complete(struct fyai_tool_job_group *group, void *userdata)
+{
+	struct fyai_turn_run *run;
+
+	(void)group;
+	run = userdata;
+	run->tool_ready = true;
+}
+
+static void fyai_turn_run_drop_tool_group(struct fyai_turn_run *run)
+{
+	struct fyai_tool_job_group *group;
+
+	group = run->tool_group;
+	run->tool_group = NULL;
+	fyai_tool_job_group_destroy(group);
+}
+
+static void fyai_turn_run_abort_output(struct fyai_turn_run *run)
+{
+	fyai_output_abort(run->ctx);
+	run->result = fy_invalid;
+	if (run->state != FYAITRS_FAILED)
+		(void)fyai_turn_run_transition(run, FYAITRS_FAILED);
+}
+
+static void
+fyai_turn_run_finish(struct fyai_turn_run *run, fy_generic result,
+		     bool finalize)
+{
+	struct fyai_ctx *ctx;
+
+	ctx = run->ctx;
+	if (finalize) {
+		result = fyai_output_finalize(ctx, result, false);
+		result = fy_gb_internalize(ctx->gb, result);
+		if (fy_generic_is_invalid(result))
+			fyai_error(ctx, "could not retain the completed turn");
+	}
+	run->result = result;
+	if (fy_generic_is_invalid(result)) {
+		fyai_output_abort(ctx);
+		(void)fyai_turn_run_transition(run, FYAITRS_FAILED);
+	} else {
+		(void)fyai_turn_run_transition(run, FYAITRS_DONE);
+	}
+}
+
+static void
+fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
+{
+	struct fyai_ctx *ctx;
+	fy_generic diag;
+	fy_generic result;
+	const char *msg;
+
+	ctx = run->ctx;
+	diag = fy_generic_get_diag(response);
+	msg = fy_generic_is_valid(diag) &&
+	      !fy_generic_is_null_type(diag) ?
+		fy_castp(&diag, "request failed") : "request failed";
+	if (run->turn.v != run->turn_in.v) {
+		result = fyai_output_finalize(ctx, run->turn, true);
+		result = fy_gb_internalize(ctx->gb, result);
+		result = fyai_with_diag(ctx->gb, result, msg);
+	} else {
+		fyai_output_abort(ctx);
+		result = fyai_with_diag(ctx->gb, fy_invalid, msg);
+	}
+	run->result = result;
+	(void)fyai_turn_run_transition(run,
+		fy_generic_is_invalid(result) ?
+			FYAITRS_FAILED : FYAITRS_DONE);
+}
+
+static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
+	fy_generic previous;
+	int rc;
+
+	ctx = run->ctx;
+	cfg = ctx->cfg;
+	if (run->iteration >= cfg->max_tool_iterations) {
+		fyai_turn_run_abort_output(run);
+		return -1;
+	}
+	previous = cfg->response_chain ? run->previous :
+		(run->iteration ? run->previous : fy_null);
+	run->tool_group = cfg->stream ?
+		fyai_tool_job_group_create_open(ctx,
+			fyai_turn_run_tool_complete, run) : NULL;
+	fyai_error_check(ctx, !cfg->stream || run->tool_group, err,
+			 "could not create streaming tool group");
+	run->model_ready = false;
+	run->tool_ready = false;
+	rc = fyai_turn_run_transition(run, FYAITRS_MODEL);
+	fyai_error_check(ctx, !rc, err,
+			 "could not advance turn to model request");
+	run->model_step = fyai_model_step_submit(ctx, run->turn, previous,
+						 run->tool_group,
+						 fyai_turn_run_model_complete,
+						 run);
+	fyai_error_check(ctx, run->model_step, err,
+			 "could not submit model step");
+	return 0;
+
+err:
+	fyai_turn_run_drop_tool_group(run);
+	fyai_turn_run_abort_output(run);
+	return -1;
+}
+
+static int
+fyai_turn_run_submit_exclusive(struct fyai_turn_run *run, size_t start)
+{
+	struct fyai_ctx *ctx;
+	fy_generic tool_call;
+	size_t i;
+	size_t total;
+	int rc;
+
+	ctx = run->ctx;
+	total = fy_len(run->tool_calls);
+	for (i = start; i < total; i++) {
+		tool_call = fy_get_at(run->tool_calls, i);
+		if (!fyai_tool_call_parallel_eligible(ctx, tool_call))
+			break;
+	}
+	if (i >= total) {
+		run->iteration++;
+		return fyai_turn_run_submit_model(run);
+	}
+	run->exclusive_index = i;
+	run->group_parallel = false;
+	run->tool_ready = false;
+	run->tool_group = fyai_tool_job_group_create_notify(ctx,
+				fyai_turn_run_tool_complete, run);
+	fyai_error_check(ctx, run->tool_group, err,
+			 "could not create exclusive tool group");
+	rc = fyai_tool_job_group_add(run->tool_group, tool_call);
+	fyai_error_check(ctx, !rc, err,
+			 "could not add exclusive tool call");
+	rc = fyai_turn_run_transition(run, FYAITRS_TOOLS);
+	fyai_error_check(ctx, !rc, err,
+			 "could not advance turn to tool group");
+	rc = fyai_tool_job_group_submit(run->tool_group);
+	fyai_error_check(ctx, !rc, err,
+			 "could not submit exclusive tool group");
+	return 0;
+
+err:
+	fyai_turn_run_drop_tool_group(run);
+	fyai_turn_run_abort_output(run);
+	return -1;
+}
+
+static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx;
+	fy_generic tool_call;
+	fy_generic result;
+	size_t group_index;
+	size_t i;
+	size_t total;
+	bool ok;
+	int rc;
+
+	ctx = run->ctx;
+	total = fy_len(run->tool_calls);
+	group_index = 0;
+	for (i = 0; i < total; i++) {
+		tool_call = fy_get_at(run->tool_calls, i);
+		if (run->group_parallel !=
+		    fyai_tool_call_parallel_eligible(ctx, tool_call))
+			continue;
+		if (!run->group_parallel && i != run->exclusive_index)
+			continue;
+		result = fy_invalid;
+		ok = false;
+		rc = fyai_tool_job_group_collect(run->tool_group,
+						 group_index++, &result, &ok);
+		fyai_error_check(ctx, !rc, err,
+				 "could not collect tool job result");
+		run->turn = fyai_finish_tool_call(ctx, run->turn, tool_call,
+						 result, ok, false);
+		fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+				 "could not append tool job result");
+	}
+	fyai_turn_run_drop_tool_group(run);
+	run->turn = fy_gb_internalize(ctx->transient_gb, run->turn);
+	fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+			 "could not append the tool calls");
+	if (ctx->ask_abort) {
+		fyai_turn_run_finish(run, fy_null, true);
+		return 0;
+	}
+	if (fyai_interrupt_check(ctx)) {
+		result = fy_gb_internalize(ctx->gb, run->turn);
+		result = fyai_with_diag(ctx->gb, result, "interrupted");
+		fyai_turn_run_finish(run, result, false);
+		return 0;
+	}
+	return run->group_parallel ?
+		fyai_turn_run_submit_exclusive(run, 0) :
+		fyai_turn_run_submit_exclusive(run,
+					       run->exclusive_index + 1);
+
+err:
+	fyai_turn_run_drop_tool_group(run);
+	fyai_turn_run_abort_output(run);
+	return -1;
+}
+
+static fy_generic fyai_turn_run_take_model_response(
+		struct fyai_turn_run *run)
+{
+	fy_generic response;
+
+	response = fyai_model_step_collect(run->model_step);
+	fyai_model_step_destroy(run->model_step);
+	run->model_step = NULL;
+	run->model_ready = false;
+	return response;
+}
+
+static int
+fyai_turn_run_append_response(struct fyai_turn_run *run, fy_generic response)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
+	fy_generic response_id;
+
+	ctx = run->ctx;
+	cfg = ctx->cfg;
+	response_id = fyai_response_id(ctx, response);
+	if (!cfg->stream)
+		(void)fyai_output_append_string(ctx,
+			fy_cast(fyai_response_output_text(ctx, response), ""));
+	run->turn = fyai_append_assistant_response(ctx, run->turn, response);
+	fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+			 "could not append assistant response");
+	if (cfg->response_chain) {
+		run->turn = fyai_turn_set_response_id(ctx, run->turn,
+						     response_id);
+		fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+				 "could not retain response id");
+	}
+	return 0;
+
+err:
+	return -1;
+}
+
+static size_t
+fyai_turn_run_parallel_count(struct fyai_turn_run *run)
+{
+	fy_generic tool_call;
+	size_t count;
+
+	count = 0;
+	fy_foreach(tool_call, run->tool_calls)
+		if (fyai_tool_call_parallel_eligible(run->ctx, tool_call))
+			count++;
+	return count;
+}
+
+static int fyai_turn_run_submit_parallel(struct fyai_turn_run *run,
+					 size_t parallel_total)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
+	fy_generic tool_call;
+	int rc;
+
+	ctx = run->ctx;
+	cfg = ctx->cfg;
+	fyai_error_check(ctx, !run->tool_group ||
+			 fyai_tool_job_group_count(run->tool_group) ==
+				parallel_total,
+			 err, "streamed tool group does not match response");
+	if (!run->tool_group) {
+		run->tool_group = fyai_tool_job_group_create_notify(ctx,
+					fyai_turn_run_tool_complete, run);
+		fyai_error_check(ctx, run->tool_group, err,
+				 "could not create parallel tool group");
+		fy_foreach(tool_call, run->tool_calls) {
+			if (!fyai_tool_call_parallel_eligible(ctx, tool_call))
+				continue;
+			rc = fyai_tool_job_group_add(run->tool_group, tool_call);
+			fyai_error_check(ctx, !rc, err,
+					 "could not add parallel tool call");
+		}
+	}
+	run->group_parallel = true;
+	rc = fyai_turn_run_transition(run, FYAITRS_TOOLS);
+	fyai_error_check(ctx, !rc, err,
+			 "could not advance turn to tool group");
+	if (cfg->stream)
+		rc = fyai_tool_job_group_seal(run->tool_group);
+	else
+		rc = fyai_tool_job_group_submit(run->tool_group);
+	fyai_error_check(ctx, !rc, err,
+			 "could not seal parallel tool group");
+	return 0;
+
+err:
+	fyai_turn_run_drop_tool_group(run);
+	fyai_turn_run_abort_output(run);
+	return -1;
+}
+
+static int
+fyai_turn_run_start_tools(struct fyai_turn_run *run, fy_generic response)
+{
+	size_t parallel_total;
+
+	if (run->ctx->cfg->response_chain)
+		run->previous = run->turn;
+	run->tool_calls = fyai_response_tool_calls(run->ctx, response);
+	parallel_total = fyai_turn_run_parallel_count(run);
+	if (parallel_total)
+		return fyai_turn_run_submit_parallel(run, parallel_total);
+	fyai_turn_run_drop_tool_group(run);
+	return fyai_turn_run_submit_exclusive(run, 0);
+}
+
+static int fyai_turn_run_process_model(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
+	fy_generic response;
+	int rc;
+
+	ctx = run->ctx;
+	cfg = ctx->cfg;
+	response = fyai_turn_run_take_model_response(run);
+	if (fy_generic_is_invalid(response)) {
+		fyai_turn_run_drop_tool_group(run);
+		fyai_turn_run_request_failed(run, response);
+		return 0;
+	}
+	rc = fyai_turn_run_append_response(run, response);
+	if (rc) {
+		fyai_turn_run_drop_tool_group(run);
+		fyai_turn_run_abort_output(run);
+		return -1;
+	}
+	if (fyai_response_is_final(ctx, response)) {
+		fyai_turn_run_drop_tool_group(run);
+		if (!cfg->stream)
+			fyai_print_final_response(ctx, response);
+		fyai_turn_run_finish(run, run->turn, true);
+		return 0;
+	}
+	if (fyai_response_needs_tool_calls(ctx, response))
+		return fyai_turn_run_start_tools(run, response);
+	fyai_turn_run_drop_tool_group(run);
+	run->iteration++;
+	return fyai_turn_run_submit_model(run);
+}
+
+static struct fyai_turn_run *
+fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
+{
+	struct fyai_turn_run *run;
+	int rc;
+
+	run = calloc(1, sizeof(*run));
+	fyai_error_check(ctx, run, err, "out of memory");
+	run->ctx = ctx;
+	run->turn = turn;
+	run->turn_in = turn;
+	run->previous = fy_get(turn, "previous", fy_null);
+	run->tool_calls = fy_null;
+	run->result = fy_invalid;
+	run->state = FYAITRS_NEW;
+	ctx->tool_output_displayed = false;
+	rc = fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not start assistant display output");
+	fyai_interrupt_check(ctx);
+	rc = fyai_turn_run_submit_model(run);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not submit turn");
+	return run;
+
+err_free:
+	free(run);
+err:
+	return NULL;
+}
+
+static void fyai_turn_run_service(struct fyai_turn_run *run)
+{
+	bool progress;
+
+	/*
+	 * Callbacks only raise readiness flags. Consume them here, outside the
+	 * event dispatcher. A transition may complete synchronously, such as an
+	 * in-process read_file tool, so keep advancing until the turn is parked
+	 * on a genuinely asynchronous operation or reaches a terminal state.
+	 */
+	if (!run)
+		return;
+	do {
+		progress = false;
+		if (run->state == FYAITRS_MODEL && run->model_ready) {
+			(void)fyai_turn_run_process_model(run);
+			progress = true;
+		} else if (run->state == FYAITRS_TOOLS && run->tool_ready) {
+			run->tool_ready = false;
+			(void)fyai_turn_run_collect_tools(run);
+			progress = true;
+		}
+	} while (progress && !fyai_turn_run_done(run));
+}
+
+static void fyai_turn_run_cancel(struct fyai_turn_run *run)
+{
+	if (!run || fyai_turn_run_done(run) || run->cancel_requested)
+		return;
+	run->cancel_requested = true;
+	if (run->model_step)
+		fyai_model_step_cancel(run->model_step);
+	if (run->tool_group)
+		fyai_tool_job_group_cancel(run->tool_group);
+}
+
+static fy_generic fyai_turn_run_collect(const struct fyai_turn_run *run)
+{
+	return fyai_turn_run_done(run) ? run->result : fy_invalid;
+}
+
+static void fyai_turn_run_destroy(struct fyai_turn_run *run)
+{
+	if (!run)
+		return;
+	fyai_model_step_destroy(run->model_step);
+	fyai_turn_run_drop_tool_group(run);
+	free(run);
 }
 
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
@@ -1739,6 +2382,191 @@ err_out:
 	goto out;
 }
 
+static int
+fyai_interactive_finish_turn(struct fyai_ctx *ctx,
+			     struct fyai_turn_run **runp)
+{
+	struct fyai_turn_run *run;
+	fy_generic result;
+	int rc;
+
+	run = *runp;
+	result = fyai_turn_run_collect(run);
+	fyai_turn_run_destroy(run);
+	*runp = NULL;
+	fyai_ui_set_busy(ctx, false);
+	result = fyai_report_diag(ctx, result);
+	rc = 0;
+	if (fy_generic_is_valid(result)) {
+		ctx->last_message = result;
+		rc = fyai_publish_state(ctx);
+	}
+	fyai_cleanup_transient_builder(ctx);
+	fyai_ui_diag_drain(ctx, "error");
+	fyai_ui_drain_output(ctx);
+	fyai_session_banner_update(ctx);
+	if (ctx->cfg->markdown && ctx->stdout_tty)
+		fputc('\n', stdout);
+	return rc;
+}
+
+static int
+fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
+			    char *line, struct fyai_turn_run **runp)
+{
+	struct fyai_cfg *cfg;
+	fy_generic turn;
+	int rc;
+
+	cfg = ctx->cfg;
+	if (line[0] == '/' && line[1] != '/') {
+		fyai_ui_history_save(ctx, histfile, line);
+		fyai_echo_user_turn(ctx, line);
+		rc = fyai_session_slash(ctx, line);
+		if (cfg->markdown && ctx->stdout_tty)
+			putchar('\n');
+		fyai_ui_drain_output(ctx);
+		return rc > 0 ? 1 : 0;
+	}
+	if (line[0] == '/' && line[1] == '/')
+		memmove(line, line + 1, strlen(line));
+	fyai_ui_history_save(ctx, histfile, line);
+	fyai_echo_user_turn(ctx, line);
+	fyai_ui_drain_output(ctx);
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not create transient turn storage");
+	turn = fyai_turn_append(ctx, ctx->last_message,
+			fy_sequence(fyai_make_user_message(ctx, line)));
+	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER, line);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), err_cleanup,
+			 "could not append the user turn");
+	*runp = fyai_turn_run_submit(ctx, turn);
+	fyai_error_check(ctx, *runp, err_cleanup,
+			 "could not submit interactive turn");
+	fyai_ui_set_busy(ctx, true);
+	return 0;
+
+err_cleanup:
+	fyai_cleanup_transient_builder(ctx);
+err:
+	return -1;
+}
+
+static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg;
+	struct fyai_event_loop *el;
+	struct fyai_turn_run *run;
+	char *histfile;
+	char *line;
+	bool initial;
+	bool quit;
+	int rc;
+
+	cfg = ctx->cfg;
+	el = fyai_ctx_loop(ctx);
+	run = NULL;
+	histfile = fyai_history_path();
+	line = NULL;
+	initial = cfg->prompt && *cfg->prompt;
+	quit = false;
+	rc = -1;
+	fyai_error_check(ctx, el, out,
+			 "interactive UI requires an event loop");
+	fyai_ui_history_load(ctx, histfile);
+	fyai_interactive_recap(ctx);
+	fyai_ui_drain_output(ctx);
+	fyai_session_banner_update(ctx);
+	if (initial) {
+		run = fyai_turn_run_submit(ctx, ctx->last_message);
+		fyai_error_check(ctx, run, out,
+				 "could not submit initial turn");
+		fyai_ui_set_busy(ctx, true);
+	}
+
+	/*
+	 * Main interactive application pump
+	 * =================================
+	 *
+	 * This is the only event-loop driver in the asynchronous terminal path.
+	 * No model, tool-group, or readline operation below it may call
+	 * run_until() or privately step the loop.
+	 *
+	 *                        +-----------------------------+
+	 *                        |                             |
+	 *                        v                             |
+	 *   UI event -> queue input -> start turn -> service turn
+	 *      ^                                      |       |
+	 *      |                                      |       |
+	 *      +---------- event_loop_step() <--------+       |
+	 *                        |                             |
+	 *                        +-> model/tool callback ------+
+	 *
+	 * Each pass first consumes completion flags left by the preceding event
+	 * dispatch. A completed turn is then published and destroyed. While
+	 * idle, one queued line starts a turn or executes a slash command.
+	 * Otherwise event_loop_step() blocks until input, curl, child, signal,
+	 * resize, or timer activity gives the machine something new to do.
+	 *
+	 * Input received while busy remains in the UI queue. ESC or Ctrl-C sets
+	 * ctx->interrupt_pending; the pump forwards it to the operation currently
+	 * owned by the turn. Quit follows the same cancellation path and leaves
+	 * only after the active turn has reached a terminal state.
+	 */
+	for (;;) {
+		fyai_turn_run_service(run);
+		if (run && fyai_turn_run_done(run)) {
+			rc = fyai_interactive_finish_turn(ctx, &run);
+			fyai_error_check(ctx, !rc, out,
+					 "could not publish completed turn");
+			if (initial) {
+				initial = false;
+				if (fy_generic_is_invalid(ctx->last_message))
+					goto out;
+			}
+		}
+		if (ctx->interrupt_pending && run)
+			fyai_turn_run_cancel(run);
+		if (ctx->terminate_pending || fyai_ui_quit_requested(ctx))
+			quit = true;
+		if (!run && quit)
+			break;
+		if (!run) {
+			line = fyai_ui_take_line(ctx);
+			if (line) {
+				rc = fyai_interactive_start_line(ctx, histfile,
+							 line, &run);
+				free(line);
+				line = NULL;
+				if (rc > 0) {
+					quit = true;
+					continue;
+				}
+				if (rc < 0) {
+					fyai_ui_diag_drain(ctx, "error");
+					continue;
+				}
+				continue;
+			}
+		}
+		rc = fyai_event_loop_step(el, -1);
+		fyai_error_check(ctx, rc >= 0, out,
+				 "interactive event loop failed");
+	}
+	rc = 0;
+out:
+	if (run) {
+		fyai_turn_run_cancel(run);
+		fyai_turn_run_destroy(run);
+		fyai_ui_set_busy(ctx, false);
+		fyai_cleanup_transient_builder(ctx);
+	}
+	free(line);
+	free(histfile);
+	return rc;
+}
+
 int fyai_prompt_interactive(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -1756,6 +2584,8 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		fyai_error(ctx, "could not initialize the interactive terminal UI");
 		goto err_out;
 	}
+	if (fyai_ui_active(ctx) && cfg->async_model_step)
+		return fyai_prompt_interactive_async(ctx);
 
 	if (cfg->prompt && *cfg->prompt) {
 		v = fyai_run_model_loop(ctx, ctx->last_message);

@@ -223,6 +223,10 @@ compatibility wrapper that submits the operation and pumps the context event
 loop until the model step completes. The future turn machine can use the same
 operation without entering a nested pump.
 
+`async_model_step: false` is a temporary compatibility switch. It keeps model
+request construction unchanged but drives streamed or buffered requests
+synchronously within `fyai_run_model_step()`. The default is `true`.
+
 ## Tool job groups
 
 Tool job groups now have the desired lifecycle:
@@ -510,18 +514,22 @@ model-step retry ownership still need to move into the turn machine.
 
 ### 4. Make tool groups self-servicing
 
-Completed at the operation layer. The synchronous caller still needs to be
-replaced by the turn-machine completion callback.
+Completed. Child completion services the FIFO and notifies the turn operation
+when a sealed group is parked.
 
 ### 5. Introduce the turn machine
 
-Move the model/tool iteration state out of `fyai_run_model_loop()`. Keep that
-function as a synchronous compatibility wrapper initially.
+Completed for the interactive path. The heap-owned turn operation advances
+model requests, streamed tool prefetch, parallel groups, exclusive groups,
+retries, cancellation, and final publication without a nested event pump.
+`fyai_run_model_loop()` remains the synchronous batch compatibility path.
 
 ### 6. Convert the interactive frontend
 
-Start turns from UI events and run one application loop until quit. Remove
-`fyai_ui_readline()` and model/tool nested waits from the interactive path.
+Completed for the terminal UI when `async_model_step` is enabled. UI events
+queue input, the application loop starts turns while idle, and model and tool
+callbacks wake the turn operation. The compatibility switch retains the old
+nested path intentionally.
 
 ### 7. Convert MCP lifecycle
 

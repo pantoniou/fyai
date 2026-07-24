@@ -144,6 +144,10 @@ static void stream_state_transition(struct stream_response *stream,
 			stream->state = FYAISS_FAILED;
 		return;
 	}
+	if (stream->ctx->cfg->debug)
+		fyai_debug(stream->ctx, "response stream state %s -> %s",
+			   stream_state_name(stream->state),
+			   stream_state_name(state));
 	stream->state = state;
 }
 

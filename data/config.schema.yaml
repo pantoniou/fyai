@@ -82,6 +82,12 @@ properties:
     description: >-
       Allow independent built-in tool calls returned in one model response to
       execute concurrently.
+  async_model_step:
+    type: boolean
+    default: true
+    description: >-
+      Run model requests through the asynchronous model-step state machine.
+      Disable only as a compatibility fallback.
   temperature:
     type: number
     minimum: 0

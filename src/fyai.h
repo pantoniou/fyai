@@ -138,6 +138,7 @@ struct fyai_cfg {
 	bool thinking;
 	bool cache_info;
 	bool stats;
+	bool async_model_step;
 	bool stream;
 	bool wire_logging;
 	bool stream_logging;
