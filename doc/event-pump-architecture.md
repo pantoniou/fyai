@@ -597,8 +597,29 @@ reconnect of a dropped server.
 
 ### 8. Convert auxiliary blocking paths
 
-Incrementally move OAuth wrappers, external commands, and remaining direct
-`poll()` or `waitpid()` users onto operations.
+Largely a documentation boundary now, not pending work. An audit of every
+remaining `run_until()`/`loop_step()`/`waitpid()` outside the event core places
+each site in one of three permitted classes:
+
+- **Async beneath the pump (done):** model steps, tool groups
+  (`fyai_tool_job_submit`), MCP tool calls (`fyai_mcp_call_submit`, intercepted
+  before any sync path), and in-turn auth refresh (`fyai_auth_refresh_submit`)
+  are all callback-driven. The exclusive in-process tool path only ever runs
+  `ask_user`, which does not nest a pump.
+- **Standalone command/setup adapters (permitted):** the `auth`/`login` verbs
+  (`fyai_auth_refresh`, `auth_login`), `fyai_oauth_flow_wait`, the one-shot
+  `fyai_mcp_refresh` bringup, `fyai_ui_readline` setup, and the auth-only
+  `fyai_curl_perform` are thin sync wrappers over async ops, never reached from
+  the interactive state machine.
+- **Forked-child isolated loops (by design):** `run_shell_command_capture_cb`
+  runs after `fyai_ctx_loop_abandon()`, on the child's own loop; the `waitpid()`
+  sites are forked-child reaps and MCP shutdown force-reaps.
+
+Genuinely open: `fyai_tool_run_forked()` still carries a parent-side
+`run_until` (`fyai_tools.c`), but with the async turn machine both callers make
+`fyai_should_fork_tool()` false (exclusive path sees only `ask_user`/MCP; the
+forked child has `sandbox_applied`), so it appears unreachable - a dead-code
+cleanup to confirm against the sandbox path, not a live nested pump.
 
 ## Verification
 
