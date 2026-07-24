@@ -8,9 +8,12 @@
 
 struct fyai_ctx;
 struct fyai_auth_refresh_request;
+struct fyai_auth_login_request;
 
 typedef void (*fyai_auth_refresh_complete_fn)(
 		struct fyai_auth_refresh_request *request, void *userdata);
+typedef void (*fyai_auth_login_complete_fn)(
+		struct fyai_auth_login_request *request, void *userdata);
 
 enum fyai_auth_mode {
 	FYAI_AUTH_AUTO,
@@ -67,6 +70,14 @@ bool fyai_auth_refresh_done(
 int fyai_auth_refresh_collect(
 		const struct fyai_auth_refresh_request *request);
 void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request);
+struct fyai_auth_login_request *
+fyai_auth_login_submit(struct fyai_ctx *ctx, bool device_code,
+		       bool no_browser, fyai_auth_login_complete_fn complete,
+		       void *userdata);
+void fyai_auth_login_cancel(struct fyai_auth_login_request *request);
+bool fyai_auth_login_done(const struct fyai_auth_login_request *request);
+int fyai_auth_login_collect(const struct fyai_auth_login_request *request);
+void fyai_auth_login_destroy(struct fyai_auth_login_request *request);
 int fyai_auth_apply_headers(struct fyai_ctx *ctx,
 			    struct curl_slist **headers);
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status);

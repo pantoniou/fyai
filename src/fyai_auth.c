@@ -143,9 +143,11 @@ static const char *auth_path(struct fyai_ctx *ctx, const char *name, bool create
 			fy_sprintfa("%s/%s", dir, name));
 }
 
-static int auth_lock(struct fyai_ctx *ctx)
+static int auth_lock_mode(struct fyai_ctx *ctx, bool nonblock)
 {
 	const char *path;
+	int operation;
+	int saved_errno;
 	int fd = -1;
 
 	path = auth_path(ctx, "auth.lock", true);
@@ -156,8 +158,17 @@ static int auth_lock(struct fyai_ctx *ctx)
 	if (fd < 0)
 		goto err_out;
 
-	if (flock(fd, LOCK_EX))
+	operation = LOCK_EX | (nonblock ? LOCK_NB : 0);
+	if (flock(fd, operation)) {
+		saved_errno = errno;
+		close(fd);
+		if (nonblock &&
+		    (saved_errno == EWOULDBLOCK || saved_errno == EAGAIN))
+			return -2;
+		errno = saved_errno;
+		fd = -1;
 		goto err_out;
+	}
 
 	return fd;
 
@@ -165,6 +176,16 @@ err_out:
 	if (fd >= 0)
 		close(fd);
 	return -1;
+}
+
+static int auth_lock(struct fyai_ctx *ctx)
+{
+	return auth_lock_mode(ctx, false);
+}
+
+static int auth_lock_try(struct fyai_ctx *ctx)
+{
+	return auth_lock_mode(ctx, true);
 }
 
 static void auth_unlock(struct fyai_ctx *ctx, int fd)
@@ -914,246 +935,808 @@ err_out:
 	goto out;
 }
 
-static int browser_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
-			 bool no_browser, bool manual)
+static int manual_browser_login(struct fyai_ctx *ctx,
+				struct fyai_credentials *c)
 {
-	static const unsigned short ports[] = { AUTH_PORT, AUTH_FALLBACK_PORT };
-	struct fyai_oauth_params params = {
-		.path		= AUTH_CALLBACK_PATH,
-		.ports		= ports,
-		.nports		= ARRAY_SIZE(ports),
-		.timeout_ms	= AUTH_CALLBACK_TIMEOUT_MS,
-	};
-	struct fyai_oauth_flow *flow = NULL;
-	struct fyai_event_loop *el = NULL;
 	struct fyai_oauth_pkce pkce;
 	const char *redirect, *url;
-	unsigned short port;
 	int rc = -1;
 
 	rc = fyai_oauth_pkce_generate(&pkce);
 	if (rc)
 		return -1;
-
-	params.state = pkce.state;
-
-	/* Arm the receiver before the URL is built. */
-	if (manual) {
-		port = AUTH_PORT;
-	} else {
-		el = fyai_ctx_loop(ctx);
-		if (!el)
-			goto err_out;
-		rc = fyai_oauth_flow_start(ctx, el, &params, NULL, NULL, &flow);
-		if (rc)
-			goto err_out;
-		port = fyai_oauth_flow_port(flow);
-	}
-
-	redirect = fy_sprintfa("http://localhost:%u" AUTH_CALLBACK_PATH, port);
+	redirect = fy_sprintfa("http://localhost:%u" AUTH_CALLBACK_PATH,
+			       AUTH_PORT);
 	url = fy_sprintfa(
 		AUTH_ISSUER "/oauth/authorize?response_type=code&client_id=" CODEX_OAUTH_CLIENT_ID
 		"&redirect_uri=http%%3A%%2F%%2Flocalhost%%3A%u%%2Fauth%%2Fcallback"
 		"&scope=%s"
 		"&code_challenge=%s&code_challenge_method=S256&id_token_add_organizations=true"
 		"&codex_cli_simplified_flow=true&state=%s&originator=fyai",
-		port, CODEX_OAUTH_SCOPE_URL, pkce.challenge, pkce.state);
+		AUTH_PORT, CODEX_OAUTH_SCOPE_URL, pkce.challenge, pkce.state);
 
 	printf("Open this URL to sign in:\n%s\n", url);
 	fflush(stdout);
-
-	if (!no_browser && !manual)
-		fyai_oauth_open_browser(url);
-
-	if (manual) {
-		rc = manual_login(ctx, c, redirect, pkce.verifier, pkce.state);
-		goto out;
-	}
-
-	rc = fyai_oauth_flow_wait(ctx, flow);
-	if (rc)
-		goto err_out;
-
-	rc = exchange_code(ctx, c, fyai_oauth_flow_code(flow), redirect,
-			   pkce.verifier);
-
-	/* Report the exchange's verdict on the browser's own connection - a
-	 * token exchange that failed after a valid redirect still owes the
-	 * user a page that says so. */
-	fyai_oauth_flow_finish(flow, rc == 0);
-	if (rc)
-		goto err_out;
-
-	rc = 0;
-out:
-	fyai_oauth_flow_destroy(flow);
+	rc = manual_login(ctx, c, redirect, pkce.verifier, pkce.state);
 	fyai_oauth_pkce_cleanup(&pkce);
 	return rc;
-
-err_out:
-	rc = -1;
-	goto out;
 }
 
-static int device_login(struct fyai_ctx *ctx, struct fyai_credentials *c)
-{
-	struct auth_http r = {};
-	struct fyai_event_loop *el = NULL;
+/*
+ * Asynchronous login state machine
+ * ================================
+ *
+ * Browser authorization:
+ *
+ *                    loopback redirect       token HTTP completion
+ *   NEW ----------> BROWSER_WAIT ----------> TOKEN_EXCHANGE ----------> DONE
+ *          listen                    submit                     parse + save
+ *
+ * Device authorization:
+ *
+ *                  user-code HTTP completion
+ *   NEW ----------> DEVICE_CODE ----------------------> DEVICE_WAIT
+ *          submit                        print code + arm timer
+ *                                                           |
+ *                                                timer fires |
+ *                                                           v
+ *                 authorization pending              DEVICE_POLL
+ *              +--------------------------------------------+
+ *              |                    token HTTP completion
+ *              +---- DEVICE_WAIT <---------------------------+
+ *                                                           |
+ *                                      authorization granted |
+ *                                                           v
+ *                                                  TOKEN_EXCHANGE
+ *                                                           |
+ *                                      token HTTP completion |
+ *                                                           v
+ *                                               CREDENTIAL_WAIT
+ *                                           lock busy |     |
+ *                                           timer ----+     | lock + save
+ *                                                         v
+ *                                                        DONE
+ *
+ * Any non-final state may transition to CANCELLED or FAILED. Curl completion
+ * callbacks, the loopback receiver, and the device timer only advance state;
+ * none of them waits for another phase. The synchronous command wrapper merely
+ * pumps the context-owned event loop until this operation becomes final.
+ */
+enum fyai_auth_login_state {
+	FYAILS_NEW,
+	FYAILS_BROWSER_WAIT,
+	FYAILS_DEVICE_CODE,
+	FYAILS_DEVICE_WAIT,
+	FYAILS_DEVICE_POLL,
+	FYAILS_TOKEN_EXCHANGE,
+	FYAILS_CREDENTIAL_WAIT,
+	FYAILS_COMPLETED,
+	FYAILS_CANCELLED,
+	FYAILS_FAILED,
+};
+
+struct fyai_auth_login_request {
+	struct fyai_ctx *ctx;
+	struct fyai_oauth_flow *flow;
+	struct fyai_oauth_pkce pkce;
+	struct fyai_curl_transfer *transfer;
+	struct fyai_event_source *timer_src;
+	fyai_auth_login_complete_fn complete;
+	void *userdata;
+	CURL *curl;
+	struct curl_slist *headers;
+	struct auth_http response;
+	struct fyai_credentials credentials;
+	char *body;
+	char *device_body;
+	char *redirect;
+	char *device_id;
+	char *user_code;
+	char *code;
+	char *verifier;
 	fyai_event_ms_t deadline_ms;
-	fy_generic doc;
-	const char *device_id, *user_code, *body;
-	int interval = 5, rc = -1;
-	const char *code, *verifier;
-	struct curl_slist *json_headers = NULL;
-	const char *request_json;
-	bool req_ok;
+	int interval;
+	int result;
+	enum fyai_auth_login_state state;
+	bool cancel_requested;
+};
 
-	request_json = emit_json_string(ctx->transient_gb,
-			fy_mapping(
-				"client_id", CODEX_OAUTH_CLIENT_ID));
+static bool
+fyai_auth_login_state_final(enum fyai_auth_login_state state)
+{
+	return state == FYAILS_COMPLETED ||
+	       state == FYAILS_CANCELLED ||
+	       state == FYAILS_FAILED;
+}
 
-	json_headers = curl_slist_append(json_headers, "Content-Type: application/json");
-	if (!json_headers)
-		goto out;
-
-	rc = auth_http_request(ctx,
-		AUTH_ISSUER "/api/accounts/deviceauth/usercode",
-		request_json, json_headers, &r);
-	fyai_error_check(ctx, !rc, err_out, "device code request failed");
-	fyai_error_check(ctx, r.status / 100 == 2, err_out,
-			 "device code request failed (HTTP %ld)", r.status);
-
-	doc = parse_json_string(ctx->transient_gb, r.data);
-
-	free(r.data);
-	memset(&r, 0, sizeof(r));
-
-	device_id = fy_get(doc, "device_auth_id", "");
-	user_code = fy_get(doc, "user_code", "");
-	interval = atoi(fy_get(doc, "interval", "5"));
-	if (interval < 1)
-		interval = 5;
-	fyai_error_check(ctx, *device_id && *user_code, err_out,
-			 "device code response is missing the code");
-
-	printf("Open https://auth.openai.com/codex/device and enter code %s\n", user_code);
-	fflush(stdout);
-
-	body = emit_json_string(ctx->transient_gb,
-			fy_mapping(
-				"device_auth_id", device_id,
-				"user_code", user_code));
-
-	el = fyai_ctx_loop(ctx);
-	fyai_error_check(ctx, el, err_out, "could not create the poll loop");
-
-	/* Poll against a real deadline. */
-	deadline_ms = fyai_event_now_ms() + AUTH_DEVICE_TIMEOUT_MS;
-
-	req_ok = false;
-	while (!req_ok) {
-
-		rc = fyai_event_sleep(el, interval * 1000);
-		fyai_error_check(ctx, !rc, err_out, "device poll wait failed");
-
-		if (fyai_event_now_ms() >= deadline_ms)
-			break;
-
-		rc = auth_http_request(ctx,
-				      AUTH_ISSUER "/api/accounts/deviceauth/token",
-				      body, json_headers, &r);
-		fyai_error_check(ctx, !rc, err_out, "device token request failed");
-		if (r.status == 403 || r.status == 404) {
-			/* retry */
-			free(r.data);
-			memset(&r, 0, sizeof(r));
-			continue;
-		}
-
-		fyai_error_check(ctx, r.status / 100 == 2, err_out,
-				 "device token request failed (HTTP %ld)",
-				 r.status);
-
-		req_ok = true;
+static const char *
+fyai_auth_login_state_name(enum fyai_auth_login_state state)
+{
+	switch (state) {
+	case FYAILS_NEW:
+		return "new";
+	case FYAILS_BROWSER_WAIT:
+		return "browser-wait";
+	case FYAILS_DEVICE_CODE:
+		return "device-code";
+	case FYAILS_DEVICE_WAIT:
+		return "device-wait";
+	case FYAILS_DEVICE_POLL:
+		return "device-poll";
+	case FYAILS_TOKEN_EXCHANGE:
+		return "token-exchange";
+	case FYAILS_CREDENTIAL_WAIT:
+		return "credential-wait";
+	case FYAILS_COMPLETED:
+		return "completed";
+	case FYAILS_CANCELLED:
+		return "cancelled";
+	case FYAILS_FAILED:
+		return "failed";
 	}
+	return "unknown";
+}
 
-	fyai_error_check(ctx, req_ok, err_out,
-			 "timed out waiting for the code to be entered (%d seconds)",
-			 AUTH_DEVICE_TIMEOUT_MS / 1000);
+static bool
+fyai_auth_login_transition_valid(enum fyai_auth_login_state from,
+				 enum fyai_auth_login_state to)
+{
+	if (to == FYAILS_CANCELLED || to == FYAILS_FAILED)
+		return !fyai_auth_login_state_final(from);
+	switch (from) {
+	case FYAILS_NEW:
+		return to == FYAILS_BROWSER_WAIT ||
+		       to == FYAILS_DEVICE_CODE;
+	case FYAILS_BROWSER_WAIT:
+		return to == FYAILS_TOKEN_EXCHANGE;
+	case FYAILS_DEVICE_CODE:
+		return to == FYAILS_DEVICE_WAIT;
+	case FYAILS_DEVICE_WAIT:
+		return to == FYAILS_DEVICE_POLL;
+	case FYAILS_DEVICE_POLL:
+		return to == FYAILS_DEVICE_WAIT ||
+		       to == FYAILS_TOKEN_EXCHANGE;
+	case FYAILS_TOKEN_EXCHANGE:
+		return to == FYAILS_CREDENTIAL_WAIT ||
+		       to == FYAILS_COMPLETED;
+	case FYAILS_CREDENTIAL_WAIT:
+		return to == FYAILS_COMPLETED;
+	case FYAILS_COMPLETED:
+	case FYAILS_CANCELLED:
+	case FYAILS_FAILED:
+		return false;
+	}
+	return false;
+}
 
-	doc = parse_json_string(ctx->transient_gb, r.data);
-	free(r.data);
-	memset(&r, 0, sizeof(r));
+static int
+fyai_auth_login_transition(struct fyai_auth_login_request *request,
+			   enum fyai_auth_login_state state)
+{
+	if (!fyai_auth_login_transition_valid(request->state, state)) {
+		fyai_error(request->ctx,
+			   "invalid auth login transition %s -> %s",
+			   fyai_auth_login_state_name(request->state),
+			   fyai_auth_login_state_name(state));
+		return -1;
+	}
+	if (request->ctx->cfg->debug)
+		fyai_debug(request->ctx, "auth login state %s -> %s",
+			   fyai_auth_login_state_name(request->state),
+			   fyai_auth_login_state_name(state));
+	request->state = state;
+	return 0;
+}
 
-	code = fy_get(doc, "authorization_code", "");
-	verifier = fy_get(doc, "code_verifier", "");
+static void
+fyai_auth_login_http_cleanup(struct fyai_auth_login_request *request)
+{
+	curl_easy_cleanup(request->curl);
+	request->curl = NULL;
+	curl_slist_free_all(request->headers);
+	request->headers = NULL;
+	free(request->response.data);
+	memset(&request->response, 0, sizeof(request->response));
+	free(request->body);
+	request->body = NULL;
+}
 
-	fyai_error_check(ctx, *code && *verifier, err_out,
-			 "device token response is missing the code");
+static void
+fyai_auth_login_finish(struct fyai_auth_login_request *request,
+		       enum fyai_auth_login_state state, int result)
+{
+	int rc;
 
-	rc = exchange_code(ctx, c, code, AUTH_ISSUER "/deviceauth/callback", verifier);
-	fyai_error_check(ctx, !rc, err_out, "could not exchange the device code");
+	if (fyai_auth_login_state_final(request->state))
+		return;
+	if (request->flow)
+		fyai_oauth_flow_finish(request->flow, !result);
+	fyai_oauth_flow_destroy(request->flow);
+	request->flow = NULL;
+	fyai_event_source_remove(request->timer_src);
+	request->timer_src = NULL;
+	rc = fyai_auth_login_transition(request, state);
+	if (rc)
+		request->state = FYAILS_FAILED;
+	request->result = result;
+	if (request->complete)
+		request->complete(request, request->userdata);
+}
 
-	rc = 0;
-out:
-	free(r.data);
-	curl_slist_free_all(json_headers);
+static int
+fyai_auth_login_http_submit(struct fyai_auth_login_request *request,
+			    const char *url, const char *body,
+			    const char *content_type);
 
-	return rc;
+static int
+fyai_auth_login_exchange_submit(struct fyai_auth_login_request *request)
+{
+	char *encoded_code;
+	char *encoded_redirect;
+	char *encoded_verifier;
+	int rc;
+
+	encoded_code = NULL;
+	encoded_redirect = NULL;
+	encoded_verifier = NULL;
+	request->curl = curl_easy_init();
+	fyai_error_check(request->ctx, request->curl, err_out,
+			 "could not create token exchange transfer");
+	encoded_code = curl_easy_escape(request->curl, request->code, 0);
+	encoded_redirect = curl_easy_escape(request->curl,
+					    request->redirect, 0);
+	encoded_verifier = curl_easy_escape(request->curl,
+					    request->verifier, 0);
+	fyai_error_check(request->ctx, encoded_code && encoded_redirect &&
+			 encoded_verifier, err_out,
+			 "could not encode token exchange request");
+	rc = asprintf(&request->body,
+		      "grant_type=authorization_code&code=%s&"
+		      "redirect_uri=%s&client_id=%s&code_verifier=%s",
+		      encoded_code, encoded_redirect, CODEX_OAUTH_CLIENT_ID,
+		      encoded_verifier);
+	fyai_error_check(request->ctx, rc >= 0, err_out,
+			 "could not build token exchange request");
+	request->headers = curl_slist_append(request->headers,
+		"Content-Type: application/x-www-form-urlencoded");
+	fyai_error_check(request->ctx, request->headers, err_out,
+			 "could not build token exchange headers");
+	curl_free(encoded_code);
+	curl_free(encoded_redirect);
+	curl_free(encoded_verifier);
+	encoded_code = encoded_redirect = encoded_verifier = NULL;
+	curl_easy_setopt(request->curl, CURLOPT_URL,
+			 AUTH_ISSUER "/oauth/token");
+	curl_easy_setopt(request->curl, CURLOPT_WRITEFUNCTION, auth_write);
+	curl_easy_setopt(request->curl, CURLOPT_WRITEDATA,
+			 &request->response);
+	curl_easy_setopt(request->curl, CURLOPT_TIMEOUT, 120L);
+	curl_easy_setopt(request->curl, CURLOPT_USERAGENT, "fyai/" VERSION);
+	curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
+	curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER,
+			 request->headers);
+	return 0;
 
 err_out:
-	rc = -1;
-	goto out;
+	curl_free(encoded_code);
+	curl_free(encoded_redirect);
+	curl_free(encoded_verifier);
+	return -1;
 }
 
-static int refresh_locked(struct fyai_ctx *ctx, struct fyai_credentials *c)
+static void fyai_auth_login_http_complete(
+		struct fyai_curl_transfer *transfer, void *userdata);
+
+static int
+fyai_auth_login_transfer_submit(struct fyai_auth_login_request *request)
 {
-	CURL *curl = ctx->curl;
-	struct auth_http r;
-	struct curl_slist *h = NULL;
-	char *ert = NULL;
-	const char *body;
-	int rc = -1;
-
-	memset(&r, 0, sizeof(r));
-
-	if (!curl || !c->refresh_token)
-		goto out;
-
-	ert = curl_easy_escape(curl, c->refresh_token, 0);
-	if (!ert)
-		goto out;
-
-	body = fy_sprintfa("grant_type=refresh_token&refresh_token=%s&client_id=%s",
-		ert, CODEX_OAUTH_CLIENT_ID);
-
-	h = curl_slist_append(h, "Content-Type: application/x-www-form-urlencoded");
-	if (!h)
-		goto out;
-
-	rc = auth_http_request(ctx, AUTH_ISSUER "/oauth/token", body, h, &r);
-	if (rc)
-		goto out;
-
-	if (r.status / 100 != 2) {
-		fyai_error(ctx, "refresh failed (HTTP %ld); run `fyai auth login`",
-			   r.status);
-		goto out;
-	}
-
-	rc = parse_tokens(ctx, c, r.data);
-	fyai_error_check(ctx, !rc, out, "failed to parse tokens");
-
-	rc = 0;
-out:
-	free(r.data);
-	curl_free(ert);
-	curl_slist_free_all(h);
-	return rc;
+	request->transfer = fyai_curl_submit(request->ctx, request->curl,
+					     fyai_auth_login_http_complete,
+					     request);
+	return request->transfer ? 0 : -1;
 }
 
+static int
+fyai_auth_login_exchange_start(struct fyai_auth_login_request *request)
+{
+	int rc;
+
+	fyai_auth_login_http_cleanup(request);
+	rc = fyai_auth_login_transition(request, FYAILS_TOKEN_EXCHANGE);
+	fyai_error_check(request->ctx, !rc, err_out,
+			 "could not enter token exchange state");
+	rc = fyai_auth_login_exchange_submit(request);
+	fyai_error_check(request->ctx, !rc, err_out,
+			 "could not prepare token exchange");
+	rc = fyai_auth_login_transfer_submit(request);
+	fyai_error_check(request->ctx, !rc, err_out,
+			 "could not submit token exchange");
+	return 0;
+
+err_out:
+	return -1;
+}
+
+static void
+fyai_auth_login_browser_ready(struct fyai_oauth_flow *flow, void *userdata)
+{
+	struct fyai_auth_login_request *request;
+	enum fyai_oauth_state state;
+	int rc;
+
+	request = userdata;
+	state = fyai_oauth_flow_state(flow);
+	if (request->cancel_requested) {
+		fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
+		return;
+	}
+	if (state != FYAI_OAUTH_GOT_CODE) {
+		fyai_error(request->ctx, "OAuth redirect ended in state %s",
+			   fyai_oauth_state_string(state));
+		fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+		return;
+	}
+	request->code = strdup(fyai_oauth_flow_code(flow));
+	request->verifier = strdup(request->pkce.verifier);
+	if (!request->code || !request->verifier) {
+		fyai_error(request->ctx, "out of memory");
+		fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+		return;
+	}
+	rc = fyai_auth_login_exchange_start(request);
+	if (rc)
+		fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+}
+
+static enum fyai_event_action
+fyai_auth_login_device_timer(const struct fyai_event *ev)
+{
+	struct fyai_auth_login_request *request;
+	int rc;
+
+	request = ev->userdata;
+	request->timer_src = NULL;
+	if (request->cancel_requested) {
+		fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
+		return FYAIEA_CONTINUE;
+	}
+	if (fyai_event_now_ms() >= request->deadline_ms) {
+		fyai_error(request->ctx,
+			   "timed out waiting for the device code");
+		fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+		return FYAIEA_CONTINUE;
+	}
+	rc = fyai_auth_login_transition(request, FYAILS_DEVICE_POLL);
+	if (!rc)
+		rc = fyai_auth_login_http_submit(request,
+			AUTH_ISSUER "/api/accounts/deviceauth/token",
+			request->device_body, "application/json");
+	if (rc)
+		fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+	return FYAIEA_CONTINUE;
+}
+
+static int
+fyai_auth_login_device_wait(struct fyai_auth_login_request *request)
+{
+	struct fyai_event_loop *el;
+	int rc;
+
+	fyai_auth_login_http_cleanup(request);
+	rc = fyai_auth_login_transition(request, FYAILS_DEVICE_WAIT);
+	fyai_error_check(request->ctx, !rc, err_out,
+			 "could not enter device wait state");
+	el = fyai_ctx_loop(request->ctx);
+	fyai_error_check(request->ctx, el, err_out,
+			 "could not acquire the application event loop");
+	rc = fyai_event_add_timer(el, request->interval * 1000, 0,
+				  fyai_auth_login_device_timer, request,
+				  &request->timer_src);
+	fyai_error_check(request->ctx, !rc, err_out,
+			 "could not arm device polling timer");
+	return 0;
+
+err_out:
+	return -1;
+}
+
+static int
+fyai_auth_login_device_code_done(struct fyai_auth_login_request *request)
+{
+	struct fyai_ctx *ctx;
+	fy_generic doc;
+	const char *body;
+	int interval;
+
+	ctx = request->ctx;
+	doc = parse_json_string(ctx->transient_gb, request->response.data);
+	request->device_id = strdup(fy_get(doc, "device_auth_id", ""));
+	request->user_code = strdup(fy_get(doc, "user_code", ""));
+	interval = atoi(fy_get(doc, "interval", "5"));
+	request->interval = interval > 0 ? interval : 5;
+	fyai_error_check(ctx, request->device_id && *request->device_id &&
+			 request->user_code && *request->user_code, err_out,
+			 "device code response is missing the code");
+	printf("Open https://auth.openai.com/codex/device and enter code %s\n",
+	       request->user_code);
+	fflush(stdout);
+	body = emit_json_string(ctx->transient_gb, fy_mapping(
+		"device_auth_id", request->device_id,
+		"user_code", request->user_code));
+	fyai_error_check(ctx, body, err_out,
+			 "could not encode device polling request");
+	free(request->device_body);
+	request->device_body = strdup(body);
+	fyai_error_check(ctx, request->device_body, err_out,
+			 "out of memory");
+	request->deadline_ms = fyai_event_now_ms() +
+		AUTH_DEVICE_TIMEOUT_MS;
+	return fyai_auth_login_device_wait(request);
+
+err_out:
+	return -1;
+}
+
+static int
+fyai_auth_login_device_poll_done(struct fyai_auth_login_request *request)
+{
+	struct fyai_ctx *ctx;
+	fy_generic doc;
+
+	ctx = request->ctx;
+	doc = parse_json_string(ctx->transient_gb, request->response.data);
+	request->code = strdup(fy_get(doc, "authorization_code", ""));
+	request->verifier = strdup(fy_get(doc, "code_verifier", ""));
+	fyai_error_check(ctx, request->code && *request->code &&
+			 request->verifier && *request->verifier, err_out,
+			 "device token response is missing the code");
+	free(request->redirect);
+	request->redirect = strdup(AUTH_ISSUER "/deviceauth/callback");
+	fyai_error_check(ctx, request->redirect, err_out, "out of memory");
+	return fyai_auth_login_exchange_start(request);
+
+err_out:
+	return -1;
+}
+
+static enum fyai_event_action
+fyai_auth_login_credential_timer(const struct fyai_event *ev);
+
+static int
+fyai_auth_login_save(struct fyai_auth_login_request *request)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_event_loop *el;
+	int lockfd;
+	int rc;
+
+	ctx = request->ctx;
+	if (!request->credentials.access_token) {
+		rc = parse_tokens(ctx, &request->credentials,
+				  request->response.data);
+		fyai_error_check(ctx, !rc, err_out,
+				 "failed to parse login tokens");
+	}
+	lockfd = auth_lock_try(ctx);
+	if (lockfd == -2) {
+		if (request->state == FYAILS_TOKEN_EXCHANGE) {
+			rc = fyai_auth_login_transition(request,
+					FYAILS_CREDENTIAL_WAIT);
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not wait for credential lock");
+		}
+		el = fyai_ctx_loop(ctx);
+		fyai_error_check(ctx, el, err_out,
+				 "could not acquire the application event loop");
+		rc = fyai_event_add_timer(el, 50, 0,
+				fyai_auth_login_credential_timer, request,
+				&request->timer_src);
+		fyai_error_check(ctx, !rc, err_out,
+				 "could not retry the credential lock");
+		return 1;
+	}
+	fyai_error_check(ctx, lockfd >= 0, err_out,
+			 "cannot lock credential store");
+	rc = auth_save(ctx, &request->credentials);
+	auth_unlock(ctx, lockfd);
+	fyai_error_check(ctx, !rc, err_out,
+			 "cannot save authentication state");
+	printf("auth: logged in as %s (%s)\n",
+		request->credentials.email &&
+		*request->credentials.email ?
+			request->credentials.email : "unknown",
+		request->credentials.plan ?
+			request->credentials.plan : "unknown");
+	return 0;
+
+err_out:
+	return -1;
+}
+
+static enum fyai_event_action
+fyai_auth_login_credential_timer(const struct fyai_event *ev)
+{
+	struct fyai_auth_login_request *request;
+	int rc;
+
+	request = ev->userdata;
+	request->timer_src = NULL;
+	if (request->cancel_requested) {
+		fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
+		return FYAIEA_CONTINUE;
+	}
+	rc = fyai_auth_login_save(request);
+	if (!rc)
+		fyai_auth_login_finish(request, FYAILS_COMPLETED, 0);
+	else if (rc < 0)
+		fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+	return FYAIEA_CONTINUE;
+}
+
+static void fyai_auth_login_http_complete(
+		struct fyai_curl_transfer *transfer, void *userdata)
+{
+	struct fyai_auth_login_request *request;
+	CURLcode code;
+	long status;
+	int rc;
+
+	request = userdata;
+	status = 0;
+	code = fyai_curl_collect(transfer);
+	fyai_curl_transfer_destroy(transfer);
+	request->transfer = NULL;
+	if (request->cancel_requested ||
+	    code == CURLE_ABORTED_BY_CALLBACK) {
+		fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
+		return;
+	}
+	fyai_error_check(request->ctx, code == CURLE_OK, failed,
+			 "authentication request failed: %s",
+			 curl_easy_strerror(code));
+	curl_easy_getinfo(request->curl, CURLINFO_RESPONSE_CODE, &status);
+	request->response.status = status;
+	if (request->state == FYAILS_DEVICE_POLL &&
+	    (status == 403 || status == 404)) {
+		rc = fyai_auth_login_device_wait(request);
+		if (rc)
+			goto failed;
+		return;
+	}
+	fyai_error_check(request->ctx, status / 100 == 2, failed,
+			 "authentication request failed (HTTP %ld)", status);
+	switch (request->state) {
+	case FYAILS_DEVICE_CODE:
+		rc = fyai_auth_login_device_code_done(request);
+		break;
+	case FYAILS_DEVICE_POLL:
+		rc = fyai_auth_login_device_poll_done(request);
+		break;
+	case FYAILS_TOKEN_EXCHANGE:
+		rc = fyai_auth_login_save(request);
+		if (!rc)
+			fyai_auth_login_finish(request, FYAILS_COMPLETED, 0);
+		else if (rc > 0)
+			return;
+		break;
+	case FYAILS_NEW:
+	case FYAILS_BROWSER_WAIT:
+	case FYAILS_DEVICE_WAIT:
+	case FYAILS_CREDENTIAL_WAIT:
+	case FYAILS_COMPLETED:
+	case FYAILS_CANCELLED:
+	case FYAILS_FAILED:
+		rc = -1;
+		break;
+	}
+	if (rc)
+		goto failed;
+	return;
+
+failed:
+	fyai_auth_login_finish(request, FYAILS_FAILED, -1);
+}
+
+static int
+fyai_auth_login_http_submit(struct fyai_auth_login_request *request,
+			    const char *url, const char *body,
+			    const char *content_type)
+{
+	char *body_copy;
+	char *header;
+	int rc;
+
+	body_copy = NULL;
+	header = NULL;
+	body_copy = body ? strdup(body) : NULL;
+	fyai_error_check(request->ctx, !body || body_copy, err_out,
+			 "out of memory");
+	fyai_auth_login_http_cleanup(request);
+	request->curl = curl_easy_init();
+	fyai_error_check(request->ctx, request->curl, err_out,
+			 "could not create authentication transfer");
+	request->body = body_copy;
+	body_copy = NULL;
+	rc = asprintf(&header, "Content-Type: %s", content_type);
+	fyai_error_check(request->ctx, rc >= 0, err_out,
+			 "could not build authentication headers");
+	request->headers = curl_slist_append(request->headers, header);
+	free(header);
+	header = NULL;
+	fyai_error_check(request->ctx, request->headers, err_out,
+			 "could not build authentication headers");
+	curl_easy_setopt(request->curl, CURLOPT_URL, url);
+	curl_easy_setopt(request->curl, CURLOPT_WRITEFUNCTION, auth_write);
+	curl_easy_setopt(request->curl, CURLOPT_WRITEDATA,
+			 &request->response);
+	curl_easy_setopt(request->curl, CURLOPT_TIMEOUT, 120L);
+	curl_easy_setopt(request->curl, CURLOPT_USERAGENT, "fyai/" VERSION);
+	curl_easy_setopt(request->curl, CURLOPT_POSTFIELDS, request->body);
+	curl_easy_setopt(request->curl, CURLOPT_HTTPHEADER,
+			 request->headers);
+	rc = fyai_auth_login_transfer_submit(request);
+	fyai_error_check(request->ctx, !rc, err_out,
+			 "could not submit authentication request");
+	return 0;
+
+err_out:
+	free(body_copy);
+	free(header);
+	return -1;
+}
+
+struct fyai_auth_login_request *
+fyai_auth_login_submit(struct fyai_ctx *ctx, bool device_code,
+		       bool no_browser, fyai_auth_login_complete_fn complete,
+		       void *userdata)
+{
+	static const unsigned short ports[] = {
+		AUTH_PORT, AUTH_FALLBACK_PORT,
+	};
+	struct fyai_oauth_params params;
+	struct fyai_auth_login_request *request;
+	struct fyai_event_loop *el;
+	const char *request_body;
+	char *url;
+	unsigned short port;
+	int rc;
+
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_out, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->result = -1;
+	request->state = FYAILS_NEW;
+	if (device_code) {
+		rc = fyai_auth_login_transition(request,
+						FYAILS_DEVICE_CODE);
+		fyai_error_check(ctx, !rc, err_free,
+				 "could not enter device login state");
+		request_body = emit_json_string(ctx->transient_gb,
+			fy_mapping("client_id", CODEX_OAUTH_CLIENT_ID));
+		fyai_error_check(ctx, request_body, err_free,
+				 "could not encode device login request");
+		rc = fyai_auth_login_http_submit(request,
+			AUTH_ISSUER "/api/accounts/deviceauth/usercode",
+			request_body, "application/json");
+		fyai_error_check(ctx, !rc, err_free,
+				 "could not submit device login request");
+		return request;
+	}
+	rc = fyai_oauth_pkce_generate(&request->pkce);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not generate OAuth PKCE parameters");
+	memset(&params, 0, sizeof(params));
+	params.path = AUTH_CALLBACK_PATH;
+	params.ports = ports;
+	params.nports = ARRAY_SIZE(ports);
+	params.state = request->pkce.state;
+	params.timeout_ms = AUTH_CALLBACK_TIMEOUT_MS;
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err_free,
+			 "could not acquire the application event loop");
+	rc = fyai_oauth_flow_start(ctx, el, &params,
+				   fyai_auth_login_browser_ready, request,
+				   &request->flow);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not start the OAuth callback receiver");
+	rc = fyai_auth_login_transition(request, FYAILS_BROWSER_WAIT);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not enter browser login state");
+	port = fyai_oauth_flow_port(request->flow);
+	rc = asprintf(&request->redirect,
+		      "http://localhost:%u" AUTH_CALLBACK_PATH, port);
+	fyai_error_check(ctx, rc >= 0, err_free,
+			 "could not build OAuth redirect URI");
+	rc = asprintf(&url,
+		AUTH_ISSUER "/oauth/authorize?response_type=code&"
+		"client_id=" CODEX_OAUTH_CLIENT_ID
+		"&redirect_uri=http%%3A%%2F%%2Flocalhost%%3A%u%%2Fauth%%"
+		"2Fcallback&scope=%s&code_challenge=%s&"
+		"code_challenge_method=S256&"
+		"id_token_add_organizations=true&"
+		"codex_cli_simplified_flow=true&state=%s&originator=fyai",
+		port, CODEX_OAUTH_SCOPE_URL, request->pkce.challenge,
+		request->pkce.state);
+	fyai_error_check(ctx, rc >= 0, err_free,
+			 "could not build OAuth authorization URL");
+	printf("Open this URL to sign in:\n%s\n", url);
+	fflush(stdout);
+	if (!no_browser)
+		fyai_oauth_open_browser(url);
+	free(url);
+	return request;
+
+err_free:
+	fyai_auth_login_destroy(request);
+err_out:
+	return NULL;
+}
+
+void fyai_auth_login_cancel(struct fyai_auth_login_request *request)
+{
+	if (!request || fyai_auth_login_state_final(request->state))
+		return;
+	request->cancel_requested = true;
+	if (request->transfer) {
+		fyai_curl_cancel(request->transfer);
+		return;
+	}
+	fyai_auth_login_finish(request, FYAILS_CANCELLED, -1);
+}
+
+bool fyai_auth_login_done(const struct fyai_auth_login_request *request)
+{
+	return request && fyai_auth_login_state_final(request->state);
+}
+
+int fyai_auth_login_collect(const struct fyai_auth_login_request *request)
+{
+	return fyai_auth_login_done(request) ? request->result : -1;
+}
+
+void fyai_auth_login_destroy(struct fyai_auth_login_request *request)
+{
+	if (!request)
+		return;
+	if (request->transfer)
+		fyai_curl_transfer_destroy(request->transfer);
+	fyai_event_source_remove(request->timer_src);
+	fyai_oauth_flow_destroy(request->flow);
+	fyai_oauth_pkce_cleanup(&request->pkce);
+	fyai_auth_login_http_cleanup(request);
+	credentials_clear(&request->credentials);
+	free(request->device_body);
+	free(request->redirect);
+	free(request->device_id);
+	free(request->user_code);
+	free(request->code);
+	free(request->verifier);
+	free(request);
+}
+
+/*
+ * Refresh state machine
+ * =====================
+ *
+ *                         lock available
+ *   NEW ----------------------------------------------+
+ *    |                                                |
+ *    | lock busy                                      v
+ *    +----> WAIT_LOCK -- timer --> WAIT_LOCK --> REQUEST_PENDING
+ *                                                   |
+ *                                   curl completion |
+ *                                                   v
+ *                                  COMPLETED / FAILED / CANCELLED
+ *
+ * The credential lock is always attempted with LOCK_NB. A contending fyai
+ * process therefore becomes a timer-backed event source instead of blocking
+ * the application loop in flock(2).
+ */
 enum fyai_auth_refresh_state {
 	FYAIARS_NEW,
+	FYAIARS_WAIT_LOCK,
 	FYAIARS_REQUEST_PENDING,
 	FYAIARS_COMPLETED,
 	FYAIARS_CANCELLED,
@@ -1163,6 +1746,7 @@ enum fyai_auth_refresh_state {
 struct fyai_auth_refresh_request {
 	struct fyai_ctx *ctx;
 	struct fyai_curl_transfer *transfer;
+	struct fyai_event_source *timer_src;
 	fyai_auth_refresh_complete_fn complete;
 	void *userdata;
 	CURL *curl;
@@ -1172,6 +1756,7 @@ struct fyai_auth_refresh_request {
 	int lockfd;
 	int result;
 	enum fyai_auth_refresh_state state;
+	bool force;
 };
 
 static bool
@@ -1188,6 +1773,8 @@ fyai_auth_refresh_state_name(enum fyai_auth_refresh_state state)
 	switch (state) {
 	case FYAIARS_NEW:
 		return "new";
+	case FYAIARS_WAIT_LOCK:
+		return "wait-lock";
 	case FYAIARS_REQUEST_PENDING:
 		return "request-pending";
 	case FYAIARS_COMPLETED:
@@ -1206,8 +1793,14 @@ fyai_auth_refresh_transition_valid(enum fyai_auth_refresh_state from,
 {
 	switch (from) {
 	case FYAIARS_NEW:
+		return to == FYAIARS_WAIT_LOCK ||
+		       to == FYAIARS_REQUEST_PENDING ||
+		       to == FYAIARS_COMPLETED ||
+		       to == FYAIARS_FAILED;
+	case FYAIARS_WAIT_LOCK:
 		return to == FYAIARS_REQUEST_PENDING ||
 		       to == FYAIARS_COMPLETED ||
+		       to == FYAIARS_CANCELLED ||
 		       to == FYAIARS_FAILED;
 	case FYAIARS_REQUEST_PENDING:
 		return to == FYAIARS_COMPLETED ||
@@ -1284,55 +1877,46 @@ done:
 		request->complete(request, request->userdata);
 }
 
-struct fyai_auth_refresh_request *
-fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
-			 fyai_auth_refresh_complete_fn complete,
-			 void *userdata)
+static int
+fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 {
-	struct fyai_auth_refresh_request *request;
+	struct fyai_ctx *ctx;
 	char *token;
 	int rc;
 
-	request = calloc(1, sizeof(*request));
-	fyai_error_check(ctx, request, err_out, "out of memory");
-	request->ctx = ctx;
-	request->complete = complete;
-	request->userdata = userdata;
-	request->lockfd = -1;
-	request->result = -1;
-	request->state = FYAIARS_NEW;
-	request->lockfd = auth_lock(ctx);
-	fyai_error_check(ctx, request->lockfd >= 0, err_free,
-			 "could not lock authentication state");
+	ctx = request->ctx;
+	token = NULL;
 	rc = auth_load(ctx, &ctx->auth);
-	fyai_error_check(ctx, !rc, err_free,
+	fyai_error_check(ctx, !rc, err_out,
 			 "could not load authentication state");
-	if (!force &&
+	if (!request->force &&
 	    ctx->auth.expires_at > time(NULL) + AUTH_REFRESH_WINDOW) {
 		request->result = 0;
 		fyai_auth_refresh_transition(request, FYAIARS_COMPLETED);
 		auth_unlock(ctx, request->lockfd);
 		request->lockfd = -1;
-		return request;
+		return 0;
 	}
 	fyai_error_check(ctx, ctx->auth.refresh_token &&
-			 *ctx->auth.refresh_token, err_free,
+			 *ctx->auth.refresh_token, err_out,
 			 "authentication state has no refresh token");
 	request->curl = curl_easy_init();
-	fyai_error_check(ctx, request->curl, err_free,
+	fyai_error_check(ctx, request->curl, err_out,
 			 "could not create token refresh transfer");
-	token = curl_easy_escape(request->curl, ctx->auth.refresh_token, 0);
-	fyai_error_check(ctx, token, err_free,
+	token = curl_easy_escape(request->curl,
+				 ctx->auth.refresh_token, 0);
+	fyai_error_check(ctx, token, err_out,
 			 "could not encode refresh token");
 	rc = asprintf(&request->body,
 		      "grant_type=refresh_token&refresh_token=%s&client_id=%s",
 		      token, CODEX_OAUTH_CLIENT_ID);
 	curl_free(token);
-	fyai_error_check(ctx, rc >= 0, err_free,
+	token = NULL;
+	fyai_error_check(ctx, rc >= 0, err_out,
 			 "could not build token refresh request");
 	request->headers = curl_slist_append(request->headers,
 			"Content-Type: application/x-www-form-urlencoded");
-	fyai_error_check(ctx, request->headers, err_free,
+	fyai_error_check(ctx, request->headers, err_out,
 			 "could not create token refresh headers");
 	curl_easy_setopt(request->curl, CURLOPT_URL,
 			 AUTH_ISSUER "/oauth/token");
@@ -1348,8 +1932,82 @@ fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
 	request->transfer = fyai_curl_submit(ctx, request->curl,
 					     fyai_auth_refresh_complete,
 					     request);
-	fyai_error_check(ctx, request->transfer, err_free,
+	fyai_error_check(ctx, request->transfer, err_out,
 			 "could not submit token refresh");
+	return 0;
+
+err_out:
+	curl_free(token);
+	return -1;
+}
+
+static enum fyai_event_action
+fyai_auth_refresh_lock_timer(const struct fyai_event *ev)
+{
+	struct fyai_auth_refresh_request *request;
+	int rc;
+
+	request = ev->userdata;
+	request->timer_src = NULL;
+	request->lockfd = auth_lock_try(request->ctx);
+	if (request->lockfd == -2) {
+		rc = fyai_event_add_timer(ev->loop, 50, 0,
+				fyai_auth_refresh_lock_timer, request,
+				&request->timer_src);
+		if (!rc)
+			return FYAIEA_CONTINUE;
+	}
+	if (request->lockfd >= 0)
+		rc = fyai_auth_refresh_start_locked(request);
+	else
+		rc = -1;
+	if (rc) {
+		fyai_auth_refresh_transition(request, FYAIARS_FAILED);
+		if (request->complete)
+			request->complete(request, request->userdata);
+	} else if (fyai_auth_refresh_state_final(request->state) &&
+		   request->complete) {
+		request->complete(request, request->userdata);
+	}
+	return FYAIEA_CONTINUE;
+}
+
+struct fyai_auth_refresh_request *
+fyai_auth_refresh_submit(struct fyai_ctx *ctx, bool force,
+			 fyai_auth_refresh_complete_fn complete,
+			 void *userdata)
+{
+	struct fyai_auth_refresh_request *request;
+	struct fyai_event_loop *el;
+	int rc;
+
+	request = calloc(1, sizeof(*request));
+	fyai_error_check(ctx, request, err_out, "out of memory");
+	request->ctx = ctx;
+	request->complete = complete;
+	request->userdata = userdata;
+	request->lockfd = -1;
+	request->result = -1;
+	request->state = FYAIARS_NEW;
+	request->force = force;
+	request->lockfd = auth_lock_try(ctx);
+	if (request->lockfd == -2) {
+		fyai_auth_refresh_transition(request, FYAIARS_WAIT_LOCK);
+		el = fyai_ctx_loop(ctx);
+		fyai_error_check(ctx, el, err_free,
+				 "could not acquire the application event loop");
+		rc = fyai_event_add_timer(el, 50, 0,
+				fyai_auth_refresh_lock_timer, request,
+				&request->timer_src);
+		fyai_error_check(ctx, !rc, err_free,
+				 "could not wait for authentication state");
+		return request;
+	}
+	fyai_error_check(ctx, request->lockfd >= 0, err_free,
+			 "could not lock authentication state");
+	rc = fyai_auth_refresh_start_locked(request);
+	fyai_error_check(ctx, !rc, err_free,
+			 "could not start token refresh");
 	return request;
 
 err_free:
@@ -1360,9 +2018,17 @@ err_out:
 
 void fyai_auth_refresh_cancel(struct fyai_auth_refresh_request *request)
 {
-	if (request && request->transfer &&
-	    !fyai_auth_refresh_state_final(request->state))
+	if (!request || fyai_auth_refresh_state_final(request->state))
+		return;
+	if (request->transfer) {
 		fyai_curl_cancel(request->transfer);
+		return;
+	}
+	fyai_event_source_remove(request->timer_src);
+	request->timer_src = NULL;
+	fyai_auth_refresh_transition(request, FYAIARS_CANCELLED);
+	if (request->complete)
+		request->complete(request, request->userdata);
 }
 
 bool fyai_auth_refresh_done(
@@ -1383,6 +2049,7 @@ void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request)
 		return;
 	if (request->transfer)
 		fyai_curl_transfer_destroy(request->transfer);
+	fyai_event_source_remove(request->timer_src);
 	auth_unlock(request->ctx, request->lockfd);
 	curl_easy_cleanup(request->curl);
 	curl_slist_free_all(request->headers);
@@ -1422,28 +2089,38 @@ static void revoke_token(struct fyai_ctx *ctx, struct fyai_credentials *c)
 
 int fyai_auth_refresh(struct fyai_ctx *ctx, bool force)
 {
-	int lockfd = -1, rc = -1;
+	struct fyai_auth_refresh_request *request;
+	struct fyai_event_loop *el;
+	int rc;
 
 	if (!ctx->cfg->chatgpt_auth)
 		return 0;
-
-	lockfd = auth_lock(ctx);
-	if (lockfd < 0)
-		goto out;
-
-	/* Another stateless process may already have rotated the token. */
-	if (!auth_load(ctx, &ctx->auth) && !force && ctx->auth.expires_at > time(NULL) + AUTH_REFRESH_WINDOW) {
-		rc = 0;
-		goto out;
+	request = fyai_auth_refresh_submit(ctx, force, NULL, NULL);
+	if (!request)
+		return -1;
+	el = fyai_ctx_loop(ctx);
+	if (!el) {
+		fyai_auth_refresh_destroy(request);
+		return -1;
 	}
-	if (!ctx->auth.refresh_token || !*ctx->auth.refresh_token)
-		goto out;
-
-	if (!refresh_locked(ctx, &ctx->auth) && !auth_save(ctx, &ctx->auth))
-		rc = 0;
-out:
-	auth_unlock(ctx, lockfd);
-
+	while (!fyai_auth_refresh_done(request) &&
+	       !ctx->interrupt_pending) {
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0) {
+			fyai_auth_refresh_cancel(request);
+			break;
+		}
+	}
+	if (ctx->interrupt_pending)
+		fyai_auth_refresh_cancel(request);
+	while (!fyai_auth_refresh_done(request)) {
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0)
+			break;
+	}
+	rc = fyai_auth_refresh_done(request) ?
+		fyai_auth_refresh_collect(request) : -1;
+	fyai_auth_refresh_destroy(request);
 	return rc;
 }
 
@@ -1795,44 +2472,82 @@ static int auth_logout(struct fyai_ctx *ctx)
 	return 0;
 }
 
+struct auth_login_sync {
+	volatile bool done;
+};
+
+static void
+auth_login_sync_complete(struct fyai_auth_login_request *request,
+			 void *userdata)
+{
+	struct auth_login_sync *sync;
+
+	if (!fyai_auth_login_done(request))
+		return;
+	sync = userdata;
+	sync->done = true;
+}
+
 static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 		      bool manual)
 {
+	struct fyai_auth_login_request *request;
+	struct fyai_event_loop *el;
+	struct auth_login_sync sync;
 	struct fyai_credentials c;
-	int lockfd = -1;
+	int lockfd;
 	int rc;
 
 	memset(&c, 0, sizeof(c));
-
-	if (device_code) {
-		rc = device_login(ctx, &c);
-		fyai_error_check(ctx, !rc, err_out, "device login failed");
-	} else {
-		rc = browser_login(ctx, &c, no_browser, manual);
-		fyai_error_check(ctx, !rc, err_out, "%s login failed",
-				 manual ? "manual" :
-				 no_browser ? "no-browser" : "browser");
+	lockfd = -1;
+	if (manual) {
+		rc = manual_browser_login(ctx, &c);
+		fyai_error_check(ctx, !rc, err_out,
+				 "manual login failed");
+		lockfd = auth_lock(ctx);
+		fyai_error_check(ctx, lockfd >= 0, err_out,
+				 "cannot lock credential store");
+		rc = auth_save(ctx, &c);
+		auth_unlock(ctx, lockfd);
+		lockfd = -1;
+		fyai_error_check(ctx, !rc, err_out, "cannot save");
+		printf("auth: logged in as %s (%s)\n",
+			c.email && *c.email ? c.email : "unknown",
+			c.plan ? c.plan : "unknown");
+		return 0;
 	}
-
-	lockfd = auth_lock(ctx);
-	fyai_error_check(ctx, lockfd >= 0, err_out,
-			 "cannot lock credential store");
-
-	rc = auth_save(ctx, &c);
-	fyai_error_check(ctx, !rc, err_out, "cannot save");
-
-	printf("auth: logged in as %s (%s)\n",
-		c.email && *c.email ? c.email : "unknown",
-		c.plan ? c.plan : "unknown");
-
+	memset(&sync, 0, sizeof(sync));
+	request = fyai_auth_login_submit(ctx, device_code, no_browser,
+					 auth_login_sync_complete, &sync);
+	fyai_error_check(ctx, request, err_out,
+			 "could not start authentication login");
+	el = fyai_ctx_loop(ctx);
+	fyai_error_check(ctx, el, err_destroy,
+			 "could not acquire the application event loop");
 	rc = 0;
-out:
-	auth_unlock(ctx, lockfd);
+	while (!sync.done && !ctx->interrupt_pending) {
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0)
+			break;
+	}
+	if (ctx->interrupt_pending)
+		fyai_auth_login_cancel(request);
+	while (!sync.done && rc >= 0) {
+		rc = fyai_event_loop_step(el, -1);
+		if (rc < 0)
+			break;
+	}
+	fyai_error_check(ctx, rc >= 0 && sync.done, err_destroy,
+			 "authentication login did not complete");
+	rc = fyai_auth_login_collect(request);
+	fyai_auth_login_destroy(request);
 	return rc;
 
+err_destroy:
+	fyai_auth_login_destroy(request);
 err_out:
-	rc = -1;
-	goto out;
+	auth_unlock(ctx, lockfd);
+	return -1;
 }
 
 int fyai_auth_execute(struct fyai_ctx *ctx)
