@@ -145,11 +145,19 @@ static void jsonrpc_finish(struct jsonrpc_request *req, bool ok,
 static bool jsonrpc_stdio_line(struct jsonrpc_request *req)
 {
 	struct fyai_ctx *ctx = req->conn->ctx;
+	struct fy_generic_builder *gb;
 	fy_generic doc, error, result;
 
 	if (!req->stdio_response.len)
 		return false;
-	doc = parse_json_string(ctx->transient_gb, req->stdio_response.data);
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb) {
+		fyai_error(ctx, "%s %s could not acquire transient storage",
+			   req->conn->name, req->method);
+		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
+		return true;
+	}
+	doc = parse_json_string(gb, req->stdio_response.data);
 	if (!fy_generic_is_mapping(doc)) {
 		fyai_error(ctx, "%s %s returned invalid stdio JSON",
 			   req->conn->name, req->method);
@@ -276,6 +284,7 @@ static int jsonrpc_stdio_submit(struct jsonrpc_request *req, fy_generic params)
 {
 	struct jsonrpc_conn *conn = req->conn;
 	struct fyai_ctx *ctx = conn->ctx;
+	struct fy_generic_builder *gb;
 	struct fyai_event_loop *el;
 	fy_generic rpc;
 	const char *body;
@@ -285,11 +294,14 @@ static int jsonrpc_stdio_submit(struct jsonrpc_request *req, fy_generic params)
 	el = fyai_ctx_loop(ctx);
 	fyai_error_check(ctx, el, err_out,
 			 "could not acquire the application event loop");
-	rpc = fy_mapping(ctx->transient_gb, "jsonrpc", "2.0",
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, err_out,
+			 "could not acquire transient storage");
+	rpc = fy_mapping(gb, "jsonrpc", "2.0",
 			 "method", req->method, "params", params);
 	if (!req->notification)
-		rpc = fy_assoc(ctx->transient_gb, rpc, "id", req->id);
-	body = emit_request_body(ctx->transient_gb, rpc);
+		rpc = fy_assoc(gb, rpc, "id", req->id);
+	body = emit_request_body(gb, rpc);
 	fyai_error_check(ctx, body, err_out,
 			 "could not encode JSON-RPC stdio request");
 	body_len = strlen(body);
@@ -353,6 +365,7 @@ static size_t jsonrpc_http_header(void *ptr, size_t size, size_t nmemb,
 static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 {
 	struct fyai_ctx *ctx = req->conn->ctx;
+	struct fy_generic_builder *gb;
 	fy_generic doc, error, out;
 	const char *json, *data, *end;
 	char *sse_json;
@@ -361,6 +374,9 @@ static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 		return fy_invalid;
 	if (req->notification)
 		return fy_null;
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, err_out, "%s %s could not acquire "
+			 "transient storage", req->conn->name, req->method);
 	json = req->response.data ? req->response.data : "";
 	sse_json = NULL;
 	if (!strncmp(json, "event:", 6) || !strncmp(json, "data:", 5)) {
@@ -376,7 +392,7 @@ static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 				json = sse_json;
 		}
 	}
-	doc = parse_json_string(ctx->transient_gb, json);
+	doc = parse_json_string(gb, json);
 	free(sse_json);
 	fyai_error_check(ctx, fy_generic_is_valid(doc), err_out,
 			 "%s %s returned invalid JSON", req->conn->name,
@@ -418,15 +434,19 @@ static int jsonrpc_http_submit(struct jsonrpc_request *req, fy_generic params)
 {
 	struct jsonrpc_conn *conn = req->conn;
 	struct fyai_ctx *ctx = conn->ctx;
+	struct fy_generic_builder *gb;
 	fy_generic rpc;
 	const char *body;
 	int rc;
 
-	rpc = fy_mapping(ctx->transient_gb, "jsonrpc", "2.0",
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, err_out, "%s %s could not acquire "
+			 "transient storage", conn->name, req->method);
+	rpc = fy_mapping(gb, "jsonrpc", "2.0",
 			 "method", req->method, "params", params);
 	if (!req->notification)
-		rpc = fy_assoc(ctx->transient_gb, rpc, "id", req->id);
-	body = emit_request_body(ctx->transient_gb, rpc);
+		rpc = fy_assoc(gb, rpc, "id", req->id);
+	body = emit_request_body(gb, rpc);
 	fyai_error_check(ctx, body, err_out, "%s %s could not encode request",
 			 conn->name, req->method);
 	req->body = strdup(body);

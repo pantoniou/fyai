@@ -426,7 +426,7 @@ properties:
 
   mcp:
     type: object
-    default: { enabled: false, endpoint: "", auth_token: { type: env, value: MCP_API_KEY }, protocol_version: "2024-11-05", servers: {}, timeout: 30 }
+    default: { enabled: false, startup_wait: true, endpoint: "", auth_token: { type: env, value: MCP_API_KEY }, protocol_version: "2024-11-05", servers: {}, timeout: 30 }
     description: >-
       Model Context Protocol (MCP) server connection. Disabled by default;
       set enabled: true and configure endpoint (or servers) to connect.
@@ -435,6 +435,13 @@ properties:
         type: boolean
         default: false
         description: Turn MCP server connection on.
+      startup_wait:
+        type: boolean
+        default: true
+        description: >-
+          Hold the first model step until every server has settled, so the
+          initial turn sees the complete toolset. False submits optimistically
+          with whatever tools are ready while servers keep connecting.
       endpoint:
         type: string
         default: ""

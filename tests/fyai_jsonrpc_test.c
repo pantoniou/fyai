@@ -38,6 +38,13 @@ int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc)
 	return 0;
 }
 
+/* The transport reaches its scratch builder through this accessor; the test
+ * sets test_ctx.transient_gb up front, so just hand it back. */
+struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
+{
+	return ctx->transient_gb;
+}
+
 struct call_result {
 	volatile bool done;
 	bool ok;

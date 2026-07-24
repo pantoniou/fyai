@@ -262,6 +262,8 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 	if (fy_generic_is_mapping(v)) {
 		cfg->mcp_enabled = apply_bool(v, "enabled",
 			cfg->mcp_enabled);
+		cfg->mcp_startup_wait = apply_bool(v, "startup_wait",
+			cfg->mcp_startup_wait);
 		cfg->mcp_endpoint = fy_get(v, "endpoint",
 			cfg->mcp_endpoint ? cfg->mcp_endpoint : NULL);
 		cfg->mcp_protocol_version = fy_get(v, "protocol_version",
@@ -292,6 +294,8 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		/* Flat key fallback for --set mcp/enabled=true etc. */
 		cfg->mcp_enabled = apply_bool(root, "mcp/enabled",
 			cfg->mcp_enabled);
+		cfg->mcp_startup_wait = apply_bool(root, "mcp/startup_wait",
+			cfg->mcp_startup_wait);
 	}
 
 	cfg->logprobs = apply_bool(root, "logprobs", cfg->logprobs);
@@ -1764,6 +1768,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->config_doc = fy_invalid;
 	cfg->sandbox = fy_invalid;
 	cfg->mcp_enabled = false;
+	cfg->mcp_startup_wait = true;
 	cfg->mcp_endpoint = NULL;
 	cfg->mcp_auth_token = NULL;
 	cfg->mcp_auth_token_auto = true;

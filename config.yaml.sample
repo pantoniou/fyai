@@ -194,6 +194,10 @@ display:
 # --- MCP (Model Context Protocol) server support --------------------------
 mcp:
   enabled: false
+  # Hold the first model step until every server has settled, so the initial
+  # turn sees the complete toolset. false submits optimistically while servers
+  # keep connecting in the background.
+  startup_wait: true
   # Legacy single-server form. Used as the server named "default" when
   # servers is empty.
   endpoint: ""

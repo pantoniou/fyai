@@ -328,14 +328,23 @@ static void mcp_startup_step(struct mcp_startup *su)
 {
 	struct fyai_mcp_ctx *mcp = su->mcp;
 	struct fyai_ctx *ctx = mcp->ctx;
+	struct fy_generic_builder *gb;
 	const char *method;
 	fy_generic params;
 	bool notification = false;
 
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb) {
+		fyai_error(ctx, "%s could not acquire transient storage",
+			   mcp->name);
+		mcp_startup_settle(su, MCP_SRV_FAILED);
+		return;
+	}
+
 	switch (su->phase) {
 	case MCP_SU_INIT:
 		method = "initialize";
-		params = fy_mapping(ctx->transient_gb,
+		params = fy_mapping(gb,
 			"protocolVersion", mcp->protocol_version,
 			"capabilities", fy_map_empty,
 			"clientInfo", fy_mapping("name", "fyai",
@@ -348,7 +357,7 @@ static void mcp_startup_step(struct mcp_startup *su)
 		break;
 	case MCP_SU_DISCOVER:
 		method = "tools/list";
-		params = su->cursor ? fy_mapping(ctx->transient_gb,
+		params = su->cursor ? fy_mapping(gb,
 				"cursor", su->cursor) : fy_map_empty;
 		break;
 	default:
@@ -650,6 +659,7 @@ void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
 int fyai_mcp_start(struct fyai_ctx *ctx)
 {
 	fy_generic servers = ctx->cfg->mcp_servers;
+	struct fy_generic_builder *gb;
 	fy_generic key, config;
 	struct fyai_mcp_ctx *mcp;
 	const char *name;
@@ -669,7 +679,12 @@ int fyai_mcp_start(struct fyai_ctx *ctx)
 			(void)mcp_create_server(ctx, name, config);
 		}
 	} else if (ctx->cfg->mcp_endpoint && *ctx->cfg->mcp_endpoint) {
-		config = fy_mapping(ctx->transient_gb,
+		gb = fyai_ctx_transient_gb(ctx);
+		if (!gb) {
+			fyai_error(ctx, "could not acquire transient storage");
+			return -1;
+		}
+		config = fy_mapping(gb,
 			"endpoint", ctx->cfg->mcp_endpoint,
 			"protocol_version", ctx->cfg->mcp_protocol_version,
 			"timeout", ctx->cfg->mcp_timeout);

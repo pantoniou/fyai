@@ -177,6 +177,10 @@ struct fyai_cfg {
 	bool transient;
 	/* MCP (Model Context Protocol) server settings. */
 	bool mcp_enabled;
+	/* Hold the first model step until every server has settled (READY or
+	 * FAILED), so the initial turn sees the complete toolset. False submits
+	 * optimistically with whatever tools are ready. */
+	bool mcp_startup_wait;
 	const char *mcp_endpoint;		/* server URL or empty */
 	const char *mcp_auth_token;	/* env/secret indirection (like api_key) */
 	bool mcp_auth_token_auto;
@@ -290,6 +294,10 @@ struct fyai_ctx {
 	struct fy_allocator *overlay_allocator;
 	struct fy_allocator *transient_allocator;
 	struct fy_generic_builder *transient_gb;
+	/* Set when fyai_ctx_transient_gb() lazily created transient_gb for a
+	 * caller with no active turn (e.g. an MCP startup step firing while the
+	 * session is idle); the event-loop driver reclaims it. */
+	bool transient_autorelease;
 	CURL *curl;
 	/* Per-invocation curl multi state. */
 	struct fyai_curl_state *curl_state;
@@ -395,6 +403,14 @@ const char *fyai_api_to_string(enum fyai_api_mode api);
 
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx);
 int fyai_setup_transient_builder(struct fyai_ctx *ctx);
+/*
+ * Return a transient builder to use as scratch for the current operation. If a
+ * turn (or other caller) already holds one it is returned unchanged; otherwise
+ * one is created on the spot and flagged transient_autorelease so the event-loop
+ * driver releases it on the next iteration. Use this - not ctx->transient_gb
+ * directly - from code that may run outside a turn (jsonrpc/MCP startup steps).
+ */
+struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
 
 /*
  * Run one complete tool-use loop on @turn; returns the final turn (or
