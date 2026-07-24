@@ -467,6 +467,52 @@ static void fyai_emit_patch(FILE *mf, const char *patch)
 		fprintf(mf, "```\n\n");
 }
 
+/*
+ * Present a login URL. An authorization URL runs to several hundred characters -
+ * wider than any terminal - and the interactive transcript commits one row per
+ * line with auto-wrap off, so a raw URL is truncated at the last column and the
+ * rest is unrecoverable. Render a Markdown link instead: libfymd4c turns it into
+ * an OSC 8 hyperlink, so the URL travels in the escape (no cells) and the
+ * visible row stays short and clickable. It needs colour to do that: libfymd4c
+ * drops the escape under MD_ANSI_FLAG_NO_COLOR and prints the URL as text, which
+ * is the wide row again. Under the UI that is settled already - fyai_ui_open()
+ * resolves an "auto" colour setting to "on", since the spool that stdout points
+ * at is not a terminal even though the UI owns one.
+ *
+ * The rendered bytes go to stdout like any other output: under the UI that is
+ * the spool, drained and committed continuously - including while this caller
+ * waits for the browser redirect. Without Markdown, or off a terminal (a pipe, a
+ * redirect, batch use), print the plain URL, which wraps normally there.
+ */
+void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
+			  const char *label, const char *url)
+{
+	struct response_buffer out = { 0 };
+	char *md;
+
+	if (!url || !*url)
+		return;
+	if (!lead)
+		lead = "Open this link:";
+	if (!label || !*label)
+		label = "open the sign-in page";
+	md = fy_sprintfa("**%s** [%s](%s)\n", lead, label, url);
+	if (md && ctx && ctx->cfg->markdown && markdown_available(ctx->cfg) &&
+	    (fyai_ui_active(ctx) || ctx->stdout_tty) &&
+	    !markdown_render(ctx->cfg, md, strlen(md), &out,
+			     markdown_color_enabled(ctx->cfg->color),
+			     ctx->cfg->theme_variant) &&
+	    out.data && out.len) {
+		fwrite(out.data, 1, out.len, stdout);
+		fflush(stdout);
+		free(out.data);
+		return;
+	}
+	free(out.data);
+	printf("%s\n%s\n", lead, url);
+	fflush(stdout);
+}
+
 void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 				const char *name, fy_generic args,
 				int preview_lines)

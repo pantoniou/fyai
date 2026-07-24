@@ -58,6 +58,9 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx);
 int fyai_mcp_start(struct fyai_ctx *ctx);
 bool fyai_mcp_settled(struct fyai_ctx *ctx);
 void fyai_mcp_publish_tools(struct fyai_ctx *ctx);
+int fyai_mcp_status(struct fyai_ctx *ctx);
+int fyai_mcp_login(struct fyai_ctx *ctx, const char *name);
+int fyai_mcp_logout(struct fyai_ctx *ctx, const char *name);
 fy_generic fyai_mcp_tools(struct fyai_ctx *ctx);
 bool fyai_mcp_tool_name(const char *name);
 fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,

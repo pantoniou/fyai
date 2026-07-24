@@ -80,6 +80,17 @@ fy_generic jsonrpc_request_result(const struct jsonrpc_request *req);
 /* HTTP status and curl code of the last transfer (0/CURLE_OK for stdio). */
 long jsonrpc_request_http_status(const struct jsonrpc_request *req);
 CURLcode jsonrpc_request_curl_code(const struct jsonrpc_request *req);
+const char *jsonrpc_request_response_body(
+		const struct jsonrpc_request *req);
+/*
+ * Return the value of a response header retained by this HTTP request.
+ * The pointer remains valid until jsonrpc_request_destroy(). Header names are
+ * matched case-insensitively. NULL is returned for stdio requests and absent
+ * headers.
+ */
+const char *
+jsonrpc_request_response_header(const struct jsonrpc_request *req,
+				const char *name);
 void jsonrpc_request_destroy(struct jsonrpc_request *req);
 
 #endif

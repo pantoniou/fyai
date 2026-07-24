@@ -967,6 +967,27 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
+int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
+			    fy_generic value)
+{
+	fy_generic emitted;
+	const char *text;
+	int rc;
+
+	emitted = fy_emit(ctx->gb, value,
+			 FYAI_YAML_EMIT_FLAGS | FYOPEF_STYLE_ONELINE, NULL);
+	fyai_error_check(ctx, fy_generic_is_valid(emitted), err_out,
+			 "could not emit configuration value");
+	text = fy_castp(&emitted, "");
+	rc = fyai_config_set(ctx, key, text);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not set configuration value");
+	return 0;
+
+err_out:
+	return -1;
+}
+
 /*
  * Replay the pending --set/--delete/--get ops against the open arena, in order:
  * sets and deletes mutate (and, unless transient, persist) the arena config;
@@ -1930,6 +1951,8 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 
 	/* Drains whatever no earlier boundary reported. */
 	fyai_diag_cleanup(&cfg->diag);
+	if (cfg->cmd.id == FYAIVID_MCP)
+		free(cfg->cmd.args.mcp.scopes);
 	fy_generic_builder_destroy(cfg->gb);
 	memset(cfg, 0, sizeof(*cfg));
 }

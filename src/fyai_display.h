@@ -21,6 +21,13 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			       fy_generic tool_result);
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result);
+/*
+ * Print @lead and @url, as a Markdown link labelled @label on a terminal (which
+ * renders to an OSC 8 hyperlink) or as plain text otherwise. Keep @label short:
+ * the raw URL does not fit a terminal row, and the transcript clips what does.
+ */
+void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
+			  const char *label, const char *url);
 void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
 			     const char *lang, int preview_lines);
 int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,

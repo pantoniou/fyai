@@ -36,6 +36,7 @@
 #include "fyai_display.h"
 #include "fyai_render.h"
 #include "fyai_markdown.h"
+#include "fyai_mcp_import.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
 #include "fyai_tools.h"
@@ -72,6 +73,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("catalog tools [agent] [--brief|--full]", "List catalog agent tools and descriptions");
 	ITEM("log [target] [action]", "Control wire/conversation trace logs");
 	ITEM("sandbox [cmd]", "Show or configure the stored sandbox policy");
+	ITEM("mcp oauth import-client ...", "Import an MCP OAuth client");
 	ITEM("gc", "Garbage-collect the arena");
 	ITEM("tool <name> [json]", "Run one tool sandboxed (read_file|shell|...)");
 	ITEM("help [verb]", "Describe all verbs, or one verb in detail");
@@ -1561,6 +1563,55 @@ static int configure_secret(int argc, char **argv, struct fyai_cfg *cfg)
 	return 0;
 }
 
+static int configure_mcp(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_mcp_args *args;
+	const char **scopes;
+	int i;
+
+	args = &cfg->cmd.args.mcp;
+	if (argc < 5 || strcmp(argv[1], "oauth") ||
+	    strcmp(argv[2], "import-client")) {
+		fyai_cfg_error(cfg, "mcp: use oauth import-client NAME FILE "
+			       "--endpoint URL --scope SCOPE");
+		return -1;
+	}
+	args->name = fy_gb_intern_string(cfg->gb, argv[3]);
+	args->file = fy_gb_intern_string(cfg->gb, argv[4]);
+	scopes = calloc((size_t)argc, sizeof(*scopes));
+	if (!scopes) {
+		fyai_cfg_error(cfg, "mcp: could not allocate scope list");
+		return -1;
+	}
+	args->scopes = scopes;
+	for (i = 5; i < argc; i++) {
+		if (!strcmp(argv[i], "--endpoint") && i + 1 < argc) {
+			args->endpoint =
+				fy_gb_intern_string(cfg->gb, argv[++i]);
+		} else if (!strcmp(argv[i], "--scope") && i + 1 < argc) {
+			scopes[args->scope_count++] =
+				fy_gb_intern_string(cfg->gb, argv[++i]);
+		} else if (!strcmp(argv[i], "--secret-env") &&
+			   i + 1 < argc) {
+			args->secret_env =
+				fy_gb_intern_string(cfg->gb, argv[++i]);
+		} else if (!strcmp(argv[i], "--force")) {
+			args->force = true;
+		} else {
+			fyai_cfg_error(cfg, "mcp: unexpected argument '%s'",
+				       argv[i]);
+			return -1;
+		}
+	}
+	if (!args->name || !*args->name || !args->file || !*args->file ||
+	    !args->endpoint || !*args->endpoint || !args->scope_count) {
+		fyai_cfg_error(cfg, "mcp: NAME, FILE, --endpoint, and at "
+			       "least one --scope are required");
+		return -1;
+	}
+	return 0;
+}
+
 static int configure_help(int argc, char **argv, struct fyai_cfg *cfg);
 static int execute_help(struct fyai_ctx *ctx);
 
@@ -1878,6 +1929,24 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "  delete <name> remove an entry",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_STORAGE | FYAIVF_NO_REQUESTS,
 		.default_args.secret = { .command = FYAI_SECRET_STATUS },
+	},
+	[FYAIVID_MCP] = {
+		.id	   = FYAIVID_MCP,
+		.name	   = "mcp",
+		.configure = configure_mcp,
+		.execute   = fyai_mcp_import_client,
+		.synopsis  = "mcp oauth import-client NAME FILE "
+			     "--endpoint URL --scope SCOPE ...",
+		.help	   = "Import a pre-registered OAuth client for an MCP "
+			     "server.\n"
+			     "The client secret is stored in the machine-local "
+			     "secret backend.\n"
+			     "  --secret-env NAME store an environment reference "
+			     "instead\n"
+			     "  --force           replace an existing server",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.default_args.mcp = {
+		},
 	},
 	[FYAIVID_GC] = {
 		.id	   = FYAIVID_GC,

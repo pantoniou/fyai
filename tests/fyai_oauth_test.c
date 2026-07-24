@@ -24,6 +24,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include <curl/curl.h>
 
@@ -31,6 +32,28 @@
 #include "fyai_event.h"
 #include "fyai_oauth.h"
 #include "fyai_test.h"
+
+/* fyai_auth_util.c also carries the application credential-store helpers.
+ * This receiver-only unit does not exercise them, so keep its link isolated
+ * from the full utility and context implementation. */
+int mkdir_private(const char *path)
+{
+	int rc;
+
+	rc = mkdir(path, 0700);
+	return !rc || errno == EEXIST ? 0 : -1;
+}
+
+int fyai_mkdir_p(const char *path)
+{
+	(void)path;
+	return 0;
+}
+
+struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
+{
+	return ctx->transient_gb;
+}
 
 #define TEST_BOUND_MS	5000
 #define TEST_STATE	"s3cr3t-state"

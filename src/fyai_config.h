@@ -76,6 +76,8 @@ int fyai_config_load(struct fyai_cfg *cfg,
 int fyai_config_show(struct fyai_cfg *cfg);
 int fyai_config_get(struct fyai_ctx *ctx, const char *key);
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value);
+int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
+			    fy_generic value);
 int fyai_config_delete(struct fyai_ctx *ctx, const char *key);
 int fyai_apply_config_ops(struct fyai_ctx *ctx);
 int fyai_config_import(struct fyai_ctx *ctx, const char *path);

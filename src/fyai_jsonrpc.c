@@ -62,6 +62,7 @@ struct jsonrpc_request {
 	struct fyai_curl_transfer *transfer;
 	CURL *curl;
 	struct curl_slist *headers;
+	struct curl_slist *response_headers;
 	struct response_buffer response;
 	char *body;
 
@@ -353,12 +354,29 @@ static size_t jsonrpc_http_header(void *ptr, size_t size, size_t nmemb,
 				  void *userdata)
 {
 	struct jsonrpc_request *req = userdata;
-	size_t len = size * nmemb;
+	struct curl_slist *headers;
+	const char *data = ptr;
+	char *line;
+	size_t raw_len = size * nmemb;
+	size_t len = raw_len;
 
+	while (len && (data[len - 1] == '\r' || data[len - 1] == '\n'))
+		len--;
+	line = len ? strndup(data, len) : NULL;
+	if (line) {
+		if (!strncasecmp(line, "HTTP/", 5)) {
+			curl_slist_free_all(req->response_headers);
+			req->response_headers = NULL;
+		}
+		headers = curl_slist_append(req->response_headers, line);
+		free(line);
+		if (headers)
+			req->response_headers = headers;
+	}
 	if (req->conn->has_hooks && req->conn->hooks.response_header)
 		req->conn->hooks.response_header(req->conn->hooks.userdata,
-						 ptr, len);
-	return len;
+						 ptr, raw_len);
+	return raw_len;
 }
 
 /* Parse the JSON-RPC result out of an HTTP response body (JSON or SSE). */
@@ -627,6 +645,39 @@ CURLcode jsonrpc_request_curl_code(const struct jsonrpc_request *req)
 	return req ? req->code : CURLE_OK;
 }
 
+const char *jsonrpc_request_response_body(
+		const struct jsonrpc_request *req)
+{
+	if (!req)
+		return NULL;
+	if (req->conn->transport == JSONRPC_STDIO)
+		return req->stdio_response.data;
+	return req->response.data;
+}
+
+const char *
+jsonrpc_request_response_header(const struct jsonrpc_request *req,
+				const char *name)
+{
+	const struct curl_slist *item;
+	const char *value;
+	size_t len;
+
+	if (!req || !name || !*name)
+		return NULL;
+	len = strlen(name);
+	for (item = req->response_headers; item; item = item->next) {
+		if (strncasecmp(item->data, name, len) ||
+		    item->data[len] != ':')
+			continue;
+		value = item->data + len + 1;
+		while (*value == ' ' || *value == '\t')
+			value++;
+		return value;
+	}
+	return NULL;
+}
+
 static void jsonrpc_request_free(struct jsonrpc_request *req)
 {
 	if (!req)
@@ -636,6 +687,7 @@ static void jsonrpc_request_free(struct jsonrpc_request *req)
 		fyai_curl_transfer_destroy(req->transfer);
 	curl_easy_cleanup(req->curl);
 	curl_slist_free_all(req->headers);
+	curl_slist_free_all(req->response_headers);
 	free(req->response.data);
 	free(req->body);
 	free(req->stdio_response.data);

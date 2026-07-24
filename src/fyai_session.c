@@ -49,6 +49,7 @@
 #include "fyai_ui.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
+#include "fyai_tools.h"
 #include "fyai_turn.h"
 #include "utils.h"
 
@@ -1346,14 +1347,65 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 
 static int slash_help(struct fyai_ctx *ctx, const char *arg);
 
+static int slash_auth(struct fyai_ctx *ctx, const char *arg)
+{
+	char *copy;
+	char *action;
+	char *extra;
+	int rc;
+
+	copy = strdup(arg ? arg : "");
+	fyai_error_check(ctx, copy, err_out, "auth: out of memory");
+	action = strtok(copy, " \t");
+	extra = strtok(NULL, " \t");
+	fyai_error_check(ctx, !extra, err_free,
+			 "auth: use [status|login|logout]");
+
+	if (!action || fy_equal(action, "status"))
+		rc = fyai_auth_status(ctx, false, false);
+	else if (fy_equal(action, "login"))
+		rc = fyai_auth_login(ctx, false, false, false);
+	else if (fy_equal(action, "logout"))
+		rc = fyai_auth_logout(ctx);
+	else {
+		fyai_error(ctx, "auth: use [status|login|logout]");
+		rc = -1;
+	}
+	free(copy);
+	return rc;
+
+err_free:
+	free(copy);
+err_out:
+	return -1;
+}
+
 
 static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic key, server;
-	const char *name, *command;
+	const char *server_name, *command;
+	char *copy;
+	char *action;
+	char *name;
+	char *extra;
+	int rc;
 
-	if (!arg || !*arg || !strcmp(arg, "show")) {
+	copy = strdup(arg ? arg : "");
+	fyai_error_check(ctx, copy, err_out, "mcp: out of memory");
+	action = strtok(copy, " \t");
+	name = strtok(NULL, " \t");
+	extra = strtok(NULL, " \t");
+	if (!action || !strcmp(action, "show") ||
+	    !strcmp(action, "status")) {
+		fyai_error_check(ctx, !name && !extra, err_free,
+				 "mcp: status takes no arguments");
+		rc = fyai_mcp_status(ctx);
+		if (rc <= 0) {
+			free(copy);
+			return rc;
+		}
 		printf("mcp: enabled=%s protocol=%s timeout=%d\n",
 			cfg->mcp_enabled ? "true" : "false",
 			cfg->mcp_protocol_version ? cfg->mcp_protocol_version : "-",
@@ -1361,17 +1413,19 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 		if (fy_generic_is_mapping(cfg->mcp_servers) &&
 		    fy_len(cfg->mcp_servers)) {
 			fy_foreach(key, cfg->mcp_servers) {
-				name = fy_cast(key, "");
+				server_name = fy_cast(key, "");
 				server = fy_get(cfg->mcp_servers, key, fy_invalid);
 				command = fy_get(server, "command", "");
 				if (*command)
 					printf("  %s: enabled=%s transport=stdio command=%s\n",
-						name, fy_get(server, "enabled", true) ?
+						server_name,
+						fy_get(server, "enabled", true) ?
 						"true" : "false",
 						command);
 				else
 					printf("  %s: enabled=%s transport=http endpoint=%s\n",
-						name, fy_get(server, "enabled", true) ?
+						server_name,
+						fy_get(server, "enabled", true) ?
 						"true" : "false",
 						fy_get(server, "endpoint", "(none)"));
 			}
@@ -1379,35 +1433,63 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 			printf("  default: endpoint=%s\n",
 				cfg->mcp_endpoint ? cfg->mcp_endpoint : "(none)");
 		}
+		free(copy);
 		return 0;
 	}
-	if (!strcmp(arg, "on")) {
+	if (!strcmp(action, "login") || !strcmp(action, "logout")) {
+		fyai_error_check(ctx, name && *name && !extra, err_free,
+				 "mcp: login/logout requires one server name");
+		rc = !strcmp(action, "login") ?
+			fyai_mcp_login(ctx, name) :
+			fyai_mcp_logout(ctx, name);
+		free(copy);
+		return rc;
+	}
+	if (!strcmp(action, "on")) {
+		fyai_error_check(ctx, !name && !extra, err_free,
+				 "mcp: on takes no arguments");
 		if (cfg->mcp_enabled) {
 			printf("mcp: already enabled\n");
+			free(copy);
 			return 0;
 		}
 		cfg->mcp_enabled = true;
 		session_persist(ctx, "mcp/enabled", "true");
 		if (fyai_request_state_apply(ctx)) {
 			cfg->mcp_enabled = false;
+			free(copy);
 			return -1;
 		}
 		printf("mcp: enabled\n");
+		free(copy);
 		return 0;
 	}
-	if (!strcmp(arg, "off")) {
+	if (!strcmp(action, "off")) {
+		fyai_error_check(ctx, !name && !extra, err_free,
+				 "mcp: off takes no arguments");
 		if (!cfg->mcp_enabled) {
 			printf("mcp: already disabled\n");
+			free(copy);
 			return 0;
 		}
 		cfg->mcp_enabled = false;
 		session_persist(ctx, "mcp/enabled", "false");
-		if (fyai_request_state_apply(ctx))
+		if (fyai_request_state_apply(ctx)) {
+			free(copy);
 			return -1;
+		}
 		printf("mcp: disabled\n");
+		free(copy);
 		return 0;
 	}
-	fyai_error(ctx, "mcp: use [show | on | off]");
+	fyai_error(ctx,
+		   "mcp: use [status | login NAME | logout NAME | on | off]");
+	free(copy);
+	return -1;
+
+err_free:
+	free(copy);
+err_out:
 	return -1;
 }
 
@@ -1427,7 +1509,10 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "log", "[target action]", "control trace logging", slash_log },
 	{ "logging", "[target action]", "alias for /log", slash_log },
 	{ "secret", "[status [name]|set name|delete name]", "manage secrets (API keys: api-key/<provider>)", slash_secret },
-	{ "mcp", "[show|on|off]", "show or toggle MCP server connection", slash_mcp },
+	{ "auth", "[status|login|logout]",
+	  "inspect or control provider authentication", slash_auth },
+	{ "mcp", "[status|login NAME|logout NAME|on|off]",
+	  "inspect or control MCP server connections", slash_mcp },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },

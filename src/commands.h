@@ -42,6 +42,7 @@ enum fyai_verb_id {
 	FYAIVID_SANDBOX,
 	FYAIVID_AUTH,
 	FYAIVID_SECRET,
+	FYAIVID_MCP,
 	FYAIVID_GC,
 	FYAIVID_TOOL,
 	FYAIVID_HELP,
@@ -223,6 +224,16 @@ struct fyai_tool_args {
 	const char *args_json;	/* JSON args, or NULL to read stdin */
 };
 
+struct fyai_mcp_args {
+	const char *name;
+	const char *file;
+	const char *endpoint;
+	const char *secret_env;
+	const char **scopes;
+	size_t scope_count;
+	bool force;
+};
+
 /* everything */
 union fyai_cmd_args {
 	struct fyai_prompt_args prompt;
@@ -243,6 +254,7 @@ union fyai_cmd_args {
 	struct fyai_tool_args tool;
 	struct fyai_auth_args auth;
 	struct fyai_secret_args secret;
+	struct fyai_mcp_args mcp;
 };
 
 /* combined */

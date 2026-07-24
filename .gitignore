@@ -16,6 +16,7 @@ __pycache__/
 worktrees/
 *-apikey.txt
 *.env
+client_secret_*.apps.googleusercontent.com.json
 .cache/
 .fyai/
 

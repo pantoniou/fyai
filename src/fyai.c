@@ -2336,8 +2336,10 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			fyai_turn_run_cancel(run);
 		if (ctx->terminate_pending || fyai_ui_quit_requested(ctx))
 			quit = true;
-		if (!run && quit)
+		if (!run && quit) {
+			rc = 0;
 			break;
+		}
 
 		/* Apply MCP tools before the first turn when startup_wait is set. */
 		if (!run && !gated &&

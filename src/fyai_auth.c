@@ -955,8 +955,8 @@ static int manual_browser_login(struct fyai_ctx *ctx,
 		"&codex_cli_simplified_flow=true&state=%s&originator=fyai",
 		AUTH_PORT, CODEX_OAUTH_SCOPE_URL, pkce.challenge, pkce.state);
 
-	printf("Open this URL to sign in:\n%s\n", url);
-	fflush(stdout);
+	fyai_print_login_url(ctx, "Open this link to sign in:",
+			     "sign in with ChatGPT", url);
 	rc = manual_login(ctx, c, redirect, pkce.verifier, pkce.state);
 	fyai_oauth_pkce_cleanup(&pkce);
 	return rc;
@@ -1660,8 +1660,8 @@ fyai_auth_login_submit(struct fyai_ctx *ctx, bool device_code,
 		request->pkce.state);
 	fyai_error_check(ctx, rc >= 0, err_free,
 			 "could not build OAuth authorization URL");
-	printf("Open this URL to sign in:\n%s\n", url);
-	fflush(stdout);
+	fyai_print_login_url(ctx, "Open this link to sign in:",
+			     "sign in with ChatGPT", url);
 	if (!no_browser)
 		fyai_oauth_open_browser(url);
 	free(url);
@@ -2446,10 +2446,12 @@ out:
 	return rc;
 }
 
-static int auth_logout(struct fyai_ctx *ctx)
+int fyai_auth_logout(struct fyai_ctx *ctx)
 {
 	struct fyai_credentials c;
 	int lockfd = -1;
+	int file_rc;
+	int keyring_rc;
 
 	memset(&c, 0, sizeof(c));
 
@@ -2461,14 +2463,19 @@ static int auth_logout(struct fyai_ctx *ctx)
 	if (!auth_load(ctx, &c))
 		revoke_token(ctx, &c);
 
-	(void)auth_delete_file(ctx);
-	(void)auth_delete_keyring(ctx);
+	file_rc = auth_delete_file(ctx);
+	keyring_rc = auth_delete_keyring(ctx);
 
 	credentials_clear(&c);
 	auth_unlock(ctx, lockfd);
+	fyai_error_check(ctx, !file_rc && !keyring_rc, err_out,
+			 "could not remove stored authentication");
 
 	printf("auth: logged out\n");
 	return 0;
+
+err_out:
+	return -1;
 }
 
 struct auth_login_sync {
@@ -2487,8 +2494,8 @@ auth_login_sync_complete(struct fyai_auth_login_request *request,
 	sync->done = true;
 }
 
-static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
-		      bool manual)
+int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
+		    bool manual)
 {
 	struct fyai_auth_login_request *request;
 	struct fyai_event_loop *el;
@@ -2540,6 +2547,8 @@ static int auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 			 "authentication login did not complete");
 	rc = fyai_auth_login_collect(request);
 	fyai_auth_login_destroy(request);
+	if (!rc)
+		printf("auth: login succeeded\n");
 	return rc;
 
 err_destroy:
@@ -2574,13 +2583,14 @@ int fyai_auth_execute(struct fyai_ctx *ctx)
 		break;
 
 	case FYAI_AUTH_LOGOUT:
-		rc = auth_logout(ctx);
+		rc = fyai_auth_logout(ctx);
 		if (rc)
 			fyai_error(ctx, "logout failed");
 		break;
 
 	case FYAI_AUTH_LOGIN:
-		rc = auth_login(ctx, a->device_code, a->no_browser, a->manual);
+		rc = fyai_auth_login(ctx, a->device_code, a->no_browser,
+				     a->manual);
 		if (rc)
 			fyai_error(ctx, "login failed");
 		break;

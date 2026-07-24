@@ -56,6 +56,9 @@ int fyai_auth_execute(struct fyai_ctx *ctx);
 fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
 				 struct fy_generic_builder *gb, bool info);
 int fyai_auth_status(struct fyai_ctx *ctx, bool json, bool info);
+int fyai_auth_login(struct fyai_ctx *ctx, bool device_code,
+		    bool no_browser, bool manual);
+int fyai_auth_logout(struct fyai_ctx *ctx);
 /* Fetch and display the live limits for the active subscription. */
 int fyai_auth_usage(struct fyai_ctx *ctx, bool json);
 int fyai_auth_resolve(struct fyai_ctx *ctx);
