@@ -259,10 +259,12 @@ execution finishes out of order.
 
 ## MCP lifecycle
 
-MCP is context-owned and persistent for one fyai invocation. Setup calls
-`fyai_mcp_refresh()` before constructing a model request so discovered tools
-can be included in the provider catalogue. Named servers are initialized one
-at a time:
+MCP is context-owned and persistent for one fyai invocation. The interactive
+path fires a concurrent startup group in STARTING and folds discovered tools
+into the provider catalogue at the first-turn gate; the one-shot and batch
+paths keep the synchronous `fyai_mcp_refresh()` wrapper, which submits the same
+group and pumps the loop until it settles. Each server advances through its own
+startup op:
 
 ```text
 create server context
@@ -275,26 +277,22 @@ create server context
 ```
 
 An HTTP server owns one reusable curl easy handle and an optional MCP session
-ID. Every request currently calls `fyai_curl_perform()`. Idempotent
-`initialize` and `tools/list` requests retry transient failures up to three
-times with blocking `nanosleep()` backoff. A session-bound request receiving
-HTTP 404 clears the session, synchronously repeats initialization, and replays
-the original request. Cleanup performs a synchronous, best-effort HTTP DELETE
-for an active session.
+ID. Requests go through the async `jsonrpc` primitive over the shared curl
+event backend. A session-bound request receiving HTTP 404 clears the session,
+re-runs initialization, and replays the original request as a small sequence of
+async requests. Shutdown submits a best-effort HTTP DELETE for an active session
+through the awaited shutdown group.
 
-A stdio server owns a persistent child and stdin/stdout pipes. Requests write
-one newline-framed JSON document with blocking `write()` calls, then use
-`poll()` and single-byte `read()` calls until a matching response ID arrives.
-Notifications and responses for other IDs are discarded while waiting. This
-implicitly permits only one in-flight request per server. Shutdown closes the
-pipes and calls the synchronous child-termination wrapper. Its underlying
-operation escalates from EOF to SIGTERM and SIGKILL, but the wrapper enters a
-nested `run_until()`. Failure to create or drive that operation may fall back
-to a direct SIGKILL and blocking `waitpid()`.
+A stdio server owns a persistent child and stdin/stdout pipes. Requests frame
+one newline-delimited JSON document and read replies through nonblocking event
+sources, matching on response ID and discarding notifications and other IDs
+while waiting - one in-flight request per server. Shutdown closes the pipes and
+registers the async child-termination ladder (EOF -> SIGTERM -> SIGKILL) in the
+shutdown group; there is no blocking `waitpid()` fallback.
 
-MCP tool calls are excluded from parallel tool job groups and run inline
-through `fyai_mcp_call()`. A slow MCP call therefore retains the whole turn
-stack even though HTTP ultimately uses the shared curl event backend.
+MCP tool calls are excluded from parallel tool job groups and run through the
+turn's exclusive path. A call routed to a not-yet-settled server is parked on a
+poll timer (Gate 2) rather than blocking, so the pump stays live while it waits.
 
 The stdio spawn path also changes the process-wide SIGPIPE disposition. That
 must disappear during conversion: fyai owns signal policy through its context,
@@ -323,12 +321,13 @@ NEW
   -> STOPPED
 ```
 
-`FAILED` and `CANCELLED` are terminal from every active state. Discovery is an
-application startup barrier: model submission may proceed only after every
-enabled server is ready or has failed according to configuration policy.
-Servers can initialize concurrently because their sessions and transports are
-independent. Tool definitions are published in configuration order, not
-completion order.
+`FAILED` and `CANCELLED` are terminal from every active state. Startup is
+fire-and-continue rather than a barrier: servers initialize concurrently because
+their sessions and transports are independent, and the RUNNING pump starts
+immediately. The first-turn gate (`mcp/startup_wait`, default true) holds only
+the first model submission until every enabled server is READY or terminally
+FAILED; the per-call gate parks a tool call whose server has not yet settled.
+Tool definitions are published in configuration order, not completion order.
 
 ### MCP request state
 
@@ -497,12 +496,18 @@ pump (`fyai_prompt_interactive_async()`):
 STARTING -> RUNNING -> STOPPING -> DONE
 ```
 
-- **STARTING** brings the UI up first, then connects MCP and folds its
-  discovered tools into the request catalogue (`fyai_mcp_bringup()` followed by
-  `fyai_request_state_apply()`). Discovery is a startup barrier: RUNNING - and
-  therefore the first model request, which needs the tool list - is entered only
-  once bring-up completes.
-- **RUNNING** is the interactive application pump.
+- **STARTING** brings the UI up first, then fires every server's async startup
+  op (`fyai_mcp_start()`) and enters RUNNING immediately - input is live while
+  servers connect concurrently. This is fire-and-continue, not a barrier.
+- **RUNNING** is the interactive application pump. Two gates keep the tool list
+  coherent without blocking startup. Gate 1, a one-time first-turn gate, holds
+  the first model submission until `fyai_mcp_settled()` (every server READY or
+  terminally FAILED) and then folds the discovered tools into the request
+  catalogue; the config key `mcp/startup_wait` (default true) turns it off for
+  an optimistic first submit. Gate 2 parks a tool call routed to a server that
+  has not yet settled: READY admits it, a terminally FAILED server fails it
+  fast, and a still-connecting server keeps it parked until it settles or the
+  per-call budget runs out.
 - **STOPPING** drains MCP and waits for its servers to terminate
   (`fyai_mcp_cleanup()`). It is reached on every exit, including the RUNNING
   error unwind, so teardown belongs to the application rather than to
@@ -513,13 +518,11 @@ UI appears before servers connect; the one-shot and batch modes keep synchronous
 bring-up at setup time. The synchronous non-async interactive fallback connects
 MCP itself before its first turn.
 
-This is currently a synchronous skeleton: `fyai_mcp_bringup()` still blocks until
-every server has connected serially, and `fyai_mcp_cleanup()` still blocks on
-session DELETE and child reaping. The states are the seams the MCP conversion
-fills in - STARTING becomes a concurrent, pumped discovery barrier and STOPPING
-becomes an awaited shutdown group over the child-termination ladder (see the MCP
-lifecycle section and migration step 7) - without re-architecting the loop
-again.
+This is now realised, not a skeleton: STARTING fires the concurrent startup
+group (`fyai_mcp_start()`) and continues, the first-turn and per-call gates
+above keep the tool list coherent, and STOPPING drains an awaited shutdown group
+over the child-termination ladder. The connect/settle machinery is described in
+the MCP lifecycle section and migration step 7.
 
 ## Compatibility during migration
 
@@ -575,9 +578,14 @@ nested path intentionally.
 
 ### 7. Convert MCP lifecycle
 
-Introduce server, request, startup-group, and shutdown-group operations. Move
-HTTP requests off `fyai_curl_perform()`, replace stdio `poll()` with
-nonblocking event sources, and make MCP tool calls resumable turn operations.
+Completed. A shared `jsonrpc` request primitive backs both the call op and the
+per-server startup op; servers connect concurrently through a startup group
+(`fyai_mcp_start()`, fire-and-continue in STARTING) and drain through an awaited
+shutdown group in STOPPING. HTTP requests are off `fyai_curl_perform()` and
+stdio `poll()` is replaced by nonblocking event sources. The first-turn gate
+(`mcp/startup_wait`) and the per-call readiness gate keep tool calls coherent
+while servers are still connecting. Deferred to a follow-up: active mid-session
+reconnect of a dropped server.
 
 ### 8. Convert auxiliary blocking paths
 
