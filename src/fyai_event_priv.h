@@ -24,6 +24,8 @@
 #include "fyai_diag.h"
 #include "fyai_event.h"
 
+struct fyai_defer;
+
 /* Escalating child shutdown, carried inline in the source that owns it. */
 struct fyai_event_term {
 	struct fyai_event_source *timer;
@@ -75,6 +77,14 @@ struct fyai_event_loop {
 	bool has_removed;
 	int backend_fd;			/* epoll fd or kqueue fd */
 	void *backend;			/* backend-private state, may be NULL */
+
+	/* Deferred "run on the next iteration" work. The self-pipe wakes a
+	 * blocked wait; its source is registered only while items are pending,
+	 * so an idle loop counts exactly the sources the caller added. */
+	int defer_pipe[2];
+	struct fyai_defer *defer_head;
+	struct fyai_defer **defer_tail;
+	struct fyai_event_source *defer_src;
 };
 
 /* fyai_error_check() over a loop rather than a context: report and jump to the

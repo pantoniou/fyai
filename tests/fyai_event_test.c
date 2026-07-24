@@ -1183,6 +1183,196 @@ static void test_fork_child_abandons_loop(void)
 	printf("ok - forked child abandons the inherited loop\n");
 }
 
+/* Deferred "run on the next iteration" work. */
+
+struct defer_counter {
+	struct fyai_event_loop *el;
+	int fired;
+	int redefer_remaining;
+};
+
+static void dcb_count(void *userdata)
+{
+	struct defer_counter *d = userdata;
+
+	d->fired++;
+}
+
+static void dcb_redefer(void *userdata)
+{
+	struct defer_counter *d = userdata;
+
+	d->fired++;
+	if (d->redefer_remaining > 0) {
+		d->redefer_remaining--;
+		fyai_event_defer(d->el, dcb_redefer, d);
+	}
+}
+
+static void dcb_flag(void *userdata)
+{
+	volatile bool *done = userdata;
+
+	*done = true;
+}
+
+static void test_defer_coalesce(void)
+{
+	struct fyai_event_loop *el;
+	struct defer_counter a, b;
+	int rc;
+
+	memset(&a, 0, sizeof(a));
+	memset(&b, 0, sizeof(b));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	a.el = b.el = el;
+
+	/* Idle: the wakeup source does not exist yet. */
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
+
+	/* A repeated (cb, userdata) collapses; a distinct userdata is its own. */
+	rc = fyai_event_defer(el, dcb_count, &a);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_defer(el, dcb_count, &a);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_defer(el, dcb_count, &b);
+	FYAI_TCHECK(!rc);
+
+	/* One shared source carries all pending work. */
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1);
+
+	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+
+	FYAI_TCHECK(a.fired == 1);
+	FYAI_TCHECK(b.fired == 1);
+	/* Drained: the source withdrew itself. */
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - deferred work coalesces and the source is lazy\n");
+}
+
+static void test_defer_drain_once(void)
+{
+	struct fyai_event_loop *el;
+	struct defer_counter d;
+	int rc;
+
+	/* Work queued from a deferred callback waits for the next iteration, so
+	 * one that re-defers itself cannot starve I/O in a single step. */
+	memset(&d, 0, sizeof(d));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	d.el = el;
+	d.redefer_remaining = 2;
+
+	rc = fyai_event_defer(el, dcb_redefer, &d);
+	FYAI_TCHECK(!rc);
+
+	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+	FYAI_TCHECK(d.fired == 1);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1);
+
+	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+	FYAI_TCHECK(d.fired == 2);
+
+	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+	FYAI_TCHECK(d.fired == 3);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - deferred work drains one generation per step\n");
+}
+
+static void test_defer_cancel(void)
+{
+	struct fyai_event_loop *el;
+	struct defer_counter a, b;
+	int rc;
+
+	memset(&a, 0, sizeof(a));
+	memset(&b, 0, sizeof(b));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	a.el = b.el = el;
+
+	rc = fyai_event_defer(el, dcb_count, &a);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_defer(el, dcb_count, &b);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1);
+
+	/* Cancelling one leaves the other and its source. */
+	fyai_event_defer_cancel(el, dcb_count, &a);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1);
+	/* Cancelling the last withdraws the source. */
+	fyai_event_defer_cancel(el, dcb_count, &b);
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 0);
+
+	/* Nothing pending: a bounded step fires neither. */
+	rc = fyai_event_loop_step(el, 20);
+	FYAI_TCHECK(rc >= 0);
+	FYAI_TCHECK(a.fired == 0);
+	FYAI_TCHECK(b.fired == 0);
+
+	/* Cancelling absent work is a no-op. */
+	fyai_event_defer_cancel(el, dcb_count, &a);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - deferred work can be cancelled before it runs\n");
+}
+
+struct defer_nested {
+	struct fyai_event_loop *el;
+	volatile bool inner_done;
+	int outer_fired;
+	int inner_rc;
+};
+
+static enum fyai_event_action cb_defer_outer(const struct fyai_event *ev)
+{
+	struct defer_nested *n = ev->userdata;
+	int rc;
+
+	n->outer_fired++;
+	/* Queue work, then block in a nested run that knows nothing of the
+	 * queue. Only a source in the pollset can wake it. */
+	rc = fyai_event_defer(n->el, dcb_flag, (void *)&n->inner_done);
+	FYAI_TCHECK(!rc);
+	n->inner_rc = fyai_event_loop_run_until(n->el, &n->inner_done,
+						TEST_BOUND_MS);
+	return FYAIEA_STOP;
+}
+
+static void test_defer_under_nested_run(void)
+{
+	struct fyai_event_loop *el;
+	struct defer_nested n;
+	int rc;
+
+	memset(&n, 0, sizeof(n));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	n.el = el;
+
+	rc = fyai_event_add_timer(el, 1, 0, cb_defer_outer, &n, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+
+	FYAI_TCHECK(n.outer_fired == 1);
+	FYAI_TCHECK(!n.inner_rc);
+	FYAI_TCHECK(n.inner_done);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - deferred work wakes a nested run\n");
+}
+
 int main(void)
 {
 	int rc;
@@ -1216,6 +1406,10 @@ int main(void)
 	test_remove_after_nested_run();
 	test_abort();
 	test_self_remove();
+	test_defer_coalesce();
+	test_defer_drain_once();
+	test_defer_cancel();
+	test_defer_under_nested_run();
 
 	/* Nothing above should have reported; drain and prove it. */
 	fyai_diag_drain(&test_cfg.diag);

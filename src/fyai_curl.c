@@ -40,6 +40,9 @@
 #include "fyai_event.h"
 
 struct fyai_curl_sock;
+struct fyai_curl_state;
+
+static void fyai_curl_notify(void *userdata);
 
 struct fyai_curl_transfer {
 	struct fyai_curl_transfer *next;
@@ -59,7 +62,6 @@ struct fyai_curl_state {
 	struct fyai_ctx *ctx;
 	struct fyai_event_loop *el;
 	struct fyai_event_source *timer;
-	struct fyai_event_source *notify_timer;
 	struct fyai_curl_sock *socks;
 	struct fyai_curl_transfer *transfers;
 	CURLM *multi;
@@ -122,7 +124,7 @@ static void fyai_curl_transfer_finish(struct fyai_curl_transfer *transfer,
 	transfer->result = result;
 	transfer->done = true;
 	if (state)
-		(void)fyai_event_timer_rearm(state->notify_timer, 1, 0);
+		(void)fyai_event_defer(state->el, fyai_curl_notify, state);
 }
 
 static void fyai_curl_fail_all(struct fyai_curl_state *state, CURLcode result)
@@ -216,15 +218,22 @@ static enum fyai_event_action fyai_curl_on_timeout(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
-static enum fyai_event_action
-fyai_curl_on_notify(const struct fyai_event *ev)
+/* Kick curl on the next iteration; submit() must not enter curl itself. */
+static void fyai_curl_kick(void *userdata)
 {
-	struct fyai_curl_state *state;
+	struct fyai_curl_state *state = userdata;
+
+	fyai_curl_action(state, CURL_SOCKET_TIMEOUT, 0);
+}
+
+/* Fire the completion callback of every finished, not-yet-notified transfer. */
+static void fyai_curl_notify(void *userdata)
+{
+	struct fyai_curl_state *state = userdata;
 	struct fyai_curl_transfer *transfer;
 	fyai_curl_complete_fn complete;
-	void *userdata;
+	void *cb_userdata;
 
-	state = ev->userdata;
 	for (;;) {
 		for (transfer = state->transfers; transfer;
 		     transfer = transfer->next)
@@ -234,11 +243,10 @@ fyai_curl_on_notify(const struct fyai_event *ev)
 			break;
 		transfer->notified = true;
 		complete = transfer->complete;
-		userdata = transfer->userdata;
+		cb_userdata = transfer->userdata;
 		if (complete)
-			complete(transfer, userdata);
+			complete(transfer, cb_userdata);
 	}
-	return FYAIEA_CONTINUE;
 }
 
 /* Stop watching a socket and drop curl's pointer to its bookkeeping. */
@@ -350,11 +358,6 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 				  &state->timer);
 	fyai_error_check(ctx, !rc, err_multi, "could not create the curl timer");
 	fyai_event_timer_disarm(state->timer);
-	rc = fyai_event_add_timer(state->el, 0, 0, fyai_curl_on_notify, state,
-				  &state->notify_timer);
-	fyai_error_check(ctx, !rc, err_timer,
-			 "could not create the curl completion timer");
-	fyai_event_timer_disarm(state->notify_timer);
 
 	curl_multi_setopt(state->multi, CURLMOPT_SOCKETFUNCTION,
 			  fyai_curl_socket_cb);
@@ -366,8 +369,6 @@ static struct fyai_curl_state *fyai_curl_state_get(struct fyai_ctx *ctx)
 	ctx->curl_state = state;
 	return state;
 
-err_timer:
-	fyai_event_source_remove(state->timer);
 err_multi:
 	curl_multi_cleanup(state->multi);
 err_loop:
@@ -392,6 +393,9 @@ void fyai_curl_cleanup(struct fyai_ctx *ctx)
 		fyai_curl_transfer_finish(transfer, CURLE_ABORTED_BY_CALLBACK);
 		fyai_curl_transfer_unlink(transfer);
 	}
+	/* Drop deferred kick/notify still pointing at the state we are freeing. */
+	fyai_event_defer_cancel(state->el, fyai_curl_kick, state);
+	fyai_event_defer_cancel(state->el, fyai_curl_notify, state);
 	/* Tear the multi down first: it releases the sockets it still holds for
 	 * pooled connections. */
 	if (state->multi)
@@ -436,11 +440,10 @@ fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
 	/*
 	 * Never enter curl from submit(). Apart from making submission truly
 	 * asynchronous, this guarantees that a write callback can refer to the
-	 * transfer pointer returned to its owner. curl normally arms the timer
-	 * from curl_multi_add_handle(); rearming also covers implementations
-	 * that do not.
+	 * transfer pointer returned to its owner. Defer the kick to the next
+	 * loop iteration; curl_multi_add_handle() also arms its own timer.
 	 */
-	(void)fyai_event_timer_rearm(state->timer, 1, 0);
+	(void)fyai_event_defer(state->el, fyai_curl_kick, state);
 	return transfer;
 
 err_unlink:

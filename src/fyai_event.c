@@ -12,11 +12,13 @@
 #endif
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <libfyaml/libfyaml-util.h>
 
@@ -24,6 +26,13 @@
 
 /* Events dispatched per wait; a full batch simply means another pass. */
 #define FYAI_EVENT_BATCH 32
+
+/* One queued deferred callback. */
+struct fyai_defer {
+	struct fyai_defer *next;
+	fyai_event_defer_cb cb;
+	void *userdata;
+};
 
 fyai_event_ms_t fyai_event_now_ms(void)
 {
@@ -83,6 +92,26 @@ void fyai_event_pool_drain(struct fyai_ctx *ctx)
 	ctx->event_source_pool = NULL;
 }
 
+/* Drop queued deferred work and the self-pipe. The defer source is an ordinary
+ * FD source freed with the rest; only the pipe fds are ours to close. */
+static void fyai_event_defer_clear(struct fyai_event_loop *el)
+{
+	struct fyai_defer *d;
+
+	while (el->defer_head) {
+		d = el->defer_head;
+		el->defer_head = d->next;
+		free(d);
+	}
+	el->defer_tail = &el->defer_head;
+	el->defer_src = NULL;
+	if (el->defer_pipe[0] >= 0)
+		close(el->defer_pipe[0]);
+	if (el->defer_pipe[1] >= 0)
+		close(el->defer_pipe[1]);
+	el->defer_pipe[0] = el->defer_pipe[1] = -1;
+}
+
 struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
@@ -98,6 +127,8 @@ struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx)
 
 	el->ctx = ctx;
 	el->backend_fd = -1;
+	el->defer_pipe[0] = el->defer_pipe[1] = -1;
+	el->defer_tail = &el->defer_head;
 	/* The backend reported the reason; hand the loop back to the pool. */
 	if (fyai_event_backend_create(el))
 		goto err_pool;
@@ -137,6 +168,7 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 	el = ctx->el;
 	ctx->el = NULL;
 
+	fyai_event_defer_clear(el);
 	for (src = el->sources; src; src = next) {
 		next = src->next;
 		/* Helper descriptors (timerfd/signalfd/pidfd) are ours; a
@@ -169,7 +201,8 @@ void fyai_event_loop_destroy(struct fyai_event_loop *el)
 	if (!el)
 		return;
 
-	/* Disarm every surviving source before tearing the backend down. */
+	/* Disarm every surviving source before tearing the backend down. The
+	 * defer source is disarmed here, so clear its pipe only afterwards. */
 	for (src = el->sources; src; src = next) {
 		next = src->next;
 		fyai_event_backend_disarm(src);
@@ -182,6 +215,7 @@ void fyai_event_loop_destroy(struct fyai_event_loop *el)
 	}
 	el->sources = NULL;
 	el->source_count = 0;
+	fyai_event_defer_clear(el);
 
 	fyai_event_backend_destroy(el);
 
@@ -417,6 +451,152 @@ int fyai_event_fd_modify(struct fyai_event_source *src, unsigned int events)
 
 err_out:
 	return -1;
+}
+
+/* Empty the self-pipe: its bytes are only a wakeup, the queue holds the work. */
+static void fyai_event_defer_drain_pipe(struct fyai_event_loop *el)
+{
+	char buf[64];
+	ssize_t n;
+
+	do {
+		n = read(el->defer_pipe[0], buf, sizeof(buf));
+	} while (n > 0 || (n < 0 && errno == EINTR));
+}
+
+/* Wake a blocked wait. One undrained byte keeps the pipe readable, so poke
+ * only on the empty -> pending transition. */
+static void fyai_event_defer_poke(struct fyai_event_loop *el)
+{
+	char b = 0;
+	ssize_t n;
+
+	do {
+		n = write(el->defer_pipe[1], &b, 1);
+	} while (n < 0 && errno == EINTR);
+}
+
+static int fyai_event_defer_open(struct fyai_event_loop *el)
+{
+	int rc, i;
+
+	rc = pipe(el->defer_pipe);
+	fyai_event_error_check(el, !rc, err_out, "pipe: %s", strerror(errno));
+	for (i = 0; i < 2; i++) {
+		(void)fcntl(el->defer_pipe[i], F_SETFD, FD_CLOEXEC);
+		(void)fcntl(el->defer_pipe[i], F_SETFL, O_NONBLOCK);
+	}
+	return 0;
+
+err_out:
+	el->defer_pipe[0] = el->defer_pipe[1] = -1;
+	return -1;
+}
+
+static enum fyai_event_action
+fyai_event_defer_dispatch(const struct fyai_event *ev)
+{
+	struct fyai_event_loop *el = ev->loop;
+	struct fyai_defer *batch, *d, *next;
+
+	fyai_event_defer_drain_pipe(el);
+
+	/* Run only what was pending on entry. Work queued by these callbacks
+	 * re-registers the source and pokes the pipe, so it fires on the next
+	 * iteration rather than starving I/O in this one. */
+	batch = el->defer_head;
+	el->defer_head = NULL;
+	el->defer_tail = &el->defer_head;
+
+	for (d = batch; d; d = next) {
+		next = d->next;
+		d->cb(d->userdata);
+		free(d);
+	}
+
+	/* Nothing re-queued: withdraw until the next defer, so an idle loop is
+	 * not held awake by this source. */
+	if (!el->defer_head && el->defer_src) {
+		fyai_event_source_remove(el->defer_src);
+		el->defer_src = NULL;
+	}
+	return FYAIEA_CONTINUE;
+}
+
+int fyai_event_defer(struct fyai_event_loop *el, fyai_event_defer_cb cb,
+		     void *userdata)
+{
+	struct fyai_defer *d;
+	bool was_empty;
+	int rc;
+
+	if (!el)
+		return -1;
+	fyai_event_error_check(el, cb, err_out, "deferred work needs a callback");
+
+	if (el->defer_pipe[0] < 0 && fyai_event_defer_open(el))
+		goto err_out;
+
+	/* An identical pending item already covers this wakeup. */
+	for (d = el->defer_head; d; d = d->next)
+		if (d->cb == cb && d->userdata == userdata)
+			return 0;
+
+	d = calloc(1, sizeof(*d));
+	fyai_event_error_check(el, d, err_out, "out of memory");
+	d->cb = cb;
+	d->userdata = userdata;
+
+	was_empty = el->defer_head == NULL;
+	*el->defer_tail = d;
+	el->defer_tail = &d->next;
+
+	/* Register the wakeup source lazily on the empty -> pending edge. */
+	if (was_empty && !el->defer_src) {
+		rc = fyai_event_add_fd(el, el->defer_pipe[0], FYAIEV_READ,
+				       fyai_event_defer_dispatch, NULL,
+				       &el->defer_src);
+		fyai_event_error_check(el, !rc, err_dequeue,
+				 "could not register the deferred-work source");
+	}
+	if (was_empty)
+		fyai_event_defer_poke(el);
+	return 0;
+
+err_dequeue:
+	el->defer_head = NULL;
+	el->defer_tail = &el->defer_head;
+	free(d);
+err_out:
+	return -1;
+}
+
+void fyai_event_defer_cancel(struct fyai_event_loop *el,
+			     fyai_event_defer_cb cb, void *userdata)
+{
+	struct fyai_defer **pp, *d;
+
+	if (!el)
+		return;
+
+	/* Drop every match; coalescing keeps that to at most one. A callback in
+	 * flight this iteration was spliced off the queue and is not seen here. */
+	pp = &el->defer_head;
+	while ((d = *pp)) {
+		if (d->cb == cb && d->userdata == userdata) {
+			*pp = d->next;
+			free(d);
+			continue;
+		}
+		pp = &d->next;
+	}
+	el->defer_tail = pp;
+
+	/* Withdraw the wakeup source once nothing is pending. */
+	if (!el->defer_head && el->defer_src) {
+		fyai_event_source_remove(el->defer_src);
+		el->defer_src = NULL;
+	}
 }
 
 int fyai_event_add_timer(struct fyai_event_loop *el, fyai_event_ms_t first_ms,

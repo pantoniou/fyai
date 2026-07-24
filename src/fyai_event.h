@@ -106,6 +106,20 @@ int fyai_event_timer_disarm(struct fyai_event_source *src);
  * loop-aware replacement for sleep(3), which stalls the whole process. */
 int fyai_event_sleep(struct fyai_event_loop *el, fyai_event_ms_t ms);
 
+typedef void (*fyai_event_defer_cb)(void *userdata);
+
+/* Run @cb once on the next loop iteration, before the loop blocks again. A
+ * repeated (@cb, @userdata) pair already pending is coalesced. All deferred
+ * work shares one self-pipe wakeup source. */
+int fyai_event_defer(struct fyai_event_loop *el, fyai_event_defer_cb cb,
+		     void *userdata);
+
+/* Drop a pending deferred (@cb, @userdata) that has not run yet. Idempotent.
+ * An owner cancels its deferred work before it is freed. A callback already
+ * dispatching this iteration is past cancellation. */
+void fyai_event_defer_cancel(struct fyai_event_loop *el,
+			     fyai_event_defer_cb cb, void *userdata);
+
 int fyai_event_add_signal(struct fyai_event_loop *el, int signo,
 			  fyai_event_cb cb, void *userdata,
 			  struct fyai_event_source **srcp);
