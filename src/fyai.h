@@ -138,7 +138,6 @@ struct fyai_cfg {
 	bool thinking;
 	bool cache_info;
 	bool stats;
-	bool async_model_step;
 	bool stream;
 	bool wire_logging;
 	bool stream_logging;
@@ -419,7 +418,6 @@ struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
  * generic (FYGIF_DIAG indirect); when steps completed before the failure the
  * wrapped value is the partial turn, otherwise fy_invalid.
  */
-fy_generic fyai_run_model_loop(struct fyai_ctx *ctx, fy_generic turn);
 fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
 
 /* Wrap @value (possibly fy_invalid) with a diagnostic message. */

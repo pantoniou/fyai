@@ -83,8 +83,6 @@ parallel_tool_calls_prompt: >-
   Independent tool calls may be issued together in one response and will
   execute in parallel. Keep dependent or potentially conflicting tool calls
   in separate responses.
-# Compatibility escape hatch for the asynchronous model-step driver.
-async_model_step: true
 temperature: 0
 max_tool_iterations: 50
 # Output-token cap per model call. Required by the Anthropic Messages API
