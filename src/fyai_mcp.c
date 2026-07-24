@@ -62,6 +62,14 @@ struct fyai_mcp_ctx {
 	const char *protocol_version;
 	int timeout;
 	bool recovering;
+
+	/* Asynchronous teardown state, driven by fyai_mcp_cleanup(). */
+	struct fyai_curl_transfer *del_xfer;
+	struct curl_slist *del_headers;
+	struct response_buffer del_resp;
+	struct fyai_event_source *term_src;
+	bool del_done;
+	bool term_done;
 };
 
 static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
@@ -1033,42 +1041,16 @@ fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
 	return result;
 }
 
-static void mcp_delete_session(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
+static void mcp_delete_complete(struct fyai_curl_transfer *xfer, void *userdata)
 {
-	struct response_buffer response = {};
-	struct curl_slist *headers = NULL;
-	char *auth = NULL, *session = NULL, *version = NULL;
-	CURLcode rc;
+	struct fyai_mcp_ctx *mcp = userdata;
+	struct fyai_ctx *ctx = mcp->ctx;
+	CURLcode rc = fyai_curl_collect(xfer);
 	long status = 0;
 
-	if (!mcp->curl || !mcp->session_id)
-		return;
-
-	version = make_header("MCP-Protocol-Version: ", mcp->protocol_version);
-	session = make_header("Mcp-Session-Id: ", mcp->session_id);
-	if (version)
-		append_header(&headers, version);
-	if (session)
-		append_header(&headers, session);
-	if (mcp->auth_token && *mcp->auth_token) {
-		auth = make_header("Authorization: Bearer ", mcp->auth_token);
-		if (auth)
-			append_header(&headers, auth);
-	}
-	curl_easy_setopt(mcp->curl, CURLOPT_URL, mcp->endpoint);
-	curl_easy_setopt(mcp->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(mcp->curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-	/* A body-less DELETE. */
-	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDS, "");
-	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDSIZE, 0L);
-	curl_easy_setopt(mcp->curl, CURLOPT_WRITEFUNCTION, write_response);
-	curl_easy_setopt(mcp->curl, CURLOPT_WRITEDATA, &response);
-	curl_easy_setopt(mcp->curl, CURLOPT_HEADERFUNCTION, NULL);
-	curl_easy_setopt(mcp->curl, CURLOPT_HEADERDATA, NULL);
-	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT, (long)mcp->timeout);
-	rc = fyai_curl_perform(ctx, mcp->curl);
-	if (rc == CURLE_OK)
-		curl_easy_getinfo(mcp->curl, CURLINFO_RESPONSE_CODE, &status);
+	curl_easy_getinfo(mcp->curl, CURLINFO_RESPONSE_CODE, &status);
+	fyai_curl_transfer_destroy(xfer);
+	mcp->del_xfer = NULL;
 	/* Teardown failure is nonfatal; the server will time the session out. */
 	if (rc != CURLE_OK || status < 200 || status >= 300)
 		fyai_warning(ctx, "MCP %s session delete failed: %s (HTTP %ld)",
@@ -1077,12 +1059,101 @@ static void mcp_delete_session(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", "session_delete", "server", mcp->name,
 			"http_status", status, "curl_code", (long long)rc));
-	free(response.data);
-	curl_slist_free_all(headers);
-	free(auth);
-	free(session);
-	free(version);
 	mcp->session_id = NULL;
+	mcp->del_done = true;
+}
+
+/* Submit the session DELETE. Returns true if a transfer is now in flight. */
+static bool mcp_delete_session_begin(struct fyai_ctx *ctx,
+				     struct fyai_mcp_ctx *mcp)
+{
+	char *auth = NULL, *session = NULL, *version = NULL;
+
+	if (!mcp->curl || !mcp->session_id)
+		return false;
+
+	version = make_header("MCP-Protocol-Version: ", mcp->protocol_version);
+	session = make_header("Mcp-Session-Id: ", mcp->session_id);
+	if (version)
+		append_header(&mcp->del_headers, version);
+	if (session)
+		append_header(&mcp->del_headers, session);
+	if (mcp->auth_token && *mcp->auth_token) {
+		auth = make_header("Authorization: Bearer ", mcp->auth_token);
+		if (auth)
+			append_header(&mcp->del_headers, auth);
+	}
+	free(version);
+	free(session);
+	free(auth);
+	curl_easy_setopt(mcp->curl, CURLOPT_URL, mcp->endpoint);
+	curl_easy_setopt(mcp->curl, CURLOPT_HTTPHEADER, mcp->del_headers);
+	curl_easy_setopt(mcp->curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDS, "");
+	curl_easy_setopt(mcp->curl, CURLOPT_POSTFIELDSIZE, 0L);
+	curl_easy_setopt(mcp->curl, CURLOPT_WRITEFUNCTION, write_response);
+	curl_easy_setopt(mcp->curl, CURLOPT_WRITEDATA, &mcp->del_resp);
+	curl_easy_setopt(mcp->curl, CURLOPT_HEADERFUNCTION, NULL);
+	curl_easy_setopt(mcp->curl, CURLOPT_HEADERDATA, NULL);
+	curl_easy_setopt(mcp->curl, CURLOPT_TIMEOUT, (long)mcp->timeout);
+	mcp->del_xfer = fyai_curl_submit(ctx, mcp->curl, mcp_delete_complete,
+					 mcp);
+	return mcp->del_xfer != NULL;
+}
+
+static enum fyai_event_action mcp_term_complete(const struct fyai_event *ev)
+{
+	struct fyai_mcp_ctx *mcp = ev->userdata;
+
+	/* The one-shot child source is withdrawn by the event layer. */
+	mcp->term_src = NULL;
+	mcp->pid = -1;
+	mcp->term_done = true;
+	return FYAIEA_CONTINUE;
+}
+
+/* Begin a server's asynchronous teardown: session DELETE for HTTP, the
+ * SIGTERM->SIGKILL child ladder for stdio. Both are optional; whichever is not
+ * needed is marked done immediately. */
+static void mcp_teardown_begin(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
+{
+	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	int status;
+
+	mcp->del_done = !mcp_delete_session_begin(ctx, mcp);
+
+	if (mcp->stdin_fd >= 0) {
+		close(mcp->stdin_fd);
+		mcp->stdin_fd = -1;
+	}
+	if (mcp->stdout_fd >= 0) {
+		close(mcp->stdout_fd);
+		mcp->stdout_fd = -1;
+	}
+	mcp->term_done = true;
+	if (mcp->pid <= 0)
+		return;
+	if (el && !fyai_event_add_child_terminate(el, mcp->pid, 1000, 500,
+						  mcp_term_complete, mcp,
+						  &mcp->term_src)) {
+		mcp->term_done = false;
+		return;
+	}
+	/* No loop, or registration failed: reap synchronously as a fallback. */
+	kill(mcp->pid, SIGKILL);
+	while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
+		;
+	mcp->pid = -1;
+}
+
+static bool mcp_teardown_settled(struct fyai_ctx *ctx)
+{
+	struct fyai_mcp_ctx *mcp;
+
+	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
+		if (!mcp->del_done || !mcp->term_done)
+			return false;
+	return true;
 }
 
 /* Shut the server down: close its pipes so it sees EOF and leaves on its own,
@@ -1113,14 +1184,22 @@ static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	mcp->pid = -1;
 }
 
+/* Bounded deadline for the whole shutdown group, ms. */
+#define MCP_SHUTDOWN_DEADLINE_MS 5000
+
 void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 {
 	struct fyai_mcp_ctx *mcp, *next;
+	struct fyai_event_loop *el;
+	fyai_event_ms_t deadline, now;
+	int status;
 
 	if (!ctx || !ctx->mcp)
 		return;
-	for (mcp = ctx->mcp; mcp; mcp = next) {
-		next = mcp->next;
+
+	/* Cancel any in-flight startup, then fire every server's teardown so
+	 * they drain concurrently. */
+	for (mcp = ctx->mcp; mcp; mcp = mcp->next) {
 		if (mcp->startup) {
 			struct mcp_startup *su = mcp->startup;
 
@@ -1131,14 +1210,40 @@ void fyai_mcp_cleanup(struct fyai_ctx *ctx)
 			free(su);
 			mcp->startup = NULL;
 		}
-		mcp_delete_session(ctx, mcp);
+		mcp_teardown_begin(ctx, mcp);
+	}
+
+	/* Pump the shared loop until every teardown settles or the deadline. */
+	el = fyai_ctx_loop(ctx);
+	deadline = fyai_event_now_ms() + MCP_SHUTDOWN_DEADLINE_MS;
+	while (el && !mcp_teardown_settled(ctx)) {
+		now = fyai_event_now_ms();
+		if (now >= deadline)
+			break;
+		if (fyai_event_loop_step(el, deadline - now) < 0)
+			break;
+	}
+
+	for (mcp = ctx->mcp; mcp; mcp = next) {
+		next = mcp->next;
+		/* Force any teardown that did not finish in time. */
+		if (mcp->del_xfer)
+			fyai_curl_transfer_destroy(mcp->del_xfer);
+		if (mcp->term_src)
+			fyai_event_source_remove(mcp->term_src);
+		if (mcp->pid > 0) {
+			kill(mcp->pid, SIGKILL);
+			while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
+				;
+		}
 		if (ctx->cfg->mcp_logging)
 			(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 				"event", "disconnect", "server", mcp->name));
+		curl_slist_free_all(mcp->del_headers);
+		free(mcp->del_resp.data);
 		jsonrpc_conn_destroy(mcp->conn);
 		if (mcp->curl)
 			curl_easy_cleanup(mcp->curl);
-		mcp_stdio_stop(ctx, mcp);
 		free(mcp);
 	}
 	ctx->mcp = NULL;
