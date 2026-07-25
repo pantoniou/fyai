@@ -906,12 +906,42 @@ fyai_tool_job_progress(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* Handle termination in the child event loop. Ignore SIGPIPE. */
+static enum fyai_event_action fyai_tool_child_signal(const struct fyai_event *ev)
+{
+	struct fyai_ctx *ctx = ev->userdata;
+
+	if (ev->signo == SIGPIPE)
+		return FYAIEA_CONTINUE;
+	ctx->interrupt_pending = true;
+	ctx->terminate_pending = true;
+	return FYAIEA_CONTINUE;
+}
+
+static void fyai_tool_child_signals(struct fyai_ctx *ctx)
+{
+	static const int signals[] = { SIGTERM, SIGINT, SIGHUP, SIGPIPE };
+	struct fyai_event_loop *el;
+	struct fyai_event_source *src;
+	size_t i;
+	int rc;
+
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		return;
+	for (i = 0; i < ARRAY_SIZE(signals); i++) {
+		src = NULL;
+		rc = fyai_event_add_signal(el, signals[i],
+					   fyai_tool_child_signal, ctx, &src);
+		(void)rc;	/* Registration failure keeps the default action. */
+	}
+}
+
 static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 {
 	struct fyai_tool_job *job = ev->userdata;
 
-	/* One-shot: the loop retires this source as soon as we return, so drop
-	 * our reference rather than leaving it dangling for the collect path. */
+	/* The loop removes this one-shot source after the callback. */
 	job->csrc = NULL;
 	job->reaped = true;
 	job->result_ok = WIFEXITED(ev->status) && WEXITSTATUS(ev->status) == 0;
@@ -990,6 +1020,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		ctx->tool_progress_fd = progress[1];
 		ctx->ui = NULL;
 		ctx->shell_stream = NULL;
+		fyai_tool_child_signals(ctx);
 		/* Fresh builder, then internalize the arguments into it. */
 		rc = fyai_setup_transient_builder(ctx);
 		if (rc)
@@ -1257,13 +1288,15 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		result = fy_gb_internalize(ctx->transient_gb,
 				fy_value(job->buf.data ? job->buf.data : ""));
 	if (fy_generic_is_invalid(result) && job->term_signal) {
+		/* Store the result in the transient builder. */
 		if (job->native_shell)
-			result = fy_sequence(fy_mapping(
-				"stdout", "",
-				"stderr", "",
-				"outcome", fy_mapping(
-					"type", "signal",
-					"signal", job->term_signal)));
+			result = fy_gb_internalize(ctx->transient_gb,
+				fy_sequence(fy_mapping(
+					"stdout", "",
+					"stderr", "",
+					"outcome", fy_mapping(
+						"type", "signal",
+						"signal", job->term_signal))));
 		else
 			result = fy_value(ctx->transient_gb,
 					  "tool error: interrupted");
@@ -1655,13 +1688,15 @@ fyai_tool_job_group_cancelled_result(struct fyai_tool_job_group *group,
 	fy_generic call;
 
 	call = parse_json_string(group->ctx->transient_gb, entry->call_text);
+	/* Store the result in the transient builder. */
 	if (fy_equal(fy_get(call, "type"), "shell_call"))
-		return fy_sequence(fy_mapping(
-			"stdout", "",
-			"stderr", "",
-			"outcome", fy_mapping(
-				"type", "signal",
-				"signal", SIGTERM)));
+		return fy_gb_internalize(group->ctx->transient_gb,
+			fy_sequence(fy_mapping(
+				"stdout", "",
+				"stderr", "",
+				"outcome", fy_mapping(
+					"type", "signal",
+					"signal", SIGTERM))));
 	return fy_value(group->ctx->transient_gb, "tool error: interrupted");
 }
 

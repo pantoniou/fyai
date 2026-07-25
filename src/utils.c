@@ -281,6 +281,7 @@ struct shell_capture_job {
 	struct shell_capture err;
 	struct fyai_event_source *csrc;
 	struct fyai_event_source *isrc;
+	struct fyai_event_source *tsrc;
 	struct fyai_ctx *ctx;
 	bool reaped;
 	bool cancelling;
@@ -349,7 +350,9 @@ static enum fyai_event_action shell_capture_signal(const struct fyai_event *ev)
 {
 	struct shell_capture_job *job = ev->userdata;
 
-	if (job && job->ctx && ev->signo == SIGINT)
+	/* Treat SIGINT and SIGTERM as shell-capture interrupts. */
+	if (job && job->ctx &&
+	    (ev->signo == SIGINT || ev->signo == SIGTERM))
 		job->ctx->interrupt_pending = true;
 	return FYAIEA_CONTINUE;
 }
@@ -450,7 +453,9 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 			      shell_capture_readable, &job.err, &job.err.src) ||
 	    fyai_event_add_child(el, pid, shell_capture_child, &job, &job.csrc) ||
 	    fyai_event_add_signal(el, SIGINT, shell_capture_signal, &job,
-				  &job.isrc))
+				  &job.isrc) ||
+	    fyai_event_add_signal(el, SIGTERM, shell_capture_signal, &job,
+				  &job.tsrc))
 		goto out_wait;
 
 	/* Clear the pid once the loop owns the reap. */
@@ -500,6 +505,7 @@ out:
 	shell_capture_drop(&job.err.src);
 	shell_capture_drop(&job.csrc);
 	shell_capture_drop(&job.isrc);
+	shell_capture_drop(&job.tsrc);
 
 	if (pid > 0)
 		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
