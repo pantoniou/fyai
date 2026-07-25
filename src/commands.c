@@ -29,6 +29,7 @@
 
 #include "commands.h"
 #include "fyai.h"
+#include "fyai_agent.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_log.h"
@@ -1615,6 +1616,46 @@ static int configure_mcp(int argc, char **argv, struct fyai_cfg *cfg)
 static int configure_help(int argc, char **argv, struct fyai_cfg *cfg);
 static int execute_help(struct fyai_ctx *ctx);
 
+/* Run one transient sub-agent and print its report. */
+static int configure_agent(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	char *task;
+
+	/* In RPC mode, receive the task through agent/run. */
+	if (argc >= 2 && !strcmp(argv[1], "--rpc")) {
+		cfg->agent_rpc = true;
+		argc--;
+		argv++;
+	}
+
+	if (!cfg->agent_rpc && argc < 2) {
+		fyai_cfg_error(cfg, "agent: a task description is required");
+		return -1;
+	}
+	if (cfg->agent_rpc && argc >= 2) {
+		fyai_cfg_error(cfg, "agent: --rpc takes no task");
+		return -1;
+	}
+
+	if (argc >= 2) {
+		task = join_args(argc - 1, argv + 1);
+		if (!task) {
+			fyai_cfg_error(cfg, "agent: out of memory");
+			return -1;
+		}
+		cfg->prompt = fy_gb_intern_string(cfg->gb, task);
+		free(task);
+	}
+
+	/* Disable MCP before setup. A sub-agent cannot use parent MCP servers. */
+	cfg->transient = true;
+	cfg->interactive = false;
+	cfg->enable_tools = true;
+	cfg->agent_child = true;
+	cfg->mcp_enabled = false;
+	return 0;
+}
+
 static int configure_prompt(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)argc;
@@ -1978,6 +2019,26 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.default_args.tool = {
 			.name = NULL,
 			.args_json = NULL,
+		},
+	},
+	[FYAIVID_AGENT] = {
+		.id	   = FYAIVID_AGENT,
+		.name	   = "agent",
+		.configure = configure_agent,
+		.execute   = fyai_agent_verb,
+		.synopsis  = "agent [--rpc] <task...>",
+		.help	   = "Run a single autonomous sub-agent on <task> and print its\n"
+			     "final report. The agent runs its own tool-use loop with the\n"
+			     "built-in Codex-style persona and the builtins (read_file,\n"
+			     "write_file, apply_patch, shell); it cannot ask questions or\n"
+			     "spawn further agents. The session is transient - it shares the\n"
+			     "workspace but never writes the arena.\n"
+			     "With --rpc it takes no task and instead serves the\n"
+			     "sub-agent control protocol (JSON-RPC 2.0, newline\n"
+			     "framed) on stdin/stdout: initialize, agent/run,\n"
+			     "shutdown. See doc/agent-protocol.md.",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NEEDS_API_KEYS,
+		.default_args.prompt = {
 		},
 	},
 	[FYAIVID_HELP] = {

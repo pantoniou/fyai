@@ -117,6 +117,7 @@ void emit_generic_to_stdout(const char *label, fy_generic value, bool pretty);
 void emit_generic_to_stdout_anchored(const char *label, fy_generic value,
 				     bool pretty, bool auto_anchor);
 fy_generic make_tools(struct fy_generic_builder *gb);
+fy_generic make_tools_filtered(struct fyai_ctx *ctx);
 const char *emit_request_body(struct fy_generic_builder *gb,
 			      fy_generic request);
 fy_generic parse_response(struct fy_generic_builder *gb, const char *response);

@@ -175,6 +175,10 @@ struct fyai_cfg {
 	 * state write this session is ephemeral (never published to the arena).
 	 */
 	bool transient;
+	/* True in a sub-agent child. */
+	bool agent_child;
+	/* Serve the agent protocol on standard input and output. */
+	bool agent_rpc;
 	/* MCP (Model Context Protocol) server settings. */
 	bool mcp_enabled;
 	/* Wait for all MCP servers before the first model step. */
@@ -438,5 +442,11 @@ fy_generic fyai_report_diag(struct fyai_ctx *ctx, fy_generic v);
  * transient builder. Used at setup and after a mid-session /model switch.
  */
 int fyai_request_state_apply(struct fyai_ctx *ctx);
+
+/*
+ * Create the model curl handle and apply its base options. Do not reuse a curl
+ * connection cache after fork.
+ */
+int fyai_curl_easy_reinit(struct fyai_ctx *ctx);
 
 #endif

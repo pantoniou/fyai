@@ -19,10 +19,12 @@
 
 #include "fyai_markdown.h"
 #include "fyai_output.h"
+#include "fyai_tools.h"
 #include "fyai_log.h"
 #include "fyai_provider.h"
 #include "fyai_curl.h"
 #include "fyai_event.h"
+#include "fyai_agent.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
@@ -303,6 +305,13 @@ static void stream_write_content(struct stream_response *stream,
 	len = strlen(text);
 	if (fyai_output_append(ctx, text, len))
 		stream->failed = true;
+	/* Send sub-agent prose to the parent tool band through JSON-RPC. */
+	fyai_tool_progress_emit(ctx, text, len);
+	/* Record delegated prose, but do not write it to the parent terminal. */
+	if (fyai_agent_delegated(ctx)) {
+		stream->printed_content = true;
+		return;
+	}
 	if (fyai_output_renders_live(ctx)) {
 		stream->printed_content = true;
 		return;
@@ -441,6 +450,11 @@ static void stream_write_reasoning(struct stream_response *stream,
 		return;
 	if (fyai_output_reasoning_append(ctx, text))
 		stream->failed = true;
+	/* Record delegated reasoning, but do not write it to the terminal. */
+	if (fyai_agent_delegated(ctx)) {
+		stream->printed_reasoning = true;
+		return;
+	}
 	if (fyai_output_renders_live(ctx)) {
 		stream->printed_reasoning = true;
 		return;
@@ -475,6 +489,12 @@ static void stream_finish_reasoning(struct stream_response *stream)
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
 	if (fyai_output_reasoning_finish(ctx))
 		stream->failed = true;
+	/* Nothing was printed, so there is no trailer to close. */
+	if (fyai_agent_delegated(ctx)) {
+		stream->reasoning_active_rows = 0;
+		stream->printed_reasoning = false;
+		return;
+	}
 	if (fyai_output_renders_live(ctx)) {
 		stream->reasoning_active_rows = 0;
 		stream->printed_reasoning = false;

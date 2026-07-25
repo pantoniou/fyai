@@ -569,6 +569,19 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 			fprintf(mf, "**patch**\n\n");
 		return;
 	}
+	if (fy_equal(name, "agent")) {
+		gpath = fy_get(args, "name");
+		gc = fy_get(args, "description");
+		path = fy_castp(&gpath, "");
+		c = fy_castp(&gc, "");
+		if (*path)
+			fprintf(mf, "**agent** [%s] %s\n\n", path,
+				*c ? c : "delegated task");
+		else
+			fprintf(mf, "**agent** %s\n\n",
+				*c ? c : "delegated task");
+		return;
+	}
 	if (fy_equal(name, "ask_user")) {
 		fprintf(mf, "**❓ %s**\n\n",
 			fy_cast(fy_get(args, "question", ""), ""));
@@ -768,6 +781,8 @@ static int fyai_tool_preview_lines(const struct fyai_cfg *cfg,
 	if (!name)
 		return cfg->tool_preview_lines;
 	if (!strcmp(name, "read_file") || !strcmp(name, "write_file"))
+		return 0;
+	if (!strcmp(name, "agent"))
 		return 0;
 	if (!strcmp(name, "apply_patch"))
 		return -1;

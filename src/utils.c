@@ -668,6 +668,7 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 	fy_generic apply_patch_tool;
 	fy_generic shell_tool;
 	fy_generic ask_user_tool;
+	fy_generic agent_tool;
 	fy_generic tools;
 
 	read_file_tool = make_function_tool(gb,
@@ -721,11 +722,57 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 					"present as a numbered menu.")),
 			fy_sequence("question")));
 
+	agent_tool = make_function_tool(gb,
+		"agent",
+		"Delegate a self-contained sub-task to an autonomous sub-agent "
+		"that runs its own tool-use loop in an isolated process and "
+		"returns its final report. Use it for focused work you can "
+		"describe completely up front (search, analysis, a multi-step "
+		"edit); the sub-agent shares the workspace but not this "
+		"conversation. Its final report comes back as the tool result "
+		"and is not shown to the user - relay what matters.",
+		make_tool_parameters(gb,
+			fy_mapping(
+				"name", make_string_property(gb,
+					"A very short name for this sub-agent "
+					"(at most 3 words), unique within the "
+					"session. Use it to refer back to this "
+					"sub-agent and its report later."),
+				"description", make_string_property(gb,
+					"A short (3-5 word) description of the "
+					"delegated task, used as its label."),
+				"task", make_string_property(gb,
+					"Complete, self-contained instructions for "
+					"the sub-agent.")),
+			fy_sequence("name", "description", "task")));
+
 	tools = fy_sequence(read_file_tool, write_file_tool, apply_patch_tool,
-				shell_tool, ask_user_tool);
+				shell_tool, ask_user_tool, agent_tool);
 
 	tools = fy_gb_internalize(gb, tools);
 	return assert_valid_generic(tools, "Unable to make tools (utils)");
+}
+
+/* Remove ask_user and agent from a sub-agent tool set. */
+fy_generic make_tools_filtered(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = ctx->gb;
+	fy_generic tools, tool, fn, name, out;
+
+	tools = make_tools(gb);
+	if (!ctx->cfg || !ctx->cfg->agent_child)
+		return tools;
+
+	out = fy_seq_empty;
+	fy_foreach(tool, tools) {
+		fn = fy_get(tool, "function");
+		name = fy_get(fn, "name");
+		if (fy_equal(name, "agent") || fy_equal(name, "ask_user"))
+			continue;
+		out = fy_append(gb, out, tool);
+	}
+	out = fy_gb_internalize(gb, out);
+	return assert_valid_generic(out, "Unable to filter agent tools");
 }
 
 const char *emit_request_body(struct fy_generic_builder *gb, fy_generic request)

@@ -2605,10 +2605,15 @@ static void fyai_mcp_call_req_done(struct jsonrpc_request *req, void *userdata)
 			mcp_set_error(request->mcp,
 				      "tools/call failed (HTTP %ld): %.512s",
 				      status, response_body);
-		else
+		else if (status || code != CURLE_OK)
 			mcp_set_error(request->mcp,
 				      "tools/call failed: %s (HTTP %ld)",
 				      curl_easy_strerror(code), status);
+		else
+			mcp_set_error(request->mcp,
+				      "tools/call failed: %s transport error",
+				      request->mcp->transport ==
+				      MCP_TRANSPORT_HTTP ? "http" : "stdio");
 	}
 	jsonrpc_request_destroy(req);
 	request->req = NULL;

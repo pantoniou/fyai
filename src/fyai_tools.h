@@ -13,6 +13,9 @@ typedef void (*fyai_mcp_call_complete_fn)(
 		struct fyai_mcp_call_request *request, void *userdata);
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
+
+/* Send tool progress to the parent through JSON-RPC. */
+void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 				  bool *okp);
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,

@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_agent.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_curl.h"
@@ -97,6 +98,8 @@ static void fyai_print_final_response(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *text;
 
+	if (fyai_agent_delegated(ctx))
+		return;
 	text = fy_cast(fyai_response_output_text(ctx, response_doc), "");
 	if (cfg->markdown && !fyai_print_markdown(text, cfg))
 		return;
@@ -115,6 +118,8 @@ static void fyai_print_cache_info(struct fyai_ctx *ctx, fy_generic doc)
 
 	ratio = 0.0;
 
+	if (fyai_agent_delegated(ctx))
+		return;
 	usage = fyai_extract_usage(ctx, doc);
 	input_tokens = fy_get(usage, "input", 0LL);
 	cached_tokens = fy_get(usage, "cached", 0LL);
@@ -196,6 +201,8 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	const char *tool_call_id, *tool_call_output_type;
 	const char *name;
 	bool shell;
+	bool agent;
+	bool banded;
 	bool isolated_tool;
 	int rc;
 
@@ -209,6 +216,8 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	else
 		name = fy_get(tool_call, "name", "");
 	shell = fy_equal(name, "shell");
+	agent = fy_equal(name, "agent");
+	banded = shell || agent;
 	isolated_tool = fyai_output_renders_live(ctx);
 
 	/*
@@ -228,16 +237,19 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
-	if (!cfg->markdown || shell)
+	if (!cfg->markdown || banded)
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
-	if (shell && fyai_ui_active(ctx))
+	if (banded && fyai_ui_active(ctx)) {
 		fyai_ui_tool_end(ctx, tool_ok);
-	if (isolated_tool && !shell)
+		if (agent)
+			(void)fyai_ui_commit(ctx, "\n", 1);
+	}
+	if (isolated_tool && !banded)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result);
 	fyai_error_check(ctx, !rc, err_resume,
@@ -246,7 +258,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_error_check(ctx, !rc, err,
 		"could not resume output after tool call");
 
-	if (!isolated_tool && cfg->markdown && !shell)
+	if (!isolated_tool && cfg->markdown && !banded)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-result", tool_result,
@@ -1443,13 +1455,18 @@ fyai_turn_run_append_response(struct fyai_turn_run *run, fy_generic response)
 	struct fyai_ctx *ctx;
 	struct fyai_cfg *cfg;
 	fy_generic response_id;
+	fy_generic out_text;
+	const char *text;
 
 	ctx = run->ctx;
 	cfg = ctx->cfg;
 	response_id = fyai_response_id(ctx, response);
-	if (!cfg->stream)
-		(void)fyai_output_append_string(ctx,
-			fy_cast(fyai_response_output_text(ctx, response), ""));
+	if (!cfg->stream) {
+		out_text = fyai_response_output_text(ctx, response);
+		text = fy_castp(&out_text, "");
+		(void)fyai_output_append_string(ctx, text);
+		fyai_tool_progress_emit(ctx, text, strlen(text));
+	}
 	run->turn = fyai_append_assistant_response(ctx, run->turn, response);
 	fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
 			 "could not append assistant response");
@@ -1790,15 +1807,25 @@ static int fyai_mcp_bringup(struct fyai_ctx *ctx)
 	return 0;
 }
 
-/*
- * (Re)build every piece of per-session request state derived from cfg: the
- * auth header, the header list, the endpoint URL on the curl handle and the
- * tools document. It folds whatever MCP tools are already discovered
- * (fyai_mcp_tools() is empty until fyai_mcp_bringup() has run), so callers that
- * want MCP tools in the catalogue bring MCP up first. Idempotent, so a
- * mid-session /model switch just calls it again after re-resolving the model.
- * Requires an active transient builder (the tools construction goes through it).
- */
+/* Rebuild the curl handle and request state from the current configuration. */
+int fyai_curl_easy_reinit(struct fyai_ctx *ctx)
+{
+	ctx->curl = curl_easy_init();
+	if (!ctx->curl)
+		return -1;
+
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(ctx->curl, CURLOPT_NOSIGNAL, 1L);
+
+	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
+	curl_easy_setopt(ctx->curl, CURLOPT_TIMEOUT, 600L);	/* 10 minutes */
+	curl_easy_setopt(ctx->curl, CURLOPT_USERAGENT, ctx->user_agent);
+	curl_easy_setopt(ctx->curl, CURLOPT_VERBOSE, 1L);
+	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGFUNCTION, fyai_curl_debug);
+	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGDATA, ctx);
+	return 0;
+}
+
 int fyai_request_state_apply(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -1861,7 +1888,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 			break;
 		case FYAI_API_CHAT_COMPLETIONS:
 			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ?
-				make_tools(ctx->gb) : fy_seq_empty;
+				make_tools_filtered(ctx) : fy_seq_empty;
 			break;
 		case FYAI_API_MESSAGES:
 			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ?
@@ -1934,20 +1961,12 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	if (fyai_cfg_no_requests(cfg))
 		return 0;
 
-	ctx->curl = curl_easy_init();
-	if (!ctx->curl)
-		goto err;
-
 	rc = asprintf(&ctx->user_agent, "%s/%s", "fyai", VERSION);
 	if (rc == -1)
 		goto err;
 
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_TIMEOUT, 600L);	/* 10 minutes */
-	curl_easy_setopt(ctx->curl, CURLOPT_USERAGENT, ctx->user_agent);
-	curl_easy_setopt(ctx->curl, CURLOPT_VERBOSE, 1L);
-	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGFUNCTION, fyai_curl_debug);
-	curl_easy_setopt(ctx->curl, CURLOPT_DEBUGDATA, ctx);
+	if (fyai_curl_easy_reinit(ctx))
+		goto err;
 
 	(void)fyai_setup_transient_builder(ctx);
 	if (fyai_auth_resolve(ctx))
@@ -2537,7 +2556,8 @@ int fyai_prompt(struct fyai_ctx *ctx)
 	if (rc)
 		return rc;
 
-	if (cfg->stats)
+	/* Not for a delegated sub-agent: its stderr is the parent's. */
+	if (cfg->stats && !fyai_agent_delegated(ctx))
 		fyai_print_usage_stats(ctx);
 	return 0;
 }

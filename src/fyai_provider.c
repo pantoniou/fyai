@@ -340,7 +340,7 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 	response_tools = fy_seq_empty;
 
 	if (cfg->enable_tools) {
-		tools = make_tools(ctx->gb);
+		tools = make_tools_filtered(ctx);
 		fy_foreach(tool, tools) {
 			function = fy_get(tool, "function");
 			if (cfg->enable_builtin_shell && !cfg->chatgpt_auth &&
@@ -385,7 +385,7 @@ fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
 	/* Anthropic tools are flat: {name, description, input_schema} - no
 	 * "function" wrapper, and the JSON schema key is input_schema. */
 	messages_tools = fy_seq_empty;
-	tools = make_tools(ctx->gb);
+	tools = make_tools_filtered(ctx);
 	fy_foreach(tool, tools) {
 		function = fy_get(tool, "function");
 		tmp = fy_mapping("name", fy_get(function, "name", ""),

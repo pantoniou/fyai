@@ -384,6 +384,7 @@ add_executable(fyai
     src/fyai_display.c
     src/fyai_output.c
     src/fyai.c
+    src/fyai_agent.c
     src/fyai_diag.c
     src/fyai_log.c
     src/fyai_markdown.c
