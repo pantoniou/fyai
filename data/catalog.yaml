@@ -1,4 +1,78 @@
 models:
+- name: auto
+  display_name: Auto Router
+  context_window: 2000000
+  modalities:
+  - text
+  - image
+  - audio
+  - file
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - prediction
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_a
+  - top_k
+  - top_logprobs
+  - top_p
+  - web_search_options
+  open_source: false
+- name: auto-beta
+  display_name: Auto Router (Beta)
+  context_window: 2000000
+  modalities:
+  - text
+  - image
+  - audio
+  - file
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - prediction
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_a
+  - top_k
+  - top_logprobs
+  - top_p
+  - web_search_options
+  open_source: false
+- name: bodybuilder
+  display_name: Body Builder (beta)
+  context_window: 128000
+  modalities:
+  - text
+  open_source: false
 - name: claude-fable-5
   display_name: Claude Fable 5
   context_window: 1000000
@@ -20,31 +94,8 @@ models:
   open_source: false
   arena:
     rank: 1
-    elo: 1507.1920430768187
-    votes: 8819
-  agents:
-  - claude_code
-- name: claude-haiku-4-5-20251001
-  display_name: Claude Haiku 4.5
-  context_window: 200000
-  max_output_tokens: 64000
-  modalities:
-  - text
-  - image
-  - pdf
-  capabilities:
-  - batch
-  - citations
-  - context_management
-  - image_input
-  - pdf_input
-  - structured_outputs
-  - thinking
-  open_source: false
-  arena:
-    rank: 114
-    elo: 1412.0811547208177
-    votes: 106107
+    elo: 1507.2997911402522
+    votes: 14646
   agents:
   - claude_code
 - name: claude-opus-4-8
@@ -67,9 +118,30 @@ models:
   - thinking
   open_source: false
   arena:
-    rank: 17
-    elo: 1475.5891117510726
-    votes: 29233
+    rank: 22
+    elo: 1473.4318258892104
+    votes: 31619
+  agents:
+  - claude_code
+- name: claude-opus-5
+  display_name: Claude Opus 5
+  context_window: 1000000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - batch
+  - citations
+  - code_execution
+  - context_management
+  - effort
+  - image_input
+  - pdf_input
+  - structured_outputs
+  - thinking
+  open_source: false
   agents:
   - claude_code
 - name: claude-sonnet-5
@@ -93,6 +165,24 @@ models:
   open_source: false
   agents:
   - claude_code
+- name: command-a
+  display_name: 'Cohere: Command A'
+  context_window: 256000
+  max_output_tokens: 8192
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - max_tokens
+  - presence_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - top_k
+  - top_p
+  open_source: false
 - name: deepseek-v4-flash
   display_name: DeepSeek-V4-Flash
   context_window: 1000000
@@ -105,9 +195,9 @@ models:
   - tool_calls
   open_source: true
   arena:
-    rank: 72
-    elo: 1437.5531030028544
-    votes: 42807
+    rank: 76
+    elo: 1435.5025857795306
+    votes: 45050
 - name: deepseek-v4-pro
   display_name: DeepSeek-V4-Pro
   context_window: 1000000
@@ -120,9 +210,41 @@ models:
   - tool_calls
   open_source: true
   arena:
-    rank: 43
-    elo: 1457.588209720437
-    votes: 43082
+    rank: 46
+    elo: 1456.6118827029197
+    votes: 45278
+- name: free
+  display_name: Free Models Router
+  context_window: 200000
+  modalities:
+  - text
+  - image
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logprobs
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: false
+- name: fusion
+  display_name: 'OpenRouter: Fusion'
+  context_window: 1000000
+  modalities:
+  - text
+  open_source: false
 - name: gemini-3.1-flash-lite
   display_name: 'Google: Gemini 3.1 Flash Lite'
   context_window: 1048576
@@ -172,9 +294,9 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 11
-    elo: 1485.4035546382927
-    votes: 81473
+    rank: 8
+    elo: 1485.8143255817836
+    votes: 84631
 - name: gemini-3.5-flash
   display_name: 'Google: Gemini 3.5 Flash'
   context_window: 1048576
@@ -199,6 +321,159 @@ models:
   - tools
   - top_p
   open_source: false
+- name: gemini-flash-latest
+  display_name: Google Gemini Flash Latest
+  context_window: 1048576
+  max_output_tokens: 65536
+  modalities:
+  - text
+  - image
+  - video
+  - file
+  - audio
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: false
+- name: gemini-pro-latest
+  display_name: Google Gemini Pro Latest
+  context_window: 1048576
+  max_output_tokens: 65536
+  modalities:
+  - audio
+  - file
+  - image
+  - text
+  - video
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: false
+- name: gemma-4-26b-a4b-it
+  display_name: 'Google: Gemma 4 26B A4B '
+  context_window: 262144
+  max_output_tokens: 262144
+  modalities:
+  - image
+  - text
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: true
+- name: gemma-4-26b-a4b-it:free
+  display_name: 'Google: Gemma 4 26B A4B  (free)'
+  context_window: 262144
+  max_output_tokens: 32768
+  modalities:
+  - image
+  - text
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logprobs
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: true
+- name: gemma-4-31b-it
+  display_name: 'Google: Gemma 4 31B'
+  context_window: 262144
+  max_output_tokens: 262144
+  modalities:
+  - image
+  - text
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_a
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: true
+- name: gemma-4-31b-it:free
+  display_name: 'Google: Gemma 4 31B (free)'
+  context_window: 262144
+  max_output_tokens: 32768
+  modalities:
+  - image
+  - text
+  - video
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - response_format
+  - seed
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: true
 - name: glm-5.2
   display_name: 'Z.ai: GLM 5.2'
   context_window: 1048576
@@ -250,28 +525,6 @@ models:
   open_source: false
   agents:
   - codex
-- name: gpt-5.4-nano
-  display_name: 'OpenAI: GPT-5.4 Nano'
-  context_window: 400000
-  max_output_tokens: 128000
-  modalities:
-  - file
-  - image
-  - text
-  capabilities:
-  - include_reasoning
-  - max_completion_tokens
-  - max_tokens
-  - reasoning
-  - reasoning_effort
-  - response_format
-  - seed
-  - structured_outputs
-  - tool_choice
-  - tools
-  open_source: false
-  agents:
-  - codex
 - name: gpt-5.5
   display_name: 'OpenAI: GPT-5.5'
   context_window: 1050000
@@ -293,30 +546,9 @@ models:
   - tools
   open_source: false
   arena:
-    rank: 19
-    elo: 1474.8691930626142
-    votes: 44872
-  agents:
-  - codex
-- name: gpt-5.5-pro
-  display_name: 'OpenAI: GPT-5.5 Pro'
-  context_window: 1050000
-  max_output_tokens: 128000
-  modalities:
-  - file
-  - image
-  - text
-  capabilities:
-  - include_reasoning
-  - max_tokens
-  - reasoning
-  - reasoning_effort
-  - response_format
-  - seed
-  - structured_outputs
-  - tool_choice
-  - tools
-  open_source: false
+    rank: 16
+    elo: 1476.3228987771622
+    votes: 47180
   agents:
   - codex
 - name: gpt-5.6-luna
@@ -385,6 +617,28 @@ models:
   open_source: false
   agents:
   - codex
+- name: gpt-5.6-sol-pro
+  display_name: 'OpenAI: GPT-5.6 Sol Pro'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - file
+  - image
+  - text
+  capabilities:
+  - include_reasoning
+  - max_completion_tokens
+  - max_tokens
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - seed
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+  agents:
+  - codex
 - name: gpt-5.6-terra
   display_name: 'OpenAI: GPT-5.6 Terra'
   context_window: 1050000
@@ -429,6 +683,34 @@ models:
   open_source: false
   agents:
   - codex
+- name: gpt-oss-20b:free
+  display_name: 'OpenAI: gpt-oss-20b (free)'
+  context_window: 131072
+  max_output_tokens: 32768
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logprobs
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: true
+  agents:
+  - codex
 - name: grok-4.5
   display_name: 'xAI: Grok 4.5'
   context_window: 500000
@@ -455,25 +737,24 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 34
-    elo: 1465.3853128340502
-    votes: 5493
-- name: hy3
-  display_name: 'Tencent: Hy3'
-  context_window: 262144
-  max_output_tokens: 131072
+    rank: 33
+    elo: 1467.7197751874867
+    votes: 7833
+- name: grok-latest
+  display_name: 'xAI: Grok Latest'
+  context_window: 500000
   modalities:
   - text
+  - image
+  - file
   capabilities:
   - frequency_penalty
   - include_reasoning
-  - logit_bias
+  - logprobs
   - max_tokens
-  - min_p
   - presence_penalty
   - reasoning
   - reasoning_effort
-  - repetition_penalty
   - response_format
   - seed
   - stop
@@ -481,13 +762,12 @@ models:
   - temperature
   - tool_choice
   - tools
-  - top_k
+  - top_logprobs
   - top_p
   open_source: false
-- name: hy3:free
-  display_name: 'Tencent: Hy3 (free)'
-  context_window: 262144
-  max_output_tokens: 262144
+- name: hermes-4-405b
+  display_name: 'Nous: Hermes 4 405B'
+  context_window: 131072
   modalities:
   - text
   capabilities:
@@ -496,8 +776,30 @@ models:
   - max_tokens
   - presence_penalty
   - reasoning
+  - repetition_penalty
+  - response_format
+  - temperature
+  - top_k
+  - top_p
+  open_source: true
+- name: hy3
+  display_name: 'Tencent: Hy3'
+  context_window: 262144
+  max_output_tokens: 128000
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - max_completion_tokens
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
   - reasoning_effort
   - repetition_penalty
+  - response_format
   - seed
   - stop
   - structured_outputs
@@ -524,6 +826,7 @@ models:
   - reasoning
   - reasoning_effort
   - repetition_penalty
+  - seed
   - stop
   - temperature
   - tool_choice
@@ -532,38 +835,9 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 67
-    elo: 1441.2147983870057
-    votes: 1543
-- name: kimi-k2.7-code
-  display_name: 'MoonshotAI: Kimi K2.7 Code'
-  context_window: 262144
-  max_output_tokens: 262144
-  modalities:
-  - text
-  - image
-  capabilities:
-  - frequency_penalty
-  - include_reasoning
-  - logit_bias
-  - logprobs
-  - max_tokens
-  - min_p
-  - parallel_tool_calls
-  - presence_penalty
-  - reasoning
-  - repetition_penalty
-  - response_format
-  - seed
-  - stop
-  - structured_outputs
-  - temperature
-  - tool_choice
-  - tools
-  - top_k
-  - top_logprobs
-  - top_p
-  open_source: true
+    rank: 62
+    elo: 1444.9144953547102
+    votes: 5386
 - name: kimi-k3
   display_name: 'MoonshotAI: Kimi K3'
   context_window: 1048576
@@ -584,12 +858,83 @@ models:
   - tools
   open_source: true
   arena:
-    rank: 9
-    elo: 1485.7599192427713
-    votes: 3024
+    rank: 10
+    elo: 1485.6568257882025
+    votes: 3619
+- name: kimi-latest
+  display_name: MoonshotAI Kimi Latest
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - reasoning_effort
+  - response_format
+  - stop
+  - structured_outputs
+  - tool_choice
+  - tools
+  open_source: false
+- name: laguna-s-2.1
+  display_name: 'Poolside: Laguna S 2.1'
+  context_window: 1048576
+  max_output_tokens: 131072
+  modalities:
+  - text
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - stop
+  - temperature
+  - tool_choice
+  - tools
+  open_source: false
+- name: laguna-s-2.1:free
+  display_name: 'Poolside: Laguna S 2.1 (free)'
+  context_window: 262144
+  max_output_tokens: 32768
+  modalities:
+  - text
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - reasoning
+  - temperature
+  - tool_choice
+  - tools
+  open_source: false
+- name: longcat-2.0
+  display_name: 'Meituan: LongCat 2.0'
+  context_window: 1048756
+  max_output_tokens: 262144
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - seed
+  - stop
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_p
+  open_source: false
 - name: mimo-v2.5
   display_name: 'Xiaomi: MiMo-V2.5'
-  context_window: 1048576
+  context_window: 1050000
   max_output_tokens: 131072
   modalities:
   - text
@@ -618,9 +963,9 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 78
-    elo: 1432.4702435781712
-    votes: 41017
+    rank: 80
+    elo: 1432.991607718435
+    votes: 43091
 - name: minimax-m3
   display_name: 'MiniMax: MiniMax M3'
   context_window: 1048576
@@ -651,9 +996,9 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 60
-    elo: 1444.7708419838632
-    votes: 25824
+    rank: 64
+    elo: 1444.1917726007953
+    votes: 28093
 - name: mistral-small-2603
   display_name: 'Mistral: Mistral Small 4'
   context_window: 262144
@@ -701,12 +1046,12 @@ models:
   - top_p
   open_source: false
   arena:
-    rank: 6
-    elo: 1493.4521666111732
-    votes: 5729
+    rank: 5
+    elo: 1495.0588554477938
+    votes: 7927
 - name: nemotron-3-ultra-550b-a55b
   display_name: 'NVIDIA: Nemotron 3 Ultra'
-  context_window: 1000000
+  context_window: 512288
   modalities:
   - text
   capabilities:
@@ -746,6 +1091,51 @@ models:
   - tools
   - top_p
   open_source: true
+- name: pareto-code
+  display_name: Pareto Code Router
+  context_window: 2000000
+  modalities:
+  - text
+  open_source: false
+- name: phi-4
+  display_name: 'Microsoft: Phi 4'
+  context_window: 16384
+  max_output_tokens: 16384
+  modalities:
+  - text
+  capabilities:
+  - frequency_penalty
+  - logit_bias
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - top_k
+  - top_p
+  open_source: true
+- name: qwen3-8b
+  display_name: 'Qwen: Qwen3 8B'
+  context_window: 131072
+  max_output_tokens: 8192
+  modalities:
+  - text
+  capabilities:
+  - include_reasoning
+  - max_tokens
+  - presence_penalty
+  - reasoning
+  - response_format
+  - seed
+  - temperature
+  - tool_choice
+  - tools
+  - top_p
+  open_source: true
 - name: qwen3.5-397b-a17b
   display_name: 'Qwen: Qwen3.5 397B A17B'
   context_window: 262144
@@ -776,9 +1166,67 @@ models:
   - top_p
   open_source: true
   arena:
-    rank: 66
-    elo: 1441.5243260790949
-    votes: 56154
+    rank: 67
+    elo: 1442.1541612191431
+    votes: 58157
+- name: qwen3.6-27b
+  display_name: 'Qwen: Qwen3.6 27B'
+  context_window: 262144
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: true
+- name: qwen3.6-35b-a3b
+  display_name: 'Qwen: Qwen3.6 35B A3B'
+  context_window: 262144
+  max_output_tokens: 262144
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - frequency_penalty
+  - include_reasoning
+  - logit_bias
+  - logprobs
+  - max_tokens
+  - min_p
+  - presence_penalty
+  - reasoning
+  - repetition_penalty
+  - response_format
+  - seed
+  - stop
+  - structured_outputs
+  - temperature
+  - tool_choice
+  - tools
+  - top_k
+  - top_logprobs
+  - top_p
+  open_source: true
 providers:
 - name: anthropic
   root_url: https://api.anthropic.com
@@ -793,17 +1241,6 @@ providers:
     - text_editor
     - computer_use
   models:
-  - canonical_id: claude-opus-4-8
-    provider_model_id: claude-opus-4-8
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 5.0
-      output: 25.0
-      extra:
-        cache_write_5m: 6.25
-        cache_write_1h: 10.0
-        cache_read: 0.5
   - canonical_id: claude-sonnet-5
     provider_model_id: claude-sonnet-5
     pricing:
@@ -815,17 +1252,28 @@ providers:
         cache_write_5m: 2.5
         cache_write_1h: 4.0
         cache_read: 0.2
-  - canonical_id: claude-haiku-4-5-20251001
-    provider_model_id: claude-haiku-4-5-20251001
+  - canonical_id: claude-opus-4-8
+    provider_model_id: claude-opus-4-8
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 5.0
+      input: 5.0
+      output: 25.0
       extra:
-        cache_write_5m: 1.25
-        cache_write_1h: 2.0
-        cache_read: 0.1
+        cache_write_5m: 6.25
+        cache_write_1h: 10.0
+        cache_read: 0.5
+  - canonical_id: claude-opus-5
+    provider_model_id: claude-opus-5
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 5.0
+      output: 25.0
+      extra:
+        cache_write_5m: 6.25
+        cache_write_1h: 10.0
+        cache_read: 0.5
   - canonical_id: claude-fable-5
     provider_model_id: claude-fable-5
     pricing:
@@ -929,15 +1377,13 @@ providers:
     local_tools:
     - function_calling
   models:
-  - canonical_id: gpt-5.4-nano
-    provider_model_id: gpt-5.4-nano
+  - canonical_id: gpt-oss-20b:free
+    provider_model_id: gpt-oss-20b:free
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.2
-      output: 1.25
-      extra:
-        cache_read: 0.02
+      input: 0.0
+      output: 0.0
   - canonical_id: gpt-5.4-mini
     provider_model_id: gpt-5.4-mini
     pricing:
@@ -956,42 +1402,6 @@ providers:
       output: 30.0
       extra:
         cache_read: 0.5
-  - canonical_id: gpt-5.5-pro
-    provider_model_id: gpt-5.5-pro
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 30.0
-      output: 180.0
-  - canonical_id: gpt-5.6-sol
-    provider_model_id: gpt-5.6-sol
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 5.0
-      output: 30.0
-      extra:
-        cache_read: 0.5
-  - canonical_id: gpt-5.6-terra
-    provider_model_id: gpt-5.6-terra
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 2.5
-      output: 15.0
-      extra:
-        cache_read: 0.25
-  - canonical_id: gpt-5.6-terra-pro
-    provider_model_id: gpt-5.6-terra-pro
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 2.5
-      output: 15.0
-      extra:
-        cache_read: 0.25
-        cache_write: 3.125
-        web_search: 10000.0
   - canonical_id: gpt-5.6-luna
     provider_model_id: gpt-5.6-luna
     pricing:
@@ -1012,6 +1422,46 @@ providers:
         cache_read: 0.1
         cache_write: 1.25
         web_search: 10000.0
+  - canonical_id: gpt-5.6-terra
+    provider_model_id: gpt-5.6-terra
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.5
+      output: 15.0
+      extra:
+        cache_read: 0.25
+  - canonical_id: gpt-5.6-terra-pro
+    provider_model_id: gpt-5.6-terra-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.5
+      output: 15.0
+      extra:
+        cache_read: 0.25
+        cache_write: 3.125
+        web_search: 10000.0
+  - canonical_id: gpt-5.6-sol
+    provider_model_id: gpt-5.6-sol
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 5.0
+      output: 30.0
+      extra:
+        cache_read: 0.5
+  - canonical_id: gpt-5.6-sol-pro
+    provider_model_id: gpt-5.6-sol-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 5.0
+      output: 30.0
+      extra:
+        cache_read: 0.5
+        cache_write: 6.25
+        web_search: 10000.0
 - name: openrouter
   root_url: https://openrouter.ai
   endpoints:
@@ -1022,74 +1472,95 @@ providers:
     local_tools:
     - function_calling
   models:
-  - canonical_id: glm-5.2
-    provider_model_id: z-ai/glm-5.2
+  - canonical_id: command-a
+    provider_model_id: cohere/command-a
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.9618
-      output: 3.0228
+      input: 2.5
+      output: 10.0
+  - canonical_id: gemini-flash-latest
+    provider_model_id: ~google/gemini-flash-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.5
+      output: 7.5
       extra:
-        cache_read: 0.17862
-  - canonical_id: qwen3.5-397b-a17b
-    provider_model_id: qwen/qwen3.5-397b-a17b
+        cache_read: 0.15
+        cache_write: 0.083333
+        web_search: 14000.0
+        reasoning: 7.5
+        image: 1.5
+  - canonical_id: gemini-pro-latest
+    provider_model_id: ~google/gemini-pro-latest
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.39
-      output: 2.34
-  - canonical_id: mistral-small-2603
-    provider_model_id: mistralai/mistral-small-2603
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.15
-      output: 0.6
+      input: 2.0
+      output: 12.0
       extra:
-        cache_read: 0.015
-  - canonical_id: kimi-k2.7-code
-    provider_model_id: moonshotai/kimi-k2.7-code
+        cache_read: 0.2
+        cache_write: 0.375
+        web_search: 14000.0
+        reasoning: 12.0
+        image: 2.0
+  - canonical_id: gemma-4-26b-a4b-it
+    provider_model_id: google/gemma-4-26b-a4b-it
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.85
-      output: 3.8
-      extra:
-        cache_read: 0.17
-  - canonical_id: kimi-k3
-    provider_model_id: moonshotai/kimi-k3
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 3.0
-      output: 15.0
-      extra:
-        cache_read: 0.3
-  - canonical_id: hy3
-    provider_model_id: tencent/hy3
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.2
-      output: 0.8
+      input: 0.12
+      output: 0.35
       extra:
         cache_read: 0.05
-  - canonical_id: hy3:free
-    provider_model_id: tencent/hy3:free
+  - canonical_id: gemma-4-26b-a4b-it:free
+    provider_model_id: google/gemma-4-26b-a4b-it:free
     pricing:
       currency: USD
       unit: per_million_tokens
       input: 0.0
       output: 0.0
-  - canonical_id: mimo-v2.5
-    provider_model_id: xiaomi/mimo-v2.5
+  - canonical_id: gemma-4-31b-it
+    provider_model_id: google/gemma-4-31b-it
     pricing:
       currency: USD
       unit: per_million_tokens
       input: 0.14
-      output: 0.28
+      output: 0.4
+  - canonical_id: gemma-4-31b-it:free
+    provider_model_id: google/gemma-4-31b-it:free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+  - canonical_id: longcat-2.0
+    provider_model_id: meituan/longcat-2.0
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.3
+      output: 1.2
       extra:
-        cache_read: 0.0028
+        cache_read: 0.006
+  - canonical_id: muse-spark-1.1
+    provider_model_id: meta/muse-spark-1.1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.25
+      output: 4.25
+      extra:
+        cache_read: 0.15
+        web_search: 2500.0
+  - canonical_id: phi-4
+    provider_model_id: microsoft/phi-4
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.07
+      output: 0.14
   - canonical_id: minimax-m3
     provider_model_id: minimax/minimax-m3
     pricing:
@@ -1099,6 +1570,40 @@ providers:
       output: 1.2
       extra:
         cache_read: 0.06
+  - canonical_id: mistral-small-2603
+    provider_model_id: mistralai/mistral-small-2603
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.15
+      output: 0.6
+      extra:
+        cache_read: 0.015
+  - canonical_id: kimi-k3
+    provider_model_id: moonshotai/kimi-k3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 3.0
+      output: 15.0
+      extra:
+        cache_read: 0.3
+  - canonical_id: kimi-latest
+    provider_model_id: ~moonshotai/kimi-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 3.0
+      output: 15.0
+      extra:
+        cache_read: 0.3
+  - canonical_id: hermes-4-405b
+    provider_model_id: nousresearch/hermes-4-405b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.0
+      output: 3.0
   - canonical_id: nemotron-3-ultra-550b-a55b
     provider_model_id: nvidia/nemotron-3-ultra-550b-a55b
     pricing:
@@ -1115,6 +1620,76 @@ providers:
       unit: per_million_tokens
       input: 0.0
       output: 0.0
+  - canonical_id: auto
+    provider_model_id: openrouter/auto
+  - canonical_id: auto-beta
+    provider_model_id: openrouter/auto-beta
+  - canonical_id: bodybuilder
+    provider_model_id: openrouter/bodybuilder
+  - canonical_id: free
+    provider_model_id: openrouter/free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+  - canonical_id: fusion
+    provider_model_id: openrouter/fusion
+  - canonical_id: pareto-code
+    provider_model_id: openrouter/pareto-code
+  - canonical_id: laguna-s-2.1
+    provider_model_id: poolside/laguna-s-2.1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.2
+      extra:
+        cache_read: 0.01
+  - canonical_id: laguna-s-2.1:free
+    provider_model_id: poolside/laguna-s-2.1:free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+  - canonical_id: qwen3.5-397b-a17b
+    provider_model_id: qwen/qwen3.5-397b-a17b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.39
+      output: 2.34
+  - canonical_id: qwen3.6-27b
+    provider_model_id: qwen/qwen3.6-27b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.289
+      output: 2.4
+  - canonical_id: qwen3.6-35b-a3b
+    provider_model_id: qwen/qwen3.6-35b-a3b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.14
+      output: 1.0
+  - canonical_id: qwen3-8b
+    provider_model_id: qwen/qwen3-8b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.117
+      output: 0.455
+  - canonical_id: hy3
+    provider_model_id: tencent/hy3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.132
+      output: 0.528
+      extra:
+        cache_read: 0.033
   - canonical_id: inkling
     provider_model_id: thinkingmachines/inkling
     pricing:
@@ -1124,16 +1699,6 @@ providers:
       output: 4.05
       extra:
         cache_read: 0.17
-  - canonical_id: muse-spark-1.1
-    provider_model_id: meta/muse-spark-1.1
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 1.25
-      output: 4.25
-      extra:
-        cache_read: 0.15
-        web_search: 2500.0
   - canonical_id: grok-4.5
     provider_model_id: x-ai/grok-4.5
     pricing:
@@ -1144,6 +1709,34 @@ providers:
       extra:
         cache_read: 0.3
         web_search: 5000.0
+  - canonical_id: grok-latest
+    provider_model_id: ~x-ai/grok-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 6.0
+      extra:
+        cache_read: 0.3
+        web_search: 5000.0
+  - canonical_id: mimo-v2.5
+    provider_model_id: xiaomi/mimo-v2.5
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.14
+      output: 0.28
+      extra:
+        cache_read: 0.0028
+  - canonical_id: glm-5.2
+    provider_model_id: z-ai/glm-5.2
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.721
+      output: 2.266
+      extra:
+        cache_read: 0.1339
 agents:
 - name: claude_code
   developer: Anthropic
