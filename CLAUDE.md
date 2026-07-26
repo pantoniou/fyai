@@ -98,6 +98,11 @@ accept null to paper over an emitter that drops the quotes.
   head reset. `/compact`
   makes one tools-off summary call and restarts the chain from the summary,
   keeping the old head under turn metadata `compacted_from`.
+- `src/fyai_agent.c` — sub-agent execution. The `agent` verb and tool use
+  `fyai_agent_run()`. It owns the persona, restricted tools, conversation, curl
+  handle, and output suppression. `fyai agent --rpc` services `initialize`,
+  `agent/run`, and `shutdown` on standard input and output. A delegated agent
+  records its output but does not print it.
 - `src/fyai_event*.c` — the context-owned portable event loop. Linux uses
   epoll/signalfd/timerfd/pidfd and BSD/macOS use kqueue. fyai owns its signals;
   active operations observe interrupt/termination through loop callbacks, not

@@ -135,7 +135,25 @@ The \`reasoning.effort\` and \`reasoning.summary\` configuration values are samp
 
 The tool surface is \`read_file\`, structured file writing/patching, \`shell\`, and \`ask_user\`. Tool calls are represented distinctly from assistant text so they can be replayed and rendered. \`tool\` runs one named tool without a model call.
 
-The \`sandbox\` configuration enables Landlock confinement for shell tool subprocesses on Linux. It supports project-relative and external allow/deny grants plus optional TCP-port restrictions. The \`.fyai\` arena is always denied to sandboxed tools. Landlock is best-effort on unsupported platforms; the configured approval/policy behavior remains the portable control plane.
+The \`sandbox\` configuration enables Landlock confinement for shell tool subprocesses on Linux. (See §7.1 for sub-agents.) It supports project-relative and external allow/deny grants plus optional TCP-port restrictions. The \`.fyai\` arena is always denied to sandboxed tools. Landlock is best-effort on unsupported platforms; the configured approval/policy behavior remains the portable control plane.
+
+### 7.1 Sub-agents
+
+A sub-agent is a transient child process that runs one tool-use loop. The child
+abandons the parent event loop and starts a new conversation. It uses the
+built-in agent persona and all built-in tools except `ask_user` and `agent`.
+It shares the workspace, but it does not share the parent conversation or write
+the arena.
+
+The `agent` verb and tool use the same implementation. `fyai agent <task>`
+prints the final report. The tool returns the report to the calling model.
+
+A delegated sub-agent does not write normal output to the parent terminal. Its
+work band shows its name and description. The `name` is a short handle. The
+`description` identifies the task. The child report is the tool result.
+
+Sub-agents in one assistant message run concurrently in separate child
+processes. A sub-agent cannot start another sub-agent.
 
 Secrets are never persisted as raw YAML values. Wire logging can redact API keys, and \`whitewash_api_keys\` defaults to enabled.
 
