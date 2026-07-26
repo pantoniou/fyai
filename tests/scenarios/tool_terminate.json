@@ -1,0 +1,58 @@
+{
+ "steps": [
+  {
+   "response": {
+    "id": "r1",
+    "object": "response",
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "shell_call",
+      "id": "s1",
+      "call_id": "c1",
+      "status": "completed",
+      "action": {
+       "type": "exec",
+       "commands": [
+        "sh -c 'trap \"\" TERM; while :; do sleep 1; done' fyai-term-stubborn & sh -c 'sleep 120' fyai-term-polite & echo TOOL-RUNNING; wait"
+       ],
+       "max_output_length": 65536
+      }
+     }
+    ],
+    "usage": {
+     "input_tokens": 1,
+     "output_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  },
+  {
+   "response": {
+    "id": "r2",
+    "object": "response",
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "message",
+      "id": "m2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "never reached."
+       }
+      ]
+     }
+    ],
+    "usage": {
+     "input_tokens": 1,
+     "output_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  }
+ ]
+}

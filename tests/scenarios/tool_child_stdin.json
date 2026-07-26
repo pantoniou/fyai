@@ -1,0 +1,58 @@
+{
+ "steps": [
+  {
+   "response": {
+    "id": "r1",
+    "object": "response",
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "shell_call",
+      "id": "s1",
+      "call_id": "c1",
+      "status": "completed",
+      "action": {
+       "type": "exec",
+       "commands": [
+        "if [ -t 0 ]; then echo STDIN=tty; elif IFS= read -r line; then echo STDIN=data; else echo STDIN=eof; fi; if (exec 3<>/dev/tty) 2>/dev/null; then echo CTTY=yes; else echo CTTY=no; fi"
+       ],
+       "max_output_length": 65536
+      }
+     }
+    ],
+    "usage": {
+     "input_tokens": 1,
+     "output_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  },
+  {
+   "response": {
+    "id": "r2",
+    "object": "response",
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "message",
+      "id": "m2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "stdin probe done."
+       }
+      ]
+     }
+    ],
+    "usage": {
+     "input_tokens": 1,
+     "output_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  }
+ ]
+}

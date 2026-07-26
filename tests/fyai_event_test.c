@@ -368,6 +368,44 @@ static void test_timer_rearm_in_callback(void)
 	printf("ok - one-shot timer re-armed from its own callback\n");
 }
 
+/* Rearm with a repeat and then stop rearming: the source must keep firing. */
+static enum fyai_event_action cb_rearm_heal(const struct fyai_event *ev)
+{
+	struct counter *c = ev->userdata;
+	int rc;
+
+	c->fired++;
+	if (c->fired >= 3)
+		return FYAIEA_STOP;
+	if (c->fired > 1)	/* stop rearming; only the repeat can carry it */
+		return FYAIEA_CONTINUE;
+
+	rc = fyai_event_timer_rearm(ev->src, 1, 1);
+	FYAI_TCHECK(!rc);
+	return FYAIEA_CONTINUE;
+}
+
+/* Verify that the repeat interval remains after a callback rearms the timer. */
+static void test_timer_rearm_keeps_interval(void)
+{
+	struct fyai_event_loop *el;
+	struct counter c;
+	int rc;
+
+	memset(&c, 0, sizeof(c));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+
+	rc = fyai_event_add_timer(el, 1, 0, cb_rearm_heal, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 3);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - a re-armed timer keeps its repeat as a safety net\n");
+}
+
 static void test_timer_order(void)
 {
 	struct fyai_event_loop *el;
@@ -893,6 +931,49 @@ static void test_signal(void)
 	printf("ok - signal delivery and disposition restore\n");
 }
 
+/* Remove nested signal sources in an order that is not LIFO. */
+static void test_signal_nested_teardown(void)
+{
+	struct fyai_event_loop *el;
+	struct fyai_event_source *outer = NULL, *inner = NULL;
+	struct counter c1, c2;
+	sigset_t mask_before, mask_after;
+	int rc;
+
+	memset(&c1, 0, sizeof(c1));
+	memset(&c2, 0, sizeof(c2));
+	rc = sigprocmask(SIG_SETMASK, NULL, &mask_before);
+	FYAI_TCHECK(!rc);
+
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_signal(el, SIGUSR1, cb_signal, &c1, &outer);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_signal(el, SIGUSR1, cb_signal, &c2, &inner);
+	FYAI_TCHECK(!rc);
+
+	/* Oldest first: not the LIFO order the old code assumed. */
+	fyai_event_source_remove(outer);
+
+	/* The surviving source must still see the signal. */
+	rc = kill(getpid(), SIGUSR1);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c2.fired == 1);
+	FYAI_TCHECK(c2.signo == SIGUSR1);
+
+	/* And the last one out restores the process state. */
+	fyai_event_source_remove(inner);
+	rc = sigprocmask(SIG_SETMASK, NULL, &mask_after);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(sigismember(&mask_after, SIGUSR1) ==
+		    sigismember(&mask_before, SIGUSR1));
+
+	fyai_event_loop_destroy(el);
+	printf("ok - sources sharing a signal tear down in any order\n");
+}
+
 struct nested {
 	struct fyai_event_loop *el;
 	struct counter inner;
@@ -1002,6 +1083,199 @@ static void test_abort(void)
 
 	fyai_event_loop_destroy(el);
 	printf("ok - abort propagates\n");
+}
+
+
+/* Test the acknowledged and expired states of the Ctrl-C watchdog. */
+#define TEST_WATCHDOG_MS 200
+
+static void test_interrupt_watchdog_acked(void)
+{
+	struct fyai_event_loop *el;
+	int rc;
+
+	el = fyai_ctx_loop(&test_ctx);
+	FYAI_TCHECK(el);
+	rc = fyai_event_interrupt_open(&test_ctx, TEST_WATCHDOG_MS);
+	FYAI_TCHECK(!rc);
+
+	test_ctx.interrupt_pending = 0;
+	rc = kill(getpid(), SIGINT);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(test_ctx.interrupt_pending);
+
+	/* The signal occurs before the wait. The wake pipe must end the wait. */
+	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+	FYAI_TCHECK(rc == 1);
+
+	/* A live loop acknowledges well inside the budget. */
+	fyai_event_interrupt_ack(&test_ctx);
+	usleep(TEST_WATCHDOG_MS * 3000);
+	FYAI_TCHECK(!fyai_event_interrupt_escalated());
+
+	/* A second SIGINT must use the handler. */
+	test_ctx.interrupt_pending = 0;
+	rc = kill(getpid(), SIGINT);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(test_ctx.interrupt_pending);
+	fyai_event_interrupt_ack(&test_ctx);
+
+	fyai_ctx_loop_abandon(&test_ctx);
+	printf("ok - an acknowledged interrupt stands the watchdog down\n");
+}
+
+static void test_interrupt_watchdog_escalates(void)
+{
+	int status;
+	pid_t pid, w;
+
+	pid = fork();
+	FYAI_TCHECK(pid >= 0);
+	if (!pid) {
+		struct fyai_ctx child_ctx = { .cfg = &test_cfg };
+
+		if (!fyai_ctx_loop(&child_ctx) ||
+		    fyai_event_interrupt_open(&child_ctx, TEST_WATCHDOG_MS))
+			_exit(70);
+
+		/* Do not acknowledge this interrupt. */
+		kill(getpid(), SIGINT);
+		if (!child_ctx.interrupt_pending)
+			_exit(71);
+		usleep(TEST_WATCHDOG_MS * 4000);
+		if (!fyai_event_interrupt_escalated())
+			_exit(72);
+
+		/* The watchdog restored the default SIGINT action. */
+		kill(getpid(), SIGINT);
+		_exit(73);
+	}
+
+	do {
+		w = waitpid(pid, &status, 0);
+	} while (w < 0 && errno == EINTR);
+	FYAI_TCHECK(w == pid);
+	FYAI_TCHECK(WIFSIGNALED(status));
+	FYAI_TCHECK(WTERMSIG(status) == SIGINT);
+
+	printf("ok - an unacknowledged interrupt escalates to a hard kill\n");
+}
+
+
+/* Verify that the state dump contains the event-loop state. */
+static void test_state_dump(void)
+{
+	struct fyai_event_loop *el;
+	struct counter c;
+	char buf[4096];
+	ssize_t len;
+	int p[2], q[2];
+	int rc;
+
+	memset(&c, 0, sizeof(c));
+	rc = pipe(p);			/* the dump target */
+	FYAI_TCHECK(!rc);
+	rc = pipe(q);			/* something to watch */
+	FYAI_TCHECK(!rc);
+
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	rc = fyai_event_add_timer(el, 50, 10, cb_count, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_fd(el, q[0], FYAIEV_READ, cb_count, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_signal(el, SIGUSR1, cb_count, &c, NULL);
+	FYAI_TCHECK(!rc);
+
+	/* An earlier case left this raised; the dump reports it faithfully. */
+	test_ctx.interrupt_pending = 0;
+
+	fyai_event_dump_to_fd(el, &test_ctx, p[1]);
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+
+	FYAI_TCHECK(strstr(buf, "fyai event loop dump"));
+	FYAI_TCHECK(strstr(buf, "sources=3"));
+	FYAI_TCHECK(strstr(buf, "dispatch_depth=0"));
+	FYAI_TCHECK(strstr(buf, "interrupt_pending=0"));
+	/* One line per source, each naming its kind. */
+	FYAI_TCHECK(strstr(buf, " timer "));
+	FYAI_TCHECK(strstr(buf, " signal "));
+	FYAI_TCHECK(strstr(buf, " fd "));
+	/* The two fields that identify a stuck loop. */
+	FYAI_TCHECK(strstr(buf, "in_ms="));
+	FYAI_TCHECK(strstr(buf, "interval_ms=10"));
+	FYAI_TCHECK(strstr(buf, "--- end ---"));
+	/* A pipe is not a raw terminal: no CRs, so a redirected dump diffs. */
+	FYAI_TCHECK(!strchr(buf, '\r'));
+
+	fyai_event_loop_destroy(el);
+
+	/* A missing loop must still produce a dump. */
+	fyai_event_dump_to_fd(NULL, &test_ctx, p[1]);
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+	FYAI_TCHECK(strstr(buf, "no event loop"));
+
+	/* A closed target is dropped, not fatal. */
+	close(p[0]);
+	close(p[1]);
+	fyai_event_dump_to_fd(NULL, &test_ctx, -1);
+
+	close(q[0]);
+	close(q[1]);
+	printf("ok - the state dump reports the loop\n");
+}
+
+/* Preserve ready events when a callback stops dispatch of the current batch. */
+static void test_stop_preserves_batch(void)
+{
+	struct fyai_event_loop *el;
+	struct counter early, timer, sig;
+	sigset_t block, before;
+	int rc;
+
+	memset(&early, 0, sizeof(early));
+	memset(&timer, 0, sizeof(timer));
+	memset(&sig, 0, sizeof(sig));
+
+	sigemptyset(&block);
+	sigaddset(&block, SIGUSR2);
+	rc = sigprocmask(SIG_BLOCK, &block, &before);
+	FYAI_TCHECK(!rc);
+
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+
+	/* All three are ready before the first wait, so they arrive in one
+	 * batch; the stopper is earliest, so it is dispatched first. */
+	rc = fyai_event_add_timer(el, 1, 0, cb_stop, &early, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_timer(el, 2, 0, cb_count, &timer, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_add_signal(el, SIGUSR2, cb_count, &sig, NULL);
+	FYAI_TCHECK(!rc);
+
+	rc = kill(getpid(), SIGUSR2);
+	FYAI_TCHECK(!rc);
+	usleep(20000);
+
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(early.fired == 1);
+
+	/* Give the loop every chance to redeliver what it held back. */
+	rc = fyai_event_loop_run_until(el, NULL, 200);
+	FYAI_TCHECK(!rc);
+
+	FYAI_TCHECK(timer.fired == 1);
+	FYAI_TCHECK(sig.fired == 1);
+
+	fyai_event_loop_destroy(el);
+	(void)sigprocmask(SIG_SETMASK, &before, NULL);
+	printf("ok - a stopped batch does not drop drained events\n");
 }
 
 static enum fyai_event_action cb_self_remove(const struct fyai_event *ev)
@@ -1391,6 +1665,7 @@ int main(void)
 	test_timer_oneshot();
 	test_timer_repeating();
 	test_timer_rearm_in_callback();
+	test_timer_rearm_keeps_interval();
 	test_timer_order();
 	test_fd_read_eof();
 	test_fd_write();
@@ -1402,9 +1677,14 @@ int main(void)
 	test_child_terminate_sigkill();
 	test_child_terminate_concurrent();
 	test_signal();
+	test_signal_nested_teardown();
+	test_interrupt_watchdog_acked();
+	test_interrupt_watchdog_escalates();
+	test_state_dump();
 	test_nested_run();
 	test_remove_after_nested_run();
 	test_abort();
+	test_stop_preserves_batch();
 	test_self_remove();
 	test_defer_coalesce();
 	test_defer_drain_once();

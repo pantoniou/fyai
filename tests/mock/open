@@ -1,0 +1,3 @@
+#!/bin/sh
+# macOS browser surrogate for hermetic OAuth tests.
+exec "$(dirname "$0")/xdg-open" "$@"

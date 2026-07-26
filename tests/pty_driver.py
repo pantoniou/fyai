@@ -80,6 +80,9 @@ def main():
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     pid = os.fork()
     if pid == 0:
+        # Create a controlling terminal with a foreground process group.
+        os.setsid()
+        fcntl.ioctl(child, termios.TIOCSCTTY, 0)
         os.dup2(child, 0)
         os.dup2(child, 1)
         os.dup2(child, 2)
