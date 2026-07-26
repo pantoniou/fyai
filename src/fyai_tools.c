@@ -742,6 +742,30 @@ static int fyai_tool_child_fds(int result_fd, int progress_fd)
 			goto err;
 		progress_moved = true;
 	}
+	/*
+	 * Take the terminal away from the child. Two distinct hazards, both
+	 * observed as a parent hang:
+	 *
+	 *  - O_NONBLOCK is a property of the open file description, which fork
+	 *    shares. A grandchild that clears it on stdin - plenty of programs
+	 *    do - turns the *parent's* terminal blocking, and the parent's next
+	 *    read of it never returns.
+	 *  - The child runs in its own process group, so reading the controlling
+	 *    terminal earns it SIGTTIN and stops it dead, with the tool half
+	 *    done and nothing to say why.
+	 *
+	 * A tool has no business on the parent's terminal either way; ask_user
+	 * prompts from the parent. /dev/null gives a clean EOF instead.
+	 */
+	rc = open("/dev/null", O_RDONLY);
+	if (rc >= 0) {
+		if (rc != STDIN_FILENO) {
+			(void)dup2(rc, STDIN_FILENO);
+			close(rc);
+		}
+	} else {
+		close(STDIN_FILENO);
+	}
 #if defined(__linux__) && defined(SYS_close_range)
 	rc = syscall(SYS_close_range, 5U, ~0U, 0U);
 	if (!rc)
@@ -791,6 +815,7 @@ err:
  * outlives the job, so a source left behind would point at freed storage.
  */
 struct fyai_tool_job {
+	struct fyai_ctx *ctx;		/* the loop the job's sources live on */
 	pid_t pid;
 	int rfd;
 	int pfd;
@@ -809,6 +834,7 @@ struct fyai_tool_job {
 	bool done;
 	bool json_result;
 	bool native_shell;
+	bool terminating;
 	int term_signal;
 	struct fyai_tool_job_group *group;
 };
@@ -920,7 +946,8 @@ static enum fyai_event_action fyai_tool_child_signal(const struct fyai_event *ev
 
 static void fyai_tool_child_signals(struct fyai_ctx *ctx)
 {
-	static const int signals[] = { SIGTERM, SIGINT, SIGHUP, SIGPIPE };
+	/* Do not block SIGINT. The inherited handler receives it. */
+	static const int signals[] = { SIGTERM, SIGHUP, SIGPIPE };
 	struct fyai_event_loop *el;
 	struct fyai_event_source *src;
 	size_t i;
@@ -966,6 +993,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	int rc;
 
 	memset(job, 0, sizeof(*job));
+	/* After the memset, or it is wiped: the cancel path needs the loop. */
+	job->ctx = ctx;
 	job->rfd = -1;
 	job->pfd = -1;
 	job->json_result = true;
@@ -1011,7 +1040,9 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		if (progress[0] >= 0)
 			close(progress[0]);
 		progress[0] = -1;
-		(void)setpgid(0, 0);
+		/* Start a new session to remove the controlling terminal. */
+		if (setsid() < 0)
+			(void)setpgid(0, 0);	/* already a leader: still isolate */
 		fyai_ctx_loop_abandon(ctx);
 		if (fyai_tool_child_fds(p[1], progress[1]))
 			_exit(126);
@@ -1052,7 +1083,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	if (progress[1] >= 0)
 		close(progress[1]);
 	progress[1] = -1;
-	(void)setpgid(pid, pid);
+	/* Do not call setpgid() here because it can make child setsid() fail. */
 	job->pid = pid;
 	job->rfd = p[0];
 	p[0] = -1;
@@ -1228,12 +1259,33 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job)
 	return job && job->done;
 }
 
+/* Time for a tool child to return a partial result after SIGTERM. */
+#define FYAI_TOOL_TERM_MS 2000
+
 void fyai_tool_job_cancel(struct fyai_tool_job *job)
 {
+	struct fyai_event_loop *el;
 	int rc;
 
-	if (!job || job->reaped || job->pid <= 0)
+	if (!job || job->reaped || job->pid <= 0 || job->terminating)
 		return;
+	job->terminating = true;
+
+	/* Escalate to SIGKILL if the process group does not stop after SIGTERM. */
+	el = fyai_ctx_loop(job->ctx);
+	if (el) {
+		fyai_tool_job_drop(&job->csrc);
+		rc = fyai_event_add_child_terminate_group(el, job->pid, 0,
+							  FYAI_TOOL_TERM_MS,
+							  fyai_tool_job_child,
+							  job, &job->csrc);
+		if (!rc)
+			return;
+		/* Re-registration failed: fall back to watching it plainly, so
+		 * the exit is still observed, and signal by hand. */
+		(void)fyai_event_add_child(el, job->pid, fyai_tool_job_child,
+					   job, &job->csrc);
+	}
 	rc = kill(-job->pid, SIGTERM);
 	if (rc && errno == ESRCH)
 		(void)kill(job->pid, SIGTERM);

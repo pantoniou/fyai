@@ -128,7 +128,13 @@ int fyai_event_add_child(struct fyai_event_loop *el, pid_t pid,
 			 fyai_event_cb cb, void *userdata,
 			 struct fyai_event_source **srcp);
 
-/* Wait @grace_ms, send SIGTERM, wait @term_ms, then send SIGKILL. */
+/* Send SIGTERM after @grace_ms, then SIGKILL after @term_ms. */
+int fyai_event_add_child_terminate_group(struct fyai_event_loop *el, pid_t pid,
+					 fyai_event_ms_t grace_ms,
+					 fyai_event_ms_t term_ms,
+					 fyai_event_cb cb, void *userdata,
+					 struct fyai_event_source **srcp);
+
 int fyai_event_add_child_terminate(struct fyai_event_loop *el, pid_t pid,
 				   fyai_event_ms_t grace_ms,
 				   fyai_event_ms_t term_ms,
@@ -143,5 +149,14 @@ int fyai_event_child_terminate(struct fyai_event_loop *el, pid_t pid,
 void fyai_event_source_remove(struct fyai_event_source *src);
 
 void *fyai_event_source_userdata(const struct fyai_event_source *src);
+
+int fyai_event_dump_open(struct fyai_ctx *ctx, int signo, int fd);
+void fyai_event_dump_close(void);
+void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
+			   int fd);
+
+int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms);
+void fyai_event_interrupt_ack(struct fyai_ctx *ctx);
+bool fyai_event_interrupt_escalated(void);
 
 #endif

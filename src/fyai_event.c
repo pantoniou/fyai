@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -28,12 +29,6 @@
 #define FYAI_EVENT_BATCH 32
 
 /* One queued deferred callback. */
-struct fyai_defer {
-	struct fyai_defer *next;
-	fyai_event_defer_cb cb;
-	void *userdata;
-};
-
 fyai_event_ms_t fyai_event_now_ms(void)
 {
 	struct timespec ts;
@@ -129,6 +124,7 @@ struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx)
 	el->backend_fd = -1;
 	el->defer_pipe[0] = el->defer_pipe[1] = -1;
 	el->defer_tail = &el->defer_head;
+	el->wake_pipe[0] = el->wake_pipe[1] = -1;
 	/* The backend reported the reason; hand the loop back to the pool. */
 	if (fyai_event_backend_create(el))
 		goto err_pool;
@@ -144,6 +140,248 @@ err_pool:
 	}
 err_out:
 	return NULL;
+}
+
+/* Count event sources for each signal. */
+static unsigned int fyai_event_signal_refs[NSIG];
+
+bool fyai_event_signal_first_ref(int signo)
+{
+	if (signo <= 0 || signo >= NSIG)
+		return false;
+	return fyai_event_signal_refs[signo]++ == 0;
+}
+
+bool fyai_event_signal_last_unref(int signo)
+{
+	if (signo <= 0 || signo >= NSIG || !fyai_event_signal_refs[signo])
+		return false;
+	return --fyai_event_signal_refs[signo] == 0;
+}
+
+void fyai_event_signal_forget(void)
+{
+	memset(fyai_event_signal_refs, 0, sizeof(fyai_event_signal_refs));
+}
+
+/* Open a self-pipe that wakes the event loop. The pipe does not contain state. */
+static int fyai_event_wakepipe_open(struct fyai_event_loop *el, int fds[2])
+{
+	int rc, i;
+
+	rc = pipe(fds);
+	fyai_event_error_check(el, !rc, err_out, "pipe: %s", strerror(errno));
+	for (i = 0; i < 2; i++) {
+		(void)fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+		(void)fcntl(fds[i], F_SETFL, O_NONBLOCK);
+	}
+	return 0;
+
+err_out:
+	fds[0] = fds[1] = -1;
+	return -1;
+}
+
+static void fyai_event_wakepipe_drain(int fd)
+{
+	char buf[64];
+	ssize_t n;
+
+	do {
+		n = read(fd, buf, sizeof(buf));
+	} while (n > 0 || (n < 0 && errno == EINTR));
+}
+
+/* Write one byte to wake the loop. A full pipe is already readable. */
+static void fyai_event_wakepipe_poke(int fd)
+{
+	char b = 0;
+	ssize_t n;
+
+	if (fd < 0)
+		return;
+	do {
+		n = write(fd, &b, 1);
+	} while (n < 0 && errno == EINTR);
+	(void)n;
+}
+
+/* Give the signal handler direct access to the wake-pipe write descriptor. */
+static volatile sig_atomic_t fyai_interrupt_wake_fd = -1;
+
+/* Drain the wake pipe. The context contains the interrupt state. */
+static enum fyai_event_action fyai_event_wake_dispatch(const struct fyai_event *ev)
+{
+	fyai_event_wakepipe_drain(ev->loop->wake_pipe[0]);
+	return FYAIEA_CONTINUE;
+}
+
+/* Register the wake source for the life of the loop. */
+static int fyai_event_wake_open(struct fyai_event_loop *el)
+{
+	int rc;
+
+	if (!el)
+		return -1;
+	if (el->wake_src) {
+		fyai_interrupt_wake_fd = el->wake_pipe[1];
+		return 0;
+	}
+
+	rc = fyai_event_wakepipe_open(el, el->wake_pipe);
+	if (rc)
+		return -1;
+	rc = fyai_event_add_fd(el, el->wake_pipe[0], FYAIEV_READ,
+			       fyai_event_wake_dispatch, NULL, &el->wake_src);
+	if (rc) {
+		close(el->wake_pipe[0]);
+		close(el->wake_pipe[1]);
+		el->wake_pipe[0] = el->wake_pipe[1] = -1;
+		return -1;
+	}
+	fyai_interrupt_wake_fd = el->wake_pipe[1];
+	return 0;
+}
+
+/* Clear the handler descriptor before the loop closes it. */
+static void fyai_event_wake_clear(struct fyai_event_loop *el)
+{
+	if (!el)
+		return;
+	if (el->wake_pipe[1] >= 0 &&
+	    fyai_interrupt_wake_fd == el->wake_pipe[1])
+		fyai_interrupt_wake_fd = -1;
+	el->wake_src = NULL;
+	if (el->wake_pipe[0] >= 0)
+		close(el->wake_pipe[0]);
+	if (el->wake_pipe[1] >= 0)
+		close(el->wake_pipe[1]);
+	el->wake_pipe[0] = el->wake_pipe[1] = -1;
+}
+
+/* SIGINT starts the watchdog. SIGALRM restores the default signal actions. */
+/* The signal handlers use the context of this invocation. */
+static struct fyai_ctx *fyai_interrupt_ctx;
+static volatile sig_atomic_t fyai_interrupt_escalated;
+static struct sigaction fyai_interrupt_sa;	/* the graceful SIGINT handler */
+static struct sigaction fyai_interrupt_dfl;	/* SIG_DFL */
+static sigset_t fyai_interrupt_terminating;	/* {SIGINT, SIGTERM} */
+static struct itimerval fyai_interrupt_arm;
+static struct itimerval fyai_interrupt_off;
+
+static void fyai_interrupt_handler(int signo)
+{
+	int saved_errno = errno;
+
+	(void)signo;
+	if (fyai_interrupt_ctx) {
+		fyai_interrupt_ctx->interrupt_pending = 1;
+		fyai_interrupt_ctx->interrupt_seq++;
+	}
+	/* Make the loop's wake source readable. This, not EINTR, is what ends
+	 * a blocked wait: whether a signal interrupts a syscall depends on
+	 * SA_RESTART and on which syscall it is, and neither is a contract to
+	 * build cancellation on. A readable descriptor always is. */
+	fyai_event_wakepipe_poke((int)fyai_interrupt_wake_fd);
+	(void)setitimer(ITIMER_REAL, &fyai_interrupt_arm, NULL);
+	errno = saved_errno;
+}
+
+static void fyai_interrupt_watchdog(int signo)
+{
+	int saved_errno = errno;
+
+	(void)signo;
+	fyai_interrupt_escalated = 1;
+	(void)sigaction(SIGINT, &fyai_interrupt_dfl, NULL);
+	(void)sigaction(SIGTERM, &fyai_interrupt_dfl, NULL);
+	(void)sigprocmask(SIG_UNBLOCK, &fyai_interrupt_terminating, NULL);
+	errno = saved_errno;
+}
+
+/*
+ * The loop reached the interrupt, so it is alive: stand the watchdog down. If
+ * a previous stall had already escalated, take the terminating signals back -
+ * a loop that recovered should not leave the rest of the session one keystroke
+ * from an abrupt kill.
+ */
+void fyai_event_interrupt_ack(struct fyai_ctx *ctx)
+{
+	sigset_t mask;
+
+	(void)ctx;
+	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
+	if (!fyai_interrupt_escalated)
+		return;
+	fyai_interrupt_escalated = 0;
+
+	/* SIGINT back to the graceful handler, SIGTERM back to its signalfd -
+	 * which only needs it blocked; while blocked the disposition the
+	 * watchdog left behind is never consulted. */
+	(void)sigaction(SIGINT, &fyai_interrupt_sa, NULL);
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGTERM);
+	(void)sigprocmask(SIG_BLOCK, &mask, NULL);
+}
+
+int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms)
+{
+	struct sigaction alarm_sa;
+	sigset_t sigint_only;
+	int rc;
+
+	if (!ctx)
+		return -1;
+
+	/* Compose once, so neither handler has to build a structure. */
+	memset(&fyai_interrupt_dfl, 0, sizeof(fyai_interrupt_dfl));
+	fyai_interrupt_dfl.sa_handler = SIG_DFL;
+	sigemptyset(&fyai_interrupt_dfl.sa_mask);
+
+	memset(&fyai_interrupt_sa, 0, sizeof(fyai_interrupt_sa));
+	fyai_interrupt_sa.sa_handler = fyai_interrupt_handler;
+	sigemptyset(&fyai_interrupt_sa.sa_mask);
+	/* The wake source ends the wait, so let everything else restart just as
+	 * it did when SIGINT was blocked outright. */
+	fyai_interrupt_sa.sa_flags = SA_RESTART;
+
+	memset(&alarm_sa, 0, sizeof(alarm_sa));
+	alarm_sa.sa_handler = fyai_interrupt_watchdog;
+	sigemptyset(&alarm_sa.sa_mask);
+	alarm_sa.sa_flags = SA_RESTART;
+
+	sigemptyset(&fyai_interrupt_terminating);
+	sigaddset(&fyai_interrupt_terminating, SIGINT);
+	sigaddset(&fyai_interrupt_terminating, SIGTERM);
+
+	memset(&fyai_interrupt_arm, 0, sizeof(fyai_interrupt_arm));
+	fyai_interrupt_arm.it_value.tv_usec = (suseconds_t)watchdog_ms * 1000;
+	memset(&fyai_interrupt_off, 0, sizeof(fyai_interrupt_off));
+
+	rc = fyai_event_wake_open(fyai_ctx_loop(ctx));
+	if (rc)
+		return -1;
+
+	fyai_interrupt_ctx = ctx;
+	fyai_interrupt_escalated = 0;
+
+	rc = sigaction(SIGINT, &fyai_interrupt_sa, NULL);
+	if (rc)
+		return -1;
+	rc = sigaction(SIGALRM, &alarm_sa, NULL);
+	if (rc)
+		return -1;
+
+	/* SIGINT must stay unblocked, or the handler never runs. */
+	sigemptyset(&sigint_only);
+	sigaddset(&sigint_only, SIGINT);
+	return sigprocmask(SIG_UNBLOCK, &sigint_only, NULL);
+}
+
+/* Return true after the watchdog restores the default signal actions. */
+bool fyai_event_interrupt_escalated(void)
+{
+	return fyai_interrupt_escalated != 0;
 }
 
 /* The one application loop, created on demand and owned by @ctx. */
@@ -169,18 +407,14 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 	ctx->el = NULL;
 
 	fyai_event_defer_clear(el);
+	fyai_event_wake_clear(el);
 	for (src = el->sources; src; src = next) {
 		next = src->next;
 		/* Helper descriptors (timerfd/signalfd/pidfd) are ours; a
 		 * watched fd belongs to the caller and is left alone. */
 		if (src->kind != FYAIEK_FD && src->fd >= 0)
 			close(src->fd);
-		/*
-		 * kqueue suppresses a signal's default action with SIG_IGN.
-		 * Do not carry that application-loop disposition across exec.
-		 * Linux only changes the mask, so restoring saved_sa there is
-		 * harmless (and saved_sa is not marked valid independently).
-		 */
+		/* Restore signal actions before the child calls exec. */
 		if (src->kind == FYAIEK_SIGNAL && src->saved_valid)
 			(void)sigaction(src->signo, &src->saved_sa, NULL);
 		free(src);
@@ -189,6 +423,7 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 	 * not part of the execution environment inherited by a tool child. */
 	if (ctx->signal_mask_valid)
 		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+	fyai_event_signal_forget();
 	if (el->backend_fd >= 0)
 		close(el->backend_fd);
 	free(el);
@@ -216,6 +451,7 @@ void fyai_event_loop_destroy(struct fyai_event_loop *el)
 	el->sources = NULL;
 	el->source_count = 0;
 	fyai_event_defer_clear(el);
+	fyai_event_wake_clear(el);
 
 	fyai_event_backend_destroy(el);
 
@@ -453,53 +689,13 @@ err_out:
 	return -1;
 }
 
-/* Empty the self-pipe: its bytes are only a wakeup, the queue holds the work. */
-static void fyai_event_defer_drain_pipe(struct fyai_event_loop *el)
-{
-	char buf[64];
-	ssize_t n;
-
-	do {
-		n = read(el->defer_pipe[0], buf, sizeof(buf));
-	} while (n > 0 || (n < 0 && errno == EINTR));
-}
-
-/* Wake a blocked wait. One undrained byte keeps the pipe readable, so poke
- * only on the empty -> pending transition. */
-static void fyai_event_defer_poke(struct fyai_event_loop *el)
-{
-	char b = 0;
-	ssize_t n;
-
-	do {
-		n = write(el->defer_pipe[1], &b, 1);
-	} while (n < 0 && errno == EINTR);
-}
-
-static int fyai_event_defer_open(struct fyai_event_loop *el)
-{
-	int rc, i;
-
-	rc = pipe(el->defer_pipe);
-	fyai_event_error_check(el, !rc, err_out, "pipe: %s", strerror(errno));
-	for (i = 0; i < 2; i++) {
-		(void)fcntl(el->defer_pipe[i], F_SETFD, FD_CLOEXEC);
-		(void)fcntl(el->defer_pipe[i], F_SETFL, O_NONBLOCK);
-	}
-	return 0;
-
-err_out:
-	el->defer_pipe[0] = el->defer_pipe[1] = -1;
-	return -1;
-}
-
 static enum fyai_event_action
 fyai_event_defer_dispatch(const struct fyai_event *ev)
 {
 	struct fyai_event_loop *el = ev->loop;
 	struct fyai_defer *batch, *d, *next;
 
-	fyai_event_defer_drain_pipe(el);
+	fyai_event_wakepipe_drain(el->defer_pipe[0]);
 
 	/* Run the entry batch. Run new deferred work on the next iteration. */
 	batch = el->defer_head;
@@ -532,7 +728,8 @@ int fyai_event_defer(struct fyai_event_loop *el, fyai_event_defer_cb cb,
 		return -1;
 	fyai_event_error_check(el, cb, err_out, "deferred work needs a callback");
 
-	if (el->defer_pipe[0] < 0 && fyai_event_defer_open(el))
+	if (el->defer_pipe[0] < 0 &&
+	    fyai_event_wakepipe_open(el, el->defer_pipe))
 		goto err_out;
 
 	/* An identical pending item already covers this wakeup. */
@@ -558,7 +755,7 @@ int fyai_event_defer(struct fyai_event_loop *el, fyai_event_defer_cb cb,
 				 "could not register the deferred-work source");
 	}
 	if (was_empty)
-		fyai_event_defer_poke(el);
+		fyai_event_wakepipe_poke(el->defer_pipe[1]);
 	return 0;
 
 err_dequeue:
@@ -737,8 +934,13 @@ static void fyai_event_term_enter(struct fyai_event_source *child)
 	struct fyai_event_term *t = &child->term;
 
 	while (t->stage < ARRAY_SIZE(stage_sig)) {
-		if (stage_sig[t->stage])
-			kill(child->pid, stage_sig[t->stage]);
+		if (stage_sig[t->stage]) {
+			/* Signal the group, or use the PID before group creation. */
+			if (!t->group ||
+			    (kill(-child->pid, stage_sig[t->stage]) &&
+			     errno == ESRCH))
+				kill(child->pid, stage_sig[t->stage]);
+		}
 
 		if (t->stage >= ARRAY_SIZE(t->stage_ms)) {
 			fyai_event_timer_disarm(t->timer);
@@ -768,6 +970,10 @@ static enum fyai_event_action fyai_event_term_exited(const struct fyai_event *ev
 	struct fyai_event_term *t = &ev->src->term;
 	struct fyai_event copy = *ev;
 
+	/* Stop all remaining processes in the child group. */
+	if (t->group)
+		kill(-ev->src->pid, SIGKILL);
+
 	/* The ladder is over; retire the timer before the child source goes. */
 	fyai_event_source_remove(t->timer);
 	t->timer = NULL;
@@ -779,11 +985,13 @@ static enum fyai_event_action fyai_event_term_exited(const struct fyai_event *ev
 	return t->cb(&copy);
 }
 
-int fyai_event_add_child_terminate(struct fyai_event_loop *el, pid_t pid,
-				   fyai_event_ms_t grace_ms,
-				   fyai_event_ms_t term_ms,
-				   fyai_event_cb cb, void *userdata,
-				   struct fyai_event_source **srcp)
+static int fyai_event_add_child_terminate_full(struct fyai_event_loop *el,
+					      pid_t pid,
+					      fyai_event_ms_t grace_ms,
+					      fyai_event_ms_t term_ms,
+					      fyai_event_cb cb, void *userdata,
+					      bool group,
+					      struct fyai_event_source **srcp)
 {
 	struct fyai_event_source *child, *timer;
 	struct fyai_event_term *t;
@@ -802,6 +1010,7 @@ int fyai_event_add_child_terminate(struct fyai_event_loop *el, pid_t pid,
 	t->stage_ms[1] = term_ms > 0 ? term_ms : 0;
 	t->cb = cb;
 	t->userdata = userdata;
+	t->group = group;
 
 	/* The timer is created armed; disarm it immediately so entering the first
 	 * stage decides the real deadline (or skips the wait entirely). */
@@ -818,6 +1027,26 @@ int fyai_event_add_child_terminate(struct fyai_event_loop *el, pid_t pid,
 	if (srcp)
 		*srcp = child;
 	return 0;
+}
+
+int fyai_event_add_child_terminate(struct fyai_event_loop *el, pid_t pid,
+				   fyai_event_ms_t grace_ms,
+				   fyai_event_ms_t term_ms,
+				   fyai_event_cb cb, void *userdata,
+				   struct fyai_event_source **srcp)
+{
+	return fyai_event_add_child_terminate_full(el, pid, grace_ms, term_ms,
+						   cb, userdata, false, srcp);
+}
+
+int fyai_event_add_child_terminate_group(struct fyai_event_loop *el, pid_t pid,
+					 fyai_event_ms_t grace_ms,
+					 fyai_event_ms_t term_ms,
+					 fyai_event_cb cb, void *userdata,
+					 struct fyai_event_source **srcp)
+{
+	return fyai_event_add_child_terminate_full(el, pid, grace_ms, term_ms,
+						   cb, userdata, true, srcp);
 }
 
 struct fyai_event_child_wait {
@@ -894,15 +1123,11 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 			}
 		}
 
-		if (action == FYAIEA_STOP) {
+		/* Dispatch all ready events before the loop stops. */
+		if (action == FYAIEA_STOP || action == FYAIEA_ABORT)
 			el->stop[el->depth - 1] = true;
-			break;
-		}
-		if (action == FYAIEA_ABORT) {
-			el->stop[el->depth - 1] = true;
+		if (action == FYAIEA_ABORT)
 			el->abort[el->depth - 1] = true;
-			break;
-		}
 	}
 
 	el->dispatch_depth--;

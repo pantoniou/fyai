@@ -302,12 +302,18 @@ struct fyai_ctx {
 	struct fyai_event_loop *el;
 	struct fyai_event_loop *event_loop_pool;
 	struct fyai_event_source *event_source_pool;
-	struct fyai_event_source *signal_src[5];
+	struct fyai_event_source *signal_src[4];
 	sigset_t signal_mask;
 	bool signal_mask_valid;
+	/* Diagnostic output descriptor. */
+	int dump_fd;
 	struct fyai_ui *ui;
 	struct fyai_config_edit_request *config_edit;
-	bool interrupt_pending;
+	/* The SIGINT handler can set this value. */
+	volatile sig_atomic_t interrupt_pending;
+	/* Count SIGINT edges while interrupt_pending remains set. */
+	volatile sig_atomic_t interrupt_seq;
+	sig_atomic_t interrupt_seen;
 	bool terminate_pending;
 	fy_generic tools;
 	fy_generic last_message;
@@ -368,6 +374,7 @@ static inline bool fyai_interrupt_pending(const struct fyai_ctx *ctx)
 {
 	return ctx && ctx->interrupt_pending;
 }
+
 
 static inline bool fyai_interrupt_check(struct fyai_ctx *ctx)
 {

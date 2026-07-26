@@ -177,7 +177,9 @@ const char *terminal_detect_theme(void)
 	fd = open("/dev/tty", O_RDWR | O_NOCTTY);
 	if (fd < 0)
 		return "dark";
-	if (!terminal_is_tty(fd) || tcgetattr(fd, &old)) {
+	/* Do not query the terminal from a background process group. */
+	if (!terminal_is_tty(fd) || tcgetpgrp(fd) != getpgrp() ||
+	    tcgetattr(fd, &old)) {
 		close(fd);
 		return "dark";
 	}

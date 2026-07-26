@@ -280,9 +280,10 @@ struct shell_capture_job {
 	struct shell_capture out;
 	struct shell_capture err;
 	struct fyai_event_source *csrc;
-	struct fyai_event_source *isrc;
 	struct fyai_event_source *tsrc;
+	struct fyai_event_source *killer;
 	struct fyai_ctx *ctx;
+	pid_t pid;
 	bool reaped;
 	bool cancelling;
 	bool isolated_pgrp;
@@ -337,8 +338,6 @@ static enum fyai_event_action shell_capture_child(const struct fyai_event *ev)
 {
 	struct shell_capture_job *job = ev->userdata;
 
-	/* One-shot: the loop retires this source as soon as we return, so drop
-	 * our reference rather than leaving it dangling for the cleanup path. */
 	job->csrc = NULL;
 	job->reaped = true;
 	job->status = ev->status;
@@ -357,19 +356,53 @@ static enum fyai_event_action shell_capture_signal(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
-static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
-{
-	if (pid <= 0 || !job || job->reaped || job->cancelling)
-		return;
+/* Maximum time for a command to stop after SIGTERM. */
+#define SHELL_CAPTURE_KILL_MS 2000
 
-	job->cancelling = true;
+static void shell_capture_signal_group(struct shell_capture_job *job, int sig)
+{
 	if (job->isolated_pgrp) {
-		if (!kill(-pid, SIGTERM))
+		if (!kill(-job->pid, sig))
 			return;
 		if (errno != ESRCH)
 			return;
 	}
-	(void)kill(pid, SIGTERM);
+	(void)kill(job->pid, sig);
+}
+
+/*
+ * SIGTERM was not enough. An interactive program can catch it and stall - vim
+ * does - and that is not merely untidy: while *any* descendant still holds the
+ * output pipes open the capture never sees EOF, so the tool never completes
+ * and the turn hangs exactly as if nothing had been cancelled. The whole point
+ * of the interrupt is that it always works, so escalate.
+ */
+static enum fyai_event_action shell_capture_kill(const struct fyai_event *ev)
+{
+	struct shell_capture_job *job = ev->userdata;
+
+	job->killer = NULL;
+	if (job->pid > 0 && !job->reaped)
+		shell_capture_signal_group(job, SIGKILL);
+	return FYAIEA_CONTINUE;
+}
+
+static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
+{
+	struct fyai_event_loop *el;
+
+	if (pid <= 0 || !job || job->reaped || job->cancelling)
+		return;
+
+	job->cancelling = true;
+	job->pid = pid;
+	shell_capture_signal_group(job, SIGTERM);
+
+	el = job->ctx ? fyai_ctx_loop(job->ctx) : NULL;
+	if (el && !job->killer)
+		(void)fyai_event_add_timer(el, SHELL_CAPTURE_KILL_MS, 0,
+					   shell_capture_kill, job,
+					   &job->killer);
 }
 
 int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
@@ -387,6 +420,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	int status = 0;
 	pid_t pid = -1;
 	int ret = -1;
+	int devnull;
 
 	memset(result, 0, sizeof(*result));
 
@@ -401,14 +435,28 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		/* The application loop (including its signal mask/signalfd or
 		 * kqueue state) belongs to fyai, never to the executed command. */
 		fyai_ctx_loop_abandon(ctx);
-		if (getpgrp() != getppid())
-			(void)setpgid(0, 0);
+		/* Detach a top-level command from the terminal. */
+		devnull = open("/dev/tty", O_RDONLY | O_NOCTTY);
+		if (devnull >= 0) {
+			close(devnull);
+			if (setsid() < 0)
+				(void)setpgid(0, 0);
+		}
 		close(stdout_pipe[0]);
 		close(stderr_pipe[0]);
 		dup2(stdout_pipe[1], STDOUT_FILENO);
 		dup2(stderr_pipe[1], STDERR_FILENO);
 		close(stdout_pipe[1]);
 		close(stderr_pipe[1]);
+		devnull = open("/dev/null", O_RDONLY);
+		if (devnull >= 0) {
+			if (devnull != STDIN_FILENO) {
+				dup2(devnull, STDIN_FILENO);
+				close(devnull);
+			}
+		} else {
+			close(STDIN_FILENO);
+		}
 		/*
 		 * Confine the tool before handing control to the shell:
 		 * inherited across the exec and every process it spawns.
@@ -420,9 +468,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		execl("/bin/sh", "sh", "-c", command, NULL);
 		_exit(127);
 	}
-	job.isolated_pgrp = getpgrp() != getpid();
-	if (job.isolated_pgrp)
-		(void)setpgid(pid, pid);
+	job.isolated_pgrp = isatty(STDIN_FILENO) || isatty(STDOUT_FILENO);
 
 	close(stdout_pipe[1]);
 	close(stderr_pipe[1]);
@@ -452,16 +498,17 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	    fyai_event_add_fd(el, stderr_pipe[0], FYAIEV_READ,
 			      shell_capture_readable, &job.err, &job.err.src) ||
 	    fyai_event_add_child(el, pid, shell_capture_child, &job, &job.csrc) ||
-	    fyai_event_add_signal(el, SIGINT, shell_capture_signal, &job,
-				  &job.isrc) ||
+	    /* Do not block SIGINT. The watchdog handler must receive it. */
 	    fyai_event_add_signal(el, SIGTERM, shell_capture_signal, &job,
 				  &job.tsrc))
 		goto out_wait;
 
 	/* Clear the pid once the loop owns the reap. */
 	while (!job.done) {
-		if (fyai_interrupt_pending(ctx))
+		if (fyai_interrupt_pending(ctx)) {
+			fyai_event_interrupt_ack(ctx);
 			shell_capture_cancel(pid, &job);
+		}
 		if (fyai_event_loop_step(el, -1) < 0)
 			goto out_wait;
 	}
@@ -504,8 +551,8 @@ out:
 	shell_capture_drop(&job.out.src);
 	shell_capture_drop(&job.err.src);
 	shell_capture_drop(&job.csrc);
-	shell_capture_drop(&job.isrc);
 	shell_capture_drop(&job.tsrc);
+	shell_capture_drop(&job.killer);
 
 	if (pid > 0)
 		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)

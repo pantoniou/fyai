@@ -13,6 +13,7 @@
 #include "config.h"
 #endif
 
+#include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
@@ -50,19 +51,23 @@ static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
 	if (ev->signo == SIGPIPE)
 		return FYAIEA_CONTINUE;
 	ctx->interrupt_pending = true;
-	if (ev->signo != SIGINT)
-		ctx->terminate_pending = true;
+	ctx->terminate_pending = true;
 	fyai_ui_signal(ctx, ev->signo);
 	return FYAIEA_CONTINUE;
 }
 
+/* Maximum time to acknowledge SIGINT. */
+#define FYAI_INTERRUPT_WATCHDOG_MS 200
+
 static int fyai_signals_open(struct fyai_ctx *ctx)
 {
+	/* The watchdog handles SIGINT. */
 	static const int signals[] = {
-		SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGPIPE,
+		SIGTERM, SIGHUP, SIGQUIT, SIGPIPE,
 	};
 	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
 	size_t i;
+	int rc;
 
 	if (!el) return -1;
 	if (sigprocmask(SIG_SETMASK, NULL, &ctx->signal_mask))
@@ -72,6 +77,17 @@ static int fyai_signals_open(struct fyai_ctx *ctx)
 		if (fyai_event_add_signal(el, signals[i], fyai_signal_cb, ctx,
 					  &ctx->signal_src[i]))
 			return -1;
+
+	rc = fyai_event_interrupt_open(ctx, FYAI_INTERRUPT_WATCHDOG_MS);
+	if (rc)
+		return -1;
+
+	/* Keep a direct diagnostic output when the UI event loop stops. */
+	ctx->dump_fd = dup(STDERR_FILENO);
+	if (ctx->dump_fd >= 0) {
+		(void)fcntl(ctx->dump_fd, F_SETFD, FD_CLOEXEC);
+		(void)fyai_event_dump_open(ctx, SIGUSR2, ctx->dump_fd);
+	}
 	return 0;
 }
 
@@ -1702,8 +1718,10 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 		return fy_invalid;
 	el = fyai_ctx_loop(ctx);
 	while (el && !fyai_turn_run_done(run)) {
-		if (ctx->interrupt_pending)
+		if (ctx->interrupt_pending) {
+			fyai_event_interrupt_ack(ctx);
 			fyai_turn_run_cancel(run);
+		}
 		rc = fyai_event_loop_step(el, -1);
 		if (rc < 0)
 			break;
@@ -2332,8 +2350,17 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 					goto out;
 			}
 		}
-		if (ctx->interrupt_pending && run)
-			fyai_turn_run_cancel(run);
+		if (ctx->interrupt_pending) {
+			/* Acknowledge SIGINT while the event loop is responsive. */
+			fyai_event_interrupt_ack(ctx);
+			/* Process each delivered SIGINT one time. */
+			if (ctx->interrupt_seq != ctx->interrupt_seen) {
+				ctx->interrupt_seen = ctx->interrupt_seq;
+				fyai_ui_interrupt(ctx);
+			}
+			if (run)
+				fyai_turn_run_cancel(run);
+		}
 		if (ctx->terminate_pending || fyai_ui_quit_requested(ctx))
 			quit = true;
 		if (!run && quit) {

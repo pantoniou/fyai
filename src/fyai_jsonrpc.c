@@ -484,6 +484,10 @@ static int jsonrpc_http_submit(struct jsonrpc_request *req, fy_generic params)
 				 conn->name, req->method);
 	}
 	req->curl = curl_easy_init();
+	/* Keep libcurl off signals: with the standard resolver it would
+	 * use SIGALRM for DNS timeouts, which is the Ctrl-C watchdog's. */
+	curl_easy_setopt(req->curl, CURLOPT_NOSIGNAL, 1L);
+
 	fyai_error_check(ctx, req->curl, err_out,
 			 "%s %s could not create curl handle", conn->name,
 			 req->method);

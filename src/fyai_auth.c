@@ -779,6 +779,9 @@ static int auth_http_request(struct fyai_ctx *ctx,
 
 	memset(out, 0, sizeof(*out));
 	curl = curl_easy_init();
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
 	if (!curl)
 		return -1;
 	curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -1179,6 +1182,9 @@ fyai_auth_login_exchange_submit(struct fyai_auth_login_request *request)
 	encoded_redirect = NULL;
 	encoded_verifier = NULL;
 	request->curl = curl_easy_init();
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(request->curl, CURLOPT_NOSIGNAL, 1L);
+
 	fyai_error_check(request->ctx, request->curl, err_out,
 			 "could not create token exchange transfer");
 	encoded_code = curl_easy_escape(request->curl, request->code, 0);
@@ -1552,6 +1558,9 @@ fyai_auth_login_http_submit(struct fyai_auth_login_request *request,
 			 "out of memory");
 	fyai_auth_login_http_cleanup(request);
 	request->curl = curl_easy_init();
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(request->curl, CURLOPT_NOSIGNAL, 1L);
+
 	fyai_error_check(request->ctx, request->curl, err_out,
 			 "could not create authentication transfer");
 	request->body = body_copy;
@@ -1900,6 +1909,9 @@ fyai_auth_refresh_start_locked(struct fyai_auth_refresh_request *request)
 			 *ctx->auth.refresh_token, err_out,
 			 "authentication state has no refresh token");
 	request->curl = curl_easy_init();
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(request->curl, CURLOPT_NOSIGNAL, 1L);
+
 	fyai_error_check(ctx, request->curl, err_out,
 			 "could not create token refresh transfer");
 	token = curl_easy_escape(request->curl,
@@ -2110,8 +2122,10 @@ int fyai_auth_refresh(struct fyai_ctx *ctx, bool force)
 			break;
 		}
 	}
-	if (ctx->interrupt_pending)
+	if (ctx->interrupt_pending) {
+		fyai_event_interrupt_ack(ctx);
 		fyai_auth_refresh_cancel(request);
+	}
 	while (!fyai_auth_refresh_done(request)) {
 		rc = fyai_event_loop_step(el, -1);
 		if (rc < 0)
@@ -2536,8 +2550,10 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 		if (rc < 0)
 			break;
 	}
-	if (ctx->interrupt_pending)
+	if (ctx->interrupt_pending) {
+		fyai_event_interrupt_ack(ctx);
 		fyai_auth_login_cancel(request);
+	}
 	while (!sync.done && rc >= 0) {
 		rc = fyai_event_loop_step(el, -1);
 		if (rc < 0)

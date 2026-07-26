@@ -371,7 +371,7 @@ endif()
 # The event layer reports through the diagnostic layer, so any target that
 # links it needs fyai_diag.c as well.
 set(FYAI_DIAG_SOURCES src/fyai_diag.c)
-set(FYAI_EVENT_SOURCES src/fyai_event.c)
+set(FYAI_EVENT_SOURCES src/fyai_event.c src/fyai_event_dump.c)
 if(APPLE)
     list(APPEND FYAI_EVENT_SOURCES src/fyai_event_mac.c)
 else()

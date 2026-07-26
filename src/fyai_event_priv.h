@@ -24,7 +24,13 @@
 #include "fyai_diag.h"
 #include "fyai_event.h"
 
-struct fyai_defer;
+/* One queued deferred callback. Shared with the dump, which reports the queue
+ * depth from a signal handler. */
+struct fyai_defer {
+	struct fyai_defer *next;
+	fyai_event_defer_cb cb;
+	void *userdata;
+};
 
 /* Escalating child shutdown, carried inline in the source that owns it. */
 struct fyai_event_term {
@@ -34,6 +40,7 @@ struct fyai_event_term {
 	fyai_event_cb cb;
 	void *userdata;
 	bool active;
+	bool group;			/* signal the child's process group */
 };
 
 struct fyai_event_source {
@@ -56,7 +63,9 @@ struct fyai_event_source {
 	fyai_event_ms_t deadline_ms;	/* TIMER: next expiry, monotonic */
 	/* Bumped on every (re)arm. */
 	unsigned int arm_gen;
-	sigset_t saved_mask;		/* SIGNAL: mask/disposition to restore */
+	/* SIGNAL: the disposition a forked child restores before exec. The
+	 * process-wide mask/disposition change itself is refcounted per signal
+	 * number, not held here; see fyai_event_signal_first_ref(). */
 	struct sigaction saved_sa;
 	bool saved_valid;
 
@@ -78,13 +87,15 @@ struct fyai_event_loop {
 	int backend_fd;			/* epoll fd or kqueue fd */
 	void *backend;			/* backend-private state, may be NULL */
 
-	/* Deferred "run on the next iteration" work. The self-pipe wakes a
-	 * blocked wait; its source is registered only while items are pending,
-	 * so an idle loop counts exactly the sources the caller added. */
+	/* Deferred work and its temporary wake source. */
 	int defer_pipe[2];
 	struct fyai_defer *defer_head;
 	struct fyai_defer **defer_tail;
 	struct fyai_event_source *defer_src;
+
+	/* Permanent wake source for the SIGINT handler. */
+	int wake_pipe[2];
+	struct fyai_event_source *wake_src;
 };
 
 /* fyai_error_check() over a loop rather than a context: report and jump to the
@@ -103,6 +114,13 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 
 /* Reap @src's child without blocking. */
 int fyai_event_child_try_reap(struct fyai_event_source *src);
+
+/* Track process signal state across multiple event sources. */
+bool fyai_event_signal_first_ref(int signo);
+bool fyai_event_signal_last_unref(int signo);
+
+/* After fork(): the mask and dispositions are inherited, not owned here. */
+void fyai_event_signal_forget(void);
 
 /* Fill @ev from @src for a dispatch of @events. */
 void fyai_event_prepare(struct fyai_event *ev, struct fyai_event_source *src,

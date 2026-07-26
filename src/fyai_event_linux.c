@@ -153,20 +153,47 @@ err_out:
 	return -1;
 }
 
-static int arm_signal(struct fyai_event_source *src)
+/* Record the initial blocked state of each signal. */
+static bool signal_was_blocked[NSIG];
+
+/* Release this source's claim on @src->signo, unblocking only if it was the
+ * last claim and the signal was not blocked to begin with. */
+static void unblock_signal(struct fyai_event_source *src)
 {
 	sigset_t mask;
+
+	if (!fyai_event_signal_last_unref(src->signo))
+		return;
+	if (signal_was_blocked[src->signo])
+		return;
+
+	sigemptyset(&mask);
+	sigaddset(&mask, src->signo);
+	sigprocmask(SIG_UNBLOCK, &mask, NULL);
+}
+
+static int arm_signal(struct fyai_event_source *src)
+{
+	sigset_t mask, prev;
 	int rc;
 
 	if (src->armed)
 		return 0;
 
-	/* signalfd requires the signal to be blocked. */
 	sigemptyset(&mask);
 	sigaddset(&mask, src->signo);
-	rc = sigprocmask(SIG_BLOCK, &mask, &src->saved_mask);
-	fyai_event_error_check(src->loop, !rc, err_out, "sigprocmask: %s",
-			       strerror(errno));
+
+	/* Block the signal while at least one signalfd source uses it. */
+	if (fyai_event_signal_first_ref(src->signo)) {
+		rc = sigprocmask(SIG_BLOCK, &mask, &prev);
+		if (rc) {
+			(void)fyai_event_signal_last_unref(src->signo);
+			fyai_event_error_check(src->loop, false, err_out,
+					       "sigprocmask: %s",
+					       strerror(errno));
+		}
+		signal_was_blocked[src->signo] = sigismember(&prev, src->signo);
+	}
 	src->saved_valid = true;
 
 	src->fd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
@@ -176,7 +203,7 @@ static int arm_signal(struct fyai_event_source *src)
 	return epoll_apply(src, EPOLL_CTL_ADD, EPOLLIN);
 
 err_restore:
-	sigprocmask(SIG_SETMASK, &src->saved_mask, NULL);
+	unblock_signal(src);
 	src->saved_valid = false;
 err_out:
 	return -1;
@@ -245,7 +272,7 @@ int fyai_event_backend_disarm(struct fyai_event_source *src)
 	}
 
 	if (src->kind == FYAIEK_SIGNAL && src->saved_valid) {
-		sigprocmask(SIG_SETMASK, &src->saved_mask, NULL);
+		unblock_signal(src);
 		src->saved_valid = false;
 	}
 	return 0;

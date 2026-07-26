@@ -465,6 +465,9 @@ err_out:
 	return -1;
 }
 
+/* Repeat at a low rate to recover from a missed UI timer event. */
+#define UI_HEAL_MS 500
+
 static void ui_rearm(struct fyai_ui *ui)
 {
 	int ms = fytim_poll_timeout_ms(ui->ft);
@@ -482,8 +485,12 @@ static void ui_rearm(struct fyai_ui *ui)
 		if (ms < 1 || frame_ms < ms)
 			ms = (int)frame_ms;
 	}
-	if (ms < 1) ms = 1;
-	(void)fyai_event_timer_rearm(ui->timer_src, ms, 0);
+	/* Use the recovery interval when the UI has no deadline. */
+	if (ms < 0)
+		ms = UI_HEAL_MS;
+	else if (ms < 1)
+		ms = 1;
+	(void)fyai_event_timer_rearm(ui->timer_src, ms, UI_HEAL_MS);
 }
 
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
@@ -513,9 +520,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			}
 			break;
 		case FYTIM_EVENT_INTERRUPT:
-			ui->ctx->interrupt_pending = true;
-			if (ui->busy)
-				ui_recall_pending(ui);
+			/* Escape only now; ^C arrives as SIGINT. Both mean
+			 * the same thing to the session. */
+			fyai_ui_interrupt(ui->ctx);
 			break;
 		case FYTIM_EVENT_QUIT:
 			ui->quit = true;
@@ -576,6 +583,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	fytim_cfg_default(&cfg);
 	cfg.output_fd = ttyout;
 	cfg.title = "fyai";
+	/* Keep Ctrl-C as SIGINT so the watchdog can detect a stopped loop. */
+	cfg.intr_signal = true;
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
 	ui->tty_fd = ttyout;
@@ -592,7 +601,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	el = fyai_ctx_loop(ctx);
 	if (!el || fyai_event_add_fd(el, fytim_poll_fd(ui->ft), FYAIEV_READ,
 				     ui_cb, ui, &ui->input_src) ||
-	    fyai_event_add_timer(el, 1, 0, ui_cb, ui, &ui->timer_src))
+	    fyai_event_add_timer(el, 1, UI_HEAL_MS, ui_cb, ui, &ui->timer_src))
 		goto fail;
 	if (spool_open(&ui->out, STDOUT_FILENO) ||
 	    spool_open(&ui->err, STDERR_FILENO))
@@ -927,6 +936,28 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 	}
 }
 
+/* Process Escape or SIGINT. */
+void fyai_ui_interrupt(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	const char *input;
+
+	if (!ui)
+		return;
+	input = fytim_input(ui->ft);
+	if (!ui->busy && !ui->head && !ui->editor_request) {
+		if (input && *input)
+			(void)fytim_set_input(ui->ft, NULL);
+		else {
+			ui->quit = true;
+			ui->ready = true;
+		}
+	}
+	ctx->interrupt_pending = true;
+	if (ui->busy)
+		ui_recall_pending(ui);
+}
+
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 {
 	if (!fyai_ui_active(ctx)) return;
@@ -1014,17 +1045,11 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
 		goto out;
 	now = fyai_event_now_ms();
-	if (!ctx->cfg->tool_update_interval_ms ||
-	    now >= ui->next_frame_ms) {
-		if (fytim_pump(ui->ft) == FYTIM_OK) {
-			ui->frame_pending = false;
-			ui->next_frame_ms = now +
-				ctx->cfg->tool_update_interval_ms;
-		}
-	} else {
-		ui->frame_pending = true;
-		ui_rearm(ui);
-	}
+	/* Defer the frame. A render callback must not read terminal input. */
+	ui->frame_pending = true;
+	if (!ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
+		ui->next_frame_ms = now;
+	ui_rearm(ui);
 out:
 	free(margin);
 	free(out.data);

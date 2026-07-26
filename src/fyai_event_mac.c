@@ -126,29 +126,67 @@ static int arm_timer(struct fyai_event_source *src)
 			 (intptr_t)rel, (uintptr_t)src, false);
 }
 
+/* Store signal state by number and restore it after the last use. */
+static struct sigaction signal_saved_sa[NSIG];
+static bool signal_was_blocked[NSIG];
+
+/* Release this source's claim on @src->signo, undoing the disposition and the
+ * unblock only when it was the last claim. */
+static void restore_signal(struct fyai_event_source *src)
+{
+	sigset_t mask;
+
+	if (!fyai_event_signal_last_unref(src->signo))
+		return;
+
+	kq_change(src, EVFILT_SIGNAL, EV_DELETE, 0, 0,
+		  (uintptr_t)src->signo, true);
+	sigaction(src->signo, &signal_saved_sa[src->signo], NULL);
+	if (!signal_was_blocked[src->signo])
+		return;
+
+	sigemptyset(&mask);
+	sigaddset(&mask, src->signo);
+	sigprocmask(SIG_BLOCK, &mask, NULL);
+}
+
 static int arm_signal(struct fyai_event_source *src)
 {
 	struct sigaction sa;
-	sigset_t mask;
+	sigset_t mask, prev;
+	bool first;
 	int rc;
 
 	if (src->armed)
 		return 0;
 
-	/* EVFILT_SIGNAL observes delivery rather than replacing it, so the default
-	 * action must be suppressed or a SIGINT would still kill the process. */
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = SIG_IGN;
-	sigemptyset(&sa.sa_mask);
-	rc = sigaction(src->signo, &sa, &src->saved_sa);
-	fyai_event_error_check(src->loop, !rc, err_out, "sigaction: %s",
-			       strerror(errno));
-
-	/* And it must not be blocked, or delivery never happens at all. */
 	sigemptyset(&mask);
 	sigaddset(&mask, src->signo);
-	sigprocmask(SIG_UNBLOCK, &mask, &src->saved_mask);
+
+	first = fyai_event_signal_first_ref(src->signo);
+	if (first) {
+		/* Suppress the default action while EVFILT_SIGNAL observes it. */
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = SIG_IGN;
+		sigemptyset(&sa.sa_mask);
+		rc = sigaction(src->signo, &sa, &signal_saved_sa[src->signo]);
+		if (rc) {
+			(void)fyai_event_signal_last_unref(src->signo);
+			fyai_event_error_check(src->loop, false, err_out,
+					       "sigaction: %s",
+					       strerror(errno));
+		}
+
+		/* And it must not be blocked, or delivery never happens. */
+		sigprocmask(SIG_UNBLOCK, &mask, &prev);
+		signal_was_blocked[src->signo] =
+			sigismember(&prev, src->signo);
+	}
+	src->saved_sa = signal_saved_sa[src->signo];
 	src->saved_valid = true;
+
+	if (!first)
+		return 0;
 
 	/* kq_change() reported why; undo what this function took over. */
 	if (kq_change(src, EVFILT_SIGNAL, EV_ADD | EV_ENABLE, 0, 0,
@@ -158,8 +196,7 @@ static int arm_signal(struct fyai_event_source *src)
 	return 0;
 
 err_restore:
-	sigaction(src->signo, &src->saved_sa, NULL);
-	sigprocmask(SIG_SETMASK, &src->saved_mask, NULL);
+	restore_signal(src);
 	src->saved_valid = false;
 err_out:
 	return -1;
@@ -234,8 +271,6 @@ int fyai_event_backend_disarm(struct fyai_event_source *src)
 			  (uintptr_t)src, true);
 		break;
 	case FYAIEK_SIGNAL:
-		kq_change(src, EVFILT_SIGNAL, EV_DELETE, 0, 0,
-			  (uintptr_t)src->signo, true);
 		goto restore;
 	case FYAIEK_CHILD:
 		kq_change(src, EVFILT_PROC, EV_DELETE, 0, 0,
@@ -250,8 +285,7 @@ int fyai_event_backend_disarm(struct fyai_event_source *src)
 
 restore:
 	if (src->saved_valid) {
-		sigaction(src->signo, &src->saved_sa, NULL);
-		sigprocmask(SIG_SETMASK, &src->saved_mask, NULL);
+		restore_signal(src);
 		src->saved_valid = false;
 	}
 	src->armed = false;
@@ -332,9 +366,11 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 
 	count = 0;
 	for (i = 0; i < n && (unsigned int)count < max; i++) {
-		src = evs[i].udata;
-		if (!src || src->removed)
-			continue;
+		if (evs[i].filter != EVFILT_SIGNAL) {
+			src = evs[i].udata;
+			if (!src || src->removed)
+				continue;
+		}
 
 		events = 0;
 		switch (evs[i].filter) {
@@ -351,10 +387,19 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 			count++;
 			continue;
 		case EVFILT_SIGNAL:
-			fyai_event_prepare(&out[count], src, FYAIEV_SIGNAL);
-			out[count].count = evs[i].data > 0 ?
-				(unsigned int)evs[i].data : 1;
-			count++;
+			for (src = el->sources;
+			     src && (unsigned int)count < max;
+			     src = src->next) {
+				if (src->kind != FYAIEK_SIGNAL ||
+				    src->removed || !src->armed ||
+				    src->signo != (int)evs[i].ident)
+					continue;
+				fyai_event_prepare(&out[count], src,
+						   FYAIEV_SIGNAL);
+				out[count].count = evs[i].data > 0 ?
+					(unsigned int)evs[i].data : 1;
+				count++;
+			}
 			continue;
 		case EVFILT_PROC:
 			if (fyai_event_child_try_reap(src) != 1)

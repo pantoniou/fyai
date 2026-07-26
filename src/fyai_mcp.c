@@ -1482,6 +1482,9 @@ static int mcp_oauth_discovery_submit(struct mcp_oauth_discovery *od)
 
 	ctx = od->mcp->ctx;
 	od->curl = curl_easy_init();
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(od->curl, CURLOPT_NOSIGNAL, 1L);
+
 	fyai_error_check(ctx, od->curl, err_out,
 			 "could not create OAuth discovery transfer");
 	curl_easy_setopt(od->curl, CURLOPT_URL, od->url);
@@ -1967,6 +1970,9 @@ static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
 
 	if (mcp->transport == MCP_TRANSPORT_HTTP)
 		mcp->curl = curl_easy_init();
+	/* Reserve SIGALRM for the watchdog. */
+	curl_easy_setopt(mcp->curl, CURLOPT_NOSIGNAL, 1L);
+
 
 	fyai_error_check(ctx, mcp->name && mcp->protocol_version &&
 			 (!token || mcp->auth_token) &&
