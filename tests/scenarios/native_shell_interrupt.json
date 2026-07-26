@@ -1,0 +1,58 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_nsi1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_nsi",
+            "call_id": "sc_nsi_1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "printf '%s\\n' nsiRAN; sleep 5"
+              ],
+              "max_output_length": 4096
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 5,
+          "total_tokens": 10
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_nsi2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Stopped as asked."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 5,
+          "output_tokens": 5,
+          "total_tokens": 10
+        }
+      }
+    }
+  ]
+}

@@ -680,7 +680,7 @@ if(BUILD_TESTING)
         add_test(NAME fyai/case_${case_name} COMMAND bash ${case_script})
         set_tests_properties(fyai/case_${case_name} PROPERTIES
             TIMEOUT 60
-            ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests"
+            ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN}"
         )
     endforeach()
 
