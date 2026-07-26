@@ -1,0 +1,52 @@
+{
+  "steps": [
+    {
+      "match": {"http": "POST", "path": "/mcp", "method": "initialize"},
+      "status": 401,
+      "headers": {
+        "WWW-Authenticate": "Bearer resource_metadata=\"{{BASE_URL}}/oauth/resource\""
+      },
+      "response": {"error": "authorization required"}
+    },
+    {
+      "match": {"http": "GET", "path": "/oauth/resource"},
+      "response": {
+        "resource": "{{BASE_URL}}/mcp",
+        "authorization_servers": ["{{BASE_URL}}/issuer"]
+      }
+    },
+    {
+      "match": {
+        "http": "GET",
+        "path": "/.well-known/oauth-authorization-server/issuer"
+      },
+      "response": {
+        "issuer": "{{BASE_URL}}/issuer",
+        "authorization_endpoint": "{{BASE_URL}}/oauth/authorize",
+        "token_endpoint": "{{BASE_URL}}/oauth/token",
+        "registration_endpoint": "{{BASE_URL}}/oauth/register"
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/oauth/register", "method": ""},
+      "response": {
+        "client_id": "fyai-test-client",
+        "token_endpoint_auth_method": "none"
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions"},
+      "response": {
+        "choices": [{
+          "message": {"role": "assistant", "content": "OAuth unavailable."},
+          "finish_reason": "stop"
+        }],
+        "usage": {
+          "prompt_tokens": 4,
+          "completion_tokens": 2,
+          "total_tokens": 6
+        }
+      }
+    }
+  ]
+}

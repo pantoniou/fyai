@@ -1,0 +1,20 @@
+#!/bin/sh
+# Browser surrogate for hermetic OAuth tests.
+if [ -n "${FYAI_BROWSER_URL_LOG:-}" ]; then
+	printf '%s\n' "$1" >"$FYAI_BROWSER_URL_LOG"
+fi
+exec python3 - "$1" <<'PY'
+import sys
+import urllib.parse
+import urllib.request
+
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[1]).query)
+redirect = query["redirect_uri"][0]
+state = query["state"][0]
+separator = "&" if "?" in redirect else "?"
+url = redirect + separator + urllib.parse.urlencode({
+    "code": "mcp-test-code",
+    "state": state,
+})
+urllib.request.urlopen(url, timeout=5).read()
+PY

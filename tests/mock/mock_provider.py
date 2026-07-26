@@ -126,6 +126,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write("mock: " + fmt % args + "\n")
 
+    def expand(self, value):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        return value.replace("{{BASE_URL}}", base)
+
     def do_POST(self):
         st = STATE
         length = int(self.headers.get("Content-Length", 0))
@@ -139,8 +143,8 @@ class Handler(BaseHTTPRequestHandler):
             idx, step = st.pick({
                 "http": "POST",
                 "path": self.path,
-                "method": parsed.get("method") if isinstance(parsed, dict)
-                          else "",
+                "method": (parsed.get("method") or "")
+                          if isinstance(parsed, dict) else "",
                 "auth": self.headers.get("Authorization", ""),
                 "session": self.headers.get("Mcp-Session-Id", ""),
             })
@@ -237,7 +241,43 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         for key, value in step.get("headers", {}).items():
-            self.send_header(key, value)
+            self.send_header(key, self.expand(value))
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_GET(self):
+        st = STATE
+        with st.lock:
+            idx, step = st.pick({
+                "http": "GET",
+                "path": self.path,
+                "auth": self.headers.get("Authorization", ""),
+            })
+            record = {
+                "path": self.path,
+                "method": "GET",
+                "auth": self.headers.get("Authorization", ""),
+                "client_port": self.client_address[1],
+                "body": "",
+            }
+            with open(os.path.join(st.rundir, "requests.jsonl"), "a") as f:
+                f.write(json.dumps(record) + "\n")
+            with open(os.path.join(st.rundir, "served"), "w") as f:
+                f.write("%d\n" % st.served)
+
+        if step is None:
+            status = 500
+            payload = b'{"error":{"message":"mock: scenario exhausted"}}'
+        else:
+            status = step.get("status", 200)
+            value = step.get("raw")
+            if value is None:
+                value = json.dumps(step.get("response", {}),
+                                   separators=(",", ":"))
+            payload = self.expand(value).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)

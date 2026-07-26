@@ -1,0 +1,178 @@
+{
+  "steps": [
+    {
+      "match": {"http": "POST", "path": "/mcp", "method": "initialize"},
+      "status": 401,
+      "headers": {
+        "WWW-Authenticate":
+          "Bearer resource_metadata=\"{{BASE_URL}}/oauth/resource\""
+      },
+      "response": {"error": "authorization required"}
+    },
+    {
+      "match": {"http": "GET", "path": "/oauth/resource"},
+      "response": {
+        "authorization_servers": ["{{BASE_URL}}/issuer"],
+        "resource": "{{BASE_URL}}/mcp"
+      }
+    },
+    {
+      "match": {
+        "http": "GET",
+        "path": "/.well-known/oauth-authorization-server/issuer"
+      },
+      "response": {
+        "issuer": "{{BASE_URL}}/issuer",
+        "authorization_endpoint": "{{BASE_URL}}/oauth/authorize",
+        "token_endpoint": "{{BASE_URL}}/oauth/token"
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/oauth/token", "method": ""},
+      "response": {
+        "access_token": "configured-access-token",
+        "refresh_token": "configured-refresh-token",
+        "expires_in": 3600,
+        "token_type": "Bearer"
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "initialize",
+        "auth": "Bearer configured-access-token"
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {"tools": {}}
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "notifications/initialized",
+        "auth": "Bearer configured-access-token"
+      },
+      "status": 202,
+      "raw": ""
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "tools/list",
+        "auth": "Bearer configured-access-token"
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "tools": [{
+            "name": "echo",
+            "description": "Echo text",
+            "inputSchema": {"type": "object"}
+          }]
+        }
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions"},
+      "response": {
+        "choices": [{
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+              "id": "call_oauth_mcp",
+              "type": "function",
+              "function": {
+                "name": "mcp__gmail__echo",
+                "arguments": "{\"text\":\"hello\"}"
+              }
+            }]
+          },
+          "finish_reason": "tool_calls"
+        }],
+        "usage": {
+          "prompt_tokens": 4,
+          "completion_tokens": 2,
+          "total_tokens": 6
+        }
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/mcp", "method": "tools/call"},
+      "status": 401,
+      "headers": {
+        "WWW-Authenticate":
+          "Bearer resource_metadata=\"{{BASE_URL}}/oauth/tool-resource\""
+      },
+      "response": {"error": "replacement token required"}
+    },
+    {
+      "match": {"http": "GET", "path": "/oauth/tool-resource"},
+      "response": {
+        "authorization_servers": ["{{BASE_URL}}/issuer"],
+        "resource": "{{BASE_URL}}/mcp"
+      }
+    },
+    {
+      "match": {
+        "http": "GET",
+        "path": "/.well-known/oauth-authorization-server/issuer"
+      },
+      "response": {
+        "issuer": "{{BASE_URL}}/issuer",
+        "authorization_endpoint": "{{BASE_URL}}/oauth/authorize",
+        "token_endpoint": "{{BASE_URL}}/oauth/token"
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/oauth/token", "method": ""},
+      "response": {
+        "access_token": "configured-refreshed-token",
+        "refresh_token": "configured-rotated-token",
+        "expires_in": 3600,
+        "token_type": "Bearer"
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "tools/call",
+        "auth": "Bearer configured-refreshed-token"
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "content": [{"type": "text", "text": "echo: hello"}]
+        }
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions"},
+      "response": {
+        "choices": [{
+          "message": {
+            "role": "assistant",
+            "content": "Configured OAuth connected."
+          },
+          "finish_reason": "stop"
+        }],
+        "usage": {
+          "prompt_tokens": 8,
+          "completion_tokens": 2,
+          "total_tokens": 10
+        }
+      }
+    }
+  ]
+}

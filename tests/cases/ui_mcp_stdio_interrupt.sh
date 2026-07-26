@@ -28,4 +28,18 @@ elapsed=$(($(date +%s) - start))
 [ "$elapsed" -lt 8 ] || fail "ESC did not interrupt the MCP pipe request"
 
 mock_stop 1
+
+FYAI_PTY_INPUT="/mcp" \
+FYAI_PTY_NEEDLE="MCP endpoints" \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/mcp-status.out" \
+	"$FYAI_BIN" -k test-key --theme dark \
+	--set display/markdown=true --set display/stream=false \
+	--set mcp/enabled=true \
+	--set "mcp/servers/local={transport: stdio, command: '$PYTHON', args: \
+['$TESTS_DIR/mock/mock_mcp_stdio.py'], cwd: '$TEST_DIR'}" \
+	-m mock-model -i
+
+grep -qF "MCP endpoints" "$TEST_DIR/mcp-status.out" || \
+	fail "/mcp did not render the endpoint status table"
+
 pass

@@ -1,0 +1,11 @@
+{
+  "installed": {
+    "client_id": "test-client.apps.googleusercontent.com",
+    "client_secret": "mcp-import-secret-value",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "redirect_uris": [
+      "http://localhost"
+    ]
+  }
+}

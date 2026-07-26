@@ -11,7 +11,7 @@ fyai_test_setup
 pid=$!
 
 i=0
-while ! grep -q "Open this URL" "$TEST_DIR/stdout"; do
+while ! grep -q "Open this link" "$TEST_DIR/stdout"; do
 	kill -0 "$pid" 2>/dev/null ||
 		fail "auth login exited before opening the receiver"
 	i=$((i + 1))

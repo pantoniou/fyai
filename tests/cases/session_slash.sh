@@ -73,6 +73,8 @@ set +e
 /sandbox on
 /sandbox
 /secret status api-key/not-configured
+/auth status
+/auth invalid
 /context
 /tools
 /tools test-agent
@@ -106,6 +108,8 @@ assert_stdout_contains "logging: wire on, stream on, conversation on"
 assert_stdout_contains "logging: cleared conversation"
 assert_stdout_contains "7"
 assert_stdout_contains "sandbox: on"
+assert_stdout_contains "Authentication"
+assert_stderr_contains "auth: use [status|login|logout]"
 # A named status is absent where the OS secret backend is available, and
 # unavailable on runners without a usable backend (for example a locked
 # keychain).  Either result is correct here: this command must not affect the
@@ -118,11 +122,23 @@ assert_stdout_contains '| `sample_tool` | First sentence. |'
 assert_stdout_contains $'- **sample_tool**\n\n  > First sentence. Full tool description.'
 assert_stdout_contains '```yaml'
 assert_stderr_contains "unknown or ambiguous command '/nope'"
+if grep -qF "fyai execution failed" "$TEST_DIR/stderr"; then
+	fail "/exit was reported as an execution failure"
+fi
 assert_stdout_contains "Reply one."
 assert_stdout_contains "model: qux (provider otherprov, api chat-completions)"
 assert_stdout_contains "hello two"
 assert_stdout_contains "conversation cleared"
 assert_stdout_contains "Reply four."
+
+"$FYAI_BIN" --color off --set display/markdown=false \
+	--set display/stream=false -i -m foo \
+	>"$TEST_DIR/quit.stdout" 2>"$TEST_DIR/quit.stderr" <<'EOF'
+/quit
+EOF
+if grep -qF "fyai execution failed" "$TEST_DIR/quit.stderr"; then
+	fail "/quit was reported as an execution failure"
+fi
 assert_stdout_contains "reasoning-effort: high"
 assert_stdout_contains "reasoning-summary: concise"
 assert_stdout_contains "/reasoning-effort"
