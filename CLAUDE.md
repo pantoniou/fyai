@@ -7,13 +7,14 @@ authoritative spec.
 
 `fyai` is a **stateless, daemon-less Unix-style AI coding assistant** in C. Each
 invocation runs one complete tool-use loop, commits canonical state to a
-content-addressed libfyaml arena, and exits. There is no resident process, TUI,
-or sidecar state format.
+content-addressed libfyaml arena, and exits. An interactive invocation owns a
+terminal UI for its process lifetime; there is no resident process or sidecar
+state format.
 
 ## Architecture invariants (do not break)
 
-- No daemon, resident process, TUI, or hidden process state. One invocation =
-  one full loop + state commit + exit.
+- No daemon, resident process, or hidden process state. One invocation = one
+  full loop + state commit + exit; the terminal UI is invocation-local.
 - Persistent state lives in **libfyaml content-addressed arenas** (under
   `~/.fyai`), never in sidecar formats. Canonical data is immutable,
   deterministic, and address-stable across processes; arena relocation is
@@ -91,17 +92,12 @@ accept null to paper over an emitter that drops the quotes.
   head reset. `/compact`
   makes one tools-off summary call and restarts the chain from the summary,
   keeping the old head under turn metadata `compacted_from`.
-- `src/fyai_signal.c` — interactive-session signal handling (installed only in
-  the REPL): SIGINT sets a flag the request path polls (the spinner/xferinfo
-  callback aborts the in-flight curl transfer, and the tool loop stops issuing
-  calls); SIGWINCH calls `linenoiseWindowChanged()` to reflow the prompt.
-  Handlers use `sigaction` without `SA_RESTART` so blocking reads/polls see
-  EINTR promptly. These dispositions stay installed for the whole session, but
-  a wait that can *act* on a signal borrows it as an event source for the
-  duration of the wait (`fyai_signals_attach_winch()`): the handler can only
-  set a flag, while an event callback runs ordinary code. The event layer saves
-  and restores the disposition (and, on Linux, the signalfd mask) when the
-  source is removed, so borrowing nests and the handler resumes untouched.
+- `src/fyai_event*.c` — the context-owned portable event loop. Linux uses
+  epoll/signalfd/timerfd/pidfd and BSD/macOS use kqueue. fyai owns its signals;
+  active operations observe interrupt/termination through loop callbacks, not
+  process-global subsystem handlers or blocking EINTR loops. SIGPIPE remains
+  blocked in the parent for synchronous event delivery, and forked children
+  restore their own disposition before exec.
   An interrupted turn keeps the steps that completed: the run
   loop wraps the partial turn (or fy_invalid) with a diagnostic via a manual
   `FYGIF_DIAG` indirect (`fyai_with_diag`/`fyai_report_diag` in fyai.c) — since
@@ -186,11 +182,20 @@ accept null to paper over an emitter that drops the quotes.
   path gets a 404 and the wait continues, rather than failing the login. What
   stays with the caller is everything provider-shaped: issuer, client id,
   scopes, the authorize query, the token exchange and where credentials land.
-  `fyai_auth.c` drives it for the compiled-in Codex subscription flow; MCP OAuth
-  is the intended second caller (today MCP only carries a static bearer token).
+  `fyai_auth.c` drives it for the compiled-in Codex subscription flow;
+  `fyai_mcp.c` drives resource discovery, configured or dynamic clients,
+  browser authorization, token exchange, refresh, and 401 recovery.
   `tests/fyai_oauth_test.c` drives both ends from one loop — the client sockets
   are sources too — so a regression back to a synchronous accept/read fails the
   test rather than passing it.
+  MCP OAuth has two client lifetimes: configured clients have a stable
+  configured redirect and survive logout; dynamically registered clients are
+  bound to the exact ephemeral receiver URI and **must be cleared from memory
+  on logout** so the next login registers for its new port. Every terminal or
+  cancelled OAuth path must destroy its discovery object and clear
+  `mcp->oauth_discovery`. Explicit login/logout supersedes an outstanding
+  browser wait, discovery, or refresh operation; a provider can reject a
+  redirect without ever visiting the local receiver.
 - `src/fyai_config.c` — layered config loading (arena-resident repo config),
   slash-path config verb (import/export/edit/show/get/set/delete) and the
   global --set/--get/--delete ops.
@@ -261,11 +266,12 @@ real bugs when the loops were per-subsystem:
   reliably caught under ASAN, which is why
   `tests/fyai_event_test.c:test_fork_child_abandons_loop` guards it directly.
 
-Nested runs still exist, but on a shared loop a nested run dispatches the outer
-run's sources too. That is mostly the point — a shell tool's wait keeps a pooled
-connection alive — but it means a callback can re-enter code its caller is
-inside. The engine is sequenced so this does not bite today (no transfer is in
-flight while tools run); a new nesting site has to check that for itself.
+The interactive path has one application-owned pump; model, tool, MCP, OAuth,
+editor, and config-edit callbacks beneath it must never call `run_until()` or
+manually step the loop. Thin synchronous wrappers remain only for standalone
+commands, batch/setup adapters, and isolated tests that own the top-level loop.
+Do not call one of those wrappers from an interactive callback: a nested run
+would dispatch outer sources and can re-enter the caller.
 
 The event layer recycles loops and sources through free lists, which hides
 use-after-free from the sanitizers: a stale pointer to a retired source still

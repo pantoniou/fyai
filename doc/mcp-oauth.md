@@ -1,7 +1,24 @@
 # Finishing MCP support: OAuth for remote servers
 
-Status: **not started**. The substrate landed with `src/fyai_oauth.c`
-(commits `76cb534`, `e313200`); nothing in `src/fyai_mcp.c` uses it yet.
+Status: **in progress**. MCP now retains HTTP authentication challenges per
+JSON-RPC request, supports explicit `auth: { type: oauth }`, and drives
+protected-resource plus authorization-server discovery asynchronously.
+Dynamic client registration is asynchronous as well. Credential storage,
+uses a private, atomically replaced per-server file under fyai's state
+directory, guarded by the shared auth lock. Authorization-code login uses PKCE
+and the shared asynchronous loopback receiver, then retries the parked MCP
+initialize request with the access token. Browser login is fail-closed unless
+the server has `auth: { type: oauth, allow_browser: true }`. Refresh tokens
+rotate through the same asynchronous transfer state, with refresh-before-use,
+one authenticated 401 recovery, and a context-loop timer five minutes ahead
+of expiry. An interactive one-shot consent surface remains to be wired.
+
+Pre-registered clients may be configured under `auth.client`. The
+`fyai mcp oauth import-client` verb converts Google's downloaded client JSON
+into non-secret configuration and stores the client secret in the
+machine-local secret backend, or records an environment reference. Configured
+clients bypass Dynamic Client Registration; DCR remains available when no
+client is configured.
 
 ## Where MCP auth stands today
 

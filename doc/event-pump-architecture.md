@@ -2,13 +2,13 @@
 
 ## Purpose
 
-fyai is moving toward one application-owned event pump. Model requests, tool
-jobs, terminal input, signals, OAuth, and eventually MCP operations should make
-progress through callbacks instead of entering nested blocking loops.
+fyai uses one application-owned event pump. Model requests, tool jobs, terminal
+input, signals, OAuth, and MCP operations make progress through callbacks
+instead of entering nested blocking loops.
 
-The portable event infrastructure is already in place. This plan describes how
-to move synchronous control flow onto it without rewriting every subsystem at
-once.
+The portable event infrastructure and the interactive conversion are in place.
+This document records the architecture, the remaining standalone adapters, and
+the invariants that new asynchronous work must preserve.
 
 ## Existing foundation
 
@@ -37,7 +37,7 @@ move ownership of execution state out of nested call stacks.
 
 ## Progress snapshot
 
-The first operation layers have crossed the asynchronous boundary:
+The interactive application has crossed the asynchronous boundary:
 
 - curl transfers have per-transfer submit, completion, cancellation,
   collection, and destruction semantics;
@@ -47,46 +47,25 @@ The first operation layers have crossed the asynchronous boundary:
   provider order, and notify their owner on completion;
 - complete parallel-capable calls may enter an open tool group while the model
   response is still streaming; and
-- live workbands and durable Markdown share the same tool-call boundary.
+- live workbands and durable Markdown share the same tool-call boundary;
+- the turn machine and interactive frontend run from the application pump;
+- MCP startup, requests, OAuth recovery, and shutdown are callback-driven; and
+- editors and interactive config edits are child operations beneath the pump.
 
-Synchronous wrappers remain and are still used by the application path. The
-next architectural step is the turn machine, not another event backend or
-polling primitive.
+## Remaining synchronous adapters
 
-## Current synchronous boundaries
+The interactive path has no nested pump. Thin synchronous adapters remain for
+standalone commands and setup paths that own the top-level loop themselves:
 
-The interactive control flow is effectively:
+- batch and one-shot turn execution;
+- command-line provider login and token refresh;
+- command-line config editing;
+- one-shot MCP bring-up; and
+- compatibility helpers used by isolated tests.
 
-```text
-read input
-  -> submit model request
-     -> pump until curl completes
-  -> inspect response
-  -> submit tool group
-     -> pump until all jobs complete
-  -> submit another model request
-  -> publish the turn
-  -> read input
-```
-
-The nested pumps keep the UI responsive, but the calling function still owns
-the operation synchronously. Important examples are:
-
-- `fyai_ui_readline()` calling `fyai_event_loop_run_until()`;
-- `fyai_curl_perform()` calling `fyai_event_loop_run_until()`;
-- `fyai_perform_streaming_request_tools()` submitting a stream and then
-  calling `fyai_event_loop_run_until()`;
-- `fyai_run_tool_group()` looping over `fyai_event_loop_step()`;
-- synchronous single-tool execution waiting for a job;
-- the synchronous OAuth wrapper waiting for its flow;
-- MCP HTTP requests using the synchronous curl wrapper;
-- MCP stdio requests using blocking writes and `poll()` reads;
-- MCP retry delays using `nanosleep()`; and
-- auxiliary shutdown and command paths using `waitpid()` or blocking input.
-
-`struct stream_response` is now heap-owned, so curl callbacks no longer depend
-on a waiting stack frame. The model loop still consumes it synchronously, and
-recursive retry decisions remain in `fyai_run_model_step()`.
+These adapters submit the same heap-owned operations, pump until their
+completion callback fires, and collect the latched result. They must never be
+called beneath the interactive application pump.
 
 ## Target architecture
 
@@ -290,16 +269,15 @@ MCP tool calls are excluded from parallel tool job groups and run through the
 turn's exclusive path. A call routed to a not-yet-settled server is parked on a
 poll timer (Gate 2) rather than blocking, so the pump stays live while it waits.
 
-The stdio spawn path also changes the process-wide SIGPIPE disposition. That
-must disappear during conversion: fyai owns signal policy through its context,
-and child setup should restore only the child disposition without mutating a
-global parent handler.
+fyai owns SIGPIPE policy through its context. The parent keeps it blocked for
+synchronous event delivery, while child setup restores the child disposition
+without installing a process-global parent handler.
 
 Existing functional tests cover HTTP retry, discovery pagination, session
 recovery, session deletion, multiple configured servers, persistent stdio
 environment/cwd handling, polite EOF shutdown, and stubborn-child escalation.
-The conversion should retain those tests and add event-order and cancellation
-assertions rather than replacing the lifecycle coverage.
+New work should add event-order and cancellation assertions without replacing
+that lifecycle coverage.
 
 ### MCP server state
 
@@ -410,10 +388,60 @@ The application may wait for this shutdown group before destroying the
 context, but it must do so through the top-level pump. No MCP callback may
 retain the transient builder used by the turn that initiated a request.
 
-MCP OAuth adds another continuation to the server/request state machine. A
-401 response may park the request behind discovery, refresh, or an interactive
-login operation, but must never call the synchronous OAuth wait wrapper from
-inside an MCP callback.
+### MCP OAuth lifecycle
+
+MCP OAuth is a child operation of the server lifecycle. Resource discovery,
+authorization-server discovery, dynamic client registration, browser
+authorization, token exchange, and refresh all use the shared curl and event
+backends:
+
+```text
+RESOURCE
+  -> AUTHORIZATION_SERVER
+  -> REGISTER        (when no configured or cached client exists)
+  -> AUTHORIZE
+  -> TOKEN
+  -> COMPLETED
+
+REFRESH
+  -> COMPLETED
+
+any active state
+  -> FAILED | CANCELLED
+```
+
+A protected request receiving HTTP 401 parks server recovery behind this
+operation. Successful token collection installs the bearer token, persists the
+credential record, schedules refresh, and resumes server initialization. No
+MCP callback enters the synchronous OAuth wait wrapper.
+
+The credential record is bound to the authorization issuer, protected
+resource, client ID, and configured scopes. A mismatch ignores the cached
+tokens rather than sending them to a different endpoint. Access and refresh
+tokens are stored in the machine-local authentication state, while configured
+client secrets remain in the configured secret provider.
+
+Configured and dynamically registered clients have different redirect
+lifetimes:
+
+- A configured client uses its configured loopback host, port, and path. Login
+  reuses that stable client registration.
+- Dynamic registration starts the loopback receiver first and registers its
+  exact ephemeral redirect URI. Logout clears both the persisted registration
+  and the in-memory dynamic client ID, because the next receiver normally uses
+  a different port and therefore requires a fresh registration.
+
+Every terminal path destroys the discovery object and clears
+`mcp->oauth_discovery`. Explicit `/mcp login NAME` and
+`/mcp logout NAME` supersede an outstanding browser wait, discovery, or
+refresh operation. This is necessary when an authorization server rejects the
+redirect before visiting fyai's receiver; otherwise the endpoint would remain
+busy until the receiver timeout.
+
+Login success is terminal only after the token exchange and durable save have
+completed. Logout success is terminal only after the credential record has
+been removed and in-memory tokens, timers, and dynamic registration state have
+been cleared.
 
 ## Turn state machine
 
@@ -454,8 +482,8 @@ semantics.
 
 The model and tool completion callbacks do not transition the machine directly -
 a callback runs inside event dispatch and could otherwise free the very step or
-group whose completion is on the stack. They instead defer
-`fyai_turn_run_service()` (`fyai_event_defer()`), which runs outside dispatch and
+group whose completion is on the stack. They instead defer the service through
+`fyai_event_defer()`. `fyai_turn_run_service()` runs outside dispatch and
 re-derives readiness from the child operation's own latched completion
 (`fyai_model_step_done()` / `fyai_tool_job_group_done()`) rather than a cached
 flag. The turn therefore keeps its coarse `MODEL`/`TOOLS` states with no
@@ -587,8 +615,10 @@ per-server startup op; servers connect concurrently through a startup group
 shutdown group in STOPPING. HTTP requests are off `fyai_curl_perform()` and
 stdio `poll()` is replaced by nonblocking event sources. The first-turn gate
 (`mcp/startup_wait`) and the per-call readiness gate keep tool calls coherent
-while servers are still connecting. Deferred to a follow-up: active mid-session
-reconnect of a dropped server.
+while servers are still connecting. OAuth discovery, configured and dynamic
+clients, browser login, token exchange, refresh, explicit login/logout, and
+401 recovery use the same application pump. Deferred to a follow-up: active
+mid-session reconnect of a dropped server.
 
 ### 8. Convert auxiliary blocking paths
 
@@ -651,6 +681,10 @@ Each conversion should test:
 - MCP stdio partial writes, split frames, notifications, and out-of-order IDs;
 - MCP HTTP retry timers and session recovery without recursion;
 - cancellation of queued and active MCP requests;
+- cancellation or replacement of an active MCP OAuth browser wait;
+- configured-client login with an exact stable redirect;
+- dynamic-client logout and re-registration for a new ephemeral redirect;
+- OAuth token refresh with issuer and resource binding;
 - shutdown escalation for a stubborn MCP stdio child;
 - best-effort HTTP session deletion during bounded shutdown; and
 - parity between live rendering and the durable transcript.
