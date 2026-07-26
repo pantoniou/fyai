@@ -66,6 +66,10 @@ accept null to paper over an emitter that drops the quotes.
   entire assistant model/tool loop, owns progressive rendering, and is
   finalized into the durable turn as `display_outputs`. History replays these
   exact documents; message/provider reconstruction is legacy-arena fallback.
+  A render path must never call `fytim_pump()`: pumping drains *input*, so
+  doing it from a repaint re-enters input handling from a tool callback, and a
+  read that blocks there wedges the loop outright. Mark the frame
+  (`frame_pending`) and let the owning pump paint it.
   Add generated fragments with the checked `fyai_output_printf()` API and
   provider byte streams with `fyai_output_append()`. Do not create a parallel
   renderer or print transcript content from a tool/reasoning producer.
@@ -82,7 +86,21 @@ accept null to paper over an emitter that drops the quotes.
   when the terminal cannot be edited, which is why the non-tty functional cases
   never exercise the event path — verify it under a pty. In the REPL a
   `/`-prefixed line never reaches the
-  model; `//` escapes a literal slash line. `/model` re-runs
+  model; `//` escapes a literal slash line. Ctrl-C on an idle session ends it the
+  way `^D` does, but only on an empty edit buffer — libfytimui reports the key
+  without touching the buffer, so fyai discards a half-typed line instead and
+  the session survives; while busy it still cancels the turn. fyai asks
+  libfytimui to keep `ISIG` on for the INTR key alone
+  (`fytim_cfg.intr_signal`), so **`^C` is a signal, not input**: delivered as a
+  byte it is useless in the one case that matters, because reading it needs the
+  very loop that is wedged. Escape still arrives as `FYTIM_EVENT_INTERRUPT`;
+  both funnel into `fyai_ui_interrupt()`. The SIGINT side is edge-triggered off
+  `ctx->interrupt_seq`, because `interrupt_pending` is a level — replaying it
+  would discard the line on one pass and quit on the next. All of this needs a
+  pty **with a controlling terminal**: without `setsid()` + `TIOCSCTTY` the line
+  discipline has no foreground process group, so `^C` is consumed and signals
+  nobody, silently making every signal-driven interrupt untestable
+  (`tests/pty_driver.py`, `tests/cases/ui_idle_ctrl_c.sh`). `/model` re-runs
   `fyai_config_resolve_model()` and `fyai_request_state_apply()` mid-session,
   re-deriving `<PROVIDER>_API_KEY` unless the key was explicit. Request-shaping
   switches (`/model`, `/api`, the reasoning options, `/temperature`) persist
@@ -98,6 +116,24 @@ accept null to paper over an emitter that drops the quotes.
   process-global subsystem handlers or blocking EINTR loops. SIGPIPE remains
   blocked in the parent for synchronous event delivery, and forked children
   restore their own disposition before exec.
+  **SIGINT is the one deliberate exception** and keeps a real handler
+  (`fyai_event_interrupt_open()`), because signalfd only delivers to a loop
+  that is running and a wedged loop is exactly when the user needs out — a
+  Ctrl-C that does nothing is indistinguishable from fyai ignoring it. The
+  handler raises `interrupt_pending`, pokes the loop's always-armed wake source
+  (the same self-pipe idiom as deferred work — a readable descriptor, never
+  EINTR, since whether a signal interrupts a syscall depends on `SA_RESTART`
+  and on the syscall) and arms a 200 ms itimer; every pump that
+  observes the flag must call `fyai_event_interrupt_ack()` **even when there is
+  nothing to cancel**, or a Ctrl-C at an idle prompt escalates. If no ack
+  arrives, SIGALRM hands SIGINT and SIGTERM to the kernel so the next Ctrl-C
+  kills outright; a loop that later recovers takes them back. Two rules follow:
+  nothing may register a SIGINT signalfd source (blocking it disables the
+  handler — which is why the shell capture and the forked tool child register
+  only SIGTERM/SIGHUP/SIGPIPE), and SIGALRM belongs to the watchdog, which is
+  why every easy handle sets `CURLOPT_NOSIGNAL`. The handler carries
+  `SA_RESTART` so ordinary I/O keeps restarting as it did when SIGINT was
+  blocked outright; ending the wait is the wake source's job, not EINTR's.
   An interrupted turn keeps the steps that completed: the run
   loop wraps the partial turn (or fy_invalid) with a diagnostic via a manual
   `FYGIF_DIAG` indirect (`fyai_with_diag`/`fyai_report_diag` in fyai.c) — since
@@ -105,6 +141,29 @@ accept null to paper over an emitter that drops the quotes.
   still tests invalid everywhere, so no assert-valid churn. Ctrl-Z suspend at
   the prompt and the SIGWINCH reflow live in the vendored linenoise
   (`third_party/linenoise`, fyai-local extensions).
+- `src/fyai_event_dump.c` — belt and suspenders for a hang: `kill -USR2 <pid>`
+  dumps the live loop — sources with kind/flags/fd, overdue timer deadlines,
+  `arm_gen`, nesting depth, the interrupt and watchdog state — from a signal
+  handler, with no cooperation from the loop. Every other diagnostic fyai has
+  assumes the loop still runs (diagnostics drain at a turn boundary, the UI
+  repaints off a timer, a tool reports through a pipe the loop must read), so
+  when the loop is what is stuck they are all silent and the three failure
+  shapes look identical from outside. The dump tells them apart:
+  `dispatch_depth > 0` means a callback is running or stuck, `dispatch_depth 0`
+  with `depth > 0` means blocked in the wait, and a large negative timer
+  `in_ms` (with a frozen `arm_gen`) means deadlines are passing undispatched.
+  The whole file is restricted to async-signal-safe calls — `write()`/`open()`,
+  no stdio, no malloc — which is why the integer formatting is hand-rolled. It
+  walks the source list unlocked and so can tear; that is deliberate, since it
+  runs when the process is already unusable. Output goes to a dup of the real
+  stderr taken in `fyai_signals_open()` **before** the UI spools stderr — a
+  dump into the spool would be drained by the loop that is stuck. Line endings
+  follow the target: `tcgetattr()` is async-signal-safe and fails with ENOTTY
+  off a terminal, so it doubles as the test for a raw tty (`OPOST` clear) —
+  there the dump emits CRLF, since a bare LF staircases off the right edge
+  exactly when the output is least readable, while a redirected dump keeps
+  plain LF and stays diffable. Resolve `cb=` with `addr2line` against the
+  running binary.
 - `src/fyai_render.c` — the one generic-to-Markdown table renderer
   (`fyai_generic_to_markdown()`). Every Markdown table goes through it: a
   mapping renders as a two-column key/value table, a sequence of mappings as
@@ -158,6 +217,37 @@ accept null to paper over an emitter that drops the quotes.
 - `src/utils.c` — HTTP response buffers, shell exec capture, generic emit/parse.
   The shell `fork`/`exec` optionally applies a `fyai_sandbox_spec` in the child
   before exec.
+  A forked tool child gets `/dev/null` on stdin (`fyai_tool_child_fds()`) **and
+  its own session** (`setsid()`), never the terminal. Both presented as a
+  *parent* hang. `O_NONBLOCK` lives on the open file description that `fork()`
+  shares, so a grandchild clearing it on the inherited tty makes the parent's
+  own terminal blocking. And — the subtle one — **the controlling terminal
+  belongs to the session, not to any descriptor**: closing every fd and
+  redirecting stdin does *not* shed it, because `open("/dev/tty")` reopens it
+  from anywhere in the session, which is why `O_NOCTTY` is no help either. A
+  background process group that touches it takes SIGTTIN/SIGTTOU, and the
+  default action stops the **whole group** — the tool, its shell, everything
+  they spawned — while the parent's loop keeps running and looks perfectly
+  healthy. `git`, `ssh`, `sudo`, `gpg` and `less` all open `/dev/tty` directly,
+  so only `setsid()` closes the class.
+  The parent must **not** `setpgid()` the child: winning that race makes the
+  child a process-group leader, `setsid()` then fails with EPERM, and it stays
+  in our session holding the terminal. Until the child isolates itself
+  `kill(-pid)` finds no group and `fyai_tool_job_cancel()` falls back to
+  `kill(pid)`. Guarded by `tests/cases/tool_child_stdin.sh`, which needs a real
+  pty or the assertion passes vacuously.
+  Cancelling a tool goes through the event layer's shutdown ladder
+  (`fyai_event_add_child_terminate_group()`), not a single SIGTERM: a tool that
+  catches SIGTERM and stalls — or a child of it that does — keeps the result and
+  progress pipes open, so the job never completes and the turn hangs on the
+  very interrupt meant to end it. The **group** variant matters: the tool child
+  isolates itself and everything it spawns shares that group, so signalling the
+  pid alone leaves the tree behind. The ladder also sweeps the group with
+  SIGKILL when the watched child exits — the child's exit is not the end of the
+  ladder while its children still hold the pipes. Guarded by
+  `tests/cases/tool_terminate.sh`, which tags one child that dies on SIGTERM
+  and one that ignores it, so both stages are exercised.
+  Note `fyai_tool_job_spawn()` memsets the job: set fields **after** it.
 - `src/fyai_sandbox.c` — Landlock confinement for shell-tool sub-executions
   (`--sandbox` / config `sandbox`, default off). ABI-probed and masked; grants
   read-only system paths + read/write project (children of the root minus the
