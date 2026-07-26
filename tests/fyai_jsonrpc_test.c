@@ -233,6 +233,198 @@ static void test_cancel(void)
 	printf("ok - a pending request can be cancelled\n");
 }
 
+
+/* Record requests and notifications that the connection serves. */
+struct served {
+	volatile int requests;
+	volatile int notifications;
+	char method[64];
+	long long arg;
+	bool fail_next;
+};
+
+static fy_generic on_serve(struct jsonrpc_conn *conn, const char *method,
+			   fy_generic params, fy_generic id, void *userdata,
+			   fy_generic *errorp)
+{
+	struct served *sv = userdata;
+
+	(void)conn;
+	snprintf(sv->method, sizeof(sv->method), "%s", method ? method : "");
+	sv->arg = fy_get(params, "n", 0LL);
+	if (!fy_generic_is_valid(id)) {
+		sv->notifications++;
+		return fy_invalid;
+	}
+	sv->requests++;
+	if (sv->fail_next) {
+		*errorp = fy_mapping(test_ctx.transient_gb,
+				     "code", -32000LL, "message", "refused");
+		return fy_invalid;
+	}
+	return fy_mapping(test_ctx.transient_gb, "echo", sv->arg);
+}
+
+/* Read one framed line the client wrote back to us. */
+static char *peer_recv(struct peer *p, char *buf, size_t cap)
+{
+	size_t used = 0;
+	ssize_t n;
+
+	while (used + 1 < cap) {
+		n = read(p->from_client, buf + used, 1);
+		if (n <= 0)
+			break;
+		if (buf[used] == '\n')
+			break;
+		used++;
+	}
+	buf[used] = '\0';
+	return buf;
+}
+
+static void test_serve_request(void)
+{
+	struct served sv = {};
+	struct peer p;
+	char line[512];
+
+	peer_open(&p);
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, on_serve, &sv));
+
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\","
+		      "\"params\":{\"n\":41}}");
+	FYAI_TCHECK(!fyai_event_loop_run_until(loop(), NULL, 300));
+
+	FYAI_TCHECK(sv.requests == 1);
+	FYAI_TCHECK(!strcmp(sv.method, "ping"));
+	FYAI_TCHECK(sv.arg == 41);
+
+	/* The response must go back with the same id. */
+	peer_recv(&p, line, sizeof(line));
+	FYAI_TCHECK(strstr(line, "\"id\": 7") || strstr(line, "\"id\":7"));
+	FYAI_TCHECK(strstr(line, "echo"));
+
+	peer_close(&p);
+	printf("ok - an inbound request is served and answered\n");
+}
+
+static void test_serve_notification(void)
+{
+	struct served sv = {};
+	struct peer p;
+
+	peer_open(&p);
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, on_serve, &sv));
+
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"method\":\"note\",\"params\":{\"n\":5}}");
+	FYAI_TCHECK(!fyai_event_loop_run_until(loop(), NULL, 300));
+
+	FYAI_TCHECK(sv.notifications == 1);
+	FYAI_TCHECK(sv.requests == 0);
+	FYAI_TCHECK(sv.arg == 5);
+	peer_close(&p);
+	printf("ok - an inbound notification is served without a reply\n");
+}
+
+static void test_serve_error(void)
+{
+	struct served sv = { .fail_next = true };
+	struct peer p;
+	char line[512];
+
+	peer_open(&p);
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, on_serve, &sv));
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}");
+	FYAI_TCHECK(!fyai_event_loop_run_until(loop(), NULL, 300));
+
+	peer_recv(&p, line, sizeof(line));
+	FYAI_TCHECK(strstr(line, "error"));
+	FYAI_TCHECK(strstr(line, "refused"));
+	FYAI_TCHECK(!strstr(line, "result"));
+	peer_close(&p);
+	printf("ok - a handler error becomes a JSON-RPC error response\n");
+}
+
+static void test_unserved_request_is_answered(void)
+{
+	struct peer p;
+	char line[512];
+
+	/* Reject a request when no handler is registered. */
+	peer_open(&p);
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"method\":\"note\"}");
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}");
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, NULL, NULL));
+	/* Arm the reader the way an outstanding call would. */
+	{
+		struct call_result cr = {};
+		struct jsonrpc_request *req;
+
+		req = jsonrpc_request_submit(p.conn, "probe", fy_map_empty, 1,
+					     false, on_complete, &cr);
+		FYAI_TCHECK(req);
+		FYAI_TCHECK(!fyai_event_loop_run_until(loop(), NULL, 300));
+		peer_recv(&p, line, sizeof(line));   /* our own probe */
+		peer_recv(&p, line, sizeof(line));   /* the refusal */
+		FYAI_TCHECK(strstr(line, "-32601"));
+		jsonrpc_request_cancel(req);
+		jsonrpc_request_destroy(req);
+	}
+	peer_close(&p);
+	printf("ok - a request with no handler is refused, not dropped\n");
+}
+
+/* Deliver notifications while a request is pending. */
+static void test_notification_during_request(void)
+{
+	struct call_result cr = {};
+	struct served sv = {};
+	struct jsonrpc_request *req;
+	struct peer p;
+
+	peer_open(&p);
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, on_serve, &sv));
+	req = jsonrpc_request_submit(p.conn, "run", fy_map_empty, 11, false,
+				     on_complete, &cr);
+	FYAI_TCHECK(req);
+
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"method\":\"progress\",\"params\":{\"n\":1}}");
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"method\":\"progress\",\"params\":{\"n\":2}}");
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"done\":true}}");
+	FYAI_TCHECK(!fyai_event_loop_run_until(loop(), &cr.done, TEST_BOUND_MS));
+
+	FYAI_TCHECK(sv.notifications == 2);
+	FYAI_TCHECK(sv.arg == 2);
+	FYAI_TCHECK(cr.ok);
+	jsonrpc_request_destroy(req);
+	peer_close(&p);
+	printf("ok - notifications arrive while a request is outstanding\n");
+}
+
+
+/* Ignore non-frame lines and continue to process valid frames. */
+static void test_skips_non_frames(void)
+{
+	struct served sv = {};
+	struct peer p;
+
+	peer_open(&p);
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, on_serve, &sv));
+
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"method\":\"note\",\"params\":{\"n\":1}}");
+	peer_send(&p, "warning: something wrote to stdout");
+	peer_send(&p, "");
+	peer_send(&p, "   ");
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"method\":\"note\",\"params\":{\"n\":2}}");
+	FYAI_TCHECK(!fyai_event_loop_run_until(loop(), NULL, 300));
+
+	FYAI_TCHECK(sv.notifications == 2);
+	FYAI_TCHECK(sv.arg == 2);
+	peer_close(&p);
+	printf("ok - a stray line is skipped, not fatal to the stream\n");
+}
+
 int main(void)
 {
 	int rc;
@@ -246,6 +438,12 @@ int main(void)
 	test_error_response();
 	test_notification();
 	test_cancel();
+	test_serve_request();
+	test_serve_notification();
+	test_serve_error();
+	test_unserved_request_is_answered();
+	test_notification_during_request();
+	test_skips_non_frames();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
