@@ -1,0 +1,88 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-p1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_agent_1",
+                  "type": "function",
+                  "function": { "name": "agent", "arguments": "{\"name\":\"greeter\",\"description\":\"greet and report\",\"task\":\"print a greeting with the shell and report back\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": { "prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-c1",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_shell_1",
+                  "type": "function",
+                  "function": { "name": "shell", "arguments": "{\"command\":\"echo agent-was-here\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": { "prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-c2",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "SUBAGENT_REPORT: printed agent-was-here." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 40, "completion_tokens": 7, "total_tokens": 47 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-p2",
+        "object": "chat.completion",
+        "created": 1735689603,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "Delegated and done." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 60, "completion_tokens": 5, "total_tokens": 65 }
+      }
+    }
+  ]
+}

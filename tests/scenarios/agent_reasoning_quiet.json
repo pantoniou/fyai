@@ -1,0 +1,204 @@
+{
+ "steps": [
+  {
+   "sse": [
+    {
+     "id": "p1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant",
+        "tool_calls": [
+         {
+          "index": 0,
+          "id": "call_a1",
+          "type": "function",
+          "function": {
+           "name": "agent",
+           "arguments": ""
+          }
+         }
+        ]
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "p1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "tool_calls": [
+         {
+          "index": 0,
+          "function": {
+           "arguments": "{\"name\": \"thinker\", \"description\": \"think and report\", \"task\": \"think about it and report back\"}"
+          }
+         }
+        ]
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "p1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "tool_calls"
+      }
+     ]
+    },
+    {
+     "id": "p1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [],
+     "usage": {
+      "prompt_tokens": 20,
+      "completion_tokens": 9,
+      "total_tokens": 29
+     }
+    }
+   ],
+   "done": true
+  },
+  {
+   "sse": [
+    {
+     "id": "s1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant",
+        "reasoning_content": "SUBAGENT-PRIVATE-THOUGHT "
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "s1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "reasoning_content": "and more of it."
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "s1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "content": "Sub-agent report."
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "s1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "stop"
+      }
+     ]
+    },
+    {
+     "id": "s1",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [],
+     "usage": {
+      "prompt_tokens": 20,
+      "completion_tokens": 9,
+      "total_tokens": 29
+     }
+    }
+   ],
+   "done": true
+  },
+  {
+   "sse": [
+    {
+     "id": "p2",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant",
+        "content": "Delegated and done."
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "id": "p2",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "stop"
+      }
+     ]
+    },
+    {
+     "id": "p2",
+     "object": "chat.completion.chunk",
+     "created": 1735689600,
+     "model": "mock-model",
+     "choices": [],
+     "usage": {
+      "prompt_tokens": 20,
+      "completion_tokens": 9,
+      "total_tokens": 29
+     }
+    }
+   ],
+   "done": true
+  }
+ ]
+}

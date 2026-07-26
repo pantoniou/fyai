@@ -1,0 +1,100 @@
+{
+  "steps": [
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions",
+                "body_contains": "delegate both halves"},
+      "response": {
+        "id": "chatcmpl-agents-parallel-1",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_agent_alpha",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\":\"alpha\",\"description\":\"first half\",\"task\":\"work on TASK-ALPHA and report\"}"
+                  }
+                },
+                {
+                  "id": "call_agent_beta",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\":\"beta\",\"description\":\"second half\",\"task\":\"work on TASK-BETA and report\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions",
+                "body_contains": "TASK-ALPHA"},
+      "delay": 1.0,
+      "response": {
+        "id": "chatcmpl-agents-parallel-alpha",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT-ALPHA: first half done."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions",
+                "body_contains": "TASK-BETA"},
+      "delay": 1.5,
+      "response": {
+        "id": "chatcmpl-agents-parallel-beta",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT-BETA: second half done."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions",
+                "body_contains": "REPORT-ALPHA"},
+      "response": {
+        "id": "chatcmpl-agents-parallel-2",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Both sub-agents reported."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

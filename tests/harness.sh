@@ -158,6 +158,20 @@ if not eval(expr):
 EOF
 }
 
+# Assert that no request matches the Python expression over r.
+assert_no_request() {
+	local expr="$1"
+
+	"$PYTHON" - "$TEST_DIR/requests.jsonl" "$expr" <<'EOF' || fail "a request matched (expected none): $expr"
+import json, sys
+path, expr = sys.argv[1], sys.argv[2]
+reqs = [json.loads(l) for l in open(path)]
+for i, r in enumerate(reqs):
+    if eval(expr):
+        sys.exit("request %d matched: %s\n%s" % (i, expr, json.dumps(r, indent=2)))
+EOF
+}
+
 # assert_any_request <python-expression over r>: true for at least one request.
 # Use when request order is not deterministic (e.g. concurrent MCP startup).
 assert_any_request() {

@@ -85,7 +85,13 @@ class MockState:
             if i in self.consumed:
                 continue
             m = step.get("match", {})
-            if all(req.get(k, "") == v for k, v in m.items()):
+            # "body_contains" is a substring test on the raw request body; the
+            # other keys are exact. It is what separates requests that differ
+            # only in content - two concurrent sub-agents, each asking for its
+            # own task on its own connection.
+            if all(v in req.get("raw_body", "")
+                   if k == "body_contains" else req.get(k, "") == v
+                   for k, v in m.items()):
                 self.consumed.add(i)
                 self.served = len(self.consumed)
                 return i, step
@@ -147,6 +153,7 @@ class Handler(BaseHTTPRequestHandler):
                           if isinstance(parsed, dict) else "",
                 "auth": self.headers.get("Authorization", ""),
                 "session": self.headers.get("Mcp-Session-Id", ""),
+                "raw_body": body,
             })
             record = {
                 "path": self.path,

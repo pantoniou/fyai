@@ -17,7 +17,7 @@ MCP_EXIT_AFTER_LIST: '1'}, cwd: '$TEST_DIR'}" \
 assert_status 0
 assert_stdout_contains "Stdio MCP completed."
 assert_request 1 \
-	'any(m.get("role") == "tool" and "MCP call failed" in m.get("content", "") for m in r["body"]["messages"])'
+	'any(m.get("role") == "tool" and "stdio transport error" in m.get("content", "") for m in r["body"]["messages"])'
 
 mock_stop 2
 pass
