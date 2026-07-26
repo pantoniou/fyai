@@ -5,6 +5,7 @@
 import json
 import os
 import sys
+import time
 
 
 log_path = os.environ["MCP_STDIO_LOG"]
@@ -41,11 +42,14 @@ for line in sys.stdin:
             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}},
         }]}
     elif method == "tools/call":
+        time.sleep(float(os.environ.get("MCP_CALL_DELAY", "0")))
         result = {"content": [{"type": "text", "text": "stdio: " +
                                 request["params"]["arguments"]["text"]}]}
     else:
         result = {}
     print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}),
           flush=True)
+    if method == "tools/list" and os.environ.get("MCP_EXIT_AFTER_LIST"):
+        break
 
 record({"eof": True})
