@@ -486,6 +486,26 @@ if(BUILD_TESTING)
         CURL::libcurl ${ASAN_LINK_OPTS})
     add_test(NAME fyai/event COMMAND fyai_event_test)
 
+    add_executable(fyai_curl_test
+        tests/fyai_curl_test.c
+        src/fyai_curl.c
+        src/fyai_diag.c
+        ${FYAI_EVENT_SOURCES}
+    )
+    target_compile_options(fyai_curl_test PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+    target_compile_definitions(fyai_curl_test PRIVATE
+        _GNU_SOURCE
+        HAVE_CONFIG_H
+        VERSION="${PROJECT_VERSION}"
+    )
+    target_include_directories(fyai_curl_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(fyai_curl_test PRIVATE libfyaml::libfyaml
+        CURL::libcurl ${ASAN_LINK_OPTS})
+    add_test(NAME fyai/curl COMMAND fyai_curl_test)
+
     add_executable(fyai_oauth_test
         tests/fyai_oauth_test.c
         src/fyai_oauth.c
