@@ -29,6 +29,26 @@ EOF
 assert_request 0 'r["body"]["messages"][-1]["content"] == "hello"'
 mock_stop 1
 
+mock_start chat_stream.json
+cat >"$TEST_DIR/editor.sh" <<'EOF'
+#!/bin/sh
+sleep 1
+printf 'edited prompt' >"$1"
+EOF
+chmod +x "$TEST_DIR/editor.sh"
+EDITOR="$TEST_DIR/editor.sh" \
+FYAI_PTY_INPUT="draft prompt" \
+FYAI_PTY_EDIT_INPUT=1 \
+FYAI_PTY_PROGRESS_TIMEOUT=3 \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/edit-line.out" \
+    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    --set display/markdown=true --set display/stream=true \
+    --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
+assert_request 0 \
+    'r["body"]["messages"][-1]["content"] == "edited prompt"'
+mock_stop 1
+
 EDITOR=false \
 FYAI_PTY_INPUT="/config edit" \
 FYAI_PTY_NEEDLE="editor exited unsuccessfully" \

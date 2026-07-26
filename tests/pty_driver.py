@@ -72,6 +72,10 @@ def main():
     clear_before_exit = os.environ.get(
         "FYAI_PTY_CLEAR_BEFORE_EXIT", "0") in ("1", "true", "yes")
     resize_cols = int(os.environ.get("FYAI_PTY_RESIZE_COLS", "0"))
+    edit_input = os.environ.get(
+        "FYAI_PTY_EDIT_INPUT", "0") in ("1", "true", "yes")
+    edit_needle = os.environ.get(
+        "FYAI_PTY_EDIT_NEEDLE", "edited prompt").encode()
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     pid = os.fork()
@@ -90,7 +94,13 @@ def main():
         # visible. Fixed sleeps race ASAN and slower CI runners, causing input
         # to be echoed by the tty before fytimui enters raw mode.
         data = read_until(master, data, b"\x1b[?25h", deadline)
-        os.write(master, prompt + b"\n")
+        if edit_input:
+            os.write(master, prompt + b"\x07")
+            data = read_until(master, data, edit_needle,
+                              time.monotonic() + progress_timeout)
+            os.write(master, b"\n")
+        else:
+            os.write(master, prompt + b"\n")
         if during_input:
             time.sleep(during_delay)
             os.write(master, during_input + (b"\n" if during_submit else b""))
