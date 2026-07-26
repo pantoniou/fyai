@@ -370,13 +370,7 @@ static void shell_capture_signal_group(struct shell_capture_job *job, int sig)
 	(void)kill(job->pid, sig);
 }
 
-/*
- * SIGTERM was not enough. An interactive program can catch it and stall - vim
- * does - and that is not merely untidy: while *any* descendant still holds the
- * output pipes open the capture never sees EOF, so the tool never completes
- * and the turn hangs exactly as if nothing had been cancelled. The whole point
- * of the interrupt is that it always works, so escalate.
- */
+/* Use SIGKILL when descendants keep the capture descriptors open. */
 static enum fyai_event_action shell_capture_kill(const struct fyai_event *ev)
 {
 	struct shell_capture_job *job = ev->userdata;

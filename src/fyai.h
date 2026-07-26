@@ -26,6 +26,7 @@
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
+struct jsonrpc_conn;
 struct fyai_display_output;
 
 #define OPENAI_RESPONSES_URL "https://api.openai.com/v1/responses"
@@ -335,7 +336,8 @@ struct fyai_ctx {
 	 * assistant output. Owned by this context, never by a signal handler. */
 	struct fyai_display_output *display_output;
 	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */
-	int tool_progress_fd;	/* child-to-parent progressive tool channel */
+	/* Forked tool control channel. */
+	struct jsonrpc_conn *tool_rpc;
 	/* Set inside a forked tool sub-execution once the environment has been
 	 * sanitized and the sandbox applied, so inner steps (the shell tool's
 	 * own fork) do not re-derive and re-apply the confinement. */

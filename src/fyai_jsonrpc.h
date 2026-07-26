@@ -41,12 +41,7 @@ struct jsonrpc_http_hooks {
 	void (*response_header)(void *userdata, const char *line, size_t len);
 };
 
-/*
- * Create a connection. @name labels it in diagnostics; @log_channel enables
- * per-request logging under that fyai_log channel when non-NULL. @timeout_s is
- * the per-request timeout in seconds. Returned connections are destroyed with
- * jsonrpc_conn_destroy(); that does not touch a stdio connection's descriptors.
- */
+/* Create a connection. A nonpositive timeout disables request timeouts. */
 struct jsonrpc_conn *
 jsonrpc_conn_stdio(struct fyai_ctx *ctx, int stdin_fd, int stdout_fd,
 		   int timeout_s, const char *name, const char *log_channel);
@@ -55,6 +50,28 @@ jsonrpc_conn_http(struct fyai_ctx *ctx, const char *endpoint, int timeout_s,
 		  const char *name, const char *log_channel,
 		  const struct jsonrpc_http_hooks *hooks);
 void jsonrpc_conn_destroy(struct jsonrpc_conn *conn);
+
+/*
+ * Serve inbound requests and notifications. Defer a request when its handler
+ * cannot respond during event dispatch.
+ */
+typedef fy_generic (*jsonrpc_serve_fn)(struct jsonrpc_conn *conn,
+				       const char *method, fy_generic params,
+				       fy_generic id, void *userdata,
+				       fy_generic *errorp);
+
+int jsonrpc_conn_serve(struct jsonrpc_conn *conn, jsonrpc_serve_fn fn,
+		       void *userdata);
+
+/* Return true while the connection has queued output. */
+bool jsonrpc_conn_has_output(const struct jsonrpc_conn *conn);
+
+void jsonrpc_conn_defer(struct jsonrpc_conn *conn);
+
+/* Send a response for @id. Use for a deferred reply; @error wins when valid. */
+int jsonrpc_conn_respond(struct jsonrpc_conn *conn, fy_generic id,
+			 fy_generic result, fy_generic error);
+
 
 /* Update a stdio connection's descriptors after a transport restart. */
 void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,

@@ -1112,47 +1112,7 @@ void fyai_model_step_destroy(struct fyai_model_step *step)
 	free(step);
 }
 
-/*
- * Asynchronous turn state machine
- * ===============================
- *
- * A turn owns one model step or one tool group at a time. The exception is
- * streamed tool prefetch: an open parallel group may collect tool calls and
- * execute them while the model step is still receiving the response.
- *
- *                         model response needs tools
- *                    +--------------------------------+
- *                    |                                v
- *   NEW ---------> MODEL --------------------------> TOOLS
- *                    ^                                |
- *                    |                                |
- *                    +--------------------------------+
- *                      all tool results were appended
- *
- *    MODEL ---------> DONE       final model response
- *    MODEL ---------> FAILED     request or construction failure
- *    TOOLS ---------> DONE       interrupted or ask_user aborted
- *    TOOLS ---------> FAILED     submission or collection failure
- *
- * A TOOLS state may contain several groups, but never concurrently:
- *
- *   1. collect the parallel group, including streamed prefetch;
- *   2. submit and collect each exclusive tool as a group of one;
- *   3. submit the next model step after every tool result is appended.
- *
- * The model and tool completion callbacks do not perform these transitions.
- * They defer fyai_turn_run_service(), which runs outside event dispatch and
- * advances the machine, re-deriving readiness from the child operation's own
- * latched completion (fyai_model_step_done() / fyai_tool_job_group_done()).
- * Keeping transitions out of callbacks prevents callback reentrancy from
- * freeing a curl transfer, model step, or tool group while its dispatcher
- * still has that object on the stack.
- *
- * Cancellation follows ownership. A MODEL cancellation cancels both the model
- * step and any open prefetch group. A TOOLS cancellation cancels the current
- * group. Completion still arrives through the normal callback, so collection,
- * partial-turn publication, and destruction all use the ordinary path.
- */
+/* Asynchronous turn state. */
 enum fyai_turn_run_state {
 	FYAITRS_NEW,
 	FYAITRS_MODEL,
@@ -1697,14 +1657,7 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 	free(run);
 }
 
-/*
- * Synchronous driver over the async turn op. The batch, one-shot and non-tty
- * interactive fallbacks run one turn to completion on a bare pump: this is the
- * top-level event loop for those paths, so stepping it here is not nested under
- * another pump. The op self-finalizes and carries its diagnostic on the result:
- * a turn on success, a diag-wrapped invalid or partial turn on failure, so
- * callers keep using fyai_report_diag()/fyai_publish_state().
- */
+/* Drive an asynchronous turn from a caller that owns the top-level pump. */
 fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 {
 	struct fyai_turn_run *run;
@@ -1827,17 +1780,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		fyai_close_storage(ctx);
 }
 
-/*
- * Bring the MCP layer to a known state for the current config: connect (and
- * discover tools on) every configured server when MCP is enabled, or tear any
- * prior session down when it is not. Idempotent - fyai_mcp_refresh() reuses a
- * live session and fyai_mcp_cleanup() is a no-op with nothing connected - so a
- * caller may run it again after a /model switch or an application restart.
- *
- * This is the seam the asynchronous, concurrent server-connect work replaces:
- * today it blocks until discovery finishes; the application STARTING state
- * calls it so that becomes a pumped barrier without moving the call site.
- */
+/* Apply the configured MCP state. This operation is idempotent. */
 static int fyai_mcp_bringup(struct fyai_ctx *ctx)
 {
 	if (ctx->cfg->mcp_enabled)
@@ -2211,13 +2154,7 @@ err:
 	return -1;
 }
 
-/*
- * Open the first-model-step gate: fold whatever tools the settled servers
- * discovered into the request state so the first turn sees them. Called once,
- * from the pump, after fyai_mcp_settled() (or immediately when MCP is disabled
- * or startup_wait is off). Owns its own transient builder - the request-state
- * rebuild needs one and this runs outside any turn.
- */
+/* Add discovered MCP tools before the first model step. */
 static int fyai_interactive_mcp_gate(struct fyai_ctx *ctx)
 {
 	int rc;
@@ -2233,20 +2170,7 @@ static int fyai_interactive_mcp_gate(struct fyai_ctx *ctx)
 	return rc;
 }
 
-/*
- * Application lifecycle around the interactive turn pump:
- *
- *   STARTING -> RUNNING -> STOPPING -> DONE
- *
- * STARTING fires every MCP server's startup concurrently and enters RUNNING
- * immediately - it does not wait for discovery. Input is live while servers
- * connect. RUNNING is the event pump; a one-time gate (fyai_interactive_mcp_gate)
- * holds the first turn's submission until the servers have settled (unless
- * mcp/startup_wait is false, which submits optimistically). STOPPING drains MCP
- * and waits for its servers to terminate; it is reached on every exit -
- * including the RUNNING error unwind - so teardown belongs to the application
- * rather than to fyai_cleanup().
- */
+/* Interactive application states around the event pump. */
 enum fyai_app_state {
 	FYAIAS_STARTING,
 	FYAIAS_RUNNING,
@@ -2294,36 +2218,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	}
 	state = FYAIAS_RUNNING;
 
-	/*
-	 * RUNNING: the interactive application pump
-	 * =========================================
-	 *
-	 * This is the only event-loop driver in the asynchronous terminal path.
-	 * No model, tool-group, or readline operation below it may call
-	 * run_until() or privately step the loop.
-	 *
-	 *                        +-----------------------------+
-	 *                        |                             |
-	 *                        v                             |
-	 *   UI event -> queue input -> start turn -> service turn
-	 *      ^                                      |       |
-	 *      |                                      |       |
-	 *      +---------- event_loop_step() <--------+       |
-	 *                        |                             |
-	 *                        +-> model/tool callback ------+
-	 *
-	 * A model or tool completion defers fyai_turn_run_service(), which the
-	 * next event_loop_step() runs to advance the turn. A completed turn is
-	 * then published and destroyed. While idle, one queued line starts a
-	 * turn or executes a slash command. Otherwise event_loop_step() blocks
-	 * until input, curl, child, signal, resize, or timer activity gives the
-	 * machine something new to do.
-	 *
-	 * Input received while busy remains in the UI queue. ESC or Ctrl-C sets
-	 * ctx->interrupt_pending; the pump forwards it to the operation currently
-	 * owned by the turn. Quit follows the same cancellation path and leaves
-	 * only after the active turn has reached a terminal state.
-	 */
+	/* No operation below this loop can start a nested event pump. */
 	for (;;) {
 		/* Release scratch storage that an idle operation created. */
 		if (ctx->transient_autorelease)
@@ -2414,11 +2309,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	}
 	rc = 0;
 out:
-	/*
-	 * STOPPING: cancel any active turn, then drain MCP and wait for its
-	 * servers to terminate. Reached on every exit, so shutdown is owned
-	 * here; fyai_cleanup()'s later fyai_mcp_cleanup() is then a no-op.
-	 */
+	/* Cancel active work and drain MCP shutdown on every exit path. */
 	state = FYAIAS_STOPPING;
 	if (run) {
 		fyai_turn_run_cancel(run);

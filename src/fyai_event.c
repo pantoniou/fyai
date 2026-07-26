@@ -278,10 +278,7 @@ static void fyai_interrupt_handler(int signo)
 		fyai_interrupt_ctx->interrupt_pending = 1;
 		fyai_interrupt_ctx->interrupt_seq++;
 	}
-	/* Make the loop's wake source readable. This, not EINTR, is what ends
-	 * a blocked wait: whether a signal interrupts a syscall depends on
-	 * SA_RESTART and on which syscall it is, and neither is a contract to
-	 * build cancellation on. A readable descriptor always is. */
+	/* Wake a blocked loop through its readable descriptor. */
 	fyai_event_wakepipe_poke((int)fyai_interrupt_wake_fd);
 	(void)setitimer(ITIMER_REAL, &fyai_interrupt_arm, NULL);
 	errno = saved_errno;
@@ -299,12 +296,7 @@ static void fyai_interrupt_watchdog(int signo)
 	errno = saved_errno;
 }
 
-/*
- * The loop reached the interrupt, so it is alive: stand the watchdog down. If
- * a previous stall had already escalated, take the terminating signals back -
- * a loop that recovered should not leave the rest of the session one keystroke
- * from an abrupt kill.
- */
+/* Stop the watchdog and restore graceful SIGINT handling. */
 void fyai_event_interrupt_ack(struct fyai_ctx *ctx)
 {
 	sigset_t mask;
@@ -315,9 +307,7 @@ void fyai_event_interrupt_ack(struct fyai_ctx *ctx)
 		return;
 	fyai_interrupt_escalated = 0;
 
-	/* SIGINT back to the graceful handler, SIGTERM back to its signalfd -
-	 * which only needs it blocked; while blocked the disposition the
-	 * watchdog left behind is never consulted. */
+	/* SIGTERM remains blocked for its signalfd source. */
 	(void)sigaction(SIGINT, &fyai_interrupt_sa, NULL);
 	sigemptyset(&mask);
 	sigaddset(&mask, SIGTERM);
@@ -341,8 +331,7 @@ int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms)
 	memset(&fyai_interrupt_sa, 0, sizeof(fyai_interrupt_sa));
 	fyai_interrupt_sa.sa_handler = fyai_interrupt_handler;
 	sigemptyset(&fyai_interrupt_sa.sa_mask);
-	/* The wake source ends the wait, so let everything else restart just as
-	 * it did when SIGINT was blocked outright. */
+	/* The wake descriptor, not EINTR, ends the wait. */
 	fyai_interrupt_sa.sa_flags = SA_RESTART;
 
 	memset(&alarm_sa, 0, sizeof(alarm_sa));
@@ -405,6 +394,9 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 
 	el = ctx->el;
 	ctx->el = NULL;
+
+	/* Do not close the parent curl sockets from the child. */
+	ctx->curl_state = NULL;
 
 	fyai_event_defer_clear(el);
 	fyai_event_wake_clear(el);

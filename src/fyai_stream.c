@@ -1865,4 +1865,3 @@ void fyai_buffered_request_destroy(struct fyai_buffered_request *request)
 	free(request->response.data);
 	free(request);
 }
-
