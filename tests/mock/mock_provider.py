@@ -25,6 +25,8 @@ Each step describes the reply to one request, in order of arrival:
       "raw": "verbatim body",        # or a verbatim (possibly invalid) body
       "raw_sse": ["data: junk", ""], # or verbatim SSE lines
       "chunk_split": [5, 17],        # byte offsets to split the SSE stream at
+      "wait_after_event": 2,         # wait after this zero-based SSE event
+      "wait_for": "tool.started",     # run-directory marker to wait for
       "close_after": 3               # emit only the first N sse events, then
                                      # close the connection (truncated stream)
     }
@@ -74,22 +76,29 @@ class MockState:
 STATE = None
 
 
-def sse_payload(step):
-    """Build the full SSE byte stream for a step."""
+def sse_parts(step):
+    """Build independently writable pieces of one SSE response."""
     out = []
     events = step.get("sse", [])
     close_after = step.get("close_after")
     if close_after is not None:
         events = events[:close_after]
     for ev in events:
+        lines = []
         if isinstance(ev, dict) and "type" in ev:
-            out.append("event: %s\n" % ev["type"])
-        out.append("data: %s\n\n" % json.dumps(ev, separators=(",", ":")))
+            lines.append("event: %s\n" % ev["type"])
+        lines.append("data: %s\n\n" % json.dumps(ev, separators=(",", ":")))
+        out.append("".join(lines).encode())
     for line in step.get("raw_sse", []):
-        out.append(line + "\n")
+        out.append((line + "\n").encode())
     if step.get("done") and close_after is None:
-        out.append("data: [DONE]\n\n")
-    return "".join(out).encode()
+        out.append(b"data: [DONE]\n\n")
+    return out
+
+
+def sse_payload(step):
+    """Build the full SSE byte stream for a step."""
+    return b"".join(sse_parts(step))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -155,6 +164,25 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
+            wait_after = step.get("wait_after_event")
+            wait_for = step.get("wait_for")
+            if wait_after is not None and wait_for:
+                parts = sse_parts(step)
+                marker = os.path.join(STATE.rundir, wait_for)
+                failed = os.path.join(STATE.rundir, "stream-wait-failed")
+                for index, part in enumerate(parts):
+                    self.wfile.write(part)
+                    self.wfile.flush()
+                    if index != int(wait_after):
+                        continue
+                    deadline = time.monotonic() + 5.0
+                    while not os.path.exists(marker):
+                        if time.monotonic() >= deadline:
+                            with open(failed, "w", encoding="utf-8"):
+                                pass
+                            break
+                        time.sleep(0.01)
+                return
             splits = step.get("chunk_split", [])
             chunk_delay = float(step.get("chunk_delay", 0))
             pos = 0
