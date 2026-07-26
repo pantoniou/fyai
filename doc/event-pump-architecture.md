@@ -550,8 +550,13 @@ Completed. Per-transfer state and callback completion are in place;
 
 ### 3. Heap-own model streams
 
-Streaming requests are heap-owned and callback-driven. Buffered requests and
-model-step retry ownership still need to move into the turn machine.
+Completed. Streaming and buffered requests are heap-owned and callback-driven
+(`fyai_stream_request_*` / `fyai_buffered_request_*`), and the async model step
+submits through them without a nested pump. Model-step retry ownership lives on
+the step (`fyai_model_step_retry` re-enters `fyai_model_step_start`), covering
+the response-chain-miss and token-extents retries in both modes. The synchronous
+`fyai_perform_*` wrappers remain only for the batch driver (see step 5's
+`fyai_run_model_loop`).
 
 ### 4. Make tool groups self-servicing
 
@@ -560,17 +565,19 @@ when a sealed group is parked.
 
 ### 5. Introduce the turn machine
 
-Completed for the interactive path. The heap-owned turn operation advances
-model requests, streamed tool prefetch, parallel groups, exclusive groups,
-retries, cancellation, and final publication without a nested event pump.
-`fyai_run_model_loop()` remains the synchronous batch compatibility path.
+Completed for every path. The heap-owned turn operation advances model
+requests, streamed tool prefetch, parallel groups, exclusive groups, retries,
+cancellation, and final publication without a nested event pump. The batch,
+one-shot, non-tty interactive and compact paths now drive the same operation
+through `fyai_run_turn()`, a bare top-level pump; the synchronous
+`fyai_run_model_loop()` and its per-step model/tool nested `run_until` are
+gone.
 
 ### 6. Convert the interactive frontend
 
 Completed for the terminal UI. UI events
 queue input, the application loop starts turns while idle, and model and tool
-callbacks wake the turn operation. `fyai_run_model_loop()` retains the old
-nested path.
+callbacks wake the turn operation.
 
 ### 7. Convert MCP lifecycle
 
@@ -585,8 +592,43 @@ reconnect of a dropped server.
 
 ### 8. Convert auxiliary blocking paths
 
-Incrementally move OAuth wrappers, external commands, and remaining direct
-`poll()` or `waitpid()` users onto operations.
+Completed. An audit of every remaining
+`run_until()`/`loop_step()`/`waitpid()` outside the event core places each site
+in one of three permitted classes:
+
+- **Async beneath the pump (done):** model steps, tool groups
+  (`fyai_tool_job_submit`), MCP tool calls (`fyai_mcp_call_submit`, intercepted
+  before any sync path), and in-turn auth refresh (`fyai_auth_refresh_submit`)
+  are all callback-driven. The exclusive in-process tool path only ever runs
+  `ask_user`, which does not nest a pump.
+- **Standalone command/setup adapters (permitted):** the `auth`/`login` verbs
+  (`fyai_auth_refresh`, `auth_login`), `fyai_oauth_flow_wait`, the one-shot
+  `fyai_mcp_refresh` bringup, `fyai_ui_readline` setup, config editing from the
+  CLI, and the auth-only `fyai_curl_perform` are thin sync wrappers over async
+  ops, never reached from the interactive state machine.
+- **Forked-child isolated loops (by design):** `run_shell_command_capture_cb`
+  runs after `fyai_ctx_loop_abandon()`, on the child's own loop; the `waitpid()`
+  sites are forked-child reaps and MCP shutdown force-reaps.
+
+The one dead site the first audit turned up -
+`fyai_tool_run_forked()`'s parent-side `run_until`, unreachable once tool
+dispatch became async - was removed along with the
+`fyai_tool_job_spawn()` synchronous-job branches. The tool path now has no
+parent-side `run_until`; the fork itself is unchanged and the sandbox is still
+applied in every tool child.
+
+External editors now use a heap-owned child operation with
+submit/cancel/done/collect/destroy semantics. Ctrl-G starts the line editor
+directly from its UI event and resumes the input buffer from a deferred child
+completion. `/config edit` retains a context-owned edit operation and applies
+the edited document from its deferred continuation. The CLI forms keep a
+top-level synchronous adapter over the same operation.
+
+Interactive MCP shutdown is likewise split into start, settled, and finish
+operations. The application enters STOPPING, starts every server teardown,
+continues its one pump until session DELETE transfers and child termination
+ladders settle, then frees server state. `fyai_mcp_cleanup()` remains the
+standalone adapter for noninteractive and setup-failure paths.
 
 ## Verification
 
@@ -627,3 +669,12 @@ calls `fyai_event_loop_run_until()`, manually drives
 Synchronous wrappers may remain for standalone command paths, provided they
 are thin adapters over the same asynchronous operations and are never used
 from the interactive application state machine.
+
+Status: the interactive model, turn, tool, editor, config-edit, OAuth-refresh,
+and MCP lifecycle paths meet this criterion. None calls `run_until()`, enters a
+private pump, or performs a blocking child reap beneath the application pump.
+Batch and one-shot drivers are themselves top-level pumps. Standalone command
+wrappers remain for OAuth/login, config editing, one-shot MCP bringup, and
+other noninteractive adapters. Blocking `waitpid()` remains only in emergency
+post-fork cleanup where event-source registration failed and inside the
+isolated tool child after `fyai_ctx_loop_abandon()`.
