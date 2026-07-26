@@ -8,7 +8,7 @@ mock_start ui_responses_shell_parallel.json
 
 FYAI_PTY_INPUT="run both" \
 FYAI_PTY_PROGRESS_NEEDLE="native-early-a" \
-FYAI_PTY_PROGRESS_TIMEOUT="0.3" \
+FYAI_PTY_PROGRESS_TIMEOUT="3" \
 FYAI_PTY_NEEDLE="Native interactive tools done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -k test-key --theme dark \

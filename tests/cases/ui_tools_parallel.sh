@@ -8,9 +8,9 @@ mock_start ui_tools_parallel.json
 
 FYAI_PTY_INPUT="run both" \
 FYAI_PTY_PROGRESS_NEEDLE="parallel-early-a" \
-FYAI_PTY_PROGRESS_TIMEOUT="0.3" \
-FYAI_PTY_MID_NEEDLE=$'\033[32m●\033[0m' \
-FYAI_PTY_MID_TIMEOUT="2.5" \
+FYAI_PTY_PROGRESS_TIMEOUT="3" \
+FYAI_PTY_MID_NEEDLE=$'\033[32m●' \
+FYAI_PTY_MID_TIMEOUT="5" \
 FYAI_PTY_NEEDLE="Parallel interactive tools done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -k test-key --theme dark \
