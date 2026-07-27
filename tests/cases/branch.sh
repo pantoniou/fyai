@@ -195,6 +195,33 @@ run_fyai branch delete exp
 assert_status 1
 assert_stderr_contains "current branch"
 
+# --- reset moves the head and stays recoverable ---------------------------
+run_fyai checkout main
+assert_status 0
+
+# HEAD^^ is the same as HEAD~2: back one full exchange.
+run_fyai reset "HEAD^^"
+assert_status 0
+assert_state_contains "first prompt" dump state
+assert_state_absent "second prompt" dump state
+
+# Nothing was discarded: the ref log still holds the head that was there.
+run_fyai list reflog
+assert_status 0
+assert_stdout_contains "reset"
+run_fyai reset "main@{1}"
+assert_status 0
+assert_state_contains "second prompt" dump state
+
+# The ref log records the operation rather than guessing it, and a rename
+# keeps the name it was renamed from.
+run_fyai branch rename ancient antique
+assert_status 0
+run_fyai -b antique list reflog
+assert_status 0
+assert_stdout_contains "rename"
+assert_stdout_contains "ancient"
+
 # A description is stored and listed.
 run_fyai branch describe main "the trunk"
 assert_status 0
