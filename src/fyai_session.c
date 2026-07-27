@@ -95,6 +95,7 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 
 	ctx->last_message = fy_invalid;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CLEAR, NULL);
 	session_reset_usage(ctx);
 
 	/*
@@ -195,6 +196,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
 		meta = fy_map_empty;
 	meta = fy_assoc(meta, "compacted_from", prev_head);
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
 
 	turn = fy_gb_internalize(ctx->gb, turn);
@@ -1580,6 +1582,7 @@ static int session_branch_switch(struct fyai_ctx *ctx, const char *name,
 	fyai_error_check(ctx, !rc, rollback,
 			 "branch: could not apply '%s' request state", name);
 
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CHECKOUT, NULL);
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, rollback,
 			 "branch: could not publish checkout of '%s'", name);

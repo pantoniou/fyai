@@ -2120,7 +2120,10 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 		if (!fyai_branch_decode(entry, &b))
 			break;
 
-		if (fy_generic_is_valid(b.prev)) {
+		/* Compare heads only when the operation was not stored. */
+		if (fy_generic_is_valid(b.op)) {
+			kind = fy_castp(&b.op, "");
+		} else if (fy_generic_is_valid(b.prev)) {
 			kind = branch_previous_head_matches(&b) ? "config" : "turn";
 		} else {
 			kind = fy_generic_is_valid(b.head) ? "turn" : "config";
@@ -2141,7 +2144,9 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 					fy_get(entry, "created", 0LL)),
 				   "model", fy_value(gb,
 					fy_get(b.config, "model", "-")),
-				   "kind", fy_value(gb, kind)));
+				   "kind", fy_value(gb, kind),
+				   "from", fy_value(gb,
+					fy_get(entry, "from", ""))));
 		entry = b.prev;
 	}
 	return out;

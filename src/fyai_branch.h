@@ -46,8 +46,24 @@ struct fyai_branch {
 	fy_generic head;	/* tip of the turn chain */
 	fy_generic description;	/* free-text purpose of the branch */
 	fy_generic agent;	/* sub-agent provenance, if any */
+	fy_generic op;		/* the operation that made this entry */
+	fy_generic from;	/* the previous name, on a rename */
 	fy_generic prev;	/* previous entry of this branch (its ref log) */
 };
+
+/* Operations stored in branch ref-log entries. */
+#define FYAI_BRANCH_OP_TURN	"turn"
+#define FYAI_BRANCH_OP_CONFIG	"config"
+#define FYAI_BRANCH_OP_CREATE	"create"
+#define FYAI_BRANCH_OP_RESET	"reset"
+#define FYAI_BRANCH_OP_RENAME	"rename"
+#define FYAI_BRANCH_OP_CLEAR	"clear"
+#define FYAI_BRANCH_OP_COMPACT	"compact"
+#define FYAI_BRANCH_OP_CHECKOUT	"checkout"
+#define FYAI_BRANCH_OP_DESCRIBE	"describe"
+
+/* Set the operation and previous name for the next publish. */
+void fyai_branch_op_set(struct fyai_ctx *ctx, const char *op, const char *from);
 
 /* Return true if @name is a valid branch name. */
 bool fyai_branch_name_valid(const char *name);
@@ -72,7 +88,7 @@ bool fyai_branch_lookup(fy_generic branches, const char *name,
 fy_generic fyai_branch_build(struct fy_generic_builder *gb, fy_generic config,
 			     fy_generic head, fy_generic created,
 			     fy_generic description, fy_generic agent,
-			     fy_generic prev);
+			     fy_generic op, fy_generic from, fy_generic prev);
 
 /*
  * Return a copy of @branches with @name bound to @entry, or with @name removed

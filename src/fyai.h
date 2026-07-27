@@ -348,6 +348,13 @@ struct fyai_ctx {
 	fy_generic arena_branches;
 	fy_generic branch_prev;
 	fy_generic branch_desc;		/* free-text purpose of this branch */
+	/*
+	 * Label for the next publish on this branch, and the old name when
+	 * that label is a rename. Both are consumed and cleared by the
+	 * publish, so a label cannot leak into a later, unrelated entry.
+	 */
+	const char *branch_op;
+	const char *branch_op_from;
 	fy_generic branch_agent;	/* sub-agent provenance for this branch */
 	uint64_t refs_head;
 	struct curl_slist *headers;

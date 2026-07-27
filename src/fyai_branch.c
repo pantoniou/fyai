@@ -96,6 +96,12 @@ int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name)
 	return 0;
 }
 
+void fyai_branch_op_set(struct fyai_ctx *ctx, const char *op, const char *from)
+{
+	ctx->branch_op = op;
+	ctx->branch_op_from = from;
+}
+
 uint64_t fyai_branch_timestamp(void)
 {
 	struct timespec ts;
@@ -195,6 +201,8 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->head = fy_invalid;
 	b->description = fy_invalid;
 	b->agent = fy_invalid;
+	b->op = fy_invalid;
+	b->from = fy_invalid;
 	b->prev = fy_invalid;
 
 	if (!fy_generic_is_mapping(entry))
@@ -205,6 +213,8 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->head = fyai_branch_member(entry, "head");
 	b->description = fyai_branch_member(entry, "description");
 	b->agent = fyai_branch_member(entry, "agent");
+	b->op = fyai_branch_member(entry, "op");
+	b->from = fyai_branch_member(entry, "from");
 	b->prev = fyai_branch_member(entry, "prev");
 	return true;
 }
@@ -223,7 +233,7 @@ bool fyai_branch_lookup(fy_generic branches, const char *name,
 fy_generic fyai_branch_build(struct fy_generic_builder *gb, fy_generic config,
 			     fy_generic head, fy_generic created,
 			     fy_generic description, fy_generic agent,
-			     fy_generic prev)
+			     fy_generic op, fy_generic from, fy_generic prev)
 {
 	return fy_mapping(gb,
 			  "config", fyai_generic_or_null(config),
@@ -231,6 +241,8 @@ fy_generic fyai_branch_build(struct fy_generic_builder *gb, fy_generic config,
 			  "created", fyai_generic_or_null(created),
 			  "description", fyai_generic_or_null(description),
 			  "agent", fyai_generic_or_null(agent),
+			  "op", fyai_generic_or_null(op),
+			  "from", fyai_generic_or_null(from),
 			  "prev", fyai_generic_or_null(prev));
 }
 
@@ -582,7 +594,8 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 				  fy_value(ctx->gb, (long long)
 					   fyai_branch_timestamp()),
 				  desc, fy_invalid,
-				  fy_invalid);
+				  fy_value(ctx->gb, FYAI_BRANCH_OP_CREATE),
+				  fy_invalid, fy_invalid);
 	branches = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
 	rc = branches_publish(ctx, branches);
 	fyai_error_check(ctx, !rc, err_out,
@@ -647,6 +660,17 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 			  fy_sprintfa("%.*s%s", (int)plen, name,
 				      nm + strlen(name)) :
 			  fy_sprintfa("%s", nm + strlen(name) + 1);
+		found = fyai_branch_decode(entry, &b);
+		fyai_error_check(ctx, found, err_out,
+				 "could not decode child branch '%s'", nm);
+		entry = fyai_branch_build(ctx->gb, b.config, b.head,
+				fy_value(ctx->gb, (long long)
+					 fyai_branch_timestamp()),
+				b.description, b.agent,
+				fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME),
+				fy_value(ctx->gb, nm), entry);
+		fyai_error_check(ctx, fy_generic_is_valid(entry), err_out,
+				 "could not record reparenting of '%s'", nm);
 		branches = fyai_branches_set(ctx->gb, branches, newname, entry);
 		if (!strcmp(nm, fyai_ctx_branch(ctx))) {
 			rc = fyai_ctx_set_branch(ctx, newname);
@@ -717,6 +741,21 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 		snprintf(newname, sizeof(newname), "%s%s", to,
 			 nm + strlen(from));
 		entry = fy_get_at(ctx->arena_branches, i);
+		/* Record the previous name in the branch ref log. */
+		if (strcmp(nm, fyai_ctx_branch(ctx))) {
+			fyai_branch_decode(entry, &b);
+			entry = fyai_branch_build(ctx->gb, b.config, b.head,
+					fy_value(ctx->gb, (long long)
+						 fyai_branch_timestamp()),
+					b.description, b.agent,
+					fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME),
+					fy_value(ctx->gb, nm), entry);
+			if (!fy_generic_is_valid(entry)) {
+				fyai_error(ctx, "could not record the rename "
+					   "of '%s'", nm);
+				return -1;
+			}
+		}
 		branches = fyai_branches_set(ctx->gb, branches, nm, fy_invalid);
 		branches = fyai_branches_set(ctx->gb, branches, newname, entry);
 		if (!strcmp(nm, fyai_ctx_branch(ctx))) {
@@ -740,6 +779,7 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 	if (renamed_current) {
 		fyai_branch_lookup(branches, fyai_ctx_branch(ctx), &b);
 		ctx->branch_prev = b.entry;
+		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_RENAME, from);
 	}
 	rc = branches_publish(ctx, branches);
 	fyai_error_check(ctx, !rc, err_out,
@@ -804,6 +844,7 @@ int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not check out branch '%s'", name);
 
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CHECKOUT, NULL);
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not publish checkout of '%s'", name);
@@ -832,6 +873,7 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 
 	if (!strcmp(name, fyai_ctx_branch(ctx))) {
 		ctx->branch_desc = desc;
+		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_DESCRIBE, NULL);
 		return fyai_publish_state(ctx);
 	}
 
@@ -839,7 +881,8 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 				  fy_value(ctx->gb, (long long)
 					   fyai_branch_timestamp()),
 				  desc, b.agent,
-				  b.entry);
+				  fy_value(ctx->gb, FYAI_BRANCH_OP_DESCRIBE),
+				  fy_invalid, b.entry);
 	branches = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
 	return branches_publish(ctx, branches);
 }

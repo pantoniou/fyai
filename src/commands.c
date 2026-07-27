@@ -568,11 +568,13 @@ static fy_generic list_renderopts(struct fy_generic_builder *gb,
 	case FYAILT_REFLOG:
 		return fy_mapping(gb,
 			"empty", "no ref log",
-			"keys", fy_sequence(gb, "index", "ref", "kind", "model",
-					    "created"),
+			"keys", fy_sequence(gb, "index", "ref", "kind", "from",
+					    "model", "created"),
 			"columns", fy_mapping(gb,
 				"ref", fy_mapping(gb, "name", "Ref",
 						  "align", "left"),
+				"from", fy_mapping(gb, "name", "From",
+						   "align", "left"),
 				"created", fy_mapping(gb, "name", "When",
 						      "align", "left")));
 	case FYAILT_MODELS:

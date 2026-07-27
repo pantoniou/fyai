@@ -168,7 +168,9 @@ static bool branch_entry_contained(struct fy_allocator *a, fy_generic entry)
 		if (!root_ref_contained(a, b.config) ||
 		    !root_ref_contained(a, b.head) ||
 		    !root_ref_contained(a, b.description) ||
-		    !root_ref_contained(a, b.agent))
+		    !root_ref_contained(a, b.agent) ||
+		    !root_ref_contained(a, b.op) ||
+		    !root_ref_contained(a, b.from))
 			return false;
 		entry = b.prev;
 	}
@@ -516,14 +518,34 @@ err_out:
 /* Build and splice the active branch entry. */
 static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 {
-	fy_generic entry, created;
-	const char *name;
+	fy_generic entry, created, opv, fromv;
+	struct fyai_branch prev;
+	const char *name, *op;
+	bool same;
 
 	name = fyai_ctx_branch(ctx);
 	created = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+
+	/* Infer an unlabeled publish from whether the head changed. */
+	op = ctx->branch_op;
+	if (!op) {
+		/*
+		 * The head did not move, thus this is a configuration change.
+		 * A branch with no turns has an invalid head on both sides,
+		 * Structural sharing makes raw generic identity sufficient.
+		 */
+		fyai_branch_decode(ctx->branch_prev, &prev);
+		same = prev.head.v == ctx->last_message.v;
+		op = same ? FYAI_BRANCH_OP_CONFIG : FYAI_BRANCH_OP_TURN;
+	}
+	opv = fy_value(ctx->gb, op);
+	fromv = ctx->branch_op_from ?
+		fy_value(ctx->gb, ctx->branch_op_from) : fy_invalid;
+	fyai_branch_op_set(ctx, NULL, NULL);
+
 	entry = fyai_branch_build(ctx->gb, ctx->arena_config, ctx->last_message,
 				  created, ctx->branch_desc, ctx->branch_agent,
-				  ctx->branch_prev);
+				  opv, fromv, ctx->branch_prev);
 	if (!fy_generic_is_valid(entry))
 		return fy_invalid;
 	return fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
@@ -543,8 +565,10 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 * advance the durable refs head. In-memory ctx state stays as callers set
 	 * it, so the current run still sees its own edits.
 	 */
-	if (ctx->cfg && ctx->cfg->transient)
+	if (ctx->cfg && ctx->cfg->transient) {
+		fyai_branch_op_set(ctx, NULL, NULL);
 		return 0;
+	}
 
 	catv = fyai_generic_or_null(ctx->arena_catalog);
 	headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
@@ -814,7 +838,8 @@ static fy_generic fyai_branch_reflog_trim(struct fyai_ctx *ctx, fy_generic entry
 			return fy_invalid;
 		rebuilt = fyai_branch_build(ctx->gb, b.config, b.head,
 					    fy_get(scratch[i], "created"),
-					    b.description, b.agent, rebuilt);
+					    b.description, b.agent, b.op,
+					    b.from, rebuilt);
 		if (!fy_generic_is_valid(rebuilt))
 			return fy_invalid;
 	}
