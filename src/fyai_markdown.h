@@ -111,10 +111,9 @@ void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
 			  size_t len);
 
 /*
- * Progressive raw fenced-block renderer: stream tool output into a bounded,
- * indented, in-place-updating region (the live-shell counterpart of
- * fyai_print_fenced, using the same libfymd4c fenced render + row limit so the
- * live view and the history view match). Drive it start -> push* -> finish.
+ * Render a progressive work band. The shell mode renders a fenced block. The
+ * agent mode renders a Markdown quote. Both modes use the same row limit,
+ * status indicator, update, resize, and cleanup lifecycle.
  */
 struct fyai_fenced_stream {
 	struct fyai_ctx *ctx;
@@ -133,6 +132,7 @@ struct fyai_fenced_stream {
 	enum fymd_indicator_state indicator_state;
 	FILE *fp;
 	bool live;			/* true: repaint in place; false: buffer */
+	bool markdown_quote;
 	bool active;
 };
 
@@ -140,6 +140,10 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 			     struct fyai_cfg *cfg,
 			     const char *lang, size_t max_lines,
 			     const char *indent, FILE *fp, bool live);
+int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
+				     struct fyai_ctx *ctx,
+				     struct fyai_cfg *cfg, size_t max_lines,
+				     FILE *fp, bool live);
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs, const char *data,
 			    size_t len);
 int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,

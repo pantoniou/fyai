@@ -91,7 +91,7 @@ fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
 
 /* Format the invocation Markdown through the same emitter used by history. */
 static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
-				     fy_generic args)
+				     fy_generic args, int preview_lines)
 {
 	char *md = NULL;
 	size_t mdlen = 0;
@@ -100,7 +100,7 @@ static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 	mf = open_memstream(&md, &mdlen);
 	if (!mf)
 		return NULL;
-	fyai_emit_tool_call(mf, ctx->transient_gb, tool, args, 0);
+	fyai_emit_tool_call(mf, ctx->transient_gb, tool, args, preview_lines);
 	fclose(mf);
 	return md;
 }
@@ -108,8 +108,10 @@ static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command)
 {
 	return fyai_format_tool_header(ctx, "shell",
-				       fy_mapping("command", command));
+				       fy_mapping("command", command), 0);
 }
+
+static void fyai_tool_progress_flush(struct fyai_ctx *ctx);
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 {
@@ -122,7 +124,6 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 
 	if (fyai_agent_delegated(ctx))
 		return;
-
 	name = fyai_tool_call_name(ctx, tool_call);
 	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
 		command = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
@@ -155,7 +156,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		command = fy_get(args, "description", "");
 		header = fyai_format_tool_header(ctx, "agent",
 			fy_mapping("name", fy_get(args, "name", ""),
-				   "description", *command ? command : name));
+				   "description", *command ? command : name), 0);
 		if (fyai_ui_active(ctx)) {
 			fyai_ui_tool_begin(ctx, header ? header : "agent");
 		} else if (header) {
@@ -240,6 +241,20 @@ void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len)
 	(void)jsonrpc_request_submit(ctx->tool_rpc, "tool/progress",
 				     fy_gb_mapping(gb, "text", text),
 				     0, true, NULL, NULL);
+}
+
+static void fyai_tool_progress_flush(struct fyai_ctx *ctx)
+{
+	struct fyai_event_loop *el;
+
+	if (!ctx || !ctx->tool_rpc)
+		return;
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		return;
+	while (jsonrpc_conn_has_output(ctx->tool_rpc))
+		if (fyai_event_loop_step(el, 1000) <= 0)
+			break;
 }
 
 static void fyai_shell_output(void *userdata,
@@ -918,7 +933,7 @@ struct fyai_tool_job {
 	bool result_ok;
 	bool done;
 	bool native_shell;
-	/* Show progress in this work band. */
+	bool agent;
 	bool band_progress;
 	bool terminating;
 	int term_signal;
@@ -1121,7 +1136,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 {
 	struct fyai_tool_job *job = NULL;
 	const char *name, *args_text, *command;
-	fy_generic args;
+	fy_generic args, progress_args;
 	bool native_call;
 	bool eligible;
 	int rc;
@@ -1147,6 +1162,22 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		parse_json_string(ctx->transient_gb, args_text);
 	fyai_error_check(ctx, fy_generic_is_valid(args), err,
 			 "invalid tool call arguments");
+	if (fyai_agent_delegated(ctx)) {
+		char *header;
+
+		progress_args = native_call ?
+			fy_mapping("command",
+				fy_cast(fy_get_at_path(tool_call, "action",
+						      "commands", 0), "")) :
+			args;
+		header = fyai_format_tool_header(ctx, name, progress_args,
+					fyai_tool_preview_lines(ctx->cfg, name));
+		if (header) {
+			fyai_tool_progress_emit(ctx, header, strlen(header));
+			fyai_tool_progress_flush(ctx);
+			free(header);
+		}
+	}
 	job = calloc(1, sizeof(*job));
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
@@ -1158,11 +1189,12 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	if ((fy_equal(name, "shell") || fy_equal(name, "agent")) &&
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
+			job->agent = true;
 			command = fy_get(args, "description", "");
 			job->title = fyai_format_tool_header(ctx, "agent",
 				fy_mapping("name", fy_get(args, "name", ""),
 					   "description",
-					   *command ? command : name));
+					   *command ? command : name), 0);
 		} else {
 			command = native_call ?
 				fy_cast(fy_get_at_path(tool_call, "action",
@@ -1173,7 +1205,20 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			job->band_progress = true;
 		}
 		job->band = fyai_ui_workband_create(ctx);
-		if (job->band &&
+		if (job->agent && job->band) {
+			if (fyai_markdown_quote_stream_start(&job->stream, ctx,
+					ctx->cfg,
+					ctx->cfg->tool_preview_lines > 0 ?
+					(size_t)ctx->cfg->tool_preview_lines : 0,
+					stderr, true)) {
+				fyai_tool_job_live_close(job);
+			} else {
+				job->stream.band = job->band;
+				job->stream.title = job->title;
+				(void)fyai_fenced_stream_push(&job->stream,
+							      NULL, 0);
+			}
+		} else if (job->band &&
 		    !fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
 				NULL, ctx->cfg->tool_preview_lines > 0 ?
 				(size_t)ctx->cfg->tool_preview_lines : 0,
@@ -1216,7 +1261,9 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		return fy_invalid;
 	p = fy_castp(&text, "");
 	len = strlen(p);
-	if (job->band_progress && job->stream.active && !data_is_binary(p, len))
+	if (data_is_binary(p, len))
+		return fy_invalid;
+	if ((job->agent || job->band_progress) && job->stream.active)
 		(void)fyai_fenced_stream_push(&job->stream, p, len);
 	return fy_invalid;
 }

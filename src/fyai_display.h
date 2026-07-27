@@ -39,5 +39,6 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
  */
 void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 			 const char *name, fy_generic args, int preview_lines);
+int fyai_tool_preview_lines(const struct fyai_cfg *cfg, const char *name);
 
 #endif

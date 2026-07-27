@@ -769,8 +769,7 @@ static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
  * Presentation policy belongs to the tool, not to the result's data shape.
  * The canonical messages and fragment source remain complete.
  */
-static int fyai_tool_preview_lines(const struct fyai_cfg *cfg,
-				   const char *name)
+int fyai_tool_preview_lines(const struct fyai_cfg *cfg, const char *name)
 {
 	if (!strcmp(cfg->tool_detail, "none"))
 		return 0;

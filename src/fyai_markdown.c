@@ -632,13 +632,8 @@ size_t fyai_count_newlines(const char *data, size_t len)
 }
 
 /*
- * Progressive raw fenced-block rendering, following the libfymd4c CLI model:
- * accumulate the raw source, re-render the whole bounded block on each push,
- * line-diff it against what is on screen, and repaint only the changed tail.
- * The row limit (HEAD_TAIL) keeps the on-screen region bounded exactly as the
- * one-shot/history render, so a live shell run and its history look identical -
- * only here it updates in place as output streams in. fyai decorates the raw
- * output manually with a uniform indent.
+ * Start a progressive fenced work band. Keep its source for each bounded
+ * render and for the final render after a resize.
  */
 int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx,
 			     struct fyai_cfg *cfg,
@@ -666,6 +661,18 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 		memset(fs, 0, sizeof(*fs));
 		return -1;
 	}
+	return 0;
+}
+
+int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
+				     struct fyai_ctx *ctx,
+				     struct fyai_cfg *cfg, size_t max_lines,
+				     FILE *fp, bool live)
+{
+	if (fyai_fenced_stream_start(fs, ctx, cfg, NULL, max_lines, NULL,
+				     fp, live))
+		return -1;
+	fs->markdown_quote = true;
 	return 0;
 }
 
@@ -721,6 +728,9 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 			    const char *data, size_t len)
 {
 	struct fymd_fenced_block_opts opts;
+	struct response_buffer quoted = { 0 };
+	const char *source, *p, *end;
+	size_t lines, qlen;
 	char *rendered = NULL;
 	size_t rlen = 0;
 	size_t common;
@@ -740,12 +750,43 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	if (!fs->live)
 		return 0;
 
-	memset(&opts, 0, sizeof(opts));
-	opts.language = fs->lang;
-	opts.flags = (fs->lang && *fs->lang) ? FYMD_FBF_HIGHLIGHT : 0;
-	if (fymd_render_fenced_block(fs->r, fs->accum.data, fs->accum.len,
-				     &opts, &rendered, &rlen))
-		return -1;
+	if (fs->markdown_quote) {
+		source = fs->accum.data ? fs->accum.data : "";
+		lines = 1;
+		for (p = source; p < source + fs->accum.len; p++)
+			if (*p == '\n')
+				lines++;
+		qlen = fs->accum.len + lines * 2;
+		if (response_buffer_reserve(&quoted, qlen + 1))
+			return -1;
+		p = source;
+		end = p + fs->accum.len;
+		while (p < end) {
+			quoted.data[quoted.len++] = '>';
+			quoted.data[quoted.len++] = ' ';
+			while (p < end) {
+				quoted.data[quoted.len++] = *p;
+				if (*p++ == '\n')
+					break;
+			}
+		}
+		quoted.data[quoted.len] = '\0';
+		if (fymd_render(fs->r, quoted.data, quoted.len,
+				&rendered, &rlen)) {
+			free(quoted.data);
+			return -1;
+		}
+		free(quoted.data);
+	} else {
+		memset(&opts, 0, sizeof(opts));
+		opts.language = fs->lang;
+		opts.flags = (fs->lang && *fs->lang) ?
+				FYMD_FBF_HIGHLIGHT : 0;
+		if (fymd_render_fenced_block(fs->r, fs->accum.data,
+					     fs->accum.len, &opts,
+					     &rendered, &rlen))
+			return -1;
+	}
 	if (fyai_ui_active(fs->ctx)) {
 		char *indented = NULL;
 		size_t ilen = 0;
@@ -827,7 +868,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		}
 	} else if (fs->live) {
 		fputc('\n', fs->fp);
-	} else if (!fs->live) {
+	} else if (!fs->live && !fs->markdown_quote) {
 		/* Non-terminal: render the whole accumulated block once, bounded,
 		 * and write it indented (matches the history view). */
 		memset(&opts, 0, sizeof(opts));
