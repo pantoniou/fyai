@@ -49,6 +49,7 @@ FYAI_TEST_ENTRY(event, timer_oneshot, event_timer_oneshot)
 FYAI_TEST_ENTRY(event, timer_repeating, event_timer_repeating)
 FYAI_TEST_ENTRY(event, timer_rearm_in_callback, event_timer_rearm_in_callback)
 FYAI_TEST_ENTRY(event, timer_rearm_keeps_interval, event_timer_rearm_keeps_interval)
+FYAI_TEST_ENTRY(event, timer_first_delay, event_timer_first_delay)
 FYAI_TEST_ENTRY(event, timer_order, event_timer_order)
 FYAI_TEST_ENTRY(event, fd_read_eof, event_fd_read_eof)
 FYAI_TEST_ENTRY(event, fd_write, event_fd_write)
@@ -1814,6 +1815,63 @@ int event_timer_oneshot(void)
 	FYAI_TCHECK(!rc);
 
 	test_timer_oneshot();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+/*
+ * A repeating timer must fire first after its *initial* delay and only then at
+ * its interval. timerfd takes the two as separate values; EVFILT_TIMER has one
+ * period, and the macOS back end once armed the interval and discarded the
+ * initial delay. Every repeating timer then fired no sooner than a full
+ * interval, whatever deadline was asked for, which stopped the progress
+ * indicator from animating. Assert the contract at the portable layer, where
+ * both back ends have to keep it.
+ */
+static enum fyai_event_action cb_first_delay(const struct fyai_event *ev)
+{
+	struct counter *c = ev->userdata;
+
+	c->fired++;
+	return FYAIEA_STOP;
+}
+
+static void test_timer_first_delay(void)
+{
+	struct fyai_event_loop *el;
+	fyai_event_ms_t start, elapsed;
+	struct counter c;
+	int rc;
+
+	memset(&c, 0, sizeof(c));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+
+	start = fyai_event_now_ms();
+	rc = fyai_event_add_timer(el, 5, 2000, cb_first_delay, &c, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	elapsed = fyai_event_now_ms() - start;
+
+	FYAI_TCHECK(c.fired == 1);
+	FYAI_TCHECK(elapsed < 1000);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - a repeating timer honours its first delay\n");
+}
+
+int event_timer_first_delay(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_first_delay();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
