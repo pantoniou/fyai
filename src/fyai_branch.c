@@ -993,3 +993,51 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 	branches = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
 	return branches_publish(ctx, branches);
 }
+
+/* Report the current root or the root named by @spec. */
+int fyai_root_report(struct fyai_ctx *ctx, const char *spec, bool verbose)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fyai_root r;
+	fy_generic root, data, opts;
+	const char *handle;
+	fy_generic_value v;
+	int rc;
+
+	fyai_error_check(ctx, ctx->refs_head, err_out,
+			 "no arena root yet; run fyai init");
+
+	/* A symbolic reference selects the root that produced its value. */
+	v = ctx->refs_head;
+	if (spec) {
+		rc = fyai_root_resolve_spec(ctx->durable_allocator,
+					    ctx->refs_head, spec, &v);
+		fyai_error_check(ctx, !rc, err_out,
+				 "'%s' names no root in this arena", spec);
+	}
+	handle = fy_sprintfa("%llx", (unsigned long long)v);
+
+	if (!verbose) {
+		printf("%s\n", handle);
+		return 0;
+	}
+
+	root = (fy_generic){ .v = v };
+	rc = fyai_root_decode(root, &r);
+	fyai_error_check(ctx, rc >= 0, err_out, "unrecognized arena root");
+	data = fy_mapping(gb,
+		"root", fy_value(gb, handle),
+		"head", fy_value(gb, fyai_root_head_name(&r) ?
+				fyai_root_head_name(&r) : ""),
+		"branches", fy_value(gb, (long long)
+			fy_generic_mapping_get_pair_count(r.branches)),
+		"pinned", fy_value(gb, ctx->cfg->root_pinned));
+	opts = fy_mapping(gb, "title", "Root", "key_header", "Field",
+			  "value_header", "Value");
+	rc = fyai_generic_to_markdown(ctx, opts, data);
+	fyai_error_check(ctx, !rc, err_out, "could not render root");
+	return 0;
+
+err_out:
+	return -1;
+}

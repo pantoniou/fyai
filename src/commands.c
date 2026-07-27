@@ -71,6 +71,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("branch [args]", "list|create|delete|rename|show|describe branches");
 	ITEM("checkout [-b] <branch>", "Switch to a branch, moving HEAD");
 	ITEM("reset <ref>", "Move this branch's head (recoverable via the ref log)");
+	ITEM("root [print|show]", "Print the arena root: a stable handle for automation");
 	ITEM("clear", "Reset the conversation (publish a null head)");
 	ITEM("compact [hint]", "Summarize history into a fresh chain");
 	ITEM("context", "Context fill and token estimate");
@@ -91,6 +92,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--env, -e <file>", "Source a .env file (used vars only)");
 	ITEM("--model, -m <model>", "Model, optionally provider/model");
 	ITEM("--branch, -b <name>", "Work on this branch (else $FYAI_BRANCH, HEAD)");
+	ITEM("--root <value>", "Read one exact state by root handle (read-only)");
 	ITEM("--set <key[=val]>", "Set a config key (slash path); repeatable");
 	ITEM("--get <key>", "Print a config key as one-line flow");
 	ITEM("--delete <key>", "Delete a config key; repeatable");
@@ -1515,6 +1517,37 @@ static int execute_reset(struct fyai_ctx *ctx)
 	return fyai_branch_reset(ctx, ctx->cfg->cmd.args.reset.ref);
 }
 
+static int configure_root(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_root_args *args = &cfg->cmd.args.root;
+
+	args->type = FYAIRCT_PRINT;
+	args->ref = NULL;
+	if (argc < 2)
+		return 0;
+	if (!strcmp(argv[1], "print"))
+		args->type = FYAIRCT_PRINT;
+	else if (!strcmp(argv[1], "show"))
+		args->type = FYAIRCT_SHOW;
+	else {
+		fyai_cfg_error(cfg, "root: unknown subcommand '%s'", argv[1]);
+		return -1;
+	}
+	if (argc > 3) {
+		fyai_cfg_error(cfg, "root: unexpected argument '%s'", argv[3]);
+		return -1;
+	}
+	if (argc == 3)
+		args->ref = argv[2];
+	return 0;
+}
+
+static int execute_root(struct fyai_ctx *ctx)
+{
+	return fyai_root_report(ctx, ctx->cfg->cmd.args.root.ref,
+			ctx->cfg->cmd.args.root.type == FYAIRCT_SHOW);
+}
+
 static int configure_clear(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)cfg;
@@ -2072,6 +2105,24 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "stays in the branch ref log as <branch>@{1} until gc expires it.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.reset = {
+		},
+	},
+	[FYAIVID_ROOT] = {
+		.id	   = FYAIVID_ROOT,
+		.name	   = "root",
+		.configure = configure_root,
+		.execute   = execute_root,
+		.synopsis  = "root [print|show] [<ref>]",
+		.help	   = "Print the current arena root, a stable handle for one exact\n"
+			     "state. Pass it back as `fyai --root <value> ...` to read that\n"
+			     "state again; such a run is read-only. A branch name is stable\n"
+			     "but its meaning moves as turns are added - pin the root when\n"
+			     "automation must see one unchanging state. gc drops roots that\n"
+			     "fall outside --keep-reflogs, after which the handle is refused.",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
+		.default_args.root = {
+			.type = FYAIRCT_PRINT,
 		},
 	},
 	[FYAIVID_CLEAR] = {

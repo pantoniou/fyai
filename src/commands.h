@@ -37,6 +37,7 @@ enum fyai_verb_id {
 	FYAIVID_BRANCH,
 	FYAIVID_CHECKOUT,
 	FYAIVID_RESET,
+	FYAIVID_ROOT,
 	FYAIVID_CLEAR,
 	FYAIVID_COMPACT,
 	FYAIVID_CONTEXT,
@@ -227,6 +228,16 @@ struct fyai_reset_args {
 	const char *ref;	/* symbolic start point, e.g. HEAD~2 */
 };
 
+enum fyai_root_cmd_type {
+	FYAIRCT_PRINT,
+	FYAIRCT_SHOW,
+};
+
+struct fyai_root_args {
+	enum fyai_root_cmd_type type;
+	const char *ref;	/* optional: the root behind this reference */
+};
+
 struct fyai_clear_args {
 	/* nothing */
 };
@@ -280,6 +291,7 @@ union fyai_cmd_args {
 	struct fyai_branch_args branch;
 	struct fyai_checkout_args checkout;
 	struct fyai_reset_args reset;
+	struct fyai_root_args root;
 	struct fyai_clear_args clear;
 	struct fyai_compact_args compact;
 	struct fyai_context_args context;
