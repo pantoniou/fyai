@@ -255,17 +255,6 @@ static void fyai_dump_window(const struct fyai_turn_selector_args *ts,
 	}
 }
 
-static bool fyai_turn_has_user_message(fy_generic turn)
-{
-	fy_generic msgs, m;
-
-	msgs = fy_get(turn, "messages", fy_seq_empty);
-	fy_foreach(m, msgs)
-		if (fy_equal(fy_get(m, "role"), "user"))
-			return true;
-	return false;
-}
-
 static void fyai_exchange_window(const struct fyai_turn_selector_args *ts,
 				 struct fyai_turn_stack *stack,
 				 size_t *lo, size_t *hi)

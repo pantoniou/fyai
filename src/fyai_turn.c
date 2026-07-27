@@ -107,6 +107,32 @@ fy_generic fyai_turn_set_response_id(struct fyai_ctx *ctx,
 	return fyai_turn_meta_set(ctx, turn, "response_id", response_id);
 }
 
+bool fyai_turn_has_user_message(fy_generic turn)
+{
+	fy_generic msgs, m;
+
+	msgs = fy_get(turn, "messages", fy_seq_empty);
+	fy_foreach(m, msgs)
+		if (fy_equal(fy_get(m, "role"), "user"))
+			return true;
+	return false;
+}
+
+bool fyai_turn_is_system_only(fy_generic turn)
+{
+	fy_generic msgs, m;
+	bool any;
+
+	any = false;
+	msgs = fy_get(turn, "messages", fy_seq_empty);
+	fy_foreach(m, msgs) {
+		if (fy_not_equal(fy_get(m, "role"), "system"))
+			return false;
+		any = true;
+	}
+	return any;
+}
+
 int fyai_turn_stack_init(struct fyai_turn_stack *stack, fy_generic turn,
 			 fy_generic previous)
 {

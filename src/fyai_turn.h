@@ -21,6 +21,17 @@ fy_generic fyai_turn_append_display_output(struct fyai_ctx *ctx,
 					    fy_generic output);
 fy_generic fyai_turn_set_response_id(struct fyai_ctx *ctx, fy_generic turn,
 				     fy_generic response_id);
+/*
+ * True when a turn carries a user message. This is what starts an exchange:
+ * an exchange runs from one such turn up to the turn before the next. Merging
+ * works in exchanges, not turns, so a question is never separated from the
+ * answer to it.
+ */
+bool fyai_turn_has_user_message(fy_generic turn);
+
+/* True when a turn carries only system messages (and at least one). */
+bool fyai_turn_is_system_only(fy_generic turn);
+
 int fyai_turn_stack_init(struct fyai_turn_stack *stack, fy_generic turn,
 			 fy_generic previous);
 void fyai_turn_stack_cleanup(struct fyai_turn_stack *stack);
