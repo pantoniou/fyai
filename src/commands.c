@@ -298,10 +298,23 @@ static int configure_history(int argc, char **argv, struct fyai_cfg *cfg)
 		a = argv[i];
 		if (!strcmp(a, "--raw")) {
 			args->raw = true;
+		} else if (!strncmp(a, "--tool-detail=", 14)) {
+			args->tool_detail = a + 14;
+		} else if (!strcmp(a, "--tool-detail") && i + 1 < argc) {
+			args->tool_detail = argv[++i];
 		} else {
 			fyai_cfg_error(cfg, "%s: unknown option '%s'", cmd, a);
 			return -1;
 		}
+	}
+	if (args->tool_detail &&
+	    strcmp(args->tool_detail, "none") &&
+	    strcmp(args->tool_detail, "brief") &&
+	    strcmp(args->tool_detail, "default") &&
+	    strcmp(args->tool_detail, "full")) {
+		fyai_cfg_error(cfg, "%s: invalid tool detail '%s'", cmd,
+			       args->tool_detail);
+		return -1;
 	}
 
 	return 0;
@@ -1746,7 +1759,7 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "transcript",
 		.configure = configure_history,
 		.execute   = fyai_display_view,
-		.synopsis  = "transcript [--raw] "
+		.synopsis  = "transcript [--raw] [--tool-detail MODE] "
 			     "[--first n|--last n|--range x,y]",
 		.help	   = "Render the canonical conversation transcript in a "
 			     "human-digestible form\n"
@@ -1754,7 +1767,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "rule, assistant tool\n"
 			     "calls as the invoked command, with tool results rendered according\n"
 			     "to display.tool_detail. Unlike dump it is\n"
-			     "not a faithful serialization. --raw prints the generated markdown.\n"
+			     "not a faithful serialization. --tool-detail overrides the view\n"
+			     "without changing the config. --raw prints the generated markdown.\n"
 			     "--first/--last/--range select exchanges\n"
 			     "(0-based, range inclusive).",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,

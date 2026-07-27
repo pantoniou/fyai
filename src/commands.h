@@ -127,6 +127,7 @@ struct fyai_dump_args {
 
 struct fyai_display_args {
 	bool raw;
+	const char *tool_detail;
 	struct fyai_turn_selector_args turn_sel;
 };
 

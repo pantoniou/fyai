@@ -1234,18 +1234,53 @@ static int slash_list(struct fyai_ctx *ctx, const char *arg)
 static int slash_history(struct fyai_ctx *ctx, const char *arg)
 {
 	struct fyai_display_args *args = &ctx->cfg->cmd.args.display;
+	const char *saved_detail = args->tool_detail;
 	char which[16];
 	unsigned long n, hi;
 	char *end;
 	const char *p;
 	bool sep;
-	int rc;
+	int rc = -1;
 
 	args->raw = false;
+	args->tool_detail = NULL;
 	args->turn_sel.type = FYAITST_ALL;
 	if (arg && *arg) {
+		if (!strncmp(arg, "--tool-detail=", 14)) {
+			args->tool_detail = arg + 14;
+			arg += strcspn(arg, " \t");
+			while (*arg == ' ' || *arg == '\t')
+				arg++;
+		} else if (!strncmp(arg, "--tool-detail ", 14)) {
+			arg += 14;
+			args->tool_detail = arg;
+			arg += strcspn(arg, " \t");
+			while (*arg == ' ' || *arg == '\t')
+				arg++;
+		}
+		if (args->tool_detail) {
+			size_t len = strcspn(args->tool_detail, " \t");
+
+			if (!len || len >= sizeof(which)) {
+				fyai_error(ctx, "transcript: invalid tool detail");
+				goto out_restore;
+			}
+			memcpy(which, args->tool_detail, len);
+			which[len] = '\0';
+			args->tool_detail =
+				fy_gb_intern_string(ctx->transient_gb, which);
+			if (strcmp(which, "none") && strcmp(which, "brief") &&
+			    strcmp(which, "default") && strcmp(which, "full")) {
+				fyai_error(ctx,
+					   "transcript: invalid tool detail '%s'",
+					   which);
+				goto out_restore;
+			}
+		}
+		if (!*arg)
+			goto render;
 		if (sscanf(arg, "%15s", which) != 1)
-			return fyai_display_view(ctx);
+			goto render;
 		p = arg + strlen(which);
 		while (*p == ' ' || *p == '\t')
 			p++;
@@ -1253,9 +1288,9 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			if (*p) {
 				fyai_error(ctx, "history: use all, first N, last N, "
 					   "or range A,B");
-				return -1;
+				goto out_restore;
 			}
-			return fyai_display_view(ctx);
+			goto render;
 		} else if (!strcmp(which, "first")) {
 			n = strtoul(p, &end, 10);
 			args->turn_sel.type = FYAITST_FIRST;
@@ -1272,7 +1307,7 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			if (*end < '0' || *end > '9') {
 				fyai_error(ctx, "history: use all, first N, "
 					   "last N, or range A,B");
-				return -1;
+				goto out_restore;
 			}
 			hi = strtoul(end, &end, 10);
 			args->turn_sel.type = FYAITST_RANGE;
@@ -1281,23 +1316,26 @@ static int slash_history(struct fyai_ctx *ctx, const char *arg)
 			if (!sep) {
 				fyai_error(ctx, "history: use all, first N, "
 					   "last N, or range A,B");
-				return -1;
+				goto out_restore;
 			}
 		} else {
 			fyai_error(ctx, "history: use all, first N, last N, "
 				   "or range A,B");
-			return -1;
+			goto out_restore;
 		}
 		while (*end == ' ' || *end == '\t')
 			end++;
 		if (*p < '0' || *p > '9' || *end) {
 			fyai_error(ctx, "history: use all, first N, last N, "
 				   "or range A,B");
-			return -1;
+			goto out_restore;
 		}
 	}
 
+render:
 	rc = fyai_display_view(ctx);
+out_restore:
+	args->tool_detail = saved_detail;
 	args->turn_sel.type = FYAITST_ALL;
 	return rc;
 }
@@ -1503,8 +1541,10 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	  slash_config },
 	{ "list", "[what]", "list providers, models, turns, exchanges, or reflog",
 	  slash_list },
-	{ "history", "[last N]", "show conversation history", slash_history },
-	{ "transcript", "[last N]", "show conversation transcript",
+	{ "history", "[--tool-detail MODE] [last N]",
+	  "show conversation history", slash_history },
+	{ "transcript", "[--tool-detail MODE] [last N]",
+	  "show conversation transcript",
 	  slash_history },
 	{ "log", "[target action]", "control trace logging", slash_log },
 	{ "logging", "[target action]", "alias for /log", slash_log },

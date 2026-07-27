@@ -1701,6 +1701,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_display_args *args = &cfg->cmd.args.display;
+	const char *saved_tool_detail = cfg->tool_detail;
 	struct fy_generic_builder_cfg gcfg;
 	struct fy_generic_builder *tgb;
 	struct fyai_turn_stack stack;
@@ -1732,6 +1733,8 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	mf = NULL;
 	mdlen = 0;
 	rc = -1;
+	if (args->tool_detail)
+		cfg->tool_detail = args->tool_detail;
 	memset(&gcfg, 0, sizeof(gcfg));
 	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	tgb = fy_generic_builder_create(&gcfg);
@@ -1894,6 +1897,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	rc = 0;
 
 err_out:
+	cfg->tool_detail = saved_tool_detail;
 	if (mf)
 		fclose(mf);
 	free(md);
