@@ -258,7 +258,18 @@ accept null to paper over an emitter that drops the quotes.
   point. Taking the turns from the start point but the config from elsewhere is
   exactly the kind of half-and-half that surprises.
 
-  See `doc/branching.md`.
+  `--root <handle>` (from `fyai root print`) pins the arena to one published
+  root, making the invocation read-only — a write is *refused*, not silently
+  skipped as under `--transient`, because automation must not believe it
+  committed. The handle is untrusted input and is **never dereferenced on
+  trust**: `fyai_root_find()` walks the root ref log and compares raw values,
+  so an unknown handle is simply not found. Keep the per-step check cheap
+  (`root_shape_ok()`) and run the full `fyai_root_validate()` once on the hit —
+  validating deeply at every step cost ~126 ms versus ~45 ms for a 341-root
+  walk and scaled as O(roots x branches x ref-log). For the same reason
+  `fyai_root_validate()` is **shallow**: it checks only the entry each branch
+  points at, and whoever walks a ref-log chain checks the next link itself with
+  `fyai_branch_entry_contained()`. See `doc/branching.md`.
 - `src/fyai_catalog.c` — provider/model catalogue: arena document or embedded
   snapshot, lookups, `catalog` verb.
 - `src/*.h` — context structs and internal module interfaces.

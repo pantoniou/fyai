@@ -147,6 +147,71 @@ A branch name in a reference is resolved when you give it. No reference is kept
 in the arena, thus a rename cannot make a stored reference wrong. Refer to
 section 9.
 
+### 5.2 Root handles for automation
+
+A branch name is stable, but what it points to is not: it moves each time a
+turn is added. For interactive use this is what you want. For automation that
+must examine one exact state, and get the same answer each time, pin the root.
+
+```sh
+$ fyai root print
+201000007d88
+$ fyai --root 201000007d88 branch list
+$ fyai --root 201000007d88 -b main dump state
+```
+
+`--root` also accepts a symbolic reference and changes it into a handle for
+you. There is **no syntax that puts a handle inside a reference**. A reference
+is always resolved in the root that is in effect, thus the two stay separate:
+
+```sh
+$ fyai root print main@{3}          # a reference to a handle, for a script
+201000006a10
+$ fyai --root main@{3} branch list  # or give the reference directly
+$ fyai --root 201000006a10 branch create keep main~2
+```
+
+The last line shows the rule: `--root` selects the state, and `main~2` is then
+read inside that state.
+
+The value is the address of the root in the arena. The arena is immutable and
+only adds data, thus the state that a root gives is complete and does not
+change.
+
+**A pinned invocation is read-only.** Each operation that writes is refused
+with an error. `fyai` does not do the work and then discard it silently:
+automation must not think that a write occurred.
+
+```sh
+$ fyai --root 201000007d88 --set model=x
+--root is read-only; this command would change state
+```
+
+`fyai root show` gives the same handle with the state that it holds, which is
+more useful when a person must decide if it is the correct state.
+
+### Why this is safe
+
+A handle comes from outside `fyai`, thus it is not trusted. `fyai` does not
+examine the value as a pointer. It reads the roots that the arena published,
+follows the `prev` chain from the current root, and compares the values. A
+handle is accepted only if it is found. Thus an incorrect or invalid value can
+never cause `fyai` to read memory that it did not write.
+
+The cost of the comparison is small, because each step of the chain needs only
+a check of the root itself. The full check of all the branches is made one
+time, on the root that matches.
+
+### Limits
+
+- `gc` removes the roots that are outside the `--keep-reflogs` window. A handle
+  to a removed root is refused. Thus a handle is good for a task, not for
+  permanent storage. To keep a state permanently, make a branch at it.
+- A handle belongs to one arena. Do not move it to a different machine or a
+  different project.
+- The value is an address. It has no meaning to a person, and two arenas can
+  use the same value for different data.
+
 ## 6. Commands
 
 ### 6.1 The `branch` verb
@@ -245,7 +310,22 @@ A change of branch in a session applies the configuration of the new branch
 immediately. `fyai` resolves the model, the API mode and the API key again. The
 banner shows the name of the current branch.
 
-### 6.5 Views
+### 6.5 The `root` verb
+
+```sh
+fyai root print              # the current root
+fyai root print main@{3}     # the root behind that ref-log entry
+fyai root print main~2       # the root at which main held that turn
+fyai root show               # with a description of the state
+```
+
+`root print` always prints a root, never a direct reference to a turn or a
+ref-log entry. Only a root can be given back to `--root`, and only a root is
+checked against the list of roots that the arena published.
+
+Refer to section 5.2.
+
+### 6.6 Views
 
 `--branch` is a global option, thus it goes before the verb. Use it to examine
 a branch that is not the current branch, without a change of `HEAD`.
