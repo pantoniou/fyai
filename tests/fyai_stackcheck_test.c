@@ -11,6 +11,10 @@
 
 #include "utils.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(stackcheck, run, stackcheck_run)
+
 /*
  * The bug under test: a builder-less scratch generic returned from the
  * function that created it. noinline + a scribble over the vacated frame
@@ -37,7 +41,7 @@ static int check_live_parent(fy_generic v)
 	return generic_in_dead_stack_frame(v) ? -1 : 0;
 }
 
-int main(void)
+int stackcheck_run(void)
 {
 	struct fy_generic_builder_cfg gb_cfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,

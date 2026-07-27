@@ -35,6 +35,45 @@
 #include "fyai_event.h"
 #include "fyai_test.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(event, create_destroy, event_create_destroy)
+FYAI_TEST_ENTRY(event, pool_reuse, event_pool_reuse)
+FYAI_TEST_ENTRY(event, arm_failure_is_clean, event_arm_failure_is_clean)
+FYAI_TEST_ENTRY(event, fd_reregister_in_dispatch, event_fd_reregister_in_dispatch)
+FYAI_TEST_ENTRY(event, fork_child_abandons_loop, event_fork_child_abandons_loop)
+FYAI_TEST_ENTRY(event, idle_returns, event_idle_returns)
+FYAI_TEST_ENTRY(event, done_flag, event_done_flag)
+FYAI_TEST_ENTRY(event, timeout, event_timeout)
+FYAI_TEST_ENTRY(event, timer_oneshot, event_timer_oneshot)
+FYAI_TEST_ENTRY(event, timer_repeating, event_timer_repeating)
+FYAI_TEST_ENTRY(event, timer_rearm_in_callback, event_timer_rearm_in_callback)
+FYAI_TEST_ENTRY(event, timer_rearm_keeps_interval, event_timer_rearm_keeps_interval)
+FYAI_TEST_ENTRY(event, timer_order, event_timer_order)
+FYAI_TEST_ENTRY(event, fd_read_eof, event_fd_read_eof)
+FYAI_TEST_ENTRY(event, fd_write, event_fd_write)
+FYAI_TEST_ENTRY(event, child_exit, event_child_exit)
+FYAI_TEST_ENTRY(event, child_signalled, event_child_signalled)
+FYAI_TEST_ENTRY(event, child_already_exited, event_child_already_exited)
+FYAI_TEST_ENTRY(event, child_terminate_polite, event_child_terminate_polite)
+FYAI_TEST_ENTRY(event, child_terminate_sigterm, event_child_terminate_sigterm)
+FYAI_TEST_ENTRY(event, child_terminate_sigkill, event_child_terminate_sigkill)
+FYAI_TEST_ENTRY(event, child_terminate_concurrent, event_child_terminate_concurrent)
+FYAI_TEST_ENTRY(event, signal, event_signal)
+FYAI_TEST_ENTRY(event, signal_nested_teardown, event_signal_nested_teardown)
+FYAI_TEST_ENTRY(event, interrupt_watchdog_acked, event_interrupt_watchdog_acked)
+FYAI_TEST_ENTRY(event, interrupt_watchdog_escalates, event_interrupt_watchdog_escalates)
+FYAI_TEST_ENTRY(event, state_dump, event_state_dump)
+FYAI_TEST_ENTRY(event, nested_run, event_nested_run)
+FYAI_TEST_ENTRY(event, remove_after_nested_run, event_remove_after_nested_run)
+FYAI_TEST_ENTRY(event, abort, event_abort)
+FYAI_TEST_ENTRY(event, stop_preserves_batch, event_stop_preserves_batch)
+FYAI_TEST_ENTRY(event, self_remove, event_self_remove)
+FYAI_TEST_ENTRY(event, defer_coalesce, event_defer_coalesce)
+FYAI_TEST_ENTRY(event, defer_drain_once, event_defer_drain_once)
+FYAI_TEST_ENTRY(event, defer_cancel, event_defer_cancel)
+FYAI_TEST_ENTRY(event, defer_under_nested_run, event_defer_under_nested_run)
+
 /* A minimal context so the loop reports through the real diagnostic layer
  * rather than a special test path. */
 static struct fyai_cfg test_cfg;
@@ -1647,7 +1686,7 @@ static void test_defer_under_nested_run(void)
 	printf("ok - deferred work wakes a nested run\n");
 }
 
-int main(void)
+int event_create_destroy(void)
 {
 	int rc;
 
@@ -1655,49 +1694,534 @@ int main(void)
 	FYAI_TCHECK(!rc);
 
 	test_create_destroy();
-	test_pool_reuse();
-	test_arm_failure_is_clean();
-	test_fd_reregister_in_dispatch();
-	test_fork_child_abandons_loop();
-	test_idle_returns();
-	test_done_flag();
-	test_timeout();
-	test_timer_oneshot();
-	test_timer_repeating();
-	test_timer_rearm_in_callback();
-	test_timer_rearm_keeps_interval();
-	test_timer_order();
-	test_fd_read_eof();
-	test_fd_write();
-	test_child_exit();
-	test_child_signalled();
-	test_child_already_exited();
-	test_child_terminate_polite();
-	test_child_terminate_sigterm();
-	test_child_terminate_sigkill();
-	test_child_terminate_concurrent();
-	test_signal();
-	test_signal_nested_teardown();
-	test_interrupt_watchdog_acked();
-	test_interrupt_watchdog_escalates();
-	test_state_dump();
-	test_nested_run();
-	test_remove_after_nested_run();
-	test_abort();
-	test_stop_preserves_batch();
-	test_self_remove();
-	test_defer_coalesce();
-	test_defer_drain_once();
-	test_defer_cancel();
-	test_defer_under_nested_run();
 
-	/* Nothing above should have reported; drain and prove it. */
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
-
-	/* Release the pooled loops and sources so exit is leak-clean. */
 	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
 
-	printf("all event tests passed\n");
+int event_pool_reuse(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_pool_reuse();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_arm_failure_is_clean(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_arm_failure_is_clean();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_fd_reregister_in_dispatch(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_fd_reregister_in_dispatch();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_fork_child_abandons_loop(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_fork_child_abandons_loop();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_idle_returns(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_idle_returns();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_done_flag(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_done_flag();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timeout(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timeout();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timer_oneshot(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_oneshot();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timer_repeating(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_repeating();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timer_rearm_in_callback(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_rearm_in_callback();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timer_rearm_keeps_interval(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_rearm_keeps_interval();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timer_order(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_order();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_fd_read_eof(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_fd_read_eof();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_fd_write(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_fd_write();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_exit(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_exit();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_signalled(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_signalled();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_already_exited(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_already_exited();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_terminate_polite(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_terminate_polite();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_terminate_sigterm(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_terminate_sigterm();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_terminate_sigkill(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_terminate_sigkill();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_terminate_concurrent(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_terminate_concurrent();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_signal(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_signal();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_signal_nested_teardown(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_signal_nested_teardown();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_interrupt_watchdog_acked(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_interrupt_watchdog_acked();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_interrupt_watchdog_escalates(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_interrupt_watchdog_escalates();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_state_dump(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_state_dump();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_nested_run(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_nested_run();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_remove_after_nested_run(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_remove_after_nested_run();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_abort(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_abort();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_stop_preserves_batch(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_stop_preserves_batch();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_self_remove(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_self_remove();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_defer_coalesce(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_defer_coalesce();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_defer_drain_once(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_defer_drain_once();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_defer_cancel(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_defer_cancel();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_defer_under_nested_run(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_defer_under_nested_run();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
 	return 0;
 }

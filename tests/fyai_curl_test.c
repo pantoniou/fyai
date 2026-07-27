@@ -20,6 +20,13 @@
 #include "fyai_event.h"
 #include "fyai_test.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(curl, completion_is_deferred, curl_completion_is_deferred)
+FYAI_TEST_ENTRY(curl, cancel_is_deferred, curl_cancel_is_deferred)
+FYAI_TEST_ENTRY(curl, cancel_from_write_callback, curl_cancel_from_write_callback)
+FYAI_TEST_ENTRY(curl, simultaneous_transfers, curl_simultaneous_transfers)
+
 #define TEST_BOUND_MS 5000
 
 struct completion {
@@ -313,14 +320,12 @@ static void test_simultaneous_transfers(void)
 	printf("ok - simultaneous curl transfers\n");
 }
 
-int main(void)
+/* Run one test with an isolated curl context. */
+static int curl_run(void (*testfn)(void))
 {
 	FYAI_TCHECK(curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK);
 
-	test_completion_is_deferred();
-	test_cancel_is_deferred();
-	test_cancel_from_write_callback();
-	test_simultaneous_transfers();
+	testfn();
 
 	fyai_curl_cleanup(&test_ctx);
 	if (test_ctx.el) {
@@ -330,4 +335,24 @@ int main(void)
 	fyai_event_pool_drain(&test_ctx);
 	curl_global_cleanup();
 	return 0;
+}
+
+int curl_completion_is_deferred(void)
+{
+	return curl_run(test_completion_is_deferred);
+}
+
+int curl_cancel_is_deferred(void)
+{
+	return curl_run(test_cancel_is_deferred);
+}
+
+int curl_cancel_from_write_callback(void)
+{
+	return curl_run(test_cancel_from_write_callback);
+}
+
+int curl_simultaneous_transfers(void)
+{
+	return curl_run(test_simultaneous_transfers);
 }

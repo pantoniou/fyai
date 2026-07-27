@@ -11,6 +11,10 @@
 
 #include "fyai_storage.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(config, root_decode, config_root_decode)
+
 static int failures;
 
 #define check(_cond, _msg) \
@@ -73,12 +77,14 @@ static void test_root_decode(struct fy_generic_builder *gb)
 	      "NULL out-pointers");
 }
 
-int main(void)
+int config_root_decode(void)
 {
 	struct fy_generic_builder_cfg gb_cfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb;
+
+	failures = 0;
 
 	gb = fy_generic_builder_create(&gb_cfg);
 	if (!gb)

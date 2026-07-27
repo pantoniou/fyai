@@ -13,6 +13,10 @@
 #include "fyai_patch.h"
 #include "utils.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(patch, apply, patch_apply)
+
 static void expect_ok(char *result)
 {
 	if (!result || strncmp(result, "ok:", 3)) {
@@ -60,7 +64,7 @@ static void write_file_or_die(const char *path, const char *content)
 	}
 }
 
-int main(void)
+int patch_apply(void)
 {
 	char tmpl[] = "/tmp/fyai-patch-test-XXXXXX";
 	char *dir;

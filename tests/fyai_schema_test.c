@@ -17,6 +17,39 @@
 #include "fyai_schema.h"
 #include "utils.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(schema, type, schema_type)
+FYAI_TEST_ENTRY(schema, boolean_schema, schema_boolean_schema)
+FYAI_TEST_ENTRY(schema, required, schema_required)
+FYAI_TEST_ENTRY(schema, additional_properties_false, schema_additional_properties_false)
+FYAI_TEST_ENTRY(schema, additional_properties_schema, schema_additional_properties_schema)
+FYAI_TEST_ENTRY(schema, pattern_properties, schema_pattern_properties)
+FYAI_TEST_ENTRY(schema, dependencies, schema_dependencies)
+FYAI_TEST_ENTRY(schema, enum, schema_enum)
+FYAI_TEST_ENTRY(schema, const, schema_const)
+FYAI_TEST_ENTRY(schema, any_of, schema_any_of)
+FYAI_TEST_ENTRY(schema, all_of, schema_all_of)
+FYAI_TEST_ENTRY(schema, one_of, schema_one_of)
+FYAI_TEST_ENTRY(schema, not, schema_not)
+FYAI_TEST_ENTRY(schema, conditional, schema_conditional)
+FYAI_TEST_ENTRY(schema, local_ref, schema_local_ref)
+FYAI_TEST_ENTRY(schema, unsupported_keywords, schema_unsupported_keywords)
+FYAI_TEST_ENTRY(schema, string_bounds, schema_string_bounds)
+FYAI_TEST_ENTRY(schema, pattern, schema_pattern)
+FYAI_TEST_ENTRY(schema, numeric_bounds, schema_numeric_bounds)
+FYAI_TEST_ENTRY(schema, multiple_of, schema_multiple_of)
+FYAI_TEST_ENTRY(schema, property_bounds, schema_property_bounds)
+FYAI_TEST_ENTRY(schema, items, schema_items)
+FYAI_TEST_ENTRY(schema, prefix_items, schema_prefix_items)
+FYAI_TEST_ENTRY(schema, unique_items, schema_unique_items)
+FYAI_TEST_ENTRY(schema, contains, schema_contains)
+FYAI_TEST_ENTRY(schema, property_names, schema_property_names)
+FYAI_TEST_ENTRY(schema, nested, schema_nested)
+FYAI_TEST_ENTRY(schema, non_standard_type, schema_non_standard_type)
+FYAI_TEST_ENTRY(schema, format_uri, schema_format_uri)
+FYAI_TEST_ENTRY(schema, problem_collection, schema_problem_collection)
+
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
 
@@ -610,7 +643,9 @@ static void test_problem_collection(void)
 	}
 }
 
-int main(void)
+/* Run one test with an isolated generic builder. */
+
+static int schema_run(void (*testfn)(void))
 {
 	struct fy_generic_builder_cfg gb_cfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -625,37 +660,158 @@ int main(void)
 		return 1;
 	test_ctx.durable_gb = test_ctx.transient_gb;
 
-	test_type();
-	test_boolean_schema();
-	test_required();
-	test_additional_properties_false();
-	test_additional_properties_schema();
-	test_pattern_properties();
-	test_dependencies();
-	test_enum();
-	test_const();
-	test_any_of();
-	test_all_of();
-	test_one_of();
-	test_not();
-	test_conditional();
-	test_local_ref();
-	test_unsupported_keywords();
-	test_string_bounds();
-	test_pattern();
-	test_numeric_bounds();
-	test_multiple_of();
-	test_property_bounds();
-	test_items();
-	test_prefix_items();
-	test_unique_items();
-	test_contains();
-	test_property_names();
-	test_nested();
-	test_non_standard_type();
-	test_format_uri();
-	test_problem_collection();
+	testfn();
 
 	fy_generic_builder_destroy(test_ctx.transient_gb);
 	return 0;
+}
+
+int schema_type(void)
+{
+	return schema_run(test_type);
+}
+
+int schema_boolean_schema(void)
+{
+	return schema_run(test_boolean_schema);
+}
+
+int schema_required(void)
+{
+	return schema_run(test_required);
+}
+
+int schema_additional_properties_false(void)
+{
+	return schema_run(test_additional_properties_false);
+}
+
+int schema_additional_properties_schema(void)
+{
+	return schema_run(test_additional_properties_schema);
+}
+
+int schema_pattern_properties(void)
+{
+	return schema_run(test_pattern_properties);
+}
+
+int schema_dependencies(void)
+{
+	return schema_run(test_dependencies);
+}
+
+int schema_enum(void)
+{
+	return schema_run(test_enum);
+}
+
+int schema_const(void)
+{
+	return schema_run(test_const);
+}
+
+int schema_any_of(void)
+{
+	return schema_run(test_any_of);
+}
+
+int schema_all_of(void)
+{
+	return schema_run(test_all_of);
+}
+
+int schema_one_of(void)
+{
+	return schema_run(test_one_of);
+}
+
+int schema_not(void)
+{
+	return schema_run(test_not);
+}
+
+int schema_conditional(void)
+{
+	return schema_run(test_conditional);
+}
+
+int schema_local_ref(void)
+{
+	return schema_run(test_local_ref);
+}
+
+int schema_unsupported_keywords(void)
+{
+	return schema_run(test_unsupported_keywords);
+}
+
+int schema_string_bounds(void)
+{
+	return schema_run(test_string_bounds);
+}
+
+int schema_pattern(void)
+{
+	return schema_run(test_pattern);
+}
+
+int schema_numeric_bounds(void)
+{
+	return schema_run(test_numeric_bounds);
+}
+
+int schema_multiple_of(void)
+{
+	return schema_run(test_multiple_of);
+}
+
+int schema_property_bounds(void)
+{
+	return schema_run(test_property_bounds);
+}
+
+int schema_items(void)
+{
+	return schema_run(test_items);
+}
+
+int schema_prefix_items(void)
+{
+	return schema_run(test_prefix_items);
+}
+
+int schema_unique_items(void)
+{
+	return schema_run(test_unique_items);
+}
+
+int schema_contains(void)
+{
+	return schema_run(test_contains);
+}
+
+int schema_property_names(void)
+{
+	return schema_run(test_property_names);
+}
+
+int schema_nested(void)
+{
+	return schema_run(test_nested);
+}
+
+int schema_non_standard_type(void)
+{
+	return schema_run(test_non_standard_type);
+}
+
+int schema_format_uri(void)
+{
+	return schema_run(test_format_uri);
+}
+
+int schema_problem_collection(void)
+{
+	return schema_run(test_problem_collection);
 }

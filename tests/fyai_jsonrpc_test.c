@@ -23,27 +23,24 @@
 #include "fyai_jsonrpc.h"
 #include "fyai_test.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(jsonrpc, request_response, jsonrpc_request_response)
+FYAI_TEST_ENTRY(jsonrpc, ignores_other_ids, jsonrpc_ignores_other_ids)
+FYAI_TEST_ENTRY(jsonrpc, error_response, jsonrpc_error_response)
+FYAI_TEST_ENTRY(jsonrpc, notification, jsonrpc_notification)
+FYAI_TEST_ENTRY(jsonrpc, cancel, jsonrpc_cancel)
+FYAI_TEST_ENTRY(jsonrpc, serve_request, jsonrpc_serve_request)
+FYAI_TEST_ENTRY(jsonrpc, serve_notification, jsonrpc_serve_notification)
+FYAI_TEST_ENTRY(jsonrpc, serve_error, jsonrpc_serve_error)
+FYAI_TEST_ENTRY(jsonrpc, unserved_request_is_answered, jsonrpc_unserved_request_is_answered)
+FYAI_TEST_ENTRY(jsonrpc, notification_during_request, jsonrpc_notification_during_request)
+FYAI_TEST_ENTRY(jsonrpc, skips_non_frames, jsonrpc_skips_non_frames)
+
 #define TEST_BOUND_MS 5000
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
-
-/* The transport references the logger; these tests run with logging off, so a
- * stub keeps the UI/log objects out of the link. */
-int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc)
-{
-	(void)ctx;
-	(void)name;
-	(void)doc;
-	return 0;
-}
-
-/* The transport reaches its scratch builder through this accessor; the test
- * sets test_ctx.transient_gb up front, so just hand it back. */
-struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
-{
-	return ctx->transient_gb;
-}
 
 struct call_result {
 	volatile bool done;
@@ -425,7 +422,8 @@ static void test_skips_non_frames(void)
 	printf("ok - a stray line is skipped, not fatal to the stream\n");
 }
 
-int main(void)
+/* Run one test with an isolated diagnostic context. */
+static int jsonrpc_run(void (*testfn)(void))
 {
 	int rc;
 
@@ -433,22 +431,65 @@ int main(void)
 	FYAI_TCHECK(!rc);
 	setup_builders();
 
-	test_request_response();
-	test_ignores_other_ids();
-	test_error_response();
-	test_notification();
-	test_cancel();
-	test_serve_request();
-	test_serve_notification();
-	test_serve_error();
-	test_unserved_request_is_answered();
-	test_notification_during_request();
-	test_skips_non_frames();
+	testfn();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
 	fyai_event_pool_drain(&test_ctx);
-
-	printf("all jsonrpc tests passed\n");
 	return 0;
+}
+
+int jsonrpc_request_response(void)
+{
+	return jsonrpc_run(test_request_response);
+}
+
+int jsonrpc_ignores_other_ids(void)
+{
+	return jsonrpc_run(test_ignores_other_ids);
+}
+
+int jsonrpc_error_response(void)
+{
+	return jsonrpc_run(test_error_response);
+}
+
+int jsonrpc_notification(void)
+{
+	return jsonrpc_run(test_notification);
+}
+
+int jsonrpc_cancel(void)
+{
+	return jsonrpc_run(test_cancel);
+}
+
+int jsonrpc_serve_request(void)
+{
+	return jsonrpc_run(test_serve_request);
+}
+
+int jsonrpc_serve_notification(void)
+{
+	return jsonrpc_run(test_serve_notification);
+}
+
+int jsonrpc_serve_error(void)
+{
+	return jsonrpc_run(test_serve_error);
+}
+
+int jsonrpc_unserved_request_is_answered(void)
+{
+	return jsonrpc_run(test_unserved_request_is_answered);
+}
+
+int jsonrpc_notification_during_request(void)
+{
+	return jsonrpc_run(test_notification_during_request);
+}
+
+int jsonrpc_skips_non_frames(void)
+{
+	return jsonrpc_run(test_skips_non_frames);
 }

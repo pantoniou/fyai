@@ -13,6 +13,17 @@
 #include "fyai_provider.h"
 #include "utils.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(provider, responses_input, provider_responses_input)
+FYAI_TEST_ENTRY(provider, chat_input, provider_chat_input)
+FYAI_TEST_ENTRY(provider, extract_usage, provider_extract_usage)
+FYAI_TEST_ENTRY(provider, chatgpt_shell_tool, provider_chatgpt_shell_tool)
+FYAI_TEST_ENTRY(provider, response_accessors, provider_response_accessors)
+FYAI_TEST_ENTRY(provider, messages_input, provider_messages_input)
+FYAI_TEST_ENTRY(provider, token_extents, provider_token_extents)
+FYAI_TEST_ENTRY(provider, messages_response, provider_messages_response)
+
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
 
@@ -404,7 +415,9 @@ static void test_messages_response(void)
 	}
 }
 
-int main(void)
+/* Run one test with an isolated generic builder. */
+
+static int provider_run(void (*testfn)(void))
 {
 	struct fy_generic_builder_cfg gb_cfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -420,15 +433,48 @@ int main(void)
 	test_ctx.gb = test_ctx.transient_gb;
 	test_ctx.durable_gb = test_ctx.transient_gb;
 
-	test_responses_input();
-	test_chat_input();
-	test_extract_usage();
-	test_chatgpt_shell_tool();
-	test_response_accessors();
-	test_token_extents();
-	test_messages_input();
-	test_messages_response();
+	testfn();
 
 	fy_generic_builder_destroy(test_ctx.transient_gb);
 	return 0;
+}
+
+int provider_responses_input(void)
+{
+	return provider_run(test_responses_input);
+}
+
+int provider_chat_input(void)
+{
+	return provider_run(test_chat_input);
+}
+
+int provider_extract_usage(void)
+{
+	return provider_run(test_extract_usage);
+}
+
+int provider_chatgpt_shell_tool(void)
+{
+	return provider_run(test_chatgpt_shell_tool);
+}
+
+int provider_response_accessors(void)
+{
+	return provider_run(test_response_accessors);
+}
+
+int provider_messages_input(void)
+{
+	return provider_run(test_messages_input);
+}
+
+int provider_token_extents(void)
+{
+	return provider_run(test_token_extents);
+}
+
+int provider_messages_response(void)
+{
+	return provider_run(test_messages_response);
 }

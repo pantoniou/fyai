@@ -15,6 +15,19 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 
+#include "fyai_test_registry.h"
+
+FYAI_TEST_ENTRY(diag, format, diag_format)
+FYAI_TEST_ENTRY(diag, order, diag_order)
+FYAI_TEST_ENTRY(diag, demote, diag_demote)
+FYAI_TEST_ENTRY(diag, reset, diag_reset)
+FYAI_TEST_ENTRY(diag, mask, diag_mask)
+FYAI_TEST_ENTRY(diag, source, diag_source)
+FYAI_TEST_ENTRY(diag, drain_clears, diag_drain_clears)
+FYAI_TEST_ENTRY(diag, concurrent_raise, diag_concurrent_raise)
+FYAI_TEST_ENTRY(diag, reset_reclaims, diag_reset_reclaims)
+FYAI_TEST_ENTRY(diag, no_sink, diag_no_sink)
+
 #define DIAG_THREADS	8
 #define DIAG_PER_THREAD	2000
 
@@ -291,9 +304,13 @@ static void test_no_sink(void)
 		   __func__, "sink-less diagnostic reaches stderr");
 }
 
-int main(void)
+/* Run one test with an isolated diagnostic sink. */
+
+static int diag_run(void (*testfn)(struct fyai_diag *diag))
 {
 	struct fyai_diag *diag;
+
+	failures = 0;
 
 	memset(&test_cfg, 0, sizeof(test_cfg));
 	memset(&test_ctx, 0, sizeof(test_ctx));
@@ -309,23 +326,60 @@ int main(void)
 		return 1;
 	}
 
-	test_format(diag);
-	test_order(diag);
-	test_demote(diag);
-	test_reset(diag);
-	test_mask(diag);
-	test_source(diag);
-	test_drain_clears(diag);
-	test_concurrent_raise(diag);
-	test_reset_reclaims(diag);
-	test_no_sink();
+	testfn(diag);
 
 	fyai_diag_cleanup(&test_cfg.diag);
+	return failures ? 1 : 0;
+}
 
-	if (failures) {
-		fprintf(stderr, "%d failure(s)\n", failures);
-		return 1;
-	}
-	printf("all diag tests passed\n");
-	return 0;
+int diag_format(void)
+{
+	return diag_run(test_format);
+}
+
+int diag_order(void)
+{
+	return diag_run(test_order);
+}
+
+int diag_demote(void)
+{
+	return diag_run(test_demote);
+}
+
+int diag_reset(void)
+{
+	return diag_run(test_reset);
+}
+
+int diag_mask(void)
+{
+	return diag_run(test_mask);
+}
+
+int diag_source(void)
+{
+	return diag_run(test_source);
+}
+
+int diag_drain_clears(void)
+{
+	return diag_run(test_drain_clears);
+}
+
+int diag_concurrent_raise(void)
+{
+	return diag_run(test_concurrent_raise);
+}
+
+int diag_reset_reclaims(void)
+{
+	return diag_run(test_reset_reclaims);
+}
+
+int diag_no_sink(void)
+{
+	failures = 0;
+	test_no_sink();
+	return failures ? 1 : 0;
 }

@@ -33,27 +33,20 @@
 #include "fyai_oauth.h"
 #include "fyai_test.h"
 
-/* fyai_auth_util.c also carries the application credential-store helpers.
- * This receiver-only unit does not exercise them, so keep its link isolated
- * from the full utility and context implementation. */
-int mkdir_private(const char *path)
-{
-	int rc;
+#include "fyai_test_registry.h"
 
-	rc = mkdir(path, 0700);
-	return !rc || errno == EEXIST ? 0 : -1;
-}
-
-int fyai_mkdir_p(const char *path)
-{
-	(void)path;
-	return 0;
-}
-
-struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx)
-{
-	return ctx->transient_gb;
-}
+FYAI_TEST_ENTRY(oauth, plain_redirect, oauth_plain_redirect)
+FYAI_TEST_ENTRY(oauth, favicon_does_not_fail_login, oauth_favicon_does_not_fail_login)
+FYAI_TEST_ENTRY(oauth, silent_preconnect, oauth_silent_preconnect)
+FYAI_TEST_ENTRY(oauth, split_request, oauth_split_request)
+FYAI_TEST_ENTRY(oauth, bad_state_rejected, oauth_bad_state_rejected)
+FYAI_TEST_ENTRY(oauth, timeout, oauth_timeout)
+FYAI_TEST_ENTRY(oauth, completion_callback, oauth_completion_callback)
+FYAI_TEST_ENTRY(oauth, shares_the_loop, oauth_shares_the_loop)
+FYAI_TEST_ENTRY(oauth, connection_flood, oauth_connection_flood)
+FYAI_TEST_ENTRY(oauth, destroy_while_listening, oauth_destroy_while_listening)
+FYAI_TEST_ENTRY(oauth, pkce, oauth_pkce)
+FYAI_TEST_ENTRY(oauth, query_value, oauth_query_value)
 
 #define TEST_BOUND_MS	5000
 #define TEST_STATE	"s3cr3t-state"
@@ -653,7 +646,8 @@ static void test_query_value(void)
 	printf("  query value parsing: ok\n");
 }
 
-int main(void)
+/* Run one test with an isolated OAuth context. */
+static int oauth_run(void (*testfn)(void))
 {
 	int rc;
 
@@ -667,25 +661,70 @@ int main(void)
 	test_ctx.curl = curl_easy_init();
 	FYAI_TCHECK(test_ctx.curl);
 
-	printf("fyai_oauth tests\n");
-
-	test_pkce();
-	test_query_value();
-	test_plain_redirect();
-	test_favicon_does_not_fail_login();
-	test_silent_preconnect();
-	test_split_request();
-	test_bad_state_rejected();
-	test_timeout();
-	test_completion_callback();
-	test_shares_the_loop();
-	test_connection_flood();
-	test_destroy_while_listening();
+	testfn();
 
 	curl_easy_cleanup(test_ctx.curl);
 	curl_global_cleanup();
 	fyai_event_pool_drain(&test_ctx);
-
-	printf("all oauth tests passed\n");
 	return 0;
+}
+
+int oauth_plain_redirect(void)
+{
+	return oauth_run(test_plain_redirect);
+}
+
+int oauth_favicon_does_not_fail_login(void)
+{
+	return oauth_run(test_favicon_does_not_fail_login);
+}
+
+int oauth_silent_preconnect(void)
+{
+	return oauth_run(test_silent_preconnect);
+}
+
+int oauth_split_request(void)
+{
+	return oauth_run(test_split_request);
+}
+
+int oauth_bad_state_rejected(void)
+{
+	return oauth_run(test_bad_state_rejected);
+}
+
+int oauth_timeout(void)
+{
+	return oauth_run(test_timeout);
+}
+
+int oauth_completion_callback(void)
+{
+	return oauth_run(test_completion_callback);
+}
+
+int oauth_shares_the_loop(void)
+{
+	return oauth_run(test_shares_the_loop);
+}
+
+int oauth_connection_flood(void)
+{
+	return oauth_run(test_connection_flood);
+}
+
+int oauth_destroy_while_listening(void)
+{
+	return oauth_run(test_destroy_while_listening);
+}
+
+int oauth_pkce(void)
+{
+	return oauth_run(test_pkce);
+}
+
+int oauth_query_value(void)
+{
+	return oauth_run(test_query_value);
 }
