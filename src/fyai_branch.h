@@ -12,6 +12,9 @@
 /* Return the active branch or FYAI_BRANCH_DEFAULT. */
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx);
 
+/* Set the read-only root handle or symbolic reference. */
+int fyai_cfg_set_root(struct fyai_cfg *cfg, const char *spec);
+
 /* Validate and copy @name as the active branch. */
 int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name);
 

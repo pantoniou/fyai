@@ -607,6 +607,18 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 	rc = fyai_open_arena(ctx, cfg->arena_dir);
 	fyai_error_check(ctx, !rc, err_out, "could not open arena");
 
+	if (cfg->root_pinned && ctx->refs_head) {
+		/* Confirm that the arena still contains the pinned root. */
+		root = fyai_root_find(ctx->durable_allocator, ctx->refs_head,
+				      cfg->root_ref);
+		fyai_error_check(ctx, fy_generic_is_valid(root), err_out,
+				 "--root '%s' names no root in %s; "
+				 "gc may have dropped it",
+				 cfg->root_spec ? cfg->root_spec : "",
+				 cfg->arena_dir);
+		ctx->refs_head = cfg->root_ref;
+	}
+
 	if (ctx->refs_head) {
 		root = (fy_generic){ .v = ctx->refs_head };
 		/*
@@ -717,6 +729,7 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	fy_generic catv, headv, branchesv, prevv, root;
 	struct timespec t_commit;
 	uint64_t desired;
+	bool root_pinned;
 	int rc;
 
 	fyai_prof_stamp(&t_commit);
@@ -726,6 +739,12 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 * advance the durable refs head. In-memory ctx state stays as callers set
 	 * it, so the current run still sees its own edits.
 	 */
+	/* Refuse writes through a pinned root. */
+	root_pinned = ctx->cfg && ctx->cfg->root_pinned;
+	if (root_pinned)
+		fyai_branch_op_set(ctx, NULL, NULL);
+	fyai_error_check(ctx, !root_pinned, err_out,
+			 "--root is read-only; this command would change state");
 	if (ctx->cfg && ctx->cfg->transient) {
 		fyai_branch_op_set(ctx, NULL, NULL);
 		return 0;
@@ -761,6 +780,9 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	ctx->branch_prev = fy_get(branchesv, fyai_ctx_branch(ctx));
 	fyai_prof_since("commit_durable", &t_commit);
 	return 0;
+
+err_out:
+	return -1;
 }
 
 /*
@@ -771,8 +793,9 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
  * unrecognizable root is.
  */
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
-			   struct fy_generic_builder *gb, fy_generic *configp,
-			   fy_generic *catalogp, char **branchp)
+			   const char *root_spec, struct fy_generic_builder *gb,
+			   fy_generic *configp, fy_generic *catalogp,
+			   char **branchp, uint64_t *rootp)
 {
 	struct fy_durable_allocator_cfg dur_cfg = {};
 	struct fy_allocator *allocator;
@@ -781,6 +804,7 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 	const char *name;
 	char *arena_dir;
 	uint64_t refs;
+	fy_generic_value pinned;
 	fy_generic root;
 	int ret;
 
@@ -789,6 +813,8 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 		*catalogp = fy_invalid;
 	if (branchp)
 		*branchp = NULL;
+	if (rootp)
+		*rootp = 0;
 	ret = 0;
 
 	arena_dir = arena_dir_opt ? strdup(arena_dir_opt) :
@@ -807,6 +833,19 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 	if (!allocator)
 		goto out;
 	refs = fy_allocator_refs_get(allocator);
+	/* Resolve --root before reading its branch configuration. */
+	if (refs && root_spec) {
+		if (fyai_root_resolve_spec(allocator, refs, root_spec, &pinned)) {
+			fprintf(stderr, "--root '%s' names no root in %s; "
+				"gc may have dropped it\n", root_spec, arena_dir);
+			fy_allocator_destroy(allocator);
+			ret = -1;
+			goto out;
+		}
+		refs = pinned;
+		if (rootp)
+			*rootp = pinned;
+	}
 	if (refs) {
 		root = (fy_generic){ .v = refs };
 		if (fyai_root_decode(root, &r) < 0) {

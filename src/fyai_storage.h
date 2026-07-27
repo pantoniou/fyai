@@ -57,7 +57,7 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 
 int fyai_init_storage(struct fyai_ctx *ctx);
 
-/* true when a config document carries a raw (non-env-indirected) api_key */
+/* Return true if a configuration contains a literal api_key. */
 bool fyai_config_has_raw_secret(fy_generic doc);
 
 /*
@@ -65,8 +65,9 @@ bool fyai_config_has_raw_secret(fy_generic doc);
  * @gb. @branchp receives an allocated copy of the selected branch name.
  */
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
-			   struct fy_generic_builder *gb, fy_generic *configp,
-			   fy_generic *catalogp, char **branchp);
+			   const char *root_spec, struct fy_generic_builder *gb,
+			   fy_generic *configp, fy_generic *catalogp,
+			   char **branchp, uint64_t *rootp);
 int fyai_gc_storage(struct fyai_ctx *ctx);
 
 #endif

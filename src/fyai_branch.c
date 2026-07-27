@@ -78,6 +78,27 @@ int fyai_cfg_branch_from_env(struct fyai_cfg *cfg)
 	return fyai_cfg_set_branch(cfg, env);
 }
 
+int fyai_cfg_set_root(struct fyai_cfg *cfg, const char *spec)
+{
+	char *dup;
+
+	/* Resolve the handle or symbolic reference after the arena opens. */
+	if (!spec || !*spec) {
+		fyai_cfg_error(cfg, "--root needs a handle from "
+			       "`fyai root print`, or a reference like main@{3}");
+		return -1;
+	}
+	dup = strdup(spec);
+	if (!dup) {
+		fyai_cfg_error(cfg, "out of memory setting --root");
+		return -1;
+	}
+	free(cfg->root_spec);
+	cfg->root_spec = dup;
+	cfg->root_pinned = true;
+	return 0;
+}
+
 int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name)
 {
 	char *dup;

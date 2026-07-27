@@ -843,7 +843,8 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	/* Load the catalogue and selected branch configuration. */
 	branch = NULL;
 	if (fyai_peek_arena_config(NULL, cfg->branch_explicit ? cfg->branch : NULL,
-				   gb, &root_repo, &cfg->catalog, &branch))
+				   cfg->root_spec, gb, &root_repo, &cfg->catalog,
+				   &branch, &cfg->root_ref))
 		return -1;
 	if (branch && !cfg->branch_explicit) {
 		free(cfg->branch);
@@ -1963,6 +1964,7 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 	if (cfg->cmd.id == FYAIVID_MCP)
 		free(cfg->cmd.args.mcp.scopes);
 	free(cfg->branch);
+	free(cfg->root_spec);
 	fy_generic_builder_destroy(cfg->gb);
 	memset(cfg, 0, sizeof(*cfg));
 }
@@ -1978,6 +1980,7 @@ enum {
 	OPT_DELETE,
 	OPT_TRANSIENT,
 	OPT_VERSION,
+	OPT_ROOT,
 };
 
 static const struct option long_options[] = {
@@ -1988,6 +1991,7 @@ static const struct option long_options[] = {
 	{ "model", required_argument, NULL, 'm' },
 	{ "api-key", required_argument, NULL, 'k' },
 	{ "branch", required_argument, NULL, 'b' },
+	{ "root", required_argument, NULL, OPT_ROOT },
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -2496,6 +2500,10 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case OPT_DELETE:
 			if (config_queue_op(cfg, 'd', optarg, NULL, true, true))
+				goto err_out;
+			break;
+		case OPT_ROOT:
+			if (fyai_cfg_set_root(cfg, optarg))
 				goto err_out;
 			break;
 		case OPT_TRANSIENT:

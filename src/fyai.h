@@ -187,6 +187,10 @@ struct fyai_cfg {
 	/* Active branch selection and whether the user selected it explicitly. */
 	char *branch;
 	bool branch_explicit;
+	/* Read-only root selection, resolved when the arena opens. */
+	char *root_spec;
+	fy_generic_value root_ref;
+	bool root_pinned;
 	/*
 	 * Stack an in-memory builder over the durable arena so every config and
 	 * state write this session is ephemeral (never published to the arena).
