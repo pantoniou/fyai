@@ -16,6 +16,7 @@
 
 FYAI_TEST_ENTRY(config, root_decode, config_root_decode)
 FYAI_TEST_ENTRY(config, branch_names, config_branch_names)
+FYAI_TEST_ENTRY(config, branch_refs, config_branch_refs)
 
 static int failures;
 
@@ -131,6 +132,66 @@ static void test_branch_names(void)
 	check(fyai_branch_depth("main/a/b") == 2, "depth: two down");
 }
 
+static void test_branch_sanitize(void)
+{
+	char b[FYAI_BRANCH_COMPONENT_MAX + 1];
+
+	fyai_branch_sanitize("Explore", "agent", b, sizeof(b));
+	check(!strcmp(b, "explore"), "sanitize: lower-cased");
+	fyai_branch_sanitize("general-purpose", "agent", b, sizeof(b));
+	check(!strcmp(b, "general-purpose"), "sanitize: already clean");
+	fyai_branch_sanitize("Code Reviewer", "agent", b, sizeof(b));
+	check(!strcmp(b, "code-reviewer"), "sanitize: space becomes a dash");
+	fyai_branch_sanitize("a//b", "agent", b, sizeof(b));
+	check(!strcmp(b, "a-b"), "sanitize: slash cannot survive");
+	check(!strchr(b, '/'), "sanitize: never contains a separator");
+	fyai_branch_sanitize("~weird^stuff@", "agent", b, sizeof(b));
+	check(!strcmp(b, "weird-stuff"), "sanitize: trimmed and collapsed");
+	fyai_branch_sanitize("...", "agent", b, sizeof(b));
+	check(!strcmp(b, "agent"), "sanitize: dots fall back");
+	fyai_branch_sanitize("", "agent", b, sizeof(b));
+	check(!strcmp(b, "agent"), "sanitize: empty falls back");
+	fyai_branch_sanitize(NULL, "agent", b, sizeof(b));
+	check(!strcmp(b, "agent"), "sanitize: NULL falls back");
+	fyai_branch_sanitize("HEAD", "agent", b, sizeof(b));
+	check(fyai_branch_name_valid(b), "sanitize: HEAD is made usable");
+
+	fyai_branch_sanitize("....~~~^^^@@@:::", "agent", b, sizeof(b));
+	check(fyai_branch_name_valid(b), "sanitize: punctuation only is valid");
+	fyai_branch_sanitize(
+		"an extremely long agent name that runs well past the limit",
+		"agent", b, sizeof(b));
+	check(strlen(b) <= FYAI_BRANCH_COMPONENT_MAX, "sanitize: truncated");
+	check(fyai_branch_name_valid(b), "sanitize: truncation stays valid");
+}
+
+static void test_ref_grammar(struct fy_generic_builder *gb)
+{
+	fy_generic t1, t2, t3, entry, branches;
+	struct fyai_branch b;
+
+	/* a three turn chain: t3 -> t2 -> t1 */
+	t1 = fy_gb_mapping(gb, "messages", fy_gb_sequence(gb),
+			   "previous", fy_null);
+	t2 = fy_gb_mapping(gb, "messages", fy_gb_sequence(gb), "previous", t1);
+	t3 = fy_gb_mapping(gb, "messages", fy_gb_sequence(gb), "previous", t2);
+
+	/* one ref-log step behind, recording the operation that made it */
+	entry = fy_gb_mapping(gb, "head", t2, "op", "turn", "prev", fy_null);
+	entry = fy_gb_mapping(gb, "head", t3, "op", "reset", "prev", entry);
+	branches = fy_gb_mapping(gb, "main", entry);
+
+	check(fyai_branch_lookup(branches, "main", &b), "refs: branch found");
+	check(fy_equal(b.head, t3), "refs: head is the tip");
+	check(fy_generic_is_valid(b.op), "refs: the operation is stored");
+	check(!strcmp(fy_castp(&b.op, ""), "reset"),
+	      "refs: a reset is recorded, not inferred");
+
+	/* the ref log keeps what a reset moved away from */
+	check(fyai_branch_decode(b.prev, &b), "refs: ref log has a predecessor");
+	check(fy_equal(b.head, t2), "refs: @{1} recovers the previous head");
+}
+
 int config_root_decode(void)
 {
 	struct fy_generic_builder_cfg gb_cfg = {
@@ -154,5 +215,25 @@ int config_branch_names(void)
 {
 	failures = 0;
 	test_branch_names();
+	test_branch_sanitize();
+	return failures ? 1 : 0;
+}
+
+int config_branch_refs(void)
+{
+	struct fy_generic_builder_cfg gb_cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb;
+
+	failures = 0;
+
+	gb = fy_generic_builder_create(&gb_cfg);
+	if (!gb)
+		return 1;
+
+	test_ref_grammar(gb);
+
+	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }
