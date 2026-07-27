@@ -26,6 +26,8 @@
 #endif
 
 #include <assert.h>
+#include <alloca.h>
+#include <ctype.h>
 #include <errno.h>
 #include <signal.h>
 #include <stddef.h>
@@ -45,6 +47,7 @@
 #include "fyai_render.h"
 #include "fyai_log.h"
 #include "fyai_markdown.h"
+#include "fyai_branch.h"
 #include "fyai_session.h"
 #include "fyai_ui.h"
 #include "fyai_storage.h"
@@ -1531,7 +1534,169 @@ err_out:
 	return -1;
 }
 
+/*
+ * Switch branch inside a live session. The conversation and the configuration
+ * both belong to the branch, so this re-points the head *and* re-applies the
+ * new branch's config, re-resolving the model, api and key the way /model
+ * does. A failure leaves the session on the branch it was on.
+ */
+static int session_branch_switch(struct fyai_ctx *ctx, const char *name,
+				 bool create)
+{
+	struct fyai_branch b;
+	const char *test_fail;
+	char *old;
+	size_t old_len;
+	bool found;
+	int rc;
+
+	old_len = strlen(fyai_ctx_branch(ctx));
+	old = alloca(old_len + 1);
+	memcpy(old, fyai_ctx_branch(ctx), old_len + 1);
+	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	fyai_error_check(ctx, found || create, err_out,
+			 "branch: no such branch '%s'", name);
+	if (!found) {
+		rc = fyai_branch_create(ctx, name, NULL, NULL, false);
+		fyai_error_check(ctx, !rc, err_out,
+				 "branch: could not create '%s'", name);
+	}
+	rc = fyai_branch_adopt(ctx, name);
+	fyai_error_check(ctx, !rc, rollback,
+			 "branch: could not stage '%s'", name);
+	/* Test hook for the rollback path. */
+	test_fail = getenv("FYAI_TEST_BRANCH_SWITCH_FAIL");
+	fyai_error_check(ctx, !test_fail || strcmp(test_fail, name), rollback,
+			 "branch: injected switch failure for '%s'", name);
+
+	/* Rebuild the derived cache from the branch configuration. */
+	rc = fyai_config_rederive(ctx);
+	fyai_error_check(ctx, !rc, rollback,
+			 "branch: could not apply '%s' configuration", name);
+	rc = fyai_auth_resolve(ctx);
+	fyai_error_check(ctx, !rc, rollback,
+			 "branch: could not resolve '%s' authentication", name);
+	rc = ctx->curl ? fyai_request_state_apply(ctx) : 0;
+	fyai_error_check(ctx, !rc, rollback,
+			 "branch: could not apply '%s' request state", name);
+
+	rc = fyai_publish_state(ctx);
+	fyai_error_check(ctx, !rc, rollback,
+			 "branch: could not publish checkout of '%s'", name);
+
+	fyai_session_banner_update(ctx);
+	printf("switched to branch %s\n", name);
+	return 0;
+
+rollback:
+	/* Restore the branch and its derived request state. */
+	rc = fyai_branch_adopt(ctx, old);
+	if (!rc)
+		rc = fyai_config_rederive(ctx);
+	if (!rc)
+		rc = fyai_auth_resolve(ctx);
+	if (!rc && ctx->curl)
+		rc = fyai_request_state_apply(ctx);
+	fyai_session_banner_update(ctx);
+	return -1;
+
+err_out:
+	return -1;
+}
+
+static const char *branch_word(const char **argp, size_t *lenp)
+{
+	const char *start, *p;
+
+	p = *argp;
+	while (isspace((unsigned char)*p))
+		p++;
+	start = p;
+	while (*p && !isspace((unsigned char)*p))
+		p++;
+	*argp = p;
+	*lenp = (size_t)(p - start);
+	return start;
+}
+
+static int slash_branch(struct fyai_ctx *ctx, const char *arg)
+{
+	const char *p, *start;
+	char *sub, *name, *rest;
+	size_t len, rest_len;
+	int rc;
+
+	if (!arg || !*arg)
+		return fyai_branch_list(ctx, NULL, false);
+
+	p = arg;
+	start = branch_word(&p, &len);
+	if (!len)
+		return fyai_branch_list(ctx, NULL, false);
+	sub = alloca(len + 1);
+	memcpy(sub, start, len);
+	sub[len] = '\0';
+	start = branch_word(&p, &len);
+	if (len) {
+		name = alloca(len + 1);
+		memcpy(name, start, len);
+		name[len] = '\0';
+	} else {
+		name = NULL;
+	}
+	while (isspace((unsigned char)*p))
+		p++;
+	if (*p) {
+		rest_len = strlen(p);
+		rest = alloca(rest_len + 1);
+		memcpy(rest, p, rest_len + 1);
+	} else {
+		rest = NULL;
+	}
+
+	if (!strcmp(sub, "list") || !strcmp(sub, "--all") || !strcmp(sub, "-a"))
+		return fyai_branch_list(ctx, name,
+					sub[0] == '-');
+	if (!strcmp(sub, "show"))
+		return fyai_branch_show(ctx, name);
+	if (!strcmp(sub, "new") || !strcmp(sub, "create")) {
+		fyai_error_check(ctx, name, err_out,
+				 "branch new: a name is required");
+		return fyai_branch_create(ctx, name, rest, NULL,
+					  true);
+	}
+	if (!strcmp(sub, "delete") || !strcmp(sub, "rm")) {
+		fyai_error_check(ctx, name, err_out,
+				 "branch delete: a name is required");
+		return fyai_branch_delete(ctx, name,
+					  rest && !strcmp(rest, "--force"));
+	}
+	if (!strcmp(sub, "rename") || !strcmp(sub, "mv")) {
+		fyai_error_check(ctx, name && rest, err_out,
+				 "branch rename: <old> <new> required");
+		return fyai_branch_rename(ctx, name, rest);
+	}
+	if (!strcmp(sub, "describe")) {
+		fyai_error_check(ctx, name, err_out,
+				 "branch describe: a name is required");
+		return fyai_branch_describe(ctx, name, rest ? rest : "");
+	}
+
+	/* Bare `/branch <name>`: switch, creating the branch if needed. */
+	fyai_error_check(ctx, !name, err_out,
+			 "branch: unexpected argument '%s'", name);
+	rc = session_branch_switch(ctx, sub, true);
+	fyai_error_check(ctx, !rc, err_out,
+			 "branch: could not switch to '%s'", sub);
+	return 0;
+
+err_out:
+	return -1;
+}
+
 static const struct fyai_slash_cmd fyai_slash_cmds[] = {
+	{ "branch", "[name|list|new|delete|rename|show|describe]",
+	  "list or switch branches", slash_branch },
 	{ "clear", "", "start a fresh conversation", slash_clear },
 	{ "compact", "[hint]", "summarize history into a fresh chain",
 	  slash_compact },
@@ -1828,7 +1993,7 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 	const char *const *v;
 	fy_generic cat, models, m, nm, agents, a;
 	const char *cand;
-	size_t i, len;
+	size_t i, len, count;
 
 	if (!ctx || buf[0] != '/')
 		return;
@@ -1885,6 +2050,21 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 		session_complete_value(lc, buf + 1, len, word, "last");
 		session_complete_value(lc, buf + 1, len, word, "first");
 		session_complete_value(lc, buf + 1, len, word, "range");
+	} else if (cmd && !strcmp(cmd->name, "branch")) {
+		session_complete_value(lc, buf + 1, len, word, "list");
+		session_complete_value(lc, buf + 1, len, word, "new");
+		session_complete_value(lc, buf + 1, len, word, "delete");
+		session_complete_value(lc, buf + 1, len, word, "rename");
+		session_complete_value(lc, buf + 1, len, word, "show");
+		session_complete_value(lc, buf + 1, len, word, "describe");
+		/* the existing branch names, so a switch is one tab away */
+		count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
+		for (i = 0; i < count; i++) {
+			nm = fy_get_key_at(ctx->arena_branches, i);
+			s = fy_castp(&nm, "");
+			if (*s)
+				session_complete_value(lc, buf + 1, len, word, s);
+		}
 	} else if (cmd && !strcmp(cmd->name, "list")) {
 		session_complete_value(lc, buf + 1, len, word, "models");
 		session_complete_value(lc, buf + 1, len, word, "providers");
