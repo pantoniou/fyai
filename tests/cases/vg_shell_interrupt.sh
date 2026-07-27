@@ -8,6 +8,11 @@ command -v valgrind >/dev/null 2>&1 || {
 	echo "SKIP: $(basename "$0") (valgrind not installed)"
 	exit 0
 }
+# Skip Valgrind installations that cannot run the memcheck tool.
+valgrind --tool=memcheck true >/dev/null 2>&1 || {
+	echo "SKIP: $(basename "$0") (valgrind cannot run on this host)"
+	exit 0
+}
 # An ASAN-instrumented binary cannot run under valgrind: its runtime refuses to
 # start unless it is first in the library list.
 [ "${FYAI_ASAN:-0}" = "1" ] && {
