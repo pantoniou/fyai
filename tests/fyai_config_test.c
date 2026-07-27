@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "fyai_branch.h"
+#include "fyai_merge.h"
 #include "fyai_storage.h"
 
 #include "fyai_test_registry.h"
@@ -17,6 +18,7 @@
 FYAI_TEST_ENTRY(config, root_decode, config_root_decode)
 FYAI_TEST_ENTRY(config, branch_names, config_branch_names)
 FYAI_TEST_ENTRY(config, branch_refs, config_branch_refs)
+FYAI_TEST_ENTRY(config, merge_base, config_merge_base)
 
 static int failures;
 
@@ -192,6 +194,50 @@ static void test_ref_grammar(struct fy_generic_builder *gb)
 	check(fy_equal(b.head, t2), "refs: @{1} recovers the previous head");
 }
 
+
+/* Build a turn whose only user message is @text, chained onto @prev. */
+static fy_generic mk_turn(struct fy_generic_builder *gb, fy_generic prev,
+			  const char *role, const char *text)
+{
+	return fy_gb_mapping(gb,
+		"previous", fy_generic_is_valid(prev) ? prev : fy_null,
+		"messages", fy_gb_sequence(gb,
+			fy_gb_mapping(gb, "role", role, "content", text)));
+}
+
+static void test_merge_base(struct fy_generic_builder *gb)
+{
+	fy_generic sys, a1, a2, b1, base, o1, o2, dup;
+
+	/* sys -> a1 -> a2   and   sys -> a1 -> b1 */
+	sys = mk_turn(gb, fy_invalid, "system", "S");
+	a1 = mk_turn(gb, sys, "user", "A");
+	a2 = mk_turn(gb, a1, "user", "B");
+	b1 = mk_turn(gb, a1, "user", "C");
+
+	base = fyai_merge_base(NULL, a2, b1);
+	check(fy_generic_is_valid(base), "merge base: found");
+	check(base.v == a1.v, "merge base: newest shared turn");
+
+	/* identical chains: the base is the tip itself */
+	base = fyai_merge_base(NULL, a2, a2);
+	check(base.v == a2.v, "merge base: self");
+
+	/*
+	 * Two chains that share nothing. Content-addressing means a turn with
+	 * identical content IS the same value, so an unrelated chain has to
+	 * differ in content to be genuinely unrelated.
+	 */
+	o1 = mk_turn(gb, fy_invalid, "system", "OTHER");
+	o2 = mk_turn(gb, o1, "user", "Z");
+	check(fy_generic_is_invalid(fyai_merge_base(NULL, a2, o2)),
+	      "merge base: unrelated chains share nothing");
+
+	/* a turn shared by content is shared in fact: dedup makes it one value */
+	dup = mk_turn(gb, fy_invalid, "system", "S");
+	check(dup.v == sys.v, "merge base: equal content is one stored value");
+}
+
 int config_root_decode(void)
 {
 	struct fy_generic_builder_cfg gb_cfg = {
@@ -216,6 +262,25 @@ int config_branch_names(void)
 	failures = 0;
 	test_branch_names();
 	test_branch_sanitize();
+	return failures ? 1 : 0;
+}
+
+int config_merge_base(void)
+{
+	struct fy_generic_builder_cfg gb_cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb;
+
+	failures = 0;
+
+	gb = fy_generic_builder_create(&gb_cfg);
+	if (!gb)
+		return 1;
+
+	test_merge_base(gb);
+
+	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }
 
