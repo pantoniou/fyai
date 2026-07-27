@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 #include "fyai_branch.h"
+#include "fyai_merge.h"
 #include "commands.h"
 #include "fyai.h"
 #include "fyai_agent.h"
@@ -72,6 +73,8 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("checkout [-b] <branch>", "Switch to a branch, moving HEAD");
 	ITEM("reset <ref>", "Move this branch's head (recoverable via the ref log)");
 	ITEM("root [print|show]", "Print the arena root: a stable handle for automation");
+	ITEM("rebase <branch>", "Append another branch's turns, then this branch's");
+	ITEM("merge <branch>", "Interleave both branches' exchanges by time");
 	ITEM("clear", "Reset the conversation (publish a null head)");
 	ITEM("compact [hint]", "Summarize history into a fresh chain");
 	ITEM("context", "Context fill and token estimate");
@@ -1548,6 +1551,53 @@ static int execute_root(struct fyai_ctx *ctx)
 			ctx->cfg->cmd.args.root.type == FYAIRCT_SHOW);
 }
 
+static int configure_join(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_join_args *args = &cfg->cmd.args.join;
+	int i;
+
+	args->source = NULL;
+	args->allow_unrelated = false;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--allow-unrelated")) {
+			args->allow_unrelated = true;
+			continue;
+		}
+		if (argv[i][0] == '-' && argv[i][1]) {
+			fyai_cfg_error(cfg, "%s: unknown option '%s'",
+				       argv[0], argv[i]);
+			return -1;
+		}
+		if (args->source) {
+			fyai_cfg_error(cfg, "%s: unexpected argument '%s'",
+				       argv[0], argv[i]);
+			return -1;
+		}
+		args->source = argv[i];
+	}
+	if (!args->source) {
+		fyai_cfg_error(cfg, "%s: a branch name is required", argv[0]);
+		return -1;
+	}
+	return 0;
+}
+
+static int execute_rebase(struct fyai_ctx *ctx)
+{
+	struct fyai_join_args *args = &ctx->cfg->cmd.args.join;
+
+	return fyai_branch_join(ctx, args->source, FYAI_JOIN_REBASE,
+				args->allow_unrelated);
+}
+
+static int execute_merge(struct fyai_ctx *ctx)
+{
+	struct fyai_join_args *args = &ctx->cfg->cmd.args.join;
+
+	return fyai_branch_join(ctx, args->source, FYAI_JOIN_MERGE,
+				args->allow_unrelated);
+}
+
 static int configure_clear(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)cfg;
@@ -2123,6 +2173,32 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 		.default_args.root = {
 			.type = FYAIRCT_PRINT,
+		},
+	},
+	[FYAIVID_REBASE] = {
+		.id	   = FYAIVID_REBASE,
+		.name	   = "rebase",
+		.configure = configure_join,
+		.execute   = execute_rebase,
+		.synopsis  = "rebase [--allow-unrelated] <branch>",
+		.help	   = "Append the turns of <branch> to this branch, then this\n"
+			     "branch's own turns after them. Both keep their content; only\n"
+			     "their order changes. The previous head stays in the ref log.",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.default_args.join = {
+		},
+	},
+	[FYAIVID_MERGE] = {
+		.id	   = FYAIVID_MERGE,
+		.name	   = "merge",
+		.configure = configure_join,
+		.execute   = execute_merge,
+		.synopsis  = "merge [--allow-unrelated] <branch>",
+		.help	   = "Interleave the exchanges of <branch> with this branch's, in\n"
+			     "the order they happened. An exchange is a question and the\n"
+			     "turns answering it, thus the two are never separated.",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.default_args.join = {
 		},
 	},
 	[FYAIVID_CLEAR] = {

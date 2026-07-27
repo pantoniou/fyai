@@ -38,6 +38,8 @@ enum fyai_verb_id {
 	FYAIVID_CHECKOUT,
 	FYAIVID_RESET,
 	FYAIVID_ROOT,
+	FYAIVID_REBASE,
+	FYAIVID_MERGE,
 	FYAIVID_CLEAR,
 	FYAIVID_COMPACT,
 	FYAIVID_CONTEXT,
@@ -238,6 +240,11 @@ struct fyai_root_args {
 	const char *ref;	/* optional: the root behind this reference */
 };
 
+struct fyai_join_args {
+	const char *source;
+	bool allow_unrelated;
+};
+
 struct fyai_clear_args {
 	/* nothing */
 };
@@ -292,6 +299,7 @@ union fyai_cmd_args {
 	struct fyai_checkout_args checkout;
 	struct fyai_reset_args reset;
 	struct fyai_root_args root;
+	struct fyai_join_args join;
 	struct fyai_clear_args clear;
 	struct fyai_compact_args compact;
 	struct fyai_context_args context;

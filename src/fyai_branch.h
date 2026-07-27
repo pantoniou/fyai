@@ -61,6 +61,8 @@ struct fyai_branch {
 #define FYAI_BRANCH_OP_COMPACT	"compact"
 #define FYAI_BRANCH_OP_CHECKOUT	"checkout"
 #define FYAI_BRANCH_OP_DESCRIBE	"describe"
+#define FYAI_BRANCH_OP_REBASE	"rebase"
+#define FYAI_BRANCH_OP_MERGE	"merge"
 
 /* Set the operation and previous name for the next publish. */
 void fyai_branch_op_set(struct fyai_ctx *ctx, const char *op, const char *from);
