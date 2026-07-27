@@ -30,18 +30,27 @@ for needle in (b"[alpha] first half", b"[beta] second half"):
         raise SystemExit("missing agent label: %r" % needle)
 # Require two pending agent rows in one frame.
 pending = {}
+pending_frames = {}
 for m in re.finditer(rb"\[(alpha|beta)\]", data):
     margin = data[max(0, m.start() - 60):m.start()]
     if b"33m" in margin and b"32m" not in margin:
         pending.setdefault(m.group(1), []).append(m.start())
+        frame = re.search(rb"\x1b\[33m([^\x1b]*)\x1b\[0m ", margin)
+        if frame:
+            pending_frames.setdefault(m.group(1), set()).add(frame.group(1))
 if not any(abs(a - b) < 600
            for a in pending.get(b"alpha", [])
            for b in pending.get(b"beta", [])):
     raise SystemExit("agent bands never ran concurrently")
-# Neither sub-agent's own prose reaches the parent's terminal.
-for needle in (b"REPORT-ALPHA", b"REPORT-BETA", b"TASK-ALPHA", b"TASK-BETA"):
+if not any(len(frames) > 1 for frames in pending_frames.values()):
+    raise SystemExit("agent progress indicator did not animate")
+# The slower agent keeps the first report visible in its work band.
+if b"REPORT-ALPHA" not in plain:
+    raise SystemExit("missing agent progress")
+# Do not show the full delegated task.
+for needle in (b"TASK-ALPHA", b"TASK-BETA"):
     if needle in plain:
-        raise SystemExit("sub-agent content leaked: %r" % needle)
+        raise SystemExit("sub-agent task leaked: %r" % needle)
 if b"Both sub-agents reported." not in plain:
     raise SystemExit("parent final answer missing")
 EOF

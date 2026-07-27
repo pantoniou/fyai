@@ -1,0 +1,86 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp-agent-parent-1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc-agent-1",
+            "call_id": "call-agent-1",
+            "name": "agent",
+            "arguments": "{\"name\":\"greeter\",\"description\":\"greet and report\",\"task\":\"print a greeting with the shell and report back\"}",
+            "status": "completed"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "resp-agent-child-1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc-agent-1",
+            "call_id": "call-shell-1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "printf '\\141gent-was-here\\n'; sleep 2"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "resp-agent-child-2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-agent-child-2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "SUBAGENT_REPORT: printed the greeting."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "resp-agent-parent-2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-agent-parent-2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Delegated and done."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
