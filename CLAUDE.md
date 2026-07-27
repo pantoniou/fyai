@@ -424,6 +424,9 @@ top-level.
 `display/tool_detail` selects `none`, `brief`, `default`, or `full` tool
 presentation. The default hides read/write bodies, bounds shell output with
 `tool_preview_lines`, and renders patches in full.
+`transcript --tool-detail MODE` and
+`/transcript --tool-detail=MODE` override this value for one view. They do not
+change the session or stored configuration.
 `display/transcript_system` controls whether transcript views include system
 messages and defaults to false.
 Theming is fully delegated to libfymd4c. `display/theme` is the single

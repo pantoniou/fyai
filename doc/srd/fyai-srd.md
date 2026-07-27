@@ -162,7 +162,7 @@ Secrets are never persisted as raw YAML values. Wire logging can redact API keys
 
 ## 8. Human-Facing Views and Observability
 
-\`history\` renders the canonical conversation as a readable markdown-oriented view. It is deliberately not a faithful serialization; use \`dump state\`, \`dump anchors\`, or \`dump providers\` for YAML inspection of canonical state, turn graph/metadata, or provider streams respectively.
+\`history\` renders the canonical conversation as a readable markdown-oriented view. It is deliberately not a faithful serialization; use \`dump state\`, \`dump anchors\`, or \`dump providers\` for YAML inspection of canonical state, turn graph/metadata, or provider streams respectively. The transcript verb and slash command can override the tool-detail policy for one view without changing configuration.
 
 \`list\` reports catalogue, turn, exchange, and reflog summaries. \`stats\` sums persisted normalized token/cost usage over the current turn chain; the \`stats\` configuration option reports the current invocation's usage to stderr. \`context\` reports context-window fill using catalogued capacity, recorded usage, and a tokenizer-free bytes/4 estimate.
 
