@@ -100,9 +100,12 @@ accept null to paper over an emitter that drops the quotes.
   keeping the old head under turn metadata `compacted_from`.
 - `src/fyai_agent.c` — sub-agent execution. The `agent` verb and tool use
   `fyai_agent_run()`. It owns the persona, restricted tools, conversation, curl
-  handle, and output suppression. `fyai agent --rpc` services `initialize`,
+  handle, and output routing. `fyai agent --rpc` services `initialize`,
   `agent/run`, and `shutdown` on standard input and output. A delegated agent
-  records its output but does not print it.
+  sends its tool calls and output to the parent work band. The parent renders
+  this progress as one Markdown quote. Tool calls use `display/tool_detail`.
+  The agent flushes each call before it starts the tool. Agent tool results stay
+  hidden. The final report is the last quote update.
 - `src/fyai_event*.c` — the context-owned portable event loop. Linux uses
   epoll/signalfd/timerfd/pidfd and BSD/macOS use kqueue. fyai owns its signals;
   active operations observe interrupt/termination through loop callbacks, not

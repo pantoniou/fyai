@@ -148,9 +148,12 @@ the arena.
 The `agent` verb and tool use the same implementation. `fyai agent <task>`
 prints the final report. The tool returns the report to the calling model.
 
-A delegated sub-agent does not write normal output to the parent terminal. Its
-work band shows its name and description. The `name` is a short handle. The
-`description` identifies the task. The child report is the tool result.
+A delegated sub-agent sends its tool calls and live output to its parent work
+band. The parent renders this progress as one Markdown quote. Tool calls use the
+configured tool-detail policy. The agent sends each call before it starts the
+tool. Tool results stay hidden. The final report is the last quote update and
+is also the tool result. The work band shows the agent name and description.
+The `name` is a short handle. The `description` identifies the task.
 
 Sub-agents in one assistant message run concurrently in separate child
 processes. A sub-agent cannot start another sub-agent.
