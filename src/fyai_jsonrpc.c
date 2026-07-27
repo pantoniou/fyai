@@ -52,6 +52,7 @@ struct jsonrpc_conn {
 	jsonrpc_serve_fn serve;
 	void *serve_userdata;
 	bool serve_deferred;	/* handler will answer later */
+	bool expect_close;
 
 	/* http */
 	const char *endpoint;
@@ -333,7 +334,10 @@ static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
 	while ((req = conn->pending)) {
 		conn->pending = req->next;
 		req->next = NULL;
-		fyai_error(conn->ctx, "%s %s %s", conn->name, req->method, why);
+		/* Report only an unexpected close. */
+		if (!conn->expect_close)
+			fyai_error(conn->ctx, "%s %s %s", conn->name,
+				   req->method, why);
 		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
 	}
 }
@@ -795,6 +799,12 @@ void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,
 		return;
 	conn->stdin_fd = stdin_fd;
 	conn->stdout_fd = stdout_fd;
+}
+
+void jsonrpc_conn_expect_close(struct jsonrpc_conn *conn)
+{
+	if (conn)
+		conn->expect_close = true;
 }
 
 long long jsonrpc_conn_next_id(struct jsonrpc_conn *conn)

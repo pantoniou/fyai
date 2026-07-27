@@ -76,7 +76,11 @@ int jsonrpc_conn_respond(struct jsonrpc_conn *conn, fy_generic id,
 /* Update a stdio connection's descriptors after a transport restart. */
 void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,
 				int stdout_fd);
-/* Allocate the next request id on this connection. */
+
+/* Suppress the close diagnostic when the caller stops the peer. */
+void jsonrpc_conn_expect_close(struct jsonrpc_conn *conn);
+
+/* Allocate the next request ID on this connection. */
 long long jsonrpc_conn_next_id(struct jsonrpc_conn *conn);
 
 /*

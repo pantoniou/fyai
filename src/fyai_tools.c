@@ -1344,6 +1344,7 @@ void fyai_tool_job_cancel(struct fyai_tool_job *job)
 	if (!job || job->reaped || job->pid <= 0 || job->terminating)
 		return;
 	job->terminating = true;
+	jsonrpc_conn_expect_close(job->conn);
 
 	el = fyai_ctx_loop(job->ctx);
 	if (el) {
