@@ -228,6 +228,27 @@ accept null to paper over an emitter that drops the quotes.
 - `src/fyai_config.c` — layered config loading (arena-resident repo config),
   slash-path config verb (import/export/edit/show/get/set/delete) and the
   global --set/--get/--delete ops.
+- `src/fyai_branch.c` — branches: independent lines of work, each owning both
+  a conversation chain and a config. The hierarchy is carried entirely by the
+  name (`main/explore-1` is below `main`), so parent/child is a prefix test and
+  there is no separate tree. Holds name validation, branch-entry
+  decode/build/splice, the `branch`/`checkout` backends, and
+  `fyai_resolve_ref()`. **References are symbolic only** — `<branch>`,
+  `<branch>~N`, `<branch>@{N}` — because `gc` relocates arena objects, so a raw
+  address is not a stable name; never reintroduce a numeric ref. `~N` counts
+  *stored* turns (one message append each, as `fyai list turns` shows), so one
+  exchange back is `~2`. `--branch`/`-b`/`$FYAI_BRANCH` pick a branch for one
+  invocation; only `checkout` moves the stored `HEAD`, which is why
+  `ctx->head_branch` is kept apart from `ctx->branch`.
+
+  **Aim for no surprise against git.** A start point stands for a whole state:
+  `branch create <name> <start>` and `checkout -b <name> <start>` take the
+  conversation *and* the configuration in force there
+  (`fyai_resolve_ref_state()`), and without one the current branch is the start
+  point. Taking the turns from the start point but the config from elsewhere is
+  exactly the kind of half-and-half that surprises.
+
+  See `doc/branching.md`.
 - `src/fyai_catalog.c` — provider/model catalogue: arena document or embedded
   snapshot, lookups, `catalog` verb.
 - `src/*.h` — context structs and internal module interfaces.
@@ -375,12 +396,29 @@ in the root (all gitignored).
 ## Configuration
 
 The durable arena root ref is a versioned container mapping
-`{fyai: 1, config, catalog, head}` (`fyai_root_decode()` /
-`fyai_publish_root()` in `src/fyai_storage.c`; `branches` is reserved). The
-repository config is the root's `config` entry — there is no
-`.fyai/config.yaml`. `fyai init` ingests an initial config;
-`fyai config import|export|edit|show|get|set|delete` operate on the arena
-document ($VISUAL/$EDITOR round-trip through a `.yaml` tempfile).
+`{fyai: 2, catalog, HEAD, branches}` (`fyai_root_decode()` /
+`fyai_publish_root()` in `src/fyai_storage.c`). The conversation head and the
+repository config live in the *branch entry*, not the root — there is no
+`.fyai/config.yaml` and no root-level `config`. Only the catalogue is
+arena-wide, being an ingested snapshot rather than intent. Version 2 is not
+compatible with version 1 and is not migrated.
+
+A new root key is dropped silently unless it is threaded through **all** of
+`fyai_root_build()`, `fyai_root_decode()`, `fyai_root_validate()`'s containment
+walk, `fyai_reflog_truncate()`'s rebuild, and `fyai_publish_root()`'s
+CAS-conflict merge. That merge is what keeps a concurrent invocation on a
+*different* branch from being clobbered: it adopts the surviving root and
+re-applies only its own branch. There are two reflog chains — the root's `prev`
+and each branch entry's own `prev` — and `gc --keep-reflogs N` must bound both.
+
+**A zeroed `fy_generic` is not `fy_invalid`.** `v == 0` reads back as an empty
+sequence, so every generic field of `struct fyai_ctx` must be set explicitly
+after the `memset` in `fyai_setup()`, or it enters the arena as a bogus value
+that only fails later, at validation.
+
+`fyai init` ingests an initial config; `fyai config
+import|export|edit|show|get|set|delete` operate on the active branch's config
+in the arena ($VISUAL/$EDITOR round-trip through a `.yaml` tempfile).
 
 There is a single configuration source: one merged document
 (`cfg->config_doc`), built as arena config → `--config` file → `--set`
