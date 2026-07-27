@@ -74,6 +74,30 @@ bool fyai_branch_is_below(const char *name, const char *parent);
 /* Nesting depth: "main" is 0, "main/explore-1" is 1, and so on. */
 unsigned int fyai_branch_depth(const char *name);
 
+/* Longest single path component produced by fyai_branch_sanitize(). */
+#define FYAI_BRANCH_COMPONENT_MAX 32
+
+/*
+ * Reduce an untrusted string to one valid path component, written to @buf.
+ * The name of a sub-agent is chosen by the model, so it is arbitrary text and
+ * cannot be used as a branch name as it stands: this lower-cases it, maps
+ * every other character to '-', collapses and trims the runs, truncates, and
+ * falls back to @fallback when nothing usable is left. The result always
+ * satisfies fyai_branch_name_valid() and contains no '/'.
+ */
+void fyai_branch_sanitize(const char *raw, const char *fallback, char *buf,
+			  size_t size);
+
+/*
+ * Compose a unique child branch name below @parent from the untrusted @raw,
+ * as "<parent>/<slug>-<n>" with the smallest free n. Fails when @parent is
+ * already at @max_depth, so a runaway delegation cannot grow the namespace
+ * without bound. Returns 0 on success, -1 with a diagnostic raised.
+ */
+int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
+			    const char *raw, unsigned int max_depth,
+			    char *buf, size_t size);
+
 /* Decode @entry into @b. Clear @b and return false on failure. */
 bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b);
 

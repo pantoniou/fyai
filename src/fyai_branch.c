@@ -182,6 +182,69 @@ unsigned int fyai_branch_depth(const char *name)
 	return depth;
 }
 
+void fyai_branch_sanitize(const char *raw, const char *fallback, char *buf,
+			  size_t size)
+{
+	size_t n;
+	char c;
+
+	n = 0;
+	if (raw) {
+		for (; *raw && n + 1 < size && n < FYAI_BRANCH_COMPONENT_MAX;
+		     raw++) {
+			c = *raw;
+			if (c >= 'A' && c <= 'Z')
+				c += 'a' - 'A';
+			if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')))
+				c = '-';
+			if (c == '-' && (!n || buf[n - 1] == '-'))
+				continue;
+			buf[n++] = c;
+		}
+	}
+	while (n && buf[n - 1] == '-')	/* and never end with one */
+		n--;
+	buf[n] = '\0';
+
+	if (!n)
+		snprintf(buf, size, "%s", fallback && *fallback ?
+			 fallback : "agent");
+}
+
+int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
+			    const char *raw, unsigned int max_depth,
+			    char *buf, size_t size)
+{
+	char slug[FYAI_BRANCH_COMPONENT_MAX + 1];
+	struct fyai_branch b;
+	unsigned int n;
+	int len;
+
+	fyai_error_check(ctx, parent && *parent, err_out,
+			 "no parent branch for a sub-agent");
+	fyai_error_check(ctx, fyai_branch_depth(parent) + 1 <= max_depth,
+			 err_out,
+			 "sub-agent nesting deeper than %u below '%s'",
+			 max_depth, parent);
+
+	fyai_branch_sanitize(raw, "agent", slug, sizeof(slug));
+
+	for (n = 1; n < 10000; n++) {
+		len = snprintf(buf, size, "%s/%s-%u", parent, slug, n);
+		fyai_error_check(ctx, len >= 0 && len < (int)size, err_out,
+				 "sub-agent branch name too long below '%s'",
+				 parent);
+		if (!fyai_branch_lookup(ctx->arena_branches, buf, &b))
+			return 0;
+	}
+	fyai_error_check(ctx, false, err_out,
+			 "too many '%s' sub-agent branches below '%s'",
+			 slug, parent);
+
+err_out:
+	return -1;
+}
+
 /* Return a branch member and normalize null to fy_invalid. */
 static fy_generic fyai_branch_member(fy_generic entry, const char *key)
 {
