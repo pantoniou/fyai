@@ -310,7 +310,7 @@ static int ref_split(const char *spec, char *buf, size_t size, long long *np)
 	size_t len;
 
 	*np = 0;
-	sep = strpbrk(spec, "~@");
+	sep = strpbrk(spec, "~^@");
 	len = sep ? (size_t)(sep - spec) : strlen(spec);
 	if (len >= size)
 		return -1;
@@ -318,6 +318,13 @@ static int ref_split(const char *spec, char *buf, size_t size, long long *np)
 	buf[len] = '\0';
 	if (!sep)
 		return 0;
+
+	/* Treat each '^' as one '~' step. */
+	if (*sep == '^') {
+		for (num = sep; *num == '^'; num++)
+			(*np)++;
+		return *num ? -1 : '~';
+	}
 
 	if (*sep == '~') {
 		num = sep + 1;
