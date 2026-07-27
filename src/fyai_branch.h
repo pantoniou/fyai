@@ -65,4 +65,14 @@ fy_generic fyai_branch_build(struct fy_generic_builder *gb, fy_generic config,
 fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 			     const char *name, fy_generic entry);
 
+/*
+ * Resolve a symbolic reference to a turn. Accepted forms are "<branch>",
+ * "<branch>~N" (N turns back) and "<branch>@{N}" (N entries back in that
+ * branch's ref log); "HEAD" stands for the active branch. A numeric or
+ * hexadecimal spec is refused - arena addresses do not survive gc, so a
+ * reference must be symbolic. Returns 0 with *headp set (possibly fy_invalid
+ * for a turnless point), -1 with a diagnostic raised.
+ */
+int fyai_resolve_ref(struct fyai_ctx *ctx, const char *spec, fy_generic *headp);
+
 #endif

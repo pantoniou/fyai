@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -199,4 +200,128 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 	if (fy_generic_is_invalid(entry))
 		return fy_disassoc(gb, branches, name);
 	return fy_assoc(gb, branches, name, entry);
+}
+
+/*
+ * Split a reference spec into its branch name and its suffix. Returns the
+ * suffix kind: 0 none, '~' for "~N", '@' for "@{N}", -1 on a malformed spec.
+ * @name receives the branch part, truncated into @buf.
+ */
+static int ref_split(const char *spec, char *buf, size_t size, long long *np)
+{
+	const char *sep, *num;
+	char *end;
+	size_t len;
+
+	*np = 0;
+	sep = strpbrk(spec, "~@");
+	len = sep ? (size_t)(sep - spec) : strlen(spec);
+	if (len >= size)
+		return -1;
+	memcpy(buf, spec, len);
+	buf[len] = '\0';
+	if (!sep)
+		return 0;
+
+	if (*sep == '~') {
+		num = sep + 1;
+	} else {
+		if (sep[1] != '{')
+			return -1;
+		num = sep + 2;
+	}
+	if (!isdigit((unsigned char)*num))
+		return -1;
+	errno = 0;
+	*np = strtoll(num, &end, 10);
+	if (errno || *np < 0)
+		return -1;
+	if (*sep == '~')
+		return *end ? -1 : '~';
+	return (end[0] == '}' && !end[1]) ? '@' : -1;
+}
+
+/* True when @spec looks like a raw arena address rather than a branch name. */
+static bool ref_looks_numeric(const char *spec)
+{
+	const char *p;
+
+	for (p = spec; *p; p++) {
+		if (!isxdigit((unsigned char)*p))
+			return false;
+	}
+	return *spec != '\0';
+}
+
+int fyai_resolve_ref(struct fyai_ctx *ctx, const char *spec, fy_generic *headp)
+{
+	char parsed[256];
+	struct fyai_branch b;
+	fy_generic cur;
+	const char *name;
+	bool found, decoded;
+	long long n, i;
+	int kind;
+
+	*headp = fy_invalid;
+	fyai_error_check(ctx, spec && *spec, err_out, "empty reference");
+
+	kind = ref_split(spec, parsed, sizeof(parsed), &n);
+	fyai_error_check(ctx, kind >= 0, err_out,
+			 "malformed reference '%s'; use <branch>, "
+			 "<branch>~N or <branch>@{N}", spec);
+	name = !strcmp(parsed, "HEAD") ?
+	       fy_sprintfa("%s", fyai_ctx_branch(ctx)) : parsed;
+	fyai_error_check(ctx, fyai_branch_name_valid(name), err_out,
+			 "invalid branch name '%s'", name);
+
+	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
+	if (!found) {
+		/*
+		 * A bare hex string that names no branch is almost certainly
+		 * someone reaching for a commit id. There are none: gc
+		 * relocates arena objects, so an address is not a stable name.
+		 * Say that rather than just "no such branch".
+		 */
+		if (ref_looks_numeric(name))
+			fyai_error(ctx, "'%s' is not a reference; fyai has no "
+				   "numeric ids - use <branch>, <branch>~N or "
+				   "<branch>@{N}", name);
+		else
+			fyai_error(ctx, "no such branch '%s'", name);
+		goto err_out;
+	}
+
+	if (kind == '@') {
+		for (i = 0; i < n; i++) {
+			decoded = fyai_branch_decode(b.prev, &b);
+			fyai_error_check(ctx, decoded, err_out,
+					 "%s: ref log has no entry %lld",
+					 name, n);
+		}
+		*headp = b.head;
+		return 0;
+	}
+
+	if (kind == '~') {
+		cur = b.head;
+		for (i = 0; i < n; i++) {
+			fyai_error_check(ctx, fy_generic_is_valid(cur) &&
+					 !fy_generic_is_null_type(cur),
+					 err_out,
+					 "%s: only %lld turns, cannot go "
+					 "back %lld", name, i, n);
+			cur = fy_get(cur, "previous");
+		}
+		if (fy_generic_is_valid(cur) && fy_generic_is_null_type(cur))
+			cur = fy_invalid;
+		*headp = cur;
+		return 0;
+	}
+
+	*headp = b.head;
+	return 0;
+
+err_out:
+	return -1;
 }
