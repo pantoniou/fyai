@@ -143,6 +143,13 @@ int fyai_resolve_ref(struct fyai_ctx *ctx, const char *spec, fy_generic *headp);
 int fyai_resolve_ref_state(struct fyai_ctx *ctx, const char *spec,
 			   fy_generic *headp, fy_generic *configp);
 
+/*
+ * Split a reference into its branch name and its suffix. Returns 0 for a bare
+ * name, '~' for "~N" or a run of '^', '@' for "@{N}", or -1 when the spec is
+ * malformed. @buf receives the branch part and @np the count.
+ */
+int fyai_ref_parse(const char *spec, char *buf, size_t size, long long *np);
+
 /* Backends for the `branch` and `checkout` verbs and the /branch command. */
 int fyai_branch_list(struct fyai_ctx *ctx, const char *under, bool all);
 int fyai_branch_show(struct fyai_ctx *ctx, const char *name);

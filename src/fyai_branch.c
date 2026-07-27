@@ -361,12 +361,7 @@ static long long branch_chain_len(fy_generic entry)
 	return n;
 }
 
-/*
- * Split a reference spec into its branch name and its suffix. Returns the
- * suffix kind: 0 none, '~' for "~N", '@' for "@{N}", -1 on a malformed spec.
- * @name receives the branch part, truncated into @buf.
- */
-static int ref_split(const char *spec, char *buf, size_t size, long long *np)
+int fyai_ref_parse(const char *spec, char *buf, size_t size, long long *np)
 {
 	const char *sep, *num;
 	char *end;
@@ -440,7 +435,7 @@ int fyai_resolve_ref_state(struct fyai_ctx *ctx, const char *spec,
 		*configp = fy_invalid;
 	fyai_error_check(ctx, spec && *spec, err_out, "empty reference");
 
-	kind = ref_split(spec, parsed, sizeof(parsed), &n);
+	kind = fyai_ref_parse(spec, parsed, sizeof(parsed), &n);
 	fyai_error_check(ctx, kind >= 0, err_out,
 			 "malformed reference '%s'; use <branch>, "
 			 "<branch>~N or <branch>@{N}", spec);
