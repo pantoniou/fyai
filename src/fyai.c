@@ -1769,6 +1769,14 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->user_agent);
 		ctx->user_agent = NULL;
 	}
+	if (ctx->branch) {
+		free(ctx->branch);
+		ctx->branch = NULL;
+	}
+	if (ctx->head_branch) {
+		free(ctx->head_branch);
+		ctx->head_branch = NULL;
+	}
 	if (ctx->shell_stream) {
 		fyai_fenced_stream_finish(ctx->shell_stream);
 		free(ctx->shell_stream);
@@ -1949,6 +1957,11 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->last_message = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
+	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
+	ctx->arena_branches = fy_invalid;
+	ctx->branch_prev = fy_invalid;
+	ctx->branch_desc = fy_invalid;
+	ctx->branch_agent = fy_invalid;
 	ctx->last_token_extents = fy_invalid;
 	if (fyai_signals_open(ctx))
 		goto err;

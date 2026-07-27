@@ -27,54 +27,48 @@ static int failures;
 
 static void test_root_decode(struct fy_generic_builder *gb)
 {
-	fy_generic root, head, config, catalog, turn;
+	fy_generic root, turn, entry;
+	struct fyai_root r;
 	int ver;
 
 	/* full container root */
 	turn = fy_gb_mapping(gb, "messages", fy_gb_sequence(gb),
 			     "previous", fy_null);
+	entry = fy_gb_mapping(gb,
+			      "config", fy_gb_mapping(gb, "model", "m1"),
+			      "head", turn,
+			      "prev", fy_null);
 	root = fy_gb_mapping(gb,
 			     "fyai", (long long)FYAI_ROOT_VERSION,
-			     "config", fy_gb_mapping(gb, "model", "m1"),
 			     "catalog", fy_null,
-			     "head", turn);
-	ver = fyai_root_decode(root, &head, &config, &catalog);
+			     "HEAD", "main",
+			     "branches", fy_gb_mapping(gb, "main", entry));
+	ver = fyai_root_decode(root, &r);
 	check(ver == FYAI_ROOT_VERSION, "container root: version");
-	check(fy_generic_is_valid(head), "container root: head extracted");
-	check(fy_generic_is_valid(config), "container root: config extracted");
-	check(!strcmp(fy_get(config, "model", ""), "m1"),
-	      "container root: config content");
-	check(fy_generic_is_invalid(catalog),
+	check(fy_generic_is_valid(r.branches), "container root: branches");
+	check(fy_generic_is_invalid(r.catalog),
 	      "container root: null catalog decodes as invalid");
 
 	/* minimal root: version only */
 	root = fy_gb_mapping(gb, "fyai", (long long)FYAI_ROOT_VERSION);
-	ver = fyai_root_decode(root, &head, &config, &catalog);
+	ver = fyai_root_decode(root, &r);
 	check(ver == FYAI_ROOT_VERSION, "minimal root: version");
-	check(fy_generic_is_invalid(head) && fy_generic_is_invalid(config) &&
-	      fy_generic_is_invalid(catalog), "minimal root: all parts absent");
+	check(fy_generic_is_invalid(r.branches) &&
+	      fy_generic_is_invalid(r.catalog), "minimal root: all parts absent");
 
-	/* legacy turn-shaped root: rejected (MVP, no back-compat) */
-	ver = fyai_root_decode(turn, &head, &config, &catalog);
+	/* legacy turn-shaped root: rejected (no back-compat) */
+	ver = fyai_root_decode(turn, &r);
 	check(ver < 0, "legacy turn root rejected");
-	check(fy_generic_is_invalid(head), "rejected root: head cleared");
+	check(fy_generic_is_invalid(r.branches), "rejected root: parts cleared");
 
 	/* future version: rejected */
 	root = fy_gb_mapping(gb, "fyai", 999LL);
-	check(fyai_root_decode(root, &head, &config, &catalog) < 0,
-	      "future version rejected");
+	check(fyai_root_decode(root, &r) < 0, "future version rejected");
 
 	/* garbage */
-	check(fyai_root_decode(fy_invalid, &head, &config, &catalog) < 0,
-	      "invalid root rejected");
-	check(fyai_root_decode(fy_value(gb, "scalar"), &head,
-			       &config, &catalog) < 0, "scalar root rejected");
-
-	/* NULL out-pointers allowed */
-	root = fy_gb_mapping(gb, "fyai", (long long)FYAI_ROOT_VERSION,
-			     "head", turn);
-	check(fyai_root_decode(root, NULL, NULL, NULL) == FYAI_ROOT_VERSION,
-	      "NULL out-pointers");
+	check(fyai_root_decode(fy_invalid, &r) < 0, "invalid root rejected");
+	check(fyai_root_decode(fy_value(gb, "scalar"), &r) < 0,
+	      "scalar root rejected");
 }
 
 int config_root_decode(void)

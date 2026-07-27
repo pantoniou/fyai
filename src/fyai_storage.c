@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include "fyai_prof.h"
+#include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_storage.h"
 #include "fyai_turn.h"
@@ -82,17 +83,14 @@ static fy_generic fyai_root_entry(fy_generic root, const char *key)
 }
 
 
-int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
-		     fy_generic *catalogp)
+int fyai_root_decode(fy_generic root, struct fyai_root *r)
 {
 	fy_generic v;
 
-	if (headp)
-		*headp = fy_invalid;
-	if (configp)
-		*configp = fy_invalid;
-	if (catalogp)
-		*catalogp = fy_invalid;
+	memset(r, 0, sizeof(*r));
+	r->catalog = fy_invalid;
+	r->branches = fy_invalid;
+	r->head = fy_invalid;
 
 	if (!fy_generic_is_mapping(root))
 		return -1;
@@ -100,13 +98,15 @@ int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
 	if (fy_generic_is_invalid(v) ||
 	    fy_cast(v, 0LL) != (long long)FYAI_ROOT_VERSION)
 		return -1;
-	if (headp)
-		*headp = fyai_root_entry(root, "head");
-	if (configp)
-		*configp = fyai_root_entry(root, "config");
-	if (catalogp)
-		*catalogp = fyai_root_entry(root, "catalog");
+	r->catalog = fyai_root_entry(root, "catalog");
+	r->branches = fyai_root_entry(root, "branches");
+	r->head = fyai_root_entry(root, "HEAD");
 	return FYAI_ROOT_VERSION;
+}
+
+const char *fyai_root_head_name(const struct fyai_root *r)
+{
+	return fy_castp(&r->head, (const char *)NULL);
 }
 
 /*
@@ -123,14 +123,14 @@ int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
  * (fyai_root_validate) is relocation-stable and covers the memory-safety case.
  */
 static fy_generic fyai_root_build(struct fy_generic_builder *gb,
-				  fy_generic config, fy_generic catalog,
+				  fy_generic catalog, fy_generic branches,
 				  fy_generic head, fy_generic prev)
 {
 	return fy_gb_mapping(gb,
 			     "fyai", (long long)FYAI_ROOT_VERSION,
-			     "config", config,
 			     "catalog", catalog,
-			     "head", head,
+			     "HEAD", head,
+			     "branches", branches,
 			     "prev", prev);
 }
 
@@ -150,23 +150,56 @@ static bool root_ref_contained(struct fy_allocator *a, fy_generic v)
 	return fy_allocator_contains(a, -1, fy_generic_resolve_collection_ptr(v));
 }
 
+/* Validate a branch entry and its bounded ref log. */
+static bool branch_entry_contained(struct fy_allocator *a, fy_generic entry)
+{
+	struct fyai_branch b;
+	unsigned int n;
+
+	if (fy_generic_is_invalid(entry))
+		return false;
+	for (n = 0; n < FYAI_REFLOG_KEEP_MAX; n++) {
+		if (fy_generic_is_invalid(entry))
+			return true;
+		if (!root_ref_contained(a, entry))
+			return false;
+		if (!fyai_branch_decode(entry, &b))
+			return false;
+		if (!root_ref_contained(a, b.config) ||
+		    !root_ref_contained(a, b.head) ||
+		    !root_ref_contained(a, b.description) ||
+		    !root_ref_contained(a, b.agent))
+			return false;
+		entry = b.prev;
+	}
+	return false;	/* chain too long: treat as corrupt */
+}
+
 bool fyai_root_validate(struct fy_allocator *a, fy_generic root)
 {
-	fy_generic head, config, catalog, prev;
+	struct fyai_root r;
+	fy_generic prev;
+	size_t i, count;
 
 	if (!fy_generic_is_mapping(root))
 		return false;
 	if (a && !fy_allocator_contains(a, -1,
 					fy_generic_resolve_collection_ptr(root)))
 		return false;
-	if (fyai_root_decode(root, &head, &config, &catalog) < 0)
+	if (fyai_root_decode(root, &r) < 0)
 		return false;
 	prev = fyai_root_prev(root);
-	if (a && (!root_ref_contained(a, head) ||
-		  !root_ref_contained(a, config) ||
-		  !root_ref_contained(a, catalog) ||
+	if (a && (!root_ref_contained(a, r.catalog) ||
+		  !root_ref_contained(a, r.branches) ||
 		  !root_ref_contained(a, prev)))
 		return false;
+	if (a && fy_generic_is_mapping(r.branches)) {
+		count = fy_generic_mapping_get_pair_count(r.branches);
+		for (i = 0; i < count; i++) {
+			if (!branch_entry_contained(a, fy_get_at(r.branches, i)))
+				return false;
+		}
+	}
 	return true;
 }
 
@@ -402,10 +435,14 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 int fyai_setup_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic root, head;
+	struct fyai_branch b;
+	struct fyai_root r;
+	const char *name;
+	fy_generic root;
+	int rc;
 
-	if (fyai_open_arena(ctx, cfg->arena_dir))
-		goto err_out;
+	rc = fyai_open_arena(ctx, cfg->arena_dir);
+	fyai_error_check(ctx, !rc, err_out, "could not open arena");
 
 	if (ctx->refs_head) {
 		root = (fy_generic){ .v = ctx->refs_head };
@@ -414,21 +451,54 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		 * root and its referenced parts, version and integrity checksum.
 		 */
 		if (!fyai_root_validate(ctx->durable_allocator, root) ||
-		    fyai_root_decode(root, &head, &ctx->arena_config,
-				     &ctx->arena_catalog) < 0) {
+		    fyai_root_decode(root, &r) < 0) {
 			fyai_error(ctx, "unrecognized arena root at %s; re-run fyai init",
 				   cfg->arena_dir);
 			goto err_out;
 		}
+		ctx->arena_catalog = r.catalog;
+		ctx->arena_branches = r.branches;
+		/* Use an explicit branch, the stored HEAD, or the default. */
+		name = fyai_root_head_name(&r);
+		if (name) {
+			/*
+			 * Remember the stored HEAD so a publish preserves it.
+			 * An explicit --branch selects where this invocation
+			 * works without moving HEAD.
+			 */
+			ctx->head_branch = strdup(name);
+			fyai_error_check(ctx, ctx->head_branch, err_out,
+					 "out of memory reading HEAD");
+			if (!cfg->branch_explicit) {
+				rc = fyai_ctx_set_branch(ctx, name);
+				fyai_error_check(ctx, !rc, err_out,
+						 "could not select HEAD");
+			}
+		}
+
+		/* An absent branch is created by its first publish. */
+		fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &b);
+		ctx->arena_config = b.config;
+		ctx->branch_desc = b.description;
+		ctx->branch_agent = b.agent;
+		ctx->branch_prev = b.entry;
 		/*
 		 * --new is a clear: drop the head and publish the reset as a
 		 * turnless reflog entry, exactly like the /clear command; the
-		 * config and catalog ride along unchanged.
+		 * config and catalog ride along unchanged. It is scoped to this
+		 * branch and leaves every other branch alone.
 		 */
 		if (!cfg->new_conversation)
-			ctx->last_message = head;
-		else if (fyai_publish_state(ctx))
-			goto err_out;
+			ctx->last_message = b.head;
+		else {
+			rc = fyai_publish_state(ctx);
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not publish new conversation");
+		}
+	} else if (!cfg->branch_explicit) {
+		rc = fyai_ctx_set_branch(ctx, FYAI_BRANCH_DEFAULT);
+		fyai_error_check(ctx, !rc, err_out,
+				 "could not select the default branch");
 	}
 
 	return 0;
@@ -443,21 +513,31 @@ err_out:
  * refs head to it. Returns 0 on success, >0 on concurrent-change conflict,
  * <0 on error.
  */
+/* Build and splice the active branch entry. */
+static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
+{
+	fy_generic entry, created;
+	const char *name;
+
+	name = fyai_ctx_branch(ctx);
+	created = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	entry = fyai_branch_build(ctx->gb, ctx->arena_config, ctx->last_message,
+				  created, ctx->branch_desc, ctx->branch_agent,
+				  ctx->branch_prev);
+	if (!fy_generic_is_valid(entry))
+		return fy_invalid;
+	return fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
+}
+
 static int fyai_root_publish_try(struct fyai_ctx *ctx)
 {
-	fy_generic cfgv, catv, headv, prevv, root;
+	fy_generic catv, headv, branchesv, prevv, root;
 	struct timespec t_commit;
 	uint64_t desired;
 	int rc;
 
 	fyai_prof_stamp(&t_commit);
 
-	cfgv = fy_generic_is_valid(ctx->arena_config) ?
-	       ctx->arena_config : fy_null;
-	catv = fy_generic_is_valid(ctx->arena_catalog) ?
-	       ctx->arena_catalog : fy_null;
-	headv = fy_generic_is_valid(ctx->last_message) ?
-		ctx->last_message : fy_null;
 	/*
 	 * Transient session: state lives only in the in-memory overlay, so never
 	 * advance the durable refs head. In-memory ctx state stays as callers set
@@ -465,6 +545,14 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 */
 	if (ctx->cfg && ctx->cfg->transient)
 		return 0;
+
+	catv = fyai_generic_or_null(ctx->arena_catalog);
+	headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
+	if (!fy_generic_is_valid(headv))
+		return -1;
+	branchesv = fyai_branches_commit(ctx);
+	if (!fy_generic_is_valid(branchesv))
+		return -1;
 	/*
 	 * Chain each root to its predecessor (the current refs head) so root
 	 * updates form a ref log: a navigable history where a turnless update
@@ -474,7 +562,7 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 * following prev keeps all history reachable.
 	 */
 	prevv = ctx->refs_head ? (fy_generic){ .v = ctx->refs_head } : fy_null;
-	root = fyai_root_build(ctx->gb, cfgv, catv, headv, prevv);
+	root = fyai_root_build(ctx->gb, catv, branchesv, headv, prevv);
 	if (!fy_generic_is_valid(root))
 		return -1;
 	desired = (uint64_t)root.v;
@@ -483,6 +571,9 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	if (rc)
 		return rc;
 	ctx->refs_head = desired;
+	ctx->arena_branches = branchesv;
+	/* Chain the next publish to the entry that was written. */
+	ctx->branch_prev = fy_get(branchesv, fyai_ctx_branch(ctx));
 	fyai_prof_since("commit_durable", &t_commit);
 	return 0;
 }
@@ -494,20 +585,25 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
  * missing/fresh arena is not an error (outputs stay fy_invalid); an
  * unrecognizable root is.
  */
-int fyai_peek_arena_config(const char *arena_dir_opt,
+int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   struct fy_generic_builder *gb, fy_generic *configp,
-			   fy_generic *catalogp)
+			   fy_generic *catalogp, char **branchp)
 {
 	struct fy_durable_allocator_cfg dur_cfg = {};
 	struct fy_allocator *allocator;
+	struct fyai_branch b;
+	struct fyai_root r;
+	const char *name;
 	char *arena_dir;
 	uint64_t refs;
-	fy_generic root, config, catalog;
+	fy_generic root;
 	int ret;
 
 	*configp = fy_invalid;
 	if (catalogp)
 		*catalogp = fy_invalid;
+	if (branchp)
+		*branchp = NULL;
 	ret = 0;
 
 	arena_dir = arena_dir_opt ? strdup(arena_dir_opt) :
@@ -528,20 +624,32 @@ int fyai_peek_arena_config(const char *arena_dir_opt,
 	refs = fy_allocator_refs_get(allocator);
 	if (refs) {
 		root = (fy_generic){ .v = refs };
-		if (fyai_root_decode(root, NULL, &config, &catalog) < 0) {
+		if (fyai_root_decode(root, &r) < 0) {
 			/* A probe: no context to collect into, so report here. */
 			fprintf(stderr,
-				"unrecognized arena root at %s; re-run fyai init\n",
+				"PEEK: unrecognized arena root at %s; re-run fyai init\n",
 				arena_dir);
 			ret = -1;
 		} else {
-			if (fy_generic_is_valid(config)) {
-				*configp = fy_gb_internalize(gb, config);
+			/* Resolve the selected branch before a context exists. */
+			name = branch_opt;
+			if (!name)
+				name = fyai_root_head_name(&r);
+			if (!name)
+				name = FYAI_BRANCH_DEFAULT;
+			fyai_branch_lookup(r.branches, name, &b);
+			if (branchp) {
+				*branchp = strdup(name);
+				if (!*branchp)
+					ret = -1;
+			}
+			if (fy_generic_is_valid(b.config)) {
+				*configp = fy_gb_internalize(gb, b.config);
 				if (!fy_generic_is_valid(*configp))
 					ret = -1;
 			}
-			if (catalogp && fy_generic_is_valid(catalog)) {
-				*catalogp = fy_gb_internalize(gb, catalog);
+			if (catalogp && fy_generic_is_valid(r.catalog)) {
+				*catalogp = fy_gb_internalize(gb, r.catalog);
 				if (!fy_generic_is_valid(*catalogp))
 					ret = -1;
 			}
@@ -559,9 +667,11 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 
 	if (!ctx->durable_allocator || !ctx->durable_gb)
 		return 0;
+	/* Skip a branch that has no state. */
 	if (fy_generic_is_invalid(ctx->last_message) &&
 	    fy_generic_is_invalid(ctx->arena_config) &&
-	    fy_generic_is_invalid(ctx->arena_catalog))
+	    fy_generic_is_invalid(ctx->arena_catalog) &&
+	    fy_generic_is_invalid(ctx->branch_prev))
 		return 0;
 	rc = fyai_root_publish_try(ctx);
 	if (rc) {
@@ -575,7 +685,9 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 		      fy_generic catalog, fy_generic head)
 {
-	fy_generic root, cur_head, cur_cfg, cur_cat;
+	struct fyai_branch cur_b;
+	struct fyai_root cur_r;
+	fy_generic root;
 	int tries, rc;
 
 	if (!ctx->durable_allocator || !ctx->durable_gb)
@@ -592,21 +704,26 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 		rc = fyai_root_publish_try(ctx);
 		if (rc <= 0)
 			goto out;
-		/* conflict: merge the surviving parts, keep our overrides */
+		/* Adopt the surviving root, then apply this branch's changes. */
 		ctx->refs_head = fy_allocator_refs_get(ctx->durable_allocator);
 		if (!ctx->refs_head)
 			continue;
 		root = (fy_generic){ .v = ctx->refs_head };
-		if (fyai_root_decode(root, &cur_head, &cur_cfg, &cur_cat) < 0) {
+		if (fyai_root_decode(root, &cur_r) < 0) {
 			rc = -1;
 			goto out;
 		}
+		ctx->arena_branches = cur_r.branches;
+		fyai_branch_lookup(cur_r.branches, fyai_ctx_branch(ctx), &cur_b);
+		ctx->branch_prev = cur_b.entry;
+		ctx->branch_desc = cur_b.description;
+		ctx->branch_agent = cur_b.agent;
 		if (!fy_generic_is_valid(config))
-			ctx->arena_config = cur_cfg;
+			ctx->arena_config = cur_b.config;
 		if (!fy_generic_is_valid(catalog))
-			ctx->arena_catalog = cur_cat;
+			ctx->arena_catalog = cur_r.catalog;
 		if (!fy_generic_is_valid(head))
-			ctx->last_message = cur_head;
+			ctx->last_message = cur_b.head;
 	}
 out:
 	if (rc) {
@@ -639,6 +756,10 @@ int fyai_close_storage(struct fyai_ctx *ctx)
 	ctx->last_message = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
+	ctx->arena_branches = fy_invalid;
+	ctx->branch_prev = fy_invalid;
+	ctx->branch_desc = fy_invalid;
+	ctx->branch_agent = fy_invalid;
 	ctx->refs_head = 0;
 	return 0;
 }
@@ -651,11 +772,63 @@ int fyai_close_storage(struct fyai_ctx *ctx)
  * when keep < 1 or the chain is already within the limit. Must run with storage
  * open (uses ctx->gb and the durable refs).
  */
+/* Return the branch ref-log length, capped at @limit. */
+static int branch_chain_len(fy_generic entry, int limit)
+{
+	struct fyai_branch b;
+	int n;
+
+	for (n = 0; n < limit && fy_generic_is_valid(entry); n++) {
+		if (!fyai_branch_decode(entry, &b))
+			break;
+		entry = b.prev;
+	}
+	return n;
+}
+
+/* Limit the branch ref log to @keep entries. */
+static fy_generic fyai_branch_reflog_trim(struct fyai_ctx *ctx, fy_generic entry,
+					  int keep, fy_generic *scratch)
+{
+	struct fyai_branch b;
+	fy_generic node, rebuilt;
+	int n, i;
+
+	if (!fy_generic_is_mapping(entry))
+		return entry;
+
+	node = entry;
+	for (n = 0; n < keep && fy_generic_is_valid(node); n++) {
+		scratch[n] = node;
+		if (!fyai_branch_decode(node, &b))
+			return fy_invalid;
+		node = b.prev;
+	}
+	/* Nothing beyond the window: keep the entry (and its sharing) as is. */
+	if (fy_generic_is_invalid(node))
+		return entry;
+
+	rebuilt = fy_null;	/* prev of the oldest kept entry: cut here */
+	for (i = n - 1; i >= 0; i--) {
+		if (!fyai_branch_decode(scratch[i], &b))
+			return fy_invalid;
+		rebuilt = fyai_branch_build(ctx->gb, b.config, b.head,
+					    fy_get(scratch[i], "created"),
+					    b.description, b.agent, rebuilt);
+		if (!fy_generic_is_valid(rebuilt))
+			return fy_invalid;
+	}
+	return rebuilt;
+}
+
 static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 {
 	fy_generic roots[FYAI_REFLOG_KEEP_MAX];
-	fy_generic node, head, cfgv, catv, rebuilt;
+	fy_generic entries[FYAI_REFLOG_KEEP_MAX];
+	fy_generic node, rebuilt, branches, name, entry;
+	struct fyai_root r;
 	uint64_t desired;
+	bool trim;
 	int n, i, rc;
 
 	if (keep < 1 || !ctx->refs_head || !ctx->durable_allocator || !ctx->gb)
@@ -668,18 +841,47 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 		roots[n] = node;
 		node = fyai_root_prev(node);
 	}
-	/* Nothing beyond the kept window: the chain is already short enough. */
-	if (fy_generic_is_invalid(node))
-		return 0;
+	/* A short root log can contain an overlong branch log. */
+	if (fy_generic_is_invalid(node) && n > 0) {
+		if (fyai_root_decode(roots[0], &r) < 0)
+			return -1;
+		trim = false;
+		if (fy_generic_is_mapping(r.branches)) {
+			fy_foreach(name, r.branches) {
+				if (branch_chain_len(fy_get(r.branches, name),
+						     keep + 1) > keep) {
+					trim = true;
+					break;
+				}
+			}
+		}
+		if (!trim)
+			return 0;
+	}
 
 	rebuilt = fy_null;	/* prev of the oldest kept root: cut here */
 	for (i = n - 1; i >= 0; i--) {
-		if (fyai_root_decode(roots[i], &head, &cfgv, &catv) < 0)
+		if (fyai_root_decode(roots[i], &r) < 0)
 			return -1;
+		branches = r.branches;
+		/* Apply the same limit to each branch ref log. */
+		if (fy_generic_is_mapping(branches)) {
+			fy_foreach(name, r.branches) {
+				entry = fy_get(r.branches, name);
+				entry = fyai_branch_reflog_trim(ctx, entry, keep,
+								entries);
+				if (fy_generic_is_invalid(entry))
+					return -1;
+				branches = fy_assoc(ctx->gb, branches, name,
+						    entry);
+				if (!fy_generic_is_valid(branches))
+					return -1;
+			}
+		}
 		rebuilt = fyai_root_build(ctx->gb,
-				fy_generic_is_valid(cfgv) ? cfgv : fy_null,
-				fy_generic_is_valid(catv) ? catv : fy_null,
-				fy_generic_is_valid(head) ? head : fy_null,
+				fyai_generic_or_null(r.catalog),
+				fyai_generic_or_null(branches),
+				fyai_generic_or_null(r.head),
 				rebuilt);
 		if (!fy_generic_is_valid(rebuilt))
 			return -1;
@@ -793,6 +995,8 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	struct fyai_init_args *args = &cfg->cmd.args.init;
 	char *arena_dir = NULL;
 	char *enclosing;
+	struct fyai_branch b;
+	struct fyai_root r;
 	fy_generic report;
 	fy_generic root, head, config, catalog;
 	int rc, ret;
@@ -826,15 +1030,21 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 
 	if (ctx->refs_head) {
 		root = (fy_generic){ .v = ctx->refs_head };
-		rc = fyai_root_decode(root, &head, &config, &catalog);
+		rc = fyai_root_decode(root, &r);
 		if (rc < 0 && !args->force) {
 			fyai_error(ctx, "init: unrecognized arena root (use --force to reset)");
 			goto out;
 		}
-		if (rc < 0) {
-			head = fy_invalid;
-			config = fy_invalid;
-			catalog = fy_invalid;
+		if (rc >= 0) {
+			/* Inherit the default branch's existing state. */
+			ctx->arena_branches = r.branches;
+			fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &b);
+			head = b.head;
+			config = b.config;
+			catalog = r.catalog;
+			ctx->branch_prev = b.entry;
+			ctx->branch_desc = b.description;
+			ctx->branch_agent = b.agent;
 		}
 		if (args->config && fy_generic_is_valid(config) &&
 		    !args->force) {

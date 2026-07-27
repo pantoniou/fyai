@@ -17,6 +17,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "fyai_branch.h"
 #include "fyai_display.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
@@ -2092,52 +2093,56 @@ out:
  * produce unbounded output. Pre-chain roots (no prev) simply end the walk.
  */
 #define FYAI_REFLOG_MAX 500
+
+static bool branch_previous_head_matches(const struct fyai_branch *b)
+{
+	struct fyai_branch previous;
+
+	return fyai_branch_decode(b->prev, &previous) &&
+	       b->head.v == previous.head.v;
+}
+
 fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 				 struct fy_generic_builder *gb)
 {
-	fy_generic out, root, prev, cfg, head, prevhead;
-	const char *kind;
-	char ref[24];
+	struct fyai_branch b;
+	fy_generic out, entry;
+	const char *kind, *name;
+	char ref[256];
 	long long idx;
 
 	out = fy_seq_empty;
-	if (!ctx->refs_head)
-		return out;
+	name = fyai_ctx_branch(ctx);
+	entry = ctx->branch_prev;
 
-	root = (fy_generic){ .v = ctx->refs_head };
-	for (idx = 0; idx < FYAI_REFLOG_MAX && fy_generic_is_valid(root); idx++) {
-		if (fyai_root_decode(root, &head, &cfg, NULL) < 0)
+	for (idx = 0; idx < FYAI_REFLOG_MAX && fy_generic_is_valid(entry);
+	     idx++) {
+		if (!fyai_branch_decode(entry, &b))
 			break;
-		prev = fyai_root_prev(root);
 
-		/* A turnless (config-only) update leaves head equal to the
-		 * predecessor's; a turn advances it. */
-		if (fy_generic_is_valid(prev)) {
-			if (fyai_root_decode(prev, &prevhead, NULL, NULL) < 0)
-				prevhead = fy_invalid;
-			if (fy_generic_is_invalid(head) &&
-			    fy_generic_is_invalid(prevhead))
-				kind = "config";
-			else if (fy_generic_is_valid(head) &&
-				 fy_generic_is_valid(prevhead) &&
-				 fy_equal(head, prevhead))
-				kind = "config";
-			else
-				kind = "turn";
+		if (fy_generic_is_valid(b.prev)) {
+			kind = branch_previous_head_matches(&b) ? "config" : "turn";
 		} else {
-			kind = fy_generic_is_valid(head) ? "turn" : "config";
+			kind = fy_generic_is_valid(b.head) ? "turn" : "config";
 		}
 
-		snprintf(ref, sizeof(ref), "%llx",
-			 (unsigned long long)root.v);
+		/*
+		 * The reference is symbolic. A raw arena address would not
+		 * survive gc, which relocates objects; "<branch>@{N}" stays
+		 * correct and is what fyai_resolve_ref() accepts back.
+		 */
+		snprintf(ref, sizeof(ref), "%s@{%lld}", name, idx);
 
 		out = fy_append(gb, out,
 			fy_mapping(gb,
 				   "index", idx,
 				   "ref", fy_value(gb, ref),
-				   "model", fy_value(gb, fy_get(cfg, "model", "-")),
+				   "created", fy_value(gb,
+					fy_get(entry, "created", 0LL)),
+				   "model", fy_value(gb,
+					fy_get(b.config, "model", "-")),
 				   "kind", fy_value(gb, kind)));
-		root = prev;
+		entry = b.prev;
 	}
 	return out;
 }

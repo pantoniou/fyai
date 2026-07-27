@@ -23,6 +23,7 @@
 #include <errno.h>
 
 #include "fyai_catalog.h"
+#include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_event.h"
 #include "fyai_schema.h"
@@ -823,6 +824,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	fy_generic root_user;
 	fy_generic names;
 	char *user_path;
+	char *branch;
 	size_t i;
 	int rc;
 
@@ -838,10 +840,17 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	if (rc)
 		return -1;
 
-	/* The repository config (and catalog) live in the repo arena's
-	 * container root. */
-	if (fyai_peek_arena_config(NULL, gb, &root_repo, &cfg->catalog))
+	/* Load the catalogue and selected branch configuration. */
+	branch = NULL;
+	if (fyai_peek_arena_config(NULL, cfg->branch_explicit ? cfg->branch : NULL,
+				   gb, &root_repo, &cfg->catalog, &branch))
 		return -1;
+	if (branch && !cfg->branch_explicit) {
+		free(cfg->branch);
+		cfg->branch = branch;
+	} else {
+		free(branch);
+	}
 
 	/* An explicitly named config file must exist and parse. */
 	if (cli_config) {
@@ -1953,6 +1962,7 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 	fyai_diag_cleanup(&cfg->diag);
 	if (cfg->cmd.id == FYAIVID_MCP)
 		free(cfg->cmd.args.mcp.scopes);
+	free(cfg->branch);
 	fy_generic_builder_destroy(cfg->gb);
 	memset(cfg, 0, sizeof(*cfg));
 }

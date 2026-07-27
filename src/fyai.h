@@ -33,6 +33,11 @@ struct fyai_display_output;
 #define OPENAI_CHAT_COMPLETIONS_URL "https://api.openai.com/v1/chat/completions"
 #define ANTHROPIC_MESSAGES_URL "https://api.anthropic.com/v1/messages"
 #define ANTHROPIC_VERSION "2023-06-01"
+
+static inline fy_generic fyai_generic_or_null(fy_generic v)
+{
+	return fy_generic_is_valid(v) ? v : fy_null;
+}
 #define DEFAULT_OPENAI_MODEL "gpt-5.4-mini"
 #define DEFAULT_ANTHROPIC_MODEL "claude-sonnet-5"
 /* Anthropic requires an explicit output-token cap on every request. */
@@ -67,12 +72,21 @@ struct fyai_display_output;
 /* Display reasoning/thinking model output (live stream + history view). */
 #define DEFAULT_THINKING true
 /*
- * Durable arena root schema version. The root ref is a container mapping
- * { fyai: <version>, config: <doc|null>, catalog: <doc|null>, head: <turn|null> }
- * (a future "branches" key is reserved). Roots without the version key -
- * including pre-container turn-shaped roots - are rejected; re-init.
+ * Durable arena root schema version. The root contains the catalogue, HEAD,
+ * branch mapping, and root ref log. Each branch contains its configuration,
+ * conversation head, metadata, and branch ref log.
+ *
+ * Version 2 is not compatible with version 1 and no migration is attempted;
+ * a root of any other version - including pre-container turn-shaped roots - is
+ * rejected and the user re-inits. See doc/branching.md.
  */
-#define FYAI_ROOT_VERSION 1
+#define FYAI_ROOT_VERSION 2
+
+/* The branch an arena starts on, and the fallback when none is selected. */
+#define FYAI_BRANCH_DEFAULT "main"
+
+/* Maximum nesting depth of sub-agent branches below a top-level branch. */
+#define DEFAULT_AGENT_MAX_BRANCH_DEPTH 8
 
 enum fyai_api_mode {
 	FYAI_API_RESPONSES,
@@ -170,6 +184,9 @@ struct fyai_cfg {
 	 */
 	bool no_auth;
 	bool new_conversation;
+	/* Active branch selection and whether the user selected it explicitly. */
+	char *branch;
+	bool branch_explicit;
 	/*
 	 * Stack an in-memory builder over the durable arena so every config and
 	 * state write this session is ephemeral (never published to the arena).
@@ -322,8 +339,16 @@ struct fyai_ctx {
 	bool terminate_pending;
 	fy_generic tools;
 	fy_generic last_message;
-	fy_generic arena_config;	/* root["config"] or fy_invalid */
+	fy_generic arena_config;	/* the active branch's config, or fy_invalid */
 	fy_generic arena_catalog;	/* root["catalog"] or fy_invalid */
+	/* Active branch state and its next ref-log predecessor. */
+	char *branch;
+	/* Stored HEAD, which can differ from the active branch. */
+	char *head_branch;
+	fy_generic arena_branches;
+	fy_generic branch_prev;
+	fy_generic branch_desc;		/* free-text purpose of this branch */
+	fy_generic branch_agent;	/* sub-agent provenance for this branch */
 	uint64_t refs_head;
 	struct curl_slist *headers;
 	char *auth_header;

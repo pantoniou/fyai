@@ -386,6 +386,7 @@ set(FYAI_SOURCES
     src/fyai_output.c
     src/fyai.c
     src/fyai_agent.c
+    src/fyai_branch.c
     src/fyai_diag.c
     src/fyai_log.c
     src/fyai_markdown.c

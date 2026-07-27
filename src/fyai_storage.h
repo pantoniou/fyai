@@ -11,13 +11,18 @@ int fyai_setup_storage(struct fyai_ctx *ctx);
 int fyai_publish_state(struct fyai_ctx *ctx);
 int fyai_close_storage(struct fyai_ctx *ctx);
 
-/*
- * Decode a container root into its parts. Returns the schema version
- * (FYAI_ROOT_VERSION) on success, -1 on anything else (non-mapping,
- * missing/unknown version). Null-valued entries come back as fy_invalid.
- */
-int fyai_root_decode(fy_generic root, fy_generic *headp, fy_generic *configp,
-		     fy_generic *catalogp);
+/* Decoded container-root fields. */
+struct fyai_root {
+	fy_generic catalog;	/* arena-wide catalogue document */
+	fy_generic branches;	/* mapping: branch name -> branch entry */
+	fy_generic head;	/* the raw HEAD string generic */
+};
+
+/* Decode a versioned container root. */
+int fyai_root_decode(fy_generic root, struct fyai_root *r);
+
+/* Return the root HEAD name. @r must outlive the result. */
+const char *fyai_root_head_name(const struct fyai_root *r);
 
 /* The predecessor root in the ref log, or fy_invalid at the chain start. */
 fy_generic fyai_root_prev(fy_generic root);
@@ -44,13 +49,12 @@ int fyai_init_storage(struct fyai_ctx *ctx);
 bool fyai_config_has_raw_secret(fy_generic doc);
 
 /*
- * Read the repo arena's config (and optionally catalog) documents,
- * internalized into @gb, without a full ctx. Missing arena => outputs stay
- * fy_invalid, rc 0; bad root => rc -1. @catalogp may be NULL.
+ * Read a branch configuration without a context. Internalize results into
+ * @gb. @branchp receives an allocated copy of the selected branch name.
  */
-int fyai_peek_arena_config(const char *arena_dir_opt,
+int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   struct fy_generic_builder *gb, fy_generic *configp,
-			   fy_generic *catalogp);
+			   fy_generic *catalogp, char **branchp);
 int fyai_gc_storage(struct fyai_ctx *ctx);
 
 #endif
