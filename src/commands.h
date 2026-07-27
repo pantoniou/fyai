@@ -34,6 +34,8 @@ enum fyai_verb_id {
 	FYAIVID_CONFIG,
 	FYAIVID_LIST,
 	FYAIVID_CATALOG,
+	FYAIVID_BRANCH,
+	FYAIVID_CHECKOUT,
 	FYAIVID_CLEAR,
 	FYAIVID_COMPACT,
 	FYAIVID_CONTEXT,
@@ -197,6 +199,29 @@ struct fyai_gc_args {
 	int keep_reflogs;
 };
 
+enum fyai_branch_cmd_type {
+	FYAIBCT_LIST,
+	FYAIBCT_CREATE,
+	FYAIBCT_DELETE,
+	FYAIBCT_RENAME,
+	FYAIBCT_SHOW,
+	FYAIBCT_DESCRIBE,
+};
+
+struct fyai_branch_args {
+	enum fyai_branch_cmd_type type;
+	const char *name;	/* branch to act on */
+	const char *arg;	/* start point, new name or description */
+	bool all;		/* list sub-agent branches too */
+	bool force;		/* delete a branch that has turns */
+};
+
+struct fyai_checkout_args {
+	const char *name;
+	const char *start;	/* optional start point, with -b */
+	bool create;		/* -b: create the branch and switch to it */
+};
+
 struct fyai_clear_args {
 	/* nothing */
 };
@@ -247,6 +272,8 @@ union fyai_cmd_args {
 	struct fyai_catalog_args catalog;
 	struct fyai_list_args list;
 	struct fyai_gc_args gc;
+	struct fyai_branch_args branch;
+	struct fyai_checkout_args checkout;
 	struct fyai_clear_args clear;
 	struct fyai_compact_args compact;
 	struct fyai_context_args context;

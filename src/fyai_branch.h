@@ -18,6 +18,24 @@ int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name);
 /* Return the stored HEAD or the active branch. */
 const char *fyai_ctx_head_branch(const struct fyai_ctx *ctx);
 
+/*
+ * Switch branch and move HEAD with it, so the next invocation starts here.
+ * This is the one operation that changes the stored HEAD.
+ */
+int fyai_ctx_checkout(struct fyai_ctx *ctx, const char *name);
+
+/*
+ * Select the branch from the command line. Marks it explicit, so neither the
+ * environment nor the arena's HEAD overrides it afterwards.
+ */
+int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name);
+
+/*
+ * Apply $FYAI_BRANCH when --branch did not already select one. A missing or
+ * empty variable is not an error; an invalid name is.
+ */
+int fyai_cfg_branch_from_env(struct fyai_cfg *cfg);
+
 /* Return the current time in microseconds as an inline generic integer. */
 uint64_t fyai_branch_timestamp(void);
 
@@ -66,16 +84,10 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 			     const char *name, fy_generic entry);
 
 /*
- * Select the branch from the command line. Marks it explicit, so neither the
- * environment nor the arena's HEAD overrides it afterwards.
+ * Count the turns on a branch, capped at @limit so a listing of many branches
+ * cannot walk unbounded history.
  */
-int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name);
-
-/*
- * Apply $FYAI_BRANCH when --branch did not already select one. A missing or
- * empty variable is not an error; an invalid name is.
- */
-int fyai_cfg_branch_from_env(struct fyai_cfg *cfg);
+long long fyai_branch_turn_count(fy_generic head, long long limit);
 
 /*
  * Resolve a symbolic reference to a turn. Accepted forms are "<branch>",
@@ -86,5 +98,24 @@ int fyai_cfg_branch_from_env(struct fyai_cfg *cfg);
  * for a turnless point), -1 with a diagnostic raised.
  */
 int fyai_resolve_ref(struct fyai_ctx *ctx, const char *spec, fy_generic *headp);
+
+/* Resolve a reference and its configuration. @configp may be NULL. */
+int fyai_resolve_ref_state(struct fyai_ctx *ctx, const char *spec,
+			   fy_generic *headp, fy_generic *configp);
+
+/* Backends for the `branch` and `checkout` verbs and the /branch command. */
+int fyai_branch_list(struct fyai_ctx *ctx, const char *under, bool all);
+int fyai_branch_show(struct fyai_ctx *ctx, const char *name);
+int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
+		       const char *start, const char *description,
+		       bool switch_to);
+int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force);
+int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to);
+/* Adopt an existing branch in memory without publishing HEAD. */
+int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name);
+int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
+			 const char *start);
+int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
+			 const char *description);
 
 #endif

@@ -27,6 +27,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "fyai_branch.h"
 #include "commands.h"
 #include "fyai.h"
 #include "fyai_agent.h"
@@ -67,6 +68,8 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
 	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
+	ITEM("branch [args]", "list|create|delete|rename|show|describe branches");
+	ITEM("checkout [-b] <branch>", "Switch to a branch, moving HEAD");
 	ITEM("clear", "Reset the conversation (publish a null head)");
 	ITEM("compact [hint]", "Summarize history into a fresh chain");
 	ITEM("context", "Context fill and token estimate");
@@ -1350,6 +1353,148 @@ static int execute_catalog(struct fyai_ctx *ctx)
 	return -1;
 }
 
+static int configure_branch(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_branch_args *args = &cfg->cmd.args.branch;
+	const char *sub;
+	int i, pos;
+
+	args->type = FYAIBCT_LIST;
+	args->name = NULL;
+	args->arg = NULL;
+	args->all = false;
+	args->force = false;
+
+	sub = NULL;
+	pos = 0;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--all") || !strcmp(argv[i], "-a")) {
+			args->all = true;
+			continue;
+		}
+		if (!strcmp(argv[i], "--force") || !strcmp(argv[i], "-f")) {
+			args->force = true;
+			continue;
+		}
+		if (argv[i][0] == '-' && argv[i][1]) {
+			fyai_cfg_error(cfg, "branch: unknown option '%s'",
+				       argv[i]);
+			return -1;
+		}
+		if (!sub) {
+			sub = argv[i];
+			continue;
+		}
+		if (!pos++)
+			args->name = argv[i];
+		else if (pos == 2)
+			args->arg = argv[i];
+		else {
+			fyai_cfg_error(cfg, "branch: unexpected argument '%s'",
+				       argv[i]);
+			return -1;
+		}
+	}
+
+	if (!sub || !strcmp(sub, "list")) {
+		args->type = FYAIBCT_LIST;
+		/* `branch <name>` with no subcommand lists below that name. */
+		if (sub && !args->name)
+			args->name = NULL;
+		return 0;
+	}
+	if (!strcmp(sub, "create") || !strcmp(sub, "new"))
+		args->type = FYAIBCT_CREATE;
+	else if (!strcmp(sub, "delete") || !strcmp(sub, "rm"))
+		args->type = FYAIBCT_DELETE;
+	else if (!strcmp(sub, "rename") || !strcmp(sub, "mv"))
+		args->type = FYAIBCT_RENAME;
+	else if (!strcmp(sub, "show"))
+		args->type = FYAIBCT_SHOW;
+	else if (!strcmp(sub, "describe"))
+		args->type = FYAIBCT_DESCRIBE;
+	else {
+		fyai_cfg_error(cfg, "branch: unknown subcommand '%s'", sub);
+		return -1;
+	}
+
+	if (args->type != FYAIBCT_SHOW && !args->name) {
+		fyai_cfg_error(cfg, "branch %s: a branch name is required", sub);
+		return -1;
+	}
+	if (args->type == FYAIBCT_RENAME && !args->arg) {
+		fyai_cfg_error(cfg, "branch rename: a new name is required");
+		return -1;
+	}
+	return 0;
+}
+
+static int execute_branch(struct fyai_ctx *ctx)
+{
+	struct fyai_branch_args *args = &ctx->cfg->cmd.args.branch;
+
+	switch (args->type) {
+	case FYAIBCT_LIST:
+		return fyai_branch_list(ctx, args->name, args->all);
+	case FYAIBCT_CREATE:
+		return fyai_branch_create(ctx, args->name, args->arg, NULL,
+					  false);
+	case FYAIBCT_DELETE:
+		return fyai_branch_delete(ctx, args->name, args->force);
+	case FYAIBCT_RENAME:
+		return fyai_branch_rename(ctx, args->name, args->arg);
+	case FYAIBCT_SHOW:
+		return fyai_branch_show(ctx, args->name);
+	case FYAIBCT_DESCRIBE:
+		return fyai_branch_describe(ctx, args->name, args->arg);
+	}
+	return -1;
+}
+
+static int configure_checkout(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_checkout_args *args = &cfg->cmd.args.checkout;
+	int i;
+
+	args->name = NULL;
+	args->start = NULL;
+	args->create = false;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "-b")) {
+			args->create = true;
+			continue;
+		}
+		if (argv[i][0] == '-' && argv[i][1]) {
+			fyai_cfg_error(cfg, "checkout: unknown option '%s'",
+				       argv[i]);
+			return -1;
+		}
+		/* "checkout -b <new> [<start>]", as git spells it. */
+		if (!args->name)
+			args->name = argv[i];
+		else if (!args->start)
+			args->start = argv[i];
+		else {
+			fyai_cfg_error(cfg, "checkout: unexpected argument '%s'",
+				       argv[i]);
+			return -1;
+		}
+	}
+	if (!args->name) {
+		fyai_cfg_error(cfg, "checkout: a branch name is required");
+		return -1;
+	}
+	return 0;
+}
+
+static int execute_checkout(struct fyai_ctx *ctx)
+{
+	struct fyai_checkout_args *args = &ctx->cfg->cmd.args.checkout;
+
+	return fyai_branch_checkout(ctx, args->name, args->create,
+				    args->start);
+}
+
 static int configure_clear(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)cfg;
@@ -1863,6 +2008,37 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "unlike config.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.catalog = {
+		},
+	},
+	[FYAIVID_BRANCH] = {
+		.id	   = FYAIVID_BRANCH,
+		.name	   = "branch",
+		.configure = configure_branch,
+		.execute   = execute_branch,
+		.synopsis  = "branch [list|create|delete|rename|show|describe] [args]",
+		.help	   = "Manage branches: independent lines of work, each with its own\n"
+			     "conversation and its own configuration. With no subcommand it\n"
+			     "lists the branches; --all includes the sub-agent branches.\n"
+			     "`create <name> [<start>]` copies the current branch's config and\n"
+			     "starts at <start> (<branch>, <branch>~N or <branch>@{N}).",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
+		.default_args.branch = {
+			.type = FYAIBCT_LIST,
+		},
+	},
+	[FYAIVID_CHECKOUT] = {
+		.id	   = FYAIVID_CHECKOUT,
+		.name	   = "checkout",
+		.configure = configure_checkout,
+		.execute   = execute_checkout,
+		.synopsis  = "checkout [-b] <branch> [<start-point>]",
+		.help	   = "Switch to a branch, moving HEAD so the next invocation starts\n"
+			     "there. -b creates the branch first, at <start-point> when\n"
+			     "one is given. Unlike --branch, which\n"
+			     "selects a branch for one invocation only, this is durable.",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.default_args.checkout = {
 		},
 	},
 	[FYAIVID_CLEAR] = {
