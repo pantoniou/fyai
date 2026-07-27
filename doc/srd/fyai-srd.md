@@ -64,13 +64,15 @@ Each branches entry is keyed by the branch's full name and holds that branch's o
 
 The conversation head and the repository configuration belong to a branch, not to the root: branches are independent lines of work. Only the catalogue is arena-wide, being an ingested provider snapshot rather than user intent. Version 2 is not compatible with version 1 and no migration is attempted; any other version is rejected.
 
-Each publish CAS-updates the allocator refs pointer to a new root, rebuilding only the active branch's entry and carrying every other branch by reference. There are two reflog chains: the root's \`prev\`, spanning the whole arena, and each branch entry's \`prev\`, spanning that branch alone. A turnless configuration update is a first-class entry on both. \`gc --keep-reflogs N\` bounds both. See \`doc/branching.md\`.
+Each publish CAS-updates the allocator refs pointer to a new root, rebuilding only the active branch's entry and carrying every other branch by reference. There are two reflog chains: the root's \`prev\`, spanning the whole arena, and each branch entry's \`prev\`, spanning that branch alone. A turnless configuration update is a first-class entry on both. \`gc --keep-reflogs N\` bounds both.
+
+A branch entry records the operation that produced it (\`op\`, plus \`from\` on a rename) rather than leaving it to be inferred: a reset moves the head backwards and a rename does not move it at all, so comparing an entry's head with its predecessor's cannot distinguish either from an ordinary turn or config edit. No entry stores a branch name, so a rename is a rekey of the \`branches\` mapping plus \`HEAD\` and cannot leave a stale reference. Reference indices (\`@{N}\`) are positional and shift as entries are appended; to keep a point, create a branch at it. See \`doc/branching.md\`.
 
 ### 4.2 Address stability and lifecycle
 
 Persistent libfyaml arenas map at their configured fixed virtual addresses in every process. Pointer identity is consequently usable for canonical sharing across processes. Arena content is immutable after publication; roots are the only mutable publication point.
 
-\`branch\` lists, creates, deletes, renames, describes and shows branches; \`checkout\` moves \`HEAD\`. The global \`--branch\`/\`-b\` and \`$FYAI_BRANCH\` select a branch for one invocation without moving \`HEAD\`. State is addressed only symbolically - \`<branch>\`, \`<branch>~N\`, \`<branch>@{N}\` - because \`gc\` relocates arena objects and an address is not a stable name.
+\`branch\` lists, creates, deletes, renames, describes and shows branches; \`checkout\` moves \`HEAD\`; \`reset\` moves the active branch's head, which stays recoverable as \`<branch>@{1}\` until \`gc\` expires that entry. The global \`--branch\`/\`-b\` and \`$FYAI_BRANCH\` select a branch for one invocation without moving \`HEAD\`. State is addressed only symbolically - \`<branch>\`, \`<branch>~N\`, \`<branch>@{N}\` - because \`gc\` relocates arena objects and an address is not a stable name.
 
 \`clear\` publishes a null conversation head for the active branch. \`compact\` makes one summary model call and starts a fresh chain, retaining the previous head as \`compacted_from\` metadata. \`gc\` compacts unreachable data and requires arena quiescence; \`gc --keep-reflogs N\` first bounds the retained root-reflog window.
 

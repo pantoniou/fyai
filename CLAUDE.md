@@ -239,7 +239,17 @@ accept null to paper over an emitter that drops the quotes.
   *stored* turns (one message append each, as `fyai list turns` shows), so one
   exchange back is `~2`. `--branch`/`-b`/`$FYAI_BRANCH` pick a branch for one
   invocation; only `checkout` moves the stored `HEAD`, which is why
-  `ctx->head_branch` is kept apart from `ctx->branch`.
+  `ctx->head_branch` is kept apart from `ctx->branch`. A ref-log entry stores
+  the **operation** that made it (`op`, plus `from` on a rename) — never infer
+  it by diffing heads, since a reset moves the head backwards and a rename
+  leaves it alone, so neither is distinguishable from a turn or a config edit
+  that way. Label a publish with `fyai_branch_op_set()`; it is consumed and
+  cleared by that publish so it cannot leak into the next. No entry stores a
+  name, which is what makes a rename a safe rekey of the mapping plus `HEAD`.
+  A sub-agent name comes from the *model*, so it must go through
+  `fyai_branch_alloc_child()` (sanitize to one component, unique ordinal,
+  depth cap) before it can be part of a branch path. Sub-agents cannot
+  delegate, so the current execution path adds only one component.
 
   **Aim for no surprise against git.** A start point stands for a whole state:
   `branch create <name> <start>` and `checkout -b <name> <start>` take the

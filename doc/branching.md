@@ -88,6 +88,7 @@ A reference identifies a turn. All references are symbolic.
 | --- | --- |
 | `<branch>` | The tip of the branch |
 | `<branch>~N` | N turns before the tip |
+| `<branch>^` | One turn before the tip; `^^` is two, and so on |
 | `<branch>@{N}` | The tip as it was N entries before, in the reflog |
 | `HEAD`, `HEAD~N`, `HEAD@{N}` | The same, for the current branch |
 
@@ -108,6 +109,43 @@ There are no numeric or hexadecimal references. This is deliberate. The `gc`
 command moves objects in the arena and writes new addresses, thus an address is
 not stable. A name stays correct after `gc`. If you give a numeric reference,
 `fyai` refuses it and shows the symbolic forms.
+
+### 5.1 The ref log
+
+Every operation on a branch appends an entry to that branch's own ref log. An
+entry keeps the head, the configuration, the time, the operation that made it
+and, for a rename, the name the branch had before.
+
+```sh
+fyai list reflog            # the ref log of the current branch
+fyai -b exp list reflog     # the ref log of another branch
+```
+
+```
+ Index │ Ref       │ Kind     │ From │ Model │ When
+───────┼───────────┼──────────┼──────┼───────┼──────────────────────
+     0 │ flank@{0} │ rename   │ side │ m1    │ 2026-07-27T10:06:31Z
+     1 │ flank@{1} │ describe │      │ m1    │ 2026-07-27T10:06:31Z
+     2 │ flank@{2} │ checkout │      │ m1    │ 2026-07-27T10:06:31Z
+     3 │ flank@{3} │ create   │      │ m1    │ 2026-07-27T10:06:31Z
+```
+
+The operation is **stored, not calculated**. A comparison of the head of an
+entry with the head of the entry before it cannot tell you what happened: a
+reset moves the head backwards and looks the same as a turn, and a rename does
+not move the head at all and looks the same as a configuration change.
+
+**The index is a position, not a name.** `@{0}` is always the newest entry,
+thus every index moves by one each time an operation adds an entry. Use an
+index immediately. To keep a point permanently, make a branch at it:
+
+```sh
+fyai branch create keepme "main@{3}"
+```
+
+A branch name in a reference is resolved when you give it. No reference is kept
+in the arena, thus a rename cannot make a stored reference wrong. Refer to
+section 9.
 
 ## 6. Commands
 
@@ -141,13 +179,41 @@ move to its parent; children of a top-level branch move to the empty root.
 Deletion fails if reparenting would overwrite another branch.
 
 `fyai branch rename` changes the names of the children of the branch. If you
-rename the current branch, `fyai` also changes `HEAD`.
+rename the current branch, `fyai` also changes `HEAD`. A renamed or reparented
+branch gets a ref-log entry that keeps the name it had before.
+
+Nothing in the arena holds a branch name except `HEAD` and the keys of the
+`branches` mapping, and a rename writes both. A ref-log entry holds the head,
+the configuration and the entry before it, all as direct references. Thus a
+rename cannot leave a stale reference, and the full ref log of a branch stays
+usable under the new name.
 
 `fyai branch describe` sets a free-text line that says what the branch is for.
 `git` has no place to keep this. `fyai` has one arena and one atomic reference,
 thus the description is part of the branch. Give no text to clear it.
 
-### 6.2 The `checkout` verb
+### 6.2 The `reset` verb
+
+```sh
+fyai reset HEAD^        # one turn back
+fyai reset HEAD~4       # four turns back
+fyai reset main@{2}     # to what the head was two operations ago
+fyai reset other        # to the tip of another branch
+```
+
+`reset` moves the head of the current branch. **Nothing is discarded.** The head
+that was there stays in the ref log of the branch, thus `<branch>@{1}`
+immediately after a reset gives it back:
+
+```sh
+fyai reset HEAD^^       # went back too far
+fyai reset main@{1}     # undo that
+```
+
+Only `gc --keep-reflogs N` finally removes an entry that is out of the window,
+and with it any turn that no branch and no kept entry holds.
+
+### 6.3 The `checkout` verb
 
 ```sh
 fyai checkout <name>                # change to a branch
@@ -162,7 +228,7 @@ It is the same as `fyai branch create <name> <start>` and then
 A change of branch writes the new name to `HEAD` in the arena. The next
 invocation uses that branch.
 
-### 6.3 The `/branch` command
+### 6.4 The `/branch` command
 
 In an interactive session:
 
@@ -179,7 +245,7 @@ A change of branch in a session applies the configuration of the new branch
 immediately. `fyai` resolves the model, the API mode and the API key again. The
 banner shows the name of the current branch.
 
-### 6.4 Views
+### 6.5 Views
 
 `--branch` is a global option, thus it goes before the verb. Use it to examine
 a branch that is not the current branch, without a change of `HEAD`.
@@ -210,11 +276,23 @@ main/explore-1/grep-1
 main/plan-2
 ```
 
-The name of the branch contains the name of the agent and a number. The number
-increases for each call of the same agent below the same parent. The current
-sub-agent cannot delegate to another sub-agent, so an agent branch adds one
-component. The `agent/max_branch_depth` configuration key remains a defensive
-limit for the allocator and for a future recursive implementation.
+The name of the branch contains the name of the agent and a number.
+
+**The model selects the name of the agent, thus it is arbitrary text and cannot
+be used as it stands.** `fyai` reduces the name to one safe path component: it
+makes the name lower case, changes each other character to `-`, joins and
+removes the runs of `-`, and limits the length. If nothing usable stays, the
+component becomes `agent`. Thus a name such as `Code Reviewer` becomes
+`code-reviewer`, and a name of punctuation only cannot make an invalid branch
+name or add a level to the path.
+
+A number is then added, the smallest that is free below that parent, thus two
+calls of the same agent cannot collide.
+
+The current sub-agent cannot delegate to another sub-agent. Therefore, an
+agent branch has one component below the branch that started it. The
+`agent/max_branch_depth` configuration key remains a defensive limit for
+callers of the branch allocator and for a future recursive implementation.
 
 The branch holds the full conversation of the sub-agent, and stays in the arena
 after the agent stops, thus you can examine what the agent did:
@@ -297,12 +375,16 @@ branches:
     config: <mapping|null>
     head:   <turn|null>
     created: <timestamp>
+    description: <string|null>
+    op:     <string>              # what made this entry
+    from:   <string|null>         # the previous name, on a rename
     prev:   <branch-entry|null>
   main/explore-1:
     config: <mapping|null>
     head:   <turn|null>
     created: <timestamp>
     agent:  { persona: <string>, parent_turn: <turn> }
+    op:     <string>
     prev:   <branch-entry|null>
 prev: <root|null>             # the reflog of the arena
 ```
@@ -315,6 +397,11 @@ There are two reflog chains. The `prev` key of the root links to the previous
 root, and gives the history of the full arena. The `prev` key of a branch entry
 links to the previous entry of that same branch, and gives the history of that
 branch. The `<branch>@{N}` reference uses the second chain.
+
+An entry holds no name. This is what makes a rename safe: to move a branch,
+`fyai` changes the key in the `branches` mapping and, if necessary, `HEAD`. The
+chain of entries below it is not touched and stays correct. The `op` and `from`
+keys are a record of what happened, and are not used to find anything.
 
 Each publish operation makes a new branch entry for one branch only, and keeps
 the other branches by reference. Thus a change to one branch does not touch the
@@ -331,7 +418,8 @@ An older `fyai` program cannot read a version 2 arena.
 
 These functions are not available now:
 
-- Sub-agent branches. Refer to section 7.
+- Sub-agent branches. Refer to section 7. The name rules are in place, but the
+  conversation of a sub-agent is not yet kept.
 - Automatic tracking of the branch of a `git` repository.
 - A merge or a rebase of conversations.
 - Synchronization with a remote arena.
