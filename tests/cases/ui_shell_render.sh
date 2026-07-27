@@ -62,14 +62,14 @@ if "\u22ef".encode() not in data:
 EOF
 
 "$FYAI_BIN" --transient --color off \
-    --set display/tool_detail=none transcript --last 1 \
+    transcript --tool-detail=none --last 1 \
     >"$TEST_DIR/transcript-none.out" 2>&1 ||
     fail "transcript with hidden tool bodies failed"
 ! grep -qE '^    0$' "$TEST_DIR/transcript-none.out" ||
     fail "tool-detail none rendered a shell body"
 
 "$FYAI_BIN" --transient --color off \
-    --set display/tool_detail=full transcript --last 1 \
+    transcript --tool-detail full --last 1 \
     >"$TEST_DIR/transcript-full.out" 2>&1 ||
     fail "transcript with full tool bodies failed"
 grep -qE '^    5$' "$TEST_DIR/transcript-full.out" ||

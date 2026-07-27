@@ -87,6 +87,8 @@ hello one
 hello two
 /history last 2
 /transcript last 2
+/transcript --tool-detail=brief last 2
+/tool-detail
 /clear
 hello three
 /reasoning-effort high
