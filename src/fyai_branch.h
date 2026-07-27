@@ -66,6 +66,18 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 			     const char *name, fy_generic entry);
 
 /*
+ * Select the branch from the command line. Marks it explicit, so neither the
+ * environment nor the arena's HEAD overrides it afterwards.
+ */
+int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name);
+
+/*
+ * Apply $FYAI_BRANCH when --branch did not already select one. A missing or
+ * empty variable is not an error; an invalid name is.
+ */
+int fyai_cfg_branch_from_env(struct fyai_cfg *cfg);
+
+/*
  * Resolve a symbolic reference to a turn. Accepted forms are "<branch>",
  * "<branch>~N" (N turns back) and "<branch>@{N}" (N entries back in that
  * branch's ref log); "HEAD" stands for the active branch. A numeric or

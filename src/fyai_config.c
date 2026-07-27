@@ -1987,6 +1987,7 @@ static const struct option long_options[] = {
 	{ "env", required_argument, NULL, 'e' },
 	{ "model", required_argument, NULL, 'm' },
 	{ "api-key", required_argument, NULL, 'k' },
+	{ "branch", required_argument, NULL, 'b' },
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -2393,7 +2394,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	optarg = NULL;
 
 	/* '+' stops parsing at the first non-option (the verb or prompt). */
-	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:id",
+	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:b:id",
 				  long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
@@ -2409,6 +2410,10 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 			break;
 		case 'e':
 			cli_env = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case 'b':
+			if (fyai_cfg_set_branch(cfg, optarg))
+				goto err_out;
 			break;
 		case 'm':
 			if (config_queue_set_quoted(cfg, "model", optarg,
@@ -2503,6 +2508,14 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		}
 	}
 	arg_index = optind;
+
+	/*
+	 * $FYAI_BRANCH backs --branch and must be settled before the config is
+	 * loaded: the config lives in the branch entry, so the branch has to be
+	 * known to read the right one.
+	 */
+	if (fyai_cfg_branch_from_env(cfg))
+		goto err_out;
 
 	rc = fyai_config_load(cfg, cli_config, cli_env);
 	if (rc)

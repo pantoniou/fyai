@@ -27,6 +27,37 @@ const char *fyai_ctx_head_branch(const struct fyai_ctx *ctx)
 	return fyai_ctx_branch(ctx);
 }
 
+int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name)
+{
+	char *dup;
+
+	if (!fyai_branch_name_valid(name)) {
+		fyai_cfg_error(cfg, "invalid branch name '%s'", name ? name : "");
+		return -1;
+	}
+	dup = strdup(name);
+	if (!dup) {
+		fyai_cfg_error(cfg, "out of memory setting branch '%s'", name);
+		return -1;
+	}
+	free(cfg->branch);
+	cfg->branch = dup;
+	cfg->branch_explicit = true;
+	return 0;
+}
+
+int fyai_cfg_branch_from_env(struct fyai_cfg *cfg)
+{
+	const char *env;
+
+	if (cfg->branch_explicit)
+		return 0;
+	env = getenv("FYAI_BRANCH");
+	if (!env || !*env)
+		return 0;
+	return fyai_cfg_set_branch(cfg, env);
+}
+
 int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name)
 {
 	char *dup;

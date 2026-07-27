@@ -86,6 +86,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("--config, -C <file>", "Load an explicit config file");
 	ITEM("--env, -e <file>", "Source a .env file (used vars only)");
 	ITEM("--model, -m <model>", "Model, optionally provider/model");
+	ITEM("--branch, -b <name>", "Work on this branch (else $FYAI_BRANCH, HEAD)");
 	ITEM("--set <key[=val]>", "Set a config key (slash path); repeatable");
 	ITEM("--get <key>", "Print a config key as one-line flow");
 	ITEM("--delete <key>", "Delete a config key; repeatable");
