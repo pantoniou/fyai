@@ -1,0 +1,211 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-b1",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply one."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b2",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply two."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b3",
+        "object": "chat.completion",
+        "created": 1735689603,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply three."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b1",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply one."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b2",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply two."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b3",
+        "object": "chat.completion",
+        "created": 1735689603,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply three."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b1",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply one."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b2",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply two."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-b3",
+        "object": "chat.completion",
+        "created": 1735689603,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply three."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 3,
+          "total_tokens": 13
+        }
+      }
+    }
+  ]
+}
