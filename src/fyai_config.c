@@ -319,6 +319,19 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 		cfg->mcp_logging = apply_bool(v, "mcp", cfg->mcp_logging);
 	}
 
+	v = fy_get(root, "branch");
+	if (!fy_generic_is_invalid(v)) {
+		if (!fy_generic_is_mapping(v)) {
+			fyai_cfg_error(cfg, "branch must be a mapping");
+			return -1;
+		}
+		if (CONFIG_VALIDATE_ENUM(v, "on_conflict",
+					 "abort", "rebase", "merge"))
+			return -1;
+		cfg->branch_on_conflict = fy_get(v, "on_conflict",
+						 cfg->branch_on_conflict);
+	}
+
 	v = fy_get(root, "reasoning");
 	if (!fy_generic_is_invalid(v)) {
 		if (!fy_generic_is_mapping(v)) {
@@ -1916,6 +1929,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
+	cfg->branch_on_conflict = DEFAULT_BRANCH_ON_CONFLICT;
 	cfg->transcript_system = false;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;

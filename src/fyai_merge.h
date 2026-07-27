@@ -32,4 +32,8 @@ void fyai_turn_times_cleanup(struct fyai_turn_times *tt);
 uint64_t fyai_turn_time_lookup(const struct fyai_turn_times *tt,
 			       fy_generic turn);
 
+/* Replay unpublished turns on top of @theirs. */
+int fyai_join_onto_head(struct fyai_ctx *ctx, fy_generic theirs,
+			fy_generic *outp);
+
 #endif

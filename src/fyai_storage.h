@@ -56,6 +56,10 @@ bool fyai_root_validate(struct fy_allocator *a, fy_generic root);
 int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 		      fy_generic catalog, fy_generic head);
 
+/* Publish a branch-table edit without updating the active branch. */
+int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
+			  fy_generic branches);
+
 int fyai_init_storage(struct fyai_ctx *ctx);
 
 /* Return true if a configuration contains a literal api_key. */

@@ -88,6 +88,14 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Maximum nesting depth of sub-agent branches below a top-level branch. */
 #define DEFAULT_AGENT_MAX_BRANCH_DEPTH 8
 
+/*
+ * What to do when a concurrent invocation advanced the same branch while this
+ * one was working. "abort" keeps the safe behaviour - nothing is written and
+ * nothing is lost - and is the default because silently reordering a
+ * conversation is a decision the user should make.
+ */
+#define DEFAULT_BRANCH_ON_CONFLICT "abort"
+
 enum fyai_api_mode {
 	FYAI_API_RESPONSES,
 	FYAI_API_CHAT_COMPLETIONS,
@@ -191,6 +199,8 @@ struct fyai_cfg {
 	char *root_spec;
 	fy_generic_value root_ref;
 	bool root_pinned;
+	/* Policy for a concurrent change to the active branch. */
+	const char *branch_on_conflict;
 	/*
 	 * Stack an in-memory builder over the durable arena so every config and
 	 * state write this session is ephemeral (never published to the arena).

@@ -219,3 +219,11 @@ mcp:
   #     args: [-y, "@modelcontextprotocol/server-filesystem", .]
   #     env: { LOG_LEVEL: warn }
   #     cwd: .
+
+# Branch behaviour.
+branch:
+  # What to do when another invocation advanced this branch while this one was
+  # running: abort (write nothing, the default), or replay our turns on top of
+  # theirs with rebase or merge. Invocations on different branches never
+  # conflict, so this only applies to the same branch.
+  on_conflict: abort

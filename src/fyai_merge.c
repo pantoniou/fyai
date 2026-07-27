@@ -355,3 +355,36 @@ out:
 	fyai_turn_stack_cleanup(&theirs);
 	return ret;
 }
+
+/* Replay unpublished turns after a concurrent update to the same branch. */
+int fyai_join_onto_head(struct fyai_ctx *ctx, fy_generic theirs,
+			fy_generic *outp)
+{
+	struct fyai_turn_stack ours;
+	fy_generic base, head;
+	bool have_system;
+	int ret;
+
+	*outp = fy_invalid;
+	base = fyai_merge_base(ctx, ctx->last_message, theirs);
+	ret = fyai_turn_stack_init(&ours, ctx->last_message, base);
+	fyai_error_check(ctx, !ret, err_out,
+			 "out of memory replaying this turn");
+
+	ret = -1;
+	head = theirs;
+	have_system = true;	/* theirs already opens with one */
+	ret = replay(ctx, &head, &ours, 0, ours.count, &have_system);
+	fyai_error_check(ctx, !ret, out, "could not replay this turn");
+	head = fy_gb_internalize(ctx->gb, head);
+	fyai_error_check(ctx, fy_generic_is_valid(head), out,
+			 "could not store the replayed turn");
+	*outp = head;
+	ret = 0;
+out:
+	fyai_turn_stack_cleanup(&ours);
+	return ret;
+
+err_out:
+	return -1;
+}

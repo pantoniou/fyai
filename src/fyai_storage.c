@@ -15,6 +15,7 @@
 #include "config.h"
 #endif
 
+#include <alloca.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -29,6 +30,7 @@
 
 #include "fyai_prof.h"
 #include "fyai_branch.h"
+#include "fyai_merge.h"
 #include "fyai_config.h"
 #include "fyai_storage.h"
 #include "fyai_turn.h"
@@ -137,6 +139,11 @@ static fy_generic fyai_root_build(struct fy_generic_builder *gb,
 			     "branches", branches,
 			     "created", created,
 			     "prev", prev);
+}
+
+static bool generic_same(fy_generic a, fy_generic b)
+{
+	return a.v == b.v;
 }
 
 /*
@@ -307,7 +314,7 @@ static fy_generic_value root_for_branch_entry(struct fy_allocator *a,
 			break;
 		fyai_branch_lookup(r.branches, name, &b);
 		have = by_head ? b.head : b.entry;
-		if (fy_generic_is_valid(have) && fy_equal(have, want)) {
+		if (fy_generic_is_valid(have) && have.v == want.v) {
 			match = (uint64_t)node.v;
 		} else if (match) {
 			break;	/* the run ended: keep its oldest root */
@@ -707,9 +714,8 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	op = ctx->branch_op;
 	if (!op) {
 		/*
-		 * The head did not move, thus this is a configuration change.
-		 * A branch with no turns has an invalid head on both sides,
-		 * Structural sharing makes raw generic identity sufficient.
+		 * Structural sharing makes raw generic identity sufficient,
+		 * including when both heads are invalid.
 		 */
 		fyai_branch_decode(ctx->branch_prev, &prev);
 		same = prev.head.v == ctx->last_message.v;
@@ -891,9 +897,62 @@ out:
 	return ret;
 }
 
+/* Reconcile the surviving root after a lost CAS. */
+static int publish_reconcile(struct fyai_ctx *ctx)
+{
+	struct fyai_branch cur;
+	struct fyai_root r;
+	fy_generic root, head;
+	const char *policy;
+	uint64_t refs;
+	int rc;
+
+	refs = fy_allocator_refs_get(ctx->durable_allocator);
+	fyai_error_check(ctx, refs, err_out,
+			 "could not read the concurrent root");
+	root = (fy_generic){ .v = refs };
+	fyai_error_check(ctx, fyai_root_validate(ctx->durable_allocator, root),
+			 err_out, "concurrent root is invalid");
+	rc = fyai_root_decode(root, &r);
+	fyai_error_check(ctx, rc >= 0, err_out,
+			 "could not decode the concurrent root");
+
+	ctx->refs_head = refs;
+	ctx->arena_branches = r.branches;
+	ctx->arena_catalog = r.catalog;
+	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
+
+	/* Our branch is where we left it: nothing of ours is at stake. */
+	if (cur.entry.v == ctx->branch_prev.v) {
+		ctx->branch_prev = cur.entry;
+		return 0;
+	}
+
+	policy = ctx->cfg->branch_on_conflict;
+	if (!policy || !strcmp(policy, "abort")) {
+		fyai_error(ctx, "branch '%s' changed while this command was "
+			   "running; nothing was written. Set "
+			   "branch/on_conflict to rebase or merge to replay "
+			   "on top instead", fyai_ctx_branch(ctx));
+		return -1;
+	}
+
+	if (fyai_join_onto_head(ctx, cur.head, &head))
+		return -1;
+	ctx->last_message = head;
+	ctx->branch_prev = cur.entry;
+	fyai_notice(ctx, "branch '%s' changed while this command was running; "
+		    "replayed on top of it", fyai_ctx_branch(ctx));
+	return 0;
+
+err_out:
+	return -1;
+}
+
 int fyai_publish_state(struct fyai_ctx *ctx)
 {
-	int rc;
+	const char *op, *from;
+	int rc, tries;
 
 	if (!ctx->durable_allocator || !ctx->durable_gb)
 		return 0;
@@ -903,13 +962,28 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	    fy_generic_is_invalid(ctx->arena_catalog) &&
 	    fy_generic_is_invalid(ctx->branch_prev))
 		return 0;
-	rc = fyai_root_publish_try(ctx);
-	if (rc) {
-		fyai_error(ctx, rc > 0 ? "fyai state changed concurrently" :
-			   "failed to publish fyai state");
-		return -1;
+
+	/*
+	 * The publish consumes the operation label, so keep a copy: a retry
+	 * after a lost CAS must still record what it was doing.
+	 */
+	op = ctx->branch_op;
+	from = ctx->branch_op_from;
+
+	for (tries = 0; tries < 4; tries++) {
+		fyai_branch_op_set(ctx, op, from);
+		rc = fyai_root_publish_try(ctx);
+		if (!rc)
+			return 0;
+		if (rc < 0)
+			break;
+		/* Lost the CAS: re-read and decide whether it matters. */
+		if (publish_reconcile(ctx))
+			return -1;
 	}
-	return 0;
+	fyai_error(ctx, rc > 0 ? "fyai state changed concurrently" :
+		   "failed to publish fyai state");
+	return -1;
 }
 
 int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
@@ -962,6 +1036,179 @@ out:
 		return -1;
 	}
 	return 0;
+}
+
+/* Delay a branch publish for functional CAS tests. */
+static void branch_publish_test_delay(void)
+{
+	const char *s;
+	char *end;
+	long ms;
+
+	s = getenv("FYAI_TEST_BRANCH_CAS_DELAY_MS");
+	if (!s || !*s)
+		return;
+	errno = 0;
+	ms = strtol(s, &end, 10);
+	if (errno || *end || ms <= 0 || ms > 5000)
+		return;
+	usleep((useconds_t)ms * 1000);
+}
+
+/* Reapply a branch-table delta after a lost CAS. */
+static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
+				       fy_generic desired, fy_generic latest)
+{
+	fy_generic key, before, after, now;
+	const char *name;
+	size_t i, count;
+
+	if (!fy_generic_is_mapping(base))
+		base = fy_map_empty;
+	if (!fy_generic_is_mapping(desired))
+		desired = fy_map_empty;
+	if (!fy_generic_is_mapping(latest))
+		latest = fy_map_empty;
+
+	/* Changed or added keys. */
+	count = fy_generic_mapping_get_pair_count(desired);
+	for (i = 0; i < count; i++) {
+		key = fy_get_key_at(desired, i);
+		name = fy_castp(&key, "");
+		if (!name || !*name)
+			continue;
+		before = fy_get(base, name);
+		after = fy_get_at(desired, i);
+		if (generic_same(before, after))
+			continue;
+		now = fy_get(latest, name);
+		if (!generic_same(now, before))
+			goto err_concurrent_change;
+		latest = fy_assoc(ctx->gb, latest, name, after);
+		fyai_error_check(ctx, fy_generic_is_valid(latest), err_out,
+				 "could not reapply branch '%s'", name);
+	}
+
+	/* Removed keys. */
+	count = fy_generic_mapping_get_pair_count(base);
+	for (i = 0; i < count; i++) {
+		key = fy_get_key_at(base, i);
+		name = fy_castp(&key, "");
+		if (!name || !*name || fy_generic_is_valid(fy_get(desired, name)))
+			continue;
+		before = fy_get_at(base, i);
+		now = fy_get(latest, name);
+		if (!generic_same(now, before))
+			goto err_concurrent_change;
+		latest = fy_disassoc(ctx->gb, latest, name);
+		fyai_error_check(ctx, fy_generic_is_valid(latest), err_out,
+				 "could not reapply deletion of branch '%s'",
+				 name);
+	}
+	return latest;
+
+err_concurrent_change:
+	fyai_error(ctx, "branch '%s' changed concurrently; nothing was written",
+		   name);
+err_out:
+	return fy_invalid;
+}
+
+int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
+			  fy_generic branches)
+{
+	struct fyai_root current, original;
+	fy_generic root, merged, headv, catv, prevv;
+	const char *head_name;
+	char *wanted_head;
+	size_t wanted_head_len;
+	uint64_t desired;
+	int rc, tries;
+	bool reconciled, head_changed;
+
+	fyai_error_check(ctx, ctx->durable_allocator && ctx->durable_gb,
+			 err_out, "branch table requires durable storage");
+	if (ctx->cfg && ctx->cfg->root_pinned) {
+		fyai_error(ctx, "--root is read-only; this command would "
+			   "change state");
+		return -1;
+	}
+	if (ctx->cfg && ctx->cfg->transient) {
+		ctx->arena_branches = branches;
+		return 0;
+	}
+
+	merged = branches;
+	reconciled = false;
+	wanted_head_len = strlen(fyai_ctx_head_branch(ctx));
+	wanted_head = alloca(wanted_head_len + 1);
+	memcpy(wanted_head, fyai_ctx_head_branch(ctx), wanted_head_len + 1);
+	head_changed = false;
+	if (ctx->refs_head) {
+		root = (fy_generic){ .v = ctx->refs_head };
+		if (fyai_root_decode(root, &original) >= 0) {
+			head_name = fyai_root_head_name(&original);
+			head_changed = !head_name ||
+				       strcmp(head_name, wanted_head);
+		}
+	}
+	for (tries = 0; tries < 4; tries++) {
+		catv = fyai_generic_or_null(ctx->arena_catalog);
+		headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
+		prevv = ctx->refs_head ?
+			(fy_generic){ .v = ctx->refs_head } : fy_null;
+		root = fyai_root_build(ctx->gb, catv, merged, headv,
+				       fy_value(ctx->gb, (long long)
+						fyai_branch_timestamp()), prevv);
+		fyai_error_check(ctx, fy_generic_is_valid(root), err_out,
+				 "could not build branch-table root");
+		desired = (uint64_t)root.v;
+		branch_publish_test_delay();
+		rc = fy_allocator_refs_publish(ctx->durable_allocator,
+					       ctx->refs_head, desired,
+					       FY_ALLOC_REFS_CHECKPOINT);
+		if (!rc) {
+			ctx->refs_head = desired;
+			ctx->arena_branches = merged;
+			if (reconciled)
+				fyai_notice(ctx, "state changed concurrently; "
+					    "reapplied branch-table changes");
+			return 0;
+		}
+		fyai_error_check(ctx, rc > 0, err_out,
+				 "could not publish branch-table root");
+
+		ctx->refs_head = fy_allocator_refs_get(ctx->durable_allocator);
+		fyai_error_check(ctx, ctx->refs_head, err_out,
+				 "could not read concurrent arena root");
+		root = (fy_generic){ .v = ctx->refs_head };
+		rc = -1;
+		if (fyai_root_validate(ctx->durable_allocator, root))
+			rc = fyai_root_decode(root, &current);
+		fyai_error_check(ctx, rc >= 0, err_out,
+				 "concurrent arena root is invalid");
+		merged = branches_delta_apply(ctx, base, branches,
+					      current.branches);
+		fyai_error_check(ctx, fy_generic_is_valid(merged), err_out,
+				 "could not reconcile branch-table changes");
+		ctx->arena_catalog = current.catalog;
+		if (!head_changed) {
+			free(ctx->head_branch);
+			ctx->head_branch = NULL;
+			head_name = fyai_root_head_name(&current);
+			if (head_name) {
+				ctx->head_branch = strdup(head_name);
+				fyai_error_check(ctx, ctx->head_branch, err_out,
+						 "out of memory reading "
+						 "concurrent HEAD");
+			}
+		}
+		reconciled = true;
+	}
+	fyai_error(ctx, "failed to publish branch-table changes");
+
+err_out:
+	return -1;
 }
 
 int fyai_close_storage(struct fyai_ctx *ctx)

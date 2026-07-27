@@ -626,12 +626,14 @@ int fyai_branch_show(struct fyai_ctx *ctx, const char *name)
 /* Publish changes to branches other than the active branch. */
 static int branches_publish(struct fyai_ctx *ctx, fy_generic branches)
 {
+	fy_generic base;
+
 	if (!fy_generic_is_valid(branches)) {
 		fyai_error(ctx, "cannot build the branch table");
 		return -1;
 	}
-	ctx->arena_branches = branches;
-	return fyai_publish_state(ctx);
+	base = ctx->arena_branches;
+	return fyai_publish_branches(ctx, base, branches);
 }
 
 static size_t branch_parent_len(const char *name)

@@ -101,6 +101,24 @@ properties:
       Output-token cap per model call. Required by the Anthropic Messages
       API (sent on every request there); defaults from the catalogue
       otherwise.
+  branch:
+    type: object
+    description: >-
+      Branch behaviour. A branch is one independent line of work with its own
+      conversation and its own configuration.
+    properties:
+      on_conflict:
+        type: string
+        enum: [abort, rebase, merge]
+        description: >-
+          What to do when another invocation advanced this branch while this
+          one was running. `abort` writes nothing and reports it, which is the
+          default because reordering a conversation unasked is the user's
+          decision. `rebase` and `merge` replay this invocation's turns on top
+          of the ones already committed; they agree here, because unpublished
+          turns have no recorded time while committed ones already happened.
+          Invocations on *different* branches never conflict.
+
   reasoning:
     type: object
     description: >-
