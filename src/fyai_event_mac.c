@@ -105,24 +105,20 @@ static int arm_fd(struct fyai_event_source *src)
 	return 0;
 }
 
+/*
+ * Arm the first deadline as a one-shot. Rearm a repeating timer with its
+ * interval after it fires. This preserves separate initial and repeat delays.
+ */
 static int arm_timer(struct fyai_event_source *src)
 {
-	uint16_t flags = EV_ADD | EV_ENABLE;
 	fyai_event_ms_t rel;
 
 	rel = src->deadline_ms - fyai_event_now_ms();
 	if (rel < 0)
 		rel = 0;
 
-	/* A repeating timer re-arms itself with its interval; a one-shot uses the
-	 * remaining delay and EV_ONESHOT. */
-	if (src->oneshot)
-		flags |= EV_ONESHOT;
-	else
-		rel = src->interval_ms;
-
 	/* EVFILT_TIMER uses milliseconds by default on macOS. */
-	return kq_change(src, EVFILT_TIMER, flags, 0,
+	return kq_change(src, EVFILT_TIMER, EV_ADD | EV_ENABLE | EV_ONESHOT, 0,
 			 (intptr_t)rel, (uintptr_t)src, false);
 }
 
@@ -382,9 +378,15 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 			break;
 		case EVFILT_TIMER:
 			fyai_event_prepare(&out[count], src, FYAIEV_TIMER);
-			out[count].count = evs[i].data > 0 ?
-				(unsigned int)evs[i].data : 1;
+			out[count].count = 1;
 			count++;
+			/* Rearm a repeating timer with its repeat interval. */
+			src->armed = false;
+			if (!src->oneshot) {
+				src->deadline_ms = fyai_event_now_ms() +
+						   src->interval_ms;
+				(void)fyai_event_backend_arm(src);
+			}
 			continue;
 		case EVFILT_SIGNAL:
 			for (src = el->sources;
