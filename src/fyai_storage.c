@@ -150,15 +150,16 @@ static bool root_ref_contained(struct fy_allocator *a, fy_generic v)
 	return fy_allocator_contains(a, -1, fy_generic_resolve_collection_ptr(v));
 }
 
-/* Validate a branch entry and its bounded ref log. */
-static bool branch_entry_contained(struct fy_allocator *a, fy_generic entry)
+/* Validate at most @depth branch ref-log entries. */
+bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
+				 unsigned int depth)
 {
 	struct fyai_branch b;
 	unsigned int n;
 
 	if (fy_generic_is_invalid(entry))
 		return false;
-	for (n = 0; n < FYAI_REFLOG_KEEP_MAX; n++) {
+	for (n = 0; n < depth; n++) {
 		if (fy_generic_is_invalid(entry))
 			return true;
 		if (!root_ref_contained(a, entry))
@@ -170,35 +171,45 @@ static bool branch_entry_contained(struct fy_allocator *a, fy_generic entry)
 		    !root_ref_contained(a, b.description) ||
 		    !root_ref_contained(a, b.agent) ||
 		    !root_ref_contained(a, b.op) ||
-		    !root_ref_contained(a, b.from))
+		    !root_ref_contained(a, b.from) ||
+		    !root_ref_contained(a, b.prev))
 			return false;
 		entry = b.prev;
 	}
-	return false;	/* chain too long: treat as corrupt */
+	return true;
 }
 
-bool fyai_root_validate(struct fy_allocator *a, fy_generic root)
+/* Validate a root before following its references. */
+static bool root_shape_ok(struct fy_allocator *a, fy_generic root,
+			  struct fyai_root *r)
 {
-	struct fyai_root r;
-	fy_generic prev;
-	size_t i, count;
-
 	if (!fy_generic_is_mapping(root))
 		return false;
 	if (a && !fy_allocator_contains(a, -1,
 					fy_generic_resolve_collection_ptr(root)))
 		return false;
-	if (fyai_root_decode(root, &r) < 0)
+	if (fyai_root_decode(root, r) < 0)
 		return false;
-	prev = fyai_root_prev(root);
-	if (a && (!root_ref_contained(a, r.catalog) ||
-		  !root_ref_contained(a, r.branches) ||
-		  !root_ref_contained(a, prev)))
+	if (!a)
+		return true;
+	return root_ref_contained(a, r->catalog) &&
+	       root_ref_contained(a, r->branches) &&
+	       root_ref_contained(a, fyai_root_prev(root));
+}
+
+bool fyai_root_validate(struct fy_allocator *a, fy_generic root)
+{
+	struct fyai_root r;
+	size_t i, count;
+
+	if (!root_shape_ok(a, root, &r))
 		return false;
+	/* Ref-log walkers validate each predecessor before following it. */
 	if (a && fy_generic_is_mapping(r.branches)) {
 		count = fy_generic_mapping_get_pair_count(r.branches);
 		for (i = 0; i < count; i++) {
-			if (!branch_entry_contained(a, fy_get_at(r.branches, i)))
+			if (!fyai_branch_entry_contained(a,
+					fy_get_at(r.branches, i), 1))
 				return false;
 		}
 	}

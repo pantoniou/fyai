@@ -2147,6 +2147,10 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 				   "kind", fy_value(gb, kind),
 				   "from", fy_value(gb,
 					fy_get(entry, "from", ""))));
+		/* Validate the next link before following it. */
+		if (!fyai_branch_entry_contained(ctx->durable_allocator,
+						 b.prev, 1))
+			break;
 		entry = b.prev;
 	}
 	return out;

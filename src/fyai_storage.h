@@ -27,6 +27,10 @@ const char *fyai_root_head_name(const struct fyai_root *r);
 /* The predecessor root in the ref log, or fy_invalid at the chain start. */
 fy_generic fyai_root_prev(fy_generic root);
 
+/* Check @depth branch ref-log entries for arena containment. */
+bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
+				 unsigned int depth);
+
 /*
  * Validate a root ref before trusting it: a mapping, contained in @a (pass NULL
  * to skip containment), with a good version and integrity checksum and all
