@@ -36,6 +36,7 @@ enum fyai_verb_id {
 	FYAIVID_CATALOG,
 	FYAIVID_BRANCH,
 	FYAIVID_CHECKOUT,
+	FYAIVID_RESET,
 	FYAIVID_CLEAR,
 	FYAIVID_COMPACT,
 	FYAIVID_CONTEXT,
@@ -222,6 +223,10 @@ struct fyai_checkout_args {
 	bool create;		/* -b: create the branch and switch to it */
 };
 
+struct fyai_reset_args {
+	const char *ref;	/* symbolic start point, e.g. HEAD~2 */
+};
+
 struct fyai_clear_args {
 	/* nothing */
 };
@@ -274,6 +279,7 @@ union fyai_cmd_args {
 	struct fyai_gc_args gc;
 	struct fyai_branch_args branch;
 	struct fyai_checkout_args checkout;
+	struct fyai_reset_args reset;
 	struct fyai_clear_args clear;
 	struct fyai_compact_args compact;
 	struct fyai_context_args context;

@@ -862,6 +862,27 @@ err_out:
 	return -1;
 }
 
+int fyai_branch_reset(struct fyai_ctx *ctx, const char *spec)
+{
+	fy_generic head;
+	long long turns;
+
+	if (fyai_resolve_ref(ctx, spec, &head))
+		return -1;
+
+	/* The previous head remains available as "<branch>@{1}". */
+	ctx->last_message = head;
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_RESET, NULL);
+	if (fyai_publish_state(ctx))
+		return -1;
+
+	turns = fyai_branch_turn_count(head, FYAI_BRANCH_WALK_MAX);
+	printf("%s is now at %s (%lld turn%s); the previous head is %s@{1}\n",
+	       fyai_ctx_branch(ctx), spec, turns, turns == 1 ? "" : "s",
+	       fyai_ctx_branch(ctx));
+	return 0;
+}
+
 int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 			 const char *description)
 {

@@ -70,6 +70,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
 	ITEM("branch [args]", "list|create|delete|rename|show|describe branches");
 	ITEM("checkout [-b] <branch>", "Switch to a branch, moving HEAD");
+	ITEM("reset <ref>", "Move this branch's head (recoverable via the ref log)");
 	ITEM("clear", "Reset the conversation (publish a null head)");
 	ITEM("compact [hint]", "Summarize history into a fresh chain");
 	ITEM("context", "Context fill and token estimate");
@@ -1497,6 +1498,23 @@ static int execute_checkout(struct fyai_ctx *ctx)
 				    args->start);
 }
 
+static int configure_reset(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_reset_args *args = &cfg->cmd.args.reset;
+
+	if (argc != 2) {
+		fyai_cfg_error(cfg, "reset: one reference is required");
+		return -1;
+	}
+	args->ref = argv[1];
+	return 0;
+}
+
+static int execute_reset(struct fyai_ctx *ctx)
+{
+	return fyai_branch_reset(ctx, ctx->cfg->cmd.args.reset.ref);
+}
+
 static int configure_clear(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	(void)cfg;
@@ -2041,6 +2059,19 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "selects a branch for one invocation only, this is durable.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 		.default_args.checkout = {
+		},
+	},
+	[FYAIVID_RESET] = {
+		.id	   = FYAIVID_RESET,
+		.name	   = "reset",
+		.configure = configure_reset,
+		.execute   = execute_reset,
+		.synopsis  = "reset <ref>",
+		.help	   = "Move this branch's head to <ref> (HEAD~2, HEAD^^, other~1,\n"
+			     "branch@{3}). Nothing is discarded: the head that was there\n"
+			     "stays in the branch ref log as <branch>@{1} until gc expires it.",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.default_args.reset = {
 		},
 	},
 	[FYAIVID_CLEAR] = {

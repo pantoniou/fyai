@@ -131,6 +131,8 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to);
 int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name);
 int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 			 const char *start);
+/* Reset the active branch and retain its previous ref-log entry. */
+int fyai_branch_reset(struct fyai_ctx *ctx, const char *spec);
 int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 			 const char *description);
 
