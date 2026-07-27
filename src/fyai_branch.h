@@ -6,9 +6,6 @@
 
 /* Branch state and operations. See doc/branching.md. */
 
-/* Room for an RFC 3339 UTC timestamp, e.g. "2026-07-27T09:15:04Z". */
-#define FYAI_BRANCH_TIMESTAMP_SIZE 32
-
 /* Return the active branch or FYAI_BRANCH_DEFAULT. */
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx);
 

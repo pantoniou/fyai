@@ -16,6 +16,7 @@ struct fyai_root {
 	fy_generic catalog;	/* arena-wide catalogue document */
 	fy_generic branches;	/* mapping: branch name -> branch entry */
 	fy_generic head;	/* the raw HEAD string generic */
+	fy_generic created;	/* when this root was published */
 };
 
 /* Decode a versioned container root. */

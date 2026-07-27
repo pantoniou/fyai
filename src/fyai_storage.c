@@ -92,6 +92,7 @@ int fyai_root_decode(fy_generic root, struct fyai_root *r)
 	r->catalog = fy_invalid;
 	r->branches = fy_invalid;
 	r->head = fy_invalid;
+	r->created = fy_invalid;
 
 	if (!fy_generic_is_mapping(root))
 		return -1;
@@ -102,6 +103,7 @@ int fyai_root_decode(fy_generic root, struct fyai_root *r)
 	r->catalog = fyai_root_entry(root, "catalog");
 	r->branches = fyai_root_entry(root, "branches");
 	r->head = fyai_root_entry(root, "HEAD");
+	r->created = fyai_root_entry(root, "created");
 	return FYAI_ROOT_VERSION;
 }
 
@@ -125,13 +127,15 @@ const char *fyai_root_head_name(const struct fyai_root *r)
  */
 static fy_generic fyai_root_build(struct fy_generic_builder *gb,
 				  fy_generic catalog, fy_generic branches,
-				  fy_generic head, fy_generic prev)
+				  fy_generic head, fy_generic created,
+				  fy_generic prev)
 {
 	return fy_gb_mapping(gb,
 			     "fyai", (long long)FYAI_ROOT_VERSION,
 			     "catalog", catalog,
 			     "HEAD", head,
 			     "branches", branches,
+			     "created", created,
 			     "prev", prev);
 }
 
@@ -766,7 +770,9 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	 * following prev keeps all history reachable.
 	 */
 	prevv = ctx->refs_head ? (fy_generic){ .v = ctx->refs_head } : fy_null;
-	root = fyai_root_build(ctx->gb, catv, branchesv, headv, prevv);
+	root = fyai_root_build(ctx->gb, catv, branchesv, headv,
+			       fy_value(ctx->gb,
+					(long long)fyai_branch_timestamp()), prevv);
 	if (!fy_generic_is_valid(root))
 		return -1;
 	desired = (uint64_t)root.v;
@@ -1107,7 +1113,7 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 				fyai_generic_or_null(r.catalog),
 				fyai_generic_or_null(branches),
 				fyai_generic_or_null(r.head),
-				rebuilt);
+				fy_get(roots[i], "created"), rebuilt);
 		if (!fy_generic_is_valid(rebuilt))
 			return -1;
 	}
