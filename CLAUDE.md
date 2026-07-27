@@ -308,10 +308,16 @@ source a plain malloc/free. `FYAI_EVENT_NO_POOL` overrides that either way —
 under ASAN so the shipping behaviour stays testable. Both settings must pass
 the full suite.
 
-Run the test suite with `ctest --test-dir build --output-on-failure`. Unit
-tests (`tests/fyai_patch_test.c`, `tests/fyai_provider_test.c`,
-`tests/fyai_diag_test.c`) run everywhere;
-the functional cases (`tests/cases/*.sh`) drive the real binary against the
+Run the test suite with `ctest --test-dir build --output-on-failure`. The
+`fyai_test` binary contains all unit tests. It links the production sources
+except `src/main.c`. Do not use test stubs. Declare each test with
+`FYAI_TEST_ENTRY(suite, name, entry)` after the includes in a
+`tests/fyai_*_test.c` file. CMake generates the registry and one CTest test for
+each declaration. Use `ctest -R fyai/unit/oauth` to run one suite. Use
+`./build/fyai_test oauth/plain_redirect` to run one test. Use
+`./build/fyai_test --list` to list all tests.
+
+The functional cases (`tests/cases/*.sh`) drive the real binary against the
 scenario-driven mock provider (`tests/mock/mock_provider.py`,
 `tests/scenarios/*.json`) in a hermetic sandbox — localhost only, private
 `HOME`/`XDG_*`. The whole suite, functional cases included, runs under ASAN
