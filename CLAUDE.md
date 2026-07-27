@@ -270,6 +270,23 @@ accept null to paper over an emitter that drops the quotes.
   `fyai_root_validate()` is **shallow**: it checks only the entry each branch
   points at, and whoever walks a ref-log chain checks the next link itself with
   `fyai_branch_entry_contained()`. See `doc/branching.md`.
+- `src/fyai_merge.c` — joining branches. A conversation is an append-only
+  message list, so a join decides an *order*, never reconciles edits — there is
+  no textual conflict to resolve. `rebase` replays ours on top of theirs;
+  `merge` interleaves by time. Both work in **exchanges** (a user turn plus the
+  turns answering it) so a question is never split from its answer. Exchange
+  times come from the branch ref log, which records each *head* — and a head is
+  the turn that *ends* an exchange, so never look a time up on the user turn
+  that opens one. `fyai_branch_timestamp()` is microsecond-resolution for this
+  reason: at second resolution a whole run ties and order falls to the
+  tie-break. `fyai_merge_base()` is an identity test on stored values, which
+  works because the store is content-addressed — two branches with the same
+  system prompt genuinely share that turn, so truly unrelated histories are
+  rarer than they look. A join keeps exactly one system prompt. On a lost CAS,
+  `publish_reconcile()` retries when only *other* branches moved (a publish
+  rebuilds one entry and carries the rest by reference) and applies
+  `branch/on_conflict` when ours did; rebase and merge coincide there, since
+  our unpublished turns have no ref-log time and theirs are already committed.
 - `src/fyai_catalog.c` — provider/model catalogue: arena document or embedded
   snapshot, lookups, `catalog` verb.
 - `src/*.h` — context structs and internal module interfaces.

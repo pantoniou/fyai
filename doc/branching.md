@@ -26,7 +26,7 @@ There are three important differences from `git`:
 - **There are no numeric references.** You always identify state by name. Refer
   to section 5.
 - **Branches nest.** A name is a path, thus a branch can hold branches below
-  it. Sub-agent runs will use this. Refer to section 7.
+  it. Sub-agent runs will use this. Refer to section 9.
 
 ## 2. Concepts
 
@@ -310,7 +310,16 @@ A change of branch in a session applies the configuration of the new branch
 immediately. `fyai` resolves the model, the API mode and the API key again. The
 banner shows the name of the current branch.
 
-### 6.5 The `root` verb
+### 6.5 The `rebase` and `merge` verbs
+
+```sh
+fyai rebase [--allow-unrelated] <branch>
+fyai merge  [--allow-unrelated] <branch>
+```
+
+Refer to section 7.
+
+### 6.6 The `root` verb
 
 ```sh
 fyai root print              # the current root
@@ -325,7 +334,7 @@ checked against the list of roots that the arena published.
 
 Refer to section 5.2.
 
-### 6.6 Views
+### 6.7 Views
 
 `--branch` is a global option, thus it goes before the verb. Use it to examine
 a branch that is not the current branch, without a change of `HEAD`.
@@ -340,7 +349,125 @@ fyai -b exp config get model
 `list reflog` shows the ref log of the selected branch. Each row gives a
 `<branch>@{N}` reference that you can use as a start point.
 
-## 7. Sub-agent branches
+## 7. Joining two branches
+
+A `git` merge must reconcile edits to the same lines, thus it can end in a
+conflict that a person must repair. `fyai` has no such problem. A conversation
+is a list of messages, and a message is never changed after it is written. To
+join two branches is therefore only to decide an **order**.
+
+Both operations work in **exchanges**, not in turns. An exchange is a question
+and the turns that answer it, thus a question is never separated from its
+answer.
+
+### 7.1 `rebase`
+
+```sh
+fyai rebase <branch>
+```
+
+The turns of `<branch>` are put first, then the turns of the current branch
+after them. This is the same rule as `git rebase`: your work goes on top.
+
+```
+main:  [sys][A][C]
+side:  [sys][A][B]        # side was made after A
+
+fyai rebase side   =>   [sys][A][B][C]
+                                 ^   ^ main's own turn last
+```
+
+### 7.2 `merge`
+
+```sh
+fyai merge <branch>
+```
+
+The exchanges of both branches are put in the order they happened.
+
+```
+A happened, then B on side, then C on main
+
+fyai merge side    =>   [sys][A][B][C]
+```
+
+The time of an exchange comes from the ref log of its branch, which records
+when each head was written. A turn holds no time of its own, and none was
+added: the ref log knows already, and a turn stays a pure value.
+
+An exchange that is older than the retained ref log has no time. Such an
+exchange is put before all the exchanges that have one, and keeps its order.
+
+### 7.3 Histories that never met
+
+If the two branches have no turn in common, the join is refused:
+
+```
+$ fyai merge other
+'main' and 'other' share no turn; pass --allow-unrelated to join them anyway
+```
+
+Use `--allow-unrelated` to join them.
+
+Note that two branches usually **do** share a turn, even when one was made
+empty. The store is content-addressed, thus two system turns with the same
+prompt are one value, and that value is the shared turn.
+
+A joined conversation keeps exactly one system prompt. The first is kept and
+the others are removed, thus a join does not repeat the instructions.
+
+### 7.4 What a join changes
+
+A join writes to the current branch only. The source branch is not changed.
+The head that the current branch had stays in its ref log, thus a join is
+undone with a reset:
+
+```sh
+fyai merge side
+fyai reset main@{1}     # changed your mind
+```
+
+The ref log records the join and the branch that it came from:
+
+```
+ Index │ Ref      │ Kind   │ From │ When
+───────┼──────────┼────────┼──────┼─────────────────────────────
+     0 │ main@{0} │ merge  │ side │ 2026-07-27T13:20:29.701846Z
+```
+
+## 8. Two invocations at the same time
+
+`fyai` publishes state by one atomic compare-and-set of the arena root. If a
+second invocation writes first, the first one loses that operation and must
+read again.
+
+Most of the time this is not a problem. A publish makes a new entry for **one**
+branch and keeps all the other branches by reference, thus two invocations on
+different branches do not obstruct each other. The one that lost reads the new
+root, sees that its own branch did not move, and writes again.
+
+A true conflict is only when the **same** branch moved. The
+`branch/on_conflict` configuration key says what to do:
+
+| Value | Result |
+| --- | --- |
+| `abort` | Write nothing and report the problem. The default. |
+| `rebase` | Put our turns after theirs. |
+| `merge` | The same as `rebase` here. Refer below. |
+
+```sh
+fyai config set branch/on_conflict rebase
+```
+
+`rebase` and `merge` give the same result for a conflict, and this is correct:
+our turns are not published, thus the ref log gives them no time, but their
+turns are published and thus already happened. To put them in the order of time
+and to put ours on top are the same order.
+
+The default is `abort` because to change the order of a conversation without
+being asked is not a decision that a program should make.
+
+## 9. Sub-agent branches
 
 **This function is not available yet.** The design is given here because the
 name format and the storage format are already in place, and the branch entry
@@ -393,7 +520,7 @@ is done separately.
 Until then, a sub-agent conversation is not kept, and `fyai branch --all` shows
 the same list as `fyai branch`.
 
-## 8. Examples
+## 10. Examples
 
 Try a different model on the same problem:
 
@@ -442,7 +569,7 @@ fyai branch --all
 fyai transcript --branch main/explore-1
 ```
 
-## 9. Storage format
+## 11. Storage format
 
 The arena root is a container mapping. Version 2 adds the branches:
 
@@ -456,7 +583,7 @@ branches:
     head:   <turn|null>
     created: <timestamp>
     description: <string|null>
-    op:     <string>              # what made this entry
+    op:     <string>              # what made this entry (turn, merge, ...)
     from:   <string|null>         # the previous name, on a rename
     prev:   <branch-entry|null>
   main/explore-1:
@@ -487,19 +614,18 @@ Each publish operation makes a new branch entry for one branch only, and keeps
 the other branches by reference. Thus a change to one branch does not touch the
 data of the other branches.
 
-## 10. Compatibility
+## 12. Compatibility
 
 Version 2 of the root is not compatible with version 1. An older arena does not
 open. Use `fyai init` to make a new arena.
 
 An older `fyai` program cannot read a version 2 arena.
 
-## 11. Limits
+## 13. Limits
 
 These functions are not available now:
 
-- Sub-agent branches. Refer to section 7. The name rules are in place, but the
+- Sub-agent branches. Refer to section 9. The name rules are in place, but the
   conversation of a sub-agent is not yet kept.
 - Automatic tracking of the branch of a `git` repository.
-- A merge or a rebase of conversations.
 - Synchronization with a remote arena.
