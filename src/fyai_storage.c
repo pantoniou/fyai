@@ -15,6 +15,7 @@
 #include "config.h"
 #endif
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -226,6 +227,155 @@ fy_generic fyai_root_prev(fy_generic root)
 	if (!fy_generic_is_mapping(root))
 		return fy_invalid;
 	return fyai_root_entry(root, "prev");
+}
+
+fy_generic fyai_root_find(struct fy_allocator *a, fy_generic_value from,
+			  fy_generic_value want)
+{
+	struct fyai_root r;
+	fy_generic node, current;
+	unsigned int n;
+
+	if (!from || !want)
+		return fy_invalid;
+
+	if (from == want) {
+		current = (fy_generic){ .v = from };
+		if (fyai_root_validate(a, current))
+			return current;
+		return fy_invalid;
+	}
+
+	node = (fy_generic){ .v = from };
+	for (n = 0; n < FYAI_REFLOG_KEEP_MAX; n++) {
+		/* Run the full validation only on a matching root. */
+		if (!root_shape_ok(a, node, &r))
+			return fy_invalid;
+		if ((uint64_t)node.v == want)
+			return fyai_root_validate(a, node) ? node : fy_invalid;
+		node = fyai_root_prev(node);
+		if (fy_generic_is_invalid(node))
+			return fy_invalid;
+	}
+	return fy_invalid;
+}
+
+/* True when @spec is only hexadecimal digits, i.e. a handle and not a name. */
+static bool root_spec_is_handle(const char *spec, fy_generic_value *vp)
+{
+	unsigned long long v;
+	const char *p;
+	char *end;
+
+	p = spec;
+	if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+		p += 2;
+	if (!*p)
+		return false;
+	for (end = (char *)p; *end; end++) {
+		if (!isxdigit((unsigned char)*end))
+			return false;
+	}
+	errno = 0;
+	v = strtoull(p, &end, 16);
+	if (errno || *end || !v)
+		return false;
+	*vp = (fy_generic_value)v;
+	return true;
+}
+
+/* Find the oldest root in the run that holds @want for @name. */
+static fy_generic_value root_for_branch_entry(struct fy_allocator *a,
+					      fy_generic_value from,
+					      const char *name,
+					      fy_generic want, bool by_head)
+{
+	struct fyai_branch b;
+	struct fyai_root r;
+	fy_generic node, have;
+	fy_generic_value match;
+	unsigned int n;
+
+	match = 0;
+	node = (fy_generic){ .v = from };
+	for (n = 0; n < FYAI_REFLOG_KEEP_MAX; n++) {
+		if (!root_shape_ok(a, node, &r))
+			break;
+		fyai_branch_lookup(r.branches, name, &b);
+		have = by_head ? b.head : b.entry;
+		if (fy_generic_is_valid(have) && fy_equal(have, want)) {
+			match = (uint64_t)node.v;
+		} else if (match) {
+			break;	/* the run ended: keep its oldest root */
+		}
+		node = fyai_root_prev(node);
+		if (fy_generic_is_invalid(node))
+			break;
+	}
+	return match;
+}
+
+int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
+			   const char *spec, fy_generic_value *outp)
+{
+	char name[256];
+	struct fyai_branch b;
+	struct fyai_root r;
+	fy_generic root, cur;
+	long long count, i;
+	fy_generic_value v;
+	int kind;
+
+	*outp = 0;
+	if (!spec || !*spec || !from)
+		return -1;
+
+	root = (fy_generic){ .v = from };
+	if (!root_shape_ok(a, root, &r))
+		return -1;
+
+	/*
+	 * Prefer a branch name over a handle when the current root contains
+	 * that branch. A hexadecimal branch name is valid.
+	 */
+	kind = fyai_ref_parse(spec, name, sizeof(name), &count);
+	if ((kind < 0 || !fyai_branch_name_valid(name) ||
+	     !fyai_branch_lookup(r.branches, name, &b)) &&
+	    root_spec_is_handle(spec, &v)) {
+		root = fyai_root_find(a, from, v);
+		if (fy_generic_is_invalid(root))
+			return -1;
+		*outp = v;
+		return 0;
+	}
+
+	if (kind < 0 || !fyai_branch_name_valid(name))
+		return -1;
+	if (!fyai_branch_lookup(r.branches, name, &b))
+		return -1;
+
+	if (kind == '@') {
+		for (i = 0; i < count; i++) {
+			if (!fyai_branch_entry_contained(a, b.prev, 1) ||
+			    !fyai_branch_decode(b.prev, &b))
+				return -1;
+		}
+		*outp = root_for_branch_entry(a, from, name, b.entry, false);
+	} else if (kind == '~') {
+		cur = b.head;
+		for (i = 0; i < count; i++) {
+			if (fy_generic_is_invalid(cur) ||
+			    fy_generic_is_null_type(cur))
+				return -1;
+			cur = fy_get(cur, "previous");
+		}
+		if (fy_generic_is_invalid(cur) || fy_generic_is_null_type(cur))
+			return -1;
+		*outp = root_for_branch_entry(a, from, name, cur, true);
+	} else {
+		*outp = root_for_branch_entry(a, from, name, b.entry, false);
+	}
+	return *outp ? 0 : -1;
 }
 
 void fyai_reserve_arena_ranges(void)

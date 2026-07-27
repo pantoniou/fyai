@@ -27,6 +27,14 @@ const char *fyai_root_head_name(const struct fyai_root *r);
 /* The predecessor root in the ref log, or fy_invalid at the chain start. */
 fy_generic fyai_root_prev(fy_generic root);
 
+/* Find @want in the root ref log without dereferencing it first. */
+fy_generic fyai_root_find(struct fy_allocator *a, fy_generic_value from,
+			  fy_generic_value want);
+
+/* Resolve a root handle or symbolic reference without a context. */
+int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
+			   const char *spec, fy_generic_value *outp);
+
 /* Check @depth branch ref-log entries for arena containment. */
 bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 				 unsigned int depth);
