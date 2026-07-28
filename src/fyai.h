@@ -152,6 +152,7 @@ struct fyai_cfg {
 	int shell_timeout_ms;		/* default shell time limit (0 = none) */
 	int shell_max_timeout_ms;	/* cap on a model-requested limit */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
+	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
 	const char *tool_detail;
 	bool transcript_system;
 	float temperature;
@@ -367,6 +368,9 @@ struct fyai_ctx {
 	char *branch;
 	/* Stored HEAD, which can differ from the active branch. */
 	char *head_branch;
+	/* Durable branch for a sub-agent conversation. */
+	char *agent_branch;
+	char *tool_submit_error;
 	fy_generic arena_branches;
 	fy_generic branch_prev;
 	fy_generic branch_desc;		/* free-text purpose of this branch */

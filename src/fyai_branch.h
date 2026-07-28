@@ -68,7 +68,17 @@ struct fyai_branch {
 void fyai_branch_op_set(struct fyai_ctx *ctx, const char *op, const char *from);
 
 /* Return true if @name is a valid branch name. */
+/* A name a user may create: never contains ':'. */
 bool fyai_branch_name_valid(const char *name);
+/*
+ * A name that may be selected, which also accepts the "agent:<slug>" component
+ * that fyai itself writes for a sub-agent branch.
+ */
+bool fyai_branch_name_ref_valid(const char *name);
+
+/* The marker that makes a branch component a sub-agent branch. */
+#define FYAI_BRANCH_AGENT_PREFIX "agent:"
+
 
 /* Return true if @name is @parent or is below @parent. */
 bool fyai_branch_is_below(const char *name, const char *parent);
@@ -78,6 +88,9 @@ unsigned int fyai_branch_depth(const char *name);
 
 /* Longest single path component produced by fyai_branch_sanitize(). */
 #define FYAI_BRANCH_COMPONENT_MAX 32
+
+/* Longest full branch name. A buffer of FYAI_BRANCH_NAME_MAX + 1 holds one. */
+#define FYAI_BRANCH_NAME_MAX 255
 
 /*
  * Reduce an untrusted string to one valid path component, written to @buf.

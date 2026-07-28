@@ -694,6 +694,54 @@ err_out:
 	return -1;
 }
 
+/* Re-read the branch table after another process publishes it. */
+int fyai_branches_refresh(struct fyai_ctx *ctx)
+{
+	fy_generic_value head;
+	struct fyai_root r;
+	fy_generic root;
+
+	if (!ctx->durable_allocator || ctx->cfg->root_pinned)
+		return 0;
+	head = fy_allocator_refs_get(ctx->durable_allocator);
+	if (!head || head == ctx->refs_head)
+		return 0;
+	root = (fy_generic){ .v = head };
+	if (!fyai_root_validate(ctx->durable_allocator, root) ||
+	    fyai_root_decode(root, &r) < 0)
+		return -1;
+	ctx->refs_head = head;
+	ctx->arena_branches = r.branches;
+	return 0;
+}
+
+/* Re-open the arena before a forked child writes to it. */
+int fyai_arena_reopen(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	bool new_conversation;
+	int rc;
+
+	/* A second setup would strdup over the first. */
+	free(ctx->head_branch);
+	ctx->head_branch = NULL;
+
+	/* Do not apply the parent's --new operation twice. */
+	new_conversation = cfg->new_conversation;
+	cfg->new_conversation = false;
+
+	rc = fyai_close_storage(ctx);
+	if (!rc)
+		rc = fyai_setup_storage(ctx);
+
+	cfg->new_conversation = new_conversation;
+	fyai_error_check(ctx, !rc, err_out, "could not re-open the arena");
+	return 0;
+
+err_out:
+	return -1;
+}
+
 /*
  * Build the container root from the current ctx parts and CAS-advance the
  * refs head to it. Returns 0 on success, >0 on concurrent-change conflict,

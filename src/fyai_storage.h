@@ -10,6 +10,10 @@ void fyai_reserve_arena_ranges(void);
 int fyai_setup_storage(struct fyai_ctx *ctx);
 int fyai_publish_state(struct fyai_ctx *ctx);
 int fyai_close_storage(struct fyai_ctx *ctx);
+/* Re-read the branch table, which a sub-agent may have added to. */
+int fyai_branches_refresh(struct fyai_ctx *ctx);
+/* Re-open the arena in a forked child that must write to it. */
+int fyai_arena_reopen(struct fyai_ctx *ctx);
 
 /* Decoded container-root fields. */
 struct fyai_root {

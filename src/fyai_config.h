@@ -103,6 +103,9 @@ int fyai_config_edit(struct fyai_ctx *ctx);
  */
 int fyai_config_rederive(struct fyai_ctx *ctx);
 
+/* Apply one configuration overlay to the derived cache. */
+int fyai_config_apply(struct fyai_cfg *cfg, fy_generic overlay);
+
 /*
  * Re-derive the read-only `catalog:` block on @config_doc: the full models[]
  * entry for the document's `model` (display_name, context_window,

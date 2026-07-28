@@ -800,7 +800,20 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 					"delegated task, used as its label."),
 				"task", make_string_property(gb,
 					"Complete, self-contained instructions for "
-					"the sub-agent.")),
+					"the sub-agent."),
+				"persona", make_string_property(gb,
+					"Optional named persona for the "
+					"sub-agent, from the `agent/personas` "
+					"configuration. A persona carries its "
+					"own instructions and model settings. "
+					"Omit it for the default sub-agent."),
+				"context", make_string_property(gb,
+					"`fork` (the default) starts the "
+					"sub-agent from this conversation, so it "
+					"sees the context you already have; "
+					"`fresh` starts it from the task alone, "
+					"which is cheaper for self-contained "
+					"work.")),
 			fy_sequence("name", "description", "task")));
 
 	tools = fy_sequence(read_file_tool, write_file_tool, apply_patch_tool,
@@ -810,6 +823,53 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 	return assert_valid_generic(tools, "Unable to make tools (utils)");
 }
 
+/* Add configured personas to the agent tool description. */
+static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
+{
+	struct fy_generic_builder *gb = ctx->gb;
+	fy_generic personas, key, val, props, prop, params, fn;
+	const char *list = "";
+	const char *desc;
+	size_t i, n;
+
+	personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"), "personas",
+			  fy_invalid);
+	if (!fy_generic_is_mapping(personas))
+		return tool;
+	n = fy_generic_mapping_get_pair_count(personas);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(personas, i);
+		val = fy_generic_mapping_get_at_value(personas, i);
+		desc = fy_get(val, "description", "");
+		list = fy_sprintfa("%s\n- `%s`%s%s", list,
+				   fy_castp(&key, "?"),
+				   *desc ? ": " : "", desc);
+	}
+	if (!*list)
+		return tool;
+
+	fn = fy_get(tool, "function");
+	params = fy_get(fn, "parameters");
+	props = fy_get(params, "properties");
+	prop = fy_get(props, "persona");
+	prop = fy_assoc(gb, prop, fy_value(gb, "description"),
+		fy_value(gb, fy_sprintfa(
+			"Optional named persona for the sub-agent. Available:%s",
+			list)));
+	props = fy_assoc(gb, props, fy_value(gb, "persona"), prop);
+	return fy_mapping(gb,
+		"type", fy_get(tool, "type"),
+		"function", fy_mapping(gb,
+			"name", fy_get(fn, "name"),
+			"description", fy_get(fn, "description"),
+			"parameters", fy_mapping(gb,
+				"type", fy_get(params, "type"),
+				"properties", props,
+				"required", fy_get(params, "required"),
+				"additionalProperties",
+					fy_get(params, "additionalProperties"))));
+}
+
 /* Remove ask_user and agent from a sub-agent tool set. */
 fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 {
@@ -817,8 +877,19 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	fy_generic tools, tool, fn, name, out;
 
 	tools = make_tools(gb);
-	if (!ctx->cfg || !ctx->cfg->agent_child)
-		return tools;
+	if (!ctx->cfg || !ctx->cfg->agent_child) {
+		out = fy_seq_empty;
+		fy_foreach(tool, tools) {
+			fn = fy_get(tool, "function");
+			name = fy_get(fn, "name");
+			out = fy_append(gb, out,
+					fy_equal(name, "agent") ?
+					tools_describe_personas(ctx, tool) :
+					tool);
+		}
+		return assert_valid_generic(fy_gb_internalize(gb, out),
+					    "Unable to describe personas");
+	}
 
 	out = fy_seq_empty;
 	fy_foreach(tool, tools) {

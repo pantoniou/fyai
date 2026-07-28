@@ -51,7 +51,8 @@ int fyai_cfg_set_branch(struct fyai_cfg *cfg, const char *name)
 {
 	char *dup;
 
-	if (!fyai_branch_name_valid(name)) {
+	/* Selection, thus a sub-agent branch can be named. */
+	if (!fyai_branch_name_ref_valid(name)) {
 		fyai_cfg_error(cfg, "invalid branch name '%s'", name ? name : "");
 		return -1;
 	}
@@ -103,7 +104,8 @@ int fyai_ctx_set_branch(struct fyai_ctx *ctx, const char *name)
 {
 	char *dup;
 
-	if (!fyai_branch_name_valid(name)) {
+	/* Selection, and the path a sub-agent takes to its own branch. */
+	if (!fyai_branch_name_ref_valid(name)) {
 		fyai_error(ctx, "invalid branch name '%s'", name ? name : "");
 		return -1;
 	}
@@ -139,7 +141,8 @@ uint64_t fyai_branch_timestamp(void)
  * name can never need quoting on a command line. */
 static const char fyai_branch_bad_chars[] = "~^@:?*[\\";
 
-bool fyai_branch_name_valid(const char *name)
+/* Permit fyai-generated agent components only during branch selection. */
+static bool branch_name_valid(const char *name, bool allow_agent)
 {
 	const char *p, *comp;
 	size_t len;
@@ -155,6 +158,12 @@ bool fyai_branch_name_valid(const char *name)
 
 	comp = name;
 	for (p = name; ; p++) {
+		/* The one ':' of an "agent:" prefix is part of the marker. */
+		if (allow_agent && *p == ':' &&
+		    (size_t)(p - comp) == strlen(FYAI_BRANCH_AGENT_PREFIX) - 1 &&
+		    !strncmp(comp, FYAI_BRANCH_AGENT_PREFIX,
+			     strlen(FYAI_BRANCH_AGENT_PREFIX)))
+			continue;
 		if (*p && (isspace((unsigned char)*p) ||
 			   iscntrl((unsigned char)*p) ||
 			   strchr(fyai_branch_bad_chars, *p)))
@@ -173,6 +182,16 @@ bool fyai_branch_name_valid(const char *name)
 		comp = p + 1;
 	}
 	return true;
+}
+
+bool fyai_branch_name_valid(const char *name)
+{
+	return branch_name_valid(name, false);
+}
+
+bool fyai_branch_name_ref_valid(const char *name)
+{
+	return branch_name_valid(name, true);
 }
 
 bool fyai_branch_is_below(const char *name, const char *parent)
@@ -238,7 +257,7 @@ int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
 {
 	char slug[FYAI_BRANCH_COMPONENT_MAX + 1];
 	struct fyai_branch b;
-	unsigned int n;
+	bool taken;
 	int len;
 
 	fyai_error_check(ctx, parent && *parent, err_out,
@@ -250,17 +269,17 @@ int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
 
 	fyai_branch_sanitize(raw, "agent", slug, sizeof(slug));
 
-	for (n = 1; n < 10000; n++) {
-		len = snprintf(buf, size, "%s/%s-%u", parent, slug, n);
-		fyai_error_check(ctx, len >= 0 && len < (int)size, err_out,
-				 "sub-agent branch name too long below '%s'",
-				 parent);
-		if (!fyai_branch_lookup(ctx->arena_branches, buf, &b))
-			return 0;
-	}
-	fyai_error_check(ctx, false, err_out,
-			 "too many '%s' sub-agent branches below '%s'",
+	/* An agent name is a stable handle and must be unique. */
+	len = snprintf(buf, size, "%s/%s%s", parent,
+		       FYAI_BRANCH_AGENT_PREFIX, slug);
+	fyai_error_check(ctx, len >= 0 && len < (int)size, err_out,
+			 "sub-agent branch name too long below '%s'", parent);
+
+	taken = fyai_branch_lookup(ctx->arena_branches, buf, &b);
+	fyai_error_check(ctx, !taken, err_out,
+			 "a sub-agent named '%s' already exists below '%s'",
 			 slug, parent);
+	return 0;
 
 err_out:
 	return -1;
@@ -462,7 +481,7 @@ int fyai_resolve_ref_state(struct fyai_ctx *ctx, const char *spec,
 			 "<branch>~N or <branch>@{N}", spec);
 	name = !strcmp(parsed, "HEAD") ?
 	       fy_sprintfa("%s", fyai_ctx_branch(ctx)) : parsed;
-	fyai_error_check(ctx, fyai_branch_name_valid(name), err_out,
+	fyai_error_check(ctx, fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name);
 
 	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
@@ -884,7 +903,7 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name)
 	struct fyai_branch b;
 	int rc;
 
-	fyai_error_check(ctx, fyai_branch_name_valid(name), err_out,
+	fyai_error_check(ctx, fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name ? name : "");
 	rc = fyai_branch_lookup(ctx->arena_branches, name, &b);
 	fyai_error_check(ctx, rc, err_out, "no such branch '%s'", name);
@@ -910,7 +929,9 @@ int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 	bool exists;
 	int rc;
 
-	fyai_error_check(ctx, fyai_branch_name_valid(name), err_out,
+	/* -b creates, thus it takes the strict test; a plain checkout selects. */
+	fyai_error_check(ctx, create ? fyai_branch_name_valid(name) :
+			      fyai_branch_name_ref_valid(name), err_out,
 			 "invalid branch name '%s'", name ? name : "");
 	exists = fyai_branch_lookup(ctx->arena_branches, name, &b);
 	fyai_error_check(ctx, exists || create, err_out,

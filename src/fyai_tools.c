@@ -13,6 +13,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -24,6 +25,7 @@
 #include <sys/wait.h>
 
 #include "fyai_agent.h"
+#include "fyai_branch.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
@@ -32,6 +34,7 @@
 #include "fyai_patch.h"
 #include "fyai_sandbox.h"
 #include "fyai_session.h"
+#include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
 #include "fyai_ui.h"
@@ -785,8 +788,7 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 			      "tool error:", 11) != 0;
 		return result_generic;
 	} else if (fy_equal(name, "agent")) {
-		result_generic = fyai_agent_run(ctx, fy_get(args, "task", ""),
-						okp);
+		result_generic = fyai_agent_run(ctx, args, okp);
 		if (fy_generic_is_invalid(result_generic))
 			return fy_gb_internalize(ctx->transient_gb,
 				fy_value("tool error: sub-agent failed"));
@@ -882,6 +884,7 @@ struct fyai_tool_child {
 	struct jsonrpc_conn *conn;
 	fy_generic id;
 	fy_generic args;
+	fy_generic branch;	/* sub-agent branch named by the parent */
 	bool pending;
 	bool done;
 };
@@ -901,6 +904,7 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 			return fy_invalid;
 		}
 		tc->args = fy_get(params, "call", fy_invalid);
+		tc->branch = fy_get(params, "branch", fy_invalid);
 		tc->id = id;
 		tc->pending = true;
 		jsonrpc_conn_defer(conn);
@@ -942,6 +946,10 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 						      "message", "call is required"));
 				break;
 			}
+			/* Keep the durable branch on the child context. */
+			if (fy_generic_is_string(tc.branch))
+				ctx->agent_branch =
+					strdup(fy_castp(&tc.branch, ""));
 			result = fyai_execute_tool_call(ctx, tc.args, &ok);
 			jsonrpc_conn_respond(conn, tc.id,
 				fy_gb_mapping(fyai_ctx_transient_gb(ctx),
@@ -990,6 +998,7 @@ struct fyai_tool_job {
 	bool terminating;
 	bool timed_out;
 	unsigned int timeout_ms;	/* 0 = no limit */
+	char *branch;			/* sub-agent branch, allocated by us */
 	struct fyai_event_source *deadline;
 	int term_signal;
 	struct fyai_tool_job_group *group;
@@ -1185,6 +1194,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
 			;
 	fyai_tool_job_live_close(job);
+	free(job->branch);
 	free(job);
 }
 
@@ -1194,17 +1204,42 @@ static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
 					     const char *name, bool native_call,
 					     fy_generic args);
 
+static const char *fyai_tool_submit_error(struct fyai_ctx *ctx)
+{
+	if (!ctx->tool_submit_error)
+		return "tool error: could not start the tool";
+	return ctx->tool_submit_error;
+}
+
+static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
+				       const char *fmt, ...)
+{
+	va_list ap;
+	char *msg = NULL;
+
+	va_start(ap, fmt);
+	if (vasprintf(&msg, fmt, ap) < 0)
+		msg = NULL;
+	va_end(ap);
+	free(ctx->tool_submit_error);
+	ctx->tool_submit_error = msg;
+}
+
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call)
 {
 	struct fyai_tool_job *job = NULL;
 	const char *name, *args_text, *command;
-	fy_generic args, progress_args;
+	fy_generic args, progress_args, agent_name;
 	struct fyai_event_loop *el;
+	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
+	bool have_branch = false;
 	bool native_call;
 	bool eligible;
 	int rc;
 
+	free(ctx->tool_submit_error);
+	ctx->tool_submit_error = NULL;
 	eligible = fyai_tool_call_parallel_eligible(ctx, tool_call);
 	fyai_error_check(ctx, eligible, err,
 		"tool call is not eligible for asynchronous submission");
@@ -1242,12 +1277,38 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			free(header);
 		}
 	}
+	/* Reserve the sub-agent branch before the job is spawned. */
+	if (fy_equal(name, "agent")) {
+		rc = fyai_branches_refresh(ctx);
+		fyai_error_check(ctx, !rc, err,
+				 "could not refresh the branch table");
+		agent_name = fy_get(args, "name", fy_invalid);
+		rc = fyai_branch_alloc_child(ctx, fyai_ctx_branch(ctx),
+				fy_castp(&agent_name, "agent"),
+				(unsigned int)ctx->cfg->agent_max_branch_depth,
+				child_branch, sizeof(child_branch));
+		if (rc)
+			fyai_tool_submit_error_set(ctx,
+				"tool error: a sub-agent named '%s' already "
+				"exists on this branch; choose a different name",
+				fy_castp(&agent_name, "agent"));
+		fyai_error_check(ctx, !rc, err,
+				 "could not name the sub-agent branch");
+		have_branch = true;
+	}
+
 	job = calloc(1, sizeof(*job));
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
 	rc = fyai_tool_job_spawn(ctx, job);
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
+	/* The spawn clears the job, thus the name is carried in a local. */
+	if (have_branch) {
+		job->branch = strdup(child_branch);
+		fyai_error_check(ctx, job->branch, err,
+				 "out of memory naming the sub-agent branch");
+	}
 	job->call = tool_call;
 	job->native_shell = native_call;
 	if ((fy_equal(name, "shell") || fy_equal(name, "agent")) &&
@@ -1387,6 +1448,9 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 
 	job->out_open = true;
 	job->run = jsonrpc_request_submit(job->conn, "tool/run",
+					  job->branch ?
+					  fy_gb_mapping(gb, "call", job->call,
+							"branch", job->branch) :
 					  fy_gb_mapping(gb, "call", job->call),
 					  jsonrpc_conn_next_id(job->conn),
 					  false, fyai_tool_job_run_done, job);
@@ -1457,12 +1521,19 @@ static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
 					     const char *name, bool native_call,
 					     fy_generic args)
 {
+	fy_generic persona_name, personas, persona;
 	long long ms;
 
 	if (native_call || fy_equal(name, "shell"))
 		return fyai_shell_timeout_ms(ctx, native_call ? fy_invalid : args);
 	if (fy_equal(name, "agent")) {
 		ms = fy_get(args, "timeout", 0LL);
+		persona_name = fy_get(args, "persona", fy_invalid);
+		personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"),
+				  "personas", fy_invalid);
+		persona = fy_get(personas, persona_name, fy_invalid);
+		if (ms <= 0)
+			ms = fy_get(persona, "timeout_ms", 0LL);
 		if (ms <= 0)
 			ms = ctx->cfg->agent_timeout_ms;
 		return ms > 0 ? (unsigned int)ms : 0;
@@ -1533,6 +1604,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		job->result_ok = false;
 	}
 	*okp = job->result_ok && !job->failed;
+	free(job->branch);
 	free(job);
 	return result;
 }
@@ -1794,7 +1866,15 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 		entry->job = fy_generic_is_valid(call) ?
 			fyai_tool_job_submit(group->ctx, call) : NULL;
 		if (!entry->job) {
-			entry->state = FYAITGS_SUBMIT_FAILED;
+			/* Return a submission error as the tool result. */
+			result = fy_value(group->ctx->transient_gb,
+					  fyai_tool_submit_error(group->ctx));
+			text = emit_json_string(group->ctx->transient_gb,
+						result);
+			entry->result_text = text ? strdup(text) : NULL;
+			entry->result_ok = false;
+			entry->state = entry->result_text ?
+				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
 			group->parked++;
 			continue;
 		}

@@ -1777,6 +1777,10 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->head_branch);
 		ctx->head_branch = NULL;
 	}
+	free(ctx->agent_branch);
+	ctx->agent_branch = NULL;
+	free(ctx->tool_submit_error);
+	ctx->tool_submit_error = NULL;
 	if (ctx->shell_stream) {
 		fyai_fenced_stream_finish(ctx->shell_stream);
 		free(ctx->shell_stream);

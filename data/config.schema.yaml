@@ -178,6 +178,66 @@ properties:
           Time limit for one sub-agent job, in milliseconds. The job and
           every process below it are stopped when it expires. 0 removes
           the limit.
+      personas:
+        type: object
+        description: >-
+          Named sub-agent personas. The `persona` parameter of the agent tool
+          selects one by name. A key that a persona does not set keeps the
+          value in force for the invocation.
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          properties:
+            description:
+              type: string
+              description: >-
+                What this persona is for. It is shown to the model with the
+                list of names, thus it is what the model chooses on.
+            system_prompt:
+              type: string
+              description: Instructions that define the persona.
+            model:
+              type: string
+              description: >-
+                Model for this persona, resolved through the catalogue like
+                the top-level `model` key.
+            temperature:
+              type: number
+            max_tokens:
+              type: integer
+              minimum: 1
+            thinking:
+              type: boolean
+              description: Display reasoning output of the sub-agent.
+            timeout_ms:
+              type: integer
+              minimum: 0
+              description: >-
+                Time limit for this persona, which overrides agent/timeout_ms.
+            context:
+              type: string
+              enum: [fork, fresh]
+              description: >-
+                How a conversation of this persona starts. The `context`
+                parameter of the call overrides it.
+            reasoning:
+              type: object
+              additionalProperties: false
+              properties:
+                effort:
+                  type: string
+                  enum: [minimal, low, medium, high]
+                summary:
+                  type: string
+                  enum: [auto, concise, detailed]
+      max_branch_depth:
+        type: integer
+        minimum: 1
+        default: 8
+        description: >-
+          Maximum nesting depth of sub-agent branches below a top-level
+          branch. A sub-agent cannot delegate, thus one level is used now;
+          the limit protects the branch allocator.
   sandbox:
     default: false
     description: >-

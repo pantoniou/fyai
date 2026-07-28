@@ -177,7 +177,7 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
  *
  * Returns 0 on success, -1 on a malformed value (e.g. a raw secret).
  */
-static int apply_config(struct fyai_cfg *cfg, fy_generic root)
+int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
 	fy_generic v, sb, tbv, shell, secret_ref;
 
@@ -242,6 +242,9 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 				cfg->shell_max_timeout_ms);
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
 				cfg->agent_timeout_ms);
+	cfg->agent_max_branch_depth = fy_get(fy_get(root, "agent"),
+				"max_branch_depth",
+				cfg->agent_max_branch_depth);
 	cfg->top_logprobs = fy_get(root, "top_logprobs",
 				cfg->top_logprobs);
 
@@ -911,7 +914,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 				       fy_generic_is_valid(root_repo) ?
 						root_repo : root_user,
 				       root_explicit);
-	if (apply_config(cfg, cfg->config_doc))
+	if (fyai_config_apply(cfg, cfg->config_doc))
 		return -1;
 
 	return 0;
@@ -1515,7 +1518,7 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 	fyai_config_set_defaults(&tmp);
 	tmp.gb = cfg->gb;
 	tmp.catalog = cfg->catalog;
-	if (apply_config(&tmp, doc))
+	if (fyai_config_apply(&tmp, doc))
 		problems = config_problem_add(cfg->gb, problems,
 				"%s has invalid values", origin);
 	else if (config_doc_finalize(&tmp))
@@ -1911,7 +1914,7 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 	 */
 	if (fy_generic_is_valid(ctx->arena_config))
 		cfg->config_doc = ctx->arena_config;
-	if (apply_config(cfg, cfg->config_doc))
+	if (fyai_config_apply(cfg, cfg->config_doc))
 		return -1;
 
 	if (cfg->markdown)
@@ -1933,6 +1936,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->max_tokens = DEFAULT_MAX_TOKENS;
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
+	cfg->agent_max_branch_depth = DEFAULT_AGENT_MAX_BRANCH_DEPTH;
 	cfg->shell_timeout_ms = DEFAULT_SHELL_TIMEOUT_MS;
 	cfg->shell_max_timeout_ms = DEFAULT_SHELL_MAX_TIMEOUT_MS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
@@ -2331,7 +2335,7 @@ static bool config_has_command_ops(struct fyai_cfg *cfg)
 /*
  * Fold every pending --set into @cfg as the highest-precedence layer, so this
  * invocation sees the edited values. Builds one transient document by replaying
- * every queued set/delete in order, then overlays it via apply_config.
+ * every queued set/delete in order, then overlays it via fyai_config_apply.
  */
 static int apply_config_set_ops(struct fyai_cfg *cfg)
 {
@@ -2379,7 +2383,7 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 				       fyai_catalog_effective(cfg->catalog, cfg->gb),
 				       doc);
 	cfg->config_doc = doc;
-	return apply_config(cfg, doc);
+	return fyai_config_apply(cfg, doc);
 }
 
 int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
