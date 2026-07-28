@@ -179,7 +179,30 @@ accept null to paper over an emitter that drops the quotes.
   `parse_turn_selector()`, the `--env` parser).
 - `src/utils.c` — HTTP response buffers, shell exec capture, generic emit/parse.
   The shell `fork`/`exec` optionally applies a `fyai_sandbox_spec` in the child
-  before exec.
+  before exec. `struct shell_command_opts` shapes one sub-execution: `workdir`
+  does the `chdir` *before* the confinement (which is one-way, so the target
+  must stay reachable; status 125 marks a directory that cannot be entered),
+  and `timeout_ms` arms a deadline. The capture completes when the child is
+  **reaped**, and does not wait for the pipes to give EOF: `/bin/sh` usually
+  forks rather than execs, so a descendant holds the write ends for as long as
+  the command would have run, which made every cancelled or timed-out command
+  return only when it stopped by itself. Do not give the shell child a session
+  or group of its own to "fix" that — it lives in the tool job's group
+  precisely so the group terminate below can sweep it.
+
+  **A time limit belongs to the job, not to the command inside it.** Only the
+  parent can stop a whole process group, and the job child is a session leader,
+  so one `fyai_tool_job_cancel()` stops the shell (or sub-agent), everything it
+  forked, and everything below that. A limit armed inside the job child reaches
+  only its own direct child — and a shell forks — so the descendants survive and
+  are reparented to init. `fyai_tool_job_submit()` therefore arms the deadline
+  in the parent (`shell`: the model's `timeout`, bounded by
+  `shell/max_timeout_ms`, defaulting to `shell/timeout_ms`; `agent`:
+  `agent/timeout_ms`, off by default), and `cfg->tool_child` keeps the capture
+  inside the child from arming a second, weaker one. The reason is attached in
+  `fyai_tool_job_collect()`: the child normally reports its result before it
+  dies, and from inside the child a group terminate is indistinguishable from an
+  interrupt, so only the parent can say the limit expired.
   A forked tool child uses `/dev/null` as standard input and calls `setsid()`.
   The parent must not call `setpgid()` on the child. Cancellation uses
   `fyai_event_add_child_terminate_group()` to stop all descendants.

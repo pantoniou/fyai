@@ -30,7 +30,7 @@ records how far apart they are now.
 | `read_file` | `path` | `path` |
 | `write_file` | `path`, `content` | both |
 | `apply_patch` | `patch` | `patch` |
-| `shell` | `command` | `command` |
+| `shell` | `command`, `workdir`, `timeout`, `description` | `command` |
 | `ask_user` | `question`, `options` | `question` |
 | `agent` | `name`, `description`, `task` | all three |
 
@@ -50,14 +50,14 @@ A sub-agent gets the same set less `agent` and `ask_user`
 
 ### 3.2 Comparison
 
-`fyai` supplies `command` and nothing else.
+`fyai` supplies `command`, `workdir`, `timeout` and `description`.
 
 | Function | claude_code | codex | opencode | fyai |
 | --- | --- | --- | --- | --- |
 | The command | yes | yes | yes | **yes** |
-| Time limit | `timeout` | `yield_time_ms` | `timeout` | **no** |
-| Working directory | no | `workdir` | `workdir` | **no** |
-| A label for the display | `description` | `justification` | `description` | **no** |
+| Time limit | `timeout` | `yield_time_ms` | `timeout` | **yes** |
+| Working directory | no | `workdir` | `workdir` | **yes** |
+| A label for the display | `description` | `justification` | `description` | **yes** |
 | Run in the background | `run_in_background` | (session) | no | **no** |
 | Write to the standard input | no | `write_stdin` | no | **no** |
 | A session that stays open | no | `session_id` | no | **no** |
@@ -67,23 +67,37 @@ A sub-agent gets the same set less `agent` and `ask_user`
 
 ### 3.3 The gaps that matter
 
-**A time limit is absent.** A command that does not stop holds the turn for
-ever. The user can interrupt it, but the model cannot set a limit and cannot
-recover by itself. All three agents in the catalogue give the model a limit.
-The machinery is present — a tool job is a child process with its own process
-group, and `fyai_event_add_child_terminate_group()` already stops it — thus
-this is a parameter and a timer, not new architecture. **This is the largest
-gap and the least expensive to close.**
+**A time limit is supplied.** The `timeout` parameter gives a limit in
+milliseconds. `shell/timeout_ms` in the configuration (120000 by default)
+applies when the model asks for no limit, and `shell/max_timeout_ms` (600000)
+bounds the limit that the model can ask for. A zero disables each of them. The
+native `shell_call` grammar has no parameter for a limit, thus it gets the
+configured default.
 
-**A working directory is absent.** The model must write `cd x && ...`, which
-is easy but which also puts the directory outside the view of the sandbox
-code. A `workdir` parameter would let `fyai_tool_apply_sandbox()` see where the
-command will run.
+The limit is a property of the **job**, and not of the command inside it. A
+tool call runs in a job child that is a session leader, thus the parent stops
+the full process group with one operation. This is necessary because `/bin/sh`
+usually forks and does not exec: a limit applied inside the job child stops the
+shell and leaves the process that the shell started. The same machinery gives a
+limit to an agent call (`agent/timeout_ms`, with no limit by default), because
+an agent call is also a job. The parent adds the reason to the result, because
+from inside the job child a group terminate looks the same as an interrupt.
 
-**A label for the display is absent.** `fyai` shows the command itself. Two of
-the three agents ask for a short description as well, because a long command
-reads badly in a list. `fyai_format_tool_header()` already builds the header,
-thus this is a parameter and a format string.
+**A working directory is supplied.** The `workdir` parameter does the `chdir`
+in the child. It is done before the sandbox is applied, because the confinement
+is one-way and the target must stay reachable. Status 125 keeps a directory
+that cannot be entered different from the 126 and 127 of the shell.
+
+**A label for the display is supplied.** The `description` parameter adds a row
+to the header of the tool call, with `workdir` and `timeout`. A parameter that
+the model does not give adds no row.
+
+**A command that was stopped now returns immediately.** `/bin/sh` usually forks
+and does not exec, thus a descendant keeps the capture pipes open for the full
+time that the command would have run. A wait for EOF on those pipes made a
+cancelled or timed-out command return only when it stopped by itself. The
+capture is now complete when the child is reaped. This also shortens the
+interrupt path.
 
 **A background command is absent.** `run_in_background` needs a job that lives
 longer than the tool call, and a way to collect its output later
@@ -232,9 +246,9 @@ the rule at all.
 
 | Gap | Cost | Objection | Do |
 | --- | --- | --- | --- |
-| Shell time limit | Low | None | **Yes, first** |
-| Shell `workdir` | Low | None | Yes |
-| Shell `description` | Low | None | Yes |
+| Shell time limit | Low | None | **Done** |
+| Shell `workdir` | Low | None | **Done** |
+| Shell `description` | Low | None | **Done** |
 | Persona for a sub-agent | Medium | Needs a place in the catalogue | Yes |
 | An agent inside an agent | Low | Contradiction to repair first | **Decide first** |
 | Keep a sub-agent conversation | Medium | Protocol change (planned) | Planned |
@@ -246,9 +260,9 @@ the rule at all.
 | A task list, `Monitor` | High | The same | Decide |
 | Model control of the sandbox | — | Contrary to the SRD | **No** |
 
-The first three are parameters on a tool that exists and machinery that
-exists. The persona is the largest gain for the model, because it changes what
-delegation can express.
+The first three were parameters on a tool that exists and machinery that
+exists, and they are done. The persona is the largest gain for the model,
+because it changes what delegation can express.
 
 Everything marked "Decide" has one objection in common: it needs state between
 invocations. `fyai` has one place for such state, the arena, and one rule for
