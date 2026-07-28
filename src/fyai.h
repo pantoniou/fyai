@@ -49,6 +49,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 	"tool calls in separate responses."
 #define MAX_TOOL_LOOP_ITERATIONS 50
 #define DEFAULT_TEMPERATURE 0.0
+/* Shell time limits in milliseconds. Zero disables either limit. */
+#define DEFAULT_SHELL_TIMEOUT_MS 120000
+#define DEFAULT_SHELL_MAX_TIMEOUT_MS 600000
 /* Default rendered rows of a tool result shown in the display view. */
 #define DEFAULT_TOOL_PREVIEW_LINES 5
 #define DEFAULT_TOOL_UPDATE_INTERVAL_MS 33
@@ -146,6 +149,9 @@ struct fyai_cfg {
 	int top_logprobs;
 	int tool_preview_lines;
 	int tool_update_interval_ms;
+	int shell_timeout_ms;		/* default shell time limit (0 = none) */
+	int shell_max_timeout_ms;	/* cap on a model-requested limit */
+	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	const char *tool_detail;
 	bool transcript_system;
 	float temperature;
@@ -208,6 +214,8 @@ struct fyai_cfg {
 	bool transient;
 	/* True in a sub-agent child. */
 	bool agent_child;
+	/* The parent limits a forked tool job. */
+	bool tool_child;
 	/* Serve the agent protocol on standard input and output. */
 	bool agent_rpc;
 	/* MCP (Model Context Protocol) server settings. */

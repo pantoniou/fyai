@@ -282,11 +282,13 @@ struct shell_capture_job {
 	struct fyai_event_source *csrc;
 	struct fyai_event_source *tsrc;
 	struct fyai_event_source *killer;
+	struct fyai_event_source *deadline;
 	struct fyai_ctx *ctx;
 	pid_t pid;
 	bool reaped;
 	bool cancelling;
 	bool isolated_pgrp;
+	bool timed_out;
 	int status;
 	bool done;
 };
@@ -297,9 +299,11 @@ static void shell_capture_drop(struct fyai_event_source **srcp)
 	*srcp = NULL;
 }
 
+/* A cancelled command is complete when it is reaped. */
 static void shell_capture_update_done(struct shell_capture_job *job)
 {
-	job->done = !job->out.open && !job->err.open && job->reaped;
+	job->done = job->reaped &&
+		    (job->cancelling || (!job->out.open && !job->err.open));
 }
 
 static enum fyai_event_action shell_capture_readable(const struct fyai_event *ev)
@@ -391,6 +395,7 @@ static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
 	job->cancelling = true;
 	job->pid = pid;
 	shell_capture_signal_group(job, SIGTERM);
+	shell_capture_update_done(job);
 
 	el = job->ctx ? fyai_ctx_loop(job->ctx) : NULL;
 	if (el && !job->killer)
@@ -399,12 +404,27 @@ static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
 					   &job->killer);
 }
 
+/* The time limit expired. Stop the command in the same way as an interrupt. */
+static enum fyai_event_action
+shell_capture_deadline(const struct fyai_event *ev)
+{
+	struct shell_capture_job *job = ev->userdata;
+
+	job->deadline = NULL;
+	job->timed_out = true;
+	shell_capture_cancel(job->pid, job);
+	return FYAIEA_CONTINUE;
+}
+
 int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 struct shell_command_result *result,
 				 shell_output_fn output_fn,
 				 void *userdata,
-				 const struct fyai_sandbox_spec *sandbox)
+				 const struct fyai_sandbox_spec *sandbox,
+				 const struct shell_command_opts *opts)
 {
+	const char *workdir = opts ? opts->workdir : NULL;
+	unsigned int timeout_ms = opts ? opts->timeout_ms : 0;
 	struct response_buffer stdout_buf = {};
 	struct response_buffer stderr_buf = {};
 	struct shell_capture_job job = {};
@@ -451,6 +471,9 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		} else {
 			close(STDIN_FILENO);
 		}
+		/* Enter the directory before applying confinement. */
+		if (workdir && *workdir && chdir(workdir) < 0)
+			_exit(FYAI_SHELL_EXIT_WORKDIR);
 		/*
 		 * Confine the tool before handing control to the shell:
 		 * inherited across the exec and every process it spawns.
@@ -458,9 +481,9 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		 * failures fall through to run unconfined.
 		 */
 		if (sandbox && fyai_sandbox_apply(sandbox))
-			_exit(126);
+			_exit(FYAI_SHELL_EXIT_SANDBOX);
 		execl("/bin/sh", "sh", "-c", command, NULL);
-		_exit(127);
+		_exit(FYAI_SHELL_EXIT_EXEC);
 	}
 	job.isolated_pgrp = isatty(STDIN_FILENO) || isatty(STDOUT_FILENO);
 
@@ -482,10 +505,19 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	job.out.job = job.err.job = &job;
 	job.out.open = job.err.open = true;
 	job.ctx = ctx;
+	job.pid = pid;
 
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		goto out_wait;
+
+	if (timeout_ms) {
+		ret = fyai_event_add_timer(el, timeout_ms, 0,
+					   shell_capture_deadline,
+					   &job, &job.deadline);
+		fyai_error_check(ctx, !ret, out_wait,
+				 "could not arm the shell time limit");
+	}
 
 	if (fyai_event_add_fd(el, stdout_pipe[0], FYAIEV_READ,
 			      shell_capture_readable, &job.out, &job.out.src) ||
@@ -523,6 +555,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	if (!result->stdout_data || !result->stderr_data)
 		goto out;
 
+	result->timed_out = job.timed_out;
 	if (WIFSIGNALED(status)) {
 		result->signaled = true;
 		result->signal = WTERMSIG(status);
@@ -547,6 +580,7 @@ out:
 	shell_capture_drop(&job.csrc);
 	shell_capture_drop(&job.tsrc);
 	shell_capture_drop(&job.killer);
+	shell_capture_drop(&job.deadline);
 
 	if (pid > 0)
 		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
@@ -617,6 +651,17 @@ static fy_generic make_string_property(struct fy_generic_builder *gb,
 		"type", "string",
 		"description", description);
 	return assert_valid_generic(v, "Unable to make string property");
+}
+
+static fy_generic make_integer_property(struct fy_generic_builder *gb,
+					const char *description)
+{
+	fy_generic v;
+
+	v = fy_mapping(gb,
+		"type", "integer",
+		"description", description);
+	return assert_valid_generic(v, "Unable to make integer property");
 }
 
 static fy_generic make_string_array_property(struct fy_generic_builder *gb,
@@ -705,7 +750,19 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 		"Run a shell command in the workspace.",
 		make_tool_parameters(gb,
 			fy_mapping(
-				"command", make_string_property(gb, "Shell command to execute.")),
+				"command", make_string_property(gb, "Shell command to execute."),
+				"workdir", make_string_property(gb,
+					"Optional directory to run the command "
+					"in, absolute or workspace-relative. "
+					"Prefer this over a leading `cd`."),
+				"timeout", make_integer_property(gb,
+					"Optional time limit in milliseconds. "
+					"The command is stopped when it "
+					"expires."),
+				"description", make_string_property(gb,
+					"Optional short (3-5 word) description "
+					"of what the command does, used as its "
+					"label in the display.")),
 				fy_sequence("command")));
 
 	ask_user_tool = make_function_tool(gb,

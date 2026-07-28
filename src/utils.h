@@ -85,6 +85,17 @@ struct shell_command_result {
 	int exit_code;
 	int signal;
 	bool signaled;
+	bool timed_out;
+};
+
+#define FYAI_SHELL_EXIT_WORKDIR	125
+#define FYAI_SHELL_EXIT_SANDBOX	126
+#define FYAI_SHELL_EXIT_EXEC	127
+
+/* Options for one shell command. */
+struct shell_command_opts {
+	const char *workdir;		/* chdir in the child before exec */
+	unsigned int timeout_ms;	/* 0 = no limit */
 };
 
 enum shell_output_stream {
@@ -111,7 +122,8 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 struct shell_command_result *result,
 				 shell_output_fn output_fn,
 				 void *userdata,
-				 const struct fyai_sandbox_spec *sandbox);
+				 const struct fyai_sandbox_spec *sandbox,
+				 const struct shell_command_opts *opts);
 void shell_command_result_cleanup(struct shell_command_result *result);
 void emit_generic_to_stdout(const char *label, fy_generic value, bool pretty);
 void emit_generic_to_stdout_anchored(const char *label, fy_generic value,

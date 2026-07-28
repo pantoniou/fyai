@@ -146,6 +146,38 @@ properties:
     description: >-
       Enable the built-in shell tool. Forced off automatically for the
       Messages API grammar (which has no native shell tool support).
+  shell:
+    type: object
+    additionalProperties: false
+    description: Limits applied to shell-tool sub-executions.
+    properties:
+      timeout_ms:
+        type: integer
+        minimum: 0
+        default: 120000
+        description: >-
+          Time limit applied when the model asks for none. The command is
+          stopped when it expires. 0 disables the default limit.
+      max_timeout_ms:
+        type: integer
+        minimum: 0
+        default: 600000
+        description: >-
+          Upper bound on a `timeout` the model asks for. 0 removes the
+          bound.
+  agent:
+    type: object
+    additionalProperties: false
+    description: Sub-agent settings.
+    properties:
+      timeout_ms:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Time limit for one sub-agent job, in milliseconds. The job and
+          every process below it are stopped when it expires. 0 removes
+          the limit.
   sandbox:
     default: false
     description: >-

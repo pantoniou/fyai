@@ -105,10 +105,23 @@ static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 	return md;
 }
 
-static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command)
+static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command,
+				      fy_generic args)
 {
-	return fyai_format_tool_header(ctx, "shell",
-				       fy_mapping("command", command), 0);
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic desc, workdir, timeout;
+	fy_generic disp;
+
+	desc = fy_get(args, "description", fy_null);
+	workdir = fy_get(args, "workdir", fy_null);
+	timeout = fy_get(args, "timeout", fy_null);
+	disp = fy_null_filtered_mapping(
+		gb,
+		"command", command,
+		"description", desc,
+		"workdir", workdir,
+		"timeout", timeout);
+	return fyai_format_tool_header(ctx, "shell", disp, 0);
 }
 
 static void fyai_tool_progress_flush(struct fyai_ctx *ctx);
@@ -124,6 +137,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 
 	if (fyai_agent_delegated(ctx))
 		return;
+	args = fy_invalid;
 	name = fyai_tool_call_name(ctx, tool_call);
 	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
 		command = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
@@ -177,7 +191,8 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		 * (row limit + indent) as the history view, only updated live as
 		 * the command's output arrives, so live and history match.
 		 */
-		header = fyai_format_shell_header(ctx, *command ? command : name);
+		header = fyai_format_shell_header(ctx, *command ? command : name,
+						  args);
 		if (fyai_ui_active(ctx)) {
 			fyai_ui_tool_begin(ctx, header ? header : "shell");
 		} else if (header) {
@@ -430,22 +445,46 @@ static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb)
 	memset(sb, 0, sizeof(*sb));
 }
 
-static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command,
+/* Return the bounded time limit for a shell call. */
+static unsigned int fyai_shell_timeout_ms(struct fyai_ctx *ctx, fy_generic args)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	long long ms;
+
+	if (ctx->cfg->tool_child)
+		return 0;
+	ms = fy_get(args, "timeout", 0LL);
+	if (ms <= 0)
+		ms = cfg->shell_timeout_ms;
+	if (cfg->shell_max_timeout_ms > 0 && ms > cfg->shell_max_timeout_ms)
+		ms = cfg->shell_max_timeout_ms;
+	return ms > 0 ? (unsigned int)ms : 0;
+}
+
+static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				    bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct shell_command_result result = {};
+	struct shell_command_opts opts = {};
 	struct response_buffer buf = {};
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *sandbox;
+	fy_generic command, workdir;
 	const char *msg;
 	char *ret = NULL;
 
 	sandbox = fyai_shell_sandbox_begin(ctx, &sb);
 	*okp = false;
 
-	if (run_shell_command_capture_cb(ctx, command, &result,
-					 fyai_shell_output, ctx, sandbox))
+	command = fy_get(args, "command", fy_invalid);
+	workdir = fy_get(args, "workdir", fy_invalid);
+	opts.workdir = fy_castp(&workdir, (const char *)NULL);
+	opts.timeout_ms = fyai_shell_timeout_ms(ctx, args);
+
+	if (run_shell_command_capture_cb(ctx, fy_castp(&command, ""), &result,
+					 fyai_shell_output, ctx, sandbox,
+					 &opts))
 		goto out;
 	fyai_shell_live_close(ctx);
 
@@ -472,7 +511,11 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command,
 	}
 
 	if (result.signaled) {
-		if (fyai_interrupt_pending(ctx))
+		if (result.timed_out)
+			msg = fy_sprintfa(
+				"\ntool error: command timed out after %u ms\n",
+				opts.timeout_ms);
+		else if (fyai_interrupt_pending(ctx))
 			msg = "\ntool error: interrupted\n";
 		else
 			msg = fy_sprintfa(
@@ -481,8 +524,14 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, const char *command,
 		if (response_buffer_append(&buf, msg))
 			goto out;
 	} else if (result.exit_code) {
-		msg = fy_sprintfa("\ntool error: command exited with status %d\n",
-				  result.exit_code);
+		if (result.exit_code == FYAI_SHELL_EXIT_WORKDIR && opts.workdir)
+			msg = fy_sprintfa(
+				"\ntool error: cannot enter workdir %s\n",
+				opts.workdir);
+		else
+			msg = fy_sprintfa(
+				"\ntool error: command exited with status %d\n",
+				result.exit_code);
 		if (response_buffer_append(&buf, msg))
 			goto out;
 	} else {
@@ -594,6 +643,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct shell_command_result shell_result = {};
+	struct shell_command_opts shell_opts = {};
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *sandbox;
 	const char *name;
@@ -615,6 +665,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 
 		action = fy_get(tool_call, "action");
 		commands = fy_get(action, "commands");
+		/* Apply the configured default to a native shell call. */
+		shell_opts.timeout_ms = fyai_shell_timeout_ms(ctx, fy_invalid);
 		outputs = fy_seq_empty;
 		sandbox = fyai_shell_sandbox_begin(ctx, &sb);
 		*okp = true;
@@ -624,7 +676,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 							 fy_castp(&command, ""),
 							 &shell_result,
 							 fyai_shell_output,
-							 ctx, sandbox)) {
+							 ctx, sandbox,
+							 &shell_opts)) {
 				fyai_shell_live_close(ctx);
 				fyai_shell_sandbox_end(&sb);
 				return fy_value(ctx->transient_gb, "tool error: failed to run shell command");
@@ -725,8 +778,7 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		result = fyai_apply_patch_text(fy_get(args, "patch", ""));
 		*okp = result && strncmp(result, "tool error:", 11);
 	} else if (fy_equal(name, "shell")) {
-		result = fyai_run_shell_command(ctx, fy_get(args, "command", ""),
-						okp);
+		result = fyai_run_shell_command(ctx, args, okp);
 	} else if (fy_equal(name, "ask_user")) {
 		result_generic = fyai_ask_user(ctx, args);
 		*okp = strncmp(fy_castp(&result_generic, ""),
@@ -936,6 +988,9 @@ struct fyai_tool_job {
 	bool agent;
 	bool band_progress;
 	bool terminating;
+	bool timed_out;
+	unsigned int timeout_ms;	/* 0 = no limit */
+	struct fyai_event_source *deadline;
 	int term_signal;
 	struct fyai_tool_job_group *group;
 };
@@ -1053,6 +1108,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 
 		ctx->ui = NULL;
 		ctx->shell_stream = NULL;
+		ctx->cfg->tool_child = true;
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))
 			_exit(1);
@@ -1123,6 +1179,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 		return;
 	fyai_tool_job_cancel(job);
 	fyai_tool_job_close_channel(job);
+	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->csrc);
 	if (!job->reaped && job->pid > 0)
 		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
@@ -1131,12 +1188,19 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	free(job);
 }
 
+static enum fyai_event_action
+fyai_tool_job_deadline(const struct fyai_event *ev);
+static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
+					     const char *name, bool native_call,
+					     fy_generic args);
+
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call)
 {
 	struct fyai_tool_job *job = NULL;
 	const char *name, *args_text, *command;
 	fy_generic args, progress_args;
+	struct fyai_event_loop *el;
 	bool native_call;
 	bool eligible;
 	int rc;
@@ -1201,7 +1265,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 						       "commands", 0), "") :
 				fy_get(args, "command", "");
 			job->title = fyai_format_shell_header(ctx,
-					     *command ? command : name);
+					     *command ? command : name,
+					     native_call ? fy_invalid : args);
 			job->band_progress = true;
 		}
 		job->band = fyai_ui_workband_create(ctx);
@@ -1234,6 +1299,17 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	rc = fyai_tool_job_attach(ctx, job);
 	fyai_error_check(ctx, !rc, err,
 			 "could not attach tool job to event loop");
+
+	job->timeout_ms = fyai_tool_job_timeout_ms(ctx, name, native_call, args);
+	if (job->timeout_ms) {
+		el = fyai_ctx_loop(ctx);
+		assert(el);
+		rc = fyai_event_add_timer(el, job->timeout_ms, 0,
+					  fyai_tool_job_deadline, job,
+					  &job->deadline);
+		fyai_error_check(ctx, !rc, err,
+				 "could not arm the tool job time limit");
+	}
 	return job;
 
 err:
@@ -1364,9 +1440,40 @@ void fyai_tool_job_cancel(struct fyai_tool_job *job)
 		(void)kill(job->pid, SIGTERM);
 }
 
+/* Stop the process group when the job limit expires. */
+static enum fyai_event_action
+fyai_tool_job_deadline(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+
+	job->deadline = NULL;
+	job->timed_out = true;
+	fyai_tool_job_cancel(job);
+	return FYAIEA_CONTINUE;
+}
+
+/* Return the time limit for a shell or agent job. */
+static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
+					     const char *name, bool native_call,
+					     fy_generic args)
+{
+	long long ms;
+
+	if (native_call || fy_equal(name, "shell"))
+		return fyai_shell_timeout_ms(ctx, native_call ? fy_invalid : args);
+	if (fy_equal(name, "agent")) {
+		ms = fy_get(args, "timeout", 0LL);
+		if (ms <= 0)
+			ms = ctx->cfg->agent_timeout_ms;
+		return ms > 0 ? (unsigned int)ms : 0;
+	}
+	return 0;
+}
+
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp)
 {
+	const char *reason;
 	fy_generic result;
 	int status;
 	pid_t rc;
@@ -1379,6 +1486,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	}
 	fyai_tool_job_live_close(job);
 	fyai_tool_job_close_channel(job);
+	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->csrc);
 	if (!job->reaped && job->pid > 0) {
 		do {
@@ -1408,6 +1516,21 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		else
 			result = fy_value(ctx->transient_gb,
 					  "tool error: interrupted");
+	}
+	/* The parent knows whether its time limit expired. */
+	if (job->timed_out) {
+		reason = fy_sprintfa("tool error: timed out after %u ms",
+				     job->timeout_ms);
+		if (!job->native_shell) {
+			assert(fy_generic_is_string(result));
+			result = fy_gb_internalize(ctx->transient_gb,
+				fy_stringf("%s\n%s",
+					   fy_castp(&result, ""), reason));
+		} else {
+			result = fy_gb_internalize(ctx->transient_gb,
+						   fy_value(reason));
+		}
+		job->result_ok = false;
 	}
 	*okp = job->result_ok && !job->failed;
 	free(job);

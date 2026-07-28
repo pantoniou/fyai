@@ -179,7 +179,7 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
  */
 static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 {
-	fy_generic v, sb, tbv, secret_ref;
+	fy_generic v, sb, tbv, shell, secret_ref;
 
 	if (fy_generic_is_invalid(root))
 		return 0;
@@ -235,6 +235,13 @@ static int apply_config(struct fyai_cfg *cfg, fy_generic root)
 				cfg->max_tool_iterations);
 	cfg->max_tokens = fy_get(root, "max_tokens",
 				cfg->max_tokens);
+	shell = fy_get(root, "shell");
+	cfg->shell_timeout_ms = fy_get(shell, "timeout_ms",
+				cfg->shell_timeout_ms);
+	cfg->shell_max_timeout_ms = fy_get(shell, "max_timeout_ms",
+				cfg->shell_max_timeout_ms);
+	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
+				cfg->agent_timeout_ms);
 	cfg->top_logprobs = fy_get(root, "top_logprobs",
 				cfg->top_logprobs);
 
@@ -1926,6 +1933,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->max_tokens = DEFAULT_MAX_TOKENS;
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
+	cfg->shell_timeout_ms = DEFAULT_SHELL_TIMEOUT_MS;
+	cfg->shell_max_timeout_ms = DEFAULT_SHELL_MAX_TIMEOUT_MS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
