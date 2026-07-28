@@ -469,21 +469,18 @@ being asked is not a decision that a program should make.
 
 ## 9. Sub-agent branches
 
-**This function is not available yet.** The design is given here because the
-name format and the storage format are already in place, and the branch entry
-has the `agent` field that holds the data.
-
-The plan is that each sub-agent call makes a branch below the branch that
-started it:
+Each sub-agent call makes a branch below the branch that started it:
 
 ```
 main
-main/explore-1
-main/explore-1/grep-1
-main/plan-2
+main/agent:explore
+main/agent:plan
 ```
 
-The name of the branch contains the name of the agent and a number.
+The name of the agent *is* the name of the branch. The `agent:` marker says
+that fyai made the name, not a user: `:` is not valid in a name that a user
+gives, thus no user branch can look like a sub-agent branch, and no sub-agent
+branch can be made by hand.
 
 **The model selects the name of the agent, thus it is arbitrary text and cannot
 be used as it stands.** `fyai` reduces the name to one safe path component: it
@@ -493,20 +490,65 @@ component becomes `agent`. Thus a name such as `Code Reviewer` becomes
 `code-reviewer`, and a name of punctuation only cannot make an invalid branch
 name or add a level to the path.
 
-A number is then added, the smallest that is free below that parent, thus two
-calls of the same agent cannot collide.
+**A name that is taken is a clash, and the call fails.** No number is added.
+The model is told that the name already exists and chooses another one, thus
+the name stays a usable handle for that agent. A sub-agent publishes from its
+own process, thus fyai re-reads the branch table before it names a new one:
+what a previous sub-agent made is not in the table that this invocation read
+when it started.
+
+The parent allocates the name, because it alone sees every sub-agent of one
+turn, thus two of them cannot take the same name. It sends the name to the
+child with the tool call.
 
 The current sub-agent cannot delegate to another sub-agent. Therefore, an
 agent branch has one component below the branch that started it. The
-`agent/max_branch_depth` configuration key remains a defensive limit for
-callers of the branch allocator and for a future recursive implementation.
+`agent/max_branch_depth` configuration key (8 by default) is a defensive limit
+for the branch allocator and for a future recursive implementation.
+
+### 9.1 A fork in the road
+
+By default a sub-agent call is a **fork**: the branch of the sub-agent starts at
+the head of the branch that started it, thus the sub-agent sees the
+conversation up to the point where it forked and the caller does not have to
+summarize it into the task. `context: fresh` on the call starts the sub-agent
+from the task alone, which is cheaper and right for work that carries no
+context.
+
+A fork keeps the system turn of the conversation it came from, because the
+request instructions come from the canonical system turn when the conversation
+has one. That framing is what a fork is for. The persona of the sub-agent is
+layered on as an instruction message immediately before the task, thus the
+sub-agent knows what it is without a second system turn that would not take
+effect.
+
+A fork needs a branch to fork *from*, thus a sub-agent run with no branch of its
+own is always fresh.
+
+### 9.2 How a sub-agent writes to the arena
+
+The arena is a shared file mapping, and the allocator keeps its free and dedup
+state in process memory. A sub-agent runs in a forked child, thus it holds a
+*copy* of that state over the *same* pages: if the parent and the child both
+allocated, each would write where the other believes there is free space.
+
+A sub-agent therefore drops the mapping that it inherited and opens the arena
+again (`fyai_arena_reopen()`). This makes it an independent writer, exactly
+like a second invocation, and the CAS in `fyai_publish_root()` arbitrates
+between the two as section 8 describes. The teardown is safe in a child because
+it is process-local: it unmaps the chunks that this process mapped and closes
+its own descriptors. It writes nothing to the shared pages.
+
+Everything that the child inherited stays usable, because the arena maps again
+at its recorded base. Canonical data is address-stable across processes, thus
+the same addresses hold the same values after the re-open.
 
 The branch holds the full conversation of the sub-agent, and stays in the arena
 after the agent stops, thus you can examine what the agent did:
 
 ```sh
 fyai branch --all
-fyai transcript --branch main/explore-1
+fyai --branch main/agent:explore transcript
 ```
 
 The work that remains is at the process boundary. A sub-agent runs in a forked

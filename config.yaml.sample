@@ -100,6 +100,29 @@ shell:
 # process below it are stopped when it expires. 0 removes the limit.
 agent:
   timeout_ms: 0
+  # Maximum nesting depth of sub-agent branches below a top-level branch.
+  # A sub-agent cannot delegate, thus one level is used now; the limit
+  # protects the branch allocator.
+  max_branch_depth: 8
+  # Named sub-agent personas. The `persona` parameter of the agent tool picks
+  # one; a key that a persona does not set keeps the value in force.
+  personas:
+    explore:
+      description: Read-only search of the workspace.
+      system_prompt: >-
+        You are a search sub-agent. Find where things are and report back
+        precisely. Do not change any file.
+      model: gpt-5.4-mini
+      reasoning:
+        effort: low
+      context: fresh
+    review:
+      description: Review a change for defects.
+      system_prompt: >-
+        You are a review sub-agent. Report defects with file and line, most
+        severe first. Do not change any file.
+      reasoning:
+        effort: high
 
 # Reasoning / thinking effort for reasoning-capable models. Maps to the
 # Responses API `reasoning: { effort, summary }` and to Chat Completions

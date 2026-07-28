@@ -99,8 +99,42 @@ accept null to paper over an emitter that drops the quotes.
   makes one tools-off summary call and restarts the chain from the summary,
   keeping the old head under turn metadata `compacted_from`.
 - `src/fyai_agent.c` — sub-agent execution. The `agent` verb and tool use
-  `fyai_agent_run()`. It owns the persona, restricted tools, conversation, curl
-  handle, and output routing. `fyai agent --rpc` services `initialize`,
+  `fyai_agent_run()`, which takes the call arguments (`task`, `name`,
+  `description`) rather than a bare task. It owns the persona, restricted tools,
+  conversation, curl handle, and output routing. **A sub-agent keeps its
+  conversation on its own branch** below the one that started it
+  (`main/agent:greeter`). The agent's name *is* the branch name; `:` is invalid
+  in a user-given name, so `agent:` marks a branch fyai wrote and nothing else
+  can forge one (`fyai_branch_name_valid()` stays strict for creation,
+  `fyai_branch_name_ref_valid()` accepts `agent:` for selection). A taken name
+  is a **clash that fails the call** — no ordinal — so the model retries with
+  another name and the name stays a handle. Name it in the parent **before**
+  `fyai_tool_job_spawn()`: a clash found after the fork would have to discard a
+  child already waiting for a request that never comes, and the blocking reap in
+  `fyai_tool_job_discard()` deadlocks against the staged terminate, which needs
+  the loop to run. Copy it into the job **after** the spawn, which clears the
+  job. Call `fyai_branches_refresh()` first — a sub-agent publishes from its own
+  process, so the table read at startup does not hold what an earlier one made.
+  The agent tool's `context` selects **`fork`** (default — the sub-agent branch
+  starts at the parent's head, so it sees the conversation) or `fresh` (task
+  alone). Set the agent's `cfg` fields (persona, `agent_child`, `mcp_enabled`)
+  *after* `fyai_arena_reopen()`, which re-applies the branch config and would
+  otherwise overwrite them. In a fork the persona is a **user** instruction
+  message, not a system turn: `fyai.c` hoists the conversation's canonical
+  system turn into the request `instructions`, so a second system turn would
+  never take effect. `agent/personas` in config names sub-agent personas
+  (`description`, `system_prompt`, `model`, `reasoning/*`, `temperature`,
+  `max_tokens`, `thinking`, `timeout_ms`, `context`); the tool's `persona`
+  parameter selects one, and `make_tools_filtered()` lists the configured names
+  and descriptions into that parameter's description — the model can only pick a
+  persona it is told about. A persona `model` resolves through the catalogue
+  into a scratch cfg (as `/model` does): selecting a model selects its provider,
+  so endpoint and `max_tokens` are re-derived, and a `provider/model` persona
+  pins the offering. A user-configured `api_url`/`max_tokens` survives — derived
+  values are never persisted, so presence in `config_doc` is what distinguishes
+  intent from derivation. The child then calls `fyai_arena_reopen()` before it publishes:
+  the arena is a shared mapping and this is a fork, so it must become an
+  independent writer first (see doc/branching.md §9.1). `fyai agent --rpc` services `initialize`,
   `agent/run`, and `shutdown` on standard input and output. A delegated agent
   sends its tool calls and output to the parent work band. The parent renders
   this progress as one Markdown quote. Tool calls use `display/tool_detail`.

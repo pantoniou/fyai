@@ -224,16 +224,31 @@ from the tool set of a sub-agent, thus delegation is one level deep.
 `agent/max_branch_depth` remains a defensive allocator limit and reserves the
 policy for a future recursive implementation.
 
-**An agent cannot be continued.** Each call is a new conversation. The
-`claude_code` `SendMessage` and the `opencode` `task_id` both let a second
-message reach an agent that already ran, keeping its context. `fyai` throws the
-conversation of a sub-agent away when the process ends.
+**The conversation of a sub-agent is now kept.** Each call publishes its
+conversation to its own branch below the branch that started it
+(`doc/branching.md` section 9), thus what an agent did can be examined with
+`fyai --branch <name> transcript` after it stops. The name of the agent is the
+name of the branch (`main/agent:explore`); a name that is taken fails the call,
+thus the model chooses another one.
 
-This connects to work that is already planned: `doc/branching.md` section 9
-describes keeping the conversation of a sub-agent as a branch. **When that
-lands, continuing an agent becomes possible almost for free** — the branch is
-the state that the second message needs. The order is therefore: keep the
-conversation first, then continue it.
+**The kind of agent can now be chosen.** `agent/personas` in the configuration
+names each persona and carries its instructions and the settings of its model
+(`model`, `reasoning`, `temperature`, `max_tokens`, `thinking`, `timeout_ms`,
+`context`). The `persona` parameter of the agent tool selects one, and the tool
+schema lists the configured names with their descriptions, thus the model
+chooses from what exists. A key that a persona does not set keeps the value in
+force.
+
+**A sub-agent starts from the conversation that made it.** `context: fork`,
+the default, branches at the head of the branch that started it, thus the
+caller does not have to summarize the context into the task. `context: fresh`
+keeps the older behaviour for self-contained work.
+
+**An agent cannot be continued yet.** The `claude_code` `SendMessage` and the
+`opencode` `task_id` both let a second message reach an agent that already ran,
+keeping its context. The branch is the state that such a message needs, thus
+this is now a small step: start from the branch instead of from an empty
+conversation.
 
 **A background agent and a task list are absent.** Section 3.4 applies to
 these as well: an agent that runs while the loop continues is possible now,
@@ -249,10 +264,10 @@ the rule at all.
 | Shell time limit | Low | None | **Done** |
 | Shell `workdir` | Low | None | **Done** |
 | Shell `description` | Low | None | **Done** |
-| Persona for a sub-agent | Medium | Needs a place in the catalogue | Yes |
+| Persona for a sub-agent | Medium | Config, not the catalogue | **Done** |
 | An agent inside an agent | Low | Contradiction to repair first | **Decide first** |
-| Keep a sub-agent conversation | Medium | Protocol change (planned) | Planned |
-| Continue an agent | Low, after the above | Needs the branch | After |
+| Keep a sub-agent conversation | Medium | Protocol change (planned) | **Done** |
+| Continue an agent | Low, after the above | Needs the branch | Next |
 | A terminal for the shell | Low | Do not add it without a way to write | With the next row |
 | A shell session and `write_stdin` | Medium | A screen must be made readable | Yes, after the limits |
 | Background, while the loop runs | Medium | None. It ends with the invocation | Yes |
