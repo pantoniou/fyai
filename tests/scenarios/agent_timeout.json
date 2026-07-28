@@ -1,0 +1,65 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp-agent-parent-1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc-agent-1",
+            "call_id": "call-agent-1",
+            "name": "agent",
+           "arguments": "{\"name\":\"x\",\"description\":\"x\",\"task\":\"x\"}",
+            "status": "completed"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "resp-agent-child-1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc-agent-1",
+            "call_id": "call-shell-1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "echo AGENT-RUNNING; sleep 300"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "resp-agent-parent-2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-agent-parent-2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "The sub-agent was stopped."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

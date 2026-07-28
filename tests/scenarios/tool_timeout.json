@@ -1,0 +1,44 @@
+{
+ "steps": [
+  {
+   "response": {
+    "id": "r1",
+    "object": "response",
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "function_call",
+      "id": "f1",
+      "call_id": "c1",
+      "name": "shell",
+    "arguments": "{\"command\":\"sh -c 'sleep 9' fytmo&wait\",\"timeout\":1500}"
+     }
+    ],
+    "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+   }
+  },
+  {
+   "response": {
+    "id": "r2",
+    "object": "response",
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "message",
+      "id": "m2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "the command was stopped."
+       }
+      ]
+     }
+    ],
+    "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+   }
+  }
+ ]
+}
