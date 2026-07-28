@@ -640,3 +640,51 @@ Use `git diff --check` on each patch.
 
 Use ASD-STE100 Simplified Technical English for commit messages, changed
 documentation, and retained comments.
+
+### Review and apply a patch series
+
+Review `master..devel` as a mail patch series. Before the first review, tag the
+tip as `start-of-review`, then create the review files:
+
+```sh
+git format-patch -o x master..devel
+```
+
+The reviewer adds notes directly to these files. Each note starts with
+`panto>>`. Treat a note in `NNNN` as a request to change the commit represented
+by that patch. Fold the change into its introducing commit and carry any
+required interface or semantic change through every later commit. Do not add a
+follow-up fix commit. Keep every intermediate commit buildable.
+
+After addressing a patch, preserve the annotated mail by renaming it from
+`NNNN-...patch` to `_REVIEWED-NNNN-...patch`. Never edit or replace a preserved
+`_REVIEWED` file. Remove the remaining numbered mails and regenerate them from
+the rewritten `devel` history:
+
+```sh
+git format-patch -o x master..devel
+```
+
+The regenerated numbered files are the next review input. Confirm that no
+`panto>>` note appears in them and that each preserved `_REVIEWED` file still
+contains its notes. A history rewrite changes commit IDs, so resolve commits
+again from the current `master..devel` order instead of reusing old IDs.
+
+Keep a `reviewed` branch based on `master`. After the reviewer accepts a group
+of patches, apply the corresponding rewritten commits to `reviewed` in order.
+Verify that its tree matches `devel` at the last accepted patch, then switch
+back to `devel`. Do not apply the annotated mail files themselves.
+
+Before regenerating the mails, run `git diff --check master..devel`, build the
+normal tree, and run the applicable tests. After semantic or structural
+changes, build with ASAN and run the complete sanitizer suite:
+
+```sh
+cmake -S . -B build-asan -DENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure
+```
+
+Remove temporary checkpoint commits and safety tags when the rewrite is
+complete. Leave `devel` checked out, and do not modify untracked review data
+other than the requested files under `x/`.
