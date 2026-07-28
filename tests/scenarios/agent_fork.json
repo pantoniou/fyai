@@ -1,0 +1,85 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "r1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "m1",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Noted: the secret pass phrase is MAGENTA-KESTREL."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "r2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc1",
+            "call_id": "call-agent-1",
+            "name": "agent",
+            "status": "completed",
+            "arguments": "{\"name\": \"explore\", \"description\": \"look around\", \"task\": \"continue from what we discussed\", \"context\": \"fork\"}"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "r3",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "m3",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "SUBAGENT_REPORT: I can see the earlier conversation."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "r4",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "m4",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Delegated and done."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

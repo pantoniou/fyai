@@ -1,0 +1,64 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "r1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc1",
+            "call_id": "call-agent-1",
+            "name": "agent",
+            "status": "completed",
+            "arguments": "{\"name\": \"scout\", \"description\": \"look around\", \"task\": \"find the thing\", \"persona\": \"explore\", \"context\": \"fresh\"}"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "r2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "m2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "SUBAGENT_REPORT: found it."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "r3",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "m3",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Delegated and done."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
