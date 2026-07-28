@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_branch.h"
 #include "fyai_storage.h"
 
 #include "fyai_test_registry.h"
@@ -28,6 +29,7 @@ static int failures;
 static void test_root_decode(struct fy_generic_builder *gb)
 {
 	fy_generic root, turn, entry;
+	struct fyai_branch b;
 	struct fyai_root r;
 	int ver;
 
@@ -48,6 +50,12 @@ static void test_root_decode(struct fy_generic_builder *gb)
 	check(fy_generic_is_valid(r.branches), "container root: branches");
 	check(fy_generic_is_invalid(r.catalog),
 	      "container root: null catalog decodes as invalid");
+
+	check(fyai_branch_lookup(r.branches, "main", &b),
+	      "branch lookup: main found");
+	check(fy_generic_is_valid(b.head), "branch: head extracted");
+	check(!strcmp(fy_get(b.config, "model", ""), "m1"),
+	      "branch: config content");
 
 	/* minimal root: version only */
 	root = fy_gb_mapping(gb, "fyai", (long long)FYAI_ROOT_VERSION);
