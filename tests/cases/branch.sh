@@ -112,6 +112,16 @@ assert_status 0
 run_fyai -b sibling config get model
 assert_status 0
 assert_stdout_contains "baz"
+assert_state_contains "first prompt" -b sibling dump state
+assert_state_contains "second prompt" -b sibling dump state
+
+# `checkout -b` without an explicit start inherits the same whole state.
+run_fyai checkout -b checkout-copy
+assert_status 0
+assert_state_contains "first prompt" dump state
+assert_state_contains "second prompt" dump state
+run_fyai checkout main
+assert_status 0
 
 # `checkout -b <new> <start>` is one step, as git spells it.
 run_fyai checkout -b recovered "main@{1}"
@@ -190,6 +200,115 @@ run_fyai branch rename rename-source rename-dest
 assert_status 1
 assert_stderr_contains "rename-dest/child"
 
+# --- concurrent foreign-branch mutations ---------------------------------
+# Delay both publishers after they have opened the same root. One must lose
+# the CAS and reapply its disjoint branch-table delta to the surviving root.
+run_cas_pair() {
+	tag=$1
+	shift
+	set +e
+	FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+		"$@" >"$TEST_DIR/$tag.left.out" 2>"$TEST_DIR/$tag.left.err" &
+	left_pid=$!
+	FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+		"${CAS_RIGHT[@]}" >"$TEST_DIR/$tag.right.out" \
+		2>"$TEST_DIR/$tag.right.err" &
+	right_pid=$!
+	wait "$left_pid"
+	left_status=$?
+	wait "$right_pid"
+	right_status=$?
+	set -e
+	[ "$left_status" -eq 0 ] || fail "$tag left operation failed"
+	[ "$right_status" -eq 0 ] || fail "$tag right operation failed"
+	grep -qF "reapplied branch-table changes" \
+		"$TEST_DIR/$tag.left.err" "$TEST_DIR/$tag.right.err" || \
+		fail "$tag did not exercise CAS reconciliation"
+}
+
+# A foreign branch-table operation must not append a synthetic config entry
+# to the active branch's own reflog.
+"$FYAI_BIN" root print main >"$TEST_DIR/main-before" 2>/dev/null
+run_fyai branch create no-reflog
+assert_status 0
+"$FYAI_BIN" root print main >"$TEST_DIR/main-after" 2>/dev/null
+cmp -s "$TEST_DIR/main-before" "$TEST_DIR/main-after" || \
+	fail "foreign branch creation changed main's reflog"
+
+CAS_RIGHT=(branch create cas-b)
+run_cas_pair create branch create cas-a
+run_fyai branch
+assert_status 0
+assert_stdout_contains "cas-a"
+assert_stdout_contains "cas-b"
+
+CAS_RIGHT=(branch describe cas-b "right description")
+run_cas_pair describe branch describe cas-a "left description"
+run_fyai branch show cas-a
+assert_status 0
+assert_stdout_contains "left description"
+run_fyai branch show cas-b
+assert_status 0
+assert_stdout_contains "right description"
+
+CAS_RIGHT=(branch rename cas-b renamed-b)
+run_cas_pair rename branch rename cas-a renamed-a
+run_fyai branch
+assert_status 0
+assert_stdout_contains "renamed-a"
+assert_stdout_contains "renamed-b"
+assert_stdout_not_contains "cas-a"
+assert_stdout_not_contains "cas-b"
+
+CAS_RIGHT=(branch delete renamed-b --force)
+run_cas_pair delete branch delete renamed-a --force
+run_fyai branch
+assert_status 0
+assert_stdout_not_contains "renamed-a"
+assert_stdout_not_contains "renamed-b"
+
+# Two writers changing the same branch are a real conflict: exactly one wins
+# and the other must fail explicitly rather than claim a dropped update.
+run_fyai branch create cas-same
+assert_status 0
+set +e
+FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+	branch describe cas-same "same left" \
+	>"$TEST_DIR/same.left.out" 2>"$TEST_DIR/same.left.err" &
+same_left_pid=$!
+FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+	branch describe cas-same "same right" \
+	>"$TEST_DIR/same.right.out" 2>"$TEST_DIR/same.right.err" &
+same_right_pid=$!
+wait "$same_left_pid"
+same_left_status=$?
+wait "$same_right_pid"
+same_right_status=$?
+set -e
+[ $((same_left_status + same_right_status)) -eq 1 ] || \
+	fail "same-branch CAS did not produce exactly one conflict"
+grep -qF "changed concurrently" \
+	"$TEST_DIR/same.left.err" "$TEST_DIR/same.right.err" || \
+	fail "same-branch CAS conflict was not reported"
+run_fyai branch show cas-same
+assert_status 0
+grep -Eq "same (left|right)" "$TEST_DIR/stdout" || \
+	fail "same-branch CAS lost both descriptions"
+
+# A rename of HEAD keeps its intended HEAD after a disjoint CAS update.
+run_fyai branch create cas-head
+assert_status 0
+run_fyai checkout cas-head
+assert_status 0
+CAS_RIGHT=(branch create cas-foreign)
+run_cas_pair rename-head branch rename cas-head renamed-head
+run_fyai root show
+assert_status 0
+assert_stdout_contains "renamed-head"
+assert_stdout_not_contains "cas-head"
+run_fyai checkout exp
+assert_status 0
+
 # The current branch cannot be deleted.
 run_fyai branch delete exp
 assert_status 1
@@ -228,6 +347,29 @@ assert_status 0
 run_fyai branch
 assert_status 0
 assert_stdout_contains "the trunk"
+
+# --- a failed live switch leaves HEAD and the session on the old branch ----
+# Inject a failure after the target is staged in memory but before checkout
+# publishes. The rollback must restore both the session and durable HEAD.
+run_fyai branch create bad-switch
+assert_status 0
+
+set +e
+FYAI_TEST_BRANCH_SWITCH_FAIL=bad-switch \
+"$FYAI_BIN" --color off --set display/markdown=false -i \
+	>"$TEST_DIR/switch.stdout" 2>"$TEST_DIR/switch.stderr" <<'EOF'
+/branch bad-switch
+/exit
+EOF
+switch_status=$?
+set -e
+[ "$switch_status" -eq 0 ] || fail "REPL did not recover from failed switch"
+grep -qF "injected switch failure" "$TEST_DIR/switch.stderr" || \
+	fail "bad branch configuration did not reject the live switch"
+run_fyai root show
+assert_status 0
+assert_stdout_contains "main"
+assert_stdout_not_contains "bad-switch"
 
 mock_stop 2
 pass
