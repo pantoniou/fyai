@@ -34,7 +34,7 @@
             "call_id": "call-agent-1",
             "name": "agent",
             "status": "completed",
-            "arguments": "{\"name\": \"explore\", \"description\": \"look around\", \"task\": \"continue from what we discussed\", \"context\": \"fork\"}"
+            "arguments": "{\"name\": \"explore\", \"description\": \"look around\", \"task\": \"continue from what we discussed\", \"persona\": \"explore\", \"context\": \"fork\"}"
           }
         ]
       }

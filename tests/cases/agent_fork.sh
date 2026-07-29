@@ -14,6 +14,9 @@ mock_start agent_fork.json
 # Turn one puts something in the conversation that only the parent knows.
 run_fyai --set display/stream=false --set tools=true --set api=responses \
 	 --set api_url="$MOCK_URL/v1/responses" -m mock-model \
+	 --set 'agent/personas/explore/description=Fork model test.' \
+	 --set 'agent/personas/explore/system_prompt=You are the fork tester.' \
+	 --set 'agent/personas/explore/model=mock-model-mini' \
 	 "remember a pass phrase"
 assert_status 0
 
@@ -27,7 +30,9 @@ assert_status 0
 # instruction message - and require the conversation of the parent in the same
 # request. The request of the parent carries the pass phrase as a matter of
 # course, thus a match on any request would prove nothing.
-assert_any_request "'fyai sub-agent' in json.dumps(r['body'].get('input','')) and 'MAGENTA-KESTREL' in json.dumps(r['body'].get('input',''))"
+assert_any_request "'fork tester' in json.dumps(r['body'].get('input','')) and 'MAGENTA-KESTREL' in json.dumps(r['body'].get('input',''))"
+# A fork keeps the parent's resolved model even when its persona names another.
+assert_request 2 'r["body"]["model"] == "mock-model"'
 
 # The fork is recorded on the branch of the sub-agent.
 run_fyai branch --all
