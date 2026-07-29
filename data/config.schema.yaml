@@ -200,7 +200,8 @@ properties:
               type: string
               description: >-
                 Model for this persona, resolved through the catalogue like
-                the top-level `model` key.
+                the top-level `model` key. It applies to fresh agents; forked
+                agents always inherit the parent's resolved provider/model.
             temperature:
               type: number
             max_tokens:

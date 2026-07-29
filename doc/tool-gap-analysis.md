@@ -237,7 +237,8 @@ names each persona and carries its instructions and the settings of its model
 `context`). The `persona` parameter of the agent tool selects one, and the tool
 schema lists the configured names with their descriptions, thus the model
 chooses from what exists. A key that a persona does not set keeps the value in
-force.
+force. A persona's `model` applies to a fresh agent; a forked agent always
+inherits the parent's resolved provider/model.
 
 **A sub-agent starts from the conversation that made it.** `context: fork`,
 the default, branches at the head of the branch that started it, thus the

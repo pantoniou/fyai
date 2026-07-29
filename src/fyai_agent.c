@@ -86,8 +86,9 @@ static const char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 	return *out ? out : "none configured";
 }
 
-/* Apply a persona as a configuration overlay. */
-static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona)
+/* Apply a persona as a configuration overlay. Forks keep the parent model. */
+static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
+				    bool fork_mode)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
@@ -95,12 +96,14 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona)
 
 	tmp = *cfg;
 	overlay = persona;
+	if (fork_mode)
+		overlay = fy_disassoc(ctx->transient_gb, overlay, "model");
 	thinking = fy_get(persona, "thinking", fy_invalid);
 	if (fy_generic_is_bool(thinking))
 		overlay = fy_assoc(ctx->transient_gb, overlay,
 			fy_value(ctx->transient_gb, "display"),
 			fy_mapping(ctx->transient_gb, "thinking", thinking));
-	model = fy_get(persona, "model", fy_invalid);
+	model = fy_get(overlay, "model", fy_invalid);
 	if (fy_generic_is_string(model)) {
 		tmp.provider = NULL;
 		if (fy_generic_is_invalid(fy_get(cfg->config_doc, "api_url",
@@ -212,7 +215,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	cfg->mcp_enabled = false;
 	cfg->system_prompt = fyai_agent_system_prompt;
 	if (fy_generic_is_mapping(persona)) {
-		rc = fyai_agent_persona_apply(ctx, persona);
+		rc = fyai_agent_persona_apply(ctx, persona, fork_mode);
 		fyai_error_check(ctx, !rc, err,
 				 "could not apply the sub-agent persona");
 	}
