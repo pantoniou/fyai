@@ -10,13 +10,19 @@ set -eu
 fyai_test_setup
 mock_start agent_persona.json
 
-run_fyai --set tools=true --set display/stream=false --set api=responses \
+export OPENAI_API_KEY=test-env-key
+set +e
+"$FYAI_BIN" --color off \
+	 --set tools=true --set display/stream=false --set api=responses \
 	 --set api_url="$MOCK_URL/v1/responses" -m mock-model \
 	 --set 'agent/personas/explore/description=Read-only search.' \
 	 --set 'agent/personas/explore/system_prompt=You are SCOUT. Report what you find.' \
 	 --set 'agent/personas/explore/model=mock-model-mini' \
 	 --set 'agent/personas/explore/reasoning/effort=low' \
-	 "delegate to the explore persona"
+	 "delegate to the explore persona" \
+	 >"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
+FYAI_STATUS=$?
+set -e
 assert_status 0
 assert_stdout_contains "Delegated and done."
 
@@ -24,9 +30,11 @@ assert_stdout_contains "Delegated and done."
 assert_request 0 '"explore" in json.dumps(r["body"]["tools"]) and "Read-only search." in json.dumps(r["body"]["tools"])'
 
 # The sub-agent runs under the instructions, model and settings of the persona,
-# and the parent keeps its own.
+# and the parent keeps its own. The persona model resolves its key after the
+# agent process starts, while ordinary tool children do not inherit that key.
 assert_request 1 '"You are SCOUT" in json.dumps(r["body"])'
 assert_request 1 'r["body"]["model"] == "mock-model-mini"'
+assert_request 1 'r["auth"] == "Bearer test-env-key"'
 assert_request 2 'r["body"]["model"] == "mock-model"'
 
 mock_stop 3

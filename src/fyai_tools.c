@@ -950,6 +950,12 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			if (fy_generic_is_string(tc.branch))
 				ctx->agent_branch =
 					strdup(fy_castp(&tc.branch, ""));
+			/*
+			 * A sub-agent needs provider credentials after a persona
+			 * changes its model. Its own tool children sanitize again.
+			 */
+			if (!fy_equal(fyai_tool_call_name(ctx, tc.args), "agent"))
+				fyai_env_sanitize();
 			result = fyai_execute_tool_call(ctx, tc.args, &ok);
 			jsonrpc_conn_respond(conn, tc.id,
 				fy_gb_mapping(fyai_ctx_transient_gb(ctx),
@@ -1121,7 +1127,6 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))
 			_exit(1);
-		fyai_env_sanitize();
 		fyai_tool_apply_sandbox(ctx);
 		fyai_tool_child_serve_loop(ctx);	/* never returns */
 		_exit(1);
