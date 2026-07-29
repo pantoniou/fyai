@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "response.output_item.done", "output_index": 0, "item": {
+            "type": "function_call",
+            "id": "fc-agent-stream-1",
+            "call_id": "call-agent-stream-1",
+            "name": "agent",
+            "arguments": "{\"name\":\"streamer\",\"description\":\"report\",\"task\":\"report that the streamed agent ran\"}",
+            "status": "completed"
+        } },
+        { "type": "response.completed", "response": {
+            "id": "resp-agent-stream-parent-1",
+            "object": "response",
+            "model": "mock-model",
+            "status": "completed",
+            "output": []
+        } }
+      ]
+    },
+    {
+      "sse": [
+        { "type": "response.output_text.delta", "delta": "STREAMED_AGENT_REPORT" },
+        { "type": "response.completed", "response": {
+            "id": "resp-agent-stream-child-1",
+            "object": "response",
+            "model": "mock-model",
+            "status": "completed",
+            "output": []
+        } }
+      ]
+    },
+    {
+      "sse": [
+        { "type": "response.output_text.delta", "delta": "Streamed delegation done." },
+        { "type": "response.completed", "response": {
+            "id": "resp-agent-stream-parent-2",
+            "object": "response",
+            "model": "mock-model",
+            "status": "completed",
+            "output": []
+        } }
+      ]
+    }
+  ]
+}
