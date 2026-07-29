@@ -30,20 +30,21 @@ for needle in (b"[alpha] first half", b"[beta] second half"):
         raise SystemExit("missing agent label: %r" % needle)
 # Require two pending agent rows in one frame.
 pending = {}
-pending_frames = {}
 for m in re.finditer(rb"\[(alpha|beta)\]", data):
     margin = data[max(0, m.start() - 60):m.start()]
     if b"33m" in margin and b"32m" not in margin:
         pending.setdefault(m.group(1), []).append(m.start())
-        frame = re.search(rb"\x1b\[33m(.*?)\x1b\[0m ", margin, re.S)
-        if frame:
-            pending_frames.setdefault(m.group(1), set()).add(frame.group(1))
 if not any(abs(a - b) < 600
            for a in pending.get(b"alpha", [])
            for b in pending.get(b"beta", [])):
     raise SystemExit("agent bands never ran concurrently")
-if not any(len(frames) > 1 for frames in pending_frames.values()):
-    raise SystemExit("agent progress indicator did not animate")
+# The pending indicator blinks, so both of its frames must be written in the
+# pending colour. Do not look for them next to an agent row: the compositor
+# repaints only the damaged cell, so a row is rewritten a few times while the
+# indicator changes on every tick.
+for frame in (b"\x1b[33m\xe2\x97\x8f", b"\x1b[33m "):
+    if frame not in data:
+        raise SystemExit("agent progress indicator did not animate")
 # The slower agent keeps the first report visible in its work band.
 if b"REPORT-ALPHA" not in plain:
     raise SystemExit("missing agent progress")
