@@ -788,10 +788,19 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 			      "tool error:", 11) != 0;
 		return result_generic;
 	} else if (fy_equal(name, "agent")) {
+		char *diag;
+
 		result_generic = fyai_agent_run(ctx, args, okp);
-		if (fy_generic_is_invalid(result_generic))
-			return fy_gb_internalize(ctx->transient_gb,
+		if (fy_generic_is_invalid(result_generic)) {
+			diag = fyai_diag_take_string(&ctx->cfg->diag);
+			result_generic = fy_gb_internalize(ctx->transient_gb,
+				diag && *diag ?
+				fy_stringf("tool error: sub-agent failed: %s",
+					   diag) :
 				fy_value("tool error: sub-agent failed"));
+			free(diag);
+			return result_generic;
+		}
 		return result_generic;
 	} else {
 		return fy_gb_internalize(ctx->transient_gb,

@@ -747,6 +747,9 @@ err_out:
  * refs head to it. Returns 0 on success, >0 on concurrent-change conflict,
  * <0 on error.
  */
+/* Leave headroom for conflicts from a full parallel tool group. */
+#define FYAI_STATE_PUBLISH_TRIES 64
+
 /* Build and splice the active branch entry. */
 static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 {
@@ -1018,7 +1021,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	op = ctx->branch_op;
 	from = ctx->branch_op_from;
 
-	for (tries = 0; tries < 4; tries++) {
+	for (tries = 0; tries < FYAI_STATE_PUBLISH_TRIES; tries++) {
 		fyai_branch_op_set(ctx, op, from);
 		rc = fyai_root_publish_try(ctx);
 		if (!rc)

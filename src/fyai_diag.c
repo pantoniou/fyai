@@ -243,6 +243,28 @@ void fyai_diag_drain(struct fyai_diag *diag)
 	fy_generic_builder_reset(diag->gb);
 }
 
+char *fyai_diag_take_string(struct fyai_diag *diag)
+{
+	FILE *saved, *fp;
+	char *text = NULL;
+	size_t len = 0;
+
+	if (!diag || !fyai_diag_got_error(diag))
+		return NULL;
+	fp = open_memstream(&text, &len);
+	if (!fp)
+		return NULL;
+	saved = diag->fp;
+	diag->fp = fp;
+	fyai_diag_drain(diag);
+	diag->fp = saved;
+	if (fclose(fp)) {
+		free(text);
+		return NULL;
+	}
+	return text;
+}
+
 struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx)
 {
 	return ctx && ctx->cfg ? &ctx->cfg->diag : NULL;

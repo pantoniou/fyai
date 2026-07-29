@@ -132,6 +132,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fy_generic task_v, context_v;
 	fy_generic persona_v, persona;
 	fy_generic turn;
+	fy_generic report;
 	const char *json;
 	char *args_json = NULL;
 	const char *task;
@@ -260,6 +261,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fyai_error_check(ctx, fy_generic_is_valid(turn), err,
 			 "the sub-agent turn failed");
 	ctx->last_message = turn;
+	report = fyai_agent_final_text(ctx, turn);
 
 	/* Publish the durable sub-agent conversation. */
 	if (ctx->agent_branch) {
@@ -274,9 +276,16 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			"could not publish the sub-agent conversation on '%s'",
 			ctx->agent_branch);
 	}
+	fyai_error_check(ctx,
+			 !fyai_diag_got_error(&cfg->diag),
+			 err, "the sub-agent request did not complete");
+	fyai_error_check(ctx,
+			 fy_generic_is_string(report) &&
+			 *fy_castp(&report, ""),
+			 err, "the sub-agent returned no final report");
 
 	*okp = true;
-	return fyai_agent_final_text(ctx, turn);
+	return report;
 
 err:
 	free(args_json);

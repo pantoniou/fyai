@@ -96,6 +96,9 @@ void fyai_diag_cleanup(struct fyai_diag *diag);
  */
 void fyai_diag_drain(struct fyai_diag *diag);
 
+/* Render and reset diagnostics into a string owned by the caller. */
+char *fyai_diag_take_string(struct fyai_diag *diag);
+
 /* True once an error has been raised and not yet drained or reset. */
 bool fyai_diag_got_error(struct fyai_diag *diag);
 
