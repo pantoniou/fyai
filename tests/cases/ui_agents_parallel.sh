@@ -35,7 +35,7 @@ for m in re.finditer(rb"\[(alpha|beta)\]", data):
     margin = data[max(0, m.start() - 60):m.start()]
     if b"33m" in margin and b"32m" not in margin:
         pending.setdefault(m.group(1), []).append(m.start())
-        frame = re.search(rb"\x1b\[33m([^\x1b]*)\x1b\[0m ", margin)
+        frame = re.search(rb"\x1b\[33m(.*?)\x1b\[0m ", margin, re.S)
         if frame:
             pending_frames.setdefault(m.group(1), set()).add(frame.group(1))
 if not any(abs(a - b) < 600

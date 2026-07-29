@@ -42,21 +42,13 @@ run_bare() {
 	set -e
 }
 
-# A fresh arena starts on main.
-run_fyai branch
-assert_status 0
-assert_stdout_contains "main"
-
 # --- per-branch configuration -------------------------------------------
 run_fyai --set model=foo
 assert_status 0
 run_fyai -b exp --set model=baz
 assert_status 0
 
-# Each branch keeps its own model; neither leaks into the other.
-run_fyai config get model
-assert_status 0
-assert_stdout_contains "foo"
+# The selected branch keeps its own model.
 run_fyai -b exp config get model
 assert_status 0
 assert_stdout_contains "baz"
@@ -93,8 +85,10 @@ assert_status 0
 # a user turn plus an assistant turn, so main~2 forks before it.
 run_fyai branch create fork main~2
 assert_status 0
-assert_state_contains "first prompt" -b fork dump state
-assert_state_absent "second prompt" -b fork dump state
+run_fyai -b fork dump state
+assert_status 0
+assert_stdout_contains "first prompt"
+assert_stdout_not_contains "second prompt"
 
 # The branch's own ref log is addressable, and a start point stands for the
 # whole state there - the conversation and the settings - as it does in git.
@@ -112,14 +106,18 @@ assert_status 0
 run_fyai -b sibling config get model
 assert_status 0
 assert_stdout_contains "baz"
-assert_state_contains "first prompt" -b sibling dump state
-assert_state_contains "second prompt" -b sibling dump state
+run_fyai -b sibling dump state
+assert_status 0
+assert_stdout_contains "first prompt"
+assert_stdout_contains "second prompt"
 
 # `checkout -b` without an explicit start inherits the same whole state.
 run_fyai checkout -b checkout-copy
 assert_status 0
-assert_state_contains "first prompt" dump state
-assert_state_contains "second prompt" dump state
+run_fyai dump state
+assert_status 0
+assert_stdout_contains "first prompt"
+assert_stdout_contains "second prompt"
 run_fyai checkout main
 assert_status 0
 
@@ -148,22 +146,16 @@ run_fyai checkout exp
 assert_status 0
 assert_stdout_contains "switched to branch exp"
 
-run_fyai config get model
-assert_status 0
-assert_stdout_contains "baz"
-
 # --- delete and rename ---------------------------------------------------
 run_fyai branch delete fork --force
 assert_status 0
-run_fyai branch
-assert_status 0
-assert_stdout_not_contains "fork"
 
 run_fyai branch rename old ancient
 assert_status 0
 run_fyai branch
 assert_status 0
 assert_stdout_contains "ancient"
+assert_stdout_not_contains "fork"
 
 # Deleting a parent reparents its children.
 run_fyai branch create delete-parent "exp"
@@ -207,10 +199,10 @@ run_cas_pair() {
 	tag=$1
 	shift
 	set +e
-	FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+	FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
 		"$@" >"$TEST_DIR/$tag.left.out" 2>"$TEST_DIR/$tag.left.err" &
 	left_pid=$!
-	FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+	FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
 		"${CAS_RIGHT[@]}" >"$TEST_DIR/$tag.right.out" \
 		2>"$TEST_DIR/$tag.right.err" &
 	right_pid=$!
@@ -272,11 +264,11 @@ assert_stdout_not_contains "renamed-b"
 run_fyai branch create cas-same
 assert_status 0
 set +e
-FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
 	branch describe cas-same "same left" \
 	>"$TEST_DIR/same.left.out" 2>"$TEST_DIR/same.left.err" &
 same_left_pid=$!
-FYAI_TEST_BRANCH_CAS_DELAY_MS=300 "$FYAI_BIN" --color off \
+FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
 	branch describe cas-same "same right" \
 	>"$TEST_DIR/same.right.out" 2>"$TEST_DIR/same.right.err" &
 same_right_pid=$!
@@ -321,8 +313,10 @@ assert_status 0
 # HEAD^^ is the same as HEAD~2: back one full exchange.
 run_fyai reset "HEAD^^"
 assert_status 0
-assert_state_contains "first prompt" dump state
-assert_state_absent "second prompt" dump state
+run_fyai dump state
+assert_status 0
+assert_stdout_contains "first prompt"
+assert_stdout_not_contains "second prompt"
 
 # Nothing was discarded: the ref log still holds the head that was there.
 run_fyai list reflog

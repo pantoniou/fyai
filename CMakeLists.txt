@@ -178,11 +178,15 @@ if(NOT TARGET libfyaml::libfyaml)
     if(FYAI_WITH_LIBFYAML_TAGS)
         set(LIBFYAML_ENABLE_TAGS ON CACHE BOOL "Add libfyaml tags helper targets" FORCE)
     endif()
+    set(_FYAI_BUILD_TESTING "${BUILD_TESTING}")
+    set(BUILD_TESTING OFF)
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
         GIT_TAG 2bec20ead28d952f671ecc5c83f79a6685191175
     )
     FetchContent_MakeAvailable(libfyaml)
+    set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
+    unset(_FYAI_BUILD_TESTING)
 endif()
 
 # A fully static fyai links only the *_static targets of the fetched deps, but
@@ -199,6 +203,8 @@ endif()
 
 if(NOT TARGET libfymd4c::libfymd4c AND
    NOT TARGET libfymd4c::libfymd4c_static)
+    set(BUILD_FYMD4C_EXECUTABLE OFF CACHE BOOL
+        "Build the libfymd4c command-line executable" FORCE)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
         GIT_TAG dd36c04d26ed4901ae6a72e26472b780caff311a
