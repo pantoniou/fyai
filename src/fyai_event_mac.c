@@ -288,6 +288,19 @@ restore:
 	return 0;
 }
 
+/* One signal event can expand to all armed signal sources. */
+static unsigned int armed_signal_sources(const struct fyai_event_loop *el)
+{
+	const struct fyai_event_source *src;
+	unsigned int n = 0;
+
+	for (src = el->sources; src; src = src->next) {
+		if (src->kind == FYAIEK_SIGNAL && !src->removed && src->armed)
+			n++;
+	}
+	return n;
+}
+
 /* Are there child sources that kqueue will not report? */
 static bool has_unpollable_child(const struct fyai_event_loop *el)
 {
@@ -331,7 +344,7 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 	struct timespec ts, *tsp;
 	struct fyai_event_source *src;
 	fyai_event_ms_t wait_ms;
-	unsigned int events;
+	unsigned int events, nsig, room;
 	int n, i, count, want;
 
 	count = collect_ready_children(el, out, max);
@@ -350,7 +363,17 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 		tsp = &ts;
 	}
 
+	/* Limit the batch so signal expansion cannot drop one-shot events. */
+	nsig = armed_signal_sources(el);
 	want = (int)(max < 32 ? max : 32);
+	if (nsig > 1) {
+		room = max / nsig;
+		if (!room)
+			room = 1;
+		if ((unsigned int)want > room)
+			want = (int)room;
+	}
+
 	n = kevent(el->backend_fd, NULL, 0, evs, want, tsp);
 	if (n < 0) {
 		/* EINTR is a spurious wakeup; let the core re-check. */
@@ -404,6 +427,8 @@ int fyai_event_backend_wait(struct fyai_event_loop *el,
 			}
 			continue;
 		case EVFILT_PROC:
+			/* Poll again if NOTE_EXIT arrives before the wait status. */
+			src->armed = false;
 			if (fyai_event_child_try_reap(src) != 1)
 				continue;
 			fyai_event_prepare(&out[count], src, FYAIEV_CHILD);
