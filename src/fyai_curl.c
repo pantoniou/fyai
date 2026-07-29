@@ -43,6 +43,7 @@ struct fyai_curl_sock;
 struct fyai_curl_state;
 
 static void fyai_curl_notify(void *userdata);
+static void fyai_curl_kick(void *userdata);
 
 struct fyai_curl_transfer {
 	struct fyai_curl_transfer *next;
@@ -69,6 +70,7 @@ struct fyai_curl_state {
 	int running;
 	bool failed;
 	bool dispatching;
+	bool action_pending;
 };
 
 /* One watched socket. curl_multi_assign() keeps this on the socket itself. */
@@ -178,6 +180,14 @@ static void fyai_curl_action(struct fyai_curl_state *state, curl_socket_t fd,
 {
 	CURLMcode mc;
 
+	/* Defer readiness because libcurl rejects recursive multi calls. */
+	if (state->dispatching) {
+		if (!state->action_pending) {
+			state->action_pending = true;
+			(void)fyai_event_defer(state->el, fyai_curl_kick, state);
+		}
+		return;
+	}
 	state->dispatching = true;
 	mc = curl_multi_socket_action(state->multi, fd, mask, &state->running);
 	state->dispatching = false;
@@ -223,6 +233,7 @@ static void fyai_curl_kick(void *userdata)
 {
 	struct fyai_curl_state *state = userdata;
 
+	state->action_pending = false;
 	fyai_curl_action(state, CURL_SOCKET_TIMEOUT, 0);
 }
 
