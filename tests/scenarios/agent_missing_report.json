@@ -1,0 +1,74 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-parent-call",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [{
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+              "id": "call_agent_missing",
+              "type": "function",
+              "function": {
+                "name": "agent",
+                "arguments": "{\"name\":\"missing-report\",\"description\":\"exercise a failed follow-up\",\"task\":\"run one shell command and report\"}"
+              }
+            }]
+          },
+          "finish_reason": "tool_calls"
+        }]
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-child-tool",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [{
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+              "id": "call_child_shell",
+              "type": "function",
+              "function": {
+                "name": "shell",
+                "arguments": "{\"command\":\"printf completed\"}"
+              }
+            }]
+          },
+          "finish_reason": "tool_calls"
+        }]
+      }
+    },
+    {
+      "status": 500,
+      "response": {
+        "error": {
+          "message": "mock child follow-up failed",
+          "type": "server_error"
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-parent-final",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [{
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Parent observed the agent failure."
+          },
+          "finish_reason": "stop"
+        }]
+      }
+    }
+  ]
+}

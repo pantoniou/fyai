@@ -26,6 +26,7 @@ FYAI_TEST_ENTRY(diag, source, diag_source)
 FYAI_TEST_ENTRY(diag, drain_clears, diag_drain_clears)
 FYAI_TEST_ENTRY(diag, concurrent_raise, diag_concurrent_raise)
 FYAI_TEST_ENTRY(diag, reset_reclaims, diag_reset_reclaims)
+FYAI_TEST_ENTRY(diag, take_string, diag_take_string)
 FYAI_TEST_ENTRY(diag, no_sink, diag_no_sink)
 
 #define DIAG_THREADS	8
@@ -231,6 +232,21 @@ static void test_drain_clears(struct fyai_diag *diag)
 	free(out);
 }
 
+static void test_take_string(struct fyai_diag *diag)
+{
+	char *out;
+
+	fyai_error(&test_ctx, "protocol failure");
+	out = fyai_diag_take_string(diag);
+	expect_str("take string preserves the cause", out,
+		   "config: protocol failure\n");
+	free(out);
+	if (fyai_diag_got_error(diag)) {
+		fprintf(stderr, "FAIL take string did not reset the sink\n");
+		failures++;
+	}
+}
+
 static void *raise_worker(void *arg)
 {
 	int i;
@@ -375,6 +391,11 @@ int diag_concurrent_raise(void)
 int diag_reset_reclaims(void)
 {
 	return diag_run(test_reset_reclaims);
+}
+
+int diag_take_string(void)
+{
+	return diag_run(test_take_string);
 }
 
 int diag_no_sink(void)
