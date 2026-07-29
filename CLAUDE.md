@@ -713,19 +713,38 @@ by that patch. Fold the change into its introducing commit and carry any
 required interface or semantic change through every later commit. Do not add a
 follow-up fix commit. Keep every intermediate commit buildable.
 
-After addressing a patch, preserve the annotated mail by renaming it from
-`NNNN-...patch` to `_REVIEWED-NNNN-...patch`. Never edit or replace a preserved
-`_REVIEWED` file. Remove the remaining numbered mails and regenerate them from
-the rewritten `devel` history:
+Before rewriting any commit, find every numbered mail that contains a review
+note. Move each one from `NNNN-...patch` to
+`_ANNOTATED-NNNN-...patch`. Do this for the complete batch, even when only the
+first annotated patch will be addressed now:
+
+```sh
+rg -l '^panto>>' x/[0-9][0-9][0-9][0-9]-*.patch
+```
+
+An `_ANNOTATED` file is the immutable source for that patch's review notes.
+Never edit, replace, or remove it during regeneration. Regenerate the numbered
+mails after these files are safe.
+
+After addressing a patch, preserve its annotated mail by renaming it from
+`_ANNOTATED-NNNN-...patch` to `_REVIEWED-NNNN-...patch`. If the reviewer
+annotated only one patch and no regeneration has occurred, the numbered mail
+can move directly to `_REVIEWED-NNNN-...patch`. Never edit or replace a
+preserved `_REVIEWED` file.
+
+Remove only the numbered mails and regenerate them from the rewritten `devel`
+history:
 
 ```sh
 git format-patch -o x master..devel
 ```
 
 The regenerated numbered files are the next review input. Confirm that no
-`panto>>` note appears in them and that each preserved `_REVIEWED` file still
-contains its notes. A history rewrite changes commit IDs, so resolve commits
-again from the current `master..devel` order instead of reusing old IDs.
+`panto>>` note appears in them and that every `_ANNOTATED` and `_REVIEWED` file
+still contains its notes. Never infer that an absent note means approval when
+an `_ANNOTATED` file exists for that patch. A history rewrite changes commit
+IDs, so resolve commits again from the current `master..devel` order instead of
+reusing old IDs.
 
 Keep a `reviewed` branch based on `master`. After the reviewer accepts a group
 of patches, apply the corresponding rewritten commits to `reviewed` in order.
