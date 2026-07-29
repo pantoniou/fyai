@@ -43,6 +43,11 @@ struct write_cancel {
 	unsigned int calls;
 };
 
+struct write_reenter {
+	struct fyai_event_loop *el;
+	bool pumped;
+};
+
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
 
@@ -64,6 +69,19 @@ static size_t cancel_from_write(void *ptr, size_t size, size_t nmemb,
 	FYAI_TCHECK(cancel->transfer);
 	cancel->calls++;
 	fyai_curl_cancel(cancel->transfer);
+	return size * nmemb;
+}
+
+static size_t reenter_from_write(void *ptr, size_t size, size_t nmemb,
+				 void *userdata)
+{
+	struct write_reenter *reenter = userdata;
+
+	(void)ptr;
+	if (!reenter->pumped) {
+		reenter->pumped = true;
+		FYAI_TCHECK(fyai_event_loop_step(reenter->el, 0) >= 0);
+	}
 	return size * nmemb;
 }
 
@@ -236,6 +254,7 @@ static void test_simultaneous_transfers(void)
 	struct completion a;
 	struct completion b;
 	struct server_ready ready;
+	struct write_reenter reenter;
 	struct sockaddr_in addr;
 	socklen_t addr_len;
 	CURL *easy_a;
@@ -251,6 +270,7 @@ static void test_simultaneous_transfers(void)
 	memset(&a, 0, sizeof(a));
 	memset(&b, 0, sizeof(b));
 	memset(&ready, 0, sizeof(ready));
+	memset(&reenter, 0, sizeof(reenter));
 	memset(&addr, 0, sizeof(addr));
 	listener = socket(AF_INET, SOCK_STREAM, 0);
 	FYAI_TCHECK(listener >= 0);
@@ -278,6 +298,12 @@ static void test_simultaneous_transfers(void)
 		 (unsigned int)ntohs(addr.sin_port));
 	easy_a = easy_create(url);
 	easy_b = easy_create(url);
+	reenter.el = fyai_ctx_loop(&test_ctx);
+	FYAI_TCHECK(reenter.el);
+	FYAI_TCHECK(curl_easy_setopt(easy_a, CURLOPT_WRITEFUNCTION,
+				     reenter_from_write) == CURLE_OK);
+	FYAI_TCHECK(curl_easy_setopt(easy_a, CURLOPT_WRITEDATA, &reenter) ==
+		    CURLE_OK);
 	FYAI_TCHECK(curl_easy_setopt(easy_a, CURLOPT_FRESH_CONNECT, 1L) ==
 		    CURLE_OK);
 	FYAI_TCHECK(curl_easy_setopt(easy_b, CURLOPT_FRESH_CONNECT, 1L) ==
@@ -288,7 +314,7 @@ static void test_simultaneous_transfers(void)
 	FYAI_TCHECK(second);
 	FYAI_TCHECK(!a.done && !b.done);
 
-	el = fyai_ctx_loop(&test_ctx);
+	el = reenter.el;
 	FYAI_TCHECK(el);
 	rc = fyai_event_add_fd(el, ready_pipe[0], FYAIEV_READ,
 			       server_ready_cb, &ready, &ready_src);
@@ -308,6 +334,7 @@ static void test_simultaneous_transfers(void)
 	}
 	FYAI_TCHECK(a.count == 1);
 	FYAI_TCHECK(b.count == 1);
+	FYAI_TCHECK(reenter.pumped);
 	FYAI_TCHECK(fyai_curl_collect(first) == CURLE_OK);
 	FYAI_TCHECK(fyai_curl_collect(second) == CURLE_OK);
 
