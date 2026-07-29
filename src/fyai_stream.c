@@ -57,6 +57,7 @@ struct stream_response {
 	long md_last_ms;			/* monotonic ms of last stream redraw */
 	fy_generic content_chunks;
 	fy_generic tool_calls;
+	fy_generic response_items;
 	fy_generic emitted_tools;
 	fy_generic metadata;
 	fy_generic logprob_content;
@@ -205,6 +206,7 @@ static int stream_response_init(struct stream_response *stream,
 	stream->ctx = ctx;
 	stream->content_chunks = fy_seq_empty;
 	stream->tool_calls = fy_seq_empty;
+	stream->response_items = fy_seq_empty;
 	stream->emitted_tools = fy_seq_empty;
 	stream->metadata = fy_map_empty;
 	stream->logprob_content = fy_seq_empty;
@@ -918,6 +920,7 @@ static void stream_report_failure(struct stream_response *stream,
 static int responses_stream_apply_event(struct stream_response *stream,
 					fy_generic event)
 {
+	struct fy_generic_builder *gb = stream->gb;
 	struct fyai_cfg *cfg = stream->ctx->cfg;
 	fy_generic item;
 	fy_generic type;
@@ -938,6 +941,10 @@ static int responses_stream_apply_event(struct stream_response *stream,
 			stream_finish_reasoning(stream);
 			if (cfg->token_extents)
 				responses_collect_extents(stream, event, delta);
+			stream->content_chunks = fy_append(gb,
+						stream->content_chunks, delta);
+			if (fy_generic_is_invalid(stream->content_chunks))
+				return -1;
 			stream_write_content(stream, delta);
 		}
 		return 0;
@@ -945,13 +952,23 @@ static int responses_stream_apply_event(struct stream_response *stream,
 
 	if (fy_equal(type, "response.output_item.done")) {
 		item = fy_get(event, "item");
+		index = fy_get(event, "output_index", 0LL);
+		if (index < 0)
+			return -1;
+		while (fy_len(stream->response_items) <= (size_t)index) {
+			stream->response_items = fy_append(gb,
+						stream->response_items, fy_null);
+			if (fy_generic_is_invalid(stream->response_items))
+				return -1;
+		}
+		stream->response_items = fy_replace(gb, stream->response_items,
+						    (size_t)index, item);
+		if (fy_generic_is_invalid(stream->response_items))
+			return -1;
 		type = fy_get(item, "type");
 		if (fy_not_equal(type, "function_call") &&
 		    fy_not_equal(type, "shell_call"))
 			return 0;
-		index = fy_get(event, "output_index", 0LL);
-		if (index < 0)
-			return -1;
 		return stream_emit_tool(stream, (size_t)index, item);
 	}
 
@@ -1372,6 +1389,43 @@ static fy_generic messages_build_response_doc(struct stream_response *stream)
 }
 
 /*
+ * Some Responses-compatible streaming endpoints leave `output` empty in the
+ * response.completed event. Rebuild it from the output-item events, with the
+ * text deltas as a fallback when the endpoint omits the message item too.
+ */
+static fy_generic responses_complete_response(struct stream_response *stream)
+{
+	struct fy_generic_builder *gb = stream->gb;
+	fy_generic response, output, item, text;
+
+	response = stream->completed_response;
+	output = fy_get(response, "output", fy_invalid);
+	if (fy_generic_is_valid(output) && !fy_generic_is_null_type(output) &&
+	    fy_len(output))
+		return response;
+
+	output = fy_seq_empty;
+	fy_foreach(item, stream->response_items) {
+		if (!fy_generic_is_null_type(item))
+			output = fy_append(gb, output, item);
+	}
+	if (!fy_len(output) && fy_len(stream->content_chunks)) {
+		text = fyai_join_strings(gb, stream->content_chunks);
+		item = fy_mapping(
+			"type", "message",
+			"role", "assistant",
+			"content", fy_sequence(
+				fy_mapping(
+					"type", "output_text",
+					"text", text)));
+		output = fy_append(gb, output, item);
+	}
+	if (fy_generic_is_invalid(output))
+		return fy_invalid;
+	return fy_assoc(gb, response, "output", output);
+}
+
+/*
  * Hand the collected token extents to the engine for the turn-metadata
  * attach. Fail-soft by design: any inconsistency (offset drift against the
  * final content, collection failure) silently drops the extents - the call,
@@ -1579,7 +1633,7 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 
 	switch (cfg->api_mode) {
 	case FYAI_API_RESPONSES:
-		ret = stream->completed_response;
+		ret = responses_complete_response(stream);
 		break;
 	case FYAI_API_CHAT_COMPLETIONS:
 		ret = stream_build_response_doc(stream);
