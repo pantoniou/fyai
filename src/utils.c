@@ -813,7 +813,11 @@ fy_generic make_tools(struct fy_generic_builder *gb)
 					"sees the context you already have; "
 					"`fresh` starts it from the task alone, "
 					"which is cheaper for self-contained "
-					"work.")),
+					"work."),
+				"timeout", make_integer_property(gb,
+					"Optional time limit in milliseconds. "
+					"The sub-agent and every process it "
+					"started are stopped when it expires.")),
 			fy_sequence("name", "description", "task")));
 
 	tools = fy_sequence(read_file_tool, write_file_tool, apply_patch_tool,

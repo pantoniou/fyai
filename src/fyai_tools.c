@@ -1659,7 +1659,16 @@ static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
 	if (native_call || fy_equal(name, "shell"))
 		return fyai_shell_timeout_ms(ctx, args, native_call);
 	if (fy_equal(name, "agent")) {
+		/*
+		 * Use the first available limit in this order: the call, the
+		 * persona, and the global sub-agent setting. Only the call
+		 * contains an untrusted value. Apply the maximum only to this
+		 * value.
+		 */
 		ms = fy_get(args, "timeout", 0LL);
+		if (ms > 0 && ctx->cfg->agent_max_timeout_ms > 0 &&
+		    ms > ctx->cfg->agent_max_timeout_ms)
+			ms = ctx->cfg->agent_max_timeout_ms;
 		persona_name = fy_get(args, "persona", fy_invalid);
 		personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"),
 				  "personas", fy_invalid);

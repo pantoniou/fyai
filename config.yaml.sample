@@ -99,10 +99,13 @@ shell:
   timeout_ms: 120000
   max_timeout_ms: 600000
 
-# Time limit for one sub-agent job, in milliseconds. The job and every
-# process below it are stopped when it expires. 0 removes the limit.
+# Time limits for one sub-agent job, in milliseconds. The job and every
+# process below it are stopped when a limit expires. `timeout_ms` applies
+# when neither the call nor the persona asks for one; `max_timeout_ms`
+# bounds the one the model asks for. 0 removes either limit.
 agent:
   timeout_ms: 0
+  max_timeout_ms: 3600000
   # Maximum nesting depth of sub-agent branches below a top-level branch.
   # A sub-agent cannot delegate, thus one level is used now; the limit
   # protects the branch allocator.

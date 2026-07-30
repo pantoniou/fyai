@@ -90,6 +90,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 
 /* Maximum nesting depth of sub-agent branches below a top-level branch. */
 #define DEFAULT_AGENT_MAX_BRANCH_DEPTH 8
+#define DEFAULT_AGENT_MAX_TIMEOUT_MS 3600000
 
 /*
  * What to do when a concurrent invocation advanced the same branch while this
@@ -152,6 +153,7 @@ struct fyai_cfg {
 	int shell_timeout_ms;		/* default shell time limit (0 = none) */
 	int shell_max_timeout_ms;	/* cap on a model-requested limit */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
+	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
 	const char *tool_detail;
 	bool transcript_system;

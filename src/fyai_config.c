@@ -242,6 +242,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 				cfg->shell_max_timeout_ms);
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
 				cfg->agent_timeout_ms);
+	cfg->agent_max_timeout_ms = fy_get(fy_get(root, "agent"),
+				"max_timeout_ms", cfg->agent_max_timeout_ms);
 	cfg->agent_max_branch_depth = fy_get(fy_get(root, "agent"),
 				"max_branch_depth",
 				cfg->agent_max_branch_depth);
@@ -1926,6 +1928,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
 	cfg->agent_max_branch_depth = DEFAULT_AGENT_MAX_BRANCH_DEPTH;
+	cfg->agent_max_timeout_ms = DEFAULT_AGENT_MAX_TIMEOUT_MS;
 	cfg->shell_timeout_ms = DEFAULT_SHELL_TIMEOUT_MS;
 	cfg->shell_max_timeout_ms = DEFAULT_SHELL_MAX_TIMEOUT_MS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;

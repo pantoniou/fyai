@@ -175,9 +175,16 @@ properties:
         minimum: 0
         default: 0
         description: >-
-          Time limit for one sub-agent job, in milliseconds. The job and
-          every process below it are stopped when it expires. 0 removes
-          the limit.
+          Time limit for one sub-agent job, in milliseconds. It applies when
+          neither the call nor the persona asks for one. The job and every
+          process below it are stopped when it expires. 0 removes the limit.
+      max_timeout_ms:
+        type: integer
+        minimum: 0
+        default: 3600000
+        description: >-
+          Upper bound on a `timeout` the model asks for. 0 removes the
+          bound.
       personas:
         type: object
         description: >-
