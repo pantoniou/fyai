@@ -1930,11 +1930,16 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 	 */
 	error = rc || fyai_diag_got_error(&ctx->cfg->diag);
 	fyai_diag_drain(&ctx->cfg->diag);
+	/*
+	 * A view is a record the user reads and scrolls back to, not a
+	 * transient status: commit it to the scrollback instead of a pane.
+	 */
 	pane_output = opt ||
 		(cmd && strcmp(cmd->name, "history") &&
 		 strcmp(cmd->name, "transcript") &&
 		 strcmp(cmd->name, "help") &&
 		 strcmp(cmd->name, "list") &&
+		 strcmp(cmd->name, "branch") &&
 		 strcmp(cmd->name, "config"));
 	fyai_ui_pane_end(ctx, title, error, pane_output);
 
