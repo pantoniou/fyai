@@ -117,6 +117,12 @@ struct fyai_cfg {
 	const char *api_key;
 	enum fyai_auth_mode auth_mode;
 	bool chatgpt_auth;
+	/*
+	 * The catalogue supplies this endpoint capability during resolution.
+	 * It specifies if the provider accepts the built-in shell tool for the
+	 * selected API grammar. Do not persist this derived value.
+	 */
+	bool shell_tool_supported;
 	bool model_explicit;
 	/*
 	 * Set when the key was supplied explicitly (--api-key or a config

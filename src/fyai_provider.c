@@ -336,14 +336,19 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 	fy_generic function;
 	fy_generic tools;
 	fy_generic tool;
+	bool native_shell;
 
 	response_tools = fy_seq_empty;
+
+	native_shell = cfg->enable_builtin_shell &&
+		       fyai_provider_native_shell(cfg);
 
 	if (cfg->enable_tools) {
 		tools = make_tools_filtered(ctx);
 		fy_foreach(tool, tools) {
 			function = fy_get(tool, "function");
-			if (cfg->enable_builtin_shell && !cfg->chatgpt_auth &&
+			/* Replace the function tool with the native tool. */
+			if (native_shell &&
 			    fy_equal(fy_get(function, "name"), "shell"))
 				continue;
 			response_tool = fy_mapping(
@@ -356,13 +361,12 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 	}
 
 	/*
-	 * The public Responses API calls its native tool "shell".  The
-	 * ChatGPT Codex backend does not accept that declaration; Codex clients
-	 * expose local execution as a function tool instead.  make_tools()
-	 * already supplied that function above, preserving fyai's approval and
+	 * The public Responses API names its native tool "shell". If the
+	 * endpoint does not accept this tool, make_tools() supplies the
+	 * function shell tool. The function tool uses the fyai approval and
 	 * sandbox path.
 	 */
-	if (cfg->enable_builtin_shell && !cfg->chatgpt_auth) {
+	if (native_shell) {
 		response_tool = fy_mapping(
 				"type", "shell",
 				"environment", fy_mapping("type", "local"));
@@ -399,6 +403,30 @@ fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
 			       "could not build the Messages tool definitions");
 }
 
+/*
+ * Return true if this endpoint accepts OpenAI's built-in shell tool.
+ *
+ * Multiple providers implement the Responses grammar. The `shell` tool and
+ * its `shell_call` items are not available from all of these providers. An
+ * unsupported item does not match the provider input union, and the provider
+ * rejects the complete request. For example, OpenRouter returns HTTP 400 with
+ * `invalid_prompt`.
+ *
+ * Read `shell_tool_supported` from the catalogue for each provider endpoint.
+ * Do not use a provider name in this test. The catalogue cannot describe the
+ * ChatGPT Codex authentication mode as an endpoint. This backend does not
+ * accept the declaration, and Codex clients use a function tool for local
+ * execution.
+ *
+ * Use this function for declaration and replay decisions. This requirement
+ * prevents different decisions at the two call sites.
+ */
+bool fyai_provider_native_shell(const struct fyai_cfg *cfg)
+{
+	return cfg->api_mode == FYAI_API_RESPONSES && !cfg->chatgpt_auth &&
+	       cfg->shell_tool_supported;
+}
+
 fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 {
 	fy_generic type;
@@ -406,12 +434,16 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 	fy_generic tool_calls;
 	fy_generic content;
 	fy_generic input;
+	fy_generic output;
 	fy_generic m;
 	fy_generic fn;
 	fy_generic tc;
 	fy_generic tmp;
+	const char *cmd, *args, *text;
+	bool native_shell;
 
 	input = fy_seq_empty;
+	native_shell = fyai_provider_native_shell(ctx->cfg);
 
 	fy_foreach(m, messages) {
 		type = fy_get(m, "type");
@@ -424,6 +456,40 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		 */
 		if (fy_equal(type, "reasoning"))
 			continue;
+
+		/*
+		 * This provider does not accept a native shell item. Convert
+		 * the item to the standard `shell` function tool. The Messages
+		 * and Chat builders use the same format. The capability check
+		 * enables the function tool before this conversion.
+		 */
+		if (!native_shell && fy_equal(type, "shell_call")) {
+			cmd = fy_cast(fy_get_at_path(m, "action",
+						     "commands", 0), "");
+			args = emit_json_string(ctx->transient_gb,
+						fy_mapping("command", cmd));
+			input = fy_append(ctx->transient_gb, input,
+					fy_mapping(
+						"type", "function_call",
+						"call_id", fy_get(m, "call_id", ""),
+						"name", "shell",
+						"arguments", args ? args : "{}"));
+			continue;
+		}
+		if (!native_shell && fy_equal(type, "shell_call_output")) {
+			output = fy_get(m, "output");
+			if (!fy_generic_is_string(output)) {
+				text = emit_json_string(ctx->transient_gb,
+							output);
+				output = fy_value(text ? text : "");
+			}
+			input = fy_append(ctx->transient_gb, input,
+					fy_mapping(
+						"type", "function_call_output",
+						"call_id", fy_get(m, "call_id", ""),
+						"output", output));
+			continue;
+		}
 
 		/* Other native Responses items (function_call,
 		 * function_call_output, message, ...): pass through. */

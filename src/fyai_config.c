@@ -25,6 +25,7 @@
 #include "fyai_catalog.h"
 #include "fyai_branch.h"
 #include "fyai_config.h"
+#include "fyai_provider.h"
 #include "fyai_event.h"
 #include "fyai_schema.h"
 #include "fyai_secret.h"
@@ -2177,6 +2178,22 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 			"anthropic" : "openai";
 
 	/*
+	 * Get endpoint capabilities from the catalogue by protocol. Do not use
+	 * the endpoint position because providers can use different endpoint
+	 * orders. Also find the provider by name. This lookup supplies provider
+	 * capabilities when the catalogue does not contain the model.
+	 *
+	 * If the catalogue does not describe an endpoint, assume that the
+	 * endpoint does not accept the built-in shell tool. The function shell
+	 * tool is portable, but an unsupported declaration rejects the request.
+	 */
+	if (fy_generic_is_invalid(cat_prov) && cfg->provider)
+		cat_prov = fyai_catalog_provider(catalog, cfg->provider);
+	cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
+	cfg->shell_tool_supported = fy_get(fy_get(cat_ep, "capabilities"),
+					   "shell_tool_supported", false);
+
+	/*
 	 * With no explicit api_key (from --api-key or a config `api_key` env
 	 * mapping), fall back to the provider's conventional environment
 	 * variable, e.g. OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY.
@@ -2224,6 +2241,27 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
  */
 int fyai_config_messages_gate(struct fyai_cfg *cfg)
 {
+	/*
+	 * Multiple providers use the Responses grammar, but only some providers
+	 * accept the built-in shell tool. If the endpoint does not accept the
+	 * declaration, use the function shell tool. The Messages API uses the
+	 * same fallback.
+	 */
+	if (cfg->api_mode == FYAI_API_RESPONSES && cfg->enable_builtin_shell &&
+	    !fyai_provider_native_shell(cfg)) {
+		if (cfg->chatgpt_auth)
+			fyai_cfg_notice(cfg, "the built-in shell tool is not "
+					"accepted with ChatGPT authentication; "
+					"using the function shell tool");
+		else
+			fyai_cfg_notice(cfg, "the built-in shell tool is an "
+					"OpenAI feature; provider '%s' does "
+					"not accept it, using the function "
+					"shell tool",
+					cfg->provider ? cfg->provider : "");
+		cfg->enable_builtin_shell = false;
+		cfg->enable_tools = true;
+	}
 	if (cfg->api_mode != FYAI_API_MESSAGES)
 		return 0;
 	if ((cfg->reasoning_effort && *cfg->reasoning_effort) ||
