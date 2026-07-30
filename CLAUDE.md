@@ -525,7 +525,12 @@ fields are a derived cache filled by a single `apply_config` pass;
 arena entry. Catalog-derived values (endpoint, provider, `max_tokens` from
 `max_output_tokens`) are re-derived read-only from the catalogue at resolve
 time and never persisted into the config — the config stores intent (the
-`model` key), the `api` verb shows the resolved derivation. Compiled-in
+`model` key), the `api` verb shows the resolved derivation. A model change
+re-derives `api` and `api_url` from the new provider (the richest grammar it
+offers) and persists them, so both hold only until the model changes; the
+grammar in force is never carried over as a preference, since a provider
+offering one grammar would otherwise pin every later model to it (`responses`
+-> `chat` -> `chat` across openai -> deepseek -> openai). Compiled-in
 defaults still back any key the document does not set. See
 `config.yaml.sample`.
 

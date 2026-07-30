@@ -45,7 +45,10 @@ model: gpt-5.4-mini
 # back to a machine-local ChatGPT login for OpenAI Responses requests.
 auth: auto # auto | api-key | chatgpt
 
-# API grammar: intent, not derived - responses | chat-completions | messages
+# API grammar: responses | chat-completions | messages. A model change
+# re-derives it - and the endpoint - from the new model's provider, which
+# offers the richest grammar it has, so both hold only until the model
+# changes.
 api: responses
 
 # `api_url` is derived from the catalogue by default; set explicitly only to
