@@ -448,15 +448,29 @@ static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb)
 	memset(sb, 0, sizeof(*sb));
 }
 
+/*
+ * Return the model-requested time limit in milliseconds, or 0 if it is absent.
+ * The `shell` function tool uses `timeout` in its arguments. The native
+ * Responses `shell_call` uses `timeout_ms` in its action. The caller limits
+ * each untrusted value to `shell/max_timeout_ms`.
+ */
+static long long fyai_shell_timeout_requested(fy_generic call, bool native)
+{
+	if (native)
+		return fy_get(fy_get(call, "action"), "timeout_ms", 0LL);
+	return fy_get(call, "timeout", 0LL);
+}
+
 /* Return the bounded time limit for a shell call. */
-static unsigned int fyai_shell_timeout_ms(struct fyai_ctx *ctx, fy_generic args)
+static unsigned int fyai_shell_timeout_ms(struct fyai_ctx *ctx, fy_generic call,
+					  bool native)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	long long ms;
 
 	if (ctx->cfg->tool_child)
 		return 0;
-	ms = fy_get(args, "timeout", 0LL);
+	ms = fyai_shell_timeout_requested(call, native);
 	if (ms <= 0)
 		ms = cfg->shell_timeout_ms;
 	if (cfg->shell_max_timeout_ms > 0 && ms > cfg->shell_max_timeout_ms)
@@ -483,7 +497,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	command = fy_get(args, "command", fy_invalid);
 	workdir = fy_get(args, "workdir", fy_invalid);
 	opts.workdir = fy_castp(&workdir, (const char *)NULL);
-	opts.timeout_ms = fyai_shell_timeout_ms(ctx, args);
+	opts.timeout_ms = fyai_shell_timeout_ms(ctx, args, false);
 
 	if (run_shell_command_capture_cb(ctx, fy_castp(&command, ""), &result,
 					 fyai_shell_output, ctx, sandbox,
@@ -668,8 +682,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 
 		action = fy_get(tool_call, "action");
 		commands = fy_get(action, "commands");
-		/* Apply the configured default to a native shell call. */
-		shell_opts.timeout_ms = fyai_shell_timeout_ms(ctx, fy_invalid);
+		shell_opts.timeout_ms = fyai_shell_timeout_ms(ctx, tool_call,
+							      true);
 		outputs = fy_seq_empty;
 		sandbox = fyai_shell_sandbox_begin(ctx, &sb);
 		*okp = true;
@@ -1539,7 +1553,7 @@ static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
 	long long ms;
 
 	if (native_call || fy_equal(name, "shell"))
-		return fyai_shell_timeout_ms(ctx, native_call ? fy_invalid : args);
+		return fyai_shell_timeout_ms(ctx, args, native_call);
 	if (fy_equal(name, "agent")) {
 		ms = fy_get(args, "timeout", 0LL);
 		persona_name = fy_get(args, "persona", fy_invalid);
