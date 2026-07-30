@@ -431,18 +431,23 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 		return -1;
 
 	/*
-	 * Persist the grammar, its resolved endpoint and the provider-pinned
-	 * model, so the continuation stays on the provider this switch
+	 * Persist the provider-pinned model, then the grammar and its resolved
+	 * endpoint, so the continuation stays on the provider this switch
 	 * re-targeted. api_url is persisted explicitly here (rather than via
 	 * the model-change catalogue sync, which only fires when the model
 	 * itself changes) since an /api switch alone moves the endpoint.
+	 *
+	 * The model goes first because each persist is its own commit: pinning
+	 * the model is a model change, and that re-derives the grammar and the
+	 * endpoint from the provider. Persisted after it, this switch's own
+	 * values are what remain.
 	 */
+	session_persist_model(ctx);
 	session_persist(ctx, "api",
 			fy_sprintfa("'%s'", fyai_api_to_string(cfg->api_mode)));
 	if (cfg->api_url && *cfg->api_url)
 		session_persist(ctx, "api_url",
 				fy_sprintfa("'%s'", cfg->api_url));
-	session_persist_model(ctx);
 
 	printf("api: %s (model %s, provider %s, url %s)\n",
 	       fyai_api_to_string(cfg->api_mode),

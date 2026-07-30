@@ -1162,28 +1162,18 @@ static fy_generic config_change_add(struct fy_generic_builder *gb,
 }
 
 /*
- * Parse the `api` intent key into an enum, defaulting when absent/unknown.
- */
-static enum fyai_api_mode config_doc_api_mode(fy_generic doc,
-					      enum fyai_api_mode dflt)
-{
-	fy_generic v = fy_get(doc, "api");
-
-	if (fy_equal(v, "chat-completions") || fy_equal(v, "chat"))
-		return FYAI_API_CHAT_COMPLETIONS;
-	if (fy_equal(v, "responses"))
-		return FYAI_API_RESPONSES;
-	if (fy_equal(v, "messages"))
-		return FYAI_API_MESSAGES;
-	return dflt;
-}
-
-/*
  * On a model change that lands on a catalogue entry, clear `api`/`api_url`
- * and re-derive them from the catalogue (preferring the grammar @doc already
- * asked for, falling back to whatever the provider actually offers) - the
- * same explicit values `fyai init` would produce importing a fresh sample.
- * A no-op when the model resolved to the same catalogue entry as before.
+ * and re-derive them from the catalogue - the same explicit values `fyai init`
+ * would produce importing a fresh sample. A no-op when the model resolved to
+ * the same catalogue entry as before, so an explicit grammar switch on the
+ * current model stands.
+ *
+ * The grammar comes from the new provider in enum order (the richest it
+ * offers), and never from the value @doc carries, which is as likely to be a
+ * forced fallback as a choice: a provider offering only chat-completions
+ * leaves `api: chat-completions` behind, and carrying that over as a
+ * preference pinned every later model to the poorer grammar (responses ->
+ * chat -> chat across openai -> deepseek -> openai).
  */
 static fy_generic config_doc_sync_derived_api(struct fy_generic_builder *gb,
 					      fy_generic cat_prov,
@@ -1194,12 +1184,11 @@ static fy_generic config_doc_sync_derived_api(struct fy_generic_builder *gb,
 	enum fyai_api_mode mode;
 	int i;
 
-	/* Preference must be read before clearing, or it is always lost. */
-	mode = config_doc_api_mode(doc, FYAI_API_RESPONSES);
 	doc = fy_delete_at_pathstr(gb, doc, "api");
 	doc = fy_delete_at_pathstr(gb, doc, "api_url");
 
-	cat_ep = fyai_catalog_endpoint(cat_prov, mode);
+	mode = FYAI_API_RESPONSES;
+	cat_ep = fy_invalid;
 	for (i = 0; i < 3 && fy_generic_is_invalid(cat_ep); i++) {
 		cat_ep = fyai_catalog_endpoint(cat_prov, (enum fyai_api_mode)i);
 		if (fy_generic_is_valid(cat_ep))
