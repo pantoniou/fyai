@@ -1,0 +1,44 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_sht1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_item_1",
+            "call_id": "sc_to_1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [ "echo shell-timeout-marker; sleep 30" ],
+              "timeout_ms": 1500,
+              "max_output_length": 4096
+            }
+          }
+        ],
+        "usage": { "input_tokens": 25, "output_tokens": 10, "total_tokens": 35 }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_sht2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_sht2",
+            "role": "assistant",
+            "content": [ { "type": "output_text", "text": "The command was stopped by its time limit." } ]
+          }
+        ],
+        "usage": { "input_tokens": 40, "output_tokens": 8, "total_tokens": 48 }
+      }
+    }
+  ]
+}
