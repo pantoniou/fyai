@@ -1122,8 +1122,14 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 
 	job->done = job->reaped && !job->out_open;
 	if (!was_done && job->done && job->stream.active) {
+		/*
+		 * Test `timed_out` here and during collection. The parent owns
+		 * the deadline. A stopped job can report success immediately
+		 * before termination. This state selects the mark before
+		 * collection corrects the result.
+		 */
 		(void)fyai_fenced_stream_set_indicator(&job->stream,
-			job->result_ok && !job->failed ?
+			job->result_ok && !job->failed && !job->timed_out ?
 			FYMD_INDICATOR_SUCCESS : FYMD_INDICATOR_FAILURE, 0);
 		(void)fyai_fenced_stream_push(&job->stream, NULL, 0);
 	}
