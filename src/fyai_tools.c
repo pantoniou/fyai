@@ -128,6 +128,63 @@ static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command,
 	return fyai_format_tool_header(ctx, "shell", disp, 0);
 }
 
+/*
+ * Return a short failure cause for the label beside the failure mark.
+ *
+ * Keep the complete failure information in the tool result for the model. The
+ * label contains only a short cause. Return NULL for a successful call or when
+ * no specific cause is available. The caller owns the returned string.
+ */
+char *fyai_tool_error_cause(fy_generic result)
+{
+	fy_generic outcome, entry;
+	const char *p, *nl, *last;
+	long long n;
+	char *s;
+	int rc;
+
+	last = NULL;
+	/*
+	 * A native shell result is a sequence of {stdout, stderr, outcome}.
+	 * Report the first entry that did not complete successfully.
+	 */
+	if (fy_generic_is_sequence(result)) {
+		fy_foreach(entry, result) {
+			outcome = fy_get(entry, "outcome");
+			if (fy_equal(fy_get(outcome, "type"), "timeout")) {
+				n = fy_get(outcome, "timeout_ms", 0LL);
+				rc = asprintf(&s, "timed out after %lld ms", n);
+				return rc < 0 ? NULL : s;
+			}
+			if (fy_equal(fy_get(outcome, "type"), "signal")) {
+				n = fy_get(outcome, "signal", 0LL);
+				rc = asprintf(&s, "killed by signal %lld", n);
+				return rc < 0 ? NULL : s;
+			}
+			n = fy_get(outcome, "exit_code", 0LL);
+			if (n) {
+				rc = asprintf(&s, "exit %lld", n);
+				return rc < 0 ? NULL : s;
+			}
+		}
+		return NULL;
+	}
+	if (!fy_generic_is_string(result))
+		return NULL;
+	/*
+	 * All other tools report a failure as text. A "tool error: " line
+	 * can occur at the end of the captured output.
+	 */
+	p = fy_castp(&result, "");
+	for (nl = strstr(p, "tool error: "); nl; nl = strstr(nl + 1, "tool error: "))
+		last = nl;
+	if (!last)
+		return NULL;
+	p = last + strlen("tool error: ");
+	nl = strchr(p, '\n');
+	return nl ? strndup(p, (size_t)(nl - p)) : strdup(p);
+}
+
 static void fyai_tool_progress_flush(struct fyai_ctx *ctx);
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)

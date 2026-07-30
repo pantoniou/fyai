@@ -200,6 +200,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	fy_generic tool_call_type;
 	const char *tool_call_id, *tool_call_output_type;
 	const char *name;
+	char *cause;
 	bool shell;
 	bool agent;
 	bool banded;
@@ -245,7 +246,9 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
 	if (banded && fyai_ui_active(ctx)) {
-		fyai_ui_tool_end(ctx, tool_ok);
+		cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
+		fyai_ui_tool_end(ctx, tool_ok, cause);
+		free(cause);
 		if (agent)
 			(void)fyai_ui_commit(ctx, "\n", 1);
 	}

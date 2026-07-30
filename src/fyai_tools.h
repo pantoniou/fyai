@@ -18,6 +18,8 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 				  bool *okp);
+/* Return a short failure cause, or NULL. The caller owns the string. */
+char *fyai_tool_error_cause(fy_generic result);
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 				      fy_generic tool_call);
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,

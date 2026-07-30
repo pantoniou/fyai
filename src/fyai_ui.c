@@ -19,6 +19,7 @@
 #include "fyai_event.h"
 #include "fyai_markdown.h"
 #include "fyai_session.h"
+#include "fyai_terminal.h"
 #include "fyai_ui.h"
 #include "utils.h"
 
@@ -44,6 +45,7 @@ struct fyai_ui {
 	struct fytim_workband *message_band;
 	struct fyai_editor_request *editor_request;
 	char *tool_title;
+	char *tool_error;	/* short failure cause, shown beside the mark */
 	char *tool_body;
 	char *status_bottom;
 	char *editor_path;
@@ -120,6 +122,31 @@ static int ui_status_render(struct fyai_ui *ui, const char *activity)
 	return rc;
 }
 
+/*
+ * Append the failure cause to the rendered title row. Insert it before the
+ * final newline to keep it on the same row.
+ */
+static int ui_tool_render_error(struct fyai_ui *ui, struct response_buffer *out)
+{
+	const char *pre, *post;
+	size_t need;
+
+	while (out->len && out->data[out->len - 1] == '\n')
+		out->len--;
+	pre = markdown_color_enabled(ui->ctx->cfg->color) ?
+		" " FYAI_ANSI_RED : " ";
+	post = markdown_color_enabled(ui->ctx->cfg->color) ?
+		FYAI_ANSI_RESET "\n" : "\n";
+	need = out->len + strlen(pre) + strlen(ui->tool_error) +
+		strlen(post) + 1;
+	if (response_buffer_reserve(out, need))
+		return -1;
+	out->len += (size_t)snprintf(out->data + out->len,
+				     need - out->len, "%s%s%s",
+				     pre, ui->tool_error, post);
+	return 0;
+}
+
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
@@ -133,6 +160,14 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	if (markdown_render_margins(ui->ctx->cfg,
 			ui->tool_title ? ui->tool_title : "shell",
 			title_len ? title_len : 5, &out, first_margin, "  "))
+		goto out;
+	/*
+	 * Put the failure cause after the label on the title row. The margin
+	 * mark identifies a failure, and the cause identifies its type. Append
+	 * the cause to the rendered bytes because Markdown cannot specify this
+	 * color. Markdown renders raw escape sequences as text.
+	 */
+	if (ui->tool_error && ui_tool_render_error(ui, &out))
 		goto out;
 	if (ui->tool_body_len) {
 		if (out.len && out.data[out.len - 1] != '\n') {
@@ -1068,6 +1103,8 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	ui = ctx->ui;
 	if (ui->tool_band) fytim_workband_destroy(ui->tool_band);
 	free(ui->tool_title);
+	free(ui->tool_error);
+	ui->tool_error = NULL;
 	free(ui->tool_body);
 	ui->tool_body = NULL;
 	ui->tool_body_len = 0;
@@ -1099,12 +1136,14 @@ void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 	}
 }
 
-void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok)
+void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 {
 	struct fyai_ui *ui;
 	char *margin;
 	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
 	ui = ctx->ui;
+	free(ui->tool_error);
+	ui->tool_error = (!ok && cause && *cause) ? strdup(cause) : NULL;
 	margin = ui_indicator(ui, ok ? FYMD_INDICATOR_SUCCESS :
 			      FYMD_INDICATOR_FAILURE, 0, NULL);
 	if (margin) {
@@ -1114,5 +1153,6 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok)
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	free(ui->tool_title); ui->tool_title = NULL;
+	free(ui->tool_error); ui->tool_error = NULL;
 	free(ui->tool_body); ui->tool_body = NULL; ui->tool_body_len = 0;
 }

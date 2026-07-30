@@ -8,6 +8,7 @@
 #define FYAI_ANSI_RESET			"\033[0m"
 #define FYAI_ANSI_BOLD			"\033[1m"
 #define FYAI_ANSI_DIM			"\033[2m"
+#define FYAI_ANSI_RED			"\033[31m"
 #define FYAI_ANSI_GREEN			"\033[32m"
 #define FYAI_ANSI_CYAN			"\033[36m"
 #define FYAI_ANSI_BRIGHT_YELLOW		"\033[1;33m"
