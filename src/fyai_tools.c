@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -716,10 +717,19 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 						       shell_result.stderr_len);
 			}
 
+			/*
+			 * Report a timeout when the command reaches its time
+			 * limit. Do not report the termination signal.
+			 */
 			output = fy_mapping(
 				"stdout", out_text,
 				"stderr", err_text,
-				"outcome", shell_result.signaled ?
+				"outcome", shell_result.timed_out ?
+					fy_mapping(
+						"type", "timeout",
+						"timeout_ms",
+						(long long)shell_opts.timeout_ms) :
+					shell_result.signaled ?
 					fy_mapping(
 						"type", "signal",
 						"signal", shell_result.signal) :
@@ -1027,6 +1037,7 @@ struct fyai_tool_job {
 	bool terminating;
 	bool timed_out;
 	unsigned int timeout_ms;	/* 0 = no limit */
+	struct response_buffer progress;	/* tail, for a timeout report */
 	char *branch;			/* sub-agent branch, allocated by us */
 	struct fyai_event_source *deadline;
 	int term_signal;
@@ -1222,6 +1233,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
 			;
 	fyai_tool_job_live_close(job);
+	free(job->progress.data);
 	free(job->branch);
 	free(job);
 }
@@ -1406,6 +1418,33 @@ err:
 	return NULL;
 }
 
+/*
+ * Keep the end of the live output from a time-limited job. The deadline can
+ * stop a job before it reports a result. In this case, progress notifications
+ * are the only command output. The end usually contains the failure cause.
+ */
+#define FYAI_TOOL_PROGRESS_TAIL	8192
+
+static void fyai_tool_job_progress_retain(struct fyai_tool_job *job,
+					  const char *p, size_t len)
+{
+	struct response_buffer *buf = &job->progress;
+	int rc;
+
+	rc = response_buffer_reserve(buf, buf->len + len + 1);
+	if (rc)
+		return;
+	memcpy(buf->data + buf->len, p, len);
+	buf->len += len;
+	buf->data[buf->len] = '\0';
+	if (buf->len <= FYAI_TOOL_PROGRESS_TAIL)
+		return;
+	memmove(buf->data, buf->data + buf->len - FYAI_TOOL_PROGRESS_TAIL,
+		FYAI_TOOL_PROGRESS_TAIL);
+	buf->len = FYAI_TOOL_PROGRESS_TAIL;
+	buf->data[buf->len] = '\0';
+}
+
 /* The child's tool/progress notifications: its live output. */
 static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 				      const char *method, fy_generic params,
@@ -1428,6 +1467,8 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	len = strlen(p);
 	if (data_is_binary(p, len))
 		return fy_invalid;
+	if (!job->agent && job->timeout_ms)
+		fyai_tool_job_progress_retain(job, p, len);
 	if ((job->agent || job->band_progress) && job->stream.active)
 		(void)fyai_fenced_stream_push(&job->stream, p, len);
 	return fy_invalid;
@@ -1569,11 +1610,72 @@ static unsigned int fyai_tool_job_timeout_ms(struct fyai_ctx *ctx,
 	return 0;
 }
 
+/*
+ * Return the length of @s without a final "tool error: interrupted" report.
+ *
+ * A job sees the group termination from a parent deadline as an interrupt.
+ * The parent knows that a timeout occurred and removes this incorrect report.
+ * Remove only a final report. The same text at an earlier position is command
+ * output.
+ */
+static size_t fyai_tool_drop_interrupt(const char *s)
+{
+	static const char intr[] = "tool error: interrupted";
+	const char *p, *last;
+	size_t len;
+
+	len = strlen(s);
+	last = NULL;
+	for (p = strstr(s, intr); p; p = strstr(p + 1, intr))
+		last = p;
+	if (!last)
+		return len;
+	for (p = last + sizeof(intr) - 1; *p; p++)
+		if (!isspace((unsigned char)*p))
+			return len;
+	len = (size_t)(last - s);
+	while (len && isspace((unsigned char)s[len - 1]))
+		len--;
+	return len;
+}
+
+/*
+ * Change the outcome of a native shell result after a parent deadline.
+ * The child sees group termination only as a signal and cannot identify the
+ * timeout. The parent identifies the timeout and keeps all captured output.
+ */
+static fy_generic fyai_shell_result_retime(struct fyai_ctx *ctx,
+					   fy_generic result,
+					   unsigned int timeout_ms)
+{
+	fy_generic outputs = fy_seq_empty;
+	fy_generic entry, outcome;
+
+	if (!fy_generic_is_sequence(result))
+		return result;
+	fy_foreach(entry, result) {
+		outcome = fy_get(entry, "outcome");
+		if (fy_equal(fy_get(outcome, "type"), "signal"))
+			entry = fy_mapping(
+				"stdout", fy_get(entry, "stdout", ""),
+				"stderr", fy_get(entry, "stderr", ""),
+				"outcome", fy_mapping(
+					"type", "timeout",
+					"timeout_ms",
+					(long long)timeout_ms));
+		outputs = fy_append(outputs, entry);
+	}
+	return fy_gb_internalize(ctx->transient_gb, outputs);
+}
+
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp)
 {
 	const char *reason;
+	const char *captured;
 	fy_generic result;
+	size_t keep;
+	bool genuine;
 	int status;
 	pid_t rc;
 
@@ -1618,20 +1720,43 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	}
 	/* The parent knows whether its time limit expired. */
 	if (job->timed_out) {
+		/*
+		 * A job that reports before termination has a complete result.
+		 * Otherwise, use the retained end of the progress output.
+		 */
+		genuine = job->have_result && !job->term_signal;
+		captured = job->progress.len ? job->progress.data : "";
 		reason = fy_sprintfa("tool error: timed out after %u ms",
 				     job->timeout_ms);
 		if (!job->native_shell) {
 			assert(fy_generic_is_string(result));
+			if (genuine)
+				captured = fy_castp(&result, "");
+			keep = fyai_tool_drop_interrupt(captured);
 			result = fy_gb_internalize(ctx->transient_gb,
-				fy_stringf("%s\n%s",
-					   fy_castp(&result, ""), reason));
+				fy_stringf("%.*s%s%s", (int)keep, captured,
+					   keep ? "\n" : "", reason));
+		} else if (genuine) {
+			result = fyai_shell_result_retime(ctx, result,
+							  job->timeout_ms);
 		} else {
+			/*
+			 * Keep the native result shape after a timeout. The model
+			 * always receives a sequence of {stdout, stderr, outcome}.
+			 */
 			result = fy_gb_internalize(ctx->transient_gb,
-						   fy_value(reason));
+				fy_sequence(fy_mapping(
+					"stdout", captured,
+					"stderr", "",
+					"outcome", fy_mapping(
+						"type", "timeout",
+						"timeout_ms",
+						(long long)job->timeout_ms))));
 		}
 		job->result_ok = false;
 	}
 	*okp = job->result_ok && !job->failed;
+	free(job->progress.data);
 	free(job->branch);
 	free(job);
 	return result;
