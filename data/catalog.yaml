@@ -860,7 +860,6 @@ models:
   - reasoning_effort
   - repetition_penalty
   - response_format
-  - seed
   - stop
   - structured_outputs
   - temperature
@@ -873,7 +872,6 @@ models:
 - name: kimi-latest
   display_name: MoonshotAI Kimi Latest
   context_window: 1048576
-  max_output_tokens: 1048576
   modalities:
   - text
   - image
@@ -889,7 +887,6 @@ models:
   - reasoning_effort
   - repetition_penalty
   - response_format
-  - seed
   - stop
   - structured_outputs
   - temperature
@@ -1071,7 +1068,6 @@ models:
 - name: nemotron-3-ultra-550b-a55b
   display_name: 'NVIDIA: Nemotron 3 Ultra'
   context_window: 512288
-  max_output_tokens: 16384
   modalities:
   - text
   capabilities:
@@ -1263,6 +1259,22 @@ providers:
     - bash
     - text_editor
     - computer_use
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      strict_json_schema_supported: true
+      shell_tool_supported: true
+      mcp_supported: true
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: false
+      explicit_prompt_caching_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
   models:
   - canonical_id: claude-sonnet-5
     provider_model_id: claude-sonnet-5
@@ -1315,10 +1327,34 @@ providers:
     endpoint: /chat/completions
     local_tools:
     - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: false
+      automatic_prompt_caching_supported: true
   - protocol: messages
     endpoint: /anthropic/v1/messages
     local_tools:
     - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: false
+      automatic_prompt_caching_supported: true
   models:
   - canonical_id: deepseek-v4-pro
     provider_model_id: deepseek-v4-pro
@@ -1348,10 +1384,38 @@ providers:
     - code_execution
     local_tools:
     - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: false
+      explicit_prompt_caching_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
   - protocol: chat_completions
     endpoint: /v1beta/openai/chat/completions
     local_tools:
     - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: false
+      reasoning_controls_supported: true
   models:
   - canonical_id: gemini-3.1-pro-preview
     provider_model_id: gemini-3.1-pro-preview
@@ -1395,10 +1459,40 @@ providers:
     - computer_use
     - function_calling
     - mcp
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      strict_json_schema_supported: true
+      shell_tool_supported: true
+      mcp_supported: true
+      server_side_conversation_state_supported: true
+      previous_response_id_supported: true
+      response_lifecycle_supported: true
+      system_prompt_supported: true
+      developer_role_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
   - protocol: chat_completions
     endpoint: /v1/chat/completions
     local_tools:
     - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      strict_json_schema_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
   models:
   - canonical_id: gpt-oss-20b:free
     provider_model_id: gpt-oss-20b:free
@@ -1430,10 +1524,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 6.0
+      input: 0.2
+      output: 1.2
       extra:
-        cache_read: 0.1
+        cache_read: 0.02
   - canonical_id: gpt-5.6-luna-pro
     provider_model_id: gpt-5.6-luna-pro
     pricing:
@@ -1450,10 +1544,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.5
-      output: 15.0
+      input: 2.0
+      output: 12.0
       extra:
-        cache_read: 0.25
+        cache_read: 0.2
   - canonical_id: gpt-5.6-terra-pro
     provider_model_id: gpt-5.6-terra-pro
     pricing:
@@ -1494,6 +1588,21 @@ providers:
     - web_search
     local_tools:
     - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: true
+      explicit_prompt_caching_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
   - protocol: responses
     endpoint: /api/v1/responses
     hosted_tools:
@@ -1501,6 +1610,21 @@ providers:
     local_tools:
     - function_calling
     - mcp
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: true
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: true
+      explicit_prompt_caching_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
   models:
   - canonical_id: command-a
     provider_model_id: cohere/command-a
@@ -1623,10 +1747,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.9
+      input: 3.0
       output: 15.0
       extra:
-        cache_read: 0.29
+        cache_read: 0.3
   - canonical_id: hermes-4-405b
     provider_model_id: nousresearch/hermes-4-405b
     pricing:
@@ -1639,10 +1763,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.5
-      output: 2.2
+      input: 0.6
+      output: 3.6
       extra:
-        cache_read: 0.1
+        cache_read: 0.2
   - canonical_id: nemotron-3-ultra-550b-a55b:free
     provider_model_id: nvidia/nemotron-3-ultra-550b-a55b:free
     pricing:
@@ -1765,10 +1889,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.6993
-      output: 2.1978
+      input: 0.966
+      output: 3.036
       extra:
-        cache_read: 0.12987
+        cache_read: 0.1794
 agents:
 - name: claude_code
   developer: Anthropic
