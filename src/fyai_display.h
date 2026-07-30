@@ -7,6 +7,8 @@
 fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 int fyai_show_stats(struct fyai_ctx *ctx);
 int fyai_display_view(struct fyai_ctx *ctx);
+int fyai_export_view(struct fyai_ctx *ctx, const char *path);
+int fyai_import_view(struct fyai_ctx *ctx, const char *path);
 int fyai_dump_view(struct fyai_ctx *ctx);
 fy_generic fyai_list_turns_data(struct fyai_ctx *ctx,
 				struct fy_generic_builder *gb);

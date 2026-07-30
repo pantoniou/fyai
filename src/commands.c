@@ -66,6 +66,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("transcript [opts]", "Human-digestible conversation transcript");
 	ITEM("history [opts]", "Alias for transcript");
 	ITEM("display [opts]", "Alias for transcript");
+	ITEM("export [-o file]", "Export the conversation as Markdown (stdout by default)");
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
 	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
@@ -328,6 +329,32 @@ static int configure_history(int argc, char **argv, struct fyai_cfg *cfg)
 	}
 
 	return 0;
+}
+
+static int configure_export(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_export_args *args = &cfg->cmd.args.export;
+	int i;
+
+	args->path = NULL;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output")) {
+			if (++i >= argc) {
+				fyai_cfg_error(cfg, "export: -o needs a file");
+				return -1;
+			}
+			args->path = argv[i];
+			continue;
+		}
+		fyai_cfg_error(cfg, "export: unknown option '%s'", argv[i]);
+		return -1;
+	}
+	return 0;
+}
+
+static int execute_export(struct fyai_ctx *ctx)
+{
+	return fyai_export_view(ctx, ctx->cfg->cmd.args.export.path);
 }
 
 static int configure_stats(int argc, char **argv, struct fyai_cfg *cfg)
@@ -2033,6 +2060,18 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			.turn_sel.type = FYAITST_ALL,
 		},
 	},
+	[FYAIVID_EXPORT] = {
+		.id	   = FYAIVID_EXPORT,
+		.name	   = "export",
+		.configure = configure_export,
+		.execute   = execute_export,
+		.synopsis  = "export [-o file]",
+		.help      = "Write the active branch as the textual export format.\n"
+			     "Output goes to standard output; -o writes a file.\n"
+			     "Use --branch/-b to export a branch other than the active one.\n",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
+	},
 	[FYAIVID_STATS] = {
 		.id	   = FYAIVID_STATS,
 		.name	   = "stats",
@@ -2221,10 +2260,10 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.configure = configure_compact,
 		.execute   = execute_compact,
 		.synopsis  = "compact [hint]",
-		.help	   = "Summarize the conversation with one model call and restart the\n"
-			     "chain from the summary (old head kept as compacted_from metadata\n"
-			     "for provenance). An optional hint focuses the summary. Needs an\n"
-			     "API key. Same backend as the interactive /compact.",
+		.help	   = "Compact the conversation and restart its chain (old head kept as\n"
+			     "compacted_from provenance): Responses uses the native compact\n"
+			     "endpoint; other APIs summarize with one model call. An optional\n"
+			     "hint focuses retained state. Needs an API key.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NEEDS_API_KEYS,
 		.default_args.compact = {
 		},
@@ -2235,9 +2274,9 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.configure = configure_context,
 		.execute   = execute_context,
 		.synopsis  = "context",
-		.help	   = "Report context fill for the stored conversation: the model's\n"
-			     "context window (catalogue), the last recorded call's token total,\n"
-			     "and a tokenizer-free estimate (bytes/4) of the next request.",
+		.help	   = "Report projected context fill for the next request: the model's\n"
+			     "context window (catalogue), the larger of the last measured input\n"
+			     "and a bytes/4 prompt estimate, plus the output-token allowance.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
 			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 		.default_args.context = {

@@ -12,23 +12,702 @@
 #endif
 
 #include <limits.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "fyai_branch.h"
+#include "fyai_config.h"
 #include "fyai_display.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
 #include "fyai_provider.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
+#include "fyai_textual.h"
 #include "fyai_ui.h"
 #include "fyai_turn.h"
 
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 				 bool erase_prompt);
+
+/* Prose must not contain a directive opener at column zero. */
+/* Return the opener length and its escape run length. */
+static size_t fyai_export_opener_len(const char *p, size_t *runp)
+{
+	const char *run;
+	const char *tail;
+
+	if (strncmp(p, FYAI_TEXTUAL_PREFIX, FYAI_TEXTUAL_PREFIX_LEN))
+		return 0;
+	run = p + FYAI_TEXTUAL_PREFIX_LEN;
+	tail = run;
+	while (*tail == 'x')
+		tail++;
+	/* Count the run before the separator is consumed. */
+	*runp = (size_t)(tail - run);
+	if (tail > run) {
+		if (*tail != '-')
+			return 0;
+		tail++;
+	}
+	if (strncmp(tail, FYAI_TEXTUAL_TAIL, FYAI_TEXTUAL_TAIL_LEN))
+		return 0;
+	return (size_t)(tail - p) + FYAI_TEXTUAL_TAIL_LEN;
+}
+
+static void fyai_export_escaped_opener(FILE *fp, const char *opener,
+				       size_t len, size_t run)
+{
+	fwrite(FYAI_TEXTUAL_PREFIX, 1, FYAI_TEXTUAL_PREFIX_LEN, fp);
+	/* Extend the run by one x; a zero-length run also needs its separator. */
+	fputc('x', fp);
+	if (!run)
+		fputc('-', fp);
+	fwrite(opener + FYAI_TEXTUAL_PREFIX_LEN, 1,
+	       len - FYAI_TEXTUAL_PREFIX_LEN, fp);
+}
+
+/* Insert one 'x' into an opener at column zero. */
+static void fyai_export_body(FILE *fp, const char *text)
+{
+	const char *p, *start;
+	size_t len;
+	size_t run;
+	bool at_column_zero;
+
+	at_column_zero = true;
+	for (p = text, start = text; *p; ) {
+		len = 0;
+		run = 0;
+		if (!at_column_zero) {
+			at_column_zero = *p == '\n';
+			p++;
+			continue;
+		}
+		len = fyai_export_opener_len(p, &run);
+		if (!len) {
+			at_column_zero = false;
+			continue;
+		}
+		fwrite(start, 1, (size_t)(p - start), fp);
+		fyai_export_escaped_opener(fp, p, len, run);
+		p += len;
+		start = p;
+		at_column_zero = false;
+	}
+	fwrite(start, 1, (size_t)(p - start), fp);
+}
+
+/* Normalize the role without converting generic strings to temporary pointers. */
+static fy_generic fyai_export_role(fy_generic message)
+{
+	fy_generic role;
+	fy_generic type;
+
+	role = fy_get(message, "role", fy_invalid);
+	/* Chat grammar answers a call with role "tool". */
+	if (fy_equal(role, "tool"))
+		return fy_value("tool_result");
+	if (fy_generic_is_string(role) && fy_len(role))
+		return role;
+	type = fy_get(message, "type", fy_invalid);
+	if (fy_equal(type, "message"))
+		return fy_value("assistant");
+	if (fy_equal(type, "function_call") || fy_equal(type, "shell_call"))
+		return fy_value("tool_call");
+	if (fy_equal(type, "function_call_output") ||
+	    fy_equal(type, "shell_call_output"))
+		return fy_value("tool_result");
+	return fy_value("item");
+}
+
+/*
+ * A tool result is a separate canonical message, and a turn ends between a
+ * call and its result whenever the model stops to run the tool. The export
+ * joins the two into one directive, so nothing in the file has to name a call:
+ * no ordinal to renumber and no position to preserve under a merge. This table
+ * holds the results, collected before emission because the result of a call is
+ * written after it in the message stream.
+ */
+struct fyai_export_call {
+	char *id;
+	fy_generic output;
+};
+
+struct fyai_export_calls {
+	struct fyai_export_call *items;
+	size_t count;
+	size_t capacity;
+};
+
+struct fyai_export_entries {
+	fy_generic *items;
+	size_t count;
+	size_t capacity;
+};
+
+static void fyai_export_calls_cleanup(struct fyai_export_calls *calls)
+{
+	size_t i;
+
+	for (i = 0; i < calls->count; i++)
+		free(calls->items[i].id);
+	free(calls->items);
+}
+
+static int fyai_export_call_add(struct fyai_ctx *ctx,
+				struct fyai_export_calls *calls,
+				const char *id, fy_generic output)
+{
+	struct fyai_export_call *items;
+	size_t capacity;
+	char *copy;
+
+	if (!id || !*id)
+		return 0;
+	if (calls->count == calls->capacity) {
+		capacity = calls->capacity ? calls->capacity * 2 : 8;
+		items = realloc(calls->items, capacity * sizeof(*items));
+		fyai_error_check(ctx, items, err, "export: out of memory");
+		calls->items = items;
+		calls->capacity = capacity;
+	}
+	copy = strdup(id);
+	fyai_error_check(ctx, copy, err, "export: out of memory");
+	calls->items[calls->count].id = copy;
+	calls->items[calls->count++].output = output;
+	return 0;
+err:
+	return -1;
+}
+
+/* The result recorded for @id, or fy_invalid when the call has none. */
+static fy_generic fyai_export_call_find(const struct fyai_export_calls *calls,
+					const char *id)
+{
+	size_t i;
+
+	if (!id || !*id)
+		return fy_invalid;
+	for (i = 0; i < calls->count; i++)
+		if (!strcmp(calls->items[i].id, id))
+			return calls->items[i].output;
+	return fy_invalid;
+}
+
+/* The result carried by @message, whichever grammar produced it. */
+static fy_generic fyai_export_result_of(fy_generic message)
+{
+	fy_generic result;
+
+	result = fy_get(message, "output", fy_invalid);
+	if (fy_generic_is_valid(result))
+		return result;
+	return fy_get(message, "content", fy_invalid);
+}
+
+static fy_generic fyai_export_result_id(fy_generic message)
+{
+	fy_generic type;
+
+	type = fy_get(message, "type", fy_invalid);
+	if (fy_equal(type, "function_call_output") ||
+	    fy_equal(type, "shell_call_output"))
+		return fy_get(message, "call_id");
+	if (fy_equal(fy_get(message, "role", fy_invalid), "tool"))
+		return fy_get(message, "tool_call_id");
+	return fy_invalid;
+}
+
+/* Record every tool result in @messages against the call it answers. */
+static int fyai_export_collect_results(struct fyai_ctx *ctx,
+				       struct fyai_export_calls *calls,
+				       fy_generic messages)
+{
+	fy_generic message;
+	fy_generic gid;
+	fy_generic result;
+	int rc;
+
+	fy_foreach(message, messages) {
+		gid = fyai_export_result_id(message);
+		if (fy_generic_is_invalid(gid))
+			continue;
+		result = fyai_export_result_of(message);
+		fyai_error_check(ctx, fy_generic_is_valid(result) &&
+				 !fy_generic_is_null_type(result), err,
+				 "export: a tool result has no output");
+		rc = fyai_export_call_add(ctx, calls, fy_castp(&gid, ""), result);
+		fyai_error_check(ctx, !rc, err, "export: cannot record a tool result");
+	}
+	return 0;
+err:
+	return -1;
+}
+
+static void fyai_export_entries_cleanup(struct fyai_export_entries *entries)
+{
+	free(entries->items);
+}
+
+static int fyai_export_entry_add(struct fyai_ctx *ctx,
+				 struct fyai_export_entries *entries,
+				 fy_generic entry)
+{
+	fy_generic *items;
+	size_t capacity;
+
+	if (entries->count == entries->capacity) {
+		capacity = entries->capacity ? entries->capacity * 2 : 16;
+		items = realloc(entries->items, capacity * sizeof(*items));
+		fyai_error_check(ctx, items, err, "export: out of memory");
+		entries->items = items;
+		entries->capacity = capacity;
+	}
+	entries->items[entries->count++] = entry;
+	return 0;
+err:
+	return -1;
+}
+
+/* Emit a YAML directive. */
+static int fyai_export_directive(struct fyai_ctx *ctx, FILE *fp,
+				 fy_generic map)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic_sized_string text;
+	fy_generic emitted;
+
+	emitted = fy_gb_emit(gb, map, FYAI_YAML_EMIT_FLAGS, NULL);
+	fyai_error_check(ctx, fy_generic_is_valid(emitted), err,
+			 "export: cannot format a directive");
+	text = fy_castp(&emitted, fy_szstr_empty);
+	fputs(FYAI_TEXTUAL_OPEN "\n", fp);
+	fwrite(text.data, 1, text.size, fp);
+	if (text.size && text.data[text.size - 1] != '\n')
+		fputc('\n', fp);
+	fputs(FYAI_TEXTUAL_CLOSE "\n", fp);
+	return 0;
+err:
+	return -1;
+}
+
+/* Flatten a configuration into slash paths. */
+static fy_generic fyai_export_config_flatten(struct fy_generic_builder *gb,
+					     const char *prefix, fy_generic value,
+					     fy_generic out)
+{
+	char path[512];
+	fy_generic key;
+	fy_generic val;
+	size_t i, n;
+
+	n = fy_generic_mapping_get_pair_count(value);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(value, i);
+		val = fy_generic_mapping_get_at_value(value, i);
+		if (!fy_generic_is_string(key))
+			continue;
+		snprintf(path, sizeof(path), "%s%s%s", prefix, *prefix ? "/" : "",
+			 fy_castp(&key, ""));
+		if (fy_generic_mapping_get_pair_count(val))
+			out = fyai_export_config_flatten(gb, path, val, out);
+		else
+			out = fy_assoc(gb, out, path, val);
+	}
+	return out;
+}
+
+/* Return the slash-path changes from @previous to @config. */
+static fy_generic fyai_export_config_delta(struct fy_generic_builder *gb,
+					   fy_generic config, fy_generic previous)
+{
+	fy_generic old_flat;
+	fy_generic new_flat;
+	fy_generic delta;
+	fy_generic key;
+	fy_generic val;
+	size_t i, n;
+
+	old_flat = fyai_export_config_flatten(gb, "", previous, fy_map_empty);
+	new_flat = fyai_export_config_flatten(gb, "", config, fy_map_empty);
+	delta = fy_map_empty;
+	n = fy_generic_mapping_get_pair_count(new_flat);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(new_flat, i);
+		val = fy_generic_mapping_get_at_value(new_flat, i);
+		if (!fy_equal(fy_get(old_flat, key, fy_invalid), val))
+			delta = fy_assoc(gb, delta, key, val);
+	}
+	n = fy_generic_mapping_get_pair_count(old_flat);
+	for (i = 0; i < n; i++) {
+		key = fy_generic_mapping_get_at_key(old_flat, i);
+		if (fy_generic_is_invalid(fy_get(new_flat, key, fy_invalid)))
+			delta = fy_assoc(gb, delta, key, fy_null);
+	}
+	return delta;
+}
+
+static int fyai_export_config(struct fyai_ctx *ctx, FILE *fp,
+			      fy_generic config, fy_generic previous)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic delta;
+	int rc;
+
+	if (fy_generic_is_valid(previous) && fy_equal(config, previous))
+		return 0;
+	/* Emit the complete first configuration and later changes. */
+	if (fy_generic_is_invalid(previous)) {
+		rc = fyai_export_directive(ctx, fp,
+			fy_mapping(gb, "kind", "config", "config", config));
+		fyai_error_check(ctx, !rc, err,
+				 "export: cannot write the configuration");
+		fputs("## Configuration\n\n", fp);
+		return 0;
+	}
+	delta = fyai_export_config_delta(gb, config, previous);
+	if (!fy_generic_mapping_get_pair_count(delta))
+		return 0;
+	rc = fyai_export_directive(ctx, fp,
+		fy_mapping(gb, "kind", "config-update", "config-update", delta));
+	fyai_error_check(ctx, !rc, err,
+			 "export: cannot write a configuration update");
+	fputs("## Configuration update\n\n", fp);
+	return 0;
+err:
+	return -1;
+}
+
+/* Emit a tool call with its result. */
+static int fyai_export_tool_call(struct fyai_ctx *ctx, FILE *fp,
+				 const struct fyai_export_calls *calls,
+				 const char *id, const char *name,
+				 fy_generic args)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic description;
+	fy_generic result;
+	fy_generic map;
+	const char *desc;
+	int rc;
+
+	map = fy_mapping(gb, "kind", "tool_call", "tool", name,
+			 "arguments", args);
+	/* An interrupted turn can hold a call that never got an answer. */
+	result = fyai_export_call_find(calls, id);
+	if (fy_generic_is_valid(result))
+		map = fy_assoc(gb, map, "result", result);
+	rc = fyai_export_directive(ctx, fp, map);
+	fyai_error_check(ctx, !rc, err, "export: cannot write a tool call");
+	description = fy_get(args, "description");
+	desc = fy_castp(&description, "");
+	fprintf(fp, "### %s%s%s\n\n", name, *desc ? " — " : "", desc);
+	return 0;
+err:
+	return -1;
+}
+
+/* Emit a publish or turn boundary. */
+static int fyai_export_marker(struct fyai_ctx *ctx, FILE *fp,
+			      const char *kind)
+{
+	return fyai_export_directive(ctx, fp,
+		fy_mapping(ctx->transient_gb, "kind", kind));
+}
+
+/* Emit a compaction operation without its provider output. */
+static int fyai_export_compact(struct fyai_ctx *ctx, FILE *fp,
+			       fy_generic instructions)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic map;
+	int rc;
+
+	map = fy_mapping(gb, "kind", "compact");
+	if (fy_generic_is_string(instructions))
+		map = fy_assoc(gb, map, "instructions", instructions);
+	rc = fyai_export_directive(ctx, fp, map);
+	fyai_error_check(ctx, !rc, err, "export: cannot write a compaction");
+	fputs("## Compaction\n\n", fp);
+	return 0;
+err:
+	return -1;
+}
+
+static const char *fyai_export_turn_heading(const char *role)
+{
+	if (!strcmp(role, "assistant"))
+		return "Assistant";
+	if (!strcmp(role, "user"))
+		return "User";
+	if (!strcmp(role, "system"))
+		return "System";
+	return role;
+}
+
+static int fyai_export_message(struct fyai_ctx *ctx, FILE *fp,
+			       const char *role, const char *text)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	int rc;
+
+	rc = fyai_export_directive(ctx, fp,
+		fy_mapping(gb, "kind", "message", "role", role));
+	fyai_error_check(ctx, !rc, err, "export: cannot write a message");
+	fprintf(fp, "## %s\n\n", fyai_export_turn_heading(role));
+	fyai_export_body(fp, text);
+	if (*text && text[strlen(text) - 1] != '\n')
+		fputc('\n', fp);
+	fputc('\n', fp);
+	return 0;
+err:
+	return -1;
+}
+
+static fy_generic fyai_export_item_text(struct fy_generic_builder *gb,
+						fy_generic message)
+{
+	fy_generic content, chunks, part, type;
+
+	content = fy_get(message, "content");
+	if (fy_generic_is_string(content))
+		return content;
+	chunks = fy_seq_empty;
+	fy_foreach(part, content) {
+		type = fy_get(part, "type");
+		if (fy_not_equal(type, "output_text") &&
+		    fy_not_equal(type, "text"))
+			continue;
+		chunks = fy_append(gb, chunks, fy_get(part, "text", ""));
+	}
+	return fyai_join_strings(gb, chunks);
+}
+
+static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
+				     const struct fyai_export_calls *calls,
+				     fy_generic messages)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic message, content, calls_in_message, call, function;
+	fy_generic args, gid, gname, role;
+	const char *role_text, *text, *args_text;
+	bool assistant_open = false;
+	int rc;
+
+	fy_foreach(message, messages) {
+		if (fy_equal(fy_get(message, "type"), "function_call")) {
+			if (!assistant_open) {
+				rc = fyai_export_message(ctx, fp, "assistant", "");
+				fyai_error_check(ctx, !rc, err,
+						 "export: cannot write a message");
+				assistant_open = true;
+			}
+			gid = fy_get(message, "call_id");
+			gname = fy_get(message, "name");
+			args_text = fy_get(message, "arguments", "{}");
+			args = parse_json_string(gb, args_text);
+			rc = fyai_export_tool_call(ctx, fp, calls,
+				fy_castp(&gid, ""), fy_castp(&gname, "tool"), args);
+			fyai_error_check(ctx, !rc, err,
+					 "export: cannot write a tool call");
+			continue;
+		}
+		if (fy_equal(fy_get(message, "type"), "shell_call")) {
+			if (!assistant_open) {
+				rc = fyai_export_message(ctx, fp, "assistant", "");
+				fyai_error_check(ctx, !rc, err,
+						 "export: cannot write a message");
+				assistant_open = true;
+			}
+			gid = fy_get(message, "call_id");
+			args = fy_mapping(gb, "command",
+				fy_get_at_path(gb, message, "action", "commands", 0));
+			rc = fyai_export_tool_call(ctx, fp, calls,
+				fy_castp(&gid, ""), "shell", args);
+			fyai_error_check(ctx, !rc, err,
+					 "export: cannot write a tool call");
+			continue;
+		}
+		if (fy_generic_is_valid(fyai_export_result_id(message)))
+			continue;
+
+		role = fyai_export_role(message);
+		role_text = fy_castp(&role, "item");
+		if (fy_equal(role, "assistant")) {
+			content = fy_get(message, "content", fy_invalid);
+			if (fy_generic_is_string(content) && *fy_castp(&content, "")) {
+				rc = fyai_export_message(ctx, fp, role_text,
+						      fy_castp(&content, ""));
+				fyai_error_check(ctx, !rc, err,
+						 "export: cannot write a message");
+				assistant_open = true;
+			}
+			calls_in_message = fy_get(message, "tool_calls");
+			if (fy_generic_is_sequence(calls_in_message)) {
+				if (!assistant_open) {
+					rc = fyai_export_message(ctx, fp, role_text, "");
+					fyai_error_check(ctx, !rc, err,
+							 "export: cannot write a message");
+					assistant_open = true;
+				}
+				fy_foreach(call, calls_in_message) {
+					function = fy_get(call, "function");
+					gid = fy_get(call, "id");
+					gname = fy_get(function, "name");
+					args_text = fy_get(function, "arguments", "{}");
+					args = parse_json_string(gb, args_text);
+					rc = fyai_export_tool_call(ctx, fp, calls,
+						fy_castp(&gid, ""),
+						fy_castp(&gname, "tool"), args);
+					fyai_error_check(ctx, !rc, err,
+							 "export: cannot write a tool call");
+				}
+			}
+		}
+		if (fy_equal(role, "tool_result"))
+			continue;
+		content = fy_get(message, "content", fy_invalid);
+		if (fy_generic_is_string(content))
+			text = fy_castp(&content, "");
+		else if (fy_equal(fy_get(message, "type"), "message")) {
+			content = fyai_export_item_text(gb, message);
+			text = fy_castp(&content, "");
+		} else
+			text = "";
+		if (fy_not_equal(role, "tool_call") && fy_not_equal(role, "item") &&
+		    !(assistant_open && fy_equal(role, "assistant") &&
+		      fy_generic_is_invalid(fy_get(message, "type")))) {
+			rc = fyai_export_message(ctx, fp, role_text, text);
+			fyai_error_check(ctx, !rc, err,
+					 "export: cannot write a message");
+			if (fy_equal(role, "assistant"))
+				assistant_open = true;
+		}
+	}
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_export_view(struct fyai_ctx *ctx, const char *path)
+{
+	struct fyai_turn_stack stack;
+	struct fy_generic_builder *gb;
+	struct fyai_export_calls calls;
+	struct fyai_export_entries entries;
+	struct fyai_branch branch;
+	fy_generic messages;
+	const char *conversation_path;
+	FILE *fp;
+	size_t i, entry_index;
+	int rc;
+	int close_rc;
+	fy_generic entry;
+	fy_generic previous_config;
+	fy_generic previous_head;
+	fy_generic meta;
+	bool decoded;
+
+	memset(&stack, 0, sizeof(stack));
+	memset(&calls, 0, sizeof(calls));
+	memset(&entries, 0, sizeof(entries));
+	fp = NULL;
+	gb = ctx->transient_gb;
+	assert(gb);
+	rc = -1;
+	/* No path is stdout, so an export composes with a pipe by default. */
+	conversation_path = path ? path : "standard output";
+	if (path) {
+		fp = fopen(path, "wb");
+		fyai_error_check(ctx, fp, out, "export: cannot write %s", path);
+	} else
+		fp = stdout;
+	rc = fyai_export_directive(ctx, fp,
+		fy_mapping(gb, "format", 1LL, "kind", "conversation"));
+	fyai_error_check(ctx, !rc, out, "export: cannot write the document header");
+	fputc('\n', fp);
+	for (entry = ctx->branch_prev; fy_generic_is_valid(entry);
+	     entry = branch.prev) {
+		decoded = fyai_branch_decode(entry, &branch);
+		fyai_error_check(ctx, decoded, out,
+				 "export: cannot read branch history");
+		rc = fyai_export_entry_add(ctx, &entries, entry);
+		fyai_error_check(ctx, !rc, out, "export: out of memory");
+	}
+	/* Collect results before their earlier calls are emitted. */
+	previous_head = fy_invalid;
+	for (entry_index = entries.count; entry_index-- > 0; ) {
+		decoded = fyai_branch_decode(entries.items[entry_index], &branch);
+		fyai_error_check(ctx, decoded, out,
+			"export: cannot read branch history");
+		rc = fyai_turn_stack_init(&stack, branch.head, previous_head);
+		fyai_error_check(ctx, !rc, out, "export: cannot read conversation");
+		for (i = 0; i < stack.count; i++) {
+			messages = fy_get(stack.items[i], "messages", fy_seq_empty);
+			rc = fyai_export_collect_results(ctx, &calls, messages);
+			fyai_error_check(ctx, !rc, out, "export: out of memory");
+		}
+		fyai_turn_stack_cleanup(&stack);
+		previous_head = branch.head;
+	}
+	previous_config = fy_invalid;
+	previous_head = fy_invalid;
+	for (entry_index = entries.count; entry_index-- > 0; ) {
+		decoded = fyai_branch_decode(entries.items[entry_index], &branch);
+		fyai_error_check(ctx, decoded, out,
+			"export: cannot read branch history");
+		rc = fyai_export_marker(ctx, fp, "publish");
+		fyai_error_check(ctx, !rc, out, "export: cannot write a boundary");
+		fputs("## Publish\n\n", fp);
+		if (fy_generic_is_valid(branch.config)) {
+			rc = fyai_export_config(ctx, fp, branch.config, previous_config);
+			fyai_error_check(ctx, !rc, out,
+				"export: cannot format configuration");
+		}
+		rc = fyai_turn_stack_init(&stack, branch.head, previous_head);
+		fyai_error_check(ctx, !rc, out, "export: cannot read conversation");
+		for (i = 0; i < stack.count; i++) {
+			messages = fy_get(stack.items[i], "messages", fy_seq_empty);
+			meta = fyai_turn_meta(stack.items[i]);
+			/* Replace provider compaction output with its operation. */
+			if (fy_generic_is_valid(fy_get(meta, "compacted_from",
+						       fy_invalid))) {
+				rc = fyai_export_compact(ctx, fp,
+					fy_get(meta, "compact_instructions",
+					       fy_invalid));
+				fyai_error_check(ctx, !rc, out,
+					"export: cannot write a compaction");
+				continue;
+			}
+			rc = fyai_export_marker(ctx, fp, "turn");
+			fyai_error_check(ctx, !rc, out, "export: cannot write a turn");
+			fputs("## Turn\n\n", fp);
+			rc = fyai_export_turn_messages(ctx, fp, &calls, messages);
+			fyai_error_check(ctx, !rc, out, "export: cannot write a turn");
+		}
+		fyai_turn_stack_cleanup(&stack);
+		previous_config = branch.config;
+		previous_head = branch.head;
+	}
+	close_rc = fp == stdout ? fflush(fp) : fclose(fp);
+	fp = NULL;
+	fyai_error_check(ctx, !close_rc, out, "export: cannot write %s",
+			 conversation_path);
+	rc = 0;
+out:
+	if (fp && fp != stdout)
+		fclose(fp);
+	fyai_export_calls_cleanup(&calls);
+	fyai_export_entries_cleanup(&entries);
+	fyai_turn_stack_cleanup(&stack);
+	return rc;
+}
 
 fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 {
