@@ -122,7 +122,15 @@ accept null to paper over an emitter that drops the quotes.
   otherwise overwrite them. In a fork the persona is a **user** instruction
   message, not a system turn: `fyai.c` hoists the conversation's canonical
   system turn into the request `instructions`, so a second system turn would
-  never take effect. `agent/personas` in config names sub-agent personas
+  never take effect.
+
+  The agent tool takes a `timeout` in milliseconds, which stops the sub-agent
+  and everything below it. It is what the model asked for, so
+  `agent/max_timeout_ms` bounds it, the way `shell/max_timeout_ms` bounds the
+  shell tool. A parameter the tool does not declare is a parameter the model
+  never sends, so reading one is dead code that reads as if the model had a say.
+
+  `agent/personas` in config names sub-agent personas
   (`description`, `system_prompt`, `model`, `reasoning/*`, `temperature`,
   `max_tokens`, `thinking`, `timeout_ms`, `context`); the tool's `persona`
   parameter selects one, and `make_tools_filtered()` lists the configured names
@@ -216,27 +224,64 @@ accept null to paper over an emitter that drops the quotes.
   before exec. `struct shell_command_opts` shapes one sub-execution: `workdir`
   does the `chdir` *before* the confinement (which is one-way, so the target
   must stay reachable; status 125 marks a directory that cannot be entered),
-  and `timeout_ms` arms a deadline. The capture completes when the child is
-  **reaped**, and does not wait for the pipes to give EOF: `/bin/sh` usually
-  forks rather than execs, so a descendant holds the write ends for as long as
-  the command would have run, which made every cancelled or timed-out command
-  return only when it stopped by itself. Do not give the shell child a session
-  or group of its own to "fix" that — it lives in the tool job's group
-  precisely so the group terminate below can sweep it.
+  and `timeout_ms` arms a deadline.
+
+  The capture is finished when the child is reaped. It does not wait for the
+  pipes to reach end of file. `/bin/sh` usually forks instead of execs, so some
+  descendant holds the write ends open for as long as the command would have
+  run. While the capture waited for that, every cancelled or timed-out command
+  came back only when it stopped by itself. Do not try to fix this by giving
+  the shell child its own session or process group. It is in the tool job's
+  group on purpose, so that one group terminate can sweep it up.
 
   **A time limit belongs to the job, not to the command inside it.** Only the
-  parent can stop a whole process group, and the job child is a session leader,
-  so one `fyai_tool_job_cancel()` stops the shell (or sub-agent), everything it
-  forked, and everything below that. A limit armed inside the job child reaches
-  only its own direct child — and a shell forks — so the descendants survive and
-  are reparented to init. `fyai_tool_job_submit()` therefore arms the deadline
-  in the parent (`shell`: the model's `timeout`, bounded by
-  `shell/max_timeout_ms`, defaulting to `shell/timeout_ms`; `agent`:
-  `agent/timeout_ms`, off by default), and `cfg->tool_child` keeps the capture
-  inside the child from arming a second, weaker one. The reason is attached in
-  `fyai_tool_job_collect()`: the child normally reports its result before it
-  dies, and from inside the child a group terminate is indistinguishable from an
-  interrupt, so only the parent can say the limit expired.
+  parent can stop a whole process group, and the job child is a session leader.
+  One call to `fyai_tool_job_cancel()` therefore stops the shell or sub-agent,
+  everything it started, and everything below that. A limit armed inside the
+  job child reaches only that child's own child, and a shell forks, so the rest
+  survive and are handed to init. This is why `fyai_tool_job_submit()` arms the
+  deadline in the parent, and why `cfg->tool_child` stops the capture inside the
+  child from arming a second, weaker one.
+
+  **`timeout_ms` and `max_timeout_ms` are two different limits, not two names
+  for one.** `timeout_ms` is the limit to use when nobody asked for one.
+  `max_timeout_ms` is the largest limit the model is allowed to ask for.
+
+  They never apply to the same number. If the model asks for a limit, that value
+  is used, and the ceiling can cut it down. If the model asks for nothing, the
+  default is used, and the ceiling does not come into it. Only the model's value
+  is cut down, because only it comes from outside. The default, and a persona's
+  `timeout_ms`, are settings the user wrote, so they are used as written.
+
+  The most specific limit wins. For the shell tool that is the value on the
+  call, and then `shell/timeout_ms`. For a delegation it is the `timeout` on the
+  call, then the persona's `timeout_ms`, then `agent/timeout_ms`, which is off
+  unless it is set.
+
+  **The two kinds of shell call name the model's limit differently.** The
+  `shell` function tool puts `timeout` in its arguments. The native Responses
+  `shell_call` puts `timeout_ms` inside its action.
+  `fyai_shell_timeout_requested()` reads the right one for each kind. Hand a
+  native call to it as a plain argument mapping and the model's limit is not
+  found, so the call quietly runs under the configured default instead.
+
+  Only the parent can say that a limit expired, which is why it is said in
+  `fyai_tool_job_collect()`. The child usually gets its result out before it
+  dies, but a child cannot tell a group terminate from an interrupt, so it
+  reports the wrong reason.
+
+  **A time limit must not change the shape of the result.** A native shell
+  result is always a list of `{stdout, stderr, outcome}`. When a limit expires,
+  the outcome becomes `{type: timeout, timeout_ms}`, and everything the command
+  printed is kept.
+
+  Do not replace the whole result with an error string. That throws the output
+  away, and it gives the model a shape it has never seen before on the one call
+  where the detail was worth reading. Do not leave a bare `{type: signal}`
+  either, because that reads as a crash the model should retry, rather than a
+  limit it should respect. If the child was killed before it reported anything,
+  the tail of `tool/progress` that the parent kept is the only output left.
+
   A forked tool child uses `/dev/null` as standard input and calls `setsid()`.
   The parent must not call `setpgid()` on the child. Cancellation uses
   `fyai_event_add_child_terminate_group()` to stop all descendants.
@@ -562,6 +607,13 @@ top-level.
 `display/tool_detail` selects `none`, `brief`, `default`, or `full` tool
 presentation. The default hides read/write bodies, bounds shell output with
 `tool_preview_lines`, and renders patches in full.
+
+A tool call is labelled by what the model said it was for. The shell tool and
+the agent tool both take a short `description`, and both show it in brackets
+ahead of the command or the task. If the call fails, the reason is named in red
+after that label: a time limit, a signal, a non-zero status, or the tool's own
+error line. The mark in the margin says that something failed, and the label
+says what, so neither needs the result opened to be understood.
 `transcript --tool-detail MODE` and
 `/transcript --tool-detail=MODE` override this value for one view. They do not
 change the session or stored configuration.
