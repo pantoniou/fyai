@@ -19,6 +19,8 @@ FYAI_TEST_ENTRY(provider, responses_input, provider_responses_input)
 FYAI_TEST_ENTRY(provider, chat_input, provider_chat_input)
 FYAI_TEST_ENTRY(provider, extract_usage, provider_extract_usage)
 FYAI_TEST_ENTRY(provider, chatgpt_shell_tool, provider_chatgpt_shell_tool)
+FYAI_TEST_ENTRY(provider, foreign_shell_tool, provider_foreign_shell_tool)
+FYAI_TEST_ENTRY(provider, shell_downgrade, provider_shell_downgrade)
 FYAI_TEST_ENTRY(provider, response_accessors, provider_response_accessors)
 FYAI_TEST_ENTRY(provider, messages_input, provider_messages_input)
 FYAI_TEST_ENTRY(provider, token_extents, provider_token_extents)
@@ -201,6 +203,7 @@ static void test_chatgpt_shell_tool(void)
 
 	test_cfg.enable_tools = true;
 	test_cfg.enable_builtin_shell = true;
+	test_cfg.shell_tool_supported = true;
 	test_cfg.chatgpt_auth = true;
 	out = emit(fyai_make_responses_tools(&test_ctx));
 	expect_contains("chatgpt_tools", out,
@@ -210,6 +213,72 @@ static void test_chatgpt_shell_tool(void)
 	test_cfg.chatgpt_auth = false;
 	out = emit(fyai_make_responses_tools(&test_ctx));
 	expect_contains("responses_tools", out, "\"type\": \"shell\"");
+	test_cfg.enable_tools = false;
+	test_cfg.enable_builtin_shell = false;
+	test_cfg.shell_tool_supported = false;
+}
+
+/*
+ * Tool declaration and stored-call replay must use the same capability. If
+ * the built-in shell is not declared, send a stored native call as a function
+ * shell call. The model must not receive a result for an undeclared tool.
+ */
+static void test_responses_shell_downgrade(void)
+{
+	fy_generic messages;
+	const char *out;
+
+	messages = parse(
+		"["
+		"{\"type\": \"shell_call\",\"call_id\": \"s1\","
+		"\"action\":{\"type\": \"exec\",\"commands\":[\"echo hi\"]}},"
+		"{\"type\": \"shell_call_output\",\"call_id\": \"s1\","
+		"\"output\":[{\"stdout\": \"hi\\n\",\"stderr\": \"\","
+		"\"outcome\":{\"type\": \"exit\",\"exit_code\":0}}]}"
+		"]");
+
+	/* An endpoint that accepts the tool receives unchanged native items. */
+	test_cfg.shell_tool_supported = true;
+	test_cfg.chatgpt_auth = false;
+	out = emit(fyai_responses_input(&test_ctx, messages));
+	expect_contains("native", out, "\"type\": \"shell_call\"");
+	expect_contains("native", out, "\"type\": \"shell_call_output\"");
+
+	/* The ChatGPT backend receives no declaration or native item. */
+	test_cfg.chatgpt_auth = true;
+	out = emit(fyai_responses_input(&test_ctx, messages));
+	expect_absent("chatgpt", out, "shell_call");
+	expect_contains("chatgpt", out, "\"name\": \"shell\"");
+	expect_contains("chatgpt", out, "echo hi");
+
+	/* Another provider receives a function call and a string result. */
+	test_cfg.chatgpt_auth = false;
+	test_cfg.shell_tool_supported = false;
+	out = emit(fyai_responses_input(&test_ctx, messages));
+	expect_absent("foreign", out, "shell_call");
+	expect_contains("foreign", out, "\"type\": \"function_call\"");
+	expect_contains("foreign", out, "\"type\": \"function_call_output\"");
+	expect_contains("foreign", out, "\"output\": \"[{");
+}
+
+/*
+ * Another Responses provider does not accept the built-in shell tool. Offer
+ * the function shell tool and omit the unsupported declaration.
+ */
+static void test_foreign_shell_tool(void)
+{
+	const char *out;
+
+	test_cfg.enable_tools = true;
+	test_cfg.enable_builtin_shell = true;
+	test_cfg.chatgpt_auth = false;
+	/* The catalogue specifies that this endpoint does not accept the tool. */
+	test_cfg.shell_tool_supported = false;
+	out = emit(fyai_make_responses_tools(&test_ctx));
+	expect_contains("foreign_tools", out,
+			"\"type\": \"function\", \"name\": \"shell\"");
+	expect_absent("foreign_tools", out, "\"type\": \"shell\"");
+
 	test_cfg.enable_tools = false;
 	test_cfg.enable_builtin_shell = false;
 }
@@ -457,6 +526,16 @@ int provider_extract_usage(void)
 int provider_chatgpt_shell_tool(void)
 {
 	return provider_run(test_chatgpt_shell_tool);
+}
+
+int provider_foreign_shell_tool(void)
+{
+	return provider_run(test_foreign_shell_tool);
+}
+
+int provider_shell_downgrade(void)
+{
+	return provider_run(test_responses_shell_downgrade);
 }
 
 int provider_response_accessors(void)

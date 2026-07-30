@@ -1,0 +1,58 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_fs_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_fs_item",
+            "call_id": "sc_fs_1",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "echo foreign-shell-ran"
+              ],
+              "max_output_length": 4096
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_fs_2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_fs_2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Foreign provider round trip done."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 5,
+          "total_tokens": 25
+        }
+      }
+    }
+  ]
+}
