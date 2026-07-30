@@ -533,6 +533,43 @@ state, display and cross-provider replay share one shape. Credentials come
 from `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` env mappings and the `*.env` files
 in the root (all gitignored).
 
+An API grammar does not belong to one provider, but parts of it do. Several
+providers speak Responses, and OpenRouter is one of them, yet the built-in
+`shell` tool and the `shell_call` items that go with it are not part of the
+grammar everywhere. A provider that does not know an item does not skip it.
+The item matches no member of the input union, so the request is refused as a
+whole, and every later turn of that conversation is refused with it.
+
+Who takes what is the catalogue's to say, not a provider name written into the
+code. Each provider entry carries its endpoints, and each endpoint its
+`capabilities`, `shell_tool_supported` among them. `fyai_config_resolve_model()`
+reads the one for the grammar in force into `cfg->shell_tool_supported`, keyed
+by protocol rather than by position, because the endpoints are not in the same
+order for every provider. It is derived and never persisted, like the endpoint
+URL and `max_tokens` beside it, and it is read after the provider default is
+applied, or a model the catalogue does not carry is looked up under an empty
+name. An endpoint the catalogue does not describe is taken not to support the
+tool: the function shell tool works everywhere, while a declaration that is not
+taken fails the whole request.
+
+`fyai_provider_native_shell()` puts that together with the one thing the
+catalogue cannot describe. The ChatGPT Codex backend is an authentication mode
+rather than an endpoint, and it does not take the declaration either, so it is
+answered there rather than tested apart at each site. One predicate is the
+point: what is declared and what is replayed can then never disagree, and a
+model is never made to answer for a tool it was not offered.
+
+Two things follow from it. The
+gate stops declaring the tool and turns the function shell tool on in its
+place, so no new native item is made. The request builder rewrites any native
+item already in the conversation, sending `shell_call` as a `function_call`
+named `shell` and `shell_call_output` as a `function_call_output` whose output
+is flattened to a string.
+
+This is the same answer the Messages and Chat builders already give. Keep it
+that way. Canonical state stores one shape and each builder bends it to what
+its endpoint takes, so a conversation begun anywhere can be continued anywhere.
+
 ## Configuration
 
 The durable arena root ref is a versioned container mapping
