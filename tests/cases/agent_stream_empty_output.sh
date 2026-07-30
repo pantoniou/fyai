@@ -12,7 +12,9 @@ run_fyai --set api=responses --set api_url="$MOCK_URL/v1/responses" \
 assert_status 0
 assert_stdout_contains "Streamed delegation done."
 
-run_fyai branch --all
+# The branch table wraps at the terminal width, so ask the branch itself for
+# its name instead of matching a wrapped cell.
+run_fyai branch show main/agent:streamer
 assert_status 0
 assert_stdout_contains "main/agent:streamer"
 
