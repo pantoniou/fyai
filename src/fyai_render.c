@@ -11,6 +11,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,6 +32,7 @@ enum render_format {
 	RENDER_FMT_YESNO,
 	RENDER_FMT_MARK,
 	RENDER_FMT_JOIN,
+	RENDER_FMT_TIME,
 };
 
 struct render_col {
@@ -96,7 +98,32 @@ static enum render_format render_format_parse(const char *s)
 		return RENDER_FMT_MARK;
 	if (!strcmp(s, "join"))
 		return RENDER_FMT_JOIN;
+	if (!strcmp(s, "time"))
+		return RENDER_FMT_TIME;
 	return RENDER_FMT_PLAIN;
+}
+
+/* Stored times are microseconds since the epoch.
+ * A small value is a second count.
+ * A large value is a proper time formatted timestamp.
+ * Zero means "not recorded".
+ */
+static void render_time(char *buf, size_t bufsz, long long t)
+{
+	struct tm tm;
+	time_t secs;
+
+	if (t <= 0) {
+		buf[0] = '\0';
+		return;
+	}
+	secs = (time_t)(t >= 100000000000LL ? t / 1000000LL : t);
+	if (!localtime_r(&secs, &tm)) {
+		snprintf(buf, bufsz, "%lld", t);
+		return;
+	}
+	if (!strftime(buf, bufsz, "%Y-%m-%d %H:%M:%S", &tm))
+		snprintf(buf, bufsz, "%lld", t);
 }
 
 /* Underscores to spaces, first letter capitalized, into a fixed buffer. */
@@ -156,6 +183,13 @@ static void render_cell(FILE *fp, fy_generic v, enum render_format fmt)
 			render_escape(fp, fy_castp(&item, ""), &used);
 		}
 		return;
+	case RENDER_FMT_TIME:
+		if (fy_generic_get_type(v) == FYGT_INT) {
+			render_time(buf, sizeof(buf), fy_cast(v, 0LL));
+			render_escape(fp, buf, &used);
+			return;
+		}
+		break;
 	case RENDER_FMT_HUMANIZE:
 		if (fy_generic_is_string(v)) {
 			render_humanize(buf, sizeof(buf), fy_castp(&v, ""));

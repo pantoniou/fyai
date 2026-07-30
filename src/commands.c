@@ -582,7 +582,8 @@ static fy_generic list_renderopts(struct fy_generic_builder *gb,
 				"from", fy_mapping(gb, "name", "From",
 						   "align", "left"),
 				"created", fy_mapping(gb, "name", "When",
-						      "align", "left")));
+						      "align", "left",
+						      "format", "time")));
 	case FYAILT_MODELS:
 		return fy_mapping(gb,
 			"empty", "no models",

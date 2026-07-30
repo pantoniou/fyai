@@ -606,7 +606,8 @@ int fyai_branch_list(struct fyai_ctx *ctx, const char *under, bool all)
 			"turns", fy_mapping(gb, "name", "Turns"),
 			"model", fy_mapping(gb, "name", "Model", "align", "left"),
 			"updated", fy_mapping(gb, "name", "Updated",
-					      "align", "left"),
+					      "align", "left",
+					      "format", "time"),
 			"description", fy_mapping(gb, "name", "Description",
 						  "align", "left")));
 	return fyai_generic_to_markdown(ctx, opts, branch_list_data(ctx, under,
@@ -638,7 +639,9 @@ int fyai_branch_show(struct fyai_ctx *ctx, const char *name)
 		"agent", fy_value(gb, fy_get(b.agent, "persona", "-")),
 		"reflog_entries", fy_value(gb, branch_chain_len(b.entry)));
 	opts = fy_mapping(gb, "title", "Branch", "key_header", "Field",
-			  "value_header", "Value");
+			  "value_header", "Value",
+			  "columns", fy_mapping(gb,
+				"created", fy_mapping(gb, "format", "time")));
 	return fyai_generic_to_markdown(ctx, opts, data);
 }
 
