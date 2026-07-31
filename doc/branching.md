@@ -5,9 +5,9 @@
 
 ## 1. Why branches
 
-An arena holds one conversation chain today. To try a different approach, you
-must clear the conversation or make a second project directory. Both methods
-lose work.
+Without branches, trying a different approach would require clearing the
+conversation or making a second project directory. Both methods make earlier
+work awkward to recover or compare.
 
 A branch keeps each line of work separate. You can start a new approach, go back
 to the first one, and compare the two.
@@ -34,7 +34,7 @@ There are three important differences from `git`:
 | --- | --- |
 | Branch | A named conversation with its own configuration |
 | `HEAD` | The name of the branch that the invocation uses |
-| Commit | A turn: one model call and its tool calls |
+| Commit | A stored append: user input, assistant output, or tool results |
 | Commit chain | The turn chain, linked through `previous` |
 | Start point | The turn at which a new branch starts |
 | Reflog | The history of the tip of a branch |
@@ -44,18 +44,24 @@ The default branch is `main`. `fyai init` makes it.
 
 ## 3. Selection of the branch
 
-`fyai` finds the branch of an invocation in this sequence. The first item that
-gives a name wins.
+At the start of an invocation, `fyai` selects a branch in this sequence. The
+first item that gives a name wins.
 
 1. The `--branch NAME` or `-b NAME` option.
 2. The `FYAI_BRANCH` environment variable.
-3. The `/branch NAME` command, for the remainder of an interactive session.
-4. The `HEAD` value in the arena.
-5. `main`.
+3. The `HEAD` value in the arena.
+4. `main`.
 
-If you give a name that does not exist, `fyai` makes that branch. The new branch
-starts with no turns and takes a copy of the configuration of the current
-branch.
+Inside an interactive invocation, `/branch NAME` changes the selected branch
+for the remainder of that session and durably moves `HEAD`.
+
+A missing name selected with `--branch`/`-b` is an empty one-shot branch and is
+materialized only if the invocation publishes. Its configuration is the
+effective configuration loaded for that invocation, including the user
+bootstrap or explicit `--config` file and command-line overlays; it does not
+implicitly copy another branch. A bare interactive `/branch NAME` does create
+from the current branch. For an explicit whole-state start point, use `branch
+create NAME [START]` or `checkout -b NAME [START]`.
 
 ## 4. Names of branches
 
@@ -100,9 +106,10 @@ main~3          # three turns before that
 main@{1}        # the tip of main before the last change
 ```
 
-**A turn is one message, not one exchange.** `fyai list turns` shows the unit:
-a question and its answer are two turns, and the initial system message is one
-more. Thus, to go back one full exchange, use `~2`. Use `fyai list turns` to
+**A turn is one stored append, not one exchange.** `fyai list turns` shows the
+unit: a question and its answer are two turns, and the initial system message
+is one more. A simple exchange with no tools is therefore usually `~2`, while
+a tool loop adds assistant-call and tool-result turns. Use `fyai list turns` to
 count before you make a branch.
 
 There are no numeric or hexadecimal references. This is deliberate. The `gc`
@@ -112,9 +119,10 @@ not stable. A name stays correct after `gc`. If you give a numeric reference,
 
 ### 5.1 The ref log
 
-Every operation on a branch appends an entry to that branch's own ref log. An
-entry keeps the head, the configuration, the time, the operation that made it
-and, for a rename, the name the branch had before.
+Every operation that publishes a branch appends an entry to that branch's own
+ref log. An entry keeps the head, the configuration, the time, the operation
+that made it and, for a rename, the name the branch had before. Publishing a
+different branch does not move this one's ref-log indices.
 
 ```sh
 fyai list reflog            # the ref log of the current branch
@@ -136,8 +144,9 @@ reset moves the head backwards and looks the same as a turn, and a rename does
 not move the head at all and looks the same as a configuration change.
 
 **The index is a position, not a name.** `@{0}` is always the newest entry,
-thus every index moves by one each time an operation adds an entry. Use an
-index immediately. To keep a point permanently, make a branch at it:
+thus every index moves by one each time an operation adds an entry to that
+branch. Use an index promptly. To keep a point permanently, make a branch at
+it:
 
 ```sh
 fyai branch create keepme "main@{3}"
@@ -168,15 +177,18 @@ is always resolved in the root that is in effect, thus the two stay separate:
 $ fyai root print main@{3}          # a reference to a handle, for a script
 201000006a10
 $ fyai --root main@{3} branch list  # or give the reference directly
-$ fyai --root 201000006a10 branch create keep main~2
+$ fyai --root 201000006a10 -b main dump state
 ```
 
-The last line shows the rule: `--root` selects the state, and `main~2` is then
-read inside that state.
+The last line shows the rule: `--root` selects the arena state, and `main` is
+then read inside that state. A symbolic value such as `main@{3}` is resolved
+again each time it is used and therefore moves as the reflog grows. Capture the
+handle printed by `root print` when repeated reads must be identical.
 
-The value is the address of the root in the arena. The arena is immutable and
-only adds data, thus the state that a root gives is complete and does not
-change.
+The value identifies the published root in the arena. Published values are
+immutable, so the state that a retained root gives is complete and does not
+change. Garbage collection expires handles outside the retained root-reflog
+window.
 
 **A pinned invocation is read-only.** Each operation that writes is refused
 with an error. `fyai` does not do the work and then discard it silently:
@@ -329,8 +341,9 @@ fyai root show               # with a description of the state
 ```
 
 `root print` always prints a root, never a direct reference to a turn or a
-ref-log entry. Only a root can be given back to `--root`, and only a root is
-checked against the list of roots that the arena published.
+ref-log entry. That emitted handle can be given back to `--root`. For
+convenience, `--root` also accepts a symbolic reference and first resolves it
+to one of the roots the arena published.
 
 Refer to section 5.2.
 
@@ -551,16 +564,11 @@ fyai branch --all
 fyai --branch main/agent:explore transcript
 ```
 
-The work that remains is at the process boundary. A sub-agent runs in a forked
-child process that speaks JSON-RPC to its parent (refer to
-`doc/agent-protocol.md`). The child must not write to the durable arena: the
-arena is a shared mapping across the `fork`, thus a commit from the child is
-not safe. The conversation must therefore go back to the parent through the
-protocol, and the parent must commit it. This is a change to the protocol and
-is done separately.
-
-Until then, a sub-agent conversation is not kept, and `fyai branch --all` shows
-the same list as `fyai branch`.
+The forked child speaks the internal `tool/run` JSON-RPC protocol to its parent.
+After reopening the arena it publishes its own branch as an independent writer;
+the parent keeps its own branch and receives the final report as the tool
+result. The separate `fyai agent --rpc` interface is a transient standalone
+worker and is documented in `doc/agent-protocol.md`.
 
 ## 10. Examples
 
@@ -587,9 +595,10 @@ $ fyai checkout -b recovered main@{1}
 
 The new branch has the conversation *and* the configuration of that entry.
 
-**Read the index and use it immediately.** Every operation adds an entry, and
-`branch create` is an operation, thus a second `main@{1}` after the first one
-does not mean the same entry. To keep a point, make a branch at it.
+**Read the index and use it promptly.** Every later publication to `main` moves
+its indices. Creating another branch at `main@{1}` does not itself move
+`main`'s branch-local reflog, but a turn, config edit, reset, checkout, or other
+publication on `main` does. To keep a point, make a branch at it.
 
 Go back three turns and take a different direction:
 
@@ -608,7 +617,7 @@ Examine what a sub-agent did:
 
 ```sh
 fyai branch --all
-fyai transcript --branch main/explore-1
+fyai --branch main/agent:explore transcript
 ```
 
 ## 11. Storage format
@@ -632,7 +641,8 @@ branches:
     config: <mapping|null>
     head:   <turn|null>
     created: <timestamp>
-    agent:  { persona: <string>, parent_turn: <turn> }
+    agent:  { name: <string>, description: <string>,
+              context: <fork|fresh>, persona: <string|null> }
     op:     <string>
     prev:   <branch-entry|null>
 prev: <root|null>             # the reflog of the arena
@@ -667,7 +677,5 @@ An older `fyai` program cannot read a version 2 arena.
 
 These functions are not available now:
 
-- Sub-agent branches. Refer to section 9. The name rules are in place, but the
-  conversation of a sub-agent is not yet kept.
 - Automatic tracking of the branch of a `git` repository.
 - Synchronization with a remote arena.

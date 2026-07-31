@@ -1,214 +1,383 @@
 # fyai
 
-`fyai` is a Unix-style AI coding agent built for the next phase of AI tools.
+`fyai` is a stateless, daemon-less AI coding assistant written in C.
 
-The first wave of agents treated the model as the product. That world is
-already changing. Models are becoming cheaper, more interchangeable, and more
-widely available. The durable value is shifting to the system around the model:
-who controls the data, how state is stored, how work is audited, and whether the
-tool can survive a change of provider without dragging your history with it.
+Each invocation opens the repository's durable state, runs the requested verb
+or one complete model/tool loop, atomically publishes any durable changes, and
+exits. Interactive mode keeps that same process alive for a terminal session,
+but there is still no resident service and no hidden process state.
 
-`fyai` exists for that world.
+The result feels like a Unix command while retaining the history, branching,
+tool use, and rich terminal experience expected from a modern coding agent.
 
-It is not a long-running daemon, desktop app, or hidden background service. Each
-invocation starts, loads the durable conversation state, performs the requested
-agent loop, commits canonical state, and exits. Startup is designed to be
-measured in milliseconds, not seconds, because the state lives in a compact
-content-addressed storage engine rather than in a resident process.
+## What makes fyai interesting
 
-## Why it is different
+- **The process is temporary; the work is durable.** Conversations,
+  configuration, branches, provider observations, and reflogs live in a local
+  content-addressed libfyaml arena under `.fyai/arena`.
 
-- **You control the data.** Conversation state is stored locally in durable
-  libfyaml arenas. The storage is deterministic, content-addressed, and built for
-  structural sharing rather than opaque provider logs.
+- **History belongs to you, not to a provider.** fyai stores canonical,
+  provider-independent conversation content. A branch can continue through a
+  different model, provider, or supported API grammar without adopting a
+  provider's wire transcript as its identity.
 
-- **No resident agent process.** There is no daemon to keep alive and no hidden
-  process state. The filesystem and the arena are the source of truth.
+- **Branches are first-class agent work.** Every branch owns both its
+  conversation and its configuration. Create alternatives, inspect symbolic
+  history, reset safely through the reflog, rebase exchanges, or merge them in
+  recorded-time order.
 
-- **Fast startup.** The storage engine is designed for millisecond process
-  startup, so using the agent feels like running a normal Unix command.
+- **Delegated agents leave useful history.** An `agent` tool call runs on its
+  own persistent `agent:` branch. Forked agents inherit the conversation at the
+  delegation point; fresh agents begin from the delegated task. The parent gets
+  the report while the complete delegated conversation remains inspectable.
 
-- **Provider freedom.** `fyai` supports the three major assistant API shapes:
-  OpenAI-style Responses, Chat Completions, and Messages APIs. That makes it
-  practical to mix and match models and providers without rewriting the tool or
-  abandoning your stored state.
+- **One native event-driven terminal.** Streaming model output, progressive
+  Markdown, concurrent tools, sub-agent work bands, readline editing, OAuth,
+  MCP, signals, and child processes share one invocation-owned event loop.
 
-- **Plain C implementation.** `fyai` is written in C. That matters: low memory
-  use, predictable startup, straightforward static builds, and no giant runtime
-  stack just to run a command-line agent.
+- **Tools have explicit boundaries.** Built-in file, patch, shell, question,
+  and delegation tools stay Unix-shaped. On Linux, shell sub-executions can be
+  confined with Landlock, including project-relative path carve-outs and TCP
+  port restrictions.
 
-- **Packageable open source.** The project is fully open source and built like
-  normal Linux software. It is suitable for standard distribution packaging
-  without vendoring a jillion language-level dependencies.
+- **Secrets stay outside the arena.** Configuration stores credential
+  indirections, not raw keys. API keys can come from environment variables or
+  a machine-local logical secret; eligible OpenAI Responses requests can use a
+  machine-local ChatGPT subscription login.
 
-## Beta status
+- **It is native software.** fyai is C, built with CMake, and supports normal
+  dynamic builds, mostly-static glibc builds, and fully static musl builds.
 
-This is a first beta drop. The core direction is in place: local durable state,
-catalogue-driven provider selection, markdown rendering through native C
-libraries, and a Unix-shaped tool surface for coding work.
+## Quick start
 
-Expect rough edges. The point of this beta is to make the architecture usable
-early, gather real workflows, and keep tightening the storage, provider, and
-tool layers without compromising the basic premise: the agent should be
-stateless as a process, durable as a tool, and yours as data.
-
-## Building
+Build and initialize a repository:
 
 ```sh
 cmake -S . -B build
 cmake --build build
-```
+export PATH="$PWD/build:$PATH"
 
-Portable mostly-static builds are supported when the required static archives
-are available. This links fyai's dependencies statically but leaves glibc
-dynamic, which avoids fully-static glibc `getaddrinfo()`/NSS failures on other
-hosts:
-
-```sh
-cmake -S . -B build-static -DFYAI_MOSTLY_STATIC=ON
-cmake --build build-static
-```
-
-For a truly self-contained binary, build the musl static Docker target:
-
-```sh
-MODE=musl scripts/build-static-docker.sh ./fyai
-```
-
-Mostly-static builds include compatibility wrappers for glibc's C23 symbol
-redirects so a binary built on a new glibc does not pick up a `GLIBC_2.38`
-runtime requirement just from `strtol`/`sscanf` family calls.
-
-## Quick start
-
-Initialize a repository-local `.fyai` directory:
-
-```sh
+cd your-project
 fyai init
 ```
 
-This creates the local arena used for durable conversation state and installs
-the starting configuration for the repository.
-
-Configuration never contains raw provider secrets. The default
-`api_key: { type: auto }` lookup uses an explicit `--api-key`, then the
-provider's conventional environment variable, then `api-key/<provider>` from
-the logical secret store. Set `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or another
-provider's conventional `<PROVIDER>_API_KEY` variable, or pin an
-`api_key: { type: env, value: NAME }` configuration mapping. Linux can instead
-hold API keys dependency-free in its logical secret store:
+Configure a provider key using its conventional environment variable:
 
 ```sh
-fyai secret set api-key/openai
-fyai config set api_key '{ type: secret, value: api-key/openai }'
-fyai secret status api-key/openai
-fyai secret delete api-key/openai
+export OPENAI_API_KEY=...
 ```
 
-`secret set` reads from `/dev/tty` with echo disabled; `--stdin` supports scripts.
-Kernel entries survive process and login-session boundaries but not reboot.
-The implementation uses Linux syscalls directly and is compiled out on macOS.
-The interactive forms `/secret set api-key/openai`, `/secret status
-api-key/openai`, and `/secret delete api-key/openai` share the same backend;
-the value prompt is separate from the slash line and never enters history.
-
-OpenAI Responses requests may instead use an eligible ChatGPT subscription:
+Then run a task:
 
 ```sh
-fyai auth openai login                 # browser + loopback callback
-fyai auth openai login --device-code   # SSH/headless login
-fyai config set auth chatgpt
-fyai auth openai status                # credential health
-fyai auth openai info                  # subscription/account details
-fyai auth openai usage                 # live limits and credits
-fyai auth openai usage --json          # machine-readable report
+fyai "inspect this repository and propose the highest-value cleanup"
 ```
 
-The Markdown status report shows both the configured mode and the effective
-method used for model calls. Switch explicitly with `fyai config set auth
-chatgpt` or `fyai config set auth api-key`; `auto` prefers an available API key
-and otherwise falls back to the signed-in subscription.
-
-`auth: auto` is the default and preserves API-key precedence. `auth: chatgpt`
-explicitly selects subscription access; `auth: api-key` disables the fallback.
-The provider argument keeps credential management unambiguous as more
-subscription backends are added; `fyai auth status` remains an OpenAI shorthand.
-OAuth tokens are machine-local credentials in macOS Keychain or, when enabled
-with `-DENABLE_LIBSECRET=ON`, Linux Secret Service, with an atomic mode-0600 XDG
-state file as the default Linux backend. Secret Service is opt-in because
-libsecret carries the GLib runtime dependency; static builds use the file
-backend. Tokens are never stored
-in the repository arena or exposed to model tools.
-The configured `model` is resolved through the catalogue to its provider,
-endpoint, API grammar, and wire model ID.
-
-Locally-hosted servers (Ollama, llama.cpp's `llama-server`, vLLM, LM Studio,
-...) speak the same OpenAI Chat Completions wire format and normally need no
-key at all. Point `api_url` at the local server and set `no_auth: true` (or
-`--set no_auth=true`) so fyai neither requires nor sends a key:
-
-```sh
-fyai --set api=chat-completions \
-     --set api_url=http://localhost:11434/v1/chat/completions \
-     --set no_auth=true \
-     -m llama3 "inspect this tree and suggest the next cleanup"
-```
-
-No catalogue entry is needed since `api_url` is set explicitly; see the
-"Local / self-hosted models" section of `config.yaml.sample` to persist it.
-
-Run `fyai` with a prompt to use it as a normal coding-agent command:
-
-```sh
-fyai "inspect this tree and suggest the next cleanup"
-```
-
-In this mode, `fyai` runs one complete tool-use loop, commits the resulting
-state, prints the assistant response, and exits. Tool use is supported: the
-agent can read files, apply patches, write files, run shell commands, and ask
-the user for clarification according to the configured tool policy.
-
-Run `fyai` with no prompt, or pass `-i`, for interactive mode:
+With a prompt, fyai runs the complete agent loop, commits the resulting state,
+prints the answer, and exits. With no prompt—or with `-i`—it opens the
+interactive terminal:
 
 ```sh
 fyai
 fyai -i
 ```
 
-Interactive mode keeps the same durable state model, but lets you enter turns
-one after another from the terminal.
-
-Show the stored conversation history:
+Useful first commands:
 
 ```sh
-fyai history
+fyai transcript                 # render the durable conversation
+fyai context                    # context fill and next-request estimate
+fyai list models
+fyai config effective
+fyai help branch
 ```
 
-`history` renders the committed conversation state as readable markdown,
-including user turns, assistant replies, tool calls, and tool results. It is a
-view of the local durable state, not a separate transcript format.
+## Durable state with branch semantics
 
-## Usage
-
-Run a prompt:
+The arena is an immutable, structurally shared value graph. Publication moves
+one atomic root; it does not rewrite a mutable transcript database. That makes
+state cheap to share across processes and gives branches git-like expectations:
+a start point supplies both the conversation and the configuration in force
+there.
 
 ```sh
-fyai "explain this repository"
+fyai branch create experiment
+fyai checkout experiment
+fyai "try the alternative design"
+
+fyai checkout -b historical main~4
+fyai branch show historical
+fyai list reflog
 ```
 
-Show stored conversation history:
+References are symbolic:
 
-```sh
-fyai history
+```text
+main
+main~2
+main@{3}
 ```
 
-List configured providers:
+`~N` walks stored turns and `@{N}` walks branch reflog entries. A reset is
+recoverable while its old entry remains in the reflog:
 
 ```sh
+fyai reset HEAD~2
+fyai reset main@{1}
+```
+
+Joining branches orders append-only exchanges rather than merging text:
+
+```sh
+fyai rebase other    # theirs, then our exchanges
+fyai merge other     # interleave exchanges by recorded time
+```
+
+For automation, convert a moving branch reference into a stable arena root
+handle:
+
+```sh
+root=$(fyai root print main@{3})
+fyai --root "$root" -b main dump state
+```
+
+A `--root` invocation is read-only. Old handles remain usable while their roots
+are retained by the arena reflogs; garbage collection can expire them.
+
+## Models and providers are replaceable
+
+The built-in catalogue resolves a model selection into its provider, endpoint,
+API grammar, wire model identifier, context window, and output limit.
+
+```sh
+fyai -m gpt-5.4-mini "review this patch"   # one invocation
+fyai config set model gpt-5.4-mini         # persist on this branch
 fyai list providers
+fyai list models
+fyai catalog
 ```
 
-Use `fyai help` for the current command reference. See `config.yaml.sample`
-for the configuration keys and `doc/srd/fyai-srd.md` for the Phase 1 storage
-and provider contract.
+fyai supports three provider grammars:
+
+- OpenAI-style Responses;
+- OpenAI-style Chat Completions;
+- Anthropic-style Messages.
+
+The API grammar can also be selected explicitly:
+
+```sh
+fyai api responses
+fyai api chat-completions
+fyai api messages
+```
+
+Self-hosted OpenAI-compatible servers need no catalogue entry when the endpoint
+is explicit:
+
+```sh
+fyai --set api=chat-completions \
+     --set api_url=http://localhost:11434/v1/chat/completions \
+     --set no_auth=true \
+     -m llama3 \
+     "inspect this tree"
+```
+
+Global `--set` and `--delete` operations persist by default; add `--transient`
+for a one-invocation experiment. Dedicated selectors such as `-m`, `--theme`,
+`--color`, and `--sandbox` are invocation-only.
+
+## Authentication without repository secrets
+
+The default API-key policy is indirect:
+
+```yaml
+api_key: { type: auto }
+```
+
+After resolving the provider, fyai tries an explicit `--api-key`, the
+provider's conventional `<PROVIDER>_API_KEY` environment variable, then the
+logical secret `api-key/<provider>`. Raw keys are rejected from persisted
+configuration.
+
+On Linux, manage logical secrets without exposing their values:
+
+```sh
+fyai secret set api-key/openai
+fyai secret status api-key/openai
+fyai secret delete api-key/openai
+```
+
+Eligible OpenAI Responses requests can instead use ChatGPT subscription access:
+
+```sh
+fyai auth openai login
+fyai auth openai login --device-code
+fyai auth openai status
+fyai auth openai usage
+fyai config set auth chatgpt
+```
+
+Subscription credentials are machine-local and never enter the repository
+arena or model tool arguments.
+
+## Interactive work without a daemon
+
+Interactive mode is an invocation-local REPL over the same durable branch
+state. It supports event-driven line editing, terminal resize and interrupt
+handling, progressive Markdown rendering, concurrent tool output, and branch or
+request-setting changes without restarting the process.
+
+```text
+/branch experiment
+/model gpt-5.4-mini
+/api responses
+/context
+/status
+/history last 10
+/compact preserve the unresolved test failures
+/help
+```
+
+Request-shaping changes such as `/model`, `/api`, `/effort`, and
+`/temperature` persist to the current branch. `/theme`, `/tool-detail`, and
+`/transcript-system` persist too. The remaining presentation toggles—including
+`/markdown`, `/stream`, and `/thinking`—apply to the live session only.
+
+## Delegated agents
+
+When the model calls the `agent` tool, fyai allocates a named child branch below
+the current branch:
+
+```text
+main/agent:reviewer
+```
+
+```sh
+fyai "delegate independent reviews of the parser and event loop"
+fyai branch --all
+fyai --branch main/agent:reviewer transcript
+```
+
+Delegations may run concurrently. A configured persona can select instructions,
+reasoning policy, reasoning visibility, timeout, and—for fresh context—the
+model. A forked agent keeps the parent's resolved model and conversation
+history. Agent names are durable handles, so a name clash fails and lets the
+model retry with a new one rather than silently adding an ordinal.
+
+The standalone verb is intentionally different:
+
+```sh
+fyai agent "find the parser entry points and report their responsibilities"
+```
+
+It runs one transient restricted agent, prints the final report, and writes no
+conversation history. `fyai agent --rpc` exposes the same transient worker over
+the documented JSON-RPC control protocol.
+
+## Sandboxed tools
+
+Enable Linux Landlock confinement for one invocation:
+
+```sh
+fyai --sandbox "run the tests and diagnose failures"
+```
+
+Or persist a policy:
+
+```sh
+fyai sandbox on
+fyai sandbox show
+```
+
+The policy can grant paths outside the project, carve paths out of the project
+grant, and restrict TCP egress:
+
+```yaml
+sandbox:
+  enabled: true
+  deny: [secrets, ~/.ssh]
+  allow:
+    - { path: /opt/toolchain, mode: ro }
+    - { path: /work/generated, mode: rw }
+  network:
+    ports: [443]
+```
+
+The repository `.fyai` directory is always denied to sandboxed tools. Landlock
+is Linux-specific and best-effort when the host kernel lacks required features;
+the portable command/tool policy remains separate.
+
+## MCP tools
+
+fyai can connect to named MCP servers over Streamable HTTP or local stdio:
+
+```yaml
+mcp:
+  enabled: true
+  startup_wait: true
+  servers:
+    docs:
+      endpoint: https://example.invalid/mcp/
+    local:
+      transport: stdio
+      command: npx
+      args: [-y, "@modelcontextprotocol/server-filesystem", .]
+```
+
+Discovered tools are exposed as `mcp__<server>__<tool>`. Interactive `/mcp`
+commands report connection state, enable or disable MCP, and drive per-server
+OAuth login and logout where configured.
+
+## Inspection and maintenance
+
+The human transcript and canonical/provider views serve different purposes:
+
+```sh
+fyai transcript              # rendered conversation
+fyai dump state              # canonical provider-independent state
+fyai dump anchors            # full stored turn graph
+fyai dump providers          # provider wire observations
+fyai stats --json            # cumulative usage for this conversation chain
+fyai context                 # context-window fill and next-request estimate
+```
+
+Trace logging and arena maintenance are explicit commands:
+
+```sh
+fyai log wire start
+fyai log wire view
+fyai log wire stop
+fyai gc --keep-reflogs 100
+```
+
+## Static builds
+
+A mostly-static build links fyai's dependencies statically while leaving glibc
+and the normal host runtime dynamic:
+
+```sh
+cmake -S . -B build-static -DFYAI_MOSTLY_STATIC=ON
+cmake --build build-static
+```
+
+For a fully static musl binary, use the Docker builder:
+
+```sh
+MODE=musl scripts/build-static-docker.sh ./fyai
+```
+
+## Project status and documentation
+
+fyai is under active development. The storage model, provider-independent
+conversation, branch semantics, event loop, terminal UI, tool execution, OAuth,
+and MCP paths are implemented and covered by unit and functional tests, but
+interfaces may still evolve.
+
+- [User guide](doc/user-guide.md) — workflows and command reference
+- [Annotated configuration](config.yaml.sample) — supported keys and defaults
+- [Branching design](doc/branching.md) — branches, refs, roots, joins, and GC
+- [Sub-agent protocol](doc/agent-protocol.md) — transient agent JSON-RPC
+- [System requirements and design](doc/srd/fyai-srd.md) — authoritative design
+
+Start with `fyai help VERB`, `/help` in an interactive session, and
+`fyai config describe [PATH]` for the portions of the running binary they cover.

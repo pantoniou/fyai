@@ -2,24 +2,24 @@
 
 ## Scope
 
-The control protocol connects a parent process to one sub-agent process. Each
-sub-agent has one connection for one run. A later run restores state from the
-arena and uses a new connection.
+The public control protocol is served by `fyai agent --rpc`. It connects a
+controller to one transient standalone sub-agent process for one run. The
+worker shares the workspace, but it does not restore or publish arena
+conversation state.
 
 The protocol uses JSON-RPC 2.0. Each message is one JSON document followed by a
-newline. The parent writes to the child standard input. The child writes to its
-standard output. Both endpoints can send requests and notifications.
+newline. The controller writes to the child standard input. The child writes
+to its standard output. Both endpoints can send requests and notifications.
 
 Standard error is not part of the protocol.
 
 ## Sequence
 
-The parent uses this sequence:
+The controller uses this sequence:
 
-1. Send `initialize`.
-2. Send `agent/run`.
-3. Send `shutdown`.
-4. Read the shutdown response before it closes the connection.
+1. Send `initialize` and read its response.
+2. Send `agent/run` and read the final report response.
+3. Send `shutdown` and read its response before the connection closes.
 
 The child continues to service the event loop until it writes all queued
 responses.
@@ -28,36 +28,45 @@ responses.
 
 ### `initialize`
 
-`initialize` confirms that the peer can service JSON-RPC requests. It takes an
-empty parameter mapping and returns an empty result mapping.
+`initialize` confirms that the peer can service JSON-RPC requests. Its optional
+`name` parameter defaults to `agent`. The result is:
+
+```json
+{"agentId":"agent","protocol":1}
+```
 
 ### `agent/run`
 
-`agent/run` starts one sub-agent turn. Its parameters contain:
+`agent/run` starts the one sub-agent turn serviced by this connection. Its
+parameters contain:
 
-- `task`: the task text;
-- `name`: the short agent name; and
-- `description`: the short work-band description.
+- `task`: the required, nonempty task text;
+- `name`: an optional short name, default `agent`; and
+- `description`: an optional short description, default empty.
 
 The child defers the run until the current JSON-RPC dispatch is complete. It
-returns the final assistant report. A connection services one `agent/run`
-request.
+returns `{ "report": <final-assistant-text> }`. A connection services one
+`agent/run` request; another returns error `-32003`. This standalone interface
+does not accept the delegated tool's `persona`, `context`, or `timeout`
+parameters.
 
 ### `shutdown`
 
-`shutdown` requests an orderly stop. The child returns an empty result mapping.
-It closes the connection only after it writes the response.
+`shutdown` requests an orderly stop. The child returns JSON `null`. It closes
+the connection only after it writes the response.
 
 ## Tool child methods
 
-Forked tool children use the same peer connection.
+Model tools, including persistent delegated agents, use a separate internal
+parent/child connection. It is not the `fyai agent --rpc` connection.
 
-`tool/run` starts one tool call. The result contains:
+`tool/run` takes a `call` containing the canonical tool call. A delegated agent
+also receives the already-reserved `branch` name. The result contains:
 
 - `result`: the tool result generic; and
 - `ok`: the tool outcome.
 
-`tool/progress` is a notification. It carries progress data while the tool
+`tool/progress` is a notification with a `text` chunk emitted while the tool
 runs.
 
 The child services `tool/run` after the current JSON-RPC dispatch. This rule

@@ -4,9 +4,9 @@
 #   $XDG_CONFIG_HOME/fyai/config.yaml   (user bootstrap file,
 #                                        else ~/.config/fyai/config.yaml)
 #   fyai init / fyai config import <file>   (repository: ingested into the
-#                                            .fyai/arena container root)
+#                                            selected branch in .fyai/arena)
 # or pass any file explicitly with --config/-C (overlays the arena or bootstrap
-# config; later --set deltas still take precedence).
+# config; later command-line overlays still take precedence).
 # Edit the repository config in place with `fyai config edit`, inspect it
 # with `fyai config export`. Individual keys can be poked from the command
 # line with `--set <key[=value]>` / `--get <key>` / `--delete <key>` (or the
@@ -17,7 +17,7 @@
 # There is one persisted configuration source: the arena config. The user file
 # above is bootstrap-only: it becomes the base only when the arena has no
 # config, and is never overlaid onto one. The merged document is, in order:
-#   arena config (or user bootstrap) -> --config file -> --set deltas
+#   arena config (or user bootstrap) -> --config file -> command-line overlays
 # Built-in defaults back any key the merged document omits. The catalogue
 # derives provider/url/grammar/wire-id read-only when the model resolves; those
 # resolved values are not persisted as configuration intent.
@@ -39,7 +39,7 @@
 model: gpt-5.4-mini
 
 # `provider` is never a config key - it is derived read-only from `model` at
-# resolve time and shown by `/model`, `/config`, `fyai catalog`, etc.
+# resolve time and shown by `/model`, `/status`, `fyai list providers`, etc.
 
 # Authentication selection. `auto` preserves API-key precedence and falls
 # back to a machine-local ChatGPT login for OpenAI Responses requests.
@@ -61,7 +61,8 @@ api: responses
 # DEEPSEEK_API_KEY, GOOGLE_API_KEY...). Secrets are never written as raw values;
 # Pin `type: env` or `type: secret` to require a particular indirection.
 # The Linux backend is volatile across reboot; create an entry with
-# `fyai secret set api-key/openai`. No default - omitted here on purpose.
+# `fyai secret set api-key/openai`. No raw credential appears here; `auto` is
+# the compiled default.
 api_key: { type: auto }
 # api_key: { type: env, value: OPENAI_API_KEY }
 # api_key: { type: secret, value: api-key/openai }
@@ -243,9 +244,14 @@ mcp:
   auth_token: { type: env, value: MCP_API_KEY }
   protocol_version: "2024-11-05"
   timeout: 30
-  # Named Streamable HTTP or local stdio servers. Per-server values override
-  # the group protocol version, timeout and auth token; disabled entries are
-  # skipped.
+  # Named Streamable HTTP or local stdio servers. Per-server `enabled`,
+  # `protocol_version`, `timeout`, and `auth_token` override the group values;
+  # disabled entries are skipped. HTTP entries use `endpoint` and may set
+  # `transport: streamable-http` (or the `http` alias). Stdio entries use
+  # `transport: stdio`, `command`, optional `args`, `env`, and `cwd`.
+  # HTTP authentication defaults to bearer-token mode. `auth: { type: oauth }`
+  # enables discovery/browser OAuth and may also set `allow_browser`, `scopes`,
+  # `authorization_params`, or a pre-registered `client`.
   # Tool names are exposed as mcp__<server>__<tool>.
   servers: {}
   # servers:
