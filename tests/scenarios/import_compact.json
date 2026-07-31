@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_replayed_compact",
+        "object": "response.compaction",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_replayed",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Replayed compact context." }
+            ]
+          },
+          {
+            "type": "compaction",
+            "id": "cmp_replay",
+            "encrypted_content": "replayed-opaque-state"
+          }
+        ],
+        "usage": { "input_tokens": 12, "output_tokens": 4, "total_tokens": 16 }
+      }
+    }
+  ]
+}
