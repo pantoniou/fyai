@@ -606,3 +606,145 @@ out:
 	fyai_import_cleanup(&im);
 	return rc;
 }
+
+/* Replay the user prompts against the current environment. */
+struct fyai_replay_step {
+	fy_generic prompt;		/* user text, or fy_invalid */
+	fy_generic instructions;	/* compaction hint when @compact */
+	bool compact;
+};
+
+struct fyai_replay {
+	struct fyai_replay_step *items;
+	size_t count;
+	size_t capacity;
+};
+
+static void fyai_replay_cleanup(struct fyai_replay *rp)
+{
+	free(rp->items);
+}
+
+static struct fyai_replay_step *fyai_replay_add(struct fyai_ctx *ctx,
+					       struct fyai_replay *rp)
+{
+	struct fyai_replay_step *items;
+	size_t capacity;
+
+	if (rp->count == rp->capacity) {
+		capacity = rp->capacity ? rp->capacity * 2 : 16;
+		items = realloc(rp->items, capacity * sizeof(*items));
+		fyai_error_check(ctx, items, err, "replay: out of memory");
+		rp->items = items;
+		rp->capacity = capacity;
+	}
+	items = &rp->items[rp->count++];
+	memset(items, 0, sizeof(*items));
+	items->prompt = fy_invalid;
+	items->instructions = fy_invalid;
+	return items;
+err:
+	return NULL;
+}
+
+/* Collect what the user asked for, in order, and nothing else. */
+static int fyai_replay_collect(struct fyai_ctx *ctx, struct fyai_replay *rp)
+{
+	struct fyai_turn_stack stack;
+	struct fyai_replay_step *step;
+	fy_generic messages;
+	fy_generic message;
+	fy_generic content;
+	fy_generic meta;
+	size_t i;
+	int rc;
+
+	memset(&stack, 0, sizeof(stack));
+	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	fyai_error_check(ctx, !rc, err, "replay: cannot read the conversation");
+	for (i = 0; i < stack.count; i++) {
+		meta = fyai_turn_meta(stack.items[i]);
+		if (fy_generic_is_valid(fy_get(meta, "compacted_from",
+					       fy_invalid))) {
+			step = fyai_replay_add(ctx, rp);
+			fyai_error_check(ctx, step, err, "replay: out of memory");
+			step->compact = true;
+			step->instructions = fy_get(meta, "compact_instructions",
+						    fy_invalid);
+			continue;
+		}
+		messages = fy_get(stack.items[i], "messages", fy_seq_empty);
+		fy_foreach(message, messages) {
+			if (fy_not_equal(fy_get(message, "role"), "user"))
+				continue;
+			content = fy_get(message, "content", fy_invalid);
+			if (!fy_generic_is_string(content))
+				continue;
+			step = fyai_replay_add(ctx, rp);
+			fyai_error_check(ctx, step, err, "replay: out of memory");
+			step->prompt = content;
+		}
+	}
+	fyai_turn_stack_cleanup(&stack);
+	return 0;
+err:
+	fyai_turn_stack_cleanup(&stack);
+	return -1;
+}
+
+int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_replay rp;
+	fy_generic turn;
+	fy_generic v;
+	const char *hint;
+	size_t i;
+	int rc;
+
+	memset(&rp, 0, sizeof(rp));
+	/* A batch verb has no transient builder until something asks. */
+	rc = fyai_ctx_transient_gb(ctx) ? 0 : -1;
+	fyai_error_check(ctx, !rc, out, "replay: cannot create the run builder");
+	rc = fyai_replay_collect(ctx, &rp);
+	fyai_error_check(ctx, !rc, out, "replay: cannot read the branch");
+	fyai_error_check(ctx, rp.count, out,
+			 "replay: the branch holds nothing to replay");
+
+	/* Start the chain again; the system prompt comes from the config in
+	 * force now, not from the conversation being replayed. */
+	ctx->last_message = fyai_turn_append(ctx, fy_invalid,
+		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
+	fyai_error_check(ctx, fy_generic_is_valid(ctx->last_message), out,
+			 "replay: cannot seed the conversation");
+
+	for (i = 0; i < rp.count; i++) {
+		if (rp.items[i].compact) {
+			if (ignore_compact)
+				continue;
+			hint = fy_generic_is_string(rp.items[i].instructions) ?
+				fy_castp(&rp.items[i].instructions, "") : NULL;
+			rc = fyai_session_compact(ctx, hint);
+			fyai_error_check(ctx, !rc, out, "replay: the compaction failed");
+			continue;
+		}
+		turn = fyai_turn_append(ctx, ctx->last_message,
+			fy_sequence(fyai_make_user_message(ctx,
+				fy_castp(&rp.items[i].prompt, ""))));
+		fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+				 "replay: cannot build the user turn");
+		ctx->last_message = turn;
+		v = fyai_run_turn(ctx, ctx->last_message);
+		v = fyai_report_diag(ctx, v);
+		fyai_error_check(ctx, fy_generic_is_valid(v), out,
+				 "replay: the model run failed");
+		ctx->last_message = v;
+		fyai_branch_op_set(ctx, "replay", NULL);
+		rc = fyai_publish_state(ctx);
+		fyai_error_check(ctx, !rc, out, "replay: cannot publish");
+	}
+	rc = 0;
+out:
+	fyai_replay_cleanup(&rp);
+	return rc;
+}

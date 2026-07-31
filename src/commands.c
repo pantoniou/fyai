@@ -68,6 +68,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("display [opts]", "Alias for transcript");
 	ITEM("export [-o file]", "Export the conversation as Markdown (stdout by default)");
 	ITEM("import [-i file]", "Import a conversation (stdin by default)");
+	ITEM("replay [opts]", "Re-issue the branch's user turns against the current state");
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
 	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
@@ -387,6 +388,28 @@ static int configure_import(int argc, char **argv, struct fyai_cfg *cfg)
 static int execute_import(struct fyai_ctx *ctx)
 {
 	return fyai_import_view(ctx, ctx->cfg->cmd.args.import.path);
+}
+
+static int configure_replay(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_replay_args *args = &cfg->cmd.args.replay;
+	int i;
+
+	args->ignore_compact = false;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--ignore-compact")) {
+			args->ignore_compact = true;
+			continue;
+		}
+		fyai_cfg_error(cfg, "replay: unknown option '%s'", argv[i]);
+		return -1;
+	}
+	return 0;
+}
+
+static int execute_replay(struct fyai_ctx *ctx)
+{
+	return fyai_replay_view(ctx, ctx->cfg->cmd.args.replay.ignore_compact);
 }
 
 static int configure_stats(int argc, char **argv, struct fyai_cfg *cfg)
@@ -2116,6 +2139,19 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "Compaction markers make provider requests.\n"
 			     "--ignore-compact skips these requests.\n",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+	},
+	[FYAIVID_REPLAY] = {
+		.id	   = FYAIVID_REPLAY,
+		.name	   = "replay",
+		.configure = configure_replay,
+		.execute   = execute_replay,
+		.synopsis  = "replay [--ignore-compact]",
+		.help      = "Re-issue the user turns of the branch against the\n"
+			     "environment as it is now. The assistant turns are not\n"
+			     "restored, because the model runs again, and the tool\n"
+			     "calls are skipped, because it re-derives them.\n"
+			     "A compaction is re-issued; --ignore-compact skips it.\n",
+		.flags	   = FYAIVF_BATCH,
 	},
 	[FYAIVID_STATS] = {
 		.id	   = FYAIVID_STATS,
