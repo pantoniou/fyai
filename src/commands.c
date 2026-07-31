@@ -67,6 +67,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("history [opts]", "Alias for transcript");
 	ITEM("display [opts]", "Alias for transcript");
 	ITEM("export [-o file]", "Export the conversation as Markdown (stdout by default)");
+	ITEM("import [-i file]", "Import a conversation (stdin by default)");
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
 	ITEM("list [what]", "List providers, models, turns, exchanges, or reflog (--brief|--full)");
@@ -355,6 +356,37 @@ static int configure_export(int argc, char **argv, struct fyai_cfg *cfg)
 static int execute_export(struct fyai_ctx *ctx)
 {
 	return fyai_export_view(ctx, ctx->cfg->cmd.args.export.path);
+}
+
+static int configure_import(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_import_args *args = &cfg->cmd.args.import;
+	int i;
+
+	args->path = NULL;
+	args->ignore_compact = false;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "-i") || !strcmp(argv[i], "--input")) {
+			if (++i >= argc) {
+				fyai_cfg_error(cfg, "import: -i needs a file");
+				return -1;
+			}
+			args->path = argv[i];
+			continue;
+		}
+		if (!strcmp(argv[i], "--ignore-compact")) {
+			args->ignore_compact = true;
+			continue;
+		}
+		fyai_cfg_error(cfg, "import: unknown option '%s'", argv[i]);
+		return -1;
+	}
+	return 0;
+}
+
+static int execute_import(struct fyai_ctx *ctx)
+{
+	return fyai_import_view(ctx, ctx->cfg->cmd.args.import.path);
 }
 
 static int configure_stats(int argc, char **argv, struct fyai_cfg *cfg)
@@ -2071,6 +2103,19 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "Use --branch/-b to export a branch other than the active one.\n",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
 			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
+	},
+	[FYAIVID_IMPORT] = {
+		.id	   = FYAIVID_IMPORT,
+		.name	   = "import",
+		.configure = configure_import,
+		.execute   = execute_import,
+		.synopsis  = "import [-i file] [--ignore-compact]",
+		.help      = "Read a textual export from standard input or -i.\n"
+			     "Replay its publish boundaries into the active branch.\n"
+			     "--branch/-b selects an empty destination branch.\n"
+			     "Compaction markers make provider requests.\n"
+			     "--ignore-compact skips these requests.\n",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
 	},
 	[FYAIVID_STATS] = {
 		.id	   = FYAIVID_STATS,

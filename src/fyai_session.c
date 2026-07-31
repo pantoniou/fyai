@@ -228,6 +228,9 @@ restore:
 	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
 		meta = fy_map_empty;
 	meta = fy_assoc(meta, "compacted_from", prev_head);
+	/* Store the instructions needed to repeat the compaction. */
+	if (hint && *hint)
+		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
 	turn = fy_gb_internalize(ctx->gb, turn);
@@ -335,6 +338,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
 		meta = fy_map_empty;
 	meta = fy_assoc(meta, "compacted_from", prev_head);
+	/* Store the instructions needed to repeat the compaction. */
+	if (hint && *hint)
+		meta = fy_assoc(meta, "compact_instructions", hint);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
 

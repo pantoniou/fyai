@@ -53,6 +53,7 @@ enum fyai_verb_id {
 	FYAIVID_TOOL,
 	FYAIVID_AGENT,
 	FYAIVID_EXPORT,
+	FYAIVID_IMPORT,
 	FYAIVID_HELP,
 };
 #define FYAI_VERB_COUNT (FYAIVID_HELP + 1)
@@ -140,6 +141,11 @@ struct fyai_display_args {
 
 struct fyai_export_args {
 	const char *path;	/* NULL is standard output */
+};
+
+struct fyai_import_args {
+	const char *path;	/* NULL is standard input */
+	bool ignore_compact;	/* skip compaction markers instead of issuing */
 };
 
 struct fyai_stats_args {
@@ -316,6 +322,7 @@ union fyai_cmd_args {
 	struct fyai_secret_args secret;
 	struct fyai_mcp_args mcp;
 	struct fyai_export_args export;
+	struct fyai_import_args import;
 };
 
 /* combined */
