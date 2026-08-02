@@ -1,0 +1,303 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://github.com/scrape-providers/catalog.schema.json
+title: AI provider catalog
+description: "Output of scrape-providers: model capabilities plus per-provider offerings. Empty/None values are pruned before emission, so most fields are optional."
+type: object
+required:
+- models
+- providers
+additionalProperties: false
+properties:
+  models:
+    description: Intrinsic model capabilities; each entry's `name` is its canonical model id. A model served by several providers appears exactly once here, described by its vendor where the catalog scrapes one. Sorted by name.
+    type: array
+    items:
+      $ref: "#/$defs/modelCapabilities"
+  providers:
+    description: The providers scraped, each with its API surfaces and the models it serves. Which models exist is answered here; what they can do is answered under `models`.
+    type: array
+    items:
+      $ref: "#/$defs/provider"
+  agents:
+    description: Coding-agent harnesses, each fully described (developer, native provider, system prompt, tool schemas). Harness-level and model-agnostic — curated and vendored, not scraped from a provider. Omitted entirely under --no-agents.
+    type: array
+    items:
+      $ref: "#/$defs/agent"
+$defs:
+  modelCapabilities:
+    description: One logical model's intrinsic properties, merged across every provider that serves it. Where a first-party provider (the vendor) is in the catalog its view is authoritative and the resellers' claims are dropped; otherwise the strongest claim wins.
+    type: object
+    required:
+    - name
+    additionalProperties: false
+    properties:
+      name:
+        description: "Canonical model id: the provider id with any vendor prefix dropped, lowercased, and provider-mangled version numbers normalized (Fireworks' `kimi-k2p6`, Anthropic's `claude-opus-4-5-20251101`). The join key for every offering."
+        type: string
+      display_name:
+        description: Human-readable model name. A single value, so the closest source to the vendor wins — subject to never dropping a parameter-count moniker present in `name` (gpt-oss-120b), since for a family differing only by size a name without the size doesn't identify the model.
+        type: string
+      context_window:
+        description: Maximum input context in tokens.
+        type: integer
+        minimum: 1
+      max_output_tokens:
+        description: Maximum tokens the model can generate in one response.
+        type: integer
+        minimum: 1
+      modalities:
+        description: Input modalities the model accepts, in the controlled vocabulary (see capabilities.py). Output is text for every catalogued model. Providers' own words — OpenRouter's `file` for what Anthropic calls `pdf` — are mapped here and preserved verbatim in each offering's `reported_modalities`.
+        type: array
+        items:
+          description: A modality the model accepts as input.
+          type: string
+          enum:
+          - text
+          - image
+          - audio
+          - video
+          - pdf
+      capabilities:
+        description: "What the model can do, in the controlled vocabulary (see capabilities.py). Restricted to abilities that change what you can build: request knobs that tune an ability every model has (temperature, max_tokens, tool_choice) are excluded, as are properties of the route rather than the model. Distinct from `endpointCapabilities`, which describes a provider's API surface. Providers' own words are preserved verbatim in each offering's `reported_capabilities`."
+        type: array
+        items:
+          description: "tool_calling: caller-defined tools the model can invoke. parallel_tool_calls: several tool calls in one turn. structured_outputs: output constrained to a caller-supplied JSON schema. json_mode: valid JSON, without a schema guarantee. reasoning: produces a reasoning trace. reasoning_effort: that trace's depth is tunable. logprobs: returns token probabilities. predicted_outputs: a draft completion can be supplied to speed decoding. prefix_completion: continues a caller-supplied assistant prefix. web_search: model-side web search. code_execution: model-side code execution. citations: cites supplied documents. context_management: provider-side context editing/compaction. batch: asynchronous batch submission at reduced cost."
+          type: string
+          enum:
+          - tool_calling
+          - parallel_tool_calls
+          - structured_outputs
+          - json_mode
+          - reasoning
+          - reasoning_effort
+          - logprobs
+          - predicted_outputs
+          - prefix_completion
+          - web_search
+          - code_execution
+          - citations
+          - context_management
+          - batch
+      open_source:
+        description: "True when some provider evidences open weights (e.g. a HuggingFace link on the model page). An OR across all providers including the vendor: a provider that never mentions weights leaves this at its False default, which is an absent claim rather than a claim of closedness."
+        type: boolean
+      arena:
+        description: LMArena overall-leaderboard standing, joined by exact normalized name only (no fuzzy matching, so `gpt-5.5-pro` never inherits `gpt-5.5`'s score). Absent when the model isn't on the board or --no-arena was used.
+        $ref: "#/$defs/arena"
+      agents:
+        description: Canonical agent harness(es) that natively drive this model — tagged when the harness's native provider serves the model, or the model id carries that vendor's prefix.
+        type: array
+        items:
+          type: string
+  agent:
+    description: "A coding-agent harness (Codex, Claude Code, opencode): its identity plus the captured system prompt and tool schemas that define how it drives a model."
+    type: object
+    required:
+    - name
+    additionalProperties: false
+    properties:
+      name:
+        description: Harness key as used in a model's `agents` list (codex, claude_code, opencode).
+        type: string
+      developer:
+        description: The company or project that builds the harness (OpenAI, Anthropic, sst).
+        type: string
+      native_provider:
+        description: Catalog provider key the harness natively targets. Absent for model-agnostic harnesses — any function-calling model can be driven by them.
+        type: string
+      protocol:
+        description: Wire protocol the harness speaks to its native provider.
+        type: string
+      system_prompt:
+        description: The harness's system prompt, verbatim, from a vendored capture (agent_prompts/<agent>.txt). Absent when nothing has been captured.
+        type: string
+      tools:
+        description: Tool name -> its description and JSON schema, from a vendored capture (agent_schemas/<agent>.json). Tool schemas aren't scrapable (Rust/Zod source, or closed), so an uncaptured harness has none.
+        type: object
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          properties:
+            description:
+              description: The tool description the harness sends to the model.
+              type: string
+            schema:
+              description: JSON Schema for the tool's parameters, normalized from the Anthropic or OpenAI tool shape.
+              type: object
+  arena:
+    description: A model's standing on the LMArena overall leaderboard.
+    type: object
+    required:
+    - rank
+    - elo
+    additionalProperties: false
+    properties:
+      rank:
+        description: Position on the overall board, 1 = highest.
+        type: integer
+        minimum: 1
+      elo:
+        description: Elo score from pairwise human preference votes.
+        type: number
+      votes:
+        description: Number of votes the score is based on.
+        type: integer
+        minimum: 0
+  provider:
+    description: "One scraped provider: where to reach it, what protocols it speaks, and which models it serves at what price."
+    type: object
+    required:
+    - name
+    - models
+    additionalProperties: false
+    properties:
+      name:
+        description: Registry key for the provider (anthropic, openrouter, fireworks).
+        type: string
+      root_url:
+        description: API root URL; join with an endpoint path to form the full request URL.
+        type: string
+        format: uri
+      endpoints:
+        description: The API surfaces this provider exposes. The same model behaves differently and exposes different built-in tools under different protocols, which is why tools and capabilities hang off the endpoint rather than the provider.
+        type: array
+        items:
+          $ref: "#/$defs/endpoint"
+      models:
+        description: What this provider serves, one entry per model, referencing `models` by `canonical_id`.
+        type: array
+        items:
+          $ref: "#/$defs/offering"
+  endpoint:
+    description: "One provider API surface: a wire protocol, its request path, and the tools and behaviors available over it."
+    type: object
+    required:
+    - protocol
+    - endpoint
+    additionalProperties: false
+    properties:
+      protocol:
+        description: "Wire format: OpenAI chat/completions, OpenAI Responses, Anthropic Messages, or Google generateContent."
+        type: string
+        enum:
+        - chat_completions
+        - responses
+        - messages
+        - generate_content
+      endpoint:
+        description: Request path relative to the provider's `root_url`.
+        type: string
+      hosted_tools:
+        description: Built-in tools that run on the provider (web_search, code_interpreter). Curated per (provider, protocol) — no provider API enumerates these.
+        type: array
+        items:
+          type: string
+      local_tools:
+        description: Built-in tools whose calls the caller executes (function_calling, bash/local_shell, computer_use). Curated per (provider, protocol).
+        type: array
+        items:
+          type: string
+      capabilities:
+        description: Behaviors of this surface, as against the model's intrinsic capabilities.
+        $ref: "#/$defs/endpointCapabilities"
+  endpointCapabilities:
+    description: Provider/protocol behavior, separate from intrinsic model capabilities. Curated, not scraped. Omitted properties are unknown or model-dependent; an explicit false means the surface is known not to offer the behavior.
+    type: object
+    additionalProperties: false
+    properties:
+      streaming_supported:
+        description: Incremental token streaming of a response.
+        type: boolean
+      function_calling_supported:
+        description: Caller-defined tools the model can invoke.
+        type: boolean
+      parallel_tool_calls_supported:
+        description: More than one tool call emitted in a single assistant turn.
+        type: boolean
+      tool_choice_supported:
+        description: Caller can force, forbid, or name the tool the model must use.
+        type: boolean
+      strict_json_schema_supported:
+        description: Output constrained to a caller-supplied JSON schema, guaranteed rather than best-effort.
+        type: boolean
+      shell_tool_supported:
+        description: A first-class shell/command-execution tool type in the protocol itself.
+        type: boolean
+      mcp_supported:
+        description: MCP servers can be attached to a request natively.
+        type: boolean
+      server_side_conversation_state_supported:
+        description: The provider retains conversation state, so the caller need not resend history.
+        type: boolean
+      previous_response_id_supported:
+        description: A turn can be chained to an earlier one by response id.
+        type: boolean
+      response_lifecycle_supported:
+        description: Responses are addressable objects that can be fetched or cancelled after creation.
+        type: boolean
+      system_prompt_supported:
+        description: A distinct system instruction channel, separate from user turns.
+        type: boolean
+      developer_role_supported:
+        description: A `developer` role distinct from `system`.
+        type: boolean
+      explicit_prompt_caching_supported:
+        description: Caller marks which prefix to cache (Anthropic's cache_control).
+        type: boolean
+      automatic_prompt_caching_supported:
+        description: The provider caches prefixes on its own, with no caller opt-in.
+        type: boolean
+      reasoning_controls_supported:
+        description: Reasoning effort or thinking budget is caller-tunable.
+        type: boolean
+  offering:
+    description: "One provider's route to one model: its own id for it, its price, and what it publishes about it."
+    type: object
+    required:
+    - canonical_id
+    - provider_model_id
+    additionalProperties: false
+    properties:
+      canonical_id:
+        description: Key into the top-level `models` list — the same model served by several providers shares this id.
+        type: string
+      provider_model_id:
+        description: The id to send to this provider, verbatim, including any vendor prefix or resource path (`openai/gpt-5.5`, `accounts/fireworks/models/kimi-k3`).
+        type: string
+      pricing:
+        description: "What this route costs. Per-route, not per-model: the same model is priced differently by each provider serving it."
+        $ref: "#/$defs/pricing"
+      reported_modalities:
+        description: "Modalities this provider publishes for this model, in its own vocabulary. Reported, not supported: providers publish only a positive set, so an absent entry is not evidence the route lacks it. The merged, vendor-authoritative view is under top-level `models`."
+        type: array
+        items:
+          type: string
+      reported_capabilities:
+        description: Capabilities this provider publishes for this model, in its own vocabulary (OpenRouter lists request parameters, Anthropic lists features, OpenCode Zen publishes none). Reported, not supported — see `reported_modalities`.
+        type: array
+        items:
+          type: string
+  pricing:
+    description: Per-token pricing for one offering, normalized to USD per million tokens.
+    type: object
+    additionalProperties: false
+    properties:
+      currency:
+        description: ISO currency code; USD throughout, since provider figures are normalized to it.
+        type: string
+      unit:
+        description: What the figures are per — `per_million_tokens`.
+        type: string
+      input:
+        description: Price per million input (prompt) tokens. Also carries the single unlabelled price of embedding and reranking models.
+        type: number
+        minimum: 0
+      output:
+        description: Price per million generated tokens.
+        type: number
+        minimum: 0
+      extra:
+        description: "Provider-specific components that don't fit input/output, same unit: cache_read, cache_write (and Anthropic's TTL-split cache_write_5m / cache_write_1h), image, reasoning, web_search."
+        type: object
+        additionalProperties:
+          type: number

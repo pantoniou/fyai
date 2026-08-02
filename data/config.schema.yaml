@@ -513,7 +513,9 @@ properties:
           type: string
       capabilities:
         type: array
-        description: Supported capability flags (e.g. tool_calls, json_output).
+        description: >-
+          Capability flags in the catalogue controlled vocabulary (e.g.
+          tool_calling, json_mode, reasoning).
         items:
           type: string
       open_source:
