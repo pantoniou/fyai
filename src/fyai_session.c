@@ -652,25 +652,24 @@ static long long session_estimate_tokens(struct fyai_ctx *ctx)
 	return bytes / 4 + nmsg * 4;
 }
 
-/* Last known real context load: this run's last call, else the newest
- * persisted turn carrying a usage record. */
+/* Return the latest measured input-token count. */
 static long long session_last_usage(struct fyai_ctx *ctx, const char **srcp)
 {
 	fy_generic cur, usage;
-	long long total;
+	long long input;
 
-	if (ctx->last_call_total) {
+	if (ctx->last_call_input) {
 		if (srcp)
 			*srcp = "last call";
-		return ctx->last_call_total;
+		return ctx->last_call_input;
 	}
 	fyai_turn_foreach(cur, ctx->last_message) {
 		usage = fy_get(fyai_turn_meta(cur), "usage");
-		total = fy_get(usage, "total", 0LL);
-		if (total) {
+		input = fy_get(usage, "input", 0LL);
+		if (input) {
 			if (srcp)
 				*srcp = "stored";
-			return total;
+			return input;
 		}
 	}
 	if (srcp)
@@ -678,17 +677,27 @@ static long long session_last_usage(struct fyai_ctx *ctx, const char **srcp)
 	return 0;
 }
 
+/* Add the output allowance to the best available prompt size. */
+static long long session_projected_tokens(struct fyai_ctx *ctx,
+					  long long used, long long est)
+{
+	long long prompt;
+
+	prompt = used > est ? used : est;
+	return prompt + (ctx->cfg->max_tokens > 0 ?
+			 ctx->cfg->max_tokens : 0);
+}
+
 static fy_generic session_status_data(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic context, reasoning;
-	const char *src;
 	long long window, used, est, shown;
 
 	window = session_context_window(ctx);
-	used = session_last_usage(ctx, &src);
+	used = session_last_usage(ctx, NULL);
 	est = session_estimate_tokens(ctx);
-	shown = used ? used : est;
+	shown = session_projected_tokens(ctx, used, est);
 	if (cfg->reasoning_effort && *cfg->reasoning_effort)
 		reasoning = fy_stringf("%s%s%s", cfg->reasoning_effort,
 			cfg->reasoning_summary && *cfg->reasoning_summary ?
@@ -697,11 +706,11 @@ static fy_generic session_status_data(struct fyai_ctx *ctx)
 	else
 		reasoning = fy_value("off");
 	if (window)
-		context = fy_stringf("%s%lld / %lld (%.1f%%)",
-			used ? "" : "~", shown, window,
+		context = fy_stringf("~%lld / %lld (%.1f%%)",
+			shown, window,
 			(double)shown * 100.0 / (double)window);
 	else
-		context = fy_stringf("%s%lld / unknown", used ? "" : "~", shown);
+		context = fy_stringf("~%lld / unknown", shown);
 	return fy_mapping(ctx->transient_gb,
 		"Model", cfg->model ? cfg->model : "",
 		"Provider", cfg->provider ? cfg->provider : "?",
@@ -710,7 +719,8 @@ static fy_generic session_status_data(struct fyai_ctx *ctx)
 		"Reasoning", reasoning,
 		"Temperature", cfg->temperature,
 		"Context", context,
-		"Next request", fy_stringf("~%lld tokens", est));
+		"Prompt estimate", fy_stringf("~%lld tokens", est),
+		"Output allowance", fy_stringf("%d tokens", cfg->max_tokens));
 }
 
 static fy_generic mapping_prefixed(struct fyai_ctx *ctx, fy_generic out,
@@ -740,15 +750,15 @@ int fyai_session_context(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic context, data;
-	long long window, used, est;
+	long long window, used, est, projected;
 
 	window = session_context_window(ctx);
 	used = session_last_usage(ctx, NULL);
 	est = session_estimate_tokens(ctx);
+	projected = session_projected_tokens(ctx, used, est);
 	if (window)
-		context = fy_stringf("%s%lld / %lld (%.1f%%)", used ? "" : "~",
-			used ? used : est, window,
-			(double)(used ? used : est) * 100.0 / (double)window);
+		context = fy_stringf("~%lld / %lld (%.1f%%)", projected,
+			window, (double)projected * 100.0 / (double)window);
 	else
 		context = fy_value("unknown");
 	data = fy_mapping(ctx->transient_gb,
@@ -756,7 +766,8 @@ int fyai_session_context(struct fyai_ctx *ctx)
 		"provider", cfg->provider ? cfg->provider : "?",
 		"api", fyai_api_to_string(cfg->api_mode),
 		"context", context,
-		"next_request", fy_stringf("~%lld tokens", est));
+		"prompt", fy_stringf("~%lld tokens", est),
+		"output_max", fy_stringf("%d tokens", cfg->max_tokens));
 	return fyai_generic_to_markdown(ctx,
 		fy_mapping("title", "Context",
 			   "columns", fy_mapping(
@@ -899,7 +910,6 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char top[256], bottom[256];
 	char *top_md;
-	const char *src;
 	const char *tmpl;
 	long long window, used;
 
@@ -923,14 +933,11 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 
 	window = session_context_window(ctx);
 	if (window > 0) {
-		used = session_last_usage(ctx, &src);
-		if (used)
-			snprintf(ctxpct, sizeof(ctxpct), " · ctx %.0f%%",
-				 (double)used * 100.0 / (double)window);
-		else
-			snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
-				 (double)session_estimate_tokens(ctx) * 100.0 /
-				 (double)window);
+		used = session_last_usage(ctx, NULL);
+		snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
+			 (double)session_projected_tokens(
+				 ctx, used, session_estimate_tokens(ctx)) *
+			 100.0 / (double)window);
 	}
 
 	vars[0].key = "model";

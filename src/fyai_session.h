@@ -35,7 +35,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name);
  * and rebuild request state. */
 int fyai_session_api(struct fyai_ctx *ctx, const char *arg);
 
-/* Report context fill: window, last-call tokens, next-request estimate. */
+/* Report projected next-request context fill and its prompt/output parts. */
 int fyai_session_context(struct fyai_ctx *ctx);
 
 /* Overview: model/provider selection, request shaping, auth, token usage. */
