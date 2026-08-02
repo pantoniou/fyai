@@ -16,7 +16,7 @@ models:
   context_window: 32000
   max_output_tokens: 1234
   capabilities:
-  - tools
+  - tool_calling
 providers:
 - name: mock
   root_url: $MOCK_URL
@@ -116,14 +116,14 @@ models:
   context_window: 32000
   max_output_tokens: 1234
   capabilities:
-  - tools
+  - tool_calling
 - name: reasoning-model
   display_name: Reasoning Model
   context_window: 32000
   max_output_tokens: 1234
   capabilities:
   - reasoning
-  - tools
+  - tool_calling
 providers:
 - name: mock
   root_url: $MOCK_URL

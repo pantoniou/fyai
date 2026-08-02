@@ -16,7 +16,7 @@ models:
   context_window: 32000
   max_output_tokens: 1234
   capabilities:
-  - tools
+  - tool_calling
   open_source: true
 providers:
 - name: mock
@@ -61,7 +61,7 @@ models:
   context_window: 32000
   max_output_tokens: 1234
   capabilities:
-  - tools
+  - tool_calling
   open_source: false
 providers:
 - name: mock2
