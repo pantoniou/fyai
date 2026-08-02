@@ -118,7 +118,7 @@ assert_stderr_contains "auth: use [status|login|logout]"
 # session or require a configured secret backend.
 grep -Eq 'secret api-key/not-configured: (absent|unavailable)' "$TEST_DIR/stdout" || \
 	fail "secret status did not report absent or unavailable"
-assert_stdout_contains "Metric       │ Value"
+assert_stdout_contains "Output max"
 assert_stdout_contains '| `read_file` | Read a UTF-8 text file from the workspace. |'
 assert_stdout_contains '| `sample_tool` | First sentence. |'
 assert_stdout_contains $'- **sample_tool**\n\n  > First sentence. Full tool description.'
@@ -192,8 +192,8 @@ grep -qF "hello one" "$TEST_DIR/state.out" && fail "cleared turn still in state"
 # CLI verb forms share the backends: context reports, clear resets durably.
 run_fyai -m foo context
 assert_status 0
-assert_stdout_contains "Metric       │ Value"
-assert_stdout_contains "Next request"
+assert_stdout_contains "Prompt"
+assert_stdout_contains "Output max"
 
 run_fyai config get display/tool_preview_lines
 assert_status_nonzero
