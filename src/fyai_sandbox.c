@@ -92,17 +92,21 @@ void fyai_env_sanitize(void)
 	free(names);
 }
 
-enum fyai_sandbox_mode fyai_sandbox_mode_parse(const char *name)
+int fyai_sandbox_mode_parse(const char *name, enum fyai_sandbox_mode *modep)
 {
-	if (!name)
-		return FYAI_SB_RW;
-	if (!strcmp(name, "ro"))
-		return FYAI_SB_RO;
-	if (!strcmp(name, "edit"))
-		return FYAI_SB_EDIT;
-	if (!strcmp(name, "append"))
-		return FYAI_SB_APPEND;
-	return FYAI_SB_RW;	/* "rw" and anything unrecognized */
+	if (!name || !modep)
+		return -1;
+	if (!strcmp(name, "rw"))
+		*modep = FYAI_SB_RW;
+	else if (!strcmp(name, "ro"))
+		*modep = FYAI_SB_RO;
+	else if (!strcmp(name, "edit"))
+		*modep = FYAI_SB_EDIT;
+	else if (!strcmp(name, "append"))
+		*modep = FYAI_SB_APPEND;
+	else
+		return -1;
+	return 0;
 }
 
 /*
@@ -110,7 +114,7 @@ enum fyai_sandbox_mode fyai_sandbox_mode_parse(const char *name)
  * supported target) this file compiles to the no-op stubs at the bottom, so
  * none of the Linux-specific headers or syscalls are referenced. A macOS
  * Seatbelt back-end (sandbox_init) would slot in behind the same three-function
- * interface; see tool-exec-sandbox.md.
+ * interface.
  */
 #if defined(__linux__) && __has_include(<linux/landlock.h>)
 #include <sys/syscall.h>

@@ -380,6 +380,8 @@ struct fyai_shell_sandbox {
 	uint16_t *ports;
 };
 
+static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb);
+
 /*
  * Resolve a config path against @base: absolute as-is, "~"-prefixed against
  * $HOME, otherwise relative to @base (the project root). Returns a malloc'd
@@ -412,8 +414,9 @@ static char *sandbox_resolve(const char *base, const char *p)
  * entries added, and egress restricted to config network.ports when a network
  * policy is present.
  */
-static const struct fyai_sandbox_spec *
-fyai_shell_sandbox_begin(struct fyai_ctx *ctx, struct fyai_shell_sandbox *sb)
+static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
+				    struct fyai_shell_sandbox *sb,
+				    const struct fyai_sandbox_spec **specp)
 {
 	struct fyai_sandbox_spec *sp = &sb->spec;
 	fy_generic cs = ctx->cfg->sandbox;
@@ -423,14 +426,18 @@ fyai_shell_sandbox_begin(struct fyai_ctx *ctx, struct fyai_shell_sandbox *sb)
 	char cwd[4096];
 	const char *ps;
 	size_t n;
+	int rc;
 
 	memset(sb, 0, sizeof(*sb));
+	*specp = NULL;
 	if (!ctx->cfg->enable_sandbox || ctx->sandbox_applied)
-		return NULL;
+		return 0;
 
 	sb->root = fyai_discover_project_root();
 	if (!sb->root && getcwd(cwd, sizeof(cwd)))
 		sb->root = strdup(cwd);
+	fyai_error_check(ctx, sb->root, err_out,
+			 "sandbox: could not resolve the project root");
 	sp->project_root = sb->root;
 	sp->strict = false;			/* floor is the config policy */
 
@@ -438,37 +445,46 @@ fyai_shell_sandbox_begin(struct fyai_ctx *ctx, struct fyai_shell_sandbox *sb)
 	deny = fy_get(cs, "deny");
 	n = fy_generic_is_sequence(deny) ? fy_len(deny) : 0;
 	sb->deny = calloc(n + 1, sizeof(*sb->deny));
-	if (sb->deny && sb->root) {
-		sb->deny[sp->deny_n++] = sandbox_resolve(sb->root, ".fyai");
-		fy_foreach(e, deny) {
-			sb->deny[sp->deny_n] = sandbox_resolve(sb->root,
-							fy_castp(&e, ""));
-			if (sb->deny[sp->deny_n])
-				sp->deny_n++;
-		}
+	fyai_error_check(ctx, sb->deny, err_out,
+			 "sandbox: could not allocate the deny list");
+	sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ".fyai");
+	fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
+			 "sandbox: could not resolve the arena deny path");
+	sp->deny_n++;
+	fy_foreach(e, deny) {
+		ps = fy_castp(&e, "");
+		sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ps);
+		fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
+				 "sandbox: could not resolve deny path '%s'", ps);
+		sp->deny_n++;
 	}
 	sp->deny = sb->deny;
 
 	/* allow: extra grants; a string is rw, a mapping {path, mode: ro}. */
 	allow = fy_get(cs, "allow");
 	n = fy_generic_is_sequence(allow) ? fy_len(allow) : 0;
-	sb->allow = calloc(n + 1, sizeof(*sb->allow));
-	if (sb->allow) {
+	if (n) {
+		sb->allow = calloc(n, sizeof(*sb->allow));
+		fyai_error_check(ctx, sb->allow, err_out,
+				 "sandbox: could not allocate the allow list");
 		fy_foreach(e, allow) {
 			mode = FYAI_SB_RW;
 			if (fy_generic_is_mapping(e)) {
 				pv = fy_get(e, "path");
 				ps = fy_castp(&pv, "");
-				mode = fyai_sandbox_mode_parse(
-						fy_get(e, "mode", "rw"));
+				rc = fyai_sandbox_mode_parse(
+						fy_get(e, "mode", "rw"), &mode);
+				fyai_error_check(ctx, !rc,
+					err_out, "sandbox: invalid mode '%s' for path '%s'",
+					fy_get(e, "mode", "rw"), ps);
 			} else {
 				ps = fy_castp(&e, "");
 			}
 			sb->allow[sp->allow_n].path = sandbox_resolve(sb->root, ps);
-			if (sb->allow[sp->allow_n].path) {
-				sb->allow[sp->allow_n].mode = mode;
-				sp->allow_n++;
-			}
+			fyai_error_check(ctx, sb->allow[sp->allow_n].path, err_out,
+					 "sandbox: could not resolve allow path '%s'", ps);
+			sb->allow[sp->allow_n].mode = mode;
+			sp->allow_n++;
 		}
 	}
 	sp->allow = sb->allow;
@@ -480,15 +496,22 @@ fyai_shell_sandbox_begin(struct fyai_ctx *ctx, struct fyai_shell_sandbox *sb)
 		sp->restrict_net = true;
 		ports = fy_get(net, "ports");
 		n = fy_generic_is_sequence(ports) ? fy_len(ports) : 0;
-		sb->ports = calloc(n + 1, sizeof(*sb->ports));
-		if (sb->ports)
+		if (n) {
+			sb->ports = calloc(n, sizeof(*sb->ports));
+			fyai_error_check(ctx, sb->ports, err_out,
+					 "sandbox: could not allocate the port list");
 			fy_foreach(port, ports)
 				sb->ports[sp->ports_n++] = (uint16_t)
 					fy_cast(port, 0LL);
+		}
 		sp->ports = sb->ports;
 	}
 
-	return sp;
+	*specp = sp;
+	return 0;
+err_out:
+	fyai_shell_sandbox_end(sb);
+	return -1;
 }
 
 static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb)
@@ -549,8 +572,9 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	const char *msg;
 	char *ret = NULL;
 
-	sandbox = fyai_shell_sandbox_begin(ctx, &sb);
 	*okp = false;
+	if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
+		return NULL;
 
 	command = fy_get(args, "command", fy_invalid);
 	workdir = fy_get(args, "workdir", fy_invalid);
@@ -743,7 +767,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		shell_opts.timeout_ms = fyai_shell_timeout_ms(ctx, tool_call,
 							      true);
 		outputs = fy_seq_empty;
-		sandbox = fyai_shell_sandbox_begin(ctx, &sb);
+		if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
+			return fy_value(ctx->transient_gb,
+					"tool error: invalid sandbox configuration");
 		*okp = true;
 
 		fy_foreach(command, commands) {
@@ -909,16 +935,18 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 /* Build the shell/tool sandbox spec from cfg and apply it to this process
  * irreversibly. Best-effort per spec->strict; a no-op when disabled. Marks
  * ctx->sandbox_applied so inner steps do not re-derive/re-apply it. */
-static void fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
+static int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 {
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *spec;
 
-	spec = fyai_shell_sandbox_begin(ctx, &sb);
+	if (fyai_shell_sandbox_begin(ctx, &sb, &spec))
+		return -1;
 	if (spec)
 		(void)fyai_sandbox_apply(spec);
 	fyai_shell_sandbox_end(&sb);
 	ctx->sandbox_applied = true;
+	return 0;
 }
 
 /*
@@ -1224,7 +1252,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))
 			_exit(1);
-		fyai_tool_apply_sandbox(ctx);
+		if (fyai_tool_apply_sandbox(ctx))
+			_exit(126);
 		fyai_tool_child_serve_loop(ctx);	/* never returns */
 		_exit(1);
 	}
@@ -2295,7 +2324,7 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	fy_generic args, result;
 	char *stdin_buf = NULL;
 	const char *args_text;
-	int ret = -1;
+	int rc, ret = -1;
 
 	/* Before the transient builder exists, so there is no out: to jump to. */
 	if (!a->name || !*a->name) {
@@ -2326,7 +2355,9 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	 * inherits this confinement.
 	 */
 	fyai_env_sanitize();
-	fyai_tool_apply_sandbox(ctx);
+	rc = fyai_tool_apply_sandbox(ctx);
+	fyai_error_check(ctx, !rc, out,
+			 "tool: could not apply sandbox policy");
 
 	result = fyai_tool_run_one(ctx, a->name, args, &ok);
 	result = fy_gb_internalize(ctx->transient_gb, result);

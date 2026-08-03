@@ -51,8 +51,8 @@ struct fyai_sandbox_path {
 	enum fyai_sandbox_mode mode;
 };
 
-/* Map a config mode name to an enum; unknown names fall back to RW. */
-enum fyai_sandbox_mode fyai_sandbox_mode_parse(const char *name);
+/* Map a config mode name to an enum; reject unknown names. */
+int fyai_sandbox_mode_parse(const char *name, enum fyai_sandbox_mode *modep);
 
 /*
  * Drop every environment variable except a small, non-secret set (PATH,
