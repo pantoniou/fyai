@@ -1,0 +1,76 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_seed",
+        "object": "response",
+        "model": "bar",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_seed",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "Seeded Responses reply." }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 5,
+          "total_tokens": 25
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_compact",
+        "object": "response.compaction",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_retained",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Retained compact context." }
+            ]
+          },
+          {
+            "type": "compaction",
+            "id": "cmp_001",
+            "encrypted_content": "opaque-compact-state"
+          }
+        ],
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 8,
+          "total_tokens": 38
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_after",
+        "object": "response",
+        "model": "bar",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_after",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "Continued after native compaction." }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 15,
+          "output_tokens": 6,
+          "total_tokens": 21
+        }
+      }
+    }
+  ]
+}
