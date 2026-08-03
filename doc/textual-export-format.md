@@ -108,6 +108,16 @@ Import re-issues the operation with the current model and endpoint. Use
 `--ignore-compact` to skip compaction markers. An import without a compaction
 marker makes no provider request.
 
+## Replay
+
+`fyai replay` reads the active branch and re-issues its user prompts in order.
+It starts a new chain with the current system prompt. It does not restore
+assistant messages or tool calls; the model and tools produce new results from
+the current environment.
+
+Replay re-issues stored compactions. Use `--ignore-compact` to skip them. The
+old conversation remains in the branch reference log.
+
 ## Payloads
 
 Structured payloads are inside directives. They are not in fenced Markdown
