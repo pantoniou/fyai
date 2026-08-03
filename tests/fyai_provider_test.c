@@ -501,6 +501,8 @@ static int provider_run(void (*testfn)(void))
 		return 1;
 	test_ctx.gb = test_ctx.transient_gb;
 	test_ctx.durable_gb = test_ctx.transient_gb;
+	test_cfg.gb = test_ctx.transient_gb;
+	test_ctx.tools_spec = fy_invalid;
 
 	testfn();
 
