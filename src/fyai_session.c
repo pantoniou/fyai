@@ -47,8 +47,10 @@
 #include "fyai_render.h"
 #include "fyai_log.h"
 #include "fyai_markdown.h"
+#include "fyai_provider.h"
 #include "fyai_branch.h"
 #include "fyai_session.h"
+#include "fyai_stream.h"
 #include "fyai_ui.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
@@ -117,6 +119,140 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 	return 0;
 }
 
+static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_buffered_request *req;
+	struct fyai_event_loop *el;
+	fy_generic prev_head, messages, input, request, response, output;
+	fy_generic turn, meta;
+	const char *body;
+	const char *url;
+	size_t url_len;
+	bool endpoint_valid;
+	int rc;
+
+	req = NULL;
+	rc = -1;
+	response = fy_invalid;
+	prev_head = ctx->last_message;
+	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
+	input = fyai_responses_input(ctx, messages);
+	fyai_error_check(ctx, fy_generic_is_valid(input), out,
+			 "compact: cannot build the Responses input");
+
+	request = fy_mapping(ctx->transient_gb,
+		"model", cfg->model,
+		"instructions", hint && *hint ?
+			fy_stringf("%s\n\nWhen compacting, preserve information "
+				   "relevant to: %s", cfg->system_prompt, hint) :
+			fy_value(cfg->system_prompt),
+		"input", input);
+	if (fy_generic_is_valid(ctx->tools) && fy_len(ctx->tools))
+		request = fy_assoc(request, "tools", ctx->tools);
+	fyai_error_check(ctx, fy_generic_is_valid(request), out,
+			 "compact: cannot build the Responses request");
+
+	url_len = strlen(cfg->api_url);
+	endpoint_valid = url_len >= strlen("/responses") &&
+		!strcmp(cfg->api_url + url_len - strlen("/responses"),
+			"/responses");
+	fyai_error_check(ctx, endpoint_valid, out,
+			 "compact: cannot derive the Responses compact endpoint from %s",
+			 cfg->api_url);
+	url = fy_sprintfa("%s/compact", cfg->api_url);
+	body = emit_request_body(ctx->transient_gb, request);
+	fyai_error_check(ctx, url && body, out,
+			 "compact: cannot encode the Responses request");
+
+	if (cfg->conversation_logging)
+		(void)fyai_log_generic(ctx, "conversation",
+			fy_mapping(ctx->transient_gb,
+				"kind", "request",
+				"api", "responses-compact",
+				"url", url,
+				"body", request));
+
+	curl_easy_setopt(ctx->curl, CURLOPT_URL, url);
+	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, body);
+	req = fyai_buffered_request_submit(ctx, NULL, NULL);
+	fyai_error_check(ctx, req, err_restore,
+			 "compact: cannot submit the Responses request");
+
+	el = fyai_ctx_loop(ctx);
+	assert(el);
+	while (!fyai_buffered_request_done(req)) {
+		if (ctx->interrupt_pending) {
+			fyai_event_interrupt_ack(ctx);
+			fyai_buffered_request_cancel(req);
+		}
+		rc = fyai_event_loop_step(el, -1);
+		fyai_error_check(ctx, rc >= 0, err_collect,
+				 "compact: the event loop failed");
+	}
+	rc = 0;
+collect:
+	response = fyai_buffered_request_collect(req);
+	fyai_buffered_request_destroy(req);
+	req = NULL;
+restore:
+	curl_easy_setopt(ctx->curl, CURLOPT_URL, cfg->api_url);
+	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, NULL);
+	if (rc < 0)
+		goto out;
+
+	response = fyai_report_diag(ctx, response);
+	fyai_error_check(ctx, fy_generic_is_valid(response) &&
+			 !fy_generic_is_null_type(response), out,
+			 "compact: Responses compact request failed");
+	if (cfg->conversation_logging)
+		(void)fyai_log_generic(ctx, "conversation",
+			fy_mapping(ctx->transient_gb,
+				"kind", "response",
+				"api", "responses-compact",
+				"body", response));
+
+	output = fy_get(response, "output");
+	fyai_error_check(ctx, fy_generic_is_sequence(output) && fy_len(output), out,
+			 "compact: Responses compact returned no output");
+
+	turn = fyai_turn_append(ctx, fy_invalid,
+		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot build the system turn");
+	turn = fyai_turn_append(ctx, turn, output);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot build the compacted turn");
+
+	meta = fyai_turn_meta(turn);
+	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
+		meta = fy_map_empty;
+	meta = fy_assoc(meta, "compacted_from", prev_head);
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
+	turn = fy_assoc(turn, "metadata", meta);
+	turn = fy_gb_internalize(ctx->gb, turn);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot store the compacted turn");
+
+	ctx->last_message = turn;
+	session_reset_usage(ctx);
+	rc = fyai_publish_state(ctx);
+	fyai_error_check(ctx, !rc, out,
+			 "compact: cannot publish the compacted turn");
+	printf("conversation compacted (Responses API)\n");
+	return 0;
+err_collect:
+	rc = -1;
+	goto collect;
+err_restore:
+	rc = -1;
+	goto restore;
+out:
+	if (req)
+		fyai_buffered_request_destroy(req);
+	return -1;
+}
+
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -135,6 +271,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		return 0;
 	}
 	assert(ctx->transient_gb);
+
+	if (cfg->api_mode == FYAI_API_RESPONSES)
+		return session_compact_responses(ctx, hint);
 
 	prev_head = ctx->last_message;
 	turn = fyai_turn_append(ctx, prev_head,
