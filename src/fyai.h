@@ -253,6 +253,8 @@ struct fyai_cfg {
 	 * are re-derived read-only from the catalogue at resolve time.
 	 */
 	fy_generic config_doc;
+	/* Count configuration apply passes. */
+	unsigned int config_generation;
 	/* Pre-supplied answers for the ask_user tool, consumed in order
 	 * (batch/non-interactive use). */
 	const char *answers[10];	/* maximum 10 answers */
@@ -369,6 +371,10 @@ struct fyai_ctx {
 	sig_atomic_t interrupt_seen;
 	bool terminate_pending;
 	fy_generic tools;
+	/* The built-in tool specification in the configuration builder. */
+	fy_generic tools_spec;
+	unsigned int tools_spec_generation;
+	bool tools_spec_agent_child;
 	fy_generic last_message;
 	fy_generic arena_config;	/* the active branch's config, or fy_invalid */
 	fy_generic arena_catalog;	/* root["catalog"] or fy_invalid */

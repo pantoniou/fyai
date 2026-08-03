@@ -43,6 +43,7 @@
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
+#include "fyai_tool_spec.h"
 #include "fyai_turn.h"
 
 static enum fyai_event_action fyai_signal_cb(const struct fyai_event *ev)
@@ -1961,6 +1962,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->stdout_tty = terminal_is_tty(STDOUT_FILENO);
 
 	ctx->tools = fy_invalid;
+	ctx->tools_spec = fy_invalid;
 	ctx->last_message = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;

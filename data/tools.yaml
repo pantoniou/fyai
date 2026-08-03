@@ -1,0 +1,147 @@
+# Built-in tool specifications in wire shape (see doc/tools-yaml.md).
+#
+# This document is the single source of truth for the six built-in tools.
+# It is embedded at configure time (embedded_tools.inc) and parsed by
+# make_tools() in src/fyai_tool_spec.c. Descriptions are byte-identical to
+# what the model provider, `fyai catalog` markdown, and the tool-spec unit
+# tests consume, so keep them in sync with tests/fyai_tool_spec_test.c.
+#
+# Tool order is fixed: read_file, write_file, apply_patch, shell, ask_user,
+# agent.
+- type: function
+  function:
+    name: read_file
+    description: |-
+      Read a UTF-8 text file from the workspace.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: |-
+            Workspace-relative path to read.
+      required:
+        - path
+      additionalProperties: false
+- type: function
+  function:
+    name: write_file
+    description: |-
+      Write UTF-8 text to a workspace file.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: |-
+            Workspace-relative path to write.
+        content:
+          type: string
+          description: |-
+            Complete UTF-8 file contents.
+      required:
+        - path
+        - content
+      additionalProperties: false
+# Keep the apply_patch description exact and complete. Distilled claude
+# models make many patch-format errors without it.
+- type: function
+  function:
+    name: apply_patch
+    description: |-
+      Apply a raw Codex-style patch to workspace files. Use *** Begin Patch / *** End Patch; hunks are *** Add File, *** Delete File, or *** Update File with optional *** Move to and @@ changes, plus optional *** End of File.
+    parameters:
+      type: object
+      properties:
+        patch:
+          type: string
+          description: |-
+            Complete patch text to apply.
+      required:
+        - patch
+      additionalProperties: false
+- type: function
+  function:
+    name: shell
+    description: |-
+      Run a shell command in the workspace.
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: |-
+            Shell command to execute.
+        workdir:
+          type: string
+          description: |-
+            Optional directory to run the command in, absolute or workspace-relative. Prefer this over a leading `cd`.
+        timeout:
+          type: integer
+          description: |-
+            Optional time limit in milliseconds. The command is stopped when it expires.
+        description:
+          type: string
+          description: |-
+            Optional short (3-5 word) description of what the command does, used as its label in the display.
+      required:
+        - command
+      additionalProperties: false
+- type: function
+  function:
+    name: ask_user
+    description: |-
+      Ask the user a question and wait for their answer. Use this when you need a decision or clarification only the user can give. Provide `options` to offer specific choices; the user may still answer freely.
+    parameters:
+      type: object
+      properties:
+        question:
+          type: string
+          description: |-
+            The question to put to the user.
+        options:
+          type: array
+          description: |-
+            Optional list of suggested answers to present as a numbered menu.
+          items:
+            type: string
+      required:
+        - question
+      additionalProperties: false
+- type: function
+  function:
+    name: agent
+    description: |-
+      Delegate a self-contained sub-task to an autonomous sub-agent that runs its own tool-use loop in an isolated process and returns its final report. Use it for focused work you can describe completely up front (search, analysis, a multi-step edit); the sub-agent shares the workspace but not this conversation. Its final report comes back as the tool result and is not shown to the user - relay what matters.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            A very short name for this sub-agent (at most 3 words), unique within the session. Use it to refer back to this sub-agent and its report later.
+        description:
+          type: string
+          description: |-
+            A short (3-5 word) description of the delegated task, used as its label.
+        task:
+          type: string
+          description: |-
+            Complete, self-contained instructions for the sub-agent.
+        persona:
+          type: string
+          description: |-
+            Optional named persona for the sub-agent, from the `agent/personas` configuration. A persona carries its own instructions and model settings. Omit it for the default sub-agent.
+        context:
+          type: string
+          description: |-
+            `fork` (the default) starts the sub-agent from this conversation, so it sees the context you already have; `fresh` starts it from the task alone, which is cheaper for self-contained work.
+        timeout:
+          type: integer
+          description: |-
+            Optional time limit in milliseconds. The sub-agent and every process it started are stopped when it expires.
+      required:
+        - name
+        - description
+        - task
+      additionalProperties: false

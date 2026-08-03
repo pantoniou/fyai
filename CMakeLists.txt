@@ -355,6 +355,21 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_config_schema.inc"
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${FYAI_CONFIG_SCHEMA}")
 
+# Embed the built-in tool specifications in wire shape.
+set(FYAI_TOOLS_YAML "${CMAKE_CURRENT_SOURCE_DIR}/data/tools.yaml")
+file(READ "${FYAI_TOOLS_YAML}" _fyai_tools_hex HEX)
+string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1,"
+    _fyai_tools_bytes "${_fyai_tools_hex}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_tools.inc"
+    "/* Generated from ${FYAI_TOOLS_YAML}. */\n"
+    "static const unsigned char FYAI_EMBEDDED_TOOLS[] = {\n"
+    "${_fyai_tools_bytes}"
+    "\n};\n"
+    "static const size_t FYAI_EMBEDDED_TOOLS_LEN = sizeof(FYAI_EMBEDDED_TOOLS);\n"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${FYAI_TOOLS_YAML}")
+
 # Generate config.h
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
@@ -413,6 +428,7 @@ set(FYAI_SOURCES
     src/fyai_terminal.c
     src/fyai_schema.c
     src/fyai_tools.c
+    src/fyai_tool_spec.c
     src/fyai_turn.c
     src/utils.c
     src/fyai_catalog.c

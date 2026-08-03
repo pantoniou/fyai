@@ -185,6 +185,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	if (fy_generic_is_invalid(root))
 		return 0;
 
+	cfg->config_generation++;
+
 	secret_ref = fy_get(root, "api_key");
 	if (fy_generic_is_mapping(secret_ref)) {
 		if (fy_equal(fy_get(secret_ref, "type"), "auto")) {

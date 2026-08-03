@@ -19,6 +19,7 @@
 #include "fyai_config.h"
 #include "fyai_markdown.h"
 #include "fyai_storage.h"
+#include "fyai_tool_spec.h"
 #include "utils.h"
 
 /* FYAI_EMBEDDED_CATALOG[] / FYAI_EMBEDDED_CATALOG_LEN - the vendored
@@ -421,9 +422,10 @@ static void catalog_agent_tools_markdown(FILE *mf, struct fy_generic_builder *gb
 }
 
 static void catalog_builtin_tools_markdown(FILE *mf,
-					   struct fy_generic_builder *gb,
+					   struct fyai_ctx *ctx,
 					   bool full)
 {
+	struct fy_generic_builder *gb = ctx->cfg->gb;
 	fy_generic tools, tool, function, name, desc, schema;
 
 	if (full)
@@ -433,7 +435,7 @@ static void catalog_builtin_tools_markdown(FILE *mf,
 		fprintf(mf, "| Tool | Description |\n");
 		fprintf(mf, "|---|---|\n");
 	}
-	tools = make_tools(gb);
+	tools = make_tools(ctx);
 	fy_foreach(tool, tools) {
 		function = fy_get(tool, "function");
 		name = fy_get(function, "name");
@@ -474,7 +476,7 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 		mf = open_memstream(&md, &mdlen);
 		if (!mf)
 			return -1;
-		catalog_builtin_tools_markdown(mf, ctx->cfg->gb, full);
+		catalog_builtin_tools_markdown(mf, ctx, full);
 		fclose(mf);
 		rc = 0;
 		if (ctx->cfg->markdown) {

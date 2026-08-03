@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "fyai_provider.h"
+#include "fyai_tool_spec.h"
 
 static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
 				  const char *what)

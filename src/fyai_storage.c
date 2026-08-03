@@ -34,6 +34,7 @@
 #include "fyai_config.h"
 #include "fyai_storage.h"
 #include "fyai_turn.h"
+#include "fyai_tool_spec.h"
 
 /* FYAI_EMBEDDED_CONFIG[] / FYAI_EMBEDDED_CONFIG_LEN - the config.yaml.sample
  * snapshot, generated at configure time; used as the default document when
