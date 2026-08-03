@@ -4,8 +4,17 @@
 the provider-independent conversation and its configuration history. It omits
 provider request IDs, tool-call IDs, timestamps, and stream data.
 
-Output goes to standard output. Use `-o <file>` to write a file and
-`--branch`/`-b` to select another branch.
+Export writes to standard output or `-o <file>`. Import reads from standard
+input or `-i <file>`:
+
+```sh
+fyai export | ssh host fyai import
+fyai export -o conversation.md
+fyai import -i conversation.md
+```
+
+On export, `--branch`/`-b` selects the source. On import, it selects an empty
+destination branch. Import without this option replaces the active branch.
 
 ## Directives
 
@@ -29,11 +38,12 @@ The document uses these structural directives:
 - `turn` starts one stored turn.
 - `message` contains one message role and is followed by its text.
 - `tool_call` contains one tool name, its arguments, and its result.
+- `compact` records a compaction operation.
 - `config` contains the complete initial configuration.
 - `config-update` contains a later configuration change.
 
 Publish and turn directives preserve boundaries that cannot be derived from
-messages. These boundaries determine branch history and merge behavior.
+messages. Import replays these boundaries in order.
 
 ## Configuration
 
@@ -85,7 +95,18 @@ joins them. It does not store a call ordinal or provider call ID. A diff or
 merge can therefore move the complete call without changing an identifier.
 
 An unanswered call has no `result` key. Parallel calls use separate
-directives.
+directives. Import creates new call IDs and restores each result in the next
+stored turn.
+
+## Compaction
+
+The export records a compaction operation and its instructions. It does not
+store the provider output, because that output is bound to the provider and
+session.
+
+Import re-issues the operation with the current model and endpoint. Use
+`--ignore-compact` to skip compaction markers. An import without a compaction
+marker makes no provider request.
 
 ## Payloads
 
