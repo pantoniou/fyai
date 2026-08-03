@@ -33,4 +33,15 @@ run_fyai tool write_file '{"path": "keep.txt", "content": "visible\n"}'
 run_fyai --set sandbox=true tool shell '{"command": "cat keep.txt"}'
 assert_stdout_contains "visible"
 
+# A misspelled allow mode must fail before the command runs. Explicit config
+# overlays are applied directly, so this also guards the parser independently
+# of the schema validation used when committing arena config.
+BAD_CONFIG="$TEST_DIR/bad-sandbox.yaml"
+printf '%s\n' 'sandbox: { enabled: true, allow: [{ path: /tmp, mode: readonly }] }' \
+	>"$BAD_CONFIG"
+run_fyai --config "$BAD_CONFIG" tool shell '{"command": "echo must-not-run"}'
+assert_status_nonzero
+assert_stderr_contains "sandbox: invalid mode 'readonly' for path '/tmp'"
+assert_stdout_not_contains "must-not-run"
+
 pass
