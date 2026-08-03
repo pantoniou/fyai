@@ -241,12 +241,19 @@ out:
 
 static void ui_pending_refresh(struct fyai_ui *ui)
 {
+	static const char header_fmt[] =
+		"\n\033[36m●\033[0m \033[1mpending\033[0m (%zu)";
+	static const char line_prefix[] = "\n  › ";
 	struct ui_line *line;
 	char *buf, *p;
-	size_t len = 0, count = 0;
+	size_t len = 0, text_len, count = 0;
+	int header_len;
 
 	for (line = ui->head; line; line = line->next) {
-		len += strlen(line->text) + 5;
+		text_len = strlen(line->text);
+		if (text_len > SIZE_MAX - len - (sizeof(line_prefix) - 1))
+			return;
+		len += sizeof(line_prefix) - 1 + text_len;
 		count++;
 	}
 	if (!count) {
@@ -260,13 +267,23 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 		if (!ui->pending_band) return;
 		(void)fytim_workband_set_max_rows(ui->pending_band, 5);
 	}
-	buf = malloc(len + 64);
+	header_len = snprintf(NULL, 0, header_fmt, count);
+	if (header_len < 0 || (size_t)header_len > SIZE_MAX - len - 1)
+		return;
+	len += (size_t)header_len;
+	buf = malloc(len + 1);
 	if (!buf) return;
 	p = buf;
-	p += sprintf(p, "\n\033[36m●\033[0m \033[1mpending\033[0m (%zu)", count);
-	for (line = ui->head; line; line = line->next)
-		p += sprintf(p, "\n  › %s", line->text);
-	(void)fytim_workband_set(ui->pending_band, buf, (size_t)(p - buf));
+	p += snprintf(p, len + 1, header_fmt, count);
+	for (line = ui->head; line; line = line->next) {
+		memcpy(p, line_prefix, sizeof(line_prefix) - 1);
+		p += sizeof(line_prefix) - 1;
+		text_len = strlen(line->text);
+		memcpy(p, line->text, text_len);
+		p += text_len;
+	}
+	*p = '\0';
+	(void)fytim_workband_set(ui->pending_band, buf, len);
 	free(buf);
 }
 
