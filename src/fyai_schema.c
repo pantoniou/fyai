@@ -277,28 +277,34 @@ static size_t schema_utf8_length(const char *s)
  * Best-effort "uri" format check: an ASCII letter followed by zero or more
  * ASCII alphanumeric/+-. characters and ':'. Other formats are accepted.
  */
+static bool schema_check_uri(const char *s)
+{
+	size_t i;
+
+	if (!*s)
+		return false;
+	for (i = 0; s[i]; i++) {
+		if (s[i] == ':')
+			return i > 0;
+		if (i == 0 && !((s[i] >= 'A' && s[i] <= 'Z') ||
+				  (s[i] >= 'a' && s[i] <= 'z')))
+			return false;
+		if (i > 0 && !((s[i] >= 'A' && s[i] <= 'Z') ||
+			       (s[i] >= 'a' && s[i] <= 'z') ||
+			       (s[i] >= '0' && s[i] <= '9') ||
+			       s[i] == '+' || s[i] == '-' || s[i] == '.'))
+			return false;
+	}
+	return false;
+}
+
 static bool schema_check_format(fy_generic fmt, fy_generic instance)
 {
 	const char *s;
-	size_t i;
 
 	if (!fy_generic_is_valid(fmt) || fy_equal(fmt, "uri")) {
 		s = fy_cast(instance, "");
-		if (!*s)
-			return false;
-		for (i = 0; s[i]; i++) {
-			if (s[i] == ':')
-				return i > 0;
-			if (i == 0 && !((s[i] >= 'A' && s[i] <= 'Z') ||
-					  (s[i] >= 'a' && s[i] <= 'z')))
-				return false;
-			if (i > 0 && !((s[i] >= 'A' && s[i] <= 'Z') ||
-				       (s[i] >= 'a' && s[i] <= 'z') ||
-				       (s[i] >= '0' && s[i] <= '9') ||
-				       s[i] == '+' || s[i] == '-' || s[i] == '.'))
-				return false;
-		}
-		return false;
+		return schema_check_uri(s);
 	}
 	/* Unknown format: accept (we only promised uri). */
 	return true;
