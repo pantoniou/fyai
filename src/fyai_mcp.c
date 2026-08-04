@@ -1269,6 +1269,52 @@ static bool mcp_oauth_token_complete(struct mcp_oauth_discovery *od,
 	return true;
 }
 
+static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
+						     fy_generic doc)
+{
+	struct fyai_mcp_ctx *mcp;
+	const char *client_id;
+	const char *client_secret;
+	int rc;
+
+	if (od->state != MCP_OD_REGISTER)
+		return false;
+	mcp = od->mcp;
+	client_id = fy_get(doc, "client_id", "");
+	client_secret = fy_get(doc, "client_secret", "");
+	if (!*client_id) {
+		mcp_oauth_discovery_fail(od,
+			"registration response has no client_id");
+		return true;
+	}
+	free(mcp->oauth_client_id);
+	mcp_oauth_secret_free(&mcp->oauth_client_secret);
+	free(mcp->oauth_access_token);
+	free(mcp->oauth_refresh_token);
+	mcp->oauth_client_id = strdup(client_id);
+	mcp->oauth_client_secret = *client_secret ?
+		strdup(client_secret) : NULL;
+	if (!mcp->oauth_client_id ||
+	    (*client_secret && !mcp->oauth_client_secret)) {
+		mcp_oauth_discovery_fail(od,
+			"could not retain registered client");
+		return true;
+	}
+	rc = mcp_oauth_store_save(mcp);
+	if (rc) {
+		mcp_oauth_discovery_fail(od,
+			"could not save registered client");
+		return true;
+	}
+	rc = mcp_oauth_authorize_start(od);
+	if (rc)
+		mcp_oauth_discovery_fail(od,
+			rc == -2 ?
+			"browser login needs auth.allow_browser=true" :
+			"could not start OAuth authorization");
+	return true;
+}
+
 static void mcp_oauth_discovery_complete(
 		struct fyai_curl_transfer *transfer, void *userdata)
 {
@@ -1284,8 +1330,6 @@ static void mcp_oauth_discovery_complete(
 	const char *authorize;
 	const char *token;
 	const char *registration;
-	const char *client_id;
-	const char *client_secret;
 	const char *body;
 	const char *message;
 	CURLcode code;
@@ -1347,41 +1391,8 @@ static void mcp_oauth_discovery_complete(
 	}
 	if (mcp_oauth_token_complete(od, doc))
 		return;
-	if (od->state == MCP_OD_REGISTER) {
-		client_id = fy_get(doc, "client_id", "");
-		client_secret = fy_get(doc, "client_secret", "");
-		if (!*client_id) {
-			mcp_oauth_discovery_fail(od,
-				"registration response has no client_id");
-			return;
-		}
-		free(mcp->oauth_client_id);
-		mcp_oauth_secret_free(&mcp->oauth_client_secret);
-		free(mcp->oauth_access_token);
-		free(mcp->oauth_refresh_token);
-		mcp->oauth_client_id = strdup(client_id);
-		mcp->oauth_client_secret = *client_secret ?
-			strdup(client_secret) : NULL;
-		if (!mcp->oauth_client_id ||
-		    (*client_secret && !mcp->oauth_client_secret)) {
-			mcp_oauth_discovery_fail(od,
-				"could not retain registered client");
-			return;
-		}
-		rc = mcp_oauth_store_save(mcp);
-		if (rc) {
-			mcp_oauth_discovery_fail(od,
-				"could not save registered client");
-			return;
-		}
-		rc = mcp_oauth_authorize_start(od);
-		if (rc)
-			mcp_oauth_discovery_fail(od,
-				rc == -2 ?
-				"browser login needs auth.allow_browser=true" :
-				"could not start OAuth authorization");
+	if (mcp_oauth_registration_complete(od, doc))
 		return;
-	}
 	authorize = fy_get(doc, "authorization_endpoint", "");
 	token = fy_get(doc, "token_endpoint", "");
 	registration = fy_get(doc, "registration_endpoint", "");
