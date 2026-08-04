@@ -370,8 +370,8 @@ static fy_generic schema_resolve_pointer(fy_generic root, const char *ref)
 }
 
 static fy_generic schema_reject_unsupported(struct fy_generic_builder *gb,
-					    fy_generic schema, const char *path,
-					    fy_generic problems)
+						    fy_generic schema, const char *path,
+						    fy_generic problems)
 {
 	static const char * const keywords[] = {
 		"$id", "$anchor", "$dynamicRef", "$dynamicAnchor", "$vocabulary",
@@ -391,6 +391,26 @@ static fy_generic schema_reject_unsupported(struct fy_generic_builder *gb,
 	return problems;
 }
 
+static fy_generic schema_check_supported_ref(struct fy_generic_builder *gb,
+						     fy_generic schema, const char *path,
+						     fy_generic problems)
+{
+	fy_generic child;
+	const char *ref;
+
+	child = fy_get(schema, "$ref");
+	if (!fy_generic_is_string(child))
+		return problems;
+	ref = fy_castp(&child, "");
+	if (ref[0] != '#')
+		return schema_problem_add(gb, problems,
+			"%s: external $ref is unsupported: '%s'", path, ref);
+	if (ref[1] && ref[1] != '/')
+		return schema_problem_add(gb, problems,
+			"%s: anchor $ref is unsupported: '%s'", path, ref);
+	return problems;
+}
+
 static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 					 fy_generic schema, const char *path,
 					 fy_generic problems,
@@ -407,7 +427,6 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 		"prefixItems", "allOf", "anyOf", "oneOf",
 	};
 	fy_generic child, collection, key;
-	const char *ref;
 	char *cpath, *epath;
 	size_t i, j, n;
 
@@ -421,16 +440,7 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 			"%s: schema recursion limit exceeded", path);
 
 	problems = schema_reject_unsupported(gb, schema, path, problems);
-	child = fy_get(schema, "$ref");
-	if (fy_generic_is_string(child)) {
-		ref = fy_castp(&child, "");
-		if (ref[0] != '#')
-			problems = schema_problem_add(gb, problems,
-				"%s: external $ref is unsupported: '%s'", path, ref);
-		else if (ref[1] && ref[1] != '/')
-			problems = schema_problem_add(gb, problems,
-				"%s: anchor $ref is unsupported: '%s'", path, ref);
-	}
+	problems = schema_check_supported_ref(gb, schema, path, problems);
 
 	for (i = 0; i < ARRAY_SIZE(direct); i++) {
 		child = fy_get(schema, direct[i]);
