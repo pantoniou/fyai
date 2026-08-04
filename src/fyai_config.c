@@ -2422,11 +2422,151 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 	return fyai_config_apply(cfg, doc);
 }
 
+struct config_cli_options {
+	const char *config;
+	const char *env;
+	const char *api_key;
+	int arg_index;
+};
+
+static int config_parse_set_option(struct fyai_cfg *cfg, int argc, char *argv[])
+{
+	char *eq, *k;
+	int rc;
+
+	eq = strchr(optarg, '=');
+	if (eq) {
+		k = strndup(optarg, eq - optarg);
+		if (!k)
+			return -1;
+		rc = config_queue_op(cfg, 's', k, eq + 1, true, true);
+		free(k);
+	} else {
+		if (optind >= argc) {
+			fyai_cfg_error(cfg, "--set %s: missing value", optarg);
+			return -1;
+		}
+		rc = config_queue_op(cfg, 's', optarg, argv[optind++],
+				      true, true);
+	}
+	return rc;
+}
+
+/* Parse the command-line options that configure the current invocation. */
+static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[],
+				    struct config_cli_options *options)
+{
+	int opt;
+
+	options->config = NULL;
+	options->env = NULL;
+	options->api_key = NULL;
+
+	optind = 0;
+	optarg = NULL;
+
+	/* '+' stops parsing at the first non-option (the verb or prompt). */
+	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:b:id",
+				  long_options, NULL)) != -1) {
+		switch (opt) {
+		case 'h':
+			fyai_usage(stdout, "fyai", cfg->color);
+			return 1;
+		case OPT_VERSION:
+			printf("fyai %s\n", VERSION);
+			return 1;
+		case 'C':
+			options->config = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case 'e':
+			options->env = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case 'b':
+			if (fyai_cfg_set_branch(cfg, optarg))
+				return -1;
+			break;
+		case 'm':
+			if (config_queue_set_quoted(cfg, "model", optarg,
+						    false, false))
+				return -1;
+			break;
+		case 'k':
+			options->api_key = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case OPT_SANDBOX:
+			if (config_queue_set_literal(cfg, "sandbox", "true",
+						     false, false))
+				return -1;
+			break;
+		case OPT_NEW:
+			cfg->new_conversation = true;
+			break;
+		case 'i':
+			cfg->interactive = true;
+			break;
+		case 'd':
+			cfg->debug++;
+			/*
+			 * Unmask the detail behind a failure: the routine
+			 * fallbacks, and the chain of callers unwinding behind
+			 * the error that caused it, each with its origin.
+			 */
+			cfg->diag.mask |= (1u << FYAIET_DEBUG) |
+					  (1u << FYAIET_INFO);
+			cfg->diag.source = true;
+			break;
+		case OPT_COLOR:
+			if (config_queue_set_quoted(cfg, "display/color", optarg,
+						    false, false))
+				return -1;
+			break;
+		case OPT_THEME:
+			if (config_queue_set_quoted(cfg, "display/theme", optarg,
+						    false, false))
+				return -1;
+			break;
+		case OPT_ANSWER:
+			if (cfg->answer_count >= ARRAY_SIZE(cfg->answers)) {
+				fyai_cfg_error(cfg, "too many answers, max %zu",
+					ARRAY_SIZE(cfg->answers));
+				return -1;
+			}
+			cfg->answers[cfg->answer_count++] =
+				fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case OPT_SET:
+			if (config_parse_set_option(cfg, argc, argv))
+				return -1;
+			break;
+		case OPT_GET:
+			if (config_queue_op(cfg, 'g', optarg, NULL, false, true))
+				return -1;
+			break;
+		case OPT_DELETE:
+			if (config_queue_op(cfg, 'd', optarg, NULL, true, true))
+				return -1;
+			break;
+		case OPT_ROOT:
+			if (fyai_cfg_set_root(cfg, optarg))
+				return -1;
+			break;
+		case OPT_TRANSIENT:
+			cfg->transient = true;
+			break;
+		default:
+			fyai_usage(stderr, "fyai", cfg->color);
+			return -1;
+		}
+	}
+	options->arg_index = optind;
+	return 0;
+}
+
 int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 {
 	struct fy_generic_builder_cfg gb_cfg;
-	const char *cli_config, *cli_env, *cli_api_key;
-	int opt, rc, arg_index;
+	struct config_cli_options cli;
+	int rc, arg_index;
 	char *def_arena_dir = NULL;
 	const char *verb = NULL;
 	bool stdin_prompt;
@@ -2453,132 +2593,14 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 
 	fyai_config_set_defaults(cfg);
 
-	cli_config = NULL;
-	cli_env = NULL;
-	cli_api_key = NULL;
-
-	optind = 0;
-	optarg = NULL;
-
-	/* '+' stops parsing at the first non-option (the verb or prompt). */
-	while ((opt = getopt_long(argc, argv, "+hC:e:m:k:b:id",
-				  long_options, NULL)) != -1) {
-		switch (opt) {
-		case 'h':
-			fyai_usage(stdout, "fyai", cfg->color);
-			ret = 1;
-			goto out;
-		case OPT_VERSION:
-			printf("fyai %s\n", VERSION);
-			ret = 1;
-			goto out;
-		case 'C':
-			cli_config = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case 'e':
-			cli_env = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case 'b':
-			if (fyai_cfg_set_branch(cfg, optarg))
-				goto err_out;
-			break;
-		case 'm':
-			if (config_queue_set_quoted(cfg, "model", optarg,
-						    false, false))
-				goto err_out;
-			break;
-		case 'k':
-			cli_api_key = fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_SANDBOX:
-			if (config_queue_set_literal(cfg, "sandbox", "true",
-						     false, false))
-				goto err_out;
-			break;
-		case OPT_NEW:
-			cfg->new_conversation = true;
-			break;
-		case 'i':
-			cfg->interactive = true;
-			break;
-		case 'd':
-			cfg->debug++;
-			/*
-			 * Unmask the detail behind a failure: the routine
-			 * fallbacks, and the chain of callers unwinding behind
-			 * the error that caused it, each with its origin.
-			 */
-			cfg->diag.mask |= (1u << FYAIET_DEBUG) |
-					  (1u << FYAIET_INFO);
-			cfg->diag.source = true;
-			break;
-		case OPT_COLOR:
-			if (config_queue_set_quoted(cfg, "display/color", optarg,
-						    false, false))
-				goto err_out;
-			break;
-		case OPT_THEME:
-			if (config_queue_set_quoted(cfg, "display/theme", optarg,
-						    false, false))
-				goto err_out;
-			break;
-		case OPT_ANSWER:
-			if (cfg->answer_count >= ARRAY_SIZE(cfg->answers)) {
-				fyai_cfg_error(cfg, "too many answers, max %zu",
-					ARRAY_SIZE(cfg->answers));
-				goto err_out;
-			}
-			cfg->answers[cfg->answer_count++] =
-				fy_gb_intern_string(cfg->gb, optarg);
-			break;
-		case OPT_SET:
-			{
-				char *eq, *k;
-
-				eq = strchr(optarg, '=');
-				if (eq) {
-					k = strndup(optarg, eq - optarg);
-					if (!k)
-						goto err_out;
-					rc = config_queue_op(cfg, 's', k, eq + 1,
-							    true, true);
-					free(k);
-				} else {
-					if (optind >= argc) {
-						fyai_cfg_error(cfg, "--set %s: missing value",
-							optarg);
-						goto err_out;
-					}
-					rc = config_queue_op(cfg, 's', optarg,
-							    argv[optind++],
-							    true, true);
-				}
-				if (rc)
-					goto err_out;
-			}
-			break;
-		case OPT_GET:
-			if (config_queue_op(cfg, 'g', optarg, NULL, false, true))
-				goto err_out;
-			break;
-		case OPT_DELETE:
-			if (config_queue_op(cfg, 'd', optarg, NULL, true, true))
-				goto err_out;
-			break;
-		case OPT_ROOT:
-			if (fyai_cfg_set_root(cfg, optarg))
-				goto err_out;
-			break;
-		case OPT_TRANSIENT:
-			cfg->transient = true;
-			break;
-		default:
-			fyai_usage(stderr, "fyai", cfg->color);
-			ret = -1;
-			goto out;
-		}
+	rc = config_parse_cli_options(cfg, argc, argv, &cli);
+	if (rc > 0) {
+		ret = rc;
+		goto out;
 	}
-	arg_index = optind;
+	if (rc < 0)
+		goto err_out;
+	arg_index = cli.arg_index;
 
 	/*
 	 * $FYAI_BRANCH backs --branch and must be settled before the config is
@@ -2588,7 +2610,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	if (fyai_cfg_branch_from_env(cfg))
 		goto err_out;
 
-	rc = fyai_config_load(cfg, cli_config, cli_env);
+	rc = fyai_config_load(cfg, cli.config, cli.env);
 	if (rc)
 		goto err_out;
 
@@ -2601,8 +2623,8 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		goto err_out;
 	/* Command-line secrets have absolute precedence over configuration
 	 * intent, including a pending --set api_key operation. */
-	if (cli_api_key) {
-		cfg->api_key = cli_api_key;
+	if (cli.api_key) {
+		cfg->api_key = cli.api_key;
 		cfg->api_key_explicit = true;
 		cfg->api_key_auto = false;
 	}
