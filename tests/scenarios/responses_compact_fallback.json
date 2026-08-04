@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_seed",
+        "object": "response",
+        "model": "bar",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_seed",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "Seeded reply." }
+            ]
+          }
+        ],
+        "usage": { "input_tokens": 12, "output_tokens": 4, "total_tokens": 16 }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_summary",
+        "object": "response",
+        "model": "bar",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_summary",
+            "role": "assistant",
+            "content": [
+              { "type": "output_text", "text": "SUMMARY: portable Responses endpoint." }
+            ]
+          }
+        ],
+        "usage": { "input_tokens": 30, "output_tokens": 8, "total_tokens": 38 }
+      }
+    }
+  ]
+}

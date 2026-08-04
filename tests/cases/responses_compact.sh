@@ -18,6 +18,8 @@ providers:
   endpoints:
   - protocol: responses
     endpoint: /v1/responses
+    capabilities:
+      response_compaction_supported: true
   models:
   - canonical_id: foo
     provider_model_id: bar
