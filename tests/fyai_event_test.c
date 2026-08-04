@@ -56,6 +56,7 @@ FYAI_TEST_ENTRY(event, fd_write, event_fd_write)
 FYAI_TEST_ENTRY(event, child_exit, event_child_exit)
 FYAI_TEST_ENTRY(event, child_signalled, event_child_signalled)
 FYAI_TEST_ENTRY(event, child_already_exited, event_child_already_exited)
+FYAI_TEST_ENTRY(event, child_nested_run, event_child_nested_run)
 FYAI_TEST_ENTRY(event, child_terminate_polite, event_child_terminate_polite)
 FYAI_TEST_ENTRY(event, child_terminate_sigterm, event_child_terminate_sigterm)
 FYAI_TEST_ENTRY(event, child_terminate_sigkill, event_child_terminate_sigkill)
@@ -701,6 +702,56 @@ static void test_child_already_exited(void)
 	printf("ok - child already exited before registration\n");
 }
 
+struct child_nested {
+	struct fyai_event_loop *el;
+	struct counter inner;
+	int child_fired;
+	int inner_rc;
+};
+
+static enum fyai_event_action cb_child_nested(const struct fyai_event *ev)
+{
+	struct child_nested *n = ev->userdata;
+	int rc;
+
+	n->child_fired++;
+	rc = fyai_event_add_timer(n->el, 1, 0, cb_stop, &n->inner, NULL);
+	FYAI_TCHECK(!rc);
+	n->inner_rc = fyai_event_loop_run_until(n->el, NULL, TEST_BOUND_MS);
+	return FYAIEA_STOP;
+}
+
+static void test_child_nested_run(void)
+{
+	struct fyai_event_loop *el;
+	struct child_nested n;
+	pid_t pid;
+	int rc;
+
+	memset(&n, 0, sizeof(n));
+	pid = fork();
+	FYAI_TCHECK(pid >= 0);
+	if (!pid)
+		_exit(0);
+
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+	n.el = el;
+	rc = fyai_event_add_child(el, pid, cb_child_nested, &n, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+
+	FYAI_TCHECK(n.child_fired == 1);
+	FYAI_TCHECK(!n.inner_rc);
+	FYAI_TCHECK(n.inner.fired == 1);
+	/* The spent inner timer stays registered for explicit ownership cleanup. */
+	FYAI_TCHECK(fyai_event_loop_source_count(el) == 1);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - child callback can run a nested loop\n");
+}
+
 static void test_child_terminate_polite(void)
 {
 	struct fyai_event_loop *el;
@@ -1202,10 +1253,31 @@ static void test_interrupt_watchdog_escalates(void)
 }
 
 
+struct dump_active {
+	struct fyai_event_loop *el;
+	int fd;
+};
+
+static enum fyai_event_action cb_dump_active(const struct fyai_event *ev)
+{
+	struct dump_active *active = ev->userdata;
+
+	fyai_event_dump_to_fd(active->el, &test_ctx, active->fd);
+	return FYAIEA_STOP;
+}
+
+static void dcb_dump_active(void *userdata)
+{
+	struct dump_active *active = userdata;
+
+	fyai_event_dump_to_fd(active->el, &test_ctx, active->fd);
+}
+
 /* Verify that the state dump contains the event-loop state. */
 static void test_state_dump(void)
 {
 	struct fyai_event_loop *el;
+	struct dump_active active;
 	struct counter c;
 	char buf[4096];
 	ssize_t len;
@@ -1238,6 +1310,7 @@ static void test_state_dump(void)
 	FYAI_TCHECK(strstr(buf, "fyai event loop dump"));
 	FYAI_TCHECK(strstr(buf, "sources=3"));
 	FYAI_TCHECK(strstr(buf, "dispatch_depth=0"));
+	FYAI_TCHECK(strstr(buf, "callbacks=0"));
 	FYAI_TCHECK(strstr(buf, "interrupt_pending=0"));
 	/* One line per source, each naming its kind. */
 	FYAI_TCHECK(strstr(buf, " timer "));
@@ -1249,6 +1322,33 @@ static void test_state_dump(void)
 	FYAI_TCHECK(strstr(buf, "--- end ---"));
 	/* A pipe is not a raw terminal: no CRs, so a redirected dump diffs. */
 	FYAI_TCHECK(!strchr(buf, '\r'));
+
+	active.el = el;
+	active.fd = p[1];
+	rc = fyai_event_add_timer(el, 0, 0, cb_dump_active, &active, NULL);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+	FYAI_TCHECK(strstr(buf, "active event elapsed_ms="));
+
+	fyai_event_dump_to_fd(el, &test_ctx, p[1]);
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+	FYAI_TCHECK(strstr(buf, "callbacks=1"));
+	FYAI_TCHECK(strstr(buf, "longest event elapsed_ms="));
+
+	rc = fyai_event_defer(el, dcb_dump_active, &active);
+	FYAI_TCHECK(!rc);
+	rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+	FYAI_TCHECK(strstr(buf, "active defer elapsed_ms="));
 
 	fyai_event_loop_destroy(el);
 
@@ -2007,6 +2107,21 @@ int event_child_already_exited(void)
 	FYAI_TCHECK(!rc);
 
 	test_child_already_exited();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_child_nested_run(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_child_nested_run();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
