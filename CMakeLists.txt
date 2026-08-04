@@ -303,6 +303,17 @@ option(ENABLE_LIBSECRET "Store credentials in the Linux Secret Service" OFF)
 
 set(FYAI_PROGRAMS fyai)
 
+# Report the five most complex functions when pmccabe is available.
+find_program(FYAI_PMCCABE_EXECUTABLE pmccabe)
+if(FYAI_PMCCABE_EXECUTABLE)
+    add_custom_target(pmccabe
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/pmccabe-scan.sh"
+            "${FYAI_PMCCABE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        USES_TERMINAL
+        VERBATIM)
+endif()
+
 # Markdown styling and theming are fully delegated to libfymd4c's embedded theme
 # catalogue (selected by the display/theme config key); fyai ships no
 # styling YAML of its own.
