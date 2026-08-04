@@ -1228,6 +1228,47 @@ static void mcp_oauth_refresh_schedule(struct fyai_mcp_ctx *mcp)
 			"MCP %s could not schedule OAuth refresh", mcp->name);
 }
 
+static bool mcp_oauth_token_complete(struct mcp_oauth_discovery *od,
+					     fy_generic doc)
+{
+	struct fyai_mcp_ctx *mcp = od->mcp;
+	const char *access_token;
+	const char *refresh_token;
+
+	if (od->state != MCP_OD_TOKEN && od->state != MCP_OD_REFRESH)
+		return false;
+	access_token = fy_get(doc, "access_token", "");
+	refresh_token = fy_get(doc, "refresh_token", "");
+	if (!*access_token) {
+		mcp_oauth_discovery_fail(od,
+			"token response has no access_token");
+		return true;
+	}
+	free(mcp->oauth_access_token);
+	mcp->oauth_access_token = strdup(access_token);
+	if (*refresh_token) {
+		free(mcp->oauth_refresh_token);
+		mcp->oauth_refresh_token = strdup(refresh_token);
+	}
+	mcp->oauth_expires_at = time(NULL) +
+		(time_t)fy_get(doc, "expires_in", 3600LL);
+	mcp->oauth_force_refresh = false;
+	mcp->oauth_force_login = false;
+	if (!mcp->oauth_access_token || !mcp->oauth_refresh_token ||
+	    mcp_oauth_store_save(mcp)) {
+		mcp_oauth_discovery_fail(od,
+			"could not save OAuth tokens");
+		return true;
+	}
+	if (od->flow) {
+		fyai_oauth_flow_finish(od->flow, true);
+		fyai_oauth_flow_destroy(od->flow);
+		od->flow = NULL;
+	}
+	mcp_oauth_resume(od);
+	return true;
+}
+
 static void mcp_oauth_discovery_complete(
 		struct fyai_curl_transfer *transfer, void *userdata)
 {
@@ -1245,8 +1286,6 @@ static void mcp_oauth_discovery_complete(
 	const char *registration;
 	const char *client_id;
 	const char *client_secret;
-	const char *access_token;
-	const char *refresh_token;
 	const char *body;
 	const char *message;
 	CURLcode code;
@@ -1306,38 +1345,8 @@ static void mcp_oauth_discovery_complete(
 				"could not submit authorization metadata");
 		return;
 	}
-	if (od->state == MCP_OD_TOKEN || od->state == MCP_OD_REFRESH) {
-		access_token = fy_get(doc, "access_token", "");
-		refresh_token = fy_get(doc, "refresh_token", "");
-		if (!*access_token) {
-			mcp_oauth_discovery_fail(od,
-				"token response has no access_token");
-			return;
-		}
-		free(mcp->oauth_access_token);
-		mcp->oauth_access_token = strdup(access_token);
-		if (*refresh_token) {
-			free(mcp->oauth_refresh_token);
-			mcp->oauth_refresh_token = strdup(refresh_token);
-		}
-		mcp->oauth_expires_at = time(NULL) +
-			(time_t)fy_get(doc, "expires_in", 3600LL);
-		mcp->oauth_force_refresh = false;
-		mcp->oauth_force_login = false;
-		if (!mcp->oauth_access_token || !mcp->oauth_refresh_token ||
-		    mcp_oauth_store_save(mcp)) {
-			mcp_oauth_discovery_fail(od,
-				"could not save OAuth tokens");
-			return;
-		}
-		if (od->flow) {
-			fyai_oauth_flow_finish(od->flow, true);
-			fyai_oauth_flow_destroy(od->flow);
-			od->flow = NULL;
-		}
-		mcp_oauth_resume(od);
+	if (mcp_oauth_token_complete(od, doc))
 		return;
-	}
 	if (od->state == MCP_OD_REGISTER) {
 		client_id = fy_get(doc, "client_id", "");
 		client_secret = fy_get(doc, "client_secret", "");
