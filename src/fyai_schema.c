@@ -82,6 +82,27 @@ static char *schema_path_index(const char *parent, size_t idx)
 	return n < 0 ? NULL : out;
 }
 
+static fy_generic schema_resolve_pointer_token(fy_generic current,
+						       const char *token)
+{
+	const char *p;
+	size_t index;
+
+	if (fy_generic_is_mapping(current))
+		return fy_get(current, token);
+	if (!fy_generic_is_sequence(current) || !*token)
+		return fy_invalid;
+
+	index = 0;
+	for (p = token; *p; p++) {
+		if (*p < '0' || *p > '9' ||
+		    index > (SIZE_MAX - (*p - '0')) / 10)
+			return fy_invalid;
+		index = index * 10 + (*p - '0');
+	}
+	return fy_get_at(current, index);
+}
+
 /*
  * Check whether @instance matches a single JSON Schema type name.
  * Non-standard types (custom, web_search, image_generation, etc.) accept
@@ -301,7 +322,7 @@ static fy_generic schema_resolve_pointer(fy_generic root, const char *ref)
 	fy_generic current;
 	const char *p, *end;
 	char *token, *out;
-	size_t len, index;
+	size_t len;
 
 	if (!ref || ref[0] != '#')
 		return fy_invalid;
@@ -334,26 +355,7 @@ static fy_generic schema_resolve_pointer(fy_generic root, const char *ref)
 		}
 		*out = '\0';
 
-		if (fy_generic_is_mapping(current)) {
-			current = fy_get(current, token);
-		} else if (fy_generic_is_sequence(current)) {
-			index = 0;
-			if (!*token) {
-				free(token);
-				return fy_invalid;
-			}
-			for (out = token; *out; out++) {
-				if (*out < '0' || *out > '9' ||
-				    index > (SIZE_MAX - (*out - '0')) / 10) {
-					free(token);
-					return fy_invalid;
-				}
-				index = index * 10 + (*out - '0');
-			}
-			current = fy_get_at(current, index);
-		} else {
-			current = fy_invalid;
-		}
+		current = schema_resolve_pointer_token(current, token);
 		free(token);
 		if (fy_generic_is_invalid(current) || !end)
 			return current;
