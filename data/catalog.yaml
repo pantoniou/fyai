@@ -1431,6 +1431,7 @@ providers:
       server_side_conversation_state_supported: true
       previous_response_id_supported: true
       response_lifecycle_supported: true
+      response_compaction_supported: true
       system_prompt_supported: true
       developer_role_supported: true
       automatic_prompt_caching_supported: true

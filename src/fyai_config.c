@@ -2195,6 +2195,9 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
 	cfg->shell_tool_supported = fy_get(fy_get(cat_ep, "capabilities"),
 					   "shell_tool_supported", false);
+	cfg->response_compaction_supported =
+		fy_get(fy_get(cat_ep, "capabilities"),
+		       "response_compaction_supported", false);
 
 	/*
 	 * With no explicit api_key (from --api-key or a config `api_key` env

@@ -275,7 +275,8 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	}
 	assert(ctx->transient_gb);
 
-	if (cfg->api_mode == FYAI_API_RESPONSES)
+	if (cfg->api_mode == FYAI_API_RESPONSES &&
+	    cfg->response_compaction_supported)
 		return session_compact_responses(ctx, hint);
 
 	prev_head = ctx->last_message;

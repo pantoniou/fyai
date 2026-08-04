@@ -123,6 +123,8 @@ struct fyai_cfg {
 	 * selected API grammar. Do not persist this derived value.
 	 */
 	bool shell_tool_supported;
+	/* The endpoint implements the OpenAI-specific /responses/compact route. */
+	bool response_compaction_supported;
 	bool model_explicit;
 	/*
 	 * Set when the key was supplied explicitly (--api-key or a config
