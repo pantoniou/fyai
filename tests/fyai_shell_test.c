@@ -7,6 +7,8 @@
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,7 @@
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(shell, timeout_stops_command, shell_timeout_stops_command)
+FYAI_TEST_ENTRY(shell, timeout_stops_descendant, shell_timeout_stops_descendant)
 FYAI_TEST_ENTRY(shell, timeout_spares_quick, shell_timeout_spares_quick)
 FYAI_TEST_ENTRY(shell, workdir_changes_dir, shell_workdir_changes_directory)
 FYAI_TEST_ENTRY(shell, bad_workdir_reports_125, shell_bad_workdir_reports_125)
@@ -63,6 +66,42 @@ int shell_timeout_stops_command(void)
 	shell_command_result_cleanup(&result);
 	shell_teardown();
 	printf("ok - a shell time limit stops the command\n");
+	return 0;
+}
+
+int shell_timeout_stops_descendant(void)
+{
+	struct shell_command_opts opts = { .timeout_ms = 200 };
+	struct shell_command_result result = {};
+	char *end;
+	long child;
+	int alive;
+	int rc;
+	int i;
+
+	rc = shell_run("sh -c 'trap \"\" TERM; sleep 30' & echo $!; wait",
+		       &opts, &result);
+	FYAI_TCHECK(rc == 0);
+	FYAI_TCHECK(result.timed_out);
+	child = strtol(result.stdout_data, &end, 10);
+	FYAI_TCHECK(child > 0 && end != result.stdout_data);
+
+	alive = 1;
+	for (i = 0; i < 200; i++) {
+		rc = kill((pid_t)child, 0);
+		if (rc < 0 && errno == ESRCH) {
+			alive = 0;
+			break;
+		}
+		usleep(10000);
+	}
+	if (alive)
+		(void)kill((pid_t)child, SIGKILL);
+	FYAI_TCHECK(!alive);
+
+	shell_command_result_cleanup(&result);
+	shell_teardown();
+	printf("ok - a shell time limit stops a descendant\n");
 	return 0;
 }
 
