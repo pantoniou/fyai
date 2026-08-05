@@ -293,6 +293,8 @@ struct shell_capture_job {
 	bool done;
 };
 
+static void shell_capture_signal_group(struct shell_capture_job *job, int sig);
+
 static void shell_capture_drop(struct fyai_event_source **srcp)
 {
 	fyai_event_source_remove(*srcp);
@@ -345,6 +347,8 @@ static enum fyai_event_action shell_capture_child(const struct fyai_event *ev)
 	job->csrc = NULL;
 	job->reaped = true;
 	job->status = ev->status;
+	if (job->cancelling)
+		shell_capture_signal_group(job, SIGKILL);
 	shell_capture_update_done(job);
 	return FYAIEA_CONTINUE;
 }
@@ -371,7 +375,8 @@ static void shell_capture_signal_group(struct shell_capture_job *job, int sig)
 		if (errno != ESRCH)
 			return;
 	}
-	(void)kill(job->pid, sig);
+	if (!job->reaped)
+		(void)kill(job->pid, sig);
 }
 
 /* Use SIGKILL when descendants keep the capture descriptors open. */
@@ -449,13 +454,9 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		/* The application loop (including its signal mask/signalfd or
 		 * kqueue state) belongs to fyai, never to the executed command. */
 		fyai_ctx_loop_abandon(ctx);
-		/* Detach a top-level command from the terminal. */
-		devnull = open("/dev/tty", O_RDONLY | O_NOCTTY);
-		if (devnull >= 0) {
-			close(devnull);
-			if (setsid() < 0)
-				(void)setpgid(0, 0);
-		}
+		/* Give every capture one group for the shell and its descendants. */
+		if (setpgid(0, 0) < 0)
+			_exit(FYAI_SHELL_EXIT_EXEC);
 		close(stdout_pipe[0]);
 		close(stderr_pipe[0]);
 		dup2(stdout_pipe[1], STDOUT_FILENO);
@@ -485,7 +486,12 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		execl("/bin/sh", "sh", "-c", command, NULL);
 		_exit(FYAI_SHELL_EXIT_EXEC);
 	}
-	job.isolated_pgrp = isatty(STDIN_FILENO) || isatty(STDOUT_FILENO);
+	/* Close the fork-to-exec race from the parent side. */
+	do {
+		ret = setpgid(pid, pid);
+	} while (ret < 0 && errno == EINTR);
+	job.isolated_pgrp = !ret || errno == EACCES;
+	ret = -1;
 
 	close(stdout_pipe[1]);
 	close(stderr_pipe[1]);
