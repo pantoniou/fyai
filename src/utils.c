@@ -301,11 +301,10 @@ static void shell_capture_drop(struct fyai_event_source **srcp)
 	*srcp = NULL;
 }
 
-/* A cancelled command is complete when it is reaped. */
+/* Capture is complete after the direct child exits. */
 static void shell_capture_update_done(struct shell_capture_job *job)
 {
-	job->done = job->reaped &&
-		    (job->cancelling || (!job->out.open && !job->err.open));
+	job->done = job->reaped;
 }
 
 static enum fyai_event_action shell_capture_readable(const struct fyai_event *ev)
@@ -340,6 +339,27 @@ static enum fyai_event_action shell_capture_readable(const struct fyai_event *ev
 	return FYAIEA_CONTINUE;
 }
 
+/* Drain data that is available when the direct child exits. */
+static void shell_capture_drain(struct shell_capture *cap, int fd)
+{
+	int rc;
+
+	for (;;) {
+		rc = read_shell_pipe(fd, cap->buf, cap->stream,
+				     cap->output_fn, cap->userdata);
+		if (rc > 0)
+			continue;
+		if (rc < 0 && errno == EINTR)
+			continue;
+		if (rc < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+			return;
+		if (rc < 0)
+			cap->failed = true;
+		cap->open = false;
+		return;
+	}
+}
+
 static enum fyai_event_action shell_capture_child(const struct fyai_event *ev)
 {
 	struct shell_capture_job *job = ev->userdata;
@@ -347,8 +367,8 @@ static enum fyai_event_action shell_capture_child(const struct fyai_event *ev)
 	job->csrc = NULL;
 	job->reaped = true;
 	job->status = ev->status;
-	if (job->cancelling)
-		shell_capture_signal_group(job, SIGKILL);
+	/* Stop descendants that inherited capture descriptors. */
+	shell_capture_signal_group(job, SIGKILL);
 	shell_capture_update_done(job);
 	return FYAIEA_CONTINUE;
 }
@@ -407,6 +427,25 @@ static void shell_capture_cancel(pid_t pid, struct shell_capture_job *job)
 		(void)fyai_event_add_timer(el, SHELL_CAPTURE_KILL_MS, 0,
 					   shell_capture_kill, job,
 					   &job->killer);
+}
+
+/* Abort without the delayed kill timer. */
+static void shell_capture_abort(pid_t pid, struct shell_capture_job *job,
+				int *statusp)
+{
+	pid_t waited;
+
+	if (pid <= 0 || !job)
+		return;
+
+	shell_capture_signal_group(job, SIGKILL);
+	if (job->reaped)
+		return;
+
+	do {
+		waited = waitpid(pid, statusp, 0);
+	} while (waited < 0 && errno == EINTR);
+	job->reaped = true;
 }
 
 /* The time limit expired. Stop the command in the same way as an interrupt. */
@@ -492,14 +531,19 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	} while (ret < 0 && errno == EINTR);
 	job.isolated_pgrp = !ret || errno == EACCES;
 	ret = -1;
+	job.pid = pid;
 
 	close(stdout_pipe[1]);
 	close(stderr_pipe[1]);
 	stdout_pipe[1] = -1;
 	stderr_pipe[1] = -1;
 
-	fcntl(stdout_pipe[0], F_SETFL, O_NONBLOCK);
-	fcntl(stderr_pipe[0], F_SETFL, O_NONBLOCK);
+	ret = fcntl(stdout_pipe[0], F_SETFL, O_NONBLOCK);
+	fyai_error_check(ctx, ret >= 0, out_wait,
+			 "could not make shell stdout nonblocking");
+	ret = fcntl(stderr_pipe[0], F_SETFL, O_NONBLOCK);
+	fyai_error_check(ctx, ret >= 0, out_wait,
+			 "could not make shell stderr nonblocking");
 
 	/* Watch both pipes and the child together. */
 	job.out.buf = &stdout_buf;
@@ -511,7 +555,6 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	job.out.job = job.err.job = &job;
 	job.out.open = job.err.open = true;
 	job.ctx = ctx;
-	job.pid = pid;
 
 	el = fyai_ctx_loop(ctx);
 	if (!el)
@@ -541,9 +584,12 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 			fyai_event_interrupt_ack(ctx);
 			shell_capture_cancel(pid, &job);
 		}
-		if (fyai_event_loop_step(el, -1) < 0)
-			goto out_wait;
+		ret = fyai_event_loop_step(el, -1);
+		fyai_error_check(ctx, ret >= 0, out_wait,
+				 "shell capture event loop failed");
 	}
+	shell_capture_drain(&job.out, stdout_pipe[0]);
+	shell_capture_drain(&job.err, stderr_pipe[0]);
 
 	if (job.reaped)
 		pid = -1;
@@ -573,12 +619,8 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	goto out;
 
 out_wait:
-	shell_capture_cancel(pid, &job);
-	if (pid > 0) {
-		while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
-			;
-		pid = -1;
-	}
+	shell_capture_abort(pid, &job, &status);
+	pid = -1;
 out:
 	/* Withdraw sources before closing their pipes. */
 	shell_capture_drop(&job.out.src);
@@ -589,8 +631,7 @@ out:
 	shell_capture_drop(&job.deadline);
 
 	if (pid > 0)
-		while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
-			;
+		shell_capture_abort(pid, &job, NULL);
 	if (stdout_pipe[0] >= 0)
 		close(stdout_pipe[0]);
 	if (stdout_pipe[1] >= 0)
