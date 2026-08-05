@@ -1254,7 +1254,8 @@ static bool mcp_oauth_token_complete(struct mcp_oauth_discovery *od,
 		(time_t)fy_get(doc, "expires_in", 3600LL);
 	mcp->oauth_force_refresh = false;
 	mcp->oauth_force_login = false;
-	if (!mcp->oauth_access_token || !mcp->oauth_refresh_token ||
+	if (!mcp->oauth_access_token ||
+	    (*refresh_token && !mcp->oauth_refresh_token) ||
 	    mcp_oauth_store_save(mcp)) {
 		mcp_oauth_discovery_fail(od,
 			"could not save OAuth tokens");
