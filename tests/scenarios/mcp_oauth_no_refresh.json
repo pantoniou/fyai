@@ -1,0 +1,94 @@
+{
+  "steps": [
+    {
+      "match": {"http": "POST", "path": "/mcp", "method": "initialize"},
+      "status": 401,
+      "headers": {
+        "WWW-Authenticate": "Bearer resource_metadata=\"{{BASE_URL}}/oauth/resource\""
+      },
+      "response": {"error": "authorization required"}
+    },
+    {
+      "match": {"http": "GET", "path": "/oauth/resource"},
+      "response": {
+        "authorization_servers": ["{{BASE_URL}}/issuer"]
+      }
+    },
+    {
+      "match": {
+        "http": "GET",
+        "path": "/.well-known/oauth-authorization-server/issuer"
+      },
+      "response": {
+        "issuer": "{{BASE_URL}}/issuer",
+        "authorization_endpoint": "{{BASE_URL}}/oauth/authorize",
+        "token_endpoint": "{{BASE_URL}}/oauth/token",
+        "registration_endpoint": "{{BASE_URL}}/oauth/register"
+      }
+    },
+    {
+      "match": {"http": "POST", "path": "/oauth/register", "method": ""},
+      "response": {"client_id": "fyai-access-only-client"}
+    },
+    {
+      "match": {"http": "POST", "path": "/oauth/token", "method": ""},
+      "response": {
+        "access_token": "access-only-token",
+        "expires_in": 3600,
+        "token_type": "Bearer"
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "initialize",
+        "auth": "Bearer access-only-token"
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {"tools": {}}
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "notifications/initialized",
+        "auth": "Bearer access-only-token"
+      },
+      "status": 202,
+      "raw": ""
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/mcp",
+        "method": "tools/list",
+        "auth": "Bearer access-only-token"
+      },
+      "response": {"jsonrpc": "2.0", "id": 3, "result": {"tools": []}}
+    },
+    {
+      "match": {"http": "POST", "path": "/v1/chat/completions"},
+      "response": {
+        "choices": [{
+          "message": {
+            "role": "assistant",
+            "content": "OAuth connected without refresh."
+          },
+          "finish_reason": "stop"
+        }],
+        "usage": {
+          "prompt_tokens": 4,
+          "completion_tokens": 2,
+          "total_tokens": 6
+        }
+      }
+    }
+  ]
+}
