@@ -140,6 +140,35 @@ static const char *dump_kind_name(enum fyai_event_kind kind)
 	}
 }
 
+static const char *dump_track_name(enum fyai_event_track_type type)
+{
+	return type == FYAIET_DEFER ? "defer" : "event";
+}
+
+static void dump_track(struct dump_buf *d, const char *prefix,
+		       const struct fyai_event_track *track,
+		       fyai_event_ms_t elapsed_ms)
+{
+	dump_str(d, prefix);
+	dump_str(d, dump_track_name(track->type));
+	dump_kv(d, "elapsed_ms", (long long)elapsed_ms);
+	dump_str(d, " src=");
+	dump_ptr(d, track->src);
+	if (track->type == FYAIET_EVENT) {
+		dump_str(d, " kind=");
+		dump_str(d, dump_kind_name(track->kind));
+		dump_kv(d, "events", (long long)track->events);
+		dump_kv(d, "fd", track->fd);
+		if (track->kind == FYAIEK_CHILD)
+			dump_kv(d, "pid", (long long)track->pid);
+	}
+	dump_str(d, " cb=");
+	dump_hex(d, (unsigned long long)track->cb);
+	dump_str(d, " ud=");
+	dump_ptr(d, track->userdata);
+	dump_nl(d);
+}
+
 static void dump_flags(struct dump_buf *d, const struct fyai_event_source *src)
 {
 	dump_str(d, " [");
@@ -246,7 +275,15 @@ void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
 	dump_kv(&d, "dispatch_depth", (long long)el->dispatch_depth);
 	dump_kv(&d, "has_removed", el->has_removed);
 	dump_kv(&d, "backend_fd", el->backend_fd);
+	dump_kv(&d, "callbacks", (long long)el->callback_count);
 	dump_nl(&d);
+
+	for (i = 0; i < el->active_count && i < FYAI_EVENT_TRACK_MAX; i++)
+		dump_track(&d, "  active ", &el->active[i],
+			   now - el->active[i].started_ms);
+	if (el->callback_count)
+		dump_track(&d, "  longest ", &el->longest,
+			   el->longest.elapsed_ms);
 
 	n = el->depth;
 	if (n > FYAI_EVENT_MAX_DEPTH)

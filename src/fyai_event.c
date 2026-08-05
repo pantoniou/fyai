@@ -681,11 +681,57 @@ err_out:
 	return -1;
 }
 
+static struct fyai_event_track *
+fyai_event_track_start(struct fyai_event_loop *el,
+		       enum fyai_event_track_type type,
+		       const struct fyai_event_source *src,
+		       uintptr_t cb, void *userdata, unsigned int events)
+{
+	struct fyai_event_track *track;
+
+	if (el->active_count >= FYAI_EVENT_TRACK_MAX)
+		return NULL;
+
+	track = &el->active[el->active_count++];
+	memset(track, 0, sizeof(*track));
+	track->type = type;
+	track->src = src;
+	track->cb = cb;
+	track->userdata = userdata;
+	track->events = events;
+	track->fd = -1;
+	if (src) {
+		track->kind = src->kind;
+		track->fd = src->fd;
+		track->pid = src->pid;
+	}
+	track->started_ms = fyai_event_now_ms();
+	return track;
+}
+
+static void fyai_event_track_finish(struct fyai_event_loop *el,
+				    struct fyai_event_track *track)
+{
+	fyai_event_ms_t now;
+
+	if (!track)
+		return;
+
+	now = fyai_event_now_ms();
+	track->elapsed_ms = now - track->started_ms;
+	if (!el->callback_count ||
+	    track->elapsed_ms > el->longest.elapsed_ms)
+		el->longest = *track;
+	el->callback_count++;
+	el->active_count--;
+}
+
 static enum fyai_event_action
 fyai_event_defer_dispatch(const struct fyai_event *ev)
 {
 	struct fyai_event_loop *el = ev->loop;
 	struct fyai_defer *batch, *d, *next;
+	struct fyai_event_track *track;
 
 	fyai_event_wakepipe_drain(el->defer_pipe[0]);
 
@@ -696,7 +742,10 @@ fyai_event_defer_dispatch(const struct fyai_event *ev)
 
 	for (d = batch; d; d = next) {
 		next = d->next;
+		track = fyai_event_track_start(el, FYAIET_DEFER, NULL,
+					       (uintptr_t)d->cb, d->userdata, 0);
 		d->cb(d->userdata);
+		fyai_event_track_finish(el, track);
 		free(d);
 	}
 
@@ -1083,6 +1132,7 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 {
 	enum fyai_event_action action;
 	struct fyai_event_source *src;
+	struct fyai_event_track *track;
 	unsigned int arm_gen;
 	int i, ran;
 
@@ -1098,6 +1148,9 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 
 		evs[i].status = src->status;
 		arm_gen = src->arm_gen;
+		track = fyai_event_track_start(el, FYAIET_EVENT, src,
+					       (uintptr_t)src->cb,
+					       src->userdata, evs[i].events);
 		/* A child status is consumable only once. Withdraw the source before
 		 * its callback can enter a nested loop and collect it again. Keep the
 		 * allocation until the outermost dispatch returns. */
@@ -1108,6 +1161,7 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 		}
 		action = src->cb(&evs[i]);
 		ran++;
+		fyai_event_track_finish(el, track);
 
 		/* A one-shot source is spent once it has fired. */
 		if (!src->removed && src->oneshot) {

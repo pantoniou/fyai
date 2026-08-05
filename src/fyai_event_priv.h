@@ -73,6 +73,26 @@ struct fyai_event_source {
 	struct fyai_event_term term;
 };
 
+enum fyai_event_track_type {
+	FYAIET_EVENT,
+	FYAIET_DEFER,
+};
+
+struct fyai_event_track {
+	enum fyai_event_track_type type;
+	const struct fyai_event_source *src;
+	uintptr_t cb;
+	void *userdata;
+	enum fyai_event_kind kind;
+	unsigned int events;
+	int fd;
+	pid_t pid;
+	fyai_event_ms_t started_ms;
+	fyai_event_ms_t elapsed_ms;
+};
+
+#define FYAI_EVENT_TRACK_MAX 32
+
 struct fyai_event_loop {
 	struct fyai_event_loop *pool_next;
 	struct fyai_ctx *ctx;		/* diagnostics sink; never NULL */
@@ -84,6 +104,10 @@ struct fyai_event_loop {
 	bool abort[FYAI_EVENT_MAX_DEPTH];
 	unsigned int dispatch_depth;
 	bool has_removed;
+	struct fyai_event_track active[FYAI_EVENT_TRACK_MAX];
+	struct fyai_event_track longest;
+	unsigned int active_count;
+	uint64_t callback_count;
 	int backend_fd;			/* epoll fd or kqueue fd */
 	void *backend;			/* backend-private state, may be NULL */
 
