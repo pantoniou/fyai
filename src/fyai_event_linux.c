@@ -133,12 +133,14 @@ static int arm_timer(struct fyai_event_source *src)
 
 	/* Arm relative rather than absolute. */
 	rel = src->deadline_ms - fyai_event_now_ms();
-	if (rel < 1)
-		rel = 1;		/* 0 would disarm the timer */
-
 	memset(&its, 0, sizeof(its));
-	its.it_value.tv_sec = (time_t)(rel / 1000);
-	its.it_value.tv_nsec = (long)(rel % 1000) * 1000000;
+	if (rel < 1) {
+		/* An all-zero value disarms the timer. */
+		its.it_value.tv_nsec = 1;
+	} else {
+		its.it_value.tv_sec = (time_t)(rel / 1000);
+		its.it_value.tv_nsec = (long)(rel % 1000) * 1000000;
+	}
 	its.it_interval.tv_sec = (time_t)(src->interval_ms / 1000);
 	its.it_interval.tv_nsec = (long)(src->interval_ms % 1000) * 1000000;
 

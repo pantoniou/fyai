@@ -986,6 +986,7 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 	} else {
 		(void)ui_status_render(ui, "  ");
 	}
+	ui_rearm(ui);
 }
 
 /* Process Escape or SIGINT. */

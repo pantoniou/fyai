@@ -44,6 +44,7 @@ struct fyai_curl_state;
 
 static void fyai_curl_notify(void *userdata);
 static void fyai_curl_kick(void *userdata);
+static void fyai_curl_timeout(void *userdata);
 
 struct fyai_curl_transfer {
 	struct fyai_curl_transfer *next;
@@ -237,6 +238,14 @@ static void fyai_curl_kick(void *userdata)
 	fyai_curl_action(state, CURL_SOCKET_TIMEOUT, 0);
 }
 
+/* Run a zero curl timeout on the next event-loop iteration. */
+static void fyai_curl_timeout(void *userdata)
+{
+	struct fyai_curl_state *state = userdata;
+
+	fyai_curl_action(state, CURL_SOCKET_TIMEOUT, 0);
+}
+
 /* Fire the completion callback of every finished, not-yet-notified transfer. */
 static void fyai_curl_notify(void *userdata)
 {
@@ -331,15 +340,36 @@ err_out:
 static int fyai_curl_timer_cb(CURLM *multi, long timeout_ms, void *userp)
 {
 	struct fyai_curl_state *state = userp;
+	int rc;
 
 	(void)multi;
 
-	if (timeout_ms < 0)
-		return fyai_event_timer_disarm(state->timer);
+	/* A new timer request replaces a deferred immediate request. */
+	if (timeout_ms)
+		fyai_event_defer_cancel(state->el, fyai_curl_timeout, state);
+	if (timeout_ms < 0) {
+		rc = fyai_event_timer_disarm(state->timer);
+		fyai_error_check(state->ctx, !rc, err_out,
+				 "could not disarm the curl timer");
+		return 0;
+	}
+	if (!timeout_ms) {
+		rc = fyai_event_timer_disarm(state->timer);
+		fyai_error_check(state->ctx, !rc, err_out,
+				 "could not disarm the curl timer");
+		rc = fyai_event_defer(state->el, fyai_curl_timeout, state);
+		fyai_error_check(state->ctx, !rc, err_out,
+				 "could not defer the curl timeout");
+		return 0;
+	}
 
-	/* Zero means "immediately". */
-	return fyai_event_timer_rearm(state->timer,
-				      timeout_ms ? timeout_ms : 1, 0);
+	rc = fyai_event_timer_rearm(state->timer, timeout_ms, 0);
+	fyai_error_check(state->ctx, !rc, err_out,
+			 "could not arm the curl timer");
+	return 0;
+
+err_out:
+	return -1;
 }
 
 /* Build the per-invocation plumbing on first use. */
@@ -406,6 +436,7 @@ void fyai_curl_cleanup(struct fyai_ctx *ctx)
 	}
 	/* Drop deferred kick/notify still pointing at the state we are freeing. */
 	fyai_event_defer_cancel(state->el, fyai_curl_kick, state);
+	fyai_event_defer_cancel(state->el, fyai_curl_timeout, state);
 	fyai_event_defer_cancel(state->el, fyai_curl_notify, state);
 	/* Tear the multi down first: it releases the sockets it still holds for
 	 * pooled connections. */

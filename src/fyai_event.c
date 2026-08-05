@@ -1098,18 +1098,21 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 
 		evs[i].status = src->status;
 		arm_gen = src->arm_gen;
+		/* A child status is consumable only once. Withdraw the source before
+		 * its callback can enter a nested loop and collect it again. Keep the
+		 * allocation until the outermost dispatch returns. */
+		if (src->oneshot && src->kind == FYAIEK_CHILD) {
+			fyai_event_backend_disarm(src);
+			src->removed = true;
+			el->has_removed = true;
+		}
 		action = src->cb(&evs[i]);
 		ran++;
 
 		/* A one-shot source is spent once it has fired. */
 		if (!src->removed && src->oneshot) {
-			if (src->kind == FYAIEK_CHILD) {
-				/* Withdraw now; defer only the free. */
-				fyai_event_backend_disarm(src);
-				src->removed = true;
-				el->has_removed = true;
-			} else if (src->kind == FYAIEK_TIMER &&
-				   src->arm_gen == arm_gen) {
+			if (src->kind == FYAIEK_TIMER &&
+			    src->arm_gen == arm_gen) {
 				/* Preserve a callback's rearm. */
 				fyai_event_backend_disarm(src);
 			}
