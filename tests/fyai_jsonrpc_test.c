@@ -36,6 +36,7 @@ FYAI_TEST_ENTRY(jsonrpc, serve_error, jsonrpc_serve_error)
 FYAI_TEST_ENTRY(jsonrpc, unserved_request_is_answered, jsonrpc_unserved_request_is_answered)
 FYAI_TEST_ENTRY(jsonrpc, notification_during_request, jsonrpc_notification_during_request)
 FYAI_TEST_ENTRY(jsonrpc, skips_non_frames, jsonrpc_skips_non_frames)
+FYAI_TEST_ENTRY(jsonrpc, read_yields, jsonrpc_read_yields)
 
 #define TEST_BOUND_MS 5000
 
@@ -422,6 +423,39 @@ static void test_skips_non_frames(void)
 	printf("ok - a stray line is skipped, not fatal to the stream\n");
 }
 
+static void test_read_yields(void)
+{
+	struct served sv = {};
+	struct peer p;
+	char *line;
+	size_t payload_len = 5000;
+	int rc;
+
+	peer_open(&p);
+	FYAI_TCHECK(!jsonrpc_conn_serve(p.conn, on_serve, &sv));
+	line = malloc(payload_len + 128);
+	FYAI_TCHECK(line);
+	rc = snprintf(line, payload_len + 128,
+		      "{\"jsonrpc\":\"2.0\",\"method\":\"note\","
+		      "\"params\":{\"text\":\"");
+	FYAI_TCHECK(rc > 0);
+	memset(line + rc, 'x', payload_len);
+	strcpy(line + rc + payload_len, "\"}}\n");
+	FYAI_TCHECK(write(p.to_client, line, strlen(line)) ==
+		    (ssize_t)strlen(line));
+
+	rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+	FYAI_TCHECK(sv.notifications == 0);
+	rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+	FYAI_TCHECK(rc >= 0);
+	FYAI_TCHECK(sv.notifications == 1);
+
+	free(line);
+	peer_close(&p);
+	printf("ok - JSON-RPC reads yield between chunks\n");
+}
+
 /* Run one test with an isolated diagnostic context. */
 static int jsonrpc_run(void (*testfn)(void))
 {
@@ -492,4 +526,9 @@ int jsonrpc_notification_during_request(void)
 int jsonrpc_skips_non_frames(void)
 {
 	return jsonrpc_run(test_skips_non_frames);
+}
+
+int jsonrpc_read_yields(void)
+{
+	return jsonrpc_run(test_read_yields);
 }
