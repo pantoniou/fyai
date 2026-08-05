@@ -351,37 +351,32 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 	ssize_t n;
 	int rc;
 
-	for (;;) {
+	do {
 		n = read(ev->fd, chunk, sizeof(chunk));
-		if (n > 0) {
-			rc = response_buffer_reserve(&conn->rx,
-						     conn->rx.len +
-						     (size_t)n + 1);
-			if (rc) {
-				fyai_error(conn->ctx, "%s frame is too large",
-					   conn->name);
-				jsonrpc_conn_fail_pending(conn, "overflowed");
-				return FYAIEA_CONTINUE;
-			}
-			memcpy(conn->rx.data + conn->rx.len, chunk, (size_t)n);
-			conn->rx.len += (size_t)n;
-			conn->rx.data[conn->rx.len] = '\0';
-			while ((newline = memchr(conn->rx.data, '\n',
-						 conn->rx.len))) {
-				*newline = '\0';
-				consumed = (size_t)(newline - conn->rx.data) + 1;
-				jsonrpc_conn_line(conn, conn->rx.data);
-				remaining = conn->rx.len - consumed;
-				memmove(conn->rx.data,
-					conn->rx.data + consumed, remaining);
-				conn->rx.len = remaining;
-				conn->rx.data[remaining] = '\0';
-			}
-			continue;
+	} while (n < 0 && errno == EINTR);
+	if (n > 0) {
+		rc = response_buffer_reserve(&conn->rx,
+					     conn->rx.len + (size_t)n + 1);
+		if (rc) {
+			fyai_error(conn->ctx, "%s frame is too large", conn->name);
+			jsonrpc_conn_fail_pending(conn, "overflowed");
+			return FYAIEA_CONTINUE;
 		}
-		if (n < 0 && errno == EINTR)
-			continue;
-		break;
+		memcpy(conn->rx.data + conn->rx.len, chunk, (size_t)n);
+		conn->rx.len += (size_t)n;
+		conn->rx.data[conn->rx.len] = '\0';
+		while ((newline = memchr(conn->rx.data, '\n', conn->rx.len))) {
+			*newline = '\0';
+			consumed = (size_t)(newline - conn->rx.data) + 1;
+			jsonrpc_conn_line(conn, conn->rx.data);
+			remaining = conn->rx.len - consumed;
+			memmove(conn->rx.data, conn->rx.data + consumed,
+				remaining);
+			conn->rx.len = remaining;
+			conn->rx.data[remaining] = '\0';
+		}
+		/* Leave further bytes readable so other ready sources get a turn. */
+		return FYAIEA_CONTINUE;
 	}
 	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
 		return FYAIEA_CONTINUE;

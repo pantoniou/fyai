@@ -621,6 +621,42 @@ static void fyai_model_step_buffered_complete(
 static void fyai_model_step_request_complete(struct fyai_model_step *step,
 					     fy_generic response_doc);
 
+static fy_generic fyai_model_step_add_reasoning(struct fy_generic_builder *gb,
+						struct fyai_cfg *cfg,
+						fy_generic request)
+{
+	fy_generic reasoning;
+
+	if ((!cfg->reasoning_effort || !*cfg->reasoning_effort) &&
+	    (!cfg->reasoning_summary || !*cfg->reasoning_summary))
+		return request;
+
+	switch (cfg->api_mode) {
+	case FYAI_API_RESPONSES:
+		reasoning = fy_map_empty;
+		if (cfg->reasoning_effort && *cfg->reasoning_effort)
+			reasoning = fy_assoc(gb, reasoning, "effort",
+					     cfg->reasoning_effort);
+		if (cfg->reasoning_summary && *cfg->reasoning_summary)
+			reasoning = fy_assoc(gb, reasoning, "summary",
+					     cfg->reasoning_summary);
+		return fy_assoc(gb, request, "reasoning", reasoning);
+
+	case FYAI_API_CHAT_COMPLETIONS:
+		if (cfg->reasoning_effort && *cfg->reasoning_effort)
+			request = fy_assoc(gb, request, "reasoning_effort",
+					   cfg->reasoning_effort);
+		return request;
+
+	case FYAI_API_MESSAGES:
+		return request;
+
+	default:
+		assert(0);
+		__builtin_unreachable();
+	}
+}
+
 static int fyai_model_step_start(struct fyai_model_step *step)
 {
 	struct fyai_ctx *ctx;
@@ -634,7 +670,6 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	fy_generic cat_model;
 	fy_generic stream_options;
 	fy_generic tool_choice;
-	fy_generic reasoning;
 	fy_generic request;
 	fy_generic messages;
 	fy_generic m;
@@ -745,34 +780,8 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		}
 	}
 
-	if ((cfg->reasoning_effort && *cfg->reasoning_effort) ||
-	    (cfg->reasoning_summary && *cfg->reasoning_summary)) {
-
-		switch (cfg->api_mode) {
-		case FYAI_API_RESPONSES:
-			reasoning = fy_map_empty;
-			if (cfg->reasoning_effort && *cfg->reasoning_effort)
-				reasoning = fy_assoc(reasoning, "effort", cfg->reasoning_effort);
-			if (cfg->reasoning_summary && *cfg->reasoning_summary)
-				reasoning = fy_assoc(reasoning, "summary", cfg->reasoning_summary);
-			request = fy_assoc(request, "reasoning", reasoning);
-			break;
-
-		case FYAI_API_CHAT_COMPLETIONS:
-			if (cfg->reasoning_effort && *cfg->reasoning_effort)
-				request = fy_assoc(request,
-					"reasoning_effort", cfg->reasoning_effort);
-			break;
-
-		case FYAI_API_MESSAGES:
-			break;
-
-		default:
-			assert(0);
-			__builtin_unreachable();
-			break;
-		}
-	}
+	request = fyai_model_step_add_reasoning(ctx->transient_gb, cfg,
+						request);
 
 	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled) {
 		/* Messages spells tool_choice as an object, not a string. */

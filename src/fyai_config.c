@@ -1132,11 +1132,12 @@ static fy_generic config_problem_add(struct fy_generic_builder *gb,
 	va_list ap;
 	char *msg = NULL;
 	fy_generic out;
+	int rc;
 
 	va_start(ap, fmt);
-	(void)vasprintf(&msg, fmt, ap);
+	rc = vasprintf(&msg, fmt, ap);
 	va_end(ap);
-	if (!msg)
+	if (rc < 0 || !msg)
 		return problems;
 	out = fy_append(gb, problems, msg);
 	free(msg);

@@ -68,22 +68,37 @@ static fy_generic fyai_agent_personas(struct fyai_ctx *ctx)
 }
 
 /* The names of the configured personas, as "a, b, c", for a diagnostic. */
-static const char *fyai_agent_persona_names(struct fyai_ctx *ctx)
+static char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 {
 	fy_generic personas, key;
-	const char *out = "";
-	size_t i, n;
+	const char *name;
+	char *next, *out;
+	size_t i, n, len, name_len;
 
 	personas = fyai_agent_personas(ctx);
 	if (!fy_generic_is_mapping(personas))
-		return "none configured";
+		return strdup("none configured");
+	out = NULL;
+	len = 0;
 	n = fy_generic_mapping_get_pair_count(personas);
 	for (i = 0; i < n; i++) {
 		key = fy_generic_mapping_get_at_key(personas, i);
-		out = fy_sprintfa("%s%s%s", out, *out ? ", " : "",
-				  fy_castp(&key, "?"));
+		name = fy_castp(&key, "?");
+		name_len = strlen(name);
+		next = realloc(out, len + (len ? 2 : 0) + name_len + 1);
+		if (!next) {
+			free(out);
+			return NULL;
+		}
+		out = next;
+		if (len) {
+			memcpy(out + len, ", ", 2);
+			len += 2;
+		}
+		memcpy(out + len, name, name_len + 1);
+		len += name_len;
 	}
-	return *out ? out : "none configured";
+	return out ? out : strdup("none configured");
 }
 
 /* Apply a persona as a configuration overlay. Forks keep the parent model. */
@@ -139,6 +154,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	const char *json;
 	char *args_json = NULL;
 	const char *task;
+	char *persona_names;
 	bool fork_mode;
 	int rc;
 
@@ -192,12 +208,16 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	persona = fy_generic_is_string(persona_v) && *fy_castp(&persona_v, "") ?
 		fy_get(fyai_agent_personas(ctx), persona_v, fy_invalid) :
 		fy_invalid;
-	fyai_error_check(ctx,
-		!fy_generic_is_string(persona_v) ||
-		!*fy_castp(&persona_v, "") ||
-		fy_generic_is_mapping(persona),
-		err, "no persona '%s'; configured: %s",
-		fy_castp(&persona_v, ""), fyai_agent_persona_names(ctx));
+	if (fy_generic_is_string(persona_v) &&
+	    *fy_castp(&persona_v, "") &&
+	    !fy_generic_is_mapping(persona)) {
+		persona_names = fyai_agent_persona_names(ctx);
+		fyai_error(ctx, "no persona '%s'; configured: %s",
+			   fy_castp(&persona_v, ""),
+			   persona_names ? persona_names : "unknown");
+		free(persona_names);
+		goto err;
+	}
 
 	/* The call overrides the persona's conversation mode. */
 	context_v = fy_get(args, "context", fy_invalid);

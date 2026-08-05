@@ -24,7 +24,7 @@
 #include "fyai_secret.h"
 #include "utils.h"
 
-static const char *mcp_import_redirect(fy_generic client)
+static fy_generic mcp_import_redirect(fy_generic client)
 {
 	fy_generic redirects;
 	fy_generic item;
@@ -35,14 +35,14 @@ static const char *mcp_import_redirect(fy_generic client)
 
 	redirects = fy_get(client, "redirect_uris", fy_invalid);
 	if (!fy_generic_is_sequence(redirects))
-		return NULL;
+		return fy_invalid;
 	fy_foreach(item, redirects) {
 		value = fy_castp(&item, "");
 		url = curl_url();
 		scheme = NULL;
 		host = NULL;
 		if (!url)
-			return NULL;
+			return fy_invalid;
 		if (curl_url_set(url, CURLUPART_URL, value, 0) ||
 		    curl_url_get(url, CURLUPART_SCHEME, &scheme, 0) ||
 		    curl_url_get(url, CURLUPART_HOST, &host, 0))
@@ -53,14 +53,14 @@ static const char *mcp_import_redirect(fy_generic client)
 			curl_free(scheme);
 			curl_free(host);
 			curl_url_cleanup(url);
-			return value;
+			return item;
 		}
 next:
 		curl_free(scheme);
 		curl_free(host);
 		curl_url_cleanup(url);
 	}
-	return NULL;
+	return fy_invalid;
 }
 
 static int mcp_import_store_secret(struct fyai_ctx *ctx, const char *name,
@@ -120,6 +120,7 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	fy_generic auth;
 	fy_generic server;
 	fy_generic existing;
+	fy_generic redirect_v;
 	const char *client_id;
 	const char *client_secret;
 	const char *redirect;
@@ -163,7 +164,8 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 			 "MCP OAuth client file has no installed or web client");
 	client_id = fy_get(client, "client_id", "");
 	client_secret = fy_get(client, "client_secret", "");
-	redirect = mcp_import_redirect(client);
+	redirect_v = mcp_import_redirect(client);
+	redirect = fy_castp(&redirect_v, "");
 	fyai_error_check(ctx, *client_id && *client_secret && redirect, err_out,
 			 "MCP OAuth client file is incomplete or has no "
 			 "loopback redirect");

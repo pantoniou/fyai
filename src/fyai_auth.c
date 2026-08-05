@@ -656,7 +656,7 @@ static int auth_save_file(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
 	fy_generic doc;
 	const char *json;
-	const char *tmp;
+	const char *tmp = NULL;
 	const char *path, *dir;
 	int fd = -1, rc = -1;
 	int dfd = -1;
@@ -1484,7 +1484,7 @@ static void fyai_auth_login_http_complete(
 	struct fyai_auth_login_request *request;
 	CURLcode code;
 	long status;
-	int rc;
+	int rc = -1;
 
 	request = userdata;
 	status = 0;
