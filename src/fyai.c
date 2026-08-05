@@ -858,6 +858,8 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		if (fy_len(stream_options))
 			request = fy_assoc(request, "stream_options", stream_options);
 	}
+	fyai_error_check(ctx, fy_generic_is_valid(request), out,
+			 "could not finish the model request");
 
 	if (cfg->debug)
 		emit_generic_to_stdout("request", request, cfg->pretty);
@@ -872,6 +874,8 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	}
 
 	request_body = emit_request_body(ctx->transient_gb, request);
+	fyai_error_check(ctx, request_body, out,
+			 "could not serialize the model request");
 
 	/* Build + serialize done: this is "time to emit the request". */
 	fyai_prof_since("request_emit", &t_emit);
