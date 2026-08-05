@@ -859,7 +859,7 @@ err_out:
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,
-			   char **branchp, uint64_t *rootp)
+			   char **branchp, fy_generic_value *rootp)
 {
 	struct fy_durable_allocator_cfg dur_cfg = {};
 	struct fy_allocator *allocator;

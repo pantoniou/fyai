@@ -76,7 +76,7 @@ bool fyai_config_has_raw_secret(fy_generic doc);
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,
-			   char **branchp, uint64_t *rootp);
+			   char **branchp, fy_generic_value *rootp);
 int fyai_gc_storage(struct fyai_ctx *ctx);
 
 #endif
