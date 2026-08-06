@@ -10,11 +10,11 @@ set -eu
 fyai_test_setup
 mock_start agent_persona.json
 
-export OPENAI_API_KEY=test-env-key
+export OPENROUTER_API_KEY=test-env-key
 set +e
 "$FYAI_BIN" --color off \
 	 --set tools=true --set display/stream=false --set api=responses \
-	 --set api_url="$MOCK_URL/v1/responses" -m mock-model \
+	 --set api_url="$MOCK_URL/v1/responses" -m openrouter/mock-model \
 	 --set 'agent/personas/explore/description=Read-only search.' \
 	 --set 'agent/personas/explore/system_prompt=You are SCOUT. Report what you find.' \
 	 --set 'agent/personas/explore/model=mock-model-mini' \
@@ -36,6 +36,7 @@ assert_request 1 '"You are SCOUT" in json.dumps(r["body"])'
 assert_request 1 'r["body"]["model"] == "mock-model-mini"'
 assert_request 1 'r["auth"] == "Bearer test-env-key"'
 assert_request 2 'r["body"]["model"] == "mock-model"'
+assert_request 2 'r["auth"] == "Bearer test-env-key"'
 
 mock_stop 3
 pass
