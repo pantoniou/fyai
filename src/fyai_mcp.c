@@ -1316,6 +1316,50 @@ static bool mcp_oauth_registration_complete(struct mcp_oauth_discovery *od,
 	return true;
 }
 
+/* Save resource metadata and continue with authorization-server metadata. */
+static void mcp_oauth_resource_complete(struct mcp_oauth_discovery *od,
+					fy_generic doc)
+{
+	struct fyai_mcp_ctx *mcp;
+	fy_generic issuers;
+	fy_generic issuer_value;
+	const char *issuer;
+	const char *resource;
+	int rc;
+
+	mcp = od->mcp;
+	issuers = fy_get(doc, "authorization_servers", fy_invalid);
+	if (!fy_generic_is_sequence(issuers) || !fy_len(issuers)) {
+		mcp_oauth_discovery_fail(od,
+			"resource metadata has no authorization server");
+		return;
+	}
+	issuer_value = fy_get_at(issuers, 0);
+	issuer = fy_castp(&issuer_value, "");
+	resource = fy_get(doc, "resource", mcp->endpoint);
+	if (!*resource) {
+		mcp_oauth_discovery_fail(od,
+			"resource metadata has no resource identifier");
+		return;
+	}
+	free(mcp->oauth_issuer);
+	free(mcp->oauth_resource);
+	mcp->oauth_issuer = strdup(issuer);
+	mcp->oauth_resource = strdup(resource);
+	mcp_oauth_discovery_drop_http(od);
+	od->url = mcp_oauth_metadata_url(issuer);
+	if (!mcp->oauth_issuer || !mcp->oauth_resource || !od->url) {
+		mcp_oauth_discovery_fail(od,
+			"could not retain authorization server");
+		return;
+	}
+	od->state = MCP_OD_AUTHORIZATION_SERVER;
+	rc = mcp_oauth_discovery_submit(od);
+	if (rc)
+		mcp_oauth_discovery_fail(od,
+			"could not submit authorization metadata");
+}
+
 static void mcp_oauth_discovery_complete(
 		struct fyai_curl_transfer *transfer, void *userdata)
 {
@@ -1324,10 +1368,6 @@ static void mcp_oauth_discovery_complete(
 	struct mcp_startup *su;
 	struct fy_generic_builder *gb;
 	fy_generic doc;
-	fy_generic issuers;
-	fy_generic issuer_value;
-	const char *issuer;
-	const char *resource;
 	const char *authorize;
 	const char *token;
 	const char *registration;
@@ -1358,36 +1398,7 @@ static void mcp_oauth_discovery_complete(
 		return;
 	}
 	if (od->state == MCP_OD_RESOURCE) {
-		issuers = fy_get(doc, "authorization_servers", fy_invalid);
-		if (!fy_generic_is_sequence(issuers) || !fy_len(issuers)) {
-			mcp_oauth_discovery_fail(od,
-				"resource metadata has no authorization server");
-			return;
-		}
-		issuer_value = fy_get_at(issuers, 0);
-		issuer = fy_castp(&issuer_value, "");
-		resource = fy_get(doc, "resource", mcp->endpoint);
-		if (!*resource) {
-			mcp_oauth_discovery_fail(od,
-				"resource metadata has no resource identifier");
-			return;
-		}
-		free(mcp->oauth_issuer);
-		free(mcp->oauth_resource);
-		mcp->oauth_issuer = strdup(issuer);
-		mcp->oauth_resource = strdup(resource);
-		mcp_oauth_discovery_drop_http(od);
-		od->url = mcp_oauth_metadata_url(issuer);
-		if (!mcp->oauth_issuer || !mcp->oauth_resource || !od->url) {
-			mcp_oauth_discovery_fail(od,
-				"could not retain authorization server");
-			return;
-		}
-		od->state = MCP_OD_AUTHORIZATION_SERVER;
-		rc = mcp_oauth_discovery_submit(od);
-		if (rc)
-			mcp_oauth_discovery_fail(od,
-				"could not submit authorization metadata");
+		mcp_oauth_resource_complete(od, doc);
 		return;
 	}
 	if (mcp_oauth_token_complete(od, doc))
