@@ -2051,51 +2051,21 @@ static const char *provider_env_key(struct fy_generic_builder *gb,
 	return fy_gb_intern_string(gb, buf);
 }
 
-/*
- * Resolve the single `model` key against the effective catalogue: strip an
- * optional provider/ pin, derive endpoint URL, API grammar and wire model id
- * from the provider's offering, validate reasoning capability, default
- * max_tokens from the model's max_output_tokens, and fall back to the
- * provider's conventional <PROVIDER>_API_KEY env var when no explicit key is
- * set. Also used to re-resolve after a mid-session /model switch (with
- * api_url/provider/api_key cleared by the caller). Returns 0 on success.
- */
-int fyai_config_resolve_model(struct fyai_cfg *cfg)
+/* Resolve the model offering, provider, wire id, and derived endpoint. */
+static int config_resolve_catalog_model(struct fyai_cfg *cfg,
+					fy_generic catalog,
+					fy_generic *cat_provp)
 {
-	fy_generic catalog, cat_prov, cat_offer, cat_ep, cat_model, pinned_prov;
+	fy_generic cat_prov, cat_offer, cat_ep, pinned_prov;
 	fy_generic preferred_offer;
 	const char *pmid, *slash;
-	const char *env, *val;
-	const char *secret_name;
-	char *secret = NULL;
-	size_t secret_len = 0;
 	char *pfx;
-	long long max_out;
 	int i;
 
-	/*
-	 * Fall back to built-in defaults for the model and the endpoint when no
-	 * config layer or CLI flag supplied them, so fyai works from any
-	 * directory (not only one whose config sets them). The URL tracks the
-	 * selected API grammar.
-	 */
-	if (!cfg->model || !*cfg->model)
-		cfg->model = cfg->api_mode == FYAI_API_MESSAGES ?
-			DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL;
-
-	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
-
-	/*
-	 * A model may carry an optional "provider/" prefix that pins routing
-	 * (e.g. openrouter/glm-5.2). Strip it only when the leading segment
-	 * names a catalogue provider, so a provider_model_id that itself
-	 * contains a slash (z-ai/glm-5.2) is left intact.
-	 */
 	pinned_prov = fy_invalid;
 	slash = cfg->model ? strchr(cfg->model, '/') : NULL;
 	if (slash) {
 		pfx = strndup(cfg->model, slash - cfg->model);
-
 		if (!pfx)
 			return -1;
 		pinned_prov = fyai_catalog_provider(catalog, pfx);
@@ -2104,17 +2074,6 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		free(pfx);
 	}
 
-	/*
-	 * Look the model up in the effective catalogue (pinned to the
-	 * prefixed provider when given, else the canonical provider) so the
-	 * provider name - and, unless an endpoint was already supplied, the
-	 * URL, API grammar and wire model id - come from its offering.
-	 * Provider resolution runs regardless of whether api_url is already
-	 * set (e.g. a persisted override): the two are independent, and
-	 * skipping it left cfg->provider on the "unknown model" default
-	 * below whenever an api_url happened to be preset. Unknown models
-	 * fall through to the static defaults below.
-	 */
 	if (fy_generic_is_valid(pinned_prov)) {
 		cat_prov = pinned_prov;
 		fyai_catalog_offering(cat_prov, cfg->model, &cat_offer);
@@ -2130,11 +2089,11 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		}
 		if (fy_generic_is_invalid(cat_prov))
 			cat_prov = fyai_catalog_provider_for_model(catalog,
-						cfg->model, &cat_offer);
+							cfg->model, &cat_offer);
 	}
 	if (fy_generic_is_valid(cat_prov))
 		cfg->provider = fy_gb_intern_string(cfg->gb,
-					fy_get(cat_prov, "name", ""));
+						fy_get(cat_prov, "name", ""));
 	pmid = fy_get(cat_offer, "provider_model_id", "");
 	if (*pmid)
 		cfg->model = fy_gb_intern_string(cfg->gb, pmid);
@@ -2158,6 +2117,30 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 						fy_get(cat_prov, "root_url", ""),
 						fy_get(cat_ep, "endpoint", "")));
 	}
+	*cat_provp = cat_prov;
+	return 0;
+}
+
+/* Resolve model settings from the catalogue and provider defaults. */
+int fyai_config_resolve_model(struct fyai_cfg *cfg)
+{
+	fy_generic catalog, cat_prov, cat_ep, cat_model;
+	const char *env, *val;
+	const char *secret_name;
+	char *secret = NULL;
+	size_t secret_len = 0;
+	long long max_out;
+
+	/* Use a grammar-specific model when none is configured. */
+	if (!cfg->model || !*cfg->model)
+		cfg->model = cfg->api_mode == FYAI_API_MESSAGES ?
+			DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL;
+
+	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
+
+	/* Resolve catalogue data even when the endpoint is overridden. */
+	if (config_resolve_catalog_model(cfg, catalog, &cat_prov))
+		return -1;
 
 	/*
 	 * Capability validation against the catalogue (skipped entirely for
