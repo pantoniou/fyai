@@ -657,13 +657,78 @@ static fy_generic fyai_model_step_add_reasoning(struct fy_generic_builder *gb,
 	}
 }
 
+/* Serialize and submit the fully-built request. */
+static int fyai_model_step_submit_request(struct fyai_model_step *step,
+						  fy_generic request,
+						  bool response_linked,
+						  bool want_extents_lp,
+						  const struct timespec *t_emit)
+{
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
+	const char *request_body;
+	struct fyai_stream_callbacks callbacks;
+	int rc;
+
+	ctx = step->ctx;
+	cfg = ctx->cfg;
+	request_body = emit_request_body(ctx->transient_gb, request);
+	fyai_error_check(ctx, request_body, out,
+			 "could not serialize the model request");
+
+	/* Build + serialize done: this is "time to emit the request". */
+	fyai_prof_since("request_emit", t_emit);
+
+	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, request_body);
+
+	step->spinner.enabled = !fyai_ui_active(ctx) &&
+				terminal_is_tty(STDERR_FILENO);
+	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFOFUNCTION,
+			 fyai_spinner_xferinfo);
+	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFODATA, &step->spinner);
+	/* Always on: the callback also polls the ^C abort flag. */
+	curl_easy_setopt(ctx->curl, CURLOPT_NOPROGRESS, 0L);
+
+	/* Everything before the wire transfer, relative to process start. */
+	fyai_prof_once_from_base("start_to_first_send");
+	fyai_prof_stamp(&step->send_started);
+
+	ctx->auth_retry_done = false;
+	ctx->response_chain_linked = response_linked;
+	ctx->response_chain_miss = false;
+	step->response_linked = response_linked;
+	step->want_extents_lp = want_extents_lp;
+	rc = fyai_model_step_transition(step, FYAIMSS_REQUEST_PENDING);
+	fyai_error_check(ctx, !rc, out,
+			 "could not advance model step");
+	if (cfg->stream) {
+		memset(&callbacks, 0, sizeof(callbacks));
+		callbacks.complete = fyai_model_step_stream_complete;
+		callbacks.tool = step->tool_group ?
+					fyai_stream_tool_ready : NULL;
+		callbacks.userdata = step;
+		step->stream_request =
+			fyai_stream_request_submit(ctx, &callbacks);
+		fyai_error_check(ctx, step->stream_request, out,
+				 "could not submit streaming model request");
+	} else {
+		step->buffered_request = fyai_buffered_request_submit(ctx,
+				fyai_model_step_buffered_complete, step);
+		fyai_error_check(ctx, step->buffered_request, out,
+				 "could not submit buffered model request");
+	}
+	return 0;
+
+out:
+	return -1;
+}
+
 static int fyai_model_step_start(struct fyai_model_step *step)
 {
 	struct fyai_ctx *ctx;
 	struct fyai_cfg *cfg;
 	fy_generic turn;
 	fy_generic previous;
-	const char *request_body;
 	const char *instructions;
 	fy_generic previous_response_id;
 	fy_generic catalog;
@@ -677,8 +742,6 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	struct timespec t_emit;
 	bool want_extents_lp;
 	bool response_linked;
-	struct fyai_stream_callbacks callbacks;
-	int rc;
 
 	ctx = step->ctx;
 	cfg = ctx->cfg;
@@ -873,52 +936,9 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 				"body", request));
 	}
 
-	request_body = emit_request_body(ctx->transient_gb, request);
-	fyai_error_check(ctx, request_body, out,
-			 "could not serialize the model request");
-
-	/* Build + serialize done: this is "time to emit the request". */
-	fyai_prof_since("request_emit", &t_emit);
-
-	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, request_body);
-
-	step->spinner.enabled = !fyai_ui_active(ctx) &&
-				terminal_is_tty(STDERR_FILENO);
-	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFOFUNCTION,
-			 fyai_spinner_xferinfo);
-	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFODATA, &step->spinner);
-	/* Always on: the callback also polls the ^C abort flag. */
-	curl_easy_setopt(ctx->curl, CURLOPT_NOPROGRESS, 0L);
-
-	/* Everything before the wire transfer, relative to process start. */
-	fyai_prof_once_from_base("start_to_first_send");
-	fyai_prof_stamp(&step->send_started);
-
-	ctx->auth_retry_done = false;
-	ctx->response_chain_linked = response_linked;
-	ctx->response_chain_miss = false;
-	step->response_linked = response_linked;
-	step->want_extents_lp = want_extents_lp;
-	rc = fyai_model_step_transition(step, FYAIMSS_REQUEST_PENDING);
-	fyai_error_check(ctx, !rc, out,
-			 "could not advance model step");
-	if (cfg->stream) {
-		memset(&callbacks, 0, sizeof(callbacks));
-		callbacks.complete = fyai_model_step_stream_complete;
-		callbacks.tool = step->tool_group ?
-					fyai_stream_tool_ready : NULL;
-		callbacks.userdata = step;
-		step->stream_request =
-			fyai_stream_request_submit(ctx, &callbacks);
-		fyai_error_check(ctx, step->stream_request, out,
-				 "could not submit streaming model request");
-	} else {
-		step->buffered_request = fyai_buffered_request_submit(ctx,
-				fyai_model_step_buffered_complete, step);
-		fyai_error_check(ctx, step->buffered_request, out,
-				 "could not submit buffered model request");
-	}
-	return 0;
+	return fyai_model_step_submit_request(step, request,
+						 response_linked, want_extents_lp,
+						 &t_emit);
 
 out:
 	return -1;
