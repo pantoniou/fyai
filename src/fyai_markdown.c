@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_DISPLAY
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -12,12 +14,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include <libfymd4c.h>
 
 #include "fyai_markdown.h"
 #include "fyai_ui.h"
 #include "fyai.h"
+#include "fyai_event.h"
 #include "fyai_terminal.h"
 
 static enum fymd_background markdown_background(const char *theme)
@@ -703,13 +707,74 @@ int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
 	return 0;
 }
 
+static void fenced_stream_band_update(struct fyai_fenced_stream *fs);
+static int fenced_stream_render(struct fyai_fenced_stream *fs);
+
+/* Remove the timer that the stream owns. */
+static void fenced_stream_flush_disarm(struct fyai_fenced_stream *fs)
+{
+	if (!fs->flush_src)
+		return;
+	fyai_event_source_remove(fs->flush_src);
+	fs->flush_src = NULL;
+}
+
+/* Render data that arrived during the throttle interval. */
+static enum fyai_event_action fenced_stream_flush_timer(const struct fyai_event *ev)
+{
+	struct fyai_fenced_stream *fs = ev->userdata;
+
+	fs->flush_src = NULL;
+	if (fs->active && fs->render_pending)
+		(void)fenced_stream_render(fs);
+	return FYAIEA_CONTINUE;
+}
+
+/* Schedule a render for the end of the throttle interval. */
+static int fenced_stream_flush_arm(struct fyai_fenced_stream *fs)
+{
+	struct fyai_event_loop *el;
+	fyai_event_ms_t delay;
+	int rc;
+
+	assert(fs && fs->ctx);
+	if (fs->flush_src)
+		return 0;
+	el = fyai_ctx_loop(fs->ctx);
+	assert(el);
+	delay = fs->next_render_ms - fyai_event_now_ms();
+	if (delay < 1)
+		delay = 1;
+	rc = fyai_event_add_timer(el, delay, 0, fenced_stream_flush_timer, fs,
+				  &fs->flush_src);
+	fyai_error_check(fs->ctx, !rc, err,
+			 "failed to schedule a deferred Markdown render");
+	return 0;
+err:
+	return -1;
+}
+
+/* Minimum interval between progressive repaints; zero repaints every push. */
+static int fenced_stream_interval_ms(const struct fyai_fenced_stream *fs)
+{
+	assert(fs && fs->ctx && fs->ctx->cfg);
+	return fs->ctx->cfg->tool_update_interval_ms;
+}
+
+/* Render deferred data and advance the activity indicator. */
 int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
 			       int64_t now)
 {
 	int rc;
 
-	if (!fs->active ||
-	    fs->indicator_state != FYMD_INDICATOR_PENDING ||
+	if (!fs->active)
+		return 0;
+	if (fs->render_pending && now >= fs->next_render_ms) {
+		rc = fenced_stream_render(fs);
+		fyai_error_check(fs->ctx, !rc, err,
+				 "failed to render deferred Markdown data");
+	}
+	if (fs->indicator_state != FYMD_INDICATOR_PENDING ||
 	    now < fs->indicator_next_ms)
 		return 0;
 	if (!fs->indicator_next_ms) {
@@ -718,14 +783,27 @@ int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
 	}
 	rc = fyai_fenced_stream_set_indicator(fs, FYMD_INDICATOR_PENDING,
 					      fs->indicator_frame + 1);
-	if (rc)
-		return -1;
+	fyai_error_check(fs->ctx, !rc, err,
+			 "failed to advance the Markdown activity indicator");
 	fs->indicator_next_ms = now + fs->indicator_interval_ms;
-	return fyai_fenced_stream_push(fs, NULL, 0);
+	fenced_stream_band_update(fs);
+	return 0;
+err:
+	return -1;
 }
 
-int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
-			    const char *data, size_t len)
+/* Repaint the band from the cached body. */
+static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
+{
+	if (!fs->band || !fyai_ui_active(fs->ctx))
+		return;
+	fyai_ui_workband_update(fs->ctx, fs->band, fs->title,
+				fs->body.data ? fs->body.data : "", fs->body.len,
+				fs->first_margin);
+}
+
+/* Render the accumulated block and repaint the band. */
+static int fenced_stream_render(struct fyai_fenced_stream *fs)
 {
 	struct fymd_fenced_block_opts opts;
 	struct response_buffer quoted = { 0 };
@@ -735,20 +813,12 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	size_t rlen = 0;
 	size_t common;
 	size_t backtrack;
+	int rc;
 
-	if (!fs->active)
-		return -1;
-	if (len) {
-		if (response_buffer_reserve(&fs->accum, fs->accum.len + len + 1))
-			return -1;
-		memcpy(fs->accum.data + fs->accum.len, data, len);
-		fs->accum.len += len;
-		fs->accum.data[fs->accum.len] = '\0';
-	}
-	/* Off a terminal there is nothing to repaint; just accumulate and render
-	 * once at finish (avoids re-rendering the whole block on every chunk). */
-	if (!fs->live)
-		return 0;
+	fenced_stream_flush_disarm(fs);
+	fs->render_pending = false;
+	fs->next_render_ms = fyai_event_now_ms() +
+			     fenced_stream_interval_ms(fs);
 
 	if (fs->markdown_quote) {
 		source = fs->accum.data ? fs->accum.data : "";
@@ -802,15 +872,24 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 			fymd_free(rendered);
 			return -1;
 		}
-		if (fs->band)
-			fyai_ui_workband_update(fs->ctx, fs->band, fs->title,
-						indented, ilen,
-						fs->first_margin);
-		else
-			fyai_ui_tool_update(fs->ctx, indented, ilen);
-		free(indented);
 		fymd_free(rendered);
+		/* Keep the body for indicator repaints. */
+		fs->body.len = 0;
+		rc = response_buffer_reserve(&fs->body, ilen + 1);
+		fyai_error_check(fs->ctx, !rc, err_indented,
+				 "failed to reserve the Markdown band buffer");
+		memcpy(fs->body.data, indented, ilen);
+		fs->body.len = ilen;
+		fs->body.data[ilen] = '\0';
+		free(indented);
+		if (fs->band)
+			fenced_stream_band_update(fs);
+		else
+			fyai_ui_tool_update(fs->ctx, fs->body.data, fs->body.len);
 		return 0;
+	err_indented:
+		free(indented);
+		return -1;
 	}
 	/*
 	 * Keep the trailing newline: each repaint must leave the cursor on a
@@ -841,6 +920,42 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	return 0;
 }
 
+/* Accumulate data and repaint at the configured interval. */
+int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
+			    const char *data, size_t len)
+{
+	int rc;
+
+	if (!fs->active)
+		return -1;
+	if (len) {
+		rc = response_buffer_reserve(&fs->accum,
+					     fs->accum.len + len + 1);
+		fyai_error_check(fs->ctx, !rc, err,
+				 "failed to reserve the Markdown input buffer");
+		memcpy(fs->accum.data + fs->accum.len, data, len);
+		fs->accum.len += len;
+		fs->accum.data[fs->accum.len] = '\0';
+	}
+	/* Off a terminal there is nothing to repaint; just accumulate and render
+	 * once at finish (avoids re-rendering the whole block on every chunk). */
+	if (!fs->live)
+		return 0;
+	if (len && fenced_stream_interval_ms(fs) &&
+	    fyai_event_now_ms() < fs->next_render_ms) {
+		fs->render_pending = true;
+		rc = fenced_stream_flush_arm(fs);
+		fyai_error_check(fs->ctx, !rc, err,
+				 "failed to defer the Markdown render");
+		return 0;
+	}
+	rc = fenced_stream_render(fs);
+	fyai_error_check(fs->ctx, !rc, err, "failed to render Markdown data");
+	return 0;
+err:
+	return -1;
+}
+
 void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 {
 	struct fymd_fenced_block_opts opts;
@@ -850,6 +965,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 
 	if (!fs->active)
 		return;
+	fenced_stream_flush_disarm(fs);
 	if (fs->live && fyai_ui_active(fs->ctx)) {
 		/*
 		 * The live body is rendered at the width in effect when the tool
@@ -894,5 +1010,6 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 	free(fs->first_margin);
 	free(fs->accum.data);
 	free(fs->shown.data);
+	free(fs->body.data);
 	memset(fs, 0, sizeof(*fs));
 }

@@ -10,6 +10,7 @@
 #include "utils.h"
 
 struct fyai_cfg;
+struct fyai_event_source;
 struct fytim_workband;
 struct markdown_renderer {
 	struct fymd_renderer *renderer;
@@ -123,16 +124,20 @@ struct fyai_fenced_stream {
 	struct fymd_renderer *r;
 	struct response_buffer accum;	/* raw source accumulated so far */
 	struct response_buffer shown;	/* last rendered (un-indented) output */
+	struct response_buffer body;	/* last rendered band body, indented */
+	struct fyai_event_source *flush_src;	/* deferred-render timer */
 	const char *lang;		/* highlighter language, NULL => plain */
 	const char *indent;		/* per-line indent decoration */
 	size_t max_lines;		/* final rerender uses current terminal width */
 	size_t indicator_frame;
 	int64_t indicator_next_ms;
+	int64_t next_render_ms;		/* progressive repaint throttle */
 	unsigned int indicator_interval_ms;
 	enum fymd_indicator_state indicator_state;
 	FILE *fp;
 	bool live;			/* true: repaint in place; false: buffer */
 	bool markdown_quote;
+	bool render_pending;		/* bytes accumulated but not rendered */
 	bool active;
 };
 
