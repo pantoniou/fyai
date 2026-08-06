@@ -460,6 +460,43 @@ shell_capture_deadline(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
+			       const char *workdir,
+			       const struct fyai_sandbox_spec *sandbox,
+			       int stdout_pipe[2], int stderr_pipe[2])
+{
+	int devnull;
+
+	/* The application loop belongs to fyai, never to the command. */
+	fyai_ctx_loop_abandon(ctx);
+	/* Give every capture one group for the shell and its descendants. */
+	if (setpgid(0, 0) < 0)
+		_exit(FYAI_SHELL_EXIT_EXEC);
+	close(stdout_pipe[0]);
+	close(stderr_pipe[0]);
+	dup2(stdout_pipe[1], STDOUT_FILENO);
+	dup2(stderr_pipe[1], STDERR_FILENO);
+	close(stdout_pipe[1]);
+	close(stderr_pipe[1]);
+	devnull = open("/dev/null", O_RDONLY);
+	if (devnull >= 0) {
+		if (devnull != STDIN_FILENO) {
+			dup2(devnull, STDIN_FILENO);
+			close(devnull);
+		}
+	} else {
+		close(STDIN_FILENO);
+	}
+	/* Enter the directory before applying confinement. */
+	if (workdir && *workdir && chdir(workdir) < 0)
+		_exit(FYAI_SHELL_EXIT_WORKDIR);
+	/* Confine the tool before handing control to the shell. */
+	if (sandbox && fyai_sandbox_apply(sandbox))
+		_exit(FYAI_SHELL_EXIT_SANDBOX);
+	execl("/bin/sh", "sh", "-c", command, NULL);
+	_exit(FYAI_SHELL_EXIT_EXEC);
+}
+
 int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 struct shell_command_result *result,
 				 shell_output_fn output_fn,
@@ -478,7 +515,6 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	int status = 0;
 	pid_t pid = -1;
 	int ret = -1;
-	int devnull;
 
 	memset(result, 0, sizeof(*result));
 
@@ -490,40 +526,8 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		goto out;
 
 	if (!pid) {
-		/* The application loop (including its signal mask/signalfd or
-		 * kqueue state) belongs to fyai, never to the executed command. */
-		fyai_ctx_loop_abandon(ctx);
-		/* Give every capture one group for the shell and its descendants. */
-		if (setpgid(0, 0) < 0)
-			_exit(FYAI_SHELL_EXIT_EXEC);
-		close(stdout_pipe[0]);
-		close(stderr_pipe[0]);
-		dup2(stdout_pipe[1], STDOUT_FILENO);
-		dup2(stderr_pipe[1], STDERR_FILENO);
-		close(stdout_pipe[1]);
-		close(stderr_pipe[1]);
-		devnull = open("/dev/null", O_RDONLY);
-		if (devnull >= 0) {
-			if (devnull != STDIN_FILENO) {
-				dup2(devnull, STDIN_FILENO);
-				close(devnull);
-			}
-		} else {
-			close(STDIN_FILENO);
-		}
-		/* Enter the directory before applying confinement. */
-		if (workdir && *workdir && chdir(workdir) < 0)
-			_exit(FYAI_SHELL_EXIT_WORKDIR);
-		/*
-		 * Confine the tool before handing control to the shell:
-		 * inherited across the exec and every process it spawns.
-		 * A strict-mode failure aborts the exec (126); non-strict
-		 * failures fall through to run unconfined.
-		 */
-		if (sandbox && fyai_sandbox_apply(sandbox))
-			_exit(FYAI_SHELL_EXIT_SANDBOX);
-		execl("/bin/sh", "sh", "-c", command, NULL);
-		_exit(FYAI_SHELL_EXIT_EXEC);
+		shell_capture_exec(ctx, command, workdir, sandbox,
+				   stdout_pipe, stderr_pipe);
 	}
 	/* Close the fork-to-exec race from the parent side. */
 	do {
