@@ -120,7 +120,6 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 			fy_mapping(ctx->transient_gb, "thinking", thinking));
 	model = fy_get(overlay, "model", fy_invalid);
 	if (fy_generic_is_string(model)) {
-		tmp.provider = NULL;
 		if (fy_generic_is_invalid(fy_get(cfg->config_doc, "api_url",
 						 fy_invalid)))
 			tmp.api_url = NULL;

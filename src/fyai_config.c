@@ -2063,6 +2063,7 @@ static const char *provider_env_key(struct fy_generic_builder *gb,
 int fyai_config_resolve_model(struct fyai_cfg *cfg)
 {
 	fy_generic catalog, cat_prov, cat_offer, cat_ep, cat_model, pinned_prov;
+	fy_generic preferred_offer;
 	const char *pmid, *slash;
 	const char *env, *val;
 	const char *secret_name;
@@ -2118,8 +2119,18 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		cat_prov = pinned_prov;
 		fyai_catalog_offering(cat_prov, cfg->model, &cat_offer);
 	} else {
-		cat_prov = fyai_catalog_provider_for_model(catalog,
-					cfg->model, &cat_offer);
+		cat_prov = fy_invalid;
+		cat_offer = fy_invalid;
+		if (cfg->provider && *cfg->provider) {
+			cat_prov = fyai_catalog_provider(catalog, cfg->provider);
+			preferred_offer = fyai_catalog_offering(cat_prov,
+							 cfg->model, &cat_offer);
+			if (fy_generic_is_invalid(preferred_offer))
+				cat_prov = fy_invalid;
+		}
+		if (fy_generic_is_invalid(cat_prov))
+			cat_prov = fyai_catalog_provider_for_model(catalog,
+						cfg->model, &cat_offer);
 	}
 	if (fy_generic_is_valid(cat_prov))
 		cfg->provider = fy_gb_intern_string(cfg->gb,
