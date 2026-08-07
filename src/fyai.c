@@ -2280,17 +2280,121 @@ enum fyai_app_state {
 	FYAIAS_DONE,
 };
 
+enum fyai_line_result {
+	FYAILR_NONE,
+	FYAILR_QUIT,
+	FYAILR_HANDLED,
+	FYAILR_ERROR,
+};
+
+static int fyai_interactive_config_edit_step(struct fyai_ctx *ctx)
+{
+	int rc;
+
+	if (!ctx->config_edit ||
+	    !fyai_config_edit_done(ctx->config_edit))
+		return 0;
+	rc = fyai_config_edit_collect(ctx->config_edit);
+	fyai_config_edit_destroy(ctx->config_edit);
+	ctx->config_edit = NULL;
+	fyai_error_check(ctx, !rc, err,
+			 "could not collect the configuration edit");
+	rc = fyai_config_rederive(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not apply the configuration edit");
+	return 0;
+err:
+	fyai_ui_diag_drain(ctx, "config");
+	return rc;
+}
+
+static int fyai_interactive_finish_run(struct fyai_ctx *ctx,
+					struct fyai_turn_run **runp, bool *initial,
+					bool *done)
+{
+	int rc;
+
+	*done = false;
+	rc = fyai_interactive_finish_turn(ctx, runp);
+	if (rc)
+		return rc;
+	if (*initial) {
+		*initial = false;
+		if (fy_generic_is_invalid(ctx->last_message))
+			*done = true;
+	}
+	return 0;
+}
+
+static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
+						struct fyai_turn_run *run)
+{
+	if (!ctx->interrupt_pending)
+		return;
+	/* Acknowledge SIGINT while the event loop is responsive. */
+	fyai_event_interrupt_ack(ctx);
+	/* Process each delivered SIGINT one time. */
+	if (ctx->interrupt_seq != ctx->interrupt_seen) {
+		ctx->interrupt_seen = ctx->interrupt_seq;
+		fyai_ui_interrupt(ctx);
+	}
+	if (run)
+		fyai_turn_run_cancel(run);
+}
+
+static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
+					   struct fyai_turn_run **runp)
+{
+	int rc;
+
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not create transient initial storage");
+	*runp = fyai_turn_run_submit(ctx, ctx->last_message);
+	fyai_error_check(ctx, *runp, err_cleanup,
+			 "could not submit the initial turn");
+	fyai_ui_set_busy(ctx, true);
+	return 0;
+err_cleanup:
+	fyai_cleanup_transient_builder(ctx);
+err:
+	return -1;
+}
+
+static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
+					      const char *histfile,
+					      struct fyai_turn_run **runp)
+{
+	char *line;
+	int rc;
+
+	line = fyai_ui_take_line(ctx);
+	if (!line)
+		return FYAILR_NONE;
+	rc = fyai_interactive_start_line(ctx, histfile, line, runp);
+	free(line);
+	if (rc > 0)
+		return FYAILR_QUIT;
+	if (rc < 0) {
+		fyai_ui_diag_drain(ctx, "error");
+		return FYAILR_ERROR;
+	}
+	return FYAILR_HANDLED;
+}
+
 static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg;
 	struct fyai_event_loop *el;
 	struct fyai_turn_run *run;
 	enum fyai_app_state state;
+	enum fyai_line_result line_result;
 	char *histfile;
 	char *line;
 	bool initial;
 	bool gated;
 	bool quit;
+	bool done;
 	int rc;
 
 	cfg = ctx->cfg;
@@ -2302,6 +2406,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	initial = cfg->prompt && *cfg->prompt;
 	gated = false;
 	quit = false;
+	done = false;
 	rc = -1;
 	fyai_error_check(ctx, el, out,
 			 "interactive UI requires an event loop");
@@ -2326,38 +2431,19 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		if (ctx->transient_autorelease)
 			fyai_cleanup_transient_builder(ctx);
 
-		if (ctx->config_edit &&
-		    fyai_config_edit_done(ctx->config_edit)) {
-			rc = fyai_config_edit_collect(ctx->config_edit);
-			fyai_config_edit_destroy(ctx->config_edit);
-			ctx->config_edit = NULL;
-			if (!rc)
-				rc = fyai_config_rederive(ctx);
-			if (rc)
-				fyai_ui_diag_drain(ctx, "config");
-		}
+		rc = fyai_interactive_config_edit_step(ctx);
+		fyai_error_check(ctx, !rc, out,
+				 "could not finish the configuration edit");
 
 		if (run && fyai_turn_run_done(run)) {
-			rc = fyai_interactive_finish_turn(ctx, &run);
+			rc = fyai_interactive_finish_run(ctx, &run, &initial,
+						 &done);
 			fyai_error_check(ctx, !rc, out,
 					 "could not publish completed turn");
-			if (initial) {
-				initial = false;
-				if (fy_generic_is_invalid(ctx->last_message))
-					goto out;
-			}
+			if (done)
+				goto out;
 		}
-		if (ctx->interrupt_pending) {
-			/* Acknowledge SIGINT while the event loop is responsive. */
-			fyai_event_interrupt_ack(ctx);
-			/* Process each delivered SIGINT one time. */
-			if (ctx->interrupt_seq != ctx->interrupt_seen) {
-				ctx->interrupt_seen = ctx->interrupt_seq;
-				fyai_ui_interrupt(ctx);
-			}
-			if (run)
-				fyai_turn_run_cancel(run);
-		}
+		fyai_interactive_process_interrupt(ctx, run);
 		if (ctx->terminate_pending || fyai_ui_quit_requested(ctx))
 			quit = true;
 		if (!run && quit) {
@@ -2376,34 +2462,21 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		}
 
 		if (!run && gated && initial) {
-			rc = fyai_setup_transient_builder(ctx);
+			rc = fyai_interactive_submit_initial(ctx, &run);
 			fyai_error_check(ctx, !rc, out,
-					 "could not create transient turn storage");
-			run = fyai_turn_run_submit(ctx, ctx->last_message);
-			if (!run)
-				fyai_cleanup_transient_builder(ctx);
-			fyai_error_check(ctx, run, out,
 					 "could not submit initial turn");
-			fyai_ui_set_busy(ctx, true);
 		}
 
 		if (!run && gated && !ctx->config_edit) {
-			line = fyai_ui_take_line(ctx);
-			if (line) {
-				rc = fyai_interactive_start_line(ctx, histfile,
-							 line, &run);
-				free(line);
-				line = NULL;
-				if (rc > 0) {
-					quit = true;
-					continue;
-				}
-				if (rc < 0) {
-					fyai_ui_diag_drain(ctx, "error");
-					continue;
-				}
+			line_result = fyai_interactive_read_line(ctx, histfile, &run);
+			if (line_result == FYAILR_QUIT) {
+				quit = true;
 				continue;
 			}
+			fyai_error_check(ctx, line_result != FYAILR_ERROR, out,
+					 "could not process the input line");
+			if (line_result == FYAILR_HANDLED)
+				continue;
 		}
 		rc = fyai_event_loop_step(el, -1);
 		fyai_error_check(ctx, rc >= 0, out,
