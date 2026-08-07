@@ -23,7 +23,7 @@
 int fyai_session_clear(struct fyai_ctx *ctx);
 
 /* Summarize the history with one model call and restart the chain from the
- * summary; @hint optionally focuses the summary. Needs an API key. */
+ * summary; @hint optionally focuses the summary. Needs request credentials. */
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint);
 
 /* Print the current model (@name NULL/empty) or switch to @name

@@ -341,7 +341,7 @@ struct fyai_cmd_info {
 enum fyai_verb_flags {
 	FYAIVF_BATCH		= 0,		/* is batch only */
 	FYAIVF_INTERACTIVE	= FY_BIT(0),	/* is interactive */
-	FYAIVF_NEEDS_API_KEYS	= FY_BIT(1),	/* will use api keys if available, will fail without */
+	FYAIVF_NEEDS_API_KEYS	= FY_BIT(1),	/* makes authenticated requests */
 	FYAIVF_NO_STORAGE	= FY_BIT(2),	/* does not need storage */
 	FYAIVF_NO_REQUESTS	= FY_BIT(3),	/* does not make requests */
 	FYAIVF_NEEDS_TRANSIENT_BUILDER = FY_BIT(4),
