@@ -292,36 +292,54 @@ static bool patch_path_ok(const char *path)
 
 static char *patch_path_dup(const char *path)
 {
-	char *cwd;
-	char *normalized;
+	char *cwd = NULL;
+	char *path_copy = NULL;
+	char *parent = NULL;
+	char *name;
+	char *resolved = NULL;
+	char *normalized = NULL;
 	size_t cwd_len;
 
 	if (!path || !*path)
-		return NULL;
+		goto out;
 	if (path[0] != '/') {
 		normalized = strdup(path);
-		if (!normalized || !patch_path_ok(normalized)) {
-			free(normalized);
-			return NULL;
-		}
-		return normalized;
+		goto out;
 	}
 
-	cwd = getcwd(NULL, 0);
+	cwd = realpath(".", NULL);
 	if (!cwd)
-		return NULL;
+		goto out;
+	resolved = realpath(path, NULL);
+	if (!resolved) {
+		path_copy = strdup(path);
+		if (!path_copy)
+			goto out;
+		name = strrchr(path_copy, '/');
+		if (!name || !name[1])
+			goto out;
+		*name++ = '\0';
+		parent = realpath(*path_copy ? path_copy : "/", NULL);
+		if (parent)
+			resolved = strdup(fy_sprintfa("%s/%s", parent, name));
+		if (!resolved)
+			goto out;
+	}
 	cwd_len = strlen(cwd);
 	/* Accept an absolute name only when it identifies a file below cwd. */
-	if (strncmp(path, cwd, cwd_len) ||
-	    (cwd_len > 1 && path[cwd_len] != '/')) {
-		free(cwd);
-		return NULL;
-	}
-	normalized = strdup(path + cwd_len + (cwd_len > 1));
+	if (strncmp(resolved, cwd, cwd_len) ||
+	    (cwd_len > 1 && resolved[cwd_len] != '/'))
+		goto out;
+	normalized = strdup(resolved + cwd_len + (cwd_len > 1));
+
+out:
+	free(parent);
+	free(path_copy);
+	free(resolved);
 	free(cwd);
 	if (!normalized || !patch_path_ok(normalized)) {
 		free(normalized);
-		return NULL;
+		normalized = NULL;
 	}
 	return normalized;
 }
