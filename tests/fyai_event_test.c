@@ -33,6 +33,7 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+#include "fyai_markdown.h"
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
@@ -75,6 +76,7 @@ FYAI_TEST_ENTRY(event, defer_coalesce, event_defer_coalesce)
 FYAI_TEST_ENTRY(event, defer_drain_once, event_defer_drain_once)
 FYAI_TEST_ENTRY(event, defer_cancel, event_defer_cancel)
 FYAI_TEST_ENTRY(event, defer_under_nested_run, event_defer_under_nested_run)
+FYAI_TEST_ENTRY(event, flush_timer_retires, event_flush_timer_retires)
 
 /* A minimal context so the loop reports through the real diagnostic layer
  * rather than a special test path. */
@@ -98,6 +100,40 @@ struct counter {
 };
 
 static int order_tick;
+
+static void test_flush_timer_retires(void)
+{
+	struct fyai_fenced_stream fs;
+	struct fyai_event_loop *el;
+	FILE *fp;
+	unsigned int baseline;
+	int rc;
+	int i;
+
+	el = fyai_ctx_loop(&test_ctx);
+	FYAI_TCHECK(el);
+	baseline = fyai_event_loop_source_count(el);
+	fp = tmpfile();
+	FYAI_TCHECK(fp);
+	test_cfg.tool_update_interval_ms = 100;
+	rc = fyai_fenced_stream_start(&fs, &test_ctx, &test_cfg, NULL, 20,
+				      NULL, fp, true);
+	FYAI_TCHECK(!rc);
+	for (i = 0; i < 3; i++) {
+		fs.next_render_ms = fyai_event_now_ms() + 1;
+		rc = fyai_fenced_stream_push(&fs, "progress\n", 9);
+		FYAI_TCHECK(!rc);
+		FYAI_TCHECK(fyai_event_loop_source_count(el) == baseline + 1);
+		rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+		FYAI_TCHECK(rc == 1);
+		FYAI_TCHECK(fyai_event_loop_source_count(el) == baseline);
+	}
+	fyai_fenced_stream_finish(&fs);
+	fclose(fp);
+	test_cfg.tool_update_interval_ms = 0;
+
+	printf("ok - fenced stream flush timers retire\n");
+}
 
 static enum fyai_event_action cb_count(const struct fyai_event *ev)
 {
@@ -2392,6 +2428,21 @@ int event_defer_under_nested_run(void)
 	FYAI_TCHECK(!rc);
 
 	test_defer_under_nested_run();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_flush_timer_retires(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_flush_timer_retires();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
