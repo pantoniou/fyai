@@ -256,6 +256,95 @@ out:
 	return -1;
 }
 
+bool fyai_session_compact_v2(const struct fyai_cfg *cfg)
+{
+	return cfg->api_mode == FYAI_API_RESPONSES &&
+		cfg->response_compaction_supported && cfg->chatgpt_auth;
+}
+
+static int session_compact_responses_v2(struct fyai_ctx *ctx,
+					const char *hint)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic prev_head, messages, compact_messages, message;
+	fy_generic turn, result, provider_stream, provider, output, item, meta;
+	const char *provider_name;
+	const char *instructions;
+	int rc;
+
+	prev_head = ctx->last_message;
+	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
+	fyai_error_check(ctx, fy_generic_is_valid(messages), out,
+			 "compact: cannot collect the Responses input");
+
+	instructions = hint && *hint ?
+		fy_sprintfa("%s\n\nWhen compacting, preserve information "
+			    "relevant to: %s", cfg->system_prompt, hint) :
+		cfg->system_prompt;
+	compact_messages = fy_sequence(
+		fyai_make_system_message(ctx, instructions));
+	fy_foreach(message, messages) {
+		if (fy_equal(fy_get(message, "role"), "system"))
+			continue;
+		compact_messages = fy_append(ctx->transient_gb,
+					     compact_messages, message);
+	}
+	compact_messages = fy_append(ctx->transient_gb, compact_messages,
+				     fy_mapping("type", "compaction_trigger"));
+	fyai_error_check(ctx, fy_generic_is_valid(compact_messages), out,
+			 "compact: cannot build the Responses input trigger");
+
+	turn = fyai_turn_append(ctx, fy_invalid, compact_messages);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot build the Responses compaction turn");
+	result = fyai_run_turn(ctx, turn);
+	result = fyai_report_diag(ctx, result);
+	fyai_error_check(ctx, fy_generic_is_valid(result) &&
+			 !fy_generic_is_null_type(result), out,
+			 "compact: Responses compaction request failed");
+
+	provider_stream = fy_get(result, "provider_stream");
+	provider = fyai_turn_provider(result);
+	provider_name = fy_castp(&provider, "");
+	output = fy_get(provider_stream, provider_name);
+	fyai_error_check(ctx, fy_generic_is_sequence(output) &&
+			 fy_len(output) == 1, out,
+			 "compact: Responses compaction returned invalid output");
+	item = fy_get_at(output, 0);
+	fyai_error_check(ctx, fy_equal(fy_get(item, "type"), "compaction"), out,
+			 "compact: Responses compaction returned no compaction item");
+
+	turn = fyai_turn_append(ctx, fy_invalid,
+		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot build the system turn");
+	turn = fyai_turn_append(ctx, turn, output);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot build the compacted turn");
+
+	meta = fyai_turn_meta(turn);
+	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
+		meta = fy_map_empty;
+	meta = fy_assoc(meta, "compacted_from", prev_head);
+	if (hint && *hint)
+		meta = fy_assoc(meta, "compact_instructions", hint);
+	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
+	turn = fy_assoc(turn, "metadata", meta);
+	turn = fy_gb_internalize(ctx->gb, turn);
+	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+			 "compact: cannot store the compacted turn");
+
+	ctx->last_message = turn;
+	session_reset_usage(ctx);
+	rc = fyai_publish_state(ctx);
+	fyai_error_check(ctx, !rc, out,
+			 "compact: cannot publish the compacted turn");
+	printf("conversation compacted (Responses API)\n");
+	return 0;
+out:
+	return -1;
+}
+
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -275,6 +364,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		return 0;
 	}
 	assert(ctx->transient_gb);
+
+	if (fyai_session_compact_v2(cfg))
+		return session_compact_responses_v2(ctx, hint);
 
 	if (cfg->api_mode == FYAI_API_RESPONSES &&
 	    cfg->response_compaction_supported)

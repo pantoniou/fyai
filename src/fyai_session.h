@@ -26,6 +26,9 @@ int fyai_session_clear(struct fyai_ctx *ctx);
  * summary; @hint optionally focuses the summary. Needs request credentials. */
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint);
 
+/* Return true when compaction uses a Responses input trigger. */
+bool fyai_session_compact_v2(const struct fyai_cfg *cfg);
+
 /* Print the current model (@name NULL/empty) or switch to @name
  * mid-session: re-resolve against the catalogue and rebuild request state. */
 int fyai_session_model(struct fyai_ctx *ctx, const char *name);
