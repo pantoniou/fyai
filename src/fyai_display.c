@@ -2368,6 +2368,207 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 	return 0;
 }
 
+struct fyai_display_render {
+	struct fyai_ctx *ctx;
+	struct fyai_cfg *cfg;
+	struct fyai_display_args *args;
+	struct fy_generic_builder *tgb;
+	const struct fyai_turn_stack *stack;
+	struct fyai_read_map *reads;
+	FILE *mf;
+	char *md;
+	size_t mdlen;
+	bool prev_tool;
+	bool emitted;
+};
+
+static void fyai_display_scan_reads(struct fyai_display_render *view,
+				    size_t lo, size_t hi)
+{
+	fy_generic msgs;
+	fy_generic m;
+	size_t i;
+
+	for (i = lo; i < hi; i++) {
+		msgs = fy_get(view->stack->items[i], "messages", fy_seq_empty);
+		fy_foreach(m, msgs)
+			fyai_read_map_scan(view->reads, view->tgb, m);
+	}
+}
+
+/* Flush pending markdown and start a fresh buffer for an inline result. */
+static int fyai_display_flush_reopen(struct fyai_display_render *view)
+{
+	int rc;
+
+	rc = fclose(view->mf);
+	view->mf = NULL;
+	fyai_error_check(view->ctx, !rc, out,
+			 "could not finish the display buffer");
+	if (view->md && fyai_print_markdown(view->md, view->cfg))
+		fputs(view->md, stdout);
+	free(view->md);
+	view->md = NULL;
+	view->mdlen = 0;
+	view->mf = open_memstream(&view->md, &view->mdlen);
+	fyai_error_check(view->ctx, view->mf, out,
+			 "could not create the display buffer");
+	return 0;
+out:
+	return -1;
+}
+
+static int fyai_display_reasoning(struct fyai_display_render *view,
+				  fy_generic turn, size_t message_count)
+{
+	char *rmd;
+	size_t rlen;
+	FILE *rf;
+	bool any;
+	int rc;
+
+	if (!message_count)
+		return 0;
+	rmd = NULL;
+	rlen = 0;
+	rf = open_memstream(&rmd, &rlen);
+	fyai_error_check(view->ctx, rf, out,
+			 "could not create the reasoning display buffer");
+	any = fyai_emit_turn_reasoning(rf, view->tgb, turn,
+				       view->cfg->thinking);
+	rc = fclose(rf);
+	rf = NULL;
+	fyai_error_check(view->ctx, !rc, out,
+			 "could not finish the reasoning display buffer");
+	if (any) {
+		if (view->emitted)
+			fprintf(view->mf, "%s\n\n", view->cfg->turn_separator);
+		fputs(rmd, view->mf);
+		view->prev_tool = true;
+		view->emitted = true;
+	}
+	free(rmd);
+	return 0;
+out:
+	if (rf)
+		fclose(rf);
+	free(rmd);
+	return -1;
+}
+
+static int fyai_display_message(struct fyai_display_render *view,
+				fy_generic message)
+{
+	struct fyai_msg_class c;
+	fy_generic result;
+	char *rlang;
+	int rc;
+
+	c = fyai_classify_message(message);
+	if (c.skip || (!view->cfg->transcript_system &&
+		       fy_equal(c.role, "system")))
+		return 0;
+
+	if (c.is_str && fy_equal(c.role, "user") && !view->args->raw &&
+	    view->cfg->markdown && view->ctx->stdout_tty) {
+		rc = fyai_display_flush_reopen(view);
+		fyai_error_check(view->ctx, !rc, out,
+				 "could not flush the display buffer");
+		if (view->emitted)
+			putchar('\n');
+		fyai_print_user_turn(view->ctx, fyai_msg_text(&c), false);
+		view->prev_tool = true;
+		view->emitted = true;
+		return 0;
+	}
+
+	if (!view->args->raw && view->cfg->markdown &&
+	    fyai_msg_is_tool_result(&c, &result)) {
+		rc = fyai_display_flush_reopen(view);
+		fyai_error_check(view->ctx, !rc, out,
+				 "could not flush the display buffer");
+		rlang = fyai_read_result_lang(view->reads, &c);
+		fyai_render_tool_result(view->cfg, result, rlang,
+					view->cfg->tool_preview_lines);
+		free(rlang);
+		view->prev_tool = c.tool_related;
+		view->emitted = true;
+		return 0;
+	}
+
+	if (view->emitted &&
+	    !(view->prev_tool && (c.tool_related || c.is_assistant)))
+		fprintf(view->mf, "%s\n\n", view->cfg->turn_separator);
+	rlang = fyai_read_result_lang(view->reads, &c);
+	fyai_emit_message_md(view->mf, view->tgb, &c,
+				     view->cfg->tool_preview_lines, rlang,
+				     view->cfg->thinking);
+	free(rlang);
+	view->prev_tool = c.tool_related;
+	view->emitted = true;
+	return 0;
+out:
+	return -1;
+}
+
+static int fyai_display_message_list(struct fyai_display_render *view,
+				     fy_generic messages)
+{
+	fy_generic message;
+	int rc;
+
+	fy_foreach(message, messages) {
+		rc = fyai_display_message(view, message);
+		fyai_error_check(view->ctx, !rc, out,
+				 "could not render a display message");
+	}
+	return 0;
+out:
+	return -1;
+}
+
+static int fyai_display_turns(struct fyai_display_render *view,
+				      size_t lo, size_t hi)
+{
+	fy_generic msgs;
+	size_t i;
+	int rc;
+
+	for (i = lo; i < hi; i++) {
+		msgs = fy_get(view->stack->items[i], "messages", fy_seq_empty);
+		rc = fyai_display_reasoning(view, view->stack->items[i],
+					    fy_len(msgs));
+		fyai_error_check(view->ctx, !rc, out,
+				 "could not render turn reasoning");
+		rc = fyai_display_message_list(view, msgs);
+		fyai_error_check(view->ctx, !rc, out,
+				 "could not render turn messages");
+	}
+	return 0;
+out:
+	return -1;
+}
+
+static int fyai_display_finish(struct fyai_display_render *view)
+{
+	int rc;
+
+	rc = fclose(view->mf);
+	view->mf = NULL;
+	fyai_error_check(view->ctx, !rc, out,
+			 "could not finish the display buffer");
+	if (view->md && (view->args->raw ||
+				 fyai_print_markdown(view->md, view->cfg)))
+		fputs(view->md, stdout);
+	free(view->md);
+	view->md = NULL;
+	if (view->ctx->stdout_tty && !view->args->raw)
+		putchar('\n');
+	return 0;
+out:
+	return -1;
+}
+
 /*
  * Human-digestible rendering of the canonical conversation: each message
  * becomes prose rendered through markdown. Unlike `dump`, this is
@@ -2385,44 +2586,28 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	struct fy_generic_builder_cfg gcfg;
 	struct fy_generic_builder *tgb;
 	struct fyai_turn_stack stack;
-	struct fyai_msg_class c;
-	fy_generic msgs;
-	fy_generic m;
 	struct fyai_read_map reads = { 0 };
-	fy_generic result;
-	char *rlang;
-	char *rmd;
-	char *md;
-	size_t mdlen;
-	size_t rlen;
 	size_t lo;
 	size_t hi;
-	size_t i;
-	size_t n;
-	bool prev_tool;
-	bool emitted;
-	bool any;
 	int rc;
-	FILE *rf;
-	FILE *mf;
+	int close_rc;
+	struct fyai_display_render view;
 
 	tgb = NULL;
 	memset(&stack, 0, sizeof(stack));
-	md = NULL;
-	rmd = NULL;
-	mf = NULL;
-	mdlen = 0;
+	memset(&view, 0, sizeof(view));
 	rc = -1;
 	if (args->tool_detail)
 		cfg->tool_detail = args->tool_detail;
 	memset(&gcfg, 0, sizeof(gcfg));
 	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	tgb = fy_generic_builder_create(&gcfg);
-	if (!tgb)
-		goto err_out;
+	fyai_error_check(ctx, tgb, err_out,
+			 "could not create display storage");
 
-	if (fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid))
-		goto err_out;
+	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not read the conversation");
 
 	fyai_exchange_window(&args->turn_sel, &stack, &lo, &hi);
 	if (fyai_display_outputs_complete(&stack, lo, hi)) {
@@ -2430,158 +2615,33 @@ int fyai_display_view(struct fyai_ctx *ctx)
 		goto err_out;
 	}
 
-	/* Record read_file call id -> path across the window so a read result
-	 * can be fenced in the file's language when it is later rendered. */
-	for (i = lo; i < hi; i++) {
-		msgs = fy_get(stack.items[i], "messages", fy_seq_empty);
-		fy_foreach(m, msgs)
-			fyai_read_map_scan(&reads, tgb, m);
-	}
-
-	mf = open_memstream(&md, &mdlen);
-	if (!mf)
-		goto err_out;
-
-	emitted = false;
-	prev_tool = false;
-	for (i = lo; i < hi; i++) {
-		msgs = fy_get(stack.items[i], "messages", fy_seq_empty);
-		n = fy_len(msgs);
-
-		/*
-		 * The turn's reasoning (non-canonical, from provider_stream)
-		 * leads its content. Rule it off from the prior turn, but keep
-		 * it grouped with the answer/calls that follow (prev_tool).
-		 */
-		if (n) {
-			rmd = NULL;
-			rlen = 0;
-			rf = open_memstream(&rmd, &rlen);
-			if (rf) {
-				any = fyai_emit_turn_reasoning(rf, tgb,
-					stack.items[i], cfg->thinking);
-				fclose(rf);
-				if (any) {
-					if (emitted)
-						fprintf(mf, "%s\n\n",
-							cfg->turn_separator);
-					fputs(rmd, mf);
-					prev_tool = true;
-					emitted = true;
-				}
-			}
-			free(rmd);
-			rmd = NULL;
-		}
-
-		fy_foreach(m, msgs) {
-			c = fyai_classify_message(m);
-			if (c.skip)
-				continue;
-			if (!cfg->transcript_system &&
-			    fy_equal(c.role, "system"))
-				continue;
-			if (c.is_str && fy_equal(c.role, "user") &&
-					!args->raw && cfg->markdown && ctx->stdout_tty) {
-				fclose(mf);
-				mf = NULL;
-				if (md && fyai_print_markdown(md, cfg))
-					fputs(md, stdout);
-				free(md);
-				md = NULL;
-				mdlen = 0;
-				/*
-				 * Two blank lines above the bubble (the flushed
-				 * content leaves one) so the user turn pops off the
-				 * preceding answer - but not when it leads the view.
-				 */
-				if (emitted)
-					putchar('\n');
-				fyai_print_user_turn(ctx, fyai_msg_text(&c), false);
-				mf = open_memstream(&md, &mdlen);
-				if (!mf)
-					goto err_out;
-				/* Keep the following assistant reply with its user bubble. */
-				prev_tool = true;
-				emitted = true;
-				continue;
-			}
-
-			/*
-			 * A tool result renders through the same frameless
-			 * fyai_render_tool_result() path as the live loop: flush
-			 * the pending markdown (the tool-call header and any
-			 * preceding prose), draw the result, then reopen the
-			 * buffer. Markdown display mode only; the raw/plain path
-			 * keeps the fenced markdown emission below.
-			 */
-			if (!args->raw && cfg->markdown &&
-			    fyai_msg_is_tool_result(&c, &result)) {
-				fclose(mf);
-				mf = NULL;
-				if (md && fyai_print_markdown(md, cfg))
-					fputs(md, stdout);
-				free(md);
-				md = NULL;
-				mdlen = 0;
-				rlang = fyai_read_result_lang(&reads, &c);
-				fyai_render_tool_result(cfg, result, rlang,
-							cfg->tool_preview_lines);
-				free(rlang);
-				mf = open_memstream(&md, &mdlen);
-				if (!mf)
-					goto err_out;
-				prev_tool = c.tool_related;
-				emitted = true;
-				continue;
-			}
-
-			/*
-			 * A thematic break renders as a full-width rule in
-			 * markdown, so turns visibly separate. Roles are conveyed
-			 * by style (system italic, user blockquote, assistant
-			 * prose) rather than a heading. A whole tool exchange
-			 * is one logical assistant turn: the rule is suppressed
-			 * between consecutive tool steps (a call and its result,
-			 * back-to-back calls) and before the assistant message
-			 * that concludes the exchange, so it reads as one block.
-			 */
-			if (emitted &&
-			    !(prev_tool && (c.tool_related || c.is_assistant)))
-				fprintf(mf, "%s\n\n", cfg->turn_separator);
-
-			rlang = fyai_read_result_lang(&reads, &c);
-			fyai_emit_message_md(mf, tgb, &c,
-					     cfg->tool_preview_lines, rlang,
-					     cfg->thinking);
-			free(rlang);
-
-			prev_tool = c.tool_related;
-			emitted = true;
-		}
-	}
-	fclose(mf);
-	mf = NULL;
-
-	if (md && (args->raw || fyai_print_markdown(md, cfg)))
-		fputs(md, stdout);
-	free(md);
-	md = NULL;
-
-	/* Close the view with a blank line on a terminal so the last turn does
-	 * not butt up against the shell prompt (matches the live batch turn);
-	 * piped/redirected output stays byte-clean. */
-	if (ctx->stdout_tty && !args->raw)
-		putchar('\n');
-
+	view.ctx = ctx;
+	view.cfg = cfg;
+	view.args = args;
+	view.tgb = tgb;
+	view.stack = &stack;
+	view.reads = &reads;
+	view.mf = open_memstream(&view.md, &view.mdlen);
+	fyai_error_check(ctx, view.mf, err_out,
+			 "could not create the display buffer");
+	fyai_display_scan_reads(&view, lo, hi);
+	rc = fyai_display_turns(&view, lo, hi);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not render the conversation");
+	rc = fyai_display_finish(&view);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not finish the conversation display");
 	rc = 0;
 
 err_out:
 	cfg->tool_detail = saved_tool_detail;
-	if (mf)
-		fclose(mf);
-	free(md);
-	free(rmd);
+	if (view.mf) {
+		close_rc = fclose(view.mf);
+		view.mf = NULL;
+		if (close_rc)
+			fyai_error(ctx, "could not close the display buffer");
+	}
+	free(view.md);
 	fyai_read_map_free(&reads);
 	fyai_turn_stack_cleanup(&stack);
 	if (tgb)
