@@ -290,6 +290,42 @@ static bool patch_path_ok(const char *path)
 	return true;
 }
 
+static char *patch_path_dup(const char *path)
+{
+	char *cwd;
+	char *normalized;
+	size_t cwd_len;
+
+	if (!path || !*path)
+		return NULL;
+	if (path[0] != '/') {
+		normalized = strdup(path);
+		if (!normalized || !patch_path_ok(normalized)) {
+			free(normalized);
+			return NULL;
+		}
+		return normalized;
+	}
+
+	cwd = getcwd(NULL, 0);
+	if (!cwd)
+		return NULL;
+	cwd_len = strlen(cwd);
+	/* Accept an absolute name only when it identifies a file below cwd. */
+	if (strncmp(path, cwd, cwd_len) ||
+	    (cwd_len > 1 && path[cwd_len] != '/')) {
+		free(cwd);
+		return NULL;
+	}
+	normalized = strdup(path + cwd_len + (cwd_len > 1));
+	free(cwd);
+	if (!normalized || !patch_path_ok(normalized)) {
+		free(normalized);
+		return NULL;
+	}
+	return normalized;
+}
+
 static char *patch_err(const char *msg)
 {
 	char *out;
@@ -834,9 +870,10 @@ static char *parse_update(struct patch_reader *r, const char *path,
 
 		if (!saw_hunk && str_starts(ltrim, "*** Move to: ")) {
 			free(*out_path);
-			*out_path = strdup(ltrim + strlen("*** Move to: "));
+			*out_path = patch_path_dup(ltrim +
+					       strlen("*** Move to: "));
 			free(ltrim);
-			if (!*out_path || !patch_path_ok(*out_path))
+			if (!*out_path)
 				goto invalid_path;
 			*have_line = false;
 			continue;
@@ -1105,9 +1142,9 @@ char *fyai_apply_patch_text(const char *patch)
 		new_path = NULL;
 		content = NULL;
 		if (str_starts(ltrim, "*** Add File: ")) {
-			path = strdup(ltrim + strlen("*** Add File: "));
+			path = patch_path_dup(ltrim + strlen("*** Add File: "));
 			free(ltrim);
-			if (!path || !patch_path_ok(path)) {
+			if (!path) {
 				free(path);
 				return patch_err("invalid patch path");
 			}
@@ -1117,9 +1154,9 @@ char *fyai_apply_patch_text(const char *patch)
 				err = patch_ops_append(&ops, &tail, PATCH_OP_ADD,
 						       path, NULL, content);
 		} else if (str_starts(ltrim, "*** Delete File: ")) {
-			path = strdup(ltrim + strlen("*** Delete File: "));
+			path = patch_path_dup(ltrim + strlen("*** Delete File: "));
 			free(ltrim);
-			if (!path || !patch_path_ok(path)) {
+			if (!path) {
 				free(path);
 				return patch_err("invalid patch path");
 			}
@@ -1129,9 +1166,9 @@ char *fyai_apply_patch_text(const char *patch)
 						       PATCH_OP_DELETE,
 						       path, NULL, NULL);
 		} else if (str_starts(ltrim, "*** Update File: ")) {
-			path = strdup(ltrim + strlen("*** Update File: "));
+			path = patch_path_dup(ltrim + strlen("*** Update File: "));
 			free(ltrim);
-			if (!path || !patch_path_ok(path)) {
+			if (!path) {
 				free(path);
 				return patch_err("invalid patch path");
 			}
