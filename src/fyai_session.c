@@ -264,8 +264,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	bool tools_save, shell_save;
 	size_t n;
 
-	if (!cfg->api_key || !*cfg->api_key) {
-		fyai_error(ctx, "compact: no API key");
+	if ((!cfg->api_key || !*cfg->api_key) &&
+	    !cfg->chatgpt_auth && !cfg->no_auth) {
+		fyai_error(ctx, "compact: no API key or ChatGPT login is available");
 		return -1;
 	}
 	if (fy_generic_is_invalid(ctx->last_message) ||
