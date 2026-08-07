@@ -2243,16 +2243,181 @@ static void session_complete_value(struct fytim_completions *lc, const char *cmd
 	(void)fytim_completion_add(lc, cand);
 }
 
+static void session_complete_values(struct fytim_completions *lc,
+				    const char *cmd, size_t cmdlen,
+				    const char *word,
+				    const char *const *values)
+{
+	const char *const *v;
+
+	for (v = values; v && *v; v++)
+		session_complete_value(lc, cmd, cmdlen, word, *v);
+}
+
+static void session_complete_command_names(struct fytim_completions *lc,
+					   const char *prefix, size_t len)
+{
+	const char *cand;
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(fyai_slash_cmds); i++) {
+		if (!strncmp(fyai_slash_cmds[i].name, prefix, len)) {
+			cand = fy_sprintfa("/%s", fyai_slash_cmds[i].name);
+			(void)fytim_completion_add(lc, cand);
+		}
+	}
+	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {
+		if (!strncmp(fyai_slash_opts[i].name, prefix, len)) {
+			cand = fy_sprintfa("/%s", fyai_slash_opts[i].name);
+			(void)fytim_completion_add(lc, cand);
+		}
+	}
+}
+
+static void session_complete_models(struct fyai_ctx *ctx,
+					    struct fytim_completions *lc,
+					    const char *cmd, size_t cmdlen,
+					    const char *word)
+{
+	fy_generic cat, models, model, name;
+	const char *s;
+
+	cat = fyai_catalog_effective(ctx->cfg->catalog, ctx->cfg->gb);
+	models = fy_get(cat, "models");
+	fy_foreach(model, models) {
+		name = fy_get(model, "name");
+		s = fy_castp(&name, "");
+		if (*s)
+			session_complete_value(lc, cmd, cmdlen, word, s);
+	}
+}
+
+static void session_complete_branch(struct fyai_ctx *ctx,
+					    struct fytim_completions *lc,
+					    const char *cmd, size_t cmdlen,
+					    const char *word)
+{
+	static const char *const values[] = {
+		"list", "new", "delete", "rename", "show", "describe", NULL,
+	};
+	fy_generic name;
+	const char *s;
+	size_t i, count;
+
+	session_complete_values(lc, cmd, cmdlen, word, values);
+	/* Existing branch names make switching one tab away. */
+	count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
+	for (i = 0; i < count; i++) {
+		name = fy_get_key_at(ctx->arena_branches, i);
+		s = fy_castp(&name, "");
+		if (*s)
+			session_complete_value(lc, cmd, cmdlen, word, s);
+	}
+}
+
+static void session_complete_tools(struct fyai_ctx *ctx,
+					   struct fytim_completions *lc,
+					   const char *cmd, size_t cmdlen,
+					   const char *word)
+{
+	fy_generic cat, agents, agent, name;
+	const char *s;
+
+	if (word[0] != '-') {
+		session_complete_value(lc, cmd, cmdlen, word, "fyai");
+		cat = fyai_catalog_effective(ctx->cfg->catalog, ctx->cfg->gb);
+		agents = fy_get(cat, "agents");
+		fy_foreach(agent, agents) {
+			name = fy_get(agent, "name");
+			s = fy_castp(&name, "");
+			if (*s)
+				session_complete_value(lc, cmd, cmdlen, word, s);
+		}
+	}
+	session_complete_value(lc, cmd, cmdlen, word, "--brief");
+	session_complete_value(lc, cmd, cmdlen, word, "--full");
+}
+
+struct session_completion_group {
+	const char *const *names;
+	const char *const *values;
+};
+
+static void session_complete_command_args(struct fyai_ctx *ctx,
+						  const struct fyai_slash_cmd *cmd,
+						  struct fytim_completions *lc,
+						  const char *command,
+						  size_t command_len,
+						  const char *word)
+{
+	static const char *const history_names[] = {
+		"history", "transcript", NULL,
+	};
+	static const char *const history_values[] = {
+		"all", "last", "first", "range", NULL,
+	};
+	static const char *const list_names[] = { "list", NULL };
+	static const char *const list_values[] = {
+		"models", "providers", "turns", "exchanges", "reflog", NULL,
+	};
+	static const char *const mcp_names[] = { "mcp", NULL };
+	static const char *const mcp_values[] = { "show", "on", "off", NULL };
+	static const char *const config_names[] = { "config", NULL };
+	static const char *const config_values[] = {
+		"show", "effective", "edit", "validate", "schema", "describe",
+		"get", "set", "delete", NULL,
+	};
+	static const char *const api_names[] = { "api", NULL };
+	static const char *const api_values[] = {
+		"responses", "chat-completions", "messages", NULL,
+	};
+	static const char *const log_names[] = { "log", "logging", NULL };
+	static const char *const log_values[] = {
+		"wire", "stream", "conversation", "mcp", "all", "start", "stop",
+		"clear", "view", NULL,
+	};
+	static const struct session_completion_group groups[] = {
+		{ history_names, history_values },
+		{ list_names, list_values },
+		{ mcp_names, mcp_values },
+		{ config_names, config_values },
+		{ api_names, api_values },
+		{ log_names, log_values },
+	};
+	size_t i;
+	const char *const *name;
+
+	if (!cmd)
+		return;
+	if (!strcmp(cmd->name, "model")) {
+		session_complete_models(ctx, lc, command, command_len, word);
+		return;
+	}
+	if (!strcmp(cmd->name, "branch")) {
+		session_complete_branch(ctx, lc, command, command_len, word);
+		return;
+	}
+	if (!strcmp(cmd->name, "tools")) {
+		session_complete_tools(ctx, lc, command, command_len, word);
+		return;
+	}
+	for (i = 0; i < ARRAY_SIZE(groups); i++)
+		for (name = groups[i].names; *name; name++)
+			if (!strcmp(cmd->name, *name)) {
+				session_complete_values(lc, command, command_len,
+							word, groups[i].values);
+				return;
+			}
+}
+
 void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
-			     struct fytim_completions *lc)
+				     struct fytim_completions *lc)
 {
 	const struct fyai_slash_cmd *cmd;
 	const struct fyai_slash_opt *opt;
-	const char *sp, *word, *s;
+	const char *sp, *word;
 	const char *const *v;
-	fy_generic cat, models, m, nm, agents, a;
-	const char *cand;
-	size_t i, len, count;
+	size_t len;
 
 	if (!ctx || buf[0] != '/')
 		return;
@@ -2261,18 +2426,7 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 	if (!sp) {
 		/* Complete the command name itself. */
 		len = strlen(buf + 1);
-		for (i = 0; i < ARRAY_SIZE(fyai_slash_cmds); i++)
-			if (!strncmp(fyai_slash_cmds[i].name, buf + 1, len)) {
-				cand = fy_sprintfa("/%s",
-						   fyai_slash_cmds[i].name);
-				(void)fytim_completion_add(lc, cand);
-			}
-		for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++)
-			if (!strncmp(fyai_slash_opts[i].name, buf + 1, len)) {
-				cand = fy_sprintfa("/%s",
-						   fyai_slash_opts[i].name);
-				(void)fytim_completion_add(lc, cand);
-			}
+		session_complete_command_names(lc, buf + 1, len);
 		return;
 	}
 
@@ -2288,91 +2442,8 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 		v = opt->values;
 		if (!v && opt->kind == FYAIOK_BOOL)
 			v = bool_vals;
-		for (; v && *v; v++)
-			session_complete_value(lc, buf + 1, len, word, *v);
+		session_complete_values(lc, buf + 1, len, word, v);
 		return;
 	}
-
-	if (cmd && !strcmp(cmd->name, "model")) {
-		cat = fyai_catalog_effective(ctx->cfg->catalog, ctx->cfg->gb);
-		models = fy_get(cat, "models");
-		fy_foreach(m, models) {
-			nm = fy_get(m, "name");
-			s = fy_castp(&nm, "");
-			if (*s)
-				session_complete_value(lc, buf + 1, len,
-						       word, s);
-		}
-	} else if (cmd && (!strcmp(cmd->name, "history") ||
-			   !strcmp(cmd->name, "transcript"))) {
-		session_complete_value(lc, buf + 1, len, word, "all");
-		session_complete_value(lc, buf + 1, len, word, "last");
-		session_complete_value(lc, buf + 1, len, word, "first");
-		session_complete_value(lc, buf + 1, len, word, "range");
-	} else if (cmd && !strcmp(cmd->name, "branch")) {
-		session_complete_value(lc, buf + 1, len, word, "list");
-		session_complete_value(lc, buf + 1, len, word, "new");
-		session_complete_value(lc, buf + 1, len, word, "delete");
-		session_complete_value(lc, buf + 1, len, word, "rename");
-		session_complete_value(lc, buf + 1, len, word, "show");
-		session_complete_value(lc, buf + 1, len, word, "describe");
-		/* the existing branch names, so a switch is one tab away */
-		count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
-		for (i = 0; i < count; i++) {
-			nm = fy_get_key_at(ctx->arena_branches, i);
-			s = fy_castp(&nm, "");
-			if (*s)
-				session_complete_value(lc, buf + 1, len, word, s);
-		}
-	} else if (cmd && !strcmp(cmd->name, "list")) {
-		session_complete_value(lc, buf + 1, len, word, "models");
-		session_complete_value(lc, buf + 1, len, word, "providers");
-		session_complete_value(lc, buf + 1, len, word, "turns");
-		session_complete_value(lc, buf + 1, len, word, "exchanges");
-		session_complete_value(lc, buf + 1, len, word, "reflog");
-	} else if (cmd && !strcmp(cmd->name, "mcp")) {
-		session_complete_value(lc, buf + 1, len, word, "show");
-		session_complete_value(lc, buf + 1, len, word, "on");
-		session_complete_value(lc, buf + 1, len, word, "off");
-	} else if (cmd && !strcmp(cmd->name, "tools")) {
-		if (word[0] != '-') {
-			session_complete_value(lc, buf + 1, len, word, "fyai");
-			cat = fyai_catalog_effective(ctx->cfg->catalog, ctx->cfg->gb);
-			agents = fy_get(cat, "agents");
-			fy_foreach(a, agents) {
-				nm = fy_get(a, "name");
-				s = fy_castp(&nm, "");
-				if (*s)
-					session_complete_value(lc, buf + 1, len,
-							       word, s);
-			}
-		}
-		session_complete_value(lc, buf + 1, len, word, "--brief");
-		session_complete_value(lc, buf + 1, len, word, "--full");
-	} else if (cmd && !strcmp(cmd->name, "config")) {
-		session_complete_value(lc, buf + 1, len, word, "show");
-		session_complete_value(lc, buf + 1, len, word, "effective");
-		session_complete_value(lc, buf + 1, len, word, "edit");
-		session_complete_value(lc, buf + 1, len, word, "validate");
-		session_complete_value(lc, buf + 1, len, word, "schema");
-		session_complete_value(lc, buf + 1, len, word, "describe");
-		session_complete_value(lc, buf + 1, len, word, "get");
-		session_complete_value(lc, buf + 1, len, word, "set");
-		session_complete_value(lc, buf + 1, len, word, "delete");
-	} else if (cmd && !strcmp(cmd->name, "api")) {
-		session_complete_value(lc, buf + 1, len, word, "responses");
-		session_complete_value(lc, buf + 1, len, word, "chat-completions");
-		session_complete_value(lc, buf + 1, len, word, "messages");
-	} else if (cmd && (!strcmp(cmd->name, "log") ||
-			   !strcmp(cmd->name, "logging"))) {
-		session_complete_value(lc, buf + 1, len, word, "wire");
-		session_complete_value(lc, buf + 1, len, word, "stream");
-		session_complete_value(lc, buf + 1, len, word, "conversation");
-		session_complete_value(lc, buf + 1, len, word, "mcp");
-		session_complete_value(lc, buf + 1, len, word, "all");
-		session_complete_value(lc, buf + 1, len, word, "start");
-		session_complete_value(lc, buf + 1, len, word, "stop");
-		session_complete_value(lc, buf + 1, len, word, "clear");
-		session_complete_value(lc, buf + 1, len, word, "view");
-	}
+	session_complete_command_args(ctx, cmd, lc, buf + 1, len, word);
 }
