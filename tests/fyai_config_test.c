@@ -11,6 +11,7 @@
 
 #include "fyai_branch.h"
 #include "fyai_merge.h"
+#include "fyai_session.h"
 #include "fyai_storage.h"
 
 #include "fyai_test_registry.h"
@@ -19,8 +20,18 @@ FYAI_TEST_ENTRY(config, root_decode, config_root_decode)
 FYAI_TEST_ENTRY(config, branch_names, config_branch_names)
 FYAI_TEST_ENTRY(config, branch_refs, config_branch_refs)
 FYAI_TEST_ENTRY(config, merge_base, config_merge_base)
+FYAI_TEST_ENTRY(session, compact_chatgpt_auth, session_compact_chatgpt_auth)
 
 static int failures;
+
+int session_compact_chatgpt_auth(void)
+{
+	struct fyai_cfg cfg = { .chatgpt_auth = true };
+	struct fyai_ctx ctx = { .cfg = &cfg };
+
+	ctx.last_message = fy_invalid;
+	return fyai_session_compact(&ctx, NULL);
+}
 
 #define check(_cond, _msg) \
 	do { \
