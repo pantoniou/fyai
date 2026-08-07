@@ -724,6 +724,7 @@ static enum fyai_event_action fenced_stream_flush_timer(const struct fyai_event 
 {
 	struct fyai_fenced_stream *fs = ev->userdata;
 
+	fyai_event_source_remove(ev->src);
 	fs->flush_src = NULL;
 	if (fs->active && fs->render_pending)
 		(void)fenced_stream_render(fs);
