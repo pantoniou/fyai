@@ -2342,8 +2342,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.execute   = execute_compact,
 		.synopsis  = "compact [hint]",
 		.help	   = "Compact the conversation and restart its chain (old head kept as\n"
-			     "compacted_from provenance): Responses uses the native compact\n"
-			     "endpoint; other APIs summarize with one model call. An optional\n"
+			     "compacted_from provenance): Responses can use server compaction;\n"
+			     "other APIs summarize with one model call. An optional\n"
 			     "hint focuses retained state. Needs request authentication.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NEEDS_API_KEYS,
 		.default_args.compact = {
