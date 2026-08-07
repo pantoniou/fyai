@@ -26,9 +26,19 @@ static int failures;
 
 int session_compact_chatgpt_auth(void)
 {
-	struct fyai_cfg cfg = { .chatgpt_auth = true };
+	struct fyai_cfg cfg = {
+		.api_mode = FYAI_API_RESPONSES,
+		.response_compaction_supported = true,
+		.chatgpt_auth = true,
+	};
 	struct fyai_ctx ctx = { .cfg = &cfg };
 
+	if (!fyai_session_compact_v2(&cfg))
+		return 1;
+	cfg.chatgpt_auth = false;
+	if (fyai_session_compact_v2(&cfg))
+		return 1;
+	cfg.chatgpt_auth = true;
 	ctx.last_message = fy_invalid;
 	return fyai_session_compact(&ctx, NULL);
 }
