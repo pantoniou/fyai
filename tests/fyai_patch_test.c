@@ -68,7 +68,9 @@ int patch_apply(void)
 {
 	char tmpl[] = "/tmp/fyai-patch-test-XXXXXX";
 	char *dir;
+	char *alias;
 	char *patch;
+	int rc;
 
 	dir = mkdtemp(tmpl);
 	if (!dir)
@@ -105,6 +107,37 @@ int patch_apply(void)
 	expect_ok(fyai_apply_patch_text(patch));
 	free(patch);
 	expect_file("a.txt", "one\nthree\n");
+
+	rc = asprintf(&alias, "%s-alias", dir);
+	if (rc < 0)
+		return 1;
+	if (symlink(dir, alias))
+		return 1;
+	rc = asprintf(&patch,
+		      "*** Begin Patch\n"
+		      "*** Update File: %s/a.txt\n"
+		      "@@\n"
+		      " one\n"
+		      " three\n"
+		      "*** End Patch\n", alias);
+	if (rc < 0)
+		return 1;
+	expect_ok(fyai_apply_patch_text(patch));
+	free(patch);
+	rc = asprintf(&patch,
+		      "*** Begin Patch\n"
+		      "*** Add File: %s/alias.txt\n"
+		      "+through alias\n"
+		      "*** End Patch\n", alias);
+	if (rc < 0)
+		return 1;
+	expect_ok(fyai_apply_patch_text(patch));
+	free(patch);
+	if (unlink(alias))
+		return 1;
+	free(alias);
+	expect_file("a.txt", "one\nthree\n");
+	expect_file("alias.txt", "through alias\n");
 
 	expect_error(fyai_apply_patch_text(
 		"*** Begin Patch\n"
