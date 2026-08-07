@@ -68,6 +68,7 @@ int patch_apply(void)
 {
 	char tmpl[] = "/tmp/fyai-patch-test-XXXXXX";
 	char *dir;
+	char *patch;
 
 	dir = mkdtemp(tmpl);
 	if (!dir)
@@ -92,6 +93,25 @@ int patch_apply(void)
 		"+three\n"
 		"*** End Patch\n"));
 	expect_file("a.txt", "one\nthree\n");
+
+	if (asprintf(&patch,
+		     "*** Begin Patch\n"
+		     "*** Update File: %s/a.txt\n"
+		     "@@\n"
+		     " one\n"
+		     " three\n"
+		     "*** End Patch\n", dir) < 0)
+		return 1;
+	expect_ok(fyai_apply_patch_text(patch));
+	free(patch);
+	expect_file("a.txt", "one\nthree\n");
+
+	expect_error(fyai_apply_patch_text(
+		"*** Begin Patch\n"
+		"*** Update File: /tmp/outside-fyai-workspace.txt\n"
+		"@@\n"
+		" old\n"
+		"*** End Patch\n"));
 
 	expect_error(fyai_apply_patch_text(
 		"*** Begin Patch\n"
