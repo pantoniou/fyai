@@ -120,7 +120,8 @@ static void test_flush_timer_retires(void)
 				      NULL, fp, true);
 	FYAI_TCHECK(!rc);
 	for (i = 0; i < 3; i++) {
-		fs.next_render_ms = fyai_event_now_ms() + 1;
+		/* Keep the deadline far enough ahead to arm the timer. */
+		fs.next_render_ms = fyai_event_now_ms() + 50;
 		rc = fyai_fenced_stream_push(&fs, "progress\n", 9);
 		FYAI_TCHECK(!rc);
 		FYAI_TCHECK(fyai_event_loop_source_count(el) == baseline + 1);
