@@ -25,6 +25,7 @@
 
 FYAI_TEST_ENTRY(shell, timeout_stops_command, shell_timeout_stops_command)
 FYAI_TEST_ENTRY(shell, timeout_stops_descendant, shell_timeout_stops_descendant)
+FYAI_TEST_ENTRY(shell, completion_ignores_open_descendant, shell_completion_ignores_open_descendant)
 FYAI_TEST_ENTRY(shell, timeout_spares_quick, shell_timeout_spares_quick)
 FYAI_TEST_ENTRY(shell, workdir_changes_dir, shell_workdir_changes_directory)
 FYAI_TEST_ENTRY(shell, bad_workdir_reports_125, shell_bad_workdir_reports_125)
@@ -102,6 +103,23 @@ int shell_timeout_stops_descendant(void)
 	shell_command_result_cleanup(&result);
 	shell_teardown();
 	printf("ok - a shell time limit stops a descendant\n");
+	return 0;
+}
+
+int shell_completion_ignores_open_descendant(void)
+{
+	struct shell_command_result result = {};
+	int rc;
+
+	rc = shell_run("echo captured; sleep 30 & exit 0", NULL, &result);
+	FYAI_TCHECK(rc == 0);
+	FYAI_TCHECK(!result.signaled);
+	FYAI_TCHECK(result.exit_code == 0);
+	FYAI_TCHECK(!strcmp(result.stdout_data, "captured\n"));
+
+	shell_command_result_cleanup(&result);
+	shell_teardown();
+	printf("ok - shell completion ignores an open descendant\n");
 	return 0;
 }
 
