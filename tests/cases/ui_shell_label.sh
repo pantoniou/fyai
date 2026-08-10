@@ -29,9 +29,11 @@ plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 
 if b"[probe the slow path]" not in plain:
     raise SystemExit("shell description missing from the label")
-# The label contains the description and the command.
-if b"echo shell-label-marker" not in plain:
-    raise SystemExit("shell command missing from the label")
+# The command is in a shell-language code block below the label. This lets the
+# fenced-code renderer apply shell syntax highlighting to one-line commands.
+if not re.search(rb"\[probe the slow path\](?:[^\n]*\n){1,4}[^\n]*echo shell-label-marker",
+                 plain):
+    raise SystemExit("shell command is not in a code block below the label")
 
 # The cause is beside the label. It identifies the requested limit instead of
 # the longer configured default.

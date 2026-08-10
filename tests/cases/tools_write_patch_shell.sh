@@ -12,10 +12,9 @@ run_fyai --set display/markdown=true --set api=chat-completions --set display/st
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "do the three things"
 assert_status 0
 assert_stdout_contains "All three tools executed."
-# Shell streams its output progressively into a bounded, indented region on
-# stderr (here non-tty, so buffered and flushed once); the same libfymd4c
-# fenced render as the history view, just updated live on a terminal.
-assert_stderr_contains "  shell echo shell-ran-ok"
+# The shell command is in a fenced block below the label.
+assert_stderr_contains "  shell"
+assert_stderr_contains "    echo shell-ran-ok"
 assert_stderr_contains "shell-ran-ok"
 
 assert_file_content out.txt "written by mock"

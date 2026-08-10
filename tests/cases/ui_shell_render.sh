@@ -27,12 +27,12 @@ import sys
 
 data = open(sys.argv[1], "rb").read()
 plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
-if not re.search(rb"(?:^|[\r\n])\xe2\x97\x8f shell\s+printf", plain):
+if not re.search(rb"(?:^|[\r\n])\xe2\x97\x8f shell(?:\s|\r)*\n", plain):
     raise SystemExit("live activity dot is not beside the shell invocation")
 if b"\xe2\x97\x8f working" in plain:
     raise SystemExit("activity dot was rendered on a separate chrome row")
-if b"shell printf" not in plain:
-    raise SystemExit("canonical shell header missing")
+if not re.search(rb"\xe2\x97\x8f shell(?:[^\n]*\n){1,4}[^\n]*printf", plain):
+    raise SystemExit("highlighted shell command is not below the header")
 if not re.search(rb"(?:^|[\r\n])    tool-progress\r?\n", plain):
     raise SystemExit("fenced output is not indented")
 EOF

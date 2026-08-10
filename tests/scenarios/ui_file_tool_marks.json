@@ -1,0 +1,61 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_file_marks_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_file_read_1",
+            "call_id": "call_file_read_1",
+            "name": "read_file",
+            "arguments": "{\"path\": \"input.txt\"}",
+            "status": "completed"
+          },
+          {
+            "type": "function_call",
+            "id": "fc_file_write_1",
+            "call_id": "call_file_write_1",
+            "name": "write_file",
+            "arguments": "{\"path\": \"output.txt\", \"content\": \"written marker\\n\"}",
+            "status": "completed"
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_file_marks_2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_file_marks_2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "File tool marks done."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 5,
+          "total_tokens": 25
+        }
+      }
+    }
+  ]
+}
