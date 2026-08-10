@@ -545,6 +545,14 @@ raw:
 	return -1;
 }
 
+int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
+			      size_t len, const char *lang,
+			      struct response_buffer *out)
+{
+	return markdown_render_fenced(cfg, text, len, lang, fy_invalid, 0, out,
+				      markdown_color_enabled(cfg->color));
+}
+
 void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
 			  size_t len)
 {
@@ -798,7 +806,13 @@ static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 {
 	if (!fs->band || !fyai_ui_active(fs->ctx))
 		return;
-	fyai_ui_workband_update(fs->ctx, fs->band, fs->title,
+	if (fs->command)
+		fyai_ui_shell_workband_update(fs->ctx, fs->band, fs->title,
+				fs->command,
+				fs->body.data ? fs->body.data : "", fs->body.len,
+				fs->first_margin);
+	else
+		fyai_ui_workband_update(fs->ctx, fs->band, fs->title,
 				fs->body.data ? fs->body.data : "", fs->body.len,
 				fs->first_margin);
 }

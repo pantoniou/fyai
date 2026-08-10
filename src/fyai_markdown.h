@@ -102,6 +102,9 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
 int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines);
+int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
+			      size_t len, const char *lang,
+			      struct response_buffer *out);
 /*
  * Write @data/@len to @fp with each non-empty line prefixed by the @ind indent
  * string. Used to manually decorate raw fenced tool output with a uniform
@@ -120,6 +123,7 @@ struct fyai_fenced_stream {
 	struct fyai_ctx *ctx;
 	struct fytim_workband *band; /* optional independently owned UI band */
 	const char *title;	     /* band invocation header */
+	const char *command;	     /* frameless highlighted shell command */
 	char *first_margin;	     /* theme-rendered activity marker */
 	struct fymd_renderer *r;
 	struct response_buffer accum;	/* raw source accumulated so far */

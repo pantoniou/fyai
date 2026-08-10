@@ -39,8 +39,15 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 			     struct fytim_workband *band,
 			     const char *title, const char *body, size_t len,
 			     const char *first_margin);
+void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
+				   struct fytim_workband *band,
+				   const char *title, const char *command,
+				   const char *body, size_t len,
+				   const char *first_margin);
 void fyai_ui_workband_destroy(struct fytim_workband *band);
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title);
+void fyai_ui_shell_begin(struct fyai_ctx *ctx, const char *title,
+			 const char *command);
 void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len);
 void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause);
 void fyai_ui_pane_begin(struct fyai_ctx *ctx);

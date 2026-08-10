@@ -128,6 +128,20 @@ static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command,
 	return fyai_format_tool_header(ctx, "shell", disp, 0);
 }
 
+static char *fyai_format_shell_label(fy_generic args)
+{
+	fy_generic desc;
+	const char *text;
+	char *label;
+
+	desc = fy_get(args, "description");
+	text = fy_castp(&desc, "");
+	if (asprintf(&label, "**shell**%s%s%s\n",
+		     *text ? " [" : "", text, *text ? "]" : "") < 0)
+		return NULL;
+	return label;
+}
+
 /*
  * Return a short failure cause for the label beside the failure mark.
  *
@@ -255,7 +269,10 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		header = fyai_format_shell_header(ctx, *command ? command : name,
 						  args);
 		if (fyai_ui_active(ctx)) {
-			fyai_ui_tool_begin(ctx, header ? header : "shell");
+			free(header);
+			header = fyai_format_shell_label(args);
+			fyai_ui_shell_begin(ctx, header ? header : "shell",
+					    *command ? command : name);
 		} else if (header) {
 			if (fyai_fprint_markdown(stderr, header, ctx->cfg))
 				fputs(header, stderr);
@@ -1281,6 +1298,7 @@ struct fyai_tool_job {
 	struct fyai_fenced_stream stream;
 	struct fytim_workband *band;
 	char *title;
+	char *command;
 	struct fyai_event_source *csrc;
 	bool out_open;		/* tool/run still outstanding */
 	bool have_result;
@@ -1462,6 +1480,8 @@ static void fyai_tool_job_live_close(struct fyai_tool_job *job)
 	job->band = NULL;
 	free(job->title);
 	job->title = NULL;
+	free(job->command);
+	job->command = NULL;
 }
 
 static int fyai_tool_job_attach(struct fyai_ctx *ctx,
@@ -1629,9 +1649,11 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				fy_cast(fy_get_at_path(tool_call, "action",
 						       "commands", 0), "") :
 				fy_get(args, "command", "");
-			job->title = fyai_format_shell_header(ctx,
-					     *command ? command : name,
-					     native_call ? fy_invalid : args);
+			job->title = fyai_format_shell_label(
+					native_call ? fy_invalid : args);
+			job->command = strdup(*command ? command : name);
+			fyai_error_check(ctx, job->command, err,
+					 "out of memory formatting shell progress");
 			job->band_progress = true;
 		}
 		job->band = fyai_ui_workband_create(ctx);
@@ -1655,8 +1677,10 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				FYAI_TOOL_OUTPUT_INDENT, stderr, true)) {
 			job->stream.band = job->band;
 			job->stream.title = job->title;
-			fyai_ui_workband_update(ctx, job->band,
-						job->title, NULL, 0, NULL);
+			job->stream.command = job->command;
+			fyai_ui_shell_workband_update(ctx, job->band,
+						      job->title, job->command,
+						      NULL, 0, NULL);
 		} else {
 			fyai_tool_job_live_close(job);
 		}

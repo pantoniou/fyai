@@ -45,6 +45,7 @@ struct fyai_ui {
 	struct fytim_workband *message_band;
 	struct fyai_editor_request *editor_request;
 	char *tool_title;
+	char *tool_command;
 	char *tool_error;	/* short failure cause, shown beside the mark */
 	char *tool_body;
 	char *status_bottom;
@@ -147,6 +148,81 @@ static int ui_tool_render_error(struct fyai_ui *ui, struct response_buffer *out)
 	return 0;
 }
 
+static int ui_shell_max_rows(const struct fyai_ui *ui, const char *command)
+{
+	const unsigned char *p;
+	size_t width;
+	size_t column;
+	size_t rows;
+	int preview_rows;
+
+	preview_rows = ui->ctx->cfg->tool_preview_lines > 0 ?
+		ui->ctx->cfg->tool_preview_lines : 0;
+	if (!command)
+		return preview_rows + 2;
+	width = ui->ctx->cfg->render_width > 2 ?
+		(size_t)ui->ctx->cfg->render_width - 2 : 1;
+	rows = 1;
+	column = 0;
+	for (p = (const unsigned char *)command; *p; p++) {
+		if (*p == '\n') {
+			rows++;
+			column = 0;
+			continue;
+		}
+		if (++column >= width && p[1] && p[1] != '\n') {
+			rows++;
+			column = 0;
+		}
+	}
+	if (rows > (size_t)INT_MAX - (size_t)preview_rows - 1)
+		return INT_MAX;
+	return preview_rows + (int)rows + 1;
+}
+
+static int ui_append_shell_command(struct fyai_cfg *cfg,
+				   struct response_buffer *out,
+				   const char *command)
+{
+	struct response_buffer rendered = {};
+	size_t start;
+	size_t i;
+	int rc;
+
+	rc = fyai_render_fenced_buffer(cfg, command, strlen(command), "sh",
+				       &rendered);
+	if (rc)
+		goto out;
+	while (rendered.len && (rendered.data[rendered.len - 1] == '\n' ||
+				rendered.data[rendered.len - 1] == '\r'))
+		rendered.len--;
+	if (out->len && out->data[out->len - 1] != '\n') {
+		rc = response_buffer_append(out, "\n");
+		if (rc)
+			goto out;
+	}
+	for (start = 0, i = 0; i <= rendered.len; i++) {
+		if (i < rendered.len && rendered.data[i] != '\n')
+			continue;
+		rc = response_buffer_append(out, "  ");
+		if (rc)
+			goto out;
+		rc = response_buffer_reserve(out, out->len + i - start + 1);
+		if (rc)
+			goto out;
+		memcpy(out->data + out->len, rendered.data + start, i - start);
+		out->len += i - start;
+		out->data[out->len] = '\0';
+		rc = response_buffer_append(out, "\n");
+		if (rc)
+			goto out;
+		start = i + 1;
+	}
+out:
+	free(rendered.data);
+	return rc;
+}
+
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
@@ -156,6 +232,8 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 
 	if (!ui->tool_band)
 		return 0;
+	(void)fytim_workband_set_max_rows(ui->tool_band,
+					 ui_shell_max_rows(ui, ui->tool_command));
 	title_len = ui->tool_title ? strlen(ui->tool_title) : 0;
 	if (markdown_render_margins(ui->ctx->cfg,
 			ui->tool_title ? ui->tool_title : "shell",
@@ -168,6 +246,9 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	 * color. Markdown renders raw escape sequences as text.
 	 */
 	if (ui->tool_error && ui_tool_render_error(ui, &out))
+		goto out;
+	if (ui->tool_command &&
+	    ui_append_shell_command(ui->ctx->cfg, &out, ui->tool_command))
 		goto out;
 	if (ui->tool_body_len) {
 		if (out.len && out.data[out.len - 1] != '\n') {
@@ -183,8 +264,9 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		out.len += ui->tool_body_len;
 		out.data[out.len] = '\0';
 	}
-	if (fytim_workband_set(ui->tool_band, out.data, out.len) != FYTIM_OK)
+	if (fytim_workband_set(ui->tool_band, out.data, out.len) != FYTIM_OK) {
 		goto out;
+	}
 	if (commit &&
 	    fytim_workband_set_commit(ui->tool_band, out.data, out.len) != FYTIM_OK)
 		goto out;
@@ -696,6 +778,8 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	if (ui->tty_fd >= 0)
 		close(ui->tty_fd);
 	free(ui->tool_title);
+	free(ui->tool_command);
+	ui->tool_command = NULL;
 	free(ui->tool_body);
 	free(ui->status_bottom);
 	ctx->cfg->color = ui->saved_color;
@@ -703,6 +787,20 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	for (l = ui->head; l; l = n) { n = l->next; free(l->text); free(l); }
 	free(ui);
 	ctx->ui = NULL;
+}
+
+void fyai_ui_shell_begin(struct fyai_ctx *ctx, const char *title,
+			 const char *command)
+{
+	struct fyai_ui *ui;
+
+	fyai_ui_tool_begin(ctx, title);
+	if (!fyai_ui_active(ctx))
+		return;
+	ui = ctx->ui;
+	ui->tool_command = strdup(command ? command : "");
+	ui->activity_phase = -1;
+	(void)ui_activity_refresh(ui);
 }
 
 void fyai_ui_pane_begin(struct fyai_ctx *ctx)
@@ -1108,6 +1206,70 @@ out:
 	free(out.data);
 }
 
+void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
+				   struct fytim_workband *band,
+				   const char *title, const char *command,
+				   const char *body, size_t len,
+				   const char *first_margin)
+{
+	struct fyai_ui *ui;
+	struct response_buffer top = {0};
+	struct response_buffer out = {0};
+	fyai_event_ms_t now;
+	char *margin = NULL;
+	size_t start;
+	size_t end;
+
+	if (!fyai_ui_active(ctx) || !band)
+		return;
+	ui = ctx->ui;
+	title = title ? title : "shell";
+	margin = first_margin ? strdup(first_margin) :
+		ui_indicator(ui, FYMD_INDICATOR_PENDING, 0, NULL);
+	if (!margin)
+		goto out;
+	if (markdown_render_margins(ctx->cfg, title, strlen(title), &top,
+				    margin, "  "))
+		goto out;
+	start = 0;
+	while (start < top.len && (top.data[start] == '\n' ||
+				   top.data[start] == '\r'))
+		start++;
+	end = top.len;
+	while (end > start && (top.data[end - 1] == '\n' ||
+				 top.data[end - 1] == '\r'))
+		end--;
+	if (response_buffer_reserve(&out, end - start + 2))
+		goto out;
+	memcpy(out.data, top.data + start, end - start);
+	out.len = end - start;
+	out.data[out.len++] = '\n';
+	out.data[out.len] = '\0';
+	if (ui_append_shell_command(ctx->cfg, &out, command))
+		goto out;
+	if (len) {
+		if (response_buffer_reserve(&out, out.len + len + 2))
+			goto out;
+		out.data[out.len++] = '\n';
+		memcpy(out.data + out.len, body, len);
+		out.len += len;
+	}
+	out.data[out.len] = '\0';
+	(void)fytim_workband_set_max_rows(band,
+					 ui_shell_max_rows(ui, command));
+	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
+		goto out;
+	now = fyai_event_now_ms();
+	ui->frame_pending = true;
+	if (!ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
+		ui->next_frame_ms = now;
+	ui_rearm(ui);
+out:
+	free(margin);
+	free(top.data);
+	free(out.data);
+}
+
 void fyai_ui_workband_destroy(struct fytim_workband *band)
 {
 	if (band)
@@ -1121,6 +1283,8 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	ui = ctx->ui;
 	if (ui->tool_band) fytim_workband_destroy(ui->tool_band);
 	free(ui->tool_title);
+	free(ui->tool_command);
+	ui->tool_command = NULL;
 	free(ui->tool_error);
 	ui->tool_error = NULL;
 	free(ui->tool_body);
@@ -1171,6 +1335,7 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	free(ui->tool_title); ui->tool_title = NULL;
+	free(ui->tool_command); ui->tool_command = NULL;
 	free(ui->tool_error); ui->tool_error = NULL;
 	free(ui->tool_body); ui->tool_body = NULL; ui->tool_body_len = 0;
 }
