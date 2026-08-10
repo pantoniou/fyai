@@ -2185,6 +2185,8 @@ err_out:
 	goto out;
 }
 
+static void fyai_interactive_finish_output(struct fyai_ctx *ctx);
+
 static int
 fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 			     struct fyai_turn_run **runp)
@@ -2203,45 +2205,92 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	if (fy_generic_is_valid(result)) {
 		ctx->last_message = result;
 		rc = fyai_publish_state(ctx);
+		fyai_error_check(ctx, !rc, out,
+				 "could not publish the completed turn");
 	}
+out:
+	fyai_interactive_finish_output(ctx);
+	return rc;
+}
+
+/* Common display/session work done after an interactive turn completes. */
+static void fyai_interactive_finish_output(struct fyai_ctx *ctx)
+{
 	fyai_cleanup_transient_builder(ctx);
 	fyai_ui_diag_drain(ctx, "error");
 	fyai_ui_drain_output(ctx);
 	fyai_session_banner_update(ctx);
 	if (ctx->cfg->markdown && ctx->stdout_tty)
 		fputc('\n', stdout);
-	return rc;
+}
+
+/* Prepare the common interactive surface before entering its input loop. */
+static void fyai_interactive_prepare(struct fyai_ctx *ctx,
+				     const char *histfile, bool banner)
+{
+	fyai_ui_history_load(ctx, histfile);
+	fyai_interactive_recap(ctx);
+	fyai_ui_drain_output(ctx);
+	if (banner)
+		fyai_session_banner_update(ctx);
+}
+
+/* Handle a slash command. Return -1 when @line is an ordinary user turn. */
+static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
+					 const char *histfile, char *line)
+{
+	int rc;
+
+	if (line[0] != '/' || line[1] == '/')
+		return -1;
+	fyai_ui_history_save(ctx, histfile, line);
+	fyai_echo_user_turn(ctx, line);
+	rc = fyai_session_slash(ctx, line);
+	fyai_error_check(ctx, rc >= 0, out,
+			 "could not run the slash command");
+	if (ctx->cfg->markdown && ctx->stdout_tty)
+		putchar('\n');
+out:
+	fyai_ui_drain_output(ctx);
+	return rc < 0 ? rc : rc > 0 ? 1 : 0;
+}
+
+/* Normalize and display a normal interactive user line. */
+static void fyai_interactive_prepare_user_line(struct fyai_ctx *ctx,
+					       const char *histfile, char *line)
+{
+	if (line[0] == '/' && line[1] == '/')
+		memmove(line, line + 1, strlen(line));
+	fyai_ui_history_save(ctx, histfile, line);
+	fyai_echo_user_turn(ctx, line);
+	fyai_ui_drain_output(ctx);
+}
+
+static fy_generic fyai_interactive_append_user_turn(struct fyai_ctx *ctx,
+						    char *line)
+{
+	fy_generic turn;
+
+	turn = fyai_turn_append(ctx, ctx->last_message,
+			fy_sequence(fyai_make_user_message(ctx, line)));
+	return fyai_output_record(ctx, turn, FYAI_OUTPUT_USER, line);
 }
 
 static int
 fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
 			    char *line, struct fyai_turn_run **runp)
 {
-	struct fyai_cfg *cfg;
 	fy_generic turn;
 	int rc;
 
-	cfg = ctx->cfg;
-	if (line[0] == '/' && line[1] != '/') {
-		fyai_ui_history_save(ctx, histfile, line);
-		fyai_echo_user_turn(ctx, line);
-		rc = fyai_session_slash(ctx, line);
-		if (cfg->markdown && ctx->stdout_tty)
-			putchar('\n');
-		fyai_ui_drain_output(ctx);
-		return rc > 0 ? 1 : 0;
-	}
-	if (line[0] == '/' && line[1] == '/')
-		memmove(line, line + 1, strlen(line));
-	fyai_ui_history_save(ctx, histfile, line);
-	fyai_echo_user_turn(ctx, line);
-	fyai_ui_drain_output(ctx);
+	rc = fyai_interactive_handle_slash(ctx, histfile, line);
+	if (rc >= 0)
+		return rc;
+	fyai_interactive_prepare_user_line(ctx, histfile, line);
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient turn storage");
-	turn = fyai_turn_append(ctx, ctx->last_message,
-			fy_sequence(fyai_make_user_message(ctx, line)));
-	turn = fyai_output_record(ctx, turn, FYAI_OUTPUT_USER, line);
+	turn = fyai_interactive_append_user_turn(ctx, line);
 	fyai_error_check(ctx, fy_generic_is_valid(turn), err_cleanup,
 			 "could not append the user turn");
 	*runp = fyai_turn_run_submit(ctx, turn);
@@ -2412,10 +2461,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			 "interactive UI requires an event loop");
 
 	/* Start all MCP servers after the UI opens. */
-	fyai_ui_history_load(ctx, histfile);
-	fyai_interactive_recap(ctx);
-	fyai_ui_drain_output(ctx);
-	fyai_session_banner_update(ctx);
+	fyai_interactive_prepare(ctx, histfile, true);
 	if (cfg->mcp_enabled) {
 		rc = fyai_mcp_start(ctx);
 		fyai_error_check(ctx, !rc, out, "could not start MCP servers");
@@ -2560,11 +2606,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 
 	histfile = fyai_history_path();
-	if (fyai_ui_active(ctx))
-		fyai_ui_history_load(ctx, histfile);
-
-	fyai_interactive_recap(ctx);
-	fyai_ui_drain_output(ctx);
+	fyai_interactive_prepare(ctx, histfile, false);
 
 	/*
 	 * Style the interactive prompt with the theme's reverse-card colours -
@@ -2608,33 +2650,20 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		 * They never reach the model; "//..." escapes to send a
 		 * literal slash-prefixed prompt line.
 		 */
-		if (line[0] == '/' && line[1] != '/') {
-			if (fyai_ui_active(ctx))
-				fyai_ui_history_save(ctx, histfile, line);
-			fyai_echo_user_turn(ctx, line);
-			rc = fyai_session_slash(ctx, line);
-			if (cfg->markdown && ctx->stdout_tty)
-				putchar('\n');
-			fyai_ui_drain_output(ctx);
+		rc = fyai_interactive_handle_slash(ctx, histfile, line);
+		if (rc >= 0) {
 			free(line);
 			line = NULL;
 			if (rc > 0)
 				break;
 			continue;
 		}
-		if (line[0] == '/' && line[1] == '/')
-			memmove(line, line + 1, strlen(line));
-
-		if (fyai_ui_active(ctx))
-			fyai_ui_history_save(ctx, histfile, line);
-		fyai_echo_user_turn(ctx, line);
-		fyai_ui_drain_output(ctx);
+		fyai_interactive_prepare_user_line(ctx, histfile, line);
 
 		rc = fyai_setup_transient_builder(ctx);
 		assert(!rc);
 
-		v = fyai_turn_append(ctx, ctx->last_message, fy_sequence(fyai_make_user_message(ctx, line)));
-		v = fyai_output_record(ctx, v, FYAI_OUTPUT_USER, line);
+		v = fyai_interactive_append_user_turn(ctx, line);
 		free(line);
 		line = NULL;
 		if (fy_generic_is_invalid(v)) {
@@ -2662,21 +2691,11 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		if (fyai_publish_state(ctx))
 			goto err_out;
 
-		fyai_cleanup_transient_builder(ctx);
-
 		/*
 		 * The turn is over and the render is done: report now, before
 		 * the banner repaints the footer under it.
 		 */
-		fyai_ui_diag_drain(ctx, "error");
-		fyai_ui_drain_output(ctx);
-
-		/* Usage moved; refresh the context fill in the footer. */
-		fyai_session_banner_update(ctx);
-
-		/* Blank line between the reply and the next prompt. */
-		if (cfg->markdown && ctx->stdout_tty)
-			fputc('\n', stdout);
+		fyai_interactive_finish_output(ctx);
 	}
 
 	rc = 0;
