@@ -1808,9 +1808,10 @@ void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
  * here so both API modes (Responses items and Chat function calls, including the
  * built-in shell_call) share one path.
  */
-void fyai_render_tool_exchange(struct fyai_ctx *ctx,
-				      fy_generic tool_call,
-				      fy_generic tool_result)
+static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
+					     fy_generic tool_call,
+					     fy_generic tool_result,
+					     bool render_call)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder_cfg gcfg;
@@ -1872,7 +1873,8 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	}
 
 	/* The tool-call header renders in full (never row-bounded). */
-	fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
+	if (render_call)
+		fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
 	fclose(mf);
 	if (md && *md && fyai_print_markdown(md, ctx->cfg))
 		fputs(md, stdout);
@@ -1892,6 +1894,19 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx,
 	free(lang);
 
 	fy_generic_builder_destroy(tgb);
+}
+
+void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
+			       fy_generic tool_result)
+{
+	fyai_render_tool_exchange_common(ctx, tool_call, tool_result, true);
+}
+
+void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
+				      fy_generic tool_call,
+				      fy_generic tool_result)
+{
+	fyai_render_tool_exchange_common(ctx, tool_call, tool_result, false);
 }
 
 /*

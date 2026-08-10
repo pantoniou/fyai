@@ -22,6 +22,9 @@ void fyai_interactive_recap(struct fyai_ctx *ctx);
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line);
 void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			       fy_generic tool_result);
+void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
+				      fy_generic tool_call,
+				      fy_generic tool_result);
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result);
 /*

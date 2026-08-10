@@ -189,6 +189,12 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 	fprintf(stderr, "\n");
 }
 
+static bool fyai_is_tool_marked(const char *name)
+{
+	return fy_equal(name, "shell") || fy_equal(name, "agent") ||
+		fy_equal(name, "read_file") || fy_equal(name, "write_file");
+}
+
 static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 					fy_generic tool_call,
 					fy_generic tool_result, bool tool_ok,
@@ -205,6 +211,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	bool shell;
 	bool agent;
 	bool banded;
+	bool marked;
 	bool isolated_tool;
 	int rc;
 
@@ -220,6 +227,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	shell = fy_equal(name, "shell");
 	agent = fy_equal(name, "agent");
 	banded = shell || agent;
+	marked = fyai_is_tool_marked(name);
 	isolated_tool = fyai_output_renders_live(ctx);
 
 	/*
@@ -239,22 +247,28 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
-	if (fyai_agent_delegated(ctx) || !cfg->markdown || banded)
+	if (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
+	    (marked && fyai_ui_active(ctx)))
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
-	if (banded && fyai_ui_active(ctx)) {
+	if (marked && fyai_ui_active(ctx)) {
 		cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
 		fyai_ui_tool_end(ctx, tool_ok, cause);
 		free(cause);
 		if (agent)
 			(void)fyai_ui_commit(ctx, "\n", 1);
 	}
-	if (isolated_tool && !banded)
-		fyai_render_tool_exchange(ctx, tool_call, tool_result);
+	if (isolated_tool && !banded) {
+		if (marked && fyai_ui_active(ctx))
+			fyai_render_tool_result_exchange(ctx, tool_call,
+						 tool_result);
+		else
+			fyai_render_tool_exchange(ctx, tool_call, tool_result);
+	}
 	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result);
 	fyai_error_check(ctx, !rc, err_resume,
 		"could not record tool display output");

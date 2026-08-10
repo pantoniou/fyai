@@ -276,6 +276,14 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 			ctx->shell_stream = NULL;
 		}
 		ctx->tool_output_displayed = true;
+	} else if (cfg->markdown && fyai_ui_active(ctx) &&
+		   (fy_equal(name, "read_file") || fy_equal(name, "write_file"))) {
+		args = fyai_tool_call_args(ctx, tool_call);
+		header = fyai_format_tool_header(ctx, name, args,
+				fyai_tool_preview_lines(ctx->cfg, name));
+		fyai_ui_tool_begin(ctx, header ? header : name);
+		free(header);
+		ctx->tool_output_displayed = true;
 	} else if (*command) {
 		fprintf(stderr, "fyai $ %s\n", command);
 	} else {
