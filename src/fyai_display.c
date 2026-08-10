@@ -1203,14 +1203,10 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 		 */
 		gc = fy_get(args, "description");
 		c = fy_castp(&gc, "");
-		if (strchr(cmd, '\n'))
-			fprintf(mf, "**shell**%s%s%s\n\n```sh\n%s\n```\n\n",
-				*c ? " [" : "", *c ? c : "", *c ? "]" : "",
-				cmd);
-		else
-			fprintf(mf, "**shell**%s%s%s `%s`\n\n",
-				*c ? " [" : "", *c ? c : "", *c ? "]" : "",
-				cmd);
+		fprintf(mf, "**shell**");
+		if (*c)
+			fprintf(mf, " [%s]", c);
+		fprintf(mf, "\n\n```sh\n%s\n```\n\n", cmd);
 		return;
 	}
 	if (fy_equal(name, "read_file")) {
