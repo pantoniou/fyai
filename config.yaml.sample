@@ -93,15 +93,25 @@ max_tool_iterations: 50
 # (sent on every request there); defaults from the catalogue otherwise.
 max_tokens: 8192
 
-# Time limits for the shell tool, in milliseconds. `timeout_ms` applies when
-# the model gives no `timeout`; `max_timeout_ms` bounds the one it gives.
-# 0 disables either limit.
+# Limits for the shell tool. `timeout_ms` (milliseconds) applies when the
+# model gives no `timeout`; `max_timeout_ms` bounds the one it gives.
+# Output is bounded too, because it becomes prompt text: a command that
+# returns more than `max_output_tokens` keeps its end, since a command
+# reports its conclusion last, and standard error is served first so the
+# reason a command failed survives a noisy standard output.
+# `hard_max_output_tokens` bounds a `max_output_tokens` the model gives.
+# 0 disables any of these limits.
 shell:
   timeout_ms: 120000
   max_timeout_ms: 600000
+  max_output_tokens: 16384
+  hard_max_output_tokens: 200000
 
 # Size limits for read_file results, in bytes. `max_bytes` is the default.
 # `hard_max_bytes` limits a value from the model. 0 disables a limit.
+#
+# Use `offset` and `limit` to read a window of lines. Use the reported
+# `offset_bytes` to continue after a byte-limited result.
 read:
   max_bytes: 262144
   hard_max_bytes: 4194304

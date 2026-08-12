@@ -60,11 +60,22 @@ A tokens-per-minute limit can still fail the request.
 Compaction reduces a conversation that has grown too large. Two rules keep it
 from growing past the window in the first place.
 
-**A bounded tool result.** A `read_file` result becomes prompt text, so one
-call could otherwise put more tokens into the conversation than the window
-holds. The tool reads at most `read/max_bytes`, and bounds a model-supplied
-`max_bytes` by `read/hard_max_bytes`. A truncated result reports the complete
-size, so the model knows the file continues.
+**A bounded tool result.** Both tools that return file or command text bound
+what they return, because one call could otherwise put more tokens into the
+conversation than the window holds.
+
+- `read_file` reads at most `read/max_bytes`, bounding a model-supplied
+  `max_bytes` by `read/hard_max_bytes`. It also takes `offset` and `limit` to
+  read a window of lines. Use the reported `offset` to continue at a line
+  boundary. Use `offset_bytes` to continue after a byte-limited result.
+- `shell` returns at most `shell/max_output_tokens`, bounding a
+  model-supplied `max_output_tokens` by `shell/hard_max_output_tokens`. The
+  end of the output is kept, because a command reports its conclusion last,
+  and standard error is served first so the reason a command failed survives
+  a noisy standard output.
+
+The shell limit is configured in tokens because that is the unit of the
+budget it protects; bytes follow at four per token, the estimator's rule.
 
 **A checked request.** The catalogue `context_window` is enforced, not only
 displayed. Before each request:

@@ -323,8 +323,11 @@ Changing the model re-resolves provider, endpoint, API grammar, wire model ident
 projection is enforced: a prompt that cannot fit the model's context window is
 refused before it reaches the provider, and the output allowance is reduced to
 the room the prompt leaves. Compact or clear the conversation to recover.
-`read/max_bytes` bounds a `read_file` result for the same reason, so one large
-file cannot fill the window; see `doc/context-compaction.md`.
+Tool results are bounded for the same reason, so one large file or one chatty
+command cannot fill the window: `read/max_bytes` bounds a `read_file` result
+(which also takes `offset` and `limit` to read a window of lines), and
+`shell/max_output_tokens` bounds shell output. Use a reported `offset_bytes`
+to continue after a byte-limited read. See `doc/context-compaction.md`.
 `-m` selects the model for one invocation. `/model NAME` persists the selection
 on the current branch, as does `fyai config set model NAME`.
 

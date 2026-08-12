@@ -25,10 +25,22 @@ The document is a sequence of tools in wire shape:
           type: string
           description: |-
             Workspace-relative path to read.
+        offset:
+          type: integer
+          description: |-
+            Optional 1-based line to start at. Use it with the offset the result reports to read on through a large file.
+        offset_bytes:
+          type: integer
+          description: |-
+            Optional zero-based byte offset. It takes precedence over offset and lets a later call continue after a byte-limited result.
+        limit:
+          type: integer
+          description: |-
+            Optional number of lines to return. Omit to read to the end of the file.
         max_bytes:
           type: integer
           description: |-
-            Optional cap on the bytes returned. A larger file is truncated and the result says so. Omit for the configured default.
+            Optional cap on the bytes returned. A larger window is truncated and the result says so. Omit for the configured default.
       required:
         - path
       additionalProperties: false
