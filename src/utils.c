@@ -168,33 +168,51 @@ char *join_args(int argc, char **argv)
 	return out;
 }
 
-char *read_text_file(const char *path)
+char *read_text_file_limited(const char *path, size_t max_bytes, size_t *fullp)
 {
 	struct response_buffer buf = {};
+	char drain[4096];
+	size_t nread, want, total;
 	char *msg;
 	FILE *fp;
-	size_t nread;
+
+	if (fullp)
+		*fullp = 0;
 
 	fp = fopen(path, "rb");
 	if (!fp)
 		goto err;
 
+	/* Keep the bounded prefix and count all bytes from the stream. */
+	total = 0;
 	do {
-		if (response_buffer_reserve(&buf, buf.len + 4096 + 1))
+		want = sizeof(drain);
+		if (max_bytes && buf.len + want > max_bytes)
+			want = max_bytes - buf.len;
+		if (!want)
+			break;
+		if (response_buffer_reserve(&buf, buf.len + want + 1))
 			goto err_close;
-		nread = fread(buf.data + buf.len, 1, 4096, fp);
+		nread = fread(buf.data + buf.len, 1, want, fp);
 		buf.len += nread;
-	} while (nread == 4096);
+		total += nread;
+	} while (nread == want);
+
+	while ((nread = fread(drain, 1, sizeof(drain), fp)) > 0)
+		total += nread;
 
 	if (ferror(fp))
 		goto err_close;
 
 	fclose(fp);
 
+	if (fullp)
+		*fullp = total;
+
 	if (data_is_binary(buf.data, buf.len)) {
 		msg = malloc(64);
 		if (msg)
-			snprintf(msg, 64, "binary file: %zu bytes", buf.len);
+			snprintf(msg, 64, "binary file: %zu bytes", total);
 		free(buf.data);
 		return msg;
 	}
@@ -209,6 +227,11 @@ err_close:
 err:
 	free(buf.data);
 	return NULL;
+}
+
+char *read_text_file(const char *path)
+{
+	return read_text_file_limited(path, 0, NULL);
 }
 
 int write_text_file(const char *path, const char *content)

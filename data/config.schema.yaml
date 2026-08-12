@@ -165,6 +165,26 @@ properties:
         description: >-
           Upper bound on a `timeout` the model asks for. 0 removes the
           bound.
+  read:
+    type: object
+    additionalProperties: false
+    description: Limits applied to read_file results.
+    properties:
+      max_bytes:
+        type: integer
+        minimum: 0
+        default: 262144
+        description: >-
+          Byte limit applied when the model asks for none. A larger file is
+          truncated and the result reports the full size. 0 disables the
+          default limit.
+      hard_max_bytes:
+        type: integer
+        minimum: 0
+        default: 4194304
+        description: >-
+          Upper bound on a `max_bytes` the model asks for. 0 removes the
+          bound.
   agent:
     type: object
     additionalProperties: false

@@ -52,6 +52,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Shell time limits in milliseconds. Zero disables either limit. */
 #define DEFAULT_SHELL_TIMEOUT_MS 120000
 #define DEFAULT_SHELL_MAX_TIMEOUT_MS 600000
+/* Default and maximum read_file result sizes. Zero disables each limit. */
+#define DEFAULT_READ_MAX_BYTES (256 * 1024)
+#define DEFAULT_READ_HARD_MAX_BYTES (4 * 1024 * 1024)
 /* Default rendered rows of a tool result shown in the display view. */
 #define DEFAULT_TOOL_PREVIEW_LINES 5
 #define DEFAULT_TOOL_UPDATE_INTERVAL_MS 33
@@ -160,6 +163,8 @@ struct fyai_cfg {
 	int tool_update_interval_ms;
 	int shell_timeout_ms;		/* default shell time limit (0 = none) */
 	int shell_max_timeout_ms;	/* cap on a model-requested limit */
+	int read_max_bytes;		/* default read_file cap (0 = none) */
+	int read_hard_max_bytes;	/* cap on a model-requested size */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */

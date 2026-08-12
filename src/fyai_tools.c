@@ -567,6 +567,50 @@ static unsigned int fyai_shell_timeout_ms(struct fyai_ctx *ctx, fy_generic call,
 	return ms > 0 ? (unsigned int)ms : 0;
 }
 
+/* Use the configured limit unless the model supplies a bounded limit. */
+static size_t fyai_read_max_bytes(struct fyai_ctx *ctx, fy_generic args)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	long long n;
+
+	n = fy_get(args, "max_bytes", 0LL);
+	if (n <= 0)
+		n = cfg->read_max_bytes;
+	else if (cfg->read_hard_max_bytes > 0 && n > cfg->read_hard_max_bytes)
+		n = cfg->read_hard_max_bytes;
+	return n > 0 ? (size_t)n : 0;
+}
+
+/* Return a bounded file result and report truncation. */
+static char *fyai_read_file_tool(struct fyai_ctx *ctx, fy_generic args)
+{
+	size_t max_bytes, full, len;
+	const char *path;
+	char *text, *out;
+	int rc;
+
+	path = fy_get(args, "path", "");
+	max_bytes = fyai_read_max_bytes(ctx, args);
+	text = read_text_file_limited(path, max_bytes, &full);
+	if (!text)
+		return NULL;
+
+	/*
+	 * A binary file returns a short report rather than content, so it is
+	 * never truncated; the length test below tells the two apart.
+	 */
+	len = strlen(text);
+	if (!max_bytes || full <= max_bytes || len < max_bytes)
+		return text;
+
+	rc = asprintf(&out,
+		      "%s\n\n[fyai: truncated - the first %zu of %zu bytes are "
+		      "shown; ask again with a larger max_bytes for the rest]\n",
+		      text, len, full);
+	free(text);
+	return rc < 0 ? NULL : out;
+}
+
 static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				    bool *okp)
 {
@@ -883,8 +927,7 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 
 	*okp = false;
 	if (fy_equal(name, "read_file")) {
-		path = fy_get(args, "path", "");
-		result = read_text_file(path);
+		result = fyai_read_file_tool(ctx, args);
 		*okp = result != NULL;
 	} else if (fy_equal(name, "write_file")) {
 		path = fy_get(args, "path", "");

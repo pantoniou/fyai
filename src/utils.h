@@ -114,6 +114,9 @@ int append_header(struct curl_slist **headers, const char *header);
 char *make_header(const char *prefix, const char *value);
 char *join_args(int argc, char **argv);
 char *read_text_file(const char *path);
+/* Read at most @max_bytes bytes. Set @fullp to the complete file size. */
+char *read_text_file_limited(const char *path, size_t max_bytes,
+			     size_t *fullp);
 int write_text_file(const char *path, const char *content);
 struct fyai_sandbox_spec;
 struct fyai_ctx;
