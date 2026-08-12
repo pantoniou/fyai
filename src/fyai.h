@@ -377,6 +377,10 @@ struct fyai_ctx {
 	volatile sig_atomic_t interrupt_seq;
 	sig_atomic_t interrupt_seen;
 	bool terminate_pending;
+	/* Do not apply the context guard to a compaction request. */
+	bool compacting;
+	/* Output allowance after the context check. Zero uses the configuration. */
+	long long context_max_tokens;
 	fy_generic tools;
 	/* The built-in tool specification in the configuration builder. */
 	fy_generic tools_spec;

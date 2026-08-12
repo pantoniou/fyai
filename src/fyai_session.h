@@ -41,6 +41,42 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg);
 /* Report projected next-request context fill and its prompt/output parts. */
 int fyai_session_context(struct fyai_ctx *ctx);
 
+/* Return the active context window, or zero if it is not specified. */
+long long fyai_context_window(struct fyai_ctx *ctx);
+
+/* Return the projected prompt and output size of the next request. */
+long long fyai_context_projected(struct fyai_ctx *ctx);
+
+/* As above, measuring the turn chain that ends at @head. */
+long long fyai_context_projected_at(struct fyai_ctx *ctx, fy_generic head);
+
+/* Where a measured prompt size came from. */
+enum fyai_context_source {
+	FYAICS_NONE,		/* nothing measured yet */
+	FYAICS_LAST_CALL,	/* provider usage from a call in this process */
+	FYAICS_STORED,		/* provider usage stored on the turn chain */
+};
+
+/* Prompt sizes from provider usage and the current byte estimate. */
+struct fyai_context_prompt {
+	long long measured;
+	long long estimated;
+	long long prompt;
+	enum fyai_context_source source;
+	bool from_estimate;
+};
+
+/* Fill @out for the turn chain ending at @head. */
+void fyai_context_prompt_at(struct fyai_ctx *ctx, fy_generic head,
+			    struct fyai_context_prompt *out);
+
+/* Human-readable name for @source ("last call", "stored", "none"). */
+const char *fyai_context_source_name(enum fyai_context_source source);
+
+/* Limit the configured output allowance to the available context space. */
+long long fyai_context_output_tokens(struct fyai_ctx *ctx, long long prompt,
+				     long long window);
+
 /* Overview: model/provider selection, request shaping, auth, token usage. */
 int fyai_session_status(struct fyai_ctx *ctx);
 

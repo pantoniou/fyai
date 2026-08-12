@@ -72,7 +72,7 @@ static fy_generic session_model_entry(struct fyai_ctx *ctx)
 	return fyai_catalog_resolved_model(catalog, cfg->model);
 }
 
-static long long session_context_window(struct fyai_ctx *ctx)
+long long fyai_context_window(struct fyai_ctx *ctx)
 {
 	return fy_get(session_model_entry(ctx), "context_window", 0LL);
 }
@@ -297,7 +297,9 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	turn = fyai_turn_append(ctx, fy_invalid, compact_messages);
 	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
 			 "compact: cannot build the Responses compaction turn");
+	ctx->compacting = true;
 	result = fyai_run_turn(ctx, turn);
+	ctx->compacting = false;
 	result = fyai_report_diag(ctx, result);
 	fyai_error_check(ctx, fy_generic_is_valid(result) &&
 			 !fy_generic_is_null_type(result), out,
@@ -391,7 +393,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	shell_save = cfg->enable_builtin_shell;
 	cfg->enable_tools = false;
 	cfg->enable_builtin_shell = false;
+	ctx->compacting = true;
 	v = fyai_run_turn(ctx, turn);
+	ctx->compacting = false;
 	cfg->enable_tools = tools_save;
 	cfg->enable_builtin_shell = shell_save;
 	/* The loop carries why it failed on the result; without this a ^C here
@@ -514,7 +518,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 	long long window;
 
 	if (!name || !*name) {
-		window = session_context_window(ctx);
+		window = fyai_context_window(ctx);
 		printf("model: %s (provider %s, api %s, window ",
 		       cfg->model ? cfg->model : "",
 		       cfg->provider ? cfg->provider : "?",
@@ -735,14 +739,15 @@ static long long session_est_bytes(fy_generic v)
 	}
 }
 
-static long long session_estimate_tokens(struct fyai_ctx *ctx)
+static long long session_estimate_tokens_at(struct fyai_ctx *ctx,
+					    fy_generic head)
 {
 	fy_generic cur, msgs;
 	long long bytes, nmsg;
 
 	bytes = 0;
 	nmsg = 0;
-	fyai_turn_foreach(cur, ctx->last_message) {
+	fyai_turn_foreach(cur, head) {
 		msgs = fy_get(cur, "messages", fy_seq_empty);
 		nmsg += (long long)fy_len(msgs);
 		bytes += session_est_bytes(msgs);
@@ -752,52 +757,130 @@ static long long session_estimate_tokens(struct fyai_ctx *ctx)
 	return bytes / 4 + nmsg * 4;
 }
 
-/* Return the latest measured input-token count. */
-static long long session_last_usage(struct fyai_ctx *ctx, const char **srcp)
+/* Return the latest measured input-token count, and where it came from. */
+static long long session_last_usage(struct fyai_ctx *ctx,
+				    enum fyai_context_source *srcp)
 {
+	enum fyai_context_source source;
 	fy_generic cur, usage;
 	long long input;
 
+	source = FYAICS_NONE;
+	input = 0;
 	if (ctx->last_call_input) {
-		if (srcp)
-			*srcp = "last call";
-		return ctx->last_call_input;
+		source = FYAICS_LAST_CALL;
+		input = ctx->last_call_input;
+		goto out;
 	}
 	fyai_turn_foreach(cur, ctx->last_message) {
 		usage = fy_get(fyai_turn_meta(cur), "usage");
 		input = fy_get(usage, "input", 0LL);
 		if (input) {
-			if (srcp)
-				*srcp = "stored";
-			return input;
+			source = FYAICS_STORED;
+			goto out;
 		}
 	}
+	input = 0;
+out:
 	if (srcp)
-		*srcp = NULL;
-	return 0;
+		*srcp = source;
+	return input;
+}
+
+const char *fyai_context_source_name(enum fyai_context_source source)
+{
+	switch (source) {
+	case FYAICS_LAST_CALL:
+		return "last call";
+	case FYAICS_STORED:
+		return "stored";
+	default:
+		return "none";
+	}
 }
 
 /* Add the output allowance to the best available prompt size. */
 static long long session_projected_tokens(struct fyai_ctx *ctx,
-					  long long used, long long est)
+					  const struct fyai_context_prompt *p)
 {
-	long long prompt;
+	return p->prompt + fyai_context_output_tokens(ctx, p->prompt,
+						      fyai_context_window(ctx));
+}
 
-	prompt = used > est ? used : est;
-	return prompt + (ctx->cfg->max_tokens > 0 ?
-			 ctx->cfg->max_tokens : 0);
+long long fyai_context_output_tokens(struct fyai_ctx *ctx, long long prompt,
+				     long long window)
+{
+	long long room, max;
+
+	max = ctx->cfg->max_tokens > 0 ? ctx->cfg->max_tokens : 0;
+	if (window <= 0 || max <= 0)
+		return max;
+
+	/* Keep the configured allowance when the prompt does not fit. */
+	room = window - prompt;
+	if (room > 0 && max > room)
+		return room;
+	return max;
+}
+
+void fyai_context_prompt_at(struct fyai_ctx *ctx, fy_generic head,
+			    struct fyai_context_prompt *out)
+{
+	out->measured = session_last_usage(ctx, &out->source);
+	out->estimated = session_estimate_tokens_at(ctx, head);
+	out->from_estimate = out->estimated >= out->measured;
+	out->prompt = out->from_estimate ? out->estimated : out->measured;
+}
+
+long long fyai_context_projected_at(struct fyai_ctx *ctx, fy_generic head)
+{
+	struct fyai_context_prompt p;
+
+	fyai_context_prompt_at(ctx, head, &p);
+	return session_projected_tokens(ctx, &p);
+}
+
+/* Render the measured and estimated prompt sizes. */
+static fy_generic session_prompt_text(struct fyai_ctx *ctx,
+				      const struct fyai_context_prompt *p)
+{
+	fy_generic text;
+
+	if (p->source == FYAICS_NONE)
+		text = fy_stringf("~%lld tokens (estimate; none measured yet)",
+				  p->estimated);
+	else if (p->from_estimate)
+		text = fy_stringf("~%lld tokens (estimate; %lld measured %s)",
+				  p->estimated, p->measured,
+				  fyai_context_source_name(p->source));
+	else
+		text = fy_stringf("%lld tokens (measured %s; ~%lld estimated)",
+				  p->measured,
+				  fyai_context_source_name(p->source), p->estimated);
+	return fy_gb_internalize(ctx->transient_gb, text);
+}
+
+long long fyai_context_projected(struct fyai_ctx *ctx)
+{
+	return fyai_context_projected_at(ctx, ctx->last_message);
 }
 
 static fy_generic session_status_data(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic context, reasoning;
-	long long window, used, est, shown;
+	fy_generic context, reasoning, allowance;
+	struct fyai_context_prompt p;
+	long long window, shown, out_tokens;
 
-	window = session_context_window(ctx);
-	used = session_last_usage(ctx, NULL);
-	est = session_estimate_tokens(ctx);
-	shown = session_projected_tokens(ctx, used, est);
+	window = fyai_context_window(ctx);
+	fyai_context_prompt_at(ctx, ctx->last_message, &p);
+	shown = session_projected_tokens(ctx, &p);
+	out_tokens = fyai_context_output_tokens(ctx, p.prompt, window);
+	/* Say so when the window, not the configuration, sets the allowance. */
+	allowance = out_tokens < cfg->max_tokens ?
+		fy_stringf("%lld tokens (reduced from %d to fit)",
+			   out_tokens, cfg->max_tokens) :
+		fy_stringf("%lld tokens", out_tokens);
 	if (cfg->reasoning_effort && *cfg->reasoning_effort)
 		reasoning = fy_stringf("%s%s%s", cfg->reasoning_effort,
 			cfg->reasoning_summary && *cfg->reasoning_summary ?
@@ -819,8 +902,8 @@ static fy_generic session_status_data(struct fyai_ctx *ctx)
 		"Reasoning", reasoning,
 		"Temperature", cfg->temperature,
 		"Context", context,
-		"Prompt estimate", fy_stringf("~%lld tokens", est),
-		"Output allowance", fy_stringf("%d tokens", cfg->max_tokens));
+		"Prompt", session_prompt_text(ctx, &p),
+		"Output allowance", allowance);
 }
 
 static fy_generic mapping_prefixed(struct fyai_ctx *ctx, fy_generic out,
@@ -849,13 +932,28 @@ static fy_generic mapping_prefixed(struct fyai_ctx *ctx, fy_generic out,
 int fyai_session_context(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic context, data;
-	long long window, used, est, projected;
+	fy_generic context, data, allowance, estimated, measured;
+	struct fyai_context_prompt p;
+	long long window, projected, out_tokens;
 
-	window = session_context_window(ctx);
-	used = session_last_usage(ctx, NULL);
-	est = session_estimate_tokens(ctx);
-	projected = session_projected_tokens(ctx, used, est);
+	window = fyai_context_window(ctx);
+	fyai_context_prompt_at(ctx, ctx->last_message, &p);
+	projected = session_projected_tokens(ctx, &p);
+	out_tokens = fyai_context_output_tokens(ctx, p.prompt, window);
+
+	/* Report both token sources and mark the source used. */
+	estimated = fy_stringf("~%lld tokens%s", p.estimated,
+			       p.from_estimate ? "  <- used" : "");
+	measured = p.source == FYAICS_NONE ?
+		fy_value("none yet") :
+		fy_stringf("%lld tokens, %s%s", p.measured,
+			   fyai_context_source_name(p.source),
+			   p.from_estimate ? "" : "  <- used");
+	/* Say so when the window, not the configuration, sets the allowance. */
+	allowance = out_tokens < cfg->max_tokens ?
+		fy_stringf("%lld tokens (reduced from %d to fit)",
+			   out_tokens, cfg->max_tokens) :
+		fy_stringf("%lld tokens", out_tokens);
 	if (window)
 		context = fy_stringf("~%lld / %lld (%.1f%%)", projected,
 			window, (double)projected * 100.0 / (double)window);
@@ -866,8 +964,9 @@ int fyai_session_context(struct fyai_ctx *ctx)
 		"provider", cfg->provider ? cfg->provider : "?",
 		"api", fyai_api_to_string(cfg->api_mode),
 		"context", context,
-		"prompt", fy_stringf("~%lld tokens", est),
-		"output_max", fy_stringf("%d tokens", cfg->max_tokens));
+		"prompt_estimated", estimated,
+		"prompt_measured", measured,
+		"output_max", allowance);
 	return fyai_generic_to_markdown(ctx,
 		fy_mapping("title", "Context",
 			   "columns", fy_mapping(
@@ -1009,9 +1108,10 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char top[256], bottom[256];
+	struct fyai_context_prompt prompt;
 	char *top_md;
 	const char *tmpl;
-	long long window, used;
+	long long window;
 
 	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
 		return;
@@ -1031,12 +1131,11 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	    (!cfg->reasoning_summary || !*cfg->reasoning_summary))
 		snprintf(temp, sizeof(temp), " · temp %g", (double)cfg->temperature);
 
-	window = session_context_window(ctx);
+	window = fyai_context_window(ctx);
 	if (window > 0) {
-		used = session_last_usage(ctx, NULL);
+		fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
 		snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
-			 (double)session_projected_tokens(
-				 ctx, used, session_estimate_tokens(ctx)) *
+			 (double)session_projected_tokens(ctx, &prompt) *
 			 100.0 / (double)window);
 	}
 

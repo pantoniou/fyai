@@ -737,6 +737,14 @@ out:
 	return -1;
 }
 
+/* Use the context limit when it reduces the configured allowance. */
+static long long fyai_model_step_max_tokens(struct fyai_ctx *ctx,
+					    struct fyai_cfg *cfg)
+{
+	return ctx->context_max_tokens > 0 ?
+	       ctx->context_max_tokens : cfg->max_tokens;
+}
+
 static fy_generic
 fyai_model_step_request_base(struct fyai_cfg *cfg, struct fyai_ctx *ctx,
 			     fy_generic messages, const char *instructions)
@@ -758,7 +766,7 @@ fyai_model_step_request_base(struct fyai_cfg *cfg, struct fyai_ctx *ctx,
 		/* Anthropic only caches on explicit cache_control breakpoints. */
 		return fy_mapping(gb,
 			"model", cfg->model,
-			"max_tokens", (long long)cfg->max_tokens,
+			"max_tokens", fyai_model_step_max_tokens(ctx, cfg),
 			"system", fy_sequence(gb,
 					fy_mapping(gb, "type", "text",
 						   "text", instructions,
@@ -882,6 +890,37 @@ fyai_model_step_add_stream_options(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
 	return request;
 }
 
+/* Reject full prompts and limit output to the remaining context space. */
+static int fyai_model_step_context_check(struct fyai_ctx *ctx, fy_generic turn)
+{
+	struct fyai_context_prompt p;
+	long long window;
+
+	ctx->context_max_tokens = 0;
+	if (ctx->compacting)
+		return 0;
+	window = fyai_context_window(ctx);
+	if (window <= 0)
+		return 0;
+
+	fyai_context_prompt_at(ctx, turn, &p);
+	if (p.prompt >= window) {
+		/* Explain whether the rejected size is estimated. */
+		fyai_error(ctx,
+			   "the conversation needs %s%lld prompt tokens but the "
+			   "%s context window holds %lld; compact it to "
+			   "summarize the history, or clear it to start again",
+			   p.from_estimate ? "about " : "",
+			   p.prompt, ctx->cfg->model ? ctx->cfg->model : "model",
+			   window);
+		return -1;
+	}
+
+	ctx->context_max_tokens = fyai_context_output_tokens(ctx, p.prompt,
+							     window);
+	return 0;
+}
+
 static int fyai_model_step_start(struct fyai_model_step *step)
 {
 	struct fyai_ctx *ctx;
@@ -908,6 +947,10 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	step->spinner.ctx = ctx;
 	step->tool_sink.ctx = ctx;
 	step->tool_sink.group = step->tool_group;
+
+	rc = fyai_model_step_context_check(ctx, turn);
+	fyai_error_check(ctx, !rc, out,
+			 "could not fit the request in the context window");
 
 	fyai_prof_stamp(&t_emit);
 
