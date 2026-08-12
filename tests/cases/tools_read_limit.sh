@@ -30,8 +30,9 @@ mock_start tools_read_limit.json
 read_big
 assert_status 0
 assert_stdout_contains "Read the bounded file."
-assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and "truncated" in m.get("content", "") for m in r["body"]["messages"])'
-assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and "630000 bytes" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and "byte limit reached" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and "of 30000 shown" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and "continue with offset_bytes=" in m.get("content", "") for m in r["body"]["messages"])'
 assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and len(m.get("content", "")) < 300000 for m in r["body"]["messages"])'
 mock_stop 2
 
@@ -47,7 +48,7 @@ mock_start tools_read_limit.json
 read_big --set read/max_bytes=0
 assert_status 0
 assert_request 1 'any(m.get("tool_call_id") == "call_read_big" and len(m.get("content", "")) >= 630000 for m in r["body"]["messages"])'
-assert_request 1 'all("truncated" not in m.get("content", "") for m in r["body"]["messages"] if m.get("tool_call_id") == "call_read_big")'
+assert_request 1 'all("[fyai:" not in m.get("content", "") for m in r["body"]["messages"] if m.get("tool_call_id") == "call_read_big")'
 mock_stop 2
 
 pass
