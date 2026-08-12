@@ -229,6 +229,106 @@ err:
 	return NULL;
 }
 
+char *read_text_file_window(const char *path, long long offset,
+			    long long offset_bytes, long long limit,
+			    size_t max_bytes,
+			    struct read_text_info *info)
+{
+	struct read_text_info local = {};
+	struct response_buffer buf = {};
+	long long lineno, collected;
+	char *line = NULL;
+	size_t cap = 0;
+	size_t take;
+	size_t skip;
+	size_t line_start;
+	ssize_t len;
+	char *msg;
+	FILE *fp;
+
+	if (offset < 1)
+		offset = 1;
+	lineno = 0;
+	collected = 0;
+
+	fp = fopen(path, "rb");
+	if (!fp)
+		goto err;
+
+	/* Collect the window and count the complete input in one pass. */
+	while ((len = getline(&line, &cap, fp)) > 0) {
+		line_start = local.full_bytes;
+		lineno++;
+		local.full_bytes += (size_t)len;
+		if (local.byte_capped)
+			continue;
+		skip = 0;
+		if (offset_bytes >= 0) {
+			if ((size_t)offset_bytes >= local.full_bytes)
+				continue;
+			if ((size_t)offset_bytes > line_start)
+				skip = (size_t)offset_bytes - line_start;
+		} else if (lineno < offset) {
+			continue;
+		}
+		if (limit > 0 && collected >= limit)
+			continue;
+
+		take = (size_t)len - skip;
+		if (max_bytes && buf.len + take > max_bytes) {
+			take = max_bytes > buf.len ? max_bytes - buf.len : 0;
+			local.byte_capped = true;
+		}
+		if (take) {
+			if (response_buffer_reserve(&buf, buf.len + take + 1))
+				goto err_close;
+			if (!buf.len)
+				local.first_byte = line_start + skip;
+			memcpy(buf.data + buf.len, line + skip, take);
+			buf.len += take;
+			local.next_byte = line_start + skip + take;
+			if (!local.first_line)
+				local.first_line = lineno;
+			local.last_line = lineno;
+		}
+		if (!local.byte_capped)
+			collected++;
+	}
+
+	if (ferror(fp))
+		goto err_close;
+	free(line);
+	line = NULL;
+	fclose(fp);
+	local.total_lines = lineno;
+
+	if (buf.len && data_is_binary(buf.data, buf.len)) {
+		local.binary = true;
+		msg = malloc(64);
+		if (msg)
+			snprintf(msg, 64, "binary file: %zu bytes",
+				 local.full_bytes);
+		free(buf.data);
+		if (info)
+			*info = local;
+		return msg;
+	}
+
+	if (response_buffer_reserve(&buf, buf.len + 1))
+		goto err;
+	buf.data[buf.len] = '\0';
+	if (info)
+		*info = local;
+	return buf.data;
+
+err_close:
+	fclose(fp);
+err:
+	free(line);
+	free(buf.data);
+	return NULL;
+}
+
 char *read_text_file(const char *path)
 {
 	return read_text_file_limited(path, 0, NULL);

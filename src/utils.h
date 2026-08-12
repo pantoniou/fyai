@@ -117,6 +117,25 @@ char *read_text_file(const char *path);
 /* Read at most @max_bytes bytes. Set @fullp to the complete file size. */
 char *read_text_file_limited(const char *path, size_t max_bytes,
 			     size_t *fullp);
+
+/* Details about a windowed read. */
+struct read_text_info {
+	size_t full_bytes;	/* complete file size */
+	long long total_lines;	/* complete line count */
+	long long first_line;	/* 1-based first line returned, 0 if none */
+	long long last_line;	/* 1-based last line returned, 0 if none */
+	size_t first_byte;	/* zero-based first byte returned */
+	size_t next_byte;	/* zero-based byte after returned data */
+	bool byte_capped;	/* the byte limit stopped the read */
+	bool binary;		/* the report replaces the content */
+};
+
+/* Read a byte-bounded line window. A nonnegative @offset_bytes overrides
+ * @offset. Zero values for @limit and @max_bytes remove those limits. */
+char *read_text_file_window(const char *path, long long offset,
+			    long long offset_bytes, long long limit,
+			    size_t max_bytes,
+			    struct read_text_info *info);
 int write_text_file(const char *path, const char *content);
 struct fyai_sandbox_spec;
 struct fyai_ctx;

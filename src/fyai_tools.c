@@ -584,29 +584,56 @@ static size_t fyai_read_max_bytes(struct fyai_ctx *ctx, fy_generic args)
 /* Return a bounded file result and report truncation. */
 static char *fyai_read_file_tool(struct fyai_ctx *ctx, fy_generic args)
 {
-	size_t max_bytes, full, len;
+	struct read_text_info info;
+	long long offset, offset_bytes, limit;
 	const char *path;
+	size_t max_bytes;
 	char *text, *out;
 	int rc;
 
 	path = fy_get(args, "path", "");
+	offset = fy_get(args, "offset", 0LL);
+	offset_bytes = fy_get(args, "offset_bytes", -1LL);
+	limit = fy_get(args, "limit", 0LL);
 	max_bytes = fyai_read_max_bytes(ctx, args);
-	text = read_text_file_limited(path, max_bytes, &full);
+
+	text = read_text_file_window(path, offset, offset_bytes, limit, max_bytes,
+				     &info);
 	if (!text)
 		return NULL;
 
-	/*
-	 * A binary file returns a short report rather than content, so it is
-	 * never truncated; the length test below tells the two apart.
-	 */
-	len = strlen(text);
-	if (!max_bytes || full <= max_bytes || len < max_bytes)
+	/* A binary file returns only a size report. */
+	if (info.binary)
 		return text;
 
-	rc = asprintf(&out,
-		      "%s\n\n[fyai: truncated - the first %zu of %zu bytes are "
-		      "shown; ask again with a larger max_bytes for the rest]\n",
-		      text, len, full);
+	/* Report an offset past the end as an empty window. */
+	if (!info.first_line) {
+		free(text);
+		rc = asprintf(&out,
+			      "[fyai: no lines returned - the file has %lld "
+			      "lines and the read started at line %lld]\n",
+			      info.total_lines, offset < 1 ? 1 : offset);
+		return rc < 0 ? NULL : out;
+	}
+
+	/* Return a complete final window without a continuation note. */
+	if (!info.byte_capped && info.last_line >= info.total_lines)
+		return text;
+
+	/* Report the returned window and the next offset. */
+	if (info.byte_capped)
+		rc = asprintf(&out,
+			      "%s\n[fyai: lines %lld-%lld of %lld shown "
+			      "(byte limit reached); continue with "
+			      "offset_bytes=%zu]\n",
+			      text, info.first_line, info.last_line,
+			      info.total_lines, info.next_byte);
+	else
+		rc = asprintf(&out,
+			      "%s\n[fyai: lines %lld-%lld of %lld shown; "
+			      "continue with offset=%lld]\n",
+			      text, info.first_line, info.last_line,
+			      info.total_lines, info.last_line + 1);
 	free(text);
 	return rc < 0 ? NULL : out;
 }
