@@ -18,8 +18,11 @@ set -eu
 fyai_test_setup
 mock_start tools_forked_large.json
 
+# The bound is off here: this case measures what the fork transport carries,
+# and a bounded result would elide the head it checks for.
 run_fyai --set sandbox=true --set api=chat-completions --set display/stream=false \
-	--set tools=true --set api_url="$MOCK_URL/v1/chat/completions" \
+	--set tools=true --set shell/max_output_tokens=0 \
+	--set api_url="$MOCK_URL/v1/chat/completions" \
 	-m mock-model "produce a large result"
 assert_status 0
 assert_stdout_contains "large result received"

@@ -18,7 +18,8 @@ fyai_test_setup
 # --- large stdout ----------------------------------------------------------
 # 20k lines is far past the 4 KiB read chunk and the initial buffer, so this
 # only passes if every wakeup appends and nothing is dropped between them.
-run_fyai tool shell '{"command":"seq 1 20000"}'
+# This case measures capture, not prompt size, so the output bound is off.
+run_fyai --set shell/max_output_tokens=0 tool shell '{"command":"seq 1 20000"}'
 assert_status 0
 lines=$(grep -c '^[0-9][0-9]*$' "$TEST_DIR/stdout" || true)
 [ "$lines" -eq 20000 ] || fail "large stdout truncated: $lines lines, expected 20000"
