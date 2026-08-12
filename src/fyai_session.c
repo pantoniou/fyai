@@ -347,10 +347,14 @@ out:
 	return -1;
 }
 
+static fy_generic session_compact_source(struct fyai_ctx *ctx,
+					 fy_generic messages);
+
 int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic prev_head, turn, v, msgs, m, meta, content;
+	fy_generic all, source, base;
 	const char *summary;
 	bool tools_save, shell_save;
 	size_t n;
@@ -375,7 +379,20 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		return session_compact_responses(ctx, hint);
 
 	prev_head = ctx->last_message;
-	turn = fyai_turn_append(ctx, prev_head,
+
+	/* Bound the history but retain the real head in compacted_from. */
+	base = prev_head;
+	all = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
+	if (fy_generic_is_valid(all)) {
+		source = session_compact_source(ctx, all);
+		if (fy_not_equal(source, all)) {
+			base = fyai_turn_append(ctx, fy_invalid, source);
+			if (fy_generic_is_invalid(base))
+				base = prev_head;
+		}
+	}
+
+	turn = fyai_turn_append(ctx, base,
 		fy_sequence(fy_mapping(ctx->gb,
 			"role", "user",
 			"content", fy_stringf(
@@ -755,6 +772,84 @@ static long long session_estimate_tokens_at(struct fyai_ctx *ctx,
 	if (fy_generic_is_valid(ctx->tools))
 		bytes += session_est_bytes(ctx->tools);
 	return bytes / 4 + nmsg * 4;
+}
+
+/*
+ * Bound compaction input. Elide oversized content, then drop the oldest
+ * messages. Preserve message roles and tool-call keys.
+ */
+static fy_generic session_compact_source(struct fyai_ctx *ctx,
+					 fy_generic messages)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic out, trimmed, m, role, marker;
+	long long window, budget, cap, total, bytes;
+	size_t i, count, first;
+	bool has_system;
+
+	window = fyai_context_window(ctx);
+	if (window <= 0)
+		return messages;
+
+	/*
+	 * Leave the output allowance plus a wide margin: the estimate is
+	 * bytes/4, which understates a token-dense history.
+	 */
+	budget = window - (ctx->cfg->max_tokens > 0 ? ctx->cfg->max_tokens : 0);
+	budget = budget * 3 / 4;
+	if (budget <= 0)
+		return messages;
+	if (session_est_bytes(messages) / 4 <= budget)
+		return messages;
+
+	cap = budget / 8;
+	out = fy_seq_empty;
+	fy_foreach(m, messages) {
+		bytes = session_est_bytes(m);
+		if (bytes / 4 > cap) {
+			role = fy_get(m, "role");
+			marker = fy_stringf(
+				"[fyai: %lld bytes of %s content were elided to "
+				"compact an over-full conversation]",
+				bytes, fy_castp(&role, "message"));
+			m = fy_assoc(gb, m, "content", marker);
+		}
+		out = fy_append(gb, out, m);
+	}
+
+	count = fy_len(out);
+	has_system = count &&
+		     fy_equal(fy_get(fy_get_at(out, 0), "role"), "system");
+	first = has_system ? 1 : 0;
+
+	total = session_est_bytes(out) / 4;
+	i = first;
+	while (i < count && total > budget) {
+		total -= session_est_bytes(fy_get_at(out, i)) / 4;
+		i++;
+	}
+	/* Never start the remainder on a tool result whose call was dropped. */
+	while (i < count &&
+	       fy_equal(fy_get(fy_get_at(out, i), "role"), "tool"))
+		i++;
+
+	if (i > first) {
+		trimmed = fy_seq_empty;
+		if (has_system)
+			trimmed = fy_append(gb, trimmed, fy_get_at(out, 0));
+		trimmed = fy_append(gb, trimmed, fy_mapping(gb,
+			"role", "user",
+			"content", fy_stringf(
+				"[fyai: %zu earlier messages were dropped to "
+				"compact an over-full conversation]",
+				i - first)));
+		for (; i < count; i++)
+			trimmed = fy_append(gb, trimmed, fy_get_at(out, i));
+		out = trimmed;
+	}
+
+	out = fy_gb_internalize(gb, out);
+	return fy_generic_is_invalid(out) ? messages : out;
 }
 
 /* Return the latest measured input-token count, and where it came from. */
