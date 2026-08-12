@@ -247,6 +247,11 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 				cfg->read_max_bytes);
 	cfg->read_hard_max_bytes = fy_get(fy_get(root, "read"),
 				"hard_max_bytes", cfg->read_hard_max_bytes);
+	cfg->shell_max_output_tokens = fy_get(shell, "max_output_tokens",
+				cfg->shell_max_output_tokens);
+	cfg->shell_hard_max_output_tokens = fy_get(shell,
+				"hard_max_output_tokens",
+				cfg->shell_hard_max_output_tokens);
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
 				cfg->agent_timeout_ms);
 	cfg->agent_max_timeout_ms = fy_get(fy_get(root, "agent"),
@@ -1941,6 +1946,9 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->shell_max_timeout_ms = DEFAULT_SHELL_MAX_TIMEOUT_MS;
 	cfg->read_max_bytes = DEFAULT_READ_MAX_BYTES;
 	cfg->read_hard_max_bytes = DEFAULT_READ_HARD_MAX_BYTES;
+	cfg->shell_max_output_tokens = DEFAULT_SHELL_MAX_OUTPUT_TOKENS;
+	cfg->shell_hard_max_output_tokens =
+		DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;

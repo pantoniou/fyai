@@ -84,6 +84,10 @@
           type: integer
           description: |-
             Optional time limit in milliseconds. The command is stopped when it expires.
+        max_output_tokens:
+          type: integer
+          description: |-
+            Optional cap on the output returned. Longer output keeps its end and the result says how much was elided. Omit for the configured default.
         description:
           type: string
           description: |-

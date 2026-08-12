@@ -55,6 +55,16 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Default and maximum read_file result sizes. Zero disables each limit. */
 #define DEFAULT_READ_MAX_BYTES (256 * 1024)
 #define DEFAULT_READ_HARD_MAX_BYTES (4 * 1024 * 1024)
+/*
+ * Shell output becomes prompt text for the same reason a read_file result
+ * does, so it is bounded the same way. The unit is tokens because that is
+ * what the budget it protects is measured in; bytes follow by the estimator's
+ * bytes/4 rule. 16k tokens is a long build log, not a whole context window.
+ */
+#define DEFAULT_SHELL_MAX_OUTPUT_TOKENS 16384
+#define DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS 200000
+/* The bytes/4 rule the context estimator uses, in one place. */
+#define FYAI_BYTES_PER_TOKEN 4
 /* Default rendered rows of a tool result shown in the display view. */
 #define DEFAULT_TOOL_PREVIEW_LINES 5
 #define DEFAULT_TOOL_UPDATE_INTERVAL_MS 33
@@ -165,6 +175,8 @@ struct fyai_cfg {
 	int shell_max_timeout_ms;	/* cap on a model-requested limit */
 	int read_max_bytes;		/* default read_file cap (0 = none) */
 	int read_hard_max_bytes;	/* cap on a model-requested size */
+	int shell_max_output_tokens;	/* default shell output cap (0 = none) */
+	int shell_hard_max_output_tokens; /* cap on a model-requested size */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */

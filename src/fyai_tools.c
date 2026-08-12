@@ -611,6 +611,64 @@ static char *fyai_read_file_tool(struct fyai_ctx *ctx, fy_generic args)
 	return rc < 0 ? NULL : out;
 }
 
+/* Return the configured or model-supplied shell output budget in bytes. */
+static size_t fyai_shell_output_bytes(struct fyai_ctx *ctx, fy_generic call)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	long long n;
+
+	n = fy_get(call, "max_output_tokens", 0LL);
+	if (n <= 0)
+		n = cfg->shell_max_output_tokens;
+	else if (cfg->shell_hard_max_output_tokens > 0 &&
+		 n > cfg->shell_hard_max_output_tokens)
+		n = cfg->shell_hard_max_output_tokens;
+	if (n <= 0)
+		return 0;
+	return (size_t)n * FYAI_BYTES_PER_TOKEN;
+}
+
+/* Keep the end of a stream and report the number of omitted bytes. */
+static char *fyai_shell_bound_alloc(const char *text, size_t max_bytes)
+{
+	const char *cut, *nl;
+	size_t len, drop;
+	char *out;
+	int rc;
+
+	if (!text)
+		return NULL;
+	len = strlen(text);
+	if (!max_bytes || len <= max_bytes)
+		return NULL;
+
+	drop = len - max_bytes;
+	cut = text + drop;
+	nl = memchr(cut, '\n', len - drop);
+	if (nl && (size_t)(nl + 1 - text) < len)
+		cut = nl + 1;
+	rc = asprintf(&out,
+		"[fyai: %zu of %zu bytes elided; the end of the output follows]\n%s",
+		(size_t)(cut - text), len, cut);
+	return rc < 0 ? NULL : out;
+}
+
+/* Give standard error up to half of the shared output budget. */
+static void fyai_shell_split_budget(size_t budget, size_t err_len,
+				    size_t *out_bytes, size_t *err_bytes)
+{
+	size_t err_keep;
+
+	if (!budget) {
+		*out_bytes = 0;
+		*err_bytes = 0;
+		return;
+	}
+	err_keep = err_len < budget / 2 ? err_len : budget / 2;
+	*err_bytes = err_keep ? err_keep : 1;
+	*out_bytes = budget - err_keep;
+}
+
 static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				    bool *okp)
 {
@@ -621,8 +679,11 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *sandbox;
 	fy_generic command, workdir;
+	size_t budget, out_bytes, err_bytes;
 	const char *msg;
+	char *bounded;
 	char *ret = NULL;
+	int rc;
 
 	*okp = false;
 	if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
@@ -639,6 +700,10 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 		goto out;
 	fyai_shell_live_close(ctx);
 
+	budget = fyai_shell_output_bytes(ctx, args);
+	fyai_shell_split_budget(budget, result.stderr_len, &out_bytes,
+				&err_bytes);
+
 	if (data_is_binary(result.stdout_data, result.stdout_len)) {
 		msg = fy_sprintfa("binary output: %zu bytes\n",
 				  result.stdout_len);
@@ -646,8 +711,13 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 			fprintf(stderr, "%s", msg);
 		if (response_buffer_append(&buf, msg))
 			goto out;
-	} else if (response_buffer_append(&buf, result.stdout_data)) {
-		goto out;
+	} else {
+		bounded = fyai_shell_bound_alloc(result.stdout_data, out_bytes);
+		rc = response_buffer_append(&buf, bounded ? bounded :
+						  result.stdout_data);
+		free(bounded);
+		if (rc)
+			goto out;
 	}
 
 	if (data_is_binary(result.stderr_data, result.stderr_len)) {
@@ -657,8 +727,13 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 			fprintf(stderr, "%s", msg);
 		if (response_buffer_append(&buf, msg))
 			goto out;
-	} else if (response_buffer_append(&buf, result.stderr_data)) {
-		goto out;
+	} else {
+		bounded = fyai_shell_bound_alloc(result.stderr_data, err_bytes);
+		rc = response_buffer_append(&buf, bounded ? bounded :
+						  result.stderr_data);
+		free(bounded);
+		if (rc)
+			goto out;
 	}
 
 	if (result.signaled) {
@@ -809,6 +884,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	fy_generic output;
 	const char *out_text;
 	const char *err_text;
+	fy_generic out_val, err_val;
+	size_t out_bytes, err_bytes;
+	char *bounded;
 
 	*okp = false;
 	type = fy_get(tool_call, "type");
@@ -837,19 +915,35 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 			}
 			fyai_shell_live_close(ctx);
 
+			fyai_shell_split_budget(
+				fyai_shell_output_bytes(ctx, action),
+				shell_result.stderr_len, &out_bytes,
+				&err_bytes);
+
+			/* Internalize bounded streams before their buffers are freed. */
 			out_text = shell_result.stdout_data;
+			bounded = fyai_shell_bound_alloc(out_text, out_bytes);
+			out_val = fy_gb_internalize(ctx->transient_gb,
+					fy_value(bounded ? bounded : out_text));
+			free(bounded);
 			if (data_is_binary(shell_result.stdout_data,
 					   shell_result.stdout_len)) {
 				out_text = fy_sprintfa("binary output: %zu bytes",
 						       shell_result.stdout_len);
 				if (!cfg->markdown)
 					fprintf(stderr, "%s\n", out_text);
+				out_val = fy_value(out_text);
 			}
 			err_text = shell_result.stderr_data;
+			bounded = fyai_shell_bound_alloc(err_text, err_bytes);
+			err_val = fy_gb_internalize(ctx->transient_gb,
+					fy_value(bounded ? bounded : err_text));
+			free(bounded);
 			if (data_is_binary(shell_result.stderr_data,
 					   shell_result.stderr_len)) {
 				err_text = fy_sprintfa("binary stderr: %zu bytes",
 						       shell_result.stderr_len);
+				err_val = fy_value(err_text);
 			}
 
 			/*
@@ -857,8 +951,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 			 * limit. Do not report the termination signal.
 			 */
 			output = fy_mapping(
-				"stdout", out_text,
-				"stderr", err_text,
+				"stdout", out_val,
+				"stderr", err_val,
 				"outcome", shell_result.timed_out ?
 					fy_mapping(
 						"type", "timeout",

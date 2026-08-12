@@ -165,6 +165,21 @@ properties:
         description: >-
           Upper bound on a `timeout` the model asks for. 0 removes the
           bound.
+      max_output_tokens:
+        type: integer
+        minimum: 0
+        default: 16384
+        description: >-
+          Token limit on the output one shell call returns, applied when the
+          model asks for none. The end of the output is kept, because a
+          command reports its conclusion last. 0 disables the default limit.
+      hard_max_output_tokens:
+        type: integer
+        minimum: 0
+        default: 200000
+        description: >-
+          Upper bound on a `max_output_tokens` the model asks for. 0 removes
+          the bound.
   read:
     type: object
     additionalProperties: false
