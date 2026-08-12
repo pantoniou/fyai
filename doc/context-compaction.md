@@ -40,8 +40,73 @@ pruned. It is the canonical input window for the next Responses request.
 Chat Completions and currently Anthropic Messages use the portable fallback:
 append a request asking the model to summarize the conversation, then replace
 the old chain with a system turn and a user message containing that summary.
-This requires the original conversation to fit in a normal model request and
-can therefore fail on context-window or tokens-per-minute limits.
+
+The summary request uses a bounded copy of the history. Thus, compaction can
+operate when the context is full. The following reductions apply in order:
+
+1. The content of any message that alone takes a large share of the budget is
+   elided. One oversized tool result is the usual cause.
+2. The oldest messages are dropped until the rest fits.
+
+Each reduction adds a marker. The model can then identify a partial history.
+Only `content` is replaced. The role, `tool_calls`, and `tool_call_id` remain,
+so call and result messages remain paired. The stored head does not change.
+Thus, `compacted_from` records the complete conversation.
+
+A tokens-per-minute limit can still fail the request.
+
+## Keeping a request inside the window
+
+Compaction reduces a conversation that has grown too large. Two rules keep it
+from growing past the window in the first place.
+
+**A bounded tool result.** A `read_file` result becomes prompt text, so one
+call could otherwise put more tokens into the conversation than the window
+holds. The tool reads at most `read/max_bytes`, and bounds a model-supplied
+`max_bytes` by `read/hard_max_bytes`. A truncated result reports the complete
+size, so the model knows the file continues.
+
+**A checked request.** The catalogue `context_window` is enforced, not only
+displayed. Before each request:
+
+- The prompt is measured against the window. A prompt that does not fit is
+  refused, with the recoveries named. This keeps the completed turns intact:
+  a conversation is append-only, so a prompt the provider rejects for size is
+  rebuilt by every retry.
+- The output allowance is reduced to the room the prompt leaves. Asking for
+  more output than the window has left is too generous, not fatal, so it is
+  corrected rather than refused.
+
+A model whose catalogue entry declares no `context_window` is not checked. A
+compaction request is not checked, because it is the recovery.
+
+One rule computes the output allowance, and both the request builder and the
+fill gauge use it, so what `fyai context` and the interactive footer report is
+what the next request asks for. A reduced allowance is reported as such rather
+than shown as an over-full window.
+
+### Prompt size and its two sources
+
+A prompt size comes from one of two places, and they are kept apart in
+`struct fyai_context_prompt` rather than reduced to one number:
+
+- **Measured.** The input tokens the provider counted, normalized across the
+  three grammars. It is exact, but it describes the request that was already
+  sent. It comes from the last call in this process, or from the usage stored
+  on the turn chain; `fyai context` names which.
+- **Estimated.** Canonical bytes divided by 4, plus a small per-message
+  overhead, including the tool schema. It describes the request about to be
+  sent, so it alone accounts for a pending user message and for tool results
+  appended since the last call.
+
+The two cover different spans, so the projection takes the larger and records
+which one it used. The estimate normally wins directly after a tool result
+lands; the measurement wins at the start of a turn.
+
+`bytes / 4` suits English prose. Source code and escaped payloads are denser,
+so the estimate reads low for a code-heavy conversation, and a projection
+driven by it errs toward letting a request through rather than refusing a
+valid one.
 
 ## Planned Messages implementation
 

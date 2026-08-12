@@ -25,6 +25,10 @@ The document is a sequence of tools in wire shape:
           type: string
           description: |-
             Workspace-relative path to read.
+        max_bytes:
+          type: integer
+          description: |-
+            Optional cap on the bytes returned. A larger file is truncated and the result says so. Omit for the configured default.
       required:
         - path
       additionalProperties: false

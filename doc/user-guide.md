@@ -318,6 +318,13 @@ Interactive equivalents include:
 ```
 
 Changing the model re-resolves provider, endpoint, API grammar, wire model identifier, context window, token limit, and credentials where appropriate.
+
+`fyai context` reports the projected fill of the next request. The same
+projection is enforced: a prompt that cannot fit the model's context window is
+refused before it reaches the provider, and the output allowance is reduced to
+the room the prompt leaves. Compact or clear the conversation to recover.
+`read/max_bytes` bounds a `read_file` result for the same reason, so one large
+file cannot fill the window; see `doc/context-compaction.md`.
 `-m` selects the model for one invocation. `/model NAME` persists the selection
 on the current branch, as does `fyai config set model NAME`.
 

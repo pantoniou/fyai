@@ -100,6 +100,12 @@ shell:
   timeout_ms: 120000
   max_timeout_ms: 600000
 
+# Size limits for read_file results, in bytes. `max_bytes` is the default.
+# `hard_max_bytes` limits a value from the model. 0 disables a limit.
+read:
+  max_bytes: 262144
+  hard_max_bytes: 4194304
+
 # Time limits for one sub-agent job, in milliseconds. The job and every
 # process below it are stopped when a limit expires. `timeout_ms` applies
 # when neither the call nor the persona asks for one; `max_timeout_ms`
