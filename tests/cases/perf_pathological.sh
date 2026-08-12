@@ -92,8 +92,12 @@ for mode in chat-completions responses messages; do
 	messages)         args=(--set api=messages --set api_url="$MOCK_URL/v1/messages") ;;
 	esac
 
+	# read/max_bytes=0 removes the read_file cap: this case exists to
+	# exercise a multi-megabyte tool result, which the default bound would
+	# otherwise truncate.
 	t0=$(now_ms)
-	run_fyai --set display/stream=false --new --set tools=true "${args[@]}" -m mock-model "read big.txt"
+	run_fyai --set display/stream=false --new --set tools=true \
+		--set read/max_bytes=0 "${args[@]}" -m mock-model "read big.txt"
 	t1=$(now_ms)
 	assert_status 0
 	assert_stdout_contains "digested the big file."
