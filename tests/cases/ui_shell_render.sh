@@ -32,7 +32,7 @@ if not re.search(rb"(?:^|[\r\n])\xe2\x97\x8f shell(?:\s|\r)*\n", plain):
 if b"\xe2\x97\x8f working" in plain:
     raise SystemExit("activity dot was rendered on a separate chrome row")
 if not re.search(rb"\xe2\x97\x8f shell(?:[^\n]*\n){1,4}[^\n]*printf", plain):
-    raise SystemExit("highlighted shell command is not below the header")
+    raise SystemExit("frameless shell command is not below the header")
 if not re.search(rb"(?:^|[\r\n])    tool-progress\r?\n", plain):
     raise SystemExit("fenced output is not indented")
 EOF
