@@ -17,6 +17,7 @@
 
 FYAI_TEST_ENTRY(patch, apply, patch_apply)
 FYAI_TEST_ENTRY(patch, unified, patch_unified)
+FYAI_TEST_ENTRY(patch, to_unified, patch_to_unified)
 
 static void expect_ok(char *result)
 {
@@ -443,6 +444,107 @@ int patch_unified(void)
 		"@@ -1,1 +1,1 @@\n"
 		"-nowhere to be found\n"
 		"+replacement\n"));
+
+	return 0;
+}
+
+static void expect_unified(const char *patch, const char *expected)
+{
+	char *got;
+
+	got = fyai_patch_to_unified(patch);
+	if (!got || strcmp(got, expected)) {
+		fprintf(stderr, "bad conversion:\n%s\n", got ? got : "(null)");
+		free(got);
+		exit(1);
+	}
+	free(got);
+}
+
+/*
+ * A Codex-style envelope resolved to a unified diff, which is what gives the
+ * rendered hunk its line numbers.
+ */
+int patch_to_unified(void)
+{
+	char tmpl[] = "/tmp/fyai-patch-conv-XXXXXX";
+	char *dir;
+	char *got;
+
+	dir = mkdtemp(tmpl);
+	if (!dir)
+		return 1;
+	if (chdir(dir))
+		return 1;
+
+	write_file_or_die("hello.c",
+		"int main(void)\n"
+		"{\n"
+		"\tputs(\"old\");\n"
+		"\treturn 0;\n"
+		"}\n");
+
+	/*
+	 * The chunk replaces the whole block; the rows both sides share become
+	 * context, so the hunk shows the one changed line at its position.
+	 */
+	expect_unified(
+		"*** Begin Patch\n"
+		"*** Update File: hello.c\n"
+		"@@\n"
+		" int main(void)\n"
+		" {\n"
+		"-\tputs(\"old\");\n"
+		"+\tputs(\"new\");\n"
+		" \treturn 0;\n"
+		" }\n"
+		"*** End Patch\n",
+		"--- hello.c\n"
+		"+++ hello.c\n"
+		"@@ -1,5 +1,5 @@\n"
+		" int main(void)\n"
+		" {\n"
+		"-\tputs(\"old\");\n"
+		"+\tputs(\"new\");\n"
+		" \treturn 0;\n"
+		" }\n");
+
+	/* An added file is a whole-file hunk against /dev/null. */
+	expect_unified(
+		"*** Begin Patch\n"
+		"*** Add File: new.txt\n"
+		"+one\n"
+		"+two\n"
+		"*** End Patch\n",
+		"--- /dev/null\n"
+		"+++ new.txt\n"
+		"@@ -0,0 +1 @@\n"
+		"+one\n"
+		"+two\n");
+
+	/* A unified diff needs no conversion, and neither does a stale one. */
+	got = fyai_patch_to_unified(
+		"--- a/hello.c\n"
+		"+++ b/hello.c\n"
+		"@@ -1,1 +1,1 @@\n"
+		" int main(void)\n");
+	if (got) {
+		fprintf(stderr, "converted a unified diff: %s\n", got);
+		free(got);
+		return 1;
+	}
+	got = fyai_patch_to_unified(
+		"*** Begin Patch\n"
+		"*** Update File: hello.c\n"
+		"@@\n"
+		"-not in the file\n"
+		"+replacement\n"
+		"*** End Patch\n");
+	if (got) {
+		fprintf(stderr, "resolved an unmatched hunk: %s\n", got);
+		free(got);
+		return 1;
+	}
 
 	return 0;
 }
