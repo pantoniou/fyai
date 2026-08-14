@@ -1291,6 +1291,8 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 {
 	struct fyai_ui *ui;
 	if (!fyai_ui_active(ctx)) return;
+	/* Drain the previous result before the next invocation. */
+	fyai_ui_drain_output(ctx);
 	ui = ctx->ui;
 	if (ui->tool_band) fytim_workband_destroy(ui->tool_band);
 	free(ui->tool_title);
