@@ -1357,7 +1357,8 @@ fyai_auth_login_device_code_done(struct fyai_auth_login_request *request)
 	doc = parse_json_string(ctx->transient_gb, request->response.data);
 	request->device_id = strdup(fy_get(doc, "device_auth_id", ""));
 	request->user_code = strdup(fy_get(doc, "user_code", ""));
-	interval = atoi(fy_get(doc, "interval", "5"));
+	/* The interval arrives as a number or as a numeric string. */
+	interval = (int)fy_number(fy_get(doc, "interval"), 5);
 	request->interval = interval > 0 ? interval : 5;
 	fyai_error_check(ctx, request->device_id && *request->device_id &&
 			 request->user_code && *request->user_code, err_out,

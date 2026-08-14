@@ -51,7 +51,7 @@ static int config_bad_value(const char *key, fy_generic value,
 			    fy_generic choices)
 {
 	fprintf(stderr, "config: invalid %s '%s' (%s)\n",
-		key, fy_cast(fy_convert(value, FYGT_STRING), ""),
+		key, fy_str(value),
 		fy_cast(choices, ""));
 	return -1;
 }
@@ -90,7 +90,7 @@ static int config_validate_api(fy_generic root)
 		return 0;
 	fprintf(stderr,
 		"config: invalid api '%s' (responses|chat-completions|messages)\n",
-		fy_cast(fy_convert(v, FYGT_STRING), ""));
+		fy_str(v));
 	return -1;
 }
 
@@ -1426,7 +1426,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 					 "chat-completions"), v))
 		problems = config_problem_add(cfg->gb, problems,
 				"invalid api '%s' (responses|chat-completions|messages)",
-				fy_cast(fy_convert(v, FYGT_STRING), ""));
+				fy_str(v));
 
 	v = fy_get(doc, "reasoning");
 	if (!fy_is_invalid(v) && !fy_is_mapping(v))
@@ -1441,14 +1441,14 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 						 "medium", "high"), e))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid reasoning.effort '%s' (minimal|low|medium|high)",
-				fy_cast(fy_convert(e, FYGT_STRING), ""));
+				fy_str(e));
 		s = fy_get(v, "summary");
 		if (!fy_is_invalid(s) &&
 		    !config_contains(fy_sequence("auto", "concise",
 						 "detailed"), s))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid reasoning.summary '%s' (auto|concise|detailed)",
-				fy_cast(fy_convert(s, FYGT_STRING), ""));
+				fy_str(s));
 	}
 
 	v = fy_get(doc, "display");
@@ -1465,22 +1465,22 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 						 "stream"), mode))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.markdown_mode '%s' (oneshot|line|stream)",
-				fy_cast(fy_convert(mode, FYGT_STRING), ""));
+				fy_str(mode));
 		color = fy_get(v, "color");
 		if (!fy_is_invalid(color) &&
 		    !config_contains(fy_sequence("auto", "off",
 						 "on"), color))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.color '%s' (auto|off|on)",
-				fy_cast(fy_convert(color, FYGT_STRING), ""));
+				fy_str(color));
 		theme = fy_get(v, "theme");
 		if (!fy_is_invalid(theme) &&
 		    !markdown_theme_selector_valid(
-			    fy_cast(fy_convert(theme, FYGT_STRING), "")))
+			    fy_str(theme)))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.theme '%s' "
 				"(%s[:auto|dark|light])",
-				fy_cast(fy_convert(theme, FYGT_STRING), ""),
+				fy_str(theme),
 				markdown_theme_names(theme_names,
 						     sizeof(theme_names)));
 		tborder = fy_get(v, "table_border");
@@ -1489,7 +1489,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				     tborder))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.table_border '%s' (theme|grid|none)",
-				fy_cast(fy_convert(tborder, FYGT_STRING), ""));
+				fy_str(tborder));
 	}
 
 out:

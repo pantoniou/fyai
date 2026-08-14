@@ -916,10 +916,9 @@ static void schema_default_str(fy_generic node, char *buf, size_t bufsz)
 		buf[0] = '\0';
 		return;
 	}
-	/* fy_convert()'s result has stack lifetime bound to this frame -
-	 * copy it out with snprintf before returning, never cache the
-	 * pointer itself. */
-	snprintf(buf, bufsz, "%s", fy_cast(fy_convert(v, FYGT_STRING), ""));
+	/* fy_str()'s result has stack lifetime bound to this frame - copy it
+	 * out with snprintf before returning, never cache the pointer. */
+	snprintf(buf, bufsz, "%s", fy_str(v) ?: "");
 }
 
 static void schema_type_str(fy_generic node, char *buf, size_t bufsz)
