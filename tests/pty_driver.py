@@ -76,8 +76,10 @@ def main():
         "FYAI_PTY_EDIT_INPUT", "0") in ("1", "true", "yes")
     edit_needle = os.environ.get(
         "FYAI_PTY_EDIT_NEEDLE", "edited prompt").encode()
+    rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
+    cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
     master, child = os.openpty()
-    fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+    fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     pid = os.fork()
     if pid == 0:
         # Create a controlling terminal with a foreground process group.
