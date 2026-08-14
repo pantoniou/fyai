@@ -427,6 +427,55 @@ bool fyai_provider_native_shell(const struct fyai_cfg *cfg)
 	       cfg->shell_tool_supported;
 }
 
+/* Convert a shell result to a provider-supported outcome. */
+static fy_generic fyai_shell_outcome_sanitized(struct fy_generic_builder *gb,
+					       fy_generic entry)
+{
+	fy_generic outcome;
+	long long signal;
+
+	outcome = fy_get(entry, "outcome");
+	if (fy_equal(fy_get(outcome, "type"), "timeout"))
+		outcome = fy_mapping(gb, "type", "timeout");
+	else if (fy_equal(fy_get(outcome, "type"), "signal")) {
+		signal = fy_get(outcome, "signal", 0LL);
+		outcome = fy_mapping(gb, "type", "exit",
+					"exit_code", 128 + signal);
+	} else {
+		outcome = fy_mapping(gb, "type", "exit",
+					"exit_code",
+					fy_get(outcome, "exit_code", 0LL));
+	}
+	return fy_mapping(gb, "stdout", fy_get(entry, "stdout", ""),
+			     "stderr", fy_get(entry, "stderr", ""),
+			     "outcome", outcome);
+}
+
+/* @m, a shell_call_output item, with every outcome of its output sanitized. */
+static fy_generic fyai_shell_output_sanitized(struct fyai_ctx *ctx,
+					      fy_generic m)
+{
+	fy_generic outputs = fy_seq_empty;
+	fy_generic output;
+	fy_generic entry;
+	fy_generic sanitized;
+
+	output = fy_get(m, "output");
+	if (!fy_is_sequence(output))
+		return m;
+	fy_foreach(entry, output) {
+		sanitized = fyai_shell_outcome_sanitized(ctx->transient_gb, entry);
+		outputs = fy_append(ctx->transient_gb, outputs,
+				    sanitized);
+	}
+	return fy_null_filtered_mapping(ctx->transient_gb,
+			"type", fy_get(m, "type", "shell_call_output"),
+			"call_id", fy_get(m, "call_id", ""),
+			"output", outputs,
+			"max_output_length",
+			fyai_generic_or_null(fy_get(m, "max_output_length")));
+}
+
 fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 {
 	fy_generic type;
@@ -488,6 +537,15 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 						"type", "function_call_output",
 						"call_id", fy_get(m, "call_id", ""),
 						"output", output));
+			continue;
+		}
+
+		/*
+		 * Remove canonical outcome fields that the endpoint rejects.
+		 */
+		if (native_shell && fy_equal(type, "shell_call_output")) {
+			input = fy_append(ctx->transient_gb, input,
+				fyai_shell_output_sanitized(ctx, m));
 			continue;
 		}
 
