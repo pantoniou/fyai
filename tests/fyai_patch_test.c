@@ -16,6 +16,7 @@
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(patch, apply, patch_apply)
+FYAI_TEST_ENTRY(patch, unified, patch_unified)
 
 static void expect_ok(char *result)
 {
@@ -339,6 +340,109 @@ int patch_apply(void)
 		fprintf(stderr, "delete failed\n");
 		return 1;
 	}
+
+	return 0;
+}
+
+/* The unified-diff form of the same tool input. */
+int patch_unified(void)
+{
+	char tmpl[] = "/tmp/fyai-patch-unified-XXXXXX";
+	char *dir;
+
+	dir = mkdtemp(tmpl);
+	if (!dir)
+		return 1;
+	if (chdir(dir))
+		return 1;
+
+	/* /dev/null on the old side adds a file. */
+	expect_ok(fyai_apply_patch_text(
+		"--- /dev/null\n"
+		"+++ b/a.txt\n"
+		"@@ -0,0 +1,3 @@\n"
+		"+one\n"
+		"+two\n"
+		"+three\n"));
+	expect_file("a.txt", "one\ntwo\nthree\n");
+
+	/* A hunk is matched by its context, so drifted line numbers apply. */
+	expect_ok(fyai_apply_patch_text(
+		"--- a/a.txt\n"
+		"+++ b/a.txt\n"
+		"@@ -40,3 +40,3 @@ section heading\n"
+		" one\n"
+		"-two\n"
+		"+TWO\n"
+		" three\n"));
+	expect_file("a.txt", "one\nTWO\nthree\n");
+
+	/* A git-style preamble and extended headers are skipped. */
+	expect_ok(fyai_apply_patch_text(
+		"commit 0123456789abcdef\n"
+		"Author: Someone <someone@example.com>\n"
+		"\n"
+		"    a commit message\n"
+		"\n"
+		"diff --git a/a.txt b/a.txt\n"
+		"index 1234567..89abcde 100644\n"
+		"--- a/a.txt\n"
+		"+++ b/a.txt\n"
+		"@@ -1,3 +1,4 @@\n"
+		" one\n"
+		" TWO\n"
+		"+two and a half\n"
+		" three\n"));
+	expect_file("a.txt", "one\nTWO\ntwo and a half\nthree\n");
+
+	/* Two files in one patch, and an empty context row. */
+	write_file_or_die("b.txt", "keep\n\ndrop\n");
+	expect_ok(fyai_apply_patch_text(
+		"--- a/a.txt\n"
+		"+++ b/a.txt\n"
+		"@@ -1,1 +1,1 @@\n"
+		"-one\n"
+		"+ONE\n"
+		"--- a/b.txt\n"
+		"+++ b/b.txt\n"
+		"@@ -1,3 +1,2 @@\n"
+		" keep\n"
+		"\n"
+		"-drop\n"));
+	expect_file("a.txt", "ONE\nTWO\ntwo and a half\nthree\n");
+	expect_file("b.txt", "keep\n");
+
+	/* Different paths on the two sides rename the file. */
+	expect_ok(fyai_apply_patch_text(
+		"--- a/b.txt\n"
+		"+++ b/c.txt\n"
+		"@@ -1,1 +1,1 @@\n"
+		"-keep\n"
+		"+kept\n"));
+	if (!access("b.txt", F_OK)) {
+		fprintf(stderr, "renamed source still exists\n");
+		return 1;
+	}
+	expect_file("c.txt", "kept\n");
+
+	/* /dev/null on the new side deletes. */
+	expect_ok(fyai_apply_patch_text(
+		"--- a/c.txt\n"
+		"+++ /dev/null\n"
+		"@@ -1,1 +0,0 @@\n"
+		"-kept\n"));
+	if (!access("c.txt", F_OK)) {
+		fprintf(stderr, "unified delete failed\n");
+		return 1;
+	}
+
+	/* Context that is not in the file is an error, not a silent no-op. */
+	expect_error(fyai_apply_patch_text(
+		"--- a/a.txt\n"
+		"+++ b/a.txt\n"
+		"@@ -1,1 +1,1 @@\n"
+		"-nowhere to be found\n"
+		"+replacement\n"));
 
 	return 0;
 }
