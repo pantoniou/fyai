@@ -1,0 +1,71 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_ui_native_parallel_1",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "shell_call",
+            "id": "sc_to_a",
+            "call_id": "call_to_a",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "sleep 10"
+              ],
+              "timeout_ms": 1000
+            }
+          },
+          {
+            "type": "shell_call",
+            "id": "sc_to_b",
+            "call_id": "call_to_b",
+            "status": "completed",
+            "action": {
+              "type": "exec",
+              "commands": [
+                "sleep 5"
+              ],
+              "timeout_ms": 1000
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 10,
+          "total_tokens": 30
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "resp_ui_native_parallel_2",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_ui_native_parallel_2",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Both parallel sleep commands timed out after 1 second."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 8,
+          "total_tokens": 48
+        }
+      }
+    }
+  ]
+}

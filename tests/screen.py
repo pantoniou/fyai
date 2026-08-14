@@ -21,11 +21,19 @@ class Screen:
         self.grid = [[" "] * cols for _ in range(rows)]
         self.row = 0
         self.col = 0
+        # Rows that left the screen. A transcript is longer than the screen,
+        # so the order of what the user saw needs them.
+        self.scrollback = []
 
     def display(self):
         return ["".join(r).rstrip() for r in self.grid]
 
+    def lines(self):
+        """Every row in the order it was shown, scrolled-off rows first."""
+        return self.scrollback + self.display()
+
     def _scroll(self):
+        self.scrollback.append("".join(self.grid[0]).rstrip())
         self.grid.pop(0)
         self.grid.append([" "] * self.cols)
 
