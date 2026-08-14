@@ -21,6 +21,7 @@ FYAI_TEST_ENTRY(provider, extract_usage, provider_extract_usage)
 FYAI_TEST_ENTRY(provider, chatgpt_shell_tool, provider_chatgpt_shell_tool)
 FYAI_TEST_ENTRY(provider, foreign_shell_tool, provider_foreign_shell_tool)
 FYAI_TEST_ENTRY(provider, shell_downgrade, provider_shell_downgrade)
+FYAI_TEST_ENTRY(provider, shell_outcome, provider_shell_outcome)
 FYAI_TEST_ENTRY(provider, response_accessors, provider_response_accessors)
 FYAI_TEST_ENTRY(provider, messages_input, provider_messages_input)
 FYAI_TEST_ENTRY(provider, token_extents, provider_token_extents)
@@ -259,6 +260,42 @@ static void test_responses_shell_downgrade(void)
 	expect_contains("foreign", out, "\"type\": \"function_call\"");
 	expect_contains("foreign", out, "\"type\": \"function_call_output\"");
 	expect_contains("foreign", out, "\"output\": \"[{");
+}
+
+/*
+ * The canonical outcome of a native shell result records more than the
+ * endpoint declares. The stored item replays on every later request, so an
+ * unaccepted key wedges the conversation until it is reduced here.
+ */
+static void test_responses_shell_outcome(void)
+{
+	fy_generic messages;
+	const char *out;
+
+	messages = parse(
+		"["
+		"{\"type\": \"shell_call_output\",\"call_id\": \"s1\","
+		"\"output\":[{\"stdout\": \"slow\\n\",\"stderr\": \"\","
+		"\"outcome\":{\"type\": \"timeout\",\"timeout_ms\":1000}}],"
+		"\"max_output_length\":12000},"
+		"{\"type\": \"shell_call_output\",\"call_id\": \"s2\","
+		"\"output\":[{\"stdout\": \"\",\"stderr\": \"\","
+		"\"outcome\":{\"type\": \"signal\",\"signal\":9}}]}"
+		"]");
+
+	test_cfg.shell_tool_supported = true;
+	test_cfg.chatgpt_auth = false;
+	out = emit(fyai_responses_input(&test_ctx, messages));
+	/* A time limit keeps its type, without the limit that expired. */
+	expect_contains("timeout", out, "\"type\": \"timeout\"");
+	expect_absent("timeout", out, "timeout_ms");
+	/* A signal has no outcome type of its own; report it as an exit. */
+	expect_absent("signal", out, "\"signal\"");
+	expect_contains("signal", out, "\"exit_code\": 137");
+	/* The captured output and the item itself survive. */
+	expect_contains("outcome", out, "slow");
+	expect_contains("outcome", out, "\"call_id\": \"s1\"");
+	expect_contains("outcome", out, "\"max_output_length\": 12000");
 }
 
 /*
@@ -538,6 +575,11 @@ int provider_foreign_shell_tool(void)
 int provider_shell_downgrade(void)
 {
 	return provider_run(test_responses_shell_downgrade);
+}
+
+int provider_shell_outcome(void)
+{
+	return provider_run(test_responses_shell_outcome);
 }
 
 int provider_response_accessors(void)

@@ -23,7 +23,15 @@ assert_stdout_contains "The command was stopped by its time limit."
 # The result remains a structured shell_call_output. The outcome identifies
 # the time limit instead of the termination signal.
 assert_request 1 'any(i.get("type") == "shell_call_output" and i.get("call_id") == "sc_to_1" for i in r["body"]["input"])'
-assert_request 1 'any(o["outcome"]["type"] == "timeout" and o["outcome"]["timeout_ms"] == 1500 for i in r["body"]["input"] if i.get("type") == "shell_call_output" for o in i["output"])'
+# The endpoint declares no field beside the type, and rejects the request that
+# carries one, so the limit that expired stays out of the wire item.
+assert_request 1 'any(o["outcome"] == {"type": "timeout"} for i in r["body"]["input"] if i.get("type") == "shell_call_output" for o in i["output"])'
+
+# The stored result keeps it: that is where the report of the limit comes from.
+"$FYAI_BIN" --color off dump state >"$TEST_DIR/state.out" 2>&1 ||
+	fail "dump state failed"
+grep -qF "timeout_ms: 1500" "$TEST_DIR/state.out" ||
+	fail "the stored outcome lost the time limit that expired"
 
 # The model receives output that the command produced before the timeout.
 assert_request 1 'any("shell-timeout-marker" in o.get("stdout", "") for i in r["body"]["input"] if i.get("type") == "shell_call_output" for o in i["output"])'
