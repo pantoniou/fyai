@@ -46,6 +46,30 @@ into the local copy of `v`. That pointer becomes invalid when the copy leaves
 scope. Use `fy_castp(&v, "")` at the use site, with a long-lived generic. Do
 not cache a cast pointer beyond the lifetime of its generic.
 
+A `const char *` loop variable of `fy_foreach()`, `fy_foreach_key_value()` or
+`fy_foreach_idx_item()` is safe. The typed accessor takes the address of the
+stored item, so the pointer is into collection storage, not into a copy.
+
+### Short forms
+
+Use the short generic API. It says the same thing with less text:
+
+- `fy_is_string()`, `fy_is_mapping()`, `fy_is_valid()` and the other
+  `fy_is_*()` predicates, and `fy_empty()` for an empty collection or string.
+  Keep `fy_generic_is_int()`, `fy_generic_is_float()` and
+  `fy_generic_is_bool()`, which also test the C value range.
+- `fy_foreach()`, `fy_foreach_key_value()` and `fy_foreach_idx_item()` in
+  place of an index loop with `fy_get_at()` and `fy_get_key_at()`.
+- `fy_any_equal(v, "a", "b")` in place of a chain of `fy_equal()` tests. It
+  evaluates the value one time.
+- `fy_str(v)` for a printable string and `fy_number(v, dflt)` for a number.
+  `fy_str()` returns NULL for `fy_invalid`.
+- `fy_stringf(gb, ...)` and `fy_join(gb, ...)` to build a string generic in a
+  builder arena. To get a stable `const char *`, keep
+  `fy_gb_intern_string(gb, fy_sprintfa(...))`; there is no interning format
+  function.
+- `fy_str_empty(s)` for a NULL or empty C string.
+
 ### Empty strings
 
 An empty-string generic is a string, not null. The YAML emitter must write an
