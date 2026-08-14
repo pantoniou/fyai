@@ -1205,9 +1205,8 @@ static fy_generic config_doc_sync_derived_api(struct fy_generic_builder *gb,
 		return doc;
 
 	new_api = fy_value(fyai_api_to_string(mode));
-	new_api_url = fy_value(fy_sprintfa("%s%s",
-					   fy_get(cat_prov, "root_url", ""),
-					   fy_get(cat_ep, "endpoint", "")));
+	new_api_url = fy_stringf("%s%s", fy_get(cat_prov, "root_url", ""),
+				 fy_get(cat_ep, "endpoint", ""));
 
 	before = fy_invalid;
 	doc = fy_set_at_pathstr(gb, doc, "api", new_api);

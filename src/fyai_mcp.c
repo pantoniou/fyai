@@ -2179,8 +2179,7 @@ int fyai_mcp_status(struct fyai_ctx *ctx)
 				fy_is_valid(mcp->tools) ?
 				fy_len(mcp->tools) : 0),
 			"expires", expires_in ?
-				fy_value(gb, fy_sprintfa("%llds",
-					expires_in)) : fy_null,
+				fy_stringf(gb, "%llds", expires_in) : fy_null,
 			"endpoint", mcp->endpoint ?
 				fy_value(gb, mcp->endpoint) : fy_null,
 			"error", mcp->last_error ?

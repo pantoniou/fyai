@@ -61,9 +61,9 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 	props = fy_get(params, "properties");
 	prop = fy_get(props, "persona");
 	prop = fy_assoc(gb, prop, fy_value(gb, "description"),
-		fy_value(gb, fy_sprintfa(
+		fy_stringf(gb,
 			"Optional named persona for the sub-agent. Available:%s",
-			list)));
+			list));
 	props = fy_assoc(gb, props, fy_value(gb, "persona"), prop);
 	return fy_mapping(gb,
 		"type", fy_get(tool, "type"),
