@@ -65,14 +65,14 @@
   function:
     name: apply_patch
     description: |-
-      Apply a raw Codex-style patch to workspace files. Use *** Begin Patch / *** End Patch; hunks are *** Add File, *** Delete File, or *** Update File with optional *** Move to and @@ changes, plus optional *** End of File.
+      Apply a patch to workspace files. Prefer a unified diff: one "--- a/path" and "+++ b/path" header per file, then "@@ -old,count +new,count @@" hunks whose rows start with a space (context), "-" (removed) or "+" (added). Use /dev/null as the old path to add a file and as the new path to delete one. Line numbers are advisory; hunks are matched by their context. A Codex-style *** Begin Patch / *** End Patch envelope is also accepted.
     parameters:
       type: object
       properties:
         patch:
           type: string
           description: |-
-            Complete patch text to apply.
+            Complete patch text to apply, as a unified diff.
       required:
         - patch
       additionalProperties: false

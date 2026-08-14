@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define FYAI_MODULE FYAIEM_TOOLS
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -19,6 +21,7 @@
 #include <unistd.h>
 
 #include "fyai_patch.h"
+#include "fyai_diag.h"
 #include "utils.h"
 
 struct patch_line {
@@ -765,7 +768,7 @@ static char *compute_replacements(struct str_list *lines,
 	size_t i, insertion_idx, pat_count, new_count;
 	struct update_chunk *ck;
 	long idx;
-	char *err;
+	char *err = NULL;
 
 	repl = NULL;
 	repl_count = 0;
@@ -844,34 +847,25 @@ static char *apply_replacements(struct str_list *lines,
 
 /* ---- parsing ---------------------------------------------------------- */
 
-static char *parse_update(struct patch_reader *r, const char *path,
-			  struct patch_line *line, bool *have_line,
-			  char **out_path, char **out_content)
+/*
+ * Read the chunk list of one "*** Update File" hunk. Stops on the next "*** "
+ * marker, which the caller sees through @have_line. Shared by the applier and
+ * by the unified-diff conversion, so both read the same envelope.
+ */
+static char *parse_update_chunks(struct patch_reader *r,
+				 struct patch_line *line, bool *have_line,
+				 char **out_path,
+				 struct update_chunk_list *chunks_out)
 {
-	struct str_list lines = {};
 	struct update_chunk_list chunks = {};
-	struct replacement *repl = NULL;
-	size_t repl_count = 0;
 	struct update_chunk *ck;
-	char *content;
 	char *ltrim;
 	char *ctx;
 	char *text;
-	char *err;
 	const char *rest;
 	bool saw_hunk;
 	bool saw_marker;
 	char c;
-
-	content = read_text_file(path);
-	if (!content)
-		return patch_errno("read", path);
-	if (lines_from_content(content, &lines)) {
-		free(content);
-		str_list_free(&lines);
-		return patch_err("out of memory");
-	}
-	free(content);
 
 	saw_hunk = false;
 	saw_marker = false;
@@ -956,43 +950,66 @@ static char *parse_update(struct patch_reader *r, const char *path,
 	if (!saw_hunk)
 		goto empty_hunk;
 
-	err = compute_replacements(&lines, &chunks, &repl, &repl_count);
-	if (err)
-		goto fail_err;
-	err = apply_replacements(&lines, repl, repl_count);
-	free(repl);
-	if (err)
-		goto fail_err;
-
-	*out_content = join_lines(&lines);
-	if (!*out_content) {
-		err = patch_err("out of memory");
-		goto fail_err;
-	}
-
-	str_list_free(&lines);
-	chunk_list_free(&chunks);
+	*chunks_out = chunks;
 	return NULL;
 
 malformed:
-	str_list_free(&lines);
 	chunk_list_free(&chunks);
 	return patch_err("malformed update hunk");
 empty_hunk:
-	str_list_free(&lines);
 	chunk_list_free(&chunks);
 	return patch_err("empty update hunk");
 oom:
-	str_list_free(&lines);
 	chunk_list_free(&chunks);
 	return patch_err("out of memory");
 invalid_path:
-	str_list_free(&lines);
 	chunk_list_free(&chunks);
 	free(*out_path);
 	*out_path = NULL;
 	return patch_err("invalid patch path");
-fail_err:
+}
+
+/* Apply one update hunk to @path. */
+static char *parse_update(struct fyai_ctx *ctx, struct patch_reader *r,
+			  const char *path,
+			  struct patch_line *line, bool *have_line,
+			  char **out_path, char **out_content)
+{
+	struct str_list lines = {};
+	struct update_chunk_list chunks = {};
+	struct replacement *repl = NULL;
+	size_t repl_count = 0;
+	char *content = NULL;
+	char *err;
+	int rc;
+
+	err = parse_update_chunks(r, line, have_line, out_path, &chunks);
+	fyai_error_check(ctx, !err, out, "%s", err);
+
+	content = read_text_file(path);
+	fyai_error_check(ctx, content, out, "could not read %s: %s", path,
+			 strerror(errno));
+	rc = lines_from_content(content, &lines);
+	fyai_error_check(ctx, !rc, out, "could not split %s", path);
+	free(content);
+
+	err = compute_replacements(&lines, &chunks, &repl, &repl_count);
+	if (!err)
+		err = apply_replacements(&lines, repl, repl_count);
+	free(repl);
+	if (!err) {
+		*out_content = join_lines(&lines);
+		fyai_error_check(ctx, *out_content, out,
+				 "could not build updated content for %s", path);
+	}
+	str_list_free(&lines);
+	chunk_list_free(&chunks);
+	return err;
+out:
+	if (!err)
+		err = strdup("tool error: could not process patch");
+	free(content);
+	free(repl);
 	str_list_free(&lines);
 	chunk_list_free(&chunks);
 	return err;
@@ -1114,7 +1131,567 @@ static char *patch_ops_commit(struct patch_op *ops)
 	return NULL;
 }
 
-char *fyai_apply_patch_text(const char *patch)
+static bool patch_is_unified(const char *patch);
+
+/* Convert an envelope before the patch changes the target files. */
+
+#define PATCH_UNIFIED_CONTEXT 3
+
+static int unified_row(struct fyai_ctx *ctx, struct response_buffer *out,
+		       char kind, const char *text)
+{
+	char c = kind;
+	int rc;
+
+	rc = response_buffer_append_data(out, &c, 1);
+	fyai_error_check(ctx, !rc, out, "could not append a patch marker");
+	rc = response_buffer_append_line(out, text, strlen(text));
+	fyai_error_check(ctx, !rc, out, "could not append a patch row");
+	return 0;
+out:
+	return -1;
+}
+
+static int unified_headers(struct fyai_ctx *ctx, struct response_buffer *out,
+			   const char *old_path,
+			   const char *new_path)
+{
+	const char *s;
+	int rc;
+
+	s = fy_sprintfa("--- %s\n+++ %s\n", old_path, new_path);
+	rc = response_buffer_append(out, s);
+	fyai_error_check(ctx, !rc, out, "could not append patch headers");
+	return 0;
+out:
+	return -1;
+}
+
+/* Write one unified-diff hunk. */
+static int unified_hunk(struct fyai_ctx *ctx, struct response_buffer *out,
+			struct str_list *lines,
+			struct replacement *repl, long new_delta)
+{
+	size_t pre, post, limit;
+	size_t core_old, core_new;
+	size_t start, end, i;
+	size_t old_count, new_count;
+	const char *s;
+	int rc;
+
+	/* Rows the two sides share, at the head and then at the tail. */
+	limit = repl->old_len < repl->new_count ? repl->old_len :
+						  repl->new_count;
+	for (pre = 0; pre < limit; pre++)
+		if (strcmp(lines->item[repl->idx + pre], repl->new_item[pre]))
+			break;
+	limit -= pre;
+	for (post = 0; post < limit; post++)
+		if (strcmp(lines->item[repl->idx + repl->old_len - 1 - post],
+			   repl->new_item[repl->new_count - 1 - post]))
+			break;
+	core_old = repl->old_len - pre - post;
+	core_new = repl->new_count - pre - post;
+	if (!core_old && !core_new)
+		return 0;	/* the chunk changes nothing */
+
+	start = repl->idx + pre;
+	start = start > PATCH_UNIFIED_CONTEXT ? start - PATCH_UNIFIED_CONTEXT : 0;
+	end = repl->idx + pre + core_old + PATCH_UNIFIED_CONTEXT;
+	if (end > lines->count)
+		end = lines->count;
+
+	old_count = end - start;
+	new_count = old_count - core_old + core_new;
+	s = fy_sprintfa("@@ -%zu,%zu +%ld,%zu @@\n", start + 1, old_count,
+			 (long)(start + 1) + new_delta, new_count);
+	rc = response_buffer_append(out, s);
+	fyai_error_check(ctx, !rc, out, "could not append a patch hunk");
+
+	for (i = start; i < repl->idx + pre; i++) {
+		rc = unified_row(ctx, out, ' ', lines->item[i]);
+		fyai_error_check(ctx, !rc, out, "could not append patch context");
+	}
+	for (i = 0; i < core_old; i++) {
+		rc = unified_row(ctx, out, '-', lines->item[repl->idx + pre + i]);
+		fyai_error_check(ctx, !rc, out, "could not append a removed row");
+	}
+	for (i = 0; i < core_new; i++) {
+		rc = unified_row(ctx, out, '+', repl->new_item[pre + i]);
+		fyai_error_check(ctx, !rc, out, "could not append an added row");
+	}
+	for (i = repl->idx + pre + core_old; i < end; i++) {
+		rc = unified_row(ctx, out, ' ', lines->item[i]);
+		fyai_error_check(ctx, !rc, out, "could not append patch context");
+	}
+	return 0;
+out:
+	return -1;
+}
+
+/* Every line of @path as an added or removed side of a whole-file hunk. */
+static int unified_whole_file(struct fyai_ctx *ctx, struct response_buffer *out,
+			      const char *path,
+			      bool added)
+{
+	struct str_list lines = {};
+	char *content = NULL;
+	const char *s;
+	size_t i;
+	int rc;
+
+	content = read_text_file(path);
+	fyai_error_check(ctx, content, out, "could not read %s", path);
+	rc = lines_from_content(content, &lines);
+	free(content);
+	fyai_error_check(ctx, !rc, out, "could not split file content");
+	s = fy_sprintfa("@@ -%s +%s @@\n",
+			 added ? "0,0" : "1", added ? "1" : "0,0");
+	rc = response_buffer_append(out, s);
+	fyai_error_check(ctx, !rc, out, "could not append a whole-file hunk");
+	for (i = 0; !rc && i < lines.count; i++)
+		rc = unified_row(ctx, out, added ? '+' : '-', lines.item[i]);
+	fyai_error_check(ctx, !rc, out, "could not append whole-file rows");
+	rc = 0;
+out:
+	str_list_free(&lines);
+	return rc;
+}
+
+/* The added lines of an "*** Add File" body, as a whole-file hunk. */
+static int unified_added_lines(struct fyai_ctx *ctx, struct response_buffer *out,
+			       const char *content)
+{
+	struct str_list lines = {};
+	size_t i;
+	int rc;
+
+	rc = lines_from_content(content, &lines);
+	fyai_error_check(ctx, !rc, out, "could not split added file content");
+	rc = append_range(out, "@@ -0,0 +1 @@\n", 14);
+	for (i = 0; !rc && i < lines.count; i++)
+		rc = unified_row(ctx, out, '+', lines.item[i]);
+	str_list_free(&lines);
+	return rc;
+out:
+	str_list_free(&lines);
+	return -1;
+}
+
+/* One "*** Update File" hunk, resolved against the file it patches. */
+static int unified_update(struct fyai_ctx *ctx, struct response_buffer *out,
+			  const char *path,
+			  const char *new_path,
+			  struct update_chunk_list *chunks)
+{
+	struct str_list lines = {};
+	struct replacement *repl = NULL;
+	size_t repl_count = 0;
+	size_t i;
+	long delta;
+	char *content;
+	char *err = NULL;
+	int rc;
+
+	content = read_text_file(path);
+	fyai_error_check(ctx, content, out, "could not read %s", path);
+	rc = lines_from_content(content, &lines);
+	free(content);
+	fyai_error_check(ctx, !rc, out, "could not split file content");
+	err = compute_replacements(&lines, chunks, &repl, &repl_count);
+	fyai_error_check(ctx, !err, out, "%s", err);
+	rc = unified_headers(ctx, out, path, new_path ? new_path : path);
+	fyai_error_check(ctx, !rc, out, "could not append patch headers");
+	delta = 0;
+	for (i = 0; i < repl_count; i++) {
+		rc = unified_hunk(ctx, out, &lines, &repl[i], delta);
+		fyai_error_check(ctx, !rc, out, "could not append a patch hunk");
+		delta += (long)repl[i].new_count - (long)repl[i].old_len;
+	}
+	rc = 0;
+out:
+	free(err);
+	free(repl);
+	str_list_free(&lines);
+	return rc;
+}
+
+char *fyai_patch_to_unified_ctx(struct fyai_ctx *ctx, const char *patch)
+{
+	struct response_buffer out = {};
+	struct update_chunk_list chunks = {};
+	struct patch_reader r = { .p = patch };
+	struct patch_line line;
+	char *path = NULL;
+	char *new_path = NULL;
+	char *content = NULL;
+	char *ltrim = NULL;
+	char *err;
+	bool have_line;
+	int rc;
+
+	if (!patch || patch_is_unified(patch))
+		return NULL;
+	if (!patch_next_line(&r, &line))
+		return NULL;
+	ltrim = patch_line_trim_dup(&line);
+	rc = !ltrim || strcmp(ltrim, "*** Begin Patch");
+	free(ltrim);
+	if (rc)
+		return NULL;
+
+	have_line = false;
+	for (;;) {
+		if (!have_line && !patch_next_line(&r, &line))
+			goto fail;
+		have_line = false;
+		ltrim = patch_line_trim_dup(&line);
+		if (!ltrim)
+			goto fail;
+		if (!strcmp(ltrim, "*** End Patch")) {
+			free(ltrim);
+			break;
+		}
+		rc = -1;
+		if (str_starts(ltrim, "*** Add File: ")) {
+			path = patch_path_dup(ltrim + strlen("*** Add File: "));
+			err = path ? parse_add(&r, path, &line, &have_line,
+					       &content) : NULL;
+			if (path && !err &&
+			    !unified_headers(ctx, &out, "/dev/null", path))
+				rc = unified_added_lines(ctx, &out, content);
+			free(err);
+			free(content);
+			content = NULL;
+		} else if (str_starts(ltrim, "*** Delete File: ")) {
+			path = patch_path_dup(ltrim +
+					      strlen("*** Delete File: "));
+			if (path && !unified_headers(ctx, &out, path, "/dev/null"))
+				rc = unified_whole_file(ctx, &out, path, false);
+		} else if (str_starts(ltrim, "*** Update File: ")) {
+			path = patch_path_dup(ltrim +
+					      strlen("*** Update File: "));
+			err = path ? parse_update_chunks(&r, &line, &have_line,
+							 &new_path, &chunks) :
+				     NULL;
+			if (path && !err)
+				rc = unified_update(ctx, &out, path, new_path,
+						    &chunks);
+			free(err);
+			chunk_list_free(&chunks);
+			free(new_path);
+			new_path = NULL;
+		}
+		free(ltrim);
+		free(path);
+		path = NULL;
+		if (rc)
+			goto fail;
+	}
+
+	if (!out.len)
+		goto fail;
+	return out.data;
+
+fail:
+	free(out.data);
+	return NULL;
+}
+
+char *fyai_patch_to_unified(const char *patch)
+{
+	return fyai_patch_to_unified_ctx(NULL, patch);
+}
+
+/* Parse and validate a unified-diff path. */
+static char *unified_path_dup(const char *spec, bool *absent)
+{
+	const char *p;
+	char *raw;
+	char *path;
+	char *tab;
+
+	*absent = false;
+	raw = trim_dup(spec);
+	if (!raw)
+		return NULL;
+	tab = strchr(raw, '\t');
+	if (tab)
+		*tab = '\0';
+	p = raw;
+	if (!strcmp(p, "/dev/null")) {
+		free(raw);
+		*absent = true;
+		return NULL;
+	}
+	/* Strip one leading "a/" or "b/" component, as git -p1 does. */
+	if ((p[0] == 'a' || p[0] == 'b') && p[1] == '/')
+		p += 2;
+	path = patch_path_dup(p);
+	free(raw);
+	return path;
+}
+
+/* State of one file section of a unified diff. */
+struct unified_file {
+	char *old_path;
+	char *new_path;
+	bool old_absent;
+	bool new_absent;
+	bool open;
+	struct update_chunk_list chunks;
+};
+
+static void unified_file_clear(struct unified_file *f)
+{
+	free(f->old_path);
+	free(f->new_path);
+	chunk_list_free(&f->chunks);
+	memset(f, 0, sizeof(*f));
+}
+
+/* The added lines of every chunk, joined as the content of a new file. */
+static char *unified_added_content(struct unified_file *f)
+{
+	struct response_buffer out = {};
+	size_t i, j;
+
+	for (i = 0; i < f->chunks.count; i++) {
+		for (j = 0; j < f->chunks.item[i].new.count; j++) {
+			if (append_range(&out, f->chunks.item[i].new.item[j],
+					 strlen(f->chunks.item[i].new.item[j])))
+				return NULL;
+			if (append_range(&out, "\n", 1))
+				return NULL;
+		}
+	}
+	return out.data ? out.data : strdup("");
+}
+
+/* Convert one unified-diff file section to a patch operation. */
+static char *unified_file_commit(struct unified_file *f, struct patch_op **ops,
+				 struct patch_op **tail, size_t *changed)
+{
+	struct str_list lines = {};
+	struct replacement *repl = NULL;
+	size_t repl_count = 0;
+	char *content;
+	char *new_path;
+	char *err;
+
+	if (!f->open)
+		return NULL;
+	if (f->old_absent) {
+		if (!f->new_path)
+			return patch_err("invalid patch path");
+		content = unified_added_content(f);
+		if (!content)
+			return patch_err("out of memory");
+		err = patch_ops_append(ops, tail, PATCH_OP_ADD,
+				       f->new_path, NULL, content);
+		if (err) {
+			free(content);
+			return err;
+		}
+		f->new_path = NULL;
+		(*changed)++;
+		return NULL;
+	}
+	if (!f->old_path)
+		return patch_err("invalid patch path");
+	if (f->new_absent) {
+		err = parse_delete(f->old_path);
+		if (!err)
+			err = patch_ops_append(ops, tail, PATCH_OP_DELETE,
+					       f->old_path, NULL, NULL);
+		if (err)
+			return err;
+		f->old_path = NULL;
+		(*changed)++;
+		return NULL;
+	}
+	if (!f->chunks.count)
+		return patch_err("empty update hunk");
+
+	content = read_text_file(f->old_path);
+	if (!content)
+		return patch_errno("read", f->old_path);
+	if (lines_from_content(content, &lines)) {
+		free(content);
+		str_list_free(&lines);
+		return patch_err("out of memory");
+	}
+	free(content);
+
+	err = compute_replacements(&lines, &f->chunks, &repl, &repl_count);
+	if (!err)
+		err = apply_replacements(&lines, repl, repl_count);
+	free(repl);
+	if (err) {
+		str_list_free(&lines);
+		return err;
+	}
+	content = join_lines(&lines);
+	str_list_free(&lines);
+	if (!content)
+		return patch_err("out of memory");
+
+	/* Different paths on the two sides are a rename plus an edit. */
+	new_path = NULL;
+	if (f->new_path && strcmp(f->new_path, f->old_path)) {
+		new_path = f->new_path;
+		f->new_path = NULL;
+	}
+	err = patch_ops_append(ops, tail, PATCH_OP_UPDATE, f->old_path,
+			       new_path, content);
+	if (err) {
+		free(new_path);
+		free(content);
+		return err;
+	}
+	f->old_path = NULL;
+	(*changed)++;
+	return NULL;
+}
+
+/* Apply unified-diff hunks by context. */
+static char *apply_unified_patch(struct fyai_ctx *ctx, const char *patch)
+{
+	struct unified_file f = {};
+	struct patch_reader r = { .p = patch };
+	struct patch_line line;
+	struct patch_op *ops = NULL;
+	struct patch_op *tail = NULL;
+	struct update_chunk *ck;
+	size_t changed = 0;
+	char *err = NULL;
+	char *text;
+	char c;
+	int rc;
+
+	while (patch_next_line(&r, &line)) {
+		if (line.len >= 4 && !strncmp(line.p, "--- ", 4)) {
+			err = unified_file_commit(&f, &ops, &tail, &changed);
+			fyai_error_check(ctx, !err, out, "%s", err);
+			unified_file_clear(&f);
+			text = line_dup_offset(&line, 4);
+			if (!text)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, text, out, "%s", err);
+			f.old_path = unified_path_dup(text, &f.old_absent);
+			free(text);
+			if (!f.old_path && !f.old_absent)
+				err = patch_err("invalid patch path");
+			fyai_error_check(ctx, f.old_path || f.old_absent, out,
+					 "%s", err);
+			continue;
+		}
+		if (line.len >= 4 && !strncmp(line.p, "+++ ", 4)) {
+			text = line_dup_offset(&line, 4);
+			if (!text)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, text, out, "%s", err);
+			f.new_path = unified_path_dup(text, &f.new_absent);
+			free(text);
+			if (!f.new_path && !f.new_absent)
+				err = patch_err("invalid patch path");
+			fyai_error_check(ctx, f.new_path || f.new_absent, out,
+					 "%s", err);
+			f.open = true;
+			continue;
+		}
+		if (!f.open)
+			continue;	/* preamble before the first file */
+		if (line.len >= 2 && !strncmp(line.p, "@@", 2)) {
+			rc = chunk_list_push(&f.chunks, NULL);
+			if (rc)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, !rc, out, "%s", err);
+			continue;
+		}
+		if (line.len && line.p[0] == '\\')
+			continue;	/* \ No newline at end of file */
+		if (!f.chunks.count)
+			continue;	/* extended header rows */
+		c = line.len ? line.p[0] : ' ';
+		if (c != ' ' && c != '-' && c != '+') {
+			/* End the file section after its hunk body. */
+			err = unified_file_commit(&f, &ops, &tail, &changed);
+			fyai_error_check(ctx, !err, out, "%s", err);
+			unified_file_clear(&f);
+			continue;
+		}
+		ck = &f.chunks.item[f.chunks.count - 1];
+		if (c == ' ' || c == '-') {
+			text = line.len ? line_dup_offset(&line, 1) : strdup("");
+			if (!text)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, text, out, "%s", err);
+			rc = str_list_push(&ck->old, text);
+			if (rc)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, !rc, out, "%s", err);
+		}
+		if (c == ' ' || c == '+') {
+			text = line.len ? line_dup_offset(&line, 1) : strdup("");
+			if (!text)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, text, out, "%s", err);
+			rc = str_list_push(&ck->new, text);
+			if (rc)
+				err = patch_err("out of memory");
+			fyai_error_check(ctx, !rc, out, "%s", err);
+		}
+	}
+	err = unified_file_commit(&f, &ops, &tail, &changed);
+	fyai_error_check(ctx, !err, out, "%s", err);
+	if (!changed)
+		err = patch_err("patch has no file operation");
+	fyai_error_check(ctx, changed, out, "%s", err);
+	err = patch_ops_commit(ops);
+	fyai_error_check(ctx, !err, out, "%s", err);
+	unified_file_clear(&f);
+	patch_ops_free(ops);
+	rc = asprintf(&err, "ok: %zu file%s changed", changed,
+		      changed == 1 ? "" : "s");
+	if (rc < 0)
+		return NULL;
+	return err;
+
+out:
+	unified_file_clear(&f);
+	patch_ops_free(ops);
+	return err;
+}
+
+/* Detect a unified diff before an envelope marker. */
+static bool patch_is_unified(const char *patch)
+{
+	struct patch_reader r = { .p = patch };
+	struct patch_line line;
+	char *ltrim;
+	bool unified;
+
+	unified = false;
+	while (patch_next_line(&r, &line)) {
+		ltrim = patch_line_trim_dup(&line);
+		if (!ltrim)
+			return false;
+		if (!strcmp(ltrim, "*** Begin Patch")) {
+			free(ltrim);
+			return false;
+		}
+		free(ltrim);
+		if (unified)
+			continue;
+		unified = (line.len >= 4 && !strncmp(line.p, "--- ", 4)) ||
+			  (line.len >= 3 && !strncmp(line.p, "@@ ", 3)) ||
+			  (line.len >= 11 && !strncmp(line.p, "diff --git ", 11));
+	}
+	return unified;
+}
+
+char *fyai_apply_patch_text_ctx(struct fyai_ctx *ctx, const char *patch)
 {
 	struct patch_reader r = { .p = patch };
 	struct patch_line line;
@@ -1127,6 +1704,9 @@ char *fyai_apply_patch_text(const char *patch)
 	char *ltrim;
 	size_t changed;
 	bool have_line;
+
+	if (patch && patch_is_unified(patch))
+		return apply_unified_patch(ctx, patch);
 
 	/* codex-rs tolerates leading/trailing whitespace around every "*** "
 	 * marker line, so every marker comparison below runs against a
@@ -1190,7 +1770,7 @@ char *fyai_apply_patch_text(const char *patch)
 				free(path);
 				return patch_err("invalid patch path");
 			}
-			err = parse_update(&r, path, &line, &have_line,
+			err = parse_update(ctx, &r, path, &line, &have_line,
 					   &new_path,
 					   &content);
 			if (!err)
@@ -1223,4 +1803,9 @@ char *fyai_apply_patch_text(const char *patch)
 		     changed == 1 ? "" : "s") < 0)
 		return NULL;
 	return err;
+}
+
+char *fyai_apply_patch_text(const char *patch)
+{
+	return fyai_apply_patch_text_ctx(NULL, patch);
 }

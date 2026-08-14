@@ -585,6 +585,69 @@ void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
 	}
 }
 
+/* Append marked rows to @out. */
+static int buffer_append_marked(struct fyai_ctx *ctx,
+				struct response_buffer *out, const char *indent,
+				const char *data, size_t len)
+{
+	const char *pfx;
+	size_t rows;
+	size_t start;
+	size_t i;
+	int rc;
+
+	for (rows = 0, start = 0, i = 0; i <= len; i++) {
+		if (i < len && data[i] != '\n')
+			continue;
+		pfx = rows ? FYAI_TOOL_MARKER_PAD : FYAI_TOOL_MARKER;
+		rc = response_buffer_append(out, indent ? indent : "");
+		fyai_error_check(ctx, !rc, out, "could not append the tool indent");
+		rc = response_buffer_append(out, pfx);
+		fyai_error_check(ctx, !rc, out, "could not append the tool marker");
+		rc = response_buffer_append_line(out, data + start, i - start);
+		fyai_error_check(ctx, !rc, out, "could not append a tool row");
+		start = i + 1;
+		rows++;
+	}
+	return 0;
+out:
+	return -1;
+}
+
+int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
+			      size_t len, const char *lang, size_t max_lines,
+			      const char *indent, struct response_buffer *out)
+{
+	struct response_buffer rendered = {0};
+	size_t start;
+	size_t end;
+	int rc;
+
+	if (!len)
+		return 0;
+	rc = markdown_render_fenced(ctx->cfg, text, len, lang, fy_invalid,
+				    max_lines, &rendered,
+				    markdown_color_enabled(ctx->cfg->color),
+				    0);
+	fyai_error_check(ctx, !rc, out, "could not render the tool body");
+	start = 0;
+	end = rendered.len;
+	while (start < end && (rendered.data[start] == '\n' ||
+			       rendered.data[start] == '\r'))
+		start++;
+	while (end > start && (rendered.data[end - 1] == '\n' ||
+			       rendered.data[end - 1] == '\r'))
+		end--;
+	rc = buffer_append_marked(ctx, out, indent, rendered.data + start,
+				  end - start);
+	fyai_error_check(ctx, !rc, out, "could not mark the tool body");
+	free(rendered.data);
+	return 0;
+out:
+	free(rendered.data);
+	return -1;
+}
+
 int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines)

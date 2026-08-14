@@ -104,13 +104,16 @@ static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 	mf = open_memstream(&md, &mdlen);
 	if (!mf)
 		return NULL;
-	fyai_emit_tool_call(mf, ctx->transient_gb, tool, args, preview_lines);
+	fyai_emit_tool_call(ctx, mf, ctx->transient_gb, tool, args, preview_lines,
+			    NULL);
 	fclose(mf);
 	return md;
 }
 
-static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command,
-				      fy_generic args)
+/* Build the shared live and stored shell view. */
+static int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
+			   fy_generic args, char **title,
+			   struct response_buffer *body)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic desc, workdir, timeout;
@@ -125,7 +128,19 @@ static char *fyai_format_shell_header(struct fyai_ctx *ctx, const char *command,
 		"description", desc,
 		"workdir", workdir,
 		"timeout", timeout);
-	return fyai_format_tool_header(ctx, "shell", disp, 0);
+	return fyai_tool_call_view(ctx, "shell", disp, 0, title, body);
+}
+
+/* Print a tool title row and its rendered body to @fp. */
+static void fyai_print_tool_view(struct fyai_ctx *ctx, FILE *fp,
+				 const char *title, struct response_buffer *body)
+{
+	if (title && *title && fyai_fprint_markdown(fp, title, ctx->cfg, 0))
+		fputs(title, fp);
+	if (body->len) {
+		fwrite(body->data, 1, body->len, fp);
+		fflush(fp);
+	}
 }
 
 static char *fyai_format_shell_label(fy_generic args)
@@ -201,12 +216,124 @@ char *fyai_tool_error_cause(fy_generic result)
 
 static void fyai_tool_progress_flush(struct fyai_ctx *ctx);
 
+/* Resolved display data for one patch call. */
+struct fyai_patch_display {
+	char *id;
+	char *unified;
+	struct fyai_patch_display *next;
+};
+
+/* Return the provider tool-call ID. */
+static fy_generic patch_call_id(fy_generic tool_call)
+{
+	fy_generic id;
+
+	id = fy_get(tool_call, "call_id");
+	return fy_is_string(id) ? id : fy_get(tool_call, "id");
+}
+
+void fyai_patch_display_record(struct fyai_ctx *ctx, fy_generic tool_call,
+			       const char *unified)
+{
+	struct fyai_patch_display *entry = NULL;
+	fy_generic gid;
+	const char *id;
+
+	if (fy_str_empty(unified))
+		return;
+	entry = calloc(1, sizeof(*entry));
+	fyai_error_check(ctx, entry, out, "could not allocate patch display data");
+	gid = patch_call_id(tool_call);
+	id = fy_castp(&gid, (const char *)NULL);
+	entry->id = id ? strdup(id) : NULL;
+	fyai_error_check(ctx, !id || entry->id, out,
+			 "could not copy the patch call ID");
+	entry->unified = strdup(unified);
+	fyai_error_check(ctx, entry->unified, out,
+			 "could not copy patch display data");
+	entry->next = ctx->patch_views;
+	ctx->patch_views = entry;
+	return;
+out:
+	if (entry) {
+		free(entry->id);
+		free(entry->unified);
+		free(entry);
+	}
+}
+
+const char *fyai_patch_display_text(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	struct fyai_patch_display *entry;
+	fy_generic gid;
+	const char *id;
+
+	gid = patch_call_id(tool_call);
+	id = fy_castp(&gid, (const char *)NULL);
+	for (entry = ctx->patch_views; entry; entry = entry->next) {
+		if (!entry->id || !id) {
+			if (!entry->id && !id)
+				return entry->unified;
+			continue;
+		}
+		if (!strcmp(entry->id, id))
+			return entry->unified;
+	}
+	return NULL;
+}
+
+void fyai_patch_display_clear(struct fyai_ctx *ctx)
+{
+	struct fyai_patch_display *entry;
+	struct fyai_patch_display *next;
+
+	for (entry = ctx->patch_views; entry; entry = next) {
+		next = entry->next;
+		free(entry->id);
+		free(entry->unified);
+		free(entry);
+	}
+	ctx->patch_views = NULL;
+}
+
+/* Build an apply_patch work band. */
+static int patch_band_view(struct fyai_ctx *ctx, fy_generic tool_call,
+			   char **title, struct response_buffer *body)
+{
+	const char *resolved;
+	fy_generic args;
+
+	args = fyai_tool_call_args(ctx, tool_call);
+	resolved = fyai_patch_display_text(ctx, tool_call);
+	if (resolved)
+		args = fy_mapping("patch", resolved);
+	return fyai_tool_call_view(ctx, "apply_patch", args,
+			fyai_tool_preview_lines(ctx->cfg, "apply_patch"),
+			title, body);
+}
+
+void fyai_patch_band_refresh(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	struct response_buffer body = {0};
+	char *title = NULL;
+
+	if (!fyai_ui_active(ctx) || !ctx->cfg->markdown)
+		return;
+	if (!fyai_patch_display_text(ctx, tool_call))
+		return;
+	if (!patch_band_view(ctx, tool_call, &title, &body) && body.len)
+		fyai_ui_tool_update(ctx, body.data, body.len);
+	free(body.data);
+	free(title);
+}
+
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name;
 	const char *args_text;
 	const char *command;
+	struct response_buffer body = {0};
 	char *header;
 	fy_generic args;
 
@@ -266,23 +393,20 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		 * (row limit + indent) as the history view, only updated live as
 		 * the command's output arrives, so live and history match.
 		 */
-		header = fyai_format_shell_header(ctx, *command ? command : name,
-						  args);
 		if (fyai_ui_active(ctx)) {
-			free(header);
 			header = fyai_format_shell_label(args);
 			fyai_ui_shell_begin(ctx, header ? header : "shell",
 					    *command ? command : name);
-		} else if (header) {
-			/* Same marked command shape as the terminal UI band. */
-			if (fyai_fprint_markdown(stderr, header, ctx->cfg,
-						 FYMD_RF_CODE_MARKER))
-				fputs(header, stderr);
+		} else if (!fyai_shell_view(ctx, *command ? command : name,
+					    args, &header, &body)) {
+			fyai_print_tool_view(ctx, stderr, header, &body);
 		} else {
 			fprintf(stderr, "  shell %s\n",
 				*command ? command : name);
 		}
 		free(header);
+		free(body.data);
+		memset(&body, 0, sizeof(body));
 		ctx->shell_stream = calloc(1, sizeof(*ctx->shell_stream));
 		if (ctx->shell_stream != NULL &&
 		    fyai_fenced_stream_start(ctx->shell_stream, ctx, cfg, NULL,
@@ -296,11 +420,28 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		}
 		ctx->tool_output_displayed = true;
 	} else if (cfg->markdown && fyai_ui_active(ctx) &&
+		   fy_equal(name, "apply_patch")) {
+		/* Show the patch in a marked work band. */
+		if (patch_band_view(ctx, tool_call, &header, &body))
+			header = NULL;
+		fyai_ui_tool_begin(ctx, header ? header : "**patch**");
+		if (body.len)
+			fyai_ui_tool_update(ctx, body.data, body.len);
+		free(body.data);
+		free(header);
+		ctx->tool_output_displayed = true;
+	} else if (cfg->markdown && fyai_ui_active(ctx) &&
 		   fy_any_equal(name, "read_file", "write_file")) {
 		args = fyai_tool_call_args(ctx, tool_call);
-		header = fyai_format_tool_header(ctx, name, args,
-				fyai_tool_preview_lines(ctx->cfg, name));
+		if (fyai_tool_call_view(ctx, name, args,
+					fyai_tool_preview_lines(cfg, name),
+					&header, &body))
+			header = NULL;
 		fyai_ui_tool_begin(ctx, header ? header : name);
+		if (body.len)
+			fyai_ui_tool_update(ctx, body.data, body.len);
+		free(body.data);
+		memset(&body, 0, sizeof(body));
 		free(header);
 		ctx->tool_output_displayed = true;
 	} else if (*command) {
@@ -1050,6 +1191,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	}
 
 	result_generic = fyai_tool_run_one(ctx, name, args, okp);
+	/* Retain the resolved patch for display. */
+	if (ctx->patch_display)
+		fyai_patch_display_record(ctx, tool_call, ctx->patch_display);
 out:
 	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
 	if (fy_is_invalid(result_generic))
@@ -1076,7 +1220,11 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		result = strdup(!rc ? "ok" : "error");
 		*okp = !rc;
 	} else if (fy_equal(name, "apply_patch")) {
-		result = fyai_apply_patch_text(fy_get(args, "patch", ""));
+		content = fy_get(args, "patch", "");
+		/* Resolve the patch before it changes the pre-image. */
+		free(ctx->patch_display);
+		ctx->patch_display = fyai_patch_to_unified_ctx(ctx, content);
+		result = fyai_apply_patch_text_ctx(ctx, content);
 		*okp = result && strncmp(result, "tool error:", 11);
 	} else if (fy_equal(name, "shell")) {
 		result = fyai_run_shell_command(ctx, args, okp);
@@ -1266,9 +1414,13 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			if (!fy_equal(fyai_tool_call_name(ctx, tc.args), "agent"))
 				fyai_env_sanitize();
 			result = fyai_execute_tool_call(ctx, tc.args, &ok);
+			/* Return the resolved patch to the parent display. */
 			jsonrpc_conn_respond(conn, tc.id,
 				fy_gb_mapping(fyai_ctx_transient_gb(ctx),
-					      "result", result, "ok", ok),
+					      "result", result, "ok", ok,
+					      "display", ctx->patch_display ?
+						fy_value(ctx->patch_display) :
+						fy_null),
 				fy_invalid);
 			break;
 		}
@@ -1294,6 +1446,7 @@ struct fyai_tool_job {
 	struct jsonrpc_conn *conn;	/* control channel to the child */
 	struct jsonrpc_request *run;	/* the outstanding tool/run */
 	fy_generic result;
+	fy_generic display;		/* tool-resolved presentation, if any */
 	pid_t pid;
 	int rfd;
 	int pfd;
@@ -1774,6 +1927,10 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 
 		job->result = fy_get(r, "result", fy_invalid);
 		job->result_ok = fy_get(r, "ok", false);
+		job->display = fy_get(r, "display", fy_invalid);
+		if (fy_is_string(job->display))
+			fyai_patch_display_record(job->ctx, job->call,
+					fy_castp(&job->display, ""));
 		job->have_result = true;
 	} else {
 		job->failed = true;

@@ -191,7 +191,8 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 
 static bool fyai_is_tool_marked(const char *name)
 {
-	return fy_any_equal(name, "shell", "agent", "read_file", "write_file");
+	return fy_any_equal(name, "shell", "agent", "read_file", "write_file",
+			    "apply_patch");
 }
 
 static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
@@ -225,7 +226,8 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		name = fy_get(tool_call, "name", "");
 	shell = fy_equal(name, "shell");
 	agent = fy_equal(name, "agent");
-	banded = shell || agent;
+	/* Use work bands only in the terminal UI. */
+	banded = (shell || agent) && fyai_ui_active(ctx);
 	marked = fyai_is_tool_marked(name);
 	isolated_tool = fyai_output_renders_live(ctx);
 
@@ -255,17 +257,20 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
 	if (marked && fyai_ui_active(ctx)) {
+		/* The patch resolves while it runs; show what it resolved. */
+		fyai_patch_band_refresh(ctx, tool_call);
 		cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
 		fyai_ui_tool_end(ctx, tool_ok, cause);
 		free(cause);
 		if (agent)
 			(void)fyai_ui_commit(ctx, "\n", 1);
 	}
-	if (isolated_tool && !banded) {
+	if (isolated_tool) {
+		/* Store the result in the transcript path. */
 		if (marked && fyai_ui_active(ctx))
 			fyai_render_tool_result_exchange(ctx, tool_call,
 						 tool_result);
-		else
+		else if (!banded)
 			fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	}
 	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result);
@@ -1902,6 +1907,9 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	ctx->agent_branch = NULL;
 	free(ctx->tool_submit_error);
 	ctx->tool_submit_error = NULL;
+	fyai_patch_display_clear(ctx);
+	free(ctx->patch_display);
+	ctx->patch_display = NULL;
 	if (ctx->shell_stream) {
 		fyai_fenced_stream_finish(ctx->shell_stream);
 		free(ctx->shell_stream);

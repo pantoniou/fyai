@@ -38,13 +38,28 @@ void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
 			     const char *lang, int preview_lines);
 int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 			       const char *markdown);
-/*
- * Emit a tool-call header as markdown into @mf (bold tool name plus the
- * command/path, with input-body previews for write_file/apply_patch). Shared by
- * the history view and the live loop so a tool's header stays identical in both.
- */
-void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
-			 const char *name, fy_generic args, int preview_lines);
+/* Build the title and marked body of a tool call. */
+int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
+			int preview_lines, char **title,
+			struct response_buffer *body);
+/* One fenced tool-body range in emitted Markdown. */
+struct fyai_md_block {
+	size_t start;
+	size_t end;
+	char *lang;
+};
+
+struct fyai_md_blocks {
+	struct fyai_md_block *item;
+	size_t count;
+	size_t cap;
+};
+
+void fyai_md_blocks_free(struct fyai_md_blocks *blocks);
+void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
+			 struct fy_generic_builder *gb,
+			 const char *name, fy_generic args, int preview_lines,
+			 struct fyai_md_blocks *blocks);
 int fyai_tool_preview_lines(const struct fyai_cfg *cfg, const char *name);
 
 #endif

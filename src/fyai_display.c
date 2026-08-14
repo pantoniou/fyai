@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -28,6 +29,7 @@
 #include "fyai_provider.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
+#include "fyai_tools.h"
 #include "fyai_textual.h"
 #include "fyai_ui.h"
 #include "fyai_turn.h"
@@ -1046,8 +1048,55 @@ static void fyai_emit_italic(FILE *mf, const char *text)
  * its salient argument (shell -> the command, read/write -> the path) instead
  * of dumping raw JSON. @tgb is the transient builder used to parse the args.
  */
+static void fyai_emit_tool_result_blocks(FILE *mf, const char *text,
+					 int preview_lines, const char *lang,
+					 struct fyai_md_blocks *blocks);
+
+/* Emit a tool body that no caller needs the block range of. */
 static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
-				  const char *lang);
+				  const char *lang)
+{
+	fyai_emit_tool_result_blocks(mf, text, preview_lines, lang, NULL);
+}
+
+/*
+ * Store a fenced-block range and its opening info string.
+ */
+static int md_blocks_push(struct fyai_md_blocks *blocks, size_t start,
+			  size_t end, const char *lang)
+{
+	struct fyai_md_block *item;
+	size_t newcap;
+
+	if (!blocks)
+		return 0;
+	if (blocks->count == blocks->cap) {
+		newcap = blocks->cap ? blocks->cap * 2 : 4;
+		item = realloc(blocks->item, newcap * sizeof(*item));
+		if (!item)
+			return -1;
+		blocks->item = item;
+		blocks->cap = newcap;
+	}
+	item = &blocks->item[blocks->count];
+	item->start = start;
+	item->end = end;
+	item->lang = lang && *lang ? strdup(lang) : NULL;
+	if (lang && *lang && !item->lang)
+		return -1;
+	blocks->count++;
+	return 0;
+}
+
+void fyai_md_blocks_free(struct fyai_md_blocks *blocks)
+{
+	size_t i;
+
+	for (i = 0; i < blocks->count; i++)
+		free(blocks->item[i].lang);
+	free(blocks->item);
+	memset(blocks, 0, sizeof(*blocks));
+}
 
 static bool fyai_tool_result_is_error(const char *text)
 {
@@ -1056,16 +1105,189 @@ static bool fyai_tool_result_is_error(const char *text)
 	return !strncmp(text, "tool error:", 11);
 }
 
-/*
- * Render an apply_patch envelope - the V4A "*** Begin Patch / *** Update File:"
- * format the model emits, not a unified diff - as structured markdown. Each file
- * operation becomes a heading; an added file's body is fenced in the file's own
- * language (the leading '+' of each added line stripped), and an update's hunks
- * are fenced as `diff` so the +/-/context lines colour like a diff. A `*** `
- * marker ends the current section, mirroring how the applier itself scans.
- */
-static void fyai_emit_patch(FILE *mf, const char *patch)
+static void fyai_emit_patch(struct fyai_ctx *ctx, FILE *mf, const char *patch,
+			    struct fyai_md_blocks *blocks);
+
+/* One rendered file operation. */
+struct patch_op_view {
+	char *title;			/* "**update** `path`" */
+	char *lang;			/* "diff:c", the file language, or NULL */
+	struct response_buffer body;	/* raw block text, un-rendered */
+};
+
+static void patch_op_view_clear(struct patch_op_view *op)
 {
+	free(op->title);
+	free(op->body.data);
+	free(op->lang);
+	memset(op, 0, sizeof(*op));
+}
+
+/* Parse a unified-diff path for display. */
+static char *patch_unified_path(const char *spec, bool *absent)
+{
+	char *path;
+	char *tab;
+
+	*absent = false;
+	path = strdup(spec);
+	if (!path)
+		return NULL;
+	tab = strchr(path, '\t');
+	if (tab)
+		*tab = '\0';
+	while (*path && (path[strlen(path) - 1] == ' ' ||
+			 path[strlen(path) - 1] == '\r'))
+		path[strlen(path) - 1] = '\0';
+	if (!strcmp(path, "/dev/null")) {
+		free(path);
+		*absent = true;
+		return NULL;
+	}
+	if ((path[0] == 'a' || path[0] == 'b') && path[1] == '/')
+		memmove(path, path + 2, strlen(path) - 1);
+	return path;
+}
+
+/* Detect a unified diff before an envelope marker. */
+static bool patch_text_is_unified(const char *patch)
+{
+	const char *p;
+	const char *nl;
+	size_t len;
+	bool unified;
+
+	unified = false;
+	for (p = patch; p && *p; p = nl ? nl + 1 : NULL) {
+		nl = strchr(p, '\n');
+		len = nl ? (size_t)(nl - p) : strlen(p);
+		if (len >= 15 && !strncmp(p, "*** Begin Patch", 15))
+			return false;
+		if (!unified)
+			unified = (len >= 4 && !strncmp(p, "--- ", 4)) ||
+				  (len >= 3 && !strncmp(p, "@@ ", 3)) ||
+				  (len >= 11 && !strncmp(p, "diff --git ", 11));
+	}
+	return unified;
+}
+
+/*
+ * Read one file section for each "--- "/"+++ " header pair. Keep hunk headers
+ * for gutter line numbers. Omit file headers because the title has the path.
+ */
+static int patch_walk_unified(struct fyai_ctx *ctx, const char *patch, void *user,
+			      int (*fn)(void *user, struct patch_op_view *op))
+{
+	struct patch_op_view op = {0};
+	const char *p;
+	const char *nl;
+	char *old_path;
+	char *new_path;
+	char *lang;
+	bool old_absent;
+	bool new_absent;
+	bool in_body;
+	size_t len;
+	int rc;
+
+	old_path = NULL;
+	old_absent = false;
+	in_body = false;
+	rc = 0;
+
+	for (p = patch; p && *p && !rc; p = nl ? nl + 1 : NULL) {
+		nl = strchr(p, '\n');
+		len = nl ? (size_t)(nl - p) : strlen(p);
+
+		if (len >= 4 && !strncmp(p, "--- ", 4)) {
+			if (op.title) {
+				rc = fn(user, &op);
+				patch_op_view_clear(&op);
+				fyai_error_check(ctx, !rc, out,
+						 "could not emit a patch operation");
+			}
+			in_body = false;
+			free(old_path);
+			old_path = strndup(p + 4, len - 4);
+			fyai_error_check(ctx, old_path, out,
+					 "could not copy a patch path");
+			if (old_path) {
+				new_path = patch_unified_path(old_path,
+							      &old_absent);
+				free(old_path);
+				old_path = new_path;
+			}
+			continue;
+		}
+		if (len >= 4 && !strncmp(p, "+++ ", 4)) {
+			new_path = strndup(p + 4, len - 4);
+			fyai_error_check(ctx, new_path, out,
+					 "could not copy a patch path");
+			if (new_path) {
+				lang = patch_unified_path(new_path, &new_absent);
+				free(new_path);
+				new_path = lang;
+			}
+			if (old_absent)
+				rc = asprintf(&op.title, "**add** `%s`",
+					      new_path ? new_path : "") < 0;
+			else if (new_absent)
+				rc = asprintf(&op.title, "**delete** `%s`",
+					      old_path ? old_path : "") < 0;
+			else if (old_path && new_path && strcmp(old_path, new_path))
+				rc = asprintf(&op.title, "**update** `%s` → `%s`",
+					      old_path, new_path) < 0;
+			else
+				rc = asprintf(&op.title, "**update** `%s`",
+					      new_path ? new_path :
+					      old_path ? old_path : "") < 0;
+			if (rc) {
+				op.title = NULL;
+				free(new_path);
+			}
+			fyai_error_check(ctx, !rc, out,
+					 "could not format a patch title");
+			lang = markdown_lang_for_path(new_path ? new_path :
+						      old_path);
+			if (asprintf(&op.lang, "diff%s%s", lang ? ":" : "",
+				     lang ? lang : "") < 0)
+				op.lang = NULL;
+			free(lang);
+			free(new_path);
+			continue;
+		}
+		if (!op.title)
+			continue;	/* preamble before the first file */
+		if (len >= 2 && !strncmp(p, "@@", 2))
+			in_body = true;
+		if (!in_body)
+			continue;	/* git extended headers */
+		rc = response_buffer_append_line(&op.body, p, len);
+		fyai_error_check(ctx, !rc, out,
+				 "could not append a patch row");
+	}
+
+	if (!rc && op.title)
+		rc = fn(user, &op);
+	fyai_error_check(ctx, !rc, out, "could not emit a patch operation");
+	patch_op_view_clear(&op);
+	free(old_path);
+	return 0;
+out:
+	patch_op_view_clear(&op);
+	free(old_path);
+	return -1;
+}
+
+/*
+ * Walk a patch and hand each file operation to @fn, in either accepted input
+ * format. One walker serves the live view and the stored document, so both
+ * describe the same operations.
+ */
+static int patch_walk(struct fyai_ctx *ctx, const char *patch, void *user,
+		      int (*fn)(void *user, struct patch_op_view *op))
+{
+	struct patch_op_view op = {0};
 	const char *p;
 	const char *nl;
 	char *path;
@@ -1073,38 +1295,62 @@ static void fyai_emit_patch(FILE *mf, const char *patch)
 	bool in_add;
 	bool in_upd;
 	int len;
+	int rc;
 
 	in_add = false;
 	in_upd = false;
+	rc = 0;
 
-	for (p = patch; p && *p; p = nl ? nl + 1 : NULL) {
+	if (patch && patch_text_is_unified(patch))
+		return patch_walk_unified(ctx, patch, user, fn);
+
+	for (p = patch; p && *p && !rc; p = nl ? nl + 1 : NULL) {
 		nl = strchr(p, '\n');
 		len = nl ? (int)(nl - p) : (int)strlen(p);
 
 		if (!strncmp(p, "*** ", 4)) {
-			if (in_add || in_upd) {
-				fprintf(mf, "```\n\n");
-				in_add = false;
-				in_upd = false;
+			if (op.title) {
+				rc = fn(user, &op);
+				patch_op_view_clear(&op);
+				fyai_error_check(ctx, !rc, out,
+						 "could not emit a patch operation");
 			}
+			in_add = false;
+			in_upd = false;
+			path = NULL;
 			if (!strncmp(p, "*** Add File: ", 14)) {
-				path = NULL;
 				if (asprintf(&path, "%.*s", len - 14, p + 14) < 0)
 					path = NULL;
-				fprintf(mf, "**add** `%s`\n\n", path ? path : "");
 				lang = markdown_lang_for_path(path);
-				fprintf(mf, "```%s\n", lang ? lang : "");
-				free(lang);
-				free(path);
+				if (asprintf(&op.title, "**add** `%s`",
+					     path ? path : "") < 0)
+					op.title = NULL;
+				op.lang = lang;
 				in_add = true;
 			} else if (!strncmp(p, "*** Delete File: ", 17)) {
-				fprintf(mf, "**delete** `%.*s`\n\n",
-					len - 17, p + 17);
+				if (asprintf(&op.title, "**delete** `%.*s`",
+					     len - 17, p + 17) < 0)
+					op.title = NULL;
 			} else if (!strncmp(p, "*** Update File: ", 17)) {
-				fprintf(mf, "**update** `%.*s`\n\n```diff\n",
-					len - 17, p + 17);
+				if (asprintf(&path, "%.*s", len - 17, p + 17) < 0)
+					path = NULL;
+				if (asprintf(&op.title, "**update** `%s`",
+					     path ? path : "") < 0)
+					op.title = NULL;
+				/*
+				 * A V4A hunk carries no "+++"/"---" header, so
+				 * the diff view cannot detect the patched file's
+				 * language by itself. Name it in the info string
+				 * ("diff:c").
+				 */
+				lang = markdown_lang_for_path(path);
+				if (asprintf(&op.lang, "diff%s%s",
+					     lang ? ":" : "", lang ? lang : "") < 0)
+					op.lang = NULL;
+				free(lang);
 				in_upd = true;
 			}
+			free(path);
 			/* *** Begin/End Patch and any other marker: skip. */
 			continue;
 		}
@@ -1112,16 +1358,209 @@ static void fyai_emit_patch(FILE *mf, const char *patch)
 		if (in_add) {
 			/* Added lines carry a leading '+'; strip it. */
 			if (len > 0 && p[0] == '+')
-				fprintf(mf, "%.*s\n", len - 1, p + 1);
+				rc = response_buffer_append_line(&op.body, p + 1,
+							      (size_t)len - 1);
 			else
-				fprintf(mf, "%.*s\n", len, p);
+				rc = response_buffer_append_line(&op.body, p,
+							      (size_t)len);
 		} else if (in_upd) {
-			fprintf(mf, "%.*s\n", len, p);
+			rc = response_buffer_append_line(&op.body, p, (size_t)len);
 		}
+		fyai_error_check(ctx, !rc, out, "could not append a patch row");
 	}
 
-	if (in_add || in_upd)
-		fprintf(mf, "```\n\n");
+	if (!rc && op.title)
+		rc = fn(user, &op);
+	fyai_error_check(ctx, !rc, out, "could not emit a patch operation");
+	patch_op_view_clear(&op);
+	return 0;
+out:
+	patch_op_view_clear(&op);
+	return -1;
+}
+
+/* Append tool-call prose to @out. */
+static int view_append_markdown(struct fyai_ctx *ctx,
+				struct response_buffer *out,
+				const char *md, size_t len)
+{
+	struct response_buffer rendered = {0};
+	size_t start;
+	size_t end;
+	int rc;
+
+	while (len && (*md == '\n' || *md == '\r')) {
+		md++;
+		len--;
+	}
+	while (len && (md[len - 1] == '\n' || md[len - 1] == '\r'))
+		len--;
+	if (!len)
+		return 0;
+	rc = markdown_render(ctx->cfg, md, len, &rendered,
+			     markdown_color_enabled(ctx->cfg->color),
+			     ctx->cfg->theme_variant);
+	fyai_error_check(ctx, !rc, out, "could not render tool-call text");
+	start = 0;
+	end = rendered.len;
+	while (start < end && (rendered.data[start] == '\n' ||
+			       rendered.data[start] == '\r'))
+		start++;
+	while (end > start && (rendered.data[end - 1] == '\n' ||
+			       rendered.data[end - 1] == '\r'))
+		end--;
+	rc = response_buffer_reserve(out, out->len + end - start + 2);
+	if (!rc) {
+		memcpy(out->data + out->len, rendered.data + start, end - start);
+		out->len += end - start;
+		out->data[out->len++] = '\n';
+		out->data[out->len] = '\0';
+	}
+	fyai_error_check(ctx, !rc, out, "could not append tool-call text");
+	free(rendered.data);
+	return 0;
+out:
+	free(rendered.data);
+	return -1;
+}
+
+/* Append a marked, frameless tool body to @out. */
+static int view_append_block(struct fyai_ctx *ctx, struct response_buffer *out,
+			     const char *md, size_t len, const char *lang,
+			     size_t max_lines)
+{
+	const char *nl;
+	const char *end;
+
+	nl = memchr(md, '\n', len);
+	if (!nl)
+		return 0;
+	end = md + len;
+	len -= (size_t)(nl + 1 - md);
+	md = nl + 1;
+	/* Drop the closing fence row, and the newline that ends the row above. */
+	while (len && (end[-1] == '\n' || end[-1] == '\r')) {
+		end--;
+		len--;
+	}
+	while (len && end[-1] != '\n') {
+		end--;
+		len--;
+	}
+	if (len)
+		len--;
+	if (!len)
+		return 0;
+	return fyai_render_fenced_marked(ctx, md, len, lang, max_lines, "  ",
+					 out);
+}
+
+/* Split tool-call Markdown into its title and body. */
+static int view_split(struct fyai_ctx *ctx, const char *md, size_t len,
+		      const struct fyai_md_blocks *blocks, size_t max_lines,
+		      char **title, struct response_buffer *body)
+{
+	size_t head;
+	size_t pos;
+	size_t i;
+	int rc;
+
+	head = blocks->count ? blocks->item[0].start : len;
+	while (head && (md[head - 1] == '\n' || md[head - 1] == '\r'))
+		head--;
+	*title = strndup(md, head);
+	fyai_error_check(ctx, *title, out, "could not copy the tool title");
+
+	pos = blocks->count ? blocks->item[0].start : len;
+	for (i = 0; i < blocks->count; i++) {
+		rc = view_append_markdown(ctx, body, md + pos,
+					  blocks->item[i].start - pos);
+		if (!rc)
+			rc = view_append_block(ctx, body,
+					       md + blocks->item[i].start,
+					       blocks->item[i].end -
+						blocks->item[i].start,
+					       blocks->item[i].lang, max_lines);
+		fyai_error_check(ctx, !rc, out, "could not build the tool body");
+		pos = blocks->item[i].end;
+	}
+	rc = view_append_markdown(ctx, body, md + pos, len - pos);
+	fyai_error_check(ctx, !rc, out, "could not build the tool body");
+	return 0;
+out:
+	return -1;
+}
+
+int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
+			int preview_lines, char **title,
+			struct response_buffer *body)
+{
+	struct fyai_md_blocks blocks = {0};
+	char *md = NULL;
+	size_t mdlen = 0;
+	FILE *mf;
+	int rc;
+
+	*title = NULL;
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, out, "could not create the tool view");
+	fyai_emit_tool_call(ctx, mf, ctx->transient_gb, name, args, preview_lines,
+			    &blocks);
+	rc = fclose(mf);
+	mf = NULL;
+	fyai_error_check(ctx, !rc, out, "could not finish the tool view");
+	rc = view_split(ctx, md, mdlen, &blocks,
+			preview_lines > 0 ? (size_t)preview_lines : 0,
+			title, body);
+	fyai_md_blocks_free(&blocks);
+	free(md);
+	return 0;
+out:
+	if (mf)
+		fclose(mf);
+	fyai_md_blocks_free(&blocks);
+	free(md);
+	return -1;
+}
+
+struct patch_emit_ctx {
+	FILE *mf;
+	struct fyai_md_blocks *blocks;
+};
+
+/* Emit one file operation into the tool-call Markdown. */
+static int patch_emit_op(void *user, struct patch_op_view *op)
+{
+	struct patch_emit_ctx *ctx = user;
+	FILE *mf = ctx->mf;
+	size_t block_start;
+
+	fprintf(mf, "%s\n\n", op->title ? op->title : "**patch**");
+	if (!op->body.len)
+		return 0;
+	block_start = (size_t)ftell(mf);
+	fprintf(mf, "```%s\n", op->lang ? op->lang : "");
+	fwrite(op->body.data, 1, op->body.len, mf);
+	fprintf(mf, "```\n");
+	(void)md_blocks_push(ctx->blocks, block_start, (size_t)ftell(mf),
+			     op->lang);
+	fprintf(mf, "\n");
+	return 0;
+}
+
+/*
+ * Render an apply_patch call as structured Markdown for the stored document.
+ * Each file operation becomes a title row; an added file's body is fenced in
+ * the file's own language and a hunk is fenced as `diff`, with the patched
+ * file's language named in the info string, so replay colours it as the live
+ * view does.
+ */
+static void fyai_emit_patch(struct fyai_ctx *ctx, FILE *mf, const char *patch,
+			    struct fyai_md_blocks *blocks)
+{
+	struct patch_emit_ctx emit_ctx = { .mf = mf, .blocks = blocks };
+
+	(void)patch_walk(ctx, patch, &emit_ctx, patch_emit_op);
 }
 
 /*
@@ -1170,10 +1609,12 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 	fflush(stdout);
 }
 
-void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
+void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
+			struct fy_generic_builder *gb,
 				const char *name, fy_generic args,
-				int preview_lines)
+				int preview_lines, struct fyai_md_blocks *blocks)
 {
+	size_t block_start;
 	const char *path;
 	const char *cmd;
 	const char *c;
@@ -1194,7 +1635,12 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 		fprintf(mf, "**shell**");
 		if (*c)
 			fprintf(mf, " [%s]", c);
-		fprintf(mf, "\n\n```sh\n%s\n```\n\n", cmd);
+		fprintf(mf, "\n\n");
+		block_start = (size_t)ftell(mf);
+		fprintf(mf, "```sh\n%s\n```\n", cmd);
+		(void)md_blocks_push(blocks, block_start, (size_t)ftell(mf),
+				     "sh");
+		fprintf(mf, "\n");
 		return;
 	}
 	if (fy_equal(name, "read_file")) {
@@ -1217,7 +1663,8 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 			path, strlen(c), strlen(c) == 1 ? "" : "s");
 		if (*c) {
 			lang = markdown_lang_for_path(path);
-			fyai_emit_tool_result(mf, c, preview_lines, lang);
+			fyai_emit_tool_result_blocks(mf, c, preview_lines, lang,
+						     blocks);
 			free(lang);
 		}
 		return;
@@ -1226,9 +1673,10 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
 		gc = fy_get(args, "patch");
 		c = fy_castp(&gc, "");
 		if (*c && preview_lines < 0)
-			fyai_emit_patch(mf, c);
+			fyai_emit_patch(ctx, mf, c, blocks);
 		else if (*c && preview_lines > 0)
-			fyai_emit_tool_result(mf, c, preview_lines, "diff");
+			fyai_emit_tool_result_blocks(mf, c, preview_lines,
+						     "diff", blocks);
 		else
 			fprintf(mf, "**patch**\n\n");
 		return;
@@ -1264,7 +1712,8 @@ void fyai_emit_tool_call(FILE *mf, struct fy_generic_builder *gb,
  * Render the tool call carried by a stored chat-shape assistant message
  * (function.name + JSON arguments). The args are parsed into @tgb.
  */
-static void fyai_emit_tool_call_chat(FILE *mf, struct fy_generic_builder *tgb,
+static void fyai_emit_tool_call_chat(struct fyai_ctx *ctx, FILE *mf,
+				     struct fy_generic_builder *tgb,
 				     fy_generic call, int preview_lines)
 {
 	const char *name;
@@ -1277,7 +1726,7 @@ static void fyai_emit_tool_call_chat(FILE *mf, struct fy_generic_builder *tgb,
 	args_str = fy_get(fn, "arguments", "");
 
 	args = parse_json_string(tgb, args_str);
-	fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
+	fyai_emit_tool_call(ctx, mf, tgb, name, args, preview_lines, NULL);
 }
 
 /*
@@ -1378,11 +1827,13 @@ static struct fyai_msg_class fyai_classify_message(fy_generic m)
  * errors carry a "tool error:" marker). Shared by chat tool messages and the
  * Responses function_call_output item.
  */
-static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
-				  const char *lang)
+static void fyai_emit_tool_result_blocks(FILE *mf, const char *text,
+					 int preview_lines, const char *lang,
+					 struct fyai_md_blocks *blocks)
 {
 	const char *nl;
 	const char *p;
+	size_t block_start;
 	size_t limit;
 	size_t shown;
 	size_t total;
@@ -1408,6 +1859,7 @@ static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
 	if (total) {
 		if (fyai_tool_result_is_error(text))
 			lang = NULL;
+		block_start = (size_t)ftell(mf);
 		fprintf(mf, "```%s\n", lang ? lang : "");
 		p = text;
 		while (*p && shown < limit) {
@@ -1419,7 +1871,10 @@ static void fyai_emit_tool_result(FILE *mf, const char *text, int preview_lines,
 				break;
 			p = nl + 1;
 		}
-		fprintf(mf, "```\n\n");
+		fprintf(mf, "```\n");
+		(void)md_blocks_push(blocks, block_start, (size_t)ftell(mf),
+				     lang);
+		fprintf(mf, "\n");
 		if (total > shown)
 			fprintf(mf, "_⋯ %zu more line%s_\n\n",
 				total - shown,
@@ -1574,7 +2029,8 @@ static fy_generic fyai_reasoning_text(struct fy_generic_builder *tgb,
  * function_call_output, shell_call_output, message, reasoning). Counterpart to
  * the chat-shape branches in fyai_emit_message_md().
  */
-static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
+static void fyai_emit_native_item(struct fyai_ctx *ctx, FILE *mf,
+				  struct fy_generic_builder *tgb,
 				  const struct fyai_msg_class *c,
 				  int preview_lines, const char *result_lang,
 				  bool thinking)
@@ -1607,14 +2063,14 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 	if (fy_equal(c->type, "function_call")) {
 		args_str = fy_get(m, "arguments", "");
 		args = parse_json_string(tgb, args_str);
-		fyai_emit_tool_call(mf, tgb, fy_get(m, "name", "?"), args,
-				    preview_lines);
+		fyai_emit_tool_call(ctx, mf, tgb, fy_get(m, "name", "?"), args,
+				    preview_lines, NULL);
 		return;
 	}
 	if (fy_equal(c->type, "shell_call")) {
 		cmd = fy_cast(fy_get_at_path(tgb, m, "action", "commands", 0), "");
-		fyai_emit_tool_call(mf, tgb, "shell", fy_mapping("command", cmd),
-				    preview_lines);
+		fyai_emit_tool_call(ctx, mf, tgb, "shell", fy_mapping("command", cmd),
+				    preview_lines, NULL);
 		return;
 	}
 	if (fyai_item_type_is_call_output(c->type)) {
@@ -1644,7 +2100,8 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 	}
 }
 
-static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
+static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
+				 struct fy_generic_builder *tgb,
 				 const struct fyai_msg_class *c,
 				 int preview_lines, const char *result_lang,
 				 bool thinking)
@@ -1656,7 +2113,7 @@ static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
 	text = fyai_msg_text(c);
 
 	if (c->is_native) {
-		fyai_emit_native_item(mf, tgb, c, preview_lines, result_lang,
+		fyai_emit_native_item(ctx, mf, tgb, c, preview_lines, result_lang,
 				      thinking);
 		return;
 	}
@@ -1688,7 +2145,7 @@ static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
 
 	if (c->has_tc) {
 		fy_foreach(part, c->tc)
-			fyai_emit_tool_call_chat(mf, tgb, part, preview_lines);
+			fyai_emit_tool_call_chat(ctx, mf, tgb, part, preview_lines);
 	}
 }
 
@@ -1806,14 +2263,13 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 	const char *name;
 	const char *res_str;
 	int preview_lines;
+	struct response_buffer body = {0};
 	fy_generic args;
+	const char *resolved;
+	char *title;
 	char *lang;
-	char *md;
-	size_t mdlen;
-	FILE *mf;
 
-	md = NULL;
-	mdlen = 0;
+	title = NULL;
 	memset(&gcfg, 0, sizeof(gcfg));
 	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	tgb = fy_generic_builder_create(&gcfg);
@@ -1851,21 +2307,28 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 		name = "tool";
 	preview_lines = fyai_tool_preview_lines(cfg, name);
 
-	mf = open_memstream(&md, &mdlen);
-	if (!mf) {
-		fy_generic_builder_destroy(tgb);
-		return;
+	/*
+	 * Present the call the way the terminal UI does: a title row, then any
+	 * body marked and frameless. A patch shows the form the tool resolved,
+	 * which carries the line numbers an envelope leaves out.
+	 */
+	if (render_call) {
+		resolved = fy_equal(name, "apply_patch") ?
+			fyai_patch_display_text(ctx, tool_call) : NULL;
+		if (resolved)
+			args = fy_mapping("patch", resolved);
+		if (!fyai_tool_call_view(ctx, name, args, preview_lines,
+					 &title, &body)) {
+			if (title && *title && fyai_print_markdown(title, cfg))
+				fputs(title, stdout);
+			if (body.len) {
+				fwrite(body.data, 1, body.len, stdout);
+				fflush(stdout);
+			}
+		}
+		free(title);
+		free(body.data);
 	}
-
-	/* The tool-call header renders in full (never row-bounded). */
-	if (render_call)
-		fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
-	fclose(mf);
-	/* Mark only shell command blocks. */
-	if (!fy_str_empty(md) && fyai_print_markdown_flags(md, ctx->cfg,
-			fy_equal(name, "shell") ? FYMD_RF_CODE_MARKER : 0))
-		fputs(md, stdout);
-	free(md);
 
 	/*
 	 * A read_file result is the file's contents, so highlight it with the
@@ -1907,7 +2370,10 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder_cfg gcfg = {0};
 	struct fy_generic_builder *tgb;
-	const char *args_text, *cmd, *name, *res_str;
+	const char *args_text, *cmd, *name, *res_str, *resolved;
+	struct fyai_md_blocks blocks = {0};
+	size_t base;
+	size_t i;
 	int preview_lines;
 	fy_generic args;
 	char *lang = NULL;
@@ -1915,6 +2381,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	size_t mdlen = 0;
 	size_t start, end;
 	FILE *mf;
+	int rc;
 
 	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
 	tgb = fy_generic_builder_create(&gcfg);
@@ -1937,15 +2404,22 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	}
 	if (!*name)
 		name = "tool";
+	/* Store the resolved patch form that the live view used. */
+	if (fy_equal(name, "apply_patch")) {
+		resolved = fyai_patch_display_text(ctx, tool_call);
+		if (resolved)
+			args = fy_mapping("patch", resolved);
+	}
 	preview_lines = fyai_tool_preview_lines(cfg, name);
 	res_str = fy_castp(&tool_result, "");
 	if (fy_equal(name, "read_file") && *res_str &&
 	    !fyai_tool_result_is_error(res_str))
 		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
 
+	base = strlen(fyai_output_markdown(ctx, NULL));
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool display output");
-	fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
+	fyai_emit_tool_call(ctx, mf, tgb, name, args, preview_lines, &blocks);
 	if (cfg->tool_separator && *cfg->tool_separator)
 		fprintf(mf, "%s\n\n", cfg->tool_separator);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
@@ -1953,6 +2427,16 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	mf = NULL;
 	fyai_error_check(ctx, !fyai_output_append(ctx, md, mdlen), err,
 			 "could not append tool call display output");
+	/* Mark each tool body for frameless replay. */
+	for (i = 0; i < blocks.count; i++) {
+		rc = fyai_output_add_fragment(ctx, "tool_body",
+						  base + blocks.item[i].start,
+						  base + blocks.item[i].end,
+						  blocks.item[i].lang, name);
+		fyai_error_check(ctx, !rc,
+			err, "could not record tool body fragment");
+	}
+	fyai_md_blocks_free(&blocks);
 	free(md);
 	md = NULL;
 	mdlen = 0;
@@ -1982,6 +2466,7 @@ err:
 	if (mf)
 		fclose(mf);
 err_closed:
+	fyai_md_blocks_free(&blocks);
 	free(md);
 	free(lang);
 	fy_generic_builder_destroy(tgb);
@@ -2210,22 +2695,48 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 	return false;
 }
 
-static int fyai_display_markdown_range(struct fyai_cfg *cfg, const char *md,
+static int fyai_display_markdown_range(struct fyai_ctx *ctx, const char *md,
 				       size_t start, size_t end)
 {
 	char *slice;
+	size_t i;
 	int rc;
 
 	if (end <= start)
 		return 0;
+	/* Skip whitespace between stored fragments. */
+	for (i = start; i < end; i++)
+		if (!isspace((unsigned char)md[i]))
+			break;
+	if (i == end)
+		return 0;
 	slice = strndup(md + start, end - start);
-	if (!slice)
-		return -1;
-	rc = fyai_print_markdown(slice, cfg);
+	fyai_error_check(ctx, slice, out, "could not copy display Markdown");
+	rc = fyai_print_markdown(slice, ctx->cfg);
 	if (rc)
 		fputs(slice, stdout);
 	free(slice);
 	return 0;
+out:
+	return -1;
+}
+
+/* Render one stored tool body. */
+static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
+				  size_t len, const char *lang,
+				  size_t max_lines)
+{
+	struct response_buffer body = {0};
+	int rc;
+
+	rc = view_append_block(ctx, &body, md, len, lang, max_lines);
+	if (!rc && body.len) {
+		fflush(stdout);
+		fwrite(body.data, 1, body.len, stdout);
+		fflush(stdout);
+	}
+	free(body.data);
+	return rc;
 }
 
 static int fyai_display_assistant_output(struct fyai_ctx *ctx,
@@ -2240,6 +2751,7 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 	const char *lang;
 	const char *tool;
 	int preview_lines;
+	int rc;
 	long long llstart, llend;
 	size_t start, end, pos, len;
 
@@ -2258,11 +2770,25 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 			return -1;
 		start = (size_t)llstart;
 		end = (size_t)llend;
-		if (fyai_display_markdown_range(cfg, md, pos, start))
-			return -1;
-		if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
-			if (*tool_result_pos >= tool_result_count)
-				return -1;
+		rc = fyai_display_markdown_range(ctx, md, pos, start);
+		fyai_error_check(ctx, !rc, out,
+				 "could not replay assistant Markdown");
+		if (fy_equal(fy_get(fragment, "kind"), "tool_body")) {
+			/* Replay the tool body without a frame. */
+			glang = fy_get(fragment, "lang");
+			lang = fy_castp(&glang, "");
+			gtool = fy_get(fragment, "tool");
+			tool = fy_castp(&gtool, "");
+			preview_lines = fyai_tool_preview_lines(cfg, tool);
+			rc = fyai_display_tool_body(ctx, md + start, end - start,
+						    lang,
+						    preview_lines > 0 ?
+						    (size_t)preview_lines : 0);
+			fyai_error_check(ctx, !rc, out,
+					 "could not replay a tool body");
+		} else if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
+			fyai_error_check(ctx, *tool_result_pos < tool_result_count,
+					 out, "missing a stored tool result");
 			content = tool_results[(*tool_result_pos)++];
 			glang = fy_get(fragment, "lang");
 			lang = fy_is_string(glang) ?
@@ -2281,12 +2807,19 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 			preview_lines = fyai_tool_preview_lines(cfg, tool);
 			fyai_render_tool_result(cfg, content, lang,
 						preview_lines);
-		} else if (fyai_display_markdown_range(cfg, md, start, end)) {
-			return -1;
+		} else {
+			rc = fyai_display_markdown_range(ctx, md, start, end);
+			fyai_error_check(ctx, !rc, out,
+					 "could not replay assistant Markdown");
 		}
 		pos = end;
 	}
-	return fyai_display_markdown_range(cfg, md, pos, len);
+	rc = fyai_display_markdown_range(ctx, md, pos, len);
+	fyai_error_check(ctx, !rc, out,
+			 "could not replay assistant Markdown");
+	return 0;
+out:
+	return -1;
 }
 
 static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
@@ -2498,7 +3031,7 @@ static int fyai_display_message(struct fyai_display_render *view,
 	    !(view->prev_tool && (c.tool_related || c.is_assistant)))
 		fprintf(view->mf, "%s\n\n", view->cfg->turn_separator);
 	rlang = fyai_read_result_lang(view->reads, &c);
-	fyai_emit_message_md(view->mf, view->tgb, &c,
+	fyai_emit_message_md(view->ctx, view->mf, view->tgb, &c,
 				     view->cfg->tool_preview_lines, rlang,
 				     view->cfg->thinking);
 	free(rlang);

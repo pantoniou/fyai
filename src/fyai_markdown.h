@@ -105,6 +105,10 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
 int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines);
+/* Render a marked, frameless fenced block into @out. */
+int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
+			      size_t len, const char *lang, size_t max_lines,
+			      const char *indent, struct response_buffer *out);
 /* @extra adds renderer flags for this render only, such as
  * FYMD_RF_CODE_MARKER for the marked (hanging-indent) fenced-block shape. */
 int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
