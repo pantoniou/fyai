@@ -235,7 +235,7 @@ int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc)
 		FYOPEF_MODE_YAML_1_2 |
 		FYOPEF_STYLE_PRETTY |
 		FYOPEF_WIDTH_INF, &out);
-	if (fy_generic_is_invalid(emitted))
+	if (fy_is_invalid(emitted))
 		goto out;
 	out = fy_cast(emitted, "");
 

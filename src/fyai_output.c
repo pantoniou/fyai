@@ -305,7 +305,7 @@ int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
 		"tool", tool && *tool ? fy_value(tool) : fy_null);
 	output->fragments = fy_append(ctx->transient_gb, output->fragments,
 				      fragment);
-	fyai_error_check(ctx, fy_generic_is_valid(output->fragments), err,
+	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
 			 "could not append display fragment");
 	return 0;
 err:
@@ -384,9 +384,9 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 	struct fyai_display_output *output;
 	fy_generic record;
 
-	if (!ctx || !ctx->display_output || fy_generic_is_invalid(turn))
+	if (!ctx || !ctx->display_output || fy_is_invalid(turn))
 		return turn;
-	if (fy_generic_is_null_type(turn)) {
+	if (fy_is_null(turn)) {
 		fyai_output_cleanup(ctx);
 		return turn;
 	}

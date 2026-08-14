@@ -828,7 +828,7 @@ const char *emit_request_body(struct fy_generic_builder *gb, fy_generic request)
 		FYOPEF_NO_ENDING_NEWLINE,
 		NULL);
 
-	if (fy_generic_is_invalid(emitted))
+	if (fy_is_invalid(emitted))
 		return NULL;
 
 	body = fy_cast(emitted, "");
@@ -843,7 +843,7 @@ fy_generic parse_response(struct fy_generic_builder *gb, const char *response)
 	fy_generic doc;
 
 	doc = parse_json_string(gb, response);
-	if (fy_generic_is_invalid(doc)) {
+	if (fy_is_invalid(doc)) {
 		fprintf(stderr, "Failed to parse JSON response\n");
 		return fy_invalid;
 	}
@@ -1219,7 +1219,7 @@ const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v)
 		FYOPEF_NO_ENDING_NEWLINE,
 		NULL);
 
-	if (fy_generic_is_invalid(emitted))
+	if (fy_is_invalid(emitted))
 		return NULL;
 
 	/* intern while `emitted` is still in scope: a short result lives
@@ -1276,10 +1276,10 @@ bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor)
 {
 	uintptr_t ptr;
 
-	if (fy_generic_is_invalid(v) || fy_generic_is_in_place(v))
+	if (fy_is_invalid(v) || fy_generic_is_in_place(v))
 		return false;
 
-	if (fy_generic_is_collection(v))
+	if (fy_is_collection(v))
 		ptr = (uintptr_t)fy_generic_resolve_collection_ptr(v);
 	else
 		ptr = (uintptr_t)fy_generic_resolve_ptr(v);

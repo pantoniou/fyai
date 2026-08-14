@@ -250,7 +250,7 @@ static fy_generic on_serve(struct jsonrpc_conn *conn, const char *method,
 	(void)conn;
 	snprintf(sv->method, sizeof(sv->method), "%s", method ? method : "");
 	sv->arg = fy_get(params, "n", 0LL);
-	if (!fy_generic_is_valid(id)) {
+	if (!fy_is_valid(id)) {
 		sv->notifications++;
 		return fy_invalid;
 	}

@@ -291,7 +291,7 @@ static fy_generic fyai_branch_member(fy_generic entry, const char *key)
 	fy_generic v;
 
 	v = fy_get(entry, key);
-	if (fy_generic_is_valid(v) && fy_generic_is_null_type(v))
+	if (fy_is_valid(v) && fy_is_null(v))
 		v = fy_invalid;
 	return v;
 }
@@ -308,7 +308,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->from = fy_invalid;
 	b->prev = fy_invalid;
 
-	if (!fy_generic_is_mapping(entry))
+	if (!fy_is_mapping(entry))
 		return false;
 
 	b->entry = entry;
@@ -328,7 +328,7 @@ bool fyai_branch_lookup(fy_generic branches, const char *name,
 	fy_generic entry;
 
 	entry = fy_invalid;
-	if (name && fy_generic_is_mapping(branches))
+	if (name && fy_is_mapping(branches))
 		entry = fy_get(branches, name);
 	return fyai_branch_decode(entry, b);
 }
@@ -368,15 +368,15 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 	if (!gb || !name)
 		return fy_invalid;
 
-	if (!fy_generic_is_mapping(branches)) {
-		if (fy_generic_is_invalid(entry))
+	if (!fy_is_mapping(branches)) {
+		if (fy_is_invalid(entry))
 			return branches;
 		branches = fy_gb_mapping(gb);
-		if (!fy_generic_is_valid(branches))
+		if (!fy_is_valid(branches))
 			return fy_invalid;
 	}
 
-	if (fy_generic_is_invalid(entry))
+	if (fy_is_invalid(entry))
 		return fy_disassoc(gb, branches, name);
 	return fy_assoc(gb, branches, name, entry);
 }
@@ -517,14 +517,14 @@ int fyai_resolve_ref_state(struct fyai_ctx *ctx, const char *spec,
 	if (kind == '~') {
 		cur = b.head;
 		for (i = 0; i < n; i++) {
-			fyai_error_check(ctx, fy_generic_is_valid(cur) &&
-					 !fy_generic_is_null_type(cur),
+			fyai_error_check(ctx, fy_is_valid(cur) &&
+					 !fy_is_null(cur),
 					 err_out,
 					 "%s: only %lld turns, cannot go "
 					 "back %lld", name, i, n);
 			cur = fy_get(cur, "previous");
 		}
-		if (fy_generic_is_valid(cur) && fy_generic_is_null_type(cur))
+		if (fy_is_valid(cur) && fy_is_null(cur))
 			cur = fy_invalid;
 		if (configp)
 			*configp = b.config;
@@ -553,7 +553,7 @@ static fy_generic branch_list_data(struct fyai_ctx *ctx, const char *under,
 
 	out = fy_seq_empty;
 	active = fyai_ctx_branch(ctx);
-	if (!fy_generic_is_mapping(ctx->arena_branches))
+	if (!fy_is_mapping(ctx->arena_branches))
 		return out;
 
 	count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
@@ -568,7 +568,7 @@ static fy_generic branch_list_data(struct fyai_ctx *ctx, const char *under,
 		entry = fy_get_at(ctx->arena_branches, i);
 		if (!fyai_branch_decode(entry, &b))
 			continue;
-		if (!all && fy_generic_is_valid(b.agent))
+		if (!all && fy_is_valid(b.agent))
 			continue;
 
 		out = fy_append(gb, out,
@@ -583,7 +583,7 @@ static fy_generic branch_list_data(struct fyai_ctx *ctx, const char *under,
 				   "updated", fy_value(gb,
 					fy_get(entry, "created", 0LL)),
 				   "description", fy_value(gb,
-					fy_generic_is_valid(b.description) ?
+					fy_is_valid(b.description) ?
 					fy_get(entry, "description", "") : "")));
 	}
 	return out;
@@ -650,7 +650,7 @@ static int branches_publish(struct fyai_ctx *ctx, fy_generic branches)
 {
 	fy_generic base;
 
-	if (!fy_generic_is_valid(branches)) {
+	if (!fy_is_valid(branches)) {
 		fyai_error(ctx, "cannot build the branch table");
 		return -1;
 	}
@@ -733,7 +733,7 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 			 "cannot delete the current branch '%s'", name);
 	found = fyai_branch_lookup(ctx->arena_branches, name, &b);
 	fyai_error_check(ctx, found, err_out, "no such branch '%s'", name);
-	fyai_error_check(ctx, force || fy_generic_is_invalid(b.head), err_out,
+	fyai_error_check(ctx, force || fy_is_invalid(b.head), err_out,
 			 "branch '%s' has turns; use --force to delete it",
 			 name);
 
@@ -779,7 +779,7 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 				b.description, b.agent,
 				fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME),
 				fy_value(ctx->gb, nm), entry);
-		fyai_error_check(ctx, fy_generic_is_valid(entry), err_out,
+		fyai_error_check(ctx, fy_is_valid(entry), err_out,
 				 "could not record reparenting of '%s'", nm);
 		branches = fyai_branches_set(ctx->gb, branches, newname, entry);
 		if (!strcmp(nm, fyai_ctx_branch(ctx))) {
@@ -860,7 +860,7 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 					b.description, b.agent,
 					fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME),
 					fy_value(ctx->gb, nm), entry);
-			if (!fy_generic_is_valid(entry)) {
+			if (!fy_is_valid(entry)) {
 				fyai_error(ctx, "could not record the rename "
 					   "of '%s'", nm);
 				return -1;

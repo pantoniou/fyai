@@ -23,14 +23,14 @@ static fy_generic fyai_turn_meta_set(struct fyai_ctx *ctx, fy_generic turn,
 	fy_generic v;
 
 	meta = fyai_turn_meta(turn);
-	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
+	if (fy_is_invalid(meta) || fy_is_null(meta))
 		meta = fy_map_empty;
 
 	meta = fy_assoc(meta, key, value);
 	v = fy_assoc(turn, "metadata", meta);
 
 	v = fy_gb_internalize(ctx->transient_gb, v);
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		fyai_error(ctx, "could not update the turn metadata");
 	return v;
 }
@@ -58,12 +58,12 @@ static fy_generic fyai_make_turn(struct fyai_ctx *ctx, fy_generic previous,
 				fy_value(cfg->reasoning_summary) : fy_null);
 
 	turn = fy_mapping(
-		"previous", fy_generic_is_valid(previous) ? previous : fy_null,
+		"previous", fy_is_valid(previous) ? previous : fy_null,
 		"messages", messages,
 		"metadata", meta);
 
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
-	if (fy_generic_is_invalid(turn))
+	if (fy_is_invalid(turn))
 		fyai_error(ctx, "could not build the turn");
 	return turn;
 }
@@ -80,17 +80,17 @@ fy_generic fyai_turn_append_display_output(struct fyai_ctx *ctx,
 {
 	fy_generic outputs;
 
-	if (fy_generic_is_invalid(turn) || fy_generic_is_invalid(output))
+	if (fy_is_invalid(turn) || fy_is_invalid(output))
 		return turn;
 	outputs = fy_get(turn, "display_outputs", fy_seq_empty);
 	outputs = fy_append(ctx->transient_gb ? ctx->transient_gb : ctx->gb,
 			    outputs, output);
-	fyai_error_check(ctx, fy_generic_is_valid(outputs), err,
+	fyai_error_check(ctx, fy_is_valid(outputs), err,
 			 "could not append display output");
 	turn = fy_assoc(turn, "display_outputs", outputs);
 	turn = fy_gb_internalize(ctx->transient_gb ? ctx->transient_gb : ctx->gb,
 				 turn);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), err,
+	fyai_error_check(ctx, fy_is_valid(turn), err,
 			 "could not retain display output");
 	return turn;
 err:
@@ -101,7 +101,7 @@ fy_generic fyai_turn_set_response_id(struct fyai_ctx *ctx,
 					    fy_generic turn,
 					    fy_generic response_id)
 {
-	if (fy_generic_is_invalid(turn) || fy_generic_is_null_type(turn))
+	if (fy_is_invalid(turn) || fy_is_null(turn))
 		return turn;
 
 	return fyai_turn_meta_set(ctx, turn, "response_id", response_id);
@@ -142,12 +142,12 @@ int fyai_turn_stack_init(struct fyai_turn_stack *stack, fy_generic turn,
 	stack->items = NULL;
 	stack->count = 0;
 
-	if (fy_generic_is_invalid(turn) || fy_generic_is_null_type(turn))
+	if (fy_is_invalid(turn) || fy_is_null(turn))
 		return 0;
 
 	count = 0;
 	fyai_turn_foreach(cur, turn) {
-		if (fy_generic_is_valid(previous) && cur.v == previous.v)
+		if (fy_is_valid(previous) && cur.v == previous.v)
 			break;
 		count++;
 	}
@@ -162,7 +162,7 @@ int fyai_turn_stack_init(struct fyai_turn_stack *stack, fy_generic turn,
 
 	i = count;
 	fyai_turn_foreach(cur, turn) {
-		if (fy_generic_is_valid(previous) && cur.v == previous.v)
+		if (fy_is_valid(previous) && cur.v == previous.v)
 			break;
 		stack->items[--i] = cur;
 	}
@@ -197,7 +197,7 @@ fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_turn_stack_cleanup(&stack);
 
 	stream = fy_gb_internalize(ctx->transient_gb, stream);
-	if (fy_generic_is_invalid(stream))
+	if (fy_is_invalid(stream))
 		fyai_error(ctx, "could not collect the turn messages");
 	return stream;
 }
@@ -219,14 +219,14 @@ static fy_generic fyai_canonical_assistant_message(struct fyai_ctx *ctx,
 	content = fy_get(raw, "content");
 	msg = fy_mapping(
 		"role", fy_get(raw, "role", "assistant"),
-		"content", fy_generic_is_valid(content) ? content : fy_null);
+		"content", fy_is_valid(content) ? content : fy_null);
 
 	tool_calls = fy_get(raw, "tool_calls");
-	if (fy_generic_is_valid(tool_calls) && !fy_generic_is_null_type(tool_calls))
+	if (fy_is_valid(tool_calls) && !fy_is_null(tool_calls))
 		msg = fy_assoc(msg, "tool_calls", tool_calls);
 
 	msg = fy_gb_internalize(ctx->transient_gb, msg);
-	if (fy_generic_is_invalid(msg))
+	if (fy_is_invalid(msg))
 		fyai_error(ctx, "could not build the assistant message");
 	return msg;
 }
@@ -245,8 +245,8 @@ static fy_generic fyai_turn_attach_provider(struct fyai_ctx *ctx,
 	const char *name = cfg->provider ? cfg->provider : cfg->model;
 	fy_generic stream;
 
-	if (fy_generic_is_invalid(turn) ||
-	    fy_generic_is_invalid(provider_messages)) {
+	if (fy_is_invalid(turn) ||
+	    fy_is_invalid(provider_messages)) {
 		fyai_error(ctx, "could not attach the provider messages");
 		return fy_invalid;
 	}
@@ -254,12 +254,12 @@ static fy_generic fyai_turn_attach_provider(struct fyai_ctx *ctx,
 	stream = fy_mapping(name ? name : "", provider_messages);
 	turn = fy_assoc(turn, "provider_stream", stream);
 
-	if (fy_generic_is_invalid(turn)) {
+	if (fy_is_invalid(turn)) {
 		fyai_error(ctx, "could not attach the provider messages");
 		return fy_invalid;
 	}
 	turn = fy_gb_internalize(ctx->transient_gb, turn);
-	if (fy_generic_is_invalid(turn))
+	if (fy_is_invalid(turn))
 		fyai_error(ctx, "could not retain the provider messages");
 	return turn;
 }
@@ -268,7 +268,7 @@ static fy_generic fyai_turn_attach_provider(struct fyai_ctx *ctx,
 static fy_generic fyai_turn_attach_usage(struct fyai_ctx *ctx, fy_generic turn,
 					 fy_generic usage)
 {
-	if (fy_generic_is_invalid(usage))
+	if (fy_is_invalid(usage))
 		return turn;
 	return fyai_turn_meta_set(ctx, turn, "usage", usage);
 }
@@ -285,7 +285,7 @@ static fy_generic fyai_turn_attach_tokens(struct fyai_ctx *ctx,
 
 	extents = ctx->last_token_extents;
 	ctx->last_token_extents = fy_invalid;
-	if (fy_generic_is_invalid(extents))
+	if (fy_is_invalid(extents))
 		return turn;
 	return fyai_turn_meta_set(ctx, turn, "tokens", extents);
 }
@@ -322,7 +322,7 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 			turn = fyai_turn_append(ctx, turn, output);
 		}
 
-		if (fy_generic_is_valid(output) && !fy_generic_is_null_type(output))
+		if (fy_is_valid(output) && !fy_is_null(output))
 			turn = fyai_turn_attach_provider(ctx, turn, output);
 		break;
 
@@ -356,7 +356,7 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 					fyai_response_tool_calls(ctx, response_doc));
 		turn = fyai_turn_append(ctx, turn, messages);
 
-		if (fy_generic_is_valid(output) && !fy_generic_is_null_type(output))
+		if (fy_is_valid(output) && !fy_is_null(output))
 			turn = fyai_turn_attach_provider(ctx, turn, output);
 		break;
 	}

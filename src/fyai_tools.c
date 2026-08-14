@@ -162,7 +162,7 @@ char *fyai_tool_error_cause(fy_generic result)
 	 * A native shell result is a sequence of {stdout, stderr, outcome}.
 	 * Report the first entry that did not complete successfully.
 	 */
-	if (fy_generic_is_sequence(result)) {
+	if (fy_is_sequence(result)) {
 		fy_foreach(entry, result) {
 			outcome = fy_get(entry, "outcome");
 			if (fy_equal(fy_get(outcome, "type"), "timeout")) {
@@ -183,7 +183,7 @@ char *fyai_tool_error_cause(fy_generic result)
 		}
 		return NULL;
 	}
-	if (!fy_generic_is_string(result))
+	if (!fy_is_string(result))
 		return NULL;
 	/*
 	 * All other tools report a failure as text. A "tool error: " line
@@ -468,7 +468,7 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 
 	/* deny: always the arena, then each config sandbox.deny entry. */
 	deny = fy_get(cs, "deny");
-	n = fy_generic_is_sequence(deny) ? fy_len(deny) : 0;
+	n = fy_is_sequence(deny) ? fy_len(deny) : 0;
 	sb->deny = calloc(n + 1, sizeof(*sb->deny));
 	fyai_error_check(ctx, sb->deny, err_out,
 			 "sandbox: could not allocate the deny list");
@@ -487,14 +487,14 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 
 	/* allow: extra grants; a string is rw, a mapping {path, mode: ro}. */
 	allow = fy_get(cs, "allow");
-	n = fy_generic_is_sequence(allow) ? fy_len(allow) : 0;
+	n = fy_is_sequence(allow) ? fy_len(allow) : 0;
 	if (n) {
 		sb->allow = calloc(n, sizeof(*sb->allow));
 		fyai_error_check(ctx, sb->allow, err_out,
 				 "sandbox: could not allocate the allow list");
 		fy_foreach(e, allow) {
 			mode = FYAI_SB_RW;
-			if (fy_generic_is_mapping(e)) {
+			if (fy_is_mapping(e)) {
 				pv = fy_get(e, "path");
 				ps = fy_castp(&pv, "");
 				rc = fyai_sandbox_mode_parse(
@@ -517,10 +517,10 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	/* network: present => restrict egress to network.ports (empty = deny
 	 * all); absent => leave egress unrestricted. */
 	net = fy_get(cs, "network");
-	if (fy_generic_is_valid(net)) {
+	if (fy_is_valid(net)) {
 		sp->restrict_net = true;
 		ports = fy_get(net, "ports");
-		n = fy_generic_is_sequence(ports) ? fy_len(ports) : 0;
+		n = fy_is_sequence(ports) ? fy_len(ports) : 0;
 		if (n) {
 			sb->ports = calloc(n, sizeof(*sb->ports));
 			fyai_error_check(ctx, sb->ports, err_out,
@@ -830,7 +830,7 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *question = fy_get(args, "question", "");
 	fy_generic options = fy_get(args, "options");
-	size_t n = fy_generic_is_sequence(options) ? fy_len(options) : 0;
+	size_t n = fy_is_sequence(options) ? fy_len(options) : 0;
 	fy_generic result;
 	char *line, *end;
 	const char *a;
@@ -892,10 +892,10 @@ have_line:
 			end++;
 		if (end != line && !*end && sel >= 1 && (size_t)sel <= n) {
 			result = fy_get_at(options, sel - 1);
-			if (fy_generic_is_invalid(result))
+			if (fy_is_invalid(result))
 				result = fy_value("");
 			free(line);
-			if (fy_generic_is_invalid(result))
+			if (fy_is_invalid(result))
 				fyai_error(ctx, "ask_user: could not retain the answer");
 			return result;
 		}
@@ -903,7 +903,7 @@ have_line:
 
 	result = fy_value(ctx->transient_gb, line);
 	free(line);
-	if (fy_generic_is_invalid(result))
+	if (fy_is_invalid(result))
 		fyai_error(ctx, "ask_user: could not retain the answer");
 	return result;
 }
@@ -1040,7 +1040,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		break;
 	}
 	args = parse_json_string(ctx->transient_gb, args_text);
-	if (fy_generic_is_invalid(args))
+	if (fy_is_invalid(args))
 		return fy_value(ctx->transient_gb, "tool error: invalid JSON arguments");
 	if (fyai_mcp_tool_name(name)) {
 		result_generic = fyai_mcp_call(ctx, name, args);
@@ -1050,7 +1050,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	result_generic = fyai_tool_run_one(ctx, name, args, okp);
 out:
 	result_generic = fy_gb_internalize(ctx->transient_gb, result_generic);
-	if (fy_generic_is_invalid(result_generic))
+	if (fy_is_invalid(result_generic))
 		fyai_error(ctx, "could not retain the tool result");
 	return result_generic;
 }
@@ -1087,7 +1087,7 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		char *diag;
 
 		result_generic = fyai_agent_run(ctx, args, okp);
-		if (fy_generic_is_invalid(result_generic)) {
+		if (fy_is_invalid(result_generic)) {
 			diag = fyai_diag_take_string(&ctx->cfg->diag);
 			result_generic = fy_gb_internalize(ctx->transient_gb,
 				diag && *diag ?
@@ -1205,7 +1205,7 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(tc->ctx);
 
 	if (!strcmp(method, "tool/run")) {
-		if (!fy_generic_is_valid(id) || tc->pending || tc->done) {
+		if (!fy_is_valid(id) || tc->pending || tc->done) {
 			*errorp = fy_gb_mapping(gb, "code", -32600LL,
 						"message", "unexpected tool/run");
 			return fy_invalid;
@@ -1246,7 +1246,7 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 		if (tc.pending) {
 			tc.pending = false;
 			tc.done = true;
-			if (fy_generic_is_invalid(tc.args)) {
+			if (fy_is_invalid(tc.args)) {
 				jsonrpc_conn_respond(conn, tc.id, fy_invalid,
 					fy_gb_mapping(fyai_ctx_transient_gb(ctx),
 						      "code", -32602LL,
@@ -1254,7 +1254,7 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 				break;
 			}
 			/* Keep the durable branch on the child context. */
-			if (fy_generic_is_string(tc.branch))
+			if (fy_is_string(tc.branch))
 				ctx->agent_branch =
 					strdup(fy_castp(&tc.branch, ""));
 			/*
@@ -1583,7 +1583,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 	args = native_call ? tool_call :
 		parse_json_string(ctx->transient_gb, args_text);
-	fyai_error_check(ctx, fy_generic_is_valid(args), err,
+	fyai_error_check(ctx, fy_is_valid(args), err,
 			 "invalid tool call arguments");
 	if (fyai_agent_delegated(ctx)) {
 		char *header;
@@ -1746,10 +1746,10 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 
 	(void)conn;
 	(void)errorp;
-	if (strcmp(method, "tool/progress") || fy_generic_is_valid(id))
+	if (strcmp(method, "tool/progress") || fy_is_valid(id))
 		return fy_invalid;
 	text = fy_get(params, "text", fy_invalid);
-	if (!fy_generic_is_string(text))
+	if (!fy_is_string(text))
 		return fy_invalid;
 	p = fy_castp(&text, "");
 	len = strlen(p);
@@ -1948,7 +1948,7 @@ static fy_generic fyai_shell_result_retime(struct fyai_ctx *ctx,
 	fy_generic outputs = fy_seq_empty;
 	fy_generic entry, outcome;
 
-	if (!fy_generic_is_sequence(result))
+	if (!fy_is_sequence(result))
 		return result;
 	fy_foreach(entry, result) {
 		outcome = fy_get(entry, "outcome");
@@ -2002,7 +2002,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		result = fy_invalid;
 	else
 		result = job->result;
-	if (fy_generic_is_invalid(result) && job->term_signal) {
+	if (fy_is_invalid(result) && job->term_signal) {
 		if (job->native_shell)
 			result = fy_gb_internalize(ctx->transient_gb,
 				fy_sequence(fy_mapping(
@@ -2026,7 +2026,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		reason = fy_sprintfa("tool error: timed out after %u ms",
 				     job->timeout_ms);
 		if (!job->native_shell) {
-			assert(fy_generic_is_string(result));
+			assert(fy_is_string(result));
 			if (genuine)
 				captured = fy_castp(&result, "");
 			keep = fyai_tool_drop_interrupt(captured);
@@ -2277,12 +2277,12 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 		entry = &group->entries[group->next++];
 		call = parse_json_string(group->ctx->transient_gb,
 					 entry->call_text);
-		name = fy_generic_is_valid(call) ?
+		name = fy_is_valid(call) ?
 			fyai_tool_call_name(group->ctx, call) : NULL;
 		if (name && fyai_mcp_tool_name(name)) {
 			args = fyai_tool_call_args(group->ctx, call);
 			entry->mcp_request =
-				fy_generic_is_valid(args) ?
+				fy_is_valid(args) ?
 				fyai_mcp_call_submit(group->ctx, name, args,
 					fyai_tool_job_group_mcp_complete,
 					group) : NULL;
@@ -2304,7 +2304,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 		if (!entry->parallel) {
 			result = fyai_execute_tool_call(group->ctx, call,
 							&entry->result_ok);
-			text = fy_generic_is_valid(result) ?
+			text = fy_is_valid(result) ?
 				emit_json_string(group->ctx->transient_gb,
 						 result) : NULL;
 			entry->result_text = text ? strdup(text) : NULL;
@@ -2313,7 +2313,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			group->parked++;
 			continue;
 		}
-		entry->job = fy_generic_is_valid(call) ?
+		entry->job = fy_is_valid(call) ?
 			fyai_tool_job_submit(group->ctx, call) : NULL;
 		if (!entry->job) {
 			/* Return a submission error as the tool result. */
@@ -2541,7 +2541,7 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 		args_text = "{}";
 
 	args = parse_json_string(ctx->transient_gb, args_text);
-	fyai_error_check(ctx, fy_generic_is_valid(args), out,
+	fyai_error_check(ctx, fy_is_valid(args), out,
 			 "invalid JSON arguments");
 
 	/*
@@ -2558,7 +2558,7 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	result = fyai_tool_run_one(ctx, a->name, args, &ok);
 	result = fy_gb_internalize(ctx->transient_gb, result);
 
-	if (fy_generic_is_string(result))
+	if (fy_is_string(result))
 		printf("%s\n", fy_castp(&result, ""));
 	else
 		emit_generic_to_stdout(NULL, result, ctx->cfg->pretty);

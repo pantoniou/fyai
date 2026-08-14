@@ -34,7 +34,7 @@ bool fyai_catalog_model_has_cap(fy_generic model_entry, const char *cap);
 
 static inline bool fyai_model_supports_temperature(fy_generic model_entry)
 {
-	return fy_generic_is_invalid(model_entry) ||
+	return fy_is_invalid(model_entry) ||
 	       (!fyai_catalog_model_has_cap(model_entry, "reasoning") &&
 		!fyai_catalog_model_has_cap(model_entry, "reasoning_effort"));
 }

@@ -46,7 +46,7 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 
 	personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"), "personas",
 			  fy_invalid);
-	if (!fy_generic_is_mapping(personas))
+	if (!fy_is_mapping(personas))
 		return tool;
 	n = fy_generic_mapping_get_pair_count(personas);
 	for (i = 0; i < n; i++) {
@@ -84,7 +84,7 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 
 static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 {
-	return fy_generic_is_invalid(ctx->tools_spec) ||
+	return fy_is_invalid(ctx->tools_spec) ||
 	       ctx->tools_spec_generation != ctx->cfg->config_generation ||
 	       ctx->tools_spec_agent_child != ctx->cfg->agent_child;
 }

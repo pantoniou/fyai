@@ -72,8 +72,8 @@ static void test_root_decode(struct fy_generic_builder *gb)
 			     "branches", fy_gb_mapping(gb, "main", entry));
 	ver = fyai_root_decode(root, &r);
 	check(ver == FYAI_ROOT_VERSION, "container root: version");
-	check(fy_generic_is_valid(r.branches), "container root: branches");
-	check(fy_generic_is_invalid(r.catalog),
+	check(fy_is_valid(r.branches), "container root: branches");
+	check(fy_is_invalid(r.catalog),
 	      "container root: null catalog decodes as invalid");
 	check(fyai_root_head_name(&r) &&
 	      !strcmp(fyai_root_head_name(&r), "main"),
@@ -81,29 +81,29 @@ static void test_root_decode(struct fy_generic_builder *gb)
 
 	check(fyai_branch_lookup(r.branches, "main", &b),
 	      "branch lookup: main found");
-	check(fy_generic_is_valid(b.head), "branch: head extracted");
-	check(fy_generic_is_valid(b.config), "branch: config extracted");
+	check(fy_is_valid(b.head), "branch: head extracted");
+	check(fy_is_valid(b.config), "branch: config extracted");
 	check(!strcmp(fy_get(b.config, "model", ""), "m1"),
 	      "branch: config content");
-	check(fy_generic_is_invalid(b.prev), "branch: null prev is invalid");
+	check(fy_is_invalid(b.prev), "branch: null prev is invalid");
 
 	check(!fyai_branch_lookup(r.branches, "nope", &b),
 	      "branch lookup: absent reports false");
-	check(fy_generic_is_invalid(b.head) && fy_generic_is_invalid(b.config),
+	check(fy_is_invalid(b.head) && fy_is_invalid(b.config),
 	      "branch lookup: absent clears the parts");
 
 	/* minimal root: version only */
 	root = fy_gb_mapping(gb, "fyai", (long long)FYAI_ROOT_VERSION);
 	ver = fyai_root_decode(root, &r);
 	check(ver == FYAI_ROOT_VERSION, "minimal root: version");
-	check(fy_generic_is_invalid(r.branches) &&
-	      fy_generic_is_invalid(r.catalog), "minimal root: all parts absent");
+	check(fy_is_invalid(r.branches) &&
+	      fy_is_invalid(r.catalog), "minimal root: all parts absent");
 	check(!fyai_root_head_name(&r), "minimal root: no HEAD name");
 
 	/* legacy turn-shaped root: rejected (no back-compat) */
 	ver = fyai_root_decode(turn, &r);
 	check(ver < 0, "legacy turn root rejected");
-	check(fy_generic_is_invalid(r.branches), "rejected root: parts cleared");
+	check(fy_is_invalid(r.branches), "rejected root: parts cleared");
 
 	/* version 1 is the pre-branching schema and is not migrated */
 	root = fy_gb_mapping(gb, "fyai", 1LL,
@@ -206,7 +206,7 @@ static void test_ref_grammar(struct fy_generic_builder *gb)
 
 	check(fyai_branch_lookup(branches, "main", &b), "refs: branch found");
 	check(fy_equal(b.head, t3), "refs: head is the tip");
-	check(fy_generic_is_valid(b.op), "refs: the operation is stored");
+	check(fy_is_valid(b.op), "refs: the operation is stored");
 	check(!strcmp(fy_castp(&b.op, ""), "reset"),
 	      "refs: a reset is recorded, not inferred");
 
@@ -221,7 +221,7 @@ static fy_generic mk_turn(struct fy_generic_builder *gb, fy_generic prev,
 			  const char *role, const char *text)
 {
 	return fy_gb_mapping(gb,
-		"previous", fy_generic_is_valid(prev) ? prev : fy_null,
+		"previous", fy_is_valid(prev) ? prev : fy_null,
 		"messages", fy_gb_sequence(gb,
 			fy_gb_mapping(gb, "role", role, "content", text)));
 }
@@ -237,7 +237,7 @@ static void test_merge_base(struct fy_generic_builder *gb)
 	b1 = mk_turn(gb, a1, "user", "C");
 
 	base = fyai_merge_base(NULL, a2, b1);
-	check(fy_generic_is_valid(base), "merge base: found");
+	check(fy_is_valid(base), "merge base: found");
 	check(base.v == a1.v, "merge base: newest shared turn");
 
 	/* identical chains: the base is the tip itself */
@@ -251,7 +251,7 @@ static void test_merge_base(struct fy_generic_builder *gb)
 	 */
 	o1 = mk_turn(gb, fy_invalid, "system", "OTHER");
 	o2 = mk_turn(gb, o1, "user", "Z");
-	check(fy_generic_is_invalid(fyai_merge_base(NULL, a2, o2)),
+	check(fy_is_invalid(fyai_merge_base(NULL, a2, o2)),
 	      "merge base: unrelated chains share nothing");
 
 	/* a turn shared by content is shared in fact: dedup makes it one value */

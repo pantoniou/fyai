@@ -21,7 +21,7 @@
 		fy_generic __v = (_v); \
 		const char *__msg = (_msg); \
 		\
-		if (!fy_generic_is_valid(__v)) { \
+		if (!fy_is_valid(__v)) { \
 			if (!__msg) \
 				__msg = "internal error or out of memory"; \
 			fprintf(stderr, "invalid generic: %s\n", __msg); \

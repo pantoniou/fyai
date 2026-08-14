@@ -260,9 +260,9 @@ int shell_native_timeout_honored(void)
 	FYAI_TCHECK(fy_equal(fy_get(outcome, "type"), "timeout"));
 	FYAI_TCHECK(fy_get(outcome, "timeout_ms", 0LL) == 200);
 	/* A timeout must not change the result shape. */
-	FYAI_TCHECK(fy_generic_is_sequence(result));
-	FYAI_TCHECK(fy_generic_is_string(fy_get_at_path(result, 0, "stdout")));
-	FYAI_TCHECK(fy_generic_is_string(fy_get_at_path(result, 0, "stderr")));
+	FYAI_TCHECK(fy_is_sequence(result));
+	FYAI_TCHECK(fy_is_string(fy_get_at_path(result, 0, "stdout")));
+	FYAI_TCHECK(fy_is_string(fy_get_at_path(result, 0, "stderr")));
 
 	native_teardown(gb);
 	printf("ok - a native shell call honors its own time limit\n");
@@ -307,7 +307,7 @@ int shell_native_timeout_output(void)
 
 	/* Keep the output that the command produced before the timeout. */
 	out = fy_get_at_path(result, 0, "stdout");
-	FYAI_TCHECK(fy_generic_is_string(out));
+	FYAI_TCHECK(fy_is_string(out));
 	FYAI_TCHECK(strstr(fy_castp(&out, ""), "before"));
 	/*
 	 * The outcome identifies the time limit, not the termination signal.

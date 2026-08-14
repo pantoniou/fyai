@@ -177,15 +177,15 @@ static fy_generic fyai_import_apply_update(struct fyai_import *im,
 	fy_generic val;
 	size_t i, n;
 
-	if (fy_generic_is_invalid(config))
+	if (fy_is_invalid(config))
 		config = fy_gb_mapping(im->gb);
 	n = fy_generic_mapping_get_pair_count(update);
 	for (i = 0; i < n; i++) {
 		key = fy_generic_mapping_get_at_key(update, i);
 		val = fy_generic_mapping_get_at_value(update, i);
-		if (!fy_generic_is_string(key))
+		if (!fy_is_string(key))
 			continue;
-		if (fy_generic_is_null_type(val))
+		if (fy_is_null(val))
 			config = fy_delete_at_pathstr(im->gb, config,
 						      fy_castp(&key, ""));
 		else
@@ -200,7 +200,7 @@ static int fyai_import_message_add(struct fyai_import *im,
 				   fy_generic message)
 {
 	turn->messages = fy_append(im->gb, turn->messages, message);
-	return fy_generic_is_valid(turn->messages) ? 0 : -1;
+	return fy_is_valid(turn->messages) ? 0 : -1;
 }
 
 /*
@@ -221,14 +221,14 @@ static int fyai_import_tool_call(struct fyai_import *im,
 
 	name = fy_get(directive, "tool");
 	args = fy_get(directive, "arguments", fy_invalid);
-	if (fy_generic_is_invalid(args))
+	if (fy_is_invalid(args))
 		args = fy_gb_mapping(im->gb);
 	/* Canonical state keeps tool arguments as the JSON text the provider
 	 * sent, so the export's mapping is emitted back to that shape. */
 	args_text = fy_gb_emit(im->gb, args,
 			       FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON |
 			       FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF, NULL);
-	fyai_error_check(im->ctx, fy_generic_is_valid(args_text), err,
+	fyai_error_check(im->ctx, fy_is_valid(args_text), err,
 			 "import: cannot encode tool arguments");
 	/*
 	 * The export stores no provider tool-call ID, so import mints one. It
@@ -243,12 +243,12 @@ static int fyai_import_tool_call(struct fyai_import *im,
 	rc = fyai_import_message_add(im, turn, call);
 	fyai_error_check(im->ctx, !rc, err, "import: cannot add a tool call");
 	result = fy_get(directive, "result", fy_invalid);
-	if (fy_generic_is_invalid(result))
+	if (fy_is_invalid(result))
 		return 0;
 	im->pending = fy_append(im->gb, im->pending,
 		fy_mapping(im->gb, "type", "function_call_output",
 			   "call_id", call_id, "output", result));
-	fyai_error_check(im->ctx, fy_generic_is_valid(im->pending), err,
+	fyai_error_check(im->ctx, fy_is_valid(im->pending), err,
 			 "import: cannot add a tool result");
 	return 0;
 err:
@@ -374,11 +374,11 @@ static int fyai_import_parse(struct fyai_import *im, char *text)
 		directive = fyai_import_parse_directive(im,
 			line + sizeof(FYAI_TEXTUAL_OPEN) - 1,
 			(size_t)(close - (line + sizeof(FYAI_TEXTUAL_OPEN) - 1)));
-		fyai_error_check(ctx, fy_generic_is_mapping(directive), err,
+		fyai_error_check(ctx, fy_is_mapping(directive), err,
 				 "import: a directive is not a YAML mapping");
 		next = close + strlen("\n" FYAI_TEXTUAL_CLOSE "\n");
 		kind = fy_get(directive, "kind", fy_invalid);
-		fyai_error_check(ctx, fy_generic_is_string(kind), err,
+		fyai_error_check(ctx, fy_is_string(kind), err,
 				 "import: a directive has no kind");
 		kind_text = fy_castp(&kind, "");
 		if (fy_equal(kind, "conversation"))
@@ -398,7 +398,7 @@ static int fyai_import_parse(struct fyai_import *im, char *text)
 		}
 		if (fy_equal(kind, "config-update")) {
 			update = fy_get(directive, "config-update", fy_invalid);
-			fyai_error_check(ctx, fy_generic_is_mapping(update), err,
+			fyai_error_check(ctx, fy_is_mapping(update), err,
 				"import: config-update is not a mapping");
 			im->config = fyai_import_apply_update(im, im->config,
 							      update);
@@ -434,7 +434,7 @@ static int fyai_import_parse(struct fyai_import *im, char *text)
 		}
 		if (fy_equal(kind, "message")) {
 			kind = fy_get(directive, "role", fy_invalid);
-			fyai_error_check(ctx, fy_generic_is_string(kind), err,
+			fyai_error_check(ctx, fy_is_string(kind), err,
 					 "import: a message has no role");
 			role = fy_castp(&kind, "");
 			pending_body = true;
@@ -503,7 +503,7 @@ static int fyai_import_compact(struct fyai_import *im,
 	fyai_error_check(ctx, !rc, err,
 			 "import: cannot materialize before compaction");
 	/* Use the current model and endpoint. */
-	hint = fy_generic_is_string(turn->instructions) ?
+	hint = fy_is_string(turn->instructions) ?
 			fy_castp(&turn->instructions, "") : NULL;
 	rc = fyai_session_compact(ctx, hint);
 	fyai_error_check(ctx, !rc, err, "import: the compaction failed");
@@ -540,12 +540,12 @@ static int fyai_import_replay(struct fyai_import *im)
 			/* Build the imported turn in the durable builder. */
 			turn = fy_gb_internalize(im->gb,
 				fy_mapping(im->gb,
-					"previous", fy_generic_is_valid(head) ?
+					"previous", fy_is_valid(head) ?
 							head : fy_null,
 					"messages", pu->turns[j].messages,
 					"metadata", fy_mapping(im->gb,
 						"imported", true)));
-			fyai_error_check(ctx, fy_generic_is_valid(turn), err,
+			fyai_error_check(ctx, fy_is_valid(turn), err,
 					 "import: cannot build a turn");
 			head = turn;
 		}
@@ -580,8 +580,8 @@ int fyai_import_view(struct fyai_ctx *ctx, const char *path)
 	/* Do not append an import to an explicitly selected conversation. */
 	if (ctx->cfg->branch_explicit)
 		fyai_error_check(ctx,
-			fy_generic_is_invalid(ctx->last_message) ||
-			fy_generic_is_null_type(ctx->last_message), out,
+			fy_is_invalid(ctx->last_message) ||
+			fy_is_null(ctx->last_message), out,
 			"import: branch '%s' already holds a conversation",
 			fyai_ctx_branch(ctx));
 	if (path) {
@@ -664,7 +664,7 @@ static int fyai_replay_collect(struct fyai_ctx *ctx, struct fyai_replay *rp)
 	fyai_error_check(ctx, !rc, err, "replay: cannot read the conversation");
 	for (i = 0; i < stack.count; i++) {
 		meta = fyai_turn_meta(stack.items[i]);
-		if (fy_generic_is_valid(fy_get(meta, "compacted_from",
+		if (fy_is_valid(fy_get(meta, "compacted_from",
 					       fy_invalid))) {
 			step = fyai_replay_add(ctx, rp);
 			fyai_error_check(ctx, step, err, "replay: out of memory");
@@ -678,7 +678,7 @@ static int fyai_replay_collect(struct fyai_ctx *ctx, struct fyai_replay *rp)
 			if (fy_not_equal(fy_get(message, "role"), "user"))
 				continue;
 			content = fy_get(message, "content", fy_invalid);
-			if (!fy_generic_is_string(content))
+			if (!fy_is_string(content))
 				continue;
 			step = fyai_replay_add(ctx, rp);
 			fyai_error_check(ctx, step, err, "replay: out of memory");
@@ -715,14 +715,14 @@ int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact)
 	 * force now, not from the conversation being replayed. */
 	ctx->last_message = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
-	fyai_error_check(ctx, fy_generic_is_valid(ctx->last_message), out,
+	fyai_error_check(ctx, fy_is_valid(ctx->last_message), out,
 			 "replay: cannot seed the conversation");
 
 	for (i = 0; i < rp.count; i++) {
 		if (rp.items[i].compact) {
 			if (ignore_compact)
 				continue;
-			hint = fy_generic_is_string(rp.items[i].instructions) ?
+			hint = fy_is_string(rp.items[i].instructions) ?
 				fy_castp(&rp.items[i].instructions, "") : NULL;
 			rc = fyai_session_compact(ctx, hint);
 			fyai_error_check(ctx, !rc, out, "replay: the compaction failed");
@@ -731,12 +731,12 @@ int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact)
 		turn = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_user_message(ctx,
 				fy_castp(&rp.items[i].prompt, ""))));
-		fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+		fyai_error_check(ctx, fy_is_valid(turn), out,
 				 "replay: cannot build the user turn");
 		ctx->last_message = turn;
 		v = fyai_run_turn(ctx, ctx->last_message);
 		v = fyai_report_diag(ctx, v);
-		fyai_error_check(ctx, fy_generic_is_valid(v), out,
+		fyai_error_check(ctx, fy_is_valid(v), out,
 				 "replay: the model run failed");
 		ctx->last_message = v;
 		fyai_branch_op_set(ctx, "replay", NULL);

@@ -36,7 +36,7 @@ struct fyai_display_output;
 
 static inline fy_generic fyai_generic_or_null(fy_generic v)
 {
-	return fy_generic_is_valid(v) ? v : fy_null;
+	return fy_is_valid(v) ? v : fy_null;
 }
 #define DEFAULT_OPENAI_MODEL "gpt-5.4-mini"
 #define DEFAULT_ANTHROPIC_MODEL "claude-sonnet-5"

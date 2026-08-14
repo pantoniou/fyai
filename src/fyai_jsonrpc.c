@@ -227,12 +227,12 @@ static void jsonrpc_conn_reply(struct jsonrpc_conn *conn, fy_generic id,
 	gb = fyai_ctx_transient_gb(conn->ctx);
 	if (!gb)
 		return;
-	if (fy_generic_is_valid(error))
+	if (fy_is_valid(error))
 		frame = fy_gb_mapping(gb, "jsonrpc", "2.0", "id", id,
 				      "error", error);
 	else
 		frame = fy_gb_mapping(gb, "jsonrpc", "2.0", "id", id,
-				      "result", fy_generic_is_valid(result) ?
+				      "result", fy_is_valid(result) ?
 						result : fy_null);
 	body = emit_json_string(gb, frame);
 	if (body)
@@ -250,11 +250,11 @@ static void jsonrpc_conn_frame(struct jsonrpc_conn *conn, fy_generic doc)
 	id = fy_get(doc, "id", fy_invalid);
 	method = fy_get(doc, "method", fy_invalid);
 
-	if (fy_generic_is_valid(method)) {
+	if (fy_is_valid(method)) {
 		name = fy_castp(&method, "");
 		if (!conn->serve) {
 			/* Reject a request when no handler is available. */
-			if (fy_generic_is_valid(id))
+			if (fy_is_valid(id))
 				jsonrpc_conn_reply(conn, id, fy_invalid,
 					fy_gb_mapping(
 					    fyai_ctx_transient_gb(ctx),
@@ -266,27 +266,27 @@ static void jsonrpc_conn_frame(struct jsonrpc_conn *conn, fy_generic doc)
 		conn->serve_deferred = false;
 		result = conn->serve(conn, name, fy_get(doc, "params", fy_null),
 				     id, conn->serve_userdata, &error);
-		if (fy_generic_is_valid(id) && !conn->serve_deferred)
+		if (fy_is_valid(id) && !conn->serve_deferred)
 			jsonrpc_conn_reply(conn, id, result, error);
 		conn->serve_deferred = false;
 		return;
 	}
 
-	if (!fy_generic_is_valid(id))
+	if (!fy_is_valid(id))
 		return;			/* neither a call nor a reply */
 	req = jsonrpc_pending_take(conn, fy_cast(id, -1LL));
 	if (!req)
 		return;			/* not ours, or already finished */
 
 	error = fy_get(doc, "error", fy_invalid);
-	if (fy_generic_is_valid(error)) {
+	if (fy_is_valid(error)) {
 		fyai_error(ctx, "%s %s: %s", conn->name, req->method,
 			   fy_get(error, "message", "server error"));
 		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
 		return;
 	}
 	result = fy_get(doc, "result", fy_invalid);
-	if (fy_generic_is_invalid(result)) {
+	if (fy_is_invalid(result)) {
 		fyai_error(ctx, "%s %s response has no result",
 			   conn->name, req->method);
 		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
@@ -317,7 +317,7 @@ static void jsonrpc_conn_line(struct jsonrpc_conn *conn, const char *line)
 		return;
 	}
 	doc = parse_json_string(gb, line);
-	if (!fy_generic_is_mapping(doc)) {
+	if (!fy_is_mapping(doc)) {
 		fyai_error(conn->ctx, "%s received invalid stdio JSON",
 			   conn->name);
 		return;
@@ -627,15 +627,15 @@ static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 	}
 	doc = parse_json_string(gb, json);
 	free(sse_json);
-	fyai_error_check(ctx, fy_generic_is_valid(doc), err_out,
+	fyai_error_check(ctx, fy_is_valid(doc), err_out,
 			 "%s %s returned invalid JSON", req->conn->name,
 			 req->method);
 	error = fy_get(doc, "error");
-	fyai_error_check(ctx, fy_generic_is_invalid(error), err_out,
+	fyai_error_check(ctx, fy_is_invalid(error), err_out,
 			 "%s %s: %s", req->conn->name, req->method,
 			 fy_get(error, "message", "server error"));
 	out = fy_get(doc, "result", fy_invalid);
-	fyai_error_check(ctx, fy_generic_is_valid(out), err_out,
+	fyai_error_check(ctx, fy_is_valid(out), err_out,
 			 "%s %s response has no result", req->conn->name,
 			 req->method);
 	return out;
@@ -659,7 +659,7 @@ static void jsonrpc_http_complete(struct fyai_curl_transfer *transfer,
 		return;
 	}
 	result = jsonrpc_http_result(req);
-	jsonrpc_finish(req, fy_generic_is_valid(result), result, req->status,
+	jsonrpc_finish(req, fy_is_valid(result), result, req->status,
 		       req->code);
 }
 

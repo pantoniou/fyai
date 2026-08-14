@@ -869,7 +869,7 @@ int fyai_execute_list(struct fyai_ctx *ctx)
 		data = fyai_list_reflog_data(ctx, gb);
 		break;
 	}
-	if (fy_generic_is_invalid(data)) {
+	if (fy_is_invalid(data)) {
 		fy_generic_builder_destroy(gb);
 		return -1;
 	}
@@ -912,7 +912,7 @@ static void schema_default_str(fy_generic node, char *buf, size_t bufsz)
 	fy_generic v;
 
 	v = fy_get(node, "default");
-	if (fy_generic_is_invalid(v)) {
+	if (fy_is_invalid(v)) {
 		buf[0] = '\0';
 		return;
 	}
@@ -930,12 +930,12 @@ static void schema_type_str(fy_generic node, char *buf, size_t bufsz)
 	int n;
 
 	type = fy_get(node, "type");
-	if (fy_generic_is_string(type)) {
+	if (fy_is_string(type)) {
 		snprintf(buf, bufsz, "%s", fy_castp(&type, ""));
 		return;
 	}
 	off = 0;
-	if (fy_generic_is_sequence(type)) {
+	if (fy_is_sequence(type)) {
 		fy_foreach(v, type) {
 			n = snprintf(buf + off, off < bufsz ? bufsz - off : 0,
 				    "%s%s", off ? "|" : "", fy_castp(&v, ""));
@@ -946,9 +946,9 @@ static void schema_type_str(fy_generic node, char *buf, size_t bufsz)
 			return;
 	}
 	branches = fy_get(node, "oneOf");
-	if (fy_generic_is_invalid(branches))
+	if (fy_is_invalid(branches))
 		branches = fy_get(node, "anyOf");
-	if (fy_generic_is_sequence(branches)) {
+	if (fy_is_sequence(branches)) {
 		off = 0;
 		fy_foreach(v, branches) {
 			schema_type_str(v, sub, sizeof(sub));
@@ -999,11 +999,11 @@ static void schema_constraint_str(fy_generic node, bool required, char *buf,
 		ADD("required");
 
 	v = fy_get(node, "const");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("const: %s", fy_castp(&v, ""));
 
 	v = fy_get(node, "enum");
-	if (fy_generic_is_sequence(v)) {
+	if (fy_is_sequence(v)) {
 		ioff = 0;
 		ifirst = true;
 		fy_foreach(sub, v) {
@@ -1018,38 +1018,38 @@ static void schema_constraint_str(fy_generic node, bool required, char *buf,
 	}
 
 	v = fy_get(node, "minimum");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD(">= %g", schema_num(v));
 	v = fy_get(node, "maximum");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("<= %g", schema_num(v));
 	v = fy_get(node, "exclusiveMinimum");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("> %g", schema_num(v));
 	v = fy_get(node, "exclusiveMaximum");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("< %g", schema_num(v));
 
 	v = fy_get(node, "minLength");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("minLength %g", schema_num(v));
 	v = fy_get(node, "maxLength");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("maxLength %g", schema_num(v));
 
 	v = fy_get(node, "pattern");
-	if (fy_generic_is_string(v))
+	if (fy_is_string(v))
 		ADD("pattern: `%s`", fy_castp(&v, ""));
 
 	v = fy_get(node, "minItems");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("minItems %g", schema_num(v));
 	v = fy_get(node, "maxItems");
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		ADD("maxItems %g", schema_num(v));
 
 	v = fy_get(node, "items");
-	if (fy_generic_is_mapping(v)) {
+	if (fy_is_mapping(v)) {
 		schema_type_str(v, itype, sizeof(itype));
 		ADD("items: %s", itype);
 	}
@@ -1065,17 +1065,17 @@ static fy_generic schema_child(fy_generic node, const char *key)
 	fy_generic props, v, branches, b;
 
 	props = fy_get(node, "properties");
-	if (fy_generic_is_mapping(props)) {
+	if (fy_is_mapping(props)) {
 		v = fy_get(props, key);
-		if (fy_generic_is_valid(v))
+		if (fy_is_valid(v))
 			return v;
 	}
 	branches = fy_get(node, "oneOf");
-	if (fy_generic_is_invalid(branches))
+	if (fy_is_invalid(branches))
 		branches = fy_get(node, "anyOf");
 	fy_foreach(b, branches) {
 		v = schema_child(b, key);
-		if (fy_generic_is_valid(v))
+		if (fy_is_valid(v))
 			return v;
 	}
 	return fy_invalid;
@@ -1092,14 +1092,14 @@ static fy_generic schema_object_node(fy_generic node)
 	fy_generic props, branches, b, sub;
 
 	props = fy_get(node, "properties");
-	if (fy_generic_is_mapping(props))
+	if (fy_is_mapping(props))
 		return node;
 	branches = fy_get(node, "oneOf");
-	if (fy_generic_is_invalid(branches))
+	if (fy_is_invalid(branches))
 		branches = fy_get(node, "anyOf");
 	fy_foreach(b, branches) {
 		sub = schema_object_node(b);
-		if (fy_generic_is_valid(sub))
+		if (fy_is_valid(sub))
 			return sub;
 	}
 	return fy_invalid;
@@ -1110,7 +1110,7 @@ static bool schema_key_required(fy_generic node, const char *key)
 	fy_generic req, v;
 
 	req = fy_get(node, "required");
-	if (!fy_generic_is_sequence(req))
+	if (!fy_is_sequence(req))
 		return false;
 	fy_foreach(v, req)
 		if (!strcmp(fy_castp(&v, ""), key))
@@ -1133,7 +1133,7 @@ static fy_generic describe_row(struct fy_generic_builder *gb, const char *name,
 		"type", type_buf,
 		"constraint", *cons_buf ? cons_buf : "-",
 		"default", *def_buf ? def_buf : "-",
-		"description", fy_generic_is_string(desc) ?
+		"description", fy_is_string(desc) ?
 			fy_castp(&desc, "") : "");
 }
 
@@ -1162,7 +1162,7 @@ static int config_describe(struct fyai_ctx *ctx, const char *path)
 			memcpy(seg, p, seglen);
 			seg[seglen] = '\0';
 			node = schema_child(node, seg);
-			if (fy_generic_is_invalid(node)) {
+			if (fy_is_invalid(node)) {
 				fyai_error(ctx, "config: describe: unknown property '%s'",
 					path);
 				return -1;
@@ -1180,9 +1180,9 @@ static int config_describe(struct fyai_ctx *ctx, const char *path)
 	 * *direct* `properties` but a nested object branch still drills down
 	 * into that branch's properties instead of describing itself. */
 	object_node = schema_object_node(node);
-	props = fy_generic_is_valid(object_node) ?
+	props = fy_is_valid(object_node) ?
 		fy_get(object_node, "properties") : fy_invalid;
-	if (!fy_generic_is_mapping(props)) {
+	if (!fy_is_mapping(props)) {
 		rows = fy_append(gb, rows,
 				 describe_row(gb, last, node, false, desc));
 	} else {
@@ -1202,8 +1202,8 @@ static int config_describe(struct fyai_ctx *ctx, const char *path)
 		fy_mapping(gb,
 			"preamble", fy_sprintfa("## %s%s%s",
 				(path && *path) ? path : "config",
-				fy_generic_is_string(desc) ? "\n\n" : "",
-				fy_generic_is_string(desc) ?
+				fy_is_string(desc) ? "\n\n" : "",
+				fy_is_string(desc) ?
 					fy_castp(&desc, "") : ""),
 			"columns", fy_mapping(gb,
 				"name", fy_mapping(gb, "name", "name"),

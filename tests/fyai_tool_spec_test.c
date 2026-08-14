@@ -121,7 +121,7 @@ static void test_shape(void)
 	size_t n = 0, i = 0;
 	size_t j = 0;
 
-	require(fy_generic_is_sequence(tools), "make_tools: expected a sequence");
+	require(fy_is_sequence(tools), "make_tools: expected a sequence");
 	fy_foreach(tool, tools)
 		n++;
 	require(n == 6, "make_tools: expected exactly 6 tools");
@@ -139,7 +139,7 @@ static void test_shape(void)
 
 		/* required matches, in order */
 		req = fy_get(params, "required");
-		require(fy_generic_is_sequence(req), "required must be a sequence");
+		require(fy_is_sequence(req), "required must be a sequence");
 		require(fy_equal(fy_get(fn, "name"), names[i]),
 			"unexpected tool name/order");
 		n = 0;
@@ -183,7 +183,7 @@ static void test_descriptions(void)
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
 		desc = fy_get(fn, "description");
-		require(fy_generic_is_string(desc),
+		require(fy_is_string(desc),
 			"tool description must be a string");
 		require(*fy_castp(&desc, ""), "tool description must not be empty");
 
@@ -193,7 +193,7 @@ static void test_descriptions(void)
 		for (i = 0; i < n; i++) {
 			prop = fy_generic_mapping_get_at_value(props, i);
 			desc = fy_get(prop, "description");
-			require(fy_generic_is_string(desc),
+			require(fy_is_string(desc),
 				"property description must be a string");
 			require(*fy_castp(&desc, ""),
 				"property description must not be empty");
@@ -280,7 +280,7 @@ static void test_personas(void)
 	tools = make_tools_filtered(&test_ctx);
 
 	tool = tool_by_name(tools, "agent");
-	require(fy_generic_is_valid(tool), "agent tool missing");
+	require(fy_is_valid(tool), "agent tool missing");
 	fn = fy_get(tool, "function");
 	params = fy_get(fn, "parameters");
 	props = fy_get(params, "properties");

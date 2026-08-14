@@ -58,7 +58,7 @@ static fy_generic parse(const char *json)
 	fy_generic v;
 
 	v = parse_json_string(test_ctx.transient_gb, json);
-	if (fy_generic_is_invalid(v)) {
+	if (fy_is_invalid(v)) {
 		fprintf(stderr, "failed to parse fixture: %s\n", json);
 		exit(1);
 	}

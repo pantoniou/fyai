@@ -67,7 +67,7 @@ static int config_validate_enum(fy_generic root, const char *key,
 	fy_generic v;
 
 	v = fy_get(root, key);
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		return 0;
 	return config_contains(values, v) ? 0 :
 	       config_bad_value(key, v, choices);
@@ -83,7 +83,7 @@ static int config_validate_api(fy_generic root)
 	fy_generic v;
 
 	v = fy_get(root, "api");
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		return 0;
 	if (config_contains(fy_sequence("responses", "messages", "chat",
 					"chat-completions"), v))
@@ -132,7 +132,7 @@ static bool apply_bool(fy_generic root, const char *key, bool cur)
 
 	v = fy_get(root, key);
 
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		return cur;
 	return fy_cast(v, cur);
 }
@@ -146,7 +146,7 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 	size_t len = 0;
 	int rc;
 
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		return -1;
 
 	name = fy_get(v, "value", "");
@@ -182,13 +182,13 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
 	fy_generic v, sb, tbv, shell, secret_ref;
 
-	if (fy_generic_is_invalid(root))
+	if (fy_is_invalid(root))
 		return 0;
 
 	cfg->config_generation++;
 
 	secret_ref = fy_get(root, "api_key");
-	if (fy_generic_is_mapping(secret_ref)) {
+	if (fy_is_mapping(secret_ref)) {
 		if (fy_equal(fy_get(secret_ref, "type"), "auto")) {
 			cfg->api_key = NULL;
 			cfg->api_key_auto = true;
@@ -205,7 +205,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		return -1;
 
 	v = fy_get(root, "model");
-	if (!fy_generic_is_invalid(v)) {
+	if (!fy_is_invalid(v)) {
 		/* A short string may live inline in the local generic word. Keep
 		 * cfg from pointing into @v after this function returns. */
 		cfg->model = fy_gb_intern_string(cfg->gb,
@@ -213,7 +213,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->model_explicit = true;
 	}
 	v = fy_get(root, "auth");
-	if (fy_generic_is_invalid(v)) {
+	if (fy_is_invalid(v)) {
 		/* Absent keys preserve the lower-precedence layer/default. */
 	} else if (fy_equal(v, "api-key"))
 		cfg->auth_mode = FYAI_AUTH_API_KEY;
@@ -272,7 +272,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	 * { enabled, allow, deny, network }. A mapping enables unless it says
 	 * otherwise and is retained for the tool path to read grants from. */
 	sb = fy_get(root, "sandbox");
-	if (fy_generic_is_mapping(sb)) {
+	if (fy_is_mapping(sb)) {
 		cfg->sandbox = sb;
 		cfg->enable_sandbox = apply_bool(sb, "enabled", true);
 	} else {
@@ -283,7 +283,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	/* MCP server group: nested mapping; read enabled, endpoint, timeout,
 	 * auth_token indirection, protocol_version, servers mapping. */
 	v = fy_get(root, "mcp");
-	if (fy_generic_is_mapping(v)) {
+	if (fy_is_mapping(v)) {
 		cfg->mcp_enabled = apply_bool(v, "enabled",
 			cfg->mcp_enabled);
 		cfg->mcp_startup_wait = apply_bool(v, "startup_wait",
@@ -301,7 +301,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		 */
 		{
 			fy_generic at = fy_get(v, "auth_token", fy_invalid);
-			if (fy_generic_is_mapping(at)) {
+			if (fy_is_mapping(at)) {
 				if (fy_equal(fy_get(at, "type"), "auto")) {
 					cfg->mcp_auth_token = NULL;
 					cfg->mcp_auth_token_auto = true;
@@ -334,7 +334,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	cfg->no_auth = apply_bool(root, "no_auth", cfg->no_auth);
 
 	v = fy_get(root, "logging");
-	if (fy_generic_is_mapping(v)) {
+	if (fy_is_mapping(v)) {
 		cfg->wire_logging = apply_bool(v, "wire", cfg->wire_logging);
 		cfg->stream_logging = apply_bool(v, "stream",
 						  cfg->stream_logging);
@@ -344,8 +344,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	}
 
 	v = fy_get(root, "branch");
-	if (!fy_generic_is_invalid(v)) {
-		if (!fy_generic_is_mapping(v)) {
+	if (!fy_is_invalid(v)) {
+		if (!fy_is_mapping(v)) {
 			fyai_cfg_error(cfg, "branch must be a mapping");
 			return -1;
 		}
@@ -357,8 +357,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	}
 
 	v = fy_get(root, "reasoning");
-	if (!fy_generic_is_invalid(v)) {
-		if (!fy_generic_is_mapping(v)) {
+	if (!fy_is_invalid(v)) {
+		if (!fy_is_mapping(v)) {
 			fyai_cfg_error(cfg, "reasoning must be a mapping");
 			return -1;
 		}
@@ -383,8 +383,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 
 	/* Stylistic options live in the display: group (the only form). */
 	v = fy_get(root, "display");
-	if (!fy_generic_is_invalid(v)) {
-		if (!fy_generic_is_mapping(v)) {
+	if (!fy_is_invalid(v)) {
+		if (!fy_is_mapping(v)) {
 			fyai_cfg_error(cfg, "display must be a mapping");
 			return -1;
 		}
@@ -459,7 +459,7 @@ static int parse_config_file(struct fy_generic_builder *gb, const char *path,
 
 	root = fy_parse_file(gb,
 				FYAI_YAML_PARSE_FLAGS, path);
-	if (fy_generic_is_invalid(root)) {
+	if (fy_is_invalid(root)) {
 		fprintf(stderr, "failed to parse config file: %s\n", path);
 		return -1;
 	}
@@ -833,10 +833,10 @@ static fy_generic config_merge(struct fy_generic_builder *gb,
 	fy_generic key, val, bval, out;
 	size_t i, n;
 
-	if (fy_generic_is_invalid(over))
+	if (fy_is_invalid(over))
 		return base;
-	if (fy_generic_is_invalid(base) ||
-	    !fy_generic_is_mapping(base) || !fy_generic_is_mapping(over))
+	if (fy_is_invalid(base) ||
+	    !fy_is_mapping(base) || !fy_is_mapping(over))
 		return over;
 
 	out = base;
@@ -845,7 +845,7 @@ static fy_generic config_merge(struct fy_generic_builder *gb,
 		key = fy_generic_mapping_get_at_key(over, i);
 		val = fy_generic_mapping_get_at_value(over, i);
 		bval = fy_get(out, key, fy_invalid);
-		if (fy_generic_is_mapping(bval) && fy_generic_is_mapping(val))
+		if (fy_is_mapping(bval) && fy_is_mapping(val))
 			val = config_merge(gb, bval, val);
 		out = fy_assoc(gb, out, key, val);
 	}
@@ -925,7 +925,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 	 * `config effective` emits it verbatim.
 	 */
 	cfg->config_doc = config_merge(gb,
-				       fy_generic_is_valid(root_repo) ?
+				       fy_is_valid(root_repo) ?
 						root_repo : root_user,
 				       root_explicit);
 	if (fyai_config_apply(cfg, cfg->config_doc))
@@ -942,7 +942,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
  */
 int fyai_config_show(struct fyai_cfg *cfg)
 {
-	if (fy_generic_is_invalid(cfg->config_doc)) {
+	if (fy_is_invalid(cfg->config_doc)) {
 		fyai_cfg_error(cfg, "no configuration; run fyai init or fyai config import");
 		return -1;
 	}
@@ -954,12 +954,12 @@ int fyai_config_get(struct fyai_ctx *ctx, const char *key)
 {
 	fy_generic v;
 
-	if (fy_generic_is_invalid(ctx->arena_config)) {
+	if (fy_is_invalid(ctx->arena_config)) {
 		fyai_error(ctx, "no config in arena; run fyai init or fyai config import");
 		return -1;
 	}
 	v = fy_get_at_pathstr(ctx->gb, ctx->arena_config, key);
-	if (fy_generic_is_invalid(v)) {
+	if (fy_is_invalid(v)) {
 		fyai_error(ctx, "key '%s' not set", key);
 		return -1;
 	}
@@ -989,14 +989,14 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 		return -1;
 	}
 	v = config_parse_value(gb, value);
-	if (fy_generic_is_invalid(v)) {
+	if (fy_is_invalid(v)) {
 		fyai_error(ctx, "cannot parse value '%s'", value);
 		return -1;
 	}
-	root = fy_generic_is_valid(ctx->arena_config) ?
+	root = fy_is_valid(ctx->arena_config) ?
 	       ctx->arena_config : fy_map_empty;
 	root = fy_set_at_pathstr(gb, root, key, v);
-	if (fy_generic_is_invalid(root)) {
+	if (fy_is_invalid(root)) {
 		fyai_error(ctx, "set failed");
 		return -1;
 	}
@@ -1023,7 +1023,7 @@ int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
 
 	emitted = fy_emit(ctx->gb, value,
 			 FYAI_YAML_EMIT_FLAGS | FYOPEF_STYLE_ONELINE, NULL);
-	fyai_error_check(ctx, fy_generic_is_valid(emitted), err_out,
+	fyai_error_check(ctx, fy_is_valid(emitted), err_out,
 			 "could not emit configuration value");
 	text = fy_castp(&emitted, "");
 	rc = fyai_config_set(ctx, key, text);
@@ -1065,7 +1065,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			fyai_error(ctx, "--set/--get/--delete need an arena; run fyai init");
 		return -1;
 	}
-	root = fy_generic_is_valid(ctx->arena_config) ?
+	root = fy_is_valid(ctx->arena_config) ?
 	       ctx->arena_config : fy_map_empty;
 	dirty = false;
 	for (i = 0; i < cfg->config_op_count; i++) {
@@ -1075,13 +1075,13 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 		switch (co->op) {
 		case 's':
 			v = config_parse_value(ctx->gb, co->value);
-			if (fy_generic_is_invalid(v)) {
+			if (fy_is_invalid(v)) {
 				fyai_error(ctx, "cannot parse value '%s'",
 					co->value);
 				return -1;
 			}
 			root = fy_set_at_pathstr(ctx->gb, root, co->key, v);
-			if (fy_generic_is_invalid(root)) {
+			if (fy_is_invalid(root)) {
 				fyai_error(ctx, "set failed");
 				return -1;
 			}
@@ -1089,7 +1089,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			break;
 		case 'd':
 			root = fy_delete_at_pathstr(ctx->gb, root, co->key);
-			if (fy_generic_is_invalid(root)) {
+			if (fy_is_invalid(root)) {
 				fyai_error(ctx, "delete failed");
 				return -1;
 			}
@@ -1097,7 +1097,7 @@ int fyai_apply_config_ops(struct fyai_ctx *ctx)
 			break;
 		case 'g':
 			v = fy_get_at_pathstr(ctx->gb, root, co->key);
-			if (fy_generic_is_invalid(v)) {
+			if (fy_is_invalid(v)) {
 				fyai_error(ctx, "key '%s' not set",
 					co->key);
 				return -1;
@@ -1170,9 +1170,9 @@ static fy_generic config_change_add(struct fy_generic_builder *gb,
 	return fy_append(gb, changes,
 			 fy_mapping("path", path,
 				    "action", action,
-				    "before", fy_generic_is_valid(before) ?
+				    "before", fy_is_valid(before) ?
 					      before : fy_null,
-				    "after", fy_generic_is_valid(after) ?
+				    "after", fy_is_valid(after) ?
 					     after : fy_null));
 }
 
@@ -1204,12 +1204,12 @@ static fy_generic config_doc_sync_derived_api(struct fy_generic_builder *gb,
 
 	mode = FYAI_API_RESPONSES;
 	cat_ep = fy_invalid;
-	for (i = 0; i < 3 && fy_generic_is_invalid(cat_ep); i++) {
+	for (i = 0; i < 3 && fy_is_invalid(cat_ep); i++) {
 		cat_ep = fyai_catalog_endpoint(cat_prov, (enum fyai_api_mode)i);
-		if (fy_generic_is_valid(cat_ep))
+		if (fy_is_valid(cat_ep))
 			mode = (enum fyai_api_mode)i;
 	}
-	if (fy_generic_is_invalid(cat_ep))
+	if (fy_is_invalid(cat_ep))
 		return doc;
 
 	new_api = fy_value(fyai_api_to_string(mode));
@@ -1262,7 +1262,7 @@ static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
 		pfx = strndup(model, slash - model);
 		if (pfx) {
 			pinned = fyai_catalog_provider(catalog, pfx);
-			if (fy_generic_is_valid(pinned))
+			if (fy_is_valid(pinned))
 				bare = slash + 1;
 			free(pfx);
 		}
@@ -1270,8 +1270,8 @@ static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
 
 	cat_model = fyai_catalog_resolved_model(catalog, bare);
 	before = fy_get(doc, "catalog");
-	if (fy_generic_is_invalid(cat_model)) {
-		if (fy_generic_is_invalid(before))
+	if (fy_is_invalid(cat_model)) {
+		if (fy_is_invalid(before))
 			return doc;
 		doc = fy_delete_at_pathstr(gb, doc, "catalog");
 		if (changesp)
@@ -1282,7 +1282,7 @@ static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
 
 	cat_prov = fyai_catalog_provider_for_model(catalog, bare, NULL);
 	block = fy_assoc(gb, cat_model, "canonical_provider",
-			 fy_generic_is_valid(cat_prov) ?
+			 fy_is_valid(cat_prov) ?
 				 fy_get(cat_prov, "name", "") : "");
 	if (fy_equal(before, block))
 		return doc;
@@ -1290,10 +1290,10 @@ static fy_generic catalog_sync_config_doc(struct fy_generic_builder *gb,
 	if (changesp) {
 		after = fy_get(doc, "catalog");
 		*changesp = config_change_add(gb, *changesp, "catalog",
-					      fy_generic_is_invalid(before) ?
+					      fy_is_invalid(before) ?
 					      "added" : "changed", before, after);
 	}
-	if (fy_generic_is_valid(cat_prov))
+	if (fy_is_valid(cat_prov))
 		doc = config_doc_sync_derived_api(gb, cat_prov, doc, changesp);
 	return doc;
 }
@@ -1332,7 +1332,7 @@ static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 		doc = fy_set_at_pathstr(cfg->gb, doc, "logprobs", true);
 		after = fy_get(doc, "logprobs");
 		changes = config_change_add(cfg->gb, changes, "logprobs",
-					    fy_generic_is_invalid(before) ?
+					    fy_is_invalid(before) ?
 					    "added" : "changed",
 					    before, after);
 	}
@@ -1350,7 +1350,7 @@ static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 			doc = fy_set_at_pathstr(cfg->gb, doc, "tools", true);
 			after = fy_get(doc, "tools");
 			changes = config_change_add(cfg->gb, changes, "tools",
-						    fy_generic_is_invalid(before) ?
+						    fy_is_invalid(before) ?
 						    "added" : "changed",
 						    before, after);
 		}
@@ -1376,13 +1376,13 @@ static fy_generic config_doc_mirror_key(struct fy_generic_builder *gb,
 	fy_generic v;
 
 	v = fy_get_at_pathstr(gb, root, key);
-	if (fy_generic_is_valid(v))
+	if (fy_is_valid(v))
 		return fy_set_at_pathstr(gb,
-				fy_generic_is_valid(config_doc) ?
+				fy_is_valid(config_doc) ?
 					config_doc : fy_map_empty,
 				key, v);
-	if (fy_generic_is_invalid(config_doc) ||
-	    fy_generic_is_invalid(fy_get_at_pathstr(gb, config_doc, key)))
+	if (fy_is_invalid(config_doc) ||
+	    fy_is_invalid(fy_get_at_pathstr(gb, config_doc, key)))
 		return config_doc;
 	return fy_delete_at_pathstr(gb, config_doc, key);
 }
@@ -1394,17 +1394,17 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 	fy_generic problems, v, schema, schema_report, schema_problems, p;
 
 	problems = fy_seq_empty;
-	if (!fy_generic_is_mapping(doc))
+	if (!fy_is_mapping(doc))
 		problems = config_problem_add(cfg->gb, problems,
 				"%s is not a YAML mapping", origin);
 	if (fyai_config_has_raw_secret(doc))
 		problems = config_problem_add(cfg->gb, problems,
 				"%s carries a raw api_key; use { type: env|secret, value: NAME }",
 				origin);
-	if (!fy_generic_is_mapping(doc))
+	if (!fy_is_mapping(doc))
 		goto out;
 	v = fy_get(doc, "api_key");
-	if (fy_generic_is_mapping(v) &&
+	if (fy_is_mapping(v) &&
 	    (fy_equal(fy_get(v, "type"), "env") ||
 	     fy_equal(fy_get(v, "type"), "secret")) &&
 	    !*fy_get(v, "value", ""))
@@ -1430,7 +1430,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 	}
 
 	v = fy_get(doc, "api");
-	if (!fy_generic_is_invalid(v) &&
+	if (!fy_is_invalid(v) &&
 	    !config_contains(fy_sequence("responses", "messages", "chat",
 					 "chat-completions"), v))
 		problems = config_problem_add(cfg->gb, problems,
@@ -1438,21 +1438,21 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				fy_cast(fy_convert(v, FYGT_STRING), ""));
 
 	v = fy_get(doc, "reasoning");
-	if (!fy_generic_is_invalid(v) && !fy_generic_is_mapping(v))
+	if (!fy_is_invalid(v) && !fy_is_mapping(v))
 		problems = config_problem_add(cfg->gb, problems,
 				"reasoning must be a mapping");
-	if (fy_generic_is_mapping(v)) {
+	if (fy_is_mapping(v)) {
 		fy_generic e, s;
 
 		e = fy_get(v, "effort");
-		if (!fy_generic_is_invalid(e) &&
+		if (!fy_is_invalid(e) &&
 		    !config_contains(fy_sequence("minimal", "low",
 						 "medium", "high"), e))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid reasoning.effort '%s' (minimal|low|medium|high)",
 				fy_cast(fy_convert(e, FYGT_STRING), ""));
 		s = fy_get(v, "summary");
-		if (!fy_generic_is_invalid(s) &&
+		if (!fy_is_invalid(s) &&
 		    !config_contains(fy_sequence("auto", "concise",
 						 "detailed"), s))
 			problems = config_problem_add(cfg->gb, problems,
@@ -1461,29 +1461,29 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 	}
 
 	v = fy_get(doc, "display");
-	if (!fy_generic_is_invalid(v) && !fy_generic_is_mapping(v))
+	if (!fy_is_invalid(v) && !fy_is_mapping(v))
 		problems = config_problem_add(cfg->gb, problems,
 				"display must be a mapping");
-	if (fy_generic_is_mapping(v)) {
+	if (fy_is_mapping(v)) {
 		fy_generic mode, color, theme, tborder;
 		char theme_names[256];
 
 		mode = fy_get(v, "markdown_mode");
-		if (!fy_generic_is_invalid(mode) &&
+		if (!fy_is_invalid(mode) &&
 		    !config_contains(fy_sequence("oneshot", "line",
 						 "stream"), mode))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.markdown_mode '%s' (oneshot|line|stream)",
 				fy_cast(fy_convert(mode, FYGT_STRING), ""));
 		color = fy_get(v, "color");
-		if (!fy_generic_is_invalid(color) &&
+		if (!fy_is_invalid(color) &&
 		    !config_contains(fy_sequence("auto", "off",
 						 "on"), color))
 			problems = config_problem_add(cfg->gb, problems,
 				"invalid display.color '%s' (auto|off|on)",
 				fy_cast(fy_convert(color, FYGT_STRING), ""));
 		theme = fy_get(v, "theme");
-		if (!fy_generic_is_invalid(theme) &&
+		if (!fy_is_invalid(theme) &&
 		    !markdown_theme_selector_valid(
 			    fy_cast(fy_convert(theme, FYGT_STRING), "")))
 			problems = config_problem_add(cfg->gb, problems,
@@ -1493,7 +1493,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 				markdown_theme_names(theme_names,
 						     sizeof(theme_names)));
 		tborder = fy_get(v, "table_border");
-		if (!fy_generic_is_invalid(tborder) &&
+		if (!fy_is_invalid(tborder) &&
 		    !config_contains(fy_sequence("theme", "grid", "none"),
 				     tborder))
 			problems = config_problem_add(cfg->gb, problems,
@@ -1573,7 +1573,7 @@ fy_generic fyai_config_schema(struct fy_generic_builder *gb)
 {
 	fy_generic_sized_string embedded;
 
-	if (fy_generic_is_valid(embedded_config_schema))
+	if (fy_is_valid(embedded_config_schema))
 		return embedded_config_schema;
 	embedded.data = (const char *)FYAI_EMBEDDED_CONFIG_SCHEMA;
 	embedded.size = FYAI_EMBEDDED_CONFIG_SCHEMA_LEN;
@@ -1622,12 +1622,12 @@ int fyai_config_delete(struct fyai_ctx *ctx, const char *key)
 		fyai_error(ctx, "no arena; run fyai init");
 		return -1;
 	}
-	if (fy_generic_is_invalid(ctx->arena_config)) {
+	if (fy_is_invalid(ctx->arena_config)) {
 		fyai_error(ctx, "no config in arena");
 		return -1;
 	}
 	root = fy_delete_at_pathstr(gb, ctx->arena_config, key);
-	if (fy_generic_is_invalid(root)) {
+	if (fy_is_invalid(root)) {
 		fyai_error(ctx, "delete failed");
 		return -1;
 	}
@@ -1671,7 +1671,7 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 	fy_generic emitted;
 	const char *text;
 
-	if (fy_generic_is_invalid(ctx->arena_config)) {
+	if (fy_is_invalid(ctx->arena_config)) {
 		fyai_error(ctx, "no config in arena");
 		return -1;
 	}
@@ -1679,10 +1679,10 @@ int fyai_config_export(struct fyai_ctx *ctx, const char *path)
 		emitted = fy_emit(ctx->arena_config,
 			  FYAI_YAML_EMIT_FLAGS | FYOPEF_OUTPUT_TYPE_STDOUT,
 			  NULL);
-		return fy_generic_is_invalid(emitted) ? -1 : 0;
+		return fy_is_invalid(emitted) ? -1 : 0;
 	}
 	emitted = config_emit_yaml(ctx->gb, ctx->arena_config);
-	if (fy_generic_is_invalid(emitted))
+	if (fy_is_invalid(emitted))
 		return -1;
 	text = fy_castp(&emitted, "");
 	if (write_text_file(path, text)) {
@@ -1809,9 +1809,9 @@ fyai_config_edit_submit(struct fyai_ctx *ctx)
 
 	text = "# fyai configuration\n";
 	emitted = fy_invalid;
-	if (fy_generic_is_valid(ctx->arena_config)) {
+	if (fy_is_valid(ctx->arena_config)) {
 		emitted = config_emit_yaml(ctx->gb, ctx->arena_config);
-		fyai_error_check(ctx, fy_generic_is_valid(emitted), err_fd,
+		fyai_error_check(ctx, fy_is_valid(emitted), err_fd,
 				 "cannot render configuration for editing");
 		text = fy_castp(&emitted, "");
 	}
@@ -1916,7 +1916,7 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 	 * mirrored it) and re-run the single apply pass so the derived cache
 	 * matches what a fresh process would compute.
 	 */
-	if (fy_generic_is_valid(ctx->arena_config))
+	if (fy_is_valid(ctx->arena_config))
 		cfg->config_doc = ctx->arena_config;
 	if (fyai_config_apply(cfg, cfg->config_doc))
 		return -1;
@@ -2083,12 +2083,12 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 		if (!pfx)
 			return -1;
 		pinned_prov = fyai_catalog_provider(catalog, pfx);
-		if (fy_generic_is_valid(pinned_prov))
+		if (fy_is_valid(pinned_prov))
 			cfg->model = fy_gb_intern_string(cfg->gb, slash + 1);
 		free(pfx);
 	}
 
-	if (fy_generic_is_valid(pinned_prov)) {
+	if (fy_is_valid(pinned_prov)) {
 		cat_prov = pinned_prov;
 		fyai_catalog_offering(cat_prov, cfg->model, &cat_offer);
 	} else {
@@ -2098,14 +2098,14 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 			cat_prov = fyai_catalog_provider(catalog, cfg->provider);
 			preferred_offer = fyai_catalog_offering(cat_prov,
 							 cfg->model, &cat_offer);
-			if (fy_generic_is_invalid(preferred_offer))
+			if (fy_is_invalid(preferred_offer))
 				cat_prov = fy_invalid;
 		}
-		if (fy_generic_is_invalid(cat_prov))
+		if (fy_is_invalid(cat_prov))
 			cat_prov = fyai_catalog_provider_for_model(catalog,
 							cfg->model, &cat_offer);
 	}
-	if (fy_generic_is_valid(cat_prov))
+	if (fy_is_valid(cat_prov))
 		cfg->provider = fy_gb_intern_string(cfg->gb,
 						fy_get(cat_prov, "name", ""));
 	pmid = fy_get(cat_offer, "provider_model_id", "");
@@ -2114,18 +2114,18 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 
 	if (!cfg->api_url || !*cfg->api_url) {
 		cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
-		if (fy_generic_is_invalid(cat_ep) &&
-		    fy_generic_is_valid(cat_prov)) {
+		if (fy_is_invalid(cat_ep) &&
+		    fy_is_valid(cat_prov)) {
 			/* provider does not speak the current grammar: take
 			 * the first one it offers that fyai supports */
-			for (i = 0; i < 3 && fy_generic_is_invalid(cat_ep); i++) {
+			for (i = 0; i < 3 && fy_is_invalid(cat_ep); i++) {
 				cat_ep = fyai_catalog_endpoint(cat_prov,
 						(enum fyai_api_mode)i);
-				if (fy_generic_is_valid(cat_ep))
+				if (fy_is_valid(cat_ep))
 					cfg->api_mode = (enum fyai_api_mode)i;
 			}
 		}
-		if (fy_generic_is_valid(cat_ep))
+		if (fy_is_valid(cat_ep))
 			cfg->api_url = fy_gb_intern_string(cfg->gb,
 					fy_sprintfa("%s%s",
 						fy_get(cat_prov, "root_url", ""),
@@ -2161,7 +2161,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	 * models it does not know).
 	 */
 	cat_model = fyai_catalog_resolved_model(catalog, cfg->model);
-	if (fy_generic_is_valid(cat_model)) {
+	if (fy_is_valid(cat_model)) {
 		if (((cfg->reasoning_effort && *cfg->reasoning_effort) ||
 		     (cfg->reasoning_summary && *cfg->reasoning_summary)) &&
 		    fyai_model_supports_temperature(cat_model)) {
@@ -2198,7 +2198,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	 * endpoint does not accept the built-in shell tool. The function shell
 	 * tool is portable, but an unsupported declaration rejects the request.
 	 */
-	if (fy_generic_is_invalid(cat_prov) && cfg->provider)
+	if (fy_is_invalid(cat_prov) && cfg->provider)
 		cat_prov = fyai_catalog_provider(catalog, cfg->provider);
 	cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
 	cfg->shell_tool_supported = fy_get(fy_get(cat_ep, "capabilities"),
@@ -2389,20 +2389,20 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 
 	if (!cfg->config_op_count)
 		return 0;
-	doc = fy_generic_is_valid(cfg->config_doc) ?
+	doc = fy_is_valid(cfg->config_doc) ?
 	      cfg->config_doc : fy_map_empty;
 	for (i = 0; i < cfg->config_op_count; i++) {
 		co = &cfg->config_ops[i];
 		switch (co->op) {
 		case 's':
 			v = config_parse_value(cfg->gb, co->value);
-			if (fy_generic_is_invalid(v)) {
+			if (fy_is_invalid(v)) {
 				fyai_cfg_error(cfg, "config override %s: cannot parse value '%s'",
 					co->key, co->value);
 				return -1;
 			}
 			doc = fy_set_at_pathstr(cfg->gb, doc, co->key, v);
-			if (fy_generic_is_invalid(doc)) {
+			if (fy_is_invalid(doc)) {
 				fyai_cfg_error(cfg, "config override %s: failed",
 					co->key);
 				return -1;
@@ -2410,7 +2410,7 @@ static int apply_config_set_ops(struct fyai_cfg *cfg)
 			break;
 		case 'd':
 			doc = fy_delete_at_pathstr(cfg->gb, doc, co->key);
-			if (fy_generic_is_invalid(doc)) {
+			if (fy_is_invalid(doc)) {
 				fyai_cfg_error(cfg, "config override %s: delete failed",
 					co->key);
 				return -1;

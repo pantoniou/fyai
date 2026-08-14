@@ -228,13 +228,13 @@ static int token_claims(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	free(json);
 	json = NULL;
 
-	if (fy_generic_is_invalid(doc))
+	if (fy_is_invalid(doc))
 		goto err;
 
 	c->email = fy_gb_intern_string(auth_builder(ctx), fy_get(doc, "email", ""));
 
 	auth = fy_get(doc, "https://api.openai.com/auth");
-	if (!fy_generic_is_mapping(auth))
+	if (!fy_is_mapping(auth))
 		auth = doc;
 
 	c->account_id = fy_gb_intern_string(auth_builder(ctx), fy_get(auth, "chatgpt_account_id", ""));
@@ -264,7 +264,7 @@ static int auth_parse_content(struct fyai_ctx *ctx, struct fyai_credentials *c,
 	credentials_clear(c);
 
 	doc = parse_json_string_size(ctx->transient_gb, text, len);
-	if (fy_generic_is_invalid(doc))
+	if (fy_is_invalid(doc))
 		goto err_out;
 
 	c->access_token = fy_gb_intern_string(auth_builder(ctx), fy_get(doc, "access_token", ""));
@@ -2240,10 +2240,10 @@ fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 
 	doc = parse_json_string(gb, r.data);
 	free(r.data);
-	if (fy_generic_is_invalid(doc))
+	if (fy_is_invalid(doc))
 		goto err;
 	models = fy_get(doc, "models");
-	if (!fy_generic_is_sequence(models))
+	if (!fy_is_sequence(models))
 		goto err;
 	providers = fy_sequence(gb, fy_value(gb, "**chatgpt**"));
 	fy_foreach(m, models) {
@@ -2327,7 +2327,7 @@ int fyai_auth_status(struct fyai_ctx *ctx, bool json, bool info)
 	fy_generic doc;
 	const char *out;
 	doc = fyai_auth_status_data(ctx, ctx->transient_gb, info || json);
-	if (fy_generic_is_invalid(doc))
+	if (fy_is_invalid(doc))
 		return -1;
 	/*
 	 * Column overrides: the keys whose humanized form is not the label we
@@ -2406,7 +2406,7 @@ int fyai_auth_usage(struct fyai_ctx *ctx, bool json)
 	if (!gb)
 		goto out;
 	doc = parse_json_string(gb, r.data);
-	if (!fy_generic_is_mapping(doc)) {
+	if (!fy_is_mapping(doc)) {
 		fyai_error(ctx, "openai: malformed usage response");
 		goto out;
 	}
@@ -2422,7 +2422,7 @@ int fyai_auth_usage(struct fyai_ctx *ctx, bool json)
 		reset_credits = fy_get(doc, "rate_limit_reset_credits");
 		credits = fy_get(doc, "credits");
 		credit_balance = fy_null;
-		if (fy_generic_is_mapping(credits))
+		if (fy_is_mapping(credits))
 			credit_balance = fy_get(credits, "unlimited", false) ?
 				fy_string("unlimited") :
 				fy_get(credits, "balance", fy_string("unknown"));
@@ -2432,17 +2432,17 @@ int fyai_auth_usage(struct fyai_ctx *ctx, bool json)
 				ctx->auth.plan ? ctx->auth.plan : "unknown"),
 			"requests_allowed", fy_get(rate, "allowed", false),
 			"limit_reached", fy_get(rate, "limit_reached", false),
-			"reset_credits", fy_generic_is_mapping(reset_credits) ?
+			"reset_credits", fy_is_mapping(reset_credits) ?
 				fy_get(reset_credits, "available_count") : fy_null,
-			"primary_used", fy_generic_is_mapping(primary) ?
+			"primary_used", fy_is_mapping(primary) ?
 				fy_sprintfa("%lld%%", fy_get(primary, "used_percent", 0LL)) : "unknown",
-			"primary_window_hours", fy_generic_is_mapping(primary) ?
+			"primary_window_hours", fy_is_mapping(primary) ?
 				fy_get(primary, "limit_window_seconds", 0LL) / 3600 : 0LL,
 			"primary_resets", limit_reset_local(primary, primary_reset,
 							 sizeof(primary_reset)),
-			"secondary_used", fy_generic_is_mapping(secondary) ?
+			"secondary_used", fy_is_mapping(secondary) ?
 				fy_sprintfa("%lld%%", fy_get(secondary, "used_percent", 0LL)) : "unknown",
-			"secondary_window_hours", fy_generic_is_mapping(secondary) ?
+			"secondary_window_hours", fy_is_mapping(secondary) ?
 				fy_get(secondary, "limit_window_seconds", 0LL) / 3600 : 0LL,
 			"secondary_resets", limit_reset_local(secondary, secondary_reset,
 							   sizeof(secondary_reset)),

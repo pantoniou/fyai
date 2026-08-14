@@ -88,9 +88,9 @@ static fy_generic schema_resolve_pointer_token(fy_generic current,
 	const char *p;
 	size_t index;
 
-	if (fy_generic_is_mapping(current))
+	if (fy_is_mapping(current))
 		return fy_get(current, token);
-	if (!fy_generic_is_sequence(current) || !*token)
+	if (!fy_is_sequence(current) || !*token)
 		return fy_invalid;
 
 	index = 0;
@@ -110,15 +110,15 @@ static fy_generic schema_resolve_pointer_token(fy_generic current,
  */
 static bool schema_type_matches(fy_generic type_name, fy_generic instance)
 {
-	if (!fy_generic_is_valid(type_name))
+	if (!fy_is_valid(type_name))
 		return true;
 
 	if (fy_equal(type_name, "object"))
-		return fy_generic_is_mapping(instance);
+		return fy_is_mapping(instance);
 	if (fy_equal(type_name, "array"))
-		return fy_generic_is_sequence(instance);
+		return fy_is_sequence(instance);
 	if (fy_equal(type_name, "string"))
-		return fy_generic_is_string(instance);
+		return fy_is_string(instance);
 	if (fy_equal(type_name, "integer")) {
 		if (fy_generic_is_int(instance))
 			return true;
@@ -135,7 +135,7 @@ static bool schema_type_matches(fy_generic type_name, fy_generic instance)
 	if (fy_equal(type_name, "boolean"))
 		return fy_generic_is_bool(instance);
 	if (fy_equal(type_name, "null"))
-		return fy_generic_is_null_type(instance);
+		return fy_is_null(instance);
 
 	/* Non-standard type: accept anything. */
 	return true;
@@ -150,7 +150,7 @@ static bool schema_check_type(fy_generic type, fy_generic instance)
 	fy_generic t;
 
 	/* Array of types: try each. */
-	if (fy_generic_is_sequence(type)) {
+	if (fy_is_sequence(type)) {
 		fy_foreach(t, type) {
 			if (schema_type_matches(t, instance))
 				return true;
@@ -159,7 +159,7 @@ static bool schema_check_type(fy_generic type, fy_generic instance)
 	}
 
 	/* Single string type. */
-	if (fy_generic_is_string(type))
+	if (fy_is_string(type))
 		return schema_type_matches(type, instance);
 
 	/* Unknown shape: accept. */
@@ -195,7 +195,7 @@ static bool schema_values_equal(fy_generic a, fy_generic b)
 			(long double)fy_cast(b, 0.0);
 		return da == db;
 	}
-	if (fy_generic_is_sequence(a) && fy_generic_is_sequence(b)) {
+	if (fy_is_sequence(a) && fy_is_sequence(b)) {
 		n = fy_len(a);
 		if (n != fy_len(b))
 			return false;
@@ -205,14 +205,14 @@ static bool schema_values_equal(fy_generic a, fy_generic b)
 		}
 		return true;
 	}
-	if (fy_generic_is_mapping(a) && fy_generic_is_mapping(b)) {
+	if (fy_is_mapping(a) && fy_is_mapping(b)) {
 		n = fy_generic_mapping_get_pair_count(a);
 		if (n != fy_generic_mapping_get_pair_count(b))
 			return false;
 		fy_foreach(key, a) {
 			av = fy_get(a, key);
 			bv = fy_get(b, key);
-			if (fy_generic_is_invalid(bv) ||
+			if (fy_is_invalid(bv) ||
 			    !schema_values_equal(av, bv))
 				return false;
 		}
@@ -302,7 +302,7 @@ static bool schema_check_format(fy_generic fmt, fy_generic instance)
 {
 	const char *s;
 
-	if (!fy_generic_is_valid(fmt) || fy_equal(fmt, "uri")) {
+	if (!fy_is_valid(fmt) || fy_equal(fmt, "uri")) {
 		s = fy_cast(instance, "");
 		return schema_check_uri(s);
 	}
@@ -363,7 +363,7 @@ static fy_generic schema_resolve_pointer(fy_generic root, const char *ref)
 
 		current = schema_resolve_pointer_token(current, token);
 		free(token);
-		if (fy_generic_is_invalid(current) || !end)
+		if (fy_is_invalid(current) || !end)
 			return current;
 		p = end + 1;
 	}
@@ -382,7 +382,7 @@ static fy_generic schema_reject_unsupported(struct fy_generic_builder *gb,
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(keywords); i++) {
-		if (fy_generic_is_invalid(fy_get(schema, keywords[i])))
+		if (fy_is_invalid(fy_get(schema, keywords[i])))
 			continue;
 		problems = schema_problem_add(gb, problems,
 			"%s: unsupported JSON Schema keyword '%s'",
@@ -399,7 +399,7 @@ static fy_generic schema_check_supported_ref(struct fy_generic_builder *gb,
 	const char *ref;
 
 	child = fy_get(schema, "$ref");
-	if (!fy_generic_is_string(child))
+	if (!fy_is_string(child))
 		return problems;
 	ref = fy_castp(&child, "");
 	if (ref[0] != '#')
@@ -430,9 +430,9 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 	char *cpath, *epath;
 	size_t i, j, n;
 
-	if (fy_generic_is_bool(schema) || fy_generic_is_invalid(schema))
+	if (fy_generic_is_bool(schema) || fy_is_invalid(schema))
 		return problems;
-	if (!fy_generic_is_mapping(schema))
+	if (!fy_is_mapping(schema))
 		return schema_problem_add(gb, problems,
 			"%s: schema must be a mapping or boolean", path);
 	if (depth > 128)
@@ -444,7 +444,7 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 
 	for (i = 0; i < ARRAY_SIZE(direct); i++) {
 		child = fy_get(schema, direct[i]);
-		if (fy_generic_is_invalid(child))
+		if (fy_is_invalid(child))
 			continue;
 		cpath = schema_path_join(path, direct[i]);
 		if (!cpath)
@@ -455,7 +455,7 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 	}
 	for (i = 0; i < ARRAY_SIZE(schema_maps); i++) {
 		collection = fy_get(schema, schema_maps[i]);
-		if (!fy_generic_is_mapping(collection))
+		if (!fy_is_mapping(collection))
 			continue;
 		fy_foreach(key, collection) {
 			cpath = schema_path_join(path, schema_maps[i]);
@@ -472,7 +472,7 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 	}
 	for (i = 0; i < ARRAY_SIZE(schema_sequences); i++) {
 		collection = fy_get(schema, schema_sequences[i]);
-		if (!fy_generic_is_sequence(collection))
+		if (!fy_is_sequence(collection))
 			continue;
 		n = fy_len(collection);
 		for (j = 0; j < n; j++) {
@@ -511,12 +511,12 @@ static fy_generic schema_validate_const_enum(struct fy_generic_builder *gb,
 	bool found;
 
 	v = fy_get(schema, "const");
-	if (fy_generic_is_valid(v) && !schema_values_equal(v, instance))
+	if (fy_is_valid(v) && !schema_values_equal(v, instance))
 		problems = schema_problem_add(gb, problems,
 			"%s: does not match const", path[0] ? path : "<root>");
 
 	v = fy_get(schema, "enum");
-	if (fy_generic_is_valid(v) && fy_generic_is_sequence(v)) {
+	if (fy_is_valid(v) && fy_is_sequence(v)) {
 		found = false;
 		if (schema_is_numeric(instance)) {
 			fy_foreach(sub, v) {
@@ -562,7 +562,7 @@ static fy_generic schema_validate_string(struct fy_generic_builder *gb,
 			(long long)fy_cast(v, 0LL));
 
 	v = fy_get(schema, "pattern");
-	if (fy_generic_is_string(v)) {
+	if (fy_is_string(v)) {
 		pat = fy_castp(&v, "");
 		rc = regcomp(&re, pat, REG_EXTENDED | REG_NOSUB);
 		if (rc) {
@@ -580,7 +580,7 @@ static fy_generic schema_validate_string(struct fy_generic_builder *gb,
 	}
 
 	v = fy_get(schema, "format");
-	if (fy_generic_is_string(v) && !schema_check_format(v, instance))
+	if (fy_is_string(v) && !schema_check_format(v, instance))
 		problems = schema_problem_add(gb, problems,
 			"%s: invalid format '%s'", path[0] ? path : "<root>",
 			fy_castp(&v, ""));
@@ -634,10 +634,10 @@ static fy_generic schema_validate_required(struct fy_generic_builder *gb,
 	fy_generic required, sub;
 
 	required = fy_get(schema, "required");
-	if (!fy_generic_is_sequence(required))
+	if (!fy_is_sequence(required))
 		return problems;
 	fy_foreach(sub, required) {
-		if (fy_generic_is_invalid(fy_get(instance, sub)))
+		if (fy_is_invalid(fy_get(instance, sub)))
 			problems = schema_problem_add(gb, problems,
 				"%s: missing required key '%s'",
 				path[0] ? path : "<root>", fy_castp(&sub, ""));
@@ -653,16 +653,16 @@ static fy_generic schema_validate_dependent_required(
 	fy_generic dependencies, dependency, key, sub;
 
 	dependencies = fy_get(schema, "dependentRequired");
-	if (!fy_generic_is_mapping(dependencies))
+	if (!fy_is_mapping(dependencies))
 		return problems;
 	fy_foreach(key, dependencies) {
-		if (fy_generic_is_invalid(fy_get(instance, key)))
+		if (fy_is_invalid(fy_get(instance, key)))
 			continue;
 		dependency = fy_get(dependencies, key);
-		if (!fy_generic_is_sequence(dependency))
+		if (!fy_is_sequence(dependency))
 			continue;
 		fy_foreach(sub, dependency) {
-			if (fy_generic_is_valid(fy_get(instance, sub)))
+			if (fy_is_valid(fy_get(instance, sub)))
 				continue;
 			problems = schema_problem_add(gb, problems,
 				"%s: key '%s' requires key '%s'",
@@ -682,10 +682,10 @@ static fy_generic schema_validate_dependent_schemas(
 	fy_generic dependencies, dependency, key;
 
 	dependencies = fy_get(schema, "dependentSchemas");
-	if (!fy_generic_is_mapping(dependencies))
+	if (!fy_is_mapping(dependencies))
 		return problems;
 	fy_foreach(key, dependencies) {
-		if (fy_generic_is_invalid(fy_get(instance, key)))
+		if (fy_is_invalid(fy_get(instance, key)))
 			continue;
 		dependency = fy_get(dependencies, key);
 		problems = schema_validate(gb, root, dependency, instance, path,
@@ -703,7 +703,7 @@ static fy_generic schema_validate_property_names(
 	fy_generic prop_names, key, rep;
 
 	prop_names = fy_get(schema, "propertyNames");
-	if (!fy_generic_is_mapping(prop_names) &&
+	if (!fy_is_mapping(prop_names) &&
 	    !fy_generic_is_bool(prop_names))
 		return problems;
 	fy_foreach(key, instance) {
@@ -729,14 +729,14 @@ static fy_generic schema_validate_object_property(
 	bool property_matched;
 	int rc;
 
-	prop_schema = fy_generic_is_mapping(properties) ?
+	prop_schema = fy_is_mapping(properties) ?
 		fy_get(properties, key) : fy_invalid;
-	property_matched = fy_generic_is_valid(prop_schema);
+	property_matched = fy_is_valid(prop_schema);
 	if (property_matched)
 		problems = schema_validate(gb, root, prop_schema, val, cpath,
 			problems, depth + 1);
 
-	if (fy_generic_is_mapping(pattern_props)) {
+	if (fy_is_mapping(pattern_props)) {
 		fy_foreach(pattern_key, pattern_props) {
 			rc = schema_regex_matches(fy_castp(&pattern_key, ""),
 				fy_castp(&key, ""));
@@ -758,7 +758,7 @@ static fy_generic schema_validate_object_property(
 
 	if (property_matched || !fy_generic_is_bool(addl)) {
 		if (!property_matched &&
-		    (fy_generic_is_mapping(addl) || fy_generic_is_bool(addl)))
+		    (fy_is_mapping(addl) || fy_generic_is_bool(addl)))
 			problems = schema_validate(gb, root, addl, val, cpath,
 				problems, depth + 1);
 		return problems;
@@ -840,7 +840,7 @@ static fy_generic schema_validate_array_prefix_items(
 	size_t i, limit, n;
 
 	prefix_items = fy_get(schema, "prefixItems");
-	if (!fy_generic_is_sequence(prefix_items))
+	if (!fy_is_sequence(prefix_items))
 		return problems;
 	n = fy_len(instance);
 	limit = fy_len(prefix_items);
@@ -871,10 +871,10 @@ static fy_generic schema_validate_array_items(struct fy_generic_builder *gb,
 	size_t i, n;
 
 	items = fy_get(schema, "items");
-	if (!fy_generic_is_mapping(items) && !fy_generic_is_bool(items))
+	if (!fy_is_mapping(items) && !fy_generic_is_bool(items))
 		return problems;
 	prefix_items = fy_get(schema, "prefixItems");
-	i = fy_generic_is_sequence(prefix_items) ? fy_len(prefix_items) : 0;
+	i = fy_is_sequence(prefix_items) ? fy_len(prefix_items) : 0;
 	n = fy_len(instance);
 	for (; i < n; i++) {
 		elem = fy_get_at(instance, i);
@@ -946,7 +946,7 @@ static fy_generic schema_validate_contains(struct fy_generic_builder *gb,
 	size_t i, n, limit, contains_count;
 
 	contains = fy_get(schema, "contains");
-	if (!fy_generic_is_mapping(contains) && !fy_generic_is_bool(contains))
+	if (!fy_is_mapping(contains) && !fy_generic_is_bool(contains))
 		return problems;
 	contains_count = 0;
 	n = fy_len(instance);
@@ -997,7 +997,7 @@ static fy_generic schema_validate_any_of(struct fy_generic_builder *gb,
 	int matches;
 
 	v = fy_get(schema, "anyOf");
-	if (!fy_generic_is_sequence(v))
+	if (!fy_is_sequence(v))
 		return problems;
 	matches = 0;
 	fy_foreach(sub, v) {
@@ -1023,7 +1023,7 @@ static fy_generic schema_validate_all_of(struct fy_generic_builder *gb,
 	int matches;
 
 	v = fy_get(schema, "allOf");
-	if (!fy_generic_is_sequence(v))
+	if (!fy_is_sequence(v))
 		return problems;
 	matches = 0;
 	fy_foreach(sub, v) {
@@ -1048,7 +1048,7 @@ static fy_generic schema_validate_one_of(struct fy_generic_builder *gb,
 	int matches;
 
 	v = fy_get(schema, "oneOf");
-	if (!fy_generic_is_sequence(v))
+	if (!fy_is_sequence(v))
 		return problems;
 	matches = 0;
 	fy_foreach(sub, v) {
@@ -1072,7 +1072,7 @@ static fy_generic schema_validate_not(struct fy_generic_builder *gb,
 	fy_generic v, rep;
 
 	v = fy_get(schema, "not");
-	if (!fy_generic_is_mapping(v) && !fy_generic_is_bool(v))
+	if (!fy_is_mapping(v) && !fy_generic_is_bool(v))
 		return problems;
 	rep = schema_validate(gb, root, v, instance, path, fy_seq_empty,
 		depth + 1);
@@ -1091,14 +1091,14 @@ static fy_generic schema_validate_conditional(struct fy_generic_builder *gb,
 	fy_generic condition, branch, rep;
 
 	condition = fy_get(schema, "if");
-	if (!fy_generic_is_mapping(condition) &&
+	if (!fy_is_mapping(condition) &&
 	    !fy_generic_is_bool(condition))
 		return problems;
 	rep = schema_validate(gb, root, condition, instance, path, fy_seq_empty,
 		depth + 1);
 	branch = schema_problem_any(rep) ? fy_get(schema, "else") :
 		fy_get(schema, "then");
-	if (fy_generic_is_mapping(branch) || fy_generic_is_bool(branch))
+	if (fy_is_mapping(branch) || fy_generic_is_bool(branch))
 		problems = schema_validate(gb, root, branch, instance, path, problems,
 			depth + 1);
 	return problems;
@@ -1134,7 +1134,7 @@ static fy_generic schema_validate(struct fy_generic_builder *gb,
 	fy_generic type, v, resolved;
 	const char *ref;
 
-	if (fy_generic_is_invalid(schema))
+	if (fy_is_invalid(schema))
 		return problems;
 	if (depth > 128)
 		return schema_problem_add(gb, problems,
@@ -1149,7 +1149,7 @@ static fy_generic schema_validate(struct fy_generic_builder *gb,
 	}
 
 	v = fy_get(schema, "$ref");
-	if (fy_generic_is_string(v)) {
+	if (fy_is_string(v)) {
 		ref = fy_castp(&v, "");
 		if (ref[0] != '#')
 			return schema_problem_add(gb, problems,
@@ -1160,7 +1160,7 @@ static fy_generic schema_validate(struct fy_generic_builder *gb,
 				"%s: anchor $ref is unsupported: '%s'",
 				path[0] ? path : "<root>", ref);
 		resolved = schema_resolve_pointer(root, ref);
-		if (fy_generic_is_invalid(resolved))
+		if (fy_is_invalid(resolved))
 			problems = schema_problem_add(gb, problems,
 				"%s: unresolved local $ref '%s'",
 				path[0] ? path : "<root>", fy_castp(&v, ""));
@@ -1170,20 +1170,20 @@ static fy_generic schema_validate(struct fy_generic_builder *gb,
 	}
 
 	type = fy_get(schema, "type");
-	if (fy_generic_is_valid(type) && !schema_check_type(type, instance))
+	if (fy_is_valid(type) && !schema_check_type(type, instance))
 		return schema_problem_add(gb, problems,
 			"%s: type mismatch", path[0] ? path : "<root>");
 
 	problems = schema_validate_const_enum(gb, schema, instance, path,
 		problems);
-	if (fy_generic_is_string(instance))
+	if (fy_is_string(instance))
 		problems = schema_validate_string(gb, schema, instance, path, problems);
 	if (schema_is_numeric(instance))
 		problems = schema_validate_numeric(gb, schema, instance, path, problems);
-	if (fy_generic_is_mapping(instance))
+	if (fy_is_mapping(instance))
 		problems = schema_validate_object(gb, root, schema, instance, path,
 			problems, depth);
-	if (fy_generic_is_sequence(instance))
+	if (fy_is_sequence(instance))
 		problems = schema_validate_array(gb, root, schema, instance, path,
 			problems, depth);
 	return schema_validate_combining(gb, root, schema, instance, path,
@@ -1207,7 +1207,7 @@ fy_generic fyai_schema_validate(struct fy_generic_builder *gb,
 			fy_sequence(gb,
 				"<schema>: unable to create validation builder"));
 
-	if (fy_generic_is_invalid(schema)) {
+	if (fy_is_invalid(schema)) {
 		report = fy_mapping(validation_gb, "result", "ok");
 		goto out;
 	}

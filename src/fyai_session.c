@@ -138,7 +138,7 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	prev_head = ctx->last_message;
 	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
 	input = fyai_responses_input(ctx, messages);
-	fyai_error_check(ctx, fy_generic_is_valid(input), out,
+	fyai_error_check(ctx, fy_is_valid(input), out,
 			 "compact: cannot build the Responses input");
 
 	request = fy_mapping(ctx->transient_gb,
@@ -148,9 +148,9 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 				   "relevant to: %s", cfg->system_prompt, hint) :
 			fy_value(cfg->system_prompt),
 		"input", input);
-	if (fy_generic_is_valid(ctx->tools) && fy_len(ctx->tools))
+	if (fy_is_valid(ctx->tools) && fy_len(ctx->tools))
 		request = fy_assoc(request, "tools", ctx->tools);
-	fyai_error_check(ctx, fy_generic_is_valid(request), out,
+	fyai_error_check(ctx, fy_is_valid(request), out,
 			 "compact: cannot build the Responses request");
 
 	url_len = strlen(cfg->api_url);
@@ -202,8 +202,8 @@ restore:
 		goto out;
 
 	response = fyai_report_diag(ctx, response);
-	fyai_error_check(ctx, fy_generic_is_valid(response) &&
-			 !fy_generic_is_null_type(response), out,
+	fyai_error_check(ctx, fy_is_valid(response) &&
+			 !fy_is_null(response), out,
 			 "compact: Responses compact request failed");
 	if (cfg->conversation_logging)
 		(void)fyai_log_generic(ctx, "conversation",
@@ -213,19 +213,19 @@ restore:
 				"body", response));
 
 	output = fy_get(response, "output");
-	fyai_error_check(ctx, fy_generic_is_sequence(output) && fy_len(output), out,
+	fyai_error_check(ctx, fy_is_sequence(output) && fy_len(output), out,
 			 "compact: Responses compact returned no output");
 
 	turn = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot build the system turn");
 	turn = fyai_turn_append(ctx, turn, output);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot build the compacted turn");
 
 	meta = fyai_turn_meta(turn);
-	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
+	if (fy_is_invalid(meta) || fy_is_null(meta))
 		meta = fy_map_empty;
 	meta = fy_assoc(meta, "compacted_from", prev_head);
 	/* Store the instructions needed to repeat the compaction. */
@@ -234,7 +234,7 @@ restore:
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
 	turn = fy_gb_internalize(ctx->gb, turn);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
 
 	ctx->last_message = turn;
@@ -274,7 +274,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 
 	prev_head = ctx->last_message;
 	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
-	fyai_error_check(ctx, fy_generic_is_valid(messages), out,
+	fyai_error_check(ctx, fy_is_valid(messages), out,
 			 "compact: cannot collect the Responses input");
 
 	instructions = hint && *hint ?
@@ -291,25 +291,25 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	}
 	compact_messages = fy_append(ctx->transient_gb, compact_messages,
 				     fy_mapping("type", "compaction_trigger"));
-	fyai_error_check(ctx, fy_generic_is_valid(compact_messages), out,
+	fyai_error_check(ctx, fy_is_valid(compact_messages), out,
 			 "compact: cannot build the Responses input trigger");
 
 	turn = fyai_turn_append(ctx, fy_invalid, compact_messages);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot build the Responses compaction turn");
 	ctx->compacting = true;
 	result = fyai_run_turn(ctx, turn);
 	ctx->compacting = false;
 	result = fyai_report_diag(ctx, result);
-	fyai_error_check(ctx, fy_generic_is_valid(result) &&
-			 !fy_generic_is_null_type(result), out,
+	fyai_error_check(ctx, fy_is_valid(result) &&
+			 !fy_is_null(result), out,
 			 "compact: Responses compaction request failed");
 
 	provider_stream = fy_get(result, "provider_stream");
 	provider = fyai_turn_provider(result);
 	provider_name = fy_castp(&provider, "");
 	output = fy_get(provider_stream, provider_name);
-	fyai_error_check(ctx, fy_generic_is_sequence(output) &&
+	fyai_error_check(ctx, fy_is_sequence(output) &&
 			 fy_len(output) == 1, out,
 			 "compact: Responses compaction returned invalid output");
 	item = fy_get_at(output, 0);
@@ -318,14 +318,14 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 
 	turn = fyai_turn_append(ctx, fy_invalid,
 		fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot build the system turn");
 	turn = fyai_turn_append(ctx, turn, output);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot build the compacted turn");
 
 	meta = fyai_turn_meta(turn);
-	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
+	if (fy_is_invalid(meta) || fy_is_null(meta))
 		meta = fy_map_empty;
 	meta = fy_assoc(meta, "compacted_from", prev_head);
 	if (hint && *hint)
@@ -333,7 +333,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMPACT, NULL);
 	turn = fy_assoc(turn, "metadata", meta);
 	turn = fy_gb_internalize(ctx->gb, turn);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), out,
+	fyai_error_check(ctx, fy_is_valid(turn), out,
 			 "compact: cannot store the compacted turn");
 
 	ctx->last_message = turn;
@@ -364,8 +364,8 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 		fyai_error(ctx, "compact: no API key or ChatGPT login is available");
 		return -1;
 	}
-	if (fy_generic_is_invalid(ctx->last_message) ||
-	    fy_generic_is_null_type(ctx->last_message)) {
+	if (fy_is_invalid(ctx->last_message) ||
+	    fy_is_null(ctx->last_message)) {
 		printf("compact: nothing to compact\n");
 		return 0;
 	}
@@ -383,11 +383,11 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	/* Bound the history but retain the real head in compacted_from. */
 	base = prev_head;
 	all = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
-	if (fy_generic_is_valid(all)) {
+	if (fy_is_valid(all)) {
 		source = session_compact_source(ctx, all);
 		if (fy_not_equal(source, all)) {
 			base = fyai_turn_append(ctx, fy_invalid, source);
-			if (fy_generic_is_invalid(base))
+			if (fy_is_invalid(base))
 				base = prev_head;
 		}
 	}
@@ -402,7 +402,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 				"history.%s%s",
 				hint && *hint ? " Focus on: " : "",
 				hint ? hint : ""))));
-	if (fy_generic_is_invalid(turn))
+	if (fy_is_invalid(turn))
 		return -1;
 
 	/* One-off summary call: no tools. */
@@ -418,7 +418,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	/* The loop carries why it failed on the result; without this a ^C here
 	 * reported the generic failure below instead of "interrupted". */
 	v = fyai_report_diag(ctx, v);
-	if (fy_generic_is_invalid(v) || fy_generic_is_null_type(v)) {
+	if (fy_is_invalid(v) || fy_is_null(v)) {
 		fyai_error(ctx, "compact: summary request failed");
 		return -1;
 	}
@@ -446,11 +446,11 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 			"role", "user",
 			"content", fy_stringf(
 				"Summary of prior conversation:\n\n%s", summary))));
-	if (fy_generic_is_invalid(turn))
+	if (fy_is_invalid(turn))
 		return -1;
 
 	meta = fyai_turn_meta(turn);
-	if (fy_generic_is_invalid(meta) || fy_generic_is_null_type(meta))
+	if (fy_is_invalid(meta) || fy_is_null(meta))
 		meta = fy_map_empty;
 	meta = fy_assoc(meta, "compacted_from", prev_head);
 	/* Store the instructions needed to repeat the compaction. */
@@ -460,7 +460,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	turn = fy_assoc(turn, "metadata", meta);
 
 	turn = fy_gb_internalize(ctx->gb, turn);
-	if (fy_generic_is_invalid(turn))
+	if (fy_is_invalid(turn))
 		return -1;
 	ctx->last_message = turn;
 	ctx->last_call_input = 0;
@@ -505,7 +505,7 @@ static void session_persist_model(struct fyai_ctx *ctx)
 		return;
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
 	pin = cfg->provider && *cfg->provider &&
-	      fy_generic_is_valid(fyai_catalog_provider(catalog,
+	      fy_is_valid(fyai_catalog_provider(catalog,
 							cfg->provider));
 	session_persist(ctx, "model", pin ?
 			fy_sprintfa("'%s/%s'", cfg->provider, cfg->model) :
@@ -651,7 +651,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
 	prov = fyai_catalog_provider(catalog,
 				     cfg->provider ? cfg->provider : "");
-	if (fy_generic_is_valid(prov))
+	if (fy_is_valid(prov))
 		tmp.model = fy_gb_intern_string(cfg->gb,
 				fy_sprintfa("%s/%s", cfg->provider,
 					    cfg->model));
@@ -769,7 +769,7 @@ static long long session_estimate_tokens_at(struct fyai_ctx *ctx,
 		nmsg += (long long)fy_len(msgs);
 		bytes += session_est_bytes(msgs);
 	}
-	if (fy_generic_is_valid(ctx->tools))
+	if (fy_is_valid(ctx->tools))
 		bytes += session_est_bytes(ctx->tools);
 	return bytes / 4 + nmsg * 4;
 }
@@ -849,7 +849,7 @@ static fy_generic session_compact_source(struct fyai_ctx *ctx,
 	}
 
 	out = fy_gb_internalize(gb, out);
-	return fy_generic_is_invalid(out) ? messages : out;
+	return fy_is_invalid(out) ? messages : out;
 }
 
 /* Return the latest measured input-token count, and where it came from. */
@@ -1008,13 +1008,13 @@ static fy_generic mapping_prefixed(struct fyai_ctx *ctx, fy_generic out,
 	char *name;
 	size_t i, n;
 
-	if (!fy_generic_is_mapping(add))
+	if (!fy_is_mapping(add))
 		return out;
 	n = fy_generic_mapping_get_pair_count(add);
 	for (i = 0; i < n; i++) {
 		key = fy_generic_mapping_get_at_key(add, i);
 		value = fy_generic_mapping_get_at_value(add, i);
-		if (fy_generic_is_mapping(value) || fy_generic_is_sequence(value))
+		if (fy_is_mapping(value) || fy_is_sequence(value))
 			continue;
 		if (asprintf(&name, "%s%s", prefix, fy_castp(&key, "")) < 0)
 			return out;
@@ -1898,7 +1898,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 			cfg->mcp_enabled ? "true" : "false",
 			cfg->mcp_protocol_version ? cfg->mcp_protocol_version : "-",
 			cfg->mcp_timeout);
-		if (fy_generic_is_mapping(cfg->mcp_servers) &&
+		if (fy_is_mapping(cfg->mcp_servers) &&
 		    fy_len(cfg->mcp_servers)) {
 			fy_foreach(key, cfg->mcp_servers) {
 				server_name = fy_cast(key, "");

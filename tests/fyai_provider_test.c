@@ -34,7 +34,7 @@ static fy_generic parse(const char *json)
 	fy_generic v;
 
 	v = parse_json_string(test_ctx.transient_gb, json);
-	if (fy_generic_is_invalid(v)) {
+	if (fy_is_invalid(v)) {
 		fprintf(stderr, "failed to parse fixture: %s\n", json);
 		exit(1);
 	}
@@ -191,7 +191,7 @@ static void test_extract_usage(void)
 
 	/* no usage at all -> invalid */
 	doc = parse("{\"id\": \"x\"}");
-	if (fy_generic_is_valid(fyai_extract_usage(&test_ctx, doc))) {
+	if (fy_is_valid(fyai_extract_usage(&test_ctx, doc))) {
 		fprintf(stderr, "usage from empty doc\n");
 		exit(1);
 	}
@@ -426,7 +426,7 @@ static void test_token_extents(void)
 		exit(1);
 	}
 	ext = fy_get(extents, 0, fy_invalid);
-	if (fy_generic_is_valid(fy_get(ext, "lp", fy_invalid))) {
+	if (fy_is_valid(fy_get(ext, "lp", fy_invalid))) {
 		fprintf(stderr, "chunk extents carry lp: %s\n", emit(extents));
 		exit(1);
 	}

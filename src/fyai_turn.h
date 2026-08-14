@@ -6,7 +6,7 @@
 
 #define fyai_turn_foreach(cur, head)					\
 	for ((cur) = (head);						\
-	     fy_generic_is_valid(cur) && !fy_generic_is_null_type(cur);	\
+	     fy_is_valid(cur) && !fy_is_null(cur);	\
 	     (cur) = fy_get(cur, "previous"))
 
 struct fyai_turn_stack {

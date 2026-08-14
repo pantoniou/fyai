@@ -34,7 +34,7 @@ static fy_generic mcp_import_redirect(fy_generic client)
 	const char *value;
 
 	redirects = fy_get(client, "redirect_uris", fy_invalid);
-	if (!fy_generic_is_sequence(redirects))
+	if (!fy_is_sequence(redirects))
 		return fy_invalid;
 	fy_foreach(item, redirects) {
 		value = fy_castp(&item, "");
@@ -155,12 +155,12 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, text, err_out,
 			 "could not read MCP OAuth client file");
 	doc = parse_json_string(gb, text);
-	fyai_error_check(ctx, fy_generic_is_mapping(doc), err_out,
+	fyai_error_check(ctx, fy_is_mapping(doc), err_out,
 			 "MCP OAuth client file is not valid JSON");
 	client = fy_get(doc, "installed", fy_invalid);
-	if (!fy_generic_is_mapping(client))
+	if (!fy_is_mapping(client))
 		client = fy_get(doc, "web", fy_invalid);
-	fyai_error_check(ctx, fy_generic_is_mapping(client), err_out,
+	fyai_error_check(ctx, fy_is_mapping(client), err_out,
 			 "MCP OAuth client file has no installed or web client");
 	client_id = fy_get(client, "client_id", "");
 	client_secret = fy_get(client, "client_secret", "");
@@ -172,7 +172,7 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	existing = fy_get_at_pathstr(gb, ctx->arena_config,
 		fy_sprintfa("/mcp/servers/%s", args->name));
 	fyai_error_check(ctx, args->force ||
-			 fy_generic_is_invalid(existing), err_out,
+			 fy_is_invalid(existing), err_out,
 			 "MCP server '%s' already exists; use --force",
 			 args->name);
 

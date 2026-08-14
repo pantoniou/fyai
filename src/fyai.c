@@ -147,7 +147,7 @@ static void fyai_print_cache_info(struct fyai_ctx *ctx, fy_generic doc)
 /* Add a normalized usage mapping to the running in-memory session totals. */
 static void fyai_accumulate_usage(struct fyai_ctx *ctx, fy_generic usage)
 {
-	if (fy_generic_is_invalid(usage))
+	if (fy_is_invalid(usage))
 		return;
 
 	ctx->usage_input += fy_get(usage, "input", 0LL);
@@ -299,7 +299,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 			tool_call_output_type = "shell_call_output";
 
 			max_output_length = fy_get_at_path(tool_call, "action", "max_output_length");
-			if (!fy_generic_is_valid(max_output_length))
+			if (!fy_is_valid(max_output_length))
 				max_output_length = fy_null;
 		} else {
 			tool_call_output_type = "function_call_output";
@@ -342,7 +342,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	out = fyai_turn_append(ctx, turn, fy_sequence(tool_message));
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	fyai_error_check(ctx, fy_generic_is_valid(out), err,
+	fyai_error_check(ctx, fy_is_valid(out), err,
 			 "could not append the tool result");
 	return out;
 err_resume:
@@ -395,7 +395,7 @@ fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,
 	gi.flags = FYGIF_VALUE | FYGIF_DIAG;
 	gi.value = value;
 	gi.diag = fy_gb_to_generic(gb, msg);
-	if (fy_generic_is_invalid(gi.diag))
+	if (fy_is_invalid(gi.diag))
 		return value;
 	v = fy_gb_indirect_create(gb, &gi);
 	/*
@@ -417,7 +417,7 @@ fy_generic fyai_report_diag(struct fyai_ctx *ctx, fy_generic v)
 	fy_generic diag;
 
 	diag = fy_generic_get_diag(v);
-	if (fy_generic_is_valid(diag) && !fy_generic_is_null_type(diag)) {
+	if (fy_is_valid(diag) && !fy_is_null(diag)) {
 		fyai_error(ctx, "%s", fy_castp(&diag, ""));
 		return fy_generic_indirect_get_value(v);
 	}
@@ -795,8 +795,8 @@ fyai_model_step_add_model_options(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
 
 	response_linked = cfg->api_mode == FYAI_API_RESPONSES &&
 		cfg->response_chain &&
-		fy_generic_is_valid(previous_response_id) &&
-		!fy_generic_is_null_type(previous_response_id);
+		fy_is_valid(previous_response_id) &&
+		!fy_is_null(previous_response_id);
 	if (response_linked)
 		request = fy_assoc(gb, request, "previous_response_id",
 				   previous_response_id);
@@ -974,7 +974,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 
 	v = fyai_model_step_request_base(cfg, ctx, messages, instructions);
 
-	fyai_error_check(ctx, fy_generic_is_valid(v), out,
+	fyai_error_check(ctx, fy_is_valid(v), out,
 			 "could not build the model request");
 	request = v;
 
@@ -1001,7 +1001,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		request = fy_assoc(ctx->transient_gb, request, "top_logprobs",
 				   cfg->top_logprobs);
 	request = fyai_model_step_add_stream_options(ctx, cfg, request);
-	fyai_error_check(ctx, fy_generic_is_valid(request), out,
+	fyai_error_check(ctx, fy_is_valid(request), out,
 			 "could not finish the model request");
 
 	if (cfg->debug)
@@ -1018,8 +1018,8 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 
 	response_linked = cfg->api_mode == FYAI_API_RESPONSES &&
 		cfg->response_chain &&
-		fy_generic_is_valid(previous_response_id) &&
-		!fy_generic_is_null_type(previous_response_id);
+		fy_is_valid(previous_response_id) &&
+		!fy_is_null(previous_response_id);
 	rc = fyai_model_step_submit_request(step, request, response_linked,
 					    want_extents_lp, &t_emit);
 	fyai_error_check(ctx, !rc, out, "could not submit the model request");
@@ -1085,17 +1085,17 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 	fyai_spinner_erase(&step->spinner);
 	curl_easy_setopt(ctx->curl, CURLOPT_NOPROGRESS, 1L);
 
-	if (fy_generic_is_valid(response_doc))
+	if (fy_is_valid(response_doc))
 		fyai_accumulate_usage(ctx,
 				      fyai_extract_usage(ctx, response_doc));
 
-	if (cfg->debug && fy_generic_is_valid(response_doc))
+	if (cfg->debug && fy_is_valid(response_doc))
 		emit_generic_to_stdout("response", response_doc, cfg->pretty);
 	if (cfg->debug && cfg->cache_info &&
-	    fy_generic_is_valid(response_doc))
+	    fy_is_valid(response_doc))
 		fyai_print_cache_info(ctx, response_doc);
 
-	if (fy_generic_is_invalid(response_doc)) {
+	if (fy_is_invalid(response_doc)) {
 		if (step->cancel_requested) {
 			fyai_model_step_finish(step, FYAIMSS_CANCELLED,
 					       response_doc);
@@ -1112,8 +1112,8 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 
 		diag = fy_generic_get_diag(response_doc);
 		if (step->want_extents_lp && !cfg->logprobs &&
-		    (fy_generic_is_invalid(diag) ||
-		     fy_generic_is_null_type(diag))) {
+		    (fy_is_invalid(diag) ||
+		     fy_is_null(diag))) {
 			status = 0;
 			curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE,
 					  &status);
@@ -1137,7 +1137,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 				"api", fyai_api_to_string(cfg->api_mode),
 				"body", response_doc));
 	}
-	if (fy_generic_is_invalid(response_doc)) {
+	if (fy_is_invalid(response_doc)) {
 		fyai_error(ctx, "could not retain the provider response");
 		fyai_model_step_finish(step, FYAIMSS_FAILED, fy_invalid);
 		return;
@@ -1384,11 +1384,11 @@ fyai_turn_run_finish(struct fyai_turn_run *run, fy_generic result,
 	if (finalize) {
 		result = fyai_output_finalize(ctx, result, false);
 		result = fy_gb_internalize(ctx->gb, result);
-		if (fy_generic_is_invalid(result))
+		if (fy_is_invalid(result))
 			fyai_error(ctx, "could not retain the completed turn");
 	}
 	run->result = result;
-	if (fy_generic_is_invalid(result)) {
+	if (fy_is_invalid(result)) {
 		fyai_output_abort(ctx);
 		(void)fyai_turn_run_transition(run, FYAITRS_FAILED);
 	} else {
@@ -1406,8 +1406,8 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 
 	ctx = run->ctx;
 	diag = fy_generic_get_diag(response);
-	msg = fy_generic_is_valid(diag) &&
-	      !fy_generic_is_null_type(diag) ?
+	msg = fy_is_valid(diag) &&
+	      !fy_is_null(diag) ?
 		fy_castp(&diag, "request failed") : "request failed";
 	if (run->turn.v != run->turn_in.v) {
 		result = fyai_output_finalize(ctx, run->turn, true);
@@ -1419,7 +1419,7 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	}
 	run->result = result;
 	(void)fyai_turn_run_transition(run,
-		fy_generic_is_invalid(result) ?
+		fy_is_invalid(result) ?
 			FYAITRS_FAILED : FYAITRS_DONE);
 }
 
@@ -1532,12 +1532,12 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 				 "could not collect tool job result");
 		run->turn = fyai_finish_tool_call(ctx, run->turn, tool_call,
 						 result, ok, false);
-		fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not append tool job result");
 	}
 	fyai_turn_run_drop_tool_group(run);
 	run->turn = fy_gb_internalize(ctx->transient_gb, run->turn);
-	fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+	fyai_error_check(ctx, fy_is_valid(run->turn), err,
 			 "could not append the tool calls");
 	if (ctx->ask_abort) {
 		fyai_turn_run_finish(run, fy_null, true);
@@ -1590,12 +1590,12 @@ fyai_turn_run_append_response(struct fyai_turn_run *run, fy_generic response)
 		fyai_tool_progress_emit(ctx, text, strlen(text));
 	}
 	run->turn = fyai_append_assistant_response(ctx, run->turn, response);
-	fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+	fyai_error_check(ctx, fy_is_valid(run->turn), err,
 			 "could not append assistant response");
 	if (cfg->response_chain) {
 		run->turn = fyai_turn_set_response_id(ctx, run->turn,
 						     response_id);
-		fyai_error_check(ctx, fy_generic_is_valid(run->turn), err,
+		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not retain response id");
 	}
 	return 0;
@@ -1687,7 +1687,7 @@ static int fyai_turn_run_process_model(struct fyai_turn_run *run)
 	ctx = run->ctx;
 	cfg = ctx->cfg;
 	response = fyai_turn_run_take_model_response(run);
-	if (fy_generic_is_invalid(response)) {
+	if (fy_is_invalid(response)) {
 		fyai_turn_run_drop_tool_group(run);
 		fyai_turn_run_request_failed(run, response);
 		return 0;
@@ -2055,9 +2055,9 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 		}
 	}
 
-	if (fy_generic_is_valid(ctx->tools)) {
+	if (fy_is_valid(ctx->tools)) {
 		ctx->tools = fy_gb_internalize(ctx->gb, ctx->tools);
-		fyai_error_check(ctx, fy_generic_is_valid(ctx->tools), err,
+		fyai_error_check(ctx, fy_is_valid(ctx->tools), err,
 				 "could not retain the tool definitions");
 	}
 
@@ -2132,7 +2132,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	 * the copy they were started with). Only for a fresh conversation -
 	 * an existing chain already carries its own system turn.
 	 */
-	if (fy_generic_is_invalid(ctx->last_message)) {
+	if (fy_is_invalid(ctx->last_message)) {
 		if (cfg->parallel_tool_calls &&
 		    cfg->parallel_tool_calls_prompt &&
 		    *cfg->parallel_tool_calls_prompt) {
@@ -2164,7 +2164,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	 * additionally surfaced as the request `instructions` field (and dropped
 	 * from `input` to avoid duplication) by fyai_responses_input().
 	 */
-	if (fy_generic_is_invalid(ctx->last_message)) {
+	if (fy_is_invalid(ctx->last_message)) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_system_message(ctx, cfg->system_prompt)));
 		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
@@ -2180,7 +2180,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 
 	/* intern all to durable */
 	ctx->last_message = fy_gb_internalize(ctx->gb, ctx->last_message);
-	fyai_error_check(ctx, fy_generic_is_valid(ctx->last_message), err,
+	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not retain the initial turn");
 
 	(void)fyai_cleanup_transient_builder(ctx);
@@ -2215,7 +2215,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	/* not interactive? single run */
 	v = fyai_run_turn(ctx, ctx->last_message);
 	v = fyai_report_diag(ctx, v);
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		goto err_out;
 	ctx->last_message = v;
 
@@ -2259,7 +2259,7 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	fyai_ui_set_busy(ctx, false);
 	result = fyai_report_diag(ctx, result);
 	rc = 0;
-	if (fy_generic_is_valid(result)) {
+	if (fy_is_valid(result)) {
 		ctx->last_message = result;
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, out,
@@ -2348,7 +2348,7 @@ fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient turn storage");
 	turn = fyai_interactive_append_user_turn(ctx, line);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), err_cleanup,
+	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
 			 "could not append the user turn");
 	*runp = fyai_turn_run_submit(ctx, turn);
 	fyai_error_check(ctx, *runp, err_cleanup,
@@ -2426,7 +2426,7 @@ static int fyai_interactive_finish_run(struct fyai_ctx *ctx,
 		return rc;
 	if (*initial) {
 		*initial = false;
-		if (fy_generic_is_invalid(ctx->last_message))
+		if (fy_is_invalid(ctx->last_message))
 			*done = true;
 	}
 	return 0;
@@ -2654,7 +2654,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	if (cfg->prompt && *cfg->prompt) {
 		v = fyai_run_turn(ctx, ctx->last_message);
 		v = fyai_report_diag(ctx, v);
-		if (fy_generic_is_invalid(v))
+		if (fy_is_invalid(v))
 			goto err_out;
 		ctx->last_message = v;
 		rc = fyai_publish_state(ctx);
@@ -2723,7 +2723,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		v = fyai_interactive_append_user_turn(ctx, line);
 		free(line);
 		line = NULL;
-		if (fy_generic_is_invalid(v)) {
+		if (fy_is_invalid(v)) {
 			fyai_error(ctx, "could not append the user turn");
 			fyai_ui_diag_drain(ctx, "error");
 			fyai_cleanup_transient_builder(ctx);
@@ -2736,7 +2736,7 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		/* A failed/interrupted run may carry a diagnostic; print it and
 		 * unwrap to the (possibly partial) turn. */
 		v = fyai_report_diag(ctx, v);
-		if (fy_generic_is_invalid(v)) {
+		if (fy_is_invalid(v)) {
 			/* nothing completed: keep the prior state, stay in the
 			 * loop so the user can retry or exit */
 			fyai_ui_diag_drain(ctx, "error");

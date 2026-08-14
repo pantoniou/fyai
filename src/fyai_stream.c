@@ -607,7 +607,7 @@ static int stream_ensure_tool_call(struct stream_response *stream, size_t index)
 				"name_chunks", fy_seq_empty,
 				"argument_chunks", fy_seq_empty));
 		stream->tool_calls = fy_append(gb, stream->tool_calls, tool_call);
-		if (fy_generic_is_invalid(stream->tool_calls))
+		if (fy_is_invalid(stream->tool_calls))
 			return -1;
 	}
 
@@ -663,7 +663,7 @@ static int stream_apply_tool_call_delta(struct stream_response *stream,
 
 	stream->tool_calls = fy_replace(gb, stream->tool_calls,
 					(size_t)index, tool_call);
-	return fy_generic_is_invalid(stream->tool_calls) ? -1 : 0;
+	return fy_is_invalid(stream->tool_calls) ? -1 : 0;
 }
 
 static int stream_emit_tool(struct stream_response *stream, size_t index,
@@ -690,17 +690,17 @@ static int stream_emit_tool(struct stream_response *stream, size_t index,
 		slot = fy_assoc(stream->gb, slot, "_emitted", true);
 		stream->tool_calls = fy_replace(stream->gb, stream->tool_calls,
 						index, slot);
-		if (fy_generic_is_invalid(stream->tool_calls))
+		if (fy_is_invalid(stream->tool_calls))
 			return -1;
 	}
 	gb = stream->gb;
 	tool_call = fy_gb_internalize(gb, tool_call);
-	if (fy_generic_is_invalid(tool_call))
+	if (fy_is_invalid(tool_call))
 		return -1;
 	if (*key)
 		stream->emitted_tools = fy_append(gb, stream->emitted_tools,
 						  key);
-	if (fy_generic_is_invalid(stream->emitted_tools))
+	if (fy_is_invalid(stream->emitted_tools))
 		return -1;
 	stream->callbacks.tool(stream, tool_call, index,
 			       stream->callbacks.userdata);
@@ -771,7 +771,7 @@ static int chat_stream_apply_chunk(struct stream_response *stream,
 	const char *text;
 
 	usage = fy_get(chunk, "usage");
-	if (!fy_generic_is_invalid(usage))
+	if (!fy_is_invalid(usage))
 		stream->usage = usage;
 
 	stream->metadata = fy_assoc(gb, stream->metadata,
@@ -782,20 +782,20 @@ static int chat_stream_apply_chunk(struct stream_response *stream,
 		"system_fingerprint", fy_get(chunk, "system_fingerprint", ""));
 
 	choice = fy_get_at_path(chunk, "choices", 0);
-	if (fy_generic_is_invalid(choice))
+	if (fy_is_invalid(choice))
 		return 0;
 
 	logprobs = fy_get(choice, "logprobs");
-	if (!fy_generic_is_invalid(logprobs) &&
-	    !fy_generic_is_null_type(logprobs)) {
+	if (!fy_is_invalid(logprobs) &&
+	    !fy_is_null(logprobs)) {
 		fy_generic content, refusal;
 
 		content = fy_get(logprobs, "content");
-		if (!fy_generic_is_invalid(content)) {
+		if (!fy_is_invalid(content)) {
 			stream->logprob_content = fy_concat(gb,
 					stream->logprob_content, content);
 			if (cfg->token_extents &&
-			    fy_generic_is_valid(stream->token_extents)) {
+			    fy_is_valid(stream->token_extents)) {
 				stream->token_extents =
 					fyai_token_extents_append(gb,
 						stream->token_extents, content,
@@ -804,7 +804,7 @@ static int chat_stream_apply_chunk(struct stream_response *stream,
 			}
 		}
 		refusal = fy_get(logprobs, "refusal");
-		if (!fy_generic_is_invalid(refusal))
+		if (!fy_is_invalid(refusal))
 			stream->logprob_refusal = refusal;
 	}
 
@@ -829,7 +829,7 @@ static int chat_stream_apply_chunk(struct stream_response *stream,
 		stream_finish_reasoning(stream);
 		stream->content_chunks = fy_append(gb,
 					stream->content_chunks, text);
-		if (fy_generic_is_invalid(stream->content_chunks))
+		if (fy_is_invalid(stream->content_chunks))
 			return -1;
 		stream_write_content(stream, text);
 	}
@@ -857,11 +857,11 @@ static void responses_collect_extents(struct stream_response *stream,
 	struct fy_generic_builder *gb = stream->gb;
 	fy_generic entries;
 
-	if (fy_generic_is_invalid(stream->token_extents))
+	if (fy_is_invalid(stream->token_extents))
 		return;
 
 	entries = fy_get(event, "logprobs");
-	if (fy_generic_is_valid(entries) && fy_len(entries)) {
+	if (fy_is_valid(entries) && fy_len(entries)) {
 		stream->token_extents = fyai_token_extents_append(gb,
 				stream->token_extents, entries,
 				&stream->extents_pos);
@@ -897,21 +897,21 @@ static void stream_report_failure(struct stream_response *stream,
 	const char *what;
 
 	msg = fy_get(event, "message", fy_invalid);
-	if (fy_generic_is_invalid(msg)) {
+	if (fy_is_invalid(msg)) {
 		err = fy_get(event, "error", fy_invalid);
 		msg = fy_get(err, "message", fy_invalid);
 	}
-	if (fy_generic_is_invalid(msg)) {
+	if (fy_is_invalid(msg)) {
 		resp = fy_get(event, "response", fy_invalid);
 		err = fy_get(resp, "error", fy_invalid);
 		msg = fy_get(err, "message", fy_invalid);
-		if (fy_generic_is_invalid(msg))
+		if (fy_is_invalid(msg))
 			msg = fy_get(fy_get(resp, "incomplete_details",
 					    fy_invalid), "reason", fy_invalid);
 	}
 
 	what = fy_castp(&type, "error");
-	if (fy_generic_is_valid(msg) && !fy_generic_is_null_type(msg))
+	if (fy_is_valid(msg) && !fy_is_null(msg))
 		fyai_error(ctx, "%s: %s", what, fy_castp(&msg, ""));
 	else
 		fyai_error(ctx, "provider sent %s and no reason", what);
@@ -943,7 +943,7 @@ static int responses_stream_apply_event(struct stream_response *stream,
 				responses_collect_extents(stream, event, delta);
 			stream->content_chunks = fy_append(gb,
 						stream->content_chunks, delta);
-			if (fy_generic_is_invalid(stream->content_chunks))
+			if (fy_is_invalid(stream->content_chunks))
 				return -1;
 			stream_write_content(stream, delta);
 		}
@@ -958,12 +958,12 @@ static int responses_stream_apply_event(struct stream_response *stream,
 		while (fy_len(stream->response_items) <= (size_t)index) {
 			stream->response_items = fy_append(gb,
 						stream->response_items, fy_null);
-			if (fy_generic_is_invalid(stream->response_items))
+			if (fy_is_invalid(stream->response_items))
 				return -1;
 		}
 		stream->response_items = fy_replace(gb, stream->response_items,
 						    (size_t)index, item);
-		if (fy_generic_is_invalid(stream->response_items))
+		if (fy_is_invalid(stream->response_items))
 			return -1;
 		type = fy_get(item, "type");
 		if (fy_not_equal(type, "function_call") &&
@@ -976,7 +976,7 @@ static int responses_stream_apply_event(struct stream_response *stream,
 		stream->completed_response = fy_get(event, "response");
 		stream->done = true;
 		stream_finish_content(stream);
-		return fy_generic_is_invalid(stream->completed_response) ? -1 : 0;
+		return fy_is_invalid(stream->completed_response) ? -1 : 0;
 	}
 
 	/*
@@ -1021,7 +1021,7 @@ static int messages_stream_apply_event(struct stream_response *stream,
 			"id", fy_get(message, "id", ""),
 			"model", fy_get(message, "model", ""));
 		usage = fy_get(message, "usage");
-		if (fy_generic_is_valid(usage))
+		if (fy_is_valid(usage))
 			stream->usage = usage;
 		return 0;
 	}
@@ -1039,7 +1039,7 @@ static int messages_stream_apply_event(struct stream_response *stream,
 			"name", fy_get(block, "name", ""));
 		stream->tool_calls = fy_replace(gb, stream->tool_calls,
 						(size_t)index, tool_call);
-		return fy_generic_is_invalid(stream->tool_calls) ? -1 : 0;
+		return fy_is_invalid(stream->tool_calls) ? -1 : 0;
 	}
 
 	if (fy_equal(type, "content_block_delta")) {
@@ -1052,7 +1052,7 @@ static int messages_stream_apply_event(struct stream_response *stream,
 				stream_finish_reasoning(stream);
 				stream->content_chunks = fy_append(gb,
 						stream->content_chunks, text);
-				if (fy_generic_is_invalid(stream->content_chunks))
+				if (fy_is_invalid(stream->content_chunks))
 					return -1;
 				stream_write_content(stream, text);
 			}
@@ -1084,7 +1084,7 @@ static int messages_stream_apply_event(struct stream_response *stream,
 					     "function", function);
 			stream->tool_calls = fy_replace(gb, stream->tool_calls,
 							(size_t)index, tool_call);
-			return fy_generic_is_invalid(stream->tool_calls) ? -1 : 0;
+			return fy_is_invalid(stream->tool_calls) ? -1 : 0;
 		}
 
 		return 0;
@@ -1106,9 +1106,9 @@ static int messages_stream_apply_event(struct stream_response *stream,
 		if (*text)
 			stream->finish_reason = fy_value(gb, text);
 		usage = fy_get(event, "usage");
-		if (fy_generic_is_valid(usage))
+		if (fy_is_valid(usage))
 			stream->usage = fy_assoc(gb,
-				fy_generic_is_valid(stream->usage) ?
+				fy_is_valid(stream->usage) ?
 					stream->usage : fy_map_empty,
 				"output_tokens",
 				fy_get(usage, "output_tokens", 0LL));
@@ -1148,7 +1148,7 @@ static int stream_handle_data(struct stream_response *stream,
 	}
 
 	chunk = parse_response(stream->gb, data);
-	if (fy_generic_is_invalid(chunk))
+	if (fy_is_invalid(chunk))
 		return -1;
 
 	if (cfg->debug > 1)
@@ -1271,7 +1271,7 @@ static fy_generic stream_build_tool_calls(struct stream_response *stream)
 	}
 
 	tool_calls = fy_gb_internalize(gb, tool_calls);
-	if (fy_generic_is_invalid(tool_calls))
+	if (fy_is_invalid(tool_calls))
 		fyai_error(stream->ctx, "could not build the streamed tool calls");
 	return tool_calls;
 }
@@ -1301,10 +1301,10 @@ static fy_generic stream_build_response_doc(struct stream_response *stream)
 		"logprobs", cfg->logprobs ?
 			fy_mapping(
 				"content", stream->logprob_content,
-				"refusal", fy_generic_is_valid(stream->logprob_refusal) ?
+				"refusal", fy_is_valid(stream->logprob_refusal) ?
 					stream->logprob_refusal : fy_null) :
 			fy_null,
-		"finish_reason", fy_generic_is_valid(stream->finish_reason) ?
+		"finish_reason", fy_is_valid(stream->finish_reason) ?
 			stream->finish_reason : fy_string("stop"));
 
 	doc = fy_mapping(
@@ -1313,19 +1313,19 @@ static fy_generic stream_build_response_doc(struct stream_response *stream)
 		"created", fy_get(stream->metadata, "created", 0LL),
 		"model", fy_get(stream->metadata, "model", ""),
 		"choices", fy_sequence(choice));
-	if (!fy_generic_is_invalid(stream->usage))
+	if (!fy_is_invalid(stream->usage))
 		doc = fy_assoc(doc, "usage", stream->usage);
 	doc = fy_assoc(doc,
 		"service_tier", fy_get(stream->metadata, "service_tier", ""),
 		"system_fingerprint", fy_get(stream->metadata,
 					     "system_fingerprint", ""));
 
-	if (fy_generic_is_invalid(doc)) {
+	if (fy_is_invalid(doc)) {
 		fyai_error(ctx, "could not build the streamed response");
 		return fy_invalid;
 	}
 	doc = fy_gb_internalize(gb, doc);
-	if (fy_generic_is_invalid(doc))
+	if (fy_is_invalid(doc))
 		fyai_error(ctx, "could not retain the streamed response");
 	return doc;
 }
@@ -1358,7 +1358,7 @@ static fy_generic messages_build_response_doc(struct stream_response *stream)
 		arguments = fyai_join_strings(gb,
 				fy_get(function, "argument_chunks", fy_seq_empty));
 		input = parse_json_string(gb, fy_cast(arguments, "{}"));
-		if (fy_generic_is_invalid(input))
+		if (fy_is_invalid(input))
 			input = fy_map_empty;
 		content = fy_append(gb, content, fy_mapping(
 				"type", "tool_use",
@@ -1373,17 +1373,17 @@ static fy_generic messages_build_response_doc(struct stream_response *stream)
 		"role", "assistant",
 		"model", fy_get(stream->metadata, "model", ""),
 		"content", content,
-		"stop_reason", fy_generic_is_valid(stream->finish_reason) ?
+		"stop_reason", fy_is_valid(stream->finish_reason) ?
 			stream->finish_reason : fy_string("end_turn"));
-	if (!fy_generic_is_invalid(stream->usage))
+	if (!fy_is_invalid(stream->usage))
 		doc = fy_assoc(doc, "usage", stream->usage);
 
-	if (fy_generic_is_invalid(doc)) {
+	if (fy_is_invalid(doc)) {
 		fyai_error(stream->ctx, "could not build the streamed message");
 		return fy_invalid;
 	}
 	doc = fy_gb_internalize(gb, doc);
-	if (fy_generic_is_invalid(doc))
+	if (fy_is_invalid(doc))
 		fyai_error(stream->ctx, "could not retain the streamed message");
 	return doc;
 }
@@ -1400,13 +1400,13 @@ static fy_generic responses_complete_response(struct stream_response *stream)
 
 	response = stream->completed_response;
 	output = fy_get(response, "output", fy_invalid);
-	if (fy_generic_is_valid(output) && !fy_generic_is_null_type(output) &&
+	if (fy_is_valid(output) && !fy_is_null(output) &&
 	    fy_len(output))
 		return response;
 
 	output = fy_seq_empty;
 	fy_foreach(item, stream->response_items) {
-		if (!fy_generic_is_null_type(item))
+		if (!fy_is_null(item))
 			output = fy_append(gb, output, item);
 	}
 	if (!fy_len(output) && fy_len(stream->content_chunks)) {
@@ -1420,7 +1420,7 @@ static fy_generic responses_complete_response(struct stream_response *stream)
 					"text", text)));
 		output = fy_append(gb, output, item);
 	}
-	if (fy_generic_is_invalid(output))
+	if (fy_is_invalid(output))
 		return fy_invalid;
 	return fy_assoc(gb, response, "output", output);
 }
@@ -1478,7 +1478,7 @@ static void stream_store_token_extents(struct stream_response *stream,
 		break;
 	}
 
-	if (fy_generic_is_invalid(extents) || !fy_len(extents))
+	if (fy_is_invalid(extents) || !fy_len(extents))
 		return;
 
 	ctx->last_token_extents = fy_gb_internalize(ctx->transient_gb, extents);
@@ -1643,9 +1643,9 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 		break;
 	}
 
-	if (fy_generic_is_valid(ret))
+	if (fy_is_valid(ret))
 		stream_store_token_extents(stream, ret);
-	if (fy_generic_is_valid(ret) && stream->callbacks.tool) {
+	if (fy_is_valid(ret) && stream->callbacks.tool) {
 		tool_calls = fyai_response_tool_calls(ctx, ret);
 		tool_index = 0;
 		fy_foreach(tool_call, tool_calls) {
@@ -1656,13 +1656,13 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 			}
 		}
 	}
-	if (fy_generic_is_valid(ret))
+	if (fy_is_valid(ret))
 		stream_state_transition(stream, FYAISS_COMPLETED);
 	else
 		stream_state_transition(stream, FYAISS_FAILED);
 
 done:
-	if (fy_generic_is_valid(ret))
+	if (fy_is_valid(ret))
 		ret = fy_gb_internalize(ctx->transient_gb, ret);
 	stream->result = ret;
 	stream_request_notify(stream);

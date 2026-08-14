@@ -187,7 +187,7 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 			  "func", func ? func : "");
 	free(msg);
 
-	if (fy_generic_is_invalid(item))
+	if (fy_is_invalid(item))
 		return;
 
 	/*
@@ -202,7 +202,7 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	old.v = fy_atomic_load(&diag->list);
 	do {
 		new = fy_append(diag->gb, old, item);
-		if (fy_generic_is_invalid(new))
+		if (fy_is_invalid(new))
 			return;
 	} while (!fy_atomic_compare_exchange_weak(&diag->list, &old.v, new.v));
 }
@@ -220,7 +220,7 @@ void fyai_diag_drain(struct fyai_diag *diag)
 
 	fy_foreach(item, list) {
 		msg = fy_get(item, "msg", fy_invalid);
-		if (fy_generic_is_invalid(msg))
+		if (fy_is_invalid(msg))
 			continue;
 		/* Held in locals so fy_castp() has stable storage to point
 		 * into: a short string lives inline in the generic word. */

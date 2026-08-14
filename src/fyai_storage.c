@@ -81,7 +81,7 @@ static fy_generic fyai_root_entry(fy_generic root, const char *key)
 	fy_generic v;
 
 	v = fy_get(root, key);
-	if (fy_generic_is_valid(v) && fy_generic_is_null_type(v))
+	if (fy_is_valid(v) && fy_is_null(v))
 		v = fy_invalid;
 	return v;
 }
@@ -97,10 +97,10 @@ int fyai_root_decode(fy_generic root, struct fyai_root *r)
 	r->head = fy_invalid;
 	r->created = fy_invalid;
 
-	if (!fy_generic_is_mapping(root))
+	if (!fy_is_mapping(root))
 		return -1;
 	v = fy_get(root, "fyai");
-	if (fy_generic_is_invalid(v) ||
+	if (fy_is_invalid(v) ||
 	    fy_cast(v, 0LL) != (long long)FYAI_ROOT_VERSION)
 		return -1;
 	r->catalog = fyai_root_entry(root, "catalog");
@@ -158,7 +158,7 @@ static bool generic_same(fy_generic a, fy_generic b)
  */
 static bool root_ref_contained(struct fy_allocator *a, fy_generic v)
 {
-	if (fy_generic_is_invalid(v) || !fy_generic_is_mapping(v))
+	if (fy_is_invalid(v) || !fy_is_mapping(v))
 		return true;	/* null / inplace: no out-of-place pointer */
 	return fy_allocator_contains(a, -1, fy_generic_resolve_collection_ptr(v));
 }
@@ -170,10 +170,10 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 	struct fyai_branch b;
 	unsigned int n;
 
-	if (fy_generic_is_invalid(entry))
+	if (fy_is_invalid(entry))
 		return false;
 	for (n = 0; n < depth; n++) {
-		if (fy_generic_is_invalid(entry))
+		if (fy_is_invalid(entry))
 			return true;
 		if (!root_ref_contained(a, entry))
 			return false;
@@ -196,7 +196,7 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 static bool root_shape_ok(struct fy_allocator *a, fy_generic root,
 			  struct fyai_root *r)
 {
-	if (!fy_generic_is_mapping(root))
+	if (!fy_is_mapping(root))
 		return false;
 	if (a && !fy_allocator_contains(a, -1,
 					fy_generic_resolve_collection_ptr(root)))
@@ -218,7 +218,7 @@ bool fyai_root_validate(struct fy_allocator *a, fy_generic root)
 	if (!root_shape_ok(a, root, &r))
 		return false;
 	/* Ref-log walkers validate each predecessor before following it. */
-	if (a && fy_generic_is_mapping(r.branches)) {
+	if (a && fy_is_mapping(r.branches)) {
 		count = fy_generic_mapping_get_pair_count(r.branches);
 		for (i = 0; i < count; i++) {
 			if (!fyai_branch_entry_contained(a,
@@ -236,7 +236,7 @@ bool fyai_root_validate(struct fy_allocator *a, fy_generic root)
  */
 fy_generic fyai_root_prev(fy_generic root)
 {
-	if (!fy_generic_is_mapping(root))
+	if (!fy_is_mapping(root))
 		return fy_invalid;
 	return fyai_root_entry(root, "prev");
 }
@@ -266,7 +266,7 @@ fy_generic fyai_root_find(struct fy_allocator *a, fy_generic_value from,
 		if ((uint64_t)node.v == want)
 			return fyai_root_validate(a, node) ? node : fy_invalid;
 		node = fyai_root_prev(node);
-		if (fy_generic_is_invalid(node))
+		if (fy_is_invalid(node))
 			return fy_invalid;
 	}
 	return fy_invalid;
@@ -315,13 +315,13 @@ static fy_generic_value root_for_branch_entry(struct fy_allocator *a,
 			break;
 		fyai_branch_lookup(r.branches, name, &b);
 		have = by_head ? b.head : b.entry;
-		if (fy_generic_is_valid(have) && have.v == want.v) {
+		if (fy_is_valid(have) && have.v == want.v) {
 			match = (uint64_t)node.v;
 		} else if (match) {
 			break;	/* the run ended: keep its oldest root */
 		}
 		node = fyai_root_prev(node);
-		if (fy_generic_is_invalid(node))
+		if (fy_is_invalid(node))
 			break;
 	}
 	return match;
@@ -355,7 +355,7 @@ int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
 	     !fyai_branch_lookup(r.branches, name, &b)) &&
 	    root_spec_is_handle(spec, &v)) {
 		root = fyai_root_find(a, from, v);
-		if (fy_generic_is_invalid(root))
+		if (fy_is_invalid(root))
 			return -1;
 		*outp = v;
 		return 0;
@@ -376,12 +376,12 @@ int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
 	} else if (kind == '~') {
 		cur = b.head;
 		for (i = 0; i < count; i++) {
-			if (fy_generic_is_invalid(cur) ||
-			    fy_generic_is_null_type(cur))
+			if (fy_is_invalid(cur) ||
+			    fy_is_null(cur))
 				return -1;
 			cur = fy_get(cur, "previous");
 		}
-		if (fy_generic_is_invalid(cur) || fy_generic_is_null_type(cur))
+		if (fy_is_invalid(cur) || fy_is_null(cur))
 			return -1;
 		*outp = root_for_branch_entry(a, from, name, cur, true);
 	} else {
@@ -623,7 +623,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		/* Confirm that the arena still contains the pinned root. */
 		root = fyai_root_find(ctx->durable_allocator, ctx->refs_head,
 				      cfg->root_ref);
-		fyai_error_check(ctx, fy_generic_is_valid(root), err_out,
+		fyai_error_check(ctx, fy_is_valid(root), err_out,
 				 "--root '%s' names no root in %s; "
 				 "gc may have dropped it",
 				 cfg->root_spec ? cfg->root_spec : "",
@@ -781,7 +781,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	entry = fyai_branch_build(ctx->gb, ctx->arena_config, ctx->last_message,
 				  created, ctx->branch_desc, ctx->branch_agent,
 				  opv, fromv, ctx->branch_prev);
-	if (!fy_generic_is_valid(entry))
+	if (!fy_is_valid(entry))
 		return fy_invalid;
 	return fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
 }
@@ -814,10 +814,10 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 
 	catv = fyai_generic_or_null(ctx->arena_catalog);
 	headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
-	if (!fy_generic_is_valid(headv))
+	if (!fy_is_valid(headv))
 		return -1;
 	branchesv = fyai_branches_commit(ctx);
-	if (!fy_generic_is_valid(branchesv))
+	if (!fy_is_valid(branchesv))
 		return -1;
 	/*
 	 * Chain each root to its predecessor (the current refs head) so root
@@ -831,7 +831,7 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	root = fyai_root_build(ctx->gb, catv, branchesv, headv,
 			       fy_value(ctx->gb,
 					(long long)fyai_branch_timestamp()), prevv);
-	if (!fy_generic_is_valid(root))
+	if (!fy_is_valid(root))
 		return -1;
 	desired = (uint64_t)root.v;
 	rc = fy_allocator_refs_publish(ctx->durable_allocator, ctx->refs_head,
@@ -931,14 +931,14 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 				if (!*branchp)
 					ret = -1;
 			}
-			if (fy_generic_is_valid(b.config)) {
+			if (fy_is_valid(b.config)) {
 				*configp = fy_gb_internalize(gb, b.config);
-				if (!fy_generic_is_valid(*configp))
+				if (!fy_is_valid(*configp))
 					ret = -1;
 			}
-			if (catalogp && fy_generic_is_valid(r.catalog)) {
+			if (catalogp && fy_is_valid(r.catalog)) {
 				*catalogp = fy_gb_internalize(gb, r.catalog);
-				if (!fy_generic_is_valid(*catalogp))
+				if (!fy_is_valid(*catalogp))
 					ret = -1;
 			}
 		}
@@ -1009,10 +1009,10 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	if (!ctx->durable_allocator || !ctx->durable_gb)
 		return 0;
 	/* Skip a branch that has no state. */
-	if (fy_generic_is_invalid(ctx->last_message) &&
-	    fy_generic_is_invalid(ctx->arena_config) &&
-	    fy_generic_is_invalid(ctx->arena_catalog) &&
-	    fy_generic_is_invalid(ctx->branch_prev))
+	if (fy_is_invalid(ctx->last_message) &&
+	    fy_is_invalid(ctx->arena_config) &&
+	    fy_is_invalid(ctx->arena_catalog) &&
+	    fy_is_invalid(ctx->branch_prev))
 		return 0;
 
 	/*
@@ -1049,11 +1049,11 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 	if (!ctx->durable_allocator || !ctx->durable_gb)
 		return -1;
 
-	if (fy_generic_is_valid(config))
+	if (fy_is_valid(config))
 		ctx->arena_config = config;
-	if (fy_generic_is_valid(catalog))
+	if (fy_is_valid(catalog))
 		ctx->arena_catalog = catalog;
-	if (fy_generic_is_valid(head))
+	if (fy_is_valid(head))
 		ctx->last_message = head;
 
 	for (tries = 0; tries < 2; tries++) {
@@ -1074,11 +1074,11 @@ int fyai_publish_root(struct fyai_ctx *ctx, fy_generic config,
 		ctx->branch_prev = cur_b.entry;
 		ctx->branch_desc = cur_b.description;
 		ctx->branch_agent = cur_b.agent;
-		if (!fy_generic_is_valid(config))
+		if (!fy_is_valid(config))
 			ctx->arena_config = cur_b.config;
-		if (!fy_generic_is_valid(catalog))
+		if (!fy_is_valid(catalog))
 			ctx->arena_catalog = cur_r.catalog;
-		if (!fy_generic_is_valid(head))
+		if (!fy_is_valid(head))
 			ctx->last_message = cur_b.head;
 	}
 out:
@@ -1115,11 +1115,11 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 	const char *name;
 	size_t i, count;
 
-	if (!fy_generic_is_mapping(base))
+	if (!fy_is_mapping(base))
 		base = fy_map_empty;
-	if (!fy_generic_is_mapping(desired))
+	if (!fy_is_mapping(desired))
 		desired = fy_map_empty;
-	if (!fy_generic_is_mapping(latest))
+	if (!fy_is_mapping(latest))
 		latest = fy_map_empty;
 
 	/* Changed or added keys. */
@@ -1137,7 +1137,7 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 		if (!generic_same(now, before))
 			goto err_concurrent_change;
 		latest = fy_assoc(ctx->gb, latest, name, after);
-		fyai_error_check(ctx, fy_generic_is_valid(latest), err_out,
+		fyai_error_check(ctx, fy_is_valid(latest), err_out,
 				 "could not reapply branch '%s'", name);
 	}
 
@@ -1146,14 +1146,14 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 	for (i = 0; i < count; i++) {
 		key = fy_get_key_at(base, i);
 		name = fy_castp(&key, "");
-		if (!name || !*name || fy_generic_is_valid(fy_get(desired, name)))
+		if (!name || !*name || fy_is_valid(fy_get(desired, name)))
 			continue;
 		before = fy_get_at(base, i);
 		now = fy_get(latest, name);
 		if (!generic_same(now, before))
 			goto err_concurrent_change;
 		latest = fy_disassoc(ctx->gb, latest, name);
-		fyai_error_check(ctx, fy_generic_is_valid(latest), err_out,
+		fyai_error_check(ctx, fy_is_valid(latest), err_out,
 				 "could not reapply deletion of branch '%s'",
 				 name);
 	}
@@ -1212,7 +1212,7 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		root = fyai_root_build(ctx->gb, catv, merged, headv,
 				       fy_value(ctx->gb, (long long)
 						fyai_branch_timestamp()), prevv);
-		fyai_error_check(ctx, fy_generic_is_valid(root), err_out,
+		fyai_error_check(ctx, fy_is_valid(root), err_out,
 				 "could not build branch-table root");
 		desired = (uint64_t)root.v;
 		branch_publish_test_delay();
@@ -1241,7 +1241,7 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 				 "concurrent arena root is invalid");
 		merged = branches_delta_apply(ctx, base, branches,
 					      current.branches);
-		fyai_error_check(ctx, fy_generic_is_valid(merged), err_out,
+		fyai_error_check(ctx, fy_is_valid(merged), err_out,
 				 "could not reconcile branch-table changes");
 		ctx->arena_catalog = current.catalog;
 		if (!head_changed) {
@@ -1307,7 +1307,7 @@ static int branch_chain_len(fy_generic entry, int limit)
 	struct fyai_branch b;
 	int n;
 
-	for (n = 0; n < limit && fy_generic_is_valid(entry); n++) {
+	for (n = 0; n < limit && fy_is_valid(entry); n++) {
 		if (!fyai_branch_decode(entry, &b))
 			break;
 		entry = b.prev;
@@ -1323,18 +1323,18 @@ static fy_generic fyai_branch_reflog_trim(struct fyai_ctx *ctx, fy_generic entry
 	fy_generic node, rebuilt;
 	int n, i;
 
-	if (!fy_generic_is_mapping(entry))
+	if (!fy_is_mapping(entry))
 		return entry;
 
 	node = entry;
-	for (n = 0; n < keep && fy_generic_is_valid(node); n++) {
+	for (n = 0; n < keep && fy_is_valid(node); n++) {
 		scratch[n] = node;
 		if (!fyai_branch_decode(node, &b))
 			return fy_invalid;
 		node = b.prev;
 	}
 	/* Nothing beyond the window: keep the entry (and its sharing) as is. */
-	if (fy_generic_is_invalid(node))
+	if (fy_is_invalid(node))
 		return entry;
 
 	rebuilt = fy_null;	/* prev of the oldest kept entry: cut here */
@@ -1345,7 +1345,7 @@ static fy_generic fyai_branch_reflog_trim(struct fyai_ctx *ctx, fy_generic entry
 					    fy_get(scratch[i], "created"),
 					    b.description, b.agent, b.op,
 					    b.from, rebuilt);
-		if (!fy_generic_is_valid(rebuilt))
+		if (!fy_is_valid(rebuilt))
 			return fy_invalid;
 	}
 	return rebuilt;
@@ -1367,16 +1367,16 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 		keep = FYAI_REFLOG_KEEP_MAX;
 
 	node = (fy_generic){ .v = ctx->refs_head };
-	for (n = 0; n < keep && fy_generic_is_valid(node); n++) {
+	for (n = 0; n < keep && fy_is_valid(node); n++) {
 		roots[n] = node;
 		node = fyai_root_prev(node);
 	}
 	/* A short root log can contain an overlong branch log. */
-	if (fy_generic_is_invalid(node) && n > 0) {
+	if (fy_is_invalid(node) && n > 0) {
 		if (fyai_root_decode(roots[0], &r) < 0)
 			return -1;
 		trim = false;
-		if (fy_generic_is_mapping(r.branches)) {
+		if (fy_is_mapping(r.branches)) {
 			fy_foreach(name, r.branches) {
 				if (branch_chain_len(fy_get(r.branches, name),
 						     keep + 1) > keep) {
@@ -1395,16 +1395,16 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 			return -1;
 		branches = r.branches;
 		/* Apply the same limit to each branch ref log. */
-		if (fy_generic_is_mapping(branches)) {
+		if (fy_is_mapping(branches)) {
 			fy_foreach(name, r.branches) {
 				entry = fy_get(r.branches, name);
 				entry = fyai_branch_reflog_trim(ctx, entry, keep,
 								entries);
-				if (fy_generic_is_invalid(entry))
+				if (fy_is_invalid(entry))
 					return -1;
 				branches = fy_assoc(ctx->gb, branches, name,
 						    entry);
-				if (!fy_generic_is_valid(branches))
+				if (!fy_is_valid(branches))
 					return -1;
 			}
 		}
@@ -1413,7 +1413,7 @@ static int fyai_reflog_truncate(struct fyai_ctx *ctx, int keep)
 				fyai_generic_or_null(branches),
 				fyai_generic_or_null(r.head),
 				fy_get(roots[i], "created"), rebuilt);
-		if (!fy_generic_is_valid(rebuilt))
+		if (!fy_is_valid(rebuilt))
 			return -1;
 	}
 	desired = (uint64_t)rebuilt.v;
@@ -1476,19 +1476,19 @@ bool fyai_config_has_raw_secret(fy_generic doc)
 	fy_generic v, providers, preset;
 	size_t i, count;
 
-	if (!fy_generic_is_mapping(doc))
+	if (!fy_is_mapping(doc))
 		return false;
 	v = fy_get(doc, "api_key");
-	if (fy_generic_is_string(v))
+	if (fy_is_string(v))
 		return true;
 	providers = fy_get(doc, "providers");
-	if (!fy_generic_is_mapping(providers))
+	if (!fy_is_mapping(providers))
 		return false;
 	count = fy_generic_mapping_get_pair_count(providers);
 	for (i = 0; i < count; i++) {
 		preset = fy_get_at(providers, i);
 		v = fy_get(preset, "api_key");
-		if (fy_generic_is_string(v))
+		if (fy_is_string(v))
 			return true;
 	}
 	return false;
@@ -1576,7 +1576,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			ctx->branch_desc = b.description;
 			ctx->branch_agent = b.agent;
 		}
-		if (args->config && fy_generic_is_valid(config) &&
+		if (args->config && fy_is_valid(config) &&
 		    !args->force) {
 			fyai_error(ctx, "init: arena already carries a config (use --force)");
 			goto out;
@@ -1592,7 +1592,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		config = fy_parse_file(ctx->gb,
 				       FYAI_YAML_PARSE_FLAGS,
 				       args->config);
-		if (!fy_generic_is_valid(config)) {
+		if (!fy_is_valid(config)) {
 			fyai_error(ctx, "init: cannot parse %s", args->config);
 			goto out;
 		}
@@ -1603,7 +1603,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			goto out;
 		}
 		config = fy_get(report, "config", config);
-	} else if (fy_generic_is_invalid(config)) {
+	} else if (fy_is_invalid(config)) {
 		/* No config supplied and none inherited: seed the arena with the
 		 * embedded config.yaml.sample so the project starts from a
 		 * working document rather than an empty config. */
@@ -1615,7 +1615,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		config = fy_parse(ctx->gb, sample,
 				  FYAI_YAML_PARSE_FLAGS |
 				  FYOPPF_INPUT_TYPE_STRING, NULL);
-		if (!fy_generic_is_valid(config)) {
+		if (!fy_is_valid(config)) {
 			fyai_error(ctx, "init: cannot parse embedded config sample");
 			goto out;
 		}

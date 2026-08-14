@@ -20,7 +20,7 @@
 static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
 				  const char *what)
 {
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		fyai_error(ctx, "%s", what);
 	return v;
 }
@@ -150,7 +150,7 @@ fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 	 * invalid generic; normalise it to an empty sequence (callers count it
 	 * with fy_len()). Only internalize a real result.
 	 */
-	if (fy_generic_is_invalid(tool_calls) || fy_generic_is_null_type(tool_calls))
+	if (fy_is_invalid(tool_calls) || fy_is_null(tool_calls))
 		return fy_seq_empty;
 
 	tool_calls = fy_gb_internalize(ctx->transient_gb, tool_calls);
@@ -199,7 +199,7 @@ fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc)
 	double cost;
 
 	usage = fy_get(doc, "usage");
-	if (fy_generic_is_invalid(usage))
+	if (fy_is_invalid(usage))
 		return fy_invalid;
 
 	switch (cfg->api_mode) {
@@ -278,8 +278,8 @@ fy_generic fyai_token_extents_append(struct fy_generic_builder *gb,
 	fy_foreach(entry, entries) {
 		text = fy_get(entry, "token", "");
 		bytes = fy_get(entry, "bytes");
-		if (fy_generic_is_valid(bytes) &&
-		    !fy_generic_is_null_type(bytes))
+		if (fy_is_valid(bytes) &&
+		    !fy_is_null(bytes))
 			len = fy_len(bytes);
 		else
 			len = strlen(text);
@@ -291,7 +291,7 @@ fy_generic fyai_token_extents_append(struct fy_generic_builder *gb,
 			"pos", (long long)*posp,
 			"lp", lp);
 		extents = fy_append(gb, extents, ext);
-		if (fy_generic_is_invalid(extents))
+		if (fy_is_invalid(extents))
 			return fy_invalid;
 		*posp += len;
 	}
@@ -321,7 +321,7 @@ fy_generic fyai_chunk_extents(struct fy_generic_builder *gb, fy_generic chunks)
 				fy_mapping(gb,
 					"text", text,
 					"pos", (long long)pos));
-		if (fy_generic_is_invalid(extents))
+		if (fy_is_invalid(extents))
 			return fy_invalid;
 		pos += strlen(text);
 	}
@@ -479,7 +479,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 		if (!native_shell && fy_equal(type, "shell_call_output")) {
 			output = fy_get(m, "output");
-			if (!fy_generic_is_string(output)) {
+			if (!fy_is_string(output)) {
 				text = emit_json_string(ctx->transient_gb,
 							output);
 				output = fy_value(text ? text : "");
@@ -494,7 +494,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 
 		/* Other native Responses items (function_call,
 		 * function_call_output, message, ...): pass through. */
-		if (fy_generic_is_string(type)) {
+		if (fy_is_string(type)) {
 			input = fy_append(ctx->transient_gb, input, m);
 			continue;
 		}
@@ -516,7 +516,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 						"type", "function_call_output",
 						"call_id", fy_get(m, "tool_call_id", ""),
 						"output",
-						fy_generic_is_valid(content) && !fy_generic_is_null_type(content) ?
+						fy_is_valid(content) && !fy_is_null(content) ?
 							content :
 							fy_value("")));
 			continue;
@@ -526,10 +526,10 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		 * call; the accompanying null content is dropped, any real
 		 * prose is preserved as a leading assistant message. */
 		if (fy_equal(role, "assistant") &&
-		    fy_generic_is_valid(tool_calls) &&
-		    !fy_generic_is_null_type(tool_calls)) {
-			if (fy_generic_is_valid(content) &&
-			    !fy_generic_is_null_type(content))
+		    fy_is_valid(tool_calls) &&
+		    !fy_is_null(tool_calls)) {
+			if (fy_is_valid(content) &&
+			    !fy_is_null(content))
 				input = fy_append(ctx->transient_gb, input,
 						fy_mapping(
 							"role", "assistant",
@@ -547,10 +547,10 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 
 		/* Plain role message: Responses rejects null content. */
-		if (fy_generic_is_invalid(content) ||
-		    fy_generic_is_null_type(content))
+		if (fy_is_invalid(content) ||
+		    fy_is_null(content))
 			content = fy_value("");
-		tmp = fy_mapping("role", fy_generic_is_string(role) ? role : fy_value("user"),
+		tmp = fy_mapping("role", fy_is_string(role) ? role : fy_value("user"),
 				 "content", content);
 		input = fy_append(ctx->transient_gb, input, tmp);
 	}
@@ -567,7 +567,7 @@ fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item)
 
 	content = fy_get(item, "content");
 	chunks = fy_seq_empty;
-	if (fy_generic_is_string(content))
+	if (fy_is_string(content))
 		return content;
 
 	fy_foreach(part, content) {
@@ -603,7 +603,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 		is_call = fy_equal(type, "function_call") ||
 			  fy_equal(type, "shell_call");
 
-		if (fy_generic_is_valid(pending) && !is_call) {
+		if (fy_is_valid(pending) && !is_call) {
 			tmp = fy_mapping("role", "assistant",
 					 "content", fy_null,
 					 "tool_calls", pending);
@@ -633,7 +633,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 					"id", fy_get(m, "call_id", ""),
 					"type", "function",
 					"function", function);
-			pending = fy_generic_is_valid(pending) ?
+			pending = fy_is_valid(pending) ?
 					fy_append(ctx->transient_gb, pending, call) :
 					fy_sequence(ctx->transient_gb, call);
 			continue;
@@ -656,7 +656,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 
 		/* reasoning and other native items: no Chat analogue. */
-		if (fy_generic_is_string(type))
+		if (fy_is_string(type))
 			continue;
 
 		/* Already Chat-shaped. */
@@ -735,7 +735,7 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		/* Responses-style native call items -> assistant tool_use. */
 		if (fy_equal(type, "function_call")) {
 			input = parse_json_string(gb, fy_get(m, "arguments", "{}"));
-			if (fy_generic_is_invalid(input))
+			if (fy_is_invalid(input))
 				input = fy_map_empty;
 			tmp = fy_mapping("type", "tool_use",
 					 "id", fy_get(m, "call_id", ""),
@@ -758,7 +758,7 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (fy_equal(type, "function_call_output") ||
 		    fy_equal(type, "shell_call_output")) {
 			output = fy_get(m, "output");
-			if (!fy_generic_is_string(output)) {
+			if (!fy_is_string(output)) {
 				text = emit_json_string(gb, output);
 				output = fy_value(text ? text : "");
 			}
@@ -778,7 +778,7 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 
 		/* reasoning and other native items: no Messages analogue. */
-		if (fy_generic_is_string(type))
+		if (fy_is_string(type))
 			continue;
 
 		role = fy_get(m, "role");
@@ -790,8 +790,8 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		/* Chat tool result -> user tool_result. */
 		if (fy_equal(role, "tool")) {
 			content = fy_get(m, "content");
-			if (fy_generic_is_invalid(content) ||
-			    fy_generic_is_null_type(content))
+			if (fy_is_invalid(content) ||
+			    fy_is_null(content))
 				content = fy_value("");
 			tmp = fy_mapping("type", "tool_result",
 					 "tool_use_id", fy_get(m, "tool_call_id", ""),
@@ -803,8 +803,8 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		/* Chat assistant tool request -> text (if any) + tool_use. */
 		tool_calls = fy_get(m, "tool_calls");
 		if (fy_equal(role, "assistant") &&
-		    fy_generic_is_valid(tool_calls) &&
-		    !fy_generic_is_null_type(tool_calls)) {
+		    fy_is_valid(tool_calls) &&
+		    !fy_is_null(tool_calls)) {
 			content = fy_get(m, "content");
 			if (*fy_cast(content, ""))
 				out = messages_append_block(ctx, out,
@@ -814,7 +814,7 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 				fn = fy_get(tc, "function");
 				input = parse_json_string(gb,
 						fy_get(fn, "arguments", "{}"));
-				if (fy_generic_is_invalid(input))
+				if (fy_is_invalid(input))
 					input = fy_map_empty;
 				tmp = fy_mapping("type", "tool_use",
 						 "id", fy_get(tc, "id", ""),
@@ -828,11 +828,11 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 
 		/* Plain role message. */
 		content = fy_get(m, "content");
-		if (fy_generic_is_invalid(content) ||
-		    fy_generic_is_null_type(content))
+		if (fy_is_invalid(content) ||
+		    fy_is_null(content))
 			content = fy_value("");
 		out = messages_append_block(ctx, out,
-				fy_generic_is_string(role) ? fy_castp(&role, "") : "user",
+				fy_is_string(role) ? fy_castp(&role, "") : "user",
 				messages_text_block(ctx, content));
 	}
 

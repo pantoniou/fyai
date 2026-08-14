@@ -59,7 +59,7 @@ int fyai_turn_times_collect(struct fyai_ctx *ctx, fy_generic entry,
 			break;
 		if (!fyai_branch_decode(entry, &b))
 			break;
-		if (fy_generic_is_valid(b.head)) {
+		if (fy_is_valid(b.head)) {
 			if (n == cap) {
 				cap *= 2;
 				grown = realloc(items, cap * sizeof(*items));
@@ -158,7 +158,7 @@ fy_generic fyai_merge_base(struct fyai_ctx *ctx, fy_generic a, fy_generic b)
 		if (bsearch(&v, seen, sb.count, sizeof(v), generic_value_cmp))
 			break;
 	}
-	if (fy_generic_is_valid(cur) && fy_generic_is_null_type(cur))
+	if (fy_is_valid(cur) && fy_is_null(cur))
 		cur = fy_invalid;
 
 	free(seen);
@@ -230,7 +230,7 @@ static fy_generic turn_rechain(struct fyai_ctx *ctx, fy_generic turn,
 			       fy_generic prev)
 {
 	return fy_assoc(ctx->gb, turn, "previous",
-			fy_generic_is_valid(prev) ? prev : fy_null);
+			fy_is_valid(prev) ? prev : fy_null);
 }
 
 /* Replay [@start, @end) and keep only the first system turn. */
@@ -247,7 +247,7 @@ static int replay(struct fyai_ctx *ctx, fy_generic *head,
 			*have_system = true;
 		}
 		*head = turn_rechain(ctx, stack->items[i], *head);
-		if (!fy_generic_is_valid(*head))
+		if (!fy_is_valid(*head))
 			return -1;
 	}
 	return 0;
@@ -277,12 +277,12 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 			 "cannot join '%s' with itself", source);
 	found = fyai_branch_lookup(ctx->arena_branches, source, &sb);
 	fyai_error_check(ctx, found, out, "no such branch '%s'", source);
-	fyai_error_check(ctx, fy_generic_is_valid(sb.head), out,
+	fyai_error_check(ctx, fy_is_valid(sb.head), out,
 			 "branch '%s' has no turns to join", source);
 	fyai_branch_lookup(ctx->arena_branches, fyai_ctx_branch(ctx), &ob);
 
 	base = fyai_merge_base(ctx, ctx->last_message, sb.head);
-	unrelated = fy_generic_is_invalid(base);
+	unrelated = fy_is_invalid(base);
 	fyai_error_check(ctx, !unrelated || allow_unrelated, out,
 			 "'%s' and '%s' share no turn; pass "
 			 "--allow-unrelated to join them anyway",
@@ -296,7 +296,7 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 			 "'%s' has nothing that '%s' does not already have",
 			 source, fyai_ctx_branch(ctx));
 
-	have_system = fy_generic_is_valid(base);
+	have_system = fy_is_valid(base);
 	head = base;
 
 	if (mode == FYAI_JOIN_REBASE) {
@@ -330,7 +330,7 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 	}
 
 	head = fy_gb_internalize(ctx->gb, head);
-	fyai_error_check(ctx, fy_generic_is_valid(head), out,
+	fyai_error_check(ctx, fy_is_valid(head), out,
 			 "could not store the joined conversation");
 
 	ctx->last_message = head;
@@ -377,7 +377,7 @@ int fyai_join_onto_head(struct fyai_ctx *ctx, fy_generic theirs,
 	ret = replay(ctx, &head, &ours, 0, ours.count, &have_system);
 	fyai_error_check(ctx, !ret, out, "could not replay this turn");
 	head = fy_gb_internalize(ctx->gb, head);
-	fyai_error_check(ctx, fy_generic_is_valid(head), out,
+	fyai_error_check(ctx, fy_is_valid(head), out,
 			 "could not store the replayed turn");
 	*outp = head;
 	ret = 0;

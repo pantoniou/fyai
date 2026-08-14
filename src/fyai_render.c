@@ -166,7 +166,7 @@ static void render_cell(FILE *fp, fy_generic v, enum render_format fmt)
 	int i;
 
 	used = 0;
-	if (fy_generic_is_invalid(v))
+	if (fy_is_invalid(v))
 		return;
 	switch (fmt) {
 	case RENDER_FMT_YESNO:
@@ -191,7 +191,7 @@ static void render_cell(FILE *fp, fy_generic v, enum render_format fmt)
 		}
 		break;
 	case RENDER_FMT_HUMANIZE:
-		if (fy_generic_is_string(v)) {
+		if (fy_is_string(v)) {
 			render_humanize(buf, sizeof(buf), fy_castp(&v, ""));
 			render_escape(fp, buf, &used);
 			return;
@@ -247,16 +247,16 @@ static void render_col_setup(struct render_col *col, fy_generic columns,
 	col->fmt_set = false;
 
 	opts = fy_get(columns, fy_castp(&col->key, ""), fy_invalid);
-	if (!fy_generic_is_mapping(opts))
+	if (!fy_is_mapping(opts))
 		return;
 	v = fy_get(opts, "name", fy_invalid);
-	if (fy_generic_is_string(v))
+	if (fy_is_string(v))
 		snprintf(col->name, sizeof(col->name), "%s", fy_castp(&v, ""));
 	v = fy_get(opts, "align", fy_invalid);
-	if (fy_generic_is_string(v))
+	if (fy_is_string(v))
 		col->align = render_align_str(fy_castp(&v, ""));
 	v = fy_get(opts, "format", fy_invalid);
-	if (fy_generic_is_string(v)) {
+	if (fy_is_string(v)) {
 		col->fmt = render_format_parse(fy_castp(&v, ""));
 		col->fmt_set = true;
 	}
@@ -283,14 +283,14 @@ static struct render_col *render_cols_collect(fy_generic data,
 	keys = fy_get(renderopts, "keys", fy_invalid);
 
 	fy_foreach(row, data) {
-		if (!fy_generic_is_mapping(row))
+		if (!fy_is_mapping(row))
 			continue;
 		n = fy_generic_mapping_get_pair_count(row);
 		for (i = 0; i < n; i++) {
 			key = fy_generic_mapping_get_at_key(row, i);
-			if (!fy_generic_is_string(key))
+			if (!fy_is_string(key))
 				continue;
-			if (fy_generic_is_sequence(keys) &&
+			if (fy_is_sequence(keys) &&
 			    !render_seq_has(keys, key))
 				continue;
 			seen = false;
@@ -316,7 +316,7 @@ static struct render_col *render_cols_collect(fy_generic data,
 	}
 
 	/* honour the requested column order, not the first seen one */
-	if (fy_generic_is_sequence(keys) && ncols > 1) {
+	if (fy_is_sequence(keys) && ncols > 1) {
 		j = 0;
 		fy_foreach(key, keys) {
 			for (i = j; i < ncols; i++) {
@@ -362,7 +362,7 @@ static void render_seq_table(FILE *fp, fy_generic data, fy_generic renderopts)
 
 	any = false;
 	fy_foreach(row, data) {
-		if (!fy_generic_is_mapping(row))
+		if (!fy_is_mapping(row))
 			continue;
 		any = true;
 		fputc('|', fp);
@@ -407,7 +407,7 @@ static void render_kv_table(FILE *fp, fy_generic data, fy_generic renderopts)
 		fy_get(renderopts, "value_header", "Value"));
 	for (i = 0; i < n; i++) {
 		key = fy_generic_mapping_get_at_key(data, i);
-		if (!fy_generic_is_string(key))
+		if (!fy_is_string(key))
 			continue;
 		v = fy_generic_mapping_get_at_value(data, i);
 		col.key = key;
@@ -428,7 +428,7 @@ int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 	FILE *mf;
 	int rc;
 
-	if (!fy_generic_is_mapping(data) && !fy_generic_is_sequence(data))
+	if (!fy_is_mapping(data) && !fy_is_sequence(data))
 		return -1;
 	md = NULL;
 	mdlen = 0;
@@ -441,7 +441,7 @@ int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 	preamble = fy_get(renderopts, "preamble", "");
 	if (*preamble)
 		fprintf(mf, "%s\n\n", preamble);
-	if (fy_generic_is_mapping(data))
+	if (fy_is_mapping(data))
 		render_kv_table(mf, data, renderopts);
 	else
 		render_seq_table(mf, data, renderopts);

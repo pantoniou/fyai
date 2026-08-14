@@ -33,9 +33,9 @@ fy_generic fyai_catalog_effective(fy_generic arena_catalog,
 {
 	fy_generic_sized_string embedded;
 
-	if (fy_generic_is_valid(arena_catalog))
+	if (fy_is_valid(arena_catalog))
 		return arena_catalog;
-	if (fy_generic_is_valid(embedded_catalog))
+	if (fy_is_valid(embedded_catalog))
 		return embedded_catalog;
 	embedded.data = (const char *)FYAI_EMBEDDED_CATALOG;
 	embedded.size = FYAI_EMBEDDED_CATALOG_LEN;
@@ -66,11 +66,11 @@ fy_generic fyai_catalog_resolved_model(fy_generic cat, const char *model)
 	fy_generic cat_model, cat_offer;
 
 	cat_model = fyai_catalog_model(cat, model);
-	if (fy_generic_is_valid(cat_model))
+	if (fy_is_valid(cat_model))
 		return cat_model;
 
 	fyai_catalog_provider_for_model(cat, model, &cat_offer);
-	if (fy_generic_is_valid(cat_offer))
+	if (fy_is_valid(cat_offer))
 		return fyai_catalog_model(cat, fy_get(cat_offer, "canonical_id", ""));
 
 	return fy_invalid;
@@ -191,14 +191,14 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 	}
 	doc = fy_parse_file(ctx->gb,
 			    FYAI_YAML_PARSE_FLAGS, path);
-	if (!fy_generic_is_mapping(doc)) {
+	if (!fy_is_mapping(doc)) {
 		fyai_error(ctx, "cannot parse %s", path);
 		return -1;
 	}
 	models = fy_get(doc, "models");
 	providers = fy_get(doc, "providers");
-	if (!fy_generic_is_sequence(models) ||
-	    !fy_generic_is_sequence(providers)) {
+	if (!fy_is_sequence(models) ||
+	    !fy_is_sequence(providers)) {
 		fyai_error(ctx, "%s lacks models:/providers: sections", path);
 		return -1;
 	}
@@ -208,7 +208,7 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 	 * model, so re-derive it against the incoming catalogue rather than
 	 * whatever it was pinned against before.
 	 */
-	new_config = fy_generic_is_valid(ctx->arena_config) ?
+	new_config = fy_is_valid(ctx->arena_config) ?
 		fyai_config_sync_catalog(ctx->gb, doc, ctx->arena_config) :
 		fy_invalid;
 	if (fyai_publish_root(ctx, new_config, doc, fy_invalid))
@@ -224,7 +224,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 	const char *text;
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
-	if (fy_generic_is_invalid(cat)) {
+	if (fy_is_invalid(cat)) {
 		fyai_error(ctx, "none available");
 		return -1;
 	}
@@ -234,7 +234,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 	}
 	emitted = fy_emit(cat,
 			  FYAI_YAML_EMIT_FLAGS, NULL);
-	if (fy_generic_is_invalid(emitted))
+	if (fy_is_invalid(emitted))
 		return -1;
 	text = fy_castp(&emitted, "");
 	if (write_text_file(path, text)) {
@@ -249,11 +249,11 @@ int fyai_catalog_show(struct fyai_ctx *ctx)
 	fy_generic cat;
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
-	if (fy_generic_is_invalid(cat)) {
+	if (fy_is_invalid(cat)) {
 		fyai_error(ctx, "none available");
 		return -1;
 	}
-	if (fy_generic_is_invalid(ctx->arena_catalog))
+	if (fy_is_invalid(ctx->arena_catalog))
 		fprintf(stderr, "# embedded snapshot (no catalog in arena)\n");
 	emit_generic_to_stdout(NULL, cat, true);
 	return 0;
@@ -350,7 +350,7 @@ static void catalog_tool_schema(FILE *fp, struct fy_generic_builder *gb,
 	fy_generic emitted;
 	const char *json;
 
-	if (fy_generic_is_invalid(schema) || fy_generic_is_null(schema))
+	if (fy_is_invalid(schema) || fy_generic_is_null(schema))
 		return;
 	emitted = fy_emit(gb, schema,
 		FYOPEF_DISABLE_DIRECTORY |
@@ -360,7 +360,7 @@ static void catalog_tool_schema(FILE *fp, struct fy_generic_builder *gb,
 		FYOPEF_WIDTH_80 |
 		FYOPEF_NO_ENDING_NEWLINE,
 		NULL);
-	if (fy_generic_is_invalid(emitted))
+	if (fy_is_invalid(emitted))
 		return;
 	json = fy_cast(emitted, "");
 	fputs("\n  ```yaml\n  ", fp);
@@ -395,7 +395,7 @@ static void catalog_agent_tools_markdown(FILE *mf, struct fy_generic_builder *gb
 	}
 
 	tools = fy_get(agent, "tools");
-	if (!fy_generic_is_mapping(tools)) {
+	if (!fy_is_mapping(tools)) {
 		fprintf(mf, "\n_no tools_\n");
 		return;
 	}
@@ -466,7 +466,7 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 	int rc;
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
-	if (fy_generic_is_invalid(cat)) {
+	if (fy_is_invalid(cat)) {
 		fyai_error(ctx, "none available");
 		return -1;
 	}
@@ -490,7 +490,7 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 		return 0;
 	}
 	agents = fy_get(cat, "agents");
-	if (!fy_generic_is_sequence(agents)) {
+	if (!fy_is_sequence(agents)) {
 		fyai_error(ctx, "no agents section");
 		return -1;
 	}
@@ -535,7 +535,7 @@ int fyai_catalog_list(struct fyai_ctx *ctx, const char *what)
 	fy_generic cat;
 
 	cat = fyai_catalog_effective(ctx->arena_catalog, ctx->cfg->gb);
-	if (fy_generic_is_invalid(cat)) {
+	if (fy_is_invalid(cat)) {
 		fyai_error(ctx, "none available");
 		return -1;
 	}

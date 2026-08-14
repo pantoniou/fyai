@@ -52,7 +52,7 @@ static fy_generic fyai_agent_final_text(struct fyai_ctx *ctx, fy_generic turn)
 		type = fy_get(m, "type");
 		if (fy_equal(role, "assistant") || fy_equal(type, "message")) {
 			text = fyai_item_text(ctx, m);
-			if (fy_generic_is_string(text))
+			if (fy_is_string(text))
 				return text;
 			break;
 		}
@@ -76,7 +76,7 @@ static char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 	size_t i, n, len, name_len;
 
 	personas = fyai_agent_personas(ctx);
-	if (!fy_generic_is_mapping(personas))
+	if (!fy_is_mapping(personas))
 		return strdup("none configured");
 	out = NULL;
 	len = 0;
@@ -119,11 +119,11 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 			fy_value(ctx->transient_gb, "display"),
 			fy_mapping(ctx->transient_gb, "thinking", thinking));
 	model = fy_get(overlay, "model", fy_invalid);
-	if (fy_generic_is_string(model)) {
-		if (fy_generic_is_invalid(fy_get(cfg->config_doc, "api_url",
+	if (fy_is_string(model)) {
+		if (fy_is_invalid(fy_get(cfg->config_doc, "api_url",
 						 fy_invalid)))
 			tmp.api_url = NULL;
-		if (fy_generic_is_invalid(fy_get(cfg->config_doc, "max_tokens",
+		if (fy_is_invalid(fy_get(cfg->config_doc, "max_tokens",
 						 fy_invalid)))
 			tmp.max_tokens = DEFAULT_MAX_TOKENS;
 		if (!tmp.api_key_explicit)
@@ -131,7 +131,7 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 	}
 	fyai_error_check(ctx, !fyai_config_apply(&tmp, overlay), err,
 			 "could not apply the sub-agent persona");
-	if (fy_generic_is_string(model))
+	if (fy_is_string(model))
 		fyai_error_check(ctx, !fyai_config_resolve_model(&tmp), err,
 				 "persona model '%s' cannot be resolved",
 				 fy_castp(&model, ""));
@@ -188,7 +188,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		fyai_error_check(ctx, !rc, err,
 				 "could not prepare sub-agent storage");
 		args = parse_json_string(ctx->transient_gb, args_json);
-		fyai_error_check(ctx, fy_generic_is_mapping(args), err,
+		fyai_error_check(ctx, fy_is_mapping(args), err,
 				 "could not restore the sub-agent call");
 		free(args_json);
 		args_json = NULL;
@@ -204,12 +204,12 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	}
 
 	persona_v = fy_get(args, "persona", fy_invalid);
-	persona = fy_generic_is_string(persona_v) && *fy_castp(&persona_v, "") ?
+	persona = fy_is_string(persona_v) && *fy_castp(&persona_v, "") ?
 		fy_get(fyai_agent_personas(ctx), persona_v, fy_invalid) :
 		fy_invalid;
-	if (fy_generic_is_string(persona_v) &&
+	if (fy_is_string(persona_v) &&
 	    *fy_castp(&persona_v, "") &&
-	    !fy_generic_is_mapping(persona)) {
+	    !fy_is_mapping(persona)) {
 		persona_names = fyai_agent_persona_names(ctx);
 		fyai_error(ctx, "no persona '%s'; configured: %s",
 			   fy_castp(&persona_v, ""),
@@ -220,7 +220,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 	/* The call overrides the persona's conversation mode. */
 	context_v = fy_get(args, "context", fy_invalid);
-	if (!fy_generic_is_string(context_v))
+	if (!fy_is_string(context_v))
 		context_v = fy_get(persona, "context", fy_invalid);
 	if (ctx->agent_branch)
 		fork_mode = !fy_equal(context_v, "fresh");
@@ -233,7 +233,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	cfg->agent_child = true;
 	cfg->mcp_enabled = false;
 	cfg->system_prompt = fyai_agent_system_prompt;
-	if (fy_generic_is_mapping(persona)) {
+	if (fy_is_mapping(persona)) {
 		rc = fyai_agent_persona_apply(ctx, persona, fork_mode);
 		fyai_error_check(ctx, !rc, err,
 				 "could not apply the sub-agent persona");
@@ -273,14 +273,14 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 		FYAI_OUTPUT_USER, task);
 	ctx->last_message = fy_gb_internalize(ctx->gb, ctx->last_message);
-	fyai_error_check(ctx, fy_generic_is_valid(ctx->last_message), err,
+	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not store the sub-agent input");
 
 	ctx->stdout_tty = false;
 
 	turn = fyai_run_turn(ctx, ctx->last_message);
 	turn = fyai_report_diag(ctx, turn);
-	fyai_error_check(ctx, fy_generic_is_valid(turn), err,
+	fyai_error_check(ctx, fy_is_valid(turn), err,
 			 "the sub-agent turn failed");
 	ctx->last_message = turn;
 	report = fyai_agent_final_text(ctx, turn);
@@ -302,7 +302,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			 !fyai_diag_got_error(&cfg->diag),
 			 err, "the sub-agent request did not complete");
 	fyai_error_check(ctx,
-			 fy_generic_is_string(report) &&
+			 fy_is_string(report) &&
 			 *fy_castp(&report, ""),
 			 err, "the sub-agent returned no final report");
 
@@ -330,7 +330,7 @@ int fyai_agent_verb(struct fyai_ctx *ctx)
 			fy_mapping(fyai_ctx_transient_gb(ctx),
 				   "task", task),
 			&ok);
-	if (!ok || fy_generic_is_invalid(report)) {
+	if (!ok || fy_is_invalid(report)) {
 		fyai_error(ctx, "agent: the sub-agent did not complete");
 		return -1;
 	}
@@ -375,7 +375,7 @@ static fy_generic agent_rpc_serve(struct jsonrpc_conn *conn, const char *method,
 		return fy_null;
 	}
 	if (!strcmp(method, "agent/run")) {
-		if (!fy_generic_is_valid(id)) {
+		if (!fy_is_valid(id)) {
 			return fy_invalid;
 		}
 		if (rpc->ran || rpc->run_pending) {
@@ -440,7 +440,7 @@ static int fyai_agent_rpc_verb(struct fyai_ctx *ctx)
 						   rpc.description ?
 							rpc.description : ""),
 					&ok);
-			if (ok && fy_generic_is_valid(report))
+			if (ok && fy_is_valid(report))
 				jsonrpc_conn_respond(conn, rpc.run_id,
 					fy_mapping(fyai_ctx_transient_gb(ctx),
 						   "report", report),

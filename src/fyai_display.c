@@ -113,7 +113,7 @@ static fy_generic fyai_export_role(fy_generic message)
 	/* Chat grammar answers a call with role "tool". */
 	if (fy_equal(role, "tool"))
 		return fy_value("tool_result");
-	if (fy_generic_is_string(role) && fy_len(role))
+	if (fy_is_string(role) && fy_len(role))
 		return role;
 	type = fy_get(message, "type", fy_invalid);
 	if (fy_equal(type, "message"))
@@ -206,7 +206,7 @@ static fy_generic fyai_export_result_of(fy_generic message)
 	fy_generic result;
 
 	result = fy_get(message, "output", fy_invalid);
-	if (fy_generic_is_valid(result))
+	if (fy_is_valid(result))
 		return result;
 	return fy_get(message, "content", fy_invalid);
 }
@@ -236,11 +236,11 @@ static int fyai_export_collect_results(struct fyai_ctx *ctx,
 
 	fy_foreach(message, messages) {
 		gid = fyai_export_result_id(message);
-		if (fy_generic_is_invalid(gid))
+		if (fy_is_invalid(gid))
 			continue;
 		result = fyai_export_result_of(message);
-		fyai_error_check(ctx, fy_generic_is_valid(result) &&
-				 !fy_generic_is_null_type(result), err,
+		fyai_error_check(ctx, fy_is_valid(result) &&
+				 !fy_is_null(result), err,
 				 "export: a tool result has no output");
 		rc = fyai_export_call_add(ctx, calls, fy_castp(&gid, ""), result);
 		fyai_error_check(ctx, !rc, err, "export: cannot record a tool result");
@@ -284,7 +284,7 @@ static int fyai_export_directive(struct fyai_ctx *ctx, FILE *fp,
 	fy_generic emitted;
 
 	emitted = fy_gb_emit(gb, map, FYAI_YAML_EMIT_FLAGS, NULL);
-	fyai_error_check(ctx, fy_generic_is_valid(emitted), err,
+	fyai_error_check(ctx, fy_is_valid(emitted), err,
 			 "export: cannot format a directive");
 	text = fy_castp(&emitted, fy_szstr_empty);
 	fputs(FYAI_TEXTUAL_OPEN "\n", fp);
@@ -311,7 +311,7 @@ static fy_generic fyai_export_config_flatten(struct fy_generic_builder *gb,
 	for (i = 0; i < n; i++) {
 		key = fy_generic_mapping_get_at_key(value, i);
 		val = fy_generic_mapping_get_at_value(value, i);
-		if (!fy_generic_is_string(key))
+		if (!fy_is_string(key))
 			continue;
 		snprintf(path, sizeof(path), "%s%s%s", prefix, *prefix ? "/" : "",
 			 fy_castp(&key, ""));
@@ -347,7 +347,7 @@ static fy_generic fyai_export_config_delta(struct fy_generic_builder *gb,
 	n = fy_generic_mapping_get_pair_count(old_flat);
 	for (i = 0; i < n; i++) {
 		key = fy_generic_mapping_get_at_key(old_flat, i);
-		if (fy_generic_is_invalid(fy_get(new_flat, key, fy_invalid)))
+		if (fy_is_invalid(fy_get(new_flat, key, fy_invalid)))
 			delta = fy_assoc(gb, delta, key, fy_null);
 	}
 	return delta;
@@ -360,10 +360,10 @@ static int fyai_export_config(struct fyai_ctx *ctx, FILE *fp,
 	fy_generic delta;
 	int rc;
 
-	if (fy_generic_is_valid(previous) && fy_equal(config, previous))
+	if (fy_is_valid(previous) && fy_equal(config, previous))
 		return 0;
 	/* Emit the complete first configuration and later changes. */
-	if (fy_generic_is_invalid(previous)) {
+	if (fy_is_invalid(previous)) {
 		rc = fyai_export_directive(ctx, fp,
 			fy_mapping(gb, "kind", "config", "config", config));
 		fyai_error_check(ctx, !rc, err,
@@ -401,7 +401,7 @@ static int fyai_export_tool_call(struct fyai_ctx *ctx, FILE *fp,
 			 "arguments", args);
 	/* An interrupted turn can hold a call that never got an answer. */
 	result = fyai_export_call_find(calls, id);
-	if (fy_generic_is_valid(result))
+	if (fy_is_valid(result))
 		map = fy_assoc(gb, map, "result", result);
 	rc = fyai_export_directive(ctx, fp, map);
 	fyai_error_check(ctx, !rc, err, "export: cannot write a tool call");
@@ -430,7 +430,7 @@ static int fyai_export_compact(struct fyai_ctx *ctx, FILE *fp,
 	int rc;
 
 	map = fy_mapping(gb, "kind", "compact");
-	if (fy_generic_is_string(instructions))
+	if (fy_is_string(instructions))
 		map = fy_assoc(gb, map, "instructions", instructions);
 	rc = fyai_export_directive(ctx, fp, map);
 	fyai_error_check(ctx, !rc, err, "export: cannot write a compaction");
@@ -476,7 +476,7 @@ static fy_generic fyai_export_item_text(struct fy_generic_builder *gb,
 	fy_generic content, chunks, part, type;
 
 	content = fy_get(message, "content");
-	if (fy_generic_is_string(content))
+	if (fy_is_string(content))
 		return content;
 	chunks = fy_seq_empty;
 	fy_foreach(part, content) {
@@ -534,14 +534,14 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 					 "export: cannot write a tool call");
 			continue;
 		}
-		if (fy_generic_is_valid(fyai_export_result_id(message)))
+		if (fy_is_valid(fyai_export_result_id(message)))
 			continue;
 
 		role = fyai_export_role(message);
 		role_text = fy_castp(&role, "item");
 		if (fy_equal(role, "assistant")) {
 			content = fy_get(message, "content", fy_invalid);
-			if (fy_generic_is_string(content) && *fy_castp(&content, "")) {
+			if (fy_is_string(content) && *fy_castp(&content, "")) {
 				rc = fyai_export_message(ctx, fp, role_text,
 						      fy_castp(&content, ""));
 				fyai_error_check(ctx, !rc, err,
@@ -549,7 +549,7 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 				assistant_open = true;
 			}
 			calls_in_message = fy_get(message, "tool_calls");
-			if (fy_generic_is_sequence(calls_in_message)) {
+			if (fy_is_sequence(calls_in_message)) {
 				if (!assistant_open) {
 					rc = fyai_export_message(ctx, fp, role_text, "");
 					fyai_error_check(ctx, !rc, err,
@@ -573,7 +573,7 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 		if (fy_equal(role, "tool_result"))
 			continue;
 		content = fy_get(message, "content", fy_invalid);
-		if (fy_generic_is_string(content))
+		if (fy_is_string(content))
 			text = fy_castp(&content, "");
 		else if (fy_equal(fy_get(message, "type"), "message")) {
 			content = fyai_export_item_text(gb, message);
@@ -582,7 +582,7 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 			text = "";
 		if (fy_not_equal(role, "tool_call") && fy_not_equal(role, "item") &&
 		    !(assistant_open && fy_equal(role, "assistant") &&
-		      fy_generic_is_invalid(fy_get(message, "type")))) {
+		      fy_is_invalid(fy_get(message, "type")))) {
 			rc = fyai_export_message(ctx, fp, role_text, text);
 			fyai_error_check(ctx, !rc, err,
 					 "export: cannot write a message");
@@ -632,7 +632,7 @@ int fyai_export_view(struct fyai_ctx *ctx, const char *path)
 		fy_mapping(gb, "format", 1LL, "kind", "conversation"));
 	fyai_error_check(ctx, !rc, out, "export: cannot write the document header");
 	fputc('\n', fp);
-	for (entry = ctx->branch_prev; fy_generic_is_valid(entry);
+	for (entry = ctx->branch_prev; fy_is_valid(entry);
 	     entry = branch.prev) {
 		decoded = fyai_branch_decode(entry, &branch);
 		fyai_error_check(ctx, decoded, out,
@@ -665,7 +665,7 @@ int fyai_export_view(struct fyai_ctx *ctx, const char *path)
 		rc = fyai_export_marker(ctx, fp, "publish");
 		fyai_error_check(ctx, !rc, out, "export: cannot write a boundary");
 		fputs("## Publish\n\n", fp);
-		if (fy_generic_is_valid(branch.config)) {
+		if (fy_is_valid(branch.config)) {
 			rc = fyai_export_config(ctx, fp, branch.config, previous_config);
 			fyai_error_check(ctx, !rc, out,
 				"export: cannot format configuration");
@@ -676,7 +676,7 @@ int fyai_export_view(struct fyai_ctx *ctx, const char *path)
 			messages = fy_get(stack.items[i], "messages", fy_seq_empty);
 			meta = fyai_turn_meta(stack.items[i]);
 			/* Replace provider compaction output with its operation. */
-			if (fy_generic_is_valid(fy_get(meta, "compacted_from",
+			if (fy_is_valid(fy_get(meta, "compacted_from",
 						       fy_invalid))) {
 				rc = fyai_export_compact(ctx, fp,
 					fy_get(meta, "compact_instructions",
@@ -749,7 +749,7 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 
 	fyai_turn_foreach(cur, ctx->last_message) {
 		u = fy_get(fyai_turn_meta(cur), "usage");
-		if (fy_generic_is_invalid(u))
+		if (fy_is_invalid(u))
 			continue;
 		input += fy_get(u, "input", 0);
 		cached += fy_get(u, "cached", 0);
@@ -819,7 +819,7 @@ static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 	fprintf(mf, "| Cost | $%.6f |\n", fy_get(stats, "cost", 0.0));
 
 	arena = fy_get(stats, "arena");
-	if (!fy_generic_is_invalid(arena)) {
+	if (!fy_is_invalid(arena)) {
 		fprintf(mf, "\n| Arena | Value |\n");
 		fprintf(mf, "|---|---:|\n");
 		fprintf(mf, "| Used | %lld |\n", fy_get(arena, "used", 0LL));
@@ -875,7 +875,7 @@ int fyai_show_stats(struct fyai_ctx *ctx)
 		return -1;
 
 	stats = fyai_stats_data(ctx, gb);
-	if (fy_generic_is_invalid(stats)) {
+	if (fy_is_invalid(stats)) {
 		fy_generic_builder_destroy(gb);
 		return -1;
 	}
@@ -1369,10 +1369,10 @@ static struct fyai_msg_class fyai_classify_message(fy_generic m)
 	c.role = fy_get(m, "role");
 	c.content = fy_get(m, "content");
 	c.tc = fy_get(m, "tool_calls");
-	c.is_str = fy_generic_is_string(c.content);
+	c.is_str = fy_is_string(c.content);
 	c.has_text = c.is_str && *fyai_msg_text(&c);
 	c.is_tool_msg = fy_equal(c.role, "tool");
-	c.has_tc = fy_generic_is_sequence(c.tc) && fy_len(c.tc) > 0;
+	c.has_tc = fy_is_sequence(c.tc) && !fy_empty(c.tc);
 	c.tool_related = c.is_tool_msg || (c.has_tc && !c.has_text);
 	c.is_assistant = fy_equal(c.role, "assistant");
 	return c;
@@ -1479,7 +1479,7 @@ static void fyai_emit_shell_output(FILE *mf, fy_generic out, int preview_lines)
 	const char *se;
 	const char *so;
 
-	if (fy_generic_is_sequence(out)) {
+	if (fy_is_sequence(out)) {
 		fy_foreach(item, out)
 			fyai_emit_shell_output(mf, item, preview_lines);
 		return;
@@ -1519,7 +1519,7 @@ static void fyai_print_shell_output(struct fyai_cfg *cfg, fy_generic out,
 	const char *se;
 	const char *so;
 
-	if (fy_generic_is_sequence(out)) {
+	if (fy_is_sequence(out)) {
 		fy_foreach(item, out)
 			fyai_print_shell_output(cfg, item, preview_lines);
 		return;
@@ -1568,7 +1568,7 @@ static fy_generic fyai_reasoning_text(struct fy_generic_builder *tgb,
 
 	parts = fy_get(m, "summary");
 	key = "summary_text";
-	if (!fy_generic_is_sequence(parts) || !fy_len(parts)) {
+	if (!fy_is_sequence(parts) || !fy_len(parts)) {
 		parts = fy_get(m, "content");
 		key = "reasoning_text";
 	}
@@ -1612,7 +1612,7 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 		if (*r) {
 			fprintf(mf, "**💭 reasoning**\n\n");
 			fyai_emit_italic(mf, r);
-		} else if (fy_generic_is_valid(fy_get(m, "encrypted_content"))) {
+		} else if (fy_is_valid(fy_get(m, "encrypted_content"))) {
 			fprintf(mf, "_💭 reasoning (encrypted)_\n\n");
 		}
 		return;
@@ -1634,17 +1634,17 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 	if (fy_equal(c->type, "function_call_output") ||
 	    fy_equal(c->type, "shell_call_output")) {
 		out = fy_get(m, "output");
-		if (fy_generic_is_string(out))
+		if (fy_is_string(out))
 			fyai_emit_tool_result(mf, fy_castp(&out, ""),
 					      preview_lines, result_lang);
-		else if (fy_generic_is_valid(out) &&
-			 !fy_generic_is_null_type(out))
+		else if (fy_is_valid(out) &&
+			 !fy_is_null(out))
 			fyai_emit_shell_output(mf, out, preview_lines);
 		return;
 	}
 	if (fy_equal(c->type, "message")) {
 		content = fy_get(m, "content");
-		if (fy_generic_is_string(content)) {
+		if (fy_is_string(content)) {
 			fprintf(mf, "%s\n\n", fy_cast(content, ""));
 			return;
 		}
@@ -1678,8 +1678,8 @@ static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
 
 	if (c->is_tool_msg && c->is_str) {
 		fyai_emit_tool_result(mf, text, preview_lines, result_lang);
-	} else if (c->is_tool_msg && fy_generic_is_valid(c->content) &&
-		   !fy_generic_is_null_type(c->content)) {
+	} else if (c->is_tool_msg && fy_is_valid(c->content) &&
+		   !fy_is_null(c->content)) {
 		/* Structured builtin shell result (stdout/stderr/outcome). */
 		fyai_emit_shell_output(mf, c->content, preview_lines);
 	} else if (c->is_str && fy_equal(c->role, "system")) {
@@ -1689,8 +1689,8 @@ static void fyai_emit_message_md(FILE *mf, struct fy_generic_builder *tgb,
 		fyai_emit_blockquote(mf, text);
 	} else if (c->has_text) {
 		fprintf(mf, "%s\n\n", text);
-	} else if (!c->has_tc && fy_generic_is_valid(c->content) &&
-		   !fy_generic_is_null_type(c->content)) {
+	} else if (!c->has_tc && fy_is_valid(c->content) &&
+		   !fy_is_null(c->content)) {
 		s = NULL;
 		(void)fy_emit(tgb, c->content,
 			FYOPEF_OUTPUT_TYPE_STRING |
@@ -1744,7 +1744,7 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 				fprintf(mf, "**💭 reasoning**\n\n");
 				fyai_emit_italic(mf, r);
 				emitted = true;
-			} else if (fy_generic_is_valid(fy_get(it, "encrypted_content"))) {
+			} else if (fy_is_valid(fy_get(it, "encrypted_content"))) {
 				fprintf(mf, "_💭 reasoning (encrypted)_\n\n");
 				emitted = true;
 			}
@@ -1788,13 +1788,13 @@ void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
 		return;
 	max_lines = preview_lines < 0 ? 0 : (size_t)preview_lines;
 	fyai_print_tool_separator(cfg);
-	if (fy_generic_is_string(content)) {
+	if (fy_is_string(content)) {
 		if (fyai_tool_result_is_error(s))
 			lang = NULL;
 		fyai_print_fenced(cfg, s, strlen(s), lang, fy_invalid,
 				  max_lines);
-	} else if (fy_generic_is_valid(content) &&
-		   !fy_generic_is_null_type(content)) {
+	} else if (fy_is_valid(content) &&
+		   !fy_is_null(content)) {
 		fyai_print_shell_output(cfg, content,
 					preview_lines < 0 ? 0 : preview_lines);
 	}
@@ -1973,7 +1973,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	start = strlen(fyai_output_markdown(ctx, NULL));
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool result output");
-	if (fy_generic_is_string(tool_result))
+	if (fy_is_string(tool_result))
 		fyai_emit_tool_result(mf, res_str, -1, lang);
 	else
 		fyai_emit_shell_output(mf, tool_result, -1);
@@ -2099,7 +2099,7 @@ static void fyai_read_map_scan(struct fyai_read_map *rm,
 	}
 
 	tc = fy_get(m, "tool_calls");
-	if (!fy_generic_is_sequence(tc))
+	if (!fy_is_sequence(tc))
 		return;
 	fy_foreach(call, tc) {
 		fn = fy_get(call, "function");
@@ -2139,7 +2139,7 @@ static char *fyai_read_result_lang(const struct fyai_read_map *rm,
 		return NULL;
 	}
 
-	if (!fy_generic_is_string(gout))
+	if (!fy_is_string(gout))
 		return NULL;
 	out = fy_castp(&gout, "");
 	if (!*out || fyai_tool_result_is_error(out))
@@ -2278,10 +2278,10 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 				return -1;
 			content = tool_results[(*tool_result_pos)++];
 			glang = fy_get(fragment, "lang");
-			lang = fy_generic_is_string(glang) ?
+			lang = fy_is_string(glang) ?
 				fy_castp(&glang, "") : NULL;
 			gtool = fy_get(fragment, "tool");
-			tool = fy_generic_is_string(gtool) ?
+			tool = fy_is_string(gtool) ?
 				fy_castp(&gtool, "") : NULL;
 			/*
 			 * Pre-tool-metadata fragments can still identify the
@@ -2289,7 +2289,7 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 			 */
 			if (!tool && lang && *lang)
 				tool = "read_file";
-			else if (!tool && !fy_generic_is_string(content))
+			else if (!tool && !fy_is_string(content))
 				tool = "shell";
 			preview_lines = fyai_tool_preview_lines(cfg, tool);
 			fyai_render_tool_result(cfg, content, lang,
@@ -2696,7 +2696,7 @@ int fyai_dump_view(struct fyai_ctx *ctx)
 	/* The anchored view dumps the full turn graph, no selection. */
 	if (args->anchors) {
 		emit_generic_to_stdout_anchored("conversation",
-			fy_generic_is_valid(ctx->last_message) ?
+			fy_is_valid(ctx->last_message) ?
 			ctx->last_message : fy_null, true, true);
 		rc = 0;
 		goto err_out;
@@ -2716,8 +2716,8 @@ int fyai_dump_view(struct fyai_ctx *ctx)
 		if (providers) {
 			ps = fy_get(stack.items[i], "provider_stream");
 
-			if (fy_generic_is_invalid(ps) ||
-			    fy_generic_is_null_type(ps))
+			if (fy_is_invalid(ps) ||
+			    fy_is_null(ps))
 				continue;
 			if (args->decorate) {
 				note = fy_sprintfa("turn %zu", i);
@@ -2865,18 +2865,18 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 	name = fyai_ctx_branch(ctx);
 	entry = ctx->branch_prev;
 
-	for (idx = 0; idx < FYAI_REFLOG_MAX && fy_generic_is_valid(entry);
+	for (idx = 0; idx < FYAI_REFLOG_MAX && fy_is_valid(entry);
 	     idx++) {
 		if (!fyai_branch_decode(entry, &b))
 			break;
 
 		/* Compare heads only when the operation was not stored. */
-		if (fy_generic_is_valid(b.op)) {
+		if (fy_is_valid(b.op)) {
 			kind = fy_castp(&b.op, "");
-		} else if (fy_generic_is_valid(b.prev)) {
+		} else if (fy_is_valid(b.prev)) {
 			kind = branch_previous_head_matches(&b) ? "config" : "turn";
 		} else {
-			kind = fy_generic_is_valid(b.head) ? "turn" : "config";
+			kind = fy_is_valid(b.head) ? "turn" : "config";
 		}
 
 		/*
@@ -2954,7 +2954,7 @@ fy_generic fyai_list_exchanges_data(struct fyai_ctx *ctx,
 		tokens = 0;
 		for (j = starts[i]; j < starts[i + 1]; j++) {
 			tp = fyai_turn_provider(stack.items[j]);
-			if (fy_generic_is_valid(tp))
+			if (fy_is_valid(tp))
 				prov = fy_castp(&tp, "");
 			meta = fyai_turn_meta(stack.items[j]);
 			api = fy_get(meta, "api", api);
@@ -3041,7 +3041,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	preview = fy_invalid;
 	turns = 0;
 
-	if (fy_generic_is_invalid(last) || fy_generic_is_null_type(last)) {
+	if (fy_is_invalid(last) || fy_is_null(last)) {
 		fprintf(stderr, "%sfyai%s interactive - new conversation. "
 			"Ctrl-G to edit in $EDITOR, Ctrl-D to exit.\n",
 			b, r);
@@ -3055,7 +3055,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	meta = fyai_turn_meta(last);
 	api = fy_get(meta, "api", "");
 	tp = fy_get(meta, "provider");
-	if (fy_generic_is_invalid(tp))
+	if (fy_is_invalid(tp))
 		tp = fyai_turn_provider(last);
 	prov = fy_castp(&tp, "");
 	eff = fy_get(meta, "reasoning_effort", "");
@@ -3068,7 +3068,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	if (*api)
 		fprintf(stderr, "  %sapi%s %s", d, r, api);
 	temp = fy_get(meta, "temperature");
-	if (fy_generic_is_valid(temp) && !fy_generic_is_null_type(temp))
+	if (fy_is_valid(temp) && !fy_is_null(temp))
 		fprintf(stderr, "  %stemp%s %g", d, r,
 			fy_cast(temp, (double)0.0));
 	if (*eff)
@@ -3089,7 +3089,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 			break;
 		}
 	}
-	if (fy_generic_is_string(preview)) {
+	if (fy_is_string(preview)) {
 		t = fy_cast(preview, "");
 		len = strcspn(t, "\n");
 		if (len > 78)

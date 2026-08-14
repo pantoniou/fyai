@@ -262,7 +262,7 @@ bool fyai_mcp_tool_name(const char *name)
 
 fy_generic fyai_mcp_tools(struct fyai_ctx *ctx)
 {
-	return fy_generic_is_valid(ctx->mcp_tools) ? ctx->mcp_tools : fy_seq_empty;
+	return fy_is_valid(ctx->mcp_tools) ? ctx->mcp_tools : fy_seq_empty;
 }
 
 static bool mcp_server_name_valid(const char *name)
@@ -283,9 +283,9 @@ static const char *mcp_server_auth_token(struct fyai_ctx *ctx,
 	fy_generic ref = fy_get(config, "auth_token", fy_invalid);
 	const char *type, *value, *token;
 
-	if (fy_generic_is_invalid(ref))
+	if (fy_is_invalid(ref))
 		return ctx->cfg->mcp_auth_token;
-	fyai_error_check(ctx, fy_generic_is_mapping(ref), err_out,
+	fyai_error_check(ctx, fy_is_mapping(ref), err_out,
 			 "MCP auth_token must be a secret indirection mapping");
 	type = fy_get(ref, "type", "");
 	if (!strcmp(type, "auto"))
@@ -308,11 +308,11 @@ static int mcp_server_auth_mode(struct fyai_ctx *ctx, fy_generic config,
 	const char *type;
 
 	auth = fy_get(config, "auth", fy_invalid);
-	if (fy_generic_is_invalid(auth)) {
+	if (fy_is_invalid(auth)) {
 		*modep = MCP_AUTH_BEARER;
 		return 0;
 	}
-	fyai_error_check(ctx, fy_generic_is_mapping(auth), err_out,
+	fyai_error_check(ctx, fy_is_mapping(auth), err_out,
 			 "MCP auth must be a mapping");
 	type = fy_get(auth, "type", "");
 	fyai_error_check(ctx, !strcmp(type, "bearer") ||
@@ -335,7 +335,7 @@ static char *mcp_oauth_secret(struct fyai_ctx *ctx, fy_generic ref)
 	size_t secret_len;
 	int rc;
 
-	fyai_error_check(ctx, fy_generic_is_mapping(ref), err_out,
+	fyai_error_check(ctx, fy_is_mapping(ref), err_out,
 			 "MCP OAuth client secret must be an indirection");
 	type = fy_get(ref, "type", "");
 	name = fy_get(ref, "value", "");
@@ -388,9 +388,9 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 	char *endp;
 
 	client = fy_get(auth, "client", fy_invalid);
-	if (fy_generic_is_invalid(client))
+	if (fy_is_invalid(client))
 		return 0;
-	fyai_error_check(ctx, fy_generic_is_mapping(client), err_out,
+	fyai_error_check(ctx, fy_is_mapping(client), err_out,
 			 "MCP OAuth client must be a mapping");
 	mcp->oauth_client_id = strdup(fy_get(client, "id", ""));
 	mcp->oauth_redirect_uri =
@@ -438,7 +438,7 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 	curl_free(port);
 	curl_url_cleanup(url);
 	secret_ref = fy_get(client, "secret", fy_invalid);
-	if (!fy_generic_is_invalid(secret_ref)) {
+	if (!fy_is_invalid(secret_ref)) {
 		mcp->oauth_client_secret =
 			mcp_oauth_secret(ctx, secret_ref);
 		fyai_error_check(ctx, mcp->oauth_client_secret, err_out,
@@ -461,7 +461,7 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 			 err_out,
 			 "MCP OAuth token authentication requires a secret");
 	scopes = fy_get(auth, "scopes", fy_invalid);
-	fyai_error_check(ctx, fy_generic_is_sequence(scopes) &&
+	fyai_error_check(ctx, fy_is_sequence(scopes) &&
 			 fy_len(scopes), err_out,
 			 "configured MCP OAuth clients require scopes");
 	emitted = fy_seq_empty;
@@ -482,7 +482,7 @@ static int mcp_oauth_configure_client(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, mcp->oauth_scopes, err_out,
 			 "could not retain MCP OAuth scopes");
 	params = fy_get(auth, "authorization_params", fy_invalid);
-	if (fy_generic_is_mapping(params)) {
+	if (fy_is_mapping(params)) {
 		mcp->oauth_access_type =
 			strdup(fy_get(params, "access_type", ""));
 		mcp->oauth_prompt = strdup(fy_get(params, "prompt", ""));
@@ -552,7 +552,7 @@ static void mcp_startup_settle(struct mcp_startup *su,
 		(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 			"event", state == MCP_SRV_READY ? "discovery" : "failed",
 			"server", mcp->name, "tools",
-			(long long)(fy_generic_is_valid(mcp->tools) ?
+			(long long)(fy_is_valid(mcp->tools) ?
 				    fy_len(mcp->tools) : 0)));
 	if (state == MCP_SRV_FAILED)
 		fyai_warning(ctx, "MCP server '%s' is unavailable", mcp->name);
@@ -748,7 +748,7 @@ static int mcp_oauth_store_load(struct fyai_mcp_ctx *mcp)
 	gb = fyai_ctx_transient_gb(mcp->ctx);
 	doc = parse_json_string(gb, text);
 	free(text);
-	if (!fy_generic_is_mapping(doc))
+	if (!fy_is_mapping(doc))
 		return -1;
 	issuer = fy_get(doc, "issuer", "");
 	if (strcmp(issuer, mcp->oauth_issuer)) {
@@ -981,7 +981,7 @@ static char *mcp_oauth_scope_param(struct fyai_mcp_ctx *mcp)
 		return strdup("");
 	gb = fyai_ctx_transient_gb(mcp->ctx);
 	scopes = parse_json_string(gb, mcp->oauth_scopes);
-	if (!fy_generic_is_sequence(scopes))
+	if (!fy_is_sequence(scopes))
 		return NULL;
 	len = 1;
 	fy_foreach(scope, scopes)
@@ -1329,7 +1329,7 @@ static void mcp_oauth_resource_complete(struct mcp_oauth_discovery *od,
 
 	mcp = od->mcp;
 	issuers = fy_get(doc, "authorization_servers", fy_invalid);
-	if (!fy_generic_is_sequence(issuers) || !fy_len(issuers)) {
+	if (!fy_is_sequence(issuers) || !fy_len(issuers)) {
 		mcp_oauth_discovery_fail(od,
 			"resource metadata has no authorization server");
 		return;
@@ -1393,7 +1393,7 @@ static void mcp_oauth_discovery_complete(
 	gb = fyai_ctx_transient_gb(mcp->ctx);
 	doc = parse_json_string(gb, od->response.data ?
 				od->response.data : "");
-	if (!fy_generic_is_mapping(doc)) {
+	if (!fy_is_mapping(doc)) {
 		mcp_oauth_discovery_fail(od, "metadata is not a JSON object");
 		return;
 	}
@@ -1831,10 +1831,10 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 	env = fy_get(config, "env", fy_invalid);
 	command = fy_get(config, "command", "");
 	cwd = fy_get(config, "cwd", "");
-	fyai_error_check(ctx, fy_generic_is_sequence(args), err_out,
+	fyai_error_check(ctx, fy_is_sequence(args), err_out,
 			 "MCP stdio server '%s' args must be a sequence", mcp->name);
-	fyai_error_check(ctx, fy_generic_is_invalid(env) ||
-			 fy_generic_is_mapping(env), err_out,
+	fyai_error_check(ctx, fy_is_invalid(env) ||
+			 fy_is_mapping(env), err_out,
 			 "MCP stdio server '%s' env must be a mapping", mcp->name);
 
 	argc = fy_len(args);
@@ -1889,7 +1889,7 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 		if (*cwd && chdir(cwd))
 			_exit(126);
 
-		if (fy_generic_is_mapping(env)) {
+		if (fy_is_mapping(env)) {
 			fy_foreach(key, env) {
 				name = fy_castp(&key, "");
 				value = fy_get(env, key, "");
@@ -1966,7 +1966,7 @@ static int mcp_create_server(struct fyai_ctx *ctx, const char *server_name,
 		mcp_server_auth_token(ctx, config);
 	fyai_error_check(ctx, !strcmp(transport, "stdio") ||
 			 auth_mode == MCP_AUTH_OAUTH ||
-			 fy_generic_is_invalid(auth_ref) || token ||
+			 fy_is_invalid(auth_ref) || token ||
 			 fy_equal(fy_get(auth_ref, "type"), "auto"), err_out,
 			 "MCP server '%s' could not resolve auth token", server_name);
 
@@ -2103,7 +2103,7 @@ void fyai_mcp_publish_tools(struct fyai_ctx *ctx)
 
 	for (mcp = ctx->mcp; mcp; mcp = mcp->next)
 		if (mcp->state == MCP_SRV_READY &&
-		    fy_generic_is_valid(mcp->tools))
+		    fy_is_valid(mcp->tools))
 			out = fy_concat(ctx->gb, out, mcp->tools);
 	ctx->mcp_tools = fy_gb_internalize(ctx->gb, out);
 }
@@ -2176,7 +2176,7 @@ int fyai_mcp_status(struct fyai_ctx *ctx)
 				"stdio" : "http",
 			"auth", oauth,
 			"tools", (long long)(
-				fy_generic_is_valid(mcp->tools) ?
+				fy_is_valid(mcp->tools) ?
 				fy_len(mcp->tools) : 0),
 			"expires", expires_in ?
 				fy_value(gb, fy_sprintfa("%llds",
@@ -2311,11 +2311,11 @@ int fyai_mcp_start(struct fyai_ctx *ctx)
 	fyai_mcp_cleanup(ctx);
 	ctx->mcp_tools = fy_invalid;
 
-	if (fy_generic_is_mapping(servers) && fy_len(servers)) {
+	if (fy_is_mapping(servers) && fy_len(servers)) {
 		fy_foreach(key, servers) {
 			name = fy_castp(&key, "");
 			config = fy_get(servers, key, fy_invalid);
-			if (!fy_generic_is_mapping(config)) {
+			if (!fy_is_mapping(config)) {
 				fyai_warning(ctx, "MCP server '%s' configuration "
 					     "is not a mapping; skipped", name);
 				continue;
@@ -2351,7 +2351,7 @@ int fyai_mcp_refresh(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
 
-	if (ctx->mcp && fy_generic_is_valid(ctx->mcp_tools)) {
+	if (ctx->mcp && fy_is_valid(ctx->mcp_tools)) {
 		if (ctx->cfg->mcp_logging)
 			(void)fyai_log_generic(ctx, "mcp", fy_mapping(
 				"event", "reuse", "tools",
@@ -2502,7 +2502,7 @@ fyai_mcp_call_submit_phase(struct fyai_mcp_call_request *request)
 	default:
 		return -1;
 	}
-	fyai_error_check(ctx, fy_generic_is_valid(params), err_out,
+	fyai_error_check(ctx, fy_is_valid(params), err_out,
 			 "MCP call parameters are invalid");
 	request->req = jsonrpc_request_submit(request->mcp->conn, method,
 					      params, id, notification,
@@ -2845,7 +2845,7 @@ fy_generic fyai_mcp_call(struct fyai_ctx *ctx, const char *name,
 	if (fyai_mcp_call_done(request))
 		result = fyai_mcp_call_collect(request, &ok);
 	fyai_mcp_call_destroy(request);
-	if (fy_generic_is_invalid(result))
+	if (fy_is_invalid(result))
 		return fy_value(ctx->transient_gb, "tool error: MCP call failed");
 	return result;
 }
