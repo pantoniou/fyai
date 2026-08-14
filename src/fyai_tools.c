@@ -2096,29 +2096,47 @@ static size_t fyai_tool_drop_interrupt(const char *s)
 }
 
 /*
+ * Report an expired native-shell limit in stderr for the next model request.
+ */
+#define FYAI_SHELL_TIMEOUT_NOTE \
+	"tool error: command timed out after %u ms; request a larger " \
+	"timeout_ms (up to %u ms) if the command needs longer"
+#define FYAI_SHELL_TIMEOUT_NOTE_NOMAX \
+	"tool error: command timed out after %u ms; request a larger " \
+	"timeout_ms if the command needs longer"
+
+/*
  * Change the outcome of a native shell result after a parent deadline.
  * The child sees group termination only as a signal and cannot identify the
  * timeout. The parent identifies the timeout and keeps all captured output.
  */
 static fy_generic fyai_shell_result_retime(struct fyai_ctx *ctx,
 					   fy_generic result,
-					   unsigned int timeout_ms)
+					   unsigned int timeout_ms,
+					   const char *note)
 {
 	fy_generic outputs = fy_seq_empty;
 	fy_generic entry, outcome;
+	fy_generic gerr;
+	const char *err;
 
 	if (!fy_is_sequence(result))
 		return result;
 	fy_foreach(entry, result) {
 		outcome = fy_get(entry, "outcome");
-		if (fy_equal(fy_get(outcome, "type"), "signal"))
+		if (fy_equal(fy_get(outcome, "type"), "signal")) {
+			gerr = fy_get(entry, "stderr");
+			err = fy_castp(&gerr, "");
 			entry = fy_mapping(
 				"stdout", fy_get(entry, "stdout", ""),
-				"stderr", fy_get(entry, "stderr", ""),
+				"stderr", fy_stringf(ctx->transient_gb,
+						     "%s%s%s", err,
+						     *err ? "\n" : "", note),
 				"outcome", fy_mapping(
 					"type", "timeout",
 					"timeout_ms",
 					(long long)timeout_ms));
+		}
 		outputs = fy_append(outputs, entry);
 	}
 	return fy_gb_internalize(ctx->transient_gb, outputs);
@@ -2128,6 +2146,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp)
 {
 	const char *reason;
+	const char *note;
 	const char *captured;
 	fy_generic result;
 	size_t keep;
@@ -2184,6 +2203,14 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		captured = job->progress.len ? job->progress.data : "";
 		reason = fy_sprintfa("tool error: timed out after %u ms",
 				     job->timeout_ms);
+		if (ctx->cfg->shell_max_timeout_ms > 0)
+			note = fy_sprintfa(FYAI_SHELL_TIMEOUT_NOTE,
+					      job->timeout_ms,
+					      (unsigned int)
+					      ctx->cfg->shell_max_timeout_ms);
+		else
+			note = fy_sprintfa(FYAI_SHELL_TIMEOUT_NOTE_NOMAX,
+					      job->timeout_ms);
 		if (!job->native_shell) {
 			assert(fy_is_string(result));
 			if (genuine)
@@ -2194,7 +2221,8 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 					   keep ? "\n" : "", reason));
 		} else if (genuine) {
 			result = fyai_shell_result_retime(ctx, result,
-							  job->timeout_ms);
+							  job->timeout_ms,
+							  note);
 		} else {
 			/*
 			 * Keep the native result shape after a timeout. The model
@@ -2203,7 +2231,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			result = fy_gb_internalize(ctx->transient_gb,
 				fy_sequence(fy_mapping(
 					"stdout", captured,
-					"stderr", "",
+					"stderr", note,
 					"outcome", fy_mapping(
 						"type", "timeout",
 						"timeout_ms",
