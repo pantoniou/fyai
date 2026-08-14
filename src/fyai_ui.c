@@ -160,8 +160,9 @@ static int ui_shell_max_rows(const struct fyai_ui *ui, const char *command)
 		ui->ctx->cfg->tool_preview_lines : 0;
 	if (!command)
 		return preview_rows + 2;
-	width = ui->ctx->cfg->render_width > 2 ?
-		(size_t)ui->ctx->cfg->render_width - 2 : 1;
+	/* Reserve the band indent and tool marker. */
+	width = ui->ctx->cfg->render_width > 2 + FYAI_TOOL_MARKER_WIDTH ?
+		(size_t)ui->ctx->cfg->render_width - 2 - FYAI_TOOL_MARKER_WIDTH : 1;
 	rows = 1;
 	column = 0;
 	for (p = (const unsigned char *)command; *p; p++) {
@@ -202,7 +203,7 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 		if (rc)
 			goto out;
 	}
-	/* Keep a multi-line command in one marked column. */
+	/* Align command continuation rows with the first row. */
 	for (start = 0, rows = 0, i = 0; i <= rendered.len; i++) {
 		if (i < rendered.len && rendered.data[i] != '\n')
 			continue;
@@ -271,6 +272,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		out.len += ui->tool_body_len;
 		out.data[out.len] = '\0';
 	}
+	response_buffer_trim(&out);
 	if (fytim_workband_set(ui->tool_band, out.data, out.len) != FYTIM_OK) {
 		goto out;
 	}
@@ -1200,6 +1202,7 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 		out.len += len;
 		out.data[out.len] = '\0';
 	}
+	response_buffer_trim(&out);
 	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
 		goto out;
 	now = fyai_event_now_ms();
@@ -1262,6 +1265,7 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 		out.len += len;
 	}
 	out.data[out.len] = '\0';
+	response_buffer_trim(&out);
 	(void)fytim_workband_set_max_rows(band,
 					 ui_shell_max_rows(ui, command));
 	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)

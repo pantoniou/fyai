@@ -75,6 +75,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "
+/* Display columns of both, for the layout that has to reserve them. */
+#define FYAI_TOOL_MARKER_WIDTH 3
 /* Default separators (markdown, themed by the renderer). The turn break is a
  * thematic-break rule; tool/section separators are empty (blank line only). */
 #define DEFAULT_TURN_SEPARATOR "---"
