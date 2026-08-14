@@ -27,6 +27,10 @@ assert_request 1 'any(i.get("type") == "shell_call_output" and i.get("call_id") 
 # carries one, so the limit that expired stays out of the wire item.
 assert_request 1 'any(o["outcome"] == {"type": "timeout"} for i in r["body"]["input"] if i.get("type") == "shell_call_output" for o in i["output"])'
 
+# The outcome cannot carry the limit, so the result says it in stderr: a model
+# that guessed a small limit repeats the guess unless it is told what happened.
+assert_request 1 'any("timed out after 1500 ms" in o.get("stderr", "") and "600000" in o.get("stderr", "") for i in r["body"]["input"] if i.get("type") == "shell_call_output" for o in i["output"])'
+
 # The stored result keeps it: that is where the report of the limit comes from.
 "$FYAI_BIN" --color off dump state >"$TEST_DIR/state.out" 2>&1 ||
 	fail "dump state failed"
