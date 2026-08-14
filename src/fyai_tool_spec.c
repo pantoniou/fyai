@@ -42,7 +42,6 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 	fy_generic personas, key, val, props, prop, params, fn;
 	const char *list = "";
 	const char *desc;
-	size_t i, n;
 
 	personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"), "personas",
 			  fy_invalid);
@@ -112,7 +111,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 		fy_foreach(tool, tools) {
 			fn = fy_get(tool, "function");
 			name = fy_get(fn, "name");
-			if (fy_equal(name, "agent") || fy_equal(name, "ask_user"))
+			if (fy_any_equal(name, "agent", "ask_user"))
 				continue;
 			out = fy_append(gb, out, tool);
 		}

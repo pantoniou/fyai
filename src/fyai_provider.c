@@ -102,8 +102,7 @@ fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 		output = fy_get(response_doc, "output");
 		fy_foreach(item, output) {
 			type = fy_get(item, "type");
-			if (fy_equal(type, "function_call") ||
-			    fy_equal(type, "shell_call"))
+			if (fyai_item_type_is_call(type))
 				tool_calls = fy_append(tool_calls, item);
 		}
 		break;
@@ -600,8 +599,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 
 		m = i < count ? fy_get(messages, i) : fy_invalid;
 		type = i < count ? fy_get(m, "type") : fy_invalid;
-		is_call = fy_equal(type, "function_call") ||
-			  fy_equal(type, "shell_call");
+		is_call = fyai_item_type_is_call(type);
 
 		if (fy_is_valid(pending) && !is_call) {
 			tmp = fy_mapping("role", "assistant",
@@ -639,8 +637,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 			continue;
 		}
 
-		if (fy_equal(type, "function_call_output") ||
-		    fy_equal(type, "shell_call_output")) {
+		if (fyai_item_type_is_call_output(type)) {
 			tmp = fy_mapping("role", "tool",
 					 "tool_call_id", fy_get(m, "call_id", ""),
 					 "content", fy_get(m, "output", ""));
@@ -755,8 +752,7 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 
 		/* Native output items -> user tool_result. */
-		if (fy_equal(type, "function_call_output") ||
-		    fy_equal(type, "shell_call_output")) {
+		if (fyai_item_type_is_call_output(type)) {
 			output = fy_get(m, "output");
 			if (!fy_is_string(output)) {
 				text = emit_json_string(gb, output);

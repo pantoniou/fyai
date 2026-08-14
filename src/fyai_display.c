@@ -118,10 +118,9 @@ static fy_generic fyai_export_role(fy_generic message)
 	type = fy_get(message, "type", fy_invalid);
 	if (fy_equal(type, "message"))
 		return fy_value("assistant");
-	if (fy_equal(type, "function_call") || fy_equal(type, "shell_call"))
+	if (fyai_item_type_is_call(type))
 		return fy_value("tool_call");
-	if (fy_equal(type, "function_call_output") ||
-	    fy_equal(type, "shell_call_output"))
+	if (fyai_item_type_is_call_output(type))
 		return fy_value("tool_result");
 	return fy_value("item");
 }
@@ -216,8 +215,7 @@ static fy_generic fyai_export_result_id(fy_generic message)
 	fy_generic type;
 
 	type = fy_get(message, "type", fy_invalid);
-	if (fy_equal(type, "function_call_output") ||
-	    fy_equal(type, "shell_call_output"))
+	if (fyai_item_type_is_call_output(type))
 		return fy_get(message, "call_id");
 	if (fy_equal(fy_get(message, "role", fy_invalid), "tool"))
 		return fy_get(message, "tool_call_id");
@@ -1335,10 +1333,8 @@ static struct fyai_msg_class fyai_classify_message(fy_generic m)
 	 * Responses-produced history the same as a Chat-produced one.
 	 */
 	if (*type) {
-		is_call = fy_equal(c.type, "function_call") ||
-			  fy_equal(c.type, "shell_call");
-		is_out = fy_equal(c.type, "function_call_output") ||
-			 fy_equal(c.type, "shell_call_output");
+		is_call = fyai_item_type_is_call(c.type);
+		is_out = fyai_item_type_is_call_output(c.type);
 		is_msg = fy_equal(c.type, "message");
 
 		c.is_native = true;
@@ -1621,8 +1617,7 @@ static void fyai_emit_native_item(FILE *mf, struct fy_generic_builder *tgb,
 				    preview_lines);
 		return;
 	}
-	if (fy_equal(c->type, "function_call_output") ||
-	    fy_equal(c->type, "shell_call_output")) {
+	if (fyai_item_type_is_call_output(c->type)) {
 		out = fy_get(m, "output");
 		if (fy_is_string(out))
 			fyai_emit_tool_result(mf, fy_castp(&out, ""),
@@ -2790,10 +2785,9 @@ fy_generic fyai_list_turns_data(struct fyai_ctx *ctx,
 		role = fy_get(m0, "role", "");
 		if (!*role) {
 			type = fy_get(m0, "type");
-			if (fy_equal(type, "function_call") || fy_equal(type, "shell_call"))
+			if (fyai_item_type_is_call(type))
 				role = "assistant";
-			else if (fy_equal(type, "function_call_output") ||
-				 fy_equal(type, "shell_call_output"))
+			else if (fyai_item_type_is_call_output(type))
 				role = "tool";
 			else if (fy_equal(type, "message"))
 				role = "assistant";

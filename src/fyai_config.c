@@ -374,7 +374,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	}
 
 	v = fy_get(root, "api");
-	if (fy_equal(v, "chat-completions") || fy_equal(v, "chat"))
+	if (fy_any_equal(v, "chat-completions", "chat"))
 		cfg->api_mode = FYAI_API_CHAT_COMPLETIONS;
 	else if (fy_equal(v, "responses"))
 		cfg->api_mode = FYAI_API_RESPONSES;
@@ -1397,8 +1397,7 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 		goto out;
 	v = fy_get(doc, "api_key");
 	if (fy_is_mapping(v) &&
-	    (fy_equal(fy_get(v, "type"), "env") ||
-	     fy_equal(fy_get(v, "type"), "secret")) &&
+	    fy_any_equal(fy_get(v, "type"), "env", "secret") &&
 	    !*fy_get(v, "value", ""))
 		problems = config_problem_add(cfg->gb, problems,
 				"%s: api_key.value is required for type %s", origin,

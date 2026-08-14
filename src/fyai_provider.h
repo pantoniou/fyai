@@ -4,6 +4,21 @@
 
 #include "fyai.h"
 
+/*
+ * Canonical item types. A tool call is a function call or a native shell
+ * call; each has its own output type. Keep both tests here so a new call
+ * type is one change.
+ */
+static inline bool fyai_item_type_is_call(fy_generic type)
+{
+	return fy_any_equal(type, "function_call", "shell_call");
+}
+
+static inline bool fyai_item_type_is_call_output(fy_generic type)
+{
+	return fy_any_equal(type, "function_call_output", "shell_call_output");
+}
+
 fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc);
 fy_generic fyai_token_extents_append(struct fy_generic_builder *gb,
 				     fy_generic extents, fy_generic entries,

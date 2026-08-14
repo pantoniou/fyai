@@ -929,8 +929,8 @@ static int responses_stream_apply_event(struct stream_response *stream,
 
 	type = fy_get(event, "type");
 
-	if (fy_equal(type, "response.reasoning_summary_text.delta") ||
-	    fy_equal(type, "response.reasoning_text.delta")) {
+	if (fy_any_equal(type, "response.reasoning_summary_text.delta",
+			 "response.reasoning_text.delta")) {
 		stream_write_reasoning(stream, fy_get(event, "delta", ""));
 		return 0;
 	}
@@ -985,9 +985,8 @@ static int responses_stream_apply_event(struct stream_response *stream,
 	 * max_output_tokens). Report it - dropping it leaves the engine with
 	 * nothing but a bare "request failed".
 	 */
-	if (fy_equal(type, "response.failed") ||
-	    fy_equal(type, "response.incomplete") ||
-	    fy_equal(type, "error")) {
+	if (fy_any_equal(type, "response.failed", "response.incomplete",
+			 "error")) {
 		stream_report_failure(stream, type, event);
 		stream->failed = true;
 		return -1;

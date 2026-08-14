@@ -191,8 +191,7 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 
 static bool fyai_is_tool_marked(const char *name)
 {
-	return fy_equal(name, "shell") || fy_equal(name, "agent") ||
-		fy_equal(name, "read_file") || fy_equal(name, "write_file");
+	return fy_any_equal(name, "shell", "agent", "read_file", "write_file");
 }
 
 static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,

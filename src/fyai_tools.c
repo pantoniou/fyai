@@ -294,7 +294,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		}
 		ctx->tool_output_displayed = true;
 	} else if (cfg->markdown && fyai_ui_active(ctx) &&
-		   (fy_equal(name, "read_file") || fy_equal(name, "write_file"))) {
+		   fy_any_equal(name, "read_file", "write_file")) {
 		args = fyai_tool_call_args(ctx, tool_call);
 		header = fyai_format_tool_header(ctx, name, args,
 				fyai_tool_preview_lines(ctx->cfg, name));
@@ -1635,7 +1635,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 	job->call = tool_call;
 	job->native_shell = native_call;
-	if ((fy_equal(name, "shell") || fy_equal(name, "agent")) &&
+	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
 			job->agent = true;
