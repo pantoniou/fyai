@@ -186,11 +186,12 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 {
 	struct response_buffer rendered = {};
 	size_t start;
+	size_t rows;
 	size_t i;
 	int rc;
 
 	rc = fyai_render_fenced_buffer(cfg, command, strlen(command), "sh",
-				       &rendered);
+				       &rendered, 0);
 	if (rc)
 		goto out;
 	while (rendered.len && (rendered.data[rendered.len - 1] == '\n' ||
@@ -201,10 +202,15 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 		if (rc)
 			goto out;
 	}
-	for (start = 0, i = 0; i <= rendered.len; i++) {
+	/* Keep a multi-line command in one marked column. */
+	for (start = 0, rows = 0, i = 0; i <= rendered.len; i++) {
 		if (i < rendered.len && rendered.data[i] != '\n')
 			continue;
 		rc = response_buffer_append(out, "  ");
+		if (rc)
+			goto out;
+		rc = response_buffer_append(out, rows ? FYAI_TOOL_MARKER_PAD :
+						       FYAI_TOOL_MARKER);
 		if (rc)
 			goto out;
 		rc = response_buffer_reserve(out, out->len + i - start + 1);
@@ -217,6 +223,7 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 		if (rc)
 			goto out;
 		start = i + 1;
+		rows++;
 	}
 out:
 	free(rendered.data);

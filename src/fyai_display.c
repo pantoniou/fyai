@@ -1861,7 +1861,9 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 	if (render_call)
 		fyai_emit_tool_call(mf, tgb, name, args, preview_lines);
 	fclose(mf);
-	if (md && *md && fyai_print_markdown(md, ctx->cfg))
+	/* Mark only shell command blocks. */
+	if (!fy_str_empty(md) && fyai_print_markdown_flags(md, ctx->cfg,
+			fy_equal(name, "shell") ? FYMD_RF_CODE_MARKER : 0))
 		fputs(md, stdout);
 	free(md);
 

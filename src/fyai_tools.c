@@ -249,7 +249,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		if (fyai_ui_active(ctx)) {
 			fyai_ui_tool_begin(ctx, header ? header : "agent");
 		} else if (header) {
-			if (fyai_fprint_markdown(stderr, header, ctx->cfg))
+			if (fyai_fprint_markdown(stderr, header, ctx->cfg, 0))
 				fputs(header, stderr);
 		} else {
 			fprintf(stderr, "  agent %s\n",
@@ -274,7 +274,9 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 			fyai_ui_shell_begin(ctx, header ? header : "shell",
 					    *command ? command : name);
 		} else if (header) {
-			if (fyai_fprint_markdown(stderr, header, ctx->cfg))
+			/* Same marked command shape as the terminal UI band. */
+			if (fyai_fprint_markdown(stderr, header, ctx->cfg,
+						 FYMD_RF_CODE_MARKER))
 				fputs(header, stderr);
 		} else {
 			fprintf(stderr, "  shell %s\n",

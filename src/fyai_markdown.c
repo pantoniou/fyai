@@ -418,7 +418,7 @@ int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 }
 
 static int markdown_fprint(FILE *fp, const char *text, struct fyai_cfg *cfg,
-			   size_t max_lines)
+			   size_t max_lines, enum fymd_cfg_flags extra)
 {
 	struct response_buffer out = {0};
 	bool color;
@@ -430,7 +430,7 @@ static int markdown_fprint(FILE *fp, const char *text, struct fyai_cfg *cfg,
 	color = markdown_color_enabled(cfg->color);
 	fflush(fp);
 	rc = markdown_render_flags(cfg, text, strlen(text), &out, color,
-				   cfg->theme_variant, 0, max_lines);
+				   cfg->theme_variant, extra, max_lines);
 	end = out.len;
 	if (rc) {
 		/* Fallback: raw input was appended, emit it untouched. */
@@ -462,17 +462,24 @@ static int markdown_fprint(FILE *fp, const char *text, struct fyai_cfg *cfg,
 int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
 				size_t max_lines)
 {
-	return markdown_fprint(stdout, text, cfg, max_lines);
+	return markdown_fprint(stdout, text, cfg, max_lines, 0);
 }
 
 int fyai_print_markdown(const char *text, struct fyai_cfg *cfg)
 {
-	return markdown_fprint(stdout, text, cfg, 0);
+	return markdown_fprint(stdout, text, cfg, 0, 0);
 }
 
-int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg)
+int fyai_print_markdown_flags(const char *text, struct fyai_cfg *cfg,
+			      enum fymd_cfg_flags extra)
 {
-	return markdown_fprint(fp, text, cfg, 0);
+	return markdown_fprint(stdout, text, cfg, 0, extra);
+}
+
+int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg,
+			 enum fymd_cfg_flags extra)
+{
+	return markdown_fprint(fp, text, cfg, 0, extra);
 }
 
 /*
@@ -490,7 +497,8 @@ int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg)
 static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 				  size_t len, const char *lang,
 				  fy_generic template_vars, size_t max_lines,
-				  struct response_buffer *out, bool color)
+				  struct response_buffer *out, bool color,
+				  enum fymd_cfg_flags extra)
 {
 	struct fymd_fenced_block_opts opts;
 	struct fymd_renderer_cfg cfg;
@@ -502,7 +510,7 @@ static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 	before = out->len;
 	s = NULL;
 
-	markdown_renderer_cfg(fcfg, &cfg, color, fcfg->theme_variant, 0);
+	markdown_renderer_cfg(fcfg, &cfg, color, fcfg->theme_variant, extra);
 	r = fymd_renderer_create(&cfg);
 	if (!r)
 		goto raw;
@@ -547,10 +555,12 @@ raw:
 
 int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
 			      size_t len, const char *lang,
-			      struct response_buffer *out)
+			      struct response_buffer *out,
+			      enum fymd_cfg_flags extra)
 {
 	return markdown_render_fenced(cfg, text, len, lang, fy_invalid, 0, out,
-				      markdown_color_enabled(cfg->color));
+				      markdown_color_enabled(cfg->color),
+				      extra);
 }
 
 void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
@@ -591,7 +601,7 @@ int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 	color = markdown_color_enabled(cfg->color);
 	fflush(stdout);
 	rc = markdown_render_fenced(cfg, text, len, lang, template_vars,
-				    max_lines, &out, color);
+				    max_lines, &out, color, 0);
 	end = out.len;
 	if (rc) {
 		if (out.len)

@@ -81,9 +81,12 @@ int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme);
 int fyai_print_markdown(const char *text, struct fyai_cfg *cfg);
-/* Like fyai_print_markdown(), but render to @fp (e.g. stderr for live tool
- * headers) instead of stdout. */
-int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg);
+/* Apply @extra renderer flags to this render. */
+int fyai_print_markdown_flags(const char *text, struct fyai_cfg *cfg,
+			      enum fymd_cfg_flags extra);
+/* Render to @fp with @extra renderer flags. */
+int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg,
+			 enum fymd_cfg_flags extra);
 /*
  * Like fyai_print_markdown(), but bound the rendered view to @max_lines terminal
  * rows (head + omission separator + tail), counted after wrapping/layout. A zero
@@ -102,9 +105,12 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
 int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines);
+/* @extra adds renderer flags for this render only, such as
+ * FYMD_RF_CODE_MARKER for the marked (hanging-indent) fenced-block shape. */
 int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
 			      size_t len, const char *lang,
-			      struct response_buffer *out);
+			      struct response_buffer *out,
+			      enum fymd_cfg_flags extra);
 /*
  * Write @data/@len to @fp with each non-empty line prefixed by the @ind indent
  * string. Used to manually decorate raw fenced tool output with a uniform
