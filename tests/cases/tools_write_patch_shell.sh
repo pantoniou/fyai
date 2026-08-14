@@ -12,9 +12,9 @@ run_fyai --set display/markdown=true --set api=chat-completions --set display/st
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "do the three things"
 assert_status 0
 assert_stdout_contains "All three tools executed."
-# The shell command is in a fenced block below the label.
+# The shell command is in a marked fenced block below the label.
 assert_stderr_contains "  shell"
-assert_stderr_contains "    echo shell-ran-ok"
+assert_stderr_contains "⎿  echo shell-ran-ok"
 assert_stderr_contains "shell-ran-ok"
 
 assert_file_content out.txt "written by mock"
