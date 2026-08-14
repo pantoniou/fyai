@@ -478,9 +478,7 @@ static fy_generic collect_env_refs(struct fy_generic_builder *gb,
 {
 	enum fy_generic_type t;
 	const char *name;
-	fy_generic item;
-	size_t i;
-	size_t n;
+	fy_generic item, key, val;
 
 	t = fy_generic_get_type(v);
 
@@ -490,10 +488,8 @@ static fy_generic collect_env_refs(struct fy_generic_builder *gb,
 			if (*name)
 				acc = fy_append(gb, acc, name);
 		}
-		n = fy_generic_mapping_get_pair_count(v);
-		for (i = 0; i < n; i++)
-			acc = collect_env_refs(gb,
-				fy_generic_mapping_get_at_value(v, i), acc);
+		fy_foreach_key_value(key, val, v)
+			acc = collect_env_refs(gb, val, acc);
 	} else if (t == FYGT_SEQUENCE) {
 		fy_foreach(item, v)
 			acc = collect_env_refs(gb, item, acc);
@@ -831,7 +827,6 @@ static fy_generic config_merge(struct fy_generic_builder *gb,
 			       fy_generic base, fy_generic over)
 {
 	fy_generic key, val, bval, out;
-	size_t i, n;
 
 	if (fy_is_invalid(over))
 		return base;
@@ -840,10 +835,7 @@ static fy_generic config_merge(struct fy_generic_builder *gb,
 		return over;
 
 	out = base;
-	n = fy_generic_mapping_get_pair_count(over);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(over, i);
-		val = fy_generic_mapping_get_at_value(over, i);
+	fy_foreach_key_value(key, val, over) {
 		bval = fy_get(out, key, fy_invalid);
 		if (fy_is_mapping(bval) && fy_is_mapping(val))
 			val = config_merge(gb, bval, val);

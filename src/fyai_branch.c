@@ -549,23 +549,19 @@ static fy_generic branch_list_data(struct fyai_ctx *ctx, const char *under,
 	struct fyai_branch b;
 	fy_generic out, name, entry;
 	const char *nm, *active;
-	size_t i, count;
 
 	out = fy_seq_empty;
 	active = fyai_ctx_branch(ctx);
 	if (!fy_is_mapping(ctx->arena_branches))
 		return out;
 
-	count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
-	for (i = 0; i < count; i++) {
-		name = fy_get_key_at(ctx->arena_branches, i);
+	fy_foreach_key_value(name, entry, ctx->arena_branches) {
 		/* Short strings require the address of the stored generic. */
 		nm = fy_castp(&name, "");
-		if (!nm || !*nm)
+		if (fy_str_empty(nm))
 			continue;
 		if (under && !fyai_branch_is_below(nm, under))
 			continue;
-		entry = fy_get_at(ctx->arena_branches, i);
 		if (!fyai_branch_decode(entry, &b))
 			continue;
 		if (!all && fy_is_valid(b.agent))
@@ -723,9 +719,9 @@ err_out:
 int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 {
 	struct fyai_branch b;
-	fy_generic branches, key, entry;
+	fy_generic branches, entry;
 	const char *nm, *newname;
-	size_t i, count, plen;
+	size_t plen;
 	bool found;
 	int rc;
 
@@ -739,11 +735,8 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 
 	/* Children move to the deleted branch's parent, or to the empty root. */
 	plen = branch_parent_len(name);
-	count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
-	for (i = 0; i < count; i++) {
-		key = fy_get_key_at(ctx->arena_branches, i);
-		nm = fy_castp(&key, "");
-		if (!nm || !*nm || !strcmp(nm, name) ||
+	fy_foreach(nm, ctx->arena_branches) {
+		if (fy_str_empty(nm) || !strcmp(nm, name) ||
 		    !fyai_branch_is_below(nm, name))
 			continue;
 		newname = plen ?
@@ -757,12 +750,9 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 	}
 
 	branches = ctx->arena_branches;
-	for (i = 0; i < count; i++) {
-		key = fy_get_key_at(ctx->arena_branches, i);
-		nm = fy_castp(&key, "");
-		if (!nm || !*nm || !fyai_branch_is_below(nm, name))
+	fy_foreach_key_value(nm, entry, ctx->arena_branches) {
+		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, name))
 			continue;
-		entry = fy_get_at(ctx->arena_branches, i);
 		branches = fyai_branches_set(ctx->gb, branches, nm, fy_invalid);
 		if (!strcmp(nm, name))
 			continue;
@@ -809,10 +799,9 @@ err_out:
 int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 {
 	struct fyai_branch b;
-	fy_generic branches, key, entry;
+	fy_generic branches, entry;
 	char newname[512];
 	const char *nm;
-	size_t i, count;
 	bool found, renamed_current;
 	int rc;
 
@@ -825,11 +814,8 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 			 "branch '%s' already exists", to);
 
 	/* Check every renamed child before changing the mapping. */
-	count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
-	for (i = 0; i < count; i++) {
-		key = fy_get_key_at(ctx->arena_branches, i);
-		nm = fy_castp(&key, "");
-		if (!nm || !*nm || !fyai_branch_is_below(nm, from))
+	fy_foreach(nm, ctx->arena_branches) {
+		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, from))
 			continue;
 		if (snprintf(newname, sizeof(newname), "%s%s", to,
 			     nm + strlen(from)) >= (int)sizeof(newname)) {
@@ -843,14 +829,11 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 
 	branches = ctx->arena_branches;
 	renamed_current = false;
-	for (i = 0; i < count; i++) {
-		key = fy_get_key_at(ctx->arena_branches, i);
-		nm = fy_castp(&key, "");
-		if (!nm || !*nm || !fyai_branch_is_below(nm, from))
+	fy_foreach_key_value(nm, entry, ctx->arena_branches) {
+		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, from))
 			continue;
 		snprintf(newname, sizeof(newname), "%s%s", to,
 			 nm + strlen(from));
-		entry = fy_get_at(ctx->arena_branches, i);
 		/* Record the previous name in the branch ref log. */
 		if (strcmp(nm, fyai_ctx_branch(ctx))) {
 			fyai_branch_decode(entry, &b);

@@ -1111,9 +1111,8 @@ static void branch_publish_test_delay(void)
 static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 				       fy_generic desired, fy_generic latest)
 {
-	fy_generic key, before, after, now;
+	fy_generic before, after, now;
 	const char *name;
-	size_t i, count;
 
 	if (!fy_is_mapping(base))
 		base = fy_map_empty;
@@ -1123,14 +1122,10 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 		latest = fy_map_empty;
 
 	/* Changed or added keys. */
-	count = fy_generic_mapping_get_pair_count(desired);
-	for (i = 0; i < count; i++) {
-		key = fy_get_key_at(desired, i);
-		name = fy_castp(&key, "");
-		if (!name || !*name)
+	fy_foreach_key_value(name, after, desired) {
+		if (fy_str_empty(name))
 			continue;
 		before = fy_get(base, name);
-		after = fy_get_at(desired, i);
 		if (generic_same(before, after))
 			continue;
 		now = fy_get(latest, name);
@@ -1142,13 +1137,9 @@ static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 	}
 
 	/* Removed keys. */
-	count = fy_generic_mapping_get_pair_count(base);
-	for (i = 0; i < count; i++) {
-		key = fy_get_key_at(base, i);
-		name = fy_castp(&key, "");
-		if (!name || !*name || fy_is_valid(fy_get(desired, name)))
+	fy_foreach_key_value(name, before, base) {
+		if (fy_str_empty(name) || fy_is_valid(fy_get(desired, name)))
 			continue;
-		before = fy_get_at(base, i);
 		now = fy_get(latest, name);
 		if (!generic_same(now, before))
 			goto err_concurrent_change;

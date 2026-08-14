@@ -383,7 +383,6 @@ static void catalog_agent_tools_markdown(FILE *mf, struct fy_generic_builder *gb
 {
 	fy_generic tools, key, tool, desc, schema;
 	const char *name;
-	size_t i, n;
 
 	if (full)
 		catalog_full_heading(mf, fy_cast(fy_get(agent, "name", ""), ""));
@@ -399,10 +398,7 @@ static void catalog_agent_tools_markdown(FILE *mf, struct fy_generic_builder *gb
 		fprintf(mf, "\n_no tools_\n");
 		return;
 	}
-	n = fy_generic_mapping_get_pair_count(tools);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(tools, i);
-		tool = fy_generic_mapping_get_at_value(tools, i);
+	fy_foreach_key_value(key, tool, tools) {
 		name = fy_castp(&key, "");
 		desc = fy_get(tool, "description");
 		schema = fy_get(tool, "schema");

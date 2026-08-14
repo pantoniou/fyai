@@ -48,10 +48,7 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 			  fy_invalid);
 	if (!fy_is_mapping(personas))
 		return tool;
-	n = fy_generic_mapping_get_pair_count(personas);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(personas, i);
-		val = fy_generic_mapping_get_at_value(personas, i);
+	fy_foreach_key_value(key, val, personas) {
 		desc = fy_get(val, "description", "");
 		list = fy_sprintfa("%s\n- `%s`%s%s", list,
 				   fy_castp(&key, "?"),

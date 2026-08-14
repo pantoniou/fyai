@@ -273,7 +273,7 @@ static struct render_col *render_cols_collect(fy_generic data,
 {
 	fy_generic keys, columns, row, key, sample;
 	struct render_col *cols, *ncols_mem;
-	size_t ncols, alloc, i, j, n;
+	size_t ncols, alloc, i, j;
 	bool seen;
 
 	cols = NULL;
@@ -285,9 +285,7 @@ static struct render_col *render_cols_collect(fy_generic data,
 	fy_foreach(row, data) {
 		if (!fy_is_mapping(row))
 			continue;
-		n = fy_generic_mapping_get_pair_count(row);
-		for (i = 0; i < n; i++) {
-			key = fy_generic_mapping_get_at_key(row, i);
+		fy_foreach_key_value(key, sample, row) {
 			if (!fy_is_string(key))
 				continue;
 			if (fy_is_sequence(keys) &&
@@ -309,7 +307,6 @@ static struct render_col *render_cols_collect(fy_generic data,
 				cols = ncols_mem;
 			}
 			cols[ncols].key = key;
-			sample = fy_generic_mapping_get_at_value(row, i);
 			render_col_setup(&cols[ncols], columns, sample);
 			ncols++;
 		}
@@ -393,7 +390,7 @@ static void render_kv_table(FILE *fp, fy_generic data, fy_generic renderopts)
 	struct render_col col;
 	fy_generic columns, key, v;
 	const char *empty;
-	size_t i, n;
+	size_t n;
 
 	n = fy_generic_mapping_get_pair_count(data);
 	if (!n) {
@@ -405,11 +402,9 @@ static void render_kv_table(FILE *fp, fy_generic data, fy_generic renderopts)
 	fprintf(fp, "| %s | %s |\n|---|---|\n",
 		fy_get(renderopts, "key_header", "Metric"),
 		fy_get(renderopts, "value_header", "Value"));
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(data, i);
+	fy_foreach_key_value(key, v, data) {
 		if (!fy_is_string(key))
 			continue;
-		v = fy_generic_mapping_get_at_value(data, i);
 		col.key = key;
 		render_col_setup(&col, columns, v);
 		fprintf(fp, "| %s | ", col.name);

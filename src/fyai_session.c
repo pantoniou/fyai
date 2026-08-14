@@ -2494,17 +2494,12 @@ static void session_complete_branch(struct fyai_ctx *ctx,
 	static const char *const values[] = {
 		"list", "new", "delete", "rename", "show", "describe", NULL,
 	};
-	fy_generic name;
 	const char *s;
-	size_t i, count;
 
 	session_complete_values(lc, cmd, cmdlen, word, values);
 	/* Existing branch names make switching one tab away. */
-	count = fy_generic_mapping_get_pair_count(ctx->arena_branches);
-	for (i = 0; i < count; i++) {
-		name = fy_get_key_at(ctx->arena_branches, i);
-		s = fy_castp(&name, "");
-		if (*s)
+	fy_foreach(s, ctx->arena_branches) {
+		if (!fy_str_empty(s))
 			session_complete_value(lc, cmd, cmdlen, word, s);
 	}
 }

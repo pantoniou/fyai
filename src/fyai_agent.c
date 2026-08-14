@@ -73,16 +73,14 @@ static char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 	fy_generic personas, key;
 	const char *name;
 	char *next, *out;
-	size_t i, n, len, name_len;
+	size_t len, name_len;
 
 	personas = fyai_agent_personas(ctx);
 	if (!fy_is_mapping(personas))
 		return strdup("none configured");
 	out = NULL;
 	len = 0;
-	n = fy_generic_mapping_get_pair_count(personas);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(personas, i);
+	fy_foreach(key, personas) {
 		name = fy_castp(&key, "?");
 		name_len = strlen(name);
 		next = realloc(out, len + (len ? 2 : 0) + name_len + 1);

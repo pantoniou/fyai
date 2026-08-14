@@ -175,14 +175,10 @@ static fy_generic fyai_import_apply_update(struct fyai_import *im,
 {
 	fy_generic key;
 	fy_generic val;
-	size_t i, n;
 
 	if (fy_is_invalid(config))
 		config = fy_gb_mapping(im->gb);
-	n = fy_generic_mapping_get_pair_count(update);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(update, i);
-		val = fy_generic_mapping_get_at_value(update, i);
+	fy_foreach_key_value(key, val, update) {
 		if (!fy_is_string(key))
 			continue;
 		if (fy_is_null(val))

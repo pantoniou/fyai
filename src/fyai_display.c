@@ -305,17 +305,13 @@ static fy_generic fyai_export_config_flatten(struct fy_generic_builder *gb,
 	char path[512];
 	fy_generic key;
 	fy_generic val;
-	size_t i, n;
 
-	n = fy_generic_mapping_get_pair_count(value);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(value, i);
-		val = fy_generic_mapping_get_at_value(value, i);
+	fy_foreach_key_value(key, val, value) {
 		if (!fy_is_string(key))
 			continue;
 		snprintf(path, sizeof(path), "%s%s%s", prefix, *prefix ? "/" : "",
 			 fy_castp(&key, ""));
-		if (fy_generic_mapping_get_pair_count(val))
+		if (fy_is_mapping(val) && !fy_empty(val))
 			out = fyai_export_config_flatten(gb, path, val, out);
 		else
 			out = fy_assoc(gb, out, path, val);
@@ -332,21 +328,15 @@ static fy_generic fyai_export_config_delta(struct fy_generic_builder *gb,
 	fy_generic delta;
 	fy_generic key;
 	fy_generic val;
-	size_t i, n;
 
 	old_flat = fyai_export_config_flatten(gb, "", previous, fy_map_empty);
 	new_flat = fyai_export_config_flatten(gb, "", config, fy_map_empty);
 	delta = fy_map_empty;
-	n = fy_generic_mapping_get_pair_count(new_flat);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(new_flat, i);
-		val = fy_generic_mapping_get_at_value(new_flat, i);
+	fy_foreach_key_value(key, val, new_flat) {
 		if (!fy_equal(fy_get(old_flat, key, fy_invalid), val))
 			delta = fy_assoc(gb, delta, key, val);
 	}
-	n = fy_generic_mapping_get_pair_count(old_flat);
-	for (i = 0; i < n; i++) {
-		key = fy_generic_mapping_get_at_key(old_flat, i);
+	fy_foreach(key, old_flat) {
 		if (fy_is_invalid(fy_get(new_flat, key, fy_invalid)))
 			delta = fy_assoc(gb, delta, key, fy_null);
 	}

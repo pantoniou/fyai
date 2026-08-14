@@ -426,9 +426,9 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 	static const char * const schema_sequences[] = {
 		"prefixItems", "allOf", "anyOf", "oneOf",
 	};
-	fy_generic child, collection, key;
+	fy_generic child, collection, key, elem;
 	char *cpath, *epath;
-	size_t i, j, n;
+	size_t i, j;
 
 	if (fy_generic_is_bool(schema) || fy_is_invalid(schema))
 		return problems;
@@ -474,8 +474,7 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 		collection = fy_get(schema, schema_sequences[i]);
 		if (!fy_is_sequence(collection))
 			continue;
-		n = fy_len(collection);
-		for (j = 0; j < n; j++) {
+		fy_foreach_idx_item(j, elem, collection) {
 			cpath = schema_path_join(path, schema_sequences[i]);
 			if (!cpath)
 				continue;
@@ -483,8 +482,8 @@ static fy_generic schema_check_supported(struct fy_generic_builder *gb,
 			free(cpath);
 			if (!epath)
 				continue;
-			problems = schema_check_supported(gb,
-				fy_get_at(collection, j), epath, problems, depth + 1);
+			problems = schema_check_supported(gb, elem, epath,
+							  problems, depth + 1);
 			free(epath);
 		}
 	}
@@ -806,7 +805,7 @@ static fy_generic schema_validate_object(struct fy_generic_builder *gb,
 	fy_generic v;
 	size_t n, limit;
 
-	n = fy_generic_mapping_get_pair_count(instance);
+	n = fy_len(instance);
 	v = fy_get(schema, "minProperties");
 	if (schema_nonnegative_size(v, &limit) && n < limit)
 		problems = schema_problem_add(gb, problems,
@@ -942,17 +941,16 @@ static fy_generic schema_validate_contains(struct fy_generic_builder *gb,
 					   fy_generic instance, const char *path,
 					   fy_generic problems, unsigned int depth)
 {
-	fy_generic contains, v, rep;
-	size_t i, n, limit, contains_count;
+	fy_generic contains, v, rep, elem;
+	size_t limit, contains_count;
 
 	contains = fy_get(schema, "contains");
 	if (!fy_is_mapping(contains) && !fy_generic_is_bool(contains))
 		return problems;
 	contains_count = 0;
-	n = fy_len(instance);
-	for (i = 0; i < n; i++) {
-		rep = schema_validate(gb, root, contains, fy_get_at(instance, i),
-			path, fy_seq_empty, depth + 1);
+	fy_foreach(elem, instance) {
+		rep = schema_validate(gb, root, contains, elem, path,
+				      fy_seq_empty, depth + 1);
 		if (!schema_problem_any(rep))
 			contains_count++;
 	}

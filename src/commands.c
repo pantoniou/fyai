@@ -1145,7 +1145,7 @@ static int config_describe(struct fyai_ctx *ctx, const char *path)
 	fy_generic rows;
 	char seg[256];
 	const char *p, *slash, *last;
-	size_t seglen, i, n;
+	size_t seglen;
 
 	assert(gb);
 	schema = fyai_config_schema(cfg->gb);
@@ -1186,10 +1186,7 @@ static int config_describe(struct fyai_ctx *ctx, const char *path)
 		rows = fy_append(gb, rows,
 				 describe_row(gb, last, node, false, desc));
 	} else {
-		n = fy_generic_mapping_get_pair_count(props);
-		for (i = 0; i < n; i++) {
-			key = fy_generic_mapping_get_at_key(props, i);
-			sub = fy_generic_mapping_get_at_value(props, i);
+		fy_foreach_key_value(key, sub, props) {
 			rows = fy_append(gb, rows,
 				describe_row(gb, fy_castp(&key, ""), sub,
 					     schema_key_required(object_node,
