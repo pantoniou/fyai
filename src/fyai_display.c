@@ -1319,8 +1319,7 @@ static int patch_walk(struct fyai_ctx *ctx, const char *patch, void *user,
 			in_upd = false;
 			path = NULL;
 			if (!strncmp(p, "*** Add File: ", 14)) {
-				if (asprintf(&path, "%.*s", len - 14, p + 14) < 0)
-					path = NULL;
+				path = fy_sprintfa("%.*s", len - 14, p + 14);
 				lang = markdown_lang_for_path(path);
 				if (asprintf(&op.title, "**add** `%s`",
 					     path ? path : "") < 0)
@@ -1332,17 +1331,11 @@ static int patch_walk(struct fyai_ctx *ctx, const char *patch, void *user,
 					     len - 17, p + 17) < 0)
 					op.title = NULL;
 			} else if (!strncmp(p, "*** Update File: ", 17)) {
-				if (asprintf(&path, "%.*s", len - 17, p + 17) < 0)
-					path = NULL;
+				path = fy_sprintfa("%.*s", len - 17, p + 17);
 				if (asprintf(&op.title, "**update** `%s`",
 					     path ? path : "") < 0)
 					op.title = NULL;
-				/*
-				 * A V4A hunk carries no "+++"/"---" header, so
-				 * the diff view cannot detect the patched file's
-				 * language by itself. Name it in the info string
-				 * ("diff:c").
-				 */
+				/* Add the file language to the diff info string. */
 				lang = markdown_lang_for_path(path);
 				if (asprintf(&op.lang, "diff%s%s",
 					     lang ? ":" : "", lang ? lang : "") < 0)
@@ -1350,7 +1343,6 @@ static int patch_walk(struct fyai_ctx *ctx, const char *patch, void *user,
 				free(lang);
 				in_upd = true;
 			}
-			free(path);
 			/* *** Begin/End Patch and any other marker: skip. */
 			continue;
 		}
@@ -2824,7 +2816,7 @@ out:
 
 static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 				       const struct fyai_turn_stack *stack,
-				       size_t lo, size_t hi)
+				       size_t lo, size_t hi, bool *emitted_io)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_display_args *args = &cfg->cmd.args.display;
@@ -2835,7 +2827,7 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 	const char *tag, *md;
 	size_t i;
 	size_t tool_result_count = 0, tool_result_pos = 0;
-	bool emitted = false;
+	bool emitted = *emitted_io;
 
 	for (i = lo; i < hi; i++) {
 		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
@@ -2893,8 +2885,7 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 			emitted = true;
 		}
 	}
-	if (ctx->stdout_tty && !args->raw)
-		putchar('\n');
+	*emitted_io = emitted;
 	free(tool_results);
 	return 0;
 }
@@ -3100,6 +3091,74 @@ out:
 	return -1;
 }
 
+/* Find the end of the exchange that starts at @start. */
+static size_t fyai_display_exchange_end(const struct fyai_turn_stack *stack,
+					size_t start, size_t hi)
+{
+	fy_generic msgs, msg;
+	size_t i;
+	bool user;
+
+	for (i = start + 1; i < hi; i++) {
+		user = false;
+		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
+		fy_foreach(msg, msgs) {
+			if (fy_equal(fy_get(msg, "role"), "user")) {
+				user = true;
+				break;
+			}
+		}
+		if (user)
+			return i;
+	}
+	return hi;
+}
+
+/*
+ * Render [lo, hi) from the canonical messages, for an exchange that has no
+ * stored display output to replay. Owns the buffer it renders through.
+ */
+static int fyai_display_reconstructed(struct fyai_ctx *ctx,
+				      struct fy_generic_builder *tgb,
+				      struct fyai_turn_stack *stack,
+				      size_t lo, size_t hi)
+{
+	struct fyai_display_render view;
+	struct fyai_read_map reads = { 0 };
+	int close_rc;
+	int rc;
+
+	memset(&view, 0, sizeof(view));
+	view.ctx = ctx;
+	view.cfg = ctx->cfg;
+	view.args = &ctx->cfg->cmd.args.display;
+	view.tgb = tgb;
+	view.stack = stack;
+	view.reads = &reads;
+	view.mf = open_memstream(&view.md, &view.mdlen);
+	rc = -1;
+	fyai_error_check(ctx, view.mf, out, "could not create the display buffer");
+	fyai_display_scan_reads(&view, lo, hi);
+	rc = fyai_display_turns(&view, lo, hi);
+	fyai_error_check(ctx, !rc, out, "could not render the conversation");
+	rc = fyai_display_finish(&view);
+	fyai_error_check(ctx, !rc, out,
+			 "could not finish the conversation display");
+	rc = 0;
+out:
+	if (view.mf) {
+		close_rc = fclose(view.mf);
+		view.mf = NULL;
+		if (close_rc) {
+			fyai_error(ctx, "could not close the display buffer");
+			rc = -1;
+		}
+	}
+	free(view.md);
+	fyai_read_map_free(&reads);
+	return rc;
+}
+
 /*
  * Human-digestible rendering of the canonical conversation: each message
  * becomes prose rendered through markdown. Unlike `dump`, this is
@@ -3117,16 +3176,15 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	struct fy_generic_builder_cfg gcfg;
 	struct fy_generic_builder *tgb;
 	struct fyai_turn_stack stack;
-	struct fyai_read_map reads = { 0 };
 	size_t lo;
 	size_t hi;
+	size_t seg;
+	size_t seg_end;
+	bool emitted;
 	int rc;
-	int close_rc;
-	struct fyai_display_render view;
 
 	tgb = NULL;
 	memset(&stack, 0, sizeof(stack));
-	memset(&view, 0, sizeof(view));
 	rc = -1;
 	if (args->tool_detail)
 		cfg->tool_detail = args->tool_detail;
@@ -3141,39 +3199,29 @@ int fyai_display_view(struct fyai_ctx *ctx)
 			 "could not read the conversation");
 
 	fyai_exchange_window(&args->turn_sel, &stack, &lo, &hi);
-	if (fyai_display_outputs_complete(&stack, lo, hi)) {
-		rc = fyai_display_stored_outputs(ctx, &stack, lo, hi);
-		goto err_out;
+	/*
+	 * Select stored or reconstructed output for each exchange.
+	 */
+	emitted = false;
+	for (seg = lo; seg < hi; seg = seg_end) {
+		seg_end = fyai_display_exchange_end(&stack, seg, hi);
+		if (fyai_display_outputs_complete(&stack, seg, seg_end))
+			rc = fyai_display_stored_outputs(ctx, &stack, seg,
+							 seg_end, &emitted);
+		else {
+			rc = fyai_display_reconstructed(ctx, tgb, &stack, seg,
+							seg_end);
+			emitted = true;
+		}
+		fyai_error_check(ctx, !rc, err_out,
+				 "could not render the conversation");
 	}
-
-	view.ctx = ctx;
-	view.cfg = cfg;
-	view.args = args;
-	view.tgb = tgb;
-	view.stack = &stack;
-	view.reads = &reads;
-	view.mf = open_memstream(&view.md, &view.mdlen);
-	fyai_error_check(ctx, view.mf, err_out,
-			 "could not create the display buffer");
-	fyai_display_scan_reads(&view, lo, hi);
-	rc = fyai_display_turns(&view, lo, hi);
-	fyai_error_check(ctx, !rc, err_out,
-			 "could not render the conversation");
-	rc = fyai_display_finish(&view);
-	fyai_error_check(ctx, !rc, err_out,
-			 "could not finish the conversation display");
+	if (ctx->stdout_tty && !args->raw)
+		putchar('\n');
 	rc = 0;
 
 err_out:
 	cfg->tool_detail = saved_tool_detail;
-	if (view.mf) {
-		close_rc = fclose(view.mf);
-		view.mf = NULL;
-		if (close_rc)
-			fyai_error(ctx, "could not close the display buffer");
-	}
-	free(view.md);
-	fyai_read_map_free(&reads);
 	fyai_turn_stack_cleanup(&stack);
 	if (tgb)
 		fy_generic_builder_destroy(tgb);
