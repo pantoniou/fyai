@@ -94,21 +94,6 @@ static int fyai_signals_open(struct fyai_ctx *ctx)
 	return 0;
 }
 
-static void fyai_print_final_response(struct fyai_ctx *ctx,
-				      fy_generic response_doc)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-	const char *text;
-
-	if (fyai_agent_delegated(ctx))
-		return;
-	text = fy_cast(fyai_response_output_text(ctx, response_doc), "");
-	if (cfg->markdown && !fyai_print_markdown(text, cfg))
-		return;
-
-	printf("%s\n", text);
-}
-
 static void fyai_print_cache_info(struct fyai_ctx *ctx, fy_generic doc)
 {
 	fy_generic usage;
@@ -1685,12 +1670,10 @@ fyai_turn_run_start_tools(struct fyai_turn_run *run, fy_generic response)
 static int fyai_turn_run_process_model(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx;
-	struct fyai_cfg *cfg;
 	fy_generic response;
 	int rc;
 
 	ctx = run->ctx;
-	cfg = ctx->cfg;
 	response = fyai_turn_run_take_model_response(run);
 	if (fy_is_invalid(response)) {
 		fyai_turn_run_drop_tool_group(run);
@@ -1705,8 +1688,7 @@ static int fyai_turn_run_process_model(struct fyai_turn_run *run)
 	}
 	if (fyai_response_is_final(ctx, response)) {
 		fyai_turn_run_drop_tool_group(run);
-		if (!cfg->stream)
-			fyai_print_final_response(ctx, response);
+		/* Closing the assistant document presents its accumulated text. */
 		fyai_turn_run_finish(run, run->turn, true);
 		return 0;
 	}

@@ -29,9 +29,6 @@
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
 
-/* Min interval between streamed-markdown redraws. */
-#define STREAM_REDRAW_MS 50
-
 struct stream_spinner {
 	size_t frame;
 	bool active;
@@ -45,16 +42,11 @@ struct stream_response {
 	fy_generic result;
 	enum fyai_stream_state state;
 	struct fy_generic_builder *gb;
-	struct markdown_renderer markdown;
 	struct stream_spinner spinner;
 	struct response_buffer raw;
 	struct response_buffer line;
-	struct response_buffer md_full;		/* used for oneshot/off-tty */
 	struct response_buffer reasoning_text;
-	size_t md_active_rows;
 	size_t reasoning_active_rows;
-	bool md_tty;				/* stdout is a terminal (redraw ok) */
-	long md_last_ms;			/* monotonic ms of last stream redraw */
 	fy_generic content_chunks;
 	fy_generic tool_calls;
 	fy_generic response_items;
@@ -78,7 +70,7 @@ struct stream_response {
 	 * {text, pos, lp} per logprob token, or {text, pos} per content chunk
 	 * on the fallback paths. extents_pos is the running byte offset into
 	 * the joined content, advanced only where extent entries are added -
-	 * not the display counters above, which follow the markdown branch.
+	 * not the content counters above, which follow every chunk received.
 	 */
 	fy_generic token_extents;
 	size_t extents_pos;
@@ -184,9 +176,7 @@ static void stream_response_cleanup(struct stream_response *stream)
 	stream_spinner_clear(&stream->spinner);
 	free(stream->raw.data);
 	free(stream->line.data);
-	free(stream->md_full.data);
 	free(stream->reasoning_text.data);
-	markdown_renderer_destroy(&stream->markdown);
 	if (stream->gb)
 		fy_generic_builder_destroy(stream->gb);
 }
@@ -195,7 +185,6 @@ static int stream_response_init(struct stream_response *stream,
 				struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder_cfg gb_cfg;
-	struct fyai_cfg *cfg;
 
 	memset(&gb_cfg, 0, sizeof(gb_cfg));
 	gb_cfg.flags = FYGBCF_CREATE_ALLOCATOR |
@@ -219,20 +208,6 @@ static int stream_response_init(struct stream_response *stream,
 	stream->gb = fy_generic_builder_create(&gb_cfg);
 	if (!stream->gb)
 		return -1;
-
-	cfg = ctx->cfg;
-	if (!fyai_output_renders_live(ctx) &&
-	    cfg->markdown && markdown_available(cfg)) {
-		stream->md_tty = ctx->stdout_tty;
-		if (stream->md_tty && strcmp(cfg->markdown_mode, "oneshot")) {
-			if (markdown_renderer_start(cfg, &stream->markdown,
-					markdown_color_enabled(cfg->color),
-					cfg->theme_variant))
-				stream->markdown.active = false;
-		} else {
-			stream->markdown.active = true;
-		}
-	}
 	return 0;
 }
 
@@ -262,112 +237,20 @@ static size_t count_newlines(const char *s, size_t len)
 	return count;
 }
 
-/*
- * Apply one renderer line-delta: it is authoritative - backtrack N lines over
- * the active region, erase down, and print only the changed tail (from the
- * first changed line). We mirror the renderer's own active-region line count in
- * md_active_rows so the final flush knows how much to rewind; backtrack is
- * always <= that count, and max_active_lines keeps the active region within the
- * viewport so the cursor-up always lands on a visible row. Do not clamp
- * backtrack to our own count - that under-rewinds at a freeze boundary and
- * leaves duplicated lines in the scrollback.
- */
-static void stream_md_apply(FILE *fp, size_t *active_rows,
-			    const struct markdown_update *update)
-{
-	size_t backtrack = update->backtrack;
-
-	if (backtrack) {
-		fprintf(fp, FYAI_ANSI_CURSOR_UP_FMT, backtrack);
-		fputs(FYAI_ANSI_ERASE_DOWN, fp);
-		*active_rows -= backtrack;
-	}
-	if (update->content_len)
-		fwrite(update->content, 1, update->content_len, fp);
-	*active_rows += count_newlines(update->content, update->content_len);
-	if (update->freeze >= *active_rows)
-		*active_rows = 0;
-	else
-		*active_rows -= update->freeze;
-}
-
 static void stream_write_content(struct stream_response *stream,
 				 const char *text)
 {
 	struct fyai_ctx *ctx = stream->ctx;
-	struct fyai_cfg *cfg = ctx->cfg;
 	size_t len;
-	const char *mode;
-	bool draw;
-	struct timespec ts;
-	struct markdown_update update;
-	long now;
-	bool tty_stream;
 
 	len = strlen(text);
+	/* Record and present the response through the active output document. */
 	if (fyai_output_append(ctx, text, len))
 		stream->failed = true;
 	/* Send sub-agent prose to the parent tool band through JSON-RPC. */
 	fyai_tool_progress_emit(ctx, text, len);
-	/* Record delegated prose, but do not write it to the parent terminal. */
-	if (fyai_agent_delegated(ctx)) {
-		stream->printed_content = true;
-		return;
-	}
-	if (fyai_output_renders_live(ctx)) {
-		stream->printed_content = true;
-		return;
-	}
-	if (stream->markdown.active) {
-		mode = cfg->markdown_mode;
-		tty_stream = stream->md_tty && strcmp(mode, "oneshot");
-		if (response_buffer_append(&stream->md_full, text)) {
-			stream->failed = true;
-		} else {
-			draw = false;
-
-			stream->content_bytes += len;
-			stream->content_chunks_count++;
-			/*
-			 * Redraw cadence is terminal-only. Off-tty and oneshot
-			 * accumulate and render once at finish.
-			 * "line" redraws when a source line completes; "oneshot"
-			 * never until finish.
-			 */
-			if (tty_stream && !strcmp(mode, "stream")) {
-				clock_gettime(CLOCK_MONOTONIC, &ts);
-				now = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-				if (now - stream->md_last_ms >= STREAM_REDRAW_MS) {
-					draw = true;
-					stream->md_last_ms = now;
-				}
-			} else if (tty_stream && !strcmp(mode, "line")) {
-				draw = strchr(text, '\n') != NULL;
-			}
-			if (draw) {
-				if (markdown_renderer_push(&stream->markdown,
-							   stream->md_full.data,
-							   stream->md_full.len,
-							   &update)) {
-					stream->failed = true;
-				} else {
-					if (fyai_ui_active(ctx)) {
-						if (fyai_ui_tail_apply(ctx, &update))
-							stream->failed = true;
-					} else {
-						stream_md_apply(stdout,
-							&stream->md_active_rows,
-							&update);
-					}
-					stream->md_full.len = 0;
-					stream->md_full.data[0] = '\0';
-				}
-			}
-		}
-	} else {
-		fputs(text, stdout);
-		fflush(stdout);
-	}
+	stream->content_bytes += len;
+	stream->content_chunks_count++;
 	stream->printed_content = true;
 }
 
@@ -522,77 +405,13 @@ static void stream_finish_reasoning(struct stream_response *stream)
 	}
 }
 
+/* Retire the spinner after the output document receives the content. */
 static void stream_finish_content(struct stream_response *stream)
 {
-	struct fyai_ctx *ctx = stream->ctx;
-	struct fyai_cfg *cfg = ctx->cfg;
-	struct markdown_update update;
-	struct response_buffer out = {0};
-	const char *mode;
-	size_t end;
-
 	stream_finish_reasoning(stream);
 	if (!stream->printed_content)
 		return;
-	if (fyai_output_renders_live(ctx)) {
-		stream->printed_content = false;
-		return;
-	}
-
-	if (stream->markdown.active) {
-		stream_spinner_clear(&stream->spinner);
-		mode = cfg->markdown_mode;
-		if (stream->md_tty && strcmp(mode, "oneshot")) {
-			if (stream->md_full.len &&
-			    !markdown_renderer_push(&stream->markdown,
-						    stream->md_full.data,
-						    stream->md_full.len,
-						    &update)) {
-				if (fyai_ui_active(ctx))
-					(void)fyai_ui_tail_apply(ctx, &update);
-				else
-					stream_md_apply(stdout, &stream->md_active_rows,
-							&update);
-			}
-			stream->md_full.len = 0;
-			if (stream->md_full.data)
-				stream->md_full.data[0] = '\0';
-			/*
-			 * markdown_renderer_finish() emits the healed final form
-			 * of the still-active (unfrozen) region - the same rows
-			 * the progressive redraw already drew. Rewind over them
-			 * first, exactly as stream_md_apply() does, so the final
-			 * text replaces the active region instead of appending a
-			 * duplicate copy below it.
-			 */
-			if (!fyai_ui_active(ctx) && stream->md_active_rows) {
-				fprintf(stdout, FYAI_ANSI_CURSOR_UP_FMT,
-					stream->md_active_rows);
-				fputs(FYAI_ANSI_ERASE_DOWN, stdout);
-				stream->md_active_rows = 0;
-			}
-			if (!markdown_renderer_finish(&stream->markdown, &out) &&
-			    out.len) {
-				end = out.len;
-				while (end && (out.data[end - 1] == '\n' ||
-					       out.data[end - 1] == '\r'))
-					end--;
-				if (fyai_ui_active(ctx))
-					fyai_ui_tail_finish(ctx, out.data, end);
-				else if (end)
-					fwrite(out.data, 1, end, stdout);
-			}
-			if (fyai_ui_active(ctx) && !out.len)
-				fyai_ui_tail_finish(ctx, NULL, 0);
-			free(out.data);
-			if (!fyai_ui_active(ctx))
-				putchar('\n');
-		} else if (stream->md_full.len) {
-			fyai_print_markdown(stream->md_full.data, cfg);
-		}
-	} else {
-		putchar('\n');
-	}
+	stream_spinner_clear(&stream->spinner);
 	stream->printed_content = false;
 }
 

@@ -15,6 +15,9 @@ enum fyai_output_tag {
 
 int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag);
 int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len);
+/* Append durable source that another path has already presented. */
+int fyai_output_append_recorded(struct fyai_ctx *ctx, const char *text,
+				size_t len);
 int fyai_output_append_string(struct fyai_ctx *ctx, const char *text);
 int fyai_output_printf(struct fyai_ctx *ctx, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));

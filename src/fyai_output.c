@@ -83,16 +83,12 @@ err:
 	return -1;
 }
 
-int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
+static int fyai_output_record_source(struct fyai_ctx *ctx, const char *text,
+				     size_t len)
 {
-	struct fyai_display_output *output;
+	struct fyai_display_output *output = ctx->display_output;
 	int rc;
 
-	if (!ctx || !ctx->display_output || (!text && len))
-		return -1;
-	output = ctx->display_output;
-	if (!len)
-		return 0;
 	rc = response_buffer_reserve(&output->markdown,
 				     output->markdown.len + len + 1);
 	fyai_error_check(ctx, !rc, err,
@@ -100,12 +96,38 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 	memcpy(output->markdown.data + output->markdown.len, text, len);
 	output->markdown.len += len;
 	output->markdown.data[output->markdown.len] = '\0';
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
+{
+	int rc;
+
+	if (!ctx || !ctx->display_output || (!text && len))
+		return -1;
+	if (!len)
+		return 0;
+	rc = fyai_output_record_source(ctx, text, len);
+	fyai_error_check(ctx, !rc, err,
+			 "could not grow display output");
 	rc = fyai_sink_doc_append(ctx->sink, text, len);
 	fyai_error_check(ctx, !rc, err,
 			 "could not render display output");
 	return 0;
 err:
 	return -1;
+}
+
+int fyai_output_append_recorded(struct fyai_ctx *ctx, const char *text,
+				size_t len)
+{
+	if (!ctx || !ctx->display_output || (!text && len))
+		return -1;
+	if (!len)
+		return 0;
+	return fyai_output_record_source(ctx, text, len);
 }
 
 int fyai_output_append_string(struct fyai_ctx *ctx, const char *text)

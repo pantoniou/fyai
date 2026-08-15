@@ -11,6 +11,8 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_agent.h"
+#include "fyai_event.h"
 #include "fyai_markdown.h"
 #include "fyai_sink.h"
 #include "fyai_terminal.h"
@@ -19,12 +21,24 @@
 /* The only progressive Markdown renderer in the process. */
 struct sink_term {
 	struct markdown_renderer renderer;
+	struct response_buffer source;	/* the document as given so far */
 	struct response_buffer pending;	/* appended, not yet pushed */
 	size_t active_rows;		/* rows the live region occupies */
+	int64_t last_draw_ms;		/* monotonic time of the last repaint */
 	enum fyai_sink_doc_kind kind;
 	bool render_live;
 	bool doc_open;
+	bool present;			/* this document may reach the user */
+	bool passthrough;		/* no renderer: write bytes as they come */
+	bool oneshot;			/* accumulate, render when it closes */
+	bool wrote;			/* the passthrough path wrote something */
 };
+
+/* Tool children reserve standard output for JSON-RPC frames. */
+static bool sink_may_present(const struct fyai_sink *s)
+{
+	return !s->ctx->cfg->tool_child && !fyai_agent_delegated(s->ctx);
+}
 
 static struct sink_term *sink_term_state(const struct fyai_sink *s)
 {
@@ -35,9 +49,12 @@ static bool sink_term_wants_live(const struct fyai_sink *s,
 				 enum fyai_sink_doc_kind kind)
 {
 	struct fyai_ctx *ctx = s->ctx;
+	const struct sink_term *t = s->state;
 
-	return kind == FYAI_SINK_DOC_ASSISTANT && ctx->cfg->markdown &&
-	       ctx->stdout_tty && markdown_available(ctx->cfg);
+	return t->present && kind == FYAI_SINK_DOC_ASSISTANT &&
+	       ctx->cfg->markdown && ctx->stdout_tty &&
+	       markdown_available(ctx->cfg) &&
+	       strcmp(ctx->cfg->markdown_mode, "oneshot");
 }
 
 static int sink_term_renderer_start(struct fyai_sink *s)
@@ -144,14 +161,50 @@ static int sink_term_doc_begin(struct fyai_sink *s,
 			       const struct fyai_sink_doc *doc)
 {
 	struct sink_term *t = sink_term_state(s);
+	struct fyai_ctx *ctx = s->ctx;
 
 	t->kind = doc->kind;
 	t->active_rows = 0;
 	t->pending.len = 0;
 	if (t->pending.data)
 		t->pending.data[0] = '\0';
+	t->source.len = 0;
+	if (t->source.data)
+		t->source.data[0] = '\0';
+	t->last_draw_ms = 0;
+	/* The display path presents user and system cards. */
+	t->present = sink_may_present(s) &&
+		     doc->kind == FYAI_SINK_DOC_ASSISTANT;
+	/*
+	 * With no Markdown to render, the source is the presentation: write it
+	 * through as it arrives so the reader still sees the model type.
+	 */
+	t->passthrough = t->present && (!ctx->cfg->markdown ||
+					!markdown_available(ctx->cfg));
+	t->wrote = false;
 	t->doc_open = true;
-	return sink_term_renderer_start(s);
+	if (sink_term_renderer_start(s))
+		return -1;
+	/* Retain a document only when closing it is the first presentation. */
+	t->oneshot = t->present && !t->passthrough && !t->render_live;
+	return 0;
+}
+
+/* Apply the configured line or timed stream redraw cadence. */
+static bool sink_term_wants_draw(struct fyai_sink *s, const char *text,
+				 size_t len)
+{
+	struct sink_term *t = sink_term_state(s);
+	int64_t now;
+
+	if (!strcmp(s->ctx->cfg->markdown_mode, "line"))
+		return memchr(text, '\n', len) != NULL;
+	now = fyai_event_now_ms();
+	if (now - t->last_draw_ms <
+	    s->ctx->cfg->markdown_update_interval_ms)
+		return false;
+	t->last_draw_ms = now;
+	return true;
 }
 
 static int sink_term_doc_append(struct fyai_sink *s, const char *text,
@@ -160,7 +213,22 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	struct sink_term *t = sink_term_state(s);
 	struct fyai_ctx *ctx = s->ctx;
 	int rc;
-	if (!t->render_live || !len)
+
+	if (!t->present || !len)
+		return 0;
+	if (t->passthrough) {
+		fwrite(text, 1, len, stdout);
+		fflush(stdout);
+		t->wrote = true;
+		return 0;
+	}
+	if (t->oneshot) {
+		rc = response_buffer_append_data(&t->source, text, len);
+		fyai_error_check(ctx, !rc, err,
+			"could not grow the display buffer");
+		return 0;
+	}
+	if (!t->render_live)
 		return 0;
 	rc = response_buffer_reserve(&t->pending, t->pending.len + len + 1);
 	fyai_error_check(ctx, !rc,
@@ -168,6 +236,8 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	memcpy(t->pending.data + t->pending.len, text, len);
 	t->pending.len += len;
 	t->pending.data[t->pending.len] = '\0';
+	if (!sink_term_wants_draw(s, text, len))
+		return 0;
 	rc = sink_term_push_pending(s);
 	fyai_error_check(ctx, !rc, err,
 			 "could not render the display output");
@@ -176,13 +246,38 @@ err:
 	return -1;
 }
 
+/* Present retained source when the document closes. */
+static void sink_term_present_oneshot(struct fyai_sink *s)
+{
+	struct sink_term *t = sink_term_state(s);
+	struct fyai_cfg *cfg = s->ctx->cfg;
+
+	if (t->passthrough) {
+		/* Close the row the passthrough text was written on. */
+		if (t->wrote)
+			fputc('\n', stdout);
+		fflush(stdout);
+		return;
+	}
+	if (!t->oneshot || !t->source.len)
+		return;
+	if (fyai_print_markdown(t->source.data, cfg))
+		fwrite(t->source.data, 1, t->source.len, stdout);
+	fflush(stdout);
+}
+
 static int sink_term_doc_end(struct fyai_sink *s, bool aborted)
 {
 	struct sink_term *t = sink_term_state(s);
 	int rc;
 
 	(void)aborted;
-	rc = sink_term_render_finish(s);
+	if (t->render_live)
+		rc = sink_term_render_finish(s);
+	else {
+		sink_term_present_oneshot(s);
+		rc = 0;
+	}
 	markdown_renderer_destroy(&t->renderer);
 	t->doc_open = false;
 	return rc;
@@ -253,6 +348,7 @@ static void sink_term_destroy(struct fyai_sink *s)
 	if (!t)
 		return;
 	markdown_renderer_destroy(&t->renderer);
+	free(t->source.data);
 	free(t->pending.data);
 	free(t);
 	s->state = NULL;

@@ -442,6 +442,14 @@ properties:
         description: >-
           How streamed markdown is rendered (only with markdown + stream):
           line (per line) | stream (redraw per chunk) | oneshot (at end).
+      markdown_update_interval_ms:
+        type: integer
+        minimum: 0
+        maximum: 1000
+        default: 50
+        description: >-
+          Minimum interval between progressive Markdown redraws in stream
+          mode. Zero repaints every update.
       color:
         type: string
         enum: [auto, off, on]

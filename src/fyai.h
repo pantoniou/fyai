@@ -89,6 +89,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 	" {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
+#define DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS 50
 #define DEFAULT_COLOR "auto"		/* auto | off | on */
 #define DEFAULT_THEME "default:auto"	/* markdown theme[:auto|dark|light] */
 #define DEFAULT_TOOL_DETAIL "default"	/* none | brief | default | full */
@@ -159,6 +160,7 @@ struct fyai_cfg {
 	const char *reasoning_effort;
 	const char *reasoning_summary;
 	const char *markdown_mode;	/* oneshot | line | stream */
+	int markdown_update_interval_ms;
 	int render_width;		/* runtime renderer width; 0 => terminal */
 	const char *color;		/* auto | off | on */
 	const char *theme;		/* canonical markdown theme selector */

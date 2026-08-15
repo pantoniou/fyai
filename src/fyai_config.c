@@ -397,6 +397,9 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			return -1;
 		cfg->markdown_mode = fy_get(v, "markdown_mode",
 					    cfg->markdown_mode);
+		cfg->markdown_update_interval_ms =
+			fy_get(v, "markdown_update_interval_ms",
+			       cfg->markdown_update_interval_ms);
 		cfg->color = fy_get(v, "color", cfg->color);
 		cfg->theme = fy_get(v, "theme", cfg->theme);
 		/*
@@ -1956,6 +1959,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	/* This is an opt-in because provider-side response retention is lossy. */
 	cfg->response_chain = false;
 	cfg->markdown_mode = DEFAULT_MARKDOWN_MODE;
+	cfg->markdown_update_interval_ms =
+		DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS;
 	cfg->color = DEFAULT_COLOR;
 	cfg->theme = DEFAULT_THEME;
 	cfg->theme_variant = NULL;
