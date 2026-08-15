@@ -11,6 +11,7 @@
 
 struct fyai_cfg;
 struct fyai_event_source;
+struct fyai_sink;
 struct fyai_sink_band;
 struct markdown_renderer {
 	struct fymd_renderer *renderer;
@@ -102,7 +103,8 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
  * for tool errors); @template_vars supplies {key} decoration values or may be
  * fy_invalid. Returns 0 on success, -1 on renderer failure (raw text printed).
  */
-int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
+int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
+		      const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines);
 /* Render a marked, frameless fenced block into @out. */

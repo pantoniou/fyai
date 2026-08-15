@@ -11,6 +11,15 @@ struct fyai_sink_band;
 
 /* The sink owns presentation. Producers provide Markdown source or final bytes. */
 
+/* A content role; the backend selects its destination and presentation. */
+enum fyai_sink_stream {
+	FYAI_SINK_TRANSCRIPT,
+	FYAI_SINK_NOTICE,
+	FYAI_SINK_STATUS,
+	FYAI_SINK_DIAG,
+	FYAI_SINK_MACHINE,
+};
+
 /* A transcript document role; fyai_output.c owns its durable record. */
 enum fyai_sink_doc_kind {
 	FYAI_SINK_DOC_SYSTEM,
@@ -45,6 +54,13 @@ struct fyai_sink_ops {
 	void (*band_close)(struct fyai_sink *s, bool ok, const char *cause);
 	void (*band_destroy)(struct fyai_sink_band *b);
 	struct fyai_sink_band *(*band_shared)(struct fyai_sink *s);
+	/* Render @md as Markdown on @stream. */
+	int (*markdown)(struct fyai_sink *s, enum fyai_sink_stream stream,
+			const char *md);
+	/* Present bytes already rendered for the destination. */
+	int (*write)(struct fyai_sink *s, enum fyai_sink_stream stream,
+		     const char *buf, size_t len);
+	void (*flush)(struct fyai_sink *s);
 	void (*destroy)(struct fyai_sink *s);
 };
 
@@ -81,5 +97,15 @@ void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause);
 void fyai_sink_band_destroy(struct fyai_sink_band *b);
 /* The shared band, or NULL when none is open. */
 struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s);
+
+int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
+		       const char *md);
+int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
+		    const char *buf, size_t len);
+/* Formatted plain text on @stream, rendered as Markdown by the backend. */
+int fyai_sink_printf(struct fyai_sink *s, enum fyai_sink_stream stream,
+		     const char *fmt, ...)
+	__attribute__((format(printf, 3, 4)));
+void fyai_sink_flush(struct fyai_sink *s);
 
 #endif

@@ -649,11 +649,15 @@ out:
 	return -1;
 }
 
-int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
+int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
+		      const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines)
 {
 	struct response_buffer out = {0};
+	char *indented = NULL;
+	size_t ilen = 0;
+	FILE *mf;
 	bool color;
 	size_t start;
 	size_t end;
@@ -663,14 +667,13 @@ int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 		return 0;
 	start = 0;
 	color = markdown_color_enabled(cfg->color);
-	fflush(stdout);
 	rc = markdown_render_fenced(cfg, text, len, lang, template_vars,
 				    max_lines, &out, color, 0);
 	end = out.len;
 	if (rc) {
 		if (out.len)
-			fwrite(out.data, 1, out.len, stdout);
-		fflush(stdout);
+			(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT,
+					      out.data, out.len);
 		free(out.data);
 		return rc;
 	}
@@ -680,11 +683,18 @@ int fyai_print_fenced(struct fyai_cfg *cfg, const char *text, size_t len,
 	while (end > start && (out.data[end - 1] == '\n' ||
 			       out.data[end - 1] == '\r'))
 		end--;
-	if (end > start)
-		fyai_fwrite_indented(stdout, FYAI_TOOL_OUTPUT_INDENT,
-				     out.data + start, end - start);
-	fputc('\n', stdout);
-	fflush(stdout);
+	if (end > start) {
+		mf = open_memstream(&indented, &ilen);
+		if (mf) {
+			fyai_fwrite_indented(mf, FYAI_TOOL_OUTPUT_INDENT,
+					     out.data + start, end - start);
+			fclose(mf);
+			(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT,
+					      indented, ilen);
+			free(indented);
+		}
+	}
+	(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	free(out.data);
 	return rc;
 }

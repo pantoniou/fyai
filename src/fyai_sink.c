@@ -6,6 +6,7 @@
 
 #define FYAI_MODULE FYAIEM_DISPLAY
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -451,6 +452,59 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 	free(b);
 }
 
+/* Keep deliverable streams on stdout and commentary streams on stderr. */
+static FILE *sink_term_stream_file(enum fyai_sink_stream stream)
+{
+	switch (stream) {
+	case FYAI_SINK_STATUS:
+	case FYAI_SINK_DIAG:
+		return stderr;
+	case FYAI_SINK_TRANSCRIPT:
+	case FYAI_SINK_NOTICE:
+	case FYAI_SINK_MACHINE:
+		break;
+	}
+	return stdout;
+}
+
+static int sink_term_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
+			      const char *md)
+{
+	struct fyai_cfg *cfg = s->ctx->cfg;
+	FILE *fp = sink_term_stream_file(stream);
+
+	if (!md || !*md)
+		return 0;
+	/* Machine data is parsed by another program: never decorate it. */
+	if (stream == FYAI_SINK_MACHINE || !cfg->markdown ||
+	    !markdown_available(cfg) ||
+	    fyai_fprint_markdown(fp, md, cfg, 0)) {
+		fputs(md, fp);
+		fflush(fp);
+	}
+	return 0;
+}
+
+static int sink_term_write(struct fyai_sink *s, enum fyai_sink_stream stream,
+			   const char *buf, size_t len)
+{
+	FILE *fp = sink_term_stream_file(stream);
+
+	(void)s;
+	if (!buf || !len)
+		return 0;
+	fwrite(buf, 1, len, fp);
+	fflush(fp);
+	return 0;
+}
+
+static void sink_term_flush(struct fyai_sink *s)
+{
+	(void)s;
+	fflush(stdout);
+	fflush(stderr);
+}
+
 static const struct fyai_sink_ops sink_terminal_ops = {
 	.name		= "terminal",
 	.doc_begin	= sink_term_doc_begin,
@@ -466,6 +520,9 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.band_close	= sink_term_band_close,
 	.band_destroy	= sink_term_band_destroy,
 	.band_shared	= sink_term_band_shared,
+	.markdown	= sink_term_markdown,
+	.write		= sink_term_write,
+	.flush		= sink_term_flush,
 	.destroy	= sink_term_destroy,
 };
 
@@ -593,4 +650,44 @@ struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s)
 	if (!s || !s->ops->band_shared)
 		return NULL;
 	return s->ops->band_shared(s);
+}
+
+int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
+		       const char *md)
+{
+	if (!s || !s->ops->markdown)
+		return 0;
+	return s->ops->markdown(s, stream, md);
+}
+
+int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
+		    const char *buf, size_t len)
+{
+	if (!s || !s->ops->write)
+		return 0;
+	return s->ops->write(s, stream, buf, len);
+}
+
+int fyai_sink_printf(struct fyai_sink *s, enum fyai_sink_stream stream,
+		     const char *fmt, ...)
+{
+	va_list ap;
+	char *text;
+	int len;
+	int rc;
+
+	va_start(ap, fmt);
+	len = vasprintf(&text, fmt, ap);
+	va_end(ap);
+	if (len < 0)
+		return -1;
+	rc = fyai_sink_markdown(s, stream, text);
+	free(text);
+	return rc;
+}
+
+void fyai_sink_flush(struct fyai_sink *s)
+{
+	if (s && s->ops->flush)
+		s->ops->flush(s);
 }

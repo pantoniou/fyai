@@ -27,6 +27,7 @@
 #include "fyai_markdown.h"
 #include "fyai_output.h"
 #include "fyai_provider.h"
+#include "fyai_sink.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
@@ -1576,6 +1577,7 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 			  const char *label, const char *url)
 {
 	struct response_buffer out = { 0 };
+	char *plain;
 	char *md;
 
 	if (!url || !*url)
@@ -1591,14 +1593,17 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 			     markdown_color_enabled(ctx->cfg->color),
 			     ctx->cfg->theme_variant) &&
 	    out.data && out.len) {
-		fwrite(out.data, 1, out.len, stdout);
-		fflush(stdout);
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, out.data,
+				      out.len);
 		free(out.data);
 		return;
 	}
 	free(out.data);
-	printf("%s\n%s\n", lead, url);
-	fflush(stdout);
+	/* fy_sprintfa() returns frame storage; it is not freed. */
+	plain = fy_sprintfa("%s\n%s\n", lead, url);
+	if (plain)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, plain,
+				      strlen(plain));
 }
 
 void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
@@ -1943,7 +1948,8 @@ static void fyai_emit_shell_output(FILE *mf, fy_generic out, int preview_lines)
  * markers stay Markdown (rendered small and unbounded). @out is the sequence or
  * a single { stdout, stderr, outcome } mapping.
  */
-static void fyai_print_shell_output(struct fyai_cfg *cfg, fy_generic out,
+static void fyai_print_shell_output(struct fyai_sink *sink,
+				    struct fyai_cfg *cfg, fy_generic out,
 				    int preview_lines)
 {
 	char marker[64];
@@ -1954,7 +1960,8 @@ static void fyai_print_shell_output(struct fyai_cfg *cfg, fy_generic out,
 
 	if (fy_is_sequence(out)) {
 		fy_foreach(item, out)
-			fyai_print_shell_output(cfg, item, preview_lines);
+			fyai_print_shell_output(sink, cfg, item,
+						preview_lines);
 		return;
 	}
 
@@ -1962,21 +1969,21 @@ static void fyai_print_shell_output(struct fyai_cfg *cfg, fy_generic out,
 	if (fy_equal(fy_get(outcome, "type", "exit"), "signal")) {
 		snprintf(marker, sizeof(marker), "**✗ signal %lld**",
 			 fy_get(outcome, "signal", 0LL));
-		fyai_print_markdown(marker, cfg);
+		(void)fyai_sink_markdown(sink, FYAI_SINK_TRANSCRIPT, marker);
 	} else if (fy_get(outcome, "exit_code", 0LL) != 0) {
 		snprintf(marker, sizeof(marker), "**✗ exit %lld**",
 			 fy_get(outcome, "exit_code", 0LL));
-		fyai_print_markdown(marker, cfg);
+		(void)fyai_sink_markdown(sink, FYAI_SINK_TRANSCRIPT, marker);
 	}
 
 	so = fy_get(out, "stdout", "");
 	se = fy_get(out, "stderr", "");
 	if (*so)
-		fyai_print_fenced(cfg, so, strlen(so), NULL, fy_invalid,
+		fyai_print_fenced(sink, cfg, so, strlen(so), NULL, fy_invalid,
 				  preview_lines);
 	if (*se) {
-		fyai_print_markdown("_stderr_", cfg);
-		fyai_print_fenced(cfg, se, strlen(se), NULL, fy_invalid,
+		(void)fyai_sink_markdown(sink, FYAI_SINK_TRANSCRIPT, "_stderr_");
+		fyai_print_fenced(sink, cfg, se, strlen(se), NULL, fy_invalid,
 				  preview_lines);
 	}
 }
@@ -2206,13 +2213,16 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
  */
 /* Render the configured tool-output separator (display/tool_separator) before a
  * tool result, as themed markdown. Empty (the default) emits nothing. */
-static void fyai_print_tool_separator(struct fyai_cfg *cfg)
+static void fyai_print_tool_separator(struct fyai_sink *sink,
+				      struct fyai_cfg *cfg)
 {
 	if (cfg->tool_separator && *cfg->tool_separator)
-		fyai_print_markdown(cfg->tool_separator, cfg);
+		(void)fyai_sink_markdown(sink, FYAI_SINK_TRANSCRIPT,
+					 cfg->tool_separator);
 }
 
-void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
+void fyai_render_tool_result(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			     fy_generic content,
 			     const char *lang, int preview_lines)
 {
 	const char *s = fy_castp(&content, "");
@@ -2221,15 +2231,15 @@ void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
 	if (!preview_lines)
 		return;
 	max_lines = preview_lines < 0 ? 0 : (size_t)preview_lines;
-	fyai_print_tool_separator(cfg);
+	fyai_print_tool_separator(sink, cfg);
 	if (fy_is_string(content)) {
 		if (fyai_tool_result_is_error(s))
 			lang = NULL;
-		fyai_print_fenced(cfg, s, strlen(s), lang, fy_invalid,
+		fyai_print_fenced(sink, cfg, s, strlen(s), lang, fy_invalid,
 				  max_lines);
 	} else if (fy_is_valid(content) &&
 		   !fy_is_null(content)) {
-		fyai_print_shell_output(cfg, content,
+		fyai_print_shell_output(sink, cfg, content,
 					preview_lines < 0 ? 0 : preview_lines);
 	}
 }
@@ -2338,18 +2348,20 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 	if (render_call) {
 		if (!fyai_tool_call_view(ctx, tv.name, tv.args, tv.preview_lines,
 					 &title, &body)) {
-			if (title && *title && fyai_print_markdown(title, cfg))
-				fputs(title, stdout);
-			if (body.len) {
-				fwrite(body.data, 1, body.len, stdout);
-				fflush(stdout);
-			}
+			if (!fy_str_empty(title))
+				(void)fyai_sink_markdown(ctx->sink,
+					FYAI_SINK_TRANSCRIPT, title);
+			if (body.len)
+				(void)fyai_sink_write(ctx->sink,
+					FYAI_SINK_TRANSCRIPT, body.data,
+					body.len);
 		}
 		free(title);
 		free(body.data);
 	}
 	/* The shared renderer draws the result frameless and row-bounded. */
-	fyai_render_tool_result(cfg, tool_result, tv.lang, tv.preview_lines);
+	fyai_render_tool_result(ctx->sink, cfg, tool_result, tv.lang,
+				tv.preview_lines);
 	fyai_tool_view_cleanup(&tv);
 }
 
@@ -2685,10 +2697,9 @@ static int fyai_display_markdown_range(struct fyai_ctx *ctx, const char *md,
 		return 0;
 	slice = strndup(md + start, end - start);
 	fyai_error_check(ctx, slice, out, "could not copy display Markdown");
-	rc = fyai_print_markdown(slice, ctx->cfg);
-	if (rc)
-		fputs(slice, stdout);
+	rc = fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, slice);
 	free(slice);
+	fyai_error_check(ctx, !rc, out, "could not render display Markdown");
 	return 0;
 out:
 	return -1;
@@ -2703,11 +2714,9 @@ static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 	int rc;
 
 	rc = view_append_block(ctx, &body, md, len, lang, max_lines);
-	if (!rc && body.len) {
-		fflush(stdout);
-		fwrite(body.data, 1, body.len, stdout);
-		fflush(stdout);
-	}
+	if (!rc && body.len)
+		rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+				     body.data, body.len);
 	free(body.data);
 	return rc;
 }
@@ -2778,7 +2787,7 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 			else if (!tool && !fy_is_string(content))
 				tool = "shell";
 			preview_lines = fyai_tool_preview_lines(cfg, tool);
-			fyai_render_tool_result(cfg, content, lang,
+			fyai_render_tool_result(ctx->sink, cfg, content, lang,
 						preview_lines);
 		} else {
 			rc = fyai_display_markdown_range(ctx, md, start, end);
@@ -2845,14 +2854,21 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 			    (fy_equal(tag, "user") || fy_equal(tag, "system")) &&
 			    cfg->turn_separator &&
 			    *cfg->turn_separator) {
-				if (args->raw)
-					printf("%s\n\n", cfg->turn_separator);
-				else
-					fyai_print_markdown(cfg->turn_separator,
-							   cfg);
+				if (args->raw) {
+					(void)fyai_sink_write(ctx->sink,
+						FYAI_SINK_TRANSCRIPT,
+						cfg->turn_separator,
+						strlen(cfg->turn_separator));
+					(void)fyai_sink_write(ctx->sink,
+						FYAI_SINK_TRANSCRIPT, "\n\n", 2);
+				} else
+					(void)fyai_sink_markdown(ctx->sink,
+						FYAI_SINK_TRANSCRIPT,
+						cfg->turn_separator);
 			}
 			if (args->raw)
-				fputs(md, stdout);
+				(void)fyai_sink_write(ctx->sink,
+					FYAI_SINK_TRANSCRIPT, md, strlen(md));
 			else if (fy_equal(tag, "assistant")) {
 				if (fyai_display_assistant_output(ctx, output, md,
 						tool_results, tool_result_count,
@@ -2908,8 +2924,9 @@ static int fyai_display_flush_reopen(struct fyai_display_render *view)
 	view->mf = NULL;
 	fyai_error_check(view->ctx, !rc, out,
 			 "could not finish the display buffer");
-	if (view->md && fyai_print_markdown(view->md, view->cfg))
-		fputs(view->md, stdout);
+	if (view->md)
+		(void)fyai_sink_markdown(view->ctx->sink, FYAI_SINK_TRANSCRIPT,
+					 view->md);
 	free(view->md);
 	view->md = NULL;
 	view->mdlen = 0;
@@ -2978,7 +2995,8 @@ static int fyai_display_message(struct fyai_display_render *view,
 		fyai_error_check(view->ctx, !rc, out,
 				 "could not flush the display buffer");
 		if (view->emitted)
-			putchar('\n');
+			(void)fyai_sink_write(view->ctx->sink,
+					      FYAI_SINK_TRANSCRIPT, "\n", 1);
 		fyai_print_user_turn(view->ctx, fyai_msg_text(&c), false);
 		view->prev_tool = true;
 		view->emitted = true;
@@ -2991,7 +3009,7 @@ static int fyai_display_message(struct fyai_display_render *view,
 		fyai_error_check(view->ctx, !rc, out,
 				 "could not flush the display buffer");
 		rlang = fyai_read_result_lang(view->reads, &c);
-		fyai_render_tool_result(view->cfg, result, rlang,
+		fyai_render_tool_result(view->ctx->sink, view->cfg, result, rlang,
 					view->cfg->tool_preview_lines);
 		free(rlang);
 		view->prev_tool = c.tool_related;
@@ -3060,13 +3078,21 @@ static int fyai_display_finish(struct fyai_display_render *view)
 	view->mf = NULL;
 	fyai_error_check(view->ctx, !rc, out,
 			 "could not finish the display buffer");
-	if (view->md && (view->args->raw ||
-				 fyai_print_markdown(view->md, view->cfg)))
-		fputs(view->md, stdout);
+	if (view->md) {
+		if (view->args->raw)
+			(void)fyai_sink_write(view->ctx->sink,
+					      FYAI_SINK_TRANSCRIPT, view->md,
+					      strlen(view->md));
+		else
+			(void)fyai_sink_markdown(view->ctx->sink,
+						 FYAI_SINK_TRANSCRIPT,
+						 view->md);
+	}
 	free(view->md);
 	view->md = NULL;
 	if (view->ctx->stdout_tty && !view->args->raw)
-		putchar('\n');
+		(void)fyai_sink_write(view->ctx->sink, FYAI_SINK_TRANSCRIPT,
+				      "\n", 1);
 	return 0;
 out:
 	return -1;
@@ -3198,7 +3224,7 @@ int fyai_display_view(struct fyai_ctx *ctx)
 				 "could not render the conversation");
 	}
 	if (ctx->stdout_tty && !args->raw)
-		putchar('\n');
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	rc = 0;
 
 err_out:
@@ -3683,10 +3709,11 @@ static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
 		free(line);
 		return;
 	}
-	fputs(on, stdout);
-	fputs("\033[K", stdout);
-	fputs(off, stdout);
-	fputc('\n', stdout);
+	/* fy_sprintfa() returns frame storage; it is not freed. */
+	line = fy_sprintfa("%s\033[K%s\n", on, off);
+	if (line)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, line,
+				      strlen(line));
 }
 
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
@@ -3759,13 +3786,13 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	 * permitting; without a loaded styling the card renders unfenced). */
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off);
-	fwrite(rb.data, 1, end, stdout);
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, rb.data, end);
 	if (!line_start)
-		fputc('\n', stdout);
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off);
-	fputc('\n', stdout);	/* separate the bubble from the answer */
-	fflush(stdout);
+	/* separate the bubble from the answer */
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	free(rb.data);
 }
 
@@ -3797,7 +3824,8 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 			return -1;
 		fyai_emit_blockquote(mf, markdown);
 		fclose(mf);
-		fputs(quoted, stdout);
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, quoted,
+				      quotedlen);
 		free(quoted);
 		return 0;
 	}
@@ -3805,11 +3833,9 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 		styled = fy_sprintfa("**System**\n\n*%s*\n\n", markdown);
 		if (!styled)
 			return -1;
-		if (fyai_print_markdown(styled, cfg))
-			fputs(styled, stdout);
+		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, styled);
 		return 0;
 	}
-	if (fyai_print_markdown(markdown, cfg))
-		fputs(markdown, stdout);
+	(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, markdown);
 	return 0;
 }
