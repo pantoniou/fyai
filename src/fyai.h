@@ -28,6 +28,7 @@ struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
 struct jsonrpc_conn;
 struct fyai_display_output;
+struct fyai_sink;
 struct fyai_patch_display;	/* resolved patch presentation (fyai_tools.c) */
 
 #define OPENAI_RESPONSES_URL "https://api.openai.com/v1/responses"
@@ -440,6 +441,8 @@ struct fyai_ctx {
 	/* The sole progressive transcript document for the active user or
 	 * assistant output. Owned by this context, never by a signal handler. */
 	struct fyai_display_output *display_output;
+	/* The one rendering component. Every byte the user sees goes here. */
+	struct fyai_sink *sink;
 	struct fyai_fenced_stream *shell_stream; /* live progressive shell output */
 	/* Resolved patch display data, indexed by tool-call ID. */
 	struct fyai_patch_display *patch_views;

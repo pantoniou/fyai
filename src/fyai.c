@@ -35,6 +35,7 @@
 #include "fyai_model.h"
 #include "fyai_provider.h"
 #include "fyai_output.h"
+#include "fyai_sink.h"
 #include "fyai_session.h"
 #include "fyai_prof.h"
 #include "fyai_ui.h"
@@ -1882,6 +1883,9 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 
 	fyai_cleanup_transient_builder(ctx);
 	fyai_output_cleanup(ctx);
+	/* After the output document: its discard still talks to the sink. */
+	fyai_sink_destroy(ctx->sink);
+	ctx->sink = NULL;
 
 	if (ctx->headers) {
 		curl_slist_free_all(ctx->headers);
@@ -2085,6 +2089,11 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->cfg = cfg;
 
 	ctx->stdout_tty = terminal_is_tty(STDOUT_FILENO);
+
+	/* Before anything can render: every later step reports through it. */
+	ctx->sink = fyai_sink_create(ctx);
+	if (!ctx->sink)
+		goto err;
 
 	ctx->tools = fy_invalid;
 	ctx->tools_spec = fy_invalid;
