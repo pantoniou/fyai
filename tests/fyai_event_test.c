@@ -33,6 +33,8 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+/* The lost-registration case sets a source deadline directly. */
+#include "fyai_event_priv.h"
 #include "fyai_markdown.h"
 #include "fyai_test.h"
 
@@ -46,6 +48,7 @@ FYAI_TEST_ENTRY(event, fork_child_abandons_loop, event_fork_child_abandons_loop)
 FYAI_TEST_ENTRY(event, idle_returns, event_idle_returns)
 FYAI_TEST_ENTRY(event, done_flag, event_done_flag)
 FYAI_TEST_ENTRY(event, timeout, event_timeout)
+FYAI_TEST_ENTRY(event, timer_lost_registration, event_timer_lost_registration)
 FYAI_TEST_ENTRY(event, timer_oneshot, event_timer_oneshot)
 FYAI_TEST_ENTRY(event, timer_repeating, event_timer_repeating)
 FYAI_TEST_ENTRY(event, timer_rearm_in_callback, event_timer_rearm_in_callback)
@@ -356,6 +359,40 @@ static void test_idle_returns(void)
 	fyai_event_loop_destroy(el);
 
 	printf("ok - idle loop returns\n");
+}
+
+/*
+ * A timer the backend will not report soon: arm it far ahead, then move its
+ * recorded deadline into the past. That is the state a dropped rearm leaves
+ * behind - armed, with no live kernel timer behind it - and it reproduces
+ * without reaching into either backend.
+ */
+static void test_timer_lost_registration(void)
+{
+	struct fyai_event_source *src = NULL;
+	struct fyai_event_loop *el;
+	struct counter c;
+	int rc;
+
+	memset(&c, 0, sizeof(c));
+	el = fyai_event_loop_create(&test_ctx);
+	FYAI_TCHECK(el);
+
+	rc = fyai_event_add_timer(el, 60000, 0, cb_stop, &c, &src);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(src);
+
+	src->deadline_ms = fyai_event_now_ms() -
+			   (FYAI_EVENT_TIMER_REPAIR_MS + 100);
+
+	/* Without the repair the loop waits on the 60s kernel timer, only the
+	 * outer bound ends the run, and the callback never runs. */
+	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(c.fired == 1);
+
+	fyai_event_loop_destroy(el);
+	printf("ok - a lost timer registration is repaired\n");
 }
 
 static void test_timer_oneshot(void)
@@ -1937,6 +1974,21 @@ int event_timeout(void)
 	FYAI_TCHECK(!rc);
 
 	test_timeout();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_timer_lost_registration(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_timer_lost_registration();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
