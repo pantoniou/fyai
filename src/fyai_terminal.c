@@ -47,6 +47,22 @@ int markdown_render_width(void)
 	return width > 0 ? width : 0;
 }
 
+/* Terminal rows, 0 when unknown. */
+int markdown_render_height(void)
+{
+	struct winsize ws;
+	const char *env;
+	int height;
+
+	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0)
+		return ws.ws_row;
+	env = getenv("LINES");
+	if (!env || !*env)
+		return 0;
+	height = atoi(env);
+	return height > 0 ? height : 0;
+}
+
 bool terminal_is_tty(int fd)
 {
 	return isatty(fd) == 1;

@@ -19,6 +19,7 @@
 #define FYAI_OSC_QUERY_BACKGROUND	"\033]11;?\033\\"
 
 int markdown_render_width(void);
+int markdown_render_height(void);
 bool terminal_is_tty(int fd);
 bool ansi_color_on(const char *color, int fd);
 bool markdown_color_enabled(const char *color);
