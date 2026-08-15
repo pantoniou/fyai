@@ -15,10 +15,10 @@ permissions:
   contents: write
 
 env:
-  # Pinned to the same libfyaml commit fyai's CMakeLists fetches, so the
+  # Pinned to the same libfyaml revision fyai's CMakeLists fetches, so the
   # statically-linked archive matches what a normal build would pull in.
   LIBFYAML_REPO: https://github.com/pantoniou/libfyaml
-  LIBFYAML_REF: a6886c587ef2855f4f2e2c16a361743747f85f8d
+  LIBFYAML_REF: v1.0.0-beta1
 
 jobs:
   build:
