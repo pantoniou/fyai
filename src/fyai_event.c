@@ -1126,6 +1126,58 @@ int fyai_event_child_terminate(struct fyai_event_loop *el, pid_t pid,
 	return 0;
 }
 
+/* Return the delay to the next timer, or -1 if no timer is armed. */
+static fyai_event_ms_t fyai_event_next_timer_ms(const struct fyai_event_loop *el)
+{
+	const struct fyai_event_source *src;
+	fyai_event_ms_t now, best, rel;
+
+	now = fyai_event_now_ms();
+	best = -1;
+	for (src = el->sources; src; src = src->next) {
+		if (src->kind != FYAIEK_TIMER || src->removed || !src->armed)
+			continue;
+		rel = src->deadline_ms - now;
+		if (rel < 0)
+			rel = 0;
+		if (best < 0 || rel < best)
+			best = rel;
+	}
+	return best;
+}
+
+/* Bound @wait_ms by the earliest armed timer deadline. */
+static fyai_event_ms_t fyai_event_wait_bound(const struct fyai_event_loop *el,
+					     fyai_event_ms_t wait_ms)
+{
+	fyai_event_ms_t timer_ms = fyai_event_next_timer_ms(el);
+
+	if (timer_ms < 0)
+		return wait_ms;
+	if (wait_ms < 0 || timer_ms < wait_ms)
+		return timer_ms;
+	return wait_ms;
+}
+
+/* Rebuild backend registrations for overdue armed timers. */
+static void fyai_event_timers_repair(struct fyai_event_loop *el)
+{
+	struct fyai_event_source *src;
+	fyai_event_ms_t now = fyai_event_now_ms();
+
+	for (src = el->sources; src; src = src->next) {
+		if (src->kind != FYAIEK_TIMER || src->removed || !src->armed)
+			continue;
+		if (src->deadline_ms + FYAI_EVENT_TIMER_REPAIR_MS > now)
+			continue;
+		fyai_event_backend_disarm(src);
+		if (fyai_event_backend_arm(src))
+			continue;
+		fyai_debug(el->ctx, "repaired a lost timer registration, %lld ms overdue",
+			   (long long)(now - src->deadline_ms));
+	}
+}
+
 /* Dispatch one batch. */
 static int fyai_event_dispatch(struct fyai_event_loop *el,
 			       struct fyai_event *evs, int n)
@@ -1133,6 +1185,7 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 	enum fyai_event_action action;
 	struct fyai_event_source *src;
 	struct fyai_event_track *track;
+	fyai_event_ms_t now, late;
 	unsigned int arm_gen;
 	int i, ran;
 
@@ -1172,6 +1225,18 @@ static int fyai_event_dispatch(struct fyai_event_loop *el,
 			}
 		}
 
+		/* Keep the deadline in step with a repeating backend timer. */
+		if (!src->removed && !src->oneshot &&
+		    src->kind == FYAIEK_TIMER && src->interval_ms > 0 &&
+		    src->arm_gen == arm_gen) {
+			now = fyai_event_now_ms();
+			if (src->deadline_ms <= now) {
+				late = now - src->deadline_ms;
+				src->deadline_ms += src->interval_ms *
+					(late / src->interval_ms + 1);
+			}
+		}
+
 		/* Dispatch all ready events before the loop stops. */
 		if (action == FYAIEA_STOP || action == FYAIEA_ABORT)
 			el->stop[el->depth - 1] = true;
@@ -1204,12 +1269,15 @@ int fyai_event_loop_step(struct fyai_event_loop *el, fyai_event_ms_t timeout_ms)
 		el->depth++;
 	}
 
-	n = fyai_event_backend_wait(el, timeout_ms, evs, FYAI_EVENT_BATCH);
+	n = fyai_event_backend_wait(el, fyai_event_wait_bound(el, timeout_ms),
+				    evs, FYAI_EVENT_BATCH);
 	if (n < 0) {
 		if (own_depth)
 			el->depth--;
 		return -1;
 	}
+	if (!n)
+		fyai_event_timers_repair(el);
 
 	ran = n ? fyai_event_dispatch(el, evs, n) : 0;
 
@@ -1260,13 +1328,17 @@ int fyai_event_loop_run_until(struct fyai_event_loop *el,
 			wait_ms = deadline - now;
 		}
 
-		n = fyai_event_backend_wait(el, wait_ms, evs, FYAI_EVENT_BATCH);
+		n = fyai_event_backend_wait(el,
+					    fyai_event_wait_bound(el, wait_ms),
+					    evs, FYAI_EVENT_BATCH);
 		if (n < 0) {
 			rc = -1;
 			break;
 		}
-		if (!n)			/* timeout or EINTR: re-check above */
+		if (!n) {		/* timeout or EINTR: re-check above */
+			fyai_event_timers_repair(el);
 			continue;
+		}
 
 		fyai_event_dispatch(el, evs, n);
 	}

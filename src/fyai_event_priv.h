@@ -93,6 +93,9 @@ struct fyai_event_track {
 
 #define FYAI_EVENT_TRACK_MAX 32
 
+/* Ignore normal scheduling delays before a timer repair. */
+#define FYAI_EVENT_TIMER_REPAIR_MS 50
+
 struct fyai_event_loop {
 	struct fyai_event_loop *pool_next;
 	struct fyai_ctx *ctx;		/* diagnostics sink; never NULL */
