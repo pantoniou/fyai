@@ -2234,13 +2234,89 @@ void fyai_render_tool_result(struct fyai_cfg *cfg, fy_generic content,
 	}
 }
 
+/* One normalized tool exchange. @args belongs to @ctx and @lang is allocated. */
+struct fyai_tool_view {
+	struct fyai_ctx *ctx;
+	const char *name;
+	fy_generic args;
+	int preview_lines;
+	char *lang;
+};
+
+static void fyai_tool_view_cleanup(struct fyai_tool_view *tv)
+{
+	if (!tv)
+		return;
+	free(tv->lang);
+	tv->lang = NULL;
+}
+
+/*
+ * Normalize @tool_call and derive everything the two presentations need: the
+ * tool name, its arguments, the preview row limit, and the highlighter for the
+ * result. A patch is replaced by the form the tool resolved, which carries the
+ * line numbers an envelope leaves out.
+ */
+static int fyai_tool_view_init(struct fyai_ctx *ctx, struct fyai_tool_view *tv,
+			       fy_generic tool_call, fy_generic tool_result)
+{
+	struct fy_generic_builder *gb;
+	const char *args_text;
+	const char *resolved;
+	const char *res_str;
+	fy_generic gcmd;
+	fy_generic gpath;
+
+	memset(tv, 0, sizeof(*tv));
+	tv->ctx = ctx;
+	tv->args = fy_invalid;
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb)
+		return -1;
+
+	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
+		tv->name = "shell";
+		gcmd = fy_get_at_path(tool_call, "action", "commands", 0);
+		tv->args = fy_mapping(gb, "command", fy_castp(&gcmd, ""));
+	} else {
+		if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
+			tv->name = fy_get(fy_get(tool_call, "function"), "name", "");
+			args_text = fy_get(fy_get(tool_call, "function"),
+					   "arguments", "");
+		} else {
+			/* Responses items; Messages is normalized to that shape. */
+			tv->name = fy_get(tool_call, "name", "");
+			args_text = fy_get(tool_call, "arguments", "");
+		}
+		tv->args = parse_json_string(gb, args_text);
+	}
+	if (!*tv->name)
+		tv->name = "tool";
+	tv->preview_lines = fyai_tool_preview_lines(ctx->cfg, tv->name);
+
+	if (fy_equal(tv->name, "apply_patch")) {
+		resolved = fyai_patch_display_text(ctx, tool_call);
+		if (resolved)
+			tv->args = fy_mapping(gb, "patch", resolved);
+	}
+	/*
+	 * A read_file result is the file's contents, so highlight it with the
+	 * language inferred from the requested path.
+	 */
+	res_str = fy_castp(&tool_result, "");
+	if (fy_equal(tv->name, "read_file") && *res_str &&
+	    !fyai_tool_result_is_error(res_str)) {
+		gpath = fy_get(tv->args, "path");
+		tv->lang = markdown_lang_for_path(fy_castp(&gpath, ""));
+	}
+	return 0;
+}
+
 /*
  * Render one live tool exchange (the call header plus the result preview)
  * during execution. The call header uses the same fyai_emit_tool_call() emitter
  * as the `history` verb; the result goes through the shared
- * fyai_render_tool_result() path. The tool call is normalized to (name, args)
- * here so both API modes (Responses items and Chat function calls, including the
- * built-in shell_call) share one path.
+ * fyai_render_tool_result() path.
  */
 static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 					     fy_generic tool_call,
@@ -2248,68 +2324,19 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 					     bool render_call)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fy_generic_builder_cfg gcfg;
-	struct fy_generic_builder *tgb;
-	const char *args_text;
-	const char *cmd;
-	const char *name;
-	const char *res_str;
-	int preview_lines;
 	struct response_buffer body = {0};
-	fy_generic args;
-	const char *resolved;
+	struct fyai_tool_view tv;
 	char *title;
-	char *lang;
 
-	title = NULL;
-	memset(&gcfg, 0, sizeof(gcfg));
-	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
-	tgb = fy_generic_builder_create(&gcfg);
-	if (!tgb)
+	if (fyai_tool_view_init(ctx, &tv, tool_call, tool_result))
 		return;
-
-	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
-		name = "shell";
-		cmd = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
-		args = fy_mapping("command", cmd);
-	} else {
-		switch (cfg->api_mode) {
-		case FYAI_API_RESPONSES:
-			name = fy_get(tool_call, "name", "");
-			args_text = fy_get(tool_call, "arguments", "");
-			break;
-		case FYAI_API_CHAT_COMPLETIONS:
-			name = fy_get(fy_get(tool_call, "function"), "name", "");
-			args_text = fy_get(fy_get(tool_call, "function"), "arguments", "");
-			break;
-		case FYAI_API_MESSAGES:
-			/* normalized to Responses-style function_call items */
-			name = fy_get(tool_call, "name", "");
-			args_text = fy_get(tool_call, "arguments", "");
-			break;
-		default:
-			assert(0);
-			__builtin_unreachable();
-			break;
-		}
-
-		args = parse_json_string(tgb, args_text);
-	}
-	if (!*name)
-		name = "tool";
-	preview_lines = fyai_tool_preview_lines(cfg, name);
-
+	title = NULL;
 	/*
 	 * Present the call the way the terminal UI does: a title row, then any
-	 * body marked and frameless. A patch shows the form the tool resolved,
-	 * which carries the line numbers an envelope leaves out.
+	 * body marked and frameless.
 	 */
 	if (render_call) {
-		resolved = fy_equal(name, "apply_patch") ?
-			fyai_patch_display_text(ctx, tool_call) : NULL;
-		if (resolved)
-			args = fy_mapping("patch", resolved);
-		if (!fyai_tool_call_view(ctx, name, args, preview_lines,
+		if (!fyai_tool_call_view(ctx, tv.name, tv.args, tv.preview_lines,
 					 &title, &body)) {
 			if (title && *title && fyai_print_markdown(title, cfg))
 				fputs(title, stdout);
@@ -2321,21 +2348,9 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 		free(title);
 		free(body.data);
 	}
-
-	/*
-	 * A read_file result is the file's contents, so highlight it with the
-	 * language inferred from the requested path; the shared renderer draws it
-	 * frameless and row-bounded (see fyai_render_tool_result).
-	 */
-	res_str = fy_castp(&tool_result, "");
-	lang = NULL;
-	if (fy_equal(name, "read_file") && *res_str &&
-	    !fyai_tool_result_is_error(res_str))
-		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
-	fyai_render_tool_result(cfg, tool_result, lang, preview_lines);
-	free(lang);
-
-	fy_generic_builder_destroy(tgb);
+	/* The shared renderer draws the result frameless and row-bounded. */
+	fyai_render_tool_result(cfg, tool_result, tv.lang, tv.preview_lines);
+	fyai_tool_view_cleanup(&tv);
 }
 
 void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
@@ -2360,71 +2375,38 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fy_generic_builder_cfg gcfg = {0};
-	struct fy_generic_builder *tgb;
-	const char *args_text, *cmd, *name, *res_str, *resolved;
 	struct fyai_md_blocks blocks = {0};
+	struct fyai_tool_view tv;
 	size_t base;
 	size_t i;
-	int preview_lines;
-	fy_generic args;
-	char *lang = NULL;
 	char *md = NULL;
 	size_t mdlen = 0;
 	size_t start, end;
 	FILE *mf;
 	int rc;
 
-	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
-	tgb = fy_generic_builder_create(&gcfg);
-	if (!tgb)
+	if (fyai_tool_view_init(ctx, &tv, tool_call, tool_result))
 		return -1;
-	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
-		name = "shell";
-		cmd = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
-		args = fy_mapping("command", cmd);
-	} else {
-		if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
-			name = fy_get(fy_get(tool_call, "function"), "name", "");
-			args_text = fy_get(fy_get(tool_call, "function"),
-					   "arguments", "");
-		} else {
-			name = fy_get(tool_call, "name", "");
-			args_text = fy_get(tool_call, "arguments", "");
-		}
-		args = parse_json_string(tgb, args_text);
-	}
-	if (!*name)
-		name = "tool";
-	/* Store the resolved patch form that the live view used. */
-	if (fy_equal(name, "apply_patch")) {
-		resolved = fyai_patch_display_text(ctx, tool_call);
-		if (resolved)
-			args = fy_mapping("patch", resolved);
-	}
-	preview_lines = fyai_tool_preview_lines(cfg, name);
-	res_str = fy_castp(&tool_result, "");
-	if (fy_equal(name, "read_file") && *res_str &&
-	    !fyai_tool_result_is_error(res_str))
-		lang = markdown_lang_for_path(fy_cast(fy_get(args, "path", ""), ""));
 
 	base = strlen(fyai_output_markdown(ctx, NULL));
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool display output");
-	fyai_emit_tool_call(ctx, mf, tgb, name, args, preview_lines, &blocks);
+	fyai_emit_tool_call(ctx, mf, fyai_ctx_transient_gb(ctx), tv.name, tv.args,
+			    tv.preview_lines, &blocks);
 	if (cfg->tool_separator && *cfg->tool_separator)
 		fprintf(mf, "%s\n\n", cfg->tool_separator);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
 			 "could not finish tool call display output");
 	mf = NULL;
-	fyai_error_check(ctx, !fyai_output_append(ctx, md, mdlen), err,
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err,
 			 "could not append tool call display output");
 	/* Mark each tool body for frameless replay. */
 	for (i = 0; i < blocks.count; i++) {
 		rc = fyai_output_add_fragment(ctx, "tool_body",
 						  base + blocks.item[i].start,
 						  base + blocks.item[i].end,
-						  blocks.item[i].lang, name);
+						  blocks.item[i].lang, tv.name);
 		fyai_error_check(ctx, !rc,
 			err, "could not record tool body fragment");
 	}
@@ -2437,22 +2419,22 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool result output");
 	if (fy_is_string(tool_result))
-		fyai_emit_tool_result(mf, res_str, -1, lang);
+		fyai_emit_tool_result(mf, fy_castp(&tool_result, ""), -1, tv.lang);
 	else
 		fyai_emit_shell_output(mf, tool_result, -1);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
 			 "could not finish tool display output");
 	mf = NULL;
-	fyai_error_check(ctx, !fyai_output_append(ctx, md, mdlen), err,
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err,
 			 "could not append tool display output");
 	end = start + mdlen;
 	fyai_error_check(ctx,
 		!fyai_output_add_fragment(ctx, "tool_result", start, end,
-					  lang, name), err,
+					  tv.lang, tv.name), err,
 		"could not record tool result fragment");
 	free(md);
-	free(lang);
-	fy_generic_builder_destroy(tgb);
+	fyai_tool_view_cleanup(&tv);
 	return 0;
 err:
 	if (mf)
@@ -2460,8 +2442,7 @@ err:
 err_closed:
 	fyai_md_blocks_free(&blocks);
 	free(md);
-	free(lang);
-	fy_generic_builder_destroy(tgb);
+	fyai_tool_view_cleanup(&tv);
 	return -1;
 }
 
