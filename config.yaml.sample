@@ -102,8 +102,8 @@ max_tokens: 8192
 # `hard_max_output_tokens` bounds a `max_output_tokens` the model gives.
 # 0 disables any of these limits.
 shell:
-  timeout_ms: 120000
-  max_timeout_ms: 600000
+  timeout_ms: 600000
+  max_timeout_ms: 1200000
   max_output_tokens: 16384
   hard_max_output_tokens: 200000
 
@@ -135,7 +135,6 @@ agent:
       system_prompt: >-
         You are a search sub-agent. Find where things are and report back
         precisely. Do not change any file.
-      model: gpt-5.4-mini
       reasoning:
         effort: low
       context: fresh
