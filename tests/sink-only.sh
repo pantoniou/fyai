@@ -11,7 +11,10 @@ allow="$src_dir/tests/sink-only-allow.txt"
 [ -f "$allow" ] || { echo "sink-only: missing $allow" >&2; exit 99; }
 
 # The allowed files, comments and blank lines removed.
-mapfile -t allowed < <(grep -vE '^\s*(#|$)' "$allow")
+allowed=()
+while IFS= read -r entry; do
+	allowed+=("$entry")
+done < <(grep -vE '^[[:space:]]*(#|$)' "$allow")
 
 is_allowed() {
 	local f="$1" a
@@ -28,7 +31,7 @@ is_allowed() {
 pattern='\b(printf|puts|putchar)[[:space:]]*\(|\b(fprintf|fputs|fputc|fwrite|vfprintf)[[:space:]]*\([^;]*\b(stdout|stderr)\b'
 
 status=0
-while IFS= read -r -d '' file; do
+while IFS= read -r file; do
 	rel="${file#"$src_dir"/}"
 	is_allowed "$rel" && continue
 	hits=$(grep -nE "$pattern" "$file" | grep -vE '\b(snprintf|asprintf|vsnprintf|vasprintf)\b' || true)
@@ -36,7 +39,7 @@ while IFS= read -r -d '' file; do
 	status=1
 	echo "sink-only: $rel writes outside the sink:" >&2
 	echo "$hits" | sed 's/^/  /' >&2
-done < <(find "$src_dir/src" -name '*.c' -print0 | sort -z)
+done < <(find "$src_dir/src" -name '*.c' -print | LC_ALL=C sort)
 
 if [ "$status" -ne 0 ]; then
 	echo >&2
