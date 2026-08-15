@@ -879,6 +879,7 @@ fy_generic parse_response(struct fy_generic_builder *gb, const char *response)
 
 	doc = parse_json_string(gb, response);
 	if (fy_is_invalid(doc)) {
+		/* Builder-scoped helper with no context to report through. */
 		fprintf(stderr, "Failed to parse JSON response\n");
 		return fy_invalid;
 	}

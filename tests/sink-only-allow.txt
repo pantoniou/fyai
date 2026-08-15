@@ -1,0 +1,48 @@
+# Direct writes to standard output or standard error that are allowed to stay
+# outside the rendering sink. One "file:symbol" or "file" entry per line, with
+# the reason. Everything else must go through src/fyai_sink.c, so that one
+# component owns every byte the user sees and a second backend - HTML, or any
+# other document format - can present the same content.
+#
+# Adding an entry here is a design decision, not a formality: state why the
+# sink cannot own this write.
+
+# The sink itself. It is the destination.
+src/fyai_sink.c
+
+# The diagnostic sink owns its own descriptor. It must report before the
+# render sink is created and after it is destroyed, and a null sink prints
+# immediately, so it cannot depend on the sink existing.
+src/fyai_diag.c
+
+# Configuration, argument parsing and schema validation all run inside
+# fyai_config_setup(), before the context and therefore before the sink.
+# --version answers and exits from the same place.
+src/fyai_config.c
+src/fyai_schema.c
+
+# Argument errors, the usage text and the verb help run before the context.
+src/commands.c
+
+# The arena probe reads a root and a branch before a context exists, to decide
+# which configuration to load.
+src/fyai_storage.c
+
+# raise_stack() runs before main(); parse_response() is a builder-scoped
+# helper with no context to report through.
+src/utils.c
+
+# Opt-in profiling, reported at exit and never part of the transcript.
+src/fyai_prof.c
+
+# The terminal backend reaches the terminal through this file: fyai_ui_commit()
+# writes the bytes the sink hands it.
+src/fyai_ui.c
+
+# The interactive prompt on a non-terminal standard input, written before the
+# reader blocks; the sink presents content, not the cursor position.
+src/fyai_session.c
+
+# A forked tool child and a delegated sub-agent own file descriptor 1 for
+# JSON-RPC frames. That is protocol, not presentation.
+src/fyai_jsonrpc.c

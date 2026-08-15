@@ -709,19 +709,25 @@ static int list_emit_markdown(struct fyai_ctx *ctx, fy_generic data)
 	return fyai_generic_to_markdown(ctx, opts, data);
 }
 
-static int list_emit_generic(fy_generic data, bool json)
+static int list_emit_generic(struct fyai_ctx *ctx, fy_generic data, bool json)
 {
 	enum fy_op_emit_flags flags;
+	fy_generic emitted;
+	const char *text;
 
-	flags = FYOPEF_DISABLE_DIRECTORY | FYOPEF_OUTPUT_TYPE_STDOUT |
-		FYOPEF_WIDTH_INF;
+	flags = FYOPEF_DISABLE_DIRECTORY | FYOPEF_WIDTH_INF;
 	if (json)
 		flags |= FYOPEF_MODE_JSON | FYOPEF_STYLE_COMPACT;
 	else
 		flags |= FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_PRETTY;
 
-	(void)fy_emit(data, flags, NULL);
-	putchar('\n');
+	emitted = fy_emit(fyai_ctx_transient_gb(ctx), data, flags, NULL);
+	if (fy_is_invalid(emitted))
+		return -1;
+	/* Machine output: written as emitted, never rendered. */
+	text = fy_castp(&emitted, "");
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, "\n", 1);
 	return 0;
 }
 
@@ -877,10 +883,10 @@ int fyai_execute_list(struct fyai_ctx *ctx)
 
 	switch (args->format) {
 	case FYAIOF_JSON:
-		rc = list_emit_generic(data, true);
+		rc = list_emit_generic(ctx, data, true);
 		break;
 	case FYAIOF_YAML:
-		rc = list_emit_generic(data, false);
+		rc = list_emit_generic(ctx, data, false);
 		break;
 	case FYAIOF_RAW:
 	case FYAIOF_MARKDOWN:

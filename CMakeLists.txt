@@ -606,6 +606,13 @@ if(BUILD_TESTING)
         )
     endforeach()
 
+    # One component owns every byte the user sees: no direct stdout/stderr
+    # write outside the sink, except the files tests/sink-only-allow.txt
+    # explains.
+    add_test(NAME fyai/sink_only
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/sink-only.sh
+                ${CMAKE_CURRENT_SOURCE_DIR})
+
     add_test(NAME fyai/cli_dump_conflicting_selectors
         COMMAND fyai dump --first 1 --last 1)
     set_tests_properties(fyai/cli_dump_conflicting_selectors PROPERTIES
