@@ -72,6 +72,15 @@ struct fyai_sink {
 
 /* Create the configured sink. A discard-only backend is still valid. */
 struct fyai_sink *fyai_sink_create(struct fyai_ctx *ctx);
+/*
+ * A sink that keeps what it was asked to present instead of drawing it. It is
+ * the substrate a document backend is written against, and it lets a test read
+ * back exactly what a run would have shown.
+ */
+struct fyai_sink *fyai_sink_create_capture(struct fyai_ctx *ctx);
+/* The captured text, NUL terminated. @lenp may be NULL. */
+const char *fyai_sink_captured(const struct fyai_sink *s, size_t *lenp);
+void fyai_sink_capture_reset(struct fyai_sink *s);
 void fyai_sink_destroy(struct fyai_sink *s);
 
 int fyai_sink_doc_begin(struct fyai_sink *s, enum fyai_sink_doc_kind kind);

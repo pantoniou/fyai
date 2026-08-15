@@ -531,6 +531,150 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.destroy	= sink_term_destroy,
 };
 
+/*
+ * The capture backend. It has no terminal, so no document repaints: the source
+ * is kept as it arrives and presented when the document closes, which is the
+ * same order a document format would write it in.
+ */
+struct sink_capture {
+	struct response_buffer text;	/* everything presented so far */
+	struct response_buffer source;	/* the open document */
+	bool doc_open;
+};
+
+static int sink_capture_doc_begin(struct fyai_sink *s,
+				  const struct fyai_sink_doc *doc)
+{
+	struct sink_capture *c = s->state;
+
+	(void)doc;
+	c->source.len = 0;
+	if (c->source.data)
+		c->source.data[0] = '\0';
+	c->doc_open = true;
+	return 0;
+}
+
+static int sink_capture_doc_append(struct fyai_sink *s, const char *text,
+				   size_t len)
+{
+	struct sink_capture *c = s->state;
+
+	if (!c->doc_open || !len)
+		return 0;
+	return response_buffer_append_data(&c->source, text, len);
+}
+
+static int sink_capture_doc_end(struct fyai_sink *s, bool aborted)
+{
+	struct sink_capture *c = s->state;
+	int rc = 0;
+
+	(void)aborted;
+	if (c->source.len)
+		rc = response_buffer_append_data(&c->text, c->source.data,
+						 c->source.len);
+	c->source.len = 0;
+	c->doc_open = false;
+	return rc;
+}
+
+static void sink_capture_doc_discard(struct fyai_sink *s)
+{
+	struct sink_capture *c = s->state;
+
+	c->source.len = 0;
+	c->doc_open = false;
+}
+
+static int sink_capture_text(struct fyai_sink *s, enum fyai_sink_stream stream,
+			     const char *buf, size_t len)
+{
+	struct sink_capture *c = s->state;
+
+	(void)stream;
+	if (!buf || !len)
+		return 0;
+	return response_buffer_append_data(&c->text, buf, len);
+}
+
+static int sink_capture_markdown(struct fyai_sink *s,
+				 enum fyai_sink_stream stream, const char *md)
+{
+	return sink_capture_text(s, stream, md, md ? strlen(md) : 0);
+}
+
+static void sink_capture_destroy(struct fyai_sink *s)
+{
+	struct sink_capture *c = s->state;
+
+	if (!c)
+		return;
+	free(c->text.data);
+	free(c->source.data);
+	free(c);
+	s->state = NULL;
+}
+
+static const struct fyai_sink_ops sink_capture_ops = {
+	.name		= "capture",
+	.doc_begin	= sink_capture_doc_begin,
+	.doc_append	= sink_capture_doc_append,
+	.doc_end	= sink_capture_doc_end,
+	.doc_discard	= sink_capture_doc_discard,
+	.markdown	= sink_capture_markdown,
+	.write		= sink_capture_text,
+	.destroy	= sink_capture_destroy,
+};
+
+struct fyai_sink *fyai_sink_create_capture(struct fyai_ctx *ctx)
+{
+	struct fyai_sink *s;
+	struct sink_capture *c;
+
+	if (!ctx)
+		return NULL;
+	s = calloc(1, sizeof(*s));
+	if (!s)
+		return NULL;
+	c = calloc(1, sizeof(*c));
+	if (!c) {
+		free(s);
+		return NULL;
+	}
+	s->ctx = ctx;
+	s->ops = &sink_capture_ops;
+	s->state = c;
+	return s;
+}
+
+const char *fyai_sink_captured(const struct fyai_sink *s, size_t *lenp)
+{
+	const struct sink_capture *c;
+
+	if (!s || s->ops != &sink_capture_ops) {
+		if (lenp)
+			*lenp = 0;
+		return "";
+	}
+	c = s->state;
+	if (lenp)
+		*lenp = c->text.len;
+	return c->text.data ? c->text.data : "";
+}
+
+void fyai_sink_capture_reset(struct fyai_sink *s)
+{
+	struct sink_capture *c;
+
+	if (!s || s->ops != &sink_capture_ops)
+		return;
+	c = s->state;
+	c->text.len = 0;
+	if (c->text.data)
+		c->text.data[0] = '\0';
+}
+
 struct fyai_sink *fyai_sink_create(struct fyai_ctx *ctx)
 {
 	struct fyai_sink *s;
