@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "commands.h"
+#include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_config.h"
 #include "fyai_mcp_import.h"
@@ -214,12 +215,12 @@ int fyai_mcp_import_client(struct fyai_ctx *ctx)
 	free(key);
 	fyai_error_check(ctx, !rc, err_restore,
 			 "could not commit MCP OAuth server configuration");
-	printf("mcp: imported OAuth client for %s\n", args->name);
-	printf("mcp: enable browser login with:\n");
-	printf("  fyai config set mcp/servers/%s/auth/allow_browser true\n",
+	fyai_result(ctx, "mcp: imported OAuth client for %s\n", args->name);
+	fyai_result(ctx, "mcp: enable browser login with:\n");
+	fyai_result(ctx, "  fyai config set mcp/servers/%s/auth/allow_browser true\n",
 	       args->name);
-	printf("mcp: enable MCP with:\n");
-	printf("  fyai config set mcp/enabled true\n");
+	fyai_result(ctx, "mcp: enable MCP with:\n");
+	fyai_result(ctx, "  fyai config set mcp/enabled true\n");
 	rc = 0;
 	goto out;
 

@@ -102,10 +102,21 @@ int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 		       const char *md);
 int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 		    const char *buf, size_t len);
-/* Formatted plain text on @stream, rendered as Markdown by the backend. */
+/*
+ * Formatted plain text on @stream. The text is written as it stands, not
+ * rendered: a status line carries no Markdown, and a value inside it - a model
+ * name, a path, a branch - must not be reinterpreted as markup.
+ */
 int fyai_sink_printf(struct fyai_sink *s, enum fyai_sink_stream stream,
 		     const char *fmt, ...)
 	__attribute__((format(printf, 3, 4)));
 void fyai_sink_flush(struct fyai_sink *s);
+
+/* Present command results as output and reports as commentary. */
+int fyai_result(struct fyai_ctx *ctx, const char *fmt, ...)
+	__attribute__((format(printf, 2, 3)));
+int fyai_result_md(struct fyai_ctx *ctx, const char *md);
+int fyai_report(struct fyai_ctx *ctx, const char *fmt, ...)
+	__attribute__((format(printf, 2, 3)));
 
 #endif

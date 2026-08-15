@@ -152,8 +152,10 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 const struct fyai_sandbox_spec *sandbox,
 				 const struct shell_command_opts *opts);
 void shell_command_result_cleanup(struct shell_command_result *result);
-void emit_generic_to_stdout(const char *label, fy_generic value, bool pretty);
-void emit_generic_to_stdout_anchored(const char *label, fy_generic value,
+void emit_generic_to_stdout(struct fyai_ctx *ctx, const char *label,
+			    fy_generic value, bool pretty);
+void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
+				     fy_generic value,
 				     bool pretty, bool auto_anchor);
 const char *emit_request_body(struct fy_generic_builder *gb,
 			      fy_generic request);

@@ -29,6 +29,7 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+#include "fyai_sink.h"
 #include "fyai_sandbox.h"
 #include "fyai_terminal.h"
 
@@ -807,26 +808,29 @@ void shell_command_result_cleanup(struct shell_command_result *result)
 	memset(result, 0, sizeof(*result));
 }
 
-void emit_generic_to_stdout(const char *label, fy_generic value, bool pretty)
+void emit_generic_to_stdout(struct fyai_ctx *ctx, const char *label,
+			    fy_generic value, bool pretty)
 {
-	emit_generic_to_stdout_anchored(label, value, pretty, false);
+	emit_generic_to_stdout_anchored(ctx, label, value, pretty, false);
 }
 
-void emit_generic_to_stdout_anchored(const char *label, fy_generic value,
+/* Send emitted machine data through the sink without rendering it. */
+void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
+				     fy_generic value,
 				     bool pretty, bool auto_anchor)
 {
 	enum fy_op_emit_flags flags;
+	fy_generic emitted;
+	const char *text;
 
 	if (pretty) {
 		flags = FYOPEF_DISABLE_DIRECTORY |
-			FYOPEF_OUTPUT_TYPE_STDOUT |
 			FYOPEF_MODE_YAML_1_2 |
 			FYOPEF_STYLE_PRETTY |
 			FYOPEF_WIDTH_INF |
 			FYOPEF_OUTPUT_COMMENTS;
 	} else {
 		flags = FYOPEF_DISABLE_DIRECTORY |
-			FYOPEF_OUTPUT_TYPE_STDOUT |
 			FYOPEF_MODE_JSON |
 			FYOPEF_STYLE_COMPACT |
 			FYOPEF_WIDTH_INF;
@@ -834,9 +838,17 @@ void emit_generic_to_stdout_anchored(const char *label, fy_generic value,
 	if (auto_anchor)
 		flags |= FYOPEF_AUTO_ANCHOR;
 
-	if (label)
-		printf("\n# %s:\n", label);
-	(void)fy_emit(value, flags, NULL);
+	if (label) {
+		text = fy_sprintfa("\n# %s:\n", label);
+		if (text)
+			(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE,
+					      text, strlen(text));
+	}
+	emitted = fy_emit(fyai_ctx_transient_gb(ctx), value, flags, NULL);
+	if (fy_is_invalid(emitted))
+		return;
+	text = fy_castp(&emitted, "");
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
 }
 const char *emit_request_body(struct fy_generic_builder *gb, fy_generic request)
 {

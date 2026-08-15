@@ -17,6 +17,7 @@
 
 #include "fyai_markdown.h"
 #include "fyai_render.h"
+#include "fyai_sink.h"
 
 /*
  * A schema default (system_prompt's, notably) can be arbitrarily long in a
@@ -441,12 +442,10 @@ int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 	else
 		render_seq_table(mf, data, renderopts);
 	fclose(mf);
-	rc = fy_get(renderopts, "raw", false) ? -1 :
-	     fyai_print_markdown(md, ctx->cfg);
-	if (rc) {
-		fputs(md, stdout);
-		rc = 0;
-	}
+	if (fy_get(renderopts, "raw", false))
+		rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, md, mdlen);
+	else
+		rc = fyai_sink_markdown(ctx->sink, FYAI_SINK_NOTICE, md);
 	free(md);
 	return rc;
 }

@@ -21,6 +21,7 @@
 #include <string.h>
 #include <regex.h>
 
+#include "fyai_sink.h"
 #include "fyai_schema.h"
 
 /*

@@ -22,6 +22,7 @@
 #include <getopt.h>
 #include <errno.h>
 
+#include "fyai_sink.h"
 #include "fyai_catalog.h"
 #include "fyai_branch.h"
 #include "fyai_config.h"
@@ -88,8 +89,7 @@ static int config_validate_api(fy_generic root)
 	if (config_contains(fy_sequence("responses", "messages", "chat",
 					"chat-completions"), v))
 		return 0;
-	fprintf(stderr,
-		"config: invalid api '%s' (responses|chat-completions|messages)\n",
+	fprintf(stderr, "config: invalid api '%s' (responses|chat-completions|messages)\n",
 		fy_str(v));
 	return -1;
 }
@@ -603,8 +603,7 @@ static int env_apply_line(char *line, fy_generic names, const char *path,
 	}
 
 	if (has_substitution(val)) {
-		fprintf(stderr,
-			"%s:%d: variable substitution is not supported\n",
+		fprintf(stderr, "%s:%d: variable substitution is not supported\n",
 			path, lineno);
 		return -1;
 	}
@@ -935,13 +934,15 @@ int fyai_config_load(struct fyai_cfg *cfg,
  * (provider, endpoint, max_tokens) are deliberately absent: they are
  * derivations, not configuration.
  */
-int fyai_config_show(struct fyai_cfg *cfg)
+int fyai_config_show(struct fyai_ctx *ctx)
 {
+	struct fyai_cfg *cfg = ctx->cfg;
+
 	if (fy_is_invalid(cfg->config_doc)) {
 		fyai_cfg_error(cfg, "no configuration; run fyai init or fyai config import");
 		return -1;
 	}
-	emit_generic_to_stdout(NULL, cfg->config_doc, true);
+	emit_generic_to_stdout(ctx, NULL, cfg->config_doc, true);
 	return 0;
 }
 
@@ -1650,7 +1651,7 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid))
 		return -1;
-	printf("config: imported %s\n", path);
+	fyai_result(ctx, "config: imported %s\n", path);
 	return 0;
 }
 

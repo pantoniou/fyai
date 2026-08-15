@@ -5,6 +5,7 @@
 
 #include <libfyaml.h>
 
+#include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_agent.h"
 #include "fyai_turn.h"
@@ -332,7 +333,7 @@ int fyai_agent_verb(struct fyai_ctx *ctx)
 		fyai_error(ctx, "agent: the sub-agent did not complete");
 		return -1;
 	}
-	printf("%s\n", fy_castp(&report, ""));
+	fyai_result(ctx, "%s\n", fy_castp(&report, ""));
 	return 0;
 }
 

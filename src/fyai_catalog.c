@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_sink.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_markdown.h"
@@ -213,7 +214,7 @@ int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 		fy_invalid;
 	if (fyai_publish_root(ctx, new_config, doc, fy_invalid))
 		return -1;
-	printf("catalog: imported %s (%zu models, %zu providers)\n",
+	fyai_result(ctx, "catalog: imported %s (%zu models, %zu providers)\n",
 	       path, fy_len(models), fy_len(providers));
 	return 0;
 }
@@ -229,7 +230,7 @@ int fyai_catalog_export(struct fyai_ctx *ctx, const char *path)
 		return -1;
 	}
 	if (!path) {
-		emit_generic_to_stdout(NULL, cat, true);
+		emit_generic_to_stdout(ctx, NULL, cat, true);
 		return 0;
 	}
 	emitted = fy_emit(cat,
@@ -254,43 +255,43 @@ int fyai_catalog_show(struct fyai_ctx *ctx)
 		return -1;
 	}
 	if (fy_is_invalid(ctx->arena_catalog))
-		fprintf(stderr, "# embedded snapshot (no catalog in arena)\n");
-	emit_generic_to_stdout(NULL, cat, true);
+		fyai_report(ctx, "# embedded snapshot (no catalog in arena)\n");
+	emit_generic_to_stdout(ctx, NULL, cat, true);
 	return 0;
 }
 
-static void catalog_list_models(fy_generic cat)
+static void catalog_list_models(struct fyai_ctx *ctx, fy_generic cat)
 {
 	fy_generic models, m;
 
 	models = fy_get(cat, "models");
-	printf("%-40s %10s %10s\n", "MODEL", "CONTEXT", "MAX-OUT");
+	fyai_result(ctx, "%-40s %10s %10s\n", "MODEL", "CONTEXT", "MAX-OUT");
 	fy_foreach(m, models) {
-		printf("%-40s %10lld %10lld\n",
+		fyai_result(ctx, "%-40s %10lld %10lld\n",
 		       fy_get(m, "name", ""),
 		       fy_get(m, "context_window", 0LL),
 		       fy_get(m, "max_output_tokens", 0LL));
 	}
 }
 
-static void catalog_list_providers(fy_generic cat)
+static void catalog_list_providers(struct fyai_ctx *ctx, fy_generic cat)
 {
 	fy_generic providers, p, eps, e;
 	size_t j;
 
 	providers = fy_get(cat, "providers");
-	printf("%-14s %-40s %s\n", "PROVIDER", "ROOT-URL", "PROTOCOLS");
+	fyai_result(ctx, "%-14s %-40s %s\n", "PROVIDER", "ROOT-URL", "PROTOCOLS");
 	fy_foreach(p, providers) {
-		printf("%-14s %-40s ",
+		fyai_result(ctx, "%-14s %-40s ",
 		       fy_get(p, "name", ""), fy_get(p, "root_url", ""));
 		eps = fy_get(p, "endpoints");
 		j = 0;
 		fy_foreach(e, eps) {
-			printf("%s%s", j ? "," : "",
+			fyai_result(ctx, "%s%s", j ? "," : "",
 			       fy_get(e, "protocol", ""));
 			j++;
 		}
-		printf("\n");
+		fyai_result(ctx, "\n");
 	}
 }
 
@@ -536,8 +537,8 @@ int fyai_catalog_list(struct fyai_ctx *ctx, const char *what)
 		return -1;
 	}
 	if (!what || !strcmp(what, "models"))
-		catalog_list_models(cat);
+		catalog_list_models(ctx, cat);
 	if (!what || !strcmp(what, "providers"))
-		catalog_list_providers(cat);
+		catalog_list_providers(ctx, cat);
 	return 0;
 }

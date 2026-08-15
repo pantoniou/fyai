@@ -28,6 +28,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "fyai_sink.h"
 #include "fyai_prof.h"
 #include "fyai_branch.h"
 #include "fyai_merge.h"
@@ -900,6 +901,7 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 	/* Resolve --root before reading its branch configuration. */
 	if (refs && root_spec) {
 		if (fyai_root_resolve_spec(allocator, refs, root_spec, &pinned)) {
+			/* Pre-context bootstrap: the sink does not exist yet. */
 			fprintf(stderr, "--root '%s' names no root in %s; "
 				"gc may have dropped it\n", root_spec, arena_dir);
 			fy_allocator_destroy(allocator);
@@ -1424,7 +1426,7 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 
 	if (access(cfg->arena_dir, F_OK)) {
 		if (errno == ENOENT) {
-			printf("gc: no arena at %s\n", cfg->arena_dir);
+			fyai_result(ctx, "gc: no arena at %s\n", cfg->arena_dir);
 			return 0;
 		}
 		return -1;
@@ -1453,7 +1455,7 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 	}
 	if (rc)
 		return -1;
-	printf("gc: compacted %s\n", cfg->arena_dir);
+	fyai_result(ctx, "gc: compacted %s\n", cfg->arena_dir);
 	return 0;
 }
 
@@ -1542,7 +1544,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	}
 
 	/* Where init is putting things: normal output, not a diagnostic. */
-	fprintf(stderr, "arena: %s\n", arena_dir);
+	fyai_report(ctx, "arena: %s\n", arena_dir);
 
 	if (fyai_open_arena(ctx, arena_dir)) {
 		fyai_error(ctx, "init: cannot open arena at %s", arena_dir);
@@ -1573,7 +1575,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			goto out;
 		}
 		if (!args->config && rc >= 0) {
-			printf("already initialized .fyai\n");
+			fyai_result(ctx, "already initialized .fyai\n");
 			ret = 0;
 			goto out;
 		}
@@ -1629,9 +1631,9 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 	}
 
 	if (args->config)
-		printf("initialized .fyai (config from %s)\n", args->config);
+		fyai_result(ctx, "initialized .fyai (config from %s)\n", args->config);
 	else
-		printf("initialized .fyai\n");
+		fyai_result(ctx, "initialized .fyai\n");
 	ret = 0;
 out:
 	fyai_close_storage(ctx);

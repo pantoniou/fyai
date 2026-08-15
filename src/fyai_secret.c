@@ -22,6 +22,7 @@
 #include <Security/Security.h>
 #endif
 
+#include "fyai_sink.h"
 #include "fyai_secret.h"
 #include "fyai.h"
 
@@ -306,7 +307,8 @@ int fyai_secret_kernel_delete(const char *name)
 #define FYAI_SECRET_BACKEND_NAME "unavailable"
 #endif
 
-int fyai_secret_action(enum fyai_secret_command command, const char *name,
+int fyai_secret_action(struct fyai_ctx *ctx,
+		       enum fyai_secret_command command, const char *name,
 		       bool stdin_value)
 {
 	const char *stored;
@@ -320,7 +322,7 @@ int fyai_secret_action(enum fyai_secret_command command, const char *name,
 	if (command == FYAI_SECRET_STATUS && (!name || !*name)) {
 		rc = fyai_secret_kernel_get("fyai:__probe__", &probe, &probe_len);
 		fyai_secret_clear_and_free(&probe, &probe_len);
-		printf("secret backend: %s\n",
+		fyai_result(ctx, "secret backend: %s\n",
 		       rc == FYAI_SECRET_UNSUPPORTED ? "unavailable" :
 		       FYAI_SECRET_BACKEND_NAME);
 		rc = rc == FYAI_SECRET_UNSUPPORTED ? -1 : 0;
@@ -330,7 +332,7 @@ int fyai_secret_action(enum fyai_secret_command command, const char *name,
 	if (command == FYAI_SECRET_STATUS) {
 		rc = fyai_secret_kernel_get(stored, &probe, &probe_len);
 		fyai_secret_clear_and_free(&probe, &probe_len);
-		printf("secret %s: %s\n", name,
+		fyai_result(ctx, "secret %s: %s\n", name,
 		       rc == FYAI_SECRET_OK ? "present" :
 		       rc == FYAI_SECRET_NOT_FOUND ? "absent" : "unavailable");
 		rc = rc == FYAI_SECRET_UNSUPPORTED || rc < 0 ? -1 : 0;
@@ -339,18 +341,18 @@ int fyai_secret_action(enum fyai_secret_command command, const char *name,
 	if (command == FYAI_SECRET_DELETE) {
 		rc = fyai_secret_kernel_delete(stored);
 		if (rc == FYAI_SECRET_OK || rc == FYAI_SECRET_NOT_FOUND) {
-			printf("secret: removed %s\n", name);
+			fyai_result(ctx, "secret: removed %s\n", name);
 			rc = 0;
 			goto out;
 		}
-		fprintf(stderr, "secret: %s backend is unavailable\n",
+		fyai_report(ctx, "secret: %s backend is unavailable\n",
 			FYAI_SECRET_BACKEND_NAME);
 		rc = -1;
 		goto out;
 	}
 	fp = stdin_value ? stdin : fopen("/dev/tty", "r+");
 	if (!fp) {
-		fprintf(stderr, "secret: cannot open /dev/tty; use --stdin\n");
+		fyai_report(ctx, "secret: cannot open /dev/tty; use --stdin\n");
 		goto out;
 	}
 	fd = fileno(fp);
@@ -374,15 +376,15 @@ int fyai_secret_action(enum fyai_secret_command command, const char *name,
 		fp = NULL;
 	}
 	if (!len) {
-		fprintf(stderr, "secret: empty value\n");
+		fyai_report(ctx, "secret: empty value\n");
 		rc = -1;
 	} else {
 		rc = fyai_secret_kernel_set(stored, value, len);
 		if (rc == FYAI_SECRET_OK) {
-			printf("secret: stored %s\n", name);
+			fyai_result(ctx, "secret: stored %s\n", name);
 			rc = 0;
 		} else {
-			fprintf(stderr, "secret: %s backend is unavailable\n",
+			fyai_report(ctx, "secret: %s backend is unavailable\n",
 			FYAI_SECRET_BACKEND_NAME);
 			rc = -1;
 		}
@@ -401,5 +403,5 @@ int fyai_secret_execute(struct fyai_ctx *ctx)
 {
 	struct fyai_secret_args *a = &ctx->cfg->cmd.args.secret;
 
-	return fyai_secret_action(a->command, a->name, a->stdin_value);
+	return fyai_secret_action(ctx, a->command, a->name, a->stdin_value);
 }

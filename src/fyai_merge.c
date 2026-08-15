@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_branch.h"
 #include "fyai_merge.h"
@@ -341,7 +342,7 @@ int fyai_branch_join(struct fyai_ctx *ctx, const char *source,
 	fyai_error_check(ctx, !rc, out,
 			 "could not publish the joined conversation");
 
-	printf("%s %s into %s (%zu turn%s added%s); previous head is %s@{1}\n",
+	fyai_result(ctx, "%s %s into %s (%zu turn%s added%s); previous head is %s@{1}\n",
 	       mode == FYAI_JOIN_REBASE ? "rebased" : "merged", source,
 	       fyai_ctx_branch(ctx), theirs.count,
 	       theirs.count == 1 ? "" : "s",

@@ -475,9 +475,14 @@ static int sink_term_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 
 	if (!md || !*md)
 		return 0;
-	/* Machine data is parsed by another program: never decorate it. */
-	if (stream == FYAI_SINK_MACHINE || !cfg->markdown ||
-	    !markdown_available(cfg) ||
+	/*
+	 * Machine data is parsed by another program: never decorate it.
+	 * Everything else is rendered, and falls back to its own source when
+	 * no renderer is available. display/markdown is deliberately not
+	 * consulted here: it governs the assistant transcript, not a table or
+	 * a notice, which stay readable either way.
+	 */
+	if (stream == FYAI_SINK_MACHINE ||
 	    fyai_fprint_markdown(fp, md, cfg, 0)) {
 		fputs(md, fp);
 		fflush(fp);
@@ -681,7 +686,48 @@ int fyai_sink_printf(struct fyai_sink *s, enum fyai_sink_stream stream,
 	va_end(ap);
 	if (len < 0)
 		return -1;
-	rc = fyai_sink_markdown(s, stream, text);
+	rc = fyai_sink_write(s, stream, text, (size_t)len);
+	free(text);
+	return rc;
+}
+
+int fyai_result(struct fyai_ctx *ctx, const char *fmt, ...)
+{
+	va_list ap;
+	char *text;
+	int len;
+	int rc;
+
+	va_start(ap, fmt);
+	len = vasprintf(&text, fmt, ap);
+	va_end(ap);
+	if (len < 0)
+		return -1;
+	rc = fyai_sink_write(ctx ? ctx->sink : NULL, FYAI_SINK_NOTICE, text,
+			     (size_t)len);
+	free(text);
+	return rc;
+}
+
+int fyai_result_md(struct fyai_ctx *ctx, const char *md)
+{
+	return fyai_sink_markdown(ctx ? ctx->sink : NULL, FYAI_SINK_NOTICE, md);
+}
+
+int fyai_report(struct fyai_ctx *ctx, const char *fmt, ...)
+{
+	va_list ap;
+	char *text;
+	int len;
+	int rc;
+
+	va_start(ap, fmt);
+	len = vasprintf(&text, fmt, ap);
+	va_end(ap);
+	if (len < 0)
+		return -1;
+	rc = fyai_sink_write(ctx ? ctx->sink : NULL, FYAI_SINK_STATUS, text,
+			     (size_t)len);
 	free(text);
 	return rc;
 }

@@ -17,6 +17,7 @@
 #include <string.h>
 #include <strings.h>
 
+#include "fyai_sink.h"
 #include "fyai_diag.h"
 #include "fyai_log.h"
 #include "fyai_ui.h"
@@ -116,9 +117,11 @@ static int fyai_log_clear_target(struct fyai_ctx *ctx, const char *target)
 	return fyai_log_truncate(ctx, target);
 }
 
-static void fyai_log_print(struct fyai_cfg *cfg)
+static void fyai_log_print(struct fyai_ctx *ctx)
 {
-	printf("logging: wire %s, stream %s, conversation %s, mcp %s\n",
+	const struct fyai_cfg *cfg = ctx->cfg;
+
+	fyai_result(ctx, "logging: wire %s, stream %s, conversation %s, mcp %s\n",
 	       cfg->wire_logging ? "on" : "off",
 	       cfg->stream_logging ? "on" : "off",
 	       cfg->conversation_logging ? "on" : "off",
@@ -145,7 +148,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 	int n;
 
 	if (!arg || !*arg) {
-		fyai_log_print(cfg);
+		fyai_log_print(ctx);
 		return 0;
 	}
 
@@ -172,12 +175,12 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 
 	if (!strcmp(action, "start") || !strcmp(action, "on")) {
 		fyai_log_set(cfg, target, true);
-		fyai_log_print(cfg);
+		fyai_log_print(ctx);
 		return 0;
 	}
 	if (!strcmp(action, "stop") || !strcmp(action, "off")) {
 		fyai_log_set(cfg, target, false);
-		fyai_log_print(cfg);
+		fyai_log_print(ctx);
 		return 0;
 	}
 	if (!strcmp(action, "clear")) {
@@ -185,7 +188,7 @@ int fyai_log_control(struct fyai_ctx *ctx, const char *arg)
 			fyai_error(ctx, "clear failed");
 			return -1;
 		}
-		printf("logging: cleared %s\n", target);
+		fyai_result(ctx, "logging: cleared %s\n", target);
 		return 0;
 	}
 	if (!strcmp(action, "view")) {

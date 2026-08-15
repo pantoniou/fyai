@@ -31,7 +31,8 @@ int fyai_secret_kernel_delete(const char *name);
 void fyai_secret_clear(void *value, size_t len);
 void fyai_secret_clear_and_free(char **value, size_t *len);
 int fyai_secret_execute(struct fyai_ctx *ctx);
-int fyai_secret_action(enum fyai_secret_command command, const char *name,
+int fyai_secret_action(struct fyai_ctx *ctx,
+		       enum fyai_secret_command command, const char *name,
 		       bool stdin_value);
 
 #endif

@@ -29,6 +29,7 @@
 #include <Security/Security.h>
 #endif
 
+#include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_oauth.h"
@@ -894,7 +895,7 @@ static int manual_login(struct fyai_ctx *ctx, struct fyai_credentials *c,
 	char *nl;
 	int rc = -1;
 
-	printf("\nAfter authorizing, your browser is redirected to a URL that\n"
+	fyai_result(ctx, "\nAfter authorizing, your browser is redirected to a URL that\n"
 	       "cannot load (it points at this machine's localhost). Copy that\n"
 	       "URL from the address bar and paste it here.\n\n"
 	       "Paste redirect URL (or code): ");
@@ -1363,7 +1364,7 @@ fyai_auth_login_device_code_done(struct fyai_auth_login_request *request)
 	fyai_error_check(ctx, request->device_id && *request->device_id &&
 			 request->user_code && *request->user_code, err_out,
 			 "device code response is missing the code");
-	printf("Open https://auth.openai.com/codex/device and enter code %s\n",
+	fyai_result(ctx, "Open https://auth.openai.com/codex/device and enter code %s\n",
 	       request->user_code);
 	fflush(stdout);
 	body = emit_json_string(ctx->transient_gb, fy_mapping(
@@ -1447,7 +1448,7 @@ fyai_auth_login_save(struct fyai_auth_login_request *request)
 	auth_unlock(ctx, lockfd);
 	fyai_error_check(ctx, !rc, err_out,
 			 "cannot save authentication state");
-	printf("auth: logged in as %s (%s)\n",
+	fyai_result(ctx, "auth: logged in as %s (%s)\n",
 		request->credentials.email &&
 		*request->credentials.email ?
 			request->credentials.email : "unknown",
@@ -2350,7 +2351,7 @@ int fyai_auth_status(struct fyai_ctx *ctx, bool json, bool info)
 			doc);
 	out = emit_request_body(ctx->transient_gb, doc);
 	if (out)
-		printf("%s\n", out);
+		fyai_result(ctx, "%s\n", out);
 	return out ? 0 : -1;
 }
 
@@ -2415,7 +2416,7 @@ int fyai_auth_usage(struct fyai_ctx *ctx, bool json)
 		const char *out_json = emit_request_body(gb, doc);
 		if (!out_json)
 			goto out;
-		printf("%s\n", out_json);
+		fyai_result(ctx, "%s\n", out_json);
 	} else {
 		rate = fy_get(doc, "rate_limit");
 		primary = fy_get(rate, "primary_window");
@@ -2486,7 +2487,7 @@ int fyai_auth_logout(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, !file_rc && !keyring_rc, err_out,
 			 "could not remove stored authentication");
 
-	printf("auth: logged out\n");
+	fyai_result(ctx, "auth: logged out\n");
 	return 0;
 
 err_out:
@@ -2532,7 +2533,7 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 		auth_unlock(ctx, lockfd);
 		lockfd = -1;
 		fyai_error_check(ctx, !rc, err_out, "cannot save");
-		printf("auth: logged in as %s (%s)\n",
+		fyai_result(ctx, "auth: logged in as %s (%s)\n",
 			c.email && *c.email ? c.email : "unknown",
 			c.plan ? c.plan : "unknown");
 		return 0;
@@ -2565,7 +2566,7 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 	rc = fyai_auth_login_collect(request);
 	fyai_auth_login_destroy(request);
 	if (!rc)
-		printf("auth: login succeeded\n");
+		fyai_result(ctx, "auth: login succeeded\n");
 	return rc;
 
 err_destroy:

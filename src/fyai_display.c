@@ -779,6 +779,11 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	return out;
 }
 
+/*
+ * Stats keeps its own table builder rather than fyai_generic_to_markdown():
+ * its cells carry currency and percent formatting, and its columns are right
+ * aligned, neither of which the renderopts vocabulary expresses.
+ */
 static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -824,25 +829,34 @@ static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 	}
 	fclose(mf);
 
-	if (args->format == FYAIOF_RAW || fyai_print_markdown(md, cfg))
-		fputs(md, stdout);
+	if (args->format == FYAIOF_RAW)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, md, mdlen);
+	else
+		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_NOTICE, md);
 	free(md);
 	return 0;
 }
 
-static int fyai_emit_stats_generic(fy_generic stats, bool json)
+static int fyai_emit_stats_generic(struct fyai_ctx *ctx, fy_generic stats,
+				   bool json)
 {
 	enum fy_op_emit_flags flags;
+	fy_generic emitted;
+	const char *text;
 
-	flags = FYOPEF_DISABLE_DIRECTORY | FYOPEF_OUTPUT_TYPE_STDOUT |
-		FYOPEF_WIDTH_INF;
+	flags = FYOPEF_DISABLE_DIRECTORY | FYOPEF_WIDTH_INF;
 	if (json)
 		flags |= FYOPEF_MODE_JSON | FYOPEF_STYLE_COMPACT;
 	else
 		flags |= FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_PRETTY;
 
-	(void)fy_emit(stats, flags, NULL);
-	putchar('\n');
+	emitted = fy_emit(fyai_ctx_transient_gb(ctx), stats, flags, NULL);
+	if (fy_is_invalid(emitted))
+		return -1;
+	/* Machine output: written as emitted, never rendered. */
+	text = fy_castp(&emitted, "");
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, "\n", 1);
 	return 0;
 }
 
@@ -873,10 +887,10 @@ int fyai_show_stats(struct fyai_ctx *ctx)
 
 	switch (args->format) {
 	case FYAIOF_JSON:
-		rc = fyai_emit_stats_generic(stats, true);
+		rc = fyai_emit_stats_generic(ctx, stats, true);
 		break;
 	case FYAIOF_YAML:
-		rc = fyai_emit_stats_generic(stats, false);
+		rc = fyai_emit_stats_generic(ctx, stats, false);
 		break;
 	case FYAIOF_RAW:
 	case FYAIOF_MARKDOWN:
@@ -3270,7 +3284,7 @@ int fyai_dump_view(struct fyai_ctx *ctx)
 
 	/* The anchored view dumps the full turn graph, no selection. */
 	if (args->anchors) {
-		emit_generic_to_stdout_anchored("conversation",
+		emit_generic_to_stdout_anchored(ctx, "conversation",
 			fy_is_valid(ctx->last_message) ?
 			ctx->last_message : fy_null, true, true);
 		rc = 0;

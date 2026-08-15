@@ -2755,9 +2755,11 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	result = fy_gb_internalize(ctx->transient_gb, result);
 
 	if (fy_is_string(result))
-		printf("%s\n", fy_castp(&result, ""));
+		/* Machine output: the verb result as it stands. */
+		(void)fyai_sink_printf(ctx->sink, FYAI_SINK_MACHINE, "%s\n",
+				       fy_castp(&result, ""));
 	else
-		emit_generic_to_stdout(NULL, result, ctx->cfg->pretty);
+		emit_generic_to_stdout(ctx, NULL, result, ctx->cfg->pretty);
 	ret = 0;
 out:
 	free(stdin_buf);

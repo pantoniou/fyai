@@ -27,6 +27,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "fyai_sink.h"
 #include "fyai_branch.h"
 #include "fyai_merge.h"
 #include "commands.h"
@@ -1308,7 +1309,7 @@ int fyai_execute_config(struct fyai_ctx *ctx)
 			return -1;
 		break;
 	case FYAICT_EFFECTIVE:
-		rc = fyai_config_show(cfg);
+		rc = fyai_config_show(ctx);
 		if (rc)
 			return -1;
 		break;
@@ -1347,10 +1348,11 @@ int fyai_execute_config(struct fyai_ctx *ctx)
 						 "config");
 		if (rc)
 			return -1;
-		printf("config: valid\n");
+		fyai_result(ctx, "config: valid\n");
 		break;
 	case FYAICT_SCHEMA:
-		emit_generic_to_stdout(NULL, fyai_config_schema(cfg->gb), true);
+		emit_generic_to_stdout(ctx, NULL,
+				       fyai_config_schema(cfg->gb), true);
 		break;
 	case FYAICT_DESCRIBE:
 		rc = config_describe(ctx, args->key);

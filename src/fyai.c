@@ -238,7 +238,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	    (marked && fyai_sink_bands_available(ctx->sink)))
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
-		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
+		emit_generic_to_stdout(ctx, "tool-call", tool_call, cfg->pretty);
 
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
@@ -269,7 +269,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (!isolated_tool && cfg->markdown && !banded)
 		fyai_render_tool_exchange(ctx, tool_call, tool_result);
 	if (cfg->debug)
-		emit_generic_to_stdout("tool-result", tool_result,
+		emit_generic_to_stdout(ctx, "tool-result", tool_result,
 				       cfg->pretty);
 	switch (cfg->api_mode) {
 	case FYAI_API_RESPONSES:
@@ -995,7 +995,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 			 "could not finish the model request");
 
 	if (cfg->debug)
-		emit_generic_to_stdout("request", request, cfg->pretty);
+		emit_generic_to_stdout(ctx, "request", request, cfg->pretty);
 
 	if (cfg->conversation_logging) {
 		(void)fyai_log_generic(ctx, "conversation",
@@ -1080,7 +1080,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 				      fyai_extract_usage(ctx, response_doc));
 
 	if (cfg->debug && fy_is_valid(response_doc))
-		emit_generic_to_stdout("response", response_doc, cfg->pretty);
+		emit_generic_to_stdout(ctx, "response", response_doc, cfg->pretty);
 	if (cfg->debug && cfg->cache_info &&
 	    fy_is_valid(response_doc))
 		fyai_print_cache_info(ctx, response_doc);

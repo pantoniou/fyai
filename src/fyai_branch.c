@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_branch.h"
 #include "fyai_render.h"
@@ -709,7 +710,7 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 
 	if (switch_to)
 		return fyai_branch_checkout(ctx, name, false, NULL);
-	printf("created branch %s\n", name);
+	fyai_result(ctx, "created branch %s\n", name);
 	return 0;
 
 err_out:
@@ -789,7 +790,7 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 	rc = branches_publish(ctx, branches);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not publish deletion of '%s'", name);
-	printf("deleted branch %s\n", name);
+	fyai_result(ctx, "deleted branch %s\n", name);
 	return 0;
 
 err_out:
@@ -877,7 +878,7 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 	rc = branches_publish(ctx, branches);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not publish rename of '%s'", from);
-	printf("renamed %s to %s\n", from, to);
+	fyai_result(ctx, "renamed %s to %s\n", from, to);
 	return 0;
 
 err_out:
@@ -943,7 +944,7 @@ int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not publish checkout of '%s'", name);
-	printf("switched to branch %s\n", name);
+	fyai_result(ctx, "switched to branch %s\n", name);
 	return 0;
 
 err_out:
@@ -965,7 +966,7 @@ int fyai_branch_reset(struct fyai_ctx *ctx, const char *spec)
 		return -1;
 
 	turns = fyai_branch_turn_count(head, FYAI_BRANCH_WALK_MAX);
-	printf("%s is now at %s (%lld turn%s); the previous head is %s@{1}\n",
+	fyai_result(ctx, "%s is now at %s (%lld turn%s); the previous head is %s@{1}\n",
 	       fyai_ctx_branch(ctx), spec, turns, turns == 1 ? "" : "s",
 	       fyai_ctx_branch(ctx));
 	return 0;
@@ -1027,7 +1028,7 @@ int fyai_root_report(struct fyai_ctx *ctx, const char *spec, bool verbose)
 	handle = fy_sprintfa("%llx", (unsigned long long)v);
 
 	if (!verbose) {
-		printf("%s\n", handle);
+		fyai_result(ctx, "%s\n", handle);
 		return 0;
 	}
 

@@ -38,6 +38,7 @@
 #include <libfytimui.h>
 
 #include "commands.h"
+#include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_catalog.h"
@@ -115,7 +116,7 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 
 	if (fyai_publish_state(ctx))
 		return -1;
-	printf("conversation cleared\n");
+	fyai_result(ctx, "conversation cleared\n");
 	return 0;
 }
 
@@ -242,7 +243,7 @@ restore:
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, out,
 			 "compact: cannot publish the compacted turn");
-	printf("conversation compacted (Responses API)\n");
+	fyai_result(ctx, "conversation compacted (Responses API)\n");
 	return 0;
 err_collect:
 	rc = -1;
@@ -341,7 +342,7 @@ static int session_compact_responses_v2(struct fyai_ctx *ctx,
 	rc = fyai_publish_state(ctx);
 	fyai_error_check(ctx, !rc, out,
 			 "compact: cannot publish the compacted turn");
-	printf("conversation compacted (Responses API)\n");
+	fyai_result(ctx, "conversation compacted (Responses API)\n");
 	return 0;
 out:
 	return -1;
@@ -366,7 +367,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	}
 	if (fy_is_invalid(ctx->last_message) ||
 	    fy_is_null(ctx->last_message)) {
-		printf("compact: nothing to compact\n");
+		fyai_result(ctx, "compact: nothing to compact\n");
 		return 0;
 	}
 	assert(ctx->transient_gb);
@@ -469,7 +470,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 
 	if (fyai_publish_state(ctx))
 		return -1;
-	printf("conversation compacted\n");
+	fyai_result(ctx, "conversation compacted\n");
 	return 0;
 }
 
@@ -536,14 +537,14 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 
 	if (!name || !*name) {
 		window = fyai_context_window(ctx);
-		printf("model: %s (provider %s, api %s, window ",
+		fyai_result(ctx, "model: %s (provider %s, api %s, window ",
 		       cfg->model ? cfg->model : "",
 		       cfg->provider ? cfg->provider : "?",
 		       fyai_api_to_string(cfg->api_mode));
 		if (window)
-			printf("%lld)\n", window);
+			fyai_result(ctx, "%lld)\n", window);
 		else
-			printf("unknown)\n");
+			fyai_result(ctx, "unknown)\n");
 		return 0;
 	}
 
@@ -588,7 +589,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name)
 
 	session_persist_model(ctx);
 
-	printf("model: %s (provider %s, api %s)\n",
+	fyai_result(ctx, "model: %s (provider %s, api %s)\n",
 	       cfg->model, cfg->provider ? cfg->provider : "?",
 	       fyai_api_to_string(cfg->api_mode));
 	return 0;
@@ -616,7 +617,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 	fy_generic prov;
 
 	if (!arg || !*arg) {
-		printf("api: %s (model %s, provider %s, url %s, max_tokens %d)\n",
+		fyai_result(ctx, "api: %s (model %s, provider %s, url %s, max_tokens %d)\n",
 		       fyai_api_to_string(cfg->api_mode),
 		       cfg->model ? cfg->model : "",
 		       cfg->provider ? cfg->provider : "?",
@@ -631,7 +632,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 		return -1;
 	}
 	if (mode == cfg->api_mode) {
-		printf("api: already %s\n", fyai_api_to_string(mode));
+		fyai_result(ctx, "api: already %s\n", fyai_api_to_string(mode));
 		return 0;
 	}
 
@@ -709,7 +710,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg)
 		session_persist(ctx, "api_url",
 				fy_sprintfa("'%s'", cfg->api_url));
 
-	printf("api: %s (model %s, provider %s, url %s)\n",
+	fyai_result(ctx, "api: %s (model %s, provider %s, url %s)\n",
 	       fyai_api_to_string(cfg->api_mode),
 	       cfg->model ? cfg->model : "",
 	       cfg->provider ? cfg->provider : "?",
@@ -1341,23 +1342,23 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	  NULL, false, false, "temperature", "sampling temperature" },
 };
 
-static void session_opt_print(struct fyai_cfg *cfg,
+static void session_opt_print(struct fyai_ctx *ctx,
 			      const struct fyai_slash_opt *o)
 {
-	const void *field = (const char *)cfg + o->off;
+	const void *field = (const char *)ctx->cfg + o->off;
 	const char *s;
 
 	switch (o->kind) {
 	case FYAIOK_STR:
 		s = *(const char *const *)field;
-		printf("%s: %s\n", o->name, s && *s ? s : "(unset)");
+		fyai_result(ctx, "%s: %s\n", o->name, s && *s ? s : "(unset)");
 		break;
 	case FYAIOK_BOOL:
-		printf("%s: %s\n", o->name,
+		fyai_result(ctx, "%s: %s\n", o->name,
 		       *(const bool *)field ? "on" : "off");
 		break;
 	case FYAIOK_FLOAT:
-		printf("%s: %g\n", o->name, (double)*(const float *)field);
+		fyai_result(ctx, "%s: %g\n", o->name, (double)*(const float *)field);
 		break;
 	}
 }
@@ -1374,7 +1375,7 @@ static int session_opt_run(struct fyai_ctx *ctx,
 	int idx;
 
 	if (!arg || !*arg) {
-		session_opt_print(cfg, o);
+		session_opt_print(ctx, o);
 		return 0;
 	}
 	if (o->reasoning && cfg->api_mode == FYAI_API_MESSAGES) {
@@ -1447,7 +1448,7 @@ static int session_opt_run(struct fyai_ctx *ctx,
 			value = *(bool *)field ? "true" : "false";
 		session_persist(ctx, o->ckey, value);
 	}
-	session_opt_print(cfg, o);
+	session_opt_print(ctx, o);
 	return 0;
 
 err_out:
@@ -1828,7 +1829,7 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 	}
 	/* The slash line contains only the logical name. SET prompts separately
 	 * on /dev/tty, so secret material never enters linenoise history. */
-	rc = fyai_secret_action(command, name, false);
+	rc = fyai_secret_action(ctx, command, name, false);
 	free(copy);
 	return rc;
 }
@@ -1894,7 +1895,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 			free(copy);
 			return rc;
 		}
-		printf("mcp: enabled=%s protocol=%s timeout=%d\n",
+		fyai_result(ctx, "mcp: enabled=%s protocol=%s timeout=%d\n",
 			cfg->mcp_enabled ? "true" : "false",
 			cfg->mcp_protocol_version ? cfg->mcp_protocol_version : "-",
 			cfg->mcp_timeout);
@@ -1905,20 +1906,20 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 				server = fy_get(cfg->mcp_servers, key, fy_invalid);
 				command = fy_get(server, "command", "");
 				if (*command)
-					printf("  %s: enabled=%s transport=stdio command=%s\n",
+					fyai_result(ctx, "  %s: enabled=%s transport=stdio command=%s\n",
 						server_name,
 						fy_get(server, "enabled", true) ?
 						"true" : "false",
 						command);
 				else
-					printf("  %s: enabled=%s transport=http endpoint=%s\n",
+					fyai_result(ctx, "  %s: enabled=%s transport=http endpoint=%s\n",
 						server_name,
 						fy_get(server, "enabled", true) ?
 						"true" : "false",
 						fy_get(server, "endpoint", "(none)"));
 			}
 		} else {
-			printf("  default: endpoint=%s\n",
+			fyai_result(ctx, "  default: endpoint=%s\n",
 				cfg->mcp_endpoint ? cfg->mcp_endpoint : "(none)");
 		}
 		free(copy);
@@ -1937,7 +1938,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 		fyai_error_check(ctx, !name && !extra, err_free,
 				 "mcp: on takes no arguments");
 		if (cfg->mcp_enabled) {
-			printf("mcp: already enabled\n");
+			fyai_result(ctx, "mcp: already enabled\n");
 			free(copy);
 			return 0;
 		}
@@ -1948,7 +1949,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 			free(copy);
 			return -1;
 		}
-		printf("mcp: enabled\n");
+		fyai_result(ctx, "mcp: enabled\n");
 		free(copy);
 		return 0;
 	}
@@ -1956,7 +1957,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 		fyai_error_check(ctx, !name && !extra, err_free,
 				 "mcp: off takes no arguments");
 		if (!cfg->mcp_enabled) {
-			printf("mcp: already disabled\n");
+			fyai_result(ctx, "mcp: already disabled\n");
 			free(copy);
 			return 0;
 		}
@@ -1966,7 +1967,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 			free(copy);
 			return -1;
 		}
-		printf("mcp: disabled\n");
+		fyai_result(ctx, "mcp: disabled\n");
 		free(copy);
 		return 0;
 	}
@@ -2033,7 +2034,7 @@ static int session_branch_switch(struct fyai_ctx *ctx, const char *name,
 			 "branch: could not publish checkout of '%s'", name);
 
 	fyai_session_banner_update(ctx);
-	printf("switched to branch %s\n", name);
+	fyai_result(ctx, "switched to branch %s\n", name);
 	return 0;
 
 rollback:
@@ -2178,34 +2179,34 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 
 /* Render the slash-command reference as markdown, falling back to the plain
  * printer when the markdown renderer or the memory stream is unavailable. */
-static void slash_help_plain(void)
+static void slash_help_plain(struct fyai_ctx *ctx)
 {
 	const struct fyai_slash_cmd *c;
 	const struct fyai_slash_opt *o;
 	const char *const *v;
 	size_t i;
 
-	printf("commands:\n");
+	fyai_result(ctx, "commands:\n");
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_cmds); i++) {
 		c = &fyai_slash_cmds[i];
-		printf("  /%-16s %-8s %s\n", c->name, c->args, c->help);
+		fyai_result(ctx, "  /%-16s %-8s %s\n", c->name, c->args, c->help);
 	}
-	printf("settings (no value prints the current one; selected settings "
+	fyai_result(ctx, "settings (no value prints the current one; selected settings "
 	       "persist to the config):\n");
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {
 		o = &fyai_slash_opts[i];
-		printf("  /%-16s %s", o->name, o->help);
+		fyai_result(ctx, "  /%-16s %s", o->name, o->help);
 		if (o->values) {
-			printf(" (");
+			fyai_result(ctx, " (");
 			for (v = o->values; *v; v++)
-				printf("%s%s", v == o->values ? "" : "|", *v);
-			printf(")");
+				fyai_result(ctx, "%s%s", v == o->values ? "" : "|", *v);
+			fyai_result(ctx, ")");
 		} else if (o->kind == FYAIOK_BOOL) {
-			printf(" (on|off)");
+			fyai_result(ctx, " (on|off)");
 		}
-		printf("\n");
+		fyai_result(ctx, "\n");
 	}
-	printf("a line starting with // is sent to the model verbatim "
+	fyai_result(ctx, "a line starting with // is sent to the model verbatim "
 	       "(minus one slash)\n");
 }
 
@@ -2222,13 +2223,13 @@ static int slash_help(struct fyai_ctx *ctx, const char *arg)
 	(void)arg;
 
 	if (!markdown_available(ctx->cfg)) {
-		slash_help_plain();
+		slash_help_plain(ctx);
 		return 0;
 	}
 
 	fp = open_memstream(&buf, &len);
 	if (!fp) {
-		slash_help_plain();
+		slash_help_plain(ctx);
 		return 0;
 	}
 
@@ -2267,7 +2268,7 @@ static int slash_help(struct fyai_ctx *ctx, const char *arg)
 	fclose(fp);
 
 	if (buf && fyai_print_markdown(buf, ctx->cfg))
-		slash_help_plain();
+		slash_help_plain(ctx);
 	free(buf);
 	return 0;
 }

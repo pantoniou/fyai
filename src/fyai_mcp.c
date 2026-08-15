@@ -22,6 +22,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fyai_sink.h"
 #include "fyai_curl.h"
 #include "fyai_auth_util.h"
 #include "fyai_display.h"
@@ -2235,7 +2236,7 @@ int fyai_mcp_login(struct fyai_ctx *ctx, const char *name)
 	rc = mcp_oauth_recovery_begin(mcp);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not start OAuth login for '%s'", name);
-	printf("mcp: login started for %s\n", name);
+	fyai_result(ctx, "mcp: login started for %s\n", name);
 	return 0;
 
 err_out:
@@ -2286,7 +2287,7 @@ int fyai_mcp_logout(struct fyai_ctx *ctx, const char *name)
 	mcp->auth_token = NULL;
 	mcp->oauth_force_login = false;
 	mcp->oauth_force_refresh = false;
-	printf("mcp: logged out %s\n", name);
+	fyai_result(ctx, "mcp: logged out %s\n", name);
 	return 0;
 
 err_out:

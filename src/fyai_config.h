@@ -73,7 +73,7 @@ int fyai_config_load(struct fyai_cfg *cfg,
 		     const char *cli_config, const char *cli_env);
 
 /* `fyai config` verb backends. */
-int fyai_config_show(struct fyai_cfg *cfg);
+int fyai_config_show(struct fyai_ctx *ctx);
 int fyai_config_get(struct fyai_ctx *ctx, const char *key);
 int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value);
 int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
