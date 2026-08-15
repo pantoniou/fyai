@@ -38,6 +38,7 @@
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
+#include "fyai_sink.h"
 #include "fyai_ui.h"
 
 static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
@@ -317,12 +318,13 @@ void fyai_patch_band_refresh(struct fyai_ctx *ctx, fy_generic tool_call)
 	struct response_buffer body = {0};
 	char *title = NULL;
 
-	if (!fyai_ui_active(ctx) || !ctx->cfg->markdown)
+	if (!fyai_sink_bands_available(ctx->sink) || !ctx->cfg->markdown)
 		return;
 	if (!fyai_patch_display_text(ctx, tool_call))
 		return;
 	if (!patch_band_view(ctx, tool_call, &title, &body) && body.len)
-		fyai_ui_tool_update(ctx, body.data, body.len);
+		fyai_sink_band_paint(fyai_sink_band_shared(ctx->sink), NULL,
+				     NULL, body.data, body.len, NULL);
 	free(body.data);
 	free(title);
 }
@@ -373,8 +375,9 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		header = fyai_format_tool_header(ctx, "agent",
 			fy_mapping("name", fy_get(args, "name", ""),
 				   "description", *command ? command : name), 0);
-		if (fyai_ui_active(ctx)) {
-			fyai_ui_tool_begin(ctx, header ? header : "agent");
+		if (fyai_sink_bands_available(ctx->sink)) {
+			fyai_sink_band_open(ctx->sink, true,
+					    header ? header : "agent", NULL);
 		} else if (header) {
 			if (fyai_fprint_markdown(stderr, header, ctx->cfg, 0))
 				fputs(header, stderr);
@@ -393,9 +396,10 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		 * (row limit + indent) as the history view, only updated live as
 		 * the command's output arrives, so live and history match.
 		 */
-		if (fyai_ui_active(ctx)) {
+		if (fyai_sink_bands_available(ctx->sink)) {
 			header = fyai_format_shell_label(args);
-			fyai_ui_shell_begin(ctx, header ? header : "shell",
+			fyai_sink_band_open(ctx->sink, true,
+					    header ? header : "shell",
 					    *command ? command : name);
 		} else if (!fyai_shell_view(ctx, *command ? command : name,
 					    args, &header, &body)) {
@@ -419,27 +423,33 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 			ctx->shell_stream = NULL;
 		}
 		ctx->tool_output_displayed = true;
-	} else if (cfg->markdown && fyai_ui_active(ctx) &&
+	} else if (cfg->markdown && fyai_sink_bands_available(ctx->sink) &&
 		   fy_equal(name, "apply_patch")) {
 		/* Show the patch in a marked work band. */
 		if (patch_band_view(ctx, tool_call, &header, &body))
 			header = NULL;
-		fyai_ui_tool_begin(ctx, header ? header : "**patch**");
+		fyai_sink_band_open(ctx->sink, true,
+				    header ? header : "**patch**", NULL);
 		if (body.len)
-			fyai_ui_tool_update(ctx, body.data, body.len);
+			fyai_sink_band_paint(fyai_sink_band_shared(ctx->sink),
+					     NULL, NULL, body.data, body.len,
+					     NULL);
 		free(body.data);
 		free(header);
 		ctx->tool_output_displayed = true;
-	} else if (cfg->markdown && fyai_ui_active(ctx) &&
+	} else if (cfg->markdown && fyai_sink_bands_available(ctx->sink) &&
 		   fy_any_equal(name, "read_file", "write_file")) {
 		args = fyai_tool_call_args(ctx, tool_call);
 		if (fyai_tool_call_view(ctx, name, args,
 					fyai_tool_preview_lines(cfg, name),
 					&header, &body))
 			header = NULL;
-		fyai_ui_tool_begin(ctx, header ? header : name);
+		fyai_sink_band_open(ctx->sink, true, header ? header : name,
+				    NULL);
 		if (body.len)
-			fyai_ui_tool_update(ctx, body.data, body.len);
+			fyai_sink_band_paint(fyai_sink_band_shared(ctx->sink),
+					     NULL, NULL, body.data, body.len,
+					     NULL);
 		free(body.data);
 		memset(&body, 0, sizeof(body));
 		free(header);
@@ -1451,7 +1461,7 @@ struct fyai_tool_job {
 	int rfd;
 	int pfd;
 	struct fyai_fenced_stream stream;
-	struct fytim_workband *band;
+	struct fyai_sink_band *band;
 	char *title;
 	char *command;
 	struct fyai_event_source *csrc;
@@ -1631,7 +1641,7 @@ static void fyai_tool_job_live_close(struct fyai_tool_job *job)
 {
 	if (job->stream.active)
 		fyai_fenced_stream_finish(&job->stream);
-	fyai_ui_workband_destroy(job->band);
+	fyai_sink_band_destroy(job->band);
 	job->band = NULL;
 	free(job->title);
 	job->title = NULL;
@@ -1811,7 +1821,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					 "out of memory formatting shell progress");
 			job->band_progress = true;
 		}
-		job->band = fyai_ui_workband_create(ctx);
+		job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
 		if (job->agent && job->band) {
 			if (fyai_markdown_quote_stream_start(&job->stream, ctx,
 					ctx->cfg,
@@ -1833,9 +1843,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			job->stream.band = job->band;
 			job->stream.title = job->title;
 			job->stream.command = job->command;
-			fyai_ui_shell_workband_update(ctx, job->band,
-						      job->title, job->command,
-						      NULL, 0, NULL);
+			fyai_sink_band_paint(job->band, job->title,
+					     job->command, NULL, 0, NULL);
 		} else {
 			fyai_tool_job_live_close(job);
 		}

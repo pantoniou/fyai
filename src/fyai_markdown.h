@@ -11,7 +11,7 @@
 
 struct fyai_cfg;
 struct fyai_event_source;
-struct fytim_workband;
+struct fyai_sink_band;
 struct markdown_renderer {
 	struct fymd_renderer *renderer;
 	bool active;
@@ -131,7 +131,7 @@ void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
  */
 struct fyai_fenced_stream {
 	struct fyai_ctx *ctx;
-	struct fytim_workband *band; /* optional independently owned UI band */
+	struct fyai_sink_band *band; /* optional independently owned band */
 	const char *title;	     /* band invocation header */
 	const char *command;	     /* frameless highlighted shell command */
 	char *first_margin;	     /* theme-rendered activity marker */

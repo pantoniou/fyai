@@ -25,6 +25,7 @@ struct sink_term {
 	struct response_buffer pending;	/* appended, not yet pushed */
 	size_t active_rows;		/* rows the live region occupies */
 	int64_t last_draw_ms;		/* monotonic time of the last repaint */
+	struct fyai_sink_band *shared_band;
 	enum fyai_sink_doc_kind kind;
 	bool render_live;
 	bool doc_open;
@@ -348,10 +349,106 @@ static void sink_term_destroy(struct fyai_sink *s)
 	if (!t)
 		return;
 	markdown_renderer_destroy(&t->renderer);
+	free(t->shared_band);
 	free(t->source.data);
 	free(t->pending.data);
 	free(t);
 	s->state = NULL;
+}
+
+/* A shared sequential band or an independently owned parallel band. */
+struct fyai_sink_band {
+	struct fyai_ctx *ctx;
+	struct fytim_workband *wb;	/* NULL for the shared band */
+	bool shared;
+};
+
+static bool sink_term_bands_available(const struct fyai_sink *s)
+{
+	return fyai_ui_active(s->ctx);
+}
+
+static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
+						  bool shared,
+						  const char *title,
+						  const char *command)
+{
+	struct sink_term *t = sink_term_state(s);
+	struct fyai_sink_band *b;
+
+	if (!fyai_ui_active(s->ctx))
+		return NULL;
+	if (shared && t->shared_band) {
+		/* One shared band at a time: the previous one is replaced. */
+		free(t->shared_band);
+		t->shared_band = NULL;
+	}
+	b = calloc(1, sizeof(*b));
+	if (!b)
+		return NULL;
+	b->ctx = s->ctx;
+	b->shared = shared;
+	if (shared) {
+		if (command)
+			fyai_ui_shell_begin(s->ctx, title, command);
+		else
+			fyai_ui_tool_begin(s->ctx, title);
+		t->shared_band = b;
+		return b;
+	}
+	b->wb = fyai_ui_workband_create(s->ctx);
+	if (!b->wb) {
+		free(b);
+		return NULL;
+	}
+	return b;
+}
+
+static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
+				 const char *command, const char *body,
+				 size_t len, const char *margin)
+{
+	if (!b)
+		return;
+	/* The shared band keeps the title it opened with; only the body moves. */
+	if (b->shared) {
+		if (len)
+			fyai_ui_tool_update(b->ctx, body, len);
+		return;
+	}
+	if (command)
+		fyai_ui_shell_workband_update(b->ctx, b->wb, title, command,
+					      body, len, margin);
+	else
+		fyai_ui_workband_update(b->ctx, b->wb, title, body, len, margin);
+}
+
+static void sink_term_band_close(struct fyai_sink *s, bool ok,
+				 const char *cause)
+{
+	struct sink_term *t = sink_term_state(s);
+
+	if (!fyai_ui_active(s->ctx))
+		return;
+	fyai_ui_tool_end(s->ctx, ok, cause);
+	free(t->shared_band);
+	t->shared_band = NULL;
+}
+
+static struct fyai_sink_band *sink_term_band_shared(struct fyai_sink *s)
+{
+	struct sink_term *t = sink_term_state(s);
+
+	return t ? t->shared_band : NULL;
+}
+
+static void sink_term_band_destroy(struct fyai_sink_band *b)
+{
+	if (!b)
+		return;
+	if (b->wb)
+		fyai_ui_workband_destroy(b->wb);
+	free(b);
 }
 
 static const struct fyai_sink_ops sink_terminal_ops = {
@@ -363,6 +460,12 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.doc_pause	= sink_term_doc_pause,
 	.doc_resume	= sink_term_doc_resume,
 	.doc_is_live	= sink_term_doc_is_live,
+	.bands_available = sink_term_bands_available,
+	.band_open	= sink_term_band_open,
+	.band_paint	= sink_term_band_paint,
+	.band_close	= sink_term_band_close,
+	.band_destroy	= sink_term_band_destroy,
+	.band_shared	= sink_term_band_shared,
 	.destroy	= sink_term_destroy,
 };
 
@@ -446,4 +549,48 @@ bool fyai_sink_doc_is_live(const struct fyai_sink *s)
 	if (!s || !s->ops->doc_is_live)
 		return false;
 	return s->ops->doc_is_live(s);
+}
+
+bool fyai_sink_bands_available(const struct fyai_sink *s)
+{
+	if (!s || !s->ops->bands_available)
+		return false;
+	return s->ops->bands_available(s);
+}
+
+struct fyai_sink_band *fyai_sink_band_open(struct fyai_sink *s, bool shared,
+					   const char *title,
+					   const char *command)
+{
+	if (!s || !s->ops->band_open)
+		return NULL;
+	return s->ops->band_open(s, shared, title, command);
+}
+
+void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
+			  const char *command, const char *body, size_t len,
+			  const char *margin)
+{
+	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_paint)
+		b->ctx->sink->ops->band_paint(b, title, command, body, len,
+					      margin);
+}
+
+void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
+{
+	if (s && s->ops->band_close)
+		s->ops->band_close(s, ok, cause);
+}
+
+void fyai_sink_band_destroy(struct fyai_sink_band *b)
+{
+	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_destroy)
+		b->ctx->sink->ops->band_destroy(b);
+}
+
+struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s)
+{
+	if (!s || !s->ops->band_shared)
+		return NULL;
+	return s->ops->band_shared(s);
 }

@@ -7,6 +7,7 @@
 
 struct fyai_ctx;
 struct fyai_sink;
+struct fyai_sink_band;
 
 /* The sink owns presentation. Producers provide Markdown source or final bytes. */
 
@@ -33,6 +34,17 @@ struct fyai_sink_ops {
 	int (*doc_resume)(struct fyai_sink *s);
 	/* True while the open document repaints in place. */
 	bool (*doc_is_live)(const struct fyai_sink *s);
+	/* Work-band operations are NULL when the backend cannot repaint. */
+	bool (*bands_available)(const struct fyai_sink *s);
+	struct fyai_sink_band *(*band_open)(struct fyai_sink *s, bool shared,
+					    const char *title,
+					    const char *command);
+	void (*band_paint)(struct fyai_sink_band *b, const char *title,
+			   const char *command, const char *body, size_t len,
+			   const char *margin);
+	void (*band_close)(struct fyai_sink *s, bool ok, const char *cause);
+	void (*band_destroy)(struct fyai_sink_band *b);
+	struct fyai_sink_band *(*band_shared)(struct fyai_sink *s);
 	void (*destroy)(struct fyai_sink *s);
 };
 
@@ -53,5 +65,21 @@ void fyai_sink_doc_discard(struct fyai_sink *s);
 int fyai_sink_doc_pause(struct fyai_sink *s);
 int fyai_sink_doc_resume(struct fyai_sink *s);
 bool fyai_sink_doc_is_live(const struct fyai_sink *s);
+
+/* Test if the sink can present a repainting work band. */
+bool fyai_sink_bands_available(const struct fyai_sink *s);
+/* Open a sink-owned shared band or a caller-owned independent band. */
+struct fyai_sink_band *fyai_sink_band_open(struct fyai_sink *s, bool shared,
+					   const char *title,
+					   const char *command);
+/* Repaint a band. A NULL title retains its current title. */
+void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
+			  const char *command, const char *body, size_t len,
+			  const char *margin);
+/* Commit the shared band to the transcript with a success indicator. */
+void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause);
+void fyai_sink_band_destroy(struct fyai_sink_band *b);
+/* The shared band, or NULL when none is open. */
+struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s);
 
 #endif

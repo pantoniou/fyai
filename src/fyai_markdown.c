@@ -19,6 +19,7 @@
 #include <libfymd4c.h>
 
 #include "fyai_markdown.h"
+#include "fyai_sink.h"
 #include "fyai_ui.h"
 #include "fyai.h"
 #include "fyai_event.h"
@@ -877,17 +878,11 @@ err:
 /* Repaint the band from the cached body. */
 static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 {
-	if (!fs->band || !fyai_ui_active(fs->ctx))
+	if (!fs->band)
 		return;
-	if (fs->command)
-		fyai_ui_shell_workband_update(fs->ctx, fs->band, fs->title,
-				fs->command,
-				fs->body.data ? fs->body.data : "", fs->body.len,
-				fs->first_margin);
-	else
-		fyai_ui_workband_update(fs->ctx, fs->band, fs->title,
-				fs->body.data ? fs->body.data : "", fs->body.len,
-				fs->first_margin);
+	fyai_sink_band_paint(fs->band, fs->title, fs->command,
+			     fs->body.data ? fs->body.data : "", fs->body.len,
+			     fs->first_margin);
 }
 
 /* Render the accumulated block and repaint the band. */
@@ -973,7 +968,9 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 		if (fs->band)
 			fenced_stream_band_update(fs);
 		else
-			fyai_ui_tool_update(fs->ctx, fs->body.data, fs->body.len);
+			fyai_sink_band_paint(
+				fyai_sink_band_shared(fs->ctx->sink), NULL,
+				NULL, fs->body.data, fs->body.len, NULL);
 		return 0;
 	err_indented:
 		free(indented);
@@ -1059,7 +1056,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		 * The live body is rendered at the width in effect when the tool
 		 * started. Never promote those transient bytes into scrollback:
 		 * rebuild from the raw accumulator at the settled/current width
-		 * before fyai_ui_tool_end() creates the final commit payload.
+		 * before the band close creates the final commit payload.
 		 */
 		fymd_renderer_destroy(fs->r);
 		markdown_renderer_cfg(fs->ctx->cfg, &rcfg,

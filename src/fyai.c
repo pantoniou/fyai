@@ -213,7 +213,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	shell = fy_equal(name, "shell");
 	agent = fy_equal(name, "agent");
 	/* Use work bands only in the terminal UI. */
-	banded = (shell || agent) && fyai_ui_active(ctx);
+	banded = (shell || agent) && fyai_sink_bands_available(ctx->sink);
 	marked = fyai_is_tool_marked(name);
 	isolated_tool = fyai_output_renders_live(ctx);
 
@@ -235,25 +235,25 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
 	if (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
-	    (marked && fyai_ui_active(ctx)))
+	    (marked && fyai_sink_bands_available(ctx->sink)))
 		fyai_print_tool_call(ctx, tool_call);
 	if (cfg->debug)
 		emit_generic_to_stdout("tool-call", tool_call, cfg->pretty);
 
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
-	if (marked && fyai_ui_active(ctx)) {
+	if (marked && fyai_sink_bands_available(ctx->sink)) {
 		/* The patch resolves while it runs; show what it resolved. */
 		fyai_patch_band_refresh(ctx, tool_call);
 		cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
-		fyai_ui_tool_end(ctx, tool_ok, cause);
+		fyai_sink_band_close(ctx->sink, tool_ok, cause);
 		free(cause);
 		if (agent)
 			(void)fyai_ui_commit(ctx, "\n", 1);
 	}
 	if (isolated_tool) {
 		/* Store the result in the transcript path. */
-		if (marked && fyai_ui_active(ctx))
+		if (marked && fyai_sink_bands_available(ctx->sink))
 			fyai_render_tool_result_exchange(ctx, tool_call,
 						 tool_result);
 		else if (!banded)
