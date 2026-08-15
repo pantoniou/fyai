@@ -508,15 +508,19 @@ properties:
         default: ""
         description: >-
           Top row of the interactive prompt bubble, a {key} template over the
-          session vars (model, provider, api, effort, summary, temp, ctx).
+          session vars (model, provider, api, effort, summary, temp, ctx,
+          tokens, cache, cost).
           Empty is a blank styled row. May carry SGR colour escapes.
       prompt_bottom:
         type: string
-        default: " {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
+        default: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}"
         description: >-
           Bottom status row of the prompt bubble, a {key} template that
           replaces the built-in banner. Empty reproduces
-          "{model} · {provider} · {api}{effort}{summary}{temp}{ctx}". May
+          "{model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}".
+          {tokens} is the used and maximum context tokens with the percent,
+          {cache} is the cached input tokens with the hit percent, and {cost}
+          is the session cost. {ctx} keeps the short percent-only form. May
           carry SGR colour escapes.
       pretty:
         type: boolean

@@ -1197,13 +1197,27 @@ err:
  * then rendered as markdown into linenoise's top/bottom info rows. Linenoise
  * rows are single-line, so block markdown is folded to one row after rendering.
  */
+/* Abbreviate a token count so that the status row stays short. */
+static void session_token_count(char *buf, size_t size, long long tokens)
+{
+	if (tokens >= 1000000)
+		snprintf(buf, size, "%.1fM", (double)tokens / 1000000.0);
+	else if (tokens >= 1000)
+		snprintf(buf, size, "%.1fk", (double)tokens / 1000.0);
+	else
+		snprintf(buf, size, "%lld", tokens);
+}
+
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_tmpl_var vars[7];
+	struct fyai_tmpl_var vars[10];
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
-	char top[256], bottom[256];
+	char tokens[64], cost[32], cache[64];
+	char used_str[16], window_str[16], cached_str[16];
+	long long used;
+	char top[256], bottom[320];
 	struct fyai_context_prompt prompt;
 	char *top_md;
 	const char *tmpl;
@@ -1216,6 +1230,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	/* Each optional field carries its own " · label" so a template can place
 	 * it unconditionally; empty when the field does not apply. */
 	effort[0] = summary[0] = temp[0] = ctxpct[0] = '\0';
+	tokens[0] = cost[0] = cache[0] = '\0';
 	if (cfg->reasoning_effort && *cfg->reasoning_effort)
 		snprintf(effort, sizeof(effort), " · effort %s",
 			 cfg->reasoning_effort);
@@ -1230,9 +1245,23 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	window = fyai_context_window(ctx);
 	if (window > 0) {
 		fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
+		used = session_projected_tokens(ctx, &prompt);
 		snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
-			 (double)session_projected_tokens(ctx, &prompt) *
-			 100.0 / (double)window);
+			 (double)used * 100.0 / (double)window);
+		session_token_count(used_str, sizeof(used_str), used);
+		session_token_count(window_str, sizeof(window_str), window);
+		snprintf(tokens, sizeof(tokens), " · ctx %s/%s (%.0f%%)",
+			 used_str, window_str,
+			 (double)used * 100.0 / (double)window);
+	}
+	if (ctx->usage_cost > 0.0)
+		snprintf(cost, sizeof(cost), " · $%.4f", ctx->usage_cost);
+	if (ctx->usage_input > 0) {
+		session_token_count(cached_str, sizeof(cached_str),
+				    ctx->usage_cached);
+		snprintf(cache, sizeof(cache), " · cache %s (%.0f%%)",
+			 cached_str, (double)ctx->usage_cached * 100.0 /
+			 (double)ctx->usage_input);
 	}
 
 	vars[0].key = "model";
@@ -1249,6 +1278,12 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	vars[5].val = temp;
 	vars[6].key = "ctx";
 	vars[6].val = ctxpct;
+	vars[7].key = "tokens";
+	vars[7].val = tokens;
+	vars[8].key = "cost";
+	vars[8].val = cost;
+	vars[9].key = "cache";
+	vars[9].val = cache;
 
 	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
 		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;

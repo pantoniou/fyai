@@ -88,7 +88,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Interactive prompt bubble: an empty prompt marker/top row keep the built-in
  * defaults; the bottom row is a {key} template reproducing the classic banner. */
 #define DEFAULT_PROMPT_BOTTOM \
-	" {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
+	" {model} · {provider} · {api}{effort}{summary}{temp}" \
+	"{tokens}{cache}{cost}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS 50
