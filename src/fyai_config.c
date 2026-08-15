@@ -429,6 +429,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			cfg->table_border = 0;
 		cfg->tool_preview_lines = fy_get(v, "tool_preview_lines",
 						cfg->tool_preview_lines);
+		cfg->recap_exchanges = fy_get(v, "recap_exchanges",
+					      cfg->recap_exchanges);
 		cfg->tool_update_interval_ms =
 			fy_get(v, "tool_update_interval_ms",
 			       cfg->tool_update_interval_ms);
@@ -1944,6 +1946,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->shell_hard_max_output_tokens =
 		DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
+	cfg->recap_exchanges = DEFAULT_RECAP_EXCHANGES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
 	cfg->branch_on_conflict = DEFAULT_BRANCH_ON_CONFLICT;

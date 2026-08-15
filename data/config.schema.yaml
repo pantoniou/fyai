@@ -410,6 +410,14 @@ properties:
         type: boolean
         default: true
         description: Stream the response as it arrives.
+      recap_exchanges:
+        type: integer
+        minimum: -1
+        default: -1
+        description: >-
+          Exchanges of conversation history replayed when an interactive
+          session starts. -1 replays as many recent exchanges as the screen
+          holds, 0 replays none.
       tool_preview_lines:
         type: integer
         minimum: 0

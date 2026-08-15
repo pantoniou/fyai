@@ -3268,6 +3268,133 @@ err_out:
 	return rc;
 }
 
+/* Estimate the rendered rows for one exchange. */
+static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
+					 size_t lo, size_t hi, size_t width)
+{
+	fy_generic outputs;
+	fy_generic output;
+	fy_generic gmd;
+	const char *md;
+	const char *p;
+	size_t rows;
+	size_t stored;
+	size_t len;
+	size_t i;
+
+	rows = 0;
+	for (i = lo; i < hi; i++) {
+		outputs = fy_get(stack->items[i], "display_outputs",
+				 fy_seq_empty);
+		stored = 0;
+		fy_foreach(output, outputs) {
+			gmd = fy_get(output, "markdown");
+			md = fy_castp(&gmd, "");
+			for (p = md; *p; ) {
+				len = strcspn(p, "\n");
+				rows += len / width + 1;
+				p += len;
+				if (*p)
+					p++;
+			}
+			stored++;
+		}
+		if (!stored)
+			rows += 4 * fy_len(fy_get(stack->items[i], "messages",
+						  fy_seq_empty));
+	}
+	/* The separator row between exchanges. */
+	return rows + 1;
+}
+
+/* Replay recent exchanges within the count and row limits. */
+int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_display_args *args = &cfg->cmd.args.display;
+	struct fyai_display_args saved_args = *args;
+	const char *saved_tool_detail = cfg->tool_detail;
+	struct fy_generic_builder_cfg gcfg;
+	struct fy_generic_builder *tgb;
+	struct fyai_turn_stack stack;
+	size_t *starts;
+	size_t exchanges;
+	size_t budget;
+	size_t width;
+	size_t rows;
+	size_t count;
+	size_t shown;
+	size_t lo;
+	size_t i;
+	bool emitted;
+	int rc;
+
+	if (!max_exchanges)
+		return 0;
+
+	tgb = NULL;
+	starts = NULL;
+	shown = 0;
+	memset(&stack, 0, sizeof(stack));
+	memset(args, 0, sizeof(*args));
+
+	memset(&gcfg, 0, sizeof(gcfg));
+	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
+	tgb = fy_generic_builder_create(&gcfg);
+	fyai_error_check(ctx, tgb, out, "could not create recap storage");
+
+	rc = fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid);
+	fyai_error_check(ctx, !rc, out, "could not read the conversation");
+	count = stack.count;
+	if (!count)
+		goto out;
+
+	starts = calloc(count + 1, sizeof(*starts));
+	fyai_error_check(ctx, starts, out, "could not select the recap window");
+	exchanges = 0;
+	for (i = 0; i < count; i++)
+		if (fyai_turn_has_user_message(stack.items[i]))
+			starts[exchanges++] = i;
+	if (!exchanges)
+		goto out;
+	starts[0] = 0;
+	starts[exchanges] = count;
+
+	width = cfg->render_width > 0 ? (size_t)cfg->render_width : 80;
+	budget = max_rows > 0 ? (size_t)max_rows : 0;
+	/* Take whole exchanges from the newest back while they fit. */
+	rows = 0;
+	lo = starts[exchanges - 1];
+	for (i = exchanges; i-- > 0; ) {
+		if (max_exchanges > 0 && shown == (size_t)max_exchanges)
+			break;
+		if (max_exchanges < 0) {
+			rows += fyai_display_exchange_rows(&stack, starts[i],
+							   starts[i + 1],
+							   width);
+			if (shown && rows > budget)
+				break;
+		}
+		lo = starts[i];
+		shown++;
+	}
+
+	emitted = false;
+	rc = fyai_display_window(ctx, tgb, &stack, lo, count, &emitted);
+	fyai_error_check(ctx, !rc, out, "could not replay the conversation");
+	if (!emitted)
+		shown = 0;
+
+out:
+	free(starts);
+	cfg->tool_detail = saved_tool_detail;
+	*args = saved_args;
+	fyai_turn_stack_cleanup(&stack);
+	if (tgb)
+		fy_generic_builder_destroy(tgb);
+	return (int)shown;
+}
+
 int fyai_dump_view(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -3638,6 +3765,8 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	size_t len;
 	size_t i;
 	size_t n;
+	int replayed;
+	int rows;
 	bool color;
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
@@ -3658,6 +3787,8 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	fyai_turn_foreach(cur, last)
 		if (fyai_turn_has_user_message(cur))
 			turns++;
+
+	replayed = cfg->recap_exchanges && cfg->markdown && ctx->stdout_tty;
 
 	meta = fyai_turn_meta(last);
 	api = fy_get(meta, "api", "");
@@ -3696,7 +3827,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 			break;
 		}
 	}
-	if (fy_is_string(preview)) {
+	if (fy_is_string(preview) && !replayed) {
 		t = fy_cast(preview, "");
 		len = strcspn(t, "\n");
 		if (len > 78)
@@ -3706,6 +3837,13 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 				(int)len, t, len == 78 ? "..." : "", r);
 	}
 	fyai_report(ctx, "  %sCtrl-G edit in $EDITOR, Ctrl-D exit%s\n", d, r);
+
+	/* Show the previous exchanges last. */
+	if (replayed) {
+		rows = markdown_render_height();
+		rows = rows > 8 ? rows - 6 : 0;
+		(void)fyai_display_recap(ctx, cfg->recap_exchanges, rows);
+	}
 }
 
 /*

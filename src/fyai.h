@@ -69,6 +69,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define FYAI_BYTES_PER_TOKEN 4
 /* Default rendered rows of a tool result shown in the display view. */
 #define DEFAULT_TOOL_PREVIEW_LINES 5
+/* Interactive history recap: -1 fills the screen, 0 is off, N is a count. */
+#define DEFAULT_RECAP_EXCHANGES (-1)
 #define DEFAULT_TOOL_UPDATE_INTERVAL_MS 33
 /* Left indent applied to each rendered tool-output row (nests it under the
  * tool-call header), so the live loop and the history view match. */
@@ -179,6 +181,7 @@ struct fyai_cfg {
 	int max_tokens;			/* output cap (required by Messages) */
 	int top_logprobs;
 	int tool_preview_lines;
+	int recap_exchanges;		/* interactive history recap exchanges */
 	int tool_update_interval_ms;
 	int shell_timeout_ms;		/* default shell time limit (0 = none) */
 	int shell_max_timeout_ms;	/* cap on a model-requested limit */
