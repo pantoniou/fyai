@@ -124,6 +124,15 @@ int response_buffer_append_line(struct response_buffer *buf, const void *data,
 	return response_buffer_append_data(buf, "\n", 1);
 }
 
+void response_buffer_trim(struct response_buffer *buf)
+{
+	while (buf->len && (buf->data[buf->len - 1] == '\n' ||
+			    buf->data[buf->len - 1] == '\r'))
+		buf->len--;
+	if (buf->data)
+		buf->data[buf->len] = '\0';
+}
+
 int append_header(struct curl_slist **headers, const char *header)
 {
 	struct curl_slist *next;
