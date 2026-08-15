@@ -3189,6 +3189,37 @@ out:
  * as user-visible exchanges: one user message plus the assistant/tool records
  * that follow it.
  */
+/* Replay a turn window one exchange at a time. */
+static int fyai_display_window(struct fyai_ctx *ctx,
+			       struct fy_generic_builder *tgb,
+			       struct fyai_turn_stack *stack,
+			       size_t lo, size_t hi, bool *emitted_io)
+{
+	size_t seg;
+	size_t seg_end;
+	int rc;
+
+	for (seg = lo; seg < hi; seg = seg_end) {
+		seg_end = fyai_display_exchange_end(stack, seg, hi);
+		if (fyai_display_outputs_complete(stack, seg, seg_end)) {
+			rc = fyai_display_stored_outputs(ctx, stack, seg,
+							 seg_end, emitted_io);
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not replay stored output");
+		} else {
+			rc = fyai_display_reconstructed(ctx, tgb, stack, seg,
+							seg_end);
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not reconstruct output");
+			*emitted_io = true;
+		}
+	}
+	return 0;
+
+err_out:
+	return -1;
+}
+
 int fyai_display_view(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -3199,8 +3230,6 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	struct fyai_turn_stack stack;
 	size_t lo;
 	size_t hi;
-	size_t seg;
-	size_t seg_end;
 	bool emitted;
 	int rc;
 
@@ -3224,19 +3253,9 @@ int fyai_display_view(struct fyai_ctx *ctx)
 	 * Select stored or reconstructed output for each exchange.
 	 */
 	emitted = false;
-	for (seg = lo; seg < hi; seg = seg_end) {
-		seg_end = fyai_display_exchange_end(&stack, seg, hi);
-		if (fyai_display_outputs_complete(&stack, seg, seg_end))
-			rc = fyai_display_stored_outputs(ctx, &stack, seg,
-							 seg_end, &emitted);
-		else {
-			rc = fyai_display_reconstructed(ctx, tgb, &stack, seg,
-							seg_end);
-			emitted = true;
-		}
-		fyai_error_check(ctx, !rc, err_out,
-				 "could not render the conversation");
-	}
+	rc = fyai_display_window(ctx, tgb, &stack, lo, hi, &emitted);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not render the conversation");
 	if (ctx->stdout_tty && !args->raw)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	rc = 0;
