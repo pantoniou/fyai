@@ -479,9 +479,9 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 		if (ctx->cfg->markdown) {
 			rc = fyai_print_markdown(md, ctx->cfg);
 			if (rc)
-				fputs(md, stdout);
+				(void)fyai_result(ctx, "%s", md);
 		} else {
-			fputs(md, stdout);
+			(void)fyai_result(ctx, "%s", md);
 		}
 		free(md);
 		return 0;
@@ -519,9 +519,9 @@ int fyai_catalog_tools(struct fyai_ctx *ctx, const char *agent_name, bool full)
 	if (ctx->cfg->markdown) {
 		rc = fyai_print_markdown(md, ctx->cfg);
 		if (rc)
-			fputs(md, stdout);
+			(void)fyai_result(ctx, "%s", md);
 	} else {
-		fputs(md, stdout);
+		(void)fyai_result(ctx, "%s", md);
 	}
 	free(md);
 	return 0;

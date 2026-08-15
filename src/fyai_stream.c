@@ -17,6 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fyai_sink.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
 #include "fyai_tools.h"
@@ -161,19 +162,21 @@ static int append_mem(struct response_buffer *buf, const char *data, size_t len)
 	return 0;
 }
 
-static void stream_spinner_clear(struct stream_spinner *spinner)
+static void stream_spinner_clear(struct fyai_ctx *ctx,
+				 struct stream_spinner *spinner)
 {
 	if (!spinner->active)
 		return;
 
-	fputs(FYAI_ANSI_ERASE_LINE, stderr);
-	fflush(stderr);
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+			      FYAI_ANSI_ERASE_LINE,
+			      sizeof(FYAI_ANSI_ERASE_LINE) - 1);
 	spinner->active = false;
 }
 
 static void stream_response_cleanup(struct stream_response *stream)
 {
-	stream_spinner_clear(&stream->spinner);
+	stream_spinner_clear(stream->ctx, &stream->spinner);
 	free(stream->raw.data);
 	free(stream->line.data);
 	free(stream->reasoning_text.data);
@@ -301,15 +304,16 @@ static int stream_write_reasoning_md(struct stream_response *stream)
 		return -1;
 	}
 	if (stream->reasoning_active_rows) {
-		fprintf(stderr, FYAI_ANSI_CURSOR_UP_FMT,
-			stream->reasoning_active_rows);
-		fputs(FYAI_ANSI_ERASE_DOWN, stderr);
+		(void)fyai_sink_printf(ctx->sink, FYAI_SINK_STATUS,
+				       FYAI_ANSI_CURSOR_UP_FMT,
+				       stream->reasoning_active_rows);
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+				      FYAI_ANSI_ERASE_DOWN,
+				      sizeof(FYAI_ANSI_ERASE_DOWN) - 1);
 	}
 	rows = count_newlines(out.data, out.len);
-	if (out.len)
-		fwrite(out.data, 1, out.len, stderr);
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, out.data, out.len);
 	stream->reasoning_active_rows = rows;
-	fflush(stderr);
 	free(out.data);
 	return 0;
 }
@@ -360,9 +364,25 @@ static void stream_write_reasoning(struct stream_response *stream,
 		    stream_write_reasoning_md(stream))
 			stream->failed = true;
 	} else {
-		fputs(text, stderr);
-		fflush(stderr);
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, text,
+				      strlen(text));
 	}
+}
+
+/* Close the reasoning section: reset any colour, then the separator. */
+static void stream_reasoning_trailer(struct stream_response *stream, bool color)
+{
+	struct fyai_ctx *ctx = stream->ctx;
+	const char *sep = ctx->cfg->section_separator;
+
+	if (color)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+				      FYAI_ANSI_RESET,
+				      sizeof(FYAI_ANSI_RESET) - 1);
+	if (*sep)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, sep,
+				      strlen(sep));
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, "\n\n", 2);
 }
 
 static void stream_finish_reasoning(struct stream_response *stream)
@@ -386,21 +406,13 @@ static void stream_finish_reasoning(struct stream_response *stream)
 		return;
 	}
 	if (stream->reasoning_active_rows) {
-		if (*cfg->section_separator)
-			fputs(cfg->section_separator, stderr);
-		fputs("\n\n", stderr);
-		fflush(stderr);
+		stream_reasoning_trailer(stream, false);
 		stream->reasoning_active_rows = 0;
 		stream->printed_reasoning = false;
 		return;
 	}
 	if (stream->printed_reasoning) {
-		if (color)
-			fputs(FYAI_ANSI_RESET, stderr);
-		if (*cfg->section_separator)
-			fputs(cfg->section_separator, stderr);
-		fputs("\n\n", stderr);
-		fflush(stderr);
+		stream_reasoning_trailer(stream, color);
 		stream->printed_reasoning = false;
 	}
 }
@@ -411,7 +423,7 @@ static void stream_finish_content(struct stream_response *stream)
 	stream_finish_reasoning(stream);
 	if (!stream->printed_content)
 		return;
-	stream_spinner_clear(&stream->spinner);
+	stream_spinner_clear(stream->ctx, &stream->spinner);
 	stream->printed_content = false;
 }
 

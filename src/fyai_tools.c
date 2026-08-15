@@ -380,9 +380,9 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 					    header ? header : "agent", NULL);
 		} else if (header) {
 			if (fyai_fprint_markdown(stderr, header, ctx->cfg, 0))
-				fputs(header, stderr);
+				(void)fyai_report(ctx, "%s", header);
 		} else {
-			fprintf(stderr, "  agent %s\n",
+			fyai_report(ctx, "  agent %s\n",
 				*command ? command : name);
 		}
 		free(header);
@@ -405,7 +405,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 					    args, &header, &body)) {
 			fyai_print_tool_view(ctx, stderr, header, &body);
 		} else {
-			fprintf(stderr, "  shell %s\n",
+			fyai_report(ctx, "  shell %s\n",
 				*command ? command : name);
 		}
 		free(header);
@@ -455,9 +455,9 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		free(header);
 		ctx->tool_output_displayed = true;
 	} else if (*command) {
-		fprintf(stderr, "fyai $ %s\n", command);
+		fyai_report(ctx, "fyai $ %s\n", command);
 	} else {
-		fprintf(stderr, "fyai $ %s\n", name);
+		fyai_report(ctx, "fyai $ %s\n", name);
 	}
 	if (fy_equal(name, "shell"))
 		ctx->tool_output_displayed = true;
@@ -540,9 +540,9 @@ static void fyai_shell_output(void *userdata,
 		return;
 	}
 
-	fwrite(data, 1, len, stderr);
+	(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, data, len);
 	if (data[len - 1] != '\n')
-		fputc('\n', stderr);
+		(void)fyai_report(ctx, "\n");
 }
 
 /*
@@ -905,7 +905,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 		msg = fy_sprintfa("binary output: %zu bytes\n",
 				  result.stdout_len);
 		if (!cfg->markdown)
-			fprintf(stderr, "%s", msg);
+			fyai_report(ctx, "%s", msg);
 		if (response_buffer_append(&buf, msg))
 			goto out;
 	} else {
@@ -921,7 +921,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 		msg = fy_sprintfa("binary stderr: %zu bytes\n",
 				  result.stderr_len);
 		if (!cfg->markdown)
-			fprintf(stderr, "%s", msg);
+			fyai_report(ctx, "%s", msg);
 		if (response_buffer_append(&buf, msg))
 			goto out;
 	} else {
@@ -991,13 +991,13 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	long sel;
 
 	if (ansi_color_on(cfg->color, STDERR_FILENO))
-		fprintf(stderr, "\n" FYAI_ANSI_BOLD "? %s" FYAI_ANSI_RESET
+		fyai_report(ctx, "\n" FYAI_ANSI_BOLD "? %s" FYAI_ANSI_RESET
 			"\n", question);
 	else
-		fprintf(stderr, "\n? %s\n", question);
+		fyai_report(ctx, "\n? %s\n", question);
 	i = 0;
 	fy_foreach(result, options) {
-		fprintf(stderr, "  %zu) %s\n", i + 1,
+		fyai_report(ctx, "  %zu) %s\n", i + 1,
 			fy_castp(&result, ""));
 		i++;
 	}
@@ -1010,7 +1010,7 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	if (ctx->answer_next < cfg->answer_count) {
 		a = cfg->answers[ctx->answer_next++];
 
-		fprintf(stderr, "%s%s\n",
+		fyai_report(ctx, "%s%s\n",
 			n ? "choose a number or type an answer> " : "> ", a);
 		line = strdup(a ? a : "");
 		if (!line)
@@ -1128,7 +1128,7 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 				out_text = fy_sprintfa("binary output: %zu bytes",
 						       shell_result.stdout_len);
 				if (!cfg->markdown)
-					fprintf(stderr, "%s\n", out_text);
+					fyai_report(ctx, "%s\n", out_text);
 				out_val = fy_value(out_text);
 			}
 			err_text = shell_result.stderr_data;

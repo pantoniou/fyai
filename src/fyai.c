@@ -116,9 +116,10 @@ static void fyai_print_cache_info(struct fyai_ctx *ctx, fy_generic doc)
 	if (input_tokens)
 		ratio = (double)cached_tokens * 100.0 / (double)input_tokens;
 
-	printf("cache-info: input=%lld cached=%lld cached_ratio=%.1f%% "
-	       "output=%lld total=%lld\n",
-	       input_tokens, cached_tokens, ratio, output_tokens, total_tokens);
+	(void)fyai_result(ctx, "cache-info: input=%lld cached=%lld "
+			  "cached_ratio=%.1f%% output=%lld total=%lld\n",
+			  input_tokens, cached_tokens, ratio, output_tokens,
+			  total_tokens);
 }
 
 /*
@@ -161,18 +162,19 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 		ratio = (double)ctx->usage_cached * 100.0 /
 			(double)ctx->usage_input;
 
-	fprintf(stderr,
-		"stats: calls=%d input=%lld cached=%lld (%.1f%%)",
-		ctx->usage_calls, ctx->usage_input, ctx->usage_cached, ratio);
+	(void)fyai_report(ctx, "stats: calls=%d input=%lld cached=%lld (%.1f%%)",
+			  ctx->usage_calls, ctx->usage_input,
+			  ctx->usage_cached, ratio);
 	if (ctx->usage_cache_write)
-		fprintf(stderr, " cache_write=%lld", ctx->usage_cache_write);
-	fprintf(stderr, " output=%lld", ctx->usage_output);
+		(void)fyai_report(ctx, " cache_write=%lld",
+				  ctx->usage_cache_write);
+	(void)fyai_report(ctx, " output=%lld", ctx->usage_output);
 	if (ctx->usage_reasoning)
-		fprintf(stderr, " reasoning=%lld", ctx->usage_reasoning);
-	fprintf(stderr, " total=%lld", ctx->usage_total);
+		(void)fyai_report(ctx, " reasoning=%lld", ctx->usage_reasoning);
+	(void)fyai_report(ctx, " total=%lld", ctx->usage_total);
 	if (ctx->usage_cost > 0.0)
-		fprintf(stderr, " cost=$%.6f", ctx->usage_cost);
-	fprintf(stderr, "\n");
+		(void)fyai_report(ctx, " cost=$%.6f", ctx->usage_cost);
+	(void)fyai_report(ctx, "\n");
 }
 
 static bool fyai_is_tool_marked(const char *name)
@@ -434,8 +436,7 @@ static void fyai_spinner_erase(struct fyai_spinner *sp)
 {
 	if (!sp->visible)
 		return;
-	fprintf(stderr, "\r\033[K");
-	fflush(stderr);
+	(void)fyai_report(sp->ctx, "\r\033[K");
 	sp->visible = false;
 }
 
@@ -477,8 +478,8 @@ static int fyai_spinner_xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 		return 0;
 	sp->last = now;
 
-	fprintf(stderr, "\r%s", frames[sp->frame++ % ARRAY_SIZE(frames)]);
-	fflush(stderr);
+	(void)fyai_report(sp->ctx, "\r%s",
+			  frames[sp->frame++ % ARRAY_SIZE(frames)]);
 	sp->visible = true;
 	return 0;
 }
@@ -2224,7 +2225,7 @@ int fyai_prompt_batch(struct fyai_ctx *ctx)
 	 * terminal - piped/redirected output stays byte-clean for scripting.
 	 */
 	if (ctx->stdout_tty)
-		putchar('\n');
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 
 	rc = fyai_publish_state(ctx);
 	if (rc)
@@ -2276,7 +2277,7 @@ static void fyai_interactive_finish_output(struct fyai_ctx *ctx)
 	fyai_ui_drain_output(ctx);
 	fyai_session_banner_update(ctx);
 	if (ctx->cfg->markdown && ctx->stdout_tty)
-		fputc('\n', stdout);
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 }
 
 /* Prepare the common interactive surface before entering its input loop. */
@@ -2304,7 +2305,7 @@ static int fyai_interactive_handle_slash(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, rc >= 0, out,
 			 "could not run the slash command");
 	if (ctx->cfg->markdown && ctx->stdout_tty)
-		putchar('\n');
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 out:
 	fyai_ui_drain_output(ctx);
 	return rc < 0 ? rc : rc > 0 ? 1 : 0;

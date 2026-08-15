@@ -3336,12 +3336,12 @@ int fyai_dump_view(struct fyai_ctx *ctx)
 		}
 	}
 
-	printf("\n%s:\n", providers ? "provider-streams" : "conversation");
+	fyai_result(ctx, "\n%s:\n", providers ? "provider-streams" : "conversation");
 	(void)fy_emit(tgb, out,
 		FYOPEF_DISABLE_DIRECTORY | FYOPEF_OUTPUT_TYPE_STDOUT |
 		FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_PRETTY |
 		FYOPEF_WIDTH_INF | FYOPEF_OUTPUT_COMMENTS, NULL);
-	putchar('\n');
+	(void)fyai_result(ctx, "\n");
 
 	rc = 0;
 
@@ -3573,12 +3573,12 @@ int fyai_list_turns(struct fyai_ctx *ctx)
 	turns = fyai_list_turns_data(ctx, ctx->transient_gb);
 	n = fy_len(turns);
 	if (!n) {
-		printf("no turns\n");
+		fyai_result(ctx, "no turns\n");
 		return 0;
 	}
 
 	fy_foreach(item, turns) {
-		printf("%3lld  %-9s  %-12s  %-15s  tokens=%lld\n",
+		fyai_result(ctx, "%3lld  %-9s  %-12s  %-15s  tokens=%lld\n",
 		       fy_get(item, "index", 0LL), fy_get(item, "role", ""),
 		       fy_get(item, "provider", ""), fy_get(item, "api", ""),
 		       fy_get(item, "tokens", 0LL));
@@ -3630,7 +3630,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	turns = 0;
 
 	if (fy_is_invalid(last) || fy_is_null(last)) {
-		fprintf(stderr, "%sfyai%s interactive - new conversation. "
+		fyai_report(ctx, "%sfyai%s interactive - new conversation. "
 			"Ctrl-G to edit in $EDITOR, Ctrl-D to exit.\n",
 			b, r);
 		return;
@@ -3649,20 +3649,20 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	eff = fy_get(meta, "reasoning_effort", "");
 	sum = fy_get(meta, "reasoning_summary", "");
 
-	fprintf(stderr, "%sfyai%s interactive - %zu exchange%s\n",
+	fyai_report(ctx, "%sfyai%s interactive - %zu exchange%s\n",
 		b, r, turns, turns == 1 ? "" : "s");
-	fprintf(stderr, "  %sprovider%s %s", d, r,
+	fyai_report(ctx, "  %sprovider%s %s", d, r,
 		*prov ? prov : "(default)");
 	if (*api)
-		fprintf(stderr, "  %sapi%s %s", d, r, api);
+		fyai_report(ctx, "  %sapi%s %s", d, r, api);
 	temp = fy_get(meta, "temperature");
 	if (fy_is_valid(temp) && !fy_is_null(temp))
-		fprintf(stderr, "  %stemp%s %g", d, r,
+		fyai_report(ctx, "  %stemp%s %g", d, r,
 			fy_cast(temp, (double)0.0));
 	if (*eff)
-		fprintf(stderr, "  %sreasoning%s %s%s%s", d, r, eff,
+		fyai_report(ctx, "  %sreasoning%s %s%s%s", d, r, eff,
 			*sum ? "/" : "", sum);
-	fputc('\n', stderr);
+	(void)fyai_report(ctx, "\n");
 
 	/* Last assistant reply on the most recent turn, first line only. */
 	msgs = fy_get(last, "messages");
@@ -3683,10 +3683,10 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 		if (len > 78)
 			len = 78;
 		if (len)
-			fprintf(stderr, "  %s\xe2\x86\xb3 %.*s%s%s\n", d,
+			fyai_report(ctx, "  %s\xe2\x86\xb3 %.*s%s%s\n", d,
 				(int)len, t, len == 78 ? "..." : "", r);
 	}
-	fprintf(stderr, "  %sCtrl-G edit in $EDITOR, Ctrl-D exit%s\n", d, r);
+	fyai_report(ctx, "  %sCtrl-G edit in $EDITOR, Ctrl-D exit%s\n", d, r);
 }
 
 /*
@@ -3770,7 +3770,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 					      cfg->theme_variant) : -1;
 	if (rc != 0) {
 		/* renderer failed or no width: plain fallback. */
-		printf("> %s\n", line);
+		fyai_result(ctx, "> %s\n", line);
 		free(quoted);
 		free(rb.data);
 		return;
