@@ -1238,7 +1238,7 @@ static int unified_whole_file(struct fyai_ctx *ctx, struct response_buffer *out,
 	char *content = NULL;
 	const char *s;
 	size_t i;
-	int rc;
+	int rc = -1;
 
 	content = read_text_file(path);
 	fyai_error_check(ctx, content, out, "could not read %s", path);
@@ -1328,7 +1328,7 @@ char *fyai_patch_to_unified_ctx(struct fyai_ctx *ctx, const char *patch)
 	char *ltrim = NULL;
 	char *err;
 	bool have_line;
-	int rc;
+	int rc = -1;
 
 	if (!patch || patch_is_unified(patch))
 		return NULL;
