@@ -737,6 +737,7 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 			     const char *indent, FILE *fp, bool live)
 {
 	struct fymd_renderer_cfg rcfg;
+	int rc;
 
 	memset(fs, 0, sizeof(*fs));
 	fs->ctx = ctx;
@@ -752,12 +753,23 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 	fs->fp = fp;
 	fs->live = live;
 	fs->active = true;
-	if (fyai_fenced_stream_set_indicator(fs, FYMD_INDICATOR_PENDING, 0)) {
-		fymd_renderer_destroy(fs->r);
-		memset(fs, 0, sizeof(*fs));
-		return -1;
+	/* Keep recent line starts for a bounded live stream. */
+	if (live && max_lines) {
+		fs->mark_cap = max_lines * 4 + 16;
+		fs->marks = calloc(fs->mark_cap, sizeof(*fs->marks));
+		fyai_error_check(ctx, fs->marks, err_out,
+				 "could not allocate the live Markdown window");
 	}
+	rc = fyai_fenced_stream_set_indicator(fs, FYMD_INDICATOR_PENDING, 0);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not set the Markdown activity indicator");
 	return 0;
+
+err_out:
+	free(fs->marks);
+	fymd_renderer_destroy(fs->r);
+	memset(fs, 0, sizeof(*fs));
+	return -1;
 }
 
 int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
@@ -854,6 +866,96 @@ static int fenced_stream_interval_ms(const struct fyai_fenced_stream *fs)
 	return fs->ctx->cfg->tool_update_interval_ms;
 }
 
+/* Read a fence marker and its information string. */
+static size_t fenced_line_marker(const char *line, size_t len,
+				 const char **infop, size_t *info_len)
+{
+	size_t i = 0, run = 0;
+	char c;
+
+	while (i < len && i < 4 && line[i] == ' ')
+		i++;
+	if (i >= len || (line[i] != '`' && line[i] != '~'))
+		return 0;
+	c = line[i];
+	while (i + run < len && line[i + run] == c)
+		run++;
+	if (run < 3)
+		return 0;
+	i += run;
+	while (i < len && (line[i] == ' ' || line[i] == '\t'))
+		i++;
+	*infop = line + i;
+	*info_len = len - i;
+	return run;
+}
+
+/* Record new line starts and their fence state. */
+static void fenced_stream_scan(struct fyai_fenced_stream *fs)
+{
+	struct fyai_fenced_mark *m;
+	const char *base, *nl, *info;
+	size_t off, len, run, info_len, n;
+
+	if (!fs->mark_cap || !fs->accum.data)
+		return;
+	base = fs->accum.data;
+	off = fs->scan_off;
+	while (off < fs->accum.len) {
+		nl = memchr(base + off, '\n', fs->accum.len - off);
+		if (!nl)
+			break;			/* keep a partial line for later */
+		len = (size_t)(nl - (base + off));
+
+		m = &fs->marks[fs->mark_head];
+		m->off = off;
+		m->in_fence = fs->scan_in_fence;
+		memcpy(m->info, fs->scan_info, sizeof(m->info));
+		fs->mark_head = (fs->mark_head + 1) % fs->mark_cap;
+		if (fs->mark_count < fs->mark_cap)
+			fs->mark_count++;
+		fs->total_lines++;
+
+		info = NULL;
+		info_len = 0;
+		run = fenced_line_marker(base + off, len, &info, &info_len);
+		if (run) {
+			if (!fs->scan_in_fence) {
+				fs->scan_in_fence = true;
+				n = info_len < sizeof(fs->scan_info) - 1 ?
+					info_len : sizeof(fs->scan_info) - 1;
+				memcpy(fs->scan_info, info, n);
+				fs->scan_info[n] = '\0';
+			} else if (!info_len) {
+				/* A closing fence carries no info string. */
+				fs->scan_in_fence = false;
+				fs->scan_info[0] = '\0';
+			}
+		}
+		off += len + 1;
+	}
+	fs->scan_off = off;
+}
+
+/* Select the source range for a live repaint. */
+static size_t fenced_stream_window(struct fyai_fenced_stream *fs,
+				   size_t *omitted,
+				   const struct fyai_fenced_mark **markp)
+{
+	const struct fyai_fenced_mark *m;
+	size_t oldest;
+
+	*omitted = 0;
+	*markp = NULL;
+	if (!fs->mark_cap || fs->mark_count < fs->mark_cap)
+		return 0;		/* still short enough to render whole */
+	oldest = (fs->mark_head + fs->mark_cap - fs->mark_count) % fs->mark_cap;
+	m = &fs->marks[oldest];
+	*omitted = fs->total_lines - fs->mark_count;
+	*markp = m;
+	return m->off;
+}
+
 /* Render deferred data and advance the activity indicator. */
 int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
 			       int64_t now)
@@ -895,35 +997,95 @@ static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 			     fs->first_margin);
 }
 
+/* Apply the live scrolling row limit. */
+static void fenced_stream_set_scroll_limit(struct fyai_fenced_stream *fs,
+					   size_t omitted)
+{
+	struct fymd_line_limit_opts opts;
+	size_t rows;
+
+	if (!fs->max_lines)
+		return;
+	rows = fs->max_lines;
+	if (omitted && rows > 1)
+		rows--;
+	memset(&opts, 0, sizeof(opts));
+	opts.mode = FYMD_LLM_SCROLL;
+	opts.max_lines = rows;
+	fymd_renderer_set_line_limit(fs->r, &opts);
+}
+
 /* Render the accumulated block and repaint the band. */
 static int fenced_stream_render(struct fyai_fenced_stream *fs)
 {
 	struct fymd_fenced_block_opts opts;
 	struct response_buffer quoted = { 0 };
+	struct response_buffer reopen = { 0 };
+	struct response_buffer out = { 0 };
+	const struct fyai_fenced_mark *mark;
 	const char *source, *p, *end;
-	size_t lines, qlen;
+	size_t lines, qlen, start, omitted, slen;
 	char *rendered = NULL;
+	char *indented;
+	char sep[64];
 	size_t rlen = 0;
 	size_t common;
 	size_t backtrack;
+	size_t ilen;
+	FILE *mf;
+	int n;
 	int rc;
+	int close_rc;
+
+	indented = NULL;
+	ilen = 0;
+	mf = NULL;
 
 	fenced_stream_flush_disarm(fs);
 	fs->render_pending = false;
 	fs->next_render_ms = fyai_event_now_ms() +
 			     fenced_stream_interval_ms(fs);
 
+	/* Select the live tail or the full final source. */
+	start = 0;
+	omitted = 0;
+	mark = NULL;
+	if (fs->live && !fs->full_render && fs->mark_cap) {
+		fenced_stream_scan(fs);
+		start = fenced_stream_window(fs, &omitted, &mark);
+		fenced_stream_set_scroll_limit(fs, omitted);
+	}
+	if (start > fs->accum.len)
+		start = fs->accum.len;
+	source = fs->accum.data ? fs->accum.data + start : "";
+	slen = fs->accum.len - start;
+	/* Reopen a fence that starts before the live window. */
+	if (mark && mark->in_fence) {
+		rc = response_buffer_reserve(&reopen,
+					     slen + sizeof(mark->info) + 8);
+		fyai_error_check(fs->ctx, !rc, err_out,
+				 "could not reserve the reopened Markdown fence");
+		reopen.len = (size_t)snprintf(reopen.data,
+					      sizeof(mark->info) + 8, "```%s\n",
+					      mark->info);
+		memcpy(reopen.data + reopen.len, source, slen);
+		reopen.len += slen;
+		reopen.data[reopen.len] = '\0';
+		source = reopen.data;
+		slen = reopen.len;
+	}
+
 	if (fs->markdown_quote) {
-		source = fs->accum.data ? fs->accum.data : "";
 		lines = 1;
-		for (p = source; p < source + fs->accum.len; p++)
+		for (p = source; p < source + slen; p++)
 			if (*p == '\n')
 				lines++;
-		qlen = fs->accum.len + lines * 2;
-		if (response_buffer_reserve(&quoted, qlen + 1))
-			return -1;
+		qlen = slen + lines * 2;
+		rc = response_buffer_reserve(&quoted, qlen + 1);
+		fyai_error_check(fs->ctx, !rc, err_out,
+				 "could not reserve the quoted Markdown window");
 		p = source;
-		end = p + fs->accum.len;
+		end = p + slen;
 		while (p < end) {
 			quoted.data[quoted.len++] = '>';
 			quoted.data[quoted.len++] = ' ';
@@ -934,57 +1096,66 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 			}
 		}
 		quoted.data[quoted.len] = '\0';
-		if (fymd_render(fs->r, quoted.data, quoted.len,
-				&rendered, &rlen)) {
-			free(quoted.data);
-			return -1;
-		}
-		free(quoted.data);
+		rc = fymd_render(fs->r, quoted.data, quoted.len,
+				 &rendered, &rlen);
+		fyai_error_check(fs->ctx, !rc, err_out,
+				 "could not render the quoted Markdown window");
 	} else {
 		memset(&opts, 0, sizeof(opts));
 		opts.language = fs->lang;
 		opts.flags = (fs->lang && *fs->lang) ?
 				FYMD_FBF_HIGHLIGHT : 0;
-		if (fymd_render_fenced_block(fs->r, fs->accum.data,
-					     fs->accum.len, &opts,
-					     &rendered, &rlen))
-			return -1;
+		rc = fymd_render_fenced_block(fs->r, source, slen, &opts,
+					      &rendered, &rlen);
+		fyai_error_check(fs->ctx, !rc, err_out,
+				 "could not render the fenced Markdown window");
 	}
-	if (fyai_ui_active(fs->ctx)) {
-		char *indented = NULL;
-		size_t ilen = 0;
-		FILE *mf = open_memstream(&indented, &ilen);
+	/* Add the omitted source-line count before the rendered tail. */
+	if (omitted) {
+		n = snprintf(sep, sizeof(sep), "%s⋯ %zu more lines\n",
+			     fs->markdown_quote ? "> " : "", omitted);
+		fyai_error_check(fs->ctx, n >= 0, err_out,
+				 "could not format the Markdown omission line");
+		rc = response_buffer_reserve(&out, rlen + (size_t)n + 1);
+		fyai_error_check(fs->ctx, !rc, err_out,
+				 "could not reserve the rendered Markdown window");
+		memcpy(out.data, sep, (size_t)n);
+		memcpy(out.data + n, rendered, rlen);
+		out.len = rlen + (size_t)n;
+	} else {
+		rc = response_buffer_reserve(&out, rlen + 1);
+		fyai_error_check(fs->ctx, !rc, err_out,
+				 "could not reserve the rendered Markdown window");
+		memcpy(out.data, rendered, rlen);
+		out.len = rlen;
+	}
+	out.data[out.len] = '\0';
 
-		if (!mf) {
-			fymd_free(rendered);
-			return -1;
-		}
-		fyai_fwrite_indented(mf, fs->indent, rendered, rlen);
-		if (fclose(mf)) {
-			free(indented);
-			fymd_free(rendered);
-			return -1;
-		}
-		fymd_free(rendered);
+	if (fyai_ui_active(fs->ctx)) {
+		mf = open_memstream(&indented, &ilen);
+		fyai_error_check(fs->ctx, mf, err_out,
+				 "could not open the Markdown indent buffer");
+		fyai_fwrite_indented(mf, fs->indent, out.data, out.len);
+		close_rc = fclose(mf);
+		mf = NULL;
+		fyai_error_check(fs->ctx, !close_rc, err_out,
+				 "could not close the Markdown indent buffer");
 		/* Keep the body for indicator repaints. */
 		fs->body.len = 0;
 		rc = response_buffer_reserve(&fs->body, ilen + 1);
-		fyai_error_check(fs->ctx, !rc, err_indented,
+		fyai_error_check(fs->ctx, !rc, err_out,
 				 "failed to reserve the Markdown band buffer");
 		memcpy(fs->body.data, indented, ilen);
 		fs->body.len = ilen;
 		fs->body.data[ilen] = '\0';
-		free(indented);
 		if (fs->band)
 			fenced_stream_band_update(fs);
 		else
 			fyai_sink_band_paint(
 				fyai_sink_band_shared(fs->ctx->sink), NULL,
 				NULL, fs->body.data, fs->body.len, NULL);
-		return 0;
-	err_indented:
-		free(indented);
-		return -1;
+		rc = 0;
+		goto out;
 	}
 	/*
 	 * Keep the trailing newline: each repaint must leave the cursor on a
@@ -994,25 +1165,36 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	 */
 
 	common = fyai_common_complete_lines(fs->shown.data ? fs->shown.data : "",
-					    fs->shown.len, rendered, rlen);
+					    fs->shown.len, out.data, out.len);
 	backtrack = fyai_count_newlines(fs->shown.data + common,
 					fs->shown.len - common);
 	if (backtrack)	/* up N rows, column 0, erase to end of screen */
 		fprintf(fs->fp, "\033[%zuA\r\033[J", backtrack);
-	fyai_fwrite_indented(fs->fp, fs->indent, rendered + common,
-			     rlen - common);
+	fyai_fwrite_indented(fs->fp, fs->indent, out.data + common,
+			     out.len - common);
 	fflush(fs->fp);
 
 	fs->shown.len = 0;
-	if (response_buffer_reserve(&fs->shown, rlen + 1)) {
-		fymd_free(rendered);
-		return -1;
-	}
-	memcpy(fs->shown.data, rendered, rlen);
-	fs->shown.len = rlen;
-	fs->shown.data[rlen] = '\0';
+	rc = response_buffer_reserve(&fs->shown, out.len + 1);
+	fyai_error_check(fs->ctx, !rc, err_out,
+			 "could not reserve the displayed Markdown buffer");
+	memcpy(fs->shown.data, out.data, out.len);
+	fs->shown.len = out.len;
+	fs->shown.data[out.len] = '\0';
+	rc = 0;
+	goto out;
+
+err_out:
+	rc = -1;
+out:
+	if (mf)
+		(void)fclose(mf);
+	free(indented);
+	free(out.data);
+	free(quoted.data);
+	free(reopen.data);
 	fymd_free(rendered);
-	return 0;
+	return rc;
 }
 
 /* Accumulate data and repaint at the configured interval. */
@@ -1075,6 +1257,8 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		fs->r = fymd_renderer_create(&rcfg);
 		if (fs->r) {
 			markdown_set_line_limit(fs->r, fs->max_lines);
+			/* Render the full block for the commit payload. */
+			fs->full_render = true;
 			(void)fyai_fenced_stream_push(fs, NULL, 0);
 		}
 	} else if (fs->live) {
@@ -1103,6 +1287,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 	if (fs->r)
 	fymd_renderer_destroy(fs->r);
 	free(fs->first_margin);
+	free(fs->marks);
 	free(fs->accum.data);
 	free(fs->shown.data);
 	free(fs->body.data);

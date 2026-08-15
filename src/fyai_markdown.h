@@ -126,6 +126,13 @@ int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
 void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
 			  size_t len);
 
+/* A source line and its fence state in the live window. */
+struct fyai_fenced_mark {
+	size_t off;			/* line start offset in accum */
+	bool in_fence;			/* a fenced block is open here */
+	char info[24];			/* open fence info string, truncated */
+};
+
 /*
  * Render a progressive work band. The shell mode renders a fenced block. The
  * agent mode renders a Markdown quote. Both modes use the same row limit,
@@ -155,6 +162,17 @@ struct fyai_fenced_stream {
 	bool markdown_quote;
 	bool render_pending;		/* bytes accumulated but not rendered */
 	bool active;
+
+	/* Live tail window state. */
+	struct fyai_fenced_mark *marks;	/* ring of recent line starts */
+	size_t mark_cap;		/* ring capacity; 0 => no windowing */
+	size_t mark_head;		/* next ring slot to write */
+	size_t mark_count;		/* live ring entries */
+	size_t scan_off;		/* accumulator bytes already scanned */
+	size_t total_lines;		/* complete source lines seen */
+	char scan_info[24];		/* info string of the fence open at scan_off */
+	bool scan_in_fence;		/* a fenced block is open at scan_off */
+	bool full_render;		/* render the whole accumulator */
 };
 
 int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx,
