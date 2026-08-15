@@ -109,6 +109,10 @@ typedef void (*shell_output_fn)(void *userdata, enum shell_output_stream stream,
 bool data_is_binary(const char *data, size_t len);
 int response_buffer_reserve(struct response_buffer *buf, size_t need);
 int response_buffer_append(struct response_buffer *buf, const char *text);
+int response_buffer_append_data(struct response_buffer *buf, const void *data,
+				size_t len);
+int response_buffer_append_line(struct response_buffer *buf, const void *data,
+				size_t len);
 size_t write_response(void *ptr, size_t size, size_t nmemb, void *userdata);
 int append_header(struct curl_slist **headers, const char *header);
 char *make_header(const char *prefix, const char *value);

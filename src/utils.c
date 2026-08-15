@@ -98,16 +98,30 @@ bool data_is_binary(const char *data, size_t len)
 
 int response_buffer_append(struct response_buffer *buf, const char *text)
 {
-	size_t len;
+	return response_buffer_append_data(buf, text, strlen(text));
+}
 
-	len = strlen(text);
+int response_buffer_append_data(struct response_buffer *buf, const void *data,
+				size_t len)
+{
 	if (response_buffer_reserve(buf, buf->len + len + 1))
 		return -1;
 
-	memcpy(buf->data + buf->len, text, len);
+	memcpy(buf->data + buf->len, data, len);
 	buf->len += len;
 	buf->data[buf->len] = '\0';
 	return 0;
+}
+
+int response_buffer_append_line(struct response_buffer *buf, const void *data,
+				size_t len)
+{
+	int rc;
+
+	rc = response_buffer_append_data(buf, data, len);
+	if (rc)
+		return rc;
+	return response_buffer_append_data(buf, "\n", 1);
 }
 
 int append_header(struct curl_slist **headers, const char *header)
