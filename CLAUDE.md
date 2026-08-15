@@ -90,7 +90,8 @@ generic field explicitly.
 - `src/main.c`: global option parsing and command dispatch.
 - `src/commands.c`: verb definitions, usage output, and the main runner.
 - `src/fyai.c`: engine orchestration.
-- `src/fyai_output.c`: transcript ownership and progressive output.
+- `src/fyai_sink.c`: the one rendering component and its backends.
+- `src/fyai_output.c`: transcript document source and fragments.
 - `src/fyai_session.c`: interactive input and slash commands.
 - `src/fyai_agent.c`: sub-agent execution and agent RPC.
 - `src/fyai_event*.c`: the portable event loop and signal handling.
@@ -223,24 +224,86 @@ builder.
 
 ## Output and terminal UI
 
-`src/fyai_output.c` owns transcript output. Keep one tagged Markdown document
-open for each system, user, or assistant output. Keep an assistant document
-open across the complete model and tool loop. Store the final document as
+`src/fyai_sink.c` is the one rendering component. Every byte the user sees goes
+through it. A producer builds Markdown source and hands it over; the sink
+decides how to present it. Do not write to standard output or standard error
+from anywhere else. `tests/sink-only.sh` fails the build on a stray write, and
+`tests/sink-only-allow.txt` names the few files that cannot use the sink and
+states why for each.
+
+### Streams
+
+A stream says what the content is, not where it goes:
+
+- `FYAI_SINK_TRANSCRIPT`: conversation content.
+- `FYAI_SINK_NOTICE`: verb and slash command results, and tables.
+- `FYAI_SINK_STATUS`: banner, spinner, usage, tool echo. Commentary.
+- `FYAI_SINK_DIAG`: drained diagnostics.
+- `FYAI_SINK_MACHINE`: bytes another program parses. Never rendered or
+  decorated.
+
+Use `fyai_result()` for a verb result, `fyai_report()` for a status line,
+`fyai_sink_markdown()` to render, and `fyai_sink_write()` for bytes that are
+already in their final form. `fyai_result()` and `fyai_report()` write plain
+text: a model name or a path inside a status line must not be read as markup.
+
+### Backends
+
+A backend is the presentation policy behind `struct fyai_sink_ops`. The
+terminal backend repaints in place and owns the sole progressive Markdown
+renderer in the process. The capture backend keeps what it was asked to
+present; it is the substrate a document backend such as HTML is written
+against, and it lets a test read back what a run would have shown. Every entry
+point may be NULL: a backend that cannot present something makes the sink
+discard it, so a producer never has to ask what the destination is.
+
+### Documents
+
+`src/fyai_output.c` owns the durable half of a transcript document: the
+Markdown source and its fragments. Keep one tagged document open for each
+system, user, or assistant output, and keep an assistant document open across
+the complete model and tool loop. Store the final document as
 `display_outputs`. Replay these documents for history. Reconstruct legacy
 arenas from message and provider data only as a fallback.
 
 - Add generated text with `fyai_output_printf()`.
 - Add provider bytes with `fyai_output_append()`.
+- Add source another path has already drawn with
+  `fyai_output_append_recorded()`. A tool exchange is recorded this way: the
+  tool path presents it, and presenting it again from the document would draw
+  it twice.
+- Presentation mode is fixed when the document opens: live, one shot, or
+  passthrough. Do not infer it later from the current state; a paused document
+  that closes would then present everything a second time.
+- A delegated sub-agent and a forked tool child present nothing. They own file
+  descriptor 1 for JSON-RPC frames.
 - Do not create a second transcript renderer.
-- Do not print transcript content from tool or reasoning producers.
 - Do not call `fytim_pump()` from a render path. Set `frame_pending` and let
   the UI owner paint.
+
+### Work bands
+
+A work band is a sink object. Ask `fyai_sink_bands_available()` before you
+choose a banded presentation, open with `fyai_sink_band_open()`, repaint with
+`fyai_sink_band_paint()`, and commit the shared band with
+`fyai_sink_band_close()`. Do not call `fyai_ui_*` band functions from a
+producer; the terminal backend owns that.
+
+### Tables
 
 Render every Markdown table with `fyai_generic_to_markdown()`. Pass a
 `renderopts` generic for titles, selected keys, names, alignment, and formats.
 Build `renderopts` in the transient builder or in the same stack frame as the
 render call. Do not return a builder-less `fy_mapping()` from a helper because
-it uses stack storage.
+it uses stack storage. `stats` keeps its own table builder: its cells carry
+currency and percent formatting that `renderopts` does not express.
+
+Export is deliberately outside the sink. `fyai_export_view()` serializes
+canonical messages to a `FILE *` in the `format: 1` textual grammar that
+`src/fyai_import.c` reads back, and it must keep working when a conversation
+has no stored `display_outputs`.
+
+### Interactive rules
 
 The interactive reader uses the shared event loop. Test terminal input,
 signals, and resize behavior under a PTY. Non-TTY functional tests use the
@@ -389,13 +452,18 @@ drained or reset. Use `fyai_diag_reset()` after a caller recovers from an
 error. Put all detail for one failure in one diagnostic. Use a lower severity
 for nonfatal reports.
 
-The diagnostic sink owns its own builder. Do not use the durable builder or
-`transient_gb`. Expand formatted text before you intern it. Diagnostic raises
-are lock-free, but a drain resets storage. Drain only when all raisers are
-quiescent. A null sink prints immediately.
+The diagnostic sink owns its own builder and its own output descriptor. Do not
+use the durable builder or `transient_gb`, and do not route it through the
+rendering sink: diagnostics must report before that sink is created and after
+it is destroyed. It is the one output owner beside the sink.
 
-Keep normal output as direct output. Examples include the banner, spinner,
-shell echo, approval prompt, stats, usage, and successful command results.
+Expand formatted text before you intern it. Diagnostic raises are lock-free,
+but a drain resets storage. Drain only when all raisers are quiescent. A null
+sink prints immediately.
+
+Keep normal output out of the diagnostic sink. The banner, spinner, shell echo,
+approval prompt, stats, usage, and successful command results are presented
+content: send them to the rendering sink on the status or notice stream.
 
 ## Build and test
 
