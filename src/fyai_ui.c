@@ -615,6 +615,7 @@ static void ui_rearm(struct fyai_ui *ui)
 {
 	int ms = fytim_poll_timeout_ms(ui->ft);
 	fyai_event_ms_t now, frame_ms;
+	int rc;
 
 	if (!ui->activity_paused && (ui->busy || ui->tool_band) &&
 	    ui->activity_interval_ms &&
@@ -633,7 +634,13 @@ static void ui_rearm(struct fyai_ui *ui)
 		ms = UI_HEAL_MS;
 	else if (ms < 1)
 		ms = 1;
-	(void)fyai_event_timer_rearm(ui->timer_src, ms, UI_HEAL_MS);
+	rc = fyai_event_timer_rearm(ui->timer_src, ms, UI_HEAL_MS);
+	fyai_error_check(ui->ctx, !rc, err_out,
+			 "could not rearm the UI timer");
+	return;
+
+err_out:
+	return;
 }
 
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
