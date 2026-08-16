@@ -272,6 +272,10 @@ arenas from message and provider data only as a fallback.
   `fyai_output_append_recorded()`. A tool exchange is recorded this way: the
   tool path presents it, and presenting it again from the document would draw
   it twice.
+- A tool exchange stores a `tool_head` fragment over its title row, with the
+  outcome of the call. Replay draws the state mark and the failure cause from
+  that fragment through `markdown_render_tool_head()`, the one renderer the
+  live work band also uses. Do not draw a tool title row anywhere else.
 - Presentation mode is fixed when the document opens: live, one shot, or
   passthrough. Do not infer it later from the current state; a paused document
   that closes would then present everything a second time.
