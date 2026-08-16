@@ -71,6 +71,7 @@ static int fyai_log_view_target(struct fyai_ctx *ctx, const char *target)
 	char *path;
 	FILE *fp;
 	int ret;
+	int rc;
 	bool ui_external = false;
 
 	path = fyai_log_path(ctx, target);
@@ -78,11 +79,13 @@ static int fyai_log_view_target(struct fyai_ctx *ctx, const char *target)
 	fp = fopen(path, "a");
 	fyai_error_check(ctx, fp, err_path, "cannot open log %s", path);
 	fclose(fp);
-	fyai_error_check(ctx, !fyai_ui_external_begin(ctx), err_path,
+	ret = fyai_ui_external_begin(ctx);
+	fyai_error_check(ctx, !ret, err_path,
 			 "cannot suspend UI for log viewer");
 	ui_external = true;
 	ret = fyai_spawn_editor_readonly(ctx, path);
-	fyai_error_check(ctx, !fyai_ui_external_end(ctx), err_path,
+	rc = fyai_ui_external_end(ctx);
+	fyai_error_check(ctx, !rc, err_path,
 			 "cannot resume UI after log viewer");
 	ui_external = false;
 	fyai_error_check(ctx, !ret, err_path, "log viewer failed");

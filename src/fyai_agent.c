@@ -107,6 +107,7 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
 	fy_generic model, overlay, thinking;
+	int rc;
 
 	tmp = *cfg;
 	overlay = persona;
@@ -128,12 +129,15 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 		if (!tmp.api_key_explicit)
 			tmp.api_key = NULL;
 	}
-	fyai_error_check(ctx, !fyai_config_apply(&tmp, overlay), err,
+	rc = fyai_config_apply(&tmp, overlay);
+	fyai_error_check(ctx, !rc, err,
 			 "could not apply the sub-agent persona");
-	if (fy_is_string(model))
-		fyai_error_check(ctx, !fyai_config_resolve_model(&tmp), err,
+	if (fy_is_string(model)) {
+		rc = fyai_config_resolve_model(&tmp);
+		fyai_error_check(ctx, !rc, err,
 				 "persona model '%s' cannot be resolved",
 				 fy_castp(&model, ""));
+	}
 	*cfg = tmp;
 	return 0;
 

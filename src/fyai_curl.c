@@ -460,7 +460,8 @@ fyai_curl_submit(struct fyai_ctx *ctx, CURL *easy,
 	fyai_error_check(ctx, !state->failed, err_out,
 			 "curl multi is in a failed state");
 	fyai_error_check(ctx, easy, err_out, "curl transfer needs an easy handle");
-	fyai_error_check(ctx, !fyai_curl_transfer_find(state, easy), err_out,
+	transfer = fyai_curl_transfer_find(state, easy);
+	fyai_error_check(ctx, !transfer, err_out,
 			 "curl easy handle is already active");
 
 	transfer = calloc(1, sizeof(*transfer));
