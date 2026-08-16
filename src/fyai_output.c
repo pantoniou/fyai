@@ -266,6 +266,33 @@ err:
 	return -1;
 }
 
+/* Store a tool title fragment and its outcome. */
+int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
+				       size_t end, const char *tool, bool ok,
+				       const char *cause)
+{
+	struct fyai_display_output *output;
+	fy_generic fragment;
+
+	if (!ctx || !ctx->display_output || end < start)
+		return -1;
+	output = ctx->display_output;
+	fragment = fy_null_filtered_mapping(
+		"kind", "tool_head",
+		"start", (long long)start,
+		"end", (long long)end,
+		"tool", !fy_str_empty(tool) ? fy_value(tool) : fy_null,
+		"ok", ok ? fy_true : fy_false,
+		"cause", !fy_str_empty(cause) ? fy_value(cause) : fy_null);
+	output->fragments = fy_append(ctx->transient_gb, output->fragments,
+				      fragment);
+	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
+			 "could not append tool head fragment");
+	return 0;
+err:
+	return -1;
+}
+
 int fyai_output_checkpoint(struct fyai_ctx *ctx)
 {
 	int rc;

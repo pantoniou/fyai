@@ -410,6 +410,80 @@ int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 	return 0;
 }
 
+/* Build a tool-state margin. The caller owns the result. */
+char *markdown_indicator_margin(struct fymd_renderer *r,
+				enum fymd_indicator_state state, size_t frame,
+				unsigned int *interval_msp)
+{
+	const char *glyph, *on, *off;
+	char *margin;
+	size_t len;
+	unsigned int interval_ms;
+	int rc;
+
+	if (!r)
+		return strdup("  ");
+	rc = fymd_renderer_get_indicator(r, state, frame, &glyph, &on, &off,
+					 &interval_ms);
+	if (rc)
+		return NULL;
+	len = strlen(on) + strlen(glyph) + strlen(off) + 2;
+	margin = malloc(len);
+	if (!margin)
+		return NULL;
+	snprintf(margin, len, "%s%s%s ", on, glyph, off);
+	if (interval_msp)
+		*interval_msp = interval_ms;
+	return margin;
+}
+
+/* Build a tool-state margin with a temporary renderer. */
+char *markdown_indicator_margin_cfg(struct fyai_cfg *fcfg,
+				    enum fymd_indicator_state state)
+{
+	struct fymd_renderer_cfg cfg;
+	struct fymd_renderer *r;
+	char *margin;
+
+	markdown_renderer_cfg(fcfg, &cfg, markdown_color_enabled(fcfg->color),
+			      fcfg->theme_variant, 0);
+	r = fymd_renderer_create(&cfg);
+	if (!r)
+		return strdup("  ");
+	margin = markdown_indicator_margin(r, state, 0, NULL);
+	fymd_renderer_destroy(r);
+	return margin;
+}
+
+/*
+ * Render a marked tool title and its failure cause. Add the cause after the
+ * Markdown render because Markdown cannot select its terminal color.
+ */
+int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
+			      size_t len, const char *cause,
+			      const char *first_margin, const char *next_margin,
+			      struct response_buffer *out)
+{
+	const char *pre, *post;
+	size_t need;
+
+	if (markdown_render_margins(cfg, title, len, out, first_margin,
+				    next_margin))
+		return -1;
+	if (!cause || !*cause)
+		return 0;
+	while (out->len && out->data[out->len - 1] == '\n')
+		out->len--;
+	pre = markdown_color_enabled(cfg->color) ? " " FYAI_ANSI_RED : " ";
+	post = markdown_color_enabled(cfg->color) ? FYAI_ANSI_RESET "\n" : "\n";
+	need = out->len + strlen(pre) + strlen(cause) + strlen(post) + 1;
+	if (response_buffer_reserve(out, need))
+		return -1;
+	out->len += (size_t)snprintf(out->data + out->len, need - out->len,
+				     "%s%s%s", pre, cause, post);
+	return 0;
+}
+
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme)

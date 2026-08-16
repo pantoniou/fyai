@@ -22,12 +22,12 @@ int fyai_list_turns(struct fyai_ctx *ctx);
 void fyai_interactive_recap(struct fyai_ctx *ctx);
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line);
 void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
-			       fy_generic tool_result);
+			       fy_generic tool_result, bool tool_ok);
 void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
 				      fy_generic tool_call,
 				      fy_generic tool_result);
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
-			      fy_generic tool_result);
+			      fy_generic tool_result, bool tool_ok);
 /*
  * Print @lead and @url, as a Markdown link labelled @label on a terminal (which
  * renders to an OSC 8 hyperlink) or as plain text otherwise. Keep @label short:

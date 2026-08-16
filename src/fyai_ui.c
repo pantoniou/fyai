@@ -71,26 +71,8 @@ static char *ui_indicator(struct fyai_ui *ui,
 			  enum fymd_indicator_state state, size_t frame,
 			  unsigned int *interval_msp)
 {
-	const char *glyph, *on, *off;
-	char *margin;
-	size_t len;
-	unsigned int interval_ms;
-	int rc;
-
-	if (!ui->chrome_renderer)
-		return strdup("  ");
-	rc = fymd_renderer_get_indicator(ui->chrome_renderer, state, frame,
-					 &glyph, &on, &off, &interval_ms);
-	if (rc)
-		return NULL;
-	len = strlen(on) + strlen(glyph) + strlen(off) + 2;
-	margin = malloc(len);
-	if (!margin)
-		return NULL;
-	snprintf(margin, len, "%s%s%s ", on, glyph, off);
-	if (interval_msp)
-		*interval_msp = interval_ms;
-	return margin;
+	return markdown_indicator_margin(ui->chrome_renderer, state, frame,
+					 interval_msp);
 }
 
 static int ui_status_render(struct fyai_ui *ui, const char *activity)
@@ -127,31 +109,6 @@ static int ui_status_render(struct fyai_ui *ui, const char *activity)
 	free(line);
 	free(out.data);
 	return rc;
-}
-
-/*
- * Append the failure cause to the rendered title row. Insert it before the
- * final newline to keep it on the same row.
- */
-static int ui_tool_render_error(struct fyai_ui *ui, struct response_buffer *out)
-{
-	const char *pre, *post;
-	size_t need;
-
-	while (out->len && out->data[out->len - 1] == '\n')
-		out->len--;
-	pre = markdown_color_enabled(ui->ctx->cfg->color) ?
-		" " FYAI_ANSI_RED : " ";
-	post = markdown_color_enabled(ui->ctx->cfg->color) ?
-		FYAI_ANSI_RESET "\n" : "\n";
-	need = out->len + strlen(pre) + strlen(ui->tool_error) +
-		strlen(post) + 1;
-	if (response_buffer_reserve(out, need))
-		return -1;
-	out->len += (size_t)snprintf(out->data + out->len,
-				     need - out->len, "%s%s%s",
-				     pre, ui->tool_error, post);
-	return 0;
 }
 
 static int ui_shell_max_rows(const struct fyai_ui *ui, const char *command)
@@ -249,17 +206,11 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	(void)fytim_workband_set_max_rows(ui->tool_band,
 					 ui_shell_max_rows(ui, ui->tool_command));
 	title_len = ui->tool_title ? strlen(ui->tool_title) : 0;
-	if (markdown_render_margins(ui->ctx->cfg,
+	/* Render the failure mark and cause in the shared title row. */
+	if (markdown_render_tool_head(ui->ctx->cfg,
 			ui->tool_title ? ui->tool_title : "shell",
-			title_len ? title_len : 5, &out, first_margin, "  "))
-		goto out;
-	/*
-	 * Put the failure cause after the label on the title row. The margin
-	 * mark identifies a failure, and the cause identifies its type. Append
-	 * the cause to the rendered bytes because Markdown cannot specify this
-	 * color. Markdown renders raw escape sequences as text.
-	 */
-	if (ui->tool_error && ui_tool_render_error(ui, &out))
+			title_len ? title_len : 5, ui->tool_error,
+			first_margin, "  ", &out))
 		goto out;
 	if (ui->tool_command &&
 	    ui_append_shell_command(ui->ctx->cfg, &out, ui->tool_command))

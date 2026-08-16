@@ -31,6 +31,10 @@ int fyai_output_resume(struct fyai_ctx *ctx);
 int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
 			     size_t start, size_t end, const char *lang,
 			     const char *tool);
+/* Mark a tool title row and store the outcome that replay draws from. */
+int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
+				       size_t end, const char *tool, bool ok,
+				       const char *cause);
 fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 				bool aborted);
 fy_generic fyai_output_record(struct fyai_ctx *ctx, fy_generic turn,

@@ -259,9 +259,10 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 			fyai_render_tool_result_exchange(ctx, tool_call,
 						 tool_result);
 		else if (!banded)
-			fyai_render_tool_exchange(ctx, tool_call, tool_result);
+			fyai_render_tool_exchange(ctx, tool_call, tool_result,
+					  tool_ok);
 	}
-	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result);
+	rc = fyai_record_tool_exchange(ctx, tool_call, tool_result, tool_ok);
 	fyai_error_check(ctx, !rc, err_resume,
 		"could not record tool display output");
 	rc = isolated_tool ? fyai_output_resume(ctx) : 0;
@@ -269,7 +270,8 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		"could not resume output after tool call");
 
 	if (!isolated_tool && cfg->markdown && !banded)
-		fyai_render_tool_exchange(ctx, tool_call, tool_result);
+		fyai_render_tool_exchange(ctx, tool_call, tool_result,
+					  tool_ok);
 	if (cfg->debug)
 		emit_generic_to_stdout(ctx, "tool-result", tool_result,
 				       cfg->pretty);

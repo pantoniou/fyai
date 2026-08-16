@@ -81,6 +81,16 @@ int markdown_render_margins(struct fyai_cfg *cfg, const char *text, size_t len,
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme);
+/* Tool-state title rendering. Returned strings belong to the caller. */
+char *markdown_indicator_margin(struct fymd_renderer *r,
+				enum fymd_indicator_state state, size_t frame,
+				unsigned int *interval_msp);
+char *markdown_indicator_margin_cfg(struct fyai_cfg *cfg,
+				    enum fymd_indicator_state state);
+int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
+			      size_t len, const char *cause,
+			      const char *first_margin, const char *next_margin,
+			      struct response_buffer *out);
 int fyai_print_markdown(const char *text, struct fyai_cfg *cfg);
 /* Apply @extra renderer flags to this render. */
 int fyai_print_markdown_flags(const char *text, struct fyai_cfg *cfg,

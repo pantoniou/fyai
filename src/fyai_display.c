@@ -2342,29 +2342,31 @@ static int fyai_tool_view_init(struct fyai_ctx *ctx, struct fyai_tool_view *tv,
  * as the `history` verb; the result goes through the shared
  * fyai_render_tool_result() path.
  */
+static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
+				  size_t len, bool ok, const char *cause);
+
 static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 					     fy_generic tool_call,
 					     fy_generic tool_result,
-					     bool render_call)
+					     bool render_call, bool tool_ok)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct response_buffer body = {0};
 	struct fyai_tool_view tv;
 	char *title;
+	char *cause;
 
 	if (fyai_tool_view_init(ctx, &tv, tool_call, tool_result))
 		return;
 	title = NULL;
-	/*
-	 * Present the call the way the terminal UI does: a title row, then any
-	 * body marked and frameless.
-	 */
+	cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
+	/* Draw a marked title and an optional frameless body. */
 	if (render_call) {
 		if (!fyai_tool_call_view(ctx, tv.name, tv.args, tv.preview_lines,
 					 &title, &body)) {
 			if (!fy_str_empty(title))
-				(void)fyai_sink_markdown(ctx->sink,
-					FYAI_SINK_TRANSCRIPT, title);
+				(void)fyai_display_tool_head(ctx, title,
+					strlen(title), tool_ok, cause);
 			if (body.len)
 				(void)fyai_sink_write(ctx->sink,
 					FYAI_SINK_TRANSCRIPT, body.data,
@@ -2376,20 +2378,23 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 	/* The shared renderer draws the result frameless and row-bounded. */
 	fyai_render_tool_result(ctx->sink, cfg, tool_result, tv.lang,
 				tv.preview_lines);
+	free(cause);
 	fyai_tool_view_cleanup(&tv);
 }
 
 void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
-			       fy_generic tool_result)
+			       fy_generic tool_result, bool tool_ok)
 {
-	fyai_render_tool_exchange_common(ctx, tool_call, tool_result, true);
+	fyai_render_tool_exchange_common(ctx, tool_call, tool_result, true,
+					 tool_ok);
 }
 
 void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
 				      fy_generic tool_call,
 				      fy_generic tool_result)
 {
-	fyai_render_tool_exchange_common(ctx, tool_call, tool_result, false);
+	fyai_render_tool_exchange_common(ctx, tool_call, tool_result, false,
+					 true);
 }
 
 /*
@@ -2398,14 +2403,17 @@ void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
  * involved: this exact source is what is persisted and replayed by history.
  */
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
-			      fy_generic tool_result)
+			      fy_generic tool_result, bool tool_ok)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_md_blocks blocks = {0};
 	struct fyai_tool_view tv;
 	size_t base;
 	size_t i;
+	size_t head;
 	char *md = NULL;
+	char *cause;
+	const char *nl;
 	size_t mdlen = 0;
 	size_t start, end;
 	FILE *mf;
@@ -2413,6 +2421,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 
 	if (fyai_tool_view_init(ctx, &tv, tool_call, tool_result))
 		return -1;
+	cause = tool_ok ? NULL : fyai_tool_error_cause(tool_result);
 
 	base = strlen(fyai_output_markdown(ctx, NULL));
 	mf = open_memstream(&md, &mdlen);
@@ -2427,6 +2436,16 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	rc = fyai_output_append_recorded(ctx, md, mdlen);
 	fyai_error_check(ctx, !rc, err,
 			 "could not append tool call display output");
+	/* Store the title fragment before the body fragments. */
+	nl = memchr(md, '\n', mdlen);
+	head = nl ? (size_t)(nl - md) : 0;
+	if (head && (!blocks.count || head <= blocks.item[0].start)) {
+		rc = fyai_output_add_tool_head_fragment(ctx, base, base + head,
+							tv.name, tool_ok,
+							cause);
+		fyai_error_check(ctx, !rc, err,
+				 "could not record tool head fragment");
+	}
 	/* Mark each tool body for frameless replay. */
 	for (i = 0; i < blocks.count; i++) {
 		rc = fyai_output_add_fragment(ctx, "tool_body",
@@ -2460,6 +2479,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 					  tv.lang, tv.name), err,
 		"could not record tool result fragment");
 	free(md);
+	free(cause);
 	fyai_tool_view_cleanup(&tv);
 	return 0;
 err:
@@ -2468,6 +2488,7 @@ err:
 err_closed:
 	fyai_md_blocks_free(&blocks);
 	free(md);
+	free(cause);
 	fyai_tool_view_cleanup(&tv);
 	return -1;
 }
@@ -2720,6 +2741,29 @@ out:
 }
 
 /* Render one stored tool body. */
+/* Render a stored tool title row. */
+static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
+				  size_t len, bool ok, const char *cause)
+{
+	struct response_buffer head = {0};
+	char *margin;
+	int rc;
+
+	while (len && (md[len - 1] == '\n' || md[len - 1] == '\r'))
+		len--;
+	margin = markdown_indicator_margin_cfg(ctx->cfg,
+					       ok ? FYMD_INDICATOR_SUCCESS :
+					       FYMD_INDICATOR_FAILURE);
+	rc = markdown_render_tool_head(ctx->cfg, md, len, cause,
+				       margin ? margin : "  ", "  ", &head);
+	if (!rc && head.len)
+		rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+				     head.data, head.len);
+	free(margin);
+	free(head.data);
+	return rc;
+}
+
 static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 				  size_t len, const char *lang,
 				  size_t max_lines)
@@ -2743,7 +2787,7 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 					 size_t *tool_result_pos)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic fragments, fragment, content, glang, gtool;
+	fy_generic fragments, fragment, content, glang, gtool, gcause;
 	const char *lang;
 	const char *tool;
 	int preview_lines;
@@ -2769,7 +2813,16 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 		rc = fyai_display_markdown_range(ctx, md, pos, start);
 		fyai_error_check(ctx, !rc, out,
 				 "could not replay assistant Markdown");
-		if (fy_equal(fy_get(fragment, "kind"), "tool_body")) {
+		if (fy_equal(fy_get(fragment, "kind"), "tool_head")) {
+			/* Replay the title row with its state mark. */
+			gcause = fy_get(fragment, "cause");
+			rc = fyai_display_tool_head(ctx, md + start, end - start,
+					!fy_equal(fy_get(fragment, "ok"), fy_false),
+					fy_is_string(gcause) ?
+					fy_castp(&gcause, "") : NULL);
+			fyai_error_check(ctx, !rc, out,
+					 "could not replay a tool title");
+		} else if (fy_equal(fy_get(fragment, "kind"), "tool_body")) {
 			/* Replay the tool body without a frame. */
 			glang = fy_get(fragment, "lang");
 			lang = fy_castp(&glang, "");
