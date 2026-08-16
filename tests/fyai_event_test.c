@@ -109,6 +109,7 @@ static void test_flush_timer_retires(void)
 	struct fyai_fenced_stream fs;
 	struct fyai_event_loop *el;
 	FILE *fp;
+	fyai_event_ms_t deadline;
 	unsigned int baseline;
 	int rc;
 	int i;
@@ -128,7 +129,12 @@ static void test_flush_timer_retires(void)
 		rc = fyai_fenced_stream_push(&fs, "progress\n", 9);
 		FYAI_TCHECK(!rc);
 		FYAI_TCHECK(fyai_event_loop_source_count(el) == baseline + 1);
-		rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+		/* mac os coalesces timers, so wait until the deadline */
+		deadline = fyai_event_now_ms() + TEST_BOUND_MS;
+		do {
+			rc = fyai_event_loop_step(el, TEST_BOUND_MS);
+			FYAI_TCHECK(rc >= 0);
+		} while (!rc && fyai_event_now_ms() < deadline);
 		FYAI_TCHECK(rc == 1);
 		FYAI_TCHECK(fyai_event_loop_source_count(el) == baseline);
 	}
