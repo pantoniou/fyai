@@ -915,31 +915,44 @@ err_out:
 	return -1;
 }
 
+/* Restore the suspended external-editor state after an error. */
 int fyai_ui_external_end(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	bool out_open = false;
+	bool err_open = false;
+	int rc;
 
 	if (!ui)
 		return 0;
 	fyai_error_check(ctx, ui->external, err_out,
 			 "external editor is not active");
-	fyai_error_check(ctx, !spool_open(&ui->out, STDOUT_FILENO), err_out,
+	rc = spool_open(&ui->out, STDOUT_FILENO);
+	fyai_error_check(ctx, !rc, err_spools,
 			 "could not restore UI output spool");
 	out_open = true;
-	fyai_error_check(ctx, !spool_open(&ui->err, STDERR_FILENO), err_out,
+	rc = spool_open(&ui->err, STDERR_FILENO);
+	fyai_error_check(ctx, !rc, err_spools,
 			 "could not restore UI error spool");
+	err_open = true;
 	if (ui->capture) {
 		ui->capture_out = 0;
 		ui->capture_err = 0;
 	}
 	ui->external = false;
-	fyai_error_check(ctx, fytim_resume(ui->ft) == FYTIM_OK, err_out,
+	rc = fytim_resume(ui->ft);
+	fyai_error_check(ctx, rc == FYTIM_OK, err_resume,
 			 "could not resume terminal UI");
 	return 0;
-err_out:
-	if (out_open && ui->err.saved < 0)
+
+err_resume:
+	ui->external = true;
+err_spools:
+	if (err_open)
+		spool_restore(&ui->err, STDERR_FILENO);
+	if (out_open)
 		spool_restore(&ui->out, STDOUT_FILENO);
+err_out:
 	return -1;
 }
 
