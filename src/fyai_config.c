@@ -2706,7 +2706,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 
 		strncpy(tmp_prompt, "prompt", sizeof(tmp_prompt));
 		tmp_argv[0] = tmp_prompt;
-		tmp_argv[1] = NULL; 
+		tmp_argv[1] = NULL;
 
 		argc = 1;
 		argv = tmp_argv;
