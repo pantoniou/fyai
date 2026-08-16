@@ -2405,7 +2405,6 @@ void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result, bool tool_ok)
 {
-	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_md_blocks blocks = {0};
 	struct fyai_tool_view tv;
 	size_t base;
@@ -2428,8 +2427,7 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	fyai_error_check(ctx, mf, err, "could not format tool display output");
 	fyai_emit_tool_call(ctx, mf, fyai_ctx_transient_gb(ctx), tv.name, tv.args,
 			    tv.preview_lines, &blocks);
-	if (cfg->tool_separator && *cfg->tool_separator)
-		fprintf(mf, "%s\n\n", cfg->tool_separator);
+	/* Render the separator at presentation time only. */
 	fyai_error_check(ctx, !fclose(mf), err_closed,
 			 "could not finish tool call display output");
 	mf = NULL;
