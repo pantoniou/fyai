@@ -30,6 +30,7 @@ FYAI_TEST_ENTRY(markdown, window_bounds_render, markdown_window_bounds_render)
 FYAI_TEST_ENTRY(markdown, window_reopens_fence, markdown_window_reopens_fence)
 FYAI_TEST_ENTRY(markdown, window_off_when_unbounded, markdown_window_off_when_unbounded)
 FYAI_TEST_ENTRY(markdown, final_render_is_whole, markdown_final_render_is_whole)
+FYAI_TEST_ENTRY(markdown, tool_head_chrome, markdown_tool_head_chrome)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
@@ -229,6 +230,57 @@ int markdown_final_render_is_whole(void)
 	rc = fyai_diag_setup(&test_cfg.diag);
 	FYAI_TCHECK(!rc);
 	test_final_render_is_whole();
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	return 0;
+}
+
+/*
+ * The tool title row is one renderer for the live band and for the replayed
+ * transcript. Pin what that row must carry: a mark that separates success from
+ * failure, and the failure cause beside the label.
+ */
+static void test_tool_head_chrome(void)
+{
+	struct response_buffer ok_out = {0};
+	struct response_buffer bad_out = {0};
+	char *ok_mark, *bad_mark;
+
+	ok_mark = markdown_indicator_margin_cfg(&test_cfg,
+						FYMD_INDICATOR_SUCCESS);
+	bad_mark = markdown_indicator_margin_cfg(&test_cfg,
+						 FYMD_INDICATOR_FAILURE);
+	FYAI_TCHECK(ok_mark && bad_mark);
+	/* A replayed call must be able to say which of the two states it is. */
+	FYAI_TCHECK(strcmp(ok_mark, bad_mark) != 0);
+
+	FYAI_TCHECK(!markdown_render_tool_head(&test_cfg, "**shell**", 9, NULL,
+					       ok_mark, "  ", &ok_out));
+	FYAI_TCHECK(!markdown_render_tool_head(&test_cfg, "**shell**", 9,
+					       "exit 3", bad_mark, "  ",
+					       &bad_out));
+	FYAI_TCHECK(ok_out.len && bad_out.len);
+	FYAI_TCHECK(strstr(ok_out.data, "shell") != NULL);
+	FYAI_TCHECK(strstr(bad_out.data, "shell") != NULL);
+	/* The cause belongs on the title row, and only on a failure. */
+	FYAI_TCHECK(strstr(bad_out.data, "exit 3") != NULL);
+	FYAI_TCHECK(strstr(ok_out.data, "exit 3") == NULL);
+	FYAI_TCHECK(strstr(bad_out.data, ok_mark) == NULL);
+
+	free(ok_out.data);
+	free(bad_out.data);
+	free(ok_mark);
+	free(bad_mark);
+}
+
+int markdown_tool_head_chrome(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+	test_cfg.color = "off";
+	test_tool_head_chrome();
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
 	return 0;
