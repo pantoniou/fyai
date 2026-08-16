@@ -100,7 +100,10 @@ static char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 	return out ? out : strdup("none configured");
 }
 
-/* Apply a persona as a configuration overlay. Forks keep the parent model. */
+/*
+ * Apply a persona to a shallow copy. fyai_config_apply() must handle each
+ * field that must not keep the parent value. Forks keep the parent model.
+ */
 static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 				    bool fork_mode)
 {
