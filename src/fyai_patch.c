@@ -1293,6 +1293,7 @@ static int unified_update(struct fyai_ctx *ctx, struct response_buffer *out,
 	char *err = NULL;
 	int rc;
 
+	rc = -1;
 	content = read_text_file(path);
 	fyai_error_check(ctx, content, out, "could not read %s", path);
 	rc = lines_from_content(content, &lines);
