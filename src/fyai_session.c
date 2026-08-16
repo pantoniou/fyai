@@ -1835,13 +1835,14 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 {
 	char *copy, *action, *name = NULL, *extra;
 	enum fyai_secret_command command;
+	char *save = NULL;
 	int rc;
 
 	(void)ctx;
 	copy = strdup(arg ? arg : "");
 	if (!copy)
 		return -1;
-	action = strtok(copy, " \t");
+	action = strtok_r(copy, " \t", &save);
 	if (!action || fy_equal(action, "status"))
 		command = FYAI_SECRET_STATUS;
 	else if (fy_equal(action, "set"))
@@ -1854,8 +1855,8 @@ static int slash_secret(struct fyai_ctx *ctx, const char *arg)
 		return -1;
 	}
 	if (action)
-		name = strtok(NULL, " \t");
-	extra = strtok(NULL, " \t");
+		name = strtok_r(NULL, " \t", &save);
+	extra = strtok_r(NULL, " \t", &save);
 	if (extra || ((command == FYAI_SECRET_SET || command == FYAI_SECRET_DELETE) &&
 		      (!name || !*name))) {
 		fyai_error(ctx, "secret: invalid arguments");
@@ -1876,12 +1877,13 @@ static int slash_auth(struct fyai_ctx *ctx, const char *arg)
 	char *copy;
 	char *action;
 	char *extra;
+	char *save = NULL;
 	int rc;
 
 	copy = strdup(arg ? arg : "");
 	fyai_error_check(ctx, copy, err_out, "auth: out of memory");
-	action = strtok(copy, " \t");
-	extra = strtok(NULL, " \t");
+	action = strtok_r(copy, " \t", &save);
+	extra = strtok_r(NULL, " \t", &save);
 	fyai_error_check(ctx, !extra, err_free,
 			 "auth: use [status|login|logout]");
 
@@ -1914,13 +1916,14 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 	char *action;
 	char *name;
 	char *extra;
+	char *save = NULL;
 	int rc;
 
 	copy = strdup(arg ? arg : "");
 	fyai_error_check(ctx, copy, err_out, "mcp: out of memory");
-	action = strtok(copy, " \t");
-	name = strtok(NULL, " \t");
-	extra = strtok(NULL, " \t");
+	action = strtok_r(copy, " \t", &save);
+	name = strtok_r(NULL, " \t", &save);
+	extra = strtok_r(NULL, " \t", &save);
 	if (!action || !strcmp(action, "show") ||
 	    !strcmp(action, "status")) {
 		fyai_error_check(ctx, !name && !extra, err_free,
