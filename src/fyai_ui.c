@@ -1,4 +1,10 @@
-/* fyai_ui.c - libfytimui adapter driven by fyai's event loop. */
+/*
+ * fyai_ui.c - libfytimui adapter driven by fyai's event loop
+ *
+ * Copyright (c) 2026 Pantelis Antoniou <pantelis.antoniou@konsulko.com>
+ * SPDX-License-Identifier: MIT
+ */
+
 #define FYAI_MODULE FYAIEM_DISPLAY
 
 #include <fcntl.h>
