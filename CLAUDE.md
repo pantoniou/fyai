@@ -569,6 +569,29 @@ be attributed to the request that produced it. Report it with
 `parse_diag_text()` from a caller that has a context, in the one diagnostic
 that says what was being read.
 
+### The trace log
+
+The diagnostic sink presents what the user must act on, at a turn boundary, in
+one process. The trace log records every raise as it happens, in every process,
+at the severity the caller raised and whether or not the mask keeps it. It is
+what a forked child that dies leaves behind, and what a stress run is read back
+from.
+
+`$FYAI_TRACE` turns it on: `1` or `on` writes `~/.fyai/trace.log`, any other
+value is the path to write. `$FYAI_TRACE_LEVEL` sets the lowest severity
+recorded and defaults to debug.
+
+Each record is one line, written with one `write(2)` to an append-only,
+close-on-exec descriptor, so a parent and the children it forked share the file
+and never tear each other's lines. Keep the descriptor clear of the low
+numbers: a tool child dup2()s its control channel onto 3 and 4. A child that
+closes its inherited descriptors must call `fyai_diag_trace_reopen()`.
+
+`fyai_diag_trace_tag()` names the process in its records, as the sub-agent
+branch. `fyai_diag_tracef()` records what is not a diagnostic: a process
+starting, a child reaped and how it ended. Tracing must fail silently; a trace
+that cannot be written must not raise a diagnostic of its own.
+
 Expand formatted text before you intern it. Diagnostic raises are lock-free,
 but a drain resets storage. Drain only when all raisers are quiescent. A null
 sink prints immediately.

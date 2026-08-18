@@ -594,6 +594,37 @@ fyai log all clear
 
 Interactive aliases are `/log` and `/logging`.
 
+### Error trace log
+
+The `log` verb above records the wire, the stream and the conversation of one
+project. The trace log records something else: every diagnostic every fyai
+process raises, as it is raised, whether or not it is ever shown. Use it when a
+run fails in a way that leaves nothing on the terminal - a sub-agent that dies,
+or a stress run of many of them.
+
+```sh
+FYAI_TRACE=1 fyai "..."            # append to ~/.fyai/trace.log
+FYAI_TRACE=/tmp/run.log fyai "..." # append to a path you choose
+FYAI_TRACE_LEVEL=warning fyai ...  # record warnings and above
+```
+
+Each line carries the time, the process, the branch of the sub-agent that
+raised it, the severity, the subsystem and the source position:
+
+```text
+2026-08-18T07:13:04.262715Z 3593390 spawn: main/agent:worker, pid 3593392
+2026-08-18T07:13:04.265101Z 3593392 [main/agent:worker] error stream: request returned HTTP 400 ...
+2026-08-18T07:13:04.265862Z 3593390 reap: main/agent:worker, pid 3593392: exit 1
+```
+
+`start`, `spawn` and `reap` records are not diagnostics: they say that a
+process began, that a child was forked, and how it ended - by exit status or by
+signal. A child killed by a signal writes nothing itself, so its `reap` record
+in the parent is what names the cause.
+
+The file is only appended to, and never rotated or cleared by fyai. Remove it
+yourself when you no longer need it.
+
 ### Garbage collection
 
 ```sh
