@@ -873,18 +873,47 @@ const char *emit_request_body(struct fy_generic_builder *gb, fy_generic request)
 	return fy_gb_intern_string(gb, body);
 }
 
+/* Preserve parser diagnostics on the returned value. */
 fy_generic parse_response(struct fy_generic_builder *gb, const char *response)
 {
-	fy_generic doc;
+	return parse_json_string(gb, response);
+}
 
-	doc = parse_json_string(gb, response);
-	if (fy_is_invalid(doc)) {
-		/* Builder-scoped helper with no context to report through. */
-		fprintf(stderr, "Failed to parse JSON response\n");
-		return fy_invalid;
-	}
+/* Format the first collected parser diagnostic without its input address. */
+static bool parse_diag_text(fy_generic v, char *buf, size_t size)
+{
+	fy_generic diag, rec, gmsg, gcontent;
+	const char *msg, *content, *excerpt;
+	long long line, column;
+	size_t len;
 
-	return doc;
+	diag = fy_generic_get_diag(v);
+	if (!fy_is_valid(diag) || fy_is_null(diag) || !fy_len(diag))
+		return false;
+	/* The first record is the cause; the rest follow from it. */
+	rec = fy_is_sequence(diag) ? fy_get_at(diag, 0) : diag;
+	gmsg = fy_get(rec, "message");
+	msg = fy_is_string(gmsg) ? fy_castp(&gmsg, "") : "malformed JSON";
+	line = fy_get(rec, "line", 0LL);
+	column = fy_get(rec, "column", 0LL);
+	gcontent = fy_get(rec, "content");
+	content = fy_is_string(gcontent) ? fy_castp(&gcontent, "") : "";
+	len = strlen(content);
+	excerpt = len > 76 ? content + len - 76 : content;
+	snprintf(buf, size, "%s at line %lld column %lld%s%s%s", msg, line,
+		 column, *excerpt ? ": " : "", len > 76 ? "..." : "",
+		 excerpt);
+	return true;
+}
+
+void parse_diag_report(struct fyai_ctx *ctx, fy_generic v,
+		       const char *fallback, const char *what)
+{
+	char why[512];
+	bool have_why;
+
+	have_why = parse_diag_text(v, why, sizeof(why));
+	fyai_error(ctx, "%s: %s", what, have_why ? why : fallback);
 }
 
 fy_generic response_content(struct fy_generic_builder *gb, fy_generic doc)
@@ -1213,12 +1242,14 @@ bool is_writable_directory(const char *path)
 	return is_mode_directory(path, W_OK);
 }
 
+/* Collect parser diagnostics on the failed value instead of standard error. */
 fy_generic parse_json_string(struct fy_generic_builder *gb, const char *str)
 {
 	return fy_parse(gb, str,
 		FYOPPF_DISABLE_DIRECTORY |
 		FYOPPF_INPUT_TYPE_STRING |
-		FYOPPF_MODE_JSON,
+		FYOPPF_MODE_JSON |
+		FYOPPF_COLLECT_DIAG,
 		NULL);
 }
 
@@ -1233,7 +1264,8 @@ fy_generic parse_json_string_size(struct fy_generic_builder *gb,
 	return fy_parse(gb, szstr,
 		FYOPPF_DISABLE_DIRECTORY |
 		FYOPPF_INPUT_TYPE_STRING |
-		FYOPPF_MODE_JSON,
+		FYOPPF_MODE_JSON |
+		FYOPPF_COLLECT_DIAG,
 		NULL);
 }
 

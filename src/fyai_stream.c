@@ -1004,8 +1004,11 @@ static int stream_handle_data(struct stream_response *stream,
 	}
 
 	chunk = parse_response(stream->gb, data);
-	if (fy_is_invalid(chunk))
+	if (fy_is_invalid(chunk)) {
+		parse_diag_report(ctx, chunk, "malformed JSON",
+				  "could not read a stream event");
 		return -1;
+	}
 
 	if (cfg->debug > 1)
 		emit_generic_to_stdout(stream->ctx, "stream", chunk, true);
@@ -2062,6 +2065,11 @@ static void buffered_request_complete(struct fyai_curl_transfer *transfer,
 
 	response_doc = parse_response(ctx->transient_gb,
 				      request->response.data);
+	if (fy_is_invalid(response_doc)) {
+		parse_diag_report(ctx, response_doc, "malformed JSON",
+				  "could not read the provider response");
+		goto done;
+	}
 	request->result = response_doc;
 done:
 	request->done = true;

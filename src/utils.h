@@ -160,6 +160,8 @@ void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
 const char *emit_request_body(struct fy_generic_builder *gb,
 			      fy_generic request);
 fy_generic parse_response(struct fy_generic_builder *gb, const char *response);
+void parse_diag_report(struct fyai_ctx *ctx, fy_generic v,
+		       const char *fallback, const char *what);
 fy_generic response_content(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic response_message(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic response_tool_calls(struct fy_generic_builder *gb, fy_generic doc);

@@ -318,8 +318,10 @@ static void jsonrpc_conn_line(struct jsonrpc_conn *conn, const char *line)
 	}
 	doc = parse_json_string(gb, line);
 	if (!fy_is_mapping(doc)) {
-		fyai_error(conn->ctx, "%s received invalid stdio JSON",
-			   conn->name);
+		parse_diag_report(conn->ctx, doc,
+			fy_is_valid(doc) ? "frame is not an object" :
+			"malformed JSON",
+			fy_sprintfa("%s received invalid stdio JSON", conn->name));
 		return;
 	}
 	jsonrpc_conn_frame(conn, doc);
@@ -627,9 +629,12 @@ static fy_generic jsonrpc_http_result(struct jsonrpc_request *req)
 	}
 	doc = parse_json_string(gb, json);
 	free(sse_json);
-	fyai_error_check(ctx, fy_is_valid(doc), err_out,
-			 "%s %s returned invalid JSON", req->conn->name,
-			 req->method);
+	if (!fy_is_valid(doc)) {
+		parse_diag_report(ctx, doc, "malformed JSON",
+			fy_sprintfa("%s %s returned invalid JSON",
+				    req->conn->name, req->method));
+		goto err_out;
+	}
 	error = fy_get(doc, "error");
 	fyai_error_check(ctx, fy_is_invalid(error), err_out,
 			 "%s %s: %s", req->conn->name, req->method,
