@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "fyai.h"
 #include "fyai_output.h"
@@ -23,6 +24,7 @@ FYAI_TEST_ENTRY(sink, recorded_is_not_presented, sink_recorded_not_presented)
 FYAI_TEST_ENTRY(sink, fragments_survive_pause, sink_fragments_survive_pause)
 FYAI_TEST_ENTRY(sink, discard_presents_nothing, sink_discard_presents_nothing)
 FYAI_TEST_ENTRY(sink, bands_absent_without_backend, sink_bands_absent)
+FYAI_TEST_ENTRY(sink, protocol_fd_stays_clean, sink_protocol_fd_clean)
 
 static int failures;
 
@@ -287,5 +289,76 @@ int sink_bands_absent(void)
 {
 	failures = 0;
 	test_bands_absent();
+	return failures ? -1 : 0;
+}
+
+/*
+ * A delegated sub-agent and a forked tool child own file descriptor 1 for
+ * JSON-RPC frames. One byte that is not a frame makes the parent read a
+ * fragment and lose the frame around it, so the sink must put nothing there.
+ *
+ * The producers each test for this themselves. This pins the promise in the
+ * one place that can keep it, for whatever a producer, a debug dump or a later
+ * caller forgets.
+ */
+static void test_protocol_fd_stays_clean(void)
+{
+	struct sink_fixture f;
+	char buf[256];
+	int saved, tmp;
+	ssize_t n;
+
+	memset(&f, 0, sizeof(f));
+	f.cfg.markdown = false;
+	f.cfg.color = "off";
+	/* A forked tool child: descriptor 1 is the response pipe. */
+	f.cfg.tool_child = true;
+	f.ctx.cfg = &f.cfg;
+	f.ctx.last_message = fy_invalid;
+	f.ctx.tools = fy_invalid;
+	f.ctx.tools_spec = fy_invalid;
+	f.ctx.arena_config = fy_invalid;
+	f.ctx.arena_catalog = fy_invalid;
+	f.ctx.arena_branches = fy_invalid;
+	f.ctx.branch_prev = fy_invalid;
+	f.ctx.branch_desc = fy_invalid;
+	f.ctx.branch_agent = fy_invalid;
+	f.ctx.last_token_extents = fy_invalid;
+	/* The terminal backend: the one that reaches a descriptor. */
+	f.ctx.sink = fyai_sink_create(&f.ctx);
+	expect_true("the terminal sink opened", f.ctx.sink != NULL);
+	if (!f.ctx.sink)
+		return;
+
+	tmp = fileno(tmpfile());
+	saved = dup(STDOUT_FILENO);
+	fflush(stdout);
+	(void)dup2(tmp, STDOUT_FILENO);
+
+	/* Every stream that would otherwise reach descriptor 1. */
+	(void)fyai_sink_write(f.ctx.sink, FYAI_SINK_MACHINE, "{\"a\":1}\n", 8);
+	(void)fyai_sink_write(f.ctx.sink, FYAI_SINK_TRANSCRIPT, "prose\n", 6);
+	(void)fyai_sink_write(f.ctx.sink, FYAI_SINK_NOTICE, "notice\n", 7);
+	(void)fyai_sink_markdown(f.ctx.sink, FYAI_SINK_TRANSCRIPT, "# heading");
+	fflush(stdout);
+
+	n = pread(tmp, buf, sizeof(buf), 0);
+	(void)dup2(saved, STDOUT_FILENO);
+	close(saved);
+	close(tmp);
+	expect_true("nothing reached the protocol descriptor", n <= 0);
+	if (n > 0)
+		fprintf(stderr, "  wrote %zd bytes: %.*s\n", n,
+			(int)(n > 120 ? 120 : n), buf);
+
+	fyai_sink_destroy(f.ctx.sink);
+	f.ctx.sink = NULL;
+	fyai_cleanup_transient_builder(&f.ctx);
+}
+
+int sink_protocol_fd_clean(void)
+{
+	failures = 0;
+	test_protocol_fd_stays_clean();
 	return failures ? -1 : 0;
 }

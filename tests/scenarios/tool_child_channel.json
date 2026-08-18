@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "c1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "c_sh",
+                  "type": "function",
+                  "function": {
+                    "name": "shell",
+                    "arguments": "{\"command\": \"leak=\\\"\\\"; for f in 3 4 5 6 7 8 10 11 12; do if (eval \\\"exec 9<&$f\\\") 2>/dev/null; then leak=\\\"$leak $f\\\"; fi; done; if [ -n \\\"$leak\\\" ]; then echo \\\"LEAKED_FDS:$leak\\\"; else echo NO_LEAKED_FDS; fi\", \"description\": \"probe inherited descriptors\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "c2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "probe complete"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}
