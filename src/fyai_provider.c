@@ -427,6 +427,20 @@ bool fyai_provider_native_shell(const struct fyai_cfg *cfg)
 	       cfg->shell_tool_supported;
 }
 
+/* Detect transient errors that arrive inside a successful HTTP stream. */
+bool fyai_provider_error_transient(fy_generic err)
+{
+	fy_generic code, type;
+
+	code = fy_get(err, "code");
+	type = fy_get(err, "type");
+	if (fy_any_equal(code, "rate_limit_exceeded", "server_error",
+			 "service_unavailable"))
+		return true;
+	return fy_any_equal(type, "rate_limit_error", "server_error",
+			    "overloaded_error", "api_error");
+}
+
 /* Convert a shell result to a provider-supported outcome. */
 static fy_generic fyai_shell_outcome_sanitized(struct fy_generic_builder *gb,
 					       fy_generic entry)

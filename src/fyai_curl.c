@@ -543,6 +543,16 @@ static void fyai_curl_sync_complete(struct fyai_curl_transfer *transfer,
 	*done = true;
 }
 
+bool fyai_http_transient(CURLcode rc, long status)
+{
+	return rc == CURLE_COULDNT_CONNECT ||
+		rc == CURLE_COULDNT_RESOLVE_HOST ||
+		rc == CURLE_RECV_ERROR || rc == CURLE_SEND_ERROR ||
+		rc == CURLE_OPERATION_TIMEDOUT ||
+		status == 408 || status == 429 || status == 500 ||
+		status == 502 || status == 503 || status == 504;
+}
+
 CURLcode fyai_curl_perform(struct fyai_ctx *ctx, CURL *easy)
 {
 	struct fyai_curl_transfer *transfer;

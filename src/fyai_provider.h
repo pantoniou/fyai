@@ -26,6 +26,8 @@ fy_generic fyai_token_extents_append(struct fy_generic_builder *gb,
 fy_generic fyai_chunk_extents(struct fy_generic_builder *gb, fy_generic chunks);
 fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx);
 bool fyai_provider_native_shell(const struct fyai_cfg *cfg);
+/* Return true for a transient error in an HTTP stream. */
+bool fyai_provider_error_transient(fy_generic err);
 fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages);
 fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item);
 fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages);

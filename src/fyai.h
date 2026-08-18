@@ -52,6 +52,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define MAX_TOOL_LOOP_ITERATIONS 50
 #define DEFAULT_TEMPERATURE 0.0
 /* Shell time limits in milliseconds. Zero disables either limit. */
+#define DEFAULT_RETRY_MAX_ATTEMPTS 8
+#define DEFAULT_RETRY_INITIAL_DELAY_MS 500
+#define DEFAULT_RETRY_MAX_DELAY_MS 30000
 #define DEFAULT_SHELL_TIMEOUT_MS 120000
 #define DEFAULT_SHELL_MAX_TIMEOUT_MS 600000
 /* Default and maximum read_file result sizes. Zero disables each limit. */
@@ -184,6 +187,9 @@ struct fyai_cfg {
 	int tool_preview_lines;
 	int recap_exchanges;		/* interactive history recap exchanges */
 	int tool_update_interval_ms;
+	int retry_max_attempts;		/* provider attempts, 1 = no retry */
+	int retry_initial_delay_ms;	/* first backoff delay */
+	int retry_max_delay_ms;		/* ceiling on one backoff delay */
 	int shell_timeout_ms;		/* default shell time limit (0 = none) */
 	int shell_max_timeout_ms;	/* cap on a model-requested limit */
 	int read_max_bytes;		/* default read_file cap (0 = none) */

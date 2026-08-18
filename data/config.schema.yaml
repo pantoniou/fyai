@@ -146,6 +146,36 @@ properties:
     description: >-
       Enable the built-in shell tool. Forced off automatically for the
       Messages API grammar (which has no native shell tool support).
+  retry:
+    type: object
+    additionalProperties: false
+    description: >-
+      Automatic retry of a provider request that failed for a transient
+      reason: a refused or lost connection, a timeout, or HTTP 408, 429,
+      500, 502, 503 or 504. The delay doubles after each attempt and keeps
+      a random part, so parallel requests do not come back together. A
+      `Retry-After` header replaces the calculated delay.
+    properties:
+      max_attempts:
+        type: integer
+        minimum: 1
+        default: 8
+        description: >-
+          Attempts made for one request, the first one included. 1 disables
+          retry. A token-per-minute limit can hold a request for most of a
+          minute, which needs more attempts than a short outage does.
+      initial_delay_ms:
+        type: integer
+        minimum: 0
+        default: 500
+        description: Delay before the second attempt.
+      max_delay_ms:
+        type: integer
+        minimum: 0
+        default: 30000
+        description: >-
+          Upper bound on one delay, applied to the calculated delay and to a
+          `Retry-After` value. 0 removes the bound.
   shell:
     type: object
     additionalProperties: false

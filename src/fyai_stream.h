@@ -3,6 +3,7 @@
 #define FYAI_STREAM_H
 
 #include "fyai.h"
+#include "fyai_event.h"
 
 struct stream_response;
 typedef struct stream_response fyai_stream_request;
@@ -42,6 +43,10 @@ fyai_stream_request_state(const fyai_stream_request *request);
 bool fyai_stream_request_done(const fyai_stream_request *request);
 fy_generic fyai_stream_request_collect(const fyai_stream_request *request);
 void fyai_stream_request_destroy(fyai_stream_request *request);
+
+/* Calculate the delay before the attempt after @attempt. */
+fyai_event_ms_t fyai_retry_delay_ms(struct fyai_cfg *cfg, int attempt,
+				    long retry_after_s);
 
 struct fyai_buffered_request *
 fyai_buffered_request_submit(struct fyai_ctx *ctx,

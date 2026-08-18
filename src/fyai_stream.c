@@ -39,6 +39,12 @@ struct stream_response {
 	struct fyai_ctx *ctx;
 	struct fyai_curl_transfer *transfer;
 	struct fyai_auth_refresh_request *auth_refresh;
+	struct fyai_event_source *retry_timer;
+	int attempt;			/* attempts made, survives a resubmit */
+	/* A transient provider error received inside an HTTP 200 stream. */
+	bool retry_hint;
+	char *retry_cause;
+	bool retry_band;		/* the shared band is ours, across resubmits */
 	struct fyai_stream_callbacks callbacks;
 	fy_generic result;
 	enum fyai_stream_state state;
@@ -177,6 +183,7 @@ static void stream_spinner_clear(struct fyai_ctx *ctx,
 static void stream_response_cleanup(struct stream_response *stream)
 {
 	stream_spinner_clear(stream->ctx, &stream->spinner);
+	free(stream->retry_cause);
 	free(stream->raw.data);
 	free(stream->line.data);
 	free(stream->reasoning_text.data);
@@ -593,6 +600,9 @@ static int stream_emit_chat_tools(struct stream_response *stream)
 	return 0;
 }
 
+static void stream_report_failure(struct stream_response *stream,
+				  fy_generic type, fy_generic event);
+
 static int chat_stream_apply_chunk(struct stream_response *stream,
 				   fy_generic chunk)
 {
@@ -600,6 +610,13 @@ static int chat_stream_apply_chunk(struct stream_response *stream,
 	struct fyai_cfg *cfg = stream->ctx->cfg;
 	fy_generic choice, delta, tool_calls, tool_call, usage, logprobs;
 	const char *text;
+
+	/* Handle an error object that arrives with HTTP status 200. */
+	if (fy_is_valid(fy_get(chunk, "error"))) {
+		stream_report_failure(stream, fy_get(chunk, "type"), chunk);
+		stream->failed = true;
+		return -1;
+	}
 
 	usage = fy_get(chunk, "usage");
 	if (!fy_is_invalid(usage))
@@ -726,12 +743,12 @@ static void stream_report_failure(struct stream_response *stream,
 	struct fyai_ctx *ctx = stream->ctx;
 	fy_generic err, msg, resp;
 	const char *what;
+	char *text;
 
 	msg = fy_get(event, "message", fy_invalid);
-	if (fy_is_invalid(msg)) {
-		err = fy_get(event, "error", fy_invalid);
+	err = fy_get(event, "error", fy_invalid);
+	if (fy_is_invalid(msg))
 		msg = fy_get(err, "message", fy_invalid);
-	}
 	if (fy_is_invalid(msg)) {
 		resp = fy_get(event, "response", fy_invalid);
 		err = fy_get(resp, "error", fy_invalid);
@@ -743,9 +760,18 @@ static void stream_report_failure(struct stream_response *stream,
 
 	what = fy_castp(&type, "error");
 	if (fy_is_valid(msg) && !fy_is_null(msg))
-		fyai_error(ctx, "%s: %s", what, fy_castp(&msg, ""));
+		text = fy_sprintfa("%s: %s", what, fy_castp(&msg, ""));
 	else
-		fyai_error(ctx, "provider sent %s and no reason", what);
+		text = fy_sprintfa("provider sent %s and no reason", what);
+	/* Keep the cause until all retry attempts fail. */
+	if (fyai_provider_error_transient(err) ||
+	    fyai_provider_error_transient(event)) {
+		free(stream->retry_cause);
+		stream->retry_cause = strdup(text);
+		stream->retry_hint = true;
+		return;
+	}
+	fyai_error(ctx, "%s", text);
 }
 
 static int responses_stream_apply_event(struct stream_response *stream,
@@ -1314,11 +1340,143 @@ static void stream_store_token_extents(struct stream_response *stream,
 	ctx->last_token_extents = fy_gb_internalize(ctx->transient_gb, extents);
 }
 
+/* Read jitter from the operating system entropy source. */
+static uint64_t stream_jitter_next(void)
+{
+#if !defined(__APPLE__)
+	struct timespec ts;
+#endif
+	uint64_t value;
+#if !defined(__APPLE__)
+	int rc;
+#endif
+
+#if defined(__APPLE__)
+	arc4random_buf(&value, sizeof(value));
+	return value;
+#else
+	rc = getentropy(&value, sizeof(value));
+	if (!rc)
+		return value;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec << 32 ^ (uint64_t)ts.tv_nsec ^
+	       ((uint64_t)getpid() << 16);
+#endif
+}
+
+/* Apply exponential backoff, jitter, and the configured delay limit. */
+fyai_event_ms_t fyai_retry_delay_ms(struct fyai_cfg *cfg, int attempt,
+				    long retry_after_s)
+{
+	fyai_event_ms_t base, cap;
+	int shift;
+
+	cap = cfg->retry_max_delay_ms > 0 ? cfg->retry_max_delay_ms : 0;
+	if (retry_after_s > 0) {
+		base = (fyai_event_ms_t)retry_after_s * 1000;
+		return cap && base > cap ? cap : base;
+	}
+	base = cfg->retry_initial_delay_ms > 0 ?
+		cfg->retry_initial_delay_ms : 0;
+	/* Bound the shift: an attempt count cannot overflow the delay. */
+	shift = attempt > 0 ? attempt - 1 : 0;
+	if (shift > 20)
+		shift = 20;
+	base <<= shift;
+	if (cap && base > cap)
+		base = cap;
+	if (base <= 1)
+		return base;
+	return base / 2 + (fyai_event_ms_t)(stream_jitter_next() %
+					    (uint64_t)(base / 2 + 1));
+}
+
+/* Present a retry in the shared work band or as plain status output. */
+static void stream_retry_report(struct fyai_ctx *ctx, long status,
+				CURLcode res, const char *cause, int attempt,
+				int max_attempts, fyai_event_ms_t delay_ms,
+				bool *bandp)
+{
+	struct fyai_sink_band *band;
+	const char *reason;
+	char *body;
+
+	if (!fy_str_empty(cause))
+		reason = cause;
+	else if (status)
+		reason = fy_sprintfa("HTTP %ld", status);
+	else
+		reason = curl_easy_strerror(res);
+
+	/* Route delegated waits to the parent work band. */
+	if (fyai_agent_delegated(ctx)) {
+		body = fy_sprintfa("retrying in %.1f s (attempt %d of %d): "
+				   "%s\n", (double)delay_ms / 1000.0,
+				   attempt + 1, max_attempts, reason);
+		fyai_tool_progress_emit(ctx, body, strlen(body));
+		return;
+	}
+	if (!bandp || !fyai_sink_bands_available(ctx->sink)) {
+		/* Keep the reason last: a provider message can be long. */
+		fyai_report(ctx, "retrying in %.1f s (attempt %d of %d): %s\n",
+			    (double)delay_ms / 1000.0, attempt + 1,
+			    max_attempts, reason);
+		return;
+	}
+	/*
+	 * Never take a band another producer is drawing in. A model request
+	 * runs with no tool band open, so this is a guard, not the usual path.
+	 */
+	if (!*bandp && fyai_sink_band_shared(ctx->sink))
+		return;
+	if (!*bandp) {
+		if (!fyai_sink_band_open(ctx->sink, true, "**provider**", NULL))
+			return;
+		*bandp = true;
+	}
+	band = fyai_sink_band_shared(ctx->sink);
+	if (!band)
+		return;
+	body = fy_sprintfa("%s\n\nretrying in %.1f s (attempt %d of %d)\n",
+			   reason, (double)delay_ms / 1000.0, attempt + 1,
+			   max_attempts);
+	fyai_sink_band_paint(band, NULL, NULL, body, strlen(body), NULL);
+}
+
+/* Settle the retry band with the final request outcome. */
+static void stream_retry_band_close(struct fyai_ctx *ctx, bool *bandp, bool ok,
+				    const char *cause)
+{
+	if (!bandp || !*bandp)
+		return;
+	*bandp = false;
+	fyai_sink_band_close(ctx->sink, ok, cause);
+}
+
+/* Return the Retry-After delay in seconds. */
+static long stream_retry_after(struct fyai_ctx *ctx)
+{
+	curl_off_t secs = 0;
+
+	if (curl_easy_getinfo(ctx->curl, CURLINFO_RETRY_AFTER, &secs) != CURLE_OK)
+		return 0;
+	return secs > 0 ? (long)secs : 0;
+}
+
+static void stream_retry_band_close(struct fyai_ctx *ctx, bool *bandp, bool ok,
+				    const char *cause);
+
 static void stream_request_notify(struct stream_response *stream)
 {
 	fyai_stream_complete_fn complete;
 	void *userdata;
 
+	/*
+	 * Every terminal path arrives here, so the band the retries opened is
+	 * settled once, with the outcome the turn actually reached.
+	 */
+	stream_retry_band_close(stream->ctx, &stream->retry_band,
+				stream->state == FYAISS_COMPLETED, NULL);
 	complete = stream->callbacks.complete;
 	userdata = stream->callbacks.userdata;
 	if (complete)
@@ -1334,15 +1492,21 @@ static int stream_request_resubmit(struct stream_response *stream)
 {
 	struct fyai_ctx *ctx;
 	struct fyai_stream_callbacks callbacks;
+	bool band;
+	int attempt;
 	int rc;
 
 	ctx = stream->ctx;
 	callbacks = stream->callbacks;
+	attempt = stream->attempt;
+	band = stream->retry_band;
 	if (stream->state != FYAISS_RETRYING)
 		return -1;
 	stream_response_cleanup(stream);
 	memset(stream, 0, sizeof(*stream));
 	stream->callbacks = callbacks;
+	stream->attempt = attempt;
+	stream->retry_band = band;
 	rc = stream_response_init(stream, ctx);
 	if (rc)
 		return -1;
@@ -1390,6 +1554,79 @@ static void stream_auth_complete(
 	stream_request_notify(stream);
 }
 
+/* Arm the timer that resubmits the request. */
+static enum fyai_event_action stream_retry_fire(const struct fyai_event *ev);
+
+static int stream_retry_arm(struct stream_response *stream, long status,
+			    CURLcode res)
+{
+	struct fyai_ctx *ctx = stream->ctx;
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_event_loop *el;
+	fyai_event_ms_t delay;
+	int rc;
+
+	if (stream->cancel_requested)
+		return 0;
+	if (stream->attempt >= cfg->retry_max_attempts)
+		return 0;
+	/* Check transport failures and provider errors inside HTTP 200 streams. */
+	if (!fyai_http_transient(res, status) && !stream->retry_hint)
+		return 0;
+	/* Do not repeat content that the user has already seen. */
+	if (stream->printed_content || stream->printed_reasoning)
+		return 0;
+	el = fyai_ctx_loop(ctx);
+	assert(el);
+	delay = fyai_retry_delay_ms(cfg, stream->attempt,
+				   status ? stream_retry_after(ctx) : 0);
+	stream_state_transition(stream, FYAISS_RETRYING);
+	if (stream->state != FYAISS_RETRYING)
+		return -1;
+	rc = fyai_event_add_timer(el, delay, 0, stream_retry_fire, stream,
+				  &stream->retry_timer);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not arm the provider retry timer");
+	stream_retry_report(ctx, status, res, stream->retry_cause,
+			    stream->attempt, cfg->retry_max_attempts, delay,
+			    &stream->retry_band);
+	return 1;
+
+err_out:
+	stream->retry_timer = NULL;
+	return -1;
+}
+
+static enum fyai_event_action stream_retry_fire(const struct fyai_event *ev)
+{
+	struct stream_response *stream = ev->userdata;
+	struct fyai_ctx *ctx;
+	int rc;
+
+	ctx = stream->ctx;
+	fyai_event_source_remove(stream->retry_timer);
+	stream->retry_timer = NULL;
+	if (stream->cancel_requested) {
+		/* CANCELLING is the only state a cancel may settle from. */
+		stream_state_transition(stream, FYAISS_CANCELLING);
+		stream_state_transition(stream, FYAISS_CANCELLED);
+		stream->result = fyai_with_diag(ctx->transient_gb,
+						fy_invalid, "interrupted");
+		stream_request_notify(stream);
+		return FYAIEA_CONTINUE;
+	}
+	rc = stream_request_resubmit(stream);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not resubmit the provider request");
+	return FYAIEA_CONTINUE;
+
+err_out:
+	stream_state_transition(stream, FYAISS_FAILED);
+	stream->result = fy_invalid;
+	stream_request_notify(stream);
+	return FYAIEA_CONTINUE;
+}
+
 static void stream_request_complete(struct fyai_curl_transfer *transfer,
 				    void *userdata)
 {
@@ -1402,6 +1639,7 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 	fy_generic tool_call;
 	long status;
 	int rc;
+	int retry_rc;
 	size_t tool_index;
 
 	stream = userdata;
@@ -1418,14 +1656,46 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 		stream_state_transition(stream, FYAISS_CANCELLED);
 		goto done;
 	}
+
+	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
+	/* Use the stream error before the curl callback error. */
+	if (stream->failed && (!status || (status >= 200 && status < 300))) {
+		stream->attempt++;
+		retry_rc = stream_retry_arm(stream, 0, CURLE_OK);
+		if (retry_rc > 0)
+			return;
+		if (retry_rc < 0) {
+			stream_state_transition(stream, FYAISS_FAILED);
+			goto done;
+		}
+		if (stream->retry_hint && stream->retry_cause)
+			fyai_error(ctx, "%s", stream->retry_cause);
+		stream_state_transition(stream, FYAISS_FAILED);
+		goto done;
+	}
 	if (res != CURLE_OK) {
+		stream->attempt++;
+		retry_rc = stream_retry_arm(stream, 0, res);
+		if (retry_rc > 0)
+			return;
+		if (retry_rc < 0) {
+			stream_state_transition(stream, FYAISS_FAILED);
+			goto done;
+		}
 		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
 		stream_state_transition(stream, FYAISS_FAILED);
 		goto done;
 	}
 
-	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
+		stream->attempt++;
+		retry_rc = stream_retry_arm(stream, status, res);
+		if (retry_rc > 0)
+			return;
+		if (retry_rc < 0) {
+			stream_state_transition(stream, FYAISS_FAILED);
+			goto done;
+		}
 		if (fyai_auth_should_retry(ctx, status)) {
 			ctx->auth_retry_done = true;
 			stream_state_transition(stream, FYAISS_RETRYING);
@@ -1541,6 +1811,18 @@ void fyai_stream_request_cancel(fyai_stream_request *request)
 	} else if (request->auth_refresh) {
 		stream_state_transition(request, FYAISS_CANCELLING);
 		fyai_auth_refresh_cancel(request->auth_refresh);
+	} else if (request->retry_timer) {
+		/*
+		 * A request that waits out a backoff has no transfer to stop.
+		 * Retire the timer and settle here: nothing else will run.
+		 */
+		fyai_event_source_remove(request->retry_timer);
+		request->retry_timer = NULL;
+		stream_state_transition(request, FYAISS_CANCELLING);
+		stream_state_transition(request, FYAISS_CANCELLED);
+		request->result = fyai_with_diag(request->ctx->transient_gb,
+						 fy_invalid, "interrupted");
+		stream_request_notify(request);
 	}
 }
 
@@ -1565,6 +1847,10 @@ void fyai_stream_request_destroy(fyai_stream_request *request)
 {
 	if (!request)
 		return;
+	if (request->retry_timer) {
+		fyai_event_source_remove(request->retry_timer);
+		request->retry_timer = NULL;
+	}
 	if (request->transfer)
 		fyai_curl_transfer_destroy(request->transfer);
 	if (request->auth_refresh)
@@ -1577,6 +1863,9 @@ struct fyai_buffered_request {
 	struct fyai_ctx *ctx;
 	struct fyai_curl_transfer *transfer;
 	struct fyai_auth_refresh_request *auth_refresh;
+	struct fyai_event_source *retry_timer;
+	int attempt;			/* attempts made for this request */
+	bool retry_band;		/* the shared band is ours */
 	fyai_buffered_complete_fn complete;
 	void *userdata;
 	struct response_buffer response;
@@ -1604,11 +1893,68 @@ buffered_request_start(struct fyai_buffered_request *request)
 	return request->transfer ? 0 : -1;
 }
 
+static enum fyai_event_action buffered_retry_fire(const struct fyai_event *ev);
+static void buffered_request_notify(struct fyai_buffered_request *request);
+
+/* Arm a retry for a request that has not presented its buffered response. */
+static int buffered_retry_arm(struct fyai_buffered_request *request,
+			      long status, CURLcode res)
+{
+	struct fyai_ctx *ctx = request->ctx;
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_event_loop *el;
+	fyai_event_ms_t delay;
+	int rc;
+
+	if (request->cancel_requested)
+		return 0;
+	if (request->attempt >= cfg->retry_max_attempts)
+		return 0;
+	if (!fyai_http_transient(res, status))
+		return 0;
+	el = fyai_ctx_loop(ctx);
+	assert(el);
+	delay = fyai_retry_delay_ms(cfg, request->attempt,
+				   status ? stream_retry_after(ctx) : 0);
+	rc = fyai_event_add_timer(el, delay, 0, buffered_retry_fire, request,
+				  &request->retry_timer);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not arm the provider retry timer");
+	free(request->response.data);
+	memset(&request->response, 0, sizeof(request->response));
+	stream_retry_report(ctx, status, res, NULL, request->attempt,
+			    cfg->retry_max_attempts, delay,
+			    &request->retry_band);
+	return 1;
+
+err_out:
+	request->retry_timer = NULL;
+	return -1;
+}
+
+static enum fyai_event_action buffered_retry_fire(const struct fyai_event *ev)
+{
+	struct fyai_buffered_request *request = ev->userdata;
+
+	fyai_event_source_remove(request->retry_timer);
+	request->retry_timer = NULL;
+	if (!request->cancel_requested && !buffered_request_start(request))
+		return FYAIEA_CONTINUE;
+	if (request->cancel_requested)
+		request->result = fyai_with_diag(request->ctx->transient_gb,
+						 fy_invalid, "interrupted");
+	request->done = true;
+	buffered_request_notify(request);
+	return FYAIEA_CONTINUE;
+}
+
 static void buffered_request_notify(struct fyai_buffered_request *request)
 {
 	fyai_buffered_complete_fn complete;
 	void *userdata;
 
+	stream_retry_band_close(request->ctx, &request->retry_band,
+				fy_is_valid(request->result), NULL);
 	complete = request->complete;
 	userdata = request->userdata;
 	if (complete)
@@ -1652,6 +1998,7 @@ static void buffered_request_complete(struct fyai_curl_transfer *transfer,
 	fy_generic response_doc;
 	CURLcode res;
 	long status;
+	int retry_rc;
 
 	request = userdata;
 	ctx = request->ctx;
@@ -1668,12 +2015,24 @@ static void buffered_request_complete(struct fyai_curl_transfer *transfer,
 		goto done;
 	}
 	if (res != CURLE_OK) {
+		request->attempt++;
+		retry_rc = buffered_retry_arm(request, 0, res);
+		if (retry_rc > 0)
+			return;
+		if (retry_rc < 0)
+			goto done;
 		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
 		goto done;
 	}
 
 	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
 	if (status < 200 || status >= 300) {
+		request->attempt++;
+		retry_rc = buffered_retry_arm(request, status, res);
+		if (retry_rc > 0)
+			return;
+		if (retry_rc < 0)
+			goto done;
 		if (fyai_auth_should_retry(ctx, status)) {
 			free(request->response.data);
 			memset(&request->response, 0,
@@ -1743,6 +2102,15 @@ void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
 		fyai_curl_cancel(request->transfer);
 	else if (request->auth_refresh)
 		fyai_auth_refresh_cancel(request->auth_refresh);
+	else if (request->retry_timer) {
+		/* Waiting out a backoff: retire the timer and settle here. */
+		fyai_event_source_remove(request->retry_timer);
+		request->retry_timer = NULL;
+		request->result = fyai_with_diag(request->ctx->transient_gb,
+						 fy_invalid, "interrupted");
+		request->done = true;
+		buffered_request_notify(request);
+	}
 }
 
 bool fyai_buffered_request_done(
@@ -1762,6 +2130,10 @@ void fyai_buffered_request_destroy(struct fyai_buffered_request *request)
 {
 	if (!request)
 		return;
+	if (request->retry_timer) {
+		fyai_event_source_remove(request->retry_timer);
+		request->retry_timer = NULL;
+	}
 	if (request->transfer)
 		fyai_curl_transfer_destroy(request->transfer);
 	if (request->auth_refresh)

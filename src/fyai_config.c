@@ -180,7 +180,7 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
  */
 int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
-	fy_generic v, sb, tbv, shell, secret_ref;
+	fy_generic v, sb, tbv, shell, retry, secret_ref;
 
 	if (fy_is_invalid(root))
 		return 0;
@@ -238,6 +238,13 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 				cfg->max_tool_iterations);
 	cfg->max_tokens = fy_get(root, "max_tokens",
 				cfg->max_tokens);
+	retry = fy_get(root, "retry");
+	cfg->retry_max_attempts = fy_get(retry, "max_attempts",
+				cfg->retry_max_attempts);
+	cfg->retry_initial_delay_ms = fy_get(retry,
+				"initial_delay_ms", cfg->retry_initial_delay_ms);
+	cfg->retry_max_delay_ms = fy_get(retry, "max_delay_ms",
+				cfg->retry_max_delay_ms);
 	shell = fy_get(root, "shell");
 	cfg->shell_timeout_ms = fy_get(shell, "timeout_ms",
 				cfg->shell_timeout_ms);
@@ -1938,6 +1945,9 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->top_logprobs = -1;
 	cfg->agent_max_branch_depth = DEFAULT_AGENT_MAX_BRANCH_DEPTH;
 	cfg->agent_max_timeout_ms = DEFAULT_AGENT_MAX_TIMEOUT_MS;
+	cfg->retry_max_attempts = DEFAULT_RETRY_MAX_ATTEMPTS;
+	cfg->retry_initial_delay_ms = DEFAULT_RETRY_INITIAL_DELAY_MS;
+	cfg->retry_max_delay_ms = DEFAULT_RETRY_MAX_DELAY_MS;
 	cfg->shell_timeout_ms = DEFAULT_SHELL_TIMEOUT_MS;
 	cfg->shell_max_timeout_ms = DEFAULT_SHELL_MAX_TIMEOUT_MS;
 	cfg->read_max_bytes = DEFAULT_READ_MAX_BYTES;

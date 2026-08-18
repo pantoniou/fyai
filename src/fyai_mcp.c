@@ -141,14 +141,6 @@ static void mcp_set_error(struct fyai_mcp_ctx *mcp, const char *fmt, ...)
 
 static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp);
 
-static bool mcp_transient_status(CURLcode rc, long status)
-{
-	return rc == CURLE_COULDNT_CONNECT || rc == CURLE_COULDNT_RESOLVE_HOST ||
-		rc == CURLE_RECV_ERROR || rc == CURLE_SEND_ERROR ||
-		rc == CURLE_OPERATION_TIMEDOUT || status == 408 || status == 429 ||
-		status == 500 || status == 502 || status == 503 || status == 504;
-}
-
 /*
  * Extract one auth-param from a WWW-Authenticate challenge. MCP metadata URLs
  * are quoted strings in practice, but accepting a token value makes the parser
@@ -1621,7 +1613,7 @@ static bool mcp_startup_terminal(struct fyai_mcp_ctx *mcp, long status,
 		return true;
 	if (status == 401 || status == 403)
 		return true;
-	return !mcp_transient_status(code, status);
+	return !fyai_http_transient(code, status);
 }
 
 static void mcp_startup_collect(struct fyai_mcp_ctx *mcp, fy_generic result)
