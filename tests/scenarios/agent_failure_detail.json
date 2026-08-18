@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "\"content\": \"delegate it"
+      },
+      "response": {
+        "id": "c0",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_w",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"worker\", \"description\": \"the job\", \"task\": \"work on TASK-X and report\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "\"content\": \"work on TASK-X"
+      },
+      "status": 400,
+      "response": {
+        "error": {
+          "message": "mock: the request was rejected",
+          "type": "invalid_request_error",
+          "code": "invalid_request_error"
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "sub-agent 'worker' failed"
+      },
+      "response": {
+        "id": "cf",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Noted the failure."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

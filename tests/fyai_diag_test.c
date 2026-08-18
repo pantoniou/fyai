@@ -26,7 +26,8 @@ FYAI_TEST_ENTRY(diag, source, diag_source)
 FYAI_TEST_ENTRY(diag, drain_clears, diag_drain_clears)
 FYAI_TEST_ENTRY(diag, concurrent_raise, diag_concurrent_raise)
 FYAI_TEST_ENTRY(diag, reset_reclaims, diag_reset_reclaims)
-FYAI_TEST_ENTRY(diag, take_string, diag_take_string)
+FYAI_TEST_ENTRY(diag, string, diag_string)
+FYAI_TEST_ENTRY(diag, take_generic, diag_take_generic)
 FYAI_TEST_ENTRY(diag, no_sink, diag_no_sink)
 
 #define DIAG_THREADS	8
@@ -232,19 +233,68 @@ static void test_drain_clears(struct fyai_diag *diag)
 	free(out);
 }
 
-static void test_take_string(struct fyai_diag *diag)
+/* Quoting the cause into a result must not take it from the sink: the same
+ * reason still has to reach whoever reports it. */
+static void test_diag_string(struct fyai_diag *diag)
 {
 	char *out;
 
 	fyai_error(&test_ctx, "protocol failure");
-	out = fyai_diag_take_string(diag);
-	expect_str("take string preserves the cause", out,
+	out = fyai_diag_string(diag);
+	expect_str("string preserves the cause", out,
 		   "config: protocol failure\n");
 	free(out);
-	if (fyai_diag_got_error(diag)) {
-		fprintf(stderr, "FAIL take string did not reset the sink\n");
+	if (!fyai_diag_got_error(diag)) {
+		fprintf(stderr, "FAIL string consumed the sink\n");
 		failures++;
 	}
+	free(drain_to_string(diag));
+}
+
+/* A child hands its collected diagnostics over; the sink it took them from is
+ * left empty, so nothing is reported twice. */
+static void test_take_generic(struct fyai_diag *diag)
+{
+	struct fy_generic_builder_cfg gb_cfg;
+	struct fy_generic_builder *gb;
+	fy_generic list;
+	char *out;
+
+	memset(&gb_cfg, 0, sizeof(gb_cfg));
+	gb_cfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
+	gb = fy_generic_builder_create(&gb_cfg);
+	if (!gb) {
+		fprintf(stderr, "FAIL take generic: no builder\n");
+		failures++;
+		return;
+	}
+
+	fyai_error(&test_ctx, "the model refused the request");
+	list = fyai_diag_take_generic(diag, gb);
+	if (fy_len(list) != 1 || fyai_diag_got_error(diag)) {
+		fprintf(stderr, "FAIL take generic did not claim the sink\n");
+		failures++;
+	}
+
+	/* The adopting process marks what it received with the child's path. */
+	fyai_diag_adopt(diag, list, "main/agent:greeter");
+	out = drain_to_string(diag);
+	expect_str("adopt marks the origin", out,
+		   "config: [main/agent:greeter] the model refused the "
+		   "request\n");
+	free(out);
+
+	/* A message that arrives marked keeps the path it came with. */
+	fyai_diag_adopt(diag, list, "main/agent:greeter");
+	list = fyai_diag_take_generic(diag, gb);
+	fyai_diag_adopt(diag, list, "main/agent:outer");
+	out = drain_to_string(diag);
+	expect_str("adopt keeps the innermost origin", out,
+		   "config: [main/agent:greeter] the model refused the "
+		   "request\n");
+	free(out);
+
+	fy_generic_builder_destroy(gb);
 }
 
 static void *raise_worker(void *arg)
@@ -393,9 +443,14 @@ int diag_reset_reclaims(void)
 	return diag_run(test_reset_reclaims);
 }
 
-int diag_take_string(void)
+int diag_string(void)
 {
-	return diag_run(test_take_string);
+	return diag_run(test_diag_string);
+}
+
+int diag_take_generic(void)
+{
+	return diag_run(test_take_generic);
 }
 
 int diag_no_sink(void)

@@ -20,7 +20,9 @@ assert_stdout_contains "Parent observed the agent failure."
 assert_request 3 \
 	'any(m.get("role") == "tool" and '\
 'm.get("tool_call_id") == "call_agent_missing" and '\
-'"tool error: sub-agent failed:" in m.get("content", "") and '\
+'"tool error: sub-agent" in m.get("content", "") and '\
+'"missing-report" in m.get("content", "") and '\
+'"failed:" in m.get("content", "") and '\
 '"mock child follow-up failed" in m.get("content", "") '\
 'for m in r["body"]["messages"])'
 
