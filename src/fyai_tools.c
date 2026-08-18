@@ -38,6 +38,7 @@
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
+#include "fyai_prof.h"
 #include "fyai_sink.h"
 #include "fyai_ui.h"
 
@@ -1474,6 +1475,8 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 	while (jsonrpc_conn_has_output(conn))
 		if (fyai_event_loop_step(el, 1000) <= 0)
 			break;
+	/* This child leaves through _exit and never returns to main(). */
+	fyai_prof_report();
 	_exit(ok ? 0 : 1);
 }
 

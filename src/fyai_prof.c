@@ -97,6 +97,19 @@ void fyai_prof_since(const char *label, const struct timespec *from)
 	prof_record(label, prof_delta_us(from, &now));
 }
 
+void fyai_prof_count(const char *label, long long n)
+{
+	struct fyai_prof_bucket *b;
+
+	if (!prof_enabled)
+		return;
+	b = prof_find(label);
+	if (!b)
+		return;
+	/* A tally, not a duration: the value lands in the count column. */
+	b->count += n;
+}
+
 void fyai_prof_once_from_base(const char *label)
 {
 	struct timespec now;

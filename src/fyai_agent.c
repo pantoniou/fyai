@@ -8,6 +8,7 @@
 #include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_agent.h"
+#include "fyai_prof.h"
 #include "fyai_turn.h"
 #include "fyai_output.h"
 #include "fyai_event.h"
@@ -151,6 +152,7 @@ err:
 fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	struct timespec t_intern;
 	fy_generic name, description;
 	fy_generic task_v, context_v;
 	fy_generic persona_v, persona;
@@ -278,7 +280,9 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		fy_sequence(fyai_make_user_message(ctx, task)));
 	ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 		FYAI_OUTPUT_USER, task);
+	fyai_prof_stamp(&t_intern);
 	ctx->last_message = fy_gb_internalize(ctx->gb, ctx->last_message);
+	fyai_prof_since("agent_input_internalize", &t_intern);
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not store the sub-agent input");
 

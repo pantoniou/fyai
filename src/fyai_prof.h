@@ -29,6 +29,10 @@ void fyai_prof_stamp(struct timespec *ts);
 /* Accumulate the interval [from, now] under label (count++, sum, min, max). */
 void fyai_prof_since(const char *label, const struct timespec *from);
 
+/* Tally @n occurrences under label. The count column carries the total and the
+ * time columns stay at zero: for things that are counted, not timed. */
+void fyai_prof_count(const char *label, long long n);
+
 /* One-shot: record now-relative-to-process-base under label, first call wins.
  * Used for "time from process start to first request send". */
 void fyai_prof_once_from_base(const char *label);

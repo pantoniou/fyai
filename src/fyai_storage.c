@@ -801,7 +801,7 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 static int fyai_root_publish_try(struct fyai_ctx *ctx)
 {
 	fy_generic catv, headv, branchesv, prevv, root;
-	struct timespec t_commit;
+	struct timespec t_commit, t_build, t_cas;
 	uint64_t desired;
 	bool root_pinned;
 	int rc;
@@ -831,7 +831,9 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 			   fyai_ctx_head_branch(ctx));
 		return -1;
 	}
+	fyai_prof_stamp(&t_build);
 	branchesv = fyai_branches_commit(ctx);
+	fyai_prof_since("commit_build_branches", &t_build);
 	if (!fy_is_valid(branchesv))
 		return -1;	/* fyai_branches_commit() says why */
 	/*
@@ -852,8 +854,10 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 		return -1;
 	}
 	desired = (uint64_t)root.v;
+	fyai_prof_stamp(&t_cas);
 	rc = fy_allocator_refs_publish(ctx->durable_allocator, ctx->refs_head,
 				       desired, FY_ALLOC_REFS_CHECKPOINT);
+	fyai_prof_since(rc ? "commit_cas_lost" : "commit_cas_won", &t_cas);
 	if (rc < 0)
 		fyai_error(ctx, "the arena refused the state root");
 	if (rc)
@@ -1024,6 +1028,7 @@ err_out:
 
 int fyai_publish_state(struct fyai_ctx *ctx)
 {
+	struct timespec t_reconcile, t_publish;
 	const char *op, *from;
 	int rc, tries;
 
@@ -1042,18 +1047,27 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	 */
 	op = ctx->branch_op;
 	from = ctx->branch_op_from;
+	fyai_prof_stamp(&t_publish);
 
 	for (tries = 0; tries < FYAI_STATE_PUBLISH_TRIES; tries++) {
 		fyai_branch_op_set(ctx, op, from);
+		fyai_prof_count("publish_attempt", 1);
 		rc = fyai_root_publish_try(ctx);
-		if (!rc)
+		if (!rc) {
+			if (tries)
+				fyai_prof_count("publish_cas_lost", tries);
+			fyai_prof_since("publish_total", &t_publish);
 			return 0;
+		}
 		if (rc < 0)
 			break;
 		/* Lost the CAS: re-read and decide whether it matters. */
+		fyai_prof_stamp(&t_reconcile);
 		if (publish_reconcile(ctx))
 			return -1;
+		fyai_prof_since("publish_reconcile", &t_reconcile);
 	}
+	fyai_prof_count("publish_cas_lost", tries);
 	/* Report the branch and the exhausted retry count. */
 	if (rc > 0)
 		fyai_error(ctx, "branch '%s' lost the state race %d times; "
