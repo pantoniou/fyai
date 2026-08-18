@@ -28,8 +28,9 @@ src/commands.c
 # which configuration to load.
 src/fyai_storage.c
 
-# raise_stack() runs before main(); parse_response() is a builder-scoped
-# helper with no context to report through.
+# raise_stack() runs before main(). parse_response() used to report here too;
+# it now collects the parser diagnostic onto the failed value and leaves the
+# reporting to the caller, which has a context.
 src/utils.c
 
 # Opt-in profiling, reported at exit and never part of the transcript.
