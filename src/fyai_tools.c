@@ -1522,6 +1522,10 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 	bool was_done = job->done;
 
 	job->done = job->reaped && !job->out_open;
+	if (!was_done && job->done) {
+		/* Remove the deadline before the job waits for its group. */
+		fyai_tool_job_drop(&job->deadline);
+	}
 	if (!was_done && job->done && job->stream.active) {
 		/*
 		 * Test `timed_out` here and during collection. The parent owns
