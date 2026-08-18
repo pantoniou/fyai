@@ -312,8 +312,13 @@ static int fyai_curl_socket_cb(CURL *easy, curl_socket_t fd, int what,
 	if (!events)
 		return 0;
 
-	if (sock)
-		return fyai_event_fd_modify(sock->src, events);
+	if (sock) {
+		rc = fyai_event_fd_modify(sock->src, events);
+		if (rc)
+			fyai_error(state->ctx, "could not change the events of "
+				   "transfer socket %d", (int)fd);
+		return rc;
+	}
 
 	sock = calloc(1, sizeof(*sock));
 	fyai_error_check(state->ctx, sock, err_out, "out of memory");
@@ -323,6 +328,9 @@ static int fyai_curl_socket_cb(CURL *easy, curl_socket_t fd, int what,
 	rc = fyai_event_add_fd(state->el, fd, events, fyai_curl_on_socket, sock,
 			       &sock->src);
 	if (rc) {
+		/* The transfer cannot continue without this event source. */
+		fyai_error(state->ctx, "could not watch transfer socket %d; "
+			   "the request cannot make progress", (int)fd);
 		free(sock);
 		goto err_out;
 	}
