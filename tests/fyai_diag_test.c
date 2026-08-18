@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "fyai.h"
 #include "fyai_diag.h"
@@ -29,6 +30,7 @@ FYAI_TEST_ENTRY(diag, reset_reclaims, diag_reset_reclaims)
 FYAI_TEST_ENTRY(diag, string, diag_string)
 FYAI_TEST_ENTRY(diag, take_generic, diag_take_generic)
 FYAI_TEST_ENTRY(diag, no_sink, diag_no_sink)
+FYAI_TEST_ENTRY(diag, trace, diag_trace)
 
 #define DIAG_THREADS	8
 #define DIAG_PER_THREAD	2000
@@ -70,6 +72,14 @@ static void expect_str(const char *what, const char *got, const char *want)
 	if (!strcmp(got, want))
 		return;
 	fprintf(stderr, "FAIL %s\n  got:  %s\n  want: %s\n", what, got, want);
+	failures++;
+}
+
+static void expect_true(const char *what, bool got)
+{
+	if (got)
+		return;
+	fprintf(stderr, "FAIL %s\n", what);
 	failures++;
 }
 
@@ -297,6 +307,73 @@ static void test_take_generic(struct fyai_diag *diag)
 	fy_generic_builder_destroy(gb);
 }
 
+/* Verify that the trace records a diagnostic before a filter changes it. */
+static void test_trace(struct fyai_diag *diag)
+{
+	char path[] = "/tmp/fyai-trace-test-XXXXXX";
+	char *text;
+	long size;
+	FILE *fp;
+	int fd;
+
+	fd = mkstemp(path);
+	if (fd < 0) {
+		fprintf(stderr, "FAIL trace: no temporary file\n");
+		failures++;
+		return;
+	}
+	close(fd);
+
+	setenv("FYAI_TRACE", path, 1);
+	fyai_diag_trace_reopen();
+	if (!fyai_diag_trace_path()) {
+		fprintf(stderr, "FAIL trace: the log did not open\n");
+		failures++;
+		goto out;
+	}
+
+	fyai_diag_trace_tag("main/agent:greeter");
+	fyai_error(&test_ctx, "the model refused the request");
+	/* Demoted to debug by the sink; the trace keeps it as an error. */
+	fyai_error(&test_ctx, "the caller gave up");
+	fyai_diag_tracef("reap", "pid %d", 1234);
+	fyai_diag_trace_tag("");
+
+	fp = fopen(path, "r");
+	if (!fp) {
+		fprintf(stderr, "FAIL trace: cannot read the log back\n");
+		failures++;
+		goto out;
+	}
+	fseek(fp, 0, SEEK_END);
+	size = ftell(fp);
+	rewind(fp);
+	text = calloc(1, (size_t)size + 1);
+	if (!text || (size && fread(text, 1, (size_t)size, fp) != (size_t)size)) {
+		fprintf(stderr, "FAIL trace: short read\n");
+		failures++;
+		free(text);
+		fclose(fp);
+		goto out;
+	}
+	fclose(fp);
+
+	expect_true("trace names the process",
+		    strstr(text, "[main/agent:greeter]") != NULL);
+	expect_true("trace keeps the cause",
+		    strstr(text, "the model refused the request") != NULL);
+	expect_true("trace keeps a demoted error at its severity",
+		    strstr(text, "the caller gave up") != NULL);
+	expect_true("trace records an event",
+		    strstr(text, "reap: pid 1234") != NULL);
+	free(text);
+out:
+	unsetenv("FYAI_TRACE");
+	fyai_diag_trace_reopen();
+	unlink(path);
+	fyai_diag_reset(diag);
+}
+
 static void *raise_worker(void *arg)
 {
 	int i;
@@ -458,4 +535,9 @@ int diag_no_sink(void)
 	failures = 0;
 	test_no_sink();
 	return failures ? 1 : 0;
+}
+
+int diag_trace(void)
+{
+	return diag_run(test_trace);
 }
