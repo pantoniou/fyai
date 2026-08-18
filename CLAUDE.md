@@ -505,6 +505,13 @@ use the durable builder or `transient_gb`, and do not route it through the
 rendering sink: diagnostics must report before that sink is created and after
 it is destroyed. It is the one output owner beside the sink.
 
+Parse provider JSON with `FYOPPF_COLLECT_DIAG`. The parser then attaches its
+report to the failed value instead of writing it to standard error, where it
+names the anonymous input buffer by address, sits outside the sink, and cannot
+be attributed to the request that produced it. Report it with
+`parse_diag_text()` from a caller that has a context, in the one diagnostic
+that says what was being read.
+
 Expand formatted text before you intern it. Diagnostic raises are lock-free,
 but a drain resets storage. Drain only when all raisers are quiescent. A null
 sink prints immediately.
