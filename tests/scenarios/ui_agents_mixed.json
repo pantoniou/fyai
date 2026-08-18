@@ -1,0 +1,143 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "\"content\": \"delegate both"
+      },
+      "response": {
+        "id": "c0",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_bad",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"beta\", \"description\": \"bad half\", \"task\": \"work on TASK-BAD and report\"}"
+                  }
+                },
+                {
+                  "id": "call_a1",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"alpha\", \"description\": \"good one\", \"task\": \"work on TASK-G1 and report\"}"
+                  }
+                },
+                {
+                  "id": "call_a2",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"gamma\", \"description\": \"good two\", \"task\": \"work on TASK-G2 and report\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "\"content\": \"work on TASK-BAD"
+      },
+      "delay": 6.0,
+      "response": {
+        "id": "c_x",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT-BAD: late."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "\"content\": \"work on TASK-G1"
+      },
+      "delay": 0.3,
+      "response": {
+        "id": "c_a",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT-G1: fine."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "\"content\": \"work on TASK-G2"
+      },
+      "delay": 0.5,
+      "response": {
+        "id": "c_b",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT-G2: fine."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "REPORT-G1"
+      },
+      "response": {
+        "id": "cf",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Mixed agents done."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
