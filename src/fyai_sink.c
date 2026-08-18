@@ -452,8 +452,9 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 	free(b);
 }
 
-/* Keep deliverable streams on stdout and commentary streams on stderr. */
-static FILE *sink_term_stream_file(enum fyai_sink_stream stream)
+/* Select the stream file, or discard output that can corrupt JSON-RPC. */
+static FILE *sink_term_stream_file(const struct fyai_sink *s,
+				   enum fyai_sink_stream stream)
 {
 	switch (stream) {
 	case FYAI_SINK_STATUS:
@@ -464,16 +465,16 @@ static FILE *sink_term_stream_file(enum fyai_sink_stream stream)
 	case FYAI_SINK_MACHINE:
 		break;
 	}
-	return stdout;
+	return sink_may_present(s) ? stdout : NULL;
 }
 
 static int sink_term_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 			      const char *md)
 {
 	struct fyai_cfg *cfg = s->ctx->cfg;
-	FILE *fp = sink_term_stream_file(stream);
+	FILE *fp = sink_term_stream_file(s, stream);
 
-	if (!md || !*md)
+	if (!md || !*md || !fp)
 		return 0;
 	/*
 	 * Machine data is parsed by another program: never decorate it.
@@ -493,10 +494,10 @@ static int sink_term_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 static int sink_term_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 			   const char *buf, size_t len)
 {
-	FILE *fp = sink_term_stream_file(stream);
+	FILE *fp = sink_term_stream_file(s, stream);
 
 	(void)s;
-	if (!buf || !len)
+	if (!buf || !len || !fp)
 		return 0;
 	fwrite(buf, 1, len, fp);
 	fflush(fp);

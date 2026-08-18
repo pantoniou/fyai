@@ -1298,19 +1298,19 @@ static int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 	return 0;
 }
 
-/*
- * A tool child must not carry the application's event descriptors, or result
- * pipes belonging to sibling jobs, across exec. Move the result and optional
- * progress descriptors to fd 3/4 and close everything above them.
- */
-/* Put the JSON-RPC control channel on stdin and stdout. Close all other fds. */
+/* These descriptors contain the private JSON-RPC channel. */
+#define FYAI_TOOL_CHILD_REQ_FD 3	/* parent -> child, read by the child */
+#define FYAI_TOOL_CHILD_RSP_FD 4	/* child -> parent, written by the child */
+
+/* Install the control descriptors and close all other inherited descriptors. */
 static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 {
 	int req_dup = -1, rsp_dup = -1;
 	long max_fd, fd;
+	int devnull;
 	int rc;
 
-	/* Move both clear of 0/1 before dup2 can clobber either. */
+	/* Move both clear of the target numbers before dup2 can clobber one. */
 	req_dup = fcntl(req_fd, F_DUPFD_CLOEXEC, 5);
 	if (req_dup < 0)
 		goto err;
@@ -1318,22 +1318,39 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 	if (rsp_dup < 0)
 		goto err;
 
-	rc = dup2(req_dup, STDIN_FILENO);
+	rc = dup2(req_dup, FYAI_TOOL_CHILD_REQ_FD);
 	if (rc < 0)
 		goto err;
-	rc = dup2(rsp_dup, STDOUT_FILENO);
+	rc = dup2(rsp_dup, FYAI_TOOL_CHILD_RSP_FD);
+	if (rc < 0)
+		goto err;
+	/* Do not pass the control channel to a shell command. */
+	rc = fcntl(FYAI_TOOL_CHILD_REQ_FD, F_SETFD, FD_CLOEXEC);
+	if (rc < 0)
+		goto err;
+	rc = fcntl(FYAI_TOOL_CHILD_RSP_FD, F_SETFD, FD_CLOEXEC);
+	if (rc < 0)
+		goto err;
+
+	/* Nothing in the child reads standard input; do not leave it on a tty. */
+	devnull = open("/dev/null", O_RDONLY);
+	if (devnull < 0)
+		goto err;
+	rc = dup2(devnull, STDIN_FILENO);
+	if (devnull != STDIN_FILENO)
+		close(devnull);
 	if (rc < 0)
 		goto err;
 
 #if defined(__linux__) && defined(SYS_close_range)
-	rc = syscall(SYS_close_range, 3U, ~0U, 0U);
+	rc = syscall(SYS_close_range, FYAI_TOOL_CHILD_RSP_FD + 1U, ~0U, 0U);
 	if (!rc)
 		return 0;
 #endif
 	max_fd = sysconf(_SC_OPEN_MAX);
 	if (max_fd < 0)
 		max_fd = 1024;
-	for (fd = 3; fd < max_fd; fd++)
+	for (fd = FYAI_TOOL_CHILD_RSP_FD + 1; fd < max_fd; fd++)
 		close((int)fd);
 	return 0;
 
@@ -1396,8 +1413,9 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		_exit(1);
-	conn = jsonrpc_conn_stdio(ctx, STDOUT_FILENO, STDIN_FILENO, 0,
-				  "tool", NULL);
+	/* Write responses to fd 4 and read requests from fd 3. */
+	conn = jsonrpc_conn_stdio(ctx, FYAI_TOOL_CHILD_RSP_FD,
+				  FYAI_TOOL_CHILD_REQ_FD, 0, "tool", NULL);
 	if (!conn || jsonrpc_conn_serve(conn, fyai_tool_child_serve, &tc))
 		_exit(1);
 	ctx->tool_rpc = conn;

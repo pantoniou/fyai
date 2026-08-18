@@ -15,6 +15,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/syscall.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -607,6 +608,26 @@ shell_capture_deadline(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* Close every descriptor above standard error, before exec. */
+static void shell_close_inherited_fds(void)
+{
+	long max_fd, fd;
+	int rc;
+
+#if defined(__linux__) && defined(SYS_close_range)
+	rc = (int)syscall(SYS_close_range, 3U, ~0U, 0U);
+	if (!rc)
+		return;
+#else
+	(void)rc;
+#endif
+	max_fd = sysconf(_SC_OPEN_MAX);
+	if (max_fd < 0)
+		max_fd = 1024;
+	for (fd = 3; fd < max_fd; fd++)
+		close((int)fd);
+}
+
 static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 			       const char *workdir,
 			       const struct fyai_sandbox_spec *sandbox,
@@ -634,6 +655,9 @@ static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 	} else {
 		close(STDIN_FILENO);
 	}
+	/* Close the application descriptors before exec. */
+	shell_close_inherited_fds();
+
 	/* Enter the directory before applying confinement. */
 	if (workdir && *workdir && chdir(workdir) < 0)
 		_exit(FYAI_SHELL_EXIT_WORKDIR);
