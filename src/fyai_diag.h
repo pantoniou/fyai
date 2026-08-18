@@ -143,6 +143,19 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 		const char *func, const char *fmt, ...)
 	FY_FORMAT(printf, 7, 8);
 
+/* Set the process label used in later trace records. */
+void fyai_diag_trace_tag(const char *tag);
+
+/* Reopen the trace after a forked child closes inherited descriptors. */
+void fyai_diag_trace_reopen(void);
+
+/* The trace file this process writes, or NULL when tracing is off. */
+const char *fyai_diag_trace_path(void);
+
+/* Record a non-diagnostic process event. */
+void fyai_diag_tracef(const char *kind, const char *fmt, ...)
+	FY_FORMAT(printf, 2, 3);
+
 /* NULL-safe sink accessors; keep this header free of the context layout. */
 struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx);
 struct fyai_diag *fyai_cfg_diag(struct fyai_cfg *cfg);

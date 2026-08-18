@@ -1646,6 +1646,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		ctx->ui = NULL;
 		ctx->shell_stream = NULL;
 		ctx->cfg->tool_child = true;
+		fyai_diag_trace_reopen();
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))
 			_exit(1);
@@ -1854,6 +1855,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 	fyai_error_check(ctx, rc >= 0 && job->origin, err,
 			 "out of memory naming the tool job");
+	/* The trace pairs with the reap record below: a child that dies leaves
+	 * these two lines and nothing else. */
+	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
@@ -2241,6 +2245,13 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		}
 	}
 	/* Adopt diagnostics before reporting a missing child result. */
+	fyai_diag_tracef("reap", "%s, pid %ld: %s%d%s",
+			 job->origin ? job->origin : "tool", (long)job->pid,
+			 job->term_signal ? "signal " : "exit ",
+			 job->term_signal ? job->term_signal :
+					    (job->result_ok ? 0 : 1),
+			 job->timed_out ? ", timed out" :
+			 (job->have_result ? "" : ", no result"));
 	if (fy_is_valid(job->diag))
 		fyai_diag_adopt(fyai_ctx_diag(ctx), job->diag, job->origin);
 	/* Supply a cause when a failed child returned no diagnostic. */

@@ -203,6 +203,8 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		rc = fyai_ctx_set_branch(ctx, ctx->agent_branch);
 		fyai_error_check(ctx, !rc, err,
 				 "could not select the sub-agent branch");
+		/* Add the sub-agent branch to subsequent trace records. */
+		fyai_diag_trace_tag(ctx->agent_branch);
 		/* Keep last_message as the fork point unless the call is fresh. */
 		ctx->branch_prev = fy_invalid;
 		ctx->branch_desc = fy_invalid;

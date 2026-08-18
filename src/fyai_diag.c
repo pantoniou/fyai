@@ -13,6 +13,12 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <time.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include "fyai.h"
 #include "fyai_diag.h"
@@ -47,6 +53,203 @@ static const char *const diag_module_names[FYAIEM_COUNT] = {
 	[FYAIEM_EVENT]		= "event",
 };
 
+/* Per-process state for the append-only, unbuffered trace log. */
+#define FYAI_TRACE_UNSET (-2)
+static int trace_fd = FYAI_TRACE_UNSET;
+static char *trace_file;
+static enum fyai_error_type trace_level = FYAIET_DEBUG;
+static char trace_tag[128];
+
+static bool trace_off_value(const char *v)
+{
+	return !*v || !strcmp(v, "0") || !strcasecmp(v, "off") ||
+	       !strcasecmp(v, "no") || !strcasecmp(v, "false");
+}
+
+static bool trace_on_value(const char *v)
+{
+	return !strcmp(v, "1") || !strcasecmp(v, "on") ||
+	       !strcasecmp(v, "yes") || !strcasecmp(v, "true");
+}
+
+/* The lowest severity recorded, by name; an unknown name records everything. */
+static void trace_level_setup(void)
+{
+	const char *v = getenv("FYAI_TRACE_LEVEL");
+	unsigned int i;
+
+	if (!v || !*v)
+		return;
+	for (i = 0; i < FYAIET_COUNT; i++) {
+		if (diag_type_names[i] && !strcasecmp(v, diag_type_names[i])) {
+			trace_level = (enum fyai_error_type)i;
+			return;
+		}
+	}
+	if (!strcasecmp(v, "error"))
+		trace_level = FYAIET_ERROR;
+}
+
+/* Resolve the trace path, or NULL when tracing is off. The caller frees it. */
+static char *trace_path_setup(void)
+{
+	const char *v = getenv("FYAI_TRACE");
+	const char *home;
+	char *dir, *path;
+	int rc;
+
+	if (!v || trace_off_value(v))
+		return NULL;
+	if (!trace_on_value(v))
+		return strdup(v);
+
+	home = getenv("HOME");
+	if (!home || !*home)
+		return NULL;
+	rc = asprintf(&dir, "%s/.fyai", home);
+	if (rc < 0)
+		return NULL;
+	rc = fyai_mkdir_p(dir);
+	free(dir);
+	if (rc)
+		return NULL;
+	if (asprintf(&path, "%s/.fyai/trace.log", home) < 0)
+		return NULL;
+	return path;
+}
+
+/* Open the trace on demand and fail without raising a diagnostic. */
+static int trace_open(void)
+{
+	char *path;
+	int rc;
+
+	if (trace_fd != FYAI_TRACE_UNSET)
+		return trace_fd;
+
+	trace_fd = -1;			/* tried; do not try again */
+	path = trace_path_setup();
+	if (!path)
+		return -1;
+	trace_level_setup();
+	trace_fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+	if (trace_fd < 0) {
+		free(path);
+		trace_fd = -1;
+		return -1;
+	}
+	/* Keep the trace clear of the tool-child control descriptors. */
+	rc = fcntl(trace_fd, F_DUPFD_CLOEXEC, 10);
+	if (rc >= 0) {
+		close(trace_fd);
+		trace_fd = rc;
+	}
+	trace_file = path;
+	fyai_diag_tracef("start", "pid %ld, parent %ld",
+			 (long)getpid(), (long)getppid());
+	return trace_fd;
+}
+
+void fyai_diag_trace_reopen(void)
+{
+	/* The inherited descriptor was closed and its number may be reused. */
+	trace_fd = FYAI_TRACE_UNSET;
+	free(trace_file);
+	trace_file = NULL;
+	(void)trace_open();
+}
+
+const char *fyai_diag_trace_path(void)
+{
+	return trace_open() >= 0 ? trace_file : NULL;
+}
+
+void fyai_diag_trace_tag(const char *tag)
+{
+	if (!tag)
+		tag = "";
+	snprintf(trace_tag, sizeof(trace_tag), "%s", tag);
+}
+
+/* One record, one write(2): a partial line would be read as another one. */
+static void trace_write(const char *head, const char *body)
+{
+	struct timespec ts;
+	struct tm tm;
+	char stamp[32];
+	char *rec, *p, *cur;
+	ssize_t wr;
+	int len;
+
+	if (clock_gettime(CLOCK_REALTIME, &ts) ||
+	    !gmtime_r(&ts.tv_sec, &tm))
+		return;
+	len = (int)strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%S", &tm);
+	if (!len)
+		return;
+	rec = fy_sprintfa("%s.%06ldZ %ld %s%s%s%s%s\n", stamp,
+			   (long)(ts.tv_nsec / 1000), (long)getpid(),
+			   *trace_tag ? "[" : "", trace_tag,
+			   *trace_tag ? "] " : "", head, body ? body : "");
+	len = (int)strlen(rec);
+	/* Replace line breaks in the trace record. */
+	for (p = rec; *p; p++) {
+		if (p[0] == '\n' && p[1])
+			p[0] = ' ';
+		else if (p[0] == '\r')
+			p[0] = ' ';
+	}
+	/* Write the complete record. Continue after a short write. */
+	cur = rec;
+	while (len > 0) {
+		wr = write(trace_fd, cur, (size_t)len);
+		if (wr < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		if (!wr)
+			break;
+		cur += wr;
+		len -= (int)wr;
+	}
+}
+
+void fyai_diag_tracef(const char *kind, const char *fmt, ...)
+{
+	va_list ap;
+	char *body;
+	char *head;
+
+	if (trace_open() < 0)
+		return;
+	va_start(ap, fmt);
+	body = fy_vsprintfa(fmt, ap);
+	va_end(ap);
+	head = fy_sprintfa("%s: ", kind ? kind : "trace");
+	trace_write(head, body);
+}
+
+/* Record one raise, whatever the sink then does with it. */
+static void trace_diag(enum fyai_error_type type, enum fyai_error_module module,
+		       const char *msg, const char *file, int line,
+		       const char *func)
+{
+	const char *modname;
+	char *head, *body;
+
+	if (trace_open() < 0 || type < trace_level)
+		return;
+	modname = (unsigned int)module < FYAIEM_COUNT ?
+			diag_module_names[module] : NULL;
+	head = fy_sprintfa("%s %s: ",
+			    diag_type_names[type] ? diag_type_names[type] : "error",
+			    modname ? modname : "-");
+	body = fy_sprintfa("%s (%s:%d %s)", msg, file ? file : "-", line,
+			    func ? func : "-");
+	trace_write(head, body);
+}
+
 int fyai_diag_setup(struct fyai_diag *diag)
 {
 	struct fy_generic_builder_cfg gb_cfg;
@@ -64,6 +267,9 @@ int fyai_diag_setup(struct fyai_diag *diag)
 
 	/* Not the all-zero word: an empty sequence is a tagged value. */
 	fy_atomic_store(&diag->list, fy_seq_empty_value);
+	/* Open the trace here, so a process appears in it from its first
+	 * moment rather than from its first complaint. */
+	(void)trace_open();
 	diag->fp = stderr;
 	diag->collect = true;
 	diag->source = false;
@@ -142,7 +348,13 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	fy_generic item, old, new;
 	va_list ap;
 	char *msg;
-	int rc;
+
+	va_start(ap, fmt);
+	msg = fy_vsprintfa(fmt, ap);
+	va_end(ap);
+
+	/* Record the severity before a filter changes it. */
+	trace_diag(type, module, msg, file, line, func);
 
 	/*
 	 * The first error is the cause; the errors behind it are the callers
@@ -153,14 +365,9 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	if (type == FYAIET_ERROR && fyai_diag_got_error(diag))
 		type = FYAIET_DEBUG;
 
-	if (diag && !(diag->mask & (1u << type)))
+	if (diag && !(diag->mask & (1u << type))) {
 		return;
-
-	va_start(ap, fmt);
-	rc = vasprintf(&msg, fmt, ap);
-	va_end(ap);
-	if (rc < 0)
-		return;
+	}
 
 	/*
 	 * No sink, or one that is not collecting: report at once. This is the
@@ -170,7 +377,6 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	if (!diag || !diag->gb || !diag->collect) {
 		diag_emit(diag ? diag->fp : stderr, diag ? diag->source : false,
 			  type, module, msg, file, line, func);
-		free(msg);
 		return;
 	}
 
@@ -185,8 +391,6 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 			  "file", file ? file : "",
 			  "line", (long long)line,
 			  "func", func ? func : "");
-	free(msg);
-
 	if (fy_is_invalid(item))
 		return;
 
@@ -300,7 +504,6 @@ fy_generic fyai_diag_take_generic(struct fyai_diag *diag,
 		if (fy_is_invalid(out))
 			break;
 	}
-	/* All claimed items now live in @gb. */
 	fy_generic_builder_reset(diag->gb);
 	return out;
 }
