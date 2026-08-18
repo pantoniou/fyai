@@ -781,7 +781,10 @@ Global parsing stops at the first non-option. A known token is dispatched as a v
   transient.
 - Fresh-context delegated agents start a new task context; forked agents
   continue from the parent branch and use the parent's model.
-- Repository instructions such as `AGENTS.md` and `CLAUDE.md` are folded into the system prompt when a conversation is created. Continuations keep the canonical system turn already stored.
+- fyai adds repository instructions such as `AGENTS.md` and `CLAUDE.md` to
+  the system prompt when it creates a conversation. A continuation uses the
+  stored system turn. If the files have identical content, fyai adds the
+  content only once. fyai compares the content hash, not the path.
 - Streaming output is observable, not authoritative. Completed canonical state is what gets published.
 - `history` is optimized for people. Use dump views for exact state inspection.
 - Linux is the primary platform. macOS-specific credential and event backends are supported where implemented; Landlock and the kernel secret store are Linux-specific.
