@@ -57,6 +57,10 @@ class QuietHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """
 
     daemon_threads = True
+    # socketserver defaults this to 5. A parallel tool group opens far more
+    # connections at once, and the ones that do not fit the accept backlog
+    # wait for a TCP retransmit, which reads as a fixed delay in the run.
+    request_queue_size = 256
 
     def server_bind(self):
         socketserver.TCPServer.server_bind(self)
