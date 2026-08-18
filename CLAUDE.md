@@ -122,6 +122,17 @@ Each branch entry owns its conversation head and configuration. The root owns
 the catalogue. There is no sidecar configuration file and no root-level
 configuration value.
 
+Three places adopt a published root: the publish, the reconcile after a lost
+CAS, and `fyai_branches_refresh()`. Each must set `ctx->branch_prev` from the
+root it adopts. An entry kept from an older root chains the next publish to the
+wrong predecessor, and makes the conflict check compare entries that came from
+two different roots.
+
+A publish that gives up must say what it could not write and why: name the
+branch, and say whether the race was lost or the state could not be built.
+A caller that only reports that the publish failed leaves no way to tell a
+lost race from an arena that is out of space.
+
 When you add a root key, update all root build, decode, validation, reflog
 truncation, and CAS-conflict merge paths. A concurrent publish must preserve
 changes to other branches. Bound both reflog chains during garbage collection:
