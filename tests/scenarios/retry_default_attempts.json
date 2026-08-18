@@ -1,0 +1,100 @@
+{
+  "steps": [
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    }
+  ]
+}

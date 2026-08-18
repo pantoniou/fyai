@@ -1,0 +1,95 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "delegate the job"
+      },
+      "response": {
+        "id": "c0",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_ag",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"worker\", \"description\": \"do the job\", \"task\": \"work on TASK-X and report\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "TASK-X"
+      },
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "Rate limit reached for mock-model on tokens per min (TPM): Limit 200000",
+          "type": "tokens",
+          "code": "rate_limit_exceeded"
+        }
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "TASK-X"
+      },
+      "response": {
+        "id": "c_ag",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT-X: the job is done."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "http": "POST",
+        "path": "/v1/chat/completions",
+        "body_contains": "REPORT-X"
+      },
+      "response": {
+        "id": "cf",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "The sub-agent reported."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

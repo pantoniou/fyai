@@ -1,0 +1,48 @@
+{
+  "steps": [
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "status": 429,
+      "response": {
+        "error": {
+          "message": "mock: slow down"
+        }
+      }
+    },
+    {
+      "sse": [
+        {
+          "type": "response.output_text.delta",
+          "delta": "recovered"
+        },
+        {
+          "type": "response.completed",
+          "response": {
+            "id": "resp_x",
+            "status": "completed",
+            "output": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "recovered"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "done": true
+    }
+  ]
+}

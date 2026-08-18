@@ -1,0 +1,15 @@
+{
+  "steps": [
+    {
+      "sse": [
+        {
+          "error": {
+            "message": "You exceeded your current quota",
+            "type": "insufficient_quota",
+            "code": "insufficient_quota"
+          }
+        }
+      ]
+    }
+  ]
+}

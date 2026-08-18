@@ -1,0 +1,41 @@
+{
+  "steps": [
+    {
+      "sse": [
+        {
+          "type": "error",
+          "code": "rate_limit_exceeded",
+          "message": "Rate limit reached for gpt-mock in organization org-mock on tokens per min (TPM): Limit 200000"
+        }
+      ]
+    },
+    {
+      "sse": [
+        {
+          "type": "response.output_text.delta",
+          "delta": "served at last"
+        },
+        {
+          "type": "response.completed",
+          "response": {
+            "id": "resp_r3",
+            "status": "completed",
+            "output": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "served at last"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "done": true
+    }
+  ]
+}

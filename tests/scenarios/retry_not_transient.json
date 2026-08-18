@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "status": 400,
+      "response": {"error": {"message": "mock: bad request"}}
+    }
+  ]
+}

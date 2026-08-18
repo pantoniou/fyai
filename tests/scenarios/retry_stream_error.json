@@ -1,0 +1,49 @@
+{
+  "steps": [
+    {
+      "sse": [
+        {
+          "error": {
+            "message": "Rate limit reached for gpt-mock in organization org-mock on tokens per min (TPM): Limit 200000",
+            "type": "tokens",
+            "code": "rate_limit_exceeded"
+          }
+        }
+      ]
+    },
+    {
+      "sse": [
+        {
+          "id": "chatcmpl-r2",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "served at last"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-r2",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "done": true
+    }
+  ]
+}

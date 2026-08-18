@@ -8,8 +8,11 @@ set -eu
 fyai_test_setup
 mock_start agent_missing_report.json
 
+# Retry is off here: the scenario ends deliberately, and repeating the last
+# request would only spend the budget before the same failure is reported.
 run_fyai --set api=chat-completions --set display/stream=false \
-	--set tools=true --set api_url="$MOCK_URL/v1/chat/completions" \
+	--set tools=true --set retry/max_attempts=1 \
+	--set api_url="$MOCK_URL/v1/chat/completions" \
 	-m mock-model "delegate the missing-report test"
 assert_status 0
 assert_stdout_contains "Parent observed the agent failure."
