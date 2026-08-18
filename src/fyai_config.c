@@ -1961,6 +1961,9 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;
 	cfg->branch_on_conflict = DEFAULT_BRANCH_ON_CONFLICT;
 	cfg->transcript_system = false;
+	/* Use the defaults in the schema. */
+	cfg->enable_tools = true;
+	cfg->enable_builtin_shell = true;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;
 	cfg->stream = true;
