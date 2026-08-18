@@ -8,7 +8,9 @@ fyai_test_setup
 mock_start mcp.json
 export MCP_TEST_TOKEN=mcp-secret-for-test
 
+# Built-in tools off, so the tool declaration below is the MCP one alone.
 run_fyai --set api=chat-completions --set display/stream=false \
+	--set tools=false --set builtin_shell=false \
 	--set logging/mcp=true \
 	--set mcp/enabled=true --set "mcp/endpoint='$MOCK_URL/mcp'" \
 	--set 'mcp/auth_token={type: env, value: MCP_TEST_TOKEN}' \

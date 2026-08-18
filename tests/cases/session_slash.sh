@@ -56,7 +56,10 @@ export OTHERPROV_API_KEY=other-secret
 
 # Drive the REPL over a pipe (non-tty stdin; -i forces the loop).
 set +e
-"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false -i -m foo \
+# Tools off: the catalogue above gives these models toy context windows, and a
+# tool declaration alone is larger than they hold.
+"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false \
+	--set tools=false --set builtin_shell=false -i -m foo \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
 /help
 /usage extra
