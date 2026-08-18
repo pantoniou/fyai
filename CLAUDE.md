@@ -324,7 +324,11 @@ arenas from message and provider data only as a fallback.
   passthrough. Do not infer it later from the current state; a paused document
   that closes would then present everything a second time.
 - A delegated sub-agent and a forked tool child present nothing. They own file
-  descriptor 1 for JSON-RPC frames.
+  descriptor 1 for JSON-RPC frames. The sink keeps that promise centrally:
+  `sink_may_present()` decides it, the document path and the direct write and
+  Markdown paths all ask it, and a stream bound for descriptor 1 in such a
+  process is dropped. Do not move it to standard error instead; that trades a
+  corrupted frame for a corrupted display in the parent.
 - Do not create a second transcript renderer.
 - Do not call `fytim_pump()` from a render path. Set `frame_pending` and let
   the UI owner paint.
@@ -401,8 +405,22 @@ diagnostic indirect through `fyai_with_diag()` and `fyai_report_diag()`.
 
 ## Tool jobs, shell capture, and time limits
 
-A forked tool child reads JSON-RPC from file descriptor 0 and writes protocol
-frames only to file descriptor 1. It sends `tool/progress` notifications and
+A forked tool child carries its JSON-RPC control channel on descriptors 3 and
+4, not on standard input and output. It is forked and never exec'd, so the
+numbers are a private contract between the two sides. Keeping frames off
+descriptor 1 means a stray write lands on the terminal, where it is untidy,
+instead of inside a frame, where it makes the parent read a fragment and lose
+the frame around it. The channel is close-on-exec, so a command the shell tool
+runs cannot reach it.
+
+The standard descriptors of an MCP server and of the `fyai agent --rpc` verb
+are not ours to choose: those peers are separate programs whose contract is
+standard input and output. There the sink is what keeps descriptor 1 clean.
+
+Close every descriptor above standard error before exec. A command must not
+hold the event loop, curl sockets, arena files, a control channel or a sibling
+job's pipes. Close the range rather than track each descriptor, so a new one
+cannot become a leak by being forgotten. It sends `tool/progress` notifications and
 returns `{result, ok}`. It uses `/dev/null` as standard input and calls
 `setsid()`. Do not call `setpgid()` in the parent.
 
