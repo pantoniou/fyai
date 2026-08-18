@@ -517,8 +517,33 @@ Define `FYAI_MODULE` once in each source file. Let the module add the message
 prefix. Do not type the prefix into each message.
 
 The first error is the cause. Demote later errors to debug until the sink is
-drained or reset. Use `fyai_diag_reset()` after a caller recovers from an
-error. Put all detail for one failure in one diagnostic. Use a lower severity
+drained or reset. A path that gives up must therefore state why where it
+happens: a caller that only reports that something failed leaves the user with
+no reason at all. `fyai_run_turn()` states a cause on every path that returns
+no result, and keeps a backstop for any that does not.
+
+Identity belongs to whoever holds it. A sub-agent raises the cause; only the
+caller knows which of several parallel sub-agents it belongs to, so the caller
+adds the name. Copy a name out of generic storage before running the
+sub-agent: the arena is reopened and a cast pointer does not survive it. Use `fyai_diag_reset()` after a caller recovers from an
+error.
+
+A forked tool child leaves through `_exit()`, so its sink is drained by nobody.
+It must hand its collected diagnostics to the parent: `fyai_diag_take_generic()`
+claims them into the `tool/run` response, and the parent adopts them with
+`fyai_diag_adopt()` when it collects the job. Severity and module stay as the
+child recorded them. The parent adds the marker, because only the parent knows
+which of several children raised it: `[main/agent:greeter] the reason`. A
+message that arrives already marked keeps its marker, so through two levels of
+delegation the innermost path names the raiser.
+
+Do not take the diagnostics to quote them. A reason put into a tool result is
+read by the model; the same reason is still owed to the user. Use
+`fyai_diag_string()`, which renders without consuming.
+
+A child that dies has no diagnostic to send. The parent must therefore state
+how the job ended - a signal, or no result at all - or the reason leaves with
+the process that had it. Put all detail for one failure in one diagnostic. Use a lower severity
 for nonfatal reports.
 
 The diagnostic sink owns its own builder and its own output descriptor. Do not
