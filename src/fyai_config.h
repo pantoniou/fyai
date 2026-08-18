@@ -149,6 +149,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg);
  * Discover repo-scoped instruction files (AGENTS.md/CLAUDE.md) from the
  * global config dir and the project root down to the cwd. Returns a malloc'd
  * combined document (caller frees) or NULL when none exist.
+ * Files with the same BLAKE3 content hash are included once.
  */
 char *fyai_project_instructions(void);
 char *fyai_discover_project_root(void);

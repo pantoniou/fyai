@@ -22,6 +22,8 @@
 #include <getopt.h>
 #include <errno.h>
 
+#include <libfyaml/libfyaml-blake3.h>
+
 #include "fyai_sink.h"
 #include "fyai_catalog.h"
 #include "fyai_branch.h"
@@ -671,9 +673,49 @@ static int load_env_file(const char *path, fy_generic names)
  */
 static const char *const fyai_instr_names[] = { "AGENTS.md", "CLAUDE.md" };
 
+/* Bounded content-hash set for instruction-file deduplication. */
+#define FYAI_INSTR_MAX_SEEN	64
+
+struct instr_seen {
+	struct fy_blake3_hasher *hasher;
+	size_t n;
+	uint8_t hash[FYAI_INSTR_MAX_SEEN][FY_BLAKE3_OUT_LEN];
+};
+
+/* Record @content and return true if its hash was recorded already. */
+static bool instr_seen_add(struct instr_seen *seen, const char *content,
+			   size_t clen)
+{
+	const uint8_t *out;
+	size_t i;
+
+	if (!seen || !seen->hasher || seen->n >= ARRAY_SIZE(seen->hash))
+		return false;
+	out = fy_blake3_hash(seen->hasher, content, clen);
+	if (!out)
+		return false;
+	for (i = 0; i < seen->n; i++) {
+		if (!memcmp(seen->hash[i], out, FY_BLAKE3_OUT_LEN))
+			return true;
+	}
+	memcpy(seen->hash[seen->n++], out, FY_BLAKE3_OUT_LEN);
+	return false;
+}
+
+/* Release the hasher; a NULL one means the creation failed. */
+static void instr_seen_cleanup(struct instr_seen *seen)
+{
+	if (seen->hasher) {
+		fy_blake3_hasher_destroy(seen->hasher);
+		seen->hasher = NULL;
+	}
+}
+
 /* Append "\n\n# <label>\n\n<file contents>" to *buf (realloc'd) when @path is
- * readable. Silently skips a missing or unreadable file. */
-static void instr_append_file(char **buf, size_t *len, const char *path)
+ * readable. Silently skips a missing or unreadable file, and one whose contents
+ * were gathered already. */
+static void instr_append_file(char **buf, size_t *len, const char *path,
+			      struct instr_seen *seen)
 {
 	char *content, *nb;
 	size_t clen, hlen, need;
@@ -683,6 +725,10 @@ static void instr_append_file(char **buf, size_t *len, const char *path)
 	if (!content)
 		return;
 	clen = strlen(content);
+	if (instr_seen_add(seen, content, clen)) {
+		free(content);
+		return;
+	}
 	/* header + path + two blank lines + content + NUL */
 	hlen = strlen("\n\n# ") + strlen(path) + strlen("\n\n");
 	need = *len + hlen + clen + 1;
@@ -700,7 +746,8 @@ static void instr_append_file(char **buf, size_t *len, const char *path)
 }
 
 /* Read AGENTS.md then CLAUDE.md in @dir into the accumulator. */
-static void instr_append_dir(char **buf, size_t *len, const char *dir)
+static void instr_append_dir(char **buf, size_t *len, const char *dir,
+			     struct instr_seen *seen)
 {
 	char path[PATH_MAX];
 	size_t i;
@@ -709,7 +756,7 @@ static void instr_append_dir(char **buf, size_t *len, const char *dir)
 		if (snprintf(path, sizeof(path), "%s/%s", dir,
 			     fyai_instr_names[i]) >= (int)sizeof(path))
 			continue;
-		instr_append_file(buf, len, path);
+		instr_append_file(buf, len, path, seen);
 	}
 }
 
@@ -769,33 +816,43 @@ char *fyai_project_instructions(void)
 	char cwd[PATH_MAX];
 	char *ancestors[64];
 	char *cur, *slash, *dir, *buf = NULL;
+	struct fy_blake3_hasher_cfg hcfg;
+	struct instr_seen seen;
 	const char *xdg, *home;
 	size_t len = 0, n = 0, i;
 	bool found_root = false;
+
+	memset(&seen, 0, sizeof(seen));
+	memset(&hcfg, 0, sizeof(hcfg));
+	seen.hasher = fy_blake3_hasher_create(&hcfg);
 
 	/* Global layer: $XDG_CONFIG_HOME/fyai (or ~/.config/fyai). */
 	xdg = getenv("XDG_CONFIG_HOME");
 	home = getenv("HOME");
 	if (xdg && *xdg) {
 		if (asprintf(&dir, "%s/fyai", xdg) != -1) {
-			instr_append_dir(&buf, &len, dir);
+			instr_append_dir(&buf, &len, dir, &seen);
 			free(dir);
 		}
 	} else if (home && *home) {
 		if (asprintf(&dir, "%s/.config/fyai", home) != -1) {
-			instr_append_dir(&buf, &len, dir);
+			instr_append_dir(&buf, &len, dir, &seen);
 			free(dir);
 		}
 	}
 
-	if (!getcwd(cwd, sizeof(cwd)))
+	if (!getcwd(cwd, sizeof(cwd))) {
+		instr_seen_cleanup(&seen);
 		return buf;
+	}
 
 	/* Collect cwd and its ancestors up to (and including) the project
 	 * root; abandon the ancestor set if no root marker is found. */
 	cur = strdup(cwd);
-	if (!cur)
+	if (!cur) {
+		instr_seen_cleanup(&seen);
 		return buf;
+	}
 	for (;;) {
 		if (n >= ARRAY_SIZE(ancestors)) {
 			found_root = false;
@@ -819,12 +876,13 @@ char *fyai_project_instructions(void)
 	/* Outermost-first: the root is the last collected ancestor. */
 	if (found_root) {
 		for (i = n; i-- > 0; )
-			instr_append_dir(&buf, &len, ancestors[i]);
+			instr_append_dir(&buf, &len, ancestors[i], &seen);
 	} else {
-		instr_append_dir(&buf, &len, cwd);
+		instr_append_dir(&buf, &len, cwd, &seen);
 	}
 	for (i = 0; i < n; i++)
 		free(ancestors[i]);
+	instr_seen_cleanup(&seen);
 
 	return buf;
 }
