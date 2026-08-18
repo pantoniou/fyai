@@ -2550,8 +2550,9 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		if (run && fyai_turn_run_done(run)) {
 			rc = fyai_interactive_finish_run(ctx, &run, &initial,
 						 &done);
-			fyai_error_check(ctx, !rc, out,
-					 "could not publish completed turn");
+			/* The finish path reports and drains its own cause. */
+			if (rc)
+				goto out;
 			if (done)
 				goto out;
 		}

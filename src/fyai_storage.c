@@ -700,6 +700,7 @@ err_out:
 int fyai_branches_refresh(struct fyai_ctx *ctx)
 {
 	fy_generic_value head;
+	struct fyai_branch cur;
 	struct fyai_root r;
 	fy_generic root;
 
@@ -714,6 +715,9 @@ int fyai_branches_refresh(struct fyai_ctx *ctx)
 		return -1;
 	ctx->refs_head = head;
 	ctx->arena_branches = r.branches;
+	/* Keep the branch predecessor in the root that was adopted. */
+	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
+	ctx->branch_prev = cur.entry;
 	return 0;
 }
 
@@ -782,9 +786,16 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	entry = fyai_branch_build(ctx->gb, ctx->arena_config, ctx->last_message,
 				  created, ctx->branch_desc, ctx->branch_agent,
 				  opv, fromv, ctx->branch_prev);
-	if (!fy_is_valid(entry))
+	if (!fy_is_valid(entry)) {
+		fyai_error(ctx, "could not build the entry for branch '%s'",
+			   name);
 		return fy_invalid;
-	return fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
+	}
+	entry = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
+	if (!fy_is_valid(entry))
+		fyai_error(ctx, "could not place branch '%s' in the branch "
+			   "table", name);
+	return entry;
 }
 
 static int fyai_root_publish_try(struct fyai_ctx *ctx)
@@ -815,11 +826,14 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 
 	catv = fyai_generic_or_null(ctx->arena_catalog);
 	headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
-	if (!fy_is_valid(headv))
+	if (!fy_is_valid(headv)) {
+		fyai_error(ctx, "could not store HEAD '%s'",
+			   fyai_ctx_head_branch(ctx));
 		return -1;
+	}
 	branchesv = fyai_branches_commit(ctx);
 	if (!fy_is_valid(branchesv))
-		return -1;
+		return -1;	/* fyai_branches_commit() says why */
 	/*
 	 * Chain each root to its predecessor (the current refs head) so root
 	 * updates form a ref log: a navigable history where a turnless update
@@ -832,11 +846,16 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 	root = fyai_root_build(ctx->gb, catv, branchesv, headv,
 			       fy_value(ctx->gb,
 					(long long)fyai_branch_timestamp()), prevv);
-	if (!fy_is_valid(root))
+	if (!fy_is_valid(root)) {
+		fyai_error(ctx, "could not build the state root; the arena may "
+			   "be out of space");
 		return -1;
+	}
 	desired = (uint64_t)root.v;
 	rc = fy_allocator_refs_publish(ctx->durable_allocator, ctx->refs_head,
 				       desired, FY_ALLOC_REFS_CHECKPOINT);
+	if (rc < 0)
+		fyai_error(ctx, "the arena refused the state root");
 	if (rc)
 		return rc;
 	ctx->refs_head = desired;
@@ -1035,8 +1054,13 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 		if (publish_reconcile(ctx))
 			return -1;
 	}
-	fyai_error(ctx, rc > 0 ? "fyai state changed concurrently" :
-		   "failed to publish fyai state");
+	/* Report the branch and the exhausted retry count. */
+	if (rc > 0)
+		fyai_error(ctx, "branch '%s' lost the state race %d times; "
+			   "nothing was written", fyai_ctx_branch(ctx), tries);
+	else
+		fyai_error(ctx, "could not publish the state of branch '%s'",
+			   fyai_ctx_branch(ctx));
 	return -1;
 }
 
