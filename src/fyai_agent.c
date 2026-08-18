@@ -286,8 +286,12 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 	turn = fyai_run_turn(ctx, ctx->last_message);
 	turn = fyai_report_diag(ctx, turn);
+	/* Identify the failed sub-agent after its own cause. */
 	fyai_error_check(ctx, fy_is_valid(turn), err,
-			 "the sub-agent turn failed");
+			 "sub-agent '%s' did not complete its turn (model %s, "
+			 "%s)", fy_castp(&name, ""),
+			 cfg->model ? cfg->model : "unset",
+			 fyai_api_to_string(cfg->api_mode));
 	ctx->last_message = turn;
 	report = fyai_agent_final_text(ctx, turn);
 
@@ -361,6 +365,22 @@ static fy_generic agent_rpc_error(struct fyai_ctx *ctx, long long code,
 {
 	return fy_mapping(fyai_ctx_transient_gb(ctx),
 			  "code", code, "message", message);
+}
+
+/* Build an agent/run error that includes the collected cause. */
+static fy_generic agent_rpc_failure(struct fyai_ctx *ctx)
+{
+	fy_generic error;
+	char *why;
+
+	why = fyai_diag_string(&ctx->cfg->diag);
+	error = fy_gb_mapping(fyai_ctx_transient_gb(ctx),
+			      "code", -32000LL,
+			      "message", "the sub-agent did not complete",
+			      "data", !fy_str_empty(why) ? fy_value(why) :
+				      fy_null);
+	free(why);
+	return error;
 }
 
 static fy_generic agent_rpc_serve(struct jsonrpc_conn *conn, const char *method,
@@ -454,8 +474,7 @@ static int fyai_agent_rpc_verb(struct fyai_ctx *ctx)
 			else
 				jsonrpc_conn_respond(conn, rpc.run_id,
 					fy_invalid,
-					agent_rpc_error(ctx, -32000,
-						"the sub-agent did not complete"));
+					agent_rpc_failure(ctx));
 			continue;
 		}
 		if (fyai_event_loop_step(el, -1) < 0)

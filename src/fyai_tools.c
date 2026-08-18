@@ -1244,19 +1244,31 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 			      "tool error:", 11) != 0;
 		return result_generic;
 	} else if (fy_equal(name, "agent")) {
+		fy_generic agent_name;
+		char *who;
 		char *diag;
 
+		/* Copy the name before fyai_agent_run() reopens the arena. */
+		agent_name = fy_get(args, "name");
+		who = fy_is_string(agent_name) ?
+			strdup(fy_castp(&agent_name, "")) : NULL;
 		result_generic = fyai_agent_run(ctx, args, okp);
 		if (fy_is_invalid(result_generic)) {
-			diag = fyai_diag_take_string(&ctx->cfg->diag);
+			/* Quote the cause without consuming the user's diagnostic. */
+			diag = fyai_diag_string(&ctx->cfg->diag);
 			result_generic = fy_gb_internalize(ctx->transient_gb,
-				diag && *diag ?
-				fy_stringf("tool error: sub-agent failed: %s",
-					   diag) :
-				fy_value("tool error: sub-agent failed"));
+				fy_stringf("tool error: sub-agent%s%s%s "
+					   "failed: %s",
+					   who && *who ? " '" : "",
+					   who ? who : "",
+					   who && *who ? "'" : "",
+					   diag && *diag ? diag :
+					   "no reason was recorded"));
 			free(diag);
+			free(who);
 			return result_generic;
 		}
+		free(who);
 		return result_generic;
 	} else {
 		return fy_gb_internalize(ctx->transient_gb,
@@ -1404,7 +1416,7 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 	struct fyai_tool_child tc;
 	struct fyai_event_loop *el;
 	struct jsonrpc_conn *conn;
-	fy_generic result;
+	fy_generic result, diag;
 	bool ok = false;
 
 	memset(&tc, 0, sizeof(tc));
@@ -1442,13 +1454,16 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			if (!fy_equal(fyai_tool_call_name(ctx, tc.args), "agent"))
 				fyai_env_sanitize();
 			result = fyai_execute_tool_call(ctx, tc.args, &ok);
-			/* Return the resolved patch to the parent display. */
+			/* Return child diagnostics with the tool result. */
+			diag = fyai_diag_take_generic(&ctx->cfg->diag,
+						      fyai_ctx_transient_gb(ctx));
 			jsonrpc_conn_respond(conn, tc.id,
 				fy_gb_mapping(fyai_ctx_transient_gb(ctx),
 					      "result", result, "ok", ok,
 					      "display", ctx->patch_display ?
 						fy_value(ctx->patch_display) :
-						fy_null),
+						fy_null,
+					      "diag", diag),
 				fy_invalid);
 			break;
 		}
@@ -1475,6 +1490,8 @@ struct fyai_tool_job {
 	struct jsonrpc_request *run;	/* the outstanding tool/run */
 	fy_generic result;
 	fy_generic display;		/* tool-resolved presentation, if any */
+	fy_generic diag;		/* diagnostics collected by the child */
+	char *origin;			/* who the child was, for a diagnostic */
 	pid_t pid;
 	int rfd;
 	int pfd;
@@ -1706,6 +1723,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	fyai_tool_job_live_close(job);
 	free(job->progress.data);
 	free(job->branch);
+	free(job->origin);
 	free(job);
 }
 
@@ -1822,6 +1840,17 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 	job->call = tool_call;
 	job->native_shell = native_call;
+	/* A zeroed generic decodes as an empty sequence, not as invalid. */
+	job->diag = fy_invalid;
+	/* Save the identity that the parent adds to child diagnostics. */
+	if (job->branch) {
+		job->origin = strdup(job->branch);
+		rc = job->origin ? 0 : -1;
+	} else {
+		rc = asprintf(&job->origin, "%s %s", fyai_ctx_branch(ctx), name);
+	}
+	fyai_error_check(ctx, rc >= 0 && job->origin, err,
+			 "out of memory naming the tool job");
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
@@ -1959,6 +1988,7 @@ static void fyai_tool_job_run_done(struct jsonrpc_request *req, void *userdata)
 		job->result = fy_get(r, "result", fy_invalid);
 		job->result_ok = fy_get(r, "ok", false);
 		job->display = fy_get(r, "display", fy_invalid);
+		job->diag = fy_get(r, "diag", fy_invalid);
 		if (fy_is_string(job->display))
 			fyai_patch_display_record(job->ctx, job->call,
 					fy_castp(&job->display, ""));
@@ -2207,6 +2237,23 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 						WTERMSIG(status) : 0;
 		}
 	}
+	/* Adopt diagnostics before reporting a missing child result. */
+	if (fy_is_valid(job->diag))
+		fyai_diag_adopt(fyai_ctx_diag(ctx), job->diag, job->origin);
+	/* Supply a cause when a failed child returned no diagnostic. */
+	if (!job->timed_out && job->term_signal) {
+		/* A job we stopped ended as we asked it to; that is not a
+		 * failure to report, only detail for whoever is debugging. */
+		fyai_diag_type(fyai_ctx_diag(ctx),
+			       job->terminating ? FYAIET_DEBUG : FYAIET_ERROR,
+			       "[%s] terminated by signal %d",
+			       job->origin ? job->origin : "tool",
+			       job->term_signal);
+	} else if (!job->timed_out && !job->have_result) {
+		fyai_error(ctx, "[%s] ended without a result%s",
+			   job->origin ? job->origin : "tool",
+			   job->failed ? " (the control channel failed)" : "");
+	}
 	if (job->term_signal || !job->have_result)
 		result = fy_invalid;
 	else
@@ -2273,6 +2320,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	*okp = job->result_ok && !job->failed;
 	free(job->progress.data);
 	free(job->branch);
+	free(job->origin);
 	free(job);
 	return result;
 }

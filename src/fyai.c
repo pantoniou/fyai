@@ -1791,7 +1791,7 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 {
 	struct fyai_turn_run *run;
 	struct fyai_event_loop *el;
-	fy_generic result;
+	fy_generic result, diag;
 	int rc;
 
 	result = fy_invalid;
@@ -1799,16 +1799,24 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 	if (!run)
 		return fy_invalid;
 	el = fyai_ctx_loop(ctx);
-	while (el && !fyai_turn_run_done(run)) {
+	assert(el);
+	while (!fyai_turn_run_done(run)) {
 		if (ctx->interrupt_pending) {
 			fyai_event_interrupt_ack(ctx);
 			fyai_turn_run_cancel(run);
 		}
 		rc = fyai_event_loop_step(el, -1);
-		if (rc < 0)
-			break;
+		fyai_error_check(ctx, rc >= 0, done,
+				 "the event loop stopped while the turn was running");
 	}
+
+done:
 	result = fyai_turn_run_collect(run);
+	/* Add a cause if the result and the sink do not have one. */
+	diag = fy_generic_get_diag(result);
+	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
+	    !fyai_diag_got_error(&ctx->cfg->diag))
+		fyai_error(ctx, "the turn did not complete");
 	fyai_turn_run_destroy(run);
 	return result;
 }

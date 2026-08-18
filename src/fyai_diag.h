@@ -96,8 +96,19 @@ void fyai_diag_cleanup(struct fyai_diag *diag);
  */
 void fyai_diag_drain(struct fyai_diag *diag);
 
-/* Render and reset diagnostics into a string owned by the caller. */
-char *fyai_diag_take_string(struct fyai_diag *diag);
+/* Render collected errors but do not remove them. The caller owns the string. */
+char *fyai_diag_string(struct fyai_diag *diag);
+
+/* Move collected diagnostics to @gb. Another process receives them. */
+fy_generic fyai_diag_take_generic(struct fyai_diag *diag,
+				  struct fy_generic_builder *gb);
+
+/* This prefix identifies a diagnostic from another process. */
+#define FYAI_DIAG_MARK_OPEN '['
+
+/* Adopt transferred diagnostics. Add @origin if they have no marker. */
+void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
+		     const char *origin);
 
 /* True once an error has been raised and not yet drained or reset. */
 bool fyai_diag_got_error(struct fyai_diag *diag);

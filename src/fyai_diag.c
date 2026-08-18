@@ -207,9 +207,27 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	} while (!fy_atomic_compare_exchange_weak(&diag->list, &old.v, new.v));
 }
 
+/* Render one collected item onto @fp. The item may live in any builder. */
+static void diag_emit_item(FILE *fp, bool source, fy_generic item)
+{
+	fy_generic msg, file, func;
+
+	msg = fy_get(item, "msg", fy_invalid);
+	if (fy_is_invalid(msg))
+		return;
+	/* Held in locals so fy_castp() has stable storage to point into: a
+	 * short string lives inline in the generic word. */
+	file = fy_get(item, "file", fy_invalid);
+	func = fy_get(item, "func", fy_invalid);
+	diag_emit(fp, source, (enum fyai_error_type)fy_get(item, "type", 0LL),
+		  (enum fyai_error_module)fy_get(item, "module", 0LL),
+		  fy_castp(&msg, ""), fy_castp(&file, ""),
+		  (int)fy_get(item, "line", 0LL), fy_castp(&func, ""));
+}
+
 void fyai_diag_drain(struct fyai_diag *diag)
 {
-	fy_generic item, msg, file, func, list;
+	fy_generic item, list;
 
 	if (!diag || !diag->gb)
 		return;
@@ -218,20 +236,8 @@ void fyai_diag_drain(struct fyai_diag *diag)
 	 * rather than being reported twice or not at all. */
 	list.v = fy_atomic_exchange(&diag->list, fy_seq_empty_value);
 
-	fy_foreach(item, list) {
-		msg = fy_get(item, "msg", fy_invalid);
-		if (fy_is_invalid(msg))
-			continue;
-		/* Held in locals so fy_castp() has stable storage to point
-		 * into: a short string lives inline in the generic word. */
-		file = fy_get(item, "file", fy_invalid);
-		func = fy_get(item, "func", fy_invalid);
-		diag_emit(diag->fp, diag->source,
-			  (enum fyai_error_type)fy_get(item, "type", 0LL),
-			  (enum fyai_error_module)fy_get(item, "module", 0LL),
-			  fy_castp(&msg, ""), fy_castp(&file, ""),
-			  (int)fy_get(item, "line", 0LL), fy_castp(&func, ""));
-	}
+	fy_foreach(item, list)
+		diag_emit_item(diag->fp, diag->source, item);
 	fflush(diag->fp);
 
 	/*
@@ -243,26 +249,90 @@ void fyai_diag_drain(struct fyai_diag *diag)
 	fy_generic_builder_reset(diag->gb);
 }
 
-char *fyai_diag_take_string(struct fyai_diag *diag)
+char *fyai_diag_string(struct fyai_diag *diag)
 {
-	FILE *saved, *fp;
+	fy_generic item, list;
 	char *text = NULL;
 	size_t len = 0;
+	FILE *fp;
 
-	if (!diag || !fyai_diag_got_error(diag))
+	if (!diag || !diag->gb || !fyai_diag_got_error(diag))
 		return NULL;
 	fp = open_memstream(&text, &len);
 	if (!fp)
 		return NULL;
-	saved = diag->fp;
-	diag->fp = fp;
-	fyai_diag_drain(diag);
-	diag->fp = saved;
+	/* Read the diagnostics but do not remove them. */
+	list.v = fy_atomic_load(&diag->list);
+	fy_foreach(item, list)
+		diag_emit_item(fp, false, item);
 	if (fclose(fp)) {
 		free(text);
 		return NULL;
 	}
 	return text;
+}
+
+fy_generic fyai_diag_take_generic(struct fyai_diag *diag,
+				  struct fy_generic_builder *gb)
+{
+	fy_generic item, msg, file, func, list, out;
+
+	if (!diag || !diag->gb || !gb)
+		return fy_invalid;
+
+	/* Move the list to the receiver. */
+	list.v = fy_atomic_exchange(&diag->list, fy_seq_empty_value);
+	out.v = fy_seq_empty_value;
+	fy_foreach(item, list) {
+		msg = fy_get(item, "msg", fy_invalid);
+		if (fy_is_invalid(msg))
+			continue;
+		file = fy_get(item, "file", fy_invalid);
+		func = fy_get(item, "func", fy_invalid);
+		/* Copy each item before the builder is reset. */
+		out = fy_append(gb, out, fy_gb_mapping(gb,
+				"type", fy_get(item, "type", 0LL),
+				"module", fy_get(item, "module", 0LL),
+				"msg", fy_castp(&msg, ""),
+				"file", fy_castp(&file, ""),
+				"line", fy_get(item, "line", 0LL),
+				"func", fy_castp(&func, "")));
+		if (fy_is_invalid(out))
+			break;
+	}
+	/* All claimed items now live in @gb. */
+	fy_generic_builder_reset(diag->gb);
+	return out;
+}
+
+void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
+		     const char *origin)
+{
+	fy_generic item, msg, file, func;
+	const char *text, *open, *mark, *close;
+
+	fy_foreach(item, list) {
+		msg = fy_get(item, "msg", fy_invalid);
+		if (fy_is_invalid(msg))
+			continue;
+		file = fy_get(item, "file", fy_invalid);
+		func = fy_get(item, "func", fy_invalid);
+		text = fy_castp(&msg, "");
+		/* Keep a marker from a child delegation. */
+		open = mark = close = "";
+		if (*text != FYAI_DIAG_MARK_OPEN && !fy_str_empty(origin)) {
+			open = "[";
+			mark = origin;
+			close = "] ";
+		}
+		/* Keep the recorded severity, module, and source. */
+		fyai_diagf(diag,
+			   (enum fyai_error_type)fy_get(item, "type", 0LL),
+			   (enum fyai_error_module)fy_get(item, "module", 0LL),
+			   fy_castp(&file, ""), (int)fy_get(item, "line", 0LL),
+			   fy_castp(&func, ""), "%s%s%s%s",
+			   open, mark, close, text);
+	}
 }
 
 struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx)
