@@ -202,6 +202,50 @@ api_key: {type: env, value: ENVIRONMENT_VARIABLE}
 
 Reject raw keys at every arena ingestion point.
 
+### Transient failures
+
+A provider request that failed for a transient reason is made again after a
+backoff. `fyai_http_transient()` is the one decision for which failures pass:
+a refused or lost connection, a timeout, and HTTP 408, 429, 500, 502, 503 and
+504. Every other status is the provider's answer and must not be repeated.
+
+A status does not see every transient failure. On a streamed endpoint the
+connection succeeds, the status is 200, and a rate limit arrives as an error
+event inside the stream. `fyai_provider_error_transient()` reads the `code` and
+`type` of the error object for that case. A spent quota is deliberately not in
+the set: it does not refill while a backoff runs.
+
+Hold the text of a transient in-stream failure in the stream and raise it only
+when no attempt is left. A turn that recovers must raise nothing, and a turn
+that does not must read the same as it did before it was held.
+
+An event handler that stops a stream makes curl report a write error. Decide on
+the parsed event before that transport error, which describes only how the
+stream stopped.
+
+The delay doubles with each attempt, stops at `retry/max_delay_ms`, and keeps a
+random part so that requests refused together do not return together. A
+`Retry-After` header replaces the calculated delay under the same ceiling. Do
+not use `random()` for the jitter: nothing seeds it, so each process would draw
+the same sequence.
+
+A delegated sub-agent sends its wait through `fyai_tool_progress_emit()`, so it
+reaches the parent's band for that delegation. A status line from a child would
+land on the parent's terminal raw, beside the display instead of inside it.
+
+Present a retry as a work band through the sink, not as a loose status line: a
+wait is a step of the running turn. Repaint the band for each attempt and close
+it once, at the single notify point every terminal path reaches. A backend with
+no bands keeps the plain status line.
+
+Retry a streamed request only when it presented nothing. A transport error in
+the middle of a stream keeps the prose the user has already seen, and a second
+attempt would draw it one more time.
+
+A request that waits out a backoff has no transfer to cancel. Cancellation and
+destruction must retire the timer and settle the request, or an interrupt has
+nothing to act on.
+
 ### Provider grammars
 
 The supported grammars are Responses, Chat Completions, and Anthropic
