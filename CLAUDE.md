@@ -433,7 +433,10 @@ a shell descendant can keep a pipe open. Keep the shell child in the tool
 job's process group.
 
 Arm time limits in the parent with `fyai_tool_job_submit()`. A time limit
-belongs to the complete job, not to one child command. Do not arm a second
+belongs to the complete job, not to one child command. Retire a job's deadline
+when the job finishes, not when it is collected: a group is collected only
+after every job in it is done, so a job that finished early keeps waiting for
+its slowest sibling, and an armed timer would mark a complete job timed out. Do not arm a second
 child-side limit when `cfg->tool_child` is set.
 
 `timeout_ms` is the user default. `max_timeout_ms` limits a value supplied by
