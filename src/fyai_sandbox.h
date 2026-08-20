@@ -84,10 +84,13 @@ struct fyai_sandbox_spec {
 	const struct fyai_sandbox_path *allow;
 	size_t allow_n;
 
-	/* Absolute paths hidden from the tool (config sandbox.deny, plus the
-	 * arena). Honored as carve-outs within @project_root. */
+	/*
+	 * Absolute denied paths. The first @deny_global_n apply to every grant;
+	 * the remaining entries apply only beneath @project_root.
+	 */
 	const char *const *deny;
 	size_t deny_n;
+	size_t deny_global_n;
 
 	/*
 	 * Network egress. When @restrict_net is false the network access type
@@ -113,6 +116,9 @@ int fyai_sandbox_abi(void);
 
 /* True when at least filesystem confinement is available on this kernel. */
 bool fyai_sandbox_available(void);
+
+/* True if this build and kernel can restrict network egress; -1 probes ABI. */
+bool fyai_sandbox_net_restrictable(int abi);
 
 /*
  * Apply @spec to the current process irreversibly. Returns 0 on success (the

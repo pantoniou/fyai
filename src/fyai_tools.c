@@ -133,16 +133,15 @@ static int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
 	return fyai_tool_call_view(ctx, "shell", disp, 0, title, body);
 }
 
-/* Print a tool title row and its rendered body to @fp. */
-static void fyai_print_tool_view(struct fyai_ctx *ctx, FILE *fp,
-				 const char *title, struct response_buffer *body)
+/* The tool title and its already-rendered body, on the status stream. */
+static void fyai_print_tool_view(struct fyai_ctx *ctx, const char *title,
+				 struct response_buffer *body)
 {
-	if (title && *title && fyai_fprint_markdown(fp, title, ctx->cfg, 0))
-		fputs(title, fp);
-	if (body->len) {
-		fwrite(body->data, 1, body->len, fp);
-		fflush(fp);
-	}
+	if (!fy_str_empty(title))
+		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_STATUS, title);
+	if (body->len)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+				      body->data, body->len);
 }
 
 static char *fyai_format_shell_label(fy_generic args)
@@ -339,13 +338,15 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 	struct response_buffer body = {0};
 	char *header;
 	fy_generic args;
+	fy_generic cmdv;
 
 	if (fyai_agent_delegated(ctx))
 		return;
 	args = fy_invalid;
 	name = fyai_tool_call_name(ctx, tool_call);
 	if (fy_equal(fy_get(tool_call, "type"), "shell_call")) {
-		command = fy_cast(fy_get_at_path(tool_call, "action", "commands", 0), "");
+		cmdv = fy_get_at_path(tool_call, "action", "commands", 0);
+		command = fy_castp(&cmdv, "");
 	} else if (fy_equal(name, "shell")) {
 
 		switch (cfg->api_mode) {
@@ -380,8 +381,8 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 			fyai_sink_band_open(ctx->sink, true,
 					    header ? header : "agent", NULL);
 		} else if (header) {
-			if (fyai_fprint_markdown(stderr, header, ctx->cfg, 0))
-				(void)fyai_report(ctx, "%s", header);
+			(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_STATUS,
+						 header);
 		} else {
 			fyai_report(ctx, "  agent %s\n",
 				*command ? command : name);
@@ -404,7 +405,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 					    *command ? command : name);
 		} else if (!fyai_shell_view(ctx, *command ? command : name,
 					    args, &header, &body)) {
-			fyai_print_tool_view(ctx, stderr, header, &body);
+			fyai_print_tool_view(ctx, header, &body);
 		} else {
 			fyai_report(ctx, "  shell %s\n",
 				*command ? command : name);
@@ -626,15 +627,27 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	sb->deny = calloc(n + 1, sizeof(*sb->deny));
 	fyai_error_check(ctx, sb->deny, err_out,
 			 "sandbox: could not allocate the deny list");
-	sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ".fyai");
-	fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
-			 "sandbox: could not resolve the arena deny path");
-	sp->deny_n++;
+	/* Configured denies apply to every grant. Ignore paths that do not exist. */
 	fy_foreach(e, deny) {
 		ps = fy_castp(&e, "");
 		sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ps);
 		fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
 				 "sandbox: could not resolve deny path '%s'", ps);
+		if (access(sb->deny[sp->deny_n], F_OK)) {
+			free((char *)sb->deny[sp->deny_n]);
+			sb->deny[sp->deny_n] = NULL;
+			continue;
+		}
+		sp->deny_n++;
+	}
+	sp->deny_global_n = sp->deny_n;
+	sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ".fyai");
+	fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
+			 "sandbox: could not resolve the arena deny path");
+	if (access(sb->deny[sp->deny_n], F_OK)) {
+		free((char *)sb->deny[sp->deny_n]);
+		sb->deny[sp->deny_n] = NULL;
+	} else {
 		sp->deny_n++;
 	}
 	sp->deny = sb->deny;
@@ -672,6 +685,9 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	 * all); absent => leave egress unrestricted. */
 	net = fy_get(cs, "network");
 	if (fy_is_valid(net)) {
+		/* Check here because the child cannot report why it failed. */
+		fyai_error_check(ctx, fyai_sandbox_net_restrictable(-1), err_out,
+				 "sandbox: network egress cannot be restricted by this build or kernel");
 		sp->restrict_net = true;
 		ports = fy_get(net, "ports");
 		n = fy_is_sequence(ports) ? fy_len(ports) : 0;
@@ -1302,11 +1318,18 @@ static int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *spec;
 
+	int rc = 0;
+
 	if (fyai_shell_sandbox_begin(ctx, &sb, &spec))
 		return -1;
+	/* Fail closed: an unreported failure runs the tool unconfined. */
 	if (spec)
-		(void)fyai_sandbox_apply(spec);
+		rc = fyai_sandbox_apply(spec);
 	fyai_shell_sandbox_end(&sb);
+	if (rc) {
+		fyai_error(ctx, "sandbox: could not confine this process");
+		return -1;
+	}
 	ctx->sandbox_applied = true;
 	return 0;
 }
@@ -1848,7 +1871,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, rc >= 0 && job->origin, err,
 			 "out of memory naming the tool job");
 	/* The trace pairs with the reap record below: a child that dies leaves
-	 * these two lines and no other descriptors. */
+	 * these two lines and nothing else. */
 	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {

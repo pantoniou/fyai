@@ -186,6 +186,9 @@ static long ll_restrict_self(int fd, uint32_t flags)
 	LANDLOCK_ACCESS_FS_MAKE_SYM | \
 	LANDLOCK_ACCESS_FS_REFER)
 
+/* Ancestors of denied paths retain only directory-listing access. */
+#define FYAI_FS_DIR_LIST	LANDLOCK_ACCESS_FS_READ_DIR
+
 /* Resolve a mode to its right bitmask, then intersect with @mask (the running
  * ABI's handled set). RW is the full handled set. */
 static uint64_t mode_rights(enum fyai_sandbox_mode mode, uint64_t mask)
@@ -260,12 +263,19 @@ static int grant_path(int fd, const char *path, uint64_t rights)
 	struct stat st;
 	int rc, dfd;
 
+	if (!rights)
+		return 0;			/* nothing to grant */
 	dfd = open(path, O_PATH | O_CLOEXEC);
 	if (dfd < 0)
 		return errno == ENOENT ? 0 : -1;	/* absent path: skip */
 	/* A regular file may only carry file-applicable rights. */
 	if (!fstat(dfd, &st) && !S_ISDIR(st.st_mode))
 		rights &= FYAI_FS_FILE;
+	/* An empty right set makes landlock_add_rule reject the rule. */
+	if (!rights) {
+		close(dfd);
+		return 0;
+	}
 	pb.allowed_access = rights;
 	pb.parent_fd = dfd;
 	rc = ll_add_rule(fd, LANDLOCK_RULE_PATH_BENEATH, &pb, 0);
@@ -318,6 +328,12 @@ static int grant_except(int fd, const char *dir, uint64_t rights,
 	d = opendir(dir);
 	if (!d)
 		return errno == ENOENT ? 0 : grant_path(fd, dir, rights);
+	/* Keep the listing right on the ancestor itself. */
+	rc = grant_path(fd, dir, rights & FYAI_FS_DIR_LIST);
+	if (rc) {
+		closedir(d);
+		return rc;
+	}
 	while ((de = readdir(d))) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 			continue;
@@ -351,6 +367,18 @@ bool fyai_sandbox_available(void)
 	return fyai_sandbox_abi() >= 1;
 }
 
+bool fyai_sandbox_net_restrictable(int abi)
+{
+	if (abi < 0)
+		abi = fyai_sandbox_abi();
+#ifdef LANDLOCK_ACCESS_NET_CONNECT_TCP
+	return abi >= 4;
+#else
+	(void)abi;
+	return false;
+#endif
+}
+
 int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 {
 	struct landlock_ruleset_attr attr = {0};
@@ -365,13 +393,14 @@ int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 	abi = fyai_sandbox_abi();
 	if (abi < 1)
 		return spec->strict ? -1 : 0;	/* unconfined: floor is elsewhere */
-	if (spec->restrict_net && abi < 4 && spec->strict)
-		return -1;			/* asked for egress limits we can't do */
+	/* Fail closed when this build or kernel cannot restrict egress. */
+	if (spec->restrict_net && !fyai_sandbox_net_restrictable(abi))
+		return -1;
 
 	mask = fs_mask(abi);
 	attr.handled_access_fs = mask;
 #ifdef LANDLOCK_ACCESS_NET_CONNECT_TCP
-	if (spec->restrict_net && abi >= 4)
+	if (spec->restrict_net)
 		attr.handled_access_net = LANDLOCK_ACCESS_NET_CONNECT_TCP;
 #endif
 
@@ -379,24 +408,27 @@ int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 	if (fd < 0)
 		return -1;
 
+	/* Carve configured denies out of every granted hierarchy. */
 	for (p = fyai_sys_ro; *p; p++)
-		if (grant_path(fd, *p, FYAI_FS_READ & mask))
+		if (grant_except(fd, *p, FYAI_FS_READ & mask,
+				 spec->deny, spec->deny_global_n))
 			goto out;
 	for (p = fyai_scratch_rw; *p; p++)
-		if (grant_path(fd, *p, mask))
+		if (grant_except(fd, *p, mask, spec->deny, spec->deny_global_n))
 			goto out;
 
 	if (spec->project_root &&
 	    grant_except(fd, spec->project_root, mask, spec->deny, spec->deny_n))
 		goto out;
 
+	/* An explicit allow wins over a deny, so it is granted whole. */
 	for (i = 0; i < spec->allow_n; i++)
 		if (grant_path(fd, spec->allow[i].path,
 			       mode_rights(spec->allow[i].mode, mask)))
 			goto out;
 
 #ifdef LANDLOCK_ACCESS_NET_CONNECT_TCP
-	if (spec->restrict_net && abi >= 4) {
+	if (spec->restrict_net) {
 		for (i = 0; i < spec->ports_n; i++) {
 			np.allowed_access = LANDLOCK_ACCESS_NET_CONNECT_TCP;
 			np.port = spec->ports[i];
@@ -426,6 +458,12 @@ int fyai_sandbox_abi(void)
 
 bool fyai_sandbox_available(void)
 {
+	return false;
+}
+
+bool fyai_sandbox_net_restrictable(int abi)
+{
+	(void)abi;
 	return false;
 }
 
