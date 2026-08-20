@@ -278,6 +278,8 @@ VTermValueType vterm_get_attr_type(VTermAttr attr)
     case VTERM_ATTR_BACKGROUND: return VTERM_VALUETYPE_COLOR;
     case VTERM_ATTR_SMALL:      return VTERM_VALUETYPE_BOOL;
     case VTERM_ATTR_BASELINE:   return VTERM_VALUETYPE_INT;
+    case VTERM_ATTR_DIM:        return VTERM_VALUETYPE_BOOL;
+    case VTERM_ATTR_OVERLINE:   return VTERM_VALUETYPE_BOOL;
 
     case VTERM_N_ATTRS: return 0;
   }
@@ -296,6 +298,8 @@ VTermValueType vterm_get_prop_type(VTermProp prop)
     case VTERM_PROP_CURSORSHAPE:   return VTERM_VALUETYPE_INT;
     case VTERM_PROP_MOUSE:         return VTERM_VALUETYPE_INT;
     case VTERM_PROP_FOCUSREPORT:   return VTERM_VALUETYPE_BOOL;
+    case VTERM_PROP_THEMEUPDATES:  return VTERM_VALUETYPE_BOOL;
+    case VTERM_PROP_SYNCOUTPUT:    return VTERM_VALUETYPE_BOOL;
 
     case VTERM_N_PROPS: return 0;
   }

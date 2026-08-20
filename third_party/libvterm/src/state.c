@@ -1,5 +1,6 @@
 #include "vterm_internal.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -96,6 +97,12 @@ static VTermState *vterm_state_new(VTerm *vt)
   state->encoding_utf8.enc = vterm_lookup_encoding(ENC_UTF8, 'u');
   if(*state->encoding_utf8.enc->init)
     (*state->encoding_utf8.enc->init)(state->encoding_utf8.enc, state->encoding_utf8.data);
+
+  /* Kitty keyboard protocol: each screen starts with one all-zero flags
+   * entry on its stack (see vterm_state_get_key_encoding_flags()). The
+   * allocator zeroes new memory, so only .size needs setting. */
+  for(size_t i = 0; i < sizeof(state->key_encoding_stacks)/sizeof(state->key_encoding_stacks[0]); i++)
+    state->key_encoding_stacks[i].size = 1;
 
   return state;
 }
@@ -314,6 +321,14 @@ static int on_text(const char bytes[], size_t len, void *user)
     !(bytes[eaten] & 0x80) ? &state->encoding[state->gl_set] :
     state->vt->mode.utf8   ? &state->encoding_utf8 :
                              &state->encoding[state->gr_set];
+  /* Neovim carries a fix here (upstream commit e40c5cb06d, "fix(vterm):
+   * handle split UTF-8 after ASCII properly"): an ASCII byte picks the
+   * gl_set encoding instance above even when it designates UTF-8, which
+   * keeps a second, independent decode state for a split multi-byte
+   * sequence that starts right after an ASCII byte. Route back to the one
+   * persistent UTF-8 instance whenever the resolved encoding is UTF-8. */
+  if(encoding->enc == state->encoding_utf8.enc)
+    encoding = &state->encoding_utf8;
 
   (*encoding->enc->decode)(encoding->enc, encoding->data,
       codepoints, &npoints, state->gsingle_set ? 1 : maxpoints,
@@ -333,8 +348,19 @@ static int on_text(const char bytes[], size_t len, void *user)
   /* This is a combining char. that needs to be merged with the previous
    * glyph output */
   if(vterm_unicode_is_combining(codepoints[i])) {
-    /* See if the cursor has moved since */
-    if(state->pos.row == state->combine_pos.row && state->pos.col == state->combine_pos.col + state->combine_width) {
+    /* See if the cursor has moved since.
+     *
+     * Neovim carries a fix here (upstream commit 814f2629cb, "fix
+     * (terminal): handle split composing chars at right edge"): at the
+     * right edge of the screen, printing the previous glyph can leave the
+     * cursor at combine_pos itself instead of combine_pos + combine_width,
+     * because there was no room left to advance past it. Accept the whole
+     * [combine_pos, combine_pos + combine_width] range, not just its end,
+     * and drop any deferred wraparound the failed advance left behind. */
+    if(state->pos.row == state->combine_pos.row &&
+        state->pos.col >= state->combine_pos.col &&
+        state->pos.col <= state->combine_pos.col + state->combine_width) {
+      state->at_phantom = 0;
 #ifdef DEBUG_GLYPH_COMBINE
       int printpos;
       printf("DEBUG: COMBINING SPLIT GLYPH of chars {");
@@ -862,6 +888,14 @@ static void set_dec_mode(VTermState *state, int num, int val)
     state->mode.bracketpaste = val;
     break;
 
+  case 2026: // Synchronized output
+    settermprop_bool(state, VTERM_PROP_SYNCOUTPUT, val);
+    break;
+
+  case 2031: // Theme update notifications
+    settermprop_bool(state, VTERM_PROP_THEMEUPDATES, val);
+    break;
+
   default:
     DEBUG_LOG("libvterm: Unknown DEC mode %d\n", num);
     return;
@@ -937,6 +971,14 @@ static void request_dec_mode(VTermState *state, int num)
       reply = state->mode.bracketpaste;
       break;
 
+    case 2026:
+      reply = state->mode.synchronized_output;
+      break;
+
+    case 2031:
+      reply = state->mode.theme_updates;
+      break;
+
     default:
       vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?%d;%d$y", num, 0);
       return;
@@ -949,6 +991,108 @@ static void request_version_string(VTermState *state)
 {
   vterm_push_output_sprintf_str(state->vt, C1_DCS, true, ">|libvterm(%d.%d)",
       VTERM_VERSION_MAJOR, VTERM_VERSION_MINOR);
+}
+
+/* Kitty keyboard protocol flag stack (upstream commit 6f0bde11cc,
+ * "feat(terminal): add support for kitty keyboard protocol"). CSI ? u
+ * queries the top of the stack, CSI > u pushes a new entry, CSI < u pops
+ * entries, and CSI = u replaces the top entry. */
+
+static void request_key_encoding_flags(VTermState *state)
+{
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+
+  int reply = 0;
+
+  assert(stack->size > 0);
+  VTermKeyEncodingFlags flags = stack->items[stack->size - 1];
+
+  if(flags.disambiguate)
+    reply |= KEY_ENCODING_DISAMBIGUATE;
+  if(flags.report_events)
+    reply |= KEY_ENCODING_REPORT_EVENTS;
+  if(flags.report_alternate)
+    reply |= KEY_ENCODING_REPORT_ALTERNATE;
+  if(flags.report_all_keys)
+    reply |= KEY_ENCODING_REPORT_ALL_KEYS;
+  if(flags.report_associated)
+    reply |= KEY_ENCODING_REPORT_ASSOCIATED;
+
+  vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?%du", reply);
+}
+
+static void set_key_encoding_flags(VTermState *state, int arg, int mode)
+{
+  // When mode is 3, bits set in arg reset the corresponding mode
+  bool set = mode != 3;
+
+  // When mode is 1, unset bits are reset
+  bool reset_unset = mode == 1;
+
+  VTermKeyEncodingFlags flags = { 0 };
+  if(arg & KEY_ENCODING_DISAMBIGUATE)
+    flags.disambiguate = set;
+  else if(reset_unset)
+    flags.disambiguate = false;
+
+  if(arg & KEY_ENCODING_REPORT_EVENTS)
+    flags.report_events = set;
+  else if(reset_unset)
+    flags.report_events = false;
+
+  if(arg & KEY_ENCODING_REPORT_ALTERNATE)
+    flags.report_alternate = set;
+  else if(reset_unset)
+    flags.report_alternate = false;
+
+  if(arg & KEY_ENCODING_REPORT_ALL_KEYS)
+    flags.report_all_keys = set;
+  else if(reset_unset)
+    flags.report_all_keys = false;
+
+  if(arg & KEY_ENCODING_REPORT_ASSOCIATED)
+    flags.report_associated = set;
+  else if(reset_unset)
+    flags.report_associated = false;
+
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+  assert(stack->size > 0);
+  stack->items[stack->size - 1] = flags;
+}
+
+static void push_key_encoding_flags(VTermState *state, int arg)
+{
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+  assert(stack->size <= sizeof(stack->items)/sizeof(stack->items[0]));
+
+  if(stack->size == sizeof(stack->items)/sizeof(stack->items[0])) {
+    // Evict the oldest entry when the stack is full
+    for(size_t i = 0; i < sizeof(stack->items)/sizeof(stack->items[0]) - 1; i++)
+      stack->items[i] = stack->items[i + 1];
+  }
+  else {
+    stack->size++;
+  }
+
+  set_key_encoding_flags(state, arg, 1);
+}
+
+static void pop_key_encoding_flags(VTermState *state, int arg)
+{
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+  if(arg >= stack->size) {
+    stack->size = 1;
+
+    // If a pop request empties the stack, all flags are reset.
+    memset(&stack->items[0], 0, sizeof(stack->items[0]));
+  }
+  else if(arg > 0) {
+    stack->size -= arg;
+  }
 }
 
 static int on_csi(const char *leader, const long args[], int argcount, const char *intermed, char command, void *user)
@@ -965,6 +1109,8 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
     switch(leader[0]) {
     case '?':
     case '>':
+    case '<': // Kitty keyboard protocol: pop flags
+    case '=': // Kitty keyboard protocol: set flags
       leader_byte = leader[0];
       break;
     default:
@@ -1278,8 +1424,11 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
   case 0x63: // DA - ECMA-48 8.3.24
     val = CSI_ARG_OR(args[0], 0);
     if(val == 0)
-      // DEC VT100 response
-      vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?1;2c");
+      /* DEC VT100 response. Neovim carries a modernized reply here
+       * (upstream commits 977e91b424 and 112092271b): level 1 VT100
+       * emulation (61) plus ANSI color support (22), instead of the
+       * original "?1;2c". */
+      vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?61;22;52c");
     break;
 
   case LEADER('>', 0x63): // DEC secondary Device Attributes
@@ -1404,6 +1553,10 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
     {
       char *qmark = (leader_byte == '?') ? "?" : "";
+      /* Neovim carries a theme query here (upstream commit f1c45fc7a4,
+       * "feat(terminal): support theme update notifications (DEC mode
+       * 2031)"). */
+      bool dark = false;
 
       switch(val) {
       case 0: case 1: case 2: case 3: case 4:
@@ -1414,6 +1567,12 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
         break;
       case 6: // CPR - cursor position report
         vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "%s%d;%dR", qmark, state->pos.row + 1, state->pos.col + 1);
+        break;
+      case 996: // XTQTHEME - query the color scheme
+        if(state->callbacks && state->callbacks->theme) {
+          if(state->callbacks->theme(&dark, state->cbdata))
+            vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?997;%cn", dark ? '1' : '2');
+        }
         break;
       }
     }
@@ -1430,6 +1589,23 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
   case LEADER('>', 0x71): // XTVERSION - xterm query version string
     request_version_string(state);
+    break;
+
+  case LEADER('?', 0x75): // Kitty keyboard protocol: query flags
+    request_key_encoding_flags(state);
+    break;
+
+  case LEADER('>', 0x75): // Kitty keyboard protocol: push flags
+    push_key_encoding_flags(state, CSI_ARG_OR(args[0], 0));
+    break;
+
+  case LEADER('<', 0x75): // Kitty keyboard protocol: pop flags
+    pop_key_encoding_flags(state, CSI_ARG_OR(args[0], 1));
+    break;
+
+  case LEADER('=', 0x75): // Kitty keyboard protocol: set flags
+    val = argcount < 2 || CSI_ARG_IS_MISSING(args[1]) ? 1 : CSI_ARG(args[1]);
+    set_key_encoding_flags(state, CSI_ARG_OR(args[0], 0), val);
     break;
 
   case INTERMED(' ', 0x71): // DECSCUSR - DEC set cursor shape
@@ -1802,6 +1978,11 @@ static void osc_selection(VTermState *state, VTermStringFragment frag)
   }
 }
 
+/* Neovim carries a fix here (upstream commit ee143aaf65, "fix(terminal):
+ * emit Termrequest for all OSC sequences"): the recognized OSC 0/1/2/52
+ * commands used to return immediately, so a caller's osc fallback never saw
+ * them. Fall through to the fallback for every command, recognized or not,
+ * instead of only for the ones libvterm itself does not understand. */
 static int on_osc(int command, VTermStringFragment frag, void *user)
 {
   VTermState *state = user;
@@ -1810,27 +1991,25 @@ static int on_osc(int command, VTermStringFragment frag, void *user)
     case 0:
       settermprop_string(state, VTERM_PROP_ICONNAME, frag);
       settermprop_string(state, VTERM_PROP_TITLE, frag);
-      return 1;
+      break;
 
     case 1:
       settermprop_string(state, VTERM_PROP_ICONNAME, frag);
-      return 1;
+      break;
 
     case 2:
       settermprop_string(state, VTERM_PROP_TITLE, frag);
-      return 1;
+      break;
 
     case 52:
       if(state->selection.callbacks)
         osc_selection(state, frag);
-
-      return 1;
-
-    default:
-      if(state->fallbacks && state->fallbacks->osc)
-        if((*state->fallbacks->osc)(command, frag, state->fbdata))
-          return 1;
+      break;
   }
+
+  if(state->fallbacks && state->fallbacks->osc)
+    if((*state->fallbacks->osc)(command, frag, state->fbdata))
+      return 1;
 
   return 0;
 }
@@ -2260,6 +2439,12 @@ int vterm_state_set_termprop(VTermState *state, VTermProp prop, VTermValue *val)
     return 1;
   case VTERM_PROP_FOCUSREPORT:
     state->mode.report_focus = val->boolean;
+    return 1;
+  case VTERM_PROP_THEMEUPDATES:
+    state->mode.theme_updates = val->boolean;
+    return 1;
+  case VTERM_PROP_SYNCOUTPUT:
+    state->mode.synchronized_output = val->boolean;
     return 1;
 
   case VTERM_N_PROPS:

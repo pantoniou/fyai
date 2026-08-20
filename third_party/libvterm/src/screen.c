@@ -27,6 +27,8 @@ typedef struct
   unsigned int font      : 4; /* 0 to 9 */
   unsigned int small     : 1;
   unsigned int baseline  : 2;
+  unsigned int dim       : 1;
+  unsigned int overline  : 1;
 
   /* Extra state storage that isn't strictly pen-related */
   unsigned int protected_cell : 1;
@@ -458,6 +460,12 @@ static int setpenattr(VTermAttr attr, VTermValue *val, void *user)
   case VTERM_ATTR_BASELINE:
     screen->pen.baseline = val->number;
     return 1;
+  case VTERM_ATTR_DIM:
+    screen->pen.dim = val->boolean;
+    return 1;
+  case VTERM_ATTR_OVERLINE:
+    screen->pen.overline = val->boolean;
+    return 1;
 
   case VTERM_N_ATTRS:
     return 0;
@@ -538,21 +546,26 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
       old_cols, old_rows, new_cols, new_rows, old_cursor.col, old_cursor.row);
 #endif
 
-  /* Keep track of the final row that is knonw to be blank, so we know what
+  /* Keep track of the final row that is known to be blank, so we know what
    * spare space we have for scrolling into
    */
   int final_blank_row = new_rows;
 
+  /* Neovim carries a reflow-on-resize bug fix here (upstream commit
+   * 7bb8231577, "fix(terminal): do not reflow altscreen on resize"): the
+   * alternate screen must never reflow on resize, only the primary one. */
+  bool do_reflow = screen->reflow && (bufidx == BUFIDX_PRIMARY);
+
   while(old_row >= 0) {
     int old_row_end = old_row;
     /* TODO: Stop if dwl or dhl */
-    while(screen->reflow && old_lineinfo && old_row >= 0 && old_lineinfo[old_row].continuation)
+    while(do_reflow && old_lineinfo && old_row >= 0 && old_lineinfo[old_row].continuation)
       old_row--;
     int old_row_start = old_row;
 
     int width = 0;
     for(int row = old_row_start; row <= old_row_end; row++) {
-      if(screen->reflow && row < (old_rows - 1) && old_lineinfo[row + 1].continuation)
+      if(do_reflow && row < (old_rows - 1) && old_lineinfo[row + 1].continuation)
         width += old_cols;
       else
         width += line_popcount(old_buffer, row, old_rows, old_cols);
@@ -561,7 +574,7 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
     if(final_blank_row == (new_row + 1) && width == 0)
       final_blank_row = new_row;
 
-    int new_height = screen->reflow
+    int new_height = do_reflow
       ? width ? (width + new_cols - 1) / new_cols : 1
       : 1;
 
@@ -634,7 +647,7 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
         if(old_col == old_cols) {
           old_row++;
 
-          if(!screen->reflow) {
+          if(!do_reflow) {
             new_col++;
             break;
           }
@@ -645,7 +658,12 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
         count--;
       }
 
-      if(old_cursor.row == old_row && old_cursor.col >= old_col) {
+      /* Neovim carries a resize cursor fix here (upstream commit
+       * 635acc7dc4, "fix(terminal): cursor moves on resize when line above
+       * is full width"): without the old_row_end bound, this branch could
+       * also match a row above the one the cursor left, moving it when the
+       * line above old_row_end is exactly old_cols wide. */
+      if(old_row <= old_row_end && old_cursor.row == old_row && old_cursor.col >= old_col) {
         new_cursor.row = new_row, new_cursor.col = (old_cursor.col - old_col + new_col);
         if(new_cursor.col >= new_cols)
           new_cursor.col = new_cols-1;
@@ -716,6 +734,8 @@ static void resize_buffer(VTermScreen *screen, int bufidx, int new_rows, int new
         dst->pen.font      = src->attrs.font;
         dst->pen.small     = src->attrs.small;
         dst->pen.baseline  = src->attrs.baseline;
+        dst->pen.dim       = src->attrs.dim;
+        dst->pen.overline  = src->attrs.overline;
 
         dst->pen.fg = src->fg;
         dst->pen.bg = src->bg;
@@ -842,6 +862,20 @@ static int setlineinfo(int row, const VTermLineInfo *newinfo, const VTermLineInf
   return 1;
 }
 
+/* Neovim carries this callback here (upstream commit f1c45fc7a4,
+ * "feat(terminal): support theme update notifications (DEC mode 2031)"):
+ * bridges the state layer's theme query to the screen layer's own
+ * callbacks. */
+static int theme(bool *dark, void *user)
+{
+  VTermScreen *screen = user;
+
+  if(screen->callbacks && screen->callbacks->theme)
+    return (*screen->callbacks->theme)(dark, screen->cbdata);
+
+  return 1;
+}
+
 static int sb_clear(void *user) {
   VTermScreen *screen = user;
 
@@ -862,6 +896,7 @@ static VTermStateCallbacks state_cbs = {
   .settermprop = &settermprop,
   .bell        = &bell,
   .resize      = &resize,
+  .theme       = &theme,
   .setlineinfo = &setlineinfo,
   .sb_clear    = &sb_clear,
 };
@@ -997,6 +1032,12 @@ int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCe
     if(!intcell->chars[i])
       break;
   }
+  /* Neovim carries a crash fix here (upstream commit f8c8a245aa, "fix
+   * (terminal): don't crash on unprintable chars"): a gap cell behind a
+   * double-width glyph carries the (uint32_t)-1 sentinel in chars[0], which
+   * must not leak out to a caller as though it were a codepoint. */
+  if(cell->chars[0] == (uint32_t)-1)
+    cell->chars[0] = 0;
 
   cell->attrs.bold      = intcell->pen.bold;
   cell->attrs.underline = intcell->pen.underline;
@@ -1008,6 +1049,8 @@ int vterm_screen_get_cell(const VTermScreen *screen, VTermPos pos, VTermScreenCe
   cell->attrs.font      = intcell->pen.font;
   cell->attrs.small     = intcell->pen.small;
   cell->attrs.baseline  = intcell->pen.baseline;
+  cell->attrs.dim       = intcell->pen.dim;
+  cell->attrs.overline  = intcell->pen.overline;
 
   cell->attrs.dwl = intcell->pen.dwl;
   cell->attrs.dhl = intcell->pen.dhl;

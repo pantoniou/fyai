@@ -217,11 +217,17 @@ typedef enum {
   VTERM_N_VALUETYPES
 } VTermValueType;
 
+typedef enum {
+  VTERM_TERMINATOR_BEL, /* \x07 */
+  VTERM_TERMINATOR_ST,  /* \x1b\x5c */
+} VTermTerminator;
+
 typedef struct {
   const char *str;
   size_t      len : 30;
   bool        initial : 1;
   bool        final : 1;
+  VTermTerminator terminator;
 } VTermStringFragment;
 
 typedef union {
@@ -245,6 +251,8 @@ typedef enum {
   VTERM_ATTR_BACKGROUND, // color:  40-49 100-107
   VTERM_ATTR_SMALL,      // bool:   73, 74, 75
   VTERM_ATTR_BASELINE,   // number: 73, 74, 75
+  VTERM_ATTR_DIM,        // bool:   2, 22
+  VTERM_ATTR_OVERLINE,   // bool:   53, 55
 
   VTERM_N_ATTRS
 } VTermAttr;
@@ -260,6 +268,8 @@ typedef enum {
   VTERM_PROP_CURSORSHAPE,       // number
   VTERM_PROP_MOUSE,             // number
   VTERM_PROP_FOCUSREPORT,       // bool
+  VTERM_PROP_THEMEUPDATES,      // bool
+  VTERM_PROP_SYNCOUTPUT,        // bool
 
   VTERM_N_PROPS
 } VTermProp;
@@ -435,6 +445,7 @@ typedef struct {
   int (*settermprop)(VTermProp prop, VTermValue *val, void *user);
   int (*bell)(void *user);
   int (*resize)(int rows, int cols, VTermStateFields *fields, void *user);
+  int (*theme)(bool *dark, void *user);
   int (*setlineinfo)(int row, const VTermLineInfo *newinfo, const VTermLineInfo *oldinfo, void *user);
   int (*sb_clear)(void *user);
   // ABI-compat only enabled if vterm_state_callbacks_has_premove() is invoked
@@ -513,6 +524,8 @@ typedef struct {
     unsigned int dhl       : 2; /* On a DECDHL line (1=top 2=bottom) */
     unsigned int small     : 1;
     unsigned int baseline  : 2;
+    unsigned int dim       : 1;
+    unsigned int overline  : 1;
 } VTermScreenCellAttrs;
 
 enum {
@@ -542,6 +555,7 @@ typedef struct {
   int (*settermprop)(VTermProp prop, VTermValue *val, void *user);
   int (*bell)(void *user);
   int (*resize)(int rows, int cols, void *user);
+  int (*theme)(bool *dark, void *user);
   int (*sb_pushline)(int cols, const VTermScreenCell *cells, void *user);
   int (*sb_popline)(int cols, VTermScreenCell *cells, void *user);
   int (*sb_clear)(void* user);
@@ -597,8 +611,10 @@ typedef enum {
   VTERM_ATTR_CONCEAL_MASK    = 1 << 9,
   VTERM_ATTR_SMALL_MASK      = 1 << 10,
   VTERM_ATTR_BASELINE_MASK   = 1 << 11,
+  VTERM_ATTR_DIM_MASK        = 1 << 12,
+  VTERM_ATTR_OVERLINE_MASK   = 1 << 13,
 
-  VTERM_ALL_ATTRS_MASK = (1 << 12) - 1
+  VTERM_ALL_ATTRS_MASK = (1 << 14) - 1
 } VTermAttrMask;
 
 int vterm_screen_get_attrs_extent(const VTermScreen *screen, VTermRect *extent, VTermPos pos, VTermAttrMask attrs);
