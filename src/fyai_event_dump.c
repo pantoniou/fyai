@@ -13,12 +13,15 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <string.h>
+#include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
 
 #include "fyai_event_priv.h"
 
 static volatile sig_atomic_t fyai_dump_fd = -1;
+static volatile sig_atomic_t fyai_dump_crlf;	/* probed when the dump is armed */
+static volatile sig_atomic_t fyai_dump_busy;
 static struct fyai_event_loop *volatile fyai_dump_loop;
 static struct fyai_ctx *volatile fyai_dump_ctx;
 
@@ -29,12 +32,27 @@ struct dump_buf {
 	bool crlf;		/* a raw terminal needs CRLF */
 };
 
+/* True if @fd can be written without blocking. */
+static bool dump_writable(int fd)
+{
+	struct timeval tv = { 0, 0 };
+	fd_set w;
+
+	if (fd < 0 || fd >= FD_SETSIZE)
+		return false;
+	FD_ZERO(&w);
+	FD_SET(fd, &w);
+	return select(fd + 1, NULL, &w, NULL, &tv) > 0;
+}
+
 static void dump_flush(struct dump_buf *d)
 {
 	ssize_t w;
 	size_t off = 0;
 
 	while (off < d->n) {
+		if (!dump_writable(d->fd))
+			break;		/* would block: drop the rest */
 		w = write(d->fd, d->b + off, d->n - off);
 		if (w > 0) {
 			off += (size_t)w;
@@ -221,13 +239,20 @@ static void dump_source(struct dump_buf *d, const struct fyai_event_source *src,
 	dump_nl(d);
 }
 
-void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
-			   int fd)
+/* True when @fd is a terminal that does not translate NL itself. */
+static bool dump_needs_crlf(int fd)
+{
+	struct termios tio;
+
+	return tcgetattr(fd, &tio) == 0 && !(tio.c_oflag & OPOST);
+}
+
+static void dump_state(struct fyai_event_loop *el, struct fyai_ctx *ctx,
+		       int fd, bool crlf)
 {
 	const struct fyai_event_source *src;
 	const struct fyai_defer *dfr;
 	struct dump_buf d;
-	struct termios tio;
 	fyai_event_ms_t now;
 	unsigned int i, n;
 
@@ -236,7 +261,7 @@ void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
 
 	d.n = 0;
 	d.fd = fd;
-	d.crlf = tcgetattr(fd, &tio) == 0 && !(tio.c_oflag & OPOST);
+	d.crlf = crlf;
 	now = fyai_event_now_ms();
 
 	dump_nl(&d);
@@ -322,13 +347,33 @@ void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
 	dump_flush(&d);
 }
 
+void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
+			   int fd)
+{
+	if (fd < 0)
+		return;
+	/* Normal context: the terminal mode can be probed here. */
+	dump_state(el, ctx, fd, dump_needs_crlf(fd));
+}
+
+/*
+ * Dump in signal context with bounded, nonblocking, async-signal-safe
+ * operations. The diagnostic list walk is unsynchronized.
+ */
 static void fyai_event_dump_handler(int signo)
 {
 	int saved_errno = errno;
 
 	(void)signo;
-	fyai_event_dump_to_fd(fyai_dump_loop, fyai_dump_ctx,
-			      (int)fyai_dump_fd);
+	/* One dump at a time: a second signal must not interleave output. */
+	if (fyai_dump_busy) {
+		errno = saved_errno;
+		return;
+	}
+	fyai_dump_busy = 1;
+	dump_state(fyai_dump_loop, fyai_dump_ctx, (int)fyai_dump_fd,
+		   fyai_dump_crlf != 0);
+	fyai_dump_busy = 0;
 	errno = saved_errno;
 }
 
@@ -344,6 +389,8 @@ int fyai_event_dump_open(struct fyai_ctx *ctx, int signo, int fd)
 	fyai_dump_ctx = ctx;
 	fyai_dump_loop = fyai_ctx_loop(ctx);
 	fyai_dump_fd = fd;
+	fyai_dump_crlf = dump_needs_crlf(fd);
+	fyai_dump_busy = 0;
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = fyai_event_dump_handler;
