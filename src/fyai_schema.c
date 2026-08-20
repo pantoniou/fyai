@@ -1233,13 +1233,30 @@ out:
 	return out;
 }
 
-void fyai_schema_report_print(fy_generic report)
+char *fyai_schema_report_string(fy_generic report)
 {
+	const char *sep = "";
+	const char *problem;
 	fy_generic problems, p;
+	size_t len = 1;
+	char *out, *w;
 
 	if (fyai_schema_valid(report))
-		return;
+		return NULL;
 	problems = fy_get(report, "problems", fy_seq_empty);
-	fy_foreach(p, problems)
-		fprintf(stderr, "schema: %s\n", fy_castp(&p, ""));
+	fy_foreach(p, problems) {
+		problem = fy_str(p);
+		len += strlen(problem ? problem : "") + 2;
+	}
+	out = malloc(len);
+	if (!out)
+		return NULL;
+	w = out;
+	*w = '\0';
+	fy_foreach(p, problems) {
+		problem = fy_str(p);
+		w += sprintf(w, "%s%s", sep, problem ? problem : "");
+		sep = "; ";
+	}
+	return out;
 }

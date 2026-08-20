@@ -959,6 +959,10 @@ int fyai_config_load(struct fyai_cfg *cfg,
 		}
 		if (parse_config_file(gb, cli_config, &root_explicit))
 			return -1;
+		/* Validate an explicit file before merging it into the configuration. */
+		if (fy_is_valid(root_explicit) &&
+		    fyai_config_validate_schema(cfg, root_explicit, cli_config))
+			return -1;
 	}
 
 	/*
@@ -1648,13 +1652,16 @@ int fyai_config_validate_schema(struct fyai_cfg *cfg, fy_generic doc,
 				const char *origin)
 {
 	fy_generic schema, report;
+	char *problems;
 
 	schema = fyai_config_schema(cfg->gb);
 	report = fyai_schema_validate(cfg->gb, schema, doc);
 	if (fyai_schema_valid(report))
 		return 0;
-	fyai_cfg_error(cfg, "%s: schema validation failed", origin);
-	fyai_schema_report_print(report);
+	problems = fyai_schema_report_string(report);
+	fyai_cfg_error(cfg, "%s: schema validation failed: %s", origin,
+		       problems ? problems : "no detail was recorded");
+	free(problems);
 	return -1;
 }
 

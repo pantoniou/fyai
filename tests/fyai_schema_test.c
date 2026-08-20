@@ -83,9 +83,13 @@ static fy_generic validate(fy_generic sch, fy_generic inst)
 static void must_pass(const char *label, fy_generic sch, fy_generic inst)
 {
 	fy_generic report = validate(sch, inst);
+	char *problems;
+
 	if (!fyai_schema_valid(report)) {
-		fprintf(stderr, "FAIL %s: expected valid\n", label);
-		fyai_schema_report_print(report);
+		problems = fyai_schema_report_string(report);
+		fprintf(stderr, "FAIL %s: expected valid: %s\n", label,
+			problems ? problems : "");
+		free(problems);
 		exit(1);
 	}
 }

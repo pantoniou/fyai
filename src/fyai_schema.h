@@ -28,7 +28,7 @@ static inline bool fyai_schema_valid(fy_generic report)
 	return fy_equal(fy_get(report, "result"), "ok");
 }
 
-/* Print a report's problems to stderr (no-op when ok). */
-void fyai_schema_report_print(fy_generic report);
+/* Return the report problems as an allocated string, or NULL. */
+char *fyai_schema_report_string(fy_generic report);
 
 #endif
