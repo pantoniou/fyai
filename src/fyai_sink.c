@@ -6,6 +6,7 @@
 
 #define FYAI_MODULE FYAIEM_DISPLAY
 
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +35,10 @@ struct sink_term {
 	bool passthrough;		/* no renderer: write bytes as they come */
 	bool oneshot;			/* accumulate, render when it closes */
 	bool wrote;			/* the passthrough path wrote something */
+	bool write_failed;		/* a write failed; report it once */
 };
+
+static int sink_term_write_failed(struct fyai_sink *s, FILE *fp);
 
 /* Tool children reserve standard output for JSON-RPC frames. */
 static bool sink_may_present(const struct fyai_sink *s)
@@ -219,9 +223,9 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	if (!t->present || !len)
 		return 0;
 	if (t->passthrough) {
-		fwrite(text, 1, len, stdout);
-		fflush(stdout);
 		t->wrote = true;
+		if (fwrite(text, 1, len, stdout) != len || fflush(stdout))
+			return sink_term_write_failed(s, stdout);
 		return 0;
 	}
 	if (t->oneshot) {
@@ -485,22 +489,40 @@ static int sink_term_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 	 */
 	if (stream == FYAI_SINK_MACHINE ||
 	    fyai_fprint_markdown(fp, md, cfg, 0)) {
-		fputs(md, fp);
-		fflush(fp);
+		if (fputs(md, fp) == EOF || fflush(fp))
+			return sink_term_write_failed(s, fp);
 	}
 	return 0;
+}
+
+/* Report only the first output failure. */
+static int sink_term_write_failed(struct fyai_sink *s, FILE *fp)
+{
+	struct sink_term *t = sink_term_state(s);
+	int err = errno;
+
+	clearerr(fp);
+	if (t->write_failed)
+		return -1;
+	t->write_failed = true;
+	fyai_error(s->ctx, "output could not be written: %s", strerror(err));
+	return -1;
 }
 
 static int sink_term_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 			   const char *buf, size_t len)
 {
-	FILE *fp = sink_term_stream_file(s, stream);
+	FILE *fp;
+	size_t written;
+	int rc;
 
-	(void)s;
+	fp = sink_term_stream_file(s, stream);
 	if (!buf || !len || !fp)
 		return 0;
-	fwrite(buf, 1, len, fp);
-	fflush(fp);
+	written = fwrite(buf, 1, len, fp);
+	rc = fflush(fp);
+	if (written != len || rc)
+		return sink_term_write_failed(s, fp);
 	return 0;
 }
 
