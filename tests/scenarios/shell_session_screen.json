@@ -1,0 +1,162 @@
+{
+ "steps": [
+  {
+   "response": {
+    "id": "c1",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s1",
+         "type": "function",
+         "function": {
+          "name": "shell",
+          "arguments": "{\"name\": \"editor\", \"command\": \"vi note.txt\", \"rows\": 10, \"cols\": 40}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "c2",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s2",
+         "type": "function",
+         "function": {
+          "name": "shell_input",
+          "arguments": "{\"name\": \"editor\", \"input\": \"ihello from vi\\u001b\", \"enter\": false, \"wait_ms\": 800}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "c3",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s3",
+         "type": "function",
+         "function": {
+          "name": "shell_output",
+          "arguments": "{\"name\": \"editor\", \"view\": \"screen\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "c4",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s4",
+         "type": "function",
+         "function": {
+          "name": "shell_input",
+          "arguments": "{\"name\": \"editor\", \"input\": \":wq\", \"wait_ms\": 800}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "c5",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s5",
+         "type": "function",
+         "function": {
+          "name": "shell_output",
+          "arguments": "{\"name\": \"editor\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "c6",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "done."
+      },
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  }
+ ]
+}
