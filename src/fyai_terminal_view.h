@@ -1,0 +1,80 @@
+/* SPDX-License-Identifier: MIT */
+#ifndef FYAI_TERMINAL_VIEW_H
+#define FYAI_TERMINAL_VIEW_H
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "utils.h"
+
+/* The size used when no argument, no setting and no real terminal supply one. */
+#define FYAI_TTY_ROWS_DEFAULT	24
+#define FYAI_TTY_COLS_DEFAULT	80
+
+/*
+ * The terminal state of one command, held by the process that reads its
+ * output. A program uses a terminal in one of two ways. The view keeps both
+ * readings at the same time, so the choice follows what the program did and
+ * not what it was called:
+ *
+ * - It writes text and newlines. The useful reading is then the line log,
+ *   which is the byte stream without the colour and control sequences, and
+ *   with a carriage return as an overwrite of the line. A line is whole, and
+ *   the width of the screen does not cut it.
+ *
+ * - It draws a screen. The useful reading is then the screen that libfyvterm
+ *   interprets, because the bytes hold cursor movements and give nothing on
+ *   their own.
+ *
+ * The view enters screen mode when the program first addresses the screen, and
+ * it stays there.
+ */
+struct fyai_terminal_view;
+
+enum fyai_terminal_read {
+	FYAITR_NEW,	/* what appeared since the previous read */
+	FYAITR_SCREEN,	/* the visible screen */
+	FYAITR_ALL,	/* everything the command has produced */
+	FYAITR_REGION,	/* a rectangle of the visible screen */
+};
+
+struct fyai_terminal_region {
+	int row;
+	int col;
+	int rows;
+	int cols;
+};
+
+struct fyai_terminal_view *fyai_terminal_view_create(int rows, int cols,
+						     size_t max_bytes);
+void fyai_terminal_view_destroy(struct fyai_terminal_view *view);
+
+/* Give the view the bytes the program wrote to its terminal. */
+int fyai_terminal_view_feed(struct fyai_terminal_view *view, const char *data,
+			    size_t len);
+void fyai_terminal_view_resize(struct fyai_terminal_view *view, int rows,
+			       int cols);
+
+/*
+ * Report each line as it is completed, for the live display. Reporting stops
+ * when the program takes the screen, because its rows are not lines.
+ */
+void fyai_terminal_view_line_cb(struct fyai_terminal_view *view,
+				shell_output_fn cb, void *userdata);
+
+bool fyai_terminal_view_screen_mode(const struct fyai_terminal_view *view);
+bool fyai_terminal_view_binary(const struct fyai_terminal_view *view);
+size_t fyai_terminal_view_raw_bytes(const struct fyai_terminal_view *view);
+void fyai_terminal_view_size(const struct fyai_terminal_view *view, int *rowsp,
+			     int *colsp);
+
+/*
+ * Read the view. The caller owns the returned string. @region applies to
+ * FYAITR_REGION only. FYAITR_NEW moves the read mark; the other reads do not.
+ */
+char *fyai_terminal_view_read(struct fyai_terminal_view *view,
+			      enum fyai_terminal_read what,
+			      const struct fyai_terminal_region *region,
+			      size_t *lenp);
+
+#endif

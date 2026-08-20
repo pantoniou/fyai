@@ -6,13 +6,10 @@
 #include <stddef.h>
 
 #include "utils.h"
+#include "fyai_terminal_view.h"
 
 struct fyai_ctx;
 struct fyai_sandbox_spec;
-
-/* The size used when no argument, no setting and no real terminal supply one. */
-#define FYAI_TTY_ROWS_DEFAULT	24
-#define FYAI_TTY_COLS_DEFAULT	80
 
 /* One command on a pseudo-terminal. */
 struct fyai_terminal_opts {
@@ -34,6 +31,7 @@ struct fyai_terminal_result {
 	int exit_code;
 	int signal;
 	bool binary;			/* the raw stream was not text */
+	bool screen_mode;		/* the program drew a screen */
 	bool cancelled;			/* an interrupt stopped the command */
 	bool signaled;
 	bool timed_out;

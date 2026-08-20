@@ -446,6 +446,7 @@ set(FYAI_SOURCES
     src/fyai_stream.c
     src/fyai_terminal.c
     src/fyai_terminal_session.c
+    src/fyai_terminal_view.c
     src/fyai_schema.c
     src/fyai_tools.c
     src/fyai_tool_spec.c
