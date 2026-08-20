@@ -16,12 +16,38 @@ def record(value):
         stream.write(json.dumps(value, separators=(",", ":")) + "\n")
 
 
+def extra_fds():
+    """Return open descriptors above standard error."""
+    scan_fd = os.open("/dev/fd", os.O_RDONLY)
+    try:
+        names = os.listdir(scan_fd)
+    finally:
+        os.close(scan_fd)
+    found = []
+    for name in names:
+        if not name.isdigit():
+            continue
+        fd = int(name)
+        if fd <= 2 or fd == scan_fd:
+            continue
+        try:
+            os.fstat(fd)
+        except OSError:
+            continue
+        found.append(fd)
+    return sorted(found)
+
+
 for line in sys.stdin:
     request = json.loads(line)
     record({
         "request": request,
         "cwd": os.getcwd(),
         "env": os.environ.get("MCP_TEST_VALUE", ""),
+        # What the child must not have inherited: a provider credential, and
+        # any descriptor above the standard three.
+        "secret": os.environ.get("OPENAI_API_KEY", ""),
+        "extra_fds": extra_fds(),
     })
     method = request["method"]
     if method == "notifications/initialized":

@@ -8,6 +8,10 @@ fyai_test_setup
 mock_start mcp_stdio.json
 STDIO_LOG="$TEST_DIR/mcp-stdio.jsonl"
 
+# A credential in the parent environment must not reach the server, and
+# neither must any descriptor above the standard three.
+export OPENAI_API_KEY=sk-should-not-leak
+
 run_fyai --set api=chat-completions --set display/stream=false \
 	--set mcp/enabled=true \
 	--set "mcp/servers/local={transport: stdio, command: '$PYTHON', args: ['$TESTS_DIR/mock/mock_mcp_stdio.py'], env: {MCP_STDIO_LOG: '$STDIO_LOG', MCP_TEST_VALUE: configured}, cwd: '$TEST_DIR'}" \
@@ -24,6 +28,9 @@ assert [r["request"]["method"] for r in rows[:-1]] == [
 # is a symlink to /private/var/folders, so the child reports the resolved form
 assert os.path.realpath(rows[0]["cwd"]) == os.path.realpath(sys.argv[2])
 assert rows[0]["env"] == "configured"
+assert rows[0]["secret"] == "", "the server inherited a provider credential"
+assert rows[0]["extra_fds"] == [], \
+    "the server inherited descriptors: %r" % (rows[0]["extra_fds"],)
 assert rows[-1] == {"eof": True}
 PY
 assert_request 0 'any(t["function"]["name"] == "mcp__local__echo" for t in r["body"]["tools"])'
