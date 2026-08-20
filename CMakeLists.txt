@@ -501,8 +501,20 @@ if(BUILD_TESTING)
     target_include_directories(fyai_vterm
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/include"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/src")
+    # The vendored sources predate fyai's C style (declarations after
+    # statements, an unused-but-required callback parameter, table
+    # initializers that only set the fields they need). Silence the
+    # specific warnings that style produces instead of patching the
+    # vendored sources to match.
     target_compile_options(fyai_vterm PRIVATE ${FYAI_C_DIALECT}
-        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS}
+        -Wno-declaration-after-statement
+        -Wno-old-style-declaration
+        -Wno-unused-parameter
+        -Wno-sign-compare
+        -Wno-missing-field-initializers
+        -Wno-empty-body
+        -Wno-implicit-fallthrough)
 
     # Build all unit tests in one binary.
     #
