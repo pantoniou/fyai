@@ -93,6 +93,13 @@ struct jsonrpc_request *
 jsonrpc_request_submit(struct jsonrpc_conn *conn, const char *method,
 		       fy_generic params, long long id, bool notification,
 		       jsonrpc_complete_fn complete, void *userdata);
+/*
+ * Send a notification with no owner: it is released when it has been written,
+ * or when the connection ends. Use it in place of jsonrpc_request_submit()
+ * whenever nothing waits for the result.
+ */
+int jsonrpc_notify(struct jsonrpc_conn *conn, const char *method,
+		   fy_generic params);
 void jsonrpc_request_cancel(struct jsonrpc_request *req);
 bool jsonrpc_request_done(const struct jsonrpc_request *req);
 bool jsonrpc_request_ok(const struct jsonrpc_request *req);

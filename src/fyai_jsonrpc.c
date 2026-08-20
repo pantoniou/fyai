@@ -71,6 +71,7 @@ struct jsonrpc_request {
 	const char *method;
 	long long id;
 	bool notification;
+	bool detach;			/* the connection ends with this settle */
 	struct timespec started;
 
 	/* http */
@@ -144,6 +145,9 @@ static void jsonrpc_finish(struct jsonrpc_request *req, bool ok,
 	req->code = code;
 	req->done = true;
 	jsonrpc_log(req, ok);
+	/* The connection is going: no completion may reach it. */
+	if (req->detach)
+		req->conn = NULL;
 	if (req->complete)
 		req->complete(req, req->userdata);
 }
@@ -346,17 +350,19 @@ static void jsonrpc_conn_settle(struct jsonrpc_conn *conn, const char *why,
 		if (!conn->expect_close)
 			fyai_error(conn->ctx, "%s %s %s", conn->name,
 				   req->method, why);
+		/*
+		 * The request is unlinked while it settles, and its connection pointer is
+		 * cleared before the completion runs, because a completion can release the
+		 * request.
+		 */
+		req->detach = detach;
 		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
-		/* Clear the connection pointer before the connection is destroyed. */
-		if (detach)
-			req->conn = NULL;
 	}
 	while ((req = conn->flush_wait)) {
 		conn->flush_wait = req->next;
 		req->next = NULL;
+		req->detach = detach;
 		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
-		if (detach)
-			req->conn = NULL;
 	}
 }
 
@@ -968,6 +974,26 @@ static void jsonrpc_request_free(struct jsonrpc_request *req)
 	free(req->response.data);
 	free(req->body);
 	free(req);
+}
+
+static void jsonrpc_notify_done(struct jsonrpc_request *req, void *userdata)
+{
+	(void)userdata;
+	jsonrpc_request_destroy(req);
+}
+
+/*
+ * Send a notification that has no reply and no owner. It releases itself when
+ * it is written, or when the connection ends.
+ */
+int jsonrpc_notify(struct jsonrpc_conn *conn, const char *method,
+		   fy_generic params)
+{
+	struct jsonrpc_request *req;
+
+	req = jsonrpc_request_submit(conn, method, params, 0, true,
+				     jsonrpc_notify_done, NULL);
+	return req ? 0 : -1;
 }
 
 void jsonrpc_request_destroy(struct jsonrpc_request *req)

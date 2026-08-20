@@ -496,9 +496,8 @@ void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len)
 	copy[len] = '\0';
 	text = fy_gb_intern_string(gb, copy);
 	free(copy);
-	(void)jsonrpc_request_submit(ctx->tool_rpc, "tool/progress",
-				     fy_gb_mapping(gb, "text", text),
-				     0, true, NULL, NULL);
+	(void)jsonrpc_notify(ctx->tool_rpc, "tool/progress",
+			     fy_gb_mapping(gb, "text", text));
 }
 
 static void fyai_tool_progress_flush(struct fyai_ctx *ctx)
