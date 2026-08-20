@@ -4,10 +4,57 @@
 
 #include "fyai.h"
 
+/* Bound walks through damaged or cyclic durable turn chains. */
+#define FYAI_TURN_CHAIN_MAX	(1UL << 22)
+
+/* Brent cycle-detection state for fyai_turn_foreach(). */
+struct fyai_turn_walk {
+	fy_generic slow;
+	unsigned long lam;	/* steps since @slow was left behind */
+	unsigned long power;	/* next spacing */
+	unsigned long n;	/* steps taken */
+};
+
+static inline void fyai_turn_walk_start(struct fyai_turn_walk *w,
+					fy_generic head, fy_generic *cur)
+{
+	w->slow = head;
+	w->lam = 0;
+	w->power = 1;
+	w->n = 0;
+	*cur = head;
+}
+
+static inline bool fyai_turn_walk_valid(const struct fyai_turn_walk *w,
+					fy_generic cur)
+{
+	return fy_is_valid(cur) && !fy_is_null(cur) && w->n < FYAI_TURN_CHAIN_MAX;
+}
+
+static inline void fyai_turn_walk_next(struct fyai_turn_walk *w,
+				       fy_generic *cur)
+{
+	if (w->lam == w->power) {
+		w->slow = *cur;
+		w->power *= 2;
+		w->lam = 0;
+	}
+	*cur = fy_get(*cur, "previous");
+	w->lam++;
+	w->n++;
+	/* The chain closed on itself: end the walk instead of repeating it. */
+	if (fy_is_valid(*cur) && cur->v == w->slow.v)
+		*cur = fy_invalid;
+}
+
 #define fyai_turn_foreach(cur, head)					\
-	for ((cur) = (head);						\
-	     fy_is_valid(cur) && !fy_is_null(cur);	\
-	     (cur) = fy_get(cur, "previous"))
+	for (struct fyai_turn_walk fyai_turn_walk__ ## cur,		\
+	     *fyai_turn_walkp__ ## cur =				\
+		(fyai_turn_walk_start(&fyai_turn_walk__ ## cur, (head),	\
+				      &(cur)),				\
+		 &fyai_turn_walk__ ## cur);				\
+	     fyai_turn_walk_valid(fyai_turn_walkp__ ## cur, (cur));	\
+	     fyai_turn_walk_next(fyai_turn_walkp__ ## cur, &(cur)))
 
 struct fyai_turn_stack {
 	fy_generic *items;
