@@ -22,12 +22,34 @@ BIN, URL = sys.argv[1], sys.argv[2]
 TAGS = ("fyai-term-stubborn", "fyai-term-polite")
 
 
-def tagged():
-    """Processes we tagged, by argv. Ours alone - the tags are unique."""
-    ps = subprocess.run(["ps", "-eo", "pid,args"], capture_output=True,
+def descendants(root):
+    """Every process below @root, by walking the parent map once."""
+    ps = subprocess.run(["ps", "-eo", "pid,ppid,args"], capture_output=True,
                         text=True).stdout
-    return [l.strip() for l in ps.split("\n")
-            if any(t in l for t in TAGS) and "ps -eo" not in l]
+    rows = []
+    for line in ps.split("\n")[1:]:
+        parts = line.strip().split(None, 2)
+        if len(parts) == 3:
+            rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    children = {}
+    for cpid, ppid, args in rows:
+        children.setdefault(ppid, []).append((cpid, args))
+    out, stack = [], [root]
+    while stack:
+        for cpid, args in children.get(stack.pop(), []):
+            out.append((cpid, args))
+            stack.append(cpid)
+    return out
+
+
+def tagged():
+    """Our tagged processes, below this run's fyai alone.
+
+    The tags are unique across tools but not across concurrent runs of this
+    case, so the search is scoped to the process tree this test started.
+    """
+    return ["%d %s" % (cpid, args) for cpid, args in descendants(pid)
+            if any(t in args for t in TAGS) and "ps -eo" not in args]
 
 
 pid, fd = pty.fork()

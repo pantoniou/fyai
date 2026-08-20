@@ -1215,7 +1215,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char tokens[64], cost[32], cache[64];
-	char used_str[16], window_str[16], cached_str[16];
+	/* Wide enough for any long long, so the abbreviation never truncates. */
+	char used_str[24], window_str[24], cached_str[24];
 	long long used;
 	char top[256], bottom[320];
 	struct fyai_context_prompt prompt;

@@ -596,12 +596,30 @@ if(BUILD_TESTING)
     # scenario-driven mock provider (tests/mock/mock_provider.py) in a
     # hermetic sandbox (private HOME/XDG_*, localhost only).
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    # One preflight test reports a missing binary. Without it an incomplete
+    # build produces the same "FYAI_BIN not executable" failure once per case,
+    # and the build failure behind them is lost in the list.
+    add_test(NAME fyai/preflight
+        COMMAND ${CMAKE_COMMAND} -E true)
+    set_tests_properties(fyai/preflight PROPERTIES
+        FIXTURES_SETUP fyai_binary
+        REQUIRED_FILES $<TARGET_FILE:fyai>)
+
+    # Cases that need more wall clock than the common budget.
+    set(FYAI_CASE_TIMEOUT_tool_terminate 120)
+
     file(GLOB FYAI_TEST_CASES ${CMAKE_CURRENT_SOURCE_DIR}/tests/cases/*.sh)
     foreach(case_script ${FYAI_TEST_CASES})
         get_filename_component(case_name ${case_script} NAME_WE)
+        set(case_timeout 60)
+        if(DEFINED FYAI_CASE_TIMEOUT_${case_name})
+            set(case_timeout ${FYAI_CASE_TIMEOUT_${case_name}})
+        endif()
         add_test(NAME fyai/case_${case_name} COMMAND bash ${case_script})
         set_tests_properties(fyai/case_${case_name} PROPERTIES
-            TIMEOUT 60
+            TIMEOUT ${case_timeout}
+            FIXTURES_REQUIRED fyai_binary
             ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN}"
         )
     endforeach()
