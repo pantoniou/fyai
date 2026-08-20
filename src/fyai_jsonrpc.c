@@ -31,6 +31,9 @@ enum jsonrpc_transport {
 	JSONRPC_HTTP,
 };
 
+/* Maximum newline-terminated standard-I/O frame size. */
+#define JSONRPC_FRAME_MAX	(16UL << 20)
+
 struct jsonrpc_conn {
 	struct fyai_ctx *ctx;
 	enum jsonrpc_transport transport;
@@ -49,6 +52,7 @@ struct jsonrpc_conn {
 	size_t tx_off;
 	struct jsonrpc_request *pending;
 	struct jsonrpc_request *flush_wait;	/* notifications awaiting write */
+	bool protocol_failed;			/* peer sent an invalid frame */
 	jsonrpc_serve_fn serve;
 	void *serve_userdata;
 	bool serve_deferred;	/* handler will answer later */
@@ -322,14 +326,16 @@ static void jsonrpc_conn_line(struct jsonrpc_conn *conn, const char *line)
 			fy_is_valid(doc) ? "frame is not an object" :
 			"malformed JSON",
 			fy_sprintfa("%s received invalid stdio JSON", conn->name));
+		/* Stop waiting requests when the peer sends an invalid frame. */
+		conn->protocol_failed = true;
 		return;
 	}
 	jsonrpc_conn_frame(conn, doc);
 }
 
-/* Fail all pending requests after the peer closes the connection. */
-static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
-				      const char *why)
+/* Settle pending and flush-wait requests after connection failure. */
+static void jsonrpc_conn_settle(struct jsonrpc_conn *conn, const char *why,
+				bool detach)
 {
 	struct jsonrpc_request *req;
 
@@ -341,7 +347,23 @@ static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
 			fyai_error(conn->ctx, "%s %s %s", conn->name,
 				   req->method, why);
 		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
+		/* Clear the connection pointer before the connection is destroyed. */
+		if (detach)
+			req->conn = NULL;
 	}
+	while ((req = conn->flush_wait)) {
+		conn->flush_wait = req->next;
+		req->next = NULL;
+		jsonrpc_finish(req, false, fy_invalid, 0, CURLE_OK);
+		if (detach)
+			req->conn = NULL;
+	}
+}
+
+static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
+				      const char *why)
+{
+	jsonrpc_conn_settle(conn, why, false);
 }
 
 static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
@@ -357,6 +379,15 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 		n = read(ev->fd, chunk, sizeof(chunk));
 	} while (n < 0 && errno == EINTR);
 	if (n > 0) {
+		/* Reject an oversized frame before growing the receive buffer. */
+		if (conn->rx.len + (size_t)n + 1 > JSONRPC_FRAME_MAX) {
+			fyai_error(conn->ctx,
+				   "%s frame exceeds %lu bytes", conn->name,
+				   (unsigned long)JSONRPC_FRAME_MAX);
+			jsonrpc_drop_source(&conn->read_src);
+			jsonrpc_conn_fail_pending(conn, "overflowed");
+			return FYAIEA_CONTINUE;
+		}
 		rc = response_buffer_reserve(&conn->rx,
 					     conn->rx.len + (size_t)n + 1);
 		if (rc) {
@@ -376,6 +407,12 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 				remaining);
 			conn->rx.len = remaining;
 			conn->rx.data[remaining] = '\0';
+		}
+		if (conn->protocol_failed) {
+			jsonrpc_drop_source(&conn->read_src);
+			jsonrpc_conn_fail_pending(conn,
+						  "sent an invalid frame");
+			return FYAIEA_CONTINUE;
 		}
 		/* Leave further bytes readable so other ready sources get a turn. */
 		return FYAIEA_CONTINUE;
@@ -785,6 +822,8 @@ void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 	if (conn && conn->transport == JSONRPC_STDIO) {
 		jsonrpc_drop_source(&conn->read_src);
 		jsonrpc_drop_source(&conn->write_src);
+		/* Settle and detach requests before destroying the connection. */
+		jsonrpc_conn_settle(conn, "was destroyed", true);
 		free(conn->rx.data);
 		free(conn->tx.data);
 		conn->rx.data = conn->tx.data = NULL;
