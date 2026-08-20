@@ -2084,6 +2084,9 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->cfg = cfg;
 
 	ctx->stdout_tty = terminal_is_tty(STDOUT_FILENO);
+	if (!terminal_window_size(STDOUT_FILENO, &ctx->tty_rows, &ctx->tty_cols))
+		(void)terminal_window_size(STDERR_FILENO, &ctx->tty_rows,
+					   &ctx->tty_cols);
 
 	/* Before anything can render: every later step reports through it. */
 	ctx->sink = fyai_sink_create(ctx);

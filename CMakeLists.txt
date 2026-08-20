@@ -445,6 +445,7 @@ set(FYAI_SOURCES
     src/fyai_storage.c
     src/fyai_stream.c
     src/fyai_terminal.c
+    src/fyai_terminal_session.c
     src/fyai_schema.c
     src/fyai_tools.c
     src/fyai_tool_spec.c
@@ -474,7 +475,10 @@ target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
     ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl OpenSSL::Crypto
-    ${ASAN_LINK_OPTS})
+    libfyvterm::libfyvterm ${ASAN_LINK_OPTS})
+if(UNIX AND NOT APPLE)
+    target_link_libraries(fyai PRIVATE util)
+endif()
 if(ENABLE_LIBSECRET)
     target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
     target_compile_definitions(fyai PRIVATE HAVE_LIBSECRET)

@@ -196,6 +196,8 @@ struct fyai_cfg {
 	int read_hard_max_bytes;	/* cap on a model-requested size */
 	int shell_max_output_tokens;	/* default shell output cap (0 = none) */
 	int shell_hard_max_output_tokens; /* cap on a model-requested size */
+	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */
+	int shell_tty_cols;		/* PTY columns (0 = follow the terminal) */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
@@ -449,6 +451,11 @@ struct fyai_ctx {
 	struct fy_generic_builder *auth_gb;
 	bool auth_retry_done;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
+	/* The size of the real terminal, recorded by the parent. A forked tool
+	 * child inherits it, because it calls setsid() and can no longer ask
+	 * the kernel itself. 0 = unknown. */
+	int tty_rows;
+	int tty_cols;
 	bool tool_output_displayed;
 	/* The sole progressive transcript document for the active user or
 	 * assistant output. Owned by this context, never by a signal handler. */

@@ -21,6 +21,8 @@
 int markdown_render_width(void);
 int markdown_render_height(void);
 bool terminal_is_tty(int fd);
+/* True terminal geometry for @fd; false when it is not a terminal. */
+bool terminal_window_size(int fd, int *rowsp, int *colsp);
 bool ansi_color_on(const char *color, int fd);
 bool markdown_color_enabled(const char *color);
 const char *terminal_detect_theme(void);

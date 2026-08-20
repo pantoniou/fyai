@@ -88,6 +88,24 @@
           type: string
           description: |-
             Shell command to execute.
+        tty:
+          type: boolean
+          description: |-
+            Run the command in a pseudo-terminal and return the rendered screen
+            with the lines that scrolled off it, instead of the raw byte stream.
+            Use it for a program that behaves differently without a terminal,
+            such as one that colours or paginates its output. A program that
+            waits for input will wait until the time limit expires.
+        rows:
+          type: integer
+          description: |-
+            Rows of the pseudo-terminal. Defaults to the terminal of the user,
+            or 24.
+        cols:
+          type: integer
+          description: |-
+            Columns of the pseudo-terminal. Defaults to the terminal of the
+            user, or 80.
         workdir:
           type: string
           description: |-

@@ -37,6 +37,7 @@
 #include "fyai_session.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
+#include "fyai_terminal_session.h"
 #include "fyai_tools.h"
 #include "fyai_prof.h"
 #include "fyai_sink.h"
@@ -841,6 +842,39 @@ static size_t fyai_shell_output_bytes(struct fyai_ctx *ctx, fy_generic call)
 	return (size_t)n * FYAI_BYTES_PER_TOKEN;
 }
 
+/*
+ * The PTY size for one call: the model's request, then the configuration, then
+ * the real terminal the parent recorded, then the fixed default. A size the
+ * model asks for is bounded, because a huge screen costs output budget for no
+ * gain.
+ */
+#define FYAI_TTY_MAX_ROWS	1000
+#define FYAI_TTY_MAX_COLS	1000
+
+static int fyai_shell_tty_dim(long long asked, int configured, int actual,
+			      int dflt, int max)
+{
+	int n;
+
+	n = asked > 0 ? (int)(asked < max ? asked : max) :
+	    configured > 0 ? configured :
+	    actual > 0 ? actual : dflt;
+	return n > max ? max : n;
+}
+
+static void fyai_shell_tty_size(struct fyai_ctx *ctx, fy_generic call,
+				int *rowsp, int *colsp)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+
+	*rowsp = fyai_shell_tty_dim(fy_get(call, "rows", 0LL),
+				    cfg->shell_tty_rows, ctx->tty_rows,
+				    FYAI_TTY_ROWS_DEFAULT, FYAI_TTY_MAX_ROWS);
+	*colsp = fyai_shell_tty_dim(fy_get(call, "cols", 0LL),
+				    cfg->shell_tty_cols, ctx->tty_cols,
+				    FYAI_TTY_COLS_DEFAULT, FYAI_TTY_MAX_COLS);
+}
+
 /* Keep the end of a stream and report the number of omitted bytes. */
 static char *fyai_shell_bound_alloc(const char *text, size_t max_bytes)
 {
@@ -897,15 +931,84 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	char *bounded;
 	char *ret = NULL;
 	int rc;
+	struct fyai_terminal_result tty_result = {};
+	struct fyai_terminal_opts tty_opts = {};
+	fy_generic tty;
 
 	*okp = false;
 	if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
 		return NULL;
 
 	command = fy_get(args, "command", fy_invalid);
+	tty = fy_get(args, "tty", fy_false);
 	workdir = fy_get(args, "workdir", fy_invalid);
 	opts.workdir = fy_castp(&workdir, (const char *)NULL);
 	opts.timeout_ms = fyai_shell_timeout_ms(ctx, args, false);
+	if (fy_generic_is_bool(tty) && fy_castp(&tty, (_Bool)false)) {
+		budget = fyai_shell_output_bytes(ctx, args);
+		tty_opts.workdir = opts.workdir;
+		tty_opts.timeout_ms = opts.timeout_ms;
+		tty_opts.max_bytes = budget;
+		tty_opts.output_fn = fyai_shell_output;
+		tty_opts.output_data = ctx;
+		fyai_shell_tty_size(ctx, args, &tty_opts.rows, &tty_opts.cols);
+
+		rc = fyai_terminal_session_run(ctx, fy_castp(&command, ""),
+					       sandbox, &tty_opts, &tty_result);
+		fyai_shell_live_close(ctx);
+		if (rc) {
+			fyai_error(ctx,
+				"shell: could not run the command on a terminal");
+			goto out;
+		}
+
+		if (tty_result.binary) {
+			msg = fy_sprintfa("binary output: %zu bytes\n",
+					  tty_result.raw_bytes);
+			if (!cfg->markdown)
+				fyai_report(ctx, "%s", msg);
+			rc = response_buffer_append(&buf, msg);
+		} else {
+			bounded = fyai_shell_bound_alloc(tty_result.output,
+							 budget);
+			rc = response_buffer_append(&buf, bounded ? bounded :
+							  tty_result.output);
+			free(bounded);
+		}
+		if (rc)
+			goto out;
+
+		if (tty_result.timed_out) {
+			msg = fy_sprintfa(
+				"\ntool error: command timed out after %u ms\n",
+				opts.timeout_ms);
+		} else if (tty_result.signaled) {
+			if (fyai_interrupt_pending(ctx) || tty_result.cancelled)
+				msg = "\ntool error: interrupted\n";
+			else
+				msg = fy_sprintfa(
+					"\ntool error: command killed by signal %d\n",
+					tty_result.signal);
+		} else if (tty_result.exit_code == FYAI_SHELL_EXIT_WORKDIR &&
+			   opts.workdir) {
+			msg = fy_sprintfa(
+				"\ntool error: cannot enter workdir %s\n",
+				opts.workdir);
+		} else if (tty_result.exit_code) {
+			msg = fy_sprintfa(
+				"\ntool error: command exited with status %d\n",
+				tty_result.exit_code);
+		} else {
+			msg = NULL;
+			*okp = true;
+		}
+		if (msg && response_buffer_append(&buf, msg))
+			goto out;
+
+		ret = buf.data;
+		buf.data = NULL;
+		goto out;
+	}
 
 	if (run_shell_command_capture_cb(ctx, fy_castp(&command, ""), &result,
 					 fyai_shell_output, ctx, sandbox,
@@ -983,6 +1086,7 @@ out:
 	fyai_shell_live_close(ctx);
 	fyai_shell_sandbox_end(&sb);
 	free(buf.data);
+	fyai_terminal_result_cleanup(&tty_result);
 	shell_command_result_cleanup(&result);
 	return ret;
 }

@@ -210,6 +210,20 @@ properties:
         description: >-
           Upper bound on a `max_output_tokens` the model asks for. 0 removes
           the bound.
+      tty_rows:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Rows of the pseudo-terminal given to a `tty` shell call. 0 follows
+          the real terminal, and gives 24 when there is none.
+      tty_cols:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Columns of the pseudo-terminal given to a `tty` shell call. 0
+          follows the real terminal, and gives 80 when there is none.
   read:
     type: object
     additionalProperties: false

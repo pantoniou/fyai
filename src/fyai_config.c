@@ -261,6 +261,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	cfg->shell_hard_max_output_tokens = fy_get(shell,
 				"hard_max_output_tokens",
 				cfg->shell_hard_max_output_tokens);
+	cfg->shell_tty_rows = fy_get(shell, "tty_rows", cfg->shell_tty_rows);
+	cfg->shell_tty_cols = fy_get(shell, "tty_cols", cfg->shell_tty_cols);
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
 				cfg->agent_timeout_ms);
 	cfg->agent_max_timeout_ms = fy_get(fy_get(root, "agent"),
