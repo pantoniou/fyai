@@ -445,6 +445,27 @@ fyai tool read_file '{"path":"README.md"}'
 fyai tool shell '{"command":"git status --short"}'
 ```
 
+### A shell command on a terminal
+
+`shell` takes `tty: true`. The command then runs on a pseudo-terminal. The
+result is the screen that libfyvterm interprets from the byte stream, with the
+lines that scrolled off it in front. Use it for a program that behaves
+differently without a terminal.
+
+```sh
+fyai tool shell '{"command":"git log --oneline -5","tty":true}'
+```
+
+The screen has the size of the terminal of the user. It follows that terminal
+when the window changes size, because the parent watches `SIGWINCH` and gives
+the new size to the session. `shell/tty_rows` and `shell/tty_cols`
+set a fixed size instead, and the model can ask for one with `rows` and
+`cols`.
+
+A program that waits for input waits until the time limit expires, because
+there is no way to write to the terminal yet. Refer to
+`doc/pty-terminal-plan.md`.
+
 List catalogue-defined agent tool sets:
 
 ```sh
