@@ -171,6 +171,11 @@ reflog must validate each next link with `fyai_branch_entry_contained()`.
 
 ### Merge and rebase
 
+A stored `previous` link is data. Walk a conversation chain with
+`fyai_turn_foreach()`, which is bounded and detects a cycle; a corrupt chain
+must end a walk, not hang it. Validate a root before the peek path follows any
+reference in it.
+
 Conversations are append-only. A join selects an order. It does not reconcile
 text edits. Work in complete exchanges. Keep each question with its answer.
 `rebase` puts our exchanges after their exchanges. `merge` orders exchanges by
@@ -202,6 +207,11 @@ URL for the new provider.
 
 Keep the informational `catalog` block synchronized on every configuration
 commit. Remove it when the selected model is not in the catalogue.
+
+Validate at every ingestion point. `--set` and an explicit `--config` file are
+both checked against the schema before the value reaches the merged document.
+Put the schema problems in the diagnostic that reports the failure; do not
+write them separately.
 
 Configuration paths use slash-separated keys. Parse values as YAML flow
 documents. `--transient` places an in-memory builder above the durable arena
@@ -407,6 +417,16 @@ Do not register SIGINT with `signalfd`. Use
 `fyai_event_interrupt_open()`. The handler sets the pending flag, wakes the
 loop, and starts the watchdog. A pump that sees the interrupt must call
 `fyai_event_interrupt_ack()`. Reserve SIGALRM for the watchdog.
+`fyai_event_interrupt_close()` removes the handlers during context cleanup,
+because they name the context.
+
+The diagnostic dump is the one handler that does more than record and wake. It
+must report a loop that is stuck, which is the state a deferred dump could
+never reach, so it formats and writes from signal context. Keep it able to do
+that: no allocation, no stdio, no `tcgetattr()` - the terminal mode is probed
+when the dump is armed - and no blocking write. It refuses to start a second
+dump while one is running. Its walk of the loop lists is unsynchronized by
+design and stays bounded.
 
 Keep SIGPIPE blocked in the parent. Restore the disposition in children before
 `exec`. Set `CURLOPT_NOSIGNAL` on curl handles. Keep signal handlers
@@ -430,8 +450,16 @@ input and output. The sink keeps descriptor 1 clean for these programs.
 
 Close each descriptor above standard error before `exec`. A command must not
 hold the event loop, curl sockets, arena files, a control channel, or pipes from
-a sibling job. Close the descriptor range. Do not track individual
-descriptors. This prevents a new descriptor from becoming a leak. The child
+a sibling job. Close the descriptor range with `fyai_close_fds_from()`. Do not
+track individual descriptors. This prevents a new descriptor from becoming a
+leak.
+
+Every child that runs another program removes the credentials first with
+`fyai_env_sanitize()`. Do this in the child, and fail closed: a partial
+sanitize still gives the program a provider key. A configured `env` mapping is
+applied after it, because `setenv()` adds and replaces but never removes. An
+MCP stdio child follows the same rules and leads its own process group, so
+teardown can stop its descendants with it. The child
 sends `tool/progress` notifications and returns `{result, ok}`. It uses
 `/dev/null` as standard input and calls `setsid()`. Do not call `setpgid()` in
 the parent.
@@ -470,6 +498,17 @@ Apply shell `workdir` before Landlock confinement. Exit status 125 reports an
 unreachable working directory. Landlock is Linux-only. Other platforms use
 the same interface with no confinement backend. Keep command admission
 separate from filesystem confinement.
+
+A configured deny is carved out of every granted hierarchy, the broad scratch
+and system trees included. Landlock has no non-recursive rule, so a directory
+above a denied path cannot be granted whole: it is descended, each undenied
+child is granted, and the directory itself keeps only the right to list its
+entries. That cost is why the implicit arena deny stays scoped to the project
+root, and why a deny path that does not exist is left out.
+
+Fail closed on network egress. The kernel ABI is not the only condition: a
+build made against headers without the network access definitions restricts
+nothing on any kernel. Ask `fyai_sandbox_net_restrictable()`.
 
 ## Sub-agents
 
@@ -519,6 +558,13 @@ refresh work.
 A JSON-RPC standard-I/O connection owns its reader, writer, and buffers. Match
 responses by request ID. Remove a completed request from both connection lists
 before you release its storage.
+
+Every path that ends a connection settles each outstanding request, in
+`pending` and in `flush_wait`. A request with no timeout has no other way to
+complete. An invalid frame is such a path: the peer can hold the connection
+open indefinitely. Destruction also clears the connection pointer on each
+request it settles. One frame has a hard size limit, so a peer that sends no newline
+cannot grow the receive buffer without end.
 
 ## Diagnostics
 
@@ -628,7 +674,10 @@ test stubs. Declare tests with `FYAI_TEST_ENTRY(suite, name, entry)` after the
 includes in a `tests/fyai_*_test.c` file.
 
 Functional cases run the real binary with the scenario-driven mock provider.
-Keep them hermetic: localhost only, with private `HOME` and `XDG_*` paths.
+Keep them hermetic: localhost only, with private `HOME` and `XDG_*` paths. A
+case that looks for a process must scope the search to its own run - its
+process tree, or its scratch directory in the command line. A search of the
+whole machine finds another run's children. Never `pkill` a global pattern.
 
 ### Sanitizers
 
