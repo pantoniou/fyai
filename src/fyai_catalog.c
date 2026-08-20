@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "fyai_sink.h"
 #include "fyai_catalog.h"
@@ -120,12 +121,14 @@ fy_generic fyai_catalog_provider_for_model(fy_generic cat, const char *model,
 fy_generic fyai_catalog_provider(fy_generic cat, const char *name)
 {
 	fy_generic providers, p;
+	const char *provider_name;
 
 	if (!name)
 		return fy_invalid;
 	providers = fy_get(cat, "providers");
 	fy_foreach(p, providers) {
-		if (fy_equal(fy_get(p, "name"), name))
+		provider_name = fy_get(p, "name", "");
+		if (!strcasecmp(provider_name, name))
 			return p;
 	}
 	return fy_invalid;

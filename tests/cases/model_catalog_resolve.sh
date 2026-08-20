@@ -60,4 +60,10 @@ run_bare -m mockprov/foo api
 assert_status 0
 assert_stdout_contains "model bar, provider mockprov"
 
+# Provider registry keys are case-insensitive. Resolution still returns the
+# catalogue's canonical spelling, which also derives MOCKPROV_API_KEY.
+run_bare -m MOCKPROV/foo api
+assert_status 0
+assert_stdout_contains "model bar, provider mockprov"
+
 pass
