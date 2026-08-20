@@ -37,6 +37,8 @@ FYAI_TEST_ENTRY(jsonrpc, unserved_request_is_answered, jsonrpc_unserved_request_
 FYAI_TEST_ENTRY(jsonrpc, notification_during_request, jsonrpc_notification_during_request)
 FYAI_TEST_ENTRY(jsonrpc, skips_non_frames, jsonrpc_skips_non_frames)
 FYAI_TEST_ENTRY(jsonrpc, read_yields, jsonrpc_read_yields)
+FYAI_TEST_ENTRY(jsonrpc, malformed_frame_fails_pending, jsonrpc_malformed_frame_fails_pending)
+FYAI_TEST_ENTRY(jsonrpc, destroy_settles_pending, jsonrpc_destroy_settles_pending)
 
 #define TEST_BOUND_MS 5000
 
@@ -456,6 +458,54 @@ static void test_read_yields(void)
 	printf("ok - JSON-RPC reads yield between chunks\n");
 }
 
+static void test_malformed_frame_fails_pending(void)
+{
+	struct call_result cr = {};
+	struct jsonrpc_request *req;
+	struct peer p;
+
+	/*
+	 * A peer that writes a broken frame and then holds the connection
+	 * open must not leave a request outstanding indefinitely: the request
+	 * carries no timeout here, so the protocol failure is its only way
+	 * out.
+	 */
+	peer_open(&p);
+	req = jsonrpc_request_submit(p.conn, "ping", fy_map_empty, 1, false,
+				     on_complete, &cr);
+	FYAI_TCHECK(req);
+	peer_send(&p, "{\"jsonrpc\":\"2.0\",\"id\":");
+	FYAI_TCHECK(!fyai_event_loop_run_until(loop(), &cr.done, TEST_BOUND_MS));
+
+	FYAI_TCHECK(cr.done);
+	FYAI_TCHECK(!cr.ok);
+	jsonrpc_request_destroy(req);
+	peer_close(&p);
+	printf("ok - an invalid frame settles the pending requests\n");
+}
+
+static void test_destroy_settles_pending(void)
+{
+	struct call_result cr = {};
+	struct jsonrpc_request *req;
+	struct peer p;
+
+	/* Destroying the connection completes its remaining requests. */
+	peer_open(&p);
+	req = jsonrpc_request_submit(p.conn, "ping", fy_map_empty, 1, false,
+				     on_complete, &cr);
+	FYAI_TCHECK(req);
+	jsonrpc_conn_destroy(p.conn);
+	p.conn = NULL;
+
+	FYAI_TCHECK(cr.done);
+	FYAI_TCHECK(!cr.ok);
+	jsonrpc_request_destroy(req);
+	close(p.from_client);
+	close(p.to_client);
+	printf("ok - destruction settles an outstanding request\n");
+}
+
 /* Run one test with an isolated diagnostic context. */
 static int jsonrpc_run(void (*testfn)(void))
 {
@@ -531,4 +581,14 @@ int jsonrpc_skips_non_frames(void)
 int jsonrpc_read_yields(void)
 {
 	return jsonrpc_run(test_read_yields);
+}
+
+int jsonrpc_malformed_frame_fails_pending(void)
+{
+	return jsonrpc_run(test_malformed_frame_fails_pending);
+}
+
+int jsonrpc_destroy_settles_pending(void)
+{
+	return jsonrpc_run(test_destroy_settles_pending);
 }
