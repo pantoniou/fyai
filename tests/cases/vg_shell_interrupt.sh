@@ -26,7 +26,11 @@ mock_start native_shell_interrupt.json
 VG_DIR="$TEST_DIR/vg"
 mkdir -p "$VG_DIR"
 
+# Memcheck can make initialization substantially slower on shared CI runners.
+# Keep this below the case's 60-second CTest limit while avoiding the PTY
+# driver's normal 15-second interactive-session deadline.
 FYAI_PTY_INPUT="run it" \
+FYAI_PTY_TIMEOUT="45" \
 FYAI_PTY_PROGRESS_NEEDLE="nsiRAN" \
 FYAI_PTY_PROGRESS_TIMEOUT="20" \
 FYAI_PTY_INTERRUPT_AFTER_PROGRESS="1" \

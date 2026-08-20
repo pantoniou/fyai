@@ -78,6 +78,7 @@ def main():
         "FYAI_PTY_EDIT_NEEDLE", "edited prompt").encode()
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
+    session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15"))
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     pid = os.fork()
@@ -93,7 +94,7 @@ def main():
         os.execv(argv[0], argv)
     os.close(child)
     data = b""
-    deadline = time.monotonic() + 15
+    deadline = time.monotonic() + session_timeout
     try:
         # Wait until the initial synchronized update has made the input cursor
         # visible. Fixed sleeps race ASAN and slower CI runners, causing input
