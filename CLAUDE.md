@@ -4,9 +4,10 @@ Use this file when you change this repository.
 
 ## Project
 
-`fyai` is a stateless, daemon-less AI coding assistant written in C. One
-invocation runs one complete tool-use loop, commits canonical state, and exits.
-An interactive invocation owns its terminal UI only for its process lifetime.
+`fyai` is a stateless AI coding assistant written in C. It does not use a
+daemon. One invocation runs one complete tool-use loop. It commits the
+canonical state and then exits. An interactive invocation owns its terminal UI
+only while its process runs.
 
 ### Architecture rules
 
@@ -16,8 +17,8 @@ An interactive invocation owns its terminal UI only for its process lifetime.
 - Keep canonical data immutable, deterministic, and address-stable between
   processes.
 - Do not relocate an arena during normal operation.
-- Keep tools Unix-shaped: read files, apply writes or patches, and run shell
-  commands under approval.
+- Keep tools compatible with Unix conventions. Tools read files, apply writes
+  or patches, and run approved shell commands.
 
 ## Data model
 
@@ -26,9 +27,9 @@ such as `fy_gb_mapping()` and `fy_gb_sequence()`. Do not construct JSON by
 hand. Emit compact JSON only at provider boundaries with `FYOPEF_MODE_JSON`.
 Parse provider responses directly into generics.
 
-Keep provider wire data, such as request IDs, tool-call IDs, finish reasons,
-and timestamps, in provider-stream generics. Derive provider-independent
-content before you calculate canonical identity.
+Keep provider wire data in provider-stream generics. This data includes request
+IDs, tool-call IDs, finish reasons, and timestamps. Derive provider-independent
+content before you calculate the canonical identity.
 
 Use typed accessor defaults:
 
@@ -40,15 +41,16 @@ fy_get(obj, "items", fy_invalid)
 
 ### Generic string lifetime
 
-Prefer `fy_castp()` to `fy_cast()`. A short string can be stored inside the
-`fy_generic` word. A pointer returned by `fy_cast(v, "")` can therefore point
-into the local copy of `v`. That pointer becomes invalid when the copy leaves
-scope. Use `fy_castp(&v, "")` at the use site, with a long-lived generic. Do
-not cache a cast pointer beyond the lifetime of its generic.
+Prefer `fy_castp()` to `fy_cast()`. A short string can be in the `fy_generic`
+word. Thus, a pointer from `fy_cast(v, "")` can point into the local copy of
+`v`. The pointer becomes invalid when the copy leaves scope. Use
+`fy_castp(&v, "")` at the use site. Make sure that the generic has a sufficient
+lifetime. Do not keep a cast pointer longer than its generic.
 
-A `const char *` loop variable of `fy_foreach()`, `fy_foreach_key_value()` or
-`fy_foreach_idx_item()` is safe. The typed accessor takes the address of the
-stored item, so the pointer is into collection storage, not into a copy.
+A `const char *` loop variable from `fy_foreach()`,
+`fy_foreach_key_value()`, or `fy_foreach_idx_item()` is safe. The typed
+accessor uses the address of the stored item. Thus, the pointer refers to
+collection storage and not to a copy.
 
 ### Short forms
 
@@ -72,18 +74,18 @@ Use the short generic API. It says the same thing with less text:
 
 ### Empty strings
 
-An empty-string generic is a string, not null. The YAML emitter must write an
-empty string as `""` when the style is not set. A bare empty scalar, such as
-`key:`, can parse as null under the core and YAML 1.1 schemas.
+An empty-string generic is a string. It is not null. If the style is not set,
+the YAML emitter must write an empty string as `""`. The core and YAML 1.1
+schemas can parse a bare empty scalar, such as `key:`, as null.
 
 Keep empty-string configuration keys as `type: string` in
 `data/config.schema.yaml`. Do not allow null to hide an emitter defect.
 
 ### Generic initialization
 
-A zeroed `fy_generic` is not `fy_invalid`. Zero can decode as an empty
-sequence. After `fyai_setup()` clears `struct fyai_ctx`, initialize every
-generic field explicitly.
+A zeroed `fy_generic` is not `fy_invalid`. Zero can represent an empty
+sequence. `fyai_setup()` clears `struct fyai_ctx`. After this operation,
+initialize each generic field explicitly.
 
 ## Source layout
 
@@ -119,24 +121,24 @@ The durable root has this versioned shape:
 ```
 
 Each branch entry owns its conversation head and configuration. The root owns
-the catalogue. There is no sidecar configuration file and no root-level
-configuration value.
+the catalogue. Do not use a sidecar configuration file. Do not use a
+root-level configuration value.
 
-Three places adopt a published root: the publish, the reconcile after a lost
-CAS, and `fyai_branches_refresh()`. Each must set `ctx->branch_prev` from the
-root it adopts. An entry kept from an older root chains the next publish to the
-wrong predecessor, and makes the conflict check compare entries that came from
-two different roots.
+Three operations adopt a published root: publish, reconciliation after a lost
+CAS, and `fyai_branches_refresh()`. Each operation must set
+`ctx->branch_prev` from the adopted root. Do not keep an entry from an older
+root. Such an entry links the next publish to the wrong predecessor. It also
+makes the conflict check compare entries from different roots.
 
-A publish that gives up must say what it could not write and why: name the
-branch, and say whether the race was lost or the state could not be built.
-A caller that only reports that the publish failed leaves no way to tell a
-lost race from an arena that is out of space.
+If a publish stops, report what it could not write and why. Name the branch.
+State whether the operation lost the race or could not build the state. Do not
+report only that the publish failed. That report cannot distinguish a lost
+race from an arena that has insufficient space.
 
-When you add a root key, update all root build, decode, validation, reflog
-truncation, and CAS-conflict merge paths. A concurrent publish must preserve
-changes to other branches. Bound both reflog chains during garbage collection:
-the root `prev` chain and each branch entry `prev` chain.
+When you add a root key, update all applicable paths. These paths build,
+decode, validate, truncate the reflog, and merge CAS conflicts. A concurrent
+publish must preserve changes to other branches. During garbage collection,
+limit the root `prev` chain and each branch-entry `prev` chain.
 
 ### Branches and references
 
@@ -155,23 +157,23 @@ the root `prev` chain and each branch entry `prev` chain.
 - Set the operation with `fyai_branch_op_set()`. A publish consumes and clears
   it.
 
-A branch start point includes both the conversation and the configuration at
-that point. Use `fyai_resolve_ref_state()` for `branch create` and
-`checkout -b`. Do not combine a conversation from one state with configuration
-from another state.
+A branch start point includes the conversation and the configuration at that
+point. Use `fyai_resolve_ref_state()` for `branch create` and `checkout -b`.
+Do not combine a conversation from one state with a configuration from a
+different state.
 
-`--root` pins one published root and makes the invocation read-only. Reject
-writes. Do not silently convert them to transient writes. Treat the supplied
-handle as untrusted input. Find it by walking the root reflog and comparing raw
-values. Run a cheap shape check for each entry, then run full validation once
-on the matching entry. Keep full root validation shallow. Code that walks a
+`--root` selects one published root and makes the invocation read-only. Reject
+writes. Do not convert them to transient writes. Treat the supplied handle as
+untrusted input. Walk the root reflog and compare raw values to find the
+handle. Do a low-cost shape check for each entry. Then do one full validation
+of the matching entry. Keep full root validation shallow. Code that walks a
 reflog must validate each next link with `fyai_branch_entry_contained()`.
 
 ### Merge and rebase
 
-Conversations are append-only. A join chooses an order; it does not reconcile
-text edits. Work in complete exchanges so that a question stays with its
-answer. `rebase` puts our exchanges after theirs. `merge` orders exchanges by
+Conversations are append-only. A join selects an order. It does not reconcile
+text edits. Work in complete exchanges. Keep each question with its answer.
+`rebase` puts our exchanges after their exchanges. `merge` orders exchanges by
 their reflog time.
 
 Read an exchange time from the reflog entry for the head that ends the
@@ -192,11 +194,11 @@ Build one merged configuration document in this order:
 Use the user configuration file only to initialize an arena that has no stored
 configuration. Do not overlay it on an existing arena configuration.
 
-Treat `cfg->config_doc` as the source of configuration intent. Populate struct
-fields in one `apply_config` pass. Derive the endpoint, provider, and catalogue
-`max_tokens` at model-resolution time. Do not persist these derived values.
-When the model changes, derive and persist the API grammar and URL for the new
-provider.
+Treat `cfg->config_doc` as the source of configuration intent. Populate the
+structure fields in one `apply_config` pass. During model resolution, derive
+the endpoint, provider, and catalogue `max_tokens`. Do not persist these
+derived values. When the model changes, derive and persist the API grammar and
+URL for the new provider.
 
 Keep the informational `catalog` block synchronized on every configuration
 commit. Remove it when the selected model is not in the catalogue.
@@ -215,47 +217,48 @@ Reject raw keys at every arena ingestion point.
 
 ### Transient failures
 
-A provider request that failed for a transient reason is made again after a
-backoff. `fyai_http_transient()` is the one decision for which failures pass:
-a refused or lost connection, a timeout, and HTTP 408, 429, 500, 502, 503 and
-504. Every other status is the provider's answer and must not be repeated.
+Retry a provider request after a transient failure and a backoff.
+`fyai_http_transient()` makes the retry decision. Retry a refused or lost
+connection, a timeout, and HTTP 408, 429, 500, 502, 503, or 504. Do not retry
+another HTTP status. It is the provider response.
 
-A status does not see every transient failure. On a streamed endpoint the
-connection succeeds, the status is 200, and a rate limit arrives as an error
-event inside the stream. `fyai_provider_error_transient()` reads the `code` and
-`type` of the error object for that case. A spent quota is deliberately not in
-the set: it does not refill while a backoff runs.
+An HTTP status does not identify every transient failure. On a streamed
+endpoint, the connection can succeed with status 200. A rate-limit error can
+then arrive in the stream. For this case, `fyai_provider_error_transient()`
+reads the `code` and `type` of the error object. Do not classify a spent quota
+as transient. The quota does not refill during a backoff.
 
-Hold the text of a transient in-stream failure in the stream and raise it only
-when no attempt is left. A turn that recovers must raise nothing, and a turn
-that does not must read the same as it did before it was held.
+Keep the text of a transient stream failure. Raise it only after the last
+attempt fails. Do not raise it if the turn recovers. If the turn does not
+recover, report the original text.
 
-An event handler that stops a stream makes curl report a write error. Decide on
-the parsed event before that transport error, which describes only how the
-stream stopped.
+If an event handler stops a stream, curl reports a write error. Process the
+parsed event before the transport error. The transport error identifies only
+how the stream stopped.
 
-The delay doubles with each attempt, stops at `retry/max_delay_ms`, and keeps a
-random part so that requests refused together do not return together. A
-`Retry-After` header replaces the calculated delay under the same ceiling. Do
-not use `random()` for the jitter: nothing seeds it, so each process would draw
-the same sequence.
+Double the delay after each attempt. Do not exceed `retry/max_delay_ms`. Add a
+random part so that requests do not retry at the same time. A `Retry-After`
+header replaces the calculated delay. Apply the same maximum delay. Do not use
+`random()` for the jitter. It has no seed, so each process gets the same
+sequence.
 
-A delegated sub-agent sends its wait through `fyai_tool_progress_emit()`, so it
-reaches the parent's band for that delegation. A status line from a child would
-land on the parent's terminal raw, beside the display instead of inside it.
+A delegated sub-agent sends its wait through `fyai_tool_progress_emit()`. The
+wait then reaches the parent work band for that delegation. Do not send a
+status line from the child. It would appear directly on the parent terminal
+and outside the display.
 
-Present a retry as a work band through the sink, not as a loose status line: a
-wait is a step of the running turn. Repaint the band for each attempt and close
-it once, at the single notify point every terminal path reaches. A backend with
-no bands keeps the plain status line.
+Present a retry as a work band through the sink. Do not use a separate status
+line. A wait is a step of the active turn. Repaint the band for each attempt.
+Close it one time at the common notification point. A backend without bands
+uses the plain status line.
 
-Retry a streamed request only when it presented nothing. A transport error in
-the middle of a stream keeps the prose the user has already seen, and a second
-attempt would draw it one more time.
+Retry a streamed request only if it presented no content. After a mid-stream
+transport error, keep the text that the user already saw. Do not retry because
+a retry would show the text again.
 
-A request that waits out a backoff has no transfer to cancel. Cancellation and
-destruction must retire the timer and settle the request, or an interrupt has
-nothing to act on.
+A request in a backoff has no transfer to cancel. Cancellation and destruction
+must remove the timer and complete the request. Otherwise, an interrupt cannot
+act on the request.
 
 ### Provider grammars
 
@@ -279,12 +282,12 @@ builder.
 
 ## Output and terminal UI
 
-`src/fyai_sink.c` is the one rendering component. Every byte the user sees goes
-through it. A producer builds Markdown source and hands it over; the sink
-decides how to present it. Do not write to standard output or standard error
-from anywhere else. `tests/sink-only.sh` fails the build on a stray write, and
-`tests/sink-only-allow.txt` names the few files that cannot use the sink and
-states why for each.
+`src/fyai_sink.c` is the only rendering component. Send all user-visible bytes
+through it. A producer builds Markdown source and gives it to the sink. The
+sink controls the presentation. Do not write to standard output or standard
+error from another component. `tests/sink-only.sh` fails the build if it finds
+such a write. `tests/sink-only-allow.txt` lists the files that cannot use the
+sink and gives the reason for each file.
 
 ### Streams
 
@@ -304,42 +307,40 @@ text: a model name or a path inside a status line must not be read as markup.
 
 ### Backends
 
-A backend is the presentation policy behind `struct fyai_sink_ops`. The
-terminal backend repaints in place and owns the sole progressive Markdown
-renderer in the process. The capture backend keeps what it was asked to
-present; it is the substrate a document backend such as HTML is written
-against, and it lets a test read back what a run would have shown. Every entry
-point may be NULL: a backend that cannot present something makes the sink
-discard it, so a producer never has to ask what the destination is.
+A backend supplies the presentation policy for `struct fyai_sink_ops`. The
+terminal backend repaints in place. It owns the only progressive Markdown
+renderer in the process. The capture backend keeps the requested content. A
+document backend, such as HTML, uses the capture backend. Tests also use it to
+read the output of a run. Each entry point can be NULL. If a backend cannot
+present content, the sink discards the content. A producer does not examine the
+destination.
 
 ### Documents
 
-`src/fyai_output.c` owns the durable half of a transcript document: the
-Markdown source and its fragments. Keep one tagged document open for each
-system, user, or assistant output, and keep an assistant document open across
-the complete model and tool loop. Store the final document as
-`display_outputs`. Replay these documents for history. Reconstruct legacy
-arenas from message and provider data only as a fallback.
+`src/fyai_output.c` owns the durable part of a transcript document. This part
+contains the Markdown source and its fragments. Keep one tagged document open
+for each system, user, or assistant output. Keep an assistant document open
+during the complete model and tool loop. Store the final document as
+`display_outputs`. Replay these documents for history. Reconstruct a legacy
+arena from message and provider data only as a fallback.
 
 - Add generated text with `fyai_output_printf()`.
 - Add provider bytes with `fyai_output_append()`.
-- Add source another path has already drawn with
-  `fyai_output_append_recorded()`. A tool exchange is recorded this way: the
-  tool path presents it, and presenting it again from the document would draw
-  it twice.
+- Use `fyai_output_append_recorded()` to add source that another path already
+  drew. Use it for a tool exchange. The tool path presents the exchange. Do not
+  present it again from the document.
 - A tool exchange stores a `tool_head` fragment over its title row, with the
   outcome of the call. Replay draws the state mark and the failure cause from
   that fragment through `markdown_render_tool_head()`, the one renderer the
   live work band also uses. Do not draw a tool title row anywhere else.
-- Presentation mode is fixed when the document opens: live, one shot, or
-  passthrough. Do not infer it later from the current state; a paused document
-  that closes would then present everything a second time.
-- A delegated sub-agent and a forked tool child present nothing. They own file
-  descriptor 1 for JSON-RPC frames. The sink keeps that promise centrally:
-  `sink_may_present()` decides it, the document path and the direct write and
-  Markdown paths all ask it, and a stream bound for descriptor 1 in such a
-  process is dropped. Do not move it to standard error instead; that trades a
-  corrupted frame for a corrupted display in the parent.
+- Set the presentation mode when the document opens. The mode is live,
+  one-shot, or passthrough. Do not infer the mode later from the current state.
+  If you do, a paused document can present all content again when it closes.
+- A delegated sub-agent and a forked tool child do not present content. They
+  use file descriptor 1 for JSON-RPC frames. `sink_may_present()` enforces this
+  rule. The document, direct-write, and Markdown paths use this function. The
+  sink drops a stream for descriptor 1 in these processes. Do not move the
+  stream to standard error. That change can corrupt the parent display.
 - Do not create a second transcript renderer.
 - Do not call `fytim_pump()` from a render path. Set `frame_pending` and let
   the UI owner paint.
@@ -416,39 +417,39 @@ diagnostic indirect through `fyai_with_diag()` and `fyai_report_diag()`.
 
 ## Tool jobs, shell capture, and time limits
 
-A forked tool child carries its JSON-RPC control channel on descriptors 3 and
-4, not on standard input and output. It is forked and never exec'd, so the
-numbers are a private contract between the two sides. Keeping frames off
-descriptor 1 means a stray write lands on the terminal, where it is untidy,
-instead of inside a frame, where it makes the parent read a fragment and lose
-the frame around it. The channel is close-on-exec, so a command the shell tool
-runs cannot reach it.
+A forked tool child uses descriptors 3 and 4 for its JSON-RPC control channel.
+It does not use standard input and output for this channel. The child is forked
+and does not call `exec`, so these descriptor numbers are a private contract.
+A stray write to descriptor 1 goes to the terminal and not into a JSON-RPC
+frame. Thus, it cannot make the parent read an invalid frame. The control
+channel is close-on-exec. A shell command cannot access it.
 
-The standard descriptors of an MCP server and of the `fyai agent --rpc` verb
-are not ours to choose: those peers are separate programs whose contract is
-standard input and output. There the sink is what keeps descriptor 1 clean.
+Do not change the standard descriptors of an MCP server or the
+`fyai agent --rpc` verb. These peers are separate programs that use standard
+input and output. The sink keeps descriptor 1 clean for these programs.
 
-Close every descriptor above standard error before exec. A command must not
-hold the event loop, curl sockets, arena files, a control channel or a sibling
-job's pipes. Close the range rather than track each descriptor, so a new one
-cannot become a leak by being forgotten. It sends `tool/progress` notifications and
-returns `{result, ok}`. It uses `/dev/null` as standard input and calls
-`setsid()`. Do not call `setpgid()` in the parent.
+Close each descriptor above standard error before `exec`. A command must not
+hold the event loop, curl sockets, arena files, a control channel, or pipes from
+a sibling job. Close the descriptor range. Do not track individual
+descriptors. This prevents a new descriptor from becoming a leak. The child
+sends `tool/progress` notifications and returns `{result, ok}`. It uses
+`/dev/null` as standard input and calls `setsid()`. Do not call `setpgid()` in
+the parent.
 
 Set job fields after `fyai_tool_job_spawn()` because that function clears the
 job. Cancel a complete process tree with
 `fyai_event_add_child_terminate_group()`.
 
-Finish shell capture when the direct child is reaped. Do not wait for pipe EOF;
-a shell descendant can keep a pipe open. Keep the shell child in the tool
-job's process group.
+Finish shell capture when the direct child is reaped. Do not wait for pipe EOF.
+A shell descendant can keep a pipe open. Keep the shell child in the process
+group of the tool job.
 
 Arm time limits in the parent with `fyai_tool_job_submit()`. A time limit
-belongs to the complete job, not to one child command. Retire a job's deadline
-when the job finishes, not when it is collected: a group is collected only
-after every job in it is done, so a job that finished early keeps waiting for
-its slowest sibling, and an armed timer would mark a complete job timed out. Do not arm a second
-child-side limit when `cfg->tool_child` is set.
+applies to the complete job and not to one child command. Remove the deadline
+when the job finishes. Do not wait until collection. A group is collected only
+after all its jobs finish. Thus, a completed job can wait for a slower sibling.
+An active timer could incorrectly mark that job as timed out. Do not arm a
+second limit in the child when `cfg->tool_child` is set.
 
 `timeout_ms` is the user default. `max_timeout_ms` limits a value supplied by
 the model. Apply the ceiling only to a model-supplied value. Use this order:
@@ -461,9 +462,9 @@ The function shell tool uses argument `timeout`. A native Responses
 `fyai_shell_timeout_requested()`.
 
 Only the parent reports expiration. Preserve the normal result shape. A native
-shell result remains a list of `{stdout, stderr, outcome}`. On expiration, set
-the outcome to `{type: timeout, timeout_ms}` and keep all captured output. Do
-not replace the result with an error string or a bare signal outcome.
+shell result is a list of `{stdout, stderr, outcome}`. On expiration, set the
+outcome to `{type: timeout, timeout_ms}`. Keep all captured output. Do not
+replace the result with an error string or a signal outcome.
 
 Apply shell `workdir` before Landlock confinement. Exit status 125 reports an
 unreachable working directory. Landlock is Linux-only. Other platforms use
@@ -527,35 +528,36 @@ command boundaries. Do not print diagnostics during streaming output.
 Define `FYAI_MODULE` once in each source file. Let the module add the message
 prefix. Do not type the prefix into each message.
 
-The first error is the cause. Demote later errors to debug until the sink is
-drained or reset. A path that gives up must therefore state why where it
-happens: a caller that only reports that something failed leaves the user with
-no reason at all. `fyai_run_turn()` states a cause on every path that returns
-no result, and keeps a backstop for any that does not.
+The first error is the cause. Demote subsequent errors to debug until the sink
+is drained or reset. A path that stops must report the cause at that location.
+Do not report only that an operation failed. That report gives no cause.
+`fyai_run_turn()` reports a cause on each path that returns no result. It also
+supplies a fallback cause.
 
-Identity belongs to whoever holds it. A sub-agent raises the cause; only the
-caller knows which of several parallel sub-agents it belongs to, so the caller
-adds the name. Copy a name out of generic storage before running the
-sub-agent: the arena is reopened and a cast pointer does not survive it. Use `fyai_diag_reset()` after a caller recovers from an
-error.
+The component that holds an identity owns it. A sub-agent raises the cause.
+Only the caller knows which parallel sub-agent raised it, so the caller adds
+the name. Copy a name from generic storage before you run the sub-agent. The
+operation reopens the arena, and a cast pointer does not remain valid. Use
+`fyai_diag_reset()` after a caller recovers from an error.
 
-A forked tool child leaves through `_exit()`, so its sink is drained by nobody.
-It must hand its collected diagnostics to the parent: `fyai_diag_take_generic()`
-claims them into the `tool/run` response, and the parent adopts them with
-`fyai_diag_adopt()` when it collects the job. Severity and module stay as the
-child recorded them. The parent adds the marker, because only the parent knows
-which of several children raised it: `[main/agent:greeter] the reason`. A
-message that arrives already marked keeps its marker, so through two levels of
-delegation the innermost path names the raiser.
+A forked tool child exits through `_exit()`. No component drains its sink. The
+child must give its collected diagnostics to the parent.
+`fyai_diag_take_generic()` puts them in the `tool/run` response. The parent
+uses `fyai_diag_adopt()` when it collects the job. Keep the severity and module
+that the child recorded. The parent adds a marker because only the parent knows
+which child raised the diagnostic. For example:
+`[main/agent:greeter] the reason`. Keep an existing marker. During nested
+delegation, the innermost path identifies the source.
 
-Do not take the diagnostics to quote them. A reason put into a tool result is
-read by the model; the same reason is still owed to the user. Use
-`fyai_diag_string()`, which renders without consuming.
+Do not remove diagnostics when you quote them. The model reads a reason in a
+tool result. The user must also receive the same reason. Use
+`fyai_diag_string()`. This function renders the diagnostics but does not remove
+them.
 
-A child that dies has no diagnostic to send. The parent must therefore state
-how the job ended - a signal, or no result at all - or the reason leaves with
-the process that had it. Put all detail for one failure in one diagnostic. Use a lower severity
-for nonfatal reports.
+A child that terminates can have no diagnostic to send. The parent must state
+how the job ended. Report the signal or the absence of a result. Put all
+details for one failure in one diagnostic. Use a lower severity for a nonfatal
+report.
 
 The diagnostic sink owns its own builder and its own output descriptor. Do not
 use the durable builder or `transient_gb`, and do not route it through the
@@ -571,30 +573,31 @@ that says what was being read.
 
 ### The trace log
 
-The diagnostic sink presents what the user must act on, at a turn boundary, in
-one process. The trace log records every raise as it happens, in every process,
-at the severity the caller raised and whether or not the mask keeps it. It is
-what a forked child that dies leaves behind, and what a stress run is read back
-from.
+The diagnostic sink presents required user actions at a turn boundary. It does
+this in one process. The trace log records each raise when it occurs. It records
+raises from all processes and keeps the original severity. It also records
+raises that the mask removes. The trace remains available if a forked child
+terminates. Use it to examine a stress run.
 
 `$FYAI_TRACE` turns it on: `1` or `on` writes `~/.fyai/trace.log`, any other
 value is the path to write. `$FYAI_TRACE_LEVEL` sets the lowest severity
 recorded and defaults to debug.
 
-Each record is one line, written with one `write(2)` to an append-only,
-close-on-exec descriptor, so a parent and the children it forked share the file
-and never tear each other's lines. Keep the descriptor clear of the low
-numbers: a tool child dup2()s its control channel onto 3 and 4. A child that
-closes its inherited descriptors must call `fyai_diag_trace_reopen()`.
+Write each record as one line with one `write(2)` operation. Use an append-only,
+close-on-exec descriptor. The parent and its forked children share the file.
+The single write prevents incomplete concurrent lines. Do not use a low
+descriptor number. A tool child uses descriptors 3 and 4 for its control
+channel. A child that closes inherited descriptors must call
+`fyai_diag_trace_reopen()`.
 
-`fyai_diag_trace_tag()` names the process in its records, as the sub-agent
-branch. `fyai_diag_tracef()` records what is not a diagnostic: a process
-starting, a child reaped and how it ended. Tracing must fail silently; a trace
-that cannot be written must not raise a diagnostic of its own.
+`fyai_diag_trace_tag()` adds the sub-agent branch to process records.
+`fyai_diag_tracef()` records events that are not diagnostics. These events
+include process start and child termination. Tracing must fail silently. A
+trace-write failure must not raise a diagnostic.
 
-Expand formatted text before you intern it. Diagnostic raises are lock-free,
-but a drain resets storage. Drain only when all raisers are quiescent. A null
-sink prints immediately.
+Expand formatted text before you intern it. Diagnostic raises are lock-free.
+A drain resets storage. Drain only when all raisers are inactive. A null sink
+prints immediately.
 
 Keep normal output out of the diagnostic sink. The banner, spinner, shell echo,
 approval prompt, stats, usage, and successful command results are presented
