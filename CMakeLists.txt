@@ -490,6 +490,20 @@ if(BUILD_TESTING)
     # lock-free publish drops nothing.
     find_package(Threads REQUIRED)
 
+    # Vendored libvterm (see third_party/libvterm/PROVENANCE.md): test
+    # infrastructure only, never linked into the fyai binary. It gives the
+    # terminal rendering tests VTerm screen oracles to compare cells
+    # against. Built from source in-tree rather than found on the system,
+    # so it is not held to fyai's own C style or warning flags.
+    file(GLOB FYAI_VENDORED_VTERM_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/src/*.c")
+    add_library(fyai_vterm STATIC ${FYAI_VENDORED_VTERM_SOURCES})
+    set_target_properties(fyai_vterm PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(fyai_vterm
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/include"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/src")
+    target_compile_options(fyai_vterm PRIVATE -std=c99 ${ASAN_C_FLAGS})
+
     # Build all unit tests in one binary.
     #
     # Add a test function to a tests/fyai_*_test.c file. Add one
@@ -573,7 +587,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
         ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl
-        OpenSSL::Crypto Threads::Threads ${ASAN_LINK_OPTS})
+        OpenSSL::Crypto Threads::Threads fyai_vterm ${ASAN_LINK_OPTS})
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)
         target_compile_definitions(fyai_test PRIVATE HAVE_LIBSECRET)
