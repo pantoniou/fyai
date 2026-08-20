@@ -46,15 +46,14 @@ if [ "$(uname -s)" = Linux ]; then
 	assert_stdout_not_contains "classified"
 fi
 
-# A misspelled allow mode must fail before the command runs. Explicit config
-# overlays are applied directly, so this also guards the parser independently
-# of the schema validation used when committing arena config.
+# A misspelled allow mode must fail before the command runs. An explicit
+# config file is validated at ingestion, so the schema rejects it there.
 BAD_CONFIG="$TEST_DIR/bad-sandbox.yaml"
 printf '%s\n' 'sandbox: { enabled: true, allow: [{ path: /tmp, mode: readonly }] }' \
 	>"$BAD_CONFIG"
 run_fyai --config "$BAD_CONFIG" tool shell '{"command": "echo must-not-run"}'
 assert_status_nonzero
-assert_stderr_contains "sandbox: invalid mode 'readonly' for path '/tmp'"
+assert_stderr_contains "schema validation failed"
 assert_stdout_not_contains "must-not-run"
 
 pass
