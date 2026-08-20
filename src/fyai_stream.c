@@ -866,6 +866,7 @@ static int messages_stream_apply_event(struct stream_response *stream,
 	struct fy_generic_builder *gb = stream->gb;
 	fy_generic message, block, tool_call, function, chunks, usage;
 	fy_generic type;
+	fy_generic reason;
 	const char *text;
 	long long index;
 
@@ -958,7 +959,8 @@ static int messages_stream_apply_event(struct stream_response *stream,
 	}
 
 	if (fy_equal(type, "message_delta")) {
-		text = fy_cast(fy_get_at_path(event, "delta", "stop_reason"), "");
+		reason = fy_get_at_path(event, "delta", "stop_reason");
+		text = fy_castp(&reason, "");
 		if (*text)
 			stream->finish_reason = fy_value(gb, text);
 		usage = fy_get(event, "usage");

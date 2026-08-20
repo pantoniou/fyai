@@ -1530,7 +1530,7 @@ bool fyai_config_has_raw_secret(fy_generic doc)
 /*
  * Return the closest strict ancestor of @dir carrying a .fyai entry, or
  * NULL. Nesting is allowed - init creates a new project underneath, which
- * shadows the enclosing arena indefinitelyything below - but say so.
+ * shadows the enclosing arena for everything below - but say so.
  */
 static char *fyai_enclosing_project(const char *dir)
 {

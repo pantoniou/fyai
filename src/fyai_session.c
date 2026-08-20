@@ -1940,7 +1940,7 @@ static int slash_mcp(struct fyai_ctx *ctx, const char *arg)
 		if (fy_is_mapping(cfg->mcp_servers) &&
 		    fy_len(cfg->mcp_servers)) {
 			fy_foreach(key, cfg->mcp_servers) {
-				server_name = fy_cast(key, "");
+				server_name = fy_castp(&key, "");
 				server = fy_get(cfg->mcp_servers, key, fy_invalid);
 				command = fy_get(server, "command", "");
 				if (*command)

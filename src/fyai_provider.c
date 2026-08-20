@@ -502,6 +502,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 	fy_generic fn;
 	fy_generic tc;
 	fy_generic tmp;
+	fy_generic cmdv;
 	const char *cmd, *args, *text;
 	bool native_shell;
 
@@ -527,8 +528,8 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		 * enables the function tool before this conversion.
 		 */
 		if (!native_shell && fy_equal(type, "shell_call")) {
-			cmd = fy_cast(fy_get_at_path(m, "action",
-						     "commands", 0), "");
+			cmdv = fy_get_at_path(m, "action", "commands", 0);
+			cmd = fy_castp(&cmdv, "");
 			args = emit_json_string(ctx->transient_gb,
 						fy_mapping("command", cmd));
 			input = fy_append(ctx->transient_gb, input,

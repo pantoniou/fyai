@@ -892,7 +892,7 @@ const char *emit_request_body(struct fy_generic_builder *gb, fy_generic request)
 	if (fy_is_invalid(emitted))
 		return NULL;
 
-	body = fy_cast(emitted, "");
+	body = fy_castp(&emitted, "");
 	if (!*body)
 		return NULL;
 
@@ -1318,7 +1318,7 @@ const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v)
 
 	/* intern while `emitted` is still in scope: a short result lives
 	 * inline in the generic word itself (see CLAUDE.md on fy_cast) */
-	body = fy_cast(emitted, "");
+	body = fy_castp(&emitted, "");
 	return fy_gb_intern_string(gb, body);
 }
 

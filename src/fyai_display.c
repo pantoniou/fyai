@@ -2051,6 +2051,7 @@ static void fyai_emit_native_item(struct fyai_ctx *ctx, FILE *mf,
 	const char *cmd;
 	const char *r;
 	const char *args_str;
+	fy_generic rv;
 	fy_generic content;
 	fy_generic args;
 	fy_generic part;
@@ -2063,7 +2064,8 @@ static void fyai_emit_native_item(struct fyai_ctx *ctx, FILE *mf,
 	if (fy_equal(c->type, "reasoning")) {
 		if (!thinking)
 			return;
-		r = fy_cast(fyai_reasoning_text(tgb, m), "");
+		rv = fyai_reasoning_text(tgb, m);
+		r = fy_castp(&rv, "");
 		if (*r) {
 			fprintf(mf, "**💭 reasoning**\n\n");
 			fyai_emit_italic(mf, r);
@@ -2177,6 +2179,7 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 	const char *prov;
 	const char *rc;
 	const char *r;
+	fy_generic rv;
 	fy_generic items;
 	fy_generic it;
 	fy_generic ps;
@@ -2194,7 +2197,8 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 	items = fy_get(ps, prov);
 	fy_foreach(it, items) {
 		if (fy_equal(fy_get(it, "type"), "reasoning")) {
-			r = fy_cast(fyai_reasoning_text(tgb, it), "");
+			rv = fyai_reasoning_text(tgb, it);
+			r = fy_castp(&rv, "");
 			if (*r) {
 				fprintf(mf, "**💭 reasoning**\n\n");
 				fyai_emit_italic(mf, r);
@@ -2495,7 +2499,7 @@ err_closed:
  * A read_file call and its result are separate canonical messages linked by a
  * call id (Responses `call_id`, Chat `tool_call_id`). Unlike the live loop,
  * the offline `history` walk sees them apart, so to fence a read result in the
- * file's language it first records id -> requested path for every read_file
+	 * file's language it first records id -> requested path for every read_file
  * call, then looks the path up when the matching output is rendered.
  */
 struct fyai_read_map {
@@ -3879,7 +3883,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 		}
 	}
 	if (fy_is_string(preview) && !replayed) {
-		t = fy_cast(preview, "");
+		t = fy_castp(&preview, "");
 		len = strcspn(t, "\n");
 		if (len > 78)
 			len = 78;

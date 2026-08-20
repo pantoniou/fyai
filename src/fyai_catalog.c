@@ -366,7 +366,7 @@ static void catalog_tool_schema(FILE *fp, struct fy_generic_builder *gb,
 		NULL);
 	if (fy_is_invalid(emitted))
 		return;
-	json = fy_cast(emitted, "");
+	json = fy_castp(&emitted, "");
 	fputs("\n  ```yaml\n  ", fp);
 	for (; *json; json++) {
 		fputc(*json == '\n' ? '\n' : *json, fp);

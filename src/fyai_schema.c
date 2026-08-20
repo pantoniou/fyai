@@ -304,7 +304,7 @@ static bool schema_check_format(fy_generic fmt, fy_generic instance)
 	const char *s;
 
 	if (!fy_is_valid(fmt) || fy_equal(fmt, "uri")) {
-		s = fy_cast(instance, "");
+		s = fy_castp(&instance, "");
 		return schema_check_uri(s);
 	}
 	/* Unknown format: accept (we only promised uri). */
