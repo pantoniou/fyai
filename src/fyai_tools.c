@@ -1319,7 +1319,6 @@ static int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 {
 	int req_dup = -1, rsp_dup = -1;
-	long max_fd, fd;
 	int devnull;
 	int rc;
 
@@ -1355,16 +1354,7 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 	if (rc < 0)
 		goto err;
 
-#if defined(__linux__) && defined(SYS_close_range)
-	rc = syscall(SYS_close_range, FYAI_TOOL_CHILD_RSP_FD + 1U, ~0U, 0U);
-	if (!rc)
-		return 0;
-#endif
-	max_fd = sysconf(_SC_OPEN_MAX);
-	if (max_fd < 0)
-		max_fd = 1024;
-	for (fd = FYAI_TOOL_CHILD_RSP_FD + 1; fd < max_fd; fd++)
-		close((int)fd);
+	fyai_close_fds_from(FYAI_TOOL_CHILD_RSP_FD + 1);
 	return 0;
 
 err:
@@ -1452,8 +1442,10 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			 * A sub-agent needs provider credentials after a persona
 			 * changes its model. Its own tool children sanitize again.
 			 */
-			if (!fy_equal(fyai_tool_call_name(ctx, tc.args), "agent"))
-				fyai_env_sanitize();
+			if (!fy_equal(fyai_tool_call_name(ctx, tc.args), "agent") &&
+			    fyai_env_sanitize())
+				fyai_error(ctx,
+					   "could not remove every credential from the tool environment");
 			result = fyai_execute_tool_call(ctx, tc.args, &ok);
 			/* Return child diagnostics with the tool result. */
 			diag = fyai_diag_take_generic(&ctx->cfg->diag,
@@ -1856,7 +1848,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, rc >= 0 && job->origin, err,
 			 "out of memory naming the tool job");
 	/* The trace pairs with the reap record below: a child that dies leaves
-	 * these two lines and nothing else. */
+	 * these two lines and no other descriptors. */
 	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {
@@ -2830,7 +2822,9 @@ int fyai_run_tool_verb(struct fyai_ctx *ctx)
 	 * needed. The shell tool still forks internally to capture output and
 	 * inherits this confinement.
 	 */
-	fyai_env_sanitize();
+	rc = fyai_env_sanitize();
+	fyai_error_check(ctx, !rc, out,
+			 "tool: could not remove every credential from the environment");
 	rc = fyai_tool_apply_sandbox(ctx);
 	fyai_error_check(ctx, !rc, out,
 			 "tool: could not apply sandbox policy");

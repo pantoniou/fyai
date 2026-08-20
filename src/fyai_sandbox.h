@@ -60,8 +60,15 @@ int fyai_sandbox_mode_parse(const char *name, enum fyai_sandbox_mode *modep);
  * environment (<PROVIDER>_API_KEY and friends) never reach a tool or the
  * processes it spawns. Portable; call in the child before exec (or at the top
  * of the `fyai tool` one-shot).
+ *
+ * Returns 0 when the environment holds nothing but the kept set, -1 when a
+ * variable could not be removed. Fail closed on -1: a partial sanitize still
+ * carries credentials.
  */
-void fyai_env_sanitize(void);
+int fyai_env_sanitize(void);
+
+/* Longest environment variable name fyai_env_sanitize() can remove. */
+#define FYAI_ENV_NAME_MAX 256
 
 struct fyai_sandbox_spec {
 	/*

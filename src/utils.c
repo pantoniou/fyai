@@ -608,14 +608,13 @@ shell_capture_deadline(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
-/* Close every descriptor above standard error, before exec. */
-static void shell_close_inherited_fds(void)
+void fyai_close_fds_from(int lowfd)
 {
 	long max_fd, fd;
 	int rc;
 
 #if defined(__linux__) && defined(SYS_close_range)
-	rc = (int)syscall(SYS_close_range, 3U, ~0U, 0U);
+	rc = (int)syscall(SYS_close_range, (unsigned int)lowfd, ~0U, 0U);
 	if (!rc)
 		return;
 #else
@@ -624,7 +623,7 @@ static void shell_close_inherited_fds(void)
 	max_fd = sysconf(_SC_OPEN_MAX);
 	if (max_fd < 0)
 		max_fd = 1024;
-	for (fd = 3; fd < max_fd; fd++)
+	for (fd = lowfd; fd < max_fd; fd++)
 		close((int)fd);
 }
 
@@ -655,8 +654,11 @@ static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 	} else {
 		close(STDIN_FILENO);
 	}
-	/* Close the application descriptors before exec. */
-	shell_close_inherited_fds();
+	/* Close inherited descriptors before exec. */
+	fyai_close_fds_from(3);
+	/* Fail closed if any provider credential cannot be removed. */
+	if (fyai_env_sanitize())
+		_exit(FYAI_SHELL_EXIT_EXEC);
 
 	/* Enter the directory before applying confinement. */
 	if (workdir && *workdir && chdir(workdir) < 0)

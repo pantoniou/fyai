@@ -20,6 +20,7 @@
 #include "config.h"
 #endif
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,54 +43,56 @@ static const char *const fyai_env_keep[] = {
 	"LANG", "LANGUAGE",
 };
 
-void fyai_env_sanitize(void)
+/* True if @name of @len is one of the variables a tool may keep. */
+static bool env_keep_name(const char *name, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(fyai_env_keep) / sizeof(*fyai_env_keep); i++)
+		if (!strncmp(name, fyai_env_keep[i], len) &&
+		    fyai_env_keep[i][len] == '\0')
+			return true;
+	/* Keep locale overrides (LC_*) too. */
+	if (len >= 3 && !strncmp(name, "LC_", 3))
+		return true;
+	return false;
+}
+
+int fyai_env_sanitize(void)
 {
 	extern char **environ;
-	char **names = NULL;
-	size_t i, j, n = 0, cap = 0;
-	char *eq;
-	size_t len;
-	size_t nc;
-	char **nn;
-	bool keep;
+	char name[FYAI_ENV_NAME_MAX];
+	const char *eq;
+	size_t i, len;
+	bool removed;
+	int rc = 0;
 
-	/* Snapshot current names first: unsetenv() mutates environ in place. */
-	for (i = 0; environ && environ[i]; i++) {
-		eq = strchr(environ[i], '=');
-		len = eq ? (size_t)(eq - environ[i]) : strlen(environ[i]);
-
-		keep = false;
-		for (j = 0; j < sizeof(fyai_env_keep) / sizeof(*fyai_env_keep); j++)
-			if (!strncmp(environ[i], fyai_env_keep[j], len) &&
-			    fyai_env_keep[j][len] == '\0') {
-				keep = true;
-				break;
+	/* Avoid allocation in the child; restart after unsetenv() moves entries. */
+	do {
+		removed = false;
+		for (i = 0; environ && environ[i]; i++) {
+			eq = strchr(environ[i], '=');
+			len = eq ? (size_t)(eq - environ[i]) :
+				   strlen(environ[i]);
+			if (env_keep_name(environ[i], len))
+				continue;
+			if (len >= sizeof(name)) {
+				/* Too long to name, so it cannot be removed. */
+				rc = -1;
+				continue;
 			}
-		/* Keep locale overrides (LC_*) too. */
-		if (!keep && !strncmp(environ[i], "LC_", 3))
-			keep = true;
-		if (keep)
-			continue;
-		if (n == cap) {
-			nc = cap ? cap * 2 : 16;
-			nn = realloc(names, nc * sizeof(*names));
+			memcpy(name, environ[i], len);
+			name[len] = '\0';
+			if (unsetenv(name) < 0) {
+				rc = -1;
+				continue;
+			}
+			removed = true;
+			break;
+		}
+	} while (removed);
 
-			if (!nn)
-				break;
-			names = nn;
-			cap = nc;
-		}
-		names[n] = strndup(environ[i], len);
-		if (names[n])
-			n++;
-	}
-	for (i = 0; i < n; i++) {
-		if (names[i]) {
-			unsetenv(names[i]);
-			free(names[i]);
-		}
-	}
-	free(names);
+	return rc;
 }
 
 int fyai_sandbox_mode_parse(const char *name, enum fyai_sandbox_mode *modep)
