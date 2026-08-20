@@ -28,6 +28,7 @@ struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
 struct jsonrpc_conn;
 struct fyai_display_output;
+struct fyai_tool_job;
 struct fyai_sink;
 struct fyai_patch_display;	/* resolved patch presentation (fyai_tools.c) */
 
@@ -451,11 +452,14 @@ struct fyai_ctx {
 	struct fy_generic_builder *auth_gb;
 	bool auth_retry_done;
 	bool stdout_tty;			/* stdout is a terminal (cached) */
-	/* The size of the real terminal, recorded by the parent. A forked tool
-	 * child inherits it, because it calls setsid() and can no longer ask
-	 * the kernel itself. 0 = unknown. */
+	/* The size of the real terminal, recorded by the parent and kept up to
+	 * date by SIGWINCH. A forked tool child inherits it, because it calls
+	 * setsid() and can no longer ask the kernel itself. 0 = unknown. */
 	int tty_rows;
 	int tty_cols;
+	void *tty_session;		/* the PTY session running in this process */
+	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
+	struct fyai_event_source *winch_src;
 	bool tool_output_displayed;
 	/* The sole progressive transcript document for the active user or
 	 * assistant output. Owned by this context, never by a signal handler. */

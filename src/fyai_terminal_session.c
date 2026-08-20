@@ -29,6 +29,8 @@
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_sandbox.h"
+#include "fyai_terminal.h"
+#include "fyai_tools.h"
 #include "fyai_terminal_session.h"
 #include "utils.h"
 
@@ -467,11 +469,17 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	/* Without this the ABI-compatible sb_pushline is called instead, and a
 	 * line that needed several rows cannot be joined again. */
 	fyvt_screen_callbacks_has_pushline4(r.screen);
+	/*
+	 * Reflow a line that a resize makes fit differently. It is what the
+	 * program sees, and it keeps a joined line joined across a resize.
+	 */
+	fyvt_screen_enable_reflow(r.screen, true);
 	fyvt_screen_reset(r.screen, 1);
 
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		goto fail_child;
+	(void)fyai_terminal_winch_open(ctx);
 
 	rc = fyai_event_add_fd(el, r.master, FYAIEV_READ, tty_read, &r,
 			       &r.fdsrc);
@@ -499,6 +507,7 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	if (rc)
 		goto fail_child;
 
+	ctx->tty_session = &r;
 	/*
 	 * An interrupt must reach the command. Without this the user can only
 	 * wait for the limit, because nothing else stops the process group.
@@ -512,6 +521,7 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 		if (rc < 0)
 			break;
 	}
+	ctx->tty_session = NULL;
 
 	tty_sources_remove(&r);
 
@@ -548,6 +558,74 @@ fail_pty:
 	if (r.master >= 0)
 		close(r.master);
 	return -1;
+}
+
+/*
+ * Apply a new size to the session in this process. TIOCSWINSZ makes the kernel
+ * send SIGWINCH to the program. fyvt_set_size() keeps the interpretation at
+ * the size that the program now draws. A line that the reflow pushes off the
+ * top arrives through the scrollback callback as a continuation.
+ */
+void fyai_terminal_session_resize(struct fyai_ctx *ctx, int rows, int cols)
+{
+	struct tty_run *r;
+	struct winsize ws = {};
+
+	if (!ctx || rows <= 0 || cols <= 0)
+		return;
+	r = ctx->tty_session;
+	if (!r || (rows == r->rows && cols == r->cols))
+		return;
+
+	r->rows = rows;
+	r->cols = cols;
+	ws.ws_row = (unsigned short)rows;
+	ws.ws_col = (unsigned short)cols;
+	(void)ioctl(r->master, TIOCSWINSZ, &ws);
+	fyvt_set_size(r->vt, rows, cols);
+}
+
+static enum fyai_event_action tty_winch(const struct fyai_event *ev)
+{
+	struct fyai_ctx *ctx = ev->userdata;
+	int rows = 0, cols = 0;
+
+	if (!terminal_window_size(STDOUT_FILENO, &rows, &cols) &&
+	    !terminal_window_size(STDERR_FILENO, &rows, &cols))
+		return FYAIEA_CONTINUE;
+	if (rows == ctx->tty_rows && cols == ctx->tty_cols)
+		return FYAIEA_CONTINUE;
+
+	ctx->tty_rows = rows;
+	ctx->tty_cols = cols;
+	fyai_terminal_session_resize(ctx, rows, cols);
+	fyai_tool_jobs_resize(ctx, rows, cols);
+	return FYAIEA_CONTINUE;
+}
+
+int fyai_terminal_winch_open(struct fyai_ctx *ctx)
+{
+	struct fyai_event_loop *el;
+
+	if (!ctx || ctx->winch_src)
+		return 0;
+	/* A tool child has no terminal of its own; the parent tells it. */
+	if (ctx->cfg->tool_child)
+		return 0;
+
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		return -1;
+	return fyai_event_add_signal(el, SIGWINCH, tty_winch, ctx,
+				     &ctx->winch_src);
+}
+
+void fyai_terminal_winch_close(struct fyai_ctx *ctx)
+{
+	if (!ctx || !ctx->winch_src)
+		return;
+	fyai_event_source_remove(ctx->winch_src);
+	ctx->winch_src = NULL;
 }
 
 void fyai_terminal_result_cleanup(struct fyai_terminal_result *result)

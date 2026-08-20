@@ -43,6 +43,7 @@
 #include "fyai_storage.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
+#include "fyai_terminal_session.h"
 #include "fyai_tools.h"
 #include "fyai_tool_spec.h"
 #include "fyai_turn.h"
@@ -1875,6 +1876,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	cfg = ctx->cfg;
 
 	/* Remove the handlers before the context that they name is destroyed. */
+	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx);
 	fyai_cleanup_transient_builder(ctx);
 	fyai_output_cleanup(ctx);

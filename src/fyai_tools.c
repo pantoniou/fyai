@@ -1523,6 +1523,13 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		jsonrpc_conn_defer(conn);
 		return fy_invalid;
 	}
+	if (!strcmp(method, "tty/resize")) {
+		tc->ctx->tty_rows = (int)fy_get(params, "rows", 0LL);
+		tc->ctx->tty_cols = (int)fy_get(params, "cols", 0LL);
+		fyai_terminal_session_resize(tc->ctx, tc->ctx->tty_rows,
+					     tc->ctx->tty_cols);
+		return fy_invalid;
+	}
 	*errorp = fy_gb_mapping(gb, "code", -32601LL,
 				"message", "method not found");
 	return fy_invalid;
@@ -1638,7 +1645,55 @@ struct fyai_tool_job {
 	struct fyai_event_source *deadline;
 	int term_signal;
 	struct fyai_tool_job_group *group;
+	struct fyai_tool_job *next;	/* ctx->tool_jobs, for a resize */
 };
+
+/* Keep the live jobs reachable, so that a resize finds every child. */
+static void fyai_tool_job_link(struct fyai_ctx *ctx, struct fyai_tool_job *job)
+{
+	job->next = ctx->tool_jobs;
+	ctx->tool_jobs = job;
+}
+
+static void fyai_tool_job_unlink(struct fyai_ctx *ctx,
+				 struct fyai_tool_job *job)
+{
+	struct fyai_tool_job **pp;
+
+	for (pp = &ctx->tool_jobs; *pp; pp = &(*pp)->next) {
+		if (*pp != job)
+			continue;
+		*pp = job->next;
+		job->next = NULL;
+		return;
+	}
+}
+
+/*
+ * The window of the user changed. A tool child called setsid(), so the kernel
+ * does not signal it. The parent sends the new size on the control channel,
+ * and the child applies it to its pseudo-terminal.
+ */
+void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_tool_job *job;
+
+	if (!ctx || rows <= 0 || cols <= 0)
+		return;
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb)
+		return;
+
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->conn || job->done)
+			continue;
+		(void)jsonrpc_request_submit(job->conn, "tty/resize",
+				fy_gb_mapping(gb, "rows", (long long)rows,
+					      "cols", (long long)cols),
+				0, true, NULL, NULL);
+	}
+}
 
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 				      fy_generic tool_call)
@@ -1843,6 +1898,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
 			;
 	fyai_tool_job_live_close(job);
+	fyai_tool_job_unlink(job->ctx, job);
 	free(job->progress.data);
 	free(job->branch);
 	free(job->origin);
@@ -1954,6 +2010,11 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	rc = fyai_tool_job_spawn(ctx, job);
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
+	fyai_tool_job_link(ctx, job);
+	/* A child that asked for a terminal must follow the window of the
+	 * user, and only the parent can see it change. */
+	if (fy_equal(fy_get(args, "tty", fy_false), fy_true))
+		(void)fyai_terminal_winch_open(ctx);
 	/* The spawn clears the job, thus the name is carried in a local. */
 	if (have_branch) {
 		job->branch = strdup(child_branch);
@@ -2450,6 +2511,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		job->result_ok = false;
 	}
 	*okp = job->result_ok && !job->failed;
+	fyai_tool_job_unlink(job->ctx, job);
 	free(job->progress.data);
 	free(job->branch);
 	free(job->origin);

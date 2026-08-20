@@ -50,4 +50,16 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 			      struct fyai_terminal_result *result);
 void fyai_terminal_result_cleanup(struct fyai_terminal_result *result);
 
+/* Give the session running in this process a new size. */
+void fyai_terminal_session_resize(struct fyai_ctx *ctx, int rows, int cols);
+
+/*
+ * Watch SIGWINCH so that a pseudo-terminal follows the window of the user. A
+ * forked tool child calls setsid() and thus never receives the signal; the
+ * parent sends it the new size over the control channel instead. Opening is
+ * idempotent, and only a path that owns a terminal session opens it.
+ */
+int fyai_terminal_winch_open(struct fyai_ctx *ctx);
+void fyai_terminal_winch_close(struct fyai_ctx *ctx);
+
 #endif
