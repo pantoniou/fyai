@@ -11,6 +11,7 @@
 #include "config.h"
 #endif
 
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -31,6 +32,7 @@
 #include "fyai_log.h"
 #include "fyai_oauth.h"
 #include "fyai_render.h"
+#include "fyai_sandbox.h"
 #include "fyai_secret.h"
 #include "fyai_tools.h"
 #include "utils.h"
@@ -1867,6 +1869,9 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 	if (!pid) {
 		fyai_ctx_loop_abandon(ctx);
 		signal(SIGPIPE, SIG_DFL);
+		/* Put the server and its descendants in a group for teardown. */
+		if (setsid() < 0 && setpgid(0, 0) < 0)
+			_exit(126);
 		close(inpipe[1]);
 		close(outpipe[0]);
 		inpipe[1] = outpipe[0] = -1;
@@ -1879,7 +1884,14 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 		close(outpipe[1]);
 		inpipe[0] = outpipe[1] = -1;
 
+		/* The server keeps only the standard descriptors. */
+		fyai_close_fds_from(STDERR_FILENO + 1);
+
 		if (*cwd && chdir(cwd))
+			_exit(126);
+
+		/* Remove inherited credentials before configured overrides. */
+		if (fyai_env_sanitize())
 			_exit(126);
 
 		if (fy_is_mapping(env)) {
@@ -2935,9 +2947,11 @@ static void mcp_teardown_begin(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	mcp->term_done = true;
 	if (mcp->pid <= 0)
 		return;
-	if (el && !fyai_event_add_child_terminate(el, mcp->pid, 1000, 500,
-						  mcp_term_complete, mcp,
-						  &mcp->term_src)) {
+	assert(el);
+	/* The child leads its own group; stop the descendants with it. */
+	if (!fyai_event_add_child_terminate_group(el, mcp->pid, 1000, 500,
+							mcp_term_complete, mcp,
+							&mcp->term_src)) {
 		mcp->term_done = false;
 		return;
 	}
@@ -2946,8 +2960,8 @@ static void mcp_teardown_begin(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 	 * nonblocking. Kill now and make one final attempt to register a plain
 	 * child source whose only job is reaping.
 	 */
-	(void)kill(mcp->pid, SIGKILL);
-	if (el && !fyai_event_add_child(el, mcp->pid, mcp_term_complete,
+	(void)kill(-mcp->pid, SIGKILL);
+	if (!fyai_event_add_child(el, mcp->pid, mcp_term_complete,
 					mcp, &mcp->term_src)) {
 		mcp->term_done = false;
 		return;
@@ -2988,9 +3002,10 @@ static void mcp_stdio_stop(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp)
 		return;
 
 	el = fyai_ctx_loop(ctx);
-	if (!el || fyai_event_child_terminate(el, mcp->pid, 1000, 500, NULL)) {
-		/* No loop, or it failed: the reap is still ours to do. */
-		kill(mcp->pid, SIGKILL);
+	assert(el);
+	if (fyai_event_child_terminate_group(el, mcp->pid, 1000, 500, NULL)) {
+		/* Termination failed; reap the child directly. */
+		kill(-mcp->pid, SIGKILL);
 		while (waitpid(mcp->pid, &status, 0) < 0 && errno == EINTR)
 			;
 	}

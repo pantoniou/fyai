@@ -1104,17 +1104,21 @@ static enum fyai_event_action fyai_event_child_waited(const struct fyai_event *e
 	return FYAIEA_STOP;
 }
 
-int fyai_event_child_terminate(struct fyai_event_loop *el, pid_t pid,
-			       fyai_event_ms_t grace_ms, fyai_event_ms_t term_ms,
-			       int *statusp)
+static int fyai_event_child_terminate_sync(struct fyai_event_loop *el, pid_t pid,
+					   fyai_event_ms_t grace_ms,
+					   fyai_event_ms_t term_ms,
+					   bool group, int *statusp)
 {
 	struct fyai_event_child_wait cw;
+	int rc;
 
 	cw.exited = false;
 	cw.status = 0;
 
-	if (fyai_event_add_child_terminate(el, pid, grace_ms, term_ms,
-					   fyai_event_child_waited, &cw, NULL))
+	rc = fyai_event_add_child_terminate_full(el, pid, grace_ms, term_ms,
+						 fyai_event_child_waited, &cw,
+						 group, NULL);
+	if (rc)
 		return -1;
 
 	/* Unbounded: the ladder ends in SIGKILL, so the child is guaranteed to go. */
@@ -1124,6 +1128,22 @@ int fyai_event_child_terminate(struct fyai_event_loop *el, pid_t pid,
 	if (statusp)
 		*statusp = cw.status;
 	return 0;
+}
+
+int fyai_event_child_terminate(struct fyai_event_loop *el, pid_t pid,
+			       fyai_event_ms_t grace_ms, fyai_event_ms_t term_ms,
+			       int *statusp)
+{
+	return fyai_event_child_terminate_sync(el, pid, grace_ms, term_ms,
+					       false, statusp);
+}
+
+int fyai_event_child_terminate_group(struct fyai_event_loop *el, pid_t pid,
+				     fyai_event_ms_t grace_ms,
+				     fyai_event_ms_t term_ms, int *statusp)
+{
+	return fyai_event_child_terminate_sync(el, pid, grace_ms, term_ms,
+					       true, statusp);
 }
 
 /* Return the delay to the next timer, or -1 if no timer is armed. */

@@ -146,6 +146,11 @@ int fyai_event_child_terminate(struct fyai_event_loop *el, pid_t pid,
 			       fyai_event_ms_t grace_ms, fyai_event_ms_t term_ms,
 			       int *statusp);
 
+/* Synchronous form of fyai_event_add_child_terminate_group(). */
+int fyai_event_child_terminate_group(struct fyai_event_loop *el, pid_t pid,
+				     fyai_event_ms_t grace_ms,
+				     fyai_event_ms_t term_ms, int *statusp);
+
 void fyai_event_source_remove(struct fyai_event_source *src);
 
 void *fyai_event_source_userdata(const struct fyai_event_source *src);
