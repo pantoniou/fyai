@@ -162,10 +162,10 @@ of all sessions when the invocation ends.
 from a terminal are not usable by a model as they are: they hold cursor
 movements, and a program that draws a progress bar sends thousands of carriage
 returns. What is of use is the *screen* and not the record of bytes. To give
-that, put the stream through `libvterm` and supply the result. `fyai` already
-uses `libvterm` to test its own display, thus the dependency is present. The
-work that stays is the design: how much history to keep, what to do about the
-alternate screen, and how to put a screen into a message.
+that, put the stream through `libfyvterm` and supply the result. `fyai`
+already uses `libfyvterm` to test its own display, thus the dependency is
+present. The work that stays is the design: how much history to keep, what to
+do about the alternate screen, and how to put a screen into a message.
 
 **A caution that changes the order of work.** To add a terminal *without* a way
 to write to it can make the result worse. A program that finds no terminal

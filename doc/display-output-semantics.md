@@ -341,7 +341,7 @@ content to an active conversational turn.
 8. Replace stdout/stderr transcript spooling with explicit channel calls.
 9. Move spinner, diagnostics, slash commands, and `ask_user` interaction onto
    their non-transcript channels.
-10. Add libvterm oracles asserting that progressive live rendering and replay
+10. Add libfyvterm oracles asserting that progressive live rendering and replay
     of the finalized tagged document produce identical terminal cells.
 
 ## Required invariants
