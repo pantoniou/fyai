@@ -196,7 +196,8 @@ static int arm_signal(struct fyai_event_source *src)
 		}
 		signal_was_blocked[src->signo] = sigismember(&prev, src->signo);
 	}
-	src->saved_valid = true;
+	/* signalfd blocks the signal; it does not replace its disposition. */
+	src->signal_blocked = true;
 
 	src->fd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
 	fyai_event_error_check(src->loop, src->fd >= 0, err_restore,
@@ -206,7 +207,7 @@ static int arm_signal(struct fyai_event_source *src)
 
 err_restore:
 	unblock_signal(src);
-	src->saved_valid = false;
+	src->signal_blocked = false;
 err_out:
 	return -1;
 }
@@ -273,9 +274,9 @@ int fyai_event_backend_disarm(struct fyai_event_source *src)
 		src->fd = -1;
 	}
 
-	if (src->kind == FYAIEK_SIGNAL && src->saved_valid) {
+	if (src->kind == FYAIEK_SIGNAL && src->signal_blocked) {
 		unblock_signal(src);
-		src->saved_valid = false;
+		src->signal_blocked = false;
 	}
 	return 0;
 }

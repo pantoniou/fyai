@@ -162,6 +162,7 @@ void fyai_event_dump_to_fd(struct fyai_event_loop *el, struct fyai_ctx *ctx,
 
 int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms);
 void fyai_event_interrupt_ack(struct fyai_ctx *ctx);
+void fyai_event_interrupt_close(struct fyai_ctx *ctx);
 bool fyai_event_interrupt_escalated(void);
 
 #endif

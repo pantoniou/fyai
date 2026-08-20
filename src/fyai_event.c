@@ -265,6 +265,9 @@ static struct fyai_ctx *fyai_interrupt_ctx;
 static volatile sig_atomic_t fyai_interrupt_escalated;
 static struct sigaction fyai_interrupt_sa;	/* the graceful SIGINT handler */
 static struct sigaction fyai_interrupt_dfl;	/* SIG_DFL */
+static struct sigaction fyai_interrupt_prev_int;	/* before we installed */
+static struct sigaction fyai_interrupt_prev_alrm;
+static bool fyai_interrupt_installed;
 static sigset_t fyai_interrupt_terminating;	/* {SIGINT, SIGTERM} */
 static struct itimerval fyai_interrupt_arm;
 static struct itimerval fyai_interrupt_off;
@@ -354,17 +357,38 @@ int fyai_event_interrupt_open(struct fyai_ctx *ctx, unsigned int watchdog_ms)
 	fyai_interrupt_ctx = ctx;
 	fyai_interrupt_escalated = 0;
 
-	rc = sigaction(SIGINT, &fyai_interrupt_sa, NULL);
-	if (rc)
-		return -1;
-	rc = sigaction(SIGALRM, &alarm_sa, NULL);
-	if (rc)
-		return -1;
+	rc = sigaction(SIGINT, &fyai_interrupt_sa, &fyai_interrupt_prev_int);
+	fyai_error_check(ctx, !rc, err_out,
+			 "could not install the interrupt handler");
+	rc = sigaction(SIGALRM, &alarm_sa, &fyai_interrupt_prev_alrm);
+	fyai_error_check(ctx, !rc, err_restore_int,
+			 "could not install the interrupt watchdog handler");
+	fyai_interrupt_installed = true;
 
 	/* SIGINT must stay unblocked, or the handler never runs. */
 	sigemptyset(&sigint_only);
 	sigaddset(&sigint_only, SIGINT);
 	return sigprocmask(SIG_UNBLOCK, &sigint_only, NULL);
+
+err_restore_int:
+	(void)sigaction(SIGINT, &fyai_interrupt_prev_int, NULL);
+err_out:
+	fyai_interrupt_ctx = NULL;
+	return -1;
+}
+
+/* Restore interrupt handlers before their context is destroyed. */
+void fyai_event_interrupt_close(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	if (!fyai_interrupt_installed)
+		return;
+	(void)setitimer(ITIMER_REAL, &fyai_interrupt_off, NULL);
+	(void)sigaction(SIGINT, &fyai_interrupt_prev_int, NULL);
+	(void)sigaction(SIGALRM, &fyai_interrupt_prev_alrm, NULL);
+	fyai_interrupt_installed = false;
+	fyai_interrupt_escalated = 0;
+	fyai_interrupt_ctx = NULL;
 }
 
 /* Return true after the watchdog restores the default signal actions. */

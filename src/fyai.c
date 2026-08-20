@@ -1874,6 +1874,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		return;
 	cfg = ctx->cfg;
 
+	/* Remove the handlers before the context that they name is destroyed. */
+	fyai_event_interrupt_close(ctx);
 	fyai_cleanup_transient_builder(ctx);
 	fyai_output_cleanup(ctx);
 	/* After the output document: its discard still talks to the sink. */

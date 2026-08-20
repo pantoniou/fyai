@@ -63,11 +63,10 @@ struct fyai_event_source {
 	fyai_event_ms_t deadline_ms;	/* TIMER: next expiry, monotonic */
 	/* Bumped on every (re)arm. */
 	unsigned int arm_gen;
-	/* SIGNAL: the disposition a forked child restores before exec. The
-	 * process-wide mask/disposition change itself is refcounted per signal
-	 * number, not held here; see fyai_event_signal_first_ref(). */
+	/* SIGNAL: saved disposition, or the mask state used by signalfd. */
 	struct sigaction saved_sa;
 	bool saved_valid;
+	bool signal_blocked;
 
 	/* CHILD: the shutdown ladder, when one was armed. */
 	struct fyai_event_term term;
