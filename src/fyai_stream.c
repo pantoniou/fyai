@@ -336,6 +336,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 {
 	struct fyai_ctx *ctx = stream->ctx;
 	struct fyai_cfg *cfg = ctx->cfg;
+	const char *prefix;
 	bool color;
 
 	if (!cfg->thinking)
@@ -360,8 +361,11 @@ static void stream_write_reasoning(struct stream_response *stream,
 		    terminal_is_tty(STDERR_FILENO)) {
 			stream->printed_reasoning = true;
 		} else {
-			fputs(color ? FYAI_ANSI_DIM "reasoning ▸ " :
-				     "reasoning > ", stderr);
+			prefix = color ? FYAI_ANSI_DIM "reasoning \xe2\x96\xb8 " :
+					 "reasoning > ";
+
+			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+					      prefix, strlen(prefix));
 			stream->printed_reasoning = true;
 		}
 	}

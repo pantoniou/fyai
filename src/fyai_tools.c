@@ -133,11 +133,12 @@ static int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
 	return fyai_tool_call_view(ctx, "shell", disp, 0, title, body);
 }
 
+/* Print a tool title row and its rendered body to @fp. */
 /* The tool title and its already-rendered body, on the status stream. */
 static void fyai_print_tool_view(struct fyai_ctx *ctx, const char *title,
 				 struct response_buffer *body)
 {
-	if (!fy_str_empty(title))
+	if (title && *title)
 		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_STATUS, title);
 	if (body->len)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
@@ -604,6 +605,7 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	fy_generic port, pv;
 	enum fyai_sandbox_mode mode;
 	char cwd[4096];
+	char *resolved;
 	const char *ps;
 	size_t n;
 	int rc;
@@ -630,26 +632,23 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	/* Configured denies apply to every grant. Ignore paths that do not exist. */
 	fy_foreach(e, deny) {
 		ps = fy_castp(&e, "");
-		sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ps);
-		fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
+		resolved = sandbox_resolve(sb->root, ps);
+		fyai_error_check(ctx, resolved, err_out,
 				 "sandbox: could not resolve deny path '%s'", ps);
-		if (access(sb->deny[sp->deny_n], F_OK)) {
-			free((char *)sb->deny[sp->deny_n]);
-			sb->deny[sp->deny_n] = NULL;
+		if (access(resolved, F_OK)) {
+			free(resolved);
 			continue;
 		}
-		sp->deny_n++;
+		sb->deny[sp->deny_n++] = resolved;
 	}
 	sp->deny_global_n = sp->deny_n;
-	sb->deny[sp->deny_n] = sandbox_resolve(sb->root, ".fyai");
-	fyai_error_check(ctx, sb->deny[sp->deny_n], err_out,
+	resolved = sandbox_resolve(sb->root, ".fyai");
+	fyai_error_check(ctx, resolved, err_out,
 			 "sandbox: could not resolve the arena deny path");
-	if (access(sb->deny[sp->deny_n], F_OK)) {
-		free((char *)sb->deny[sp->deny_n]);
-		sb->deny[sp->deny_n] = NULL;
-	} else {
-		sp->deny_n++;
-	}
+	if (access(resolved, F_OK))
+		free(resolved);
+	else
+		sb->deny[sp->deny_n++] = resolved;
 	sp->deny = sb->deny;
 
 	/* allow: extra grants; a string is rw, a mapping {path, mode: ro}. */
