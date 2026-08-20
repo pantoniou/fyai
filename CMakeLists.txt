@@ -493,8 +493,7 @@ if(BUILD_TESTING)
     # Vendored libvterm (see third_party/libvterm/PROVENANCE.md): test
     # infrastructure only, never linked into the fyai binary. It gives the
     # terminal rendering tests VTerm screen oracles to compare cells
-    # against. Built from source in-tree rather than found on the system,
-    # so it is not held to fyai's own C style or warning flags.
+    # against.
     file(GLOB FYAI_VENDORED_VTERM_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/src/*.c")
     add_library(fyai_vterm STATIC ${FYAI_VENDORED_VTERM_SOURCES})
@@ -502,7 +501,8 @@ if(BUILD_TESTING)
     target_include_directories(fyai_vterm
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/include"
         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/src")
-    target_compile_options(fyai_vterm PRIVATE -std=c99 ${ASAN_C_FLAGS})
+    target_compile_options(fyai_vterm PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
 
     # Build all unit tests in one binary.
     #
