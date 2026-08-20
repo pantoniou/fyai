@@ -70,6 +70,7 @@ FYAI_TEST_ENTRY(event, signal_nested_teardown, event_signal_nested_teardown)
 FYAI_TEST_ENTRY(event, interrupt_watchdog_acked, event_interrupt_watchdog_acked)
 FYAI_TEST_ENTRY(event, interrupt_watchdog_escalates, event_interrupt_watchdog_escalates)
 FYAI_TEST_ENTRY(event, state_dump, event_state_dump)
+FYAI_TEST_ENTRY(event, state_dump_while_stuck, event_state_dump_while_stuck)
 FYAI_TEST_ENTRY(event, nested_run, event_nested_run)
 FYAI_TEST_ENTRY(event, remove_after_nested_run, event_remove_after_nested_run)
 FYAI_TEST_ENTRY(event, abort, event_abort)
@@ -1449,6 +1450,49 @@ static void test_state_dump(void)
 	printf("ok - the state dump reports the loop\n");
 }
 
+/*
+ * The dump must arrive while the loop is stuck. That is when it is asked for,
+ * and it is the one state the loop cannot report for itself: a dump handed to
+ * the loop would appear only once the loop ran again.
+ */
+static void test_state_dump_while_stuck(void)
+{
+	char buf[4096];
+	ssize_t len;
+	int p[2];
+	int rc;
+
+	rc = pipe(p);
+	FYAI_TCHECK(!rc);
+
+	/* No loop is running, and none will run in this test. */
+	rc = fyai_event_dump_open(&test_ctx, SIGUSR2, p[1]);
+	FYAI_TCHECK(!rc);
+
+	rc = raise(SIGUSR2);
+	FYAI_TCHECK(!rc);
+
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+	FYAI_TCHECK(strstr(buf, "fyai event loop dump"));
+	FYAI_TCHECK(strstr(buf, "--- end ---"));
+
+	/* A second signal during a dump is dropped, not interleaved. */
+	rc = raise(SIGUSR2);
+	FYAI_TCHECK(!rc);
+	len = read(p[0], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(len > 0);
+	buf[len] = '\0';
+	FYAI_TCHECK(strstr(buf, "fyai event loop dump"));
+
+	fyai_event_dump_close();
+	signal(SIGUSR2, SIG_DFL);
+	close(p[0]);
+	close(p[1]);
+	printf("ok - a diagnostic signal dumps without the loop\n");
+}
+
 /* Preserve ready events when a callback stops dispatch of the current batch. */
 static void test_stop_preserves_batch(void)
 {
@@ -2352,6 +2396,21 @@ int event_state_dump(void)
 	FYAI_TCHECK(!rc);
 
 	test_state_dump();
+
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	fyai_event_pool_drain(&test_ctx);
+	return 0;
+}
+
+int event_state_dump_while_stuck(void)
+{
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+
+	test_state_dump_while_stuck();
 
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
