@@ -249,6 +249,24 @@ else()
     set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
 endif()
 
+# libfyvterm: the terminal emulator behind the terminal view and the terminal
+# rendering tests. A parent project may already provide the target (its own
+# find_package or add_subdirectory); reuse that rather than re-resolving. An
+# installed package comes next, and a source fetch is the last resort, as with
+# the other dependencies: CI has none of them installed.
+if(NOT TARGET libfyvterm::libfyvterm)
+    find_package(libfyvterm CONFIG QUIET)
+endif()
+if(NOT TARGET libfyvterm::libfyvterm)
+    set(BUILD_FYVTERM_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_FYVTERM_TOOLS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(libfyvterm
+        GIT_REPOSITORY https://github.com/pantoniou/libfyvterm
+        GIT_TAG 6b55715878300e2e56c48d2597f8c938e4b26cc6
+    )
+    FetchContent_MakeAvailable(libfyvterm)
+endif()
+
 # Fetch and build a minimal libcurl from source as a static archive linked
 # straight into fyai: OpenSSL TLS + zlib only, with the curl CLI and the heavy
 # optional deps (HTTP/2, libssh, ldap, rtmp, psl, brotli, idn2, gssapi) disabled
@@ -573,7 +591,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
         ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl
-        OpenSSL::Crypto Threads::Threads ${ASAN_LINK_OPTS})
+        OpenSSL::Crypto Threads::Threads libfyvterm::libfyvterm
+        ${ASAN_LINK_OPTS})
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)
         target_compile_definitions(fyai_test PRIVATE HAVE_LIBSECRET)

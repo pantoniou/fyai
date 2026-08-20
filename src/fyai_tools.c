@@ -1850,7 +1850,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	rc = fyai_tool_job_spawn(ctx, job);
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
-	/* The spawn clears the job, thus the name is carried in a local. */
+	/* The spawn clears the job, so the name is carried in a local. */
 	if (have_branch) {
 		job->branch = strdup(child_branch);
 		fyai_error_check(ctx, job->branch, err,
