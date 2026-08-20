@@ -20,16 +20,27 @@ machine, and changes only when a patch changes it.
 
 ## 2. Source
 
-The vendored copy comes from the fork that Neovim maintains,
-https://github.com/neovim/libvterm, not from the unmaintained original. This
-fork tracked upstream fixes until Neovim moved its own working copy into the
-main Neovim tree; it remains the most recent buildable snapshot available as
-a standalone library.
+The vendored copy has two sources, layered.
+
+The base is the fork Neovim maintains, https://github.com/neovim/libvterm,
+not the unmaintained original. This fork tracked upstream fixes until
+Neovim moved its own working copy into the main Neovim tree in 2025, and
+that base copy stopped changing at that point.
+
+On top of that base, this copy carries hand-ported fixes and features from
+Neovim's own, still-actively-maintained working copy at
+`neovim/neovim:src/nvim/vterm`. That tree cannot be vendored directly — it
+restructures the library's headers and, starting from the commit that
+imported it, replaces libvterm's per-cell codepoint array with Neovim's own
+internal encoding — so each change worth carrying is re-expressed by hand
+against this copy's plain, upstream-shaped API. Section 5 below and
+`third_party/libvterm/PROVENANCE.md` cover this in full: which commits were
+carried, which were skipped and why, and how to bring in the next batch.
 
 `third_party/libvterm/PROVENANCE.md` is the single source of truth for the
-vendored commit hash, the vendoring date, and the update procedure. This
-document does not repeat the hash, so there is one place to check when asking
-"how current is this copy."
+vendored commit hash, the vendoring date, the exact patch list, and the
+update procedure. This document does not repeat any of that, so there is one
+place to check when asking "how current is this copy."
 
 ## 3. What is vendored
 
@@ -69,8 +80,28 @@ follow from that placement:
 
 ## 5. Updating
 
-Follow the steps in `third_party/libvterm/PROVENANCE.md`: pull a newer
-commit from `https://github.com/neovim/libvterm`, copy the same file set
-from section 3 over the files under `third_party/libvterm`, and update the
-commit hash and date there. Do not hand-edit the vendored sources; carry any
-local fix as a patch applied during the copy, noted in `PROVENANCE.md`.
+Updating has two steps, because there are two sources (section 2). Full
+detail, including the exact commit list, lives in
+`third_party/libvterm/PROVENANCE.md`; this is the short version.
+
+1. **Base sync.** Pull a newer commit from
+   `https://github.com/neovim/libvterm`, copy the file set from section 3
+   over the files under `third_party/libvterm`, and update the commit hash
+   and date in `PROVENANCE.md`. This overwrites every carried patch, so
+   treat it as step 1 of 2, not the whole job.
+2. **Patch sync.** Check `neovim/neovim`'s `src/nvim/vterm` history for
+   commits after the "last commit considered" hash `PROVENANCE.md` records,
+   and hand-port whatever applies onto the refreshed base, the same way the
+   existing entries were ported: re-express the change against this copy's
+   plain `chars[]` cell representation rather than translating the diff
+   literally. Update the patch list and the "last commit considered" hash
+   when done.
+
+`scripts/update-vendored-libvterm.sh` automates the mechanical parts of both
+steps: `base` refreshes the vendored files and rewrites `PROVENANCE.md`'s
+commit/date line, and `patches` lists the `neovim/neovim` commits since the
+last sync point for triage. It does not port anything by itself; run it with
+`--help` for usage, and see `PROVENANCE.md` for the judgment calls it leaves
+to whoever runs it.
+
+Do not hand-edit the vendored sources outside of this process.
