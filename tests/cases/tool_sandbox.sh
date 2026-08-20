@@ -29,9 +29,22 @@ run_fyai --set sandbox=true tool shell '{"command": "echo hi > /dev/null && echo
 assert_stdout_contains "devnull-ok"
 
 # A file in the project stays readable under the sandbox.
-run_fyai tool write_file '{"path": "keep.txt", "content": "visible\n"}'
+run_fyai --set sandbox=false tool write_file '{"path": "keep.txt", "content": "visible\n"}'
 run_fyai --set sandbox=true tool shell '{"command": "cat keep.txt"}'
 assert_stdout_contains "visible"
+
+# Landlock denies apply only on Linux.
+if [ "$(uname -s)" = Linux ]; then
+	SECRET_DIR="$TEST_DIR/scratch-secret"
+	mkdir -p "$SECRET_DIR"
+	printf 'classified\n' >"$SECRET_DIR/s.txt"
+	DENY_CONFIG="$TEST_DIR/deny-sandbox.yaml"
+	printf 'sandbox: { enabled: true, deny: [%s] }\n' "$SECRET_DIR" >"$DENY_CONFIG"
+	run_fyai --config "$DENY_CONFIG" tool shell \
+		'{"command": "cat '"$SECRET_DIR"'/s.txt || echo deny-ok"}'
+	assert_stdout_contains "deny-ok"
+	assert_stdout_not_contains "classified"
+fi
 
 # A misspelled allow mode must fail before the command runs. Explicit config
 # overlays are applied directly, so this also guards the parser independently
