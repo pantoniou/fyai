@@ -60,8 +60,8 @@ A sub-agent gets the same set less `agent` and `ask_user`
 | Working directory | no | `workdir` | `workdir` | **yes** |
 | A label for the display | `description` | `justification` | `description` | **yes** |
 | Run in the background | `run_in_background` | (session) | no | **no** |
-| Write to the standard input | no | `write_stdin` | no | **no** |
-| A session that stays open | no | `session_id` | no | **no** |
+| Write to the standard input | no | `write_stdin` | no | **yes** |
+| A session that stays open | no | `session_id` | no | **yes** |
 | Limit the output | no | `max_output_tokens` | no | partly |
 | Control of the sandbox | `dangerouslyDisableSandbox` | `sandbox_permissions` | no | **no** |
 | Approval of a command prefix | no | `prefix_rule` | no | **no** |
@@ -173,6 +173,11 @@ to write to it can make the result worse. A program that finds no terminal
 usually takes the default and continues; a program that finds one will show a
 prompt and wait for ever. Thus the terminal and `write_stdin` are one change,
 or the time limit of section 3.3 must come first.
+
+The reading follows what the program did. A program that writes lines is read
+as lines, whole and in the order of arrival. A program that draws, such as an
+editor, is read as the screen that it drew. Its bytes are cursor movements and
+give nothing on their own.
 
 **What is supplied now.** `shell` takes `tty`, `rows` and `cols`. The result
 is the screen, with the lines that scrolled off it. The size follows the window

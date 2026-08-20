@@ -462,9 +462,35 @@ the new size to the session. `shell/tty_rows` and `shell/tty_cols`
 set a fixed size instead, and the model can ask for one with `rows` and
 `cols`.
 
-A program that waits for input waits until the time limit expires, because
-there is no way to write to the terminal yet. Refer to
-`doc/pty-terminal-plan.md`.
+### An interactive terminal session
+
+Give the shell call a `name` and it stays open as a session: one program on a
+terminal of its own, addressed by that name.
+
+```sh
+fyai tool shell '{"name":"repl","command":"python3"}'
+```
+
+The call answers as soon as the terminal exists. From there:
+
+- `shell_input` types into it. The text is keystrokes, thus a control
+  character works: `\u0003` interrupts, `\u001b` is escape. A return is added
+  unless `enter` is false.
+- `shell_output` reads it without typing: `new` for what appeared since the
+  last read, `screen` for the whole screen, `region` for a part of it.
+- `shell_close` ends it. Drive the program out itself where you can, such as
+  `:q!` in an editor, so that it can save what it owns.
+
+The reading follows what the program did. A program that writes lines is read
+as lines, whole and in the order of arrival. A program that draws, such as an
+editor, is read as the screen that it drew. Its bytes are cursor movements and
+give nothing on their own.
+
+A session lives for one invocation. A later invocation cannot reach it. It
+ends with the invocation, with `shell_close`, when its program ends, or after
+`shell/session_timeout_ms` with no read and no write.
+
+Refer to `doc/pty-terminal-plan.md`.
 
 List catalogue-defined agent tool sets:
 

@@ -124,38 +124,65 @@ with
 scrollback retention. `CLAUDE.md` requires a resize test under a PTY, so it
 belongs with the other libfyvterm cell tests.
 
-## 4. Step 3 - the session that stays open, and a way to write
+## 4. Step 3 - the session that stays open - done
 
-This is the item that section 3.5 of the gap analysis names as necessary: a
-terminal with no way to write to it is worse than no terminal, because a
-program that finds a terminal waits for input that never arrives.
+A session is one program on a terminal, addressed by name.
 
-**The lifetime.** One invocation. Section 3.4 of the gap analysis states the
-rule: a session that lives inside one tool-call loop needs no arena change and
-does not break the stateless design. Release every session when the invocation
-ends.
+**A name, not a number.** `shell` takes `name` beside `description`, the way
+`agent` does. A name makes the shell addressable; without one the call is the
+one-shot of step 1, unchanged. The name is reserved in the parent before the
+process is spawned and is unique among the live sessions of the branch. A name
+that is taken is refused, so that the model chooses another one instead of
+addressing the wrong shell. `codex` uses a number for this; a name says what
+the shell is for and survives being read by a person.
 
-**The register.** `struct fyai_tool_job` already holds the context, the control
-channel, the process, the descriptors, the event source and the group. Add a
-table of live PTY sessions to the context, keyed by a small integer. A `shell`
-call with `tty: true` that does not finish inside its yield time returns the
-identifier and the output so far, and leaves the session running.
+**Each shell is a process.** The tool child that starts a session stays alive
+as its driver. It opens the pseudo-terminal, starts the program, and moves
+bytes; it interprets nothing and links no libfyvterm. Thus the confinement, the
+environment, the descriptors and the process group are exactly those of any
+other command this program runs.
 
-**The tools.** Add `write_stdin` with `session_id`, `chars` and
-`yield_time_ms`, as `codex` records it. An empty `chars` polls. Add a
-`yield_time_ms` argument to `shell` so that a call can return while the program
-continues.
+**The parent renders.** The terminal state of each session is a
+`fyai_terminal_view` in the parent, fed by each byte that the driver sends. The
+last screen and the log therefore stay readable after the process stops. A
+model needs them when a program ends while a call drives it.
 
-**The keys.** `chars` is bytes and not key names. A model that must send a
-control character sends the byte: `` for an interrupt and `` for
-escape. Document this, because a model cannot press a key.
+**The wire carries text when it is text.** Output goes up as a
+`shell/output` notification. It is `{text}` when the bytes are valid UTF-8 with
+no control character other than tab, newline and return. It is `{data}` with
+base64 when they are not. A program that writes lines is therefore readable on
+the wire and in a trace, and a program that draws still crosses it whole. The
+test is made for each chunk, so a character that is split between two reads
+sends only that chunk as base64.
 
-## 5. Step 4 - the remaining parity items and the rendering
+**The tools.**
 
-Parity:
+| Tool | What it does |
+| --- | --- |
+| `shell` with `name` | Opens the session. It answers when the session exists. |
+| `shell_input` | Types into it. The text is keystrokes, so `0x03` and escape work. `enter` adds the return key. |
+| `shell_output` | Reads it: `new`, `screen`, `all` or `region`. It types nothing, so a read of a build costs nothing. |
+| `shell_close` | Ends it. The program is asked to stop first, and killed if it does not stop. |
+
+The three reading tools run in the parent, where the terminal state is. None of
+them waits for a program, thus nothing is serialised for long, and the sessions
+themselves run in parallel.
+
+**What ends a session.** The program ends, `shell_close` ends it, the idle
+limit expires, or the invocation ends. `shell/session_timeout_ms` is idle time
+and not total time: a session that is being driven does not die, and one the
+model forgot does. An interrupted turn ends every session at once, because a
+session is a program the user is watching.
+
+A signal reaches the driver and not the program, because the program leads
+its own group. The driver therefore stops the program when a call asks it to
+stop. Without that the parent waits for a child that does not stop.
+
+## 5. Step 4 - what is left
 
 - `shell` and `login`, from `codex.exec_command`. We run `/bin/sh -c`. Most
   interactive programs expect a login shell.
+- Escape as the stop that waits, apart from the interrupt that does not.
 
 The rendering work is done. One screen row is not one line, because the
 screen stores a long line as several rows. `sb_pushline4` reports each row
@@ -174,15 +201,23 @@ makes command admission a matter of policy.
 
 ## 6. State
 
-Steps 1 and 2 are done. `shell` takes `tty`, `rows` and `cols`; the result is
-the scrollback and the visible screen, bounded by `shell/max_output_tokens`;
-each line that leaves the screen also reaches the live display; and the size
-follows `SIGWINCH`, through the control channel for a forked tool child.
+Steps 1 to 3 are done.
 
-Two items stay open in the tests. The resize case covers the session that runs
-in the parent, which the `fyai tool shell` verb uses. The `tty/resize`
-notification to a forked tool child needs a case that runs a complete turn with
-the mock provider. A `write_stdin` case cannot exist before step 3.
+A command uses a terminal in one of two ways, and the reading follows what it
+did and not what it was called:
+
+- it writes text and newlines, and a caller reads it as whole lines that are
+not wrapped; or
+- it draws, and a caller reads it as the screen that it drew.
+
+The `fyai_terminal_view` keeps both readings from the same bytes and enters
+screen mode the first time the program addresses the screen. `fyvt_set_utf8()`
+is what makes any of it correct: `fyvt_create()` starts in 8-bit mode, where
+every byte above 0x7f is a separate character.
+
+One item stays open in the tests: the `tty/resize` notification to a forked
+tool child. The resize case covers the session that runs in the parent, which
+the `fyai tool shell` verb uses.
 
 ## 7. Order and the review
 
