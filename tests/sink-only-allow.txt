@@ -40,6 +40,11 @@ src/fyai_prof.c
 # writes the bytes the sink hands it.
 src/fyai_ui.c
 
+# The one progressive Markdown renderer, driven by the terminal backend: it
+# writes the bytes the sink hands it, like fyai_ui.c. A producer must call the
+# sink, never these functions.
+src/fyai_markdown.c
+
 # The interactive prompt on a non-terminal standard input, written before the
 # reader blocks; the sink presents content, not the cursor position.
 src/fyai_session.c

@@ -30,11 +30,20 @@ is_allowed() {
 # construction rather than output.
 pattern='\b(printf|puts|putchar)[[:space:]]*\(|\b(fprintf|fputs|fputc|fwrite|vfprintf)[[:space:]]*\([^;]*\b(stdout|stderr)\b'
 
+# A stream handed to another function reaches the user just as directly. The
+# call that writes it is then in a different file, and the f* pattern above
+# cannot see it, so naming stdout or stderr in any call argument counts too.
+pattern_indirect='[a-z_][a-z0-9_]*[[:space:]]*\(([^;]*,)?[[:space:]]*(stdout|stderr)[[:space:]]*[,)]'
+
 status=0
 while IFS= read -r file; do
 	rel="${file#"$src_dir"/}"
 	is_allowed "$rel" && continue
-	hits=$(grep -nE "$pattern" "$file" | grep -vE '\b(snprintf|asprintf|vsnprintf|vasprintf)\b' || true)
+	hits=$(grep -nE "$pattern|$pattern_indirect" "$file" |
+		grep -vE '\b(snprintf|asprintf|vsnprintf|vasprintf)\b' |
+		grep -vE '^[0-9]+:[[:space:]]*(\*|//|/\*)' |
+		grep -vE '\b(fileno|isatty|terminal_is_tty|clearerr|fflush|setvbuf|dup|dup2|freopen)[[:space:]]*\(' ||
+		true)
 	[ -z "$hits" ] && continue
 	status=1
 	echo "sink-only: $rel writes outside the sink:" >&2
