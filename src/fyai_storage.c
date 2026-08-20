@@ -937,7 +937,9 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 	}
 	if (refs) {
 		root = (fy_generic){ .v = refs };
-		if (fyai_root_decode(root, &r) < 0) {
+		/* Validate root containment before following stored references. */
+		if (!fyai_root_validate(allocator, root) ||
+		    fyai_root_decode(root, &r) < 0) {
 			/* A probe: no context to collect into, so report here. */
 			fprintf(stderr,
 				"PEEK: unrecognized arena root at %s; re-run fyai init\n",
@@ -1528,7 +1530,7 @@ bool fyai_config_has_raw_secret(fy_generic doc)
 /*
  * Return the closest strict ancestor of @dir carrying a .fyai entry, or
  * NULL. Nesting is allowed - init creates a new project underneath, which
- * shadows the enclosing arena for everything below - but say so.
+ * shadows the enclosing arena indefinitelyything below - but say so.
  */
 static char *fyai_enclosing_project(const char *dir)
 {
