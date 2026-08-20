@@ -249,6 +249,13 @@ else()
     set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
 endif()
 
+# libfyvterm: the terminal emulator behind the terminal view and the terminal
+# rendering tests. A parent project may already provide the target (its own
+# find_package or add_subdirectory); reuse that rather than re-resolving.
+if(NOT TARGET libfyvterm::libfyvterm)
+    find_package(libfyvterm CONFIG REQUIRED)
+endif()
+
 # Fetch and build a minimal libcurl from source as a static archive linked
 # straight into fyai: OpenSSL TLS + zlib only, with the curl CLI and the heavy
 # optional deps (HTTP/2, libssh, ldap, rtmp, psl, brotli, idn2, gssapi) disabled
@@ -573,7 +580,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
         ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl
-        OpenSSL::Crypto Threads::Threads ${ASAN_LINK_OPTS})
+        OpenSSL::Crypto Threads::Threads libfyvterm::libfyvterm
+        ${ASAN_LINK_OPTS})
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)
         target_compile_definitions(fyai_test PRIVATE HAVE_LIBSECRET)

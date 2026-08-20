@@ -708,15 +708,16 @@ dynamic executable.
 
 ### Terminal rendering tests
 
-Use libvterm when correctness depends on terminal cells, wrapping, cursor
+Use libfyvterm when correctness depends on terminal cells, wrapping, cursor
 position, background fill, or SGR state. A PTY byte capture cannot prove these
 properties.
 
-Use two `VTerm` screens. Feed direct libfymd4c output to one screen. Feed the
-same content through the libfytimui path to the other. Compare the complete
-stable row and adjacent blank rows. Inspect cells after the final glyph.
-Normalize colors with `vterm_screen_convert_color_to_rgb()` and compare them
-with `vterm_color_is_equal()`. Do not compare `VTermColor` with `memcmp()`.
+Use two `struct fyvt_screen` screens. Feed direct libfymd4c output to one
+screen. Feed the same content through the libfytimui path to the other.
+Compare the complete stable row and adjacent blank rows. Inspect cells after
+the final glyph. Normalize colors with `fyvt_screen_convert_color_to_rgb()`
+and compare them with `fyvt_color_is_equal()`. Do not compare
+`union fyvt_color` with `memcmp()`.
 
 Make the new test fail before the fix. Register it as an individual CTest test.
 After the fix, run both the libfytimui and fyai suites. If renderer bytes are
