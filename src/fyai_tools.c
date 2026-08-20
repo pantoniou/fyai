@@ -96,6 +96,24 @@ fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
 	return parse_json_string(ctx->transient_gb, args_text);
 }
 
+/*
+ * True when a shell call opens a named session. A name makes the shell
+ * addressable. The shell keeps its own process and terminal until it closes.
+ * `shell_input`, `shell_output` and `shell_close` use that name.
+ */
+static bool fyai_shell_session_call(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	fy_generic args, name;
+
+	if (!fy_equal(fyai_tool_call_name(ctx, tool_call), "shell"))
+		return false;
+	args = fyai_tool_call_args(ctx, tool_call);
+	if (!fy_is_mapping(args))
+		return false;
+	name = fy_get(args, "name", fy_invalid);
+	return fy_is_string(name) && !fy_empty(name);
+}
+
 /* Format the invocation Markdown through the same emitter used by history. */
 static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 				     fy_generic args, int preview_lines)
@@ -1180,6 +1198,18 @@ have_line:
 	return result;
 }
 
+
+/*
+ * The tools of a named session. They run in the parent, where the terminal
+ * state is; their bodies sit with the session machinery further down.
+ */
+static char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
+				    bool *okp);
+static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp);
+static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp);
+
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 				  fy_generic tool_call, bool *okp)
 {
@@ -1357,6 +1387,12 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		*okp = result && strncmp(result, "tool error:", 11);
 	} else if (fy_equal(name, "shell")) {
 		result = fyai_run_shell_command(ctx, args, okp);
+	} else if (fy_equal(name, "shell_output")) {
+		result = fyai_shell_output_tool(ctx, args, okp);
+	} else if (fy_equal(name, "shell_input")) {
+		result = fyai_shell_input_tool(ctx, args, okp);
+	} else if (fy_equal(name, "shell_close")) {
+		result = fyai_shell_close_tool(ctx, args, okp);
 	} else if (fy_equal(name, "ask_user")) {
 		result_generic = fyai_ask_user(ctx, args);
 		*okp = strncmp(fy_castp(&result_generic, ""),
@@ -1494,6 +1530,7 @@ err:
 struct fyai_tool_child {
 	struct fyai_ctx *ctx;
 	struct jsonrpc_conn *conn;
+	struct fyai_terminal_relay *relay;	/* a session this child drives */
 	fy_generic id;
 	fy_generic args;
 	fy_generic branch;	/* sub-agent branch named by the parent */
@@ -1527,11 +1564,104 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		tc->ctx->tty_cols = (int)fy_get(params, "cols", 0LL);
 		fyai_terminal_session_resize(tc->ctx, tc->ctx->tty_rows,
 					     tc->ctx->tty_cols);
+		if (tc->relay)
+			fyai_terminal_relay_resize(tc->relay, tc->ctx->tty_rows,
+						   tc->ctx->tty_cols);
+		return fy_invalid;
+	}
+	if (!strcmp(method, "shell/write")) {
+		char *bytes;
+		size_t len;
+
+		bytes = fyai_bytes_from_generic(params, &len);
+		if (bytes && tc->relay)
+			(void)fyai_terminal_relay_write(tc->relay, bytes, len);
+		free(bytes);
+		return fy_invalid;
+	}
+	if (!strcmp(method, "shell/close")) {
+		if (tc->relay)
+			fyai_terminal_relay_close(tc->relay,
+					fy_get(params, "force", false));
 		return fy_invalid;
 	}
 	*errorp = fy_gb_mapping(gb, "code", -32601LL,
 				"message", "method not found");
 	return fy_invalid;
+}
+
+/*
+ * Open a session in this child. The call is answered as soon as the terminal
+ * exists, because the model reads when it wants to and the parent renders
+ * continuously from `shell/output`. This child then serves the session until
+ * the program ends, the parent closes it, or its limit expires.
+ */
+static void fyai_tool_child_session(struct fyai_ctx *ctx,
+				    struct fyai_tool_child *tc,
+				    struct jsonrpc_conn *conn)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	const struct fyai_sandbox_spec *sandbox;
+	struct fyai_terminal_opts opts = {};
+	struct fyai_shell_sandbox sb;
+	struct fyai_event_loop *el;
+	fy_generic args, command, workdir;
+	fy_generic diag;
+	bool started;
+	int rc;
+
+	args = fyai_tool_call_args(ctx, tc->args);
+	command = fy_get(args, "command", fy_invalid);
+	workdir = fy_get(args, "workdir", fy_invalid);
+
+	rc = fyai_shell_sandbox_begin(ctx, &sb, &sandbox);
+	if (!rc) {
+		opts.workdir = fy_castp(&workdir, (const char *)NULL);
+		fyai_shell_tty_size(ctx, args, &opts.rows, &opts.cols);
+		tc->relay = fyai_terminal_relay_start(ctx, conn,
+						fy_castp(&command, ""),
+						sandbox, &opts);
+		/* The spec is only needed by the fork inside the start. */
+		fyai_shell_sandbox_end(&sb);
+	}
+	if (rc)
+		fyai_error(ctx,
+			   "shell: the session was refused before it started");
+	else if (!tc->relay)
+		fyai_error(ctx, "shell: the session terminal did not open");
+
+	/* A C comparison is an int; the flag must reach the wire as a bool. */
+	started = tc->relay != NULL;
+	diag = fyai_diag_take_generic(&ctx->cfg->diag, gb);
+	jsonrpc_conn_respond(conn, tc->id,
+		fy_gb_mapping(gb, "result",
+			      fy_gb_mapping(gb, "session", started,
+					    "rows", (long long)opts.rows,
+					    "cols", (long long)opts.cols),
+			      "ok", started,
+			      "display", fy_null,
+			      "diag", diag),
+		fy_invalid);
+	if (!tc->relay)
+		return;
+
+	/*
+	 * Serve the session until its program ends. A signal reaches this child and
+	 * not the program, because the program leads its own group. Stop the program
+	 * from here, or the parent waits for a child that does not stop.
+	 */
+	el = fyai_ctx_loop(ctx);
+	while (el && !fyai_terminal_relay_done(tc->relay)) {
+		if (ctx->terminate_pending)
+			fyai_terminal_relay_close(tc->relay, true);
+		if (fyai_event_loop_step(el, ctx->terminate_pending ? 200 : -1) < 0)
+			break;
+		if (ctx->terminate_pending && fyai_terminal_relay_reaped(tc->relay))
+			break;
+	}
+
+	fyai_terminal_relay_destroy(tc->relay);
+	tc->relay = NULL;
 }
 
 static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
@@ -1578,6 +1708,10 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			    fyai_env_sanitize())
 				fyai_error(ctx,
 					   "could not remove every credential from the tool environment");
+			if (fyai_shell_session_call(ctx, tc.args)) {
+				fyai_tool_child_session(ctx, &tc, conn);
+				break;
+			}
 			result = fyai_execute_tool_call(ctx, tc.args, &ok);
 			/* Return child diagnostics with the tool result. */
 			diag = fyai_diag_take_generic(&ctx->cfg->diag,
@@ -1645,6 +1779,29 @@ struct fyai_tool_job {
 	int term_signal;
 	struct fyai_tool_job_group *group;
 	struct fyai_tool_job *next;	/* ctx->tool_jobs, for a resize */
+	struct fyai_shell_session *session;	/* the session this job drives */
+};
+
+/*
+ * A named terminal session. The process that drives it is the job. The view
+ * holds the state of the terminal, and it stays after that process ends, so a
+ * caller can still read the last screen and the log. A name is unique among
+ * the live sessions of this branch.
+ */
+struct fyai_shell_session {
+	struct fyai_shell_session *next;
+	struct fyai_ctx *ctx;
+	char *name;
+	char *command;
+	char *branch;
+	struct fyai_tool_job *job;	/* NULL once the process has gone */
+	struct fyai_terminal_view *view;
+	struct fyai_event_source *idle;
+	int exit_code;
+	int signal;
+	bool exited;
+	bool closing;
+	bool timed_out;
 };
 
 /* Keep the live jobs reachable, so that a resize finds every child. */
@@ -1687,11 +1844,412 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 	for (job = ctx->tool_jobs; job; job = job->next) {
 		if (!job->conn || job->done)
 			continue;
-		(void)jsonrpc_request_submit(job->conn, "tty/resize",
+		(void)jsonrpc_notify(job->conn, "tty/resize",
 				fy_gb_mapping(gb, "rows", (long long)rows,
-					      "cols", (long long)cols),
-				0, true, NULL, NULL);
+					      "cols", (long long)cols));
 	}
+}
+
+
+/* A session name is short and says what the shell is for. */
+#define FYAI_SHELL_SESSION_NAME_MAX	32
+/* Time a program gets to answer input before the reading is taken. */
+#define FYAI_SHELL_INPUT_WAIT_MS	250
+#define FYAI_SHELL_INPUT_WAIT_MAX_MS	30000
+/* Time a program gets to leave after it is asked to. */
+#define FYAI_TTY_CLOSE_WAIT_MS		500
+
+static void fyai_tool_job_discard(struct fyai_tool_job *job);
+static void fyai_shell_session_close(struct fyai_shell_session *sess,
+				     bool force);
+
+/* The live display of a session shows its lines, as a normal tool call does. */
+static void fyai_shell_session_line(void *userdata,
+				    enum shell_output_stream stream,
+				    const char *data, size_t len)
+{
+	struct fyai_shell_session *sess = userdata;
+
+	(void)stream;
+	if (!sess->job || !sess->job->stream.active)
+		return;
+	(void)fyai_fenced_stream_push(&sess->job->stream, data, len);
+}
+
+struct fyai_shell_session *fyai_shell_session_find(struct fyai_ctx *ctx,
+						   const char *name)
+{
+	struct fyai_shell_session *sess;
+
+	if (!ctx || !name || !*name)
+		return NULL;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (!strcmp(sess->name, name))
+			return sess;
+	return NULL;
+}
+
+/*
+ * A session name says what the shell is for. Write it as a sub-agent name is
+ * written: letters, digits, a dash or an underscore.
+ */
+static bool fyai_shell_session_name_valid(const char *name)
+{
+	size_t i;
+
+	if (!name || !*name || strlen(name) > FYAI_SHELL_SESSION_NAME_MAX)
+		return false;
+	for (i = 0; name[i]; i++) {
+		if (name[i] >= 'a' && name[i] <= 'z')
+			continue;
+		if (name[i] >= 'A' && name[i] <= 'Z')
+			continue;
+		if (name[i] >= '0' && name[i] <= '9')
+			continue;
+		if (name[i] == '-' || name[i] == '_')
+			continue;
+		return false;
+	}
+	return true;
+}
+
+static void fyai_shell_session_idle_arm(struct fyai_shell_session *sess);
+
+/* Nothing was read from or written to the session: end it. */
+static enum fyai_event_action fyai_shell_session_idle(const struct fyai_event *ev)
+{
+	struct fyai_shell_session *sess = ev->userdata;
+
+	sess->idle = NULL;
+	if (sess->exited)
+		return FYAIEA_CONTINUE;
+	sess->timed_out = true;
+	fyai_shell_session_close(sess, false);
+	return FYAIEA_CONTINUE;
+}
+
+static void fyai_shell_session_idle_arm(struct fyai_shell_session *sess)
+{
+	struct fyai_event_loop *el;
+	int ms;
+
+	ms = sess->ctx->cfg->shell_session_timeout_ms;
+	if (sess->idle) {
+		if (ms > 0)
+			(void)fyai_event_timer_rearm(sess->idle, ms, 0);
+		return;
+	}
+	if (ms <= 0 || sess->exited)
+		return;
+	el = fyai_ctx_loop(sess->ctx);
+	if (!el)
+		return;
+	(void)fyai_event_add_timer(el, ms, 0, fyai_shell_session_idle, sess,
+				   &sess->idle);
+}
+
+/* Create the session and reserve its name, before the process is spawned. */
+static struct fyai_shell_session *
+fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
+			  const char *command, int rows, int cols,
+			  size_t max_bytes)
+{
+	struct fyai_shell_session *sess;
+
+	sess = calloc(1, sizeof(*sess));
+	if (!sess)
+		return NULL;
+	sess->ctx = ctx;
+	sess->name = strdup(name);
+	sess->command = strdup(command ? command : "");
+	sess->branch = strdup(fyai_ctx_branch(ctx));
+	sess->view = fyai_terminal_view_create(rows, cols, max_bytes);
+	if (!sess->name || !sess->command || !sess->branch || !sess->view) {
+		fyai_terminal_view_destroy(sess->view);
+		free(sess->name);
+		free(sess->command);
+		free(sess->branch);
+		free(sess);
+		return NULL;
+	}
+	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
+	sess->next = ctx->shell_sessions;
+	ctx->shell_sessions = sess;
+	fyai_shell_session_idle_arm(sess);
+	return sess;
+}
+
+/* The program ended. The view stays; only the process is gone. */
+static void fyai_shell_session_exited(struct fyai_shell_session *sess,
+				      int exit_code, int signal)
+{
+	if (!sess || sess->exited)
+		return;
+	sess->exited = true;
+	sess->exit_code = exit_code;
+	sess->signal = signal;
+	if (sess->idle) {
+		fyai_event_source_remove(sess->idle);
+		sess->idle = NULL;
+	}
+}
+
+static void fyai_shell_session_close(struct fyai_shell_session *sess,
+				     bool force)
+{
+	struct fy_generic_builder *gb;
+
+	if (!sess || sess->exited || !sess->job || !sess->job->conn)
+		return;
+	gb = fyai_ctx_transient_gb(sess->ctx);
+	if (!gb)
+		return;
+	sess->closing = true;
+	(void)jsonrpc_notify(sess->job->conn, "shell/close",
+			     fy_gb_mapping(gb, "force", force));
+	if (force && sess->job->pid > 0)
+		(void)kill(-sess->job->pid, SIGKILL);
+}
+
+static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
+{
+	if (!sess)
+		return;
+	if (sess->idle)
+		fyai_event_source_remove(sess->idle);
+	fyai_terminal_view_destroy(sess->view);
+	free(sess->name);
+	free(sess->command);
+	free(sess->branch);
+	free(sess);
+}
+
+/*
+ * End every session. A session lives for one invocation: its process cannot
+ * outlive it, and nothing later could address it. @force does not wait, which
+ * is what an interrupt asks for.
+ */
+void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force)
+{
+	struct fyai_shell_session *sess, *next;
+	struct fyai_tool_job *job;
+
+	if (!ctx)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = next) {
+		next = sess->next;
+		job = sess->job;
+		if (job) {
+			job->session = NULL;
+			sess->job = NULL;
+			if (!job->reaped && job->pid > 0)
+				(void)kill(-job->pid,
+					   force ? SIGKILL : SIGTERM);
+			fyai_tool_job_discard(job);
+		}
+		fyai_shell_session_destroy(sess);
+	}
+	ctx->shell_sessions = NULL;
+}
+
+/* The reading a session offers: what appeared, the screen, or part of it. */
+static enum fyai_terminal_read fyai_shell_view_kind(fy_generic args,
+						    struct fyai_terminal_region *region)
+{
+	fy_generic view, r;
+
+	view = fy_get(args, "view", fy_invalid);
+	if (fy_equal(view, "screen"))
+		return FYAITR_SCREEN;
+	if (fy_equal(view, "all"))
+		return FYAITR_ALL;
+	if (fy_equal(view, "region")) {
+		r = fy_get(args, "region", fy_invalid);
+		region->row = (int)fy_get(r, "row", 0LL);
+		region->col = (int)fy_get(r, "col", 0LL);
+		region->rows = (int)fy_get(r, "rows", 0LL);
+		region->cols = (int)fy_get(r, "cols", 0LL);
+		return FYAITR_REGION;
+	}
+	return FYAITR_NEW;
+}
+
+/* Say what the session is and what the reading is, then give the text. */
+static char *fyai_shell_session_result(struct fyai_ctx *ctx,
+				       struct fyai_shell_session *sess,
+				       fy_generic args,
+				       enum fyai_terminal_read what,
+				       const struct fyai_terminal_region *region)
+{
+	struct response_buffer buf = {};
+	char *text = NULL;
+	char *bounded;
+	size_t len = 0;
+	int rows = 0, cols = 0;
+	bool screen;
+
+	screen = fyai_terminal_view_screen_mode(sess->view);
+	fyai_terminal_view_size(sess->view, &rows, &cols);
+	text = fyai_terminal_view_read(sess->view, what, region, &len);
+	if (!text)
+		return NULL;
+
+	if (screen)
+		response_buffer_append(&buf,
+			fy_sprintfa("[shell '%s': the screen it draws, %dx%d]\n",
+				    sess->name, rows, cols));
+	else
+		response_buffer_append(&buf,
+			fy_sprintfa("[shell '%s': %s]\n", sess->name,
+				what == FYAITR_NEW ? "the lines since the last read" :
+				"its output"));
+
+	bounded = fyai_shell_bound_alloc(text,
+					 fyai_shell_output_bytes(ctx, args));
+	response_buffer_append(&buf, bounded ? bounded : text);
+	free(bounded);
+	free(text);
+
+	if (sess->exited) {
+		if (sess->signal)
+			response_buffer_append(&buf,
+				fy_sprintfa("\n[shell '%s' ended: signal %d%s]\n",
+					    sess->name, sess->signal,
+					    sess->timed_out ? ", idle limit" : ""));
+		else
+			response_buffer_append(&buf,
+				fy_sprintfa("\n[shell '%s' ended: status %d]\n",
+					    sess->name, sess->exit_code));
+	}
+	return buf.data;
+}
+
+/* Find the session a call names, or say why it cannot be used. */
+static struct fyai_shell_session *
+fyai_shell_session_of(struct fyai_ctx *ctx, fy_generic args, char **errp)
+{
+	struct fyai_shell_session *sess;
+	fy_generic name;
+
+	*errp = NULL;
+	name = fy_get(args, "name", fy_invalid);
+	sess = fyai_shell_session_find(ctx, fy_castp(&name, ""));
+	if (sess)
+		return sess;
+	/*
+	 * A session lives for one invocation. A name from an earlier one names
+	 * nothing, thus say so rather than let the model wait for output.
+	 */
+	*errp = strdup(fy_sprintfa(
+		"tool error: no shell named '%s' is open on branch %s; "
+		"open one with the shell tool and a name",
+		fy_castp(&name, ""), fyai_ctx_branch(ctx)));
+	return NULL;
+}
+
+static char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
+				    bool *okp)
+{
+	struct fyai_terminal_region region = {};
+	struct fyai_shell_session *sess;
+	enum fyai_terminal_read what;
+	char *err;
+
+	*okp = false;
+	sess = fyai_shell_session_of(ctx, args, &err);
+	if (!sess)
+		return err;
+
+	fyai_shell_session_idle_arm(sess);
+	what = fyai_shell_view_kind(args, &region);
+	*okp = true;
+	return fyai_shell_session_result(ctx, sess, args, what, &region);
+}
+
+static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp)
+{
+	struct fyai_terminal_region region = {};
+	struct fyai_shell_session *sess;
+	struct fy_generic_builder *gb;
+	struct fyai_event_loop *el;
+	struct response_buffer in = {};
+	fy_generic input;
+	const char *text;
+	long long wait;
+	char *err;
+
+	*okp = false;
+	sess = fyai_shell_session_of(ctx, args, &err);
+	if (!sess)
+		return err;
+	if (sess->exited)
+		return strdup(fy_sprintfa(
+			"tool error: the shell '%s' has ended; its output can "
+			"still be read with shell_output", sess->name));
+
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb || !sess->job || !sess->job->conn)
+		return strdup("tool error: the shell session is not reachable");
+
+	input = fy_get(args, "input", fy_invalid);
+	text = fy_castp(&input, "");
+	if (response_buffer_append(&in, text))
+		return NULL;
+	/* A shell needs the return that a person would press. */
+	if (fy_get(args, "enter", true) && response_buffer_append(&in, "\r")) {
+		free(in.data);
+		return NULL;
+	}
+	(void)jsonrpc_notify(sess->job->conn, "shell/write",
+			     fyai_bytes_to_generic(gb, in.data, in.len));
+	free(in.data);
+
+	/* Let the program answer before the reading is taken. */
+	wait = fy_get(args, "wait_ms", (long long)FYAI_SHELL_INPUT_WAIT_MS);
+	if (wait < 0)
+		wait = 0;
+	if (wait > FYAI_SHELL_INPUT_WAIT_MAX_MS)
+		wait = FYAI_SHELL_INPUT_WAIT_MAX_MS;
+	el = fyai_ctx_loop(ctx);
+	if (el && wait)
+		(void)fyai_event_sleep(el, wait);
+
+	fyai_shell_session_idle_arm(sess);
+	*okp = true;
+	return fyai_shell_session_result(ctx, sess, args,
+					 fyai_shell_view_kind(args, &region),
+					 &region);
+}
+
+static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_event_loop *el;
+	bool force;
+	char *err;
+
+	*okp = false;
+	sess = fyai_shell_session_of(ctx, args, &err);
+	if (!sess)
+		return err;
+
+	force = fy_get(args, "force", false);
+	if (!sess->exited) {
+		fyai_shell_session_close(sess, force);
+		/* Give the program the time to leave before reporting. */
+		el = fyai_ctx_loop(ctx);
+		if (el)
+			(void)fyai_event_sleep(el, force ? 100 :
+					       FYAI_TTY_CLOSE_WAIT_MS);
+	}
+	*okp = true;
+	if (sess->exited)
+		return strdup(fy_sprintfa("[shell '%s' ended: status %d]",
+					  sess->name, sess->signal ?
+					  128 + sess->signal : sess->exit_code));
+	return strdup(fy_sprintfa("[shell '%s' was asked to end]", sess->name));
 }
 
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
@@ -1700,7 +2258,15 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	const char *name;
 
 	name = fyai_tool_call_name(ctx, tool_call);
-	return !fy_equal(name, "ask_user") && !fyai_mcp_tool_name(name);
+	/*
+	 * A session tool reaches the terminal state that the parent holds,
+	 * thus it runs there and not in a forked child. None of them waits for
+	 * a program, so nothing is serialised for long.
+	 */
+	return !fy_equal(name, "ask_user") &&
+	       !fy_any_equal(name, "shell_output", "shell_input",
+			     "shell_close") &&
+	       !fyai_mcp_tool_name(name);
 }
 
 static void fyai_tool_job_drop(struct fyai_event_source **srcp)
@@ -1713,7 +2279,13 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 {
 	bool was_done = job->done;
 
-	job->done = job->reaped && !job->out_open;
+	/*
+	 * A session answers as soon as its terminal exists and then keeps
+	 * running, thus the answer completes the call and the process is
+	 * released later. Every other job ends with its process.
+	 */
+	job->done = job->session ? !job->out_open :
+				   (job->reaped && !job->out_open);
 	if (!was_done && job->done) {
 		/* Remove the deadline before the job waits for its group. */
 		fyai_tool_job_drop(&job->deadline);
@@ -1937,8 +2509,11 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	struct fyai_tool_job *job = NULL;
 	const char *name, *args_text, *command;
 	fy_generic args, progress_args, agent_name;
+	fy_generic session_call, session_command;
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
+	char *session_name = NULL;
+	bool have_session = false;
 	bool have_branch = false;
 	bool native_call;
 	bool eligible;
@@ -2003,6 +2578,33 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		have_branch = true;
 	}
 
+	/*
+	 * Reserve the session name before the spawn, as a sub-agent branch is
+	 * reserved. A name is unique among the live sessions of this branch. A name
+	 * in use is refused, so that the model selects another name.
+	 */
+	if (fyai_shell_session_call(ctx, tool_call)) {
+		const char *asked;
+
+		session_call = fy_get(args, "name", fy_invalid);
+		asked = fy_castp(&session_call, "");
+		if (!fyai_shell_session_name_valid(asked))
+			fyai_tool_submit_error_set(ctx,
+				"tool error: '%s' is not a usable session name; "
+				"use letters, digits, '-' or '_'", asked);
+		else if (fyai_shell_session_find(ctx, asked))
+			fyai_tool_submit_error_set(ctx,
+				"tool error: a shell named '%s' is already open "
+				"on branch %s; write to it or choose another name",
+				asked, fyai_ctx_branch(ctx));
+		else
+			/* Own the name: the generic it came from is transient. */
+			session_name = strdup(asked);
+		fyai_error_check(ctx, session_name && !ctx->tool_submit_error,
+				 err, "could not name the terminal session");
+		have_session = true;
+	}
+
 	job = calloc(1, sizeof(*job));
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
@@ -2010,6 +2612,22 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
 	fyai_tool_job_link(ctx, job);
+	if (have_session) {
+		int srows = 0, scols = 0;
+
+		fyai_shell_tty_size(ctx, args, &srows, &scols);
+		session_command = fy_get(args, "command", fy_invalid);
+		job->session = fyai_shell_session_create(ctx, session_name,
+					fy_castp(&session_command, ""),
+					srows, scols,
+					fyai_shell_output_bytes(ctx, args));
+		fyai_error_check(ctx, job->session, err,
+				 "could not open the terminal session");
+		job->session->job = job;
+		/* The session copied the name it was reserved under. */
+		free(session_name);
+		session_name = NULL;
+	}
 	/* A child that asked for a terminal must follow the window of the
 	 * user, and only the parent can see it change. */
 	if (fy_equal(fy_get(args, "tty", fy_false), fy_true))
@@ -2102,6 +2720,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	return job;
 
 err:
+	free(session_name);
 	fyai_tool_job_discard(job);
 	return NULL;
 }
@@ -2146,7 +2765,31 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 
 	(void)conn;
 	(void)errorp;
-	if (strcmp(method, "tool/progress") || fy_is_valid(id))
+	if (fy_is_valid(id))
+		return fy_invalid;
+
+	/* A session sends the bytes of its terminal; the parent renders. */
+	if (!strcmp(method, "shell/output")) {
+		char *bytes;
+		size_t n;
+
+		if (!job->session)
+			return fy_invalid;
+		bytes = fyai_bytes_from_generic(params, &n);
+		if (bytes)
+			(void)fyai_terminal_view_feed(job->session->view,
+						      bytes, n);
+		free(bytes);
+		return fy_invalid;
+	}
+	if (!strcmp(method, "shell/exit")) {
+		if (job->session)
+			fyai_shell_session_exited(job->session,
+				(int)fy_get(params, "exit_code", 0LL),
+				(int)fy_get(params, "signal", 0LL));
+		return fy_invalid;
+	}
+	if (strcmp(method, "tool/progress"))
 		return fy_invalid;
 	text = fy_get(params, "text", fy_invalid);
 	if (!fy_is_string(text))
@@ -2405,6 +3048,41 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	if (!job->done) {
 		*okp = false;
 		return fy_invalid;
+	}
+	/*
+	 * A session is complete when its terminal exists; its process keeps
+	 * running and belongs to the session from here on. The group drops its
+	 * reference, thus the job must not be reaped or released here.
+	 */
+	if (job->session) {
+		fyai_tool_job_live_close(job);
+		fyai_tool_job_drop(&job->deadline);
+		job->group = NULL;
+		if (fy_is_valid(job->diag))
+			fyai_diag_adopt(fyai_ctx_diag(ctx), job->diag,
+					job->origin);
+		*okp = job->result_ok && !job->failed;
+		if (!*okp) {
+			/*
+			 * Quote the cause the child recorded. The model reads
+			 * the reason here, and the user still receives the
+			 * same diagnostic: rendering it does not consume it.
+			 */
+			char *cause = fyai_diag_string(fyai_ctx_diag(ctx));
+			fy_generic out = fy_value(ctx->transient_gb,
+				fy_sprintfa("tool error: the terminal session "
+					    "could not be opened: %s",
+					    cause && *cause ? cause :
+					    "no reason was recorded"));
+
+			free(cause);
+			return out;
+		}
+		return fy_value(ctx->transient_gb,
+			fy_sprintfa("[terminal session '%s' started: %s]\n"
+				    "Read it with shell_output, drive it with "
+				    "shell_input, end it with shell_close.",
+				    job->session->name, job->session->command));
 	}
 	fyai_tool_job_live_close(job);
 	fyai_tool_job_close_channel(job);

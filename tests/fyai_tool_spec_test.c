@@ -104,6 +104,7 @@ static void test_shape(void)
 	fy_generic tools = make_tools(&test_ctx);
 	static const char *const names[] = {
 		"read_file", "write_file", "apply_patch", "shell",
+		"shell_input", "shell_output", "shell_close",
 		"ask_user", "agent",
 	};
 	static const char *const required_sets[][3] = {
@@ -111,11 +112,14 @@ static void test_shape(void)
 		{ "path", "content" },
 		{ "patch" },
 		{ "command" },
+		{ "name", "input" },
+		{ "name" },
+		{ "name" },
 		{ "question" },
 		{ "name", "description", "task" },
 	};
 	static const size_t required_sizes[] = {
-		1, 2, 1, 1, 1, 3,
+		1, 2, 1, 1, 2, 1, 1, 1, 3,
 	};
 	fy_generic tool, fn, params, req, tmp;
 	size_t n = 0, i = 0;
@@ -124,7 +128,7 @@ static void test_shape(void)
 	require(fy_is_sequence(tools), "make_tools: expected a sequence");
 	fy_foreach(tool, tools)
 		n++;
-	require(n == 6, "make_tools: expected exactly 6 tools");
+	require(n == 9, "make_tools: expected exactly 9 tools");
 
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
@@ -159,6 +163,7 @@ static void test_order(void)
 	fy_generic tools = make_tools(&test_ctx);
 	static const char *const expected[] = {
 		"read_file", "write_file", "apply_patch", "shell",
+		"shell_input", "shell_output", "shell_close",
 		"ask_user", "agent",
 	};
 	fy_generic tool;
@@ -166,12 +171,12 @@ static void test_order(void)
 
 	fy_foreach(tool, tools) {
 		fy_generic fn = fy_get(tool, "function");
-		require(i < 6, "too many tools");
+		require(i < 9, "too many tools");
 		require(fy_equal(fy_get(fn, "name"), expected[i]),
 			"tool order mismatch");
 		i++;
 	}
-	require(i == 6, "too few tools");
+	require(i == 9, "too few tools");
 }
 
 static void test_descriptions(void)
@@ -243,7 +248,7 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 6 && has_ask_user && has_agent,
+	require(count == 9 && has_ask_user && has_agent,
 		"plain context must keep all six tools");
 
 	/* A sub-agent context removes ask_user and agent. */
@@ -260,7 +265,7 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 4 && !has_ask_user && !has_agent,
+	require(count == 7 && !has_ask_user && !has_agent,
 		"sub-agent context must drop ask_user and agent");
 }
 

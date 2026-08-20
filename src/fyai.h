@@ -29,6 +29,7 @@ struct fyai_ui;
 struct jsonrpc_conn;
 struct fyai_display_output;
 struct fyai_tool_job;
+struct fyai_shell_session;
 struct fyai_sink;
 struct fyai_patch_display;	/* resolved patch presentation (fyai_tools.c) */
 
@@ -68,6 +69,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
  * bytes/4 rule. 16k tokens is a long build log, not a whole context window.
  */
 #define DEFAULT_SHELL_MAX_OUTPUT_TOKENS 16384
+#define DEFAULT_SHELL_SESSION_TIMEOUT_MS 900000
 #define DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS 200000
 /* The bytes/4 rule the context estimator uses, in one place. */
 #define FYAI_BYTES_PER_TOKEN 4
@@ -197,6 +199,7 @@ struct fyai_cfg {
 	int read_hard_max_bytes;	/* cap on a model-requested size */
 	int shell_max_output_tokens;	/* default shell output cap (0 = none) */
 	int shell_hard_max_output_tokens; /* cap on a model-requested size */
+	int shell_session_timeout_ms;	/* idle limit of a named session */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */
 	int shell_tty_cols;		/* PTY columns (0 = follow the terminal) */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
@@ -459,6 +462,9 @@ struct fyai_ctx {
 	int tty_cols;
 	void *tty_session;		/* the PTY session running in this process */
 	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
+	/* Named terminal sessions, each one a process of its own. The view of
+	 * a session lives here and thus outlives the process that drove it. */
+	struct fyai_shell_session *shell_sessions;
 	struct fyai_event_source *winch_src;
 	bool tool_output_displayed;
 	/* The sole progressive transcript document for the active user or

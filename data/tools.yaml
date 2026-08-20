@@ -6,8 +6,8 @@
 # what the model provider, `fyai catalog` markdown, and the tool-spec unit
 # tests consume, so keep them in sync with tests/fyai_tool_spec_test.c.
 #
-# Tool order is fixed: read_file, write_file, apply_patch, shell, ask_user,
-# agent.
+# Tool order is fixed: read_file, write_file, apply_patch, shell, shell_input,
+# shell_output, shell_close, ask_user, agent.
 - type: function
   function:
     name: read_file
@@ -96,6 +96,10 @@
             Use it for a program that behaves differently without a terminal,
             such as one that colours or paginates its output. A program that
             waits for input will wait until the time limit expires.
+        name:
+          type: string
+          description: |-
+            Name this shell to keep it open as an interactive terminal session, instead of running one command to completion. The command keeps its own process and terminal until it ends or you close it, and you reach it by this name with shell_input, shell_output and shell_close. Use it for a program that expects a person: an editor, a pager, a REPL, a prompt for a password. The name must be unique among the sessions you have open, and describes what the shell is for (letters, digits, '-' or '_'). The call returns as soon as the terminal exists; read it when you want.
         rows:
           type: integer
           description: |-
@@ -124,6 +128,99 @@
             Optional short (3-5 word) description of what the command does, used as its label in the display.
       required:
         - command
+      additionalProperties: false
+- type: function
+  function:
+    name: shell_input
+    description: |-
+      Type into a terminal session opened by `shell` with a name. The text is sent as keystrokes, so control characters work: use \u0003 for Ctrl-C, \u001b for escape, \u0004 for end of input. Returns what the program showed afterwards, in the same shape as shell_output.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            Name of the session to type into.
+        input:
+          type: string
+          description: |-
+            The characters to send.
+        enter:
+          type: boolean
+          description: |-
+            Append a carriage return, as a person pressing return would. True by default; set it to false to send raw keys.
+        wait_ms:
+          type: integer
+          description: |-
+            Time to let the program answer before the output is read. Defaults to 250 ms. A program that needs longer can be read again with shell_output.
+        view:
+          type: string
+          enum:
+            - new
+            - screen
+            - all
+          description: |-
+            Which reading to return afterwards. Defaults to `new`.
+      required:
+        - name
+        - input
+      additionalProperties: false
+- type: function
+  function:
+    name: shell_output
+    description: |-
+      Read a terminal session opened by `shell` with a name, without typing into it. A program that only writes lines is returned as lines, whole and in order. A program that draws a screen is returned as the screen it drew, which is the only useful reading of it. A session can be read after its program has ended.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            Name of the session to read.
+        view:
+          type: string
+          enum:
+            - new
+            - screen
+            - all
+            - region
+          description: |-
+            `new` returns what appeared since your last read, and is the usual choice. `screen` returns the whole screen. `all` returns everything the session has produced. `region` returns a part of the screen, for a program that draws one.
+        region:
+          type: object
+          description: |-
+            The part of the screen to return, with `view: region`. Rows and columns count from 0.
+          properties:
+            row:
+              type: integer
+            col:
+              type: integer
+            rows:
+              type: integer
+            cols:
+              type: integer
+          additionalProperties: false
+      required:
+        - name
+      additionalProperties: false
+- type: function
+  function:
+    name: shell_close
+    description: |-
+      End a terminal session. The program is asked to stop and killed if it does not. Prefer driving the program out itself, such as `:q!` in an editor, so that it can save or restore what it owns.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            Name of the session to end.
+        force:
+          type: boolean
+          description: |-
+            Kill the program at once instead of asking it to stop.
+      required:
+        - name
       additionalProperties: false
 - type: function
   function:

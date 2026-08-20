@@ -44,7 +44,6 @@
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
-#include "fyai_tools.h"
 #include "fyai_tool_spec.h"
 #include "fyai_turn.h"
 
@@ -1768,6 +1767,12 @@ static void fyai_turn_run_cancel(struct fyai_turn_run *run)
 		fyai_model_step_cancel(run->model_step);
 	if (run->tool_group)
 		fyai_tool_job_group_cancel(run->tool_group);
+	/*
+	 * An interrupt is immediate. A terminal session is a program that the user
+	 * watches, so it stops with the turn that owns it. It does not stay running
+	 * with nothing to drive it.
+	 */
+	fyai_shell_sessions_release(run->ctx, true);
 }
 
 static fy_generic fyai_turn_run_collect(const struct fyai_turn_run *run)
@@ -1876,6 +1881,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	cfg = ctx->cfg;
 
 	/* Remove the handlers before the context that they name is destroyed. */
+	/* A session cannot outlive the invocation that opened it. */
+	fyai_shell_sessions_release(ctx, false);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx);
 	fyai_cleanup_transient_builder(ctx);

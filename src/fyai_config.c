@@ -261,6 +261,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	cfg->shell_hard_max_output_tokens = fy_get(shell,
 				"hard_max_output_tokens",
 				cfg->shell_hard_max_output_tokens);
+	cfg->shell_session_timeout_ms = fy_get(shell, "session_timeout_ms",
+				cfg->shell_session_timeout_ms);
 	cfg->shell_tty_rows = fy_get(shell, "tty_rows", cfg->shell_tty_rows);
 	cfg->shell_tty_cols = fy_get(shell, "tty_cols", cfg->shell_tty_cols);
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
@@ -2020,6 +2022,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->read_max_bytes = DEFAULT_READ_MAX_BYTES;
 	cfg->read_hard_max_bytes = DEFAULT_READ_HARD_MAX_BYTES;
 	cfg->shell_max_output_tokens = DEFAULT_SHELL_MAX_OUTPUT_TOKENS;
+	cfg->shell_session_timeout_ms = DEFAULT_SHELL_SESSION_TIMEOUT_MS;
 	cfg->shell_hard_max_output_tokens =
 		DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;

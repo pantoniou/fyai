@@ -30,6 +30,7 @@
 #include "fyai_sandbox.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
+#include "fyai_jsonrpc.h"
 #include "fyai_terminal_session.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
@@ -224,8 +225,10 @@ static int tty_spawn(struct fyai_ctx *ctx, const char *command,
 	pid_t pid;
 
 	rc = openpty(&master, &slave, NULL, NULL, NULL);
-	if (rc)
+	if (rc) {
+		fyai_error(ctx, "openpty: %s", strerror(errno));
 		return -1;
+	}
 
 	ws.ws_row = (unsigned short)rows;
 	ws.ws_col = (unsigned short)cols;
@@ -443,4 +446,270 @@ void fyai_terminal_result_cleanup(struct fyai_terminal_result *result)
 {
 	free(result->output);
 	memset(result, 0, sizeof(*result));
+}
+
+/*
+ * The relay: this process drives the pseudo-terminal, the parent renders it.
+ *
+ * A session is one process running one program on a terminal, the way a remote
+ * shell is. This side moves bytes and applies the window size; it interprets
+ * nothing, thus the terminal state lives in the parent and survives this
+ * process. Output goes up as a `shell/output` notification, as text when the
+ * program writes text and as base64 when it draws.
+ */
+struct fyai_terminal_relay {
+	struct fyai_ctx *ctx;
+	struct jsonrpc_conn *conn;
+	int master;
+	pid_t pid;
+	int status;
+	bool reaped;
+	bool done;
+	bool closing;
+	struct fyai_event_source *fdsrc;
+	struct fyai_event_source *childsrc;
+	struct fyai_event_source *killer;
+};
+
+static void relay_notify(struct fyai_terminal_relay *rl, const char *method,
+			 fy_generic params)
+{
+	if (!rl->conn)
+		return;
+	(void)jsonrpc_notify(rl->conn, method, params);
+}
+
+/* Tell the parent how the program ended, then stop serving. */
+static void relay_finish(struct fyai_terminal_relay *rl)
+{
+	struct fy_generic_builder *gb;
+
+	if (rl->done)
+		return;
+	rl->done = true;
+
+	gb = fyai_ctx_transient_gb(rl->ctx);
+	if (!gb)
+		return;
+	if (WIFSIGNALED(rl->status))
+		relay_notify(rl, "shell/exit",
+			     fy_gb_mapping(gb, "signal",
+					   (long long)WTERMSIG(rl->status)));
+	else
+		relay_notify(rl, "shell/exit",
+			     fy_gb_mapping(gb, "exit_code",
+					   (long long)WEXITSTATUS(rl->status)));
+}
+
+static enum fyai_event_action relay_read(const struct fyai_event *ev)
+{
+	struct fyai_terminal_relay *rl = ev->userdata;
+	struct fy_generic_builder *gb;
+	char buf[4096];
+	ssize_t n;
+
+	for (;;) {
+		n = read(rl->master, buf, sizeof(buf));
+		if (n > 0) {
+			gb = fyai_ctx_transient_gb(rl->ctx);
+			if (gb)
+				relay_notify(rl, "shell/output",
+					     fyai_bytes_to_generic(gb, buf,
+								   (size_t)n));
+			continue;
+		}
+		if (n < 0 && (errno == EAGAIN || errno == EINTR))
+			return FYAIEA_CONTINUE;
+		/* EIO is the last slave closing: the end of the stream. */
+		if (rl->fdsrc) {
+			fyai_event_source_remove(rl->fdsrc);
+			rl->fdsrc = NULL;
+		}
+		if (rl->reaped)
+			relay_finish(rl);
+		return FYAIEA_CONTINUE;
+	}
+}
+
+static enum fyai_event_action relay_child(const struct fyai_event *ev)
+{
+	struct fyai_terminal_relay *rl = ev->userdata;
+
+	rl->status = ev->status;
+	rl->reaped = true;
+	if (rl->childsrc) {
+		fyai_event_source_remove(rl->childsrc);
+		rl->childsrc = NULL;
+	}
+	/* A terminal can still hold output after the program is reaped. */
+	if (!rl->fdsrc)
+		relay_finish(rl);
+	return FYAIEA_CONTINUE;
+}
+
+static enum fyai_event_action relay_kill(const struct fyai_event *ev)
+{
+	struct fyai_terminal_relay *rl = ev->userdata;
+
+	(void)kill(-rl->pid, SIGKILL);
+	return FYAIEA_CONTINUE;
+}
+
+struct fyai_terminal_relay *
+fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
+			  const char *command,
+			  const struct fyai_sandbox_spec *sandbox,
+			  const struct fyai_terminal_opts *opts)
+{
+	struct fyai_terminal_relay *rl;
+	struct fyai_event_loop *el;
+	int rows, cols, rc;
+
+	rl = calloc(1, sizeof(*rl));
+	if (!rl) {
+		fyai_error(ctx, "shell: out of memory starting the session");
+		return NULL;
+	}
+	rl->ctx = ctx;
+	rl->conn = conn;
+	rl->master = -1;
+
+	rows = opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT;
+	cols = opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT;
+
+	/*
+	 * Each step reports its cause. A session that cannot start is reported to the
+	 * model and to the user. "It could not be opened" gives neither of them a
+	 * cause that they can act on.
+	 */
+	rc = tty_spawn(ctx, command, sandbox, opts, rows, cols, &rl->master,
+		       &rl->pid);
+	if (rc) {
+		fyai_error(ctx,
+			   "shell: could not start '%s' on a pseudo-terminal "
+			   "(%dx%d): %s", command ? command : "", rows, cols,
+			   strerror(errno));
+		goto fail;
+	}
+
+	el = fyai_ctx_loop(ctx);
+	if (!el) {
+		fyai_error(ctx, "shell: no event loop for the session");
+		goto fail_child;
+	}
+	rc = fyai_event_add_fd(el, rl->master, FYAIEV_READ, relay_read, rl,
+			       &rl->fdsrc);
+	if (rc) {
+		fyai_error(ctx, "shell: could not watch the session terminal");
+		goto fail_child;
+	}
+	rc = fyai_event_add_child(el, rl->pid, relay_child, rl, &rl->childsrc);
+	if (rc) {
+		fyai_error(ctx, "shell: could not watch the session process");
+		goto fail_child;
+	}
+	return rl;
+
+fail_child:
+	(void)kill(-rl->pid, SIGKILL);
+	(void)waitpid(rl->pid, NULL, 0);
+fail:
+	if (rl->fdsrc)
+		fyai_event_source_remove(rl->fdsrc);
+	if (rl->childsrc)
+		fyai_event_source_remove(rl->childsrc);
+	if (rl->master >= 0)
+		close(rl->master);
+	free(rl);
+	return NULL;
+}
+
+int fyai_terminal_relay_write(struct fyai_terminal_relay *rl, const char *data,
+			      size_t len)
+{
+	size_t done = 0;
+	ssize_t n;
+
+	if (!rl || rl->master < 0 || !data)
+		return -1;
+
+	/* Input is a keystroke or a line; a short write is retried at once. */
+	while (done < len) {
+		n = write(rl->master, data + done, len - done);
+		if (n > 0) {
+			done += (size_t)n;
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		return -1;
+	}
+	return 0;
+}
+
+void fyai_terminal_relay_resize(struct fyai_terminal_relay *rl, int rows,
+				int cols)
+{
+	struct winsize ws = {};
+
+	if (!rl || rl->master < 0 || rows <= 0 || cols <= 0)
+		return;
+	ws.ws_row = (unsigned short)rows;
+	ws.ws_col = (unsigned short)cols;
+	(void)ioctl(rl->master, TIOCSWINSZ, &ws);
+}
+
+/*
+ * End the session. A program is asked first and killed after the grace time,
+ * so that it can restore the terminal; @force does not wait.
+ */
+void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force)
+{
+	struct fyai_event_loop *el;
+
+	if (!rl || rl->reaped || rl->done)
+		return;
+	if (force) {
+		(void)kill(-rl->pid, SIGKILL);
+		return;
+	}
+	if (rl->closing)
+		return;
+	rl->closing = true;
+	(void)kill(-rl->pid, SIGTERM);
+
+	el = fyai_ctx_loop(rl->ctx);
+	if (el && !rl->killer)
+		(void)fyai_event_add_timer(el, FYAI_TTY_KILL_GRACE_MS, 0,
+					   relay_kill, rl, &rl->killer);
+}
+
+bool fyai_terminal_relay_done(const struct fyai_terminal_relay *rl)
+{
+	return !rl || rl->done;
+}
+
+bool fyai_terminal_relay_reaped(const struct fyai_terminal_relay *rl)
+{
+	return !rl || rl->reaped;
+}
+
+void fyai_terminal_relay_destroy(struct fyai_terminal_relay *rl)
+{
+	if (!rl)
+		return;
+	if (!rl->reaped && rl->pid > 0) {
+		(void)kill(-rl->pid, SIGKILL);
+		while (waitpid(rl->pid, NULL, 0) < 0 && errno == EINTR)
+			;
+	}
+	if (rl->killer)
+		fyai_event_source_remove(rl->killer);
+	if (rl->fdsrc)
+		fyai_event_source_remove(rl->fdsrc);
+	if (rl->childsrc)
+		fyai_event_source_remove(rl->childsrc);
+	if (rl->master >= 0)
+		close(rl->master);
+	free(rl);
 }

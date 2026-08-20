@@ -28,6 +28,7 @@
 #include <libfyaml/libfyaml-align.h>
 
 #include "fyai.h"
+#include "fyai_auth_util.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
 #include "fyai_sink.h"
@@ -96,6 +97,96 @@ bool data_is_binary(const char *data, size_t len)
 			return true;
 	}
 	return false;
+}
+
+/* The number of bytes in the UTF-8 sequence that starts with @c, 0 if none. */
+static size_t utf8_seq_len(unsigned char c)
+{
+	if (c < 0x80)
+		return 1;
+	if ((c & 0xe0) == 0xc0)
+		return 2;
+	if ((c & 0xf0) == 0xe0)
+		return 3;
+	if ((c & 0xf8) == 0xf0)
+		return 4;
+	return 0;
+}
+
+bool data_is_wire_text(const char *data, size_t len)
+{
+	unsigned char c;
+	size_t i, n, k;
+
+	for (i = 0; i < len; i += n) {
+		c = (unsigned char)data[i];
+		n = utf8_seq_len(c);
+		if (!n || i + n > len)
+			return false;
+		if (n == 1 && c < 0x20 && c != '\t' && c != '\n' && c != '\r')
+			return false;
+		if (n == 1 && c == 0x7f)
+			return false;
+		for (k = 1; k < n; k++)
+			if (((unsigned char)data[i + k] & 0xc0) != 0x80)
+				return false;
+	}
+	return true;
+}
+
+fy_generic fyai_bytes_to_generic(struct fy_generic_builder *gb,
+				 const char *data, size_t len)
+{
+	fy_generic value;
+	char *copy;
+
+	if (!gb || !data)
+		return fy_invalid;
+
+	if (data_is_wire_text(data, len)) {
+		copy = malloc(len + 1);
+		if (!copy)
+			return fy_invalid;
+		memcpy(copy, data, len);
+		copy[len] = '\0';
+		value = fy_gb_mapping(gb, "text", fy_gb_intern_string(gb, copy));
+		free(copy);
+		return value;
+	}
+
+	copy = fyai_base64url_encode((const unsigned char *)data, len);
+	if (!copy)
+		return fy_invalid;
+	value = fy_gb_mapping(gb, "data", fy_gb_intern_string(gb, copy));
+	free(copy);
+	return value;
+}
+
+char *fyai_bytes_from_generic(fy_generic value, size_t *lenp)
+{
+	fy_generic held;
+	const char *text;
+	char *out;
+	size_t len;
+
+	*lenp = 0;
+	held = fy_get(value, "text", fy_invalid);
+	if (fy_is_string(held)) {
+		text = fy_castp(&held, "");
+		len = strlen(text);
+		out = malloc(len + 1);
+		if (!out)
+			return NULL;
+		memcpy(out, text, len + 1);
+		*lenp = len;
+		return out;
+	}
+
+	held = fy_get(value, "data", fy_invalid);
+	if (!fy_is_string(held))
+		return NULL;
+	out = (char *)fyai_base64url_decode(fy_castp(&held, ""), lenp);
+	return out;
 }
 
 int response_buffer_append(struct response_buffer *buf, const char *text)

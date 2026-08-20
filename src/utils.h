@@ -107,6 +107,25 @@ typedef void (*shell_output_fn)(void *userdata, enum shell_output_stream stream,
 				const char *data, size_t len);
 
 bool data_is_binary(const char *data, size_t len);
+
+/*
+ * True when a JSON string can carry @data without a change: valid UTF-8, no
+ * NUL, and no control character except tab, newline and carriage return. A
+ * terminal that writes lines gives such text. A terminal that draws a screen
+ * does not, because its cursor movements are control sequences.
+ */
+bool data_is_wire_text(const char *data, size_t len);
+
+struct fy_generic_builder;
+/*
+ * Carry @len bytes in a generic: `text` when they are text, `data` with the
+ * bytes in base64 when they are not. Line-oriented output thus stays readable
+ * on the wire and in a trace, and a screen program still crosses it whole.
+ */
+fy_generic fyai_bytes_to_generic(struct fy_generic_builder *gb,
+				 const char *data, size_t len);
+/* Take the bytes back out. The caller frees the result. */
+char *fyai_bytes_from_generic(fy_generic value, size_t *lenp);
 int response_buffer_reserve(struct response_buffer *buf, size_t need);
 int response_buffer_append(struct response_buffer *buf, const char *text);
 int response_buffer_append_data(struct response_buffer *buf, const void *data,

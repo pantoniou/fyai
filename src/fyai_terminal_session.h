@@ -57,6 +57,29 @@ void fyai_terminal_session_resize(struct fyai_ctx *ctx, int rows, int cols);
  * parent sends it the new size over the control channel instead. Opening is
  * idempotent, and only a path that owns a terminal session opens it.
  */
+/*
+ * The relay side of a session: this process drives the terminal, the parent
+ * renders it. Output goes up as a `shell/output` notification and the end of
+ * the program as `shell/exit`.
+ */
+struct fyai_terminal_relay;
+struct jsonrpc_conn;
+
+struct fyai_terminal_relay *
+fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
+			  const char *command,
+			  const struct fyai_sandbox_spec *sandbox,
+			  const struct fyai_terminal_opts *opts);
+int fyai_terminal_relay_write(struct fyai_terminal_relay *rl, const char *data,
+			      size_t len);
+void fyai_terminal_relay_resize(struct fyai_terminal_relay *rl, int rows,
+				int cols);
+void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force);
+bool fyai_terminal_relay_done(const struct fyai_terminal_relay *rl);
+/* True once the program has been reaped, whether or not its output is drained. */
+bool fyai_terminal_relay_reaped(const struct fyai_terminal_relay *rl);
+void fyai_terminal_relay_destroy(struct fyai_terminal_relay *rl);
+
 int fyai_terminal_winch_open(struct fyai_ctx *ctx);
 void fyai_terminal_winch_close(struct fyai_ctx *ctx);
 
