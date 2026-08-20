@@ -55,6 +55,7 @@ A sub-agent gets the same set less `agent` and `ask_user`
 | Function | claude_code | codex | opencode | fyai |
 | --- | --- | --- | --- | --- |
 | The command | yes | yes | yes | **yes** |
+| A terminal | no | `tty` | no | **yes** |
 | Time limit | `timeout` | `yield_time_ms` | `timeout` | **yes** |
 | Working directory | no | `workdir` | `workdir` | **yes** |
 | A label for the display | `description` | `justification` | `description` | **yes** |
@@ -172,6 +173,14 @@ to write to it can make the result worse. A program that finds no terminal
 usually takes the default and continues; a program that finds one will show a
 prompt and wait for ever. Thus the terminal and `write_stdin` are one change,
 or the time limit of section 3.3 must come first.
+
+**What is supplied now.** `shell` takes `tty`, `rows` and `cols`. The result
+is the screen, with the lines that scrolled off it. The size follows the window
+of the user. The parent watches `SIGWINCH`, because a tool child calls
+`setsid()` and the kernel cannot signal it, and sends the new size on the
+control channel. The alternate screen is not enabled, so a full-screen program
+leaves its last screen. `write_stdin` and a session that stays open are the
+next step. Refer to `doc/pty-terminal-plan.md`.
 
 ## 4. Agent tools
 
