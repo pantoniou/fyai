@@ -154,6 +154,9 @@ static bool branch_name_valid(const char *name, bool allow_agent)
 		return false;
 
 	len = strlen(name);
+	/* Keep branch names within the reference parser's fixed limit. */
+	if (len > FYAI_BRANCH_NAME_MAX)
+		return false;
 	if (name[0] == '/' || name[len - 1] == '/')
 		return false;
 
