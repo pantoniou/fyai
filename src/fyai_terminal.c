@@ -63,6 +63,28 @@ int markdown_render_height(void)
 	return height > 0 ? height : 0;
 }
 
+/*
+ * True terminal geometry for @fd, with no column reserved. The PTY that the
+ * tool subsystem gives a command must match the window of the user. This is
+ * therefore separate from markdown_render_width(), which keeps one column for
+ * the renderer.
+ */
+bool terminal_window_size(int fd, int *rowsp, int *colsp)
+{
+	struct winsize ws;
+	int rc;
+
+	rc = ioctl(fd, TIOCGWINSZ, &ws);
+	if (rc || !ws.ws_row || !ws.ws_col)
+		return false;
+
+	if (rowsp)
+		*rowsp = ws.ws_row;
+	if (colsp)
+		*colsp = ws.ws_col;
+	return true;
+}
+
 bool terminal_is_tty(int fd)
 {
 	return isatty(fd) == 1;

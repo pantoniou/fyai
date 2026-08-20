@@ -210,6 +210,32 @@ properties:
         description: >-
           Upper bound on a `max_output_tokens` the model asks for. 0 removes
           the bound.
+      session_timeout_ms:
+        type: integer
+        minimum: 0
+        default: 900000
+        description: >-
+          Idle limit of a named terminal session: the time with no read and no
+          write before it is ended. It is not a limit on the program, which can
+          work for as long as the model keeps using it. 0 removes the limit.
+      tty_term:
+        type: string
+        default: xterm-256color
+        description: Terminal type exposed to a `tty` shell call.
+      tty_rows:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Rows of the pseudo-terminal given to a `tty` shell call. 0 follows
+          the real terminal, and gives 24 when there is none.
+      tty_cols:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Columns of the pseudo-terminal given to a `tty` shell call. 0
+          follows the real terminal, and gives 80 when there is none.
   read:
     type: object
     additionalProperties: false

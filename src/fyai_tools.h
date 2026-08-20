@@ -34,6 +34,14 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call);
 bool fyai_tool_job_done(const struct fyai_tool_job *job);
+/*
+ * End every named terminal session. A session lives for one invocation.
+ * @force does not wait for a program to leave, which is what an interrupt asks.
+ */
+void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force);
+
+/* Tell every live tool child that the terminal of the user changed size. */
+void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
 void fyai_tool_job_cancel(struct fyai_tool_job *job);
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);

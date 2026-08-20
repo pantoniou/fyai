@@ -93,6 +93,9 @@ struct jsonrpc_request *
 jsonrpc_request_submit(struct jsonrpc_conn *conn, const char *method,
 		       fy_generic params, long long id, bool notification,
 		       jsonrpc_complete_fn complete, void *userdata);
+/* Submit a notification that releases itself after writing or disconnect. */
+int jsonrpc_notify(struct jsonrpc_conn *conn, const char *method,
+		   fy_generic params);
 void jsonrpc_request_cancel(struct jsonrpc_request *req);
 bool jsonrpc_request_done(const struct jsonrpc_request *req);
 bool jsonrpc_request_ok(const struct jsonrpc_request *req);
