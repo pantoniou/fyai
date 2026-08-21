@@ -1457,6 +1457,45 @@ int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
 	return rows;
 }
 
+int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			     const char *title, const char *cause,
+			     enum fyai_ui_mark mark)
+{
+	static const enum fymd_indicator_state states[] = {
+		[FYAI_UI_MARK_RUNNING] = FYMD_INDICATOR_PENDING,
+		[FYAI_UI_MARK_OK] = FYMD_INDICATOR_SUCCESS,
+		[FYAI_UI_MARK_FAILED] = FYMD_INDICATOR_FAILURE,
+	};
+	struct response_buffer out = {0};
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	char *margin;
+	int rc;
+
+	if (!ui || !sf || !title)
+		return -1;
+
+	/*
+	 * The same head that a work band draws, so that a session has the form of
+	 * each other tool call. The mark gives the state of the program.
+	 */
+	margin = markdown_indicator_margin_cfg(ctx->cfg, states[mark]);
+	rc = markdown_render_tool_head(ctx->cfg, title, strlen(title), cause,
+				       margin ? margin : "  ", "  ", &out);
+	free(margin);
+	if (!rc) {
+		/* A title row is one row: what follows the first line is the
+		 * body of the head, which a surface has no room for. */
+		char *nl = out.data ? strchr(out.data, '\n') : NULL;
+
+		if (nl)
+			*nl = '\0';
+		rc = fytim_surface_set_top(sf, out.data ? out.data : title) ==
+		     FYTIM_OK ? 0 : -1;
+	}
+	free(out.data);
+	return rc;
+}
+
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom)
 {
