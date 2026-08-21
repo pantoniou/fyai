@@ -199,7 +199,79 @@ later invocation finds, which is the second row of section 3.4 and needs an
 arena decision first. Model control of the sandbox also stays out: the SRD
 makes command admission a matter of policy.
 
-## 6. State
+## 6. The terminal for the user - done
+
+`fyai term` is the same view, drawn for a user and not for a model, and
+libfytimui draws it. The verb owns no part of the terminal. It publishes cells
+to a surface, and the library composes that surface with the transcript, the
+work bands and the prompt.
+
+- `fyai_ui_surface_*` is the only path from fyai to a surface, because
+`src/fyai_ui.c` is the file that speaks to the library. `fyai_term.c` owns the
+pseudo-terminal, the event sources and the keys, and it writes to no descriptor
+of its own. `tests/sink-only-allow.txt` therefore needs no entry for it.
+- The program has the rows that the band granted, read back with
+`fytim_surface_granted_rows()`. A screen larger than the surface would keep its
+first rows out of sight.
+- The keys belong to the surface while the program runs. libfytimui encodes
+them into the bytes that a terminal sends and delivers them as an event.
+Escape and ^C go to the program, and `^\` is the key of fyai.
+
+This is the path a watched sub-agent will use. The only difference for an
+agent is that its surface does not hold the keys.
+
+The library gained four things for this, with its own tests in that tree: a
+cell surface, keys handed to a surface, the commit, and the shedding of grid
+rows before chrome. A defect in the core came out of it as well. The text path
+dropped a combining mark everywhere, and not only on a surface.
+
+### The window changes size
+
+Nothing here watches `SIGWINCH`. Standard output is a spool pipe while the
+display is open, so the verb cannot read the size from it. The display samples
+the terminal at each frame. `fyai_ui_size()` reports what it found.
+
+The rows need both readings, and they must not chase each other:
+
+- The height of the window gives the growth. The verb asks for it one time
+for each size that the window takes, because a surface never receives more rows
+than its grid has. To follow the grant alone would never grow the surface.
+- The grant of the band is the ceiling, and the verb believes it only after a
+frame is drawn at the new size. A grant that is read before that would say
+"shrink back" immediately, and the size would never change.
+
+A terminal is a live view. The loop waits for a bounded time, so it follows
+a window that changes while no byte arrives and no key is pressed. A publish
+asks for a frame with `fyai_ui_wake()`, and no render path pumps the
+display.
+
+### Leaving
+
+The verb asks the program to stop, and then makes it stop. It sends SIGHUP
+first, because that is the end of a terminal, and an interactive shell stops on
+it. Such a shell ignores SIGTERM, which is what the leave key meets in normal
+use. It sends SIGTERM next, and SIGKILL after the grace time, for a program
+that reads neither.
+
+The loop keeps running until the program stops, because the timer that makes
+it stop lives on that loop. To end the loop at the key press leaves a wait for
+a child that does not stop, and that wait holds the whole process. The end is
+the reaping of the program and never the end of the stream. A descendant of the
+program can hold the terminal open.
+
+### The keys arrive in the order they were typed
+
+A frame of the display answered only one question: was this key pressed. One
+field kept the last key of the frame, and typed text was collected apart from
+it. Both results reached this verb. `^\ q` typed as one burst sent the `q` to
+the program and kept the `^\`. Two presses of one key inside a frame became one
+press.
+
+The core now keeps the input of a frame in the order of arrival, and the
+encoder walks that log. The program therefore receives what the user typed. The
+aggregates that a widget reads do not change.
+
+## 7. State
 
 Steps 1 to 3 are done.
 
@@ -219,7 +291,7 @@ One item stays open in the tests: the `tty/resize` notification to a forked
 tool child. The resize case covers the session that runs in the parent, which
 the `fyai tool shell` verb uses.
 
-## 7. Order and the review
+## 8. Order and the review
 
 Each step is one patch series in the order implementation, tests,
 documentation. Step 1 folds into the existing PTY commit, because it repairs
