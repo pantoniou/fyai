@@ -114,6 +114,30 @@
   },
   {
    "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "t5",
+         "type": "function",
+         "function": {
+          "name": "shell",
+          "arguments": "{\"name\": \"pipes\", \"command\": \"sh -c 'printf \\\"PIPE-A\\\\nPIPE-B\\\\n\\\"; sleep 2'\", \"description\": \"a pipe shell\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
     "id": "c5",
     "object": "chat.completion",
     "created": 1735689600,

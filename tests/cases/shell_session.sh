@@ -22,10 +22,10 @@ import sys
 last = json.loads(open(sys.argv[1]).read().splitlines()[-1])
 results = [m["content"] for m in last["body"]["messages"]
            if m.get("role") == "tool"]
-if len(results) != 4:
-    sys.stderr.write("expected four tool results, got %d\n" % len(results))
+if len(results) != 5:
+    sys.stderr.write("expected five tool results, got %d\n" % len(results))
     sys.exit(1)
-start, typed, read, closed = results
+start, typed, read, closed, pipes = results
 
 # The call answers as soon as the terminal exists.
 if "started" not in start or "box" not in start:
@@ -47,5 +47,5 @@ if "ended" not in closed:
     sys.exit(1)
 PYEOF
 
-mock_stop 5
+mock_stop 6
 pass

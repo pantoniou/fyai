@@ -103,6 +103,54 @@
       "index": 0,
       "message": {
        "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "t5",
+         "type": "function",
+         "function": {
+          "name": "shell",
+          "arguments": "{\"command\": \"sh -c 'printf \\\"LINE-A\\\\nLINE-B\\\\nLINE-C\\\\n\\\"; sleep 30'\", \"name\": \"lines\", \"description\": \"plain lines\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "t6",
+         "type": "function",
+         "function": {
+          "name": "shell_output",
+          "arguments": "{\"name\": \"lines\", \"view\": \"all\", \"region\": {\"row\": 0, \"col\": 0, \"rows\": 6, \"cols\": 40}}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
        "content": "done."
       },
       "finish_reason": "stop"

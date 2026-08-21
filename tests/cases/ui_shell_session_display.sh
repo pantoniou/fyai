@@ -45,6 +45,16 @@ if b"FROM-SESSION" not in plain:
 if not re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
     raise SystemExit("the screen of the session carries no margin")
 
+# A session on pipes ends a line with a line feed alone. Its screen is drawn
+# from cells, so without the terminal's own answer to that each line would
+# start where the last one ended: every row begins right after the margin.
+rows = re.findall(rb"\xe2\x94\x82 ([^\n]*PIPE-[AB][^\n]*)", plain)
+if not rows:
+    raise SystemExit("the screen of the pipe session was never shown")
+for row in rows:
+    if row != row.lstrip():
+        raise SystemExit("a line feed did not return the carriage: %r" % row)
+
 # While the program is there the session is marked running (yellow), and the
 # screen that is committed when it goes is marked done (green).
 if not re.search(rb"\x1b\[33m\xe2\x97\x8f[^\n]*shell", data):
@@ -67,7 +77,7 @@ if not any("FROM-SESSION" in r for r in results):
     raise SystemExit("what the shell answered was not recorded")
 EOF
 
-mock_stop 5
+mock_stop 6
 
 # The margin is the configured one.
 mock_start shell_session.json
@@ -91,5 +101,5 @@ if re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
     raise SystemExit("the default margin was drawn instead")
 EOF
 
-mock_stop 5
+mock_stop 6
 pass
