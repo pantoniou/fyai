@@ -218,6 +218,14 @@ properties:
           Idle limit of a named terminal session: the time with no read and no
           write before it is ended. It is not a limit on the program, which can
           work for as long as the model keeps using it. 0 removes the limit.
+      input_poll_ms:
+        type: integer
+        minimum: 0
+        default: 400
+        description: >-
+          How often a session is asked whether its program is waiting to be
+          answered. A program stopped in a read of its input needs the model,
+          and the model is told so in a turn of its own. 0 does not ask.
       tty_rows:
         type: integer
         minimum: 0
