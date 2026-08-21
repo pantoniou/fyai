@@ -1,0 +1,80 @@
+{
+ "steps": [
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s1",
+         "type": "function",
+         "function": {
+          "name": "shell",
+          "arguments": "{\"name\": \"asker\", \"command\": \"sh -c 'printf \\\"WHO-ARE-YOU? \\\"; read n; printf \\\"HELLO-%s\\\\n\\\" \\\"$n\\\"; sleep 20'\", \"description\": \"a shell that asks\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "Opened the shell."
+      },
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "s2",
+         "type": "function",
+         "function": {
+          "name": "shell_input",
+          "arguments": "{\"name\": \"asker\", \"input\": \"ADA\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "It answered."
+      },
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  }
+ ]
+}

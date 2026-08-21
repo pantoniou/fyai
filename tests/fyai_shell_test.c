@@ -14,6 +14,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "fyai.h"
 #include "fyai_event.h"
@@ -28,6 +29,7 @@ FYAI_TEST_ENTRY(shell, timeout_stops_descendant, shell_timeout_stops_descendant)
 FYAI_TEST_ENTRY(shell, completion_ignores_open_descendant, shell_completion_ignores_open_descendant)
 FYAI_TEST_ENTRY(shell, timeout_spares_quick, shell_timeout_spares_quick)
 FYAI_TEST_ENTRY(shell, workdir_changes_dir, shell_workdir_changes_directory)
+FYAI_TEST_ENTRY(shell, reads_stdin_is_seen, shell_reads_stdin_is_seen)
 FYAI_TEST_ENTRY(shell, bad_workdir_reports_125, shell_bad_workdir_reports_125)
 FYAI_TEST_ENTRY(shell, native_timeout_honored, shell_native_timeout_honored)
 FYAI_TEST_ENTRY(shell, native_timeout_bounded, shell_native_timeout_bounded)
@@ -318,5 +320,55 @@ int shell_native_timeout_output(void)
 
 	native_teardown(gb);
 	printf("ok - a timed-out native shell call keeps its output\n");
+	return 0;
+}
+
+/*
+ * A program waiting to be answered is not the same as one that is working or
+ * one that is asleep, and the difference is what says a session needs input.
+ */
+int shell_reads_stdin_is_seen(void)
+{
+	int pipefd[2];
+	pid_t pid;
+	int i;
+
+	FYAI_TCHECK(!pipe(pipefd));
+
+	pid = fork();
+	FYAI_TCHECK(pid >= 0);
+	if (!pid) {
+		char c;
+
+		close(pipefd[1]);
+		dup2(pipefd[0], STDIN_FILENO);
+		/* Stopped in a read of standard input, and nothing else. */
+		while (read(STDIN_FILENO, &c, 1) > 0)
+			;
+		_exit(0);
+	}
+	close(pipefd[0]);
+
+	/* It takes a moment to reach the read. */
+	for (i = 0; i < 200; i++) {
+		if (fyai_process_reads_stdin(pid))
+			break;
+		usleep(10 * 1000);
+	}
+#ifdef __linux__
+	FYAI_TCHECK(fyai_process_reads_stdin(pid));
+#endif
+
+	/* Answered, it is reading no more: the end of its input ends it. */
+	close(pipefd[1]);
+	for (i = 0; i < 200 && fyai_process_reads_stdin(pid); i++)
+		usleep(10 * 1000);
+	FYAI_TCHECK(!fyai_process_reads_stdin(pid));
+	while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+		;
+
+	/* A process that has gone is not waiting for anything. */
+	FYAI_TCHECK(!fyai_process_reads_stdin(pid));
+	FYAI_TCHECK(!fyai_process_reads_stdin(-1));
 	return 0;
 }

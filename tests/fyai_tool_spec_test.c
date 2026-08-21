@@ -105,7 +105,7 @@ static void test_shape(void)
 	static const char *const names[] = {
 		"read_file", "write_file", "apply_patch", "shell",
 		"shell_input", "shell_output", "shell_close",
-		"ask_user", "agent", "time", "wait",
+		"agent_input", "ask_user", "agent", "time", "wait",
 	};
 	static const char *const required_sets[][3] = {
 		{ "path" },
@@ -115,13 +115,14 @@ static void test_shape(void)
 		{ "name", "input" },
 		{ "name" },
 		{ "name" },
+		{ "name", "input" },
 		{ "question" },
 		{ "name", "description", "task" },
 		{ NULL },	/* time takes nothing */
 		{ NULL },	/* wait takes what it is given */
 	};
 	static const size_t required_sizes[] = {
-		1, 2, 1, 1, 2, 1, 1, 1, 3, 0, 0,
+		1, 2, 1, 1, 2, 1, 1, 2, 1, 3, 0, 0,
 	};
 	fy_generic tool, fn, params, req, tmp;
 	size_t n = 0, i = 0;
@@ -130,7 +131,7 @@ static void test_shape(void)
 	require(fy_is_sequence(tools), "make_tools: expected a sequence");
 	fy_foreach(tool, tools)
 		n++;
-	require(n == 11, "make_tools: expected exactly 11 tools");
+	require(n == 12, "make_tools: expected exactly 12 tools");
 
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
@@ -171,19 +172,19 @@ static void test_order(void)
 	static const char *const expected[] = {
 		"read_file", "write_file", "apply_patch", "shell",
 		"shell_input", "shell_output", "shell_close",
-		"ask_user", "agent", "time", "wait",
+		"agent_input", "ask_user", "agent", "time", "wait",
 	};
 	fy_generic tool;
 	size_t i = 0;
 
 	fy_foreach(tool, tools) {
 		fy_generic fn = fy_get(tool, "function");
-		require(i < 11, "too many tools");
+		require(i < 12, "too many tools");
 		require(fy_equal(fy_get(fn, "name"), expected[i]),
 			"tool order mismatch");
 		i++;
 	}
-	require(i == 11, "too few tools");
+	require(i == 12, "too few tools");
 }
 
 static void test_descriptions(void)
@@ -255,7 +256,7 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 11 && has_ask_user && has_agent,
+	require(count == 12 && has_ask_user && has_agent,
 		"plain context must keep every tool");
 
 	/* A sub-agent context removes ask_user and agent. */
