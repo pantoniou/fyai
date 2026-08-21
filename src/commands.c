@@ -31,6 +31,7 @@
 #include "fyai_branch.h"
 #include "fyai_merge.h"
 #include "commands.h"
+#include "fyai_term.h"
 #include "fyai.h"
 #include "fyai_agent.h"
 #include "fyai_catalog.h"
@@ -89,6 +90,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("mcp oauth import-client ...", "Import an MCP OAuth client");
 	ITEM("gc", "Garbage-collect the arena");
 	ITEM("tool <name> [json]", "Run one tool sandboxed (read_file|shell|...)");
+	ITEM("term [-c <command>]", "Full-screen terminal that fyai draws (^\\ q leaves)");
 	ITEM("help [verb]", "Describe all verbs, or one verb in detail");
 	fprintf(fp, "  %swith no verb, the arguments are run as a prompt%s\n",
 		"", "");
@@ -411,6 +413,51 @@ static int configure_replay(int argc, char **argv, struct fyai_cfg *cfg)
 static int execute_replay(struct fyai_ctx *ctx)
 {
 	return fyai_replay_view(ctx, ctx->cfg->cmd.args.replay.ignore_compact);
+}
+
+static int configure_term(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	struct fyai_term_args *args = &cfg->cmd.args.term;
+	char *joined;
+	int i;
+
+	/*
+	 * The verb is interactive. A user drives the program on the surface, so the
+	 * display must be the one with a prompt and bands. Set it before the options,
+	 * because -c takes the rest of the line and returns from the loop.
+	 */
+	cfg->interactive = true;
+
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--login") || !strcmp(argv[i], "-l")) {
+			args->login = true;
+		} else if (!strcmp(argv[i], "--hold")) {
+			args->hold = true;
+		} else if (!strcmp(argv[i], "--shell") && i + 1 < argc) {
+			args->shell = fy_gb_intern_string(cfg->gb, argv[++i]);
+		} else if (!strcmp(argv[i], "--screen") && i + 1 < argc) {
+			args->screen = fy_gb_intern_string(cfg->gb, argv[++i]);
+		} else if (!strcmp(argv[i], "--rows") && i + 1 < argc) {
+			args->rows = atoi(argv[++i]);
+		} else if (!strcmp(argv[i], "--cols") && i + 1 < argc) {
+			args->cols = atoi(argv[++i]);
+		} else if (!strcmp(argv[i], "-c") && i + 1 < argc) {
+			/* The rest is one command, as `sh -c` takes it. */
+			joined = join_args(argc - i - 1, argv + i + 1);
+			if (!joined)
+				return -1;
+			args->command = fy_gb_intern_string(cfg->gb, joined);
+			free(joined);
+			return 0;
+		} else {
+			fyai_cfg_error(cfg, "term: unknown option '%s'",
+				       argv[i]);
+			return -1;
+		}
+	}
+	if (!args->shell)
+		args->shell = getenv("SHELL");
+	return 0;
 }
 
 static int configure_stats(int argc, char **argv, struct fyai_cfg *cfg)
@@ -2521,6 +2568,31 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "shutdown. See doc/agent-protocol.md.",
 		.flags	   = FYAIVF_BATCH | FYAIVF_NEEDS_API_KEYS,
 		.default_args.prompt = {
+		},
+	},
+	[FYAIVID_TERM] = {
+		.id	   = FYAIVID_TERM,
+		.name	   = "term",
+		.configure = configure_term,
+		.execute   = fyai_term_verb,
+		.synopsis  = "term [--login] [--shell <path>] [--hold] "
+			     "[--rows n] [--cols n] [--screen <file>] "
+			     "[-c <command>...]",
+		.help      = "Run a terminal that fyai draws. The program runs on a\n"
+			     "pseudo-terminal, libfyvterm interprets what it draws, and\n"
+			     "the screen is published to a display surface with a state\n"
+			     "row beneath it. Without -c it starts a shell; -c takes\n"
+			     "the rest of the line as one command.\n"
+			     "Ctrl-\\ is the fyai key: Ctrl-\\ q leaves, Ctrl-\\ r draws\n"
+			     "the screen again, and Ctrl-\\ Ctrl-\\ types one Ctrl-\\.\n"
+			     "--hold keeps the last screen until a key is pressed.\n"
+			     "--rows/--cols force a size when there is no terminal.\n"
+			     "--screen writes the final screen as plain text.\n",
+		.flags	   = FYAIVF_INTERACTIVE | FYAIVF_NO_STORAGE |
+			     FYAIVF_NO_REQUESTS,
+		.default_args.term = {
+			.rows = 0,
+			.cols = 0,
 		},
 	},
 	[FYAIVID_HELP] = {
