@@ -492,6 +492,42 @@ ends with the invocation, with `shell_close`, when its program ends, or after
 
 Refer to `doc/pty-terminal-plan.md`.
 
+### A terminal for the user: `fyai term`
+
+The same terminal, drawn for a user. `fyai term` runs a program on a
+pseudo-terminal. libfyvterm interprets what the program draws. fyai
+publishes that screen to a libfytimui surface, which draws it beside the
+transcript and the prompt, with a state row of its own. The bytes of the
+program do not reach the terminal. The user sees the screen that fyai holds,
+which is the screen that a model reads.
+
+```sh
+fyai term                       # a shell
+fyai term --login               # a login shell
+fyai term -c htop               # one program
+```
+
+The keys are the program's while it runs, so its own line discipline decides
+what Ctrl-C means. Ctrl-\ is the one key fyai keeps:
+
+| Key | What it does |
+| --- | --- |
+| `Ctrl-\ q` | Leave. The program receives a hangup, as from a closing terminal, and is killed if it stays. |
+| `Ctrl-\ r` | Draw the whole screen again. |
+| `Ctrl-\ Ctrl-\` | Type one Ctrl-\ into the program. |
+
+The screen belongs to the program. There is no prompt while the program runs,
+because the keys are its own. The state row beneath the screen is the only row
+that the program does not have. The screen follows the window. Resize the
+terminal, and the program receives its new size in rows and in columns. When
+the program ends, the transcript keeps its last screen.
+
+`--hold` waits for a key before leaving. `--rows` and `--cols` fix the size for
+a run with no terminal, and `--screen` writes the final screen as plain text.
+
+There is no sandbox here. The user at the keyboard runs the shell, and
+confinement is for a command that the model asked for.
+
 List catalogue-defined agent tool sets:
 
 ```sh
