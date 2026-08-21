@@ -1,0 +1,64 @@
+{
+ "steps": [
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-c1",
+      "call_id": "c1",
+      "name": "agent",
+      "arguments": "{\"name\": \"asker\", \"description\": \"ask which colour\", \"task\": \"ask the user which colour to use and report it\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-c2",
+      "call_id": "c2",
+      "name": "ask_user",
+      "arguments": "{\"question\": \"WHICH-COLOUR?\", \"options\": [\"red\", \"green\"]}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: they chose green."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-parent",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Delegated and done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
