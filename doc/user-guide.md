@@ -614,6 +614,15 @@ A forked sub-agent is fixed to the same model as its parent. This preserves the 
 
 The parent controls delegation and receives the agent's report, while the agent branch retains its durable conversation and metadata for later inspection, comparison, or continuation.
 
+**A sub-agent is reached again by its name.** A sub-agent commits its
+conversation on its own branch, under the name that the call gave it. A later
+`agent` call with that name continues that conversation, and the sub-agent
+keeps what it learned. Ask it what it found, or give it the next step, and it
+does not repeat its earlier work. A new name starts a new sub-agent.
+
+A name that belongs to a sub-agent that still runs is refused, because that
+sub-agent owns its conversation. Wait for its report, then call it again.
+
 Run one transient agent explicitly with:
 
 ```sh
