@@ -1819,6 +1819,7 @@ struct fyai_shell_session {
 	 */
 	struct fytim_surface *surface;
 	char *title;
+	int rows;			/* the size the session was opened with */
 	int exit_code;
 	int signal;
 	bool exited;
@@ -1996,12 +1997,15 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	}
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
 	sess->title = title ? strdup(title) : NULL;
+	sess->rows = rows;
 	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
 	if (sess->surface) {
 		(void)fyai_ui_surface_set_head(ctx, sess->surface,
 					       sess->title ? sess->title :
 					       "**shell**", NULL,
 					       FYAI_UI_MARK_RUNNING);
+		(void)fyai_ui_surface_set_margin(sess->surface,
+						 ctx->cfg->session_margin);
 		/*
 		 * Paint the empty screen before the program runs. The surface takes its rows
 		 * when it opens. A surface that published nothing leaves those rows as they
@@ -2017,11 +2021,54 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	return sess;
 }
 
+/*
+ * Give the program the screen it is actually drawn in. The margin is chrome
+ * and takes columns from the grid, so a program sized to the terminal would
+ * wrap where nothing is shown.
+ */
+static void fyai_shell_session_follow(struct fyai_shell_session *sess)
+{
+	struct fy_generic_builder *gb;
+	int cols, rows, have_rows = 0, have_cols = 0;
+
+	cols = fyai_ui_surface_granted_cols(sess->surface);
+	if (cols < 1)
+		return;
+	fyai_terminal_view_size(sess->view, &have_rows, &have_cols);
+	/*
+	 * The rows that the band granted are the rows that the program has. A screen
+	 * that is taller shows only its last rows, and the first line of a short
+	 * command is then lost. The screen does not grow past the size that opened
+	 * the session.
+	 */
+	rows = fyai_ui_surface_granted_rows(sess->surface);
+	if (rows < 1 || rows > sess->rows)
+		rows = sess->rows;
+	if (cols == have_cols && rows == have_rows)
+		return;
+
+	fyai_terminal_view_resize(sess->view, rows, cols);
+	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
+	/*
+	 * The process that drives the terminal is the child: it owns the
+	 * pseudo-terminal, thus only it can tell the program.
+	 */
+	if (!sess->job || !sess->job->conn || sess->job->done)
+		return;
+	gb = fyai_ctx_transient_gb(sess->ctx);
+	if (!gb)
+		return;
+	(void)jsonrpc_notify(sess->job->conn, "tty/resize",
+			     fy_gb_mapping(gb, "rows", (long long)rows,
+					   "cols", (long long)cols));
+}
+
 /* Show what the program has drawn since the last look. */
 static void fyai_shell_session_refresh(struct fyai_shell_session *sess)
 {
 	if (!sess || !sess->surface)
 		return;
+	fyai_shell_session_follow(sess);
 	if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
 		fyai_ui_wake(sess->ctx);
 }

@@ -70,6 +70,10 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf);
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols);
 int fyai_ui_surface_granted_rows(const struct fytim_surface *sf);
+/* The columns the grid was given: the width less the margin. */
+int fyai_ui_surface_granted_cols(const struct fytim_surface *sf);
+/* Chrome at the left of every row of @sf. */
+int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom);
 /* Copy what changed in @view onto @sf. Returns 1 when it published. */

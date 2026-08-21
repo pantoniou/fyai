@@ -1496,6 +1496,22 @@ int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	return rc;
 }
 
+int fyai_ui_surface_granted_cols(const struct fytim_surface *sf)
+{
+	int cols = 0;
+
+	if (!sf || fytim_surface_granted_cols(sf, &cols) != FYTIM_OK)
+		return 0;
+	return cols;
+}
+
+int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_set_margin(sf, text) == FYTIM_OK ? 0 : -1;
+}
+
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom)
 {
