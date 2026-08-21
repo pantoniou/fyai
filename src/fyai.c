@@ -40,6 +40,7 @@
 #include "fyai_prof.h"
 #include "fyai_ui.h"
 #include "fyai_tools.h"
+#include "fyai_wait.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
@@ -1895,8 +1896,11 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	cfg = ctx->cfg;
 
 	/* Remove the handlers before the context that they name is destroyed. */
-	/* A session cannot outlive the invocation that opened it. */
+	/* A session cannot outlive the invocation that opened it, and neither
+	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
+	fyai_waits_release(ctx);
+	fyai_events_release(ctx);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx);
 	fyai_cleanup_transient_builder(ctx);
@@ -2236,6 +2240,63 @@ err:
 	return -1;
 }
 
+/* Events queued for the model in arrival order. */
+struct fyai_pending_event {
+	struct fyai_pending_event *next;
+	char *text;
+};
+
+int fyai_event_inject(struct fyai_ctx *ctx, char *text)
+{
+	struct fyai_pending_event *ev;
+
+	if (!ctx || !text) {
+		free(text);
+		return -1;
+	}
+	ev = calloc(1, sizeof(*ev));
+	fyai_error_check(ctx, ev, err, "could not queue event");
+	ev->text = text;
+	if (!ctx->events_tail)
+		ctx->events_tail = &ctx->events;
+	*ctx->events_tail = ev;
+	ctx->events_tail = &ev->next;
+	return 0;
+
+err:
+	free(text);
+	return -1;
+}
+
+char *fyai_event_take(struct fyai_ctx *ctx)
+{
+	struct fyai_pending_event *ev;
+	char *text;
+
+	if (!ctx || !ctx->events)
+		return NULL;
+	ev = ctx->events;
+	ctx->events = ev->next;
+	if (!ctx->events)
+		ctx->events_tail = &ctx->events;
+	text = ev->text;
+	free(ev);
+	return text;
+}
+
+bool fyai_event_queued(const struct fyai_ctx *ctx)
+{
+	return ctx && ctx->events;
+}
+
+void fyai_events_release(struct fyai_ctx *ctx)
+{
+	char *text;
+
+	while ((text = fyai_event_take(ctx)))
+		free(text);
+}
+
 int fyai_prompt_batch(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -2504,6 +2565,33 @@ err:
 	return -1;
 }
 
+/* Submit a queued event as a user turn. */
+static int fyai_interactive_submit_event(struct fyai_ctx *ctx, char *text,
+					 struct fyai_turn_run **runp)
+{
+	fy_generic turn;
+	int rc;
+
+	fyai_echo_user_turn(ctx, text);
+	fyai_ui_drain_output(ctx);
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not create transient event storage");
+	turn = fyai_interactive_append_user_turn(ctx, text);
+	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
+			 "could not append the event turn");
+	*runp = fyai_turn_run_submit(ctx, turn);
+	fyai_error_check(ctx, *runp, err_cleanup,
+			 "could not submit the event turn");
+	fyai_ui_set_busy(ctx, true);
+	return 0;
+
+err_cleanup:
+	fyai_cleanup_transient_builder(ctx);
+err:
+	return -1;
+}
+
 static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
 					      const char *histfile,
 					      struct fyai_turn_run **runp)
@@ -2606,6 +2694,18 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			rc = fyai_interactive_submit_initial(ctx, &run);
 			fyai_error_check(ctx, !rc, out,
 					 "could not submit initial turn");
+		}
+
+		/* Submit events only between turns. */
+		if (!run && gated && !ctx->config_edit &&
+		    fyai_event_queued(ctx)) {
+			char *event = fyai_event_take(ctx);
+
+			rc = fyai_interactive_submit_event(ctx, event, &run);
+			free(event);
+			fyai_error_check(ctx, !rc, out,
+					 "could not submit an event turn");
+			continue;
 		}
 
 		if (!run && gated && !ctx->config_edit) {

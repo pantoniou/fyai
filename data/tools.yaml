@@ -1,13 +1,13 @@
 # Built-in tool specifications in wire shape (see doc/tools-yaml.md).
 #
-# This document is the single source of truth for the six built-in tools.
+# This document is the single source of truth for the built-in tools.
 # It is embedded at configure time (embedded_tools.inc) and parsed by
 # make_tools() in src/fyai_tool_spec.c. Descriptions are byte-identical to
 # what the model provider, `fyai catalog` markdown, and the tool-spec unit
 # tests consume, so keep them in sync with tests/fyai_tool_spec_test.c.
 #
 # Tool order is fixed: read_file, write_file, apply_patch, shell, shell_input,
-# shell_output, shell_close, ask_user, agent.
+# shell_output, shell_close, ask_user, agent, time, wait.
 - type: function
   function:
     name: read_file
@@ -283,4 +283,38 @@
         - name
         - description
         - task
+      additionalProperties: false
+- type: function
+  function:
+    name: time
+    description: |-
+      Report the current time. The system instructions are frozen when a conversation starts, so they cannot tell you what the time is now; ask for it when it matters, and to measure how long something took.
+    parameters:
+      type: object
+      properties: {}
+      additionalProperties: false
+- type: function
+  function:
+    name: wait
+    description: |-
+      Wait for a while. Use it instead of a shell that sleeps: it starts no process and can be interrupted. Give `seconds`, or `until` for a wall-clock time. Name it to wait in the background: the call returns at once and you are told when it fires, so you can keep working meanwhile.
+    parameters:
+      type: object
+      properties:
+        seconds:
+          type: number
+          description: |-
+            How long to wait, in seconds. A fraction is allowed.
+        until:
+          type: string
+          description: |-
+            Wall-clock time to wait for, as `HH:MM`, `HH:MM:SS` or a full `YYYY-MM-DDTHH:MM:SS` in local time. A time that has passed does not wait.
+        name:
+          type: string
+          description: |-
+            Name this wait to run it in the background instead of holding your turn. The call returns at once, and when the wait fires you are told, in a new turn, that it did. Use it to come back to something later: start a slow job, wait in the background, keep working, and pick it up when the wait fires. The name says what you are waiting for (letters, digits, '-' or '_'), and must be unique among the waits you have open.
+        reason:
+          type: string
+          description: |-
+            Optional short note on what this wait is for. It is shown to the user and given back to you when the wait fires.
       additionalProperties: false

@@ -470,6 +470,10 @@ struct fyai_ctx {
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;
+	struct fyai_wait *waits;	/* named waits, live for this run */
+	/* Events queued for model turns in arrival order. */
+	struct fyai_pending_event *events;
+	struct fyai_pending_event **events_tail;
 	struct fyai_event_source *winch_src;
 	bool tool_output_displayed;
 	/* The sole progressive transcript document for the active user or
@@ -570,6 +574,13 @@ struct fy_generic_builder *fyai_ctx_transient_gb(struct fyai_ctx *ctx);
  * wrapped value is the partial turn, otherwise fy_invalid.
  */
 fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
+
+/* Queue owned @text for the event-loop owner to submit between turns. */
+int fyai_event_inject(struct fyai_ctx *ctx, char *text);
+/* Take the oldest queued event, or NULL. The caller owns it. */
+char *fyai_event_take(struct fyai_ctx *ctx);
+bool fyai_event_queued(const struct fyai_ctx *ctx);
+void fyai_events_release(struct fyai_ctx *ctx);
 
 /* Wrap @value (possibly fy_invalid) with a diagnostic message. */
 fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,
