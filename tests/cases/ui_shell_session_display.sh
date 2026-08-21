@@ -37,9 +37,13 @@ for name in (b"shell_input", b"shell_output", b"shell_close"):
 if b"the lines since the last read" in plain:
     raise SystemExit("a session reading was displayed as a tool result")
 
-# What the program drew is on the screen of the session.
+# What the program drew is on the screen of the session, and every row of that
+# screen carries the margin that says whose screen it is. The screen starts
+# after the margin, under the name of the call that opened it.
 if b"FROM-SESSION" not in plain:
     raise SystemExit("the screen of the session was never shown")
+if not re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
+    raise SystemExit("the screen of the session carries no margin")
 
 # While the program is there the session is marked running (yellow), and the
 # screen that is committed when it goes is marked done (green).
@@ -61,6 +65,30 @@ if len(results) < 3:
     raise SystemExit("the driving calls were not recorded: %d" % len(results))
 if not any("FROM-SESSION" in r for r in results):
     raise SystemExit("what the shell answered was not recorded")
+EOF
+
+mock_stop 5
+
+# The margin is the configured one.
+mock_start shell_session.json
+FYAI_PTY_INPUT="drive the shell" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=30 \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/margin.out" \
+    "$FYAI_BIN" -k test-key --theme dark \
+    --set display/markdown=true --set display/stream=false \
+    --set 'display/session_margin="[] "' \
+    --set tools=true --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
+
+"$PYTHON" - "$TEST_DIR/margin.out" <<'EOF' || fail "the margin is not configurable"
+import re
+import sys
+
+plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"",
+               open(sys.argv[1], "rb").read())
+if not re.search(rb"\[\] [^\n]*FROM-SESSION", plain):
+    raise SystemExit("the configured margin was not used")
+if re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
+    raise SystemExit("the default margin was drawn instead")
 EOF
 
 mock_stop 5
