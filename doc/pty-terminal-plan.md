@@ -271,7 +271,24 @@ The core now keeps the input of a frame in the order of arrival, and the
 encoder walks that log. The program therefore receives what the user typed. The
 aggregates that a widget reads do not change.
 
-## 7. State
+## 7. The session as a surface - done
+
+A session is one program on a terminal, so `fyai term` draws it the same
+way. It is a libfytimui surface of cells, published from the view that the
+parent keeps. Its title row is the tool head of the call that opened it.
+
+- The title is marked running while the program is there, and marked done -
+  with the cause when there is one - when it goes. A session the model asked to
+  close ended the way it was told to, and the signal that carried the asking is
+  not a failure.
+- The screen is committed when the program goes, which is what puts it in the
+  transcript. Until then the call has shown a running screen and nothing else.
+- `shell_input`, `shell_output` and `shell_close` show nothing of their own.
+  Their effect is on that screen. `fyai_shell_session_display()` is the one
+  place that says so, and it changes only what is displayed: every call is
+  recorded and answered as before.
+
+## 8. State
 
 Steps 1 to 3 are done.
 
@@ -291,7 +308,7 @@ One item stays open in the tests: the `tty/resize` notification to a forked
 tool child. The resize case covers the session that runs in the parent, which
 the `fyai tool shell` verb uses.
 
-## 8. Order and the review
+## 9. Order and the review
 
 Each step is one patch series in the order implementation, tests,
 documentation. Step 1 folds into the existing PTY commit, because it repairs
