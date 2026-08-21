@@ -259,7 +259,7 @@ static void test_filtered(void)
 	require(count == 12 && has_ask_user && has_agent,
 		"plain context must keep every tool");
 
-	/* A sub-agent context removes ask_user and agent. */
+	/* A sub-agent context removes agent and agent_input. */
 	test_cfg.agent_child = true;
 	tools = make_tools_filtered(&test_ctx);
 	has_ask_user = has_agent = false;
@@ -273,8 +273,10 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 9 && !has_ask_user && !has_agent,
-		"sub-agent context must drop ask_user and agent");
+	/* It cannot delegate or answer another sub-agent, but it can ask:
+	 * the question goes up to the parent, where the person is. */
+	require(count == 10 && has_ask_user && !has_agent,
+		"a sub-agent keeps ask_user and loses agent");
 }
 
 static void test_personas(void)

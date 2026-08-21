@@ -18,10 +18,12 @@ assert_stdout_contains "Sub-agent report: printed agent-was-here."
 # The sub-agent runs under the built-in agent persona.
 assert_request 0 'any(m.get("role") == "system" and "sub-agent" in m.get("content", "") for m in r["body"]["messages"])'
 
-# Restricted toolset: builtins present, no ask_user and no nested agent.
+# Restricted toolset: builtins present, no nested agent. A question is kept:
+# it goes up to whoever ran this sub-agent.
 assert_request 0 'any(t["function"]["name"] == "shell" for t in r["body"]["tools"])'
 assert_request 0 'any(t["function"]["name"] == "read_file" for t in r["body"]["tools"])'
-assert_request 0 'not any(t["function"]["name"] == "ask_user" for t in r["body"]["tools"])'
+assert_request 0 'any(t["function"]["name"] == "ask_user" for t in r["body"]["tools"])'
+assert_request 0 'not any(t["function"]["name"] == "agent_input" for t in r["body"]["tools"])'
 assert_request 0 'not any(t["function"]["name"] == "agent" for t in r["body"]["tools"])'
 assert_request 0 'not any(t["function"]["name"].startswith("mcp__") for t in r["body"]["tools"])'
 
