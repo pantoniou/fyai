@@ -233,7 +233,7 @@ if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG 2f6bb55865f3cea92bec6927db12020bbf86b250
+        GIT_TAG 8a40083dcffbed9b97dc9359594923700b38f09c
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
@@ -455,6 +455,7 @@ set(FYAI_SOURCES
     src/fyai_sink.c
     src/fyai_storage.c
     src/fyai_stream.c
+    src/fyai_term.c
     src/fyai_terminal.c
     src/fyai_terminal_session.c
     src/fyai_terminal_view.c

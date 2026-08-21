@@ -55,6 +55,7 @@ enum fyai_verb_id {
 	FYAIVID_EXPORT,
 	FYAIVID_IMPORT,
 	FYAIVID_REPLAY,
+	FYAIVID_TERM,
 	FYAIVID_HELP,
 };
 #define FYAI_VERB_COUNT (FYAIVID_HELP + 1)
@@ -281,6 +282,17 @@ struct fyai_log_args {
 	const char *arg;
 };
 
+/* `fyai term`: one program on a terminal that fyai draws. */
+struct fyai_term_args {
+	const char *command;	/* NULL runs the shell interactively */
+	const char *shell;	/* the shell to run; NULL = $SHELL or /bin/sh */
+	const char *screen;	/* write the final screen as text here */
+	int rows;		/* force a size, for a run with no terminal */
+	int cols;
+	bool login;
+	bool hold;		/* stay on the last screen until a key */
+};
+
 struct fyai_help_args {
 	const char *verb;
 };
@@ -329,6 +341,7 @@ union fyai_cmd_args {
 	struct fyai_export_args export;
 	struct fyai_import_args import;
 	struct fyai_replay_args replay;
+	struct fyai_term_args term;
 };
 
 /* combined */

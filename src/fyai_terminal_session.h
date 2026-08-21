@@ -21,6 +21,8 @@ struct fyai_terminal_opts {
 	size_t max_bytes;		/* retained scrollback, 0 = no limit */
 	shell_output_fn output_fn;	/* a line that left the screen */
 	void *output_data;
+	const char *shell;		/* the program to run; NULL = /bin/sh */
+	bool login;			/* start @shell as a login shell */
 };
 
 struct fyai_terminal_result {
@@ -37,6 +39,12 @@ struct fyai_terminal_result {
 	bool signaled;
 	bool timed_out;
 };
+
+/* Start a command or interactive shell on a pseudo-terminal. */
+int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
+			    const struct fyai_sandbox_spec *sandbox,
+			    const struct fyai_terminal_opts *opts, int rows,
+			    int cols, int *masterp, pid_t *pidp);
 
 /*
  * Run one command on a pseudo-terminal and return its interpreted screen.

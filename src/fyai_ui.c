@@ -27,6 +27,8 @@
 #include "fyai_session.h"
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
+#include <sys/ioctl.h>
+#include "fyai_terminal_view.h"
 #include "utils.h"
 
 struct ui_line { struct ui_line *next; char *text; };
@@ -49,6 +51,9 @@ struct fyai_ui {
 	struct fytim_workband *tool_band;
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
+	/* The surface holding the keys, and where its bytes go. */
+	fyai_ui_keys_fn keys_fn;
+	void *keys_data;
 	struct fyai_editor_request *editor_request;
 	char *tool_title;
 	char *tool_command;
@@ -643,6 +648,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_RESIZE:
 			ui->ctx->cfg->render_width = ev.width > 1 ? ev.width - 1 : 0;
+			break;
+		case FYTIM_EVENT_SURFACE_KEYS:
+			/* The keys belong to a program, not to the prompt. */
+			if (ui->keys_fn)
+				ui->keys_fn(ui->keys_data, ev.text,
+					    ev.text_len);
 			break;
 		case FYTIM_EVENT_SCROLLBACK:
 			ui->activity_paused = true;
@@ -1328,4 +1339,171 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	free(ui->tool_command); ui->tool_command = NULL;
 	free(ui->tool_error); ui->tool_error = NULL;
 	free(ui->tool_body); ui->tool_body = NULL; ui->tool_body_len = 0;
+}
+
+/* ---- surfaces ----------------------------------------------------------- */
+
+/* Convert one view cell to the display library's cell format. */
+static void surface_cell(const struct fyai_term_cell *src,
+			 struct fytim_cell *dst)
+{
+	int i;
+
+	memset(dst, 0, sizeof(*dst));
+	for (i = 0; i < FYAI_TERM_CELL_CHARS && i < FYTIM_CELL_CHARS; i++)
+		dst->chars[i] = src->chars[i];
+	dst->fg = src->fg.is_default ? FYTIM_COLOR_DEFAULT
+		: ((uint32_t)src->fg.r << 16) | ((uint32_t)src->fg.g << 8) |
+		  (uint32_t)src->fg.b;
+	dst->bg = src->bg.is_default ? FYTIM_COLOR_DEFAULT
+		: ((uint32_t)src->bg.r << 16) | ((uint32_t)src->bg.g << 8) |
+		  (uint32_t)src->bg.b;
+	if (src->bold)
+		dst->attrs |= FYTIM_ATTR_BOLD;
+	if (src->italic)
+		dst->attrs |= FYTIM_ATTR_ITALIC;
+	if (src->underline)
+		dst->attrs |= FYTIM_ATTR_UNDERLINE;
+	if (src->reverse)
+		dst->attrs |= FYTIM_ATTR_REVERSE;
+	if (src->strike)
+		dst->attrs |= FYTIM_ATTR_STRIKE;
+	dst->width = (unsigned char)(src->width > 1 ? 2 : 1);
+}
+
+struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
+					   int cols)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->ft)
+		return NULL;
+	return fytim_surface_open(ui->ft, rows, cols);
+}
+
+void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!sf)
+		return;
+	if (ui && fytim_surface_has_keys(sf)) {
+		ui->keys_fn = NULL;
+		ui->keys_data = NULL;
+	}
+	fytim_surface_close(sf);
+}
+
+/* Read the terminal size from the active display. */
+int fyai_ui_size(struct fyai_ctx *ctx, int *cols, int *rows)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->ft)
+		return -1;
+	return fytim_size(ui->ft, cols, rows) == FYTIM_OK ? 0 : -1;
+}
+
+/* Schedule a frame after a producer changes a surface. */
+void fyai_ui_wake(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->ft)
+		return;
+	ui->frame_pending = true;
+	ui->next_frame_ms = fyai_event_now_ms();
+	ui_rearm(ui);
+}
+
+void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!sf)
+		return;
+	if (ui && fytim_surface_has_keys(sf)) {
+		ui->keys_fn = NULL;
+		ui->keys_data = NULL;
+	}
+	(void)fytim_surface_commit(sf);
+}
+
+int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_resize(sf, rows, cols) == FYTIM_OK ? 0 : -1;
+}
+
+int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
+{
+	int rows = 0;
+
+	if (!sf || fytim_surface_granted_rows(sf, &rows) != FYTIM_OK)
+		return 0;
+	return rows;
+}
+
+int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
+			      const char *bottom)
+{
+	if (!sf)
+		return -1;
+	if (fytim_surface_set_top(sf, top) != FYTIM_OK)
+		return -1;
+	return fytim_surface_set_bottom(sf, bottom) == FYTIM_OK ? 0 : -1;
+}
+
+int fyai_ui_surface_publish(struct fytim_surface *sf,
+			    struct fyai_terminal_view *view)
+{
+	struct fyai_term_cell src;
+	struct fytim_cell *row;
+	bool visible = false;
+	int rows = 0, cols = 0;
+	int first, last, r, c;
+	int crow = 0, ccol = 0;
+
+	if (!sf || !view || !fyai_terminal_view_dirty(view))
+		return 0;
+
+	fyai_terminal_view_size(view, &rows, &cols);
+	row = calloc((size_t)cols, sizeof(*row));
+	if (!row)
+		return -1;
+
+	/* Only the rows the program changed are copied; the library then
+	 * writes only the cells that differ from what the terminal shows. */
+	if (!fyai_terminal_view_take_damage(view, &first, &last)) {
+		first = 0;
+		last = -1;
+	}
+	for (r = first; r <= last && r < rows; r++) {
+		for (c = 0; c < cols; c++) {
+			if (!fyai_terminal_view_cell(view, r, c, &src))
+				memset(&src, 0, sizeof(src));
+			surface_cell(&src, &row[c]);
+		}
+		(void)fytim_surface_put_row(sf, r, row, cols);
+	}
+	free(row);
+
+	fyai_terminal_view_cursor(view, &crow, &ccol, &visible);
+	(void)fytim_surface_set_cursor(sf, crow, ccol, visible);
+	return 1;
+}
+
+int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			 bool take, fyai_ui_keys_fn cb, void *user)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !sf)
+		return -1;
+	if (fytim_surface_set_keys(sf, take) != FYTIM_OK)
+		return -1;
+	ui->keys_fn = take ? cb : NULL;
+	ui->keys_data = take ? user : NULL;
+	return 0;
 }

@@ -49,9 +49,38 @@ struct fyai_terminal_view {
 	size_t csi_len;
 	int rows;
 	int cols;
+	/* Rows and cursor state needed for the next surface repaint. */
+	int damage_first;
+	int damage_last;
+	int cursor_row;
+	int cursor_col;
+	bool cursor_visible;
+	bool cursor_moved;	/* a paint must place the cursor again */
 	bool screen_mode;
 	bool binary;
 };
+
+void fyai_terminal_view_damage_all(struct fyai_terminal_view *view);
+
+/* Remember that rows [@first, @last] must be painted again. */
+static void tty_damage(struct fyai_terminal_view *view, int first, int last)
+{
+	if (first < 0)
+		first = 0;
+	if (last >= view->rows)
+		last = view->rows - 1;
+	if (first > last)
+		return;
+	if (view->damage_first > view->damage_last) {
+		view->damage_first = first;
+		view->damage_last = last;
+		return;
+	}
+	if (first < view->damage_first)
+		view->damage_first = first;
+	if (last > view->damage_last)
+		view->damage_last = last;
+}
 
 /* Encode one code point. @out holds at least 4 bytes. */
 static size_t tty_put_utf8(char *out, uint32_t cp)
@@ -151,7 +180,45 @@ static int tty_sb_pushline4(int cols, const struct fyvt_screen_cell *cells,
 	return 1;
 }
 
+static int tty_cb_damage(struct fyvt_rect rect, void *user)
+{
+	struct fyai_terminal_view *view = user;
+
+	tty_damage(view, rect.start_row, rect.end_row - 1);
+	return 1;
+}
+
+static int tty_cb_movecursor(struct fyvt_pos pos, struct fyvt_pos oldpos,
+			     int visible, void *user)
+{
+	struct fyai_terminal_view *view = user;
+
+	(void)oldpos;
+	view->cursor_row = pos.row;
+	view->cursor_col = pos.col;
+	view->cursor_visible = !!visible;
+	view->cursor_moved = true;
+	return 1;
+}
+
+/* Record cursor visibility for the surface renderer. */
+static int tty_cb_settermprop(enum fyvt_prop prop, union fyvt_value *val,
+			      void *user)
+{
+	struct fyai_terminal_view *view = user;
+
+	if (prop == FYVT_PROP_CURSORVISIBLE) {
+		view->cursor_visible = val->boolean;
+		view->cursor_moved = true;
+	}
+	return 1;
+}
+
+/* Without a moverect callback, libfyvterm damages moved rows for us. */
 static const struct fyvt_screen_callbacks tty_screen_callbacks = {
+	.damage = tty_cb_damage,
+	.movecursor = tty_cb_movecursor,
+	.settermprop = tty_cb_settermprop,
 	.sb_pushline4 = tty_sb_pushline4,
 };
 
@@ -338,6 +405,10 @@ struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 	view->cols = cols > 0 ? cols : FYAI_TTY_COLS_DEFAULT;
 	view->max_bytes = max_bytes;
 	view->scan = TTYSC_TEXT;
+	/* An empty range: first above last. Nothing is painted yet. */
+	view->damage_first = 1;
+	view->damage_last = 0;
+	view->cursor_visible = true;
 
 	fyvt_cfg_default(&vtcfg);
 	vtcfg.rows = view->rows;
@@ -358,7 +429,14 @@ struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 	 * program sees, and it keeps a joined line joined across a resize.
 	 */
 	fyvt_screen_enable_reflow(view->screen, true);
+	/*
+	 * A renderer paints whole rows, so cell damage would only make the
+	 * screen layer report the same rows in more pieces.
+	 */
+	fyvt_screen_set_damage_merge(view->screen, FYVT_DAMAGE_ROW);
 	fyvt_screen_reset(view->screen, 1);
+	/* The reset damages the screen; a first paint draws all of it. */
+	fyai_terminal_view_damage_all(view);
 	return view;
 
 err:
@@ -395,6 +473,12 @@ int fyai_terminal_view_feed(struct fyai_terminal_view *view, const char *data,
 	written = fyvt_input_write(view->vt, data, len);
 	fyai_error_check(view->ctx, written == len, err,
 			 "terminal: could not interpret all input bytes");
+	/*
+	 * Damage of a row is merged until it is flushed. Without this the
+	 * report of the row just written stays inside the screen layer, and a
+	 * renderer draws everything except what appeared.
+	 */
+	fyvt_screen_flush_damage(view->screen);
 	for (i = 0; i < len; i++)
 		tty_log_feed(view, (unsigned char)data[i]);
 	return 0;
@@ -412,6 +496,7 @@ void fyai_terminal_view_resize(struct fyai_terminal_view *view, int rows,
 	view->rows = rows;
 	view->cols = cols;
 	fyvt_set_size(view->vt, rows, cols);
+	fyai_terminal_view_damage_all(view);
 }
 
 void fyai_terminal_view_line_cb(struct fyai_terminal_view *view,
@@ -575,4 +660,97 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 		return tty_log_text(view, 0, false, lenp);
 	}
 	return NULL;
+}
+
+static void tty_cell_color(const struct fyai_terminal_view *view,
+			   const union fyvt_color *src, struct fyai_term_color *dst,
+			   bool background)
+{
+	union fyvt_color col = *src;
+
+	dst->is_default = background ? FYVT_COLOR_IS_DEFAULT_BG(&col)
+				     : FYVT_COLOR_IS_DEFAULT_FG(&col);
+	/* An indexed colour means nothing to another terminal: resolve it. */
+	fyvt_screen_convert_color_to_rgb(view->screen, &col);
+	dst->r = col.rgb.red;
+	dst->g = col.rgb.green;
+	dst->b = col.rgb.blue;
+}
+
+bool fyai_terminal_view_cell(const struct fyai_terminal_view *view, int row,
+			     int col, struct fyai_term_cell *cell)
+{
+	struct fyvt_screen_cell vc;
+	struct fyvt_pos pos;
+	int i;
+
+	if (!view || !cell || row < 0 || col < 0 || row >= view->rows ||
+	    col >= view->cols)
+		return false;
+
+	memset(cell, 0, sizeof(*cell));
+	pos.row = row;
+	pos.col = col;
+	if (!fyvt_screen_get_cell(view->screen, pos, &vc))
+		return false;
+
+	for (i = 0; i < FYAI_TERM_CELL_CHARS &&
+		    i < FYVT_MAX_CHARS_PER_CELL; i++)
+		cell->chars[i] = vc.chars[i];
+	cell->width = vc.width;
+	cell->bold = !!vc.attrs.bold;
+	cell->underline = vc.attrs.underline != FYVT_UNDERLINE_OFF;
+	cell->italic = !!vc.attrs.italic;
+	cell->blink = !!vc.attrs.blink;
+	cell->reverse = !!vc.attrs.reverse;
+	cell->strike = !!vc.attrs.strike;
+	tty_cell_color(view, &vc.fg, &cell->fg, false);
+	tty_cell_color(view, &vc.bg, &cell->bg, true);
+	return true;
+}
+
+void fyai_terminal_view_cursor(const struct fyai_terminal_view *view,
+			       int *rowp, int *colp, bool *visiblep)
+{
+	if (!view)
+		return;
+	if (rowp)
+		*rowp = view->cursor_row;
+	if (colp)
+		*colp = view->cursor_col;
+	if (visiblep)
+		*visiblep = view->cursor_visible;
+}
+
+bool fyai_terminal_view_take_damage(struct fyai_terminal_view *view,
+				    int *firstp, int *lastp)
+{
+	if (!view || view->damage_first > view->damage_last) {
+		if (view)
+			view->cursor_moved = false;
+		return false;
+	}
+	if (firstp)
+		*firstp = view->damage_first;
+	if (lastp)
+		*lastp = view->damage_last;
+	view->damage_first = 1;
+	view->damage_last = 0;
+	view->cursor_moved = false;
+	return true;
+}
+
+bool fyai_terminal_view_dirty(const struct fyai_terminal_view *view)
+{
+	return view && (view->damage_first <= view->damage_last ||
+			view->cursor_moved);
+}
+
+void fyai_terminal_view_damage_all(struct fyai_terminal_view *view)
+{
+	if (!view)
+		return;
+	view->damage_first = 0;
+	view->damage_last = view->rows - 1;
+	view->cursor_moved = true;
 }
