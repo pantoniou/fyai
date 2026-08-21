@@ -377,7 +377,12 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 	fy_generic args;
 	fy_generic cmdv;
 
-	if (fyai_agent_delegated(ctx))
+	/*
+	 * A sub-agent with a terminal of its own shows its work there while the work
+	 * runs. It shows the invocation at the start, and the output as it arrives.
+	 * Without a terminal it has no place for either.
+	 */
+	if (fyai_agent_delegated(ctx) && !cfg->agent_pty)
 		return;
 	args = fy_invalid;
 	name = fyai_tool_call_name(ctx, tool_call);
@@ -565,9 +570,16 @@ static void fyai_shell_output(void *userdata,
 	if (!len)
 		return;
 	(void)stream;
-	if (fyai_agent_delegated(ctx))
-		return;
+	/*
+	 * Send it up unless this process renders to a terminal its parent
+	 * reads, which fyai_tool_progress_emit() decides. A sub-agent's own
+	 * tool child has no terminal, so its output has to travel this way or
+	 * the sub-agent shows nothing while a command runs.
+	 */
 	fyai_tool_progress_emit(ctx, data, len);
+	/* A delegated sub-agent with no terminal has nowhere to render. */
+	if (fyai_agent_delegated(ctx) && !ctx->cfg->agent_pty)
+		return;
 
 	/*
 	 * Don't feed binary chunks to the terminal or the fenced renderer; the
@@ -2785,16 +2797,16 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		 * the standard three, and the control channel is moved clear
 		 * of them either way.
 		 */
-		if (slave >= 0) {
-			if (fyai_tool_child_tty(slave))
-				_exit(126);
-			/*
-			 * With a terminal of its own there is somewhere to
-			 * render: this child presents, and the parent shows
-			 * what it drew.
-			 */
-			ctx->cfg->agent_pty = true;
-		}
+		if (slave >= 0 && fyai_tool_child_tty(slave))
+			_exit(126);
+		/*
+		 * A terminal of its own says that the child presents its work and that the
+		 * parent reads it. Such a child does not send progress that it already
+		 * showed. Set the flag in both directions, because a child of a sub-agent
+		 * inherits it and has no terminal. That child must send its progress up, or
+		 * the sub-agent shows nothing while a command runs.
+		 */
+		ctx->cfg->agent_pty = slave >= 0;
 		if (fyai_tool_child_fds(req[0], rsp[1]))
 			_exit(126);
 
@@ -3087,6 +3099,43 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	/* The trace pairs with the reap record below: a child that dies leaves
 	 * these two lines and nothing else. */
 	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
+	/*
+	 * A sub-agent has a terminal but no display of its own. It shows a running
+	 * command as a live region on that terminal. Without this a slow command
+	 * shows nothing until it ends.
+	 */
+	if (fy_equal(name, "shell") && !fyai_ui_active(ctx) &&
+	    ctx->cfg->agent_pty) {
+		struct response_buffer view = {0};
+		const char *cmdtext;
+		char *label;
+
+		/*
+		 * A native shell call carries its command in the action and not in the
+		 * arguments. Without this the region carries the name of the tool and not
+		 * the command.
+		 */
+		cmdtext = native_call ?
+			fy_cast(fy_get_at_path(tool_call, "action", "commands",
+					       0), "") :
+			fy_get(args, "command", "");
+		if (!fyai_shell_view(ctx, *cmdtext ? cmdtext : name, args,
+				     &label, &view))
+			fyai_print_tool_view(ctx, label, &view);
+		free(label);
+		free(view.data);
+		if (!fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
+				NULL, ctx->cfg->tool_preview_lines > 0 ?
+				(size_t)ctx->cfg->tool_preview_lines : 0,
+				FYAI_TOOL_OUTPUT_INDENT, stderr, true)) {
+			/*
+			 * The surface that the parent shows already carries the state of this call.
+			 * A second mark here has no animation.
+			 */
+			fyai_fenced_stream_clear_indicator(&job->stream);
+			job->band_progress = true;
+		}
+	}
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
@@ -3236,6 +3285,15 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		fyai_tool_job_progress_retain(job, p, len);
 	if (job->band_progress && job->stream.active)
 		(void)fyai_fenced_stream_push(&job->stream, p, len);
+	else if (!job->agent && job->ctx->shell_stream &&
+		 job->ctx->shell_stream->active)
+		/*
+		 * Use no band here. This process renders to a terminal of its own, which
+		 * makes it a sub-agent, and the output of its command belongs in the live
+		 * shell region. Without this the output arrives only with the result, and a
+		 * slow command shows nothing while it runs.
+		 */
+		(void)fyai_fenced_stream_push(job->ctx->shell_stream, p, len);
 	return fy_invalid;
 }
 

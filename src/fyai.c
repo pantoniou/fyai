@@ -222,9 +222,15 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	 * session has one screen, and what these calls did is on it.
 	 */
 	session_display = fyai_shell_session_display(ctx, tool_call);
-	/* Use work bands only in the terminal UI. */
+	/*
+	 * The call showed itself while it ran, so the exchange is not drawn again
+	 * afterwards. In the terminal UI a work band showed it. In a sub-agent, which
+	 * has a terminal but no display of its own, the live region on that terminal
+	 * showed it.
+	 */
 	banded = (shell || agent) && !session_display &&
-		 fyai_sink_bands_available(ctx->sink);
+		 (fyai_sink_bands_available(ctx->sink) ||
+		  (shell && cfg->agent_pty));
 	/*
 	 * A sub-agent is shown as the terminal it draws on, and the head of
 	 * that screen carries the call. Drawing the invocation here as well
@@ -251,7 +257,13 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
+	/*
+	 * A call that ran as a job in a sub-agent showed its invocation at the start,
+	 * which is when the invocation helps. To print it again here says the same
+	 * text below the output of the call.
+	 */
 	if (!session_display && !agent_display &&
+	    !(shell && cfg->agent_pty && !execute) &&
 	    (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
 	     (marked && fyai_sink_bands_available(ctx->sink))))
 		fyai_print_tool_call(ctx, tool_call);
@@ -709,7 +721,14 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 
 	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, request_body);
 
+	/*
+	 * Do not do this in a sub-agent. The mark on the surface that its parent
+	 * shows already gives the state, so a second indicator adds nothing. Before
+	 * the sub-agent had a screen, this indicator went to the terminal of the
+	 * user.
+	 */
 	step->spinner.enabled = !fyai_ui_active(ctx) &&
+				!fyai_agent_delegated(ctx) &&
 				terminal_is_tty(STDERR_FILENO);
 	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFOFUNCTION,
 			 fyai_spinner_xferinfo);

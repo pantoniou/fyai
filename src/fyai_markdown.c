@@ -869,6 +869,21 @@ int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
 	return 0;
 }
 
+/*
+ * Draw this region without a state mark. The live region of a sub-agent has
+ * one already, which is the mark on the surface that its parent shows. A
+ * second mark has no animation.
+ */
+void fyai_fenced_stream_clear_indicator(struct fyai_fenced_stream *fs)
+{
+	if (!fs)
+		return;
+	free(fs->first_margin);
+	fs->first_margin = NULL;
+	fs->indicator_state = FYMD_INDICATOR_SUCCESS;
+	fs->indicator_interval_ms = 0;
+}
+
 int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
 				     enum fymd_indicator_state state,
 				     size_t frame)
