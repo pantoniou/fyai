@@ -535,9 +535,14 @@ Expose only configured persona names and descriptions in the tool schema.
 Resolve a persona model through the catalogue in a scratch configuration.
 Preserve user-set `api_url` and `max_tokens`; replace only derived values.
 
-Stream delegated progress to one Markdown quote in the parent work band.
-Flush each tool-call update before the tool starts. Hide agent tool results.
-Use the final report as the last quote update.
+A delegated sub-agent has a terminal of its own. It renders to that terminal
+as this program renders to any terminal. The parent interprets that terminal
+and shows it on a surface, behind the session margin. There is no second
+rendering for a sub-agent, and nothing of a sub-agent is hidden. What a
+sub-agent does on its screen is what the user sees, tool results included.
+`cfg->agent_pty` says that a child has a terminal. It lets `sink_may_present()`
+present, and it stops the child from sending progress that the parent showed
+already.
 
 ## OAuth and JSON-RPC
 
