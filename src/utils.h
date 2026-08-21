@@ -176,6 +176,18 @@ void shell_command_result_cleanup(struct shell_command_result *result);
 void fyai_close_fds_from(int lowfd);
 
 /*
+ * True while @pid is stopped in a read of its standard input: it has asked a
+ * question and is waiting to be answered. This reads what the process is
+ * doing now, so it answers only for a process that is there and stopped in
+ * that one call. Where the state cannot be read, it answers false: nothing is
+ * reported rather than something invented.
+ */
+bool fyai_process_reads_stdin(pid_t pid);
+
+/* Processes looked at in one such walk, of a program and what it started. */
+#define FYAI_PROC_WALK_MAX 32
+
+/*
  * What each child that runs a command receives.
  *
  * One description, because the order of these steps keeps a child safe. The

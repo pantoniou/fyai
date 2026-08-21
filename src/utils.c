@@ -719,6 +719,99 @@ void fyai_close_fds_from(int lowfd)
 		close((int)fd);
 }
 
+/*
+ * What one process does now, from /proc. The kernel reports the call that
+ * stops the process and the arguments of that call. A read of descriptor 0 is
+ * therefore a fact and not a guess. A program that draws and waits, a program
+ * that sleeps, and a program that works are each different here.
+ */
+static bool proc_reads_stdin(pid_t pid)
+{
+	char path[64];
+	char buf[256];
+	long long nr = -1;
+	long long fd = -1;
+	ssize_t n;
+	int f;
+
+	snprintf(path, sizeof(path), "/proc/%ld/syscall", (long)pid);
+	f = open(path, O_RDONLY | O_CLOEXEC);
+	if (f < 0)
+		return false;
+	n = read(f, buf, sizeof(buf) - 1);
+	close(f);
+	if (n <= 0)
+		return false;
+	buf[n] = 0;
+	/* "running" for a process on a processor: it waits for nothing. */
+	if (sscanf(buf, "%lld %llx", &nr, &fd) != 2)
+		return false;
+	return (nr == SYS_read || nr == SYS_readv) && fd == 0;
+}
+
+/* The children of @pid, into @out. Returns how many were read. */
+static size_t proc_children(pid_t pid, pid_t *out, size_t max)
+{
+	char path[80];
+	char buf[512];
+	size_t count = 0;
+	const char *p;
+	ssize_t n;
+	long v;
+	int f;
+
+	snprintf(path, sizeof(path), "/proc/%ld/task/%ld/children",
+		 (long)pid, (long)pid);
+	f = open(path, O_RDONLY | O_CLOEXEC);
+	if (f < 0)
+		return 0;
+	n = read(f, buf, sizeof(buf) - 1);
+	close(f);
+	if (n <= 0)
+		return 0;
+	buf[n] = 0;
+	for (p = buf; *p && count < max; ) {
+		while (*p == ' ')
+			p++;
+		v = strtol(p, (char **)&p, 10);
+		if (v <= 0)
+			break;
+		out[count++] = (pid_t)v;
+	}
+	return count;
+}
+
+bool fyai_process_reads_stdin(pid_t pid)
+{
+#ifdef __linux__
+	/*
+	 * The program is not always the process that was started. A shell runs a
+	 * command, that command runs another, and the process that waits for input is
+	 * below them. The walk is bounded, because it runs on a timer and a program
+	 * can start many processes.
+	 */
+	pid_t queue[FYAI_PROC_WALK_MAX];
+	size_t head = 0, tail = 0;
+	size_t room;
+
+	if (pid <= 0)
+		return false;
+	queue[tail++] = pid;
+	while (head < tail) {
+		pid = queue[head++];
+		if (proc_reads_stdin(pid))
+			return true;
+		room = FYAI_PROC_WALK_MAX - tail;
+		if (room)
+			tail += proc_children(pid, queue + tail, room);
+	}
+	return false;
+#else
+	(void)pid;
+	return false;
+#endif
+}
+
 int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			    const struct fyai_child_spec *spec)
 {
