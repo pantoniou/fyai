@@ -28,31 +28,44 @@ plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 for needle in (b"[alpha] first half", b"[beta] second half"):
     if needle not in plain:
         raise SystemExit("missing agent label: %r" % needle)
-# Require two pending agent rows in one frame.
-pending = {}
-for m in re.finditer(rb"\[(alpha|beta)\]", data):
-    margin = data[max(0, m.start() - 60):m.start()]
-    if b"33m" in margin and b"32m" not in margin:
-        pending.setdefault(m.group(1), []).append(m.start())
-if not any(abs(a - b) < 600
-           for a in pending.get(b"alpha", [])
-           for b in pending.get(b"beta", [])):
-    raise SystemExit("agent bands never ran concurrently")
-# The pending indicator blinks, so both of its frames must be written in the
-# pending colour. Do not look for them next to an agent row: the compositor
-# repaints only the damaged cell, so a row is rewritten a few times while the
-# indicator changes on every tick.
-for frame in (b"\x1b[33m\xe2\x97\x8f", b"\x1b[33m "):
-    if frame not in data:
-        raise SystemExit("agent progress indicator did not animate")
-# The slower agent keeps the first report visible in its work band.
-if b"REPORT-ALPHA" not in plain:
-    raise SystemExit("missing agent progress")
+# Both delegations were on screen while both were still running: each label
+# is written before any agent is marked done. Proximity in the byte stream
+# would only measure how often the compositor happened to repaint.
+first_done = data.find(b"\x1b[32m\xe2\x97\x8f")
+if first_done < 0:
+    raise SystemExit("no agent was ever marked done")
+for needle in (b"[alpha]", b"[beta]"):
+    at = data.find(needle)
+    if at < 0 or at > first_done:
+        raise SystemExit("agent bands never ran concurrently: %r" % needle)
+
+# A sub-agent that is still working is marked as running, in the pending
+# colour, on the title row of its screen. Liveness is the screen itself: it
+# changes as the sub-agent works, so the mark does not blink.
+if not re.search(rb"\x1b\[33m(\x1b\[[0-9;]*m)*\xe2\x97\x8f", data):
+    raise SystemExit("a running sub-agent was not marked as running")
+if not re.search(rb"\x1b\[32m(\x1b\[[0-9;]*m)*\xe2\x97\x8f", data):
+    raise SystemExit("a finished sub-agent was not marked as done")
+# What each sub-agent drew is on its own screen. The compositor writes only
+# the cells that changed, so a word can reach the capture in pieces: the
+# reading is the screen, not the byte stream.
+import os
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from screen import Screen
+
+screen = Screen(30, 100)
+screen.feed(data)
+shown = "\n".join(screen.lines())
+
+if "REPORT-ALPHA" not in shown:
+    raise SystemExit("the first sub-agent's screen was not shown")
+if "REPORT-BETA" not in shown:
+    raise SystemExit("the second sub-agent's screen was not shown")
 # Do not show the full delegated task.
-for needle in (b"TASK-ALPHA", b"TASK-BETA"):
-    if needle in plain:
+for needle in ("TASK-ALPHA", "TASK-BETA"):
+    if needle in shown:
         raise SystemExit("sub-agent task leaked: %r" % needle)
-if b"Both sub-agents reported." not in plain:
+if "Both sub-agents reported." not in shown:
     raise SystemExit("parent final answer missing")
 EOF
 

@@ -1,6 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Verify the delegated-agent label and hidden child tools.
+# Verify the delegated-agent label and the terminal it renders into.
+#
+# A sub-agent has a terminal of its own and draws its work there: its tool
+# call and what the tool answered. The parent interprets that terminal and
+# shows it in the band, behind the margin - the same way it shows a shell
+# session, and not a rendering of its own.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -9,7 +14,7 @@ mock_start agent_tool_responses.json
 
 FYAI_PTY_INPUT="delegate a greeting to a sub-agent" \
 FYAI_PTY_MID_NEEDLE="printf" \
-FYAI_PTY_MID_TIMEOUT="1" \
+FYAI_PTY_MID_TIMEOUT="8" \
 FYAI_PTY_NEEDLE="Delegated and done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
@@ -19,25 +24,40 @@ FYAI_PTY_NEEDLE="Delegated and done." \
 
 "$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || \
     fail "agent presentation is wrong"
+import os
 import re
 import sys
 
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from screen import Screen
+
 data = open(sys.argv[1], "rb").read()
-plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
+# The sub-agent's terminal is drawn cell by cell, and the compositor writes
+# only the cells that changed: a word can reach the capture in pieces, from
+# several frames. What was on screen is the reading, not the byte stream.
+screen = Screen(30, 100)
+screen.feed(data)
+shown = "\n".join(screen.lines())
+
 # The delegation is labelled by its name and short description, not the task.
-if b"[greeter]" not in plain:
+if "[greeter]" not in shown:
     raise SystemExit("agent name annotation missing from the label")
-if b"greet and report" not in plain:
+if "greet and report" not in shown:
     raise SystemExit("agent description missing from the label")
-if b"print a greeting with the shell" in plain:
+if "print a greeting with the shell" in shown:
     raise SystemExit("agent task prose leaked into the transcript")
-# Show the agent tool call in the quoted progress display.
-if b"printf" not in plain:
-    raise SystemExit("agent tool call missing from the progress display")
-# Do not show the result from the agent tool.
-if b"agent-was-here" in plain:
-    raise SystemExit("agent tool result leaked into the progress display")
-if b"Delegated and done." not in plain:
+
+# The sub-agent renders to a terminal of its own, and that terminal is what
+# the band shows: its tool call, and what the tool answered. Every row of it
+# carries the margin that says whose screen it is.
+if "printf" not in shown:
+    raise SystemExit("the sub-agent's tool call was not shown")
+if "agent-was-here" not in shown:
+    raise SystemExit("the sub-agent's own screen was not shown")
+if not re.search(r"\u2502 .*printf", shown):
+    raise SystemExit("the sub-agent screen carries no margin")
+
+if "Delegated and done." not in shown:
     raise SystemExit("parent final answer missing")
 EOF
 

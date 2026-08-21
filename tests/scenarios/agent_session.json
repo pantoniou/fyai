@@ -1,0 +1,77 @@
+{
+ "steps": [
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-agent-1",
+      "call_id": "call-agent-1",
+      "name": "agent",
+      "arguments": "{\"name\": \"run-seq\", \"description\": \"run a sequence\", \"task\": \"open a named shell and run the loop\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-shell-1",
+      "call_id": "call-shell-1",
+      "name": "shell",
+      "arguments": "{\"name\": \"box\", \"command\": \"sh -i\", \"description\": \"a shell\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-out-1",
+      "call_id": "call-out-1",
+      "name": "shell_output",
+      "arguments": "{\"name\": \"box\", \"view\": \"all\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: the session worked."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-parent",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Delegated and done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
