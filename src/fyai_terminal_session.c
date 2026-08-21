@@ -175,6 +175,31 @@ static void tty_child_setenv(const struct fyai_terminal_opts *opts)
 	setenv("COLUMNS", num, 1);
 }
 
+/*
+ * Run the program. With a command it is `sh -c`, as for each other command
+ * that this program runs. Without a command it is the shell itself, which a
+ * user drives. A login shell then starts as a terminal starts one, with a
+ * leading dash in argv[0], which makes it read the profile.
+ */
+static void tty_child_shell(const char *command,
+			    const struct fyai_terminal_opts *opts)
+{
+	const char *shell = opts->shell && *opts->shell ? opts->shell
+							: "/bin/sh";
+	char argv0[64];
+	const char *base;
+
+	base = strrchr(shell, '/');
+	base = base ? base + 1 : shell;
+
+	if (command && *command) {
+		execl(shell, base, "-c", command, (char *)NULL);
+		return;
+	}
+	snprintf(argv0, sizeof(argv0), "%s%s", opts->login ? "-" : "", base);
+	execl(shell, argv0, (char *)NULL);
+}
+
 /* The child side of the fork. It never returns. */
 static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 			   const struct fyai_sandbox_spec *sandbox,
@@ -205,18 +230,14 @@ static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 		_exit(FYAI_SHELL_EXIT_WORKDIR);
 	if (sandbox && fyai_sandbox_apply(sandbox))
 		_exit(FYAI_SHELL_EXIT_SANDBOX);
-	execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+	tty_child_shell(command, opts);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
 
-/*
- * Open a pseudo-terminal and start @command on it. The parent keeps the
- * master; the program gets the slave as its controlling terminal.
- */
-static int tty_spawn(struct fyai_ctx *ctx, const char *command,
-		     const struct fyai_sandbox_spec *sandbox,
-		     const struct fyai_terminal_opts *opts, int rows, int cols,
-		     int *masterp, pid_t *pidp)
+int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
+			    const struct fyai_sandbox_spec *sandbox,
+			    const struct fyai_terminal_opts *opts, int rows,
+			    int cols, int *masterp, pid_t *pidp)
 {
 	struct winsize ws = {};
 	int master = -1;
@@ -287,8 +308,8 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 		return -1;
 	fyai_terminal_view_line_cb(r.view, opts->output_fn, opts->output_data);
 
-	rc = tty_spawn(ctx, command, sandbox, opts, r.rows, r.cols, &r.master,
-		       &pid);
+	rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, r.rows,
+				     r.cols, &r.master, &pid);
 	if (rc)
 		goto fail_view;
 	r.pid = pid;
@@ -582,8 +603,8 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 	 * model and to the user. "It could not be opened" gives neither of them a
 	 * cause that they can act on.
 	 */
-	rc = tty_spawn(ctx, command, sandbox, opts, rows, cols, &rl->master,
-		       &rl->pid);
+	rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, rows, cols,
+				     &rl->master, &rl->pid);
 	if (rc) {
 		fyai_error(ctx,
 			   "shell: could not start '%s' on a pseudo-terminal "

@@ -20,6 +20,8 @@ struct fyai_terminal_opts {
 	size_t max_bytes;		/* retained scrollback, 0 = no limit */
 	shell_output_fn output_fn;	/* a line that left the screen */
 	void *output_data;
+	const char *shell;		/* the program to run; NULL = /bin/sh */
+	bool login;			/* start @shell as a login shell */
 };
 
 struct fyai_terminal_result {
@@ -36,6 +38,17 @@ struct fyai_terminal_result {
 	bool signaled;
 	bool timed_out;
 };
+
+/*
+ * Open a pseudo-terminal and start @command on it. The parent keeps the
+ * master, which is non-blocking. The program takes the slave as its
+ * controlling terminal and leads its own session. A NULL or empty @command
+ * starts the shell of @opts interactively, for a terminal that a user drives.
+ */
+int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
+			    const struct fyai_sandbox_spec *sandbox,
+			    const struct fyai_terminal_opts *opts, int rows,
+			    int cols, int *masterp, pid_t *pidp);
 
 /*
  * Run one command on a pseudo-terminal and return its interpreted screen.
