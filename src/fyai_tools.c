@@ -1687,6 +1687,12 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 	if (!rc) {
 		opts.workdir = fy_castp(&workdir, (const char *)NULL);
 		fyai_shell_tty_size(ctx, args, &opts.rows, &opts.cols);
+		/*
+		 * The call asks for a terminal. It is never assumed. Without it the session
+		 * runs on pipes, like each other command, and a program that pages for a
+		 * reader does not page.
+		 */
+		opts.pipes = !fy_equal(fy_get(args, "tty", fy_false), fy_true);
 		tc->relay = fyai_terminal_relay_start(ctx, conn,
 						fy_castp(&command, ""),
 						sandbox, &opts);
@@ -2060,7 +2066,7 @@ static void fyai_shell_session_idle_arm(struct fyai_shell_session *sess)
 static struct fyai_shell_session *
 fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 			  const char *command, const char *title, int rows,
-			  int cols, size_t max_bytes)
+			  int cols, size_t max_bytes, bool pipes)
 {
 	struct fyai_shell_session *sess;
 
@@ -2080,6 +2086,11 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 		free(sess);
 		return NULL;
 	}
+	/*
+	 * A program on a pipe ends a line with a line feed alone, because
+	 * nothing gave it a terminal that returns the carriage as well.
+	 */
+	fyai_terminal_view_cooked(sess->view, pipes);
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
 	sess->title = title ? strdup(title) : NULL;
 	sess->rows = rows;
@@ -3063,7 +3074,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		job->session = fyai_shell_session_create(ctx, session_name,
 					fy_castp(&session_command, ""),
 					session_title, srows, scols,
-					fyai_shell_output_bytes(ctx, args));
+					fyai_shell_output_bytes(ctx, args),
+					!fy_equal(fy_get(args, "tty", fy_false),
+						  fy_true));
 		free(session_title);
 		session_title = NULL;
 		fyai_error_check(ctx, job->session, err,

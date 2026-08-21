@@ -22,6 +22,7 @@ struct fyai_terminal_opts {
 	void *output_data;
 	const char *shell;		/* the program to run; NULL = /bin/sh */
 	bool login;			/* start @shell as a login shell */
+	bool pipes;			/* run on pipes, with no terminal */
 };
 
 struct fyai_terminal_result {
@@ -49,6 +50,18 @@ int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 			    const struct fyai_sandbox_spec *sandbox,
 			    const struct fyai_terminal_opts *opts, int rows,
 			    int cols, int *masterp, pid_t *pidp);
+
+/*
+ * Start @command on pipes, for a session that asked for no terminal. The
+ * program runs as before, and a caller writes to it and reads from it as
+ * before, but the program finds no terminal. A program that pages its output,
+ * or that adds colour for a reader, does neither here. Standard error joins
+ * standard output, as it does for a command on pipes.
+ */
+int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
+			     const struct fyai_sandbox_spec *sandbox,
+			     const struct fyai_terminal_opts *opts,
+			     int *readp, int *writep, pid_t *pidp);
 
 /*
  * Run one command on a pseudo-terminal and return its interpreted screen.
