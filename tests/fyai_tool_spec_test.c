@@ -105,7 +105,7 @@ static void test_shape(void)
 	static const char *const names[] = {
 		"read_file", "write_file", "apply_patch", "shell",
 		"shell_input", "shell_output", "shell_close",
-		"ask_user", "agent",
+		"ask_user", "agent", "time", "wait",
 	};
 	static const char *const required_sets[][3] = {
 		{ "path" },
@@ -117,9 +117,11 @@ static void test_shape(void)
 		{ "name" },
 		{ "question" },
 		{ "name", "description", "task" },
+		{ NULL },	/* time takes nothing */
+		{ NULL },	/* wait takes what it is given */
 	};
 	static const size_t required_sizes[] = {
-		1, 2, 1, 1, 2, 1, 1, 1, 3,
+		1, 2, 1, 1, 2, 1, 1, 1, 3, 0, 0,
 	};
 	fy_generic tool, fn, params, req, tmp;
 	size_t n = 0, i = 0;
@@ -128,7 +130,7 @@ static void test_shape(void)
 	require(fy_is_sequence(tools), "make_tools: expected a sequence");
 	fy_foreach(tool, tools)
 		n++;
-	require(n == 9, "make_tools: expected exactly 9 tools");
+	require(n == 11, "make_tools: expected exactly 11 tools");
 
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
@@ -141,19 +143,24 @@ static void test_shape(void)
 		require(fy_equal(fy_get(params, "additionalProperties"), false),
 			"parameters.additionalProperties must be false");
 
-		/* required matches, in order */
+		/* required matches, in order. A tool can require nothing:
+		 * `time` takes no argument, and `wait` takes what it is
+		 * given. */
 		req = fy_get(params, "required");
-		require(fy_is_sequence(req), "required must be a sequence");
+		require(fy_is_sequence(req) || required_sizes[i] == 0,
+			"required must be a sequence");
 		require(fy_equal(fy_get(fn, "name"), names[i]),
 			"unexpected tool name/order");
 		n = 0;
-		fy_foreach(tmp, req)
-			n++;
+		if (fy_is_sequence(req))
+			fy_foreach(tmp, req)
+				n++;
 		require(n == required_sizes[i], "required count mismatch");
 		j = 0;
-		fy_foreach(tmp, req)
-			require(fy_equal(tmp, required_sets[i][j++]),
-				"required element mismatch");
+		if (fy_is_sequence(req))
+			fy_foreach(tmp, req)
+				require(fy_equal(tmp, required_sets[i][j++]),
+					"required element mismatch");
 		i++;
 	}
 }
@@ -164,19 +171,19 @@ static void test_order(void)
 	static const char *const expected[] = {
 		"read_file", "write_file", "apply_patch", "shell",
 		"shell_input", "shell_output", "shell_close",
-		"ask_user", "agent",
+		"ask_user", "agent", "time", "wait",
 	};
 	fy_generic tool;
 	size_t i = 0;
 
 	fy_foreach(tool, tools) {
 		fy_generic fn = fy_get(tool, "function");
-		require(i < 9, "too many tools");
+		require(i < 11, "too many tools");
 		require(fy_equal(fy_get(fn, "name"), expected[i]),
 			"tool order mismatch");
 		i++;
 	}
-	require(i == 9, "too few tools");
+	require(i == 11, "too few tools");
 }
 
 static void test_descriptions(void)
@@ -248,8 +255,8 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 9 && has_ask_user && has_agent,
-		"plain context must keep all six tools");
+	require(count == 11 && has_ask_user && has_agent,
+		"plain context must keep every tool");
 
 	/* A sub-agent context removes ask_user and agent. */
 	test_cfg.agent_child = true;
@@ -265,7 +272,7 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 7 && !has_ask_user && !has_agent,
+	require(count == 9 && !has_ask_user && !has_agent,
 		"sub-agent context must drop ask_user and agent");
 }
 
