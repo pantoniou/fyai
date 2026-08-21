@@ -70,6 +70,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
  */
 #define DEFAULT_SHELL_MAX_OUTPUT_TOKENS 16384
 #define DEFAULT_SHELL_SESSION_TIMEOUT_MS 900000
+#define DEFAULT_SHELL_INPUT_POLL_MS 400
 #define DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS 200000
 /* The bytes/4 rule the context estimator uses, in one place. */
 #define FYAI_BYTES_PER_TOKEN 4
@@ -202,6 +203,7 @@ struct fyai_cfg {
 	int shell_max_output_tokens;	/* default shell output cap (0 = none) */
 	int shell_hard_max_output_tokens; /* cap on a model-requested size */
 	int shell_session_timeout_ms;	/* idle limit of a named session */
+	int shell_input_poll_ms;	/* how often a session is asked if it waits */
 	const char *session_margin;	/* left chrome of a terminal session */
 	bool agent_pty;			/* this sub-agent has a terminal */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */

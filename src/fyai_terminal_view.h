@@ -133,4 +133,12 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 			      const struct fyai_terminal_region *region,
 			      size_t *lenp);
 
+/*
+ * The last thing the program drew: the row the cursor is on, or the nearest
+ * one above it that has anything on it. This is where a prompt is, which is
+ * what a program stopped for input has left on the screen. The caller owns
+ * the returned string, and gets NULL when the screen is empty.
+ */
+char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view);
+
 #endif

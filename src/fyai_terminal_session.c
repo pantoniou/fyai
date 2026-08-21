@@ -670,6 +670,7 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 			  const struct fyai_terminal_opts *opts)
 {
 	struct fyai_terminal_relay *rl;
+	struct fy_generic_builder *gb;
 	struct fyai_event_loop *el;
 	int rows, cols, rc;
 
@@ -732,6 +733,15 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 		fyai_error(ctx, "shell: could not watch the session process");
 		goto fail_child;
 	}
+	/*
+	 * The parent watches this program for a stop in a read, because only the
+	 * parent can answer. This process is confined and cannot read the state of
+	 * another process, its own child included.
+	 */
+	gb = fyai_ctx_transient_gb(ctx);
+	if (gb)
+		relay_notify(rl, "shell/started",
+			     fy_gb_mapping(gb, "pid", (long long)rl->pid));
 	return rl;
 
 fail_child:

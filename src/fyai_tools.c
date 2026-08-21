@@ -1243,6 +1243,10 @@ static char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
 				    bool *okp);
 static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
+static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp);
+static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
+						  const char *name);
 static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
 
@@ -1427,6 +1431,8 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		result = fyai_shell_output_tool(ctx, args, okp);
 	} else if (fy_equal(name, "shell_input")) {
 		result = fyai_shell_input_tool(ctx, args, okp);
+	} else if (fy_equal(name, "agent_input")) {
+		result = fyai_agent_input_tool(ctx, args, okp);
 	} else if (fy_equal(name, "shell_close")) {
 		result = fyai_shell_close_tool(ctx, args, okp);
 	} else if (fy_equal(name, "time")) {
@@ -1850,6 +1856,8 @@ struct fyai_tool_job {
 	struct fyai_terminal_view *view;	/* what it drew there */
 	struct fytim_surface *surface;		/* and where that is shown */
 	struct fyai_event_source *ptysrc;
+	struct fyai_event_source *waiter;	/* asks if it stopped for input */
+	bool wants_input;
 	bool terminating;
 	bool timed_out;
 	unsigned int timeout_ms;	/* 0 = no limit */
@@ -1885,6 +1893,10 @@ struct fyai_shell_session {
 	 */
 	struct fytim_surface *surface;
 	char *title;
+	pid_t pid;			/* the program, watched for a read */
+	bool pipes;			/* it was given no terminal */
+	struct fyai_event_source *waiter;
+	bool wants_input;		/* it stopped for input and was said so */
 	int rows;			/* the size the session was opened with */
 	int exit_code;
 	int signal;
@@ -2094,6 +2106,7 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
 	sess->title = title ? strdup(title) : NULL;
 	sess->rows = rows;
+	sess->pipes = pipes;
 	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
 	if (sess->surface) {
 		(void)fyai_ui_surface_set_head(ctx, sess->surface,
@@ -2169,6 +2182,68 @@ static void fyai_shell_session_refresh(struct fyai_shell_session *sess)
 		fyai_ui_wake(sess->ctx);
 }
 
+/*
+ * Tell the model that this session waits for input. Send the screen with the
+ * message, because the screen holds the question. A question without its text
+ * tells the model nothing.
+ */
+static void fyai_shell_session_input_wanted(struct fyai_shell_session *sess)
+{
+	char *prompt;
+	char *text;
+
+	prompt = fyai_terminal_view_last_line(sess->view);
+	text = prompt && *prompt ?
+		strdup(fy_sprintfa("[shell '%s' is waiting for input: %s]",
+				   sess->name, prompt)) :
+		strdup(fy_sprintfa("[shell '%s' is waiting for input]",
+				   sess->name));
+	free(prompt);
+	if (text)
+		(void)fyai_event_inject(sess->ctx, text);
+}
+
+/*
+ * A program that stops in a read of its input does nothing until an answer
+ * arrives, and no person is at that terminal. A timer asks the state of the
+ * program, because the output cannot give it. A prompt has no newline, and a
+ * program can also wait after it drew a full screen.
+ */
+static enum fyai_event_action fyai_shell_session_wait_poll(
+					const struct fyai_event *ev)
+{
+	struct fyai_shell_session *sess = ev->userdata;
+	bool wants;
+
+	if (sess->exited || sess->closing)
+		return FYAIEA_CONTINUE;
+	wants = fyai_process_reads_stdin(sess->pid);
+	if (wants == sess->wants_input)
+		return FYAIEA_CONTINUE;
+	sess->wants_input = wants;
+	/* Said one time for each wait; reading on is not a new question. */
+	if (wants)
+		fyai_shell_session_input_wanted(sess);
+	return FYAIEA_CONTINUE;
+}
+
+/* Watch @pid, the program this session runs, for a stop on its input. */
+static void fyai_shell_session_watch(struct fyai_shell_session *sess, pid_t pid)
+{
+	struct fyai_event_loop *el;
+	int ms;
+
+	if (!sess || pid <= 0 || sess->waiter)
+		return;
+	sess->pid = pid;
+	ms = sess->ctx->cfg->shell_input_poll_ms;
+	el = fyai_ctx_loop(sess->ctx);
+	if (ms <= 0 || !el)
+		return;
+	(void)fyai_event_add_timer(el, ms, ms, fyai_shell_session_wait_poll,
+				   sess, &sess->waiter);
+}
+
 /* How the session ended, for the mark and the cause beside its title. */
 static char *fyai_shell_session_cause(const struct fyai_shell_session *sess,
 				      bool *okp)
@@ -2239,6 +2314,11 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 		fyai_event_source_remove(sess->idle);
 		sess->idle = NULL;
 	}
+	/* Nothing waits for input once the program has gone. */
+	if (sess->waiter) {
+		fyai_event_source_remove(sess->waiter);
+		sess->waiter = NULL;
+	}
 }
 
 static void fyai_shell_session_close(struct fyai_shell_session *sess,
@@ -2267,6 +2347,8 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	fyai_shell_session_display_finish(sess);
 	if (sess->idle)
 		fyai_event_source_remove(sess->idle);
+	if (sess->waiter)
+		fyai_event_source_remove(sess->waiter);
 	fyai_terminal_view_destroy(sess->view);
 	free(sess->name);
 	free(sess->command);
@@ -2447,8 +2529,13 @@ static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	text = fy_castp(&input, "");
 	if (response_buffer_append(&in, text))
 		return NULL;
-	/* A shell needs the return that a person would press. */
-	if (fy_get(args, "enter", true) && response_buffer_append(&in, "\r")) {
+	/*
+	 * The return key of a reader. A terminal makes it the end of a line for the
+	 * program. A pipe does not, so a program that reads lines from a pipe waits
+	 * for the end of the line.
+	 */
+	if (fy_get(args, "enter", true) &&
+	    response_buffer_append(&in, sess->pipes ? "\n" : "\r")) {
 		free(in.data);
 		return NULL;
 	}
@@ -2573,6 +2660,8 @@ static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 	for (;;) {
 		n = read(job->pty, buf, sizeof(buf));
 		if (n > 0) {
+			/* It wrote: whatever it waited for, it has it. */
+			job->wants_input = false;
 			(void)fyai_terminal_view_feed(job->view, buf,
 						      (size_t)n);
 			continue;
@@ -2589,6 +2678,102 @@ static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 		}
 		return FYAIEA_CONTINUE;
 	}
+}
+
+/*
+ * A sub-agent that stops in a read of its terminal waits for an answer. It
+ * called a tool that asks a question, and no person is at that terminal. The
+ * parent receives the question and gives it to the model, which answers with
+ * agent_input.
+ */
+static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+	const char *who;
+	char *prompt = NULL;
+	char *text;
+	bool wants;
+
+	if (job->done)
+		return FYAIEA_CONTINUE;
+	wants = fyai_process_reads_stdin(job->pid);
+	if (wants == job->wants_input)
+		return FYAIEA_CONTINUE;
+	job->wants_input = wants;
+	if (!wants)
+		return FYAIEA_CONTINUE;
+	if (job->view)
+		prompt = fyai_terminal_view_last_line(job->view);
+	/* A sub-agent is named by the branch it owns: main/agent:<name>. */
+	who = job->branch ? strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX) : NULL;
+	who = who ? who + strlen(FYAI_BRANCH_AGENT_PREFIX) : "agent";
+	text = prompt && *prompt ?
+		strdup(fy_sprintfa("[agent '%s' is waiting for input: %s]",
+				   who, prompt)) :
+		strdup(fy_sprintfa("[agent '%s' is waiting for input]", who));
+	free(prompt);
+	if (text)
+		(void)fyai_event_inject(job->ctx, text);
+	return FYAIEA_CONTINUE;
+}
+
+/*
+ * Type into a running sub-agent. Its terminal is held here, so the sub-agent
+ * reads what the model writes. This is how the model answers a question that
+ * the sub-agent asked.
+ */
+static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
+				   bool *okp)
+{
+	struct fyai_tool_job *job;
+	struct response_buffer in = {};
+	fy_generic name_v, input_v;
+	const char *name;
+	const char *text;
+	ssize_t n;
+	size_t off;
+
+	*okp = false;
+	name_v = fy_get(args, "name", fy_invalid);
+	name = fy_castp(&name_v, "");
+	job = fyai_agent_job_named(ctx, name);
+	if (!job)
+		return strdup(fy_sprintfa(
+			"tool error: no sub-agent named '%s' is running; one "
+			"that has finished is reached with the agent tool",
+			name));
+	if (job->pty < 0)
+		return strdup(fy_sprintfa(
+			"tool error: the sub-agent '%s' has no terminal to "
+			"write to", name));
+
+	input_v = fy_get(args, "input", fy_invalid);
+	text = fy_castp(&input_v, "");
+	if (response_buffer_append(&in, text))
+		return NULL;
+	/* Its terminal turns the return into the end of a line for it. */
+	if (fy_get(args, "enter", true) && response_buffer_append(&in, "\r")) {
+		free(in.data);
+		return NULL;
+	}
+	for (off = 0; off < in.len; off += (size_t)n) {
+		n = write(job->pty, in.data + off, in.len - off);
+		if (n > 0)
+			continue;
+		if (n < 0 && (errno == EINTR || errno == EAGAIN)) {
+			n = 0;
+			continue;
+		}
+		free(in.data);
+		return strdup(fy_sprintfa(
+			"tool error: could not write to the sub-agent '%s': %s",
+			name, strerror(errno)));
+	}
+	free(in.data);
+	/* It read what it was given: the next stop is a new question. */
+	job->wants_input = false;
+	*okp = true;
+	return strdup(fy_sprintfa("[agent '%s': the input was typed]", name));
 }
 
 /*
@@ -2616,6 +2801,12 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 	if (!el || fyai_event_add_fd(el, job->pty, FYAIEV_READ,
 				     fyai_agent_pty_read, job, &job->ptysrc))
 		return -1;
+	/* The same watch a session has, on the terminal of a sub-agent. */
+	if (ctx->cfg->shell_input_poll_ms > 0)
+		(void)fyai_event_add_timer(el, ctx->cfg->shell_input_poll_ms,
+					   ctx->cfg->shell_input_poll_ms,
+					   fyai_agent_wait_poll, job,
+					   &job->waiter);
 
 	job->surface = fyai_ui_surface_open(ctx, job->pty_rows, job->pty_cols);
 	if (job->surface) {
@@ -2640,6 +2831,10 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 				  const char *cause)
 {
+	if (job->waiter) {
+		fyai_event_source_remove(job->waiter);
+		job->waiter = NULL;
+	}
 	if (job->ptysrc) {
 		fyai_event_source_remove(job->ptysrc);
 		job->ptysrc = NULL;
@@ -2742,6 +2937,26 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 				WTERMSIG(ev->status) : 0;
 	fyai_tool_job_update_done(job);
 	return FYAIEA_CONTINUE;
+}
+
+/* The running sub-agent called @name, or NULL. */
+static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
+						  const char *name)
+{
+	struct fyai_tool_job *job;
+	const char *who;
+
+	if (fy_str_empty(name))
+		return NULL;
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->agent || job->done || !job->branch)
+			continue;
+		who = strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX);
+		if (who && !strcmp(who + strlen(FYAI_BRANCH_AGENT_PREFIX),
+				   name))
+			return job;
+	}
+	return NULL;
 }
 
 /* True while a job of this process owns @branch. */
@@ -3294,11 +3509,24 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 			return fy_invalid;
 		bytes = fyai_bytes_from_generic(params, &n);
 		if (bytes) {
+			/* It wrote: whatever it waited for, it has it. */
+			job->session->wants_input = false;
 			(void)fyai_terminal_view_feed(job->session->view,
 						      bytes, n);
 			fyai_shell_session_refresh(job->session);
 		}
 		free(bytes);
+		return fy_invalid;
+	}
+	/*
+	 * The child names the program that it started. The parent watches the
+	 * program, because the confined child cannot read the state of another
+	 * process, and because only the parent raises a turn.
+	 */
+	if (!strcmp(method, "shell/started")) {
+		if (job->session)
+			fyai_shell_session_watch(job->session,
+					(pid_t)fy_get(params, "pid", 0LL));
 		return fy_invalid;
 	}
 	if (!strcmp(method, "shell/exit")) {

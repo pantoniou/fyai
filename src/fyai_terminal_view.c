@@ -171,6 +171,43 @@ static int tty_append_cells(struct response_buffer *out,
 }
 
 /*
+ * The last text that the program drew, which is where a prompt is. The same
+ * cell reader reads the rows, from the cursor upwards. The first row with
+ * content on it is the answer.
+ */
+char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view)
+{
+	struct response_buffer buf = {};
+	struct fyvt_screen_cell *cells;
+	struct fyvt_pos pos;
+	char *line;
+	int row, col;
+
+	if (!view || view->cols <= 0)
+		return NULL;
+	cells = calloc((size_t)view->cols, sizeof(*cells));
+	if (!cells)
+		return NULL;
+
+	for (row = view->cursor_row; row >= 0; row--) {
+		for (col = 0; col < view->cols; col++) {
+			pos.row = row;
+			pos.col = col;
+			fyvt_screen_get_cell(view->screen, pos, &cells[col]);
+		}
+		if (tty_append_cells(&buf, cells, view->cols))
+			break;
+		if (buf.len)
+			break;
+	}
+	free(cells);
+	line = buf.len ? buf.data : NULL;
+	if (!line)
+		free(buf.data);
+	return line;
+}
+
+/*
  * Keep a retained buffer bounded. A program that does not stop must not grow
  * one without end. Drop the front at a line boundary when the buffer is twice
  * the budget, because a reader keeps the end. Returns the number of bytes

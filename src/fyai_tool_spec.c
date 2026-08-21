@@ -111,7 +111,10 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 		fy_foreach(tool, tools) {
 			fn = fy_get(tool, "function");
 			name = fy_get(fn, "name");
-			if (fy_any_equal(name, "agent", "ask_user"))
+			/* A sub-agent delegates to nobody, so it answers
+			 * nobody else's sub-agent either. */
+			if (fy_any_equal(name, "agent", "agent_input",
+					 "ask_user"))
 				continue;
 			out = fy_append(gb, out, tool);
 		}
