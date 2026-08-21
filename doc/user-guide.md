@@ -509,6 +509,40 @@ ends with the invocation, with `shell_close`, when its program ends, or after
 
 Refer to `doc/pty-terminal-plan.md`.
 
+### Telling the time, and waiting
+
+The system instructions are frozen when a conversation starts, so they cannot
+say what the time is now. `time` answers that, and measures how long something
+took.
+
+`wait` waits. It starts no process, unlike a shell that sleeps, and an
+interrupt reaches it:
+
+```text
+wait{seconds: 5}                     # holds the turn for five seconds
+wait{until: "14:00"}                 # holds it until a wall-clock time
+wait{name: "build", seconds: 30}     # returns at once and fires later
+```
+
+A named wait does not hold the turn. The call returns when the wait is armed,
+and the model continues. When the wait fires, the model receives a turn of its
+own, which no person typed:
+
+```text
+  │ start the build and come back to it
+● wait [build] the build should be done
+    [wait 'build' started: 30 seconds]
+  Started it. I will pick it up when the wait fires.
+  │ [wait 'build' fired: the build should be done]
+  Checking the build now.
+```
+
+`seconds` and `until` are exclusive, but an empty argument is not an argument:
+a call that sends `until: ""` beside `seconds` asks for the seconds.
+
+A wait lives for one invocation, as a terminal session does. No daemon can
+receive it, so a wait that did not fire is dropped when the run ends.
+
 ### A terminal for the user: `fyai term`
 
 The same terminal, drawn for a user. `fyai term` runs a program on a
