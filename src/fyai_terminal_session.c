@@ -162,19 +162,6 @@ static void tty_sources_remove(struct tty_run *r)
 }
 
 /* Describe the terminal the child is given. */
-static void tty_child_setenv(const struct fyai_terminal_opts *opts)
-{
-	char num[16];
-
-	setenv("TERM", "xterm-256color", 1);
-	snprintf(num, sizeof(num), "%d",
-		 opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT);
-	setenv("LINES", num, 1);
-	snprintf(num, sizeof(num), "%d",
-		 opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT);
-	setenv("COLUMNS", num, 1);
-}
-
 /*
  * Run the program. With a command it is `sh -c`, as for each other command
  * that this program runs. Without a command it is the shell itself, which a
@@ -205,31 +192,28 @@ static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 			   const struct fyai_sandbox_spec *sandbox,
 			   const struct fyai_terminal_opts *opts, int slave)
 {
-	fyai_ctx_loop_abandon(ctx);
+	struct fyai_child_spec spec = {};
+	int rc;
 
-	if (setsid() < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (ioctl(slave, TIOCSCTTY, 0) < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (dup2(slave, STDIN_FILENO) < 0 ||
-	    dup2(slave, STDOUT_FILENO) < 0 ||
-	    dup2(slave, STDERR_FILENO) < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (slave > STDERR_FILENO)
-		close(slave);
-	fyai_close_fds_from(3);
-	if (fyai_env_sanitize())
-		_exit(FYAI_SHELL_EXIT_EXEC);
+	spec.in_fd = slave;
+	spec.out_fd = slave;
+	spec.err_fd = slave;
+	spec.ctty_fd = slave;
+	spec.own_session = true;
 	/*
-	 * Name the terminal the program is actually given. An inherited TERM
-	 * describes the terminal of the user, which libfyvterm does not emulate;
-	 * `dumb` would also make a program give up formatting for no reason.
+	 * An inherited TERM names the terminal of the user, which libfyvterm does not
+	 * emulate. `dumb` would also make a program stop all formatting for no
+	 * reason.
 	 */
-	tty_child_setenv(opts);
-	if (opts->workdir && *opts->workdir && chdir(opts->workdir))
-		_exit(FYAI_SHELL_EXIT_WORKDIR);
-	if (sandbox && fyai_sandbox_apply(sandbox))
-		_exit(FYAI_SHELL_EXIT_SANDBOX);
+	spec.term = "xterm-256color";
+	spec.rows = opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT;
+	spec.cols = opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT;
+	spec.workdir = opts->workdir;
+	spec.sandbox = sandbox;
+
+	rc = fyai_child_exec_prepare(ctx, &spec);
+	if (rc)
+		_exit(rc);
 	tty_child_shell(command, opts);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
@@ -291,33 +275,27 @@ static void pipe_child_exec(struct fyai_ctx *ctx, const char *command,
 			    const struct fyai_terminal_opts *opts,
 			    int in_fd, int out_fd)
 {
-	fyai_ctx_loop_abandon(ctx);
+	struct fyai_child_spec spec = {};
+	int rc;
 
-	if (setsid() < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (dup2(in_fd, STDIN_FILENO) < 0 ||
-	    dup2(out_fd, STDOUT_FILENO) < 0 ||
-	    dup2(out_fd, STDERR_FILENO) < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (in_fd > STDERR_FILENO)
-		close(in_fd);
-	if (out_fd > STDERR_FILENO)
-		close(out_fd);
-	fyai_close_fds_from(3);
-	if (fyai_env_sanitize())
-		_exit(FYAI_SHELL_EXIT_EXEC);
+	spec.in_fd = in_fd;
+	spec.out_fd = out_fd;
+	spec.err_fd = out_fd;
+	spec.ctty_fd = -1;
 	/*
-	 * There is no terminal here, and TERM must say so: a program that
-	 * reads it before it asks the descriptor would otherwise draw for a
-	 * terminal that is not there.
+	 * The child leads its own session, as a terminal session does. A close then
+	 * stops the program and each process that it started, and nothing here
+	 * inherits the terminal of the user.
 	 */
-	setenv("TERM", "dumb", 1);
-	unsetenv("LINES");
-	unsetenv("COLUMNS");
-	if (opts->workdir && *opts->workdir && chdir(opts->workdir))
-		_exit(FYAI_SHELL_EXIT_WORKDIR);
-	if (sandbox && fyai_sandbox_apply(sandbox))
-		_exit(FYAI_SHELL_EXIT_SANDBOX);
+	spec.own_session = true;
+	/* There is no terminal here, and TERM must say so. */
+	spec.term = "dumb";
+	spec.workdir = opts->workdir;
+	spec.sandbox = sandbox;
+
+	rc = fyai_child_exec_prepare(ctx, &spec);
+	if (rc)
+		_exit(rc);
 	tty_child_shell(command, opts);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }

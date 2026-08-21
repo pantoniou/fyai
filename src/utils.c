@@ -24,6 +24,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 
 #include <libfyaml/libfyaml-align.h>
 
@@ -718,45 +719,94 @@ void fyai_close_fds_from(int lowfd)
 		close((int)fd);
 }
 
+int fyai_child_exec_prepare(struct fyai_ctx *ctx,
+			    const struct fyai_child_spec *spec)
+{
+	char num[16];
+
+	/* The application loop belongs to fyai, never to the command. */
+	fyai_ctx_loop_abandon(ctx);
+	/*
+	 * A group of its own, so that a stop reaches the command and each process
+	 * that it started. A session goes further and takes no controlling terminal,
+	 * which a program on a terminal of its own needs before it can claim that
+	 * terminal.
+	 */
+	if (spec->own_session) {
+		/* A leader already cannot start a session; a group still
+		 * separates it from the group of this process. */
+		if (setsid() < 0 && setpgid(0, 0) < 0)
+			return FYAI_SHELL_EXIT_EXEC;
+	} else if (setpgid(0, 0) < 0) {
+		return FYAI_SHELL_EXIT_EXEC;
+	}
+	if (spec->ctty_fd >= 0 && ioctl(spec->ctty_fd, TIOCSCTTY, 0) < 0)
+		return FYAI_SHELL_EXIT_EXEC;
+	if (spec->in_fd >= 0 && dup2(spec->in_fd, STDIN_FILENO) < 0)
+		return FYAI_SHELL_EXIT_EXEC;
+	if (spec->out_fd >= 0 && dup2(spec->out_fd, STDOUT_FILENO) < 0)
+		return FYAI_SHELL_EXIT_EXEC;
+	if (spec->err_fd >= 0 && dup2(spec->err_fd, STDERR_FILENO) < 0)
+		return FYAI_SHELL_EXIT_EXEC;
+	/*
+	 * Close every inherited descriptor: the event loop, the arena, a
+	 * control channel, a pipe of another job. The three above are copies
+	 * already, so the originals go with the rest.
+	 */
+	fyai_close_fds_from(3);
+	/* Fail closed if any provider credential cannot be removed. */
+	if (fyai_env_sanitize())
+		return FYAI_SHELL_EXIT_EXEC;
+	/*
+	 * Name the terminal the program is actually given, because a program
+	 * reads TERM before it asks the descriptor. LINES and COLUMNS go with
+	 * it: they describe a screen, and there is not always one.
+	 */
+	if (spec->term)
+		setenv("TERM", spec->term, 1);
+	if (spec->rows > 0 && spec->cols > 0) {
+		snprintf(num, sizeof(num), "%d", spec->rows);
+		setenv("LINES", num, 1);
+		snprintf(num, sizeof(num), "%d", spec->cols);
+		setenv("COLUMNS", num, 1);
+	} else if (spec->term) {
+		unsetenv("LINES");
+		unsetenv("COLUMNS");
+	}
+	/* Enter the directory before applying confinement. */
+	if (spec->workdir && *spec->workdir && chdir(spec->workdir) < 0)
+		return FYAI_SHELL_EXIT_WORKDIR;
+	/* Confine the tool before handing control to the shell. */
+	if (spec->sandbox && fyai_sandbox_apply(spec->sandbox))
+		return FYAI_SHELL_EXIT_SANDBOX;
+	return 0;
+}
+
 static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 			       const char *workdir,
 			       const struct fyai_sandbox_spec *sandbox,
 			       int stdout_pipe[2], int stderr_pipe[2])
 {
+	struct fyai_child_spec spec = {};
 	int devnull;
+	int rc;
 
-	/* The application loop belongs to fyai, never to the command. */
-	fyai_ctx_loop_abandon(ctx);
-	/* Give every capture one group for the shell and its descendants. */
-	if (setpgid(0, 0) < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
 	close(stdout_pipe[0]);
 	close(stderr_pipe[0]);
-	dup2(stdout_pipe[1], STDOUT_FILENO);
-	dup2(stderr_pipe[1], STDERR_FILENO);
-	close(stdout_pipe[1]);
-	close(stderr_pipe[1]);
+	/* Nothing here reads: a command that asks is answered end of input. */
 	devnull = open("/dev/null", O_RDONLY);
-	if (devnull >= 0) {
-		if (devnull != STDIN_FILENO) {
-			dup2(devnull, STDIN_FILENO);
-			close(devnull);
-		}
-	} else {
-		close(STDIN_FILENO);
-	}
-	/* Close inherited descriptors before exec. */
-	fyai_close_fds_from(3);
-	/* Fail closed if any provider credential cannot be removed. */
-	if (fyai_env_sanitize())
-		_exit(FYAI_SHELL_EXIT_EXEC);
 
-	/* Enter the directory before applying confinement. */
-	if (workdir && *workdir && chdir(workdir) < 0)
-		_exit(FYAI_SHELL_EXIT_WORKDIR);
-	/* Confine the tool before handing control to the shell. */
-	if (sandbox && fyai_sandbox_apply(sandbox))
-		_exit(FYAI_SHELL_EXIT_SANDBOX);
+	spec.in_fd = devnull;
+	spec.out_fd = stdout_pipe[1];
+	spec.err_fd = stderr_pipe[1];
+	spec.ctty_fd = -1;
+	spec.workdir = workdir;
+	spec.sandbox = sandbox;
+	rc = fyai_child_exec_prepare(ctx, &spec);
+	if (rc)
+		_exit(rc);
+	if (devnull < 0)
+		close(STDIN_FILENO);
 	execl("/bin/sh", "sh", "-c", command, NULL);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }

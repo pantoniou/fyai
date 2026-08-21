@@ -1867,33 +1867,33 @@ static int mcp_stdio_spawn(struct fyai_ctx *ctx, struct fyai_mcp_ctx *mcp,
 			 mcp->name, strerror(errno));
 
 	if (!pid) {
-		fyai_ctx_loop_abandon(ctx);
+		struct fyai_child_spec spec = {};
+
 		signal(SIGPIPE, SIG_DFL);
-		/* Put the server and its descendants in a group for teardown. */
-		if (setsid() < 0 && setpgid(0, 0) < 0)
-			_exit(126);
 		close(inpipe[1]);
 		close(outpipe[0]);
 		inpipe[1] = outpipe[0] = -1;
 
-		if (dup2(inpipe[0], STDIN_FILENO) < 0 ||
-		    dup2(outpipe[1], STDOUT_FILENO) < 0)
-			_exit(126);
+		/*
+		 * The server is a program of its own. Its standard input and output are the
+		 * two pipes, and it keeps the standard error of this process for its
+		 * reports. It is not confined, because the configuration names it and the
+		 * model does not.
+		 */
+		spec.in_fd = inpipe[0];
+		spec.out_fd = outpipe[1];
+		spec.err_fd = -1;
+		spec.ctty_fd = -1;
+		spec.own_session = true;
+		spec.workdir = cwd;
+		rc = fyai_child_exec_prepare(ctx, &spec);
+		if (rc)
+			_exit(rc);
 
-		close(inpipe[0]);
-		close(outpipe[1]);
-		inpipe[0] = outpipe[1] = -1;
-
-		/* The server keeps only the standard descriptors. */
-		fyai_close_fds_from(STDERR_FILENO + 1);
-
-		if (*cwd && chdir(cwd))
-			_exit(126);
-
-		/* Remove inherited credentials before configured overrides. */
-		if (fyai_env_sanitize())
-			_exit(126);
-
+		/*
+		 * A configured environment is applied after the credentials
+		 * are removed: setenv adds and replaces, but never removes.
+		 */
 		if (fy_is_mapping(env)) {
 			fy_foreach(key, env) {
 				name = fy_castp(&key, "");

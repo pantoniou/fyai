@@ -174,6 +174,35 @@ void shell_command_result_cleanup(struct shell_command_result *result);
 
 /* Close every descriptor from @lowfd upward. */
 void fyai_close_fds_from(int lowfd);
+
+/*
+ * What each child that runs a command receives.
+ *
+ * One description, because the order of these steps keeps a child safe. The
+ * loop is abandoned. The group is its own. The descriptors are the ones named
+ * here and no others. The credentials are removed. The confinement is applied
+ * last, after the working directory, because the working directory must be
+ * reachable.
+ */
+struct fyai_child_spec {
+	int in_fd;			/* standard input; -1 keeps it */
+	int out_fd;			/* standard output; -1 keeps it */
+	int err_fd;			/* standard error; -1 keeps it */
+	int ctty_fd;			/* >= 0 becomes the controlling tty */
+	bool own_session;		/* setsid() instead of a group of its own */
+	const char *term;		/* TERM for the child; NULL keeps it */
+	int rows;			/* > 0 sets LINES/COLUMNS, else unsets */
+	int cols;
+	const char *workdir;		/* chdir before confinement; NULL keeps */
+	const struct fyai_sandbox_spec *sandbox;
+};
+
+/*
+ * Prepare this process to become @spec and return 0, or return the exit
+ * status the child must leave with. Runs in the child of a fork, before exec.
+ */
+int fyai_child_exec_prepare(struct fyai_ctx *ctx,
+			    const struct fyai_child_spec *spec);
 void emit_generic_to_stdout(struct fyai_ctx *ctx, const char *label,
 			    fy_generic value, bool pretty);
 void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
