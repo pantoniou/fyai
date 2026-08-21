@@ -28,16 +28,17 @@ plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 for needle in (b"[alpha] first half", b"[beta] second half"):
     if needle not in plain:
         raise SystemExit("missing agent label: %r" % needle)
-# Require two pending agent rows in one frame.
-pending = {}
-for m in re.finditer(rb"\[(alpha|beta)\]", data):
-    margin = data[max(0, m.start() - 60):m.start()]
-    if b"33m" in margin and b"32m" not in margin:
-        pending.setdefault(m.group(1), []).append(m.start())
-if not any(abs(a - b) < 600
-           for a in pending.get(b"alpha", [])
-           for b in pending.get(b"beta", [])):
-    raise SystemExit("agent bands never ran concurrently")
+# Both delegations were on screen while both were still running: each label
+# is written before any agent is marked done. Proximity in the byte stream
+# would only measure how often the compositor happened to repaint.
+first_done = data.find(b"\x1b[32m\xe2\x97\x8f")
+if first_done < 0:
+    raise SystemExit("no agent was ever marked done")
+for needle in (b"[alpha]", b"[beta]"):
+    at = data.find(needle)
+    if at < 0 or at > first_done:
+        raise SystemExit("agent bands never ran concurrently: %r" % needle)
+
 # A sub-agent that is still working is marked as running, in the pending
 # colour, on the title row of its screen. Liveness is the screen itself: it
 # changes as the sub-agent works, so the mark does not blink.

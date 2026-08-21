@@ -1,0 +1,64 @@
+{
+ "steps": [
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-agent-1",
+      "call_id": "call-agent-1",
+      "name": "agent",
+      "arguments": "{\"name\": \"counter\", \"description\": \"count slowly\", \"task\": \"run the loop and report\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-shell-1",
+      "call_id": "call-shell-1",
+      "name": "shell",
+      "arguments": "{\"command\": \"for i in 0 1 2 3 4; do echo LINE-$i; sleep 1; done\", \"description\": \"count to four\", \"timeout\": 30000}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: counted."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-parent",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Delegated and done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
