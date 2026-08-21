@@ -260,7 +260,7 @@
   function:
     name: ask_user
     description: |-
-      Ask the user a question and wait for their answer. Use this when you need a decision or clarification only the user can give. Provide `options` to offer specific choices; the user may still answer freely.
+      Ask the user a question and wait for their answer. Use this when you need a decision or clarification only the user can give. Provide `options` to offer specific choices; the user may still answer freely. From a sub-agent the question goes to whoever delegated the work, who puts it to the user and sends the answer back.
     parameters:
       type: object
       properties:
