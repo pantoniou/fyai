@@ -35,9 +35,16 @@ data = open(sys.argv[1], "rb").read()
 # The sub-agent's terminal is drawn cell by cell, and the compositor writes
 # only the cells that changed: a word can reach the capture in pieces, from
 # several frames. What was on screen is the reading, not the byte stream.
+# A sub-agent has a screen, and a screen is drawn over: what it showed while
+# it worked is not all still there at the end. The reading is what was on it,
+# so the capture is replayed and every state of it is read.
 screen = Screen(30, 100)
-screen.feed(data)
-shown = "\n".join(screen.lines())
+seen = []
+for i in range(0, len(data), 256):
+    screen.feed(data[i:i + 256])
+    seen.extend(screen.lines())
+seen.extend(screen.lines())
+shown = "\n".join(seen)
 
 # The delegation is labelled by its name and short description, not the task.
 if "[greeter]" not in shown:
