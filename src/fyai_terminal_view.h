@@ -107,4 +107,7 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 			      const struct fyai_terminal_region *region,
 			      size_t *lenp);
 
+/* Return the owned prompt row nearest the cursor, or NULL. */
+char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view);
+
 #endif

@@ -228,6 +228,36 @@
       additionalProperties: false
 - type: function
   function:
+    name: agent_input
+    description: |-
+      Answer a sub-agent that is running and waiting for input. You are told
+      when one stops for input, with what it asked; this types the answer on
+      its terminal, exactly as a person at that terminal would. A sub-agent
+      that has finished is not typed into: call `agent` with its name to ask
+      it something new.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            Name of the running sub-agent to answer.
+        input:
+          type: string
+          description: |-
+            The characters to send. Control characters work: use \u0003 for
+            Ctrl-C and \u001b for escape.
+        enter:
+          type: boolean
+          description: |-
+            Append a carriage return, as a person pressing return would. True
+            by default; set it to false to send raw keys.
+      required:
+        - name
+        - input
+      additionalProperties: false
+- type: function
+  function:
     name: ask_user
     description: |-
       Ask the user a question and wait for their answer. Use this when you need a decision or clarification only the user can give. Provide `options` to offer specific choices; the user may still answer freely.

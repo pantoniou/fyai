@@ -156,6 +156,39 @@ static int tty_append_cells(struct response_buffer *out,
 	return 0;
 }
 
+/* Return the nearest nonempty row at or above the cursor. */
+char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view)
+{
+	struct response_buffer buf = {};
+	struct fyvt_screen_cell *cells;
+	struct fyvt_pos pos;
+	char *line;
+	int row, col;
+
+	if (!view || view->cols <= 0)
+		return NULL;
+	cells = calloc((size_t)view->cols, sizeof(*cells));
+	if (!cells)
+		return NULL;
+
+	for (row = view->cursor_row; row >= 0; row--) {
+		for (col = 0; col < view->cols; col++) {
+			pos.row = row;
+			pos.col = col;
+			fyvt_screen_get_cell(view->screen, pos, &cells[col]);
+		}
+		if (tty_append_cells(&buf, cells, view->cols))
+			break;
+		if (buf.len)
+			break;
+	}
+	free(cells);
+	line = buf.len ? buf.data : NULL;
+	if (!line)
+		free(buf.data);
+	return line;
+}
+
 /* Bound retained text by dropping old complete lines. */
 static size_t tty_compact(struct response_buffer *buf, size_t max_bytes)
 {

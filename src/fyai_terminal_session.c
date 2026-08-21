@@ -657,6 +657,7 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 			  const struct fyai_terminal_opts *opts)
 {
 	struct fyai_terminal_relay *rl;
+	struct fy_generic_builder *gb;
 	struct fyai_event_loop *el;
 	int rows, cols, rc;
 
@@ -712,6 +713,11 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 		fyai_error(ctx, "shell: could not watch the session process");
 		goto fail_child;
 	}
+	/* Tell the parent which process to watch for input waits. */
+	gb = fyai_ctx_transient_gb(ctx);
+	if (gb)
+		relay_notify(rl, "shell/started",
+			     fy_gb_mapping(gb, "pid", (long long)rl->pid));
 	return rl;
 
 fail_child:

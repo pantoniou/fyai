@@ -166,6 +166,12 @@ void shell_command_result_cleanup(struct shell_command_result *result);
 /* Close every descriptor from @lowfd upward. */
 void fyai_close_fds_from(int lowfd);
 
+/* True when @pid or a bounded descendant is blocked reading standard input. */
+bool fyai_process_reads_stdin(pid_t pid);
+
+/* Processes looked at in one such walk, of a program and what it started. */
+#define FYAI_PROC_WALK_MAX 32
+
 /* Configuration applied to a forked child before exec. */
 struct fyai_child_spec {
 	int in_fd;			/* standard input; -1 keeps it */

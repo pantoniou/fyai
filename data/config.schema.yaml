@@ -222,6 +222,14 @@ properties:
         type: string
         default: xterm-256color
         description: Terminal type exposed to a `tty` shell call.
+      input_poll_ms:
+        type: integer
+        minimum: 0
+        default: 400
+        description: >-
+          How often a session is asked whether its program is waiting to be
+          answered. A program stopped in a read of its input needs the model,
+          and the model is told so in a turn of its own. 0 does not ask.
       tty_rows:
         type: integer
         minimum: 0
