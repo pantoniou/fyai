@@ -509,6 +509,24 @@ ends with the invocation, with `shell_close`, when its program ends, or after
 
 Refer to `doc/pty-terminal-plan.md`.
 
+### A session that waits for input
+
+A program in a session can stop and wait for input. No person is at that
+terminal, so the model answers. The parent reads the state of the program from
+the kernel. It then raises a turn that names the session and carries its
+screen, because the screen holds the question:
+
+```text
+  │ [shell 'setup' is waiting for input: Continue? [y/N]]
+● shell_input [setup] y
+```
+
+Answer a session with `shell_input`, and a sub-agent with `agent_input`. A
+sub-agent that ended is not typed into. Call `agent` with its name instead.
+
+`shell/input_poll_ms` sets how often the parent asks the state of a program.
+The value 0 stops the question.
+
 ### Telling the time, and waiting
 
 The system instructions are frozen when a conversation starts, so they cannot
