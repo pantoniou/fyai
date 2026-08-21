@@ -111,6 +111,20 @@ static bool fyai_shell_session_call(struct fyai_ctx *ctx, fy_generic tool_call)
 	return !fy_str_empty(name);
 }
 
+bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	const char *name;
+
+	if (!ctx)
+		return false;
+	name = fyai_tool_call_name(ctx, tool_call);
+	if (name && (!strcmp(name, "shell_input") ||
+		     !strcmp(name, "shell_output") ||
+		     !strcmp(name, "shell_close")))
+		return true;
+	return fyai_shell_session_call(ctx, tool_call);
+}
+
 /* Format the invocation Markdown through the same emitter used by history. */
 static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 				     fy_generic args, int preview_lines)
@@ -1780,6 +1794,10 @@ struct fyai_shell_session {
 	struct fyai_tool_job *job;	/* NULL once the process has gone */
 	struct fyai_terminal_view *view;
 	struct fyai_event_source *idle;
+	/* The session owns one live surface until its program stops. */
+	struct fytim_surface *surface;
+	char *title;
+	int rows;			/* the size the session was opened with */
 	int exit_code;
 	int signal;
 	bool exited;
@@ -1926,8 +1944,8 @@ static void fyai_shell_session_idle_arm(struct fyai_shell_session *sess)
 /* Create the session and reserve its name, before the process is spawned. */
 static struct fyai_shell_session *
 fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
-			  const char *command, int rows, int cols,
-			  size_t max_bytes)
+			  const char *command, const char *title, int rows,
+			  int cols, size_t max_bytes)
 {
 	struct fyai_shell_session *sess;
 
@@ -1943,6 +1961,21 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 			 sess->name && sess->command && sess->branch && sess->view,
 			 fail, "shell: could not allocate the terminal session");
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
+	sess->title = title ? strdup(title) : NULL;
+	sess->rows = rows;
+	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
+	if (sess->surface) {
+		(void)fyai_ui_surface_set_head(ctx, sess->surface,
+					       sess->title ? sess->title :
+					       "**shell**", NULL,
+					       FYAI_UI_MARK_RUNNING);
+		(void)fyai_ui_surface_set_margin(sess->surface,
+						 ctx->cfg->session_margin);
+		/* Publish the initial blank screen. */
+		fyai_terminal_view_damage_all(sess->view);
+		if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
+			fyai_ui_wake(ctx);
+	}
 	sess->next = ctx->shell_sessions;
 	ctx->shell_sessions = sess;
 	fyai_shell_session_idle_arm(sess);
@@ -1957,6 +1990,98 @@ fail:
 	return NULL;
 }
 
+/* Resize the program to the surface area it receives. */
+static void fyai_shell_session_follow(struct fyai_shell_session *sess)
+{
+	struct fy_generic_builder *gb;
+	int cols, rows, have_rows = 0, have_cols = 0;
+
+	cols = fyai_ui_surface_granted_cols(sess->surface);
+	if (cols < 1)
+		return;
+	fyai_terminal_view_size(sess->view, &have_rows, &have_cols);
+	/* Do not grow beyond the session's initial height. */
+	rows = fyai_ui_surface_granted_rows(sess->surface);
+	if (rows < 1 || rows > sess->rows)
+		rows = sess->rows;
+	if (cols == have_cols && rows == have_rows)
+		return;
+
+	fyai_terminal_view_resize(sess->view, rows, cols);
+	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
+	/*
+	 * The process that drives the terminal is the child: it owns the
+	 * pseudo-terminal, so only it can tell the program.
+	 */
+	if (!sess->job || !sess->job->conn || sess->job->done)
+		return;
+	gb = fyai_ctx_transient_gb(sess->ctx);
+	if (!gb)
+		return;
+	(void)jsonrpc_notify(sess->job->conn, "tty/resize",
+			     fy_gb_mapping(gb, "rows", (long long)rows,
+					   "cols", (long long)cols));
+}
+
+/* Show what the program has drawn since the last look. */
+static void fyai_shell_session_refresh(struct fyai_shell_session *sess)
+{
+	if (!sess || !sess->surface)
+		return;
+	fyai_shell_session_follow(sess);
+	if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
+		fyai_ui_wake(sess->ctx);
+}
+
+/* How the session ended, for the mark and the cause beside its title. */
+static char *fyai_shell_session_cause(const struct fyai_shell_session *sess,
+				      bool *okp)
+{
+	char buf[64];
+
+	*okp = true;
+	if (sess->timed_out) {
+		*okp = false;
+		return strdup("timed out");
+	}
+	/* An expected close signal is not a failure. */
+	if (sess->closing)
+		return NULL;
+	if (sess->signal) {
+		*okp = false;
+		snprintf(buf, sizeof(buf), "killed by signal %d", sess->signal);
+		return strdup(buf);
+	}
+	if (sess->exit_code) {
+		*okp = false;
+		snprintf(buf, sizeof(buf), "exit %d", sess->exit_code);
+		return strdup(buf);
+	}
+	return NULL;
+}
+
+/* Commit the completed session screen to the transcript. */
+static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
+{
+	char *cause;
+	bool ok;
+
+	if (!sess || !sess->surface)
+		return;
+
+	fyai_shell_session_refresh(sess);
+	cause = fyai_shell_session_cause(sess, &ok);
+	(void)fyai_ui_surface_set_head(sess->ctx, sess->surface,
+				       sess->title ? sess->title : "**shell**",
+				       cause,
+				       ok ? FYAI_UI_MARK_OK :
+					    FYAI_UI_MARK_FAILED);
+	free(cause);
+	fyai_ui_surface_commit(sess->ctx, sess->surface);
+	sess->surface = NULL;
+	fyai_ui_wake(sess->ctx);
+}
+
 /* The program ended. The view stays; only the process is gone. */
 static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 				      int exit_code, int signal)
@@ -1966,6 +2091,7 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	sess->exited = true;
 	sess->exit_code = exit_code;
 	sess->signal = signal;
+	fyai_shell_session_display_finish(sess);
 	if (sess->idle) {
 		fyai_event_source_remove(sess->idle);
 		sess->idle = NULL;
@@ -1993,12 +2119,16 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 {
 	if (!sess)
 		return;
+	/* A session torn down while its program was still there commits what
+	 * it drew all the same: it was shown, so it is kept. */
+	fyai_shell_session_display_finish(sess);
 	if (sess->idle)
 		fyai_event_source_remove(sess->idle);
 	fyai_terminal_view_destroy(sess->view);
 	free(sess->name);
 	free(sess->command);
 	free(sess->branch);
+	free(sess->title);
 	free(sess);
 }
 
@@ -2535,6 +2665,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
 	char *session_name = NULL;
+	char *session_title = NULL;
 	bool have_session = false;
 	bool have_branch = false;
 	bool native_call;
@@ -2632,10 +2763,13 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	if (have_session) {
 		fyai_shell_tty_size(ctx, args, &srows, &scols);
 		session_command = fy_get(args, "command", fy_invalid);
+		session_title = fyai_format_shell_label(args);
 		job->session = fyai_shell_session_create(ctx, session_name,
 					fy_castp(&session_command, ""),
-					srows, scols,
+					session_title, srows, scols,
 					fyai_shell_output_bytes(ctx, args));
+		free(session_title);
+		session_title = NULL;
 		fyai_error_check(ctx, job->session, err,
 				 "could not open the terminal session");
 		job->session->job = job;
@@ -2789,9 +2923,11 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		if (!job->session)
 			return fy_invalid;
 		bytes = fyai_bytes_from_generic(params, &n);
-		if (bytes)
+		if (bytes) {
 			(void)fyai_terminal_view_feed(job->session->view,
 						      bytes, n);
+			fyai_shell_session_refresh(job->session);
+		}
 		free(bytes);
 		return fy_invalid;
 	}

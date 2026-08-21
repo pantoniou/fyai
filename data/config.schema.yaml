@@ -487,6 +487,13 @@ properties:
         description: >-
           Minimum interval between progressive tool-output redraws. Zero
           repaints every update.
+      session_margin:
+        type: string
+        default: "\u2502 "
+        description: >-
+          Chrome drawn at the left of every row of a terminal session, so that
+          the screen of the program reads as one thing and as something that
+          belongs to the call that opened it. An empty string draws none.
       tool_detail:
         type: string
         enum: [none, brief, default, full]

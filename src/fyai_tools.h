@@ -40,6 +40,9 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job);
  */
 void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force);
 
+/* True when a terminal session owns this call's display. */
+bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
+
 /* Tell every live tool child that the terminal of the user changed size. */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
 void fyai_tool_job_cancel(struct fyai_tool_job *job);

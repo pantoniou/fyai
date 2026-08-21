@@ -81,6 +81,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Left indent applied to each rendered tool-output row (nests it under the
  * tool-call header), so the live loop and the history view match. */
 #define FYAI_TOOL_OUTPUT_INDENT "    "
+/* Chrome at the left of a terminal session, so its screen reads as one
+ * thing. */
+#define FYAI_SESSION_MARGIN "│ "
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "
@@ -201,6 +204,7 @@ struct fyai_cfg {
 	int shell_hard_max_output_tokens; /* cap on a model-requested size */
 	int shell_session_timeout_ms;	/* idle limit of a named session */
 	const char *shell_tty_term;	/* terminal type exposed to PTY commands */
+	const char *session_margin;	/* left chrome of a terminal session */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */
 	int shell_tty_cols;		/* PTY columns (0 = follow the terminal) */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */

@@ -66,6 +66,10 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf);
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols);
 int fyai_ui_surface_granted_rows(const struct fytim_surface *sf);
+/* The columns the grid was given: the width less the margin. */
+int fyai_ui_surface_granted_cols(const struct fytim_surface *sf);
+/* Chrome at the left of every row of @sf. */
+int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom);
 /* Copy what changed in @view onto @sf. Returns 1 when it published. */
@@ -76,6 +80,18 @@ void fyai_ui_wake(struct fyai_ctx *ctx);
 
 /* The terminal geometry the display last sampled, in cells. */
 int fyai_ui_size(struct fyai_ctx *ctx, int *cols, int *rows);
+/* The state a surface's title row shows. */
+enum fyai_ui_mark {
+	FYAI_UI_MARK_RUNNING,	/* the program is still there */
+	FYAI_UI_MARK_OK,
+	FYAI_UI_MARK_FAILED
+};
+
+/* Set the title row of @sf: a rendered tool head with its state mark. */
+int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			     const char *title, const char *cause,
+			     enum fyai_ui_mark mark);
+
 /* Keep the last screen: it goes into the transcript and @sf is retired. */
 void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf);
 /* Give the keys to @sf; @cb receives the bytes a terminal would send. */
