@@ -1,0 +1,81 @@
+{
+ "steps": [
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-agent-1",
+      "call_id": "call-agent-1",
+      "name": "agent",
+      "arguments": "{\"name\": \"greeter\", \"description\": \"greet and report\", \"task\": \"remember the word ORANGE and report it\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child-1",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: the word is ORANGE."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-agent-2",
+      "call_id": "call-agent-2",
+      "name": "agent",
+      "arguments": "{\"name\": \"greeter\", \"description\": \"ask it again\", \"task\": \"what word did you remember?\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child-2",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: it is still ORANGE."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-parent",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Delegated and done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
