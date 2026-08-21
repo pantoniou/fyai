@@ -257,13 +257,15 @@ void fyai_branch_sanitize(const char *raw, const char *fallback, char *buf,
 
 int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
 			    const char *raw, unsigned int max_depth,
-			    char *buf, size_t size)
+			    char *buf, size_t size, bool *existsp)
 {
 	char slug[FYAI_BRANCH_COMPONENT_MAX + 1];
 	struct fyai_branch b;
 	bool taken;
 	int len;
 
+	if (existsp)
+		*existsp = false;
 	fyai_error_check(ctx, parent && *parent, err_out,
 			 "no parent branch for a sub-agent");
 	fyai_error_check(ctx, fyai_branch_depth(parent) + 1 <= max_depth,
@@ -280,6 +282,10 @@ int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
 			 "sub-agent branch name too long below '%s'", parent);
 
 	taken = fyai_branch_lookup(ctx->arena_branches, buf, &b);
+	if (existsp) {
+		*existsp = taken;
+		return 0;
+	}
 	fyai_error_check(ctx, !taken, err_out,
 			 "a sub-agent named '%s' already exists below '%s'",
 			 slug, parent);

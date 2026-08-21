@@ -109,9 +109,15 @@ void fyai_branch_sanitize(const char *raw, const char *fallback, char *buf,
  * already at @max_depth, so a runaway delegation cannot grow the namespace
  * without bound. Returns 0 on success, -1 with a diagnostic raised.
  */
+/*
+ * Name the branch that a sub-agent called @raw takes below @parent. A name is
+ * a handle, so a stored name is that sub-agent and not a clash. @existsp says
+ * if the name is there already, and the caller decides between a continuation
+ * and a refusal. Pass NULL to refuse a name that is in use.
+ */
 int fyai_branch_alloc_child(struct fyai_ctx *ctx, const char *parent,
 			    const char *raw, unsigned int max_depth,
-			    char *buf, size_t size);
+			    char *buf, size_t size, bool *existsp);
 
 /* Decode @entry into @b. Clear @b and return false on failure. */
 bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b);

@@ -159,6 +159,8 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fy_generic persona_v, persona;
 	fy_generic turn;
 	fy_generic report;
+	struct fyai_branch stored;
+	bool revive = false;
 	const char *json;
 	char *args_json = NULL;
 	const char *task;
@@ -210,6 +212,20 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		ctx->branch_prev = fy_invalid;
 		ctx->branch_desc = fy_invalid;
 		ctx->branch_agent = fy_invalid;
+		/*
+		 * A name is a handle. If this sub-agent ran before, its conversation is
+		 * stored under that name, and this call continues it. The entry is adopted
+		 * whole, so the next publish chains to it and does not replace it.
+		 */
+		revive = fyai_branch_lookup(ctx->arena_branches,
+					    ctx->agent_branch, &stored) &&
+			 fy_is_valid(stored.head);
+		if (revive) {
+			ctx->branch_prev = stored.entry;
+			ctx->branch_desc = stored.description;
+			ctx->branch_agent = stored.agent;
+			ctx->last_message = stored.head;
+		}
 	} else {
 		fork_mode = false;
 	}
@@ -235,7 +251,13 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		context_v = fy_get(persona, "context", fy_invalid);
 	if (ctx->agent_branch)
 		fork_mode = !fy_equal(context_v, "fresh");
-	if (!fork_mode)
+	/*
+	 * A sub-agent that is being carried on has a conversation of its own
+	 * already, so it starts from neither this one nor an empty one.
+	 */
+	if (revive)
+		fork_mode = false;
+	else if (!fork_mode)
 		ctx->last_message = fy_invalid;
 	name = fy_get(args, "name", fy_invalid);
 	description = fy_get(args, "description", fy_invalid);
@@ -263,14 +285,14 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			 "could not apply sub-agent request settings");
 
 	/* Add a persona to a fork as a user instruction. */
-	if (fork_mode) {
+	if (fork_mode && !revive) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_user_message(ctx,
 					cfg->system_prompt)));
 		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
 			FYAI_OUTPUT_USER, cfg->system_prompt);
 	}
-	if (!fork_mode) {
+	if (!fork_mode && !revive) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
 			fy_sequence(fyai_make_system_message(ctx,
 					cfg->system_prompt)));
@@ -317,12 +339,18 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 	/* Publish the durable sub-agent conversation. */
 	if (ctx->agent_branch) {
-		ctx->branch_agent = fy_gb_mapping(ctx->gb,
+		/*
+		 * How this sub-agent started is a fact about it, so a call
+		 * that carries it on keeps what its first call recorded.
+		 */
+		if (!revive)
+			ctx->branch_agent = fy_gb_mapping(ctx->gb,
 				"name", fyai_generic_or_null(name),
 				"description", fyai_generic_or_null(description),
 				"context", fork_mode ? "fork" : "fresh",
 				"persona", fyai_generic_or_null(persona_v));
-		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CREATE, NULL);
+		fyai_branch_op_set(ctx, revive ? FYAI_BRANCH_OP_TURN :
+					 FYAI_BRANCH_OP_CREATE, NULL);
 		rc = fyai_publish_state(ctx);
 		fyai_error_check(ctx, !rc, err,
 			"could not publish the sub-agent conversation on '%s'",
