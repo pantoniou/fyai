@@ -291,7 +291,35 @@ the size of the terminal would wrap where nothing is shown.
 - `shell_input`, `shell_output` and `shell_close` show nothing of their own,
 because their work is on that screen.
 
-## 8. State
+## 8. The sub-agent as a terminal - done
+
+A delegated sub-agent has work to report, so it receives a terminal to
+report it on. `fyai_tool_job_spawn()` opens a pseudo-terminal for an agent
+call. The child takes it as its own with `TIOCSCTTY` for its standard three
+descriptors. The parent reads the master into a view and publishes it to a
+surface. That surface is the object that a shell session uses, with the same
+margin and the same running mark.
+
+- The control channel is untouched: it lives on descriptors 3 and 4, so no
+  frame can collide with what is rendered.
+- `sink_may_present()` is the single gate. A child with a terminal of its own
+  presents to it; without one, descriptor 1 is protocol and nothing may be
+  written to it.
+- The program is sized to the band that shows it, from
+  `fytim_surface_granted_cols()` and `granted_rows()`. The parent owns this
+  master, so it applies the size itself.
+- A sub-agent does not send `tool/progress` any more. It has shown its work
+  already, and the parent read it.
+- The quote in a work band is gone, and with it the rule that hid a
+  sub-agent's tool results: its screen is its screen.
+
+Two results are worth knowing. A sub-agent no longer asks its terminal for a
+background colour, because an emulator that only reads sends no answer. It
+keeps the variant that its parent resolved. The running mark no longer blinks,
+because the screen itself shows the state, and that screen changes while the
+sub-agent works.
+
+## 9. State
 
 Steps 1 to 3 are done.
 
@@ -311,7 +339,7 @@ One item stays open in the tests: the `tty/resize` notification to a forked
 tool child. The resize case covers the session that runs in the parent, which
 the `fyai tool shell` verb uses.
 
-## 9. Order and the review
+## 10. Order and the review
 
 Each step is one patch series in the order implementation, tests,
 documentation. Step 1 folds into the existing PTY commit, because it repairs
