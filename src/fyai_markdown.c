@@ -143,9 +143,15 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 
 	if (!markdown_theme_split(cfg->theme, name, sizeof(name), &variant))
 		return;
-	if (!strcmp(variant, "auto"))
-		variant = markdown_color_enabled(cfg->color) ?
-				terminal_detect_theme() : "dark";
+	if (!strcmp(variant, "auto")) {
+		/* An emulated agent terminal inherits the parent's theme variant. */
+		if (cfg->agent_pty)
+			variant = cfg->theme_variant && *cfg->theme_variant ?
+				  cfg->theme_variant : "dark";
+		else
+			variant = markdown_color_enabled(cfg->color) ?
+					terminal_detect_theme() : "dark";
+	}
 	cfg->markdown_theme = fy_gb_intern_string(cfg->gb, name);
 	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
 	memset(cfg->markdown_rev_on, 0, sizeof(cfg->markdown_rev_on));
@@ -856,6 +862,17 @@ int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
 		return -1;
 	fs->markdown_quote = true;
 	return 0;
+}
+
+/* Remove the redundant state mark from a sub-agent's live region. */
+void fyai_fenced_stream_clear_indicator(struct fyai_fenced_stream *fs)
+{
+	if (!fs)
+		return;
+	free(fs->first_margin);
+	fs->first_margin = NULL;
+	fs->indicator_state = FYMD_INDICATOR_SUCCESS;
+	fs->indicator_interval_ms = 0;
 }
 
 int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,

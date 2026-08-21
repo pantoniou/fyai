@@ -202,6 +202,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	bool banded;
 	bool marked;
 	bool session_display;
+	bool agent_display;
 	bool isolated_tool;
 	int rc;
 
@@ -221,9 +222,12 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	 * session has one screen, and what these calls did is on it.
 	 */
 	session_display = fyai_shell_session_display(ctx, tool_call);
-	/* Use work bands only in the terminal UI. */
+	/* Do not redraw calls already presented live. */
 	banded = (shell || agent) && !session_display &&
-		 fyai_sink_bands_available(ctx->sink);
+		 (fyai_sink_bands_available(ctx->sink) ||
+		  (shell && cfg->agent_pty));
+	/* A displayed sub-agent's surface already carries the call header. */
+	agent_display = agent && fyai_ui_active(ctx);
 	marked = fyai_is_tool_marked(name) && !session_display;
 	isolated_tool = fyai_output_renders_live(ctx);
 
@@ -244,7 +248,9 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
-	if (!session_display &&
+	/* Do not repeat a job invocation after its live output. */
+	if (!session_display && !agent_display &&
+	    !(shell && cfg->agent_pty && !execute) &&
 	    (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
 	     (marked && fyai_sink_bands_available(ctx->sink))))
 		fyai_print_tool_call(ctx, tool_call);
@@ -702,7 +708,9 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 
 	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, request_body);
 
+	/* The parent surface supplies a delegated sub-agent's activity mark. */
 	step->spinner.enabled = !fyai_ui_active(ctx) &&
+				!fyai_agent_delegated(ctx) &&
 				terminal_is_tty(STDERR_FILENO);
 	curl_easy_setopt(ctx->curl, CURLOPT_XFERINFOFUNCTION,
 			 fyai_spinner_xferinfo);

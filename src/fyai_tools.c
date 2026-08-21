@@ -23,6 +23,13 @@
 #ifdef __linux__
 #include <sys/syscall.h>
 #endif
+/* openpty(3) lives in <util.h> on the BSDs, <pty.h> on glibc */
+#ifdef __APPLE__
+#include <util.h>
+#else
+#include <pty.h>
+#endif
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 
 #include "fyai_agent.h"
@@ -388,7 +395,8 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 	fy_generic args;
 	fy_generic cmdv;
 
-	if (fyai_agent_delegated(ctx))
+	/* A delegated agent prints tool calls only on its own terminal. */
+	if (fyai_agent_delegated(ctx) && !cfg->agent_pty)
 		return;
 	args = fy_invalid;
 	name = fyai_tool_call_name(ctx, tool_call);
@@ -531,6 +539,9 @@ void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len)
 
 	if (!ctx || !ctx->tool_rpc || !len)
 		return;
+	/* Do not resend progress already visible on the agent terminal. */
+	if (ctx->cfg->agent_pty)
+		return;
 	gb = fyai_ctx_transient_gb(ctx);
 	if (!gb)
 		return;
@@ -569,9 +580,11 @@ static void fyai_shell_output(void *userdata,
 	if (!len)
 		return;
 	(void)stream;
-	if (fyai_agent_delegated(ctx))
-		return;
+	/* Forward output unless the current agent terminal already shows it. */
 	fyai_tool_progress_emit(ctx, data, len);
+	/* A delegated sub-agent with no terminal has nowhere to render. */
+	if (fyai_agent_delegated(ctx) && !ctx->cfg->agent_pty)
+		return;
 
 	/*
 	 * Don't feed binary chunks to the terminal or the fenced renderer; the
@@ -1506,6 +1519,20 @@ static int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 #define FYAI_TOOL_CHILD_RSP_FD 4	/* child -> parent, written by the child */
 
 /* Install the control descriptors and close all other inherited descriptors. */
+/* Make @slave the session leader's controlling terminal. */
+static int fyai_tool_child_tty(int slave)
+{
+	if (ioctl(slave, TIOCSCTTY, 0) < 0)
+		return -1;
+	if (dup2(slave, STDIN_FILENO) < 0 ||
+	    dup2(slave, STDOUT_FILENO) < 0 ||
+	    dup2(slave, STDERR_FILENO) < 0)
+		return -1;
+	if (slave > STDERR_FILENO)
+		close(slave);
+	return 0;
+}
+
 static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 {
 	int req_dup = -1, rsp_dup = -1;
@@ -1534,7 +1561,12 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 	if (rc < 0)
 		goto err;
 
-	/* Nothing in the child reads standard input; do not leave it on a tty. */
+	/* Detach unused input unless the child owns this terminal. */
+	if (isatty(STDIN_FILENO) && ttyname(STDIN_FILENO) &&
+	    getsid(0) == tcgetsid(STDIN_FILENO)) {
+		fyai_close_fds_from(FYAI_TOOL_CHILD_RSP_FD + 1);
+		return 0;
+	}
 	devnull = open("/dev/null", O_RDONLY);
 	if (devnull < 0)
 		goto err;
@@ -1795,6 +1827,11 @@ struct fyai_tool_job {
 	bool native_shell;
 	bool agent;
 	bool band_progress;
+	int pty;			/* terminal of a sub-agent, -1 if none */
+	int pty_rows, pty_cols;
+	struct fyai_terminal_view *view;	/* what it drew there */
+	struct fytim_surface *surface;		/* and where that is shown */
+	struct fyai_event_source *ptysrc;
 	bool terminating;
 	bool timed_out;
 	unsigned int timeout_ms;	/* 0 = no limit */
@@ -1827,6 +1864,27 @@ struct fyai_shell_session {
 	bool closing;
 	bool timed_out;
 };
+
+/* Size an agent terminal to its display surface. */
+#define FYAI_AGENT_TTY_ROWS	12
+#define FYAI_AGENT_TTY_MARGIN	2
+
+static void fyai_agent_tty_size(struct fyai_ctx *ctx, int *rowsp, int *colsp)
+{
+	int rows = 0, cols = 0;
+
+	if (fyai_ui_size(ctx, &cols, &rows) || cols < 1) {
+		cols = markdown_render_width();
+		rows = markdown_render_height();
+	}
+	cols -= FYAI_AGENT_TTY_MARGIN;
+	if (cols < FYAI_TTY_COLS_DEFAULT / 4)
+		cols = FYAI_TTY_COLS_DEFAULT / 4;
+	if (rows > FYAI_AGENT_TTY_ROWS || rows < 1)
+		rows = FYAI_AGENT_TTY_ROWS;
+	*rowsp = rows;
+	*colsp = cols;
+}
 
 /* Keep the live jobs reachable, so that a resize finds every child. */
 static void fyai_tool_job_link(struct fyai_ctx *ctx, struct fyai_tool_job *job)
@@ -2443,6 +2501,132 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	       !fyai_mcp_tool_name(name);
 }
 
+/* Keep the sub-agent PTY aligned with its display surface. */
+static void fyai_agent_view_follow(struct fyai_tool_job *job)
+{
+	struct winsize ws = {};
+	int rows, cols;
+
+	cols = fyai_ui_surface_granted_cols(job->surface);
+	rows = fyai_ui_surface_granted_rows(job->surface);
+	if (cols < 1)
+		return;
+	if (rows < 1)
+		rows = job->pty_rows;
+	if (cols == job->pty_cols && rows == job->pty_rows)
+		return;
+
+	job->pty_cols = cols;
+	job->pty_rows = rows;
+	ws.ws_row = (unsigned short)rows;
+	ws.ws_col = (unsigned short)cols;
+	(void)ioctl(job->pty, TIOCSWINSZ, &ws);
+	fyai_terminal_view_resize(job->view, rows, cols);
+	(void)fyai_ui_surface_resize(job->surface, rows, cols);
+}
+
+/* Show what the sub-agent has drawn on its terminal since the last look. */
+static void fyai_agent_view_refresh(struct fyai_tool_job *job)
+{
+	if (!job->surface || !job->view)
+		return;
+	fyai_agent_view_follow(job);
+	if (fyai_ui_surface_publish(job->surface, job->view) > 0)
+		fyai_ui_wake(job->ctx);
+}
+
+static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+	char buf[4096];
+	ssize_t n;
+
+	for (;;) {
+		n = read(job->pty, buf, sizeof(buf));
+		if (n > 0) {
+			(void)fyai_terminal_view_feed(job->view, buf,
+						      (size_t)n);
+			continue;
+		}
+		if (n < 0 && (errno == EAGAIN || errno == EINTR)) {
+			fyai_agent_view_refresh(job);
+			return FYAIEA_CONTINUE;
+		}
+		/* EIO is the last slave closing: the sub-agent has gone. */
+		fyai_agent_view_refresh(job);
+		if (job->ptysrc) {
+			fyai_event_source_remove(job->ptysrc);
+			job->ptysrc = NULL;
+		}
+		return FYAIEA_CONTINUE;
+	}
+}
+
+/* Open a display surface for a sub-agent terminal. */
+static int fyai_agent_view_open(struct fyai_ctx *ctx,
+				struct fyai_tool_job *job)
+{
+	struct fyai_event_loop *el;
+	int flags;
+
+	if (job->pty < 0)
+		return 0;
+
+	flags = fcntl(job->pty, F_GETFL, 0);
+	if (flags >= 0)
+		(void)fcntl(job->pty, F_SETFL, flags | O_NONBLOCK);
+
+	job->view = fyai_terminal_view_create(ctx, job->pty_rows,
+					      job->pty_cols, 0);
+	if (!job->view)
+		return -1;
+	el = fyai_ctx_loop(ctx);
+	if (!el || fyai_event_add_fd(el, job->pty, FYAIEV_READ,
+				     fyai_agent_pty_read, job, &job->ptysrc))
+		return -1;
+
+	job->surface = fyai_ui_surface_open(ctx, job->pty_rows, job->pty_cols);
+	if (job->surface) {
+		(void)fyai_ui_surface_set_head(ctx, job->surface,
+					       job->title ? job->title :
+					       "**agent**", NULL,
+					       FYAI_UI_MARK_RUNNING);
+		(void)fyai_ui_surface_set_margin(job->surface,
+						 ctx->cfg->session_margin);
+		/* Publish the initial blank screen. */
+		fyai_terminal_view_damage_all(job->view);
+		fyai_agent_view_refresh(job);
+	}
+	return 0;
+}
+
+/* The sub-agent is done: its last screen is committed, with its outcome. */
+static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
+				  const char *cause)
+{
+	if (job->ptysrc) {
+		fyai_event_source_remove(job->ptysrc);
+		job->ptysrc = NULL;
+	}
+	if (job->surface) {
+		fyai_agent_view_refresh(job);
+		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
+					       job->title ? job->title :
+					       "**agent**", cause,
+					       ok ? FYAI_UI_MARK_OK :
+						    FYAI_UI_MARK_FAILED);
+		fyai_ui_surface_commit(job->ctx, job->surface);
+		job->surface = NULL;
+		fyai_ui_wake(job->ctx);
+	}
+	if (job->pty >= 0) {
+		close(job->pty);
+		job->pty = -1;
+	}
+	fyai_terminal_view_destroy(job->view);
+	job->view = NULL;
+}
+
 static void fyai_tool_job_drop(struct fyai_event_source **srcp)
 {
 	fyai_event_source_remove(*srcp);
@@ -2523,11 +2707,15 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* Spawn a tool child, optionally with a PTY on its standard descriptors. */
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
-			       struct fyai_tool_job *job)
+			       struct fyai_tool_job *job, bool pty)
 {
 	int req[2] = { -1, -1 };	/* parent -> child */
 	int rsp[2] = { -1, -1 };	/* child -> parent */
+	int master = -1, slave = -1;
+	struct winsize ws = {};
+	int rows = 0, cols = 0;
 	pid_t pid;
 	int rc;
 
@@ -2535,6 +2723,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	job->ctx = ctx;
 	job->rfd = -1;
 	job->pfd = -1;
+	job->pty = -1;
 	rc = pipe(req);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create tool request pipe: %s",
@@ -2547,6 +2736,16 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, !rc, err,
 			 "could not make the tool channel non-blocking: %s",
 			 strerror(errno));
+	if (pty) {
+		rc = openpty(&master, &slave, NULL, NULL, NULL);
+		fyai_error_check(ctx, !rc, err,
+				 "could not open a terminal for the tool: %s",
+				 strerror(errno));
+		fyai_agent_tty_size(ctx, &rows, &cols);
+		ws.ws_row = (unsigned short)rows;
+		ws.ws_col = (unsigned short)cols;
+		(void)ioctl(slave, TIOCSWINSZ, &ws);
+	}
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, err,
 			 "could not fork tool process: %s", strerror(errno));
@@ -2557,6 +2756,13 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		if (setsid() < 0)
 			(void)setpgid(0, 0);	/* already a leader: still isolate */
 		fyai_ctx_loop_abandon(ctx);
+		if (master >= 0)
+			close(master);
+		/* Install the PTY before arranging standard and control descriptors. */
+		if (slave >= 0 && fyai_tool_child_tty(slave))
+			_exit(126);
+		/* Record whether this child presents through its own terminal. */
+		ctx->cfg->agent_pty = slave >= 0;
 		if (fyai_tool_child_fds(req[0], rsp[1]))
 			_exit(126);
 
@@ -2577,11 +2783,19 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	req[0] = -1;
 	close(rsp[1]);
 	rsp[1] = -1;
+	if (slave >= 0) {
+		close(slave);
+		slave = -1;
+	}
 	job->pid = pid;
 	job->rfd = rsp[0];
 	job->pfd = req[1];
+	job->pty = master;
+	job->pty_rows = rows;
+	job->pty_cols = cols;
 	rsp[0] = -1;
 	req[1] = -1;
+	master = -1;
 	return 0;
 
 err:
@@ -2593,12 +2807,20 @@ err:
 		close(rsp[0]);
 	if (rsp[1] >= 0)
 		close(rsp[1]);
+	if (master >= 0)
+		close(master);
+	if (slave >= 0)
+		close(slave);
 	return -1;
 }
 
 
 static void fyai_tool_job_live_close(struct fyai_tool_job *job)
 {
+	/* A sub-agent's screen is committed with its outcome, not discarded. */
+	if (job->agent)
+		fyai_agent_view_close(job, job->result_ok && !job->failed,
+				      NULL);
 	if (job->stream.active)
 		fyai_fenced_stream_finish(&job->stream);
 	fyai_sink_band_destroy(job->band);
@@ -2680,14 +2902,16 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call)
 {
 	struct fyai_tool_job *job = NULL;
+	struct response_buffer view = {0};
 	const char *name, *args_text, *command;
-	const char *asked;
+	const char *asked, *cmdtext;
 	fy_generic args, progress_args, agent_name;
 	fy_generic session_call, session_command;
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
 	char *session_name = NULL;
 	char *session_title = NULL;
+	char *label = NULL;
 	bool have_session = false;
 	bool have_branch = false;
 	bool native_call;
@@ -2791,7 +3015,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	job = calloc(1, sizeof(*job));
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
-	rc = fyai_tool_job_spawn(ctx, job);
+	/* A sub-agent renders to a terminal of its own; the parent shows it. */
+	rc = fyai_tool_job_spawn(ctx, job, fy_equal(name, "agent") &&
+				 fyai_ui_active(ctx));
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
 	fyai_tool_job_link(ctx, job);
@@ -2840,6 +3066,31 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	/* The trace pairs with the reap record below: a child that dies leaves
 	 * these two lines and nothing else. */
 	fyai_diag_tracef("spawn", "%s, pid %ld", job->origin, (long)job->pid);
+	/* Stream slow shell work on the sub-agent terminal. */
+	if (fy_equal(name, "shell") && !fyai_ui_active(ctx) &&
+	    ctx->cfg->agent_pty) {
+		/* Native shell commands live in the action object. */
+		cmdtext = native_call ?
+			fy_cast(fy_get_at_path(tool_call, "action", "commands",
+					       0), "") :
+			fy_get(args, "command", "");
+		if (!fyai_shell_view(ctx, *cmdtext ? cmdtext : name, args,
+				     &label, &view))
+			fyai_print_tool_view(ctx, label, &view);
+		free(label);
+		free(view.data);
+		if (!fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
+				NULL, ctx->cfg->tool_preview_lines > 0 ?
+				(size_t)ctx->cfg->tool_preview_lines : 0,
+				FYAI_TOOL_OUTPUT_INDENT, stderr, true)) {
+			/*
+			 * The surface that the parent shows already carries the state of this call.
+			 * A second mark here has no animation.
+			 */
+			fyai_fenced_stream_clear_indicator(&job->stream);
+			job->band_progress = true;
+		}
+	}
 	if (fy_any_equal(name, "shell", "agent") &&
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
@@ -2861,21 +3112,15 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					 "out of memory formatting shell progress");
 			job->band_progress = true;
 		}
+		/* Agents use their surface; shells continue to use a work band. */
+		if (job->agent) {
+			if (fyai_agent_view_open(ctx, job))
+				fyai_error(ctx,
+					   "agent: could not show the sub-agent terminal");
+			goto live_open_done;
+		}
 		job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
-		if (job->agent && job->band) {
-			if (fyai_markdown_quote_stream_start(&job->stream, ctx,
-					ctx->cfg,
-					ctx->cfg->tool_preview_lines > 0 ?
-					(size_t)ctx->cfg->tool_preview_lines : 0,
-					stderr, true)) {
-				fyai_tool_job_live_close(job);
-			} else {
-				job->stream.band = job->band;
-				job->stream.title = job->title;
-				(void)fyai_fenced_stream_push(&job->stream,
-							      NULL, 0);
-			}
-		} else if (job->band &&
+		if (job->band &&
 		    !fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
 				NULL, ctx->cfg->tool_preview_lines > 0 ?
 				(size_t)ctx->cfg->tool_preview_lines : 0,
@@ -2889,6 +3134,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			fyai_tool_job_live_close(job);
 		}
 	}
+live_open_done:
 	rc = fyai_tool_job_attach(ctx, job);
 	fyai_error_check(ctx, !rc, err,
 			 "could not attach tool job to event loop");
@@ -2986,8 +3232,12 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		return fy_invalid;
 	if (!job->agent && job->timeout_ms)
 		fyai_tool_job_progress_retain(job, p, len);
-	if ((job->agent || job->band_progress) && job->stream.active)
+	if (job->band_progress && job->stream.active)
 		(void)fyai_fenced_stream_push(&job->stream, p, len);
+	else if (!job->agent && job->ctx->shell_stream &&
+		 job->ctx->shell_stream->active)
+		/* Stream command output into the sub-agent's live shell region. */
+		(void)fyai_fenced_stream_push(job->ctx->shell_stream, p, len);
 	return fy_invalid;
 }
 

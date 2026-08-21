@@ -736,6 +736,15 @@ fail:
 	return -1;
 }
 
+void fyai_ui_prompt_enabled(struct fyai_ctx *ctx, bool enabled)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->ft)
+		return;
+	(void)fytim_set_prompt_enabled(ui->ft, enabled);
+}
+
 void fyai_ui_close(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;

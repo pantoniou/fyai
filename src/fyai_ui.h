@@ -16,6 +16,12 @@ typedef void (*fyai_ui_keys_fn)(void *user, const char *data, size_t len);
 
 int fyai_ui_open(struct fyai_ctx *ctx);
 void fyai_ui_close(struct fyai_ctx *ctx);
+
+/*
+ * Say if a user types here. A sub-agent draws on a terminal that only the
+ * parent reads. It therefore asks for no prompt, and the rows go to its work.
+ */
+void fyai_ui_prompt_enabled(struct fyai_ctx *ctx, bool enabled);
 bool fyai_ui_active(const struct fyai_ctx *ctx);
 char *fyai_ui_readline(struct fyai_ctx *ctx);
 char *fyai_ui_take_line(struct fyai_ctx *ctx);

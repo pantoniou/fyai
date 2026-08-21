@@ -195,6 +195,9 @@ int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
 				     FILE *fp, bool live);
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs, const char *data,
 			    size_t len);
+/* Draw the region with no state mark, for a caller whose state is shown
+ * elsewhere. */
+void fyai_fenced_stream_clear_indicator(struct fyai_fenced_stream *fs);
 int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
 				     enum fymd_indicator_state state,
 				     size_t frame);

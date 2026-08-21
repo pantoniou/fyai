@@ -41,8 +41,11 @@ struct sink_term {
 static int sink_term_write_failed(struct fyai_sink *s, FILE *fp);
 
 /* Tool children reserve standard output for JSON-RPC frames. */
+/* Present only when descriptor 1 is not a JSON-RPC channel. */
 static bool sink_may_present(const struct fyai_sink *s)
 {
+	if (s->ctx->cfg->agent_pty)
+		return true;
 	return !s->ctx->cfg->tool_child && !fyai_agent_delegated(s->ctx);
 }
 
@@ -216,6 +219,7 @@ static bool sink_term_wants_draw(struct fyai_sink *s, const char *text,
 static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 				size_t len)
 {
+
 	struct sink_term *t = sink_term_state(s);
 	struct fyai_ctx *ctx = s->ctx;
 	int rc;

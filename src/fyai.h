@@ -205,6 +205,7 @@ struct fyai_cfg {
 	int shell_session_timeout_ms;	/* idle limit of a named session */
 	const char *shell_tty_term;	/* terminal type exposed to PTY commands */
 	const char *session_margin;	/* left chrome of a terminal session */
+	bool agent_pty;			/* this sub-agent has a terminal */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */
 	int shell_tty_cols;		/* PTY columns (0 = follow the terminal) */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
