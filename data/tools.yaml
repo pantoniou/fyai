@@ -93,13 +93,17 @@
           description: |-
             Run the command in a pseudo-terminal and return the rendered screen
             with the lines that scrolled off it, instead of the raw byte stream.
-            Use it for a program that behaves differently without a terminal,
-            such as one that colours or paginates its output. A program that
-            waits for input will wait until the time limit expires.
+            Without it the command runs on pipes and finds no terminal, which
+            is what you want for a command whose output you are reading: a
+            program that paginates for a person does not paginate on a pipe.
+            Ask for a terminal for a program that needs one, such as a
+            full-screen editor, and with `name` for a session you will drive.
+            A program that waits for input will wait until the time limit
+            expires.
         name:
           type: string
           description: |-
-            Name this shell to keep it open as an interactive terminal session, instead of running one command to completion. The command keeps its own process and terminal until it ends or you close it, and you reach it by this name with shell_input, shell_output and shell_close. Use it for a program that expects a person: an editor, a pager, a REPL, a prompt for a password. The name must be unique among the sessions you have open, and describes what the shell is for (letters, digits, '-' or '_'). The call returns as soon as the terminal exists; read it when you want.
+            Name this shell to keep it open as a session, instead of running one command to completion. It runs on pipes like any other command; add `tty` for a session with a terminal, which a program that expects a person needs. The command keeps its own process until it ends or you close it, and you reach it by this name with shell_input, shell_output and shell_close. Use it for a program that expects a person: an editor, a pager, a REPL, a prompt for a password. The name must be unique among the sessions you have open, and describes what the shell is for (letters, digits, '-' or '_'). The call returns as soon as the terminal exists; read it when you want.
         rows:
           type: integer
           description: |-
