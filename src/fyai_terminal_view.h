@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "utils.h"
 
@@ -67,6 +68,55 @@ bool fyai_terminal_view_binary(const struct fyai_terminal_view *view);
 size_t fyai_terminal_view_raw_bytes(const struct fyai_terminal_view *view);
 void fyai_terminal_view_size(const struct fyai_terminal_view *view, int *rowsp,
 			     int *colsp);
+
+
+/*
+ * The painted reading of the screen. A renderer needs the cells and their
+ * colours, and not the text that the model reads. The view therefore gives the
+ * cells in a form that does not name libfyvterm, because the header of a
+ * producer must not carry the interpreter of the terminal.
+ */
+#define FYAI_TERM_CELL_CHARS	6
+
+struct fyai_term_color {
+	bool is_default;	/* the colour of the terminal, not one chosen */
+	unsigned char r, g, b;
+};
+
+struct fyai_term_cell {
+	uint32_t chars[FYAI_TERM_CELL_CHARS];	/* base then combining */
+	int width;				/* 2 for a double-width glyph */
+	struct fyai_term_color fg;
+	struct fyai_term_color bg;
+	bool bold;
+	bool underline;
+	bool italic;
+	bool blink;
+	bool reverse;
+	bool strike;
+};
+
+/* One cell of the visible screen. False when @row or @col is outside it. */
+bool fyai_terminal_view_cell(const struct fyai_terminal_view *view, int row,
+			     int col, struct fyai_term_cell *cell);
+
+/* Where the program left its cursor, and whether it asked for it to show. */
+void fyai_terminal_view_cursor(const struct fyai_terminal_view *view,
+			       int *rowp, int *colp, bool *visiblep);
+
+/*
+ * The rows that changed since the previous call, inclusive, and false when
+ * nothing did. Taking the damage clears it, thus a renderer paints each
+ * change one time.
+ */
+bool fyai_terminal_view_take_damage(struct fyai_terminal_view *view,
+				    int *firstp, int *lastp);
+
+/* True when a paint has work: a changed row, or a cursor that moved. */
+bool fyai_terminal_view_dirty(const struct fyai_terminal_view *view);
+
+/* Mark the whole screen as changed; the next paint draws all of it. */
+void fyai_terminal_view_damage_all(struct fyai_terminal_view *view);
 
 /*
  * Read the view. The caller owns the returned string. @region applies to
