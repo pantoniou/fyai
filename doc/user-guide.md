@@ -486,13 +486,16 @@ as lines, whole and in the order of arrival. A program that draws, such as an
 editor, is read as the screen that it drew. Its bytes are cursor movements and
 give nothing on their own.
 
-How a session is shown: the session is the display, not the calls that drive
-it. The call that opens one shows its screen, live and marked running for as
-long as the program is there, and that screen is committed to the transcript
-when the program goes. `shell_input` and `shell_output` show nothing of their
-own - what they did is on that screen. They are recorded exactly as they were:
-this is what is shown, not what is kept, and the model still receives every
-result.
+How a session is shown. The session is the display, and not the calls that
+drive it. The call that opens a session shows its screen, live and marked
+running while the program is there. That screen is committed to the transcript
+when the program stops. `shell_input` and `shell_output` show nothing of their
+own, because their work is on that screen. Each row of the screen carries a
+margin, so the screen reads as one object and as the screen of that call. It
+starts under the name of the call, and `display/session_margin` gives the
+margin, where an empty string draws none. The calls stay recorded as they were.
+This is what the user sees and not what the arena keeps, and the model still
+receives each result.
 
 A session lives for one invocation. A later invocation cannot reach it. It
 ends with the invocation, with `shell_close`, when its program ends, or after

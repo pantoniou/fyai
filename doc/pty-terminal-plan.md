@@ -277,16 +277,19 @@ A session is one program on a terminal, so `fyai term` draws it the same
 way. It is a libfytimui surface of cells, published from the view that the
 parent keeps. Its title row is the tool head of the call that opened it.
 
-- The title is marked running while the program is there, and marked done -
-  with the cause when there is one - when it goes. A session the model asked to
-  close ended the way it was told to, and the signal that carried the asking is
-  not a failure.
-- The screen is committed when the program goes, which is what puts it in the
-  transcript. Until then the call has shown a running screen and nothing else.
-- `shell_input`, `shell_output` and `shell_close` show nothing of their own.
-  Their effect is on that screen. `fyai_shell_session_display()` is the one
-  place that says so, and it changes only what is displayed: every call is
-  recorded and answered as before.
+- The title is marked running while the program is there. It is marked done
+when the program stops, with the cause when there is one. A session that the
+model asked to close ends as it was told to, and the signal that closed it is
+not a failure.
+- The screen is committed when the program stops, which puts it in the
+transcript. Until then the call has shown a running screen and nothing else.
+- Each row of the grid carries a margin, drawn by the library as chrome. It
+takes columns from the grid, so the program has the size of
+`fytim_surface_granted_cols()` and not the size of the terminal. A program with
+the size of the terminal would wrap where nothing is shown.
+`display/session_margin` configures it.
+- `shell_input`, `shell_output` and `shell_close` show nothing of their own,
+because their work is on that screen.
 
 ## 8. State
 
