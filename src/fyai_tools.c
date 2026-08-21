@@ -2707,6 +2707,18 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* True while a job of this process owns @branch. */
+static bool fyai_tool_job_branch_live(struct fyai_ctx *ctx, const char *branch)
+{
+	const struct fyai_tool_job *job;
+
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (job->branch && !strcmp(job->branch, branch) && !job->done)
+			return true;
+	}
+	return false;
+}
+
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			       struct fyai_tool_job *job, bool pty)
@@ -2906,6 +2918,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	const char *name, *args_text, *command;
 	const char *asked, *cmdtext;
 	fy_generic args, progress_args, agent_name;
+	bool agent_stored = false;
 	fy_generic session_call, session_command;
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
@@ -2964,15 +2977,20 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		fyai_error_check(ctx, !rc, err,
 				 "could not refresh the branch table");
 		agent_name = fy_get(args, "name", fy_invalid);
+		/* Reuse stored agents, but reject a name owned by a live job. */
 		rc = fyai_branch_alloc_child(ctx, fyai_ctx_branch(ctx),
 				fy_castp(&agent_name, "agent"),
 				(unsigned int)ctx->cfg->agent_max_branch_depth,
-				child_branch, sizeof(child_branch));
-		if (rc)
+				child_branch, sizeof(child_branch),
+				&agent_stored);
+		if (!rc && fyai_tool_job_branch_live(ctx, child_branch)) {
 			fyai_tool_submit_error_set(ctx,
-				"tool error: a sub-agent named '%s' already "
-				"exists on this branch; choose a different name",
+				"tool error: the sub-agent named '%s' is still "
+				"running; wait for its report or choose a "
+				"different name",
 				fy_castp(&agent_name, "agent"));
+			rc = -1;
+		}
 		fyai_error_check(ctx, !rc, err,
 				 "could not name the sub-agent branch");
 		have_branch = true;

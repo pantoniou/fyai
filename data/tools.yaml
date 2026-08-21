@@ -251,14 +251,14 @@
   function:
     name: agent
     description: |-
-      Delegate a self-contained sub-task to an autonomous sub-agent that runs its own tool-use loop in an isolated process and returns its final report. Use it for focused work you can describe completely up front (search, analysis, a multi-step edit); the sub-agent shares the workspace but not this conversation. Its final report comes back as the tool result and is not shown to the user - relay what matters.
+      Delegate a self-contained sub-task to an autonomous sub-agent that runs its own tool-use loop in an isolated process and returns its final report. Use it for focused work you can describe completely up front (search, analysis, a multi-step edit); the sub-agent shares the workspace but not this conversation. Its final report comes back as the tool result and is not shown to the user - relay what matters. A sub-agent keeps its conversation under its name, so calling it again with that name goes back to the same one: ask it what it found, have it carry on, or give it the answer to something it asked. Its earlier work is still there and does not have to be repeated.
     parameters:
       type: object
       properties:
         name:
           type: string
           description: |-
-            A very short name for this sub-agent (at most 3 words), unique within the session. Use it to refer back to this sub-agent and its report later.
+            A very short name for this sub-agent (at most 3 words). It is how you reach it: a new name starts a sub-agent, and a name you have used before goes back to that one, with everything it did still in its conversation. A sub-agent that is still running cannot be addressed - wait for its report.
         description:
           type: string
           description: |-
@@ -266,7 +266,7 @@
         task:
           type: string
           description: |-
-            Complete, self-contained instructions for the sub-agent.
+            Complete, self-contained instructions for the sub-agent. For one you have called before, this is what you are asking it now; it remembers the rest.
         persona:
           type: string
           description: |-
@@ -274,7 +274,7 @@
         context:
           type: string
           description: |-
-            `fork` (the default) starts the sub-agent from this conversation, so it sees the context you already have; `fresh` starts it from the task alone, which is cheaper for self-contained work.
+            `fork` (the default) starts the sub-agent from this conversation, so it sees the context you already have; `fresh` starts it from the task alone, which is cheaper for self-contained work. It is read only when the sub-agent starts: one you are going back to keeps the conversation it has.
         timeout:
           type: integer
           description: |-
