@@ -24,6 +24,11 @@ class Screen:
         # Rows that left the screen. A transcript is longer than the screen,
         # so the order of what the user saw needs them.
         self.scrollback = []
+        # An escape or a UTF-8 character can be split between two writes. A
+        # reader that feeds the capture in pieces would otherwise draw the
+        # halves as text, so the tail of a piece is held until the rest of it
+        # arrives.
+        self.pending = b""
 
     def display(self):
         return ["".join(r).rstrip() for r in self.grid]
@@ -45,6 +50,9 @@ class Screen:
 
     def feed(self, data):
         i = 0
+        if self.pending:
+            data = self.pending + data
+            self.pending = b""
         while i < len(data):
             b = data[i:i + 1]
             if b == b"\x1b":
@@ -58,7 +66,24 @@ class Screen:
                     esc = data.find(b"\x1b\\", i)
                     if esc >= 0 and (end < 0 or esc < end):
                         end = esc + 1
-                    i = (end + 1) if end >= 0 else len(data)
+                    if end < 0:                 # the rest is still to come
+                        self.pending = data[i:]
+                        return
+                    i = end + 1
+                    continue
+                if len(data) - i < 2:
+                    self.pending = data[i:]     # only the escape so far
+                    return
+                if data[i:i + 2] == b"\x1b[":
+                    # A CSI the reader does not model. Skip it whole, and hold
+                    # it when its final byte has not arrived yet.
+                    end = i + 2
+                    while end < len(data) and not (0x40 <= data[end] <= 0x7E):
+                        end += 1
+                    if end >= len(data):
+                        self.pending = data[i:]
+                        return
+                    i = end + 1
                     continue
                 i += 2                                      # other escape
                 continue
@@ -80,6 +105,9 @@ class Screen:
                     length = 3
                 elif data[i] >= 0xC0:
                     length = 2
+                if len(data) - i < length:
+                    self.pending = data[i:]
+                    return
                 ch = data[i:i + length]
                 self._put(ch.decode("utf-8", "replace"))
                 i += length
