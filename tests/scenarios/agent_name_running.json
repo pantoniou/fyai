@@ -1,0 +1,64 @@
+{
+ "steps": [
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "call_a1",
+         "type": "function",
+         "function": {
+          "name": "agent",
+          "arguments": "{\"name\": \"twin\", \"description\": \"first\", \"task\": \"say SLOW and report\"}"
+         }
+        },
+        {
+         "id": "call_a2",
+         "type": "function",
+         "function": {
+          "name": "agent",
+          "arguments": "{\"name\": \"twin\", \"description\": \"second\", \"task\": \"say FAST and report\"}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "SUBAGENT_REPORT: SLOW."
+      }
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "Delegated and done."
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
