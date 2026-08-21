@@ -1710,6 +1710,25 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 			fy_cast(fy_get(args, "question", ""), ""));
 		return;
 	}
+	if (fy_equal(name, "time")) {
+		fprintf(mf, "**time**\n\n");
+		return;
+	}
+	if (fy_equal(name, "wait")) {
+		/* What the wait is for, when the model said, and its name
+		 * when it is one that fires on its own. */
+		gc = fy_get(args, "reason");
+		c = fy_castp(&gc, "");
+		gpath = fy_get(args, "name");
+		path = fy_castp(&gpath, "");
+		fprintf(mf, "**wait**");
+		if (*path)
+			fprintf(mf, " [%s]", path);
+		if (*c)
+			fprintf(mf, " %s", c);
+		fprintf(mf, "\n\n");
+		return;
+	}
 	/* Unknown tool: fall back to name + JSON arguments. */
 	s = NULL;
 	(void)fy_emit(gb, args,

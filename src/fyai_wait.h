@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: MIT */
+#ifndef FYAI_WAIT_H
+#define FYAI_WAIT_H
+
+#include <stdbool.h>
+
+#include <libfyaml/libfyaml-generic.h>
+
+struct fyai_ctx;
+
+/* The `time` tool: what the clock says now. */
+char *fyai_time_tool(struct fyai_ctx *ctx, bool *okp);
+/* The same text, for anything else that has to say what the time is. */
+char *fyai_time_now_text(void);
+
+/*
+ * The `wait` tool. Without a name it holds the turn and returns when the time
+ * has passed; with one it returns at once and fires later.
+ */
+char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
+
+/* True while a named wait has still to fire. */
+bool fyai_wait_pending(const struct fyai_ctx *ctx);
+
+/* Drop every wait. They live for one invocation, as a session does. */
+void fyai_waits_release(struct fyai_ctx *ctx);
+
+#endif

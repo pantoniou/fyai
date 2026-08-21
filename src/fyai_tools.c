@@ -39,6 +39,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_tools.h"
+#include "fyai_wait.h"
 #include "fyai_prof.h"
 #include "fyai_sink.h"
 #include "fyai_ui.h"
@@ -1407,6 +1408,10 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		result = fyai_shell_input_tool(ctx, args, okp);
 	} else if (fy_equal(name, "shell_close")) {
 		result = fyai_shell_close_tool(ctx, args, okp);
+	} else if (fy_equal(name, "time")) {
+		result = fyai_time_tool(ctx, okp);
+	} else if (fy_equal(name, "wait")) {
+		result = fyai_wait_tool(ctx, args, okp);
 	} else if (fy_equal(name, "ask_user")) {
 		result_generic = fyai_ask_user(ctx, args);
 		*okp = strncmp(fy_castp(&result_generic, ""),
@@ -2414,13 +2419,18 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 
 	name = fyai_tool_call_name(ctx, tool_call);
 	/*
-	 * A session tool reaches the terminal state that the parent holds,
-	 * thus it runs there and not in a forked child. None of them waits for
-	 * a program, so nothing is serialised for long.
+	 * A session tool reaches the terminal state that the parent holds, so it runs
+	 * there and not in a forked child. No session tool waits for a program, so
+	 * nothing is serialised for long.
+	 *
+	 * `time` and `wait` run there for the same reason. A named wait arms a timer
+	 * that must outlive the call, and only the loop of the parent lives that
+	 * long. A forked child would take the timer with it.
 	 */
 	return !fy_equal(name, "ask_user") &&
 	       !fy_any_equal(name, "shell_output", "shell_input",
 			     "shell_close") &&
+	       !fy_any_equal(name, "time", "wait") &&
 	       !fyai_mcp_tool_name(name);
 }
 
