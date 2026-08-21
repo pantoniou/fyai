@@ -202,6 +202,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	bool banded;
 	bool marked;
 	bool session_display;
+	bool agent_display;
 	bool isolated_tool;
 	int rc;
 
@@ -224,6 +225,12 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	/* Use work bands only in the terminal UI. */
 	banded = (shell || agent) && !session_display &&
 		 fyai_sink_bands_available(ctx->sink);
+	/*
+	 * A sub-agent is shown as the terminal it draws on, and the head of
+	 * that screen carries the call. Drawing the invocation here as well
+	 * would say the same thing twice, once above the screen it names.
+	 */
+	agent_display = agent && fyai_ui_active(ctx);
 	marked = fyai_is_tool_marked(name) && !session_display;
 	isolated_tool = fyai_output_renders_live(ctx);
 
@@ -244,7 +251,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	rc = isolated_tool ? fyai_output_checkpoint(ctx) : 0;
 	fyai_error_check(ctx, !rc, err,
 		"could not checkpoint output before tool call");
-	if (!session_display &&
+	if (!session_display && !agent_display &&
 	    (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
 	     (marked && fyai_sink_bands_available(ctx->sink))))
 		fyai_print_tool_call(ctx, tool_call);

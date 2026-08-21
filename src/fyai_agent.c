@@ -8,6 +8,7 @@
 #include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_agent.h"
+#include "fyai_ui.h"
 #include "fyai_prof.h"
 #include "fyai_turn.h"
 #include "fyai_output.h"
@@ -288,7 +289,20 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fyai_error_check(ctx, fy_is_valid(ctx->last_message), err,
 			 "could not store the sub-agent input");
 
-	ctx->stdout_tty = false;
+	/*
+	 * A sub-agent with a terminal of its own renders to it, and the parent
+	 * shows that terminal. Without one there is nowhere to render: its
+	 * descriptor 1 belongs to the control channel.
+	 */
+	ctx->stdout_tty = cfg->agent_pty;
+
+	/*
+	 * Open the display on that terminal. The display draws a work band and a
+	 * running shell. Without it a sub-agent shows only its text. No user types
+	 * here, so the display needs no prompt.
+	 */
+	if (cfg->agent_pty && !fyai_ui_open(ctx))
+		fyai_ui_prompt_enabled(ctx, false);
 
 	turn = fyai_run_turn(ctx, ctx->last_message);
 	turn = fyai_report_diag(ctx, turn);
@@ -323,9 +337,11 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			 err, "the sub-agent returned no final report");
 
 	*okp = true;
+	fyai_ui_close(ctx);
 	return report;
 
 err:
+	fyai_ui_close(ctx);
 	free(args_json);
 	return fy_invalid;
 }

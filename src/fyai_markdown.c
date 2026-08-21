@@ -143,9 +143,20 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 
 	if (!markdown_theme_split(cfg->theme, name, sizeof(name), &variant))
 		return;
-	if (!strcmp(variant, "auto"))
-		variant = markdown_color_enabled(cfg->color) ?
-				terminal_detect_theme() : "dark";
+	if (!strcmp(variant, "auto")) {
+		/*
+		 * The terminal of a sub-agent is an emulator that this program reads. It is
+		 * not a terminal with colours that a user selected. A request for its
+		 * background colour receives no answer. The sub-agent keeps the variant that
+		 * its parent resolved.
+		 */
+		if (cfg->agent_pty)
+			variant = cfg->theme_variant && *cfg->theme_variant ?
+				  cfg->theme_variant : "dark";
+		else
+			variant = markdown_color_enabled(cfg->color) ?
+					terminal_detect_theme() : "dark";
+	}
 	cfg->markdown_theme = fy_gb_intern_string(cfg->gb, name);
 	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
 	memset(cfg->markdown_rev_on, 0, sizeof(cfg->markdown_rev_on));
