@@ -1153,6 +1153,43 @@ out:
  * verbatim as a free-form answer. When no answer can be read (non-interactive
  * stdin, EOF), the model is told the user did not answer so it can proceed.
  */
+/* Ask the parent to present a delegated sub-agent's question. */
+static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx, fy_generic args)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct jsonrpc_request *req;
+	fy_generic result = fy_invalid;
+	fy_generic answer;
+
+	req = jsonrpc_request_submit(ctx->tool_rpc, "user/ask", args,
+				     jsonrpc_conn_next_id(ctx->tool_rpc),
+				     false, NULL, NULL);
+	if (!req) {
+		fyai_error(ctx, "ask_user: could not put the question to the "
+			   "parent");
+		return fy_value(gb, "tool error: the question could not be "
+				"asked");
+	}
+	/* The loop of this process serves the channel while it waits. */
+	while (!jsonrpc_request_done(req)) {
+		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
+			break;
+	}
+	if (jsonrpc_request_ok(req)) {
+		answer = fy_get(jsonrpc_request_result(req), "answer",
+				fy_invalid);
+		if (fy_is_string(answer))
+			result = fy_value(gb, fy_castp(&answer, ""));
+	}
+	jsonrpc_request_destroy(req);
+	if (!fy_is_valid(result)) {
+		fyai_error(ctx, "ask_user: the parent did not answer");
+		return fy_value(gb, "tool note: the user did not provide an "
+				"answer");
+	}
+	return result;
+}
+
 static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -1164,6 +1201,9 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	const char *a;
 	size_t i;
 	long sel;
+
+	if (fyai_agent_delegated(ctx) && ctx->tool_rpc)
+		return fyai_ask_user_upward(ctx, args);
 
 	if (ansi_color_on(cfg->color, STDERR_FILENO))
 		fyai_report(ctx, "\n" FYAI_ANSI_BOLD "? %s" FYAI_ANSI_RESET
@@ -1249,6 +1289,7 @@ static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
 static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 						  const char *name);
+static const char *fyai_agent_job_name(const struct fyai_tool_job *job);
 static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
 
@@ -2656,9 +2697,7 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 		return FYAIEA_CONTINUE;
 	if (job->view)
 		prompt = fyai_terminal_view_last_line(job->view);
-	/* A sub-agent is named by the branch it owns: main/agent:<name>. */
-	who = job->branch ? strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX) : NULL;
-	who = who ? who + strlen(FYAI_BRANCH_AGENT_PREFIX) : "agent";
+	who = fyai_agent_job_name(job);
 	text = prompt && *prompt ?
 		strdup(fy_sprintfa("[agent '%s' is waiting for input: %s]",
 				   who, prompt)) :
@@ -2888,6 +2927,15 @@ static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/* A sub-agent is named by the branch it owns: main/agent:<name>. */
+static const char *fyai_agent_job_name(const struct fyai_tool_job *job)
+{
+	const char *who;
+
+	who = job->branch ? strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX) : NULL;
+	return who ? who + strlen(FYAI_BRANCH_AGENT_PREFIX) : "agent";
+}
+
 /* The running sub-agent called @name, or NULL. */
 static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 						  const char *name)
@@ -2906,6 +2954,35 @@ static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 			return job;
 	}
 	return NULL;
+}
+
+/* Present a named sub-agent's question and return the user's answer. */
+static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
+					  struct jsonrpc_conn *conn,
+					  fy_generic id, fy_generic params)
+{
+	struct fy_generic_builder *gb;
+	fy_generic question, asked;
+	fy_generic answer;
+	const char *who;
+	int rc;
+
+	gb = fyai_ctx_transient_gb(job->ctx);
+	who = fyai_agent_job_name(job);
+	question = fy_get(params, "question", fy_invalid);
+	asked = fy_value(gb, fy_sprintfa("the sub-agent '%s' asks: %s", who,
+					 fy_castp(&question, "")));
+	answer = fyai_ask_user(job->ctx, fy_gb_mapping(gb, "question", asked,
+					"options", fy_get(params, "options",
+							  fy_invalid)));
+	rc = jsonrpc_conn_respond(conn, id,
+				  fy_gb_mapping(gb, "answer", answer),
+				  fy_invalid);
+	fyai_error_check(job->ctx, !rc, err,
+			 "agent: could not return the user's answer to '%s'", who);
+
+err:
+	return fy_invalid;
 }
 
 /* True while a job of this process owns @branch. */
@@ -3415,10 +3492,13 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	char *bytes;
 	size_t len, n;
 
-	(void)conn;
 	(void)errorp;
-	if (fy_is_valid(id))
-		return fy_invalid;
+	/* Handle the question request a delegated child sends to its parent. */
+	if (fy_is_valid(id)) {
+		if (strcmp(method, "user/ask"))
+			return fy_invalid;
+		return fyai_ask_user_for_child(job, conn, id, params);
+	}
 
 	/* A session sends the bytes of its terminal; the parent renders. */
 	if (!strcmp(method, "shell/output")) {
