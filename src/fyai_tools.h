@@ -40,6 +40,15 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job);
  */
 void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force);
 
+/*
+ * True when the display of this call belongs to a terminal session and not to
+ * the call. These calls are the call that opens a session, and the calls that
+ * write to a session or read one. A session shows one screen, live and marked
+ * running, and commits it when its program stops. The calls that drive the
+ * session show nothing, because their effect is on that screen.
+ */
+bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
+
 /* Tell every live tool child that the terminal of the user changed size. */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
 void fyai_tool_job_cancel(struct fyai_tool_job *job);
