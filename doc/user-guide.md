@@ -663,6 +663,17 @@ model, reasoning policy, or context behaviour subject to the fork rule above.
 Independent sub-agent calls in one assistant message may execute concurrently.
 A sub-agent cannot delegate another sub-agent.
 
+### A question from a sub-agent
+
+A sub-agent has a terminal, but no person is at it. Its `ask_user` call
+therefore goes to the parent, which has the user. The question names the
+sub-agent that asked it, and it carries the options that the sub-agent offered.
+The answer of the user comes back as the result of that call, and the sub-agent
+continues.
+
+A sub-agent keeps `ask_user`. It does not receive `agent` or `agent_input`,
+because it does not delegate.
+
 ## 7. Sandboxing and secret boundaries
 
 ### Landlock sandbox
