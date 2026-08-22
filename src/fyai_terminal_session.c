@@ -15,7 +15,12 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
+/* openpty(3) lives in <util.h> on the BSDs, <pty.h> on glibc */
+#ifdef __APPLE__
+#include <util.h>
+#else
 #include <pty.h>
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>

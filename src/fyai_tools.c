@@ -23,7 +23,12 @@
 #ifdef __linux__
 #include <sys/syscall.h>
 #endif
+/* openpty(3) lives in <util.h> on the BSDs, <pty.h> on glibc */
+#ifdef __APPLE__
+#include <util.h>
+#else
 #include <pty.h>
+#endif
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
