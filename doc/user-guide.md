@@ -462,6 +462,30 @@ the new size to the session. `shell/tty_rows` and `shell/tty_cols`
 set a fixed size instead, and the model can ask for one with `rows` and
 `cols`.
 
+`shell/tty` gives a terminal to a call that asks for none. It is the only way
+to put the native `shell_call` of the Responses grammar on a terminal, because
+that grammar has no field the model could ask with.
+
+### The shell a command runs under
+
+A command runs under `/bin/sh`, as each other command of this program does.
+`shell` names another shell, and `login` starts that shell as a login shell,
+which reads the profile of the user.
+
+```sh
+fyai tool shell '{"command":"node --version","login":true}'
+fyai tool shell '{"command":"echo $BASH_VERSION","shell":"/bin/bash"}'
+```
+
+Ask for `login` when a command needs a tool or a variable that the profile
+sets up, such as a version manager that puts an interpreter on the path. It
+costs the time the profile takes, so a command that does not need it should
+not ask for it.
+
+`shell/shell` and `shell/login` decide for a call that names neither. They
+are also the only way to reach the native `shell_call` of the Responses
+grammar, which has no field for either.
+
 ### An interactive terminal session
 
 Give the shell call a `name` and a terminal with `tty: true`, and it stays

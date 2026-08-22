@@ -59,6 +59,7 @@ A sub-agent gets the same set less `agent` and `ask_user`
 | Time limit | `timeout` | `yield_time_ms` | `timeout` | **yes** |
 | Working directory | no | `workdir` | `workdir` | **yes** |
 | A label for the display | `description` | `justification` | `description` | **yes** |
+| The shell, and its profile | no | `shell`, `login` | no | **yes** |
 | Run in the background | `run_in_background` | (session) | no | **no** |
 | Write to the standard input | no | `write_stdin` | no | **yes** |
 | A session that stays open | no | `session_id` | no | **yes** |

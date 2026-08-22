@@ -186,8 +186,6 @@ stop. Without that the parent waits for a child that does not stop.
 
 ## 5. Step 4 - what is left
 
-- `shell` and `login`, from `codex.exec_command`. We run `/bin/sh -c`. Most
-  interactive programs expect a login shell.
 - Escape as the stop that waits, apart from the interrupt that does not.
 
 The rendering work is done. One screen row is not one line, because the
