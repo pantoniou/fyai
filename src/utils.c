@@ -852,8 +852,28 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 	return 0;
 }
 
+/* Replace this process with a command or interactive shell. */
+void fyai_exec_shell_command(const char *command, const char *shell,
+			     bool login)
+{
+	char argv0[64];
+	const char *base;
+
+	if (!shell || !*shell)
+		shell = "/bin/sh";
+	base = strrchr(shell, '/');
+	base = base ? base + 1 : shell;
+	snprintf(argv0, sizeof(argv0), "%s%s", login ? "-" : "", base);
+
+	if (command && *command) {
+		execl(shell, argv0, "-c", command, (char *)NULL);
+		return;
+	}
+	execl(shell, argv0, (char *)NULL);
+}
+
 static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
-			       const char *workdir,
+			       const struct shell_command_opts *opts,
 			       const struct fyai_sandbox_spec *sandbox,
 			       int stdout_pipe[2], int stderr_pipe[2])
 {
@@ -870,14 +890,15 @@ static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 	spec.out_fd = stdout_pipe[1];
 	spec.err_fd = stderr_pipe[1];
 	spec.ctty_fd = -1;
-	spec.workdir = workdir;
+	spec.workdir = opts ? opts->workdir : NULL;
 	spec.sandbox = sandbox;
 	rc = fyai_child_exec_prepare(ctx, &spec);
 	if (rc)
 		_exit(rc);
 	if (devnull < 0)
 		close(STDIN_FILENO);
-	execl("/bin/sh", "sh", "-c", command, NULL);
+	fyai_exec_shell_command(command, opts ? opts->shell : NULL,
+				opts && opts->login);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
 
@@ -888,7 +909,6 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 const struct fyai_sandbox_spec *sandbox,
 				 const struct shell_command_opts *opts)
 {
-	const char *workdir = opts ? opts->workdir : NULL;
 	unsigned int timeout_ms = opts ? opts->timeout_ms : 0;
 	struct response_buffer stdout_buf = {};
 	struct response_buffer stderr_buf = {};
@@ -910,7 +930,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 		goto out;
 
 	if (!pid) {
-		shell_capture_exec(ctx, command, workdir, sandbox,
+		shell_capture_exec(ctx, command, opts, sandbox,
 				   stdout_pipe, stderr_pipe);
 	}
 	/* Close the fork-to-exec race from the parent side. */

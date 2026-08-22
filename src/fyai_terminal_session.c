@@ -13,7 +13,6 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 /* openpty(3) lives in <util.h> on the BSDs, <pty.h> on glibc */
@@ -167,26 +166,6 @@ static void tty_sources_remove(struct tty_run *r)
 	}
 }
 
-/* Run a command, or an interactive shell when no command was supplied. */
-static void tty_child_shell(const char *command,
-			    const struct fyai_terminal_opts *opts)
-{
-	const char *shell = opts->shell && *opts->shell ? opts->shell
-							: "/bin/sh";
-	char argv0[64];
-	const char *base;
-
-	base = strrchr(shell, '/');
-	base = base ? base + 1 : shell;
-
-	if (command && *command) {
-		execl(shell, base, "-c", command, (char *)NULL);
-		return;
-	}
-	snprintf(argv0, sizeof(argv0), "%s%s", opts->login ? "-" : "", base);
-	execl(shell, argv0, (char *)NULL);
-}
-
 /* The child side of the fork. It never returns. */
 static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 			   const struct fyai_sandbox_spec *sandbox,
@@ -210,7 +189,7 @@ static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 	rc = fyai_child_exec_prepare(ctx, &spec);
 	if (rc)
 		_exit(rc);
-	tty_child_shell(command, opts);
+	fyai_exec_shell_command(command, opts->shell, opts->login);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
 
@@ -285,7 +264,7 @@ static void pipe_child_exec(struct fyai_ctx *ctx, const char *command,
 	rc = fyai_child_exec_prepare(ctx, &spec);
 	if (rc)
 		_exit(rc);
-	tty_child_shell(command, opts);
+	fyai_exec_shell_command(command, opts->shell, opts->login);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
 
@@ -374,13 +353,14 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	r.pid = pid;
 
 	el = fyai_ctx_loop(ctx);
-	assert(el);
+	if (!el)
+		goto fail_child;
 	(void)fyai_terminal_winch_open(ctx);
 
 	rc = fyai_event_add_fd(el, r.master, FYAIEV_READ, tty_read, &r,
 			       &r.fdsrc);
-	fyai_error_check(ctx, !rc, fail_child,
-			 "shell: could not watch terminal output");
+	if (rc)
+		goto fail_child;
 
 	/*
 	 * With a limit a terminate source owns the child. The source sends SIGTERM to
@@ -423,8 +403,6 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 
 	result->output = fyai_terminal_view_read(r.view, FYAITR_ALL, NULL,
 						&result->output_len);
-	fyai_error_check(ctx, result->output, fail_output,
-			 "shell: could not read the terminal output");
 	result->screen_mode = fyai_terminal_view_screen_mode(r.view);
 	result->binary = fyai_terminal_view_binary(r.view);
 	result->raw_bytes = fyai_terminal_view_raw_bytes(r.view);
@@ -439,14 +417,10 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 		result->exit_code = WEXITSTATUS(r.status);
 	}
 
+	rc = result->output ? 0 : -1;
 	fyai_terminal_view_destroy(r.view);
 	close(r.master);
-	return 0;
-
-fail_output:
-	fyai_terminal_view_destroy(r.view);
-	close(r.master);
-	return -1;
+	return rc;
 
 fail_child:
 	(void)kill(-pid, SIGKILL);
@@ -505,7 +479,6 @@ static enum fyai_event_action tty_winch(const struct fyai_event *ev)
 int fyai_terminal_winch_open(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
-	int rc;
 
 	if (!ctx || ctx->winch_src)
 		return 0;
@@ -514,15 +487,10 @@ int fyai_terminal_winch_open(struct fyai_ctx *ctx)
 		return 0;
 
 	el = fyai_ctx_loop(ctx);
-	assert(el);
-	rc = fyai_event_add_signal(el, SIGWINCH, tty_winch, ctx,
-				   &ctx->winch_src);
-	fyai_error_check(ctx, !rc, err,
-			 "shell: could not watch terminal resizes");
-	return 0;
-
-err:
-	return -1;
+	if (!el)
+		return -1;
+	return fyai_event_add_signal(el, SIGWINCH, tty_winch, ctx,
+				     &ctx->winch_src);
 }
 
 void fyai_terminal_winch_close(struct fyai_ctx *ctx)

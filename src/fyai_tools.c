@@ -104,12 +104,7 @@ fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
 	return parse_json_string(ctx->transient_gb, args_text);
 }
 
-/* Does this call want a terminal? The shell tool asks for one with `tty`. */
-static bool fyai_shell_tty_requested(struct fyai_ctx *ctx, fy_generic call)
-{
-	(void)ctx;
-	return fy_equal(fy_get(call, "tty", fy_false), fy_true);
-}
+static bool fyai_shell_tty_requested(struct fyai_ctx *ctx, fy_generic call);
 
 /* True when a shell call names a shell that must stay open. */
 static bool fyai_shell_named_call(struct fyai_ctx *ctx, fy_generic tool_call)
@@ -900,7 +895,12 @@ static size_t fyai_shell_output_bytes(struct fyai_ctx *ctx, fy_generic call)
 	return (size_t)n * FYAI_BYTES_PER_TOKEN;
 }
 
-/* Choose a bounded PTY size from the call, config, terminal, or default. */
+/*
+ * The PTY size for one call: the model's request, then the configuration, then
+ * the real terminal the parent recorded, then the fixed default. A size the
+ * model asks for is bounded, because a huge screen costs output budget for no
+ * gain.
+ */
 #define FYAI_TTY_MAX_ROWS	1000
 #define FYAI_TTY_MAX_COLS	1000
 
@@ -926,6 +926,41 @@ static void fyai_shell_tty_size(struct fyai_ctx *ctx, fy_generic call,
 	*colsp = fyai_shell_tty_dim(fy_get(call, "cols", 0LL),
 				    cfg->shell_tty_cols, ctx->tty_cols,
 				    FYAI_TTY_COLS_DEFAULT, FYAI_TTY_MAX_COLS);
+}
+
+/* Read the call's tty choice, falling back to shell/tty. */
+static bool fyai_shell_tty_requested(struct fyai_ctx *ctx, fy_generic call)
+{
+	fy_generic tty;
+
+	tty = fy_get(call, "tty", fy_invalid);
+	if (fy_generic_is_bool(tty))
+		return fy_castp(&tty, (_Bool)false);
+	return ctx->cfg->shell_tty;
+}
+
+/* Read the call's shell, falling back to shell/shell. */
+static const char *fyai_shell_shell_requested(struct fyai_ctx *ctx,
+					      fy_generic call)
+{
+	const char *shell;
+
+	/*
+	 * The typed accessor addresses the stored item, so the pointer is
+	 * that of @call and not that of a copy. It lives as long as the call.
+	 */
+	shell = fy_get(call, "shell", "");
+	return !fy_str_empty(shell) ? shell : ctx->cfg->shell_shell;
+}
+
+static bool fyai_shell_login_requested(struct fyai_ctx *ctx, fy_generic call)
+{
+	fy_generic login;
+
+	login = fy_get(call, "login", fy_invalid);
+	if (fy_generic_is_bool(login))
+		return fy_castp(&login, (_Bool)false);
+	return ctx->cfg->shell_login;
 }
 
 /* Keep the end of a stream and report the number of omitted bytes. */
@@ -969,6 +1004,54 @@ static void fyai_shell_split_budget(size_t budget, size_t err_len,
 	*out_bytes = budget - err_keep;
 }
 
+/* Run on a PTY and return owned, bounded screen text and status. */
+static char *fyai_shell_tty_run(struct fyai_ctx *ctx, fy_generic call,
+				const char *command, const char *workdir,
+				const struct fyai_sandbox_spec *sandbox,
+				unsigned int timeout_ms,
+				struct fyai_terminal_result *result)
+{
+	struct fyai_terminal_opts opts = {};
+	size_t budget;
+	char *text;
+	int rc;
+
+	budget = fyai_shell_output_bytes(ctx, call);
+	opts.workdir = workdir;
+	opts.timeout_ms = timeout_ms;
+	opts.max_bytes = budget;
+	opts.output_fn = fyai_shell_output;
+	opts.output_data = ctx;
+	opts.term = ctx->cfg->shell_tty_term;
+	opts.shell = fyai_shell_shell_requested(ctx, call);
+	opts.login = fyai_shell_login_requested(ctx, call);
+	fyai_shell_tty_size(ctx, call, &opts.rows, &opts.cols);
+
+	rc = fyai_terminal_session_run(ctx, command, sandbox, &opts, result);
+	fyai_shell_live_close(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "shell: could not run the command on a terminal");
+
+	if (result->binary) {
+		rc = asprintf(&text, "binary output: %zu bytes",
+			      result->raw_bytes);
+		fyai_error_check(ctx, rc >= 0, err,
+				 "shell: could not format binary terminal output");
+		if (!ctx->cfg->markdown)
+			fyai_report(ctx, "%s\n", text);
+		return text;
+	}
+	text = fyai_shell_bound_alloc(result->output, budget);
+	if (!text)
+		text = strdup(result->output ? result->output : "");
+	fyai_error_check(ctx, text, err,
+			 "shell: could not retain terminal output");
+	return text;
+
+err:
+	return NULL;
+}
+
 static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				    bool *okp)
 {
@@ -985,53 +1068,34 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	char *ret = NULL;
 	int rc;
 	struct fyai_terminal_result tty_result = {};
-	struct fyai_terminal_opts tty_opts = {};
-	fy_generic tty;
+	char *tty_text;
 
 	*okp = false;
 	if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
 		return NULL;
 
 	command = fy_get(args, "command", fy_invalid);
-	tty = fy_get(args, "tty", fy_false);
 	workdir = fy_get(args, "workdir", fy_invalid);
 	opts.workdir = fy_castp(&workdir, (const char *)NULL);
 	opts.timeout_ms = fyai_shell_timeout_ms(ctx, args, false);
-	if (fy_castp(&tty, (_Bool)false)) {
-		budget = fyai_shell_output_bytes(ctx, args);
-		tty_opts.workdir = opts.workdir;
-		tty_opts.timeout_ms = opts.timeout_ms;
-		tty_opts.max_bytes = budget;
-		tty_opts.output_fn = fyai_shell_output;
-		tty_opts.output_data = ctx;
-		tty_opts.term = cfg->shell_tty_term;
-		fyai_shell_tty_size(ctx, args, &tty_opts.rows, &tty_opts.cols);
+	opts.shell = fyai_shell_shell_requested(ctx, args);
+	opts.login = fyai_shell_login_requested(ctx, args);
+	if (fyai_shell_tty_requested(ctx, args)) {
+		tty_text = fyai_shell_tty_run(ctx, args, fy_castp(&command, ""),
+					      opts.workdir, sandbox,
+					      opts.timeout_ms, &tty_result);
+		fyai_error_check(ctx, tty_text, out,
+				 "shell: command produced no terminal result");
 
-		rc = fyai_terminal_session_run(ctx, fy_castp(&command, ""),
-					       sandbox, &tty_opts, &tty_result);
-		fyai_shell_live_close(ctx);
+		rc = response_buffer_append(&buf, tty_text);
+		free(tty_text);
 		fyai_error_check(ctx, !rc, out,
-				 "shell: could not run the command on a terminal");
-
+				 "shell: could not retain terminal output");
 		if (tty_result.binary) {
-			msg = fy_sprintfa("binary output: %zu bytes\n",
-					  tty_result.raw_bytes);
-			if (!cfg->markdown)
-				fyai_report(ctx, "%s", msg);
-			rc = response_buffer_append(&buf, msg);
+			rc = response_buffer_append(&buf, "\n");
 			fyai_error_check(ctx, !rc, out,
-					 "shell: could not build the terminal result");
-		} else {
-			bounded = fyai_shell_bound_alloc(tty_result.output,
-							 budget);
-			rc = response_buffer_append(&buf, bounded ? bounded :
-							  tty_result.output);
-			fyai_error_check(ctx, !rc, out,
-					 "shell: could not build the terminal result");
-			free(bounded);
+					 "shell: could not finish binary output");
 		}
-		if (rc)
-			goto out;
 
 		if (tty_result.timed_out) {
 			msg = fy_sprintfa(
@@ -1314,8 +1378,12 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	const char *out_text;
 	const char *err_text;
 	fy_generic out_val, err_val;
+	fy_generic outcome;
 	size_t out_bytes, err_bytes;
 	char *bounded;
+	struct fyai_terminal_result tty_result = {};
+	char *tty_text;
+	bool tty_call;
 
 	*okp = false;
 	type = fy_get(tool_call, "type");
@@ -1325,6 +1393,9 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		commands = fy_get(action, "commands");
 		shell_opts.timeout_ms = fyai_shell_timeout_ms(ctx, tool_call,
 							      true);
+		tty_call = fyai_shell_tty_requested(ctx, action);
+		shell_opts.shell = fyai_shell_shell_requested(ctx, action);
+		shell_opts.login = fyai_shell_login_requested(ctx, action);
 		outputs = fy_seq_empty;
 		if (fyai_shell_sandbox_begin(ctx, &sb, &sandbox))
 			return fy_value(ctx->transient_gb,
@@ -1332,6 +1403,42 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		*okp = true;
 
 		fy_foreach(command, commands) {
+			if (tty_call) {
+				/* Put the PTY screen in stdout and leave stderr empty. */
+				tty_text = fyai_shell_tty_run(ctx, action,
+						fy_castp(&command, ""), NULL,
+						sandbox, shell_opts.timeout_ms,
+						&tty_result);
+				if (!tty_text) {
+					fyai_shell_sandbox_end(&sb);
+					return fy_value(ctx->transient_gb,
+						"tool error: failed to run shell command on a terminal");
+				}
+				out_val = fy_gb_internalize(ctx->transient_gb,
+							    fy_value(tty_text));
+				free(tty_text);
+				outcome = tty_result.timed_out ?
+					fy_mapping(
+						"type", "timeout",
+						"timeout_ms",
+						(long long)shell_opts.timeout_ms) :
+					tty_result.signaled ?
+					fy_mapping(
+						"type", "signal",
+						"signal", tty_result.signal) :
+					fy_mapping(
+						"type", "exit",
+						"exit_code",
+						tty_result.exit_code);
+				output = fy_mapping("stdout", out_val,
+						    "stderr", "",
+						    "outcome", outcome);
+				outputs = fy_append(outputs, output);
+				if (tty_result.signaled || tty_result.exit_code)
+					*okp = false;
+				fyai_terminal_result_cleanup(&tty_result);
+				continue;
+			}
 			if (run_shell_command_capture_cb(ctx,
 							 fy_castp(&command, ""),
 							 &shell_result,
@@ -1723,7 +1830,9 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 		opts.term = ctx->cfg->shell_tty_term;
 		fyai_shell_tty_size(ctx, args, &opts.rows, &opts.cols);
 		/* Use pipes unless the call explicitly requests a terminal. */
-		opts.pipes = !fy_equal(fy_get(args, "tty", fy_false), fy_true);
+		opts.pipes = !fyai_shell_tty_requested(ctx, args);
+		opts.shell = fyai_shell_shell_requested(ctx, args);
+		opts.login = fyai_shell_login_requested(ctx, args);
 		tc->relay = fyai_terminal_relay_start(ctx, conn,
 						fy_castp(&command, ""),
 						sandbox, &opts);
@@ -1960,7 +2069,11 @@ static void fyai_tool_job_unlink(struct fyai_ctx *ctx,
 	}
 }
 
-/* Forward the user's new window size to each running tool child. */
+/*
+ * The window of the user changed. A tool child called setsid(), so the kernel
+ * does not signal it. The parent sends the new size on the control channel,
+ * and the child applies it to its pseudo-terminal.
+ */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 {
 	struct fy_generic_builder *gb;
@@ -3325,8 +3438,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					fy_castp(&session_command, ""),
 					session_title, srows, scols,
 					fyai_shell_output_bytes(ctx, args),
-					!fy_equal(fy_get(args, "tty", fy_false),
-						  fy_true));
+					!fyai_shell_tty_requested(ctx, args));
 		free(session_title);
 		session_title = NULL;
 		fyai_error_check(ctx, job->session, err,
@@ -3338,7 +3450,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 	/* A child that asked for a terminal must follow the window of the
 	 * user, and only the parent can see it change. */
-	if (fy_equal(fy_get(args, "tty", fy_false), fy_true))
+	if (fyai_shell_tty_requested(ctx, native_call ?
+				     fy_get(tool_call, "action") : args))
 		(void)fyai_terminal_winch_open(ctx);
 	/* The spawn clears the job, so the name is carried in a local. */
 	if (have_branch) {

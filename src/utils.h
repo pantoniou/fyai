@@ -96,7 +96,13 @@ struct shell_command_result {
 struct shell_command_opts {
 	const char *workdir;		/* chdir in the child before exec */
 	unsigned int timeout_ms;	/* 0 = no limit */
+	const char *shell;		/* the program to run; NULL = /bin/sh */
+	bool login;			/* start @shell as a login shell */
 };
+
+/* Exec @command or an interactive shell; return only when exec fails. */
+void fyai_exec_shell_command(const char *command, const char *shell,
+			     bool login);
 
 enum shell_output_stream {
 	SHELL_OUTPUT_STDOUT,

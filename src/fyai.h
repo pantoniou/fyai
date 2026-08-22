@@ -208,6 +208,9 @@ struct fyai_cfg {
 	int shell_input_poll_ms;	/* how often a session is asked if it waits */
 	const char *session_margin;	/* left chrome of a terminal session */
 	bool agent_pty;			/* this sub-agent has a terminal */
+	bool shell_tty;			/* run a shell call on a terminal by default */
+	const char *shell_shell;	/* the shell a call runs under; empty = /bin/sh */
+	bool shell_login;		/* run a shell call under a login shell */
 	int shell_tty_rows;		/* PTY rows (0 = follow the terminal) */
 	int shell_tty_cols;		/* PTY columns (0 = follow the terminal) */
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */

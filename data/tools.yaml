@@ -104,6 +104,20 @@
           type: string
           description: |-
             Name this shell to keep it open as a session, instead of running one command to completion. It needs `tty`, because a session is a program you drive as a person would: a name without it is refused, and the command runs to completion instead. The command keeps its own process until it ends or you close it, and you reach it by this name with shell_input, shell_output and shell_close. Use it for a program that expects a person: an editor, a pager, a REPL, a prompt for a password. The name must be unique among the sessions you have open, and describes what the shell is for (letters, digits, '-' or '_'). The call returns as soon as the terminal exists; read it when you want.
+        shell:
+          type: string
+          description: |-
+            Shell to run the command under. Defaults to `/bin/sh`. Name
+            another shell for a command that uses what that shell adds.
+        login:
+          type: boolean
+          description: |-
+            Run the shell as a login shell, so that it reads the profile of
+            the user. Ask for it when a command needs a tool or a variable
+            that the profile of the user sets up, such as a version manager
+            that puts an interpreter on the path. It costs the time the
+            profile takes, so leave it out for a command that does not need
+            it.
         rows:
           type: integer
           description: |-

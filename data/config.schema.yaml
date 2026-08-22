@@ -230,6 +230,26 @@ properties:
           How often a session is asked whether its program is waiting to be
           answered. A program stopped in a read of its input needs the model,
           and the model is told so in a turn of its own. 0 does not ask.
+      shell:
+        type: string
+        default: ""
+        description: >-
+          The shell that a call runs under when the call names none. Empty
+          runs `/bin/sh`, as each other command of this program does.
+      login:
+        type: boolean
+        default: false
+        description: >-
+          Run a shell call under a login shell, which reads the profile of
+          the user, when the call asks for none. A profile is where the tools
+          and the environment of that user are set up.
+      tty:
+        type: boolean
+        default: false
+        description: >-
+          Run a shell call on a pseudo-terminal when the call asks for
+          none. The native `shell_call` of the Responses grammar cannot ask,
+          so this is the only way to give it a terminal.
       tty_rows:
         type: integer
         minimum: 0

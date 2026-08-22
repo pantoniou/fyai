@@ -268,6 +268,10 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 							 "xterm-256color");
 	cfg->shell_input_poll_ms = fy_get(shell, "input_poll_ms",
 				cfg->shell_input_poll_ms);
+	cfg->shell_tty = apply_bool(shell, "tty", cfg->shell_tty);
+	cfg->shell_shell = fy_get(shell, "shell",
+				cfg->shell_shell ? cfg->shell_shell : "");
+	cfg->shell_login = apply_bool(shell, "login", cfg->shell_login);
 	cfg->shell_tty_rows = fy_get(shell, "tty_rows", cfg->shell_tty_rows);
 	cfg->shell_tty_cols = fy_get(shell, "tty_cols", cfg->shell_tty_cols);
 	cfg->agent_timeout_ms = fy_get(fy_get(root, "agent"), "timeout_ms",
@@ -2029,6 +2033,9 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->read_max_bytes = DEFAULT_READ_MAX_BYTES;
 	cfg->read_hard_max_bytes = DEFAULT_READ_HARD_MAX_BYTES;
 	cfg->shell_max_output_tokens = DEFAULT_SHELL_MAX_OUTPUT_TOKENS;
+	cfg->shell_tty = false;
+	cfg->shell_shell = "";
+	cfg->shell_login = false;
 	cfg->shell_session_timeout_ms = DEFAULT_SHELL_SESSION_TIMEOUT_MS;
 	cfg->shell_input_poll_ms = DEFAULT_SHELL_INPUT_POLL_MS;
 	cfg->shell_hard_max_output_tokens =
