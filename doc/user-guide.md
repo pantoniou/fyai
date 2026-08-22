@@ -471,7 +471,19 @@ terminal of its own, addressed by that name.
 fyai tool shell '{"name":"repl","command":"python3"}'
 ```
 
-The call answers as soon as the terminal exists. From there:
+A session runs on pipes, unless the call asks for a terminal with `tty:
+true`. On pipes the program finds no terminal. `git log` therefore writes its
+output and starts no pager, and a program that adds colour for a reader does
+not add it. A bare line feed still starts a new line, as a terminal gives.
+
+Ask for a terminal for a program that expects a person, such as a shell, an
+editor, or a program that draws a screen:
+
+```sh
+fyai tool shell '{"name":"repl","command":"python3","tty":true}'
+```
+
+The call answers as soon as the session exists. From there:
 
 - `shell_input` types into it. The text is keystrokes, thus a control
   character works: `\u0003` interrupts, `\u001b` is escape. A return is added
