@@ -251,9 +251,20 @@ endif()
 
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests. A parent project may already provide the target (its own
-# find_package or add_subdirectory); reuse that rather than re-resolving.
+# find_package or add_subdirectory); reuse that rather than re-resolving. An
+# installed package comes next, and a source fetch is the last resort, as with
+# the other dependencies: CI has none of them installed.
 if(NOT TARGET libfyvterm::libfyvterm)
-    find_package(libfyvterm CONFIG REQUIRED)
+    find_package(libfyvterm CONFIG QUIET)
+endif()
+if(NOT TARGET libfyvterm::libfyvterm)
+    set(BUILD_FYVTERM_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_FYVTERM_TOOLS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(libfyvterm
+        GIT_REPOSITORY https://github.com/pantoniou/libfyvterm
+        GIT_TAG 6b55715878300e2e56c48d2597f8c938e4b26cc6
+    )
+    FetchContent_MakeAvailable(libfyvterm)
 endif()
 
 # Fetch and build a minimal libcurl from source as a static archive linked
