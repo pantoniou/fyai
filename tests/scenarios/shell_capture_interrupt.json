@@ -16,7 +16,7 @@
                 {
                   "id": "call_shell_slow",
                   "type": "function",
-                  "function": { "name": "shell", "arguments": "{\"command\":\"echo early-marker; sleep 0.5; kill -INT $PPID; sleep 1; echo late-marker\"}" }
+                  "function": { "name": "exec_command", "arguments": "{\"command\":\"echo early-marker; sleep 0.5; kill -INT $PPID; sleep 1; echo late-marker\"}" }
                 }
               ]
             },

@@ -37,7 +37,7 @@
               "id": "call_child_shell",
               "type": "function",
               "function": {
-                "name": "shell",
+                "name": "exec_command",
                 "arguments": "{\"command\":\"printf completed\"}"
               }
             }]

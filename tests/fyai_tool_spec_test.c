@@ -126,7 +126,7 @@ static void test_descriptions(void)
 	/* property schema types */
 	require(fy_equal(
 		fy_get(fy_get(fy_get(fy_get(fy_get(
-			tool_by_name(tools, "shell"), "function"),
+			tool_by_name(tools, "exec_command"), "function"),
 			"parameters"), "properties"), "timeout"), "type"),
 		"integer"), "shell.timeout type");
 	require(fy_equal(

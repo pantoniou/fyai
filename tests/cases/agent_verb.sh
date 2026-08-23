@@ -20,7 +20,7 @@ assert_request 0 'any(m.get("role") == "system" and "sub-agent" in m.get("conten
 
 # Restricted toolset: builtins present, no nested agent. A question is kept:
 # it goes up to whoever ran this sub-agent.
-assert_request 0 'any(t["function"]["name"] == "shell" for t in r["body"]["tools"])'
+assert_request 0 'any(t["function"]["name"] == "exec_command" for t in r["body"]["tools"])'
 assert_request 0 'any(t["function"]["name"] == "read_file" for t in r["body"]["tools"])'
 assert_request 0 'any(t["function"]["name"] == "ask_user" for t in r["body"]["tools"])'
 assert_request 0 'not any(t["function"]["name"] == "agent_input" for t in r["body"]["tools"])'

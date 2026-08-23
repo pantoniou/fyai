@@ -13,7 +13,7 @@
          "id": "s1",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"asker\", \"command\": \"sh -c 'printf \\\"WHO-ARE-YOU? \\\"; read n; printf \\\"HELLO-%s\\\\n\\\" \\\"$n\\\"; sleep 20'\", \"description\": \"a shell that asks\", \"tty\": true}"
          }
         }

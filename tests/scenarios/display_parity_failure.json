@@ -17,7 +17,7 @@
                   "id": "c_shell",
                   "type": "function",
                   "function": {
-                    "name": "shell",
+                    "name": "exec_command",
                     "arguments": "{\"command\":\"echo before; exit 3\",\"description\":\"fail on purpose\"}"
                   }
                 }

@@ -11,7 +11,7 @@
       "type": "function_call",
       "id": "f1",
       "call_id": "c1",
-      "name": "shell",
+      "name": "exec_command",
     "arguments": "{\"command\":\"sh -c 'sleep 9' fytmo&wait\",\"timeout\":1500}"
      }
     ],

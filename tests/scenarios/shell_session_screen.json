@@ -17,7 +17,7 @@
          "id": "s1",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"editor\", \"command\": \"vi note.txt\", \"rows\": 10, \"cols\": 40, \"tty\": true}"
          }
         }

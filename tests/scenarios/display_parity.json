@@ -101,7 +101,7 @@
                   "id": "c_shell",
                   "type": "function",
                   "function": {
-                    "name": "shell",
+                    "name": "exec_command",
                     "arguments": "{\"command\":\"echo one; echo two\",\"description\":\"say things\"}"
                   }
                 }

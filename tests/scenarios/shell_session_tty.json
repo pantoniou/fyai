@@ -13,7 +13,7 @@
          "id": "t1",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"command\": \"sh -c 'if [ -t 1 ]; then echo ON-A-TERMINAL; else echo ON-A-PIPE; fi; echo READY'\", \"name\": \"probe\", \"description\": \"probe the session\"}"
          }
         }
@@ -37,7 +37,7 @@
          "id": "t2",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"command\": \"sh -c 'if [ -t 1 ]; then echo ON-A-TERMINAL; else echo ON-A-PIPE; fi; echo READY'; sleep 30\", \"name\": \"probe-tty\", \"tty\": true, \"description\": \"probe a terminal session\"}"
          }
         }
@@ -85,7 +85,7 @@
          "id": "t4",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"command\": \"sh -c 'if [ -t 1 ]; then echo ON-A-TERMINAL; else echo ON-A-PIPE; fi; echo READY'\", \"description\": \"probe a plain command\"}"
          }
         }

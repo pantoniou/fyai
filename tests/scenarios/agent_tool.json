@@ -42,7 +42,7 @@
                 {
                   "id": "call_shell_1",
                   "type": "function",
-                  "function": { "name": "shell", "arguments": "{\"command\":\"echo agent-was-here\"}" }
+                  "function": { "name": "exec_command", "arguments": "{\"command\":\"echo agent-was-here\"}" }
                 }
               ]
             },

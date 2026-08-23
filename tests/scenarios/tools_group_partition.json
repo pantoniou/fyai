@@ -16,7 +16,7 @@
                 "id": "call_partition_a",
                 "type": "function",
                 "function": {
-                  "name": "shell",
+                  "name": "exec_command",
                   "arguments": "{\"command\":\"echo partition-a\"}"
                 }
               },
@@ -32,7 +32,7 @@
                 "id": "call_partition_b",
                 "type": "function",
                 "function": {
-                  "name": "shell",
+                  "name": "exec_command",
                   "arguments": "{\"command\":\"echo partition-b\"}"
                 }
               }

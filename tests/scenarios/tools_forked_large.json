@@ -16,7 +16,7 @@
                 {
                   "id": "call_shell_big",
                   "type": "function",
-                  "function": { "name": "shell", "arguments": "{\"command\":\"seq 1 40000\"}" }
+                  "function": { "name": "exec_command", "arguments": "{\"command\":\"seq 1 40000\"}" }
                 }
               ]
             },

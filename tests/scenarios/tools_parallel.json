@@ -16,7 +16,7 @@
                 "id": "call_wait",
                 "type": "function",
                 "function": {
-                  "name": "shell",
+                  "name": "exec_command",
                   "arguments": "{\"command\":\"i=0; while [ ! -f parallel.marker ] && [ $i -lt 100 ]; do i=$((i + 1)); sleep .02; done; test -f parallel.marker && touch first.done && echo first-ok\"}"
                 }
               },
@@ -24,7 +24,7 @@
                 "id": "call_mark",
                 "type": "function",
                 "function": {
-                  "name": "shell",
+                  "name": "exec_command",
                   "arguments": "{\"command\":\"sleep .1; touch parallel.marker; echo second-ok\"}"
                 }
               }

@@ -17,7 +17,7 @@
                   "id": "call_ui_interrupt",
                   "type": "function",
                   "function": {
-                    "name": "shell",
+                    "name": "exec_command",
                     "arguments": "{\"command\":\"echo interrupt-early; sleep 8; touch interrupt-late.marker\"}"
                   }
                 }

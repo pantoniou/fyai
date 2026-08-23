@@ -144,7 +144,7 @@ static void test_chat_input(void)
 	expect_contains("chat_input", out, "\"name\": \"read_file\"");
 	/* a native shell_call synthesizes a shell function call */
 	expect_contains("chat_input", out, "\"id\": \"s1\"");
-	expect_contains("chat_input", out, "\"name\": \"shell\"");
+	expect_contains("chat_input", out, "\"name\": \"exec_command\"");
 	expect_contains("chat_input", out, "echo hi");
 	expect_contains("chat_input", out, "\"role\": \"tool\"");
 	expect_contains("chat_input", out, "\"tool_call_id\": \"c1\"");
@@ -208,7 +208,7 @@ static void test_chatgpt_shell_tool(void)
 	test_cfg.chatgpt_auth = true;
 	out = emit(fyai_make_responses_tools(&test_ctx));
 	expect_contains("chatgpt_tools", out,
-			"\"type\": \"function\", \"name\": \"shell\"");
+			"\"type\": \"function\", \"name\": \"exec_command\"");
 	expect_absent("chatgpt_tools", out, "\"type\": \"shell\"");
 
 	test_cfg.chatgpt_auth = false;
@@ -249,7 +249,7 @@ static void test_responses_shell_downgrade(void)
 	test_cfg.chatgpt_auth = true;
 	out = emit(fyai_responses_input(&test_ctx, messages));
 	expect_absent("chatgpt", out, "shell_call");
-	expect_contains("chatgpt", out, "\"name\": \"shell\"");
+	expect_contains("chatgpt", out, "\"name\": \"exec_command\"");
 	expect_contains("chatgpt", out, "echo hi");
 
 	/* Another provider receives a function call and a string result. */
@@ -313,7 +313,7 @@ static void test_foreign_shell_tool(void)
 	test_cfg.shell_tool_supported = false;
 	out = emit(fyai_make_responses_tools(&test_ctx));
 	expect_contains("foreign_tools", out,
-			"\"type\": \"function\", \"name\": \"shell\"");
+			"\"type\": \"function\", \"name\": \"exec_command\"");
 	expect_absent("foreign_tools", out, "\"type\": \"shell\"");
 
 	test_cfg.enable_tools = false;

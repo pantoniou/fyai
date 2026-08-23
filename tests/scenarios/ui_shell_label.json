@@ -11,7 +11,7 @@
             "type": "function_call",
             "id": "fc_lbl_1",
             "call_id": "call_lbl_1",
-            "name": "shell",
+            "name": "exec_command",
             "arguments": "{\"command\": \"echo shell-label-marker; sleep 30\", \"description\": \"probe the slow path\", \"timeout\": 1500}",
             "status": "completed"
           }

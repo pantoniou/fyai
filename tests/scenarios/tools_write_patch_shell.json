@@ -26,7 +26,7 @@
                 {
                   "id": "call_shell_1",
                   "type": "function",
-                  "function": { "name": "shell", "arguments": "{\"command\":\"echo shell-ran-ok\"}" }
+                  "function": { "name": "exec_command", "arguments": "{\"command\":\"echo shell-ran-ok\"}" }
                 }
               ]
             },

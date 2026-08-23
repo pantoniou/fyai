@@ -30,11 +30,11 @@ assert_stdout_contains "Foreign provider round trip done."
 # Do not declare the built-in shell to this provider. Offer the function shell
 # tool instead.
 assert_request 0 'not any(t.get("type") == "shell" for t in r["body"]["tools"])'
-assert_request 0 'any(t.get("name") == "shell" for t in r["body"]["tools"])'
+assert_request 0 'any(t.get("name") == "exec_command" for t in r["body"]["tools"])'
 
 # Send the stored native items as a standard function call and result.
 assert_request 1 'not any(i.get("type", "").startswith("shell_call") for i in r["body"]["input"])'
-assert_request 1 'any(i.get("type") == "function_call" and i.get("name") == "shell" and "echo foreign-shell-ran" in i.get("arguments", "") for i in r["body"]["input"])'
+assert_request 1 'any(i.get("type") == "function_call" and i.get("name") == "exec_command" and "echo foreign-shell-ran" in i.get("arguments", "") for i in r["body"]["input"])'
 
 # A function_call_output contains a string, not the native output sequence.
 assert_request 1 'any(i.get("type") == "function_call_output" and isinstance(i.get("output"), str) and "foreign-shell-ran" in i["output"] for i in r["body"]["input"])'

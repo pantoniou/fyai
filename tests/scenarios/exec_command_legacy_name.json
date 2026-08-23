@@ -2,7 +2,7 @@
   "steps": [
     {
       "response": {
-        "id": "chatcmpl-shlogin-1",
+        "id": "chatcmpl-legacy-1",
         "object": "chat.completion",
         "model": "mock-model",
         "choices": [{
@@ -13,19 +13,11 @@
             "content": null,
             "tool_calls": [
               {
-                "id": "call_login",
+                "id": "call_legacy",
                 "type": "function",
                 "function": {
-                  "name": "exec_command",
-                  "arguments": "{\"command\":\"echo mark=${FYAI_LOGIN_MARK:-none}\",\"login\":true}"
-                }
-              },
-              {
-                "id": "call_shell",
-                "type": "function",
-                "function": {
-                  "name": "exec_command",
-                  "arguments": "{\"command\":\"echo hello\",\"shell\":\"./fakesh\"}"
+                  "name": "shell",
+                  "arguments": "{\"command\":\"echo legacy-name-ran\"}"
                 }
               }
             ]
@@ -35,7 +27,7 @@
     },
     {
       "response": {
-        "id": "chatcmpl-shlogin-2",
+        "id": "chatcmpl-legacy-2",
         "object": "chat.completion",
         "model": "mock-model",
         "choices": [{
@@ -43,7 +35,7 @@
           "finish_reason": "stop",
           "message": {
             "role": "assistant",
-            "content": "Shell selection checked."
+            "content": "Legacy name accepted."
           }
         }]
       }

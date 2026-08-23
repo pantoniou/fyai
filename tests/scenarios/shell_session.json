@@ -17,7 +17,7 @@
          "id": "s1",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"box\", \"command\": \"sh -i\", \"description\": \"a shell\", \"tty\": true}"
          }
         }
@@ -125,7 +125,7 @@
          "id": "t5",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"lines\", \"command\": \"sh -c 'printf \\\"PIPE-A\\\\nPIPE-B\\\\n\\\"; sleep 2'\", \"description\": \"a shell that writes lines\", \"tty\": true}"
          }
         }

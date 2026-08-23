@@ -17,7 +17,7 @@
          "id": "s1",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"dup\", \"command\": \"sh -i\", \"tty\": true}"
          }
         }
@@ -45,7 +45,7 @@
          "id": "s2",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"dup\", \"command\": \"sh -i\", \"tty\": true}"
          }
         }
@@ -101,7 +101,7 @@
          "id": "s4",
          "type": "function",
          "function": {
-          "name": "shell",
+          "name": "exec_command",
           "arguments": "{\"name\": \"bad name!\", \"command\": \"sh -i\", \"tty\": true}"
          }
         }

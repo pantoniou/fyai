@@ -20,8 +20,8 @@
       "type": "function_call",
       "id": "fc-call-shell-1",
       "call_id": "call-shell-1",
-      "name": "shell",
-      "arguments": "{\"name\": \"box\", \"command\": \"sh -c 'M=AGENT_SESSION; echo ${M}_MARK; sleep 3'\", \"description\": \"a shell\"}"
+      "name": "exec_command",
+      "arguments": "{\"name\": \"box\", \"command\": \"sh -c 'M=AGENT_SESSION; echo ${M}_MARK; sleep 3'\", \"description\": \"a shell\", \"tty\": true}"
      }
     ]
    }

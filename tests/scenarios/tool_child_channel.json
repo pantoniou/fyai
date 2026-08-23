@@ -17,7 +17,7 @@
                   "id": "c_sh",
                   "type": "function",
                   "function": {
-                    "name": "shell",
+                    "name": "exec_command",
                     "arguments": "{\"command\": \"leak=\\\"\\\"; for f in 3 4 5 6 7 8 10 11 12; do if (eval \\\"exec 9<&$f\\\") 2>/dev/null; then leak=\\\"$leak $f\\\"; fi; done; if [ -n \\\"$leak\\\" ]; then echo \\\"LEAKED_FDS:$leak\\\"; else echo NO_LEAKED_FDS; fi\", \"description\": \"probe inherited descriptors\"}"
                   }
                 }

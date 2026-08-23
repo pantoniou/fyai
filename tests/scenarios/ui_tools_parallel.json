@@ -17,7 +17,7 @@
                   "id": "call_ui_parallel_a",
                   "type": "function",
                   "function": {
-                    "name": "shell",
+                    "name": "exec_command",
                     "arguments": "{\"command\":\"echo parallel-early-a; sleep 2; echo parallel-late-a\"}"
                   }
                 },
@@ -25,7 +25,7 @@
                   "id": "call_ui_parallel_b",
                   "type": "function",
                   "function": {
-                    "name": "shell",
+                    "name": "exec_command",
                     "arguments": "{\"command\":\"echo parallel-early-b; sleep 3; echo parallel-late-b\"}"
                   }
                 }

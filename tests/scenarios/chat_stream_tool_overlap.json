@@ -33,7 +33,7 @@
                     "id": "call_overlap_1",
                     "type": "function",
                     "function": {
-                      "name": "shell",
+                      "name": "exec_command",
                       "arguments": "{\"command\":\"touch s;echo 1;echo 2\"}"
                     }
                   }
