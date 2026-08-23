@@ -212,9 +212,10 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (fy_equal(tool_call_type, "shell_call"))
 		name = "shell";
 	else if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		name = fy_get(fy_get(tool_call, "function"), "name", "");
+		name = fyai_tool_name_canonical(
+			fy_get(fy_get(tool_call, "function"), "name", ""));
 	else
-		name = fy_get(tool_call, "name", "");
+		name = fyai_tool_name_canonical(fy_get(tool_call, "name", ""));
 	shell = fy_equal(name, "shell");
 	agent = fy_equal(name, "agent");
 	/*

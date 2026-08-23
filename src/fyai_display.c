@@ -2327,12 +2327,14 @@ static int fyai_tool_view_init(struct fyai_ctx *ctx, struct fyai_tool_view *tv,
 		tv->args = fy_mapping(gb, "command", fy_castp(&gcmd, ""));
 	} else {
 		if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
-			tv->name = fy_get(fy_get(tool_call, "function"), "name", "");
+			tv->name = fyai_tool_name_canonical(
+				fy_get(fy_get(tool_call, "function"), "name", ""));
 			args_text = fy_get(fy_get(tool_call, "function"),
 					   "arguments", "");
 		} else {
 			/* Responses items; Messages is normalized to that shape. */
-			tv->name = fy_get(tool_call, "name", "");
+			tv->name = fyai_tool_name_canonical(
+				fy_get(tool_call, "name", ""));
 			args_text = fy_get(tool_call, "arguments", "");
 		}
 		tv->args = parse_json_string(gb, args_text);

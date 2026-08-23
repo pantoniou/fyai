@@ -101,11 +101,16 @@ max_tokens: 8192
 # reason a command failed survives a noisy standard output.
 # `hard_max_output_tokens` bounds a `max_output_tokens` the model gives.
 # 0 disables any of these limits.
+#
+# `shell` and `login` decide the shell a call runs under when the call names
+# neither: empty runs /bin/sh, and `login` reads the profile of the user.
 shell:
   timeout_ms: 600000
   max_timeout_ms: 1200000
   max_output_tokens: 16384
   hard_max_output_tokens: 200000
+  shell: ""
+  login: false
 
 # Size limits for read_file results, in bytes. `max_bytes` is the default.
 # `hard_max_bytes` limits a value from the model. 0 disables a limit.

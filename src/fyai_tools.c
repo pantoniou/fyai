@@ -51,6 +51,11 @@
 #include "fyai_sink.h"
 #include "fyai_ui.h"
 
+const char *fyai_tool_name_canonical(const char *name)
+{
+	return name && !strcmp(name, FYAI_TOOL_EXEC_WIRE_NAME) ? "shell" : name;
+}
+
 static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -80,7 +85,8 @@ static const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_cal
 		break;
 	}
 
-	return fy_gb_intern_string(ctx->transient_gb, fy_cast(v, ""));
+	return fyai_tool_name_canonical(
+		fy_gb_intern_string(ctx->transient_gb, fy_cast(v, "")));
 }
 
 static fy_generic
@@ -1575,7 +1581,7 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		ctx->patch_display = fyai_patch_to_unified_ctx(ctx, content);
 		result = fyai_apply_patch_text_ctx(ctx, content);
 		*okp = result && strncmp(result, "tool error:", 11);
-	} else if (fy_equal(name, "shell")) {
+	} else if (fy_any_equal(name, "shell", FYAI_TOOL_EXEC_WIRE_NAME)) {
 		result = fyai_run_shell_command(ctx, args, okp);
 	} else if (fy_equal(name, "shell_output")) {
 		result = fyai_shell_output_tool(ctx, args, okp);

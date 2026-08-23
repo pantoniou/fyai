@@ -16,6 +16,7 @@
 
 #include "fyai_provider.h"
 #include "fyai_tool_spec.h"
+#include "fyai_tools.h"
 
 static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
 				  const char *what)
@@ -349,7 +350,8 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 			function = fy_get(tool, "function");
 			/* Replace the function tool with the native tool. */
 			if (native_shell &&
-			    fy_equal(fy_get(function, "name"), "shell"))
+			    fy_equal(fy_get(function, "name"),
+				     FYAI_TOOL_EXEC_WIRE_NAME))
 				continue;
 			response_tool = fy_mapping(
 				"type", "function",
@@ -536,7 +538,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 					fy_mapping(
 						"type", "function_call",
 						"call_id", fy_get(m, "call_id", ""),
-						"name", "shell",
+						"name", FYAI_TOOL_EXEC_WIRE_NAME,
 						"arguments", args ? args : "{}"));
 			continue;
 		}
@@ -692,7 +694,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 
 				args = emit_json_string(ctx->transient_gb, fy_mapping("command", cmd));
 				function = fy_mapping(
-						"name", "shell",
+						"name", FYAI_TOOL_EXEC_WIRE_NAME,
 						"arguments", args ? args : "{}");
 			} else {
 				function = fy_mapping(
@@ -818,7 +820,7 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 			cmd = fy_cast(fy_get_at_path(m, "action", "commands", 0), "");
 			tmp = fy_mapping("type", "tool_use",
 					 "id", fy_get(m, "call_id", ""),
-					 "name", "shell",
+					 "name", FYAI_TOOL_EXEC_WIRE_NAME,
 					 "input", fy_mapping("command", cmd));
 			out = messages_append_block(ctx, out, "assistant", tmp);
 			continue;

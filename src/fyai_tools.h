@@ -12,6 +12,10 @@ typedef void (*fyai_tool_group_complete_fn)(
 typedef void (*fyai_mcp_call_complete_fn)(
 		struct fyai_mcp_call_request *request, void *userdata);
 
+/* Map the exec_command wire name to the internal shell tool name. */
+#define FYAI_TOOL_EXEC_WIRE_NAME "exec_command"
+const char *fyai_tool_name_canonical(const char *name);
+
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call);
 /* Store the resolved display form of @tool_call. */
 void fyai_patch_display_record(struct fyai_ctx *ctx, fy_generic tool_call,

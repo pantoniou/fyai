@@ -78,7 +78,7 @@
       additionalProperties: false
 - type: function
   function:
-    name: shell
+    name: exec_command
     description: |-
       Run a shell command in the workspace.
     parameters:
@@ -151,7 +151,7 @@
   function:
     name: shell_input
     description: |-
-      Type into a terminal session opened by `shell` with a name. The text is sent as keystrokes, so control characters work: use \u0003 for Ctrl-C, \u001b for escape, \u0004 for end of input. Returns what the program showed afterwards, in the same shape as shell_output.
+      Type into a terminal session opened by `exec_command` with a name. The text is sent as keystrokes, so control characters work: use \u0003 for Ctrl-C, \u001b for escape, \u0004 for end of input. Returns what the program showed afterwards, in the same shape as shell_output.
     parameters:
       type: object
       properties:
@@ -187,7 +187,7 @@
   function:
     name: shell_output
     description: |-
-      Read a terminal session opened by `shell` with a name, without typing into it. A program that only writes lines is returned as lines, whole and in order. A program that draws a screen is returned as the screen it drew, which is the only useful reading of it. A session can be read after its program has ended.
+      Read a terminal session opened by `exec_command` with a name, without typing into it. A program that only writes lines is returned as lines, whole and in order. A program that draws a screen is returned as the screen it drew, which is the only useful reading of it. A session can be read after its program has ended.
     parameters:
       type: object
       properties:
