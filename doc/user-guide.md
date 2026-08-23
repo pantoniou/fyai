@@ -438,22 +438,26 @@ annotated supported-key catalogue as well.
 
 The built-in agent tool surface includes file reading, structured file writing and patching, shell execution, user questions, and delegated sub-agents where enabled.
 
+The shell tool is called `exec_command`, the name the other agents use for
+it. `shell` is the name it had, and a call under that name still reaches it,
+so a stored conversation from an older arena replays.
+
 Run one tool directly, without a model call:
 
 ```sh
 fyai tool read_file '{"path":"README.md"}'
-fyai tool shell '{"command":"git status --short"}'
+fyai tool exec_command '{"command":"git status --short"}'
 ```
 
 ### A shell command on a terminal
 
-`shell` takes `tty: true`. The command then runs on a pseudo-terminal. The
-result is the screen that libfyvterm interprets from the byte stream, with the
-lines that scrolled off it in front. Use it for a program that behaves
+`exec_command` takes `tty: true`. The command then runs on a pseudo-terminal.
+The result is the screen that libfyvterm interprets from the byte stream,
+with the lines that scrolled off it in front. Use it for a program that behaves
 differently without a terminal.
 
 ```sh
-fyai tool shell '{"command":"git log --oneline -5","tty":true}'
+fyai tool exec_command '{"command":"git log --oneline -5","tty":true}'
 ```
 
 The screen has the size of the terminal of the user. It follows that terminal
@@ -469,12 +473,12 @@ that grammar has no field the model could ask with.
 ### The shell a command runs under
 
 A command runs under `/bin/sh`, as each other command of this program does.
-`shell` names another shell, and `login` starts that shell as a login shell,
+The `shell` argument names another shell, and `login` starts that shell as a login shell,
 which reads the profile of the user.
 
 ```sh
-fyai tool shell '{"command":"node --version","login":true}'
-fyai tool shell '{"command":"echo $BASH_VERSION","shell":"/bin/bash"}'
+fyai tool exec_command '{"command":"node --version","login":true}'
+fyai tool exec_command '{"command":"echo $BASH_VERSION","shell":"/bin/bash"}'
 ```
 
 Ask for `login` when a command needs a tool or a variable that the profile
@@ -494,7 +498,7 @@ name. Use it for a program that expects a person, such as a shell, an editor,
 or a program that draws a screen:
 
 ```sh
-fyai tool shell '{"name":"repl","command":"python3","tty":true}'
+fyai tool exec_command '{"name":"repl","command":"python3","tty":true}'
 ```
 
 A session needs the terminal, and a `name` without `tty` is refused. On pipes

@@ -50,7 +50,8 @@ A sub-agent gets the same set less `agent` and `ask_user`
 
 ### 3.2 Comparison
 
-`fyai` supplies `command`, `workdir`, `timeout` and `description`.
+`fyai` declares its shell tool as `exec_command` and supplies `command`,
+`workdir`, `timeout`, `description`, `shell`, `login` and `tty`.
 
 | Function | claude_code | codex | opencode | fyai |
 | --- | --- | --- | --- | --- |

@@ -341,7 +341,7 @@ every byte above 0x7f is a separate character.
 
 One item stays open in the tests: the `tty/resize` notification to a forked
 tool child. The resize case covers the session that runs in the parent, which
-the `fyai tool shell` verb uses.
+the `fyai tool exec_command` verb uses.
 
 ## 10. Order and the review
 
