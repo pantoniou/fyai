@@ -21,15 +21,27 @@ def set_size(fd, rows, cols):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
+def timeout_scale():
+    """How much longer every deadline waits; see tests/pty_driver.py."""
+    try:
+        scale = float(os.environ.get(
+            "FYAI_TIMEOUT_SCALE",
+            os.environ.get("FYAI_TIMEOUT_SCALE_DEFAULT", "1")))
+    except ValueError:
+        return 1.0
+    return scale if scale > 0 else 1.0
+
+
 def main():
     output, *argv = sys.argv[1:]
+    scale = timeout_scale()
     rows = int(os.environ.get("FYAI_PTY_ROWS", "24"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "80"))
     rows2 = int(os.environ.get("FYAI_PTY_ROWS2", "30"))
     cols2 = int(os.environ.get("FYAI_PTY_COLS2", "100"))
     needle = os.environ.get("FYAI_PTY_NEEDLE", "").encode()
     delay = float(os.environ.get("FYAI_PTY_DELAY", "1.5"))
-    timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "30"))
+    timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "30")) * scale
 
     pid, fd = pty.fork()
     if pid == 0:

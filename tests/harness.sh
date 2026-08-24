@@ -24,6 +24,19 @@ FYAI_VALGRIND="${FYAI_VALGRIND:-}"
 MOCK_PID=""
 TEST_DIR=""
 
+# How much longer every wait in a case waits. A sanitized build, or a suite run
+# with many jobs at once, takes several times as long for the same work: a case
+# must wait that much longer rather than report a failure that says nothing
+# about the code. CMake sets it for the sanitized tree; the PTY drivers read
+# the same variable. An exported FYAI_TIMEOUT_SCALE wins over it, so one run
+# can wait longer without reconfiguring.
+FYAI_TIMEOUT_SCALE="${FYAI_TIMEOUT_SCALE:-${FYAI_TIMEOUT_SCALE_DEFAULT:-1}}"
+case "$FYAI_TIMEOUT_SCALE" in
+*[!0-9]*|"") FYAI_TIMEOUT_SCALE=1 ;;
+0) FYAI_TIMEOUT_SCALE=1 ;;
+esac
+export FYAI_TIMEOUT_SCALE
+
 fail() {
 	echo "FAIL: $*" >&2
 	[ -f "$TEST_DIR/stdout" ] && { echo "--- stdout ---" >&2; cat "$TEST_DIR/stdout" >&2; }
@@ -37,9 +50,9 @@ fyai_test_cleanup() {
 	[ -n "$TEST_DIR" ] && rm -rf "$TEST_DIR"
 }
 
-# Create the sandbox: scratch dir, redirected HOME/XDG_*, scrubbed provider
-# env, and a local .fyai so the arena walk-up lands here.
-fyai_test_setup() {
+# The sandbox without a project: scratch dir, redirected HOME/XDG_*, scrubbed
+# provider env. A case that tests what fyai does with no arena uses this one.
+fyai_test_setup_bare() {
 	TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fyai-test-XXXXXX")" || exit 99
 	trap fyai_test_cleanup EXIT
 	cd "$TEST_DIR" || exit 99
@@ -50,6 +63,12 @@ fyai_test_setup() {
 	mkdir -p "$HOME"
 	unset OPENAI_API_KEY OPENROUTER_API_KEY DEEPSEEK_API_KEY ANTHROPIC_API_KEY \
 	      GOOGLE_API_KEY || true
+}
+
+# Create the sandbox: scratch dir, redirected HOME/XDG_*, scrubbed provider
+# env, and a local .fyai so the arena walk-up lands here.
+fyai_test_setup() {
+	fyai_test_setup_bare
 
 	printf 'display:\n  markdown: false\n' > config.yaml
 	${FYAI_VALGRIND} "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
@@ -69,10 +88,11 @@ mock_start() {
 	MOCK_PID=$!
 
 	local i=0
+	local tries=$((100 * FYAI_TIMEOUT_SCALE))
 	while [ ! -f "$TEST_DIR/port" ]; do
 		kill -0 "$MOCK_PID" 2>/dev/null || fail "mock server died: $(cat "$TEST_DIR/mock.log")"
 		i=$((i + 1))
-		[ "$i" -gt 100 ] && fail "mock server did not bind"
+		[ "$i" -gt "$tries" ] && fail "mock server did not bind"
 		sleep 0.05
 	done
 	MOCK_PORT="$(cat "$TEST_DIR/port")"

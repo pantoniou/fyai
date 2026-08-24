@@ -46,14 +46,23 @@ static double now_ms(void)
 	return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
 }
 
-/* Push @steps exchanges of prose and a fenced C block, repainting each time. */
+/*
+ * Push @steps exchanges of prose and a fenced C block, repainting each time,
+ * and return what the batch cost in total.
+ *
+ * The total and not the slowest push: a loaded machine takes one repaint away
+ * for milliseconds at a time, which is ten times a normal push and says
+ * nothing about the window. Over a batch that stall is a small part of the
+ * measurement, and the growth this test looks for is in every push.
+ */
 static double push_steps(struct fyai_fenced_stream *fs, size_t steps)
 {
 	char chunk[256];
-	double worst = 0, t0, dt;
+	double t0;
 	size_t i;
 	int n;
 
+	t0 = now_ms();
 	for (i = 0; i < steps; i++) {
 		n = snprintf(chunk, sizeof(chunk),
 			     "Step %zu: editing a file.\n\n```c\n"
@@ -61,20 +70,37 @@ static double push_steps(struct fyai_fenced_stream *fs, size_t steps)
 			     "\treturn a + 1;\n}\n```\n\n", i, i);
 		/* Render every push: the throttle is not what is under test. */
 		fs->next_render_ms = 0;
-		t0 = now_ms();
 		FYAI_TCHECK(!fyai_fenced_stream_push(fs, chunk, (size_t)n));
-		dt = now_ms() - t0;
-		if (dt > worst)
-			worst = dt;
 	}
-	return worst;
+	return now_ms() - t0;
 }
 
 /*
- * A repaint late in a long stream must not cost more than an early one. The
- * window holds this flat, so the bound leaves room for a loaded machine and
- * still separates the two shapes: rendering the whole accumulator instead
- * makes the late repaint grow with everything pushed before it.
+ * The cheapest of @rounds batches.
+ *
+ * A machine under load takes a batch away for milliseconds at a time, which
+ * only ever adds to what one costs. The cheapest round is the one that says
+ * what the work costs, and it is the same measurement on an idle machine.
+ */
+static double best_of(struct fyai_fenced_stream *fs, int rounds)
+{
+	double best = 0, dt;
+	int i;
+
+	for (i = 0; i < rounds; i++) {
+		dt = push_steps(fs, 100);
+		if (!i || dt < best)
+			best = dt;
+	}
+	return best;
+}
+
+/*
+ * A late batch of repaints must not cost more than an early one. The window
+ * holds this flat, so the bound leaves room for a loaded machine and still
+ * separates the two shapes: rendering the whole accumulator instead makes the
+ * late repaints grow with everything pushed before them, which over a hundred
+ * of them is far more than the allowance.
  */
 static void test_window_bounds_render(void)
 {
@@ -89,16 +115,17 @@ static void test_window_bounds_render(void)
 						      TEST_MAX_LINES, fp, true));
 	/* The window has filled well before either measurement. */
 	push_steps(&fs, 100);
-	early = push_steps(&fs, 100);
+	early = best_of(&fs, 3);
 	push_steps(&fs, 600);
-	late = push_steps(&fs, 100);
+	late = best_of(&fs, 3);
 
 	FYAI_TCHECK(fs.accum.len > 60000);	/* the accumulator did grow */
-	FYAI_TCHECK(late < early * 2 + 2.0);
+	FYAI_TCHECK(late < early * 2 + 20.0);
 
 	fyai_fenced_stream_finish(&fs);
 	fclose(fp);
-	printf("ok - a live repaint stays bounded (early %.2fms, late %.2fms)\n",
+	printf("ok - live repaints stay bounded (early %.2fms, late %.2fms "
+	       "for a hundred)\n",
 	       early, late);
 }
 

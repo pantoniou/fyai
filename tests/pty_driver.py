@@ -46,16 +46,38 @@ def read_until_count(fd, data, needle, count, deadline):
     return data
 
 
+def timeout_scale():
+    """How much longer every deadline waits.
+
+    Deadlines only: a value that paces the driver, such as how long it waits
+    before it types, is a step of the case and not a budget for one.
+
+    A deadline is a guess about a machine. A sanitized build, or a suite run
+    with many jobs at once, takes several times as long for the same work, and
+    a case that waits for output must wait that much longer rather than report
+    a failure that says nothing about the code. $FYAI_TIMEOUT_SCALE carries it,
+    and CMake sets $FYAI_TIMEOUT_SCALE_DEFAULT for the sanitized tree.
+    """
+    try:
+        scale = float(os.environ.get(
+            "FYAI_TIMEOUT_SCALE",
+            os.environ.get("FYAI_TIMEOUT_SCALE_DEFAULT", "1")))
+    except ValueError:
+        return 1.0
+    return scale if scale > 0 else 1.0
+
+
 def main():
     output, *argv = sys.argv[1:]
+    scale = timeout_scale()
     prompt = os.environ.get("FYAI_PTY_INPUT", "hello").encode()
     needle = os.environ.get(
         "FYAI_PTY_NEEDLE", "Streaming hello from the mock.").encode()
     progress_needle = os.environ.get("FYAI_PTY_PROGRESS_NEEDLE", "").encode()
     progress_timeout = float(
-        os.environ.get("FYAI_PTY_PROGRESS_TIMEOUT", "1.5"))
+        os.environ.get("FYAI_PTY_PROGRESS_TIMEOUT", "1.5")) * scale
     mid_needle = os.environ.get("FYAI_PTY_MID_NEEDLE", "").encode()
-    mid_timeout = float(os.environ.get("FYAI_PTY_MID_TIMEOUT", "3"))
+    mid_timeout = float(os.environ.get("FYAI_PTY_MID_TIMEOUT", "3")) * scale
     interrupt_after_progress = os.environ.get(
         "FYAI_PTY_INTERRUPT_AFTER_PROGRESS", "0") in ("1", "true", "yes")
     interrupt_key = os.environ.get("FYAI_PTY_INTERRUPT_KEY", "escape")
@@ -78,7 +100,7 @@ def main():
         "FYAI_PTY_EDIT_NEEDLE", "edited prompt").encode()
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
-    session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15"))
+    session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     pid = os.fork()
