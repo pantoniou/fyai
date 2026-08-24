@@ -95,6 +95,9 @@ bool fyai_terminal_view_dirty(const struct fyai_terminal_view *view);
 /* Mark the whole screen as changed; the next paint draws all of it. */
 void fyai_terminal_view_damage_all(struct fyai_terminal_view *view);
 
+/* Treat a bare line feed as a complete newline. */
+void fyai_terminal_view_cooked(struct fyai_terminal_view *view, bool cooked);
+
 /*
  * Read the view. The caller owns the returned string. @region applies to
  * FYAITR_REGION only. FYAITR_NEW moves the read mark; the other reads do not.

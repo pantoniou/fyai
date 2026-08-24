@@ -60,6 +60,20 @@ struct fyai_terminal_view {
 	bool binary;
 };
 
+/* Make a bare line feed advance to the next line's first column. */
+void fyai_terminal_view_cooked(struct fyai_terminal_view *view, bool cooked)
+{
+	static const char set[] = "\x1b[20h";
+	static const char reset[] = "\x1b[20l";
+
+	if (!view)
+		return;
+	fyai_terminal_view_feed(view, cooked ? set : reset,
+				(cooked ? sizeof(set) : sizeof(reset)) - 1);
+	/* These bytes are ours, not the program's: it wrote nothing yet. */
+	view->raw_bytes = 0;
+}
+
 void fyai_terminal_view_damage_all(struct fyai_terminal_view *view);
 
 /* Remember that rows [@first, @last] must be painted again. */

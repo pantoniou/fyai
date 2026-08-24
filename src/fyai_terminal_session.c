@@ -167,21 +167,6 @@ static void tty_sources_remove(struct tty_run *r)
 	}
 }
 
-/* Describe the terminal the child is given. */
-static void tty_child_setenv(const struct fyai_terminal_opts *opts)
-{
-	char num[16];
-
-	setenv("TERM", fy_str_empty(opts->term) ? "xterm-256color" :
-							 opts->term, 1);
-	snprintf(num, sizeof(num), "%d",
-		 opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT);
-	setenv("LINES", num, 1);
-	snprintf(num, sizeof(num), "%d",
-		 opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT);
-	setenv("COLUMNS", num, 1);
-}
-
 /* Run a command, or an interactive shell when no command was supplied. */
 static void tty_child_shell(const char *command,
 			    const struct fyai_terminal_opts *opts)
@@ -207,31 +192,24 @@ static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 			   const struct fyai_sandbox_spec *sandbox,
 			   const struct fyai_terminal_opts *opts, int slave)
 {
-	fyai_ctx_loop_abandon(ctx);
+	struct fyai_child_spec spec = {};
+	int rc;
 
-	if (setsid() < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (ioctl(slave, TIOCSCTTY, 0) < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (dup2(slave, STDIN_FILENO) < 0 ||
-	    dup2(slave, STDOUT_FILENO) < 0 ||
-	    dup2(slave, STDERR_FILENO) < 0)
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	if (slave > STDERR_FILENO)
-		close(slave);
-	fyai_close_fds_from(3);
-	if (fyai_env_sanitize())
-		_exit(FYAI_SHELL_EXIT_EXEC);
-	/*
-	 * Name the terminal the program is actually given. An inherited TERM
-	 * describes the terminal of the user, which libfyvterm does not emulate;
-	 * `dumb` would also make a program give up formatting for no reason.
-	 */
-	tty_child_setenv(opts);
-	if (opts->workdir && *opts->workdir && chdir(opts->workdir))
-		_exit(FYAI_SHELL_EXIT_WORKDIR);
-	if (sandbox && fyai_sandbox_apply(sandbox))
-		_exit(FYAI_SHELL_EXIT_SANDBOX);
+	spec.in_fd = slave;
+	spec.out_fd = slave;
+	spec.err_fd = slave;
+	spec.ctty_fd = slave;
+	spec.own_session = true;
+	/* Describe the libfyvterm terminal rather than the parent terminal. */
+	spec.term = fy_str_empty(opts->term) ? "xterm-256color" : opts->term;
+	spec.rows = opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT;
+	spec.cols = opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT;
+	spec.workdir = opts->workdir;
+	spec.sandbox = sandbox;
+
+	rc = fyai_child_exec_prepare(ctx, &spec);
+	if (rc)
+		_exit(rc);
 	tty_child_shell(command, opts);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
@@ -281,6 +259,84 @@ fail:
 		close(slave);
 	if (master >= 0)
 		close(master);
+	return -1;
+}
+
+/* Run a pipe session child in its own process tree. */
+static void pipe_child_exec(struct fyai_ctx *ctx, const char *command,
+			    const struct fyai_sandbox_spec *sandbox,
+			    const struct fyai_terminal_opts *opts,
+			    int in_fd, int out_fd)
+{
+	struct fyai_child_spec spec = {};
+	int rc;
+
+	spec.in_fd = in_fd;
+	spec.out_fd = out_fd;
+	spec.err_fd = out_fd;
+	spec.ctty_fd = -1;
+	/* Isolate the child tree without inheriting the user's terminal. */
+	spec.own_session = true;
+	/* There is no terminal here, and TERM must say so. */
+	spec.term = "dumb";
+	spec.workdir = opts->workdir;
+	spec.sandbox = sandbox;
+
+	rc = fyai_child_exec_prepare(ctx, &spec);
+	if (rc)
+		_exit(rc);
+	tty_child_shell(command, opts);
+	_exit(FYAI_SHELL_EXIT_EXEC);
+}
+
+int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
+			     const struct fyai_sandbox_spec *sandbox,
+			     const struct fyai_terminal_opts *opts,
+			     int *readp, int *writep, pid_t *pidp)
+{
+	int out_pipe[2] = { -1, -1 };
+	int in_pipe[2] = { -1, -1 };
+	int flags;
+	pid_t pid;
+
+	fyai_error_check(ctx, !pipe(out_pipe), fail,
+			 "pipe: %s", strerror(errno));
+	fyai_error_check(ctx, !pipe(in_pipe), fail,
+			 "pipe: %s", strerror(errno));
+
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, fail,
+			 "fork: %s", strerror(errno));
+	if (!pid) {
+		close(out_pipe[0]);
+		close(in_pipe[1]);
+		pipe_child_exec(ctx, command, sandbox, opts, in_pipe[0],
+				out_pipe[1]);
+	}
+	close(out_pipe[1]);
+	close(in_pipe[0]);
+
+	flags = fcntl(out_pipe[0], F_GETFL, 0);
+	if (flags >= 0)
+		(void)fcntl(out_pipe[0], F_SETFL, flags | O_NONBLOCK);
+	flags = fcntl(in_pipe[1], F_GETFL, 0);
+	if (flags >= 0)
+		(void)fcntl(in_pipe[1], F_SETFL, flags | O_NONBLOCK);
+
+	*readp = out_pipe[0];
+	*writep = in_pipe[1];
+	*pidp = pid;
+	return 0;
+
+fail:
+	if (out_pipe[0] >= 0)
+		close(out_pipe[0]);
+	if (out_pipe[1] >= 0)
+		close(out_pipe[1]);
+	if (in_pipe[0] >= 0)
+		close(in_pipe[0]);
+	if (in_pipe[1] >= 0)
+		close(in_pipe[1]);
 	return -1;
 }
 
@@ -487,7 +543,8 @@ void fyai_terminal_result_cleanup(struct fyai_terminal_result *result)
 struct fyai_terminal_relay {
 	struct fyai_ctx *ctx;
 	struct jsonrpc_conn *conn;
-	int master;
+	int master;			/* what the program writes; read here */
+	int input;			/* what it reads; the same fd on a PTY */
 	pid_t pid;
 	int status;
 	bool reaped;
@@ -497,6 +554,17 @@ struct fyai_terminal_relay {
 	struct fyai_event_source *childsrc;
 	struct fyai_event_source *killer;
 };
+
+/* A terminal is one descriptor; a pipe session has one for each direction. */
+static void relay_fds_close(struct fyai_terminal_relay *rl)
+{
+	if (rl->input >= 0 && rl->input != rl->master)
+		close(rl->input);
+	rl->input = -1;
+	if (rl->master >= 0)
+		close(rl->master);
+	rl->master = -1;
+}
 
 static void relay_notify(struct fyai_terminal_relay *rl, const char *method,
 			 fy_generic params)
@@ -600,6 +668,7 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 	rl->ctx = ctx;
 	rl->conn = conn;
 	rl->master = -1;
+	rl->input = -1;
 
 	rows = opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT;
 	cols = opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT;
@@ -609,14 +678,22 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 	 * model and to the user. "It could not be opened" gives neither of them a
 	 * cause that they can act on.
 	 */
-	rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, rows, cols,
-				     &rl->master, &rl->pid);
-	if (rc) {
-		fyai_error(ctx,
-			   "shell: could not start '%s' on a pseudo-terminal "
-			   "(%dx%d): %s", command ? command : "", rows, cols,
-			   strerror(errno));
-		goto fail;
+	if (opts->pipes) {
+		rc = fyai_terminal_pipe_spawn(ctx, command, sandbox, opts,
+					      &rl->master, &rl->input,
+					      &rl->pid);
+		fyai_error_check(ctx, !rc, fail,
+			"shell: could not start '%s' on pipes: %s",
+			command ? command : "", strerror(errno));
+	} else {
+		rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, rows,
+					     cols, &rl->master, &rl->pid);
+		fyai_error_check(ctx, !rc, fail,
+			"shell: could not start '%s' on a "
+			"pseudo-terminal (%dx%d): %s",
+			command ? command : "", rows, cols, strerror(errno));
+		/* One descriptor is both directions of a terminal. */
+		rl->input = rl->master;
 	}
 
 	el = fyai_ctx_loop(ctx);
@@ -645,8 +722,7 @@ fail:
 		fyai_event_source_remove(rl->fdsrc);
 	if (rl->childsrc)
 		fyai_event_source_remove(rl->childsrc);
-	if (rl->master >= 0)
-		close(rl->master);
+	relay_fds_close(rl);
 	free(rl);
 	return NULL;
 }
@@ -657,12 +733,12 @@ int fyai_terminal_relay_write(struct fyai_terminal_relay *rl, const char *data,
 	size_t done = 0;
 	ssize_t n;
 
-	if (!rl || rl->master < 0 || !data)
+	if (!rl || rl->input < 0 || !data)
 		return -1;
 
 	/* Input is a keystroke or a line; a short write is retried at once. */
 	while (done < len) {
-		n = write(rl->master, data + done, len - done);
+		n = write(rl->input, data + done, len - done);
 		if (n > 0) {
 			done += (size_t)n;
 			continue;
@@ -679,7 +755,9 @@ void fyai_terminal_relay_resize(struct fyai_terminal_relay *rl, int rows,
 {
 	struct winsize ws = {};
 
-	if (!rl || rl->master < 0 || rows <= 0 || cols <= 0)
+	/* A pipe has no size, so there is nothing to tell the program. */
+	if (!rl || rl->input != rl->master || rl->master < 0 ||
+	    rows <= 0 || cols <= 0)
 		return;
 	ws.ws_row = (unsigned short)rows;
 	ws.ws_col = (unsigned short)cols;
@@ -733,7 +811,6 @@ void fyai_terminal_relay_destroy(struct fyai_terminal_relay *rl)
 		fyai_event_source_remove(rl->fdsrc);
 	if (rl->childsrc)
 		fyai_event_source_remove(rl->childsrc);
-	if (rl->master >= 0)
-		close(rl->master);
+	relay_fds_close(rl);
 	free(rl);
 }

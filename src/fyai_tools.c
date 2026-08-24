@@ -96,8 +96,15 @@ fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
 	return parse_json_string(ctx->transient_gb, args_text);
 }
 
-/* True when a shell call asks to open a named session. */
-static bool fyai_shell_session_call(struct fyai_ctx *ctx, fy_generic tool_call)
+/* Does this call want a terminal? The shell tool asks for one with `tty`. */
+static bool fyai_shell_tty_requested(struct fyai_ctx *ctx, fy_generic call)
+{
+	(void)ctx;
+	return fy_equal(fy_get(call, "tty", fy_false), fy_true);
+}
+
+/* True when a shell call names a shell that must stay open. */
+static bool fyai_shell_named_call(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	fy_generic args;
 	const char *name;
@@ -109,6 +116,15 @@ static bool fyai_shell_session_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		return false;
 	name = fy_get(args, "name", "");
 	return !fy_str_empty(name);
+}
+
+/* A named shell is a session only when it requested a terminal. */
+static bool fyai_shell_session_call(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	if (!fyai_shell_named_call(ctx, tool_call))
+		return false;
+	return fyai_shell_tty_requested(ctx,
+					fyai_tool_call_args(ctx, tool_call));
 }
 
 bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call)
@@ -1622,6 +1638,8 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 		opts.workdir = fy_castp(&workdir, (const char *)NULL);
 		opts.term = ctx->cfg->shell_tty_term;
 		fyai_shell_tty_size(ctx, args, &opts.rows, &opts.cols);
+		/* Use pipes unless the call explicitly requests a terminal. */
+		opts.pipes = !fy_equal(fy_get(args, "tty", fy_false), fy_true);
 		tc->relay = fyai_terminal_relay_start(ctx, conn,
 						fy_castp(&command, ""),
 						sandbox, &opts);
@@ -1945,7 +1963,7 @@ static void fyai_shell_session_idle_arm(struct fyai_shell_session *sess)
 static struct fyai_shell_session *
 fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 			  const char *command, const char *title, int rows,
-			  int cols, size_t max_bytes)
+			  int cols, size_t max_bytes, bool pipes)
 {
 	struct fyai_shell_session *sess;
 
@@ -1960,6 +1978,8 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	fyai_error_check(ctx,
 			 sess->name && sess->command && sess->branch && sess->view,
 			 fail, "shell: could not allocate the terminal session");
+	/* Pipe output uses bare line feeds. */
+	fyai_terminal_view_cooked(sess->view, pipes);
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
 	sess->title = title ? strdup(title) : NULL;
 	sess->rows = rows;
@@ -2732,6 +2752,19 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		have_branch = true;
 	}
 
+	/* A named session must explicitly request a terminal. */
+	if (fyai_shell_named_call(ctx, tool_call) &&
+	    !fyai_shell_tty_requested(ctx, args)) {
+		session_call = fy_get(args, "name", fy_invalid);
+		fyai_tool_submit_error_set(ctx,
+			"tool error: a shell that stays open needs a terminal; "
+			"add \"tty\": true to keep '%s' open, or drop \"name\" "
+			"to run the command to completion and read what it "
+			"wrote", fy_castp(&session_call, ""));
+		fyai_error_check(ctx, false, err,
+				 "a session was asked for with no terminal");
+	}
+
 	/* Reserve and validate the session name before spawning its job. */
 	if (fyai_shell_session_call(ctx, tool_call)) {
 		session_call = fy_get(args, "name", fy_invalid);
@@ -2767,7 +2800,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		job->session = fyai_shell_session_create(ctx, session_name,
 					fy_castp(&session_command, ""),
 					session_title, srows, scols,
-					fyai_shell_output_bytes(ctx, args));
+					fyai_shell_output_bytes(ctx, args),
+					!fy_equal(fy_get(args, "tty", fy_false),
+						  fy_true));
 		free(session_title);
 		session_title = NULL;
 		fyai_error_check(ctx, job->session, err,

@@ -23,6 +23,7 @@ struct fyai_terminal_opts {
 	void *output_data;
 	const char *shell;		/* the program to run; NULL = /bin/sh */
 	bool login;			/* start @shell as a login shell */
+	bool pipes;			/* run on pipes, with no terminal */
 };
 
 struct fyai_terminal_result {
@@ -45,6 +46,12 @@ int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 			    const struct fyai_sandbox_spec *sandbox,
 			    const struct fyai_terminal_opts *opts, int rows,
 			    int cols, int *masterp, pid_t *pidp);
+
+/* Start @command on pipes with standard error joined to standard output. */
+int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
+			     const struct fyai_sandbox_spec *sandbox,
+			     const struct fyai_terminal_opts *opts,
+			     int *readp, int *writep, pid_t *pidp);
 
 /*
  * Run one command on a pseudo-terminal and return its interpreted screen.
