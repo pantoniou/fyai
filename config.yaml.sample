@@ -162,7 +162,10 @@ agent:
 #   summary: auto       # auto | concise | detailed
 
 tools: true
-builtin_shell: true
+# The native OpenAI shell tool runs one command on pipes. It cannot ask for a
+# terminal or keep a named session, which `exec_command` does on every
+# provider. Turn it on only if you want the provider-side tool.
+builtin_shell: false
 # Landlock-confine shell-tool sub-executions (Linux only; no-op elsewhere):
 # read-only system paths, read/write the project and temp dirs, everything else
 # denied. Best-effort - the allow-list/prompt remains the portable floor when

@@ -2049,7 +2049,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->transcript_system = false;
 	/* Use the defaults in the schema. */
 	cfg->enable_tools = true;
-	cfg->enable_builtin_shell = true;
+	cfg->enable_builtin_shell = false;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;
 	cfg->stream = true;

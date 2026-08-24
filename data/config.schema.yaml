@@ -142,10 +142,13 @@ properties:
     description: Enable tool calling.
   builtin_shell:
     type: boolean
-    default: true
+    default: false
     description: >-
-      Enable the built-in shell tool. Forced off automatically for the
-      Messages API grammar (which has no native shell tool support).
+      Enable the OpenAI built-in shell tool in place of the `exec_command`
+      function tool. It runs one command on pipes: it cannot ask for a
+      terminal and it cannot keep a named session, so the session tools have
+      nothing to attach to. Off by default, and forced off automatically for
+      the Messages API grammar (which has no native shell tool support).
   retry:
     type: object
     additionalProperties: false

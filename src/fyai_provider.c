@@ -362,12 +362,7 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 		}
 	}
 
-	/*
-	 * The public Responses API names its native tool "shell". If the
-	 * endpoint does not accept this tool, make_tools() supplies the
-	 * function shell tool. The function tool uses the fyai approval and
-	 * sandbox path.
-	 */
+	/* Add the native Responses shell only when explicitly enabled. */
 	if (native_shell) {
 		response_tool = fy_mapping(
 				"type", "shell",
