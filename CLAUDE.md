@@ -400,7 +400,8 @@ capture, tool jobs, MCP shutdown, readline, and OAuth borrow that loop.
 - Each borrower must remove all sources that it registered.
 - Store source pointers in the owner and clear them when callbacks retire a
   source. Make cleanup idempotent.
-- A child that forks without `exec` must call `fyai_ctx_loop_abandon()`.
+- A child that forks without `exec` must call `fyai_ctx_loop_abandon()`
+  and `fyai_ctx_fork_disown()`.
 - Abandonment closes the child's descriptor copies. It must not call
   `epoll_ctl()` on the shared epoll object.
 - Do not run a nested event loop from an interactive callback.
@@ -463,6 +464,15 @@ teardown can stop its descendants with it. The child
 sends `tool/progress` notifications and returns `{result, ok}`. It uses
 `/dev/null` as standard input and calls `setsid()`. Do not call `setpgid()` in
 the parent.
+
+A forked child keeps what describes the work: the configuration, the arena and
+its builders, the sink, and the credentials. It keeps nothing that names a
+process, a descriptor, a timer, or a screen of the parent. A copy of such state
+addresses another process by mistake, or answers with what belongs to it: an
+inherited session took the name a sub-agent asked for and returned what the
+program of the parent wrote, and an inherited wait took its name. Drop every
+one of them in `fyai_ctx_fork_disown()`, which ends nothing, and add a new kind
+of live context state to that list.
 
 Set job fields after `fyai_tool_job_spawn()` because that function clears the
 job. Cancel a complete process tree with
