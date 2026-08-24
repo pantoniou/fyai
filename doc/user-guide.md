@@ -464,14 +464,20 @@ set a fixed size instead, and the model can ask for one with `rows` and
 
 ### An interactive terminal session
 
-Give the shell call a `name` and it stays open as a session: one program on a
-terminal of its own, addressed by that name.
+Give the shell call a `name` and a terminal with `tty: true`, and it stays
+open as a session: one program on a terminal of its own, addressed by that
+name. Use it for a program that expects a person, such as a shell, an editor,
+or a program that draws a screen:
 
 ```sh
-fyai tool shell '{"name":"repl","command":"python3"}'
+fyai tool shell '{"name":"repl","command":"python3","tty":true}'
 ```
 
-The call answers as soon as the terminal exists. From there:
+A session needs the terminal, and a `name` without `tty` is refused. On pipes
+a command has a definite end and the caller asked for its output, so it runs
+to completion and answers with what it wrote, as every other command does.
+
+The call answers as soon as the session exists. From there:
 
 - `shell_input` types into it. The text is keystrokes, thus a control
   character works: `\u0003` interrupts, `\u001b` is escape. A return is added

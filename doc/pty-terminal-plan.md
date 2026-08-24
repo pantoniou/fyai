@@ -136,6 +136,12 @@ that is taken is refused, so that the model chooses another one instead of
 addressing the wrong shell. `codex` uses a number for this; a name says what
 the shell is for and survives being read by a person.
 
+**A terminal is asked for.** A session runs on pipes, as each other command
+does, until the call asks for a terminal with `tty`. A program that pages for a
+reader therefore does not page, and a session does not wait for a key that no
+person presses. The view of a pipe session reads a bare line feed as a new
+line, which is what the cooked mode of a terminal gives.
+
 **Each shell is a process.** The tool child that starts a session stays alive
 as its driver. It opens the pseudo-terminal, starts the program, and moves
 bytes; it interprets nothing and links no libfyvterm. Thus the confinement, the
