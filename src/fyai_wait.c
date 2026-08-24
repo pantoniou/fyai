@@ -63,39 +63,61 @@ char *fyai_time_now_text(void)
 /* Parse a local time and return seconds until it, or -1 if invalid. */
 static double fyai_wait_until_seconds(const char *text)
 {
-	struct tm tm;
+	struct tm tm, requested;
 	time_t now, then;
 	int y, mo, d, h, mi, se;
 	double delta;
-	int n;
+	int n, used;
 
 	now = time(NULL);
 	if (!localtime_r(&now, &tm))
 		return -1;
 
 	/* Commit date fields only after the complete date was parsed. */
-	n = sscanf(text, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &se);
-	if (n >= 5) {
-		if (n < 6)
+	used = 0;
+	n = sscanf(text, "%d-%d-%dT%d:%d:%d%n", &y, &mo, &d, &h, &mi, &se,
+		   &used);
+	if (n != 6 || text[used]) {
+		used = 0;
+		n = sscanf(text, "%d-%d-%dT%d:%d%n", &y, &mo, &d, &h, &mi,
+			   &used);
+		if (n != 5 || text[used])
+			n = 0;
+		else
 			se = 0;
+	}
+	if (n >= 5) {
+		if (mo < 1 || mo > 12 || d < 1 || d > 31)
+			return -1;
 		tm.tm_year = y - 1900;
 		tm.tm_mon = mo - 1;
 		tm.tm_mday = d;
 	} else {
-		n = sscanf(text, "%d:%d:%d", &h, &mi, &se);
-		if (n < 2)
-			return -1;
-		if (n < 3)
+		used = 0;
+		n = sscanf(text, "%d:%d:%d%n", &h, &mi, &se, &used);
+		if (n != 3 || text[used]) {
+			used = 0;
+			n = sscanf(text, "%d:%d%n", &h, &mi, &used);
+			if (n != 2 || text[used])
+				return -1;
 			se = 0;
+		}
 	}
-	if (h < 0 || h > 23 || mi < 0 || mi > 59 || se < 0 || se > 60)
+	if (h < 0 || h > 23 || mi < 0 || mi > 59 || se < 0 || se > 59)
 		return -1;
 	tm.tm_hour = h;
 	tm.tm_min = mi;
 	tm.tm_sec = se;
 	tm.tm_isdst = -1;
+	requested = tm;
 	then = mktime(&tm);
 	if (then == (time_t)-1)
+		return -1;
+	/* mktime normalizes values such as February 30; do not wait for the
+	 * different date that normalization produced. */
+	if (tm.tm_year != requested.tm_year || tm.tm_mon != requested.tm_mon ||
+	    tm.tm_mday != requested.tm_mday || tm.tm_hour != requested.tm_hour ||
+	    tm.tm_min != requested.tm_min || tm.tm_sec != requested.tm_sec)
 		return -1;
 	delta = difftime(then, now);
 	return delta > 0 ? delta : 0;
