@@ -2,10 +2,6 @@
  "steps": [
   {
    "response": {
-    "id": "c1",
-    "object": "chat.completion",
-    "created": 1735689600,
-    "model": "mock-model",
     "choices": [
      {
       "index": 0,
@@ -14,11 +10,11 @@
        "content": null,
        "tool_calls": [
         {
-         "id": "s1",
+         "id": "t1",
          "type": "function",
          "function": {
           "name": "shell",
-          "arguments": "{\"name\": \"box\", \"command\": \"sh -i\", \"description\": \"a shell\", \"tty\": true}"
+          "arguments": "{\"command\": \"sh -c 'if [ -t 1 ]; then echo ON-A-TERMINAL; else echo ON-A-PIPE; fi; echo READY'\", \"name\": \"probe\", \"description\": \"probe the session\"}"
          }
         }
        ]
@@ -30,10 +26,6 @@
   },
   {
    "response": {
-    "id": "c2",
-    "object": "chat.completion",
-    "created": 1735689600,
-    "model": "mock-model",
     "choices": [
      {
       "index": 0,
@@ -42,11 +34,11 @@
        "content": null,
        "tool_calls": [
         {
-         "id": "s2",
+         "id": "t2",
          "type": "function",
          "function": {
-          "name": "shell_input",
-          "arguments": "{\"name\": \"box\", \"input\": \"echo FROM-SESSION\"}"
+          "name": "shell",
+          "arguments": "{\"command\": \"sh -c 'if [ -t 1 ]; then echo ON-A-TERMINAL; else echo ON-A-PIPE; fi; echo READY'; sleep 30\", \"name\": \"probe-tty\", \"tty\": true, \"description\": \"probe a terminal session\"}"
          }
         }
        ]
@@ -58,10 +50,6 @@
   },
   {
    "response": {
-    "id": "c3",
-    "object": "chat.completion",
-    "created": 1735689600,
-    "model": "mock-model",
     "choices": [
      {
       "index": 0,
@@ -70,39 +58,11 @@
        "content": null,
        "tool_calls": [
         {
-         "id": "s3",
+         "id": "t3",
          "type": "function",
          "function": {
           "name": "shell_output",
-          "arguments": "{\"name\": \"box\", \"view\": \"all\"}"
-         }
-        }
-       ]
-      },
-      "finish_reason": "tool_calls"
-     }
-    ]
-   }
-  },
-  {
-   "response": {
-    "id": "c4",
-    "object": "chat.completion",
-    "created": 1735689600,
-    "model": "mock-model",
-    "choices": [
-     {
-      "index": 0,
-      "message": {
-       "role": "assistant",
-       "content": null,
-       "tool_calls": [
-        {
-         "id": "s4",
-         "type": "function",
-         "function": {
-          "name": "shell_close",
-          "arguments": "{\"name\": \"box\"}"
+          "arguments": "{\"name\": \"probe-tty\", \"view\": \"all\"}"
          }
         }
        ]
@@ -122,11 +82,11 @@
        "content": null,
        "tool_calls": [
         {
-         "id": "t5",
+         "id": "t4",
          "type": "function",
          "function": {
           "name": "shell",
-          "arguments": "{\"name\": \"lines\", \"command\": \"sh -c 'printf \\\"PIPE-A\\\\nPIPE-B\\\\n\\\"; sleep 2'\", \"description\": \"a shell that writes lines\", \"tty\": true}"
+          "arguments": "{\"command\": \"sh -c 'if [ -t 1 ]; then echo ON-A-TERMINAL; else echo ON-A-PIPE; fi; echo READY'\", \"description\": \"probe a plain command\"}"
          }
         }
        ]
@@ -138,10 +98,6 @@
   },
   {
    "response": {
-    "id": "c5",
-    "object": "chat.completion",
-    "created": 1735689600,
-    "model": "mock-model",
     "choices": [
      {
       "index": 0,
