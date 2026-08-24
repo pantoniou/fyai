@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "fyai_sink.h"
+#include "fyai_terminal.h"
 #include "fyai_prof.h"
 #include "fyai_branch.h"
 #include "fyai_merge.h"
@@ -608,6 +609,110 @@ static int fyai_open_arena(struct fyai_ctx *ctx, const char *arena_dir)
 	return 0;
 }
 
+static int fyai_root_publish_try(struct fyai_ctx *ctx);
+
+/*
+ * The config document a new arena starts from: the embedded
+ * config.yaml.sample, so a project begins on a working document rather than
+ * on an empty config. @who names the caller in a report. Returns fy_invalid
+ * and reports why on failure.
+ */
+static fy_generic fyai_seed_config(struct fyai_ctx *ctx, const char *who)
+{
+	fy_generic_sized_string sample = {
+		.data = (const char *)FYAI_EMBEDDED_CONFIG,
+		.size = FYAI_EMBEDDED_CONFIG_LEN,
+	};
+	fy_generic config, report;
+
+	config = fy_parse(ctx->gb, sample,
+			  FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING,
+			  NULL);
+	if (!fy_is_valid(config)) {
+		fyai_error(ctx, "%s: cannot parse embedded config sample", who);
+		return fy_invalid;
+	}
+	report = fyai_config_validate_report(ctx->cfg, config,
+					     "embedded config sample");
+	if (fy_not_equal(fy_get(report, "result"), "ok")) {
+		fyai_config_report_problems(ctx->cfg, report);
+		return fy_invalid;
+	}
+	return fy_get(report, "config", config);
+}
+
+/* Read one line of terminal input into @buf. False on end of input. */
+static bool storage_read_line(char *buf, size_t size)
+{
+	size_t len = 0;
+	ssize_t n;
+	char c;
+
+	for (;;) {
+		n = read(STDIN_FILENO, &c, 1);
+		if (n <= 0)
+			return len > 0;
+		if (c == '\n')
+			break;
+		if (len + 1 < size)
+			buf[len++] = c;
+	}
+	buf[len] = '\0';
+	return true;
+}
+
+/*
+ * An arena with no published root is not a project yet. The arena directory
+ * comes from the working directory. A run started in the wrong place would
+ * otherwise leave a stray .fyai with no configuration in it. Ask the user
+ * before you make one. Without a terminal there is no user to ask: report the
+ * command to run, and stop. Do not make a project that no user asked for.
+ */
+static int storage_bootstrap_ask(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	char answer[8];
+
+	if (!cfg->interactive || !ctx->stdout_tty ||
+	    !terminal_is_tty(STDIN_FILENO))
+		goto refused;
+
+	fyai_report(ctx, "No fyai project at %s\nCreate one? [y/N] ",
+		    cfg->arena_dir);
+	fyai_sink_flush(ctx->sink);
+	answer[0] = '\0';
+	if (!storage_read_line(answer, sizeof(answer)) ||
+	    (answer[0] != 'y' && answer[0] != 'Y'))
+		goto refused;
+	return 0;
+
+refused:
+	fyai_error(ctx, "no fyai project at %s; run `fyai init` to create one",
+		   cfg->arena_dir);
+	return -1;
+}
+
+/* Seed a fresh arena with the default config and publish its root. */
+static int storage_bootstrap_seed(struct fyai_ctx *ctx)
+{
+	fy_generic config;
+	int rc;
+
+	config = fyai_seed_config(ctx, "init");
+	if (!fy_is_valid(config))
+		return -1;
+	ctx->arena_config = config;
+	ctx->last_message = fy_invalid;
+	rc = fyai_root_publish_try(ctx);
+	if (rc) {
+		fyai_error(ctx, "init: cannot publish the arena root at %s",
+			   ctx->cfg->arena_dir);
+		return -1;
+	}
+	fyai_result(ctx, "initialized %s\n", ctx->cfg->arena_dir);
+	return 0;
+}
+
 int fyai_setup_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -615,7 +720,20 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 	struct fyai_root r;
 	const char *name;
 	fy_generic root;
+	bool asked;
 	int rc;
+
+	/*
+	 * Ask before the open creates the directory, so a refusal leaves
+	 * nothing behind.
+	 */
+	asked = false;
+	if (!cfg->root_pinned && access(cfg->arena_dir, F_OK)) {
+		rc = storage_bootstrap_ask(ctx);
+		if (rc)			/* storage_bootstrap_ask() says why */
+			goto err_out;
+		asked = true;
+	}
 
 	rc = fyai_open_arena(ctx, cfg->arena_dir);
 	fyai_error_check(ctx, !rc, err_out, "could not open arena");
@@ -630,6 +748,26 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 				 cfg->root_spec ? cfg->root_spec : "",
 				 cfg->arena_dir);
 		ctx->refs_head = cfg->root_ref;
+	}
+
+	/*
+	 * A fresh or never-initialized arena: create the project on request,
+	 * so the run continues on a published root and a real configuration.
+	 */
+	if (!ctx->refs_head && !cfg->root_pinned) {
+		if (!asked) {
+			rc = storage_bootstrap_ask(ctx);
+			if (rc)		/* storage_bootstrap_ask() says why */
+				goto err_out;
+		}
+		if (!cfg->branch_explicit) {
+			rc = fyai_ctx_set_branch(ctx, FYAI_BRANCH_DEFAULT);
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not select the default branch");
+		}
+		rc = storage_bootstrap_seed(ctx);
+		if (rc)			/* storage_bootstrap_seed() says why */
+			goto err_out;
 	}
 
 	if (ctx->refs_head) {
@@ -1637,28 +1775,9 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 		}
 		config = fy_get(report, "config", config);
 	} else if (fy_is_invalid(config)) {
-		/* No config supplied and none inherited: seed the arena with the
-		 * embedded config.yaml.sample so the project starts from a
-		 * working document rather than an empty config. */
-		fy_generic_sized_string sample = {
-			.data = (const char *)FYAI_EMBEDDED_CONFIG,
-			.size = FYAI_EMBEDDED_CONFIG_LEN,
-		};
-
-		config = fy_parse(ctx->gb, sample,
-				  FYAI_YAML_PARSE_FLAGS |
-				  FYOPPF_INPUT_TYPE_STRING, NULL);
-		if (!fy_is_valid(config)) {
-			fyai_error(ctx, "init: cannot parse embedded config sample");
+		config = fyai_seed_config(ctx, "init");
+		if (!fy_is_valid(config))
 			goto out;
-		}
-		report = fyai_config_validate_report(ctx->cfg, config,
-						     "embedded config sample");
-		if (fy_not_equal(fy_get(report, "result"), "ok")) {
-			fyai_config_report_problems(ctx->cfg, report);
-			goto out;
-		}
-		config = fy_get(report, "config", config);
 	}
 
 	ctx->arena_config = config;

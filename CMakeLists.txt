@@ -638,6 +638,21 @@ if(BUILD_TESTING)
     # Cases that need more wall clock than the common budget.
     set(FYAI_CASE_TIMEOUT_tool_terminate 120)
 
+    # Every deadline in the suite is multiplied by this. A sanitized build, or
+    # a suite run with many jobs at once, takes several times as long for the
+    # same work, and a case that waits for output must wait that much longer
+    # rather than report a failure that says nothing about the code. The cases,
+    # the PTY drivers, and the CTest budget all read it. A run raises it
+    # without reconfiguring by exporting FYAI_TIMEOUT_SCALE, which the cases
+    # prefer to this default; the CTest budget takes `ctest --timeout`.
+    if(HAVE_ASAN)
+        set(FYAI_TIMEOUT_SCALE_DEFAULT 3)
+    else()
+        set(FYAI_TIMEOUT_SCALE_DEFAULT 1)
+    endif()
+    set(FYAI_TIMEOUT_SCALE ${FYAI_TIMEOUT_SCALE_DEFAULT} CACHE STRING
+        "Multiplier for every test deadline (integer, 1 or more)")
+
     file(GLOB FYAI_TEST_CASES ${CMAKE_CURRENT_SOURCE_DIR}/tests/cases/*.sh)
     foreach(case_script ${FYAI_TEST_CASES})
         get_filename_component(case_name ${case_script} NAME_WE)
@@ -645,11 +660,12 @@ if(BUILD_TESTING)
         if(DEFINED FYAI_CASE_TIMEOUT_${case_name})
             set(case_timeout ${FYAI_CASE_TIMEOUT_${case_name}})
         endif()
+        math(EXPR case_timeout "${case_timeout} * ${FYAI_TIMEOUT_SCALE}")
         add_test(NAME fyai/case_${case_name} COMMAND bash ${case_script})
         set_tests_properties(fyai/case_${case_name} PROPERTIES
             TIMEOUT ${case_timeout}
             FIXTURES_REQUIRED fyai_binary
-            ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN}"
+            ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN};FYAI_TIMEOUT_SCALE_DEFAULT=${FYAI_TIMEOUT_SCALE}"
         )
     endforeach()
 
