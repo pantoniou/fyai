@@ -1,0 +1,66 @@
+{
+ "steps": [
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "t1",
+         "type": "function",
+         "function": {
+          "name": "exec_command",
+          "arguments": "{\"name\": \"quick\", \"command\": \"sh -c 'echo SESSION-RAN; exit 3'\", \"tty\": true, \"description\": \"a program that ends at once\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "t2",
+         "type": "function",
+         "function": {
+          "name": "shell_output",
+          "arguments": "{\"name\": \"quick\", \"view\": \"all\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "done."
+      },
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  }
+ ]
+}

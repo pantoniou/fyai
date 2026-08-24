@@ -1,0 +1,77 @@
+{
+ "steps": [
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-parent-wait",
+      "call_id": "call-parent-wait",
+      "name": "wait",
+      "arguments": "{\"name\": \"timer\", \"seconds\": 30, \"reason\": \"the wait of the parent\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-agent",
+      "call_id": "call-agent",
+      "name": "agent",
+      "arguments": "{\"name\": \"waiter\", \"description\": \"wait in a sub-agent\", \"task\": \"start a background wait named timer\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-child-wait",
+      "call_id": "call-child-wait",
+      "name": "wait",
+      "arguments": "{\"name\": \"timer\", \"seconds\": 30, \"reason\": \"the wait of the sub-agent\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: waiting."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-parent",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Delegated and done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

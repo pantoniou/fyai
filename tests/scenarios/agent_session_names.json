@@ -1,0 +1,103 @@
+{
+ "steps": [
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-parent-shell",
+      "call_id": "call-parent-shell",
+      "name": "exec_command",
+      "arguments": "{\"name\": \"box\", \"command\": \"sh -c 'echo PARENT-SESSION; sleep 20'\", \"tty\": true, \"description\": \"the shell of the parent\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-agent",
+      "call_id": "call-agent",
+      "name": "agent",
+      "arguments": "{\"name\": \"namer\", \"description\": \"open a shell\", \"task\": \"open a shell named box and report what it prints\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-child-shell",
+      "call_id": "call-child-shell",
+      "name": "exec_command",
+      "arguments": "{\"name\": \"box\", \"command\": \"sh -c 'echo CHILD-SESSION; sleep 3'\", \"tty\": true, \"description\": \"the shell of the sub-agent\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-child-wait",
+      "call_id": "call-child-wait",
+      "name": "wait",
+      "arguments": "{\"seconds\": 2, \"reason\": \"let the shell print\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "function_call",
+      "id": "fc-call-child-out",
+      "call_id": "call-child-out",
+      "name": "shell_output",
+      "arguments": "{\"name\": \"box\", \"view\": \"all\"}"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-child",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "SUBAGENT_REPORT: done."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "output": [
+     {
+      "type": "message",
+      "id": "msg-parent",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Delegated and done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

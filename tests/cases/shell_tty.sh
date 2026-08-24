@@ -16,6 +16,17 @@ run_fyai tool shell '{"command":"exit 7","tty":true}'
 assert_status 0
 assert_stdout_contains "command exited with status 7"
 
+# A descendant can inherit the terminal after the direct shell exits. The
+# command completes with that shell and must not wait for the inherited slave
+# descriptor to reach EOF.
+if ! timeout 5 "$FYAI_BIN" -k test-key --color off tool shell \
+	'{"command":"sleep 30 & echo direct-done; exit 0","tty":true}' \
+	>"$TEST_DIR/descendant.out" 2>&1 </dev/null; then
+	fail "a descendant that kept the PTY open kept the shell call alive"
+fi
+grep -q "direct-done" "$TEST_DIR/descendant.out" ||
+	fail "the PTY drain lost output from the direct shell"
+
 # A screen holds 24 rows. Everything above them must still be reported, thus
 # the lines that scrolled off are kept in front of the visible screen.
 run_fyai tool shell '{"command":"i=1; while [ $i -le 100 ]; do echo line-$i; i=$((i+1)); done","tty":true}'
