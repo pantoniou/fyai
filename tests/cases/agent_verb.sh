@@ -17,6 +17,8 @@ assert_stdout_contains "Sub-agent report: printed agent-was-here."
 
 # The sub-agent runs under the built-in agent persona.
 assert_request 0 'any(m.get("role") == "system" and "sub-agent" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 0 'any(m.get("role") == "system" and "Use apply_patch for manual code edits" in m.get("content", "") and "Do not create or edit files with exec_command" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 0 'any(m.get("role") == "system" and "Use ask_user" in m.get("content", "") and "cannot ask" not in m.get("content", "") for m in r["body"]["messages"])'
 
 # Restricted toolset: builtins present, no nested agent. A question is kept:
 # it goes up to whoever ran this sub-agent.
