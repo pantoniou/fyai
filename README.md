@@ -377,6 +377,7 @@ interfaces may still evolve.
 - [Annotated configuration](config.yaml.sample) — supported keys and defaults
 - [Branching design](doc/branching.md) — branches, refs, roots, joins, and GC
 - [Sub-agent protocol](doc/agent-protocol.md) — transient agent JSON-RPC
+- [Sub-agent fork model](doc/agent-fork-model.md) — what a forked child keeps, and the exec alternative
 - [System requirements and design](doc/srd/fyai-srd.md) — authoritative design
 
 Start with `fyai help VERB`, `/help` in an interactive session, and
