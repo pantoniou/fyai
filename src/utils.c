@@ -100,37 +100,43 @@ bool data_is_binary(const char *data, size_t len)
 	return false;
 }
 
-/* The number of bytes in the UTF-8 sequence that starts with @c, 0 if none. */
-static size_t utf8_seq_len(unsigned char c)
-{
-	if (c < 0x80)
-		return 1;
-	if ((c & 0xe0) == 0xc0)
-		return 2;
-	if ((c & 0xf0) == 0xe0)
-		return 3;
-	if ((c & 0xf8) == 0xf0)
-		return 4;
-	return 0;
-}
-
 bool data_is_wire_text(const char *data, size_t len)
 {
-	unsigned char c;
-	size_t i, n, k;
+	const unsigned char *p = (const unsigned char *)data;
+	unsigned int cp;
+	size_t i, n;
 
 	for (i = 0; i < len; i += n) {
-		c = (unsigned char)data[i];
-		n = utf8_seq_len(c);
-		if (!n || i + n > len)
+		if (p[i] < 0x80) {
+			n = 1;
+			cp = p[i];
+		} else if (p[i] >= 0xc2 && p[i] <= 0xdf) {
+			n = 2;
+			cp = p[i] & 0x1f;
+		} else if (p[i] >= 0xe0 && p[i] <= 0xef) {
+			n = 3;
+			cp = p[i] & 0x0f;
+		} else if (p[i] >= 0xf0 && p[i] <= 0xf4) {
+			n = 4;
+			cp = p[i] & 0x07;
+		} else {
 			return false;
-		if (n == 1 && c < 0x20 && c != '\t' && c != '\n' && c != '\r')
+		}
+		if (i + n > len)
 			return false;
-		if (n == 1 && c == 0x7f)
-			return false;
-		for (k = 1; k < n; k++)
-			if (((unsigned char)data[i + k] & 0xc0) != 0x80)
+		for (size_t k = 1; k < n; k++) {
+			if ((p[i + k] & 0xc0) != 0x80)
 				return false;
+			cp = (cp << 6) | (p[i + k] & 0x3f);
+		}
+		if ((n == 2 && cp < 0x80) || (n == 3 && cp < 0x800) ||
+		    (n == 4 && cp < 0x10000) ||
+		    (cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff)
+			return false;
+		if (n == 1 && cp < 0x20 && cp != '\t' && cp != '\n' && cp != '\r')
+			return false;
+		if (n == 1 && cp == 0x7f)
+			return false;
 	}
 	return true;
 }
