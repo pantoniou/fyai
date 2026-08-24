@@ -37,4 +37,12 @@ run_fyai tool wait '{"until":"soon"}'
 grep -q "HH:MM" "$TEST_DIR/stdout" || fail "an unreadable time was not explained"
 grep -q "soon" "$TEST_DIR/stdout" || fail "the refusal does not quote the time"
 
+# A valid prefix is not the complete documented format.
+run_fyai tool wait '{"until":"00:00junk"}'
+grep -q "HH:MM" "$TEST_DIR/stdout" || fail "trailing time text was accepted"
+
+# mktime normalizes this into March; the tool must not change the request.
+run_fyai tool wait '{"until":"2099-02-30T12:00:00"}'
+grep -q "HH:MM" "$TEST_DIR/stdout" || fail "an impossible date was normalized"
+
 pass
