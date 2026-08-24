@@ -42,6 +42,8 @@ fyai init
 
 This creates a repository-local `.fyai` arena. Later invocations search upward from the current directory for the nearest `.fyai` directory unless `arena_dir` or another explicit selector is used.
 
+An invocation that finds no arena does not make one on its own. On a terminal it asks whether to create the project at the directory it selected, and an answer of yes initializes it with the default configuration. Without a terminal it stops and names `fyai init`, so a run started in the wrong directory leaves no `.fyai` behind.
+
 To initialize from an explicit configuration document:
 
 ```sh

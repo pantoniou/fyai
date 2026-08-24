@@ -696,6 +696,18 @@ ctest --test-dir build-asan --output-on-failure
 
 The complete functional suite must also pass under ASAN.
 
+Every deadline in the suite is multiplied by `FYAI_TIMEOUT_SCALE`, which CMake
+sets to 3 for a sanitized tree and to 1 otherwise. A run raises it without
+reconfiguring:
+
+```sh
+FYAI_TIMEOUT_SCALE=4 ctest --test-dir build -j12 --timeout 240
+```
+
+Scale a deadline only. A value that paces a case, such as how long the PTY
+driver waits before it types, is a step of the case: scaling it changes what
+the case does.
+
 ### Static builds
 
 - `FYAI_MOSTLY_STATIC`: statically link dependencies, but keep glibc, libm,
