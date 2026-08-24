@@ -77,6 +77,20 @@ struct response_buffer {
 	size_t cap;
 };
 
+/* Stage at which a child failed before exec. */
+enum fyai_child_stage {
+	FYAI_CHILD_STAGE_NONE = 0,	/* it became the program */
+	FYAI_CHILD_STAGE_SETUP,		/* descriptors, group, environment */
+	FYAI_CHILD_STAGE_WORKDIR,
+	FYAI_CHILD_STAGE_SANDBOX,
+	FYAI_CHILD_STAGE_EXEC,		/* the shell itself */
+};
+
+struct fyai_child_start {
+	enum fyai_child_stage stage;
+	int err;			/* errno there, 0 when there is none */
+};
+
 struct shell_command_result {
 	char *stdout_data;
 	char *stderr_data;
@@ -86,11 +100,25 @@ struct shell_command_result {
 	int signal;
 	bool signaled;
 	bool timed_out;
+	/* Set when the command did not start; stage gives the failure point. */
+	struct fyai_child_start start;
 };
 
 #define FYAI_SHELL_EXIT_WORKDIR	125
 #define FYAI_SHELL_EXIT_SANDBOX	126
 #define FYAI_SHELL_EXIT_EXEC	127
+
+/* Manage the close-on-exec channel carrying a child-start failure. */
+int fyai_child_status_open(int fds[2]);
+void fyai_child_status_report(int fd, enum fyai_child_stage stage, int err);
+void fyai_child_status_read(int fd, struct fyai_child_start *start);
+
+/* Format a child-start failure in @buf, or return NULL after a successful
+ * exec. */
+#define FYAI_CHILD_START_TEXT_MAX 512
+const char *fyai_child_start_text(const struct fyai_child_start *start,
+				  const char *shell, const char *workdir,
+				  char *buf, size_t size);
 
 /* Options for one shell command. */
 struct shell_command_opts {
@@ -101,7 +129,8 @@ struct shell_command_opts {
 };
 
 /* Exec @command or an interactive shell; return only when exec fails. */
-void fyai_exec_shell_command(const char *command, const char *shell,
+void fyai_exec_shell_command(int status_fd, const char *command,
+			     const char *shell,
 			     bool login);
 
 enum shell_output_stream {
@@ -190,6 +219,7 @@ struct fyai_child_spec {
 	int cols;
 	const char *workdir;		/* chdir before confinement; NULL keeps */
 	const struct fyai_sandbox_spec *sandbox;
+	int status_fd;			/* says why a start stopped; -1 none */
 };
 
 /* Apply @spec before exec, returning the child's failure exit status. */

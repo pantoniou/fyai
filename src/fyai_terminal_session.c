@@ -100,9 +100,10 @@ static enum fyai_event_action tty_child(const struct fyai_event *ev)
 		fyai_event_source_remove(r->childsrc);
 		r->childsrc = NULL;
 	}
-	/* A PTY can still hold output after the child has been reaped. */
-	if (!r->fdsrc)
-		r->done = true;
+	/* Drain ready output; descendants may keep the PTY open indefinitely. */
+	if (r->fdsrc)
+		(void)tty_read(ev);
+	r->done = true;
 	return FYAIEA_CONTINUE;
 }
 
@@ -169,7 +170,8 @@ static void tty_sources_remove(struct tty_run *r)
 /* The child side of the fork. It never returns. */
 static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 			   const struct fyai_sandbox_spec *sandbox,
-			   const struct fyai_terminal_opts *opts, int slave)
+			   const struct fyai_terminal_opts *opts, int slave,
+			   int status_fd)
 {
 	struct fyai_child_spec spec = {};
 	int rc;
@@ -185,19 +187,23 @@ static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 	spec.cols = opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT;
 	spec.workdir = opts->workdir;
 	spec.sandbox = sandbox;
+	spec.status_fd = status_fd;
 
 	rc = fyai_child_exec_prepare(ctx, &spec);
 	if (rc)
 		_exit(rc);
-	fyai_exec_shell_command(command, opts->shell, opts->login);
+	fyai_exec_shell_command(spec.status_fd < 0 ? -1 : 3, command,
+				opts->shell, opts->login);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
 
 int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 			    const struct fyai_sandbox_spec *sandbox,
 			    const struct fyai_terminal_opts *opts, int rows,
-			    int cols, int *masterp, pid_t *pidp)
+			    int cols, int *masterp, pid_t *pidp,
+			    struct fyai_child_start *startp)
 {
+	int status_pipe[2] = { -1, -1 };
 	struct winsize ws = {};
 	int master = -1;
 	int slave = -1;
@@ -216,14 +222,33 @@ int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 	if (rc)
 		goto fail;
 
+	if (fyai_child_status_open(status_pipe))
+		goto fail;
+
 	pid = fork();
 	if (pid < 0)
 		goto fail;
 	if (!pid) {
 		close(master);
-		tty_child_exec(ctx, command, sandbox, opts, slave);
+		close(status_pipe[0]);
+		tty_child_exec(ctx, command, sandbox, opts, slave,
+			       status_pipe[1]);
 	}
 	close(slave);
+	slave = -1;
+	close(status_pipe[1]);
+	status_pipe[1] = -1;
+	fyai_child_status_read(status_pipe[0], startp);
+	close(status_pipe[0]);
+	status_pipe[0] = -1;
+	if (startp && startp->stage != FYAI_CHILD_STAGE_NONE) {
+		/* The child did not run the program: reap it and report
+		 * nothing here, because the caller names the shell and the
+		 * command. */
+		(void)waitpid(pid, NULL, 0);
+		close(master);
+		return -1;
+	}
 
 	flags = fcntl(master, F_GETFL, 0);
 	if (flags >= 0)
@@ -234,6 +259,10 @@ int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 	return 0;
 
 fail:
+	if (status_pipe[0] >= 0)
+		close(status_pipe[0]);
+	if (status_pipe[1] >= 0)
+		close(status_pipe[1]);
 	if (slave >= 0)
 		close(slave);
 	if (master >= 0)
@@ -245,7 +274,7 @@ fail:
 static void pipe_child_exec(struct fyai_ctx *ctx, const char *command,
 			    const struct fyai_sandbox_spec *sandbox,
 			    const struct fyai_terminal_opts *opts,
-			    int in_fd, int out_fd)
+			    int in_fd, int out_fd, int status_fd)
 {
 	struct fyai_child_spec spec = {};
 	int rc;
@@ -260,19 +289,23 @@ static void pipe_child_exec(struct fyai_ctx *ctx, const char *command,
 	spec.term = "dumb";
 	spec.workdir = opts->workdir;
 	spec.sandbox = sandbox;
+	spec.status_fd = status_fd;
 
 	rc = fyai_child_exec_prepare(ctx, &spec);
 	if (rc)
 		_exit(rc);
-	fyai_exec_shell_command(command, opts->shell, opts->login);
+	fyai_exec_shell_command(spec.status_fd < 0 ? -1 : 3, command,
+				opts->shell, opts->login);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
 
 int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
 			     const struct fyai_sandbox_spec *sandbox,
 			     const struct fyai_terminal_opts *opts,
-			     int *readp, int *writep, pid_t *pidp)
+			     int *readp, int *writep, pid_t *pidp,
+			     struct fyai_child_start *startp)
 {
+	int status_pipe[2] = { -1, -1 };
 	int out_pipe[2] = { -1, -1 };
 	int in_pipe[2] = { -1, -1 };
 	int flags;
@@ -283,17 +316,36 @@ int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
 	fyai_error_check(ctx, !pipe(in_pipe), fail,
 			 "pipe: %s", strerror(errno));
 
+	if (fyai_child_status_open(status_pipe)) {
+		fyai_error(ctx, "pipe: %s", strerror(errno));
+		goto fail;
+	}
+
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, fail,
 			 "fork: %s", strerror(errno));
 	if (!pid) {
 		close(out_pipe[0]);
 		close(in_pipe[1]);
+		close(status_pipe[0]);
 		pipe_child_exec(ctx, command, sandbox, opts, in_pipe[0],
-				out_pipe[1]);
+				out_pipe[1], status_pipe[1]);
 	}
 	close(out_pipe[1]);
 	close(in_pipe[0]);
+	out_pipe[1] = in_pipe[0] = -1;
+	close(status_pipe[1]);
+	status_pipe[1] = -1;
+	fyai_child_status_read(status_pipe[0], startp);
+	close(status_pipe[0]);
+	status_pipe[0] = -1;
+	if (startp && startp->stage != FYAI_CHILD_STAGE_NONE) {
+		/* The child did not run the program; the caller reports why. */
+		(void)waitpid(pid, NULL, 0);
+		close(out_pipe[0]);
+		close(in_pipe[1]);
+		return -1;
+	}
 
 	flags = fcntl(out_pipe[0], F_GETFL, 0);
 	if (flags >= 0)
@@ -308,6 +360,10 @@ int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
 	return 0;
 
 fail:
+	if (status_pipe[0] >= 0)
+		close(status_pipe[0]);
+	if (status_pipe[1] >= 0)
+		close(status_pipe[1]);
 	if (out_pipe[0] >= 0)
 		close(out_pipe[0]);
 	if (out_pipe[1] >= 0)
@@ -326,7 +382,10 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 {
 	struct fyai_terminal_opts defaults = {};
 	struct fyai_event_loop *el;
+	char why_buf[FYAI_CHILD_START_TEXT_MAX];
+	struct fyai_child_start start = {};
 	struct tty_run r = {};
+	const char *why;
 	int rc;
 	pid_t pid;
 
@@ -347,9 +406,17 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	fyai_terminal_view_line_cb(r.view, opts->output_fn, opts->output_data);
 
 	rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, r.rows,
-				     r.cols, &r.master, &pid);
-	if (rc)
+				     r.cols, &r.master, &pid, &start);
+	if (rc) {
+		/* The caller reports it: it has the call that this came
+		 * from. */
+		result->start = start;
+		why = fyai_child_start_text(&start, opts->shell, opts->workdir,
+					    why_buf, sizeof(why_buf));
+		if (why)
+			fyai_error(ctx, "shell: %s", why);
 		goto fail_view;
+	}
 	r.pid = pid;
 
 	el = fyai_ctx_loop(ctx);
@@ -624,9 +691,12 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 			  const struct fyai_sandbox_spec *sandbox,
 			  const struct fyai_terminal_opts *opts)
 {
+	char why_buf[FYAI_CHILD_START_TEXT_MAX];
+	struct fyai_child_start start = {};
 	struct fyai_terminal_relay *rl;
 	struct fy_generic_builder *gb;
 	struct fyai_event_loop *el;
+	const char *why;
 	int rows, cols, rc;
 
 	rl = calloc(1, sizeof(*rl));
@@ -650,17 +720,27 @@ fyai_terminal_relay_start(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 	if (opts->pipes) {
 		rc = fyai_terminal_pipe_spawn(ctx, command, sandbox, opts,
 					      &rl->master, &rl->input,
-					      &rl->pid);
+					      &rl->pid, &start);
+		if (rc)
+			why = fyai_child_start_text(&start, opts->shell,
+						    opts->workdir, why_buf,
+						    sizeof(why_buf));
 		fyai_error_check(ctx, !rc, fail,
 			"shell: could not start '%s' on pipes: %s",
-			command ? command : "", strerror(errno));
+			command ? command : "", why ? why : strerror(errno));
 	} else {
 		rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, rows,
-					     cols, &rl->master, &rl->pid);
+					     cols, &rl->master, &rl->pid,
+					     &start);
+		if (rc)
+			why = fyai_child_start_text(&start, opts->shell,
+						    opts->workdir, why_buf,
+						    sizeof(why_buf));
 		fyai_error_check(ctx, !rc, fail,
 			"shell: could not start '%s' on a "
 			"pseudo-terminal (%dx%d): %s",
-			command ? command : "", rows, cols, strerror(errno));
+			command ? command : "", rows, cols,
+			why ? why : strerror(errno));
 		/* One descriptor is both directions of a terminal. */
 		rl->input = rl->master;
 	}

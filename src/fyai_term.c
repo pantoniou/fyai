@@ -406,10 +406,13 @@ static int term_screen_save(struct fyai_term *t, const char *path)
 int fyai_term_verb(struct fyai_ctx *ctx)
 {
 	const struct fyai_term_args *args = &ctx->cfg->cmd.args.term;
+	char why_buf[FYAI_CHILD_START_TEXT_MAX];
+	struct fyai_child_start start = {};
 	struct fyai_event_loop *el;
 	struct fyai_term t = {};
 	fyai_event_ms_t deadline;
 	int rows = 0, cols = 0;
+	const char *why;
 	int rc, err = -1;
 
 	t.ctx = ctx;
@@ -448,10 +451,12 @@ int fyai_term_verb(struct fyai_ctx *ctx)
 
 	/* A command run directly by the user is not model-sandboxed. */
 	rc = fyai_terminal_pty_spawn(ctx, t.command, NULL, &t.opts, t.rows,
-				     t.cols, &t.master, &t.pid);
+				     t.cols, &t.master, &t.pid, &start);
+	why = fyai_child_start_text(&start, t.opts.shell, t.opts.workdir,
+				    why_buf, sizeof(why_buf));
 	fyai_error_check(ctx, !rc, err_out,
 			 "term: could not start the terminal: %s",
-			 strerror(errno));
+			 why ? why : strerror(errno));
 
 	el = fyai_ctx_loop(ctx);
 	fyai_error_check(ctx, el != NULL, err_out,

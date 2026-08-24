@@ -108,7 +108,8 @@
           type: string
           description: |-
             Shell to run the command under. Defaults to `/bin/sh`. Name
-            another shell for a command that uses what that shell adds.
+            another shell for a command that uses what that shell adds; a
+            name is looked up on PATH, as any other command is.
         login:
           type: boolean
           description: |-

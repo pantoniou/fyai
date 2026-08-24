@@ -802,9 +802,91 @@ bool fyai_process_reads_stdin(pid_t pid)
 #endif
 }
 
+int fyai_child_status_open(int fds[2])
+{
+	fds[0] = fds[1] = -1;
+#ifdef O_CLOEXEC
+	if (pipe2(fds, O_CLOEXEC))
+		return -1;
+	return 0;
+#else
+	if (pipe(fds))
+		return -1;
+	(void)fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+	(void)fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+	return 0;
+#endif
+}
+
+void fyai_child_status_report(int fd, enum fyai_child_stage stage, int err)
+{
+	struct fyai_child_start start;
+	ssize_t n;
+
+	if (fd < 0)
+		return;
+	start.stage = stage;
+	start.err = err;
+	/* One write of one record: there is nothing to interleave with. */
+	do {
+		n = write(fd, &start, sizeof(start));
+	} while (n < 0 && errno == EINTR);
+}
+
+void fyai_child_status_read(int fd, struct fyai_child_start *start)
+{
+	ssize_t n;
+
+	if (!start)
+		return;
+	start->stage = FYAI_CHILD_STAGE_NONE;
+	start->err = 0;
+	if (fd < 0)
+		return;
+	/* Read one failure record; EOF means exec succeeded. */
+	do {
+		n = read(fd, start, sizeof(*start));
+	} while (n < 0 && errno == EINTR);
+	if (n != (ssize_t)sizeof(*start)) {
+		start->stage = FYAI_CHILD_STAGE_NONE;
+		start->err = 0;
+	}
+}
+
+const char *fyai_child_start_text(const struct fyai_child_start *start,
+				  const char *shell, const char *workdir,
+				  char *buf, size_t size)
+{
+	const char *why;
+
+	if (!start || start->stage == FYAI_CHILD_STAGE_NONE || !buf || !size)
+		return NULL;
+	why = start->err ? strerror(start->err) : "no reason was reported";
+	switch (start->stage) {
+	case FYAI_CHILD_STAGE_WORKDIR:
+		snprintf(buf, size, "cannot enter workdir %s: %s",
+			 workdir ? workdir : "", why);
+		break;
+	case FYAI_CHILD_STAGE_SANDBOX:
+		snprintf(buf, size, "could not confine the command: %s", why);
+		break;
+	case FYAI_CHILD_STAGE_EXEC:
+		snprintf(buf, size, "could not start the shell %s: %s",
+			 shell && *shell ? shell : "/bin/sh", why);
+		break;
+	case FYAI_CHILD_STAGE_SETUP:
+	case FYAI_CHILD_STAGE_NONE:
+	default:
+		snprintf(buf, size, "could not prepare the command: %s", why);
+		break;
+	}
+	return buf;
+}
+
 int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			    const struct fyai_child_spec *spec)
 {
+	int status_fd = spec->status_fd;
 	char num[16];
 
 	/* The application loop belongs to fyai, never to the command. */
@@ -814,23 +896,31 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		/* A leader already cannot start a session; a group still
 		 * separates it from the group of this process. */
 		if (setsid() < 0 && setpgid(0, 0) < 0)
-			return FYAI_SHELL_EXIT_EXEC;
+			goto err_setup;
 	} else if (setpgid(0, 0) < 0) {
-		return FYAI_SHELL_EXIT_EXEC;
+		goto err_setup;
 	}
 	if (spec->ctty_fd >= 0 && ioctl(spec->ctty_fd, TIOCSCTTY, 0) < 0)
-		return FYAI_SHELL_EXIT_EXEC;
+		goto err_setup;
 	if (spec->in_fd >= 0 && dup2(spec->in_fd, STDIN_FILENO) < 0)
-		return FYAI_SHELL_EXIT_EXEC;
+		goto err_setup;
 	if (spec->out_fd >= 0 && dup2(spec->out_fd, STDOUT_FILENO) < 0)
-		return FYAI_SHELL_EXIT_EXEC;
+		goto err_setup;
 	if (spec->err_fd >= 0 && dup2(spec->err_fd, STDERR_FILENO) < 0)
-		return FYAI_SHELL_EXIT_EXEC;
-	/* Close all inherited descriptors beyond the installed standard ones. */
-	fyai_close_fds_from(3);
+		goto err_setup;
+	/* Preserve the close-on-exec status fd while closing inherited fds. */
+	if (status_fd >= 0) {
+		if (dup2(status_fd, 3) < 0)
+			goto err_setup;
+		status_fd = 3;
+		(void)fcntl(status_fd, F_SETFD, FD_CLOEXEC);
+		fyai_close_fds_from(4);
+	} else {
+		fyai_close_fds_from(3);
+	}
 	/* Fail closed if any provider credential cannot be removed. */
 	if (fyai_env_sanitize())
-		return FYAI_SHELL_EXIT_EXEC;
+		goto err_setup;
 	/* Describe the child's terminal and screen dimensions. */
 	if (spec->term)
 		setenv("TERM", spec->term, 1);
@@ -844,17 +934,27 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		unsetenv("COLUMNS");
 	}
 	/* Enter the directory before applying confinement. */
-	if (spec->workdir && *spec->workdir && chdir(spec->workdir) < 0)
+	if (spec->workdir && *spec->workdir && chdir(spec->workdir) < 0) {
+		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_WORKDIR,
+					 errno);
 		return FYAI_SHELL_EXIT_WORKDIR;
+	}
 	/* Confine the tool before handing control to the shell. */
-	if (spec->sandbox && fyai_sandbox_apply(spec->sandbox))
+	if (spec->sandbox && fyai_sandbox_apply(spec->sandbox)) {
+		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_SANDBOX,
+					 errno);
 		return FYAI_SHELL_EXIT_SANDBOX;
+	}
 	return 0;
+
+err_setup:
+	fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_SETUP, errno);
+	return FYAI_SHELL_EXIT_EXEC;
 }
 
 /* Replace this process with a command or interactive shell. */
-void fyai_exec_shell_command(const char *command, const char *shell,
-			     bool login)
+void fyai_exec_shell_command(int status_fd, const char *command,
+			     const char *shell, bool login)
 {
 	char argv0[64];
 	const char *base;
@@ -865,17 +965,19 @@ void fyai_exec_shell_command(const char *command, const char *shell,
 	base = base ? base + 1 : shell;
 	snprintf(argv0, sizeof(argv0), "%s%s", login ? "-" : "", base);
 
-	if (command && *command) {
-		execl(shell, argv0, "-c", command, (char *)NULL);
-		return;
-	}
-	execl(shell, argv0, (char *)NULL);
+	/* Resolve a shell name through PATH; a name with '/' is already a path. */
+	if (command && *command)
+		execlp(shell, argv0, "-c", command, (char *)NULL);
+	else
+		execlp(shell, argv0, (char *)NULL);
+	fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_EXEC, errno);
 }
 
 static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 			       const struct shell_command_opts *opts,
 			       const struct fyai_sandbox_spec *sandbox,
-			       int stdout_pipe[2], int stderr_pipe[2])
+			       int stdout_pipe[2], int stderr_pipe[2],
+			       int status_fd)
 {
 	struct fyai_child_spec spec = {};
 	int devnull;
@@ -892,12 +994,14 @@ static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 	spec.ctty_fd = -1;
 	spec.workdir = opts ? opts->workdir : NULL;
 	spec.sandbox = sandbox;
+	spec.status_fd = status_fd;
 	rc = fyai_child_exec_prepare(ctx, &spec);
 	if (rc)
 		_exit(rc);
 	if (devnull < 0)
 		close(STDIN_FILENO);
-	fyai_exec_shell_command(command, opts ? opts->shell : NULL,
+	fyai_exec_shell_command(spec.status_fd < 0 ? -1 : 3, command,
+				opts ? opts->shell : NULL,
 				opts && opts->login);
 	_exit(FYAI_SHELL_EXIT_EXEC);
 }
@@ -916,6 +1020,7 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 	struct fyai_event_loop *el = NULL;
 	int stdout_pipe[2] = { -1, -1 };
 	int stderr_pipe[2] = { -1, -1 };
+	int status_pipe[2] = { -1, -1 };
 	int status = 0;
 	pid_t pid = -1;
 	int ret = -1;
@@ -924,15 +1029,24 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 
 	if (pipe(stdout_pipe) || pipe(stderr_pipe))
 		goto out;
+	if (fyai_child_status_open(status_pipe))
+		goto out;
 
 	pid = fork();
 	if (pid < 0)
 		goto out;
 
 	if (!pid) {
+		close(status_pipe[0]);
 		shell_capture_exec(ctx, command, opts, sandbox,
-				   stdout_pipe, stderr_pipe);
+				   stdout_pipe, stderr_pipe, status_pipe[1]);
 	}
+	close(status_pipe[1]);
+	status_pipe[1] = -1;
+	/* Why the command never started, when it did not. */
+	fyai_child_status_read(status_pipe[0], &result->start);
+	close(status_pipe[0]);
+	status_pipe[0] = -1;
 	/* Close the fork-to-exec race from the parent side. */
 	do {
 		ret = setpgid(pid, pid);
@@ -1048,6 +1162,10 @@ out:
 		close(stderr_pipe[0]);
 	if (stderr_pipe[1] >= 0)
 		close(stderr_pipe[1]);
+	if (status_pipe[0] >= 0)
+		close(status_pipe[0]);
+	if (status_pipe[1] >= 0)
+		close(status_pipe[1]);
 	free(stdout_buf.data);
 	free(stderr_buf.data);
 	if (ret)

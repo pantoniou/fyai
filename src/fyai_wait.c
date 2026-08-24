@@ -245,6 +245,21 @@ void fyai_waits_release(struct fyai_ctx *ctx)
 	ctx->waits = NULL;
 }
 
+/* Drop inherited wait records without removing the parent's timers. */
+void fyai_waits_abandon(struct fyai_ctx *ctx)
+{
+	struct fyai_wait *w, *next;
+
+	if (!ctx)
+		return;
+	for (w = ctx->waits; w; w = next) {
+		next = w->next;
+		w->timer = NULL;
+		fyai_wait_free(w);
+	}
+	ctx->waits = NULL;
+}
+
 /* Start a wait that does not hold the turn. */
 static char *fyai_wait_start(struct fyai_ctx *ctx, const char *name,
 			     const char *reason, double seconds)

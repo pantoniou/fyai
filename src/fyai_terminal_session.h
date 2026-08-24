@@ -39,19 +39,23 @@ struct fyai_terminal_result {
 	bool cancelled;			/* an interrupt stopped the command */
 	bool signaled;
 	bool timed_out;
+	/* Set when the command did not start; stage gives the failure point. */
+	struct fyai_child_start start;
 };
 
 /* Start a command or interactive shell on a pseudo-terminal. */
 int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 			    const struct fyai_sandbox_spec *sandbox,
 			    const struct fyai_terminal_opts *opts, int rows,
-			    int cols, int *masterp, pid_t *pidp);
+			    int cols, int *masterp, pid_t *pidp,
+			    struct fyai_child_start *startp);
 
 /* Start @command on pipes with standard error joined to standard output. */
 int fyai_terminal_pipe_spawn(struct fyai_ctx *ctx, const char *command,
 			     const struct fyai_sandbox_spec *sandbox,
 			     const struct fyai_terminal_opts *opts,
-			     int *readp, int *writep, pid_t *pidp);
+			     int *readp, int *writep, pid_t *pidp,
+			     struct fyai_child_start *startp);
 
 /*
  * Run one command on a pseudo-terminal and return its interpreted screen.

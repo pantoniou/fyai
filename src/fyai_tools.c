@@ -45,6 +45,7 @@
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
+#include "fyai_output.h"
 #include "fyai_tools.h"
 #include "fyai_wait.h"
 #include "fyai_prof.h"
@@ -1035,6 +1036,8 @@ static char *fyai_shell_tty_run(struct fyai_ctx *ctx, fy_generic call,
 
 	rc = fyai_terminal_session_run(ctx, command, sandbox, &opts, result);
 	fyai_shell_live_close(ctx);
+	if (rc && result->start.stage != FYAI_CHILD_STAGE_NONE)
+		return strdup("");
 	fyai_error_check(ctx, !rc, err,
 			 "shell: could not run the command on a terminal");
 
@@ -1069,6 +1072,8 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	const struct fyai_sandbox_spec *sandbox;
 	fy_generic command, workdir;
 	size_t budget, out_bytes, err_bytes;
+	char why_buf[FYAI_CHILD_START_TEXT_MAX];
+	const char *start_why;
 	const char *msg;
 	char *bounded;
 	char *ret = NULL;
@@ -1103,6 +1108,9 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 					 "shell: could not finish binary output");
 		}
 
+		start_why = fyai_child_start_text(&tty_result.start,
+						  opts.shell, opts.workdir,
+						  why_buf, sizeof(why_buf));
 		if (tty_result.timed_out) {
 			msg = fy_sprintfa(
 				"\ntool error: command timed out after %u ms\n",
@@ -1114,6 +1122,13 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				msg = fy_sprintfa(
 					"\ntool error: command killed by signal %d\n",
 					tty_result.signal);
+		} else if (start_why) {
+			/*
+			 * The child did not run the
+			 * program, so the status is not
+			 * the answer of a program: say what stopped it.
+			 */
+			msg = fy_sprintfa("\ntool error: %s\n", start_why);
 		} else if (tty_result.exit_code == FYAI_SHELL_EXIT_WORKDIR &&
 			   opts.workdir) {
 			msg = fy_sprintfa(
@@ -1191,7 +1206,18 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 		if (response_buffer_append(&buf, msg))
 			goto out;
 	} else if (result.exit_code) {
-		if (result.exit_code == FYAI_SHELL_EXIT_WORKDIR && opts.workdir)
+		start_why = fyai_child_start_text(&result.start, opts.shell,
+						  opts.workdir, why_buf,
+						  sizeof(why_buf));
+		if (start_why)
+			/*
+			 * The child did not run the
+			 * program, so the status is not
+			 * the answer of a program: say what stopped it.
+			 */
+			msg = fy_sprintfa("\ntool error: %s\n", start_why);
+		else if (result.exit_code == FYAI_SHELL_EXIT_WORKDIR &&
+			 opts.workdir)
 			msg = fy_sprintfa(
 				"\ntool error: cannot enter workdir %s\n",
 				opts.workdir);
@@ -2075,6 +2101,30 @@ static void fyai_tool_job_unlink(struct fyai_ctx *ctx,
 	}
 }
 
+/* Close inherited job descriptors without affecting parent-owned jobs. */
+static void fyai_tool_jobs_abandon(struct fyai_ctx *ctx)
+{
+	struct fyai_tool_job *job, *next;
+
+	if (!ctx)
+		return;
+	for (job = ctx->tool_jobs; job; job = next) {
+		next = job->next;
+		/* Never a standard descriptor: this child keeps its own. */
+		if (job->pfd > STDERR_FILENO)
+			close(job->pfd);
+		if (job->rfd > STDERR_FILENO)
+			close(job->rfd);
+		if (job->pty > STDERR_FILENO)
+			close(job->pty);
+		job->pfd = job->rfd = job->pty = -1;
+		job->conn = NULL;
+		job->session = NULL;
+		job->next = NULL;
+	}
+	ctx->tool_jobs = NULL;
+}
+
 /*
  * The window of the user changed. A tool child called setsid(), so the kernel
  * does not signal it. The parent sends the new size on the control channel,
@@ -2446,6 +2496,26 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	free(sess->branch);
 	free(sess->title);
 	free(sess);
+}
+
+/* Drop inherited session records without touching parent-owned sessions. */
+static void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess, *next;
+
+	if (!ctx)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = next) {
+		next = sess->next;
+		if (sess->job)
+			sess->job->session = NULL;
+		sess->job = NULL;
+		sess->surface = NULL;
+		sess->idle = NULL;
+		sess->waiter = NULL;
+		fyai_shell_session_destroy(sess);
+	}
+	ctx->shell_sessions = NULL;
 }
 
 /* End and release every session owned by this invocation. */
@@ -3116,6 +3186,40 @@ static bool fyai_tool_job_branch_live(struct fyai_ctx *ctx, const char *branch)
 	return false;
 }
 
+/* Clear live parent-owned state after fork. */
+static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
+{
+	if (!ctx)
+		return;
+	fyai_shell_sessions_abandon(ctx);	/* named shells of the parent */
+	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
+	fyai_waits_abandon(ctx);		/* its named waits */
+	fyai_events_release(ctx);		/* and what they queued for it */
+	fyai_patch_display_clear(ctx);		/* patches it resolved */
+	free(ctx->patch_display);
+	ctx->patch_display = NULL;
+	fyai_output_cleanup(ctx);		/* the document it has open */
+	ctx->ui = NULL;				/* its display */
+	ctx->shell_stream = NULL;
+	ctx->tty_session = NULL;		/* the terminal it runs in */
+	ctx->winch_src = NULL;			/* a source on the loop it owns */
+	ctx->config_edit = NULL;
+	ctx->mcp = NULL;			/* its connections to the servers */
+	ctx->mcp_tools = fy_invalid;
+	/*
+	 * What the parent spent is the accounting of its run, and the extents
+	 * of its last call point into storage this child does not use.
+	 */
+	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
+	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
+	ctx->usage_cost = 0;
+	ctx->usage_calls = 0;
+	ctx->last_call_input = ctx->last_call_output = ctx->last_call_total = 0;
+	ctx->last_token_extents = fy_invalid;
+	ctx->response_chain_linked = false;
+	ctx->response_chain_miss = false;
+}
+
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			       struct fyai_tool_job *job, bool pty)
@@ -3175,8 +3279,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		if (fyai_tool_child_fds(req[0], rsp[1]))
 			_exit(126);
 
-		ctx->ui = NULL;
-		ctx->shell_stream = NULL;
+		fyai_ctx_fork_disown(ctx);
 		ctx->cfg->tool_child = true;
 		fyai_diag_trace_reopen();
 		fyai_tool_child_signals(ctx);
