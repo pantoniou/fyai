@@ -24,7 +24,12 @@ FYAI_TEST_ENTRY(vterm, kitty_disambiguate, vterm_kitty_disambiguate)
 FYAI_TEST_ENTRY(vterm, sync_output_mode, vterm_sync_output_mode)
 
 /* libfyvterm creates over a configuration struct; every case here wants
- * the same plain 24x80 terminal. */
+ * the same plain 24x80 terminal.
+ *
+ * A terminal that is obtained is not yet sized: the reset gives the state its
+ * scroll region. A case that drives the state directly must reset it, as a
+ * case that takes the screen resets that. Without the reset the region stays
+ * zero high, which a debug build of the library stops on. */
 static struct fyvt *vterm_open(void)
 {
 	struct fyvt_cfg cfg;
@@ -116,12 +121,15 @@ int vterm_sgr_dim_overline(void)
 int vterm_da1_response(void)
 {
 	struct fyvt *vt;
+	struct fyvt_state *state;
 	struct capture cap = { .len = 0 };
 	static const char bytes[] = "\x1b[c";
 
 	vt = vterm_open();
 	FYAI_TCHECK(vt != NULL);
-	fyvt_obtain_state(vt);
+	state = fyvt_obtain_state(vt);
+	FYAI_TCHECK(state != NULL);
+	fyvt_state_reset(state, 1);
 	fyvt_output_set_callback(vt, capture_output, &cap);
 
 	FYAI_TCHECK(fyvt_input_write(vt, bytes, strlen(bytes)) == strlen(bytes));
@@ -144,6 +152,8 @@ int vterm_kitty_disambiguate(void)
 	vt = vterm_open();
 	FYAI_TCHECK(vt != NULL);
 	state = fyvt_obtain_state(vt);
+	FYAI_TCHECK(state != NULL);
+	fyvt_state_reset(state, 1);
 	fyvt_output_set_callback(vt, capture_output, &cap);
 
 	FYAI_TCHECK(fyvt_input_write(vt, enable, strlen(enable)) == strlen(enable));
@@ -151,7 +161,6 @@ int vterm_kitty_disambiguate(void)
 	fyvt_keyboard_unichar(vt, 'a', FYVT_MOD_CTRL);
 	FYAI_TCHECK(strcmp(cap.buf, "\x1b[97;5u") == 0);
 
-	(void)state;
 	fyvt_destroy(vt);
 	return 0;
 }
@@ -160,13 +169,16 @@ int vterm_kitty_disambiguate(void)
 int vterm_sync_output_mode(void)
 {
 	struct fyvt *vt;
+	struct fyvt_state *state;
 	struct capture cap = { .len = 0 };
 	static const char enable[] = "\x1b[?2026h";
 	static const char query[] = "\x1b[?2026$p";
 
 	vt = vterm_open();
 	FYAI_TCHECK(vt != NULL);
-	fyvt_obtain_state(vt);
+	state = fyvt_obtain_state(vt);
+	FYAI_TCHECK(state != NULL);
+	fyvt_state_reset(state, 1);
 	fyvt_output_set_callback(vt, capture_output, &cap);
 
 	FYAI_TCHECK(fyvt_input_write(vt, enable, strlen(enable)) == strlen(enable));
