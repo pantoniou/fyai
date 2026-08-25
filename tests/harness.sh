@@ -17,6 +17,7 @@ PYTHON="${PYTHON:-python3}"
 TESTS_DIR="${TESTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 SCENARIOS_DIR="$TESTS_DIR/scenarios"
 MOCK_PROVIDER="$TESTS_DIR/mock/mock_provider.py"
+FYAI_VALGRIND="${FYAI_VALGRIND:-}"
 
 [ -x "$FYAI_BIN" ] || { echo "harness: FYAI_BIN not set/executable" >&2; exit 99; }
 
@@ -51,7 +52,7 @@ fyai_test_setup() {
 	      GOOGLE_API_KEY || true
 
 	printf 'display:\n  markdown: false\n' > config.yaml
-	"$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
+	${FYAI_VALGRIND} "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
 	rm -f config.yaml
 }
 
@@ -104,7 +105,7 @@ run_fyai() {
 	# markdown is off via the arena config seeded by fyai_test_setup, not a
 	# CLI flag: --set is a durable command op that needs an existing arena,
 	# which the init/no-storage verbs don't have yet.
-	"$FYAI_BIN" -k test-key --color off "$@" \
+	${FYAI_VALGRIND} "$FYAI_BIN" -k test-key --color off "$@" \
 		>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" </dev/null
 	FYAI_STATUS=$?
 	set -e
@@ -190,14 +191,14 @@ EOF
 # assert_state <fyai dump/display args...> then grep the fixed string $LAST arg
 assert_state_contains() {
 	local needle="$1"; shift
-	"$FYAI_BIN" "$@" >"$TEST_DIR/state.out" 2>&1 || fail "fyai $* failed"
+	${FYAI_VALGRIND} "$FYAI_BIN" "$@" >"$TEST_DIR/state.out" 2>&1 || fail "fyai $* failed"
 	grep -qF -- "$needle" "$TEST_DIR/state.out" || \
 		{ cat "$TEST_DIR/state.out" >&2; fail "state missing: $needle"; }
 }
 
 assert_state_absent() {
 	local needle="$1"; shift
-	"$FYAI_BIN" "$@" >"$TEST_DIR/state.out" 2>&1 || fail "fyai $* failed"
+	${FYAI_VALGRIND} "$FYAI_BIN" "$@" >"$TEST_DIR/state.out" 2>&1 || fail "fyai $* failed"
 	grep -qF -- "$needle" "$TEST_DIR/state.out" && \
 		{ cat "$TEST_DIR/state.out" >&2; fail "state unexpectedly has: $needle"; } || true
 }
