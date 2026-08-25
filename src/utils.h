@@ -202,6 +202,7 @@ int fyai_spawn_editor(struct fyai_ctx *ctx, const char *path);
 int fyai_spawn_editor_readonly(struct fyai_ctx *ctx, const char *path);
 
 bool self_is_traced(void);
+bool self_is_valgrinded(void);
 int raise_stack(size_t bytes, char **argv);
 
 const char *find_cli_option(int argc, char **argv, const char *long_opt, char short_opt);

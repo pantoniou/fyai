@@ -50,6 +50,17 @@ int stackcheck_run(void)
 	fy_generic scratch, escaped, interned;
 	int failures = 0;
 
+	/*
+	 * Valgrind gives the client a stack of its own, which is not the
+	 * region /proc/self/maps marks as [stack]. The detector finds no
+	 * scratch generic in that region and reports false for each one, so
+	 * there is nothing here to test.
+	 */
+	if (self_is_valgrinded()) {
+		printf("stackcheck: skipped under valgrind\n");
+		return 0;
+	}
+
 	gb = fy_generic_builder_create(&gb_cfg);
 	if (!gb)
 		return 1;
