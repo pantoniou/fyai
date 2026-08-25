@@ -3410,6 +3410,27 @@ static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
 	ctx->tool_submit_error = msg;
 }
 
+/*
+ * Report a submission failure and jump to a cleanup label. A failure the model
+ * is told about is handled: the caller answers the call with the message that
+ * fyai_tool_submit_error_set() left. Such a report stays below error severity,
+ * so it neither latches as the cause of the run - hiding a later real failure
+ * behind it - nor fails an otherwise complete sub-agent. A failure with no
+ * message for the model has nothing to answer it, and keeps error severity.
+ */
+#define fyai_tool_submit_check(_ctx, _cond, _label, _fmt, ...)		\
+	do {								\
+		if (!(_cond)) {						\
+			if ((_ctx)->tool_submit_error)			\
+				fyai_warning((_ctx), (_fmt),		\
+					     ##__VA_ARGS__);		\
+			else						\
+				fyai_error((_ctx), (_fmt),		\
+					   ##__VA_ARGS__);		\
+			goto _label;					\
+		}							\
+	} while (0)
+
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call)
 {
@@ -3491,8 +3512,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				fy_castp(&agent_name, "agent"));
 			rc = -1;
 		}
-		fyai_error_check(ctx, !rc, err,
-				 "could not name the sub-agent branch");
+		fyai_tool_submit_check(ctx, !rc, err,
+				       "could not name the sub-agent branch");
 		have_branch = true;
 	}
 
@@ -3505,8 +3526,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			"add \"tty\": true to keep '%s' open, or drop \"name\" "
 			"to run the command to completion and read what it "
 			"wrote", fy_castp(&session_call, ""));
-		fyai_error_check(ctx, false, err,
-				 "a session was asked for with no terminal");
+		fyai_tool_submit_check(ctx, false, err,
+				       "a session was asked for with no terminal");
 	}
 
 	/* Reserve and validate the session name before spawning its job. */
@@ -3525,8 +3546,10 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		else
 			/* Own the name: the generic it came from is transient. */
 			session_name = strdup(asked);
-		fyai_error_check(ctx, session_name && !ctx->tool_submit_error,
-				 err, "could not name the terminal session");
+		fyai_tool_submit_check(ctx,
+				       session_name && !ctx->tool_submit_error,
+				       err,
+				       "could not name the terminal session");
 		have_session = true;
 	}
 

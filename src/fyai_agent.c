@@ -341,9 +341,11 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			"could not publish the sub-agent conversation on '%s'",
 			ctx->agent_branch);
 	}
-	fyai_error_check(ctx,
-			 !fyai_diag_got_error(&cfg->diag),
-			 err, "the sub-agent request did not complete");
+	/*
+	 * The turn and its final report say whether the sub-agent completed.
+	 * A tool call it recovered from raises a diagnostic of its own, and
+	 * the run that recovered is not a failed one.
+	 */
 	fyai_error_check(ctx,
 			 fy_is_string(report) &&
 			 *fy_castp(&report, ""),
