@@ -811,7 +811,7 @@ bool fyai_process_reads_stdin(pid_t pid)
 int fyai_child_status_open(int fds[2])
 {
 	fds[0] = fds[1] = -1;
-#ifdef O_CLOEXEC
+#if defined(O_CLOEXEC) && defined(__linux__)
 	if (pipe2(fds, O_CLOEXEC))
 		return -1;
 	return 0;
