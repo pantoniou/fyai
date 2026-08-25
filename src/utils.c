@@ -876,6 +876,34 @@ const char *fyai_child_start_text(const struct fyai_child_start *start,
 	case FYAI_CHILD_STAGE_SANDBOX:
 		snprintf(buf, size, "could not confine the command: %s", why);
 		break;
+	case FYAI_CHILD_STAGE_SESSION:
+		snprintf(buf, size, "could not isolate the command: %s", why);
+		break;
+	case FYAI_CHILD_STAGE_CTTY:
+		snprintf(buf, size,
+			 "could not give the command its terminal: %s", why);
+		break;
+	case FYAI_CHILD_STAGE_STDIN:
+		snprintf(buf, size,
+			 "could not set the command standard input: %s", why);
+		break;
+	case FYAI_CHILD_STAGE_STDOUT:
+		snprintf(buf, size,
+			 "could not set the command standard output: %s", why);
+		break;
+	case FYAI_CHILD_STAGE_STDERR:
+		snprintf(buf, size,
+			 "could not set the command standard error: %s", why);
+		break;
+	case FYAI_CHILD_STAGE_STATUS:
+		snprintf(buf, size,
+			 "could not keep the command status descriptor: %s",
+			 why);
+		break;
+	case FYAI_CHILD_STAGE_ENV:
+		snprintf(buf, size,
+			 "could not remove the credentials: %s", why);
+		break;
 	case FYAI_CHILD_STAGE_EXEC:
 		snprintf(buf, size, "could not start the shell %s: %s",
 			 shell && *shell ? shell : "/bin/sh", why);
@@ -893,11 +921,13 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			    const struct fyai_child_spec *spec)
 {
 	int status_fd = spec->status_fd;
+	enum fyai_child_stage stage;
 	char num[16];
 
 	/* The application loop belongs to fyai, never to the command. */
 	fyai_ctx_loop_abandon(ctx);
 	/* Isolate the child tree, optionally in a new session. */
+	stage = FYAI_CHILD_STAGE_SESSION;
 	if (spec->own_session) {
 		/* A leader already cannot start a session; a group still
 		 * separates it from the group of this process. */
@@ -906,15 +936,20 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 	} else if (setpgid(0, 0) < 0) {
 		goto err_setup;
 	}
+	stage = FYAI_CHILD_STAGE_CTTY;
 	if (spec->ctty_fd >= 0 && ioctl(spec->ctty_fd, TIOCSCTTY, 0) < 0)
 		goto err_setup;
+	stage = FYAI_CHILD_STAGE_STDIN;
 	if (spec->in_fd >= 0 && dup2(spec->in_fd, STDIN_FILENO) < 0)
 		goto err_setup;
+	stage = FYAI_CHILD_STAGE_STDOUT;
 	if (spec->out_fd >= 0 && dup2(spec->out_fd, STDOUT_FILENO) < 0)
 		goto err_setup;
+	stage = FYAI_CHILD_STAGE_STDERR;
 	if (spec->err_fd >= 0 && dup2(spec->err_fd, STDERR_FILENO) < 0)
 		goto err_setup;
 	/* Preserve the close-on-exec status fd while closing inherited fds. */
+	stage = FYAI_CHILD_STAGE_STATUS;
 	if (status_fd >= 0) {
 		if (dup2(status_fd, 3) < 0)
 			goto err_setup;
@@ -925,6 +960,7 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		fyai_close_fds_from(3);
 	}
 	/* Fail closed if any provider credential cannot be removed. */
+	stage = FYAI_CHILD_STAGE_ENV;
 	if (fyai_env_sanitize())
 		goto err_setup;
 	/* Describe the child's terminal and screen dimensions. */
@@ -954,7 +990,7 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 	return 0;
 
 err_setup:
-	fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_SETUP, errno);
+	fyai_child_status_report(status_fd, stage, errno);
 	return FYAI_SHELL_EXIT_EXEC;
 }
 

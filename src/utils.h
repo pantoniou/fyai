@@ -78,9 +78,21 @@ struct response_buffer {
 };
 
 /* Stage at which a child failed before exec. */
+/*
+ * Where a child stopped before it became the program. Each descriptor step
+ * has a stage of its own: they fail for reasons that are not the same, and a
+ * report that names one of them says which descriptor was not there.
+ */
 enum fyai_child_stage {
 	FYAI_CHILD_STAGE_NONE = 0,	/* it became the program */
 	FYAI_CHILD_STAGE_SETUP,		/* descriptors, group, environment */
+	FYAI_CHILD_STAGE_SESSION,	/* its own session or process group */
+	FYAI_CHILD_STAGE_CTTY,		/* the controlling terminal */
+	FYAI_CHILD_STAGE_STDIN,		/* standard input */
+	FYAI_CHILD_STAGE_STDOUT,	/* standard output */
+	FYAI_CHILD_STAGE_STDERR,	/* standard error */
+	FYAI_CHILD_STAGE_STATUS,	/* the status descriptor it reports on */
+	FYAI_CHILD_STAGE_ENV,		/* removal of the credentials */
 	FYAI_CHILD_STAGE_WORKDIR,
 	FYAI_CHILD_STAGE_SANDBOX,
 	FYAI_CHILD_STAGE_EXEC,		/* the shell itself */
