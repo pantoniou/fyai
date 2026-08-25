@@ -1,0 +1,42 @@
+{
+ "steps": [
+  {
+   "match": {"http": "POST", "path": "/v1/chat/completions",
+             "body_contains": "delegate the job"},
+   "response": {
+    "id": "chatcmpl-are-1", "object": "chat.completion", "model": "mock-model",
+    "choices": [{"index": 0, "finish_reason": "tool_calls",
+     "message": {"role": "assistant", "content": null,
+      "tool_calls": [{"id": "call_agent_worker", "type": "function",
+       "function": {"name": "agent",
+        "arguments": "{\"name\":\"worker\",\"description\":\"do it\",\"task\":\"run TASK-RECOVER\"}"}}]}}]}
+  },
+  {
+   "match": {"http": "POST", "path": "/v1/chat/completions",
+             "body_contains": "TASK-RECOVER"},
+   "response": {
+    "id": "chatcmpl-are-2", "object": "chat.completion", "model": "mock-model",
+    "choices": [{"index": 0, "finish_reason": "tool_calls",
+     "message": {"role": "assistant", "content": null,
+      "tool_calls": [{"id": "call_shell_named", "type": "function",
+       "function": {"name": "exec_command",
+        "arguments": "{\"name\":\"box\",\"command\":\"echo hi\"}"}}]}}]}
+  },
+  {
+   "match": {"http": "POST", "path": "/v1/chat/completions",
+             "body_contains": "needs a terminal"},
+   "response": {
+    "id": "chatcmpl-are-3", "object": "chat.completion", "model": "mock-model",
+    "choices": [{"index": 0, "finish_reason": "stop",
+     "message": {"role": "assistant", "content": "RECOVERED-AND-DONE"}}]}
+  },
+  {
+   "match": {"http": "POST", "path": "/v1/chat/completions",
+             "body_contains": "RECOVERED-AND-DONE"},
+   "response": {
+    "id": "chatcmpl-are-4", "object": "chat.completion", "model": "mock-model",
+    "choices": [{"index": 0, "finish_reason": "stop",
+     "message": {"role": "assistant", "content": "PARENT-SAW-THE-REPORT"}}]}
+  }
+ ]
+}
