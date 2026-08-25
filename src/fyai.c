@@ -1429,8 +1429,13 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 		fyai_turn_run_abort_output(run);
 		return -1;
 	}
-	previous = cfg->response_chain ? run->previous :
-		(run->iteration ? run->previous : fy_null);
+	/*
+	 * Only a response-chained request omits the history the provider
+	 * already holds. Every other request carries the full conversation,
+	 * so it must start the walk at the root and not at the head this
+	 * run began from.
+	 */
+	previous = cfg->response_chain ? run->previous : fy_null;
 	run->tool_group = cfg->stream ?
 		fyai_tool_job_group_create_open(ctx,
 			fyai_turn_run_tool_complete, run) : NULL;
