@@ -149,7 +149,7 @@ fy_generic fyai_bytes_to_generic(struct fy_generic_builder *gb,
 			return fy_invalid;
 		memcpy(copy, data, len);
 		copy[len] = '\0';
-		value = fy_mapping("text", fy_gb_intern_string(gb, copy));
+		value = fy_mapping(gb, "text", fy_gb_intern_string(gb, copy));
 		free(copy);
 		return value;
 	}
@@ -157,7 +157,7 @@ fy_generic fyai_bytes_to_generic(struct fy_generic_builder *gb,
 	copy = fyai_base64url_encode((const unsigned char *)data, len);
 	if (!copy)
 		return fy_invalid;
-	value = fy_mapping("data", fy_gb_intern_string(gb, copy));
+	value = fy_mapping(gb, "data", fy_gb_intern_string(gb, copy));
 	free(copy);
 	return value;
 }

@@ -535,14 +535,14 @@ static enum fyai_event_action relay_read(const struct fyai_event *ev)
 	char buf[4096];
 	ssize_t n;
 
+	gb = fyai_ctx_transient_gb(rl->ctx);
+
 	for (;;) {
 		n = read(rl->master, buf, sizeof(buf));
 		if (n > 0) {
-			gb = fyai_ctx_transient_gb(rl->ctx);
-			if (gb)
-				relay_notify(rl, "shell/output",
-					     fyai_bytes_to_generic(gb, buf,
-								   (size_t)n));
+			relay_notify(rl, "shell/output",
+				     fyai_bytes_to_generic(gb, buf,
+							   (size_t)n));
 			continue;
 		}
 		if (n < 0 && (errno == EAGAIN || errno == EINTR))
