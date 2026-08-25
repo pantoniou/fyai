@@ -19,17 +19,17 @@
 static fy_generic fyai_turn_meta_set(struct fyai_ctx *ctx, fy_generic turn,
 				     const char *key, fy_generic value)
 {
+	struct fy_generic_builder *gb;
 	fy_generic meta;
 	fy_generic v;
 
+	gb = fyai_ctx_transient_gb(ctx);
 	meta = fyai_turn_meta(turn);
 	if (fy_is_invalid(meta) || fy_is_null(meta))
 		meta = fy_map_empty;
 
-	meta = fy_assoc(meta, key, value);
-	v = fy_assoc(turn, "metadata", meta);
-
-	v = fy_gb_internalize(ctx->transient_gb, v);
+	meta = fy_assoc(gb, meta, key, value);
+	v = fy_assoc(gb, turn, "metadata", meta);
 	if (fy_is_invalid(v))
 		fyai_error(ctx, "could not update the turn metadata");
 	return v;
@@ -38,16 +38,18 @@ static fy_generic fyai_turn_meta_set(struct fyai_ctx *ctx, fy_generic turn,
 static fy_generic fyai_make_turn(struct fyai_ctx *ctx, fy_generic previous,
 				 fy_generic messages)
 {
+	struct fy_generic_builder *gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic meta;
 	fy_generic turn;
 
+	gb = fyai_ctx_transient_gb(ctx);
 	/*
 	 * Record how the turn was produced: provider/API identity and the
 	 * sampling parameters. Pure provenance for dump/stats - continuations
 	 * take their settings from the arena config published with the root.
 	 */
-	meta = fy_null_filtered_mapping(
+	meta = fy_null_filtered_mapping(gb,
 		"api", fyai_api_to_string(cfg->api_mode),
 		"provider", cfg->provider ? cfg->provider : "",
 		"model", cfg->model ? cfg->model : "",
@@ -57,12 +59,10 @@ static fy_generic fyai_make_turn(struct fyai_ctx *ctx, fy_generic previous,
 		"reasoning_summary", cfg->reasoning_summary && *cfg->reasoning_summary ?
 				fy_value(cfg->reasoning_summary) : fy_null);
 
-	turn = fy_mapping(
+	turn = fy_mapping(gb,
 		"previous", fy_is_valid(previous) ? previous : fy_null,
 		"messages", messages,
 		"metadata", meta);
-
-	turn = fy_gb_internalize(ctx->transient_gb, turn);
 	if (fy_is_invalid(turn))
 		fyai_error(ctx, "could not build the turn");
 	return turn;
@@ -78,18 +78,18 @@ fy_generic fyai_turn_append_display_output(struct fyai_ctx *ctx,
 					    fy_generic turn,
 					    fy_generic output)
 {
+	struct fy_generic_builder *gb;
 	fy_generic outputs;
 
 	if (fy_is_invalid(turn) || fy_is_invalid(output))
 		return turn;
+
+	gb = fyai_ctx_transient_gb(ctx);
 	outputs = fy_get(turn, "display_outputs", fy_seq_empty);
-	outputs = fy_append(ctx->transient_gb ? ctx->transient_gb : ctx->gb,
-			    outputs, output);
+	outputs = fy_append(gb, outputs, output);
 	fyai_error_check(ctx, fy_is_valid(outputs), err,
 			 "could not append display output");
-	turn = fy_assoc(turn, "display_outputs", outputs);
-	turn = fy_gb_internalize(ctx->transient_gb ? ctx->transient_gb : ctx->gb,
-				 turn);
+	turn = fy_assoc(gb, turn, "display_outputs", outputs);
 	fyai_error_check(ctx, fy_is_valid(turn), err,
 			 "could not retain display output");
 	return turn;
@@ -180,10 +180,12 @@ void fyai_turn_stack_cleanup(struct fyai_turn_stack *stack)
 fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 					   fy_generic previous)
 {
+	struct fy_generic_builder *gb;
 	struct fyai_turn_stack stack;
 	fy_generic stream;
 	size_t i;
 
+	gb = fyai_ctx_transient_gb(ctx);
 	if (fyai_turn_stack_init(&stack, turn, previous)) {
 		fyai_error(ctx, "could not allocate the turn stack");
 		return fy_invalid;
@@ -191,12 +193,11 @@ fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 
 	stream = fy_seq_empty;
 	for (i = 0; i < stack.count; i++)
-		stream = fy_concat(ctx->transient_gb, stream,
+		stream = fy_concat(gb, stream,
 				      fy_get(stack.items[i], "messages", fy_seq_empty));
 
 	fyai_turn_stack_cleanup(&stack);
 
-	stream = fy_gb_internalize(ctx->transient_gb, stream);
 	if (fy_is_invalid(stream))
 		fyai_error(ctx, "could not collect the turn messages");
 	return stream;
@@ -214,18 +215,19 @@ fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 static fy_generic fyai_canonical_assistant_message(struct fyai_ctx *ctx,
 						   fy_generic raw)
 {
+	struct fy_generic_builder *gb;
 	fy_generic content, tool_calls, msg;
 
+	gb = fyai_ctx_transient_gb(ctx);
 	content = fy_get(raw, "content");
-	msg = fy_mapping(
+	msg = fy_mapping(gb,
 		"role", fy_get(raw, "role", "assistant"),
 		"content", fy_is_valid(content) ? content : fy_null);
 
 	tool_calls = fy_get(raw, "tool_calls");
 	if (fy_is_valid(tool_calls) && !fy_is_null(tool_calls))
-		msg = fy_assoc(msg, "tool_calls", tool_calls);
+		msg = fy_assoc(gb, msg, "tool_calls", tool_calls);
 
-	msg = fy_gb_internalize(ctx->transient_gb, msg);
 	if (fy_is_invalid(msg))
 		fyai_error(ctx, "could not build the assistant message");
 	return msg;
@@ -241,26 +243,25 @@ static fy_generic fyai_turn_attach_provider(struct fyai_ctx *ctx,
 					    fy_generic turn,
 					    fy_generic provider_messages)
 {
+	struct fy_generic_builder *gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name = cfg->provider ? cfg->provider : cfg->model;
 	fy_generic stream;
 
+	gb = fyai_ctx_transient_gb(ctx);
 	if (fy_is_invalid(turn) ||
 	    fy_is_invalid(provider_messages)) {
 		fyai_error(ctx, "could not attach the provider messages");
 		return fy_invalid;
 	}
 
-	stream = fy_mapping(name ? name : "", provider_messages);
-	turn = fy_assoc(turn, "provider_stream", stream);
+	stream = fy_mapping(gb, name ? name : "", provider_messages);
+	turn = fy_assoc(gb, turn, "provider_stream", stream);
 
 	if (fy_is_invalid(turn)) {
 		fyai_error(ctx, "could not attach the provider messages");
 		return fy_invalid;
 	}
-	turn = fy_gb_internalize(ctx->transient_gb, turn);
-	if (fy_is_invalid(turn))
-		fyai_error(ctx, "could not retain the provider messages");
 	return turn;
 }
 
@@ -294,12 +295,14 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 						 fy_generic turn,
 						 fy_generic response_doc)
 {
+	struct fy_generic_builder *gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic raw;
 	fy_generic usage;
 	fy_generic output;
 	fy_generic messages;
 
+	gb = fyai_ctx_transient_gb(ctx);
 	usage = fyai_extract_usage(ctx, response_doc);
 
 	switch (cfg->api_mode) {
@@ -313,8 +316,8 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 		output = fy_get(response_doc, "output");
 
 		if (fyai_response_is_final(ctx, response_doc)) {
-			messages = fy_sequence(
-					fy_mapping(
+			messages = fy_sequence(gb,
+					fy_mapping(gb,
 						"role", "assistant",
 						"content", fyai_response_output_text(ctx, response_doc)));
 			turn = fyai_turn_append(ctx, turn, messages);
@@ -327,10 +330,10 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 		break;
 
 	case FYAI_API_CHAT_COMPLETIONS:
-		raw = response_message(ctx->transient_gb, response_doc);
-		messages = fy_sequence(fyai_canonical_assistant_message(ctx, raw));
+		raw = response_message(gb, response_doc);
+		messages = fy_sequence(gb, fyai_canonical_assistant_message(ctx, raw));
 		turn = fyai_turn_append(ctx, turn, messages);
-		turn = fyai_turn_attach_provider(ctx, turn, fy_sequence(raw));
+		turn = fyai_turn_attach_provider(ctx, turn, fy_sequence(gb, raw));
 		break;
 	case FYAI_API_MESSAGES:
 		/*
@@ -347,12 +350,12 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 		messages = fy_seq_empty;
 		raw = fyai_response_output_text(ctx, response_doc);
 		if (*fy_cast(raw, ""))
-			messages = fy_append(messages,
-					fy_mapping(
+			messages = fy_append(gb, messages,
+					fy_mapping(gb,
 						"role", "assistant",
 						"content", raw));
 		if (!fyai_response_is_final(ctx, response_doc))
-			messages = fy_concat(ctx->transient_gb, messages,
+			messages = fy_concat(gb, messages,
 					fyai_response_tool_calls(ctx, response_doc));
 		turn = fyai_turn_append(ctx, turn, messages);
 
