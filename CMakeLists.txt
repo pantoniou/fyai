@@ -608,13 +608,16 @@ if(BUILD_TESTING)
             "-framework Security" "-framework CoreFoundation")
     endif()
 
-    # Add one CTest test for each registry entry.
+    # Add one CTest test for each registry entry. Each runs through
+    # tests/unit_run.sh so that a run can put FYAI_VALGRIND in front of the
+    # binary, the same variable the functional cases take.
     foreach(_t ${FYAI_TESTS})
         string(REPLACE ":" ";" _parts "${_t}")
         list(GET _parts 0 _suite)
         list(GET _parts 1 _name)
         add_test(NAME fyai/unit/${_suite}/${_name}
-            COMMAND fyai_test ${_suite}/${_name})
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_run.sh
+                $<TARGET_FILE:fyai_test> ${_suite}/${_name})
     endforeach()
 
     # Functional cases: each script drives the real fyai binary against the
