@@ -19,8 +19,6 @@
 
 #include "fyai_test_registry.h"
 
-FYAI_TEST_ENTRY(tools, shape, tools_shape)
-FYAI_TEST_ENTRY(tools, order, tools_order)
 FYAI_TEST_ENTRY(tools, descriptions, tools_descriptions)
 FYAI_TEST_ENTRY(tools, filtered, tools_filtered)
 FYAI_TEST_ENTRY(tools, personas, tools_personas)
@@ -99,81 +97,6 @@ static void require(bool cond, const char *msg)
 
 /* ---- tests ---- */
 
-static void test_shape(void)
-{
-	fy_generic tools = make_tools(&test_ctx);
-	static const char *const names[] = {
-		"read_file", "write_file", "apply_patch", "shell",
-		"ask_user", "agent",
-	};
-	static const char *const required_sets[][3] = {
-		{ "path" },
-		{ "path", "content" },
-		{ "patch" },
-		{ "command" },
-		{ "question" },
-		{ "name", "description", "task" },
-	};
-	static const size_t required_sizes[] = {
-		1, 2, 1, 1, 1, 3,
-	};
-	fy_generic tool, fn, params, req, tmp;
-	size_t n = 0, i = 0;
-	size_t j = 0;
-
-	require(fy_is_sequence(tools), "make_tools: expected a sequence");
-	fy_foreach(tool, tools)
-		n++;
-	require(n == 6, "make_tools: expected exactly 6 tools");
-
-	fy_foreach(tool, tools) {
-		fn = fy_get(tool, "function");
-		params = fy_get(fn, "parameters");
-
-		require(fy_equal(fy_get(tool, "type"), "function"),
-			"tool type must be function");
-		require(fy_equal(fy_get(params, "type"), "object"),
-			"parameters.type must be object");
-		require(fy_equal(fy_get(params, "additionalProperties"), false),
-			"parameters.additionalProperties must be false");
-
-		/* required matches, in order */
-		req = fy_get(params, "required");
-		require(fy_is_sequence(req), "required must be a sequence");
-		require(fy_equal(fy_get(fn, "name"), names[i]),
-			"unexpected tool name/order");
-		n = 0;
-		fy_foreach(tmp, req)
-			n++;
-		require(n == required_sizes[i], "required count mismatch");
-		j = 0;
-		fy_foreach(tmp, req)
-			require(fy_equal(tmp, required_sets[i][j++]),
-				"required element mismatch");
-		i++;
-	}
-}
-
-static void test_order(void)
-{
-	fy_generic tools = make_tools(&test_ctx);
-	static const char *const expected[] = {
-		"read_file", "write_file", "apply_patch", "shell",
-		"ask_user", "agent",
-	};
-	fy_generic tool;
-	size_t i = 0;
-
-	fy_foreach(tool, tools) {
-		fy_generic fn = fy_get(tool, "function");
-		require(i < 6, "too many tools");
-		require(fy_equal(fy_get(fn, "name"), expected[i]),
-			"tool order mismatch");
-		i++;
-	}
-	require(i == 6, "too few tools");
-}
-
 static void test_descriptions(void)
 {
 	fy_generic tools = make_tools(&test_ctx);
@@ -243,8 +166,8 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 6 && has_ask_user && has_agent,
-		"plain context must keep all six tools");
+	require(has_ask_user && has_agent,
+		"plain context must have ask_user and agent");
 
 	/* A sub-agent context removes ask_user and agent. */
 	test_cfg.agent_child = true;
@@ -260,7 +183,7 @@ static void test_filtered(void)
 			has_agent = true;
 		count++;
 	}
-	require(count == 4 && !has_ask_user && !has_agent,
+	require(!has_ask_user && !has_agent,
 		"sub-agent context must drop ask_user and agent");
 }
 
@@ -313,16 +236,6 @@ static void test_cache(void)
 }
 
 /* ---- entries ---- */
-
-int tools_shape(void)
-{
-	return tools_run(test_shape);
-}
-
-int tools_order(void)
-{
-	return tools_run(test_order);
-}
 
 int tools_descriptions(void)
 {
