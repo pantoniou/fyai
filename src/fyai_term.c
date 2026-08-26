@@ -51,8 +51,12 @@
 
 /* How long the loop waits before it looks at the window again. */
 #define FYAI_TERM_FRAME_MS	50
-/* Frames a new size is given before the granted rows are believed. */
-#define FYAI_TERM_SETTLE_FRAMES	2
+/*
+ * The maximum time to wait until the band grants the rows that a new window
+ * size requested. The granted rows apply to the last layout of the band.
+ * Thus before the band answers, they still give the previous window size.
+ */
+#define FYAI_TERM_SETTLE_MS	1000
 /* How long the program is given to go before it is killed outright. */
 #define FYAI_TERM_EXIT_WAIT_MS	(FYAI_TERM_KILL_GRACE_MS + 1000)
 
@@ -70,7 +74,8 @@ struct fyai_term {
 	pid_t pid;
 	int rows;			/* the rows the program is given */
 	int term_rows;			/* the window height that size came from */
-	int settle;			/* frames to wait for a grant to catch up */
+	int asked;			/* rows last requested from the band */
+	fyai_event_ms_t settle_until;	/* time after which a grant is used */
 	int cols;
 	int status;
 	bool prefix;			/* the next key is for fyai */
@@ -140,22 +145,34 @@ static void term_apply_size(struct fyai_term *t, int rows, int cols)
 static void term_follow_window(struct fyai_term *t)
 {
 	int cols = 0, term_rows = 0;
-	int rows;
+	int rows, granted;
 
 	if (fyai_ui_size(t->ctx, &cols, &term_rows) || cols < 1)
 		return;
 
 	rows = t->rows;
 	if (term_rows != t->term_rows) {
+		/*
+		 * The window changed size. The program gets all of it except
+		 * the chrome rows. The band did not get this request yet.
+		 */
 		t->term_rows = term_rows;
-		rows = term_rows - FYAI_TERM_CHROME_ROWS;
-		t->settle = FYAI_TERM_SETTLE_FRAMES;
-	} else if (t->settle) {
-		t->settle--;
+		t->asked = term_rows - FYAI_TERM_CHROME_ROWS;
+		t->settle_until = fyai_event_now_ms() + FYAI_TERM_SETTLE_MS;
+		rows = t->asked;
 	} else {
-		rows = fyai_ui_surface_granted_rows(t->surface);
-		if (rows < 1)
-			rows = t->rows;
+		/*
+		 * The granted rows are what the band could supply. They are
+		 * an answer only when they agree with the request. Before
+		 * that they give the height of the previous window, and no
+		 * later change corrects a program that received it.
+		 */
+		granted = fyai_ui_surface_granted_rows(t->surface);
+		if (granted >= 1 && (granted == t->asked ||
+				     fyai_event_now_ms() >= t->settle_until)) {
+			t->asked = granted;
+			rows = granted;
+		}
 	}
 	if (rows < 1)
 		rows = 1;
