@@ -50,7 +50,12 @@ while time.time() < end:
             os.write(fd, ANSWER.encode() + b"\n")
             sent = True
             end = time.time() + 10
-os.close(fd)
+# Closing a pty master can report EIO on macOS. The read is over: the
+# descriptor goes all the same.
+try:
+    os.close(fd)
+except OSError:
+    pass
 os.waitpid(pid, 0)
 sys.exit(0 if b"[y/N]" in buf else 1)
 PY
@@ -83,8 +88,18 @@ while time.time() < end:
             sent = True
             end = time.time() + 10
         elif sent and b"initialized" in buf:
-            os.write(fd, b"\x04")
-os.close(fd)
+            # End the reader. The program may have left already, and a pty
+            # that has no reader reports EIO rather than a short write.
+            try:
+                os.write(fd, b"\x04")
+            except OSError:
+                break
+# Closing a pty master can report EIO on macOS. The read is over: the
+# descriptor goes all the same.
+try:
+    os.close(fd)
+except OSError:
+    pass
 os.waitpid(pid, 0)
 sys.exit(0 if b"initialized" in buf else 1)
 PY
