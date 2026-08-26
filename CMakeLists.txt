@@ -262,7 +262,7 @@ if(NOT TARGET libfyvterm::libfyvterm)
     set(BUILD_FYVTERM_TOOLS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(libfyvterm
         GIT_REPOSITORY https://github.com/pantoniou/libfyvterm
-        GIT_TAG 6b55715878300e2e56c48d2597f8c938e4b26cc6
+        GIT_TAG 9d1b261e82c67af71bbb8dbf52011a25a58eabf8
     )
     FetchContent_MakeAvailable(libfyvterm)
 endif()
