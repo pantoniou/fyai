@@ -579,6 +579,7 @@ if(BUILD_TESTING)
         ${FYAI_SOURCES}
         ${FYAI_TEST_SOURCES}
         tests/fyai_test_registry.c
+        tests/fyai_test_scratch.c
         tests/fyai_test_main.c
         "${FYAI_TEST_REGISTER_C}"
     )

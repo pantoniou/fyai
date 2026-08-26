@@ -14,6 +14,7 @@
 #include "utils.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_scratch.h"
 
 FYAI_TEST_ENTRY(patch, apply, patch_apply)
 FYAI_TEST_ENTRY(patch, unified, patch_unified)
@@ -68,13 +69,12 @@ static void write_file_or_die(const char *path, const char *content)
 
 int patch_apply(void)
 {
-	char tmpl[] = "/tmp/fyai-patch-test-XXXXXX";
-	char *dir;
+	const char *dir;
 	char *alias;
 	char *patch;
 	int rc;
 
-	dir = mkdtemp(tmpl);
+	dir = fyai_test_scratch_dir("patch-test");
 	if (!dir)
 		return 1;
 	if (chdir(dir))
@@ -114,6 +114,9 @@ int patch_apply(void)
 	if (rc < 0)
 		return 1;
 	if (symlink(dir, alias))
+		return 1;
+	/* The alias sits beside the scratch directory, so record it too. */
+	if (fyai_test_scratch_add(alias))
 		return 1;
 	rc = asprintf(&patch,
 		      "*** Begin Patch\n"
@@ -348,10 +351,9 @@ int patch_apply(void)
 /* The unified-diff form of the same tool input. */
 int patch_unified(void)
 {
-	char tmpl[] = "/tmp/fyai-patch-unified-XXXXXX";
-	char *dir;
+	const char *dir;
 
-	dir = mkdtemp(tmpl);
+	dir = fyai_test_scratch_dir("patch-unified");
 	if (!dir)
 		return 1;
 	if (chdir(dir))
@@ -467,11 +469,10 @@ static void expect_unified(const char *patch, const char *expected)
  */
 int patch_to_unified(void)
 {
-	char tmpl[] = "/tmp/fyai-patch-conv-XXXXXX";
-	char *dir;
+	const char *dir;
 	char *got;
 
-	dir = mkdtemp(tmpl);
+	dir = fyai_test_scratch_dir("patch-conv");
 	if (!dir)
 		return 1;
 	if (chdir(dir))

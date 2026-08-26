@@ -17,6 +17,7 @@
 #include "fyai_test.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_scratch.h"
 
 FYAI_TEST_ENTRY(read, limit_truncates, read_limit_truncates)
 FYAI_TEST_ENTRY(read, limit_reports_full_size, read_limit_reports_full_size)
@@ -28,20 +29,16 @@ FYAI_TEST_ENTRY(read, binary_reports_full_size, read_binary_reports_full_size)
 /* Write @len bytes of filler to a scratch file and return its path. */
 static const char *read_make_file(size_t len, const char *fill)
 {
-	static char made[] = "/tmp/fyai-read-test-XXXXXX";
+	const char *made;
 	size_t i;
 	FILE *fp;
-	int fd;
 
-	strcpy(made, "/tmp/fyai-read-test-XXXXXX");
-	fd = mkstemp(made);
-	if (fd < 0)
+	made = fyai_test_scratch_file("read-test", NULL);
+	if (!made)
 		return NULL;
-	fp = fdopen(fd, "wb");
-	if (!fp) {
-		close(fd);
+	fp = fopen(made, "wb");
+	if (!fp)
 		return NULL;
-	}
 	for (i = 0; i < len; i++)
 		fputc(fill[i % strlen(fill)], fp);
 	fclose(fp);
@@ -166,13 +163,12 @@ int read_binary_reports_full_size(void)
 	size_t full;
 	char *text;
 	FILE *fp;
-	char made[] = "/tmp/fyai-read-bin-XXXXXX";
-	int fd;
+	const char *made;
 
 	memset(buf, 0, sizeof(buf));
-	fd = mkstemp(made);
-	FYAI_TCHECK(fd >= 0);
-	fp = fdopen(fd, "wb");
+	made = fyai_test_scratch_file("read-bin", NULL);
+	FYAI_TCHECK(made != NULL);
+	fp = fopen(made, "wb");
 	FYAI_TCHECK(fp != NULL);
 	fwrite(buf, 1, sizeof(buf), fp);
 	fclose(fp);
@@ -203,19 +199,16 @@ FYAI_TEST_ENTRY(read, window_byte_offset, read_window_byte_offset)
 /* Write @lines numbered lines and return the scratch path. */
 static const char *read_make_lines(int lines)
 {
-	static char made[] = "/tmp/fyai-read-lines-XXXXXX";
+	const char *made;
 	FILE *fp;
-	int fd, i;
+	int i;
 
-	strcpy(made, "/tmp/fyai-read-lines-XXXXXX");
-	fd = mkstemp(made);
-	if (fd < 0)
+	made = fyai_test_scratch_file("read-lines", NULL);
+	if (!made)
 		return NULL;
-	fp = fdopen(fd, "wb");
-	if (!fp) {
-		close(fd);
+	fp = fopen(made, "wb");
+	if (!fp)
 		return NULL;
-	}
 	for (i = 1; i <= lines; i++)
 		fprintf(fp, "line %d\n", i);
 	fclose(fp);

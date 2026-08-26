@@ -17,6 +17,7 @@
 #include "fyai_diag.h"
 
 #include "fyai_test_registry.h"
+#include "fyai_test_scratch.h"
 
 FYAI_TEST_ENTRY(diag, format, diag_format)
 FYAI_TEST_ENTRY(diag, order, diag_order)
@@ -310,19 +311,17 @@ static void test_take_generic(struct fyai_diag *diag)
 /* Verify that the trace records a diagnostic before a filter changes it. */
 static void test_trace(struct fyai_diag *diag)
 {
-	char path[] = "/tmp/fyai-trace-test-XXXXXX";
+	const char *path;
 	char *text;
 	long size;
 	FILE *fp;
-	int fd;
 
-	fd = mkstemp(path);
-	if (fd < 0) {
+	path = fyai_test_scratch_file("trace-test", NULL);
+	if (!path) {
 		fprintf(stderr, "FAIL trace: no temporary file\n");
 		failures++;
 		return;
 	}
-	close(fd);
 
 	setenv("FYAI_TRACE", path, 1);
 	fyai_diag_trace_reopen();

@@ -21,6 +21,7 @@
 #include <sys/wait.h>
 
 #include "fyai_test_registry.h"
+#include "fyai_test_scratch.h"
 
 /* Run one test in a child process. */
 static int run_one(const struct fyai_test_case *tc)
@@ -38,10 +39,14 @@ static int run_one(const struct fyai_test_case *tc)
 	}
 
 	if (pid == 0) {
+		/* The parent owns its scratch; this child owns only what it
+		 * makes from here. */
+		fyai_test_scratch_forget();
 		/* Do not run inherited exit handlers. */
 		rc = tc->run();
 		fflush(stdout);
 		fflush(stderr);
+		fyai_test_scratch_cleanup();
 		_exit(rc ? 1 : 0);
 	}
 
@@ -123,6 +128,13 @@ int main(int argc, char *argv[])
 	int failed, ran;
 
 	fyai_test_register_all();
+
+	/* One directory holds the scratch of the run, so a test that crashes
+	 * leaves nothing outside it. */
+	if (fyai_test_scratch_root()) {
+		fprintf(stderr, "cannot make the scratch directory\n");
+		return 2;
+	}
 
 	if (argc > 1 && !strcmp(argv[1], "--list")) {
 		list_all();
