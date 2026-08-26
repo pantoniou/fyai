@@ -2175,12 +2175,13 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 #define FYAI_SHELL_IDLE_MAX_WAIT_MS	5000
 #define FYAI_SHELL_IDLE_WAIT_MAX_MS	30000
 /*
- * Time a session that has drawn nothing gets to draw its first bytes. Such a
- * session is quiet because it has not started, and not because it settled, so
- * the quiet time cannot describe it yet. A program that stays silent costs
- * this one time and then answers at once.
+ * The interval at which a session that drew nothing is examined again. Such a
+ * session is quiet because it did not start, and not because it settled, thus
+ * the quiet time does not apply to it yet. The wait stops at the first byte
+ * that the session draws, when the program reads its terminal, or at the time
+ * limit of the call. A constant time limit is correct for one machine only.
  */
-#define FYAI_SHELL_FIRST_DRAW_MS	1000
+#define FYAI_SHELL_FIRST_DRAW_POLL_MS	50
 /* Time a program gets to leave after it is asked to. */
 #define FYAI_TTY_CLOSE_WAIT_MS		500
 
@@ -2695,7 +2696,7 @@ static void fyai_shell_session_idle_gate(struct fyai_shell_session *sess,
 					 long long idle_ms, long long max_ms)
 {
 	struct fyai_event_loop *el;
-	fyai_event_ms_t deadline, quiet, owed, now, first;
+	fyai_event_ms_t deadline, quiet, owed, now;
 
 	if (idle_ms <= 0 || max_ms <= 0 || sess->exited)
 		return;
@@ -2706,14 +2707,18 @@ static void fyai_shell_session_idle_gate(struct fyai_shell_session *sess,
 	now = fyai_event_now_ms();
 	deadline = now + max_ms;
 	/*
-	 * A session that has drawn nothing has not settled: it has not begun.
-	 * Wait out its start before the quiet time is read, so that what a
-	 * call sees does not depend on how fast the program started.
+	 * A session that drew nothing did not settle, because it did not
+	 * start. Wait for its start before you read the quiet time, so that
+	 * the result of a call does not depend on the start time of the
+	 * program. A program that draws nothing and waits for input did
+	 * start, and a read of its terminal reports this.
 	 */
-	first = now + (max_ms < FYAI_SHELL_FIRST_DRAW_MS ?
-		       max_ms : FYAI_SHELL_FIRST_DRAW_MS);
-	while (!sess->drew && !sess->exited && now < first) {
-		(void)fyai_event_sleep(el, first - now);
+	while (!sess->drew && !sess->exited && now < deadline &&
+	       !fyai_process_reads_stdin(sess->pid)) {
+		owed = deadline - now;
+		if (owed > FYAI_SHELL_FIRST_DRAW_POLL_MS)
+			owed = FYAI_SHELL_FIRST_DRAW_POLL_MS;
+		(void)fyai_event_sleep(el, owed);
 		now = fyai_event_now_ms();
 	}
 	for (;;) {
