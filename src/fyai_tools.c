@@ -2053,6 +2053,7 @@ struct fyai_shell_session {
 	bool wants_input;		/* it stopped for input and was said so */
 	fyai_event_ms_t quiet_since;	/* when its terminal last had output */
 	bool feeding;			/* keystrokes are on their way to it */
+	bool drew;			/* its terminal had output one time */
 	int rows;			/* the size the session was opened with */
 	int exit_code;
 	int signal;
@@ -2173,6 +2174,13 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
  */
 #define FYAI_SHELL_IDLE_MAX_WAIT_MS	5000
 #define FYAI_SHELL_IDLE_WAIT_MAX_MS	30000
+/*
+ * Time a session that has drawn nothing gets to draw its first bytes. Such a
+ * session is quiet because it has not started, and not because it settled, so
+ * the quiet time cannot describe it yet. A program that stays silent costs
+ * this one time and then answers at once.
+ */
+#define FYAI_SHELL_FIRST_DRAW_MS	1000
 /* Time a program gets to leave after it is asked to. */
 #define FYAI_TTY_CLOSE_WAIT_MS		500
 
@@ -2666,7 +2674,7 @@ static void fyai_shell_session_idle_gate(struct fyai_shell_session *sess,
 					 long long idle_ms, long long max_ms)
 {
 	struct fyai_event_loop *el;
-	fyai_event_ms_t deadline, quiet, owed, now;
+	fyai_event_ms_t deadline, quiet, owed, now, first;
 
 	if (idle_ms <= 0 || max_ms <= 0 || sess->exited)
 		return;
@@ -2676,6 +2684,17 @@ static void fyai_shell_session_idle_gate(struct fyai_shell_session *sess,
 	sess->feeding = true;
 	now = fyai_event_now_ms();
 	deadline = now + max_ms;
+	/*
+	 * A session that has drawn nothing has not settled: it has not begun.
+	 * Wait out its start before the quiet time is read, so that what a
+	 * call sees does not depend on how fast the program started.
+	 */
+	first = now + (max_ms < FYAI_SHELL_FIRST_DRAW_MS ?
+		       max_ms : FYAI_SHELL_FIRST_DRAW_MS);
+	while (!sess->drew && !sess->exited && now < first) {
+		(void)fyai_event_sleep(el, first - now);
+		now = fyai_event_now_ms();
+	}
 	for (;;) {
 		quiet = now - sess->quiet_since;
 		if (quiet >= idle_ms || sess->exited || now >= deadline)
@@ -2723,6 +2742,7 @@ static char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
 	struct fyai_terminal_region region = {};
 	struct fyai_shell_session *sess;
 	enum fyai_terminal_read what;
+	long long idle, max_wait;
 	char *err;
 
 	*okp = false;
@@ -2732,6 +2752,21 @@ static char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
 				 "shell: could not report the missing session");
 		return err;
 	}
+
+	/*
+	 * Read only a program that has settled on its terminal. A session that
+	 * has just opened has drawn nothing yet, and the reading of it must
+	 * not depend on how fast the program started.
+	 */
+	idle = fy_get(args, "idle_trigger",
+		      (long long)FYAI_SHELL_IDLE_TRIGGER_MS);
+	if (idle > FYAI_SHELL_IDLE_WAIT_MAX_MS)
+		idle = FYAI_SHELL_IDLE_WAIT_MAX_MS;
+	max_wait = fy_get(args, "max_wait",
+			  (long long)FYAI_SHELL_IDLE_MAX_WAIT_MS);
+	if (max_wait > FYAI_SHELL_IDLE_WAIT_MAX_MS)
+		max_wait = FYAI_SHELL_IDLE_WAIT_MAX_MS;
+	fyai_shell_session_idle_gate(sess, idle, max_wait);
 
 	fyai_shell_session_idle_arm(sess);
 	what = fyai_shell_view_kind(args, &region);
@@ -3830,6 +3865,7 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 			job->session->wants_input = false;
 			/* It is drawing, thus it is not quiet. */
 			job->session->quiet_since = fyai_event_now_ms();
+			job->session->drew = true;
 			(void)fyai_terminal_view_feed(job->session->view,
 						      bytes, n);
 			fyai_shell_session_refresh(job->session);
