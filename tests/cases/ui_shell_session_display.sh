@@ -3,6 +3,11 @@
 # The display of a terminal session belongs to the session, not to the calls
 # that drive it.
 #
+# The watch for a program stopped for input is off here. This case leaves a
+# shell at its prompt, which that watch reports as a turn of its own, and the
+# scenario has no answer for it: what a session displays is the subject, and
+# `case_shell_input_wanted` is where that watch is covered.
+#
 # The call that opens one shows a screen marked running for as long as the
 # program is there, and that screen is committed when it goes. The calls that
 # type into it and read it show nothing of their own: what they did is on that
@@ -19,6 +24,7 @@ FYAI_PTY_INPUT="drive the shell" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=30 \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set tools=true --set api=chat-completions \
+    --set shell/input_poll_ms=0 \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 
 "$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || fail "the session display is wrong"
