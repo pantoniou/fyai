@@ -107,6 +107,14 @@ static void term_status_text(const struct fyai_term *t, char *buf, size_t len)
 				      : "^\\ q quit  ^\\ r redraw");
 }
 
+/* Write the reply of the view to the terminal of the program. */
+static void term_view_reply(const char *data, size_t len, void *user)
+{
+	struct fyai_term *t = user;
+
+	fyai_terminal_reply_write(t->master, data, len);
+}
+
 /*
  * Give the program, the view and the surface one size. The program is told
  * with TIOCSWINSZ, which is what makes the kernel send it SIGWINCH.
@@ -440,6 +448,7 @@ int fyai_term_verb(struct fyai_ctx *ctx)
 	t.view = fyai_terminal_view_create(ctx, t.rows, t.cols, 0);
 	fyai_error_check(ctx, t.view != NULL, err_out,
 			 "term: could not create the terminal view");
+	fyai_terminal_view_reply_cb(t.view, term_view_reply, &t);
 
 	rc = fyai_ui_open(ctx);
 	fyai_error_check(ctx, !rc, err_out,

@@ -45,6 +45,24 @@ void fyai_terminal_view_resize(struct fyai_terminal_view *view, int rows,
 void fyai_terminal_view_line_cb(struct fyai_terminal_view *view,
 				shell_output_fn cb, void *userdata);
 
+/*
+ * A program can send a query to its terminal. It asks for the terminal type
+ * or for the cursor position, and it waits for the reply. The view is that
+ * terminal, thus the view makes the reply. The owner of the view must write
+ * the reply to the program. Without a reply the program waits for its own
+ * time limit, and it then reads the next input bytes as the reply.
+ */
+typedef void (*fyai_terminal_reply_fn)(const char *data, size_t len,
+				       void *userdata);
+void fyai_terminal_view_reply_cb(struct fyai_terminal_view *view,
+				 fyai_terminal_reply_fn cb, void *userdata);
+
+/* The maximum time to wait when the terminal is not ready for a reply. */
+#define FYAI_TERMINAL_REPLY_WAIT_MS	50
+
+/* Write a reply to the terminal of a program that this process holds. */
+void fyai_terminal_reply_write(int fd, const char *data, size_t len);
+
 bool fyai_terminal_view_screen_mode(const struct fyai_terminal_view *view);
 bool fyai_terminal_view_binary(const struct fyai_terminal_view *view);
 size_t fyai_terminal_view_raw_bytes(const struct fyai_terminal_view *view);

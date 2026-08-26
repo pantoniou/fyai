@@ -2269,6 +2269,26 @@ static void fyai_shell_session_idle_arm(struct fyai_shell_session *sess)
 				   &sess->idle);
 }
 
+/*
+ * The tool child holds the terminal of a session, thus a reply uses the same
+ * path as typed input. A program that sends a query waits for the reply.
+ * Without it the program waits for its own time limit, and it then reads the
+ * next typed input as the reply.
+ */
+static void fyai_shell_session_reply(const char *data, size_t len, void *user)
+{
+	struct fyai_shell_session *sess = user;
+	struct fy_generic_builder *gb;
+
+	if (!sess->job || !sess->job->conn || sess->exited)
+		return;
+	gb = fyai_ctx_transient_gb(sess->ctx);
+	if (!gb)
+		return;
+	(void)jsonrpc_notify(sess->job->conn, "shell/write",
+			     fyai_bytes_to_generic(gb, data, len));
+}
+
 /* Create the session and reserve its name, before the process is spawned. */
 static struct fyai_shell_session *
 fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
@@ -2293,6 +2313,7 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	/* Pipe output uses bare line feeds. */
 	fyai_terminal_view_cooked(sess->view, pipes);
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
+	fyai_terminal_view_reply_cb(sess->view, fyai_shell_session_reply, sess);
 	sess->title = title ? strdup(title) : NULL;
 	sess->rows = rows;
 	sess->pipes = pipes;
@@ -2948,6 +2969,14 @@ static void fyai_agent_view_refresh(struct fyai_tool_job *job)
 		fyai_ui_wake(job->ctx);
 }
 
+/* Write the reply of the view to the terminal of the sub-agent. */
+static void fyai_agent_view_reply(const char *data, size_t len, void *user)
+{
+	struct fyai_tool_job *job = user;
+
+	fyai_terminal_reply_write(job->pty, data, len);
+}
+
 static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 {
 	struct fyai_tool_job *job = ev->userdata;
@@ -3083,6 +3112,7 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 					      job->pty_cols, 0);
 	if (!job->view)
 		return -1;
+	fyai_terminal_view_reply_cb(job->view, fyai_agent_view_reply, job);
 	el = fyai_ctx_loop(ctx);
 	if (!el || fyai_event_add_fd(el, job->pty, FYAIEV_READ,
 				     fyai_agent_pty_read, job, &job->ptysrc))

@@ -11,9 +11,12 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <errno.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <libfyvterm.h>
 #include "fyai_diag.h"
@@ -42,6 +45,8 @@ struct fyai_terminal_view {
 	size_t raw_bytes;
 	shell_output_fn line_cb;
 	void *line_data;
+	fyai_terminal_reply_fn reply_cb;
+	void *reply_data;
 	size_t line_sent;		/* how much of the log was reported */
 	enum tty_scan scan;
 	bool pending_cr;		/* a carriage return waiting for its byte */
@@ -436,6 +441,20 @@ static void tty_log_feed(struct fyai_terminal_view *view, unsigned char c)
 	tty_log_putc(view, (char)c);
 }
 
+/*
+ * The emulator made a reply to a query from the program. The reply is input
+ * for the program and not content for the screen. Send it to the owner of the
+ * view, because only the owner can write to the terminal of the program.
+ */
+static void tty_cb_output(const char *s, size_t len, void *user)
+{
+	struct fyai_terminal_view *view = user;
+
+	if (!view->reply_cb || !s || !len)
+		return;
+	view->reply_cb(s, len, view->reply_data);
+}
+
 struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 						     int rows, int cols,
 						     size_t max_bytes)
@@ -466,6 +485,12 @@ struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 	/* fyvt_create() starts in 8-bit mode; without this every byte above 0x7f
 	 * is taken as a separate character and text is mangled. */
 	fyvt_set_utf8(view->vt, 1);
+	/*
+	 * Collect the replies that the emulator makes. Without a callback the
+	 * emulator keeps each reply in an internal buffer. No component reads
+	 * that buffer, and it increases with each query.
+	 */
+	fyvt_output_set_callback(view->vt, tty_cb_output, view);
 	view->screen = fyvt_obtain_screen(view->vt);
 	fyvt_screen_set_callbacks(view->screen, &tty_screen_callbacks, view);
 	/* Without this the ABI-compatible sb_pushline is called instead, and a
@@ -553,6 +578,50 @@ void fyai_terminal_view_line_cb(struct fyai_terminal_view *view,
 		return;
 	view->line_cb = cb;
 	view->line_data = userdata;
+}
+
+void fyai_terminal_view_reply_cb(struct fyai_terminal_view *view,
+				 fyai_terminal_reply_fn cb, void *userdata)
+{
+	if (!view)
+		return;
+	view->reply_cb = cb;
+	view->reply_data = userdata;
+}
+
+/*
+ * Write a reply to the program at the other end of @fd. A reply is only a few
+ * bytes, thus a terminal that is full becomes ready again quickly. Wait for a
+ * short time instead of discarding the reply. If the terminal stays full, the
+ * program does not read its input, and it does not wait for a reply.
+ */
+void fyai_terminal_reply_write(int fd, const char *data, size_t len)
+{
+	struct pollfd pfd;
+	size_t sent = 0;
+	ssize_t n;
+	int rc;
+
+	if (fd < 0 || !data || !len)
+		return;
+	while (sent < len) {
+		n = write(fd, data + sent, len - sent);
+		if (n > 0) {
+			sent += (size_t)n;
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			pfd.fd = fd;
+			pfd.events = POLLOUT;
+			pfd.revents = 0;
+			rc = poll(&pfd, 1, FYAI_TERMINAL_REPLY_WAIT_MS);
+			if (rc > 0)
+				continue;
+		}
+		return;
+	}
 }
 
 bool fyai_terminal_view_screen_mode(const struct fyai_terminal_view *view)

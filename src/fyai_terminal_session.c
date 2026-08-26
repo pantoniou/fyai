@@ -62,6 +62,14 @@ struct tty_run {
 	struct fyai_event_source *killer;
 };
 
+/* Write the reply of the view to the terminal of the program. */
+static void tty_view_reply(const char *data, size_t len, void *user)
+{
+	struct tty_run *r = user;
+
+	fyai_terminal_reply_write(r->master, data, len);
+}
+
 static enum fyai_event_action tty_read(const struct fyai_event *ev)
 {
 	struct tty_run *r = ev->userdata;
@@ -406,6 +414,7 @@ int fyai_terminal_session_run(struct fyai_ctx *ctx, const char *command,
 	if (!r.view)
 		return -1;
 	fyai_terminal_view_line_cb(r.view, opts->output_fn, opts->output_data);
+	fyai_terminal_view_reply_cb(r.view, tty_view_reply, &r);
 
 	rc = fyai_terminal_pty_spawn(ctx, command, sandbox, opts, r.rows,
 				     r.cols, &r.master, &pid, &start);
