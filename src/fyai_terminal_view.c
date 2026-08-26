@@ -540,6 +540,15 @@ int fyai_terminal_view_feed(struct fyai_terminal_view *view, const char *data,
 	if (!view->binary && data_is_binary(data, len))
 		view->binary = true;
 	view->raw_bytes += len;
+	/*
+	 * The result for a stream that is not text is its size, and never its
+	 * screen. Thus there is no reason to interpret it. Interpretation
+	 * would also give the emulator the bytes of a file as terminal
+	 * output, which they are not. The capture path applies the same rule
+	 * before it renders a chunk.
+	 */
+	if (view->binary)
+		return 0;
 
 	/* The screen is interpreted from the same bytes as the line log. */
 	written = fyvt_input_write(view->vt, data, len);
