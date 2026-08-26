@@ -1007,11 +1007,21 @@ void fyai_exec_shell_command(int status_fd, const char *command,
 	base = base ? base + 1 : shell;
 	snprintf(argv0, sizeof(argv0), "%s%s", login ? "-" : "", base);
 
-	/* Resolve a shell name through PATH; a name with '/' is already a path. */
-	if (command && *command)
-		execlp(shell, argv0, "-c", command, (char *)NULL);
-	else
+	/*
+	 * Resolve a shell name through PATH; a name with '/' is already a path.
+	 * A login shell is asked for two times: the leading dash is what a
+	 * shell that reads argv[0] looks at, and -l is what bash answers when
+	 * it runs a command. Every supported shell accepts -l.
+	 */
+	if (command && *command) {
+		if (login)
+			execlp(shell, argv0, "-l", "-c", command,
+			       (char *)NULL);
+		else
+			execlp(shell, argv0, "-c", command, (char *)NULL);
+	} else {
 		execlp(shell, argv0, (char *)NULL);
+	}
 	fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_EXEC, errno);
 }
 
