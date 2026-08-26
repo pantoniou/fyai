@@ -116,9 +116,10 @@ static enum fyai_event_action tty_kill(const struct fyai_event *ev)
 }
 
 /*
- * Stop the command as the pipe path stops it. Send SIGTERM to the group, then
- * SIGKILL after a grace time, so that a full-screen program can restore the
- * terminal. Call this one time.
+ * Stop the command as the pipe path stops it. Send SIGHUP and SIGTERM to the
+ * group, then SIGKILL after a grace time, so that a full-screen program can
+ * restore the terminal. The terminal goes away, so the hangup is what an
+ * interactive shell answers: it ignores SIGTERM. Call this one time.
  */
 static void tty_cancel(struct tty_run *r)
 {
@@ -127,6 +128,7 @@ static void tty_cancel(struct tty_run *r)
 	if (r->cancelling || r->reaped)
 		return;
 	r->cancelling = true;
+	(void)kill(-r->pid, SIGHUP);
 	(void)kill(-r->pid, SIGTERM);
 
 	el = fyai_ctx_loop(r->ctx);
@@ -832,6 +834,9 @@ void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force)
 	if (rl->closing)
 		return;
 	rl->closing = true;
+	/* The session ends, so its terminal hangs up. An interactive shell
+	 * ignores SIGTERM and answers only the hangup. */
+	(void)kill(-rl->pid, SIGHUP);
 	(void)kill(-rl->pid, SIGTERM);
 
 	el = fyai_ctx_loop(rl->ctx);
