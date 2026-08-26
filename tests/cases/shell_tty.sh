@@ -87,6 +87,29 @@ assert_status 0
 [ "$(head -1 "$TEST_DIR/tty.txt")" = "$(head -1 "$TEST_DIR/stdout")" ] || \
 	fail "the rendered screen does not match the byte stream for UTF-8 text"
 
+# A program can send a query to its terminal and wait for the reply. The
+# screen that fyai keeps is that terminal, thus fyai makes the reply and
+# writes it to the terminal of the program. Without a reply the program waits
+# for its own time limit, and it then reads the next input bytes as the
+# reply.
+cat > "$TEST_DIR/ask.sh" <<'SH'
+exec 2>/dev/null
+stty raw -echo
+printf '\033[c'
+# The reply ends with the letter that identifies the report. Without a reply
+# the read stops only at its own time limit, which is the failure this test
+# examines.
+IFS= read -r -t 2 -d c reply
+stty sane
+# Print only the numbers of the reply. The escape character at its start
+# would be read as a sequence again, and not as the text of this check.
+printf 'ANSWERED=%s\n' "$(printf %s "$reply" | tr -dc '0-9;')"
+SH
+run_fyai tool shell "{\"command\":\"bash $TEST_DIR/ask.sh\",\"tty\":true}"
+assert_status 0
+grep -qE '^ANSWERED=[0-9]+(;[0-9]+)*$' "$TEST_DIR/stdout" ||
+	fail "the program sent a terminal query and received no reply"
+
 # An interrupt must reach the command. Without it the only way out is the
 # time limit. The run is backgrounded here so the case can signal it.
 "$FYAI_BIN" -k test-key --color off tool shell \

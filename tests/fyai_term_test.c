@@ -20,6 +20,7 @@ FYAI_TEST_ENTRY(term, view_cells, term_view_cells)
 FYAI_TEST_ENTRY(term, view_damage, term_view_damage)
 FYAI_TEST_ENTRY(term, view_cursor, term_view_cursor)
 FYAI_TEST_ENTRY(term, view_cooked, term_view_cooked)
+FYAI_TEST_ENTRY(term, view_reply, term_view_reply)
 
 static void feed(struct fyai_terminal_view *view, const char *bytes)
 {
@@ -172,6 +173,62 @@ int term_view_cursor(void)
 	feed(view, "\033[?25h");
 	fyai_terminal_view_cursor(view, &row, &col, &visible);
 	FYAI_TCHECK(visible);
+
+	fyai_terminal_view_destroy(view);
+	return 0;
+}
+
+struct reply_capture {
+	char data[64];
+	size_t len;
+	int calls;
+};
+
+static void reply_taken(const char *data, size_t len, void *user)
+{
+	struct reply_capture *cap = user;
+
+	if (cap->len + len > sizeof(cap->data))
+		return;
+	memcpy(cap->data + cap->len, data, len);
+	cap->len += len;
+	cap->calls++;
+}
+
+/*
+ * A program can send a query to its terminal and wait for the reply. The view
+ * is that terminal, thus it gives the reply to its owner, which can write to
+ * the program. Without a reply the program waits for its own time limit, and
+ * it then reads the next input bytes as the reply.
+ */
+int term_view_reply(void)
+{
+	struct fyai_terminal_view *view;
+	struct reply_capture cap = {};
+
+	view = fyai_terminal_view_create(NULL, 4, 20, 0);
+	FYAI_TCHECK(view != NULL);
+	fyai_terminal_view_reply_cb(view, reply_taken, &cap);
+
+	/* The terminal type: a primary device attributes report. */
+	feed(view, "\033[c");
+	FYAI_TCHECK(cap.calls == 1);
+	FYAI_TCHECK(cap.len > 2);
+	FYAI_TCHECK(cap.data[0] == '\033' && cap.data[1] == '[');
+	FYAI_TCHECK(cap.data[cap.len - 1] == 'c');
+
+	/* The cursor position, after the text moved the cursor. */
+	cap.len = 0;
+	cap.calls = 0;
+	feed(view, "ab\033[6n");
+	FYAI_TCHECK(cap.calls == 1);
+	FYAI_TCHECK(cap.len == strlen("\033[1;3R"));
+	FYAI_TCHECK(!memcmp(cap.data, "\033[1;3R", cap.len));
+
+	/* Plain text is not a query, thus there is no reply. */
+	cap.calls = 0;
+	feed(view, "cd");
+	FYAI_TCHECK(!cap.calls);
 
 	fyai_terminal_view_destroy(view);
 	return 0;
