@@ -172,6 +172,14 @@
           type: integer
           description: |-
             Time to let the program answer before the output is read. Defaults to 250 ms. A program that needs longer can be read again with shell_output.
+        idle_trigger:
+          type: integer
+          description: |-
+            Time the session must write nothing before the keystrokes are sent. Defaults to 100 ms. A program that is still starting has not taken its terminal and loses what is typed at it, so raise this for one that is slow to draw its first screen; a program stopped for input writes nothing and is answered at once.
+        max_wait:
+          type: integer
+          description: |-
+            Time after which the keystrokes are sent whatever the program is doing. Defaults to 5000 ms. It bounds `idle_trigger` for a program that never stops writing.
         view:
           type: string
           enum:

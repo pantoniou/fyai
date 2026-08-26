@@ -2051,6 +2051,8 @@ struct fyai_shell_session {
 	bool pipes;			/* it was given no terminal */
 	struct fyai_event_source *waiter;
 	bool wants_input;		/* it stopped for input and was said so */
+	fyai_event_ms_t quiet_since;	/* when its terminal last had output */
+	bool feeding;			/* keystrokes are on their way to it */
 	int rows;			/* the size the session was opened with */
 	int exit_code;
 	int signal;
@@ -2156,6 +2158,21 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 /* Time a program gets to answer input before the reading is taken. */
 #define FYAI_SHELL_INPUT_WAIT_MS	250
 #define FYAI_SHELL_INPUT_WAIT_MAX_MS	30000
+/*
+ * Time a session must be quiet before it is typed at. Input written to a
+ * program that is still starting is lost: the line discipline holds the bytes
+ * while the terminal is still cooked, and a program that starts by asking the
+ * terminal about itself reads them as the answer it waits for. A program
+ * stopped for input writes nothing, thus it is quiet and is answered at once.
+ */
+#define FYAI_SHELL_IDLE_TRIGGER_MS	100
+/*
+ * The gate opens at this time whatever the program does. A program that never
+ * stops writing is one the quiet time cannot describe, and its input is owed
+ * to it all the same.
+ */
+#define FYAI_SHELL_IDLE_MAX_WAIT_MS	5000
+#define FYAI_SHELL_IDLE_WAIT_MAX_MS	30000
 /* Time a program gets to leave after it is asked to. */
 #define FYAI_TTY_CLOSE_WAIT_MS		500
 
@@ -2256,6 +2273,8 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	if (!sess)
 		return NULL;
 	sess->ctx = ctx;
+	/* A session that has drawn nothing has been quiet since it opened. */
+	sess->quiet_since = fyai_event_now_ms();
 	sess->name = strdup(name);
 	sess->command = strdup(command ? command : "");
 	sess->branch = strdup(fyai_ctx_branch(ctx));
@@ -2364,6 +2383,13 @@ static enum fyai_event_action fyai_shell_session_wait_poll(
 	bool wants;
 
 	if (sess->exited || sess->closing)
+		return FYAIEA_CONTINUE;
+	/*
+	 * A program held at a gate is one that is being typed at: its answer
+	 * is on its way. Asking the model to answer it would ask for what it
+	 * has already sent.
+	 */
+	if (sess->feeding)
 		return FYAIEA_CONTINUE;
 	wants = fyai_process_reads_stdin(sess->pid);
 	if (wants == sess->wants_input)
@@ -2630,6 +2656,44 @@ err:
 	return NULL;
 }
 
+/*
+ * Wait for the session to be quiet for @idle_ms before its input is written,
+ * and no longer than @max_ms whatever it does. Each byte the program writes
+ * restarts the quiet time, so this waits out a program that is still starting
+ * and returns at once for one that is stopped for input.
+ */
+static void fyai_shell_session_idle_gate(struct fyai_shell_session *sess,
+					 long long idle_ms, long long max_ms)
+{
+	struct fyai_event_loop *el;
+	fyai_event_ms_t deadline, quiet, owed, now;
+
+	if (idle_ms <= 0 || max_ms <= 0 || sess->exited)
+		return;
+	el = fyai_ctx_loop(sess->ctx);
+	if (!el)
+		return;
+	sess->feeding = true;
+	now = fyai_event_now_ms();
+	deadline = now + max_ms;
+	for (;;) {
+		quiet = now - sess->quiet_since;
+		if (quiet >= idle_ms || sess->exited || now >= deadline)
+			break;
+		/*
+		 * Sleep what the quiet time still owes, or what is left before
+		 * the gate opens anyway. Output during the sleep moves the
+		 * quiet time, and the next round waits out the rest of it.
+		 */
+		owed = idle_ms - quiet;
+		if (owed > deadline - now)
+			owed = deadline - now;
+		(void)fyai_event_sleep(el, owed);
+		now = fyai_event_now_ms();
+	}
+	sess->feeding = false;
+}
+
 /* Find the session a call names, or say why it cannot be used. */
 static struct fyai_shell_session *
 fyai_shell_session_of(struct fyai_ctx *ctx, fy_generic args, char **errp)
@@ -2688,7 +2752,7 @@ static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	struct response_buffer in = {};
 	fy_generic input;
 	const char *text;
-	long long wait;
+	long long wait, idle, max_wait;
 	char *err, *result;
 	int rc;
 
@@ -2719,6 +2783,17 @@ static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 		fyai_error_check(ctx, !rc, out,
 				 "shell: could not append return to session input");
 	}
+	/* Type only into a program that has settled on its terminal. */
+	idle = fy_get(args, "idle_trigger",
+		      (long long)FYAI_SHELL_IDLE_TRIGGER_MS);
+	if (idle > FYAI_SHELL_IDLE_WAIT_MAX_MS)
+		idle = FYAI_SHELL_IDLE_WAIT_MAX_MS;
+	max_wait = fy_get(args, "max_wait",
+			  (long long)FYAI_SHELL_IDLE_MAX_WAIT_MS);
+	if (max_wait > FYAI_SHELL_IDLE_WAIT_MAX_MS)
+		max_wait = FYAI_SHELL_IDLE_WAIT_MAX_MS;
+	fyai_shell_session_idle_gate(sess, idle, max_wait);
+
 	(void)jsonrpc_notify(sess->job->conn, "shell/write",
 			     fyai_bytes_to_generic(gb, in.data, in.len));
 	free(in.data);
@@ -3753,6 +3828,8 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 		if (bytes) {
 			/* It wrote: whatever it waited for, it has it. */
 			job->session->wants_input = false;
+			/* It is drawing, thus it is not quiet. */
+			job->session->quiet_since = fyai_event_now_ms();
 			(void)fyai_terminal_view_feed(job->session->view,
 						      bytes, n);
 			fyai_shell_session_refresh(job->session);
