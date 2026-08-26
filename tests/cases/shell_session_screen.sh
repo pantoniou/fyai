@@ -13,6 +13,10 @@ if ! command -v vi >/dev/null 2>&1; then
 	pass
 fi
 
+# The editor starts after a delay. A program does not start at the moment the
+# call requests it, and a machine with a high load is slower. If input goes to
+# a program that did not configure its terminal yet, the line discipline gets
+# the keys and the program does not.
 mock_start shell_session_screen.json
 
 run_fyai --set api=chat-completions --set display/stream=false \

@@ -18,7 +18,7 @@
          "type": "function",
          "function": {
           "name": "exec_command",
-          "arguments": "{\"name\": \"editor\", \"command\": \"vi note.txt\", \"rows\": 10, \"cols\": 40, \"tty\": true}"
+          "arguments": "{\"name\": \"editor\", \"command\": \"sh -c 'sleep 2; exec vi note.txt'\", \"rows\": 10, \"cols\": 40, \"tty\": true}"
          }
         }
        ]
