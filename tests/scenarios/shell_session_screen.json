@@ -46,7 +46,7 @@
          "type": "function",
          "function": {
           "name": "shell_input",
-          "arguments": "{\"name\": \"editor\", \"input\": \"ihello from vi\\u001b\", \"enter\": false, \"wait_ms\": 800}"
+          "arguments": "{\"name\": \"editor\", \"input\": \"ihello from vi\\u001b\", \"enter\": false, \"wait_ms\": 800, \"idle_trigger\": 1000, \"max_wait\": 5000}"
          }
         }
        ]
