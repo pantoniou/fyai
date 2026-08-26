@@ -54,15 +54,43 @@ skip() {
 
 fyai_test_cleanup() {
 	mock_stop_quiet
-	[ -n "$TEST_DIR" ] && rm -rf "$TEST_DIR"
+	if [ -n "$TEST_DIR" ]; then
+		rm -rf "$TEST_DIR"
+		TEST_DIR=""
+	fi
+}
+
+# A signal leaves no scratch behind: the shell runs the EXIT trap only on a
+# normal exit, so a case stopped by a CTest timeout must clean up here.
+fyai_test_signal() {
+	local sig="$1"
+
+	fyai_test_cleanup
+	trap - "$sig"
+	kill -s "$sig" $$
 }
 
 # The sandbox without a project: scratch dir, redirected HOME/XDG_*, scrubbed
 # provider env. A case that tests what fyai does with no arena uses this one.
 fyai_test_setup_bare() {
-	TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fyai-test-XXXXXX")" || exit 99
+	# A case can set up more than one time. Remove the sandbox of the
+	# previous one, and keep making each new one beside it and not in it.
+	: "${FYAI_TMPDIR_BASE:=${TMPDIR:-/tmp}}"
+	if [ -n "$TEST_DIR" ]; then
+		cd "$FYAI_TMPDIR_BASE" || exit 99
+		fyai_test_cleanup
+	fi
+	TEST_DIR="$(mktemp -d "$FYAI_TMPDIR_BASE/fyai-test-XXXXXX")" || exit 99
 	trap fyai_test_cleanup EXIT
+	for sig in HUP INT QUIT TERM; do
+		trap "fyai_test_signal $sig" "$sig"
+	done
 	cd "$TEST_DIR" || exit 99
+
+	# Every temporary file the run makes lands in the scratch dir, so the
+	# cleanup removes it with the rest of the case.
+	export TMPDIR="$TEST_DIR/tmp"
+	mkdir -p "$TMPDIR"
 
 	export HOME="$TEST_DIR/home"
 	export XDG_STATE_HOME="$TEST_DIR/home/.local/state"
@@ -108,8 +136,10 @@ mock_start() {
 }
 
 mock_stop_quiet() {
-	[ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null
-	MOCK_PID=""
+	if [ -n "$MOCK_PID" ]; then
+		kill "$MOCK_PID" 2>/dev/null || true
+		MOCK_PID=""
+	fi
 }
 
 # Stop the mock and assert the whole scenario was consumed.
