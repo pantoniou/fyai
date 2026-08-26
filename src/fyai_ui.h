@@ -97,6 +97,12 @@ enum fyai_ui_mark {
 int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			     const char *title, const char *cause,
 			     enum fyai_ui_mark mark);
+/* Set one animation frame and return its interval through @interval_msp. */
+int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
+				   struct fytim_surface *sf,
+				   const char *title, const char *cause,
+				   enum fyai_ui_mark mark, size_t frame,
+				   unsigned int *interval_msp);
 
 /* Keep the last screen: it goes into the transcript and @sf is retired. */
 void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf);

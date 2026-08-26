@@ -2020,6 +2020,8 @@ struct fyai_tool_job {
 	struct fyai_terminal_view *view;	/* what it drew there */
 	struct fytim_surface *surface;		/* and where that is shown */
 	struct fyai_event_source *ptysrc;
+	struct fyai_event_source *animation;
+	size_t animation_frame;
 	struct fyai_event_source *waiter;	/* asks if it stopped for input */
 	bool wants_input;
 	bool terminating;
@@ -2045,6 +2047,8 @@ struct fyai_shell_session {
 	struct fyai_terminal_view *view;
 	struct fyai_event_source *idle;
 	/* The session owns one live surface until its program stops. */
+	struct fyai_event_source *animation;
+	size_t animation_frame;
 	struct fytim_surface *surface;
 	char *title;
 	pid_t pid;			/* the program, watched for a read */
@@ -2123,6 +2127,7 @@ static void fyai_tool_jobs_abandon(struct fyai_ctx *ctx)
 		job->pfd = job->rfd = job->pty = -1;
 		job->conn = NULL;
 		job->session = NULL;
+		job->animation = NULL;
 		job->next = NULL;
 	}
 	ctx->tool_jobs = NULL;
@@ -2188,6 +2193,23 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 static void fyai_tool_job_discard(struct fyai_tool_job *job);
 static void fyai_shell_session_close(struct fyai_shell_session *sess,
 				     bool force);
+
+/* Advance the state mark on the title of a live terminal session. */
+static enum fyai_event_action
+fyai_shell_session_animate(const struct fyai_event *ev)
+{
+	struct fyai_shell_session *sess = ev->userdata;
+
+	if (!sess->surface || sess->exited)
+		return FYAIEA_CONTINUE;
+	sess->animation_frame++;
+	(void)fyai_ui_surface_set_head_frame(sess->ctx, sess->surface,
+					 sess->title ? sess->title : "**shell**",
+					 NULL, FYAI_UI_MARK_RUNNING,
+					 sess->animation_frame, NULL);
+	fyai_ui_wake(sess->ctx);
+	return FYAIEA_CONTINUE;
+}
 
 /* The live display of a session shows its lines, as a normal tool call does. */
 static void fyai_shell_session_line(void *userdata,
@@ -2296,8 +2318,12 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 			  const char *command, const char *title, int rows,
 			  int cols, size_t max_bytes, bool pipes)
 {
+	struct fyai_event_loop *el;
 	struct fyai_shell_session *sess;
+	unsigned int animation_ms;
+	int rc;
 
+	animation_ms = 0;
 	sess = calloc(1, sizeof(*sess));
 	if (!sess)
 		return NULL;
@@ -2320,12 +2346,20 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	sess->pipes = pipes;
 	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
 	if (sess->surface) {
-		(void)fyai_ui_surface_set_head(ctx, sess->surface,
-					       sess->title ? sess->title :
-					       "**shell**", NULL,
-					       FYAI_UI_MARK_RUNNING);
+		(void)fyai_ui_surface_set_head_frame(ctx, sess->surface,
+				 sess->title ? sess->title : "**shell**", NULL,
+				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
 		(void)fyai_ui_surface_set_margin(sess->surface,
 						 ctx->cfg->session_margin);
+		el = fyai_ctx_loop(ctx);
+		if (el && animation_ms) {
+			rc = fyai_event_add_timer(el, animation_ms, animation_ms,
+					  fyai_shell_session_animate, sess,
+					  &sess->animation);
+			if (rc)
+				fyai_warning(ctx, "shell session indicator animation "
+					     "timer could not start");
+		}
 		/* Publish the initial blank screen. */
 		fyai_terminal_view_damage_all(sess->view);
 		if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
@@ -2484,6 +2518,10 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	if (!sess || !sess->surface)
 		return;
 
+	if (sess->animation) {
+		fyai_event_source_remove(sess->animation);
+		sess->animation = NULL;
+	}
 	fyai_shell_session_refresh(sess);
 	cause = fyai_shell_session_cause(sess, &ok);
 	(void)fyai_ui_surface_set_head(sess->ctx, sess->surface,
@@ -2542,6 +2580,8 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	/* A session torn down while its program was still there commits what
 	 * it drew all the same: it was shown, so it is kept. */
 	fyai_shell_session_display_finish(sess);
+	if (sess->animation)
+		fyai_event_source_remove(sess->animation);
 	if (sess->idle)
 		fyai_event_source_remove(sess->idle);
 	if (sess->waiter)
@@ -2569,6 +2609,7 @@ static void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 		sess->surface = NULL;
 		sess->idle = NULL;
 		sess->waiter = NULL;
+		sess->animation = NULL;
 		fyai_shell_session_destroy(sess);
 	}
 	ctx->shell_sessions = NULL;
@@ -2974,6 +3015,23 @@ static void fyai_agent_view_refresh(struct fyai_tool_job *job)
 		fyai_ui_wake(job->ctx);
 }
 
+/* Advance the state mark on the title of a live sub-agent terminal. */
+static enum fyai_event_action
+fyai_agent_view_animate(const struct fyai_event *ev)
+{
+	struct fyai_tool_job *job = ev->userdata;
+
+	if (!job->surface || job->done)
+		return FYAIEA_CONTINUE;
+	job->animation_frame++;
+	(void)fyai_ui_surface_set_head_frame(job->ctx, job->surface,
+					 job->title ? job->title : "**agent**",
+					 NULL, FYAI_UI_MARK_RUNNING,
+					 job->animation_frame, NULL);
+	fyai_ui_wake(job->ctx);
+	return FYAIEA_CONTINUE;
+}
+
 /* Write the reply of the view to the terminal of the sub-agent. */
 static void fyai_agent_view_reply(const char *data, size_t len, void *user)
 {
@@ -3104,8 +3162,10 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 				struct fyai_tool_job *job)
 {
 	struct fyai_event_loop *el;
+	unsigned int animation_ms;
 	int flags, rc;
 
+	animation_ms = 0;
 	if (job->pty < 0)
 		return 0;
 
@@ -3134,12 +3194,19 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 
 	job->surface = fyai_ui_surface_open(ctx, job->pty_rows, job->pty_cols);
 	if (job->surface) {
-		(void)fyai_ui_surface_set_head(ctx, job->surface,
-					       job->title ? job->title :
-					       "**agent**", NULL,
-					       FYAI_UI_MARK_RUNNING);
+		(void)fyai_ui_surface_set_head_frame(ctx, job->surface,
+				 job->title ? job->title : "**agent**", NULL,
+				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
 		(void)fyai_ui_surface_set_margin(job->surface,
 						 ctx->cfg->session_margin);
+		if (animation_ms) {
+			rc = fyai_event_add_timer(el, animation_ms, animation_ms,
+					  fyai_agent_view_animate, job,
+					  &job->animation);
+			if (rc)
+				fyai_warning(ctx, "agent indicator animation timer "
+					     "could not start");
+		}
 		/* Publish the initial blank screen. */
 		fyai_terminal_view_damage_all(job->view);
 		fyai_agent_view_refresh(job);
@@ -3154,6 +3221,10 @@ err:
 static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 				  const char *cause)
 {
+	if (job->animation) {
+		fyai_event_source_remove(job->animation);
+		job->animation = NULL;
+	}
 	if (job->waiter) {
 		fyai_event_source_remove(job->waiter);
 		job->waiter = NULL;

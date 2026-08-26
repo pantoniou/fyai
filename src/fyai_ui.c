@@ -1454,9 +1454,11 @@ int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
 	return rows;
 }
 
-int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *cause,
-			     enum fyai_ui_mark mark)
+int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
+				   struct fytim_surface *sf,
+				   const char *title, const char *cause,
+				   enum fyai_ui_mark mark, size_t frame,
+				   unsigned int *interval_msp)
 {
 	static const enum fymd_indicator_state states[] = {
 		[FYAI_UI_MARK_RUNNING] = FYMD_INDICATOR_PENDING,
@@ -1472,7 +1474,7 @@ int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		return -1;
 
 	/* Render the marked title row used by work bands. */
-	margin = markdown_indicator_margin_cfg(ctx->cfg, states[mark]);
+	margin = ui_indicator(ui, states[mark], frame, interval_msp);
 	rc = markdown_render_tool_head(ctx->cfg, title, strlen(title), cause,
 				       margin ? margin : "  ", "  ", &out);
 	free(margin);
@@ -1488,6 +1490,14 @@ int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	}
 	free(out.data);
 	return rc;
+}
+
+int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			     const char *title, const char *cause,
+			     enum fyai_ui_mark mark)
+{
+	return fyai_ui_surface_set_head_frame(ctx, sf, title, cause, mark, 0,
+					      NULL);
 }
 
 int fyai_ui_surface_granted_cols(const struct fytim_surface *sf)
