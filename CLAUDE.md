@@ -504,6 +504,15 @@ shell result is a list of `{stdout, stderr, outcome}`. On expiration, set the
 outcome to `{type: timeout, timeout_ms}`. Keep all captured output. Do not
 replace the result with an error string or a signal outcome.
 
+A program can send a query to its terminal. It asks for the terminal type or
+for the cursor position, and it waits for the reply. The terminal view is that
+terminal, thus the view makes the reply. Set a reply callback on each view
+with `fyai_terminal_view_reply_cb()`. Write the reply to the program with
+`fyai_terminal_reply_write()` when this process holds the terminal descriptor,
+or with the `shell/write` notification when the tool child holds it. Without a
+reply the program waits for its own time limit, and it then reads the next
+typed input as the reply.
+
 Apply shell `workdir` before Landlock confinement. Exit status 125 reports an
 unreachable working directory. Landlock is Linux-only. Other platforms use
 the same interface with no confinement backend. Keep command admission
