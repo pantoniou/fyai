@@ -1,16 +1,43 @@
 # fyai
 
-`fyai` is a stateless, daemon-less AI coding assistant written in C.
+**The process is temporary. The work is durable.**
 
-Each invocation opens the repository's durable state, runs the requested verb
-or one complete model/tool loop, atomically publishes any durable changes, and
-exits. Interactive mode keeps that same process alive for a terminal session,
-but there is still no resident service and no hidden process state.
+`fyai` is a Unix-native AI coding agent written in C.
 
-The result feels like a Unix command while retaining the history, branching,
-tool use, and rich terminal experience expected from a modern coding agent.
+Each invocation opens the repository's durable AI state, runs the requested
+verb or one complete model/tool loop, atomically publishes any durable changes,
+and exits. There is no daemon and no hidden process state.
 
-## What makes fyai interesting
+Interactive mode can keep that same process alive for a terminal session, but
+the architecture stays the same: processes are temporary; durable state is
+explicit.
+
+fyai stores canonical, provider-independent conversation state locally in a
+content-addressed libfyaml arena. That state has branch semantics, so agent work
+can be forked, inspected, reset through reflogs, rebased, merged, and continued
+through a different model or provider without turning a provider's wire
+transcript into the identity of the conversation.
+
+```sh
+fyai "inspect this repository and propose the highest-value cleanup"
+```
+
+When the command returns to the shell, the process is gone. The work is still
+there:
+
+```sh
+fyai transcript
+fyai branch create alternative
+fyai checkout alternative
+fyai "try a different design"
+```
+
+## Why fyai exists
+
+Most AI coding tools treat the agent as an application or service. fyai treats
+it more like a Unix process.
+
+That leads to a different set of properties:
 
 - **The process is temporary; the work is durable.** Conversations,
   configuration, branches, provider observations, and reflogs live in a local
@@ -30,6 +57,11 @@ tool use, and rich terminal experience expected from a modern coding agent.
   own persistent `agent:` branch. Forked agents inherit the conversation at the
   delegation point; fresh agents begin from the delegated task. The parent gets
   the report while the complete delegated conversation remains inspectable.
+
+- **Models and providers are replaceable.** The same durable conversation can
+  continue across supported OpenAI Responses, OpenAI-style Chat Completions,
+  and Anthropic-style Messages grammars, including compatible self-hosted
+  endpoints.
 
 - **One native event-driven terminal.** Streaming model output, progressive
   Markdown, concurrent tools, sub-agent work bands, readline editing, OAuth,
