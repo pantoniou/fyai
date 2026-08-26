@@ -45,6 +45,13 @@ fail() {
 	exit 1
 }
 
+# A case that needs what this platform cannot do reports it and is not run.
+# CTest reads status 77 as a skip.
+skip() {
+	echo "SKIP: $*" >&2
+	exit 77
+}
+
 fyai_test_cleanup() {
 	mock_stop_quiet
 	[ -n "$TEST_DIR" ] && rm -rf "$TEST_DIR"

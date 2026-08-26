@@ -8,6 +8,10 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
+# Only Linux reports which descriptor a stopped process reads, so only there
+# can a session say that it waits for input. See fyai_process_reads_stdin().
+[ "$(uname -s)" = "Linux" ] || skip "an input wait is reported on Linux only"
+
 fyai_test_setup
 mock_start shell_input_wanted.json
 
