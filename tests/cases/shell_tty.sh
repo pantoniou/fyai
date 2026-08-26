@@ -19,9 +19,10 @@ assert_stdout_contains "command exited with status 7"
 # A descendant can inherit the terminal after the direct shell exits. The
 # command completes with that shell and must not wait for the inherited slave
 # descriptor to reach EOF.
-if ! timeout 5 "$FYAI_BIN" -k test-key --color off tool shell \
+if ! run_limited 5 "$FYAI_BIN" -k test-key --color off tool shell \
 	'{"command":"sleep 30 & echo direct-done; exit 0","tty":true}' \
 	>"$TEST_DIR/descendant.out" 2>&1 </dev/null; then
+	cat "$TEST_DIR/descendant.out" >&2
 	fail "a descendant that kept the PTY open kept the shell call alive"
 fi
 grep -q "direct-done" "$TEST_DIR/descendant.out" ||

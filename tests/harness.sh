@@ -168,6 +168,27 @@ run_fyai() {
 	set -e
 }
 
+# run_limited SECONDS command...: run a command, and stop it if it continues
+# after the limit. `timeout(1)` is a GNU tool. A platform that does not have
+# it must also report a command that does not stop by itself. The function
+# returns the status of the command. A command that was stopped reports its
+# signal.
+run_limited() {
+	local limit="$1" pid watch rc
+	shift
+	"$@" &
+	pid=$!
+	( sleep "$limit"; kill -TERM "$pid" 2>/dev/null ) &
+	watch=$!
+	set +e
+	wait "$pid"
+	rc=$?
+	set -e
+	kill -TERM "$watch" 2>/dev/null
+	wait "$watch" 2>/dev/null
+	return "$rc"
+}
+
 assert_status() {
 	[ "$FYAI_STATUS" -eq "$1" ] || fail "exit status $FYAI_STATUS, expected $1"
 }
