@@ -132,6 +132,7 @@ struct fyai_event_loop {
 /* Backend contract. */
 int fyai_event_backend_create(struct fyai_event_loop *el);
 void fyai_event_backend_destroy(struct fyai_event_loop *el);
+void fyai_event_backend_abandon(struct fyai_event_loop *el);
 int fyai_event_backend_arm(struct fyai_event_source *src);
 int fyai_event_backend_disarm(struct fyai_event_source *src);
 int fyai_event_backend_wait(struct fyai_event_loop *el,

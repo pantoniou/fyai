@@ -440,8 +440,7 @@ void fyai_ctx_loop_abandon(struct fyai_ctx *ctx)
 	if (ctx->signal_mask_valid)
 		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
 	fyai_event_signal_forget();
-	if (el->backend_fd >= 0)
-		close(el->backend_fd);
+	fyai_event_backend_abandon(el);
 	free(el);
 }
 

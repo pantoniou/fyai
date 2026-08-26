@@ -56,6 +56,14 @@ void fyai_event_backend_destroy(struct fyai_event_loop *el)
 	el->backend_fd = -1;
 }
 
+/* A kqueue descriptor is not inherited: fork(2) closes it in the child. The
+ * number is free there, so the child can already have given it to another
+ * file. Drop it without a close, which would close that file. */
+void fyai_event_backend_abandon(struct fyai_event_loop *el)
+{
+	el->backend_fd = -1;
+}
+
 /* Apply one change. A quiet ENOENT/ESRCH returns 1 so an arm can distinguish
  * "nothing was registered" from success; deletes may simply ignore it. */
 static int kq_change(struct fyai_event_source *src, int16_t filter,

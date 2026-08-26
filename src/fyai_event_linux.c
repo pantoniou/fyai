@@ -81,6 +81,12 @@ void fyai_event_backend_destroy(struct fyai_event_loop *el)
 	el->backend_fd = -1;
 }
 
+/* An epoll descriptor is inherited. The child closes its own copy. */
+void fyai_event_backend_abandon(struct fyai_event_loop *el)
+{
+	fyai_event_backend_destroy(el);
+}
+
 /* The descriptor this source is polled through, or -1 when it has none. */
 static int source_pollfd(const struct fyai_event_source *src)
 {
