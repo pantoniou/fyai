@@ -39,11 +39,16 @@ for needle in (b"[alpha]", b"[beta]"):
     if at < 0 or at > first_done:
         raise SystemExit("agent bands never ran concurrently: %r" % needle)
 
-# A sub-agent that is still working is marked as running, in the pending
-# colour, on the title row of its screen. Liveness is the screen itself: it
-# changes as the sub-agent works, so the mark does not blink.
+# A sub-agent that is still working has a blinking mark in the pending colour
+# on the title row of its screen.
 if not re.search(rb"\x1b\[33m(\x1b\[[0-9;]*m)*\xe2\x97\x8f", data):
     raise SystemExit("a running sub-agent was not marked as running")
+if not re.search(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)* ", data):
+    raise SystemExit("the running sub-agent mark never blinked off")
+pending_dots = re.findall(
+    rb"\x1b\[33m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f", data)
+if len(pending_dots) < 2:
+    raise SystemExit("the running sub-agent mark never blinked on again")
 if not re.search(rb"\x1b\[32m(\x1b\[[0-9;]*m)*\xe2\x97\x8f", data):
     raise SystemExit("a finished sub-agent was not marked as done")
 # What each sub-agent drew is on its own screen. The compositor writes only

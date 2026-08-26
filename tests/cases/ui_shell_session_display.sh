@@ -67,6 +67,13 @@ if not re.search(rb"\x1b\[33m\xe2\x97\x8f[^\n]*shell", data):
     raise SystemExit("the session was never marked running")
 if not re.search(rb"\x1b\[32m\xe2\x97\x8f[^\n]*shell", data):
     raise SystemExit("the session was never committed as done")
+
+# The compositor can repaint only the changed marker cell. Verify both the
+# blank frame and a later dot frame in the terminal byte stream.
+if not re.search(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)* ", data):
+    raise SystemExit("the running session mark never blinked off")
+if data.count(b"\x1b[33m\xe2\x97\x8f") < 2:
+    raise SystemExit("the running session mark never blinked on again")
 EOF
 
 # The record is untouched: every call still answered the model.
