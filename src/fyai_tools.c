@@ -2579,7 +2579,7 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 		fyai_event_source_remove(sess->idle);
 		sess->idle = NULL;
 	}
-	/* Nothing waits for input once the program has gone. */
+	/* A terminated program cannot be waiting for input. */
 	if (sess->waiter) {
 		fyai_event_source_remove(sess->waiter);
 		sess->waiter = NULL;
@@ -2607,8 +2607,8 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 {
 	if (!sess)
 		return;
-	/* A session torn down while its program was still there commits what
-	 * it drew all the same: it was shown, so it is kept. */
+	/* When teardown stops a running program, commit the output that was
+	 * already displayed. */
 	fyai_shell_session_display_finish(sess);
 	if (sess->animation)
 		fyai_event_source_remove(sess->animation);
@@ -2982,7 +2982,7 @@ static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 	force = fy_get(args, "force", false);
 	if (!sess->exited) {
 		fyai_shell_session_close(sess, force);
-		/* Give the program the time to leave before reporting. */
+		/* Allow the program to exit before reporting its result. */
 		el = fyai_ctx_loop(ctx);
 		assert(el);
 		(void)fyai_event_sleep(el, force ? 100 :
@@ -3096,7 +3096,7 @@ static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 			fyai_agent_view_refresh(job);
 			return FYAIEA_CONTINUE;
 		}
-		/* EIO is the last slave closing: the sub-agent has gone. */
+		/* EIO means that the last slave closed and the sub-agent exited. */
 		fyai_agent_view_refresh(job);
 		if (job->ptysrc) {
 			fyai_event_source_remove(job->ptysrc);
@@ -4187,7 +4187,7 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 
 	fyai_tile_owner(ctx, ctx->zoom_surface, &sess, &job);
 	if (!sess && !job) {
-		/* The program went while the keys were with it. */
+		/* The program exited while it held the keyboard focus. */
 		fyai_tools_unzoom(ctx);
 		return;
 	}

@@ -355,7 +355,7 @@ static void sink_term_reflow(struct fyai_sink *s)
 	/* The source and the renderer must agree before either is replaced. */
 	if (sink_term_push_pending(s))
 		return;
-	/* A failure here keeps the rows we have: stale beats none. */
+	/* Keep the existing rows if rebuilding them fails. */
 	if (markdown_renderer_start(ctx->cfg, &r,
 				    markdown_color_enabled(ctx->cfg->color),
 				    ctx->cfg->theme_variant))

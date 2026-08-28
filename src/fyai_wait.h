@@ -16,7 +16,7 @@ char *fyai_time_now_text(void);
 /* Wait synchronously, or schedule a named asynchronous wait. */
 char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
-/* True while a named wait has still to fire. */
+/* True while a named wait is pending. */
 bool fyai_wait_pending(const struct fyai_ctx *ctx);
 
 /* Drop every wait. They live for one invocation, as a session does. */

@@ -532,7 +532,7 @@ int fyai_term_verb(struct fyai_ctx *ctx)
 			break;
 	}
 	if (!t.reaped) {
-		/* The loop could not finish it: nothing survives this. */
+		/* Ensure that the program cannot outlive this invocation. */
 		(void)kill(-t.pid, SIGKILL);
 		(void)waitpid(t.pid, &t.status, 0);
 		t.reaped = true;
