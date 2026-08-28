@@ -36,7 +36,7 @@
 #include "fyai_turn.h"
 
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
-				 bool erase_prompt);
+				 bool live);
 
 /* Prose must not contain a directive opener at column zero. */
 /* Return the opener length and its escape run length. */
@@ -3515,18 +3515,97 @@ err_out:
 	return rc;
 }
 
+/* The rows @len bytes of source take when they are wrapped at @width. */
+static size_t md_span_rows(const char *md, size_t len, size_t width)
+{
+	const char *end = md + len;
+	size_t rows = 0;
+	size_t run;
+
+	while (md < end) {
+		run = strcspn(md, "\n");
+		if (run > (size_t)(end - md))
+			run = (size_t)(end - md);
+		rows += run / width + 1;
+		md += run;
+		if (md < end)
+			md++;
+	}
+	return rows;
+}
+
+/*
+ * The rows one stored output takes on the screen. A tool fragment is drawn
+ * bounded by its preview limit, so its source is not its height: a call that
+ * printed a thousand lines is eight rows of them. Counting the source instead
+ * spends the whole screen budget on one exchange and leaves the rest of the
+ * transcript unpainted.
+ */
+static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
+				       fy_generic output, size_t width)
+{
+	fy_generic fragments, fragment, gtool, kind;
+	const char *md;
+	fy_generic gmd;
+	size_t rows = 0;
+	size_t start, end, pos, len, span;
+	long long llstart, llend;
+	int preview;
+	size_t cap;
+
+	gmd = fy_get(output, "markdown");
+	md = fy_castp(&gmd, "");
+	len = strlen(md);
+	fragments = fy_get(output, "fragments", fy_seq_empty);
+	if (!fy_len(fragments))
+		return md_span_rows(md, len, width);
+
+	pos = 0;
+	fy_foreach(fragment, fragments) {
+		llstart = fy_get(fragment, "start", -1LL);
+		llend = fy_get(fragment, "end", -1LL);
+		if (llstart < 0 || llend < llstart ||
+		    (unsigned long long)llend > len ||
+		    (size_t)llstart < pos)
+			return md_span_rows(md, len, width);
+		start = (size_t)llstart;
+		end = (size_t)llend;
+		rows += md_span_rows(md + pos, start - pos, width);
+		span = md_span_rows(md + start, end - start, width);
+		kind = fy_get(fragment, "kind");
+		if (fy_equal(kind, "tool_head")) {
+			rows += span;
+		} else if (fy_any_equal(kind, "tool_body", "tool_text",
+					"tool_result")) {
+			gtool = fy_get(fragment, "tool");
+			preview = fyai_tool_preview_lines(cfg,
+							  fy_str(gtool));
+			/* The head, the omission row, and the tail. */
+			cap = preview > 0 ? (size_t)preview + 1 : span;
+			/*
+			 * A tool result is drawn from the message and not
+			 * from this span, so its bound is the height it can
+			 * reach rather than the source it has here.
+			 */
+			rows += fy_equal(kind, "tool_result") ?
+				cap : (span < cap ? span : cap);
+		} else {
+			rows += span;
+		}
+		pos = end;
+	}
+	return rows + md_span_rows(md + pos, len - pos, width);
+}
+
 /* Estimate the rendered rows for one exchange. */
-static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
+static size_t fyai_display_exchange_rows(const struct fyai_cfg *cfg,
+					 const struct fyai_turn_stack *stack,
 					 size_t lo, size_t hi, size_t width)
 {
 	fy_generic outputs;
 	fy_generic output;
-	fy_generic gmd;
-	const char *md;
-	const char *p;
 	size_t rows;
 	size_t stored;
-	size_t len;
 	size_t i;
 
 	rows = 0;
@@ -3535,15 +3614,7 @@ static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
 				 fy_seq_empty);
 		stored = 0;
 		fy_foreach(output, outputs) {
-			gmd = fy_get(output, "markdown");
-			md = fy_castp(&gmd, "");
-			for (p = md; *p; ) {
-				len = strcspn(p, "\n");
-				rows += len / width + 1;
-				p += len;
-				if (*p)
-					p++;
-			}
+			rows += fyai_display_output_rows(cfg, output, width);
 			stored++;
 		}
 		if (!stored)
@@ -3661,7 +3732,8 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 		lo = starts[i];
 		shown++;
 		if (max_exchanges < 0) {
-			rows += fyai_display_exchange_rows(&stack, starts[i],
+			rows += fyai_display_exchange_rows(cfg, &stack,
+							   starts[i],
 							   starts[i + 1],
 							   width);
 			if (rows > budget)
@@ -4103,14 +4175,18 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
  * markdown_reverse_pair() - no escapes are hard-coded here. @on/@off are that
  * pair; EL and the reset are terminal control, not styling.
  */
+/*
+ * A blank card row. @live picks the destination the card body uses, so that
+ * the row and the body it fences reach the screen the same way.
+ */
 static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
-			      const char *off)
+			      const char *off, bool live)
 {
 	char *line;
 	size_t on_len;
 	size_t off_len;
 
-	if (fyai_ui_active(ctx)) {
+	if (live && fyai_ui_active(ctx)) {
 		on_len = strlen(on);
 		off_len = strlen(off);
 		line = malloc(on_len + 3 + off_len + 1);
@@ -4131,8 +4207,16 @@ static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
 				      strlen(line));
 }
 
+/*
+ * Draw the card for what the user said. @live says this is the echo of a line
+ * just typed, which the display commits itself: the prompt block it draws
+ * over is gone and nothing else is on its way. A replay is not live. Its card
+ * belongs to the transcript being rebuilt and goes through the sink with the
+ * rest of it, or it is committed at once while the answer under it is still
+ * in the sink, and every card of the window lands above every answer.
+ */
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
-				 bool erase_prompt)
+				 bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct response_buffer rb = {0};
@@ -4153,12 +4237,10 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 		return;
 
 	/*
-	 * In the interactive echo path linenoiseEditStop() has already erased the
-	 * whole prompt block and parked the cursor where it began, so the bubble
-	 * draws straight over it - no erase needed here (the offline display path
-	 * passes erase_prompt=false too).
+	 * In the interactive echo path linenoiseEditStop() has already erased
+	 * the whole prompt block and parked the cursor where it began, so the
+	 * bubble draws straight over it - no erase needed here.
 	 */
-	(void)erase_prompt;
 
 	/* Render the input as a blockquote so the bubble keeps the "> " rail. */
 	mf = open_memstream(&quoted, &quotedlen);
@@ -4182,16 +4264,16 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	end = terminal_trim_blank_rows(rb.data, rb.len);
 	line_start = terminal_text_at_line_start(rb.data, end);
 	fenced = markdown_reverse_pair(cfg, &on, &off);
-	if (fyai_ui_active(ctx)) {
+	if (live && fyai_ui_active(ctx)) {
 		if (fenced)
-			fyai_bubble_fence(ctx, on, off);
+			fyai_bubble_fence(ctx, on, off, true);
 		if (end) {
 			(void)fyai_ui_commit(ctx, rb.data, end);
 			if (!line_start)
 				(void)fyai_ui_commit(ctx, "\n", 1);
 		}
 		if (fenced)
-			fyai_bubble_fence(ctx, on, off);
+			fyai_bubble_fence(ctx, on, off, true);
 		(void)fyai_ui_commit(ctx, "\n", 1);
 		free(rb.data);
 		return;
@@ -4200,12 +4282,12 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	/* One blank card row fences the content top and bottom (styling
 	 * permitting; without a loaded styling the card renders unfenced). */
 	if (fenced)
-		fyai_bubble_fence(ctx, on, off);
+		fyai_bubble_fence(ctx, on, off, false);
 	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, rb.data, end);
 	if (!line_start)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	if (fenced)
-		fyai_bubble_fence(ctx, on, off);
+		fyai_bubble_fence(ctx, on, off, false);
 	/* separate the bubble from the answer */
 	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	free(rb.data);
@@ -4214,7 +4296,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line)
 {
 	if (ctx && ctx->cfg->markdown && ctx->stdout_tty)
-		(void)fyai_render_display_output(ctx, "user", line);
+		fyai_print_user_turn(ctx, line, true);
 }
 
 int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
