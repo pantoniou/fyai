@@ -3555,6 +3555,21 @@ static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
 }
 
 /*
+ * Rows of the screen the transcript is written on. With the display open the
+ * standard descriptors are pipes of its own, so the terminal cannot be asked
+ * directly and the display answers instead.
+ */
+static int display_screen_rows(struct fyai_ctx *ctx)
+{
+	int cols = 0;
+	int rows = 0;
+
+	if (!fyai_ui_size(ctx, &cols, &rows) && rows > 0)
+		return rows;
+	return markdown_render_height();
+}
+
+/*
  * Make the visible transcript again from its stored source, at the width the
  * display has now. The rows already given to the terminal keep the width they
  * were made at - that scrollback belongs to the terminal - so this paints the
@@ -3569,7 +3584,7 @@ int fyai_display_repaint(struct fyai_ctx *ctx, int rows)
 	if (!ctx || !ctx->cfg->markdown || !ctx->stdout_tty)
 		return 0;
 	if (rows <= 0)
-		rows = markdown_render_height();
+		rows = display_screen_rows(ctx);
 	/* Leave the chrome of the display the rows it draws itself in. */
 	rows = rows > 8 ? rows - 6 : 0;
 	if (rows <= 0)
@@ -3632,21 +3647,26 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 
 	width = cfg->render_width > 0 ? (size_t)cfg->render_width : 80;
 	budget = max_rows > 0 ? (size_t)max_rows : 0;
-	/* Take whole exchanges from the newest back while they fit. */
+	/*
+	 * Take whole exchanges from the newest back until the screen is full.
+	 * The one that overruns it is taken as well: its top scrolls off into
+	 * the scrollback, which is where the older transcript belongs, and the
+	 * screen the session opens on is filled rather than part empty.
+	 */
 	rows = 0;
 	lo = starts[exchanges - 1];
 	for (i = exchanges; i-- > 0; ) {
 		if (max_exchanges > 0 && shown == (size_t)max_exchanges)
 			break;
+		lo = starts[i];
+		shown++;
 		if (max_exchanges < 0) {
 			rows += fyai_display_exchange_rows(&stack, starts[i],
 							   starts[i + 1],
 							   width);
-			if (shown && rows > budget)
+			if (rows > budget)
 				break;
 		}
-		lo = starts[i];
-		shown++;
 	}
 
 	emitted = false;
@@ -4062,9 +4082,9 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 				(int)len, t, len == 78 ? "..." : "", r);
 	}
 
-	/* Show the previous exchanges last. */
+	/* Show the previous exchanges last, filling the screen. */
 	if (replayed) {
-		rows = markdown_render_height();
+		rows = display_screen_rows(ctx);
 		rows = rows > 8 ? rows - 6 : 0;
 		(void)fyai_display_recap(ctx, cfg->recap_exchanges, rows);
 	}

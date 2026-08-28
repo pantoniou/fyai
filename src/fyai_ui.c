@@ -764,16 +764,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
 		ui->repaint_pending = false;
 	if (ui->repaint_pending && !ui->busy) {
-		int cols = 0, rows = 0;
-
 		ui->repaint_pending = false;
-		/*
-		 * The screen of the display, not of standard output: that is
-		 * a pipe of its own while the display is open.
-		 */
-		(void)fyai_ui_size(ui->ctx, &cols, &rows);
 		fyai_ui_clear_screen(ui->ctx);
-		(void)fyai_display_repaint(ui->ctx, rows);
+		(void)fyai_display_repaint(ui->ctx, 0);
 		ui->frame_pending = true;
 	}
 	ui_rearm(ui);
