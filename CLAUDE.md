@@ -363,6 +363,41 @@ arena from message and provider data only as a fallback.
 - Do not call `fytim_pump()` from a render path. Set `frame_pending` and let
   the UI owner paint.
 
+### A window that changes width
+
+Rows are hard-wrapped when they are made, so a window that changes width
+leaves every row already drawn made for the old one. Nothing rewraps them: the
+display makes them again.
+
+- The live region is made again from the source of the open document.
+  `fyai_sink_reflow()` renders it from the start at the new width and replaces
+  what is on the screen. The terminal backend keeps that source for this.
+- The rows a turn already committed belong to the scrollback of the terminal.
+  They cannot be made again in place, so a settled width change clears the
+  screen and paints the newest exchanges from the stored transcript, through
+  `fyai_display_repaint()`. It waits for a turn in flight to finish: only what
+  is stored can be made again. Ctrl-L asks for the same repaint.
+- Do not act on a width change inside the event callback. A drag sends a burst
+  of them, and one repaint at the end of the service is what a reader needs.
+  The first size is not a change: it is the display learning the window it
+  opened in.
+- `markdown_effective_width()` is the one answer to how wide a render is now. A
+  live region keeps the width it made its rows at and compares the two. The
+  width the display opened in is recorded when it opens, so every later size is
+  a change.
+- fyai indents rendered content itself - a tool body under its indent, a shell
+  command under its marker - so the content is rendered that much narrower
+  through `fyai_width_reserve_begin()`. Rows made at the whole width and then
+  indented run past the right edge, and the terminal wraps them: that is what
+  turns a live band into interleaved fragments. A width nobody knows stays
+  unknown; taking columns off it would make the content one column wide.
+- A delegated sub-agent does not repaint a transcript. Its screen is the result
+  of the call, and the conversation behind it is not something anyone asked to
+  see there.
+- The size is read in the pump, and a turn waits on the provider rather than on
+  the terminal, so an interactive session keeps a SIGWINCH source to wake the
+  display for it.
+
 ### Work bands
 
 A work band is a sink object. Ask `fyai_sink_bands_available()` before you
