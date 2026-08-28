@@ -20,6 +20,13 @@ only while its process runs.
 - Keep tools compatible with Unix conventions. Tools read files, apply writes
   or patches, and run approved shell commands.
 
+### Comments
+
+Write comments in concise Technical English. State the required invariant,
+ownership, or behavior. Do not narrate implementation history, restate the
+code, address the reader, or use colloquial explanations. Remove a comment
+when the code is self-explanatory.
+
 ## Data model
 
 Use libfyaml generics as the native data model. Build values with functions
@@ -339,6 +346,14 @@ arena from message and provider data only as a fallback.
 - Use `fyai_output_append_recorded()` to add source that another path already
   drew. Use it for a tool exchange. The tool path presents the exchange. Do not
   present it again from the document.
+- A terminal session records its own exchange when its program goes. The
+  calls that open and drive it store nothing: the session has one screen and
+  what those calls did is on it, but a terminal is not the transcript. Its
+  screen is stored as a `tool_text` fragment, which replays from what was
+  recorded; a `tool_result` fragment replays from the message the model was
+  given, and no one message holds a screen. A window is replayed from storage
+  only when every stored result that has a display has a fragment, so a rule
+  that stores nothing for a call must also say that nothing is expected.
 - A tool exchange stores a `tool_head` fragment over its title row, with the
   outcome of the call. Replay draws the state mark and the failure cause from
   that fragment through `markdown_render_tool_head()`, the one renderer the
@@ -355,6 +370,56 @@ arena from message and provider data only as a fallback.
 - Do not call `fytim_pump()` from a render path. Set `frame_pending` and let
   the UI owner paint.
 
+### A window that changes width
+
+Rows are hard-wrapped when they are made, so a window that changes width
+leaves every row already drawn made for the old one. Nothing rewraps them: the
+display makes them again.
+
+- The live region is made again from the source of the open document.
+  `fyai_sink_reflow()` renders it from the start at the new width and replaces
+  what is on the screen. The terminal backend keeps that source for this.
+- The rows a turn already committed belong to the scrollback of the terminal.
+  They cannot be made again in place, so a settled width change clears the
+  screen and paints the newest exchanges from the stored transcript, through
+  `fyai_display_repaint()`. It waits for a turn in flight to finish: only what
+  is stored can be made again. Ctrl-L asks for the same repaint.
+- The repaint takes whole exchanges until the screen is full, so it must
+  measure what it draws. A tool fragment is drawn bounded by its preview
+  limit: the thousand lines a call printed are the eight rows of them the
+  reader is given. Measure an exchange by its source and one turn takes the
+  whole screen, and the exchanges that would have fit under it are not
+  painted.
+- Everything a repaint draws goes through the sink, the card for what the user
+  said included. The display commits that card itself only for the echo of a
+  line just typed. Commit it during a repaint and it reaches the screen while
+  the answer under it is still in the sink, which puts every card of the
+  window above every answer.
+- Do not act on a width change inside the event callback. A drag sends a burst
+  of them, and one repaint at the end of the service is what a reader needs.
+  The first size is not a change: it is the display learning the window it
+  opened in.
+- `markdown_effective_width()` is the one answer to how wide a render is now. A
+  live region keeps the width it made its rows at and compares the two. The
+  width the display opened in is recorded when it opens, so every later size is
+  a change.
+- fyai indents rendered content itself - a tool body under its indent, a shell
+  command under its marker - so the content is rendered that much narrower
+  through `fyai_width_reserve_begin()`. Rows made at the whole width and then
+  indented run past the right edge, and the terminal wraps them: that is what
+  turns a live band into interleaved fragments. A width nobody knows stays
+  unknown; taking columns off it would make the content one column wide.
+- A session opens on the screen its conversation left: the replay takes whole
+  exchanges from the newest back until the screen is full, the one that
+  overruns it included. The rows of that screen come from the display, not from
+  the terminal, because standard output is a pipe of its own while it is open.
+- A delegated sub-agent does not repaint a transcript. Its screen is the result
+  of the call, and the conversation behind it is not something anyone asked to
+  see there.
+- The size is read in the pump, and a turn waits on the provider rather than on
+  the terminal, so an interactive session keeps a SIGWINCH source to wake the
+  display for it.
+
 ### Work bands
 
 A work band is a sink object. Ask `fyai_sink_bands_available()` before you
@@ -362,6 +427,110 @@ choose a banded presentation, open with `fyai_sink_band_open()`, repaint with
 `fyai_sink_band_paint()`, and commit the shared band with
 `fyai_sink_band_close()`. Do not call `fyai_ui_*` band functions from a
 producer; the terminal backend owns that.
+
+### The work pane
+
+Every live shell session and sub-agent screen is a tile of the one work pane,
+not a band of its own. A stack of full-width screens pushes the oldest off the
+top and says nothing about which screen belongs to which call; one region that
+tiles them says both.
+
+- Open a screen tile with `fyai_ui_surface_open()` and a text tile with
+  `fyai_ui_work_tile_create()` - a parallel run of shells and sub-agents is
+  not all of one kind, and both tile in the same region. Either creates the
+  pane on the first call and retires it with the last tile. A producer never
+  places a tile.
+- A shell reads the same whether or not it has a screen. The head of a tile
+  is the title row of the call and, under it, the command the call was given.
+  A chrome slot draws a row for each of its lines, and a tile too short for
+  the whole head sheds its last row first.
+- The head is chrome, not content. Held in the content the output of the call
+  would scroll it off the top, which is when a reader most needs to know
+  whose output this is, and the row cap would have to reserve rows for it.
+  What the band commits is the head and the output together, so the
+  transcript keeps the whole of it. Being chrome does not dim it: chrome that
+  carries its own styling keeps the emphasis it was given.
+- A tile's rows are hard-wrapped when they are made, so make them at the width
+  the tile was given: `fyai_sink_band_cols()` for a band and
+  `fyai_ui_work_tile_cols()` under it. The share changes as work starts and
+  finishes beside it, so a progressive render has to be made again at the new
+  width. Rows wrapped for the whole terminal are clipped at the tile.
+- The pane owns the grid. A tile learns the size it was given from
+  `fyai_ui_surface_granted_rows()` and `fyai_ui_surface_granted_cols()`, which
+  is what a pseudo-terminal is sized to. Do not size a program to the
+  terminal.
+- `display/work_layout` chooses the grid: `auto` fits as many columns as keep
+  every tile at `display/work_min_tile_cols`, `columns` takes
+  `display/work_columns`, and `stack` is one screen above another. A terminal
+  too narrow for two tiles stacks whatever the setting says.
+- `display/work_frame`, `display/tile_frame` and `display/tile_sep` are the
+  chrome. `display/session_margin` is the left gutter of a tile, sized
+  against the tile. The pane draws no frame by default, and the gutter draws
+  no rule, because every tile already carries the title row of the call that
+  opened it and is already bounded by the pane: the gutter only holds the
+  screen under the name of that call. The column rule is not the gutter: one
+  divides two programs and the other runs down the inside of one.
+- `display/work_controls` draws mouse affordances on a tile. Anything but
+  `none` grabs the mouse for the whole session, which takes selection and copy
+  from the terminal, so it is off by default. The library reports a control as
+  an event and acts on nothing itself: `fyai_tools_surface_request()` asks the
+  component that started the program, because only it can end it.
+- `/zoom` gives one tile the pane and the keys, so the user works in the
+  program instead of watching it. The prompt stands aside while a tile holds
+  the keys. Escape and `^C` are the program's and `^\` and `^Z` are the
+  terminal's, so the way back is `Ctrl-]`. What the user types is echoed by
+  the program, so it reaches the emulator and the line log with it: it is part
+  of the tool result the model is given, and needs no separate path.
+- The keys of a tile arrive one frame at a time, not one key at a time. A key
+  this program keeps for itself - `Ctrl-G` and `Ctrl-]` - can thus arrive with
+  what was typed after it, and that input belongs to whoever holds the keys
+  once the key is acted on: another tile, or the prompt. Give the rest of the
+  chunk back with `fyai_ui_keys_return()`, which puts it in front of the input
+  the terminal has sent since, to be read again and routed then. Dropping it
+  loses what the user typed, and a paste or a fast typist makes one chunk of
+  the key and the line under it.
+- Look a tile's owner up by surface. A program that ended must not leave a
+  pointer behind for the next keystroke to follow.
+
+### A live terminal that is resized
+
+A tile that holds a running program is not rewrapped: the program owns its
+grid and draws it again itself. A resize is a barrier between what the program
+wrote at the old size and what it writes at the new one.
+
+- The child owns the pseudo-terminal, so only the child can change its size.
+  The parent sends `tty/resize`, the child stops the foreground job, drains
+  what it wrote, sets the new size, sends `tty/resized`, and resumes the job.
+  The parent then resizes the view and publishes the new grid.
+- Publish the grid before the next frame. A resize damages every cell, and the
+  retained surface still holds the mechanically resized old cells. A program
+  that repaints only what it changed never covers them.
+- Do not rewrap a screen-addressed row and do not clear the transcript over a
+  live surface. Claim a clean screen instead and let the next frame paint the
+  whole retained pane.
+- A full-screen program draws in the alternate buffer, so the view enables
+  that buffer. When the program leaves it, the primary screen is empty: the
+  whole-session read returns the stripped log, which is the result of the
+  call.
+
+### Bang commands
+
+A line that starts with `!` is a command of the user. It is not a model turn.
+`fyai_tools_bang()` starts it as a terminal session in the work pane and gives
+that tile the keys. The prompt returns when the program ends. A bang line needs
+an interactive terminal UI; without one, report that and do not run the
+command.
+
+- A bang session is user-owned. The model cannot close it and cannot read its
+  output as a tool result. A tool call keeps the output limit of a shell tool.
+  A user-owned session has no such limit: the user reads its screen.
+- A user-owned tile can take more rows than the shared pane granted it. A tile
+  of a tool call keeps the grant.
+- `display/work_zoom_rows` is the height of a zoomed tile. `full` uses the
+  terminal height, `half` and `quarter` use that fraction of it, and an
+  integer is a direct row count. Zooming out restores `display/work_max_rows`.
+- A named session shows its handle in the tile head, so the user can tell two
+  sessions apart and name one in a later command.
 
 ### Tables
 
