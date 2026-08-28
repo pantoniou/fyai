@@ -74,6 +74,60 @@ bool markdown_theme_selector_valid(const char *selector)
 	return markdown_theme_split(selector, name, sizeof(name), &variant);
 }
 
+/* Return the configured runtime width or the terminal width. */
+int markdown_effective_width(struct fyai_cfg *fcfg)
+{
+	return fcfg->render_width > 0 ? fcfg->render_width :
+		markdown_render_width();
+}
+
+/* Return the columns reserved by an ASCII indent. */
+int fyai_indent_cols(const char *indent)
+{
+	return indent ? (int)strlen(indent) : 0;
+}
+
+/* Reserve @cols render columns and return the previous width. */
+int fyai_width_reserve_begin(struct fyai_cfg *cfg, int cols)
+{
+	int saved = cfg->render_width;
+	int width = markdown_effective_width(cfg);
+
+	/* Preserve an unknown width. */
+	if (width <= 0)
+		return saved;
+	width -= cols;
+	cfg->render_width = width > FYAI_MIN_RENDER_COLS ?
+			    width : FYAI_MIN_RENDER_COLS;
+	return saved;
+}
+
+void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved)
+{
+	cfg->render_width = saved;
+}
+
+/* Configure a renderer with @reserve columns removed from @cols. */
+static void markdown_renderer_cfg_indented(struct fyai_cfg *fcfg,
+					   struct fymd_renderer_cfg *rcfg,
+					   int cols, int reserve)
+{
+	int saved = fcfg->render_width;
+
+	if (cols <= 0)
+		cols = markdown_effective_width(fcfg);
+	/* Preserve an unknown width. */
+	if (cols > 0) {
+		cols -= reserve;
+		if (cols < FYAI_MIN_RENDER_COLS)
+			cols = FYAI_MIN_RENDER_COLS;
+	}
+	fcfg->render_width = cols > 0 ? cols : 0;
+	markdown_renderer_cfg(fcfg, rcfg, markdown_color_enabled(fcfg->color),
+			      fcfg->theme_variant, 0);
+	fcfg->render_width = saved;
+}
+
 void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 			   struct fymd_renderer_cfg *cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra)
@@ -82,8 +136,7 @@ void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 
 	memset(cfg, 0, sizeof(*cfg));
 
-	width = fcfg->render_width > 0 ? fcfg->render_width :
-		markdown_render_width();
+	width = markdown_effective_width(fcfg);
 	cfg->flags = FYMD_RF_DEFAULT | FYMD_RF_TABLE_FIT | extra;
 	if (!color)
 		cfg->flags |= FYMD_RF_NO_COLOR;
@@ -702,14 +755,20 @@ int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
 	struct response_buffer rendered = {0};
 	size_t start;
 	size_t end;
+	int saved;
 	int rc;
 
 	if (!len)
 		return 0;
+	/* Reserve the per-row indent and marker. */
+	saved = fyai_width_reserve_begin(ctx->cfg,
+					 fyai_indent_cols(indent) +
+					 FYAI_TOOL_MARKER_WIDTH);
 	rc = markdown_render_fenced(ctx->cfg, text, len, lang, fy_invalid,
 				    max_lines, &rendered,
 				    markdown_color_enabled(ctx->cfg->color),
 				    0);
+	fyai_width_reserve_end(ctx->cfg, saved);
 	fyai_error_check(ctx, !rc, out, "could not render the tool body");
 	start = 0;
 	end = rendered.len;
@@ -821,12 +880,14 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 
 	memset(fs, 0, sizeof(*fs));
 	fs->ctx = ctx;
-	markdown_renderer_cfg(cfg, &rcfg, markdown_color_enabled(cfg->color),
-			      cfg->theme_variant, 0);
+	markdown_renderer_cfg_indented(cfg, &rcfg, 0,
+				       fyai_indent_cols(indent));
 	fs->r = fymd_renderer_create(&rcfg);
 	if (!fs->r)
 		return -1;
 	markdown_set_line_limit(fs->r, max_lines);
+	/* Record the width used to wrap these rows. */
+	fs->render_cols = markdown_effective_width(cfg);
 	fs->lang = lang;
 	fs->indent = indent;
 	fs->max_lines = max_lines;
@@ -1088,6 +1149,35 @@ static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 			     fs->first_margin);
 }
 
+/* Rebuild the renderer after its band width changes. */
+static bool fenced_stream_width_changed(struct fyai_fenced_stream *fs)
+{
+	struct fymd_renderer_cfg rcfg;
+	struct fymd_renderer *r;
+	int cols;
+
+	/* Shared and unpainted bands use the terminal width. */
+	cols = fyai_sink_band_cols(fs->band);
+	if (cols <= 0)
+		cols = markdown_effective_width(fs->ctx->cfg);
+	if (cols <= 0 || cols == fs->render_cols)
+		return false;
+
+	markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, cols,
+				       fyai_indent_cols(fs->indent));
+
+	r = fymd_renderer_create(&rcfg);
+	if (!r)
+		return false;	/* retain the old renderer */
+	markdown_set_line_limit(r, fs->max_lines);
+	fymd_renderer_destroy(fs->r);
+	fs->r = r;
+	fs->render_cols = cols;
+	/* Discard row state from the previous width. */
+	fs->shown.len = 0;
+	return true;
+}
+
 /* Apply the live scrolling row limit. */
 static void fenced_stream_set_scroll_limit(struct fyai_fenced_stream *fs,
 					   size_t omitted)
@@ -1136,6 +1226,10 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	fs->render_pending = false;
 	fs->next_render_ms = fyai_event_now_ms() +
 			     fenced_stream_interval_ms(fs);
+
+	/* Rerender all rows after a width change. */
+	if (fenced_stream_width_changed(fs))
+		fs->full_render = true;
 
 	/* Select the live tail or the full final source. */
 	start = 0;
@@ -1342,9 +1436,8 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		 * before the band close creates the final commit payload.
 		 */
 		fymd_renderer_destroy(fs->r);
-		markdown_renderer_cfg(fs->ctx->cfg, &rcfg,
-			markdown_color_enabled(fs->ctx->cfg->color),
-			fs->ctx->cfg->theme_variant, 0);
+		markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, 0,
+					       fyai_indent_cols(fs->indent));
 		fs->r = fymd_renderer_create(&rcfg);
 		if (fs->r) {
 			markdown_set_line_limit(fs->r, fs->max_lines);

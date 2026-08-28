@@ -8,6 +8,9 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 int fyai_show_stats(struct fyai_ctx *ctx);
 int fyai_display_view(struct fyai_ctx *ctx);
 int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows);
+size_t fyai_display_source_rows(const char *md, size_t len, size_t width);
+/* Repaint recent stored exchanges at the current width. */
+int fyai_display_repaint(struct fyai_ctx *ctx, int rows);
 int fyai_export_view(struct fyai_ctx *ctx, const char *path);
 int fyai_import_view(struct fyai_ctx *ctx, const char *path);
 int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact);
@@ -26,6 +29,10 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
 				      fy_generic tool_call,
 				      fy_generic tool_result);
+/* Record a terminal session as one tool exchange. */
+int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
+			     const char *command, const char *output,
+			     bool ok, const char *cause);
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result, bool tool_ok);
 /*

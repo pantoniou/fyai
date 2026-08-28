@@ -26,6 +26,7 @@ struct sink_term {
 	struct response_buffer source;	/* the document as given so far */
 	struct response_buffer pending;	/* appended, not yet pushed */
 	size_t active_rows;		/* rows the live region occupies */
+	int render_cols;		/* width used to wrap the rows */
 	int64_t last_draw_ms;		/* monotonic time of the last repaint */
 	struct fyai_sink_band *shared_band;
 	enum fyai_sink_doc_kind kind;
@@ -80,6 +81,7 @@ static int sink_term_renderer_start(struct fyai_sink *s)
 	fyai_error_check(ctx, !rc, err,
 		"could not start the display renderer");
 	t->render_live = true;
+	t->render_cols = markdown_effective_width(ctx->cfg);
 	return 0;
 err:
 	return -1;
@@ -91,17 +93,20 @@ static void sink_term_apply(struct fyai_sink *s,
 {
 	struct sink_term *t = sink_term_state(s);
 	size_t backtrack = update->backtrack;
+	bool ui = fyai_ui_active(s->ctx);
 
-	if (fyai_ui_active(s->ctx)) {
+	/* Track active rows for direct output and display-owned tails. */
+	if (ui)
 		(void)fyai_ui_tail_apply(s->ctx, update);
-		return;
-	}
-	if (backtrack) {
+	else if (backtrack) {
 		fprintf(stdout, FYAI_ANSI_CURSOR_UP_FMT, backtrack);
 		fputs(FYAI_ANSI_ERASE_DOWN, stdout);
-		t->active_rows -= backtrack;
 	}
-	if (update->content_len)
+	if (backtrack <= t->active_rows)
+		t->active_rows -= backtrack;
+	else
+		t->active_rows = 0;
+	if (!ui && update->content_len)
 		fwrite(update->content, 1, update->content_len, stdout);
 	t->active_rows += fyai_count_newlines(update->content,
 					      update->content_len);
@@ -109,7 +114,8 @@ static void sink_term_apply(struct fyai_sink *s,
 		t->active_rows = 0;
 	else
 		t->active_rows -= update->freeze;
-	fflush(stdout);
+	if (!ui)
+		fflush(stdout);
 }
 
 static int sink_term_push_pending(struct fyai_sink *s)
@@ -240,6 +246,10 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	}
 	if (!t->render_live)
 		return 0;
+	/* Retain live source for width reflow. */
+	rc = response_buffer_append_data(&t->source, text, len);
+	fyai_error_check(ctx, !rc, err,
+		"could not grow the display source buffer");
 	rc = response_buffer_reserve(&t->pending, t->pending.len + len + 1);
 	fyai_error_check(ctx, !rc,
 		err, "could not grow the progressive display buffer");
@@ -311,6 +321,43 @@ static void sink_term_doc_discard(struct fyai_sink *s)
 	t->doc_open = false;
 }
 
+/* Rerender the live region at the current width. */
+static void sink_term_reflow(struct fyai_sink *s)
+{
+	struct sink_term *t = sink_term_state(s);
+	struct fyai_ctx *ctx = s->ctx;
+	struct markdown_renderer r;
+	struct markdown_update update;
+	struct markdown_update repaint;
+	int cols;
+
+	if (!t || !t->render_live || !t->source.len)
+		return;
+	cols = markdown_effective_width(ctx->cfg);
+	if (cols <= 0 || cols == t->render_cols)
+		return;
+	/* Apply pending source before replacing the renderer. */
+	if (sink_term_push_pending(s))
+		return;
+	/* Retain existing rows if renderer creation fails. */
+	if (markdown_renderer_start(ctx->cfg, &r,
+				    markdown_color_enabled(ctx->cfg->color),
+				    ctx->cfg->theme_variant))
+		return;
+	if (markdown_renderer_push(&r, t->source.data, t->source.len,
+				   &update)) {
+		markdown_renderer_destroy(&r);
+		return;
+	}
+	/* Replace the complete active region with the new render. */
+	repaint = update;
+	repaint.backtrack = t->active_rows;
+	sink_term_apply(s, &repaint);
+	markdown_renderer_destroy(&t->renderer);
+	t->renderer = r;
+	t->render_cols = cols;
+}
+
 static int sink_term_doc_pause(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
@@ -370,6 +417,7 @@ struct fyai_sink_band {
 	struct fyai_ctx *ctx;
 	struct fytim_workband *wb;	/* NULL for the shared band */
 	bool shared;
+	bool tile;			/* independent work-pane tile */
 };
 
 static bool sink_term_bands_available(const struct fyai_sink *s)
@@ -405,11 +453,13 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		t->shared_band = b;
 		return b;
 	}
-	b->wb = fyai_ui_workband_create(s->ctx);
+	/* Place independent work in a work-pane tile. */
+	b->wb = fyai_ui_work_tile_create(s->ctx);
 	if (!b->wb) {
 		free(b);
 		return NULL;
 	}
+	b->tile = true;
 	return b;
 }
 
@@ -451,11 +501,24 @@ static struct fyai_sink_band *sink_term_band_shared(struct fyai_sink *s)
 	return t ? t->shared_band : NULL;
 }
 
+static void sink_term_band_commit(struct fyai_sink_band *b)
+{
+	if (!b)
+		return;
+	if (b->wb && b->tile)
+		fyai_ui_work_tile_destroy(b->ctx, b->wb, true);
+	else if (b->wb)
+		fyai_ui_workband_destroy(b->wb);
+	free(b);
+}
+
 static void sink_term_band_destroy(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
-	if (b->wb)
+	if (b->wb && b->tile)
+		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
+	else if (b->wb)
 		fyai_ui_workband_destroy(b->wb);
 	free(b);
 }
@@ -543,6 +606,7 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.doc_append	= sink_term_doc_append,
 	.doc_end	= sink_term_doc_end,
 	.doc_discard	= sink_term_doc_discard,
+	.doc_reflow	= sink_term_reflow,
 	.doc_pause	= sink_term_doc_pause,
 	.doc_resume	= sink_term_doc_resume,
 	.doc_is_live	= sink_term_doc_is_live,
@@ -550,6 +614,7 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.band_open	= sink_term_band_open,
 	.band_paint	= sink_term_band_paint,
 	.band_close	= sink_term_band_close,
+	.band_commit	= sink_term_band_commit,
 	.band_destroy	= sink_term_band_destroy,
 	.band_shared	= sink_term_band_shared,
 	.markdown	= sink_term_markdown,
@@ -757,6 +822,12 @@ int fyai_sink_doc_end(struct fyai_sink *s, bool aborted)
 	return s->ops->doc_end(s, aborted);
 }
 
+void fyai_sink_reflow(struct fyai_sink *s)
+{
+	if (s && s->ops->doc_reflow)
+		s->ops->doc_reflow(s);
+}
+
 void fyai_sink_doc_discard(struct fyai_sink *s)
 {
 	if (s && s->ops->doc_discard)
@@ -813,6 +884,20 @@ void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
 	if (s && s->ops->band_close)
 		s->ops->band_close(s, ok, cause);
+}
+
+/* Return the granted tile width, or zero for a full-width band. */
+int fyai_sink_band_cols(const struct fyai_sink_band *b)
+{
+	if (!b || !b->tile || !b->wb)
+		return 0;
+	return fyai_ui_work_tile_cols(b->wb);
+}
+
+void fyai_sink_band_commit(struct fyai_sink_band *b)
+{
+	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_commit)
+		b->ctx->sink->ops->band_commit(b);
 }
 
 void fyai_sink_band_destroy(struct fyai_sink_band *b)

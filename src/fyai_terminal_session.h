@@ -85,6 +85,7 @@ int fyai_terminal_relay_write(struct fyai_terminal_relay *rl, const char *data,
 			      size_t len);
 void fyai_terminal_relay_resize(struct fyai_terminal_relay *rl, int rows,
 				int cols);
+void fyai_terminal_relay_resume(struct fyai_terminal_relay *rl);
 void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force);
 bool fyai_terminal_relay_done(const struct fyai_terminal_relay *rl);
 /* True once the program is reaped, whether or not its output is drained. */

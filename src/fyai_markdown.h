@@ -59,6 +59,13 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg);
  */
 bool markdown_reverse_pair(struct fyai_cfg *cfg, const char **on,
 			   const char **off);
+/* Return the configured runtime width or the terminal width. */
+int markdown_effective_width(struct fyai_cfg *cfg);
+/* Return the columns reserved by an ASCII indent. */
+int fyai_indent_cols(const char *indent);
+/* Reserve @cols render columns and return the previous width. */
+int fyai_width_reserve_begin(struct fyai_cfg *cfg, int cols);
+void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved);
 void markdown_renderer_cfg(struct fyai_cfg *cfg,
 			   struct fymd_renderer_cfg *renderer_cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra);
@@ -162,6 +169,8 @@ struct fyai_fenced_stream {
 	const char *lang;		/* highlighter language, NULL => plain */
 	const char *indent;		/* per-line indent decoration */
 	size_t max_lines;		/* final rerender uses current terminal width */
+	/* Width used to wrap the rendered rows. */
+	int render_cols;
 	size_t indicator_frame;
 	int64_t indicator_next_ms;
 	int64_t next_render_ms;		/* progressive repaint throttle */

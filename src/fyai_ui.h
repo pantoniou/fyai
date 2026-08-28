@@ -30,6 +30,12 @@ void fyai_ui_drain_output(struct fyai_ctx *ctx);
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path);
 void fyai_ui_history_save(struct fyai_ctx *ctx, const char *path,
 			  const char *line);
+/* Return the display terminal descriptor, or -1. */
+int fyai_ui_tty_fd(const struct fyai_ctx *ctx);
+/* Schedule a frame after a terminal resize. */
+void fyai_ui_resized(struct fyai_ctx *ctx);
+/* Clear the display screen without clearing terminal scrollback. */
+void fyai_ui_clear_screen(struct fyai_ctx *ctx);
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len);
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *upd);
 void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len);
@@ -46,6 +52,12 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);
 struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx);
+/* Create an independent text tile in the work pane. */
+struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx);
+void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
+			       struct fytim_workband *band, bool commit);
+/* Return the granted tile width, or zero before layout. */
+int fyai_ui_work_tile_cols(const struct fytim_workband *band);
 void fyai_ui_workband_update(struct fyai_ctx *ctx,
 			     struct fytim_workband *band,
 			     const char *title, const char *body, size_t len,
@@ -71,11 +83,17 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 					   int cols);
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf);
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols);
+int fyai_ui_surface_request_rows(struct fytim_surface *sf, int rows);
 int fyai_ui_surface_granted_rows(const struct fytim_surface *sf);
 /* The columns the grid was given: the width less the margin. */
 int fyai_ui_surface_granted_cols(const struct fytim_surface *sf);
 /* Chrome at the left of every row of @sf. */
 int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
+/* Limit grid height; zero accepts all granted rows. */
+int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows);
+/* Update keyboard-focus chrome. */
+void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			   bool focused);
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom);
 /* Copy what changed in @view onto @sf. Returns 1 when it published. */
@@ -93,21 +111,32 @@ enum fyai_ui_mark {
 	FYAI_UI_MARK_FAILED
 };
 
-/* Set the title row of @sf: a rendered tool head with its state mark. */
+/* Set the marked title and optional command chrome for @sf. */
 int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *cause,
-			     enum fyai_ui_mark mark);
+			     const char *title, const char *command,
+			     const char *cause, enum fyai_ui_mark mark);
 /* Set one animation frame and return its interval through @interval_msp. */
 int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 				   struct fytim_surface *sf,
-				   const char *title, const char *cause,
+				   const char *title, const char *command,
+				   const char *cause,
 				   enum fyai_ui_mark mark, size_t frame,
 				   unsigned int *interval_msp);
 
 /* Keep the last screen: it goes into the transcript and @sf is retired. */
 void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf);
+/* Zoom one tile to the pane; NULL restores the grid. */
+int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf);
+struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx);
+/* Publish emulator scroll extent to the surface. */
+int fyai_ui_surface_scroll_extent(struct fytim_surface *sf, int total_rows,
+				  int top_row);
+
 /* Give the keys to @sf; @cb receives the bytes a terminal would send. */
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			 bool take, fyai_ui_keys_fn cb, void *user);
+
+/* Return an unconsumed input-frame suffix to the current input owner. */
+int fyai_ui_keys_return(struct fyai_ctx *ctx, const char *data, size_t len);
 
 #endif

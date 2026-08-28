@@ -26,7 +26,7 @@
 
 /* A name says what is being waited for, as a session name does. */
 #define FYAI_WAIT_NAME_MAX	32
-/* A wait that holds the turn cannot hold it for ever. */
+/* A synchronous wait must have a finite duration. */
 #define FYAI_WAIT_MAX_MS	(6 * 60 * 60 * 1000LL)
 
 struct fyai_wait {

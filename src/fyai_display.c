@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <wchar.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -36,7 +37,7 @@
 #include "fyai_turn.h"
 
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
-				 bool erase_prompt);
+				 bool live);
 
 /* Prose must not contain a directive opener at column zero. */
 /* Return the opener length and its escape run length. */
@@ -2427,6 +2428,97 @@ void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
  * assistant output. Execution and terminal rendering are intentionally not
  * involved: this exact source is what is persisted and replayed by history.
  */
+/* Record a terminal session as one durable tool exchange. */
+int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
+			     const char *command, const char *output,
+			     bool ok, const char *cause)
+{
+	struct fyai_md_blocks blocks = {0};
+	struct fy_generic_builder *gb;
+	size_t inner_end;
+	size_t base;
+	size_t head;
+	size_t start;
+	size_t i;
+	const char *nl;
+	char *md = NULL;
+	size_t mdlen = 0;
+	FILE *mf;
+	int rc;
+
+	/* A stored turn has no open output document. */
+	if (!ctx || !ctx->display_output)
+		return 0;
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb)
+		return -1;
+
+	base = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err, "could not format the session view");
+	fyai_emit_tool_call(ctx, mf, gb, "shell",
+			    fy_mapping(gb, "command", command ? command : "",
+				       "description",
+				       description ? description : ""),
+			    -1, &blocks);
+	fyai_error_check(ctx, !fclose(mf), err_closed,
+			 "could not finish the session view");
+	mf = NULL;
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err, "could not record the session view");
+	nl = memchr(md, '\n', mdlen);
+	head = nl ? (size_t)(nl - md) : 0;
+	if (head && (!blocks.count || head <= blocks.item[0].start)) {
+		rc = fyai_output_add_tool_head_fragment(ctx, base, base + head,
+							"shell", ok, cause);
+		fyai_error_check(ctx, !rc, err,
+				 "could not record the session title");
+	}
+	for (i = 0; i < blocks.count; i++) {
+		rc = fyai_output_add_fragment(ctx, "tool_body",
+					      base + blocks.item[i].start,
+					      base + blocks.item[i].end,
+					      blocks.item[i].lang, "shell");
+		fyai_error_check(ctx, !rc, err,
+				 "could not record the session command");
+	}
+	fyai_md_blocks_free(&blocks);
+	free(md);
+	md = NULL;
+	mdlen = 0;
+
+	if (fy_str_empty(output))
+		return 0;
+	/* Store the screen as recorded source, not as a model result. */
+	start = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err, "could not format the session output");
+	fputs(output, mf);
+	if (output[strlen(output) - 1] != '\n')
+		fputc('\n', mf);
+	inner_end = (size_t)ftell(mf);
+	/* Keep separator whitespace outside the fragment. */
+	fputc('\n', mf);
+	fyai_error_check(ctx, !fclose(mf), err_closed,
+			 "could not finish the session output");
+	mf = NULL;
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err, "could not record the session output");
+	rc = fyai_output_add_fragment(ctx, "tool_text", start,
+				      start + inner_end, NULL, "shell");
+	fyai_error_check(ctx, !rc, err,
+			 "could not record the session output fragment");
+	free(md);
+	return 0;
+err:
+	if (mf)
+		fclose(mf);
+err_closed:
+	fyai_md_blocks_free(&blocks);
+	free(md);
+	return -1;
+}
+
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result, bool tool_ok)
 {
@@ -2691,14 +2783,44 @@ static bool fyai_msg_is_tool_result(const struct fyai_msg_class *c,
 	return false;
 }
 
-static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
+/* Return true when a call belongs to a recorded terminal session. */
+static bool stored_call_is_session(struct fyai_ctx *ctx, fy_generic call)
+{
+	struct fy_generic_builder *gb;
+	fy_generic fn, args, name;
+	const char *n;
+
+	fn = fy_get(call, "function");
+	name = fy_is_mapping(fn) ? fy_get(fn, "name") : fy_get(call, "name");
+	n = fy_castp(&name, "");
+	if (fy_str_empty(n))
+		return false;
+	if (!strcmp(n, "shell_input") || !strcmp(n, "shell_output") ||
+	    !strcmp(n, "shell_close"))
+		return true;
+	if (strcmp(n, FYAI_TOOL_EXEC_WIRE_NAME) && strcmp(n, "shell"))
+		return false;
+	/* A named shell is a session. */
+	args = fy_is_mapping(fn) ? fy_get(fn, "arguments") :
+				   fy_get(call, "arguments");
+	gb = fyai_ctx_transient_gb(ctx);
+	if (gb && fy_is_string(args))
+		args = parse_json_string(gb, fy_castp(&args, ""));
+	name = fy_get(args, "name", fy_invalid);
+	return !fy_str_empty(fy_castp(&name, ""));
+}
+
+static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
+					   const struct fyai_turn_stack *stack,
 					   size_t lo, size_t hi)
 {
 	struct fyai_msg_class c;
 	fy_generic outputs, output, fragments, fragment, msgs, msg, result;
+	fy_generic call;
 	size_t users = 0, assistants = 0;
 	size_t user_outputs = 0, assistant_outputs = 0;
 	size_t tool_results = 0, tool_fragments = 0;
+	size_t session_calls = 0;
 	size_t i;
 
 	for (i = lo; i < hi; i++) {
@@ -2709,6 +2831,17 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 			c = fyai_classify_message(msg);
 			if (fyai_msg_is_tool_result(&c, &result))
 				tool_results++;
+			if (!c.has_tc)
+				continue;
+			/* Native items contain one call; chat messages contain a list. */
+			if (c.is_native) {
+				if (stored_call_is_session(ctx, msg))
+					session_calls++;
+				continue;
+			}
+			fy_foreach(call, c.tc)
+				if (stored_call_is_session(ctx, call))
+					session_calls++;
 		}
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
 		fy_foreach(output, outputs) {
@@ -2730,7 +2863,7 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 	if (users)
 		return user_outputs == users &&
 		       assistant_outputs == assistants &&
-		       tool_fragments == tool_results;
+		       tool_fragments + session_calls >= tool_results;
 	for (i = lo; i < hi; i++)
 		if (fy_len(fy_get(stack->items[i], "display_outputs",
 				  fy_seq_empty)))
@@ -2858,6 +2991,16 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 						    (size_t)preview_lines : 0);
 			fyai_error_check(ctx, !rc, out,
 					 "could not replay a tool body");
+		} else if (fy_equal(fy_get(fragment, "kind"), "tool_text")) {
+			/* Draw recorded terminal source as a tool result. */
+			gtool = fy_get(fragment, "tool");
+			tool = fy_castp(&gtool, "");
+			preview_lines = fyai_tool_preview_lines(cfg, tool);
+			fyai_print_tool_separator(ctx->sink, cfg);
+			fyai_print_fenced(ctx->sink, cfg, md + start,
+					  end - start, NULL, fy_invalid,
+					  preview_lines < 0 ? 0 :
+					  (size_t)preview_lines);
 		} else if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
 			fyai_error_check(ctx, *tool_result_pos < tool_result_count,
 					 out, "missing a stored tool result");
@@ -3277,7 +3420,7 @@ static int fyai_display_window(struct fyai_ctx *ctx,
 
 	for (seg = lo; seg < hi; seg = seg_end) {
 		seg_end = fyai_display_exchange_end(stack, seg, hi);
-		if (fyai_display_outputs_complete(stack, seg, seg_end)) {
+		if (fyai_display_outputs_complete(ctx, stack, seg, seg_end)) {
 			rc = fyai_display_stored_outputs(ctx, stack, seg,
 							 seg_end, emitted_io);
 			fyai_error_check(ctx, !rc, err_out,
@@ -3344,18 +3487,120 @@ err_out:
 	return rc;
 }
 
+/* Count the terminal cells in a UTF-8 span. */
+static size_t md_span_cells(const char *text, size_t len)
+{
+	mbstate_t state;
+	wchar_t wc;
+	size_t cells;
+	size_t used;
+	int width;
+
+	memset(&state, 0, sizeof(state));
+	cells = 0;
+	while (len) {
+		used = mbrtowc(&wc, text, len, &state);
+		if (used == (size_t)-1 || used == (size_t)-2) {
+			memset(&state, 0, sizeof(state));
+			used = 1;
+			width = 1;
+		} else {
+			if (!used)
+				break;
+			width = wcwidth(wc);
+			if (width < 0)
+				width = 1;
+		}
+		cells += (size_t)width;
+		text += used;
+		len -= used;
+	}
+	return cells;
+}
+
+/* Count rows after wrapping @len source bytes at @width columns. */
+size_t fyai_display_source_rows(const char *md, size_t len, size_t width)
+{
+	const char *end = md + len;
+	size_t rows = 0;
+	size_t run;
+	size_t cells;
+
+	while (md < end) {
+		run = strcspn(md, "\n");
+		if (run > (size_t)(end - md))
+			run = (size_t)(end - md);
+		cells = md_span_cells(md, run);
+		rows += cells / width + 1;
+		md += run;
+		if (md < end)
+			md++;
+	}
+	return rows;
+}
+
+/* Measure stored output with tool preview limits applied. */
+static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
+				       fy_generic output, size_t width)
+{
+	fy_generic fragments, fragment, gtool, kind;
+	const char *md;
+	fy_generic gmd;
+	size_t rows = 0;
+	size_t start, end, pos, len, span;
+	long long llstart, llend;
+	int preview;
+	size_t cap;
+
+	gmd = fy_get(output, "markdown");
+	md = fy_castp(&gmd, "");
+	len = strlen(md);
+	fragments = fy_get(output, "fragments", fy_seq_empty);
+	if (!fy_len(fragments))
+		return fyai_display_source_rows(md, len, width);
+
+	pos = 0;
+	fy_foreach(fragment, fragments) {
+		llstart = fy_get(fragment, "start", -1LL);
+		llend = fy_get(fragment, "end", -1LL);
+		if (llstart < 0 || llend < llstart ||
+		    (unsigned long long)llend > len ||
+		    (size_t)llstart < pos)
+			return fyai_display_source_rows(md, len, width);
+		start = (size_t)llstart;
+		end = (size_t)llend;
+		rows += fyai_display_source_rows(md + pos, start - pos, width);
+		span = fyai_display_source_rows(md + start, end - start, width);
+		kind = fy_get(fragment, "kind");
+		if (fy_equal(kind, "tool_head")) {
+			rows += span;
+		} else if (fy_any_equal(kind, "tool_body", "tool_text",
+					"tool_result")) {
+			gtool = fy_get(fragment, "tool");
+			preview = fyai_tool_preview_lines(cfg,
+							  fy_str(gtool));
+			/* Include the preview and its omission row. */
+			cap = preview > 0 ? (size_t)preview + 1 : span;
+			/* A tool result uses the message and may reach the cap. */
+			rows += fy_equal(kind, "tool_result") ?
+				cap : (span < cap ? span : cap);
+		} else {
+			rows += span;
+		}
+		pos = end;
+	}
+	return rows + fyai_display_source_rows(md + pos, len - pos, width);
+}
+
 /* Estimate the rendered rows for one exchange. */
-static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
+static size_t fyai_display_exchange_rows(const struct fyai_cfg *cfg,
+					 const struct fyai_turn_stack *stack,
 					 size_t lo, size_t hi, size_t width)
 {
 	fy_generic outputs;
 	fy_generic output;
-	fy_generic gmd;
-	const char *md;
-	const char *p;
 	size_t rows;
 	size_t stored;
-	size_t len;
 	size_t i;
 
 	rows = 0;
@@ -3364,15 +3609,7 @@ static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
 				 fy_seq_empty);
 		stored = 0;
 		fy_foreach(output, outputs) {
-			gmd = fy_get(output, "markdown");
-			md = fy_castp(&gmd, "");
-			for (p = md; *p; ) {
-				len = strcspn(p, "\n");
-				rows += len / width + 1;
-				p += len;
-				if (*p)
-					p++;
-			}
+			rows += fyai_display_output_rows(cfg, output, width);
 			stored++;
 		}
 		if (!stored)
@@ -3381,6 +3618,31 @@ static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
 	}
 	/* The separator row between exchanges. */
 	return rows + 1;
+}
+
+/* Return the transcript screen height. */
+static int display_screen_rows(struct fyai_ctx *ctx)
+{
+	int cols = 0;
+	int rows = 0;
+
+	if (!fyai_ui_size(ctx, &cols, &rows) && rows > 0)
+		return rows;
+	return markdown_render_height();
+}
+
+/* Repaint recent stored exchanges at the current display width. */
+int fyai_display_repaint(struct fyai_ctx *ctx, int rows)
+{
+	if (!ctx || !ctx->cfg->markdown || !ctx->stdout_tty)
+		return 0;
+	if (rows <= 0)
+		rows = display_screen_rows(ctx);
+	/* Reserve rows for display chrome. */
+	rows = rows > 8 ? rows - 6 : 0;
+	if (rows <= 0)
+		return 0;
+	return fyai_display_recap(ctx, -1, rows) < 0 ? -1 : 0;
 }
 
 /* Replay recent exchanges within the count and row limits. */
@@ -3438,21 +3700,22 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 
 	width = cfg->render_width > 0 ? (size_t)cfg->render_width : 80;
 	budget = max_rows > 0 ? (size_t)max_rows : 0;
-	/* Take whole exchanges from the newest back while they fit. */
+	/* Include complete recent exchanges and the first one over budget. */
 	rows = 0;
 	lo = starts[exchanges - 1];
 	for (i = exchanges; i-- > 0; ) {
 		if (max_exchanges > 0 && shown == (size_t)max_exchanges)
 			break;
-		if (max_exchanges < 0) {
-			rows += fyai_display_exchange_rows(&stack, starts[i],
-							   starts[i + 1],
-							   width);
-			if (shown && rows > budget)
-				break;
-		}
 		lo = starts[i];
 		shown++;
+		if (max_exchanges < 0) {
+			rows += fyai_display_exchange_rows(cfg, &stack,
+							   starts[i],
+							   starts[i + 1],
+							   width);
+			if (rows > budget)
+				break;
+		}
 	}
 
 	emitted = false;
@@ -3810,34 +4073,23 @@ int fyai_list_turns(struct fyai_ctx *ctx)
 
 
 /*
- * On entering the interactive loop, print a short recap of where the
- * conversation stands: the turn count, the per-turn settings recorded on the
- * most recent turn (provider/api/temperature/reasoning), and a one-line preview
- * of the last assistant reply. Chrome goes to stderr so it never pollutes a
- * piped answer stream; coloured only when stderr is a tty.
+ * On entering the interactive loop, show where the conversation stands: a
+ * one-line preview of the last reply, or the previous exchanges themselves
+ * when they are replayed. The settings of the conversation are on the status
+ * row of the display, so they are not said again here.
  */
 void fyai_interactive_recap(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	const char *prov;
-	const char *api;
-	const char *eff;
-	const char *sum;
-	const char *b;
 	const char *d;
 	const char *r;
 	const char *t;
 	fy_generic preview;
-	fy_generic meta;
 	fy_generic msgs;
-	fy_generic cur;
 	fy_generic last;
-	fy_generic temp;
 	fy_generic m;
-	fy_generic tp;
 	fy_generic role;
 	fy_generic type;
-	size_t turns;
 	size_t len;
 	size_t i;
 	size_t n;
@@ -3846,49 +4098,15 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	bool color;
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
-	b = color ? FYAI_ANSI_BOLD : "";
 	d = color ? FYAI_ANSI_DIM : "";
 	r = color ? FYAI_ANSI_RESET : "";
 	last = ctx->last_message;
 	preview = fy_invalid;
-	turns = 0;
 
-	if (fy_is_invalid(last) || fy_is_null(last)) {
-		fyai_report(ctx, "%sfyai%s interactive - new conversation. "
-			"Ctrl-G to edit in $EDITOR, Ctrl-D to exit.\n",
-			b, r);
+	if (fy_is_invalid(last) || fy_is_null(last))
 		return;
-	}
-
-	fyai_turn_foreach(cur, last)
-		if (fyai_turn_has_user_message(cur))
-			turns++;
 
 	replayed = cfg->recap_exchanges && cfg->markdown && ctx->stdout_tty;
-
-	meta = fyai_turn_meta(last);
-	api = fy_get(meta, "api", "");
-	tp = fy_get(meta, "provider");
-	if (fy_is_invalid(tp))
-		tp = fyai_turn_provider(last);
-	prov = fy_castp(&tp, "");
-	eff = fy_get(meta, "reasoning_effort", "");
-	sum = fy_get(meta, "reasoning_summary", "");
-
-	fyai_report(ctx, "%sfyai%s interactive - %zu exchange%s\n",
-		b, r, turns, turns == 1 ? "" : "s");
-	fyai_report(ctx, "  %sprovider%s %s", d, r,
-		*prov ? prov : "(default)");
-	if (*api)
-		fyai_report(ctx, "  %sapi%s %s", d, r, api);
-	temp = fy_get(meta, "temperature");
-	if (fy_is_valid(temp) && !fy_is_null(temp))
-		fyai_report(ctx, "  %stemp%s %g", d, r,
-			fy_cast(temp, (double)0.0));
-	if (*eff)
-		fyai_report(ctx, "  %sreasoning%s %s%s%s", d, r, eff,
-			*sum ? "/" : "", sum);
-	(void)fyai_report(ctx, "\n");
 
 	/* Last assistant reply on the most recent turn, first line only. */
 	msgs = fy_get(last, "messages");
@@ -3912,11 +4130,10 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 			fyai_report(ctx, "  %s\xe2\x86\xb3 %.*s%s%s\n", d,
 				(int)len, t, len == 78 ? "..." : "", r);
 	}
-	fyai_report(ctx, "  %sCtrl-G edit in $EDITOR, Ctrl-D exit%s\n", d, r);
 
-	/* Show the previous exchanges last. */
+	/* Show previous exchanges after the preview. */
 	if (replayed) {
-		rows = markdown_render_height();
+		rows = display_screen_rows(ctx);
 		rows = rows > 8 ? rows - 6 : 0;
 		(void)fyai_display_recap(ctx, cfg->recap_exchanges, rows);
 	}
@@ -3935,14 +4152,15 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
  * markdown_reverse_pair() - no escapes are hard-coded here. @on/@off are that
  * pair; EL and the reset are terminal control, not styling.
  */
+/* Write a blank card row through the live or transcript path. */
 static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
-			      const char *off)
+			      const char *off, bool live)
 {
 	char *line;
 	size_t on_len;
 	size_t off_len;
 
-	if (fyai_ui_active(ctx)) {
+	if (live && fyai_ui_active(ctx)) {
 		on_len = strlen(on);
 		off_len = strlen(off);
 		line = malloc(on_len + 3 + off_len + 1);
@@ -3963,8 +4181,9 @@ static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
 				      strlen(line));
 }
 
+/* Draw a user card through the live or transcript path. */
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
-				 bool erase_prompt)
+				 bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct response_buffer rb = {0};
@@ -3983,14 +4202,6 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 
 	if (!cfg->markdown || !ctx->stdout_tty)
 		return;
-
-	/*
-	 * In the interactive echo path linenoiseEditStop() has already erased the
-	 * whole prompt block and parked the cursor where it began, so the bubble
-	 * draws straight over it - no erase needed here (the offline display path
-	 * passes erase_prompt=false too).
-	 */
-	(void)erase_prompt;
 
 	/* Render the input as a blockquote so the bubble keeps the "> " rail. */
 	mf = open_memstream(&quoted, &quotedlen);
@@ -4014,16 +4225,16 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	end = terminal_trim_blank_rows(rb.data, rb.len);
 	line_start = terminal_text_at_line_start(rb.data, end);
 	fenced = markdown_reverse_pair(cfg, &on, &off);
-	if (fyai_ui_active(ctx)) {
+	if (live && fyai_ui_active(ctx)) {
 		if (fenced)
-			fyai_bubble_fence(ctx, on, off);
+			fyai_bubble_fence(ctx, on, off, true);
 		if (end) {
 			(void)fyai_ui_commit(ctx, rb.data, end);
 			if (!line_start)
 				(void)fyai_ui_commit(ctx, "\n", 1);
 		}
 		if (fenced)
-			fyai_bubble_fence(ctx, on, off);
+			fyai_bubble_fence(ctx, on, off, true);
 		(void)fyai_ui_commit(ctx, "\n", 1);
 		free(rb.data);
 		return;
@@ -4032,12 +4243,12 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	/* One blank card row fences the content top and bottom (styling
 	 * permitting; without a loaded styling the card renders unfenced). */
 	if (fenced)
-		fyai_bubble_fence(ctx, on, off);
+		fyai_bubble_fence(ctx, on, off, false);
 	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, rb.data, end);
 	if (!line_start)
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	if (fenced)
-		fyai_bubble_fence(ctx, on, off);
+		fyai_bubble_fence(ctx, on, off, false);
 	/* separate the bubble from the answer */
 	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	free(rb.data);
@@ -4046,7 +4257,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 void fyai_echo_user_turn(struct fyai_ctx *ctx, const char *line)
 {
 	if (ctx && ctx->cfg->markdown && ctx->stdout_tty)
-		(void)fyai_render_display_output(ctx, "user", line);
+		fyai_print_user_turn(ctx, line, true);
 }
 
 int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,

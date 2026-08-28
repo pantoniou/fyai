@@ -1566,6 +1566,8 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 						 result, ok, false);
 		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not append tool job result");
+		/* Present the completed exchange before opening the next band. */
+		fyai_ui_drain_output(ctx);
 	}
 	fyai_turn_run_drop_tool_group(run);
 	run->turn = fy_gb_internalize(ctx->transient_gb, run->turn);
@@ -2435,6 +2437,30 @@ out:
 	return rc < 0 ? rc : rc > 0 ? 1 : 0;
 }
 
+/* Run a bang command without creating a model turn. */
+static int fyai_interactive_handle_bang(struct fyai_ctx *ctx,
+					const char *histfile, char *line)
+{
+	int rc;
+
+	if (line[0] != '!')
+		return -1;
+	fyai_ui_history_save(ctx, histfile, line);
+	fyai_echo_user_turn(ctx, line);
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, out,
+			 "could not create transient shell storage");
+	rc = fyai_tools_bang(ctx, line + 1);
+	fyai_error_check(ctx, !rc, out,
+			 "could not start the bang shell");
+	rc = 0;
+	out:
+	fyai_cleanup_transient_builder(ctx);
+	fyai_ui_diag_drain(ctx, "error");
+	fyai_ui_drain_output(ctx);
+	return rc;
+}
+
 /* Normalize and display a normal interactive user line. */
 static void fyai_interactive_prepare_user_line(struct fyai_ctx *ctx,
 					       const char *histfile, char *line)
@@ -2627,6 +2653,12 @@ static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
 	line = fyai_ui_take_line(ctx);
 	if (!line)
 		return FYAILR_NONE;
+	rc = line[0] == '!' ?
+		fyai_interactive_handle_bang(ctx, histfile, line) : -1;
+	if (line[0] == '!') {
+		free(line);
+		return rc ? FYAILR_ERROR : FYAILR_HANDLED;
+	}
 	rc = fyai_interactive_start_line(ctx, histfile, line, runp);
 	free(line);
 	if (rc > 0)
@@ -2870,6 +2902,15 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 		 * They never reach the model; "//..." escapes to send a
 		 * literal slash-prefixed prompt line.
 		 */
+		rc = line[0] == '!' ?
+			fyai_interactive_handle_bang(ctx, histfile, line) : -1;
+		if (line[0] == '!') {
+			free(line);
+			line = NULL;
+			if (rc > 0)
+				break;
+			continue;
+		}
 		rc = fyai_interactive_handle_slash(ctx, histfile, line);
 		if (rc >= 0) {
 			free(line);

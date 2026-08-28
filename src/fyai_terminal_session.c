@@ -37,6 +37,7 @@
 #include "fyai_tools.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_terminal_session.h"
+#include "fyai_ui.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
 
@@ -193,8 +194,9 @@ static void tty_child_exec(struct fyai_ctx *ctx, const char *command,
 	spec.own_session = true;
 	/* Describe the libfyvterm terminal rather than the parent terminal. */
 	spec.term = fy_str_empty(opts->term) ? "xterm-256color" : opts->term;
-	spec.rows = opts->rows > 0 ? opts->rows : FYAI_TTY_ROWS_DEFAULT;
-	spec.cols = opts->cols > 0 ? opts->cols : FYAI_TTY_COLS_DEFAULT;
+	/* Use the PTY winsize; remove inherited LINES and COLUMNS overrides. */
+	spec.rows = 0;
+	spec.cols = 0;
 	spec.workdir = opts->workdir;
 	spec.sandbox = sandbox;
 	spec.status_fd = status_fd;
@@ -540,8 +542,13 @@ static enum fyai_event_action tty_winch(const struct fyai_event *ev)
 {
 	struct fyai_ctx *ctx = ev->userdata;
 	int rows = 0, cols = 0;
+	int fd;
 
-	if (!terminal_window_size(STDOUT_FILENO, &rows, &cols) &&
+	/* Wake the display before reading size from its terminal descriptor. */
+	fyai_ui_resized(ctx);
+	fd = fyai_ui_tty_fd(ctx);
+	if ((fd < 0 || !terminal_window_size(fd, &rows, &cols)) &&
+	    !terminal_window_size(STDOUT_FILENO, &rows, &cols) &&
 	    !terminal_window_size(STDERR_FILENO, &rows, &cols))
 		return FYAIEA_CONTINUE;
 	if (rows == ctx->tty_rows && cols == ctx->tty_cols)
@@ -642,9 +649,8 @@ static void relay_finish(struct fyai_terminal_relay *rl)
 					   (long long)WEXITSTATUS(rl->status)));
 }
 
-static enum fyai_event_action relay_read(const struct fyai_event *ev)
+static void relay_drain_output(struct fyai_terminal_relay *rl)
 {
-	struct fyai_terminal_relay *rl = ev->userdata;
 	struct fy_generic_builder *gb;
 	char buf[4096];
 	ssize_t n;
@@ -660,7 +666,7 @@ static enum fyai_event_action relay_read(const struct fyai_event *ev)
 			continue;
 		}
 		if (n < 0 && (errno == EAGAIN || errno == EINTR))
-			return FYAIEA_CONTINUE;
+			return;
 		/* EIO is the last slave closing: the end of the stream. */
 		if (rl->fdsrc) {
 			fyai_event_source_remove(rl->fdsrc);
@@ -668,8 +674,14 @@ static enum fyai_event_action relay_read(const struct fyai_event *ev)
 		}
 		if (rl->reaped)
 			relay_finish(rl);
-		return FYAIEA_CONTINUE;
+		return;
 	}
+}
+
+static enum fyai_event_action relay_read(const struct fyai_event *ev)
+{
+	relay_drain_output(ev->userdata);
+	return FYAIEA_CONTINUE;
 }
 
 static enum fyai_event_action relay_child(const struct fyai_event *ev)
@@ -824,9 +836,19 @@ void fyai_terminal_relay_resize(struct fyai_terminal_relay *rl, int rows,
 	if (!rl || rl->input != rl->master || rl->master < 0 ||
 	    rows <= 0 || cols <= 0)
 		return;
+	(void)kill(-rl->pid, SIGSTOP);
+	relay_drain_output(rl);
 	ws.ws_row = (unsigned short)rows;
 	ws.ws_col = (unsigned short)cols;
 	(void)ioctl(rl->master, TIOCSWINSZ, &ws);
+}
+
+void fyai_terminal_relay_resume(struct fyai_terminal_relay *rl)
+{
+	if (rl && rl->pid > 0) {
+		(void)kill(-rl->pid, SIGCONT);
+		(void)kill(-rl->pid, SIGWINCH);
+	}
 }
 
 /* End the session gracefully, or kill it immediately when forced. */
@@ -847,6 +869,8 @@ void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force)
 	 * ignores SIGTERM and answers only the hangup. */
 	(void)kill(-rl->pid, SIGHUP);
 	(void)kill(-rl->pid, SIGTERM);
+	/* Resume a resize-stopped job so it can process termination signals. */
+	(void)kill(-rl->pid, SIGCONT);
 
 	el = fyai_ctx_loop(rl->ctx);
 	if (el && !rl->killer)

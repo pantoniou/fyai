@@ -83,12 +83,22 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Left indent applied to each rendered tool-output row (nests it under the
  * tool-call header), so the live loop and the history view match. */
 #define FYAI_TOOL_OUTPUT_INDENT "    "
-/* Chrome at the left of a terminal session, so its screen reads as one
- * thing. */
-#define FYAI_SESSION_MARGIN "│ "
+/* Align terminal content with its title. */
+#define FYAI_SESSION_MARGIN "  "
+/* Work-pane defaults. */
+#define DEFAULT_WORK_LAYOUT "auto"
+#define DEFAULT_WORK_ZOOM_ROWS "full"
+#define DEFAULT_WORK_MIN_TILE_COLS 40
+#define DEFAULT_WORK_FRAME "none"
+#define DEFAULT_TILE_FRAME "none"
+/* Separate adjacent tile columns. */
+#define DEFAULT_TILE_SEP " ┃ "
+#define DEFAULT_WORK_CONTROLS "none"
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "
+/* Minimum content width after reserving decoration columns. */
+#define FYAI_MIN_RENDER_COLS 8
 /* Display columns of both, for the layout that has to reserve them. */
 #define FYAI_TOOL_MARKER_WIDTH 3
 /* Default separators (markdown, themed by the renderer). The turn break is a
@@ -208,6 +218,17 @@ struct fyai_cfg {
 	const char *shell_tty_term;	/* terminal type exposed to PTY commands */
 	int shell_input_poll_ms;	/* how often a session is asked if it waits */
 	const char *session_margin;	/* left chrome of a terminal session */
+	/* Work-pane configuration. */
+	const char *work_layout;	/* auto | columns | stack */
+	int work_columns;		/* columns when work_layout is columns */
+	int work_min_tile_cols;		/* narrowest tile the auto grid makes */
+	int work_max_rows;		/* rows the pane may take (0 = uncapped) */
+	const char *work_zoom_rows;	/* full | half | quarter */
+	int work_zoom_fixed_rows;	/* direct row count, 0 for named policy */
+	const char *work_frame;		/* chrome around the pane */
+	const char *tile_frame;		/* chrome under a tile's title row */
+	const char *tile_sep;		/* rule between adjacent columns */
+	const char *work_controls;	/* none | zoom | full */
 	bool agent_pty;			/* this sub-agent has a terminal */
 	bool shell_tty;			/* run a shell call on a terminal by default */
 	const char *shell_shell;	/* the shell a call runs under; empty = /bin/sh */
@@ -477,6 +498,8 @@ struct fyai_ctx {
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;
+	/* Surface with keyboard focus, or NULL. */
+	struct fytim_surface *zoom_surface;
 	struct fyai_wait *waits;	/* named waits, live for this run */
 	/* Events queued for model turns in arrival order. */
 	struct fyai_pending_event *events;

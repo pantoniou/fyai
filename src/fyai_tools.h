@@ -50,7 +50,26 @@ bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
 
 /* Tell every live tool child that the terminal of the user changed size. */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
+/* Apply post-layout tile sizes to terminal emulators and programs. */
+void fyai_tool_jobs_layout(struct fyai_ctx *ctx);
+/* Reset user-surface requests after an outer-window resize. */
+void fyai_tool_surfaces_resize(struct fyai_ctx *ctx, int rows, int cols);
+/* Return true while a terminal owns a work-pane surface. */
+bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx);
+struct fytim_surface;
+
 void fyai_tool_job_cancel(struct fyai_tool_job *job);
+/* Route a surface control request to its owner. */
+void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
+				int delta);
+/* Focus the named tile, or the first tile when @name is empty. */
+const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name);
+/* Cycle focus through the prompt and live tiles. */
+bool fyai_tools_focus_next(struct fyai_ctx *ctx);
+/* Return the pane and keyboard focus to the prompt. */
+void fyai_tools_unzoom(struct fyai_ctx *ctx);
+/* Start a user-owned TTY shell in the work pane. */
+int fyai_tools_bang(struct fyai_ctx *ctx, const char *command);
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);
 

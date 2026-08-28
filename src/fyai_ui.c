@@ -20,13 +20,17 @@
 #include <libfymd4c.h>
 
 #include "fyai.h"
+#include "fyai_agent.h"
 #include "fyai_diag.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
 #include "fyai_markdown.h"
+#include "fyai_sink.h"
 #include "fyai_session.h"
 #include "fyai_terminal.h"
+#include "fyai_terminal_session.h"
 #include "fyai_ui.h"
+#include "fyai_tools.h"
 #include <sys/ioctl.h>
 #include "fyai_terminal_view.h"
 #include "utils.h"
@@ -49,6 +53,10 @@ struct fyai_ui {
 	bool activity_paused;
 	bool external;
 	struct fytim_workband *tool_band;
+	/* Shared pane for live terminal and text tiles. */
+	struct fytim_workpane *work_pane;
+	int work_tiles;
+	int zoom_rows;		/* current terminal-relative zoom cap */
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
 	/* The surface holding the keys, and where its bytes go. */
@@ -69,6 +77,9 @@ struct fyai_ui {
 	bool capture;
 	bool recalled;
 	bool frame_pending;
+	int render_cols;		/* width used to wrap screen rows */
+	bool reflow_pending;		/* live rows require reflow */
+	bool repaint_pending;		/* transcript requires repaint */
 	fyai_event_ms_t next_frame_ms;
 };
 
@@ -116,39 +127,6 @@ static int ui_status_render(struct fyai_ui *ui, const char *activity)
 	return rc;
 }
 
-static int ui_shell_max_rows(const struct fyai_ui *ui, const char *command)
-{
-	const unsigned char *p;
-	size_t width;
-	size_t column;
-	size_t rows;
-	int preview_rows;
-
-	preview_rows = ui->ctx->cfg->tool_preview_lines > 0 ?
-		ui->ctx->cfg->tool_preview_lines : 0;
-	if (!command)
-		return preview_rows + 2;
-	/* Reserve the band indent and tool marker. */
-	width = ui->ctx->cfg->render_width > 2 + FYAI_TOOL_MARKER_WIDTH ?
-		(size_t)ui->ctx->cfg->render_width - 2 - FYAI_TOOL_MARKER_WIDTH : 1;
-	rows = 1;
-	column = 0;
-	for (p = (const unsigned char *)command; *p; p++) {
-		if (*p == '\n') {
-			rows++;
-			column = 0;
-			continue;
-		}
-		if (++column >= width && p[1] && p[1] != '\n') {
-			rows++;
-			column = 0;
-		}
-	}
-	if (rows > (size_t)INT_MAX - (size_t)preview_rows - 1)
-		return INT_MAX;
-	return preview_rows + (int)rows + 1;
-}
-
 static int ui_append_shell_command(struct fyai_cfg *cfg,
 				   struct response_buffer *out,
 				   const char *command)
@@ -157,10 +135,14 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 	size_t start;
 	size_t rows;
 	size_t i;
+	int saved;
 	int rc;
 
+	/* Reserve the command marker columns. */
+	saved = fyai_width_reserve_begin(cfg, 2 + FYAI_TOOL_MARKER_WIDTH);
 	rc = fyai_render_fenced_buffer(cfg, command, strlen(command), "sh",
 				       &rendered, 0);
+	fyai_width_reserve_end(cfg, saved);
 	if (rc)
 		goto out;
 	while (rendered.len && (rendered.data[rendered.len - 1] == '\n' ||
@@ -199,50 +181,67 @@ out:
 	return rc;
 }
 
+/* Render persistent band chrome and its committed transcript form. */
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
+	struct response_buffer head = {0};
 	struct response_buffer out = {0};
+	const char *body;
+	size_t body_len;
 	size_t title_len;
+	int preview;
 	int rc = -1;
 
 	if (!ui->tool_band)
 		return 0;
-	(void)fytim_workband_set_max_rows(ui->tool_band,
-					 ui_shell_max_rows(ui, ui->tool_command));
 	title_len = ui->tool_title ? strlen(ui->tool_title) : 0;
 	/* Render the failure mark and cause in the shared title row. */
 	if (markdown_render_tool_head(ui->ctx->cfg,
 			ui->tool_title ? ui->tool_title : "shell",
 			title_len ? title_len : 5, ui->tool_error,
-			first_margin, "  ", &out))
+			first_margin, "  ", &head))
 		goto out;
 	if (ui->tool_command &&
-	    ui_append_shell_command(ui->ctx->cfg, &out, ui->tool_command))
+	    ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
 		goto out;
-	if (ui->tool_body_len) {
-		if (out.len && out.data[out.len - 1] != '\n') {
-			if (response_buffer_reserve(&out, out.len + 2))
-				goto out;
-			out.data[out.len++] = '\n';
-			out.data[out.len] = '\0';
-		}
-		if (response_buffer_reserve(&out,
-					    out.len + ui->tool_body_len + 1))
-			goto out;
-		memcpy(out.data + out.len, ui->tool_body, ui->tool_body_len);
-		out.len += ui->tool_body_len;
-		out.data[out.len] = '\0';
+	response_buffer_trim(&head);
+	if (fytim_workband_set_top(ui->tool_band,
+				   head.len ? head.data : NULL) != FYTIM_OK)
+		goto out;
+	body = ui->tool_body;
+	body_len = ui->tool_body_len;
+	/* Remove the renderer's leading row below separate chrome. */
+	while (body_len && (*body == '\n' || *body == '\r')) {
+		body++;
+		body_len--;
 	}
+	preview = ui->ctx->cfg->tool_preview_lines;
+	(void)fytim_workband_set_max_rows(ui->tool_band,
+					  preview > 0 ? preview : 1);
+	if (fytim_workband_set(ui->tool_band, body, body_len) != FYTIM_OK)
+		goto out;
+	if (!commit) {
+		rc = 0;
+		goto out;
+	}
+	if (response_buffer_reserve(&out, head.len + body_len + 2))
+		goto out;
+	memcpy(out.data, head.data, head.len);
+	out.len = head.len;
+	if (body_len) {
+		out.data[out.len++] = '\n';
+		memcpy(out.data + out.len, body, body_len);
+		out.len += body_len;
+	}
+	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
-	if (fytim_workband_set(ui->tool_band, out.data, out.len) != FYTIM_OK) {
-		goto out;
-	}
-	if (commit &&
-	    fytim_workband_set_commit(ui->tool_band, out.data, out.len) != FYTIM_OK)
+	if (fytim_workband_set_commit(ui->tool_band, out.data,
+				      out.len) != FYTIM_OK)
 		goto out;
 	rc = 0;
 out:
+	free(head.data);
 	free(out.data);
 	return rc;
 }
@@ -605,19 +604,75 @@ err_out:
 	return;
 }
 
+/* Convert configured mouse controls to library flags. */
+static unsigned int ui_work_controls(const struct fyai_ctx *ctx)
+{
+	const char *v = ctx->cfg->work_controls;
+
+	if (!v || !strcmp(v, "none"))
+		return 0;
+	if (!strcmp(v, "zoom"))
+		return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE;
+	return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE |
+	       FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
+}
+
+/* Map "none" to absent chrome; preserve an empty rule string. */
+static const char *ui_chrome_text(const char *v)
+{
+	if (!v || !strcmp(v, "none"))
+		return NULL;
+	return v;
+}
+
+/* Convert the zoom policy to a row cap. */
+static int ui_zoom_rows(struct fyai_ui *ui)
+{
+	const char *policy = ui->ctx->cfg->work_zoom_rows;
+	int rows = 1;
+
+	(void)fytim_size(ui->ft, NULL, &rows);
+	if (ui->ctx->cfg->work_zoom_fixed_rows > 0)
+		return ui->ctx->cfg->work_zoom_fixed_rows;
+	if (policy && !strcmp(policy, "half"))
+		return (rows + 1) / 2;
+	if (policy && !strcmp(policy, "quarter"))
+		return (rows + 3) / 4;
+	if (policy && !strcmp(policy, "full"))
+		return 0;
+	return rows;
+}
+
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
 	bool painted_frame;
+	bool zoom_relayout = false;
 
 	fyai_ui_drain_output(ui->ctx);
 	if (ui_activity_refresh(ui))
 		return FYAIEA_ABORT;
 	painted_frame = ui->frame_pending;
+	/* Consume this request before callbacks can queue another frame. */
+	if (painted_frame)
+		ui->frame_pending = false;
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
+	/* Recalculate fractional zoom after a terminal resize. */
+	if (fyai_ui_surface_zoomed(ui->ctx)) {
+		int cap = ui_zoom_rows(ui);
+
+		if (cap != ui->zoom_rows) {
+			ui->zoom_rows = cap;
+			(void)fytim_workpane_set_max_rows(ui->work_pane, cap);
+			ui->frame_pending = true;
+			zoom_relayout = true;
+		}
+	}
+	/* Apply post-layout tile dimensions to terminals. */
+	if (!zoom_relayout)
+		fyai_tool_jobs_layout(ui->ctx);
 	if (painted_frame) {
-		ui->frame_pending = false;
 		ui->next_frame_ms =
 			fyai_event_now_ms() +
 			ui->ctx->cfg->tool_update_interval_ms;
@@ -643,11 +698,33 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_EDIT:
 			ui_message_clear(ui);
+			/* Ctrl-G cycles terminal-tile focus. */
+			if (fyai_tools_focus_next(ui->ctx))
+				break;
 			if (!ui->editor_request)
 				(void)ui_edit_begin(ui);
 			break;
-		case FYTIM_EVENT_RESIZE:
-			ui->ctx->cfg->render_width = ev.width > 1 ? ev.width - 1 : 0;
+		case FYTIM_EVENT_RESIZE: {
+			int cols = ev.width > 1 ? ev.width - 1 : 0;
+
+			ui->ctx->cfg->render_width = cols;
+			/* Record the initial size without requesting reflow. */
+			if (!ui->render_cols || cols == ui->render_cols) {
+				ui->render_cols = cols;
+				break;
+			}
+			ui->render_cols = cols;
+			/* Reset surface requests before solving the new layout. */
+			fyai_tool_surfaces_resize(ui->ctx, ev.height, ev.width);
+			/* Defer one live reflow until the resize burst ends. */
+			ui->reflow_pending = true;
+			/* Repaint committed rows from stored transcript data. */
+			ui->repaint_pending = true;
+			break;
+		}
+		case FYTIM_EVENT_REDRAW:
+			/* Ctrl-L requests a clean repaint. */
+			ui->repaint_pending = true;
 			break;
 		case FYTIM_EVENT_SURFACE_KEYS:
 			/* The keys belong to a program, not to the prompt. */
@@ -658,9 +735,43 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		case FYTIM_EVENT_SCROLLBACK:
 			ui->activity_paused = true;
 			break;
+		case FYTIM_EVENT_SURFACE_ZOOM:
+			/* Toggle zoom for the selected tile. */
+			(void)fyai_ui_surface_zoom(ui->ctx,
+				fytim_workpane_zoomed(ui->work_pane) ==
+					ev.surface ? NULL : ev.surface);
+			break;
+		case FYTIM_EVENT_SURFACE_CLOSE:
+		case FYTIM_EVENT_SURFACE_SCROLL:
+			/* Route tile controls to the component that owns the work. */
+			fyai_tools_surface_request(ui->ctx, ev.surface,
+						   ev.type ==
+						   FYTIM_EVENT_SURFACE_CLOSE
+							? 0 : ev.delta);
+			break;
 		default:
 			break;
 		}
+	}
+	if (ui->reflow_pending) {
+		ui->reflow_pending = false;
+		fyai_sink_reflow(ui->ctx->sink);
+		ui->frame_pending = true;
+	}
+	/* Delegated agents repaint only their live result screen. */
+	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
+		ui->repaint_pending = false;
+	/* Repaint retained live surfaces from a clean screen. */
+	if (ui->repaint_pending && fyai_tool_surfaces_active(ui->ctx)) {
+		ui->repaint_pending = false;
+		fyai_ui_clear_screen(ui->ctx);
+		ui->frame_pending = true;
+	}
+	if (ui->repaint_pending && !ui->busy) {
+		ui->repaint_pending = false;
+		fyai_ui_clear_screen(ui->ctx);
+		(void)fyai_display_repaint(ui->ctx, 0);
+		ui->frame_pending = true;
 	}
 	ui_rearm(ui);
 	return FYAIEA_CONTINUE;
@@ -703,6 +814,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	cfg.title = "fyai";
 	/* Keep Ctrl-C as SIGINT so the watchdog can detect a stopped loop. */
 	cfg.intr_signal = true;
+	/* Grab the mouse only when work-pane controls require it. */
+	cfg.mouse = ui_work_controls(ctx) != 0;
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
 	ui->tty_fd = ttyout;
@@ -711,6 +824,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		int width = 0;
 		(void)fytim_size(ui->ft, &width, NULL);
 		ctx->cfg->render_width = width > 1 ? width - 1 : 0;
+		/* Record the initial render width. */
+		ui->render_cols = ctx->cfg->render_width;
 	}
 	if (!ctx->cfg->color || !strcmp(ctx->cfg->color, "auto"))
 		ctx->cfg->color = "on";
@@ -724,6 +839,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	if (spool_open(&ui->out, STDOUT_FILENO) ||
 	    spool_open(&ui->err, STDERR_FILENO))
 		goto fail;
+	/* Wake provider-bound turns when the terminal size changes. */
+	(void)fyai_terminal_winch_open(ctx);
 	(void)fytim_set_marker(ui->ft, ctx->cfg->prompt_marker &&
 			       *ctx->cfg->prompt_marker ? ctx->cfg->prompt_marker : "❯ ");
 	(void)fytim_history_set_max_len(ui->ft, 1000);
@@ -1047,6 +1164,26 @@ bool fyai_ui_quit_requested(const struct fyai_ctx *ctx)
 	return !ui || (ui->quit && !ui->editor_request);
 }
 
+/* Schedule a frame to read the new terminal size. */
+void fyai_ui_resized(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui;
+
+	if (!fyai_ui_active(ctx))
+		return;
+	ui = ctx->ui;
+	ui->frame_pending = true;
+	ui->next_frame_ms = fyai_event_now_ms();
+	ui_rearm(ui);
+}
+
+void fyai_ui_clear_screen(struct fyai_ctx *ctx)
+{
+	if (!fyai_ui_active(ctx) || ctx->ui->capture)
+		return;
+	(void)fytim_clear_screen(ctx->ui->ft);
+}
+
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
 	struct fyai_ui *ui;
@@ -1162,6 +1299,24 @@ struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx)
 	return band;
 }
 
+/* Select the tile width for a band render and return the previous width. */
+static int ui_band_width_begin(struct fyai_ctx *ctx,
+			       const struct fytim_workband *band)
+{
+	int saved = ctx->cfg->render_width;
+	int cols = fyai_ui_work_tile_cols(band);
+
+	/* Zero denotes full width or an unpainted band. */
+	if (cols > 0)
+		ctx->cfg->render_width = cols;
+	return saved;
+}
+
+static void ui_band_width_end(struct fyai_ctx *ctx, int saved)
+{
+	ctx->cfg->render_width = saved;
+}
+
 void fyai_ui_workband_update(struct fyai_ctx *ctx,
 			     struct fytim_workband *band,
 			     const char *title, const char *body, size_t len,
@@ -1172,10 +1327,12 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 	fyai_event_ms_t now;
 	size_t title_len;
 	char *margin = NULL;
+	int saved_width;
 
 	if (!fyai_ui_active(ctx) || !band)
 		return;
 	ui = ctx->ui;
+	saved_width = ui_band_width_begin(ctx, band);
 	title = title ? title : "tool";
 	title_len = strlen(title);
 	margin = first_margin ? strdup(first_margin) :
@@ -1209,6 +1366,7 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 		ui->next_frame_ms = now;
 	ui_rearm(ui);
 out:
+	ui_band_width_end(ctx, saved_width);
 	free(margin);
 	free(out.data);
 }
@@ -1221,15 +1379,18 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 {
 	struct fyai_ui *ui;
 	struct response_buffer top = {0};
+	struct response_buffer head = {0};
 	struct response_buffer out = {0};
 	fyai_event_ms_t now;
 	char *margin = NULL;
 	size_t start;
 	size_t end;
+	int saved_width;
 
 	if (!fyai_ui_active(ctx) || !band)
 		return;
 	ui = ctx->ui;
+	saved_width = ui_band_width_begin(ctx, band);
 	title = title ? title : "shell";
 	margin = first_margin ? strdup(first_margin) :
 		ui_indicator(ui, FYMD_INDICATOR_PENDING, 0, NULL);
@@ -1246,26 +1407,43 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	while (end > start && (top.data[end - 1] == '\n' ||
 				 top.data[end - 1] == '\r'))
 		end--;
-	if (response_buffer_reserve(&out, end - start + 2))
+	if (response_buffer_reserve(&head, end - start + 2))
 		goto out;
-	memcpy(out.data, top.data + start, end - start);
-	out.len = end - start;
-	out.data[out.len++] = '\n';
-	out.data[out.len] = '\0';
-	if (ui_append_shell_command(ctx->cfg, &out, command))
+	memcpy(head.data, top.data + start, end - start);
+	head.len = end - start;
+	head.data[head.len++] = '\n';
+	head.data[head.len] = '\0';
+	if (ui_append_shell_command(ctx->cfg, &head, command))
 		goto out;
+	response_buffer_trim(&head);
+	/* Keep the call title and command in persistent chrome. */
+	if (fytim_workband_set_top(band, head.len ? head.data : NULL) !=
+	    FYTIM_OK)
+		goto out;
+	/* Remove the renderer's leading row below separate chrome. */
+	while (len && (*body == '\n' || *body == '\r')) {
+		body++;
+		len--;
+	}
+	if (fytim_workband_set_max_rows(band,
+			ctx->cfg->tool_preview_lines > 0 ?
+			ctx->cfg->tool_preview_lines : 1) != FYTIM_OK)
+		goto out;
+	if (fytim_workband_set(band, body, len) != FYTIM_OK)
+		goto out;
+	/* Commit chrome and output together. */
+	if (response_buffer_reserve(&out, head.len + len + 2))
+		goto out;
+	memcpy(out.data, head.data, head.len);
+	out.len = head.len;
 	if (len) {
-		if (response_buffer_reserve(&out, out.len + len + 2))
-			goto out;
 		out.data[out.len++] = '\n';
 		memcpy(out.data + out.len, body, len);
 		out.len += len;
 	}
 	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
-	(void)fytim_workband_set_max_rows(band,
-					 ui_shell_max_rows(ui, command));
-	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
+	if (fytim_workband_set_commit(band, out.data, out.len) != FYTIM_OK)
 		goto out;
 	now = fyai_event_now_ms();
 	ui->frame_pending = true;
@@ -1273,8 +1451,10 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 		ui->next_frame_ms = now;
 	ui_rearm(ui);
 out:
+	ui_band_width_end(ctx, saved_width);
 	free(margin);
 	free(top.data);
+	free(head.data);
 	free(out.data);
 }
 
@@ -1380,14 +1560,119 @@ static void surface_cell(const struct fyai_term_cell *src,
 	dst->width = (unsigned char)(src->width > 1 ? 2 : 1);
 }
 
+/* Destroy the pane after its last tile retires. */
+static void ui_work_pane_release(struct fyai_ui *ui)
+{
+	if (ui->work_tiles > 0)
+		ui->work_tiles--;
+	if (ui->work_tiles > 0 || !ui->work_pane)
+		return;
+	fytim_workpane_destroy(ui->work_pane);
+	ui->work_pane = NULL;
+	ui->zoom_rows = 0;
+}
+
+/* Apply current grid and chrome configuration to the pane. */
+static void ui_work_pane_configure(struct fyai_ui *ui)
+{
+	const struct fyai_cfg *cfg = ui->ctx->cfg;
+	int cols = 0;
+
+	/* A stack layout uses one tile column. */
+	if (cfg->work_layout && !strcmp(cfg->work_layout, "stack"))
+		cols = 1;
+	else if (cfg->work_layout && !strcmp(cfg->work_layout, "columns"))
+		cols = cfg->work_columns;
+	(void)fytim_workpane_set_columns(ui->work_pane, cols);
+	(void)fytim_workpane_set_min_tile_cols(ui->work_pane,
+					       cfg->work_min_tile_cols);
+	(void)fytim_workpane_set_max_rows(ui->work_pane, cfg->work_max_rows);
+	(void)fytim_workpane_set_top(ui->work_pane,
+				     ui_chrome_text(cfg->work_frame));
+	(void)fytim_workpane_set_bottom(ui->work_pane,
+					ui_chrome_text(cfg->work_frame));
+	(void)fytim_workpane_set_tile_sep(ui->work_pane, cfg->tile_sep);
+	(void)fytim_workpane_set_controls(ui->work_pane,
+					  ui_work_controls(ui->ctx));
+}
+
+/* Open and configure the shared work pane. */
+static int ui_work_pane_open(struct fyai_ui *ui)
+{
+	if (!ui->work_pane) {
+		ui->work_pane = fytim_workpane_create(ui->ft);
+		if (!ui->work_pane)
+			return -1;
+		ui->work_tiles = 0;
+	}
+	ui_work_pane_configure(ui);
+	return 0;
+}
+
+struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fytim_workband *band;
+
+	if (!ui || !ui->ft)
+		return NULL;
+	if (ui_work_pane_open(ui))
+		return NULL;
+	band = fytim_workband_create_in(ui->work_pane);
+	if (!band) {
+		ui_work_pane_release(ui);
+		return NULL;
+	}
+	(void)fytim_workband_set_max_rows(band,
+					  ctx->cfg->tool_preview_lines + 2);
+	ui->work_tiles++;
+	return band;
+}
+
+/* Return the last granted tile width, or zero before layout. */
+int fyai_ui_work_tile_cols(const struct fytim_workband *band)
+{
+	int cols = 0;
+
+	if (!band || fytim_workband_granted_cols(band, &cols) != FYTIM_OK)
+		return 0;
+	return cols;
+}
+
+/* Retire a tile band and optionally commit it. */
+void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
+			       struct fytim_workband *band, bool commit)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!band)
+		return;
+	if (commit)
+		(void)fytim_workband_commit(band);
+	else
+		fytim_workband_destroy(band);
+	if (ui)
+		ui_work_pane_release(ui);
+}
+
 struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 					   int cols)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fytim_surface *sf;
 
 	if (!ui || !ui->ft)
 		return NULL;
-	return fytim_surface_open(ui->ft, rows, cols);
+	if (ui_work_pane_open(ui))
+		return NULL;
+	sf = fytim_surface_open_in(ui->work_pane, rows, cols);
+	if (!sf) {
+		ui_work_pane_release(ui);
+		return NULL;
+	}
+	(void)fytim_surface_set_bottom(sf, ui_chrome_text(ctx->cfg->tile_frame));
+	ui->work_tiles++;
+	return sf;
 }
 
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
@@ -1401,9 +1686,19 @@ void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
 		ui->keys_data = NULL;
 	}
 	fytim_surface_close(sf);
+	if (ui)
+		ui_work_pane_release(ui);
 }
 
 /* Read the terminal size from the active display. */
+/* Return the display terminal descriptor. */
+int fyai_ui_tty_fd(const struct fyai_ctx *ctx)
+{
+	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	return ui ? ui->tty_fd : -1;
+}
+
 int fyai_ui_size(struct fyai_ctx *ctx, int *cols, int *rows)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
@@ -1436,6 +1731,8 @@ void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf)
 		ui->keys_data = NULL;
 	}
 	(void)fytim_surface_commit(sf);
+	if (ui)
+		ui_work_pane_release(ui);
 }
 
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols)
@@ -1443,6 +1740,13 @@ int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols)
 	if (!sf)
 		return -1;
 	return fytim_surface_resize(sf, rows, cols) == FYTIM_OK ? 0 : -1;
+}
+
+int fyai_ui_surface_request_rows(struct fytim_surface *sf, int rows)
+{
+	if (!sf || rows < 0)
+		return -1;
+	return fytim_surface_request_rows(sf, rows) == FYTIM_OK ? 0 : -1;
 }
 
 int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
@@ -1456,7 +1760,8 @@ int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
 
 int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 				   struct fytim_surface *sf,
-				   const char *title, const char *cause,
+				   const char *title, const char *command,
+				   const char *cause,
 				   enum fyai_ui_mark mark, size_t frame,
 				   unsigned int *interval_msp)
 {
@@ -1468,36 +1773,45 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 	struct response_buffer out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	char *margin;
+	int saved_width;
+	int cols;
 	int rc;
 
 	if (!ui || !sf || !title)
 		return -1;
 
+	/* Render chrome at the granted tile width. */
+	saved_width = ctx->cfg->render_width;
+	cols = fyai_ui_surface_granted_cols(sf);
+	if (cols > 0)
+		ctx->cfg->render_width = cols;
 	/* Render the marked title row used by work bands. */
 	margin = ui_indicator(ui, states[mark], frame, interval_msp);
 	rc = markdown_render_tool_head(ctx->cfg, title, strlen(title), cause,
 				       margin ? margin : "  ", "  ", &out);
 	free(margin);
 	if (!rc) {
-		/* A title row is one row: what follows the first line is the
-		 * body of the head, which a surface has no room for. */
-		char *nl = out.data ? strchr(out.data, '\n') : NULL;
-
-		if (nl)
-			*nl = '\0';
+		/* Append the shell command below the title row. */
+		response_buffer_trim(&out);
+		if (command && *command)
+			rc = ui_append_shell_command(ctx->cfg, &out, command);
+	}
+	if (!rc) {
+		response_buffer_trim(&out);
 		rc = fytim_surface_set_top(sf, out.data ? out.data : title) ==
 		     FYTIM_OK ? 0 : -1;
 	}
+	ctx->cfg->render_width = saved_width;
 	free(out.data);
 	return rc;
 }
 
 int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *cause,
-			     enum fyai_ui_mark mark)
+			     const char *title, const char *command,
+			     const char *cause, enum fyai_ui_mark mark)
 {
-	return fyai_ui_surface_set_head_frame(ctx, sf, title, cause, mark, 0,
-					      NULL);
+	return fyai_ui_surface_set_head_frame(ctx, sf, title, command, cause,
+					      mark, 0, NULL);
 }
 
 int fyai_ui_surface_granted_cols(const struct fytim_surface *sf)
@@ -1516,6 +1830,13 @@ int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text)
 	return fytim_surface_set_margin(sf, text) == FYTIM_OK ? 0 : -1;
 }
 
+int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows)
+{
+	if (!sf || rows < 0)
+		return -1;
+	return fytim_surface_set_max_rows(sf, rows) == FYTIM_OK ? 0 : -1;
+}
+
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom)
 {
@@ -1524,6 +1845,19 @@ int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 	if (fytim_surface_set_top(sf, top) != FYTIM_OK)
 		return -1;
 	return fytim_surface_set_bottom(sf, bottom) == FYTIM_OK ? 0 : -1;
+}
+
+void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			   bool focused)
+{
+	const char *text;
+
+	if (!sf)
+		return;
+	text = focused ? "focused · Ctrl-] returns to the prompt · "
+			 "Ctrl-G moves focus" :
+		ui_chrome_text(ctx->cfg->tile_frame);
+	(void)fytim_surface_set_bottom(sf, text);
 }
 
 int fyai_ui_surface_publish(struct fytim_surface *sf,
@@ -1565,6 +1899,46 @@ int fyai_ui_surface_publish(struct fytim_surface *sf,
 	return 1;
 }
 
+/* Zoom @sf to the full pane; NULL restores the grid. */
+int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->work_pane)
+		return -1;
+	if (fytim_workpane_set_zoom(ui->work_pane, sf) != FYTIM_OK)
+		return -1;
+	if (sf) {
+		ui->zoom_rows = ui_zoom_rows(ui);
+		(void)fytim_workpane_set_max_rows(ui->work_pane,
+						 ui->zoom_rows);
+	} else {
+		ui->zoom_rows = 0;
+		(void)fytim_workpane_set_max_rows(ui->work_pane,
+						 ctx->cfg->work_max_rows);
+	}
+	fyai_ui_wake(ctx);
+	return 0;
+}
+
+struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx)
+{
+	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	return ui && ui->work_pane ? fytim_workpane_zoomed(ui->work_pane)
+				   : NULL;
+}
+
+/* Publish emulator scroll extent to the surface. */
+int fyai_ui_surface_scroll_extent(struct fytim_surface *sf, int total_rows,
+				  int top_row)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_set_scroll_extent(sf, total_rows, top_row) ==
+	       FYTIM_OK ? 0 : -1;
+}
+
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			 bool take, fyai_ui_keys_fn cb, void *user)
 {
@@ -1576,5 +1950,18 @@ int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		return -1;
 	ui->keys_fn = take ? cb : NULL;
 	ui->keys_data = take ? user : NULL;
+	return 0;
+}
+
+int fyai_ui_keys_return(struct fyai_ctx *ctx, const char *data, size_t len)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->ft || !data || !len)
+		return -1;
+	if (fytim_keys_return(ui->ft, data, len) != FYTIM_OK)
+		return -1;
+	/* Schedule a frame to read the returned bytes. */
+	fyai_ui_wake(ctx);
 	return 0;
 }

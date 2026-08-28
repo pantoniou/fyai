@@ -249,6 +249,19 @@ display:
   prompt: "  > "
   prompt_top: ""
   prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{ctx}"
+  # Work-pane layout: auto, columns, or stack.
+  work_layout: auto
+  work_columns: 0
+  work_min_tile_cols: 40
+  # Shared-pane row cap; 0 permits uncapped tile requests.
+  work_max_rows: 0
+  # Zoom height: full, half, quarter, or a positive row count.
+  work_zoom_rows: full
+  work_frame: none
+  tile_frame: none
+  tile_sep: " ┃ "
+  # Mouse controls: none, zoom, or full.
+  work_controls: none
   pretty: false           # pretty (YAML) debug dumps
   thinking: true           # display model reasoning/thinking output
   cache_info: false       # print provider cache info

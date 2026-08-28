@@ -1500,6 +1500,30 @@ struct fyai_slash_cmd {
 	int (*run)(struct fyai_ctx *ctx, const char *arg);
 };
 
+/* Give a live tile the work pane and keyboard focus. */
+static int slash_zoom(struct fyai_ctx *ctx, const char *arg)
+{
+	const char *what;
+
+	while (arg && *arg == ' ')
+		arg++;
+	if (arg && !strcmp(arg, "off")) {
+		/* fyai_tools_unzoom() reports the focus change. */
+		fyai_tools_unzoom(ctx);
+		return 0;
+	}
+	what = fyai_tools_zoom(ctx, arg);
+	if (!what) {
+		fyai_result(ctx, arg && *arg ?
+			    "no live shell session or sub-agent is called that" :
+			    "nothing is running to zoom into");
+		return 0;
+	}
+	fyai_result(ctx, "typing into %s; Ctrl-G moves focus; Ctrl-] comes back",
+		    what);
+	return 0;
+}
+
 static int slash_clear(struct fyai_ctx *ctx, const char *arg)
 {
 	(void)arg;
@@ -2206,6 +2230,8 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	  "inspect or control provider authentication", slash_auth },
 	{ "mcp", "[status|login NAME|logout NAME|on|off]",
 	  "inspect or control MCP server connections", slash_mcp },
+	{ "zoom", "[name|off]",
+	  "type into a live shell session or sub-agent", slash_zoom },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },

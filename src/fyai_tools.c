@@ -203,15 +203,23 @@ static void fyai_print_tool_view(struct fyai_ctx *ctx, const char *title,
 
 static char *fyai_format_shell_label(fy_generic args)
 {
-	fy_generic desc;
-	const char *text;
+	fy_generic desc, name;
+	const char *description, *session;
 	char *label;
 
 	desc = fy_get(args, "description");
-	text = fy_castp(&desc, "");
-	if (asprintf(&label, "**shell**%s%s%s\n",
-		     *text ? " [" : "", text, *text ? "]" : "") < 0)
+	name = fy_get(args, "name");
+	description = fy_castp(&desc, "");
+	session = fy_castp(&name, "");
+	if (*session) {
+		if (asprintf(&label, "**shell** [%s]%s%s\n", session,
+			     *description ? " " : "", description) < 0)
+			return NULL;
+	} else if (asprintf(&label, "**shell**%s%s%s\n",
+			    *description ? " [" : "", description,
+			    *description ? "]" : "") < 0) {
 		return NULL;
+	}
 	return label;
 }
 
@@ -1820,6 +1828,11 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		if (tc->relay)
 			fyai_terminal_relay_resize(tc->relay, tc->ctx->tty_rows,
 						   tc->ctx->tty_cols);
+		(void)jsonrpc_notify(conn, "tty/resized",
+			fy_gb_mapping(gb, "rows", (long long)tc->ctx->tty_rows,
+				      "cols", (long long)tc->ctx->tty_cols));
+		if (tc->relay)
+			fyai_terminal_relay_resume(tc->relay);
 		return fy_invalid;
 	}
 	if (!strcmp(method, "shell/write")) {
@@ -2054,6 +2067,8 @@ struct fyai_shell_session {
 	size_t animation_frame;
 	struct fytim_surface *surface;
 	char *title;
+	char *description;		/* model-provided call description */
+	bool recorded;			/* exchange stored in the document */
 	pid_t pid;			/* the program, watched for a read */
 	bool pipes;			/* it was given no terminal */
 	struct fyai_event_source *waiter;
@@ -2067,6 +2082,10 @@ struct fyai_shell_session {
 	bool exited;
 	bool closing;
 	bool timed_out;
+	bool user_owned;		/* opened by a bang command */
+	bool layout_pending;		/* current grant is from the previous layout */
+	int resize_rows;		/* pending child resize */
+	int resize_cols;
 };
 
 /* Size an agent terminal to its display surface. */
@@ -2155,6 +2174,9 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols)
 	for (job = ctx->tool_jobs; job; job = job->next) {
 		if (!job->conn || job->done)
 			continue;
+		/* Displayed terminals use their post-layout tile size. */
+		if ((job->session && job->session->surface) || job->surface)
+			continue;
 		(void)jsonrpc_notify(job->conn, "tty/resize",
 				fy_gb_mapping(gb, "rows", (long long)rows,
 					      "cols", (long long)cols));
@@ -2208,7 +2230,8 @@ fyai_shell_session_animate(const struct fyai_event *ev)
 	sess->animation_frame++;
 	(void)fyai_ui_surface_set_head_frame(sess->ctx, sess->surface,
 					 sess->title ? sess->title : "**shell**",
-					 NULL, FYAI_UI_MARK_RUNNING,
+					 sess->command, NULL,
+					 FYAI_UI_MARK_RUNNING,
 					 sess->animation_frame, NULL);
 	fyai_ui_wake(sess->ctx);
 	return FYAIEA_CONTINUE;
@@ -2318,8 +2341,10 @@ static void fyai_shell_session_reply(const char *data, size_t len, void *user)
 /* Create the session and reserve its name, before the process is spawned. */
 static struct fyai_shell_session *
 fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
-			  const char *command, const char *title, int rows,
-			  int cols, size_t max_bytes, bool pipes)
+			  const char *command, const char *title,
+			  const char *description, int rows,
+			  int cols, size_t max_bytes, bool pipes,
+			  bool user_owned)
 {
 	struct fyai_event_loop *el;
 	struct fyai_shell_session *sess;
@@ -2345,12 +2370,19 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
 	fyai_terminal_view_reply_cb(sess->view, fyai_shell_session_reply, sess);
 	sess->title = title ? strdup(title) : NULL;
+	sess->description = description ? strdup(description) : NULL;
 	sess->rows = rows;
 	sess->pipes = pipes;
+	sess->user_owned = user_owned;
 	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
 	if (sess->surface) {
+		/* User programs may use all granted rows. */
+		if (user_owned) {
+			(void)fyai_ui_surface_set_max_rows(sess->surface, 0);
+		}
 		(void)fyai_ui_surface_set_head_frame(ctx, sess->surface,
-				 sess->title ? sess->title : "**shell**", NULL,
+				 sess->title ? sess->title : "**shell**",
+				 sess->command, NULL,
 				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
 		(void)fyai_ui_surface_set_margin(sess->surface,
 						 ctx->cfg->session_margin);
@@ -2383,36 +2415,60 @@ fail:
 }
 
 /* Resize the program to the surface area it receives. */
-static void fyai_shell_session_follow(struct fyai_shell_session *sess)
+static void fyai_shell_session_follow(struct fyai_shell_session *sess,
+				      bool layout_ready)
 {
 	struct fy_generic_builder *gb;
 	int cols, rows, have_rows = 0, have_cols = 0;
 
+	if (sess->layout_pending && !layout_ready)
+		return;
+	sess->layout_pending = false;
 	cols = fyai_ui_surface_granted_cols(sess->surface);
 	if (cols < 1)
 		return;
 	fyai_terminal_view_size(sess->view, &have_rows, &have_cols);
-	/* Do not grow beyond the session's initial height. */
+	/* Apply the configured ceiling only to model sessions. */
 	rows = fyai_ui_surface_granted_rows(sess->surface);
-	if (rows < 1 || rows > sess->rows)
+	if (rows < 1 || (!sess->user_owned && rows > sess->rows))
 		rows = sess->rows;
 	if (cols == have_cols && rows == have_rows)
 		return;
 
-	fyai_terminal_view_resize(sess->view, rows, cols);
-	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
-	/*
-	 * The process that drives the terminal is the child: it owns the
-	 * pseudo-terminal, so only it can tell the program.
-	 */
-	if (!sess->job || !sess->job->conn || sess->job->done)
+	/* The child owns the PTY and applies session resize requests. */
+	if (!sess->job || !sess->job->conn || sess->exited)
+		goto local;
+	if (rows == sess->resize_rows && cols == sess->resize_cols)
 		return;
 	gb = fyai_ctx_transient_gb(sess->ctx);
 	if (!gb)
 		return;
-	(void)jsonrpc_notify(sess->job->conn, "tty/resize",
+	if (!jsonrpc_notify(sess->job->conn, "tty/resize",
 			     fy_gb_mapping(gb, "rows", (long long)rows,
-					   "cols", (long long)cols));
+					   "cols", (long long)cols))) {
+		sess->resize_rows = rows;
+		sess->resize_cols = cols;
+	}
+	return;
+local:
+	fyai_terminal_view_resize(sess->view, rows, cols);
+	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
+}
+
+static void fyai_shell_session_resized(struct fyai_shell_session *sess,
+				       int rows, int cols)
+{
+	if (!sess || !sess->surface || rows <= 0 || cols <= 0)
+		return;
+	fyai_terminal_view_resize(sess->view, rows, cols);
+	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
+	/* Publish the complete resized grid before the next frame. */
+	(void)fyai_ui_surface_publish(sess->surface, sess->view);
+	if (rows == sess->resize_rows && cols == sess->resize_cols) {
+		sess->resize_rows = 0;
+		sess->resize_cols = 0;
+	}
+	fyai_ui_wake(sess->ctx);
 }
 
 /* Show what the program has drawn since the last look. */
@@ -2420,7 +2476,7 @@ static void fyai_shell_session_refresh(struct fyai_shell_session *sess)
 {
 	if (!sess || !sess->surface)
 		return;
-	fyai_shell_session_follow(sess);
+	fyai_shell_session_follow(sess, false);
 	if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
 		fyai_ui_wake(sess->ctx);
 }
@@ -2512,13 +2568,44 @@ static char *fyai_shell_session_cause(const struct fyai_shell_session *sess,
 	return NULL;
 }
 
-/* Commit the completed session screen to the transcript. */
+/* Retire zoom state without reporting a focus change. */
+static void fyai_surface_retire_zoom(struct fyai_ctx *ctx,
+				     struct fytim_surface *surface)
+{
+	if (!ctx || !surface)
+		return;
+	/* Clear keyboard and pointer zoom independently. */
+	if (ctx->zoom_surface == surface) {
+		fyai_ui_surface_focus(ctx, surface, false);
+		(void)fyai_ui_surface_keys(ctx, surface, false, NULL, NULL);
+		ctx->zoom_surface = NULL;
+	}
+	if (fyai_ui_surface_zoomed(ctx) == surface)
+		(void)fyai_ui_surface_zoom(ctx, NULL);
+}
+
+/* Commit the completed session to the transcript and terminal scrollback. */
 static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 {
 	char *cause;
+	char *text;
+	size_t len;
 	bool ok;
 
-	if (!sess || !sess->surface)
+	if (!sess || sess->recorded)
+		return;
+	sess->recorded = true;
+	cause = fyai_shell_session_cause(sess, &ok);
+	text = fyai_terminal_view_read(sess->view, FYAITR_ALL, NULL, &len);
+	if (fyai_record_shell_screen(sess->ctx, sess->description,
+				     sess->command, text, ok, cause))
+		fyai_warning(sess->ctx,
+			     "shell: could not record the session '%s'",
+			     sess->name ? sess->name : "");
+	free(text);
+	free(cause);
+
+	if (!sess->surface)
 		return;
 
 	if (sess->animation) {
@@ -2529,10 +2616,11 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	cause = fyai_shell_session_cause(sess, &ok);
 	(void)fyai_ui_surface_set_head(sess->ctx, sess->surface,
 				       sess->title ? sess->title : "**shell**",
-				       cause,
+				       sess->command, cause,
 				       ok ? FYAI_UI_MARK_OK :
 					    FYAI_UI_MARK_FAILED);
 	free(cause);
+	fyai_surface_retire_zoom(sess->ctx, sess->surface);
 	fyai_ui_surface_commit(sess->ctx, sess->surface);
 	sess->surface = NULL;
 	fyai_ui_wake(sess->ctx);
@@ -2552,7 +2640,7 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 		fyai_event_source_remove(sess->idle);
 		sess->idle = NULL;
 	}
-	/* Nothing waits for input once the program has gone. */
+	/* Remove the obsolete input waiter. */
 	if (sess->waiter) {
 		fyai_event_source_remove(sess->waiter);
 		sess->waiter = NULL;
@@ -2580,8 +2668,7 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 {
 	if (!sess)
 		return;
-	/* A session torn down while its program was still there commits what
-	 * it drew all the same: it was shown, so it is kept. */
+	/* Commit output displayed before teardown. */
 	fyai_shell_session_display_finish(sess);
 	if (sess->animation)
 		fyai_event_source_remove(sess->animation);
@@ -2594,6 +2681,7 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	free(sess->command);
 	free(sess->branch);
 	free(sess->title);
+	free(sess->description);
 	free(sess);
 }
 
@@ -2613,6 +2701,8 @@ static void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 		sess->idle = NULL;
 		sess->waiter = NULL;
 		sess->animation = NULL;
+		/* Only the parent records its session. */
+		sess->recorded = true;
 		fyai_shell_session_destroy(sess);
 	}
 	ctx->shell_sessions = NULL;
@@ -2944,11 +3034,16 @@ static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 				 "shell: could not report the missing session");
 		return err;
 	}
+	if (sess->user_owned) {
+		return strdup(fy_sprintfa(
+			"tool error: the shell '%s' belongs to the user and cannot "
+			"be closed by the model", sess->name));
+	}
 
 	force = fy_get(args, "force", false);
 	if (!sess->exited) {
 		fyai_shell_session_close(sess, force);
-		/* Give the program the time to leave before reporting. */
+		/* Allow the program to exit before reporting its result. */
 		el = fyai_ctx_loop(ctx);
 		assert(el);
 		(void)fyai_event_sleep(el, force ? 100 :
@@ -3008,6 +3103,61 @@ static void fyai_agent_view_follow(struct fyai_tool_job *job)
 	(void)fyai_ui_surface_resize(job->surface, rows, cols);
 }
 
+/* Apply granted tile sizes after work-pane layout. */
+void fyai_tool_jobs_layout(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	if (!ctx)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (sess->surface) {
+			fyai_shell_session_follow(sess, true);
+			if (fyai_ui_surface_publish(sess->surface, sess->view) > 0)
+				fyai_ui_wake(ctx);
+		}
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->surface) {
+			fyai_agent_view_follow(job);
+			if (fyai_ui_surface_publish(job->surface, job->view) > 0)
+				fyai_ui_wake(ctx);
+		}
+}
+
+/* Reset user-tile requests before layout grants the resized grid. */
+void fyai_tool_surfaces_resize(struct fyai_ctx *ctx, int rows, int cols)
+{
+	struct fyai_shell_session *sess;
+
+	if (!ctx || rows <= 0 || cols <= 0)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (!sess->surface || sess->exited || !sess->user_owned) {
+			continue;
+		}
+		(void)fyai_ui_surface_request_rows(sess->surface, 0);
+		(void)fyai_ui_surface_set_max_rows(sess->surface, 0);
+		sess->layout_pending = true;
+	}
+}
+
+bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx)
+{
+	const struct fyai_shell_session *sess;
+	const struct fyai_tool_job *job;
+
+	if (!ctx)
+		return false;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (sess->surface)
+			return true;
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->surface)
+			return true;
+	return false;
+}
+
 /* Show what the sub-agent has drawn on its terminal since the last look. */
 static void fyai_agent_view_refresh(struct fyai_tool_job *job)
 {
@@ -3029,7 +3179,7 @@ fyai_agent_view_animate(const struct fyai_event *ev)
 	job->animation_frame++;
 	(void)fyai_ui_surface_set_head_frame(job->ctx, job->surface,
 					 job->title ? job->title : "**agent**",
-					 NULL, FYAI_UI_MARK_RUNNING,
+					 NULL, NULL, FYAI_UI_MARK_RUNNING,
 					 job->animation_frame, NULL);
 	fyai_ui_wake(job->ctx);
 	return FYAIEA_CONTINUE;
@@ -3062,7 +3212,7 @@ static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 			fyai_agent_view_refresh(job);
 			return FYAIEA_CONTINUE;
 		}
-		/* EIO is the last slave closing: the sub-agent has gone. */
+		/* EIO means that the last slave closed and the sub-agent exited. */
 		fyai_agent_view_refresh(job);
 		if (job->ptysrc) {
 			fyai_event_source_remove(job->ptysrc);
@@ -3199,7 +3349,7 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 	if (job->surface) {
 		(void)fyai_ui_surface_set_head_frame(ctx, job->surface,
 				 job->title ? job->title : "**agent**", NULL,
-				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
+				 NULL, FYAI_UI_MARK_RUNNING, 0, &animation_ms);
 		(void)fyai_ui_surface_set_margin(job->surface,
 						 ctx->cfg->session_margin);
 		if (animation_ms) {
@@ -3240,9 +3390,10 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 		fyai_agent_view_refresh(job);
 		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
 					       job->title ? job->title :
-					       "**agent**", cause,
+					       "**agent**", NULL, cause,
 					       ok ? FYAI_UI_MARK_OK :
 						    FYAI_UI_MARK_FAILED);
+		fyai_surface_retire_zoom(job->ctx, job->surface);
 		fyai_ui_surface_commit(job->ctx, job->surface);
 		job->surface = NULL;
 		fyai_ui_wake(job->ctx);
@@ -3546,7 +3697,8 @@ err:
 }
 
 
-static void fyai_tool_job_live_close(struct fyai_tool_job *job)
+static void fyai_tool_job_live_close(struct fyai_tool_job *job,
+				     bool commit_band)
 {
 	/* A sub-agent's screen is committed with its outcome, not discarded. */
 	if (job->agent)
@@ -3554,7 +3706,10 @@ static void fyai_tool_job_live_close(struct fyai_tool_job *job)
 				      NULL);
 	if (job->stream.active)
 		fyai_fenced_stream_finish(&job->stream);
-	fyai_sink_band_destroy(job->band);
+	if (commit_band)
+		fyai_sink_band_commit(job->band);
+	else
+		fyai_sink_band_destroy(job->band);
 	job->band = NULL;
 	free(job->title);
 	job->title = NULL;
@@ -3594,7 +3749,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	if (!job->reaped && job->pid > 0)
 		while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR)
 			;
-	fyai_tool_job_live_close(job);
+	fyai_tool_job_live_close(job, false);
 	fyai_tool_job_unlink(job->ctx, job);
 	free(job->progress.data);
 	free(job->branch);
@@ -3659,7 +3814,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	const char *asked, *cmdtext;
 	fy_generic args, progress_args, agent_name;
 	bool agent_stored = false;
-	fy_generic session_call, session_command;
+	fy_generic session_call, session_command, session_desc;
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
 	char *session_name = NULL;
@@ -3669,6 +3824,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	bool have_branch = false;
 	bool native_call;
 	bool eligible;
+	bool user_owned;
 	int srows = 0, scols = 0;
 	int rc;
 
@@ -3782,14 +3938,19 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		"could not spawn tool job");
 	fyai_tool_job_link(ctx, job);
 	if (have_session) {
+		user_owned = fy_get(args, "_fyai_user_owned", false);
 		fyai_shell_tty_size(ctx, args, &srows, &scols);
 		session_command = fy_get(args, "command", fy_invalid);
+		session_desc = fy_get(args, "description", fy_invalid);
 		session_title = fyai_format_shell_label(args);
 		job->session = fyai_shell_session_create(ctx, session_name,
 					fy_castp(&session_command, ""),
-					session_title, srows, scols,
-					fyai_shell_output_bytes(ctx, args),
-					!fyai_shell_tty_requested(ctx, args));
+					session_title,
+					fy_castp(&session_desc, ""),
+					srows, scols,
+					user_owned ? 0 : fyai_shell_output_bytes(ctx, args),
+					!fyai_shell_tty_requested(ctx, args),
+					user_owned);
 		free(session_title);
 		session_title = NULL;
 		fyai_error_check(ctx, job->session, err,
@@ -3879,6 +4040,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					   "agent: could not show the sub-agent terminal");
 			goto live_open_done;
 		}
+		/* A terminal session displays output on its own surface. */
+		if (have_session)
+			goto live_open_done;
 		job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
 		if (job->band &&
 		    !fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
@@ -3891,7 +4055,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			fyai_sink_band_paint(job->band, job->title,
 					     job->command, NULL, 0, NULL);
 		} else {
-			fyai_tool_job_live_close(job);
+			fyai_tool_job_live_close(job, false);
 		}
 	}
 live_open_done:
@@ -3980,6 +4144,13 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 			fyai_shell_session_refresh(job->session);
 		}
 		free(bytes);
+		return fy_invalid;
+	}
+	if (!strcmp(method, "tty/resized")) {
+		if (job->session)
+			fyai_shell_session_resized(job->session,
+				(int)fy_get(params, "rows", 0LL),
+				(int)fy_get(params, "cols", 0LL));
 		return fy_invalid;
 	}
 	/* Watch the child-reported process for input waits. */
@@ -4091,6 +4262,272 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job)
 }
 
 #define FYAI_TOOL_TERM_MS 2000
+
+/* Find the live session or sub-agent that owns @sf. */
+static void fyai_tile_owner(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			    struct fyai_shell_session **sessp,
+			    struct fyai_tool_job **jobp)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	*sessp = NULL;
+	*jobp = NULL;
+	if (!ctx || !sf)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (sess->surface == sf) {
+			*sessp = sess;
+			return;
+		}
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->surface == sf) {
+			*jobp = job;
+			return;
+		}
+}
+
+static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
+				  struct fyai_tool_job *job, const char *data,
+				  size_t len);
+
+/* Focus keys intercepted while a tile owns keyboard input. */
+#define FYAI_FOCUS_NEXT_KEY 0x07	/* ^G */
+#define FYAI_FOCUS_PROMPT_KEY 0x1d	/* ^] */
+
+/* Route keyboard input from the focused tile. */
+static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
+{
+	struct fyai_ctx *ctx = user;
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	size_t i;
+
+	fyai_tile_owner(ctx, ctx->zoom_surface, &sess, &job);
+	if (!sess && !job) {
+		/* Return focus after the program exits. */
+		fyai_tools_unzoom(ctx);
+		return;
+	}
+	for (i = 0; i < len; i++) {
+		if (data[i] != FYAI_FOCUS_NEXT_KEY &&
+		    data[i] != FYAI_FOCUS_PROMPT_KEY)
+			continue;
+		/* Send bytes that precede the intercepted focus key. */
+		if (i)
+			fyai_tools_zoom_write(sess, job, data, i);
+		if (data[i] == FYAI_FOCUS_NEXT_KEY)
+			fyai_tools_focus_next(ctx);
+		else
+			fyai_tools_unzoom(ctx);
+		/* Return the unconsumed frame tail to the new input owner. */
+		if (i + 1 < len)
+			(void)fyai_ui_keys_return(ctx, data + i + 1,
+						  len - i - 1);
+		return;
+	}
+	fyai_tools_zoom_write(sess, job, data, len);
+}
+
+/* Route a surface control request to its owner. */
+void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
+				int delta)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	if (!ctx || !sf || delta)
+		return;
+
+	fyai_tile_owner(ctx, sf, &sess, &job);
+	/* Request graceful termination so the result remains available. */
+	if (sess)
+		fyai_shell_session_close(sess, false);
+	else if (job)
+		fyai_tool_job_cancel(job);
+}
+
+/* Send @len bytes to the terminal owner. */
+static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
+				  struct fyai_tool_job *job, const char *data,
+				  size_t len)
+{
+	if (sess)
+		fyai_shell_session_reply(data, len, sess);
+	else if (job)
+		fyai_agent_view_reply(data, len, job);
+}
+
+/* Give the named live tile the work pane and keyboard focus. */
+const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_shell_session *zoom_sess = NULL;
+	struct fyai_tool_job *job;
+	struct fytim_surface *sf = NULL;
+	const char *what = NULL;
+
+	if (!ctx)
+		return NULL;
+	for (sess = ctx->shell_sessions; sess && !sf; sess = sess->next) {
+		if (!sess->surface || sess->exited)
+			continue;
+		if (!name || !*name || (sess->name && !strcmp(sess->name, name))) {
+			sf = sess->surface;
+			what = sess->name;
+			zoom_sess = sess;
+		}
+	}
+	for (job = ctx->tool_jobs; job && !sf; job = job->next) {
+		const char *agent;
+
+		if (!job->surface)
+			continue;
+		/* Derive a sub-agent name from its branch. */
+		agent = job->branch ? strstr(job->branch, "agent:") : NULL;
+		agent = agent ? agent + strlen("agent:") : job->title;
+		if (!name || !*name || (agent && !strcmp(agent, name))) {
+			sf = job->surface;
+			what = agent;
+		}
+	}
+	if (!sf)
+		return NULL;
+
+	fyai_tools_unzoom(ctx);
+	/* Lift the row ceiling; layout determines the zoomed grid size. */
+	if (zoom_sess && zoom_sess->user_owned) {
+		int rows, cols;
+
+		if (!fyai_ui_size(ctx, &cols, &rows) && rows > 0 && cols > 0) {
+			(void)fyai_ui_surface_request_rows(sf, 0);
+			(void)fyai_ui_surface_set_max_rows(sf, rows);
+			zoom_sess->layout_pending = true;
+		}
+	}
+	if (fyai_ui_surface_zoom(ctx, sf))
+		return NULL;
+	ctx->zoom_surface = sf;
+	if (fyai_ui_surface_keys(ctx, sf, true, fyai_tools_zoom_keys, ctx)) {
+		fyai_tools_unzoom(ctx);
+		return NULL;
+	}
+	fyai_ui_surface_focus(ctx, sf, true);
+	fyai_ui_wake(ctx);
+	return what ? what : "";
+}
+
+/* Return the work pane and keyboard focus to the prompt. */
+void fyai_tools_unzoom(struct fyai_ctx *ctx)
+{
+	if (!ctx || !ctx->zoom_surface)
+		return;
+	fyai_ui_surface_focus(ctx, ctx->zoom_surface, false);
+	(void)fyai_ui_surface_keys(ctx, ctx->zoom_surface, false, NULL, NULL);
+	(void)fyai_ui_surface_zoom(ctx, NULL);
+	ctx->zoom_surface = NULL;
+	fyai_ui_wake(ctx);
+}
+
+bool fyai_tools_focus_next(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	struct fytim_surface *current, *next = NULL;
+	const char *name = NULL;
+	bool take_next;
+
+	if (!ctx)
+		return false;
+	current = ctx->zoom_surface;
+	take_next = current == NULL;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (!sess->surface || sess->exited)
+			continue;
+		if (take_next) {
+			next = sess->surface;
+			name = sess->name;
+			break;
+		}
+		if (sess->surface == current)
+			take_next = true;
+	}
+	for (job = ctx->tool_jobs; job && !next; job = job->next) {
+		const char *agent;
+
+		if (!job->surface)
+			continue;
+		if (take_next) {
+			next = job->surface;
+			agent = job->branch ? strstr(job->branch, "agent:") : NULL;
+			name = agent ? agent + strlen("agent:") : job->title;
+			break;
+		}
+		if (job->surface == current)
+			take_next = true;
+	}
+	if (!next) {
+		if (current) {
+			fyai_tools_unzoom(ctx);
+			return true;
+		}
+		return false;
+	}
+	return fyai_tools_zoom(ctx, name) != NULL;
+}
+
+int fyai_tools_bang(struct fyai_ctx *ctx, const char *command)
+{
+	struct fyai_tool_job *job = NULL;
+	fy_generic call;
+	fy_generic args;
+	const char *args_text;
+	char name[32];
+	unsigned int n;
+
+	if (!ctx || !ctx->transient_gb)
+		return -1;
+	fyai_error_check(ctx, fyai_ui_active(ctx), err,
+			 "a bang shell needs an interactive terminal UI");
+	/* Allocate a unique user-visible session name. */
+	for (n = 1; n < 1000000; n++) {
+		snprintf(name, sizeof(name), "bang-%u", n);
+		if (!fyai_shell_session_find(ctx, name))
+			break;
+	}
+	fyai_error_check(ctx, n != 1000000, err,
+			 "could not allocate a name for the bang shell");
+	args = fy_mapping(ctx->transient_gb,
+			  "command", command ? command : "",
+			  "tty", true,
+			  "name", name,
+			  "_fyai_user_owned", true);
+	args_text = emit_json_string(ctx->transient_gb, args);
+	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
+		call = fy_mapping(ctx->transient_gb,
+				  "type", "function",
+				  "function", fy_mapping(ctx->transient_gb,
+					  "name", "shell",
+					  "arguments", args_text ? args_text : ""));
+	else
+		call = fy_mapping(ctx->transient_gb,
+				  "type", "function_call",
+				  "name", "shell",
+				  "arguments", args_text ? args_text : "");
+	fyai_error_check(ctx, fy_is_valid(call), err,
+			 "could not build the bang shell request");
+	/* Retain the call beyond transient interactive storage. */
+	call = fy_gb_internalize(ctx->gb, call);
+	fyai_error_check(ctx, fy_is_valid(call), err,
+			 "could not retain the bang shell request");
+	job = fyai_tool_job_submit(ctx, call);
+	fyai_error_check(ctx, job, err,
+			 "could not start the bang shell");
+	return 0;
+
+err:
+	return -1;
+}
 
 void fyai_tool_job_cancel(struct fyai_tool_job *job)
 {
@@ -4264,7 +4701,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	}
 	/* A started session keeps its process after this call completes. */
 	if (job->session) {
-		fyai_tool_job_live_close(job);
+		fyai_tool_job_live_close(job, false);
 		fyai_tool_job_drop(&job->deadline);
 		job->group = NULL;
 		if (fy_is_valid(job->diag))
@@ -4288,7 +4725,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			"end it with shell_close.", job->session->name,
 			job->session->command);
 	}
-	fyai_tool_job_live_close(job);
+	fyai_tool_job_live_close(job, false);
 	fyai_tool_job_close_channel(job);
 	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->csrc);
@@ -4716,6 +5153,8 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
 		if (!fyai_tool_job_done(entry->job))
 			continue;
+		/* Retire completed presentation while preserving collection order. */
+		fyai_tool_job_live_close(entry->job, false);
 		entry->job->group = NULL;
 		entry->state = FYAITGS_PARKED;
 		group->active--;

@@ -493,6 +493,8 @@ struct fyai_terminal_view *fyai_terminal_view_create(struct fyai_ctx *ctx,
 	fyvt_output_set_callback(view->vt, tty_cb_output, view);
 	view->screen = fyvt_obtain_screen(view->vt);
 	fyvt_screen_set_callbacks(view->screen, &tty_screen_callbacks, view);
+	/* Enable the alternate buffer selected by DECSET 1049. */
+	fyvt_screen_enable_altscreen(view->screen, 1);
 	/* Without this the ABI-compatible sb_pushline is called instead, and a
 	 * line that needed several rows cannot be joined again. */
 	fyvt_screen_callbacks_has_pushline4(view->screen);
@@ -576,7 +578,10 @@ void fyai_terminal_view_resize(struct fyai_terminal_view *view, int rows,
 		return;
 	view->rows = rows;
 	view->cols = cols;
+	/* Preserve screen-addressed rows until the application repaints them. */
+	fyvt_screen_enable_reflow(view->screen, !view->screen_mode);
 	fyvt_set_size(view->vt, rows, cols);
+	fyvt_screen_enable_reflow(view->screen, true);
 	fyai_terminal_view_damage_all(view);
 }
 
@@ -779,9 +784,17 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 					       view->cols, false, lenp);
 		return tty_log_text(view, view->log_read, true, lenp);
 	case FYAITR_ALL:
-		if (view->screen_mode)
-			return tty_screen_text(view, 0, view->rows, 0,
-					       view->cols, true, lenp);
+		if (view->screen_mode) {
+			char *text = tty_screen_text(view, 0, view->rows, 0,
+						     view->cols, true, lenp);
+
+			/* Use the log when exit restores an empty primary screen. */
+			if (text && !*lenp && view->log.len) {
+				free(text);
+				return tty_log_text(view, 0, false, lenp);
+			}
+			return text;
+		}
 		return tty_log_text(view, 0, false, lenp);
 	}
 	return NULL;
