@@ -363,6 +363,62 @@ choose a banded presentation, open with `fyai_sink_band_open()`, repaint with
 `fyai_sink_band_close()`. Do not call `fyai_ui_*` band functions from a
 producer; the terminal backend owns that.
 
+### The work pane
+
+Every live shell session and sub-agent screen is a tile of the one work pane,
+not a band of its own. A stack of full-width screens pushes the oldest off the
+top and says nothing about which screen belongs to which call; one region that
+tiles them says both.
+
+- Open a screen tile with `fyai_ui_surface_open()` and a text tile with
+  `fyai_ui_work_tile_create()` - a parallel run of shells and sub-agents is
+  not all of one kind, and both tile in the same region. Either creates the
+  pane on the first call and retires it with the last tile. A producer never
+  places a tile.
+- A shell reads the same whether or not it has a screen. The head of a tile
+  is the title row of the call and, under it, the command the call was given.
+  A chrome slot draws a row for each of its lines, and a tile too short for
+  the whole head sheds its last row first.
+- The head is chrome, not content. Held in the content the output of the call
+  would scroll it off the top, which is when a reader most needs to know
+  whose output this is, and the row cap would have to reserve rows for it.
+  What the band commits is the head and the output together, so the
+  transcript keeps the whole of it. Being chrome does not dim it: chrome that
+  carries its own styling keeps the emphasis it was given.
+- A tile's rows are hard-wrapped when they are made, so make them at the width
+  the tile was given: `fyai_sink_band_cols()` for a band and
+  `fyai_ui_work_tile_cols()` under it. The share changes as work starts and
+  finishes beside it, so a progressive render has to be made again at the new
+  width. Rows wrapped for the whole terminal are clipped at the tile.
+- The pane owns the grid. A tile learns the size it was given from
+  `fyai_ui_surface_granted_rows()` and `fyai_ui_surface_granted_cols()`, which
+  is what a pseudo-terminal is sized to. Do not size a program to the
+  terminal.
+- `display/work_layout` chooses the grid: `auto` fits as many columns as keep
+  every tile at `display/work_min_tile_cols`, `columns` takes
+  `display/work_columns`, and `stack` is one screen above another. A terminal
+  too narrow for two tiles stacks whatever the setting says.
+- `display/work_frame`, `display/tile_frame` and `display/tile_sep` are the
+  chrome. `display/session_margin` is the left gutter of a tile, sized
+  against the tile. The pane draws no frame by default, and the gutter draws
+  no rule, because every tile already carries the title row of the call that
+  opened it and is already bounded by the pane: the gutter only holds the
+  screen under the name of that call. The column rule is not the gutter: one
+  divides two programs and the other runs down the inside of one.
+- `display/work_controls` draws mouse affordances on a tile. Anything but
+  `none` grabs the mouse for the whole session, which takes selection and copy
+  from the terminal, so it is off by default. The library reports a control as
+  an event and acts on nothing itself: `fyai_tools_surface_request()` asks the
+  component that started the program, because only it can end it.
+- `/zoom` gives one tile the pane and the keys, so the user works in the
+  program instead of watching it. The prompt stands aside while a tile holds
+  the keys. Escape and `^C` are the program's and `^\` and `^Z` are the
+  terminal's, so the way back is `Ctrl-]`. What the user types is echoed by
+  the program, so it reaches the emulator and the line log with it: it is part
+  of the tool result the model is given, and needs no separate path.
+- Look a tile's owner up by surface. A program that ended must not leave a
+  pointer behind for the next keystroke to follow.
+
 ### Tables
 
 Render every Markdown table with `fyai_generic_to_markdown()`. Pass a
