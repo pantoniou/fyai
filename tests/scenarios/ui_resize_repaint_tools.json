@@ -1,0 +1,250 @@
+{
+  "steps": [
+    {
+      "match": {
+        "http": "POST",
+        "body_contains": "turn 1 please"
+      },
+      "sse": [
+        {
+          "id": "call_sh_1",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "id": "call_sh_1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"command\": \"seq 1 60 | sed 's/^/T1-LINE-/'\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "call_sh_1",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "tool_calls"
+            }
+          ]
+        }
+      ],
+      "done": true
+    },
+    {
+      "match": {
+        "http": "POST",
+        "body_contains": "T1-LINE-60"
+      },
+      "sse": [
+        {
+          "id": "call_say_1",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Turn 1 answered."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "call_say_1",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "done": true
+    },
+    {
+      "match": {
+        "http": "POST",
+        "body_contains": "turn 2 please"
+      },
+      "sse": [
+        {
+          "id": "call_sh_2",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "id": "call_sh_2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"command\": \"seq 1 60 | sed 's/^/T2-LINE-/'\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "call_sh_2",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "tool_calls"
+            }
+          ]
+        }
+      ],
+      "done": true
+    },
+    {
+      "match": {
+        "http": "POST",
+        "body_contains": "T2-LINE-60"
+      },
+      "sse": [
+        {
+          "id": "call_say_2",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Turn 2 answered."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "call_say_2",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "done": true
+    },
+    {
+      "match": {
+        "http": "POST",
+        "body_contains": "turn 3 please"
+      },
+      "sse": [
+        {
+          "id": "call_sh_3",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "id": "call_sh_3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"command\": \"seq 1 60 | sed 's/^/T3-LINE-/'\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "call_sh_3",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "tool_calls"
+            }
+          ]
+        }
+      ],
+      "done": true
+    },
+    {
+      "match": {
+        "http": "POST",
+        "body_contains": "T3-LINE-60"
+      },
+      "sse": [
+        {
+          "id": "call_say_3",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Turn 3 answered."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "call_say_3",
+          "object": "chat.completion.chunk",
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "done": true
+    }
+  ]
+}
