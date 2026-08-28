@@ -377,6 +377,17 @@ display makes them again.
   screen and paints the newest exchanges from the stored transcript, through
   `fyai_display_repaint()`. It waits for a turn in flight to finish: only what
   is stored can be made again. Ctrl-L asks for the same repaint.
+- The repaint takes whole exchanges until the screen is full, so it must
+  measure what it draws. A tool fragment is drawn bounded by its preview
+  limit: the thousand lines a call printed are the eight rows of them the
+  reader is given. Measure an exchange by its source and one turn takes the
+  whole screen, and the exchanges that would have fit under it are not
+  painted.
+- Everything a repaint draws goes through the sink, the card for what the user
+  said included. The display commits that card itself only for the echo of a
+  line just typed. Commit it during a repaint and it reaches the screen while
+  the answer under it is still in the sink, which puts every card of the
+  window above every answer.
 - Do not act on a width change inside the event callback. A drag sends a burst
   of them, and one repaint at the end of the service is what a reader needs.
   The first size is not a change: it is the display learning the window it
