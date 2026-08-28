@@ -30,6 +30,12 @@ void fyai_ui_drain_output(struct fyai_ctx *ctx);
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path);
 void fyai_ui_history_save(struct fyai_ctx *ctx, const char *path,
 			  const char *line);
+/* The terminal of the display, or -1 when it is not open. */
+int fyai_ui_tty_fd(const struct fyai_ctx *ctx);
+/* The window changed size: ask for the frame that reads the new one. */
+void fyai_ui_resized(struct fyai_ctx *ctx);
+/* Clear the screen; the scrollback of the terminal keeps what it has. */
+void fyai_ui_clear_screen(struct fyai_ctx *ctx);
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len);
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *upd);
 void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len);

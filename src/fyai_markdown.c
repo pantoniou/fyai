@@ -74,6 +74,79 @@ bool markdown_theme_selector_valid(const char *selector)
 	return markdown_theme_split(selector, name, sizeof(name), &variant);
 }
 
+/*
+ * The width every render uses: the runtime width the display keeps up to date,
+ * or the terminal when it has none. One answer, so a live region can tell that
+ * the width it made its rows at is no longer the width it has.
+ */
+int markdown_effective_width(struct fyai_cfg *fcfg)
+{
+	return fcfg->render_width > 0 ? fcfg->render_width :
+		markdown_render_width();
+}
+
+/*
+ * The columns an indent takes. fyai indents rendered content itself, so the
+ * content has to be made that much narrower: rows made at the whole width and
+ * then indented run past the right edge, and the terminal wraps them.
+ */
+int fyai_indent_cols(const char *indent)
+{
+	return indent ? (int)strlen(indent) : 0;
+}
+
+/*
+ * Render the next content @cols columns narrower, for the decoration the
+ * caller adds to every row of it. Returns the width to give back to
+ * fyai_width_reserve_end().
+ */
+int fyai_width_reserve_begin(struct fyai_cfg *cfg, int cols)
+{
+	int saved = cfg->render_width;
+	int width = markdown_effective_width(cfg);
+
+	/*
+	 * Nothing knows the width - the output is a pipe, and no terminal and
+	 * no setting answered. Leave it to the renderer: taking columns off a
+	 * width nobody has would make the content one column wide.
+	 */
+	if (width <= 0)
+		return saved;
+	width -= cols;
+	cfg->render_width = width > FYAI_MIN_RENDER_COLS ?
+			    width : FYAI_MIN_RENDER_COLS;
+	return saved;
+}
+
+void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved)
+{
+	cfg->render_width = saved;
+}
+
+/*
+ * Build a renderer configuration for content that will be indented by @reserve
+ * columns, at @cols (0 for the current width).
+ */
+static void markdown_renderer_cfg_indented(struct fyai_cfg *fcfg,
+					   struct fymd_renderer_cfg *rcfg,
+					   int cols, int reserve)
+{
+	int saved = fcfg->render_width;
+
+	if (cols <= 0)
+		cols = markdown_effective_width(fcfg);
+	/* A width nobody knows stays unknown; see fyai_width_reserve_begin(). */
+	if (cols > 0) {
+		cols -= reserve;
+		if (cols < FYAI_MIN_RENDER_COLS)
+			cols = FYAI_MIN_RENDER_COLS;
+	}
+	fcfg->render_width = cols > 0 ? cols : 0;
+	markdown_renderer_cfg(fcfg, rcfg, markdown_color_enabled(fcfg->color),
+			      fcfg->theme_variant, 0);
+	fcfg->render_width = saved;
+}
+
 void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 			   struct fymd_renderer_cfg *cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra)
@@ -82,8 +155,7 @@ void markdown_renderer_cfg(struct fyai_cfg *fcfg,
 
 	memset(cfg, 0, sizeof(*cfg));
 
-	width = fcfg->render_width > 0 ? fcfg->render_width :
-		markdown_render_width();
+	width = markdown_effective_width(fcfg);
 	cfg->flags = FYMD_RF_DEFAULT | FYMD_RF_TABLE_FIT | extra;
 	if (!color)
 		cfg->flags |= FYMD_RF_NO_COLOR;
@@ -702,14 +774,20 @@ int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
 	struct response_buffer rendered = {0};
 	size_t start;
 	size_t end;
+	int saved;
 	int rc;
 
 	if (!len)
 		return 0;
+	/* Every row of it is written after the indent and the marker. */
+	saved = fyai_width_reserve_begin(ctx->cfg,
+					 fyai_indent_cols(indent) +
+					 FYAI_TOOL_MARKER_WIDTH);
 	rc = markdown_render_fenced(ctx->cfg, text, len, lang, fy_invalid,
 				    max_lines, &rendered,
 				    markdown_color_enabled(ctx->cfg->color),
 				    0);
+	fyai_width_reserve_end(ctx->cfg, saved);
 	fyai_error_check(ctx, !rc, out, "could not render the tool body");
 	start = 0;
 	end = rendered.len;
@@ -821,12 +899,14 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 
 	memset(fs, 0, sizeof(*fs));
 	fs->ctx = ctx;
-	markdown_renderer_cfg(cfg, &rcfg, markdown_color_enabled(cfg->color),
-			      cfg->theme_variant, 0);
+	markdown_renderer_cfg_indented(cfg, &rcfg, 0,
+				       fyai_indent_cols(indent));
 	fs->r = fymd_renderer_create(&rcfg);
 	if (!fs->r)
 		return -1;
 	markdown_set_line_limit(fs->r, max_lines);
+	/* The width these rows are made at, so a resize is seen as a change. */
+	fs->render_cols = markdown_effective_width(cfg);
 	fs->lang = lang;
 	fs->indent = indent;
 	fs->max_lines = max_lines;
@@ -1098,19 +1178,20 @@ static bool fenced_stream_width_changed(struct fyai_fenced_stream *fs)
 {
 	struct fymd_renderer_cfg rcfg;
 	struct fymd_renderer *r;
-	int saved, cols;
+	int cols;
 
+	/*
+	 * A shared band, and a band that has not been drawn yet, has the whole
+	 * width: it follows the terminal, thus a resize changes it too.
+	 */
 	cols = fyai_sink_band_cols(fs->band);
-	/* Nothing has been drawn yet, or the band has the whole width. */
+	if (cols <= 0)
+		cols = markdown_effective_width(fs->ctx->cfg);
 	if (cols <= 0 || cols == fs->render_cols)
 		return false;
 
-	saved = fs->ctx->cfg->render_width;
-	fs->ctx->cfg->render_width = cols;
-	markdown_renderer_cfg(fs->ctx->cfg, &rcfg,
-			      markdown_color_enabled(fs->ctx->cfg->color),
-			      fs->ctx->cfg->theme_variant, 0);
-	fs->ctx->cfg->render_width = saved;
+	markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, cols,
+				       fyai_indent_cols(fs->indent));
 
 	r = fymd_renderer_create(&rcfg);
 	if (!r)
@@ -1382,9 +1463,8 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		 * before the band close creates the final commit payload.
 		 */
 		fymd_renderer_destroy(fs->r);
-		markdown_renderer_cfg(fs->ctx->cfg, &rcfg,
-			markdown_color_enabled(fs->ctx->cfg->color),
-			fs->ctx->cfg->theme_variant, 0);
+		markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, 0,
+					       fyai_indent_cols(fs->indent));
 		fs->r = fymd_renderer_create(&rcfg);
 		if (fs->r) {
 			markdown_set_line_limit(fs->r, fs->max_lines);

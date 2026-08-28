@@ -26,6 +26,7 @@ struct sink_term {
 	struct response_buffer source;	/* the document as given so far */
 	struct response_buffer pending;	/* appended, not yet pushed */
 	size_t active_rows;		/* rows the live region occupies */
+	int render_cols;		/* the width its rows were made at */
 	int64_t last_draw_ms;		/* monotonic time of the last repaint */
 	struct fyai_sink_band *shared_band;
 	enum fyai_sink_doc_kind kind;
@@ -80,6 +81,7 @@ static int sink_term_renderer_start(struct fyai_sink *s)
 	fyai_error_check(ctx, !rc, err,
 		"could not start the display renderer");
 	t->render_live = true;
+	t->render_cols = markdown_effective_width(ctx->cfg);
 	return 0;
 err:
 	return -1;
@@ -91,17 +93,24 @@ static void sink_term_apply(struct fyai_sink *s,
 {
 	struct sink_term *t = sink_term_state(s);
 	size_t backtrack = update->backtrack;
+	bool ui = fyai_ui_active(s->ctx);
 
-	if (fyai_ui_active(s->ctx)) {
+	/*
+	 * Count the rows on both paths. The display owns the tail rather than
+	 * this backend, but a reflow has to say how much of the screen it is
+	 * replacing, and only this count knows.
+	 */
+	if (ui)
 		(void)fyai_ui_tail_apply(s->ctx, update);
-		return;
-	}
-	if (backtrack) {
+	else if (backtrack) {
 		fprintf(stdout, FYAI_ANSI_CURSOR_UP_FMT, backtrack);
 		fputs(FYAI_ANSI_ERASE_DOWN, stdout);
-		t->active_rows -= backtrack;
 	}
-	if (update->content_len)
+	if (backtrack <= t->active_rows)
+		t->active_rows -= backtrack;
+	else
+		t->active_rows = 0;
+	if (!ui && update->content_len)
 		fwrite(update->content, 1, update->content_len, stdout);
 	t->active_rows += fyai_count_newlines(update->content,
 					      update->content_len);
@@ -109,7 +118,8 @@ static void sink_term_apply(struct fyai_sink *s,
 		t->active_rows = 0;
 	else
 		t->active_rows -= update->freeze;
-	fflush(stdout);
+	if (!ui)
+		fflush(stdout);
 }
 
 static int sink_term_push_pending(struct fyai_sink *s)
@@ -240,6 +250,14 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	}
 	if (!t->render_live)
 		return 0;
+	/*
+	 * Keep the source of a live document. A width change makes its rows
+	 * again from here: rows are hard-wrapped when they are made, thus the
+	 * only way to have them at another width is to make them again.
+	 */
+	rc = response_buffer_append_data(&t->source, text, len);
+	fyai_error_check(ctx, !rc, err,
+		"could not grow the display source buffer");
 	rc = response_buffer_reserve(&t->pending, t->pending.len + len + 1);
 	fyai_error_check(ctx, !rc,
 		err, "could not grow the progressive display buffer");
@@ -309,6 +327,55 @@ static void sink_term_doc_discard(struct fyai_sink *s)
 	t->active_rows = 0;
 	t->render_live = false;
 	t->doc_open = false;
+}
+
+/*
+ * Make the live region again at the width it has now. Rows are hard-wrapped
+ * when they are made, so a window that changed width clips or frays every row
+ * already drawn. The document source is kept for exactly this: render it from
+ * the start into a renderer of the new width and replace what is on screen.
+ *
+ * The rows already committed to the scrollback of the terminal are not ours,
+ * and are left as they are.
+ */
+static void sink_term_reflow(struct fyai_sink *s)
+{
+	struct sink_term *t = sink_term_state(s);
+	struct fyai_ctx *ctx = s->ctx;
+	struct markdown_renderer r;
+	struct markdown_update update;
+	struct markdown_update repaint;
+	int cols;
+
+	if (!t || !t->render_live || !t->source.len)
+		return;
+	cols = markdown_effective_width(ctx->cfg);
+	if (cols <= 0 || cols == t->render_cols)
+		return;
+	/* The source and the renderer must agree before either is replaced. */
+	if (sink_term_push_pending(s))
+		return;
+	/* A failure here keeps the rows we have: stale beats none. */
+	if (markdown_renderer_start(ctx->cfg, &r,
+				    markdown_color_enabled(ctx->cfg->color),
+				    ctx->cfg->theme_variant))
+		return;
+	if (markdown_renderer_push(&r, t->source.data, t->source.len,
+				   &update)) {
+		markdown_renderer_destroy(&r);
+		return;
+	}
+	/*
+	 * The new renderer describes the whole document, thus its active region
+	 * replaces the whole of ours: after this the two agree again and the
+	 * next push backtracks over rows that are really there.
+	 */
+	repaint = update;
+	repaint.backtrack = t->active_rows;
+	sink_term_apply(s, &repaint);
+	markdown_renderer_destroy(&t->renderer);
+	t->renderer = r;
+	t->render_cols = cols;
 }
 
 static int sink_term_doc_pause(struct fyai_sink *s)
@@ -552,6 +619,7 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.doc_append	= sink_term_doc_append,
 	.doc_end	= sink_term_doc_end,
 	.doc_discard	= sink_term_doc_discard,
+	.doc_reflow	= sink_term_reflow,
 	.doc_pause	= sink_term_doc_pause,
 	.doc_resume	= sink_term_doc_resume,
 	.doc_is_live	= sink_term_doc_is_live,
@@ -764,6 +832,12 @@ int fyai_sink_doc_end(struct fyai_sink *s, bool aborted)
 	if (!s || !s->ops->doc_end)
 		return 0;
 	return s->ops->doc_end(s, aborted);
+}
+
+void fyai_sink_reflow(struct fyai_sink *s)
+{
+	if (s && s->ops->doc_reflow)
+		s->ops->doc_reflow(s);
 }
 
 void fyai_sink_doc_discard(struct fyai_sink *s)

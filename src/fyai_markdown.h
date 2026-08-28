@@ -59,6 +59,22 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg);
  */
 bool markdown_reverse_pair(struct fyai_cfg *cfg, const char **on,
 			   const char **off);
+/*
+ * The width a render uses now: display/runtime width, else the terminal.
+ * A live region compares it with the width its rows were made at.
+ */
+int markdown_effective_width(struct fyai_cfg *cfg);
+/*
+ * The columns an indent takes. Content that a caller indents must be rendered
+ * that much narrower, or its rows run past the right edge.
+ */
+int fyai_indent_cols(const char *indent);
+/*
+ * Render the next content @cols columns narrower, for a decoration the caller
+ * writes on every row of it. Give the returned width back when it is done.
+ */
+int fyai_width_reserve_begin(struct fyai_cfg *cfg, int cols);
+void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved);
 void markdown_renderer_cfg(struct fyai_cfg *cfg,
 			   struct fymd_renderer_cfg *renderer_cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra);

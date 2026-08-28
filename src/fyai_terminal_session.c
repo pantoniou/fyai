@@ -37,6 +37,7 @@
 #include "fyai_tools.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_terminal_session.h"
+#include "fyai_ui.h"
 #include "fyai_terminal_view.h"
 #include "utils.h"
 
@@ -540,8 +541,18 @@ static enum fyai_event_action tty_winch(const struct fyai_event *ev)
 {
 	struct fyai_ctx *ctx = ev->userdata;
 	int rows = 0, cols = 0;
+	int fd;
 
-	if (!terminal_window_size(STDOUT_FILENO, &rows, &cols) &&
+	/*
+	 * The display reads the size itself, on the frame this asks for. Do
+	 * that first and unconditionally: with the display open the standard
+	 * descriptors are pipes of its own, and a window that cannot be
+	 * measured here is still a window that changed.
+	 */
+	fyai_ui_resized(ctx);
+	fd = fyai_ui_tty_fd(ctx);
+	if ((fd < 0 || !terminal_window_size(fd, &rows, &cols)) &&
+	    !terminal_window_size(STDOUT_FILENO, &rows, &cols) &&
 	    !terminal_window_size(STDERR_FILENO, &rows, &cols))
 		return FYAIEA_CONTINUE;
 	if (rows == ctx->tty_rows && cols == ctx->tty_cols)

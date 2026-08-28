@@ -39,6 +39,8 @@ struct fyai_sink_ops {
 	int (*doc_end)(struct fyai_sink *s, bool aborted);
 	/* Drop the open document without presenting anything further. */
 	void (*doc_discard)(struct fyai_sink *s);
+	/* Make the live region again at the width the display has now. */
+	void (*doc_reflow)(struct fyai_sink *s);
 	int (*doc_pause)(struct fyai_sink *s);
 	int (*doc_resume)(struct fyai_sink *s);
 	/* True while the open document repaints in place. */
@@ -87,6 +89,11 @@ int fyai_sink_doc_begin(struct fyai_sink *s, enum fyai_sink_doc_kind kind);
 int fyai_sink_doc_append(struct fyai_sink *s, const char *text, size_t len);
 int fyai_sink_doc_end(struct fyai_sink *s, bool aborted);
 void fyai_sink_doc_discard(struct fyai_sink *s);
+/*
+ * Make the live region again from the source of the open document, at the
+ * width the display has now. A backend with no width does nothing.
+ */
+void fyai_sink_reflow(struct fyai_sink *s);
 int fyai_sink_doc_pause(struct fyai_sink *s);
 int fyai_sink_doc_resume(struct fyai_sink *s);
 bool fyai_sink_doc_is_live(const struct fyai_sink *s);

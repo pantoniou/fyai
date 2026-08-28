@@ -20,12 +20,15 @@
 #include <libfymd4c.h>
 
 #include "fyai.h"
+#include "fyai_agent.h"
 #include "fyai_diag.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
 #include "fyai_markdown.h"
+#include "fyai_sink.h"
 #include "fyai_session.h"
 #include "fyai_terminal.h"
+#include "fyai_terminal_session.h"
 #include "fyai_ui.h"
 #include "fyai_tools.h"
 #include <sys/ioctl.h>
@@ -75,6 +78,9 @@ struct fyai_ui {
 	bool capture;
 	bool recalled;
 	bool frame_pending;
+	int render_cols;		/* the width the rows on screen were made at */
+	bool reflow_pending;		/* the width changed under the rows */
+	bool repaint_pending;		/* make the visible transcript again */
 	fyai_event_ms_t next_frame_ms;
 };
 
@@ -130,10 +136,18 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 	size_t start;
 	size_t rows;
 	size_t i;
+	int saved;
 	int rc;
 
+	/*
+	 * Every row of the command is written under the marker, so the command
+	 * is rendered that much narrower: rows made at the whole width and then
+	 * indented run past the right edge and the terminal wraps them.
+	 */
+	saved = fyai_width_reserve_begin(cfg, 2 + FYAI_TOOL_MARKER_WIDTH);
 	rc = fyai_render_fenced_buffer(cfg, command, strlen(command), "sh",
 				       &rendered, 0);
+	fyai_width_reserve_end(cfg, saved);
 	if (rc)
 		goto out;
 	while (rendered.len && (rendered.data[rendered.len - 1] == '\n' ||
@@ -667,8 +681,39 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			if (!ui->editor_request)
 				(void)ui_edit_begin(ui);
 			break;
-		case FYTIM_EVENT_RESIZE:
-			ui->ctx->cfg->render_width = ev.width > 1 ? ev.width - 1 : 0;
+		case FYTIM_EVENT_RESIZE: {
+			int cols = ev.width > 1 ? ev.width - 1 : 0;
+
+			ui->ctx->cfg->render_width = cols;
+			/*
+			 * The first size is not a change: it is the display
+			 * learning the window it opened in, and nothing was
+			 * drawn for another one.
+			 */
+			if (!ui->render_cols || cols == ui->render_cols) {
+				ui->render_cols = cols;
+				break;
+			}
+			ui->render_cols = cols;
+			/*
+			 * Rows were hard-wrapped at the old width. Make the
+			 * live region again, but not from here: a drag sends
+			 * a burst of these, and one repaint at the end of the
+			 * service is what the reader needs.
+			 */
+			ui->reflow_pending = true;
+			/*
+			 * The rows a turn already committed are not the live
+			 * region and cannot be made again in place. They are
+			 * made again from the stored transcript instead, which
+			 * waits until the turn in flight is over.
+			 */
+			ui->repaint_pending = true;
+			break;
+		}
+		case FYTIM_EVENT_REDRAW:
+			/* Ctrl-L: the user asked for a clean screen. */
+			ui->repaint_pending = true;
 			break;
 		case FYTIM_EVENT_SURFACE_KEYS:
 			/* The keys belong to a program, not to the prompt. */
@@ -699,6 +744,37 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		default:
 			break;
 		}
+	}
+	if (ui->reflow_pending) {
+		ui->reflow_pending = false;
+		fyai_sink_reflow(ui->ctx->sink);
+		ui->frame_pending = true;
+	}
+	/*
+	 * One repaint after the burst a drag sends. A turn in flight keeps it
+	 * waiting: its own rows are still arriving, and only what is stored
+	 * can be made again. The request stands until then.
+	 */
+	/*
+	 * A delegated sub-agent draws its work on a screen the parent shows as
+	 * the result of the call. Its stored conversation is not a transcript
+	 * anyone asked to see there, so a width change makes its live region
+	 * again and nothing else.
+	 */
+	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
+		ui->repaint_pending = false;
+	if (ui->repaint_pending && !ui->busy) {
+		int cols = 0, rows = 0;
+
+		ui->repaint_pending = false;
+		/*
+		 * The screen of the display, not of standard output: that is
+		 * a pipe of its own while the display is open.
+		 */
+		(void)fyai_ui_size(ui->ctx, &cols, &rows);
+		fyai_ui_clear_screen(ui->ctx);
+		(void)fyai_display_repaint(ui->ctx, rows);
+		ui->frame_pending = true;
 	}
 	ui_rearm(ui);
 	return FYAIEA_CONTINUE;
@@ -755,6 +831,11 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		int width = 0;
 		(void)fytim_size(ui->ft, &width, NULL);
 		ctx->cfg->render_width = width > 1 ? width - 1 : 0;
+		/*
+		 * The window the display opened in. The first size is known
+		 * here, so every later one is a change and is acted on.
+		 */
+		ui->render_cols = ctx->cfg->render_width;
 	}
 	if (!ctx->cfg->color || !strcmp(ctx->cfg->color, "auto"))
 		ctx->cfg->color = "on";
@@ -768,6 +849,12 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	if (spool_open(&ui->out, STDOUT_FILENO) ||
 	    spool_open(&ui->err, STDERR_FILENO))
 		goto fail;
+	/*
+	 * The size is read in the pump, and a turn waits on the provider
+	 * rather than on the terminal: without this the window can change and
+	 * nothing wakes the display until the user types.
+	 */
+	(void)fyai_terminal_winch_open(ctx);
 	(void)fytim_set_marker(ui->ft, ctx->cfg->prompt_marker &&
 			       *ctx->cfg->prompt_marker ? ctx->cfg->prompt_marker : "❯ ");
 	(void)fytim_history_set_max_len(ui->ft, 1000);
@@ -1089,6 +1176,35 @@ bool fyai_ui_quit_requested(const struct fyai_ctx *ctx)
 	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 
 	return !ui || (ui->quit && !ui->editor_request);
+}
+
+/*
+ * Clear the screen for a transcript that is about to be written again. The
+ * rows on it were hard-wrapped at the old width; the scrollback above keeps
+ * them, because it belongs to the terminal.
+ */
+/*
+ * The window changed. Nothing else wakes the display for it: the size is read
+ * in the pump, and during a turn the loop is waiting on the provider, not on
+ * the terminal. Ask for a frame, which is where the new width is seen.
+ */
+void fyai_ui_resized(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui;
+
+	if (!fyai_ui_active(ctx))
+		return;
+	ui = ctx->ui;
+	ui->frame_pending = true;
+	ui->next_frame_ms = fyai_event_now_ms();
+	ui_rearm(ui);
+}
+
+void fyai_ui_clear_screen(struct fyai_ctx *ctx)
+{
+	if (!fyai_ui_active(ctx) || ctx->ui->capture)
+		return;
+	(void)fytim_clear_screen(ctx->ui->ft);
 }
 
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
@@ -1627,6 +1743,18 @@ void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
 }
 
 /* Read the terminal size from the active display. */
+/*
+ * The terminal of the display. Standard output is a pipe of its own while the
+ * display is open, so anything that has to ask the terminal itself - the size
+ * after a SIGWINCH, for one - asks through this.
+ */
+int fyai_ui_tty_fd(const struct fyai_ctx *ctx)
+{
+	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	return ui ? ui->tty_fd : -1;
+}
+
 int fyai_ui_size(struct fyai_ctx *ctx, int *cols, int *rows)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;

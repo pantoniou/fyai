@@ -8,6 +8,11 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 int fyai_show_stats(struct fyai_ctx *ctx);
 int fyai_display_view(struct fyai_ctx *ctx);
 int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows);
+/*
+ * Make the visible transcript again from its stored source, at the current
+ * width. Paints below what the terminal already holds; see the definition.
+ */
+int fyai_display_repaint(struct fyai_ctx *ctx, int rows);
 int fyai_export_view(struct fyai_ctx *ctx, const char *path);
 int fyai_import_view(struct fyai_ctx *ctx, const char *path);
 int fyai_replay_view(struct fyai_ctx *ctx, bool ignore_compact);

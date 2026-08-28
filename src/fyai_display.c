@@ -3554,6 +3554,29 @@ static size_t fyai_display_exchange_rows(const struct fyai_turn_stack *stack,
 	return rows + 1;
 }
 
+/*
+ * Make the visible transcript again from its stored source, at the width the
+ * display has now. The rows already given to the terminal keep the width they
+ * were made at - that scrollback belongs to the terminal - so this paints the
+ * newest exchanges that fill the screen below them. For prose it reads as the
+ * same transcript, correctly wrapped; it is not the same rows.
+ *
+ * @rows is the height of the screen. The caller supplies it: with the display
+ * open, standard output is a pipe of its own and the terminal cannot be asked.
+ */
+int fyai_display_repaint(struct fyai_ctx *ctx, int rows)
+{
+	if (!ctx || !ctx->cfg->markdown || !ctx->stdout_tty)
+		return 0;
+	if (rows <= 0)
+		rows = markdown_render_height();
+	/* Leave the chrome of the display the rows it draws itself in. */
+	rows = rows > 8 ? rows - 6 : 0;
+	if (rows <= 0)
+		return 0;
+	return fyai_display_recap(ctx, -1, rows) < 0 ? -1 : 0;
+}
+
 /* Replay recent exchanges within the count and row limits. */
 int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 {
@@ -3981,34 +4004,23 @@ int fyai_list_turns(struct fyai_ctx *ctx)
 
 
 /*
- * On entering the interactive loop, print a short recap of where the
- * conversation stands: the turn count, the per-turn settings recorded on the
- * most recent turn (provider/api/temperature/reasoning), and a one-line preview
- * of the last assistant reply. Chrome goes to stderr so it never pollutes a
- * piped answer stream; coloured only when stderr is a tty.
+ * On entering the interactive loop, show where the conversation stands: a
+ * one-line preview of the last reply, or the previous exchanges themselves
+ * when they are replayed. The settings of the conversation are on the status
+ * row of the display, so they are not said again here.
  */
 void fyai_interactive_recap(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	const char *prov;
-	const char *api;
-	const char *eff;
-	const char *sum;
-	const char *b;
 	const char *d;
 	const char *r;
 	const char *t;
 	fy_generic preview;
-	fy_generic meta;
 	fy_generic msgs;
-	fy_generic cur;
 	fy_generic last;
-	fy_generic temp;
 	fy_generic m;
-	fy_generic tp;
 	fy_generic role;
 	fy_generic type;
-	size_t turns;
 	size_t len;
 	size_t i;
 	size_t n;
@@ -4017,49 +4029,15 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	bool color;
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
-	b = color ? FYAI_ANSI_BOLD : "";
 	d = color ? FYAI_ANSI_DIM : "";
 	r = color ? FYAI_ANSI_RESET : "";
 	last = ctx->last_message;
 	preview = fy_invalid;
-	turns = 0;
 
-	if (fy_is_invalid(last) || fy_is_null(last)) {
-		fyai_report(ctx, "%sfyai%s interactive - new conversation. "
-			"Ctrl-G to edit in $EDITOR, Ctrl-D to exit.\n",
-			b, r);
+	if (fy_is_invalid(last) || fy_is_null(last))
 		return;
-	}
-
-	fyai_turn_foreach(cur, last)
-		if (fyai_turn_has_user_message(cur))
-			turns++;
 
 	replayed = cfg->recap_exchanges && cfg->markdown && ctx->stdout_tty;
-
-	meta = fyai_turn_meta(last);
-	api = fy_get(meta, "api", "");
-	tp = fy_get(meta, "provider");
-	if (fy_is_invalid(tp))
-		tp = fyai_turn_provider(last);
-	prov = fy_castp(&tp, "");
-	eff = fy_get(meta, "reasoning_effort", "");
-	sum = fy_get(meta, "reasoning_summary", "");
-
-	fyai_report(ctx, "%sfyai%s interactive - %zu exchange%s\n",
-		b, r, turns, turns == 1 ? "" : "s");
-	fyai_report(ctx, "  %sprovider%s %s", d, r,
-		*prov ? prov : "(default)");
-	if (*api)
-		fyai_report(ctx, "  %sapi%s %s", d, r, api);
-	temp = fy_get(meta, "temperature");
-	if (fy_is_valid(temp) && !fy_is_null(temp))
-		fyai_report(ctx, "  %stemp%s %g", d, r,
-			fy_cast(temp, (double)0.0));
-	if (*eff)
-		fyai_report(ctx, "  %sreasoning%s %s%s%s", d, r, eff,
-			*sum ? "/" : "", sum);
-	(void)fyai_report(ctx, "\n");
 
 	/* Last assistant reply on the most recent turn, first line only. */
 	msgs = fy_get(last, "messages");
@@ -4083,7 +4061,6 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 			fyai_report(ctx, "  %s\xe2\x86\xb3 %.*s%s%s\n", d,
 				(int)len, t, len == 78 ? "..." : "", r);
 	}
-	fyai_report(ctx, "  %sCtrl-G edit in $EDITOR, Ctrl-D exit%s\n", d, r);
 
 	/* Show the previous exchanges last. */
 	if (replayed) {
