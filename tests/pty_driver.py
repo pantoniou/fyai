@@ -108,6 +108,7 @@ def main():
     #
     #   send:TEXT   type TEXT and submit it
     #   raw:HEX     write these bytes and submit nothing (a control key)
+    #   resize:N    make the window N columns wide
     #   wait:TEXT   read until TEXT is on the capture
     #
     # A wait is a deadline, so it is scaled; a pause is a step of the case
@@ -170,6 +171,11 @@ def main():
         if mid_needle:
             data = read_until(master, data, mid_needle,
                               time.monotonic() + mid_timeout)
+            # A width change while the answer is still arriving. The rows on
+            # the screen were made for the old one.
+            if resize_cols and not progress_needle:
+                fcntl.ioctl(master, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", rows, resize_cols, 0, 0))
         data = read_until(master, data, needle, deadline)
         for step in after_script:
             kind, _, value = step.partition(":")
@@ -178,6 +184,12 @@ def main():
                 time.sleep(after_pause)
             elif kind == "raw":
                 os.write(master, bytes.fromhex(value))
+                time.sleep(after_pause)
+            elif kind == "resize":
+                # The window changes while the session is idle: nothing else
+                # is happening, so only the signal can tell the display.
+                fcntl.ioctl(master, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", rows, int(value), 0, 0))
                 time.sleep(after_pause)
             elif kind == "wait":
                 data = read_until(master, data, value.encode(),

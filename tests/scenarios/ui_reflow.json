@@ -1,0 +1,213 @@
+{
+  "steps": [
+    {
+      "sse": [
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "The paragraph is long enough that the width it is wrapped at"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": " is visible in it, and it keeps arriving while the window ch"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "anges, so the rows already drawn were made for a window that"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": " is no longer the one they are read in. The paragraph is lon"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "g enough that the width it is wrapped at is visible in it, a"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "nd it keeps arriving while the window changes, so the rows a"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "lready drawn were made for a window that is no longer the on"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "e they are read in. The paragraph is long enough that the wi"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "dth it is wrapped at is visible in it, and it keeps arriving"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": " while the window changes, so the rows already drawn were ma"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "de for a window that is no longer the one they are read in. "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "Reflow streaming done."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-reflow",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "chunk_delay": 0.12,
+      "done": true,
+      "chunk_split": [
+        400,
+        800,
+        1200,
+        1600,
+        2000,
+        2400,
+        2800
+      ]
+    }
+  ]
+}
