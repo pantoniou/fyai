@@ -76,10 +76,16 @@ if "Both sub-agents reported." not in shown:
 # The two screens are TILES OF ONE WORK PANE: side by side on the same rows,
 # in columns that do not overlap. The reading is taken over every completed
 # frame, for the reasons tile_assert.py gives.
+#
+# The reading is taken from the title rows, which a tile carries from the
+# moment it opens until the pane commits it. What a sub-agent last printed
+# reaches its tile only if a frame falls between the child writing it and
+# the parent collecting the group, so a reading taken there measures the
+# load on the machine and not the layout.
 sys.path.insert(0, os.environ["TESTS_DIR"])
 from tile_assert import frames_with_both
 
-frames = frames_with_both(data, "REPORT-ALPHA", "REPORT-BETA", 30, 100)
+frames = frames_with_both(data, "[alpha]", "[beta]", 30, 100)
 if not frames:
     raise SystemExit("the two sub-agent screens were never both on screen")
 tiled = [f for f in frames if f[0] == f[1]]
@@ -88,8 +94,8 @@ if not tiled:
         "the sub-agent screens were stacked, not tiled: rows %r"
         % (sorted({(a, b) for a, b, _ in frames}),))
 for _, _, row in tiled:
-    a_at = row.index("REPORT-ALPHA")
-    b_at = row.index("REPORT-BETA")
+    a_at = row.index("[alpha]")
+    b_at = row.index("[beta]")
     if not a_at < b_at:
         raise SystemExit("the first sub-agent is not left of the second")
     # Each kept to its own half of a hundred-column terminal, and the rule
