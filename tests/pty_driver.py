@@ -101,6 +101,21 @@ def main():
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
     session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
+    # Post-turn PTY actions, separated by "|":
+    #
+    #   send:TEXT   type TEXT and submit it
+    #   raw:HEX     write these bytes and submit nothing (a control key)
+    #   resize:N    make the window N columns wide
+    #   wait:TEXT   read until TEXT is on the capture
+    #   drain:SEC   keep reading for SEC seconds
+    #
+    # Scale wait deadlines, but not explicit action pauses.
+    after_script = [step for step in
+                    os.environ.get("FYAI_PTY_AFTER", "").split("|") if step]
+    after_timeout = float(os.environ.get("FYAI_PTY_AFTER_TIMEOUT", "5")) * scale
+    after_pause = float(os.environ.get("FYAI_PTY_AFTER_PAUSE", "0.3"))
+    snapshot = os.environ.get("FYAI_PTY_SNAPSHOT", "")
+    snapshot_taken = False
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     pid = os.fork()
@@ -155,7 +170,55 @@ def main():
         if mid_needle:
             data = read_until(master, data, mid_needle,
                               time.monotonic() + mid_timeout)
+            # Resize while the answer is streaming.
+            if resize_cols and not progress_needle:
+                fcntl.ioctl(master, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", rows, resize_cols, 0, 0))
         data = read_until(master, data, needle, deadline)
+        for step in after_script:
+            kind, _, value = step.partition(":")
+            if kind == "send":
+                os.write(master, value.encode() + b"\n")
+                time.sleep(after_pause)
+            elif kind == "raw":
+                os.write(master, bytes.fromhex(value))
+                time.sleep(after_pause)
+            elif kind == "resize":
+                # Resize an idle session.
+                if "x" in value:
+                    resize_rows, resize_cols = map(int, value.split("x", 1))
+                else:
+                    resize_rows, resize_cols = rows, int(value)
+                fcntl.ioctl(master, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", resize_rows, resize_cols,
+                                        0, 0))
+                time.sleep(after_pause)
+            elif kind == "snapshot":
+                # Capture the screen before subsequent actions modify it.
+                with open(snapshot, "wb") as fp:
+                    fp.write(data)
+                snapshot_taken = True
+            elif kind == "wait":
+                data = read_until(master, data, value.encode(),
+                                  time.monotonic() + after_timeout)
+            elif kind == "drain":
+                drain_deadline = time.monotonic() + float(value)
+                while time.monotonic() < drain_deadline:
+                    ready, _, _ = select.select([master], [], [], 0.1)
+                    if not ready:
+                        continue
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    data += chunk
+            else:
+                raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
+        if snapshot and not snapshot_taken:
+            with open(snapshot, "wb") as fp:
+                fp.write(data)
         if clear_before_exit:
             os.write(master, b"\x15")
         os.write(master, b"/exit\n")

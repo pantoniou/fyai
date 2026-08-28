@@ -21,6 +21,8 @@ FYAI_TEST_ENTRY(term, view_damage, term_view_damage)
 FYAI_TEST_ENTRY(term, view_cursor, term_view_cursor)
 FYAI_TEST_ENTRY(term, view_cooked, term_view_cooked)
 FYAI_TEST_ENTRY(term, view_reply, term_view_reply)
+FYAI_TEST_ENTRY(term, view_screen_resize, term_view_screen_resize)
+FYAI_TEST_ENTRY(term, view_altscreen_resize, term_view_altscreen_resize)
 
 static void feed(struct fyai_terminal_view *view, const char *bytes)
 {
@@ -147,6 +149,71 @@ int term_view_damage(void)
 	FYAI_TCHECK(fyai_terminal_view_take_damage(view, &first, &last));
 	FYAI_TCHECK(first == 0 && last == 5);
 
+	fyai_terminal_view_destroy(view);
+	return 0;
+}
+
+int term_view_screen_resize(void)
+{
+	struct fyai_terminal_view *view;
+	struct fyai_term_cell cell;
+
+	view = fyai_terminal_view_create(NULL, 3, 10, 0);
+	FYAI_TCHECK(view != NULL);
+
+	/* Enter screen mode through cursor addressing. */
+	feed(view, "\033[1;1HABCDEFGHI\033[2;1HKLMNOPQRS");
+	FYAI_TCHECK(fyai_terminal_view_screen_mode(view));
+	fyai_terminal_view_resize(view, 3, 5);
+
+	/* Require row cropping without text reflow. */
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 4, &cell));
+	FYAI_TCHECK(cell.chars[0] == 'E');
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 1, 0, &cell));
+	FYAI_TCHECK(cell.chars[0] == 'K');
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 1, 4, &cell));
+	FYAI_TCHECK(cell.chars[0] == 'O');
+
+	fyai_terminal_view_destroy(view);
+	return 0;
+}
+
+int term_view_altscreen_resize(void)
+{
+	struct fyai_terminal_view *view;
+	struct fyai_term_cell cell;
+	char *text;
+	size_t len;
+
+	view = fyai_terminal_view_create(NULL, 3, 10, 0);
+	FYAI_TCHECK(view != NULL);
+
+	/* Populate primary and alternate screens. */
+	feed(view, "primary");
+	feed(view, "\033[?1049h\033[1;1HALTERNATE\033[2;1Hsecond");
+	fyai_terminal_view_resize(view, 3, 5);
+
+	/* Require independent alternate-screen row cropping. */
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 4, &cell));
+	FYAI_TCHECK(cell.chars[0] == 'R');
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 1, 0, &cell));
+	FYAI_TCHECK(cell.chars[0] == 's');
+
+	/* Require restoration of the resized primary screen. */
+	feed(view, "\033[?1049l");
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 0, &cell));
+	FYAI_TCHECK(cell.chars[0] == 'p');
+
+	fyai_terminal_view_destroy(view);
+
+	/* Require ALL to retain output from an exited alternate screen. */
+	view = fyai_terminal_view_create(NULL, 3, 10, 0);
+	FYAI_TCHECK(view != NULL);
+	feed(view, "\033[?1049hFULLSCREEN\033[?1049l");
+	text = fyai_terminal_view_read(view, FYAITR_ALL, NULL, &len);
+	FYAI_TCHECK(text != NULL);
+	FYAI_TCHECK(strstr(text, "FULLSCREEN") != NULL);
+	free(text);
 	fyai_terminal_view_destroy(view);
 	return 0;
 }

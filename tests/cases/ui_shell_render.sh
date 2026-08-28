@@ -13,6 +13,8 @@ FYAI_PTY_PROGRESS_NEEDLE="tool-progress" \
 FYAI_PTY_PROGRESS_TIMEOUT="1.5" \
 FYAI_PTY_RESIZE_COLS="72" \
 FYAI_PTY_NEEDLE="Interactive shell rendering done." \
+FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -38,6 +40,9 @@ if not re.search(rb"\xe2\x8e\xbf  printf", plain):
 if not re.search(rb"(?:^|[\r\n])    tool-progress\r?\n", plain):
     raise SystemExit("fenced output is not indented")
 EOF
+
+"$PYTHON" "$TESTS_DIR/assert_work_retired.py" \
+    "$TEST_DIR/snapshot.out" "● shell" || fail "completed shell remained in the work pane"
 
 "$FYAI_BIN" --color off history --last 1 >"$TEST_DIR/history.out" 2>&1 ||
     fail "history replay of unified shell output failed"

@@ -10,6 +10,8 @@ FYAI_PTY_INPUT="run both" \
 FYAI_PTY_PROGRESS_NEEDLE="native-early-a" \
 FYAI_PTY_PROGRESS_TIMEOUT="3" \
 FYAI_PTY_NEEDLE="Native interactive tools done." \
+FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -k test-key --theme dark \
 	--set display/markdown=true --set display/stream=false \
@@ -30,6 +32,9 @@ for marker in (b"native-early-a", b"native-early-b",
     if marker not in plain:
         raise SystemExit("missing native progress marker: %r" % marker)
 EOF
+
+"$PYTHON" "$TESTS_DIR/assert_work_retired.py" \
+    "$TEST_DIR/snapshot.out" "● shell" || fail "completed native shells remained in the work pane"
 
 assert_request 1 \
 	'all(any(i.get("type") == "shell_call_output" and '\

@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Verify separate work bands for two concurrent sub-agents.
+# Verify two concurrent sub-agents tiling one work pane.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -11,6 +11,8 @@ FYAI_PTY_INPUT="delegate both halves" \
 FYAI_PTY_MID_NEEDLE="second half" \
 FYAI_PTY_MID_TIMEOUT="3" \
 FYAI_PTY_NEEDLE="Both sub-agents reported." \
+FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -72,7 +74,57 @@ for needle in ("TASK-ALPHA", "TASK-BETA"):
         raise SystemExit("sub-agent task leaked: %r" % needle)
 if "Both sub-agents reported." not in shown:
     raise SystemExit("parent final answer missing")
+
+# Require nonoverlapping tiles in one work-pane row.
+# Use persistent tile titles instead of timing-dependent final output.
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from tile_assert import frames_with_both
+
+frames = frames_with_both(data, "[alpha]", "[beta]", 30, 100)
+if not frames:
+    raise SystemExit("the two sub-agent screens were never both on screen")
+tiled = [f for f in frames if f[0] == f[1]]
+if not tiled:
+    raise SystemExit(
+        "the sub-agent screens were stacked, not tiled: rows %r"
+        % (sorted({(a, b) for a, b, _ in frames}),))
+for _, _, row in tiled:
+    a_at = row.index("[alpha]")
+    b_at = row.index("[beta]")
+    if not a_at < b_at:
+        raise SystemExit("the first sub-agent is not left of the second")
+    # Require two bounded columns separated by the pane rule.
+    if b_at < 50:
+        raise SystemExit("the second tile did not start at its own column: %d"
+                         % b_at)
+    if "\u2503" not in row[a_at:b_at]:
+        raise SystemExit("no rule between the tiles")
 EOF
+
+"$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || \
+    fail "the first completed parallel agent was not retired promptly"
+import os
+import sys
+
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from tile_assert import frames
+
+data = open(sys.argv[1], "rb").read()
+retired = False
+for disp in frames(data, 30, 100):
+    shown = "\n".join(disp)
+    # Alpha's report has been committed while beta is still live. The work
+    # pane must now contain beta alone, not alpha's completed surface too.
+    if "REPORT-ALPHA" not in shown or "[beta]" not in shown:
+        continue
+    if sum(line.count("● agent") for line in disp) <= 1:
+        retired = True
+if not retired:
+    raise SystemExit("no frame retired alpha while beta was still displayed")
+EOF
+
+"$PYTHON" "$TESTS_DIR/assert_work_retired.py" \
+    "$TEST_DIR/snapshot.out" "● agent" || fail "completed agents remained in the work pane"
 
 # Each sub-agent ran its own restricted, agent-free tool loop.
 assert_request 1 'not any(t["function"]["name"] == "agent" for t in r["body"]["tools"])'

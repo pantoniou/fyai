@@ -15,12 +15,14 @@
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
 #include <stdio.h>
+#include <locale.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "fyai.h"
 #include "fyai_diag.h"
+#include "fyai_display.h"
 #include "fyai_markdown.h"
 #include "fyai_test.h"
 
@@ -31,12 +33,25 @@ FYAI_TEST_ENTRY(markdown, window_reopens_fence, markdown_window_reopens_fence)
 FYAI_TEST_ENTRY(markdown, window_off_when_unbounded, markdown_window_off_when_unbounded)
 FYAI_TEST_ENTRY(markdown, final_render_is_whole, markdown_final_render_is_whole)
 FYAI_TEST_ENTRY(markdown, tool_head_chrome, markdown_tool_head_chrome)
+FYAI_TEST_ENTRY(markdown, source_rows_utf8, markdown_source_rows_utf8)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
 
 /* Rows the live band shows. */
 #define TEST_MAX_LINES 5
+
+int markdown_source_rows_utf8(void)
+{
+	const char *wide = "\xe6\x97\xa5\xe6\x9c\xac";
+	const char *combining = "e\xcc\x81";
+
+	setlocale(LC_CTYPE, "");
+	FYAI_TCHECK(fyai_display_source_rows("abcd", 4, 4) == 2);
+	FYAI_TCHECK(fyai_display_source_rows(wide, strlen(wide), 4) == 2);
+	FYAI_TCHECK(fyai_display_source_rows(combining, strlen(combining), 1) == 2);
+	return EXIT_SUCCESS;
+}
 
 static double now_ms(void)
 {

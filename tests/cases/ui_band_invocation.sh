@@ -12,9 +12,12 @@ mock_start ui_band_invocation.json
 
 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
 FYAI_PTY_NEEDLE="Done." \
+FYAI_PTY_PROGRESS_NEEDLE="⋯" \
+FYAI_PTY_PROGRESS_TIMEOUT=5 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
+    --set display/tool_update_interval_ms=0 \
     --set display/tool_preview_lines=5 \
     --set builtin_shell=true --set api=responses \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i

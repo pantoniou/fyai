@@ -16,7 +16,7 @@
             "action": {
               "type": "exec",
               "commands": [
-                "for i in 1 2 3 4 5 6; do printf '[%2d%%] Building C object CMakeFiles/fyai.dir/src/some/rather/long/path/to/a/source/file/number_%d.c.o\\n' $((i*10)) $i; sleep 0.3; done"
+                "for i in 1 2 3 4 5 6 7; do printf '[%2d%%] Building C object CMakeFiles/fyai.dir/src/some/rather/long/path/to/a/source/file/number_%d.c.o\\n' $((i*10)) $i; sleep 0.3; done"
               ],
               "timeout_ms": 30000,
               "max_output_length": 4096

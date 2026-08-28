@@ -15,6 +15,7 @@
 #include "fyai.h"
 #include "fyai_output.h"
 #include "fyai_sink.h"
+#include "fyai_terminal.h"
 
 #include "fyai_test_registry.h"
 
@@ -25,6 +26,7 @@ FYAI_TEST_ENTRY(sink, fragments_survive_pause, sink_fragments_survive_pause)
 FYAI_TEST_ENTRY(sink, discard_presents_nothing, sink_discard_presents_nothing)
 FYAI_TEST_ENTRY(sink, bands_absent_without_backend, sink_bands_absent)
 FYAI_TEST_ENTRY(sink, protocol_fd_stays_clean, sink_protocol_fd_clean)
+FYAI_TEST_ENTRY(sink, reflow_follows_width, sink_reflow_follows_width)
 
 static int failures;
 
@@ -360,5 +362,112 @@ int sink_protocol_fd_clean(void)
 {
 	failures = 0;
 	test_protocol_fd_stays_clean();
+	return failures ? -1 : 0;
+}
+
+/* Return text after the final erase-down sequence. */
+static const char *after_last_erase(const char *text)
+{
+	const char *p, *last;
+
+	last = text;
+	for (p = text; (p = strstr(p, FYAI_ANSI_ERASE_DOWN)); ) {
+		p += strlen(FYAI_ANSI_ERASE_DOWN);
+		last = p;
+	}
+	return last;
+}
+
+/* Return the widest ASCII row in @text. */
+static size_t widest_row(const char *text, size_t len)
+{
+	size_t i, start, widest;
+
+	widest = 0;
+	start = 0;
+	for (i = 0; i <= len; i++) {
+		if (i < len && text[i] != '\n')
+			continue;
+		if (i - start > widest)
+			widest = i - start;
+		start = i + 1;
+	}
+	return widest;
+}
+
+/* Verify that reflow wraps existing source at the new width. */
+static void test_reflow_follows_width(void)
+{
+	static const char text[] =
+		"A paragraph long enough that it has to be wrapped, and "
+		"wrapped again when the window it was made for is not the "
+		"window it is looked at in.\n";
+	struct sink_fixture f;
+	char buf[8192];
+	const char *last;
+	int saved, tmp;
+	ssize_t n;
+
+	memset(&f, 0, sizeof(f));
+	f.cfg.markdown = true;
+	f.cfg.markdown_mode = "stream";
+	f.cfg.color = "off";
+	f.cfg.render_width = 60;
+	f.ctx.cfg = &f.cfg;
+	f.ctx.stdout_tty = true;	/* enable live terminal rendering */
+	f.ctx.last_message = fy_invalid;
+	f.ctx.tools = fy_invalid;
+	f.ctx.tools_spec = fy_invalid;
+	f.ctx.arena_config = fy_invalid;
+	f.ctx.arena_catalog = fy_invalid;
+	f.ctx.arena_branches = fy_invalid;
+	f.ctx.branch_prev = fy_invalid;
+	f.ctx.branch_desc = fy_invalid;
+	f.ctx.branch_agent = fy_invalid;
+	f.ctx.last_token_extents = fy_invalid;
+	f.ctx.sink = fyai_sink_create(&f.ctx);
+	expect_true("the terminal sink opened", f.ctx.sink != NULL);
+	if (!f.ctx.sink || !fyai_ctx_transient_gb(&f.ctx))
+		return;
+
+	tmp = fileno(tmpfile());
+	saved = dup(STDOUT_FILENO);
+	fflush(stdout);
+	(void)dup2(tmp, STDOUT_FILENO);
+
+	(void)fyai_output_begin(&f.ctx, FYAI_OUTPUT_ASSISTANT);
+	(void)fyai_output_append_string(&f.ctx, text);
+	expect_true("the document is live",
+		    fyai_sink_doc_is_live(f.ctx.sink));
+	/* Narrow the window after drawing the initial rows. */
+	f.cfg.render_width = 30;
+	fyai_sink_reflow(f.ctx.sink);
+	fflush(stdout);
+
+	n = pread(tmp, buf, sizeof(buf) - 1, 0);
+	(void)dup2(saved, STDOUT_FILENO);
+	close(saved);
+	close(tmp);
+	buf[n > 0 ? n : 0] = '\0';
+
+	expect_true("the reflow drew something", n > 0);
+	/* Inspect the replacement following the final erase. */
+	last = after_last_erase(buf);
+	expect_true("the rows fit the new width",
+		    last && widest_row(last, strlen(last)) <= 30);
+	if (last && widest_row(last, strlen(last)) > 30)
+		fprintf(stderr, "  widest row: %zu\n",
+			widest_row(last, strlen(last)));
+
+	fyai_output_abort(&f.ctx);
+	fyai_sink_destroy(f.ctx.sink);
+	f.ctx.sink = NULL;
+	fyai_cleanup_transient_builder(&f.ctx);
+}
+
+int sink_reflow_follows_width(void)
+{
+	failures = 0;
+	test_reflow_follows_width();
 	return failures ? -1 : 0;
 }

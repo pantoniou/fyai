@@ -18,7 +18,7 @@
                   "type": "function",
                   "function": {
                     "name": "exec_command",
-                    "arguments": "{\"command\":\"echo parallel-early-a; sleep 2; echo parallel-late-a\"}"
+                    "arguments": "{\"description\":\"fast counter\",\"command\":\"echo parallel-early-a; sleep 2; echo parallel-late-a\"}"
                   }
                 },
                 {
@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "exec_command",
-                    "arguments": "{\"command\":\"echo parallel-early-b; sleep 3; echo parallel-late-b\"}"
+                    "arguments": "{\"description\":\"slow counter\",\"command\":\"echo parallel-early-b; sleep 2.5; echo parallel-still-b; sleep 1; echo parallel-late-b\"}"
                   }
                 }
               ]

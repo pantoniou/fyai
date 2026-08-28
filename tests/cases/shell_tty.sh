@@ -54,11 +54,11 @@ assert_status 0
 assert_stdout_contains "before"
 assert_stdout_contains "command timed out"
 
-# The program must be told which terminal it has, and how big it is. An
-# inherited TERM names a terminal libfyvterm does not emulate.
-run_fyai tool shell '{"command":"echo T=$TERM C=$COLUMNS L=$LINES","tty":true,"rows":40,"cols":132}'
+# Require TERM and the requested PTY size without geometry overrides.
+run_fyai tool shell '{"command":"echo T=$TERM; stty size","tty":true,"rows":40,"cols":132}'
 assert_status 0
-assert_stdout_contains "T=xterm-256color C=132 L=40"
+assert_stdout_contains "T=xterm-256color"
+assert_stdout_contains "40 132"
 
 # A screen is text by construction, thus a blob must be recognised on the raw
 # stream and reported, not interpreted into a mangled screen.

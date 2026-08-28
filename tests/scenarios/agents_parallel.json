@@ -60,7 +60,7 @@
     {
       "match": {"http": "POST", "path": "/v1/chat/completions",
                 "body_contains": "TASK-BETA"},
-      "delay": 1.5,
+      "delay": 2.0,
       "response": {
         "id": "chatcmpl-agents-parallel-beta",
         "object": "chat.completion",

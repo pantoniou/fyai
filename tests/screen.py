@@ -130,11 +130,15 @@ class Screen:
         elif final == b"H":
             self.row = max(0, (args[0] if args else 1) - 1)
             self.col = max(0, (args[1] if len(args) > 1 else 1) - 1)
-        elif final == b"J" and (not args or args[0] == 0):
-            for c in range(self.col, self.cols):
-                self.grid[self.row][c] = " "
-            for r in range(self.row + 1, self.rows):
-                self.grid[r] = [" "] * self.cols
+        elif final == b"J":
+            mode = args[0] if args else 0
+            if mode == 2:
+                self.grid = [[" "] * self.cols for _ in range(self.rows)]
+            elif mode == 0:
+                for c in range(self.col, self.cols):
+                    self.grid[self.row][c] = " "
+                for r in range(self.row + 1, self.rows):
+                    self.grid[r] = [" "] * self.cols
         elif final == b"K":
             mode = args[0] if args else 0
             lo = self.col if mode == 0 else 0
@@ -160,8 +164,11 @@ def rows_at(path, needle, rows=30, cols=100, extra=400):
     at = data.find(needle)
     if at < 0:
         raise SystemExit("needle not in capture: %r" % needle)
+    # Stop at the matching synchronized-update frame boundary.
+    sync_end = data.find(b"\x1b[?2026l", at)
+    end = sync_end + len(b"\x1b[?2026l") if sync_end >= 0 else at + extra
     screen = Screen(rows, cols)
-    screen.feed(data[:at + extra])
+    screen.feed(data[:end])
     return [r for r in screen.display() if r.strip()]
 
 

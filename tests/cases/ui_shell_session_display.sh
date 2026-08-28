@@ -20,6 +20,8 @@ fyai_test_setup
 mock_start shell_session.json
 
 FYAI_PTY_INPUT="drive the shell" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=30 \
+FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -43,38 +45,68 @@ for name in (b"shell_input", b"shell_output", b"shell_close"):
 if b"the lines since the last read" in plain:
     raise SystemExit("a session reading was displayed as a tool result")
 
-# What the program drew is on the screen of the session, and every row of that
-# screen carries the margin that says whose screen it is. The screen starts
-# after the margin, under the name of the call that opened it.
+# Require program output below the session title and gutter.
 if b"FROM-SESSION" not in plain:
     raise SystemExit("the screen of the session was never shown")
-if not re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
-    raise SystemExit("the screen of the session carries no margin")
+if re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
+    raise SystemExit("the screen of the session drew a margin rule")
 
-# A program ends a line with a line feed alone. The screen is drawn from
-# cells, so without the terminal's own answer to that each line would start
-# where the last one ended: every row begins right after the margin.
-rows = re.findall(rb"\xe2\x94\x82 ([^\n]*PIPE-[AB][^\n]*)", plain)
-if not rows:
+# Require line feeds to return each screen row to its tile margin.
+# Locate each screen from its nearest left separator and gutter.
+import os
+
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from tile_assert import frames
+
+seen = 0
+for disp in frames(data, 30, 100):
+    for row in disp:
+        at = row.find("PIPE-")
+        if at < 0:
+            continue
+        bar = row.rfind("\u2503", 0, at)
+        # Skip the separator and gutter before reading a tile.
+        left = (0 if bar < 0 else bar + 2) + 2
+        seen += 1
+        if row[left:at].strip() != "":
+            continue        # Earlier tile content precedes this text.
+        if row[left:at] != "":
+            raise SystemExit("a line feed did not return the carriage: %r"
+                             % row)
+if not seen:
     raise SystemExit("the screen of the second session was never shown")
-for row in rows:
-    if row != row.lstrip():
-        raise SystemExit("a line feed did not return the carriage: %r" % row)
+
+# Require the command between the call title and program screen.
+head = False
+for disp in frames(data, 30, 100):
+    for i, row in enumerate(disp):
+        # First program-screen row.
+        if i < 2 or "echo FROM-SESSION" not in row:
+            continue
+        if ("sh -i" in disp[i - 1] and
+                "shell [box] a shell" in disp[i - 2]):
+            head = True
+if not head:
+    raise SystemExit("the terminal session did not show its command "
+                     "between its title and its screen")
 
 # While the program is there the session is marked running (yellow), and the
 # screen that is committed when it goes is marked done (green).
-if not re.search(rb"\x1b\[33m\xe2\x97\x8f[^\n]*shell", data):
+if not re.search(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f[^\n]*shell", data):
     raise SystemExit("the session was never marked running")
-if not re.search(rb"\x1b\[32m\xe2\x97\x8f[^\n]*shell", data):
+if not re.search(rb"\x1b\[32m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f[^\n]*shell", data):
     raise SystemExit("the session was never committed as done")
 
 # The compositor can repaint only the changed marker cell. Verify both the
 # blank frame and a later dot frame in the terminal byte stream.
 if not re.search(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)* ", data):
     raise SystemExit("the running session mark never blinked off")
-if data.count(b"\x1b[33m\xe2\x97\x8f") < 2:
+if len(re.findall(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f", data)) < 2:
     raise SystemExit("the running session mark never blinked on again")
 EOF
+
+"$PYTHON" "$TESTS_DIR/assert_work_retired.py" \
+    "$TEST_DIR/snapshot.out" "● shell" || fail "completed shell session remained in the work pane"
 
 # The record is untouched: every call still answered the model.
 "$PYTHON" - "$TEST_DIR/requests.jsonl" <<'EOF' || fail "the session record changed"
@@ -110,8 +142,6 @@ plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"",
                open(sys.argv[1], "rb").read())
 if not re.search(rb"\[\] [^\n]*FROM-SESSION", plain):
     raise SystemExit("the configured margin was not used")
-if re.search(rb"\xe2\x94\x82 [^\n]*FROM-SESSION", plain):
-    raise SystemExit("the default margin was drawn instead")
 EOF
 
 mock_stop 6

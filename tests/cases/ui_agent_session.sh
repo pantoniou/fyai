@@ -25,35 +25,25 @@ import os
 import sys
 
 sys.path.insert(0, os.environ["TESTS_DIR"])
-from screen import Screen
+from tile_assert import frames
 
-data = open(sys.argv[1], "rb").read()
+# Inspect complete frames because the shell retires before the final screen.
+shown = frames(open(sys.argv[1], "rb").read(), 40, 100)
 
-# The shell is drawn in place and is gone by the end, so the last screen
-# cannot answer this: the screen is read as it was built, and the question is
-# whether the shell was ever on it.
-screen = Screen(40, 100)
-seen_shell = False
-seen_mark = False
-seen_margin = False
-for i in range(0, len(data), 256):
-    screen.feed(data[i:i + 256])
-    shown = "\n".join(screen.lines())
-    for line in screen.lines():
-        if "AGENT_SESSION_MARK" in line:
-            seen_mark = True
-            if line.lstrip().startswith("\u2502"):
-                seen_margin = True
-    if "[a shell]" in shown:
-        seen_shell = True
-
-if not seen_shell:
+# Require the session name and call description in the tile title.
+if not any(any("shell [box]" in row and "a shell" in row for row in f)
+           for f in shown):
     raise SystemExit("the shell of the sub-agent was never on the screen")
-if not seen_mark:
+
+# Require the configured tile gutter without an extra rule.
+marked = [row for f in shown for row in f if "AGENT_SESSION_MARK" in row]
+if not marked:
     raise SystemExit("what the shell printed never reached the terminal")
-if not seen_margin:
+if not any(row.startswith("  ") and not row.lstrip().startswith("\u2502")
+           for row in marked):
     raise SystemExit("the shell was shown as text, not as the screen it is")
-if "Delegated and done." not in "\n".join(screen.lines()):
+
+if not any("Delegated and done." in row for row in shown[-1]):
     raise SystemExit("the parent never reported")
 PY
 

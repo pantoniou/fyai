@@ -187,8 +187,9 @@ assert_request 1 \
 mock_stop 2
 
 mock_start chat_stream.json
+# Wait for the status row that marks session readiness.
 FYAI_PTY_INPUT="   " \
-FYAI_PTY_NEEDLE="interactive" \
+FYAI_PTY_NEEDLE="mock-model" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/blank-input.out" \
     "$FYAI_BIN" -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set api=chat-completions \

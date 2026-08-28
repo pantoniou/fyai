@@ -55,8 +55,32 @@ skip() {
 fyai_test_cleanup() {
 	mock_stop_quiet
 	if [ -n "$TEST_DIR" ]; then
+		fyai_sanitizer_report
 		rm -rf "$TEST_DIR"
 		TEST_DIR=""
+	fi
+	# Fail after reporting sanitizer findings.
+	if [ "${FYAI_SANITIZER_FAILED:-0}" = 1 ]; then
+		FYAI_SANITIZER_FAILED=0
+		exit 1
+	fi
+}
+
+# Report sanitizer logs outside captured terminal output.
+fyai_sanitizer_report() {
+	local log
+	local found=0
+
+	for log in "$TEST_DIR"/sanitizer.log.*; do
+		[ -f "$log" ] || continue
+		[ -s "$log" ] || continue
+		found=1
+		echo "--- sanitizer report: $(basename "$log") ---" >&2
+		cat "$log" >&2
+	done
+	if [ "$found" = 1 ]; then
+		echo "FAIL: a sanitizer reported during this case" >&2
+		FYAI_SANITIZER_FAILED=1
 	fi
 }
 
@@ -91,6 +115,11 @@ fyai_test_setup_bare() {
 	# cleanup removes it with the rest of the case.
 	export TMPDIR="$TEST_DIR/tmp"
 	mkdir -p "$TMPDIR"
+
+	# Keep sanitizer output outside PTY captures.
+	export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}log_path=$TEST_DIR/sanitizer.log"
+	# Treat undefined behavior as a fatal sanitizer finding.
+	export UBSAN_OPTIONS="${UBSAN_OPTIONS:+$UBSAN_OPTIONS:}log_path=$TEST_DIR/sanitizer.log:print_stacktrace=1:halt_on_error=1"
 
 	export HOME="$TEST_DIR/home"
 	export XDG_STATE_HOME="$TEST_DIR/home/.local/state"

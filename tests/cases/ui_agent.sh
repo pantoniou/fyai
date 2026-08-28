@@ -16,6 +16,8 @@ FYAI_PTY_INPUT="delegate a greeting to a sub-agent" \
 FYAI_PTY_MID_NEEDLE="printf" \
 FYAI_PTY_MID_TIMEOUT="8" \
 FYAI_PTY_NEEDLE="Delegated and done." \
+FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -54,19 +56,30 @@ if "greet and report" not in shown:
 if "print a greeting with the shell" in shown:
     raise SystemExit("agent task prose leaked into the transcript")
 
-# The sub-agent renders to a terminal of its own, and that terminal is what
-# the band shows: its tool call, and what the tool answered. Every row of it
-# carries the margin that says whose screen it is.
+# Require the sub-agent call and result on its terminal screen.
 if "printf" not in shown:
     raise SystemExit("the sub-agent's tool call was not shown")
 if "agent-was-here" not in shown:
     raise SystemExit("the sub-agent's own screen was not shown")
-if not re.search(r"\u2502 .*printf", shown):
-    raise SystemExit("the sub-agent screen carries no margin")
+# Require the sub-agent screen below its tile title.
+title = [l for l in seen if l.startswith("\u25cf agent [greeter]")]
+if not title:
+    raise SystemExit("the tile of the sub-agent has no title row")
+at = title[0].index("agent [greeter]")
+for l in seen:
+    if "printf" not in l and "agent-was-here" not in l:
+        continue
+    if l[:at].strip():
+        raise SystemExit("the gutter of the tile is not blank: %r" % l)
+    if len(l) - len(l.lstrip()) < at:
+        raise SystemExit("a screen row does not stand under the title: %r" % l)
 
 if "Delegated and done." not in shown:
     raise SystemExit("parent final answer missing")
 EOF
+
+"$PYTHON" "$TESTS_DIR/assert_work_retired.py" \
+    "$TEST_DIR/snapshot.out" "● agent" || fail "completed agent remained in the work pane"
 
 mock_stop 4
 pass
