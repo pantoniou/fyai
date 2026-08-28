@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Verify separate work bands for two concurrent sub-agents.
+# Verify two concurrent sub-agents tiling one work pane.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -72,6 +72,33 @@ for needle in ("TASK-ALPHA", "TASK-BETA"):
         raise SystemExit("sub-agent task leaked: %r" % needle)
 if "Both sub-agents reported." not in shown:
     raise SystemExit("parent final answer missing")
+
+# The two screens are TILES OF ONE WORK PANE: side by side on the same rows,
+# in columns that do not overlap. The reading is taken over every completed
+# frame, for the reasons tile_assert.py gives.
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from tile_assert import frames_with_both
+
+frames = frames_with_both(data, "REPORT-ALPHA", "REPORT-BETA", 30, 100)
+if not frames:
+    raise SystemExit("the two sub-agent screens were never both on screen")
+tiled = [f for f in frames if f[0] == f[1]]
+if not tiled:
+    raise SystemExit(
+        "the sub-agent screens were stacked, not tiled: rows %r"
+        % (sorted({(a, b) for a, b, _ in frames}),))
+for _, _, row in tiled:
+    a_at = row.index("REPORT-ALPHA")
+    b_at = row.index("REPORT-BETA")
+    if not a_at < b_at:
+        raise SystemExit("the first sub-agent is not left of the second")
+    # Each kept to its own half of a hundred-column terminal, and the rule
+    # the pane draws stands between them.
+    if b_at < 50:
+        raise SystemExit("the second tile did not start at its own column: %d"
+                         % b_at)
+    if "\u2503" not in row[a_at:b_at]:
+        raise SystemExit("no rule between the tiles")
 EOF
 
 # Each sub-agent ran its own restricted, agent-free tool loop.

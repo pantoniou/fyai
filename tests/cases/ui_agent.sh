@@ -61,8 +61,20 @@ if "printf" not in shown:
     raise SystemExit("the sub-agent's tool call was not shown")
 if "agent-was-here" not in shown:
     raise SystemExit("the sub-agent's own screen was not shown")
-if not re.search(r"\u2502 .*printf", shown):
-    raise SystemExit("the sub-agent screen carries no margin")
+# The tile carries the title row of the call that opened it, and the screen
+# of the sub-agent stands under the text of that title: the gutter draws no
+# rule of its own, so what says whose screen this is is the tile it is in.
+title = [l for l in seen if l.startswith("\u25cf agent [greeter]")]
+if not title:
+    raise SystemExit("the tile of the sub-agent has no title row")
+at = title[0].index("agent [greeter]")
+for l in seen:
+    if "printf" not in l and "agent-was-here" not in l:
+        continue
+    if l[:at].strip():
+        raise SystemExit("the gutter of the tile is not blank: %r" % l)
+    if len(l) - len(l.lstrip()) < at:
+        raise SystemExit("a screen row does not stand under the title: %r" % l)
 
 if "Delegated and done." not in shown:
     raise SystemExit("parent final answer missing")

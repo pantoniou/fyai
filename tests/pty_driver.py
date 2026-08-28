@@ -101,6 +101,21 @@ def main():
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
     session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
+    # Steps taken after the turn has answered and before the session is left,
+    # which is where anything the USER does to a still-running program
+    # belongs: the turn is over, the prompt is back, and the program is still
+    # on screen. Separated by "|":
+    #
+    #   send:TEXT   type TEXT and submit it
+    #   raw:HEX     write these bytes and submit nothing (a control key)
+    #   wait:TEXT   read until TEXT is on the capture
+    #
+    # A wait is a deadline, so it is scaled; a pause is a step of the case
+    # and is not (see CLAUDE.md on FYAI_TIMEOUT_SCALE).
+    after_script = [step for step in
+                    os.environ.get("FYAI_PTY_AFTER", "").split("|") if step]
+    after_timeout = float(os.environ.get("FYAI_PTY_AFTER_TIMEOUT", "5")) * scale
+    after_pause = float(os.environ.get("FYAI_PTY_AFTER_PAUSE", "0.3"))
     master, child = os.openpty()
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     pid = os.fork()
@@ -156,6 +171,19 @@ def main():
             data = read_until(master, data, mid_needle,
                               time.monotonic() + mid_timeout)
         data = read_until(master, data, needle, deadline)
+        for step in after_script:
+            kind, _, value = step.partition(":")
+            if kind == "send":
+                os.write(master, value.encode() + b"\n")
+                time.sleep(after_pause)
+            elif kind == "raw":
+                os.write(master, bytes.fromhex(value))
+                time.sleep(after_pause)
+            elif kind == "wait":
+                data = read_until(master, data, value.encode(),
+                                  time.monotonic() + after_timeout)
+            else:
+                raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
         if clear_before_exit:
             os.write(master, b"\x15")
         os.write(master, b"/exit\n")
