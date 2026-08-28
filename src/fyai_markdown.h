@@ -162,6 +162,11 @@ struct fyai_fenced_stream {
 	const char *lang;		/* highlighter language, NULL => plain */
 	const char *indent;		/* per-line indent decoration */
 	size_t max_lines;		/* final rerender uses current terminal width */
+	/* Columns the renderer was built for. A band that is a tile of the
+	 * work pane has a share of the terminal, and the share changes as
+	 * work starts and finishes beside it, so the rows have to be made
+	 * again at the new width. */
+	int render_cols;
 	size_t indicator_frame;
 	int64_t indicator_next_ms;
 	int64_t next_render_ms;		/* progressive repaint throttle */

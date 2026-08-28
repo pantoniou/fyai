@@ -46,6 +46,13 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);
 struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx);
+/* A band for work that runs beside other work: a tile of the work pane,
+ * beside the screens. Retire it with fyai_ui_work_tile_destroy(). */
+struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx);
+void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
+			       struct fytim_workband *band, bool commit);
+/* The columns that tile was given, or 0 before the first frame. */
+int fyai_ui_work_tile_cols(const struct fytim_workband *band);
 void fyai_ui_workband_update(struct fyai_ctx *ctx,
 			     struct fytim_workband *band,
 			     const char *title, const char *body, size_t len,
@@ -93,19 +100,31 @@ enum fyai_ui_mark {
 	FYAI_UI_MARK_FAILED
 };
 
-/* Set the title row of @sf: a rendered tool head with its state mark. */
+/*
+ * Set the head of @sf: a rendered tool head with its state mark, and under it
+ * the command the call was given, as a shell with no screen of its own shows
+ * it. NULL @command leaves the head at one row.
+ */
 int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *cause,
-			     enum fyai_ui_mark mark);
+			     const char *title, const char *command,
+			     const char *cause, enum fyai_ui_mark mark);
 /* Set one animation frame and return its interval through @interval_msp. */
 int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 				   struct fytim_surface *sf,
-				   const char *title, const char *cause,
+				   const char *title, const char *command,
+				   const char *cause,
 				   enum fyai_ui_mark mark, size_t frame,
 				   unsigned int *interval_msp);
 
 /* Keep the last screen: it goes into the transcript and @sf is retired. */
 void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf);
+/* One tile takes the whole work pane; NULL restores the grid. */
+int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf);
+struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx);
+/* What the emulator holds behind the screen, for the scroll bar. */
+int fyai_ui_surface_scroll_extent(struct fytim_surface *sf, int total_rows,
+				  int top_row);
+
 /* Give the keys to @sf; @cb receives the bytes a terminal would send. */
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			 bool take, fyai_ui_keys_fn cb, void *user);

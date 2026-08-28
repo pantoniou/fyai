@@ -1088,6 +1088,42 @@ static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 			     fs->first_margin);
 }
 
+/*
+ * Rebuild the renderer when the band was given a different width. A tile of
+ * the work pane has a share of the terminal, and the share changes as work
+ * starts and finishes beside it: rows hard-wrapped for the old share are
+ * clipped at the new one. Returns true when the rows have to be made again.
+ */
+static bool fenced_stream_width_changed(struct fyai_fenced_stream *fs)
+{
+	struct fymd_renderer_cfg rcfg;
+	struct fymd_renderer *r;
+	int saved, cols;
+
+	cols = fyai_sink_band_cols(fs->band);
+	/* Nothing has been drawn yet, or the band has the whole width. */
+	if (cols <= 0 || cols == fs->render_cols)
+		return false;
+
+	saved = fs->ctx->cfg->render_width;
+	fs->ctx->cfg->render_width = cols;
+	markdown_renderer_cfg(fs->ctx->cfg, &rcfg,
+			      markdown_color_enabled(fs->ctx->cfg->color),
+			      fs->ctx->cfg->theme_variant, 0);
+	fs->ctx->cfg->render_width = saved;
+
+	r = fymd_renderer_create(&rcfg);
+	if (!r)
+		return false;	/* keep rendering at the old width */
+	markdown_set_line_limit(r, fs->max_lines);
+	fymd_renderer_destroy(fs->r);
+	fs->r = r;
+	fs->render_cols = cols;
+	/* The window state describes rows that no longer exist. */
+	fs->shown.len = 0;
+	return true;
+}
+
 /* Apply the live scrolling row limit. */
 static void fenced_stream_set_scroll_limit(struct fyai_fenced_stream *fs,
 					   size_t omitted)
@@ -1136,6 +1172,10 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	fs->render_pending = false;
 	fs->next_render_ms = fyai_event_now_ms() +
 			     fenced_stream_interval_ms(fs);
+
+	/* A tile that changed width has to have its rows made again. */
+	if (fenced_stream_width_changed(fs))
+		fs->full_render = true;
 
 	/* Select the live tail or the full final source. */
 	start = 0;

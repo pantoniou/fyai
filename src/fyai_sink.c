@@ -370,6 +370,7 @@ struct fyai_sink_band {
 	struct fyai_ctx *ctx;
 	struct fytim_workband *wb;	/* NULL for the shared band */
 	bool shared;
+	bool tile;			/* it is a tile of the work pane */
 };
 
 static bool sink_term_bands_available(const struct fyai_sink *s)
@@ -405,11 +406,17 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		t->shared_band = b;
 		return b;
 	}
-	b->wb = fyai_ui_workband_create(s->ctx);
+	/*
+	 * An independent band is work running beside other work, so it is a
+	 * tile of the work pane rather than a full-width band of its own: two
+	 * parallel shells stand side by side, as a shell and a sub-agent do.
+	 */
+	b->wb = fyai_ui_work_tile_create(s->ctx);
 	if (!b->wb) {
 		free(b);
 		return NULL;
 	}
+	b->tile = true;
 	return b;
 }
 
@@ -455,7 +462,9 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
-	if (b->wb)
+	if (b->wb && b->tile)
+		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
+	else if (b->wb)
 		fyai_ui_workband_destroy(b->wb);
 	free(b);
 }
@@ -813,6 +822,17 @@ void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
 	if (s && s->ops->band_close)
 		s->ops->band_close(s, ok, cause);
+}
+
+/*
+ * The columns @b was given. Zero says the band has the whole width, which is
+ * the answer for every backend but the terminal one and for a shared band.
+ */
+int fyai_sink_band_cols(const struct fyai_sink_band *b)
+{
+	if (!b || !b->tile || !b->wb)
+		return 0;
+	return fyai_ui_work_tile_cols(b->wb);
 }
 
 void fyai_sink_band_destroy(struct fyai_sink_band *b)

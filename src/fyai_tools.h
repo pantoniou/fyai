@@ -49,7 +49,19 @@ bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
 
 /* Tell every live tool child that the terminal of the user changed size. */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
+struct fytim_surface;
+
 void fyai_tool_job_cancel(struct fyai_tool_job *job);
+/* A tile of the work pane was operated on the display: end what it stands
+ * for when @delta is 0, or take a scroll of @delta rows for it. */
+void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
+				int delta);
+/* Give the work pane and the keys to the live tile named @name, so the user
+ * works in the program rather than watches it. An empty or NULL name takes
+ * the first live tile. Returns its name, or NULL when there is none. */
+const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name);
+/* Take the pane and the keys back. */
+void fyai_tools_unzoom(struct fyai_ctx *ctx);
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);
 

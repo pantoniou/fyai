@@ -453,6 +453,26 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 						cfg->tool_preview_lines);
 		cfg->session_margin = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "session_margin", cfg->session_margin));
+		/*
+		 * The work pane. Intern every string: they are read when the
+		 * pane is configured, well after this doc may be freed.
+		 */
+		cfg->work_layout = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "work_layout", cfg->work_layout));
+		cfg->work_columns = fy_get(v, "work_columns",
+					   cfg->work_columns);
+		cfg->work_min_tile_cols = fy_get(v, "work_min_tile_cols",
+						 cfg->work_min_tile_cols);
+		cfg->work_max_rows = fy_get(v, "work_max_rows",
+					    cfg->work_max_rows);
+		cfg->work_frame = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "work_frame", cfg->work_frame));
+		cfg->tile_frame = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "tile_frame", cfg->tile_frame));
+		cfg->tile_sep = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "tile_sep", cfg->tile_sep));
+		cfg->work_controls = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "work_controls", cfg->work_controls));
 		cfg->recap_exchanges = fy_get(v, "recap_exchanges",
 					      cfg->recap_exchanges);
 		cfg->tool_update_interval_ms =
@@ -2042,6 +2062,14 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 		DEFAULT_SHELL_HARD_MAX_OUTPUT_TOKENS;
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->session_margin = FYAI_SESSION_MARGIN;
+	cfg->work_layout = DEFAULT_WORK_LAYOUT;
+	cfg->work_columns = 0;
+	cfg->work_min_tile_cols = DEFAULT_WORK_MIN_TILE_COLS;
+	cfg->work_max_rows = 0;
+	cfg->work_frame = DEFAULT_WORK_FRAME;
+	cfg->tile_frame = DEFAULT_TILE_FRAME;
+	cfg->tile_sep = DEFAULT_TILE_SEP;
+	cfg->work_controls = DEFAULT_WORK_CONTROLS;
 	cfg->recap_exchanges = DEFAULT_RECAP_EXCHANGES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;

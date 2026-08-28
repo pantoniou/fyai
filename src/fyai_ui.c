@@ -27,6 +27,7 @@
 #include "fyai_session.h"
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
+#include "fyai_tools.h"
 #include <sys/ioctl.h>
 #include "fyai_terminal_view.h"
 #include "utils.h"
@@ -49,6 +50,11 @@ struct fyai_ui {
 	bool activity_paused;
 	bool external;
 	struct fytim_workband *tool_band;
+	/* The one region every live session and sub-agent screen tiles into.
+	 * It is opened with the first of them and retires with the last: a
+	 * region with no program in it is not a region. */
+	struct fytim_workpane *work_pane;
+	int work_tiles;
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
 	/* The surface holding the keys, and where its bytes go. */
@@ -116,39 +122,6 @@ static int ui_status_render(struct fyai_ui *ui, const char *activity)
 	return rc;
 }
 
-static int ui_shell_max_rows(const struct fyai_ui *ui, const char *command)
-{
-	const unsigned char *p;
-	size_t width;
-	size_t column;
-	size_t rows;
-	int preview_rows;
-
-	preview_rows = ui->ctx->cfg->tool_preview_lines > 0 ?
-		ui->ctx->cfg->tool_preview_lines : 0;
-	if (!command)
-		return preview_rows + 2;
-	/* Reserve the band indent and tool marker. */
-	width = ui->ctx->cfg->render_width > 2 + FYAI_TOOL_MARKER_WIDTH ?
-		(size_t)ui->ctx->cfg->render_width - 2 - FYAI_TOOL_MARKER_WIDTH : 1;
-	rows = 1;
-	column = 0;
-	for (p = (const unsigned char *)command; *p; p++) {
-		if (*p == '\n') {
-			rows++;
-			column = 0;
-			continue;
-		}
-		if (++column >= width && p[1] && p[1] != '\n') {
-			rows++;
-			column = 0;
-		}
-	}
-	if (rows > (size_t)INT_MAX - (size_t)preview_rows - 1)
-		return INT_MAX;
-	return preview_rows + (int)rows + 1;
-}
-
 static int ui_append_shell_command(struct fyai_cfg *cfg,
 				   struct response_buffer *out,
 				   const char *command)
@@ -199,50 +172,76 @@ out:
 	return rc;
 }
 
+/*
+ * The head of a work band - what the call is, and for a shell what it was
+ * asked to run - is CHROME, not content. Held in the content it would be
+ * scrolled off the top by the output of the call itself, and the row cap
+ * would have to reserve rows for it. The transcript keeps the whole thing:
+ * the committed text is the head and the output together.
+ */
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
+	struct response_buffer head = {0};
 	struct response_buffer out = {0};
+	const char *body;
+	size_t body_len;
 	size_t title_len;
+	int preview;
 	int rc = -1;
 
 	if (!ui->tool_band)
 		return 0;
-	(void)fytim_workband_set_max_rows(ui->tool_band,
-					 ui_shell_max_rows(ui, ui->tool_command));
 	title_len = ui->tool_title ? strlen(ui->tool_title) : 0;
 	/* Render the failure mark and cause in the shared title row. */
 	if (markdown_render_tool_head(ui->ctx->cfg,
 			ui->tool_title ? ui->tool_title : "shell",
 			title_len ? title_len : 5, ui->tool_error,
-			first_margin, "  ", &out))
+			first_margin, "  ", &head))
 		goto out;
 	if (ui->tool_command &&
-	    ui_append_shell_command(ui->ctx->cfg, &out, ui->tool_command))
+	    ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
 		goto out;
-	if (ui->tool_body_len) {
-		if (out.len && out.data[out.len - 1] != '\n') {
-			if (response_buffer_reserve(&out, out.len + 2))
-				goto out;
-			out.data[out.len++] = '\n';
-			out.data[out.len] = '\0';
-		}
-		if (response_buffer_reserve(&out,
-					    out.len + ui->tool_body_len + 1))
-			goto out;
-		memcpy(out.data + out.len, ui->tool_body, ui->tool_body_len);
-		out.len += ui->tool_body_len;
-		out.data[out.len] = '\0';
+	response_buffer_trim(&head);
+	if (fytim_workband_set_top(ui->tool_band,
+				   head.len ? head.data : NULL) != FYTIM_OK)
+		goto out;
+	body = ui->tool_body;
+	body_len = ui->tool_body_len;
+	/*
+	 * A progressive render opens its output with a blank row. The head is
+	 * a row of its own now, so that row is a gap under the command.
+	 */
+	while (body_len && (*body == '\n' || *body == '\r')) {
+		body++;
+		body_len--;
 	}
+	preview = ui->ctx->cfg->tool_preview_lines;
+	(void)fytim_workband_set_max_rows(ui->tool_band,
+					  preview > 0 ? preview : 1);
+	if (fytim_workband_set(ui->tool_band, body, body_len) != FYTIM_OK)
+		goto out;
+	if (!commit) {
+		rc = 0;
+		goto out;
+	}
+	if (response_buffer_reserve(&out, head.len + body_len + 2))
+		goto out;
+	memcpy(out.data, head.data, head.len);
+	out.len = head.len;
+	if (body_len) {
+		out.data[out.len++] = '\n';
+		memcpy(out.data + out.len, body, body_len);
+		out.len += body_len;
+	}
+	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
-	if (fytim_workband_set(ui->tool_band, out.data, out.len) != FYTIM_OK) {
-		goto out;
-	}
-	if (commit &&
-	    fytim_workband_set_commit(ui->tool_band, out.data, out.len) != FYTIM_OK)
+	if (fytim_workband_set_commit(ui->tool_band, out.data,
+				      out.len) != FYTIM_OK)
 		goto out;
 	rc = 0;
 out:
+	free(head.data);
 	free(out.data);
 	return rc;
 }
@@ -605,6 +604,28 @@ err_out:
 	return;
 }
 
+/* The mouse affordances the configuration asked for. */
+static unsigned int ui_work_controls(const struct fyai_ctx *ctx)
+{
+	const char *v = ctx->cfg->work_controls;
+
+	if (!v || !strcmp(v, "none"))
+		return 0;
+	if (!strcmp(v, "zoom"))
+		return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE;
+	return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE |
+	       FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
+}
+
+/* A chrome string: the word none removes the row, and an empty string is a
+ * rule, which is what the library's own NULL and "" mean. */
+static const char *ui_chrome_text(const char *v)
+{
+	if (!v || !strcmp(v, "none"))
+		return NULL;
+	return v;
+}
+
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
@@ -658,6 +679,23 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		case FYTIM_EVENT_SCROLLBACK:
 			ui->activity_paused = true;
 			break;
+		case FYTIM_EVENT_SURFACE_ZOOM:
+			/* A mark on a tile: zoom it, or give the grid back
+			 * when it already has the pane. */
+			(void)fyai_ui_surface_zoom(ui->ctx,
+				fytim_workpane_zoomed(ui->work_pane) ==
+					ev.surface ? NULL : ev.surface);
+			break;
+		case FYTIM_EVENT_SURFACE_CLOSE:
+		case FYTIM_EVENT_SURFACE_SCROLL:
+			/* The tile stands for work this display does not own:
+			 * only the component that started it can end it or
+			 * say what is behind its screen. */
+			fyai_tools_surface_request(ui->ctx, ev.surface,
+						   ev.type ==
+						   FYTIM_EVENT_SURFACE_CLOSE
+							? 0 : ev.delta);
+			break;
 		default:
 			break;
 		}
@@ -703,6 +741,12 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	cfg.title = "fyai";
 	/* Keep Ctrl-C as SIGINT so the watchdog can detect a stopped loop. */
 	cfg.intr_signal = true;
+	/*
+	 * The grab lasts as long as the display, and it costs the terminal its
+	 * selection and copy. Ask for it only when the work pane is
+	 * configured to draw controls the user could reach.
+	 */
+	cfg.mouse = ui_work_controls(ctx) != 0;
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
 	ui->tty_fd = ttyout;
@@ -1162,6 +1206,32 @@ struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx)
 	return band;
 }
 
+/*
+ * A band's rows are hard-wrapped when they are made, so they have to be made
+ * at the width the band was given. A tile of the work pane has a share of the
+ * terminal, and a row wrapped for the whole of it is clipped at the tile.
+ *
+ * The width lives on the configuration because that is where every renderer
+ * reads it, so it is put there for the render and put back afterwards.
+ * Returns the width to restore.
+ */
+static int ui_band_width_begin(struct fyai_ctx *ctx,
+			       const struct fytim_workband *band)
+{
+	int saved = ctx->cfg->render_width;
+	int cols = fyai_ui_work_tile_cols(band);
+
+	/* 0 says the band has the whole width, or has not been drawn yet. */
+	if (cols > 0)
+		ctx->cfg->render_width = cols;
+	return saved;
+}
+
+static void ui_band_width_end(struct fyai_ctx *ctx, int saved)
+{
+	ctx->cfg->render_width = saved;
+}
+
 void fyai_ui_workband_update(struct fyai_ctx *ctx,
 			     struct fytim_workband *band,
 			     const char *title, const char *body, size_t len,
@@ -1172,10 +1242,12 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 	fyai_event_ms_t now;
 	size_t title_len;
 	char *margin = NULL;
+	int saved_width;
 
 	if (!fyai_ui_active(ctx) || !band)
 		return;
 	ui = ctx->ui;
+	saved_width = ui_band_width_begin(ctx, band);
 	title = title ? title : "tool";
 	title_len = strlen(title);
 	margin = first_margin ? strdup(first_margin) :
@@ -1209,6 +1281,7 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 		ui->next_frame_ms = now;
 	ui_rearm(ui);
 out:
+	ui_band_width_end(ctx, saved_width);
 	free(margin);
 	free(out.data);
 }
@@ -1221,15 +1294,18 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 {
 	struct fyai_ui *ui;
 	struct response_buffer top = {0};
+	struct response_buffer head = {0};
 	struct response_buffer out = {0};
 	fyai_event_ms_t now;
 	char *margin = NULL;
 	size_t start;
 	size_t end;
+	int saved_width;
 
 	if (!fyai_ui_active(ctx) || !band)
 		return;
 	ui = ctx->ui;
+	saved_width = ui_band_width_begin(ctx, band);
 	title = title ? title : "shell";
 	margin = first_margin ? strdup(first_margin) :
 		ui_indicator(ui, FYMD_INDICATOR_PENDING, 0, NULL);
@@ -1246,26 +1322,48 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	while (end > start && (top.data[end - 1] == '\n' ||
 				 top.data[end - 1] == '\r'))
 		end--;
-	if (response_buffer_reserve(&out, end - start + 2))
+	if (response_buffer_reserve(&head, end - start + 2))
 		goto out;
-	memcpy(out.data, top.data + start, end - start);
-	out.len = end - start;
-	out.data[out.len++] = '\n';
-	out.data[out.len] = '\0';
-	if (ui_append_shell_command(ctx->cfg, &out, command))
+	memcpy(head.data, top.data + start, end - start);
+	head.len = end - start;
+	head.data[head.len++] = '\n';
+	head.data[head.len] = '\0';
+	if (ui_append_shell_command(ctx->cfg, &head, command))
 		goto out;
+	response_buffer_trim(&head);
+	/*
+	 * The head is chrome: what the call is, and what it was asked to run.
+	 * Held in the content the output would scroll it off the top, which is
+	 * exactly when the reader most needs to know whose output this is.
+	 */
+	if (fytim_workband_set_top(band, head.len ? head.data : NULL) !=
+	    FYTIM_OK)
+		goto out;
+	/* A progressive render opens its output with a blank row: under a
+	 * head of its own that row is a gap below the command. */
+	while (len && (*body == '\n' || *body == '\r')) {
+		body++;
+		len--;
+	}
+	if (fytim_workband_set_max_rows(band,
+			ctx->cfg->tool_preview_lines > 0 ?
+			ctx->cfg->tool_preview_lines : 1) != FYTIM_OK)
+		goto out;
+	if (fytim_workband_set(band, body, len) != FYTIM_OK)
+		goto out;
+	/* The transcript keeps the whole of it: the head and the output. */
+	if (response_buffer_reserve(&out, head.len + len + 2))
+		goto out;
+	memcpy(out.data, head.data, head.len);
+	out.len = head.len;
 	if (len) {
-		if (response_buffer_reserve(&out, out.len + len + 2))
-			goto out;
 		out.data[out.len++] = '\n';
 		memcpy(out.data + out.len, body, len);
 		out.len += len;
 	}
 	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
-	(void)fytim_workband_set_max_rows(band,
-					 ui_shell_max_rows(ui, command));
-	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
+	if (fytim_workband_set_commit(band, out.data, out.len) != FYTIM_OK)
 		goto out;
 	now = fyai_event_now_ms();
 	ui->frame_pending = true;
@@ -1273,8 +1371,10 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 		ui->next_frame_ms = now;
 	ui_rearm(ui);
 out:
+	ui_band_width_end(ctx, saved_width);
 	free(margin);
 	free(top.data);
+	free(head.data);
 	free(out.data);
 }
 
@@ -1380,14 +1480,135 @@ static void surface_cell(const struct fyai_term_cell *src,
 	dst->width = (unsigned char)(src->width > 1 ? 2 : 1);
 }
 
+/* The pane goes when its last tile does: an empty region is not a region. */
+static void ui_work_pane_release(struct fyai_ui *ui)
+{
+	if (ui->work_tiles > 0)
+		ui->work_tiles--;
+	if (ui->work_tiles > 0 || !ui->work_pane)
+		return;
+	fytim_workpane_destroy(ui->work_pane);
+	ui->work_pane = NULL;
+}
+
+/* Give the pane the grid policy and the chrome the configuration asked for.
+ * Applied at every open, so a session-only setting takes effect at once. */
+static void ui_work_pane_configure(struct fyai_ui *ui)
+{
+	const struct fyai_cfg *cfg = ui->ctx->cfg;
+	int cols = 0;
+
+	/* stack is one column, which is a screen above a screen: what
+	 * separate bands did, kept for whoever wants it back. */
+	if (cfg->work_layout && !strcmp(cfg->work_layout, "stack"))
+		cols = 1;
+	else if (cfg->work_layout && !strcmp(cfg->work_layout, "columns"))
+		cols = cfg->work_columns;
+	(void)fytim_workpane_set_columns(ui->work_pane, cols);
+	(void)fytim_workpane_set_min_tile_cols(ui->work_pane,
+					       cfg->work_min_tile_cols);
+	(void)fytim_workpane_set_max_rows(ui->work_pane, cfg->work_max_rows);
+	(void)fytim_workpane_set_top(ui->work_pane,
+				     ui_chrome_text(cfg->work_frame));
+	(void)fytim_workpane_set_bottom(ui->work_pane,
+					ui_chrome_text(cfg->work_frame));
+	(void)fytim_workpane_set_tile_sep(ui->work_pane, cfg->tile_sep);
+	(void)fytim_workpane_set_controls(ui->work_pane,
+					  ui_work_controls(ui->ctx));
+}
+
+/*
+ * A band for work that runs beside other work. It is a tile of the same pane
+ * the screens tile, because a parallel run is not all of one kind: two shells
+ * and a sub-agent are three things happening at once, and stacking the ones
+ * that carry text while tiling the ones that carry a screen would say they
+ * are different when they are not.
+ */
+/*
+ * Open the pane if it is not already, and give it the configuration. The
+ * settings are applied at every open, so a session-only change takes effect
+ * on the next thing that runs rather than on the next session.
+ */
+static int ui_work_pane_open(struct fyai_ui *ui)
+{
+	if (!ui->work_pane) {
+		ui->work_pane = fytim_workpane_create(ui->ft);
+		if (!ui->work_pane)
+			return -1;
+		ui->work_tiles = 0;
+	}
+	ui_work_pane_configure(ui);
+	return 0;
+}
+
+struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fytim_workband *band;
+
+	if (!ui || !ui->ft)
+		return NULL;
+	if (ui_work_pane_open(ui))
+		return NULL;
+	band = fytim_workband_create_in(ui->work_pane);
+	if (!band) {
+		ui_work_pane_release(ui);
+		return NULL;
+	}
+	(void)fytim_workband_set_max_rows(band,
+					  ctx->cfg->tool_preview_lines + 2);
+	ui->work_tiles++;
+	return band;
+}
+
+/*
+ * The columns the tile band was given at the last frame, or 0 before there
+ * has been one. A producer that hard-wraps its rows renders them to this: a
+ * tile has a share of the terminal and not the whole of it.
+ */
+int fyai_ui_work_tile_cols(const struct fytim_workband *band)
+{
+	int cols = 0;
+
+	if (!band || fytim_workband_granted_cols(band, &cols) != FYTIM_OK)
+		return 0;
+	return cols;
+}
+
+/* Retire a tile band, with or without putting it in the transcript. */
+void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
+			       struct fytim_workband *band, bool commit)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!band)
+		return;
+	if (commit)
+		(void)fytim_workband_commit(band);
+	else
+		fytim_workband_destroy(band);
+	if (ui)
+		ui_work_pane_release(ui);
+}
+
 struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 					   int cols)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fytim_surface *sf;
 
 	if (!ui || !ui->ft)
 		return NULL;
-	return fytim_surface_open(ui->ft, rows, cols);
+	if (ui_work_pane_open(ui))
+		return NULL;
+	sf = fytim_surface_open_in(ui->work_pane, rows, cols);
+	if (!sf) {
+		ui_work_pane_release(ui);
+		return NULL;
+	}
+	(void)fytim_surface_set_bottom(sf, ui_chrome_text(ctx->cfg->tile_frame));
+	ui->work_tiles++;
+	return sf;
 }
 
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
@@ -1401,6 +1622,8 @@ void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
 		ui->keys_data = NULL;
 	}
 	fytim_surface_close(sf);
+	if (ui)
+		ui_work_pane_release(ui);
 }
 
 /* Read the terminal size from the active display. */
@@ -1436,6 +1659,8 @@ void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf)
 		ui->keys_data = NULL;
 	}
 	(void)fytim_surface_commit(sf);
+	if (ui)
+		ui_work_pane_release(ui);
 }
 
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols)
@@ -1456,7 +1681,8 @@ int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
 
 int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 				   struct fytim_surface *sf,
-				   const char *title, const char *cause,
+				   const char *title, const char *command,
+				   const char *cause,
 				   enum fyai_ui_mark mark, size_t frame,
 				   unsigned int *interval_msp)
 {
@@ -1468,36 +1694,52 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 	struct response_buffer out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	char *margin;
+	int saved_width;
+	int cols;
 	int rc;
 
 	if (!ui || !sf || !title)
 		return -1;
 
+	/*
+	 * The head is chrome, and chrome is hard-wrapped when it is made: make
+	 * it at the width of the tile the screen was given.
+	 */
+	saved_width = ctx->cfg->render_width;
+	cols = fyai_ui_surface_granted_cols(sf);
+	if (cols > 0)
+		ctx->cfg->render_width = cols;
 	/* Render the marked title row used by work bands. */
 	margin = ui_indicator(ui, states[mark], frame, interval_msp);
 	rc = markdown_render_tool_head(ctx->cfg, title, strlen(title), cause,
 				       margin ? margin : "  ", "  ", &out);
 	free(margin);
 	if (!rc) {
-		/* A title row is one row: what follows the first line is the
-		 * body of the head, which a surface has no room for. */
-		char *nl = out.data ? strchr(out.data, '\n') : NULL;
-
-		if (nl)
-			*nl = '\0';
+		/*
+		 * The title is one row. What a shell was asked to run follows
+		 * it, on the row a shell with no screen of its own shows it
+		 * on: the two kinds of shell read the same.
+		 */
+		response_buffer_trim(&out);
+		if (command && *command)
+			rc = ui_append_shell_command(ctx->cfg, &out, command);
+	}
+	if (!rc) {
+		response_buffer_trim(&out);
 		rc = fytim_surface_set_top(sf, out.data ? out.data : title) ==
 		     FYTIM_OK ? 0 : -1;
 	}
+	ctx->cfg->render_width = saved_width;
 	free(out.data);
 	return rc;
 }
 
 int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *cause,
-			     enum fyai_ui_mark mark)
+			     const char *title, const char *command,
+			     const char *cause, enum fyai_ui_mark mark)
 {
-	return fyai_ui_surface_set_head_frame(ctx, sf, title, cause, mark, 0,
-					      NULL);
+	return fyai_ui_surface_set_head_frame(ctx, sf, title, command, cause,
+					      mark, 0, NULL);
 }
 
 int fyai_ui_surface_granted_cols(const struct fytim_surface *sf)
@@ -1563,6 +1805,36 @@ int fyai_ui_surface_publish(struct fytim_surface *sf,
 	fyai_terminal_view_cursor(view, &crow, &ccol, &visible);
 	(void)fytim_surface_set_cursor(sf, crow, ccol, visible);
 	return 1;
+}
+
+/* One tile takes the pane, which is what a user does to work in a program
+ * rather than watch it. @sf of NULL restores the grid. */
+int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->work_pane)
+		return -1;
+	return fytim_workpane_set_zoom(ui->work_pane, sf) == FYTIM_OK ? 0 : -1;
+}
+
+struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx)
+{
+	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	return ui && ui->work_pane ? fytim_workpane_zoomed(ui->work_pane)
+				   : NULL;
+}
+
+/* What the emulator holds behind the screen, so a scroll bar can show a true
+ * position. The library stores no rows. */
+int fyai_ui_surface_scroll_extent(struct fytim_surface *sf, int total_rows,
+				  int top_row)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_set_scroll_extent(sf, total_rows, top_row) ==
+	       FYTIM_OK ? 0 : -1;
 }
 
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,

@@ -1500,6 +1500,37 @@ struct fyai_slash_cmd {
 	int (*run)(struct fyai_ctx *ctx, const char *arg);
 };
 
+/*
+ * Work in a live program rather than watch it: the tile takes the whole work
+ * pane and the keys, so what the user types goes to the program instead of
+ * to the prompt. The program echoes it, so it reaches the emulator and the
+ * line log with it - what is done here is part of the tool result the model
+ * is given. Escape and ^C belong to the program while it holds the keys, so
+ * the way back is Ctrl-], the key this program reserved.
+ */
+static int slash_zoom(struct fyai_ctx *ctx, const char *arg)
+{
+	const char *what;
+
+	while (arg && *arg == ' ')
+		arg++;
+	if (arg && !strcmp(arg, "off")) {
+		/* The unzoom reports it: the user has to be told the keys
+		 * came back however they came back. */
+		fyai_tools_unzoom(ctx);
+		return 0;
+	}
+	what = fyai_tools_zoom(ctx, arg);
+	if (!what) {
+		fyai_result(ctx, arg && *arg ?
+			    "no live shell session or sub-agent is called that" :
+			    "nothing is running to zoom into");
+		return 0;
+	}
+	fyai_result(ctx, "typing into %s; Ctrl-] comes back", what);
+	return 0;
+}
+
 static int slash_clear(struct fyai_ctx *ctx, const char *arg)
 {
 	(void)arg;
@@ -2206,6 +2237,8 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	  "inspect or control provider authentication", slash_auth },
 	{ "mcp", "[status|login NAME|logout NAME|on|off]",
 	  "inspect or control MCP server connections", slash_mcp },
+	{ "zoom", "[name|off]",
+	  "type into a live shell session or sub-agent", slash_zoom },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },

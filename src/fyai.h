@@ -82,9 +82,23 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Left indent applied to each rendered tool-output row (nests it under the
  * tool-call header), so the live loop and the history view match. */
 #define FYAI_TOOL_OUTPUT_INDENT "    "
-/* Chrome at the left of a terminal session, so its screen reads as one
- * thing. */
-#define FYAI_SESSION_MARGIN "│ "
+/* The left gutter of a terminal session. It is as wide as the indicator of
+ * the title row, so the screen of the program starts under the name of the
+ * call that opened it. It draws no rule: a tile of the work pane is already
+ * bounded by the pane, and a bar down every live screen only repeats it. */
+#define FYAI_SESSION_MARGIN "  "
+/* The work pane: one region that tiles every live shell session and
+ * sub-agent screen, so that parallel work reads as one thing instead of as a
+ * stack of screens pushing each other off the top. */
+#define DEFAULT_WORK_LAYOUT "auto"
+#define DEFAULT_WORK_MIN_TILE_COLS 40
+#define DEFAULT_WORK_FRAME "none"
+#define DEFAULT_TILE_FRAME "none"
+/* The rule between two tiles. It is deliberately not the glyph the session
+ * margin uses: one divides two programs and the other runs down the inside
+ * of one, and a reader has to be able to tell which is which. */
+#define DEFAULT_TILE_SEP " ┃ "
+#define DEFAULT_WORK_CONTROLS "none"
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "
@@ -207,6 +221,15 @@ struct fyai_cfg {
 	const char *shell_tty_term;	/* terminal type exposed to PTY commands */
 	int shell_input_poll_ms;	/* how often a session is asked if it waits */
 	const char *session_margin;	/* left chrome of a terminal session */
+	/* The work pane that tiles live session and sub-agent screens. */
+	const char *work_layout;	/* auto | columns | stack */
+	int work_columns;		/* columns when work_layout is columns */
+	int work_min_tile_cols;		/* narrowest tile the auto grid makes */
+	int work_max_rows;		/* rows the pane may take (0 = uncapped) */
+	const char *work_frame;		/* chrome around the pane */
+	const char *tile_frame;		/* chrome under a tile's title row */
+	const char *tile_sep;		/* rule between adjacent columns */
+	const char *work_controls;	/* none | zoom | full */
 	bool agent_pty;			/* this sub-agent has a terminal */
 	bool shell_tty;			/* run a shell call on a terminal by default */
 	const char *shell_shell;	/* the shell a call runs under; empty = /bin/sh */
@@ -476,6 +499,10 @@ struct fyai_ctx {
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;
+	/* The tile the user is typing into, or NULL. The program behind it is
+	 * looked up when a key arrives: one that ended must not leave a
+	 * pointer for the next keystroke to follow. */
+	struct fytim_surface *zoom_surface;
 	struct fyai_wait *waits;	/* named waits, live for this run */
 	/* Events queued for model turns in arrival order. */
 	struct fyai_pending_event *events;

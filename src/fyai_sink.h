@@ -104,6 +104,10 @@ void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 /* Commit the shared band to the transcript with a success indicator. */
 void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause);
 void fyai_sink_band_destroy(struct fyai_sink_band *b);
+/* The columns @b was given, or 0 when it has the whole width. A band that is
+ * a tile of the work pane has a share of the terminal, and a producer that
+ * hard-wraps its rows has to render them to that. */
+int fyai_sink_band_cols(const struct fyai_sink_band *b);
 /* The shared band, or NULL when none is open. */
 struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s);
 

@@ -2205,7 +2205,8 @@ fyai_shell_session_animate(const struct fyai_event *ev)
 	sess->animation_frame++;
 	(void)fyai_ui_surface_set_head_frame(sess->ctx, sess->surface,
 					 sess->title ? sess->title : "**shell**",
-					 NULL, FYAI_UI_MARK_RUNNING,
+					 sess->command, NULL,
+					 FYAI_UI_MARK_RUNNING,
 					 sess->animation_frame, NULL);
 	fyai_ui_wake(sess->ctx);
 	return FYAIEA_CONTINUE;
@@ -2347,7 +2348,8 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
 	if (sess->surface) {
 		(void)fyai_ui_surface_set_head_frame(ctx, sess->surface,
-				 sess->title ? sess->title : "**shell**", NULL,
+				 sess->title ? sess->title : "**shell**",
+				 sess->command, NULL,
 				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
 		(void)fyai_ui_surface_set_margin(sess->surface,
 						 ctx->cfg->session_margin);
@@ -2526,7 +2528,7 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	cause = fyai_shell_session_cause(sess, &ok);
 	(void)fyai_ui_surface_set_head(sess->ctx, sess->surface,
 				       sess->title ? sess->title : "**shell**",
-				       cause,
+				       sess->command, cause,
 				       ok ? FYAI_UI_MARK_OK :
 					    FYAI_UI_MARK_FAILED);
 	free(cause);
@@ -3026,7 +3028,7 @@ fyai_agent_view_animate(const struct fyai_event *ev)
 	job->animation_frame++;
 	(void)fyai_ui_surface_set_head_frame(job->ctx, job->surface,
 					 job->title ? job->title : "**agent**",
-					 NULL, FYAI_UI_MARK_RUNNING,
+					 NULL, NULL, FYAI_UI_MARK_RUNNING,
 					 job->animation_frame, NULL);
 	fyai_ui_wake(job->ctx);
 	return FYAIEA_CONTINUE;
@@ -3196,7 +3198,7 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 	if (job->surface) {
 		(void)fyai_ui_surface_set_head_frame(ctx, job->surface,
 				 job->title ? job->title : "**agent**", NULL,
-				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
+				 NULL, FYAI_UI_MARK_RUNNING, 0, &animation_ms);
 		(void)fyai_ui_surface_set_margin(job->surface,
 						 ctx->cfg->session_margin);
 		if (animation_ms) {
@@ -3237,7 +3239,7 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 		fyai_agent_view_refresh(job);
 		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
 					       job->title ? job->title :
-					       "**agent**", cause,
+					       "**agent**", NULL, cause,
 					       ok ? FYAI_UI_MARK_OK :
 						    FYAI_UI_MARK_FAILED);
 		fyai_ui_surface_commit(job->ctx, job->surface);
@@ -4088,6 +4090,186 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job)
 }
 
 #define FYAI_TOOL_TERM_MS 2000
+
+/*
+ * The session and the sub-agent that hold @sf, if any. The display knows a
+ * surface and nothing else; everything that acts on a tile starts here.
+ * A tile is looked up rather than remembered, so a program that ended cannot
+ * leave a pointer behind for the next keystroke to follow.
+ */
+static void fyai_tile_owner(struct fyai_ctx *ctx, struct fytim_surface *sf,
+			    struct fyai_shell_session **sessp,
+			    struct fyai_tool_job **jobp)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	*sessp = NULL;
+	*jobp = NULL;
+	if (!ctx || !sf)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (sess->surface == sf) {
+			*sessp = sess;
+			return;
+		}
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->surface == sf) {
+			*jobp = job;
+			return;
+		}
+}
+
+static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
+				  struct fyai_tool_job *job, const char *data,
+				  size_t len);
+
+/*
+ * The key this program keeps for itself while a tile holds the keys. Escape
+ * and ^C are the program's - they are why the user zoomed in - and ^\ and ^Z
+ * are the terminal's, because ISIG stays on so that the watchdog can see a
+ * stopped loop. ^] is none of those: it is the key a terminal program has
+ * always kept for itself.
+ */
+#define FYAI_ZOOM_LEAVE_KEY 0x1d	/* ^] */
+
+/*
+ * Bytes the user typed into the zoomed tile. They go to the program on the
+ * terminal the tile shows, by the same path a reply to its own query takes.
+ * The program echoes them, so they reach the emulator, and from there the
+ * line log that becomes the tool result: what the user does in a zoomed
+ * session is part of what the model is told.
+ */
+static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
+{
+	struct fyai_ctx *ctx = user;
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	size_t i;
+
+	fyai_tile_owner(ctx, ctx->zoom_surface, &sess, &job);
+	if (!sess && !job) {
+		/* The program went while the keys were with it. */
+		fyai_tools_unzoom(ctx);
+		return;
+	}
+	for (i = 0; i < len; i++) {
+		if (data[i] != FYAI_ZOOM_LEAVE_KEY)
+			continue;
+		/* What was typed before the key still belongs to the
+		 * program: send it, then take the keys back. */
+		if (i)
+			fyai_tools_zoom_write(sess, job, data, i);
+		fyai_tools_unzoom(ctx);
+		return;
+	}
+	fyai_tools_zoom_write(sess, job, data, len);
+}
+
+/*
+ * A tile was operated on the display. The display owns no work: it knows a
+ * surface, and only the component that started the program behind it can end
+ * it. Find the session or the sub-agent that holds @sf and act for it.
+ *
+ * @delta of 0 is a request to be rid of the tile; anything else is a scroll,
+ * which this program does not yet act on - its emulator keeps the history,
+ * but nothing republishes an older screen into the grid, so a scroll is
+ * accepted and ignored rather than half-honoured.
+ */
+void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
+				int delta)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	if (!ctx || !sf || delta)
+		return;
+
+	fyai_tile_owner(ctx, sf, &sess, &job);
+	/* The program is asked to stop, not killed: its output is a tool
+	 * result the model is still owed. */
+	if (sess)
+		fyai_shell_session_close(sess, false);
+	else if (job)
+		fyai_tool_job_cancel(job);
+}
+
+/* Send @len bytes to whichever of the two holds the terminal. */
+static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
+				  struct fyai_tool_job *job, const char *data,
+				  size_t len)
+{
+	if (sess)
+		fyai_shell_session_reply(data, len, sess);
+	else if (job)
+		fyai_agent_view_reply(data, len, job);
+}
+
+/*
+ * Give the keys and the whole work pane to the tile of @name, so that the
+ * user works in the program instead of watching it. Returns the title of
+ * what was zoomed, or NULL when there is no such live tile.
+ */
+const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	struct fytim_surface *sf = NULL;
+	const char *what = NULL;
+
+	if (!ctx)
+		return NULL;
+	for (sess = ctx->shell_sessions; sess && !sf; sess = sess->next) {
+		if (!sess->surface || sess->exited)
+			continue;
+		if (!name || !*name || (sess->name && !strcmp(sess->name, name))) {
+			sf = sess->surface;
+			what = sess->name;
+		}
+	}
+	for (job = ctx->tool_jobs; job && !sf; job = job->next) {
+		const char *agent;
+
+		if (!job->surface)
+			continue;
+		/* A sub-agent is named by its branch: main/agent:<name>. */
+		agent = job->branch ? strstr(job->branch, "agent:") : NULL;
+		agent = agent ? agent + strlen("agent:") : job->title;
+		if (!name || !*name || (agent && !strcmp(agent, name))) {
+			sf = job->surface;
+			what = agent;
+		}
+	}
+	if (!sf)
+		return NULL;
+
+	fyai_tools_unzoom(ctx);
+	if (fyai_ui_surface_zoom(ctx, sf))
+		return NULL;
+	ctx->zoom_surface = sf;
+	if (fyai_ui_surface_keys(ctx, sf, true, fyai_tools_zoom_keys, ctx)) {
+		fyai_tools_unzoom(ctx);
+		return NULL;
+	}
+	return what ? what : "";
+}
+
+/*
+ * Take the keys and the pane back. Safe to call when nothing is zoomed.
+ *
+ * It says so, because the user cannot see that it happened: the prompt comes
+ * back either way, and a program that ended while it had the keys takes them
+ * back without the user having asked.
+ */
+void fyai_tools_unzoom(struct fyai_ctx *ctx)
+{
+	if (!ctx || !ctx->zoom_surface)
+		return;
+	(void)fyai_ui_surface_keys(ctx, ctx->zoom_surface, false, NULL, NULL);
+	(void)fyai_ui_surface_zoom(ctx, NULL);
+	ctx->zoom_surface = NULL;
+	fyai_report(ctx, "the work pane is back to its grid");
+}
 
 void fyai_tool_job_cancel(struct fyai_tool_job *job)
 {

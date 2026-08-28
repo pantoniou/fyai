@@ -520,11 +520,73 @@ properties:
           repaints every update.
       session_margin:
         type: string
-        default: "\u2502 "
+        default: "  "
         description: >-
-          Chrome drawn at the left of every row of a terminal session, so that
-          the screen of the program reads as one thing and as something that
-          belongs to the call that opened it. An empty string draws none.
+          The gutter drawn at the left of every row of a terminal session. It
+          is as wide as the indicator of the title row, so the screen starts
+          under the name of the call that opened it. An empty string draws
+          none, and the screen then starts at the left edge of its tile.
+      work_layout:
+        type: string
+        enum: [auto, columns, stack]
+        default: auto
+        description: >-
+          How live shell-session and sub-agent screens share the work pane.
+          auto fits as many columns as keep every tile at work_min_tile_cols;
+          columns uses work_columns; stack puts one screen above another, as
+          separate bands did.
+      work_columns:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Columns of tiles when work_layout is columns. 0 keeps the automatic
+          grid.
+      work_min_tile_cols:
+        type: integer
+        minimum: 0
+        default: 40
+        description: >-
+          The narrowest tile the automatic grid makes. A terminal that cannot
+          hold two of them shows one screen at a time.
+      work_max_rows:
+        type: integer
+        minimum: 0
+        default: 0
+        description: >-
+          Rows the whole work pane may take, its own chrome included. 0 lets
+          the tiles ask for what they need.
+      work_frame:
+        type: string
+        default: none
+        description: >-
+          Chrome above and below the work pane. An empty string draws a rule;
+          the word none removes it, which is the default because every tile
+          already carries the title row of the call that opened it.
+      tile_frame:
+        type: string
+        default: none
+        description: >-
+          Chrome below each tile, under the title row the call already draws.
+          An empty string draws a rule; the word none removes it, which is
+          the default because the pane already has a frame of its own.
+      tile_sep:
+        type: string
+        default: " \u2503 "
+        description: >-
+          The rule between adjacent columns of tiles, with the space that
+          keeps the screens off it. It is what divides two programs; the
+          gutter session_margin draws runs down the inside of one. An empty
+          string draws none.
+      work_controls:
+        type: string
+        enum: [none, zoom, full]
+        default: none
+        description: >-
+          Mouse affordances on a tile. none draws none. zoom draws the marks
+          that zoom and close a tile. full adds a scroll bar and its arrows.
+          Anything but none grabs the mouse for the whole session, which takes
+          selection and copy from the terminal.
       tool_detail:
         type: string
         enum: [none, brief, default, full]
