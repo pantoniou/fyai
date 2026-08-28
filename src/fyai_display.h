@@ -26,6 +26,10 @@ void fyai_render_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
 				      fy_generic tool_call,
 				      fy_generic tool_result);
+/* Record a terminal session as the tool exchange it stands for. */
+int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
+			     const char *command, const char *output,
+			     bool ok, const char *cause);
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result, bool tool_ok);
 /*

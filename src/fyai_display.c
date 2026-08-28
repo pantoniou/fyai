@@ -2427,6 +2427,116 @@ void fyai_render_tool_result_exchange(struct fyai_ctx *ctx,
  * assistant output. Execution and terminal rendering are intentionally not
  * involved: this exact source is what is persisted and replayed by history.
  */
+/*
+ * Record a terminal session in the durable document, as the tool exchange it
+ * stands for.
+ *
+ * The calls that drive a session show nothing of their own: the session has
+ * one screen, and what those calls did is on it. That screen is drawn on the
+ * terminal, but a terminal is not the transcript, so without this the turn
+ * stores nothing for them. History then has to rebuild the turn from the
+ * wire - the raw arguments of each call and the bracketed text of each
+ * result - which is not what the user saw.
+ *
+ * A session with no terminal has no screen at all, and this is the only
+ * record it leaves.
+ */
+int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
+			     const char *command, const char *output,
+			     bool ok, const char *cause)
+{
+	struct fyai_md_blocks blocks = {0};
+	struct fy_generic_builder *gb;
+	size_t inner_end;
+	size_t base;
+	size_t head;
+	size_t start;
+	size_t i;
+	const char *nl;
+	char *md = NULL;
+	size_t mdlen = 0;
+	FILE *mf;
+	int rc;
+
+	/* Nothing is open to record into: the turn is already stored. */
+	if (!ctx || !ctx->display_output)
+		return 0;
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!gb)
+		return -1;
+
+	base = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err, "could not format the session view");
+	fyai_emit_tool_call(ctx, mf, gb, "shell",
+			    fy_mapping(gb, "command", command ? command : "",
+				       "description",
+				       description ? description : ""),
+			    -1, &blocks);
+	fyai_error_check(ctx, !fclose(mf), err_closed,
+			 "could not finish the session view");
+	mf = NULL;
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err, "could not record the session view");
+	nl = memchr(md, '\n', mdlen);
+	head = nl ? (size_t)(nl - md) : 0;
+	if (head && (!blocks.count || head <= blocks.item[0].start)) {
+		rc = fyai_output_add_tool_head_fragment(ctx, base, base + head,
+							"shell", ok, cause);
+		fyai_error_check(ctx, !rc, err,
+				 "could not record the session title");
+	}
+	for (i = 0; i < blocks.count; i++) {
+		rc = fyai_output_add_fragment(ctx, "tool_body",
+					      base + blocks.item[i].start,
+					      base + blocks.item[i].end,
+					      blocks.item[i].lang, "shell");
+		fyai_error_check(ctx, !rc, err,
+				 "could not record the session command");
+	}
+	fyai_md_blocks_free(&blocks);
+	free(md);
+	md = NULL;
+	mdlen = 0;
+
+	if (fy_str_empty(output))
+		return 0;
+	/*
+	 * The screen is stored source, not a canonical result: a tool_result
+	 * fragment is replayed from the message the model was given, and no
+	 * one message holds the screen of a session. It is stored fenced, as
+	 * stored as the text it is, claimed whole by its fragment, so replay
+	 * draws it as it drew it live.
+	 */
+	start = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err, "could not format the session output");
+	fputs(output, mf);
+	if (output[strlen(output) - 1] != '\n')
+		fputc('\n', mf);
+	inner_end = (size_t)ftell(mf);
+	/* Outside the fragment, and only whitespace, so replay steps over it. */
+	fputc('\n', mf);
+	fyai_error_check(ctx, !fclose(mf), err_closed,
+			 "could not finish the session output");
+	mf = NULL;
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err, "could not record the session output");
+	rc = fyai_output_add_fragment(ctx, "tool_text", start,
+				      start + inner_end, NULL, "shell");
+	fyai_error_check(ctx, !rc, err,
+			 "could not record the session output fragment");
+	free(md);
+	return 0;
+err:
+	if (mf)
+		fclose(mf);
+err_closed:
+	fyai_md_blocks_free(&blocks);
+	free(md);
+	return -1;
+}
+
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result, bool tool_ok)
 {
@@ -2691,14 +2801,50 @@ static bool fyai_msg_is_tool_result(const struct fyai_msg_class *c,
 	return false;
 }
 
-static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
+/*
+ * A call that drives a terminal session stores no display of its own: the
+ * session records one exchange for the screen it drew, whatever the number of
+ * calls that drove it. Recognise such a call, so that the completeness check
+ * below does not look for a stored fragment per stored result and send a
+ * whole window back to being rebuilt from the wire.
+ */
+static bool stored_call_is_session(struct fyai_ctx *ctx, fy_generic call)
+{
+	struct fy_generic_builder *gb;
+	fy_generic fn, args, name;
+	const char *n;
+
+	fn = fy_get(call, "function");
+	name = fy_is_mapping(fn) ? fy_get(fn, "name") : fy_get(call, "name");
+	n = fy_castp(&name, "");
+	if (fy_str_empty(n))
+		return false;
+	if (!strcmp(n, "shell_input") || !strcmp(n, "shell_output") ||
+	    !strcmp(n, "shell_close"))
+		return true;
+	if (strcmp(n, FYAI_TOOL_EXEC_WIRE_NAME) && strcmp(n, "shell"))
+		return false;
+	/* A shell is a session when the model named it. */
+	args = fy_is_mapping(fn) ? fy_get(fn, "arguments") :
+				   fy_get(call, "arguments");
+	gb = fyai_ctx_transient_gb(ctx);
+	if (gb && fy_is_string(args))
+		args = parse_json_string(gb, fy_castp(&args, ""));
+	name = fy_get(args, "name", fy_invalid);
+	return !fy_str_empty(fy_castp(&name, ""));
+}
+
+static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
+					   const struct fyai_turn_stack *stack,
 					   size_t lo, size_t hi)
 {
 	struct fyai_msg_class c;
 	fy_generic outputs, output, fragments, fragment, msgs, msg, result;
+	fy_generic call;
 	size_t users = 0, assistants = 0;
 	size_t user_outputs = 0, assistant_outputs = 0;
 	size_t tool_results = 0, tool_fragments = 0;
+	size_t session_calls = 0;
 	size_t i;
 
 	for (i = lo; i < hi; i++) {
@@ -2709,6 +2855,18 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 			c = fyai_classify_message(msg);
 			if (fyai_msg_is_tool_result(&c, &result))
 				tool_results++;
+			if (!c.has_tc)
+				continue;
+			/* A native item is the call; a chat message holds a
+			 * list of them. */
+			if (c.is_native) {
+				if (stored_call_is_session(ctx, msg))
+					session_calls++;
+				continue;
+			}
+			fy_foreach(call, c.tc)
+				if (stored_call_is_session(ctx, call))
+					session_calls++;
 		}
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
 		fy_foreach(output, outputs) {
@@ -2730,7 +2888,7 @@ static bool fyai_display_outputs_complete(const struct fyai_turn_stack *stack,
 	if (users)
 		return user_outputs == users &&
 		       assistant_outputs == assistants &&
-		       tool_fragments == tool_results;
+		       tool_fragments + session_calls >= tool_results;
 	for (i = lo; i < hi; i++)
 		if (fy_len(fy_get(stack->items[i], "display_outputs",
 				  fy_seq_empty)))
@@ -2858,6 +3016,19 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 						    (size_t)preview_lines : 0);
 			fyai_error_check(ctx, !rc, out,
 					 "could not replay a tool body");
+		} else if (fy_equal(fy_get(fragment, "kind"), "tool_text")) {
+			/*
+			 * Stored source drawn as a tool result: the screen of
+			 * a terminal session, which no one message holds.
+			 */
+			gtool = fy_get(fragment, "tool");
+			tool = fy_castp(&gtool, "");
+			preview_lines = fyai_tool_preview_lines(cfg, tool);
+			fyai_print_tool_separator(ctx->sink, cfg);
+			fyai_print_fenced(ctx->sink, cfg, md + start,
+					  end - start, NULL, fy_invalid,
+					  preview_lines < 0 ? 0 :
+					  (size_t)preview_lines);
 		} else if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
 			fyai_error_check(ctx, *tool_result_pos < tool_result_count,
 					 out, "missing a stored tool result");
@@ -3277,7 +3448,7 @@ static int fyai_display_window(struct fyai_ctx *ctx,
 
 	for (seg = lo; seg < hi; seg = seg_end) {
 		seg_end = fyai_display_exchange_end(stack, seg, hi);
-		if (fyai_display_outputs_complete(stack, seg, seg_end)) {
+		if (fyai_display_outputs_complete(ctx, stack, seg, seg_end)) {
 			rc = fyai_display_stored_outputs(ctx, stack, seg,
 							 seg_end, emitted_io);
 			fyai_error_check(ctx, !rc, err_out,

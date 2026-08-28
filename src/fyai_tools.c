@@ -2051,6 +2051,8 @@ struct fyai_shell_session {
 	size_t animation_frame;
 	struct fytim_surface *surface;
 	char *title;
+	char *description;		/* what the model said the call is for */
+	bool recorded;			/* its exchange is in the document */
 	pid_t pid;			/* the program, watched for a read */
 	bool pipes;			/* it was given no terminal */
 	struct fyai_event_source *waiter;
@@ -2316,7 +2318,8 @@ static void fyai_shell_session_reply(const char *data, size_t len, void *user)
 /* Create the session and reserve its name, before the process is spawned. */
 static struct fyai_shell_session *
 fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
-			  const char *command, const char *title, int rows,
+			  const char *command, const char *title,
+			  const char *description, int rows,
 			  int cols, size_t max_bytes, bool pipes)
 {
 	struct fyai_event_loop *el;
@@ -2343,6 +2346,7 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
 	fyai_terminal_view_reply_cb(sess->view, fyai_shell_session_reply, sess);
 	sess->title = title ? strdup(title) : NULL;
+	sess->description = description ? strdup(description) : NULL;
 	sess->rows = rows;
 	sess->pipes = pipes;
 	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
@@ -2512,12 +2516,36 @@ static char *fyai_shell_session_cause(const struct fyai_shell_session *sess,
 }
 
 /* Commit the completed session screen to the transcript. */
+/*
+ * The session is over: keep what it did.
+ *
+ * Its screen goes into the scrollback of the terminal, and its exchange goes
+ * into the durable document. The calls that drove it recorded nothing - the
+ * session has one screen and what they did is on it - so this is the only
+ * record of them, and without it history rebuilds the turn from the wire.
+ * A session with no terminal never had a screen and leaves only this.
+ */
 static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 {
 	char *cause;
+	char *text;
+	size_t len;
 	bool ok;
 
-	if (!sess || !sess->surface)
+	if (!sess || sess->recorded)
+		return;
+	sess->recorded = true;
+	cause = fyai_shell_session_cause(sess, &ok);
+	text = fyai_terminal_view_read(sess->view, FYAITR_ALL, NULL, &len);
+	if (fyai_record_shell_screen(sess->ctx, sess->description,
+				     sess->command, text, ok, cause))
+		fyai_warning(sess->ctx,
+			     "shell: could not record the session '%s'",
+			     sess->name ? sess->name : "");
+	free(text);
+	free(cause);
+
+	if (!sess->surface)
 		return;
 
 	if (sess->animation) {
@@ -2593,6 +2621,7 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 	free(sess->command);
 	free(sess->branch);
 	free(sess->title);
+	free(sess->description);
 	free(sess);
 }
 
@@ -2612,6 +2641,12 @@ static void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 		sess->idle = NULL;
 		sess->waiter = NULL;
 		sess->animation = NULL;
+		/*
+		 * The session belongs to the parent, and so does its record.
+		 * A child that wrote it would put the work of the parent in
+		 * its own document, and it has no screen to read it from.
+		 */
+		sess->recorded = true;
 		fyai_shell_session_destroy(sess);
 	}
 	ctx->shell_sessions = NULL;
@@ -3658,7 +3693,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	const char *asked, *cmdtext;
 	fy_generic args, progress_args, agent_name;
 	bool agent_stored = false;
-	fy_generic session_call, session_command;
+	fy_generic session_call, session_command, session_desc;
 	struct fyai_event_loop *el;
 	char child_branch[FYAI_BRANCH_NAME_MAX + 1];
 	char *session_name = NULL;
@@ -3783,10 +3818,13 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	if (have_session) {
 		fyai_shell_tty_size(ctx, args, &srows, &scols);
 		session_command = fy_get(args, "command", fy_invalid);
+		session_desc = fy_get(args, "description", fy_invalid);
 		session_title = fyai_format_shell_label(args);
 		job->session = fyai_shell_session_create(ctx, session_name,
 					fy_castp(&session_command, ""),
-					session_title, srows, scols,
+					session_title,
+					fy_castp(&session_desc, ""),
+					srows, scols,
 					fyai_shell_output_bytes(ctx, args),
 					!fyai_shell_tty_requested(ctx, args));
 		free(session_title);
