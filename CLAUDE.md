@@ -339,6 +339,14 @@ arena from message and provider data only as a fallback.
 - Use `fyai_output_append_recorded()` to add source that another path already
   drew. Use it for a tool exchange. The tool path presents the exchange. Do not
   present it again from the document.
+- A terminal session records its own exchange when its program goes. The
+  calls that open and drive it store nothing: the session has one screen and
+  what those calls did is on it, but a terminal is not the transcript. Its
+  screen is stored as a `tool_text` fragment, which replays from what was
+  recorded; a `tool_result` fragment replays from the message the model was
+  given, and no one message holds a screen. A window is replayed from storage
+  only when every stored result that has a display has a fragment, so a rule
+  that stores nothing for a call must also say that nothing is expected.
 - A tool exchange stores a `tool_head` fragment over its title row, with the
   outcome of the call. Replay draws the state mark and the failure cause from
   that fragment through `markdown_render_tool_head()`, the one renderer the
