@@ -391,6 +391,10 @@ display makes them again.
   indented run past the right edge, and the terminal wraps them: that is what
   turns a live band into interleaved fragments. A width nobody knows stays
   unknown; taking columns off it would make the content one column wide.
+- A session opens on the screen its conversation left: the replay takes whole
+  exchanges from the newest back until the screen is full, the one that
+  overruns it included. The rows of that screen come from the display, not from
+  the terminal, because standard output is a pipe of its own while it is open.
 - A delegated sub-agent does not repaint a transcript. Its screen is the result
   of the call, and the conversation behind it is not something anyone asked to
   see there.
