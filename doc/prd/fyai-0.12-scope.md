@@ -8,7 +8,7 @@ This document classifies the requirements in the fyai PRD by product maturity. I
 
 ## 1. Status vocabulary
 
-- **Current** - observable product behavior already represented by the current `devel` contract and documentation. The 0.12 release should preserve it unless the PRD is deliberately changed.
+- **Current** - observable product behavior already represented by the current `devel` contract and implementation. The 0.12 release should preserve it unless the PRD is deliberately changed.
 - **0.12 required** - part of the intended 0.12 product contract, but current behavior or documentation still has a known gap that must be closed or explicitly descoped before release.
 - **Planned** - desirable continuation of the product model, but not required to call 0.12 complete.
 - **Future** - intentionally outside the 0.12 product contract.
@@ -18,7 +18,7 @@ The PRD remains the normative statement of *what* fyai promises. This ledger rec
 
 ## 2. 0.12 baseline
 
-The 0.12 baseline is not a feature-reset. It establishes the product contract around behavior that fyai already treats as fundamental:
+The 0.12 baseline is not a feature reset. It establishes the product contract around behavior that fyai already treats as fundamental:
 
 - one invocation owns one process lifetime; no daemon or hidden resident state;
 - durable local agent state survives process exit;
@@ -28,9 +28,10 @@ The 0.12 baseline is not a feature-reset. It establishes the product contract ar
 - tool execution and credential handling have explicit trust boundaries;
 - persistent delegated agents leave separately inspectable work;
 - context limits are visible, checked, and recoverable;
-- interactive terminal use is a first-class surface of the same product used non-interactively.
+- interactive terminal use is a first-class surface of the same product used non-interactively;
+- durable human-facing transcript output is recorded separately from canonical model-replay content and provider wire observations.
 
-The main 0.12 convergence work is not inventing a new architecture. It is turning those existing architectural invariants into a stable product contract and closing user-visible semantic gaps where multiple internal paths currently disagree.
+The main 0.12 convergence work is not inventing a new architecture. It is turning existing architectural invariants into a stable product contract and tightening the remaining correctness and truthfulness boundaries.
 
 ## 3. Requirement classification
 
@@ -64,7 +65,7 @@ The main 0.12 convergence work is not inventing a new architecture. It is turnin
 | `PRD-AGENT-002` | Current | Persistent delegated conversation remains inspectable after the parent receives its report. |
 | `PRD-AGENT-003` | Current | Forked and fresh delegation are distinct user-visible context choices. |
 | `PRD-AGENT-004` | Current | The parent receives a bounded delegated result rather than a flattened full transcript. |
-| `PRD-AGENT-005` | 0.12 required | Parent/sibling live-state isolation is a product requirement; current fork inheritance makes this an active correctness boundary. |
+| `PRD-AGENT-005` | 0.12 required | Parent/sibling live-state isolation is a product requirement; fork inheritance makes this an active correctness boundary. |
 | `PRD-TOOL-001` | Current | Local effects occur through an explicit tool surface. |
 | `PRD-TOOL-002` | Current | Tool execution is bounded by configurable policy. |
 | `PRD-TOOL-003` | 0.12 required | UI/diagnostics must accurately describe effective confinement on the running platform. |
@@ -81,77 +82,69 @@ The main 0.12 convergence work is not inventing a new architecture. It is turnin
 | `PRD-TERM-001` | Current | Interactive terminal use is a native product surface, not a separate hosted-chat mode. |
 | `PRD-TERM-002` | Current | Streaming model/tool/agent progress is visible while work runs. |
 | `PRD-TERM-003` | 0.12 required | PTY-backed programs must behave correctly enough for supported interactive use, including resize/control behavior. |
-| `PRD-TERM-004` | 0.12 required | Live output and durable history need one explicit semantic boundary; current reconstruction paths can diverge. |
+| `PRD-TERM-004` | Current | Tagged Markdown display outputs are durably attached to turns and are distinct from model replay and provider wire state. |
 | `PRD-PLATFORM-001` | Current | Linux remains the primary platform. |
 | `PRD-PLATFORM-002` | Current | Core conversation/branch/lifecycle semantics remain portable across supported Unix-like systems. |
 | `PRD-PLATFORM-003` | Current | fyai remains native command-line software without a required language runtime or resident framework. |
 
-## 4. 0.12 product gaps
+## 4. Implementation conformance findings
 
-### 4.1 Durable display semantics
+### 4.1 Durable display semantics are implemented
 
-`PRD-TERM-004` is the clearest product gap in the current tree.
+An implementation check resolves the earlier documentation contradiction around `PRD-TERM-004`.
 
-Today, canonical messages are suitable for model replay and provider streams are suitable for protocol fidelity, but neither is the exact document shown to the user. Live assistant content, reasoning, tools, user bubbles, diagnostics, and history reconstruction travel through partially independent rendering paths. That can make the live transcript and later history differ in spacing, grouping, visibility, or presentation.
+`src/fyai_output.c` owns a tagged display-output object containing durable Markdown source, fragment metadata, and the `system`, `user`, or `assistant` tag. Finalization constructs a durable record with `tag`, `markdown`, `state`, and `fragments`, then calls `fyai_turn_append_display_output()`.
 
-For 0.12, the product-level requirement is:
+`src/fyai_turn.c` appends that record to the turn's `display_outputs` sequence. This matches the SRD statement that current turns can persist tagged Markdown display documents separately from canonical model-replay messages and provider-stream observations.
 
-> A conversational output shown as durable history must have one durable semantic representation whose finalized content does not depend on reconstructing presentation from unrelated provider or execution data.
+Therefore `PRD-TERM-004` is **Current**, not a 0.12 implementation gap.
 
-This does **not** require the PRD to specify a particular `display_output` structure, Markdown renderer, sink implementation, spool design, or terminal library. Those remain SRD/design concerns.
+`doc/display-output-semantics.md` should now be read as the analysis and migration rationale that led to this model unless it is refreshed to describe the completed implementation. Its statements that the current persisted model has no display document are stale relative to current `devel`.
 
-The release decision is binary: either close the semantic gap and keep `PRD-TERM-004` in the 0.12 contract, or explicitly move it to Planned. The current state should not be described as fully satisfying the requirement merely because history is reconstructable.
+The product distinction remains important:
 
-### 4.2 Delegated-process isolation
+- canonical messages are the source for model replay;
+- provider streams preserve provider-specific observations and fidelity;
+- `display_outputs` preserve durable human-facing conversational Markdown;
+- transient UI chrome and diagnostics are not equivalent to durable conversational output.
 
-`PRD-AGENT-005` is also release-significant.
+### 4.2 Delegated-process isolation remains release-significant
 
-Persistent delegation already has the desired product shape: separate work, separate branch, inspectable history, and a bounded parent result. The current process model, however, begins from `fork()`, so live parent process state is inherited and must be explicitly disowned before the child proceeds.
+`PRD-AGENT-005` remains a 0.12 correctness gate.
+
+Persistent delegation already has the desired product shape: separate work, separate branch, inspectable history, and a bounded parent result. The current process model begins from `fork()`, so live parent process state is inherited and must be explicitly disowned before the child proceeds.
 
 The product requirement is not "use `exec()`". It is that a delegated agent must not observe or control parent/sibling live state merely because of process inheritance.
 
 For 0.12, correctness at that boundary is required. Whether the implementation remains fork-plus-disown or moves to exec-plus-explicit-start-state is an engineering decision.
 
-### 4.3 Capability and confinement truthfulness
+### 4.3 Capability and confinement truthfulness remain release-significant
 
-`PRD-PROVIDER-004` and `PRD-TOOL-003` are both forms of the same product rule: fyai must describe the capabilities it actually has.
+`PRD-PROVIDER-004` and `PRD-TOOL-003` are forms of the same product rule: fyai must describe the capabilities it actually has.
 
-A provider/model combination that lacks a capability must not silently masquerade as equivalent. A platform without a confinement feature must not be presented as though the stronger boundary is active. These are primarily consistency/documentation requirements for 0.12, not invitations to emulate every missing provider or OS facility.
+A provider/model combination that lacks a capability must not silently masquerade as equivalent. A platform without a confinement feature must not be presented as though the stronger boundary is active. These are primarily consistency and error-reporting requirements for 0.12, not invitations to emulate every missing provider or OS facility.
 
-### 4.4 PTY correctness
+### 4.4 PTY correctness remains release-significant
 
-The terminal-session work has moved beyond "shell can allocate a PTY" into a user-visible product surface: bounded scrollback, interpreted live output, resize propagation, named sessions, session input/output, and a terminal view for the user.
+The terminal-session work has moved beyond "shell can allocate a PTY" into a user-visible product surface: bounded output, interpreted terminal state, resize propagation, named sessions, session input/output, and a terminal view for the user.
 
-For 0.12, `PRD-TERM-003` should mean that supported terminal-backed workflows do not silently lose normal terminal semantics that fyai claims to support. It does not mean implementing every terminal emulator feature or keeping sessions alive across fyai invocations.
+For 0.12, `PRD-TERM-003` means that supported terminal-backed workflows do not silently lose normal terminal semantics that fyai claims to support. It does not mean implementing every terminal emulator feature or keeping sessions alive across fyai invocations.
 
-## 5. Product decisions still required
+## 5. Product decision still required
 
 ### 5.1 When does delegated work become independently durable?
 
 The current persistent-agent experience and the possible future exec worker model expose a product question that should be answered before architecture makes it accidental.
 
-A fork-context delegated agent can currently begin from parent conversation state that has not yet been published. An executed worker cannot recover that state from the arena unless the parent either publishes the delegation point first or sends the not-yet-durable conversation explicitly.
+A fork-context delegated agent can begin from parent conversation state that has not yet been published. An executed worker cannot recover that state from the arena unless the parent either publishes the delegation point first or sends the not-yet-durable conversation explicitly.
 
 The PRD should eventually choose one of these observable contracts:
 
 - **Durable-at-delegation:** starting persistent delegation publishes an independently addressable delegation point before the child begins.
 - **Durable-on-success:** delegated work becomes independently durable only when the delegated run successfully publishes.
-- **Parent-transactional:** delegation may execute against unpublished parent state, and parent publication defines the durability boundary unless/until the child publishes its own branch.
+- **Parent-transactional:** delegation may execute against unpublished parent state, and parent publication defines the durability boundary unless or until the child publishes its own branch.
 
-This is marked **Decision required** for the product model. 0.12 does not need to replace the current process implementation merely to answer it, but the answer should precede a fork-to-exec redesign.
-
-### 5.2 What exactly is a durable transcript?
-
-The desired invariant is stronger than "history can print something readable." The product needs to distinguish:
-
-- canonical model-replay content;
-- provider observations;
-- durable human-facing conversational output;
-- transient UI chrome and diagnostics.
-
-The PRD should promise that durable conversational output is inspectable and stable enough to represent what the user saw, while leaving rendering mechanics to the SRD/design layer.
-
-0.12 should resolve this through `PRD-TERM-004` rather than expanding provider-native content until it accidentally becomes a UI serialization format.
+This is marked **Decision required** for the product model. 0.12 does not need a fork-to-exec rewrite merely to answer it, but the answer should precede such a redesign.
 
 ## 6. Explicitly not required for 0.12
 
@@ -173,22 +166,18 @@ Before declaring the PRD a 0.12 product baseline:
 
 1. Each `0.12 required` row must either be demonstrated against the current implementation, have a concrete closing change, or be explicitly moved to Planned with rationale.
 2. The SRD must cite the PRD identifiers for software requirements that exist to satisfy these product promises.
-3. Focused design documents must not override PRD product intent; unresolved product decisions must be promoted here or into the PRD rather than silently settled in implementation plans.
+3. Focused design documents must not override PRD product intent; stale implementation-state descriptions should be marked historical or refreshed.
 4. README product language must agree with the PRD on lifecycle, durable ownership, branching, delegation, provider independence, trust boundaries, and terminal behavior.
 5. Release notes for the revision bump should describe user-visible product changes in PRD terms instead of allocator, event-loop, or provider-wire implementation vocabulary.
 
 ## 8. Immediate follow-up
 
-The next documentation pass should annotate the SRD with traceability to the stable PRD IDs. Start with the requirements whose implementation mechanisms are already well documented:
+The next SRD pass should add traceability to stable PRD IDs and promote software-visible behavior that is currently described mainly in focused design documents:
 
-- lifecycle and Unix invocation;
-- arena publication and immutable retained roots;
-- branch-local conversation/configuration;
-- canonical/provider separation;
-- persistent delegated-agent branches;
-- bounded tool results and context preflight;
-- credential indirection and child environment sanitization;
-- PTY/session behavior;
-- durable display-output semantics.
+- capability and confinement truthfulness;
+- delegated-agent live-state isolation;
+- context preflight and bounded tool outputs;
+- supported PTY/session correctness behavior;
+- the three-way separation of canonical content, provider observations, and durable display output.
 
-That pass should expose any PRD requirement that has no corresponding software requirement, and any SRD section that is actually a design mechanism rather than a requirement.
+That pass should also update the SRD version/status for the 0.12 documentation baseline without turning implementation mechanisms into product requirements.
