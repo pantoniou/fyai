@@ -8,6 +8,8 @@ This document defines the product contract for `fyai`: what the product is, who 
 
 The Software Requirements Document (`doc/srd/fyai-srd.md`) defines the software contract that realizes these product requirements. Focused design documents may describe particular mechanisms. When those documents disagree about product intent, this PRD is the upstream authority.
 
+Requirement maturity for the 0.12 baseline is tracked in `doc/prd/fyai-0.12-scope.md`. A requirement may be part of the product contract before every implementation mechanism is settled; conversely, an implemented mechanism does not automatically become a product promise.
+
 ---
 
 ## 1. Product definition
@@ -70,6 +72,12 @@ Durable project state, configuration intent, branch selection, credentials, and 
 
 Tool execution, credentials, sandboxing, user questions, and delegated work are part of the product contract rather than implementation afterthoughts. The user must be able to reason about what the agent can access and what durable state it leaves behind.
 
+### 3.9 Human-facing history is its own durable concern
+
+The content needed to continue a model conversation, the provider-specific observations needed for fidelity, and the human-facing conversational output shown to the user serve different purposes and must not be conflated merely because one can sometimes be reconstructed from another.
+
+Transient terminal chrome and diagnostics are not durable conversation history. Durable conversational output must remain inspectable after the interactive rendering process has exited.
+
 ## 4. Target users
 
 The primary user is a developer who is comfortable working from a terminal and wants an AI coding agent to participate in an existing Unix-oriented workflow.
@@ -117,7 +125,13 @@ A provider supplies model inference. It does not own fyai's durable conversation
 
 fyai may preserve provider-specific observations where necessary to continue requests faithfully or diagnose behavior, while presenting a provider-independent durable product model.
 
-### 5.6 Agent
+### 5.6 Display output
+
+A display output is durable human-facing conversational content. It is distinct from canonical model-replay content and from provider-specific observations.
+
+The product may render the same display output differently according to terminal capabilities, theme, or presentation policy, but the durable conversational content must remain inspectable after the live invocation ends.
+
+### 5.7 Agent
 
 A persistent delegated agent works on its own branch. It may begin from inherited context or from a fresh delegated task according to the requested delegation mode.
 
@@ -158,6 +172,10 @@ When a conversation approaches a model's context limit, fyai must expose the con
 ### 6.8 Safe tool use
 
 A user can understand and configure the boundaries under which model-requested file, patch, shell, question, and delegation operations execute. Platform capabilities may strengthen confinement, but absence or degradation of a safety boundary must not be silently represented as stronger protection than is actually active.
+
+### 6.9 Durable transcript
+
+A user can inspect durable conversational output after the live invocation ends without requiring provider wire data or transient terminal state to reconstruct what the conversation meant for a human reader.
 
 ## 7. Product requirements
 
@@ -265,7 +283,7 @@ The identifiers in this section are stable references for the SRD, focused desig
 
 **PRD-CONTEXT-004 - Provider-appropriate compaction.** fyai may use provider-native compaction where available and a portable fallback elsewhere, provided the resulting behavior remains explicit and inspectable.
 
-### 7.10 Terminal experience
+### 7.10 Terminal and transcript experience
 
 **PRD-TERM-001 - Native interactive experience.** Interactive use shall provide a terminal-native experience suitable for sustained coding work rather than merely printing a sequence of remote chat responses.
 
@@ -273,7 +291,7 @@ The identifiers in this section are stable references for the SRD, focused desig
 
 **PRD-TERM-003 - Terminal correctness.** Programs run through terminal-backed tools shall receive terminal behavior sufficiently faithful for supported interactive command use, including relevant resize and control interactions.
 
-**PRD-TERM-004 - Canonical durable rendering.** Human-facing interactive rendering may be richer than stored conversation content, but durable transcript output shall remain reconstructable and inspectable after the terminal session ends.
+**PRD-TERM-004 - Durable conversational display.** Human-facing live rendering may be richer than durable storage, but durable conversational output shall have an explicit inspectable representation distinct from canonical model-replay content, provider wire observations, and transient UI chrome.
 
 ### 7.11 Portability and native operation
 
@@ -294,7 +312,7 @@ The trust model has four product-level boundaries:
 3. **Delegation does not erase accountability.** Persistent delegated work remains inspectable and must obey applicable execution boundaries.
 4. **Confinement claims match reality.** Platform sandboxing may provide stronger guarantees on some systems, but the UI and diagnostics must not describe unavailable protection as active.
 
-This PRD does not mandate one sandbox implementation, process model, event system, allocator, or credential backend. Those are software and design decisions so long as the resulting behavior satisfies the product requirements.
+This PRD does not mandate one sandbox implementation, process model, event system, allocator, renderer, or credential backend. Those are software and design decisions so long as the resulting behavior satisfies the product requirements.
 
 ## 9. Success criteria
 
@@ -307,8 +325,10 @@ For the next product revision, the following are release-level success criteria:
 - users can inspect durable history and recover recently moved branch tips;
 - supported provider/model changes do not unnecessarily fragment conversation identity;
 - persistent delegated agents leave inspectable work and return useful bounded reports to their parent;
+- delegated agents do not accidentally observe or control parent/sibling live execution state;
 - context pressure is visible and recoverable rather than appearing only as a provider failure;
 - credentials remain outside ordinary durable project state;
+- durable human-facing conversation output remains inspectable independently of provider wire data and transient terminal state;
 - tool and terminal behavior is reliable enough that normal coding tasks do not require understanding fyai's internal event or process architecture;
 - documentation clearly separates product guarantees from software mechanisms.
 
@@ -325,7 +345,7 @@ The following are not product goals for this revision:
 - hiding all provider capability differences behind claims of perfect portability;
 - storing raw API keys or OAuth credentials in portable project state;
 - making every delegated or standalone agent persistent when transient execution is explicitly desired;
-- defining internal allocator layouts, pointer stability mechanisms, event-loop APIs, process inheritance mechanics, or provider wire translations as product requirements;
+- defining internal allocator layouts, pointer stability mechanisms, event-loop APIs, process inheritance mechanics, renderer internals, or provider wire translations as product requirements;
 - guaranteeing identical sandbox strength on platforms that expose different confinement primitives;
 - remote arena synchronization or portable conversation bundles in this revision.
 
@@ -344,23 +364,25 @@ Examples:
 | Inspectable delegation | agent branches, process/protocol model, child lifecycle |
 | Safe tool use | tool schemas, policy evaluation, Landlock and platform behavior |
 | Context recovery | token accounting, provider-native compaction, fallback summarization |
+| Durable conversational display | display-output records, transcript replay, sink/rendering boundaries |
 | Native terminal experience | event pump, PTY/vterm behavior, rendering and display semantics |
 
 Future SRD revisions should cite PRD requirement identifiers where a software requirement exists primarily to satisfy a product requirement.
 
 ## 12. Roadmap and maturity
 
-This document begins at the transition from the Phase 1 implementation contract described by the 0.11 draft SRD toward a clearer product contract for the next revision.
+This document begins the transition from the Phase 1 implementation contract described by the 0.11 SRD toward a clearer product contract for 0.12.
 
 The immediate documentation work is:
 
-1. review these requirements against current `devel` behavior and identify any requirement that is aspirational rather than implemented;
-2. classify each requirement as required for the next revision, planned, or explicitly deferred;
-3. update the SRD so technical requirements trace to the relevant PRD identifiers;
+1. review requirements against current `devel` behavior and classify any requirement that remains aspirational;
+2. maintain the 0.12 requirement scope ledger separately from implementation detail;
+3. keep the SRD traced to relevant PRD identifiers;
 4. move implementation rationale that does not define a software requirement into focused design documents;
-5. use the PRD and SRD together when deciding whether a behavior change is a bug fix, product change, or implementation refactor.
+5. mark focused design documents as historical where their current-state description has been superseded by implementation;
+6. use the PRD and SRD together when deciding whether a behavior change is a bug fix, product change, or implementation refactor.
 
-Likely later product questions include remote synchronization, portable exchange/bundle formats, broader provider reasoning portability, deeper Git-awareness, and the boundary between local persistent agents and remote or distributed execution. These should be decided as product capabilities before their implementation mechanisms become accidental commitments.
+Likely later product questions include remote synchronization, portable exchange/bundle formats, broader provider reasoning portability, deeper Git-awareness, the durability boundary for delegated work, and the boundary between local persistent agents and remote or distributed execution. These should be decided as product capabilities before their implementation mechanisms become accidental commitments.
 
 ---
 
@@ -375,5 +397,5 @@ Likely later product questions include remote synchronization, portable exchange
 - `PRD-TOOL-*`: tools and trust
 - `PRD-SECRET-*`: credentials and secrets
 - `PRD-CONTEXT-*`: context management
-- `PRD-TERM-*`: terminal experience
+- `PRD-TERM-*`: terminal and transcript experience
 - `PRD-PLATFORM-*`: portability and native operation
