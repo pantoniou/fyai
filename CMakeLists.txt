@@ -54,8 +54,16 @@ include(CheckCCompilerFlag)
 include(CheckLibraryExists)
 include(CheckSymbolExists)
 include(CMakeDependentOption)
+include(ProcessorCount)
 include(CTest)
 include(FetchContent)
+
+ProcessorCount(NUM_PROCS)
+
+# Use two workers when processor detection fails.
+if(NUM_PROCS EQUAL 0)
+    set(NUM_PROCS 2)
+endif()
 
 check_c_compiler_flag("-std=gnu2x" FYAI_HAVE_GNU2X)
 if(FYAI_HAVE_GNU2X)
@@ -690,6 +698,13 @@ if(BUILD_TESTING)
         COMMAND fyai --invalid-option)
     set_tests_properties(fyai/cli_invalid_option PROPERTIES
         WILL_FAIL TRUE)
+
+    add_custom_target(parallel-test
+        COMMAND ${CMAKE_CTEST_COMMAND} -j ${NUM_PROCS} --output-on-failure
+        COMMENT "Running test suite in parallel using ${NUM_PROCS} CPU cores..."
+        USES_TERMINAL)
+    # Build test executables before running CTest.
+    add_dependencies(parallel-test fyai fyai_test)
 endif()
 
 if(FYAI_STATIC)

@@ -678,16 +678,17 @@ content: send them to the rendering sink on the status or notice stream.
 Configure and build:
 
 ```sh
-cmake -S . -B build
-cmake --build build
+cmake -S . -B build -G Ninja
+ninja -C build
 ./build/fyai -m gpt-4o-mini "hello"
 ./build/fyai dump state
 ```
 
-Run tests:
+Run the full test suite through the parallel test target. Use `ctest` only for
+targeted test runs:
 
 ```sh
-ctest --test-dir build --output-on-failure
+ninja -C build parallel-test
 ./build/fyai_test --list
 ./build/fyai_test oauth/plain_redirect
 ctest --test-dir build -R fyai/unit/oauth
@@ -708,9 +709,9 @@ whole machine finds another run's children. Never `pkill` a global pattern.
 Use ASAN for parser, storage, tool, event, and YAML changes:
 
 ```sh
-cmake -S . -B build-asan -DENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
-cmake --build build-asan
-ctest --test-dir build-asan --output-on-failure
+cmake -S . -B build-asan -G Ninja -DENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
+ninja -C build-asan
+ninja -C build-asan parallel-test
 ```
 
 The complete functional suite must also pass under ASAN.
@@ -720,7 +721,7 @@ sets to 3 for a sanitized tree and to 1 otherwise. A run raises it without
 reconfiguring:
 
 ```sh
-FYAI_TIMEOUT_SCALE=4 ctest --test-dir build -j12 --timeout 240
+FYAI_TIMEOUT_SCALE=4 ninja -C build parallel-test
 ```
 
 Scale a deadline only. A value that paces a case, such as how long the PTY
