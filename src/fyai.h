@@ -51,7 +51,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 	"Independent tool calls may be issued together in one response and " \
 	"will execute in parallel. Keep dependent or potentially conflicting " \
 	"tool calls in separate responses."
-#define MAX_TOOL_LOOP_ITERATIONS 50
+/* increase the tool loop for what contemporary models output */
+#define MAX_TOOL_LOOP_ITERATIONS 1000
 #define DEFAULT_TEMPERATURE 0.0
 /* Shell time limits in milliseconds. Zero disables either limit. */
 #define DEFAULT_RETRY_MAX_ATTEMPTS 8

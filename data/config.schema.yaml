@@ -91,8 +91,10 @@ properties:
   max_tool_iterations:
     type: integer
     exclusiveMinimum: 0
-    default: 50
-    description: Tool-call loop iteration cap per turn.
+    default: 1000
+    description: >-
+      Tool-call loop iteration cap per turn. It stops a runaway loop; the
+      turn keeps the steps that completed and reports the limit as its cause.
   max_tokens:
     type: integer
     exclusiveMinimum: 0
