@@ -386,7 +386,8 @@ void fyai_patch_band_refresh(struct fyai_ctx *ctx, fy_generic tool_call)
 	free(title);
 }
 
-void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
+void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
+			  bool execute)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name;
@@ -471,7 +472,9 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call)
 		free(header);
 		free(body.data);
 		memset(&body, 0, sizeof(body));
-		ctx->shell_stream = calloc(1, sizeof(*ctx->shell_stream));
+		/* Allocate a stream only for an executing call. */
+		ctx->shell_stream = execute ?
+			calloc(1, sizeof(*ctx->shell_stream)) : NULL;
 		if (ctx->shell_stream != NULL &&
 		    fyai_fenced_stream_start(ctx->shell_stream, ctx, cfg, NULL,
 					     cfg->tool_preview_lines > 0 ?

@@ -254,7 +254,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	    !(shell && cfg->agent_pty && !execute) &&
 	    (fyai_agent_delegated(ctx) || !cfg->markdown || banded ||
 	     (marked && fyai_sink_bands_available(ctx->sink))))
-		fyai_print_tool_call(ctx, tool_call);
+		fyai_print_tool_call(ctx, tool_call, execute);
 	if (cfg->debug)
 		emit_generic_to_stdout(ctx, "tool-call", tool_call, cfg->pretty);
 
