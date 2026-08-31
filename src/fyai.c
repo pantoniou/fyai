@@ -1382,12 +1382,34 @@ static void fyai_turn_run_drop_tool_group(struct fyai_turn_run *run)
 	fyai_tool_job_group_destroy(group);
 }
 
+/* discard a turn that cannot be stored */
 static void fyai_turn_run_abort_output(struct fyai_turn_run *run)
 {
 	fyai_output_abort(run->ctx);
 	run->result = fy_invalid;
 	if (run->state != FYAITRS_FAILED)
 		(void)fyai_turn_run_transition(run, FYAITRS_FAILED);
+}
+
+/* stop a turn that made progress */
+static void fyai_turn_run_stop(struct fyai_turn_run *run, const char *msg)
+{
+	struct fyai_ctx *ctx;
+	fy_generic result;
+
+	ctx = run->ctx;
+	if (fy_is_valid(run->turn) && run->turn.v != run->turn_in.v) {
+		result = fyai_output_finalize(ctx, run->turn, true);
+		result = fy_gb_internalize(ctx->gb, result);
+		result = fyai_with_diag(ctx->gb, result, msg);
+	} else {
+		fyai_output_abort(ctx);
+		result = fyai_with_diag(ctx->gb, fy_invalid, msg);
+	}
+	run->result = result;
+	(void)fyai_turn_run_transition(run,
+		fy_is_invalid(result) ?
+			FYAITRS_FAILED : FYAITRS_DONE);
 }
 
 static void
@@ -1415,28 +1437,14 @@ fyai_turn_run_finish(struct fyai_turn_run *run, fy_generic result,
 static void
 fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 {
-	struct fyai_ctx *ctx;
 	fy_generic diag;
-	fy_generic result;
 	const char *msg;
 
-	ctx = run->ctx;
 	diag = fy_generic_get_diag(response);
 	msg = fy_is_valid(diag) &&
 	      !fy_is_null(diag) ?
 		fy_castp(&diag, "request failed") : "request failed";
-	if (run->turn.v != run->turn_in.v) {
-		result = fyai_output_finalize(ctx, run->turn, true);
-		result = fy_gb_internalize(ctx->gb, result);
-		result = fyai_with_diag(ctx->gb, result, msg);
-	} else {
-		fyai_output_abort(ctx);
-		result = fyai_with_diag(ctx->gb, fy_invalid, msg);
-	}
-	run->result = result;
-	(void)fyai_turn_run_transition(run,
-		fy_is_invalid(result) ?
-			FYAITRS_FAILED : FYAITRS_DONE);
+	fyai_turn_run_stop(run, msg);
 }
 
 static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
@@ -1449,7 +1457,10 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 	ctx = run->ctx;
 	cfg = ctx->cfg;
 	if (run->iteration >= cfg->max_tool_iterations) {
-		fyai_turn_run_abort_output(run);
+		/* tool loop limit reached */
+		fyai_turn_run_stop(run,
+			fy_sprintfa("the tool loop reached its limit of %d iterations",
+				    cfg->max_tool_iterations));
 		return -1;
 	}
 	/*
@@ -1477,7 +1488,7 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 
 err:
 	fyai_turn_run_drop_tool_group(run);
-	fyai_turn_run_abort_output(run);
+	fyai_turn_run_stop(run, "the turn stopped before the model request");
 	return -1;
 }
 
@@ -2356,7 +2367,7 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 			     struct fyai_turn_run **runp)
 {
 	struct fyai_turn_run *run;
-	fy_generic result;
+	fy_generic result, diag;
 	int rc;
 
 	run = *runp;
@@ -2364,6 +2375,11 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	fyai_turn_run_destroy(run);
 	*runp = NULL;
 	fyai_ui_set_busy(ctx, false);
+	/* add a cause if neither the result nor the sink has one */
+	diag = fy_generic_get_diag(result);
+	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
+	    !fyai_diag_got_error(&ctx->cfg->diag))
+		fyai_error(ctx, "the turn did not complete");
 	result = fyai_report_diag(ctx, result);
 	rc = 0;
 	if (fy_is_valid(result)) {
