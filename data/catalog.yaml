@@ -62,8 +62,8 @@ models:
   open_source: false
   arena:
     rank: 1
-    elo: 1506.4861215268
-    votes: 21533
+    elo: 1507.4767250288949
+    votes: 25824
   agents:
   - claude_code
 - name: claude-haiku-4.5
@@ -100,9 +100,9 @@ models:
   - batch
   open_source: false
   arena:
-    rank: 27
-    elo: 1473.6383017341473
-    votes: 41327
+    rank: 31
+    elo: 1472.8509282744049
+    votes: 47459
   agents:
   - claude_code
 - name: claude-opus-5
@@ -195,18 +195,17 @@ models:
   - prefix_completion
   open_source: true
   arena:
-    rank: 85
-    elo: 1435.4199889187405
-    votes: 49112
+    rank: 89
+    elo: 1435.685040762398
+    votes: 48947
 - name: deepseek-v4-flash-free
-  display_name: DeepSeek V4 Flash Free
   modalities:
   - text
   open_source: false
 - name: deepseek-v4-flash-latest
   display_name: DeepSeek V4 Flash Latest
-  context_window: 1048576
-  max_output_tokens: 384000
+  context_window: 1310720
+  max_output_tokens: 393216
   modalities:
   - text
   capabilities:
@@ -230,9 +229,9 @@ models:
   - prefix_completion
   open_source: true
   arena:
-    rank: 51
-    elo: 1458.1767726138548
-    votes: 54397
+    rank: 54
+    elo: 1457.790472739109
+    votes: 54214
 - name: free
   display_name: Free Models Router
   context_window: 200000
@@ -276,9 +275,9 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 14
-    elo: 1486.4668823819263
-    votes: 95107
+    rank: 13
+    elo: 1486.6913225285841
+    votes: 101163
 - name: gemini-3.7-flash
   display_name: 'Google: Gemini 3.7 Flash'
   context_window: 1048576
@@ -333,7 +332,7 @@ models:
 - name: gemma-4-26b-a4b-it
   display_name: 'Google: Gemma 4 26B A4B '
   context_window: 262144
-  max_output_tokens: 262144
+  max_output_tokens: 16384
   modalities:
   - text
   - image
@@ -355,15 +354,13 @@ models:
   - video
   capabilities:
   - tool_calling
-  - structured_outputs
   - json_mode
   - reasoning
-  - logprobs
   open_source: true
 - name: gemma-4-31b-it
   display_name: 'Google: Gemma 4 31B'
   context_window: 262144
-  max_output_tokens: 262144
+  max_output_tokens: 16384
   modalities:
   - text
   - image
@@ -390,19 +387,57 @@ models:
   open_source: true
 - name: glm-5.2
   display_name: GLM 5.2
-  context_window: 1048576
+  modalities:
+  - text
+  open_source: false
+- name: glm-5.3
+  display_name: GLM-5.3
+  context_window: 1310720
   max_output_tokens: 131072
   modalities:
   - text
   capabilities:
   - tool_calling
-  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
   - reasoning_effort
   - logprobs
   open_source: true
+- name: glm-5.3-flash
+  display_name: GLM 5.3 Flash
+  context_window: 1310720
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
+  open_source: true
+  arena:
+    rank: 38
+    elo: 1469.383425308912
+    votes: 2424
+- name: glm-latest
+  display_name: 'Z.ai: GLM Latest'
+  context_window: 1310720
+  max_output_tokens: 131072
+  modalities:
+  - text
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
+  open_source: false
 - name: gpt-5.4-mini
   display_name: 'OpenAI: GPT-5.4 Mini'
   context_window: 400000
@@ -436,9 +471,9 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 21
-    elo: 1476.6692460957795
-    votes: 56736
+    rank: 22
+    elo: 1476.7081285347774
+    votes: 62975
   agents:
   - codex
 - name: gpt-5.6-luna
@@ -546,7 +581,7 @@ models:
 - name: gpt-oss-120b
   display_name: OpenAI gpt-oss-120b
   context_window: 131072
-  max_output_tokens: 131072
+  max_output_tokens: 117964
   modalities:
   - text
   capabilities:
@@ -558,30 +593,15 @@ models:
   - logprobs
   open_source: true
   arena:
-    rank: 192
-    elo: 1352.2256327794503
-    votes: 30775
-  agents:
-  - codex
-- name: gpt-oss-20b:free
-  display_name: 'OpenAI: gpt-oss-20b (free)'
-  context_window: 131072
-  max_output_tokens: 32768
-  modalities:
-  - text
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - reasoning_effort
-  - logprobs
-  open_source: true
+    rank: 196
+    elo: 1352.484410189254
+    votes: 29938
   agents:
   - codex
 - name: grok-4.6
   display_name: Grok 4.6
   context_window: 500000
+  max_output_tokens: 450000
   modalities:
   - text
   - image
@@ -597,6 +617,7 @@ models:
 - name: grok-latest
   display_name: 'xAI: Grok Latest'
   context_window: 500000
+  max_output_tokens: 450000
   modalities:
   - text
   - image
@@ -612,6 +633,7 @@ models:
 - name: hermes-4-405b
   display_name: 'Nous: Hermes 4 405B'
   context_window: 131072
+  max_output_tokens: 117964
   modalities:
   - text
   capabilities:
@@ -632,18 +654,13 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 54
-    elo: 1456.524907034572
-    votes: 4664
-- name: hy3-free
-  display_name: Hy3 Free
-  modalities:
-  - text
-  open_source: false
+    rank: 59
+    elo: 1455.6434734427285
+    votes: 6466
 - name: inkling
   display_name: Inkling
   context_window: 1048576
-  max_output_tokens: 262144
+  max_output_tokens: 471859
   modalities:
   - text
   - image
@@ -655,21 +672,13 @@ models:
   - reasoning_effort
   open_source: true
   arena:
-    rank: 75
-    elo: 1442.1704473604236
-    votes: 14695
-- name: kimi-k2.7-code
-  display_name: Kimi K2.7 Code
-  context_window: 262144
-  modalities:
-  - text
-  - image
-  capabilities:
-  - tool_calling
-  open_source: true
+    rank: 81
+    elo: 1439.1821712683675
+    votes: 20434
 - name: kimi-k3
   display_name: Kimi K3
   context_window: 1048576
+  max_output_tokens: 943718
   modalities:
   - text
   - image
@@ -682,18 +691,10 @@ models:
   - reasoning_effort
   - logprobs
   open_source: true
-- name: kimi-k3-fast
-  context_window: 1048576
-  modalities:
-  - text
-  - image
-  capabilities:
-  - tool_calling
-  open_source: false
 - name: kimi-latest
   display_name: MoonshotAI Kimi Latest
   context_window: 1048576
-  max_output_tokens: 1048576
+  max_output_tokens: 943718
   modalities:
   - text
   - image
@@ -710,16 +711,6 @@ models:
   display_name: 'Poolside: Laguna S 2.1'
   context_window: 1048576
   max_output_tokens: 131072
-  modalities:
-  - text
-  capabilities:
-  - tool_calling
-  - reasoning
-  open_source: false
-- name: laguna-s-2.1:free
-  display_name: 'Poolside: Laguna S 2.1 (free)'
-  context_window: 262144
-  max_output_tokens: 32768
   modalities:
   - text
   capabilities:
@@ -753,9 +744,9 @@ models:
   - logprobs
   open_source: false
   arena:
-    rank: 88
-    elo: 1434.0487969190467
-    votes: 44647
+    rank: 92
+    elo: 1433.8750961989845
+    votes: 44515
 - name: minimax-m3
   display_name: Minimax M3
   context_window: 1048576
@@ -772,12 +763,13 @@ models:
   - logprobs
   open_source: true
   arena:
-    rank: 72
-    elo: 1443.6447532990983
-    votes: 37312
+    rank: 78
+    elo: 1442.0263831538794
+    votes: 42988
 - name: mistral-small-2603
   display_name: 'Mistral: Mistral Small 4'
   context_window: 262144
+  max_output_tokens: 209715
   modalities:
   - text
   - image
@@ -788,29 +780,10 @@ models:
   - reasoning
   - reasoning_effort
   open_source: true
-- name: muse-spark-1.1
-  display_name: 'Meta: Muse Spark 1.1'
-  context_window: 1048576
-  modalities:
-  - text
-  - image
-  - audio
-  - video
-  - pdf
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - reasoning_effort
-  open_source: false
-  arena:
-    rank: 11
-    elo: 1488.8526539376112
-    votes: 16928
 - name: muse-spark-1.2
   display_name: Muse Spark 1.2
   context_window: 1048576
+  max_output_tokens: 943718
   modalities:
   - text
   - image
@@ -826,7 +799,8 @@ models:
   open_source: false
 - name: nemotron-3-ultra-550b-a55b
   display_name: 'NVIDIA: Nemotron 3 Ultra'
-  context_window: 512288
+  context_window: 262144
+  max_output_tokens: 16384
   modalities:
   - text
   capabilities:
@@ -856,7 +830,7 @@ models:
 - name: phi-4
   display_name: 'Microsoft: Phi 4'
   context_window: 16384
-  max_output_tokens: 16384
+  max_output_tokens: 14745
   modalities:
   - text
   capabilities:
@@ -874,73 +848,6 @@ models:
   - json_mode
   - reasoning
   open_source: true
-- name: qwen3.5-397b-a17b
-  display_name: 'Qwen: Qwen3.5 397B A17B'
-  context_window: 262144
-  max_output_tokens: 65536
-  modalities:
-  - text
-  - image
-  - video
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - logprobs
-  open_source: true
-  arena:
-    rank: 76
-    elo: 1441.8460921635492
-    votes: 66749
-- name: qwen3.6-27b
-  display_name: 'Qwen: Qwen3.6 27B'
-  context_window: 262144
-  max_output_tokens: 262144
-  modalities:
-  - text
-  - image
-  - video
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - logprobs
-  open_source: true
-- name: qwen3.6-35b-a3b
-  display_name: 'Qwen: Qwen3.6 35B A3B'
-  context_window: 262144
-  max_output_tokens: 262144
-  modalities:
-  - text
-  - image
-  - video
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - logprobs
-  open_source: true
-- name: qwen3.7-plus
-  display_name: Qwen3.7 Plus
-  context_window: 1000000
-  max_output_tokens: 131072
-  modalities:
-  - text
-  - image
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - logprobs
-  open_source: true
-  arena:
-    rank: 49
-    elo: 1458.472680828949
-    votes: 30847
 - name: qwen3.8-2.4t-a95b
   context_window: 262144
   modalities:
@@ -948,6 +855,14 @@ models:
   capabilities:
   - tool_calling
   open_source: false
+- name: qwen3.8-max
+  display_name: Qwen3.8-2.4T-A95B
+  modalities:
+  - text
+  - image
+  capabilities:
+  - tool_calling
+  open_source: true
 providers:
 - name: anthropic
   root_url: https://api.anthropic.com
@@ -1119,10 +1034,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.435
-      output: 0.87
+      input: 0.66
+      output: 1.98
       extra:
-        cache_read: 0.003625
+        cache_read: 0.022
     reported_modalities:
     - text
     reported_capabilities:
@@ -1136,10 +1051,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.14
-      output: 0.28
+      input: 0.22
+      output: 0.66
       extra:
-        cache_read: 0.0028
+        cache_read: 0.007
     reported_modalities:
     - text
     reported_capabilities:
@@ -1215,31 +1130,31 @@ providers:
     - image
     reported_capabilities:
     - function_calling
-  - canonical_id: kimi-k2.7-code
-    provider_model_id: accounts/fireworks/models/kimi-k2p7-code
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.95
-      output: 4.0
-      extra:
-        cache_read: 0.19
-    reported_modalities:
-    - text
-    - image
-    reported_capabilities:
-    - function_calling
-  - canonical_id: glm-5.2
-    provider_model_id: accounts/fireworks/models/glm-5p2
+  - canonical_id: glm-5.3
+    provider_model_id: accounts/fireworks/models/glm-5p3
     pricing:
       currency: USD
       unit: per_million_tokens
       input: 1.4
       output: 4.4
       extra:
-        cache_read: 0.14
+        cache_read: 0.26
     reported_modalities:
     - text
+    reported_capabilities:
+    - function_calling
+  - canonical_id: glm-5.3-flash
+    provider_model_id: accounts/fireworks/models/glm-5p3-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.15
+      output: 0.5
+      extra:
+        cache_read: 0.029
+    reported_modalities:
+    - text
+    - image
     reported_capabilities:
     - function_calling
   - canonical_id: minimax-m3
@@ -1257,35 +1172,28 @@ providers:
     - function_calling
   - canonical_id: deepseek-v4-pro
     provider_model_id: accounts/fireworks/models/deepseek-v4-pro
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 1.74
-      output: 3.48
-      extra:
-        cache_read: 0.145
     reported_modalities:
     - text
-    reported_capabilities:
-    - function_calling
-  - canonical_id: qwen3.7-plus
-    provider_model_id: accounts/fireworks/models/qwen3p7-plus
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.4
-      output: 1.6
-      extra:
-        cache_read: 0.08
-    reported_modalities:
-    - text
-    - image
     reported_capabilities:
     - function_calling
   - canonical_id: qwen3.8-2.4t-a95b
     provider_model_id: accounts/fireworks/models/qwen3p8-2p4t-a95b
     reported_modalities:
     - text
+    reported_capabilities:
+    - function_calling
+  - canonical_id: qwen3.8-max
+    provider_model_id: accounts/fireworks/models/qwen3p8-max
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 6.0
+      extra:
+        cache_read: 0.25
+    reported_modalities:
+    - text
+    - image
     reported_capabilities:
     - function_calling
   - canonical_id: gpt-oss-120b
@@ -1310,13 +1218,6 @@ providers:
       output: 4.05
       extra:
         cache_read: 0.17
-    reported_modalities:
-    - text
-    - image
-    reported_capabilities:
-    - function_calling
-  - canonical_id: kimi-k3-fast
-    provider_model_id: accounts/fireworks/routers/kimi-k3-fast
     reported_modalities:
     - text
     - image
@@ -1426,10 +1327,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.12
-      output: 0.4
-      extra:
-        cache_read: 0.05
+      input: 0.07
+      output: 0.34
     reported_modalities:
     - image
     - text
@@ -1466,32 +1365,24 @@ providers:
     - text
     - video
     reported_capabilities:
-    - frequency_penalty
     - include_reasoning
-    - logprobs
     - max_tokens
-    - presence_penalty
     - reasoning
-    - repetition_penalty
     - response_format
     - seed
-    - stop
-    - structured_outputs
     - temperature
     - tool_choice
     - tools
-    - top_k
-    - top_logprobs
     - top_p
   - canonical_id: gemma-4-31b-it
     provider_model_id: gemma-4-31b-it
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.1
+      input: 0.09
       output: 0.34
       extra:
-        cache_read: 0.1
+        cache_read: 0.05
     reported_modalities:
     - image
     - text
@@ -1513,7 +1404,6 @@ providers:
     - temperature
     - tool_choice
     - tools
-    - top_a
     - top_k
     - top_logprobs
     - top_p
@@ -1590,34 +1480,6 @@ providers:
       reasoning_controls_supported: true
       response_compaction_supported: false
   models:
-  - canonical_id: gpt-oss-20b:free
-    provider_model_id: gpt-oss-20b:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - logprobs
-    - max_tokens
-    - presence_penalty
-    - reasoning
-    - reasoning_effort
-    - repetition_penalty
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
-    - top_k
-    - top_logprobs
-    - top_p
   - canonical_id: gpt-5.4-mini
     provider_model_id: gpt-5.4-mini
     pricing:
@@ -1697,11 +1559,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.1
-      output: 0.6
+      input: 0.2
+      output: 1.2
       extra:
-        cache_read: 0.01
-        cache_write: 0.125
+        cache_read: 0.02
+        cache_write: 0.25
         web_search: 10000.0
     reported_modalities:
     - file
@@ -1747,11 +1609,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 6.0
+      input: 2.0
+      output: 12.0
       extra:
-        cache_read: 0.1
-        cache_write: 1.25
+        cache_read: 0.2
+        cache_write: 2.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -1773,10 +1635,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 30.0
+      input: 4.0
+      output: 20.0
       extra:
-        cache_read: 0.5
+        cache_read: 0.4
     reported_modalities:
     - file
     - image
@@ -1797,11 +1659,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 30.0
+      input: 2.0
+      output: 10.0
       extra:
-        cache_read: 0.5
-        cache_write: 6.25
+        cache_read: 0.2
+        cache_write: 2.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -1904,35 +1766,14 @@ providers:
     - text
   - canonical_id: deepseek-v4-flash
     provider_model_id: deepseek-v4-flash
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.14
-      output: 0.28
-      extra:
-        cache_read: 0.028
     reported_modalities:
     - text
   - canonical_id: deepseek-v4-flash-free
     provider_model_id: deepseek-v4-flash-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
     reported_modalities:
     - text
   - canonical_id: deepseek-v4-pro
     provider_model_id: deepseek-v4-pro
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 1.74
-      output: 3.48
-      extra:
-        cache_read: 0.145
     reported_modalities:
     - text
   - canonical_id: gpt-5.6-sol
@@ -1940,11 +1781,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 30.0
+      input: 2.0
+      output: 10.0
       extra:
-        cache_read: 0.5
-        cache_write: 6.25
+        cache_read: 0.2
+        cache_write: 2.5
     reported_modalities:
     - text
   - canonical_id: gpt-5.6-terra
@@ -2002,17 +1843,6 @@ providers:
       output: 6.0
       extra:
         cache_read: 0.5
-    reported_modalities:
-    - text
-  - canonical_id: hy3-free
-    provider_model_id: hy3-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
     reported_modalities:
     - text
   - canonical_id: kimi-k3
@@ -2325,10 +2155,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.06846
-      output: 0.13692
+      input: 0.088606
+      output: 0.177212
       extra:
-        cache_read: 0.013692
+        cache_read: 0.017721
     reported_modalities:
     - text
     reported_capabilities:
@@ -2359,10 +2189,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.168
-      output: 2.336
+      input: 1.6
+      output: 3.2
       extra:
-        cache_read: 0.09855
+        cache_read: 0.135
     reported_modalities:
     - text
     reported_capabilities:
@@ -2392,10 +2222,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.06846
-      output: 0.13692
+      input: 0.03
+      output: 0.16
       extra:
-        cache_read: 0.013692
+        cache_read: 0.013
     reported_modalities:
     - text
     reported_capabilities:
@@ -2426,14 +2256,14 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.375
-      output: 1.875
+      input: 0.75
+      output: 3.75
       extra:
-        cache_read: 0.0375
-        cache_write: 0.020833
+        cache_read: 0.075
+        cache_write: 0.041667
         web_search: 14000.0
-        reasoning: 1.875
-        image: 0.375
+        reasoning: 3.75
+        image: 0.75
     reported_modalities:
     - text
     - image
@@ -2458,14 +2288,14 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.375
-      output: 1.875
+      input: 0.75
+      output: 3.75
       extra:
-        cache_read: 0.0375
-        cache_write: 0.020833
+        cache_read: 0.075
+        cache_write: 0.041667
         web_search: 14000.0
-        reasoning: 1.875
-        image: 0.375
+        reasoning: 3.75
+        image: 0.75
     reported_modalities:
     - text
     - image
@@ -2522,10 +2352,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.12
-      output: 0.4
-      extra:
-        cache_read: 0.05
+      input: 0.07
+      output: 0.34
     reported_modalities:
     - image
     - text
@@ -2562,32 +2390,24 @@ providers:
     - text
     - video
     reported_capabilities:
-    - frequency_penalty
     - include_reasoning
-    - logprobs
     - max_tokens
-    - presence_penalty
     - reasoning
-    - repetition_penalty
     - response_format
     - seed
-    - stop
-    - structured_outputs
     - temperature
     - tool_choice
     - tools
-    - top_k
-    - top_logprobs
     - top_p
   - canonical_id: gemma-4-31b-it
     provider_model_id: google/gemma-4-31b-it
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.1
+      input: 0.09
       output: 0.34
       extra:
-        cache_read: 0.1
+        cache_read: 0.05
     reported_modalities:
     - image
     - text
@@ -2609,7 +2429,6 @@ providers:
     - temperature
     - tool_choice
     - tools
-    - top_a
     - top_k
     - top_logprobs
     - top_p
@@ -2656,35 +2475,6 @@ providers:
     - repetition_penalty
     - seed
     - stop
-    - temperature
-    - tool_choice
-    - tools
-    - top_k
-    - top_p
-  - canonical_id: muse-spark-1.1
-    provider_model_id: meta/muse-spark-1.1
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 1.25
-      output: 4.25
-      extra:
-        cache_read: 0.15
-        web_search: 2500.0
-    reported_modalities:
-    - text
-    - image
-    - video
-    - file
-    - audio
-    reported_capabilities:
-    - include_reasoning
-    - max_tokens
-    - reasoning
-    - reasoning_effort
-    - repetition_penalty
-    - response_format
-    - structured_outputs
     - temperature
     - tool_choice
     - tools
@@ -2842,10 +2632,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.8
-      output: 14.0
+      input: 2.55
+      output: 12.75
       extra:
-        cache_read: 0.29
+        cache_read: 0.256
     reported_modalities:
     - text
     - image
@@ -2896,10 +2686,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.6
-      output: 3.6
+      input: 0.5
+      output: 2.2
       extra:
-        cache_read: 0.2
+        cache_read: 0.1
     reported_modalities:
     - text
     reported_capabilities:
@@ -2945,11 +2735,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.1
-      output: 0.6
+      input: 0.2
+      output: 1.2
       extra:
-        cache_read: 0.01
-        cache_write: 0.125
+        cache_read: 0.02
+        cache_write: 0.25
         web_search: 10000.0
     reported_modalities:
     - file
@@ -2971,11 +2761,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.1
-      output: 0.6
+      input: 0.2
+      output: 1.2
       extra:
-        cache_read: 0.01
-        cache_write: 0.125
+        cache_read: 0.02
+        cache_write: 0.25
         web_search: 10000.0
     reported_modalities:
     - file
@@ -2997,11 +2787,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 30.0
+      input: 2.0
+      output: 10.0
       extra:
-        cache_read: 0.5
-        cache_write: 6.25
+        cache_read: 0.2
+        cache_write: 2.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -3023,11 +2813,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 30.0
+      input: 2.0
+      output: 10.0
       extra:
-        cache_read: 0.5
-        cache_write: 6.25
+        cache_read: 0.2
+        cache_write: 2.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -3049,11 +2839,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 6.0
+      input: 2.0
+      output: 12.0
       extra:
-        cache_read: 0.1
-        cache_write: 1.25
+        cache_read: 0.2
+        cache_write: 2.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -3075,11 +2865,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 6.0
+      input: 2.0
+      output: 12.0
       extra:
-        cache_read: 0.1
-        cache_write: 1.25
+        cache_read: 0.2
+        cache_write: 2.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -3101,10 +2891,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.03
+      input: 0.037
       output: 0.17
-      extra:
-        cache_read: 0.03
     reported_modalities:
     - text
     reported_capabilities:
@@ -3126,34 +2914,6 @@ providers:
     - tool_choice
     - tools
     - top_a
-    - top_k
-    - top_logprobs
-    - top_p
-  - canonical_id: gpt-oss-20b:free
-    provider_model_id: openai/gpt-oss-20b:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - logprobs
-    - max_tokens
-    - presence_penalty
-    - reasoning
-    - reasoning_effort
-    - repetition_penalty
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
     - top_k
     - top_logprobs
     - top_p
@@ -3282,149 +3042,6 @@ providers:
     - temperature
     - tool_choice
     - tools
-  - canonical_id: laguna-s-2.1:free
-    provider_model_id: poolside/laguna-s-2.1:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    reported_capabilities:
-    - include_reasoning
-    - max_tokens
-    - reasoning
-    - temperature
-    - tool_choice
-    - tools
-  - canonical_id: qwen3.5-397b-a17b
-    provider_model_id: qwen/qwen3.5-397b-a17b
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.39
-      output: 2.34
-    reported_modalities:
-    - text
-    - image
-    - video
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - logit_bias
-    - logprobs
-    - max_tokens
-    - min_p
-    - presence_penalty
-    - reasoning
-    - repetition_penalty
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
-    - top_k
-    - top_logprobs
-    - top_p
-  - canonical_id: qwen3.7-plus
-    provider_model_id: qwen/qwen3.7-plus
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.32
-      output: 1.28
-      extra:
-        cache_read: 0.064
-        cache_write: 0.4
-    reported_modalities:
-    - text
-    - image
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - logprobs
-    - max_tokens
-    - presence_penalty
-    - reasoning
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
-    - top_k
-    - top_logprobs
-    - top_p
-  - canonical_id: qwen3.6-27b
-    provider_model_id: qwen/qwen3.6-27b
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.6
-      output: 3.6
-      extra:
-        cache_read: 0.12
-    reported_modalities:
-    - text
-    - image
-    - video
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - logit_bias
-    - logprobs
-    - max_tokens
-    - min_p
-    - presence_penalty
-    - reasoning
-    - repetition_penalty
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
-    - top_k
-    - top_logprobs
-    - top_p
-  - canonical_id: qwen3.6-35b-a3b
-    provider_model_id: qwen/qwen3.6-35b-a3b
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.15
-      output: 1.0
-      extra:
-        cache_read: 0.05
-    reported_modalities:
-    - text
-    - image
-    - video
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - logit_bias
-    - logprobs
-    - max_tokens
-    - min_p
-    - presence_penalty
-    - reasoning
-    - repetition_penalty
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
-    - top_k
-    - top_logprobs
-    - top_p
   - canonical_id: qwen3-8b
     provider_model_id: qwen/qwen3-8b
     pricing:
@@ -3484,10 +3101,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.95
+      input: 1.0
       output: 4.05
       extra:
-        cache_read: 0.16
+        cache_read: 0.17
     reported_modalities:
     - text
     - image
@@ -3525,11 +3142,9 @@ providers:
     - image
     - file
     reported_capabilities:
-    - frequency_penalty
     - include_reasoning
     - logprobs
     - max_tokens
-    - presence_penalty
     - reasoning
     - reasoning_effort
     - response_format
@@ -3539,6 +3154,7 @@ providers:
     - temperature
     - tool_choice
     - tools
+    - top_k
     - top_logprobs
     - top_p
   - canonical_id: grok-latest
@@ -3556,11 +3172,9 @@ providers:
     - image
     - file
     reported_capabilities:
-    - frequency_penalty
     - include_reasoning
     - logprobs
     - max_tokens
-    - presence_penalty
     - reasoning
     - reasoning_effort
     - response_format
@@ -3570,6 +3184,7 @@ providers:
     - temperature
     - tool_choice
     - tools
+    - top_k
     - top_logprobs
     - top_p
   - canonical_id: mimo-v2.5
@@ -3606,15 +3221,15 @@ providers:
     - top_k
     - top_logprobs
     - top_p
-  - canonical_id: glm-5.2
-    provider_model_id: z-ai/glm-5.2
+  - canonical_id: glm-5.3
+    provider_model_id: z-ai/glm-5.3
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.49
-      output: 1.54
+      input: 1.4
+      output: 4.4
       extra:
-        cache_read: 0.091
+        cache_read: 0.26
     reported_modalities:
     - text
     reported_capabilities:
@@ -3624,7 +3239,72 @@ providers:
     - logprobs
     - max_tokens
     - min_p
-    - parallel_tool_calls
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
+  - canonical_id: glm-5.3-flash
+    provider_model_id: z-ai/glm-5.3-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.075
+      output: 0.25
+      extra:
+        cache_read: 0.015
+    reported_modalities:
+    - text
+    - image
+    - video
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
+  - canonical_id: glm-latest
+    provider_model_id: ~z-ai/glm-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.1875
+      output: 4.18
+      extra:
+        cache_read: 0.247
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_tokens
+    - min_p
     - presence_penalty
     - reasoning
     - reasoning_effort
