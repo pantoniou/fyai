@@ -46,10 +46,11 @@ int markdown_source_rows_utf8(void)
 	const char *wide = "\xe6\x97\xa5\xe6\x9c\xac";
 	const char *combining = "e\xcc\x81";
 
-	setlocale(LC_CTYPE, "");
-	FYAI_TCHECK(fyai_display_source_rows("abcd", 4, 4) == 2);
-	FYAI_TCHECK(fyai_display_source_rows(wide, strlen(wide), 4) == 2);
-	FYAI_TCHECK(fyai_display_source_rows(combining, strlen(combining), 1) == 2);
+	FYAI_TCHECK(fyai_display_source_rows(&test_cfg, "abcd", 4, 8) == 1);
+	FYAI_TCHECK(fyai_display_source_rows(&test_cfg, wide, strlen(wide), 8) == 1);
+	FYAI_TCHECK(fyai_display_source_rows(&test_cfg, combining,
+					strlen(combining), 8) == 1);
+	FYAI_TCHECK(fyai_display_source_rows(&test_cfg, "**abcd**", 8, 8) == 1);
 	return EXIT_SUCCESS;
 }
 
