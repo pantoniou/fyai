@@ -215,7 +215,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
         "Build the libfymd4c command-line executable" FORCE)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG eaf7ee05ef5cb67bedbbc78ce7170610f33f3b30
+        GIT_TAG 44cae6b5e47ae53c0b0aab46c531620960fc1304
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
