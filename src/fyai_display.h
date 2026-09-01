@@ -8,7 +8,8 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 int fyai_show_stats(struct fyai_ctx *ctx);
 int fyai_display_view(struct fyai_ctx *ctx);
 int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows);
-size_t fyai_display_source_rows(const char *md, size_t len, size_t width);
+size_t fyai_display_source_rows(const struct fyai_cfg *cfg, const char *md,
+				size_t len, size_t width);
 /* Repaint recent stored exchanges at the current width. */
 int fyai_display_repaint(struct fyai_ctx *ctx, int rows);
 int fyai_export_view(struct fyai_ctx *ctx, const char *path);

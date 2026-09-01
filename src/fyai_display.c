@@ -17,7 +17,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-#include <wchar.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -3487,55 +3486,14 @@ err_out:
 	return rc;
 }
 
-/* Count the terminal cells in a UTF-8 span. */
-static size_t md_span_cells(const char *text, size_t len)
+/* Count rows after rendering Markdown at @width columns. */
+size_t fyai_display_source_rows(const struct fyai_cfg *cfg, const char *md,
+				size_t len, size_t width)
 {
-	mbstate_t state;
-	wchar_t wc;
-	size_t cells;
-	size_t used;
-	int width;
-
-	memset(&state, 0, sizeof(state));
-	cells = 0;
-	while (len) {
-		used = mbrtowc(&wc, text, len, &state);
-		if (used == (size_t)-1 || used == (size_t)-2) {
-			memset(&state, 0, sizeof(state));
-			used = 1;
-			width = 1;
-		} else {
-			if (!used)
-				break;
-			width = wcwidth(wc);
-			if (width < 0)
-				width = 1;
-		}
-		cells += (size_t)width;
-		text += used;
-		len -= used;
-	}
-	return cells;
-}
-
-/* Count rows after wrapping @len source bytes at @width columns. */
-size_t fyai_display_source_rows(const char *md, size_t len, size_t width)
-{
-	const char *end = md + len;
 	size_t rows = 0;
-	size_t run;
-	size_t cells;
 
-	while (md < end) {
-		run = strcspn(md, "\n");
-		if (run > (size_t)(end - md))
-			run = (size_t)(end - md);
-		cells = md_span_cells(md, run);
-		rows += cells / width + 1;
-		md += run;
-		if (md < end)
-			md++;
-	}
+	if (!width || markdown_measure_rows(cfg, md, len, width, &rows))
+		return 0;
 	return rows;
 }
 
@@ -3557,7 +3515,7 @@ static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
 	len = strlen(md);
 	fragments = fy_get(output, "fragments", fy_seq_empty);
 	if (!fy_len(fragments))
-		return fyai_display_source_rows(md, len, width);
+		return fyai_display_source_rows(cfg, md, len, width);
 
 	pos = 0;
 	fy_foreach(fragment, fragments) {
@@ -3566,11 +3524,11 @@ static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
 		if (llstart < 0 || llend < llstart ||
 		    (unsigned long long)llend > len ||
 		    (size_t)llstart < pos)
-			return fyai_display_source_rows(md, len, width);
+			return fyai_display_source_rows(cfg, md, len, width);
 		start = (size_t)llstart;
 		end = (size_t)llend;
-		rows += fyai_display_source_rows(md + pos, start - pos, width);
-		span = fyai_display_source_rows(md + start, end - start, width);
+		rows += fyai_display_source_rows(cfg, md + pos, start - pos, width);
+		span = fyai_display_source_rows(cfg, md + start, end - start, width);
 		kind = fy_get(fragment, "kind");
 		if (fy_equal(kind, "tool_head")) {
 			rows += span;
@@ -3589,7 +3547,7 @@ static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
 		}
 		pos = end;
 	}
-	return rows + fyai_display_source_rows(md + pos, len - pos, width);
+	return rows + fyai_display_source_rows(cfg, md + pos, len - pos, width);
 }
 
 /* Estimate the rendered rows for one exchange. */

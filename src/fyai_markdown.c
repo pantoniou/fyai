@@ -282,6 +282,26 @@ bool markdown_available(struct fyai_cfg *fcfg)
 	return true;
 }
 
+int markdown_measure_rows(const struct fyai_cfg *fcfg, const char *text,
+			  size_t len,
+			  size_t width, size_t *rows)
+{
+	struct fymd_renderer_cfg cfg;
+	struct fymd_renderer *r;
+	int rc;
+
+	if (!fcfg || !rows || width > INT_MAX)
+		return -1;
+	markdown_renderer_cfg((struct fyai_cfg *)fcfg, &cfg, false, "dark", 0);
+	cfg.width = (int)width;
+	r = fymd_renderer_create(&cfg);
+	if (!r)
+		return -1;
+	rc = fymd_measure_rows(r, text, len, rows);
+	fymd_renderer_destroy(r);
+	return rc;
+}
+
 char *markdown_lang_for_path(const char *path)
 {
 	if (!path || !*path)

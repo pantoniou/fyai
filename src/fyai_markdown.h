@@ -69,6 +69,8 @@ void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved);
 void markdown_renderer_cfg(struct fyai_cfg *cfg,
 			   struct fymd_renderer_cfg *renderer_cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra);
+int markdown_measure_rows(const struct fyai_cfg *cfg, const char *text, size_t len,
+			  size_t width, size_t *rows);
 
 int markdown_renderer_start(struct fyai_cfg *cfg,
 			    struct markdown_renderer *renderer, bool color,
