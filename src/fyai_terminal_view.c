@@ -62,6 +62,8 @@ struct fyai_terminal_view {
 	bool cursor_visible;
 	bool cursor_moved;	/* a paint must place the cursor again */
 	bool screen_mode;
+	bool alt_screen;
+	bool alt_screen_seen;
 	bool binary;
 };
 
@@ -331,6 +333,31 @@ static bool tty_csi_draws(const char *seq, size_t len, char final)
 	return false;
 }
 
+/* Track the active DEC alternate buffer independently of screen addressing. */
+static void tty_csi_alt_screen(struct fyai_terminal_view *view,
+			       const char *seq, size_t len, char final)
+{
+	const char *p, *end;
+	unsigned long param;
+
+	if ((final != 'h' && final != 'l') || !len || seq[0] != '?')
+		return;
+	p = seq + 1;
+	end = seq + len;
+	while (p < end) {
+		char *next;
+
+		param = strtoul(p, &next, 10);
+		if (next == p)
+			break;
+		if (param == 47 || param == 1047 || param == 1049) {
+			view->alt_screen = final == 'h';
+			view->alt_screen_seen = true;
+		}
+		p = next < end && *next == ';' ? next + 1 : end;
+	}
+}
+
 static void tty_log_putc(struct fyai_terminal_view *view, char c)
 {
 	if (response_buffer_append_data(&view->log, &c, 1))
@@ -364,6 +391,8 @@ static void tty_log_feed(struct fyai_terminal_view *view, unsigned char c)
 		return;
 	case TTYSC_CSI:
 		if (c >= 0x40 && c <= 0x7e) {
+			tty_csi_alt_screen(view, view->csi, view->csi_len,
+					   (char)c);
 			if (tty_csi_draws(view->csi, view->csi_len, (char)c))
 				view->screen_mode = true;
 			view->scan = TTYSC_TEXT;
@@ -779,12 +808,16 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 		 * What is new for a program that draws is the picture it
 		 * draws; the bytes that made it are cursor movements.
 		 */
-		if (view->screen_mode)
+		if (view->alt_screen ||
+		    (view->screen_mode && !view->alt_screen_seen))
 			return tty_screen_text(view, 0, view->rows, 0,
 					       view->cols, false, lenp);
 		return tty_log_text(view, view->log_read, true, lenp);
 	case FYAITR_ALL:
-		if (view->screen_mode) {
+		if (view->alt_screen)
+			return tty_screen_text(view, 0, view->rows, 0,
+					       view->cols, false, lenp);
+		if (view->screen_mode && !view->alt_screen_seen) {
 			char *text = tty_screen_text(view, 0, view->rows, 0,
 						     view->cols, true, lenp);
 
