@@ -10,7 +10,7 @@ fyai_test_setup
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!sh -c 'trap \"stty size | sed s/.*[[:space:]]/COLS:/\" WINCH; printf READY; sleep 10 & p=\$!; until wait \$p; do :; done'" \
 FYAI_PTY_NEEDLE="READY" \
-FYAI_PTY_AFTER="raw:07|wait:focused|resize:72|drain:1|raw:1d|drain:.5|raw:0c|drain:1" \
+FYAI_PTY_AFTER="raw:14|wait:focused|resize:72|drain:1|raw:1d|drain:.5|raw:0c|drain:1" \
 FYAI_PTY_AFTER_TIMEOUT=20 FYAI_PTY_SNAPSHOT="$TEST_DIR/resize.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

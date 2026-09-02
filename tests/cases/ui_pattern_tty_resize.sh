@@ -10,7 +10,7 @@ fyai_test_setup
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!$PYTHON $TESTS_DIR/resize_tui.py" \
 FYAI_PTY_NEEDLE="SIZE 22x98 GEN" FYAI_PTY_TIMEOUT=20 \
-FYAI_PTY_AFTER="raw:07|wait:focused|resize:52|wait:x50 GEN|drain:1|snapshot|raw:1d" \
+FYAI_PTY_AFTER="raw:14|wait:focused|resize:52|wait:x50 GEN|drain:1|snapshot|raw:1d" \
 FYAI_PTY_AFTER_PAUSE=1 FYAI_PTY_SNAPSHOT="$TEST_DIR/pattern.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
