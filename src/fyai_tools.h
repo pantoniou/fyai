@@ -66,6 +66,9 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name);
 /* Cycle focus through the prompt and live tiles. */
 bool fyai_tools_focus_next(struct fyai_ctx *ctx);
+/* List or terminate live shell sessions and sub-agents. */
+int fyai_tools_sessions(struct fyai_ctx *ctx);
+int fyai_tools_kill(struct fyai_ctx *ctx, const char *name);
 /* Return the pane and keyboard focus to the prompt. */
 void fyai_tools_unzoom(struct fyai_ctx *ctx);
 /* Start a user-owned TTY shell in the work pane. */

@@ -49,6 +49,7 @@
 #include "fyai_tools.h"
 #include "fyai_wait.h"
 #include "fyai_prof.h"
+#include "fyai_render.h"
 #include "fyai_sink.h"
 #include "fyai_ui.h"
 
@@ -4494,6 +4495,86 @@ bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 	return fyai_tools_focus(ctx, next);
 }
 
+int fyai_tools_sessions(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	fy_generic rows, opts;
+
+	if (!ctx || !(gb = fyai_ctx_transient_gb(ctx)))
+		return -1;
+	rows = fy_gb_sequence(gb);
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (sess->exited || !sess->surface)
+			continue;
+		rows = fy_append(gb, rows, fy_mapping(gb,
+			"name", sess->name,
+			"kind", "shell",
+			"state", sess->closing ? "stopping" :
+				ctx->zoom_surface == sess->surface ? "focused" :
+				"running"));
+	}
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->agent || job->done)
+			continue;
+		rows = fy_append(gb, rows, fy_mapping(gb,
+			"name", fyai_agent_job_name(job),
+			"kind", "agent",
+			"state", job->terminating ? "stopping" :
+				ctx->zoom_surface == job->surface ? "focused" :
+				job->wants_input ? "waiting" : "running"));
+	}
+	if (fy_empty(rows)) {
+		fyai_result(ctx, "no active sessions");
+		return 0;
+	}
+	opts = fy_mapping(gb,
+		"title", "Active sessions",
+		"keys", fy_sequence(gb, "name", "kind", "state"),
+		"columns", fy_mapping(gb,
+			"name", fy_mapping(gb, "name", "Name"),
+			"kind", fy_mapping(gb, "name", "Kind"),
+			"state", fy_mapping(gb, "name", "State")));
+	return fyai_generic_to_markdown(ctx, opts, rows);
+}
+
+int fyai_tools_kill(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_shell_session *sess = NULL, *candidate;
+	struct fyai_tool_job *agent;
+
+	if (!ctx || fy_str_empty(name)) {
+		fyai_error(ctx, "kill: a session name is required");
+		return -1;
+	}
+	for (candidate = ctx->shell_sessions; candidate;
+	     candidate = candidate->next)
+		if (!candidate->exited && !strcmp(candidate->name, name)) {
+			sess = candidate;
+			break;
+		}
+	agent = fyai_agent_job_named(ctx, name);
+	if (sess && agent) {
+		fyai_error(ctx, "kill: '%s' names both a shell and a sub-agent",
+			   name);
+		return -1;
+	}
+	if (!sess && !agent) {
+		fyai_error(ctx, "kill: no active shell session or sub-agent is "
+			   "called '%s'", name);
+		return -1;
+	}
+	if (sess) {
+		fyai_shell_session_close(sess, false);
+		fyai_result(ctx, "stopping shell %s", name);
+	} else {
+		fyai_tool_job_cancel(agent);
+		fyai_result(ctx, "stopping agent %s", name);
+	}
+	return 0;
+}
+
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command)
 {
 	struct fyai_tool_job *job = NULL;
@@ -4541,6 +4622,8 @@ int fyai_tools_bang(struct fyai_ctx *ctx, const char *command)
 	job = fyai_tool_job_submit(ctx, call);
 	fyai_error_check(ctx, job, err,
 			 "could not start the bang shell");
+	if (job->session && job->session->surface)
+		(void)fyai_tools_focus(ctx, job->session->surface);
 	return 0;
 
 err:

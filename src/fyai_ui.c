@@ -732,6 +732,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			if (ui->keys_fn)
 				ui->keys_fn(ui->keys_data, ev.text,
 					    ev.text_len);
+			else
+				(void)fyai_ui_keys_return(ui->ctx, ev.text,
+							  ev.text_len);
 			break;
 		case FYTIM_EVENT_SCROLLBACK:
 			ui->activity_paused = true;
@@ -1862,7 +1865,7 @@ void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	else
 		(void)fytim_surface_set_margin(sf, ctx->cfg->session_margin);
 	text = focused ? "focused · Ctrl-] returns to the prompt · "
-			 "Ctrl-T moves focus" :
+			 "Ctrl-Tab/Ctrl-T moves focus" :
 		ui_chrome_text(ctx->cfg->tile_frame);
 	(void)fytim_surface_set_bottom(sf, text);
 }

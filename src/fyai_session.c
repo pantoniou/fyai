@@ -1519,9 +1519,40 @@ static int slash_zoom(struct fyai_ctx *ctx, const char *arg)
 			    "nothing is running to zoom into");
 		return 0;
 	}
-	fyai_result(ctx, "typing into %s; Ctrl-T moves focus; Ctrl-] comes back",
+	fyai_result(ctx, "typing into %s; Ctrl-Tab/Ctrl-T moves focus; "
+		    "Ctrl-] comes back",
 		    what);
 	return 0;
+}
+
+static int slash_sessions(struct fyai_ctx *ctx, const char *arg)
+{
+	if (arg && *arg) {
+		fyai_error(ctx, "usage: /sessions");
+		return -1;
+	}
+	return fyai_tools_sessions(ctx);
+}
+
+static int slash_kill(struct fyai_ctx *ctx, const char *arg)
+{
+	const char *end;
+	size_t len;
+	char name[FYAI_BRANCH_NAME_MAX + 1];
+
+	while (arg && (*arg == ' ' || *arg == '\t'))
+		arg++;
+	len = arg ? strcspn(arg, " \t") : 0;
+	end = arg ? arg + len : NULL;
+	while (end && (*end == ' ' || *end == '\t'))
+		end++;
+	if (!len || (end && *end) || len >= sizeof(name)) {
+		fyai_error(ctx, "usage: /kill NAME");
+		return -1;
+	}
+	memcpy(name, arg, len);
+	name[len] = '\0';
+	return fyai_tools_kill(ctx, name);
 }
 
 static int slash_clear(struct fyai_ctx *ctx, const char *arg)
@@ -2232,6 +2263,10 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	  "inspect or control MCP server connections", slash_mcp },
 	{ "zoom", "[name|off]",
 	  "type into a live shell session or sub-agent", slash_zoom },
+	{ "sessions", "", "list active shell sessions and sub-agents",
+	  slash_sessions },
+	{ "kill", "NAME", "stop an active shell session or sub-agent",
+	  slash_kill },
 	{ "context", "", "context fill and token estimate", slash_context },
 	{ "status", "", "model, provider, auth and usage overview", slash_status },
 	{ "stats", "", "this session's token usage", slash_stats },
