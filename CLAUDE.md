@@ -530,6 +530,8 @@ command.
 - `display/work_zoom_rows` is the height of a zoomed tile. `full` uses the
   terminal height, `half` and `quarter` use that fraction of it, and an
   integer is a direct row count. Zooming out restores `display/work_max_rows`.
+  A focused tile uses the same height without changing the tiled layout.
+  Kitty `Ctrl-Shift-T` cycles `full`, `half`, and `quarter` for the session.
 - A named session shows its handle in the tile head, so the user can tell two
   sessions apart and name one in a later command.
 
