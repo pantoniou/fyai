@@ -12,7 +12,8 @@ run_size()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 8'" \
     FYAI_PTY_NEEDLE="bang-1" \
-    FYAI_PTY_AFTER="send:/zoom bang-1|wait:focused|wait: 98|drain:.5|raw:0c|drain:1|raw:1d" \
+    FYAI_PTY_AFTER="wait:focused|raw:1d|send:/zoom bang-1|wait:focused|"\
+"wait: 98|drain:.5|raw:0c|drain:1|raw:1d" \
     FYAI_PTY_SNAPSHOT="$TEST_DIR/zoom.out" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \

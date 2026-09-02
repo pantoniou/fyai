@@ -38,8 +38,9 @@ rows, cols = map(int, sizes[-1])
 if cols != 98:
     raise SystemExit("terminal has %d columns; expected 98 after 2-column margin"
                      % cols)
-if rows != 22:
-    raise SystemExit("terminal has %d rows; expected 22 in the shared pane" %
+if rows != 24:
+    raise SystemExit("terminal has %d rows; expected 24 with the prompt "
+                     "aside for the focused tile" %
                      rows)
 if not any("ENV:unset:unset" in line for line in lines):
     raise SystemExit("LINES/COLUMNS override the live PTY size")

@@ -8,11 +8,11 @@ fyai_test_setup
 
 CMD_A="!$PYTHON $TESTS_DIR/resize_tui.py A"
 CMD_B="!$PYTHON $TESTS_DIR/resize_tui.py B"
-AFTER="send:$CMD_B|wait:B SIZE|resize:24x80|drain:.2|resize:28x80|drain:.2|"
+AFTER="raw:1d|send:$CMD_B|wait:B SIZE|resize:24x80|drain:.2|resize:28x80|drain:.2|"
 # Settle and request a complete repaint before reading the screen.
-AFTER="${AFTER}resize:26x80|drain:.2|resize:32x80|drain:1|raw:0c|drain:1"
+AFTER="${AFTER}resize:26x80|drain:.2|resize:32x80|drain:1|raw:0c|drain:1|raw:1d"
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
-FYAI_PTY_INPUT="$CMD_A" FYAI_PTY_NEEDLE="A SIZE 22x98" \
+FYAI_PTY_INPUT="$CMD_A" FYAI_PTY_NEEDLE="A SIZE 24x98" \
 FYAI_PTY_AFTER="$AFTER" FYAI_PTY_AFTER_PAUSE=.01 \
 FYAI_PTY_AFTER_TIMEOUT=10 FYAI_PTY_SNAPSHOT="$TEST_DIR/multi.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
