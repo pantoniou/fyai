@@ -191,6 +191,16 @@ int term_view_altscreen_resize(void)
 	/* Populate primary and alternate screens. */
 	feed(view, "primary");
 	feed(view, "\033[?1049h\033[1;1HALTERNATE\033[2;1Hsecond");
+	text = fyai_terminal_view_read(view, FYAITR_ALL, NULL, &len);
+	FYAI_TCHECK(text != NULL);
+	FYAI_TCHECK(strstr(text, "ALTERNATE") != NULL);
+	FYAI_TCHECK(strstr(text, "primary") == NULL);
+	free(text);
+	text = fyai_terminal_view_read(view, FYAITR_NEW, NULL, &len);
+	FYAI_TCHECK(text != NULL);
+	FYAI_TCHECK(strstr(text, "ALTERNATE") != NULL);
+	FYAI_TCHECK(strstr(text, "primary") == NULL);
+	free(text);
 	fyai_terminal_view_resize(view, 3, 5);
 
 	/* Require independent alternate-screen row cropping. */
@@ -203,6 +213,14 @@ int term_view_altscreen_resize(void)
 	feed(view, "\033[?1049l");
 	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 0, &cell));
 	FYAI_TCHECK(cell.chars[0] == 'p');
+	text = fyai_terminal_view_read(view, FYAITR_ALL, NULL, &len);
+	FYAI_TCHECK(text != NULL);
+	FYAI_TCHECK(strstr(text, "ALTERNATE") != NULL);
+	free(text);
+	text = fyai_terminal_view_read(view, FYAITR_NEW, NULL, &len);
+	FYAI_TCHECK(text != NULL);
+	FYAI_TCHECK(strstr(text, "ALTERNATE") != NULL);
+	free(text);
 
 	fyai_terminal_view_destroy(view);
 
