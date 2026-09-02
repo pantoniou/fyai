@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "fyai_output.h"
+#include "fyai_session.h"
 #include "fyai_sink.h"
 #include "fyai_turn.h"
 
@@ -20,6 +21,7 @@ struct fyai_display_output {
 	enum fyai_output_tag tag;
 	struct response_buffer markdown;
 	fy_generic fragments;
+	size_t banner_len;
 	bool reasoning;
 };
 
@@ -115,6 +117,13 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 	rc = fyai_sink_doc_append(ctx->sink, text, len);
 	fyai_error_check(ctx, !rc, err,
 			 "could not render display output");
+	if (ctx->display_output->tag == FYAI_OUTPUT_ASSISTANT &&
+	    ctx->display_output->markdown.len -
+	    ctx->display_output->banner_len >= 256) {
+		ctx->display_output->banner_len =
+			ctx->display_output->markdown.len;
+		fyai_session_banner_update(ctx);
+	}
 	return 0;
 err:
 	return -1;
@@ -234,6 +243,16 @@ const char *fyai_output_markdown(const struct fyai_ctx *ctx, size_t *len)
 	return ctx && ctx->display_output &&
 	       ctx->display_output->markdown.data ?
 		ctx->display_output->markdown.data : "";
+}
+
+long long fyai_output_estimated_tokens(const struct fyai_ctx *ctx)
+{
+	const struct fyai_display_output *output;
+
+	output = ctx ? ctx->display_output : NULL;
+	if (!output || output->tag != FYAI_OUTPUT_ASSISTANT)
+		return 0;
+	return (long long)(output->markdown.len + 3) / 4;
 }
 
 bool fyai_output_renders_live(const struct fyai_ctx *ctx)

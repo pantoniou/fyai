@@ -151,6 +151,9 @@ static void fyai_accumulate_usage(struct fyai_ctx *ctx, fy_generic usage)
 	ctx->last_call_input = fy_get(usage, "input", 0LL);
 	ctx->last_call_output = fy_get(usage, "output", 0LL);
 	ctx->last_call_total = fy_get(usage, "total", 0LL);
+
+	/* The input pane reports usage from every completed model call. */
+	fyai_session_banner_update(ctx);
 }
 
 void fyai_print_usage_stats(struct fyai_ctx *ctx)

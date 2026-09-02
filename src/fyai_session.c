@@ -48,6 +48,7 @@
 #include "fyai_render.h"
 #include "fyai_log.h"
 #include "fyai_markdown.h"
+#include "fyai_output.h"
 #include "fyai_provider.h"
 #include "fyai_branch.h"
 #include "fyai_session.h"
@@ -1246,7 +1247,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	window = fyai_context_window(ctx);
 	if (window > 0) {
 		fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
-		used = session_projected_tokens(ctx, &prompt);
+		used = session_projected_tokens(ctx, &prompt) +
+			fyai_output_estimated_tokens(ctx);
 		snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
 			 (double)used * 100.0 / (double)window);
 		session_token_count(used_str, sizeof(used_str), used);
