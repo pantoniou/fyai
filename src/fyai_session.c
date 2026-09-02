@@ -1519,7 +1519,7 @@ static int slash_zoom(struct fyai_ctx *ctx, const char *arg)
 			    "nothing is running to zoom into");
 		return 0;
 	}
-	fyai_result(ctx, "typing into %s; Ctrl-G moves focus; Ctrl-] comes back",
+	fyai_result(ctx, "typing into %s; Ctrl-T moves focus; Ctrl-] comes back",
 		    what);
 	return 0;
 }

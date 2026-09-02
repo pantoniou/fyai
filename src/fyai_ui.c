@@ -698,11 +698,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_EDIT:
 			ui_message_clear(ui);
-			/* Ctrl-G cycles terminal-tile focus. */
-			if (fyai_tools_focus_next(ui->ctx))
-				break;
 			if (!ui->editor_request)
 				(void)ui_edit_begin(ui);
+			break;
+		case FYTIM_EVENT_FOCUS_NEXT:
+			/* Ctrl-T cycles the prompt and live terminal tiles. */
+			(void)fyai_tools_focus_next(ui->ctx);
 			break;
 		case FYTIM_EVENT_RESIZE: {
 			int cols = ev.width > 1 ? ev.width - 1 : 0;
@@ -1850,12 +1851,18 @@ int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			   bool focused)
 {
-	const char *text;
+	const char *text, *on, *off;
 
-	if (!sf)
+	if (!ctx || !ctx->cfg || !sf)
 		return;
+	if (focused && markdown_reverse_pair(ctx->cfg, &on, &off))
+		(void)fytim_surface_set_margin(sf,
+				fy_sprintfa("%s%s%s", on,
+					    ctx->cfg->session_margin, off));
+	else
+		(void)fytim_surface_set_margin(sf, ctx->cfg->session_margin);
 	text = focused ? "focused · Ctrl-] returns to the prompt · "
-			 "Ctrl-G moves focus" :
+			 "Ctrl-T moves focus" :
 		ui_chrome_text(ctx->cfg->tile_frame);
 	(void)fytim_surface_set_bottom(sf, text);
 }

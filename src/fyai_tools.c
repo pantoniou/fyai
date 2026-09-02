@@ -4292,7 +4292,7 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 				  size_t len);
 
 /* Focus keys intercepted while a tile owns keyboard input. */
-#define FYAI_FOCUS_NEXT_KEY 0x07	/* ^G */
+#define FYAI_FOCUS_NEXT_KEY 0x14	/* ^T */
 #define FYAI_FOCUS_PROMPT_KEY 0x1d	/* ^] */
 
 /* Route keyboard input from the focused tile. */
@@ -4358,7 +4358,33 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 		fyai_agent_view_reply(data, len, job);
 }
 
-/* Give the named live tile the work pane and keyboard focus. */
+/* Clear terminal keyboard focus without changing the work-pane layout. */
+static void fyai_tools_focus_clear(struct fyai_ctx *ctx)
+{
+	if (!ctx || !ctx->zoom_surface)
+		return;
+	fyai_ui_surface_focus(ctx, ctx->zoom_surface, false);
+	(void)fyai_ui_surface_keys(ctx, ctx->zoom_surface, false, NULL, NULL);
+	ctx->zoom_surface = NULL;
+}
+
+/* Give @sf terminal keyboard focus without changing the work-pane layout. */
+static bool fyai_tools_focus(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	if (!ctx || !sf)
+		return false;
+	fyai_tools_focus_clear(ctx);
+	ctx->zoom_surface = sf;
+	if (fyai_ui_surface_keys(ctx, sf, true, fyai_tools_zoom_keys, ctx)) {
+		ctx->zoom_surface = NULL;
+		return false;
+	}
+	fyai_ui_surface_focus(ctx, sf, true);
+	fyai_ui_wake(ctx);
+	return true;
+}
+
+/* Give the named live tile keyboard focus and the full work pane. */
 const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 {
 	struct fyai_shell_session *sess;
@@ -4407,25 +4433,20 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 	}
 	if (fyai_ui_surface_zoom(ctx, sf))
 		return NULL;
-	ctx->zoom_surface = sf;
-	if (fyai_ui_surface_keys(ctx, sf, true, fyai_tools_zoom_keys, ctx)) {
-		fyai_tools_unzoom(ctx);
+	if (!fyai_tools_focus(ctx, sf)) {
+		(void)fyai_ui_surface_zoom(ctx, NULL);
 		return NULL;
 	}
-	fyai_ui_surface_focus(ctx, sf, true);
-	fyai_ui_wake(ctx);
 	return what ? what : "";
 }
 
 /* Return the work pane and keyboard focus to the prompt. */
 void fyai_tools_unzoom(struct fyai_ctx *ctx)
 {
-	if (!ctx || !ctx->zoom_surface)
+	if (!ctx)
 		return;
-	fyai_ui_surface_focus(ctx, ctx->zoom_surface, false);
-	(void)fyai_ui_surface_keys(ctx, ctx->zoom_surface, false, NULL, NULL);
+	fyai_tools_focus_clear(ctx);
 	(void)fyai_ui_surface_zoom(ctx, NULL);
-	ctx->zoom_surface = NULL;
 	fyai_ui_wake(ctx);
 }
 
@@ -4434,33 +4455,29 @@ bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
 	struct fytim_surface *current, *next = NULL;
-	const char *name = NULL;
 	bool take_next;
 
 	if (!ctx)
 		return false;
 	current = ctx->zoom_surface;
+	if (fyai_ui_surface_zoomed(ctx))
+		(void)fyai_ui_surface_zoom(ctx, NULL);
 	take_next = current == NULL;
 	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
 		if (!sess->surface || sess->exited)
 			continue;
 		if (take_next) {
 			next = sess->surface;
-			name = sess->name;
 			break;
 		}
 		if (sess->surface == current)
 			take_next = true;
 	}
 	for (job = ctx->tool_jobs; job && !next; job = job->next) {
-		const char *agent;
-
 		if (!job->surface)
 			continue;
 		if (take_next) {
 			next = job->surface;
-			agent = job->branch ? strstr(job->branch, "agent:") : NULL;
-			name = agent ? agent + strlen("agent:") : job->title;
 			break;
 		}
 		if (job->surface == current)
@@ -4468,12 +4485,13 @@ bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 	}
 	if (!next) {
 		if (current) {
-			fyai_tools_unzoom(ctx);
+			fyai_tools_focus_clear(ctx);
+			fyai_ui_wake(ctx);
 			return true;
 		}
 		return false;
 	}
-	return fyai_tools_zoom(ctx, name) != NULL;
+	return fyai_tools_focus(ctx, next);
 }
 
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command)
