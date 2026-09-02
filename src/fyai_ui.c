@@ -643,6 +643,24 @@ static int ui_zoom_rows(struct fyai_ui *ui)
 	return rows;
 }
 
+/* Cycle the zoomed pane height policy and apply it to the work pane. */
+static void ui_zoom_rows_cycle(struct fyai_ui *ui)
+{
+	struct fyai_cfg *cfg = ui->ctx->cfg;
+
+	cfg->work_zoom_fixed_rows = 0;
+	if (!strcmp(cfg->work_zoom_rows, "full"))
+		cfg->work_zoom_rows = "half";
+	else if (!strcmp(cfg->work_zoom_rows, "half"))
+		cfg->work_zoom_rows = "quarter";
+	else
+		cfg->work_zoom_rows = "full";
+	ui->zoom_rows = ui_zoom_rows(ui);
+	(void)fytim_workpane_set_max_rows(ui->work_pane, ui->zoom_rows);
+	fyai_report(ui->ctx, "work pane height: %s", cfg->work_zoom_rows);
+	ui->frame_pending = true;
+}
+
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
@@ -702,8 +720,11 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				(void)ui_edit_begin(ui);
 			break;
 		case FYTIM_EVENT_FOCUS_NEXT:
-			/* Ctrl-T cycles the prompt and live terminal tiles. */
+			/* Ctrl-Tab or Ctrl-T cycles terminal keyboard focus. */
 			(void)fyai_tools_focus_next(ui->ctx);
+			break;
+		case FYTIM_EVENT_ZOOM_ROWS_NEXT:
+			ui_zoom_rows_cycle(ui);
 			break;
 		case FYTIM_EVENT_RESIZE: {
 			int cols = ev.width > 1 ? ev.width - 1 : 0;
@@ -1854,10 +1875,16 @@ int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			   bool focused)
 {
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	const char *text, *on, *off;
+	int rows;
 
 	if (!ctx || !ctx->cfg || !sf)
 		return;
+	if (ui && ui->work_pane) {
+		rows = focused ? ui_zoom_rows(ui) : ctx->cfg->work_max_rows;
+		(void)fytim_workpane_set_max_rows(ui->work_pane, rows);
+	}
 	if (focused && markdown_reverse_pair(ctx->cfg, &on, &off))
 		(void)fytim_surface_set_margin(sf,
 				fy_sprintfa("%s%s%s", on,
