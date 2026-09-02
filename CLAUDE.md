@@ -482,7 +482,8 @@ tiles them says both.
   the program, so it reaches the emulator and the line log with it: it is part
   of the tool result the model is given, and needs no separate path.
 - The keys of a tile arrive one frame at a time, not one key at a time. A key
-  this program keeps for itself - `Ctrl-T` and `Ctrl-]` - can thus arrive with
+  this program keeps for itself - `Ctrl-Tab`, `Ctrl-T`, and `Ctrl-]` - can
+  thus arrive with
   what was typed after it, and that input belongs to whoever holds the keys
   once the key is acted on: another tile, or the prompt. Give the rest of the
   chunk back with `fyai_ui_keys_return()`, which puts it in front of the input
