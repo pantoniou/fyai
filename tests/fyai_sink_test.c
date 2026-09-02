@@ -20,6 +20,7 @@
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(sink, chunked_equals_whole, sink_chunked_equals_whole)
+FYAI_TEST_ENTRY(sink, live_output_tokens, sink_live_output_tokens)
 FYAI_TEST_ENTRY(sink, reasoning_blockquote, sink_reasoning_blockquote)
 FYAI_TEST_ENTRY(sink, recorded_is_not_presented, sink_recorded_not_presented)
 FYAI_TEST_ENTRY(sink, fragments_survive_pause, sink_fragments_survive_pause)
@@ -142,6 +143,31 @@ static void test_chunked_equals_whole(void)
 	expect_str("chunked matches whole", captured(&f), whole);
 	fixture_close(&f);
 	free(whole);
+}
+
+static void test_live_output_tokens(void)
+{
+	struct sink_fixture f;
+
+	fixture_open(&f);
+	(void)fyai_output_begin(&f.ctx, FYAI_OUTPUT_ASSISTANT);
+	(void)fyai_output_append_string(&f.ctx, "12345");
+	expect_true("assistant output has a live token estimate",
+		    fyai_output_estimated_tokens(&f.ctx) == 2);
+	fyai_output_abort(&f.ctx);
+	(void)fyai_output_begin(&f.ctx, FYAI_OUTPUT_USER);
+	(void)fyai_output_append_string(&f.ctx, "12345");
+	expect_true("user output is not a live model estimate",
+		    fyai_output_estimated_tokens(&f.ctx) == 0);
+	fyai_output_abort(&f.ctx);
+	fixture_close(&f);
+}
+
+int sink_live_output_tokens(void)
+{
+	failures = 0;
+	test_live_output_tokens();
+	return failures ? -1 : 0;
 }
 
 /*
