@@ -917,6 +917,24 @@ const char *fyai_child_start_text(const struct fyai_child_start *start,
 	return buf;
 }
 
+/* Exit on a signal delivered before this process becomes the command.
+ * Async-signal-safe. */
+static void fyai_child_exec_prepare_signal(int signo)
+{
+	_exit(128 + signo);
+}
+
+/* Handle SIGTERM and SIGHUP instead of taking their default action.
+ * exec() resets the disposition, so the command inherits none of it. */
+static void fyai_child_exec_prepare_signals(void)
+{
+	struct sigaction sa = {};
+
+	sa.sa_handler = fyai_child_exec_prepare_signal;
+	(void)sigaction(SIGTERM, &sa, NULL);
+	(void)sigaction(SIGHUP, &sa, NULL);
+}
+
 int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			    const struct fyai_child_spec *spec)
 {
@@ -924,8 +942,17 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 	enum fyai_child_stage stage;
 	char num[16];
 
+	/*
+	 * A cancellation can race this setup. Install the handler before
+	 * abandoning the parent's loop: abandon unblocks the signals, and
+	 * an install after it is too late for one already pending. Install
+	 * it again after for a backend that restores signal actions as
+	 * part of abandon.
+	 */
+	fyai_child_exec_prepare_signals();
 	/* The application loop belongs to fyai, never to the command. */
 	fyai_ctx_loop_abandon(ctx);
+	fyai_child_exec_prepare_signals();
 	/* Isolate the child tree, optionally in a new session. */
 	stage = FYAI_CHILD_STAGE_SESSION;
 	if (spec->own_session) {

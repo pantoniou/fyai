@@ -3528,9 +3528,23 @@ static enum fyai_event_action fyai_tool_child_signal(const struct fyai_event *ev
 	return FYAIEA_CONTINUE;
 }
 
+static const int fyai_tool_child_signal_set[] = { SIGTERM, SIGHUP, SIGPIPE };
+
+/* Block the signals fyai_tool_child_signals() arms, before any other
+ * setup. A blocked signal queues; it does not take its default action. */
+static void fyai_tool_child_signals_block(void)
+{
+	sigset_t mask;
+	size_t i;
+
+	sigemptyset(&mask);
+	for (i = 0; i < ARRAY_SIZE(fyai_tool_child_signal_set); i++)
+		sigaddset(&mask, fyai_tool_child_signal_set[i]);
+	(void)sigprocmask(SIG_BLOCK, &mask, NULL);
+}
+
 static void fyai_tool_child_signals(struct fyai_ctx *ctx)
 {
-	static const int signals[] = { SIGTERM, SIGHUP, SIGPIPE };
 	struct fyai_event_loop *el;
 	struct fyai_event_source *src;
 	size_t i;
@@ -3539,9 +3553,9 @@ static void fyai_tool_child_signals(struct fyai_ctx *ctx)
 	el = fyai_ctx_loop(ctx);
 	if (!el)
 		return;
-	for (i = 0; i < ARRAY_SIZE(signals); i++) {
+	for (i = 0; i < ARRAY_SIZE(fyai_tool_child_signal_set); i++) {
 		src = NULL;
-		rc = fyai_event_add_signal(el, signals[i],
+		rc = fyai_event_add_signal(el, fyai_tool_child_signal_set[i],
 					   fyai_tool_child_signal, ctx, &src);
 		(void)rc;
 	}
@@ -3716,6 +3730,9 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		if (setsid() < 0)
 			(void)setpgid(0, 0);	/* already a leader: still isolate */
 		fyai_ctx_loop_abandon(ctx);
+		/* Abandon unblocks SIGTERM. Re-block it before the handler
+		 * below is armed, or a cancellation here kills the child. */
+		fyai_tool_child_signals_block();
 		if (master >= 0)
 			close(master);
 		/* Install the PTY before arranging standard and control descriptors. */
