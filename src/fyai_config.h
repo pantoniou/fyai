@@ -103,6 +103,12 @@ int fyai_config_edit(struct fyai_ctx *ctx);
  */
 int fyai_config_rederive(struct fyai_ctx *ctx);
 
+/*
+ * Adopt the opened arena configuration as the base while preserving the
+ * explicit configuration and command-line overlays prepared for this run.
+ */
+int fyai_config_adopt_arena(struct fyai_ctx *ctx);
+
 /* Apply one configuration overlay to the derived cache. */
 int fyai_config_apply(struct fyai_cfg *cfg, fy_generic overlay);
 

@@ -827,6 +827,12 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 				 "could not select the default branch");
 	}
 
+	/* Adopt newly seeded or opened branch configuration into ctx->cfg. */
+	if (fy_is_valid(ctx->arena_config)) {
+		rc = fyai_config_adopt_arena(ctx);
+		fyai_error_check(ctx, !rc, err_out,
+				 "could not adopt arena configuration");
+	}
 	return 0;
 
 err_out:

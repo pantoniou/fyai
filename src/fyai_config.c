@@ -2018,22 +2018,15 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	return rc;
 }
 
-int fyai_config_rederive(struct fyai_ctx *ctx)
+static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 
 	if (!cfg || !cfg->gb)
 		return -1;
 
-	/*
-	 * The arena is authoritative after a mutation; rebuild the merged doc
-	 * from it (edit/import replace the whole document, set/delete already
-	 * mirrored it) and re-run the single apply pass so the derived cache
-	 * matches what a fresh process would compute.
-	 */
-	if (fy_is_valid(ctx->arena_config))
-		cfg->config_doc = ctx->arena_config;
-	if (fyai_config_apply(cfg, cfg->config_doc))
+	cfg->config_doc = doc;
+	if (fyai_config_apply(cfg, doc))
 		return -1;
 
 	if (cfg->markdown)
@@ -2044,6 +2037,31 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 		fyai_ui_config_changed(ctx);
 
 	return fyai_config_resolve_model(cfg);
+}
+
+int fyai_config_rederive(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic doc;
+
+	if (!cfg || !cfg->gb)
+		return -1;
+	/* Arena changes replace the document after an in-session mutation. */
+	doc = fy_is_valid(ctx->arena_config) ?
+		ctx->arena_config : cfg->config_doc;
+	return config_rederive_doc(ctx, doc);
+}
+
+int fyai_config_adopt_arena(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic doc;
+
+	if (!cfg || !cfg->gb || !fy_is_valid(ctx->arena_config))
+		return -1;
+	/* The prepared document contains --config and --set as higher layers. */
+	doc = config_merge(cfg->gb, ctx->arena_config, cfg->config_doc);
+	return config_rederive_doc(ctx, doc);
 }
 
 void fyai_config_set_defaults(struct fyai_cfg *cfg)
