@@ -12,14 +12,18 @@ set -eu
 
 fyai_test_setup_bare
 
+# Do not inherit an arena from a scratch-directory ancestor.
+BOOTSTRAP_CONFIG="$TEST_DIR/bootstrap.yaml"
+printf 'arena_dir: %s/.fyai/arena\n' "$TEST_DIR" > "$BOOTSTRAP_CONFIG"
+
 # Non-interactive: refuse, and leave nothing behind.
-run_fyai "hello"
+run_fyai --config "$BOOTSTRAP_CONFIG" "hello"
 assert_status_nonzero
 assert_stderr_contains "run \`fyai init\`"
 if [ -e "$TEST_DIR/.fyai" ]; then fail "a refused run created $TEST_DIR/.fyai"; fi
 
 # The same for a verb that needs storage.
-run_fyai dump state
+run_fyai --config "$BOOTSTRAP_CONFIG" dump state
 assert_status_nonzero
 assert_stderr_contains "run \`fyai init\`"
 if [ -e "$TEST_DIR/.fyai" ]; then fail "a refused verb created $TEST_DIR/.fyai"; fi
@@ -34,7 +38,8 @@ pid, fd = pty.fork()
 if pid == 0:
     os.chdir(DIR)
     os.environ["TERM"] = "xterm-256color"
-    os.execv(BIN, [BIN, "-k", "test-key", "--color", "off", "-i"])
+    os.execv(BIN, [BIN, "-k", "test-key", "--color", "off",
+                   "--config", os.path.join(DIR, "bootstrap.yaml"), "-i"])
 
 buf, sent, end = b"", False, time.time() + 20
 while time.time() < end:
@@ -71,7 +76,8 @@ pid, fd = pty.fork()
 if pid == 0:
     os.chdir(DIR)
     os.environ["TERM"] = "xterm-256color"
-    os.execv(BIN, [BIN, "-k", "test-key", "--color", "off", "-i"])
+    os.execv(BIN, [BIN, "-k", "test-key", "--color", "off",
+                   "--config", os.path.join(DIR, "bootstrap.yaml"), "-i"])
 
 buf, sent, end = b"", False, time.time() + 20
 while time.time() < end:
@@ -105,7 +111,7 @@ sys.exit(0 if b"initialized" in buf else 1)
 PY
 [ -d "$TEST_DIR/.fyai/arena" ] || fail "an answer of yes created no arena"
 
-run_fyai config get model
+run_fyai --config "$BOOTSTRAP_CONFIG" config get model
 assert_status 0
 [ -s "$TEST_DIR/stdout" ] || fail "the new project has no model configured"
 

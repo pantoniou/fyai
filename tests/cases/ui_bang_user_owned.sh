@@ -9,7 +9,7 @@ mock_start ui_bang_user_owned.json
 
 ZOOM_AFTER="raw:1d|send:try to close my shell|"
 ZOOM_AFTER="${ZOOM_AFTER}wait:User shell ownership preserved.|"
-ZOOM_AFTER="${ZOOM_AFTER}send:/zoom bang-1|wait:focused|"
+ZOOM_AFTER="${ZOOM_AFTER}send:/zoom bang-1|wait:Ctrl-]|"
 ZOOM_AFTER="${ZOOM_AFTER}send:echo SECOND-ZOOM|wait:SECOND-ZOOM|raw:1d"
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!sh -c 'sleep .2; stty size; printf READY; sleep 10'" \
@@ -35,8 +35,9 @@ s = Screen(30, 100)
 s.feed(data)
 lines = s.lines()
 shown = "\n".join(lines)
-# Inspect emitted data because Ctrl-] clears transient focus chrome.
-if "focused · Ctrl-] returns to the prompt".encode() not in data:
+# The way back is on the status row, which the tile does not grow a line for.
+# Inspect emitted data because Ctrl-] clears it again.
+if "Ctrl-] returns to the prompt".encode() not in data:
     raise SystemExit("focused bang shell has no focus indication")
 if "shell [bang-1]" not in shown:
     raise SystemExit("bang shell does not display its /zoom name")

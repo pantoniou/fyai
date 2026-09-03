@@ -38,9 +38,12 @@ rows, cols = map(int, sizes[-1])
 if cols != 98:
     raise SystemExit("terminal has %d columns; expected 98 after 2-column margin"
                      % cols)
-if rows != 24:
-    raise SystemExit("terminal has %d rows; expected 24 with the prompt "
-                     "aside for the focused tile" %
+# The prompt block stands whether the tile holds the keys or not, so this is
+# the whole band less the fixed chrome (header, two rules, prompt, two status
+# rows) and the two rows of the tile's own head.
+if rows != 22:
+    raise SystemExit("terminal has %d rows; expected 22 under the chrome "
+                     "that does not move when focus does" %
                      rows)
 if not any("ENV:unset:unset" in line for line in lines):
     raise SystemExit("LINES/COLUMNS override the live PTY size")

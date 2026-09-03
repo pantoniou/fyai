@@ -9,7 +9,7 @@ fyai_test_setup
 # Send Ctrl-] and /status in one input frame.
 FYAI_PTY_INPUT="!sh -c 'printf ZOOMED; sleep 5'" \
 FYAI_PTY_NEEDLE="ZOOMED" FYAI_PTY_TIMEOUT=20 \
-FYAI_PTY_AFTER="wait:focused|raw:1d2f7374617475730a|wait:Usage / total" \
+FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d2f7374617475730a|wait:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/tail.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

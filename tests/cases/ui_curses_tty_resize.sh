@@ -30,7 +30,7 @@ if clear in data:
 s = Screen(30, 52)
 s.feed(data)
 lines = s.lines()
-if not any("SIZE 24x50 GEN" in line for line in lines):
+if not any("SIZE 22x50 GEN" in line for line in lines):
     raise SystemExit("the resized ncurses generation is not visible")
 for row in range(2, 20):
     token = "R%02d:" % row

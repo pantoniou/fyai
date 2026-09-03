@@ -9,7 +9,7 @@ mock_start session_zoom.json
 
 FYAI_PTY_INPUT="open a shell" FYAI_PTY_NEEDLE="the shell is open." \
 FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER='send:/zoom box|wait:focused|send:echo FROM-THE-USER|raw:1d|send:read it back|wait:read the session.' \
+FYAI_PTY_AFTER='send:/zoom box|wait:Ctrl-]|send:echo FROM-THE-USER|raw:1d|send:read it back|wait:read the session.' \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -30,7 +30,7 @@ plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 
 if b"typing into box" not in plain:
     raise SystemExit("/zoom did not give the keys to the session")
-if "focused · Ctrl-] returns to the prompt".encode() not in plain:
+if "Ctrl-] returns to the prompt".encode() not in plain:
     raise SystemExit("the focused session had no focus indication")
 
 # Require user input on the program screen, not the prompt.
@@ -40,14 +40,15 @@ typed = [i for i, disp in enumerate(shown)
 if not typed:
     raise SystemExit("what the user typed never reached the session screen")
 
-# Require the prompt to disappear while the tile owns input.
+# The prompt stays while the tile owns input: it is where the user goes back
+# to, and a row that is there but not lit says so without moving anything.
 def has_prompt(disp):
     return any(row.strip().startswith("\u276f") for row in disp)
 
 if not has_prompt(shown[0]):
     raise SystemExit("no prompt before the zoom")
-if has_prompt(shown[typed[0]]):
-    raise SystemExit("the prompt was still drawn while the tile had the keys")
+if not has_prompt(shown[typed[0]]):
+    raise SystemExit("the prompt left while the tile had the keys")
 if not has_prompt(shown[-1]):
     raise SystemExit("the prompt did not come back after Ctrl-]")
 

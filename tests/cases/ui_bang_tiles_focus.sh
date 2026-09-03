@@ -1,6 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Verify focus cycling across bang-shell tiles and the prompt.
+# Verify focus cycling across bang-shell tiles and the prompt. The pane holds
+# its tiles oldest first, so the cycle runs bang-1, bang-2, prompt: Ctrl-Tab
+# leaves the tile that has the keys and each Ctrl-T takes the next one.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -8,9 +10,9 @@ fyai_test_setup
 
 FYAI_PTY_INPUT="!sh -c 'printf FIRST; sleep 5'" \
 FYAI_PTY_NEEDLE="FIRST" FYAI_PTY_TIMEOUT=20 \
-FYAI_PTY_AFTER="wait:focused|raw:1d|"\
-"send:!sh -c 'printf SECOND; sleep 5'|wait:SECOND|wait:focused|"\
-"raw:1b5b393b3575|raw:14|send:/sessions|wait:Active sessions|"\
+FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|"\
+"send:!sh -c 'printf SECOND; sleep 5'|wait:SECOND|wait:Ctrl-]|"\
+"raw:1b5b393b3575|raw:14|raw:14|raw:14|send:/sessions|wait:Active sessions|"\
 "send:/kill bang-1|wait:stopping shell bang-1|"\
 "send:/kill bang-2|wait:stopping shell bang-2" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
@@ -29,7 +31,9 @@ shown = frames(open(sys.argv[1], "rb").read(), 30, 100)
 if not any(any("FIRST" in row for row in frame) and
            any("SECOND" in row for row in frame) for frame in shown):
     raise SystemExit("the two bang screens never shared one frame")
-if not any("focused" in row for frame in shown for row in frame):
+# The way back is on the status row while a tile holds the keys; the tile
+# itself gains no row, so nothing moves when focus does.
+if not any("Ctrl-]" in row for frame in shown for row in frame):
     raise SystemExit("Ctrl-T never focused a tile")
 if not any("Active sessions" in row for frame in shown for row in frame):
     raise SystemExit("/sessions did not list the live shells")

@@ -12,7 +12,7 @@ run_size()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 8'" \
     FYAI_PTY_NEEDLE="bang-1" \
-    FYAI_PTY_AFTER="wait:focused|raw:1d|send:/zoom bang-1|wait:focused|"\
+    FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|send:/zoom bang-1|wait:Ctrl-]|"\
 "wait: 98|drain:.5|raw:0c|drain:1|raw:1d" \
     FYAI_PTY_SNAPSHOT="$TEST_DIR/zoom.out" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
@@ -51,7 +51,7 @@ run_focused_size()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 3'" \
     FYAI_PTY_NEEDLE="bang-1" \
-    FYAI_PTY_AFTER="wait:focused|wait: 98|drain:.5|raw:1d" \
+    FYAI_PTY_AFTER="wait:Ctrl-]|wait: 98|drain:.5|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/focused.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
@@ -76,18 +76,19 @@ run_key_cycle()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 2; stty size; sleep 3'" \
     FYAI_PTY_NEEDLE="bang-1" \
-    FYAI_PTY_AFTER="wait:13 98|raw:1b5b3131363b3675|"\
-"wait:work pane height: quarter|wait:5 98|raw:1d" \
+    FYAI_PTY_AFTER="wait:14 98|raw:1b5b3131363b3675|"\
+"wait:work pane height: quarter|wait:6 98|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/cycle.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
         --set display/work_zoom_rows=half -m mock-model -i
 }
 
-# The cap includes surrounding UI and shell chrome.
-run_focused_size half 13
+# The cap includes surrounding UI and shell chrome. The prompt block stands
+# whether the tile holds the keys or not, so these do not change with focus.
+run_focused_size half 14
 run_key_cycle
-run_size half 13
-run_size quarter 5
-run_size 12 9
+run_size half 14
+run_size quarter 6
+run_size 12 10
 pass
