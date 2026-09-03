@@ -108,6 +108,7 @@ initialize each generic field explicitly.
 - `src/fyai_render.c`: generic-to-Markdown table rendering.
 - `src/fyai_diag.c`: collected diagnostics.
 - `src/utils.c`: HTTP buffers, shell capture, and generic serialization.
+- `src/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
 - `src/fyai_sandbox.c`: Linux Landlock confinement.
 - `src/fyai_oauth.c`: provider-independent OAuth browser flow.
 - `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP.
@@ -435,11 +436,47 @@ not a band of its own. A stack of full-width screens pushes the oldest off the
 top and says nothing about which screen belongs to which call; one region that
 tiles them says both.
 
+`src/fyai_workpane.c` owns the pane. It is the one component that writes a
+pane cap or a tile request, and it holds which tile has the keys and which
+tile is zoomed. A producer states intent through a semantic operation -
+register, focus, zoom, resize - and sizes nothing itself.
+
 - Open a screen tile with `fyai_ui_surface_open()` and a text tile with
   `fyai_ui_work_tile_create()` - a parallel run of shells and sub-agents is
   not all of one kind, and both tile in the same region. Either creates the
   pane on the first call and retires it with the last tile. A producer never
   places a tile.
+- Every band this program draws is a tile of that pane: the tool exchange,
+  the queued-input report, and the result of a verb or a slash command. There
+  is no second kind of band for a status or an error, and nothing draws
+  beside the pane. A band that is committed leaves the manager with its tile,
+  or the pane keeps a reference to a tile that has gone.
+- A `FYAI_WORKPANE_TILE_NOTICE` is a report to the user rather than work. It
+  takes a full-width row under the screens and is sized to what it holds,
+  through `FYAI_WORKPANE_TRACK_FIT`: scaled down with an elastic screen it
+  keeps only its last rows, and the heading that says what it is goes first.
+- A tile registers with `fyai_workpane_register()`, which takes the height it
+  asks layout for. That preference is explicit state. What the program has
+  drawn, how many rows are dirty, and where its cursor is do not change it: a
+  sub-agent that printed two lines still prefers the height it opened with.
+  `FYAI_WORKPANE_FILL` prefers the whole pane, which follows the terminal, and
+  is what a user-owned program takes.
+- Focus never changes geometry. `fyai_workpane_set_focus()` moves the keys and
+  the focus chrome and nothing else; Ctrl-T is not a layout operation. Zoom is
+  separate: it selects the only visible tile and leaves focus where it was.
+- A grant is an output. `fyai_workpane_layout_complete()` reads what layout
+  gave each tile and hands it to the owner through `apply_grant`, which may
+  size a pseudo-terminal and publish. It must not request rows or set a cap,
+  or the grant becomes the next request and the tile collapses to its content.
+  An acknowledgement records the grid with `fyai_workpane_grid_resized()` and
+  states no intent.
+- Retiring a tile is one transition: `fyai_workpane_unregister()` clears the
+  focus and the zoom that named it in the same pass, so no stale pointer is
+  left for the next keystroke to follow.
+- `fyai_workpane_reconcile()` applies the whole state in one pass, before the
+  frame that solves it. It is the only caller of `fytim_workpane_set_max_rows()`,
+  `fytim_workpane_set_zoom()`, and the tile request functions. `$FYAI_TRACE`
+  records one line per pass and one per tile.
 - A shell reads the same whether or not it has a screen. The head of a tile
   is the title row of the call and, under it, the command the call was given.
   A chrome slot draws a row for each of its lines, and a tile too short for
@@ -459,10 +496,65 @@ tiles them says both.
   `fyai_ui_surface_granted_rows()` and `fyai_ui_surface_granted_cols()`, which
   is what a pseudo-terminal is sized to. Do not size a program to the
   terminal.
-- `display/work_layout` chooses the grid: `auto` fits as many columns as keep
-  every tile at `display/work_min_tile_cols`, `columns` takes
-  `display/work_columns`, and `stack` is one screen above another. A terminal
+- A display setting takes on the next frame. `fyai_config_rederive()` tells a
+  live session with `fyai_ui_config_changed()`, which reads the prompt chrome
+  again and has the manager adopt the pane configuration and reconcile. A
+  setting a component caches at open needs a line there, or it takes only on
+  the next run.
+- `display/work_position` says where the pane stands. `above-prompt`, the
+  default, makes it the last band above the prompt block, next to the
+  transcript the work came from. `below-prompt` gives it the rows under the
+  prompt: the user types over the work, and a pane that grows moves nothing
+  that is being read. The chrome is solved in what is left, so the prompt
+  outranks the pane whatever the setting says.
+- The pane holds its tiles oldest first, and an arrangement that names one -
+  the whole top row, a column of its own - means the one that was there
+  first. A cycle of the keys starts there too.
+- No cell of the grid is left empty. A screen is a share of the pane, not a
+  cell of a square that happens to have one spare: three tiles are two and a
+  wide one under them, never two and a hole. The tiles of a short last row
+  share the columns it leaves.
+- `display/work_layout` chooses the arrangement: `auto` fits as many columns
+  as keep every tile at `display/work_min_tile_cols`; `columns` takes `display/work_columns`;
+  `stack` is one screen above another; `main-top` gives the oldest screen the
+  whole top row with the rest sharing the row beneath it; and `main-left`
+  gives it a column of its own with the rest stacked beside it. A terminal
   too narrow for two tiles stacks whatever the setting says.
+- Every arrangement is an explicit grid: the manager solves the placement
+  and states it with `fytim_workpane_set_grid()`, the track sizes, and one
+  `fytim_surface_set_cell()` per tile. A span is what makes a tile wider or
+  taller than its neighbours, which a grid of equal cells cannot express.
+  `fyai_workpane_place()` is that decision on its own, and is what the tests
+  assert against.
+- `fyai_workpane_set_policy()` installs an arrangement of the user's: it is
+  given the tiles and the terminal, and fills in a grid and a placement for
+  each. A policy that places nothing usable leaves the arrangement to the
+  library, so a bad policy degrades rather than blanks the pane.
+- What a tile draws follows the size it was granted, not what it holds. A
+  tile declares the sizes at which it changes with
+  `fyai_workpane_tile_set_ladder()`, and the manager tells its owner through
+  `set_presentation`: the screen, the screen without its head, the head and
+  an activity mark, or nothing. A screen too small to read is worth less than
+  the one row that says whose call it is, so a collapsed tile blanks its grid
+  rather than showing a corner of a screen.
+- `display/focus_bg` is the ground of the tile that holds the keys, and the
+  one place focus is said. `reverse` is the ground the terminal draws text
+  in, named rather than given: it contrasts on a light terminal and a dark
+  one alike and asks for no colour the terminal may not have, which is what
+  the prompt has always stood on, and is the default. A `#rrggbb` is a ground
+  of your own. The prompt stands on the same ground, because that is where
+  the keys are when no tile holds them and a tile that takes them takes the
+  prompt's rows with them: one setting says where the keys are, wherever they
+  went. An empty string draws no ground and reverses the margin of the tile
+  alone. The library draws it under whatever the program
+  draws - every cell with no colour of its own, the margin and the head with
+  them - so focus needs no marker at the edge of a tile.
+  `display/focus_bg_mix` is how much of a colour of your own reaches a cell
+  the program coloured itself: mixing needs 24-bit colour and a colour to mix, so a cell
+  drawn from the terminal's own palette is left alone, and so is the cursor,
+  which reverse video is what makes visible. With no colour configured the
+  margin is reversed instead, which is the mark a terminal of sixteen colours
+  can carry.
 - `display/work_frame`, `display/tile_frame` and `display/tile_sep` are the
   chrome. `display/session_margin` is the left gutter of a tile, sized
   against the tile. The pane draws no frame by default, and the gutter draws
@@ -476,11 +568,23 @@ tiles them says both.
   an event and acts on nothing itself: `fyai_tools_surface_request()` asks the
   component that started the program, because only it can end it.
 - `/zoom` gives one tile the pane and the keys, so the user works in the
-  program instead of watching it. The prompt stands aside while a tile holds
-  the keys. Escape and `^C` are the program's and `^\` and `^Z` are the
+  program instead of watching it. The prompt keeps its row while a tile holds
+  the keys: it is where the user goes back to, and what says the keys are
+  elsewhere is that it is no longer lit. Nothing on the screen moves when
+  focus does - a tile grows no line and loses none, and the way back is put
+  on the status row, which stands whether it says anything or not. A line
+  added to a tile when the keys arrive moves every tile beside it, twice, for
+  one keystroke. Escape and `^C` are the program's and `^\` and `^Z` are the
   terminal's, so the way back is `Ctrl-]`. What the user types is echoed by
   the program, so it reaches the emulator and the line log with it: it is part
   of the tool result the model is given, and needs no separate path.
+- Every key belongs to the tile that holds them, except the three this
+  program keeps: `Ctrl-Tab`, `Ctrl-T` and `Ctrl-]`. Escape and `^C` are the
+  program's - `^C` is the terminal of this process turning a key into a
+  signal before it can be read as one, so `fyai_ui_interrupt()` gives it to
+  the tile with `fyai_workpane_keys_deliver()` and the turn is not cancelled:
+  the user was typing into a program, not stopping the model. `^\` and `^Z`
+  stay this terminal's, because a program that took them could not be left.
 - The keys of a tile arrive one frame at a time, not one key at a time. A key
   this program keeps for itself - `Ctrl-Tab`, `Ctrl-T`, and `Ctrl-]` - can
   thus arrive with
@@ -527,11 +631,14 @@ command.
   A user-owned session has no such limit: the user reads its screen.
 - A user-owned tile can take more rows than the shared pane granted it. A tile
   of a tool call keeps the grant.
-- `display/work_zoom_rows` is the height of a zoomed tile. `full` uses the
+- `display/work_zoom_rows` is the height of the work pane. `full` uses the
   terminal height, `half` and `quarter` use that fraction of it, and an
-  integer is a direct row count. Zooming out restores `display/work_max_rows`.
-  A focused tile uses the same height without changing the tiled layout.
-  Kitty `Ctrl-Shift-T` cycles `full`, `half`, and `quarter` for the session.
+  integer is a direct row count. It is the pane's disposition, not a mode that
+  zoom turns on: the first bang shell opens at it, and a fraction is recomputed
+  from the terminal after every resize. `display/work_max_rows` is a further
+  ceiling on it, not an alternative to it. Zooming, unzooming, and moving focus
+  leave the disposition alone. Kitty `Ctrl-Shift-T` cycles `full`, `half`, and
+  `quarter` for the session.
 - A named session shows its handle in the tile head, so the user can tell two
   sessions apart and name one in a later command.
 
