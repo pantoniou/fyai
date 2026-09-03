@@ -528,15 +528,52 @@ properties:
           is as wide as the indicator of the title row, so the screen starts
           under the name of the call that opened it. An empty string draws
           none, and the screen then starts at the left edge of its tile.
+      focus_bg:
+        type: string
+        default: reverse
+        description: >-
+          The ground of the tile that holds the keys: reverse for the ground
+          the terminal draws text in, which contrasts on a light terminal and
+          a dark one alike and asks for no colour the terminal may not have,
+          or #rrggbb for one of your own. It is drawn
+          under whatever the program draws: every cell that has no colour of
+          its own takes it, the margin and the head with them, so focus needs
+          no marker of its own, and the prompt stands on the same ground,
+          because that is where the keys are when no tile holds them. An
+          empty string draws no ground and marks focus by reversing the
+          margin of the tile alone.
+      focus_bg_mix:
+        type: integer
+        minimum: 0
+        maximum: 100
+        default: 35
+        description: >-
+          How much of focus_bg is mixed into a cell the program coloured
+          itself. 0 leaves the program's colours alone and 100 replaces them.
+          Mixing needs a terminal that takes 24-bit colour and a colour to
+          mix: a cell coloured from the terminal's own palette is left alone.
       work_layout:
         type: string
-        enum: [auto, columns, stack]
+        enum: [auto, columns, stack, main-top, main-left]
         default: auto
         description: >-
           How live shell-session and sub-agent screens share the work pane.
+          No cell is left empty: the screens of a short last row share the
+          columns it leaves, so three of them are two and a wide one.
           auto fits as many columns as keep every tile at work_min_tile_cols;
           columns uses work_columns; stack puts one screen above another, as
-          separate bands did.
+          separate bands did; main-top gives the oldest screen the whole top
+          row with the rest sharing the row beneath it; main-left gives it a
+          column of its own with the rest stacked beside it.
+      work_position:
+        type: string
+        enum: [above-prompt, below-prompt]
+        default: above-prompt
+        description: >-
+          Where the work pane stands. above-prompt makes it the last band above
+          the prompt, next to the transcript the work came from. below-prompt
+          takes the rows under the prompt instead, so the user types over the
+          work and a pane that grows moves nothing that is being read.
       work_columns:
         type: integer
         minimum: 0
@@ -556,8 +593,9 @@ properties:
         minimum: 0
         default: 0
         description: >-
-          Rows the whole work pane may take, its own chrome included. 0 lets
-          the tiles ask for what they need.
+          Rows the whole work pane may take, its own chrome included. It is a
+          ceiling on work_zoom_rows, whichever of the two is smaller. 0 leaves
+          the height to work_zoom_rows alone.
       work_zoom_rows:
         oneOf:
           - type: string
@@ -566,9 +604,11 @@ properties:
             minimum: 1
         default: full
         description: >-
-          Height of a zoomed work-pane tile. full uses the available terminal
-          height, half and quarter use that fraction of it, and an integer is
-          a direct row limit. Zooming out restores work_max_rows.
+          Height of the work pane. full uses the available terminal height,
+          half and quarter use that fraction of it, and an integer is a direct
+          row limit. The first live tile opens at it, a fraction is recomputed
+          after a terminal resize, and moving focus or zooming does not change
+          it.
       work_frame:
         type: string
         default: none

@@ -36,6 +36,7 @@
 #include "fyai_terminal_session.h"
 #include "fyai_terminal_view.h"
 #include "fyai_ui.h"
+#include "fyai_workpane.h"
 #include "commands.h"
 #include "utils.h"
 
@@ -51,12 +52,6 @@
 
 /* How long the loop waits before it looks at the window again. */
 #define FYAI_TERM_FRAME_MS	50
-/*
- * The maximum time to wait until the band grants the rows that a new window
- * size requested. The granted rows apply to the last layout of the band.
- * Thus before the band answers, they still give the previous window size.
- */
-#define FYAI_TERM_SETTLE_MS	1000
 /* How long the program is given to go before it is killed outright. */
 #define FYAI_TERM_EXIT_WAIT_MS	(FYAI_TERM_KILL_GRACE_MS + 1000)
 
@@ -73,9 +68,6 @@ struct fyai_term {
 	int master;
 	pid_t pid;
 	int rows;			/* the rows the program is given */
-	int term_rows;			/* the window height that size came from */
-	int asked;			/* rows last requested from the band */
-	fyai_event_ms_t settle_until;	/* time after which a grant is used */
 	int cols;
 	int status;
 	bool prefix;			/* the next key is for fyai */
@@ -140,44 +132,25 @@ static void term_apply_size(struct fyai_term *t, int rows, int cols)
 	(void)fyai_ui_surface_resize(t->surface, t->rows, t->cols);
 }
 
-/* Fit the program to the current surface without chasing band-height
- * changes. */
-static void term_follow_window(struct fyai_term *t)
+/*
+ * Apply the grant the work-pane manager solved for this tile. The manager
+ * fills the whole pane with the raw terminal size; the state row drawn
+ * beneath the screen is chrome this verb owns, not a pane tile, so it is
+ * carved out of the grant here.
+ */
+static void term_apply_grant(void *owner, int rows, int cols)
 {
-	int cols = 0, term_rows = 0;
-	int rows, granted;
+	struct fyai_term *t = owner;
 
-	if (fyai_ui_size(t->ctx, &cols, &term_rows) || cols < 1)
+	if (cols < 1)
 		return;
-
-	rows = t->rows;
-	if (term_rows != t->term_rows) {
-		/*
-		 * The window changed size. The program gets all of it except
-		 * the chrome rows. The band did not get this request yet.
-		 */
-		t->term_rows = term_rows;
-		t->asked = term_rows - FYAI_TERM_CHROME_ROWS;
-		t->settle_until = fyai_event_now_ms() + FYAI_TERM_SETTLE_MS;
-		rows = t->asked;
-	} else {
-		/*
-		 * The granted rows are what the band could supply. They are
-		 * an answer only when they agree with the request. Before
-		 * that they give the height of the previous window, and no
-		 * later change corrects a program that received it.
-		 */
-		granted = fyai_ui_surface_granted_rows(t->surface);
-		if (granted >= 1 && (granted == t->asked ||
-				     fyai_event_now_ms() >= t->settle_until)) {
-			t->asked = granted;
-			rows = granted;
-		}
-	}
-	if (rows < 1)
-		rows = 1;
-	term_apply_size(t, rows, cols);
+	rows -= FYAI_TERM_CHROME_ROWS;
+	term_apply_size(t, rows > 0 ? rows : 1, cols);
 }
+
+static const struct fyai_workpane_tile_ops term_tile_ops = {
+	.apply_grant = term_apply_grant,
+};
 
 /* Give the surface what the view now holds, with the state row beneath it. */
 static void term_frame(struct fyai_term *t)
@@ -185,7 +158,6 @@ static void term_frame(struct fyai_term *t)
 	char status[sizeof(t->state_row)];
 	bool published;
 
-	term_follow_window(t);
 	published = fyai_ui_surface_publish(t->surface, t->view) > 0;
 	/*
 	 * The state row is set apart from the screen: a program that ended
@@ -470,8 +442,16 @@ int fyai_term_verb(struct fyai_ctx *ctx)
 	rc = fyai_ui_open(ctx);
 	fyai_error_check(ctx, !rc, err_out,
 			 "term: could not open the terminal display");
+	/* The program holds the keys; no one types into a prompt here. */
+	fyai_ui_prompt_enabled(ctx, false);
 
 	t.surface = fyai_ui_surface_open(ctx, t.rows, t.cols);
+	/* One program fills the window; its height follows the terminal. */
+	if (t.surface)
+		(void)fyai_workpane_register(ctx->workpane, t.surface,
+					     FYAI_WORKPANE_TILE_SHELL, &t,
+					     &term_tile_ops,
+					     FYAI_WORKPANE_FILL, 0);
 	fyai_error_check(ctx, t.surface != NULL, err_out,
 			 "term: could not open the display surface");
 

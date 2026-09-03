@@ -33,6 +33,7 @@
 #include "fyai_tools.h"
 #include <sys/ioctl.h>
 #include "fyai_terminal_view.h"
+#include "fyai_workpane.h"
 #include "utils.h"
 
 struct ui_line { struct ui_line *next; char *text; };
@@ -53,10 +54,6 @@ struct fyai_ui {
 	bool activity_paused;
 	bool external;
 	struct fytim_workband *tool_band;
-	/* Shared pane for live terminal and text tiles. */
-	struct fytim_workpane *work_pane;
-	int work_tiles;
-	int zoom_rows;		/* current terminal-relative zoom cap */
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
 	/* The surface holding the keys, and where its bytes go. */
@@ -82,6 +79,12 @@ struct fyai_ui {
 	bool repaint_pending;		/* transcript requires repaint */
 	fyai_event_ms_t next_frame_ms;
 };
+
+/* Bands are tiles in the shared work pane. */
+static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
+					   enum fyai_workpane_tile_kind kind,
+					   int max_rows);
+static void ui_band_close(struct fyai_ui *ui, struct fytim_workband **bandp);
 
 static char *ui_indicator(struct fyai_ui *ui,
 			  enum fymd_indicator_state state, size_t frame,
@@ -309,15 +312,13 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 		count++;
 	}
 	if (!count) {
-		if (ui->pending_band)
-			fytim_workband_destroy(ui->pending_band);
-		ui->pending_band = NULL;
+		ui_band_close(ui, &ui->pending_band);
 		return;
 	}
 	if (!ui->pending_band) {
-		ui->pending_band = fytim_workband_create(ui->ft);
+		ui->pending_band = ui_band_open(ui, FYAI_WORKPANE_TILE_NOTICE,
+						5);
 		if (!ui->pending_band) return;
-		(void)fytim_workband_set_max_rows(ui->pending_band, 5);
 	}
 	header_len = snprintf(NULL, 0, header_fmt, count);
 	if (header_len < 0 || (size_t)header_len > SIZE_MAX - len - 1)
@@ -473,8 +474,7 @@ static void ui_message_clear(struct fyai_ui *ui)
 {
 	if (!ui || !ui->message_band)
 		return;
-	fytim_workband_destroy(ui->message_band);
-	ui->message_band = NULL;
+	ui_band_close(ui, &ui->message_band);
 }
 
 static void ui_edit_complete_service(void *userdata)
@@ -605,18 +605,6 @@ err_out:
 }
 
 /* Convert configured mouse controls to library flags. */
-static unsigned int ui_work_controls(const struct fyai_ctx *ctx)
-{
-	const char *v = ctx->cfg->work_controls;
-
-	if (!v || !strcmp(v, "none"))
-		return 0;
-	if (!strcmp(v, "zoom"))
-		return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE;
-	return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE |
-	       FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
-}
-
 /* Map "none" to absent chrome; preserve an empty rule string. */
 static const char *ui_chrome_text(const char *v)
 {
@@ -625,47 +613,10 @@ static const char *ui_chrome_text(const char *v)
 	return v;
 }
 
-/* Convert the zoom policy to a row cap. */
-static int ui_zoom_rows(struct fyai_ui *ui)
-{
-	const char *policy = ui->ctx->cfg->work_zoom_rows;
-	int rows = 1;
-
-	(void)fytim_size(ui->ft, NULL, &rows);
-	if (ui->ctx->cfg->work_zoom_fixed_rows > 0)
-		return ui->ctx->cfg->work_zoom_fixed_rows;
-	if (policy && !strcmp(policy, "half"))
-		return (rows + 1) / 2;
-	if (policy && !strcmp(policy, "quarter"))
-		return (rows + 3) / 4;
-	if (policy && !strcmp(policy, "full"))
-		return 0;
-	return rows;
-}
-
-/* Cycle the zoomed pane height policy and apply it to the work pane. */
-static void ui_zoom_rows_cycle(struct fyai_ui *ui)
-{
-	struct fyai_cfg *cfg = ui->ctx->cfg;
-
-	cfg->work_zoom_fixed_rows = 0;
-	if (!strcmp(cfg->work_zoom_rows, "full"))
-		cfg->work_zoom_rows = "half";
-	else if (!strcmp(cfg->work_zoom_rows, "half"))
-		cfg->work_zoom_rows = "quarter";
-	else
-		cfg->work_zoom_rows = "full";
-	ui->zoom_rows = ui_zoom_rows(ui);
-	(void)fytim_workpane_set_max_rows(ui->work_pane, ui->zoom_rows);
-	fyai_report(ui->ctx, "work pane height: %s", cfg->work_zoom_rows);
-	ui->frame_pending = true;
-}
-
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
 	bool painted_frame;
-	bool zoom_relayout = false;
 
 	fyai_ui_drain_output(ui->ctx);
 	if (ui_activity_refresh(ui))
@@ -674,22 +625,13 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	/* Consume this request before callbacks can queue another frame. */
 	if (painted_frame)
 		ui->frame_pending = false;
+	/* Update layout state before reconciliation. */
+	fyai_workpane_reconcile(ui->ctx->workpane);
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
-	/* Recalculate fractional zoom after a terminal resize. */
-	if (fyai_ui_surface_zoomed(ui->ctx)) {
-		int cap = ui_zoom_rows(ui);
-
-		if (cap != ui->zoom_rows) {
-			ui->zoom_rows = cap;
-			(void)fytim_workpane_set_max_rows(ui->work_pane, cap);
-			ui->frame_pending = true;
-			zoom_relayout = true;
-		}
-	}
-	/* Apply post-layout tile dimensions to terminals. */
-	if (!zoom_relayout)
-		fyai_tool_jobs_layout(ui->ctx);
+	/* Apply grants through each tile owner. */
+	fyai_workpane_layout_complete(ui->ctx->workpane);
+	fyai_tool_surfaces_publish(ui->ctx);
 	if (painted_frame) {
 		ui->next_frame_ms =
 			fyai_event_now_ms() +
@@ -707,7 +649,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		case FYTIM_EVENT_INTERRUPT:
 			/* Escape only now; ^C arrives as SIGINT. Both mean
 			 * the same thing to the session. */
-			fyai_ui_interrupt(ui->ctx);
+			(void)fyai_ui_interrupt(ui->ctx);
 			break;
 		case FYTIM_EVENT_QUIT:
 			ui->quit = true;
@@ -724,7 +666,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			(void)fyai_tools_focus_next(ui->ctx);
 			break;
 		case FYTIM_EVENT_ZOOM_ROWS_NEXT:
-			ui_zoom_rows_cycle(ui);
+			fyai_workpane_cycle_disposition(ui->ctx->workpane);
 			break;
 		case FYTIM_EVENT_RESIZE: {
 			int cols = ev.width > 1 ? ev.width - 1 : 0;
@@ -736,8 +678,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				break;
 			}
 			ui->render_cols = cols;
-			/* Reset surface requests before solving the new layout. */
-			fyai_tool_surfaces_resize(ui->ctx, ev.height, ev.width);
+			/* Recompute the disposition and the tile preferences. */
+			fyai_workpane_terminal_resize(ui->ctx->workpane,
+						      ev.height, ev.width);
 			/* Defer one live reflow until the resize burst ends. */
 			ui->reflow_pending = true;
 			/* Repaint committed rows from stored transcript data. */
@@ -763,7 +706,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		case FYTIM_EVENT_SURFACE_ZOOM:
 			/* Toggle zoom for the selected tile. */
 			(void)fyai_ui_surface_zoom(ui->ctx,
-				fytim_workpane_zoomed(ui->work_pane) ==
+				fyai_workpane_zoomed(ui->ctx->workpane) ==
 					ev.surface ? NULL : ev.surface);
 			break;
 		case FYTIM_EVENT_SURFACE_CLOSE:
@@ -778,18 +721,19 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		}
 	}
+	/* Delegated agents repaint only their live result. */
+	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
+		ui->repaint_pending = false;
+	/* Clear live surfaces before transcript reflow. */
+	if (ui->repaint_pending &&
+	    fyai_tool_surfaces_active(ui->ctx)) {
+		ui->repaint_pending = false;
+		fyai_ui_clear_screen(ui->ctx);
+		ui->frame_pending = true;
+	}
 	if (ui->reflow_pending) {
 		ui->reflow_pending = false;
 		fyai_sink_reflow(ui->ctx->sink);
-		ui->frame_pending = true;
-	}
-	/* Delegated agents repaint only their live result screen. */
-	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
-		ui->repaint_pending = false;
-	/* Repaint retained live surfaces from a clean screen. */
-	if (ui->repaint_pending && fyai_tool_surfaces_active(ui->ctx)) {
-		ui->repaint_pending = false;
-		fyai_ui_clear_screen(ui->ctx);
 		ui->frame_pending = true;
 	}
 	if (ui->repaint_pending && !ui->busy) {
@@ -840,11 +784,13 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	/* Keep Ctrl-C as SIGINT so the watchdog can detect a stopped loop. */
 	cfg.intr_signal = true;
 	/* Grab the mouse only when work-pane controls require it. */
-	cfg.mouse = ui_work_controls(ctx) != 0;
+	cfg.mouse = fyai_workpane_wants_mouse(ctx);
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
 	ui->tty_fd = ttyout;
 	ttyout = -1;
+	ctx->workpane = fyai_workpane_create(ctx, ui->ft);
+	if (!ctx->workpane) goto fail;
 	{
 		int width = 0;
 		(void)fytim_size(ui->ft, &width, NULL);
@@ -878,6 +824,28 @@ fail:
 	return -1;
 }
 
+/*
+ * Adopt the display configuration again. A live session holds it in the
+ * library and in the work-pane manager, so a setting changed from the prompt
+ * takes on the next frame and not on the next run.
+ */
+void fyai_ui_config_changed(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->ft)
+		return;
+	(void)fytim_set_marker(ui->ft, ctx->cfg->prompt_marker &&
+			       *ctx->cfg->prompt_marker ?
+			       ctx->cfg->prompt_marker : "❯ ");
+	(void)fyai_ui_update_prompt_style(ctx);
+	/* The manager owns pane geometry and configuration adoption. */
+	fyai_workpane_adopt_config(ctx->workpane);
+	fyai_workpane_configure(ctx->workpane);
+	fyai_workpane_reconcile(ctx->workpane);
+	ui->frame_pending = true;
+}
+
 void fyai_ui_prompt_enabled(struct fyai_ctx *ctx, bool enabled)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
@@ -908,6 +876,8 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	}
 	spool_restore(&ui->out, STDOUT_FILENO);
 	spool_restore(&ui->err, STDERR_FILENO);
+	fyai_workpane_destroy(ctx->workpane);
+	ctx->workpane = NULL;
 	fytim_destroy(ui->ft);
 	fymd_renderer_destroy(ui->chrome_renderer);
 	if (ui->tty_fd >= 0)
@@ -945,9 +915,7 @@ void fyai_ui_pane_begin(struct fyai_ctx *ctx)
 	if (!ui)
 		return;
 	fyai_ui_drain_output(ctx);
-	if (ui->message_band)
-		fytim_workband_destroy(ui->message_band);
-	ui->message_band = NULL;
+	ui_band_close(ui, &ui->message_band);
 	ui->capture_out = ui->out.off;
 	ui->capture_err = ui->err.off;
 	ui->capture = true;
@@ -987,9 +955,8 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	}
 	snprintf(heading, len, "%s● %s\033[0m", color,
 		 title ? title : (error ? "error" : "status"));
-	ui->message_band = fytim_workband_create(ui->ft);
+	ui->message_band = ui_band_open(ui, FYAI_WORKPANE_TILE_NOTICE, 12);
 	if (ui->message_band) {
-		(void)fytim_workband_set_max_rows(ui->message_band, 12);
 		(void)fytim_workband_set_top(ui->message_band, heading);
 		(void)fytim_workband_set(ui->message_band, out.data, out.len);
 	}
@@ -1075,6 +1042,20 @@ err_out:
 	return -1;
 }
 
+/* The prompt stands on the ground a focused tile stands on: one setting
+ * says where the keys are, wherever they went. */
+static void ui_prompt_ground(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	uint32_t bg = 0;
+
+	if (!ui || !ui->ft)
+		return;
+	if (!fyai_ui_ground_parse(ctx->cfg->focus_bg, &bg))
+		bg = FYTIM_COLOR_DEFAULT;
+	(void)fytim_set_prompt_bg(ui->ft, bg);
+}
+
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
@@ -1099,6 +1080,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 		fymd_renderer_destroy(ui->chrome_renderer);
 		ui->chrome_renderer = NULL;
 		(void)fytim_set_prompt_style(ui->ft, NULL);
+		ui_prompt_ground(ctx);
 		for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++)
 			(void)fytim_set_chrome_style(ui->ft, styles[i].slot, NULL);
 		return 0;
@@ -1111,6 +1093,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	if (fymd_renderer_get_reverse_pair(renderer, &on, &off) ||
 	    fytim_set_prompt_style(ui->ft, on) != FYTIM_OK)
 		goto out;
+	ui_prompt_ground(ctx);
 	for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++) {
 		if (fymd_renderer_get_style_pair(renderer, styles[i].element,
 						 &on, &off) ||
@@ -1256,13 +1239,17 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 }
 
 /* Process Escape or SIGINT. */
-void fyai_ui_interrupt(struct fyai_ctx *ctx)
+bool fyai_ui_interrupt(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	const char *input;
 
 	if (!ui)
-		return;
+		return false;
+	/* A tile that holds the keys holds this ^C too: give it to the
+	 * program the user was typing into instead of stopping the turn. */
+	if (fyai_workpane_keys_deliver(ctx->workpane, "\x03", 1))
+		return true;
 	input = fytim_input(ui->ft);
 	if (!ui->busy && !ui->head && !ui->editor_request) {
 		if (input && *input)
@@ -1275,6 +1262,7 @@ void fyai_ui_interrupt(struct fyai_ctx *ctx)
 	ctx->interrupt_pending = true;
 	if (ui->busy)
 		ui_recall_pending(ui);
+	return false;
 }
 
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
@@ -1309,19 +1297,6 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top, const char *bo
 		(void)ui_status_render(ui, activity);
 		free(activity);
 	}
-}
-
-struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx)
-{
-	struct fytim_workband *band;
-
-	if (!fyai_ui_active(ctx))
-		return NULL;
-	band = fytim_workband_create(ctx->ui->ft);
-	if (band)
-		(void)fytim_workband_set_max_rows(band,
-			ctx->cfg->tool_preview_lines + 2);
-	return band;
 }
 
 /* Select the tile width for a band render and return the previous width. */
@@ -1483,12 +1458,6 @@ out:
 	free(out.data);
 }
 
-void fyai_ui_workband_destroy(struct fytim_workband *band)
-{
-	if (band)
-		fytim_workband_destroy(band);
-}
-
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 {
 	struct fyai_ui *ui;
@@ -1496,7 +1465,7 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	/* Drain the previous result before the next invocation. */
 	fyai_ui_drain_output(ctx);
 	ui = ctx->ui;
-	if (ui->tool_band) fytim_workband_destroy(ui->tool_band);
+	ui_band_close(ui, &ui->tool_band);
 	free(ui->tool_title);
 	free(ui->tool_command);
 	ui->tool_command = NULL;
@@ -1506,11 +1475,10 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	ui->tool_body = NULL;
 	ui->tool_body_len = 0;
 	ui->tool_title = strdup(title ? title : "tool");
-	ui->tool_band = fytim_workband_create(ui->ft);
+	ui->tool_band = ui_band_open(ui, FYAI_WORKPANE_TILE_TEXT,
+				     ctx->cfg->tool_preview_lines + 2);
 	if (!ui->tool_band) return;
 	ui->activity_phase = -1;
-	(void)fytim_workband_set_max_rows(ui->tool_band,
-		ctx->cfg->tool_preview_lines + 2);
 	(void)ui_activity_refresh(ui);
 }
 
@@ -1547,8 +1515,11 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 		(void)ui_tool_render(ui, margin, true);
 		free(margin);
 	}
+	/* The committed transcript owns the band after its tile retires. */
+	fyai_workpane_unregister_band(ui->ctx->workpane, ui->tool_band);
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
+	fyai_workpane_release(ui->ctx->workpane);
 	free(ui->tool_title); ui->tool_title = NULL;
 	free(ui->tool_command); ui->tool_command = NULL;
 	free(ui->tool_error); ui->tool_error = NULL;
@@ -1585,53 +1556,40 @@ static void surface_cell(const struct fyai_term_cell *src,
 	dst->width = (unsigned char)(src->width > 1 ? 2 : 1);
 }
 
-/* Destroy the pane after its last tile retires. */
-static void ui_work_pane_release(struct fyai_ui *ui)
+/*
+ * Open a band as a tile of the work pane. Every band this program draws is a
+ * tile: a report and a screen belong to one region, and the manager decides
+ * where each goes.
+ */
+static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
+					   enum fyai_workpane_tile_kind kind,
+					   int max_rows)
 {
-	if (ui->work_tiles > 0)
-		ui->work_tiles--;
-	if (ui->work_tiles > 0 || !ui->work_pane)
-		return;
-	fytim_workpane_destroy(ui->work_pane);
-	ui->work_pane = NULL;
-	ui->zoom_rows = 0;
-}
+	struct fytim_workpane *pane;
+	struct fytim_workband *band;
 
-/* Apply current grid and chrome configuration to the pane. */
-static void ui_work_pane_configure(struct fyai_ui *ui)
-{
-	const struct fyai_cfg *cfg = ui->ctx->cfg;
-	int cols = 0;
-
-	/* A stack layout uses one tile column. */
-	if (cfg->work_layout && !strcmp(cfg->work_layout, "stack"))
-		cols = 1;
-	else if (cfg->work_layout && !strcmp(cfg->work_layout, "columns"))
-		cols = cfg->work_columns;
-	(void)fytim_workpane_set_columns(ui->work_pane, cols);
-	(void)fytim_workpane_set_min_tile_cols(ui->work_pane,
-					       cfg->work_min_tile_cols);
-	(void)fytim_workpane_set_max_rows(ui->work_pane, cfg->work_max_rows);
-	(void)fytim_workpane_set_top(ui->work_pane,
-				     ui_chrome_text(cfg->work_frame));
-	(void)fytim_workpane_set_bottom(ui->work_pane,
-					ui_chrome_text(cfg->work_frame));
-	(void)fytim_workpane_set_tile_sep(ui->work_pane, cfg->tile_sep);
-	(void)fytim_workpane_set_controls(ui->work_pane,
-					  ui_work_controls(ui->ctx));
-}
-
-/* Open and configure the shared work pane. */
-static int ui_work_pane_open(struct fyai_ui *ui)
-{
-	if (!ui->work_pane) {
-		ui->work_pane = fytim_workpane_create(ui->ft);
-		if (!ui->work_pane)
-			return -1;
-		ui->work_tiles = 0;
+	pane = fyai_workpane_acquire(ui->ctx->workpane);
+	if (!pane)
+		return NULL;
+	band = fytim_workband_create_in(pane);
+	if (!band) {
+		fyai_workpane_release(ui->ctx->workpane);
+		return NULL;
 	}
-	ui_work_pane_configure(ui);
-	return 0;
+	(void)fytim_workband_set_max_rows(band, max_rows);
+	(void)fyai_workpane_register_band(ui->ctx->workpane, band, kind, NULL);
+	return band;
+}
+
+/* Retire a band tile. */
+static void ui_band_close(struct fyai_ui *ui, struct fytim_workband **bandp)
+{
+	if (!*bandp)
+		return;
+	fyai_workpane_unregister_band(ui->ctx->workpane, *bandp);
+	fytim_workband_destroy(*bandp);
+	*bandp = NULL;
+	fyai_workpane_release(ui->ctx->workpane);
 }
 
 struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx)
@@ -1639,18 +1597,22 @@ struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx)
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct fytim_workband *band;
 
+	struct fytim_workpane *pane;
+
 	if (!ui || !ui->ft)
 		return NULL;
-	if (ui_work_pane_open(ui))
+	pane = fyai_workpane_acquire(ctx->workpane);
+	if (!pane)
 		return NULL;
-	band = fytim_workband_create_in(ui->work_pane);
+	band = fytim_workband_create_in(pane);
 	if (!band) {
-		ui_work_pane_release(ui);
+		fyai_workpane_release(ctx->workpane);
 		return NULL;
 	}
 	(void)fytim_workband_set_max_rows(band,
 					  ctx->cfg->tool_preview_lines + 2);
-	ui->work_tiles++;
+	(void)fyai_workpane_register_band(ctx->workpane, band,
+					  FYAI_WORKPANE_TILE_TEXT, NULL);
 	return band;
 }
 
@@ -1676,8 +1638,10 @@ void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
 		(void)fytim_workband_commit(band);
 	else
 		fytim_workband_destroy(band);
-	if (ui)
-		ui_work_pane_release(ui);
+	if (ui) {
+		fyai_workpane_unregister_band(ctx->workpane, band);
+		fyai_workpane_release(ctx->workpane);
+	}
 }
 
 struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
@@ -1686,17 +1650,19 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct fytim_surface *sf;
 
+	struct fytim_workpane *pane;
+
 	if (!ui || !ui->ft)
 		return NULL;
-	if (ui_work_pane_open(ui))
+	pane = fyai_workpane_acquire(ctx->workpane);
+	if (!pane)
 		return NULL;
-	sf = fytim_surface_open_in(ui->work_pane, rows, cols);
+	sf = fytim_surface_open_in(pane, rows, cols);
 	if (!sf) {
-		ui_work_pane_release(ui);
+		fyai_workpane_release(ctx->workpane);
 		return NULL;
 	}
 	(void)fytim_surface_set_bottom(sf, ui_chrome_text(ctx->cfg->tile_frame));
-	ui->work_tiles++;
 	return sf;
 }
 
@@ -1710,9 +1676,10 @@ void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf)
 		ui->keys_fn = NULL;
 		ui->keys_data = NULL;
 	}
+	fyai_workpane_unregister(ctx->workpane, sf);
 	fytim_surface_close(sf);
 	if (ui)
-		ui_work_pane_release(ui);
+		fyai_workpane_release(ctx->workpane);
 }
 
 /* Read the terminal size from the active display. */
@@ -1755,9 +1722,10 @@ void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf)
 		ui->keys_fn = NULL;
 		ui->keys_data = NULL;
 	}
+	fyai_workpane_unregister(ctx->workpane, sf);
 	(void)fytim_surface_commit(sf);
 	if (ui)
-		ui_work_pane_release(ui);
+		fyai_workpane_release(ctx->workpane);
 }
 
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols)
@@ -1855,6 +1823,13 @@ int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text)
 	return fytim_surface_set_margin(sf, text) == FYTIM_OK ? 0 : -1;
 }
 
+int fyai_ui_surface_clear(struct fytim_surface *sf)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_clear(sf) == FYTIM_OK ? 0 : -1;
+}
+
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows)
 {
 	if (!sf || rows < 0)
@@ -1872,29 +1847,64 @@ int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 	return fytim_surface_set_bottom(sf, bottom) == FYTIM_OK ? 0 : -1;
 }
 
+/*
+ * The ground of a focused tile, as 0xRRGGBB or the word `reverse` for the
+ * one the terminal draws text in. Returns false for an empty or malformed
+ * value, which leaves the focus mark as it was.
+ */
+bool fyai_ui_ground_parse(const char *text, uint32_t *out)
+{
+	if (text && !strcmp(text, "reverse")) {
+		*out = FYTIM_COLOR_REVERSED;
+		return true;
+	}
+	return fyai_ui_color_parse(text, out);
+}
+
+bool fyai_ui_color_parse(const char *text, uint32_t *out)
+{
+	unsigned long v;
+	char *end;
+
+	if (!text || !*text)
+		return false;
+	if (*text == '#')
+		text++;
+	if (strlen(text) != 6)
+		return false;
+	v = strtoul(text, &end, 16);
+	if (*end)
+		return false;
+	*out = (uint32_t)v & 0xFFFFFFu;
+	return true;
+}
+
 void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			   bool focused)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	const char *text, *on, *off;
-	int rows;
+	uint32_t bg = 0;
+	bool wash;
 
-	if (!ctx || !ctx->cfg || !sf)
+	if (!ctx || !ctx->cfg || !sf || !ui)
 		return;
-	if (ui && ui->work_pane) {
-		rows = focused ? ui_zoom_rows(ui) : ctx->cfg->work_max_rows;
-		(void)fytim_workpane_set_max_rows(ui->work_pane, rows);
-	}
-	if (focused && markdown_reverse_pair(ctx->cfg, &on, &off))
+	/* Without a configured ground, mark focus by reversing the margin. */
+	wash = focused && fyai_ui_ground_parse(ctx->cfg->focus_bg, &bg);
+	(void)fytim_surface_set_bg(sf, wash ? bg : FYTIM_COLOR_DEFAULT,
+				   ctx->cfg->focus_bg_mix);
+	if (!wash && focused && markdown_reverse_pair(ctx->cfg, &on, &off))
 		(void)fytim_surface_set_margin(sf,
 				fy_sprintfa("%s%s%s", on,
 					    ctx->cfg->session_margin, off));
 	else
 		(void)fytim_surface_set_margin(sf, ctx->cfg->session_margin);
-	text = focused ? "focused · Ctrl-] returns to the prompt · "
-			 "Ctrl-Tab/Ctrl-T moves focus" :
-		ui_chrome_text(ctx->cfg->tile_frame);
+	/* The tile keeps its rows; the way back goes on the status row. */
+	text = ui_chrome_text(ctx->cfg->tile_frame);
 	(void)fytim_surface_set_bottom(sf, text);
+	(void)fytim_set_status_row(ui->ft, 0, focused ?
+			"Ctrl-] returns to the prompt · "
+			"Ctrl-Tab/Ctrl-T moves focus" : NULL);
 }
 
 int fyai_ui_surface_publish(struct fytim_surface *sf,
@@ -1939,31 +1949,17 @@ int fyai_ui_surface_publish(struct fytim_surface *sf,
 /* Zoom @sf to the full pane; NULL restores the grid. */
 int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf)
 {
-	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-
-	if (!ui || !ui->work_pane)
+	if (!ctx || !ctx->workpane)
 		return -1;
-	if (fytim_workpane_set_zoom(ui->work_pane, sf) != FYTIM_OK)
-		return -1;
-	if (sf) {
-		ui->zoom_rows = ui_zoom_rows(ui);
-		(void)fytim_workpane_set_max_rows(ui->work_pane,
-						 ui->zoom_rows);
-	} else {
-		ui->zoom_rows = 0;
-		(void)fytim_workpane_set_max_rows(ui->work_pane,
-						 ctx->cfg->work_max_rows);
-	}
-	fyai_ui_wake(ctx);
+	if (sf)
+		return fyai_workpane_set_zoom(ctx->workpane, sf);
+	fyai_workpane_clear_zoom(ctx->workpane);
 	return 0;
 }
 
 struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx)
 {
-	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-
-	return ui && ui->work_pane ? fytim_workpane_zoomed(ui->work_pane)
-				   : NULL;
+	return fyai_workpane_zoomed(ctx ? ctx->workpane : NULL);
 }
 
 /* Publish emulator scroll extent to the surface. */

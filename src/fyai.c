@@ -2594,7 +2594,10 @@ static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
 	/* Process each delivered SIGINT one time. */
 	if (ctx->interrupt_seq != ctx->interrupt_seen) {
 		ctx->interrupt_seen = ctx->interrupt_seq;
-		fyai_ui_interrupt(ctx);
+		/* A tile with the keys was given it: the user was typing into
+		 * a program, not stopping the turn. */
+		if (fyai_ui_interrupt(ctx))
+			return;
 	}
 	if (run)
 		fyai_turn_run_cancel(run);

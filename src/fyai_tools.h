@@ -50,10 +50,8 @@ bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
 
 /* Tell every live tool child that the terminal of the user changed size. */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
-/* Apply post-layout tile sizes to terminal emulators and programs. */
-void fyai_tool_jobs_layout(struct fyai_ctx *ctx);
-/* Reset user-surface requests after an outer-window resize. */
-void fyai_tool_surfaces_resize(struct fyai_ctx *ctx, int rows, int cols);
+/* Publish what every live tile has drawn since the last frame. */
+void fyai_tool_surfaces_publish(struct fyai_ctx *ctx);
 /* Return true while a terminal owns a work-pane surface. */
 bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx);
 struct fytim_surface;

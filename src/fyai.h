@@ -87,6 +87,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define FYAI_SESSION_MARGIN "  "
 /* Work-pane defaults. */
 #define DEFAULT_WORK_LAYOUT "auto"
+#define DEFAULT_WORK_POSITION "above-prompt"
+#define DEFAULT_FOCUS_BG "reverse"
+#define DEFAULT_FOCUS_BG_MIX 35
 #define DEFAULT_WORK_ZOOM_ROWS "full"
 #define DEFAULT_WORK_MIN_TILE_COLS 40
 #define DEFAULT_WORK_FRAME "none"
@@ -218,8 +221,11 @@ struct fyai_cfg {
 	const char *shell_tty_term;	/* terminal type exposed to PTY commands */
 	int shell_input_poll_ms;	/* how often a session is asked if it waits */
 	const char *session_margin;	/* left chrome of a terminal session */
+	const char *focus_bg;		/* ground of the focused tile, "" = none */
+	int focus_bg_mix;		/* percent of it mixed into a colour */
 	/* Work-pane configuration. */
 	const char *work_layout;	/* auto | columns | stack */
+	const char *work_position;	/* above-prompt | below-prompt */
 	int work_columns;		/* columns when work_layout is columns */
 	int work_min_tile_cols;		/* narrowest tile the auto grid makes */
 	int work_max_rows;		/* rows the pane may take (0 = uncapped) */
@@ -498,8 +504,8 @@ struct fyai_ctx {
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;
-	/* Surface with keyboard focus, or NULL. */
-	struct fytim_surface *zoom_surface;
+	/* The one owner of work-pane geometry, focus, and zoom. */
+	struct fyai_workpane_manager *workpane;
 	struct fyai_wait *waits;	/* named waits, live for this run */
 	/* Events queued for model turns in arrival order. */
 	struct fyai_pending_event *events;

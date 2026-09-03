@@ -505,10 +505,8 @@ static void sink_term_band_commit(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
-	if (b->wb && b->tile)
+	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, true);
-	else if (b->wb)
-		fyai_ui_workband_destroy(b->wb);
 	free(b);
 }
 
@@ -516,10 +514,8 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
-	if (b->wb && b->tile)
+	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
-	else if (b->wb)
-		fyai_ui_workband_destroy(b->wb);
 	free(b);
 }
 

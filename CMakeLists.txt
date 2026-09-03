@@ -451,6 +451,7 @@ set(FYAI_SOURCES
     src/fyai_log.c
     src/fyai_markdown.c
     src/fyai_ui.c
+    src/fyai_workpane.c
     src/fyai_mcp.c
     src/fyai_mcp_import.c
     src/fyai_jsonrpc.c

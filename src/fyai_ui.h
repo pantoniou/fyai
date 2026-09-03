@@ -22,6 +22,12 @@ void fyai_ui_close(struct fyai_ctx *ctx);
  * parent reads. It therefore asks for no prompt, and the rows go to its work.
  */
 void fyai_ui_prompt_enabled(struct fyai_ctx *ctx, bool enabled);
+/* A configured colour as 0xRRGGBB, with or without a leading hash. */
+bool fyai_ui_color_parse(const char *text, uint32_t *out);
+/* That, or `reverse` for the ground the terminal draws text in. */
+bool fyai_ui_ground_parse(const char *text, uint32_t *out);
+/* Re-read the display configuration a live session holds. */
+void fyai_ui_config_changed(struct fyai_ctx *ctx);
 bool fyai_ui_active(const struct fyai_ctx *ctx);
 char *fyai_ui_readline(struct fyai_ctx *ctx);
 char *fyai_ui_take_line(struct fyai_ctx *ctx);
@@ -43,7 +49,12 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy);
 /* An interrupt reached the session (Escape, or SIGINT from ^C). Discards a
  * half-typed line on an idle prompt, ends the session when there is nothing to
  * discard, and cancels the turn while busy. */
-void fyai_ui_interrupt(struct fyai_ctx *ctx);
+/*
+ * Act on an interrupt. Returns true when it was given to the program that
+ * holds the keys, which is what a ^C typed into a tile is: the turn of this
+ * process is not what the user was interrupting.
+ */
+bool fyai_ui_interrupt(struct fyai_ctx *ctx);
 
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo);
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
@@ -51,7 +62,6 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);
-struct fytim_workband *fyai_ui_workband_create(struct fyai_ctx *ctx);
 /* Create an independent text tile in the work pane. */
 struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx);
 void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
@@ -67,7 +77,6 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 				   const char *title, const char *command,
 				   const char *body, size_t len,
 				   const char *first_margin);
-void fyai_ui_workband_destroy(struct fytim_workband *band);
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title);
 void fyai_ui_shell_begin(struct fyai_ctx *ctx, const char *title,
 			 const char *command);
@@ -89,6 +98,8 @@ int fyai_ui_surface_granted_rows(const struct fytim_surface *sf);
 int fyai_ui_surface_granted_cols(const struct fytim_surface *sf);
 /* Chrome at the left of every row of @sf. */
 int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
+/* Blank the grid: the tile is no longer drawing its program. */
+int fyai_ui_surface_clear(struct fytim_surface *sf);
 /* Limit grid height; zero accepts all granted rows. */
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows);
 /* Update keyboard-focus chrome. */

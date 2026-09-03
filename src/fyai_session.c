@@ -758,8 +758,7 @@ static long long session_est_bytes(fy_generic v)
 	}
 }
 
-static long long session_estimate_tokens_at(struct fyai_ctx *ctx,
-					    fy_generic head)
+static long long session_estimate_tokens_at(fy_generic head)
 {
 	fy_generic cur, msgs;
 	long long bytes, nmsg;
@@ -771,8 +770,6 @@ static long long session_estimate_tokens_at(struct fyai_ctx *ctx,
 		nmsg += (long long)fy_len(msgs);
 		bytes += session_est_bytes(msgs);
 	}
-	if (fy_is_valid(ctx->tools))
-		bytes += session_est_bytes(ctx->tools);
 	return bytes / 4 + nmsg * 4;
 }
 
@@ -924,8 +921,10 @@ void fyai_context_prompt_at(struct fyai_ctx *ctx, fy_generic head,
 			    struct fyai_context_prompt *out)
 {
 	out->measured = session_last_usage(ctx, &out->source);
-	out->estimated = session_estimate_tokens_at(ctx, head);
-	out->from_estimate = out->estimated >= out->measured;
+	out->estimated = session_estimate_tokens_at(head);
+	/* Prefer a measured value on ties; the estimate overshoots it. */
+	out->from_estimate = out->source == FYAICS_NONE ||
+			     out->estimated > out->measured;
 	out->prompt = out->from_estimate ? out->estimated : out->measured;
 }
 
@@ -1247,8 +1246,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	window = fyai_context_window(ctx);
 	if (window > 0) {
 		fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
-		used = session_projected_tokens(ctx, &prompt) +
-			fyai_output_estimated_tokens(ctx);
+		/* Streamed bytes are already in the estimate; do not add them twice. */
+		used = session_projected_tokens(ctx, &prompt);
 		snprintf(ctxpct, sizeof(ctxpct), " · ctx ~%.0f%%",
 			 (double)used * 100.0 / (double)window);
 		session_token_count(used_str, sizeof(used_str), used);

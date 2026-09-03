@@ -456,6 +456,12 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		/* Intern work-pane strings beyond the document lifetime. */
 		cfg->work_layout = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "work_layout", cfg->work_layout));
+		cfg->work_position = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "work_position", cfg->work_position));
+		cfg->focus_bg = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "focus_bg", cfg->focus_bg));
+		cfg->focus_bg_mix = (int)fy_get(v, "focus_bg_mix",
+						(long long)cfg->focus_bg_mix);
 		cfg->work_columns = fy_get(v, "work_columns",
 					   cfg->work_columns);
 		cfg->work_min_tile_cols = fy_get(v, "work_min_tile_cols",
@@ -2033,6 +2039,10 @@ int fyai_config_rederive(struct fyai_ctx *ctx)
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);
 
+	/* A live display holds display configuration of its own. */
+	if (fyai_ui_active(ctx))
+		fyai_ui_config_changed(ctx);
+
 	return fyai_config_resolve_model(cfg);
 }
 
@@ -2069,6 +2079,9 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->tool_preview_lines = DEFAULT_TOOL_PREVIEW_LINES;
 	cfg->session_margin = FYAI_SESSION_MARGIN;
 	cfg->work_layout = DEFAULT_WORK_LAYOUT;
+	cfg->work_position = DEFAULT_WORK_POSITION;
+	cfg->focus_bg = DEFAULT_FOCUS_BG;
+	cfg->focus_bg_mix = DEFAULT_FOCUS_BG_MIX;
 	cfg->work_columns = 0;
 	cfg->work_min_tile_cols = DEFAULT_WORK_MIN_TILE_COLS;
 	cfg->work_max_rows = 0;
