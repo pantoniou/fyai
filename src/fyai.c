@@ -2183,7 +2183,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 		goto err;
 
 	/* Start MCP here for non-interactive modes and apply its tools. */
-	if (!cfg->interactive) {
+	if (!cfg->interactive && cfg->cmd.id != FYAIVID_AGENT) {
 		rc = fyai_mcp_bringup(ctx);
 		fyai_error_check(ctx, !rc, err, "could not initialize MCP servers");
 		rc = fyai_request_state_apply(ctx);
