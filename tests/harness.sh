@@ -53,6 +53,41 @@ skip() {
 }
 
 fyai_test_cleanup() {
+	# A failing case must leave evidence: the next run destroys the
+	# sandbox (captures, mock log, requests). This trap runs on every
+	# exit, including a driver exception that never reaches fail().
+	rc=$?
+	if [ "$rc" -ne 0 ] && [ "$rc" -ne 77 ] && [ -n "$TEST_DIR" ] && \
+	   [ -d "$TEST_DIR" ]; then
+		# $TMPDIR points inside the sandbox itself by the time this
+		# runs, so it must not be the keep fallback.
+		keep_base="${FYAI_TEST_KEEPDIR:-/tmp}"
+		keep_dir="$keep_base/fyai-failed-$(basename "$0" .sh)-$$"
+		if mkdir -p "$keep_dir" 2>/dev/null && \
+		   cp -r "$TEST_DIR"/. "$keep_dir"/ 2>/dev/null; then
+			echo "kept: $keep_dir" >&2
+		else
+			echo "keep failed for $TEST_DIR" >&2
+		fi
+		[ -f "$TEST_DIR/stdout" ] && \
+			{ echo "--- stdout ---" >&2; cat "$TEST_DIR/stdout" >&2; }
+		[ -f "$TEST_DIR/stderr" ] && \
+			{ echo "--- stderr ---" >&2; cat "$TEST_DIR/stderr" >&2; }
+		[ -f "$TEST_DIR/requests.jsonl" ] && \
+			{ echo "--- requests ---" >&2; cat "$TEST_DIR/requests.jsonl" >&2; }
+		for cap in "$TEST_DIR"/pty.out "$TEST_DIR"/*.out; do
+			[ -f "$cap" ] || continue
+			case "$cap" in
+			*/sanitizer.log.*) continue ;;
+			esac
+			echo "--- $(basename "$cap") tail ---" >&2
+			tail -c 4000 "$cap" >&2
+		done
+		if [ -f "$TEST_DIR/mock.log" ]; then
+			echo "--- mock log ---" >&2
+			tail -n 20 "$TEST_DIR/mock.log" >&2
+		fi
+	fi
 	mock_stop_quiet
 	if [ -n "$TEST_DIR" ]; then
 		fyai_sanitizer_report
@@ -147,6 +182,10 @@ mock_start() {
 	[ -f "$scenario" ] || fail "scenario not found: $1"
 
 	rm -f "$TEST_DIR/port" "$TEST_DIR/requests.jsonl" "$TEST_DIR/served"
+	# The previous scenario's server holds the same port until it dies:
+	# a new bind in that window fails and the old server answers the
+	# new leg with exhausted steps. Stop it first so the port is free.
+	mock_stop_quiet
 	"$PYTHON" "$MOCK_PROVIDER" "$scenario" "$TEST_DIR" \
 		2>"$TEST_DIR/mock.log" &
 	MOCK_PID=$!
@@ -164,13 +203,6 @@ mock_start() {
 	export MOCK_URL
 }
 
-mock_stop_quiet() {
-	if [ -n "$MOCK_PID" ]; then
-		kill "$MOCK_PID" 2>/dev/null || true
-		MOCK_PID=""
-	fi
-}
-
 # Stop the mock and assert the whole scenario was consumed.
 mock_stop() {
 	local expect="${1:-}"
@@ -182,6 +214,25 @@ mock_stop() {
 		[ "$served" -eq "$expect" ] || \
 			fail "expected $expect requests, served $served"
 	fi
+}
+
+# Stop a mock server and wait until it is gone. A bare kill leaves the
+# old server on its port until the signal lands; a new server started in
+# that window fails its bind (SO_REUSEADDR still collides with a live
+# listener) or the client reconnects to the dying server. Either way a
+# later leg talks to exhausted scenario steps. Reap the child so the
+# port is free before the next mock_start binds it.
+mock_stop_quiet() {
+	local pid="$MOCK_PID"
+	MOCK_PID=""
+	[ -n "$pid" ] || return 0
+	kill "$pid" 2>/dev/null || true
+	local i=0
+	while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 100 ]; do
+		sleep 0.02
+		i=$((i + 1))
+	done
+	wait "$pid" 2>/dev/null || true
 }
 
 # run_fyai [args...]: run fyai with the invariant test flags; capture output.
