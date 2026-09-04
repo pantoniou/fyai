@@ -1,9 +1,9 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # The input pane changes shape while ask_user waits for an answer: the
-# question and its numbered options are pinned above the prompt, folded to
-# one row, and the marker switches from the default to "?". Both revert once
-# the answer is in.
+# question is pinned above the prompt in place of the banner, its numbered
+# options list as their own rows below it, and the marker switches from the
+# default to "?". Both revert once the answer is in.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -33,9 +33,13 @@ from screen import Screen
 data = open(sys.argv[1], "rb").read()
 
 
-def header_folded(rows):
-    return any("Proceed with the mock plan?" in r and "1) yes" in r and
-               "2) no" in r for r in rows)
+def header_shown(rows):
+    return any(r.strip() == "Proceed with the mock plan?" for r in rows)
+
+
+def options_shown(rows):
+    stripped = [r.strip() for r in rows]
+    return "1  yes" in stripped and "2  no" in stripped
 
 
 def banner_restored(rows):
@@ -51,10 +55,11 @@ while pos < len(data):
     pos += 1
     rows = [r for r in screen.display() if r.strip()]
     if not pending_ok:
-        # The marker switched to "?" and the question, with its numbered
-        # options, is pinned above the prompt folded to one row - distinct
-        # from the separate lines the transcript printed above it.
-        if "? yes" in rows and header_folded(rows):
+        # The marker switched to "?", the question is pinned in the header
+        # above the prompt, and its options list as their own rows below it
+        # - distinct from the transcript's separate printout above all of
+        # this.
+        if "? yes" in rows and header_shown(rows) and options_shown(rows):
             pending_ok = True
     elif banner_restored(rows):
         restored_ok = True
@@ -62,7 +67,8 @@ while pos < len(data):
 
 if not pending_ok:
     raise SystemExit("input pane never showed the '?' marker with the "
-                      "folded question header while the answer was typed")
+                      "question header and options list while the answer "
+                      "was typed")
 if not restored_ok:
     raise SystemExit("prompt marker/banner were never restored after the "
                       "answer")
