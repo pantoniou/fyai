@@ -1,9 +1,10 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# The input pane changes shape while ask_user waits for an answer: the
-# question is pinned above the prompt in place of the banner, its numbered
-# options list as their own rows below it, and the marker switches from the
-# default to "?". Both revert once the answer is in.
+# The input pane changes shape while ask_user waits for an answer: a live
+# band above the prompt carries the question as its heading and the
+# numbered options, as a rendered markdown list, as its body - not folded
+# into a single row - and the marker switches from the default to "?".
+# Both revert once the answer is in, and the question is not echoed twice.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -37,9 +38,18 @@ def header_shown(rows):
     return any(r.strip() == "Proceed with the mock plan?" for r in rows)
 
 
+def question_echoed_to_transcript(rows):
+    # The old plain-text echo ("? question" as its own transcript line) is
+    # skipped in a live UI session now that the band shows it; this pattern
+    # only ever matched that echo, never the band or the durable "❓ ..."
+    # tool-call summary.
+    return any(r.strip().startswith("? ") and
+               "Proceed with the mock plan?" in r for r in rows)
+
+
 def options_shown(rows):
     stripped = [r.strip() for r in rows]
-    return "1  yes" in stripped and "2  no" in stripped
+    return "1. yes" in stripped and "2. no" in stripped
 
 
 def banner_restored(rows):
@@ -49,16 +59,17 @@ def banner_restored(rows):
 screen = Screen(30, 100)
 pending_ok = False
 restored_ok = False
+duplicated = False
 pos = 0
 while pos < len(data):
     screen.feed(data[pos:pos + 1])
     pos += 1
     rows = [r for r in screen.display() if r.strip()]
+    if question_echoed_to_transcript(rows):
+        duplicated = True
     if not pending_ok:
-        # The marker switched to "?", the question is pinned in the header
-        # above the prompt, and its options list as their own rows below it
-        # - distinct from the transcript's separate printout above all of
-        # this.
+        # The marker switched to "?", the question is the band's heading
+        # above the prompt, and its options list as their own rows below it.
         if "? yes" in rows and header_shown(rows) and options_shown(rows):
             pending_ok = True
     elif banner_restored(rows):
@@ -72,6 +83,9 @@ if not pending_ok:
 if not restored_ok:
     raise SystemExit("prompt marker/banner were never restored after the "
                       "answer")
+if duplicated:
+    raise SystemExit("the question was echoed to the transcript as well as "
+                      "shown in the band - it should show once")
 EOF
 
 mock_stop 2
