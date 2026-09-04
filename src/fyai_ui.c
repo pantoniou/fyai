@@ -792,6 +792,14 @@ static void ui_complete_cb(void *user, const char *text,
 	fyai_session_completion(user, text, comps);
 }
 
+/* The configured prompt marker, or the built-in default. */
+static void ui_apply_marker(struct fyai_ui *ui)
+{
+	(void)fytim_set_marker(ui->ft, ui->ctx->cfg->prompt_marker &&
+			       *ui->ctx->cfg->prompt_marker ?
+			       ui->ctx->cfg->prompt_marker : "❯ ");
+}
+
 int fyai_ui_open(struct fyai_ctx *ctx)
 {
 	struct fytim_cfg cfg;
@@ -849,8 +857,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		goto fail;
 	/* Wake provider-bound turns when the terminal size changes. */
 	(void)fyai_terminal_winch_open(ctx);
-	(void)fytim_set_marker(ui->ft, ctx->cfg->prompt_marker &&
-			       *ctx->cfg->prompt_marker ? ctx->cfg->prompt_marker : "❯ ");
+	ui_apply_marker(ui);
 	(void)fytim_history_set_max_len(ui->ft, 1000);
 	(void)fytim_set_complete_fn(ui->ft, ui_complete_cb, ctx);
 	ui_rearm(ui);
@@ -872,9 +879,7 @@ void fyai_ui_config_changed(struct fyai_ctx *ctx)
 
 	if (!ui || !ui->ft)
 		return;
-	(void)fytim_set_marker(ui->ft, ctx->cfg->prompt_marker &&
-			       *ctx->cfg->prompt_marker ?
-			       ctx->cfg->prompt_marker : "❯ ");
+	ui_apply_marker(ui);
 	(void)fyai_ui_update_prompt_style(ctx);
 	/* The manager owns pane geometry and configuration adoption. */
 	fyai_workpane_adopt_config(ctx->workpane);
@@ -1145,6 +1150,26 @@ out:
 	fymd_renderer_destroy(renderer);
 	(void)off;
 	return rc;
+}
+
+void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *header)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
+		return;
+	(void)fytim_set_marker(ui->ft, "? ");
+	(void)fytim_set_header(ui->ft, header ? header : "");
+}
+
+void fyai_ui_ask_end(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
+		return;
+	ui_apply_marker(ui);
+	fyai_session_banner_update(ctx);
 }
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)

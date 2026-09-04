@@ -60,6 +60,14 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo);
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 			   const char *bottom);
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
+/*
+ * Shape the input pane for a pending model question: a distinct prompt
+ * marker, and @header (question and any numbered options, folded to one
+ * row) pinned above the prompt in place of the model/provider banner.
+ */
+void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *header);
+/* Restore the marker and banner an ask_user question replaced. */
+void fyai_ui_ask_end(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);
 /* Create an independent text tile in the work pane. */

@@ -1306,6 +1306,7 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	fy_generic options = fy_get(args, "options");
 	size_t n = fy_is_sequence(options) ? fy_len(options) : 0;
 	fy_generic result;
+	struct response_buffer hdr = {0};
 	char *line, *end;
 	const char *a;
 	size_t i;
@@ -1354,8 +1355,32 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 		return fy_value(ctx->transient_gb, "tool error: no answer available (non-interactive)");
 	}
 
-	/* Editable input via linenoise (only reached on an interactive tty). */
+	/*
+	 * Editable input via linenoise (only reached on an interactive tty).
+	 * Shape the input pane for the question: pin it (and any numbered
+	 * options), folded to one row, above the prompt in place of the usual
+	 * banner, with a marker that says an answer is expected.
+	 */
+	if (fyai_ui_active(ctx)) {
+		if (!response_buffer_append(&hdr, question ? question : "")) {
+			i = 0;
+			fy_foreach(result, options) {
+				if (response_buffer_append(&hdr,
+						fy_sprintfa("  %zu) %s", i + 1,
+							   fy_castp(&result, ""))))
+					break;
+				i++;
+			}
+			for (i = 0; i < hdr.len; i++)
+				if (hdr.data[i] == '\n' || hdr.data[i] == '\r')
+					hdr.data[i] = ' ';
+			fyai_ui_ask_begin(ctx, hdr.data ? hdr.data : "");
+		}
+		free(hdr.data);
+	}
 	line = fyai_readline(ctx, n ? "choose a number or type an answer> " : "> ");
+	if (fyai_ui_active(ctx))
+		fyai_ui_ask_end(ctx);
 have_line:
 	if (!line || !*line) {
 		free(line);
