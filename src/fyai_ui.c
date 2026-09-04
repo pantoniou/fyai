@@ -53,9 +53,14 @@ struct fyai_ui {
 	bool busy;
 	bool activity_paused;
 	bool external;
+	/* An ask_user question is pending on the prompt's own blocking read;
+	 * Escape declines it instead of the turn or the session. */
+	bool asking;
+	bool ask_declined;
 	struct fytim_workband *tool_band;
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
+	struct fytim_workband *ask_band;
 	/* The surface holding the keys, and where its bytes go. */
 	fyai_ui_keys_fn keys_fn;
 	void *keys_data;
@@ -1152,24 +1157,44 @@ out:
 	return rc;
 }
 
-void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *header)
+void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *question,
+		       const char *options)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 
 	if (!ui)
 		return;
+	ui->asking = true;
+	ui->ask_declined = false;
 	(void)fytim_set_marker(ui->ft, "? ");
-	(void)fytim_set_header(ui->ft, header ? header : "");
+	(void)fytim_set_header(ui->ft, question ? question : "");
+	if (options && *options) {
+		ui->ask_band = fytim_workband_create(ui->ft);
+		if (ui->ask_band)
+			(void)fytim_workband_set(ui->ask_band, options,
+						 strlen(options));
+	}
 }
 
-void fyai_ui_ask_end(struct fyai_ctx *ctx)
+bool fyai_ui_ask_end(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	bool declined;
 
 	if (!ui)
-		return;
+		return false;
+	if (ui->ask_band) {
+		/* The transcript already carries the question and its
+		 * options; the band was a live-only view of them. */
+		fytim_workband_destroy(ui->ask_band);
+		ui->ask_band = NULL;
+	}
+	declined = ui->ask_declined;
+	ui->asking = false;
+	ui->ask_declined = false;
 	ui_apply_marker(ui);
 	fyai_session_banner_update(ctx);
+	return declined;
 }
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)
@@ -1202,7 +1227,7 @@ char *fyai_ui_readline(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	if (!ui) return NULL;
-	while (!ui->head && !ui->quit) {
+	while (!ui->head && !ui->quit && !ui->ask_declined) {
 		ui->ready = false;
 		if (fyai_event_loop_run_until(fyai_ctx_loop(ctx), &ui->ready, -1))
 			return NULL;
@@ -1312,6 +1337,14 @@ bool fyai_ui_interrupt(struct fyai_ctx *ctx)
 	 * program the user was typing into instead of stopping the turn. */
 	if (fyai_workpane_keys_deliver(ctx->workpane, "\x03", 1))
 		return true;
+	/* A pending question is answered on its own nested read; decline it
+	 * alone and leave the turn and the session running. */
+	if (ui->asking) {
+		(void)fytim_set_input(ui->ft, NULL);
+		ui->ask_declined = true;
+		ui->ready = true;
+		return false;
+	}
 	input = fytim_input(ui->ft);
 	if (!ui->busy && !ui->head && !ui->editor_request) {
 		if (input && *input)

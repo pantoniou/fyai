@@ -62,12 +62,16 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 /*
  * Shape the input pane for a pending model question: a distinct prompt
- * marker, and @header (question and any numbered options, folded to one
- * row) pinned above the prompt in place of the model/provider banner.
+ * marker, @question pinned in the header row above the prompt in place of
+ * the model/provider banner, and @options (one numbered choice per line, or
+ * NULL) as a live band under it. Escape declines the question alone -
+ * neither the turn nor the session ends.
  */
-void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *header);
-/* Restore the marker and banner an ask_user question replaced. */
-void fyai_ui_ask_end(struct fyai_ctx *ctx);
+void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *question,
+		       const char *options);
+/* Restore the marker and banner an ask_user question replaced. Returns
+ * true when the question was declined with Escape rather than answered. */
+bool fyai_ui_ask_end(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);
 /* Create an independent text tile in the work pane. */

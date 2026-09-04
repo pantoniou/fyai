@@ -1306,8 +1306,8 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	fy_generic options = fy_get(args, "options");
 	size_t n = fy_is_sequence(options) ? fy_len(options) : 0;
 	fy_generic result;
-	struct response_buffer hdr = {0};
-	char *line, *end;
+	struct response_buffer opts = {0};
+	char *line, *end, *header;
 	const char *a;
 	size_t i;
 	long sel;
@@ -1357,30 +1357,40 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 
 	/*
 	 * Editable input via linenoise (only reached on an interactive tty).
-	 * Shape the input pane for the question: pin it (and any numbered
-	 * options), folded to one row, above the prompt in place of the usual
-	 * banner, with a marker that says an answer is expected.
+	 * Shape the input pane for the question: the marker says an answer
+	 * is expected, the question is pinned above the prompt in place of
+	 * the usual banner, and its numbered options show as a live list
+	 * below it. Escape declines the question alone, without stopping
+	 * the turn or the session.
 	 */
+	header = NULL;
 	if (fyai_ui_active(ctx)) {
-		if (!response_buffer_append(&hdr, question ? question : "")) {
-			i = 0;
-			fy_foreach(result, options) {
-				if (response_buffer_append(&hdr,
-						fy_sprintfa("  %zu) %s", i + 1,
-							   fy_castp(&result, ""))))
-					break;
-				i++;
-			}
-			for (i = 0; i < hdr.len; i++)
-				if (hdr.data[i] == '\n' || hdr.data[i] == '\r')
-					hdr.data[i] = ' ';
-			fyai_ui_ask_begin(ctx, hdr.data ? hdr.data : "");
+		header = strdup(question ? question : "");
+		if (header)
+			for (i = 0; header[i]; i++)
+				if (header[i] == '\n' || header[i] == '\r')
+					header[i] = ' ';
+		i = 0;
+		fy_foreach(result, options) {
+			if (response_buffer_append(&opts,
+					fy_sprintfa("  %zu  %s\n", i + 1,
+						   fy_castp(&result, ""))))
+				break;
+			i++;
 		}
-		free(hdr.data);
+		fyai_ui_ask_begin(ctx, header ? header : "",
+				 opts.data ? opts.data : "");
 	}
 	line = fyai_readline(ctx, n ? "choose a number or type an answer> " : "> ");
-	if (fyai_ui_active(ctx))
-		fyai_ui_ask_end(ctx);
+	if (fyai_ui_active(ctx) && fyai_ui_ask_end(ctx)) {
+		free(line);
+		free(header);
+		free(opts.data);
+		return fy_value(ctx->transient_gb,
+				"tool note: the user declined to answer");
+	}
+	free(header);
+	free(opts.data);
 have_line:
 	if (!line || !*line) {
 		free(line);
