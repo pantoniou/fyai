@@ -62,8 +62,8 @@ models:
   open_source: false
   arena:
     rank: 1
-    elo: 1507.4767250288949
-    votes: 25824
+    elo: 1507.164171675996
+    votes: 27189
   agents:
   - claude_code
 - name: claude-haiku-4.5
@@ -100,9 +100,9 @@ models:
   - batch
   open_source: false
   arena:
-    rank: 31
-    elo: 1472.8509282744049
-    votes: 47459
+    rank: 33
+    elo: 1472.8520033039752
+    votes: 49404
   agents:
   - claude_code
 - name: claude-opus-5
@@ -184,20 +184,14 @@ models:
   - json_mode
   open_source: false
 - name: deepseek-v4-flash
-  display_name: DeepSeek-V4-Flash-0731
-  context_window: 1000000
-  max_output_tokens: 384000
+  display_name: DeepSeek V4 Flash
   modalities:
   - text
-  capabilities:
-  - tool_calling
-  - json_mode
-  - prefix_completion
   open_source: true
   arena:
-    rank: 89
-    elo: 1435.685040762398
-    votes: 48947
+    rank: 91
+    elo: 1435.749787126345
+    votes: 48950
 - name: deepseek-v4-flash-free
   modalities:
   - text
@@ -218,20 +212,14 @@ models:
   - logprobs
   open_source: false
 - name: deepseek-v4-pro
-  display_name: DeepSeek-V4-Pro-0813
-  context_window: 1000000
-  max_output_tokens: 384000
+  display_name: DeepSeek-V4-Pro
   modalities:
   - text
-  capabilities:
-  - tool_calling
-  - json_mode
-  - prefix_completion
   open_source: true
   arena:
-    rank: 54
-    elo: 1457.790472739109
-    votes: 54214
+    rank: 55
+    elo: 1457.8178163038579
+    votes: 54225
 - name: free
   display_name: Free Models Router
   context_window: 200000
@@ -275,26 +263,9 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 13
-    elo: 1486.6913225285841
-    votes: 101163
-- name: gemini-3.7-flash
-  display_name: 'Google: Gemini 3.7 Flash'
-  context_window: 1048576
-  max_output_tokens: 65536
-  modalities:
-  - text
-  - image
-  - audio
-  - video
-  - pdf
-  capabilities:
-  - tool_calling
-  - structured_outputs
-  - json_mode
-  - reasoning
-  - reasoning_effort
-  open_source: false
+    rank: 15
+    elo: 1486.7298381462967
+    votes: 102999
 - name: gemini-flash-latest
   display_name: Google Gemini Flash Latest
   context_window: 1048576
@@ -393,11 +364,12 @@ models:
 - name: glm-5.3
   display_name: GLM-5.3
   context_window: 1310720
-  max_output_tokens: 131072
+  max_output_tokens: 262144
   modalities:
   - text
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -421,17 +393,18 @@ models:
   - logprobs
   open_source: true
   arena:
-    rank: 38
-    elo: 1469.383425308912
-    votes: 2424
+    rank: 29
+    elo: 1474.1588937337372
+    votes: 4672
 - name: glm-latest
   display_name: 'Z.ai: GLM Latest'
   context_window: 1310720
-  max_output_tokens: 131072
+  max_output_tokens: 943718
   modalities:
   - text
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -471,9 +444,9 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 22
-    elo: 1476.7081285347774
-    votes: 62975
+    rank: 24
+    elo: 1477.1880581544701
+    votes: 64977
   agents:
   - codex
 - name: gpt-5.6-luna
@@ -593,9 +566,9 @@ models:
   - logprobs
   open_source: true
   arena:
-    rank: 196
-    elo: 1352.484410189254
-    votes: 29938
+    rank: 200
+    elo: 1352.447968129115
+    votes: 29955
   agents:
   - codex
 - name: grok-4.6
@@ -654,9 +627,9 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 59
-    elo: 1455.6434734427285
-    votes: 6466
+    rank: 60
+    elo: 1455.3862122530143
+    votes: 6958
 - name: inkling
   display_name: Inkling
   context_window: 1048576
@@ -672,9 +645,9 @@ models:
   - reasoning_effort
   open_source: true
   arena:
-    rank: 81
-    elo: 1439.1821712683675
-    votes: 20434
+    rank: 83
+    elo: 1439.4225598928058
+    votes: 22229
 - name: kimi-k3
   display_name: Kimi K3
   context_window: 1048576
@@ -741,12 +714,11 @@ models:
   - structured_outputs
   - json_mode
   - reasoning
-  - logprobs
   open_source: false
   arena:
-    rank: 92
-    elo: 1433.8750961989845
-    votes: 44515
+    rank: 94
+    elo: 1433.8090039662272
+    votes: 44530
 - name: minimax-m3
   display_name: Minimax M3
   context_window: 1048576
@@ -763,9 +735,9 @@ models:
   - logprobs
   open_source: true
   arena:
-    rank: 78
-    elo: 1442.0263831538794
-    votes: 42988
+    rank: 80
+    elo: 1442.9482267954468
+    votes: 44829
 - name: mistral-small-2603
   display_name: 'Mistral: Mistral Small 4'
   context_window: 262144
@@ -783,7 +755,6 @@ models:
 - name: muse-spark-1.2
   display_name: Muse Spark 1.2
   context_window: 1048576
-  max_output_tokens: 943718
   modalities:
   - text
   - image
@@ -793,14 +764,60 @@ models:
   capabilities:
   - tool_calling
   - structured_outputs
-  - json_mode
   - reasoning
   - reasoning_effort
+  - web_search
+  open_source: false
+- name: muse-spark-1.2-contributor
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - reasoning
+  - reasoning_effort
+  - web_search
+  open_source: false
+- name: muse-spark-1.3
+  display_name: 'Meta: Muse Spark 1.3'
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - reasoning
+  - reasoning_effort
+  - web_search
+  open_source: false
+- name: muse-spark-1.3-contributor
+  context_window: 1048576
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - reasoning
+  - reasoning_effort
+  - web_search
   open_source: false
 - name: nemotron-3-ultra-550b-a55b
   display_name: 'NVIDIA: Nemotron 3 Ultra'
   context_window: 262144
-  max_output_tokens: 16384
+  max_output_tokens: 182520
   modalities:
   - text
   capabilities:
@@ -903,7 +920,6 @@ providers:
       extra:
         cache_write_5m: 2.5
         cache_write_1h: 4.0
-        cache_read: 0.2
     reported_modalities:
     - text
     - image
@@ -928,7 +944,6 @@ providers:
       extra:
         cache_write_5m: 6.25
         cache_write_1h: 10.0
-        cache_read: 0.5
     reported_modalities:
     - text
     - image
@@ -953,7 +968,6 @@ providers:
       extra:
         cache_write_5m: 6.25
         cache_write_1h: 10.0
-        cache_read: 0.5
     reported_modalities:
     - text
     - image
@@ -978,7 +992,6 @@ providers:
       extra:
         cache_write_5m: 12.5
         cache_write_1h: 20.0
-        cache_read: 1.0
     reported_modalities:
     - text
     - image
@@ -1031,38 +1044,12 @@ providers:
   models:
   - canonical_id: deepseek-v4-pro
     provider_model_id: deepseek-v4-pro
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.66
-      output: 1.98
-      extra:
-        cache_read: 0.022
     reported_modalities:
     - text
-    reported_capabilities:
-    - anthropic_api
-    - chat_prefix_completion
-    - json_output
-    - responses_api
-    - tool_calls
   - canonical_id: deepseek-v4-flash
     provider_model_id: deepseek-v4-flash
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.22
-      output: 0.66
-      extra:
-        cache_read: 0.007
     reported_modalities:
     - text
-    reported_capabilities:
-    - anthropic_api
-    - chat_prefix_completion
-    - json_output
-    - responses_api
-    - tool_calls
 - name: fireworks
   root_url: https://api.fireworks.ai/inference/v1
   endpoints:
@@ -1151,7 +1138,7 @@ providers:
       input: 0.15
       output: 0.5
       extra:
-        cache_read: 0.029
+        cache_read: 0.03
     reported_modalities:
     - text
     - image
@@ -1165,7 +1152,7 @@ providers:
       input: 0.3
       output: 1.2
       extra:
-        cache_read: 0.059
+        cache_read: 0.06
     reported_modalities:
     - text
     reported_capabilities:
@@ -1204,7 +1191,7 @@ providers:
       input: 0.15
       output: 0.6
       extra:
-        cache_read: 0.014
+        cache_read: 0.015
     reported_modalities:
     - text
     reported_capabilities:
@@ -1281,34 +1268,6 @@ providers:
     - image
     - text
     - video
-    reported_capabilities:
-    - include_reasoning
-    - max_tokens
-    - reasoning
-    - reasoning_effort
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
-    - top_p
-  - canonical_id: gemini-3.7-flash
-    provider_model_id: gemini-3.7-flash
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.75
-      output: 3.75
-      extra:
-        cache_read: 0.075
-    reported_modalities:
-    - text
-    - image
-    - video
-    - file
-    - audio
     reported_capabilities:
     - include_reasoning
     - max_tokens
@@ -1428,6 +1387,144 @@ providers:
     - tool_choice
     - tools
     - top_p
+- name: meta
+  root_url: https://api.meta.ai/v1
+  endpoints:
+  - protocol: chat_completions
+    endpoint: /chat/completions
+    local_tools:
+    - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      strict_json_schema_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
+  - protocol: responses
+    endpoint: /responses
+    hosted_tools:
+    - web_search
+    local_tools:
+    - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      strict_json_schema_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      previous_response_id_supported: true
+      system_prompt_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
+  - protocol: messages
+    endpoint: /messages
+    local_tools:
+    - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      tool_choice_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      system_prompt_supported: true
+      developer_role_supported: false
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
+  models:
+  - canonical_id: muse-spark-1.3
+    provider_model_id: muse-spark-1.3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.25
+      output: 4.25
+      extra:
+        cache_read: 0.15
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    - pdf
+    reported_capabilities:
+    - tool_calling
+    - structured_outputs
+    - reasoning
+    - reasoning_effort
+    - web_search
+  - canonical_id: muse-spark-1.3-contributor
+    provider_model_id: muse-spark-1.3-contributor
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.2
+      extra:
+        cache_read: 0.002
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    - pdf
+    reported_capabilities:
+    - tool_calling
+    - structured_outputs
+    - reasoning
+    - reasoning_effort
+    - web_search
+  - canonical_id: muse-spark-1.2
+    provider_model_id: muse-spark-1.2
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.25
+      output: 4.25
+      extra:
+        cache_read: 0.15
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    - pdf
+    reported_capabilities:
+    - tool_calling
+    - structured_outputs
+    - reasoning
+    - reasoning_effort
+    - web_search
+  - canonical_id: muse-spark-1.2-contributor
+    provider_model_id: muse-spark-1.2-contributor
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.2
+      extra:
+        cache_read: 0.002
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    - pdf
+    reported_capabilities:
+    - tool_calling
+    - structured_outputs
+    - reasoning
+    - reasoning_effort
+    - web_search
 - name: openai
   root_url: https://api.openai.com
   endpoints:
@@ -1812,17 +1909,6 @@ providers:
         cache_write: 0.25
     reported_modalities:
     - text
-  - canonical_id: gemini-3.7-flash
-    provider_model_id: gemini-3.7-flash
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 1.5
-      output: 7.5
-      extra:
-        cache_read: 0.15
-    reported_modalities:
-    - text
   - canonical_id: gemini-3.1-pro
     provider_model_id: gemini-3.1-pro
     pricing:
@@ -2155,10 +2241,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.088606
-      output: 0.177212
+      input: 0.084
+      output: 0.168
       extra:
-        cache_read: 0.017721
+        cache_read: 0.0168
     reported_modalities:
     - text
     reported_capabilities:
@@ -2189,10 +2275,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.6
-      output: 3.2
+      input: 1.035996
+      output: 2.071992
       extra:
-        cache_read: 0.135
+        cache_read: 0.086333
     reported_modalities:
     - text
     reported_capabilities:
@@ -2222,7 +2308,7 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.03
+      input: 0.05
       output: 0.16
       extra:
         cache_read: 0.013
@@ -2250,38 +2336,6 @@ providers:
     - top_a
     - top_k
     - top_logprobs
-    - top_p
-  - canonical_id: gemini-3.7-flash
-    provider_model_id: google/gemini-3.7-flash
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.75
-      output: 3.75
-      extra:
-        cache_read: 0.075
-        cache_write: 0.041667
-        web_search: 14000.0
-        reasoning: 3.75
-        image: 0.75
-    reported_modalities:
-    - text
-    - image
-    - video
-    - file
-    - audio
-    reported_capabilities:
-    - include_reasoning
-    - max_tokens
-    - reasoning
-    - reasoning_effort
-    - response_format
-    - seed
-    - stop
-    - structured_outputs
-    - temperature
-    - tool_choice
-    - tools
     - top_p
   - canonical_id: gemini-flash-latest
     provider_model_id: ~google/gemini-flash-latest
@@ -2475,6 +2529,35 @@ providers:
     - repetition_penalty
     - seed
     - stop
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_p
+  - canonical_id: muse-spark-1.3
+    provider_model_id: meta/muse-spark-1.3
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.25
+      output: 4.25
+      extra:
+        cache_read: 0.15
+        web_search: 2500.0
+    reported_modalities:
+    - text
+    - image
+    - video
+    - file
+    - audio
+    reported_capabilities:
+    - include_reasoning
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - structured_outputs
     - temperature
     - tool_choice
     - tools
@@ -2686,10 +2769,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.5
-      output: 2.2
+      input: 0.6
+      output: 2.4
       extra:
-        cache_read: 0.1
+        cache_read: 0.12
     reported_modalities:
     - text
     reported_capabilities:
@@ -3070,10 +3153,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.132
-      output: 0.528
+      input: 0.0825
+      output: 0.33
       extra:
-        cache_read: 0.033
+        cache_read: 0.020625
     reported_modalities:
     - text
     reported_capabilities:
@@ -3205,7 +3288,6 @@ providers:
     - frequency_penalty
     - include_reasoning
     - logit_bias
-    - logprobs
     - max_tokens
     - min_p
     - presence_penalty
@@ -3219,7 +3301,6 @@ providers:
     - tool_choice
     - tools
     - top_k
-    - top_logprobs
     - top_p
   - canonical_id: glm-5.3
     provider_model_id: z-ai/glm-5.3
@@ -3229,7 +3310,7 @@ providers:
       input: 1.4
       output: 4.4
       extra:
-        cache_read: 0.26
+        cache_read: 0.14
     reported_modalities:
     - text
     reported_capabilities:
@@ -3239,6 +3320,7 @@ providers:
     - logprobs
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -3292,10 +3374,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.1875
-      output: 4.18
+      input: 1.134
+      output: 3.564
       extra:
-        cache_read: 0.247
+        cache_read: 0.1863
     reported_modalities:
     - text
     reported_capabilities:
@@ -3305,6 +3387,7 @@ providers:
     - logprobs
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
