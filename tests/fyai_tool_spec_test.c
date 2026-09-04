@@ -153,7 +153,6 @@ static void test_filtered(void)
 	fy_generic tools, tool, fn, n;
 	bool has_ask_user = false;
 	bool has_agent = false;
-	size_t count = 0;
 
 	/* A plain context keeps all tools. */
 	tools = make_tools_filtered(&test_ctx);
@@ -164,7 +163,6 @@ static void test_filtered(void)
 			has_ask_user = true;
 		if (fy_equal(n, "agent"))
 			has_agent = true;
-		count++;
 	}
 	require(has_ask_user && has_agent,
 		"plain context must have ask_user and agent");
@@ -173,7 +171,6 @@ static void test_filtered(void)
 	test_cfg.agent_child = true;
 	tools = make_tools_filtered(&test_ctx);
 	has_ask_user = has_agent = false;
-	count = 0;
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
 		n = fy_get(fn, "name");
@@ -181,7 +178,6 @@ static void test_filtered(void)
 			has_ask_user = true;
 		if (fy_equal(n, "agent"))
 			has_agent = true;
-		count++;
 	}
 	/* It cannot delegate or answer another sub-agent, but it can ask:
 	 * the question goes up to the parent, where the person is. */
