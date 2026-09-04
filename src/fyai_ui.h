@@ -62,10 +62,10 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 /*
  * Shape the input pane for a pending model question: a distinct prompt
- * marker, @question pinned in the header row above the prompt in place of
- * the model/provider banner, and @options (one numbered choice per line, or
- * NULL) as a live band under it. Escape declines the question alone -
- * neither the turn nor the session ends.
+ * marker, and a live band above the prompt with @question as its (markdown
+ * rendered, multi-line capable) heading and @options - one numbered choice
+ * per line, markdown source, or NULL - as its body. Escape declines the
+ * question alone - neither the turn nor the session ends.
  */
 void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *question,
 		       const char *options);

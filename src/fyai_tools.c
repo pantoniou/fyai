@@ -1307,24 +1307,31 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	size_t n = fy_is_sequence(options) ? fy_len(options) : 0;
 	fy_generic result;
 	struct response_buffer opts = {0};
-	char *line, *end, *header;
-	const char *a;
-	size_t i;
+	char *line, *end;
+	const char *a, *opt, *nl;
+	size_t i, seg;
 	long sel;
 
 	if (fyai_agent_delegated(ctx) && ctx->tool_rpc)
 		return fyai_ask_user_upward(ctx, args);
 
-	if (ansi_color_on(cfg->color, STDERR_FILENO))
-		fyai_report(ctx, "\n" FYAI_ANSI_BOLD "? %s" FYAI_ANSI_RESET
-			"\n", question);
-	else
-		fyai_report(ctx, "\n? %s\n", question);
-	i = 0;
-	fy_foreach(result, options) {
-		fyai_report(ctx, "  %zu) %s\n", i + 1,
-			fy_castp(&result, ""));
-		i++;
+	/*
+	 * A live UI session shapes its own input pane for the question (see
+	 * fyai_ui_ask_begin below); echoing it again here as plain status
+	 * text would just show it twice.
+	 */
+	if (!fyai_ui_active(ctx)) {
+		if (ansi_color_on(cfg->color, STDERR_FILENO))
+			fyai_report(ctx, "\n" FYAI_ANSI_BOLD "? %s"
+				FYAI_ANSI_RESET "\n", question);
+		else
+			fyai_report(ctx, "\n? %s\n", question);
+		i = 0;
+		fy_foreach(result, options) {
+			fyai_report(ctx, "  %zu) %s\n", i + 1,
+				fy_castp(&result, ""));
+			i++;
+		}
 	}
 
 	/*
@@ -1358,38 +1365,43 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	/*
 	 * Editable input via linenoise (only reached on an interactive tty).
 	 * Shape the input pane for the question: the marker says an answer
-	 * is expected, the question is pinned above the prompt in place of
-	 * the usual banner, and its numbered options show as a live list
-	 * below it. Escape declines the question alone, without stopping
-	 * the turn or the session.
+	 * is expected, and the question with its numbered options (as
+	 * markdown source - fyai_ui_ask_begin renders it) fills a live band
+	 * above the prompt. Escape declines the question alone, without
+	 * stopping the turn or the session.
 	 */
-	header = NULL;
 	if (fyai_ui_active(ctx)) {
-		header = strdup(question ? question : "");
-		if (header)
-			for (i = 0; header[i]; i++)
-				if (header[i] == '\n' || header[i] == '\r')
-					header[i] = ' ';
 		i = 0;
 		fy_foreach(result, options) {
+			/* Keep a multi-line option in its own list item: an
+			 * unindented continuation line would start a new
+			 * paragraph outside the list instead. */
+			opt = fy_castp(&result, "");
 			if (response_buffer_append(&opts,
-					fy_sprintfa("  %zu  %s\n", i + 1,
-						   fy_castp(&result, ""))))
+						   fy_sprintfa("%zu. ", i + 1)))
+				break;
+			while ((nl = strchr(opt, '\n')) != NULL) {
+				seg = (size_t)(nl - opt);
+				if (response_buffer_append_data(&opts, opt, seg) ||
+				    response_buffer_append(&opts, "\n   "))
+					goto opts_done;
+				opt = nl + 1;
+			}
+			if (response_buffer_append(&opts, opt) ||
+			    response_buffer_append(&opts, "\n"))
 				break;
 			i++;
 		}
-		fyai_ui_ask_begin(ctx, header ? header : "",
-				 opts.data ? opts.data : "");
+opts_done:
+		fyai_ui_ask_begin(ctx, question, opts.data ? opts.data : "");
 	}
 	line = fyai_readline(ctx, n ? "choose a number or type an answer> " : "> ");
 	if (fyai_ui_active(ctx) && fyai_ui_ask_end(ctx)) {
 		free(line);
-		free(header);
 		free(opts.data);
 		return fy_value(ctx->transient_gb,
 				"tool note: the user declined to answer");
 	}
-	free(header);
 	free(opts.data);
 have_line:
 	if (!line || !*line) {

@@ -1157,22 +1157,61 @@ out:
 	return rc;
 }
 
+/* Drop a markdown render's leading and trailing blank lines: the band
+ * gives a row to each of its lines, and a blank one at either end is a row
+ * spent on nothing. */
+static void ui_markdown_trim(struct response_buffer *out)
+{
+	size_t start = 0;
+
+	while (start < out->len &&
+	       (out->data[start] == '\n' || out->data[start] == '\r'))
+		start++;
+	if (start) {
+		memmove(out->data, out->data + start, out->len - start + 1);
+		out->len -= start;
+	}
+	response_buffer_trim(out);
+}
+
+/*
+ * @question and @options are the model's own text, not chrome the caller
+ * pre-rendered: render each through markdown here, the same as any other
+ * model text, so bold, code spans, and paragraph wrapping in a long or
+ * multi-line question read the way they do everywhere else fyai shows them.
+ */
 void fyai_ui_ask_begin(struct fyai_ctx *ctx, const char *question,
 		       const char *options)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct response_buffer q = {0};
+	struct response_buffer o = {0};
+	bool color;
 
 	if (!ui)
 		return;
 	ui->asking = true;
 	ui->ask_declined = false;
 	(void)fytim_set_marker(ui->ft, "? ");
-	(void)fytim_set_header(ui->ft, question ? question : "");
+	color = markdown_color_enabled(ctx->cfg->color);
+	ui->ask_band = fytim_workband_create(ui->ft);
+	if (!ui->ask_band)
+		return;
+	if (question && *question)
+		(void)markdown_render(ctx->cfg, question, strlen(question),
+				      &q, color, ctx->cfg->theme_variant);
+	ui_markdown_trim(&q);
+	/* The band's top chrome takes one row per line, unlike the prompt's
+	 * single-row header: a multi-line or richly formatted question is
+	 * not folded away here. */
+	(void)fytim_workband_set_top(ui->ask_band, q.data ? q.data : "");
+	free(q.data);
 	if (options && *options) {
-		ui->ask_band = fytim_workband_create(ui->ft);
-		if (ui->ask_band)
-			(void)fytim_workband_set(ui->ask_band, options,
-						 strlen(options));
+		(void)markdown_render(ctx->cfg, options, strlen(options), &o,
+				      color, ctx->cfg->theme_variant);
+		ui_markdown_trim(&o);
+		(void)fytim_workband_set(ui->ask_band, o.data, o.len);
+		free(o.data);
 	}
 }
 
