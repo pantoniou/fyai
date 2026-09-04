@@ -1238,8 +1238,9 @@ char *fyai_schema_report_string(fy_generic report)
 	const char *sep = "";
 	const char *problem;
 	fy_generic problems, p;
-	size_t len = 1;
+	size_t len = 1, left;
 	char *out, *w;
+	int n;
 
 	if (fyai_schema_valid(report))
 		return NULL;
@@ -1253,9 +1254,15 @@ char *fyai_schema_report_string(fy_generic report)
 		return NULL;
 	w = out;
 	*w = '\0';
+	left = len;
 	fy_foreach(p, problems) {
 		problem = fy_str(p);
-		w += sprintf(w, "%s%s", sep, problem ? problem : "");
+		/* @len covers each problem plus the separator. */
+		n = snprintf(w, left, "%s%s", sep, problem ? problem : "");
+		if (n < 0 || (size_t)n >= left)
+			break;
+		w += n;
+		left -= (size_t)n;
 		sep = "; ";
 	}
 	return out;
