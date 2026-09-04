@@ -21,7 +21,8 @@ FYAI_PTY_NEEDLE="interrupted" \
 	-m mock-model -i
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt 8 ] || fail "Ctrl-C did not interrupt the active tool"
+[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+	fail "Ctrl-C did not interrupt the active tool"
 [ ! -f interrupt-late.marker ] || fail "tool continued after Ctrl-C"
 
 mock_stop 1

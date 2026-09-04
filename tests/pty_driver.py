@@ -73,6 +73,7 @@ def main():
     prompt = os.environ.get("FYAI_PTY_INPUT", "hello").encode()
     needle = os.environ.get(
         "FYAI_PTY_NEEDLE", "Streaming hello from the mock.").encode()
+    needle_count = int(os.environ.get("FYAI_PTY_NEEDLE_COUNT", "1"))
     progress_needle = os.environ.get("FYAI_PTY_PROGRESS_NEEDLE", "").encode()
     progress_timeout = float(
         os.environ.get("FYAI_PTY_PROGRESS_TIMEOUT", "1.5")) * scale
@@ -174,7 +175,7 @@ def main():
             if resize_cols and not progress_needle:
                 fcntl.ioctl(master, termios.TIOCSWINSZ,
                             struct.pack("HHHH", rows, resize_cols, 0, 0))
-        data = read_until(master, data, needle, deadline)
+        data = read_until_count(master, data, needle, needle_count, deadline)
         for step in after_script:
             kind, _, value = step.partition(":")
             if kind == "send":

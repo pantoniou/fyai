@@ -1546,6 +1546,7 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 	size_t group_index;
 	size_t i;
 	size_t total;
+	bool interrupted;
 	bool ok;
 	int rc;
 
@@ -1580,7 +1581,8 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 		fyai_turn_run_finish(run, fy_null, true);
 		return 0;
 	}
-	if (fyai_interrupt_check(ctx)) {
+	interrupted = fyai_interrupt_check(ctx);
+	if (run->cancel_requested || interrupted) {
 		result = fy_gb_internalize(ctx->gb, run->turn);
 		result = fyai_with_diag(ctx->gb, result, "interrupted");
 		fyai_turn_run_finish(run, result, false);
@@ -1722,6 +1724,11 @@ static int fyai_turn_run_process_model(struct fyai_turn_run *run)
 
 	ctx = run->ctx;
 	response = fyai_turn_run_take_model_response(run);
+	if (run->cancel_requested) {
+		fyai_turn_run_drop_tool_group(run);
+		fyai_turn_run_stop(run, "interrupted");
+		return 0;
+	}
 	if (fy_is_invalid(response)) {
 		fyai_turn_run_drop_tool_group(run);
 		fyai_turn_run_request_failed(run, response);
@@ -2587,20 +2594,24 @@ static int fyai_interactive_finish_run(struct fyai_ctx *ctx,
 static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
 						struct fyai_turn_run *run)
 {
+	bool delivered;
+
 	if (!ctx->interrupt_pending)
 		return;
 	/* Acknowledge SIGINT while the event loop is responsive. */
 	fyai_event_interrupt_ack(ctx);
+	delivered = false;
 	/* Process each delivered SIGINT one time. */
 	if (ctx->interrupt_seq != ctx->interrupt_seen) {
 		ctx->interrupt_seen = ctx->interrupt_seq;
 		/* A tile with the keys was given it: the user was typing into
 		 * a program, not stopping the turn. */
-		if (fyai_ui_interrupt(ctx))
-			return;
+		delivered = fyai_ui_interrupt(ctx);
 	}
-	if (run)
+	if (run && !delivered)
 		fyai_turn_run_cancel(run);
+	/* Keep a signal that arrived while this interrupt was handled. */
+	ctx->interrupt_pending = ctx->interrupt_seq != ctx->interrupt_seen;
 }
 
 static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,

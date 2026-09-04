@@ -20,7 +20,8 @@ FYAI_PTY_NEEDLE="interrupted" \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt 8 ] || fail "ESC did not interrupt the builtin shell"
+[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+    fail "ESC did not interrupt the builtin shell"
 
 "$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || \
     fail "the interrupted shell was not reported"

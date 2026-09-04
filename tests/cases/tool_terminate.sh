@@ -20,6 +20,7 @@ import time
 
 BIN, URL = sys.argv[1], sys.argv[2]
 TAGS = ("fyai-term-stubborn", "fyai-term-polite")
+SCALE = float(os.environ.get("FYAI_TIMEOUT_SCALE", "1"))
 
 
 def descendants(root):
@@ -98,7 +99,7 @@ if tagged():
     die("tagged processes existed before the run: %r" % tagged())
 
 os.write(fd, b"run it\n")
-deadline = time.monotonic() + 20
+deadline = time.monotonic() + 20 * SCALE
 while time.monotonic() < deadline and len(tagged()) < 2:
     drain(0.2)
 if len(tagged()) < 2:
@@ -109,7 +110,7 @@ os.write(fd, b"\x03")
 
 # The ladder is SIGTERM then, after a grace period, SIGKILL. Allow well past
 # it: this asserts termination happens, not how fast.
-deadline = time.monotonic() + 20
+deadline = time.monotonic() + 20 * SCALE
 while time.monotonic() < deadline and tagged():
     drain(0.2)
 
@@ -119,7 +120,7 @@ if left:
 
 # And the turn must actually end - a cancel that kills the tool but leaves the
 # turn running is the same hang from the user's side.
-deadline = time.monotonic() + 15
+deadline = time.monotonic() + 15 * SCALE
 while time.monotonic() < deadline and "❯".encode() not in buf:
     drain(0.2)
 if "❯".encode() not in buf:

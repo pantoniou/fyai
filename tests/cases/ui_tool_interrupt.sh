@@ -20,7 +20,8 @@ FYAI_PTY_NEEDLE="interrupted" \
 	-m mock-model -i
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt 8 ] || fail "ESC did not interrupt the active tool"
+[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+	fail "ESC did not interrupt the active tool"
 [ ! -f interrupt-late.marker ] || fail "tool continued after ESC"
 
 mock_stop 1

@@ -174,6 +174,7 @@ FYAI_PTY_DURING_INPUT="recalled prompt" \
 FYAI_PTY_DURING_DELAY="0.2" \
 FYAI_PTY_INTERRUPT_AFTER_DURING="1" \
 FYAI_PTY_SUBMIT_RECALLED="1" \
+FYAI_PTY_NEEDLE_COUNT="2" \
 FYAI_PTY_NEEDLE="Queued input completed." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/interrupt-recall.out" \
     "$FYAI_BIN" -k test-key --theme catppuccin:dark \

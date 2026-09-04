@@ -25,7 +25,8 @@ MCP_CALL_DELAY: '5'}, cwd: '$TEST_DIR'}" \
 	-m mock-model -i
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt 8 ] || fail "ESC did not interrupt the MCP pipe request"
+[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+	fail "ESC did not interrupt the MCP pipe request"
 
 mock_stop 1
 
