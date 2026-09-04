@@ -725,6 +725,7 @@ void fyai_close_fds_from(int lowfd)
 		close((int)fd);
 }
 
+#ifdef __linux__
 /* Check whether Linux reports @pid blocked reading descriptor 0. */
 static bool proc_reads_stdin(pid_t pid)
 {
@@ -781,6 +782,7 @@ static size_t proc_children(pid_t pid, pid_t *out, size_t max)
 	}
 	return count;
 }
+#endif
 
 bool fyai_process_reads_stdin(pid_t pid)
 {
