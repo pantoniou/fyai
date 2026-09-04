@@ -13,6 +13,18 @@ if (POLICY CMP0110)
     cmake_policy(SET CMP0110 NEW) # add_test() supports arbitrary characters in test names
 endif()
 
+# Embed an install-time rpath so an installed binary finds its shared
+# libraries (libfymd4c, libfyts) at their installed location instead of
+# relying on the build tree's rpath.
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path/../lib")
+elseif(UNIX)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+
 # Get version from git-version-gen
 execute_process(
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/git-version-gen" "${CMAKE_CURRENT_SOURCE_DIR}/.tarball-version"
