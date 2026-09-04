@@ -2911,9 +2911,17 @@ static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
 					       FYMD_INDICATOR_FAILURE);
 	rc = markdown_render_tool_head(ctx->cfg, md, len, cause,
 				       margin ? margin : "  ", "  ", &head);
-	if (!rc && head.len)
-		rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
-				     head.data, head.len);
+	if (!rc && head.len) {
+		/* Separate successive tool rows; a lone row needs no lead-in. */
+		if (ctx->tool_row_open)
+			rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+					     "\n", 1);
+		if (!rc)
+			rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+					     head.data, head.len);
+		if (!rc)
+			ctx->tool_row_open = true;
+	}
 	free(margin);
 	free(head.data);
 	return rc;
@@ -2956,6 +2964,7 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 
 	len = strlen(md);
 	pos = 0;
+	ctx->tool_row_open = false;
 	fy_foreach(fragment, fragments) {
 		llstart = fy_get(fragment, "start", -1LL);
 		llend = fy_get(fragment, "end", -1LL);

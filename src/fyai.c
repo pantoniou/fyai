@@ -1769,6 +1769,7 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	run->result = fy_invalid;
 	run->state = FYAITRS_NEW;
 	ctx->tool_output_displayed = false;
+	ctx->tool_row_open = false;
 	rc = fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT);
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not start assistant display output");

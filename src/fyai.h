@@ -512,6 +512,9 @@ struct fyai_ctx {
 	struct fyai_pending_event **events_tail;
 	struct fyai_event_source *winch_src;
 	bool tool_output_displayed;
+	/* Set once a tool row has been drawn live, so the next one gets a
+	 * blank line ahead of it */
+	bool tool_row_open;
 	/* The sole progressive transcript document for the active user or
 	 * assistant output. Owned by this context, never by a signal handler. */
 	struct fyai_display_output *display_output;
