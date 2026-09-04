@@ -92,6 +92,8 @@ def main():
         os.environ.get("FYAI_PTY_INTERRUPT_DELAY", "0.2"))
     submit_recalled = os.environ.get(
         "FYAI_PTY_SUBMIT_RECALLED", "0") in ("1", "true", "yes")
+    interrupt_settled_needle = os.environ.get(
+        "FYAI_PTY_INTERRUPT_SETTLED_NEEDLE", "").encode()
     clear_before_exit = os.environ.get(
         "FYAI_PTY_CLEAR_BEFORE_EXIT", "0") in ("1", "true", "yes")
     resize_cols = int(os.environ.get("FYAI_PTY_RESIZE_COLS", "0"))
@@ -158,6 +160,10 @@ def main():
                                     occurrences + 1,
                                     time.monotonic() + progress_timeout)
             if submit_recalled:
+                if interrupt_settled_needle:
+                    data = read_until(master, data, interrupt_settled_needle,
+                                      deadline)
+                needle_count += data.count(needle)
                 os.write(master, b"\n")
         if progress_needle:
             data = read_until(master, data, progress_needle,

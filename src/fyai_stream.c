@@ -1660,7 +1660,7 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 	fyai_curl_transfer_destroy(transfer);
 	stream->transfer = NULL;
 
-	if (res == CURLE_ABORTED_BY_CALLBACK) {
+	if (stream->cancel_requested || res == CURLE_ABORTED_BY_CALLBACK) {
 		ret = fyai_with_diag(ctx->transient_gb, fy_invalid, "interrupted");
 		stream_state_transition(stream, FYAISS_CANCELLED);
 		goto done;
