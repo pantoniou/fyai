@@ -690,6 +690,23 @@ if(BUILD_TESTING)
             FIXTURES_REQUIRED fyai_binary
             ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN};FYAI_TIMEOUT_SCALE_DEFAULT=${FYAI_TIMEOUT_SCALE}"
         )
+        # Only the PTY cases that have actually starved each other on
+        # slow runners take the lock: interactive turn legs, live
+        # resizes, tool interrupts, and termination. The rest assert
+        # through polled needles with room in their budgets, so they run
+        # free. Grow this list from failure evidence, not suspicion.
+        if(case_name MATCHES "^(ui_interactive|ui_pattern_tty_resize|ui_curses_tty_resize|ui_bang_resize|ui_bang_multi_resize|ui_idle_resize_repaint|ui_band_resize_width|ui_reflow_width|term|shell_tty_resize|ui_tool_interrupt|ui_tool_interrupt_ctrl_c|ui_native_shell_interrupt|ui_mcp_stdio_interrupt|tool_terminate)$")
+            set_tests_properties(fyai/case_${case_name} PROPERTIES
+                RESOURCE_LOCK fyai_pty)
+        endif()
+        # Valgrind cases are nightly-only: memcheck multiplies startup
+        # by an order of magnitude and proves nothing per push that
+        # ASAN does not already cover. CI excludes this label by
+        # default; the nightly leg runs it explicitly.
+        if(case_name MATCHES "^vg_")
+            set_tests_properties(fyai/case_${case_name} PROPERTIES
+                LABELS nightly)
+        endif()
     endforeach()
 
     # One component owns every byte the user sees: no direct stdout/stderr
@@ -698,6 +715,14 @@ if(BUILD_TESTING)
     add_test(NAME fyai/sink_only
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/sink-only.sh
                 ${CMAKE_CURRENT_SOURCE_DIR})
+
+    # Static checks over the case scripts: comments inside a continued
+    # statement silently drop driver variables, and a misspelled AFTER
+    # step fails only after the session budget. Catch both at build time.
+    add_test(NAME fyai/case_lint
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/case-lint.sh)
+    set_tests_properties(fyai/case_lint PROPERTIES
+        FIXTURES_REQUIRED fyai_binary)
 
     add_test(NAME fyai/cli_dump_conflicting_selectors
         COMMAND fyai dump --first 1 --last 1)

@@ -6,8 +6,9 @@ run-name: >-
       format('CMake CI · {0} · {1}', github.ref_name, github.event.head_commit.message) }}
 
 env:
-  CMAKE_BUILD_PARALLEL_LEVEL: ${{ vars.NUMBER_OF_PROCESSORS || 2 }}
-  CTEST_PARALLEL_LEVEL: ${{ vars.NUMBER_OF_PROCESSORS || 2 }}
+  # No parallelism caps: the build uses every core, and ctest takes
+  # -j "$(nproc)" in the Test step. PTY wall-clock cases stay serial
+  # through the fyai_pty resource lock whatever the job count is.
   CTEST_OUTPUT_ON_FAILURE: 1
 
 on:
@@ -15,6 +16,8 @@ on:
     branches: [ master, devel ]
   pull_request:
     branches: [ master, devel ]
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       os:
@@ -97,7 +100,25 @@ jobs:
     - name: "Test"
       working-directory: build
       run: |
-        ctest --output-on-failure
+        # Valgrind cases carry the nightly label: memcheck is an order
+        # of magnitude slower and ASAN already covers per-push memory
+        # checking. The nightly schedule runs the whole suite.
+        # Failed cases keep their sandbox (captures, mock log, requests)
+        # under $RUNNER_TEMP for the artifact step below.
+        export FYAI_TEST_KEEPDIR="$RUNNER_TEMP/fyai-failures"
+        # nproc is GNU; macOS has sysctl instead. Cores only size the
+        # job count: PTY wall-clock cases stay serial through the
+        # fyai_pty lock whatever it is.
+        if command -v nproc >/dev/null 2>&1; then
+          jobs="$(nproc)"
+        else
+          jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+        fi
+        if [ "${{ github.event_name }}" = "schedule" ]; then
+          ctest -j "$jobs" --output-on-failure
+        else
+          ctest -j "$jobs" --output-on-failure -LE nightly
+        fi
 
     - name: "Upload test logs on failure"
       if: failure()
@@ -107,3 +128,4 @@ jobs:
         path: |
           build/Testing/Temporary/
           build/**/*.log
+          ${{ runner.temp }}/fyai-failures/
