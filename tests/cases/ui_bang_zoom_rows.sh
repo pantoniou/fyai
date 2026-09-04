@@ -9,17 +9,21 @@ run_size()
     policy=$1
     expected=$2
     fyai_test_setup
+    # Report the size in a loop, not once after a fixed sleep: the driver
+    # ends the session with /exit once the zoomed grid can be read, which
+    # kills the loop. A sleep only sets how long the leg takes, and a
+    # fixed second report races the policy change on a slow runner.
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
-    FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 8'" \
+    FYAI_PTY_INPUT="!sh -c 'while :; do stty size; sleep 0.2; done'" \
     FYAI_PTY_NEEDLE="bang-1" \
     FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|send:/zoom bang-1|wait:Ctrl-]|"\
 "wait: 98|drain:.5|raw:0c|drain:1|raw:1d" \
-    FYAI_PTY_SNAPSHOT="$TEST_DIR/zoom.out" \
-    "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
+    FYAI_PTY_SNAPSHOT="$TEST_DIR/zoom-$policy.out" \
+    "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty-$policy.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
         --set "display/work_zoom_rows=$policy" -m mock-model -i
-    "$PYTHON" - "$TEST_DIR/zoom.out" "$expected" "$TESTS_DIR" <<'PYEOF'
+    "$PYTHON" - "$TEST_DIR/zoom-$policy.out" "$expected" "$TESTS_DIR" <<'PYEOF'
 import re
 import sys
 
@@ -49,7 +53,7 @@ run_focused_size()
     expected=$2
     fyai_test_setup
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
-    FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 3'" \
+    FYAI_PTY_INPUT="!sh -c 'while :; do stty size; sleep 0.2; done'" \
     FYAI_PTY_NEEDLE="bang-1" \
     FYAI_PTY_AFTER="wait:Ctrl-]|wait: 98|drain:.5|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/focused.out" \
@@ -74,7 +78,7 @@ run_key_cycle()
 {
     fyai_test_setup
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
-    FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 2; stty size; sleep 3'" \
+    FYAI_PTY_INPUT="!sh -c 'while :; do stty size; sleep 0.2; done'" \
     FYAI_PTY_NEEDLE="bang-1" \
     FYAI_PTY_AFTER="wait:14 98|raw:1b5b3131363b3675|"\
 "wait:work pane height: quarter|wait:6 98|raw:1d" \

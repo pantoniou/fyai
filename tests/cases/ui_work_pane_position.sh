@@ -44,10 +44,18 @@ run_set()
     fyai_test_setup
     mock_start ui_band_invocation.json
 
+    # The set prints nothing, so its echo is not the commit: only a
+    # round trip proves the live session applied it. The get runs after
+    # the set in the same session, and its report carries the committed
+    # value; the turn below starts only once that report is on screen,
+    # so it runs under the new position instead of racing the frame
+    # that applies it. An echo-matched needle would send the turn while
+    # the commit is still queued, and the band would run above-prompt
+    # even though the setting takes a frame later.
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="/config set display/work_position below-prompt" \
-    FYAI_PTY_NEEDLE="display/work_position" \
-    FYAI_PTY_AFTER="send:run it|wait:Done." \
+    FYAI_PTY_NEEDLE="below-prompt" \
+    FYAI_PTY_AFTER="send:/config get display/work_position|wait:below-prompt|send:run it|wait:Done." \
     FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/set.out" \
         "$FYAI_BIN" -k test-key --theme dark \

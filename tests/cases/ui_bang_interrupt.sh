@@ -13,10 +13,12 @@ fyai_test_setup
 # the loop below is stopped by it. fyai must still be there afterwards, and
 # answer for itself - with no ground of its own it would have taken the
 # interrupt and left.
+# The focus hint is drawn before input routing settles: yield one drain
+# so the interrupt reaches the tile instead of the prompt behind it.
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!sh -c 'echo READY; while :; do sleep .2; done'" \
 FYAI_PTY_NEEDLE="READY" FYAI_PTY_TIMEOUT=25 FYAI_PTY_AFTER_TIMEOUT=15 \
-FYAI_PTY_AFTER="wait:Ctrl-]|raw:03|wait:signal 2|raw:1d|send:/sessions|"\
+FYAI_PTY_AFTER="wait:Ctrl-]|settle:.5|raw:03|wait:signal 2|raw:1d|send:/sessions|"\
 "wait:sessions" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

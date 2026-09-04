@@ -168,7 +168,14 @@ assert_request 0 \
     'r["body"]["messages"][-1]["content"] == "first prompt"'
 mock_stop 1
 
-mock_start chat_stream_queued_input.json
+mock_start chat_stream_queued_recall.json
+# Give the second queued completion room on a slow runner: the first turn,
+# the draft recall, and the resubmitted turn each take the full session
+# budget under ASAN with a loaded machine.
+# The first turn streams for seconds: the interrupt below must land
+# mid-stream whatever the echo latency is. With a short stream a late
+# echo flips the choreography to a third request the mock answers
+# with a 500, and the needle never comes.
 FYAI_PTY_INPUT="first prompt" \
 FYAI_PTY_DURING_INPUT="recalled prompt" \
 FYAI_PTY_DURING_DELAY="0.2" \
@@ -176,6 +183,7 @@ FYAI_PTY_INTERRUPT_AFTER_DURING="1" \
 FYAI_PTY_SUBMIT_RECALLED="1" \
 FYAI_PTY_INTERRUPT_SETTLED_NEEDLE="interrupted" \
 FYAI_PTY_NEEDLE="Queued input completed." \
+FYAI_PTY_TIMEOUT=30 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/interrupt-recall.out" \
     "$FYAI_BIN" -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \

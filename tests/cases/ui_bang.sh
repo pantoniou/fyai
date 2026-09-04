@@ -6,9 +6,13 @@ set -eu
 
 fyai_test_setup
 
-FYAI_PTY_INPUT="!sh -c 'printf BANG-OUTPUT; sleep .2'" \
+# No hold sleep: the shell exits at once, so the retire commit has its
+# whole head start before the status send below. A sleep only moves the
+# commit closer to the send. The pause after resize yields to the commit.
+FYAI_PTY_INPUT="!sh -c 'printf BANG-OUTPUT'" \
 FYAI_PTY_NEEDLE="BANG-OUTPUT" \
 FYAI_PTY_AFTER="resize:100|send:/status|wait:Usage / total" \
+FYAI_PTY_AFTER_PAUSE=1 \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

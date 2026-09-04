@@ -8,9 +8,16 @@ mock_start mcp_stdio.json
 STDIO_LOG="$TEST_DIR/mcp-stdio.jsonl"
 
 start=$(date +%s)
+# Gate the interrupt on the call reaching the mock: the PTY shows the
+# turn is busy while the MCP handshake still runs, and an interrupt in
+# that window recalls nothing. The mock log records tools/call once the
+# call the interrupt must land in is truly in flight.
 FYAI_PTY_INPUT="use local echo" \
 FYAI_PTY_DURING_INPUT="pending input" \
 FYAI_PTY_INTERRUPT_AFTER_DURING="1" \
+FYAI_PTY_WAIT_FILE="$TEST_DIR/mcp-stdio.jsonl" \
+FYAI_PTY_WAIT_FILE_NEEDLE="tools/call" \
+FYAI_PTY_PROGRESS_TIMEOUT=10 \
 FYAI_PTY_NEEDLE="interrupted" \
 FYAI_PTY_CLEAR_BEFORE_EXIT="1" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \

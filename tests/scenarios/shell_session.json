@@ -126,7 +126,7 @@
          "type": "function",
          "function": {
           "name": "exec_command",
-          "arguments": "{\"name\": \"lines\", \"command\": \"sh -c 'printf \\\"PIPE-A\\\\nPIPE-B\\\\n\\\"; sleep 2'\", \"description\": \"a shell that writes lines\", \"tty\": true}"
+          "arguments": "{\"name\": \"lines\", \"command\": \"sh -c 'printf \\\"PIPE-A\\\\nPIPE-B\\\\n\\\"; sleep 30'\", \"description\": \"a shell that writes lines\", \"tty\": true}"
          }
         }
        ]

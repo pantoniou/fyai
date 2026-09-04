@@ -1,51 +1,51 @@
 {
-  "steps": [
-    {
-      "response": {
-        "id": "c1",
-        "object": "chat.completion",
-        "created": 1,
-        "model": "mock-model",
-        "choices": [
-          {
-            "index": 0,
-            "message": {
-              "role": "assistant",
-              "content": null,
-              "tool_calls": [
-                {
-                  "id": "t1",
-                  "type": "function",
-                  "function": {
-                    "name": "exec_command",
-                    "arguments": "{\"command\": \"for i in $(seq 1 40); do printf '%s\\\\n' \\\"$i\\\"; sleep 0.2; done\", \"description\": \"Count to forty\"}"
-                  }
-                }
-              ]
-            },
-            "finish_reason": "tool_calls"
-          }
-        ]
-      }
-    },
-    {
-      "response": {
-        "id": "c2",
-        "object": "chat.completion",
-        "created": 2,
-        "model": "mock-model",
-        "choices": [
-          {
-            "index": 0,
-            "message": {
-              "role": "assistant",
-              "content": "done.",
-              "tool_calls": null
-            },
-            "finish_reason": "stop"
-          }
-        ]
-      }
-    }
-  ]
+ "steps": [
+  {
+   "response": {
+    "id": "c1",
+    "object": "chat.completion",
+    "created": 1,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "t1",
+         "type": "function",
+         "function": {
+          "name": "exec_command",
+          "arguments": "{\"command\": \"for i in $(seq 1 20); do printf '%s\\\\n' \\\"$i\\\"; sleep 0.1; done\", \"description\": \"Count to forty\"}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "c2",
+    "object": "chat.completion",
+    "created": 2,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "done.",
+       "tool_calls": null
+      },
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  }
+ ]
 }

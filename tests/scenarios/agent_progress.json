@@ -21,7 +21,7 @@
       "id": "fc-call-shell-1",
       "call_id": "call-shell-1",
       "name": "exec_command",
-      "arguments": "{\"command\": \"for i in 0 1 2 3 4; do echo LINE-$i; sleep 1; done\", \"description\": \"count to four\", \"timeout\": 30000}"
+      "arguments": "{\"command\": \"for i in 0 1 2 3 4; do echo LINE-$i; sleep 0.2; done\", \"description\": \"count to four\", \"timeout\": 30000}"
      }
     ]
    }

@@ -1,0 +1,64 @@
+{
+ "steps": [
+  {
+   "chunk_split": [
+    100,
+    220,
+    340,
+    460,
+    580
+   ],
+   "chunk_delay": 2.0,
+   "sse": [
+    {
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant",
+        "content": "First streamed reply."
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "stop"
+      }
+     ]
+    }
+   ],
+   "done": true
+  },
+  {
+   "sse": [
+    {
+     "choices": [
+      {
+       "index": 0,
+       "delta": {
+        "role": "assistant",
+        "content": "Queued input completed."
+       },
+       "finish_reason": null
+      }
+     ]
+    },
+    {
+     "choices": [
+      {
+       "index": 0,
+       "delta": {},
+       "finish_reason": "stop"
+      }
+     ]
+    }
+   ],
+   "done": true
+  }
+ ]
+}

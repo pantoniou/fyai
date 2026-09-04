@@ -11,12 +11,18 @@ set -eu
 focus_keeps_size()
 {
     fyai_test_setup
+    # Report the size in a loop: the driver ends the session once the
+    # focus cycle can be read, which kills the loop. A fixed sleep only
+    # sets how long the leg takes.
+    # One second before the first report: a shell that reports before
+    # its tile joins the layout prints the whole window, which the
+    # assertion below would read as focus growing the tile.
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=120 \
-    FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 4; stty size; sleep 4'" \
+    FYAI_PTY_INPUT="!sh -c 'sleep 1; while :; do stty size; sleep 1; done'" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=30 \
     FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|"\
-"send:!sh -c 'sleep 1; stty size; sleep 4; stty size; sleep 4'|"\
-"wait:bang-2|wait:Ctrl-]|raw:14|raw:14|raw:1d|drain:5|raw:1d" \
+"send:!sh -c 'sleep 1; while :; do stty size; sleep 1; done'|"\
+"wait:bang-2|wait:Ctrl-]|raw:14|raw:14|raw:1d|drain:1|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/focus.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/work_min_tile_cols=30 \
@@ -54,9 +60,9 @@ resize_recalculates()
     after=$3
     fyai_test_setup
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
-    FYAI_PTY_INPUT="!sh -c 'sleep 1; stty size; sleep 3; stty size; sleep 4'" \
+    FYAI_PTY_INPUT="!sh -c 'sleep 1; while :; do stty size; sleep 0.2; done'" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=30 \
-    FYAI_PTY_AFTER="wait:Ctrl-]|wait: 98|drain:.5|resize:64x100|drain:5|raw:1d" \
+    FYAI_PTY_AFTER="wait:Ctrl-]|wait: 98|drain:.5|resize:64x100|wait:30 98|drain:2|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/resize-$policy.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \

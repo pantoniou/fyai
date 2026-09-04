@@ -15,7 +15,7 @@
             "action": {
               "type": "exec",
               "commands": [
-                "sleep 10"
+                "echo MARKER-CALL-A; sleep 3"
               ],
               "timeout_ms": 1000
             }
@@ -28,7 +28,7 @@
             "action": {
               "type": "exec",
               "commands": [
-                "sleep 5"
+                "echo MARKER-CALL-B; sleep 2"
               ],
               "timeout_ms": 1000
             }

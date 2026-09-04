@@ -7,7 +7,7 @@ set -eu
 fyai_test_setup
 
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
-FYAI_PTY_INPUT="!sh -c 'sleep .2; stty size; printf \"ENV:%s:%s\\n\" \"\${LINES-unset}\" \"\${COLUMNS-unset}\"; sleep 8'" \
+FYAI_PTY_INPUT="!sh -c 'sleep .2; stty size; printf \"ENV:%s:%s\\n\" \"\${LINES-unset}\" \"\${COLUMNS-unset}\"; sleep 30'" \
 FYAI_PTY_NEEDLE=" 98" \
 FYAI_PTY_AFTER="drain:.5|raw:0c|drain:1|raw:1d" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/full.out" \

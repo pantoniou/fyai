@@ -12,7 +12,7 @@ FYAI_PTY_ROWS=40 FYAI_PTY_COLS=100 \
 FYAI_PTY_NEEDLE="Turn 1 answered." \
 FYAI_PTY_AFTER="send:turn 2 please|wait:Turn 2 answered.|send:turn 3 please|wait:Turn 3 answered.|resize:72|wait:Turn 3 answered." \
 FYAI_PTY_AFTER_TIMEOUT=20 \
-FYAI_PTY_AFTER_PAUSE="1.5" \
+FYAI_PTY_AFTER_PAUSE=".5" \
 FYAI_PTY_TIMEOUT=60 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

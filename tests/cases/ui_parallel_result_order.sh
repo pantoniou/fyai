@@ -30,9 +30,11 @@ screen = Screen()
 screen.feed(open(sys.argv[1], "rb").read())
 order = []
 for line in screen.lines():
-    if "sleep 10" in line:
+    # Identify each call by its marker echo, not its duration: the next
+    # timing trim must not rewrite this assertion.
+    if "MARKER-CALL-A" in line:
         order.append("call-a")
-    elif "sleep 5" in line:
+    elif "MARKER-CALL-B" in line:
         order.append("call-b")
     elif "timed out after 1000 ms; request" in line:
         order.append("result")

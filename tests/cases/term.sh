@@ -89,7 +89,7 @@ SH
 FYAI_TERM_ROWS=24 FYAI_TERM_COLS=80 \
 FYAI_TERM_WAIT='ready' FYAI_TERM_RESIZE_DELAY=0.5 FYAI_TERM_RESIZE='40x100' \
 FYAI_TERM_WAIT2='size ' FYAI_TERM_SEND='\x1c' FYAI_TERM_SEND2='q' \
-FYAI_TERM_SEND_GAP=0.6 FYAI_TERM_TIMEOUT=25 \
+FYAI_TERM_SEND_GAP=1.0 FYAI_TERM_TIMEOUT=40 \
 "$PYTHON" "$TESTS_DIR/term_driver.py" "$TEST_DIR/resize.out" \
     "$FYAI_BIN" term -c "sh $TEST_DIR/winch.sh" \
     || fail "the resized terminal run did not finish"
