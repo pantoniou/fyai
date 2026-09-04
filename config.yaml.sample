@@ -260,13 +260,13 @@ display:
   # A further ceiling on work_zoom_rows; 0 leaves the height to it alone.
   work_max_rows: 0
   # Height of the work pane: full, half, quarter, or a positive row count.
-  work_zoom_rows: full
+  work_zoom_rows: half
   # The ground of the tile that holds the keys, which the prompt takes too:
   # reverse for the one the terminal draws text in, which suits a light
   # terminal and a dark one alike, or #rrggbb for one of your own. An empty
   # string reverses the margin of the tile instead. focus_bg_mix is how much
   # of a colour of your own reaches a cell the program coloured itself.
-  focus_bg: reverse
+  focus_bg: "#181828"
   focus_bg_mix: 35
   work_frame: none
   tile_frame: none
