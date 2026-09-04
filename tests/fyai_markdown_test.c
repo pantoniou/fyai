@@ -54,11 +54,11 @@ int markdown_source_rows_utf8(void)
 	return EXIT_SUCCESS;
 }
 
-static double now_ms(void)
+static double cpu_ms(void)
 {
 	struct timespec ts;
 
-	clock_gettime(CLOCK_MONOTONIC, &ts);
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
 	return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
 }
 
@@ -66,10 +66,7 @@ static double now_ms(void)
  * Push @steps exchanges of prose and a fenced C block, repainting each time,
  * and return what the batch cost in total.
  *
- * The total and not the slowest push: a loaded machine takes one repaint away
- * for milliseconds at a time, which is ten times a normal push and says
- * nothing about the window. Over a batch that stall is a small part of the
- * measurement, and the growth this test looks for is in every push.
+ * Measure the batch total so growth in every repaint remains visible.
  */
 static double push_steps(struct fyai_fenced_stream *fs, size_t steps)
 {
@@ -78,7 +75,7 @@ static double push_steps(struct fyai_fenced_stream *fs, size_t steps)
 	size_t i;
 	int n;
 
-	t0 = now_ms();
+	t0 = cpu_ms();
 	for (i = 0; i < steps; i++) {
 		n = snprintf(chunk, sizeof(chunk),
 			     "Step %zu: editing a file.\n\n```c\n"
@@ -88,15 +85,11 @@ static double push_steps(struct fyai_fenced_stream *fs, size_t steps)
 		fs->next_render_ms = 0;
 		FYAI_TCHECK(!fyai_fenced_stream_push(fs, chunk, (size_t)n));
 	}
-	return now_ms() - t0;
+	return cpu_ms() - t0;
 }
 
 /*
- * The cheapest of @rounds batches.
- *
- * A machine under load takes a batch away for milliseconds at a time, which
- * only ever adds to what one costs. The cheapest round is the one that says
- * what the work costs, and it is the same measurement on an idle machine.
+ * Use the cheapest batch to exclude one-time allocator and cache costs.
  */
 static double best_of(struct fyai_fenced_stream *fs, int rounds)
 {
@@ -113,10 +106,8 @@ static double best_of(struct fyai_fenced_stream *fs, int rounds)
 
 /*
  * A late batch of repaints must not cost more than an early one. The window
- * holds this flat, so the bound leaves room for a loaded machine and still
- * separates the two shapes: rendering the whole accumulator instead makes the
- * late repaints grow with everything pushed before them, which over a hundred
- * of them is far more than the allowance.
+ * holds this flat. The bound allows allocator and cache variation while still
+ * rejecting a render of the whole accumulator.
  */
 static void test_window_bounds_render(void)
 {
