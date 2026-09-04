@@ -614,11 +614,55 @@ static const char *ui_chrome_text(const char *v)
 	return v;
 }
 
+/* Apply one terminal size through reflow and tile grants. The caller
+ * supplies one snapshot for both dimensions. A repeated size converges:
+ * an unchanged size records nothing and reconciles nothing beyond what
+ * the frame already does.
+ */
+static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
+{
+	struct fyai_ctx *ctx = ui->ctx;
+	int cols;
+
+	cols = width > 1 ? width - 1 : 0;
+
+	ctx->cfg->render_width = cols;
+	/* Record the initial size without requesting reflow. */
+	if (!ui->render_cols ||
+	    (rows == ui->render_rows && cols == ui->render_cols))
+		return;
+	ui->render_rows = rows;
+	ui->render_cols = cols;
+	/* Recompute the disposition and the tile preferences. */
+	fyai_workpane_terminal_resize(ctx->workpane, rows, width);
+	/* Defer one live reflow until the resize burst ends. */
+	ui->reflow_pending = true;
+	/* Repaint committed rows from stored transcript data. */
+	ui->repaint_pending = true;
+	/* Reconcile tile grants on the next frame. */
+	ui->frame_pending = true;
+	ui->next_frame_ms = fyai_event_now_ms();
+}
+
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
 	bool painted_frame;
 
+	/* Recover a resize the signal path missed. A lost or coalesced
+	 * SIGWINCH, or one delivered to a foreground child instead of
+	 * this process, never reaches the event below; without a fresh
+	 * sample the torn grant it left behind sticks, because nothing
+	 * re-triggers the reconcile. The service already runs on the
+	 * heal timer, so converge here: an unchanged size is a single
+	 * ioctl that records nothing.
+	 */
+	if (ui->tty_fd >= 0) {
+		int rows = 0, width = 0;
+
+		if (terminal_window_size(ui->tty_fd, &rows, &width))
+			ui_apply_resize(ui, rows, width);
+	}
 	fyai_ui_drain_output(ui->ctx);
 	if (ui_activity_refresh(ui))
 		return FYAIEA_ABORT;
@@ -672,32 +716,10 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		case FYTIM_EVENT_RESIZE: {
 			int rows = ev.height;
 			int width = ev.width;
-			int cols;
 
 			/* Use one terminal snapshot for both dimensions. */
 			(void)terminal_window_size(ui->tty_fd, &rows, &width);
-			cols = width > 1 ? width - 1 : 0;
-
-			ui->ctx->cfg->render_width = cols;
-			/* Record the initial size without requesting reflow. */
-			if (!ui->render_cols ||
-			    (rows == ui->render_rows && cols == ui->render_cols)) {
-				ui->render_rows = rows;
-				ui->render_cols = cols;
-				break;
-			}
-			ui->render_rows = rows;
-			ui->render_cols = cols;
-			/* Recompute the disposition and the tile preferences. */
-			fyai_workpane_terminal_resize(ui->ctx->workpane,
-						      rows, width);
-			/* Defer one live reflow until the resize burst ends. */
-			ui->reflow_pending = true;
-			/* Repaint committed rows from stored transcript data. */
-			ui->repaint_pending = true;
-			/* Reconcile tile grants on the next frame. */
-			ui->frame_pending = true;
-			ui->next_frame_ms = fyai_event_now_ms();
+			ui_apply_resize(ui, rows, width);
 			break;
 		}
 		case FYTIM_EVENT_REDRAW:
