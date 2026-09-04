@@ -74,6 +74,7 @@ struct fyai_ui {
 	bool capture;
 	bool recalled;
 	bool frame_pending;
+	int render_rows;		/* height used to arrange work-pane tiles */
 	int render_cols;		/* width used to wrap screen rows */
 	bool reflow_pending;		/* live rows require reflow */
 	bool repaint_pending;		/* transcript requires repaint */
@@ -669,22 +670,34 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			fyai_workpane_cycle_disposition(ui->ctx->workpane);
 			break;
 		case FYTIM_EVENT_RESIZE: {
-			int cols = ev.width > 1 ? ev.width - 1 : 0;
+			int rows = ev.height;
+			int width = ev.width;
+			int cols;
+
+			/* Use one terminal snapshot for both dimensions. */
+			(void)terminal_window_size(ui->tty_fd, &rows, &width);
+			cols = width > 1 ? width - 1 : 0;
 
 			ui->ctx->cfg->render_width = cols;
 			/* Record the initial size without requesting reflow. */
-			if (!ui->render_cols || cols == ui->render_cols) {
+			if (!ui->render_cols ||
+			    (rows == ui->render_rows && cols == ui->render_cols)) {
+				ui->render_rows = rows;
 				ui->render_cols = cols;
 				break;
 			}
+			ui->render_rows = rows;
 			ui->render_cols = cols;
 			/* Recompute the disposition and the tile preferences. */
 			fyai_workpane_terminal_resize(ui->ctx->workpane,
-						      ev.height, ev.width);
+						      rows, width);
 			/* Defer one live reflow until the resize burst ends. */
 			ui->reflow_pending = true;
 			/* Repaint committed rows from stored transcript data. */
 			ui->repaint_pending = true;
+			/* Reconcile tile grants on the next frame. */
+			ui->frame_pending = true;
+			ui->next_frame_ms = fyai_event_now_ms();
 			break;
 		}
 		case FYTIM_EVENT_REDRAW:
@@ -792,8 +805,10 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	ctx->workpane = fyai_workpane_create(ctx, ui->ft);
 	if (!ctx->workpane) goto fail;
 	{
-		int width = 0;
-		(void)fytim_size(ui->ft, &width, NULL);
+		int width = 0, height = 0;
+
+		(void)fytim_size(ui->ft, &width, &height);
+		ui->render_rows = height;
 		ctx->cfg->render_width = width > 1 ? width - 1 : 0;
 		/* Record the initial render width. */
 		ui->render_cols = ctx->cfg->render_width;
