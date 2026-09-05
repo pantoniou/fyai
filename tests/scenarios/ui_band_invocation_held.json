@@ -1,0 +1,50 @@
+{
+ "steps": [
+  {
+   "response": {
+    "id": "r1",
+    "object": "response",
+    "created_at": 1735689600,
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "shell_call",
+      "id": "sc1",
+      "call_id": "sc_1",
+      "status": "completed",
+      "action": {
+       "type": "exec",
+       "commands": [
+        "for i in 1 2 3 4 5 6 7; do printf '[%2d%%] Building object %d\\n' $((i*10)) $i; sleep 0.1; done; while [ ! -e \"$TMPDIR/band-release\" ]; do sleep 0.05; done"
+       ],
+       "timeout_ms": 30000,
+       "max_output_length": 4096
+      }
+     }
+    ]
+   }
+  },
+  {
+   "response": {
+    "id": "r2",
+    "object": "response",
+    "created_at": 1735689601,
+    "model": "mock-model",
+    "status": "completed",
+    "output": [
+     {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "Done."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

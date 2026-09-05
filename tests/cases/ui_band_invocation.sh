@@ -8,12 +8,13 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
-mock_start ui_band_invocation.json
+mock_start ui_band_invocation_held.json
 
 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
 FYAI_PTY_NEEDLE="Done." \
 FYAI_PTY_PROGRESS_NEEDLE="⋯" \
 FYAI_PTY_PROGRESS_TIMEOUT=5 \
+FYAI_PTY_PROGRESS_RELEASE="$TMPDIR/band-release" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \

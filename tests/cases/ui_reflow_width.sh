@@ -13,7 +13,7 @@ FYAI_PTY_MID_NEEDLE="The paragraph is long enough" \
 FYAI_PTY_MID_TIMEOUT="8" \
 FYAI_PTY_RESIZE_COLS="48" \
 FYAI_PTY_NEEDLE="Reflow streaming done." \
-FYAI_PTY_AFTER="raw:0c|wait:Reflow streaming done." \
+FYAI_PTY_AFTER="raw:0c|wait-frame:streaming done." \
 FYAI_PTY_AFTER_TIMEOUT="8" \
 FYAI_PTY_TIMEOUT=40 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \

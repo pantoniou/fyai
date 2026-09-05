@@ -8,10 +8,10 @@ set -eu
 
 fyai_test_setup
 
-FYAI_PTY_INPUT="!sh -c 'printf FIRST; sleep 5'" \
+FYAI_PTY_INPUT="!sh -c 'printf FIRST; while :; do sleep 1; done'" \
 FYAI_PTY_NEEDLE="FIRST" FYAI_PTY_TIMEOUT=20 \
 FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|"\
-"send:!sh -c 'printf SECOND; sleep 5'|wait:SECOND|wait:Ctrl-]|"\
+"send:!sh -c 'printf SECOND; while :; do sleep 1; done'|wait-frame:SECOND|wait:Ctrl-]|"\
 "raw:1b5b393b3575|raw:14|raw:14|raw:14|send:/sessions|wait:Active sessions|"\
 "send:/kill bang-1|wait:stopping shell bang-1|"\
 "send:/kill bang-2|wait:stopping shell bang-2" \

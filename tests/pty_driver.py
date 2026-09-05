@@ -136,12 +136,12 @@ def check_after_script(after_script, snapshot):
     that describes the symptom and not the misspelled step. Worse, a
     dropped step silently changes what the case proves.
     """
-    kinds = ("send", "raw", "resize", "wait", "drain", "settle", "snapshot")
+    kinds = ("send", "raw", "resize", "wait", "wait-frame", "drain", "settle", "snapshot")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
             raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
-        if kind in ("send", "wait") and not value:
+        if kind in ("send", "wait", "wait-frame") and not value:
             raise RuntimeError(
                 "FYAI_PTY_AFTER step %r needs a value" % step)
         if kind == "raw":
@@ -216,12 +216,14 @@ def main():
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
     session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
+    expected_status = int(os.environ.get("FYAI_PTY_EXIT_STATUS", "0"))
     # Post-turn PTY actions, separated by "|":
     #
     #   send:TEXT   type TEXT and submit it
     #   raw:HEX     write these bytes and submit nothing (a control key)
     #   resize:N    make the window N columns wide
     #   wait:TEXT   read until TEXT is on the capture
+    #   wait-frame:TEXT  require TEXT after the last action and a frame end
     #   drain:SEC   keep reading for SEC seconds
     #   settle:SEC  keep reading until no output arrives for SEC seconds
     #               (quiescence); the wait deadline still bounds it
@@ -257,6 +259,7 @@ def main():
         os.execv(argv[0], argv)
     os.close(child)
     data = b""
+    reaped = False
     deadline = time.monotonic() + session_timeout
     try:
         # Wait until the initial synchronized update has made the input cursor
@@ -379,6 +382,14 @@ def main():
         if progress_needle:
             data = read_until(master, data, progress_needle,
                               time.monotonic() + progress_timeout)
+            release = os.environ.get("FYAI_PTY_PROGRESS_RELEASE", "")
+            if release:
+                start = data.find(progress_needle)
+                suffix = read_until(master, data[start:], b"\x1b[?2026l",
+                                    deadline)
+                data = data[:start] + suffix
+                with open(release, "wb"):
+                    pass
             if interrupt_after_progress:
                 os.write(master, b"\x03" if interrupt_key == "ctrl-c"
                          else b"\x1b")
@@ -393,8 +404,11 @@ def main():
                 fcntl.ioctl(master, termios.TIOCSWINSZ,
                             struct.pack("HHHH", rows, resize_cols, 0, 0))
         data = read_until_count(master, data, needle, needle_count, deadline)
+        action_start = len(data)
         for step in after_script:
             kind, _, value = step.partition(":")
+            if kind in ("send", "raw", "resize"):
+                action_start = len(data)
             if kind == "send":
                 os.write(master, value.encode() + b"\n")
                 time.sleep(after_pause)
@@ -417,11 +431,16 @@ def main():
                 with open(snapshot, "wb") as fp:
                     fp.write(data)
                 snapshot_taken = True
-            elif kind == "wait":
+            elif kind in ("wait", "wait-frame"):
                 needle = value.encode()
+                def matched():
+                    if kind == "wait":
+                        return needle in data
+                    start = data.find(needle, action_start)
+                    return start >= 0 and data.find(b"\x1b[?2026l", start) >= 0
                 wait_deadline = time.monotonic() + after_timeout
                 reassert_at = time.monotonic()
-                while needle not in data and time.monotonic() < wait_deadline:
+                while not matched() and time.monotonic() < wait_deadline:
                     if (pending_resize is not None and
                             time.monotonic() - reassert_at >= 1.0):
                         fcntl.ioctl(master, termios.TIOCSWINSZ,
@@ -438,7 +457,7 @@ def main():
                     if not chunk:
                         break
                     data += chunk
-                if needle not in data:
+                if not matched():
                     raise RuntimeError(
                         "PTY output never contained %r; tail=%r" %
                         (needle, data[-2000:]))
@@ -498,19 +517,22 @@ def main():
         if clear_before_exit:
             os.write(master, b"\x15")
         os.write(master, b"/exit\n")
+        eof = False
         while time.monotonic() < deadline:
-            ready, _, _ = select.select([master], [], [], 0.1)
+            ready, _, _ = select.select([] if eof else [master], [], [], 0.1)
             if ready:
                 try:
                     chunk = os.read(master, 65536)
                 except OSError:
-                    break
+                    chunk = b""
                 if not chunk:
-                    break
+                    eof = True
                 data += chunk
             done, status = os.waitpid(pid, os.WNOHANG)
             if done:
-                if os.WIFEXITED(status) and not os.WEXITSTATUS(status):
+                reaped = True
+                if (os.WIFEXITED(status) and
+                        os.WEXITSTATUS(status) == expected_status):
                     break
                 if os.WIFSIGNALED(status):
                     raise RuntimeError(
@@ -519,20 +541,20 @@ def main():
                     "fyai exited with status %d" %
                     (os.WEXITSTATUS(status) if os.WIFEXITED(status)
                      else status))
-                break
         else:
             raise RuntimeError("fyai did not exit")
     finally:
         with open(output, "wb") as fp:
             fp.write(data)
-        try:
-            os.kill(pid, 9)
-        except ProcessLookupError:
-            pass
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+        if not reaped:
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+            try:
+                os.waitpid(pid, 0)
+            except ChildProcessError:
+                pass
         os.close(master)
 
 

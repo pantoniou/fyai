@@ -52,6 +52,7 @@ mock_stop 1
 EDITOR=false \
 FYAI_PTY_INPUT="/config edit" \
 FYAI_PTY_NEEDLE="editor exited unsuccessfully" \
+FYAI_PTY_EXIT_STATUS=1 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/error-pane.out" \
     "$FYAI_BIN" -k test-key --theme catppuccin:dark \
     --set display/markdown=true -m mock-model -i
