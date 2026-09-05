@@ -30,11 +30,26 @@ def unescape(text):
     return text.encode("utf-8").decode("unicode_escape").encode("latin1")
 
 
-def read_until(fd, sink, needle, deadline):
-    """Read until @needle appears. The bytes go into @sink, which the caller
-    keeps: a run that never sees the needle must still leave its capture."""
-    while needle not in sink[0] and time.monotonic() < deadline:
-        ready, _, _ = select.select([fd], [], [], 0.1)
+def drain(fd, sink, deadline, stop=None, tick=None):
+    """Read from the terminal until @stop is true or @deadline passes.
+
+    A driver that stops reading fills the pseudo-terminal buffer. The
+    program under test then blocks in its write until the driver reads
+    again. The buffer is 1 KiB on macOS and 12 KiB on Linux, thus a wait
+    that does not read stops the program for the length of the wait. Every
+    wait in this driver reads.
+
+    The bytes go into @sink, which the caller keeps: a run that fails must
+    still leave its capture. Returns True if @stop became true.
+    """
+    while True:
+        if stop and stop():
+            return True
+        if tick:
+            tick()
+        if time.monotonic() >= deadline:
+            return False
+        ready, _, _ = select.select([fd], [], [], 0.05)
         if not ready:
             continue
         try:
@@ -44,7 +59,12 @@ def read_until(fd, sink, needle, deadline):
         if not chunk:
             break
         sink[0] += chunk
-    if needle not in sink[0]:
+    return bool(stop and stop())
+
+
+def read_until(fd, sink, needle, deadline):
+    """Read until @needle appears."""
+    if not drain(fd, sink, deadline, stop=lambda: needle in sink[0]):
         raise RuntimeError("the terminal never painted %r; tail=%r" %
                            (needle, sink[0][-2000:]))
 
@@ -90,7 +110,8 @@ def main():
             read_until(master, sink, wait, deadline)
         if resize:
             if resize_delay:
-                time.sleep(resize_delay)
+                drain(master, sink,
+                      min(deadline, time.monotonic() + resize_delay))
             r, c = (int(v) for v in resize.split("x"))
             fcntl.ioctl(master, termios.TIOCSWINSZ,
                         struct.pack("HHHH", r, c, 0, 0))
@@ -100,37 +121,33 @@ def main():
             # quit key tears it down. Without this a slow runner processes
             # the resize only after the program has exited, and the size
             # report the case greps for never reaches the capture.
-            time.sleep(1.0)
+            drain(master, sink, min(deadline, time.monotonic() + 1.0))
         if send:
             os.write(master, unescape(send))
         if send2:
             # A second keystroke, after a gap: a chord a person types is two
             # keys, and the library reads a frame at a time.
-            time.sleep(send_gap)
+            drain(master, sink, min(deadline, time.monotonic() + send_gap))
             os.write(master, unescape(send2))
         if wait2:
             # Re-assert the size while waiting: a resize the verb missed
             # (slow or heavily loaded runner) is delivered again instead of
             # failing the case on one lost SIGWINCH.
-            reassert_at = time.monotonic()
-            while wait2 not in sink[0][wait2_from:] and \
-                    time.monotonic() < deadline:
-                if resize_dims and time.monotonic() - reassert_at >= 1.0:
-                    r, c = resize_dims
-                    fcntl.ioctl(master, termios.TIOCSWINSZ,
-                                struct.pack("HHHH", r, c, 0, 0))
-                    reassert_at = time.monotonic()
-                ready, _, _ = select.select([master], [], [], 0.1)
-                if not ready:
-                    continue
-                try:
-                    chunk = os.read(master, 65536)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                sink[0] += chunk
-            if wait2 not in sink[0][wait2_from:]:
+            reassert = [time.monotonic()]
+
+            def reassert_size():
+                if not resize_dims:
+                    return
+                if time.monotonic() - reassert[0] < 1.0:
+                    return
+                fcntl.ioctl(master, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", resize_dims[0],
+                                        resize_dims[1], 0, 0))
+                reassert[0] = time.monotonic()
+
+            if not drain(master, sink, deadline,
+                         stop=lambda: wait2 in sink[0][wait2_from:],
+                         tick=reassert_size):
                 raise RuntimeError("the terminal never painted %r; tail=%r" %
                                    (wait2, sink[0][-2000:]))
         while time.monotonic() < deadline:

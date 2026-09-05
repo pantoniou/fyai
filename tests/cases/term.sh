@@ -103,4 +103,14 @@ grep -aqE "size (3[0-9]) 100" "$TEST_DIR/resize.out" ||
 	{ grep -ao "size [0-9]* [0-9]*" "$TEST_DIR/resize.out" >&2
 	  fail "the program was never told the new size"; }
 
+# The state row shows the size that fyai set on the terminal of the program,
+# thus it is the record of each size. Every size must be a size of the window.
+# A grant that uses the rows of the last frame gives the old height with the
+# new width.
+if grep -aoE "fyai term  [a-z0-9 ]+  [0-9]+x100" "$TEST_DIR/resize.out" |
+		grep -qvE " 3[0-9]x100$"; then
+	grep -ao "fyai term  [a-z0-9 ]*  [0-9]*x[0-9]*" "$TEST_DIR/resize.out" >&2
+	fail "the program was given a height the window never had"
+fi
+
 pass
