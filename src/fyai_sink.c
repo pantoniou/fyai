@@ -281,6 +281,11 @@ static void sink_term_present_oneshot(struct fyai_sink *s)
 	}
 	if (!t->oneshot || !t->source.len)
 		return;
+	/*
+	 * Only an assistant document is ever presented here. Tool results
+	 * travel through bands and the spool, never this path.
+	 */
+	fyai_ui_oneshot_fence(s->ctx);
 	if (fyai_print_markdown(t->source.data, cfg))
 		fwrite(t->source.data, 1, t->source.len, stdout);
 	fflush(stdout);

@@ -195,6 +195,8 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	size_t body_len;
 	size_t title_len;
 	int preview;
+	int brc;
+	int trc;
 	int rc = -1;
 
 	if (!ui->tool_band)
@@ -229,7 +231,11 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		rc = 0;
 		goto out;
 	}
-	if (response_buffer_reserve(&out, head.len + body_len + 2))
+	/*
+	 * A committed tool row owns the blank row above it. Trim before the
+	 * newline is prepended: a trim removes it as leading padding.
+	 */
+	if (response_buffer_reserve(&out, head.len + body_len + 3))
 		goto out;
 	memcpy(out.data, head.data, head.len);
 	out.len = head.len;
@@ -240,9 +246,19 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	}
 	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
-	if (fytim_workband_set_commit(ui->tool_band, out.data,
-				      out.len) != FYTIM_OK)
-		goto out;
+	if (out.len) {
+		brc = response_buffer_reserve(&out, out.len + 2);
+		fyai_error_check(ui->ctx, !brc, out,
+				 "could not fence a tool row");
+		memmove(out.data + 1, out.data, out.len + 1);
+		out.data[0] = '\n';
+		out.len++;
+	}
+	trc = fytim_workband_set_commit(ui->tool_band, out.data, out.len);
+	fyai_error_check(ui->ctx, trc == FYTIM_OK, out,
+			 "could not commit a tool row");
+	if (ui->ctx)
+		ui->ctx->tool_row_open = true;
 	rc = 0;
 out:
 	free(head.data);
@@ -1233,6 +1249,7 @@ int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
 	struct fyai_ui *ui;
 	size_t written;
+	int rc;
 
 	if (!fyai_ui_active(ctx))
 		return -1;
@@ -1241,21 +1258,79 @@ int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 		written = fwrite(buf, 1, len, stdout);
 		return written == len ? 0 : -1;
 	}
-	return fytim_commit(ui->ft, buf, len) == FYTIM_OK ? 0 : -1;
+	/*
+	 * Prose after a tool row draws the blank row that fences it off the
+	 * group. Tool rows and results take the band and the spool, thus a
+	 * group is never fenced against itself.
+	 */
+	if (ctx->tool_row_open && len) {
+		rc = fytim_commit(ui->ft, "\n", 1);
+		fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+				 "could not fence resumed prose");
+		ctx->tool_row_open = false;
+	}
+	rc = fytim_commit(ui->ft, buf, len);
+	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+			 "could not commit transcript output");
+	return 0;
+
+err_out:
+	return -1;
 }
 
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *u)
 {
-	return fyai_ui_active(ctx) &&
-		fytim_tail_apply(ctx->ui->ft, u->backtrack, u->content,
-				 u->content_len, u->freeze) == FYTIM_OK ? 0 : -1;
+	struct fyai_ui *ui;
+	int rc;
+
+	if (!fyai_ui_active(ctx))
+		return -1;
+	ui = ctx->ui;
+	/*
+	 * The tail carries prose alone. The first push with rows after a
+	 * tool group draws the blank row that fences it; a rowless push
+	 * leaves the fence to the push that follows it.
+	 */
+	if (ctx->tool_row_open && (u->content_len || u->freeze)) {
+		rc = fytim_commit(ui->ft, "\n", 1);
+		fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+				 "could not fence resumed prose");
+		ctx->tool_row_open = false;
+	}
+	rc = fytim_tail_apply(ui->ft, u->backtrack, u->content,
+			      u->content_len, u->freeze);
+	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+			 "could not apply the transcript tail");
+	return 0;
+
+err_out:
+	return -1;
 }
 
 void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
 	if (!fyai_ui_active(ctx)) return;
+	/* The same fence: a healed render lands here when the tail drains. */
+	if (ctx->tool_row_open && len) {
+		(void)fytim_commit(ctx->ui->ft, "\n", 1);
+		ctx->tool_row_open = false;
+	}
 	if (len) (void)fytim_commit(ctx->ui->ft, buf, len);
 	(void)fytim_tail_set(ctx->ui->ft, NULL, 0);
+}
+
+/*
+ * A oneshot document presents through the spool, which neither the tail nor
+ * the commit path sees. Draw its fence into the spooled bytes.
+ */
+void fyai_ui_oneshot_fence(struct fyai_ctx *ctx)
+{
+	if (!fyai_ui_active(ctx))
+		return;
+	if (!ctx->tool_row_open)
+		return;
+	fputc('\n', stdout);
+	ctx->tool_row_open = false;
 }
 
 void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
@@ -1557,6 +1632,7 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	fyai_workpane_release(ui->ctx->workpane);
+	/* tool_row_open stays set: the next prose commit draws the fence. */
 	free(ui->tool_title); ui->tool_title = NULL;
 	free(ui->tool_command); ui->tool_command = NULL;
 	free(ui->tool_error); ui->tool_error = NULL;
