@@ -136,12 +136,12 @@ def check_after_script(after_script, snapshot):
     that describes the symptom and not the misspelled step. Worse, a
     dropped step silently changes what the case proves.
     """
-    kinds = ("send", "raw", "resize", "wait", "wait-frame", "drain", "settle", "snapshot")
+    kinds = ("send", "raw", "resize", "wait", "wait-frame", "drain", "settle", "snapshot", "release")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
             raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
-        if kind in ("send", "wait", "wait-frame") and not value:
+        if kind in ("send", "wait", "wait-frame", "release") and not value:
             raise RuntimeError(
                 "FYAI_PTY_AFTER step %r needs a value" % step)
         if kind == "raw":
@@ -223,6 +223,7 @@ def main():
     #   raw:HEX     write these bytes and submit nothing (a control key)
     #   resize:N    make the window N columns wide
     #   wait:TEXT   read until TEXT is on the capture
+    #   release:PATH     create a file to release a held fixture
     #   wait-frame:TEXT  require TEXT after the last action and a frame end
     #   drain:SEC   keep reading for SEC seconds
     #   settle:SEC  keep reading until no output arrives for SEC seconds
@@ -426,6 +427,9 @@ def main():
                                         0, 0))
                 pending_resize = (resize_rows, resize_cols)
                 time.sleep(after_pause)
+            elif kind == "release":
+                with open(value, "wb"):
+                    pass
             elif kind == "snapshot":
                 # Capture the screen before subsequent actions modify it.
                 with open(snapshot, "wb") as fp:

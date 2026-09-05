@@ -17,12 +17,13 @@ run_at()
 {
     position=$1
     fyai_test_setup
-    mock_start ui_band_invocation.json
+    mock_start ui_band_invocation_held.json
 
     FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
     FYAI_PTY_NEEDLE="Done." \
     FYAI_PTY_PROGRESS_NEEDLE="[10%] Building object 1" \
     FYAI_PTY_PROGRESS_TIMEOUT=5 \
+    FYAI_PTY_PROGRESS_RELEASE="$TMPDIR/band-release" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/$position.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=false \
@@ -42,7 +43,7 @@ run_at()
 run_set()
 {
     fyai_test_setup
-    mock_start ui_band_invocation.json
+    mock_start ui_band_invocation_held.json
 
     # The set prints nothing, so its echo is not the commit: only a
     # round trip proves the live session applied it. The get runs after
@@ -55,7 +56,7 @@ run_set()
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="/config set display/work_position below-prompt" \
     FYAI_PTY_NEEDLE="below-prompt" \
-    FYAI_PTY_AFTER="send:/config get display/work_position|wait-frame:below-prompt|send:run it|wait:Done." \
+    FYAI_PTY_AFTER="send:/config get display/work_position|wait-frame:below-prompt|send:run it|wait-frame:[10%] Building object 1|release:$TMPDIR/band-release|wait:Done." \
     FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/set.out" \
         "$FYAI_BIN" -k test-key --theme dark \
@@ -82,7 +83,7 @@ sys.path.insert(0, sys.argv[4])
 from screen import rows_at
 
 def where(path):
-    # Inspect the first output frame; truncation can first appear after commit.
+    # The fixture stays live until its first output frame is complete.
     marker = "[10%] Building object 1"
     rows = rows_at(path, marker.encode())
     band = [i for i, r in enumerate(rows) if marker in r]

@@ -23,7 +23,10 @@ line = b''
 while not line.endswith(b'\n'):
     ch = os.read(0, 1)
     if ch == b'x':
-        if sys.argv[1] == 'fresh':
+        if sys.argv[1] == 'held':
+            while not os.path.exists(sys.argv[3]):
+                time.sleep(0.01)
+        if sys.argv[1] in ('fresh', 'held'):
             os.write(1, b'Done.\x1b[?2026l')
         elif sys.argv[1] == 'partial':
             os.write(1, b'Done.')
@@ -35,8 +38,10 @@ time.sleep(0.1)
 os._exit(int(sys.argv[2]))
 '''
 
+release = os.path.join(scratch, 'release')
 for mode, status, after, error in (
     ('fresh', 0, 'raw:78|wait-frame:Done.', None),
+    ('held', 0, 'raw:78|release:' + release + '|wait-frame:Done.', None),
     ('stale', 0, 'raw:78|wait-frame:Done.', 'never contained'),
     ('partial', 0, 'raw:78|wait-frame:Done.', 'never contained'),
     ('fresh', 7, '', 'exited with status 7'),
@@ -48,7 +53,7 @@ for mode, status, after, error in (
     result = subprocess.run(
         [sys.executable, os.path.join(tests, 'pty_driver.py'),
          os.path.join(scratch, mode + str(status) + '.out'),
-         sys.executable, '-c', child, mode, str(status)],
+         sys.executable, '-c', child, mode, str(status), release],
         env=env, capture_output=True, text=True, timeout=5)
     if error is None:
         assert result.returncode == 0, result.stderr
