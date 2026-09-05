@@ -2702,6 +2702,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 	bool quit;
 	bool done;
 	int rc;
+	int step_rc;
 
 	cfg = ctx->cfg;
 	el = fyai_ctx_loop(ctx);
@@ -2816,9 +2817,11 @@ out:
 	fyai_cleanup_transient_builder(ctx);
 	if (!fyai_mcp_stop(ctx)) {
 		while (!fyai_mcp_stop_done(ctx)) {
-			rc = fyai_event_loop_step(el, -1);
-			if (rc < 0)
+			step_rc = fyai_event_loop_step(el, -1);
+			if (step_rc < 0) {
+				rc = step_rc;
 				break;
+			}
 		}
 		fyai_mcp_stop_finish(ctx);
 	}
