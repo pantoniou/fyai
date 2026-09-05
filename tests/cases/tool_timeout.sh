@@ -27,6 +27,13 @@ import time
 
 BIN, URL = sys.argv[1], sys.argv[2]
 TAG = "fytmo"
+# Every deadline below waits this much longer; see tests/pty_driver.py.
+try:
+    SCALE = float(os.environ.get("FYAI_TIMEOUT_SCALE", "1"))
+except ValueError:
+    SCALE = 1.0
+if SCALE <= 0:
+    SCALE = 1.0
 
 
 def tagged():
@@ -78,11 +85,12 @@ def die(msg):
     raise SystemExit(msg)
 
 
-if tagged():
-    die("tagged processes existed before the run: %r" % tagged())
+before = tagged()
+if before:
+    die("tagged processes existed before the run: %r" % before)
 
 # Wait for the initial prompt instead of imposing a fixed startup delay.
-deadline = time.monotonic() + 15
+deadline = time.monotonic() + 15 * SCALE
 while time.monotonic() < deadline and b"\x1b[?25h" not in buf:
     drain(0.2)
 if b"\x1b[?25h" not in buf:
@@ -90,15 +98,20 @@ if b"\x1b[?25h" not in buf:
 
 buf = b""
 os.write(fd, b"run it\n")
-deadline = time.monotonic() + 20
-while time.monotonic() < deadline and not tagged():
+# One reading decides. The child lives about as long as the limit that stops
+# it, thus a second reading can miss what the first saw and report that the
+# tool never started it.
+deadline = time.monotonic() + 20 * SCALE
+started = tagged()
+while time.monotonic() < deadline and not started:
     drain(0.2)
-if not tagged():
-    die("the tool never started its child: %r" % tagged())
+    started = tagged()
+if not started:
+    die("the tool never started its child")
 
 # The limit is 1500 ms and the ladder that follows it is SIGTERM then SIGKILL.
 # Allow well past both: this asserts that the group stops, not how fast.
-deadline = time.monotonic() + 25
+deadline = time.monotonic() + 25 * SCALE
 while time.monotonic() < deadline and tagged():
     drain(0.2)
 
@@ -107,7 +120,7 @@ if left:
     die("the time limit left processes behind: %r" % left)
 
 # The turn must also end, and the model must be told why.
-deadline = time.monotonic() + 15
+deadline = time.monotonic() + 15 * SCALE
 while time.monotonic() < deadline and b"the command was stopped." not in buf:
     drain(0.2)
 if b"the command was stopped." not in buf:
