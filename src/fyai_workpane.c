@@ -16,6 +16,7 @@
 #include "fyai.h"
 #include "fyai_diag.h"
 #include "fyai_sink.h"
+#include "fyai_terminal.h"
 #include "fyai_ui.h"
 #include "fyai_workpane.h"
 
@@ -144,13 +145,23 @@ static const char *workpane_disposition_name(enum fyai_workpane_disposition d)
 	return "full";
 }
 
+/*
+ * Read the current terminal size. The library stores the size from its last
+ * pump. This value is one frame old during a resize. A tile request that uses
+ * it asks for the rows of the old window, and the grant then gives the old
+ * height with the new width. Use the terminal size for the frame that follows.
+ */
 static void workpane_sample_size(struct fyai_workpane_manager *wm)
 {
 	int cols = 0, rows = 0;
+	bool sampled = false;
+	int fd;
 
-	if (!wm->ft)
-		return;
-	(void)fytim_size(wm->ft, &cols, &rows);
+	fd = fyai_ui_tty_fd(wm->ctx);
+	if (fd >= 0)
+		sampled = terminal_window_size(fd, &rows, &cols);
+	if (!sampled && wm->ft)
+		(void)fytim_size(wm->ft, &cols, &rows);
 	if (rows > 0)
 		wm->terminal_rows = rows;
 	if (cols > 0)
