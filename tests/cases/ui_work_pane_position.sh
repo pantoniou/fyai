@@ -21,7 +21,7 @@ run_at()
 
     FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
     FYAI_PTY_NEEDLE="Done." \
-    FYAI_PTY_PROGRESS_NEEDLE="⋯" \
+    FYAI_PTY_PROGRESS_NEEDLE="[10%] Building object 1" \
     FYAI_PTY_PROGRESS_TIMEOUT=5 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/$position.out" \
         "$FYAI_BIN" -k test-key --theme dark \
@@ -82,8 +82,10 @@ sys.path.insert(0, sys.argv[4])
 from screen import rows_at
 
 def where(path):
-    rows = rows_at(path, "⋯".encode())
-    band = [i for i, r in enumerate(rows) if "⋯" in r]
+    # Inspect the first output frame; truncation can first appear after commit.
+    marker = "[10%] Building object 1"
+    rows = rows_at(path, marker.encode())
+    band = [i for i, r in enumerate(rows) if marker in r]
     prompt = [i for i, r in enumerate(rows) if "PROMPTMARK" in r]
     if not band:
         raise SystemExit("no live band on screen in %s" % path)
