@@ -3,6 +3,12 @@
 # Verify focus cycling across bang-shell tiles and the prompt. The pane holds
 # its tiles oldest first, so the cycle runs bang-1, bang-2, prompt: Ctrl-Tab
 # leaves the tile that has the keys and each Ctrl-T takes the next one.
+#
+# One key to a frame: a frame reads what has arrived and acts on one focus
+# key, so two keys sent with nothing between them can share a frame and the
+# window keeps one of them. Each key waits for the frames that read it, and
+# the last waits for the way back to leave the status row: the keys are the
+# prompt's again, which is where the commands below must land.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -11,8 +17,9 @@ fyai_test_setup
 FYAI_PTY_INPUT="!sh -c 'printf FIRST; while :; do sleep 1; done'" \
 FYAI_PTY_NEEDLE="FIRST" FYAI_PTY_TIMEOUT=20 \
 FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|"\
-"send:!sh -c 'printf SECOND; while :; do sleep 1; done'|wait-frame:SECOND|wait:Ctrl-]|"\
-"raw:1b5b393b3575|raw:14|raw:14|raw:14|send:/sessions|wait:Active sessions|"\
+"send:!sh -c 'printf SECOND; while :; do sleep 1; done'|wait-frame:SECOND|"\
+"raw:1b5b393b3575|frame:2|raw:14|frame:2|raw:14|frame:2|raw:14|"\
+"wait-gone:Ctrl-]|send:/sessions|wait:Active sessions|"\
 "send:/kill bang-1|wait:stopping shell bang-1|"\
 "send:/kill bang-2|wait:stopping shell bang-2" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \

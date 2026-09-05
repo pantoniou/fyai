@@ -6,12 +6,14 @@ set -eu
 
 fyai_test_setup
 
-# No hold sleep: the shell exits at once, so the retire commit has its
-# whole head start before the status send below. A sleep only moves the
-# commit closer to the send. The pause after resize yields to the commit.
+# The shell exits at once, and the keys are the prompt's again when the tile
+# it opened has retired. The way back is on the status row while a tile holds
+# them, thus a row without it is the prompt holding them: type only then. A
+# pause instead of a wait types into the tile on a loaded runner, and the
+# status command never reaches the session.
 FYAI_PTY_INPUT="!sh -c 'printf BANG-OUTPUT'" \
 FYAI_PTY_NEEDLE="BANG-OUTPUT" \
-FYAI_PTY_AFTER="resize:100|send:/status|wait:Usage / total" \
+FYAI_PTY_AFTER="resize:100|wait-gone:Ctrl-]|send:/status|wait:Usage / total" \
 FYAI_PTY_AFTER_PAUSE=1 \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
