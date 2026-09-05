@@ -2945,8 +2945,7 @@ static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 					 fy_generic output,
 					 const char *md,
-					 const fy_generic *tool_results,
-					 size_t tool_result_count,
+					 fy_generic tool_results,
 					 size_t *tool_result_pos)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -3010,9 +3009,10 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 					  preview_lines < 0 ? 0 :
 					  (size_t)preview_lines);
 		} else if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
-			fyai_error_check(ctx, *tool_result_pos < tool_result_count,
-					 out, "missing a stored tool result");
-			content = tool_results[(*tool_result_pos)++];
+			content = fy_get(tool_results, (*tool_result_pos)++,
+					 fy_invalid);
+			fyai_error_check(ctx, fy_is_valid(content), out,
+					 "missing a stored tool result");
 			glang = fy_get(fragment, "lang");
 			lang = fy_is_string(glang) ?
 				fy_castp(&glang, "") : NULL;
@@ -3045,6 +3045,37 @@ out:
 	return -1;
 }
 
+/* The stored tool results of a turn range, in fragment order. */
+static fy_generic fyai_tool_results(struct fyai_ctx *ctx,
+				    const struct fyai_turn_stack *stack,
+				    size_t lo, size_t hi)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_msg_class c;
+	fy_generic msgs, msg, result;
+	fy_generic results;
+	size_t i;
+
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, err_out, "could not collect tool results");
+	results = fy_seq_empty;
+	for (i = lo; i < hi; i++) {
+		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
+		fy_foreach(msg, msgs) {
+			c = fyai_classify_message(msg);
+			if (!fyai_msg_is_tool_result(&c, &result))
+				continue;
+			results = fy_append(gb, results, result);
+			fyai_error_check(ctx, fy_is_valid(results), err_out,
+					 "could not collect a tool result");
+		}
+	}
+	return results;
+
+err_out:
+	return fy_seq_empty;
+}
+
 static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 				       const struct fyai_turn_stack *stack,
 				       size_t lo, size_t hi, bool *emitted_io)
@@ -3052,37 +3083,13 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_display_args *args = &cfg->cmd.args.display;
 	fy_generic outputs, output;
-	struct fyai_msg_class c;
-	fy_generic msgs, msg, result;
-	fy_generic *tool_results = NULL;
+	fy_generic tool_results;
 	const char *tag, *md;
 	size_t i;
-	size_t tool_result_count = 0, tool_result_pos = 0;
+	size_t tool_result_pos = 0;
 	bool emitted = *emitted_io;
 
-	for (i = lo; i < hi; i++) {
-		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
-		fy_foreach(msg, msgs) {
-			c = fyai_classify_message(msg);
-			if (fyai_msg_is_tool_result(&c, &result))
-				tool_result_count++;
-		}
-	}
-	if (tool_result_count) {
-		size_t n = 0;
-
-		tool_results = calloc(tool_result_count, sizeof(*tool_results));
-		if (!tool_results)
-			return -1;
-		for (i = lo; i < hi; i++) {
-			msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
-			fy_foreach(msg, msgs) {
-				c = fyai_classify_message(msg);
-				if (fyai_msg_is_tool_result(&c, &result))
-					tool_results[n++] = result;
-			}
-		}
-	}
+	tool_results = fyai_tool_results(ctx, stack, lo, hi);
 
 	for (i = lo; i < hi; i++) {
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
@@ -3112,11 +3119,9 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 					FYAI_SINK_TRANSCRIPT, md, strlen(md));
 			else if (fy_equal(tag, "assistant")) {
 				if (fyai_display_assistant_output(ctx, output, md,
-						tool_results, tool_result_count,
-						&tool_result_pos)) {
-					free(tool_results);
+						tool_results,
+						&tool_result_pos))
 					return -1;
-				}
 			}
 			else
 				(void)fyai_render_display_output(ctx, tag, md);
@@ -3124,7 +3129,6 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 		}
 	}
 	*emitted_io = emitted;
-	free(tool_results);
 	return 0;
 }
 
@@ -3506,11 +3510,102 @@ size_t fyai_display_source_rows(const struct fyai_cfg *cfg, const char *md,
 	return rows;
 }
 
+/* Count rows through the renderer the pass keeps. */
+static size_t measure_rows(struct fymd_renderer *m, const char *md,
+			   size_t len)
+{
+	size_t rows = 0;
+
+	if (!m || fymd_measure_rows(m, md, len, &rows))
+		return 0;
+	return rows;
+}
+
+/*
+ * Rows a capped fragment contributes. Only the preview reaches the screen,
+ * thus measure a prefix that can fill it.
+ */
+static size_t measure_capped_rows(struct fymd_renderer *m, const char *md,
+				  size_t len, size_t cap)
+{
+	size_t probe;
+	size_t rows;
+	size_t lines;
+	size_t i;
+
+	/* Take one line more than the cap can show, at a line boundary. */
+	lines = 0;
+	probe = len;
+	for (i = 0; i < len; i++) {
+		if (md[i] != '\n')
+			continue;
+		lines++;
+		if (lines > cap + 1) {
+			probe = i + 1;
+			break;
+		}
+	}
+	rows = measure_rows(m, md, probe);
+	if (probe < len && rows < cap)
+		rows = measure_rows(m, md, len);
+	return rows < cap ? rows : cap;
+}
+
+/* The source lines a stored tool result holds. */
+static size_t fyai_content_lines(fy_generic content)
+{
+	fy_generic item;
+	fy_generic part;
+	const char *s;
+	size_t lines;
+	size_t i;
+
+	if (fy_is_string(content)) {
+		s = fy_castp(&content, "");
+		lines = 0;
+		for (i = 0; s[i]; i++)
+			if (s[i] == '\n' || !s[i + 1])
+				lines++;
+		return lines;
+	}
+	if (!fy_is_valid(content) || fy_is_null(content))
+		return 0;
+	lines = 0;
+	fy_foreach(item, content) {
+		part = fy_get(item, "stdout");
+		lines += fyai_content_lines(part);
+		part = fy_get(item, "stderr");
+		lines += fyai_content_lines(part);
+	}
+	return lines;
+}
+
+/*
+ * Rows a stored tool result contributes. The replay renders the message,
+ * thus the fragment span does not give its size.
+ */
+static size_t fyai_display_result_rows(fy_generic content, int preview)
+{
+	size_t lines;
+
+	if (!preview)
+		return 0;
+	lines = fyai_content_lines(content);
+	if (!lines)
+		return 0;
+	if (preview > 0 && lines > (size_t)preview)
+		lines = (size_t)preview + 1;
+	/* The separator and the two fence rows. */
+	return lines + 3;
+}
+
 /* Measure stored output with tool preview limits applied. */
 static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
-				       fy_generic output, size_t width)
+				       struct fymd_renderer *m,
+				       fy_generic output, fy_generic results,
+				       size_t *result_pos)
 {
-	fy_generic fragments, fragment, gtool, kind;
+	fy_generic fragments, fragment, gtool, kind, content;
 	const char *md;
 	fy_generic gmd;
 	size_t rows = 0;
@@ -3524,7 +3619,7 @@ static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
 	len = strlen(md);
 	fragments = fy_get(output, "fragments", fy_seq_empty);
 	if (!fy_len(fragments))
-		return fyai_display_source_rows(cfg, md, len, width);
+		return measure_rows(m, md, len);
 
 	pos = 0;
 	fy_foreach(fragment, fragments) {
@@ -3533,55 +3628,79 @@ static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
 		if (llstart < 0 || llend < llstart ||
 		    (unsigned long long)llend > len ||
 		    (size_t)llstart < pos)
-			return fyai_display_source_rows(cfg, md, len, width);
+			return measure_rows(m, md, len);
 		start = (size_t)llstart;
 		end = (size_t)llend;
-		rows += fyai_display_source_rows(cfg, md + pos, start - pos, width);
-		span = fyai_display_source_rows(cfg, md + start, end - start, width);
+		rows += measure_rows(m, md + pos, start - pos);
 		kind = fy_get(fragment, "kind");
 		if (fy_equal(kind, "tool_head")) {
-			rows += span;
+			rows += measure_rows(m, md + start, end - start);
 		} else if (fy_any_equal(kind, "tool_body", "tool_text",
 					"tool_result")) {
 			gtool = fy_get(fragment, "tool");
 			preview = fyai_tool_preview_lines(cfg,
 							  fy_str(gtool));
 			/* Include the preview and its omission row. */
-			cap = preview > 0 ? (size_t)preview + 1 : span;
-			/* A tool result uses the message and may reach the cap. */
-			rows += fy_equal(kind, "tool_result") ?
-				cap : (span < cap ? span : cap);
+			cap = preview > 0 ? (size_t)preview + 1 : 0;
+			if (fy_equal(kind, "tool_result")) {
+				/* The result replays from the message. */
+				content = fy_get(results, (*result_pos)++,
+						 fy_invalid);
+				rows += fyai_display_result_rows(content,
+								 preview);
+			} else if (!cap) {
+				span = measure_rows(m, md + start, end - start);
+				rows += span;
+			} else {
+				rows += measure_capped_rows(m, md + start,
+							    end - start, cap);
+			}
 		} else {
-			rows += span;
+			rows += measure_rows(m, md + start, end - start);
 		}
 		pos = end;
 	}
-	return rows + fyai_display_source_rows(cfg, md + pos, len - pos, width);
+	return rows + measure_rows(m, md + pos, len - pos);
 }
 
 /* Estimate the rendered rows for one exchange. */
-static size_t fyai_display_exchange_rows(const struct fyai_cfg *cfg,
+static size_t fyai_display_exchange_rows(struct fyai_ctx *ctx,
+					 struct fymd_renderer *m,
 					 const struct fyai_turn_stack *stack,
-					 size_t lo, size_t hi, size_t width)
+					 size_t lo, size_t hi, size_t budget)
 {
+	const struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic outputs;
 	fy_generic output;
+	fy_generic results;
+	size_t result_pos;
 	size_t rows;
 	size_t stored;
 	size_t i;
+	bool stored_replay;
 
+	/* A turn with no stored output draws nothing on the stored path. */
+	stored_replay = fyai_display_outputs_complete(ctx, stack, lo, hi);
+	results = fyai_tool_results(ctx, stack, lo, hi);
+	result_pos = 0;
 	rows = 0;
 	for (i = lo; i < hi; i++) {
 		outputs = fy_get(stack->items[i], "display_outputs",
 				 fy_seq_empty);
 		stored = 0;
 		fy_foreach(output, outputs) {
-			rows += fyai_display_output_rows(cfg, output, width);
+			rows += fyai_display_output_rows(cfg, m, output,
+							 results, &result_pos);
 			stored++;
+			/* The window is settled once the screen is full. */
+			if (rows > budget)
+				return rows + 1;
 		}
-		if (!stored)
+		if (!stored && !stored_replay)
 			rows += 4 * fy_len(fy_get(stack->items[i], "messages",
 						  fy_seq_empty));
+		if (rows > budget)
+			return rows + 1;
 	}
 	/* The separator row between exchanges. */
 	return rows + 1;
@@ -3622,6 +3741,7 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 	struct fy_generic_builder_cfg gcfg;
 	struct fy_generic_builder *tgb;
 	struct fyai_turn_stack stack;
+	struct fymd_renderer *measurer;
 	size_t *starts;
 	size_t exchanges;
 	size_t budget;
@@ -3639,6 +3759,7 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 
 	tgb = NULL;
 	starts = NULL;
+	measurer = NULL;
 	shown = 0;
 	memset(&stack, 0, sizeof(stack));
 	memset(args, 0, sizeof(*args));
@@ -3667,6 +3788,11 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 
 	width = cfg->render_width > 0 ? (size_t)cfg->render_width : 80;
 	budget = max_rows > 0 ? (size_t)max_rows : 0;
+	if (max_exchanges < 0) {
+		measurer = markdown_measurer_create(cfg, width);
+		fyai_error_check(ctx, measurer, out,
+				 "could not measure the recap window");
+	}
 	/* Include complete recent exchanges and the first one over budget. */
 	rows = 0;
 	lo = starts[exchanges - 1];
@@ -3676,10 +3802,10 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 		lo = starts[i];
 		shown++;
 		if (max_exchanges < 0) {
-			rows += fyai_display_exchange_rows(cfg, &stack,
-							   starts[i],
+			rows += fyai_display_exchange_rows(ctx, measurer,
+							   &stack, starts[i],
 							   starts[i + 1],
-							   width);
+							   budget - rows);
 			if (rows > budget)
 				break;
 		}
@@ -3692,6 +3818,7 @@ int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows)
 		shown = 0;
 
 out:
+	fymd_renderer_destroy(measurer);
 	free(starts);
 	cfg->tool_detail = saved_tool_detail;
 	*args = saved_args;

@@ -282,19 +282,32 @@ bool markdown_available(struct fyai_cfg *fcfg)
 	return true;
 }
 
+/*
+ * A renderer for measuring at @width. One pass keeps it: a renderer per
+ * fragment repeats the setup and drops the caches it builds.
+ */
+struct fymd_renderer *markdown_measurer_create(const struct fyai_cfg *fcfg,
+					       size_t width)
+{
+	struct fymd_renderer_cfg cfg;
+
+	if (!fcfg || !width || width > INT_MAX)
+		return NULL;
+	markdown_renderer_cfg((struct fyai_cfg *)fcfg, &cfg, false, "dark", 0);
+	cfg.width = (int)width;
+	return fymd_renderer_create(&cfg);
+}
+
 int markdown_measure_rows(const struct fyai_cfg *fcfg, const char *text,
 			  size_t len,
 			  size_t width, size_t *rows)
 {
-	struct fymd_renderer_cfg cfg;
 	struct fymd_renderer *r;
 	int rc;
 
-	if (!fcfg || !rows || width > INT_MAX)
+	if (!rows)
 		return -1;
-	markdown_renderer_cfg((struct fyai_cfg *)fcfg, &cfg, false, "dark", 0);
-	cfg.width = (int)width;
-	r = fymd_renderer_create(&cfg);
+	r = markdown_measurer_create(fcfg, width);
 	if (!r)
 		return -1;
 	rc = fymd_measure_rows(r, text, len, rows);
