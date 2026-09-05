@@ -1,6 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Verify fresh-frame waits and child status after PTY EOF.
+# Verify fresh-frame waits, screen waits, frame counts, and child status
+# after PTY EOF.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 fyai_test_setup_bare
@@ -30,6 +31,12 @@ while not line.endswith(b'\n'):
             os.write(1, b'Done.\x1b[?2026l')
         elif sys.argv[1] == 'partial':
             os.write(1, b'Done.')
+        elif sys.argv[1] == 'gone':
+            os.write(1, b'\x1b[2J\x1b[H\x1b[?2026l')
+        elif sys.argv[1] == 'stays':
+            os.write(1, b'\x1b[?2026l')
+        elif sys.argv[1] == 'frames':
+            os.write(1, b'.\x1b[?2026l.\x1b[?2026l')
         continue
     line += ch
 for fd in (0, 1, 2):
@@ -44,6 +51,13 @@ for mode, status, after, error in (
     ('held', 0, 'raw:78|release:' + release + '|wait-frame:Done.', None),
     ('stale', 0, 'raw:78|wait-frame:Done.', 'never contained'),
     ('partial', 0, 'raw:78|wait-frame:Done.', 'never contained'),
+    # What is still on the screen, and how many frames were painted: a
+    # step that waits for either must read the screen and the frames, not
+    # the bytes that once carried them.
+    ('gone', 0, 'raw:78|wait-gone:Done.', None),
+    ('stays', 0, 'raw:78|wait-gone:Done.', 'never left the screen'),
+    ('frames', 0, 'raw:78|frame:2', None),
+    ('partial', 0, 'raw:78|frame:1', 'painted 0 of 1 frames'),
     ('fresh', 7, '', 'exited with status 7'),
 ):
     env = dict(os.environ, FYAI_PTY_INPUT='hello', FYAI_PTY_NEEDLE='Done.',
