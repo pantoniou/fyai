@@ -8,6 +8,12 @@ import sys
 import termios
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from screen import Screen                                     # noqa: E402
+
+# The end of one synchronized update: what the window shows is complete here.
+FRAME_END = b"\x1b[?2026l"
+
 
 def input_row_holds(data, text, rows, cols, marker="❯"):
     """Whether the live input row holds @text.
@@ -136,14 +142,23 @@ def check_after_script(after_script, snapshot):
     that describes the symptom and not the misspelled step. Worse, a
     dropped step silently changes what the case proves.
     """
-    kinds = ("send", "raw", "resize", "wait", "wait-frame", "drain", "settle", "snapshot", "release")
+    kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone",
+             "frame", "drain", "settle", "snapshot", "release")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
             raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
-        if kind in ("send", "wait", "wait-frame", "release") and not value:
+        if kind in ("send", "wait", "wait-frame", "wait-gone",
+                    "release") and not value:
             raise RuntimeError(
                 "FYAI_PTY_AFTER step %r needs a value" % step)
+        if kind == "frame":
+            try:
+                if int(value) < 1:
+                    raise ValueError
+            except ValueError:
+                raise RuntimeError(
+                    "FYAI_PTY_AFTER step %r is not a frame count" % step)
         if kind == "raw":
             try:
                 bytes.fromhex(value)
@@ -225,6 +240,14 @@ def main():
     #   wait:TEXT   read until TEXT is on the capture
     #   release:PATH     create a file to release a held fixture
     #   wait-frame:TEXT  require TEXT after the last action and a frame end
+    #   wait-gone:TEXT   read until TEXT is off the screen. A frame paints
+    #               only what changed, thus the capture says what arrived
+    #               and only the screen says what is still there.
+    #   frame:N     read until N frames were painted since the last action.
+    #               A key is read at the start of a frame, so two frames
+    #               after it is when it has been acted on: keys sent with
+    #               nothing between them can share a frame, and the window
+    #               keeps one of them.
     #   drain:SEC   keep reading for SEC seconds
     #   settle:SEC  keep reading until no output arrives for SEC seconds
     #               (quiescence); the wait deadline still bounds it
@@ -406,6 +429,23 @@ def main():
                             struct.pack("HHHH", rows, resize_cols, 0, 0))
         data = read_until_count(master, data, needle, needle_count, deadline)
         action_start = len(data)
+        # What the window shows now, rebuilt from the frames completed so
+        # far. A step that waits for something to go needs the screen: a
+        # frame paints only what changed and says nothing about the rest.
+        screen = Screen(rows, cols)
+        screen_at = 0
+
+        def screen_rows():
+            nonlocal screen_at
+            end = data.rfind(FRAME_END)
+            if end < 0:
+                return screen.display()
+            end += len(FRAME_END)
+            if end > screen_at:
+                screen.feed(data[screen_at:end])
+                screen_at = end
+            return screen.display()
+
         for step in after_script:
             kind, _, value = step.partition(":")
             if kind in ("send", "raw", "resize"):
@@ -426,6 +466,10 @@ def main():
                             struct.pack("HHHH", resize_rows, resize_cols,
                                         0, 0))
                 pending_resize = (resize_rows, resize_cols)
+                # The window is painted again whole, so read it again from
+                # here: rows made for the old size are not on it any more.
+                screen = Screen(resize_rows, resize_cols)
+                screen_at = len(data)
                 time.sleep(after_pause)
             elif kind == "release":
                 with open(value, "wb"):
@@ -465,6 +509,46 @@ def main():
                     raise RuntimeError(
                         "PTY output never contained %r; tail=%r" %
                         (needle, data[-2000:]))
+            elif kind in ("wait-gone", "frame"):
+                # A state the window leaves - a tile giving the keys back -
+                # is said by what is no longer on it, and a key that was
+                # acted on is said by the frames since it. Both are waits
+                # with a deadline, not pauses.
+                gone = value.encode() if kind == "wait-gone" else b""
+                want = int(value) if kind == "frame" else 0
+
+                def reached():
+                    if kind == "frame":
+                        return data.count(FRAME_END, action_start) >= want
+                    return not any(value in row for row in screen_rows())
+                step_deadline = time.monotonic() + after_timeout
+                reassert_at = time.monotonic()
+                while not reached() and time.monotonic() < step_deadline:
+                    if (pending_resize is not None and
+                            time.monotonic() - reassert_at >= 1.0):
+                        fcntl.ioctl(master, termios.TIOCSWINSZ,
+                                    struct.pack("HHHH", *pending_resize,
+                                                0, 0))
+                        reassert_at = time.monotonic()
+                    ready, _, _ = select.select([master], [], [], 0.1)
+                    if not ready:
+                        continue
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    data += chunk
+                if not reached():
+                    if kind == "frame":
+                        raise RuntimeError(
+                            "the window painted %d of %d frames; tail=%r" %
+                            (data.count(FRAME_END, action_start), want,
+                             data[-2000:]))
+                    raise RuntimeError(
+                        "%r never left the screen; screen=%r" %
+                        (value, [r for r in screen_rows() if r]))
             elif kind == "settle":
                 # Quiescence: return once nothing arrives for the given
                 # seconds. A fixed drain keeps a fast runner waiting and
