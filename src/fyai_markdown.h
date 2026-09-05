@@ -72,6 +72,10 @@ void markdown_renderer_cfg(struct fyai_cfg *cfg,
 int markdown_measure_rows(const struct fyai_cfg *cfg, const char *text, size_t len,
 			  size_t width, size_t *rows);
 
+/* A renderer one measurement pass keeps. */
+struct fymd_renderer *markdown_measurer_create(const struct fyai_cfg *cfg,
+					       size_t width);
+
 int markdown_renderer_start(struct fyai_cfg *cfg,
 			    struct markdown_renderer *renderer, bool color,
 			    const char *theme);
