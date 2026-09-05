@@ -496,6 +496,11 @@ register, focus, zoom, resize - and sizes nothing itself.
   `fyai_ui_surface_granted_rows()` and `fyai_ui_surface_granted_cols()`, which
   is what a pseudo-terminal is sized to. Do not size a program to the
   terminal.
+- A tile request uses the current terminal size, which
+  `workpane_sample_size()` reads from the terminal. The library keeps the size
+  from its last pump. This value is one frame old during a resize. A request
+  that uses it asks for the rows of the old window, and the grant then gives
+  the old height with the new width.
 - A display setting takes on the next frame. `fyai_config_rederive()` tells a
   live session with `fyai_ui_config_changed()`, which reads the prompt chrome
   again and has the manager adopt the pane configuration and reconcile. A
@@ -982,6 +987,12 @@ Keep them hermetic: localhost only, with private `HOME` and `XDG_*` paths. A
 case that looks for a process must scope the search to its own run - its
 process tree, or its scratch directory in the command line. A search of the
 whole machine finds another run's children. Never `pkill` a global pattern.
+
+A test driver must read its pseudo-terminal for the full run. A driver that
+sleeps without reading fills the terminal buffer. The program under test then
+blocks in its write until the driver reads again. The buffer is 1 KiB on macOS
+and 12 KiB on Linux, thus a case that stops reading can pass on Linux and fail
+on macOS. Wait by reading with a deadline. Do not sleep.
 
 ### Sanitizers
 
