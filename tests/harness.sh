@@ -298,6 +298,27 @@ assert_file_content() {
 	[ "$(cat "$1")" = "$2" ] || fail "bad content in $1: $(cat "$1")"
 }
 
+# wait_requests <count>: wait until the mock has recorded that many requests.
+# The record is written before the step's delay, thus a case that must act
+# while a request is in flight waits for the record of it instead of guessing
+# how long the run takes to get there. A loaded runner gets there later; it
+# does not get there differently.
+wait_requests() {
+	local want="$1"
+	local tries=$((400 * FYAI_TIMEOUT_SCALE))
+	local have=0
+	local i=0
+
+	while :; do
+		have="$(wc -l < "$TEST_DIR/requests.jsonl" 2>/dev/null || echo 0)"
+		[ "$((have))" -ge "$want" ] && return 0
+		i=$((i + 1))
+		[ "$i" -lt "$tries" ] || \
+			fail "the mock recorded $((have)) of $want requests"
+		sleep 0.05
+	done
+}
+
 # assert_request <index> <python-expression over r>
 # r is the recorded request object {path, auth, content_type, body}.
 # The expression must evaluate truthy.

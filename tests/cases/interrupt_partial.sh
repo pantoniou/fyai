@@ -38,7 +38,10 @@ set +e
 read data.txt and summarize
 EOF
 FPID=$!
-sleep 1.5   # step 1 (tool call) done, blocked in the 5s step-2 wait
+# Step 1 (the tool call) is done and step 2 is in flight once the mock has
+# recorded the second request: the record is written before the 5s delay it
+# then holds that reply for.
+wait_requests 2
 kill -INT "$FPID"
 wait "$FPID"
 FYAI_STATUS=$?
