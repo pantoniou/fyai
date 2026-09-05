@@ -45,6 +45,7 @@ void fyai_ui_clear_screen(struct fyai_ctx *ctx);
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len);
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *upd);
 void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len);
+void fyai_ui_oneshot_fence(struct fyai_ctx *ctx);
 void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy);
 /* An interrupt reached the session (Escape, or SIGINT from ^C). Discards a
  * half-typed line on an idle prompt, ends the session when there is nothing to
