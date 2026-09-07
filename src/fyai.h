@@ -109,6 +109,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_TURN_SEPARATOR "---"
 #define DEFAULT_TOOL_SEPARATOR ""
 #define DEFAULT_SECTION_SEPARATOR ""
+#define DEFAULT_TOOL_GROUP_FENCE 1
+#define DEFAULT_USER_CARD_FENCE 1
 /* Interactive prompt bubble: an empty prompt marker/top row keep the built-in
  * defaults; the bottom row is a {key} template reproducing the classic banner. */
 #define DEFAULT_PROMPT_BOTTOM \
@@ -198,6 +200,8 @@ struct fyai_cfg {
 	const char *turn_separator;	/* history inter-turn break (markdown) */
 	const char *tool_separator;	/* rendered before a tool result (markdown) */
 	const char *section_separator;	/* reasoning -> answer break (live stream) */
+	int tool_group_fence;		/* blank rows around a tool exchange */
+	int user_card_fence;		/* blank rows after the user card */
 	const char *prompt_marker;	/* interactive prompt marker (SGR ok) */
 	const char *prompt_top;		/* REPL bubble top row template (SGR ok) */
 	const char *prompt_bottom;	/* REPL bubble bottom {key} template (SGR ok) */

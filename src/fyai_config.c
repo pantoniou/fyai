@@ -2138,6 +2138,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->turn_separator = DEFAULT_TURN_SEPARATOR;
 	cfg->tool_separator = DEFAULT_TOOL_SEPARATOR;
 	cfg->section_separator = DEFAULT_SECTION_SEPARATOR;
+	cfg->tool_group_fence = DEFAULT_TOOL_GROUP_FENCE;
+	cfg->user_card_fence = DEFAULT_USER_CARD_FENCE;
 	cfg->prompt_marker = "";	/* empty => built-in prompt marker */
 	cfg->prompt_top = "";		/* empty => blank styled top row */
 	cfg->prompt_bottom = "";	/* empty => DEFAULT_PROMPT_BOTTOM banner */

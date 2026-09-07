@@ -454,6 +454,7 @@ set(FYAI_SOURCES
     ${FYAI_EVENT_SOURCES}
     src/fyai_display.c
     src/fyai_import.c
+    src/fyai_flow.c
     src/fyai_output.c
     src/fyai.c
     src/fyai_agent.c
