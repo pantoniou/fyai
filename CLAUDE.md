@@ -100,6 +100,7 @@ initialize each generic field explicitly.
 - `src/commands.c`: verb definitions, usage output, and the main runner.
 - `src/fyai.c`: engine orchestration.
 - `src/fyai_sink.c`: the one rendering component and its backends.
+- `src/fyai_flow.c`: the output separation manager.
 - `src/fyai_output.c`: transcript document source and fragments.
 - `src/fyai_session.c`: interactive input and slash commands.
 - `src/fyai_agent.c`: sub-agent execution and agent RPC.
@@ -306,6 +307,50 @@ sink controls the presentation. Do not write to standard output or standard
 error from another component. `tests/sink-only.sh` fails the build if it finds
 such a write. `tests/sink-only-allow.txt` lists the files that cannot use the
 sink and gives the reason for each file.
+
+### Separation
+
+`src/fyai_flow.c` decides what goes between two adjacent units of output: the
+blank rows and the configured separators. It is the one policy. A live run, a
+replay, and the measuring pass that sizes the recap window thus agree.
+
+- A unit is a user card, prose, reasoning, a tool head, body, screen or result,
+  or a notice. Separation applies to the transition between two units. It is
+  not a property of one unit.
+- A producer states the unit it is about to present with `fyai_sink_unit()`,
+  which draws the separation and records the unit. `fyai_flow_before()` changes
+  no state, thus a measuring pass asks the same question.
+- The flow is on the sink, which every path that commits presented bytes
+  reaches. Do not put a separation flag on the context. A flag on the UI is
+  bypassed by the notice band and by an independent tile.
+- The manager keeps the state of the render: the blank rows it starts and ends
+  with. It supplies the rows the render does not, and reduces a run of them to
+  the policy. A producer states its unit and does not count rows.
+- Every path that commits presented bytes must record their tail with
+  `fyai_flow_observe()`. A stale tail makes the manager remove a row that is
+  not there. A newline that closes an open row is not a blank row.
+- A title row opens a call and is fenced by `display/tool_group_fence`, from
+  another call included. The body, the screen and the result continue that
+  call.
+- A turn break is one row. `display/turn_separator` is a rule of the transcript
+  view, which draws it. Do not give it to the manager: a live session must not
+  draw a rule under every prompt. `display/user_card_fence` goes under the
+  card, and `display/section_separator` where reasoning ends.
+- Fence a live band when it opens, not when it commits. A band fenced at
+  commit has no blank row above it while it runs.
+- Spooled bytes continue the unit being presented. They are not a unit and take
+  no separation. A fence there draws blank rows into a live band.
+- Blank lines in an assistant document are Markdown syntax, not presentation.
+  The manager owns the separation between units, not the block structure in
+  prose.
+- A document declares its prose as a unit on each path: the whole document
+  when it presents at one time, and each gap between fragments on replay. A
+  gap inside a tool exchange is part of that exchange and takes no
+  separation.
+- One walk reads the fragments of a stored document. A render pass and a
+  measuring pass drive it through `struct fyai_fragment_ops`. Do not add a
+  second walk. A measuring pass that differs from the render pass sizes the
+  recap window for rows it does not draw.
 
 ### Streams
 
