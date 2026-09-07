@@ -2771,28 +2771,55 @@ static void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 	ctx->shell_sessions = NULL;
 }
 
+static void fyai_shell_session_release_one(struct fyai_shell_session *sess,
+						   bool force)
+{
+	struct fyai_tool_job *job = sess->job;
+
+	if (job) {
+		job->session = NULL;
+		sess->job = NULL;
+		if (!job->reaped && job->pid > 0)
+			(void)kill(-job->pid, force ? SIGKILL : SIGTERM);
+		fyai_tool_job_discard(job);
+	}
+	fyai_shell_session_destroy(sess);
+}
+
 /* End and release every session owned by this invocation. */
 void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force)
 {
 	struct fyai_shell_session *sess, *next;
-	struct fyai_tool_job *job;
 
 	if (!ctx)
 		return;
 	for (sess = ctx->shell_sessions; sess; sess = next) {
 		next = sess->next;
-		job = sess->job;
-		if (job) {
-			job->session = NULL;
-			sess->job = NULL;
-			if (!job->reaped && job->pid > 0)
-				(void)kill(-job->pid,
-					   force ? SIGKILL : SIGTERM);
-			fyai_tool_job_discard(job);
-		}
-		fyai_shell_session_destroy(sess);
+		fyai_shell_session_release_one(sess, force);
 	}
 	ctx->shell_sessions = NULL;
+}
+
+/*
+ * End and release every session owned by the turn. A shell the user opened
+ * with a bang line is not the turn work: interrupting the turn must not
+ * take it down.
+ */
+void fyai_shell_sessions_release_turn(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess, **link;
+
+	if (!ctx)
+		return;
+	link = &ctx->shell_sessions;
+	while ((sess = *link) != NULL) {
+		if (sess->user_owned) {
+			link = &sess->next;
+			continue;
+		}
+		*link = sess->next;
+		fyai_shell_session_release_one(sess, true);
+	}
 }
 
 /* The reading a session offers: what appeared, the screen, or part of it. */

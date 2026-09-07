@@ -44,6 +44,8 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job);
  * @force does not wait for a program to leave, which is what an interrupt asks.
  */
 void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force);
+/* Release the turn sessions, sparing shells the user opened. */
+void fyai_shell_sessions_release_turn(struct fyai_ctx *ctx);
 
 /* True when a terminal session owns this call's display. */
 bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
