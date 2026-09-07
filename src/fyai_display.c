@@ -4377,32 +4377,30 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
  * pair; EL and the reset are terminal control, not styling.
  */
 /* Write a blank card row through the live or transcript path. */
+/*
+ * Present card bytes. A live session commits directly. Every other
+ * destination writes through the sink.
+ */
+static void card_write(struct fyai_ctx *ctx, bool live, const char *buf,
+		       size_t len)
+{
+	if (!len)
+		return;
+	if (live && fyai_ui_active(ctx))
+		(void)fyai_ui_commit(ctx, buf, len);
+	else
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, buf, len);
+}
+
 static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
 			      const char *off, bool live)
 {
 	char *line;
-	size_t on_len;
-	size_t off_len;
 
-	if (live && fyai_ui_active(ctx)) {
-		on_len = strlen(on);
-		off_len = strlen(off);
-		line = malloc(on_len + 3 + off_len + 1);
-		if (!line)
-			return;
-		memcpy(line, on, on_len);
-		memcpy(line + on_len, "\033[K", 3);
-		memcpy(line + on_len + 3, off, off_len);
-		line[on_len + 3 + off_len] = '\n';
-		(void)fyai_ui_commit(ctx, line, on_len + 3 + off_len + 1);
-		free(line);
-		return;
-	}
 	/* fy_sprintfa() returns frame storage; it is not freed. */
 	line = fy_sprintfa("%s\033[K%s\n", on, off);
 	if (line)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, line,
-				      strlen(line));
+		card_write(ctx, live, line, strlen(line));
 }
 
 /* Draw a user card through the live or transcript path. */
@@ -4446,11 +4444,11 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	}
 	free(quoted);
 
-	/*
-	 * The card is one unit. Its own rows are presented as a continuation
-	 * so the manager fences the card as a whole and not each row of it.
-	 */
+	/* The card is one unit. Its rows continue it. */
 	flow = fyai_sink_flow(ctx->sink);
+	fenced = markdown_reverse_pair(cfg, &on, &off);
+	/* A fenced card supplies a blank row at each end. */
+	fyai_flow_blank_rows(flow, fenced ? 1 : 0);
 	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
 			     FYAI_FLOW_USER_CARD);
 	fyai_flow_emitted(flow, FYAI_FLOW_PROSE, true);
@@ -4458,33 +4456,19 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	/* Drop renderer padding rows, including ANSI-only SGR/EL rows. */
 	end = terminal_trim_blank_rows(rb.data, rb.len);
 	line_start = terminal_text_at_line_start(rb.data, end);
-	fenced = markdown_reverse_pair(cfg, &on, &off);
-	if (live && fyai_ui_active(ctx)) {
-		if (fenced)
-			fyai_bubble_fence(ctx, on, off, true);
-		if (end) {
-			(void)fyai_ui_commit(ctx, rb.data, end);
-			if (!line_start)
-				(void)fyai_ui_commit(ctx, "\n", 1);
-		}
-		if (fenced)
-			fyai_bubble_fence(ctx, on, off, true);
-		fyai_flow_emitted(flow, FYAI_FLOW_USER_CARD, true);
-		free(rb.data);
-		return;
-	}
-
-	/* One blank card row fences the content top and bottom (styling
-	 * permitting; without a loaded styling the card renders unfenced). */
+	/*
+	 * One blank card row fences the content top and bottom. Without a
+	 * loaded styling the card renders unfenced.
+	 */
 	if (fenced)
-		fyai_bubble_fence(ctx, on, off, false);
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, rb.data, end);
-	if (!line_start)
-		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+		fyai_bubble_fence(ctx, on, off, live);
+	card_write(ctx, live, rb.data, end);
+	if (end && !line_start)
+		card_write(ctx, live, "\n", 1);
 	if (fenced)
-		fyai_bubble_fence(ctx, on, off, false);
-	/* The manager separates the bubble from the answer. */
+		fyai_bubble_fence(ctx, on, off, live);
 	fyai_flow_emitted(flow, FYAI_FLOW_USER_CARD, true);
+	fyai_flow_blank_rows(flow, fenced ? 1 : 0);
 	free(rb.data);
 }
 
@@ -4516,10 +4500,7 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 			return -1;
 		fyai_emit_blockquote(mf, markdown);
 		fclose(mf);
-		/*
-		 * The unit ends at its last row. The manager owns what
-		 * separates it from the answer.
-		 */
+		/* The unit ends at its last row. The manager adds the separation. */
 		while (quotedlen > 1 && quoted[quotedlen - 1] == '\n' &&
 		       quoted[quotedlen - 2] == '\n')
 			quotedlen--;
