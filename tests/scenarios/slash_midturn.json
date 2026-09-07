@@ -1,0 +1,70 @@
+{
+  "steps": [
+    {
+      "delay": 8.0,
+      "response": {
+        "id": "chatcmpl-slash1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "The stalled answer." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 30, "completion_tokens": 9, "total_tokens": 39 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-slash2",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "The follow-up answer." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 31, "completion_tokens": 9, "total_tokens": 40 }
+      }
+    },
+    {
+      "delay": 8.0,
+      "response": {
+        "id": "chatcmpl-slash3",
+        "object": "chat.completion",
+        "created": 1735689602,
+        "model": "bar",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "The stalled answer." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 30, "completion_tokens": 9, "total_tokens": 39 }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-slash4",
+        "object": "chat.completion",
+        "created": 1735689603,
+        "model": "qux",
+        "choices": [
+          {
+            "index": 0,
+            "message": { "role": "assistant", "content": "The follow-up answer." },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": { "prompt_tokens": 31, "completion_tokens": 9, "total_tokens": 40 }
+      }
+    }
+  ]
+}
