@@ -2237,25 +2237,32 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 {
 	fy_generic cat_prov, cat_offer, cat_ep, pinned_prov;
 	fy_generic preferred_offer;
-	const char *pmid, *slash;
+	const char *pmid, *slash, *pinned_model;
 	char *pfx;
 	int i;
 
 	pinned_prov = fy_invalid;
+	pinned_model = NULL;
 	slash = cfg->model ? strchr(cfg->model, '/') : NULL;
 	if (slash) {
 		pfx = strndup(cfg->model, slash - cfg->model);
 		if (!pfx)
 			return -1;
 		pinned_prov = fyai_catalog_provider(catalog, pfx);
-		if (fy_is_valid(pinned_prov))
+		if (fy_is_valid(pinned_prov)) {
+			pinned_model = cfg->model;
 			cfg->model = fy_gb_intern_string(cfg->gb, slash + 1);
+		}
 		free(pfx);
 	}
 
 	if (fy_is_valid(pinned_prov)) {
 		cat_prov = pinned_prov;
 		fyai_catalog_offering(cat_prov, cfg->model, &cat_offer);
+		/* An explicit provider pin is also a wire-model pin. Keep it
+		 * when a stale catalogue has no offering for the model. */
+		if (fy_is_invalid(cat_offer) && pinned_model)
+			cfg->model = fy_gb_intern_string(cfg->gb, pinned_model);
 	} else {
 		cat_prov = fy_invalid;
 		cat_offer = fy_invalid;
