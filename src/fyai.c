@@ -1819,7 +1819,7 @@ static void fyai_turn_run_cancel(struct fyai_turn_run *run)
 	if (run->tool_group)
 		fyai_tool_job_group_cancel(run->tool_group);
 	/* Stop terminal sessions owned by the interrupted turn. */
-	fyai_shell_sessions_release(run->ctx, true);
+	fyai_shell_sessions_release_turn(run->ctx);
 }
 
 static fy_generic fyai_turn_run_collect(const struct fyai_turn_run *run)
@@ -2507,23 +2507,24 @@ static void fyai_scratch_leave(struct fyai_ctx *ctx,
 static int fyai_interactive_handle_bang(struct fyai_ctx *ctx,
 					const char *histfile, char *line)
 {
+	struct fyai_scratch_state st;
 	int rc;
 
 	if (line[0] != '!')
 		return -1;
 	fyai_ui_history_save(ctx, histfile, line);
 	fyai_echo_user_turn(ctx, line);
-	rc = fyai_setup_transient_builder(ctx);
+	rc = fyai_scratch_enter(ctx, &st);
 	fyai_error_check(ctx, !rc, out,
 			 "could not create transient shell storage");
 	rc = fyai_tools_bang(ctx, line + 1);
 	fyai_error_check(ctx, !rc, out,
 			 "could not start the bang shell");
 	rc = 0;
-	out:
-	fyai_cleanup_transient_builder(ctx);
+out:
 	fyai_ui_diag_drain(ctx, "error");
 	fyai_ui_drain_output(ctx);
+	fyai_scratch_leave(ctx, &st);
 	return rc;
 }
 
@@ -2717,18 +2718,21 @@ err:
 }
 
 /*
- * Whether a slash line may run while a turn is in flight. It may when it
+ * Whether a line may run while a turn is in flight. A bang shell may: it
+ * runs on scratch storage and is not part of the turn. A slash may when it
  * only reads stored state.
  */
 static bool fyai_interactive_line_runs_beside(struct fyai_ctx *ctx,
 					      const char *line)
 {
+	if (line[0] == '!')
+		return true;
 	if (line[0] != '/' || line[1] == '/')
 		return false;
 	return fyai_session_slash_immediate(ctx, line, true);
 }
 
-/* Run a slash line beside a live turn. FYAILR_QUIT if it asked to leave. */
+/* Run a line beside a live turn. FYAILR_QUIT if it asked to leave. */
 static enum fyai_line_result fyai_interactive_read_busy(struct fyai_ctx *ctx,
 						const char *histfile,
 						char *line)
@@ -2736,6 +2740,12 @@ static enum fyai_line_result fyai_interactive_read_busy(struct fyai_ctx *ctx,
 	struct fyai_scratch_state st;
 	int rc;
 
+	if (line[0] == '!') {
+		rc = fyai_interactive_handle_bang(ctx, histfile, line);
+		if (rc)
+			return FYAILR_ERROR;
+		return FYAILR_HANDLED;
+	}
 	rc = fyai_scratch_enter(ctx, &st);
 	if (rc) {
 		fyai_error(ctx, "could not create transient command storage");
