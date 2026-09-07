@@ -817,7 +817,7 @@ static unsigned int fyai_shell_timeout_ms(struct fyai_ctx *ctx, fy_generic call,
 	struct fyai_cfg *cfg = ctx->cfg;
 	long long ms;
 
-	if (ctx->cfg->tool_child)
+	if (ctx->cfg->tool_child || fy_get(call, "_fyai_user_owned", false))
 		return 0;
 	ms = fyai_shell_timeout_requested(call, native);
 	if (ms <= 0)
