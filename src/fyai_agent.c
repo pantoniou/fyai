@@ -115,6 +115,7 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
 	fy_generic model, overlay, thinking;
+	const char *model_text, *model_slash;
 	int rc;
 
 	tmp = *cfg;
@@ -128,6 +129,8 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 			fy_mapping(ctx->transient_gb, "thinking", thinking));
 	model = fy_get(overlay, "model", fy_invalid);
 	if (fy_is_string(model)) {
+		model_text = fy_castp(&model, "");
+		model_slash = strchr(model_text, '/');
 		if (fy_is_invalid(fy_get(cfg->config_doc, "api_url",
 						 fy_invalid)))
 			tmp.api_url = NULL;
@@ -145,6 +148,12 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 		fyai_error_check(ctx, !rc, err,
 				 "persona model '%s' cannot be resolved",
 				 fy_castp(&model, ""));
+		/* A qualified persona model is an explicit wire-model choice when
+		 * its provider has no catalogue offering for the suffix. */
+		if (model_slash && tmp.model &&
+		    !strchr(tmp.model, '/') &&
+		    !strcmp(tmp.model, model_slash + 1))
+			tmp.model = fy_gb_intern_string(tmp.gb, model_text);
 	}
 	*cfg = tmp;
 	return 0;
