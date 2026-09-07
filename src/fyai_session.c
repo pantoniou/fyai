@@ -2505,6 +2505,116 @@ out_report:
 	return 0;
 }
 
+/*
+ * A slash line typed while a model turn is in flight runs now only when it
+ * cannot disturb that turn. Anything else stays queued behind it: the line
+ * waits in the input queue and the prompt runs it once the turn is done.
+ * Reads of stored state and the work-pane controls are immediate; a mutation
+ * of the session, the configuration, or live work waits. A bare setting
+ * prints its value (immediate); a value changes it (waits). Return true
+ * when @line may run while @busy.
+ */
+static bool session_slash_argless(const char *arg)
+{
+	while (arg && (*arg == ' ' || *arg == '\t'))
+		arg++;
+	return !arg || !*arg;
+}
+
+static bool session_slash_word(const char *arg, const char *word)
+{
+	const char *start;
+	size_t len;
+
+	while (arg && (*arg == ' ' || *arg == '\t'))
+		arg++;
+	if (!arg)
+		return false;
+	start = arg;
+	len = strcspn(start, " \t");
+	arg = start + len;
+	while (*arg == ' ' || *arg == '\t')
+		arg++;
+	return !*arg && strlen(word) == len && !strncmp(start, word, len);
+}
+
+static bool session_slash_subcommand(const char *arg, const char *const *words)
+{
+	const char *const *w;
+
+	for (w = words; w && *w; w++)
+		if (session_slash_word(arg, *w))
+			return true;
+	return false;
+}
+
+bool fyai_session_slash_immediate(struct fyai_ctx *ctx, const char *line,
+				  bool busy)
+{
+	const struct fyai_slash_cmd *cmd;
+	const struct fyai_slash_opt *opt;
+	const char *name, *arg;
+	size_t len;
+	/* Read-only branch views; creation, deletion, and switching wait. */
+	static const char *const branch_reads[] = {
+		"list", "--all", "-a", "show", "describe", NULL,
+	};
+	/* Read-only configuration views; set/delete/edit/import wait. */
+	static const char *const config_reads[] = {
+		"show", "effective", "validate", "schema", "describe",
+		"get", NULL,
+	};
+
+	if (!busy)
+		return true;
+	if (!ctx || !line || line[0] != '/' || line[1] == '/')
+		return false;
+	name = line + 1;
+	len = strcspn(name, " \t");
+	if (!len)
+		return false;
+	arg = name + len;
+	while (*arg == ' ' || *arg == '\t')
+		arg++;
+	if (session_slash_lookup(name, len, &cmd, &opt))
+		return false;
+	if (opt)
+		return session_slash_argless(arg);
+	if (!cmd)
+		return false;
+	if (!strcmp(cmd->name, "model") || !strcmp(cmd->name, "api"))
+		return session_slash_argless(arg);
+	if (!strcmp(cmd->name, "branch"))
+		return session_slash_argless(arg) ||
+			session_slash_subcommand(arg, branch_reads);
+	if (!strcmp(cmd->name, "config"))
+		return session_slash_argless(arg) ||
+			session_slash_subcommand(arg, config_reads);
+	if (!strcmp(cmd->name, "secret"))
+		return session_slash_argless(arg) ||
+			session_slash_word(arg, "status");
+	if (!strcmp(cmd->name, "auth"))
+		return session_slash_argless(arg) ||
+			session_slash_word(arg, "status");
+	if (!strcmp(cmd->name, "mcp"))
+		return session_slash_argless(arg) ||
+			session_slash_word(arg, "show") ||
+			session_slash_word(arg, "status");
+	/* Mutations of the session, the configuration, or live work wait. */
+	return !strcmp(cmd->name, "help") ||
+		!strcmp(cmd->name, "status") ||
+		!strcmp(cmd->name, "context") ||
+		!strcmp(cmd->name, "stats") ||
+		!strcmp(cmd->name, "list") ||
+		!strcmp(cmd->name, "history") ||
+		!strcmp(cmd->name, "transcript") ||
+		!strcmp(cmd->name, "tools") ||
+		!strcmp(cmd->name, "sessions") ||
+		!strcmp(cmd->name, "log") ||
+		!strcmp(cmd->name, "logging") ||
+		!strcmp(cmd->name, "zoom");
+}
+
 /* ---- tab completion ------------------------------------------------------ */
 
 char *fyai_readline(struct fyai_ctx *ctx, const char *prompt)

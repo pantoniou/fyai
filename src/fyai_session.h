@@ -97,6 +97,16 @@ void fyai_session_banner_update(struct fyai_ctx *ctx);
 /* Read one edited line through the active frontend. */
 char *fyai_readline(struct fyai_ctx *ctx, const char *prompt);
 
+/*
+ * Whether a slash line may run while a model turn is in flight. Reads of
+ * stored state and the work-pane controls run now; a mutation of the
+ * session, the configuration, or live work waits behind the turn. Idle
+ * sessions run every line. Unknown or ambiguous lines never run early:
+ * the dispatcher reports them once the turn is done.
+ */
+bool fyai_session_slash_immediate(struct fyai_ctx *ctx, const char *line,
+				  bool busy);
+
 struct fytim_completions;
 void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 			     struct fytim_completions *comps);

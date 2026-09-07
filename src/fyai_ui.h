@@ -31,6 +31,10 @@ void fyai_ui_config_changed(struct fyai_ctx *ctx);
 bool fyai_ui_active(const struct fyai_ctx *ctx);
 char *fyai_ui_readline(struct fyai_ctx *ctx);
 char *fyai_ui_take_line(struct fyai_ctx *ctx);
+/* The head of the input queue. The line stays queued. */
+const char *fyai_ui_peek_line(struct fyai_ctx *ctx);
+/* Whether the input queue holds an unprocessed line. */
+bool fyai_ui_has_line(struct fyai_ctx *ctx);
 bool fyai_ui_quit_requested(const struct fyai_ctx *ctx);
 void fyai_ui_drain_output(struct fyai_ctx *ctx);
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path);

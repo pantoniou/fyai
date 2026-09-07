@@ -1255,6 +1255,23 @@ char *fyai_ui_take_line(struct fyai_ctx *ctx)
 	return text;
 }
 
+/* The head of the input queue. The line stays queued. */
+const char *fyai_ui_peek_line(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || ui->quit || !ui->head)
+		return NULL;
+	return ui->head->text;
+}
+
+bool fyai_ui_has_line(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	return ui && ui->head;
+}
+
 bool fyai_ui_quit_requested(const struct fyai_ctx *ctx)
 {
 	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;

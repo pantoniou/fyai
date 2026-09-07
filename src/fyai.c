@@ -2447,6 +2447,62 @@ out:
 	return rc < 0 ? rc : rc > 0 ? 1 : 0;
 }
 
+/*
+ * A turn owns ctx->transient_gb and the collected diagnostics. A line
+ * that runs beside the turn must use neither. Enter sets both aside and
+ * gives the line scratch storage. Leave restores them.
+ */
+struct fyai_scratch_state {
+	struct fy_generic_builder *gb;
+	struct fy_allocator *allocator;
+	fy_generic held;
+	bool autorelease;
+	bool entered;
+};
+
+static int fyai_scratch_enter(struct fyai_ctx *ctx,
+			      struct fyai_scratch_state *st)
+{
+	int rc;
+
+	st->gb = ctx->transient_gb;
+	st->allocator = ctx->transient_allocator;
+	st->autorelease = ctx->transient_autorelease;
+	st->held = fy_invalid;
+	st->entered = false;
+	ctx->transient_gb = NULL;
+	ctx->transient_allocator = NULL;
+	ctx->transient_autorelease = false;
+	rc = fyai_setup_transient_builder(ctx);
+	if (rc) {
+		ctx->transient_gb = st->gb;
+		ctx->transient_allocator = st->allocator;
+		ctx->transient_autorelease = st->autorelease;
+		return rc;
+	}
+	/* A drain resets the sink storage, so hold the turn's diagnostics. */
+	st->held = fyai_diag_take_generic(&ctx->cfg->diag, ctx->transient_gb);
+	st->entered = true;
+	return 0;
+}
+
+/* Restore the turn state. Call after the line drains its own diagnostics. */
+static void fyai_scratch_leave(struct fyai_ctx *ctx,
+			       struct fyai_scratch_state *st)
+{
+	if (!st->entered)
+		return;
+	st->entered = false;
+	/* Raise the held diagnostics again before the scratch builder goes. */
+	if (fy_is_sequence(st->held))
+		fyai_diag_adopt(&ctx->cfg->diag, st->held, NULL);
+	st->held = fy_invalid;
+	fyai_cleanup_transient_builder(ctx);
+	ctx->transient_gb = st->gb;
+	ctx->transient_allocator = st->allocator;
+	ctx->transient_autorelease = st->autorelease;
+}
+
 /* Run a bang command without creating a model turn. */
 static int fyai_interactive_handle_bang(struct fyai_ctx *ctx,
 					const char *histfile, char *line)
@@ -2660,13 +2716,65 @@ err:
 	return -1;
 }
 
+/*
+ * Whether a slash line may run while a turn is in flight. It may when it
+ * only reads stored state.
+ */
+static bool fyai_interactive_line_runs_beside(struct fyai_ctx *ctx,
+					      const char *line)
+{
+	if (line[0] != '/' || line[1] == '/')
+		return false;
+	return fyai_session_slash_immediate(ctx, line, true);
+}
+
+/* Run a slash line beside a live turn. FYAILR_QUIT if it asked to leave. */
+static enum fyai_line_result fyai_interactive_read_busy(struct fyai_ctx *ctx,
+						const char *histfile,
+						char *line)
+{
+	struct fyai_scratch_state st;
+	int rc;
+
+	rc = fyai_scratch_enter(ctx, &st);
+	if (rc) {
+		fyai_error(ctx, "could not create transient command storage");
+		fyai_ui_diag_drain(ctx, "error");
+		return FYAILR_ERROR;
+	}
+	rc = fyai_interactive_handle_slash(ctx, histfile, line);
+	fyai_scratch_leave(ctx, &st);
+	if (rc > 0)
+		return FYAILR_QUIT;
+	if (rc < 0)
+		return FYAILR_ERROR;
+	return FYAILR_HANDLED;
+}
+
 static enum fyai_line_result fyai_interactive_read_line(struct fyai_ctx *ctx,
 					      const char *histfile,
 					      struct fyai_turn_run **runp)
 {
+	enum fyai_line_result busy;
+	const char *head;
 	char *line;
 	int rc;
 
+	/*
+	 * A line typed during a turn runs now only if it cannot disturb the
+	 * turn. Anything else stays in the queue until the turn ends.
+	 */
+	if (*runp) {
+		head = fyai_ui_peek_line(ctx);
+		if (!head || !fyai_interactive_line_runs_beside(ctx, head))
+			return FYAILR_NONE;
+		line = fyai_ui_take_line(ctx);
+		if (!line)
+			return FYAILR_NONE;
+		busy = fyai_interactive_read_busy(ctx, histfile, line);
+		free(line);
+		return busy;
+	}
 	line = fyai_ui_take_line(ctx);
 	if (!line)
 		return FYAILR_NONE;
@@ -2783,7 +2891,13 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			continue;
 		}
 
-		if (!run && gated && !ctx->config_edit) {
+		/*
+		 * Read while idle, and while a turn runs when a line waits:
+		 * an immediate slash runs beside the turn while a mutation
+		 * stays queued behind it. Without a waiting line the read
+		 * would only block the pump.
+		 */
+		if ((!run || fyai_ui_has_line(ctx)) && gated && !ctx->config_edit) {
 			line_result = fyai_interactive_read_line(ctx, histfile, &run);
 			if (line_result == FYAILR_QUIT) {
 				quit = true;
