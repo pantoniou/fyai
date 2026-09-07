@@ -435,6 +435,10 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "tool_separator", cfg->tool_separator));
 		cfg->section_separator = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "section_separator", cfg->section_separator));
+		cfg->tool_group_fence = fy_get(v, "tool_group_fence",
+					       cfg->tool_group_fence);
+		cfg->user_card_fence = fy_get(v, "user_card_fence",
+					      cfg->user_card_fence);
 		cfg->prompt_marker = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "prompt", cfg->prompt_marker));
 		cfg->prompt_top = fy_gb_intern_string(cfg->gb,

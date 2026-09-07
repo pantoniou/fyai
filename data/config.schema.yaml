@@ -698,14 +698,31 @@ properties:
         type: string
         default: ""
         description: >-
-          Separator rendered (as markdown, themed) before each tool result,
-          in both the live loop and transcript. Empty (default) emits nothing.
+          Separator rendered (as markdown, themed) before each tool result.
+          Empty (default) emits nothing.
       section_separator:
         type: string
         default: ""
         description: >-
           Separator emitted between streamed reasoning and the answer. Empty
           (default) is a blank line only.
+      tool_group_fence:
+        type: integer
+        minimum: 0
+        maximum: 8
+        default: 1
+        description: >-
+          Blank rows drawn above and below a tool exchange, in the live loop
+          and in the transcript. A tool exchange is one group. It is not
+          fenced against itself. 0 draws no blank row.
+      user_card_fence:
+        type: integer
+        minimum: 0
+        maximum: 8
+        default: 1
+        description: >-
+          Blank rows drawn between the user card and the answer that follows
+          it. 0 puts the answer directly under the card.
       prompt:
         type: string
         default: "  > "
