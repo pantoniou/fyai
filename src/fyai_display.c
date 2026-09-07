@@ -2938,107 +2938,224 @@ static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 	return rc;
 }
 
+/*
+ * One walk over the fragments of a stored document. A render pass and a
+ * measuring pass drive it, so measurement matches the render.
+ */
+struct fyai_fragment {
+	enum fyai_flow_unit unit;
+	fy_generic frag;
+	fy_generic content;	/* tool_result payload, else fy_invalid */
+	const char *md;		/* the slice this fragment covers */
+	size_t len;
+	const char *lang;	/* empty when the fragment carries none */
+	const char *tool;	/* backfilled; empty when unknown */
+	int preview_lines;
+	bool ok;		/* tool_head outcome */
+	const char *cause;	/* tool_head failure cause, empty if none */
+};
+
+struct fyai_fragment_ops {
+	/* source between fragments, and before the first and after the last */
+	int (*gap)(void *user, const char *md, size_t len,
+		   enum fyai_flow_unit next);
+	int (*unit)(void *user, const struct fyai_fragment *f);
+	/* no fragments, or they do not describe the source */
+	int (*whole)(void *user, const char *md, size_t len);
+};
+
+static enum fyai_flow_unit fragment_unit(fy_generic kind)
+{
+	if (fy_equal(kind, "tool_head"))
+		return FYAI_FLOW_TOOL_HEAD;
+	if (fy_equal(kind, "tool_body"))
+		return FYAI_FLOW_TOOL_BODY;
+	if (fy_equal(kind, "tool_text"))
+		return FYAI_FLOW_TOOL_TEXT;
+	if (fy_equal(kind, "tool_result"))
+		return FYAI_FLOW_TOOL_RESULT;
+	return FYAI_FLOW_PROSE;
+}
+
+static int fyai_fragment_walk(struct fyai_ctx *ctx, fy_generic output,
+			      fy_generic results, size_t *result_pos,
+			      const struct fyai_fragment_ops *ops, void *user)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic fragments, fragment, gmd, glang, gtool, gcause;
+	struct fyai_fragment f;
+	const char *md;
+	long long llstart, llend;
+	size_t start, end, pos, len;
+	int rc;
+
+	gmd = fy_get(output, "markdown");
+	md = fy_castp(&gmd, "");
+	len = strlen(md);
+	fragments = fy_get(output, "fragments", fy_seq_empty);
+	if (!fy_len(fragments))
+		return ops->whole(user, md, len);
+
+	pos = 0;
+	fy_foreach(fragment, fragments) {
+		llstart = fy_get(fragment, "start", -1LL);
+		llend = fy_get(fragment, "end", -1LL);
+		/* A fragment that does not describe the source ends the walk. */
+		if (llstart < 0 || llend < llstart ||
+		    (unsigned long long)llend > len ||
+		    (size_t)llstart < pos)
+			return ops->whole(user, md, len);
+		start = (size_t)llstart;
+		end = (size_t)llend;
+		rc = ops->gap(user, md + pos, start - pos,
+			      fragment_unit(fy_get(fragment, "kind")));
+		if (rc)
+			return rc;
+
+		memset(&f, 0, sizeof(f));
+		f.unit = fragment_unit(fy_get(fragment, "kind"));
+		f.frag = fragment;
+		f.content = fy_invalid;
+		f.md = md + start;
+		f.len = end - start;
+		glang = fy_get(fragment, "lang");
+		f.lang = fy_castp(&glang, "");
+		gtool = fy_get(fragment, "tool");
+		f.tool = fy_castp(&gtool, "");
+		if (f.unit == FYAI_FLOW_TOOL_RESULT) {
+			f.content = fy_get(results, (*result_pos)++, fy_invalid);
+			/* A fragment stored before tool metadata names the shape. */
+			if (fy_str_empty(f.tool) && !fy_str_empty(f.lang))
+				f.tool = "read_file";
+			else if (fy_str_empty(f.tool) && !fy_is_string(f.content))
+				f.tool = "shell";
+		}
+		f.preview_lines = fyai_tool_preview_lines(cfg, f.tool);
+		if (f.unit == FYAI_FLOW_TOOL_HEAD) {
+			gcause = fy_get(fragment, "cause");
+			f.ok = !fy_equal(fy_get(fragment, "ok"), fy_false);
+			f.cause = fy_castp(&gcause, "");
+		}
+		rc = ops->unit(user, &f);
+		if (rc)
+			return rc;
+		pos = end;
+	}
+	return ops->gap(user, md + pos, len - pos, FYAI_FLOW_PROSE);
+}
+
+struct render_walk {
+	struct fyai_ctx *ctx;
+};
+
+/* Test if the range presents anything. */
+static bool range_has_content(const char *md, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		if (!isspace((unsigned char)md[i]))
+			return true;
+	return false;
+}
+
+static int render_walk_gap(void *user, const char *md, size_t len,
+			   enum fyai_flow_unit next)
+{
+	struct render_walk *w = user;
+	struct fyai_flow *flow;
+	int rc;
+
+	if (!range_has_content(md, len))
+		return 0;
+	flow = fyai_sink_flow(w->ctx->sink);
+	/* A gap inside a tool exchange is part of that exchange. */
+	if (!flow || !fyai_flow_unit_is_tool(flow->prev) ||
+	    !fyai_flow_unit_is_tool(next)) {
+		rc = fyai_sink_unit(w->ctx->sink, FYAI_SINK_TRANSCRIPT,
+				    FYAI_FLOW_PROSE);
+		if (rc)
+			return rc;
+	}
+	return fyai_display_markdown_range(w->ctx, md, 0, len);
+}
+
+static int render_walk_whole(void *user, const char *md, size_t len)
+{
+	struct render_walk *w = user;
+
+	(void)len;
+	return fyai_render_display_output(w->ctx, "assistant", md);
+}
+
+static int render_walk_unit(void *user, const struct fyai_fragment *f)
+{
+	struct render_walk *w = user;
+	struct fyai_ctx *ctx = w->ctx;
+	struct fyai_cfg *cfg = ctx->cfg;
+	int rc;
+
+	switch (f->unit) {
+	case FYAI_FLOW_TOOL_HEAD:
+		rc = fyai_display_tool_head(ctx, f->md, f->len, f->ok,
+					    f->cause);
+		fyai_error_check(ctx, !rc, out, "could not replay a tool title");
+		return 0;
+	case FYAI_FLOW_TOOL_BODY:
+		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
+		fyai_error_check(ctx, !rc, out, "could not fence a tool body");
+		rc = fyai_display_tool_body(ctx, f->md, f->len, f->lang,
+					    f->preview_lines > 0 ?
+					    (size_t)f->preview_lines : 0);
+		fyai_error_check(ctx, !rc, out, "could not replay a tool body");
+		return 0;
+	case FYAI_FLOW_TOOL_TEXT:
+		/* Recorded terminal source draws as a tool result. */
+		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
+		fyai_error_check(ctx, !rc, out, "could not fence a tool screen");
+		fyai_print_tool_separator(ctx->sink, cfg);
+		fyai_print_fenced(ctx->sink, cfg, f->md, f->len, NULL,
+				  fy_invalid,
+				  f->preview_lines < 0 ? 0 :
+				  (size_t)f->preview_lines);
+		return 0;
+	case FYAI_FLOW_TOOL_RESULT:
+		fyai_error_check(ctx, fy_is_valid(f->content), out,
+				 "missing a stored tool result");
+		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
+		fyai_error_check(ctx, !rc, out, "could not fence a tool result");
+		fyai_render_tool_result(ctx->sink, cfg, f->content, f->lang,
+					f->preview_lines);
+		return 0;
+	default:
+		break;
+	}
+	rc = fyai_display_markdown_range(ctx, f->md, 0, f->len);
+	fyai_error_check(ctx, !rc, out, "could not replay assistant Markdown");
+	return 0;
+out:
+	return -1;
+}
+
+static const struct fyai_fragment_ops render_walk_ops = {
+	.gap = render_walk_gap,
+	.unit = render_walk_unit,
+	.whole = render_walk_whole,
+};
+
 static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 					 fy_generic output,
 					 const char *md,
 					 fy_generic tool_results,
 					 size_t *tool_result_pos)
 {
-	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic fragments, fragment, content, glang, gtool, gcause;
-	const char *lang;
-	const char *tool;
-	int preview_lines;
-	int rc;
-	long long llstart, llend;
-	size_t start, end, pos, len;
+	struct render_walk w = { .ctx = ctx };
 
-	fragments = fy_get(output, "fragments", fy_seq_empty);
-	if (!fy_len(fragments))
-		return fyai_render_display_output(ctx, "assistant", md);
-
-	len = strlen(md);
-	pos = 0;
-	fy_foreach(fragment, fragments) {
-		llstart = fy_get(fragment, "start", -1LL);
-		llend = fy_get(fragment, "end", -1LL);
-		if (llstart < 0 || llend < llstart ||
-		    (unsigned long long)llend > len ||
-		    (size_t)llstart < pos)
-			return -1;
-		start = (size_t)llstart;
-		end = (size_t)llend;
-		rc = fyai_display_markdown_range(ctx, md, pos, start);
-		fyai_error_check(ctx, !rc, out,
-				 "could not replay assistant Markdown");
-		if (fy_equal(fy_get(fragment, "kind"), "tool_head")) {
-			/* Replay the title row with its state mark. */
-			gcause = fy_get(fragment, "cause");
-			rc = fyai_display_tool_head(ctx, md + start, end - start,
-					!fy_equal(fy_get(fragment, "ok"), fy_false),
-					fy_is_string(gcause) ?
-					fy_castp(&gcause, "") : NULL);
-			fyai_error_check(ctx, !rc, out,
-					 "could not replay a tool title");
-		} else if (fy_equal(fy_get(fragment, "kind"), "tool_body")) {
-			/* Replay the tool body without a frame. */
-			glang = fy_get(fragment, "lang");
-			lang = fy_castp(&glang, "");
-			gtool = fy_get(fragment, "tool");
-			tool = fy_castp(&gtool, "");
-			preview_lines = fyai_tool_preview_lines(cfg, tool);
-			rc = fyai_display_tool_body(ctx, md + start, end - start,
-						    lang,
-						    preview_lines > 0 ?
-						    (size_t)preview_lines : 0);
-			fyai_error_check(ctx, !rc, out,
-					 "could not replay a tool body");
-		} else if (fy_equal(fy_get(fragment, "kind"), "tool_text")) {
-			/* Draw recorded terminal source as a tool result. */
-			gtool = fy_get(fragment, "tool");
-			tool = fy_castp(&gtool, "");
-			preview_lines = fyai_tool_preview_lines(cfg, tool);
-			fyai_print_tool_separator(ctx->sink, cfg);
-			fyai_print_fenced(ctx->sink, cfg, md + start,
-					  end - start, NULL, fy_invalid,
-					  preview_lines < 0 ? 0 :
-					  (size_t)preview_lines);
-		} else if (fy_equal(fy_get(fragment, "kind"), "tool_result")) {
-			content = fy_get(tool_results, (*tool_result_pos)++,
-					 fy_invalid);
-			fyai_error_check(ctx, fy_is_valid(content), out,
-					 "missing a stored tool result");
-			glang = fy_get(fragment, "lang");
-			lang = fy_is_string(glang) ?
-				fy_castp(&glang, "") : NULL;
-			gtool = fy_get(fragment, "tool");
-			tool = fy_is_string(gtool) ?
-				fy_castp(&gtool, "") : NULL;
-			/*
-			 * Pre-tool-metadata fragments can still identify the
-			 * two important shapes without parsing rendered Markdown.
-			 */
-			if (!tool && lang && *lang)
-				tool = "read_file";
-			else if (!tool && !fy_is_string(content))
-				tool = "shell";
-			preview_lines = fyai_tool_preview_lines(cfg, tool);
-			fyai_render_tool_result(ctx->sink, cfg, content, lang,
-						preview_lines);
-		} else {
-			rc = fyai_display_markdown_range(ctx, md, start, end);
-			fyai_error_check(ctx, !rc, out,
-					 "could not replay assistant Markdown");
-		}
-		pos = end;
-	}
-	rc = fyai_display_markdown_range(ctx, md, pos, len);
-	fyai_error_check(ctx, !rc, out,
-			 "could not replay assistant Markdown");
-	return 0;
-out:
-	return -1;
+	(void)md;
+	return fyai_fragment_walk(ctx, output, tool_results, tool_result_pos,
+				  &render_walk_ops, &w);
 }
+
 
 /* The stored tool results of a turn range, in fragment order. */
 static fy_generic fyai_tool_results(struct fyai_ctx *ctx,
@@ -3594,68 +3711,82 @@ static size_t fyai_display_result_rows(fy_generic content, int preview)
 	return lines + 3;
 }
 
-/* Measure stored output with tool preview limits applied. */
-static size_t fyai_display_output_rows(const struct fyai_cfg *cfg,
+/*
+ * Measure stored output with tool preview limits applied. It drives the render
+ * walk and the same manager, so the recap window measures the rows it draws.
+ */
+struct measure_walk {
+	struct fymd_renderer *m;
+	struct fyai_flow flow;
+	size_t rows;
+};
+
+static int measure_walk_gap(void *user, const char *md, size_t len,
+			    enum fyai_flow_unit next)
+{
+	struct measure_walk *w = user;
+	struct fyai_flow_sep sep;
+
+	if (range_has_content(md, len) &&
+	    (!fyai_flow_unit_is_tool(w->flow.prev) ||
+	     !fyai_flow_unit_is_tool(next))) {
+		sep = fyai_flow_before(&w->flow, FYAI_FLOW_PROSE);
+		w->rows += fyai_flow_sep_rows(&sep);
+		fyai_flow_emitted(&w->flow, FYAI_FLOW_PROSE, true);
+	}
+	w->rows += measure_rows(w->m, md, len);
+	return 0;
+}
+
+static int measure_walk_whole(void *user, const char *md, size_t len)
+{
+	struct measure_walk *w = user;
+
+	w->rows = measure_rows(w->m, md, len);
+	return 0;
+}
+
+static int measure_walk_unit(void *user, const struct fyai_fragment *f)
+{
+	struct measure_walk *w = user;
+	struct fyai_flow_sep sep;
+	size_t cap;
+
+	sep = fyai_flow_before(&w->flow, f->unit);
+	w->rows += fyai_flow_sep_rows(&sep);
+	fyai_flow_emitted(&w->flow, f->unit, true);
+
+	/* Include the preview and the row that reports the omission. */
+	cap = f->preview_lines > 0 ? (size_t)f->preview_lines + 1 : 0;
+	if (f->unit == FYAI_FLOW_TOOL_RESULT)
+		w->rows += fyai_display_result_rows(f->content,
+						    f->preview_lines);
+	else if (f->unit == FYAI_FLOW_TOOL_HEAD || !cap)
+		w->rows += measure_rows(w->m, f->md, f->len);
+	else
+		w->rows += measure_capped_rows(w->m, f->md, f->len, cap);
+	return 0;
+}
+
+static const struct fyai_fragment_ops measure_walk_ops = {
+	.gap = measure_walk_gap,
+	.unit = measure_walk_unit,
+	.whole = measure_walk_whole,
+};
+
+static size_t fyai_display_output_rows(struct fyai_ctx *ctx,
 				       struct fymd_renderer *m,
 				       fy_generic output, fy_generic results,
 				       size_t *result_pos)
 {
-	fy_generic fragments, fragment, gtool, kind, content;
-	const char *md;
-	fy_generic gmd;
-	size_t rows = 0;
-	size_t start, end, pos, len, span;
-	long long llstart, llend;
-	int preview;
-	size_t cap;
+	struct measure_walk w;
 
-	gmd = fy_get(output, "markdown");
-	md = fy_castp(&gmd, "");
-	len = strlen(md);
-	fragments = fy_get(output, "fragments", fy_seq_empty);
-	if (!fy_len(fragments))
-		return measure_rows(m, md, len);
-
-	pos = 0;
-	fy_foreach(fragment, fragments) {
-		llstart = fy_get(fragment, "start", -1LL);
-		llend = fy_get(fragment, "end", -1LL);
-		if (llstart < 0 || llend < llstart ||
-		    (unsigned long long)llend > len ||
-		    (size_t)llstart < pos)
-			return measure_rows(m, md, len);
-		start = (size_t)llstart;
-		end = (size_t)llend;
-		rows += measure_rows(m, md + pos, start - pos);
-		kind = fy_get(fragment, "kind");
-		if (fy_equal(kind, "tool_head")) {
-			rows += measure_rows(m, md + start, end - start);
-		} else if (fy_any_equal(kind, "tool_body", "tool_text",
-					"tool_result")) {
-			gtool = fy_get(fragment, "tool");
-			preview = fyai_tool_preview_lines(cfg,
-							  fy_str(gtool));
-			/* Include the preview and its omission row. */
-			cap = preview > 0 ? (size_t)preview + 1 : 0;
-			if (fy_equal(kind, "tool_result")) {
-				/* The result replays from the message. */
-				content = fy_get(results, (*result_pos)++,
-						 fy_invalid);
-				rows += fyai_display_result_rows(content,
-								 preview);
-			} else if (!cap) {
-				span = measure_rows(m, md + start, end - start);
-				rows += span;
-			} else {
-				rows += measure_capped_rows(m, md + start,
-							    end - start, cap);
-			}
-		} else {
-			rows += measure_rows(m, md + start, end - start);
-		}
-		pos = end;
-	}
-	return rows + measure_rows(m, md + pos, len - pos);
+	memset(&w, 0, sizeof(w));
+	w.m = m;
+	fyai_flow_reset(&w.flow, ctx->cfg);
+	(void)fyai_fragment_walk(ctx, output, results, result_pos,
+				 &measure_walk_ops, &w);
+	return w.rows;
 }
 
 /* Estimate the rendered rows for one exchange. */
@@ -3664,7 +3795,8 @@ static size_t fyai_display_exchange_rows(struct fyai_ctx *ctx,
 					 const struct fyai_turn_stack *stack,
 					 size_t lo, size_t hi, size_t budget)
 {
-	const struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_flow_sep sep;
+	struct fyai_flow flow;
 	fy_generic outputs;
 	fy_generic output;
 	fy_generic results;
@@ -3684,7 +3816,7 @@ static size_t fyai_display_exchange_rows(struct fyai_ctx *ctx,
 				 fy_seq_empty);
 		stored = 0;
 		fy_foreach(output, outputs) {
-			rows += fyai_display_output_rows(cfg, m, output,
+			rows += fyai_display_output_rows(ctx, m, output,
 							 results, &result_pos);
 			stored++;
 			/* The window is settled once the screen is full. */
@@ -3697,8 +3829,11 @@ static size_t fyai_display_exchange_rows(struct fyai_ctx *ctx,
 		if (rows > budget)
 			return rows + 1;
 	}
-	/* The separator row between exchanges. */
-	return rows + 1;
+	/* The separation between exchanges. */
+	fyai_flow_reset(&flow, ctx->cfg);
+	fyai_flow_emitted(&flow, FYAI_FLOW_PROSE, true);
+	sep = fyai_flow_before(&flow, FYAI_FLOW_USER_CARD);
+	return rows + fyai_flow_sep_rows(&sep);
 }
 
 /* Return the transcript screen height. */

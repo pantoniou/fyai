@@ -229,11 +229,8 @@ static struct fyai_flow_sep flow_sep_raw(const struct fyai_flow *f,
 		sep.rows = fence;
 		return sep;
 	}
-	if (next_tool) {
-		if (next == FYAI_FLOW_TOOL_RESULT)
-			sep.markdown = flow_separator(cfg->tool_separator);
+	if (next_tool)
 		return sep;
-	}
 	if (prev_tool) {
 		sep.rows = fence;
 		return sep;
