@@ -149,7 +149,10 @@ for needle in needles:
     position += len(needle)
 user_end = plain.find(b"first prompt") + len(b"first prompt")
 assistant_start = plain.find(b"First streamed reply.", user_end)
-if plain[user_end:assistant_start].count(b"\n") < 3:
+# The card closes its own text row and then draws its bottom card row, which
+# is the blank the manager would otherwise add. Two rows stand between the
+# words of the card and the answer; a third would be a second blank.
+if plain[user_end:assistant_start].count(b"\n") < 2:
     raise SystemExit("slash transcript omitted the bubble's bottom row")
 EOF
 
