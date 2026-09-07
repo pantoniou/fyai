@@ -86,6 +86,83 @@ fy_generic fyai_response_output_text(struct fyai_ctx *ctx,
 	return provider_result(ctx, out, "could not extract the response text");
 }
 
+
+/*
+ * Only fyai_tools_bang() confers user ownership, with server-built
+ * arguments. A provider call carrying _fyai_user_owned smuggles it:
+ * the job would skip its time limit, refuse a model close, and survive
+ * a turn cancel. Strip the key at the parse boundary, where every
+ * provider grammar becomes tool calls, so no downstream reader can
+ * inherit it. Calls without the key keep their canonical bytes.
+ */
+static fy_generic fyai_tool_call_strip_user_owned(struct fyai_ctx *ctx,
+						  fy_generic tool_call)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic args, holder;
+	const char *field;
+	const char *text;
+	bool native, nested;
+
+	/*
+	 * A native shell call carries a mapping action. A function call
+	 * carries a JSON arguments string, under function for chat. Write
+	 * the stripped arguments back to the key they came from.
+	 */
+	native = fy_equal(fy_get(tool_call, "type"), "shell_call");
+	nested = !native && ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS;
+	field = native ? "action" : "arguments";
+	holder = nested ? fy_get(tool_call, "function") : tool_call;
+	args = fy_get(holder, field);
+	if (fy_is_string(args))
+		args = parse_json_string(gb, fy_cast(args, ""));
+	/* A native shell call reads the flag beside the action. */
+	if (fy_is_mapping(tool_call) &&
+	    fy_is_valid(fy_get(tool_call, "_fyai_user_owned")))
+		tool_call = fy_disassoc(gb, tool_call, "_fyai_user_owned");
+	if (!fy_is_mapping(args) ||
+	    fy_is_invalid(fy_get(args, "_fyai_user_owned")))
+		return tool_call;
+	args = fy_disassoc(gb, args, "_fyai_user_owned");
+	/* An action stays a mapping. Other shapes stay a JSON string. */
+	if (!native) {
+		text = emit_json_string(gb, args);
+		if (!text)
+			return tool_call;
+		args = fy_string(text);
+	}
+	if (nested) {
+		holder = fy_disassoc(gb, holder, field);
+		holder = fy_assoc(gb, holder, field, args);
+		return fy_assoc(gb, fy_disassoc(gb, tool_call, "function"),
+				"function", holder);
+	}
+	tool_call = fy_disassoc(gb, tool_call, field);
+	return fy_assoc(gb, tool_call, field, args);
+}
+
+static fy_generic fyai_tool_calls_take_ownership(struct fyai_ctx *ctx,
+						 fy_generic tool_calls)
+{
+	fy_generic call, stripped;
+	size_t i, n;
+
+	if (!fy_is_sequence(tool_calls))
+		return tool_calls;
+	n = fy_len(tool_calls);
+	for (i = 0; i < n; i++) {
+		call = fy_get_at(tool_calls, i);
+		stripped = fyai_tool_call_strip_user_owned(ctx, call);
+		if (fy_equal(stripped, call))
+			continue;
+		tool_calls = fy_replace(ctx->transient_gb, tool_calls, i,
+					stripped);
+		if (fy_is_invalid(tool_calls))
+			return fy_invalid;
+	}
+	return tool_calls;
+}
+
 fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 					   fy_generic response_doc)
 {
@@ -144,6 +221,8 @@ fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 		break;
 
 	}
+
+	tool_calls = fyai_tool_calls_take_ownership(ctx, tool_calls);
 
 	/*
 	 * A plain answer carries no tool_calls key, so the lookup yields an
