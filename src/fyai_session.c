@@ -2576,15 +2576,65 @@ static void session_complete_models(struct fyai_ctx *ctx,
 					    const char *word)
 {
 	fy_generic cat, models, model, name;
-	const char *s;
+	fy_generic prov, providers, p, pname, offers, o, canon;
+	const char *s, *c, *pn, *mpart;
+	const char *slash;
+	char *pfx, *val;
+	size_t mlen;
 
 	cat = fyai_catalog_effective(ctx->cfg->catalog, ctx->cfg->gb);
+	slash = strchr(word, '/');
+	if (slash) {
+		/*
+		 * Provider-pinned form: complete the offerings of the named
+		 * provider as provider/canonical-id. The provider_model_id
+		 * is the wire id the provider itself uses, so it is not a
+		 * valid third segment here. Keep the typed provider
+		 * spelling; resolution matches it case-insensitively.
+		 */
+		pfx = strndup(word, (size_t)(slash - word));
+		if (!pfx)
+			return;
+		prov = fyai_catalog_provider(cat, pfx);
+		if (fy_is_valid(prov)) {
+			mpart = slash + 1;
+			mlen = strlen(mpart);
+			offers = fy_get(prov, "models");
+			fy_foreach(o, offers) {
+				canon = fy_get(o, "canonical_id");
+				c = fy_castp(&canon, "");
+				if (*c && !strncmp(c, mpart, mlen)) {
+					val = fy_sprintfa("%s/%s", pfx, c);
+					if (val)
+						session_complete_value(lc, cmd, cmdlen,
+								       word, val);
+				}
+			}
+		}
+		free(pfx);
+		return;
+	}
 	models = fy_get(cat, "models");
 	fy_foreach(model, models) {
 		name = fy_get(model, "name");
 		s = fy_castp(&name, "");
 		if (*s)
 			session_complete_value(lc, cmd, cmdlen, word, s);
+	}
+	/*
+	 * A bare provider prefix completes to provider/ to reach the pinned
+	 * form above.
+	 */
+	providers = fy_get(cat, "providers");
+	fy_foreach(p, providers) {
+		pname = fy_get(p, "name");
+		pn = fy_castp(&pname, "");
+		if (*pn) {
+			val = fy_sprintfa("%s/", pn);
+			if (val)
+				session_complete_value(lc, cmd, cmdlen,
+						       word, val);
+		}
 	}
 }
 
