@@ -195,7 +195,6 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	size_t body_len;
 	size_t title_len;
 	int preview;
-	int brc;
 	int trc;
 	int rc = -1;
 
@@ -231,10 +230,6 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		rc = 0;
 		goto out;
 	}
-	/*
-	 * A committed tool row owns the blank row above it. Trim before the
-	 * newline is prepended: a trim removes it as leading padding.
-	 */
 	if (response_buffer_reserve(&out, head.len + body_len + 3))
 		goto out;
 	memcpy(out.data, head.data, head.len);
@@ -246,19 +241,16 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	}
 	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
-	if (out.len) {
-		brc = response_buffer_reserve(&out, out.len + 2);
-		fyai_error_check(ui->ctx, !brc, out,
-				 "could not fence a tool row");
-		memmove(out.data + 1, out.data, out.len + 1);
-		out.data[0] = '\n';
-		out.len++;
-	}
+	/* The separation above the band was drawn when it opened. */
 	trc = fytim_workband_set_commit(ui->tool_band, out.data, out.len);
+	if (ui->ctx)
+		fyai_flow_observe(fyai_sink_flow(ui->ctx->sink), out.data,
+				  out.len);
 	fyai_error_check(ui->ctx, trc == FYTIM_OK, out,
 			 "could not commit a tool row");
 	if (ui->ctx)
-		ui->ctx->tool_row_open = true;
+		fyai_flow_emitted(fyai_sink_flow(ui->ctx->sink),
+				  FYAI_FLOW_TOOL_HEAD, true);
 	rc = 0;
 out:
 	free(head.data);
@@ -395,6 +387,44 @@ static void spool_restore(struct ui_spool *s, int target)
 	s->saved = s->reader = -1;
 }
 
+/*
+ * Draw the separation before @unit into the scrollback and record it. Every
+ * path that commits presented bytes uses it.
+ */
+static int ui_flow_fence(struct fyai_ctx *ctx, enum fyai_flow_unit unit)
+{
+	struct fyai_flow_sep sep;
+	struct fyai_flow *flow;
+	unsigned i;
+	int rc;
+
+	if (!ctx || !ctx->ui)
+		return 0;
+	flow = fyai_sink_flow(ctx->sink);
+	if (!flow)
+		return 0;
+	sep = fyai_flow_before(flow, unit);
+	fyai_diag_tracef("flowfence", "prev=%s next=%s rows=%u blank=%u",
+			 fyai_flow_unit_name(flow->prev),
+			 fyai_flow_unit_name(unit), sep.rows, flow->blank_rows);
+	if (sep.markdown) {
+		rc = fytim_commit(ctx->ui->ft, sep.markdown,
+				  strlen(sep.markdown));
+		if (rc != FYTIM_OK)
+			return -1;
+		rc = fytim_commit(ctx->ui->ft, "\n", 1);
+		if (rc != FYTIM_OK)
+			return -1;
+	}
+	for (i = 0; i < sep.rows; i++) {
+		rc = fytim_commit(ctx->ui->ft, "\n", 1);
+		if (rc != FYTIM_OK)
+			return -1;
+	}
+	fyai_flow_emitted(flow, unit, true);
+	return 0;
+}
+
 static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 {
 	struct response_buffer out = {0};
@@ -410,8 +440,12 @@ static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 		out.data[out.len] = '\0';
 		s->off += n;
 	}
-	if (out.len)
+	if (out.len) {
+		/* Spooled bytes continue the current unit and take no separation. */
 		(void)fytim_commit(ui->ft, out.data, out.len);
+		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->sink : NULL),
+				  out.data, out.len);
+	}
 	free(out.data);
 }
 
@@ -995,7 +1029,10 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		return;
 	}
 	if (!show_output && !error) {
+		(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
 		(void)fytim_commit(ui->ft, out.data, out.len);
+		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->sink : NULL),
+				  out.data, out.len);
 		free(out.data);
 		return;
 	}
@@ -1247,6 +1284,7 @@ void fyai_ui_clear_screen(struct fyai_ctx *ctx)
 
 int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
+	struct fyai_flow *flow;
 	struct fyai_ui *ui;
 	size_t written;
 	int rc;
@@ -1258,20 +1296,21 @@ int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 		written = fwrite(buf, 1, len, stdout);
 		return written == len ? 0 : -1;
 	}
-	/*
-	 * Prose after a tool row draws the blank row that fences it off the
-	 * group. Tool rows and results take the band and the spool, thus a
-	 * group is never fenced against itself.
-	 */
-	if (ctx->tool_row_open && len) {
-		rc = fytim_commit(ui->ft, "\n", 1);
-		fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+	if (len) {
+		/* Blank rows the render supplies count toward the separation. */
+		flow = fyai_sink_flow(ctx->sink);
+		if (flow)
+			flow->blank_rows += fyai_flow_lead_rows(buf, len);
+		rc = ui_flow_fence(ctx, FYAI_FLOW_PROSE);
+		fyai_error_check(ctx, !rc, err_out,
 				 "could not fence resumed prose");
-		ctx->tool_row_open = false;
 	}
+	/* Keep one blank row. The manager supplies any more. */
+	len = fyai_flow_trim_tail(buf, len, 1);
 	rc = fytim_commit(ui->ft, buf, len);
 	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
 			 "could not commit transcript output");
+	fyai_flow_observe(fyai_sink_flow(ctx->sink), buf, len);
 	return 0;
 
 err_out:
@@ -1286,16 +1325,11 @@ int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *u)
 	if (!fyai_ui_active(ctx))
 		return -1;
 	ui = ctx->ui;
-	/*
-	 * The tail carries prose alone. The first push with rows after a
-	 * tool group draws the blank row that fences it; a rowless push
-	 * leaves the fence to the push that follows it.
-	 */
-	if (ctx->tool_row_open && (u->content_len || u->freeze)) {
-		rc = fytim_commit(ui->ft, "\n", 1);
-		fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+	/* A rowless push leaves the separation to the push that follows. */
+	if (u->content_len || u->freeze) {
+		rc = ui_flow_fence(ctx, FYAI_FLOW_PROSE);
+		fyai_error_check(ctx, !rc, err_out,
 				 "could not fence resumed prose");
-		ctx->tool_row_open = false;
 	}
 	rc = fytim_tail_apply(ui->ft, u->backtrack, u->content,
 			      u->content_len, u->freeze);
@@ -1311,27 +1345,14 @@ void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
 	if (!fyai_ui_active(ctx)) return;
 	/* The same fence: a healed render lands here when the tail drains. */
-	if (ctx->tool_row_open && len) {
-		(void)fytim_commit(ctx->ui->ft, "\n", 1);
-		ctx->tool_row_open = false;
+	if (len) {
+		(void)ui_flow_fence(ctx, FYAI_FLOW_PROSE);
+		(void)fytim_commit(ctx->ui->ft, buf, len);
+		fyai_flow_observe(fyai_sink_flow(ctx->sink), buf, len);
 	}
-	if (len) (void)fytim_commit(ctx->ui->ft, buf, len);
 	(void)fytim_tail_set(ctx->ui->ft, NULL, 0);
 }
 
-/*
- * A oneshot document presents through the spool, which neither the tail nor
- * the commit path sees. Draw its fence into the spooled bytes.
- */
-void fyai_ui_oneshot_fence(struct fyai_ctx *ctx)
-{
-	if (!fyai_ui_active(ctx))
-		return;
-	if (!ctx->tool_row_open)
-		return;
-	fputc('\n', stdout);
-	ctx->tool_row_open = false;
-}
 
 void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 {
@@ -1555,6 +1576,8 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	}
 	out.data[out.len] = '\0';
 	response_buffer_trim(&out);
+	if (ctx)
+		fyai_flow_observe(fyai_sink_flow(ctx->sink), out.data, out.len);
 	if (fytim_workband_set_commit(band, out.data, out.len) != FYTIM_OK)
 		goto out;
 	now = fyai_event_now_ms();
@@ -1576,6 +1599,11 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	if (!fyai_ui_active(ctx)) return;
 	/* Drain the previous result before the next invocation. */
 	fyai_ui_drain_output(ctx);
+	/*
+	 * Draw the separation when the band opens. A band fenced at commit
+	 * has no blank row above it while it runs.
+	 */
+	(void)ui_flow_fence(ctx, FYAI_FLOW_TOOL_HEAD);
 	ui = ctx->ui;
 	ui_band_close(ui, &ui->tool_band);
 	free(ui->tool_title);
@@ -1632,7 +1660,7 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	(void)fytim_workband_commit(ui->tool_band);
 	ui->tool_band = NULL;
 	fyai_workpane_release(ui->ctx->workpane);
-	/* tool_row_open stays set: the next prose commit draws the fence. */
+	/* The flow keeps the tool unit. The next prose commit fences it. */
 	free(ui->tool_title); ui->tool_title = NULL;
 	free(ui->tool_command); ui->tool_command = NULL;
 	free(ui->tool_error); ui->tool_error = NULL;
@@ -1747,10 +1775,13 @@ void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
 
 	if (!band)
 		return;
-	if (commit)
+	if (commit) {
+		/* An independent tile takes the separation of a shared band. */
+		(void)ui_flow_fence(ctx, FYAI_FLOW_TOOL_HEAD);
 		(void)fytim_workband_commit(band);
-	else
+	} else {
 		fytim_workband_destroy(band);
+	}
 	if (ui) {
 		fyai_workpane_unregister_band(ctx->workpane, band);
 		fyai_workpane_release(ctx->workpane);

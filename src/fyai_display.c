@@ -2912,15 +2912,11 @@ static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
 	rc = markdown_render_tool_head(ctx->cfg, md, len, cause,
 				       margin ? margin : "  ", "  ", &head);
 	if (!rc && head.len) {
-		/* Separate successive tool rows; a lone row needs no lead-in. */
-		if (ctx->tool_row_open)
-			rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
-					     "\n", 1);
+		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+				    FYAI_FLOW_TOOL_HEAD);
 		if (!rc)
 			rc = fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
 					     head.data, head.len);
-		if (!rc)
-			ctx->tool_row_open = true;
 	}
 	free(margin);
 	free(head.data);
@@ -2963,7 +2959,6 @@ static int fyai_display_assistant_output(struct fyai_ctx *ctx,
 
 	len = strlen(md);
 	pos = 0;
-	ctx->tool_row_open = false;
 	fy_foreach(fragment, fragments) {
 		llstart = fy_get(fragment, "start", -1LL);
 		llend = fy_get(fragment, "end", -1LL);
@@ -4281,6 +4276,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct response_buffer rb = {0};
+	struct fyai_flow *flow;
 	const char *on;
 	const char *off;
 	char *quoted;
@@ -4315,6 +4311,15 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	}
 	free(quoted);
 
+	/*
+	 * The card is one unit. Its own rows are presented as a continuation
+	 * so the manager fences the card as a whole and not each row of it.
+	 */
+	flow = fyai_sink_flow(ctx->sink);
+	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+			     FYAI_FLOW_USER_CARD);
+	fyai_flow_emitted(flow, FYAI_FLOW_PROSE, true);
+
 	/* Drop renderer padding rows, including ANSI-only SGR/EL rows. */
 	end = terminal_trim_blank_rows(rb.data, rb.len);
 	line_start = terminal_text_at_line_start(rb.data, end);
@@ -4329,7 +4334,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 		}
 		if (fenced)
 			fyai_bubble_fence(ctx, on, off, true);
-		(void)fyai_ui_commit(ctx, "\n", 1);
+		fyai_flow_emitted(flow, FYAI_FLOW_USER_CARD, true);
 		free(rb.data);
 		return;
 	}
@@ -4343,8 +4348,8 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off, false);
-	/* separate the bubble from the answer */
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+	/* The manager separates the bubble from the answer. */
+	fyai_flow_emitted(flow, FYAI_FLOW_USER_CARD, true);
 	free(rb.data);
 }
 
@@ -4376,8 +4381,19 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 			return -1;
 		fyai_emit_blockquote(mf, markdown);
 		fclose(mf);
+		/*
+		 * The unit ends at its last row. The manager owns what
+		 * separates it from the answer.
+		 */
+		while (quotedlen > 1 && quoted[quotedlen - 1] == '\n' &&
+		       quoted[quotedlen - 2] == '\n')
+			quotedlen--;
+		(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+				     FYAI_FLOW_USER_CARD);
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, quoted,
 				      quotedlen);
+		fyai_flow_emitted(fyai_sink_flow(ctx->sink),
+				  FYAI_FLOW_USER_CARD, true);
 		free(quoted);
 		return 0;
 	}
@@ -4385,9 +4401,12 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 		styled = fy_sprintfa("**System**\n\n*%s*\n\n", markdown);
 		if (!styled)
 			return -1;
+		(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
+				     FYAI_FLOW_SYSTEM);
 		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, styled);
 		return 0;
 	}
+	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_PROSE);
 	(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_TRANSCRIPT, markdown);
 	return 0;
 }

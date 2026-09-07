@@ -281,11 +281,8 @@ static void sink_term_present_oneshot(struct fyai_sink *s)
 	}
 	if (!t->oneshot || !t->source.len)
 		return;
-	/*
-	 * Only an assistant document is ever presented here. Tool results
-	 * travel through bands and the spool, never this path.
-	 */
-	fyai_ui_oneshot_fence(s->ctx);
+	/* Only an assistant document is presented here. */
+	(void)fyai_sink_unit(s, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_PROSE);
 	if (fyai_print_markdown(t->source.data, cfg))
 		fwrite(t->source.data, 1, t->source.len, stdout);
 	fflush(stdout);
@@ -738,6 +735,7 @@ struct fyai_sink *fyai_sink_create_capture(struct fyai_ctx *ctx)
 	s->ctx = ctx;
 	s->ops = &sink_capture_ops;
 	s->state = c;
+	fyai_flow_reset(&s->flow, ctx->cfg);
 	return s;
 }
 
@@ -786,7 +784,47 @@ struct fyai_sink *fyai_sink_create(struct fyai_ctx *ctx)
 	s->ctx = ctx;
 	s->ops = &sink_terminal_ops;
 	s->state = t;
+	fyai_flow_reset(&s->flow, ctx->cfg);
 	return s;
+}
+
+struct fyai_flow *fyai_sink_flow(struct fyai_sink *s)
+{
+	return s ? &s->flow : NULL;
+}
+
+int fyai_sink_unit(struct fyai_sink *s, enum fyai_sink_stream stream,
+		   enum fyai_flow_unit unit)
+{
+	struct fyai_flow_sep sep;
+	unsigned i;
+	int rc;
+
+	if (!s)
+		return 0;
+	sep = fyai_flow_before(&s->flow, unit);
+	fyai_diag_tracef("sinkunit", "prev=%s next=%s rows=%u blank=%u ls=%d",
+			 fyai_flow_unit_name(s->flow.prev),
+			 fyai_flow_unit_name(unit), sep.rows,
+			 s->flow.blank_rows, (int)s->flow.at_line_start);
+	/* Close a partial row before the separation is drawn. */
+	if (!s->flow.at_line_start) {
+		rc = fyai_sink_write(s, stream, "\n", 1);
+		if (rc)
+			return rc;
+	}
+	if (sep.markdown) {
+		rc = fyai_sink_markdown(s, stream, sep.markdown);
+		if (rc)
+			return rc;
+	}
+	for (i = 0; i < sep.rows; i++) {
+		rc = fyai_sink_write(s, stream, "\n", 1);
+		if (rc)
+			return rc;
+	}
+	fyai_flow_emitted(&s->flow, unit, true);
+	return 0;
 }
 
 void fyai_sink_destroy(struct fyai_sink *s)
@@ -917,17 +955,32 @@ struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s)
 int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 		       const char *md)
 {
+	int rc;
+
 	if (!s || !s->ops->markdown)
 		return 0;
-	return s->ops->markdown(s, stream, md);
+	rc = s->ops->markdown(s, stream, md);
+	/* A rendered block closes its last row. */
+	if (!rc && (stream == FYAI_SINK_TRANSCRIPT || stream == FYAI_SINK_NOTICE)) {
+		s->flow.at_line_start = true;
+		fyai_flow_blank_rows(&s->flow, 0);
+	}
+	return rc;
 }
 
 int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 		    const char *buf, size_t len)
 {
+	int rc;
+
 	if (!s || !s->ops->write)
 		return 0;
-	return s->ops->write(s, stream, buf, len);
+	rc = s->ops->write(s, stream, buf, len);
+	/* Only the scrollback streams share this medium. */
+	if (!rc && len && (stream == FYAI_SINK_TRANSCRIPT ||
+			   stream == FYAI_SINK_NOTICE))
+		fyai_flow_observe(&s->flow, buf, len);
+	return rc;
 }
 
 int fyai_sink_printf(struct fyai_sink *s, enum fyai_sink_stream stream,

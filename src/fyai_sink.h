@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "fyai_flow.h"
+
 struct fyai_ctx;
 struct fyai_sink;
 struct fyai_sink_band;
@@ -71,7 +73,15 @@ struct fyai_sink {
 	const struct fyai_sink_ops *ops;
 	struct fyai_ctx *ctx;
 	void *state;
+	struct fyai_flow flow;		/* separation state for this medium */
 };
+
+/* The separation manager for this medium. */
+struct fyai_flow *fyai_sink_flow(struct fyai_sink *s);
+
+/* Present the separation before @unit and record it. Call it before @unit. */
+int fyai_sink_unit(struct fyai_sink *s, enum fyai_sink_stream stream,
+		   enum fyai_flow_unit unit);
 
 /* Create the configured sink. A discard-only backend is still valid. */
 struct fyai_sink *fyai_sink_create(struct fyai_ctx *ctx);
