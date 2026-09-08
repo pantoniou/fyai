@@ -191,6 +191,67 @@ err:
 	return -1;
 }
 
+/* fy_delete_at_pathstr() fails for a key that is not present. */
+static fy_generic config_drop_keys(struct fy_generic_builder *gb, fy_generic doc,
+				   const char * const *keys, size_t count)
+{
+	size_t i;
+
+	for (i = 0; i < count && fy_is_valid(doc); i++) {
+		if (fy_is_valid(fy_get_at_pathstr(gb, doc, keys[i])))
+			doc = fy_delete_at_pathstr(gb, doc, keys[i]);
+	}
+	return doc;
+}
+
+/*
+ * Adopt the configuration stored on the sub-agent branch. It holds the
+ * provider and model that the earlier delegation resolved. Without it the
+ * revived agent derives the endpoint from the parent branch.
+ */
+static int fyai_agent_revive_config(struct fyai_ctx *ctx, fy_generic stored)
+{
+	static const char * const endpoint_keys[] = { "api", "api_url" };
+	static const char * const parent_keys[] = { "model", "api", "api_url" };
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic stored_model;
+	const char *model_text, *slash, *bare;
+	int rc;
+
+	if (!fy_is_valid(stored))
+		return 0;
+	ctx->arena_config = stored;
+	stored_model = fy_get(stored, "model", fy_invalid);
+	model_text = fy_castp(&stored_model, "");
+	slash = strrchr(model_text, '/');
+	bare = slash ? slash + 1 : model_text;
+	/*
+	 * The stored model takes precedence over the parent model, API and
+	 * endpoint. Drop those keys so the endpoint derives from the catalogue
+	 * for the stored model. fyai_config_apply() keeps an endpoint and a key
+	 * that the document does not set, so clear the derived ones.
+	 */
+	if (*model_text && (!cfg->model || strcmp(bare, cfg->model))) {
+		ctx->arena_config = config_drop_keys(ctx->gb, ctx->arena_config,
+				endpoint_keys, ARRAY_SIZE(endpoint_keys));
+		cfg->config_doc = config_drop_keys(cfg->gb, cfg->config_doc,
+				parent_keys, ARRAY_SIZE(parent_keys));
+		fyai_error_check(ctx, fy_is_valid(ctx->arena_config) &&
+				 fy_is_valid(cfg->config_doc), err,
+			"could not drop the parent endpoint for the revived sub-agent");
+		cfg->api_url = NULL;
+		if (!cfg->api_key_explicit)
+			cfg->api_key = NULL;
+	}
+	rc = fyai_config_adopt_arena(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not adopt the sub-agent branch configuration");
+	return 0;
+
+err:
+	return -1;
+}
+
 fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -262,6 +323,9 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			ctx->branch_desc = stored.description;
 			ctx->branch_agent = stored.agent;
 			ctx->last_message = stored.head;
+			rc = fyai_agent_revive_config(ctx, stored.config);
+			fyai_error_check(ctx, !rc, err,
+				"could not adopt the sub-agent branch configuration");
 		}
 	} else {
 		fork_mode = false;
