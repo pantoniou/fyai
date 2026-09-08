@@ -15,6 +15,7 @@
 #include "fyai_event.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_provider.h"
+#include "fyai_catalog.h"
 #include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_storage.h"
@@ -115,7 +116,10 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
 	fy_generic model, overlay, thinking;
-	const char *model_text, *model_slash;
+	fy_generic target;
+	const char *model_text, *model_slash, *target_name;
+	size_t prefix_len;
+	bool reset_api_url;
 	int rc;
 
 	tmp = *cfg;
@@ -128,11 +132,36 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 			fy_value(ctx->transient_gb, "display"),
 			fy_mapping(ctx->transient_gb, "thinking", thinking));
 	model = fy_get(overlay, "model", fy_invalid);
+	reset_api_url = !fy_is_invalid(fy_get(overlay, "api", fy_invalid));
 	if (fy_is_string(model)) {
 		model_text = fy_castp(&model, "");
 		model_slash = strchr(model_text, '/');
-		if (fy_is_invalid(fy_get(cfg->config_doc, "api_url",
-						 fy_invalid)))
+		/*
+		 * A qualified model names its provider. An unqualified model
+		 * resolves to a provider through the catalogue.
+		 */
+		if (model_slash) {
+			prefix_len = model_slash - model_text;
+			if (!cfg->provider ||
+			    strncmp(model_text, cfg->provider, prefix_len) ||
+			    cfg->provider[prefix_len])
+				reset_api_url = true;
+		} else {
+			target = fyai_catalog_provider_for_model(
+				fyai_catalog_effective(cfg->catalog, cfg->gb),
+				model_text, NULL);
+			target_name = fy_get(target, "name", "");
+			if (*target_name && (!cfg->provider ||
+					     strcmp(target_name, cfg->provider)))
+				reset_api_url = true;
+		}
+		/*
+		 * The api_url of config_doc can be catalogue-derived. A provider
+		 * or API change invalidates it. An api_url on the persona is
+		 * explicit and fyai_config_apply() keeps it.
+		 */
+		if (reset_api_url &&
+		    fy_is_invalid(fy_get(overlay, "api_url", fy_invalid)))
 			tmp.api_url = NULL;
 		if (fy_is_invalid(fy_get(cfg->config_doc, "max_tokens",
 						 fy_invalid)))
