@@ -1129,6 +1129,13 @@ int fyai_config_set(struct fyai_ctx *ctx, const char *key, const char *value)
 						     root, key);
 	ctx->cfg->config_doc = config_doc_mirror_key(gb, ctx->cfg->config_doc,
 						     root, "catalog");
+	/* A model edit also replaces the derived grammar and endpoint. */
+	if (!strcmp(key, "model")) {
+		ctx->cfg->config_doc = config_doc_mirror_key(gb,
+				ctx->cfg->config_doc, root, "api");
+		ctx->cfg->config_doc = config_doc_mirror_key(gb,
+				ctx->cfg->config_doc, root, "api_url");
+	}
 	return fyai_publish_root(ctx, root, fy_invalid, fy_invalid);
 }
 
