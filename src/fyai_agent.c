@@ -258,7 +258,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	struct timespec t_intern;
 	fy_generic name, description;
 	fy_generic task_v, context_v;
-	fy_generic persona_v, persona;
+	fy_generic persona_v, persona, persona_model;
 	fy_generic turn;
 	fy_generic report;
 	struct fyai_branch stored;
@@ -266,6 +266,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	const char *json;
 	char *args_json = NULL;
 	const char *task;
+	const char *model_bare;
 	char *persona_names;
 	bool fork_mode;
 	int rc;
@@ -436,6 +437,29 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 				"description", fyai_generic_or_null(description),
 				"context", fork_mode ? "fork" : "fresh",
 				"persona", fyai_generic_or_null(persona_v));
+		/*
+		 * Store the resolved provider and model on the branch. A revive
+		 * without a persona resolves the same offering from them. The
+		 * persona path can keep the provider prefix on the wire model.
+		 * Store the bare model to prevent a doubled prefix. A fork keeps
+		 * the parent model, and an agent with no persona keeps the parent
+		 * configuration. Neither stores a model key.
+		 */
+		persona_model = fy_get(persona, "model", fy_invalid);
+		if (!fork_mode && fy_is_string(persona_model) &&
+		    !fy_str_empty(cfg->model) && !fy_str_empty(cfg->provider) &&
+		    fy_is_valid(fyai_catalog_provider(
+			    fyai_catalog_effective(cfg->catalog, cfg->gb),
+			    cfg->provider))) {
+			model_bare = strchr(cfg->model, '/');
+			model_bare = model_bare ? model_bare + 1 : cfg->model;
+			ctx->arena_config = fy_set_at_pathstr(ctx->gb,
+				ctx->arena_config, "model",
+				fy_stringf(ctx->gb, "%s/%s", cfg->provider,
+					   model_bare));
+			fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
+					 "could not persist the sub-agent model");
+		}
 		fyai_branch_op_set(ctx, revive ? FYAI_BRANCH_OP_TURN :
 					 FYAI_BRANCH_OP_CREATE, NULL);
 		rc = fyai_publish_state(ctx);
