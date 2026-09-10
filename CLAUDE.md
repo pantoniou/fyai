@@ -883,11 +883,13 @@ Expose only configured persona names and descriptions in the tool schema.
 Resolve a persona model through the catalogue in a scratch configuration.
 Preserve user-set `api_url` and `max_tokens`; replace only derived values.
 
-A delegated sub-agent has a terminal of its own. It renders to that terminal
+A directly delegated sub-agent has a terminal of its own. It renders there
 as this program renders to any terminal. The parent interprets that terminal
 and shows it on a surface, behind the session margin. There is no second
-rendering for a sub-agent, and nothing of a sub-agent is hidden. What a
-sub-agent does on its screen is what the user sees, tool results included.
+transcript renderer for a sub-agent. A direct sub-agent's screen includes its
+tool results. Grandchildren have compact progress in that screen; deeper work
+contributes descendant counts. Do not allocate a terminal for every descendant.
+Explicit inspection subscribes to bounded document source through the sink.
 `cfg->agent_pty` says that a child has a terminal. It lets `sink_may_present()`
 present, and it stops the child from sending progress that the parent showed
 already.

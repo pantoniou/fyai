@@ -316,11 +316,162 @@ In an interactive session:
 /branch delete <name>          delete a branch
 /branch rename <old> <new>     rename a branch
 /branch describe <name> <text> set the description
+/branches                     open the branch browser
+/branch attach <name>         attach to a reachable live agent
+/branch detach                return from an attached view
 ```
 
 A change of branch in a session applies the configuration of the new branch
 immediately. `fyai` resolves the model, the API mode and the API key again. The
 banner shows the name of the current branch.
+
+The default prompt top row shows the current fyai branch and working directory.
+The bottom row retains the model and usage information. Custom prompt templates
+can use `{branch}`, `{cwd}`, and `{location}`. The directory abbreviates the
+home directory as `~`. The UI library handles Unicode input and terminal-cell
+clipping. Git branch discovery is not part of this display.
+
+`/branches` opens a tile in the existing work pane. It includes stored branches,
+agent branches, and live agents that have not published yet. Ancestor names
+without stored branches are grouping rows. The selected branch and stored
+`HEAD` have separate marks. Without a terminal, the command prints a branch list.
+
+| Key | Action |
+| --- | --- |
+| Up/Down or `k`/`j` | Move selection; scroll an inspection |
+| Left/Right or `h`/`v` | Collapse or expand descendants; in gitgraph mode the arrows move between lanes |
+| `g` | Cycle tree, gitgraph, and list without changing the selection |
+| `p` | Cycle the session preview: off, right, foot, automatic |
+| `/` | Filter names through the prompt editor |
+| Enter | Switch to the selected branch and close the browser |
+| `a` | Show action keys |
+| `i` | Inspect the selected branch |
+| `s` | Switch to the selected branch |
+| `n` / `N` | Create / create and switch |
+| `r` / `d` / `e` | Rename / delete / describe |
+| `m` / `b` | Merge / rebase selected source into the current branch |
+| `x` | Reset the current branch to a symbolic reference |
+| `t` / `l` / `c` | Inspect transcript / reflog / configuration |
+| `z` / `A` / `K` | Zoom / attach / stop the live owner |
+| `R` | Refresh the published root |
+| Escape | Cancel a form, leave inspection, or close the browser |
+
+The default view is a Mermaid tree rendered in the terminal. It shows branch
+hierarchy and activity. The gitgraph overview shows that hierarchy as parallel
+lanes, with one marker per displayed branch. These
+markers describe branch names and live activity, not conversation turns or Git
+commits. Unrelated roots stay separate. The list shows full names, models, and
+descriptions. All views use the same selection, filter, collapse state, and action keys.
+The `g` key changes only the open browser. Use configuration to set the default:
+
+```text
+/config set display/branch_view list
+/config set display/branch_view tree
+/config set display/branch_view gitgraph
+/config set display/diagram_charset ascii
+/config set display/diagram_theme mono
+```
+
+These changes also update an open browser. Press Ctrl-] to return to the prompt
+before entering a command, then `/branches` to focus the browser again.
+For one invocation, use command-line overrides:
+
+```sh
+fyai -i --set display/branch_view=gitgraph --set display/diagram_charset=unicode
+```
+
+| Setting | Values and behavior |
+| --- | --- |
+| `display/branch_view` | `tree` (default), `gitgraph`, or `list` |
+| `display/diagram_charset` | `auto` selects from the locale; `ascii` uses simple rails; `unicode` uses box drawing; `rich` permits additional glyphs |
+| `display/diagram_theme` | Empty follows the display's light/dark variant. Built-in names are `default`, `light`, and `mono` |
+| `display/diagram_fit` | `legend` (default), `shrink`, or `clip`, passed to the Mermaid renderer |
+
+In gitgraph mode, `legend` moves labels that do not fit below the drawing;
+`shrink` reduces spacing before clipping; `clip` keeps natural spacing and
+clips overflow. The tree has fixed spacing, so its fit policies clip long
+rows at the pane edge. `rich` uses the same tree rails as `unicode`.
+The renderer draws the selection. The browser names the selected element by
+its path in the diagram model and the renderer highlights the cells it drew
+for it, so the diagram source carries no selection marker of its own.
+
+The renderer also answers the moves. In a diagram view, Up and Down go to the
+branch drawn above or below the selected one, and in gitgraph mode the arrows
+go to the branch drawn to the left or the right. A move that leaves the drawn
+page falls back to the row order, which scrolls the browser.
+
+The `i` key opens details with the full branch name. A resize renders the diagram
+again at the granted pane width. The browser shows fewer branches per page
+in gitgraph mode because each lane needs several rows. Up/Down moves through
+the remaining branches.
+
+The drawing is a window over the branches and the pane is a viewport that pans
+on it. Moving the selection off the foot of the pane pans the drawing by a row
+instead of turning a page, and the selection keeps a row of context beyond it
+where the pane has one to give. The renderer says where the selected element
+landed, so the pan follows the drawing and not the row order.
+
+The window is measured, not estimated. The browser builds the diagram,
+measures the rows it takes under the selected fit policy, and grows the window
+while the drawing stays legible, up to four panes of rows; the header states
+the branches it left out, as `· 4 more`. Two limits bound it. Rows: the
+`legend` policy adds a row for each label it moves below the drawing, so a
+window sized by lanes alone would lose its legend. Width: a lane the pane
+cannot carry takes the labels of every branch into that legend, so a window
+that reaches for more branches than the terminal is wide costs the names of
+the ones it has. A legend is the renderer saying so, and the window stops
+there. The fit of a paint is kept, so a keystroke measures once until the pane
+or the view changes.
+
+### The session preview
+
+The browser renders the end of the selected session beside the branch view.
+The preview is the same recap the transcript view replays, rendered at the
+width of its own pane. It follows the selection and the stored state of the
+branch, so a live agent branch shows what it has said last. A grouping row has
+no conversation and shows no preview.
+
+`display/branch_preview` says where the preview stands. `auto`, the default,
+takes the right of a wide pane and the foot of a tall one, and stands down
+when neither the page nor the preview would be readable.
+`display/branch_preview_size` is its share of the pane, in percent.
+For a right-side preview, `display/branch_preview_width` overrides that share.
+It accepts `half`, `quarter`, a percentage such as `40%`, or an integer number
+of columns.
+
+```text
+/config set display/branch_preview bottom
+/config set display/branch_preview_size 50
+/config set display/branch_preview_width quarter
+/config set display/branch_preview_width 40%
+/config set display/branch_preview_width 48
+```
+
+| Setting | Values and behavior |
+| --- | --- |
+| `display/branch_preview` | `auto` (default), `right`, `bottom`, or `off` |
+| `display/branch_preview_size` | 10 to 80, percent of the pane given to the preview |
+| `display/branch_preview_width` | `half`, `quarter`, 10% to 80%, or an exact column count of 28 to 1000 |
+
+The `p` key cycles the position for the session and leaves the configured
+value alone. An inspection page keeps the preview beside it, so the reflog or
+the configuration of a branch is read next to what that branch last said.
+
+If a branch name contains Mermaid label delimiters, the browser uses the list
+so the name remains literal. An unavailable diagram theme also falls back to
+the list and reports that the diagram could not be drawn.
+
+Forms use the normal prompt editor. Rename, delete, merge, rebase, and reset require
+`yes` confirmation. Branch mutations require idle model and tool work, and are
+disabled for a pinned root or attached view. The browser refreshes external
+publication without adopting another invocation's current branch.
+
+An attachment shows recent stored history and live document output. Its direct
+children contribute detailed output to the view; deeper agents contribute
+activity counts. Ctrl-T gives the view keyboard focus; `j` and `k` scroll it.
+Ctrl-] or `/branch detach` restores the main prompt. Zoom promotes one selected
+agent without promoting its descendants. Detailed remote output uses bounded
+Markdown snapshots through the sink; it is not an interactive remote terminal.
 
 ### 6.5 The `rebase` and `merge` verbs
 

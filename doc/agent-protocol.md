@@ -72,6 +72,36 @@ runs.
 The child services `tool/run` after the current JSON-RPC dispatch. This rule
 prevents a nested event-loop dispatch.
 
+## Recursive delegation
+
+Delegated tool children use these internal methods. Standalone `agent --rpc`
+does not acquire recursive delegation through this interface.
+
+- `agent/admit` carries `branch`, `parent` execution ID, and `model`. The root
+  assigns an invocation-local execution ID, rejects an already-live branch,
+  and enforces `agent/max_live_agents` across the complete invocation.
+- `agent/event` carries execution ID, parent ID, branch, model, sequence, and
+  state. Sequence numbers increase per execution. A terminal state releases
+  admission. An old event cannot reactivate a completed execution.
+- `agent/control` carries execution ID and an action: `subscribe`, `input`, or
+  `cancel`. Subscribe enables bounded Markdown source snapshots. Input queues
+  a user turn in the existing owner. Cancel interrupts that owner.
+- `user/ask` carries the originating branch, question, and options. Intermediate
+  owners defer and forward the request. The root queues interactive questions
+  and returns each answer on the original request route.
+
+Each owner routes descendant messages through its immediate child connection.
+Forwarded request IDs and question parameters live in owned builder arenas
+until their response or disconnection. No handler pumps another event loop.
+Disconnected routes retire their live records and pending questions. A delegated
+owner detects the loss of its parent connection and cancels its work.
+
+Activity updates remain available without a detailed subscription. The default
+UI gives direct children terminal surfaces, grandchildren compact progress,
+and deeper descendants aggregate counts. Explicit remote views subscribe to
+document source. Finalization sends the final document before its storage is
+released. These execution IDs, routes, and subscriptions are not durable data.
+
 ## Framing and errors
 
 Standard output contains protocol frames only. Other output can corrupt the

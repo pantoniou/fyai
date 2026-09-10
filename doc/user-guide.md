@@ -685,7 +685,11 @@ agent control protocol.
 For model-delegated calls, configured personas may select a system prompt,
 model, reasoning policy, or context behaviour subject to the fork rule above.
 Independent sub-agent calls in one assistant message may execute concurrently.
-A sub-agent cannot delegate another sub-agent.
+A model-delegated sub-agent can delegate again. `agent/max_live_agents`
+limits the complete invocation to 16 live agents by default. The existing
+`agent/max_branch_depth` limit also applies. Direct agents show their output
+in the work pane. Their children show compact progress; deeper work contributes
+descendant counts. `/branches` shows the complete branch tree and live states.
 
 ### A question from a sub-agent
 
@@ -695,8 +699,16 @@ sub-agent that asked it, and it carries the options that the sub-agent offered.
 The answer of the user comes back as the result of that call, and the sub-agent
 continues.
 
-A sub-agent keeps `ask_user`. It does not receive `agent` or `agent_input`,
-because it does not delegate.
+Questions from any delegation depth reach the main prompt. A nested question
+names its full branch. Answer with an option number or free text. The answer
+returns to the owner of the question.
+
+Use `/branch attach <full-branch-name>` to view a running agent and submit
+additional input to it. The same process handles this input after its current
+turn. Attachment preserves stored `HEAD` and the main conversation's draft.
+`/branch detach` returns to the main conversation. A completed attachment stays
+read-only until detached. `/zoom`, `/kill`, and `/sessions` also reach nested
+agents. A short agent name must be unambiguous; a full branch name is exact.
 
 ## 7. Sandboxing and secret boundaries
 
