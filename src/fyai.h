@@ -205,6 +205,9 @@ struct fyai_cfg {
 	const char *prompt_marker;	/* interactive prompt marker (SGR ok) */
 	const char *prompt_top;		/* REPL bubble top row template (SGR ok) */
 	const char *prompt_bottom;	/* REPL bubble bottom {key} template (SGR ok) */
+	const char *diagram_theme;
+	const char *diagram_charset;
+	const char *diagram_fit;
 	int table_border;		/* 0 theme (default) | 1 grid | 2 none */
 	int max_tool_iterations;
 	int max_tokens;			/* output cap (required by Messages) */

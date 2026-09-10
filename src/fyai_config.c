@@ -445,6 +445,12 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "prompt_top", cfg->prompt_top));
 		cfg->prompt_bottom = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "prompt_bottom", cfg->prompt_bottom));
+		cfg->diagram_theme = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "diagram_theme", cfg->diagram_theme));
+		cfg->diagram_charset = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "diagram_charset", cfg->diagram_charset));
+		cfg->diagram_fit = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "diagram_fit", cfg->diagram_fit));
 		/* Table-border override (int, so no string-lifetime concern). */
 		tbv = fy_get(v, "table_border");
 		if (fy_equal(tbv, "grid"))
@@ -2154,6 +2160,9 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->prompt_marker = "";	/* empty => built-in prompt marker */
 	cfg->prompt_top = "";		/* empty => blank styled top row */
 	cfg->prompt_bottom = "";	/* empty => DEFAULT_PROMPT_BOTTOM banner */
+	cfg->diagram_theme = "";
+	cfg->diagram_charset = "auto";
+	cfg->diagram_fit = "legend";
 	cfg->table_border = 0;		/* 0 => follow the theme's table.border */
 	cfg->catalog = fy_invalid;
 	cfg->config_doc = fy_invalid;

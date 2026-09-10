@@ -729,6 +729,25 @@ properties:
         description: >-
           Interactive prompt marker. Empty uses the built-in ("  > " with
           markdown, "> " otherwise). May carry SGR colour escapes.
+      diagram_theme:
+        type: string
+        default: ""
+        description: >-
+          libfymermaid theme name. Empty selects its light or dark theme
+          from the active display variant.
+      diagram_charset:
+        type: string
+        enum: [auto, ascii, unicode, rich]
+        default: auto
+        description: Character repertoire for terminal diagrams. Auto follows the locale; rich is explicit.
+      diagram_fit:
+        type: string
+        enum: [legend, shrink, clip]
+        default: legend
+        description: >-
+          Fit diagrams to their pane width. Legend moves long gitgraph labels
+          below the graph; other diagram types shrink their spacing where supported.
+          The branch tree has fixed spacing and clips long rows.
       prompt_top:
         type: string
         default: ""

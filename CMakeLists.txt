@@ -243,6 +243,29 @@ else()
     set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
 endif()
 
+if(NOT TARGET libfymermaid::libfymermaid AND
+   NOT TARGET libfymermaid::libfymermaid_static)
+    find_package(libfymermaid CONFIG QUIET)
+endif()
+if(NOT TARGET libfymermaid::libfymermaid AND
+   NOT TARGET libfymermaid::libfymermaid_static)
+    set(BUILD_FYMERMAID_EXECUTABLE OFF CACHE BOOL "" FORCE)
+    set(_FYAI_BUILD_TESTING "${BUILD_TESTING}")
+    set(BUILD_TESTING OFF)
+    FetchContent_Declare(libfymermaid
+        GIT_REPOSITORY https://github.com/pantoniou/libfymermaid
+        GIT_TAG 49c26261152cafb25f1699eab80f55f16399cde3
+    )
+    FetchContent_MakeAvailable(libfymermaid)
+    set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
+    unset(_FYAI_BUILD_TESTING)
+endif()
+if(FYAI_STATIC_DEPS AND TARGET libfymermaid::libfymermaid_static)
+    set(FYAI_LIBFYMERMAID_TARGET libfymermaid::libfymermaid_static)
+else()
+    set(FYAI_LIBFYMERMAID_TARGET libfymermaid::libfymermaid)
+endif()
+
 if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui)
     find_package(libfytimui CONFIG QUIET)
@@ -510,7 +533,7 @@ endif()
 target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
-    ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl OpenSSL::Crypto
+    ${FYAI_LIBFYTIMUI_TARGET} ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl OpenSSL::Crypto
     libfyvterm::libfyvterm ${ASAN_LINK_OPTS})
 if(UNIX AND NOT APPLE)
     target_link_libraries(fyai PRIVATE util)
@@ -620,7 +643,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
-        ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET} CURL::libcurl
+        ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET}
+        ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl
         OpenSSL::Crypto Threads::Threads libfyvterm::libfyvterm
         ${ASAN_LINK_OPTS})
     if(ENABLE_LIBSECRET)
