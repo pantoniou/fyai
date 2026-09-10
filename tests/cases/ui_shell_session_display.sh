@@ -23,7 +23,7 @@ FYAI_PTY_INPUT="drive the shell" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=30 \
 FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set tools=true --set api=chat-completions \
     --set shell/input_poll_ms=0 \
@@ -128,7 +128,7 @@ mock_stop 6
 mock_start shell_session.json
 FYAI_PTY_INPUT="drive the shell" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=30 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/margin.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set 'display/session_margin="[] "' \
     --set tools=true --set api=chat-completions \

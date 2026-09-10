@@ -46,7 +46,7 @@ mock_stop_quiet
 
 # The interactive selector is a durable preference, not merely a restyle of
 # the current process.
-"$FYAI_BIN" -k test-key --color off -m mock-model -i \
+"$FYAI_BIN" -b main -k test-key --color off -m mock-model -i \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
 /theme solarized:light
 /exit

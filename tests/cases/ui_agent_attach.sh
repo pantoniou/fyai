@@ -14,7 +14,7 @@ FYAI_PTY_DURING_INPUT="/branch attach main/agent:child/agent:grandchild" \
 FYAI_PTY_NEEDLE="NESTED_REPORT" \
 FYAI_PTY_AFTER="drain:0.5|send:/branch detach|wait:Recursive delegation complete." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-	"$FYAI_BIN" -k test-key --theme dark \
+	"$FYAI_BIN" -b main -k test-key --theme dark \
 	--set display/markdown=true --set display/stream=false \
 	--set tools=true --set api=responses \
 	--set "api_url=$MOCK_URL/v1/responses" -m mock-model -i

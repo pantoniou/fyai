@@ -10,7 +10,7 @@ mock_start chat_stream.json
 
 # The mock binds a new port on each start, so build the arguments each time.
 set_args() {
-	common_args=(-k test-key --theme catppuccin:dark
+	common_args=(-b main -k test-key --theme catppuccin:dark
 	    --set display/markdown=true --set display/stream=true
 	    --set api=chat-completions
 	    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i)

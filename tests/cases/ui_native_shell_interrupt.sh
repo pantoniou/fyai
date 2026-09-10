@@ -14,7 +14,7 @@ FYAI_PTY_PROGRESS_TIMEOUT="6" \
 FYAI_PTY_INTERRUPT_AFTER_PROGRESS="1" \
 FYAI_PTY_NEEDLE="interrupted" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set tools=true --set builtin_shell=true --set api=responses \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i

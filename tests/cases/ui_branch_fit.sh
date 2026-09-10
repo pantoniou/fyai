@@ -18,7 +18,7 @@ FYAI_PTY_INPUT="/branches" \
 FYAI_PTY_NEEDLE="gitgraph overview" \
 FYAI_PTY_AFTER="wait: more|wait:main/bravo-service|raw:1d|drain:0.2" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/fit.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/branch_view=gitgraph \
     --set display/diagram_charset=unicode -m mock-model -i
 

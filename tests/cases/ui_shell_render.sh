@@ -16,7 +16,7 @@ FYAI_PTY_NEEDLE="Interactive shell rendering done." \
 FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set display/tool_preview_lines=5 \
     --set builtin_shell=true --set api=responses \

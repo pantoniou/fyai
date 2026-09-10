@@ -58,7 +58,7 @@ export OTHERPROV_API_KEY=other-secret
 set +e
 # Tools off: the catalogue above gives these models toy context windows, and a
 # tool declaration alone is larger than they hold.
-"$FYAI_BIN" --color off --set display/markdown=false --set display/stream=false \
+"$FYAI_BIN" -b main --color off --set display/markdown=false --set display/stream=false \
 	--set tools=false --set builtin_shell=false -i -m foo \
 	>"$TEST_DIR/stdout" 2>"$TEST_DIR/stderr" <<'EOF'
 /help
@@ -136,7 +136,7 @@ assert_stdout_contains "hello two"
 assert_stdout_contains "conversation cleared"
 assert_stdout_contains "Reply four."
 
-"$FYAI_BIN" --color off --set display/markdown=false \
+"$FYAI_BIN" -b main --color off --set display/markdown=false \
 	--set display/stream=false -i -m foo \
 	>"$TEST_DIR/quit.stdout" 2>"$TEST_DIR/quit.stderr" <<'EOF'
 /quit

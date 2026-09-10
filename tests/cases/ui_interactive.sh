@@ -7,7 +7,7 @@ fyai_test_setup
 mock_start chat_stream.json
 
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
@@ -41,7 +41,7 @@ FYAI_PTY_INPUT="draft prompt" \
 FYAI_PTY_EDIT_INPUT=1 \
 FYAI_PTY_PROGRESS_TIMEOUT=3 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/edit-line.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
@@ -54,7 +54,7 @@ FYAI_PTY_INPUT="/config edit" \
 FYAI_PTY_NEEDLE="editor exited unsuccessfully" \
 FYAI_PTY_EXIT_STATUS=1 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/error-pane.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true -m mock-model -i
 
 "$PYTHON" - "$TEST_DIR/error-pane.out" <<'EOF' || \
@@ -73,7 +73,7 @@ EOF
 FYAI_PTY_INPUT="/status" \
 FYAI_PTY_NEEDLE="● status" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/status-pane.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true -m mock-model -i
 
 "$PYTHON" - "$TEST_DIR/status-pane.out" <<'EOF' || \
@@ -90,7 +90,7 @@ EOF
 FYAI_PTY_INPUT="/config describe display" \
 FYAI_PTY_NEEDLE="tool_detail" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/config-scroll.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true -m mock-model -i
 
 "$PYTHON" - "$TEST_DIR/config-scroll.out" <<'EOF' || \
@@ -112,7 +112,7 @@ FYAI_PTY_DURING_INPUT="queued prompt" \
 FYAI_PTY_DURING_DELAY="0.2" \
 FYAI_PTY_NEEDLE="Queued input completed." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/queued-input.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
@@ -125,7 +125,7 @@ mock_stop 2
 FYAI_PTY_INPUT="/transcript all" \
 FYAI_PTY_NEEDLE="Queued input completed." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/transcript-order.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true -m mock-model -i
 
 "$PYTHON" - "$TEST_DIR/transcript-order.out" <<'EOF' || \
@@ -164,7 +164,7 @@ FYAI_PTY_CLEAR_BEFORE_EXIT="1" \
 FYAI_PTY_DURING_DELAY="0.2" \
 FYAI_PTY_NEEDLE="First streamed reply." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/typing-input.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
@@ -189,7 +189,7 @@ FYAI_PTY_INTERRUPT_SETTLED_NEEDLE="interrupted" \
 FYAI_PTY_NEEDLE="Queued input completed." \
 FYAI_PTY_TIMEOUT=30 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/interrupt-recall.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set display/stream=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
@@ -204,7 +204,7 @@ mock_start chat_stream.json
 FYAI_PTY_INPUT="   " \
 FYAI_PTY_NEEDLE="mock-model" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/blank-input.out" \
-    "$FYAI_BIN" -k test-key --theme catppuccin:dark \
+    "$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
     --set display/markdown=true --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 mock_stop 0

@@ -18,7 +18,7 @@ FYAI_PTY_DURING_SUBMIT=0 \
 FYAI_PTY_NEEDLE="created branch review" \
 FYAI_PTY_AFTER="$after" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/browser.out" \
-	"$FYAI_BIN" -k test-key --theme catppuccin:dark \
+	"$FYAI_BIN" -b main -k test-key --theme catppuccin:dark \
 	--set display/markdown=true -m mock-model -i
 
 run_fyai branch list

@@ -14,7 +14,7 @@ mock_start ui_agents_mixed.json
 FYAI_PTY_INPUT="delegate both" \
 FYAI_PTY_NEEDLE="Mixed agents done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
+    "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set tools=true --set api=chat-completions \
     --set retry/max_attempts=1 --set agent/timeout_ms=1500 \

@@ -8,7 +8,7 @@ fyai_test_setup
 
 common_args=()
 set_args() {
-	common_args=(-k test-key --theme dark
+	common_args=(-b main -k test-key --theme dark
 	    --set display/markdown=true --set display/stream=true
 	    --set api=chat-completions
 	    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i)
