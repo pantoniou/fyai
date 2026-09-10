@@ -5,6 +5,7 @@
 #include "fyai.h"
 
 struct jsonrpc_conn;
+struct fytim_surface;
 
 /* Called by a tool child from its top-level loop, before running an agent. */
 int fyai_agents_enter(struct fyai_ctx *ctx);
@@ -21,6 +22,14 @@ fy_generic fyai_agents_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 unsigned long fyai_agents_generation(const struct fyai_ctx *ctx);
 const char *fyai_agents_state(struct fyai_ctx *ctx, const char *branch);
 bool fyai_agents_ambiguous(struct fyai_ctx *ctx, const char *name);
+const char *fyai_agents_attached(const struct fyai_ctx *ctx);
+const char *fyai_agents_model(const struct fyai_ctx *ctx);
+const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach);
+void fyai_agents_detach(struct fyai_ctx *ctx);
+bool fyai_agents_input(struct fyai_ctx *ctx, const char *line);
+int fyai_agents_kill(struct fyai_ctx *ctx, const char *name);
+bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf);
+bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len);
 void fyai_agents_present(struct fyai_ctx *ctx);
 unsigned int fyai_agents_detail(unsigned int relative_depth);
 

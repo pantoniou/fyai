@@ -1243,7 +1243,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	long long used;
 	char *top, *bottom, *cwd, *directory, *branch, *location;
 	const char *home;
-	size_t home_len;
+	size_t home_len, i;
 	struct fyai_context_prompt prompt;
 	char *top_md;
 	const char *tmpl;
@@ -1260,11 +1260,13 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		cwd[0] = '~';
 	}
 	directory = fyai_prompt_literal(cwd ? cwd : "?");
-	branch = fyai_prompt_literal(fyai_ctx_branch(ctx));
+	branch = fyai_prompt_literal(fyai_agents_attached(ctx) ?
+		fyai_agents_attached(ctx) : fyai_ctx_branch(ctx));
 	free(cwd);
 	location = NULL;
 	if (!directory || !branch ||
-	    asprintf(&location, "fyai: %s · %s", branch, directory) < 0) {
+	    asprintf(&location, "%s: %s · %s", fyai_agents_attached(ctx) ?
+		     "attached" : "fyai", branch, directory) < 0) {
 		fyai_warning(ctx, "cannot build the prompt location");
 		free(directory);
 		free(branch);
@@ -1311,7 +1313,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	}
 
 	vars[0].key = "model";
-	vars[0].val = cfg->model ? cfg->model : "?";
+	vars[0].val = fyai_agents_model(ctx) ? fyai_agents_model(ctx) :
+		cfg->model ? cfg->model : "?";
 	vars[1].key = "provider";
 	vars[1].val = cfg->provider ? cfg->provider : "?";
 	vars[2].key = "api";
@@ -1333,6 +1336,12 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	vars[10] = (struct fyai_tmpl_var){ "branch", branch };
 	vars[11] = (struct fyai_tmpl_var){ "cwd", directory };
 	vars[12] = (struct fyai_tmpl_var){ "location", location };
+	if (fyai_agents_attached(ctx)) {
+		vars[1].val = "agent";
+		vars[2].val = fyai_agents_state(ctx, fyai_agents_attached(ctx));
+		for (i = 3; i < 10; i++)
+			vars[i].val = "";
+	}
 
 	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
 		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
@@ -2144,7 +2153,7 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 	bool found;
 	int rc;
 
-	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx)) {
+	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {
 		fyai_error(ctx, "branch changes require idle model and tool work");
 		return -1;
 	}
@@ -2257,6 +2266,17 @@ static int slash_branch(struct fyai_ctx *ctx, const char *arg)
 	if (!strcmp(sub, "list") || !strcmp(sub, "--all") || !strcmp(sub, "-a"))
 		return fyai_branch_list(ctx, name,
 					sub[0] == '-');
+	if (!strcmp(sub, "attach")) {
+		if (!name || rest || !fyai_agents_zoom(ctx, name, true)) {
+			fyai_error(ctx, "branch attach requires a reachable live agent name");
+			return -1;
+		}
+		return 0;
+	}
+	if (!strcmp(sub, "detach")) {
+		fyai_agents_detach(ctx);
+		return 0;
+	}
 	if (!strcmp(sub, "show"))
 		return fyai_branch_show(ctx, name);
 	if (!strcmp(sub, "new") || !strcmp(sub, "create")) {

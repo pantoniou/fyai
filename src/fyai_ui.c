@@ -742,8 +742,15 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			ui_message_clear(ui);
 			if (fyai_browser_input(ui->ctx, ev.text))
 				break;
+			if (fyai_agents_input(ui->ctx, ev.text))
+				break;
 			if (ui->busy && !strcmp(ev.text, "/branches")) {
 				(void)fyai_browser_open(ui->ctx);
+				break;
+			}
+			if (ui->busy && !strncmp(ev.text, "/branch attach ", 15)) {
+				if (!fyai_agents_zoom(ui->ctx, ev.text + 15, true))
+					fyai_report(ui->ctx, "no reachable live agent named %s", ev.text + 15);
 				break;
 			}
 			if (!ui_line_blank(ev.text)) {
@@ -959,6 +966,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	struct ui_line *l, *n;
 	if (!ui) return;
 	fyai_browser_close(ctx);
+	fyai_agents_detach(ctx);
 	fyai_ui_drain_output(ctx);
 	if (ui->ft)
 		(void)fytim_pump(ui->ft);

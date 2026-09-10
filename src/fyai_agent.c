@@ -262,6 +262,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fy_generic persona_v, persona, persona_model;
 	fy_generic turn;
 	fy_generic report;
+	char *input;
 	struct fyai_branch stored;
 	bool revive = false;
 	const char *json;
@@ -419,6 +420,17 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		fyai_ui_prompt_enabled(ctx, false);
 
 	turn = fyai_run_turn(ctx, ctx->last_message);
+	while (fy_is_valid(turn) && !ctx->terminate_pending && fyai_event_queued(ctx)) {
+		input = fyai_event_take(ctx);
+
+		ctx->last_message = turn;
+		ctx->last_message = fyai_turn_append(ctx, turn,
+			fy_sequence(fyai_make_user_message(ctx, input)));
+		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
+			FYAI_OUTPUT_USER, input);
+		free(input);
+		turn = fyai_run_turn(ctx, ctx->last_message);
+	}
 	turn = fyai_report_diag(ctx, turn);
 	/* Identify the failed sub-agent after its own cause. */
 	fyai_error_check(ctx, fy_is_valid(turn), err,

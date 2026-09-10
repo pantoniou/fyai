@@ -7,6 +7,8 @@
 
 #include "fyai_agents.h"
 #include "fyai_branch.h"
+#include "fyai_browser.h"
+#include "fyai_display.h"
 #include "fyai_event.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_output.h"
@@ -15,6 +17,7 @@
 #include "fyai_storage.h"
 #include "fyai_tools.h"
 #include "fyai_ui.h"
+#include "fyai_workpane.h"
 
 struct agent_record {
 	struct agent_record *next;
@@ -22,7 +25,7 @@ struct agent_record {
 	long long execution, parent, sequence, started;
 	char *branch, *model, *source;
 	char state[24];
-	bool active;
+	bool active, subscribed;
 };
 
 struct agent_forward {
@@ -34,12 +37,23 @@ struct agent_forward {
 	fy_generic id;
 };
 
+struct agent_question {
+	struct agent_question *next;
+	struct jsonrpc_conn *from;
+	struct fy_generic_builder *gb;
+	fy_generic id, params;
+};
+
 /*
  * The parent reports through the context that owns the registry, and a
  * forward through the context it recorded.
  */
 #define agents_error_check(_a, _cond, _label, _fmt, ...) \
 	fyai_error_check((_a)->ctx, (_cond), _label, (_fmt) , ## __VA_ARGS__)
+
+/* The view a zoomed agent opens in, before the work pane grants its share. */
+#define AGENT_VIEW_ROWS 16
+#define AGENT_VIEW_COLS 80
 
 /* How often an agent reports its progress to its parent. */
 #define AGENT_TICK_MS 250
@@ -71,11 +85,17 @@ struct fyai_agents {
 	struct fyai_ctx *ctx;
 	struct agent_record *records;
 	struct agent_forward *forwards;
+	struct agent_question *questions, **question_tail;
 	struct fyai_event_source *timer;
+	struct fytim_surface *surface;
 	struct fyai_sink_band *progress;
-	long long next_execution, sequence;
+	long long next_execution, selected, sequence;
 	unsigned long generation, painted;
-	bool subscribed;
+	bool subscribed, attached, question_presented;
+	char *draft;
+	char *question_draft;
+	char *history;
+	size_t offset;
 	char activity[24];
 };
 
@@ -88,6 +108,7 @@ static struct fyai_agents *agents_get(struct fyai_ctx *ctx)
 	a = calloc(1, sizeof(*a));
 	fyai_error_check(ctx, a, err_out, "cannot allocate the agent registry");
 	a->ctx = ctx;
+	a->question_tail = &a->questions;
 	snprintf(a->activity, sizeof(a->activity), "running");
 	ctx->agents = a;
 	return a;
@@ -140,6 +161,28 @@ static struct agent_record *agents_record(struct fyai_agents *a, long long id)
 		if (r->execution == id)
 			return r;
 	return NULL;
+}
+
+static struct agent_record *agents_named(struct fyai_ctx *ctx, const char *name)
+{
+	struct agent_record *r, *found = NULL;
+	const char *leaf;
+
+	if (!ctx->agents || fy_str_empty(name))
+		return NULL;
+	for (r = ctx->agents->records; r; r = r->next) {
+		if (!r->active)
+			continue;
+		if (!strcmp(r->branch, name))
+			return r;
+		leaf = agent_leaf_name(r->branch);
+		if (!leaf || strcmp(leaf, name))
+			continue;
+		if (found)
+			return NULL;
+		found = r;
+	}
+	return found;
 }
 
 bool fyai_agents_ambiguous(struct fyai_ctx *ctx, const char *name)
@@ -297,6 +340,7 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 	fy_generic source;
 	const char *state, *model, *text;
 	char *copy;
+	bool changed;
 	int rc;
 
 	a = agents_get(ctx);
@@ -311,6 +355,7 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 		return;
 	r->sequence = sequence;
 	state = fy_get(params, "state", "running");
+	changed = strcmp(r->state, state) != 0;
 	snprintf(r->state, sizeof(r->state), "%s", state);
 	r->active = agent_state_active(r->state);
 	model = fy_get(params, "model", "");
@@ -320,6 +365,7 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 				 "cannot record the model of agent %s", r->branch);
 		free(r->model);
 		r->model = copy;
+		changed = true;
 	}
 	source = fy_get(params, "source", fy_invalid);
 	text = fy_castp(&source, (const char *)NULL);
@@ -336,6 +382,8 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot pass on the event of agent %s", r->branch);
 	}
+	if (changed && a->attached && a->selected == execution)
+		fyai_session_banner_update(ctx);
 err_out:
 	fyai_ui_wake(ctx);
 }
@@ -403,12 +451,70 @@ void fyai_agents_output(struct fyai_ctx *ctx)
 		(void)agents_publish(ctx, ctx->agents->activity);
 }
 
+static int agents_question(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
+			   fy_generic params, fy_generic id)
+{
+	struct fy_generic_builder_cfg cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fyai_agents *a;
+	struct agent_question *q;
+
+	a = agents_get(ctx);
+	if (!a)
+		return -1;
+	q = calloc(1, sizeof(*q));
+	fyai_error_check(ctx, q, err_out, "cannot allocate an agent question");
+	/*
+	 * A question waits for the user, which is past the turn that carried
+	 * it, so it keeps the question and its answer in a builder of its own.
+	 */
+	q->gb = fy_generic_builder_create(&cfg);
+	if (!q->gb) {
+		fyai_error(ctx, "cannot create the builder of an agent question");
+		free(q);
+		return -1;
+	}
+	q->from = conn;
+	q->id = fy_gb_internalize(q->gb, id);
+	q->params = fy_gb_internalize(q->gb, params);
+	*a->question_tail = q;
+	a->question_tail = &q->next;
+	jsonrpc_conn_defer(conn);
+	a->generation++;
+	fyai_ui_wake(ctx);
+	return 0;
+
+err_out:
+	return -1;
+}
+
 /* Whether one method was this component's to answer, and how it went. */
 enum agents_served {
 	AGENTS_SERVED_NO,	/* another component owns the method */
 	AGENTS_SERVED_OK,
 	AGENTS_SERVED_FAIL,
 };
+
+/*
+ * A question from a descendant. An agent passes it to its own parent; the
+ * invocation that owns the terminal puts it to the user. Nobody else can
+ * answer one, so the method is left unserved.
+ */
+static enum agents_served agents_serve_ask(struct fyai_ctx *ctx,
+					   struct jsonrpc_conn *conn,
+					   fy_generic params, fy_generic id)
+{
+	int rc;
+
+	if (ctx->agent_execution && ctx->tool_rpc)
+		rc = agents_forward(ctx, conn, ctx->tool_rpc, "user/ask", params, id);
+	else if (fyai_ui_active(ctx) && ctx->answer_next >= ctx->cfg->answer_count)
+		rc = agents_question(ctx, conn, params, id);
+	else
+		return AGENTS_SERVED_NO;
+	return rc ? AGENTS_SERVED_FAIL : AGENTS_SERVED_OK;
+}
 
 /*
  * Admit one delegated agent. An agent passes the request up: the invocation
@@ -535,7 +641,7 @@ bool fyai_agents_serve(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 	/* Settled before any return, so a caller reads no stale value. */
 	*result = fy_invalid;
 	*error = fy_invalid;
-	if (strncmp(method, "agent/", 6))
+	if (strcmp(method, "user/ask") && strncmp(method, "agent/", 6))
 		return false;
 	a = agents_get(ctx);
 	gb = fyai_ctx_transient_gb(ctx);
@@ -545,7 +651,9 @@ bool fyai_agents_serve(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 		agents_event(ctx, conn, params);
 		return true;
 	}
-	if (!strcmp(method, "agent/admit"))
+	if (!strcmp(method, "user/ask"))
+		served = agents_serve_ask(ctx, conn, params, id);
+	else if (!strcmp(method, "agent/admit"))
 		served = agents_serve_admit(ctx, a, gb, conn, params, id, result);
 	else if (!strcmp(method, "agent/control"))
 		served = agents_serve_control(ctx, a, gb, conn, params, id, result);
@@ -619,9 +727,27 @@ void fyai_agents_conn_closed(struct fyai_ctx *ctx, struct jsonrpc_conn *conn)
 	struct fyai_agents *a = ctx->agents;
 	struct agent_record *r;
 	struct agent_forward *f, *next;
+	struct agent_question **qp, *q;
 
 	if (!a || !conn)
 		return;
+	if (a->questions && a->questions->from == conn && a->question_presented) {
+		fyai_ui_input_set(ctx, a->question_draft);
+		free(a->question_draft);
+		a->question_draft = NULL;
+		a->question_presented = false;
+	}
+	qp = &a->questions;
+	while ((q = *qp)) {
+		if (q->from != conn) {
+			qp = &q->next;
+			continue;
+		}
+		*qp = q->next;
+		fy_generic_builder_destroy(q->gb);
+		free(q);
+	}
+	a->question_tail = qp;
 	for (f = a->forwards; f; f = next) {
 		next = f->next;
 		if (f->from != conn && f->to != conn)
@@ -671,6 +797,30 @@ fy_generic fyai_agents_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 			"execution", r->execution, "parent", r->parent,
 			"model", r->model, "active", r->active));
 	return rows;
+}
+
+static int agents_control(struct fyai_ctx *ctx, struct agent_record *r,
+			  const char *action, const char *text, bool enabled)
+{
+	struct fy_generic_builder *gb;
+
+	gb = fyai_ctx_transient_gb(ctx);
+	if (!r || !r->route || !r->active || !gb)
+		return -1;
+	return jsonrpc_notify(r->route, "agent/control", fy_mapping(gb,
+		"execution", r->execution, "action", action,
+		"text", text ? text : "", "enabled", enabled));
+}
+
+static void agents_grant(void *owner, int rows, int cols)
+{
+	struct fyai_agents *a = owner;
+
+	if (fyai_ui_surface_resize(a->surface, rows, cols))
+		fyai_warning(a->ctx, "the agent view did not take its %dx%d grant",
+			     cols, rows);
+	fyai_workpane_grid_resized(a->ctx->workpane, a->surface, rows, cols);
+	a->painted = 0;
 }
 
 /* An agent that wants the user is named before one that stopped, and both
@@ -757,6 +907,306 @@ static size_t agents_progress(FILE *fp, struct fyai_agents *a, long long parent)
 	return count;
 }
 
+static const struct fyai_workpane_tile_ops agents_ops = {
+	.apply_grant = agents_grant,
+};
+
+const char *fyai_agents_attached(const struct fyai_ctx *ctx)
+{
+	struct agent_record *r;
+
+	if (!ctx->agents || !ctx->agents->attached)
+		return NULL;
+	r = agents_record(ctx->agents, ctx->agents->selected);
+	return r ? r->branch : NULL;
+}
+
+const char *fyai_agents_model(const struct fyai_ctx *ctx)
+{
+	struct agent_record *r;
+
+	if (!ctx->agents || !ctx->agents->attached)
+		return NULL;
+	r = agents_record(ctx->agents, ctx->agents->selected);
+	return r ? r->model : NULL;
+}
+
+static char *agents_history(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_ctx view = *ctx;
+	struct fyai_cfg cfg = *ctx->cfg;
+	struct fyai_branch branch;
+	struct fy_generic_builder_cfg gbcfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb;
+	fy_generic root;
+	char *text = NULL;
+
+	root = fyai_branches_snapshot(ctx);
+	if (!fyai_branch_lookup(fy_get(root, "branches", fy_invalid), name, &branch))
+		return NULL;
+	gb = fy_generic_builder_create(&gbcfg);
+	if (!gb)
+		return NULL;
+	view.cfg = &cfg;
+	view.ui = NULL;
+	view.display_output = NULL;
+	view.last_message = branch.head;
+	view.transient_gb = gb;
+	view.sink = fyai_sink_create_capture(&view);
+	if (view.sink) {
+		if (fyai_display_recap(&view, 10, 0))
+			fyai_warning(ctx, "the stored history of %s is incomplete", name);
+		text = strdup(fyai_sink_captured(view.sink, NULL));
+		if (!text)
+			fyai_warning(ctx, "cannot keep the history of %s", name);
+		fyai_sink_destroy(view.sink);
+	}
+	fy_generic_builder_destroy(gb);
+	return text;
+}
+
+const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach)
+{
+	struct fyai_agents *a;
+	struct agent_record *r;
+	int rc;
+
+	a = agents_get(ctx);
+	r = agents_named(ctx, name);
+	if (!a || !r || !fyai_ui_active(ctx))
+		return NULL;
+	fyai_agents_detach(ctx);
+	a->selected = r->execution;
+	a->attached = attach;
+	a->history = agents_history(ctx, r->branch);
+	a->offset = 0;
+	a->draft = attach ? fyai_ui_input_copy(ctx) : NULL;
+	a->surface = fyai_ui_surface_open(ctx, AGENT_VIEW_ROWS, AGENT_VIEW_COLS);
+	fyai_error_check(ctx, a->surface, fail, "cannot open the agent view");
+	rc = fyai_workpane_register(ctx->workpane, a->surface,
+		FYAI_WORKPANE_TILE_AGENT_VIEW, a, &agents_ops, AGENT_VIEW_ROWS, 0);
+	fyai_error_check(ctx, !rc, fail, "cannot place the agent view in the work pane");
+	(void)fyai_ui_surface_zoom(ctx, a->surface);
+	if (attach)
+		fyai_ui_input_set(ctx, "");
+	else {
+		(void)fyai_tools_focus_next(ctx);
+		fyai_workpane_set_focus(ctx->workpane, a->surface);
+	}
+	rc = agents_control(ctx, r, "subscribe", NULL, true);
+	fyai_error_check(ctx, !rc, fail, "agent %s does not answer", r->branch);
+	r->subscribed = true;
+	a->painted = 0;
+	fyai_session_banner_update(ctx);
+	fyai_ui_wake(ctx);
+	return r->branch;
+fail:
+	fyai_agents_detach(ctx);
+	return NULL;
+}
+
+void fyai_agents_detach(struct fyai_ctx *ctx)
+{
+	struct fyai_agents *a = ctx->agents;
+	struct agent_record *r;
+
+	if (!a)
+		return;
+	for (r = a->records; r; r = r->next) {
+		if (r->subscribed && agents_control(ctx, r, "subscribe", NULL, false))
+			fyai_warning(ctx, "agent %s keeps reporting its output",
+				     r->branch);
+		r->subscribed = false;
+	}
+	if (a->surface)
+		fyai_ui_surface_close(ctx, a->surface);
+	a->surface = NULL;
+	if (a->attached)
+		fyai_ui_input_set(ctx, a->draft);
+	free(a->draft);
+	a->draft = NULL;
+	free(a->history);
+	a->history = NULL;
+	a->attached = false;
+	a->selected = 0;
+	fyai_session_banner_update(ctx);
+	fyai_ui_wake(ctx);
+}
+
+/*
+ * Answer the question at the head of the queue with @line. A line that names
+ * one of the offered options answers with that option; any other line is the
+ * answer as typed.
+ */
+static void agents_answer(struct fyai_ctx *ctx, struct fyai_agents *a,
+			  const char *line)
+{
+	struct agent_question *q;
+	fy_generic answer, options;
+	char *end;
+	long selected;
+	int rc;
+
+	q = a->questions;
+	answer = fy_value(q->gb, line);
+	options = fy_get(q->params, "options", fy_invalid);
+	selected = strtol(line, &end, 10);
+	if (end != line && !*end && selected >= 1 &&
+	    (size_t)selected <= fy_len(options))
+		answer = fy_get(options, selected - 1);
+	rc = jsonrpc_conn_respond(q->from, q->id,
+		fy_mapping(q->gb, "answer", answer), fy_invalid);
+	if (rc)
+		fyai_warning(ctx, "the agent that asked did not take the answer");
+	a->questions = q->next;
+	if (!a->questions)
+		a->question_tail = &a->questions;
+	fy_generic_builder_destroy(q->gb);
+	free(q);
+	fyai_ui_input_set(ctx, a->question_draft);
+	free(a->question_draft);
+	a->question_draft = NULL;
+	a->question_presented = false;
+	a->generation++;
+}
+
+bool fyai_agents_input(struct fyai_ctx *ctx, const char *line)
+{
+	struct fyai_agents *a = ctx->agents;
+	struct agent_record *r;
+
+	if (!a)
+		return false;
+	if (a->questions && a->question_presented) {
+		agents_answer(ctx, a, line);
+		return true;
+	}
+	if (!a->attached)
+		return false;
+	if (!strcmp(line, "/branch detach")) {
+		fyai_agents_detach(ctx);
+		return true;
+	}
+	r = agents_record(a, a->selected);
+	if (*line == '/')
+		fyai_report(ctx, "attached view: use /branch detach to return");
+	else if (agents_control(ctx, r, "input", line, true))
+		fyai_report(ctx, "attached agent has stopped; use /branch detach to return");
+	return true;
+}
+
+int fyai_agents_kill(struct fyai_ctx *ctx, const char *name)
+{
+	return agents_control(ctx, agents_named(ctx, name), "cancel", NULL, false);
+}
+
+bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf)
+{
+	return ctx->agents && ctx->agents->surface && ctx->agents->surface == sf;
+}
+
+bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len)
+{
+	struct fyai_agents *a = ctx->agents;
+	size_t i;
+
+	if (!fyai_agents_surface(ctx, fyai_workpane_focused(ctx->workpane)))
+		return false;
+	for (i = 0; i < len; i++) {
+		if (data[i] == 'j' || data[i] == 'k') {
+			if (data[i] == 'j')
+				a->offset++;
+			else if (a->offset)
+				a->offset--;
+			a->generation++;
+			fyai_ui_wake(ctx);
+			continue;
+		}
+		if (data[i] == FYAI_FOCUS_NEXT_KEY) {
+			fyai_tools_focus_next(ctx);
+			if (i + 1 < len && fyai_ui_keys_return(ctx, data + i + 1,
+							       len - i - 1))
+				fyai_warning(ctx, "input typed after ^T was lost");
+			break;
+		}
+		/* The view is this program's, so the keys that leave a tool
+		 * tile leave it too. */
+		if (data[i] == FYAI_KEY_ESC || data[i] == FYAI_KEY_INTR ||
+		    data[i] == FYAI_FOCUS_PROMPT_KEY) {
+			fyai_agents_detach(ctx);
+			if (i + 1 < len && fyai_ui_keys_return(ctx, data + i + 1,
+							       len - i - 1))
+				fyai_warning(ctx, "input typed after the leave key was lost");
+			break;
+		}
+	}
+	return true;
+}
+
+/* Put the question at the head of the queue to the user. */
+static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
+{
+	fy_generic question, option;
+	size_t index;
+
+	question = a->questions->params;
+	(void)fyai_browser_cancel_input(ctx);
+	a->question_draft = fyai_ui_input_copy(ctx);
+	a->question_presented = true;
+	fyai_workpane_clear_focus(ctx->workpane);
+	fyai_ui_input_set(ctx, "");
+	fyai_report(ctx, "[%s] %s\n", fy_get(question, "branch", "agent"),
+		    fy_get(question, "question", ""));
+	fy_foreach_idx_item(index, option, fy_get(question, "options", fy_invalid))
+		fyai_report(ctx, "%zu) %s\n", index + 1, fy_castp(&option, ""));
+}
+
+/*
+ * Draw the selected agent in its tile: what it has stored, what it is
+ * writing now, and a heading for each child an attached view subscribes to.
+ */
+static void agents_present_view(struct fyai_ctx *ctx, struct fyai_agents *a,
+				struct agent_record *selected)
+{
+	struct agent_record *r;
+	char *md = NULL, *name;
+	size_t size = 0;
+	FILE *fp;
+	int rc;
+
+	if (fyai_ui_surface_set_title(a->surface, selected->branch, selected->state))
+		fyai_warning(ctx, "the agent view is not named");
+	fp = open_memstream(&md, &size);
+	fyai_error_check(ctx, fp, err_out, "cannot build the agent view");
+	if (a->history)
+		fprintf(fp, "%s\n\n", a->history);
+	fprintf(fp, "%s\n\n", selected->source ? selected->source :
+		"Waiting for agent output.");
+	if (!selected->active)
+		fprintf(fp, "Agent %s. This view is read-only. Use /branch detach to return.\n\n",
+			selected->state);
+	for (r = a->records; a->attached && r; r = r->next) {
+		if (r->parent != selected->execution)
+			continue;
+		if (r->active && !r->subscribed)
+			r->subscribed = !agents_control(ctx, r, "subscribe", NULL, true);
+		name = fyai_prompt_literal(r->branch);
+		fprintf(fp, "### %s · %s\n\n%s\n\n%zu active descendants\n\n",
+			name ? name : "agent", r->state, r->source ? r->source : "",
+			agents_descendants(a, r));
+		free(name);
+		(void)agents_progress(fp, a, r->execution);
+	}
+	fclose(fp);
+	rc = fyai_sink_page(ctx->sink, a->surface, md, a->offset);
+	if (rc)
+		fyai_warning(ctx, "the agent view did not render");
+err_out:
+	free(md);
+}
+
 /*
  * Report the children of this agent in one band. The band stands while there
  * is work in it and goes with the last of it, so an invocation whose agents
@@ -788,10 +1238,16 @@ err_out:
 void fyai_agents_present(struct fyai_ctx *ctx)
 {
 	struct fyai_agents *a = ctx->agents;
+	struct agent_record *selected;
 
 	if (!a || a->painted == a->generation)
 		return;
 	a->painted = a->generation;
+	if (a->questions && !a->question_presented)
+		agents_present_question(ctx, a);
+	selected = agents_record(a, a->selected);
+	if (a->surface && selected)
+		agents_present_view(ctx, a, selected);
 	if (ctx->agent_execution && fyai_sink_bands_available(ctx->sink))
 		agents_present_progress(ctx, a);
 }
@@ -800,12 +1256,22 @@ void fyai_agents_cleanup(struct fyai_ctx *ctx)
 {
 	struct fyai_agents *a = ctx->agents;
 	struct agent_record *r, *next;
+	struct agent_question *q;
 
 	if (!a)
 		return;
+	fyai_agents_detach(ctx);
 	fyai_event_source_remove(a->timer);
 	while (a->forwards)
 		agents_forward_free(a->forwards);
+	while ((q = a->questions)) {
+		a->questions = q->next;
+		(void)jsonrpc_conn_respond(q->from, q->id,
+			fy_mapping(q->gb, "answer", ""), fy_invalid);
+		fy_generic_builder_destroy(q->gb);
+		free(q);
+	}
+	free(a->question_draft);
 	fyai_sink_band_destroy(a->progress);
 	for (r = a->records; r; r = next) {
 		next = r->next;

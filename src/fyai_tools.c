@@ -4456,6 +4456,8 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 	struct fyai_tool_job *job;
 	size_t i;
 
+	if (fyai_agents_keys(ctx, data, len))
+		return;
 	if (fyai_browser_surface(ctx, fyai_workpane_focused(ctx->workpane))) {
 		for (i = 0; i < len; i++) {
 			if (data[i] != FYAI_FOCUS_NEXT_KEY && data[i] != FYAI_FOCUS_PROMPT_KEY)
@@ -4513,6 +4515,11 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		fyai_browser_close(ctx);
 		return;
 	}
+	if (fyai_agents_surface(ctx, sf)) {
+		fyai_agents_detach(ctx);
+		return;
+	}
+
 	fyai_tile_owner(ctx, sf, &sess, &job);
 	/* Request graceful termination so the result remains available. */
 	if (sess)
@@ -4580,7 +4587,7 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 		}
 	}
 	if (!sf)
-		return NULL;
+		return fyai_agents_zoom(ctx, name, false);
 
 	(void)zoom_sess;
 	fyai_tools_unzoom(ctx);
@@ -4598,6 +4605,7 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx)
 {
 	if (!ctx)
 		return;
+	fyai_agents_detach(ctx);
 	fyai_workpane_clear_focus(ctx->workpane);
 	fyai_workpane_clear_zoom(ctx->workpane);
 }
@@ -4691,6 +4699,10 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name)
 		return -1;
 	}
 	if (!sess && !agent) {
+		if (!fyai_agents_kill(ctx, name)) {
+			fyai_result(ctx, "stopping agent %s", name);
+			return 0;
+		}
 		fyai_error(ctx, "kill: no active shell session or sub-agent is "
 			   "called '%s'", name);
 		return -1;

@@ -5,11 +5,14 @@
 #include "fyai.h"
 
 /*
- * Keys a tile does not keep: they move the keyboard between tiles and back
- * to the prompt.
+ * Keys a tile does not keep. The focus keys move the keyboard between tiles
+ * and back to the prompt; escape and the interrupt character are the
+ * program's, and leave a view this program draws itself.
  */
 #define FYAI_FOCUS_NEXT_KEY 0x14	/* ^T */
 #define FYAI_FOCUS_PROMPT_KEY 0x1d	/* ^] */
+#define FYAI_KEY_ESC 0x1b
+#define FYAI_KEY_INTR 0x03
 
 struct fyai_tool_job;
 struct fyai_tool_job_group;

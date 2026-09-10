@@ -1300,7 +1300,17 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 			browser_message(b, "This branch has no live screen.");
 		goto out;
 	}
-	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx)) {
+	if (action == 'A') {
+		if (!fyai_agents_zoom(ctx, b->target, true))
+			browser_message(b, "This branch has no reachable live owner.");
+		goto out;
+	}
+	if (action == 'K') {
+		if (fyai_agents_kill(ctx, b->target))
+			browser_message(b, "This branch has no reachable live owner.");
+		goto out;
+	}
+	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {
 		browser_message(b, "Branch changes require idle model and tool work.");
 		goto out;
 	}
