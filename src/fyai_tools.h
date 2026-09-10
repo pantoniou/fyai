@@ -39,6 +39,7 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call);
 bool fyai_tool_job_done(const struct fyai_tool_job *job);
+bool fyai_tools_active(const struct fyai_ctx *ctx);
 /*
  * End every named terminal session. A session lives for one invocation.
  * @force does not wait for a program to leave, which is what an interrupt asks.

@@ -30,6 +30,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
+#include "fyai_agents.h"
 #include "fyai_tools.h"
 #include <sys/ioctl.h>
 #include "fyai_terminal_view.h"
@@ -727,6 +728,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	/* Apply grants through each tile owner. */
 	fyai_workpane_layout_complete(ui->ctx->workpane);
 	fyai_tool_surfaces_publish(ui->ctx);
+	fyai_agents_present(ui->ctx);
 	if (painted_frame) {
 		ui->next_frame_ms =
 			fyai_event_now_ms() +

@@ -368,8 +368,16 @@ properties:
         default: 8
         description: >-
           Maximum nesting depth of sub-agent branches below a top-level
-          branch. A sub-agent cannot delegate, thus one level is used now;
-          the limit protects the branch allocator.
+          branch. This counts branch path components, including ordinary
+          branches, and protects the recursive branch allocator.
+      max_live_agents:
+        type: integer
+        minimum: 1
+        default: 16
+        description: >-
+          Maximum number of admitted agents in this invocation's complete
+          descendant tree. The root grants admission before provider work
+          starts. Excess calls fail so the caller can wait or change its task.
   sandbox:
     default: false
     description: >-

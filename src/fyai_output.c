@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "fyai_output.h"
+#include "fyai_agents.h"
 #include "fyai_session.h"
 #include "fyai_sink.h"
 #include "fyai_turn.h"
@@ -364,6 +365,7 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 		"state", aborted ? "aborted" : "finalized",
 		"fragments", output->fragments);
 	turn = fyai_turn_append_display_output(ctx, turn, record);
+	fyai_agents_output(ctx);
 	fyai_output_cleanup(ctx);
 	return turn;
 err:

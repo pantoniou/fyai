@@ -53,6 +53,7 @@ struct jsonrpc_conn {
 	struct jsonrpc_request *pending;
 	struct jsonrpc_request *flush_wait;	/* notifications awaiting write */
 	bool protocol_failed;			/* peer sent an invalid frame */
+	bool closed;
 	jsonrpc_serve_fn serve;
 	void *serve_userdata;
 	bool serve_deferred;	/* handler will answer later */
@@ -365,6 +366,7 @@ static void jsonrpc_conn_settle(struct jsonrpc_conn *conn, const char *why,
 static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
 				      const char *why)
 {
+	conn->closed = true;
 	jsonrpc_conn_settle(conn, why, false);
 }
 
@@ -491,6 +493,11 @@ static int jsonrpc_conn_arm_read(struct jsonrpc_conn *conn)
 		(void)fcntl(conn->stdout_fd, F_SETFL, flags | O_NONBLOCK);
 	return fyai_event_add_fd(el, conn->stdout_fd, FYAIEV_READ,
 				 jsonrpc_conn_readable, conn, &conn->read_src);
+}
+
+bool jsonrpc_conn_closed(const struct jsonrpc_conn *conn)
+{
+	return !conn || conn->closed;
 }
 
 bool jsonrpc_conn_has_output(const struct jsonrpc_conn *conn)
@@ -788,6 +795,7 @@ jsonrpc_conn_stdio(struct fyai_ctx *ctx, int stdin_fd, int stdout_fd,
 	conn->timeout_s = timeout_s;
 	conn->stdin_fd = stdin_fd;
 	conn->stdout_fd = stdout_fd;
+	conn->closed = false;
 	return conn;
 
 err_out:
@@ -840,6 +848,7 @@ void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,
 		return;
 	conn->stdin_fd = stdin_fd;
 	conn->stdout_fd = stdout_fd;
+	conn->closed = false;
 }
 
 void jsonrpc_conn_expect_close(struct jsonrpc_conn *conn)

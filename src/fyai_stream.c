@@ -26,6 +26,7 @@
 #include "fyai_curl.h"
 #include "fyai_event.h"
 #include "fyai_agent.h"
+#include "fyai_agents.h"
 #include "fyai_stream.h"
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
@@ -1423,6 +1424,7 @@ static void stream_retry_report(struct fyai_ctx *ctx, long status,
 				   "%s\n", (double)delay_ms / 1000.0,
 				   attempt + 1, max_attempts, reason);
 		fyai_tool_progress_emit(ctx, body, strlen(body));
+		fyai_agents_activity(ctx, "retrying");
 		return;
 	}
 	if (!bandp || !fyai_sink_bands_available(ctx->sink)) {

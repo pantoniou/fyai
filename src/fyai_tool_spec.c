@@ -106,7 +106,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 	tools = assert_valid_generic(fy_gb_internalize(gb, out),
 				     "Unable to describe personas");
 
-	if (ctx->cfg->agent_child) {
+	if (ctx->cfg->agent_child && !ctx->agent_execution) {
 		out = fy_seq_empty;
 		fy_foreach(tool, tools) {
 			fn = fy_get(tool, "function");

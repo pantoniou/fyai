@@ -251,6 +251,7 @@ struct fyai_cfg {
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
+	int agent_max_live_agents;
 	const char *tool_detail;
 	bool transcript_system;
 	float temperature;
@@ -453,6 +454,8 @@ struct fyai_ctx {
 	/* Diagnostic output descriptor. */
 	int dump_fd;
 	struct fyai_ui *ui;
+	struct fyai_agents *agents;
+	long long agent_execution, agent_parent;
 	struct fyai_config_edit_request *config_edit;
 	/* The SIGINT handler can set this value. */
 	volatile sig_atomic_t interrupt_pending;

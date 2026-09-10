@@ -94,6 +94,9 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx);
 
+/* The caller owns the literal Markdown string. */
+char *fyai_prompt_literal(const char *text);
+
 /* Read one edited line through the active frontend. */
 char *fyai_readline(struct fyai_ctx *ctx, const char *prompt);
 

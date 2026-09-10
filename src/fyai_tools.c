@@ -34,6 +34,7 @@
 
 #include "fyai_agent.h"
 #include "fyai_branch.h"
+#include "fyai_agents.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
@@ -1270,6 +1271,8 @@ static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx, fy_generic args)
 	fy_generic result = fy_invalid;
 	fy_generic answer;
 
+	fyai_agents_activity(ctx, "waiting for input");
+	args = fy_assoc(gb, args, "branch", fyai_ctx_branch(ctx));
 	req = jsonrpc_request_submit(ctx->tool_rpc, "user/ask", args,
 				     jsonrpc_conn_next_id(ctx->tool_rpc),
 				     false, NULL, NULL);
@@ -1291,6 +1294,7 @@ static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx, fy_generic args)
 			result = fy_value(gb, fy_castp(&answer, ""));
 	}
 	jsonrpc_request_destroy(req);
+	fyai_agents_activity(ctx, "running");
 	if (!fy_is_valid(result)) {
 		fyai_error(ctx, "ask_user: the parent did not answer");
 		return fy_value(gb, "tool note: the user did not provide an "
@@ -1806,9 +1810,12 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 {
 	struct fyai_tool_child *tc = userdata;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(tc->ctx);
+	fy_generic result = fy_invalid;
 	char *bytes;
 	size_t len;
 
+	if (fyai_agents_serve(tc->ctx, conn, method, params, id, &result, errorp))
+		return result;
 	if (!strcmp(method, "tool/run")) {
 		if (!fy_is_valid(id) || tc->pending || tc->done) {
 			*errorp = fy_gb_mapping(gb, "code", -32600LL,
@@ -1975,7 +1982,14 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 				ok = tc.session_started;
 				break;
 			}
-			result = fyai_execute_tool_call(ctx, tc.args, &ok);
+			if (fy_equal(fyai_tool_call_name(ctx, tc.args), "agent") &&
+			    fyai_agents_enter(ctx)) {
+				result = fy_value(fyai_ctx_transient_gb(ctx),
+					"tool error: agent admission refused");
+			} else {
+				result = fyai_execute_tool_call(ctx, tc.args, &ok);
+			}
+			fyai_agents_leave(ctx, ok);
 			/* Return child diagnostics with the tool result. */
 			diag = fyai_diag_take_generic(&ctx->cfg->diag,
 						      fyai_ctx_transient_gb(ctx));
@@ -3609,8 +3623,10 @@ static const char *fyai_agent_job_name(const struct fyai_tool_job *job)
 {
 	const char *who;
 
-	who = job->branch ? strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX) : NULL;
-	return who ? who + strlen(FYAI_BRANCH_AGENT_PREFIX) : "agent";
+	who = job->branch ? strrchr(job->branch, '/') : NULL;
+	return who && !strncmp(who + 1, FYAI_BRANCH_AGENT_PREFIX,
+		strlen(FYAI_BRANCH_AGENT_PREFIX)) ?
+		who + 1 + strlen(FYAI_BRANCH_AGENT_PREFIX) : "agent";
 }
 
 /* The running sub-agent called @name, or NULL. */
@@ -3625,9 +3641,8 @@ static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 	for (job = ctx->tool_jobs; job; job = job->next) {
 		if (!job->agent || job->done || !job->branch)
 			continue;
-		who = strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX);
-		if (who && !strcmp(who + strlen(FYAI_BRANCH_AGENT_PREFIX),
-				   name))
+		who = fyai_agent_job_name(job);
+		if (!strcmp(job->branch, name) || !strcmp(who, name))
 			return job;
 	}
 	return NULL;
@@ -3641,11 +3656,14 @@ static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
 	struct fy_generic_builder *gb;
 	fy_generic question, asked;
 	fy_generic answer;
-	const char *who;
+	const char *who, *origin;
 	int rc;
 
 	gb = fyai_ctx_transient_gb(job->ctx);
 	who = fyai_agent_job_name(job);
+	origin = fy_get(params, "branch", "");
+	if (*origin && (!job->branch || strcmp(origin, job->branch)))
+		who = origin;
 	question = fy_get(params, "question", fy_invalid);
 	asked = fy_value(gb, fy_sprintfa("the sub-agent '%s' asks: %s", who,
 					 fy_castp(&question, "")));
@@ -3688,6 +3706,9 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	ctx->ui = NULL;				/* its display */
+	ctx->agents = NULL;
+	ctx->agent_parent = ctx->agent_execution;
+	ctx->agent_execution = 0;
 	ctx->shell_stream = NULL;
 	ctx->tty_session = NULL;		/* the terminal it runs in */
 	ctx->winch_src = NULL;			/* a source on the loop it owns */
@@ -3848,6 +3869,7 @@ static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
 		job->run = NULL;
 	}
 	if (job->conn) {
+		fyai_agents_conn_closed(job->ctx, job->conn);
 		jsonrpc_conn_destroy(job->conn);
 		job->conn = NULL;
 	}
@@ -4054,6 +4076,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 			 "could not allocate tool job");
 	/* A sub-agent renders to a terminal of its own; the parent shows it. */
 	rc = fyai_tool_job_spawn(ctx, job, fy_equal(name, "agent") &&
+				 fyai_agents_detail(ctx->agent_execution ? 2 : 1) == 2 &&
 				 fyai_ui_active(ctx));
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
@@ -4093,6 +4116,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				 "out of memory naming the sub-agent branch");
 	}
 	job->call = tool_call;
+	job->agent = fy_equal(name, "agent");
 	job->native_shell = native_call;
 	/* A zeroed generic decodes as an empty sequence, not as invalid. */
 	job->diag = fy_invalid;
@@ -4241,7 +4265,8 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	char *bytes;
 	size_t len, n;
 
-	(void)errorp;
+	if (fyai_agents_serve(job->ctx, conn, method, params, id, &text, errorp))
+		return text;
 	/* Handle the question request a delegated child sends to its parent. */
 	if (fy_is_valid(id)) {
 		if (strcmp(method, "user/ask"))
@@ -4382,6 +4407,20 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job)
 	return job && job->done;
 }
 
+bool fyai_tools_active(const struct fyai_ctx *ctx)
+{
+	const struct fyai_tool_job *job;
+	const struct fyai_shell_session *session;
+
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (!job->done)
+			return true;
+	for (session = ctx->shell_sessions; session; session = session->next)
+		if (!session->exited)
+			return true;
+	return false;
+}
+
 #define FYAI_TOOL_TERM_MS 2000
 
 /* Find the live session or sub-agent that owns @sf. */
@@ -4455,7 +4494,6 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 
 	if (!ctx || !sf || delta)
 		return;
-
 	fyai_tile_owner(ctx, sf, &sess, &job);
 	/* Request graceful termination so the result remains available. */
 	if (sess)
@@ -4496,6 +4534,10 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 
 	if (!ctx)
 		return NULL;
+	if (fyai_agents_ambiguous(ctx, name)) {
+		fyai_error(ctx, "zoom: agent name '%s' is ambiguous; use its full branch name", name);
+		return NULL;
+	}
 	for (sess = ctx->shell_sessions; sess && !sf; sess = sess->next) {
 		if (!sess->surface || sess->exited)
 			continue;
@@ -4511,9 +4553,9 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 		if (!job->surface)
 			continue;
 		/* Derive a sub-agent name from its branch. */
-		agent = job->branch ? strstr(job->branch, "agent:") : NULL;
-		agent = agent ? agent + strlen("agent:") : job->title;
-		if (!name || !*name || (agent && !strcmp(agent, name))) {
+		agent = job->agent ? fyai_agent_job_name(job) : job->title;
+		if (!name || !*name || (job->branch && !strcmp(job->branch, name)) ||
+		    (agent && !strcmp(agent, name))) {
 			sf = job->surface;
 			what = agent;
 		}
@@ -4554,11 +4596,20 @@ int fyai_tools_sessions(struct fyai_ctx *ctx)
 	struct fy_generic_builder *gb;
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
-	fy_generic rows, opts;
+	fy_generic rows, opts, agents, agent;
 
 	if (!ctx || !(gb = fyai_ctx_transient_gb(ctx)))
 		return -1;
 	rows = fy_gb_sequence(gb);
+	agents = fyai_agents_rows(ctx, gb);
+	fy_foreach(agent, agents) {
+		if (!fy_get(agent, "active", false) ||
+		    fy_get(agent, "parent", 0LL) == ctx->agent_execution)
+			continue;
+		rows = fy_append(gb, rows, fy_mapping(gb,
+			"name", fy_get(agent, "branch", ""), "kind", "agent",
+			"state", fy_get(agent, "state", "running")));
+	}
 	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
 		if (sess->exited || !sess->surface)
 			continue;
@@ -4602,6 +4653,10 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name)
 
 	if (!ctx || fy_str_empty(name)) {
 		fyai_error(ctx, "kill: a session name is required");
+		return -1;
+	}
+	if (fyai_agents_ambiguous(ctx, name)) {
+		fyai_error(ctx, "kill: agent name '%s' is ambiguous; use its full branch name", name);
 		return -1;
 	}
 	for (candidate = ctx->shell_sessions; candidate;

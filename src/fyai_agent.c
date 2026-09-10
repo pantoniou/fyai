@@ -8,6 +8,7 @@
 #include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_agent.h"
+#include "fyai_agents.h"
 #include "fyai_ui.h"
 #include "fyai_prof.h"
 #include "fyai_turn.h"

@@ -37,6 +37,7 @@
 #include "fyai_output.h"
 #include "fyai_sink.h"
 #include "fyai_session.h"
+#include "fyai_agents.h"
 #include "fyai_prof.h"
 #include "fyai_ui.h"
 #include "fyai_tools.h"
@@ -1351,6 +1352,8 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 			   fyai_turn_run_state_name(run->state),
 			   fyai_turn_run_state_name(state));
 	run->state = state;
+	if (state == FYAITRS_MODEL)
+		fyai_agents_activity(run->ctx, "running");
 	return 0;
 }
 
@@ -1935,9 +1938,10 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_events_release(ctx);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx);
-	fyai_cleanup_transient_builder(ctx);
 	fyai_output_cleanup(ctx);
 	/* After the output document: its discard still talks to the sink. */
+	fyai_agents_cleanup(ctx);
+	fyai_cleanup_transient_builder(ctx);
 	fyai_sink_destroy(ctx->sink);
 	ctx->sink = NULL;
 

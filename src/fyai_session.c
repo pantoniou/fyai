@@ -1075,6 +1075,32 @@ int fyai_session_context(struct fyai_ctx *ctx)
  * request shaping, context fill, then the auth status and token usage
  * sections (reusing their own renderers).
  */
+/* Markdown that says exactly @text: a name is data, not markup. */
+char *fyai_prompt_literal(const char *text)
+{
+	struct response_buffer out = {};
+	const unsigned char *p;
+	int rc;
+
+	for (p = (const unsigned char *)(text ? text : ""); *p; p++) {
+		if (*p < 32 || *p == 127)
+			continue;
+		if (*p < 128 && ispunct(*p)) {
+			rc = response_buffer_append_data(&out, "\\", 1);
+			if (rc)
+				goto fail;
+		}
+		rc = response_buffer_append_data(&out, (const char *)p, 1);
+		if (rc)
+			goto fail;
+	}
+	return out.data ? out.data : strdup("");
+fail:
+	free(out.data);
+	return NULL;
+}
+
+
 int fyai_session_status(struct fyai_ctx *ctx)
 {
 	fy_generic status, auth, stats;
