@@ -78,6 +78,27 @@ Use the short generic API. It says the same thing with less text:
   `fy_gb_intern_string(gb, fy_sprintfa(...))`; there is no interning format
   function.
 - `fy_str_empty(s)` for a NULL or empty C string.
+- `fy_mapping(gb, ...)` and `fy_sequence(gb, ...)` in place of
+  `fy_gb_mapping()` and `fy_gb_sequence()`. A first argument of type
+  `struct fy_generic_builder *` selects the builder path, thus the call is the
+  same. Most other `fy_gb_*` functions have such a short form. The exceptions
+  are `fy_gb_internalize()` and `fy_gb_intern_string()`, which have none.
+  Without a builder, these forms use stack storage: do not return such a value
+  from a function.
+
+### Returned generics
+
+A generic that a function returns must name storage that is alive after the
+function. Build it in a builder that the caller supplies or that outlives the
+call, or return a value that an arena holds.
+
+- Do not return a generic that a stack builder made. `fy_mapping()` and
+  `fy_sequence()` with no builder, and `fy_sprintfa()`, use the stack frame of
+  the caller. They are correct as an argument to a call in the same frame.
+  Do not free their result.
+- Copy a C string into the builder with `fy_value(gb, s)` when the string is a
+  local buffer.
+- State the lifetime in the header when a function returns a borrowed value.
 
 ### Empty strings
 
@@ -971,6 +992,33 @@ names the anonymous input buffer by address, sits outside the sink, and cannot
 be attributed to the request that produced it. Report it with
 `parse_diag_text()` from a caller that has a context, in the one diagnostic
 that says what was being read.
+
+### Suppressed results
+
+`(void)` on a call that can fail hides the cause of the failure. Use it only
+where there is nothing to report:
+
+- A cleanup, destroy, or release path, which cannot act on a failure.
+- A callee that reported the failure itself.
+- A function whose result is not a status, such as a count or a predicate.
+
+On a content path, a failure must reach the user. Report it, and stop the
+operation that cannot go on. On a display path, report it as a warning: the
+page is wrong, but the turn continues. State that policy one time for a
+component with a wrapper macro, such as `browser_warn_check()`, instead of a
+warning at each site. Do not report each row of a loop: stop at the first
+failure and report one time.
+
+Input the user typed is content. A key or a line that a component drops must
+be reported.
+
+### Resource failures
+
+Report a resource that cannot be acquired with `fyai_error_check()`. This
+applies to `malloc()`, `calloc()`, `realloc()`, `strdup()`, `open_memstream()`,
+`asprintf()`, a builder, a surface, a request, and a connection. The message
+must name what could not be made. A path that returns a null pointer without a
+diagnostic gives the caller no cause.
 
 ### The trace log
 
