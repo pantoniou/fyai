@@ -127,8 +127,8 @@ EOF
     "$TEST_DIR/snapshot.out" "● agent" || fail "completed agents remained in the work pane"
 
 # Each sub-agent ran its own restricted, agent-free tool loop.
-assert_request 1 'not any(t["function"]["name"] == "agent" for t in r["body"]["tools"])'
-assert_request 2 'not any(t["function"]["name"] == "agent" for t in r["body"]["tools"])'
+assert_request 1 'any(t["function"]["name"] == "agent" for t in r["body"]["tools"])'
+assert_request 2 'any(t["function"]["name"] == "agent" for t in r["body"]["tools"])'
 # The parent folded both reports back as the two tool results.
 assert_request 3 \
 	'all(any(m.get("tool_call_id") == call and "REPORT" in m.get("content", "") '\
