@@ -228,6 +228,8 @@ def main():
         "FYAI_PTY_EDIT_INPUT", "0") in ("1", "true", "yes")
     edit_needle = os.environ.get(
         "FYAI_PTY_EDIT_NEEDLE", "edited prompt").encode()
+    ready_needle = os.environ.get("FYAI_PTY_READY_NEEDLE", "").encode() or \
+        b"\x1b[?25h"
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
     session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
@@ -289,7 +291,9 @@ def main():
         # Wait until the initial synchronized update has made the input cursor
         # visible. Fixed sleeps race ASAN and slower CI runners, causing input
         # to be echoed by the tty before fytimui enters raw mode.
-        data = read_until(master, data, b"\x1b[?25h", deadline)
+        # A session that opens with a tile holding the keys shows no prompt
+        # cursor, so it states the text that says it is ready instead.
+        data = read_until(master, data, ready_needle, deadline)
         if edit_input:
             os.write(master, prompt + b"\x07")
             data = read_until(master, data, edit_needle,
