@@ -45,4 +45,11 @@
 int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 			     fy_generic data);
 
+
+/*
+ * Render a stored timestamp, in seconds or microseconds, as local time. An
+ * empty string reports a time that was not recorded.
+ */
+void fyai_render_time(char *buf, size_t bufsz, long long t);
+
 #endif

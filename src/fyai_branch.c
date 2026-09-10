@@ -1085,7 +1085,7 @@ err_out:
 	return -1;
 }
 
-int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name)
+int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 {
 	struct fyai_branch b;
 	int rc;
@@ -1094,7 +1094,10 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name)
 			 "invalid branch name '%s'", name ? name : "");
 	rc = fyai_branch_lookup(ctx->arena_branches, name, &b);
 	fyai_error_check(ctx, rc, err_out, "no such branch '%s'", name);
-	rc = fyai_ctx_checkout(ctx, name);
+	/* Resuming a session selects it for this invocation, as --branch does.
+	 * Only a checkout moves the branch the next invocation starts on. */
+	rc = keep_head ? fyai_ctx_set_branch(ctx, name) :
+			 fyai_ctx_checkout(ctx, name);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not adopt branch '%s'", name);
 
@@ -1136,7 +1139,7 @@ int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 		fyai_error_check(ctx, false, err_out,
 				 "branch '%s' already exists", name);
 	}
-	rc = fyai_branch_adopt(ctx, name);
+	rc = fyai_branch_adopt(ctx, name, false);
 	fyai_error_check(ctx, !rc, err_out,
 			 "could not check out branch '%s'", name);
 

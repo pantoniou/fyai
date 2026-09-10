@@ -2144,7 +2144,7 @@ err_out:
  * does. A failure leaves the session on the branch it was on.
  */
 int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
-				 bool create)
+				 bool create, bool keep_head)
 {
 	struct fyai_branch b;
 	const char *test_fail;
@@ -2168,7 +2168,7 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 		fyai_error_check(ctx, !rc, err_out,
 				 "branch: could not create '%s'", name);
 	}
-	rc = fyai_branch_adopt(ctx, name);
+	rc = fyai_branch_adopt(ctx, name, keep_head);
 	fyai_error_check(ctx, !rc, rollback,
 			 "branch: could not stage '%s'", name);
 	/* Test hook for the rollback path. */
@@ -2187,10 +2187,15 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 	fyai_error_check(ctx, !rc, rollback,
 			 "branch: could not apply '%s' request state", name);
 
-	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CHECKOUT, NULL);
-	rc = fyai_publish_state(ctx);
-	fyai_error_check(ctx, !rc, rollback,
-			 "branch: could not publish checkout of '%s'", name);
+	/* Selecting a session for this invocation changes nothing durable, so
+	 * there is nothing to publish and nothing to lose if it is left. */
+	if (!keep_head) {
+		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CHECKOUT, NULL);
+		rc = fyai_publish_state(ctx);
+		fyai_error_check(ctx, !rc, rollback,
+				 "branch: could not publish checkout of '%s'",
+				 name);
+	}
 
 	fyai_session_banner_update(ctx);
 	fyai_ui_repaint(ctx);
@@ -2199,7 +2204,7 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 
 rollback:
 	/* Restore the branch and its derived request state. */
-	rc = fyai_branch_adopt(ctx, old);
+	rc = fyai_branch_adopt(ctx, old, keep_head);
 	if (!rc)
 		rc = fyai_config_rederive(ctx);
 	if (!rc)
@@ -2305,7 +2310,7 @@ static int slash_branch(struct fyai_ctx *ctx, const char *arg)
 	/* Bare `/branch <name>`: switch, creating the branch if needed. */
 	fyai_error_check(ctx, !name, err_out,
 			 "branch: unexpected argument '%s'", name);
-	rc = fyai_session_branch_switch(ctx, sub, true);
+	rc = fyai_session_branch_switch(ctx, sub, true, false);
 	fyai_error_check(ctx, !rc, err_out,
 			 "branch: could not switch to '%s'", sub);
 	return 0;

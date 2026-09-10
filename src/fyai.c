@@ -2422,11 +2422,25 @@ static void fyai_interactive_finish_output(struct fyai_ctx *ctx)
 }
 
 /* Prepare the common interactive surface before entering its input loop. */
+/*
+ * True when this invocation opens the resume picker: the resume verb with no
+ * branch and no --last. Direct and --last selection already happened, before
+ * the configuration was loaded.
+ */
+static bool fyai_resume_picker(const struct fyai_cfg *cfg)
+{
+	return cfg->cmd.id == FYAIVID_RESUME &&
+	       !cfg->cmd.args.resume.branch && !cfg->cmd.args.resume.last;
+}
+
 static void fyai_interactive_prepare(struct fyai_ctx *ctx,
 				     const char *histfile, bool banner)
 {
 	fyai_ui_history_load(ctx, histfile);
-	fyai_interactive_recap(ctx);
+	/* The picker is the screen until a session is chosen, so the history
+	 * of the branch that HEAD names is not replayed under it. */
+	if (!fyai_resume_picker(ctx->cfg))
+		fyai_interactive_recap(ctx);
 	fyai_ui_drain_output(ctx);
 	if (banner)
 		fyai_session_banner_update(ctx);
@@ -2842,6 +2856,11 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 
 	/* Start all MCP servers after the UI opens. */
 	fyai_interactive_prepare(ctx, histfile, true);
+	if (fyai_resume_picker(cfg) &&
+	    fyai_browser_open_resume(ctx, cfg->cmd.args.resume.all)) {
+		fyai_error(ctx, "could not open the session picker");
+		goto out;
+	}
 	if (cfg->mcp_enabled) {
 		rc = fyai_mcp_start(ctx);
 		fyai_error_check(ctx, !rc, out, "could not start MCP servers");
@@ -2980,6 +2999,14 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 	}
 	if (fyai_ui_active(ctx))
 		return fyai_prompt_interactive_async(ctx);
+
+	/* The picker is a screen the user chooses on; without a terminal there
+	 * is nothing to choose with, and a session must be named instead. */
+	if (fyai_resume_picker(cfg)) {
+		fyai_error(ctx, "the session picker needs an interactive "
+			   "terminal; name a session or use --last");
+		goto err_out;
+	}
 
 	/* Start MCP before the synchronous interactive fallback. */
 	if (cfg->mcp_enabled) {

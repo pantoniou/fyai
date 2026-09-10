@@ -79,8 +79,14 @@ long long fyai_context_output_tokens(struct fyai_ctx *ctx, long long prompt,
 
 /* Overview: model/provider selection, request shaping, auth, token usage. */
 int fyai_session_status(struct fyai_ctx *ctx);
+/*
+ * Switch the live session to @name: the conversation, the configuration, the
+ * authentication and the display change together, and a failure restores the
+ * branch that was there. @create makes a branch that is absent. @keep_head
+ * selects the branch for this invocation only, which publishes nothing.
+ */
 int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
-			       bool create);
+			       bool create, bool keep_head);
 
 /*
  * Dispatch one REPL line starting with '/'. Returns 1 when the session

@@ -216,8 +216,12 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 		       bool switch_to);
 int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force);
 int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to);
-/* Adopt an existing branch in memory without publishing HEAD. */
-int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name);
+/*
+ * Adopt an existing branch in memory. @keep_head selects the branch for this
+ * invocation only, as --branch does; otherwise HEAD moves with it, so the next
+ * invocation starts there.
+ */
+int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head);
 int fyai_branch_checkout(struct fyai_ctx *ctx, const char *name, bool create,
 			 const char *start);
 /* Reset the active branch and retain its previous ref-log entry. */

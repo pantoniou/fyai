@@ -7,6 +7,12 @@ struct fytim_surface;
 
 char *fyai_browser_gitgraph_source(fy_generic rows);
 int fyai_browser_open(struct fyai_ctx *ctx);
+/*
+ * Open the browser as the resume picker: the recent sessions, over the whole
+ * work pane. Enter resumes the selected session and Escape ends the
+ * invocation. @all offers the sessions of every starting directory.
+ */
+int fyai_browser_open_resume(struct fyai_ctx *ctx, bool all);
 void fyai_browser_close(struct fyai_ctx *ctx);
 void fyai_browser_config_changed(struct fyai_ctx *ctx);
 void fyai_browser_service(struct fyai_ctx *ctx);

@@ -109,7 +109,7 @@ static enum render_format render_format_parse(const char *s)
  * A large value is a proper time formatted timestamp.
  * Zero means "not recorded".
  */
-static void render_time(char *buf, size_t bufsz, long long t)
+void fyai_render_time(char *buf, size_t bufsz, long long t)
 {
 	struct tm tm;
 	time_t secs;
@@ -186,7 +186,7 @@ static void render_cell(FILE *fp, fy_generic v, enum render_format fmt)
 		return;
 	case RENDER_FMT_TIME:
 		if (fy_generic_get_type(v) == FYGT_INT) {
-			render_time(buf, sizeof(buf), fy_cast(v, 0LL));
+			fyai_render_time(buf, sizeof(buf), fy_cast(v, 0LL));
 			render_escape(fp, buf, &used);
 			return;
 		}

@@ -1292,6 +1292,16 @@ bool fyai_ui_has_line(struct fyai_ctx *ctx)
 	return ui && ui->head;
 }
 
+void fyai_ui_quit_request(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
+		return;
+	ui->quit = true;
+	ui->ready = true;
+}
+
 bool fyai_ui_quit_requested(const struct fyai_ctx *ctx)
 {
 	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
