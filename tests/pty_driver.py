@@ -302,7 +302,17 @@ def main():
         else:
             os.write(master, prompt + b"\n")
         if during_input:
-            time.sleep(during_delay)
+            # A progress needle is the state the mid-turn input acts on:
+            # the band it names, the browser it opens in, or the question
+            # it answers. Wait for it by reading rather than sleeping,
+            # or a slow run takes the input before that state exists and
+            # the needle can no longer arrive once the input changes the
+            # screen it would have been drawn on.
+            if progress_needle:
+                data = read_until(master, data, progress_needle,
+                                  time.monotonic() + progress_timeout)
+            else:
+                time.sleep(during_delay)
             os.write(master, during_input + (b"\n" if during_submit else b""))
         if interrupt_after_during:
             time.sleep(interrupt_delay)
@@ -606,9 +616,16 @@ def main():
         if snapshot and not snapshot_taken:
             with open(snapshot, "wb") as fp:
                 fp.write(data)
-        if clear_before_exit:
-            os.write(master, b"\x15")
-        os.write(master, b"/exit\n")
+        # A program that ends on its own leaves no terminal to write to,
+        # and the pseudo-terminal reports that as an I/O error. The exit
+        # line is how a session that is still running is asked to leave,
+        # not a step this run depends on.
+        try:
+            if clear_before_exit:
+                os.write(master, b"\x15")
+            os.write(master, b"/exit\n")
+        except OSError:
+            pass
         eof = False
         while time.monotonic() < deadline:
             ready, _, _ = select.select([] if eof else [master], [], [], 0.1)
