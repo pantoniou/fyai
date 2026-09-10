@@ -34,6 +34,7 @@
 
 #include "fyai_agent.h"
 #include "fyai_branch.h"
+#include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_config.h"
@@ -3706,6 +3707,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->patch_display = NULL;
 	fyai_output_cleanup(ctx);		/* the document it has open */
 	ctx->ui = NULL;				/* its display */
+	ctx->browser = NULL;
 	ctx->agents = NULL;
 	ctx->agent_parent = ctx->agent_execution;
 	ctx->agent_execution = 0;
@@ -4446,10 +4448,6 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 				  struct fyai_tool_job *job, const char *data,
 				  size_t len);
 
-/* Focus keys intercepted while a tile owns keyboard input. */
-#define FYAI_FOCUS_NEXT_KEY 0x14	/* ^T */
-#define FYAI_FOCUS_PROMPT_KEY 0x1d	/* ^] */
-
 /* Route keyboard input from the focused tile. */
 static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 {
@@ -4458,6 +4456,23 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 	struct fyai_tool_job *job;
 	size_t i;
 
+	if (fyai_browser_surface(ctx, fyai_workpane_focused(ctx->workpane))) {
+		for (i = 0; i < len; i++) {
+			if (data[i] != FYAI_FOCUS_NEXT_KEY && data[i] != FYAI_FOCUS_PROMPT_KEY)
+				continue;
+			if (i)
+				(void)fyai_browser_keys(ctx, data, i);
+			if (data[i] == FYAI_FOCUS_NEXT_KEY)
+				fyai_tools_focus_next(ctx);
+			else
+				fyai_tools_unzoom(ctx);
+			if (i + 1 < len)
+				(void)fyai_ui_keys_return(ctx, data + i + 1, len - i - 1);
+			return;
+		}
+		(void)fyai_browser_keys(ctx, data, len);
+		return;
+	}
 	fyai_tile_owner(ctx, fyai_workpane_focused(ctx->workpane), &sess,
 			&job);
 	if (!sess && !job) {
@@ -4494,6 +4509,10 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 
 	if (!ctx || !sf || delta)
 		return;
+	if (fyai_browser_surface(ctx, sf)) {
+		fyai_browser_close(ctx);
+		return;
+	}
 	fyai_tile_owner(ctx, sf, &sess, &job);
 	/* Request graceful termination so the result remains available. */
 	if (sess)

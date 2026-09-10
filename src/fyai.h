@@ -116,6 +116,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_PROMPT_BOTTOM \
 	" {model} · {provider} · {api}{effort}{summary}{temp}" \
 	"{tokens}{cache}{cost}"
+#define DEFAULT_PROMPT_TOP " {location}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS 50
@@ -205,6 +206,10 @@ struct fyai_cfg {
 	const char *prompt_marker;	/* interactive prompt marker (SGR ok) */
 	const char *prompt_top;		/* REPL bubble top row template (SGR ok) */
 	const char *prompt_bottom;	/* REPL bubble bottom {key} template (SGR ok) */
+	const char *branch_view;
+	const char *branch_preview;
+	int branch_preview_size;
+	int branch_preview_width;	/* negative percent, positive columns */
 	const char *diagram_theme;
 	const char *diagram_charset;
 	const char *diagram_fit;
@@ -454,6 +459,7 @@ struct fyai_ctx {
 	/* Diagnostic output descriptor. */
 	int dump_fd;
 	struct fyai_ui *ui;
+	struct fyai_browser *browser;
 	struct fyai_agents *agents;
 	long long agent_execution, agent_parent;
 	struct fyai_config_edit_request *config_edit;

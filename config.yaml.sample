@@ -129,9 +129,10 @@ agent:
   timeout_ms: 0
   max_timeout_ms: 3600000
   # Maximum nesting depth of sub-agent branches below a top-level branch.
-  # A sub-agent cannot delegate, thus one level is used now; the limit
-  # protects the branch allocator.
+  # Recursive delegation also uses this allocator limit.
   max_branch_depth: 8
+  # Maximum number of live delegated agents across this invocation.
+  max_live_agents: 16
   # Named sub-agent personas. The `persona` parameter of the agent tool picks
   # one; a key that a persona does not set keeps the value in force.
   personas:
@@ -241,13 +242,26 @@ display:
   section_separator: ""
   # Interactive prompt bubble. prompt is the input marker; prompt_top and
   # prompt_bottom are {key} templates over the session vars (model, provider,
-  # api, effort, summary, temp, ctx). prompt_bottom replaces the banner. All
+  # api, effort, summary, temp, ctx, branch, cwd, location).
+  # prompt_bottom replaces the banner. All
   # may carry SGR colour escapes (e.g. "\e[36m{model}\e[0m"). The values below
   # are the built-in defaults; an empty string re-selects them (prompt then
-  # falls back to "> " when markdown is off, "  > " with markdown; prompt_top's
-  # default is genuinely a blank styled row).
+  # falls back to "> " when markdown is off, "  > " with markdown).
+  # The top row identifies the fyai branch and working directory.
   prompt: "  > "
-  prompt_top: ""
+  prompt_top: " {location}"
+  # Branch diagrams use libfymermaid at the width granted by the work pane.
+  # In /branches, g cycles tree/gitgraph/list. The setting below is the default.
+  branch_view: tree
+  # Right-side preview width: half, quarter, 10%-80%, or exact columns.
+  # When unset, branch_preview_size (40 percent by default) applies.
+  # branch_preview_width: quarter
+  # Empty follows light/dark; named themes: default, light, mono.
+  diagram_theme: ""
+  diagram_charset: auto
+  # Gitgraph: legend moves long labels below; shrink compresses; clip crops.
+  # Tree rows have fixed spacing; all fit policies clip long labels.
+  diagram_fit: legend
   prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}"
   # How the live screens of shell sessions and sub-agents share the work
   # pane: auto, columns, stack, main-top, or main-left.

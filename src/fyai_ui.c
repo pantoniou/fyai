@@ -30,6 +30,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
+#include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_tools.h"
 #include <sys/ioctl.h>
@@ -728,6 +729,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	/* Apply grants through each tile owner. */
 	fyai_workpane_layout_complete(ui->ctx->workpane);
 	fyai_tool_surfaces_publish(ui->ctx);
+	fyai_browser_service(ui->ctx);
 	fyai_agents_present(ui->ctx);
 	if (painted_frame) {
 		ui->next_frame_ms =
@@ -738,6 +740,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		switch (ev.type) {
 		case FYTIM_EVENT_LINE:
 			ui_message_clear(ui);
+			if (fyai_browser_input(ui->ctx, ev.text))
+				break;
+			if (ui->busy && !strcmp(ev.text, "/branches")) {
+				(void)fyai_browser_open(ui->ctx);
+				break;
+			}
 			if (!ui_line_blank(ev.text)) {
 				ui_queue(ui, ev.text);
 				(void)fytim_history_add(ui->ft, ev.text);
@@ -929,6 +937,7 @@ void fyai_ui_config_changed(struct fyai_ctx *ctx)
 			       ctx->cfg->prompt_marker : "❯ ");
 	(void)fyai_ui_update_prompt_style(ctx);
 	/* The manager owns pane geometry and configuration adoption. */
+	fyai_browser_config_changed(ctx);
 	fyai_workpane_adopt_config(ctx->workpane);
 	fyai_workpane_configure(ctx->workpane);
 	fyai_workpane_reconcile(ctx->workpane);
@@ -949,6 +958,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct ui_line *l, *n;
 	if (!ui) return;
+	fyai_browser_close(ctx);
 	fyai_ui_drain_output(ctx);
 	if (ui->ft)
 		(void)fytim_pump(ui->ft);
@@ -1372,6 +1382,39 @@ void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 	(void)fytim_tail_set(ctx->ui->ft, NULL, 0);
 }
 
+char *fyai_ui_input_copy(struct fyai_ctx *ctx)
+{
+	char *draft;
+
+	if (!ctx || !ctx->ui)
+		return NULL;
+	draft = strdup(fytim_input(ctx->ui->ft));
+	if (!draft)
+		fyai_warning(ctx, "cannot keep the typed line");
+	return draft;
+}
+
+void fyai_ui_input_set(struct fyai_ctx *ctx, const char *text)
+{
+	if (!ctx || !ctx->ui)
+		return;
+	/* The draft is the user's: a line that does not go back is lost. */
+	if (fytim_set_input(ctx->ui->ft, text))
+		fyai_warning(ctx, "the typed line was not restored");
+}
+
+bool fyai_ui_busy(const struct fyai_ctx *ctx)
+{
+	return ctx && ctx->ui && ctx->ui->busy;
+}
+
+void fyai_ui_repaint(struct fyai_ctx *ctx)
+{
+	if (!ctx || !ctx->ui)
+		return;
+	ctx->ui->repaint_pending = true;
+	fyai_ui_wake(ctx);
+}
 
 void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 {
@@ -1398,6 +1441,8 @@ bool fyai_ui_interrupt(struct fyai_ctx *ctx)
 
 	if (!ui)
 		return false;
+	if (fyai_browser_cancel_input(ctx))
+		return true;
 	/* A tile that holds the keys holds this ^C too: give it to the
 	 * program the user was typing into instead of stopping the turn. */
 	if (fyai_workpane_keys_deliver(ctx->workpane, "\x03", 1))

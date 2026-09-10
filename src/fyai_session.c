@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <libfytimui.h>
 
@@ -51,6 +52,8 @@
 #include "fyai_output.h"
 #include "fyai_provider.h"
 #include "fyai_branch.h"
+#include "fyai_browser.h"
+#include "fyai_agents.h"
 #include "fyai_session.h"
 #include "fyai_stream.h"
 #include "fyai_ui.h"
@@ -1075,7 +1078,20 @@ int fyai_session_context(struct fyai_ctx *ctx)
  * request shaping, context fill, then the auth status and token usage
  * sections (reusing their own renderers).
  */
-/* Markdown that says exactly @text: a name is data, not markup. */
+int fyai_session_status(struct fyai_ctx *ctx)
+{
+	fy_generic status, auth, stats;
+
+	status = session_status_data(ctx);
+	auth = fyai_auth_status_data(ctx, ctx->transient_gb, false);
+	stats = fyai_stats_data(ctx, ctx->transient_gb);
+	status = mapping_prefixed(ctx, status, "Auth / ", auth);
+	status = mapping_prefixed(ctx, status, "Usage / ", stats);
+	(void)fyai_generic_to_markdown(ctx, fy_mapping("title", "Session"),
+				       status);
+	return 0;
+}
+
 char *fyai_prompt_literal(const char *text)
 {
 	struct response_buffer out = {};
@@ -1100,49 +1116,24 @@ fail:
 	return NULL;
 }
 
-
-int fyai_session_status(struct fyai_ctx *ctx)
+/* Escaped braces are literal; unknown variables expand to an empty string. */
+char *fyai_prompt_expand(const char *tmpl, const struct fyai_tmpl_var *vars,
+			size_t nvars)
 {
-	fy_generic status, auth, stats;
-
-	status = session_status_data(ctx);
-	auth = fyai_auth_status_data(ctx, ctx->transient_gb, false);
-	stats = fyai_stats_data(ctx, ctx->transient_gb);
-	status = mapping_prefixed(ctx, status, "Auth / ", auth);
-	status = mapping_prefixed(ctx, status, "Usage / ", stats);
-	(void)fyai_generic_to_markdown(ctx, fy_mapping("title", "Session"),
-				       status);
-	return 0;
-}
-
-/* One {key} -> value binding for the prompt decorator templates. */
-struct fyai_tmpl_var {
-	const char *key;
-	const char *val;
-};
-
-/*
- * Expand {key} tokens in @tmpl from @vars into @buf. "{{"/"}}" are literal
- * braces; an unknown {key} expands to empty. Values may carry SGR colour
- * escapes - they are copied verbatim (linenoise treats them as zero width).
- */
-static void fyai_expand_template(char *buf, size_t bufsz, const char *tmpl,
-				 const struct fyai_tmpl_var *vars, size_t nvars)
-{
+	struct response_buffer out = {};
 	const char *p;
 	const char *e;
 	const char *val;
-	size_t off;
 	size_t klen;
 	size_t i;
+	int rc;
 
-	off = 0;
-	if (!bufsz)
-		return;
-	for (p = tmpl; *p && off + 1 < bufsz; ) {
+	for (p = tmpl ? tmpl : ""; *p; ) {
 		if ((p[0] == '{' && p[1] == '{') ||
 		    (p[0] == '}' && p[1] == '}')) {
-			buf[off++] = *p;
+			rc = response_buffer_append_data(&out, p, 1);
+			if (rc)
+				goto fail;
 			p += 2;
 			continue;
 		}
@@ -1152,17 +1143,23 @@ static void fyai_expand_template(char *buf, size_t bufsz, const char *tmpl,
 			for (i = 0; i < nvars; i++)
 				if (!strncmp(vars[i].key, p + 1, klen) &&
 				    vars[i].key[klen] == '\0') {
-					val = vars[i].val;
+					val = vars[i].val ? vars[i].val : "";
 					break;
 				}
-			while (*val && off + 1 < bufsz)
-				buf[off++] = *val++;
+			rc = response_buffer_append_data(&out, val, strlen(val));
+			if (rc)
+				goto fail;
 			p = e + 1;
 			continue;
 		}
-		buf[off++] = *p++;
+		rc = response_buffer_append_data(&out, p++, 1);
+		if (rc)
+			goto fail;
 	}
-	buf[off] = '\0';
+	return out.data ? out.data : strdup("");
+fail:
+	free(out.data);
+	return NULL;
 }
 
 /*
@@ -1237,14 +1234,16 @@ static void session_token_count(char *buf, size_t size, long long tokens)
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_tmpl_var vars[10];
+	struct fyai_tmpl_var vars[13];
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char tokens[64], cost[32], cache[64];
 	/* Wide enough for any long long, so the abbreviation never truncates. */
 	char used_str[24], window_str[24], cached_str[24];
 	long long used;
-	char top[256], bottom[320];
+	char *top, *bottom, *cwd, *directory, *branch, *location;
+	const char *home;
+	size_t home_len;
 	struct fyai_context_prompt prompt;
 	char *top_md;
 	const char *tmpl;
@@ -1252,6 +1251,25 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 
 	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
 		return;
+	cwd = getcwd(NULL, 0);
+	home = getenv("HOME");
+	home_len = home ? strlen(home) : 0;
+	if (cwd && home_len > 1 && !strncmp(cwd, home, home_len) &&
+	    (!cwd[home_len] || cwd[home_len] == '/')) {
+		memmove(cwd + 1, cwd + home_len, strlen(cwd + home_len) + 1);
+		cwd[0] = '~';
+	}
+	directory = fyai_prompt_literal(cwd ? cwd : "?");
+	branch = fyai_prompt_literal(fyai_ctx_branch(ctx));
+	free(cwd);
+	location = NULL;
+	if (!directory || !branch ||
+	    asprintf(&location, "fyai: %s · %s", branch, directory) < 0) {
+		fyai_warning(ctx, "cannot build the prompt location");
+		free(directory);
+		free(branch);
+		return;
+	}
 	model_entry = session_model_entry(ctx);
 
 	/* Each optional field carries its own " · label" so a template can place
@@ -1312,19 +1330,26 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	vars[8].val = cost;
 	vars[9].key = "cache";
 	vars[9].val = cache;
+	vars[10] = (struct fyai_tmpl_var){ "branch", branch };
+	vars[11] = (struct fyai_tmpl_var){ "cwd", directory };
+	vars[12] = (struct fyai_tmpl_var){ "location", location };
 
 	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
 		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
-	fyai_expand_template(bottom, sizeof(bottom), tmpl,
-			     vars, sizeof(vars) / sizeof(vars[0]));
-	fyai_expand_template(top, sizeof(top),
-			     cfg->prompt_top ? cfg->prompt_top : "",
-			     vars, sizeof(vars) / sizeof(vars[0]));
+	bottom = fyai_prompt_expand(tmpl, vars, sizeof(vars) / sizeof(vars[0]));
+	top = fyai_prompt_expand(fy_str_empty(cfg->prompt_top) ?
+				DEFAULT_PROMPT_TOP : cfg->prompt_top, vars,
+				sizeof(vars) / sizeof(vars[0]));
 	top_md = fyai_prompt_row_markdown(cfg, top);
 	if (fyai_ui_active(ctx))
 		fyai_ui_update_banner(ctx, top_md ? top_md : top,
 				      bottom);
 	free(top_md);
+	free(top);
+	free(bottom);
+	free(location);
+	free(directory);
+	free(branch);
 }
 
 /* ---- simple config-item slash commands ---------------------------------- */
@@ -2109,7 +2134,7 @@ err_out:
  * new branch's config, re-resolving the model, api and key the way /model
  * does. A failure leaves the session on the branch it was on.
  */
-static int session_branch_switch(struct fyai_ctx *ctx, const char *name,
+int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 				 bool create)
 {
 	struct fyai_branch b;
@@ -2119,6 +2144,10 @@ static int session_branch_switch(struct fyai_ctx *ctx, const char *name,
 	bool found;
 	int rc;
 
+	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx)) {
+		fyai_error(ctx, "branch changes require idle model and tool work");
+		return -1;
+	}
 	old_len = strlen(fyai_ctx_branch(ctx));
 	old = alloca(old_len + 1);
 	memcpy(old, fyai_ctx_branch(ctx), old_len + 1);
@@ -2155,6 +2184,7 @@ static int session_branch_switch(struct fyai_ctx *ctx, const char *name,
 			 "branch: could not publish checkout of '%s'", name);
 
 	fyai_session_banner_update(ctx);
+	fyai_ui_repaint(ctx);
 	fyai_result(ctx, "switched to branch %s\n", name);
 	return 0;
 
@@ -2255,7 +2285,7 @@ static int slash_branch(struct fyai_ctx *ctx, const char *arg)
 	/* Bare `/branch <name>`: switch, creating the branch if needed. */
 	fyai_error_check(ctx, !name, err_out,
 			 "branch: unexpected argument '%s'", name);
-	rc = session_branch_switch(ctx, sub, true);
+	rc = fyai_session_branch_switch(ctx, sub, true);
 	fyai_error_check(ctx, !rc, err_out,
 			 "branch: could not switch to '%s'", sub);
 	return 0;
@@ -2264,7 +2294,17 @@ err_out:
 	return -1;
 }
 
+static int slash_branches(struct fyai_ctx *ctx, const char *arg)
+{
+	if (arg && *arg) {
+		fyai_error(ctx, "branches takes no arguments");
+		return -1;
+	}
+	return fyai_browser_open(ctx);
+}
+
 static const struct fyai_slash_cmd fyai_slash_cmds[] = {
+	{ "branches", "", "open the branch browser", slash_branches },
 	{ "branch", "[name|list|new|delete|rename|show|describe]",
 	  "list or switch branches", slash_branch },
 	{ "clear", "", "start a fresh conversation", slash_clear },

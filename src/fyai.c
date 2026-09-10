@@ -37,6 +37,7 @@
 #include "fyai_output.h"
 #include "fyai_sink.h"
 #include "fyai_session.h"
+#include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_prof.h"
 #include "fyai_ui.h"
@@ -2855,6 +2856,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		/* Release scratch storage that an idle operation created. */
 		if (ctx->transient_autorelease)
 			fyai_cleanup_transient_builder(ctx);
+		fyai_browser_step(ctx);
 
 		rc = fyai_interactive_config_edit_step(ctx);
 		fyai_error_check(ctx, !rc, out,

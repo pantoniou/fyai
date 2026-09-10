@@ -79,6 +79,8 @@ long long fyai_context_output_tokens(struct fyai_ctx *ctx, long long prompt,
 
 /* Overview: model/provider selection, request shaping, auth, token usage. */
 int fyai_session_status(struct fyai_ctx *ctx);
+int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
+			       bool create);
 
 /*
  * Dispatch one REPL line starting with '/'. Returns 1 when the session
@@ -94,7 +96,14 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx);
 
-/* The caller owns the literal Markdown string. */
+struct fyai_tmpl_var {
+	const char *key;
+	const char *val;
+};
+
+/* The caller owns the expanded template and literal Markdown strings. */
+char *fyai_prompt_expand(const char *tmpl, const struct fyai_tmpl_var *vars,
+			size_t nvars);
 char *fyai_prompt_literal(const char *text);
 
 /* Read one edited line through the active frontend. */

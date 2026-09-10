@@ -4,6 +4,13 @@
 
 #include "fyai.h"
 
+/*
+ * Keys a tile does not keep: they move the keyboard between tiles and back
+ * to the prompt.
+ */
+#define FYAI_FOCUS_NEXT_KEY 0x14	/* ^T */
+#define FYAI_FOCUS_PROMPT_KEY 0x1d	/* ^] */
+
 struct fyai_tool_job;
 struct fyai_tool_job_group;
 struct fyai_mcp_call_request;

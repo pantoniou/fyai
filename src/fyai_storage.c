@@ -841,6 +841,21 @@ err_out:
 }
 
 /* Re-read the branch table after another process publishes it. */
+fy_generic fyai_branches_snapshot(struct fyai_ctx *ctx)
+{
+	fy_generic root;
+	fy_generic_value refs;
+
+	refs = ctx->refs_head;
+	if (ctx->durable_allocator && !ctx->cfg->root_pinned &&
+	    !ctx->cfg->transient)
+		refs = fy_allocator_refs_get(ctx->durable_allocator);
+	if (!refs)
+		return fy_invalid;
+	root = (fy_generic){ .v = refs };
+	return fyai_root_validate(ctx->durable_allocator, root) ? root : fy_invalid;
+}
+
 int fyai_branches_refresh(struct fyai_ctx *ctx)
 {
 	fy_generic_value head;

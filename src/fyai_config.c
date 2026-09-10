@@ -182,7 +182,7 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
  */
 int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
-	fy_generic v, sb, tbv, shell, retry, secret_ref, zoom_rows;
+	fy_generic v, sb, tbv, shell, retry, secret_ref, zoom_rows, preview_width;
 
 	if (fy_is_invalid(root))
 		return 0;
@@ -447,6 +447,22 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "prompt_top", cfg->prompt_top));
 		cfg->prompt_bottom = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "prompt_bottom", cfg->prompt_bottom));
+		cfg->branch_view = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "branch_view", cfg->branch_view));
+		cfg->branch_preview = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "branch_preview", cfg->branch_preview));
+		cfg->branch_preview_size = (int)fy_get(v, "branch_preview_size",
+						       (long long)cfg->branch_preview_size);
+		preview_width = fy_get(v, "branch_preview_width", fy_invalid);
+		if (fy_generic_is_int(preview_width))
+			cfg->branch_preview_width = (int)fy_number(preview_width, 0);
+		else if (fy_equal(preview_width, "half"))
+			cfg->branch_preview_width = -50;
+		else if (fy_equal(preview_width, "quarter"))
+			cfg->branch_preview_width = -25;
+		else if (fy_is_string(preview_width))
+			cfg->branch_preview_width =
+				-(int)strtol(fy_castp(&preview_width, ""), NULL, 10);
 		cfg->diagram_theme = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "diagram_theme", cfg->diagram_theme));
 		cfg->diagram_charset = fy_gb_intern_string(cfg->gb,
@@ -2161,8 +2177,12 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->tool_group_fence = DEFAULT_TOOL_GROUP_FENCE;
 	cfg->user_card_fence = DEFAULT_USER_CARD_FENCE;
 	cfg->prompt_marker = "";	/* empty => built-in prompt marker */
-	cfg->prompt_top = "";		/* empty => blank styled top row */
+	cfg->prompt_top = "";		/* empty => built-in location row */
 	cfg->prompt_bottom = "";	/* empty => DEFAULT_PROMPT_BOTTOM banner */
+	cfg->branch_view = "tree";
+	cfg->branch_preview = "auto";
+	cfg->branch_preview_size = 40;
+	cfg->branch_preview_width = 0;
 	cfg->diagram_theme = "";
 	cfg->diagram_charset = "auto";
 	cfg->diagram_fit = "legend";

@@ -737,6 +737,38 @@ properties:
         description: >-
           Interactive prompt marker. Empty uses the built-in ("  > " with
           markdown, "> " otherwise). May carry SGR colour escapes.
+      branch_view:
+        type: string
+        enum: [tree, gitgraph, list]
+        default: tree
+        description: Default branch browser view; tree uses libfymermaid. Press g to toggle the open browser.
+      branch_preview:
+        type: string
+        enum: [off, right, bottom, auto]
+        default: auto
+        description: >-
+          Where the branch browser renders the end of the selected session.
+          Auto takes the right of a wide pane and the foot of a tall one.
+          Press p in the browser to cycle it for the session.
+      branch_preview_size:
+        type: integer
+        minimum: 10
+        maximum: 80
+        default: 40
+        description: Share of the branch browser pane given to the session preview, percent.
+      branch_preview_width:
+        oneOf:
+          - type: string
+            enum: [half, quarter]
+          - type: string
+            pattern: '^([1-7][0-9]|80)%$'
+          - type: integer
+            minimum: 28
+            maximum: 1000
+        description: >-
+          Width of a right-side session preview. Half, quarter, and a value
+          ending in % use a share of the browser pane; an integer is an exact
+          column count. When unset, branch_preview_size supplies the percentage.
       diagram_theme:
         type: string
         default: ""
@@ -758,12 +790,13 @@ properties:
           The branch tree has fixed spacing and clips long rows.
       prompt_top:
         type: string
-        default: ""
+        default: " {location}"
         description: >-
           Top row of the interactive prompt bubble, a {key} template over the
           session vars (model, provider, api, effort, summary, temp, ctx,
-          tokens, cache, cost).
-          Empty is a blank styled row. May carry SGR colour escapes.
+          tokens, cache, cost, branch, cwd, location).
+          Empty uses the built-in branch and working-directory row.
+          A custom template replaces it. May carry SGR colour escapes.
       prompt_bottom:
         type: string
         default: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}"
@@ -771,6 +804,9 @@ properties:
           Bottom status row of the prompt bubble, a {key} template that
           replaces the built-in banner. Empty reproduces
           "{model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}".
+          {branch} is the invocation branch, {cwd} is its working directory,
+          and {location} combines both. The default top row shows location;
+          the bottom row retains model and usage information.
           {tokens} is the used and maximum context tokens with the percent,
           {cache} is the cached input tokens with the hit percent, and {cost}
           is the session cost. {ctx} keeps the short percent-only form. May
