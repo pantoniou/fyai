@@ -4,8 +4,10 @@
 #include <time.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "fyai_sink.h"
 #include "fyai.h"
@@ -135,6 +137,22 @@ uint64_t fyai_branch_timestamp(void)
 		return 0;
 	usec = (uint64_t)ts.tv_sec * 1000000U + ts.tv_nsec / 1000U;
 	return usec <= FYGT_INT_INPLACE_MAX ? usec : 0;
+}
+
+/*
+ * The directory the invocation runs in, as the starting directory of a branch
+ * published for the first time. getcwd() returns an absolute path; no second
+ * resolver is applied, so the value does not depend on further filesystem
+ * state. Returns fy_invalid when the directory cannot be read, which stores
+ * null and reads back as an unknown directory.
+ */
+fy_generic fyai_branch_cwd_generic(struct fy_generic_builder *gb)
+{
+	char cwd[PATH_MAX];
+
+	if (!gb || !getcwd(cwd, sizeof(cwd)))
+		return fy_invalid;
+	return fy_value(gb, cwd);
 }
 
 /* Characters git's check-ref-format rejects that also have meaning to us:
@@ -312,6 +330,9 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->entry = fy_invalid;
 	b->config = fy_invalid;
 	b->head = fy_invalid;
+	b->created = fy_invalid;
+	b->updated = fy_invalid;
+	b->cwd = fy_invalid;
 	b->description = fy_invalid;
 	b->agent = fy_invalid;
 	b->op = fy_invalid;
@@ -324,6 +345,9 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->entry = entry;
 	b->config = fyai_branch_member(entry, "config");
 	b->head = fyai_branch_member(entry, "head");
+	b->created = fyai_branch_member(entry, "created");
+	b->updated = fyai_branch_member(entry, "updated");
+	b->cwd = fyai_branch_member(entry, "cwd");
 	b->description = fyai_branch_member(entry, "description");
 	b->agent = fyai_branch_member(entry, "agent");
 	b->op = fyai_branch_member(entry, "op");
@@ -343,20 +367,43 @@ bool fyai_branch_lookup(fy_generic branches, const char *name,
 	return fyai_branch_decode(entry, b);
 }
 
-fy_generic fyai_branch_build(struct fy_generic_builder *gb, fy_generic config,
-			     fy_generic head, fy_generic created,
-			     fy_generic description, fy_generic agent,
-			     fy_generic op, fy_generic from, fy_generic prev)
+uint64_t fyai_branch_updated(const struct fyai_branch *b)
+{
+	if (fy_is_valid(b->updated))
+		return (uint64_t)fy_number(b->updated, 0);
+	/* A legacy entry stamps its publication as "created". */
+	return (uint64_t)fy_number(b->created, 0);
+}
+
+uint64_t fyai_branch_created(const struct fyai_branch *b)
+{
+	/* Unknown for a legacy entry: its "created" is the update time. */
+	if (fy_is_invalid(b->updated))
+		return 0;
+	return (uint64_t)fy_number(b->created, 0);
+}
+
+const char *fyai_branch_cwd(const struct fyai_branch *b)
+{
+	/* Reference the stored generic: a by-value cast of a short string has
+	 * no storage outside this frame to point at. */
+	return fy_castp(&b->cwd, (const char *)NULL);
+}
+
+fy_generic fyai_branch_build(struct fy_generic_builder *gb,
+			     const struct fyai_branch *b)
 {
 	return fy_mapping(gb,
-			  "config", fyai_generic_or_null(config),
-			  "head", fyai_generic_or_null(head),
-			  "created", fyai_generic_or_null(created),
-			  "description", fyai_generic_or_null(description),
-			  "agent", fyai_generic_or_null(agent),
-			  "op", fyai_generic_or_null(op),
-			  "from", fyai_generic_or_null(from),
-			  "prev", fyai_generic_or_null(prev));
+			  "config", fyai_generic_or_null(b->config),
+			  "head", fyai_generic_or_null(b->head),
+			  "created", fyai_generic_or_null(b->created),
+			  "updated", fyai_generic_or_null(b->updated),
+			  "cwd", fyai_generic_or_null(b->cwd),
+			  "description", fyai_generic_or_null(b->description),
+			  "agent", fyai_generic_or_null(b->agent),
+			  "op", fyai_generic_or_null(b->op),
+			  "from", fyai_generic_or_null(b->from),
+			  "prev", fyai_generic_or_null(b->prev));
 }
 
 long long fyai_branch_turn_count(fy_generic head, long long limit)
@@ -586,8 +633,8 @@ static fy_generic branch_list_data(struct fyai_ctx *ctx, const char *under,
 						FYAI_BRANCH_WALK_MAX)),
 				   "model", fy_value(gb,
 					fy_get(b.config, "model", "-")),
-				   "updated", fy_value(gb,
-					fy_get(entry, "created", 0LL)),
+				   "updated", fy_value(gb, (long long)
+					fyai_branch_updated(&b)),
 				   "description", fy_value(gb,
 					fy_is_valid(b.description) ?
 					fy_get(entry, "description", "") : "")));
@@ -640,14 +687,17 @@ int fyai_branch_show(struct fyai_ctx *ctx, const char *name)
 		"turns", fy_value(gb, fyai_branch_turn_count(b.head,
 					FYAI_BRANCH_WALK_MAX)),
 		"model", fy_value(gb, fy_get(b.config, "model", "-")),
-		"created", fy_value(gb, fy_get(b.entry, "created", 0LL)),
+		"created", fy_value(gb, (long long)fyai_branch_created(&b)),
+		"updated", fy_value(gb, (long long)fyai_branch_updated(&b)),
+		"directory", fy_value(gb, fyai_branch_cwd(&b) ? : "-"),
 		"description", fy_value(gb, fy_get(b.entry, "description", "-")),
 		"agent", fy_value(gb, fy_get(b.agent, "persona", "-")),
 		"reflog_entries", fy_value(gb, branch_chain_len(b.entry)));
 	opts = fy_mapping(gb, "title", "Branch", "key_header", "Field",
 			  "value_header", "Value",
 			  "columns", fy_mapping(gb,
-				"created", fy_mapping(gb, "format", "time")));
+				"created", fy_mapping(gb, "format", "time"),
+				"updated", fy_mapping(gb, "format", "time")));
 	return fyai_generic_to_markdown(ctx, opts, data);
 }
 
@@ -676,8 +726,8 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 		       const char *start, const char *description,
 		       bool switch_to)
 {
-	struct fyai_branch b, cur;
-	fy_generic head, entry, branches, desc, config;
+	struct fyai_branch b, cur, nb;
+	fy_generic head, entry, branches, desc, config, now;
 	bool found;
 	int rc;
 
@@ -706,12 +756,20 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 
 	desc = description ? fy_value(ctx->gb, description) : fy_invalid;
 
-	entry = fyai_branch_build(ctx->gb, config, head,
-				  fy_value(ctx->gb, (long long)
-					   fyai_branch_timestamp()),
-				  desc, fy_invalid,
-				  fy_value(ctx->gb, FYAI_BRANCH_OP_CREATE),
-				  fy_invalid, fy_invalid);
+	now = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	memset(&nb, 0, sizeof(nb));
+	nb.entry = fy_invalid;
+	nb.config = config;
+	nb.head = head;
+	nb.created = now;
+	nb.updated = now;
+	nb.cwd = fyai_branch_cwd_generic(ctx->gb);
+	nb.description = desc;
+	nb.agent = fy_invalid;
+	nb.op = fy_value(ctx->gb, FYAI_BRANCH_OP_CREATE);
+	nb.from = fy_invalid;
+	nb.prev = fy_invalid;
+	entry = fyai_branch_build(ctx->gb, &nb);
 	branches = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
 	rc = branches_publish(ctx, branches);
 	fyai_error_check(ctx, !rc, err_out,
@@ -773,12 +831,12 @@ int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force)
 		found = fyai_branch_decode(entry, &b);
 		fyai_error_check(ctx, found, err_out,
 				 "could not decode child branch '%s'", nm);
-		entry = fyai_branch_build(ctx->gb, b.config, b.head,
-				fy_value(ctx->gb, (long long)
-					 fyai_branch_timestamp()),
-				b.description, b.agent,
-				fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME),
-				fy_value(ctx->gb, nm), entry);
+		b.updated = fy_value(ctx->gb, (long long)
+				     fyai_branch_timestamp());
+		b.op = fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME);
+		b.from = fy_value(ctx->gb, nm);
+		b.prev = entry;
+		entry = fyai_branch_build(ctx->gb, &b);
 		fyai_error_check(ctx, fy_is_valid(entry), err_out,
 				 "could not record reparenting of '%s'", nm);
 		branches = fyai_branches_set(ctx->gb, branches, newname, entry);
@@ -847,12 +905,12 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 		/* Record the previous name in the branch ref log. */
 		if (strcmp(nm, fyai_ctx_branch(ctx))) {
 			fyai_branch_decode(entry, &b);
-			entry = fyai_branch_build(ctx->gb, b.config, b.head,
-					fy_value(ctx->gb, (long long)
-						 fyai_branch_timestamp()),
-					b.description, b.agent,
-					fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME),
-					fy_value(ctx->gb, nm), entry);
+			b.updated = fy_value(ctx->gb, (long long)
+					     fyai_branch_timestamp());
+			b.op = fy_value(ctx->gb, FYAI_BRANCH_OP_RENAME);
+			b.from = fy_value(ctx->gb, nm);
+			b.prev = entry;
+			entry = fyai_branch_build(ctx->gb, &b);
 			if (!fy_is_valid(entry)) {
 				fyai_error(ctx, "could not record the rename "
 					   "of '%s'", nm);
@@ -1003,12 +1061,12 @@ int fyai_branch_describe(struct fyai_ctx *ctx, const char *name,
 		return fyai_publish_state(ctx);
 	}
 
-	entry = fyai_branch_build(ctx->gb, b.config, b.head,
-				  fy_value(ctx->gb, (long long)
-					   fyai_branch_timestamp()),
-				  desc, b.agent,
-				  fy_value(ctx->gb, FYAI_BRANCH_OP_DESCRIBE),
-				  fy_invalid, b.entry);
+	b.updated = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	b.description = desc;
+	b.op = fy_value(ctx->gb, FYAI_BRANCH_OP_DESCRIBE);
+	b.from = fy_invalid;
+	b.prev = b.entry;
+	entry = fyai_branch_build(ctx->gb, &b);
 	branches = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
 	return branches_publish(ctx, branches);
 }

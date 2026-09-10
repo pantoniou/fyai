@@ -183,6 +183,7 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 			return false;
 		if (!root_ref_contained(a, b.config) ||
 		    !root_ref_contained(a, b.head) ||
+		    !root_ref_contained(a, b.cwd) ||
 		    !root_ref_contained(a, b.description) ||
 		    !root_ref_contained(a, b.agent) ||
 		    !root_ref_contained(a, b.op) ||
@@ -918,13 +919,14 @@ err_out:
 /* Build and splice the active branch entry. */
 static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 {
-	fy_generic entry, created, opv, fromv;
-	struct fyai_branch prev;
+	fy_generic entry, now;
+	struct fyai_branch prev, nb;
 	const char *name, *op;
 	bool same;
 
 	name = fyai_ctx_branch(ctx);
-	created = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	now = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	fyai_branch_decode(ctx->branch_prev, &prev);
 
 	/* Infer an unlabeled publish from whether the head changed. */
 	op = ctx->branch_op;
@@ -933,18 +935,34 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 		 * Structural sharing makes raw generic identity sufficient,
 		 * including when both heads are invalid.
 		 */
-		fyai_branch_decode(ctx->branch_prev, &prev);
 		same = prev.head.v == ctx->last_message.v;
 		op = same ? FYAI_BRANCH_OP_CONFIG : FYAI_BRANCH_OP_TURN;
 	}
-	opv = fy_value(ctx->gb, op);
-	fromv = ctx->branch_op_from ?
+
+	/*
+	 * The creation time and the starting directory describe where the
+	 * branch began, so they are carried from the predecessor entry and are
+	 * set only by the first publication. A legacy predecessor has no
+	 * "updated" member, and its "created" is the time of that publication:
+	 * adopt it as the creation time now that the two are distinct.
+	 */
+	nb = prev;
+	nb.entry = fy_invalid;
+	nb.config = ctx->arena_config;
+	nb.head = ctx->last_message;
+	nb.created = fy_is_valid(prev.created) ? prev.created : now;
+	nb.updated = now;
+	if (fy_is_invalid(nb.cwd))
+		nb.cwd = fyai_branch_cwd_generic(ctx->gb);
+	nb.description = ctx->branch_desc;
+	nb.agent = ctx->branch_agent;
+	nb.op = fy_value(ctx->gb, op);
+	nb.from = ctx->branch_op_from ?
 		fy_value(ctx->gb, ctx->branch_op_from) : fy_invalid;
+	nb.prev = ctx->branch_prev;
 	fyai_branch_op_set(ctx, NULL, NULL);
 
-	entry = fyai_branch_build(ctx->gb, ctx->arena_config, ctx->last_message,
-				  created, ctx->branch_desc, ctx->branch_agent,
-				  opv, fromv, ctx->branch_prev);
+	entry = fyai_branch_build(ctx->gb, &nb);
 	if (!fy_is_valid(entry)) {
 		fyai_error(ctx, "could not build the entry for branch '%s'",
 			   name);
@@ -1533,10 +1551,8 @@ static fy_generic fyai_branch_reflog_trim(struct fyai_ctx *ctx, fy_generic entry
 	for (i = n - 1; i >= 0; i--) {
 		if (!fyai_branch_decode(scratch[i], &b))
 			return fy_invalid;
-		rebuilt = fyai_branch_build(ctx->gb, b.config, b.head,
-					    fy_get(scratch[i], "created"),
-					    b.description, b.agent, b.op,
-					    b.from, rebuilt);
+		b.prev = rebuilt;
+		rebuilt = fyai_branch_build(ctx->gb, &b);
 		if (!fy_is_valid(rebuilt))
 			return fy_invalid;
 	}

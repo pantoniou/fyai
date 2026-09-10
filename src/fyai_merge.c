@@ -69,7 +69,7 @@ int fyai_turn_times_collect(struct fyai_ctx *ctx, fy_generic entry,
 				items = grown;
 			}
 			items[n].turn = b.head.v;
-			items[n].when = fy_get(b.entry, "created", 0ULL);
+			items[n].when = fyai_branch_updated(&b);
 			n++;
 		}
 		entry = b.prev;

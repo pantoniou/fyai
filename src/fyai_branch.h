@@ -39,17 +39,33 @@ int fyai_cfg_branch_from_env(struct fyai_cfg *cfg);
 /* Return the current time in microseconds as an inline generic integer. */
 uint64_t fyai_branch_timestamp(void);
 
+/* The current directory as a string generic, or fy_invalid if unreadable. */
+fy_generic fyai_branch_cwd_generic(struct fy_generic_builder *gb);
+
 /* Decoded branch entry. Null values become fy_invalid. */
 struct fyai_branch {
 	fy_generic entry;	/* the entry mapping itself */
 	fy_generic config;	/* this branch's configuration document */
 	fy_generic head;	/* tip of the turn chain */
+	fy_generic created;	/* first publication of the branch */
+	fy_generic updated;	/* publication time of this entry */
+	fy_generic cwd;		/* directory the branch started in */
 	fy_generic description;	/* free-text purpose of the branch */
 	fy_generic agent;	/* sub-agent provenance, if any */
 	fy_generic op;		/* the operation that made this entry */
 	fy_generic from;	/* the previous name, on a rename */
 	fy_generic prev;	/* previous entry of this branch (its ref log) */
 };
+
+/*
+ * Entry metadata, for an entry of any version. An entry written before the
+ * branch carried two timestamps holds one "created" member that is the time of
+ * that publication, so it reads as the update time and leaves the creation
+ * time unknown.
+ */
+uint64_t fyai_branch_updated(const struct fyai_branch *b);
+uint64_t fyai_branch_created(const struct fyai_branch *b);
+const char *fyai_branch_cwd(const struct fyai_branch *b);
 
 /* Operations stored in branch ref-log entries. */
 #define FYAI_BRANCH_OP_TURN	"turn"
@@ -127,13 +143,14 @@ bool fyai_branch_lookup(fy_generic branches, const char *name,
 			struct fyai_branch *b);
 
 /*
- * Build a branch entry. fy_invalid members are stored as null. @prev chains to
- * this branch's predecessor entry and forms the per-branch ref log.
+ * Build a branch entry from @b. fy_invalid members are stored as null and the
+ * "entry" member is ignored. @b->prev chains to this branch's predecessor entry
+ * and forms the per-branch ref log. A caller copies the decoded predecessor and
+ * changes the members the operation changes, so metadata it does not name is
+ * preserved.
  */
-fy_generic fyai_branch_build(struct fy_generic_builder *gb, fy_generic config,
-			     fy_generic head, fy_generic created,
-			     fy_generic description, fy_generic agent,
-			     fy_generic op, fy_generic from, fy_generic prev);
+fy_generic fyai_branch_build(struct fy_generic_builder *gb,
+			     const struct fyai_branch *b);
 
 /*
  * Return a copy of @branches with @name bound to @entry, or with @name removed
