@@ -406,6 +406,144 @@ fy_generic fyai_branch_build(struct fy_generic_builder *gb,
 			  "prev", fyai_generic_or_null(b->prev));
 }
 
+/* Cap on turns walked when counting or resolving a "~N" offset. */
+#define FYAI_BRANCH_WALK_MAX 1000000
+/* Cap on ref-log entries reported for one branch. */
+#define FYAI_BRANCH_REFLOG_MAX 4096
+
+/* One candidate session, for ordering the resume rows. */
+struct branch_pick {
+	fy_generic name;
+	fy_generic entry;
+	uint64_t updated;
+};
+
+/*
+ * Newest first, then by name. The name breaks a tie so that a listing of
+ * entries published in the same microsecond keeps a stable order.
+ */
+static int branch_pick_compare(const void *a, const void *b)
+{
+	const struct branch_pick *pa = a, *pb = b;
+
+	if (pa->updated != pb->updated)
+		return pa->updated > pb->updated ? -1 : 1;
+	return strcmp(fy_castp(&pa->name, ""), fy_castp(&pb->name, ""));
+}
+
+/*
+ * Collect the resumable branches of @branches into @pickp, newest first. A
+ * sub-agent branch is work of a turn and not a session, so it is left out.
+ * With @cwd and without @all, only a branch that started in that directory is
+ * a candidate; a branch that records no directory is unknown and matches only
+ * @all. Returns the count, or -1 when the array cannot be allocated. @ctx may
+ * be NULL on a path that selects a branch before a context exists.
+ */
+static ssize_t branch_collect(struct fyai_ctx *ctx, fy_generic branches,
+			      const char *cwd, bool all,
+			      struct branch_pick **pickp)
+{
+	struct branch_pick *picks;
+	struct fyai_branch b;
+	fy_generic name, entry;
+	const char *nm, *dir;
+	size_t cap;
+	ssize_t n;
+
+	*pickp = NULL;
+	if (!fy_is_mapping(branches))
+		return 0;
+	cap = fy_generic_mapping_get_pair_count(branches);
+	if (!cap)
+		return 0;
+	picks = malloc(cap * sizeof(*picks));
+	fyai_error_check(ctx, picks, err_out,
+			 "cannot allocate %zu branch candidates", cap);
+
+	n = 0;
+	fy_foreach_key_value(name, entry, branches) {
+		nm = fy_castp(&name, "");
+		if (fy_str_empty(nm))
+			continue;
+		if (!fyai_branch_decode(entry, &b))
+			continue;
+		if (fy_is_valid(b.agent))
+			continue;
+		if (!all && cwd) {
+			dir = fyai_branch_cwd(&b);
+			if (!dir || strcmp(dir, cwd))
+				continue;
+		}
+		picks[n].name = name;
+		picks[n].entry = entry;
+		picks[n].updated = fyai_branch_updated(&b);
+		n++;
+	}
+	qsort(picks, n, sizeof(*picks), branch_pick_compare);
+	*pickp = picks;
+	return n;
+
+err_out:
+	return -1;
+}
+
+fy_generic fyai_branch_select_rows(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb,
+				   fy_generic branches, const char *cwd,
+				   bool all)
+{
+	struct branch_pick *picks;
+	struct fyai_branch b;
+	fy_generic out;
+	ssize_t n, i;
+
+	out = fy_seq_empty;
+	if (!gb)
+		return out;
+	n = branch_collect(ctx, branches, cwd, all, &picks);
+	for (i = 0; i < n; i++) {
+		if (!fyai_branch_decode(picks[i].entry, &b))
+			continue;
+		out = fy_append(gb, out,
+			fy_mapping(gb,
+				   "branch", picks[i].name,
+				   "updated", fy_value(gb, (long long)
+					picks[i].updated),
+				   "created", fy_value(gb, (long long)
+					fyai_branch_created(&b)),
+				   "cwd", fy_value(gb,
+					fyai_branch_cwd(&b) ? : ""),
+				   "turns", fy_value(gb,
+					fyai_branch_turn_count(b.head,
+						FYAI_BRANCH_WALK_MAX)),
+				   "model", fy_value(gb,
+					fy_get(b.config, "model", "-")),
+				   "description", fy_value(gb,
+					fy_get(picks[i].entry, "description",
+					       ""))));
+	}
+	free(picks);
+	return out;
+}
+
+char *fyai_branch_pick_last(struct fyai_ctx *ctx, fy_generic branches,
+			    const char *cwd, bool all)
+{
+	struct branch_pick *picks;
+	char *name;
+	ssize_t n;
+
+	n = branch_collect(ctx, branches, cwd, all, &picks);
+	name = NULL;
+	if (n > 0) {
+		name = strdup(fy_castp(&picks[0].name, ""));
+		if (!name && ctx)
+			fyai_error(ctx, "cannot name the most recent branch");
+	}
+	free(picks);
+	return name;
+}
+
 long long fyai_branch_turn_count(fy_generic head, long long limit)
 {
 	fy_generic cur;
@@ -437,11 +575,6 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 		return fy_disassoc(gb, branches, name);
 	return fy_assoc(gb, branches, name, entry);
 }
-
-/* Cap on turns walked when counting or resolving a "~N" offset. */
-#define FYAI_BRANCH_WALK_MAX 1000000
-/* Cap on ref-log entries reported for one branch. */
-#define FYAI_BRANCH_REFLOG_MAX 4096
 
 /* Length of a branch entry's own ref-log chain, bounded so a corrupt or
  * cyclic prev link cannot spin here. */

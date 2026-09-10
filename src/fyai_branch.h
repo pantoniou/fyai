@@ -162,6 +162,26 @@ fy_generic fyai_branches_set(struct fy_generic_builder *gb, fy_generic branches,
 			     const char *name, fy_generic entry);
 
 /*
+ * The resumable sessions of @branches, newest first, then by name. A sub-agent
+ * branch is left out. Without @all, only a branch whose recorded directory is
+ * @cwd is included, so a branch that records none appears only under @all.
+ * Each row is {branch, updated, created, cwd, turns, model, description}.
+ * @ctx only receives diagnostics and may be NULL, so a caller can select a
+ * branch before a context exists.
+ */
+fy_generic fyai_branch_select_rows(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb,
+				   fy_generic branches, const char *cwd,
+				   bool all);
+
+/*
+ * The most recently updated branch that fyai_branch_select_rows() would list,
+ * as a string the caller frees, or NULL when there is none. @ctx may be NULL.
+ */
+char *fyai_branch_pick_last(struct fyai_ctx *ctx, fy_generic branches,
+			    const char *cwd, bool all);
+
+/*
  * Count the turns on a branch, capped at @limit so a listing of many branches
  * cannot walk unbounded history.
  */
