@@ -49,8 +49,10 @@ first item that gives a name wins.
 
 1. The `--branch NAME` or `-b NAME` option.
 2. The `FYAI_BRANCH` environment variable.
-3. The `HEAD` value in the arena.
-4. `main`.
+3. The session the `resume` verb names, or the new session an interactive
+   invocation with no named branch starts.
+4. The `HEAD` value in the arena.
+5. `main`.
 
 Inside an interactive invocation, `/branch NAME` changes the selected branch
 for the remainder of that session and durably moves `HEAD`.
@@ -498,7 +500,66 @@ to one of the roots the arena published.
 
 Refer to section 5.2.
 
-### 6.7 Views
+### 6.7 Sessions and the `resume` verb
+
+An interactive invocation that names no branch starts a session of its own,
+under the `session/` hierarchy, named for the UTC time it started:
+
+```text
+session/20260908T142355.123456
+```
+
+The conversation the last session left is thus kept rather than continued, and
+is resumed deliberately. The name is invocation state until the session first
+publishes, so a session that asks nothing stores nothing, and starting one does
+not move `HEAD`.
+
+`--branch`/`-b`, `FYAI_BRANCH`, `--new`, a batch prompt, a verb and a sub-agent
+branch all keep their behaviour: a session is started only where no branch was
+named.
+
+```sh
+fyai resume                  # choose a session from the picker
+fyai resume <branch>         # resume one session by name
+fyai resume --last           # resume the most recently updated one
+fyai resume --all            # every starting directory, not only this one
+```
+
+A resumed session is selected for that invocation, as `--branch` is: `checkout`
+remains the only command that moves `HEAD`. Resuming restores the conversation
+and the branch configuration; it does not change the working directory of the
+process.
+
+Only symbolic names are accepted, for the reason section 5.2 gives: garbage
+collection can relocate an object, so a numeric handle is not a reference.
+
+A session records the directory it started in, and `resume` offers only the
+sessions of the directory it runs in. `--all` offers every one of them, and
+shows the directory of each. A session stored before this metadata existed
+records no directory and appears only under `--all`; it stays resumable.
+
+With no argument, `resume` opens the picker over the whole work pane, most
+recently used first:
+
+| Key | Action |
+| --- | --- |
+| Up/Down or `k`/`j` | Move through the sessions |
+| Enter | Resume the selected session |
+| `/` | Filter the names |
+| `g` | Toggle the recent list and the branch hierarchy |
+| `i` | Inspect the session |
+| `a` | Show the branch actions of section 6.4 |
+| Escape | Leave the inspection, then cancel and exit |
+
+The picker is the branch browser in a mode of its own, thus the keys of section
+6.4 are the keys here. It draws no session preview: the whole window is the
+list, and `i` inspects the session under the cursor. A cancelled picker
+publishes nothing.
+
+The picker needs an interactive terminal. Without one, name a session or use
+`--last`.
+
+### 6.8 Views
 
 `--branch` is a global option, thus it goes before the verb. Use it to examine
 a branch that is not the current branch, without a change of `HEAD`.
@@ -783,7 +844,9 @@ branches:
   main:
     config: <mapping|null>
     head:   <turn|null>
-    created: <timestamp>
+    created: <timestamp>          # the first publication of the branch
+    updated: <timestamp>          # the publication of this entry
+    cwd:    <string|null>         # the directory the branch started in
     description: <string|null>
     op:     <string>              # what made this entry (turn, merge, ...)
     from:   <string|null>         # the previous name, on a rename
@@ -792,6 +855,8 @@ branches:
     config: <mapping|null>
     head:   <turn|null>
     created: <timestamp>
+    updated: <timestamp>
+    cwd:    <string|null>
     agent:  { name: <string>, description: <string>,
               context: <fork|fresh>, persona: <string|null> }
     op:     <string>
@@ -802,6 +867,16 @@ prev: <root|null>             # the reflog of the arena
 The `config` and `head` keys are in the branch entry. The catalogue stays at the
 root level, because it is an immutable copy of provider data and not a statement
 of intent.
+
+`created` and `cwd` describe where the branch began: the first publication sets
+them and every later publication carries them. `updated` is the time of the
+entry that holds it, so it advances on every publication, a configuration
+change included. `resume` orders the sessions by it.
+
+An entry written before this shape holds one `created` member, which is the
+time of that publication: it reads as `updated`, and the creation time of such
+a branch is not known. The first publication onto it adopts that value as the
+creation time and records the directory.
 
 There are two reflog chains. The `prev` key of the root links to the previous
 root, and gives the history of the full arena. The `prev` key of a branch entry

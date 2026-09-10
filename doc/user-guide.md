@@ -101,7 +101,58 @@ fyai
 fyai -i
 ```
 
-Continue later by invoking `fyai` again from the project. The selected branch, canonical conversation, and branch configuration are loaded from the arena.
+### Sessions
+
+An interactive invocation that names no branch starts a **new session**. It
+does not continue the conversation the last session left. The session works on
+a branch of its own, under `session/`, named for the time it started:
+
+```text
+session/20260908T142355.123456
+```
+
+The name is invocation state until the session first publishes, so a session
+that asks nothing stores nothing. Starting a session does not move arena
+`HEAD`.
+
+> **This changed.** Earlier releases continued the conversation on stored
+> `HEAD`. A script that invokes `fyai -i` and expects the previous
+> conversation must now name its branch, with `--branch`/`-b` or
+> `FYAI_BRANCH`.
+
+Continue a session deliberately with `resume`:
+
+```sh
+fyai resume                  # choose a session from the picker
+fyai resume <branch>         # resume one session by name
+fyai resume --last           # resume the most recently updated one
+fyai resume --all            # offer the sessions of every directory
+```
+
+A session records the directory it started in. `resume` offers only the
+sessions that started in the directory the invocation runs in; `--all` offers
+every one of them. Sessions stored before this release record no directory and
+appear only under `--all`.
+
+Resuming restores the conversation and the branch configuration. It does not
+change the working directory of the process, and it does not move arena `HEAD`:
+a resumed session is selected for that invocation, exactly as `--branch` is.
+
+With no argument, `resume` opens a picker over the whole window: the sessions
+most recently used first.
+
+| Key | Action |
+| --- | --- |
+| Up/Down or `k`/`j` | Move through the sessions |
+| Enter | Resume the selected session |
+| `/` | Filter the names |
+| `g` | Toggle the recent list and the branch hierarchy |
+| `i` | Inspect the session |
+| `a` | Show the branch actions |
+| Escape | Leave the inspection, then cancel and exit |
+
+A cancelled picker stores nothing. The picker needs an interactive terminal;
+without one, name a session or use `--last`.
 
 ## 2. The mental model
 
@@ -129,7 +180,9 @@ Each branch owns:
 
 - its conversation head;
 - its stored configuration;
-- creation and descriptive metadata;
+- the time it was created and the time of its current entry;
+- the directory it started in;
+- descriptive metadata;
 - agent metadata where the branch belongs to a sub-agent;
 - a branch-local reflog.
 
@@ -139,8 +192,10 @@ At the start of an invocation, the current branch is selected in this order:
 
 1. `--branch NAME` / `-b NAME`;
 2. `FYAI_BRANCH`;
-3. arena `HEAD`;
-4. the default branch.
+3. the session `resume` names, or the new session an interactive invocation
+   starts;
+4. arena `HEAD`;
+5. the default branch.
 
 A one-shot `--branch` selection does not move arena `HEAD`. `checkout` does.
 Within an interactive invocation, `/branch NAME` changes the selected branch
