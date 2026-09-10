@@ -75,6 +75,14 @@ bool fyai_config_has_raw_secret(fy_generic doc);
  * Read a branch configuration without a context. Internalize results into
  * @gb. @branchp receives an allocated copy of the selected branch name.
  */
+/*
+ * The most recently updated resumable branch, without a context. @cwd and @all
+ * select as fyai_branch_select_rows() does. Returns an allocated name, or NULL
+ * when no branch matches.
+ */
+char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
+			    const char *cwd, bool all);
+
 int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 			   const char *root_spec, struct fy_generic_builder *gb,
 			   fy_generic *configp, fy_generic *catalogp,

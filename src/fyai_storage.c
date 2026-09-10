@@ -1057,29 +1057,29 @@ err_out:
  * missing/fresh arena is not an error (outputs stay fy_invalid); an
  * unrecognizable root is.
  */
-int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
-			   const char *root_spec, struct fy_generic_builder *gb,
-			   fy_generic *configp, fy_generic *catalogp,
-			   char **branchp, fy_generic_value *rootp)
+/*
+ * Open the arena of @arena_dir_opt and resolve its root, before a context
+ * exists. On success the caller owns @allocatorp and must destroy it; it is
+ * left NULL when there is no arena to read, which is not a failure. @refsp
+ * receives 0 for an arena with no published root. @dirp receives the directory
+ * for a report. Returns 0 on success, -1 for a --root that names no root,
+ * which is reported on standard error because the sink does not exist yet.
+ */
+static int peek_arena_open(const char *arena_dir_opt, const char *root_spec,
+			   struct fy_allocator **allocatorp, uint64_t *refsp,
+			   fy_generic_value *rootp, char **dirp)
 {
 	struct fy_durable_allocator_cfg dur_cfg = {};
 	struct fy_allocator *allocator;
-	struct fyai_branch b;
-	struct fyai_root r;
-	const char *name;
+	fy_generic_value pinned;
 	char *arena_dir;
 	uint64_t refs;
-	fy_generic_value pinned;
-	fy_generic root;
 	int ret;
 
-	*configp = fy_invalid;
-	if (catalogp)
-		*catalogp = fy_invalid;
-	if (branchp)
-		*branchp = NULL;
-	if (rootp)
-		*rootp = 0;
+	*allocatorp = NULL;
+	*refsp = 0;
+	if (dirp)
+		*dirp = NULL;
 	ret = 0;
 
 	arena_dir = arena_dir_opt ? strdup(arena_dir_opt) :
@@ -1112,6 +1112,69 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 		if (rootp)
 			*rootp = pinned;
 	}
+	*allocatorp = allocator;
+	*refsp = refs;
+out:
+	if (dirp && *allocatorp) {
+		*dirp = arena_dir;
+		return ret;
+	}
+	free(arena_dir);
+	return ret;
+}
+
+char *fyai_peek_branch_pick(const char *arena_dir_opt, const char *root_spec,
+			    const char *cwd, bool all)
+{
+	struct fy_allocator *allocator;
+	struct fyai_root r;
+	fy_generic root;
+	uint64_t refs;
+	char *name;
+
+	if (peek_arena_open(arena_dir_opt, root_spec, &allocator, &refs, NULL,
+			    NULL) || !allocator)
+		return NULL;
+	name = NULL;
+	if (refs) {
+		root = (fy_generic){ .v = refs };
+		/* Validate the root before following the branch table. */
+		if (fyai_root_validate(allocator, root) &&
+		    fyai_root_decode(root, &r) >= 0)
+			name = fyai_branch_pick_last(NULL, r.branches, cwd,
+						     all);
+	}
+	fy_allocator_destroy(allocator);
+	return name;
+}
+
+int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
+			   const char *root_spec, struct fy_generic_builder *gb,
+			   fy_generic *configp, fy_generic *catalogp,
+			   char **branchp, fy_generic_value *rootp)
+{
+	struct fy_allocator *allocator;
+	struct fyai_branch b;
+	struct fyai_root r;
+	const char *name;
+	char *arena_dir;
+	uint64_t refs;
+	fy_generic root;
+	int ret;
+
+	*configp = fy_invalid;
+	if (catalogp)
+		*catalogp = fy_invalid;
+	if (branchp)
+		*branchp = NULL;
+	if (rootp)
+		*rootp = 0;
+	ret = 0;
+
+	ret = peek_arena_open(arena_dir_opt, root_spec, &allocator, &refs, rootp,
+			      &arena_dir);
+	if (ret || !allocator)
+		return ret;
 	if (refs) {
 		root = (fy_generic){ .v = refs };
 		/* Validate root containment before following stored references. */
@@ -1148,7 +1211,6 @@ int fyai_peek_arena_config(const char *arena_dir_opt, const char *branch_opt,
 		}
 	}
 	fy_allocator_destroy(allocator);
-out:
 	free(arena_dir);
 	return ret;
 }

@@ -2780,6 +2780,47 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 	return 0;
 }
 
+/*
+ * Select the branch the resume verb names, before the configuration is loaded.
+ * The branch is selected for this invocation only, exactly as --branch is, so
+ * stored HEAD does not move. Returns 0 on success, -1 with a diagnostic
+ * raised.
+ */
+static int config_select_resume(struct fyai_cfg *cfg, int argc, char *argv[])
+{
+	struct fyai_resume_args *args = &cfg->cmd.args.resume;
+	char cwd[PATH_MAX];
+	char *name;
+
+	if (fyai_resume_parse(cfg, argc, argv))
+		return -1;
+
+	/* No branch and no --last: the picker selects during the session. */
+	if (args->branch)
+		return fyai_cfg_set_branch(cfg, args->branch);
+	if (!args->last)
+		return 0;
+
+	if (!getcwd(cwd, sizeof(cwd))) {
+		fyai_cfg_error(cfg, "resume: cannot read the current directory");
+		return -1;
+	}
+	name = fyai_peek_branch_pick(NULL, cfg->root_spec, cwd, args->all);
+	if (!name) {
+		fyai_cfg_error(cfg, args->all ?
+			"resume: no resumable session; run fyai to start one" :
+			"resume: no resumable session started in this "
+			"directory; use --all, or run fyai to start one");
+		return -1;
+	}
+	if (fyai_cfg_set_branch(cfg, name)) {
+		free(name);
+		return -1;
+	}
+	free(name);
+	return 0;
+}
+
 int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 {
 	struct fy_generic_builder_cfg gb_cfg;
@@ -2826,6 +2867,14 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 * known to read the right one.
 	 */
 	if (fyai_cfg_branch_from_env(cfg))
+		goto err_out;
+
+	/*
+	 * The resume verb selects a branch for the same reason, so it is
+	 * settled here too, before the configuration of that branch is read.
+	 */
+	if (arg_index < argc && !strcmp(argv[arg_index], "resume") &&
+	    config_select_resume(cfg, argc - arg_index, argv + arg_index))
 		goto err_out;
 
 	rc = fyai_config_load(cfg, cli.config, cli.env);
@@ -2885,6 +2934,9 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		cfg->cmd.id = fyai_get_verb_id(verb);
 		argv += arg_index;
 		argc -= arg_index;
+		/* Resume continues a session at the prompt, as a verb of its own. */
+		if (cfg->cmd.id == FYAIVID_RESUME)
+			cfg->interactive = true;
 	} else {
 		stdin_prompt = (!cfg->interactive && arg_index >= argc &&
 				!terminal_is_tty(STDIN_FILENO)) ||

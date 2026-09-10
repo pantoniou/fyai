@@ -55,6 +55,7 @@ enum fyai_verb_id {
 	FYAIVID_EXPORT,
 	FYAIVID_IMPORT,
 	FYAIVID_REPLAY,
+	FYAIVID_RESUME,
 	FYAIVID_TERM,
 	FYAIVID_HELP,
 };
@@ -91,6 +92,13 @@ int fyai_run(struct fyai_cfg *cfg);
  * Returns 0 on success, -1 on error
  */
 int fyai_configure(struct fyai_cfg *cfg, int argc, char *argv[]);
+
+/*
+ * Parse the `resume` verb's own arguments into @cfg. Called before the
+ * configuration is loaded, because the branch it selects decides which
+ * configuration the run reads.
+ */
+int fyai_resume_parse(struct fyai_cfg *cfg, int argc, char *argv[]);
 
 /* Print the top-level usage (verbs + global options) to @fp. */
 void fyai_usage(FILE *fp, const char *progname, const char *color_mode);
@@ -143,6 +151,13 @@ struct fyai_display_args {
 
 struct fyai_export_args {
 	const char *path;	/* NULL is standard output */
+};
+
+/* `fyai resume`: continue a stored session instead of starting a fresh one. */
+struct fyai_resume_args {
+	const char *branch;	/* resume this branch, without moving HEAD */
+	bool last;		/* resume the most recently updated branch */
+	bool all;		/* every starting directory, not only this one */
 };
 
 struct fyai_replay_args {
@@ -341,6 +356,7 @@ union fyai_cmd_args {
 	struct fyai_export_args export;
 	struct fyai_import_args import;
 	struct fyai_replay_args replay;
+	struct fyai_resume_args resume;
 	struct fyai_term_args term;
 };
 

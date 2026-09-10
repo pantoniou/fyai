@@ -70,6 +70,7 @@ void fyai_usage(FILE *fp, const char *progname, const char *color_mode)
 	ITEM("display [opts]", "Alias for transcript");
 	ITEM("export [-o file]", "Export the conversation as Markdown (stdout by default)");
 	ITEM("import [-i file]", "Import a conversation (stdin by default)");
+	ITEM("resume [branch]", "Resume a session (--last, --all; no argument picks)");
 	ITEM("replay [opts]", "Re-issue the branch's user turns against the current state");
 	ITEM("stats [--raw|--json|--yaml]", "Report cumulative token/cost usage");
 	ITEM("config [args]", "show|get|set|delete|edit|import|export");
@@ -1590,6 +1591,56 @@ static int execute_branch(struct fyai_ctx *ctx)
 	return -1;
 }
 
+/*
+ * Parse the resume verb's arguments. The selected branch decides which
+ * configuration the run loads, so this is called before the configuration is
+ * loaded and configure_resume() has nothing left to do.
+ */
+int fyai_resume_parse(struct fyai_cfg *cfg, int argc, char *argv[])
+{
+	struct fyai_resume_args *args = &cfg->cmd.args.resume;
+	int i;
+
+	args->branch = NULL;
+	args->last = false;
+	args->all = false;
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--last")) {
+			args->last = true;
+			continue;
+		}
+		if (!strcmp(argv[i], "--all")) {
+			args->all = true;
+			continue;
+		}
+		if (argv[i][0] == '-' && argv[i][1]) {
+			fyai_cfg_error(cfg, "resume: unknown option '%s'",
+				       argv[i]);
+			return -1;
+		}
+		if (args->branch) {
+			fyai_cfg_error(cfg, "resume: unexpected argument '%s'",
+				       argv[i]);
+			return -1;
+		}
+		args->branch = argv[i];
+	}
+	if (args->branch && args->last) {
+		fyai_cfg_error(cfg, "resume: --last does not take a branch");
+		return -1;
+	}
+	return 0;
+}
+
+/* The arguments are parsed before the configuration is loaded. */
+static int configure_resume(int argc, char **argv, struct fyai_cfg *cfg)
+{
+	(void)argc;
+	(void)argv;
+	(void)cfg;
+	return 0;
+}
+
 static int configure_checkout(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	struct fyai_checkout_args *args = &cfg->cmd.args.checkout;
@@ -2074,6 +2125,23 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.help      = "The default prompt mode\n",
 		.flags	   = FYAIVF_INTERACTIVE | FYAIVF_NEEDS_API_KEYS,
 		.default_args.prompt = {
+		},
+	},
+	[FYAIVID_RESUME] = {
+		.id	   = FYAIVID_RESUME,
+		.name	   = "resume",
+		.configure = configure_resume,
+		.execute   = fyai_prompt,
+		.synopsis  = "resume [<branch>] [--last] [--all]",
+		.help      = "Continue a stored session. With no argument it opens the\n"
+			     "session picker; a branch name resumes that session, and\n"
+			     "--last resumes the most recently updated one. Only the\n"
+			     "sessions that started in this directory are offered, and\n"
+			     "--all offers every one of them. The session is selected for\n"
+			     "this invocation only: HEAD does not move, and the working\n"
+			     "directory does not change.\n",
+		.flags	   = FYAIVF_INTERACTIVE | FYAIVF_NEEDS_API_KEYS,
+		.default_args.resume = {
 		},
 	},
 	[FYAIVID_INIT] = {
