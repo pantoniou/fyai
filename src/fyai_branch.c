@@ -411,6 +411,47 @@ fy_generic fyai_branch_build(struct fy_generic_builder *gb,
 /* Cap on ref-log entries reported for one branch. */
 #define FYAI_BRANCH_REFLOG_MAX 4096
 
+/*
+ * Name the branch a fresh interactive session publishes to, as
+ * "session/<YYYYMMDD>T<HHMMSS>.<microseconds>" in UTC. The time states when
+ * the session started and orders the names as it orders the sessions. A name
+ * already in @branches is resolved by a numeric suffix, so the caller always
+ * receives a free one. Returns 0 on success, -1 when the name cannot be
+ * formed.
+ */
+int fyai_branch_session_name(fy_generic branches, char *buf, size_t size)
+{
+	struct fyai_branch b;
+	struct tm tm;
+	uint64_t usec;
+	time_t secs;
+	char stamp[32];
+	unsigned int n;
+	int len;
+
+	usec = fyai_branch_timestamp();
+	secs = (time_t)(usec / 1000000U);
+	if (!gmtime_r(&secs, &tm))
+		return -1;
+	if (!strftime(stamp, sizeof(stamp), "%Y%m%dT%H%M%S", &tm))
+		return -1;
+	len = snprintf(buf, size, "%s/%s.%06u", FYAI_BRANCH_SESSION_PREFIX,
+		       stamp, (unsigned int)(usec % 1000000U));
+	if (len < 0 || (size_t)len >= size)
+		return -1;
+	/* The clock can repeat a microsecond across two invocations. */
+	for (n = 2; fyai_branch_lookup(branches, buf, &b); n++) {
+		if (n > 1000)
+			return -1;
+		len = snprintf(buf, size, "%s/%s.%06u-%u",
+			       FYAI_BRANCH_SESSION_PREFIX, stamp,
+			       (unsigned int)(usec % 1000000U), n);
+		if (len < 0 || (size_t)len >= size)
+			return -1;
+	}
+	return 0;
+}
+
 /* One candidate session, for ordering the resume rows. */
 struct branch_pick {
 	fy_generic name;

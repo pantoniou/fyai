@@ -2947,6 +2947,15 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		if (arg_index >= argc && !stdin_prompt)
 			cfg->interactive = true;
 
+		/*
+		 * An interactive session that names no branch starts one of
+		 * its own, so the conversation the last session left is kept
+		 * and is resumed deliberately. --new clears a named branch and
+		 * a pinned root is read-only, so neither starts a session.
+		 */
+		cfg->fresh_session = cfg->interactive && !cfg->branch_explicit &&
+			!cfg->new_conversation && !cfg->root_spec;
+
 		prompt = NULL;
 		if (stdin_prompt) {
 			prompt = read_all_stdin();

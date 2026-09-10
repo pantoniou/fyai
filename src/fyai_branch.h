@@ -92,6 +92,15 @@ bool fyai_branch_name_valid(const char *name);
  */
 bool fyai_branch_name_ref_valid(const char *name);
 
+/* The hierarchy a fresh interactive session is named under. */
+#define FYAI_BRANCH_SESSION_PREFIX "session"
+
+/*
+ * Name the branch of a fresh interactive session, under the session
+ * hierarchy and free in @branches. Returns 0 on success, -1 on failure.
+ */
+int fyai_branch_session_name(fy_generic branches, char *buf, size_t size);
+
 /* The marker that makes a branch component a sub-agent branch. */
 #define FYAI_BRANCH_AGENT_PREFIX "agent:"
 

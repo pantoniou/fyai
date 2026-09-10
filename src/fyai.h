@@ -306,6 +306,12 @@ struct fyai_cfg {
 	/* Active branch selection and whether the user selected it explicitly. */
 	char *branch;
 	bool branch_explicit;
+	/*
+	 * Start this interactive session on a branch of its own, named when
+	 * storage opens. An invocation that names no branch does not continue
+	 * the conversation the last one left.
+	 */
+	bool fresh_session;
 	/* Read-only root selection, resolved when the arena opens. */
 	char *root_spec;
 	fy_generic_value root_ref;

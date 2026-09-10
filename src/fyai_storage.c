@@ -719,6 +719,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_branch b;
 	struct fyai_root r;
+	char session[FYAI_BRANCH_NAME_MAX + 1];
 	const char *name;
 	fy_generic root;
 	bool asked;
@@ -810,12 +811,32 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		ctx->branch_agent = b.agent;
 		ctx->branch_prev = b.entry;
 		/*
+		 * A fresh session takes the configuration of the branch HEAD
+		 * names and none of its conversation. The name is invocation
+		 * state until the first publish, so a session that asks
+		 * nothing stores nothing, and HEAD does not move.
+		 */
+		if (cfg->fresh_session) {
+			rc = fyai_branch_session_name(r.branches, session,
+						      sizeof(session));
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not name a new session");
+			rc = fyai_ctx_set_branch(ctx, session);
+			fyai_error_check(ctx, !rc, err_out,
+					 "could not select the new session");
+			ctx->branch_desc = fy_invalid;
+			ctx->branch_agent = fy_invalid;
+			ctx->branch_prev = fy_invalid;
+		}
+		/*
 		 * --new is a clear: drop the head and publish the reset as a
 		 * turnless reflog entry, exactly like the /clear command; the
 		 * config and catalog ride along unchanged. It is scoped to this
 		 * branch and leaves every other branch alone.
 		 */
-		if (!cfg->new_conversation)
+		if (cfg->fresh_session)
+			ctx->last_message = fy_invalid;
+		else if (!cfg->new_conversation)
 			ctx->last_message = b.head;
 		else {
 			rc = fyai_publish_state(ctx);
