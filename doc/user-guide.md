@@ -748,6 +748,9 @@ limits the complete invocation to 16 live agents by default. The existing
 `agent/max_branch_depth` limit also applies. Direct agents show their output
 in the work pane. Their children show compact progress; deeper work contributes
 descendant counts. `/branches` shows the complete branch tree and live states.
+The tile header of a sub-agent shows the branch, the model, the execution id,
+and the running time after the agent description. While a turn runs, the input
+pane header shows the running time of the turn.
 
 ### A question from a sub-agent
 
