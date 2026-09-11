@@ -9,6 +9,7 @@
 #define FYAI_EVENT_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
 
@@ -57,6 +58,12 @@ typedef enum fyai_event_action (*fyai_event_cb)(const struct fyai_event *ev);
 typedef int64_t fyai_event_ms_t;
 
 fyai_event_ms_t fyai_event_now_ms(void);
+
+/*
+ * Format the time since @since_ms as " 42s" or " 3m07s". Write an empty
+ * string when @since_ms is not positive.
+ */
+void fyai_event_elapsed_format(char *buf, size_t size, fyai_event_ms_t since_ms);
 
 /* @ctx must outlive the loop. */
 struct fyai_event_loop *fyai_event_loop_create(struct fyai_ctx *ctx);

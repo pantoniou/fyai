@@ -53,6 +53,8 @@ struct fyai_ui {
 	volatile bool ready;
 	bool quit;
 	bool busy;
+	fyai_event_ms_t busy_since_ms;
+	long long busy_shown_s;
 	bool activity_paused;
 	bool external;
 	struct fytim_workband *tool_band;
@@ -67,6 +69,7 @@ struct fyai_ui {
 	char *tool_error;	/* short failure cause, shown beside the mark */
 	char *tool_body;
 	char *status_bottom;
+	char *status_top;
 	char *editor_path;
 	size_t tool_body_len;
 	int activity_phase;
@@ -117,20 +120,40 @@ static int ui_status_render(struct fyai_ui *ui, const char *activity)
 	while (end > start &&
 	       (out.data[end - 1] == '\n' || out.data[end - 1] == '\r'))
 		end--;
-	line = malloc(end - start + 1);
-	if (!line) {
-		free(out.data);
-		return -1;
-	}
-	memcpy(line, out.data + start, end - start);
-	line[end - start] = '\0';
+	rc = asprintf(&line, "%.*s", (int)(end - start), out.data + start);
+	free(out.data);
+	fyai_error_check(ui->ctx, rc >= 0, err_out,
+			 "cannot format the status row");
 	for (p = line, i = 0; i < end - start; i++)
 		if (p[i] == '\n' || p[i] == '\r')
 			p[i] = ' ';
 	rc = fytim_set_status_row(ui->ft, 1, line) == FYTIM_OK ? 0 : -1;
 	free(line);
-	free(out.data);
 	return rc;
+
+err_out:
+	return -1;
+}
+
+/* Show the busy-turn duration after the stored input pane header. */
+static int ui_header_tick(struct fyai_ui *ui)
+{
+	char elapsed[24];
+	char *line;
+	int rc;
+
+	if (!ui->busy || !ui->status_top)
+		return 0;
+	fyai_event_elapsed_format(elapsed, sizeof(elapsed), ui->busy_since_ms);
+	rc = asprintf(&line, "%s%s", ui->status_top, elapsed);
+	fyai_error_check(ui->ctx, rc >= 0, err_out,
+			 "cannot format the input pane header");
+	rc = fytim_set_header(ui->ft, line) == FYTIM_OK ? 0 : -1;
+	free(line);
+	return rc;
+
+err_out:
+	return -1;
 }
 
 static int ui_append_shell_command(struct fyai_cfg *cfg,
@@ -264,6 +287,7 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 {
 	struct timespec ts;
 	unsigned int interval_ms = 500;
+	long long busy_s;
 	int phase;
 	char *activity;
 	int rc = -1;
@@ -280,11 +304,17 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	if (!interval_ms)
 		interval_ms = 500;
 	ui->activity_interval_ms = interval_ms;
+	if (ui->busy && ui->activity_interval_ms > 1000)
+		ui->activity_interval_ms = 1000;
 	phase = (int)(((uint64_t)ts.tv_sec * 1000 +
 		       (uint64_t)ts.tv_nsec / 1000000) / interval_ms);
-	if (phase == ui->activity_phase)
+	/* The busy counter advances each second, also with a slow indicator. */
+	busy_s = ui->busy ?
+		(long long)(fyai_event_now_ms() - ui->busy_since_ms) / 1000 : -1;
+	if (phase == ui->activity_phase && busy_s == ui->busy_shown_s)
 		return 0;
 	ui->activity_phase = phase;
+	ui->busy_shown_s = busy_s;
 	/*
 	 * Host-side blinking is intentional. SGR blink is inconsistently
 	 * implemented by terminals. The invocation itself is the work-band
@@ -297,8 +327,12 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		return -1;
 	if (ui->tool_band && ui_tool_render(ui, activity, false))
 		goto out;
-	if (ui->busy && ui_status_render(ui, activity))
-		goto out;
+	if (ui->busy) {
+		if (ui_status_render(ui, activity))
+			goto out;
+		if (ui_header_tick(ui))
+			goto out;
+	}
 	rc = 0;
 out:
 	free(activity);
@@ -1004,6 +1038,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui->tool_command = NULL;
 	free(ui->tool_body);
 	free(ui->status_bottom);
+	free(ui->status_top);
 	ctx->cfg->color = ui->saved_color;
 	ctx->cfg->render_width = 0;
 	for (l = ui->head; l; l = n) { n = l->next; free(l->text); free(l); }
@@ -1454,9 +1489,12 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 	if (busy) {
 		ui->activity_paused = false;
 		ui->activity_phase = -1;
+		ui->busy_since_ms = fyai_event_now_ms();
 		(void)ui_activity_refresh(ui);
 	} else {
 		(void)ui_status_render(ui, "  ");
+		if (ui->status_top)
+			(void)fytim_set_header(ui->ft, ui->status_top);
 	}
 	ui_rearm(ui);
 }
@@ -1503,25 +1541,32 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top, const char *bottom)
 {
 	struct fyai_ui *ui;
-	char *copy;
-	char *activity;
+	char *copy, *header, *activity;
 
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->ui;
 	copy = strdup(bottom ? bottom : "");
 	if (!copy)
 		return;
+	header = strdup(top ? top : "");
+	if (!header) {
+		free(copy);
+		return;
+	}
 	free(ui->status_bottom);
 	ui->status_bottom = copy;
+	free(ui->status_top);
+	ui->status_top = header;
 	(void)fytim_set_header(ui->ft, top);
 	activity = ui->busy ?
 		ui_indicator(ui, FYMD_INDICATOR_PENDING,
 			     (size_t)ui->activity_phase, NULL) :
 		strdup("  ");
-	if (activity) {
-		(void)ui_status_render(ui, activity);
-		free(activity);
-	}
+	if (!activity)
+		return;
+	if (!ui_status_render(ui, activity))
+		(void)ui_header_tick(ui);
+	free(activity);
 }
 
 /* Select the tile width for a band render and return the previous width. */

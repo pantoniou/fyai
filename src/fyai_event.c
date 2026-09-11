@@ -38,6 +38,24 @@ fyai_event_ms_t fyai_event_now_ms(void)
 	       (fyai_event_ms_t)(ts.tv_nsec / 1000000);
 }
 
+void fyai_event_elapsed_format(char *buf, size_t size, fyai_event_ms_t since_ms)
+{
+	long long secs;
+
+	if (!size)
+		return;
+	buf[0] = '\0';
+	if (since_ms <= 0)
+		return;
+	secs = (long long)(fyai_event_now_ms() - since_ms) / 1000;
+	if (secs < 0)
+		secs = 0;
+	if (secs < 60)
+		snprintf(buf, size, " %llds", secs);
+	else
+		snprintf(buf, size, " %lldm%02llds", secs / 60, secs % 60);
+}
+
 /* Recycling hides use-after-free from the sanitizers. */
 #if defined(__SANITIZE_ADDRESS__)
 #define FYAI_EVENT_POOL_OFF_DEFAULT 1
