@@ -872,7 +872,6 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	ui = calloc(1, sizeof(*ui));
 	if (!ui) return -1;
 	ui->ctx = ctx;
-	ui->saved_color = ctx->cfg->color;
 	ui->tail = &ui->head;
 	ui->out.saved = ui->out.reader = -1;
 	ui->err.saved = ui->err.reader = -1;
@@ -902,8 +901,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		/* Record the initial render width. */
 		ui->render_cols = ctx->cfg->render_width;
 	}
-	if (!ctx->cfg->color || !strcmp(ctx->cfg->color, "auto"))
-		ctx->cfg->color = "on";
+	fyai_ui_config_reassert(ctx);
 	fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), fail,
 			 "failed to apply input bubble style");
 	el = fyai_ctx_loop(ctx);
@@ -926,6 +924,18 @@ fail:
 	if (ttyout >= 0) close(ttyout);
 	fyai_ui_close(ctx);
 	return -1;
+}
+
+void fyai_ui_config_reassert(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
+		return;
+	ui->saved_color = ctx->cfg->color;
+	if (!ctx->cfg->color || !strcmp(ctx->cfg->color, "auto"))
+		ctx->cfg->color = "on";
+	ctx->cfg->render_width = ui->render_cols;
 }
 
 /*

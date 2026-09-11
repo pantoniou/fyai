@@ -2063,6 +2063,7 @@ static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc)
 	cfg->config_doc = doc;
 	if (fyai_config_apply(cfg, doc))
 		return -1;
+	fyai_ui_config_reassert(ctx);
 
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);

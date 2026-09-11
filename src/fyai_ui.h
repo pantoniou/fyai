@@ -26,6 +26,8 @@ void fyai_ui_prompt_enabled(struct fyai_ctx *ctx, bool enabled);
 bool fyai_ui_color_parse(const char *text, uint32_t *out);
 /* That, or `reverse` for the ground the terminal draws text in. */
 bool fyai_ui_ground_parse(const char *text, uint32_t *out);
+/* Reassert runtime values owned by an active terminal UI. */
+void fyai_ui_config_reassert(struct fyai_ctx *ctx);
 /* Re-read the display configuration a live session holds. */
 void fyai_ui_config_changed(struct fyai_ctx *ctx);
 bool fyai_ui_active(const struct fyai_ctx *ctx);
