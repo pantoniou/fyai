@@ -20,6 +20,7 @@ FYAI_TEST_ENTRY(branch_ui, admission_release, branch_ui_admission_release)
 FYAI_TEST_ENTRY(branch_ui, depth_detail, branch_ui_depth_detail)
 FYAI_TEST_ENTRY(branch_ui, subscription_activity, branch_ui_subscription_activity)
 FYAI_TEST_ENTRY(branch_ui, preview_extent, branch_ui_preview_extent)
+FYAI_TEST_ENTRY(branch_ui, tile_identity, branch_ui_tile_identity)
 
 struct activity_capture {
 	volatile bool received;
@@ -182,6 +183,53 @@ int branch_ui_admission_release(void)
 	FYAI_TCHECK(fy_is_invalid(error));
 	FYAI_TCHECK(fyai_agents_ambiguous(&ctx, "two"));
 	FYAI_TCHECK(!fyai_agents_ambiguous(&ctx, "main/agent:two"));
+	fyai_agents_cleanup(&ctx);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* The live tile header reads branch-keyed identity from the registry. */
+int branch_ui_tile_identity(void)
+{
+	struct fy_generic_builder_cfg gbcfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
+	struct fyai_cfg cfg = { .agent_max_live_agents = 2 };
+	struct fyai_ctx ctx = { .cfg = &cfg, .transient_gb = gb };
+	fy_generic params, result = fy_invalid, error = fy_invalid;
+	long long execution, id, started;
+	const char *model;
+	bool handled;
+
+	FYAI_TCHECK(gb != NULL);
+	FYAI_TCHECK(!fyai_agents_branch_identity(&ctx, "main/agent:one",
+						 &model, &id, &started));
+	FYAI_TCHECK(!model && !id && !started);
+	params = fy_gb_mapping(gb, "branch", "main/agent:one", "parent", 0LL,
+			       "model", "mock-model");
+	handled = fyai_agents_serve(&ctx, NULL, "agent/admit", params,
+		fy_value(1LL), &result, &error);
+	FYAI_TCHECK(handled && fy_is_invalid(error));
+	execution = fy_get(result, "execution", 0LL);
+	FYAI_TCHECK(execution > 0);
+	FYAI_TCHECK(fyai_agents_branch_identity(&ctx, "main/agent:one",
+						&model, &id, &started));
+	FYAI_TCHECK(id == execution && started > 0);
+	FYAI_TCHECK(model && !strcmp(model, "mock-model"));
+	/* The first event of the child replaces the model from the admission. */
+	params = fy_gb_mapping(gb, "execution", execution, "sequence", 1LL,
+			       "state", "running", "model", "child-model");
+	(void)fyai_agents_serve(&ctx, NULL, "agent/event", params,
+		fy_invalid, &result, &error);
+	FYAI_TCHECK(fyai_agents_branch_identity(&ctx, "main/agent:one",
+						&model, &id, &started));
+	FYAI_TCHECK(model && !strcmp(model, "child-model"));
+	FYAI_TCHECK(!strcmp(fyai_agents_state(&ctx, "main/agent:one"),
+			    "running"));
+	FYAI_TCHECK(!fyai_agents_branch_identity(&ctx, "main/agent:two",
+						 &model, &id, &started));
+	FYAI_TCHECK(!model && !id && !started);
 	fyai_agents_cleanup(&ctx);
 	fy_generic_builder_destroy(gb);
 	return 0;

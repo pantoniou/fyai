@@ -65,6 +65,15 @@ if "agent-was-here" not in shown:
 title = [l for l in seen if l.startswith("\u25cf agent [greeter]")]
 if not title:
     raise SystemExit("the tile of the sub-agent has no title row")
+# The tile header names the session beside the description: the branch
+# leaf, the model, and the session id. Unknown fields stay out.
+headed = [l for l in title if "greeter" in l and "greet and report" in l]
+if not headed:
+    raise SystemExit("the tile header lost the agent description")
+if not any("mock-model" in l for l in headed):
+    raise SystemExit("the tile header misses the session model")
+if not any(re.search(r"#\d+", l) for l in headed):
+    raise SystemExit("the tile header misses the session id")
 at = title[0].index("agent [greeter]")
 for l in seen:
     if "printf" not in l and "agent-was-here" not in l:
