@@ -138,21 +138,24 @@ Resuming restores the conversation and the branch configuration. It does not
 change the working directory of the process, and it does not move arena `HEAD`:
 a resumed session is selected for that invocation, exactly as `--branch` is.
 
-With no argument, `resume` opens a picker over the whole window: the sessions
-most recently used first.
+With no argument, `resume` opens the branch hierarchy over the whole window
+and selects the most recently used session. Branch name components form
+collapsible groups.
 
 | Key | Action |
 | --- | --- |
 | Up/Down or `k`/`j` | Move through the sessions |
+| Left/Right or `h`/`v` | Collapse or expand a group |
 | Enter | Resume the selected session |
 | `/` | Filter the names |
-| `g` | Toggle the recent list and the branch hierarchy |
-| `i` | Inspect the session |
-| `a` | Show the branch actions |
+| `f` | Show or hide unimported Claude Code and Codex sessions |
+| `i` | Preview the session |
 | Escape | Leave the inspection, then cancel and exit |
 
-A cancelled picker stores nothing. The picker needs an interactive terminal;
-without one, name a session or use `--last`.
+Foreign sessions start hidden. When shown, they join imported sessions under
+the `import/claude-code` and `import/codex` groups. A cancelled picker stores
+nothing. The picker needs an interactive terminal; without one, name a session
+or use `--last`.
 
 ## 2. The mental model
 

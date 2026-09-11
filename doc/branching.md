@@ -342,7 +342,7 @@ without stored branches are grouping rows. The selected branch and stored
 | --- | --- |
 | Up/Down or `k`/`j` | Move selection; scroll an inspection |
 | Left/Right or `h`/`v` | Collapse or expand descendants; in gitgraph mode the arrows move between lanes |
-| `g` | Cycle tree, gitgraph, and list without changing the selection |
+| `g` | Toggle tree and gitgraph without changing the selection |
 | `p` | Cycle the session preview: off, right, foot, automatic |
 | `/` | Filter names through the prompt editor |
 | Enter | Switch to the selected branch and close the browser |
@@ -362,12 +362,11 @@ The default view is a Mermaid tree rendered in the terminal. It shows branch
 hierarchy and activity. The gitgraph overview shows that hierarchy as parallel
 lanes, with one marker per displayed branch. These
 markers describe branch names and live activity, not conversation turns or Git
-commits. Unrelated roots stay separate. The list shows full names, models, and
-descriptions. All views use the same selection, filter, collapse state, and action keys.
+commits. Unrelated roots stay separate. Both views use the same selection,
+filter, collapse state, and action keys.
 The `g` key changes only the open browser. Use configuration to set the default:
 
 ```text
-/config set display/branch_view list
 /config set display/branch_view tree
 /config set display/branch_view gitgraph
 /config set display/diagram_charset ascii
@@ -384,7 +383,7 @@ fyai -i --set display/branch_view=gitgraph --set display/diagram_charset=unicode
 
 | Setting | Values and behavior |
 | --- | --- |
-| `display/branch_view` | `tree` (default), `gitgraph`, or `list` |
+| `display/branch_view` | `tree` (default) or `gitgraph` |
 | `display/diagram_charset` | `auto` selects from the locale; `ascii` uses simple rails; `unicode` uses box drawing; `rich` permits additional glyphs |
 | `display/diagram_theme` | Empty follows the display's light/dark variant. Built-in names are `default`, `light`, and `mono` |
 | `display/diagram_fit` | `legend` (default), `shrink`, or `clip`, passed to the Mermaid renderer |
@@ -538,23 +537,27 @@ sessions of the directory it runs in. `--all` offers every one of them, and
 shows the directory of each. A session stored before this metadata existed
 records no directory and appears only under `--all`; it stays resumable.
 
-With no argument, `resume` opens the picker over the whole work pane, most
-recently used first:
+With no argument, `resume` opens the picker over the whole work pane. It uses
+the branch browser tree and starts on the most recently used session. Branch
+name components form collapsible groups.
 
 | Key | Action |
 | --- | --- |
 | Up/Down or `k`/`j` | Move through the sessions |
+| Left/Right or `h`/`v` | Collapse or expand a group |
 | Enter | Resume the selected session |
 | `/` | Filter the names |
-| `g` | Toggle the recent list and the branch hierarchy |
+| `f` | Show or hide unimported Claude Code and Codex sessions |
+| `p` | Cycle the session preview: off, right, foot, automatic |
 | `i` | Inspect the session |
-| `a` | Show the branch actions of section 6.4 |
 | Escape | Leave the inspection, then cancel and exit |
 
-The picker is the branch browser in a mode of its own, thus the keys of section
-6.4 are the keys here. It draws no session preview: the whole window is the
-list, and `i` inspects the session under the cursor. A cancelled picker
-publishes nothing.
+Foreign sessions are hidden until `f` is pressed. They appear under
+`import/claude-code` and `import/codex`, beside imported sessions in the same
+tree. Gitgraph and branch actions are not part of resume selection.
+The summary identifies the selected session with its turn and token counts.
+The configured preview follows native and unimported sessions; `i` opens a
+larger inspection. A cancelled picker publishes nothing.
 
 The picker needs an interactive terminal. Without one, name a session or use
 `--last`.
