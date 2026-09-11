@@ -1,0 +1,3 @@
+{"type":"session_meta","payload":{"id":"codex-loss","cwd":"/tmp/project"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Describe this: "},{"type":"input_image","image_url":"data:image/png;base64,AA=="}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The unavailable image was noted."}]}}

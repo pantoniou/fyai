@@ -14,6 +14,7 @@ FYAI_TEST_ENTRY(branch, select_directory, branch_select_directory)
 FYAI_TEST_ENTRY(branch, select_legacy, branch_select_legacy)
 FYAI_TEST_ENTRY(branch, select_empty, branch_select_empty)
 FYAI_TEST_ENTRY(branch, pick_last, branch_pick_last_newest)
+FYAI_TEST_ENTRY(branch, import_provenance, branch_import_provenance)
 
 /* An entry with both timestamps and a directory. */
 static fy_generic entry_new(struct fy_generic_builder *gb, long long created,
@@ -30,6 +31,7 @@ static fy_generic entry_new(struct fy_generic_builder *gb, long long created,
 	b.cwd = cwd ? fy_value(gb, cwd) : fy_invalid;
 	b.description = fy_invalid;
 	b.agent = fy_invalid;
+	b.import = fy_invalid;
 	b.op = fy_value(gb, FYAI_BRANCH_OP_TURN);
 	b.from = fy_invalid;
 	b.prev = fy_invalid;
@@ -42,6 +44,7 @@ static fy_generic entry_legacy(struct fy_generic_builder *gb, long long created)
 	return fy_mapping(gb, "config", fy_null, "head", fy_null,
 			  "created", fy_value(gb, created),
 			  "description", fy_null, "agent", fy_null,
+			  "import", fy_null,
 			  "op", fy_value(gb, FYAI_BRANCH_OP_TURN),
 			  "from", fy_null, "prev", fy_null);
 }
@@ -203,6 +206,49 @@ int branch_pick_last_newest(void)
 
 	name = fyai_branch_pick_last(NULL, branches, "/nowhere", false);
 	FYAI_TCHECK(!name);
+
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+int branch_import_provenance(void)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_branch input, output;
+	fy_generic entry;
+
+	gb = builder_new();
+	FYAI_TCHECK(gb);
+	memset(&input, 0, sizeof(input));
+	input.entry = fy_invalid;
+	input.config = fy_invalid;
+	input.head = fy_invalid;
+	input.created = fy_value(gb, 10LL);
+	input.updated = fy_value(gb, 20LL);
+	input.cwd = fy_value(gb, "/work");
+	input.description = fy_invalid;
+	input.agent = fy_invalid;
+	input.import = fy_mapping(gb, "version", 1LL,
+				  "source", "codex", "session_id", "s1",
+				  "losses", fy_sequence(gb,
+					fy_mapping(gb, "kind", "unsupported_content",
+						   "content_type", "input_image")));
+	input.op = fy_value(gb, FYAI_BRANCH_OP_TURN);
+	input.from = fy_invalid;
+	input.prev = fy_invalid;
+	entry = fyai_branch_build(gb, &input);
+	FYAI_TCHECK(fy_is_valid(entry));
+	FYAI_TCHECK(fyai_branch_decode(entry, &output));
+	FYAI_TCHECK(fy_is_mapping(output.import));
+	FYAI_TCHECK(fy_get(output.import, "version", 0LL) == 1);
+	FYAI_TCHECK(!strcmp(fy_get(output.import, "source", ""), "codex"));
+	FYAI_TCHECK(!strcmp(fy_get(output.import, "session_id", ""), "s1"));
+	FYAI_TCHECK(fy_equal(fy_get_at_path(output.import, "losses", 0,
+					  "kind"),
+			     "unsupported_content"));
+	FYAI_TCHECK(fy_equal(fy_get_at_path(output.import, "losses", 0,
+					  "content_type"),
+			     "input_image"));
 
 	fy_generic_builder_destroy(gb);
 	return 0;

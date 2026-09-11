@@ -1,0 +1,6 @@
+{"type":"user","uuid":"u1","sessionId":"claude-native-tools","cwd":"/tmp/project","message":{"role":"user","content":"Create and build hello.c."}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"claude-native-tools","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-write","name":"Write","input":{"file_path":"hello.c","content":"int main(void) { return 0; }\n"}}]}}
+{"type":"user","uuid":"u2","parentUuid":"a1","sessionId":"claude-native-tools","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-write","content":"File written."}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"u2","sessionId":"claude-native-tools","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-read","name":"Read","input":{"file_path":"hello.c","offset":1,"limit":20}},{"type":"tool_use","id":"tool-bash","name":"Bash","input":{"command":"cc -o hello hello.c","timeout":1000,"description":"Build hello"}}]}}
+{"type":"user","uuid":"u3","parentUuid":"a2","sessionId":"claude-native-tools","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-read","content":"int main(void) { return 0; }"},{"type":"tool_result","tool_use_id":"tool-bash","content":""}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"u3","sessionId":"claude-native-tools","message":{"role":"assistant","content":"Done."}}

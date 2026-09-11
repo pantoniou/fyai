@@ -1,0 +1,5 @@
+{"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{"id":"codex-test","cwd":"/tmp/project"}}
+{"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect it."}]}}
+{"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":\"ls\"}","call_id":"call-1"}}
+{"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"sample.c"}}
+{"timestamp":"2026-01-01T00:00:04Z","type":"compacted","payload":{"message":"summary","replacement_history":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Compact summary: the target is sample.c."}]},{"type":"function_call","name":"read_file","arguments":"{\"path\":\"sample.c\"}","call_id":"call-2"},{"type":"function_call_output","call_id":"call-2","output":"int imported;"},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Ready to continue."}]}]}}

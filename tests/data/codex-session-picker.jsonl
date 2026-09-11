@@ -1,0 +1,5 @@
+{"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{"id":"codex-picker","cwd":"@CWD@"}}
+{"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions\nInjected repository instructions that must not become the session title."}]}}
+{"timestamp":"2026-01-01T00:00:02Z","type":"turn_context","payload":{"cwd":"@CWD@"}}
+{"timestamp":"2026-01-01T00:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the picker display.\nKeep every row compact."}]}}
+{"timestamp":"2026-01-01T00:00:04Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Ready."}]}}

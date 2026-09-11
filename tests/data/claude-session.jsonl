@@ -1,0 +1,8 @@
+{"type":"user","uuid":"u1","sessionId":"claude-test","message":{"role":"user","content":"Inspect it."}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"claude-test","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect it."},{"type":"tool_use","id":"tool-1","name":"Read","input":{"file_path":"sample.c"}}]}}
+{"type":"user","uuid":"u2","parentUuid":"a1","sessionId":"claude-test","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"int main(void);"}]}}
+{"type":"system","subtype":"compact_boundary","uuid":"c1","sessionId":"claude-test","content":"Earlier conversation summarized."}
+{"type":"user","uuid":"u3","parentUuid":"c1","sessionId":"claude-test","message":{"role":"user","content":"Compact summary: the target is sample.c."},"isCompactSummary":true}
+{"type":"assistant","uuid":"a2","parentUuid":"u3","sessionId":"claude-test","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-2","name":"Read","input":{"file_path":"sample.c"}}]}}
+{"type":"user","uuid":"u4","parentUuid":"a2","sessionId":"claude-test","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-2","content":"int imported;"}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"u4","sessionId":"claude-test","message":{"role":"assistant","content":[{"type":"text","text":"Ready to continue."}]}}
