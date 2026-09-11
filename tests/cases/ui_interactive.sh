@@ -16,8 +16,12 @@ grep -qF "Streaming hello from the mock." "$TEST_DIR/pty.out" || \
     fail "assistant reply was not rendered in the PTY"
 "$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || \
     fail "submitted user turn was not committed to the transcript"
+import os
 import re
 import sys
+
+sys.path.insert(0, os.environ["TESTS_DIR"])
+from screen import Screen
 
 data = open(sys.argv[1], "rb").read()
 if b"\x1b[38;2;127;132;156m" not in data:
@@ -25,6 +29,26 @@ if b"\x1b[38;2;127;132;156m" not in data:
 plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 if "│ hello".encode() not in plain:
     raise SystemExit(1)
+# The input pane keeps one session row above the prompt block: the
+# stored header template, with no duplicated copy beside it. The
+# compositor repaints chrome every frame, so the reading is the final
+# screen, not the byte stream.
+screen = Screen(30, 100)
+frames = []
+for i in range(0, len(data), 256):
+    screen.feed(data[i:i + 256])
+    frames.append(list(screen.lines()))
+frames.append(list(screen.lines()))
+headed = [f for f in frames if any("fyai: main" in l for l in f)]
+if not headed:
+    raise SystemExit("the input pane header never drew")
+# Each frame carries the session row exactly once: a duplicated copy
+# beside it would read as a second row naming the session.
+for f in headed:
+    if sum(l.count("fyai: main") for l in f) != 1:
+        raise SystemExit("the input pane header is not a single row")
+if not any("mock-model" in l for f in frames for l in f):
+    raise SystemExit("the input pane status row lost the model banner")
 EOF
 assert_request 0 'r["body"]["messages"][-1]["content"] == "hello"'
 mock_stop 1
