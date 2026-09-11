@@ -382,6 +382,9 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot pass on the event of agent %s", r->branch);
 	}
+	/* A new execution or model changes the live tile header. */
+	if (r->branch)
+		fyai_tool_agent_title_refresh(ctx, r->branch);
 	if (changed && a->attached && a->selected == execution)
 		fyai_session_banner_update(ctx);
 err_out:
@@ -553,6 +556,9 @@ static enum agents_served agents_serve_admit(struct fyai_ctx *ctx,
 	if (!r)
 		return AGENTS_SERVED_FAIL;
 	*result = fy_mapping(gb, "execution", r->execution);
+	/* The execution id completes the live tile header. */
+	if (r->branch)
+		fyai_tool_agent_title_refresh(ctx, r->branch);
 	return AGENTS_SERVED_OK;
 
 err_out:
@@ -775,14 +781,39 @@ unsigned long fyai_agents_generation(const struct fyai_ctx *ctx)
 	return ctx->agents ? ctx->agents->generation : 0;
 }
 
+/* The record of @branch, or NULL. */
+static struct agent_record *agents_branch_record(struct fyai_ctx *ctx,
+						 const char *branch)
+{
+	struct agent_record *r;
+
+	if (!ctx->agents || fy_str_empty(branch))
+		return NULL;
+	for (r = ctx->agents->records; r; r = r->next)
+		if (!strcmp(r->branch, branch))
+			return r;
+	return NULL;
+}
+
 const char *fyai_agents_state(struct fyai_ctx *ctx, const char *branch)
 {
 	struct agent_record *r;
 
-	for (r = ctx->agents ? ctx->agents->records : NULL; r; r = r->next)
-		if (!strcmp(r->branch, branch))
-			return r->state;
-	return NULL;
+	r = agents_branch_record(ctx, branch);
+	return r ? r->state : NULL;
+}
+
+bool fyai_agents_branch_identity(struct fyai_ctx *ctx, const char *branch,
+				 const char **model, long long *execution,
+				 long long *started_ms)
+{
+	struct agent_record *r;
+
+	r = agents_branch_record(ctx, branch);
+	*model = r ? r->model : NULL;
+	*execution = r ? r->execution : 0;
+	*started_ms = r ? r->started : 0;
+	return r != NULL;
 }
 
 fy_generic fyai_agents_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)

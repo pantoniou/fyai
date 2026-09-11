@@ -24,6 +24,14 @@ const char *fyai_agents_state(struct fyai_ctx *ctx, const char *branch);
 bool fyai_agents_ambiguous(struct fyai_ctx *ctx, const char *name);
 const char *fyai_agents_attached(const struct fyai_ctx *ctx);
 const char *fyai_agents_model(const struct fyai_ctx *ctx);
+/*
+ * Read the model, execution id, and start time of @branch from the registry.
+ * The model is borrowed and is valid until the record changes. Return false
+ * and set NULL and zero values when the registry has no record.
+ */
+bool fyai_agents_branch_identity(struct fyai_ctx *ctx, const char *branch,
+				 const char **model, long long *execution,
+				 long long *started_ms);
 const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach);
 void fyai_agents_detach(struct fyai_ctx *ctx);
 bool fyai_agents_input(struct fyai_ctx *ctx, const char *line);

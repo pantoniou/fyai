@@ -3279,6 +3279,76 @@ static void fyai_agent_view_refresh(struct fyai_tool_job *job)
 		fyai_ui_wake(job->ctx);
 }
 
+/*
+ * Build the title of a sub-agent tile: the call title, then the branch leaf,
+ * the model, and the execution id from the agent registry. Add the running
+ * time when @running is set. Leave out a field that the registry does not
+ * have. The caller frees the result.
+ */
+static char *fyai_agent_head_title(struct fyai_tool_job *job, bool running)
+{
+	const char *base, *end, *leaf, *model;
+	long long execution, started;
+	fy_generic call_args, call_name;
+	char id[32], run[24];
+	char *title;
+
+	base = job->title ? job->title : "**agent**";
+	while (*base == '\n' || *base == '\r' ||
+	       *base == ' ' || *base == '\t')
+		base++;
+	end = base + strlen(base);
+	while (end > base && (end[-1] == '\n' || end[-1] == '\r'))
+		end--;
+	(void)fyai_agents_branch_identity(job->ctx, job->branch, &model,
+					  &execution, &started);
+	leaf = job->branch ? strstr(job->branch, FYAI_BRANCH_AGENT_PREFIX) : NULL;
+	leaf = leaf ? leaf + sizeof(FYAI_BRANCH_AGENT_PREFIX) - 1 : job->branch;
+	/* The call title already names the agent. */
+	if (!fy_str_empty(leaf) && job->agent && fy_is_valid(job->call)) {
+		call_args = fyai_tool_call_args(job->ctx, job->call);
+		call_name = fy_get(call_args, "name");
+		if (fy_equal(call_name, leaf))
+			leaf = NULL;
+	}
+	id[0] = '\0';
+	if (execution > 0)
+		snprintf(id, sizeof(id), " #%lld", execution);
+	run[0] = '\0';
+	if (running)
+		fyai_event_elapsed_format(run, sizeof(run), started);
+	title = strdup(fy_sprintfa("%.*s%s%s%s%s%s%s%s%s\n",
+				   (int)(end - base), base,
+				   fy_str_empty(leaf) ? "" : " `",
+				   fy_str_empty(leaf) ? "" : leaf,
+				   fy_str_empty(leaf) ? "" : "`",
+				   fy_str_empty(model) ? "" : " `",
+				   fy_str_empty(model) ? "" : model,
+				   fy_str_empty(model) ? "" : "`", id, run));
+	fyai_error_check(job->ctx, title, err_out,
+			 "cannot format the tile title of agent %s",
+			 job->branch ? job->branch : "");
+	return title;
+
+err_out:
+	return NULL;
+}
+
+/* Paint the title of a live sub-agent tile with the running mark. */
+static void fyai_agent_head_paint(struct fyai_tool_job *job)
+{
+	char *title;
+
+	title = fyai_agent_head_title(job, true);
+	(void)fyai_ui_surface_set_head_frame(job->ctx, job->surface,
+			title ? title :
+			job->title ? job->title : "**agent**",
+			NULL, NULL, FYAI_UI_MARK_RUNNING,
+			job->animation_frame, NULL);
+	free(title);
+	fyai_ui_wake(job->ctx);
+}
+
 /* Advance the state mark on the title of a live sub-agent terminal. */
 static enum fyai_event_action
 fyai_agent_view_animate(const struct fyai_event *ev)
@@ -3288,11 +3358,7 @@ fyai_agent_view_animate(const struct fyai_event *ev)
 	if (!job->surface || job->done)
 		return FYAIEA_CONTINUE;
 	job->animation_frame++;
-	(void)fyai_ui_surface_set_head_frame(job->ctx, job->surface,
-					 job->title ? job->title : "**agent**",
-					 NULL, NULL, FYAI_UI_MARK_RUNNING,
-					 job->animation_frame, NULL);
-	fyai_ui_wake(job->ctx);
+	fyai_agent_head_paint(job);
 	return FYAIEA_CONTINUE;
 }
 
@@ -3493,6 +3559,8 @@ err:
 static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 				  const char *cause)
 {
+	char *title;
+
 	if (job->animation) {
 		fyai_event_source_remove(job->animation);
 		job->animation = NULL;
@@ -3507,11 +3575,14 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	}
 	if (job->surface) {
 		fyai_agent_view_refresh(job);
+		title = fyai_agent_head_title(job, false);
 		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
-					       job->title ? job->title :
-					       "**agent**", NULL, cause,
-					       ok ? FYAI_UI_MARK_OK :
-						    FYAI_UI_MARK_FAILED);
+				title ? title :
+				job->title ? job->title : "**agent**",
+				NULL, cause,
+				ok ? FYAI_UI_MARK_OK :
+				     FYAI_UI_MARK_FAILED);
+		free(title);
 		fyai_surface_retire_zoom(job->ctx, job->surface);
 		fyai_ui_surface_commit(job->ctx, job->surface);
 		job->surface = NULL;
@@ -3681,16 +3752,32 @@ err:
 	return fy_invalid;
 }
 
-/* True while a job of this process owns @branch. */
-static bool fyai_tool_job_branch_live(struct fyai_ctx *ctx, const char *branch)
+/* The live job of this process that owns @branch, or NULL. */
+static struct fyai_tool_job *fyai_tool_job_by_branch(struct fyai_ctx *ctx,
+						      const char *branch)
 {
-	const struct fyai_tool_job *job;
+	struct fyai_tool_job *job;
 
 	for (job = ctx->tool_jobs; job; job = job->next) {
 		if (job->branch && !strcmp(job->branch, branch) && !job->done)
-			return true;
+			return job;
 	}
-	return false;
+	return NULL;
+}
+
+/* True while a job of this process owns @branch. */
+static bool fyai_tool_job_branch_live(struct fyai_ctx *ctx, const char *branch)
+{
+	return fyai_tool_job_by_branch(ctx, branch) != NULL;
+}
+
+void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch)
+{
+	struct fyai_tool_job *job;
+
+	job = fyai_tool_job_by_branch(ctx, branch);
+	if (job && job->surface)
+		fyai_agent_head_paint(job);
 }
 
 /* Clear live parent-owned state after fork. */
