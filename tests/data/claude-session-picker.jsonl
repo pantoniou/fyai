@@ -1,0 +1,4 @@
+{"type":"user","uuid":"u0","sessionId":"claude-picker","cwd":"@CWD@","message":{"role":"user","content":"<local-command-caveat>Caveat: injected command context.</local-command-caveat>"}}
+{"type":"user","uuid":"u00","sessionId":"claude-picker","cwd":"@CWD@","message":{"role":"user","content":"<command-name>/clear</command-name><command-message>clear</command-message>"}}
+{"type":"user","uuid":"u1","sessionId":"claude-picker","cwd":"@CWD@","message":{"role":"user","content":"Continue this imported session with a title longer than forty-eight bytes."}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"claude-picker","cwd":"@CWD@","message":{"role":"assistant","content":"Ready to continue.","usage":{"input_tokens":123,"output_tokens":7}}}

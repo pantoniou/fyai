@@ -296,6 +296,7 @@ int diagram_selection(void)
 		"treeView-beta\n- main\n  - child\n", "entries/9", 80);
 	FYAI_TCHECK(plain && selected && unknown);
 	FYAI_TCHECK(strcmp(plain, selected));
+	FYAI_TCHECK(!strstr(selected, "\033[7m"));
 	FYAI_TCHECK(!strcmp(plain, unknown));
 	fymm_free(plain);
 	fymm_free(selected);

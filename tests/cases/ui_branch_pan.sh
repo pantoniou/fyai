@@ -16,7 +16,7 @@ FYAI_PTY_ROWS=20 FYAI_PTY_COLS=60 \
 FYAI_PTY_INPUT="/branches" \
 FYAI_PTY_NEEDLE="Branches" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/pan.snap" \
-FYAI_PTY_AFTER="raw:6a6a6a6a6a6a6a6a6a6a6a6a|wait-gone:b01|snapshot|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="raw:1b5b48|raw:6a6a6a6a6a6a6a6a6a6a6a6a|wait-frame:b12|snapshot|raw:1d|drain:0.2" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pan.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/diagram_charset=unicode \

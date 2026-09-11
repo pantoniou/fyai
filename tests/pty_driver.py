@@ -191,6 +191,8 @@ def main():
     output, *argv = sys.argv[1:]
     scale = timeout_scale()
     prompt = os.environ.get("FYAI_PTY_INPUT", "hello").encode()
+    submit_input = os.environ.get(
+        "FYAI_PTY_SUBMIT_INPUT", "1") not in ("0", "false", "no")
     needle = os.environ.get(
         "FYAI_PTY_NEEDLE", "Streaming hello from the mock.").encode()
     needle_count = int(os.environ.get("FYAI_PTY_NEEDLE_COUNT", "1"))
@@ -294,7 +296,9 @@ def main():
         # A session that opens with a tile holding the keys shows no prompt
         # cursor, so it states the text that says it is ready instead.
         data = read_until(master, data, ready_needle, deadline)
-        if edit_input:
+        if not submit_input:
+            pass
+        elif edit_input:
             os.write(master, prompt + b"\x07")
             data = read_until(master, data, edit_needle,
                               time.monotonic() + progress_timeout)
