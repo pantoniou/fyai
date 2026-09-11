@@ -335,6 +335,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->cwd = fy_invalid;
 	b->description = fy_invalid;
 	b->agent = fy_invalid;
+	b->import = fy_invalid;
 	b->op = fy_invalid;
 	b->from = fy_invalid;
 	b->prev = fy_invalid;
@@ -350,6 +351,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->cwd = fyai_branch_member(entry, "cwd");
 	b->description = fyai_branch_member(entry, "description");
 	b->agent = fyai_branch_member(entry, "agent");
+	b->import = fyai_branch_member(entry, "import");
 	b->op = fyai_branch_member(entry, "op");
 	b->from = fyai_branch_member(entry, "from");
 	b->prev = fyai_branch_member(entry, "prev");
@@ -401,6 +403,7 @@ fy_generic fyai_branch_build(struct fy_generic_builder *gb,
 			  "cwd", fyai_generic_or_null(b->cwd),
 			  "description", fyai_generic_or_null(b->description),
 			  "agent", fyai_generic_or_null(b->agent),
+			  "import", fyai_generic_or_null(b->import),
 			  "op", fyai_generic_or_null(b->op),
 			  "from", fyai_generic_or_null(b->from),
 			  "prev", fyai_generic_or_null(b->prev));
@@ -940,6 +943,7 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 	nb.cwd = fyai_branch_cwd_generic(ctx->gb);
 	nb.description = desc;
 	nb.agent = fy_invalid;
+	nb.import = fy_invalid;
 	nb.op = fy_value(ctx->gb, FYAI_BRANCH_OP_CREATE);
 	nb.from = fy_invalid;
 	nb.prev = fy_invalid;
@@ -952,6 +956,61 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 	if (switch_to)
 		return fyai_branch_checkout(ctx, name, false, NULL);
 	fyai_result(ctx, "created branch %s\n", name);
+	return 0;
+
+err_out:
+	return -1;
+}
+
+int fyai_branch_import(struct fyai_ctx *ctx, const char *name, fy_generic head,
+		       fy_generic provenance, fy_generic cwd,
+		       const char *description)
+{
+	struct fyai_branch existing, nb;
+	fy_generic entry, branches, now;
+	bool valid, found;
+	int rc;
+
+	valid = fyai_branch_name_valid(name);
+	fyai_error_check(ctx, valid, err_out,
+			 "invalid import branch name '%s'", name ? name : "");
+	found = fyai_branch_lookup(ctx->arena_branches, name, &existing);
+	fyai_error_check(ctx, !found,
+			 err_out, "import branch '%s' already exists", name);
+
+	head = fy_gb_internalize(ctx->gb, head);
+	provenance = fy_gb_internalize(ctx->gb, provenance);
+	if (fy_is_valid(cwd))
+		cwd = fy_gb_internalize(ctx->gb, cwd);
+	fyai_error_check(ctx, fy_is_valid(head) && fy_is_valid(provenance),
+			 err_out, "cannot store imported session on branch '%s'",
+			 name);
+
+	now = fy_value(ctx->gb, (long long)fyai_branch_timestamp());
+	memset(&nb, 0, sizeof(nb));
+	nb.entry = fy_invalid;
+	nb.config = ctx->arena_config;
+	nb.head = head;
+	nb.created = now;
+	nb.updated = now;
+	nb.cwd = fy_is_valid(cwd) ? cwd : fyai_branch_cwd_generic(ctx->gb);
+	nb.description = description ?
+		fy_value(ctx->gb, description) : fy_invalid;
+	nb.agent = fy_invalid;
+	nb.import = provenance;
+	nb.op = fy_value(ctx->gb, "import");
+	nb.from = fy_invalid;
+	nb.prev = fy_invalid;
+	entry = fyai_branch_build(ctx->gb, &nb);
+	fyai_error_check(ctx, fy_is_valid(entry), err_out,
+			 "cannot build imported branch '%s'", name);
+	branches = fyai_branches_set(ctx->gb, ctx->arena_branches, name, entry);
+	fyai_error_check(ctx, fy_is_valid(branches), err_out,
+			 "cannot place imported branch '%s'", name);
+	rc = fyai_publish_branches(ctx, ctx->arena_branches, branches);
+	fyai_error_check(ctx, !rc, err_out,
+			 "cannot publish imported branch '%s'", name);
+	fyai_result(ctx, "imported foreign session as branch %s\n", name);
 	return 0;
 
 err_out:

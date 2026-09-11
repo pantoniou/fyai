@@ -186,6 +186,7 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 		    !root_ref_contained(a, b.cwd) ||
 		    !root_ref_contained(a, b.description) ||
 		    !root_ref_contained(a, b.agent) ||
+		    !root_ref_contained(a, b.import) ||
 		    !root_ref_contained(a, b.op) ||
 		    !root_ref_contained(a, b.from) ||
 		    !root_ref_contained(a, b.prev))

@@ -52,6 +52,7 @@ struct fyai_branch {
 	fy_generic cwd;		/* directory the branch started in */
 	fy_generic description;	/* free-text purpose of the branch */
 	fy_generic agent;	/* sub-agent provenance, if any */
+	fy_generic import;	/* foreign-session provenance, if any */
 	fy_generic op;		/* the operation that made this entry */
 	fy_generic from;	/* the previous name, on a rename */
 	fy_generic prev;	/* previous entry of this branch (its ref log) */
@@ -223,6 +224,9 @@ int fyai_branch_show(struct fyai_ctx *ctx, const char *name);
 int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 		       const char *start, const char *description,
 		       bool switch_to);
+int fyai_branch_import(struct fyai_ctx *ctx, const char *name, fy_generic head,
+		       fy_generic provenance, fy_generic cwd,
+		       const char *description);
 int fyai_branch_delete(struct fyai_ctx *ctx, const char *name, bool force);
 int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to);
 /*
