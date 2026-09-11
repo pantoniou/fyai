@@ -1393,7 +1393,7 @@ static int browser_present(struct fyai_browser *b, const char *md,
 		.extent = b->ctx->cfg->branch_preview_size,
 	};
 	enum fyai_sink_split split;
-	int extent, cols, rows;
+	int extent, cols, rows, rc;
 	int preview_width = b->ctx->cfg->branch_preview_width;
 	char *heading = NULL;
 	bool color = markdown_color_enabled(b->ctx->cfg->color);
@@ -1434,7 +1434,9 @@ static int browser_present(struct fyai_browser *b, const char *md,
 		b->diagram_cols = fyai_sink_page_cols(&page, rows, cols);
 	else
 		b->drawn_count = 0;
-	return fyai_sink_page_split(b->ctx->sink, b->surface, &page);
+	rc = fyai_sink_page_split(b->ctx->sink, b->surface, &page);
+	(void)fyai_ui_surface_cursor_visible(b->surface, false);
+	return rc;
 }
 
 void fyai_browser_step(struct fyai_ctx *ctx)

@@ -1898,6 +1898,7 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 		fyai_workpane_release(ctx->workpane);
 		return NULL;
 	}
+	(void)fytim_surface_set_cursor(sf, 0, 0, false);
 	(void)fytim_surface_set_bottom(sf, ui_chrome_text(ctx->cfg->tile_frame));
 	return sf;
 }
@@ -2071,6 +2072,13 @@ int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows)
 	if (!sf || rows < 0)
 		return -1;
 	return fytim_surface_set_max_rows(sf, rows) == FYTIM_OK ? 0 : -1;
+}
+
+int fyai_ui_surface_cursor_visible(struct fytim_surface *sf, bool visible)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_set_cursor(sf, 0, 0, visible) == FYTIM_OK ? 0 : -1;
 }
 
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,

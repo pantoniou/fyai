@@ -115,6 +115,8 @@ int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
 int fyai_ui_surface_clear(struct fytim_surface *sf);
 /* Limit grid height; zero accepts all granted rows. */
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows);
+/* Show or hide the surface's emulated program cursor. */
+int fyai_ui_surface_cursor_visible(struct fytim_surface *sf, bool visible);
 /* Update keyboard-focus chrome. */
 void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			   bool focused);
