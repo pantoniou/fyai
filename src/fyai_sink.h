@@ -31,7 +31,10 @@ struct fyai_sink_page {
 	const char *diagram;		/* Mermaid source under the page. */
 	const char *diagram_selection;	/* Element path selected in the diagram. */
 	int diagram_row;		/* First row of the drawing to present. */
+	bool diagram_gap;		/* Keep one blank row above the drawing. */
 	size_t offset;			/* Page scroll, in rendered rows. */
+	const char *footer;		/* Markdown pinned under the primary pane. */
+	bool footer_gap;		/* Keep one blank row above the footer. */
 	const char *aside;
 	size_t aside_offset;
 	bool aside_rendered;		/* final bytes; do not render again */

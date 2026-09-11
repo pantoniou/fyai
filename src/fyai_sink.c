@@ -42,7 +42,9 @@ static void sink_diagram_cfg(const struct fyai_cfg *cfg, int cols,
 		else if (!strcmp(cfg->diagram_charset, "rich")) render->charset = FYMM_CHARSET_RICH;
 	}
 	render->selection = fy_str_empty(selection) ? NULL : selection;
-	render->selection_style = FYMM_SEL_AUTO;
+	/* Reverse video becomes a dark patch over a focused tile's ground. */
+	render->selection_style = render->color == FYMM_COLOR_NONE ?
+		FYMM_SEL_BOLD : FYMM_SEL_COLOR;
 	render->fit = FYMM_FIT_LEGEND;
 	if (cfg->diagram_fit) {
 		if (!strcmp(cfg->diagram_fit, "shrink")) render->fit = FYMM_FIT_SHRINK;
@@ -302,7 +304,7 @@ err_out:
 /* Render one Markdown source, with an optional diagram under it presented
  * from row @skip of the drawing. */
 static int sink_render(struct fyai_sink *s, const char *md, const char *source,
-		       const char *selection, int skip, int cols,
+		       const char *selection, int skip, bool diagram_gap, int cols,
 		       struct response_buffer *out)
 {
 	struct fyai_cfg cfg;
@@ -319,6 +321,10 @@ static int sink_render(struct fyai_sink *s, const char *md, const char *source,
 	diagram = fyai_sink_diagram_render(&cfg, source, selection, cols);
 	if (!diagram)
 		return -1;
+	if (diagram_gap && response_buffer_append(out, "\n")) {
+		fymm_free(diagram);
+		return -1;
+	}
 	/* The drawing is panned, not the page: the header stands above it. */
 	for (p = diagram; skip > 0 && *p; skip--) {
 		e = strchr(p, '\n');
@@ -404,12 +410,13 @@ int fyai_sink_page_rows(const struct fyai_sink_page *page, int rows, int cols)
 static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 		     const struct fyai_sink_page *page)
 {
-	struct response_buffer out = {}, aside = {};
-	struct sink_pane panes[2];
+	struct response_buffer out = {}, aside = {}, footer = {};
+	struct sink_pane panes[3];
 	struct sink_rule rule = {};
 	bool ascii;
 	enum fyai_sink_split split;
-	int rows, cols, extent, rc;
+	int rows, cols, extent, rc, main_rows, footer_rows = 0, footer_gap = 0;
+	size_t i;
 	size_t count = 1;
 
 	if (!s || !surface || !page || !page->markdown)
@@ -422,17 +429,32 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 	panes[0] = (struct sink_pane){ .offset = page->offset,
 				       .rows = fyai_sink_page_rows(page, rows, cols),
 				       .cols = fyai_sink_page_cols(page, rows, cols) };
+	main_rows = panes[0].rows;
 	rc = sink_render(s, page->markdown, page->diagram,
 			 page->diagram_selection, page->diagram_row,
-			 panes[0].cols, &out);
+			 page->diagram_gap, panes[0].cols, &out);
 	if (rc)
 		goto out;
 	panes[0].text = out.data ? out.data : "";
+	if (page->footer && *page->footer) {
+		rc = sink_render(s, page->footer, NULL, NULL, 0, false,
+				 panes[0].cols, &footer);
+		if (rc)
+			goto out;
+		for (i = 0; i < footer.len; i++)
+			footer_rows += footer.data[i] == '\n';
+		if (footer.len && footer.data[footer.len - 1] != '\n')
+			footer_rows++;
+		footer_gap = page->footer_gap && main_rows >= 3;
+		if (footer_rows + footer_gap >= main_rows)
+			footer_rows = main_rows - footer_gap - 1;
+		panes[0].rows = main_rows - footer_rows - footer_gap;
+	}
 	if (split != FYAI_SINK_SPLIT_NONE) {
 		if (page->aside_rendered)
 			rc = response_buffer_append(&aside, page->aside);
 		else
-			rc = sink_render(s, page->aside, NULL, NULL, 0,
+			rc = sink_render(s, page->aside, NULL, NULL, 0, false,
 					 split == FYAI_SINK_SPLIT_RIGHT ? extent : cols,
 					 &aside);
 		if (rc)
@@ -440,7 +462,7 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 		panes[count++] = (struct sink_pane){
 			.text = aside.data ? aside.data : "",
 			.offset = page->aside_offset,
-			.row = split == FYAI_SINK_SPLIT_BOTTOM ? panes[0].rows + 1 : 0,
+			.row = split == FYAI_SINK_SPLIT_BOTTOM ? main_rows + 1 : 0,
 			.col = split == FYAI_SINK_SPLIT_RIGHT ? cols - extent : 0,
 			.rows = split == FYAI_SINK_SPLIT_BOTTOM ? extent : rows,
 			.cols = split == FYAI_SINK_SPLIT_RIGHT ? extent : cols,
@@ -450,14 +472,22 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 		rule.vertical = split == FYAI_SINK_SPLIT_RIGHT;
 		rule.glyph = rule.vertical ? (ascii ? "|" : "\u2502") :
 			(ascii ? "-" : "\u2500");
-		rule.row = rule.vertical ? 0 : panes[0].rows;
+		rule.row = rule.vertical ? 0 : main_rows;
 		rule.col = rule.vertical ? panes[0].cols + 1 : 0;
 		rule.count = rule.vertical ? rows : cols;
 	}
+	if (footer_rows)
+		panes[count++] = (struct sink_pane){
+			.text = footer.data ? footer.data : "",
+			.row = panes[0].rows + footer_gap,
+			.rows = footer_rows,
+			.cols = panes[0].cols,
+		};
 	rc = sink_page_publish(s, surface, panes, count, &rule, rows, cols);
 out:
 	free(out.data);
 	free(aside.data);
+	free(footer.data);
 	return rc < 0 ? -1 : 0;
 }
 

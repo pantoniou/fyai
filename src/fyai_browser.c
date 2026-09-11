@@ -10,6 +10,7 @@
 #include "fyai_agents.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
+#include "fyai_foreign_import.h"
 #include "fyai_merge.h"
 #include "fyai_render.h"
 #include "fyai_session.h"
@@ -18,14 +19,21 @@
 #include "fyai_terminal.h"
 #include "fyai_storage.h"
 #include "fyai_tools.h"
+#include "fyai_turn.h"
 #include "fyai_ui.h"
 #include "fyai_workpane.h"
 
 struct browser_row {
 	char *name;
 	char *cwd;		/* the directory the session started in */
+	char *path;		/* source transcript for an unimported session */
+	char *title;
 	uint64_t updated;	/* the time of its last entry */
+	long long turns;
+	long long tokens;
+	enum fyai_foreign_source source;
 	bool branch;
+	bool foreign;
 	bool collapsed;
 };
 
@@ -43,6 +51,10 @@ struct fyai_browser {
 	 * chosen, so Escape ends the invocation instead of returning to a
 	 * prompt that has no session behind it. */
 	bool resume, resume_all, picked;
+	bool navigated;
+	bool foreign_visible;
+	bool foreign_scheduled;
+	unsigned int foreign_phase;
 	char filter[256], input[1024], target[FYAI_BRANCH_NAME_MAX + 1];
 	char reference[1024];
 	char action, pending;
@@ -68,6 +80,7 @@ struct fyai_browser {
 	char preview_branch[FYAI_BRANCH_NAME_MAX + 1];
 	unsigned long preview_generation;
 	fy_generic preview_root;
+	uint64_t preview_updated;
 	int preview_rows, preview_cols;
 	enum fyai_sink_split preview_split;
 	unsigned int preview_mode, configured_preview;
@@ -75,10 +88,13 @@ struct fyai_browser {
 
 /* Cycled by p; index into the branch_preview enum order. */
 static const char *const browser_preview_names[] = { "off", "right", "bottom", "auto" };
-
+static const char browser_resume_footer[] =
+	"**Enter** resume · **/** filter · **f** toggle foreign sessions  \n"
+	"**↑/↓** select · **←/→** fold · **p** preview · **i** inspect · **Esc** cancel\n";
 static int browser_present(struct fyai_browser *b, const char *md,
 			   const char *diagram, const char *selection,
 			   int pan, size_t offset);
+static void browser_paint(struct fyai_browser *b);
 
 static unsigned int browser_preview_mode(const char *name)
 {
@@ -129,6 +145,88 @@ static int browser_compare(const void *a, const void *b)
 		} \
 	} while (0)
 
+static bool browser_session_title_usable(const char *title)
+{
+	static const char *const injected[] = {
+		"<local-command-caveat>", "<command-name>",
+		"<command-message>", "<local-command-stdout>",
+	};
+	size_t i;
+
+	if (!title || !*title)
+		return false;
+	for (i = 0; i < sizeof(injected) / sizeof(*injected); i++)
+		if (!strncmp(title, injected[i], strlen(injected[i])))
+			return false;
+	return true;
+}
+
+static long long browser_session_tokens(fy_generic head)
+{
+	fy_generic turn, meta;
+	long long tokens = 0;
+
+	fyai_turn_foreach(turn, head) {
+		meta = fyai_turn_meta(turn);
+		tokens += fy_get(fy_get(meta, "usage"), "total", 0LL);
+	}
+	return tokens;
+}
+
+static const char *browser_foreign_id(const struct browser_row *row)
+{
+	const char *id;
+
+	id = strrchr(row->name, '/');
+	return id ? id + 1 : row->name;
+}
+
+static char *browser_foreign_diagram_label(const struct browser_row *row)
+{
+	const char *title;
+	char *label, *p;
+
+	title = row->title && *row->title ? row->title : browser_foreign_id(row);
+	if (asprintf(&label, "%s", title) < 0)
+		return NULL;
+	for (p = label; *p; p++)
+		if (strchr("\"<>#%", *p))
+			*p = '-';
+	return label;
+}
+
+static char *browser_import_diagram_label(fy_generic import)
+{
+	fy_generic title;
+	char *label, *p;
+
+	if (!fy_is_mapping(import))
+		return NULL;
+	title = fy_get(import, "title", fy_invalid);
+	if (!fy_is_string(title) || fy_empty(title))
+		return NULL;
+	if (asprintf(&label, "%s", fy_castp(&title, "")) < 0)
+		return NULL;
+	for (p = label; *p; p++)
+		if (strchr("\"<>#%", *p))
+			*p = '-';
+	return label;
+}
+
+static char *browser_native_diagram_label(const struct browser_row *row)
+{
+	char *label, *p;
+
+	if (!row->title || !*row->title)
+		return NULL;
+	if (asprintf(&label, "%s", row->title) < 0)
+		return NULL;
+	for (p = label; *p; p++)
+		if (strchr("\"<>#%", *p))
+			*p = '-';
+	return label;
+}
+
 static int browser_add(struct fyai_browser *b, const char *name, bool branch)
 {
 	struct browser_row *rows;
@@ -157,44 +255,155 @@ err_out:
 	return -1;
 }
 
+static int browser_add_path(struct fyai_browser *b, const char *name,
+			    bool branch, size_t *rowp)
+{
+	char *copy, *p;
+	size_t i;
+	int rc;
+
+	copy = strdup(name);
+	if (!copy)
+		return -1;
+	rc = browser_add(b, copy, branch);
+	for (p = copy; !rc && (p = strchr(p, '/')); p++) {
+		*p = '\0';
+		rc = browser_add(b, copy, false);
+		*p = '/';
+	}
+	free(copy);
+	if (rc)
+		return -1;
+	if (rowp)
+		for (i = 0; i < b->count; i++)
+			if (!strcmp(b->rows[i].name, name)) {
+				*rowp = i;
+				break;
+			}
+	return 0;
+}
+
 /*
- * The rows of the recent view: one per resumable session, newest first. The
- * order is the one fyai_branch_select_rows() states, so the picker, the
- * --last option and the tests agree on which session is the newest.
+ * Add each resumable session and its branch-name ancestors. The source order
+ * identifies the initial session before the shared tree order is applied.
  */
-static void browser_refresh_recent(struct fyai_browser *b)
+static void browser_refresh_sessions(struct fyai_browser *b, char **newest)
 {
 	struct fy_generic_builder_cfg gbcfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb;
-	fy_generic rows, row, name, stored;
+	struct fyai_branch branch;
+	fy_generic rows, row, name, stored, description;
 	char cwd[PATH_MAX];
-	const char *dir;
+	const char *dir, *current_dir, *title_text;
 	size_t n;
 
 	gb = fy_generic_builder_create(&gbcfg);
 	if (!gb)
 		return;
-	dir = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
-	rows = fyai_branch_select_rows(b->ctx, gb, b->branches, dir,
+	current_dir = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
+	rows = fyai_branch_select_rows(b->ctx, gb, b->branches, current_dir,
 				       b->resume_all);
 	/* Each string is read through its own stored generic: a by-value cast
 	 * of a short string has no storage outside this frame to point at. */
 	fy_foreach(row, rows) {
 		name = fy_get(row, "branch", fy_invalid);
-		if (browser_add(b, fy_castp(&name, ""), true))
+		if (!*newest)
+			*newest = strdup(fy_castp(&name, ""));
+		if (browser_add_path(b, fy_castp(&name, ""), true, &n))
 			break;
-		n = b->count - 1;
 		b->rows[n].updated = (uint64_t)fy_get(row, "updated", 0LL);
+		b->rows[n].turns = fy_get(row, "turns", 0LL);
+		if (fyai_branch_lookup(b->branches, b->rows[n].name, &branch))
+			b->rows[n].tokens = browser_session_tokens(branch.head);
 		stored = fy_get(row, "cwd", fy_invalid);
 		dir = fy_castp(&stored, "");
 		b->rows[n].cwd = dir && *dir ? strdup(dir) : NULL;
+		description = fy_get(row, "description", fy_invalid);
+		title_text = fy_castp(&description, "");
+		b->rows[n].title = fy_is_string(description) &&
+			browser_session_title_usable(title_text) ?
+			strdup(title_text) : NULL;
 		if (dir && *dir && !b->rows[n].cwd)
 			fyai_warning(b->ctx, "cannot show the directory of %s",
 				     b->rows[n].name);
 	}
 	fy_generic_builder_destroy(gb);
+}
+
+static void browser_foreign_scan(void *userdata)
+{
+	struct fyai_browser *b = userdata;
+	struct fy_generic_builder_cfg gbcfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb;
+	struct fyai_branch existing;
+	fy_generic foreign_rows, row, name, stored, path, title, source;
+	enum fyai_foreign_source requested;
+	char cwd[PATH_MAX];
+	const char *dir;
+	char *selected;
+	size_t i, n;
+
+	if (!b->resume || !b->foreign_visible || b->closing ||
+	    b->foreign_phase > 2)
+		return;
+	b->foreign_scheduled = false;
+	requested = b->foreign_phase++ == 1 ? FYAI_FOREIGN_CLAUDE_CODE :
+		FYAI_FOREIGN_CODEX;
+	gb = fy_generic_builder_create(&gbcfg);
+	if (!gb)
+		return;
+	dir = getcwd(cwd, sizeof(cwd)) ? cwd : NULL;
+	selected = b->selected < b->count ?
+		strdup(b->rows[b->selected].name) : NULL;
+	foreign_rows = fyai_foreign_sessions(b->ctx, gb, requested, dir,
+					       b->resume_all);
+	fy_foreach(row, foreign_rows) {
+		name = fy_get(row, "branch", fy_invalid);
+		if (!fy_is_string(name) ||
+		    fyai_branch_lookup(b->branches, fy_castp(&name, ""), &existing))
+			continue;
+		if (browser_add_path(b, fy_castp(&name, ""), true, &n))
+			break;
+		b->rows[n].foreign = true;
+		b->rows[n].updated = (uint64_t)fy_get(row, "updated", 0LL);
+		b->rows[n].turns = fy_get(row, "turns", 0LL);
+		b->rows[n].tokens = fy_get(row, "tokens", 0LL);
+		stored = fy_get(row, "cwd", fy_invalid);
+		dir = fy_castp(&stored, "");
+		b->rows[n].cwd = dir && *dir ? strdup(dir) : NULL;
+		path = fy_get(row, "path", fy_invalid);
+		b->rows[n].path = fy_is_string(path) ?
+			strdup(fy_castp(&path, "")) : NULL;
+		title = fy_get(row, "title", fy_invalid);
+		b->rows[n].title = fy_is_string(title) ?
+			strdup(fy_castp(&title, "")) : NULL;
+		source = fy_get(row, "source", fy_invalid);
+		b->rows[n].source = fy_equal(source, "claude-code") ?
+			FYAI_FOREIGN_CLAUDE_CODE : FYAI_FOREIGN_CODEX;
+	}
+	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
+	if (selected)
+		for (i = 0; i < b->count; i++)
+			if (!strcmp(b->rows[i].name, selected)) {
+				b->selected = i;
+				break;
+			}
+	free(selected);
+	fy_generic_builder_destroy(gb);
+	b->dirty = true;
+	fyai_ui_wake(b->ctx);
+	if (b->foreign_phase <= 2 &&
+	    !fyai_event_defer(fyai_ctx_loop(b->ctx), browser_foreign_scan, b))
+		b->foreign_scheduled = true;
+	else if (b->foreign_phase > 2 && b->message &&
+		 !strcmp(b->message, "Loading foreign sessions.")) {
+		free(b->message);
+		b->message = NULL;
+	}
 }
 
 static void browser_refresh(struct fyai_browser *b)
@@ -207,8 +416,9 @@ static void browser_refresh(struct fyai_browser *b)
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
 	};
 	struct fy_generic_builder *gb;
-	char *copy, *p;
+	char *copy, *newest = NULL;
 	const char *selected;
+	bool restored = false;
 	int rc;
 
 	root = fyai_branches_snapshot(b->ctx);
@@ -227,7 +437,8 @@ static void browser_refresh(struct fyai_browser *b)
 	b->rows = NULL;
 	b->count = b->selected = 0;
 	if (b->resume) {
-		browser_refresh_recent(b);
+		browser_refresh_sessions(b, &newest);
+		qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
 		goto sorted;
 	}
 	/* A row that cannot be made leaves a branch off the page, so the walk
@@ -239,12 +450,7 @@ static void browser_refresh(struct fyai_browser *b)
 		copy = strdup(fy_castp(&name, ""));
 		browser_warn_check(b, copy, incomplete,
 				   "cannot copy a branch name");
-		rc = browser_add(b, copy, true);
-		for (p = copy; !rc && (p = strchr(p, '/')); p++) {
-			*p = '\0';
-			rc = browser_add(b, copy, false);
-			*p = '/';
-		}
+		rc = browser_add_path(b, copy, true, NULL);
 		free(copy);
 		if (rc)
 			goto incomplete;
@@ -266,17 +472,28 @@ incomplete:
 	qsort(b->rows, b->count, sizeof(*b->rows), browser_compare);
 sorted:
 	for (i = 0; i < b->count; i++) {
-		if (!strcmp(b->rows[i].name, selected))
+		if (!strcmp(b->rows[i].name, selected)) {
 			b->selected = i;
+			restored = true;
+		}
 		for (j = 0; j < old_count; j++)
 			if (!strcmp(b->rows[i].name, old[j].name))
 				b->rows[i].collapsed = old[j].collapsed;
 	}
+	if (b->resume && !restored && newest)
+		for (i = 0; i < b->count; i++)
+			if (!strcmp(b->rows[i].name, newest)) {
+				b->selected = i;
+				break;
+			}
 	for (i = 0; i < old_count; i++) {
 		free(old[i].name);
 		free(old[i].cwd);
+		free(old[i].path);
+		free(old[i].title);
 	}
 	free(old);
+	free(newest);
 	b->dirty = true;
 }
 
@@ -307,6 +524,27 @@ static void browser_move(struct fyai_browser *b, int delta)
 		}
 	}
 	b->dirty = true;
+	b->navigated = true;
+}
+
+static void browser_close_group(struct fyai_browser *b)
+{
+	size_t i, selected = b->selected;
+
+	if (selected + 1 < b->count &&
+	    fyai_branch_is_below(b->rows[selected + 1].name,
+				 b->rows[selected].name)) {
+		b->rows[selected].collapsed = true;
+		return;
+	}
+	for (i = selected; i-- > 0;)
+		if (fyai_branch_is_below(b->rows[selected].name,
+					 b->rows[i].name)) {
+			b->rows[i].collapsed = true;
+			b->selected = i;
+			b->navigated = true;
+			return;
+		}
 }
 
 /* Move the selection by where the renderer drew the diagram, so a move reads
@@ -338,6 +576,7 @@ static bool browser_navigate(struct fyai_browser *b, enum fyai_diagram_move dir)
 		return false;
 	b->selected = b->drawn[n];
 	b->dirty = true;
+	b->navigated = true;
 	return true;
 }
 
@@ -402,7 +641,8 @@ char *fyai_browser_gitgraph_source(fy_generic rows)
 			fprintf(fp, "checkout b%zu\n", i);
 		row = fy_get(rows, i);
 		name = fy_get(row, "name", fy_invalid);
-		label = fy_stringf(gb, "%s%s%s%s%s%s%s", fy_castp(&name, ""),
+		label = fy_get(row, "label", name);
+		label = fy_stringf(gb, "%s%s%s%s%s%s%s", fy_castp(&label, ""),
 			fy_get(row, "current", false) ? " [current]" : "",
 			fy_get(row, "head", false) ? " [HEAD]" : "",
 			fy_get(row, "collapsed", false) ? " [+]" : "",
@@ -456,43 +696,70 @@ static void browser_pane(struct fyai_browser *b, int *rowsp, int *colsp)
 	};
 	int rows = fyai_ui_surface_granted_rows(b->surface);
 	int cols = fyai_ui_surface_granted_cols(b->surface);
+	int footer_rows;
 
 	*rowsp = fyai_sink_page_rows(&probe, rows, cols);
 	*colsp = fyai_sink_page_cols(&probe, rows, cols);
+	if (b->resume) {
+		footer_rows = fyai_sink_markdown_measure(b->ctx->sink,
+				browser_resume_footer, *colsp);
+		if (footer_rows > 0 && footer_rows + 1 < *rowsp)
+			*rowsp -= footer_rows + 1;
+	}
 }
 
-/* One row of the recent view. */
-static void browser_row_recent(struct fyai_browser *b, FILE *fp, size_t i)
+static void browser_session_detail(struct fyai_browser *b, FILE *fp)
 {
+	struct browser_row *row;
 	struct fyai_branch branch;
+	fy_generic source, id;
 	char when[64];
-	char *name, *model, *description, *dir;
-	long long turns;
+	char *model = NULL, *dir = NULL;
+	const char *source_text, *id_text;
+	size_t i, sessions = 0;
 
-	fyai_render_time(when, sizeof(when), (long long)b->rows[i].updated);
-	/* A grouping row stores no branch; the lookup clears @branch for it. */
-	(void)fyai_branch_lookup(b->branches, b->rows[i].name, &branch);
-	turns = fyai_branch_turn_count(branch.head, 1000);
-	name = fyai_prompt_literal(b->rows[i].name);
-	model = fyai_prompt_literal(fy_get(branch.config, "model", ""));
-	description = fyai_prompt_literal(fy_get(branch.entry, "description", ""));
-	/* The directory only tells the sessions apart when they are mixed. */
-	dir = b->resume_all && b->rows[i].cwd ?
-		fyai_prompt_literal(b->rows[i].cwd) : NULL;
-	fprintf(fp, "%s%s%s%s · %lld turn%s%s%s%s%s%s%s%s%s  \n",
-		i == b->selected ? "**> " : "  ",
-		name ? name : "", i == b->selected ? "**" : "",
-		!strcmp(b->rows[i].name, fyai_ctx_branch(b->ctx)) ?
-			" [current]" : "",
-		turns, turns == 1 ? "" : "s",
-		*when ? " · " : "", when,
-		model && *model ? " · " : "", model ? model : "",
-		dir ? " · " : "", dir ? dir : "",
-		description && *description ? " · " : "",
-		description && *description ? description : "");
-	free(name);
+	if (!b->resume || b->selected >= b->count)
+		return;
+	row = &b->rows[b->selected];
+	if (!row->branch) {
+		for (i = b->selected + 1; i < b->count &&
+		     fyai_branch_is_below(b->rows[i].name, row->name); i++)
+			sessions += b->rows[i].branch;
+		dir = fyai_prompt_literal(row->name);
+		fprintf(fp, "> **Group · %s**  \n", dir ? dir : "");
+		fprintf(fp, "> %zu session%s  \n", sessions,
+			sessions == 1 ? "" : "s");
+		free(dir);
+		return;
+	}
+	fyai_render_time(when, sizeof(when), (long long)row->updated);
+	if (row->foreign) {
+		source_text = fyai_foreign_source_name(row->source);
+		id_text = browser_foreign_id(row);
+	} else {
+		if (!fyai_branch_lookup(b->branches, row->name, &branch))
+			return;
+		source = fy_get(branch.import, "source", fy_invalid);
+		id = fy_get(branch.import, "session_id", fy_invalid);
+		source_text = fy_is_string(source) ? fy_castp(&source, "") : "fyai";
+		id_text = fy_is_string(id) ? fy_castp(&id, "") : row->name;
+		model = fyai_prompt_literal(fy_get(branch.config, "model", ""));
+	}
+	dir = b->resume_all && row->cwd ? fyai_prompt_literal(row->cwd) : NULL;
+	fprintf(fp, "> **%s · %.8s**%s%s  \n",
+		source_text, id_text, *when ? " · " : "", when);
+	if (b->message)
+		fprintf(fp, "> %s  \n", b->message);
+	else if (!row->foreign)
+		fprintf(fp, "> %lld turn%s · %lld tokens%s%s%s%s  \n", row->turns,
+			row->turns == 1 ? "" : "s", row->tokens,
+			model && *model ? " · " : "",
+			model ? model : "", dir ? " · " : "", dir ? dir : "");
+	else
+		fprintf(fp, "> %lld turn%s · %lld tokens%s%s  \n",
+			row->turns, row->turns == 1 ? "" : "s", row->tokens,
+			" · ", dir ? dir : "unimported");
 	free(model);
-	free(description);
 	free(dir);
 }
 
@@ -506,7 +773,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED };
 	struct fy_generic_builder *gb = NULL;
 	fy_generic graph_rows = fy_invalid;
-	char *name, *model, *description, *input;
+	char *name, *model, *description, *input, *diagram_label;
 	const char *leaf, *head, *state;
 	FILE *fp, *diagram = NULL;
 	size_t len = 0, tree_len = 0, i, j, shown, total, depth;
@@ -525,25 +792,27 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 		shown -= browser_visible(b, b->top++);
 	for (i = b->top, total = 0; i < b->count; i++)
 		total += browser_visible(b, i);
-	input = fyai_prompt_literal(b->filter);
-	fprintf(fp, "**%s** · %s · / filter%s%s",
-		b->resume ? "Sessions" : "Branches",
-		b->view == 3 ? (b->resume_all ? "recent · all directories" :
-				"recent") :
-		b->view == 0 ? "tree" : b->view == 1 ? "gitgraph overview" : "list",
-		*b->filter || b->filtering ? ": " : "", input ? input : "");
-	free(input);
+	if (!b->resume) {
+		input = fyai_prompt_literal(b->filter);
+		fprintf(fp, "**Branches** · %s · / filter%s%s",
+			b->view == 1 ? "gitgraph overview" : "tree",
+			*b->filter || b->filtering ? ": " : "",
+			input ? input : "");
+		free(input);
+	}
 	/* The page states what it left out, so a view that holds a part of a
 	 * long list does not read as the whole of it. */
 	p->more = total > limit ? total - limit : 0;
-	if (p->more)
+	if (p->more && !b->resume)
 		fprintf(fp, " · %zu more", p->more);
-	fprintf(fp, "  \n%s  \n", fyai_ui_surface_granted_cols(b->surface) < 50 ?
-		(b->resume ? "Enter resume · i info" : "Enter switch · i info") :
-		b->resume ?
-		"Enter resume · i info · g view · a actions · Esc cancel" :
-		"Enter switch · i info · g view · p preview · a actions · Esc close");
-	if (b->view != 2 && b->view != 3 && b->count) {
+	if (!b->resume)
+		fprintf(fp, "  \n%s  \n",
+			fyai_ui_surface_granted_cols(b->surface) < 50 ?
+			"Enter switch · i info" :
+			"Enter switch · i info · g view · p preview · "
+			"a actions · Esc close");
+	browser_session_detail(b, fp);
+	if (b->count) {
 		free(b->drawn);
 		/* Without it a move has no drawing to read; the page still
 		 * draws and the keys fall back to the row order. */
@@ -562,7 +831,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 				graph_rows = fy_sequence(gb);
 		}
 	}
-	if (b->message) {
+	if (b->message && !b->resume) {
 		input = fyai_prompt_literal(b->message);
 		fprintf(fp, "%s  \n", input ? input : "");
 		free(input);
@@ -583,32 +852,44 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 		if (gb)
 			graph_rows = fy_append(gb, graph_rows, fy_mapping(gb,
 				"name", b->rows[i].name, "group", !b->rows[i].branch,
+				"label", b->rows[i].title && *b->rows[i].title ?
+					b->rows[i].title : b->rows[i].name,
 				"current", !strcmp(b->rows[i].name, fyai_ctx_branch(b->ctx)),
 				"head", !strcmp(b->rows[i].name, head),
 				"collapsed", b->rows[i].collapsed,
 				"state", fyai_agents_state(b->ctx, b->rows[i].name) ?
 					fyai_agents_state(b->ctx, b->rows[i].name) : ""));
-		if (b->view == 3) {
-			browser_row_recent(b, fp, i);
-			continue;
-		}
-		name = fyai_prompt_literal(b->rows[i].name);
+		name = fyai_prompt_literal(b->rows[i].title && *b->rows[i].title ?
+			b->rows[i].title : b->rows[i].name);
 		child = i + 1 < b->count &&
 			fyai_branch_is_below(b->rows[i + 1].name, b->rows[i].name);
 		/* A grouping row stores no branch and reads as an empty one. */
-		(void)fyai_branch_lookup(b->branches, b->rows[i].name, &branch);
-		state = fyai_agents_state(b->ctx, b->rows[i].name);
-		model = fyai_prompt_literal(fy_get(branch.config, "model", ""));
-		description = fyai_prompt_literal(fy_get(branch.entry, "description", ""));
-		fprintf(fp, "%s%s %s%s%s%s%s%s%s%s  \n",
+		memset(&branch, 0, sizeof(branch));
+		state = NULL;
+		if (!b->rows[i].foreign) {
+			(void)fyai_branch_lookup(b->branches, b->rows[i].name,
+						 &branch);
+			state = fyai_agents_state(b->ctx, b->rows[i].name);
+		}
+		model = b->rows[i].foreign ?
+			fyai_prompt_literal(fyai_foreign_source_name(b->rows[i].source)) :
+			fyai_prompt_literal(fy_get(branch.config, "model", ""));
+		description = b->rows[i].foreign ||
+			(b->resume && b->rows[i].title) ?
+			fyai_prompt_literal(browser_foreign_id(&b->rows[i])) :
+			fyai_prompt_literal(fy_get(branch.entry, "description", ""));
+		if (b->rows[i].foreign && description && strlen(description) > 8)
+			description[8] = '\0';
+		fprintf(fp, "%s%s %s%s%s%s%s%s%s%s%s  \n",
 			i == b->selected ? "**> " : "  ",
 			child ? (b->rows[i].collapsed ? "+" : "−") : "·",
 			name ? name : "", i == b->selected ? "**" : "",
 			!strcmp(b->rows[i].name, fyai_ctx_branch(b->ctx)) ? " [current]" : "",
 			!strcmp(b->rows[i].name, head) ? " [HEAD]" : "",
-			!b->rows[i].branch ? " [group]" :
+			b->rows[i].foreign ? "" : !b->rows[i].branch ? " [group]" :
 			state ? state : fy_is_valid(branch.agent) ? " [agent · stored]" : "",
 			model && *model ? " · " : "", model ? model : "",
+			description && *description ? " · " : "",
 			description && *description ? description : "");
 		if (diagram) {
 			depth = 0;
@@ -616,6 +897,11 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 				depth += browser_visible(b, j) &&
 					fyai_branch_is_below(b->rows[i].name, b->rows[j].name);
 			leaf = strrchr(b->rows[i].name, '/');
+			diagram_label = b->rows[i].foreign ?
+				browser_foreign_diagram_label(&b->rows[i]) :
+				browser_import_diagram_label(branch.import);
+			if (!diagram_label && b->resume)
+				diagram_label = browser_native_diagram_label(&b->rows[i]);
 			/* treeView has no literal-label escape for these delimiters. */
 			if (strstr(b->rows[i].name, "##") || strstr(b->rows[i].name, "%%") ||
 			    strpbrk(b->rows[i].name, "\"<>")) {
@@ -625,15 +911,19 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 				free(name);
 				free(model);
 				free(description);
+				free(diagram_label);
 				continue;
 			}
 			fprintf(diagram, "%*s- %s%s%s%s%s\n", (int)(depth * 2), "",
-				leaf ? leaf + 1 : b->rows[i].name,
+				diagram_label ? diagram_label :
+					(leaf ? leaf + 1 : b->rows[i].name),
 				child && b->rows[i].collapsed ? " [+]" : "",
 				!strcmp(b->rows[i].name, fyai_ctx_branch(b->ctx)) ? " [current]" : "",
 				!strcmp(b->rows[i].name, head) ? " [HEAD]" : "",
+				b->rows[i].foreign ? "" :
 				!b->rows[i].branch ? " [group]" : state ? state :
 				fy_is_valid(branch.agent) ? " [agent]" : "");
+			free(diagram_label);
 		}
 		free(name);
 		free(model);
@@ -715,8 +1005,7 @@ static void browser_fit(struct fyai_browser *b, struct browser_page *p)
 				budget = avail * FYAI_BROWSER_WINDOW;
 			}
 		}
-		/* A list view and a source that cannot be measured are
-		 * presented as they were built. */
+		/* A source that cannot be measured is presented as built. */
 		if (!p->tree || !p->drawn ||
 		    fyai_sink_diagram_measure(b->ctx->cfg, p->tree, cols, &used,
 					      &legend) ||
@@ -880,15 +1169,17 @@ static void browser_paint(struct fyai_browser *b)
 					     0) : -1;
 		free(input);
 		if (rc) {
-			/* The drawing did not render; the list says the same
-			 * thing and is what the reader gets instead. */
+			/* The drawing did not render; the plain rows say the same
+			 * thing and are what the reader gets instead. */
 			/* fy_sprintfa() is stack storage: it lives to the end
 			 * of this frame and is not freed. */
-			input = fy_sprintfa("Diagram unavailable; showing list.\n\n%s", page.md);
+			input = fy_sprintfa("Diagram unavailable; showing plain rows.\n\n%s",
+					    page.md);
 			rc = browser_present(b, input, NULL, NULL, 0, 0);
 		}
 	} else if (page.fallback) {
-		input = fy_sprintfa("Literal branch labels require the list view.\n\n%s", page.md);
+		input = fy_sprintfa("Literal branch labels require plain rows.\n\n%s",
+				    page.md);
 		rc = browser_present(b, input, NULL, NULL, 0, 0);
 	} else
 		rc = browser_present(b, page.md, NULL, NULL, 0, 0);
@@ -937,17 +1228,13 @@ static int browser_open(struct fyai_ctx *ctx, bool resume, bool all)
 		b->ctx = ctx;
 		b->resume = resume;
 		b->resume_all = all;
-		b->view = ctx->cfg->branch_view && !strcmp(ctx->cfg->branch_view, "list") ? 2 :
-			ctx->cfg->branch_view && !strcmp(ctx->cfg->branch_view, "gitgraph") ? 1 : 0;
+		b->view = ctx->cfg->branch_view &&
+			!strcmp(ctx->cfg->branch_view, "gitgraph") ? 1 : 0;
 		b->configured_view = b->view;
 		b->preview_mode = browser_preview_mode(ctx->cfg->branch_preview);
 		b->configured_preview = b->preview_mode;
-		/* The picker opens on the recent sessions, and the session
-		 * itself is the preview it would otherwise draw. */
-		if (resume) {
-			b->view = 3;
-			b->preview_mode = 0;
-		}
+		if (resume)
+			b->view = 0;
 		b->root = b->branches = fy_invalid;
 		b->preview_root = fy_invalid;
 		ctx->browser = b;
@@ -990,12 +1277,15 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 
 	if (!b)
 		return;
+	fyai_event_defer_cancel(fyai_ctx_loop(ctx), browser_foreign_scan, b);
 	if (b->resume && !b->picked)
 		fyai_ui_quit_request(ctx);
 	fyai_ui_surface_close(ctx, b->surface);
 	for (i = 0; i < b->count; i++) {
 		free(b->rows[i].name);
 		free(b->rows[i].cwd);
+		free(b->rows[i].path);
+		free(b->rows[i].title);
 	}
 	free(b->rows);
 	free(b->drawn);
@@ -1023,6 +1313,11 @@ void fyai_browser_service(struct fyai_ctx *ctx)
 	if (b->pending && strchr("itlczAK", b->pending))
 		fyai_browser_step(ctx);
 	browser_paint(b);
+	if (b->resume && b->foreign_visible && b->foreign_phase &&
+	    b->foreign_phase <= 2 &&
+	    !b->foreign_scheduled &&
+	    !fyai_event_defer(fyai_ctx_loop(ctx), browser_foreign_scan, b))
+		b->foreign_scheduled = true;
 }
 
 static void browser_accept(struct fyai_browser *b)
@@ -1129,8 +1424,9 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 		if (b->details) {
 			if (c == 'j') b->offset++;
 			else if (b->offset) b->offset--;
-		} else if (!browser_navigate(b, c == 'j' ? FYAI_DIAGRAM_DOWN :
-						FYAI_DIAGRAM_UP))
+		} else if (b->view != 1 ||
+			   !browser_navigate(b, c == 'j' ? FYAI_DIAGRAM_DOWN :
+						 FYAI_DIAGRAM_UP))
 			browser_move(b, c == 'j' ? 1 : -1);
 		return;
 	}
@@ -1154,12 +1450,27 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 		return;
 	}
 	if (c == 'g') {
-		/* The picker chooses a session, so its toggle is between the
-		 * recent list and the hierarchy, not a cycle of every view. */
-		if (b->resume)
-			b->view = b->view == 3 ? b->configured_view : 3;
-		else
-			b->view = (b->view + 1) % 3;
+		if (!b->resume)
+			b->view = !b->view;
+		return;
+	}
+	if (c == 'f' && b->resume) {
+		if (!b->foreign_visible) {
+			b->foreign_visible = true;
+			b->foreign_phase = 1;
+			b->foreign_scheduled = false;
+			browser_message(b, "Loading foreign sessions.");
+		} else {
+			b->foreign_visible = false;
+			b->foreign_phase = 0;
+			b->foreign_scheduled = false;
+			fyai_event_defer_cancel(fyai_ctx_loop(b->ctx),
+					      browser_foreign_scan, b);
+			free(b->message);
+			b->message = NULL;
+			b->root = fy_invalid;
+			browser_refresh(b);
+		}
 		return;
 	}
 	if (c == 'p') {
@@ -1173,17 +1484,30 @@ static void browser_key(struct fyai_browser *b, unsigned char c)
 		return;
 	}
 	if (c == 'R') {
+		fyai_event_defer_cancel(fyai_ctx_loop(b->ctx),
+					browser_foreign_scan, b);
 		b->root = fy_invalid;
 		browser_refresh(b);
+		if (b->resume) {
+			b->foreign_phase = b->foreign_visible ? 1 : 0;
+			b->foreign_scheduled = false;
+			if (b->foreign_visible)
+				browser_message(b, "Loading foreign sessions.");
+		}
 		return;
 	}
 	if (!b->count || !browser_visible(b, b->selected))
 		return;
 	if (c == 'h' || c == 'v') {
-		b->rows[b->selected].collapsed = c == 'h';
+		if (c == 'h')
+			browser_close_group(b);
+		else
+			b->rows[b->selected].collapsed = false;
 		return;
 	}
 	if (!b->rows[b->selected].branch && c != 'n' && c != 'N')
+		return;
+	if (b->rows[b->selected].foreign && c != '\r' && c != '\n' && c != 'i')
 		return;
 	if (strchr("nNredmbx", c)) {
 		b->action = c;
@@ -1326,11 +1650,67 @@ none:
 	return NULL;
 }
 
+static char *browser_foreign_capture(struct fyai_browser *b,
+				     const struct browser_row *row,
+				     char action, int cols, int rows)
+{
+	struct fy_generic_builder_cfg gbcfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fyai_ctx view = *b->ctx;
+	struct fyai_cfg cfg = *b->ctx->cfg;
+	struct fy_generic_builder *gb;
+	FILE *fp = NULL;
+	const char *captured;
+	char *out = NULL;
+	size_t len = 0;
+
+	gb = fy_generic_builder_create(&gbcfg);
+	if (!gb)
+		return NULL;
+	view.cfg = &cfg;
+	view.ui = NULL;
+	view.display_output = NULL;
+	view.browser = NULL;
+	view.transient_gb = gb;
+	view.last_message = fy_invalid;
+	if (cols > 0)
+		cfg.render_width = cols;
+	if (action == 'p') {
+		fp = open_memstream(&out, &len);
+		if (!fp)
+			goto out;
+		view.sink = fyai_sink_create_render(&view, fp);
+	} else
+		view.sink = fyai_sink_create_capture(&view);
+	if (!view.sink)
+		goto out;
+	if (fyai_foreign_preview(&view, row->path, row->source,
+				 action == 'p' ? -1 : 10,
+				 action == 'p' ? rows : 0) < 0)
+		goto out_sink;
+	if (!fp) {
+		captured = fyai_sink_captured(view.sink, NULL);
+		out = captured ? strdup(captured) : NULL;
+	}
+out_sink:
+	fyai_sink_destroy(view.sink);
+out:
+	if (fp && fclose(fp)) {
+		free(out);
+		out = NULL;
+	}
+	fy_generic_builder_destroy(gb);
+	return out;
+}
+
 static void browser_inspect(struct fyai_browser *b, char action)
 {
 	char *text;
 
-	text = browser_capture(b, b->target, action, 0, 0);
+	text = b->rows[b->selected].foreign && action == 'i' ?
+		browser_foreign_capture(b, &b->rows[b->selected], 'i', 0, 0) :
+		browser_capture(b, b->target, action, 0, 0);
 	if (!text)
 		return;
 	free(b->details);
@@ -1353,6 +1733,7 @@ static enum fyai_sink_split browser_split(const struct fyai_browser *b)
  * over stored turns is not free. */
 static void browser_preview_update(struct fyai_browser *b, int cols, int rows)
 {
+	struct browser_row *row;
 	char *name;
 
 	if (browser_split(b) == FYAI_SINK_SPLIT_NONE || !b->count ||
@@ -1362,17 +1743,22 @@ static void browser_preview_update(struct fyai_browser *b, int cols, int rows)
 		b->preview_branch[0] = '\0';
 		return;
 	}
-	name = b->rows[b->selected].name;
+	row = &b->rows[b->selected];
+	name = row->name;
 	if (b->preview && !strcmp(b->preview_branch, name) &&
 	    b->preview_generation == b->generation &&
 	    b->preview_root.v == b->root.v &&
+	    b->preview_updated == row->updated &&
 	    b->preview_cols == cols && b->preview_rows == rows)
 		return;
 	free(b->preview);
-	b->preview = browser_capture(b, name, 'p', cols, rows);
+	b->preview = row->foreign ?
+		browser_foreign_capture(b, row, 'p', cols, rows) :
+		browser_capture(b, name, 'p', cols, rows);
 	snprintf(b->preview_branch, sizeof(b->preview_branch), "%s", name);
 	b->preview_generation = b->generation;
 	b->preview_root = b->root;
+	b->preview_updated = row->updated;
 	b->preview_cols = cols;
 	b->preview_rows = rows;
 }
@@ -1388,7 +1774,10 @@ static int browser_present(struct fyai_browser *b, const char *md,
 		.diagram = diagram,
 		.diagram_selection = selection,
 		.diagram_row = pan,
+		.diagram_gap = b->resume,
 		.offset = offset,
+		.footer = b->resume ? browser_resume_footer : NULL,
+		.footer_gap = b->resume,
 		.split = browser_split(b),
 		.extent = b->ctx->cfg->branch_preview_size,
 	};
@@ -1498,6 +1887,17 @@ void fyai_browser_step(struct fyai_ctx *ctx)
 	case 's': case 'S':
 		/* The picker selects a session for this invocation; the branch
 		 * browser switches to a branch and takes HEAD with it. */
+		if (b->rows[b->selected].foreign) {
+				rc = fyai_foreign_import_view(ctx,
+				b->rows[b->selected].path,
+				b->rows[b->selected].source,
+				b->rows[b->selected].title);
+			if (rc)
+				break;
+			rc = fyai_branches_refresh(ctx);
+			if (rc)
+				break;
+		}
 		rc = fyai_session_branch_switch(ctx, b->target, false, b->resume);
 		if (!rc)
 			b->picked = true;
@@ -1546,10 +1946,11 @@ void fyai_browser_config_changed(struct fyai_ctx *ctx)
 
 	if (!b)
 		return;
-	view = ctx->cfg->branch_view && !strcmp(ctx->cfg->branch_view, "list") ? 2 :
-		ctx->cfg->branch_view && !strcmp(ctx->cfg->branch_view, "gitgraph") ? 1 : 0;
+	view = ctx->cfg->branch_view &&
+		!strcmp(ctx->cfg->branch_view, "gitgraph") ? 1 : 0;
 	if (view != b->configured_view)
-		b->view = b->configured_view = view;
+		b->view = b->resume ? 0 : view;
+	b->configured_view = view;
 	view = browser_preview_mode(ctx->cfg->branch_preview);
 	if (view != b->configured_preview)
 		b->preview_mode = b->configured_preview = view;

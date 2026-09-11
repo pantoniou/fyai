@@ -739,7 +739,7 @@ properties:
           markdown, "> " otherwise). May carry SGR colour escapes.
       branch_view:
         type: string
-        enum: [tree, gitgraph, list]
+        enum: [tree, gitgraph]
         default: tree
         description: Default branch browser view; tree uses libfymermaid. Press g to toggle the open browser.
       branch_preview:
@@ -747,15 +747,16 @@ properties:
         enum: [off, right, bottom, auto]
         default: auto
         description: >-
-          Where the branch browser renders the end of the selected session.
+          Where the branch and resume browsers render the end of the selected
+          session.
           Auto takes the right of a wide pane and the foot of a tall one.
-          Press p in the browser to cycle it for the session.
+          Press p in either browser to cycle it for the session.
       branch_preview_size:
         type: integer
         minimum: 10
         maximum: 80
         default: 40
-        description: Share of the branch browser pane given to the session preview, percent.
+        description: Share of the browser pane given to the session preview, percent.
       branch_preview_width:
         oneOf:
           - type: string
