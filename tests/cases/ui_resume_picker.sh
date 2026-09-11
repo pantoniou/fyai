@@ -27,9 +27,9 @@ FYAI_PTY_ROWS=24 FYAI_PTY_COLS=90 \
 FYAI_PTY_INPUT="" \
 FYAI_PTY_READY_NEEDLE="Enter resume" \
 FYAI_PTY_NEEDLE="Sessions" \
-FYAI_PTY_AFTER="wait-frame:switched to branch|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="wait-frame:switched to branch|send:/help|wait:Settings|raw:1d|drain:0.2" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pick.out" \
-	"$FYAI_BIN" -k test-key --color off -m mock-model resume
+	"$FYAI_BIN" -k test-key -m mock-model resume
 
 # The picker drew the sessions it offers, newest first.
 grep -qF "Sessions" "$TEST_DIR/pick.out" || fail "the picker did not open"
@@ -39,6 +39,16 @@ grep -qF "the newest session" "$TEST_DIR/pick.out" || \
 # Enter resumed the newest of them.
 grep -qF "switched to branch newer" "$TEST_DIR/pick.out" || \
 	fail "Enter did not resume the selected session"
+"$PYTHON" - "$TEST_DIR/pick.out" <<'EOF' || \
+	fail "resumed session lost automatic colour"
+import sys
+
+data = open(sys.argv[1], "rb").read()
+start = data.rfind(b"switched to branch")
+help_text = data.find(b"Settings", start)
+if start < 0 or help_text < 0 or b"\x1b[" not in data[start:help_text]:
+    raise SystemExit("no styling after branch configuration was adopted")
+EOF
 
 # Selecting a session does not move HEAD.
 run_fyai root show
