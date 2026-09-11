@@ -42,6 +42,7 @@
 #include "fyai_render.h"
 #include "fyai_markdown.h"
 #include "fyai_mcp_import.h"
+#include "fyai_foreign_import.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
 #include "fyai_tools.h"
@@ -371,6 +372,13 @@ static int configure_import(int argc, char **argv, struct fyai_cfg *cfg)
 
 	args->path = NULL;
 	args->ignore_compact = false;
+	args->from = NULL;
+	args->source_root = NULL;
+	args->session = NULL;
+	args->dry_run = false;
+	args->list = false;
+	args->all = false;
+	args->json = false;
 	for (i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "-i") || !strcmp(argv[i], "--input")) {
 			if (++i >= argc) {
@@ -384,7 +392,90 @@ static int configure_import(int argc, char **argv, struct fyai_cfg *cfg)
 			args->ignore_compact = true;
 			continue;
 		}
+		if (!strcmp(argv[i], "--from")) {
+			if (++i >= argc) {
+				fyai_cfg_error(cfg, "import: --from needs a source");
+				return -1;
+			}
+			args->from = argv[i];
+			continue;
+		}
+		if (!strcmp(argv[i], "--dry-run")) {
+			args->dry_run = true;
+			continue;
+		}
+		if (!strcmp(argv[i], "--list")) {
+			args->list = true;
+			continue;
+		}
+		if (!strcmp(argv[i], "--all")) {
+			args->all = true;
+			continue;
+		}
+		if (!strcmp(argv[i], "--source-root")) {
+			if (++i >= argc) {
+				fyai_cfg_error(cfg,
+					       "import: --source-root needs a directory");
+				return -1;
+			}
+			args->source_root = argv[i];
+			continue;
+		}
+		if (!strcmp(argv[i], "--session")) {
+			if (++i >= argc) {
+				fyai_cfg_error(cfg, "import: --session needs an ID");
+				return -1;
+			}
+			args->session = argv[i];
+			continue;
+		}
+		if (!strcmp(argv[i], "--json")) {
+			args->json = true;
+			continue;
+		}
 		fyai_cfg_error(cfg, "import: unknown option '%s'", argv[i]);
+		return -1;
+	}
+	if (!args->from &&
+	    (args->dry_run || args->list || args->session || args->json)) {
+		fyai_cfg_error(cfg,
+			       "import: foreign options need --from");
+		return -1;
+	}
+	if (args->source_root && (!args->from ||
+				   !strcmp(args->from, "auto"))) {
+		fyai_cfg_error(cfg,
+			       "import: --source-root needs a concrete source");
+		return -1;
+	}
+	if (args->list && args->path) {
+		fyai_cfg_error(cfg, "import: --list does not take an input file");
+		return -1;
+	}
+	if (args->list && args->session) {
+		fyai_cfg_error(cfg,
+			       "import: --list and --session are mutually exclusive");
+		return -1;
+	}
+	if (args->session && args->path) {
+		fyai_cfg_error(cfg,
+			       "import: --session and --input are mutually exclusive");
+		return -1;
+	}
+	if (args->session && args->from && !strcmp(args->from, "auto")) {
+		fyai_cfg_error(cfg,
+			       "import: --session needs a concrete source");
+		return -1;
+	}
+	if (args->from && args->ignore_compact) {
+		fyai_cfg_error(cfg, "import: foreign input does not use --ignore-compact");
+		return -1;
+	}
+	if (args->from && !strcmp(args->from, "fyai") &&
+	    (args->dry_run || args->list || args->session || args->json ||
+	     args->source_root || args->all)) {
+		fyai_cfg_error(cfg,
+			       "import: fyai input does not use foreign options");
 		return -1;
 	}
 	return 0;
@@ -392,7 +483,34 @@ static int configure_import(int argc, char **argv, struct fyai_cfg *cfg)
 
 static int execute_import(struct fyai_ctx *ctx)
 {
-	return fyai_import_view(ctx, ctx->cfg->cmd.args.import.path);
+	struct fyai_import_args *args = &ctx->cfg->cmd.args.import;
+	enum fyai_foreign_source source;
+
+	if (!args->from || !strcmp(args->from, "fyai"))
+		return fyai_import_view(ctx, args->path);
+	if (!strcmp(args->from, "auto"))
+		source = FYAI_FOREIGN_AUTO;
+	else if (!strcmp(args->from, "claude-code"))
+		source = FYAI_FOREIGN_CLAUDE_CODE;
+	else if (!strcmp(args->from, "codex"))
+		source = FYAI_FOREIGN_CODEX;
+	else {
+		fyai_error(ctx, "import: unknown source '%s'", args->from);
+		return -1;
+	}
+	if (args->list)
+		return fyai_foreign_import_list(ctx, source,
+						args->source_root, args->all,
+						args->json);
+	if (args->session)
+		return fyai_foreign_import_session(ctx, source,
+						   args->source_root,
+						   args->session,
+						   args->dry_run, args->json);
+	if (!args->dry_run) {
+		return fyai_foreign_import_view(ctx, args->path, source, NULL);
+	}
+	return fyai_foreign_import_dry_run(ctx, args->path, source, args->json);
 }
 
 static int configure_replay(int argc, char **argv, struct fyai_cfg *cfg)
@@ -2173,7 +2291,8 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 			     "--first/--last/--range select a turn window (0-based, range\n"
 			     "inclusive; state/providers only). --decorate adds a top comment\n"
 			     "to each entry with the turn number, role, and provider.",
-		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 		.default_args.dump = {
 			.decorate = false,
 			.state = true,
@@ -2248,13 +2367,22 @@ static const struct fyai_verb fyai_verbs[FYAI_VERB_COUNT] = {
 		.name	   = "import",
 		.configure = configure_import,
 		.execute   = execute_import,
-		.synopsis  = "import [-i file] [--ignore-compact]",
+		.synopsis  = "import [-i file] [--ignore-compact] | "
+			     "--from SOURCE (--list | --session ID | -i file) "
+			     "[--dry-run] [--json]",
 		.help      = "Read a textual export from standard input or -i.\n"
 			     "Replay its publish boundaries into the active branch.\n"
 			     "--branch/-b selects an empty destination branch.\n"
 			     "Compaction markers make provider requests.\n"
-			     "--ignore-compact skips these requests.\n",
-		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS,
+			     "--ignore-compact skips these requests.\n"
+			     "--from auto|claude-code|codex selects foreign JSONL.\n"
+			     "--dry-run validates foreign input without publishing it.\n"
+			     "--list discovers foreign sessions; --all widens directories.\n"
+			     "--session imports one discovered ID from a concrete source.\n"
+			     "--source-root overrides one concrete source's state root.\n"
+			     "--json makes the dry-run report machine-readable.\n",
+		.flags	   = FYAIVF_BATCH | FYAIVF_NO_REQUESTS |
+			     FYAIVF_NEEDS_TRANSIENT_BUILDER,
 	},
 	[FYAIVID_REPLAY] = {
 		.id	   = FYAIVID_REPLAY,

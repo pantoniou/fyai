@@ -167,6 +167,13 @@ struct fyai_replay_args {
 struct fyai_import_args {
 	const char *path;	/* NULL is standard input */
 	bool ignore_compact;	/* skip compaction markers instead of issuing */
+	const char *from;	/* NULL for native import */
+	const char *source_root; /* override the foreign application state root */
+	const char *session;	/* discover and import this source session ID */
+	bool dry_run;		/* inspect foreign input without publication */
+	bool list;		/* list discoverable foreign sessions */
+	bool all;		/* include sessions from other directories */
+	bool json;		/* machine-readable dry-run report */
 };
 
 struct fyai_stats_args {

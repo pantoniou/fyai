@@ -1752,7 +1752,7 @@ static void fyai_emit_tool_call_chat(struct fyai_ctx *ctx, FILE *mf,
 	fy_generic fn;
 
 	fn = fy_get(call, "function");
-	name = fy_get(fn, "name", "?");
+	name = fyai_tool_name_canonical(fy_get(fn, "name", "?"));
 	args_str = fy_get(fn, "arguments", "");
 
 	args = parse_json_string(tgb, args_str);
@@ -2097,8 +2097,9 @@ static void fyai_emit_native_item(struct fyai_ctx *ctx, FILE *mf,
 	if (fy_equal(c->type, "function_call")) {
 		args_str = fy_get(m, "arguments", "");
 		args = parse_json_string(tgb, args_str);
-		fyai_emit_tool_call(ctx, mf, tgb, fy_get(m, "name", "?"), args,
-				    preview_lines, NULL);
+		fyai_emit_tool_call(ctx, mf, tgb,
+			fyai_tool_name_canonical(fy_get(m, "name", "?")), args,
+			preview_lines, NULL);
 		return;
 	}
 	if (fy_equal(c->type, "shell_call")) {
