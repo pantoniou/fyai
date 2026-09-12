@@ -633,6 +633,14 @@ register, focus, zoom, resize - and sizes nothing itself.
   opened it and is already bounded by the pane: the gutter only holds the
   screen under the name of that call. The column rule is not the gutter: one
   divides two programs and the other runs down the inside of one.
+- The head of a tile is UI Markdown. `fyai_ui_surface_set_head_frame()`
+  escapes the title with `markdown_ui_escape()` - it holds what a model or a
+  program wrote - and makes it the `tile:focus` label, so a click on the name
+  gives the tile the keys. The manager keeps the regions of the head with the
+  tile (`fyai_workpane_tile_set_regions()`) and frees them with it. A click
+  reaches fyai only when the mouse is grabbed, which `display/work_controls`
+  decides. Never render chrome with UI Markdown without escaping text that
+  fyai did not write.
 - `display/work_controls` draws mouse affordances on a tile. Anything but
   `none` grabs the mouse for the whole session, which takes selection and copy
   from the terminal, so it is off by default. The library reports a control as
