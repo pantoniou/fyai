@@ -732,6 +732,13 @@ do not put a colour for a role in C.
   current palette when the theme, the variant and the colour did not change.
 - The reverse-card probe sets the variant of each background on the palette
   and restores it. The renderer copies the escapes when it takes the palette.
+- Take the colour of an element that fyai draws itself, such as a notice
+  heading or a failure cause, from a role with `markdown_role_on()` and
+  `markdown_role_off()`. Give the escape the element has without a palette as
+  the fallback. Do not write a colour escape for an element that a role names.
+- A diagram takes the palette through `fymm_render_cfg.palette`. The build
+  enables it (`FYAI_FYMM_PALETTE`) only when the libfymermaid header has the
+  field.
 - libfypalette is optional. Keep the build and the tests correct without it:
   a palette theme is then not a valid `display/theme`.
 
