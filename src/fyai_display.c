@@ -4485,7 +4485,8 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off, live);
 	fyai_flow_emitted(flow, FYAI_FLOW_USER_CARD, true);
-	fyai_flow_blank_rows(flow, fenced ? 1 : 0);
+	/* The bottom fence is chrome, not separation. It does not satisfy the fence. */
+	fyai_flow_blank_rows(flow, 0);
 	free(rb.data);
 }
 
