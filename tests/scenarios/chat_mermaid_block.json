@@ -1,0 +1,20 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-mermaid",
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "# Flow\n\n```mermaid\nflowchart LR\n    A[peek] --> B[scan next]\n```\n\n```diff\n@@ -1 +1 @@\n-flowchart\n+flowchart LR\n```"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}
