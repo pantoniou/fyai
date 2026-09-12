@@ -188,7 +188,7 @@ static void test_reasoning_blockquote(void)
 
 	out = captured(&f);
 	expect_true("reasoning opens a quote",
-		    strstr(out, "> **💭 reasoning**") != NULL);
+		    strstr(out, FYAI_REASONING_HEAD) != NULL);
 	expect_true("the split line stays quoted",
 		    strstr(out, "\n> second line") != NULL);
 	expect_true("no row escapes the quote",
