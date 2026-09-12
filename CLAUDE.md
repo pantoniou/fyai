@@ -765,6 +765,8 @@ do not put a colour for a role in C.
 - The build enables the glyphs (`FYAI_PALETTE_GLYPHS`) only when libfypalette
   has `fypal_ctx_glyph()` and libfymd4c has
   `fymd_renderer_set_palette_flags()`.
+- `/theme` completes from `markdown_theme_selectors()`, which asks libfymd4c
+  and libfypalette for their themes. Do not keep a list of theme names in C.
 - libfypalette is optional. Keep the build and the tests correct without it:
   a palette theme is then not a valid `display/theme`.
 
