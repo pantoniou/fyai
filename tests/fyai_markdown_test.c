@@ -28,12 +28,17 @@
 
 #include "fyai_test_registry.h"
 
+#ifdef FYAI_WITH_FYPALETTE
+#include <libfypalette.h>
+#endif
+
 FYAI_TEST_ENTRY(markdown, window_bounds_render, markdown_window_bounds_render)
 FYAI_TEST_ENTRY(markdown, window_reopens_fence, markdown_window_reopens_fence)
 FYAI_TEST_ENTRY(markdown, window_off_when_unbounded, markdown_window_off_when_unbounded)
 FYAI_TEST_ENTRY(markdown, final_render_is_whole, markdown_final_render_is_whole)
 FYAI_TEST_ENTRY(markdown, tool_head_chrome, markdown_tool_head_chrome)
 FYAI_TEST_ENTRY(markdown, source_rows_utf8, markdown_source_rows_utf8)
+FYAI_TEST_ENTRY(markdown, role_palette, markdown_role_palette)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
@@ -318,4 +323,40 @@ int markdown_tool_head_chrome(void)
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
 	return 0;
+}
+
+/* An element that fyai colours itself takes the escape of its palette role,
+ * and keeps its own escape without a palette or without the role. */
+int markdown_role_palette(void)
+{
+	struct fyai_cfg cfg;
+#ifdef FYAI_WITH_FYPALETTE
+	const char *on;
+	int rc;
+#endif
+
+	memset(&cfg, 0, sizeof(cfg));
+	FYAI_TCHECK(!strcmp(markdown_role_on(NULL, "tool.fail", "x"), "x"));
+	FYAI_TCHECK(!strcmp(markdown_role_on(&cfg, "tool.fail", "\033[31m"),
+			    "\033[31m"));
+	FYAI_TCHECK(!strcmp(markdown_role_off(&cfg, "tool.fail", "\033[0m"),
+			    "\033[0m"));
+#ifdef FYAI_WITH_FYPALETTE
+	cfg.palette = fypal_ctx_create(NULL);
+	FYAI_TCHECK(cfg.palette != NULL);
+	if (!cfg.palette)
+		return EXIT_FAILURE;
+	rc = fypal_ctx_load(cfg.palette,
+			    "colors: {bad: '#c02010'}\n"
+			    "roles: {tool: {fail: {fg: bad}}}\n", "test");
+	FYAI_TCHECK(!rc);
+	on = markdown_role_on(&cfg, "tool.fail", "\033[31m");
+	FYAI_TCHECK(strstr(on, "38;2;192;32;16") != NULL);
+	FYAI_TCHECK(!strcmp(markdown_role_off(&cfg, "tool.fail", "\033[0m"),
+			    "\033[39m"));
+	FYAI_TCHECK(!strcmp(markdown_role_on(&cfg, "notice.sigil", "\033[31m"),
+			    "\033[31m"));
+	fypal_ctx_destroy(cfg.palette);
+#endif
+	return EXIT_SUCCESS;
 }
