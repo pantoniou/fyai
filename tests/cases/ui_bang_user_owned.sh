@@ -48,7 +48,8 @@ if "SECOND-ZOOM" not in shown:
     raise SystemExit("user shell stopped updating after its second zoom")
 # Confirm that unzoom restores the configured pane cap.
 import re
-sizes = [(int(r), int(c)) for r, c in re.findall(rb"(\d+) (\d+)", data)]
+sizes = [(int(match[1]), int(match[2])) for line in lines
+         if (match := re.fullmatch(r"\s*(\d+) (\d+)\s*", line))]
 if not sizes or max(r for r, _ in sizes) > 5:
     raise SystemExit("zoomed-out user shell escaped work_max_rows: %r" %
                      (sizes,))
