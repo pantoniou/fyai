@@ -17,6 +17,7 @@
 #include "fyai.h"
 #include "fyai_test.h"
 #include "fyai_workpane.h"
+#include "fyai_markdown.h"
 #include "fyai_config.h"
 #include <libfytimui.h>
 
@@ -42,6 +43,7 @@ FYAI_TEST_ENTRY(workpane, focus_colour, workpane_focus_colour)
 FYAI_TEST_ENTRY(workpane, grid_has_no_holes, workpane_grid_has_no_holes)
 FYAI_TEST_ENTRY(workpane, tiles_are_placed_in_age, workpane_tiles_in_age)
 FYAI_TEST_ENTRY(workpane, keys_reach_the_program, workpane_keys_reach_program)
+FYAI_TEST_ENTRY(workpane, head_regions_follow_the_tile, workpane_head_regions_follow_tile)
 
 static struct fyai_cfg wpt_cfg;
 static struct fyai_ctx wpt_ctx = { .cfg = &wpt_cfg };
@@ -698,5 +700,48 @@ int workpane_keys_reach_program(void)
 	FYAI_TCHECK(!fyai_workpane_keys_deliver(wm, "\x03", 1));
 	FYAI_TCHECK(wpt_keys_len == 0);
 	wpt_close(wm);
+	return 0;
+}
+
+/* A tile keeps the regions of its head, and they go with the tile. */
+int workpane_head_regions_follow_tile(void)
+{
+	struct fyai_workpane_manager *wm = wpt_open("half", 0);
+	struct markdown_region *rg;
+
+	wpt_register_pair(wm);
+	rg = calloc(1, sizeof(*rg));
+	FYAI_TCHECK(rg != NULL);
+	if (!rg)
+		return EXIT_FAILURE;
+	rg->id = strdup("tile:focus");
+	rg->row = 0;
+	rg->col = 3;
+	rg->width = 5;
+	fyai_workpane_tile_set_regions(wm, WPT_SHELL, rg, 1);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_SHELL, 0, 3) != NULL);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_SHELL, 0, 7) != NULL);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_SHELL, 0, 8) == NULL);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_SHELL, 1, 3) == NULL);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_AGENT, 0, 3) == NULL);
+
+	/* the next head replaces them; a tile that is gone takes none */
+	fyai_workpane_tile_set_regions(wm, WPT_SHELL, NULL, 0);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_SHELL, 0, 3) == NULL);
+	rg = calloc(1, sizeof(*rg));
+	if (rg) {
+		rg->id = strdup("tile:focus");
+		rg->width = 4;
+	}
+	fyai_workpane_tile_set_regions(wm, WPT_SHELL, rg, rg ? 1 : 0);
+	fyai_workpane_unregister(wm, WPT_SHELL);
+	FYAI_TCHECK(fyai_workpane_tile_region_at(wm, WPT_SHELL, 0, 0) == NULL);
+	rg = calloc(1, sizeof(*rg));
+	if (rg)
+		rg->id = strdup("x");
+	fyai_workpane_tile_set_regions(wm, WPT_SHELL, rg, rg ? 1 : 0);
+
+	wpt_close(wm);
+	printf("ok - the head regions of a tile go with the tile\n");
 	return 0;
 }

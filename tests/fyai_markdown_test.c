@@ -42,6 +42,8 @@ FYAI_TEST_ENTRY(markdown, role_palette, markdown_role_palette)
 FYAI_TEST_ENTRY(markdown, gutter_palette, markdown_gutter_palette)
 FYAI_TEST_ENTRY(markdown, reasoning_palette, markdown_reasoning_palette)
 FYAI_TEST_ENTRY(markdown, theme_selectors, markdown_theme_selectors_test)
+FYAI_TEST_ENTRY(markdown, ui_escape, markdown_ui_escape_test)
+FYAI_TEST_ENTRY(markdown, head_regions, markdown_head_regions_test)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
@@ -549,4 +551,67 @@ int markdown_theme_selectors_test(void)
 	FYAI_TCHECK(ember);
 #endif
 	return EXIT_SUCCESS;
+}
+
+/* Text a model wrote cannot open a UI Markdown tag in chrome. */
+int markdown_ui_escape_test(void)
+{
+	char *e;
+
+	e = markdown_ui_escape("run <fy-act id=\"evil\">x</fy-act> <fy-fill/>");
+	FYAI_TCHECK(e != NULL);
+	FYAI_TCHECK(e && strstr(e, "<fy-") == NULL);
+	FYAI_TCHECK(e && strstr(e, "&lt;fy-act id=\"evil\">x&lt;/fy-act>") == NULL);
+	FYAI_TCHECK(e && strstr(e, "&lt;fy-act id=\"evil\">x</fy-act>") != NULL);
+	FYAI_TCHECK(e && strstr(e, "&lt;fy-fill/>") != NULL);
+	free(e);
+	e = markdown_ui_escape("plain <b>");
+	FYAI_TCHECK(e && !strcmp(e, "plain <b>"));
+	free(e);
+	FYAI_TCHECK(markdown_ui_escape(NULL) == NULL);
+	return EXIT_SUCCESS;
+}
+
+/*
+ * The head of a tile is a label: its region sits after the margin, and a tag
+ * that came in with the title makes no region.
+ */
+int markdown_head_regions_test(void)
+{
+	struct response_buffer out = {0};
+	struct markdown_region *rg = NULL;
+	size_t n = 0;
+	char *title;
+	char *head;
+	int rc;
+
+	rc = fyai_diag_setup(&test_cfg.diag);
+	FYAI_TCHECK(!rc);
+	test_cfg.color = "off";
+	test_cfg.palette = NULL;
+	title = markdown_ui_escape("**shell** <fy-act id=\"evil\">rm</fy-act>");
+	FYAI_TCHECK(title != NULL);
+	FYAI_TCHECK(asprintf(&head, "<fy-act id=\"tile:focus\">%s</fy-act>\n",
+			     title ? title : "") > 0);
+	rc = markdown_render_tool_head_ui(&test_cfg, head, strlen(head), NULL,
+					  "  ", "  ", &out, &rg, &n);
+	FYAI_TCHECK(!rc && out.data);
+	FYAI_TCHECK(out.data && strstr(out.data, "shell") != NULL);
+	FYAI_TCHECK(out.data && strstr(out.data, "<fy-act id=\"evil\">") != NULL);
+#ifdef FYAI_UI_CLICKS
+	FYAI_TCHECK(n == 1);
+	if (n == 1) {
+		FYAI_TCHECK(!strcmp(rg[0].id, "tile:focus"));
+		FYAI_TCHECK(rg[0].row == 0 && rg[0].col == 2 && rg[0].width > 5);
+	}
+#else
+	FYAI_TCHECK(n == 0);
+#endif
+	markdown_regions_free(rg, n);
+	free(out.data);
+	free(head);
+	free(title);
+	fyai_diag_drain(&test_cfg.diag);
+	fyai_diag_cleanup(&test_cfg.diag);
+	return 0;
 }
