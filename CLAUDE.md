@@ -713,6 +713,28 @@ command.
 - A named session shows its handle in the tile head, so the user can tell two
   sessions apart and name one in a later command.
 
+### Palette themes
+
+`display/theme` can name a libfypalette theme, such as `ember:auto`, in place
+of a libfymd4c theme. A palette theme styles the Markdown, the fenced code, the
+reverse card and the chrome from one set of roles. The theme holds the policy:
+do not put a colour for a role in C.
+
+- Make every Markdown renderer with `markdown_renderer_new()`. It gives the
+  renderer the palette of the configuration. A renderer made with
+  `fymd_renderer_create()` directly keeps the default theme and breaks the
+  one language.
+- `fyai_markdown_load_style()` makes the palette for the resolved variant and
+  the colour of the output. It checks that libfymd4c takes a palette and
+  reports a cause when it does not.
+- A renderer borrows the palette. A long-lived renderer can outlive a change of
+  theme, so a palette stays alive until `fyai_config_cleanup()`. Reuse the
+  current palette when the theme, the variant and the colour did not change.
+- The reverse-card probe sets the variant of each background on the palette
+  and restores it. The renderer copies the escapes when it takes the palette.
+- libfypalette is optional. Keep the build and the tests correct without it:
+  a palette theme is then not a valid `display/theme`.
+
 ### Tables
 
 Render every Markdown table with `fyai_generic_to_markdown()`. Pass a
