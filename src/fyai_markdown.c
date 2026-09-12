@@ -31,6 +31,42 @@
 #include <libfypalette.h>
 #endif
 
+#ifdef FYAI_FYMD4C_BLOCKS
+#include <libfymermaid.h>
+
+/* A fenced mermaid block of a Markdown answer is drawn as a diagram, with the
+ * width, the colour and the palette of the configuration. A source that does
+ * not render stays a code block. */
+static int markdown_mermaid_block(void *userdata, const char *lang,
+				  const char *text, size_t len, int width,
+				  enum fymd_block_flags flags,
+				  fymd_block_emit_fn emit, void *emit_ctx)
+{
+	const struct fyai_cfg *fcfg = userdata;
+	struct fyai_cfg cfg;
+	char *source;
+	char *diagram;
+
+	(void)lang;
+	cfg = *fcfg;
+	/* A render without colour, such as a measuring pass, draws none. */
+	if (flags & FYMD_BF_NO_COLOR)
+		cfg.color = "off";
+	source = strndup(text, len);
+	if (!source)
+		return -1;
+	diagram = fyai_sink_diagram_render(&cfg, source, NULL,
+					   width > 0 ? width :
+						       markdown_effective_width(&cfg));
+	free(source);
+	if (!diagram)
+		return -1;
+	emit(emit_ctx, diagram, strlen(diagram));
+	fymm_free(diagram);
+	return 0;
+}
+#endif
+
 static enum fymd_background markdown_background(const char *theme)
 {
 	if (theme && !strcmp(theme, "light"))
@@ -61,7 +97,16 @@ struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 	/* The theme load checked that a renderer takes the palette. */
 	if (r && fcfg && fcfg->palette)
 		(void)fymd_renderer_set_palette(r, fcfg->palette);
-#else
+#endif
+#ifdef FYAI_FYMD4C_BLOCKS
+	/* The renderer borrows the configuration for its diagrams. A renderer
+	 * that cannot take the block renderer draws the block as code. */
+	if (r && fcfg)
+		(void)fymd_renderer_set_block_renderer(r, "mermaid",
+						       markdown_mermaid_block,
+						       (void *)fcfg);
+#endif
+#if !defined(FYAI_WITH_FYPALETTE) && !defined(FYAI_FYMD4C_BLOCKS)
 	(void)fcfg;
 #endif
 	return r;
