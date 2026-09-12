@@ -145,6 +145,8 @@ fyai_test_setup_bare() {
 		trap "fyai_test_signal $sig" "$sig"
 	done
 	cd "$TEST_DIR" || exit 99
+	# Fixture working directories must match getcwd(), including symlink resolution.
+	TEST_DIR="$(pwd -P)" || exit 99
 
 	# Every temporary file the run makes lands in the scratch dir, so the
 	# cleanup removes it with the rest of the case.

@@ -5,6 +5,8 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
+# A temporary base can end in a slash, as it does on macOS runners.
+FYAI_TMPDIR_BASE="${TMPDIR:-/tmp}/"
 fyai_test_setup
 
 run_fyai branch create older
