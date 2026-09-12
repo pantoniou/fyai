@@ -66,6 +66,13 @@ int fyai_indent_cols(const char *indent);
 /* Reserve @cols render columns and return the previous width. */
 int fyai_width_reserve_begin(struct fyai_cfg *cfg, int cols);
 void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved);
+/* The escape that turns @role of the palette theme on or off, or @fallback
+ * when the configuration has no palette or the palette no such role. The
+ * escape stays valid while the palette lives. */
+const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
+			     const char *fallback);
+const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
+			      const char *fallback);
 /* Create a renderer for @rcfg that takes the palette of @fcfg, if any. */
 struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 					    const struct fymd_renderer_cfg *rcfg);

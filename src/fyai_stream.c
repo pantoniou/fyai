@@ -362,9 +362,12 @@ static void stream_write_reasoning(struct stream_response *stream,
 		    terminal_is_tty(STDERR_FILENO)) {
 			stream->printed_reasoning = true;
 		} else {
-			prefix = color ? FYAI_ANSI_DIM "reasoning \xe2\x96\xb8 " :
+			prefix = color ? markdown_role_on(cfg, "reasoning",
+							  FYAI_ANSI_DIM) : "";
+			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
+					      prefix, strlen(prefix));
+			prefix = color ? "reasoning \xe2\x96\xb8 " :
 					 "reasoning > ";
-
 			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
 					      prefix, strlen(prefix));
 			stream->printed_reasoning = true;

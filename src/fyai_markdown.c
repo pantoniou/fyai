@@ -67,6 +67,42 @@ struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 	return r;
 }
 
+const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
+			     const char *fallback)
+{
+#ifdef FYAI_WITH_FYPALETTE
+	const struct fypal_role *r;
+
+	if (cfg && cfg->palette) {
+		r = fypal_ctx_role(cfg->palette, role);
+		if (r)
+			return fypal_role_on(cfg->palette, r);
+	}
+#else
+	(void)cfg;
+	(void)role;
+#endif
+	return fallback;
+}
+
+const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
+			      const char *fallback)
+{
+#ifdef FYAI_WITH_FYPALETTE
+	const struct fypal_role *r;
+
+	if (cfg && cfg->palette) {
+		r = fypal_ctx_role(cfg->palette, role);
+		if (r)
+			return fypal_role_off(cfg->palette, r);
+	}
+#else
+	(void)cfg;
+	(void)role;
+#endif
+	return fallback;
+}
+
 void markdown_palettes_destroy(struct fyai_cfg *cfg)
 {
 #ifdef FYAI_WITH_FYPALETTE
@@ -722,8 +758,9 @@ int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 			      const char *first_margin, const char *next_margin,
 			      struct response_buffer *out)
 {
-	const char *pre, *post;
+	const char *on, *off;
 	size_t need;
+	bool color;
 
 	if (markdown_render_margins(cfg, title, len, out, first_margin,
 				    next_margin))
@@ -732,13 +769,14 @@ int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 		return 0;
 	while (out->len && out->data[out->len - 1] == '\n')
 		out->len--;
-	pre = markdown_color_enabled(cfg->color) ? " " FYAI_ANSI_RED : " ";
-	post = markdown_color_enabled(cfg->color) ? FYAI_ANSI_RESET "\n" : "\n";
-	need = out->len + strlen(pre) + strlen(cause) + strlen(post) + 1;
+	color = markdown_color_enabled(cfg->color);
+	on = color ? markdown_role_on(cfg, "tool.fail", FYAI_ANSI_RED) : "";
+	off = color ? markdown_role_off(cfg, "tool.fail", FYAI_ANSI_RESET) : "";
+	need = out->len + strlen(on) + strlen(cause) + strlen(off) + 3;
 	if (response_buffer_reserve(out, need))
 		return -1;
 	out->len += (size_t)snprintf(out->data + out->len, need - out->len,
-				     "%s%s%s", pre, cause, post);
+				     " %s%s%s\n", on, cause, off);
 	return 0;
 }
 

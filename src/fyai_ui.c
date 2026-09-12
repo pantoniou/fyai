@@ -342,9 +342,10 @@ out:
 static void ui_pending_refresh(struct fyai_ui *ui)
 {
 	static const char header_fmt[] =
-		"\n\033[36m●\033[0m \033[1mpending\033[0m (%zu)";
+		"\n%s●\033[0m \033[1mpending\033[0m (%zu)";
 	static const char line_prefix[] = "\n  › ";
 	struct ui_line *line;
+	const char *mark;
 	char *buf, *p;
 	size_t len = 0, text_len, count = 0;
 	int header_len;
@@ -365,14 +366,16 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 						5);
 		if (!ui->pending_band) return;
 	}
-	header_len = snprintf(NULL, 0, header_fmt, count);
+	mark = markdown_role_on(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
+				"\033[36m");
+	header_len = snprintf(NULL, 0, header_fmt, mark, count);
 	if (header_len < 0 || (size_t)header_len > SIZE_MAX - len - 1)
 		return;
 	len += (size_t)header_len;
 	buf = malloc(len + 1);
 	if (!buf) return;
 	p = buf;
-	p += snprintf(p, len + 1, header_fmt, count);
+	p += snprintf(p, len + 1, header_fmt, mark, count);
 	for (line = ui->head; line; line = line->next) {
 		memcpy(p, line_prefix, sizeof(line_prefix) - 1);
 		p += sizeof(line_prefix) - 1;
@@ -1101,8 +1104,12 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		free(out.data);
 		return;
 	}
-	color = error ? "\033[31m" : "\033[36m";
-	len = strlen(title ? title : "status") + 24;
+	color = error ?
+		markdown_role_on(ui->ctx ? ui->ctx->cfg : NULL, "notice.sigil",
+				 "\033[31m") :
+		markdown_role_on(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
+				 "\033[36m");
+	len = strlen(title ? title : "status") + strlen(color) + 16;
 	heading = malloc(len);
 	if (!heading) {
 		free(out.data);

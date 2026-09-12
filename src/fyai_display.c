@@ -4323,7 +4323,7 @@ void fyai_interactive_recap(struct fyai_ctx *ctx)
 	bool color;
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
-	d = color ? FYAI_ANSI_DIM : "";
+	d = color ? markdown_role_on(cfg, "chrome", FYAI_ANSI_DIM) : "";
 	r = color ? FYAI_ANSI_RESET : "";
 	last = ctx->last_message;
 	preview = fy_invalid;
