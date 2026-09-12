@@ -498,7 +498,7 @@ function(fyai_fetch_curl)
 
     FetchContent_Declare(curl
         GIT_REPOSITORY https://github.com/curl/curl
-        GIT_TAG curl-8_11_1
+        GIT_TAG curl-8_22_0
     )
     FetchContent_MakeAvailable(curl)
 endfunction()
