@@ -261,6 +261,14 @@ const char *fyai_workpane_tile_region_at(const struct fyai_workpane_manager *wm,
 bool fyai_workpane_tile_selectable(const struct fyai_workpane_manager *wm,
 				   const struct fytim_surface *sf);
 
+/*
+ * The Markdown of the cap row of the pane into @buf: its height, its tiles,
+ * how many are shown and how many the layout hid, and the keys that move
+ * between them. Returns the length, as snprintf() does.
+ */
+int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
+			     char *buf, size_t size);
+
 /* Keyboard focus. Focus never changes pane or tile geometry. */
 void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 			     struct fytim_surface *sf);

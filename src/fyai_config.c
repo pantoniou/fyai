@@ -507,6 +507,7 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		}
 		cfg->work_frame = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "work_frame", cfg->work_frame));
+		cfg->work_cap = apply_bool(v, "work_cap", cfg->work_cap);
 		cfg->tile_frame = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "tile_frame", cfg->tile_frame));
 		cfg->tile_sep = fy_gb_intern_string(cfg->gb,
@@ -2143,6 +2144,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->work_zoom_rows = DEFAULT_WORK_ZOOM_ROWS;
 	cfg->work_zoom_fixed_rows = 0;
 	cfg->work_frame = DEFAULT_WORK_FRAME;
+	cfg->work_cap = DEFAULT_WORK_CAP;
 	cfg->tile_frame = DEFAULT_TILE_FRAME;
 	cfg->tile_sep = DEFAULT_TILE_SEP;
 	cfg->work_controls = DEFAULT_WORK_CONTROLS;

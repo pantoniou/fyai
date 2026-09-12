@@ -95,6 +95,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_WORK_ZOOM_ROWS "full"
 #define DEFAULT_WORK_MIN_TILE_COLS 40
 #define DEFAULT_WORK_FRAME "none"
+#define DEFAULT_WORK_CAP false
 #define DEFAULT_TILE_FRAME "none"
 /* Separate adjacent tile columns. */
 #define DEFAULT_TILE_SEP " ┃ "
@@ -259,6 +260,7 @@ struct fyai_cfg {
 	const char *work_zoom_rows;	/* full | half | quarter */
 	int work_zoom_fixed_rows;	/* direct row count, 0 for named policy */
 	const char *work_frame;		/* chrome around the pane */
+	bool work_cap;			/* the cap row above the pane */
 	const char *tile_frame;		/* chrome under a tile's title row */
 	const char *tile_sep;		/* rule between adjacent columns */
 	const char *work_controls;	/* none | zoom | full */

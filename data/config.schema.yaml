@@ -624,6 +624,14 @@ properties:
           Chrome above and below the work pane. An empty string draws a rule;
           the word none removes it, which is the default because every tile
           already carries the title row of the call that opened it.
+      work_cap:
+        type: boolean
+        default: false
+        description: >-
+          Draw the cap row of the work pane: the height of the pane, how many
+          tiles it holds, how many are shown, how many the layout hid, and the
+          keys that move between them. It takes the place of work_frame above
+          the pane, and it needs UI Markdown to draw its rule to the edge.
       tile_frame:
         type: string
         default: none

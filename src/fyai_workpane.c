@@ -84,6 +84,8 @@ struct fyai_workpane_manager {
 	bool layout_pending;
 	bool reconciling;
 
+	char *cap_text;			/* the cap row the pane shows, or NULL */
+
 	struct fyai_workpane_tile *tiles;
 };
 
@@ -249,6 +251,7 @@ void fyai_workpane_destroy(struct fyai_workpane_manager *wm)
 	}
 	if (wm->pane)
 		fytim_workpane_destroy(wm->pane);
+	free(wm->cap_text);
 	free(wm);
 }
 
@@ -277,6 +280,82 @@ bool fyai_workpane_wants_mouse(const struct fyai_ctx *ctx)
 	return ctx && workpane_controls(ctx) != 0;
 }
 
+int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
+			     char *buf, size_t size)
+{
+	const struct fyai_workpane_tile *t;
+	const char *rule;
+	char height[24], hidden[32];
+	int tiles = 0, hid = 0;
+
+	if (!wm)
+		return snprintf(buf, size, "%s", "");
+	for_each_tile(t, wm) {
+		tiles++;
+		if (t->present == FYAI_WORKPANE_PRESENT_HIDDEN)
+			hid++;
+	}
+	if (wm->disposition == FYAI_WORKPANE_FIXED)
+		snprintf(height, sizeof(height), "%d rows", wm->fixed_rows);
+	else
+		snprintf(height, sizeof(height), "%s",
+			 workpane_disposition_name(wm->disposition));
+	hidden[0] = '\0';
+	/* A tile the layout hid is never silently gone. */
+	if (hid)
+		snprintf(hidden, sizeof(hidden), " \u00b7 +%d hidden", hid);
+	rule = markdown_glyph(wm->ctx->cfg, "md.rule", "\u2500");
+	return snprintf(buf, size,
+			"<fy-role name=\"chrome\">%s%swork%s%s</fy-role> "
+			"%s%s \u00b7 %d %s \u00b7 %d shown%s "
+			"<fy-role name=\"chrome\"><fy-fill char=\"%s\"/></fy-role>"
+			" ^T focus \u00b7 ^] prompt\n",
+			rule, rule, rule, rule, height,
+			wm->zoomed ? " zoomed" : "", tiles,
+			tiles == 1 ? "tile" : "tiles", tiles - hid, hidden, rule);
+}
+
+/*
+ * Draw the cap row when the configuration asks for one. The row is drawn at
+ * the width of the terminal; the render reserves a right margin, so it is
+ * made that much wider. Setting the same text again changes nothing.
+ */
+static void workpane_cap_update(struct fyai_workpane_manager *wm)
+{
+	struct response_buffer out = {0};
+	struct fyai_cfg *cfg;
+	char source[512];
+	int saved_width;
+	int n;
+
+	if (!wm || !wm->pane)
+		return;
+	cfg = wm->ctx->cfg;
+	if (!cfg->work_cap)
+		return;
+	n = fyai_workpane_cap_source(wm, source, sizeof(source));
+	if (n <= 0 || (size_t)n >= sizeof(source))
+		return;
+	saved_width = cfg->render_width;
+	if (wm->terminal_cols > 0)
+		cfg->render_width = wm->terminal_cols + markdown_gutter_cols(cfg);
+	if (markdown_render_margins_ui(cfg, source, (size_t)n, &out, "", "",
+				       NULL, NULL)) {
+		cfg->render_width = saved_width;
+		free(out.data);
+		return;
+	}
+	cfg->render_width = saved_width;
+	response_buffer_trim(&out);
+	if (!out.data || (wm->cap_text && !strcmp(wm->cap_text, out.data))) {
+		free(out.data);
+		return;
+	}
+	free(wm->cap_text);
+	wm->cap_text = out.data;
+	(void)fytim_workpane_set_top(wm->pane, wm->cap_text);
+}
+
 void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 {
 	const struct fyai_cfg *cfg;
@@ -297,8 +376,14 @@ void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 			FYTIM_WORKPANE_ABOVE_PROMPT);
 	(void)fytim_workpane_set_columns(wm->pane, cols);
 	(void)fytim_workpane_set_min_tile_cols(wm->pane, cfg->work_min_tile_cols);
-	(void)fytim_workpane_set_top(wm->pane,
-				     workpane_chrome_text(cfg->work_frame));
+	/* The cap row takes the place of the frame above the pane. */
+	free(wm->cap_text);
+	wm->cap_text = NULL;
+	if (cfg->work_cap)
+		workpane_cap_update(wm);
+	else
+		(void)fytim_workpane_set_top(wm->pane,
+					     workpane_chrome_text(cfg->work_frame));
 	(void)fytim_workpane_set_bottom(wm->pane,
 					workpane_chrome_text(cfg->work_frame));
 	(void)fytim_workpane_set_tile_sep(wm->pane, cfg->tile_sep);
@@ -1181,6 +1266,8 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 		t->granted_cols = cols;
 		t->ops->apply_grant(t->owner, rows, cols);
 	}
+	/* The counts of the cap follow the presentations just given. */
+	workpane_cap_update(wm);
 }
 
 void fyai_workpane_grid_resized(struct fyai_workpane_manager *wm,
