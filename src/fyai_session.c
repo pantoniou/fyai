@@ -1386,23 +1386,18 @@ static const char *const effort_vals[] = {
 static const char *const summary_vals[] = {
 	"auto", "concise", "detailed", NULL,
 };
-/*
- * Common selectors for completion. Validation is authoritative in libfymd4c,
- * so a newly added embedded theme remains usable before this list is updated.
- */
-static const char *const theme_vals[] = {
-	"default:auto", "default:dark", "default:light",
-	"catppuccin:auto", "catppuccin:dark", "catppuccin:light",
-	"kanagawa:auto", "kanagawa:dark", "kanagawa:light",
-	"solarized:auto", "solarized:dark", "solarized:light",
-	"tokyonight:auto", "tokyonight:dark", "tokyonight:light", NULL,
-};
 static const char *const bool_vals[] = {
 	"on", "off", "true", "false", NULL,
 };
 static const char *const tool_detail_vals[] = {
 	"none", "brief", "default", "full", NULL,
 };
+
+/*
+ * The values of a setting. A theme selector names every libfymd4c and
+ * palette theme the build has, so the list is asked from the libraries.
+ */
+static const char *const *slash_opt_values(const struct fyai_slash_opt *o);
 
 static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "reasoning-effort", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_effort),
@@ -1413,8 +1408,9 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	  effort_vals, false, true, "reasoning/effort", "reasoning effort (alias)" },
 	{ "summary", FYAIOK_STR, offsetof(struct fyai_cfg, reasoning_summary),
 	  summary_vals, false, true, "reasoning/summary", "reasoning summary (alias)" },
+	/* The selectors come from the libraries: see slash_opt_values(). */
 	{ "theme", FYAIOK_STR, offsetof(struct fyai_cfg, theme),
-	  theme_vals, true, false, "display/theme",
+	  NULL, true, false, "display/theme",
 	  "Markdown theme[:auto|dark|light]" },
 	{ "tool-detail", FYAIOK_STR, offsetof(struct fyai_cfg, tool_detail),
 	  tool_detail_vals, false, false, "display/tool_detail",
@@ -1438,6 +1434,13 @@ static const struct fyai_slash_opt fyai_slash_opts[] = {
 	{ "temperature", FYAIOK_FLOAT, offsetof(struct fyai_cfg, temperature),
 	  NULL, false, false, "temperature", "sampling temperature" },
 };
+
+static const char *const *slash_opt_values(const struct fyai_slash_opt *o)
+{
+	if (!strcmp(o->name, "theme"))
+		return markdown_theme_selectors();
+	return o->values;
+}
 
 static void session_opt_print(struct fyai_ctx *ctx,
 			      const struct fyai_slash_opt *o)
@@ -2376,6 +2379,7 @@ static void slash_help_plain(struct fyai_ctx *ctx)
 	const struct fyai_slash_cmd *c;
 	const struct fyai_slash_opt *o;
 	const char *const *v;
+	const char *const *values;
 	size_t i;
 
 	fyai_result(ctx, "commands:\n");
@@ -2388,10 +2392,11 @@ static void slash_help_plain(struct fyai_ctx *ctx)
 	for (i = 0; i < ARRAY_SIZE(fyai_slash_opts); i++) {
 		o = &fyai_slash_opts[i];
 		fyai_result(ctx, "  /%-16s %s", o->name, o->help);
-		if (o->values) {
+		values = slash_opt_values(o);
+		if (values) {
 			fyai_result(ctx, " (");
-			for (v = o->values; *v; v++)
-				fyai_result(ctx, "%s%s", v == o->values ? "" : "|", *v);
+			for (v = values; *v; v++)
+				fyai_result(ctx, "%s%s", v == values ? "" : "|", *v);
 			fyai_result(ctx, ")");
 		} else if (o->kind == FYAIOK_BOOL) {
 			fyai_result(ctx, " (on|off)");
@@ -2407,6 +2412,7 @@ static int slash_help(struct fyai_ctx *ctx, const char *arg)
 	const struct fyai_slash_cmd *c;
 	const struct fyai_slash_opt *o;
 	const char *const *v;
+	const char *const *values;
 	char *buf = NULL;
 	size_t len = 0;
 	FILE *fp;
@@ -2444,9 +2450,10 @@ static int slash_help(struct fyai_ctx *ctx, const char *arg)
 		/* Values column: comma-separated (never `|`, which would break
 		 * the table cell), or a dash when the setting is free-form. */
 		fprintf(fp, "| `/%s` | ", o->name);
-		if (o->values) {
-			for (v = o->values; *v; v++)
-				fprintf(fp, "%s%s", v == o->values ? "" : ", ",
+		values = slash_opt_values(o);
+		if (values) {
+			for (v = values; *v; v++)
+				fprintf(fp, "%s%s", v == values ? "" : ", ",
 					*v);
 		} else if (o->kind == FYAIOK_BOOL) {
 			fprintf(fp, "on, off");
@@ -2981,7 +2988,7 @@ void fyai_session_completion(struct fyai_ctx *ctx, const char *buf,
 		return;
 
 	if (opt) {
-		v = opt->values;
+		v = slash_opt_values(opt);
 		if (!v && opt->kind == FYAIOK_BOOL)
 			v = bool_vals;
 		session_complete_values(lc, buf + 1, len, word, v);

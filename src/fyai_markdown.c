@@ -637,6 +637,53 @@ const char *markdown_theme_names(char *buf, size_t bufsz)
 	return buf;
 }
 
+/* The theme at @index: the libfymd4c themes, then the palette themes. */
+static const char *markdown_theme_at(size_t index)
+{
+	size_t n;
+
+	n = fymd_theme_count();
+	if (index < n)
+		return fymd_theme_name(index);
+#ifdef FYAI_WITH_FYPALETTE
+	return fypal_builtin_theme_name(index - n);
+#else
+	return NULL;
+#endif
+}
+
+const char *const *markdown_theme_selectors(void)
+{
+	static const char *const variants[] = { "auto", "dark", "light" };
+	static const char **selectors;
+	const char **list;
+	const char *name;
+	size_t count, i, j, k;
+
+	if (selectors)
+		return selectors;
+	for (count = 0; markdown_theme_at(count); count++)
+		;
+	list = calloc(count * 3 + 1, sizeof(*list));
+	if (!list)
+		return NULL;
+	for (i = 0, k = 0; i < count; i++) {
+		name = markdown_theme_at(i);
+		for (j = 0; j < 3; j++) {
+			if (asprintf((char **)&list[k], "%s:%s", name,
+				     variants[j]) < 0) {
+				while (k)
+					free((char *)list[--k]);
+				free(list);
+				return NULL;
+			}
+			k++;
+		}
+	}
+	selectors = list;
+	return selectors;
+}
+
 bool markdown_reverse_pair(struct fyai_cfg *cfg, const char **on,
 			   const char **off)
 {

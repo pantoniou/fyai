@@ -36,6 +36,10 @@ bool markdown_theme_valid(const char *name);
 bool markdown_theme_selector_valid(const char *selector);
 /* The valid theme names, comma separated, into @buf; returns @buf. */
 const char *markdown_theme_names(char *buf, size_t bufsz);
+/* Every theme selector - each libfymd4c and palette theme with :auto, :dark
+ * and :light - as a NULL-terminated array. The array is made on the first
+ * call and lives for the process. NULL when it cannot be made. */
+const char *const *markdown_theme_selectors(void);
 
 /*
  * Highlighter language name for a file path (from its extension), using the same
