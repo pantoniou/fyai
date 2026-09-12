@@ -44,6 +44,7 @@ FYAI_TEST_ENTRY(workpane, grid_has_no_holes, workpane_grid_has_no_holes)
 FYAI_TEST_ENTRY(workpane, tiles_are_placed_in_age, workpane_tiles_in_age)
 FYAI_TEST_ENTRY(workpane, keys_reach_the_program, workpane_keys_reach_program)
 FYAI_TEST_ENTRY(workpane, head_regions_follow_the_tile, workpane_head_regions_follow_tile)
+FYAI_TEST_ENTRY(workpane, cap_accounts_for_tiles, workpane_cap_accounts_for_tiles)
 
 static struct fyai_cfg wpt_cfg;
 static struct fyai_ctx wpt_ctx = { .cfg = &wpt_cfg };
@@ -743,5 +744,36 @@ int workpane_head_regions_follow_tile(void)
 
 	wpt_close(wm);
 	printf("ok - the head regions of a tile go with the tile\n");
+	return 0;
+}
+
+/* The cap row says the height of the pane and accounts for every tile. */
+int workpane_cap_accounts_for_tiles(void)
+{
+	struct fyai_workpane_manager *wm = wpt_open("half", 0);
+	char buf[512];
+	int n;
+
+	n = fyai_workpane_cap_source(wm, buf, sizeof(buf));
+	FYAI_TCHECK(n > 0 && strstr(buf, "half") && strstr(buf, "0 tiles"));
+	wpt_register_pair(wm);
+	fyai_workpane_reconcile(wm);
+	n = fyai_workpane_cap_source(wm, buf, sizeof(buf));
+	FYAI_TCHECK(n > 0 && (size_t)n < sizeof(buf));
+	FYAI_TCHECK(strstr(buf, "2 tiles") != NULL);
+	FYAI_TCHECK(strstr(buf, "2 shown") != NULL);
+	FYAI_TCHECK(strstr(buf, "hidden") == NULL);
+	FYAI_TCHECK(strstr(buf, "<fy-fill char=") != NULL);
+	FYAI_TCHECK(strstr(buf, "^T focus") != NULL);
+	fyai_workpane_unregister(wm, WPT_AGENT);
+	n = fyai_workpane_cap_source(wm, buf, sizeof(buf));
+	FYAI_TCHECK(strstr(buf, "1 tile ") != NULL);
+	wpt_close(wm);
+
+	wm = wpt_open("full", 12);
+	n = fyai_workpane_cap_source(wm, buf, sizeof(buf));
+	FYAI_TCHECK(strstr(buf, "12 rows") != NULL);
+	wpt_close(wm);
+	printf("ok - the cap row accounts for the pane and its tiles\n");
 	return 0;
 }
