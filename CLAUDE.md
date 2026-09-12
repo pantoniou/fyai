@@ -633,6 +633,11 @@ register, focus, zoom, resize - and sizes nothing itself.
   opened it and is already bounded by the pane: the gutter only holds the
   screen under the name of that call. The column rule is not the gutter: one
   divides two programs and the other runs down the inside of one.
+- `display/work_cap` draws the cap row of the pane in place of the frame
+  above it: the height, the tiles, how many are shown, how many the layout
+  hid, and the keys. `fyai_workpane_cap_source()` writes it and the manager
+  draws it again after each layout, so a tile the ladder hid is counted, not
+  silently gone. It is chrome that fyai writes whole, so it needs no escaping.
 - The head of a tile is UI Markdown. `fyai_ui_surface_set_head_frame()`
   escapes the title with `markdown_ui_escape()` - it holds what a model or a
   program wrote - and makes it the `tile:focus` label, so a click on the name
