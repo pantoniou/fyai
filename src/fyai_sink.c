@@ -36,6 +36,10 @@ static void sink_diagram_cfg(const struct fyai_cfg *cfg, int cols,
 	render->background = cfg->theme_variant && !strcmp(cfg->theme_variant, "light") ?
 		FYMM_BG_LIGHT : FYMM_BG_DARK;
 	render->theme = fy_str_empty(cfg->diagram_theme) ? NULL : cfg->diagram_theme;
+#ifdef FYAI_FYMM_PALETTE
+	/* A diagram speaks the palette theme of the transcript around it. */
+	render->palette = cfg ? cfg->palette : NULL;
+#endif
 	if (cfg->diagram_charset) {
 		if (!strcmp(cfg->diagram_charset, "ascii")) render->charset = FYMM_CHARSET_ASCII;
 		else if (!strcmp(cfg->diagram_charset, "unicode")) render->charset = FYMM_CHARSET_UNICODE;
