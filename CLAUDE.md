@@ -745,6 +745,26 @@ do not put a colour for a role in C.
   colour and the palette of the configuration. The build enables it
   (`FYAI_FYMD4C_BLOCKS`) only when libfymd4c has block renderers. A source that
   does not render stays a code block.
+- A palette theme also gives the glyphs and the gutter. The text column starts
+  one column after the gutter, which is `gutter.cols` of the theme, else two
+  columns. Take a gutter width from `markdown_gutter_cols()`, a blank gutter
+  from `markdown_gutter_blank()`, and a mark from `markdown_glyph()` with the
+  glyph it has without a palette as the fallback. Do not write a gutter of
+  literal blanks: it moves the text column of a palette theme. Indent tool
+  output with `markdown_tool_output_indent()`, which starts it at the text
+  column.
+- A stored assistant document opens reasoning with `FYAI_REASONING_HEAD`.
+  A palette theme that has a `gutter.reasoning` glyph draws reasoning as the
+  quote alone, under the hairline of its quote bar: the renderer removes the
+  heading rows, and the stored document keeps them for every other theme. A
+  path that makes reasoning Markdown asks `markdown_reasoning_quoted()`.
+- The mark of a tool call is its state. `markdown_indicator_margin()` pads
+  every frame of the indicator to the gutter width, so a blinking mark does
+  not move the title row. The ASCII form of a glyph, which the `ascii` diagram
+  charset selects, keeps the gutter width too.
+- The build enables the glyphs (`FYAI_PALETTE_GLYPHS`) only when libfypalette
+  has `fypal_ctx_glyph()` and libfymd4c has
+  `fymd_renderer_set_palette_flags()`.
 - libfypalette is optional. Keep the build and the tests correct without it:
   a palette theme is then not a valid `display/theme`.
 
