@@ -161,6 +161,7 @@ if(FYAI_STATIC_DEPS)
             "found: ${LIBFYAML_STATIC_LIB}")
     endif()
     add_library(libfyaml::libfyaml INTERFACE IMPORTED)
+    add_library(libfyaml::fyaml ALIAS libfyaml::libfyaml)
     # The archive pulls in libm (trunc et al.); pkg-config does not record it.
     set_target_properties(libfyaml::libfyaml PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${LIBFYAMLPC_INCLUDE_DIRS}"
@@ -202,7 +203,7 @@ if(NOT TARGET libfyaml::libfyaml)
     set(BUILD_TESTING OFF)
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
-        GIT_TAG 10f6bbe77db4f5e8bc074619cc878c0d1c93f270
+        GIT_TAG 6dea3749676879236080e84d3a5e91cd53329c5c
     )
     FetchContent_MakeAvailable(libfyaml)
     set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
@@ -217,6 +218,21 @@ if(FYAI_STATIC_DEPS)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 endif()
 
+# Palette support is consumed by libfymd4c and libfymermaid as well as fyai.
+# Make the target available before either dependent project is fetched.
+if(NOT TARGET libfypalette::libfypalette)
+    find_package(libfypalette CONFIG QUIET)
+endif()
+if(NOT TARGET libfypalette::libfypalette)
+    set(BUILD_FYPALETTE_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_FYPALETTE_TOOLS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(libfypalette
+        GIT_REPOSITORY https://github.com/pantoniou/libfypalette
+        GIT_TAG 892c7653941747b05e9c6216dc567e1ceb8cd38a
+    )
+    FetchContent_MakeAvailable(libfypalette)
+endif()
+
 if(NOT TARGET libfymd4c::libfymd4c)
     find_package(libfymd4c QUIET)
 endif()
@@ -227,7 +243,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
         "Build the libfymd4c command-line executable" FORCE)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG 701782897d64cca41de96de4c71d35a06997493f
+        GIT_TAG 3118fda9d332bf7bd2e2d09810f90d6e2a0c8920
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
@@ -243,11 +259,8 @@ else()
     set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
 endif()
 
-# libfypalette is optional. With it, display/theme can name a palette theme
-# such as ember, which styles every renderer from one set of roles.
-if(NOT TARGET libfypalette::libfypalette)
-    find_package(libfypalette CONFIG QUIET)
-endif()
+# libfypalette lets display/theme name a palette theme such as ember, which
+# styles every renderer from one set of roles.
 # A palette also needs a libfymd4c that takes one: an older installed
 # libfymd4c next to a new libfypalette has no fymd_renderer_set_palette().
 set(_fyai_fymd4c_palette OFF)
@@ -267,7 +280,11 @@ if(TARGET ${FYAI_LIBFYMD4C_TARGET})
     endforeach()
 endif()
 if(TARGET libfypalette::libfypalette AND _fyai_fymd4c_palette)
-    set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette)
+    if(FYAI_STATIC_DEPS AND TARGET libfypalette::libfypalette_static)
+        set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette_static)
+    else()
+        set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette)
+    endif()
     set(FYAI_HAVE_FYPALETTE ON)
 else()
     set(FYAI_LIBFYPALETTE_TARGET "")
@@ -280,7 +297,7 @@ message(STATUS "fyai: palette themes ${FYAI_HAVE_FYPALETTE}")
 set(FYAI_PALETTE_GLYPHS OFF)
 if(FYAI_HAVE_FYPALETTE)
     set(_fyai_glyph_inc "")
-    foreach(_t libfypalette::libfypalette ${FYAI_LIBFYMD4C_TARGET})
+    foreach(_t ${FYAI_LIBFYPALETTE_TARGET} ${FYAI_LIBFYMD4C_TARGET})
         get_target_property(_inc ${_t} INTERFACE_INCLUDE_DIRECTORIES)
         string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _inc "${_inc}")
         list(APPEND _fyai_glyph_inc ${_inc})
@@ -353,7 +370,7 @@ if(NOT TARGET libfymermaid::libfymermaid AND
     set(BUILD_TESTING OFF)
     FetchContent_Declare(libfymermaid
         GIT_REPOSITORY https://github.com/pantoniou/libfymermaid
-        GIT_TAG 49c26261152cafb25f1699eab80f55f16399cde3
+        GIT_TAG a45debc947021bccba5be0dff63e4d114712a31d
     )
     FetchContent_MakeAvailable(libfymermaid)
     set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
@@ -415,7 +432,7 @@ if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG fa9dbafbc7eb14cd2dc9c2a2868422a955b19bca
+        GIT_TAG c8183097195156b0f8e19be8dc6f3112608ff231
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
@@ -447,6 +464,11 @@ if(NOT TARGET libfyvterm::libfyvterm)
         GIT_TAG 9d1b261e82c67af71bbb8dbf52011a25a58eabf8
     )
     FetchContent_MakeAvailable(libfyvterm)
+endif()
+if(FYAI_STATIC_DEPS AND TARGET libfyvterm::libfyvterm_static)
+    set(FYAI_LIBFYVTERM_TARGET libfyvterm::libfyvterm_static)
+else()
+    set(FYAI_LIBFYVTERM_TARGET libfyvterm::libfyvterm)
 endif()
 
 # Fetch and build a minimal libcurl from source as a static archive linked
@@ -677,7 +699,7 @@ target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
     ${FYAI_LIBFYPALETTE_TARGET}
     ${FYAI_LIBFYTIMUI_TARGET} ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl OpenSSL::Crypto
-    libfyvterm::libfyvterm ${ASAN_LINK_OPTS})
+    ${FYAI_LIBFYVTERM_TARGET} ${ASAN_LINK_OPTS})
 if(UNIX AND NOT APPLE)
     target_link_libraries(fyai PRIVATE util)
 endif()
@@ -803,7 +825,7 @@ if(BUILD_TESTING)
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
         ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYPALETTE_TARGET} ${FYAI_LIBFYTIMUI_TARGET}
         ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl
-        OpenSSL::Crypto Threads::Threads libfyvterm::libfyvterm
+        OpenSSL::Crypto Threads::Threads ${FYAI_LIBFYVTERM_TARGET}
         ${ASAN_LINK_OPTS})
     if(FYAI_HAVE_FYPALETTE)
         target_compile_definitions(fyai_test PRIVATE FYAI_WITH_FYPALETTE)
