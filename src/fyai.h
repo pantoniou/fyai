@@ -157,6 +157,8 @@ enum fyai_api_mode {
 	FYAI_API_MESSAGES,
 };
 
+struct fypal_ctx;
+
 struct fyai_cfg {
 	struct fy_allocator *allocator;
 	struct fy_generic_builder *gb;	/* the builder for the configuration */
@@ -196,6 +198,17 @@ struct fyai_cfg {
 	const char *theme;		/* canonical markdown theme selector */
 	const char *theme_variant;	/* resolved dark | light */
 	const char *markdown_theme;	/* resolved libfymd4c theme name */
+	/* The palette of a palette theme, or NULL. A renderer borrows it. */
+	struct fypal_ctx *palette;
+	/* Every palette made, so a renderer that outlives a theme change keeps
+	 * the palette it borrowed; freed at cleanup. */
+	struct fypal_ctx **palettes;
+	size_t npalettes;
+	/* What the current palette was made for, so a reload that changes
+	 * none of it reuses the palette. */
+	const char *palette_theme;
+	const char *palette_variant;
+	bool palette_color;
 	const char *markdown_rev_on[2];	/* reverse-card pair, [0] dark [1] light */
 	const char *markdown_rev_off[2];
 	const char *turn_separator;	/* history inter-turn break (markdown) */

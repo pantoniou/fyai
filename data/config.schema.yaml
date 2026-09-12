@@ -687,7 +687,9 @@ properties:
           libfymd4c embedded theme name with an optional background variant,
           for example default:auto, catppuccin:dark, or solarized:light.
           The selected theme also controls fenced-code highlighting and
-          terminal UI chrome.
+          terminal UI chrome. A libfypalette theme, such as ember:auto,
+          styles the Markdown, the fenced code and the chrome from one
+          palette.
       table_border:
         type: string
         enum: [theme, grid, none]

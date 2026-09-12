@@ -2213,6 +2213,7 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 		free(cfg->cmd.args.mcp.scopes);
 	free(cfg->branch);
 	free(cfg->root_spec);
+	markdown_palettes_destroy(cfg);
 	fy_generic_builder_destroy(cfg->gb);
 	memset(cfg, 0, sizeof(*cfg));
 }

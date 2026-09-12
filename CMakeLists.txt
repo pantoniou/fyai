@@ -243,6 +243,38 @@ else()
     set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
 endif()
 
+# libfypalette is optional. With it, display/theme can name a palette theme
+# such as ember, which styles every renderer from one set of roles.
+if(NOT TARGET libfypalette::libfypalette)
+    find_package(libfypalette CONFIG QUIET)
+endif()
+# A palette also needs a libfymd4c that takes one: an older installed
+# libfymd4c next to a new libfypalette has no fymd_renderer_set_palette().
+set(_fyai_fymd4c_palette OFF)
+if(TARGET ${FYAI_LIBFYMD4C_TARGET})
+    get_target_property(_fyai_fymd4c_inc ${FYAI_LIBFYMD4C_TARGET}
+        INTERFACE_INCLUDE_DIRECTORIES)
+    string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _fyai_fymd4c_inc
+        "${_fyai_fymd4c_inc}")
+    foreach(_dir IN LISTS _fyai_fymd4c_inc)
+        set(_hdr "${_dir}/libfymd4c/libfymd4c-renderer.h")
+        if(EXISTS "${_hdr}")
+            file(STRINGS "${_hdr}" _decl REGEX "fymd_renderer_set_palette")
+            if(_decl)
+                set(_fyai_fymd4c_palette ON)
+            endif()
+        endif()
+    endforeach()
+endif()
+if(TARGET libfypalette::libfypalette AND _fyai_fymd4c_palette)
+    set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette)
+    set(FYAI_HAVE_FYPALETTE ON)
+else()
+    set(FYAI_LIBFYPALETTE_TARGET "")
+    set(FYAI_HAVE_FYPALETTE OFF)
+endif()
+message(STATUS "fyai: palette themes ${FYAI_HAVE_FYPALETTE}")
+
 if(NOT TARGET libfymermaid::libfymermaid AND
    NOT TARGET libfymermaid::libfymermaid_static)
     find_package(libfymermaid CONFIG QUIET)
@@ -536,10 +568,14 @@ endif()
 target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
+    ${FYAI_LIBFYPALETTE_TARGET}
     ${FYAI_LIBFYTIMUI_TARGET} ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl OpenSSL::Crypto
     libfyvterm::libfyvterm ${ASAN_LINK_OPTS})
 if(UNIX AND NOT APPLE)
     target_link_libraries(fyai PRIVATE util)
+endif()
+if(FYAI_HAVE_FYPALETTE)
+    target_compile_definitions(fyai PRIVATE FYAI_WITH_FYPALETTE)
 endif()
 if(ENABLE_LIBSECRET)
     target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
@@ -646,10 +682,13 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
-        ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET}
+        ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYPALETTE_TARGET} ${FYAI_LIBFYTIMUI_TARGET}
         ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl
         OpenSSL::Crypto Threads::Threads libfyvterm::libfyvterm
         ${ASAN_LINK_OPTS})
+    if(FYAI_HAVE_FYPALETTE)
+        target_compile_definitions(fyai_test PRIVATE FYAI_WITH_FYPALETTE)
+    endif()
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)
         target_compile_definitions(fyai_test PRIVATE HAVE_LIBSECRET)

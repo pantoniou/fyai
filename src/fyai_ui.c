@@ -1242,7 +1242,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	}
 	markdown_renderer_cfg(ctx->cfg, &rcfg, true,
 			      ctx->cfg->theme_variant, 0);
-	renderer = fymd_renderer_create(&rcfg);
+	renderer = markdown_renderer_new(ctx->cfg, &rcfg);
 	if (!renderer)
 		return -1;
 	if (fymd_renderer_get_reverse_pair(renderer, &on, &off) ||

@@ -25,6 +25,12 @@
 #include "fyai_event.h"
 #include "fyai_terminal.h"
 
+#ifdef FYAI_WITH_FYPALETTE
+#include <unistd.h>
+
+#include <libfypalette.h>
+#endif
+
 static enum fymd_background markdown_background(const char *theme)
 {
 	if (theme && !strcmp(theme, "light"))
@@ -32,6 +38,53 @@ static enum fymd_background markdown_background(const char *theme)
 	if (theme && !strcmp(theme, "dark"))
 		return FYMD_BG_DARK;
 	return FYMD_BG_AUTO;
+}
+
+/* A theme name that selects a libfypalette theme, not a Markdown theme. */
+static bool markdown_palette_theme(const char *name)
+{
+#ifdef FYAI_WITH_FYPALETTE
+	return name && *name && fypal_builtin_theme_text(name) != NULL;
+#else
+	(void)name;
+	return false;
+#endif
+}
+
+struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
+					    const struct fymd_renderer_cfg *rcfg)
+{
+	struct fymd_renderer *r;
+
+	r = fymd_renderer_create(rcfg);
+#ifdef FYAI_WITH_FYPALETTE
+	/* The theme load checked that a renderer takes the palette. */
+	if (r && fcfg && fcfg->palette)
+		(void)fymd_renderer_set_palette(r, fcfg->palette);
+#else
+	(void)fcfg;
+#endif
+	return r;
+}
+
+void markdown_palettes_destroy(struct fyai_cfg *cfg)
+{
+#ifdef FYAI_WITH_FYPALETTE
+	size_t i;
+#endif
+
+	if (!cfg)
+		return;
+#ifdef FYAI_WITH_FYPALETTE
+	for (i = 0; i < cfg->npalettes; i++)
+		fypal_ctx_destroy(cfg->palettes[i]);
+#endif
+	free(cfg->palettes);
+	cfg->palettes = NULL;
+	cfg->npalettes = 0;
+	cfg->palette = NULL;
+	cfg->palette_theme = NULL;
+	cfg->palette_variant = NULL;
 }
 
 static bool markdown_theme_split(const char *selector, char *name,
@@ -175,9 +228,25 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 	struct fymd_renderer *r;
 	const char *on;
 	const char *off;
+#ifdef FYAI_WITH_FYPALETTE
+	enum fypal_variant saved = FYPAL_VARIANT_DARK;
+#endif
 
 	markdown_renderer_cfg(cfg, &rcfg, true, theme, 0);
-	r = fymd_renderer_create(&rcfg);
+#ifdef FYAI_WITH_FYPALETTE
+	/* The card of each background comes from the palette of that variant;
+	 * the renderer copies its escapes, so the variant is restored at once. */
+	if (cfg->palette) {
+		saved = fypal_ctx_variant(cfg->palette);
+		fypal_ctx_set_variant(cfg->palette, index ? FYPAL_VARIANT_LIGHT :
+							    FYPAL_VARIANT_DARK);
+	}
+#endif
+	r = markdown_renderer_new(cfg, &rcfg);
+#ifdef FYAI_WITH_FYPALETTE
+	if (cfg->palette)
+		fypal_ctx_set_variant(cfg->palette, saved);
+#endif
 	if (!r)
 		return;
 	on = "";
@@ -188,6 +257,76 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 	}
 	fymd_renderer_destroy(r);
 }
+
+#ifdef FYAI_WITH_FYPALETTE
+/* The palette of theme @name for @variant and the colour of the output. */
+static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
+						 const char *name,
+						 const char *variant)
+{
+	struct fymd_renderer_cfg rcfg;
+	struct fymd_renderer *r;
+	struct fypal_ctx **palettes;
+	struct fypal_ctx *palette;
+	struct fypal_caps caps;
+	bool color;
+	int rc;
+
+	/* A reload that changes neither the theme, the variant nor the colour
+	 * keeps the palette the renderers already hold. */
+	color = markdown_color_enabled(cfg->color);
+	if (cfg->npalettes && cfg->palette_theme && cfg->palette_variant &&
+	    !strcmp(cfg->palette_theme, name) &&
+	    !strcmp(cfg->palette_variant, variant) &&
+	    cfg->palette_color == color)
+		return cfg->palettes[cfg->npalettes - 1];
+
+	fypal_caps_detect(STDOUT_FILENO, &caps);
+	if (!color) {
+		caps.depth = FYPAL_DEPTH_NONE;
+		caps.attrs = 0;
+	} else if (caps.depth == FYPAL_DEPTH_NONE) {
+		/* Colour forced onto an output that is not a terminal. */
+		caps.depth = FYPAL_DEPTH_TRUECOLOR;
+		caps.attrs = FYPAL_ATTR_ALL & ~FYPAL_ATTR_UNDERCURL;
+	}
+	palette = fypal_ctx_create(&caps);
+	fyai_cfg_error_check(cfg, palette, err_out,
+			     "cannot create the palette of theme '%s'", name);
+	fypal_ctx_set_variant(palette, !strcmp(variant, "light") ?
+				       FYPAL_VARIANT_LIGHT : FYPAL_VARIANT_DARK);
+	rc = fypal_ctx_load_builtin(palette, name);
+	fyai_cfg_error_check(cfg, !rc, err_destroy, "theme '%s': %s", name,
+			     fypal_ctx_error(palette));
+
+	/* A libfymd4c built without libfypalette refuses the palette. */
+	markdown_renderer_cfg(cfg, &rcfg, true, variant, 0);
+	r = fymd_renderer_create(&rcfg);
+	fyai_cfg_error_check(cfg, r, err_destroy,
+			     "cannot create a renderer for theme '%s'", name);
+	rc = fymd_renderer_set_palette(r, palette);
+	fymd_renderer_destroy(r);
+	fyai_cfg_error_check(cfg, !rc, err_destroy,
+			     "theme '%s' needs libfymd4c with palette support",
+			     name);
+
+	palettes = realloc(cfg->palettes,
+			   (cfg->npalettes + 1) * sizeof(*palettes));
+	fyai_cfg_error_check(cfg, palettes, err_destroy,
+			     "cannot keep the palette of theme '%s'", name);
+	cfg->palettes = palettes;
+	cfg->palettes[cfg->npalettes++] = palette;
+	cfg->palette_theme = fy_gb_intern_string(cfg->gb, name);
+	cfg->palette_variant = fy_gb_intern_string(cfg->gb, variant);
+	cfg->palette_color = color;
+	return palette;
+
+err_destroy:
+	fypal_ctx_destroy(palette);
+err_out:
+	return NULL;
+}
+#endif
 
 void fyai_markdown_load_style(struct fyai_cfg *cfg)
 {
@@ -205,8 +344,17 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 			variant = markdown_color_enabled(cfg->color) ?
 					terminal_detect_theme() : "dark";
 	}
-	cfg->markdown_theme = fy_gb_intern_string(cfg->gb, name);
 	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
+	cfg->palette = NULL;
+	if (markdown_palette_theme(name)) {
+		/* A palette theme styles the default Markdown theme. */
+		cfg->markdown_theme = "default";
+#ifdef FYAI_WITH_FYPALETTE
+		cfg->palette = markdown_palette_create(cfg, name, variant);
+#endif
+	} else {
+		cfg->markdown_theme = fy_gb_intern_string(cfg->gb, name);
+	}
 	memset(cfg->markdown_rev_on, 0, sizeof(cfg->markdown_rev_on));
 	memset(cfg->markdown_rev_off, 0, sizeof(cfg->markdown_rev_off));
 
@@ -223,6 +371,8 @@ bool markdown_theme_valid(const char *name)
 
 	if (!name || !*name)
 		return true;	/* NULL/empty => the library "default" */
+	if (markdown_palette_theme(name))
+		return true;
 	n = fymd_theme_count();
 	for (i = 0; i < n; i++)
 		if (!strcmp(name, fymd_theme_name(i)))
@@ -237,6 +387,7 @@ bool markdown_theme_valid(const char *name)
  */
 const char *markdown_theme_names(char *buf, size_t bufsz)
 {
+	const char *name;
 	size_t i, n, off;
 	int rc;
 
@@ -250,6 +401,21 @@ const char *markdown_theme_names(char *buf, size_t bufsz)
 		off += (size_t)rc;
 		if (off >= bufsz)
 			break;
+	}
+	/* The palette themes are selected by the same key. */
+	for (i = 0; off < bufsz; i++) {
+#ifdef FYAI_WITH_FYPALETTE
+		name = fypal_builtin_theme_name(i);
+#else
+		name = NULL;
+#endif
+		if (!name)
+			break;
+		rc = snprintf(buf + off, bufsz - off, "%s%s", off ? ", " : "",
+			      name);
+		if (rc <= 0)
+			break;
+		off += (size_t)rc;
 	}
 	if (bufsz)
 		buf[bufsz - 1] = '\0';
@@ -275,7 +441,7 @@ bool markdown_available(struct fyai_cfg *fcfg)
 	struct fymd_renderer *r;
 
 	markdown_renderer_cfg(fcfg, &cfg, false, "dark", 0);
-	r = fymd_renderer_create(&cfg);
+	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		return false;
 	fymd_renderer_destroy(r);
@@ -295,7 +461,7 @@ struct fymd_renderer *markdown_measurer_create(const struct fyai_cfg *fcfg,
 		return NULL;
 	markdown_renderer_cfg((struct fyai_cfg *)fcfg, &cfg, false, "dark", 0);
 	cfg.width = (int)width;
-	return fymd_renderer_create(&cfg);
+	return markdown_renderer_new(fcfg, &cfg);
 }
 
 int markdown_measure_rows(const struct fyai_cfg *fcfg, const char *text,
@@ -331,7 +497,7 @@ int markdown_renderer_start(struct fyai_cfg *fcfg,
 	memset(renderer, 0, sizeof(*renderer));
 
 	markdown_renderer_cfg(fcfg, &cfg, color, theme, 0);
-	renderer->renderer = fymd_renderer_create(&cfg);
+	renderer->renderer = markdown_renderer_new(fcfg, &cfg);
 	if (!renderer->renderer)
 		return -1;
 	renderer->active = true;
@@ -419,7 +585,7 @@ static int markdown_render_flags(struct fyai_cfg *fcfg, const char *text,
 	s = NULL;
 
 	markdown_renderer_cfg(fcfg, &cfg, color, theme, extra);
-	r = fymd_renderer_create(&cfg);
+	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		goto raw;
 	markdown_set_line_limit(r, max_lines);
@@ -481,7 +647,7 @@ int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 	markdown_renderer_cfg(fcfg, &cfg,
 			      markdown_color_enabled(fcfg->color),
 			      fcfg->theme_variant, 0);
-	r = fymd_renderer_create(&cfg);
+	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		return -1;
 	if (fymd_render_with_margins(r, text, len, markdown_margin_cb, &margins,
@@ -539,7 +705,7 @@ char *markdown_indicator_margin_cfg(struct fyai_cfg *fcfg,
 
 	markdown_renderer_cfg(fcfg, &cfg, markdown_color_enabled(fcfg->color),
 			      fcfg->theme_variant, 0);
-	r = fymd_renderer_create(&cfg);
+	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		return strdup("  ");
 	margin = markdown_indicator_margin(r, state, 0, NULL);
@@ -678,7 +844,7 @@ static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 	s = NULL;
 
 	markdown_renderer_cfg(fcfg, &cfg, color, fcfg->theme_variant, extra);
-	r = fymd_renderer_create(&cfg);
+	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		goto raw;
 	markdown_set_line_limit(r, max_lines);
@@ -915,7 +1081,7 @@ int fyai_fenced_stream_start(struct fyai_fenced_stream *fs, struct fyai_ctx *ctx
 	fs->ctx = ctx;
 	markdown_renderer_cfg_indented(cfg, &rcfg, 0,
 				       fyai_indent_cols(indent));
-	fs->r = fymd_renderer_create(&rcfg);
+	fs->r = markdown_renderer_new(cfg, &rcfg);
 	if (!fs->r)
 		return -1;
 	markdown_set_line_limit(fs->r, max_lines);
@@ -1199,7 +1365,7 @@ static bool fenced_stream_width_changed(struct fyai_fenced_stream *fs)
 	markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, cols,
 				       fyai_indent_cols(fs->indent));
 
-	r = fymd_renderer_create(&rcfg);
+	r = markdown_renderer_new(fs->ctx->cfg, &rcfg);
 	if (!r)
 		return false;	/* retain the old renderer */
 	markdown_set_line_limit(r, fs->max_lines);
@@ -1471,7 +1637,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		fymd_renderer_destroy(fs->r);
 		markdown_renderer_cfg_indented(fs->ctx->cfg, &rcfg, 0,
 					       fyai_indent_cols(fs->indent));
-		fs->r = fymd_renderer_create(&rcfg);
+		fs->r = markdown_renderer_new(fs->ctx->cfg, &rcfg);
 		if (fs->r) {
 			markdown_set_line_limit(fs->r, fs->max_lines);
 			/* Render the full block for the commit payload. */

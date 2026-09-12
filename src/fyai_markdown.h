@@ -66,6 +66,11 @@ int fyai_indent_cols(const char *indent);
 /* Reserve @cols render columns and return the previous width. */
 int fyai_width_reserve_begin(struct fyai_cfg *cfg, int cols);
 void fyai_width_reserve_end(struct fyai_cfg *cfg, int saved);
+/* Create a renderer for @rcfg that takes the palette of @fcfg, if any. */
+struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
+					    const struct fymd_renderer_cfg *rcfg);
+/* Free every palette that the theme loads made. */
+void markdown_palettes_destroy(struct fyai_cfg *cfg);
 void markdown_renderer_cfg(struct fyai_cfg *cfg,
 			   struct fymd_renderer_cfg *renderer_cfg, bool color,
 			   const char *theme, enum fymd_cfg_flags extra);
