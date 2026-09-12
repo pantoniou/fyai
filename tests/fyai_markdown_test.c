@@ -41,6 +41,7 @@ FYAI_TEST_ENTRY(markdown, source_rows_utf8, markdown_source_rows_utf8)
 FYAI_TEST_ENTRY(markdown, role_palette, markdown_role_palette)
 FYAI_TEST_ENTRY(markdown, gutter_palette, markdown_gutter_palette)
 FYAI_TEST_ENTRY(markdown, reasoning_palette, markdown_reasoning_palette)
+FYAI_TEST_ENTRY(markdown, theme_selectors, markdown_theme_selectors_test)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
@@ -518,4 +519,34 @@ int markdown_reasoning_palette(void)
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
 	return 0;
+}
+
+/* /theme offers every theme the build has, the palette themes included. */
+int markdown_theme_selectors_test(void)
+{
+	const char *const *sel;
+	const char *const *v;
+	bool dflt = false;
+#ifdef FYAI_WITH_FYPALETTE
+	bool ember = false;
+#endif
+
+	sel = markdown_theme_selectors();
+	FYAI_TCHECK(sel != NULL);
+	if (!sel)
+		return EXIT_FAILURE;
+	/* The array is made one time. */
+	FYAI_TCHECK(markdown_theme_selectors() == sel);
+	for (v = sel; *v; v++) {
+		FYAI_TCHECK(markdown_theme_selector_valid(*v));
+		dflt |= !strcmp(*v, "default:auto");
+#ifdef FYAI_WITH_FYPALETTE
+		ember |= !strcmp(*v, "ember:dark");
+#endif
+	}
+	FYAI_TCHECK(dflt);
+#ifdef FYAI_WITH_FYPALETTE
+	FYAI_TCHECK(ember);
+#endif
+	return EXIT_SUCCESS;
 }
