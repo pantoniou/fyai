@@ -739,6 +739,12 @@ do not put a colour for a role in C.
 - A diagram takes the palette through `fymm_render_cfg.palette`. The build
   enables it (`FYAI_FYMM_PALETTE`) only when the libfymermaid header has the
   field.
+- A fenced `mermaid` block of a Markdown answer is drawn as a diagram.
+  `markdown_renderer_new()` registers the libfymd4c block renderer, which goes
+  through `fyai_sink_diagram_render()`, so the diagram takes the width, the
+  colour and the palette of the configuration. The build enables it
+  (`FYAI_FYMD4C_BLOCKS`) only when libfymd4c has block renderers. A source that
+  does not render stays a code block.
 - libfypalette is optional. Keep the build and the tests correct without it:
   a palette theme is then not a valid `display/theme`.
 
