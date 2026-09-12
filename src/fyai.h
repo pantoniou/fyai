@@ -84,6 +84,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
  * tool-call header), so the live loop and the history view match. */
 #define FYAI_TOOL_OUTPUT_INDENT "    "
 /* Align terminal content with its title. */
+/* The rows that open reasoning in a stored assistant document. */
+#define FYAI_REASONING_HEAD "> **\xf0\x9f\x92\xad reasoning**\n>\n"
 #define FYAI_SESSION_MARGIN "  "
 /* Work-pane defaults. */
 #define DEFAULT_WORK_LAYOUT "auto"

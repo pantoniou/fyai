@@ -96,7 +96,8 @@ static char *ui_indicator(struct fyai_ui *ui,
 			  enum fymd_indicator_state state, size_t frame,
 			  unsigned int *interval_msp)
 {
-	return markdown_indicator_margin(ui->chrome_renderer, state, frame,
+	return markdown_indicator_margin(ui->ctx ? ui->ctx->cfg : NULL,
+					 ui->chrome_renderer, state, frame,
 					 interval_msp);
 }
 
@@ -161,6 +162,7 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 				   const char *command)
 {
 	struct response_buffer rendered = {};
+	char mark[FYAI_GLYPH_MAX];
 	size_t start;
 	size_t rows;
 	size_t i;
@@ -168,7 +170,9 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 	int rc;
 
 	/* Reserve the command marker columns. */
-	saved = fyai_width_reserve_begin(cfg, 2 + FYAI_TOOL_MARKER_WIDTH);
+	markdown_tool_marker(cfg, mark, sizeof(mark));
+	saved = fyai_width_reserve_begin(cfg, markdown_gutter_cols(cfg) +
+					 FYAI_TOOL_MARKER_WIDTH);
 	rc = fyai_render_fenced_buffer(cfg, command, strlen(command), "sh",
 				       &rendered, 0);
 	fyai_width_reserve_end(cfg, saved);
@@ -186,11 +190,11 @@ static int ui_append_shell_command(struct fyai_cfg *cfg,
 	for (start = 0, rows = 0, i = 0; i <= rendered.len; i++) {
 		if (i < rendered.len && rendered.data[i] != '\n')
 			continue;
-		rc = response_buffer_append(out, "  ");
+		rc = response_buffer_append(out, markdown_gutter_blank(cfg));
 		if (rc)
 			goto out;
 		rc = response_buffer_append(out, rows ? FYAI_TOOL_MARKER_PAD :
-						       FYAI_TOOL_MARKER);
+						       mark);
 		if (rc)
 			goto out;
 		rc = response_buffer_reserve(out, out->len + i - start + 1);
@@ -230,7 +234,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	if (markdown_render_tool_head(ui->ctx->cfg,
 			ui->tool_title ? ui->tool_title : "shell",
 			title_len ? title_len : 5, ui->tool_error,
-			first_margin, "  ", &head))
+			first_margin, markdown_gutter_blank(ui->ctx->cfg), &head))
 		goto out;
 	if (ui->tool_command &&
 	    ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
@@ -341,14 +345,13 @@ out:
 
 static void ui_pending_refresh(struct fyai_ui *ui)
 {
-	static const char header_fmt[] =
-		"\n%s●\033[0m \033[1mpending\033[0m (%zu)";
 	static const char line_prefix[] = "\n  › ";
 	struct ui_line *line;
 	const char *mark;
+	const char *off;
+	const char *header;
 	char *buf, *p;
 	size_t len = 0, text_len, count = 0;
-	int header_len;
 
 	for (line = ui->head; line; line = line->next) {
 		text_len = strlen(line->text);
@@ -368,14 +371,18 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 	}
 	mark = markdown_role_on(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
 				"\033[36m");
-	header_len = snprintf(NULL, 0, header_fmt, mark, count);
-	if (header_len < 0 || (size_t)header_len > SIZE_MAX - len - 1)
+	off = markdown_role_off(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
+				 "\033[0m");
+	header = fy_sprintfa("\n%s●%s \033[1mpending\033[0m (%zu)",
+			    mark, off, count);
+	if (strlen(header) > SIZE_MAX - len - 1)
 		return;
-	len += (size_t)header_len;
+	len += strlen(header);
 	buf = malloc(len + 1);
 	if (!buf) return;
 	p = buf;
-	p += snprintf(p, len + 1, header_fmt, mark, count);
+	memcpy(p, header, strlen(header));
+	p += strlen(header);
 	for (line = ui->head; line; line = line->next) {
 		memcpy(p, line_prefix, sizeof(line_prefix) - 1);
 		p += sizeof(line_prefix) - 1;
@@ -1081,7 +1088,7 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 {
 	struct response_buffer out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	const char *color;
+	const char *color, *off;
 	char *heading;
 	size_t len;
 
@@ -1109,14 +1116,20 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 				 "\033[31m") :
 		markdown_role_on(ui->ctx ? ui->ctx->cfg : NULL, "chrome",
 				 "\033[36m");
-	len = strlen(title ? title : "status") + strlen(color) + 16;
+	off = markdown_role_off(ui->ctx ? ui->ctx->cfg : NULL,
+			 error ? "notice.sigil" : "chrome", "\033[0m");
+	len = strlen(title ? title : "status") + strlen(color) + 16 +
+	      FYAI_GLYPH_MAX;
 	heading = malloc(len);
 	if (!heading) {
 		free(out.data);
 		return;
 	}
-	snprintf(heading, len, "%s● %s\033[0m", color,
-		 title ? title : (error ? "error" : "status"));
+	/* A palette theme marks a diagnostic with ! and a report with ∷. */
+	snprintf(heading, len, "%s%s %s%s", color,
+		 markdown_glyph(ui->ctx ? ui->ctx->cfg : NULL,
+				error ? "gutter.diag" : "gutter.system", "●"),
+		 title ? title : (error ? "error" : "status"), off);
 	ui->message_band = ui_band_open(ui, FYAI_WORKPANE_TILE_NOTICE, 12);
 	if (ui->message_band) {
 		(void)fytim_workband_set_top(ui->message_band, heading);
@@ -1618,7 +1631,7 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 		goto out;
 	if (markdown_render_margins(ctx->cfg, title,
 				    title_len ? title_len : 4, &out,
-				    margin, "  "))
+				    margin, markdown_gutter_blank(ctx->cfg)))
 		goto out;
 	if (len) {
 		if (out.len && out.data[out.len - 1] != '\n') {
@@ -1674,7 +1687,7 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	if (!margin)
 		goto out;
 	if (markdown_render_margins(ctx->cfg, title, strlen(title), &top,
-				    margin, "  "))
+				    margin, markdown_gutter_blank(ctx->cfg)))
 		goto out;
 	start = 0;
 	while (start < top.len && (top.data[start] == '\n' ||
@@ -2070,7 +2083,9 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 	/* Render the marked title row used by work bands. */
 	margin = ui_indicator(ui, states[mark], frame, interval_msp);
 	rc = markdown_render_tool_head(ctx->cfg, title, strlen(title), cause,
-				       margin ? margin : "  ", "  ", &out);
+				       margin ? margin :
+				       markdown_gutter_blank(ctx->cfg),
+				       markdown_gutter_blank(ctx->cfg), &out);
 	free(margin);
 	if (!rc) {
 		/* Append the shell command below the title row. */

@@ -203,8 +203,7 @@ int fyai_output_reasoning_append(struct fyai_ctx *ctx, const char *text)
 	if (!output->reasoning) {
 		if (fyai_output_start_block(ctx))
 			return -1;
-		if (fyai_output_printf(ctx, "> **%s**\n>\n> ",
-				       "💭 reasoning"))
+		if (fyai_output_printf(ctx, "%s> ", FYAI_REASONING_HEAD))
 			return -1;
 		output->reasoning = true;
 	}

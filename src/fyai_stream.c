@@ -270,9 +270,11 @@ static int stream_reasoning_markdown(struct stream_response *stream,
 {
 	const char *nl;
 	const char *p;
+	bool quoted;
 	int len;
 
-	if (response_buffer_append(md, "**💭 reasoning**\n\n"))
+	quoted = markdown_reasoning_quoted(stream->ctx->cfg);
+	if (!quoted && response_buffer_append(md, "**💭 reasoning**\n\n"))
 		return -1;
 
 	p = stream->reasoning_text.data ? stream->reasoning_text.data : "";
@@ -280,11 +282,11 @@ static int stream_reasoning_markdown(struct stream_response *stream,
 		nl = strchr(p, '\n');
 		len = nl ? (int)(nl - p) : (int)strlen(p);
 		if (len) {
-			if (response_buffer_append(md, "*") ||
+			if (response_buffer_append(md, quoted ? "> " : "*") ||
 			    append_mem(md, p, (size_t)len) ||
-			    response_buffer_append(md, "*\n"))
+			    response_buffer_append(md, quoted ? "\n" : "*\n"))
 				return -1;
-		} else if (response_buffer_append(md, "\n")) {
+		} else if (response_buffer_append(md, quoted ? ">\n" : "\n")) {
 			return -1;
 		}
 		p = nl ? nl + 1 : NULL;
@@ -337,6 +339,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 {
 	struct fyai_ctx *ctx = stream->ctx;
 	struct fyai_cfg *cfg = ctx->cfg;
+	char mark[FYAI_GLYPH_MAX];
 	const char *prefix;
 	bool color;
 
@@ -366,8 +369,19 @@ static void stream_write_reasoning(struct stream_response *stream,
 							  FYAI_ANSI_DIM) : "";
 			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
 					      prefix, strlen(prefix));
-			prefix = color ? "reasoning \xe2\x96\xb8 " :
-					 "reasoning > ";
+			/* A palette theme marks reasoning with its gutter
+			 * glyph, not a label. */
+			if (markdown_reasoning_quoted(cfg)) {
+				markdown_gutter_mark("",
+					markdown_glyph(cfg, "gutter.reasoning",
+						       ":"),
+					"", markdown_gutter_cols(cfg),
+					mark, sizeof(mark));
+				prefix = mark;
+			} else {
+				prefix = color ? "reasoning \xe2\x96\xb8 " :
+						 "reasoning > ";
+			}
 			(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS,
 					      prefix, strlen(prefix));
 			stream->printed_reasoning = true;

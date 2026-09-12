@@ -1036,6 +1036,22 @@ static void fyai_emit_blockquote(FILE *mf, const char *text)
  * Emphasis cannot span blank lines, so it is applied per line - used to
  * give the system prompt a quiet, distinct look.
  */
+static void fyai_emit_italic(FILE *mf, const char *text);
+
+/* Reasoning: a heading and italic rows, or a quote under the reasoning
+ * gutter of a palette theme. */
+static void fyai_emit_reasoning(const struct fyai_cfg *cfg, FILE *mf,
+				const char *text)
+{
+	if (markdown_reasoning_quoted(cfg)) {
+		fyai_emit_blockquote(mf, text);
+		fprintf(mf, "\n");
+		return;
+	}
+	fprintf(mf, "**💭 reasoning**\n\n");
+	fyai_emit_italic(mf, text);
+}
+
 static void fyai_emit_italic(FILE *mf, const char *text)
 {
 	const char *nl;
@@ -1458,8 +1474,8 @@ static int view_append_block(struct fyai_ctx *ctx, struct response_buffer *out,
 		len--;
 	if (!len)
 		return 0;
-	return fyai_render_fenced_marked(ctx, md, len, lang, max_lines, "  ",
-					 out);
+	return fyai_render_fenced_marked(ctx, md, len, lang, max_lines,
+					 markdown_gutter_blank(ctx->cfg), out);
 }
 
 /* Split tool-call Markdown into its title and body. */
@@ -2086,8 +2102,7 @@ static void fyai_emit_native_item(struct fyai_ctx *ctx, FILE *mf,
 		rv = fyai_reasoning_text(tgb, m);
 		r = fy_castp(&rv, "");
 		if (*r) {
-			fprintf(mf, "**💭 reasoning**\n\n");
-			fyai_emit_italic(mf, r);
+			fyai_emit_reasoning(ctx->cfg, mf, r);
 		} else if (fy_is_valid(fy_get(m, "encrypted_content"))) {
 			fprintf(mf, "_💭 reasoning (encrypted)_\n\n");
 		}
@@ -2193,7 +2208,8 @@ static fy_generic fyai_turn_provider(fy_generic turn);
  * is never shown) and the Chat `reasoning_content` field. Returns true if it
  * emitted anything.
  */
-static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
+static bool fyai_emit_turn_reasoning(const struct fyai_cfg *cfg, FILE *mf,
+				     struct fy_generic_builder *tgb,
 				     fy_generic turn, bool thinking)
 {
 	const char *prov;
@@ -2220,8 +2236,7 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 			rv = fyai_reasoning_text(tgb, it);
 			r = fy_castp(&rv, "");
 			if (*r) {
-				fprintf(mf, "**💭 reasoning**\n\n");
-				fyai_emit_italic(mf, r);
+				fyai_emit_reasoning(cfg, mf, r);
 				emitted = true;
 			} else if (fy_is_valid(fy_get(it, "encrypted_content"))) {
 				fprintf(mf, "_💭 reasoning (encrypted)_\n\n");
@@ -2233,8 +2248,7 @@ static bool fyai_emit_turn_reasoning(FILE *mf, struct fy_generic_builder *tgb,
 		/* Chat Completions: reasoning_content on the assistant msg. */
 		rc = fy_get(it, "reasoning_content", "");
 		if (*rc) {
-			fprintf(mf, "**💭 reasoning**\n\n");
-			fyai_emit_italic(mf, rc);
+			fyai_emit_reasoning(cfg, mf, rc);
 			emitted = true;
 		}
 	}
@@ -2911,7 +2925,9 @@ static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
 					       ok ? FYMD_INDICATOR_SUCCESS :
 					       FYMD_INDICATOR_FAILURE);
 	rc = markdown_render_tool_head(ctx->cfg, md, len, cause,
-				       margin ? margin : "  ", "  ", &head);
+				       margin ? margin :
+				       markdown_gutter_blank(ctx->cfg),
+				       markdown_gutter_blank(ctx->cfg), &head);
 	if (!rc && head.len) {
 		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
 				    FYAI_FLOW_TOOL_HEAD);
@@ -3312,7 +3328,7 @@ static int fyai_display_reasoning(struct fyai_display_render *view,
 	rf = open_memstream(&rmd, &rlen);
 	fyai_error_check(view->ctx, rf, out,
 			 "could not create the reasoning display buffer");
-	any = fyai_emit_turn_reasoning(rf, view->tgb, turn,
+	any = fyai_emit_turn_reasoning(view->ctx->cfg, rf, view->tgb, turn,
 				       view->cfg->thinking);
 	rc = fclose(rf);
 	rf = NULL;

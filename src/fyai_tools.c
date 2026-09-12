@@ -491,7 +491,8 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 		    fyai_fenced_stream_start(ctx->shell_stream, ctx, cfg, NULL,
 					     cfg->tool_preview_lines > 0 ?
 					     (size_t) cfg->tool_preview_lines : 0,
-					     FYAI_TOOL_OUTPUT_INDENT, stderr,
+					     markdown_tool_output_indent(cfg),
+					     stderr,
 					     fyai_ui_active(ctx) ||
 					     terminal_is_tty(STDERR_FILENO)) != 0) {
 			free(ctx->shell_stream);
@@ -4237,7 +4238,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		if (!fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
 				NULL, ctx->cfg->tool_preview_lines > 0 ?
 				(size_t)ctx->cfg->tool_preview_lines : 0,
-				FYAI_TOOL_OUTPUT_INDENT, stderr, true)) {
+				markdown_tool_output_indent(ctx->cfg),
+				stderr, true)) {
 			/*
 			 * The surface that the parent shows already carries the state of this call.
 			 * A second mark here has no animation.
@@ -4282,7 +4284,8 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		    !fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
 				NULL, ctx->cfg->tool_preview_lines > 0 ?
 				(size_t)ctx->cfg->tool_preview_lines : 0,
-				FYAI_TOOL_OUTPUT_INDENT, stderr, true)) {
+				markdown_tool_output_indent(ctx->cfg),
+				stderr, true)) {
 			job->stream.band = job->band;
 			job->stream.title = job->title;
 			job->stream.command = job->command;

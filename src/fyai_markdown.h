@@ -15,6 +15,7 @@ struct fyai_sink;
 struct fyai_sink_band;
 struct markdown_renderer {
 	struct fymd_renderer *renderer;
+	const struct fyai_cfg *cfg;	/* borrowed; outlives the renderer */
 	bool active;
 };
 
@@ -107,9 +108,38 @@ int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme);
 /* Tool-state title rendering. Returned strings belong to the caller. */
-char *markdown_indicator_margin(struct fymd_renderer *r,
+char *markdown_indicator_margin(const struct fyai_cfg *cfg,
+				struct fymd_renderer *r,
 				enum fymd_indicator_state state, size_t frame,
 				unsigned int *interval_msp);
+/* The longest glyph a gutter mark holds, in bytes, with its padding. */
+#define FYAI_GLYPH_MAX 32
+/* The widest gutter a theme can ask for. */
+#define FYAI_GUTTER_MAX 16
+
+/* The columns of the transcript gutter: gutter.cols of a palette theme, else
+ * two. */
+int markdown_gutter_cols(const struct fyai_cfg *cfg);
+/* A blank gutter. Static storage. */
+const char *markdown_gutter_blank(const struct fyai_cfg *cfg);
+/* The glyph @name of a palette theme, in the ASCII form under the ascii
+ * diagram charset, or @fallback. Valid while the palette is. */
+const char *markdown_glyph(const struct fyai_cfg *cfg, const char *name,
+			   const char *fallback);
+/* Write @on, @glyph and @off into @buf, with blanks after the glyph to @cols
+ * columns. A gutter glyph takes one column for each character. */
+void markdown_gutter_mark(const char *on, const char *glyph, const char *off,
+			  int cols, char *buf, size_t size);
+/* The indent of tool output: the blank gutter of a palette theme, so the
+ * output starts at the text column, else FYAI_TOOL_OUTPUT_INDENT. Static
+ * storage. */
+const char *markdown_tool_output_indent(const struct fyai_cfg *cfg);
+/* True when a palette theme draws reasoning as a quote under its gutter
+ * mark, with no heading. */
+bool markdown_reasoning_quoted(const struct fyai_cfg *cfg);
+/* The tool result marker of the first row, FYAI_TOOL_MARKER_WIDTH wide. */
+void markdown_tool_marker(const struct fyai_cfg *cfg, char *buf, size_t size);
+
 char *markdown_indicator_margin_cfg(struct fyai_cfg *cfg,
 				    enum fymd_indicator_state state);
 int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,

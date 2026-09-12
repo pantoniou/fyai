@@ -87,13 +87,26 @@ static bool markdown_palette_theme(const char *name)
 #endif
 }
 
+#ifdef FYAI_PALETTE_GLYPHS
+static bool markdown_ascii(const struct fyai_cfg *cfg)
+{
+	return cfg && cfg->diagram_charset &&
+	       !strcmp(cfg->diagram_charset, "ascii");
+}
+#endif
+
 struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 					    const struct fymd_renderer_cfg *rcfg)
 {
 	struct fymd_renderer *r;
 
 	r = fymd_renderer_create(rcfg);
-#ifdef FYAI_WITH_FYPALETTE
+#ifdef FYAI_PALETTE_GLYPHS
+	/* The palette gives the glyphs and the margin in the diagram charset. */
+	if (r && fcfg && fcfg->palette)
+		(void)fymd_renderer_set_palette_flags(r, fcfg->palette,
+				markdown_ascii(fcfg) ? FYMD_PF_ASCII : 0);
+#elif defined(FYAI_WITH_FYPALETTE)
 	/* The theme load checked that a renderer takes the palette. */
 	if (r && fcfg && fcfg->palette)
 		(void)fymd_renderer_set_palette(r, fcfg->palette);
@@ -110,6 +123,127 @@ struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 	(void)fcfg;
 #endif
 	return r;
+}
+
+int markdown_gutter_cols(const struct fyai_cfg *cfg)
+{
+#ifdef FYAI_PALETTE_GLYPHS
+	double cols;
+
+	if (cfg && cfg->palette &&
+	    !fypal_ctx_param(cfg->palette, "gutter.cols", &cols) &&
+	    cols >= 1 && cols <= FYAI_GUTTER_MAX)
+		return (int)cols;
+#else
+	(void)cfg;
+#endif
+	return 2;
+}
+
+const char *markdown_gutter_blank(const struct fyai_cfg *cfg)
+{
+	static const char blanks[FYAI_GUTTER_MAX + 1] = "                ";
+
+	return blanks + FYAI_GUTTER_MAX - markdown_gutter_cols(cfg);
+}
+
+const char *markdown_glyph(const struct fyai_cfg *cfg, const char *name,
+			   const char *fallback)
+{
+#ifdef FYAI_PALETTE_GLYPHS
+	const char *glyph;
+
+	if (cfg && cfg->palette) {
+		glyph = fypal_ctx_glyph(cfg->palette, name, markdown_ascii(cfg));
+		if (glyph)
+			return glyph;
+	}
+#else
+	(void)cfg;
+	(void)name;
+#endif
+	return fallback;
+}
+
+static int markdown_glyph_cols(const char *glyph)
+{
+	int cols = 0;
+
+	for (; *glyph; glyph++)
+		cols += ((unsigned char)*glyph & 0xc0) != 0x80;
+	return cols;
+}
+
+void markdown_gutter_mark(const char *on, const char *glyph, const char *off,
+			  int cols, char *buf, size_t size)
+{
+	int n;
+	int w;
+
+	n = snprintf(buf, size, "%s%s%s", on, glyph, off);
+	if (n < 0 || (size_t)n >= size)
+		return;
+	for (w = markdown_glyph_cols(glyph); w < cols && (size_t)n + 1 < size;
+	     w++)
+		buf[n++] = ' ';
+	buf[n] = '\0';
+}
+
+const char *markdown_tool_output_indent(const struct fyai_cfg *cfg)
+{
+	if (markdown_glyph(cfg, "gutter.result", NULL))
+		return markdown_gutter_blank(cfg);
+	return FYAI_TOOL_OUTPUT_INDENT;
+}
+
+bool markdown_reasoning_quoted(const struct fyai_cfg *cfg)
+{
+	return markdown_glyph(cfg, "gutter.reasoning", NULL) != NULL;
+}
+
+/*
+ * A copy of @text without the rows that open reasoning, when the theme draws
+ * reasoning without them. NULL when the text keeps its rows. The stored
+ * document keeps the rows: they mark reasoning for every other theme.
+ */
+static char *markdown_reasoning_strip(const struct fyai_cfg *cfg,
+				      const char *text, size_t *lenp)
+{
+	static const char head[] = FYAI_REASONING_HEAD;
+	const size_t hlen = sizeof(head) - 1;
+	const char *p, *end, *hit;
+	char *copy;
+	size_t n;
+
+	if (!memmem(text, *lenp, head, hlen) || !markdown_reasoning_quoted(cfg))
+		return NULL;
+	copy = malloc(*lenp + 1);
+	if (!copy)
+		return NULL;
+	for (n = 0, p = text, end = text + *lenp; p < end; p = hit + hlen) {
+		hit = memmem(p, (size_t)(end - p), head, hlen);
+		if (!hit)
+			hit = end;
+		memcpy(copy + n, p, (size_t)(hit - p));
+		n += (size_t)(hit - p);
+		if (hit == end)
+			break;
+	}
+	copy[n] = '\0';
+	*lenp = n;
+	return copy;
+}
+
+void markdown_tool_marker(const struct fyai_cfg *cfg, char *buf, size_t size)
+{
+	const char *glyph;
+
+	glyph = markdown_glyph(cfg, "gutter.result", NULL);
+	if (glyph)
+		markdown_gutter_mark("", glyph, "", FYAI_TOOL_MARKER_WIDTH,
+				     buf, size);
+	else
+		snprintf(buf, size, "%s", FYAI_TOOL_MARKER);
 }
 
 const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
@@ -576,6 +710,7 @@ int markdown_renderer_start(struct fyai_cfg *fcfg,
 	struct fymd_renderer_cfg cfg;
 
 	memset(renderer, 0, sizeof(*renderer));
+	renderer->cfg = fcfg;
 
 	markdown_renderer_cfg(fcfg, &cfg, color, theme, 0);
 	renderer->renderer = markdown_renderer_new(fcfg, &cfg);
@@ -590,10 +725,17 @@ int markdown_renderer_push(struct markdown_renderer *renderer,
 			   struct markdown_update *update)
 {
 	struct fymd_update upd;
+	char *stripped;
+	int rc;
 
 	if (!renderer->active)
 		return -1;
-	if (fymd_render_push(renderer->renderer, text, len, &upd))
+	/* A document append holds the rows that open reasoning whole. */
+	stripped = markdown_reasoning_strip(renderer->cfg, text, &len);
+	rc = fymd_render_push(renderer->renderer, stripped ? stripped : text,
+			      len, &upd);
+	free(stripped);
+	if (rc)
 		return -1;
 	update->backtrack = upd.backtrack;
 	update->content = upd.content;
@@ -658,9 +800,12 @@ static int markdown_render_flags(struct fyai_cfg *fcfg, const char *text,
 {
 	struct fymd_renderer_cfg cfg;
 	struct fymd_renderer *r;
+	char *stripped;
 	char *s;
 	size_t slen;
 	size_t before;
+	size_t rlen;
+	int rc;
 
 	before = out->len;
 	s = NULL;
@@ -670,7 +815,11 @@ static int markdown_render_flags(struct fyai_cfg *fcfg, const char *text,
 	if (!r)
 		goto raw;
 	markdown_set_line_limit(r, max_lines);
-	if (fymd_render(r, text, len, &s, &slen))
+	rlen = len;
+	stripped = markdown_reasoning_strip(fcfg, text, &rlen);
+	rc = fymd_render(r, stripped ? stripped : text, rlen, &s, &slen);
+	free(stripped);
+	if (rc)
 		goto raw_reset;
 	if (response_buffer_reserve(out, out->len + slen + 1))
 		goto raw_reset;
@@ -749,8 +898,13 @@ int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 	return 0;
 }
 
-/* Build a tool-state margin. The caller owns the result. */
-char *markdown_indicator_margin(struct fymd_renderer *r,
+/*
+ * Build a tool-state margin as wide as the gutter. Every frame of a blinking
+ * indicator has that width, so the title row does not move. The caller owns
+ * the result.
+ */
+char *markdown_indicator_margin(const struct fyai_cfg *cfg,
+				struct fymd_renderer *r,
 				enum fymd_indicator_state state, size_t frame,
 				unsigned int *interval_msp)
 {
@@ -758,19 +912,21 @@ char *markdown_indicator_margin(struct fymd_renderer *r,
 	char *margin;
 	size_t len;
 	unsigned int interval_ms;
+	int cols;
 	int rc;
 
 	if (!r)
-		return strdup("  ");
+		return strdup(markdown_gutter_blank(cfg));
 	rc = fymd_renderer_get_indicator(r, state, frame, &glyph, &on, &off,
 					 &interval_ms);
 	if (rc)
 		return NULL;
-	len = strlen(on) + strlen(glyph) + strlen(off) + 2;
+	cols = markdown_gutter_cols(cfg);
+	len = strlen(on) + strlen(glyph) + strlen(off) + (size_t)cols + 1;
 	margin = malloc(len);
 	if (!margin)
 		return NULL;
-	snprintf(margin, len, "%s%s%s ", on, glyph, off);
+	markdown_gutter_mark(on, glyph, off, cols, margin, len);
 	if (interval_msp)
 		*interval_msp = interval_ms;
 	return margin;
@@ -788,8 +944,8 @@ char *markdown_indicator_margin_cfg(struct fyai_cfg *fcfg,
 			      fcfg->theme_variant, 0);
 	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
-		return strdup("  ");
-	margin = markdown_indicator_margin(r, state, 0, NULL);
+		return strdup(markdown_gutter_blank(fcfg));
+	margin = markdown_indicator_margin(fcfg, r, state, 0, NULL);
 	fymd_renderer_destroy(r);
 	return margin;
 }
@@ -803,7 +959,7 @@ int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 			      const char *first_margin, const char *next_margin,
 			      struct response_buffer *out)
 {
-	const char *on, *off;
+	const char *on, *off, *glyph;
 	size_t need;
 	bool color;
 
@@ -817,11 +973,15 @@ int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 	color = markdown_color_enabled(cfg->color);
 	on = color ? markdown_role_on(cfg, "tool.fail", FYAI_ANSI_RED) : "";
 	off = color ? markdown_role_off(cfg, "tool.fail", FYAI_ANSI_RESET) : "";
-	need = out->len + strlen(on) + strlen(cause) + strlen(off) + 3;
+	/* A palette theme marks the cause with a glyph. */
+	glyph = markdown_glyph(cfg, "tool.cause", NULL);
+	need = out->len + strlen(on) + (glyph ? strlen(glyph) + 1 : 0) +
+	       strlen(cause) + strlen(off) + 3;
 	if (response_buffer_reserve(out, need))
 		return -1;
 	out->len += (size_t)snprintf(out->data + out->len, need - out->len,
-				     " %s%s%s\n", on, cause, off);
+				     " %s%s%s%s%s\n", on, glyph ? glyph : "",
+				     glyph ? " " : "", cause, off);
 	return 0;
 }
 
@@ -1006,16 +1166,18 @@ static int buffer_append_marked(struct fyai_ctx *ctx,
 				struct response_buffer *out, const char *indent,
 				const char *data, size_t len)
 {
+	char mark[FYAI_GLYPH_MAX];
 	const char *pfx;
 	size_t rows;
 	size_t start;
 	size_t i;
 	int rc;
 
+	markdown_tool_marker(ctx->cfg, mark, sizeof(mark));
 	for (rows = 0, start = 0, i = 0; i <= len; i++) {
 		if (i < len && data[i] != '\n')
 			continue;
-		pfx = rows ? FYAI_TOOL_MARKER_PAD : FYAI_TOOL_MARKER;
+		pfx = rows ? FYAI_TOOL_MARKER_PAD : mark;
 		rc = response_buffer_append(out, indent ? indent : "");
 		fyai_error_check(ctx, !rc, out, "could not append the tool indent");
 		rc = response_buffer_append(out, pfx);
@@ -1107,7 +1269,8 @@ int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
 	if (end > start) {
 		mf = open_memstream(&indented, &ilen);
 		if (mf) {
-			fyai_fwrite_indented(mf, FYAI_TOOL_OUTPUT_INDENT,
+			fyai_fwrite_indented(mf,
+					     markdown_tool_output_indent(cfg),
 					     out.data + start, end - start);
 			fclose(mf);
 			(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT,
