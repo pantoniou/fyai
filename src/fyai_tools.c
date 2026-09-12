@@ -3286,7 +3286,12 @@ static void fyai_agent_view_refresh(struct fyai_tool_job *job)
  * time when @running is set. Leave out a field that the registry does not
  * have. The caller frees the result.
  */
-static char *fyai_agent_head_title(struct fyai_tool_job *job, bool running)
+/*
+ * The title of a sub-agent tile. The elapsed time of a running agent goes into
+ * @run when it is given, and after the title otherwise.
+ */
+static char *fyai_agent_head_title(struct fyai_tool_job *job, bool running,
+				   char *run_out, size_t run_size)
 {
 	const char *base, *end, *leaf, *model;
 	long long execution, started;
@@ -3318,6 +3323,10 @@ static char *fyai_agent_head_title(struct fyai_tool_job *job, bool running)
 	run[0] = '\0';
 	if (running)
 		fyai_event_elapsed_format(run, sizeof(run), started);
+	if (run_out && run_size) {
+		snprintf(run_out, run_size, "%s", run[0] == ' ' ? run + 1 : run);
+		run[0] = '\0';
+	}
 	title = strdup(fy_sprintfa("%.*s%s%s%s%s%s%s%s%s\n",
 				   (int)(end - base), base,
 				   fy_str_empty(leaf) ? "" : " `",
@@ -3338,13 +3347,15 @@ err_out:
 /* Paint the title of a live sub-agent tile with the running mark. */
 static void fyai_agent_head_paint(struct fyai_tool_job *job)
 {
+	char run[24];
 	char *title;
 
-	title = fyai_agent_head_title(job, true);
-	(void)fyai_ui_surface_set_head_frame(job->ctx, job->surface,
+	/* The elapsed time of a running agent stands at the right edge. */
+	title = fyai_agent_head_title(job, true, run, sizeof(run));
+	(void)fyai_ui_surface_set_head_right(job->ctx, job->surface,
 			title ? title :
 			job->title ? job->title : "**agent**",
-			NULL, NULL, FYAI_UI_MARK_RUNNING,
+			*run ? run : NULL, NULL, NULL, FYAI_UI_MARK_RUNNING,
 			job->animation_frame, NULL);
 	free(title);
 	fyai_ui_wake(job->ctx);
@@ -3576,7 +3587,7 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	}
 	if (job->surface) {
 		fyai_agent_view_refresh(job);
-		title = fyai_agent_head_title(job, false);
+		title = fyai_agent_head_title(job, false, NULL, 0);
 		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
 				title ? title :
 				job->title ? job->title : "**agent**",

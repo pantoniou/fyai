@@ -138,6 +138,17 @@ enum fyai_ui_mark {
 };
 
 /* Set the marked title and optional command chrome for @sf. */
+/*
+ * fyai_ui_surface_set_head_frame() with @right, fyai chrome such as an
+ * elapsed time, at the right edge of the title row when the build renders UI
+ * Markdown, and after the title otherwise.
+ */
+int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
+				   struct fytim_surface *sf,
+				   const char *title, const char *right,
+				   const char *command, const char *cause,
+				   enum fyai_ui_mark mark, size_t frame,
+				   unsigned int *interval_msp);
 int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			     const char *title, const char *command,
 			     const char *cause, enum fyai_ui_mark mark);

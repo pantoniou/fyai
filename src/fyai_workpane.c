@@ -19,6 +19,7 @@
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
 #include "fyai_workpane.h"
+#include "fyai_markdown.h"
 
 struct fyai_workpane_tile {
 	struct fytim_surface *surface;
@@ -41,6 +42,10 @@ struct fyai_workpane_tile {
 	int grid_cols;
 
 	bool selectable;
+
+	/* The clickable regions of the head. */
+	struct markdown_region *regions;
+	size_t nregions;
 
 	/* Presentation thresholds. */
 	struct fyai_workpane_ladder ladder;
@@ -151,6 +156,13 @@ static const char *workpane_disposition_name(enum fyai_workpane_disposition d)
  * it asks for the rows of the old window, and the grant then gives the old
  * height with the new width. Use the terminal size for the frame that follows.
  */
+
+static void workpane_tile_free(struct fyai_workpane_tile *t)
+{
+	markdown_regions_free(t->regions, t->nregions);
+	free(t);
+}
+
 static void workpane_sample_size(struct fyai_workpane_manager *wm)
 {
 	int cols = 0, rows = 0;
@@ -233,7 +245,7 @@ void fyai_workpane_destroy(struct fyai_workpane_manager *wm)
 		return;
 	for (t = wm->tiles; t; t = n) {
 		n = t->next;
-		free(t);
+		workpane_tile_free(t);
 	}
 	if (wm->pane)
 		fytim_workpane_destroy(wm->pane);
@@ -387,7 +399,7 @@ static void workpane_drop(struct fyai_workpane_manager *wm,
 		if (*pp != t)
 			continue;
 		*pp = t->next;
-		free(t);
+		workpane_tile_free(t);
 		wm->layout_pending = true;
 		return;
 	}
@@ -487,6 +499,47 @@ void fyai_workpane_clear_focus(struct fyai_workpane_manager *wm)
 	if (t && t->ops && t->ops->focus_changed)
 		t->ops->focus_changed(t->owner, false);
 	fyai_ui_wake(wm->ctx);
+}
+
+void fyai_workpane_tile_set_regions(struct fyai_workpane_manager *wm,
+				    struct fytim_surface *sf,
+				    struct markdown_region *regions,
+				    size_t count)
+{
+	struct fyai_workpane_tile *t;
+
+	t = workpane_tile(wm, sf);
+	if (!t) {
+		markdown_regions_free(regions, count);
+		return;
+	}
+	markdown_regions_free(t->regions, t->nregions);
+	t->regions = regions;
+	t->nregions = regions ? count : 0;
+}
+
+const char *fyai_workpane_tile_region_at(const struct fyai_workpane_manager *wm,
+					 const struct fytim_surface *sf,
+					 size_t row, int col)
+{
+	const struct fyai_workpane_tile *t;
+	size_t i;
+
+	t = workpane_tile(wm, sf);
+	for (i = 0; t && i < t->nregions; i++) {
+		if (t->regions[i].row == row && col >= t->regions[i].col &&
+		    col < t->regions[i].col + t->regions[i].width)
+			return t->regions[i].id;
+	}
+	return NULL;
+}
+
+bool fyai_workpane_tile_selectable(const struct fyai_workpane_manager *wm,
+				   const struct fytim_surface *sf)
+{
+	const struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	return t && t->selectable;
 }
 
 void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,

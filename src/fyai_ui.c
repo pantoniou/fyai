@@ -740,6 +740,26 @@ static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 	ui->next_frame_ms = fyai_event_now_ms();
 }
 
+#ifdef FYAI_UI_CLICKS
+/* A click on the head of a tile: act on the label under it. */
+static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
+			  int row, int col)
+{
+	struct fyai_workpane_manager *wm = ui->ctx->workpane;
+	const char *id;
+
+	if (!sf || row < 0)
+		return;
+	id = fyai_workpane_tile_region_at(wm, sf, (size_t)row, col);
+	if (!id)
+		return;
+	/* The name of a tile gives it the keys, as ^T does. */
+	if (!strcmp(id, "tile:focus") && fyai_workpane_tile_selectable(wm, sf) &&
+	    fyai_workpane_focused(wm) != sf)
+		fyai_workpane_set_focus(wm, sf);
+}
+#endif
+
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
 	struct fytim_event ev;
@@ -855,6 +875,11 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				fyai_workpane_zoomed(ui->ctx->workpane) ==
 					ev.surface ? NULL : ev.surface);
 			break;
+#ifdef FYAI_UI_CLICKS
+		case FYTIM_EVENT_SURFACE_CLICK:
+			ui_head_click(ui, ev.surface, ev.row, ev.col);
+			break;
+#endif
 		case FYTIM_EVENT_SURFACE_CLOSE:
 		case FYTIM_EVENT_SURFACE_SCROLL:
 			/* Route tile controls to the component that owns the work. */
@@ -2060,6 +2085,17 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 				   enum fyai_ui_mark mark, size_t frame,
 				   unsigned int *interval_msp)
 {
+	return fyai_ui_surface_set_head_right(ctx, sf, title, NULL, command,
+					      cause, mark, frame, interval_msp);
+}
+
+int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
+				   struct fytim_surface *sf,
+				   const char *title, const char *right,
+				   const char *command, const char *cause,
+				   enum fyai_ui_mark mark, size_t frame,
+				   unsigned int *interval_msp)
+{
 	static const enum fymd_indicator_state states[] = {
 		[FYAI_UI_MARK_RUNNING] = FYMD_INDICATOR_PENDING,
 		[FYAI_UI_MARK_OK] = FYMD_INDICATOR_SUCCESS,
@@ -2067,13 +2103,42 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 	};
 	struct response_buffer out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct markdown_region *regions = NULL;
+	size_t nregions = 0;
+	char *escaped = NULL;
+	char *head = NULL;
 	char *margin;
+	size_t tlen;
 	int saved_width;
 	int cols;
 	int rc;
 
 	if (!ui || !sf || !title)
 		return -1;
+	/*
+	 * The title holds what a model or a program wrote. Escape it, then
+	 * make it the label that gives the tile the keys.
+	 */
+	escaped = markdown_ui_escape(title);
+	if (escaped) {
+		tlen = strlen(escaped);
+		while (tlen && (escaped[tlen - 1] == '\n' ||
+				escaped[tlen - 1] == '\r'))
+			tlen--;
+#ifdef FYAI_UI_CLICKS
+		/* fyai writes @right, so it takes the right edge as it is */
+		if (asprintf(&head,
+			     "<fy-act id=\"tile:focus\">%.*s</fy-act>%s%s\n",
+			     (int)tlen, escaped, right ? "<fy-fill/>" : "",
+			     right ? right : "") < 0)
+			head = NULL;
+#else
+		if (asprintf(&head, "%.*s%s%s\n", (int)tlen, escaped,
+			     right && *right != ' ' ? " " : "",
+			     right ? right : "") < 0)
+			head = NULL;
+#endif
+	}
 
 	/* Render chrome at the granted tile width. */
 	saved_width = ctx->cfg->render_width;
@@ -2082,11 +2147,22 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 		ctx->cfg->render_width = cols;
 	/* Render the marked title row used by work bands. */
 	margin = ui_indicator(ui, states[mark], frame, interval_msp);
-	rc = markdown_render_tool_head(ctx->cfg, title, strlen(title), cause,
-				       margin ? margin :
-				       markdown_gutter_blank(ctx->cfg),
-				       markdown_gutter_blank(ctx->cfg), &out);
+	if (head)
+		rc = markdown_render_tool_head_ui(ctx->cfg, head, strlen(head),
+				cause,
+				margin ? margin : markdown_gutter_blank(ctx->cfg),
+				markdown_gutter_blank(ctx->cfg), &out,
+				&regions, &nregions);
+	else
+		rc = markdown_render_tool_head(ctx->cfg, title, strlen(title),
+				cause,
+				margin ? margin : markdown_gutter_blank(ctx->cfg),
+				markdown_gutter_blank(ctx->cfg), &out);
 	free(margin);
+	free(head);
+	free(escaped);
+	/* The tile keeps the regions of the head it shows. */
+	fyai_workpane_tile_set_regions(ctx->workpane, sf, regions, nregions);
 	if (!rc) {
 		/* Append the shell command below the title row. */
 		response_buffer_trim(&out);

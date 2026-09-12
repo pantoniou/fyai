@@ -910,20 +910,49 @@ static const char *markdown_margin_cb(void *userdata, size_t row)
 	return row ? m->next : m->first;
 }
 
+static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text,
+					 size_t len, struct response_buffer *out,
+					 const char *first_margin,
+					 const char *next_margin,
+					 enum fymd_cfg_flags flags,
+					 struct markdown_region **regionsp,
+					 size_t *countp);
+
 int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 			    struct response_buffer *out,
 			    const char *first_margin,
 			    const char *next_margin)
 {
+	return markdown_render_margins_flags(fcfg, text, len, out, first_margin,
+					     next_margin, 0, NULL, NULL);
+}
+
+static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text,
+					 size_t len, struct response_buffer *out,
+					 const char *first_margin,
+					 const char *next_margin,
+					 enum fymd_cfg_flags flags,
+					 struct markdown_region **regionsp,
+					 size_t *countp)
+{
 	struct markdown_margin_ctx margins = { first_margin, next_margin };
 	struct fymd_renderer_cfg cfg;
 	struct fymd_renderer *r;
+#ifdef FYAI_UI_CLICKS
+	const struct fymd_region *rg;
+	struct markdown_region *copy;
+	size_t count, i;
+#endif
 	char *s = NULL;
 	size_t slen = 0;
 
+	if (regionsp) {
+		*regionsp = NULL;
+		*countp = 0;
+	}
 	markdown_renderer_cfg(fcfg, &cfg,
 			      markdown_color_enabled(fcfg->color),
-			      fcfg->theme_variant, 0);
+			      fcfg->theme_variant, flags);
 	r = markdown_renderer_new(fcfg, &cfg);
 	if (!r)
 		return -1;
@@ -932,6 +961,26 @@ int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 		fymd_renderer_destroy(r);
 		return -1;
 	}
+#ifdef FYAI_UI_CLICKS
+	/* The regions live in the renderer: copy them before it goes. */
+	if (regionsp && !fymd_renderer_get_regions(r, &rg, &count) && count) {
+		copy = calloc(count, sizeof(*copy));
+		for (i = 0; copy && i < count; i++) {
+			copy[i].id = strdup(rg[i].id);
+			copy[i].row = rg[i].row;
+			copy[i].col = rg[i].col;
+			copy[i].width = rg[i].width;
+			if (!copy[i].id) {
+				markdown_regions_free(copy, i);
+				copy = NULL;
+			}
+		}
+		if (copy) {
+			*regionsp = copy;
+			*countp = count;
+		}
+	}
+#endif
 	if (response_buffer_reserve(out, out->len + slen + 1)) {
 		fymd_free(s);
 		fymd_renderer_destroy(r);
@@ -1001,17 +1050,105 @@ char *markdown_indicator_margin_cfg(struct fyai_cfg *fcfg,
  * Render a marked tool title and its failure cause. Add the cause after the
  * Markdown render because Markdown cannot select its terminal color.
  */
+void markdown_regions_free(struct markdown_region *regions, size_t count)
+{
+	size_t i;
+
+	for (i = 0; regions && i < count; i++)
+		free(regions[i].id);
+	free(regions);
+}
+
+char *markdown_ui_escape(const char *text)
+{
+	const char *p, *hit;
+	char *copy, *o;
+	size_t n = 0;
+
+	if (!text)
+		return NULL;
+	for (p = text; (hit = strstr(p, "<fy-")); p = hit + 4)
+		n++;
+	copy = malloc(strlen(text) + n * 3 + 1);
+	if (!copy)
+		return NULL;
+	for (o = copy, p = text; (hit = strstr(p, "<fy-")); p = hit + 1) {
+		memcpy(o, p, (size_t)(hit - p));
+		o += hit - p;
+		memcpy(o, "&lt;", 4);
+		o += 4;
+	}
+	strcpy(o, p);
+	return copy;
+}
+
+int markdown_render_margins_ui(struct fyai_cfg *cfg, const char *text,
+			       size_t len, struct response_buffer *out,
+			       const char *first_margin,
+			       const char *next_margin,
+			       struct markdown_region **regionsp,
+			       size_t *countp)
+{
+#ifdef FYAI_UI_CLICKS
+	return markdown_render_margins_flags(cfg, text, len, out, first_margin,
+					     next_margin, FYMD_RF_UI, regionsp,
+					     countp);
+#else
+	return markdown_render_margins_flags(cfg, text, len, out, first_margin,
+					     next_margin, 0, regionsp, countp);
+#endif
+}
+
+static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,
+				      size_t len, const char *cause,
+				      const char *first_margin,
+				      const char *next_margin,
+				      struct response_buffer *out,
+				      struct markdown_region **regionsp,
+				      size_t *countp);
+
 int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 			      size_t len, const char *cause,
 			      const char *first_margin, const char *next_margin,
 			      struct response_buffer *out)
 {
+	return markdown_render_tool_head_(cfg, title, len, cause, first_margin,
+					  next_margin, out, NULL, NULL);
+}
+
+int markdown_render_tool_head_ui(struct fyai_cfg *cfg, const char *title,
+				 size_t len, const char *cause,
+				 const char *first_margin,
+				 const char *next_margin,
+				 struct response_buffer *out,
+				 struct markdown_region **regionsp,
+				 size_t *countp)
+{
+	return markdown_render_tool_head_(cfg, title, len, cause, first_margin,
+					  next_margin, out, regionsp, countp);
+}
+
+static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,
+				      size_t len, const char *cause,
+				      const char *first_margin,
+				      const char *next_margin,
+				      struct response_buffer *out,
+				      struct markdown_region **regionsp,
+				      size_t *countp)
+{
 	const char *on, *off, *glyph;
 	size_t need;
 	bool color;
+	int rc;
 
-	if (markdown_render_margins(cfg, title, len, out, first_margin,
-				    next_margin))
+	if (regionsp)
+		rc = markdown_render_margins_ui(cfg, title, len, out,
+						first_margin, next_margin,
+						regionsp, countp);
+	else
+		rc = markdown_render_margins(cfg, title, len, out,
+					     first_margin, next_margin);
+	if (rc)
 		return -1;
 	if (!cause || !*cause)
 		return 0;

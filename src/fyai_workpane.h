@@ -241,6 +241,26 @@ fyai_workpane_tile_presentation(const struct fyai_workpane_manager *wm,
 void fyai_workpane_tile_set_selectable(struct fyai_workpane_manager *wm,
 				       struct fytim_surface *sf, bool ok);
 
+struct markdown_region;
+
+/*
+ * The clickable regions of the head of @sf, from the first cell of its head
+ * text. The manager owns @regions from here and frees them with the tile or
+ * with the next call. A tile that is not registered frees them at once.
+ */
+void fyai_workpane_tile_set_regions(struct fyai_workpane_manager *wm,
+				    struct fytim_surface *sf,
+				    struct markdown_region *regions,
+				    size_t count);
+/* The id of the head region of @sf at @row and @col, or NULL. Valid until
+ * the regions of the tile change. */
+const char *fyai_workpane_tile_region_at(const struct fyai_workpane_manager *wm,
+					 const struct fytim_surface *sf,
+					 size_t row, int col);
+/* Whether @sf may take focus. */
+bool fyai_workpane_tile_selectable(const struct fyai_workpane_manager *wm,
+				   const struct fytim_surface *sf);
+
 /* Keyboard focus. Focus never changes pane or tile geometry. */
 void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 			     struct fytim_surface *sf);

@@ -111,6 +111,42 @@ int markdown_render_margins(struct fyai_cfg *cfg, const char *text, size_t len,
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 			    struct response_buffer *out, bool color,
 			    const char *theme);
+/* A clickable region of a UI Markdown render: its id and the cells of its
+ * label, from the first cell of the render. */
+struct markdown_region {
+	char *id;
+	size_t row;
+	int col;
+	int width;
+};
+
+void markdown_regions_free(struct markdown_region *regions, size_t count);
+/*
+ * A copy of @text in which no UI Markdown tag can open: "<fy-" becomes
+ * "&lt;fy-". Text that a model or a program wrote goes into chrome through it,
+ * so that it cannot place labels that fyai did not. The caller frees it.
+ */
+char *markdown_ui_escape(const char *text);
+/*
+ * markdown_render_margins() of chrome that fyai writes, with UI Markdown.
+ * *regionsp and *countp receive the clickable regions, which the caller frees
+ * with markdown_regions_free(); a build without UI Markdown renders the tags
+ * as nothing and reports no regions.
+ */
+int markdown_render_margins_ui(struct fyai_cfg *cfg, const char *text,
+			       size_t len, struct response_buffer *out,
+			       const char *first_margin,
+			       const char *next_margin,
+			       struct markdown_region **regionsp,
+			       size_t *countp);
+/* markdown_render_tool_head() through markdown_render_margins_ui(). */
+int markdown_render_tool_head_ui(struct fyai_cfg *cfg, const char *title,
+				 size_t len, const char *cause,
+				 const char *first_margin,
+				 const char *next_margin,
+				 struct response_buffer *out,
+				 struct markdown_region **regionsp,
+				 size_t *countp);
 /* Tool-state title rendering. Returned strings belong to the caller. */
 char *markdown_indicator_margin(const struct fyai_cfg *cfg,
 				struct fymd_renderer *r,
