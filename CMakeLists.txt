@@ -228,7 +228,7 @@ if(NOT TARGET libfypalette::libfypalette)
     set(BUILD_FYPALETTE_TOOLS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(libfypalette
         GIT_REPOSITORY https://github.com/pantoniou/libfypalette
-        GIT_TAG 892c7653941747b05e9c6216dc567e1ceb8cd38a
+        GIT_TAG b2c93cd8be07c0359fa81d358f5a7202a0a0baa1
     )
     FetchContent_MakeAvailable(libfypalette)
 endif()
@@ -243,7 +243,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
         "Build the libfymd4c command-line executable" FORCE)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG 3118fda9d332bf7bd2e2d09810f90d6e2a0c8920
+        GIT_TAG f4f112f8fd397e475ea65a7d3a5539590f5e9fc2
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
