@@ -41,7 +41,9 @@ def heading(path):
     m = re.search(rb"\x1b\[1;38;2;(\d+);(\d+);(\d+)mHeading", data)
     if not m:
         raise SystemExit(f"{path}: no palette heading colour")
-    if not re.search(rb"\x1b\[[0-9;]*38;2;\d+;\d+;\d+mint\b", data):
+    # Bubble backgrounds can be selected after the syntax foreground.
+    if not re.search(rb"\x1b\[[0-9;]*38;2;\d+;\d+;\d+m"
+                     rb"(?:\x1b\[48;(?:2;\d+;\d+;\d+|5;\d+)m)*int\b", data):
         raise SystemExit(f"{path}: no palette colour on the fenced code")
     return tuple(int(v) for v in m.groups())
 
