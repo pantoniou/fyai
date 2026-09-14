@@ -743,6 +743,7 @@ if(BUILD_TESTING)
 
     # Cases that need more wall clock than the common budget.
     set(FYAI_CASE_TIMEOUT_tool_terminate 120)
+    set(FYAI_CASE_TIMEOUT_ui_page_layouts 240)
 
     # Every deadline in the suite is multiplied by this. A sanitized build, or
     # a suite run with many jobs at once, takes several times as long for the
