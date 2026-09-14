@@ -1008,6 +1008,14 @@ remaining settings below are session-only.
 
 Use `/help` in the running binary for the current command and setting spellings.
 
+`display/renderer` selects how the live screen is composed. `stack`, the
+default, is the chrome of the terminal library. `page` states the same screen
+as one UI Markdown page: the transcript tail, the work pane, the header, the
+prompt between two rules and the status. On a short terminal the page loses
+the status first, then the header, then the rules, and keeps the prompt. A
+build without page support uses `stack` and says so. Refer to
+`doc/markdown-ui-plan.md`.
+
 ## 11. CLI reference
 
 ```text

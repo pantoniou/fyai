@@ -487,6 +487,114 @@ display makes them again.
   the terminal, so an interactive session keeps a SIGWINCH source to wake the
   display for it.
 
+### The page
+
+`display/renderer` selects how the live screen is composed. `stack` is the
+band stack of libfytimui: the library draws the header, the prompt between two
+rules and the status. `page` states the same screen as one UI Markdown page.
+`src/fyai_page.c` owns the page source; the terminal library draws its slots.
+
+- The page is rendered again for each frame, from the state of the session.
+  libfytimui decision 0007 measured it: the Markdown is at most 0.16 ms of a
+  frame. Do not cache a rendered page.
+- `fyai_page_source()` is a function of `struct fyai_page_state` and nothing
+  else, so the tests read it without a display. Put a new element of the
+  screen in the state and in the source, not in a draw call.
+- A slot holds what the library draws: `tail`, `pane`, `prompt` and
+  `completion`. The height of a slot comes from the library through
+  `fytim_tail_rows()`, `fytim_workpane_rows()` and `fytim_prompt_rows()`: an
+  inline page is as tall as its rows.
+- The page must look as the band stack does. `tests/cases/ui_page_renderer.sh`
+  runs one scenario under both renderers and compares the screens: a change
+  to the stack chrome is a change to the page source too.
+- The chrome is the stack's: a header row, the prompt on its card
+  (`fytim_prompt_card()`, a slot two rows taller) or between two rules, and
+  two status rows - the focus hint or the completion ribbon, then the status.
+  The header and the status carry the heading and blockquote SGR pairs of the
+  theme, so the page renderer takes SGR input (`FYMD_SGR_SAFE`).
+- `fyai_page_fit()` gives the chrome its rows before the pane, and the pane
+  before the tail. A pane that asks for the whole terminal otherwise pushes
+  the prompt off the screen.
+- The chrome goes in a stated order when the terminal is short: the cap row
+  (`fy-drop order="0"`), the status, the header, then the rules. The prompt
+  has no drop.
+- A margin at the start of a row is `&#32;`: Markdown removes a plain blank
+  there, and a non-breaking space reaches the terminal as a different
+  character.
+- The page is one `fy-tight`: a blank row between two parts of the chrome is
+  not part of it.
+- Text that the configuration or a program wrote goes into the source through
+  `page_append_text()`: it is escaped, loses its SGR and its line breaks, and
+  loses its leading blanks at the start of a row, where four of them make an
+  indented code block.
+- The renderer keeps a right margin of `FYAI_PAGE_RIGHT_MARGIN` columns. The
+  page renderer is made that much wider, so rows and slots take the terminal
+  width.
+- The page places the tiles of the work pane itself. Each tile is bound to a
+  slot `tile:N` when it is registered, and `fyai_workpane_page_grid()` writes
+  the pane as an `fy-grid`: the cells come from `fyai_workpane_place()`, or
+  the zoomed tile alone, and the rows from `fyai_page_grid()`, which solves
+  them as the terminal library solves a pane. Slot heights are stated in the
+  source, so the rows cannot be left to the grid. The page states the cap row
+  above the grid. The band stack ignores the bindings and places the tiles
+  with its own solver.
+- The grid is written twice a frame: at the rows its tiles ask for, which
+  `fyai_page_fit()` reads, and at the rows the fit leaves it.
+- fyai draws the page itself. `fyai_page_publish()` parses the rendered rows
+  into cells with `fytim_cells_draw_text()`, the parser of the terminal
+  library, and publishes them to one surface in the `canvas` slot. The
+  library is given blank rows and the canvas as the first region, so the
+  tile, prompt and completion slots stand on it. Close the canvas with the
+  page: it is a band of the library, and the band stack would draw it.
+- The head of a tile is drawn on the canvas too. A cell of the grid is a
+  `head:N` slot over a `tile:N` slot: the head slot is as tall as the tallest
+  head of the tiles that start on its row, so their screens stand level, and
+  a cell keeps one screen row. The workpane manager keeps the rendered head
+  (`fyai_workpane_tile_set_head()`), and the page draws it with the margin of
+  the tile and, when the tile holds the keys, its ground through
+  `fytim_cells_ground()`.
+- The screen of a tile that holds a surface is drawn on the canvas too, in the
+  slot `screen:N`, which binds no component of the library. The page reads the
+  cells, the cursor, the margin and the ground back from the surface, and draws
+  them as the library draws a surface: the last rows of a short region, the
+  margin at each row, the cells washed by `fytim_cells_wash()`, and the cursor
+  reversed. A tile shown as its head draws no screen and keeps its grant.
+- A tile of text - a tool exchange, a notice, the queued-input report - is
+  drawn on the canvas too, in the slot `text:N`. The page reads the content,
+  the top and the bottom chrome and the row cap back from the band with the
+  `fytim_workband_*()` getters, and draws them as the library draws a band:
+  the last rows of the content that fit, a short region shedding the top
+  first, and plain chrome dim under the rule style of the theme.
+- The page owns the grant of the screens it draws. The workpane manager keeps
+  it with the tile, and `fyai_ui_surface_granted_rows()` and
+  `fyai_ui_surface_granted_cols()` take `ctx` to return it; a surface the page
+  does not draw keeps the grant of the library. `fyai_ui_work_tile_cols()`
+  does the same for a tile of text.
+- A head act on the page is named for its tile, `tile:N:act`, because the
+  page is one component: `ui_act()` finds the tile by its slot.
+- A head the page draws is rendered at the granted columns of the tile, as
+  the band stack renders it, so a long row is cut in the same place. Its zoom
+  and close marks are not in its source: the page draws them in the last two
+  columns of the head in the chrome style, where the band stack draws them,
+  and names their acts `tile:N:zoom` and `tile:N:close`. A mark in the source
+  would stand the right margin of the renderer short of the edge.
+- `tests/cases/ui_page_tiles.sh` compares two tiles side by side under both
+  renderers.
+- Under the page renderer the head of a shell or agent tile is a tile page
+  (`fytim_surface_set_page()`): the rendered head, then a `screen` slot, built
+  by `fyai_page_tile()`. Its zoom and close controls are acts when
+  `display/work_controls` grabbed the mouse, and `FYTIM_EVENT_ACT` routes
+  `tile:focus`, `tile:zoom` and `tile:close`.
+- The ladder of a tile selects the view of its page, where the manager
+  reports the presentation: the whole page, the screen alone
+  (`FYAI_WORKPANE_PRESENT_OUTPUT`) or the head alone. A view changes what is
+  drawn, never what a tile asks for or is granted: the presentation is chosen
+  from the grant.
+- A page that cannot be built, rendered or accepted is a display failure: the
+  session reports it, clears the page and the band stack draws the screen. A
+  build without page support says so when `page` is asked for.
+- `$FYAI_TRACE` records one `page:` line for each render.
+
 ### Work bands
 
 A work band is a sink object. Ask `fyai_sink_bands_available()` before you
