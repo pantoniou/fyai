@@ -838,6 +838,36 @@ if(BUILD_TESTING)
     #     FYAI_TEST_ENTRY(suite, test_name, entry_function)
     #
     # CMake uses these entries to generate the registry and CTest tests.
+    # Embed the recorded page sources that the page tests compare against.
+    set(FYAI_PAGE_GOLDEN "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/page-source-golden.txt")
+    file(READ "${FYAI_PAGE_GOLDEN}" _fyai_page_golden_hex HEX)
+    string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1,"
+        _fyai_page_golden_bytes "${_fyai_page_golden_hex}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_page_golden.inc"
+        "/* Generated from ${FYAI_PAGE_GOLDEN}. */\n"
+        "static const unsigned char FYAI_EMBEDDED_PAGE_GOLDEN[] = {\n"
+        "${_fyai_page_golden_bytes}"
+        "\n};\n"
+        "static const size_t FYAI_EMBEDDED_PAGE_GOLDEN_LEN = sizeof(FYAI_EMBEDDED_PAGE_GOLDEN);\n"
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${FYAI_PAGE_GOLDEN}")
+
+    # Embed the schema of the state of the page document for its test.
+    set(FYAI_PAGE_STATE_SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/data/page-state.schema.yaml")
+    file(READ "${FYAI_PAGE_STATE_SCHEMA}" _fyai_page_state_hex HEX)
+    string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1,"
+        _fyai_page_state_bytes "${_fyai_page_state_hex}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_page_state_schema.inc"
+        "/* Generated from ${FYAI_PAGE_STATE_SCHEMA}. */\n"
+        "static const unsigned char FYAI_EMBEDDED_PAGE_STATE_SCHEMA[] = {\n"
+        "${_fyai_page_state_bytes}"
+        "\n};\n"
+        "static const size_t FYAI_EMBEDDED_PAGE_STATE_SCHEMA_LEN = sizeof(FYAI_EMBEDDED_PAGE_STATE_SCHEMA);\n"
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${FYAI_PAGE_STATE_SCHEMA}")
+
     file(GLOB FYAI_TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fyai_*_test.c")
     set(FYAI_TESTS "")

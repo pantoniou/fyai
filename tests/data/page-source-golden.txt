@@ -1,0 +1,15644 @@
+=== case 0
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 1
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 2
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 3
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 4
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 5
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 6
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 7
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 8
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 9
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 10
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 11
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 12
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 13
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 14
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 15
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 16
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 17
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 18
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 19
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 20
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 21
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 22
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 23
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 24
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 25
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 26
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 27
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 28
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 29
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 30
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 31
+<fy-tight>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 32
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+
+=== case 33
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 34
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+
+=== case 35
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 36
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 37
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 38
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 39
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 40
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 41
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 42
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 43
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 44
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+
+=== case 45
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 46
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 47
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 48
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 49
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 50
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 51
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 52
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 53
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+
+=== case 54
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 55
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;
+
+</fy-drop>
+
+
+=== case 56
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 57
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 58
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 59
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 60
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 61
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 62
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 63
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 64
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 65
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 66
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 67
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 68
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 69
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 70
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 71
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+
+=== case 72
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 73
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 74
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 75
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 76
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+
+=== case 77
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+
+=== case 78
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 79
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 80
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+
+=== case 81
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 82
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 83
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2m[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 84
+<fy-tight>
+
+<fy-drop order="1">
+
+&#32;
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 85
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*&#32;&#32;
+
+</fy-drop>
+
+
+=== case 86
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 87
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 88
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 89
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 90
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 91
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 92
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 93
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 94
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 95
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 96
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 97
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 98
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 99
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 100
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 101
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 102
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 103
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 104
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 105
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 106
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 107
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 108
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+
+=== case 109
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 110
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 111
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 112
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 113
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 114
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 115
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 116
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 117
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 118
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 119
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 120
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 121
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 122
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 123
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 124
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 125
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 126
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 127
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 128
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+
+=== case 129
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 130
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 131
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 132
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 133
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 134
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 135
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 136
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 137
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 138
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 139
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 140
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 141
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 142
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 143
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 144
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 145
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 146
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 147
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 148
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 149
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 150
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 151
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+
+=== case 152
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 153
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+
+=== case 154
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 155
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 156
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 157
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 158
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 159
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 160
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 161
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+
+=== case 162
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 163
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 164
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 165
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 166
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 167
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 168
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+
+=== case 169
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 170
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 171
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 172
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 173
+<fy-tight>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+
+=== case 174
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 175
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 176
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 177
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 178
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 179
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 180
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 181
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 182
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 183
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*&#32;&#32;
+
+</fy-drop>
+
+
+=== case 184
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 185
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 186
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 187
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+
+=== case 188
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 189
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+
+=== case 190
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 191
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 192
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 193
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 194
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 195
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 196
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 197
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 198
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 199
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 200
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 201
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 202
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+
+=== case 203
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 204
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 205
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 206
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 207
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 208
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 209
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 210
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 211
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 212
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*
+
+</fy-drop>
+
+
+=== case 213
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 214
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 215
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 216
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 217
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 218
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 219
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+
+=== case 220
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 221
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 222
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 223
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 224
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 225
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 226
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 227
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 228
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+
+=== case 229
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 230
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 231
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 232
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 233
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 234
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 235
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 236
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 237
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 238
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 239
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 240
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 241
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 242
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 243
+<fy-tight>
+
+<fy-drop order="1">
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 244
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 245
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+
+=== case 246
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 247
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 248
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+
+=== case 249
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 250
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 251
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 252
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 253
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 254
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 255
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 256
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 257
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+
+=== case 258
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 259
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 260
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 261
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 262
+<fy-tight>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 263
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 264
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 265
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 266
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 267
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 268
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 269
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+
+=== case 270
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 271
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 272
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 273
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+
+=== case 274
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 275
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 276
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 277
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 278
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 279
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 280
+<fy-tight>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 281
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 282
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 283
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 284
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 285
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 286
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 287
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 288
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 289
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 290
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 291
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 292
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 293
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 294
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 295
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 296
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 297
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 298
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 299
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 300
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 301
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 302
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 303
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 304
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 305
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 306
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 307
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 308
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 309
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 310
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 311
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 312
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 313
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+**&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 314
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 315
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 316
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 317
+<fy-tight>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 318
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+
+=== case 319
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 320
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 321
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 322
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 323
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 324
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 325
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+
+=== case 326
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 327
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 328
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 329
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 330
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 331
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 332
+<fy-tight>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+
+=== case 333
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 334
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 335
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 336
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 337
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 338
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 339
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;
+
+</fy-drop>
+
+
+=== case 340
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 341
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 342
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 343
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 344
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 345
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 346
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 347
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 348
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 349
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 350
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 351
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 352
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 353
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 354
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 355
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 356
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 357
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 358
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 359
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 360
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 361
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 362
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 363
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 364
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 365
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 366
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 367
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 368
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 369
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 370
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 371
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 372
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 373
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 374
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 375
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 376
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 377
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 378
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 379
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 380
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 381
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+
+=== case 382
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+
+=== case 383
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 384
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 385
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 386
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 387
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 388
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 389
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 390
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 391
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 392
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 393
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 394
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 395
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 396
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 397
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 398
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 399
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 400
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 401
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 402
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 403
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 404
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 405
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 406
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 407
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 408
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 409
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 410
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 411
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 412
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+
+=== case 413
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 414
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 415
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 416
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 417
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 418
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 419
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 420
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 421
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 422
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 423
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 424
+<fy-tight>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+
+=== case 425
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 426
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 427
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 428
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 429
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 430
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 431
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 432
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 433
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 434
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 435
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 436
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 437
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 438
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 439
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 440
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 441
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 442
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 443
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 444
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 445
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 446
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 447
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 448
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 449
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 450
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 451
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 452
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 453
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;
+
+</fy-drop>
+
+
+=== case 454
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 455
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+
+=== case 456
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 457
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 458
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 459
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 460
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 461
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 462
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 463
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 464
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 465
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 466
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 467
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 468
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 469
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 470
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 471
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+
+=== case 472
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 473
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 474
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 475
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 476
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 477
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 478
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 479
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 480
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 481
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+
+=== case 482
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+
+=== case 483
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 484
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 485
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 486
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 487
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 488
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 489
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 490
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 491
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+
+=== case 492
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 493
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 494
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 495
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 496
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 497
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 498
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 499
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+</fy-drop>
+
+
+=== case 500
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 501
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 502
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 503
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 504
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 505
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 506
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 507
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 508
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 509
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 510
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 511
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 512
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 513
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 514
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 515
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 516
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 517
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+
+=== case 518
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 519
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 520
+<fy-tight>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 521
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+
+=== case 522
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 523
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*STATUS line
+
+</fy-drop>
+
+
+=== case 524
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 525
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 526
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 527
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 528
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 529
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 530
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 531
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+</fy-drop>
+
+
+=== case 532
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 533
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 534
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 535
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 536
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 537
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 538
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 539
+<fy-tight>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 540
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 541
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 542
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 543
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+
+
+</fy-drop>
+
+
+=== case 544
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 545
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 546
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+</fy-drop>
+
+
+=== case 547
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 548
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 549
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 550
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+**&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 551
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 552
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+**&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 553
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 554
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+
+
+</fy-drop>
+
+
+=== case 555
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 556
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 557
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 558
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 559
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 560
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 561
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;
+
+</fy-drop>
+
+
+=== case 562
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 563
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+STATUS line
+
+</fy-drop>
+
+
+=== case 564
+<fy-tight>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 565
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 566
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 567
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 568
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+
+
+</fy-drop>
+
+
+=== case 569
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2m[22m
+
+</fy-drop>
+
+
+=== case 570
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 571
+<fy-tight>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 572
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 573
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+
+=== case 574
+<fy-tight>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 575
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 576
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 577
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;[2m[22m
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 578
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act> 4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+</fy-drop>
+
+
+=== case 579
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 580
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 581
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1mHEAD &lt;fy-act id="x">y</fy-act>[22m
+
+</fy-drop>
+
+
+=== case 582
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 583
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="2"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+*&#32;&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 584
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*
+
+</fy-drop>
+
+
+=== case 585
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+
+=== case 586
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 587
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 588
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2mHINT <b>x</b>[22m
+
+&#32;&#32;&#32;[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 589
+<fy-tight>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+</fy-drop>
+
+
+=== case 590
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 591
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-grid rows="3" cols="*">
+</fy-grid>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act>
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+HINT <b>x</b>
+
+**&#32;
+
+</fy-drop>
+
+
+=== case 592
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2mSTATUS line[22m
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== case 593
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="1">
+
+**&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 594
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="4"/>
+
+<fy-drop order="1">
+
+&#32;
+
+&#32;STATUS line
+
+</fy-drop>
+
+
+=== case 595
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+&#32;
+
+*
+
+</fy-drop>
+
+
+=== case 596
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="2">
+
+&#32;&#32;4s
+
+</fy-drop>
+
+
+=== case 597
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m[22m
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+[2m[22m
+
+</fy-drop>
+
+
+=== case 598
+<fy-tight>
+
+<fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+<fy-drop order="2">
+
+&#32;&#32;[1m4s[22m
+
+</fy-drop>
+
+<fy-slot id="prompt" height="3"/>
+
+<fy-drop order="1">
+
+[2m&#32;[22m
+
+*[2mSTATUS line[22m
+
+</fy-drop>
+
+
+=== case 599
+<fy-tight>
+
+<fy-drop order="2">
+
+&#32;&#32;HEAD &lt;fy-act id="x">y</fy-act> 4s
+
+</fy-drop>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-slot id="prompt" height="1"/>
+
+<fy-drop order="3">
+
+<fy-role name="chrome"><fy-fill char="─"/></fy-role>
+
+</fy-drop>
+
+<fy-drop order="1">
+
+<fy-slot id="completion" height="1"/>
+
+*&#32;&#32;
+
+</fy-drop>
+
+<fy-drop order="0">
+
+CAP <fy-fill/>
+
+</fy-drop>
+
+<fy-slot id="pane" height="3"/>
+
+
+=== end

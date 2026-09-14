@@ -1,0 +1,62 @@
+{
+  "steps": [
+    {
+      "match": { "http": "POST", "path": "/v1/chat/completions", "body_contains": "ask two sub-agents" },
+      "response": {
+        "id": "chatcmpl-queue-1", "object": "chat.completion", "model": "mock-model",
+        "choices": [{ "index": 0, "finish_reason": "tool_calls", "message": {
+          "role": "assistant", "content": null,
+          "tool_calls": [
+            { "id": "call_agent_alpha", "type": "function", "function": { "name": "agent",
+              "arguments": "{\"name\": \"alpha\", \"description\": \"ask alpha\", \"task\": \"TASK-ALPHA: ask the user.\", \"context\": \"fresh\"}" } },
+            { "id": "call_agent_beta", "type": "function", "function": { "name": "agent",
+              "arguments": "{\"name\": \"beta\", \"description\": \"ask beta\", \"task\": \"TASK-BETA: ask the user.\", \"context\": \"fresh\"}" } }
+          ] } }]
+      }
+    },
+    {
+      "match": { "http": "POST", "path": "/v1/chat/completions", "body_contains": "call_ask_alpha" },
+      "response": {
+        "id": "chatcmpl-queue-alpha-2", "object": "chat.completion", "model": "mock-model",
+        "choices": [{ "index": 0, "finish_reason": "stop",
+          "message": { "role": "assistant", "content": "REPORT-ALPHA: answered." } }]
+      }
+    },
+    {
+      "match": { "http": "POST", "path": "/v1/chat/completions", "body_contains": "call_ask_beta" },
+      "response": {
+        "id": "chatcmpl-queue-beta-2", "object": "chat.completion", "model": "mock-model",
+        "choices": [{ "index": 0, "finish_reason": "stop",
+          "message": { "role": "assistant", "content": "REPORT-BETA: answered." } }]
+      }
+    },
+    {
+      "match": { "http": "POST", "path": "/v1/chat/completions", "body_contains": "TASK-ALPHA" },
+      "response": {
+        "id": "chatcmpl-queue-alpha-1", "object": "chat.completion", "model": "mock-model",
+        "choices": [{ "index": 0, "finish_reason": "tool_calls", "message": {
+          "role": "assistant", "content": null,
+          "tool_calls": [{ "id": "call_ask_alpha", "type": "function", "function": { "name": "ask_user",
+            "arguments": "{\"question\": \"ALPHA-QUESTION?\", \"options\": [\"alpha-one\", \"alpha-two\"]}" } }] } }]
+      }
+    },
+    {
+      "match": { "http": "POST", "path": "/v1/chat/completions", "body_contains": "TASK-BETA" },
+      "response": {
+        "id": "chatcmpl-queue-beta-1", "object": "chat.completion", "model": "mock-model",
+        "choices": [{ "index": 0, "finish_reason": "tool_calls", "message": {
+          "role": "assistant", "content": null,
+          "tool_calls": [{ "id": "call_ask_beta", "type": "function", "function": { "name": "ask_user",
+            "arguments": "{\"question\": \"BETA-QUESTION?\", \"options\": [\"beta-one\", \"beta-two\"]}" } }] } }]
+      }
+    },
+    {
+      "match": { "http": "POST", "path": "/v1/chat/completions", "body_contains": "REPORT-" },
+      "response": {
+        "id": "chatcmpl-queue-2", "object": "chat.completion", "model": "mock-model",
+        "choices": [{ "index": 0, "finish_reason": "stop",
+          "message": { "role": "assistant", "content": "Both questions answered." } }]
+      }
+    }
+  ]
+}
