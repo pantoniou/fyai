@@ -325,6 +325,21 @@ if(FYAI_HAVE_FYPALETTE)
 endif()
 message(STATUS "fyai: palette glyphs ${FYAI_PALETTE_GLYPHS}")
 
+# display/theme_ground=terminal needs fypal_ctx_set_ground().
+set(FYAI_FYPAL_GROUND OFF)
+if(FYAI_HAVE_FYPALETTE)
+    foreach(_dir IN LISTS _fyai_glyph_inc)
+        if(EXISTS "${_dir}/libfypalette.h")
+            file(STRINGS "${_dir}/libfypalette.h" _decl
+                REGEX "fypal_ctx_set_ground\\(")
+            if(_decl)
+                set(FYAI_FYPAL_GROUND ON)
+            endif()
+        endif()
+    endforeach()
+endif()
+message(STATUS "fyai: palette terminal ground ${FYAI_FYPAL_GROUND}")
+
 # A tile head that the user can click needs a libfymd4c that renders UI
 # Markdown with regions and a libfytimui that reports a click on a head.
 set(FYAI_UI_CLICKS OFF)
@@ -802,6 +817,9 @@ if(FYAI_FYMD4C_BLOCKS)
 endif()
 if(FYAI_PALETTE_GLYPHS)
     target_compile_definitions(fyai PRIVATE FYAI_PALETTE_GLYPHS)
+endif()
+if(FYAI_FYPAL_GROUND)
+    target_compile_definitions(fyai PRIVATE FYAI_FYPAL_GROUND)
 endif()
 if(FYAI_UI_CLICKS)
     target_compile_definitions(fyai PRIVATE FYAI_UI_CLICKS)

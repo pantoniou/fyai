@@ -426,6 +426,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			       cfg->markdown_update_interval_ms);
 		cfg->color = fy_get(v, "color", cfg->color);
 		cfg->theme = fy_get(v, "theme", cfg->theme);
+		cfg->theme_ground = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "theme_ground", cfg->theme_ground));
 		/*
 		 * Intern the separators: they are read back only at render time
 		 * (well after this doc may be freed), so a raw fy_get pointer to a
@@ -2181,6 +2183,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 		DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS;
 	cfg->color = DEFAULT_COLOR;
 	cfg->theme = DEFAULT_THEME;
+	cfg->theme_ground = "theme";
 	cfg->theme_variant = NULL;
 	cfg->markdown_theme = NULL;
 	cfg->turn_separator = DEFAULT_TURN_SEPARATOR;

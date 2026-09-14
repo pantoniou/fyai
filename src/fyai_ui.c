@@ -2095,7 +2095,9 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct fymd_renderer_cfg rcfg;
 	struct fymd_renderer *renderer = NULL;
+	enum fytim_result res;
 	const char *on, *off = NULL;
+	char ground[64];
 	static const struct {
 		enum fymd_style_element element;
 		enum fytim_chrome_style slot;
@@ -2106,7 +2108,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 		{ FYMD_STYLE_STRONG, FYTIM_CHROME_MARKER },
 	};
 	size_t i;
-	int rc = -1;
+	int rc = -1, style_rc;
 
 	if (!ui)
 		return 0;
@@ -2124,14 +2126,25 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	renderer = markdown_renderer_new(ctx->cfg, &rcfg);
 	if (!renderer)
 		return -1;
-	if (fymd_renderer_get_reverse_pair(renderer, &on, &off) ||
-	    fytim_set_prompt_style(ui->ft, on) != FYTIM_OK)
+	style_rc = fymd_renderer_get_reverse_pair(renderer, &on, &off);
+	if (style_rc)
+		goto out;
+	res = fytim_set_prompt_style(ui->ft, on);
+	if (res != FYTIM_OK)
 		goto out;
 	ui_prompt_ground(ctx);
+	ground[0] = '\0';
+	if (ui->fullscreen)
+		markdown_fullscreen_ground_sgr(ctx->cfg, ground, sizeof(ground));
 	for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++) {
-		if (fymd_renderer_get_style_pair(renderer, styles[i].element,
-						 &on, &off) ||
-		    fytim_set_chrome_style(ui->ft, styles[i].slot, on) != FYTIM_OK)
+		style_rc = fymd_renderer_get_style_pair(renderer, styles[i].element,
+						      &on, &off);
+		if (style_rc)
+			goto out;
+		if (styles[i].slot == FYTIM_CHROME_STATUS && *ground)
+			on = fy_sprintfa("%s%s", ground, on);
+		res = fytim_set_chrome_style(ui->ft, styles[i].slot, on);
+		if (res != FYTIM_OK)
 			goto out;
 	}
 	rc = 0;

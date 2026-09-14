@@ -201,6 +201,7 @@ struct fyai_cfg {
 	int render_width;		/* runtime renderer width; 0 => terminal */
 	const char *color;		/* auto | off | on */
 	const char *theme;		/* canonical markdown theme selector */
+	const char *theme_ground;	/* display/theme_ground: theme | terminal */
 	const char *theme_variant;	/* resolved dark | light */
 	const char *markdown_theme;	/* resolved libfymd4c theme name */
 	/* The palette of a palette theme, or NULL. A renderer borrows it. */
@@ -214,6 +215,11 @@ struct fyai_cfg {
 	const char *palette_theme;
 	const char *palette_variant;
 	bool palette_color;
+	const char *palette_ground;
+	/* The background of the terminal, asked for once: 0 not asked, 1 in
+	 * @terminal_ground, -1 the terminal did not answer. */
+	int terminal_ground_state;
+	uint32_t terminal_ground;
 	const char *markdown_rev_on[2];	/* reverse-card pair, [0] dark [1] light */
 	const char *markdown_rev_off[2];
 	const char *turn_separator;	/* history inter-turn break (markdown) */

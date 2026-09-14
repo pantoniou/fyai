@@ -1675,6 +1675,12 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 	struct fyai_ctx *ctx = pg->ctx;
 	struct fyai_page_tile *t;
 	struct fytim_cell *cells;
+	struct fytim_cell ground = {
+		.fg = FYTIM_COLOR_DEFAULT,
+		.bg = FYTIM_COLOR_DEFAULT,
+		.width = 1,
+	};
+	char sgr[64];
 	size_t need, i;
 	bool truecolor;
 	int r, n, rc;
@@ -1767,6 +1773,18 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 					 "cannot draw the text of tile %u into cells",
 					 t->slot);
 		}
+	}
+	n = st->fullscreen ?
+	    markdown_fullscreen_ground_sgr(ctx->cfg, sgr, sizeof(sgr) - 1) : 0;
+	if (n > 0) {
+		sgr[n++] = ' ';
+		rc = fytim_cells_draw_text(&ground, 1, 1, 0, 0, 1, 1, sgr, n);
+		fyai_error_check(ctx, rc >= 0, err_out,
+				 "cannot read the fullscreen palette ground");
+		/* Explicit backgrounds and attributes belong to their content. */
+		for (i = 0; i < need; i++)
+			if (pg->cells[i].bg == FYTIM_COLOR_DEFAULT)
+				pg->cells[i].bg = ground.bg;
 	}
 	for (r = 0; r < nrows; r++) {
 		n = fytim_surface_put_row(pg->canvas, r,

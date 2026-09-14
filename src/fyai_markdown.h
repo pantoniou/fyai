@@ -78,6 +78,10 @@ const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
 			     const char *fallback);
 const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
 			      const char *fallback);
+/* Write the palette ground escape for a fullscreen page using theme ground.
+ * Return its length, or zero with an empty buffer when no ground applies. */
+int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,
+				   char *buf, size_t size);
 /* Create a renderer for @rcfg that takes the palette of @fcfg, if any. */
 struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 					    const struct fymd_renderer_cfg *rcfg);
