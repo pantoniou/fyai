@@ -316,9 +316,19 @@ the stored transcript:
   edge of the view clips rows; it is not a unit boundary and takes no
   separation of its own.
 - Search is an act of the page (`transcript:search`).
+- The transcript view shows stored content only. Output that is not stored -
+  the result of a verb or a slash command, a notice, a diagnostic - is not put
+  between the exchanges. A result of two rows or less stands above the status
+  until the user types. A longer one opens a popup that covers the whole
+  screen: a heading that names it, then its rows, which scroll and which a
+  selection copies. Escape, Enter, `q` or a click on the heading closes it,
+  and its results are not stored.
+- Inline mode keeps its behaviour: a view goes to the scrollback of the
+  terminal, and a notice to a notice tile.
 - When the program ends, it leaves the alternate screen. The primary screen
   then shows what it showed before. Print the last exchange to the primary
   screen through the sink, so that the answer stays after the exit.
+  An open popup prints nothing.
 - A terminal session tile in fullscreen mode is the same surface as in inline
   mode. The pane owns its grid in both modes.
 

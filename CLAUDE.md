@@ -354,8 +354,9 @@ replay, and the measuring pass that sizes the recap window thus agree.
   another call included. The body, the screen and the result continue that
   call.
 - A turn break is one row. `display/turn_separator` is a rule of the transcript
-  view, which draws it. Do not give it to the manager: a live session must not
-  draw a rule under every prompt. `display/user_card_fence` goes under the
+  view, which draws it, and it is empty by default: no rule stands between
+  exchanges unless the user sets one. Do not give it to the manager: a live
+  session must not draw a rule under every prompt. `display/user_card_fence` goes under the
   card, and `display/section_separator` where reasoning ends.
 - Fence a live band when it opens, not when it commits. A band fenced at
   commit has no blank row above it while it runs.
@@ -587,6 +588,46 @@ rules and the status. `page` states the same screen as one UI Markdown page.
 - `/page` is a view: it commits the document in use, why a file is not used,
   and the state, source and regions of the last frame to the scrollback. The
   state of a frame lives in the builder of that frame until the next one.
+- `display/screen: fullscreen` puts the page on the alternate screen when the
+  session starts (`FYTIM_SCREEN_ALT`). There is no scrollback there, so the
+  transcript is a view of the page, `src/fyai_transcript_view.c`, drawn into
+  its `transcript` text region over the tail. The view renders the stored
+  conversation through a view context and a render sink, as the branch browser
+  renders its preview, so it is not a second transcript renderer. It renders
+  one exchange at a time (`fyai_display_turn_range()`) and keeps the rows of
+  each with the key of the exchange - the stored value of its last turn,
+  which an arena does not move - and the width, so a turn renders only its
+  exchange. An exchange the view does not show is measured with the measuring
+  pass of a recap (`fyai_display_turn_range_rows()`) and rendered when a
+  scroll shows it, so a new width renders only what the view shows. A view scrolled back keeps
+  its top row through that: the exchange that holds the row, and the row in
+  it. Rows presented
+  during a turn go to the view through `ui_present()`, never to
+  `fytim_commit()`, and a band that commits gives the view its rows. The wheel
+  over the view and PageUp and PageDown scroll it; a view at its end follows
+  what arrives, and a view scrolled back keeps its top row. A frame repaints
+  only the cells that changed, so a PTY case waits on the screen
+  (`wait-screen`), not on a line of bytes.
+- The results, notices and diagnostics of a fullscreen session are not
+  stored, so they are not the transcript. `fyai_ui_pane_end()` shows a
+  result of two rows or less above the status, until the input changes or
+  Escape clears it. A longer one opens a popup that covers the page - the
+  transcript, the tiles and the chrome - under a heading that names it. The
+  popup is the `open` case of the `popup.mode` switch of the page, and its
+  keys are the page's: Escape, Enter and `q` close it (`popup.close`), and Up
+  and Down scroll it a row (`popup.scroll`). PageUp, PageDown and the wheel
+  scroll it too. Its rows are a transcript view model that shows the newest
+  result from its heading; a result that arrives while it is open is added
+  under the others. A drag over it copies the text of its rows. A closed
+  popup drops its rows.
+- A popup hides the tiles, so the page gives them no grant while it is open:
+  a grant of no rows would size every program to nothing.
+- A drag over the transcript view is a selection of its text region. Its
+  text is the text of the rows in its cells, without styles, links and the
+  blanks that end a row (`fyai_transcript_view_copy()`), and fyai copies it
+  with `fytim_copy()`. When a fullscreen session ends it closes the UI,
+  which gives the terminal its own screen back, and prints the last
+  exchange there through the sink, so the answer stays after the exit.
 - The head of a tile is drawn on the canvas too. A cell of the grid is a
   `head:N` slot over a `tile:N` slot: the head slot is as tall as the tallest
   head of the tiles that start on its row, so their screens stand level, and
