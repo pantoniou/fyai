@@ -37,6 +37,7 @@ FYAI_TEST_ENTRY(markdown, final_render_is_whole, markdown_final_render_is_whole)
 FYAI_TEST_ENTRY(markdown, tool_head_chrome, markdown_tool_head_chrome)
 FYAI_TEST_ENTRY(markdown, source_rows_utf8, markdown_source_rows_utf8)
 FYAI_TEST_ENTRY(markdown, role_palette, markdown_role_palette)
+FYAI_TEST_ENTRY(markdown, fullscreen_ground, markdown_fullscreen_ground_test)
 FYAI_TEST_ENTRY(markdown, gutter_palette, markdown_gutter_palette)
 FYAI_TEST_ENTRY(markdown, reasoning_palette, markdown_reasoning_palette)
 FYAI_TEST_ENTRY(markdown, theme_selectors, markdown_theme_selectors_test)
@@ -377,6 +378,73 @@ static int gutter_test_cols(const char *s)
 		s++;
 	}
 	return cols;
+}
+
+int markdown_fullscreen_ground_test(void)
+{
+	struct fyai_cfg cfg = {
+		.markdown = true,
+		.color = "on",
+		.renderer = "page",
+		.screen = "fullscreen",
+		.theme_ground = "theme",
+	};
+	char sgr[64];
+	struct fypal_caps caps = {
+		.depth = FYPAL_DEPTH_TRUECOLOR,
+		.attrs = FYPAL_ATTR_ALL,
+	};
+	struct fypal_ctx *palette;
+	int rc;
+
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(NULL, sgr, sizeof(sgr)));
+	FYAI_TCHECK(!*sgr);
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	FYAI_TCHECK(!*sgr);
+	palette = fypal_ctx_create(&caps);
+	FYAI_TCHECK(palette != NULL);
+	if (!palette)
+		return EXIT_FAILURE;
+	rc = fypal_ctx_load_builtin(palette, "ember");
+	FYAI_TCHECK(!rc);
+	cfg.palette = palette;
+	FYAI_TCHECK(markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)) > 0);
+	FYAI_TCHECK(strstr(sgr, "48;2;") != NULL);
+
+	caps.depth = FYPAL_DEPTH_256;
+	fypal_ctx_set_caps(palette, &caps);
+	FYAI_TCHECK(markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)) > 0);
+	FYAI_TCHECK(strstr(sgr, "48;5;") != NULL);
+	caps.depth = FYPAL_DEPTH_16;
+	fypal_ctx_set_caps(palette, &caps);
+	FYAI_TCHECK(markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)) > 0);
+	FYAI_TCHECK(!strcmp(sgr, "\033[49m"));
+	caps.depth = FYPAL_DEPTH_NONE;
+	fypal_ctx_set_caps(palette, &caps);
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	FYAI_TCHECK(!*sgr);
+	caps.depth = FYPAL_DEPTH_TRUECOLOR;
+	fypal_ctx_set_caps(palette, &caps);
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, 4));
+	FYAI_TCHECK(!*sgr);
+
+	cfg.theme_ground = "terminal";
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	FYAI_TCHECK(!*sgr);
+	cfg.theme_ground = "theme";
+	cfg.screen = "inline";
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	cfg.screen = "fullscreen";
+	cfg.renderer = "stack";
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	cfg.renderer = "page";
+	cfg.color = "off";
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	cfg.color = "on";
+	cfg.markdown = false;
+	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
+	fypal_ctx_destroy(palette);
+	return EXIT_SUCCESS;
 }
 
 /*
