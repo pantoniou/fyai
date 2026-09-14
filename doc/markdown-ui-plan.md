@@ -57,10 +57,11 @@ page (height = screen rows or live rows, width = terminal)
 
 Rules:
 
-- **One source per frame.** fyai builds the page source after
-  `fyai_workpane_reconcile()` and before the frame. It renders the source at
-  the screen size with `FYMD_RF_UI` and a page height. Section 4 decides how
-  much of it is rendered again for each frame.
+- **One source per frame.** After `fyai_workpane_reconcile()` and before the
+  frame, fyai transcribes the UI document with the state of the frame into
+  UI Markdown (section 3). It renders that source at the screen size with
+  `FYMD_RF_UI` and a page height. Section 4 decides how much of it is
+  rendered again for each frame.
 - **The host writes the page; the library composes it.** fyai owns the
   source and the render. libfytimui receives the rendered rows and the region
   list, draws the rows, and draws each slot region with the component that
@@ -88,42 +89,151 @@ Rules:
   libfytimui and a new path in fyai. It does not replace a call of the
   current path. Both renderers go through the sink and the flow manager.
 
-## 3. The page configuration
+## 3. The UI source
 
-The page is display configuration: `display/page`, validated against the
-schema, and changed for a session with the display slash commands. It is
-never taken from a model.
+The whole UI is one YAML document. It describes every element at every level,
+visible or not. For each frame fyai transcribes the document with the state of
+the session into UI Markdown, and libfymd4c renders that Markdown.
 
-The layout is dynamic. The tiles of the pane change when a shell, a
-sub-agent or a bang session starts or ends, and the prompt lines change while
-the user types. Thus the configuration does not list tiles. It states the
-skeleton, and fyai generates the parts that follow the state:
+A page source must keep one document structure across screen states.
+Select visible elements from state so each source can be checked against
+the same document.
 
-```markdown
-<fy-slot id="transcript" height="*" min="1"/>
+Rules:
 
-<fy-slot id="pane" drop="2"/>
+- **One document holds the whole UI.** A situation selects elements of the
+  document. It does not add markup.
+- **Transcription is a function.** The Markdown depends only on the document,
+  the state and the size. A unit test holds the Markdown of each situation as
+  a golden file.
+- **Hidden is state.** An element whose state flag is not set is left out of
+  the Markdown by the transcriber. libfymd4c never sees it, so the layout is
+  calculated as if it did not exist: a hidden tile takes no cell, no track and
+  no column rule, a hidden head reserves no rows for the heads beside it, and
+  `fy-drop` measures the page without it. The whole UI is the document and the
+  state; the Markdown of a frame is what that state shows. `fy-drop` stays the
+  rule for a page that is too tall: hidden is state, and `drop` is space.
+- **Structure is nodes; text is values.** Markup comes only from the nodes of
+  the document. A bound value is text: the transcriber escapes it with
+  `markdown_ui_escape()`, so a title that a model or a program wrote cannot
+  place a slot or an act.
+- **The document is display configuration.** It is `display/page`, with the
+  default embedded as `data/page.yaml`. It is validated against a schema and
+  is never taken from a model. A document that fails the schema, names an
+  unknown action, or does not transcribe is rejected with its diagnostic, and
+  the default is used.
+- `display/prompt_top` and `display/prompt_bottom` stay valid. The default
+  document binds them.
 
-<fy-role name="chrome">{branch} · {model}</fy-role><fy-fill/>{elapsed}
+### Nodes
 
-<fy-slot id="prompt" min="1"/>
+A block is one of `body` (a sequence of blocks), `row` (a sequence of inline
+items), `slot`, `grid`, `page` or `switch`. An inline item is text, `fill`,
+`glyph`, `role` or `act`. Any node can take `if`, and a block can take `drop`
+and `each`.
 
-<fy-role name="chrome">{status}</fy-role>
+```yaml
+page: main
+body:
+  - slot: { id: tail, height: "*" }
+  - drop: 0
+    if: pane.cap
+    row: [ "{pane.cap}" ]
+  - grid:
+      layout: "{display.work_layout}"
+      sep: "{display.tile_sep}"
+      each: tiles
+      cell: { page: tile }
+  - drop: 2
+    row: [ "{header}", { fill: " " }, "{elapsed}" ]
+  - page: input
+  - drop: 1
+    body:
+      - if: completion
+        slot: { id: completion }
+      - if: hint
+        row: [ "{hint.text}" ]
+      - row: [ { gutter: "{activity}" }, "{status}" ]
 ```
 
-- A `{name}` variable is plain text. It is expanded as in
-  `fyai_prompt_expand()` and escaped with `markdown_ui_escape()`.
-- A generated slot (`pane`, `prompt`, `completion`, `transcript`) is expanded
-  by its owner for each change of state. The workpane manager writes the grid
-  of the `pane` slot and one tile page for each tile, from the tiles that are
-  registered now and from `display/work_layout`. A configured page places the
-  pane; it does not arrange the tiles.
-- `display/page` has a default for each mode, embedded as `data/page.md` and
-  `data/page-fullscreen.md`. A page that does not render, or that has no
-  `prompt` slot while a prompt is enabled, is rejected with the render
-  diagnostic, and the default page is used.
-- `display/prompt_top` and `display/prompt_bottom` stay valid. The default
-  pages place them.
+### Bindings and state
+
+- `{a.b}` names a value of the state at the level of the node. Inside `each`,
+  `{index}` and `{number}` name the position of the item.
+- `if` names a flag of the state, and `switch` names a mode of the state.
+- There are no expressions: no equality, no negation, no arithmetic. fyai
+  decides what is shown and computes it into the state; the document only
+  places it. The completion ribbon and the hint are two flags, a shell tile is
+  a flag of its tile, and a selected option is a flag of its item.
+
+### Levels
+
+- The root page is `main`. A `page` node names another page of the document,
+  and the transcriber writes it with the part of the state that the node
+  selects: `cell: { page: tile }` under `each: tiles` writes one tile page for
+  each tile. Region ids take the path of the slot, as section 2 states.
+- A tile page holds the head, the marks, the body of the tile (the screen of a
+  shell, the text of a band, or the page of an agent) and the foot. The view
+  of a tile (the whole tile, the screen alone, the head alone) is state.
+- A grid names its layout and repeats a tile page for its tiles. The document
+  does not arrange tiles, and the same document serves every layout. The
+  component that solves the tracks and the placement is an open question
+  (section 9). Whichever it is, a hidden tile is not placed.
+
+### State and modes
+
+The state is a generic that fyai builds for each frame: the session, the
+display settings, the pane, each tile, the input, and a question. A schema
+states its names, so that the author of a document knows what a binding can
+name.
+
+- `if` shows or hides an element on its own. `switch` selects one of
+  exclusive cases by a mode, and every case is transcribed: the inactive cases
+  are hidden.
+- The input area is a mode. `prompt` is the editor slot. `ask` is a question
+  (the ask mode, below). Later modes such as `approve` and `picker` use the same form.
+
+### Interaction
+
+- An act names an action and an argument:
+  `act: { action: ask.choose, arg: "{index}" }`. The id of the act is its path,
+  its action and its argument.
+- A mode binds keys in the document: `keys: { Up: ask.prev, Down: ask.next }`.
+  A binding of the active mode wins over a global binding. `Ctrl-]`, `Ctrl-T`
+  and `Ctrl-Tab` stay reserved and cannot be bound.
+- An action is a named function in C. It takes the state and the argument and
+  gives the new state and its effects, such as the answer to a tool call. The
+  document names actions; it does not implement them.
+- Every act has a key, so the mouse grab stays optional.
+
+### The ask mode
+
+The first mode is the question of `ask_user`, because its presentation is the
+weakest part of the screen now:
+
+- The tool reports the question and numbered options as status lines, and
+  waits for the next line of the prompt. The prompt text that it passes is not
+  shown. A number selects an option; other text is the answer.
+- A question of a direct sub-agent goes through the same function in the
+  parent. A question of a deeper descendant waits in a queue of
+  `agent_question` and is reported as `[branch] question` with its options.
+
+The ask mode replaces both:
+
+- One queue holds every question: the question of this process, of a direct
+  sub-agent and of a descendant. The mode shows the first one, the branch that
+  asks when a sub-agent asks, and the count of questions that wait.
+- The state of a question is `question`, `options` (each with `text`,
+  `number` and the flag `selected`), `from` with the flag `from_agent`, and
+  `waiting`. The tool schema allows a free
+  answer in every case, so the prompt slot stands under the options.
+- A click on an option, or its number key, selects it and answers. `Up` and
+  `Down` move the selection, `Enter` answers with the selected option or with
+  the typed text, and `Escape` leaves the question without an answer, which
+  the tool reports as now.
+- `--answer` and the non-interactive rule stay as they are. The transcript
+  records the question through its `tool_head` fragment and the answer as the
+  result, as now.
 
 ## 4. Immediate or retained
 
@@ -284,49 +394,41 @@ agents  3 active · 2 waiting · 7 total   184.2k tokens · $1.37
 
 ### libfymd4c
 
-1. **Shed order.** `drop="N"` on a block: lower values go first when the page
-   is too short. The prompt has no `drop` and goes last.
-2. **Grid with spans.** `<fy-grid rows="..." cols="...">` with
-   `<fy-cell row col rowspan colspan>`, and the track sizes that
-   `tracks_solve()` supports, `fit` included. `fy-columns` cannot express
-   `main-left`.
-3. **Ground.** `ground="reverse|#rrggbb"` on `fy-cell` and on a block slot,
-   so that the page states focus.
-4. **Region paths.** Regions of a nested render in page coordinates, with the
+1. **Shed order.** Done: `fy-drop`.
+2. **Grid with spans.** Done: `fy-grid` and `fy-cell`, with fitted and shared
+   rows and a separator.
+3. **Region paths.** Regions of a nested render in page coordinates, with the
    slot path, or a region sink for the slot renderer.
-5. **A viewport render.** Render a document from a row offset for a row
+4. **A viewport render.** Render a document from a row offset for a row
    count, for the fullscreen transcript slot, without rendering the rows
    above the offset each frame.
+
+State flags, modes, repetition and bindings are not libfymd4c features: the
+transcriber evaluates them and leaves hidden elements out.
 
 ### libfytimui
 
 All additions. The current API keeps its behaviour.
 
-1. **Page API.** `fytim_page_set(ft, rows, len, regions, count)`: the
-   rendered rows under the commit contract, and the slot and act regions.
-   When a page is set, the frame draws the page and not the band stack.
-2. **Slot binding.** `fytim_surface_bind(sf, id)`,
-   `fytim_workband_bind(wb, id)`, and the built-in ids `tail`, `prompt` and
-   `completion`. An unbound slot is blank.
-3. **The compositor.** Draw the rows, then each slot region clipped to it.
-4. **Hit test.** One region table for the frame, for acts and slots.
-5. **Fullscreen.** `fytim_cfg.screen = FYTIM_SCREEN_ALT`: enter the alternate
+1. **Page API.** Done: rows, slot and act regions, and slot binding.
+2. **A canvas.** Done: the page is drawn as cells onto one surface, with the
+   cell helpers for text, grounds and read-back.
+3. **Fullscreen.** `fytim_cfg.screen = FYTIM_SCREEN_ALT`: enter the alternate
    screen, grab the mouse for the viewport, draw a selection, and copy with
    OSC 52. Restore the primary screen on destroy and on suspend.
 
 ### fyai
 
-1. `src/fyai_page.c`: the one owner of the page source. It expands the
-   configured page, asks each component for its fragment and preference,
-   renders or reuses (section 4), publishes, and hands out the grants.
-   `$FYAI_TRACE` records one line for each render.
-2. The workpane manager writes the `pane` fragment when the page renderer is
-   active, and uses the tile request functions when it is not. The placement
-   decision, `fyai_workpane_place()`, is shared.
-3. `src/fyai_transcript_view.c`: the fullscreen viewport over the fragment
+1. `data/page.yaml` and its schema: the default document for each screen
+   mode.
+2. The transcriber: the document, the state and the size in; UI Markdown out.
+   It replaces `fyai_page_source()`, `fyai_page_grid()` and the head source of
+   `fyai_ui_surface_set_head_right()` under the page renderer.
+3. The state builder: one generic for each frame, and the schema of its names.
+4. The actions: a table of named functions, and key dispatch by mode.
+5. The question queue and the ask mode.
+6. `src/fyai_transcript_view.c`: the fullscreen viewport over the fragment
    walk.
-4. The sink backend selects the path: `fyai_ui_*` for the current renderer,
-   `fyai_page_*` for the page. A producer does not know which one is active.
 
 ## 7. Remaining work
 
@@ -345,12 +447,36 @@ usage totals. Test a child and grandchild across each ladder boundary.
   reflows at every width change.
 - A sub-agent renders a page of its own at the size of its tile, and the size
   selects how much the page shows.
-
 - The state of the current tool call is the `call` slot, written by its own
   generator in the child.
 - All agents collapse into one `agents` summary row: active, waiting, total,
   tokens and cost over the tree.
+- The UI source is one YAML document that holds every element at every level,
+  and fyai transcribes it into UI Markdown for each frame.
+- The UI has state: modes select exclusive parts of the document, and the ask
+  mode is the first of them.
+- The transcriber is part of fyai.
+- The document has no expressions. `if` names a state flag and `switch` names a
+  state mode; fyai decides what is shown.
+- Hidden is state: the transcriber leaves a hidden element out of the
+  Markdown, so libfymd4c needs no hidden attribute and the layout is
+  calculated as if the element were not there.
+
+Key ownership:
+
+- Keys are bound per mode in the document; `Ctrl-]`, `Ctrl-T` and `Ctrl-Tab`
+  stay reserved.
 
 ## 9. Open questions
 
-None now.
+- Who solves the layout of a grid. Either the transcriber solves the tracks
+  and the placement with `fyai_workpane_place()` and writes them into the
+  `fy-grid`, so the Markdown changes with the layout and the code stays where
+  it is tested; or the grid of libfymd4c takes the layout by name and places
+  the cells, so the Markdown is the same for every layout and the layouts move
+  into the library.
+- The names: `display/page` and `data/page.yaml`, or a name that says the
+  document is the whole UI.
+- Whether the schema of the state is published with the document schema, so
+  that a user who writes a document can check the bindings.
+- The next mode after `ask`: the approval of a tool call is the likely one.
