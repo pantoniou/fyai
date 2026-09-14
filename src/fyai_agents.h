@@ -35,6 +35,8 @@ bool fyai_agents_branch_identity(struct fyai_ctx *ctx, const char *branch,
 const char *fyai_agents_zoom(struct fyai_ctx *ctx, const char *name, bool attach);
 void fyai_agents_detach(struct fyai_ctx *ctx);
 bool fyai_agents_input(struct fyai_ctx *ctx, const char *line);
+/* The questions of agents waiting behind the one put to the user. */
+size_t fyai_agents_questions_waiting(struct fyai_ctx *ctx);
 int fyai_agents_kill(struct fyai_ctx *ctx, const char *name);
 bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf);
 bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len);

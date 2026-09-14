@@ -40,6 +40,18 @@
 #include "utils.h"
 
 struct ui_line { struct ui_line *next; char *text; };
+
+/* A question that the input area puts to the user. */
+struct ui_question {
+	struct ui_question *next;
+	char *question;
+	char *from;		/* the sub-agent that asks, or NULL */
+	char **options;
+	size_t noptions;
+	size_t selected;
+	fyai_ui_ask_fn done;
+	void *user;
+};
 struct ui_spool { int saved, reader; off_t off; };
 
 struct fyai_ui {
@@ -75,6 +87,8 @@ struct fyai_ui {
 	const char *status_hint;	/* the focus hint row, or NULL */
 	struct fyai_page *page;		/* the page renderer, or NULL */
 	struct response_buffer pane_grid;	/* the pane source of the page */
+	struct fyai_page_keys page_keys;	/* the keys the page has bound */
+	struct ui_question *questions;	/* first the one the input area shows */
 	char *editor_path;
 	size_t tool_body_len;
 	int activity_phase;
@@ -770,11 +784,28 @@ static bool ui_tile_ground(const struct fyai_ctx *ctx, bool focused,
  * Follow display/renderer: make the page when it is asked for and this build
  * can compose one, and give the screen back to the band stack otherwise.
  */
+#ifdef FYAI_UI_PAGE
+static void ui_page_actions_get(const struct fyai_page_action **actions,
+				size_t *n);
+#endif
+
 static void ui_page_configure(struct fyai_ui *ui)
 {
 	struct fyai_ctx *ctx = ui->ctx;
 	bool want = fyai_page_requested(ctx->cfg);
+	const struct fyai_page_action *actions = NULL;
+	const char *made_for, *path;
+	size_t nactions = 0;
+	bool remake;
 
+	/* A page made for another display/page is made again. */
+	made_for = ui->page ? fyai_page_document_path(ui->page) : NULL;
+	path = ctx->cfg->page_path;
+	remake = want && ui->page &&
+		 strcmp(made_for ? made_for : "", path ? path : "");
+#ifdef FYAI_UI_PAGE
+	ui_page_actions_get(&actions, &nactions);
+#endif
 	if (want && !ui->page) {
 		if (!fyai_page_supported()) {
 			fyai_warning(ctx, "display/renderer page needs a libfytimui "
@@ -782,18 +813,302 @@ static void ui_page_configure(struct fyai_ui *ui)
 				     "the band stack draws the screen");
 			return;
 		}
-		ui->page = fyai_page_create(ctx);
+		ui->page = fyai_page_create(ctx, actions, nactions);
+	} else if (remake) {
+		fyai_page_destroy(ui->page);
+		ui->page = fyai_page_create(ctx, actions, nactions);
+#ifdef FYAI_UI_PAGE
+		if (!ui->page) {
+			fytim_page_clear(ui->ft);
+			(void)fytim_set_key_bindings(ui->ft, NULL, 0);
+			ui->page_keys.count = 0;
+		}
+#endif
 	} else if (!want && ui->page) {
 		fyai_page_destroy(ui->page);
 		ui->page = NULL;
 #ifdef FYAI_UI_PAGE
 		fytim_page_clear(ui->ft);
+		/* The keys of its modes go back to the prompt. */
+		(void)fytim_set_key_bindings(ui->ft, NULL, 0);
+		ui->page_keys.count = 0;
 #endif
 	}
 	ui->frame_pending = true;
 }
 
+static void ui_question_free(struct ui_question *q)
+{
+	size_t i;
+
+	if (!q)
+		return;
+	for (i = 0; i < q->noptions; i++)
+		free(q->options[i]);
+	free(q->options);
+	free(q->question);
+	free(q->from);
+	free(q);
+}
+
+int fyai_ui_page_report(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct response_buffer md = {0};
+	int rc;
+
+	if (!ui || !ui->page) {
+		fyai_result(ctx, "the page renderer does not draw the screen; "
+			    "display/renderer is %s\n",
+			    ctx && ctx->cfg->renderer ? ctx->cfg->renderer :
+			    "not set");
+		return 0;
+	}
+	rc = fyai_page_report(ui->page, &md);
+	if (rc || !md.data) {
+		free(md.data);
+		fyai_error(ctx, "cannot build the report of the page");
+		return -1;
+	}
+	rc = fyai_result_md(ctx, md.data);
+	free(md.data);
+	return rc;
+}
+
+bool fyai_ui_ask_available(struct fyai_ctx *ctx)
+{
+	return fyai_ui_active(ctx) && ctx->ui->page != NULL;
+}
+
+int fyai_ui_ask(struct fyai_ctx *ctx, const char *question, const char *from,
+		const char *const *options, size_t n, fyai_ui_ask_fn done,
+		void *user)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct ui_question *q, **qp;
+	size_t i;
+
+	if (!ui || !ui->page || !question || !done || (n && !options))
+		return -1;
+	q = calloc(1, sizeof(*q));
+	fyai_error_check(ctx, q, err_out, "cannot allocate a question");
+	q->done = done;
+	q->user = user;
+	q->question = strdup(question);
+	fyai_error_check(ctx, q->question, err_free, "cannot keep a question");
+	if (from && *from) {
+		q->from = strdup(from);
+		fyai_error_check(ctx, q->from, err_free,
+				 "cannot keep who asks a question");
+	}
+	if (n) {
+		q->options = calloc(n, sizeof(*q->options));
+		fyai_error_check(ctx, q->options, err_free,
+				 "cannot keep the options of a question");
+	}
+	for (i = 0; i < n; i++) {
+		q->options[i] = strdup(options[i] ? options[i] : "");
+		fyai_error_check(ctx, q->options[i], err_free,
+				 "cannot keep the options of a question");
+		q->noptions++;
+	}
+	for (qp = &ui->questions; *qp; qp = &(*qp)->next)
+		;
+	*qp = q;
+	ui->frame_pending = true;
+	fyai_ui_wake(ctx);
+	return 0;
+
+err_free:
+	ui_question_free(q);
+err_out:
+	return -1;
+}
+
+/* Answer the question the input area shows with @answer, or with none. */
+static void ui_question_answer(struct fyai_ui *ui, const char *answer)
+{
+	struct ui_question *q = ui->questions;
+
+	if (!q)
+		return;
+	ui->questions = q->next;
+	ui->frame_pending = true;
+	q->done(q->user, answer);
+	ui_question_free(q);
+	fyai_ui_wake(ui->ctx);
+}
+
+void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct ui_question **qp, *q;
+
+	if (!ui)
+		return;
+	qp = &ui->questions;
+	while ((q = *qp)) {
+		if (q->user != user) {
+			qp = &q->next;
+			continue;
+		}
+		*qp = q->next;
+		ui_question_free(q);
+	}
+	ui->frame_pending = true;
+}
+
 #ifdef FYAI_UI_PAGE
+static void ui_ask_prev(struct fyai_ctx *ctx, const char *arg)
+{
+	struct ui_question *q = ctx->ui->questions;
+
+	(void)arg;
+	if (q && q->selected > 0) {
+		q->selected--;
+		ctx->ui->frame_pending = true;
+	}
+}
+
+static void ui_ask_next(struct fyai_ctx *ctx, const char *arg)
+{
+	struct ui_question *q = ctx->ui->questions;
+
+	(void)arg;
+	if (q && q->selected + 1 < q->noptions) {
+		q->selected++;
+		ctx->ui->frame_pending = true;
+	}
+}
+
+/* Answer with option @arg, counted from 1. */
+static void ui_ask_choose(struct fyai_ctx *ctx, const char *arg)
+{
+	struct ui_question *q = ctx->ui->questions;
+	unsigned long n;
+	char *end;
+
+	n = strtoul(arg, &end, 10);
+	if (q && end != arg && !*end && n >= 1 && n <= q->noptions)
+		ui_question_answer(ctx->ui, q->options[n - 1]);
+}
+
+/* Answer with the text typed, or with the selected option. */
+static void ui_ask_accept(struct fyai_ctx *ctx, const char *arg)
+{
+	struct fyai_ui *ui = ctx->ui;
+	struct ui_question *q = ui->questions;
+	const char *typed = fytim_input(ui->ft);
+	char *text;
+
+	(void)arg;
+	if (!q)
+		return;
+	if (typed && *typed) {
+		text = strdup(typed);
+		if (!text) {
+			fyai_warning(ctx, "cannot keep the answer that was typed");
+			return;
+		}
+		(void)fytim_set_input(ui->ft, NULL);
+		ui_question_answer(ui, text);
+		free(text);
+		return;
+	}
+	if (q->noptions)
+		ui_question_answer(ui, q->options[q->selected]);
+}
+
+static void ui_ask_dismiss(struct fyai_ctx *ctx, const char *arg)
+{
+	(void)arg;
+	ui_question_answer(ctx->ui, NULL);
+}
+
+/* The actions of the page, by name. */
+static const struct fyai_page_action ui_page_action_table[] = {
+	{ "ask.prev", ui_ask_prev },
+	{ "ask.next", ui_ask_next },
+	{ "ask.choose", ui_ask_choose },
+	{ "ask.accept", ui_ask_accept },
+	{ "ask.dismiss", ui_ask_dismiss },
+};
+static const struct fyai_page_action *const ui_page_actions =
+	ui_page_action_table;
+static const size_t ui_page_nactions =
+	sizeof(ui_page_action_table) / sizeof(ui_page_action_table[0]);
+
+static void ui_page_actions_get(const struct fyai_page_action **actions,
+				size_t *n)
+{
+	*actions = ui_page_actions;
+	*n = ui_page_nactions;
+}
+
+/* Call the action that @id names: "action" or "action:arg". An id that names
+ * no action is reported: it was a click or a key of the user. */
+static void ui_page_action(struct fyai_ui *ui, const char *id)
+{
+	const struct fyai_page_action *a;
+	const char *colon = strchr(id, ':');
+	size_t len = colon ? (size_t)(colon - id) : strlen(id);
+
+	a = fyai_page_action_find(ui_page_actions, ui_page_nactions, id, len);
+	if (!a) {
+		fyai_warning(ui->ctx, "the page has no action for '%s'", id);
+		return;
+	}
+	a->fn(ui->ctx, colon ? colon + 1 : "");
+}
+
+/* A key that the page bound: call the action that the active mode gives it. */
+static void ui_page_key(struct fyai_ui *ui, const struct fytim_event *ev)
+{
+	size_t i;
+
+	for (i = 0; ev->text && i < ui->page_keys.count; i++)
+		if (strlen(ui->page_keys.key[i].name) == ev->text_len &&
+		    !strncmp(ui->page_keys.key[i].name, ev->text, ev->text_len)) {
+			ui_page_action(ui, ui->page_keys.key[i].action);
+			return;
+		}
+	fyai_warning(ui->ctx, "the page has no binding for the key '%.*s'",
+		     (int)ev->text_len, ev->text ? ev->text : "");
+}
+
+/* Bind the keys of the active modes of the page when they change. */
+static void ui_page_keys_bind(struct fyai_ui *ui,
+			      const struct fyai_page_keys *keys)
+{
+	const char *names[FYAI_PAGE_KEYS_MAX];
+	size_t i;
+
+	if (keys->count == ui->page_keys.count) {
+		for (i = 0; i < keys->count; i++)
+			if (strcmp(keys->key[i].name, ui->page_keys.key[i].name) ||
+			    strcmp(keys->key[i].action,
+				   ui->page_keys.key[i].action))
+				break;
+		if (i == keys->count)
+			return;
+	}
+	for (i = 0; i < keys->count; i++)
+		names[i] = keys->key[i].name;
+	if (fytim_set_key_bindings(ui->ft, names, keys->count) != FYTIM_OK) {
+		fyai_warning(ui->ctx, "the terminal library rejected the keys "
+			     "of the page");
+		return;
+	}
+	ui->page_keys = *keys;
+}
+
+/* The page renderer stopped: its keys go back to the prompt. */
+static void ui_page_keys_clear(struct fyai_ui *ui)
+{
+	(void)fytim_set_key_bindings(ui->ft, NULL, 0);
+	ui->page_keys.count = 0;
+}
+
 /* Build and publish the page of this frame from the state of the session. */
 static void ui_page_update(struct fyai_ui *ui)
 {
@@ -802,7 +1117,9 @@ static void ui_page_update(struct fyai_ui *ui)
 	struct fyai_page_state st;
 	struct fytim_workpane *pane;
 	char elapsed[24], cap[512];
-	const char *rule_off;
+	struct fyai_page_keys keys;
+	struct ui_question *q, *w;
+	const char *rule_off, *typed;
 	char *activity = NULL;
 	int cols = 0, rows = 0, n, i, sep_cols;
 
@@ -822,6 +1139,27 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.hint = ui->status_hint;
 	st.status = ui->status_bottom;
 	st.tail_rows = fytim_tail_rows(ui->ft);
+	/* A question takes the input area; its options take the number keys
+	 * while nothing is typed. */
+	q = ui->questions;
+	st.input_mode = "prompt";
+	if (q) {
+		typed = fytim_input(ui->ft);
+		st.input_mode = typed && *typed ? "ask_text" : "ask";
+		st.ask_question = q->question;
+		st.ask_from = q->from;
+		st.ask_options = (const char *const *)q->options;
+		st.ask_noptions = q->noptions;
+		st.ask_selected = q->selected;
+		for (w = q->next; w; w = w->next)
+			st.ask_waiting++;
+		/* Agents put one question at a time: count those behind it. */
+		st.ask_waiting += fyai_agents_questions_waiting(ctx);
+	}
+	st.actions = ui_page_actions;
+	st.nactions = ui_page_nactions;
+	st.keys = &keys;
+	keys.count = 0;
 	/* The marks that zoom and close a tile, when they grab the mouse. */
 	st.tile_marks = ctx->cfg->work_controls &&
 			strcmp(ctx->cfg->work_controls, "none");
@@ -879,9 +1217,11 @@ static void ui_page_update(struct fyai_ui *ui)
 		fyai_page_destroy(ui->page);
 		ui->page = NULL;
 		fytim_page_clear(ui->ft);
+		ui_page_keys_clear(ui);
 		fyai_warning(ctx, "the page renderer stopped; "
 			     "the band stack draws the screen");
 	} else {
+		ui_page_keys_bind(ui, &keys);
 		/* What the page gave a tile is the grant of the tile. */
 		for (i = 0; i < st.ntiles; i++) {
 			if (tiles[i].surface)
@@ -1044,6 +1384,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 #if defined(FYAI_UI_PAGE) && defined(FYAI_UI_CLICKS)
 		case FYTIM_EVENT_ACT:
 			ui_act(ui, &ev);
+			break;
+#endif
+#ifdef FYAI_UI_PAGE
+		case FYTIM_EVENT_KEY:
+			if (ui->page)
+				ui_page_key(ui, &ev);
 			break;
 #endif
 		case FYTIM_EVENT_SURFACE_CLOSE:
@@ -1210,6 +1556,7 @@ void fyai_ui_prompt_enabled(struct fyai_ctx *ctx, bool enabled)
 void fyai_ui_close(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct ui_question *q;
 	struct ui_line *l, *n;
 	if (!ui) return;
 	fyai_browser_close(ctx);
@@ -1235,6 +1582,13 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	fyai_page_destroy(ui->page);
 	ui->page = NULL;
 	free(ui->pane_grid.data);
+	/* Nobody can answer a question now. */
+	while (ui->questions) {
+		q = ui->questions;
+		ui->questions = q->next;
+		q->done(q->user, NULL);
+		ui_question_free(q);
+	}
 	fytim_destroy(ui->ft);
 	fymd_renderer_destroy(ui->chrome_renderer);
 	if (ui->tty_fd >= 0)
@@ -1730,6 +2084,12 @@ bool fyai_ui_interrupt(struct fyai_ctx *ctx)
 	 * program the user was typing into instead of stopping the turn. */
 	if (fyai_workpane_keys_deliver(ctx->workpane, "\x03", 1))
 		return true;
+	/* A question of the input area is left without an answer, and the
+	 * turn that asked it goes on. */
+	if (ui->questions) {
+		ui_question_answer(ui, NULL);
+		return true;
+	}
 	input = fytim_input(ui->ft);
 	if (!ui->busy && !ui->head && !ui->editor_request) {
 		if (input && *input)
@@ -2297,6 +2657,11 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	len = ev->text_len < sizeof(id) - 1 ? ev->text_len : sizeof(id) - 1;
 	memcpy(id, ev->text, len);
 	id[len] = '\0';
+	/* Any other act of the page names an action of the document. */
+	if (!sf && strncmp(id, "tile:", 5)) {
+		ui_page_action(ui, id);
+		return;
+	}
 	/* An act of a head on the page names its tile: "tile:N:act". */
 	if (!sf && !strncmp(id, "tile:", 5)) {
 		slot = strtoul(id + 5, &end, 10);
