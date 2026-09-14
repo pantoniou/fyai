@@ -30,6 +30,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
+#include "fyai_page.h"
 #include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_tools.h"
@@ -70,6 +71,10 @@ struct fyai_ui {
 	char *tool_body;
 	char *status_bottom;
 	char *status_top;
+	char *status_top_source;	/* Markdown of the header, for the page */
+	const char *status_hint;	/* the focus hint row, or NULL */
+	struct fyai_page *page;		/* the page renderer, or NULL */
+	struct response_buffer pane_grid;	/* the pane source of the page */
 	char *editor_path;
 	size_t tool_body_len;
 	int activity_phase;
@@ -85,6 +90,8 @@ struct fyai_ui {
 	bool repaint_pending;		/* transcript requires repaint */
 	fyai_event_ms_t next_frame_ms;
 };
+
+static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev);
 
 /* Bands are tiles in the shared work pane. */
 static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
@@ -740,6 +747,159 @@ static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 	ui->next_frame_ms = fyai_event_now_ms();
 }
 
+/*
+ * The ground of a tile into *@bgp, FYTIM_COLOR_DEFAULT unless @focused says
+ * that it holds the keys. Returns true when it holds them and no ground is
+ * configured: the margin is reversed instead.
+ */
+static bool ui_tile_ground(const struct fyai_ctx *ctx, bool focused,
+			   uint32_t *bgp)
+{
+	*bgp = FYTIM_COLOR_DEFAULT;
+	if (!focused)
+		return false;
+	if (fyai_ui_ground_parse(ctx->cfg->focus_bg, bgp))
+		return false;
+	*bgp = FYTIM_COLOR_DEFAULT;
+	return true;
+}
+
+/*
+ * Follow display/renderer: make the page when it is asked for and this build
+ * can compose one, and give the screen back to the band stack otherwise.
+ */
+static void ui_page_configure(struct fyai_ui *ui)
+{
+	struct fyai_ctx *ctx = ui->ctx;
+	bool want = fyai_page_requested(ctx->cfg);
+
+	if (want && !ui->page) {
+		ui->page = fyai_page_create(ctx);
+	} else if (!want && ui->page) {
+		fyai_page_destroy(ui->page);
+		ui->page = NULL;
+		fytim_page_clear(ui->ft);
+	}
+	ui->frame_pending = true;
+}
+
+/* Build and publish the page of this frame from the state of the session. */
+static void ui_page_update(struct fyai_ui *ui)
+{
+	struct fyai_ctx *ctx = ui->ctx;
+	struct fyai_page_tile tiles[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_page_state st;
+	struct fytim_workpane *pane;
+	char elapsed[24], cap[512];
+	const char *rule_off;
+	char *activity = NULL;
+	int cols = 0, rows = 0, n, i, sep_cols, rc;
+
+	if (!ui->page)
+		return;
+	memset(&st, 0, sizeof(st));
+	st.ctx = ctx;
+	rc = fytim_size(ui->ft, &cols, &rows);
+	fyai_error_check(ctx, rc == FYTIM_OK, err_page,
+			 "cannot read the terminal size for the page");
+	st.header = ui->status_top_source;
+	if (ui->busy) {
+		fyai_event_elapsed_format(elapsed, sizeof(elapsed),
+					  ui->busy_since_ms);
+		st.elapsed = elapsed;
+		activity = ui_indicator(ui, FYMD_INDICATOR_PENDING,
+					(size_t)ui->activity_phase, NULL);
+		st.activity = activity;
+	}
+	st.hint = ui->status_hint;
+	st.status = ui->status_bottom;
+	st.tail_rows = fytim_tail_rows(ui->ft);
+	/* The marks that zoom and close a tile, when they grab the mouse. */
+	st.tile_marks = ctx->cfg->work_controls &&
+			strcmp(ctx->cfg->work_controls, "none");
+	pane = fyai_workpane_pane(ctx->workpane);
+	/* The pane is an fy-grid of its tiles, sized first as they ask. */
+	n = ctx->cfg->tile_sep ?
+	    fymd_str_width(ctx->cfg->tile_sep, strlen(ctx->cfg->tile_sep)) : 0;
+	fyai_error_check(ctx, n >= 0, err_page,
+			 "cannot measure the work pane separator");
+	sep_cols = n;
+	if (!pane) {
+		st.pane_rows = 0;
+	} else {
+		rc = fyai_workpane_page_grid(ctx->workpane, 0,
+					     ctx->cfg->tile_sep, sep_cols,
+					     NULL, &st.pane_rows);
+		fyai_error_check(ctx, !rc, err_page,
+				 "cannot size the work pane for the page");
+	}
+	st.pane_below = fyai_workpane_position(ctx->workpane) ==
+			FYAI_WORKPANE_POS_BELOW;
+	st.prompt_rows = fytim_prompt_rows(ui->ft);
+	st.prompt_card = fytim_prompt_card(ui->ft);
+	st.completion = fytim_completion_active(ui->ft);
+	st.gutter_cols = markdown_gutter_cols(ctx->cfg);
+	/* The header and status styles of the band stack come from the theme. */
+	if (ui->chrome_renderer) {
+		if (fymd_renderer_get_style_pair(ui->chrome_renderer,
+				FYMD_STYLE_HEADING, &st.header_on, &st.header_off))
+			st.header_on = st.header_off = NULL;
+		if (fymd_renderer_get_style_pair(ui->chrome_renderer,
+				FYMD_STYLE_BLOCKQUOTE, &st.status_on,
+				&st.status_off))
+			st.status_on = st.status_off = NULL;
+		/* The chrome of a tile: the rule style over dim. */
+		if (fymd_renderer_get_style_pair(ui->chrome_renderer,
+				FYMD_STYLE_RULE, &st.band_chrome, &rule_off))
+			st.band_chrome = NULL;
+	}
+	/* The cap row of the pane: the slot draws no chrome of the pane. */
+	if (ctx->cfg->work_cap && st.pane_rows > 0) {
+		n = fyai_workpane_cap_source(ctx->workpane, cap, sizeof(cap));
+		if (n > 0 && (size_t)n < sizeof(cap)) {
+			while (n > 0 && (cap[n - 1] == '\n' || cap[n - 1] == '\r'))
+				cap[--n] = '\0';
+			st.cap = cap;
+		}
+	}
+	/* The tiles that hold a surface, which the page draws itself. */
+	st.ntiles = fyai_workpane_page_tiles(ctx->workpane, tiles,
+					     FYAI_WORKPANE_TILES_MAX);
+	st.tiles = tiles;
+	fyai_page_fit(&st, rows);
+	/* Then written at the rows the chrome leaves it. */
+	ui->pane_grid.len = 0;
+	if (st.pane_rows > 0) {
+		rc = fyai_workpane_page_grid(ctx->workpane, st.pane_rows,
+					     ctx->cfg->tile_sep, sep_cols,
+					     &ui->pane_grid, NULL);
+		fyai_error_check(ctx, !rc, err_page,
+				 "cannot build the work pane page source");
+		st.pane_source = ui->pane_grid.data;
+	}
+	rc = fyai_page_publish(ui->page, ui->ft, &st, cols, rows);
+	if (rc) {
+err_page:
+		fyai_page_destroy(ui->page);
+		ui->page = NULL;
+		fytim_page_clear(ui->ft);
+		fyai_warning(ctx, "the page renderer stopped; "
+			     "the band stack draws the screen");
+	} else {
+		/* What the page gave a tile is the grant of the tile. */
+		for (i = 0; i < st.ntiles; i++) {
+			if (tiles[i].surface)
+				fyai_workpane_tile_set_page_grant(ctx->workpane,
+					tiles[i].surface, tiles[i].granted_rows,
+					tiles[i].granted_cols);
+			else
+				fyai_workpane_band_set_page_grant(ctx->workpane,
+					tiles[i].band, tiles[i].granted_rows,
+					tiles[i].granted_cols);
+		}
+	}
+	free(activity);
+}
 /* A click on the head of a tile: act on the label under it. */
 static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 			  int row, int col)
@@ -786,6 +946,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		ui->frame_pending = false;
 	/* Update layout state before reconciliation. */
 	fyai_workpane_reconcile(ui->ctx->workpane);
+	ui_page_update(ui);
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
 	/* Apply grants through each tile owner. */
@@ -875,6 +1036,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_SURFACE_CLICK:
 			ui_head_click(ui, ev.surface, ev.row, ev.col);
+			break;
+		case FYTIM_EVENT_ACT:
+			ui_act(ui, &ev);
 			break;
 		case FYTIM_EVENT_SURFACE_CLOSE:
 		case FYTIM_EVENT_SURFACE_SCROLL:
@@ -967,6 +1131,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		ui->render_cols = ctx->cfg->render_width;
 	}
 	fyai_ui_config_reassert(ctx);
+	ui_page_configure(ui);
 	fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), fail,
 			 "failed to apply input bubble style");
 	el = fyai_ctx_loop(ctx);
@@ -1018,6 +1183,7 @@ void fyai_ui_config_changed(struct fyai_ctx *ctx)
 			       *ctx->cfg->prompt_marker ?
 			       ctx->cfg->prompt_marker : "❯ ");
 	(void)fyai_ui_update_prompt_style(ctx);
+	ui_page_configure(ui);
 	/* The manager owns pane geometry and configuration adoption. */
 	fyai_browser_config_changed(ctx);
 	fyai_workpane_adopt_config(ctx->workpane);
@@ -1060,6 +1226,9 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	spool_restore(&ui->err, STDERR_FILENO);
 	fyai_workpane_destroy(ctx->workpane);
 	ctx->workpane = NULL;
+	fyai_page_destroy(ui->page);
+	ui->page = NULL;
+	free(ui->pane_grid.data);
 	fytim_destroy(ui->ft);
 	fymd_renderer_destroy(ui->chrome_renderer);
 	if (ui->tty_fd >= 0)
@@ -1070,6 +1239,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	free(ui->tool_body);
 	free(ui->status_bottom);
 	free(ui->status_top);
+	free(ui->status_top_source);
 	ctx->cfg->color = ui->saved_color;
 	ctx->cfg->render_width = 0;
 	for (l = ui->head; l; l = n) { n = l->next; free(l->text); free(l); }
@@ -1579,25 +1749,30 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 	}
 }
 
-void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top, const char *bottom)
+void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
+			   const char *top_source, const char *bottom)
 {
 	struct fyai_ui *ui;
-	char *copy, *header, *activity;
+	char *copy, *header, *source, *activity;
 
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->ui;
 	copy = strdup(bottom ? bottom : "");
-	if (!copy)
-		return;
 	header = strdup(top ? top : "");
-	if (!header) {
+	source = strdup(top_source ? top_source : "");
+	if (!copy || !header || !source) {
 		free(copy);
+		free(header);
+		free(source);
+		fyai_error(ctx, "cannot copy the input pane banner");
 		return;
 	}
 	free(ui->status_bottom);
 	ui->status_bottom = copy;
 	free(ui->status_top);
 	ui->status_top = header;
+	free(ui->status_top_source);
+	ui->status_top_source = source;
 	(void)fytim_set_header(ui->ft, top);
 	activity = ui->busy ?
 		ui_indicator(ui, FYMD_INDICATOR_PENDING,
@@ -1615,7 +1790,7 @@ static int ui_band_width_begin(struct fyai_ctx *ctx,
 			       const struct fytim_workband *band)
 {
 	int saved = ctx->cfg->render_width;
-	int cols = fyai_ui_work_tile_cols(band);
+	int cols = fyai_ui_work_tile_cols(ctx, band);
 
 	/* Zero denotes full width or an unpainted band. */
 	if (cols > 0)
@@ -1936,11 +2111,18 @@ struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx)
 }
 
 /* Return the last granted tile width, or zero before layout. */
-int fyai_ui_work_tile_cols(const struct fytim_workband *band)
+int fyai_ui_work_tile_cols(struct fyai_ctx *ctx,
+			   const struct fytim_workband *band)
 {
-	int cols = 0;
+	int rows = 0, cols = 0;
 
-	if (!band || fytim_workband_granted_cols(band, &cols) != FYTIM_OK)
+	if (!band)
+		return 0;
+	/* A tile the page draws is granted what the page gave it. */
+	if (ctx && ctx->ui && ctx->ui->page &&
+	    fyai_workpane_band_page_grant(ctx->workpane, band, &rows, &cols))
+		return cols;
+	if (fytim_workband_granted_cols(band, &cols) != FYTIM_OK)
 		return 0;
 	return cols;
 }
@@ -2065,13 +2247,69 @@ int fyai_ui_surface_request_rows(struct fytim_surface *sf, int rows)
 	return fytim_surface_request_rows(sf, rows) == FYTIM_OK ? 0 : -1;
 }
 
-int fyai_ui_surface_granted_rows(const struct fytim_surface *sf)
+int fyai_ui_surface_granted_rows(struct fyai_ctx *ctx,
+				 const struct fytim_surface *sf)
 {
-	int rows = 0;
+	int rows = 0, cols = 0;
 
-	if (!sf || fytim_surface_granted_rows(sf, &rows) != FYTIM_OK)
+	if (!sf)
+		return 0;
+	/* A tile the page draws is granted what the page gave it. */
+	if (ctx && ctx->ui && ctx->ui->page &&
+	    fyai_workpane_tile_page_grant(ctx->workpane, sf, &rows, &cols))
+		return rows;
+	if (fytim_surface_granted_rows(sf, &rows) != FYTIM_OK)
 		return 0;
 	return rows;
+}
+
+
+/* Keep @head with the tile of @sf: the page draws it onto its canvas. */
+static int ui_page_tile_set(struct fyai_ui *ui, struct fytim_surface *sf,
+			    const char *head)
+{
+	if (fyai_workpane_tile_set_head(ui->ctx->workpane, sf, head))
+		return -1;
+	fyai_diag_tracef("page", "tile=%p head=%zu", (void *)sf, strlen(head));
+	return 0;
+}
+
+/* A click on an act of a tile page: the head gives the tile the keys, and
+ * the controls zoom or close it. */
+static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
+{
+	struct fyai_workpane_manager *wm = ui->ctx->workpane;
+	struct fytim_surface *sf = ev->surface;
+	char id[FYTIM_PAGE_ID_MAX + 1];
+	unsigned long slot;
+	char *end;
+	size_t len;
+
+	if (!ev->text)
+		return;
+	len = ev->text_len < sizeof(id) - 1 ? ev->text_len : sizeof(id) - 1;
+	memcpy(id, ev->text, len);
+	id[len] = '\0';
+	/* An act of a head on the page names its tile: "tile:N:act". */
+	if (!sf && !strncmp(id, "tile:", 5)) {
+		slot = strtoul(id + 5, &end, 10);
+		if (end != id + 5 && *end == ':') {
+			sf = fyai_workpane_slot_surface(wm, (unsigned int)slot);
+			memmove(id + 5, end + 1, strlen(end + 1) + 1);
+		}
+	}
+	if (!sf)
+		return;
+	if (!strcmp(id, "tile:focus")) {
+		if (fyai_workpane_tile_selectable(wm, sf) &&
+		    fyai_workpane_focused(wm) != sf)
+			fyai_workpane_set_focus(wm, sf);
+	} else if (!strcmp(id, "tile:zoom")) {
+		(void)fyai_ui_surface_zoom(ui->ctx,
+				fyai_workpane_zoomed(wm) == sf ? NULL : sf);
+	} else if (!strcmp(id, "tile:close")) {
+		fyai_tools_surface_request(ui->ctx, sf, 0);
+	}
 }
 
 int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
@@ -2121,7 +2359,8 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 		while (tlen && (escaped[tlen - 1] == '\n' ||
 				escaped[tlen - 1] == '\r'))
 			tlen--;
-		/* fyai writes @right, so it takes the right edge as it is */
+		/* fyai writes @right, so it takes the right edge as it is. The
+		 * marks of a page tile are the page's, at the edge of the tile. */
 		if (asprintf(&head,
 			     "<fy-act id=\"tile:focus\">%.*s</fy-act>%s%s\n",
 			     (int)tlen, escaped, right ? "<fy-fill/>" : "",
@@ -2131,7 +2370,7 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 
 	/* Render chrome at the granted tile width. */
 	saved_width = ctx->cfg->render_width;
-	cols = fyai_ui_surface_granted_cols(sf);
+	cols = fyai_ui_surface_granted_cols(ctx, sf);
 	if (cols > 0)
 		ctx->cfg->render_width = cols;
 	/* Render the marked title row used by work bands. */
@@ -2160,6 +2399,9 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 	}
 	if (!rc) {
 		response_buffer_trim(&out);
+		if (ui->page)
+			rc = ui_page_tile_set(ui, sf, out.data ? out.data : "");
+		else
 		rc = fytim_surface_set_top(sf, out.data ? out.data : title) ==
 		     FYTIM_OK ? 0 : -1;
 	}
@@ -2176,11 +2418,17 @@ int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
 					      mark, 0, NULL);
 }
 
-int fyai_ui_surface_granted_cols(const struct fytim_surface *sf)
+int fyai_ui_surface_granted_cols(struct fyai_ctx *ctx,
+				 const struct fytim_surface *sf)
 {
-	int cols = 0;
+	int rows = 0, cols = 0;
 
-	if (!sf || fytim_surface_granted_cols(sf, &cols) != FYTIM_OK)
+	if (!sf)
+		return 0;
+	if (ctx && ctx->ui && ctx->ui->page &&
+	    fyai_workpane_tile_page_grant(ctx->workpane, sf, &rows, &cols))
+		return cols;
+	if (fytim_surface_granted_cols(sf, &cols) != FYTIM_OK)
 		return 0;
 	return cols;
 }
@@ -2197,6 +2445,50 @@ int fyai_ui_surface_clear(struct fytim_surface *sf)
 	if (!sf)
 		return -1;
 	return fytim_surface_clear(sf) == FYTIM_OK ? 0 : -1;
+}
+
+void fyai_ui_tile_bind(struct fytim_surface *sf, struct fytim_workband *band,
+		       unsigned int slot)
+{
+	char id[32];
+
+	/* A page places each tile in a slot of its own; the band stack ignores
+	 * the binding. */
+	snprintf(id, sizeof(id), "tile:%u", slot);
+	if (sf)
+		(void)fytim_surface_bind(sf, id);
+	else if (band)
+		(void)fytim_workband_bind(band, id);
+}
+
+int fyai_ui_tile_rows(const struct fytim_surface *sf,
+		      const struct fytim_workband *band)
+{
+	return sf ? fytim_surface_rows(sf) : fytim_workband_rows(band);
+}
+
+void fyai_ui_surface_chrome(const struct fytim_surface *sf,
+			    const char **marginp, int *colsp, uint32_t *bgp,
+			    int *mixp)
+{
+	*marginp = NULL;
+	*colsp = 0;
+	*bgp = FYTIM_COLOR_DEFAULT;
+	*mixp = 0;
+	if (!sf)
+		return;
+	*marginp = fytim_surface_margin(sf, colsp);
+	if (fytim_surface_bg(sf, bgp, mixp) != FYTIM_OK) {
+		*bgp = FYTIM_COLOR_DEFAULT;
+		*mixp = 0;
+	}
+}
+
+void fyai_ui_surface_set_view(struct fytim_surface *sf, int present)
+{
+	/* A surface without a tile page draws what it did: the view is a page's. */
+	(void)fytim_surface_set_page_view(sf,
+			(enum fytim_page_view)fyai_page_view_for(present));
 }
 
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows)
@@ -2261,15 +2553,14 @@ void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	const char *text, *on, *off;
 	uint32_t bg = 0;
-	bool wash;
+	bool reversed;
 
 	if (!ctx || !ctx->cfg || !sf || !ui)
 		return;
 	/* Without a configured ground, mark focus by reversing the margin. */
-	wash = focused && fyai_ui_ground_parse(ctx->cfg->focus_bg, &bg);
-	(void)fytim_surface_set_bg(sf, wash ? bg : FYTIM_COLOR_DEFAULT,
-				   ctx->cfg->focus_bg_mix);
-	if (!wash && focused && markdown_reverse_pair(ctx->cfg, &on, &off))
+	reversed = ui_tile_ground(ctx, focused, &bg);
+	(void)fytim_surface_set_bg(sf, bg, ctx->cfg->focus_bg_mix);
+	if (reversed && markdown_reverse_pair(ctx->cfg, &on, &off))
 		(void)fytim_surface_set_margin(sf,
 				fy_sprintfa("%s%s%s", on,
 					    ctx->cfg->session_margin, off));
@@ -2278,9 +2569,10 @@ void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	/* The tile keeps its rows; the way back goes on the status row. */
 	text = ui_chrome_text(ctx->cfg->tile_frame);
 	(void)fytim_surface_set_bottom(sf, text);
-	(void)fytim_set_status_row(ui->ft, 0, focused ?
-			"Ctrl-] returns to the prompt · "
-			"Ctrl-Tab/Ctrl-T moves focus" : NULL);
+	ui->status_hint = focused ?
+		"Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus" :
+		NULL;
+	(void)fytim_set_status_row(ui->ft, 0, ui->status_hint);
 }
 
 int fyai_ui_surface_publish(struct fytim_surface *sf,

@@ -694,8 +694,8 @@ static void browser_pane(struct fyai_browser *b, int *rowsp, int *colsp)
 		.split = browser_split(b),
 		.extent = b->ctx->cfg->branch_preview_size,
 	};
-	int rows = fyai_ui_surface_granted_rows(b->surface);
-	int cols = fyai_ui_surface_granted_cols(b->surface);
+	int rows = fyai_ui_surface_granted_rows(b->ctx, b->surface);
+	int cols = fyai_ui_surface_granted_cols(b->ctx, b->surface);
 	int footer_rows;
 
 	*rowsp = fyai_sink_page_rows(&probe, rows, cols);
@@ -807,7 +807,7 @@ static void browser_build(struct fyai_browser *b, size_t limit,
 		fprintf(fp, " · %zu more", p->more);
 	if (!b->resume)
 		fprintf(fp, "  \n%s  \n",
-			fyai_ui_surface_granted_cols(b->surface) < 50 ?
+			fyai_ui_surface_granted_cols(b->ctx, b->surface) < 50 ?
 			"Enter switch · i info" :
 			"Enter switch · i info · g view · p preview · "
 			"a actions · Esc close");
@@ -1792,8 +1792,8 @@ static int browser_present(struct fyai_browser *b, const char *md,
 	else if (preview_width < 0)
 		page.extent = -preview_width;
 
-	cols = fyai_ui_surface_granted_cols(b->surface);
-	rows = fyai_ui_surface_granted_rows(b->surface);
+	cols = fyai_ui_surface_granted_cols(b->ctx, b->surface);
+	rows = fyai_ui_surface_granted_rows(b->ctx, b->surface);
 	/* Ask for the geometry the sink will use, so the preview is rendered
 	 * at the width it is placed at. The probe stands for the preview this
 	 * pass is about to build. */

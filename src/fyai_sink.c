@@ -423,8 +423,8 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 
 	if (!s || !surface || !page || !page->markdown)
 		return -1;
-	rows = fyai_ui_surface_granted_rows(surface);
-	cols = fyai_ui_surface_granted_cols(surface);
+	rows = fyai_ui_surface_granted_rows(s->ctx, surface);
+	cols = fyai_ui_surface_granted_cols(s->ctx, surface);
 	if (rows < 1 || cols < 1)
 		return 0;
 	extent = fyai_sink_page_extent(page, rows, cols, &split);
@@ -1455,7 +1455,7 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b)
 {
 	if (!b || !b->tile || !b->wb)
 		return 0;
-	return fyai_ui_work_tile_cols(b->wb);
+	return fyai_ui_work_tile_cols(b->ctx, b->wb);
 }
 
 void fyai_sink_band_commit(struct fyai_sink_band *b)

@@ -100,6 +100,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Separate adjacent tile columns. */
 #define DEFAULT_TILE_SEP " ┃ "
 #define DEFAULT_WORK_CONTROLS "none"
+/* Compose the live screen with the band stack or a UI Markdown page. */
+#define DEFAULT_RENDERER "stack"
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "
@@ -264,6 +266,7 @@ struct fyai_cfg {
 	const char *tile_frame;		/* chrome under a tile's title row */
 	const char *tile_sep;		/* rule between adjacent columns */
 	const char *work_controls;	/* none | zoom | full */
+	const char *renderer;		/* stack | page */
 	bool agent_pty;			/* this sub-agent has a terminal */
 	bool shell_tty;			/* run a shell call on a terminal by default */
 	const char *shell_shell;	/* the shell a call runs under; empty = /bin/sh */
