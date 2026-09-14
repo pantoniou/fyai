@@ -546,6 +546,47 @@ rules and the status. `page` states the same screen as one UI Markdown page.
   library is given blank rows and the canvas as the first region, so the
   tile, prompt and completion slots stand on it. Close the canvas with the
   page: it is a band of the library, and the band stack would draw it.
+- The page source is a YAML document, `data/page.yaml`, that
+  `fyai_page_source()` transcribes with the state of the frame. The document
+  has no expressions: `if` names a flag, and `page_state_generic()` decides
+  every flag from the state. A node whose flag is not set is left out of the
+  Markdown. Text of the state is escaped; `markup` and `sgr` name values that
+  fyai wrote itself. `tests/data/page-source-golden.txt` holds the source of a
+  matrix of states. A change to the document or to the state that changes the
+  source records the file again with `FYAI_PAGE_GOLDEN_WRITE`, and its commit
+  says why the source changed.
+- A `switch` of the page document writes the case that a mode of the state
+  names, and binds the keys of that case. An `each` writes its body for each
+  item of a list; a name is looked up in the item first. An `act` names an
+  action with its argument. An action is a named function of
+  `struct fyai_page_action`. A document that names an unknown action, or binds
+  `Ctrl-]`, `Ctrl-T` or `Ctrl-Tab`, does not transcribe.
+- The keys of the active cases are bound with `fytim_set_key_bindings()` when
+  they change, and are cleared when the page renderer stops. A bound key
+  reaches fyai as `FYTIM_EVENT_KEY` and not the editor. A new name of the
+  state goes into `data/page-state.schema.yaml`, which its test checks.
+- A question to the user is a mode of the input area. `fyai_ui_ask()` puts it
+  in the queue of the UI and calls its `done` function with the answer, or
+  with NULL for none; the caller waits in the event loop, not in a nested
+  loop of its own. `ask_user` and the question of a sub-agent take this path
+  when `fyai_ui_ask_available()` says so and no `--answer` remains. The mode
+  is `ask` while nothing is typed, where the number keys choose, and
+  `ask_text` once text is typed, where they type. Escape and `^C` answer
+  nothing. A caller that goes away withdraws its question with
+  `fyai_ui_ask_withdraw()`. Agents put one question at a time, so the page
+  adds `fyai_agents_questions_waiting()` to the questions it says wait.
+- `display/page` names the file of a page document. `fyai_page_create()`
+  loads it with `fyai_page_load()`: the file holds a mapping, matches
+  `data/page.schema.yaml`, and passes `fyai_page_check()`, which transcribes
+  every case of every switch, every node whatever its flag, and the body of
+  every each once. A mode that is not showing must not hide an unknown action
+  or key. A file that fails is not used: the warning names it and says why,
+  and the embedded document draws the page. A change of the setting makes the
+  page again. A page document is display configuration; never take one from a
+  model.
+- `/page` is a view: it commits the document in use, why a file is not used,
+  and the state, source and regions of the last frame to the scrollback. The
+  state of a frame lives in the builder of that frame until the next one.
 - The head of a tile is drawn on the canvas too. A cell of the grid is a
   `head:N` slot over a `tile:N` slot: the head slot is as tall as the tallest
   head of the tiles that start on its row, so their screens stand level, and
