@@ -16,6 +16,8 @@ FRAME_END = b"\x1b[?2026l"
 
 
 QUERY = b"\x1b[6n"
+# A program asks for the background with OSC 11, ended by ST or BEL.
+BACKGROUND_QUERIES = (b"\x1b]11;?\x1b\\", b"\x1b]11;?\x07")
 TERMINAL = None
 
 
@@ -25,12 +27,16 @@ class Terminal:
     A program that stands inline on the screen asks with CSI 6n and waits for
     CSI row;col R, which a terminal always answers. A pseudo-terminal answers
     nothing, so the driver answers from a screen fed every byte before the
-    question.
+    question. A case that sets $FYAI_PTY_BACKGROUND, such as
+    rgb:1e1e/1e1e/2e2e, also gets that answer to an OSC 11 query; without it
+    the background query goes unanswered, as on a terminal that does not
+    answer it.
     """
 
     def __init__(self, rows, cols):
         self.screen = Screen(rows, cols)
         self.held = b""
+        self.background = os.environ.get("FYAI_PTY_BACKGROUND")
 
     def resize(self, rows, cols):
         self.screen = Screen(rows, cols)
@@ -41,21 +47,30 @@ class Terminal:
         if not chunk:
             return chunk
         buf = self.held + chunk
+        queries = [QUERY]
+        if self.background:
+            queries += BACKGROUND_QUERIES
         start = 0
         while True:
-            at = buf.find(QUERY, start)
-            if at < 0:
+            found = [(buf.find(q, start), q) for q in queries]
+            found = [f for f in found if f[0] >= 0]
+            if not found:
                 break
-            self.screen.feed(buf[start:at + len(QUERY)])
-            os.write(fd, b"\x1b[%d;%dR" % (self.screen.row + 1,
-                                            self.screen.col + 1))
-            start = at + len(QUERY)
+            at, query = min(found)
+            self.screen.feed(buf[start:at + len(query)])
+            if query == QUERY:
+                os.write(fd, b"\x1b[%d;%dR" % (self.screen.row + 1,
+                                                self.screen.col + 1))
+            else:
+                os.write(fd, b"\x1b]11;%s\x1b\\" % self.background.encode())
+            start = at + len(query)
         # A question can be split between two reads: hold its start.
         keep = 0
-        for k in range(len(QUERY) - 1, 0, -1):
-            if buf.endswith(QUERY[:k]):
-                keep = k
-                break
+        for query in queries:
+            for k in range(len(query) - 1, 0, -1):
+                if buf.endswith(query[:k]):
+                    keep = max(keep, k)
+                    break
         self.screen.feed(buf[start:len(buf) - keep])
         self.held = buf[len(buf) - keep:]
         return chunk
