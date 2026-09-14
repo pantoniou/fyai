@@ -215,6 +215,28 @@ void markdown_tool_marker(const struct fyai_cfg *cfg, char *buf, size_t size)
 		snprintf(buf, size, "%s", FYAI_TOOL_MARKER);
 }
 
+int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,
+				   char *buf, size_t size)
+{
+	int n;
+
+	if (!buf || !size)
+		return 0;
+	buf[0] = '\0';
+	if (!cfg || !cfg->markdown || !cfg->palette ||
+	    !cfg->renderer || strcmp(cfg->renderer, "page") ||
+	    !cfg->screen || strcmp(cfg->screen, "fullscreen") ||
+	    (cfg->theme_ground && strcmp(cfg->theme_ground, "theme")) ||
+	    !markdown_color_enabled(cfg->color))
+		return 0;
+	n = fypal_ctx_color_sgr(cfg->palette, "ground", FYPAL_LAYER_BG, buf, size);
+	if (n < 0 || (size_t)n >= size) {
+		buf[0] = '\0';
+		return 0;
+	}
+	return n;
+}
+
 const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
 			     const char *fallback)
 {
@@ -424,11 +446,46 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 	fymd_renderer_destroy(r);
 }
 
+/*
+ * Give @palette the background of the terminal as its ground when
+ * display/theme_ground is terminal. The terminal is asked once. A background
+ * of the other variant is left alone: a dark ramp over a light ground would
+ * lift its text past white.
+ */
+static void markdown_palette_ground(struct fyai_cfg *cfg,
+				    struct fypal_ctx *palette)
+{
+	uint32_t rgb;
+	bool light;
+
+	if (!cfg->theme_ground || strcmp(cfg->theme_ground, "terminal"))
+		return;
+	/* A sub-agent draws on a terminal that the parent emulates. */
+	if (cfg->agent_pty)
+		return;
+	if (!cfg->terminal_ground_state)
+		cfg->terminal_ground_state =
+			fypal_detect_background(STDOUT_FILENO,
+						&cfg->terminal_ground) ? 1 : -1;
+	if (cfg->terminal_ground_state < 0)
+		return;
+	rgb = cfg->terminal_ground;
+	/* Rec. 601 luma, as libfypalette divides the variants */
+	light = (((rgb >> 16) & 0xff) * 299 + ((rgb >> 8) & 0xff) * 587 +
+		 (rgb & 0xff) * 114) / 1000 >= 128;
+	if (light != (fypal_ctx_variant(palette) == FYPAL_VARIANT_LIGHT))
+		return;
+	if (fypal_ctx_set_ground(palette, rgb))
+		fyai_cfg_warning(cfg, "display/theme_ground: %s",
+				 fypal_ctx_error(palette));
+}
+
 /* The palette of theme @name for @variant and the colour of the output. */
 static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 						 const char *name,
 						 const char *variant)
 {
+	const char *ground = cfg->theme_ground ? cfg->theme_ground : "theme";
 	struct fymd_renderer_cfg rcfg;
 	struct fymd_renderer *r;
 	struct fypal_ctx **palettes;
@@ -437,12 +494,13 @@ static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 	bool color;
 	int rc;
 
-	/* A reload that changes neither the theme, the variant nor the colour
-	 * keeps the palette the renderers already hold. */
+	/* A reload that changes neither the theme, the variant, the colour nor
+	 * the ground keeps the palette the renderers already hold. */
 	color = markdown_color_enabled(cfg->color);
 	if (cfg->npalettes && cfg->palette_theme && cfg->palette_variant &&
-	    !strcmp(cfg->palette_theme, name) &&
+	    cfg->palette_ground && !strcmp(cfg->palette_theme, name) &&
 	    !strcmp(cfg->palette_variant, variant) &&
+	    !strcmp(cfg->palette_ground, ground) &&
 	    cfg->palette_color == color)
 		return cfg->palettes[cfg->npalettes - 1];
 
@@ -463,6 +521,7 @@ static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 	rc = fypal_ctx_load_builtin(palette, name);
 	fyai_cfg_error_check(cfg, !rc, err_destroy, "theme '%s': %s", name,
 			     fypal_ctx_error(palette));
+	markdown_palette_ground(cfg, palette);
 
 	/* A libfymd4c built without libfypalette refuses the palette. */
 	markdown_renderer_cfg(cfg, &rcfg, true, variant, 0);
@@ -483,6 +542,7 @@ static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 	cfg->palettes[cfg->npalettes++] = palette;
 	cfg->palette_theme = fy_gb_intern_string(cfg->gb, name);
 	cfg->palette_variant = fy_gb_intern_string(cfg->gb, variant);
+	cfg->palette_ground = fy_gb_intern_string(cfg->gb, ground);
 	cfg->palette_color = color;
 	return palette;
 

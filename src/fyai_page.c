@@ -1758,6 +1758,30 @@ static int page_lines_draw(struct fyai_page *pg, const char *const *lines,
 	return 0;
 }
 
+/* The last rows of the transcript tail that fit its region @r. */
+static int page_tail_draw(struct fyai_page *pg, struct fytim *ft,
+			  const struct fymd_region *r)
+{
+	const char *content, *p;
+	int lines = 0, rows, skip, n;
+
+	content = fytim_tail_content(ft, &lines);
+	if (!content || !*content || lines < 1 || r->height < 1)
+		return 0;
+	rows = lines < (int)r->height ? lines : (int)r->height;
+	for (p = content, skip = lines - rows; skip > 0 && p; skip--) {
+		p = strchr(p, '\n');
+		if (p)
+			p++;
+	}
+	if (!p)
+		return 0;
+	n = fytim_cells_draw_text(pg->cells, pg->cells_rows, pg->cells_cols,
+				  (int)r->row, r->col, r->width, rows, p,
+				  strlen(p));
+	return n < 0 ? -1 : 0;
+}
+
 static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 		       struct fyai_page_state *st,
 		       const struct fymd_region *fr, size_t count,
@@ -1766,6 +1790,12 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 	struct fyai_ctx *ctx = pg->ctx;
 	struct fyai_page_tile *t;
 	struct fytim_cell *cells;
+	struct fytim_cell ground = {
+		.fg = FYTIM_COLOR_DEFAULT,
+		.bg = FYTIM_COLOR_DEFAULT,
+		.width = 1,
+	};
+	char sgr[64];
 	size_t need, i;
 	bool truecolor;
 	int r, n, rc;
@@ -1815,6 +1845,11 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 	for (i = 0; i < count; i++) {
 		if (fr[i].kind == FYMD_REGION_ACT)
 			continue;
+		if (!strcmp(fr[i].id, "tail")) {
+			rc = page_tail_draw(pg, ft, &fr[i]);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot draw the tail into cells");
+		}
 		if (!strcmp(fr[i].id, "transcript") && st->transcript_lines) {
 			rc = page_lines_draw(pg, st->transcript_lines,
 					     st->transcript_nlines, &fr[i]);
@@ -1862,6 +1897,18 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 					 "cannot draw the text of tile %u into cells",
 					 t->slot);
 		}
+	}
+	n = st->fullscreen ?
+	    markdown_fullscreen_ground_sgr(ctx->cfg, sgr, sizeof(sgr) - 1) : 0;
+	if (n > 0) {
+		sgr[n++] = ' ';
+		rc = fytim_cells_draw_text(&ground, 1, 1, 0, 0, 1, 1, sgr, n);
+		fyai_error_check(ctx, rc >= 0, err_out,
+				 "cannot read the fullscreen palette ground");
+		/* Explicit backgrounds and attributes belong to their content. */
+		for (i = 0; i < need; i++)
+			if (pg->cells[i].bg == FYTIM_COLOR_DEFAULT)
+				pg->cells[i].bg = ground.bg;
 	}
 	for (r = 0; r < nrows; r++) {
 		n = fytim_surface_put_row(pg->canvas, r,
@@ -1976,7 +2023,10 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot build the rows of the page");
 	}
-	for (i = 0; i < count && n < FYTIM_PAGE_REGIONS_MAX; i++, n++) {
+	for (i = 0; i < count && n < FYTIM_PAGE_REGIONS_MAX; i++) {
+		/* The tail is drawn on the canvas, on its ground. */
+		if (fr[i].kind != FYMD_REGION_ACT && !strcmp(fr[i].id, "tail"))
+			continue;
 		if (fr[i].kind != FYMD_REGION_ACT &&
 		    (!strncmp(fr[i].id, "tile:", 5) ||
 		     !strncmp(fr[i].id, "screen:", 7) ||
@@ -1994,6 +2044,7 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		regions[n].col = fr[i].col;
 		regions[n].width = fr[i].width;
 		regions[n].height = fr[i].height;
+		n++;
 	}
 	/* The acts of the heads are the page's. */
 	for (i = 0; i < count; i++) {

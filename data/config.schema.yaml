@@ -730,6 +730,21 @@ properties:
           terminal UI chrome. A libfypalette theme, such as ember:auto,
           styles the Markdown, the fenced code and the chrome from one
           palette.
+      theme_ground:
+        type: string
+        enum: [theme, terminal]
+        default: theme
+        description: >-
+          The background a palette theme draws for. theme uses the ground of
+          the theme. terminal asks the terminal for its background and makes
+          it the ground of the theme, so the neutral colours - the card,
+          rules, faint, dim and ink text - keep their steps over the real
+          background. The hue colours do not change. It applies when the
+          background matches the variant of the theme, and needs a
+          libfypalette that supports it.
+          On a fullscreen page, theme fills default cell backgrounds with
+          the palette's ground colour. Explicit content backgrounds stay
+          unchanged. terminal leaves the page background to the terminal.
       table_border:
         type: string
         enum: [theme, grid, none]
