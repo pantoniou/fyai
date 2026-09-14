@@ -46,6 +46,23 @@ struct fyai_page_state {
 	 * NULL for one pane slot the terminal library lays out. */
 	const char *pane_source;
 	int tail_rows;
+	/* A fullscreen page shows the transcript view where an inline page shows
+	 * the tail: @transcript_rows rows, which @transcript_lines hold, rendered
+	 * and borrowed for the frame. */
+	bool fullscreen;
+	int transcript_rows;
+	const char *const *transcript_lines;
+	int transcript_nlines;
+	/* The popup of a fullscreen page covers it while @popup_title is set:
+	 * a heading, then @popup_rows rows, which @popup_lines hold, borrowed
+	 * for the frame. */
+	const char *popup_title;
+	int popup_rows;
+	const char *const *popup_lines;
+	int popup_nlines;
+	/* The rows of a short result, which stand above the status. */
+	const char *const *note_lines;
+	int note_nlines;
 	int pane_rows;
 	bool pane_below;
 	int prompt_rows;

@@ -518,6 +518,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "renderer", cfg->renderer));
 		cfg->page_path = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "page", cfg->page_path));
+		cfg->screen = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "screen", cfg->screen));
 		cfg->recap_exchanges = fy_get(v, "recap_exchanges",
 					      cfg->recap_exchanges);
 		cfg->tool_update_interval_ms =
@@ -2154,6 +2156,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->work_controls = DEFAULT_WORK_CONTROLS;
 	cfg->renderer = DEFAULT_RENDERER;
 	cfg->page_path = "";
+	cfg->screen = "inline";
 	cfg->recap_exchanges = DEFAULT_RECAP_EXCHANGES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;

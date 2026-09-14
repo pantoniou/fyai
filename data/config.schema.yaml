@@ -668,6 +668,17 @@ properties:
           it is transcribed; a file that fails is not used, the session says
           why, and the embedded document is used. /page shows the document in
           use and the state, source and regions of the last frame.
+      screen:
+        type: string
+        enum: [inline, fullscreen]
+        default: inline
+        description: >-
+          Where the page renderer stands. inline keeps the transcript in the
+          scrollback of the terminal. fullscreen takes the alternate screen: the
+          transcript is a view of the page that the wheel, PageUp and PageDown
+          scroll, and the terminal shows what it showed before when the session
+          ends. It applies only with display/renderer page, when the session
+          starts.
       work_controls:
         type: string
         enum: [none, zoom, full]
@@ -729,10 +740,11 @@ properties:
           the selected Markdown theme.
       turn_separator:
         type: string
-        default: "---"
+        default: ""
         description: >-
           Separator rendered (as markdown, themed) between turns in the
-          transcript view. "---" is a themed rule; empty is a blank line.
+          transcript view. Empty, the default, is a blank line; "---" is a
+          themed rule.
       tool_separator:
         type: string
         default: ""

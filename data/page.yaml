@@ -29,47 +29,88 @@
 #   act: {action, arg, text}   a label that the user clicks for an action
 
 page:
-  - tight: true
-  - slot: { id: tail, rows: "{tail.rows}" }
-  - if: pane.above
-    page: pane
-
-  # The header row, which goes before the rules when the page is too tall.
-  - if: header.shown
-    drop: 2
-    body:
-      - row:
-          - space: 2
-          - sgr: header.on
-          - text: "{header.text}"
-          - text: "{header.elapsed}"
-          - sgr: header.off
-
-  - page: input
-
-  # The hint or the completion ribbon, then the status.
-  - if: status.shown
-    drop: 1
-    body:
-      - if: status.completion
-        slot: { id: completion, rows: 1 }
-      - if: status.hint
-        row:
-          - sgr: status.on
-          - text: "{status.hint_text}"
-          - hold: true
-          - sgr: status.off
-      - if: status.row
-        row:
-          - gutter: { mark: status.activity, cols: "{status.gutter}" }
-          - sgr: status.on
-          - text: "{status.text}"
-          - sgr: status.off
-
-  - if: pane.below
-    page: pane
+  # The page stands inline under the scrollback, or takes the whole screen.
+  - switch: screen.mode
+    cases:
+      inline:
+        body:
+          - page: inline
+      fullscreen:
+        body:
+          # A popup of a result covers the whole screen until it closes.
+          - switch: popup.mode
+            cases:
+              closed:
+                body:
+                  - page: fullscreen
+              open:
+                keys:
+                  Escape: popup.close
+                  Enter: popup.close
+                  q: popup.close
+                  Up: "popup.scroll:up"
+                  Down: "popup.scroll:down"
+                body:
+                  - page: popup
 
 pages:
+  # Inline: the tail of the transcript, then the chrome.
+  inline:
+    - tight: true
+    - slot: { id: tail, rows: "{tail.rows}" }
+    - page: chrome
+
+  # Fullscreen: the transcript view, the tail of the turn under it, then the
+  # chrome.
+  fullscreen:
+    - tight: true
+    - slot: { id: transcript, rows: "{transcript.rows}" }
+    - slot: { id: tail, rows: "{tail.rows}" }
+    - page: chrome
+
+  # The pane, the header, the input area and the status, in either screen.
+  chrome:
+    - if: pane.above
+      page: pane
+
+    # The header row, which goes before the rules when the page is too tall.
+    - if: header.shown
+      drop: 2
+      body:
+        - row:
+            - space: 2
+            - sgr: header.on
+            - text: "{header.text}"
+            - text: "{header.elapsed}"
+            - sgr: header.off
+
+    - page: input
+
+    # A short result of a fullscreen session, until the user types.
+    - if: note.shown
+      slot: { id: note, rows: "{note.rows}" }
+
+    # The hint or the completion ribbon, then the status.
+    - if: status.shown
+      drop: 1
+      body:
+        - if: status.completion
+          slot: { id: completion, rows: 1 }
+        - if: status.hint
+          row:
+            - sgr: status.on
+            - text: "{status.hint_text}"
+            - hold: true
+            - sgr: status.off
+        - if: status.row
+          row:
+            - gutter: { mark: status.activity, cols: "{status.gutter}" }
+            - sgr: status.on
+            - text: "{status.text}"
+            - sgr: status.off
+
+    - if: pane.below
+      page: pane
   # The input area, in one mode at a time.
   input:
     - switch: input.mode
@@ -163,6 +204,22 @@ pages:
       markup: pane.grid_source
     - if: pane.slot
       slot: { id: pane, rows: "{pane.rows}" }
+
+  # The popup of a fullscreen session: its heading, then the result.
+  popup:
+    - tight: true
+    - row:
+        - role:
+            name: chrome
+            items:
+              - text: "── {popup.title} "
+        - act: { action: popup.close, text: "[Esc closes]" }
+        - role:
+            name: chrome
+            items:
+              - text: " "
+              - fill: { char: "─" }
+    - slot: { id: popup, rows: "{popup.rows}" }
 
   # A full-width rule in the chrome role, which goes last of the chrome.
   rule:

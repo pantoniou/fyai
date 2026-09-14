@@ -3853,6 +3853,17 @@ static size_t fyai_display_exchange_rows(struct fyai_ctx *ctx,
 	return rows + fyai_flow_sep_rows(&sep);
 }
 
+size_t fyai_display_turn_range_rows(struct fyai_ctx *ctx,
+				    struct fymd_renderer *m,
+				    struct fyai_turn_stack *stack, size_t lo,
+				    size_t hi)
+{
+	if (!ctx || !m || !stack || lo >= hi || hi > stack->count)
+		return 0;
+	return fyai_display_exchange_rows(ctx, m, stack, lo, hi,
+					  SIZE_MAX / 2);
+}
+
 /* Return the transcript screen height. */
 static int display_screen_rows(struct fyai_ctx *ctx)
 {
@@ -3876,6 +3887,38 @@ int fyai_display_repaint(struct fyai_ctx *ctx, int rows)
 	if (rows <= 0)
 		return 0;
 	return fyai_display_recap(ctx, -1, rows) < 0 ? -1 : 0;
+}
+
+int fyai_display_turn_range(struct fyai_ctx *ctx,
+			    struct fyai_turn_stack *stack, size_t lo,
+			    size_t hi, bool after)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_display_args *args = &cfg->cmd.args.display;
+	struct fyai_display_args saved_args = *args;
+	const char *saved_tool_detail = cfg->tool_detail;
+	struct fy_generic_builder_cfg gcfg;
+	struct fy_generic_builder *tgb;
+	/* The rule between exchanges goes before this one when one stood
+	 * before it. */
+	bool emitted = after;
+	int rc = -1;
+
+	if (!stack || lo >= hi || hi > stack->count)
+		return 0;
+	memset(args, 0, sizeof(*args));
+	memset(&gcfg, 0, sizeof(gcfg));
+	gcfg.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED;
+	tgb = fy_generic_builder_create(&gcfg);
+	fyai_error_check(ctx, tgb, out, "could not create replay storage");
+	rc = fyai_display_window(ctx, tgb, stack, lo, hi, &emitted);
+	fyai_error_check(ctx, !rc, out, "could not replay the conversation");
+out:
+	cfg->tool_detail = saved_tool_detail;
+	*args = saved_args;
+	if (tgb)
+		fy_generic_builder_destroy(tgb);
+	return rc;
 }
 
 /* Replay recent exchanges within the count and row limits. */

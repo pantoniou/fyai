@@ -109,9 +109,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define FYAI_MIN_RENDER_COLS 8
 /* Display columns of both, for the layout that has to reserve them. */
 #define FYAI_TOOL_MARKER_WIDTH 3
-/* Default separators (markdown, themed by the renderer). The turn break is a
- * thematic-break rule; tool/section separators are empty (blank line only). */
-#define DEFAULT_TURN_SEPARATOR "---"
+/* Default separators (markdown, themed by the renderer). Every separator is
+ * empty: a blank line, and no rule between exchanges. */
+#define DEFAULT_TURN_SEPARATOR ""
 #define DEFAULT_TOOL_SEPARATOR ""
 #define DEFAULT_SECTION_SEPARATOR ""
 #define DEFAULT_TOOL_GROUP_FENCE 1
@@ -268,6 +268,7 @@ struct fyai_cfg {
 	const char *work_controls;	/* none | zoom | full */
 	const char *renderer;		/* stack | page */
 	const char *page_path;		/* display/page: a page document file */
+	const char *screen;		/* display/screen: inline | fullscreen */
 	bool agent_pty;			/* this sub-agent has a terminal */
 	bool shell_tty;			/* run a shell call on a terminal by default */
 	const char *shell_shell;	/* the shell a call runs under; empty = /bin/sh */
