@@ -3,7 +3,7 @@
 # binding names any value. fyai decides every flag.
 type: object
 additionalProperties: false
-required: [input, ask, tail, pane, header, prompt, status]
+required: [input, ask, screen, tail, transcript, popup, note, pane, header, prompt, status]
 properties:
   input:
     type: object
@@ -35,6 +35,42 @@ properties:
             other: { description: The answer is not selected., type: boolean }
       waiting: { description: Questions after this one., type: integer }
       waiting_shown: { description: Questions wait after this one., type: boolean }
+  screen:
+    type: object
+    additionalProperties: false
+    required: [mode]
+    properties:
+      mode:
+        description: >-
+          Where the page stands: inline under the scrollback, or on the whole
+          alternate screen.
+        type: string
+        enum: [inline, fullscreen]
+  transcript:
+    type: object
+    additionalProperties: false
+    required: [rows]
+    properties:
+      rows: { description: Rows of the transcript view of a fullscreen page., type: integer }
+  popup:
+    type: object
+    additionalProperties: false
+    required: [mode, title, rows]
+    properties:
+      mode:
+        description: >-
+          Whether a popup of a result covers the fullscreen page.
+        type: string
+        enum: [closed, open]
+      title: { description: What the popup shows., type: string }
+      rows: { description: Rows of the popup under its heading., type: integer }
+  note:
+    type: object
+    additionalProperties: false
+    required: [shown, rows]
+    properties:
+      shown: { description: A short result stands above the status., type: boolean }
+      rows: { description: Rows of the short result., type: integer }
   tail:
     type: object
     additionalProperties: false

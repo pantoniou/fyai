@@ -194,13 +194,13 @@ def check_after_script(after_script, snapshot):
     that describes the symptom and not the misspelled step. Worse, a
     dropped step silently changes what the case proves.
     """
-    kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone",
+    kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone", "wait-screen",
              "frame", "drain", "settle", "snapshot", "release")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
             raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
-        if kind in ("send", "wait", "wait-frame", "wait-gone",
+        if kind in ("send", "wait", "wait-frame", "wait-gone", "wait-screen",
                     "release") and not value:
             raise RuntimeError(
                 "FYAI_PTY_AFTER step %r needs a value" % step)
@@ -499,7 +499,13 @@ def main():
             if resize_cols and not progress_needle:
                 fcntl.ioctl(master, termios.TIOCSWINSZ,
                             struct.pack("HHHH", rows, resize_cols, 0, 0))
-        data = read_until_count(master, data, needle, needle_count, deadline)
+        try:
+            data = read_until_count(master, data, needle, needle_count,
+                                    deadline)
+        except RuntimeError as err:
+            # The capture is the evidence of the miss: keep what arrived.
+            data = getattr(err, "partial", data)
+            raise
         action_start = len(data)
         # What the window shows now, rebuilt from the frames completed so
         # far. A step that waits for something to go needs the screen: a
@@ -582,7 +588,7 @@ def main():
                     raise RuntimeError(
                         "PTY output never contained %r; tail=%r" %
                         (needle, data[-2000:]))
-            elif kind in ("wait-gone", "frame"):
+            elif kind in ("wait-gone", "wait-screen", "frame"):
                 # A state the window leaves - a tile giving the keys back -
                 # is said by what is no longer on it, and a key that was
                 # acted on is said by the frames since it. Both are waits
@@ -593,6 +599,10 @@ def main():
                 def reached():
                     if kind == "frame":
                         return data.count(FRAME_END, action_start) >= want
+                    # A screen that repaints only the cells that changed
+                    # sends no whole line to wait for: read the screen.
+                    if kind == "wait-screen":
+                        return any(value in row for row in screen_rows())
                     return not any(value in row for row in screen_rows())
                 step_deadline = time.monotonic() + after_timeout
                 reassert_at = time.monotonic()
@@ -620,8 +630,9 @@ def main():
                             (data.count(FRAME_END, action_start), want,
                              data[-2000:]))
                     raise RuntimeError(
-                        "%r never left the screen; screen=%r" %
-                        (value, [r for r in screen_rows() if r]))
+                        "%r never %s the screen; screen=%r" %
+                        (value, "reached" if kind == "wait-screen" else "left",
+                         [r for r in screen_rows() if r]))
             elif kind == "settle":
                 # Quiescence: return once nothing arrives for the given
                 # seconds. A fixed drain keeps a fast runner waiting and

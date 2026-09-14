@@ -58,6 +58,7 @@ FYAI_TEST_ENTRY(page, chrome_counts_a_question, page_chrome_counts_a_question)
 FYAI_TEST_ENTRY(page, check_walks_every_case, page_check_walks_every_case)
 FYAI_TEST_ENTRY(page, load_takes_the_embedded_document, page_load_takes_the_embedded_document)
 FYAI_TEST_ENTRY(page, load_says_why, page_load_says_why)
+FYAI_TEST_ENTRY(page, fullscreen_takes_the_transcript, page_fullscreen_takes_the_transcript)
 
 #ifdef FYAI_UI_PAGE
 
@@ -1050,6 +1051,8 @@ static const struct fyai_page_action page_test_ask_actions[] = {
 	{ "ask.choose", page_test_ask_noop },
 	{ "ask.accept", page_test_ask_noop },
 	{ "ask.dismiss", page_test_ask_noop },
+	{ "popup.close", page_test_ask_noop },
+	{ "popup.scroll", page_test_ask_noop },
 };
 
 /* The chrome of the page counts the rows a question takes as the document
@@ -1200,6 +1203,55 @@ static int page_load_takes_the_embedded_document_run(void)
 	return 0;
 }
 
+/* A fullscreen page shows the transcript view over the tail, in the rows the
+ * chrome, the pane and the tail leave it, and its state matches the schema. */
+static int page_fullscreen_takes_the_transcript_run(void)
+{
+	struct fyai_page_state full = page_state(), inl = page_state();
+	struct response_buffer src = {0};
+	struct fy_generic_builder *gb = page_test_builder();
+	fy_generic schema, report;
+	char *problems;
+
+	FYAI_TCHECK(gb != NULL);
+	full.fullscreen = true;
+	full.tail_rows = 2;
+	full.pane_rows = 3;
+	fyai_page_fit(&full, 20);
+	FYAI_TCHECK(full.tail_rows == 2);
+	FYAI_TCHECK(full.pane_rows == 3);
+	FYAI_TCHECK(full.transcript_rows ==
+		    20 - fyai_page_chrome_rows(&full) - 3 - 2);
+	FYAI_TCHECK(!fyai_page_source(&full, &src));
+	/* The tail of the turn stands under the transcript view. */
+	FYAI_TCHECK(src.data && strstr(src.data, "<fy-slot id=\"transcript\""));
+	FYAI_TCHECK(strstr(src.data, "<fy-slot id=\"tail\"") >
+		    strstr(src.data, "<fy-slot id=\"transcript\""));
+	free(src.data);
+	memset(&src, 0, sizeof(src));
+
+	inl.tail_rows = 2;
+	fyai_page_fit(&inl, 20);
+	FYAI_TCHECK(inl.tail_rows == 2 && inl.transcript_rows == 0);
+	FYAI_TCHECK(!fyai_page_source(&inl, &src));
+	FYAI_TCHECK(src.data && strstr(src.data, "<fy-slot id=\"tail\""));
+	FYAI_TCHECK(!strstr(src.data, "id=\"transcript\""));
+	free(src.data);
+
+	schema = page_yaml_n(gb, (const char *)FYAI_EMBEDDED_PAGE_STATE_SCHEMA,
+			     FYAI_EMBEDDED_PAGE_STATE_SCHEMA_LEN);
+	report = fyai_schema_validate(gb, schema,
+				      fyai_page_state_generic(gb, &full));
+	if (!fyai_schema_valid(report)) {
+		problems = fyai_schema_report_string(report);
+		fprintf(stderr, "  %s\n", problems ? problems : "");
+		free(problems);
+	}
+	FYAI_TCHECK(fyai_schema_valid(report));
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
 /* A file that does not load is rejected with a reason that names it. */
 static int page_load_says_why_run(void)
 {
@@ -1330,6 +1382,11 @@ int page_load_takes_the_embedded_document(void)
 int page_load_says_why(void)
 {
 	return page_load_says_why_run();
+}
+
+int page_fullscreen_takes_the_transcript(void)
+{
+	return page_fullscreen_takes_the_transcript_run();
 }
 
 /* The page draws a screen and a tile of text itself: their slots bind no
@@ -1499,6 +1556,11 @@ int page_load_takes_the_embedded_document(void)
 }
 
 int page_load_says_why(void)
+{
+	return 0;
+}
+
+int page_fullscreen_takes_the_transcript(void)
 {
 	return 0;
 }
