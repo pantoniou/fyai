@@ -1,0 +1,90 @@
+# The state that fyai gives the page document, data/page.yaml, for each frame.
+# An `if` of the document names a boolean, a `switch` names a string, and a
+# binding names any value. fyai decides every flag.
+type: object
+additionalProperties: false
+required: [input, ask, tail, pane, header, prompt, status]
+properties:
+  input:
+    type: object
+    additionalProperties: false
+    required: [mode]
+    properties:
+      mode:
+        description: The mode of the input area.
+        type: string
+        enum: [prompt, ask, ask_text]
+  ask:
+    type: object
+    additionalProperties: false
+    required: [question, from, from_agent, options, waiting, waiting_shown]
+    properties:
+      question: { description: The question to the user., type: string }
+      from: { description: The sub-agent that asks., type: string }
+      from_agent: { description: A sub-agent asks., type: boolean }
+      options:
+        description: The answers that are offered.
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [text, selected, other]
+          properties:
+            text: { description: The answer., type: string }
+            selected: { description: The answer is selected., type: boolean }
+            other: { description: The answer is not selected., type: boolean }
+      waiting: { description: Questions after this one., type: integer }
+      waiting_shown: { description: Questions wait after this one., type: boolean }
+  tail:
+    type: object
+    additionalProperties: false
+    required: [rows]
+    properties:
+      rows: { description: Rows of the transcript tail., type: integer }
+  pane:
+    type: object
+    additionalProperties: false
+    required: [above, below, cap, cap_source, grid, grid_source, slot, rows]
+    properties:
+      above: { description: The pane stands above the prompt., type: boolean }
+      below: { description: The pane stands below the prompt., type: boolean }
+      cap: { description: The pane has a cap row., type: boolean }
+      cap_source: { description: UI Markdown of the cap row that fyai wrote., type: string }
+      grid: { description: The pane is a grid that fyai wrote., type: boolean }
+      grid_source: { description: UI Markdown of the grid that fyai wrote., type: string }
+      slot: { description: The pane is one slot., type: boolean }
+      rows: { description: Rows of the pane., type: integer }
+  header:
+    type: object
+    additionalProperties: false
+    required: [shown, text, elapsed, "on", "off"]
+    properties:
+      shown: { description: The header row is shown., type: boolean }
+      text: { description: Text of the header., type: string }
+      elapsed: { description: Time of the running turn., type: string }
+      "on": { description: SGR of the theme before the header., type: string }
+      "off": { description: SGR of the theme after the header., type: string }
+  prompt:
+    type: object
+    additionalProperties: false
+    required: [card, rules, rows, card_rows]
+    properties:
+      card: { description: The prompt stands on a card., type: boolean }
+      rules: { description: The prompt stands between two rules., type: boolean }
+      rows: { description: Rows of the prompt., type: integer }
+      card_rows: { description: Rows of the card with its prompt., type: integer }
+  status:
+    type: object
+    additionalProperties: false
+    required: [shown, completion, hint, hint_text, row, text, activity, gutter, "on", "off"]
+    properties:
+      shown: { description: The status rows are shown., type: boolean }
+      completion: { description: The completion ribbon is shown., type: boolean }
+      hint: { description: The hint row is shown., type: boolean }
+      hint_text: { description: Text of the hint., type: string }
+      row: { description: The status row is shown., type: boolean }
+      text: { description: Text of the status., type: string }
+      activity: { description: The activity mark of the status., type: string }
+      gutter: { description: Columns of the status gutter., type: integer }
+      "on": { description: SGR of the theme before the status., type: string }
+      "off": { description: SGR of the theme after the status., type: string }

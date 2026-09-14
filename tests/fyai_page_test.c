@@ -12,12 +12,16 @@
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <libfymd4c.h>
 
 #include "fyai.h"
+#include "fyai_config.h"
+#include "fyai_schema.h"
 #include "fyai_test.h"
 #include "fyai_page.h"
 #include "fyai_markdown.h"
@@ -43,6 +47,24 @@ FYAI_TEST_ENTRY(page, grid_shares_the_height, page_grid_shares_the_height)
 FYAI_TEST_ENTRY(page, grid_fits_and_spans, page_grid_fits_and_spans)
 FYAI_TEST_ENTRY(page, grid_stands_heads_level, page_grid_stands_heads_level)
 FYAI_TEST_ENTRY(page, grid_names_what_the_page_draws, page_grid_names_what_the_page_draws)
+FYAI_TEST_ENTRY(page, source_matches_golden, page_source_matches_golden)
+FYAI_TEST_ENTRY(page, transcribe_switches_modes, page_transcribe_switches_modes)
+FYAI_TEST_ENTRY(page, transcribe_repeats_items, page_transcribe_repeats_items)
+FYAI_TEST_ENTRY(page, transcribe_writes_acts, page_transcribe_writes_acts)
+FYAI_TEST_ENTRY(page, transcribe_checks_keys, page_transcribe_checks_keys)
+FYAI_TEST_ENTRY(page, state_matches_schema, page_state_matches_schema)
+FYAI_TEST_ENTRY(page, keys_take_arguments, page_keys_take_arguments)
+FYAI_TEST_ENTRY(page, chrome_counts_a_question, page_chrome_counts_a_question)
+FYAI_TEST_ENTRY(page, check_walks_every_case, page_check_walks_every_case)
+FYAI_TEST_ENTRY(page, load_takes_the_embedded_document, page_load_takes_the_embedded_document)
+FYAI_TEST_ENTRY(page, load_says_why, page_load_says_why)
+
+/* The recorded page sources of the golden matrix. */
+#include "embedded_page_golden.inc"
+/* The schema of the state of the page document. */
+#include "embedded_page_state_schema.inc"
+/* The embedded page document, which a file of display/page replaces. */
+#include "embedded_page.inc"
 
 static struct fyai_page_state page_state(void)
 {
@@ -53,6 +75,77 @@ static struct fyai_page_state page_state(void)
 	st.status = "STATUSMARK";
 	st.prompt_rows = 1;
 	return st;
+}
+
+/* One value of @n for field @k of golden case @i: a mix of both, so that the
+ * fields of a case do not follow one another. */
+static unsigned page_golden_pick(unsigned i, unsigned k, unsigned n)
+{
+	uint64_t z = (((uint64_t)i << 8) | k) + 0x9e3779b97f4a7c15ull;
+
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+	z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+	z ^= z >> 31;
+	return (unsigned)(z % n);
+}
+
+/* The state of golden case @i. Each field takes its own value, so every
+ * value meets many others over the cases. */
+static void page_golden_state(unsigned i, struct fyai_page_state *st)
+{
+	static const char *const hints[] = { NULL, "HINT <b>x</b>", "  " };
+	static const char *const statuses[] = { NULL, "  STATUS\nline" };
+	static const char *const headers[] = { NULL, "HEAD <fy-act id=\"x\">y</fy-act>" };
+	static const char *const elapsed[] = { NULL, " 4s" };
+	static const char *const acts[] = { NULL, "\x1b[33m*\x1b[0m", "**" };
+	static const int gutters[] = { 0, 1, 3 };
+	static const char *const caps[] = { NULL, "CAP <fy-fill/>" };
+	static const char *const sources[] = {
+		NULL, "<fy-grid rows=\"3\" cols=\"*\">\n</fy-grid>\n\n",
+	};
+
+	memset(st, 0, sizeof(*st));
+	st->prompt_rows = (int)page_golden_pick(i, 0, 3);
+	st->prompt_card = page_golden_pick(i, 1, 2);
+	st->completion = page_golden_pick(i, 2, 2);
+	st->hint = hints[page_golden_pick(i, 3, 3)];
+	st->status = statuses[page_golden_pick(i, 4, 2)];
+	st->header = headers[page_golden_pick(i, 5, 2)];
+	st->elapsed = elapsed[page_golden_pick(i, 6, 2)];
+	st->activity = acts[page_golden_pick(i, 7, 3)];
+	st->gutter_cols = gutters[page_golden_pick(i, 8, 3)];
+	if (page_golden_pick(i, 9, 2)) {
+		st->header_on = "\x1b[1m";
+		st->header_off = "\x1b[22m";
+		st->status_on = "\x1b[2m";
+		st->status_off = "\x1b[22m";
+	}
+	st->tail_rows = page_golden_pick(i, 10, 2) ? 2 : 0;
+	st->pane_rows = page_golden_pick(i, 11, 2) ? 3 : 0;
+	st->pane_below = page_golden_pick(i, 12, 2);
+	st->cap = caps[page_golden_pick(i, 13, 2)];
+	st->pane_source = sources[page_golden_pick(i, 14, 2)];
+}
+
+#define PAGE_GOLDEN_CASES 600
+
+/* The sources of every golden case, one after another. */
+static int page_golden_sources(struct response_buffer *all)
+{
+	struct fyai_page_state st;
+	char head[48];
+	unsigned i;
+
+	for (i = 0; i < PAGE_GOLDEN_CASES; i++) {
+		page_golden_state(i, &st);
+		snprintf(head, sizeof(head), "=== case %u\n", i);
+		if (response_buffer_append(all, head) ||
+		    fyai_page_source(&st, all) ||
+		    response_buffer_append(all, "\n"))
+			return -1;
+	}
+	/* The file ends on a line of text, not on the blank line of a source. */
+	return response_buffer_append(all, "=== end\n");
 }
 
 static const char *after(const char *hay, const char *needle)
@@ -680,6 +773,561 @@ static int page_grid_stands_heads_level_run(void)
 int page_grid_stands_heads_level(void)
 {
 	return page_grid_stands_heads_level_run();
+}
+
+/* A generic of the @len bytes of @yaml, in @gb. */
+static fy_generic page_yaml_n(struct fy_generic_builder *gb, const char *yaml,
+			      size_t len)
+{
+	fy_generic_sized_string s;
+
+	s.data = yaml;
+	s.size = len;
+	return fy_parse(gb, s, FYAI_YAML_PARSE_FLAGS | FYOPPF_INPUT_TYPE_STRING,
+			NULL);
+}
+
+static fy_generic page_yaml(struct fy_generic_builder *gb, const char *yaml)
+{
+	return page_yaml_n(gb, yaml, strlen(yaml));
+}
+
+static struct fy_generic_builder *page_test_builder(void)
+{
+	struct fy_generic_builder_cfg cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+
+	return fy_generic_builder_create(&cfg);
+}
+
+static void page_test_noop(struct fyai_ctx *ctx, const char *arg)
+{
+	(void)ctx;
+	(void)arg;
+}
+
+/* The actions a test document may name. */
+static const struct fyai_page_action page_test_actions[] = {
+	{ "pick.next", page_test_noop },
+	{ "pick.accept", page_test_noop },
+	{ "pick.choose", page_test_noop },
+};
+
+#define PAGE_TEST_NACTIONS \
+	(sizeof(page_test_actions) / sizeof(page_test_actions[0]))
+
+/* The Markdown of @doc with @state, or NULL when it does not transcribe. */
+static char *page_test_transcribe(struct fy_generic_builder *gb,
+				  const char *doc, const char *state,
+				  struct fyai_page_keys *keys)
+{
+	struct response_buffer out = {0};
+
+	if (fyai_page_transcribe(NULL, page_yaml(gb, doc), page_yaml(gb, state),
+				 page_test_actions, PAGE_TEST_NACTIONS, &out,
+				 keys)) {
+		free(out.data);
+		return NULL;
+	}
+	if (!out.data)
+		return strdup("");
+	return out.data;
+}
+
+/* A switch writes the case its mode names, and binds the keys of that case
+ * only. A mode that names no case writes nothing. */
+static int page_transcribe_switches_modes_run(void)
+{
+	static const char doc[] =
+		"page:\n"
+		"  - switch: mode\n"
+		"    cases:\n"
+		"      a:\n"
+		"        keys: { Up: pick.next }\n"
+		"        body:\n"
+		"          - row: [ { text: A } ]\n"
+		"      b:\n"
+		"        keys: { Enter: pick.accept, Down: pick.next }\n"
+		"        body:\n"
+		"          - row: [ { text: B } ]\n";
+	struct fy_generic_builder *gb = page_test_builder();
+	struct fyai_page_keys keys;
+	char *out;
+
+	FYAI_TCHECK(gb != NULL);
+	out = page_test_transcribe(gb, doc, "mode: b\n", &keys);
+	FYAI_TCHECK(out != NULL && !strcmp(out, "B\n\n"));
+	FYAI_TCHECK(keys.count == 2);
+	FYAI_TCHECK(!strcmp(keys.key[0].name, "Enter") &&
+		    !strcmp(keys.key[0].action, "pick.accept"));
+	FYAI_TCHECK(!strcmp(keys.key[1].name, "Down") &&
+		    !strcmp(keys.key[1].action, "pick.next"));
+	free(out);
+
+	out = page_test_transcribe(gb, doc, "mode: zzz\n", &keys);
+	FYAI_TCHECK(out != NULL && !*out && keys.count == 0);
+	free(out);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* An each writes its body for each item: a name is the item's first, then the
+ * state's, and {index} and {number} are its position. */
+static int page_transcribe_repeats_items_run(void)
+{
+	static const char doc[] =
+		"page:\n"
+		"  - each: items\n"
+		"    body:\n"
+		"      - row: [ { text: \"{number}. {name} of {title} ({index})\" } ]\n";
+	struct fy_generic_builder *gb = page_test_builder();
+	char *out;
+
+	FYAI_TCHECK(gb != NULL);
+	out = page_test_transcribe(gb, doc,
+		"title: T\n"
+		"items:\n"
+		"  - { name: a }\n"
+		"  - { name: b, title: U }\n", NULL);
+	FYAI_TCHECK(out != NULL && !strcmp(out, "1. a of T (0)\n\n2. b of U (1)\n\n"));
+	free(out);
+
+	/* an empty list, or none, writes nothing */
+	out = page_test_transcribe(gb, doc, "title: T\nitems: []\n", NULL);
+	FYAI_TCHECK(out != NULL && !*out);
+	free(out);
+	out = page_test_transcribe(gb, doc, "title: T\n", NULL);
+	FYAI_TCHECK(out != NULL && !*out);
+	free(out);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* An act names an action of the page with its argument, and its text is
+ * escaped; an unknown action or an argument that is no id does not
+ * transcribe. */
+static int page_transcribe_writes_acts_run(void)
+{
+	static const char doc[] =
+		"page:\n"
+		"  - each: options\n"
+		"    body:\n"
+		"      - row: [ { act: { action: pick.choose, arg: \"{index}\", text: \"{text}\" } } ]\n";
+	static const char state[] =
+		"options:\n"
+		"  - { text: one }\n"
+		"  - { text: \"<fy-slot id=\\\"x\\\"/>\" }\n";
+	struct fy_generic_builder *gb = page_test_builder();
+	char *out;
+
+	FYAI_TCHECK(gb != NULL);
+	out = page_test_transcribe(gb, doc, state, NULL);
+	FYAI_TCHECK(out != NULL);
+	FYAI_TCHECK(strstr(out, "<fy-act id=\"pick.choose:0\">one</fy-act>\n\n") != NULL);
+	FYAI_TCHECK(strstr(out, "<fy-act id=\"pick.choose:1\">&lt;fy-slot") != NULL);
+	FYAI_TCHECK(!strstr(out, "<fy-slot"));
+	free(out);
+
+	out = page_test_transcribe(gb,
+		"page:\n  - row: [ { act: { action: nope, text: x } } ]\n",
+		"a: 1\n", NULL);
+	FYAI_TCHECK(out == NULL);
+	out = page_test_transcribe(gb,
+		"page:\n  - row: [ { act: { action: pick.next, arg: \"a b\", text: x } } ]\n",
+		"a: 1\n", NULL);
+	FYAI_TCHECK(out == NULL);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A key that fyai keeps, or that names no action, does not transcribe. A case
+ * that is not transcribed binds nothing, and is not checked. */
+static int page_transcribe_checks_keys_run(void)
+{
+	static const char *const bad[] = {
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { \"Ctrl-]\": pick.next }\n        body: []\n",
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { Ctrl-T: pick.next }\n        body: []\n",
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { Up: nope }\n        body: []\n",
+	};
+	struct fy_generic_builder *gb = page_test_builder();
+	struct fyai_page_keys keys;
+	char *out;
+	size_t i;
+
+	FYAI_TCHECK(gb != NULL);
+	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+		FYAI_TCHECK(page_test_transcribe(gb, bad[i], "mode: a\n",
+						 &keys) == NULL);
+	out = page_test_transcribe(gb, bad[0], "mode: b\n", &keys);
+	FYAI_TCHECK(out != NULL && keys.count == 0);
+	free(out);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* The state fyai builds is the one its schema describes, for every state of
+ * the golden matrix; a state of another shape is refused. */
+static int page_state_matches_schema_run(void)
+{
+	struct fy_generic_builder *gb = page_test_builder();
+	struct fyai_page_state st;
+	fy_generic schema, report;
+	char *problems;
+	unsigned i;
+
+	FYAI_TCHECK(gb != NULL);
+	schema = page_yaml_n(gb, (const char *)FYAI_EMBEDDED_PAGE_STATE_SCHEMA,
+			     FYAI_EMBEDDED_PAGE_STATE_SCHEMA_LEN);
+	FYAI_TCHECK(fy_is_mapping(schema));
+	for (i = 0; i < PAGE_GOLDEN_CASES; i++) {
+		page_golden_state(i, &st);
+		report = fyai_schema_validate(gb, schema,
+					      fyai_page_state_generic(gb, &st));
+		if (!fyai_schema_valid(report)) {
+			problems = fyai_schema_report_string(report);
+			fprintf(stderr, "case %u: %s\n", i,
+				problems ? problems : "");
+			free(problems);
+		}
+		FYAI_TCHECK(fyai_schema_valid(report));
+	}
+	report = fyai_schema_validate(gb, schema,
+				      page_yaml(gb, "input: { mode: 3 }\n"));
+	FYAI_TCHECK(!fyai_schema_valid(report));
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A key can give its action an argument; an argument that is empty or no id,
+ * or an action that is not there, does not transcribe. */
+static int page_keys_take_arguments_run(void)
+{
+	static const char good[] =
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { \"1\": \"pick.choose:1\" }\n        body: []\n";
+	static const char *const bad[] = {
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { \"1\": \"pick.choose:\" }\n        body: []\n",
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { \"1\": \"pick.choose:a b\" }\n        body: []\n",
+		"page:\n  - switch: mode\n    cases:\n      a:\n"
+		"        keys: { \"1\": \"nope:1\" }\n        body: []\n",
+	};
+	struct fy_generic_builder *gb = page_test_builder();
+	struct fyai_page_keys keys;
+	char *out;
+	size_t i;
+
+	FYAI_TCHECK(gb != NULL);
+	out = page_test_transcribe(gb, good, "mode: a\n", &keys);
+	FYAI_TCHECK(out != NULL && keys.count == 1 &&
+		    !strcmp(keys.key[0].name, "1") &&
+		    !strcmp(keys.key[0].action, "pick.choose:1"));
+	free(out);
+	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+		FYAI_TCHECK(page_test_transcribe(gb, bad[i], "mode: a\n",
+						 &keys) == NULL);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+static void page_test_ask_noop(struct fyai_ctx *ctx, const char *arg)
+{
+	(void)ctx;
+	(void)arg;
+}
+
+/* The actions the page document names for a question. */
+static const struct fyai_page_action page_test_ask_actions[] = {
+	{ "ask.prev", page_test_ask_noop },
+	{ "ask.next", page_test_ask_noop },
+	{ "ask.choose", page_test_ask_noop },
+	{ "ask.accept", page_test_ask_noop },
+	{ "ask.dismiss", page_test_ask_noop },
+};
+
+/* The chrome of the page counts the rows a question takes as the document
+ * draws them, so a page with a question fits as one without. */
+static int page_chrome_counts_a_question_run(void)
+{
+	static const char *const options[] = { "yes", "no", "maybe" };
+	struct fyai_page_state plain = page_state(), asked;
+	struct fymd_renderer *r;
+	int plain_rows, asked_rows;
+	char *out;
+
+	plain.actions = page_test_ask_actions;
+	plain.nactions = sizeof(page_test_ask_actions) /
+			 sizeof(page_test_ask_actions[0]);
+	asked = plain;
+	asked.input_mode = "ask";
+	asked.ask_question = "Proceed?";
+	asked.ask_from = "main/agent:asker";
+	asked.ask_options = options;
+	asked.ask_noptions = 3;
+	asked.ask_selected = 1;
+
+	out = page_render(&plain, 0, &r);
+	plain_rows = rows_of(out);
+	fymd_free(out);
+	fymd_renderer_destroy(r);
+	out = page_render(&asked, 0, &r);
+	asked_rows = rows_of(out);
+	FYAI_TCHECK(strstr(out, "Proceed?") && strstr(out, "asked by main/agent:asker"));
+	FYAI_TCHECK(strstr(out, "2. no") && strstr(out, "or type an answer"));
+	FYAI_TCHECK(region(r, "ask.choose:3") != NULL);
+	fymd_free(out);
+	fymd_renderer_destroy(r);
+
+	FYAI_TCHECK(asked_rows - plain_rows ==
+		    fyai_page_chrome_rows(&asked) - fyai_page_chrome_rows(&plain));
+	FYAI_TCHECK(fyai_page_chrome_rows(&asked) - fyai_page_chrome_rows(&plain) ==
+		    2 + 1 + 3);
+	return 0;
+}
+
+/* Write the @len bytes of @text to a new file, whose name goes to @path. */
+static int page_test_file(const char *text, size_t len, char *path,
+			  size_t size)
+{
+	const char *tmp = getenv("TMPDIR");
+	ssize_t n;
+	int fd;
+
+	snprintf(path, size, "%s/fyai-page-test-XXXXXX",
+		 tmp && *tmp ? tmp : "/tmp");
+	fd = mkstemp(path);
+	if (fd < 0)
+		return -1;
+	n = write(fd, text, len);
+	close(fd);
+	if (n < 0 || (size_t)n != len) {
+		unlink(path);
+		return -1;
+	}
+	return 0;
+}
+
+/* A frame transcribes what its state shows; a check walks every case, every
+ * flagged node and every each, and says what does not transcribe. */
+static int page_check_walks_every_case_run(void)
+{
+	static const char cases[] =
+		"page:\n"
+		"  - switch: mode\n"
+		"    cases:\n"
+		"      a:\n"
+		"        body:\n"
+		"          - row: [ { text: A } ]\n"
+		"      b:\n"
+		"        keys: { x: nope }\n";
+	static const char good[] =
+		"page:\n"
+		"  - switch: mode\n"
+		"    cases:\n"
+		"      a:\n"
+		"        body:\n"
+		"          - row: [ { text: A } ]\n"
+		"      b:\n"
+		"        keys: { x: pick.next }\n";
+	static const char flagged[] =
+		"page:\n"
+		"  - if: never\n"
+		"    row: [ { act: { action: ghost, text: G } } ]\n";
+	static const char paged[] =
+		"page:\n"
+		"  - each: items\n"
+		"    body:\n"
+		"      - page: missing\n";
+	struct fy_generic_builder *gb = page_test_builder();
+	char why[256], *out;
+
+	FYAI_TCHECK(gb != NULL);
+	out = page_test_transcribe(gb, cases, "mode: a\n", NULL);
+	FYAI_TCHECK(out && strstr(out, "A"));
+	free(out);
+	FYAI_TCHECK(fyai_page_check(page_yaml(gb, cases), page_test_actions,
+				    PAGE_TEST_NACTIONS, why, sizeof(why)) == -1);
+	FYAI_TCHECK(strstr(why, "nope") != NULL);
+	FYAI_TCHECK(fyai_page_check(page_yaml(gb, good), page_test_actions,
+				    PAGE_TEST_NACTIONS, why, sizeof(why)) == 0);
+	FYAI_TCHECK(why[0] == '\0');
+
+	out = page_test_transcribe(gb, flagged, "{}\n", NULL);
+	FYAI_TCHECK(out != NULL);
+	free(out);
+	FYAI_TCHECK(fyai_page_check(page_yaml(gb, flagged), page_test_actions,
+				    PAGE_TEST_NACTIONS, why, sizeof(why)) == -1);
+	FYAI_TCHECK(strstr(why, "ghost") != NULL);
+
+	out = page_test_transcribe(gb, paged, "{}\n", NULL);
+	FYAI_TCHECK(out != NULL);
+	free(out);
+	FYAI_TCHECK(fyai_page_check(page_yaml(gb, paged), page_test_actions,
+				    PAGE_TEST_NACTIONS, why, sizeof(why)) == -1);
+	FYAI_TCHECK(strstr(why, "missing") != NULL);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* The embedded document matches the page schema and names only the actions of
+ * the input area, so a file that holds it loads. */
+static int page_load_takes_the_embedded_document_run(void)
+{
+	struct fy_generic_builder *gb = page_test_builder();
+	char path[256], why[1024];
+	fy_generic doc;
+
+	FYAI_TCHECK(gb != NULL);
+	FYAI_TCHECK(!page_test_file((const char *)FYAI_EMBEDDED_PAGE,
+				    FYAI_EMBEDDED_PAGE_LEN, path, sizeof(path)));
+	doc = fyai_page_load(gb, path, page_test_ask_actions,
+			     sizeof(page_test_ask_actions) /
+			     sizeof(page_test_ask_actions[0]),
+			     why, sizeof(why));
+	unlink(path);
+	if (!fy_is_mapping(doc))
+		fprintf(stderr, "  %s\n", why);
+	FYAI_TCHECK(fy_is_mapping(doc));
+	FYAI_TCHECK(why[0] == '\0');
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A file that does not load is rejected with a reason that names it. */
+static int page_load_says_why_run(void)
+{
+	static const struct {
+		const char *text;
+		const char *why;
+	} files[] = {
+		{ "- a list\n", "does not hold a YAML mapping" },
+		{ "page:\n  - bogus: 1\n", "does not match the page schema" },
+		{ "page:\n  - row: [ { act: { action: ghost, text: G } } ]\n",
+		  "unknown action 'ghost'" },
+	};
+	struct fy_generic_builder *gb = page_test_builder();
+	char path[256], why[1024];
+	fy_generic doc;
+	size_t i;
+
+	FYAI_TCHECK(gb != NULL);
+	for (i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+		FYAI_TCHECK(!page_test_file(files[i].text, strlen(files[i].text),
+					    path, sizeof(path)));
+		doc = fyai_page_load(gb, path, page_test_actions,
+				     PAGE_TEST_NACTIONS, why, sizeof(why));
+		unlink(path);
+		FYAI_TCHECK(fy_is_invalid(doc));
+		FYAI_TCHECK(strstr(why, files[i].why) != NULL);
+		FYAI_TCHECK(strstr(why, path) != NULL);
+	}
+	doc = fyai_page_load(gb, "/nonexistent/fyai-page.yaml",
+			     page_test_actions, PAGE_TEST_NACTIONS, why,
+			     sizeof(why));
+	FYAI_TCHECK(fy_is_invalid(doc));
+	FYAI_TCHECK(strstr(why, "cannot read /nonexistent/fyai-page.yaml") !=
+		    NULL);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* The page source of a matrix of states is the one recorded. Set
+ * FYAI_PAGE_GOLDEN_WRITE to a path to record the sources again. */
+static int page_source_matches_golden_run(void)
+{
+	const char *golden = (const char *)FYAI_EMBEDDED_PAGE_GOLDEN;
+	const char *path = getenv("FYAI_PAGE_GOLDEN_WRITE");
+	struct response_buffer all = {0};
+	size_t i, n, head;
+	FILE *fp;
+
+	FYAI_TCHECK(!page_golden_sources(&all));
+	if (path) {
+		fp = fopen(path, "wb");
+		FYAI_TCHECK(fp != NULL);
+		if (fp) {
+			FYAI_TCHECK(fwrite(all.data, 1, all.len, fp) == all.len);
+			fclose(fp);
+		}
+		free(all.data);
+		return 0;
+	}
+	/* Name the first case that differs. */
+	n = all.len < FYAI_EMBEDDED_PAGE_GOLDEN_LEN ?
+	    all.len : FYAI_EMBEDDED_PAGE_GOLDEN_LEN;
+	for (i = 0; i < n && all.data[i] == golden[i]; i++)
+		;
+	if (i < n || all.len != FYAI_EMBEDDED_PAGE_GOLDEN_LEN) {
+		for (head = i; head > 0 &&
+		     strncmp(all.data + head, "=== case ", 9); head--)
+			;
+		fprintf(stderr, "page source differs from the golden at byte %zu, "
+			"in \"%.16s\"\n", i, all.data + head);
+	}
+	FYAI_TCHECK(all.len == FYAI_EMBEDDED_PAGE_GOLDEN_LEN &&
+		    !memcmp(all.data, golden, all.len));
+	free(all.data);
+	return 0;
+}
+
+int page_source_matches_golden(void)
+{
+	return page_source_matches_golden_run();
+}
+
+int page_transcribe_switches_modes(void)
+{
+	return page_transcribe_switches_modes_run();
+}
+
+int page_transcribe_repeats_items(void)
+{
+	return page_transcribe_repeats_items_run();
+}
+
+int page_transcribe_writes_acts(void)
+{
+	return page_transcribe_writes_acts_run();
+}
+
+int page_transcribe_checks_keys(void)
+{
+	return page_transcribe_checks_keys_run();
+}
+
+int page_state_matches_schema(void)
+{
+	return page_state_matches_schema_run();
+}
+
+int page_keys_take_arguments(void)
+{
+	return page_keys_take_arguments_run();
+}
+
+int page_chrome_counts_a_question(void)
+{
+	return page_chrome_counts_a_question_run();
+}
+
+int page_check_walks_every_case(void)
+{
+	return page_check_walks_every_case_run();
+}
+
+int page_load_takes_the_embedded_document(void)
+{
+	return page_load_takes_the_embedded_document_run();
+}
+
+int page_load_says_why(void)
+{
+	return page_load_says_why_run();
 }
 
 /* The page draws a screen and a tile of text itself: their slots bind no
