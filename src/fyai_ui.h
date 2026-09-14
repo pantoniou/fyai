@@ -59,6 +59,30 @@ void fyai_ui_repaint(struct fyai_ctx *ctx);
 /* The caller owns the draft copy. Editing remains in the terminal library. */
 char *fyai_ui_input_copy(struct fyai_ctx *ctx);
 void fyai_ui_input_set(struct fyai_ctx *ctx, const char *text);
+
+/* Called once with the answer to a question, or with NULL when the user gave
+ * none. The answer is valid for the call. */
+typedef void (*fyai_ui_ask_fn)(void *user, const char *answer);
+/* Whether the input area can put a question to the user: the page renderer
+ * draws it. */
+bool fyai_ui_ask_available(struct fyai_ctx *ctx);
+
+/*
+ * Report the page of the live screen as a notice: its document, and the
+ * state, source and regions of the last frame.
+ */
+int fyai_ui_page_report(struct fyai_ctx *ctx);
+/*
+ * Put @question to the user in the input area, after the questions before it.
+ * @from names the sub-agent that asks, or is NULL, and the @n @options are
+ * offered. @done is called once, from the event loop, with @user. Returns 0,
+ * or -1 after it reported why the question cannot be put.
+ */
+int fyai_ui_ask(struct fyai_ctx *ctx, const char *question, const char *from,
+		const char *const *options, size_t n, fyai_ui_ask_fn done,
+		void *user);
+/* Take back the questions of @user without an answer: nobody waits for them. */
+void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user);
 /* An interrupt reached the session (Escape, or SIGINT from ^C). Discards a
  * half-typed line on an idle prompt, ends the session when there is nothing to
  * discard, and cancels the turn while busy. */

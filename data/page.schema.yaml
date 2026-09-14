@@ -1,0 +1,186 @@
+# The schema of a page document, data/page.yaml or the file that display/page
+# names. It states the shape of the document: its nodes and the items of a row.
+# What the shape cannot state - that an act or a key names an action, that a
+# page is in pages, that a key is not reserved - fyai checks when it loads the
+# document, for every case of every switch.
+$schema: "https://json-schema.org/draft/2020-12/schema"
+type: object
+required: [page]
+additionalProperties: false
+properties:
+  page:
+    $ref: "#/$defs/nodes"
+  pages:
+    type: object
+    additionalProperties:
+      $ref: "#/$defs/nodes"
+
+$defs:
+  flag:
+    type: string
+    minLength: 1
+  number:
+    anyOf:
+      - type: integer
+      - type: string
+  text:
+    type: string
+
+  nodes:
+    type: array
+    items:
+      $ref: "#/$defs/node"
+
+  node:
+    anyOf:
+      - type: object
+        required: [tight]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          tight: { type: boolean }
+      - type: object
+        required: [slot]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          slot:
+            type: object
+            required: [id]
+            additionalProperties: false
+            properties:
+              id: { type: string, minLength: 1 }
+              rows: { $ref: "#/$defs/number" }
+      - type: object
+        required: [switch, cases]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          switch: { $ref: "#/$defs/flag" }
+          cases:
+            type: object
+            additionalProperties:
+              type: object
+              additionalProperties: false
+              properties:
+                keys:
+                  type: object
+                  additionalProperties: { type: string, minLength: 1 }
+                body: { $ref: "#/$defs/nodes" }
+      - type: object
+        required: [each, body]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          each: { $ref: "#/$defs/flag" }
+          body: { $ref: "#/$defs/nodes" }
+      - type: object
+        required: [drop, body]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          drop: { $ref: "#/$defs/number" }
+          body: { $ref: "#/$defs/nodes" }
+      - type: object
+        required: [page]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          page: { type: string, minLength: 1 }
+      - type: object
+        required: [markup]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          markup: { $ref: "#/$defs/flag" }
+      - type: object
+        required: [row]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          row: { $ref: "#/$defs/items" }
+
+  items:
+    type: array
+    items:
+      $ref: "#/$defs/item"
+
+  item:
+    anyOf:
+      - type: object
+        required: [text]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          text: { $ref: "#/$defs/text" }
+      - type: object
+        required: [space]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          space: { $ref: "#/$defs/number" }
+      - type: object
+        required: [sgr]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          sgr: { $ref: "#/$defs/flag" }
+      - type: object
+        required: [gutter]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          gutter:
+            type: object
+            required: [mark]
+            additionalProperties: false
+            properties:
+              mark: { $ref: "#/$defs/flag" }
+              cols: { $ref: "#/$defs/number" }
+      - type: object
+        required: [hold]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          hold: { type: boolean }
+      - type: object
+        required: [role]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          role:
+            type: object
+            required: [name, items]
+            additionalProperties: false
+            properties:
+              name: { type: string, minLength: 1 }
+              items: { $ref: "#/$defs/items" }
+      - type: object
+        required: [fill]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          fill:
+            type: object
+            additionalProperties: false
+            properties:
+              char: { type: string }
+      - type: object
+        required: [markup]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          markup: { $ref: "#/$defs/flag" }
+      - type: object
+        required: [act]
+        additionalProperties: false
+        properties:
+          if: { $ref: "#/$defs/flag" }
+          act:
+            type: object
+            required: [action, text]
+            additionalProperties: false
+            properties:
+              action: { type: string, minLength: 1 }
+              arg: { $ref: "#/$defs/text" }
+              text: { $ref: "#/$defs/text" }

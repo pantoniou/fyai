@@ -267,6 +267,7 @@ struct fyai_cfg {
 	const char *tile_sep;		/* rule between adjacent columns */
 	const char *work_controls;	/* none | zoom | full */
 	const char *renderer;		/* stack | page */
+	const char *page_path;		/* display/page: a page document file */
 	bool agent_pty;			/* this sub-agent has a terminal */
 	bool shell_tty;			/* run a shell call on a terminal by default */
 	const char *shell_shell;	/* the shell a call runs under; empty = /bin/sh */

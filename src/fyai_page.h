@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "fyai.h"
 #include "utils.h"
 
 /* Columns a libfymd4c render keeps at the right of a document. */
@@ -19,6 +20,14 @@ struct fytim_workband;
 struct markdown_region;
 struct fyai_workpane_grid;
 struct fyai_page;
+struct fyai_page_keys;
+
+/* A named action of the page: a click on an act or a bound key calls it with
+ * the argument of the act, or "" for a key. */
+struct fyai_page_action {
+	const char *name;
+	void (*fn)(struct fyai_ctx *ctx, const char *arg);
+};
 
 /*
  * The state that one frame of the page is built from. The strings are
@@ -53,6 +62,30 @@ struct fyai_page_state {
 	/* The SGR the chrome of a tile takes over dim, or NULL. */
 	const char *band_chrome;
 	bool tile_marks;	/* draw the zoom and close marks of the heads */
+	const char *input_mode;	/* the mode of the input area, or "prompt" */
+	/* The question of the input area in an ask mode, or NULL. */
+	const char *ask_question;
+	const char *ask_from;		/* the sub-agent that asks, or NULL */
+	const char *const *ask_options;
+	size_t ask_noptions;
+	size_t ask_selected;
+	int ask_waiting;		/* the questions after this one */
+	/* The actions that the document may name, and where the keys of its
+	 * active modes go, or NULL. */
+	const struct fyai_page_action *actions;
+	size_t nactions;
+	struct fyai_page_keys *keys;
+};
+
+/* The keys that the active cases of a transcribed page bind. The names are
+ * borrowed from the document, which lives as long as the page. */
+#define FYAI_PAGE_KEYS_MAX 32
+struct fyai_page_keys {
+	struct {
+		const char *name;
+		const char *action;
+	} key[FYAI_PAGE_KEYS_MAX];
+	size_t count;
 };
 
 /*
@@ -80,9 +113,6 @@ struct fyai_page_tile {
 
 /* Whether the configuration asks for the page renderer. */
 bool fyai_page_requested(const struct fyai_cfg *cfg);
-/* Columns of the document margin before the header row. */
-#define FYAI_PAGE_HEADER_MARGIN 2
-
 /* Rows the chrome of @st takes: the header, the prompt block, the status
  * rows and the cap row. */
 int fyai_page_chrome_rows(const struct fyai_page_state *st);
@@ -95,15 +125,54 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st);
 void fyai_page_fit(struct fyai_page_state *st, int height);
 
 /*
- * Append the page source for @st to @out. Text of the state is escaped, so it
- * places no slot and no act. The chrome stands as the band stack draws it: a
- * header row, the prompt between two framing rows, and two status rows. It
- * goes in this order when the page is too tall: the cap row, the status, the
- * header, then the framing rules; the prompt stays. Returns 0, or -1 when
- * memory runs out.
+ * Append the page source for @st to @out: the page document, data/page.yaml,
+ * transcribed with the state of @st. Every flag the document names is decided
+ * from @st, and a node whose flag is not set is left out. Text of the state is
+ * escaped, so it places no slot and no act. Returns 0, or -1 when memory runs
+ * out or the document does not transcribe.
  */
 int fyai_page_source(const struct fyai_page_state *st,
 		     struct response_buffer *out);
+
+/*
+ * Transcribe @doc, a page document with `page` and `pages`, with @state into
+ * @out. Every act and every key must name one of the @n @actions, and a key
+ * cannot be Ctrl-], Ctrl-T or Ctrl-Tab. The keys of the switch cases that are
+ * transcribed go to @keys when it is not NULL. Returns 0, or -1 for a document
+ * that does not transcribe.
+ */
+int fyai_page_transcribe(struct fyai_ctx *ctx, fy_generic doc,
+			 fy_generic state,
+			 const struct fyai_page_action *actions, size_t n,
+			 struct response_buffer *out,
+			 struct fyai_page_keys *keys);
+
+/*
+ * Check @doc as a page document: walk every case of every switch, every node
+ * whatever its flag, and the body of every each once, whatever the state.
+ * Every act and every key must name one of the @n @actions. Returns 0, or -1
+ * with the first reason in @why.
+ */
+int fyai_page_check(fy_generic doc, const struct fyai_page_action *actions,
+		    size_t n, char *why, size_t why_size);
+
+/*
+ * Load the page document of the file @path into @gb: parse it, validate it
+ * against data/page.schema.yaml, and check it with @actions. Returns the
+ * document, or fy_invalid with the reason in @why.
+ */
+fy_generic fyai_page_load(struct fy_generic_builder *gb, const char *path,
+			  const struct fyai_page_action *actions, size_t n,
+			  char *why, size_t why_size);
+
+/* The state of @st that the page document names, built in @gb. */
+fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
+				   const struct fyai_page_state *st);
+
+/* The action named by the @len bytes of @name in @actions, or NULL. */
+const struct fyai_page_action *
+fyai_page_action_find(const struct fyai_page_action *actions, size_t n,
+		      const char *name, size_t len);
 
 /*
  * The view of a tile page for a presentation of the work pane (enum
@@ -144,7 +213,24 @@ int fyai_page_grid(struct fyai_ctx *ctx, const struct fyai_workpane_grid *g,
 		   const char *sep, int sep_cols, struct response_buffer *out,
 		   int *rowsp);
 
-struct fyai_page *fyai_page_create(struct fyai_ctx *ctx);
+/*
+ * Make the page. Its document is the file of display/page when that file
+ * loads, and the embedded data/page.yaml otherwise, with a warning that says
+ * why. @actions are the actions a document may name.
+ */
+struct fyai_page *fyai_page_create(struct fyai_ctx *ctx,
+				   const struct fyai_page_action *actions,
+				   size_t n);
+
+/* The display/page setting @pg was made for, or NULL for none. */
+const char *fyai_page_document_path(const struct fyai_page *pg);
+
+/*
+ * Append a Markdown report of @pg to @md: its document, why a file of
+ * display/page is not used, and the state, source and regions of the last
+ * frame. Returns 0, or -1.
+ */
+int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md);
 void fyai_page_destroy(struct fyai_page *pg);
 
 /*

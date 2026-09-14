@@ -2322,6 +2322,15 @@ err_out:
 	return -1;
 }
 
+static int slash_page(struct fyai_ctx *ctx, const char *arg)
+{
+	if (arg && *arg) {
+		fyai_error(ctx, "usage: /page");
+		return -1;
+	}
+	return fyai_ui_page_report(ctx);
+}
+
 static int slash_branches(struct fyai_ctx *ctx, const char *arg)
 {
 	if (arg && *arg) {
@@ -2358,6 +2367,8 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	  "inspect or control MCP server connections", slash_mcp },
 	{ "zoom", "[name|off]",
 	  "type into a live shell session or sub-agent", slash_zoom },
+	{ "page", "", "show the page of the live screen and its state",
+	  slash_page },
 	{ "sessions", "", "list active shell sessions and sub-agents",
 	  slash_sessions },
 	{ "kill", "NAME", "stop an active shell session or sub-agent",
@@ -2583,6 +2594,7 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line)
 		(cmd && strcmp(cmd->name, "history") &&
 		 strcmp(cmd->name, "transcript") &&
 		 strcmp(cmd->name, "help") &&
+		 strcmp(cmd->name, "page") &&
 		 strcmp(cmd->name, "list") &&
 		 strcmp(cmd->name, "branch") &&
 		 strcmp(cmd->name, "config"));
@@ -2708,6 +2720,7 @@ bool fyai_session_slash_immediate(struct fyai_ctx *ctx, const char *line,
 		!strcmp(cmd->name, "transcript") ||
 		!strcmp(cmd->name, "tools") ||
 		!strcmp(cmd->name, "sessions") ||
+		!strcmp(cmd->name, "page") ||
 		!strcmp(cmd->name, "log") ||
 		!strcmp(cmd->name, "logging") ||
 		!strcmp(cmd->name, "zoom");

@@ -658,6 +658,16 @@ properties:
           hold the transcript tail, the work pane and the prompt. page needs a
           libfytimui and a libfymd4c that support pages; without them stack is
           used and the session says so.
+      page:
+        type: string
+        default: ""
+        description: >-
+          The page document of the page renderer, as the path of a YAML file.
+          An empty string uses the embedded data/page.yaml. When the page is
+          made, the file is checked against the page schema and every case of
+          it is transcribed; a file that fails is not used, the session says
+          why, and the embedded document is used. /page shows the document in
+          use and the state, source and regions of the last frame.
       work_controls:
         type: string
         enum: [none, zoom, full]

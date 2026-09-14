@@ -1,0 +1,175 @@
+# The live screen of the page renderer, as one document.
+#
+# fyai transcribes this document into UI Markdown for each frame, with the
+# state of that frame. The document holds no expressions: `if` names a flag of
+# the state, and fyai computes every flag. A node whose flag is not set is left
+# out of the Markdown.
+#
+# A node is one of:
+#   tight: true        blocks on adjacent rows from here on
+#   slot: {id, rows}   rows that a component draws; no rows, no slot
+#   row: [items]       one row of inline items
+#   drop: N, body      blocks that go, in order, when the page is too tall
+#   page: NAME         the nodes of a page of `pages`
+#   markup: NAME       UI Markdown that fyai wrote, from the state
+#   switch: NAME, cases   the case that the mode NAME of the state names;
+#                      a case is {keys, body}, and its keys bind actions
+#   each: NAME, body   the body for each item of the list NAME of the state,
+#                      with the item, {index} and {number} in scope
+#
+# An inline item is one of:
+#   text: "{a.b}"      text of the state, escaped
+#   space: N           N blanks that the start of a row keeps
+#   sgr: NAME          an SGR sequence of the theme, from the state
+#   gutter: {mark, cols}  the mark of the state padded to the columns
+#   hold: true         one blank when the row holds no text yet
+#   role: {name, items}   items in a role of the palette
+#   fill: {char}       the columns the row leaves, drawn with the glyph
+#   markup: NAME       UI Markdown that fyai wrote, from the state
+#   act: {action, arg, text}   a label that the user clicks for an action
+
+page:
+  - tight: true
+  - slot: { id: tail, rows: "{tail.rows}" }
+  - if: pane.above
+    page: pane
+
+  # The header row, which goes before the rules when the page is too tall.
+  - if: header.shown
+    drop: 2
+    body:
+      - row:
+          - space: 2
+          - sgr: header.on
+          - text: "{header.text}"
+          - text: "{header.elapsed}"
+          - sgr: header.off
+
+  - page: input
+
+  # The hint or the completion ribbon, then the status.
+  - if: status.shown
+    drop: 1
+    body:
+      - if: status.completion
+        slot: { id: completion, rows: 1 }
+      - if: status.hint
+        row:
+          - sgr: status.on
+          - text: "{status.hint_text}"
+          - hold: true
+          - sgr: status.off
+      - if: status.row
+        row:
+          - gutter: { mark: status.activity, cols: "{status.gutter}" }
+          - sgr: status.on
+          - text: "{status.text}"
+          - sgr: status.off
+
+  - if: pane.below
+    page: pane
+
+pages:
+  # The input area, in one mode at a time.
+  input:
+    - switch: input.mode
+      cases:
+        prompt:
+          body:
+            - page: prompt_box
+        # A question while nothing is typed: the number keys choose.
+        ask:
+          keys:
+            Up: ask.prev
+            Down: ask.next
+            Enter: ask.accept
+            Escape: ask.dismiss
+            "1": "ask.choose:1"
+            "2": "ask.choose:2"
+            "3": "ask.choose:3"
+            "4": "ask.choose:4"
+            "5": "ask.choose:5"
+            "6": "ask.choose:6"
+            "7": "ask.choose:7"
+            "8": "ask.choose:8"
+            "9": "ask.choose:9"
+          body:
+            - page: question
+            - page: prompt_box
+        # A question with an answer being typed: the number keys type.
+        ask_text:
+          keys:
+            Up: ask.prev
+            Down: ask.next
+            Enter: ask.accept
+            Escape: ask.dismiss
+          body:
+            - page: question
+            - page: prompt_box
+
+  # The prompt on its card, or between two rules.
+  prompt_box:
+    - if: prompt.card
+      slot: { id: prompt, rows: "{prompt.card_rows}" }
+    - if: prompt.rules
+      page: rule
+    - if: prompt.rules
+      slot: { id: prompt, rows: "{prompt.rows}" }
+    - if: prompt.rules
+      page: rule
+
+  # A question to the user: who asks, its options, and the typed answer below.
+  question:
+    - row:
+        - space: 2
+        - sgr: header.on
+        - text: "? {ask.question}"
+        - sgr: header.off
+        - if: ask.waiting_shown
+          text: "  ({ask.waiting} more)"
+    - if: ask.from_agent
+      row:
+        - space: 4
+        - role:
+            name: chrome
+            items:
+              - text: "asked by {ask.from}"
+    - each: ask.options
+      body:
+        - if: selected
+          row:
+            - space: 2
+            - text: "› "
+            - act: { action: ask.choose, arg: "{number}", text: "{number}. {text}" }
+        - if: other
+          row:
+            - space: 4
+            - act: { action: ask.choose, arg: "{number}", text: "{number}. {text}" }
+    - row:
+        - space: 4
+        - role:
+            name: chrome
+            items:
+              - text: "or type an answer"
+
+  # The work pane: its cap row goes first when the page is too tall.
+  pane:
+    - if: pane.cap
+      drop: 0
+      body:
+        - row:
+            - markup: pane.cap_source
+    - if: pane.grid
+      markup: pane.grid_source
+    - if: pane.slot
+      slot: { id: pane, rows: "{pane.rows}" }
+
+  # A full-width rule in the chrome role, which goes last of the chrome.
+  rule:
+    - drop: 3
+      body:
+        - row:
+            - role:
+                name: chrome
+                items:
+                  - fill: { char: "─" }

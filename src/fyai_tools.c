@@ -1302,6 +1302,74 @@ static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx, fy_generic args)
 		return fy_value(gb, "tool note: the user did not provide an "
 				"answer");
 	}
+	/* An empty answer is a question the user left: no answer, no error. */
+	if (!*fy_castp(&result, ""))
+		return fy_value(gb, "tool note: the user did not provide an "
+				"answer");
+	return result;
+}
+
+/* A question put through the input area of the page, and its answer. */
+struct fyai_ask_wait {
+	bool done;
+	bool failed;
+	char *answer;
+};
+
+static void fyai_ask_user_done(void *user, const char *answer)
+{
+	struct fyai_ask_wait *w = user;
+
+	w->done = true;
+	if (!answer)
+		return;
+	w->answer = strdup(answer);
+	w->failed = !w->answer;
+}
+
+/* The options a question of the page offers at most. */
+#define FYAI_ASK_OPTIONS_MAX 32
+
+/* Ask through the input area of the page and wait for the answer. */
+static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, const char *question,
+				     const char *from, fy_generic options)
+{
+	const char *opts[FYAI_ASK_OPTIONS_MAX];
+	struct fyai_ask_wait w = { 0 };
+	const char *option;
+	fy_generic result;
+	size_t n = 0;
+
+	fy_foreach(option, options) {
+		if (n >= FYAI_ASK_OPTIONS_MAX)
+			break;
+		opts[n++] = option;
+	}
+	if (fyai_ui_ask(ctx, question, from, opts, n, fyai_ask_user_done, &w))
+		return fy_value(ctx->transient_gb,
+				"tool error: the question could not be asked");
+	while (!w.done) {
+		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
+			break;
+	}
+	if (!w.done) {
+		fyai_ui_ask_withdraw(ctx, &w);
+		fyai_error(ctx, "ask_user: the event loop stopped while waiting "
+			   "for an answer");
+		return fy_value(ctx->transient_gb,
+				"tool note: the user did not provide an answer");
+	}
+	if (w.failed)
+		fyai_error(ctx, "ask_user: could not keep the answer");
+	fyai_report(ctx, "\n? %s\n> %s\n", question,
+		    w.answer ? w.answer : "(no answer)");
+	if (!w.answer)
+		return fy_value(ctx->transient_gb,
+				"tool note: the user did not provide an answer");
+	result = fy_value(ctx->transient_gb, w.answer);
+	free(w.answer);
+	if (fy_is_invalid(result))
+		fyai_error(ctx, "ask_user: could not retain the answer");
 	return result;
 }
 
@@ -1309,6 +1377,7 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *question = fy_get(args, "question", "");
+	const char *from = fy_get(args, "from", "");
 	fy_generic options = fy_get(args, "options");
 	size_t n = fy_is_sequence(options) ? fy_len(options) : 0;
 	fy_generic result;
@@ -1320,6 +1389,14 @@ static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 	if (fyai_agent_delegated(ctx) && ctx->tool_rpc)
 		return fyai_ask_user_upward(ctx, args);
 
+	/* The page renderer puts the question in its input area. */
+	if (ctx->answer_next >= cfg->answer_count && fyai_ui_ask_available(ctx))
+		return fyai_ask_user_page(ctx, question, from, options);
+
+	/* A sub-agent that asks is named in the question. */
+	if (*from)
+		question = fy_sprintfa("the sub-agent '%s' asks: %s", from,
+				       question);
 	if (ansi_color_on(cfg->color, STDERR_FILENO))
 		fyai_report(ctx, "\n" FYAI_ANSI_BOLD "? %s" FYAI_ANSI_RESET
 			"\n", question);
@@ -3738,7 +3815,7 @@ static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
 					  fy_generic id, fy_generic params)
 {
 	struct fy_generic_builder *gb;
-	fy_generic question, asked;
+	fy_generic question;
 	fy_generic answer;
 	const char *who, *origin;
 	int rc;
@@ -3749,9 +3826,8 @@ static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
 	if (*origin && (!job->branch || strcmp(origin, job->branch)))
 		who = origin;
 	question = fy_get(params, "question", fy_invalid);
-	asked = fy_value(gb, fy_sprintfa("the sub-agent '%s' asks: %s", who,
-					 fy_castp(&question, "")));
-	answer = fyai_ask_user(job->ctx, fy_gb_mapping(gb, "question", asked,
+	answer = fyai_ask_user(job->ctx, fy_gb_mapping(gb, "question", question,
+					"from", fy_value(gb, who),
 					"options", fy_get(params, "options",
 							  fy_invalid)));
 	rc = jsonrpc_conn_respond(conn, id,

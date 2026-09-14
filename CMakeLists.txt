@@ -470,6 +470,36 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_tools.inc"
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${FYAI_TOOLS_YAML}")
 
+# Embed the page document that the page renderer transcribes.
+set(FYAI_PAGE_YAML "${CMAKE_CURRENT_SOURCE_DIR}/data/page.yaml")
+file(READ "${FYAI_PAGE_YAML}" _fyai_page_hex HEX)
+string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1,"
+    _fyai_page_bytes "${_fyai_page_hex}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_page.inc"
+    "/* Generated from ${FYAI_PAGE_YAML}. */\n"
+    "static const unsigned char FYAI_EMBEDDED_PAGE[] = {\n"
+    "${_fyai_page_bytes}"
+    "\n};\n"
+    "static const size_t FYAI_EMBEDDED_PAGE_LEN = sizeof(FYAI_EMBEDDED_PAGE);\n"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${FYAI_PAGE_YAML}")
+
+# Embed the schema that a page document is checked against when it loads.
+set(FYAI_PAGE_SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/data/page.schema.yaml")
+file(READ "${FYAI_PAGE_SCHEMA}" _fyai_page_schema_hex HEX)
+string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1,"
+    _fyai_page_schema_bytes "${_fyai_page_schema_hex}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_page_schema.inc"
+    "/* Generated from ${FYAI_PAGE_SCHEMA}. */\n"
+    "static const unsigned char FYAI_EMBEDDED_PAGE_SCHEMA[] = {\n"
+    "${_fyai_page_schema_bytes}"
+    "\n};\n"
+    "static const size_t FYAI_EMBEDDED_PAGE_SCHEMA_LEN = sizeof(FYAI_EMBEDDED_PAGE_SCHEMA);\n"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${FYAI_PAGE_SCHEMA}")
+
 # Generate config.h
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
