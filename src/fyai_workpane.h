@@ -155,6 +155,18 @@ void fyai_workpane_destroy(struct fyai_workpane_manager *wm);
  * with the last, so a session that runs no program shows no pane.
  */
 struct fytim_workpane *fyai_workpane_acquire(struct fyai_workpane_manager *wm);
+struct response_buffer;
+/*
+ * Append the pane as an fy-grid of tile slots to @out (NULL to size it only):
+ * the tiles in the cells the layout gives them, the zoomed tile alone, at
+ * @height rows or, for zero, the rows the tiles ask for within the pane
+ * ceiling. *@rowsp receives the rows. Returns 0, or non-zero with no tile.
+ */
+int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
+			    const char *sep, int sep_cols,
+			    struct response_buffer *out, int *rowsp);
+/* The pane while a tile holds it, or NULL. Borrowed. */
+struct fytim_workpane *fyai_workpane_pane(const struct fyai_workpane_manager *wm);
 void fyai_workpane_release(struct fyai_workpane_manager *wm);
 /* Apply grid and chrome configuration to an existing pane. */
 void fyai_workpane_configure(struct fyai_workpane_manager *wm);
@@ -257,6 +269,38 @@ void fyai_workpane_tile_set_regions(struct fyai_workpane_manager *wm,
 const char *fyai_workpane_tile_region_at(const struct fyai_workpane_manager *wm,
 					 const struct fytim_surface *sf,
 					 size_t row, int col);
+struct fyai_page_tile;
+
+/* Keep a copy of @rows, the rendered head of @sf, for a page to draw. NULL
+ * or an empty head removes it. Returns 0, or -1 after it reported the cause. */
+int fyai_workpane_tile_set_head(struct fyai_workpane_manager *wm,
+				struct fytim_surface *sf, const char *rows);
+/*
+ * The tiles of the pane that hold a surface, at most @max, in the order of the
+ * pane, for a page to draw. The head, the acts and the margin are borrowed and
+ * valid until the tile changes. Returns the count.
+ */
+int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
+			     struct fyai_page_tile *tiles, int max);
+/* Record what the page gave the screen of @sf in its last frame. */
+void fyai_workpane_tile_set_page_grant(struct fyai_workpane_manager *wm,
+				       const struct fytim_surface *sf,
+				       int rows, int cols);
+/* What the last page gave the screen of @sf; false when no page gave it any. */
+bool fyai_workpane_tile_page_grant(const struct fyai_workpane_manager *wm,
+				   const struct fytim_surface *sf, int *rows,
+				   int *cols);
+/* The same for a tile of text: what the page gave @band. */
+void fyai_workpane_band_set_page_grant(struct fyai_workpane_manager *wm,
+				       const struct fytim_workband *band,
+				       int rows, int cols);
+bool fyai_workpane_band_page_grant(const struct fyai_workpane_manager *wm,
+				   const struct fytim_workband *band, int *rows,
+				   int *cols);
+/* The surface of the tile in the page slot "tile:@slot", or NULL. */
+struct fytim_surface *
+fyai_workpane_slot_surface(const struct fyai_workpane_manager *wm,
+			   unsigned int slot);
 /* Whether @sf may take focus. */
 bool fyai_workpane_tile_selectable(const struct fyai_workpane_manager *wm,
 				   const struct fytim_surface *sf);

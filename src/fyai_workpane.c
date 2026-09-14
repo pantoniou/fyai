@@ -19,6 +19,7 @@
 #include "fyai_terminal.h"
 #include "fyai_ui.h"
 #include "fyai_workpane.h"
+#include "fyai_page.h"
 #include "fyai_markdown.h"
 
 struct fyai_workpane_tile {
@@ -50,6 +51,17 @@ struct fyai_workpane_tile {
 	/* Presentation thresholds. */
 	struct fyai_workpane_ladder ladder;
 	enum fyai_workpane_present present;
+
+	/* The page slot "tile:N" the tile stands in. */
+	unsigned int slot;
+
+	/* The rendered head a page draws, and its rows. */
+	char *head;
+	int head_rows;
+
+	/* What the last page gave the screen, which it draws itself. */
+	int page_rows, page_cols;
+	bool page_granted;
 
 	struct fyai_workpane_tile *next;
 };
@@ -86,6 +98,8 @@ struct fyai_workpane_manager {
 
 	char *cap_text;			/* the cap row the pane shows, or NULL */
 
+	unsigned int next_slot;		/* the slot the next tile takes */
+
 	struct fyai_workpane_tile *tiles;
 };
 
@@ -95,6 +109,10 @@ _Static_assert(FYAI_WORKPANE_TRACK_FIT == FYTIM_TRACK_FIT,
 
 #define for_each_tile(_t, _wm) \
 	for ((_t) = (_wm)->tiles; (_t); (_t) = (_t)->next)
+
+static int workpane_tile_infos(const struct fyai_workpane_manager *wm,
+			       struct fyai_workpane_tile_info *info,
+			       struct fyai_workpane_tile **order);
 
 struct fyai_workpane_manager *fyai_workpane_of(const struct fyai_ctx *ctx)
 {
@@ -162,6 +180,7 @@ static const char *workpane_disposition_name(enum fyai_workpane_disposition d)
 static void workpane_tile_free(struct fyai_workpane_tile *t)
 {
 	markdown_regions_free(t->regions, t->nregions);
+	free(t->head);
 	free(t);
 }
 
@@ -407,6 +426,218 @@ struct fytim_workpane *fyai_workpane_acquire(struct fyai_workpane_manager *wm)
 	return wm->pane;
 }
 
+int fyai_workpane_tile_set_head(struct fyai_workpane_manager *wm,
+				struct fytim_surface *sf, const char *rows)
+{
+	struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+	char *copy = NULL;
+	const char *p;
+	int n = 0;
+
+	if (!t)
+		return -1;
+	if (!fy_str_empty(rows)) {
+		copy = strdup(rows);
+		fyai_error_check(wm->ctx, copy, err_out,
+				 "cannot keep the head of a tile");
+		for (n = 1, p = rows; *p; p++)
+			n += *p == '\n';
+	}
+	free(t->head);
+	t->head = copy;
+	t->head_rows = n;
+	return 0;
+
+err_out:
+	return -1;
+}
+
+int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
+			     struct fyai_page_tile *tiles, int max)
+{
+	const struct fyai_workpane_tile *t;
+	struct fyai_page_tile *pt;
+	int n = 0, req, rows = 0, cols = 0;
+
+	if (!wm || !tiles)
+		return 0;
+	for_each_tile(t, wm) {
+		if (n >= max)
+			break;
+		if (!t->surface && !t->band)
+			continue;
+		pt = &tiles[n++];
+		memset(pt, 0, sizeof(*pt));
+		pt->slot = t->slot;
+		pt->surface = t->surface;
+		pt->band = t->surface ? NULL : t->band;
+		pt->rows = t->head;
+		pt->acts = t->regions;
+		pt->nacts = t->nregions;
+		pt->present = (int)t->present;
+		fyai_ui_surface_chrome(t->surface, &pt->margin, &pt->margin_cols,
+				       &pt->ground, &pt->mix);
+		/* The rows the screen asks for, as the reconcile asks layout. */
+		req = t->preferred_rows;
+		if (req < 0)
+			req = wm->terminal_rows > 0 ? wm->terminal_rows : 0;
+		if (req <= 0 && t->surface &&
+		    fytim_surface_size(t->surface, &rows, &cols) == FYTIM_OK)
+			req = rows;
+		if (req < 1)
+			req = 1;
+		if (t->max_rows > 0 && req > t->max_rows)
+			req = t->max_rows;
+		pt->content_rows = req;
+	}
+	return n;
+}
+
+void fyai_workpane_tile_set_page_grant(struct fyai_workpane_manager *wm,
+				       const struct fytim_surface *sf,
+				       int rows, int cols)
+{
+	struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	if (!t)
+		return;
+	t->page_rows = rows;
+	t->page_cols = cols;
+	t->page_granted = true;
+}
+
+static struct fyai_workpane_tile *
+workpane_band_tile(const struct fyai_workpane_manager *wm,
+		   const struct fytim_workband *band)
+{
+	struct fyai_workpane_tile *t;
+
+	if (!wm || !band)
+		return NULL;
+	for_each_tile(t, wm)
+		if (!t->surface && t->band == band)
+			return t;
+	return NULL;
+}
+
+void fyai_workpane_band_set_page_grant(struct fyai_workpane_manager *wm,
+				       const struct fytim_workband *band,
+				       int rows, int cols)
+{
+	struct fyai_workpane_tile *t = workpane_band_tile(wm, band);
+
+	if (!t)
+		return;
+	t->page_rows = rows;
+	t->page_cols = cols;
+	t->page_granted = true;
+}
+
+bool fyai_workpane_band_page_grant(const struct fyai_workpane_manager *wm,
+				   const struct fytim_workband *band, int *rows,
+				   int *cols)
+{
+	const struct fyai_workpane_tile *t = workpane_band_tile(wm, band);
+
+	if (!t || !t->page_granted)
+		return false;
+	*rows = t->page_rows;
+	*cols = t->page_cols;
+	return true;
+}
+
+bool fyai_workpane_tile_page_grant(const struct fyai_workpane_manager *wm,
+				   const struct fytim_surface *sf, int *rows,
+				   int *cols)
+{
+	const struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	if (!t || !t->page_granted)
+		return false;
+	*rows = t->page_rows;
+	*cols = t->page_cols;
+	return true;
+}
+
+struct fytim_surface *
+fyai_workpane_slot_surface(const struct fyai_workpane_manager *wm,
+			   unsigned int slot)
+{
+	const struct fyai_workpane_tile *t;
+
+	if (!wm)
+		return NULL;
+	for_each_tile(t, wm)
+		if (t->slot == slot)
+			return t->surface;
+	return NULL;
+}
+
+int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
+			    const char *sep, int sep_cols,
+			    struct response_buffer *out, int *rowsp)
+{
+	struct fyai_workpane_tile_info info[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_workpane_tile *order[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_page_cell cells[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_workpane_grid g;
+	int n, i, rows = 0;
+
+	if (!wm)
+		return -1;
+	n = workpane_tile_infos(wm, info, order);
+	if (n < 1)
+		return 1;
+	memset(&g, 0, sizeof(g));
+	if (wm->zoomed) {
+		/* A zoomed tile is the pane. */
+		for (i = 0; i < n && order[i]->surface != wm->zoomed; i++)
+			;
+		if (i == n)
+			return 1;
+		order[0] = order[i];
+		n = 1;
+		g.rows = g.cols = 1;
+		g.row_size[0] = 0;
+	} else if (fyai_workpane_place(wm, info, n, &g)) {
+		/* A layout that places nothing stacks the tiles. */
+		memset(&g, 0, sizeof(g));
+		g.rows = n > FYAI_WORKPANE_GRID_MAX ? FYAI_WORKPANE_GRID_MAX : n;
+		g.cols = 1;
+		for (i = 0; i < n; i++) {
+			g.place[i].row = i;
+			g.place[i].row_span = g.place[i].col_span = 1;
+		}
+	}
+	for (i = 0; i < n; i++) {
+		cells[i].slot = order[i]->slot;
+		cells[i].row = wm->zoomed ? 0 : g.place[i].row;
+		cells[i].col = wm->zoomed ? 0 : g.place[i].col;
+		cells[i].row_span = wm->zoomed ? 1 : g.place[i].row_span;
+		cells[i].col_span = wm->zoomed ? 1 : g.place[i].col_span;
+		cells[i].rows = fyai_ui_tile_rows(order[i]->surface,
+						  order[i]->band);
+		cells[i].head_rows = order[i]->head ? order[i]->head_rows : 0;
+		cells[i].rows += cells[i].head_rows;
+		cells[i].present = (int)order[i]->present;
+		cells[i].screen = order[i]->surface != NULL;
+		cells[i].band = !order[i]->surface && order[i]->band;
+	}
+	if (height <= 0) {
+		if (fyai_page_grid(&g, cells, n, 0, sep, sep_cols, NULL, &rows))
+			return -1;
+		/* The pane ceiling bounds what the tiles ask for. */
+		if (wm->resolved_max_rows > 0 && rows > wm->resolved_max_rows)
+			height = wm->resolved_max_rows;
+	}
+	return fyai_page_grid(&g, cells, n, height, sep, sep_cols, out, rowsp);
+}
+
+struct fytim_workpane *fyai_workpane_pane(const struct fyai_workpane_manager *wm)
+{
+	return wm ? wm->pane : NULL;
+}
+
 void fyai_workpane_release(struct fyai_workpane_manager *wm)
 {
 	if (!wm)
@@ -447,6 +678,8 @@ static int workpane_add(struct fyai_workpane_manager *wm,
 	t->preferred_rows = preferred_rows;
 	t->max_rows = max_rows;
 	t->selectable = sf != NULL;
+	t->slot = ++wm->next_slot;
+	fyai_ui_tile_bind(sf, band, t->slot);
 	/* Keep registration order: main layouts select the oldest tile. */
 	tailp = &wm->tiles;
 	while (*tailp)
@@ -1247,8 +1480,8 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 	for_each_tile(t, wm) {
 		if (!t->surface)
 			continue;
-		cols = fyai_ui_surface_granted_cols(t->surface);
-		rows = fyai_ui_surface_granted_rows(t->surface);
+		cols = fyai_ui_surface_granted_cols(wm->ctx, t->surface);
+		rows = fyai_ui_surface_granted_rows(wm->ctx, t->surface);
 		/*
 		 * What a tile draws follows the size it was given, so a screen
 		 * too small to read becomes the one line that says whose it
@@ -1257,6 +1490,7 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 		p = workpane_present_for(t, rows, cols);
 		if (p != t->present) {
 			t->present = p;
+			fyai_ui_surface_set_view(t->surface, (int)p);
 			if (t->ops && t->ops->set_presentation)
 				t->ops->set_presentation(t->owner, p);
 		}

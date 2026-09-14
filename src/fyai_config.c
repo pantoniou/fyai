@@ -514,6 +514,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "tile_sep", cfg->tile_sep));
 		cfg->work_controls = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "work_controls", cfg->work_controls));
+		cfg->renderer = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "renderer", cfg->renderer));
 		cfg->recap_exchanges = fy_get(v, "recap_exchanges",
 					      cfg->recap_exchanges);
 		cfg->tool_update_interval_ms =
@@ -2148,6 +2150,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->tile_frame = DEFAULT_TILE_FRAME;
 	cfg->tile_sep = DEFAULT_TILE_SEP;
 	cfg->work_controls = DEFAULT_WORK_CONTROLS;
+	cfg->renderer = DEFAULT_RENDERER;
 	cfg->recap_exchanges = DEFAULT_RECAP_EXCHANGES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;

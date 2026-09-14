@@ -359,6 +359,36 @@ if(_fyai_ui_md AND _fyai_ui_click)
 endif()
 message(STATUS "fyai: clickable tile heads ${FYAI_UI_CLICKS}")
 
+# A UI Markdown page needs a libfytimui that composes pages and reports the
+# rows that size them, and a libfymd4c that drops and tightens page blocks.
+set(FYAI_UI_PAGE OFF)
+set(_fyai_page_tim OFF)
+set(_fyai_page_md OFF)
+foreach(_dir IN LISTS _fyai_ui_inc)
+    if(EXISTS "${_dir}/libfytimui/libfytimui-page.h" AND
+       EXISTS "${_dir}/libfytimui/libfytimui-surface.h")
+        file(STRINGS "${_dir}/libfytimui/libfytimui-page.h" _decl
+            REGEX "fytim_workband_rows")
+        # The page draws the surfaces itself from what they hold.
+        file(STRINGS "${_dir}/libfytimui/libfytimui-surface.h" _draw
+            REGEX "fytim_surface_margin")
+        if(_decl AND _draw)
+            set(_fyai_page_tim ON)
+        endif()
+    endif()
+    if(EXISTS "${_dir}/libfymd4c/libfymd4c-renderer.h")
+        file(STRINGS "${_dir}/libfymd4c/libfymd4c-renderer.h" _decl
+            REGEX "sep=")
+        if(_decl)
+            set(_fyai_page_md ON)
+        endif()
+    endif()
+endforeach()
+if(_fyai_ui_md AND _fyai_page_tim AND _fyai_page_md)
+    set(FYAI_UI_PAGE ON)
+endif()
+message(STATUS "fyai: UI Markdown page ${FYAI_UI_PAGE}")
+
 if(NOT TARGET libfymermaid::libfymermaid AND
    NOT TARGET libfymermaid::libfymermaid_static)
     find_package(libfymermaid CONFIG QUIET)
@@ -665,6 +695,7 @@ set(FYAI_SOURCES
     src/fyai_markdown.c
     src/fyai_ui.c
     src/fyai_workpane.c
+    src/fyai_page.c
     src/fyai_mcp.c
     src/fyai_mcp_import.c
     src/fyai_jsonrpc.c
@@ -740,6 +771,9 @@ if(FYAI_UI_CLICKS)
 endif()
 if(FYAI_HAVE_BACKTRACE)
     target_compile_definitions(fyai PRIVATE HAVE_EXECINFO)
+endif()
+if(FYAI_UI_PAGE)
+    target_compile_definitions(fyai PRIVATE FYAI_UI_PAGE)
 endif()
 if(ENABLE_LIBSECRET)
     target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
@@ -867,6 +901,9 @@ if(BUILD_TESTING)
     endif()
     if(FYAI_HAVE_BACKTRACE)
         target_compile_definitions(fyai_test PRIVATE HAVE_EXECINFO)
+    endif()
+    if(FYAI_UI_PAGE)
+        target_compile_definitions(fyai_test PRIVATE FYAI_UI_PAGE)
     endif()
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)

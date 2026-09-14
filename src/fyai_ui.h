@@ -71,6 +71,7 @@ bool fyai_ui_interrupt(struct fyai_ctx *ctx);
 
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo);
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
+			   const char *top_source,
 			   const char *bottom);
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
@@ -80,7 +81,8 @@ struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx);
 void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
 			       struct fytim_workband *band, bool commit);
 /* Return the granted tile width, or zero before layout. */
-int fyai_ui_work_tile_cols(const struct fytim_workband *band);
+int fyai_ui_work_tile_cols(struct fyai_ctx *ctx,
+			   const struct fytim_workband *band);
 void fyai_ui_workband_update(struct fyai_ctx *ctx,
 			     struct fytim_workband *band,
 			     const char *title, const char *body, size_t len,
@@ -106,14 +108,29 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf);
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols);
 int fyai_ui_surface_request_rows(struct fytim_surface *sf, int rows);
-int fyai_ui_surface_granted_rows(const struct fytim_surface *sf);
+/* The rows the grid of @sf was given: by the page when the page draws it. */
+int fyai_ui_surface_granted_rows(struct fyai_ctx *ctx,
+				 const struct fytim_surface *sf);
 /* The columns the grid was given: the width less the margin. */
-int fyai_ui_surface_granted_cols(const struct fytim_surface *sf);
+int fyai_ui_surface_granted_cols(struct fyai_ctx *ctx,
+				 const struct fytim_surface *sf);
+/* The margin, its columns, and the ground and its mix, that @sf stands in. */
+void fyai_ui_surface_chrome(const struct fytim_surface *sf,
+			    const char **marginp, int *colsp, uint32_t *bgp,
+			    int *mixp);
 /* Chrome at the left of every row of @sf. */
 int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
 /* Blank the grid: the tile is no longer drawing its program. */
 int fyai_ui_surface_clear(struct fytim_surface *sf);
 /* Limit grid height; zero accepts all granted rows. */
+/* Bind the tile of @sf or @band to its page slot "tile:@slot". */
+void fyai_ui_tile_bind(struct fytim_surface *sf, struct fytim_workband *band,
+		       unsigned int slot);
+/* Rows the tile of @sf or @band asks for, head and foot included. */
+int fyai_ui_tile_rows(const struct fytim_surface *sf,
+		      const struct fytim_workband *band);
+/* Draw the part of the tile page of @sf that @present asks for. */
+void fyai_ui_surface_set_view(struct fytim_surface *sf, int present);
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows);
 /* Show or hide the surface's emulated program cursor. */
 int fyai_ui_surface_cursor_visible(struct fytim_surface *sf, bool visible);

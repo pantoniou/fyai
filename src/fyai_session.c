@@ -1351,7 +1351,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 				sizeof(vars) / sizeof(vars[0]));
 	top_md = fyai_prompt_row_markdown(cfg, top);
 	if (fyai_ui_active(ctx))
-		fyai_ui_update_banner(ctx, top_md ? top_md : top,
+		fyai_ui_update_banner(ctx, top_md ? top_md : top, top,
 				      bottom);
 	free(top_md);
 	free(top);

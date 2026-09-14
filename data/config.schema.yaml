@@ -647,6 +647,17 @@ properties:
           keeps the screens off it. It is what divides two programs; the
           gutter session_margin draws runs down the inside of one. An empty
           string draws none.
+      renderer:
+        type: string
+        enum: [stack, page]
+        default: stack
+        description: >-
+          How the live screen is composed. stack draws the fixed chrome of the
+          terminal library: the header, the prompt between two rules and the
+          status. page states the screen as one UI Markdown page whose slots
+          hold the transcript tail, the work pane and the prompt. page needs a
+          libfytimui and a libfymd4c that support pages; without them stack is
+          used and the session says so.
       work_controls:
         type: string
         enum: [none, zoom, full]
