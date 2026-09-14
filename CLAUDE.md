@@ -932,7 +932,24 @@ do not put a colour for a role in C.
   reports a cause when it does not.
 - A renderer borrows the palette. A long-lived renderer can outlive a change of
   theme, so a palette stays alive until `fyai_config_cleanup()`. Reuse the
-  current palette when the theme, the variant and the colour did not change.
+  current palette when the theme, the variant, the colour and the ground did
+  not change.
+- `display/theme_ground=terminal` makes the background of the terminal the
+  ground of the palette with `fypal_ctx_set_ground()`, so the neutral ramp of
+  the theme keeps its steps over that background. The theme names the ground
+  and decides what follows it; fyai holds no colour. The terminal is asked
+  once, with OSC 11, and the answer is kept in the configuration: a query
+  while the UI reads the terminal would take its input. A background of the
+  other variant is not applied, and a sub-agent does not ask. The build
+  enables it (`FYAI_FYPAL_GROUND`) only when libfypalette has
+  `fypal_ctx_set_ground()`; a PTY case answers the query with
+  `$FYAI_PTY_BACKGROUND`.
+- A fullscreen page with `display/theme_ground=theme` fills cells whose
+  background is default with the palette's `ground` colour. Keep explicit
+  backgrounds and cell attributes. Resolve the escape through the palette's
+  capabilities, so ANSI defaults and disabled colour remain defaults. Give
+  the completion status style the same ground. Inline pages and terminal
+  ground do not apply this fill.
 - The reverse-card probe sets the variant of each background on the palette
   and restores it. The renderer copies the escapes when it takes the palette.
 - Take the colour of an element that fyai draws itself, such as a notice
