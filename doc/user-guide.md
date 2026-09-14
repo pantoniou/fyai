@@ -1016,6 +1016,17 @@ the status first, then the header, then the rules, and keeps the prompt. A
 build without page support uses `stack` and says so. Refer to
 `doc/markdown-ui-plan.md`.
 
+For an Ember fullscreen page with the theme background, run:
+
+```sh
+fyai -i --set display/renderer=page --set display/screen=fullscreen \
+  --set display/theme=ember:auto --set display/theme_ground=theme
+```
+
+The page fills default backgrounds with the theme's ground colour and keeps
+card and code backgrounds. `display/theme_ground=terminal` leaves the page
+background to the terminal and adapts the palette to that background.
+
 ## 11. CLI reference
 
 ```text

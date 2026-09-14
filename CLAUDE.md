@@ -501,10 +501,15 @@ rules and the status. `page` states the same screen as one UI Markdown page.
 - `fyai_page_source()` is a function of `struct fyai_page_state` and nothing
   else, so the tests read it without a display. Put a new element of the
   screen in the state and in the source, not in a draw call.
-- A slot holds what the library draws: `tail`, `pane`, `prompt` and
-  `completion`. The height of a slot comes from the library through
-  `fytim_tail_rows()`, `fytim_workpane_rows()` and `fytim_prompt_rows()`: an
-  inline page is as tall as its rows.
+- A slot holds what the library draws: `pane`, `prompt` and `completion`.
+  The height of a slot comes from the library through `fytim_tail_rows()`,
+  `fytim_workpane_rows()` and `fytim_prompt_rows()`: an inline page is as tall
+  as its rows.
+- The tail is drawn on the canvas, not by the library. The page reads its rows
+  back with `fytim_tail_content()` and draws the last rows that fit its region,
+  so the ground of a fullscreen page is under the tail too. A tail that the
+  library draws over the canvas has no ground, and the terminal background
+  shows through it.
 - The page must look as the band stack does. `tests/cases/ui_page_renderer.sh`
   runs one scenario under both renderers and compares the screens: a change
   to the stack chrome is a change to the page source too.
@@ -932,7 +937,24 @@ do not put a colour for a role in C.
   reports a cause when it does not.
 - A renderer borrows the palette. A long-lived renderer can outlive a change of
   theme, so a palette stays alive until `fyai_config_cleanup()`. Reuse the
-  current palette when the theme, the variant and the colour did not change.
+  current palette when the theme, the variant, the colour and the ground did
+  not change.
+- `display/theme_ground=terminal` makes the background of the terminal the
+  ground of the palette with `fypal_ctx_set_ground()`, so the neutral ramp of
+  the theme keeps its steps over that background. The theme names the ground
+  and decides what follows it; fyai holds no colour. The terminal is asked
+  once, with OSC 11, and the answer is kept in the configuration: a query
+  while the UI reads the terminal would take its input. A background of the
+  other variant is not applied, and a sub-agent does not ask. The build
+  enables it (`FYAI_FYPAL_GROUND`) only when libfypalette has
+  `fypal_ctx_set_ground()`; a PTY case answers the query with
+  `$FYAI_PTY_BACKGROUND`.
+- A fullscreen page with `display/theme_ground=theme` fills cells whose
+  background is default with the palette's `ground` colour. Keep explicit
+  backgrounds and cell attributes. Resolve the escape through the palette's
+  capabilities, so ANSI defaults and disabled colour remain defaults. Give
+  the completion status style the same ground. Inline pages and terminal
+  ground do not apply this fill.
 - The reverse-card probe sets the variant of each background on the palette
   and restores it. The renderer copies the escapes when it takes the palette.
 - Take the colour of an element that fyai draws itself, such as a notice
