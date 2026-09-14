@@ -2981,6 +2981,17 @@ out:
 		}
 		fyai_mcp_stop_finish(ctx);
 	}
+	/* A fullscreen session gives the terminal its screen back as it was.
+	 * The last exchange is printed there, so the answer stays after the
+	 * exit; the UI goes first, and the sink then writes to the terminal.
+	 * A live session commits its tile when it goes, so it goes before the
+	 * UI that holds the tile. */
+	if (fyai_ui_fullscreen(ctx)) {
+		fyai_shell_sessions_release(ctx, false);
+		fyai_ui_close(ctx);
+		if (fyai_display_recap(ctx, 1, 0) < 0)
+			fyai_warning(ctx, "could not print the last exchange");
+	}
 	state = FYAIAS_DONE;
 	(void)state;
 	free(line);

@@ -375,7 +375,10 @@ foreach(_dir IN LISTS _fyai_ui_inc)
         # A mode of the page takes keys from the prompt.
         file(STRINGS "${_dir}/libfytimui/libfytimui-band.h" _keys
             REGEX "fytim_set_key_bindings")
-        if(_decl AND _draw AND _keys)
+        # A fullscreen page holds text that the user selects and copies.
+        file(STRINGS "${_dir}/libfytimui/libfytimui-event.h" _copy
+            REGEX "fytim_copy")
+        if(_decl AND _draw AND _keys AND _copy)
             set(_fyai_page_tim ON)
         endif()
     endif()
@@ -729,6 +732,7 @@ set(FYAI_SOURCES
     src/fyai_ui.c
     src/fyai_workpane.c
     src/fyai_page.c
+    src/fyai_transcript_view.c
     src/fyai_mcp.c
     src/fyai_mcp_import.c
     src/fyai_jsonrpc.c

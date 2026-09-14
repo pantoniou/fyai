@@ -31,6 +31,7 @@
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
 #include "fyai_page.h"
+#include "fyai_transcript_view.h"
 #include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_tools.h"
@@ -102,6 +103,22 @@ struct fyai_ui {
 	int render_cols;		/* width used to wrap screen rows */
 	bool reflow_pending;		/* live rows require reflow */
 	bool repaint_pending;		/* transcript requires repaint */
+	/* A fullscreen page: the transcript is a view on the alternate screen,
+	 * and presented rows go to it instead of the scrollback. */
+	bool fullscreen;
+	struct fyai_transcript_view *view;
+	int view_rows;			/* rows of its region in the last frame */
+	/* The popup of a fullscreen page: the results, notices and diagnostics
+	 * of this invocation, which are not stored and so are not the
+	 * transcript. It is open while @popup is set. */
+	struct fyai_transcript_view *popup;
+	char *popup_title;
+	int popup_rows;			/* rows of its region in the last frame */
+	/* A short result stands above the status until the input changes:
+	 * its rows, and the input it was shown over. */
+	char *note[2];
+	int note_nlines;
+	char *note_input;
 	fyai_event_ms_t next_frame_ms;
 };
 
@@ -460,12 +477,166 @@ static void spool_restore(struct ui_spool *s, int target)
  * Draw the separation before @unit into the scrollback and record it. Every
  * path that commits presented bytes uses it.
  */
+/* The rows of a result that stand above the status rather than in a popup. */
+#define UI_NOTE_ROWS 2
+
+static void ui_note_clear(struct fyai_ui *ui)
+{
+	int i;
+
+	for (i = 0; i < ui->note_nlines; i++) {
+		free(ui->note[i]);
+		ui->note[i] = NULL;
+	}
+	ui->note_nlines = 0;
+	free(ui->note_input);
+	ui->note_input = NULL;
+	ui->frame_pending = true;
+}
+
+/* Close the popup and drop its rows; the next long result opens it again. */
+static void ui_popup_close(struct fyai_ui *ui)
+{
+	if (!ui->popup)
+		return;
+	fyai_transcript_view_destroy(ui->popup);
+	ui->popup = NULL;
+	free(ui->popup_title);
+	ui->popup_title = NULL;
+	ui->frame_pending = true;
+}
+
+/* The rows of @text of @len bytes, a last row without a newline included. */
+static int ui_text_rows(const char *text, size_t len)
+{
+	int rows = 0;
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		if (text[i] == '\n')
+			rows++;
+	return rows + (len && text[len - 1] != '\n');
+}
+
+/* Show a result of @rows rows above the status, the first under @heading. */
+static void ui_note_set(struct fyai_ui *ui, const char *heading,
+			const char *text, size_t len, int rows)
+{
+	const char *line = text, *nl, *input;
+	int i;
+
+	ui_note_clear(ui);
+	for (i = 0; i < rows && i < UI_NOTE_ROWS; i++) {
+		nl = memchr(line, '\n', len - (size_t)(line - text));
+		if (!nl)
+			nl = text + len;
+		if (asprintf(&ui->note[i], "%s%s%.*s", i ? "" : heading,
+			     i ? "" : "  ", (int)(nl - line), line) < 0) {
+			ui->note[i] = NULL;
+			fyai_warning(ui->ctx, "cannot show the result");
+			break;
+		}
+		ui->note_nlines = i + 1;
+		if (nl == text + len)
+			break;
+		line = nl + 1;
+	}
+	input = fytim_input(ui->ft);
+	ui->note_input = strdup(input ? input : "");
+	if (!ui->note_input)
+		ui_note_clear(ui);
+}
+
+/*
+ * Show a result of a fullscreen session: above the status when it is short
+ * and no popup is open, else in the popup under its @heading, from its top.
+ */
+static void ui_popup_append(struct fyai_ui *ui, const char *title,
+			    const char *heading, const char *text, size_t len)
+{
+	int rows = ui_text_rows(text, len), height;
+	size_t before, after;
+
+	if (!ui->popup && rows <= UI_NOTE_ROWS) {
+		ui_note_set(ui, heading, text, len, rows);
+		return;
+	}
+	ui_note_clear(ui);
+	if (!ui->popup)
+		ui->popup = fyai_transcript_view_create();
+	free(ui->popup_title);
+	ui->popup_title = strdup(title);
+	if (!ui->popup || !ui->popup_title) {
+		fyai_warning(ui->ctx, "cannot open the popup for the result");
+		ui_popup_close(ui);
+		return;
+	}
+	before = fyai_transcript_view_rows(ui->popup);
+	if (fyai_transcript_view_append_live(ui->popup, heading,
+					     strlen(heading)) ||
+	    fyai_transcript_view_append_live(ui->popup, "\n", 1) ||
+	    fyai_transcript_view_append_live(ui->popup, text, len) ||
+	    (len && text[len - 1] != '\n' &&
+	     fyai_transcript_view_append_live(ui->popup, "\n", 1)))
+		fyai_warning(ui->ctx, "cannot keep the output of the session");
+	after = fyai_transcript_view_rows(ui->popup);
+	/* The newest result shows from its heading. */
+	height = ui->popup_rows > 0 ? ui->popup_rows :
+		 ui->render_rows > 1 ? ui->render_rows - 1 : 23;
+	fyai_transcript_view_scroll(ui->popup, INT_MIN / 2, height);
+	if (after - before > (size_t)height)
+		fyai_transcript_view_scroll(ui->popup,
+					    (int)(after - before) - height,
+					    height);
+	ui->frame_pending = true;
+}
+
+/* Present rendered rows: to the scrollback, or to the transcript view of a
+ * fullscreen page, which has none. */
+static int ui_present(struct fyai_ui *ui, const char *buf, size_t len)
+{
+	if (!ui->fullscreen)
+		return fytim_commit(ui->ft, buf, len) == FYTIM_OK ? 0 : -1;
+	if (fyai_transcript_view_append_live(ui->view, buf, len))
+		return -1;
+	ui->frame_pending = true;
+	return 0;
+}
+
+/* Commit a band: its rows join the scrollback, or the transcript view. */
+static void ui_band_commit(struct fyai_ui *ui, struct fytim_workband *band)
+{
+#ifdef FYAI_UI_PAGE
+	const char *parts[3];
+	int lines = 0;
+	size_t i, len;
+
+	if (ui->fullscreen) {
+		parts[0] = fytim_workband_top(band);
+		parts[1] = fytim_workband_content(band, &lines);
+		parts[2] = fytim_workband_bottom(band);
+		for (i = 0; i < 3; i++) {
+			len = parts[i] ? strlen(parts[i]) : 0;
+			if (!len)
+				continue;
+			(void)ui_present(ui, parts[i], len);
+			if (parts[i][len - 1] != '\n')
+				(void)ui_present(ui, "\n", 1);
+		}
+		fytim_workband_destroy(band);
+		return;
+	}
+#else
+	(void)ui;
+#endif
+	(void)fytim_workband_commit(band);
+}
+
 static int ui_flow_fence(struct fyai_ctx *ctx, enum fyai_flow_unit unit)
 {
 	struct fyai_flow_sep sep;
 	struct fyai_flow *flow;
 	unsigned i;
-	int rc;
 
 	if (!ctx || !ctx->ui)
 		return 0;
@@ -476,20 +647,13 @@ static int ui_flow_fence(struct fyai_ctx *ctx, enum fyai_flow_unit unit)
 	fyai_diag_tracef("flowfence", "prev=%s next=%s rows=%u blank=%u",
 			 fyai_flow_unit_name(flow->prev),
 			 fyai_flow_unit_name(unit), sep.rows, flow->blank_rows);
-	if (sep.markdown) {
-		rc = fytim_commit(ctx->ui->ft, sep.markdown,
-				  strlen(sep.markdown));
-		if (rc != FYTIM_OK)
+	if (sep.markdown &&
+	    (ui_present(ctx->ui, sep.markdown, strlen(sep.markdown)) ||
+	     ui_present(ctx->ui, "\n", 1)))
+		return -1;
+	for (i = 0; i < sep.rows; i++)
+		if (ui_present(ctx->ui, "\n", 1))
 			return -1;
-		rc = fytim_commit(ctx->ui->ft, "\n", 1);
-		if (rc != FYTIM_OK)
-			return -1;
-	}
-	for (i = 0; i < sep.rows; i++) {
-		rc = fytim_commit(ctx->ui->ft, "\n", 1);
-		if (rc != FYTIM_OK)
-			return -1;
-	}
 	fyai_flow_emitted(flow, unit, true);
 	return 0;
 }
@@ -511,7 +675,7 @@ static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 	}
 	if (out.len) {
 		/* Spooled bytes continue the current unit and take no separation. */
-		(void)fytim_commit(ui->ft, out.data, out.len);
+		(void)ui_present(ui, out.data, out.len);
 		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->sink : NULL),
 				  out.data, out.len);
 	}
@@ -698,6 +862,9 @@ static void ui_rearm(struct fyai_ui *ui)
 	fyai_event_ms_t now, frame_ms;
 	int rc;
 
+	/* A UI that is closing has no timer to arm. */
+	if (!ui->timer_src)
+		return;
 	if (!ui->activity_paused && (ui->busy || ui->tool_band) &&
 	    ui->activity_interval_ms &&
 	    (ms < 1 || ui->activity_interval_ms < (unsigned int)ms))
@@ -1025,6 +1192,24 @@ static void ui_ask_dismiss(struct fyai_ctx *ctx, const char *arg)
 	ui_question_answer(ctx->ui, NULL);
 }
 
+static void ui_popup_close_act(struct fyai_ctx *ctx, const char *arg)
+{
+	(void)arg;
+	ui_popup_close(ctx->ui);
+}
+
+/* Scroll the popup one row: "up" goes back through it. */
+static void ui_popup_scroll_act(struct fyai_ctx *ctx, const char *arg)
+{
+	struct fyai_ui *ui = ctx->ui;
+
+	if (!ui->popup)
+		return;
+	fyai_transcript_view_scroll(ui->popup, !strcmp(arg, "up") ? 1 : -1,
+				    ui->popup_rows);
+	ui->frame_pending = true;
+}
+
 /* The actions of the page, by name. */
 static const struct fyai_page_action ui_page_action_table[] = {
 	{ "ask.prev", ui_ask_prev },
@@ -1032,6 +1217,8 @@ static const struct fyai_page_action ui_page_action_table[] = {
 	{ "ask.choose", ui_ask_choose },
 	{ "ask.accept", ui_ask_accept },
 	{ "ask.dismiss", ui_ask_dismiss },
+	{ "popup.close", ui_popup_close_act },
+	{ "popup.scroll", ui_popup_scroll_act },
 };
 static const struct fyai_page_action *const ui_page_actions =
 	ui_page_action_table;
@@ -1205,7 +1392,30 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.ntiles = fyai_workpane_page_tiles(ctx->workpane, tiles,
 					     FYAI_WORKPANE_TILES_MAX);
 	st.tiles = tiles;
+	/* A short result goes when the user types. */
+	typed = fytim_input(ui->ft);
+	if (ui->note_nlines &&
+	    strcmp(typed ? typed : "", ui->note_input ? ui->note_input : ""))
+		ui_note_clear(ui);
+	st.note_lines = (const char *const *)ui->note;
+	st.note_nlines = ui->note_nlines;
+	st.popup_title = ui->popup ? ui->popup_title : NULL;
+	st.fullscreen = ui->fullscreen;
 	fyai_page_fit(&st, rows);
+	if (ui->popup) {
+		ui->popup_rows = st.popup_rows;
+		st.popup_lines = fyai_transcript_view_window(ui->popup,
+			st.popup_rows, &st.popup_nlines);
+	}
+	if (ui->fullscreen) {
+		/* The view is made at the width presented rows are made at. */
+		(void)fyai_transcript_view_refresh(ctx, ui->view,
+			ctx->cfg->render_width > 0 ? ctx->cfg->render_width : cols,
+			st.transcript_rows);
+		ui->view_rows = st.transcript_rows;
+		st.transcript_lines = fyai_transcript_view_window(ui->view,
+			st.transcript_rows, &st.transcript_nlines);
+	}
 	/* Then written at the rows the chrome leaves it. */
 	ui->pane_grid.len = 0;
 	if (st.pane_rows > 0 &&
@@ -1222,8 +1432,9 @@ static void ui_page_update(struct fyai_ui *ui)
 			     "the band stack draws the screen");
 	} else {
 		ui_page_keys_bind(ui, &keys);
-		/* What the page gave a tile is the grant of the tile. */
-		for (i = 0; i < st.ntiles; i++) {
+		/* What the page gave a tile is the grant of the tile. A popup
+		 * hides the tiles, and gives them nothing to size to. */
+		for (i = 0; !ui->popup && i < st.ntiles; i++) {
 			if (tiles[i].surface)
 				fyai_workpane_tile_set_page_grant(ctx->workpane,
 					tiles[i].surface, tiles[i].granted_rows,
@@ -1255,6 +1466,42 @@ static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 	if (!strcmp(id, "tile:focus") && fyai_workpane_tile_selectable(wm, sf) &&
 	    fyai_workpane_focused(wm) != sf)
 		fyai_workpane_set_focus(wm, sf);
+}
+#endif
+
+#ifdef FYAI_UI_PAGE
+/* A drag over the transcript or the popup: copy the text of the rows it went
+ * over. */
+static void ui_select(struct fyai_ui *ui, const struct fytim_event *ev)
+{
+	enum fytim_result res;
+	char *text;
+
+	if (!ui->fullscreen || !ev->text)
+		return;
+	if (ev->text_len == 10 && !memcmp(ev->text, "transcript", 10)) {
+		text = fyai_transcript_view_copy(ui->view, ui->view_rows,
+						 ev->row, ev->col,
+						 ev->end_row, ev->end_col);
+	} else if (ui->popup && ev->text_len == 5 &&
+		   !memcmp(ev->text, "popup", 5)) {
+		text = fyai_transcript_view_copy(ui->popup, ui->popup_rows,
+						 ev->row, ev->col,
+						 ev->end_row, ev->end_col);
+	} else {
+		return;
+	}
+	if (!text) {
+		fyai_warning(ui->ctx, "cannot copy the selection");
+		return;
+	}
+	if (*text) {
+		res = fytim_copy(ui->ft, text, strlen(text));
+		if (res != FYTIM_OK)
+			fyai_warning(ui->ctx, "the terminal did not take the "
+				     "selection: %s", fytim_result_string(res));
+	}
+	free(text);
 }
 #endif
 
@@ -1325,8 +1572,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_INTERRUPT:
 			/* Escape only now; ^C arrives as SIGINT. Both mean
-			 * the same thing to the session. */
-			(void)fyai_ui_interrupt(ui->ctx);
+			 * the same thing to the session, except that Escape
+			 * first clears a short result of an idle session. */
+			if (ui->note_nlines && !ui->busy)
+				ui_note_clear(ui);
+			else
+				(void)fyai_ui_interrupt(ui->ctx);
 			break;
 		case FYTIM_EVENT_QUIT:
 			ui->quit = true;
@@ -1369,6 +1620,21 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_SCROLLBACK:
 			ui->activity_paused = true;
+			/* An open popup covers the page: every scroll is its.
+			 * Else a key, or the wheel over the transcript, scrolls
+			 * the view of a fullscreen page. */
+			if (ui->popup) {
+				fyai_transcript_view_scroll(ui->popup, ev.delta,
+							    ui->popup_rows);
+				ui->frame_pending = true;
+			} else if (ui->fullscreen &&
+				   (!ev.text || (ev.text_len == 10 &&
+						 !memcmp(ev.text, "transcript",
+							 10)))) {
+				fyai_transcript_view_scroll(ui->view, ev.delta,
+							    ui->view_rows);
+				ui->frame_pending = true;
+			}
 			break;
 		case FYTIM_EVENT_SURFACE_ZOOM:
 			/* Toggle zoom for the selected tile. */
@@ -1391,6 +1657,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			if (ui->page)
 				ui_page_key(ui, &ev);
 			break;
+		case FYTIM_EVENT_SELECT:
+			ui_select(ui, &ev);
+			break;
 #endif
 		case FYTIM_EVENT_SURFACE_CLOSE:
 		case FYTIM_EVENT_SURFACE_SCROLL:
@@ -1407,6 +1676,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	/* Delegated agents repaint only their live result. */
 	if (ui->repaint_pending && fyai_agent_delegated(ui->ctx))
 		ui->repaint_pending = false;
+	/* A fullscreen page has no screen of committed rows to clear: its view
+	 * is made again at the new width on the next frame. */
+	if (ui->repaint_pending && ui->fullscreen) {
+		ui->repaint_pending = false;
+		ui->frame_pending = true;
+	}
 	/* Clear live surfaces before transcript reflow. */
 	if (ui->repaint_pending &&
 	    fyai_tool_surfaces_active(ui->ctx)) {
@@ -1467,6 +1742,18 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	cfg.intr_signal = true;
 	/* Grab the mouse only when work-pane controls require it. */
 	cfg.mouse = fyai_workpane_wants_mouse(ctx);
+#ifdef FYAI_UI_PAGE
+	/* A fullscreen page takes the alternate screen, where its text is
+	 * selected and copied. */
+	if (fyai_page_requested(ctx->cfg) && ctx->cfg->screen &&
+	    !strcmp(ctx->cfg->screen, "fullscreen")) {
+		cfg.screen = FYTIM_SCREEN_ALT;
+		cfg.clipboard = true;
+		ui->fullscreen = true;
+		ui->view = fyai_transcript_view_create();
+		if (!ui->view) goto fail;
+	}
+#endif
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
 	ui->tty_fd = ttyout;
@@ -1565,7 +1852,9 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	if (ui->ft)
 		(void)fytim_pump(ui->ft);
 	fyai_event_source_remove(ui->timer_src);
+	ui->timer_src = NULL;
 	fyai_event_source_remove(ui->input_src);
+	ui->input_src = NULL;
 	if (ui->editor_request) {
 		fyai_editor_destroy(ui->editor_request);
 		ui->editor_request = NULL;
@@ -1581,6 +1870,10 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ctx->workpane = NULL;
 	fyai_page_destroy(ui->page);
 	ui->page = NULL;
+	fyai_transcript_view_destroy(ui->view);
+	ui->view = NULL;
+	ui_popup_close(ui);
+	ui_note_clear(ui);
 	free(ui->pane_grid.data);
 	/* Nobody can answer a question now. */
 	while (ui->questions) {
@@ -1654,7 +1947,9 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		free(out.data);
 		return;
 	}
-	if (!show_output && !error) {
+	/* A fullscreen page has no scrollback for a view: it shows it in the
+	 * notice band. */
+	if (!show_output && !error && !ui->fullscreen) {
 		(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
 		(void)fytim_commit(ui->ft, out.data, out.len);
 		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->sink : NULL),
@@ -1681,6 +1976,14 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		 markdown_glyph(ui->ctx ? ui->ctx->cfg : NULL,
 				error ? "gutter.diag" : "gutter.system", "●"),
 		 title ? title : (error ? "error" : "status"), off);
+	/* A fullscreen page shows it above the status, or in its popup. */
+	if (ui->fullscreen) {
+		ui_popup_append(ui, title ? title : (error ? "error" : "status"),
+				heading, out.data, out.len);
+		free(heading);
+		free(out.data);
+		return;
+	}
 	ui->message_band = ui_band_open(ui, FYAI_WORKPANE_TILE_NOTICE, 12);
 	if (ui->message_band) {
 		(void)fytim_workband_set_top(ui->message_band, heading);
@@ -1707,6 +2010,11 @@ void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title)
 }
 
 bool fyai_ui_active(const struct fyai_ctx *ctx) { return ctx && ctx->ui; }
+
+bool fyai_ui_fullscreen(const struct fyai_ctx *ctx)
+{
+	return ctx && ctx->ui && ctx->ui->fullscreen;
+}
 
 int fyai_ui_external_begin(struct fyai_ctx *ctx)
 {
@@ -1970,8 +2278,8 @@ int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 	}
 	/* Keep one blank row. The manager supplies any more. */
 	len = fyai_flow_trim_tail(buf, len, 1);
-	rc = fytim_commit(ui->ft, buf, len);
-	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
+	rc = ui_present(ui, buf, len);
+	fyai_error_check(ctx, !rc, err_out,
 			 "could not commit transcript output");
 	fyai_flow_observe(fyai_sink_flow(ctx->sink), buf, len);
 	return 0;
@@ -2010,7 +2318,7 @@ void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 	/* The same fence: a healed render lands here when the tail drains. */
 	if (len) {
 		(void)ui_flow_fence(ctx, FYAI_FLOW_PROSE);
-		(void)fytim_commit(ctx->ui->ft, buf, len);
+		(void)ui_present(ctx->ui, buf, len);
 		fyai_flow_observe(fyai_sink_flow(ctx->sink), buf, len);
 	}
 	(void)fytim_tail_set(ctx->ui->ft, NULL, 0);
@@ -2376,7 +2684,7 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 	}
 	/* The committed transcript owns the band after its tile retires. */
 	fyai_workpane_unregister_band(ui->ctx->workpane, ui->tool_band);
-	(void)fytim_workband_commit(ui->tool_band);
+	ui_band_commit(ui, ui->tool_band);
 	ui->tool_band = NULL;
 	fyai_workpane_release(ui->ctx->workpane);
 	/* The flow keeps the tool unit. The next prose commit fences it. */
@@ -2504,7 +2812,10 @@ void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
 	if (commit) {
 		/* An independent tile takes the separation of a shared band. */
 		(void)ui_flow_fence(ctx, FYAI_FLOW_TOOL_HEAD);
-		(void)fytim_workband_commit(band);
+		if (ui)
+			ui_band_commit(ui, band);
+		else
+			(void)fytim_workband_commit(band);
 	} else {
 		fytim_workband_destroy(band);
 	}

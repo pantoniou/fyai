@@ -8,6 +8,28 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 int fyai_show_stats(struct fyai_ctx *ctx);
 int fyai_display_view(struct fyai_ctx *ctx);
 int fyai_display_recap(struct fyai_ctx *ctx, int max_exchanges, int max_rows);
+
+struct fyai_turn_stack;
+/*
+ * Render the turns @lo up to @hi of @stack, whole exchanges, through the sink
+ * of @ctx, as a recap renders them. @after says that an exchange stands before
+ * them, which a recap separates from them. Returns 0, or -1 with the cause
+ * reported.
+ */
+int fyai_display_turn_range(struct fyai_ctx *ctx,
+			    struct fyai_turn_stack *stack, size_t lo,
+			    size_t hi, bool after);
+
+struct fymd_renderer;
+/*
+ * The rows that the turns @lo up to @hi of @stack take at the width of the
+ * measurer @m, by the measuring pass of a recap: an estimate, made without
+ * rendering them.
+ */
+size_t fyai_display_turn_range_rows(struct fyai_ctx *ctx,
+				    struct fymd_renderer *m,
+				    struct fyai_turn_stack *stack, size_t lo,
+				    size_t hi);
 size_t fyai_display_source_rows(const struct fyai_cfg *cfg, const char *md,
 				size_t len, size_t width);
 /* Repaint recent stored exchanges at the current width. */

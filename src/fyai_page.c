@@ -162,7 +162,7 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 	/* A question: its row, who asks, each option, and the hint. */
 	if (st->ask_question)
 		rows += 2 + !fy_str_empty(st->ask_from) + (int)st->ask_noptions;
-	return rows;
+	return rows + st->note_nlines;
 }
 
 void fyai_page_fit(struct fyai_page_state *st, int height)
@@ -171,16 +171,28 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 
 	if (!st || height <= 0)
 		return;
+	/* A popup covers the page: its heading, then its rows. */
+	if (st->fullscreen && st->popup_title) {
+		st->popup_rows = height > 1 ? height - 1 : 0;
+		st->pane_rows = 0;
+		st->tail_rows = 0;
+		st->transcript_rows = 0;
+		return;
+	}
 	left = height - fyai_page_chrome_rows(st);
 	/* The work outranks the tail, which shows its last rows. */
 	if (st->pane_rows > left) {
 		st->pane_rows = left > 0 ? left : (st->pane_rows > 0);
 		st->tail_rows = 0;
+		st->transcript_rows = 0;
 		return;
 	}
 	left -= st->pane_rows;
 	if (st->tail_rows > left)
 		st->tail_rows = left > 0 ? left : 0;
+	/* A fullscreen page gives its transcript view what the tail leaves. */
+	if (st->fullscreen)
+		st->transcript_rows = left - st->tail_rows;
 }
 
 static int page_repeat(struct response_buffer *out, const char *s, int n)
@@ -480,7 +492,17 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 			"options", options,
 			"waiting", st->ask_waiting,
 			"waiting_shown", (bool)(st->ask_waiting > 0)),
+		"screen", fy_mapping(gb, "mode",
+				     st->fullscreen ? "fullscreen" : "inline"),
 		"tail", fy_mapping(gb, "rows", st->tail_rows),
+		"transcript", fy_mapping(gb, "rows", st->transcript_rows),
+		"popup", fy_mapping(gb,
+			"mode", st->popup_title ? "open" : "closed",
+			"title", page_str(st->popup_title),
+			"rows", st->popup_rows),
+		"note", fy_mapping(gb,
+			"shown", (bool)(st->note_nlines > 0),
+			"rows", st->note_nlines),
 		"pane", fy_mapping(gb,
 			"above", (bool)(pane && !st->pane_below),
 			"below", (bool)(pane && st->pane_below),
@@ -1627,6 +1649,24 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
  * @fr into its grid of cells, and publish them to the canvas, opened and
  * sized to @nrows by @cols as needed.
  */
+/* The @nlines rendered @lines of a view, from the top of its region. */
+static int page_lines_draw(struct fyai_page *pg, const char *const *lines,
+			   int nlines, const struct fymd_region *r)
+{
+	const char *line;
+	int y, n;
+
+	for (y = 0; y < (int)r->height && y < nlines; y++) {
+		line = lines[y] ? lines[y] : "";
+		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
+					  pg->cells_cols, (int)r->row + y, r->col,
+					  r->width, 1, line, strlen(line));
+		if (n < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 		       struct fyai_page_state *st,
 		       const struct fymd_region *fr, size_t count,
@@ -1680,6 +1720,24 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 	for (i = 0; i < count; i++) {
 		if (fr[i].kind == FYMD_REGION_ACT)
 			continue;
+		if (!strcmp(fr[i].id, "transcript") && st->transcript_lines) {
+			rc = page_lines_draw(pg, st->transcript_lines,
+					     st->transcript_nlines, &fr[i]);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot draw the transcript into cells");
+		}
+		if (!strcmp(fr[i].id, "popup") && st->popup_lines) {
+			rc = page_lines_draw(pg, st->popup_lines,
+					     st->popup_nlines, &fr[i]);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot draw the popup into cells");
+		}
+		if (!strcmp(fr[i].id, "note") && st->note_lines) {
+			rc = page_lines_draw(pg, st->note_lines,
+					     st->note_nlines, &fr[i]);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot draw the result into cells");
+		}
 		t = page_tile_of(st, fr[i].id, "head");
 		if (t && t->rows) {
 			n = page_head_draw(pg, t, &fr[i],
@@ -1832,8 +1890,13 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		     !strncmp(fr[i].id, "text:", 5)))
 			tiles++;
 		regions[n].id = fr[i].id;
+		/* The transcript view and the popup are text the user
+		 * selects. */
 		regions[n].kind = fr[i].kind == FYMD_REGION_ACT ?
-				  FYTIM_PAGE_ACT : FYTIM_PAGE_SLOT;
+				  FYTIM_PAGE_ACT :
+				  !strcmp(fr[i].id, "transcript") ||
+				  !strcmp(fr[i].id, "popup") ?
+				  FYTIM_PAGE_TEXT : FYTIM_PAGE_SLOT;
 		regions[n].row = (int)fr[i].row;
 		regions[n].col = fr[i].col;
 		regions[n].width = fr[i].width;
