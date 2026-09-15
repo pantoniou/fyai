@@ -12,7 +12,7 @@ assert_status 0
 
 FYAI_PTY_INPUT="/branches" \
 FYAI_PTY_NEEDLE="gitgraph overview" \
-FYAI_PTY_AFTER="raw:67|wait-frame:tree · / filter|raw:67|wait-frame:gitgraph overview|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="raw:67|wait-screen:tree · / filter|raw:67|wait-screen:gitgraph overview|raw:1b|wait-gone:Esc close" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/gitgraph.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/branch_view=gitgraph \
@@ -20,7 +20,7 @@ FYAI_PTY_AFTER="raw:67|wait-frame:tree · / filter|raw:67|wait-frame:gitgraph ov
 
 FYAI_PTY_INPUT="/branches" \
 FYAI_PTY_NEEDLE="Diagram unavailable; showing plain rows." \
-FYAI_PTY_AFTER="raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="wait-screen:Esc close|raw:1b|wait-gone:Esc close" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/fallback.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/branch_view=gitgraph --set display/diagram_theme=missing-theme \

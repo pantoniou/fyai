@@ -8,8 +8,8 @@ fyai_test_setup
 run_fyai branch create existing
 assert_status 0
 
-after="raw:69|wait-frame:Field|raw:1b|wait-frame:Branches|"
-after="${after}raw:6b0d|wait-gone:Branches|wait-frame:existing|raw:1d|drain:0.2"
+after="raw:69|wait-screen:Field|raw:1b|wait-gone:Field|"
+after="${after}raw:6b0d|wait-gone:Branches|wait-screen:existing|raw:1d"
 
 FYAI_PTY_INPUT="/branches" \
 FYAI_PTY_PROGRESS_NEEDLE="Branches" \

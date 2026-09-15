@@ -16,7 +16,7 @@ done
 FYAI_PTY_ROWS=20 FYAI_PTY_COLS=60 \
 FYAI_PTY_INPUT="/branches" \
 FYAI_PTY_NEEDLE="gitgraph overview" \
-FYAI_PTY_AFTER="wait: more|wait:main/bravo-service|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="wait-screen: more|wait-screen:main/bravo-service|raw:1b|wait-gone:Esc close" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/fit.out" \
     "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/branch_view=gitgraph \

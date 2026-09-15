@@ -7,13 +7,18 @@ set -eu
 fyai_test_setup
 mock_start ui_bang_user_owned.json
 
-ZOOM_AFTER="raw:1d|send:try to close my shell|"
-ZOOM_AFTER="${ZOOM_AFTER}wait:User shell ownership preserved.|"
-ZOOM_AFTER="${ZOOM_AFTER}send:/zoom bang-1|wait:Ctrl-]|"
-ZOOM_AFTER="${ZOOM_AFTER}send:echo SECOND-ZOOM|wait:SECOND-ZOOM|raw:1d"
+# The shell writes READY in two parts, so only its output holds the word and
+# not the command in the head. The status hint says that a tile holds the keys:
+# the notice of /zoom names Ctrl-] too.
+ZOOM_AFTER="wait-screen:READY|wait-screen:Ctrl-] returns to the prompt|raw:1d|wait-gone:Ctrl-] returns to the prompt|"
+ZOOM_AFTER="${ZOOM_AFTER}send:try to close my shell|"
+ZOOM_AFTER="${ZOOM_AFTER}wait-screen:User shell ownership preserved.|"
+ZOOM_AFTER="${ZOOM_AFTER}send:/zoom bang-1|wait-screen:Ctrl-] returns to the prompt|"
+ZOOM_AFTER="${ZOOM_AFTER}send:echo SECOND-ZOOM|wait-screen:SECOND-ZOOM|"
+ZOOM_AFTER="${ZOOM_AFTER}raw:1d|wait-gone:Ctrl-] returns to the prompt"
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
-FYAI_PTY_INPUT="!sh -c 'sleep .2; stty size; printf READY; sleep 10'" \
-FYAI_PTY_NEEDLE="READY" \
+FYAI_PTY_INPUT="!sh -c 'stty size; printf %s%s REA DY; sleep 60'" \
+FYAI_PTY_NEEDLE="bang-1" \
 FYAI_PTY_AFTER="$ZOOM_AFTER" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
@@ -23,7 +28,7 @@ FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
     --set tools=true --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 
-"$PYTHON" - "$TEST_DIR/snapshot.out" "$TESTS_DIR" <<'PYEOF' || \
+"$PYTHON" - "$TEST_DIR/snapshot.out" "$TESTS_DIR" "$TEST_DIR/pty.out" <<'PYEOF' || \
     fail "bang shell ownership was not preserved"
 import sys
 
@@ -41,15 +46,31 @@ if "Ctrl-] returns to the prompt".encode() not in data:
     raise SystemExit("focused bang shell has no focus indication")
 if "shell [bang-1]" not in shown:
     raise SystemExit("bang shell does not display its /zoom name")
-# Confirm that the rejected close leaves the shell live.
-if "READY" not in shown:
-    raise SystemExit("user shell disappeared after model close request")
-if "SECOND-ZOOM" not in shown:
-    raise SystemExit("user shell stopped updating after its second zoom")
-# Confirm that unzoom restores the configured pane cap.
+# Confirm that the shell was sized under the configured pane cap: every size
+# it showed on the screen, in any frame.
 import re
-sizes = [(int(match[1]), int(match[2])) for line in lines
-         if (match := re.fullmatch(r"\s*(\d+) (\d+)\s*", line))]
+END = b"\x1b[?2026l"
+capture = open(sys.argv[3], "rb").read()
+frames = Screen(30, 100)
+pos = 0
+sizes = []
+ready = echoed = False
+while True:
+    i = capture.find(END, pos)
+    if i < 0:
+        break
+    frames.feed(capture[pos:i + len(END)])
+    pos = i + len(END)
+    sizes += [(int(match[1]), int(match[2])) for line in frames.display()
+              if (match := re.fullmatch(r"\s*(\d+) (\d+)\s*", line))]
+    ready = ready or any("READY" in line for line in frames.display())
+    echoed = echoed or any("SECOND-ZOOM" in line for line in frames.display())
+# The shell drew its output, and after the rejected close it still echoed what
+# the second zoom typed into it.
+if not ready:
+    raise SystemExit("user shell never drew its output")
+if not echoed:
+    raise SystemExit("user shell stopped updating after its second zoom")
 if not sizes or max(r for r, _ in sizes) > 5:
     raise SystemExit("zoomed-out user shell escaped work_max_rows: %r" %
                      (sizes,))

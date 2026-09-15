@@ -11,7 +11,7 @@ FYAI_PTY_COLS=140 \
 FYAI_PTY_ROWS=40 \
 FYAI_PTY_INPUT="hello" \
 FYAI_PTY_NEEDLE="Hello from the mock responses provider." \
-FYAI_PTY_AFTER="send:/branches|wait:session end|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="send:/branches|wait-screen:session end|raw:1b|wait-gone:Esc close" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/preview.out" \
 	"$FYAI_BIN" -k test-key --theme dark \
 	--set display/markdown=true --set display/stream=false \

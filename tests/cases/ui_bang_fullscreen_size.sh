@@ -9,7 +9,7 @@ fyai_test_setup
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!sh -c 'sleep .2; stty size; printf \"ENV:%s:%s\\n\" \"\${LINES-unset}\" \"\${COLUMNS-unset}\"; sleep 30'" \
 FYAI_PTY_NEEDLE=" 98" \
-FYAI_PTY_AFTER="drain:.5|raw:0c|drain:1|raw:1d" \
+FYAI_PTY_AFTER="wait-screen:ENV:unset:unset|raw:0c|raw:1d|wait-gone:Ctrl-] returns to the prompt" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/full.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

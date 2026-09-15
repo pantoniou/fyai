@@ -12,7 +12,7 @@ FYAI_PTY_PROGRESS_NEEDLE="Agent progress" \
 FYAI_PTY_PROGRESS_TIMEOUT=8 \
 FYAI_PTY_DURING_INPUT=$'/branch attach main/agent:child/agent:grandchild\rATTACHED_INPUT' \
 FYAI_PTY_NEEDLE="ATTACHED_REPLY" \
-FYAI_PTY_AFTER="drain:0.5|send:/branch detach|wait:Recursive delegation complete." \
+FYAI_PTY_AFTER="send:/branch detach|wait-screen:Recursive delegation complete." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -b main -k test-key --theme dark \
 	--set display/markdown=true --set display/stream=false \

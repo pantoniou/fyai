@@ -6,13 +6,14 @@ set -eu
 
 fyai_test_setup
 
-# Wait for the requested width and the completed differential repaint.
+# Wait for the resized generation on the screen: its size line stands in a
+# complete frame once the differential repaint that holds it was drawn.
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!env LINES=30 COLUMNS=98 $PYTHON $TESTS_DIR/resize_curses.py" \
 FYAI_PTY_NEEDLE="E29G1:" FYAI_PTY_TIMEOUT=40 \
 FYAI_PTY_AFTER_TIMEOUT=20 \
-FYAI_PTY_AFTER="resize:52|wait:50G|drain:.3|wait:50G|drain:.3|raw:1d" \
-FYAI_PTY_AFTER_PAUSE=.3 FYAI_PTY_SNAPSHOT="$TEST_DIR/curses.out" \
+FYAI_PTY_AFTER="resize:52|wait-screen:SIZE 21x50 GEN|snapshot|raw:1d" \
+FYAI_PTY_SNAPSHOT="$TEST_DIR/curses.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true -m mock-model -i

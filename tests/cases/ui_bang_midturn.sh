@@ -38,8 +38,8 @@ export MOCKPROV_API_KEY=mock-secret
 FYAI_PTY_INPUT="first question" \
 FYAI_PTY_NEEDLE="shell-home-is-/" \
 FYAI_PTY_DURING_INPUT="!sh -c 'echo shell-home-is-\$HOME; sleep 30'" \
-FYAI_PTY_DURING_DELAY=0.5 \
-FYAI_PTY_AFTER="raw:14|drain:.5|raw:03|wait:interrupted|send:/sessions|wait:bang-1|send:second question|wait:The follow-up answer." \
+FYAI_PTY_PROGRESS_NEEDLE="first question" \
+FYAI_PTY_AFTER="wait-screen:Ctrl-] returns to the prompt|raw:14|wait-gone:Ctrl-] returns to the prompt|raw:03|wait-screen:interrupted|send:/sessions|wait-screen:bang-1|send:second question|wait-screen:The follow-up answer." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" --color off \
     --set display/markdown=false --set display/stream=false \

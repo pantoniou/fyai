@@ -112,13 +112,19 @@ grep -qE '^ANSWERED=[0-9]+(;[0-9]+)*$' "$TEST_DIR/stdout" ||
 
 # An interrupt must reach the command. Without it the only way out is the
 # time limit. The run is backgrounded here so the case can signal it.
+# The result is the screen, which arrives when the command ends, thus the
+# command says that it started with a file, and the signal waits for it.
 "$FYAI_BIN" -k test-key --color off tool shell \
-	'{"command":"echo started; sleep 30","tty":true}' \
+	"{\"command\":\"echo started; touch $TEST_DIR/started; sleep 30\",\"tty\":true}" \
 	>"$TEST_DIR/interrupt.out" 2>&1 </dev/null &
 tty_pid=$!
-# The result is the screen, which arrives when the command ends, thus there is
-# nothing to wait for. Give the command time to start, then signal it.
-sleep 2
+tries=$((100 * FYAI_TIMEOUT_SCALE))
+while [ ! -f "$TEST_DIR/started" ]; do
+	tries=$((tries - 1))
+	[ "$tries" -gt 0 ] || fail "the tty command did not start"
+	kill -0 "$tty_pid" 2>/dev/null || fail "the tty run ended before its command started"
+	sleep 0.05
+done
 kill -INT "$tty_pid"
 wait "$tty_pid" || true
 grep -q "started" "$TEST_DIR/interrupt.out" || \
