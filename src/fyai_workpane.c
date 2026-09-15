@@ -679,7 +679,10 @@ static int workpane_add(struct fyai_workpane_manager *wm,
 	t->max_rows = max_rows;
 	t->selectable = sf != NULL;
 	t->slot = ++wm->next_slot;
-	fyai_ui_tile_bind(sf, band, t->slot);
+	/* A slot names a component of the display. Without a display the
+	 * surface is an identity only and is not dereferenced. */
+	if (wm->ft)
+		fyai_ui_tile_bind(sf, band, t->slot);
 	/* Keep registration order: main layouts select the oldest tile. */
 	tailp = &wm->tiles;
 	while (*tailp)
