@@ -424,7 +424,10 @@ foreach(_dir IN LISTS _fyai_ui_inc)
         # A fullscreen page holds text that the user selects and copies.
         file(STRINGS "${_dir}/libfytimui/libfytimui-event.h" _copy
             REGEX "fytim_copy")
-        if(_decl AND _tail AND _draw AND _keys AND _copy)
+        # The band stack draws the blank row above the header as the page does.
+        file(STRINGS "${_dir}/libfytimui/libfytimui-band.h" _hdr
+            REGEX "fytim_set_header_rows")
+        if(_decl AND _tail AND _draw AND _keys AND _copy AND _hdr)
             set(_fyai_page_tim ON)
         endif()
     endif()

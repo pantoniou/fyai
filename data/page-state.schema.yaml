@@ -96,7 +96,7 @@ properties:
     required: [shown, text, elapsed, "on", "off"]
     properties:
       shown: { description: The header row is shown., type: boolean }
-      text: { description: Text of the header., type: string }
+      text: { description: UI Markdown of the header that fyai wrote, with its values escaped and coloured., type: string }
       elapsed: { description: Time of the running turn., type: string }
       "on": { description: SGR of the theme before the header., type: string }
       "off": { description: SGR of the theme after the header., type: string }
@@ -119,7 +119,7 @@ properties:
       hint: { description: The hint row is shown., type: boolean }
       hint_text: { description: Text of the hint., type: string }
       row: { description: The status row is shown., type: boolean }
-      text: { description: Text of the status., type: string }
+      text: { description: UI Markdown of the status that fyai wrote, with its values escaped and coloured., type: string }
       activity: { description: The activity mark of the status., type: string }
       gutter: { description: Columns of the status gutter., type: integer }
       "on": { description: SGR of the theme before the status., type: string }

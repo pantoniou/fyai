@@ -144,6 +144,36 @@ static int page_slot(struct response_buffer *out, const char *id, int rows)
 /* A space that Markdown does not remove at the start of a row: a margin. */
 #define PAGE_SPACE "&#32;"
 
+/* The header row and the blank row above it, as the band stack draws them. */
+#define FYAI_PAGE_HEADER_ROWS 2
+
+/*
+ * @text in @gb with its UI tags escaped. The header and the status are UI
+ * Markdown that hold values fyai did not write, so no value can open a tag of
+ * the page. Each is one row: a line break becomes a space, as the band stack
+ * folds it. Leading blanks go, as Markdown removes them from the band stack.
+ * A row that cannot be escaped is drawn empty.
+ */
+static fy_generic page_escaped(struct fy_generic_builder *gb, const char *text)
+{
+	fy_generic v;
+	char *escaped, *p;
+
+	while (text && (*text == ' ' || *text == '\t'))
+		text++;
+	if (fy_str_empty(text))
+		return fy_value(gb, "");
+	escaped = markdown_ui_escape(text);
+	if (!escaped)
+		return fy_value(gb, "");
+	for (p = escaped; *p; p++)
+		if (*p == '\n' || *p == '\r')
+			*p = ' ';
+	v = fy_value(gb, escaped);
+	free(escaped);
+	return v;
+}
+
 int fyai_page_chrome_rows(const struct fyai_page_state *st)
 {
 	int rows = 0;
@@ -151,10 +181,12 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 	if (!st)
 		return 0;
 	if (st->prompt_rows > 0)
-		/* header, the prompt with its two framing rows, two status rows */
-		rows = 1 + st->prompt_rows + 2 + 2;
+		/* the header under its blank row, the prompt with its two framing
+		 * rows, two status rows */
+		rows = FYAI_PAGE_HEADER_ROWS + st->prompt_rows + 2 + 2;
 	else
-		rows = (!fy_str_empty(st->header) || !fy_str_empty(st->elapsed)) +
+		rows = (!fy_str_empty(st->header) || !fy_str_empty(st->elapsed)) *
+		       FYAI_PAGE_HEADER_ROWS +
 		       (st->completion || !fy_str_empty(st->hint)) +
 		       !fy_str_empty(st->status);
 	if (st->pane_rows > 0 && !fy_str_empty(st->cap))
@@ -515,7 +547,7 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 		"header", fy_mapping(gb,
 			"shown", (bool)(prompt || !fy_str_empty(st->header) ||
 					!fy_str_empty(st->elapsed)),
-			"text", page_str(st->header),
+			"text", page_escaped(gb, st->header),
 			"elapsed", page_str(st->elapsed),
 			"on", page_str(st->header_on),
 			"off", page_str(st->header_off)),
@@ -533,7 +565,7 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 				       (!fy_str_empty(st->hint) || prompt)),
 			"hint_text", page_str(st->hint),
 			"row", (bool)(!fy_str_empty(st->status) || prompt),
-			"text", page_str(st->status),
+			"text", page_escaped(gb, st->status),
 			"activity", page_str(st->activity),
 			"gutter", st->gutter_cols,
 			"on", page_str(st->status_on),
@@ -861,6 +893,9 @@ static int page_doc_items(struct page_doc_ctx *c, fy_generic items,
 			bound = page_doc_lookup(c, fy_castp(&v, ""));
 			s = fy_castp(&bound, "");
 			rc = *s ? response_buffer_append(c->out, s) : 0;
+			/* Text after the markup is not at the start of the row. */
+			if (*s)
+				*row_start = false;
 			break;
 		case PDI_ACT:
 			rc = page_doc_act(c, fy_get(item, "act", fy_invalid),

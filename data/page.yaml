@@ -73,14 +73,17 @@ pages:
     - if: pane.above
       page: pane
 
-    # The header row, which goes before the rules when the page is too tall.
+    # The header row under a blank row, which go before the rules when the
+    # page is too tall.
     - if: header.shown
       drop: 2
       body:
         - row:
+            - space: 1
+        - row:
             - space: 2
             - sgr: header.on
-            - text: "{header.text}"
+            - markup: header.text
             - text: "{header.elapsed}"
             - sgr: header.off
 
@@ -106,7 +109,7 @@ pages:
           row:
             - gutter: { mark: status.activity, cols: "{status.gutter}" }
             - sgr: status.on
-            - text: "{status.text}"
+            - markup: status.text
             - sgr: status.off
 
     - if: pane.below

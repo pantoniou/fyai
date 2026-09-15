@@ -1756,6 +1756,10 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 #endif
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
+#ifdef FYAI_UI_PAGE
+	/* A blank row stands above the header, as it does on the page. */
+	(void)fytim_set_header_rows(ui->ft, 2);
+#endif
 	ui->tty_fd = ttyout;
 	ttyout = -1;
 	ctx->workpane = fyai_workpane_create(ctx, ui->ft);

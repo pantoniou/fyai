@@ -31,8 +31,10 @@ struct fyai_page_action {
 
 /*
  * The state that one frame of the page is built from. The strings are
- * borrowed for the call. header, hint and status are Markdown that fyai or
- * the user configuration wrote; activity may carry SGR, which is removed.
+ * borrowed for the call. header and status are UI Markdown that fyai wrote
+ * from the configured templates, with their values escaped and in the colours
+ * of the palette. hint is Markdown that fyai or the user configuration wrote;
+ * activity may carry SGR, which is removed.
  */
 struct fyai_page_state {
 	const char *header;
