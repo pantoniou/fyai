@@ -181,6 +181,10 @@ limit the root `prev` chain and each branch-entry `prev` chain.
   two turns.
 - `--branch`, `-b`, and `$FYAI_BRANCH` select a branch for one invocation.
 - Only `checkout` changes stored `HEAD`.
+- An interactive run that names no branch starts a `session/` branch. It takes
+  the configuration of the branch last updated in its directory, else of the
+  branch `HEAD` names. `ctx->session_unstored` names it until its first
+  exchange is published; before that a publish on it writes nothing.
 - Keep `ctx->branch` separate from `ctx->head_branch`.
 - Store the operation that produced each reflog entry. Do not infer it from
   head changes.
