@@ -488,6 +488,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "work_layout", cfg->work_layout));
 		cfg->work_position = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "work_position", cfg->work_position));
+		cfg->editor_mode = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "editor", cfg->editor_mode));
 		cfg->focus_bg = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "focus_bg", cfg->focus_bg));
 		cfg->focus_bg_mix = (int)fy_get(v, "focus_bg_mix",
@@ -1983,10 +1985,13 @@ fyai_config_edit_submit(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, path, err_file,
 			 "cannot retain configuration editor path");
 	request->path = path;
-	rc = fyai_ui_external_begin(ctx);
-	fyai_error_check(ctx, !rc, err_file,
-			 "cannot suspend UI; edits kept at %s", tmpl);
-	request->ui_external = true;
+	/* An editor in the work pane keeps the UI; one on the terminal takes it. */
+	if (!fyai_editor_in_pane(ctx)) {
+		rc = fyai_ui_external_begin(ctx);
+		fyai_error_check(ctx, !rc, err_file,
+				 "cannot suspend UI; edits kept at %s", tmpl);
+		request->ui_external = true;
+	}
 	request->editor = fyai_editor_submit(ctx, tmpl, false,
 				fyai_config_edit_editor_complete, request);
 	fyai_error_check(ctx, request->editor, err_external,
@@ -2144,6 +2149,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->session_margin = FYAI_SESSION_MARGIN;
 	cfg->work_layout = DEFAULT_WORK_LAYOUT;
 	cfg->work_position = DEFAULT_WORK_POSITION;
+	cfg->editor_mode = DEFAULT_EDITOR_MODE;
 	cfg->focus_bg = DEFAULT_FOCUS_BG;
 	cfg->focus_bg_mix = DEFAULT_FOCUS_BG_MIX;
 	cfg->work_columns = 0;

@@ -35,6 +35,8 @@
 #include "fyai_sink.h"
 #include "fyai_sandbox.h"
 #include "fyai_terminal.h"
+#include "fyai_tools.h"
+#include "fyai_ui.h"
 
 int response_buffer_reserve(struct response_buffer *buf, size_t need)
 {
@@ -1851,6 +1853,8 @@ bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor)
 struct fyai_editor_request {
 	struct fyai_ctx *ctx;
 	struct fyai_event_source *child_src;
+	/* The tile the editor runs in instead of a child, until it ends. */
+	struct fyai_shell_session *session;
 	fyai_editor_complete_fn complete;
 	void *userdata;
 	pid_t pid;
@@ -1886,6 +1890,28 @@ fyai_editor_child_complete(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+bool fyai_editor_in_pane(struct fyai_ctx *ctx)
+{
+	return ctx && ctx->cfg && fyai_ui_active(ctx) &&
+	       (!ctx->cfg->editor_mode ||
+		strcmp(ctx->cfg->editor_mode, "terminal"));
+}
+
+/* The editor in a tile ended. Its wait status is made as a child's. */
+static void fyai_editor_program_exited(void *userdata, int exit_code,
+				       int signal)
+{
+	struct fyai_editor_request *request;
+
+	request = userdata;
+	request->session = NULL;
+	request->status = signal ? (signal & 0x7f) : ((exit_code & 0xff) << 8);
+	request->done = true;
+	fyai_editor_notify(request);
+	if (request->abandoned)
+		free(request);
+}
+
 struct fyai_editor_request *
 fyai_editor_submit(struct fyai_ctx *ctx, const char *path, bool readonly,
 		   fyai_editor_complete_fn complete, void *userdata)
@@ -1915,6 +1941,14 @@ fyai_editor_submit(struct fyai_ctx *ctx, const char *path, bool readonly,
 		      editor, path);
 	fyai_error_check(ctx, rc >= 0, err_out,
 			 "could not format editor command");
+	if (fyai_editor_in_pane(ctx)) {
+		request->session = fyai_tools_user_program(ctx, cmd,
+				fyai_editor_program_exited, request);
+		fyai_error_check(ctx, request->session, err_out,
+				 "could not start the editor in the work pane");
+		free(cmd);
+		return request;
+	}
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, err_out, "could not start editor: %s",
 			 strerror(errno));
@@ -1950,6 +1984,8 @@ void fyai_editor_cancel(struct fyai_editor_request *request)
 	if (!request || request->done || request->cancelled)
 		return;
 	request->cancelled = true;
+	if (request->session)
+		fyai_tools_user_program_close(request->session);
 	if (request->pid > 0)
 		(void)kill(request->pid, SIGTERM);
 }
