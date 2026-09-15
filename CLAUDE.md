@@ -524,10 +524,13 @@ rules and the status. `page` states the same screen as one UI Markdown page.
   and the page document states it, so both draw it. The header and the status
   carry the heading and blockquote SGR pairs of the theme, so the page
   renderer takes SGR input (`FYMD_SGR_SAFE`).
-- The header is `markup`: fyai escapes each value of the template and gives it
-  the next colour of the palette series (`mermaid.series.N`), and the page
-  escapes the UI tags of the whole header with `markdown_ui_escape()`. One
-  source is the Markdown of the band stack and the UI Markdown of the page.
+- fyai escapes each value of the header template and gives it the next colour
+  of the palette series (`mermaid.series.N`), and renders the header to one
+  row. The band stack draws that row, and the canvas of the page draws it in
+  the `header` slot, one row tall. Both cut it at the edge: a row of Markdown
+  wraps a long header, such as a long working directory, onto a second row
+  that the fit does not count. `tests/cases/ui_page_long_header.sh` runs with
+  such a directory.
 - `fyai_page_fit()` gives the chrome its rows before the pane, and the pane
   before the tail. A pane that asks for the whole terminal otherwise pushes
   the prompt off the screen.
