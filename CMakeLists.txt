@@ -277,7 +277,7 @@ if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG df399fe2c0c20e9c98391316201e68d10b45de51
+        GIT_TAG ba56569e523142fb93ea5dd4d5ef32c7684a1c81
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
