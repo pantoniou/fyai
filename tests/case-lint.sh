@@ -33,7 +33,7 @@ for f in "$cases_dir"/*.sh; do
 		for step in $script; do
 			case "$step" in
 			send:*|raw:*|resize:*|wait:*|wait-frame:*|wait-gone:*|\
-wait-screen:*|wait-copy:*|frame:*|release:*|drain:*|settle:*|snapshot|"") ;;
+wait-screen:*|wait-copy:*|frame:*|release:*|drain:*|settle:*|signal:*|snapshot|"") ;;
 			# Composed in a shell variable elsewhere; the driver
 			# validates the expanded script at runtime.
 			\$*) ;;
