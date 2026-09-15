@@ -13,6 +13,7 @@
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +40,7 @@ FYAI_TEST_ENTRY(jsonrpc, skips_non_frames, jsonrpc_skips_non_frames)
 FYAI_TEST_ENTRY(jsonrpc, read_yields, jsonrpc_read_yields)
 FYAI_TEST_ENTRY(jsonrpc, malformed_frame_fails_pending, jsonrpc_malformed_frame_fails_pending)
 FYAI_TEST_ENTRY(jsonrpc, destroy_settles_pending, jsonrpc_destroy_settles_pending)
+FYAI_TEST_ENTRY(jsonrpc, closed_peer_is_no_error, jsonrpc_closed_peer_is_no_error)
 
 #define TEST_BOUND_MS 5000
 
@@ -506,6 +508,37 @@ static void test_destroy_settles_pending(void)
 	printf("ok - destruction settles an outstanding request\n");
 }
 
+static void test_closed_peer_is_no_error(void)
+{
+	struct sigaction ignore = { .sa_handler = SIG_IGN }, old;
+	struct peer p;
+	int i, rc;
+
+	/*
+	 * A peer that closed its end is gone, as the end of file of its output
+	 * says. A write to it closes the connection and raises no error of its
+	 * own: that error would be the first, and hide the cause that ended the
+	 * peer.
+	 */
+	rc = sigaction(SIGPIPE, &ignore, &old);
+	FYAI_TCHECK(!rc);
+	peer_open(&p);
+	close(p.from_client);
+	p.from_client = -1;
+	rc = jsonrpc_notify(p.conn, "tty/resize", fy_map_empty);
+	FYAI_TCHECK(!rc);
+	for (i = 0; i < 10 && !jsonrpc_conn_closed(p.conn); i++) {
+		rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+		FYAI_TCHECK(rc >= 0);
+	}
+	FYAI_TCHECK(jsonrpc_conn_closed(p.conn));
+	FYAI_TCHECK(!fyai_diag_got_error(&test_cfg.diag));
+	peer_close(&p);
+	rc = sigaction(SIGPIPE, &old, NULL);
+	FYAI_TCHECK(!rc);
+	printf("ok - a write to a closed peer is no error\n");
+}
+
 /* Run one test with an isolated diagnostic context. */
 static int jsonrpc_run(void (*testfn)(void))
 {
@@ -591,4 +624,9 @@ int jsonrpc_malformed_frame_fails_pending(void)
 int jsonrpc_destroy_settles_pending(void)
 {
 	return jsonrpc_run(test_destroy_settles_pending);
+}
+
+int jsonrpc_closed_peer_is_no_error(void)
+{
+	return jsonrpc_run(test_closed_peer_is_no_error);
 }
