@@ -527,6 +527,12 @@ struct fyai_ctx {
 	char *branch;
 	/* Stored HEAD, which can differ from the active branch. */
 	char *head_branch;
+	/*
+	 * The fresh session that no publish stored yet, or NULL. While its
+	 * conversation holds no exchange, a publish on it stores nothing and
+	 * its configuration stays in this context.
+	 */
+	char *session_unstored;
 	/* Durable branch for a sub-agent conversation. */
 	char *agent_branch;
 	char *tool_submit_error;

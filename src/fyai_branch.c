@@ -921,14 +921,19 @@ int fyai_branch_create(struct fyai_ctx *ctx, const char *name,
 		rc = fyai_resolve_ref_state(ctx, start, &head, &config);
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not resolve start point '%s'", start);
+	} else if (fyai_branch_lookup(ctx->arena_branches,
+				      fyai_ctx_branch(ctx), &cur)) {
+		head = cur.head;
+		config = cur.config;
 	} else {
-		found = fyai_branch_lookup(ctx->arena_branches,
-					   fyai_ctx_branch(ctx), &cur);
+		/* A session not stored yet starts the branch from its context. */
+		found = ctx->session_unstored &&
+			!strcmp(ctx->session_unstored, fyai_ctx_branch(ctx));
 		fyai_error_check(ctx, found, err_out,
 				 "current branch '%s' is missing",
 				 fyai_ctx_branch(ctx));
-		head = cur.head;
-		config = cur.config;
+		head = ctx->last_message;
+		config = ctx->arena_config;
 	}
 
 	desc = description ? fy_value(ctx->gb, description) : fy_invalid;
