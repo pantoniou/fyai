@@ -816,12 +816,16 @@ register, focus, zoom, resize - and sizes nothing itself.
   an activity mark, or nothing. A screen too small to read is worth less than
   the one row that says whose call it is, so a collapsed tile blanks its grid
   rather than showing a corner of a screen.
-- `display/focus_bg` is the ground of the tile that holds the keys, and the
-  one place focus is said. `reverse` is the ground the terminal draws text
-  in, named rather than given: it contrasts on a light terminal and a dark
-  one alike and asks for no colour the terminal may not have, which is what
-  the prompt has always stood on, and is the default. A `#rrggbb` is a ground
-  of your own. The prompt stands on the same ground, because that is where
+- `display/focus_bg` is the ground of what holds the keys - the prompt, a
+  picker and a focused tile - and the one place focus is said. `theme`, the
+  default, is the focus wash of the palette theme: the `pane.focus` role of
+  libfypalette, resolved by `markdown_focus_ground()`. The theme makes it for
+  the variant of the terminal, so its own text reads on it on a light
+  terminal and a dark one. Do not put that colour in C. Without a palette,
+  `theme` is `reverse`. `reverse` is the ground the terminal draws text in,
+  named rather than given: it asks for no colour the terminal may not have,
+  but reverse video turns text of a colour into a ground of that colour. A
+  `#rrggbb` is a ground of your own. The prompt stands on the same ground, because that is where
   the keys are when no tile holds them and a tile that takes them takes the
   prompt's rows with them: one setting says where the keys are, wherever they
   went. An empty string draws no ground and reverses the margin of the tile
