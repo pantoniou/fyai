@@ -433,6 +433,7 @@ static enum fyai_event_action jsonrpc_conn_writable(const struct fyai_event *ev)
 {
 	struct jsonrpc_conn *conn = ev->userdata;
 	struct jsonrpc_request *req;
+	bool peer_closed;
 	ssize_t n;
 
 	while (conn->tx_off < conn->tx.len) {
@@ -446,9 +447,17 @@ static enum fyai_event_action jsonrpc_conn_writable(const struct fyai_event *ev)
 			continue;
 		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
 			return FYAIEA_CONTINUE;
-		fyai_error(conn->ctx, "%s stdio write failed", conn->name);
+		/*
+		 * A peer that closed its end is gone, as the end of file of its
+		 * output says. That is no error of this write: raised first, it
+		 * would hide the cause that ended the peer.
+		 */
+		peer_closed = n < 0 && errno == EPIPE;
+		if (!peer_closed)
+			fyai_error(conn->ctx, "%s stdio write failed", conn->name);
 		jsonrpc_drop_source(&conn->write_src);
-		jsonrpc_conn_fail_pending(conn, "could not be written");
+		jsonrpc_conn_fail_pending(conn, peer_closed ? "stdio peer closed" :
+					  "could not be written");
 		return FYAIEA_CONTINUE;
 	}
 	conn->tx.len = 0;
