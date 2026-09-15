@@ -1159,6 +1159,18 @@ blocks in its write until the driver reads again. The buffer is 1 KiB on macOS
 and 12 KiB on Linux, thus a case that stops reading can pass on Linux and fail
 on macOS. Wait by reading with a deadline. Do not sleep.
 
+Do not pace a test with a delay. A delay that is sufficient on one runner is
+too short on a slower runner, and every run spends its full time. Wait for the
+state that the next step needs. In a PTY case, set `FYAI_PTY_AFTER_PAUSE=0`
+and wait on the terminal state that `tests/screen.py` models: `wait-screen`
+and `wait-gone` for the cells, `wait-copy` for an OSC 52 copy, and `frame`
+for a key that must be acted on. Do not wait on the raw capture bytes with
+`wait` or `wait-frame`: a frame paints only the cells that changed, so the
+bytes do not say what the screen shows. Do not use `drain` or `settle` to wait
+for a state. A program in a tile that reports a changing value, such as its
+size, prints it on a short interval, and the case waits for the expected value
+on the screen.
+
 ### Sanitizers
 
 Use ASAN for parser, storage, tool, event, and YAML changes:
