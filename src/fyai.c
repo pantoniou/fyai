@@ -1969,6 +1969,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 		free(ctx->head_branch);
 		ctx->head_branch = NULL;
 	}
+	free(ctx->session_unstored);
+	ctx->session_unstored = NULL;
 	free(ctx->agent_branch);
 	ctx->agent_branch = NULL;
 	free(ctx->tool_submit_error);

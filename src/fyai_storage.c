@@ -718,10 +718,12 @@ static int storage_bootstrap_seed(struct fyai_ctx *ctx)
 int fyai_setup_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_branch b;
+	struct fyai_branch b, lb;
 	struct fyai_root r;
 	char session[FYAI_BRANCH_NAME_MAX + 1];
+	char cwd[PATH_MAX];
 	const char *name;
+	char *last;
 	fy_generic root;
 	bool asked;
 	int rc;
@@ -812,12 +814,23 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		ctx->branch_agent = b.agent;
 		ctx->branch_prev = b.entry;
 		/*
-		 * A fresh session takes the configuration of the branch HEAD
-		 * names and none of its conversation. The name is invocation
-		 * state until the first publish, so a session that asks
-		 * nothing stores nothing, and HEAD does not move.
+		 * A fresh session takes the configuration of the branch last
+		 * updated in this directory, else of the branch HEAD names, and
+		 * none of its conversation. The name is invocation state until
+		 * the first exchange, so a session that asks nothing stores
+		 * nothing, and HEAD does not move.
 		 */
 		if (cfg->fresh_session) {
+			last = NULL;
+			if (getcwd(cwd, sizeof(cwd)))
+				last = fyai_branch_pick_last(ctx, r.branches,
+							     cwd, false);
+			if (last) {
+				fyai_branch_lookup(r.branches, last, &lb);
+				if (fy_is_valid(lb.config))
+					ctx->arena_config = lb.config;
+				free(last);
+			}
 			rc = fyai_branch_session_name(r.branches, session,
 						      sizeof(session));
 			fyai_error_check(ctx, !rc, err_out,
@@ -825,6 +838,9 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 			rc = fyai_ctx_set_branch(ctx, session);
 			fyai_error_check(ctx, !rc, err_out,
 					 "could not select the new session");
+			ctx->session_unstored = strdup(session);
+			fyai_error_check(ctx, ctx->session_unstored, err_out,
+					 "could not keep the new session name");
 			ctx->branch_desc = fy_invalid;
 			ctx->branch_agent = fy_invalid;
 			ctx->branch_prev = fy_invalid;
@@ -938,6 +954,31 @@ err_out:
 /* Leave headroom for conflicts from a full parallel tool group. */
 #define FYAI_STATE_PUBLISH_TRIES 64
 
+/*
+ * A fresh session is stored with its first exchange. Until then a publish on
+ * it keeps the conversation and the configuration in the context, so a session
+ * that changed a setting or cleared its conversation leaves no empty branch. A
+ * publish that changes the catalogue still writes the root.
+ */
+static bool storage_session_defer(struct fyai_ctx *ctx)
+{
+	struct fyai_root r;
+	fy_generic cur;
+
+	if (!ctx->session_unstored ||
+	    strcmp(ctx->session_unstored, fyai_ctx_branch(ctx)))
+		return false;
+	fyai_turn_foreach(cur, ctx->last_message) {
+		if (!fyai_turn_is_system_only(cur))
+			return false;
+	}
+	if (ctx->refs_head &&
+	    fyai_root_decode((fy_generic){ .v = ctx->refs_head }, &r) >= 0 &&
+	    ctx->arena_catalog.v != r.catalog.v)
+		return false;
+	return true;
+}
+
 /* Build and splice the active branch entry. */
 static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 {
@@ -1022,8 +1063,12 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 		fyai_branch_op_set(ctx, NULL, NULL);
 		return 0;
 	}
+	if (storage_session_defer(ctx)) {
+		fyai_branch_op_set(ctx, NULL, NULL);
+		return 0;
+	}
 
-	catv = fyai_generic_or_null(ctx->arena_catalog);
+	catv =fyai_generic_or_null(ctx->arena_catalog);
 	headv = fy_value(ctx->gb, fyai_ctx_head_branch(ctx));
 	if (!fy_is_valid(headv)) {
 		fyai_error(ctx, "could not store HEAD '%s'",
@@ -1063,6 +1108,11 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 		return rc;
 	ctx->refs_head = desired;
 	ctx->arena_branches = branchesv;
+	if (ctx->session_unstored &&
+	    !strcmp(ctx->session_unstored, fyai_ctx_branch(ctx))) {
+		free(ctx->session_unstored);
+		ctx->session_unstored = NULL;
+	}
 	/* Chain the next publish to the entry that was written. */
 	ctx->branch_prev = fy_get(branchesv, fyai_ctx_branch(ctx));
 	fyai_prof_since("commit_durable", &t_commit);
