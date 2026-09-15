@@ -556,11 +556,14 @@ int workpane_focus_colour(void)
 	FYAI_TCHECK(!fyai_ui_ground_parse("reversed", &c));
 	FYAI_TCHECK(!fyai_ui_ground_parse("", &c));
 
-	/* The default is a ground, and one the terminal names. */
+	/*
+	 * The default is the focus wash of the theme. The palette names it, so
+	 * the UI resolves it and the parser does not take the word.
+	 */
 	memset(&wpt_cfg, 0, sizeof(wpt_cfg));
 	fyai_config_set_defaults(&wpt_cfg);
-	FYAI_TCHECK(fyai_ui_ground_parse(wpt_cfg.focus_bg, &c));
-	FYAI_TCHECK(c == FYTIM_COLOR_REVERSED);
+	FYAI_TCHECK(!strcmp(wpt_cfg.focus_bg, "theme"));
+	FYAI_TCHECK(!fyai_ui_ground_parse(wpt_cfg.focus_bg, &c));
 	return 0;
 }
 
