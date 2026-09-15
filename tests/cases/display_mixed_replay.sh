@@ -12,16 +12,17 @@ mock_start display_parity.json
 printf 'int main(void)\n{\n\tputs("old");\n\treturn 0;\n}\n' > hello.c
 
 # An imported exchange carries messages only, so it has nothing to replay.
-"$FYAI_BIN" --color off import -i "$TESTS_DIR/data/imported_conversation.md" \
+# The rows are read as a theme without a palette draws them.
+"$FYAI_BIN" --color off --theme dark import -i "$TESTS_DIR/data/imported_conversation.md" \
 	>/dev/null 2>&1 || fail "import failed"
 
-run_fyai --set display/markdown=true --set api=chat-completions \
+run_fyai --theme dark --set display/markdown=true --set api=chat-completions \
 	 --set display/stream=false --set tools=true \
 	 --set display/tool_detail=full \
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "do things again"
 assert_status 0
 
-"$FYAI_BIN" --color off transcript >"$TEST_DIR/all.out" 2>&1 ||
+"$FYAI_BIN" --color off --theme dark transcript >"$TEST_DIR/all.out" 2>&1 ||
 	fail "transcript failed"
 grep -qF "do things" "$TEST_DIR/all.out" ||
 	fail "the imported exchange is missing"

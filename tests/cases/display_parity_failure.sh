@@ -8,7 +8,8 @@ set -eu
 fyai_test_setup
 mock_start display_parity_failure.json
 
-run_fyai --set display/markdown=true --set api=chat-completions \
+# The rows are read as a theme without a palette draws them.
+run_fyai --theme dark --set display/markdown=true --set api=chat-completions \
 	 --set display/stream=false --set tools=true \
 	 --set display/tool_detail=full \
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "do things"
@@ -20,7 +21,7 @@ assert_stdout_contains "read no-such-file.c No such file or directory"
 
 cp "$TEST_DIR/stdout" "$TEST_DIR/live.txt"
 # History repeats the user turn first; the rest is the same view.
-"$FYAI_BIN" --color off history --last 1 | tail -n +3 > "$TEST_DIR/replay.txt"
+"$FYAI_BIN" --color off --theme dark history --last 1 | tail -n +3 > "$TEST_DIR/replay.txt"
 grep -q "shell \[fail on purpose\] command exited with status 3" \
 	"$TEST_DIR/replay.txt" ||
 	fail "history replay dropped the shell failure cause"
