@@ -9,14 +9,15 @@ set -eu
 fyai_test_setup
 mock_start tools_parallel.json
 
-run_fyai --set display/markdown=true --set api=chat-completions \
+# The rows are read as a theme without a palette draws them.
+run_fyai --theme dark --set display/markdown=true --set api=chat-completions \
 	 --set display/stream=false --set tools=true \
 	 --set display/tool_detail=full \
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model "go"
 assert_status 0
 
 cp "$TEST_DIR/stdout" "$TEST_DIR/live.txt"
-"$FYAI_BIN" --color off history --last 1 | tail -n +3 > "$TEST_DIR/replay.txt"
+"$FYAI_BIN" --color off --theme dark history --last 1 | tail -n +3 > "$TEST_DIR/replay.txt"
 
 # A blank row is over the second call and over the prose after it, on both
 # paths.

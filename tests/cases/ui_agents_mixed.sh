@@ -20,8 +20,9 @@ FYAI_PTY_NEEDLE="Mixed agents done." \
     --set retry/max_attempts=1 --set agent/timeout_ms=1500 \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 
-# The stored turn is the record: replay it and read the mark of each agent.
-"$FYAI_BIN" --color on history --last 1 > "$TEST_DIR/replay.txt" 2>&1
+# The stored turn is the record: replay it and read the mark of each agent. The
+# marks are read as the basic colours of a theme without a palette.
+"$FYAI_BIN" --color on --theme dark history --last 1 > "$TEST_DIR/replay.txt" 2>&1
 
 "$PYTHON" - "$TEST_DIR/replay.txt" <<'PY' || fail "agent marks are wrong"
 import re
