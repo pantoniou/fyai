@@ -900,6 +900,23 @@ in the parent is what names the cause.
 The file is only appended to, and never rotated or cleared by fyai. Remove it
 yourself when you no longer need it.
 
+### Crash backtrace
+
+When fyai itself dies of a fatal signal (`SIGSEGV`, `SIGABRT`, `SIGBUS`,
+`SIGILL`, `SIGFPE`, `SIGSYS`), it first writes the signal and a stack
+backtrace to standard error, then dies of the same signal - so the exit status
+(139 for `SIGSEGV`) and any core dump still name the cause:
+
+```text
+fyai: fatal signal 11 (SIGSEGV), pid 347470
+fyai: backtrace (most recent call first):
+./build/fyai(fyai_run_turn+0x94) [0x616480e2e439]
+...
+```
+
+Send this report with a crash you cannot explain. Under a sanitizer build the
+sanitizer reports the fault instead, and takes precedence over this handler.
+
 ### Garbage collection
 
 ```sh

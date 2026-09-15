@@ -52,3 +52,8 @@ src/fyai_session.c
 # A forked tool child and a delegated sub-agent own file descriptor 1 for
 # JSON-RPC frames. That is protocol, not presentation.
 src/fyai_jsonrpc.c
+
+# The fatal-signal backtrace reports while the process dies - possibly
+# mid-render, in a forked child, or before any context exists - so it writes
+# to its preserved descriptor with write(2) and cannot go through the sink.
+src/fyai_crash.c
