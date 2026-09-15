@@ -914,6 +914,16 @@ fyai: backtrace (most recent call first):
 ...
 ```
 
+`scripts/fyai-symbolize.sh` resolves such a report to file and line, using
+the debug information our builds keep (`-g`):
+
+```sh
+fyai ... 2> crash.log; scripts/fyai-symbolize.sh crash.log
+```
+
+Symbolize on the machine that produced the report, with the same binary and
+libraries: a frame holds a position-independent offset, and shared-library
+frames resolve against the libraries of the host that runs the script.
 Send this report with a crash you cannot explain. Under a sanitizer build the
 sanitizer reports the fault instead, and takes precedence over this handler.
 
