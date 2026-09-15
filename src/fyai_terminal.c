@@ -9,17 +9,13 @@
 #include "config.h"
 #endif
 
-#ifndef __APPLE__
 #include <fcntl.h>
 #include <poll.h>
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#ifndef __APPLE__
 #include <termios.h>
-#endif
 #include <unistd.h>
 
 #include "fyai_terminal.h"
@@ -169,7 +165,6 @@ size_t terminal_trim_blank_rows(const char *text, size_t len)
 	return end;
 }
 
-#ifndef __APPLE__
 static bool osc11_reply_is_light(const char *s)
 {
 	const char *p;
@@ -187,13 +182,11 @@ static bool osc11_reply_is_light(const char *s)
 	bf = (double)b / ((1UL << (4 * (nb - ng - 1))) - 1);
 	return (0.2126 * rf + 0.7152 * gf + 0.0722 * bf) > 0.5;
 }
-#endif
 
 const char *terminal_detect_theme(void)
 {
 	const char *env = getenv("COLORFGBG");
 	const char *last;
-#ifndef __APPLE__
 	const char *result = "dark";
 	struct termios old, raw;
 	struct pollfd pfd;
@@ -201,7 +194,6 @@ const char *terminal_detect_theme(void)
 	size_t off = 0;
 	ssize_t n;
 	int fd;
-#endif
 	int bg;
 
 	if (env) {
@@ -209,9 +201,6 @@ const char *terminal_detect_theme(void)
 		if (last && sscanf(last + 1, "%d", &bg) == 1)
 			return bg >= 0 && bg <= 6 ? "dark" : "light";
 	}
-#ifdef __APPLE__
-	return "dark";
-#else
 	fd = open("/dev/tty", O_RDWR | O_NOCTTY);
 	if (fd < 0)
 		return "dark";
@@ -246,5 +235,4 @@ const char *terminal_detect_theme(void)
 	if (strstr(buf, "rgb:"))
 		result = osc11_reply_is_light(buf) ? "light" : "dark";
 	return result;
-#endif
 }
