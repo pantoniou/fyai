@@ -2180,6 +2180,9 @@ struct fyai_shell_session {
 	bool closing;
 	bool timed_out;
 	bool user_owned;
+	/* Told when the program ends, for a program the user runs through fyai. */
+	fyai_tools_exit_fn on_exit;
+	void *on_exit_data;
 	/* What the tile draws: the work pane decides it from the grant. */
 	enum fyai_workpane_present present;		/* opened by a bang command */
 	int resize_rows;		/* pending child resize */
@@ -2782,6 +2785,21 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	fyai_ui_wake(sess->ctx);
 }
 
+/* Tell the owner of the program that it ended, one time. */
+static void fyai_shell_session_notify_exit(struct fyai_shell_session *sess,
+					   int exit_code, int signal)
+{
+	fyai_tools_exit_fn fn;
+	void *data;
+
+	fn = sess->on_exit;
+	data = sess->on_exit_data;
+	sess->on_exit = NULL;
+	sess->on_exit_data = NULL;
+	if (fn)
+		fn(data, exit_code, signal);
+}
+
 /* The program ended. The view stays; only the process is gone. */
 static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 				      int exit_code, int signal)
@@ -2801,6 +2819,7 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 		fyai_event_source_remove(sess->waiter);
 		sess->waiter = NULL;
 	}
+	fyai_shell_session_notify_exit(sess, exit_code, signal);
 }
 
 static void fyai_shell_session_close(struct fyai_shell_session *sess,
@@ -2824,6 +2843,9 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 {
 	if (!sess)
 		return;
+	/* A session that goes before its program ends still reports an end. */
+	if (!sess->exited)
+		fyai_shell_session_notify_exit(sess, -1, SIGKILL);
 	/* Commit output displayed before teardown. */
 	fyai_shell_session_display_finish(sess);
 	if (sess->animation)
@@ -4895,59 +4917,117 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name)
 	return 0;
 }
 
-int fyai_tools_bang(struct fyai_ctx *ctx, const char *command)
+/*
+ * Start @command as a user-owned terminal session in the work pane, named
+ * @prefix-N. @what names the program in a diagnostic. *@sessp is the session
+ * of the job, or NULL when the job has none.
+ */
+static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
+				 const char *prefix, const char *what,
+				 struct fyai_shell_session **sessp)
 {
 	struct fyai_tool_job *job = NULL;
+	struct fy_generic_builder *gb;
 	fy_generic call;
 	fy_generic args;
 	const char *args_text;
 	char name[32];
 	unsigned int n;
 
-	if (!ctx || !ctx->transient_gb)
+	*sessp = NULL;
+	if (!ctx)
 		return -1;
 	fyai_error_check(ctx, fyai_ui_active(ctx), err,
-			 "a bang shell needs an interactive terminal UI");
+			 "a %s needs an interactive terminal UI", what);
+	/* A key event starts a program between turns, with no turn storage. */
+	gb = fyai_ctx_transient_gb(ctx);
+	fyai_error_check(ctx, gb, err,
+			 "could not make scratch storage for the %s", what);
 	/* Allocate a unique user-visible session name. */
 	for (n = 1; n < 1000000; n++) {
-		snprintf(name, sizeof(name), "bang-%u", n);
+		snprintf(name, sizeof(name), "%s-%u", prefix, n);
 		if (!fyai_shell_session_find(ctx, name))
 			break;
 	}
 	fyai_error_check(ctx, n != 1000000, err,
-			 "could not allocate a name for the bang shell");
-	args = fy_mapping(ctx->transient_gb,
+			 "could not allocate a name for the %s", what);
+	args = fy_mapping(gb,
 			  "command", command ? command : "",
 			  "tty", true,
 			  "name", name,
 			  "_fyai_user_owned", true);
-	args_text = emit_json_string(ctx->transient_gb, args);
+	args_text = emit_json_string(gb, args);
 	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		call = fy_mapping(ctx->transient_gb,
+		call = fy_mapping(gb,
 				  "type", "function",
-				  "function", fy_mapping(ctx->transient_gb,
+				  "function", fy_mapping(gb,
 					  "name", "shell",
 					  "arguments", args_text ? args_text : ""));
 	else
-		call = fy_mapping(ctx->transient_gb,
+		call = fy_mapping(gb,
 				  "type", "function_call",
 				  "name", "shell",
 				  "arguments", args_text ? args_text : "");
 	fyai_error_check(ctx, fy_is_valid(call), err,
-			 "could not build the bang shell request");
+			 "could not build the %s request", what);
 	/* Retain the call beyond transient interactive storage. */
 	call = fy_gb_internalize(ctx->gb, call);
 	fyai_error_check(ctx, fy_is_valid(call), err,
-			 "could not retain the bang shell request");
+			 "could not retain the %s request", what);
 	job = fyai_tool_job_submit(ctx, call);
-	fyai_error_check(ctx, job, err,
-			 "could not start the bang shell");
-	if (job->session && job->session->surface)
-		(void)fyai_tools_focus(ctx, job->session->surface);
+	fyai_error_check(ctx, job, err, "could not start the %s", what);
+	*sessp = job->session;
 	return 0;
 
 err:
 	return -1;
+}
+
+int fyai_tools_bang(struct fyai_ctx *ctx, const char *command)
+{
+	struct fyai_shell_session *sess;
+
+	if (fyai_tools_user_start(ctx, command, "bang", "bang shell", &sess))
+		return -1;
+	if (sess && sess->surface)
+		(void)fyai_tools_focus(ctx, sess->surface);
+	return 0;
+}
+
+struct fyai_shell_session *
+fyai_tools_user_program(struct fyai_ctx *ctx, const char *command,
+			fyai_tools_exit_fn done, void *userdata)
+{
+	struct fyai_shell_session *sess;
+
+	if (fyai_tools_user_start(ctx, command, "edit", "editor", &sess))
+		return NULL;
+	fyai_error_check(ctx, sess, err,
+			 "the editor was given no terminal session");
+	/* The end is reported from the loop, so it cannot come before this. */
+	sess->on_exit = done;
+	sess->on_exit_data = userdata;
+	if (sess->surface) {
+		(void)fyai_tools_focus(ctx, sess->surface);
+		(void)fyai_ui_surface_zoom(ctx, sess->surface);
+	}
+	return sess;
+
+err:
+	return NULL;
+}
+
+void fyai_tools_user_program_close(struct fyai_shell_session *sess)
+{
+	fyai_shell_session_close(sess, false);
+}
+
+void fyai_tools_user_program_forget(struct fyai_shell_session *sess)
+{
+	if (!sess)
+		return;
+	sess->on_exit = NULL;
+	sess->on_exit_data = NULL;
 }
 
 void fyai_tool_job_cancel(struct fyai_tool_job *job)

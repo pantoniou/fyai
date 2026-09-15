@@ -78,6 +78,7 @@ struct fyai_ui {
 	fyai_ui_keys_fn keys_fn;
 	void *keys_data;
 	struct fyai_editor_request *editor_request;
+	bool editor_external;	/* the editor was given the whole terminal */
 	char *tool_title;
 	char *tool_command;
 	char *tool_error;	/* short failure cause, shown beside the mark */
@@ -777,7 +778,9 @@ static void ui_edit_complete_service(void *userdata)
 	(void)unlink(ui->editor_path);
 	free(ui->editor_path);
 	ui->editor_path = NULL;
-	(void)fyai_ui_external_end(ui->ctx);
+	if (ui->editor_external)
+		(void)fyai_ui_external_end(ui->ctx);
+	ui->editor_external = false;
 	free(edited);
 }
 
@@ -824,9 +827,13 @@ static int ui_edit_begin(struct fyai_ui *ui)
 	copy = strdup(path);
 	fyai_error_check(ui->ctx, copy, err_file,
 			 "could not retain editor path");
-	rc = fyai_ui_external_begin(ui->ctx);
-	fyai_error_check(ui->ctx, !rc, err_copy,
-			 "could not suspend terminal UI");
+	/* An editor in the work pane keeps the UI; one on the terminal takes it. */
+	ui->editor_external = !fyai_editor_in_pane(ui->ctx);
+	if (ui->editor_external) {
+		rc = fyai_ui_external_begin(ui->ctx);
+		fyai_error_check(ui->ctx, !rc, err_copy,
+				 "could not suspend terminal UI");
+	}
 	ui->editor_request = fyai_editor_submit(ui->ctx, path, false,
 						ui_edit_complete, ui);
 	fyai_error_check(ui->ctx, ui->editor_request, err_external,
@@ -835,8 +842,10 @@ static int ui_edit_begin(struct fyai_ui *ui)
 	return 0;
 
 err_external:
-	(void)fyai_ui_external_end(ui->ctx);
+	if (ui->editor_external)
+		(void)fyai_ui_external_end(ui->ctx);
 err_copy:
+	ui->editor_external = false;
 	free(copy);
 err_file:
 	(void)unlink(path);

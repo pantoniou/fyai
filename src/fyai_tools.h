@@ -86,6 +86,24 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name);
 void fyai_tools_unzoom(struct fyai_ctx *ctx);
 /* Start a user-owned TTY shell in the work pane. */
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command);
+
+/* Told that a program the user runs through fyai ended: its exit code, or
+ * the signal that ended it. */
+typedef void (*fyai_tools_exit_fn)(void *userdata, int exit_code, int signal);
+
+/*
+ * Run @command for the user in a tile of the work pane, which takes the pane
+ * and the keys, and call @done from the loop when the program ends. The
+ * session stays owned by the tools; the caller keeps the pointer only until
+ * @done runs. Returns NULL with a diagnostic when it cannot start.
+ */
+struct fyai_shell_session *
+fyai_tools_user_program(struct fyai_ctx *ctx, const char *command,
+			fyai_tools_exit_fn done, void *userdata);
+/* Ask the program of @sess to end; @done still runs when it does. */
+void fyai_tools_user_program_close(struct fyai_shell_session *sess);
+/* Stop telling the owner when the program of @sess ends. */
+void fyai_tools_user_program_forget(struct fyai_shell_session *sess);
 fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				 struct fyai_tool_job *job, bool *okp);
 

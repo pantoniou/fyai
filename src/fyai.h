@@ -90,6 +90,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Work-pane defaults. */
 #define DEFAULT_WORK_LAYOUT "auto"
 #define DEFAULT_WORK_POSITION "above-prompt"
+/* Where an editor runs: a tile of the work pane, or the whole terminal. */
+#define DEFAULT_EDITOR_MODE "pane"
 #define DEFAULT_FOCUS_BG "reverse"
 #define DEFAULT_FOCUS_BG_MIX 35
 #define DEFAULT_WORK_ZOOM_ROWS "full"
@@ -263,6 +265,7 @@ struct fyai_cfg {
 	/* Work-pane configuration. */
 	const char *work_layout;	/* auto | columns | stack */
 	const char *work_position;	/* above-prompt | below-prompt */
+	const char *editor_mode;	/* pane | terminal */
 	int work_columns;		/* columns when work_layout is columns */
 	int work_min_tile_cols;		/* narrowest tile the auto grid makes */
 	int work_max_rows;		/* rows the pane may take (0 = uncapped) */

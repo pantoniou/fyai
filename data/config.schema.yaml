@@ -582,6 +582,16 @@ properties:
           the prompt, next to the transcript the work came from. below-prompt
           takes the rows under the prompt instead, so the user types over the
           work and a pane that grows moves nothing that is being read.
+      editor:
+        type: string
+        enum: [pane, terminal]
+        default: pane
+        description: >-
+          Where an editor runs for /edit, config edit and a log view. pane
+          runs it in a tile of the work pane that takes the pane and the keys,
+          and the session goes on when the editor ends. terminal gives the
+          whole terminal to the editor, as a program outside fyai. A command
+          without an interactive terminal UI always uses the terminal.
       work_columns:
         type: integer
         minimum: 0
