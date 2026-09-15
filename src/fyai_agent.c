@@ -134,9 +134,11 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 			fy_mapping(ctx->transient_gb, "thinking", thinking));
 	model = fy_get(overlay, "model", fy_invalid);
 	reset_api_url = !fy_is_invalid(fy_get(overlay, "api", fy_invalid));
-	if (fy_is_string(model)) {
-		model_text = fy_castp(&model, "");
-		model_slash = strchr(model_text, '/');
+
+	model_text = fy_castp(&model, "");
+	model_slash = strchr(model_text, '/');
+
+	if (!fy_str_empty(model_text)) {
 		/*
 		 * A qualified model names its provider. An unqualified model
 		 * resolves to a provider through the catalogue.
@@ -173,7 +175,8 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 	rc = fyai_config_apply(&tmp, overlay);
 	fyai_error_check(ctx, !rc, err,
 			 "could not apply the sub-agent persona");
-	if (fy_is_string(model)) {
+
+	if (!fy_str_empty(model_text)) {
 		rc = fyai_config_resolve_model(&tmp);
 		fyai_error_check(ctx, !rc, err,
 				 "persona model '%s' cannot be resolved",
