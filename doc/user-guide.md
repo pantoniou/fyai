@@ -111,9 +111,14 @@ a branch of its own, under `session/`, named for the time it started:
 session/20260908T142355.123456
 ```
 
-The name is invocation state until the session first publishes, so a session
-that asks nothing stores nothing. Starting a session does not move arena
-`HEAD`.
+A new session starts with the configuration of the branch last updated in
+this directory, so a setting changed in one session applies to the next. With
+no such branch, it takes the configuration of the branch `HEAD` names.
+
+The name is invocation state until the first exchange, so a session that asks
+nothing stores nothing. A slash setting or `/clear` alone is not an exchange:
+the session applies it, and stores it only with an exchange. Starting a session
+does not move arena `HEAD`.
 
 > **This changed.** Earlier releases continued the conversation on stored
 > `HEAD`. A script that invokes `fyai -i` and expects the previous
