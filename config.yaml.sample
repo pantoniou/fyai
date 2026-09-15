@@ -93,6 +93,17 @@ max_tool_iterations: 1000
 # (sent on every request there); defaults from the catalogue otherwise.
 max_tokens: 8192
 
+# Automatic retry of a provider request that failed for a transient reason: a
+# refused or lost connection, a timeout, or HTTP 408, 429, 500, 502, 503 or
+# 504. The delay doubles after each attempt and keeps a random part, so
+# parallel requests do not come back together; a `Retry-After` header replaces
+# the calculated delay. `max_attempts` counts the first attempt (1 disables
+# retry); `max_delay_ms` bounds one delay (0 removes the bound).
+retry:
+  max_attempts: 8
+  initial_delay_ms: 500
+  max_delay_ms: 30000
+
 # Limits for the shell tool. `timeout_ms` (milliseconds) applies when the
 # model gives no `timeout`; `max_timeout_ms` bounds the one it gives.
 # Output is bounded too, because it becomes prompt text: a command that
@@ -104,13 +115,26 @@ max_tokens: 8192
 #
 # `shell` and `login` decide the shell a call runs under when the call names
 # neither: empty runs /bin/sh, and `login` reads the profile of the user.
+#
+# A call that asks for a terminal runs on a pseudo-terminal of `tty_rows` by
+# `tty_cols` (0 follows the real terminal, else 24 by 80) with TERM set to
+# `tty_term`. `tty` gives one to a call that asks for none, which is the only
+# way to give the native Responses `shell_call` a terminal. A named session is
+# ended after `session_timeout_ms` with no read and no write (0 never), and is
+# asked every `input_poll_ms` whether its program waits for input (0 never).
 shell:
-  timeout_ms: 600000
-  max_timeout_ms: 1200000
+  timeout_ms: 120000
+  max_timeout_ms: 600000
   max_output_tokens: 16384
   hard_max_output_tokens: 200000
   shell: ""
   login: false
+  tty: false
+  tty_rows: 0
+  tty_cols: 0
+  tty_term: xterm-256color
+  session_timeout_ms: 900000
+  input_poll_ms: 400
 
 # Size limits for read_file results, in bytes. `max_bytes` is the default.
 # `hard_max_bytes` limits a value from the model. 0 disables a limit.
@@ -216,6 +240,20 @@ logging:
 display:
   markdown: true          # render markdown output
   stream: true             # stream the response
+  # Exchanges of history replayed when an interactive session starts:
+  # -1 as many as the screen holds, 0 none.
+  recap_exchanges: -1
+  # How the live screen is composed: stack draws the fixed chrome of the
+  # terminal library; page states the screen as one UI Markdown page (needs a
+  # libfytimui and a libfymd4c with page support, else stack is used).
+  renderer: stack
+  # Where a page stands, when the session starts: inline keeps the transcript
+  # in the scrollback; fullscreen takes the alternate screen, where the
+  # transcript is a view that the wheel, PageUp and PageDown scroll.
+  screen: inline
+  # The page document of the page renderer, a YAML file; empty uses the
+  # embedded data/page.yaml. `/page` shows the document in use.
+  page: ""
   # Rendered rows of a bounded tool result.
   tool_preview_lines: 5
   # Minimum progressive tool redraw period; 0 redraws every update.
@@ -225,10 +263,20 @@ display:
   transcript_system: false # include system messages in transcript output
   # How streamed markdown is rendered (only with markdown + stream):
   markdown_mode: line      # line (per line, default) | stream (redraw per chunk) | oneshot (at end)
+  # Minimum interval between progressive redraws in stream mode, 0 to 1000
+  # milliseconds; 0 repaints every update.
+  markdown_update_interval_ms: 50
   color: auto               # auto (colour iff a terminal) | off | on (force, even piped)
-  # One libfymd4c theme controls Markdown, fenced code, and terminal chrome.
-  # Append :auto, :dark, or :light to select its background variant.
-  theme: default:auto
+  # One theme controls Markdown, fenced code, and terminal chrome: a libfymd4c
+  # theme (default, catppuccin, solarized, ...) or a libfypalette theme such as
+  # ember. Append :auto, :dark, or :light to select its background variant.
+  # `/theme` lists the themes of the build. ember:auto is the default of a
+  # build with libfypalette; a build without it uses default:auto.
+  theme: ember:auto
+  # The background a palette theme draws for: theme uses the ground of the
+  # theme (a fullscreen page fills its default backgrounds with it); terminal
+  # asks the terminal for its background and keeps the neutral steps over it.
+  theme_ground: theme
   # Override the selected theme's table border:
   # theme (follow the theme) | grid (force borders) | none (borderless).
   table_border: theme
@@ -237,9 +285,13 @@ display:
   # tool_separator is rendered before each tool result; section_separator sits
   # between streamed reasoning and the answer. Empty ("") emits nothing / a
   # blank line.
-  turn_separator: "---"
+  turn_separator: ""
   tool_separator: ""
   section_separator: ""
+  # Blank rows, 0 to 8: around a tool exchange, and between the user card and
+  # the answer under it.
+  tool_group_fence: 1
+  user_card_fence: 1
   # Interactive prompt bubble. prompt is the input marker; prompt_top and
   # prompt_bottom are {key} templates over the session vars (model, provider,
   # api, effort, summary, temp, ctx, branch, cwd, location).
@@ -247,14 +299,22 @@ display:
   # may carry SGR colour escapes (e.g. "\e[36m{model}\e[0m"). The values below
   # are the built-in defaults; an empty string re-selects them (prompt then
   # falls back to "> " when markdown is off, "  > " with markdown).
-  # The top row identifies the fyai branch and working directory.
+  # The top row identifies the fyai branch and working directory; a blank row
+  # stands above it. With a palette theme each value of prompt_top and
+  # prompt_bottom takes the next colour of the theme's series.
   prompt: "  > "
   prompt_top: " {location}"
   # Branch diagrams use libfymermaid at the width granted by the work pane.
   # In /branches, g cycles tree/gitgraph/list. The setting below is the default.
   branch_view: tree
+  # Where the branch and resume browsers render the end of the selected
+  # session: auto (right of a wide pane, foot of a tall one) | right | bottom |
+  # off. `p` cycles it in a browser. branch_preview_size is its share of the
+  # pane in percent, 10 to 80.
+  branch_preview: auto
+  branch_preview_size: 40
   # Right-side preview width: half, quarter, 10%-80%, or exact columns.
-  # When unset, branch_preview_size (40 percent by default) applies.
+  # When unset, branch_preview_size applies.
   # branch_preview_width: quarter
   # Empty follows light/dark; named themes: default, light, mono.
   diagram_theme: ""
@@ -271,20 +331,30 @@ display:
   # Where the pane stands: above-prompt, or below-prompt for the rows under
   # the input.
   work_position: above-prompt
+  # Where an editor runs for /edit, config edit and a log view: pane runs it
+  # in a tile of the work pane that takes the pane and the keys; terminal
+  # gives it the whole terminal. Without an interactive UI it is the terminal.
+  editor: pane
   # A further ceiling on work_zoom_rows; 0 leaves the height to it alone.
   work_max_rows: 0
   # Height of the work pane: full, half, quarter, or a positive row count.
-  work_zoom_rows: half
+  work_zoom_rows: full
   # The ground of the tile that holds the keys, which the prompt takes too:
   # reverse for the one the terminal draws text in, which suits a light
   # terminal and a dark one alike, or #rrggbb for one of your own. An empty
   # string reverses the margin of the tile instead. focus_bg_mix is how much
   # of a colour of your own reaches a cell the program coloured itself.
-  focus_bg: "#181828"
+  focus_bg: reverse
   focus_bg_mix: 35
+  # The chrome of the pane: work_frame above it, tile_frame around a tile,
+  # tile_sep between two tiles of a row, and session_margin the gutter at the
+  # left of a terminal session ("" draws none). work_cap draws a cap row with
+  # the height, the tiles and the keys in place of work_frame.
   work_frame: none
   tile_frame: none
   tile_sep: " ┃ "
+  session_margin: "  "
+  work_cap: false
   # Mouse controls: none, zoom, or full.
   work_controls: none
   pretty: false           # pretty (YAML) debug dumps
@@ -327,6 +397,10 @@ mcp:
   #     args: [-y, "@modelcontextprotocol/server-filesystem", .]
   #     env: { LOG_LEVEL: warn }
   #     cwd: .
+
+# `catalog:` is written by fyai on every configuration commit: the catalogue
+# entry of the configured model (display_name, context_window, capabilities,
+# ...) and its canonical_provider. It is read-only; never set it by hand.
 
 # Branch behaviour.
 branch:
