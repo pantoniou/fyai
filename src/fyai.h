@@ -126,7 +126,12 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
 #define DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS 50
 #define DEFAULT_COLOR "auto"		/* auto | off | on */
-#define DEFAULT_THEME "default:auto"	/* markdown theme[:auto|dark|light] */
+/* markdown theme[:auto|dark|light]; a palette theme needs libfypalette. */
+#ifdef FYAI_WITH_FYPALETTE
+#define DEFAULT_THEME "ember:auto"
+#else
+#define DEFAULT_THEME "default:auto"
+#endif
 #define DEFAULT_TOOL_DETAIL "default"	/* none | brief | default | full */
 /* Display reasoning/thinking model output (live stream + history view). */
 #define DEFAULT_THINKING true

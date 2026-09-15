@@ -722,14 +722,14 @@ properties:
         description: auto (colour iff a terminal) | off | on (force, even piped).
       theme:
         type: string
-        default: "default:auto"
+        default: "ember:auto"
         description: >-
           libfymd4c embedded theme name with an optional background variant,
           for example default:auto, catppuccin:dark, or solarized:light.
           The selected theme also controls fenced-code highlighting and
           terminal UI chrome. A libfypalette theme, such as ember:auto,
           styles the Markdown, the fenced code and the chrome from one
-          palette.
+          palette. A build without libfypalette uses default:auto.
       theme_ground:
         type: string
         enum: [theme, terminal]
