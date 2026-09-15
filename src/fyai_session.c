@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <libfytimui.h>
@@ -1242,7 +1243,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	char used_str[24], window_str[24], cached_str[24];
 	long long used;
 	char *top, *bottom, *cwd, *directory, *branch, *location;
-	const char *home;
+	const char *home, *pwd;
+	struct stat pwd_st, cwd_st;
 	size_t home_len, i;
 	struct fyai_context_prompt prompt;
 	char *top_md;
@@ -1252,6 +1254,18 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
 		return;
 	cwd = getcwd(NULL, 0);
+	/*
+	 * The shell names a directory that it reached through a symbolic link
+	 * as the user typed it. Use that name when it is the same directory, so
+	 * that a home directory behind a link still reads as ~.
+	 */
+	pwd = getenv("PWD");
+	if (cwd && pwd && *pwd == '/' && strcmp(pwd, cwd) &&
+	    !stat(pwd, &pwd_st) && !stat(cwd, &cwd_st) &&
+	    pwd_st.st_dev == cwd_st.st_dev && pwd_st.st_ino == cwd_st.st_ino) {
+		free(cwd);
+		cwd = strdup(pwd);
+	}
 	home = getenv("HOME");
 	home_len = home ? strlen(home) : 0;
 	if (cwd && home_len > 1 && !strncmp(cwd, home, home_len) &&
