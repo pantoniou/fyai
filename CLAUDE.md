@@ -513,11 +513,17 @@ rules and the status. `page` states the same screen as one UI Markdown page.
 - The page must look as the band stack does. `tests/cases/ui_page_renderer.sh`
   runs one scenario under both renderers and compares the screens: a change
   to the stack chrome is a change to the page source too.
-- The chrome is the stack's: a header row, the prompt on its card
-  (`fytim_prompt_card()`, a slot two rows taller) or between two rules, and
-  two status rows - the focus hint or the completion ribbon, then the status.
-  The header and the status carry the heading and blockquote SGR pairs of the
-  theme, so the page renderer takes SGR input (`FYMD_SGR_SAFE`).
+- The chrome is the stack's: a blank row and the header row, the prompt on its
+  card (`fytim_prompt_card()`, a slot two rows taller) or between two rules,
+  and two status rows - the focus hint or the completion ribbon, then the
+  status. The band stack reserves the blank row with `fytim_set_header_rows()`
+  and the page document states it, so both draw it. The header and the status
+  carry the heading and blockquote SGR pairs of the theme, so the page
+  renderer takes SGR input (`FYMD_SGR_SAFE`).
+- The header is `markup`: fyai escapes each value of the template and gives it
+  the next colour of the palette series (`mermaid.series.N`), and the page
+  escapes the UI tags of the whole header with `markdown_ui_escape()`. One
+  source is the Markdown of the band stack and the UI Markdown of the page.
 - `fyai_page_fit()` gives the chrome its rows before the pane, and the pane
   before the tail. A pane that asks for the whole terminal otherwise pushes
   the prompt off the screen.
@@ -920,6 +926,13 @@ command.
   `quarter` for the session.
 - A named session shows its handle in the tile head, so the user can tell two
   sessions apart and name one in a later command.
+- An editor for `/edit`, `config edit` or a log view runs as a user-owned
+  session too, through `fyai_tools_user_program()`: its tile, `edit-N`, takes
+  the pane and the keys. The session reports the end of the program to its
+  owner through its exit callback, one time, also when the tile goes first.
+  A caller suspends the UI only when `fyai_editor_in_pane()` is false.
+  `display/editor: terminal` gives the editor the whole terminal, and a command
+  without an interactive UI always does.
 
 ### Palette themes
 
