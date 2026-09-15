@@ -5,9 +5,12 @@
 Enough of the terminal to answer "what did the user see": the rows the band
 paints are moved into with relative cursor motion, not newlines, so a byte
 capture cannot show them. Handles the sequences the UI emits - cursor motion,
-erase, and scrolling - and ignores the rest (SGR, mode switches, OSC).
+erase, and scrolling - and ignores the rest (SGR, mode switches, OSC), except
+the text a program copies with OSC 52.
 """
 
+import base64
+import binascii
 import re
 import sys
 
@@ -32,6 +35,8 @@ class Screen:
         # halves as text, so the tail of a piece is held until the rest of it
         # arrives.
         self.pending = b""
+        # The text of each OSC 52 copy, in the order the terminal took it.
+        self.clipboard = []
 
     def display(self):
         return ["".join(r).rstrip() for r in self.grid]
@@ -73,14 +78,25 @@ class Screen:
                     i = m.end()
                     continue
                 if data[i:i + 2] in (b"\x1b]", b"\x1bP"):   # OSC / DCS
-                    end = data.find(b"\x07", i)
-                    esc = data.find(b"\x1b\\", i)
-                    if esc >= 0 and (end < 0 or esc < end):
-                        end = esc + 1
-                    if end < 0:                 # the rest is still to come
+                    bel = data.find(b"\x07", i + 2)
+                    esc = data.find(b"\x1b", i + 2)
+                    if esc >= 0 and (bel < 0 or esc < bel):
+                        if esc + 1 >= len(data):    # ST or another escape
+                            self.pending = data[i:]
+                            return
+                        if data[esc + 1:esc + 2] == b"\\":
+                            self._osc(data[i + 2:esc])
+                            i = esc + 2
+                        else:
+                            # A terminal ends a string that has no ST at
+                            # the next escape, and does not act on it.
+                            i = esc
+                        continue
+                    if bel < 0:                 # the rest is still to come
                         self.pending = data[i:]
                         return
-                    i = end + 1
+                    self._osc(data[i + 2:bel])
+                    i = bel + 1
                     continue
                 if len(data) - i < 2:
                     self.pending = data[i:]     # only the escape so far
@@ -124,6 +140,15 @@ class Screen:
                 i += length
                 continue
             i += 1
+
+    def _osc(self, payload):
+        if not payload.startswith(b"52;"):
+            return
+        try:
+            text = base64.b64decode(payload.rsplit(b";", 1)[1], validate=True)
+        except (binascii.Error, IndexError):
+            return
+        self.clipboard.append(text.decode("utf-8", "replace"))
 
     def _sgr(self, params):
         codes = [int(p) if p.isdigit() else 0 for p in params.split(b";")]

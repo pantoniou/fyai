@@ -39,7 +39,9 @@ class Terminal:
         self.background = os.environ.get("FYAI_PTY_BACKGROUND")
 
     def resize(self, rows, cols):
+        clipboard = self.screen.clipboard
         self.screen = Screen(rows, cols)
+        self.screen.clipboard = clipboard
         self.held = b""
 
     def read(self, fd):
@@ -210,7 +212,7 @@ def check_after_script(after_script, snapshot):
     dropped step silently changes what the case proves.
     """
     kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone", "wait-screen",
-             "frame", "drain", "settle", "snapshot", "release")
+             "wait-copy", "frame", "drain", "settle", "snapshot", "release")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
@@ -316,6 +318,10 @@ def main():
     #   wait-gone:TEXT   read until TEXT is off the screen. A frame paints
     #               only what changed, thus the capture says what arrived
     #               and only the screen says what is still there.
+    #   wait-copy:TEXT   read until the terminal took an OSC 52 copy since
+    #               the last action that holds TEXT; an empty TEXT takes any
+    #               copy that is not empty. A copy is terminal state, not a
+    #               cell of the screen.
     #   frame:N     read until N frames were painted since the last action.
     #               A key is read at the start of a frame, so two frames
     #               after it is when it has been acted on: keys sent with
@@ -522,6 +528,7 @@ def main():
             data = getattr(err, "partial", data)
             raise
         action_start = len(data)
+        copies_start = len(TERMINAL.screen.clipboard)
         # What the window shows now, rebuilt from the frames completed so
         # far. A step that waits for something to go needs the screen: a
         # frame paints only what changed and says nothing about the rest.
@@ -543,6 +550,7 @@ def main():
             kind, _, value = step.partition(":")
             if kind in ("send", "raw", "resize"):
                 action_start = len(data)
+                copies_start = len(TERMINAL.screen.clipboard)
             if kind == "send":
                 os.write(master, value.encode() + b"\n")
                 time.sleep(after_pause)
@@ -603,7 +611,7 @@ def main():
                     raise RuntimeError(
                         "PTY output never contained %r; tail=%r" %
                         (needle, data[-2000:]))
-            elif kind in ("wait-gone", "wait-screen", "frame"):
+            elif kind in ("wait-gone", "wait-screen", "wait-copy", "frame"):
                 # A state the window leaves - a tile giving the keys back -
                 # is said by what is no longer on it, and a key that was
                 # acted on is said by the frames since it. Both are waits
@@ -612,6 +620,9 @@ def main():
                 want = int(value) if kind == "frame" else 0
 
                 def reached():
+                    if kind == "wait-copy":
+                        return any(c.strip() and value in c for c in
+                                   TERMINAL.screen.clipboard[copies_start:])
                     if kind == "frame":
                         return data.count(FRAME_END, action_start) >= want
                     # A screen that repaints only the cells that changed
@@ -644,6 +655,10 @@ def main():
                             "the window painted %d of %d frames; tail=%r" %
                             (data.count(FRAME_END, action_start), want,
                              data[-2000:]))
+                    if kind == "wait-copy":
+                        raise RuntimeError(
+                            "no copy holds %r; copies=%r" %
+                            (value, TERMINAL.screen.clipboard[copies_start:]))
                     raise RuntimeError(
                         "%r never %s the screen; screen=%r" %
                         (value, "reached" if kind == "wait-screen" else "left",
