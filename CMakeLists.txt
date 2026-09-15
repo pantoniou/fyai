@@ -228,7 +228,7 @@ if(NOT TARGET libfypalette::libfypalette)
     set(BUILD_FYPALETTE_TOOLS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(libfypalette
         GIT_REPOSITORY https://github.com/pantoniou/libfypalette
-        GIT_TAG 4cb9999029a1c5b420ccfe668232ebb34267d6f9
+        GIT_TAG d80f140bbd6362251eb448030191195488121e41
     )
     FetchContent_MakeAvailable(libfypalette)
 endif()
