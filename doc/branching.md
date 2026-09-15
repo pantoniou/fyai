@@ -432,6 +432,12 @@ width of its own pane. It follows the selection and the stored state of the
 branch, so a live agent branch shows what it has said last. A grouping row has
 no conversation and shows no preview.
 
+The preview uses the display settings of the branch it shows, not those of the
+session that browses it. A branch that stores `display/theme: ember:dark` shows
+its conversation in that theme. An `auto` theme takes the dark or light variant
+of the session, because the browser does not ask the terminal again. The
+resume picker renders its preview the same way.
+
 `display/branch_preview` says where the preview stands. `auto`, the default,
 takes the right of a wide pane and the foot of a tall one, and stands down
 when neither the page nor the preview would be readable.
