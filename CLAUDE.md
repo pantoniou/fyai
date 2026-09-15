@@ -1130,6 +1130,11 @@ program of the parent wrote, and an inherited wait took its name. Drop every
 one of them in `fyai_ctx_fork_disown()`, which ends nothing, and add a new kind
 of live context state to that list.
 
+A child that serves a terminal session ends its program when its control
+channel closes. The child is in a session of its own, so no signal of the
+parent reaches it: a parent that is killed leaves only the closed channel to
+say that nobody owns the session.
+
 Set job fields after `fyai_tool_job_spawn()` because that function clears the
 job. Cancel a complete process tree with
 `fyai_event_add_child_terminate_group()`.
@@ -1397,15 +1402,22 @@ on macOS. Wait by reading with a deadline. Do not sleep.
 
 Do not pace a test with a delay. A delay that is sufficient on one runner is
 too short on a slower runner, and every run spends its full time. Wait for the
-state that the next step needs. In a PTY case, set `FYAI_PTY_AFTER_PAUSE=0`
-and wait on the terminal state that `tests/screen.py` models: `wait-screen`
-and `wait-gone` for the cells, `wait-copy` for an OSC 52 copy, and `frame`
-for a key that must be acted on. Do not wait on the raw capture bytes with
-`wait` or `wait-frame`: a frame paints only the cells that changed, so the
-bytes do not say what the screen shows. Do not use `drain` or `settle` to wait
-for a state. A program in a tile that reports a changing value, such as its
-size, prints it on a short interval, and the case waits for the expected value
-on the screen.
+state that the next step needs. The PTY driver does not pause after an
+action. A PTY case waits on the terminal state that `tests/screen.py` models:
+`wait-screen` for text on the screen or on a row that scrolled off it since
+the last action, `wait-gone` for text that left the screen, `wait-copy` for
+an OSC 52 copy, and `frame` for a key that must be acted on. Do not wait on
+the raw capture bytes with `wait` or `wait-frame`: a frame paints only the
+cells that changed, so the bytes do not say what the screen shows. Do not use
+`drain` or `settle` to wait for a state. A program in a tile that reports a
+changing value, such as its size, prints it on a short interval, and the case
+waits for the expected value on the screen. A key that must change nothing
+has no state to wait for: send it in one write with the key that follows it,
+which keeps their order.
+
+A case that stops a run does not leave its processes behind. The driver sends
+SIGTERM before SIGKILL, and a case that kills fyai on purpose ends the programs
+it recorded if the run left them.
 
 ### Sanitizers
 
