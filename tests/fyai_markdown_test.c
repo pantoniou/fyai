@@ -37,6 +37,7 @@ FYAI_TEST_ENTRY(markdown, final_render_is_whole, markdown_final_render_is_whole)
 FYAI_TEST_ENTRY(markdown, tool_head_chrome, markdown_tool_head_chrome)
 FYAI_TEST_ENTRY(markdown, source_rows_utf8, markdown_source_rows_utf8)
 FYAI_TEST_ENTRY(markdown, role_palette, markdown_role_palette)
+FYAI_TEST_ENTRY(markdown, focus_ground, markdown_focus_ground_test)
 FYAI_TEST_ENTRY(markdown, fullscreen_ground, markdown_fullscreen_ground_test)
 FYAI_TEST_ENTRY(markdown, gutter_palette, markdown_gutter_palette)
 FYAI_TEST_ENTRY(markdown, reasoning_palette, markdown_reasoning_palette)
@@ -357,6 +358,59 @@ int markdown_role_palette(void)
 			    "\033[39m"));
 	FYAI_TCHECK(!strcmp(markdown_role_on(&cfg, "notice.sigil", "\033[31m"),
 			    "\033[31m"));
+	fypal_ctx_destroy(cfg.palette);
+	return EXIT_SUCCESS;
+}
+
+/* What holds the keys stands on the pane.focus wash of the theme, and on no
+ * palette colour without a palette, without colour or without the wash. */
+int markdown_focus_ground_test(void)
+{
+	static const struct fypal_caps caps16 = {
+		.depth = FYPAL_DEPTH_16,
+		.attrs = FYPAL_ATTR_ALL,
+	};
+	int rc;
+	struct fyai_cfg cfg;
+	uint32_t rgb;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.color = "on";
+	rgb = 0;
+	FYAI_TCHECK(!markdown_focus_ground(NULL, &rgb));
+	FYAI_TCHECK(!markdown_focus_ground(&cfg, &rgb));
+	cfg.palette = fypal_ctx_create(NULL);
+	FYAI_TCHECK(cfg.palette != NULL);
+	if (!cfg.palette)
+		return EXIT_FAILURE;
+	/* A pane role without a ground names no wash. */
+	rc = fypal_ctx_load(cfg.palette,
+			    "colors: {rule: '#404040'}\n"
+			    "roles: {pane: {sep: {fg: rule}}}\n", "test");
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!markdown_focus_ground(&cfg, &rgb));
+	rc = fypal_ctx_load(cfg.palette,
+			    "colors: {wash: '#1d2123'}\n"
+			    "roles: {pane: {focus: {bg: wash}}}\n", "test");
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(markdown_focus_ground(&cfg, &rgb));
+	FYAI_TCHECK(rgb == 0x1d2123u);
+	/* No colour, no ground of a colour. */
+	cfg.color = "off";
+	FYAI_TCHECK(!markdown_focus_ground(&cfg, &rgb));
+	fypal_ctx_destroy(cfg.palette);
+
+	/* The wash has no form at 16 colours. */
+	cfg.color = "on";
+	cfg.palette = fypal_ctx_create(&caps16);
+	FYAI_TCHECK(cfg.palette != NULL);
+	if (!cfg.palette)
+		return EXIT_FAILURE;
+	rc = fypal_ctx_load(cfg.palette,
+			    "colors: {wash: '#1d2123'}\n"
+			    "roles: {pane: {focus: {bg: wash}}}\n", "test");
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!markdown_focus_ground(&cfg, &rgb));
 	fypal_ctx_destroy(cfg.palette);
 	return EXIT_SUCCESS;
 }
