@@ -10,16 +10,21 @@
 #include <string.h>
 
 #include "fyai_branch.h"
+#include "fyai_config.h"
 #include "fyai_merge.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
 
 #include "fyai_test_registry.h"
 
+/* FYAI_EMBEDDED_CONFIG[] / FYAI_EMBEDDED_CONFIG_LEN - config.yaml.sample. */
+#include "embedded_config.inc"
+
 FYAI_TEST_ENTRY(config, root_decode, config_root_decode)
 FYAI_TEST_ENTRY(config, branch_names, config_branch_names)
 FYAI_TEST_ENTRY(config, branch_refs, config_branch_refs)
 FYAI_TEST_ENTRY(config, merge_base, config_merge_base)
+FYAI_TEST_ENTRY(config, sample_defaults, config_sample_defaults)
 FYAI_TEST_ENTRY(session, compact_chatgpt_auth, session_compact_chatgpt_auth)
 
 static int failures;
@@ -274,6 +279,121 @@ int config_root_decode(void)
 
 	test_root_decode(gb);
 
+	fy_generic_builder_destroy(gb);
+	return failures ? 1 : 0;
+}
+
+/* Derived, secret or example values that the sample sets on purpose. */
+static const char *const sample_exempt[] = {
+	"catalog", "api_key/", "mcp/auth_token/", "model", "agent/personas",
+	NULL,
+};
+
+/* A key the sample leaves out must be in it as a comment: "# key:". */
+static bool sample_mentions(const char *text, const char *leaf)
+{
+	const char *line, *p;
+	size_t len;
+
+	len = strlen(leaf);
+	for (line = text; line && *line; line = strchr(line, '\n')) {
+		if (*line == '\n')
+			line++;
+		p = line;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p++ != '#')
+			continue;
+		while (*p == ' ')
+			p++;
+		if (!strncmp(p, leaf, len) && p[len] == ':')
+			return true;
+	}
+	return false;
+}
+
+static void sample_walk(fy_generic schema, fy_generic sample, const char *text,
+			const char *path)
+{
+	fy_generic key, spec, node, dflt;
+	const char *name, *const *ex;
+	char full[256];
+	bool exempt;
+
+	fy_foreach_key_value(key, spec, fy_get(schema, "properties", fy_invalid)) {
+		name = fy_castp(&key, "");
+		snprintf(full, sizeof(full), "%s%s%s", path, *path ? "/" : "",
+			 name);
+		exempt = false;
+		for (ex = sample_exempt; *ex; ex++)
+			if (!strncmp(full, *ex, strlen(*ex)))
+				exempt = true;
+		if (exempt)
+			continue;
+		node = fy_is_mapping(sample) ? fy_get(sample, name, fy_invalid) :
+			fy_invalid;
+		if (fy_is_mapping(fy_get(spec, "properties", fy_invalid))) {
+			if (fy_is_invalid(node) && !sample_mentions(text, name)) {
+				fprintf(stderr, "FAIL: %s is not in the sample\n",
+					full);
+				failures++;
+			}
+			sample_walk(spec, node, text, full);
+			continue;
+		}
+		if (fy_is_invalid(node)) {
+			if (!sample_mentions(text, name)) {
+				fprintf(stderr, "FAIL: %s is not in the sample\n",
+					full);
+				failures++;
+			}
+			continue;
+		}
+		dflt = fy_get(spec, "default", fy_invalid);
+		if (fy_is_valid(dflt) && !fy_is_mapping(node) &&
+		    fy_generic_compare(node, dflt)) {
+			fprintf(stderr, "FAIL: %s in the sample is not the "
+				"default of the schema\n", full);
+			failures++;
+		}
+	}
+}
+
+/*
+ * config.yaml.sample starts every project, and it says that each key holds
+ * its compiled-in default. Every key of the schema is in it, set or commented
+ * out, and a key it sets holds the default of the schema.
+ */
+int config_sample_defaults(void)
+{
+	struct fy_generic_builder_cfg gb_cfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	fy_generic_sized_string text = {
+		.data = (const char *)FYAI_EMBEDDED_CONFIG,
+		.size = FYAI_EMBEDDED_CONFIG_LEN,
+	};
+	struct fy_generic_builder *gb;
+	fy_generic sample, schema;
+	char *copy;
+
+	failures = 0;
+	gb = fy_generic_builder_create(&gb_cfg);
+	copy = strndup(text.data, text.size);
+	if (!gb || !copy) {
+		free(copy);
+		if (gb)
+			fy_generic_builder_destroy(gb);
+		return 1;
+	}
+	sample = fy_parse(gb, text, FYAI_YAML_PARSE_FLAGS |
+			  FYOPPF_INPUT_TYPE_STRING, NULL);
+	schema = fyai_config_schema(gb);
+	check(fy_is_mapping(sample), "the sample parses to a mapping");
+	check(fy_is_mapping(schema), "the schema parses to a mapping");
+	if (!failures)
+		sample_walk(schema, sample, copy, "");
+	free(copy);
 	fy_generic_builder_destroy(gb);
 	return failures ? 1 : 0;
 }
