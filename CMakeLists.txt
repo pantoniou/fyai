@@ -340,6 +340,34 @@ if(FYAI_HAVE_FYPALETTE)
 endif()
 message(STATUS "fyai: palette terminal ground ${FYAI_FYPAL_GROUND}")
 
+# The UI feature checks below read the headers of this target, so it must be
+# resolved first: an installed package, else a source fetch.
+if(NOT TARGET libfytimui::libfytimui AND
+   NOT TARGET libfytimui::fytimui)
+    find_package(libfytimui CONFIG QUIET)
+endif()
+if(NOT TARGET libfytimui::libfytimui AND
+   NOT TARGET libfytimui::fytimui AND
+   NOT TARGET libfytimui::libfytimui_static AND
+   NOT TARGET libfytimui::fytimui_static)
+    FetchContent_Declare(libfytimui
+        GIT_REPOSITORY https://github.com/pantoniou/libfytimui
+        GIT_TAG 36125d000cf9a4f4666fff32c7f4c148e2fddb06
+    )
+    set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(libfytimui)
+endif()
+if(FYAI_STATIC_DEPS AND TARGET libfytimui::libfytimui_static)
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui_static)
+elseif(FYAI_STATIC_DEPS AND TARGET libfytimui::fytimui_static)
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui_static)
+elseif(TARGET libfytimui::libfytimui)
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui)
+else()
+    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
+endif()
+
 # A tile head that the user can click needs a libfymd4c that renders UI
 # Markdown with regions and a libfytimui that reports a click on a head.
 set(FYAI_UI_CLICKS OFF)
@@ -472,32 +500,6 @@ if(FYAI_HAVE_FYPALETTE AND TARGET ${FYAI_LIBFYMERMAID_TARGET})
     endforeach()
 endif()
 message(STATUS "fyai: palette diagrams ${FYAI_FYMM_PALETTE}")
-
-if(NOT TARGET libfytimui::libfytimui AND
-   NOT TARGET libfytimui::fytimui)
-    find_package(libfytimui CONFIG QUIET)
-endif()
-if(NOT TARGET libfytimui::libfytimui AND
-   NOT TARGET libfytimui::fytimui AND
-   NOT TARGET libfytimui::libfytimui_static AND
-   NOT TARGET libfytimui::fytimui_static)
-    FetchContent_Declare(libfytimui
-        GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG 36125d000cf9a4f4666fff32c7f4c148e2fddb06
-    )
-    set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(libfytimui)
-endif()
-if(FYAI_STATIC_DEPS AND TARGET libfytimui::libfytimui_static)
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui_static)
-elseif(FYAI_STATIC_DEPS AND TARGET libfytimui::fytimui_static)
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui_static)
-elseif(TARGET libfytimui::libfytimui)
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui)
-else()
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
-endif()
 
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests. A parent project may already provide the target (its own
