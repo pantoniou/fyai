@@ -202,9 +202,9 @@ PY
 
 # A drag over the answer copies its text with OSC 52, and the last exchange is
 # printed on the terminal's own screen when the session ends.
-PRESS=$(printf '\033[<0;3;4M' | od -An -tx1 | tr -d ' \n')
-MOVE=$(printf '\033[<32;31;4M' | od -An -tx1 | tr -d ' \n')
-RELEASE=$(printf '\033[<0;31;4m' | od -An -tx1 | tr -d ' \n')
+PRESS=$(printf '\033[<0;3;5M' | od -An -tx1 | tr -d ' \n')
+MOVE=$(printf '\033[<32;31;5M' | od -An -tx1 | tr -d ' \n')
+RELEASE=$(printf '\033[<0;31;5m' | od -An -tx1 | tr -d ' \n')
 session fullscreen "wait-screen:Hello from the mock provider.|raw:$PRESS|raw:$MOVE|raw:$RELEASE|wait:]52;|drain:0.5" 30 1
 COPY=$(printf 'Hello from the mock provider.' | base64 -w0)
 grep -a -q "]52;c;$COPY" "$TEST_DIR/pty.out" ||
