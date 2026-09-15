@@ -412,6 +412,9 @@ foreach(_dir IN LISTS _fyai_ui_inc)
        EXISTS "${_dir}/libfytimui/libfytimui-surface.h")
         file(STRINGS "${_dir}/libfytimui/libfytimui-page.h" _decl
             REGEX "fytim_workband_rows")
+        # The page draws the tail itself from the rows the tail holds.
+        file(STRINGS "${_dir}/libfytimui/libfytimui-page.h" _tail
+            REGEX "fytim_tail_content")
         # The page draws the surfaces itself from what they hold.
         file(STRINGS "${_dir}/libfytimui/libfytimui-surface.h" _draw
             REGEX "fytim_surface_margin")
@@ -421,7 +424,7 @@ foreach(_dir IN LISTS _fyai_ui_inc)
         # A fullscreen page holds text that the user selects and copies.
         file(STRINGS "${_dir}/libfytimui/libfytimui-event.h" _copy
             REGEX "fytim_copy")
-        if(_decl AND _draw AND _keys AND _copy)
+        if(_decl AND _tail AND _draw AND _keys AND _copy)
             set(_fyai_page_tim ON)
         endif()
     endif()
