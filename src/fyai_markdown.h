@@ -57,6 +57,9 @@ char *markdown_lang_for_path(const char *path);
  * skip (renderer falls back to the library default theme) if it is missing.
  */
 void fyai_markdown_load_style(struct fyai_cfg *cfg);
+/* As fyai_markdown_load_style(), but a theme of the auto variant takes
+ * @variant and the terminal is not asked. */
+void fyai_markdown_load_style_as(struct fyai_cfg *cfg, const char *variant);
 /*
  * The reverse-card foreground/background escape pair for the effective theme,
  * read from the loaded styling generic (elements.reverse, with the .light

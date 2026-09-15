@@ -552,7 +552,11 @@ err_out:
 	return NULL;
 }
 
-void fyai_markdown_load_style(struct fyai_cfg *cfg)
+/*
+ * Load the styling of cfg->theme. A theme of the auto variant takes
+ * @auto_variant when it is set; else the terminal is asked.
+ */
+static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 {
 	char name[128];
 	const char *variant;
@@ -561,7 +565,9 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 		return;
 	if (!strcmp(variant, "auto")) {
 		/* An emulated agent terminal inherits the parent's theme variant. */
-		if (cfg->agent_pty)
+		if (auto_variant && *auto_variant)
+			variant = auto_variant;
+		else if (cfg->agent_pty)
 			variant = cfg->theme_variant && *cfg->theme_variant ?
 				  cfg->theme_variant : "dark";
 		else
@@ -584,6 +590,16 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 	 * fyai_bubble_fence() can draw the card's own top/bottom rows. */
 	markdown_probe_reverse(cfg, 0, "dark");
 	markdown_probe_reverse(cfg, 1, "light");
+}
+
+void fyai_markdown_load_style(struct fyai_cfg *cfg)
+{
+	markdown_load_style(cfg, NULL);
+}
+
+void fyai_markdown_load_style_as(struct fyai_cfg *cfg, const char *variant)
+{
+	markdown_load_style(cfg, variant);
 }
 
 bool markdown_theme_valid(const char *name)
