@@ -81,6 +81,9 @@ const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
 			     const char *fallback);
 const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
 			      const char *fallback);
+/* The ground of what holds the keys, the pane.focus wash of the palette theme,
+ * as 0xRRGGBB in *@rgb. False when there is no palette, no colour or no wash. */
+bool markdown_focus_ground(const struct fyai_cfg *cfg, uint32_t *rgb);
 /* Write the palette ground escape for a fullscreen page using theme ground.
  * Return its length, or zero with an empty buffer when no ground applies. */
 int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,

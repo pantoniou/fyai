@@ -92,7 +92,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_WORK_POSITION "above-prompt"
 /* Where an editor runs: a tile of the work pane, or the whole terminal. */
 #define DEFAULT_EDITOR_MODE "pane"
-#define DEFAULT_FOCUS_BG "reverse"
+#define DEFAULT_FOCUS_BG "theme"
 #define DEFAULT_FOCUS_BG_MIX 35
 #define DEFAULT_WORK_ZOOM_ROWS "full"
 #define DEFAULT_WORK_MIN_TILE_COLS 40

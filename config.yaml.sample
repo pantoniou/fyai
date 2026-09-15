@@ -339,12 +339,13 @@ display:
   work_max_rows: 0
   # Height of the work pane: full, half, quarter, or a positive row count.
   work_zoom_rows: full
-  # The ground of the tile that holds the keys, which the prompt takes too:
-  # reverse for the one the terminal draws text in, which suits a light
-  # terminal and a dark one alike, or #rrggbb for one of your own. An empty
-  # string reverses the margin of the tile instead. focus_bg_mix is how much
-  # of a colour of your own reaches a cell the program coloured itself.
-  focus_bg: reverse
+  # The ground of what holds the keys - the prompt, a picker, a focused tile:
+  # theme for the focus wash of a palette theme (reverse without one),
+  # reverse for the ground the terminal draws text in, or #rrggbb for one of
+  # your own. An empty string reverses the margin of the tile instead.
+  # focus_bg_mix is how much of the ground reaches a cell the program
+  # coloured itself.
+  focus_bg: theme
   focus_bg_mix: 35
   # The chrome of the pane: work_frame above it, tile_frame around a tile,
   # tile_sep between two tiles of a row, and session_margin the gutter at the

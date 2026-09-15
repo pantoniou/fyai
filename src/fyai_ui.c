@@ -934,6 +934,24 @@ static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 }
 
 /*
+ * The ground of what holds the keys - the prompt, a picker, a focused tile -
+ * into *@bgp. theme takes the focus wash of the palette theme, and the ground
+ * the terminal draws text in when there is none. Returns false for an empty
+ * or malformed value.
+ */
+static bool ui_focus_ground(const struct fyai_ctx *ctx, uint32_t *bgp)
+{
+	const char *text = ctx->cfg->focus_bg;
+
+	if (text && !strcmp(text, "theme")) {
+		if (!markdown_focus_ground(ctx->cfg, bgp))
+			*bgp = FYTIM_COLOR_REVERSED;
+		return true;
+	}
+	return fyai_ui_ground_parse(text, bgp);
+}
+
+/*
  * The ground of a tile into *@bgp, FYTIM_COLOR_DEFAULT unless @focused says
  * that it holds the keys. Returns true when it holds them and no ground is
  * configured: the margin is reversed instead.
@@ -944,7 +962,7 @@ static bool ui_tile_ground(const struct fyai_ctx *ctx, bool focused,
 	*bgp = FYTIM_COLOR_DEFAULT;
 	if (!focused)
 		return false;
-	if (fyai_ui_ground_parse(ctx->cfg->focus_bg, bgp))
+	if (ui_focus_ground(ctx, bgp))
 		return false;
 	*bgp = FYTIM_COLOR_DEFAULT;
 	return true;
@@ -2078,7 +2096,7 @@ static void ui_prompt_ground(struct fyai_ctx *ctx)
 
 	if (!ui || !ui->ft)
 		return;
-	if (!fyai_ui_ground_parse(ctx->cfg->focus_bg, &bg))
+	if (!ui_focus_ground(ctx, &bg))
 		bg = FYTIM_COLOR_DEFAULT;
 	(void)fytim_set_prompt_bg(ui->ft, bg);
 }
