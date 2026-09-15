@@ -33,6 +33,7 @@
 #include "fyai_config.h"
 #include "fyai_storage.h"
 #include "commands.h"
+#include "fyai_crash.h"
 #include "fyai_terminal.h"
 #include "fyai_prof.h"
 
@@ -42,6 +43,9 @@ int main(int argc, char **argv)
 	int rc, ret = EXIT_FAILURE;
 
 	fyai_prof_init();
+
+	/* Before anything else can fault: report a backtrace, then die. */
+	fyai_crash_install();
 
 	/* 256MB of stack */
 	raise_stack(256LU << 20, argv);

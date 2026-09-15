@@ -27,6 +27,7 @@
 #include "fyai_agent.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_crash.h"
 #include "fyai_curl.h"
 #include "fyai_event.h"
 #include "fyai_display.h"
@@ -93,6 +94,8 @@ static int fyai_signals_open(struct fyai_ctx *ctx)
 	if (ctx->dump_fd >= 0) {
 		(void)fcntl(ctx->dump_fd, F_SETFD, FD_CLOEXEC);
 		(void)fyai_event_dump_open(ctx, SIGUSR2, ctx->dump_fd);
+		/* Past the UI stdio spool, so a crash still reaches it. */
+		fyai_crash_set_fd(ctx->dump_fd);
 	}
 	return 0;
 }
@@ -1999,6 +2002,11 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
+
+	if (ctx->dump_fd >= 0) {
+		close(ctx->dump_fd);
+		ctx->dump_fd = -1;
+	}
 }
 
 /* Apply the configured MCP state. This operation is idempotent. */

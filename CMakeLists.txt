@@ -634,8 +634,22 @@ endif()
 
 # List the production sources except src/main.c.
 # Use this list for the fyai and fyai_test binaries.
+# execinfo/backtrace() for the fatal-signal backtrace (fyai_crash.c).
+check_include_file("execinfo.h" HAVE_EXECINFO)
+if(HAVE_EXECINFO)
+    check_function_exists(backtrace HAVE_BACKTRACE)
+    check_function_exists(backtrace_symbols_fd HAVE_BACKTRACE_SYMBOLS_FD)
+endif()
+if(HAVE_EXECINFO AND HAVE_BACKTRACE AND HAVE_BACKTRACE_SYMBOLS_FD)
+    set(FYAI_HAVE_BACKTRACE ON)
+else()
+    set(FYAI_HAVE_BACKTRACE OFF)
+endif()
+message(STATUS "fyai: crash backtrace ${FYAI_HAVE_BACKTRACE}")
+
 set(FYAI_SOURCES
     ${FYAI_EVENT_SOURCES}
+    src/fyai_crash.c
     src/fyai_display.c
     src/fyai_import.c
     src/fyai_foreign_import.c
@@ -703,6 +717,12 @@ target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
 if(UNIX AND NOT APPLE)
     target_link_libraries(fyai PRIVATE util)
 endif()
+# Symbol names for backtrace(): export dynamic symbols on ELF linkers.
+# Static links keep every symbol already, so only dynamic builds need it.
+if(FYAI_HAVE_BACKTRACE AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   NOT FYAI_STATIC_DEPS)
+    target_link_options(fyai PRIVATE -rdynamic)
+endif()
 if(FYAI_HAVE_FYPALETTE)
     target_compile_definitions(fyai PRIVATE FYAI_WITH_FYPALETTE)
 endif()
@@ -717,6 +737,9 @@ if(FYAI_PALETTE_GLYPHS)
 endif()
 if(FYAI_UI_CLICKS)
     target_compile_definitions(fyai PRIVATE FYAI_UI_CLICKS)
+endif()
+if(FYAI_HAVE_BACKTRACE)
+    target_compile_definitions(fyai PRIVATE HAVE_EXECINFO)
 endif()
 if(ENABLE_LIBSECRET)
     target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
@@ -841,6 +864,9 @@ if(BUILD_TESTING)
     endif()
     if(FYAI_UI_CLICKS)
         target_compile_definitions(fyai_test PRIVATE FYAI_UI_CLICKS)
+    endif()
+    if(FYAI_HAVE_BACKTRACE)
+        target_compile_definitions(fyai_test PRIVATE HAVE_EXECINFO)
     endif()
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)

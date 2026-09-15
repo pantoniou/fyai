@@ -3828,6 +3828,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->last_token_extents = fy_invalid;
 	ctx->response_chain_linked = false;
 	ctx->response_chain_miss = false;
+	ctx->dump_fd = -1;	/* the parent closes its diagnostic copy */
 }
 
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */
