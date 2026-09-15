@@ -189,14 +189,19 @@ static int page_source_escapes_text_run(void)
 	int rc;
 
 	st.header = "<fy-act id=\"evil\">click</fy-act>";
-	st.status = "\x1b[1mbold\x1b[0m line\nbreak";
+	st.status = "\x1b[1mbold\x1b[0m <fy-act id=\"worse\">x</fy-act> line\nbreak";
 	st.activity = "\x1b[33m*\x1b[0m";
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
+	/* The header and the status open no tag of the page. */
 	FYAI_TCHECK(!strstr(out.data, "<fy-act id=\"evil\""));
+	FYAI_TCHECK(!strstr(out.data, "<fy-act id=\"worse\""));
 	FYAI_TCHECK(strstr(out.data, "click") != NULL);
-	FYAI_TCHECK(!strchr(out.data, '\x1b'));
-	FYAI_TCHECK(strstr(out.data, "bold line break") != NULL);
+	/* They keep the colours fyai gave them and stay one row. */
+	FYAI_TCHECK(strstr(out.data, "\x1b[1mbold\x1b[0m") != NULL);
+	FYAI_TCHECK(strstr(out.data, "</fy-act> line break") != NULL);
+	/* The activity is text, which loses its SGR. */
+	FYAI_TCHECK(!strstr(out.data, "\x1b[33m"));
 	free(out.data);
 	return 0;
 }
@@ -327,7 +332,8 @@ static int page_rows_are_adjacent_run(void)
 	prompt = region(r, "prompt");
 	head = row_of(out, "HEADMARK");
 	FYAI_TCHECK(tail != NULL && tail->row == 0 && tail->height == 2);
-	FYAI_TCHECK(head == 2);
+	/* a blank row stands between the tail and the header */
+	FYAI_TCHECK(head == 3);
 	FYAI_TCHECK(prompt != NULL && (int)prompt->row == head + 2);
 	/* the hint row stands between the lower rule and the status */
 	FYAI_TCHECK(row_of(out, "STATUSMARK") == head + 5);
@@ -390,8 +396,9 @@ static int page_blank_activity_is_not_code_run(void)
 	status = row_of(out, "STATUSMARK");
 	FYAI_TCHECK(rows_of(out) == natural);
 	FYAI_TCHECK(status == row_of(out, "HEADMARK") + 5);
-	/* the header starts after its margin, not after its own blanks */
-	FYAI_TCHECK(!strncmp(out, "  HEADMARK", 10));
+	/* the header starts after its margin, not after its own blanks, on the
+	 * row under the blank row */
+	FYAI_TCHECK(strstr(out, "\n  HEADMARK") != NULL);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 	return 0;
@@ -499,7 +506,7 @@ static int page_fit_gives_the_chrome_its_rows_run(void)
 	st.pane_rows = 32;
 	st.tail_rows = 4;
 	chrome = fyai_page_chrome_rows(&st);
-	FYAI_TCHECK(chrome == 1 + 3 + 2 + 1);
+	FYAI_TCHECK(chrome == 2 + 3 + 2 + 1);
 	fyai_page_fit(&st, 30);
 	FYAI_TCHECK(st.pane_rows == 30 - chrome);
 	FYAI_TCHECK(st.tail_rows == 0);
@@ -570,7 +577,7 @@ static int page_grid_places_the_tiles_run(void)
 	FYAI_TCHECK(a->row == 0 && b->row == 0 && a->height == 5);
 	FYAI_TCHECK(a->col == 0 && b->col == a->col + a->width + 3);
 	FYAI_TCHECK(region(r, "pane") == NULL);
-	FYAI_TCHECK(row_of(out, "HEADMARK") == 5);
+	FYAI_TCHECK(row_of(out, "HEADMARK") == 6);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 	free(src.data);

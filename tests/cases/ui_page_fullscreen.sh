@@ -43,8 +43,9 @@ session()
 }
 
 # The view shows both exchanges, goes back to the first with PageUp, and to
-# the end with PageDown. The six rows of the view hold one exchange and a half.
-session fullscreen "wait-screen:Hello from the mock provider.|send:second question|wait-screen:Hello again from the mock provider.|wait-gone:│ first question|raw:1b5b357e|wait-screen:│ first question|raw:1b5b367e|wait-gone:│ first question"
+# the end with PageDown. The rows of the view, above the blank row and the
+# header, hold one exchange and a half: thirteen rows leave six to the view.
+session fullscreen "wait-screen:Hello from the mock provider.|send:second question|wait-screen:Hello again from the mock provider.|wait-gone:│ first question|raw:1b5b357e|wait-screen:│ first question|raw:1b5b367e|wait-gone:│ first question" 13
 grep -a -q $'\x1b\[?1049h' "$TEST_DIR/pty.out" ||
     fail "the fullscreen session did not take the alternate screen"
 grep -a -q $'\x1b\[?1049l' "$TEST_DIR/pty.out" ||
@@ -57,7 +58,7 @@ from screen import Screen
 
 END = b"\x1b[?2026l"
 data = open(sys.argv[1], "rb").read()
-screen = Screen(12, 100)
+screen = Screen(13, 100)
 pos = 0
 back = None
 both = None
@@ -68,12 +69,16 @@ while True:
     screen.feed(data[pos:i + len(END)])
     pos = i + len(END)
     rows = screen.display()
-    if any("│ first question" in r for r in rows[:6]) and \
+    # The view is the rows above the blank row that stands over the header.
+    head = next((y for y, r in enumerate(rows) if "fyai: session/" in r), None)
+    height = head - 1 if head else 6
+    view = rows[:height]
+    if any("│ first question" in r for r in view) and \
             any("second question" in r for r in rows):
         back = rows
+        back_height = height
     # A view that shows the first answer and the second question shows no
     # rule between them: the default separator is a blank row.
-    view = rows[:6]
     ends = [y for y, r in enumerate(view) if "Hello from the mock provider." in r]
     starts = [y for y, r in enumerate(view) if "│ second question" in r]
     if ends and starts and ends[0] < starts[0]:
@@ -82,7 +87,7 @@ while True:
 # stays under the view.
 if back is None:
     raise SystemExit("the view never showed the first exchange with the second")
-if not any("fyai: session/" in r for r in back[6:]):
+if not any("fyai: session/" in r for r in back[back_height:]):
     raise SystemExit("the chrome did not stay under the view: %r" % back)
 if both is None:
     raise SystemExit("the view never showed both exchanges")

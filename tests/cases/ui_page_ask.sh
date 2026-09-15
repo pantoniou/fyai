@@ -113,7 +113,7 @@ mock_stop 2
 # A click on an option chooses it. The page stands under the transcript, so the
 # row of the click on the screen is not the row of the option in the page; the
 # tile controls grab the mouse.
-CLICK=$(printf '\033[<0;7;7M\033[<0;7;7m' | od -An -tx1 | tr -d ' \n')
+CLICK=$(printf '\033[<0;7;8M\033[<0;7;8m' | od -An -tx1 | tr -d ' \n')
 ask click "raw:$CLICK" --set display/work_controls=zoom
 answered no "a click on the option"
 mock_stop 2
