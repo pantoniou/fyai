@@ -7,8 +7,6 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
-[ "${FYAI_UI_CLICKS:-OFF}" = ON ] || skip "this build has no clickable tile heads"
-
 CAPTURES=$(mktemp -d)
 trap 'rm -rf "$CAPTURES"' EXIT
 

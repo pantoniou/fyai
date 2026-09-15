@@ -60,7 +60,6 @@ FYAI_TEST_ENTRY(page, load_takes_the_embedded_document, page_load_takes_the_embe
 FYAI_TEST_ENTRY(page, load_says_why, page_load_says_why)
 FYAI_TEST_ENTRY(page, fullscreen_takes_the_transcript, page_fullscreen_takes_the_transcript)
 
-#ifdef FYAI_UI_PAGE
 
 /* The recorded page sources of the golden matrix. */
 #include "embedded_page_golden.inc"
@@ -79,7 +78,6 @@ static struct fyai_page_state page_state(void)
 	st.prompt_rows = 1;
 	return st;
 }
-
 /* One value of @n for field @k of golden case @i: a mix of both, so that the
  * fields of a case do not follow one another. */
 static unsigned page_golden_pick(unsigned i, unsigned k, unsigned n)
@@ -1432,149 +1430,3 @@ int page_grid_names_what_the_page_draws(void)
 {
 	return page_grid_names_what_the_page_draws_run();
 }
-
-#else
-
-/* Without page support there is no page to test: each case passes empty. */
-
-int page_source_orders_the_chrome(void)
-{
-	return 0;
-}
-
-int page_source_escapes_text(void)
-{
-	return 0;
-}
-
-int page_source_omits_empty_slots(void)
-{
-	return 0;
-}
-
-int page_rows_are_adjacent(void)
-{
-	return 0;
-}
-
-int page_status_drops_first(void)
-{
-	return 0;
-}
-
-int page_blank_activity_is_not_code(void)
-{
-	return 0;
-}
-
-int page_cap_stands_over_the_pane(void)
-{
-	return 0;
-}
-
-int page_prompt_card_takes_the_rules(void)
-{
-	return 0;
-}
-
-int page_chrome_keeps_the_margins(void)
-{
-	return 0;
-}
-
-int page_fit_gives_the_chrome_its_rows(void)
-{
-	return 0;
-}
-
-int page_view_follows_the_presentation(void)
-{
-	return 0;
-}
-
-int page_grid_places_the_tiles(void)
-{
-	return 0;
-}
-
-int page_grid_shares_the_height(void)
-{
-	return 0;
-}
-
-int page_grid_fits_and_spans(void)
-{
-	return 0;
-}
-
-int page_grid_stands_heads_level(void)
-{
-	return 0;
-}
-
-int page_source_matches_golden(void)
-{
-	return 0;
-}
-
-int page_transcribe_switches_modes(void)
-{
-	return 0;
-}
-
-int page_transcribe_repeats_items(void)
-{
-	return 0;
-}
-
-int page_transcribe_writes_acts(void)
-{
-	return 0;
-}
-
-int page_transcribe_checks_keys(void)
-{
-	return 0;
-}
-
-int page_state_matches_schema(void)
-{
-	return 0;
-}
-
-int page_keys_take_arguments(void)
-{
-	return 0;
-}
-
-int page_chrome_counts_a_question(void)
-{
-	return 0;
-}
-
-int page_check_walks_every_case(void)
-{
-	return 0;
-}
-
-int page_load_takes_the_embedded_document(void)
-{
-	return 0;
-}
-
-int page_load_says_why(void)
-{
-	return 0;
-}
-
-int page_fullscreen_takes_the_transcript(void)
-{
-	return 0;
-}
-
-int page_grid_names_what_the_page_draws(void)
-{
-	return 0;
-}
-
-#endif

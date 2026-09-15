@@ -259,89 +259,14 @@ else()
     set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
 endif()
 
-# libfypalette lets display/theme name a palette theme such as ember, which
-# styles every renderer from one set of roles.
-# A palette also needs a libfymd4c that takes one: an older installed
-# libfymd4c next to a new libfypalette has no fymd_renderer_set_palette().
-set(_fyai_fymd4c_palette OFF)
-if(TARGET ${FYAI_LIBFYMD4C_TARGET})
-    get_target_property(_fyai_fymd4c_inc ${FYAI_LIBFYMD4C_TARGET}
-        INTERFACE_INCLUDE_DIRECTORIES)
-    string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _fyai_fymd4c_inc
-        "${_fyai_fymd4c_inc}")
-    foreach(_dir IN LISTS _fyai_fymd4c_inc)
-        set(_hdr "${_dir}/libfymd4c/libfymd4c-renderer.h")
-        if(EXISTS "${_hdr}")
-            file(STRINGS "${_hdr}" _decl REGEX "fymd_renderer_set_palette")
-            if(_decl)
-                set(_fyai_fymd4c_palette ON)
-            endif()
-        endif()
-    endforeach()
-endif()
-if(TARGET libfypalette::libfypalette AND _fyai_fymd4c_palette)
-    if(FYAI_STATIC_DEPS AND TARGET libfypalette::libfypalette_static)
-        set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette_static)
-    else()
-        set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette)
-    endif()
-    set(FYAI_HAVE_FYPALETTE ON)
+# libfypalette styles every renderer from one set of roles.
+if(FYAI_STATIC_DEPS AND TARGET libfypalette::libfypalette_static)
+    set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette_static)
 else()
-    set(FYAI_LIBFYPALETTE_TARGET "")
-    set(FYAI_HAVE_FYPALETTE OFF)
+    set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette)
 endif()
-message(STATUS "fyai: palette themes ${FYAI_HAVE_FYPALETTE}")
 
-# The gutter and the glyphs of a palette theme need fypal_ctx_glyph() and a
-# libfymd4c that takes the glyphs of a palette.
-set(FYAI_PALETTE_GLYPHS OFF)
-if(FYAI_HAVE_FYPALETTE)
-    set(_fyai_glyph_inc "")
-    foreach(_t ${FYAI_LIBFYPALETTE_TARGET} ${FYAI_LIBFYMD4C_TARGET})
-        get_target_property(_inc ${_t} INTERFACE_INCLUDE_DIRECTORIES)
-        string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _inc "${_inc}")
-        list(APPEND _fyai_glyph_inc ${_inc})
-    endforeach()
-    set(_fyai_pal_glyphs OFF)
-    set(_fyai_md_glyphs OFF)
-    foreach(_dir IN LISTS _fyai_glyph_inc)
-        if(EXISTS "${_dir}/libfypalette.h")
-            file(STRINGS "${_dir}/libfypalette.h" _decl REGEX "fypal_ctx_glyph\\(")
-            if(_decl)
-                set(_fyai_pal_glyphs ON)
-            endif()
-        endif()
-        if(EXISTS "${_dir}/libfymd4c/libfymd4c-renderer.h")
-            file(STRINGS "${_dir}/libfymd4c/libfymd4c-renderer.h" _decl
-                REGEX "fymd_renderer_set_palette_flags")
-            if(_decl)
-                set(_fyai_md_glyphs ON)
-            endif()
-        endif()
-    endforeach()
-    if(_fyai_pal_glyphs AND _fyai_md_glyphs)
-        set(FYAI_PALETTE_GLYPHS ON)
-    endif()
-endif()
-message(STATUS "fyai: palette glyphs ${FYAI_PALETTE_GLYPHS}")
 
-# display/theme_ground=terminal needs fypal_ctx_set_ground().
-set(FYAI_FYPAL_GROUND OFF)
-if(FYAI_HAVE_FYPALETTE)
-    foreach(_dir IN LISTS _fyai_glyph_inc)
-        if(EXISTS "${_dir}/libfypalette.h")
-            file(STRINGS "${_dir}/libfypalette.h" _decl
-                REGEX "fypal_ctx_set_ground\\(")
-            if(_decl)
-                set(FYAI_FYPAL_GROUND ON)
-            endif()
-        endif()
-    endforeach()
-endif()
-message(STATUS "fyai: palette terminal ground ${FYAI_FYPAL_GROUND}")
-
-# The UI feature checks below read the headers of this target, so it must be
-# resolved first: an installed package, else a source fetch.
 if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui)
     find_package(libfytimui CONFIG QUIET)
@@ -368,82 +293,6 @@ else()
     set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
 endif()
 
-# A tile head that the user can click needs a libfymd4c that renders UI
-# Markdown with regions and a libfytimui that reports a click on a head.
-set(FYAI_UI_CLICKS OFF)
-set(_fyai_ui_md OFF)
-set(_fyai_ui_click OFF)
-set(_fyai_ui_inc "")
-foreach(_t ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYTIMUI_TARGET})
-    if(TARGET ${_t})
-        get_target_property(_inc ${_t} INTERFACE_INCLUDE_DIRECTORIES)
-        string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _inc "${_inc}")
-        list(APPEND _fyai_ui_inc ${_inc})
-    endif()
-endforeach()
-foreach(_dir IN LISTS _fyai_ui_inc)
-    if(EXISTS "${_dir}/libfymd4c/libfymd4c-renderer.h")
-        file(STRINGS "${_dir}/libfymd4c/libfymd4c-renderer.h" _decl
-            REGEX "fymd_renderer_get_regions")
-        if(_decl)
-            set(_fyai_ui_md ON)
-        endif()
-    endif()
-    if(EXISTS "${_dir}/libfytimui/libfytimui-event.h")
-        file(STRINGS "${_dir}/libfytimui/libfytimui-event.h" _decl
-            REGEX "FYTIM_EVENT_SURFACE_CLICK")
-        if(_decl)
-            set(_fyai_ui_click ON)
-        endif()
-    endif()
-endforeach()
-if(_fyai_ui_md AND _fyai_ui_click)
-    set(FYAI_UI_CLICKS ON)
-endif()
-message(STATUS "fyai: clickable tile heads ${FYAI_UI_CLICKS}")
-
-# A UI Markdown page needs a libfytimui that composes pages and reports the
-# rows that size them, and a libfymd4c that drops and tightens page blocks.
-set(FYAI_UI_PAGE OFF)
-set(_fyai_page_tim OFF)
-set(_fyai_page_md OFF)
-foreach(_dir IN LISTS _fyai_ui_inc)
-    if(EXISTS "${_dir}/libfytimui/libfytimui-page.h" AND
-       EXISTS "${_dir}/libfytimui/libfytimui-surface.h")
-        file(STRINGS "${_dir}/libfytimui/libfytimui-page.h" _decl
-            REGEX "fytim_workband_rows")
-        # The page draws the tail itself from the rows the tail holds.
-        file(STRINGS "${_dir}/libfytimui/libfytimui-page.h" _tail
-            REGEX "fytim_tail_content")
-        # The page draws the surfaces itself from what they hold.
-        file(STRINGS "${_dir}/libfytimui/libfytimui-surface.h" _draw
-            REGEX "fytim_surface_margin")
-        # A mode of the page takes keys from the prompt.
-        file(STRINGS "${_dir}/libfytimui/libfytimui-band.h" _keys
-            REGEX "fytim_set_key_bindings")
-        # A fullscreen page holds text that the user selects and copies.
-        file(STRINGS "${_dir}/libfytimui/libfytimui-event.h" _copy
-            REGEX "fytim_copy")
-        # The band stack draws the blank row above the header as the page does.
-        file(STRINGS "${_dir}/libfytimui/libfytimui-band.h" _hdr
-            REGEX "fytim_set_header_rows")
-        if(_decl AND _tail AND _draw AND _keys AND _copy AND _hdr)
-            set(_fyai_page_tim ON)
-        endif()
-    endif()
-    if(EXISTS "${_dir}/libfymd4c/libfymd4c-renderer.h")
-        file(STRINGS "${_dir}/libfymd4c/libfymd4c-renderer.h" _decl
-            REGEX "sep=")
-        if(_decl)
-            set(_fyai_page_md ON)
-        endif()
-    endif()
-endforeach()
-if(_fyai_ui_md AND _fyai_page_tim AND _fyai_page_md)
-    set(FYAI_UI_PAGE ON)
-endif()
-message(STATUS "fyai: UI Markdown page ${FYAI_UI_PAGE}")
-
 if(NOT TARGET libfymermaid::libfymermaid AND
    NOT TARGET libfymermaid::libfymermaid_static)
     find_package(libfymermaid CONFIG QUIET)
@@ -466,46 +315,6 @@ if(FYAI_STATIC_DEPS AND TARGET libfymermaid::libfymermaid_static)
 else()
     set(FYAI_LIBFYMERMAID_TARGET libfymermaid::libfymermaid)
 endif()
-
-# A fenced mermaid block of a Markdown answer is drawn as a diagram when
-# libfymd4c takes block renderers.
-set(FYAI_FYMD4C_BLOCKS OFF)
-if(TARGET ${FYAI_LIBFYMD4C_TARGET})
-    get_target_property(_fyai_blocks_inc ${FYAI_LIBFYMD4C_TARGET}
-        INTERFACE_INCLUDE_DIRECTORIES)
-    string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _fyai_blocks_inc
-        "${_fyai_blocks_inc}")
-    foreach(_dir IN LISTS _fyai_blocks_inc)
-        set(_hdr "${_dir}/libfymd4c/libfymd4c-renderer.h")
-        if(EXISTS "${_hdr}")
-            file(STRINGS "${_hdr}" _decl REGEX "fymd_renderer_set_block_renderer")
-            if(_decl)
-                set(FYAI_FYMD4C_BLOCKS ON)
-            endif()
-        endif()
-    endforeach()
-endif()
-message(STATUS "fyai: Markdown diagram blocks ${FYAI_FYMD4C_BLOCKS}")
-
-# A diagram takes the palette only from a libfymermaid whose render
-# configuration has the palette field.
-set(FYAI_FYMM_PALETTE OFF)
-if(FYAI_HAVE_FYPALETTE AND TARGET ${FYAI_LIBFYMERMAID_TARGET})
-    get_target_property(_fyai_fymm_inc ${FYAI_LIBFYMERMAID_TARGET}
-        INTERFACE_INCLUDE_DIRECTORIES)
-    string(REGEX REPLACE "\\$<[A-Z_]+:([^>]*)>" "\\1" _fyai_fymm_inc
-        "${_fyai_fymm_inc}")
-    foreach(_dir IN LISTS _fyai_fymm_inc)
-        set(_hdr "${_dir}/libfymermaid/libfymermaid-render.h")
-        if(EXISTS "${_hdr}")
-            file(STRINGS "${_hdr}" _decl REGEX "struct fypal_ctx \\*palette;")
-            if(_decl)
-                set(FYAI_FYMM_PALETTE ON)
-            endif()
-        endif()
-    endforeach()
-endif()
-message(STATUS "fyai: palette diagrams ${FYAI_FYMM_PALETTE}")
 
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests. A parent project may already provide the target (its own
@@ -814,29 +623,8 @@ if(FYAI_HAVE_BACKTRACE AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
    NOT FYAI_STATIC_DEPS)
     target_link_options(fyai PRIVATE -rdynamic)
 endif()
-if(FYAI_HAVE_FYPALETTE)
-    target_compile_definitions(fyai PRIVATE FYAI_WITH_FYPALETTE)
-endif()
-if(FYAI_FYMM_PALETTE)
-    target_compile_definitions(fyai PRIVATE FYAI_FYMM_PALETTE)
-endif()
-if(FYAI_FYMD4C_BLOCKS)
-    target_compile_definitions(fyai PRIVATE FYAI_FYMD4C_BLOCKS)
-endif()
-if(FYAI_PALETTE_GLYPHS)
-    target_compile_definitions(fyai PRIVATE FYAI_PALETTE_GLYPHS)
-endif()
-if(FYAI_FYPAL_GROUND)
-    target_compile_definitions(fyai PRIVATE FYAI_FYPAL_GROUND)
-endif()
-if(FYAI_UI_CLICKS)
-    target_compile_definitions(fyai PRIVATE FYAI_UI_CLICKS)
-endif()
 if(FYAI_HAVE_BACKTRACE)
     target_compile_definitions(fyai PRIVATE HAVE_EXECINFO)
-endif()
-if(FYAI_UI_PAGE)
-    target_compile_definitions(fyai PRIVATE FYAI_UI_PAGE)
 endif()
 if(ENABLE_LIBSECRET)
     target_link_libraries(fyai PRIVATE PkgConfig::LIBSECRET)
@@ -977,26 +765,8 @@ if(BUILD_TESTING)
         ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl
         OpenSSL::Crypto Threads::Threads ${FYAI_LIBFYVTERM_TARGET}
         ${ASAN_LINK_OPTS})
-    if(FYAI_HAVE_FYPALETTE)
-        target_compile_definitions(fyai_test PRIVATE FYAI_WITH_FYPALETTE)
-    endif()
-    if(FYAI_FYMM_PALETTE)
-        target_compile_definitions(fyai_test PRIVATE FYAI_FYMM_PALETTE)
-    endif()
-    if(FYAI_FYMD4C_BLOCKS)
-        target_compile_definitions(fyai_test PRIVATE FYAI_FYMD4C_BLOCKS)
-    endif()
-    if(FYAI_PALETTE_GLYPHS)
-        target_compile_definitions(fyai_test PRIVATE FYAI_PALETTE_GLYPHS)
-    endif()
-    if(FYAI_UI_CLICKS)
-        target_compile_definitions(fyai_test PRIVATE FYAI_UI_CLICKS)
-    endif()
     if(FYAI_HAVE_BACKTRACE)
         target_compile_definitions(fyai_test PRIVATE HAVE_EXECINFO)
-    endif()
-    if(FYAI_UI_PAGE)
-        target_compile_definitions(fyai_test PRIVATE FYAI_UI_PAGE)
     endif()
     if(ENABLE_LIBSECRET)
         target_link_libraries(fyai_test PRIVATE PkgConfig::LIBSECRET)
@@ -1065,7 +835,7 @@ if(BUILD_TESTING)
             TIMEOUT ${case_timeout}
             SKIP_RETURN_CODE 77
             FIXTURES_REQUIRED fyai_binary
-            ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN};FYAI_TIMEOUT_SCALE_DEFAULT=${FYAI_TIMEOUT_SCALE};FYAI_UI_CLICKS=${FYAI_UI_CLICKS}"
+            ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>;PYTHON=${Python3_EXECUTABLE};TESTS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests;FYAI_ASAN=${HAVE_ASAN};FYAI_TIMEOUT_SCALE_DEFAULT=${FYAI_TIMEOUT_SCALE}"
         )
         # Only the PTY cases that have actually starved each other on
         # slow runners take the lock: interactive turn legs, live

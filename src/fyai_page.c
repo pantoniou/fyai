@@ -36,11 +36,7 @@ bool fyai_page_requested(const struct fyai_cfg *cfg)
 
 bool fyai_page_supported(void)
 {
-#ifdef FYAI_UI_PAGE
 	return true;
-#else
-	return false;
-#endif
 }
 
 const struct fyai_page_action *
@@ -55,9 +51,6 @@ fyai_page_action_find(const struct fyai_page_action *actions, size_t n,
 			return &actions[i];
 	return NULL;
 }
-
-#ifdef FYAI_UI_PAGE
-
 struct fyai_page {
 	struct fyai_ctx *ctx;
 	struct fymd_renderer *renderer;	/* UI renderer at @cols */
@@ -2088,134 +2081,3 @@ int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md)
 	}
 	return response_buffer_append(md, "```\n");
 }
-
-#else
-
-int fyai_page_grid(const struct fyai_workpane_grid *g,
-		   const struct fyai_page_cell *cells, int n, int height,
-		   const char *sep, int sep_cols, struct response_buffer *out,
-		   int *rowsp)
-{
-	(void)g;
-	(void)cells;
-	(void)n;
-	(void)height;
-	(void)sep;
-	(void)sep_cols;
-	(void)out;
-	(void)rowsp;
-	return -1;
-}
-
-int fyai_page_view_for(int present)
-{
-	(void)present;
-	return 0;
-}
-
-int fyai_page_chrome_rows(const struct fyai_page_state *st)
-{
-	(void)st;
-	return 0;
-}
-
-void fyai_page_fit(struct fyai_page_state *st, int height)
-{
-	(void)st;
-	(void)height;
-}
-
-int fyai_page_source(const struct fyai_page_state *st,
-		     struct response_buffer *out)
-{
-	(void)st;
-	(void)out;
-	return -1;
-}
-
-int fyai_page_transcribe(fy_generic doc, fy_generic state,
-			 const struct fyai_page_action *actions, size_t n,
-			 struct response_buffer *out,
-			 struct fyai_page_keys *keys)
-{
-	(void)doc;
-	(void)state;
-	(void)actions;
-	(void)n;
-	(void)out;
-	(void)keys;
-	return -1;
-}
-
-fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
-				   const struct fyai_page_state *st)
-{
-	(void)gb;
-	(void)st;
-	return fy_invalid;
-}
-
-int fyai_page_check(fy_generic doc, const struct fyai_page_action *actions,
-		    size_t n, char *why, size_t why_size)
-{
-	(void)doc;
-	(void)actions;
-	(void)n;
-	if (why && why_size)
-		snprintf(why, why_size, "this build has no page support");
-	return -1;
-}
-
-fy_generic fyai_page_load(struct fy_generic_builder *gb, const char *path,
-			  const struct fyai_page_action *actions, size_t n,
-			  char *why, size_t why_size)
-{
-	(void)gb;
-	(void)path;
-	(void)actions;
-	(void)n;
-	if (why && why_size)
-		snprintf(why, why_size, "this build has no page support");
-	return fy_invalid;
-}
-
-struct fyai_page *fyai_page_create(struct fyai_ctx *ctx,
-				   const struct fyai_page_action *actions,
-				   size_t n)
-{
-	(void)ctx;
-	(void)actions;
-	(void)n;
-	return NULL;
-}
-
-const char *fyai_page_document_path(const struct fyai_page *pg)
-{
-	(void)pg;
-	return NULL;
-}
-
-int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md)
-{
-	(void)pg;
-	(void)md;
-	return -1;
-}
-
-void fyai_page_destroy(struct fyai_page *pg)
-{
-	(void)pg;
-}
-
-int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
-		      struct fyai_page_state *st, int cols, int rows)
-{
-	(void)pg;
-	(void)ft;
-	(void)st;
-	(void)cols;
-	(void)rows;
-	return -1;
-}
-
-#endif

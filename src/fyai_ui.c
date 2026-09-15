@@ -123,9 +123,7 @@ struct fyai_ui {
 	fyai_event_ms_t next_frame_ms;
 };
 
-#if defined(FYAI_UI_PAGE) && defined(FYAI_UI_CLICKS)
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev);
-#endif
 
 /* Bands are tiles in the shared work pane. */
 static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
@@ -607,7 +605,6 @@ static int ui_present(struct fyai_ui *ui, const char *buf, size_t len)
 /* Commit a band: its rows join the scrollback, or the transcript view. */
 static void ui_band_commit(struct fyai_ui *ui, struct fytim_workband *band)
 {
-#ifdef FYAI_UI_PAGE
 	const char *parts[3];
 	int lines = 0;
 	size_t i, len;
@@ -627,9 +624,6 @@ static void ui_band_commit(struct fyai_ui *ui, struct fytim_workband *band)
 		fytim_workband_destroy(band);
 		return;
 	}
-#else
-	(void)ui;
-#endif
 	(void)fytim_workband_commit(band);
 }
 
@@ -978,10 +972,8 @@ static bool ui_tile_ground(const struct fyai_ctx *ctx, bool focused,
  * Follow display/renderer: make the page when it is asked for and this build
  * can compose one, and give the screen back to the band stack otherwise.
  */
-#ifdef FYAI_UI_PAGE
 static void ui_page_actions_get(const struct fyai_page_action **actions,
 				size_t *n);
-#endif
 
 static void ui_page_configure(struct fyai_ui *ui)
 {
@@ -997,9 +989,7 @@ static void ui_page_configure(struct fyai_ui *ui)
 	path = ctx->cfg->page_path;
 	remake = want && ui->page &&
 		 strcmp(made_for ? made_for : "", path ? path : "");
-#ifdef FYAI_UI_PAGE
 	ui_page_actions_get(&actions, &nactions);
-#endif
 	if (want && !ui->page) {
 		if (!fyai_page_supported()) {
 			fyai_warning(ctx, "display/renderer page needs a libfytimui "
@@ -1011,22 +1001,18 @@ static void ui_page_configure(struct fyai_ui *ui)
 	} else if (remake) {
 		fyai_page_destroy(ui->page);
 		ui->page = fyai_page_create(ctx, actions, nactions);
-#ifdef FYAI_UI_PAGE
 		if (!ui->page) {
 			fytim_page_clear(ui->ft);
 			(void)fytim_set_key_bindings(ui->ft, NULL, 0);
 			ui->page_keys.count = 0;
 		}
-#endif
 	} else if (!want && ui->page) {
 		fyai_page_destroy(ui->page);
 		ui->page = NULL;
-#ifdef FYAI_UI_PAGE
 		fytim_page_clear(ui->ft);
 		/* The keys of its modes go back to the prompt. */
 		(void)fytim_set_key_bindings(ui->ft, NULL, 0);
 		ui->page_keys.count = 0;
-#endif
 	}
 	ui->frame_pending = true;
 }
@@ -1152,7 +1138,6 @@ void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user)
 	ui->frame_pending = true;
 }
 
-#ifdef FYAI_UI_PAGE
 static void ui_ask_prev(struct fyai_ctx *ctx, const char *arg)
 {
 	struct ui_question *q = ctx->ui->questions;
@@ -1474,9 +1459,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	}
 	free(activity);
 }
-#endif
 
-#ifdef FYAI_UI_CLICKS
 /* A click on the head of a tile: act on the label under it. */
 static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 			  int row, int col)
@@ -1494,9 +1477,7 @@ static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 	    fyai_workpane_focused(wm) != sf)
 		fyai_workpane_set_focus(wm, sf);
 }
-#endif
 
-#ifdef FYAI_UI_PAGE
 /* A drag over the transcript or the popup: copy the text of the rows it went
  * over. */
 static void ui_select(struct fyai_ui *ui, const struct fytim_event *ev)
@@ -1530,7 +1511,6 @@ static void ui_select(struct fyai_ui *ui, const struct fytim_event *ev)
 	}
 	free(text);
 }
-#endif
 
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
@@ -1560,9 +1540,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		ui->frame_pending = false;
 	/* Update layout state before reconciliation. */
 	fyai_workpane_reconcile(ui->ctx->workpane);
-#ifdef FYAI_UI_PAGE
 	ui_page_update(ui);
-#endif
 	if (fytim_pump(ui->ft) != FYTIM_OK)
 		return FYAIEA_ABORT;
 	/* Apply grants through each tile owner. */
@@ -1669,17 +1647,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				fyai_workpane_zoomed(ui->ctx->workpane) ==
 					ev.surface ? NULL : ev.surface);
 			break;
-#ifdef FYAI_UI_CLICKS
 		case FYTIM_EVENT_SURFACE_CLICK:
 			ui_head_click(ui, ev.surface, ev.row, ev.col);
 			break;
-#endif
-#if defined(FYAI_UI_PAGE) && defined(FYAI_UI_CLICKS)
 		case FYTIM_EVENT_ACT:
 			ui_act(ui, &ev);
 			break;
-#endif
-#ifdef FYAI_UI_PAGE
 		case FYTIM_EVENT_KEY:
 			if (ui->page)
 				ui_page_key(ui, &ev);
@@ -1687,7 +1660,6 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		case FYTIM_EVENT_SELECT:
 			ui_select(ui, &ev);
 			break;
-#endif
 		case FYTIM_EVENT_SURFACE_CLOSE:
 		case FYTIM_EVENT_SURFACE_SCROLL:
 			/* Route tile controls to the component that owns the work. */
@@ -1769,7 +1741,6 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	cfg.intr_signal = true;
 	/* Grab the mouse only when work-pane controls require it. */
 	cfg.mouse = fyai_workpane_wants_mouse(ctx);
-#ifdef FYAI_UI_PAGE
 	/* A fullscreen page takes the alternate screen, where its text is
 	 * selected and copied. */
 	if (fyai_page_requested(ctx->cfg) && ctx->cfg->screen &&
@@ -1780,13 +1751,10 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		ui->view = fyai_transcript_view_create();
 		if (!ui->view) goto fail;
 	}
-#endif
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
-#ifdef FYAI_UI_PAGE
 	/* A blank row stands above the header, as it does on the page. */
 	(void)fytim_set_header_rows(ui->ft, 2);
-#endif
 	ui->tty_fd = ttyout;
 	ttyout = -1;
 	ctx->workpane = fyai_workpane_create(ctx, ui->ft);
@@ -2985,7 +2953,6 @@ int fyai_ui_surface_granted_rows(struct fyai_ctx *ctx,
 }
 
 
-#if defined(FYAI_UI_PAGE) && defined(FYAI_UI_CLICKS)
 /* Keep @head with the tile of @sf: the page draws it onto its canvas. */
 static int ui_page_tile_set(struct fyai_ui *ui, struct fytim_surface *sf,
 			    const char *head)
@@ -3038,7 +3005,6 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 		fyai_tools_surface_request(ui->ctx, sf, 0);
 	}
 }
-#endif
 
 int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 				   struct fytim_surface *sf,
@@ -3087,7 +3053,6 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 		while (tlen && (escaped[tlen - 1] == '\n' ||
 				escaped[tlen - 1] == '\r'))
 			tlen--;
-#ifdef FYAI_UI_CLICKS
 		/* fyai writes @right, so it takes the right edge as it is. The
 		 * marks of a page tile are the page's, at the edge of the tile. */
 		if (asprintf(&head,
@@ -3095,12 +3060,6 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 			     (int)tlen, escaped, right ? "<fy-fill/>" : "",
 			     right ? right : "") < 0)
 			head = NULL;
-#else
-		if (asprintf(&head, "%.*s%s%s\n", (int)tlen, escaped,
-			     right && *right != ' ' ? " " : "",
-			     right ? right : "") < 0)
-			head = NULL;
-#endif
 	}
 
 	/* Render chrome at the granted tile width. */
@@ -3134,11 +3093,9 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 	}
 	if (!rc) {
 		response_buffer_trim(&out);
-#if defined(FYAI_UI_PAGE) && defined(FYAI_UI_CLICKS)
 		if (ui->page)
 			rc = ui_page_tile_set(ui, sf, out.data ? out.data : "");
 		else
-#endif
 		rc = fytim_surface_set_top(sf, out.data ? out.data : title) ==
 		     FYTIM_OK ? 0 : -1;
 	}
@@ -3187,7 +3144,6 @@ int fyai_ui_surface_clear(struct fytim_surface *sf)
 void fyai_ui_tile_bind(struct fytim_surface *sf, struct fytim_workband *band,
 		       unsigned int slot)
 {
-#ifdef FYAI_UI_PAGE
 	char id[32];
 
 	/* A page places each tile in a slot of its own; the band stack ignores
@@ -3197,23 +3153,12 @@ void fyai_ui_tile_bind(struct fytim_surface *sf, struct fytim_workband *band,
 		(void)fytim_surface_bind(sf, id);
 	else if (band)
 		(void)fytim_workband_bind(band, id);
-#else
-	(void)sf;
-	(void)band;
-	(void)slot;
-#endif
 }
 
 int fyai_ui_tile_rows(const struct fytim_surface *sf,
 		      const struct fytim_workband *band)
 {
-#ifdef FYAI_UI_PAGE
 	return sf ? fytim_surface_rows(sf) : fytim_workband_rows(band);
-#else
-	(void)sf;
-	(void)band;
-	return 0;
-#endif
 }
 
 void fyai_ui_surface_chrome(const struct fytim_surface *sf,
@@ -3224,7 +3169,6 @@ void fyai_ui_surface_chrome(const struct fytim_surface *sf,
 	*colsp = 0;
 	*bgp = FYTIM_COLOR_DEFAULT;
 	*mixp = 0;
-#ifdef FYAI_UI_PAGE
 	if (!sf)
 		return;
 	*marginp = fytim_surface_margin(sf, colsp);
@@ -3232,21 +3176,13 @@ void fyai_ui_surface_chrome(const struct fytim_surface *sf,
 		*bgp = FYTIM_COLOR_DEFAULT;
 		*mixp = 0;
 	}
-#else
-	(void)sf;
-#endif
 }
 
 void fyai_ui_surface_set_view(struct fytim_surface *sf, int present)
 {
-#ifdef FYAI_UI_PAGE
 	/* A surface without a tile page draws what it did: the view is a page's. */
 	(void)fytim_surface_set_page_view(sf,
 			(enum fytim_page_view)fyai_page_view_for(present));
-#else
-	(void)sf;
-	(void)present;
-#endif
 }
 
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows)
