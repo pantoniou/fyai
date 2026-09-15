@@ -56,6 +56,13 @@ echo "/exit" | run_session -m foo -i
 assert_status 0
 [ "$(sessions)" -eq 0 ] || fail "an empty session was stored"
 
+# A setting or a clear is not an exchange: the session is still empty.
+for input in "/temperature 0.5" "/model foo" "/tool-detail brief" "/clear"; do
+	printf '%s\n/exit\n' "$input" | run_session -m foo -i
+	assert_status 0
+	[ "$(sessions)" -eq 0 ] || fail "'$input' stored an empty session"
+done
+
 # --- two runs are two separate sessions ----------------------------------
 echo "first session" | run_session -m foo -i
 assert_status 0
@@ -76,6 +83,17 @@ run_fyai -b "$first" config get model
 assert_status 0
 assert_stdout_contains "foo"
 
+# A session starts with the configuration the last session left.
+printf '/temperature 0.25\nthird session\n' | run_session -m foo -i
+assert_status 0
+echo "fourth session" | run_session -m foo -i
+assert_status 0
+[ "$(sessions)" -eq 4 ] || fail "the runs did not make four sessions"
+fourth=$(list_sessions | sed -n 4p)
+run_fyai -b "$fourth" config get temperature
+assert_status 0
+assert_stdout_contains "0.25"
+
 # Starting a session does not move HEAD.
 run_fyai root show
 assert_status 0
@@ -86,13 +104,13 @@ assert_stdout_contains "main"
 run_session -m foo "batch prompt"
 assert_status 0
 assert_state_contains "batch prompt" dump state
-[ "$(sessions)" -eq 2 ] || fail "a batch prompt started a session"
+[ "$(sessions)" -eq 4 ] || fail "a batch prompt started a session"
 
 # A named branch is where the session works.
 echo "named branch" | run_session -m foo -b main -i
 assert_status 0
 assert_state_contains "named branch" dump state
-[ "$(sessions)" -eq 2 ] || fail "an explicit branch started a session"
+[ "$(sessions)" -eq 4 ] || fail "an explicit branch started a session"
 
 # $FYAI_BRANCH names one the same way.
 run_fyai branch create env-branch
@@ -100,13 +118,13 @@ assert_status 0
 echo "env branch" | FYAI_BRANCH=env-branch run_session -m foo -i
 assert_status 0
 assert_state_contains "env branch" -b env-branch dump state
-[ "$(sessions)" -eq 2 ] || fail "\$FYAI_BRANCH started a session"
+[ "$(sessions)" -eq 4 ] || fail "\$FYAI_BRANCH started a session"
 
 # --new still clears the branch it is given rather than starting a session.
 echo "/exit" | run_session -m foo --new -b main -i
 assert_status 0
 assert_state_absent "batch prompt" dump state
-[ "$(sessions)" -eq 2 ] || fail "--new started a session"
+[ "$(sessions)" -eq 4 ] || fail "--new started a session"
 
 # --- a stored session is resumable ---------------------------------------
 echo "back again" | run_session -m foo resume "$first"
@@ -114,5 +132,5 @@ assert_status 0
 assert_state_contains "first session" -b "$first" dump state
 assert_state_contains "back again" -b "$first" dump state
 
-mock_stop 6
+mock_stop 8
 pass
