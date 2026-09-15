@@ -1221,6 +1221,34 @@ err:
  * then rendered as markdown into linenoise's top/bottom info rows. Linenoise
  * rows are single-line, so block markdown is folded to one row after rendering.
  */
+/*
+ * @text in the colour of series @n of the palette theme, as the series of a
+ * diagram cycle. @escape escapes @text as Markdown first; pass false for text
+ * that is escaped already. Without a palette the text has no colour. Returns
+ * a string the caller owns, or NULL.
+ */
+static char *session_series_text(struct fyai_cfg *cfg, unsigned int n,
+				 const char *text, bool escape)
+{
+	char role[32];
+	const char *on, *off;
+	char *lit, *out;
+
+	lit = escape ? fyai_prompt_literal(text ? text : "") :
+		       strdup(text ? text : "");
+	if (!lit || !*lit)
+		return lit;
+	snprintf(role, sizeof(role), "mermaid.series.%u", n % 8);
+	on = markdown_role_on(cfg, role, "");
+	off = markdown_role_off(cfg, role, "");
+	if (!*on)
+		return lit;
+	if (asprintf(&out, "%s%s%s", on, lit, off) < 0)
+		out = NULL;
+	free(lit);
+	return out;
+}
+
 /* Abbreviate a token count so that the status row stays short. */
 static void session_token_count(char *buf, size_t size, long long tokens)
 {
@@ -1235,7 +1263,10 @@ static void session_token_count(char *buf, size_t size, long long tokens)
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_tmpl_var vars[13];
+	struct fyai_tmpl_var vars[13], top_vars[13];
+	char *coloured[13];
+	const struct fyai_tmpl_var *header_vars;
+	bool colour_ok;
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char tokens[64], cost[32], cache[64];
@@ -1357,11 +1388,41 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 			vars[i].val = "";
 	}
 
+	/*
+	 * Each value of the header and of the status takes a colour of the
+	 * palette series in turn: the branch and the directory first, so the two
+	 * parts of the location differ. The values are escaped as Markdown, so
+	 * the same source is the Markdown of the band stack and the UI Markdown
+	 * of the page.
+	 */
+	memset(coloured, 0, sizeof(coloured));
+	colour_ok = true;
+	for (i = 0; i < 12 && colour_ok; i++) {
+		coloured[i] = session_series_text(cfg, i == 10 ? 0 :
+						  i == 11 ? 1 : (unsigned int)i + 2,
+						  vars[i].val, i < 10);
+		colour_ok = coloured[i] != NULL;
+		top_vars[i].key = vars[i].key;
+		top_vars[i].val = coloured[i];
+	}
+	if (colour_ok)
+		colour_ok = asprintf(&coloured[12], "%s: %s · %s",
+				     fyai_agents_attached(ctx) ?
+				     "attached" : "fyai",
+				     coloured[10], coloured[11]) >= 0;
+	if (!colour_ok) {
+		coloured[12] = NULL;
+		fyai_warning(ctx, "cannot colour the prompt header");
+	}
+	top_vars[12] = (struct fyai_tmpl_var){ "location", coloured[12] };
+	header_vars = colour_ok ? top_vars : vars;
+
 	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
 		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
-	bottom = fyai_prompt_expand(tmpl, vars, sizeof(vars) / sizeof(vars[0]));
+	bottom = fyai_prompt_expand(tmpl, header_vars,
+				    sizeof(vars) / sizeof(vars[0]));
 	top = fyai_prompt_expand(fy_str_empty(cfg->prompt_top) ?
-				DEFAULT_PROMPT_TOP : cfg->prompt_top, vars,
+				DEFAULT_PROMPT_TOP : cfg->prompt_top, header_vars,
 				sizeof(vars) / sizeof(vars[0]));
 	top_md = fyai_prompt_row_markdown(cfg, top);
 	if (fyai_ui_active(ctx))
@@ -1370,6 +1431,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	free(top_md);
 	free(top);
 	free(bottom);
+	for (i = 0; i < 13; i++)
+		free(coloured[i]);
 	free(location);
 	free(directory);
 	free(branch);

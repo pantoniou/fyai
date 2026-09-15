@@ -73,16 +73,16 @@ pages:
     - if: pane.above
       page: pane
 
-    # The header row, which goes before the rules when the page is too tall.
+    # The header row under a blank row, which go before the rules when the
+    # page is too tall.
     - if: header.shown
       drop: 2
       body:
         - row:
-            - space: 2
-            - sgr: header.on
-            - text: "{header.text}"
-            - text: "{header.elapsed}"
-            - sgr: header.off
+            - space: 1
+        # The canvas draws the header row, cut at the edge as the band stack
+        # cuts it. A row of Markdown wraps a long header onto a second row.
+        - slot: { id: header, rows: 1 }
 
     - page: input
 
@@ -106,7 +106,7 @@ pages:
           row:
             - gutter: { mark: status.activity, cols: "{status.gutter}" }
             - sgr: status.on
-            - text: "{status.text}"
+            - markup: status.text
             - sgr: status.off
 
     - if: pane.below

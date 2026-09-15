@@ -1297,6 +1297,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	fyai_error_check(ctx, rc == FYTIM_OK, err_page,
 			 "cannot read the terminal size for the page");
 	st.header = ui->status_top_source;
+	st.header_row = ui->status_top;
 	if (ui->busy) {
 		fyai_event_elapsed_format(elapsed, sizeof(elapsed),
 					  ui->busy_since_ms);
@@ -1737,6 +1738,8 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	}
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
+	/* A blank row stands above the header, as it does on the page. */
+	(void)fytim_set_header_rows(ui->ft, 2);
 	ui->tty_fd = ttyout;
 	ttyout = -1;
 	ctx->workpane = fyai_workpane_create(ctx, ui->ft);
