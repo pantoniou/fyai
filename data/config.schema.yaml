@@ -538,12 +538,14 @@ properties:
           none, and the screen then starts at the left edge of its tile.
       focus_bg:
         type: string
-        default: reverse
+        default: theme
         description: >-
-          The ground of the tile that holds the keys: reverse for the ground
-          the terminal draws text in, which contrasts on a light terminal and
-          a dark one alike and asks for no colour the terminal may not have,
-          or #rrggbb for one of your own. It is drawn
+          The ground of what holds the keys: the prompt, a picker and a
+          focused tile. theme takes the focus wash of a palette theme
+          (pane.focus), on which the text of the theme reads on a light
+          terminal and a dark one, and reverse without one. reverse is the
+          ground the terminal draws text in, which asks for no colour the
+          terminal may not have, and #rrggbb is one of your own. It is drawn
           under whatever the program draws: every cell that has no colour of
           its own takes it, the margin and the head with them, so focus needs
           no marker of its own, and the prompt stands on the same ground,

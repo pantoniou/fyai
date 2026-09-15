@@ -311,6 +311,35 @@ const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
 	return fallback;
 }
 
+bool markdown_focus_ground(const struct fyai_cfg *cfg, uint32_t *rgb)
+{
+#ifdef FYAI_WITH_FYPALETTE
+	const struct fypal_caps *caps;
+	const struct fypal_role *r;
+	struct fypal_style s;
+
+	if (!cfg || !cfg->palette || !rgb || !markdown_color_enabled(cfg->color))
+		return false;
+	/* The wash has no form at 16 colours: focus is marked another way. */
+	caps = fypal_ctx_caps(cfg->palette);
+	if (!caps || caps->depth < FYPAL_DEPTH_256)
+		return false;
+	/* An ancestor without a ground answers too: it names no wash. */
+	r = fypal_ctx_role(cfg->palette, "pane.focus");
+	if (!r)
+		return false;
+	fypal_ctx_resolve(cfg->palette, r, &s);
+	if (!FYPAL_COLOR_IS_RGB(s.bg))
+		return false;
+	*rgb = s.bg;
+	return true;
+#else
+	(void)cfg;
+	(void)rgb;
+	return false;
+#endif
+}
+
 void markdown_palettes_destroy(struct fyai_cfg *cfg)
 {
 #ifdef FYAI_WITH_FYPALETTE
