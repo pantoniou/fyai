@@ -95,7 +95,7 @@ def side_by_side(path):
 
 def normal(row):
     # The session row names its run, and a running mark blinks.
-    row = re.sub(r"session/\S+ · \S+", "session", row)
+    row = re.sub(r"session/\S+ ·\s+\S+", "session", row)
     return re.sub(r"[^\x00-\x7f┃│⎿…─]", " ", row)
 
 stack_focus, (stack, stack_rev) = side_by_side(sys.argv[1])

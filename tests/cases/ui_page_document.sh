@@ -15,11 +15,12 @@ import sys
 
 src, out = sys.argv[1], sys.argv[2]
 s = open(src).read()
-header = '          - text: "{header.text}"\n'
+header = '\n        - slot: { id: header, rows: 1 }\n'
 if s.count(header) != 1:
-    raise SystemExit("the header text of data/page.yaml moved")
+    raise SystemExit("the header slot of data/page.yaml moved")
 open(out + "/good.yaml", "w").write(
-    s.replace(header, '          - text: "CUSTOM-PAGE {header.text}"\n'))
+    s.replace(header, '\n        - row:\n            - text: "CUSTOM-PAGE"' +
+              header))
 # The keys of ask_text end with Escape; those of ask go on to the numbers.
 keys = '            Escape: ask.dismiss\n          body:\n'
 if s.count(keys) != 1:
