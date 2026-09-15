@@ -4507,7 +4507,8 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	/* The card is one unit. Its rows continue it. */
 	flow = fyai_sink_flow(ctx->sink);
 	fenced = markdown_reverse_pair(cfg, &on, &off);
-	/* A fenced card supplies a blank row at each end. */
+	/* The top row of a fenced card stands for one row of the separation
+	 * above it. */
 	fyai_flow_blank_rows(flow, fenced ? 1 : 0);
 	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
 			     FYAI_FLOW_USER_CARD);
@@ -4527,9 +4528,8 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 		card_write(ctx, live, "\n", 1);
 	if (fenced)
 		fyai_bubble_fence(ctx, on, off, live);
+	/* The bottom row of a fenced card is the card, not a blank row. */
 	fyai_flow_emitted(flow, FYAI_FLOW_USER_CARD, true);
-	/* The rendered bottom row satisfies one row of the following separation. */
-	fyai_flow_blank_rows(flow, fenced ? 1 : 0);
 	free(rb.data);
 }
 
