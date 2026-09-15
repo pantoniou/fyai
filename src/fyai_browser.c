@@ -8,6 +8,7 @@
 #include "fyai_browser.h"
 #include "fyai_branch.h"
 #include "fyai_agents.h"
+#include "fyai_config.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
 #include "fyai_foreign_import.h"
@@ -1577,6 +1578,41 @@ bool fyai_browser_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 	return true;
 }
 
+/*
+ * Give the preview of a branch the display settings of that branch. The copy
+ * @cfg keeps its strings in @gb and a palette cache of its own, so nothing of
+ * the session changes. The terminal is not asked: an auto theme takes the
+ * variant of the session, and a terminal ground applies only when the session
+ * has asked the terminal already. Returns true when @cfg owns its palettes.
+ */
+static bool browser_preview_style(struct fyai_browser *b, struct fyai_cfg *cfg,
+				  struct fy_generic_builder *gb,
+				  fy_generic config)
+{
+	fy_generic display;
+	int rc;
+
+	display = fy_get(config, "display", fy_invalid);
+	if (!fy_is_mapping(display))
+		return false;
+	cfg->gb = gb;
+	cfg->palette = NULL;
+	cfg->palettes = NULL;
+	cfg->npalettes = 0;
+	cfg->palette_theme = NULL;
+	cfg->palette_variant = NULL;
+	cfg->palette_ground = NULL;
+	if (!cfg->terminal_ground_state)
+		cfg->terminal_ground_state = -1;
+	rc = fyai_config_apply(cfg, fy_mapping(gb, "display", display));
+	if (rc)
+		fyai_warning(b->ctx, "the preview keeps its display settings: "
+			     "the branch settings are not valid");
+	if (cfg->markdown)
+		fyai_markdown_load_style_as(cfg, b->ctx->cfg->theme_variant);
+	return true;
+}
+
 /* Render a read-only view of one branch through a capture sink. Returns the
  * captured Markdown source, which the caller owns. */
 static char *browser_capture(struct fyai_browser *b, char *name,
@@ -1594,6 +1630,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	char *out = NULL;
 	size_t len = 0;
 	FILE *fp = NULL;
+	bool own_style = false;
 	int rc;
 
 	if (!fyai_branch_lookup(b->branches, name, &branch))
@@ -1611,6 +1648,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	view.transient_gb = gb;
 	if (cols > 0)
 		cfg.render_width = cols;
+	own_style = browser_preview_style(b, &cfg, gb, branch.config);
 	/* The preview is a render, not a source: a recap mixes Markdown with
 	 * rows another path already drew, and only the renderer can place
 	 * both at this width. */
@@ -1644,6 +1682,9 @@ out:
 	/* The memstream must be closed before @out names its bytes. */
 	if (fp && fclose(fp))
 		fyai_warning(b->ctx, "the preview of %s was not completed", name);
+	/* The renderers of the preview are gone with its sink. */
+	if (own_style)
+		markdown_palettes_destroy(&cfg);
 	fy_generic_builder_destroy(gb);
 	return out;
 none:
