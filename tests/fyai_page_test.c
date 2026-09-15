@@ -171,7 +171,7 @@ static int page_source_orders_the_chrome_run(void)
 	p = after(p, "<fy-slot id=\"tail\" height=\"2\"/>");
 	p = after(p, "<fy-slot id=\"pane\" height=\"3\"/>");
 	p = after(p, "<fy-drop order=\"2\">");
-	p = after(p, "HEADMARK");
+	p = after(p, "<fy-slot id=\"header\" height=\"1\"/>");
 	p = after(p, "<fy-slot id=\"prompt\" height=\"1\"/>");
 	p = after(p, "<fy-drop order=\"1\">");
 	p = after(p, "STATUSMARK");
@@ -191,10 +191,11 @@ static int page_source_escapes_text_run(void)
 	st.activity = "\x1b[33m*\x1b[0m";
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
-	/* The header and the status open no tag of the page. */
+	/* The status opens no tag of the page, and the header, which the canvas
+	 * draws, is not in it. */
 	FYAI_TCHECK(!strstr(out.data, "<fy-act id=\"evil\""));
 	FYAI_TCHECK(!strstr(out.data, "<fy-act id=\"worse\""));
-	FYAI_TCHECK(strstr(out.data, "click") != NULL);
+	FYAI_TCHECK(!strstr(out.data, "click"));
 	/* They keep the colours fyai gave them and stay one row. */
 	FYAI_TCHECK(strstr(out.data, "\x1b[1mbold\x1b[0m") != NULL);
 	FYAI_TCHECK(strstr(out.data, "</fy-act> line break") != NULL);
@@ -319,7 +320,7 @@ static const struct fymd_region *region(struct fymd_renderer *r,
 static int page_rows_are_adjacent_run(void)
 {
 	struct fyai_page_state st = page_state();
-	const struct fymd_region *tail, *prompt;
+	const struct fymd_region *tail, *prompt, *header;
 	struct fymd_renderer *r;
 	char *out;
 	int head;
@@ -328,7 +329,9 @@ static int page_rows_are_adjacent_run(void)
 	out = page_render(&st, 0, &r);
 	tail = region(r, "tail");
 	prompt = region(r, "prompt");
-	head = row_of(out, "HEADMARK");
+	header = region(r, "header");
+	FYAI_TCHECK(header != NULL && header->height == 1);
+	head = header ? (int)header->row : -1;
 	FYAI_TCHECK(tail != NULL && tail->row == 0 && tail->height == 2);
 	/* a blank row stands between the tail and the header */
 	FYAI_TCHECK(head == 3);
@@ -357,14 +360,14 @@ static int page_status_drops_first_run(void)
 
 	out = page_render(&st, natural - 1, &r);
 	FYAI_TCHECK(!strstr(out, "STATUSMARK"));
-	FYAI_TCHECK(strstr(out, "HEADMARK") != NULL);
+	FYAI_TCHECK(region(r, "header") != NULL);
 	FYAI_TCHECK(region(r, "prompt") != NULL);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 
 	out = page_render(&st, 1, &r);
 	FYAI_TCHECK(!strstr(out, "STATUSMARK"));
-	FYAI_TCHECK(!strstr(out, "HEADMARK"));
+	FYAI_TCHECK(region(r, "header") == NULL);
 	FYAI_TCHECK(region(r, "prompt") != NULL);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
@@ -389,14 +392,11 @@ static int page_blank_activity_is_not_code_run(void)
 
 	st.activity = "  ";
 	st.status = "    STATUSMARK";
-	st.header = "     HEADMARK";
 	out = page_render(&st, 0, &r);
 	status = row_of(out, "STATUSMARK");
 	FYAI_TCHECK(rows_of(out) == natural);
-	FYAI_TCHECK(status == row_of(out, "HEADMARK") + 5);
-	/* the header starts after its margin, not after its own blanks, on the
-	 * row under the blank row */
-	FYAI_TCHECK(strstr(out, "\n  HEADMARK") != NULL);
+	FYAI_TCHECK(region(r, "header") != NULL &&
+		    status == (int)region(r, "header")->row + 5);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 	return 0;
@@ -450,8 +450,8 @@ static int page_prompt_card_takes_the_rules_run(void)
 
 	rendered = page_render(&st, 0, &r);
 	prompt = region(r, "prompt");
-	FYAI_TCHECK(prompt != NULL &&
-		    (int)prompt->row == row_of(rendered, "HEADMARK") + 1);
+	FYAI_TCHECK(prompt != NULL && region(r, "header") != NULL &&
+		    prompt->row == region(r, "header")->row + 1);
 	FYAI_TCHECK(row_of(rendered, "STATUSMARK") ==
 		    (int)prompt->row + 4 + 1);
 	fymd_free(rendered);
@@ -459,8 +459,8 @@ static int page_prompt_card_takes_the_rules_run(void)
 	return 0;
 }
 
-/* The header takes the document margin, the status the gutter with the
- * activity mark in it, and both carry the SGR pairs of the theme. */
+/* The status takes the gutter with the activity mark in it and carries the
+ * SGR pair of the theme. The canvas draws the header. */
 static int page_chrome_keeps_the_margins_run(void)
 {
 	struct response_buffer out = {0};
@@ -476,7 +476,6 @@ static int page_chrome_keeps_the_margins_run(void)
 	st.status_off = "\x1b[22m";
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
-	FYAI_TCHECK(strstr(out.data, "&#32;&#32;\x1b[1mHEADMARK 4s\x1b[22m"));
 	FYAI_TCHECK(strstr(out.data, "*&#32;&#32;\x1b[2mSTATUSMARK\x1b[22m"));
 	free(out.data);
 
@@ -511,7 +510,7 @@ static int page_fit_gives_the_chrome_its_rows_run(void)
 	rendered = page_render(&st, 30, &r);
 	FYAI_TCHECK(rows_of(rendered) <= 30);
 	FYAI_TCHECK(strstr(rendered, "HINTMARK") && strstr(rendered, "STATUSMARK") &&
-		    strstr(rendered, "HEADMARK") && strstr(rendered, "CAPMARK"));
+		    region(r, "header") && strstr(rendered, "CAPMARK"));
 	FYAI_TCHECK(region(r, "prompt") != NULL);
 	fymd_free(rendered);
 	fymd_renderer_destroy(r);
@@ -575,7 +574,8 @@ static int page_grid_places_the_tiles_run(void)
 	FYAI_TCHECK(a->row == 0 && b->row == 0 && a->height == 5);
 	FYAI_TCHECK(a->col == 0 && b->col == a->col + a->width + 3);
 	FYAI_TCHECK(region(r, "pane") == NULL);
-	FYAI_TCHECK(row_of(out, "HEADMARK") == 6);
+	FYAI_TCHECK(region(r, "header") != NULL &&
+		    region(r, "header")->row == 6);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 	free(src.data);
