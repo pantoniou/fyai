@@ -5,9 +5,12 @@
 Enough of the terminal to answer "what did the user see": the rows the band
 paints are moved into with relative cursor motion, not newlines, so a byte
 capture cannot show them. Handles the sequences the UI emits - cursor motion,
-erase, and scrolling - and ignores the rest (SGR, mode switches, OSC).
+erase, and scrolling - and ignores the rest (SGR, mode switches, OSC), except
+the text a program copies with OSC 52.
 """
 
+import base64
+import binascii
 import re
 import sys
 
@@ -32,6 +35,8 @@ class Screen:
         # halves as text, so the tail of a piece is held until the rest of it
         # arrives.
         self.pending = b""
+        # The text of each OSC 52 copy, in the order the terminal took it.
+        self.clipboard = []
 
     def display(self):
         return ["".join(r).rstrip() for r in self.grid]
@@ -80,6 +85,8 @@ class Screen:
                     if end < 0:                 # the rest is still to come
                         self.pending = data[i:]
                         return
+                    self._osc(data[i + 2:end - 1 if data[end] == 0x5C
+                                   else end])
                     i = end + 1
                     continue
                 if len(data) - i < 2:
@@ -124,6 +131,15 @@ class Screen:
                 i += length
                 continue
             i += 1
+
+    def _osc(self, payload):
+        if not payload.startswith(b"52;"):
+            return
+        try:
+            text = base64.b64decode(payload.rsplit(b";", 1)[1], validate=True)
+        except (binascii.Error, IndexError):
+            return
+        self.clipboard.append(text.decode("utf-8", "replace"))
 
     def _sgr(self, params):
         codes = [int(p) if p.isdigit() else 0 for p in params.split(b";")]
