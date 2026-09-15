@@ -31,7 +31,7 @@ FYAI_PTY_ROWS=24 FYAI_PTY_COLS=90 \
 FYAI_PTY_INPUT="" \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" \
-FYAI_PTY_AFTER="wait-frame:switched to branch|send:/help|wait:Settings|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="wait-screen:switched to branch|send:/help|wait-screen:/transcript-system|raw:1d" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pick.out" \
 	"$FYAI_BIN" -k test-key -m mock-model resume
 
@@ -79,7 +79,7 @@ FYAI_PTY_INPUT="" FYAI_PTY_SUBMIT_INPUT=0 \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/foreign-picker.snap" \
-FYAI_PTY_AFTER="raw:66|wait-frame:claude-code|raw:66|wait-gone:Continue this imported session|raw:66|wait-frame:claude-code|raw:1b5b48|wait-frame:Group · import|raw:6a|wait-frame:/claude-code|raw:6a|wait-frame:2030-01-01|snapshot|raw:69|wait-frame:Ready to continue.|raw:1b|wait-frame:2030-01-01|raw:0d|wait:switched to branch|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="raw:66|wait-screen:claude-code|raw:66|wait-gone:Continue this imported session|raw:66|wait-screen:Continue this imported session|raw:1b5b48|wait-screen:Group · import|raw:6a|wait-screen:/claude-code|raw:6a|wait-screen:2030-01-01|snapshot|raw:69|wait-screen:Ready to continue.|raw:1b|frame:2|raw:0d|wait-screen:switched to branch|raw:1d" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/foreign-pick.out" \
 	"$FYAI_BIN" -k test-key --color off -m mock-model \
 		--set display/branch_preview=bottom resume
@@ -140,12 +140,14 @@ cp "$TESTS_DIR/data/codex-session-index.jsonl" \
 sed "s|@CWD@|$TEST_DIR|g" \
 	"$TESTS_DIR/data/codex-session-picker.jsonl" > \
 	"$TEST_DIR/codex-root/sessions/2026/01/01/codex-picker.jsonl"
+# g must change nothing here, so no frame says it was read: g and Escape go in
+# one write, which keeps their order.
 CODEX_HOME="$TEST_DIR/codex-root" CLAUDE_CONFIG_DIR="$TEST_DIR/no-claude" \
 FYAI_PTY_ROWS=24 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="" FYAI_PTY_SUBMIT_INPUT=0 \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" \
-FYAI_PTY_AFTER="raw:66|wait-frame:Repair session picker|raw:67|drain:0.2|raw:1b|drain:0.2" \
+FYAI_PTY_AFTER="raw:66|wait-screen:Repair session picker|raw:671b" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/codex-picker.out" \
 	"$FYAI_BIN" -k test-key --color off -m mock-model \
 		--set display/branch_preview=off resume
@@ -175,7 +177,6 @@ FYAI_PTY_ROWS=24 FYAI_PTY_COLS=90 \
 FYAI_PTY_INPUT=$'\x1b' \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" \
-FYAI_PTY_AFTER="drain:0.5" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/cancel.out" \
 	"$FYAI_BIN" -k test-key --color off -m mock-model resume
 

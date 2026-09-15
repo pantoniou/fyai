@@ -16,12 +16,12 @@ fyai_test_setup
 
 FYAI_PTY_INPUT="!sh -c 'printf FIRST; while :; do sleep 1; done'" \
 FYAI_PTY_NEEDLE="FIRST" FYAI_PTY_TIMEOUT=20 \
-FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|"\
-"send:!sh -c 'printf SECOND; while :; do sleep 1; done'|wait-frame:SECOND|"\
+FYAI_PTY_AFTER="wait-screen:Ctrl-] returns to the prompt|raw:1d|wait-gone:Ctrl-] returns to the prompt|"\
+"send:!sh -c 'printf SECOND; while :; do sleep 1; done'|wait-screen:Ctrl-] returns to the prompt|"\
 "raw:1b5b393b3575|frame:2|raw:14|frame:2|raw:14|frame:2|raw:14|"\
-"wait-gone:Ctrl-]|send:/sessions|wait:Active sessions|"\
-"send:/kill bang-1|wait:stopping shell bang-1|"\
-"send:/kill bang-2|wait:stopping shell bang-2" \
+"wait-gone:Ctrl-] returns to the prompt|send:/sessions|wait-screen:Active sessions|"\
+"send:/kill bang-1|wait-screen:stopping shell bang-1|"\
+"send:/kill bang-2|wait-screen:stopping shell bang-2" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/work_min_tile_cols=30 \

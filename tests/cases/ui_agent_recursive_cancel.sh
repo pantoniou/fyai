@@ -12,7 +12,7 @@ FYAI_PTY_PROGRESS_NEEDLE="Agent progress" \
 FYAI_PTY_PROGRESS_TIMEOUT=8 \
 FYAI_PTY_DURING_INPUT="/branches" \
 FYAI_PTY_NEEDLE="Branches" \
-FYAI_PTY_AFTER="raw:6a6a4b|wait:Recursive delegation complete.|raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="raw:6a6a4b|wait-screen:Recursive delegation complete.|raw:1d" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -k test-key --theme dark \
 	--set display/markdown=true --set display/stream=false \

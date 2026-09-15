@@ -13,7 +13,7 @@ FYAI_PTY_PROGRESS_NEEDLE="Branches" \
 FYAI_PTY_DURING_INPUT=$'nδοκιμή/日本語界\177\r\r' \
 FYAI_PTY_DURING_SUBMIT=0 \
 FYAI_PTY_NEEDLE="created branch δοκιμή/日本語" \
-FYAI_PTY_AFTER="raw:1d|drain:0.2" \
+FYAI_PTY_AFTER="raw:1d|wait-gone:Branches" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/browser.out" \
 	"$FYAI_BIN" -k test-key --theme dark \
 	--set display/markdown=true -m mock-model -i

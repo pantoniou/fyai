@@ -20,7 +20,7 @@ run_with()
     FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="!sh -c 'printf GROUND; sleep 3'" \
     FYAI_PTY_NEEDLE="GROUND" FYAI_PTY_TIMEOUT=25 \
-    FYAI_PTY_AFTER="wait:Ctrl-]|drain:1|raw:1d" \
+    FYAI_PTY_AFTER="wait-screen:Ctrl-] returns to the prompt|raw:1d|wait-gone:Ctrl-] returns to the prompt" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/$name.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true "$@" -m mock-model -i

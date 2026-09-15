@@ -23,7 +23,7 @@ FYAI_PTY_ROWS=40 FYAI_PTY_COLS=120 \
 FYAI_PTY_INPUT="" FYAI_PTY_SUBMIT_INPUT=0 \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" FYAI_PTY_TIMEOUT=20 \
-FYAI_PTY_AFTER="raw:1b5b42|wait-frame:Heading|drain:1|raw:1b|drain:0.5" \
+FYAI_PTY_AFTER="raw:1b5b42|wait-screen:Heading|raw:1b" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pick.out" \
 	"$FYAI_BIN" -k test-key --color on --theme dark -m mock-model \
 	--set display/markdown=true --set display/branch_preview=bottom resume

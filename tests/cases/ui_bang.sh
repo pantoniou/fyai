@@ -7,14 +7,14 @@ set -eu
 fyai_test_setup
 
 # The shell exits at once, and the keys are the prompt's again when the tile
-# it opened has retired. The way back is on the status row while a tile holds
-# them, thus a row without it is the prompt holding them: type only then. A
-# pause instead of a wait types into the tile on a loaded runner, and the
-# status command never reaches the session.
-FYAI_PTY_INPUT="!sh -c 'printf BANG-OUTPUT'" \
-FYAI_PTY_NEEDLE="BANG-OUTPUT" \
-FYAI_PTY_AFTER="resize:100|wait-gone:Ctrl-]|send:/status|wait:Usage / total" \
-FYAI_PTY_AFTER_PAUSE=1 \
+# it opened has retired. The tile can take and give back the keys between two
+# reads of the screen, so no wait says where they are: Ctrl-] gives them to the
+# prompt if the tile still holds them, and the command follows it. The shell
+# writes BANG-OUTPUT in two parts, so only its output holds the word and not the
+# command in the head.
+FYAI_PTY_INPUT="!sh -c 'printf %s%s BANG- OUTPUT'" \
+FYAI_PTY_NEEDLE="bang-1" \
+FYAI_PTY_AFTER="wait-screen:BANG-OUTPUT|raw:1d|send:/status|wait-screen:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
