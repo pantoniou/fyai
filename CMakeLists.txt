@@ -784,6 +784,11 @@ if(BUILD_TESTING)
         string(REPLACE ":" ";" _parts "${_t}")
         list(GET _parts 0 _suite)
         list(GET _parts 1 _name)
+        # A sanitizer takes over the end of a process that crashes, so the
+        # report of a crash is not tested under ASAN.
+        if(ENABLE_ASAN AND "${_suite}/${_name}" STREQUAL "crash/report")
+            continue()
+        endif()
         add_test(NAME fyai/unit/${_suite}/${_name}
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_run.sh
                 $<TARGET_FILE:fyai_test> ${_suite}/${_name})
