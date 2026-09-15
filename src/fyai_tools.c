@@ -1953,7 +1953,7 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 	struct fyai_event_loop *el;
 	fy_generic args, command, workdir;
 	fy_generic diag;
-	bool started;
+	bool started, stop;
 	int rc;
 
 	args = fyai_tool_call_args(ctx, tc->args);
@@ -1995,15 +1995,21 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 	if (!tc->relay)
 		return;
 
-	/* Stop the program when this serving child is terminated. */
+	/*
+	 * Stop the program when this serving child is terminated, and when the
+	 * control channel closes: the parent that owns the session is gone, and
+	 * the child is in a session of its own, which no signal of the parent
+	 * reaches.
+	 */
 	el = fyai_ctx_loop(ctx);
 	assert(el);
 	while (!fyai_terminal_relay_done(tc->relay)) {
-		if (ctx->terminate_pending)
+		stop = ctx->terminate_pending || jsonrpc_conn_closed(conn);
+		if (stop)
 			fyai_terminal_relay_close(tc->relay, true);
-		if (fyai_event_loop_step(el, ctx->terminate_pending ? 200 : -1) < 0)
+		if (fyai_event_loop_step(el, stop ? 200 : -1) < 0)
 			break;
-		if (ctx->terminate_pending && fyai_terminal_relay_reaped(tc->relay))
+		if (stop && fyai_terminal_relay_reaped(tc->relay))
 			break;
 	}
 
