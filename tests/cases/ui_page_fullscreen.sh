@@ -22,7 +22,7 @@ session()
     FYAI_PTY_ROWS=$rows FYAI_PTY_COLS=100 FYAI_PTY_INPUT="first question" \
     FYAI_PTY_NEEDLE="Hello" FYAI_PTY_TIMEOUT=20 \
     FYAI_PTY_AFTER="$2" \
-    FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=10 \
+    FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=false \
@@ -62,6 +62,7 @@ screen = Screen(13, 100)
 pos = 0
 back = None
 both = None
+asked = False
 while True:
     i = data.find(END, pos)
     if i < 0:
@@ -73,8 +74,10 @@ while True:
     head = next((y for y, r in enumerate(rows) if "fyai: session/" in r), None)
     height = head - 1 if head else 6
     view = rows[:height]
-    if any("│ first question" in r for r in view) and \
-            any("second question" in r for r in rows):
+    # PageUp takes the view back once the second question was asked; the
+    # view is then too short to show both exchanges.
+    asked = asked or any("second question" in r for r in rows)
+    if asked and any("│ first question" in r for r in view):
         back = rows
         back_height = height
     # A view that shows the first answer and the second question shows no
@@ -102,21 +105,18 @@ PY
 # PageDown scrolls it; Escape, Enter and a click on the label in its heading
 # close it, and each /help after a close shows that the session is still there.
 # A drag over five rows of the popup holds text whatever rows of the table wrap.
-PPRESS=$(printf '\033[<0;4;4M' | od -An -tx1 | tr -d ' \n')
-PMOVE=$(printf '\033[<32;40;9M' | od -An -tx1 | tr -d ' \n')
-PRELEASE=$(printf '\033[<0;40;9m' | od -An -tx1 | tr -d ' \n')
+PDRAG=$(printf '\033[<0;4;4M\033[<32;40;9M\033[<0;40;9m' |
+    od -An -tx1 | tr -d ' \n')
 # "── help " takes eight columns, so the label starts on column 9.
 ACLICK=$(printf '\033[<0;12;1M\033[<0;12;1m' | od -An -tx1 | tr -d ' \n')
 session fullscreen "wait-screen:Hello from the mock provider.|"\
-"send:/help|wait-screen:Esc closes|raw:$PPRESS|raw:$PMOVE|raw:$PRELEASE|wait:]52;|"\
-"raw:1b5b367e|drain:0.5|raw:1b|wait-gone:Esc closes|"\
+"send:/help|wait-screen:Esc closes|raw:$PDRAG|wait-copy:|"\
+"raw:1b5b367e|wait-gone:/branches|raw:1b|wait-gone:Esc closes|"\
 "send:/help|wait-screen:Esc closes|raw:0d|wait-gone:Esc closes|"\
 "send:/help|wait-screen:Esc closes|raw:$ACLICK|wait-gone:Esc closes|"\
 "send:/zoom|wait-screen:nothing is running to zoom into|"\
-"raw:78|wait-gone:nothing is running to zoom into|raw:1b|drain:0.5" 30 1
+"raw:78|wait-gone:nothing is running to zoom into|raw:1b|wait-gone:❯ x" 30 1
 "$PYTHON" - "$TEST_DIR/pty.out" "$TESTS_DIR" <<'PY' ||
-import base64
-import re
 import sys
 
 sys.path.insert(0, sys.argv[2])
@@ -125,11 +125,12 @@ from screen import Screen
 END = b"\x1b[?2026l"
 data = open(sys.argv[1], "rb").read()
 # The drag over the popup copied text of the result, not escapes.
-copies = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]*)", data)
-if not copies:
+terminal = Screen(30, 100)
+terminal.feed(data)
+if not terminal.clipboard:
     raise SystemExit("a drag over the popup copied nothing")
-text = base64.b64decode(copies[0])
-if not text.strip() or b"\x1b" in text:
+text = terminal.clipboard[0]
+if not text.strip() or "\x1b" in text:
     raise SystemExit("the copy of the popup is not its text: %r" % text)
 screen = Screen(30, 100)
 pos = 0
@@ -175,9 +176,9 @@ PY
 # A popup covers the tiles too, and they come back when it closes. The session
 # ends while the shell runs.
 session fullscreen "wait-screen:Hello from the mock provider.|"\
-"send:!sh -c 'while :; do printf \"\\r\\033[KSHELLMARK \"; sleep 1; done'|wait-screen:SHELLMARK|"\
-"raw:1d|wait-gone:Ctrl-]|send:/help|wait-screen:Esc closes|drain:1|"\
-"raw:1b|wait-gone:Esc closes|wait-screen:SHELLMARK|drain:1" 30 1
+"send:!sh -c 'while :; do printf \"\\r\\033[KSHELLMARK \"; sleep 0.2; done'|wait-screen:SHELLMARK|"\
+"wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|send:/help|wait-screen:Esc closes|frame:3|"\
+"raw:1b|wait-gone:Esc closes|wait-screen:SHELLMARK" 30 1
 "$PYTHON" - "$TEST_DIR/pty.out" "$TESTS_DIR" <<'PY' ||
 import sys
 
@@ -207,13 +208,9 @@ PY
 
 # A drag over the answer copies its text with OSC 52, and the last exchange is
 # printed on the terminal's own screen when the session ends.
-PRESS=$(printf '\033[<0;3;5M' | od -An -tx1 | tr -d ' \n')
-MOVE=$(printf '\033[<32;31;5M' | od -An -tx1 | tr -d ' \n')
-RELEASE=$(printf '\033[<0;31;5m' | od -An -tx1 | tr -d ' \n')
-session fullscreen "wait-screen:Hello from the mock provider.|raw:$PRESS|raw:$MOVE|raw:$RELEASE|wait:]52;|drain:0.5" 30 1
-COPY=$(printf 'Hello from the mock provider.' | base64 -w0)
-grep -a -q "]52;c;$COPY" "$TEST_DIR/pty.out" ||
-    fail "a drag over the answer did not copy its text"
+DRAG=$(printf '\033[<0;3;5M\033[<32;31;5M\033[<0;31;5m' |
+    od -An -tx1 | tr -d ' \n')
+session fullscreen "wait-screen:Hello from the mock provider.|raw:$DRAG|wait-copy:Hello from the mock provider." 30 1
 "$PYTHON" - "$TEST_DIR/pty.out" <<'PY' ||
 import sys
 
@@ -227,7 +224,7 @@ PY
     fail "the last exchange did not stay on the terminal's screen"
 
 # The same conversation inline stays on the terminal's own screen.
-session inline "wait:Hello|send:second question|wait:again|drain:0.5"
+session inline "wait-screen:Hello from the mock provider.|send:second question|wait-screen:Hello again from the mock provider."
 if grep -a -q $'\x1b\[?1049h' "$TEST_DIR/pty.out"; then
     fail "an inline session took the alternate screen"
 fi

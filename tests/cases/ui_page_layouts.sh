@@ -12,26 +12,41 @@ trap 'rm -rf "$CAPTURES"' EXIT
 
 shell()
 {
-    printf '%s' "!sh -c 'while :; do printf \"\\r\\033[K$1 %s \" \"\$(stty size)\"; sleep 1; done'"
+    printf '%s' "!sh -c 'while :; do printf \"\\r\\033[K$1 %s \" \"\$(stty size)\"; sleep 0.2; done'"
+}
+
+# The size each shell is granted once the notice stands under the screens.
+# The case waits for these on the screen, and for each head to be made again
+# at the width of its grant, which leaves no head cut with an ellipsis: both
+# renderers are then at rest.
+sizes()
+{
+    case $1 in
+    auto|columns) echo "FIRST 9 47|SECOND 9 46|THIRD 8 98" ;;
+    stack) echo "FIRST 5 98|SECOND 5 98|THIRD 5 98" ;;
+    main-top) echo "FIRST 9 98|SECOND 8 47|THIRD 8 46" ;;
+    main-left) echo "FIRST 19 47|SECOND 9 46|THIRD 8 46" ;;
+    esac
 }
 
 run_with()
 {
     renderer=$1
     layout=$2
+    settled=$(sizes "$layout" | sed 's/^/wait-screen:/; s/|/|wait-screen:/g')
     fyai_test_setup
     FYAI_TRACE="$TEST_DIR/trace.log" \
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="$(shell FIRST)" \
     FYAI_PTY_NEEDLE="FIRST" FYAI_PTY_TIMEOUT=20 \
-    FYAI_PTY_AFTER="wait:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
-"send:$(shell SECOND)|wait-frame:SECOND|frame:2|raw:1d|wait-gone:Ctrl-]|"\
-"send:$(shell THIRD)|wait-frame:THIRD|frame:2|raw:1d|wait-gone:Ctrl-]|"\
-"send:/nosuch|wait:unknown|drain:2.5|"\
-"send:/kill bang-1|wait:stopping shell bang-1|"\
-"send:/kill bang-2|wait:stopping shell bang-2|"\
-"send:/kill bang-3|wait:stopping shell bang-3" \
-    FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=10 \
+    FYAI_PTY_AFTER="wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+"send:$(shell SECOND)|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+"send:$(shell THIRD)|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+"send:/nosuch|wait-screen:unknown|$settled|wait-gone:…|"\
+"send:/kill bang-1|wait-screen:stopping shell bang-1|"\
+"send:/kill bang-2|wait-screen:stopping shell bang-2|"\
+"send:/kill bang-3|wait-screen:stopping shell bang-3" \
+    FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/work_min_tile_cols=30 \

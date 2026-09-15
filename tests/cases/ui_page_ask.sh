@@ -19,8 +19,8 @@ ask()
     FYAI_TRACE="$TEST_DIR/trace.log" \
     FYAI_PTY_COLS=100 FYAI_PTY_INPUT="ask me something" \
     FYAI_PTY_NEEDLE="Proceed with the mock plan?" FYAI_PTY_TIMEOUT=20 \
-    FYAI_PTY_AFTER="wait:or type an answer|drain:1|$2|wait:User said yes|drain:0.5" \
-    FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=10 \
+    FYAI_PTY_AFTER="wait-screen:or type an answer|$2|wait-screen:User said yes" \
+    FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=false \
@@ -93,7 +93,7 @@ PY
 answered yes "Enter"
 mock_stop 2
 
-ask down "raw:1b5b42|drain:0.7|raw:0d"
+ask down "raw:1b5b42|wait-screen:› 2. no|raw:0d"
 answered no "Down and Enter"
 mock_stop 2
 
@@ -102,7 +102,7 @@ answered no "the key 2"
 mock_stop 2
 
 # Once text is typed the number keys type too.
-ask typed "raw:6d|drain:0.7|raw:32|drain:0.7|raw:0d"
+ask typed "raw:6d|frame:2|raw:32|frame:2|raw:0d"
 answered m2 "typed text"
 mock_stop 2
 
@@ -124,8 +124,8 @@ mock_start agent_asks_user.json
 driver=0
 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="ask a sub-agent to ask me" \
 FYAI_PTY_NEEDLE="WHICH-COLOUR?" FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="wait:or type an answer|drain:1|raw:32|wait:Delegated and done.|drain:0.5" \
-FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=20 \
+FYAI_PTY_AFTER="wait-screen:or type an answer|raw:32|wait-screen:Delegated and done." \
+FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -155,8 +155,8 @@ mock_start ui_page_ask_queue.json
 driver=0
 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="ask two sub-agents" \
 FYAI_PTY_NEEDLE="or type an answer" FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="wait:(1 more)|drain:1|raw:31|frame:2|drain:1.5|raw:32|wait:Both questions answered.|drain:0.5" \
-FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=20 \
+FYAI_PTY_AFTER="wait-screen:(1 more)|raw:31|wait-gone:(1 more)|wait-screen:or type an answer|raw:32|wait-screen:Both questions answered." \
+FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -197,8 +197,8 @@ mock_start agent_recursive_question.json
 driver=0
 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="delegate recursively" \
 FYAI_PTY_NEEDLE="NESTED_COLOUR?" FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="wait:or type an answer|drain:1|raw:32|wait:Recursive delegation complete.|drain:0.5" \
-FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=20 \
+FYAI_PTY_AFTER="wait-screen:or type an answer|raw:32|wait-screen:Recursive delegation complete." \
+FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \

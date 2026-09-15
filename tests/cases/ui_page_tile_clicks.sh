@@ -21,6 +21,9 @@ NAME=$(click 7 1)
 ZOOM=$(click 99 1)
 CLOSE=$(click 100 1)
 
+# The shell writes SIZED in two parts, so only its output holds the word and
+# not the command in the head: the case waits for the output on the screen
+# before the first click.
 run_with()
 {
     renderer=$1
@@ -28,13 +31,13 @@ run_with()
     driver=0
     FYAI_TRACE="$TEST_DIR/trace.log" \
     FYAI_PTY_COLS=100 \
-    FYAI_PTY_INPUT="!sh -c 'while :; do printf \"\\r\\033[KCLICK %s \" \"\$(stty size)\"; sleep 1; done'" \
+    FYAI_PTY_INPUT="!sh -c 'while :; do printf \"\\r\\033[KCLICK %s %s%s \" \"\$(stty size)\" SIZ ED; sleep 0.2; done'" \
     FYAI_PTY_NEEDLE="CLICK" FYAI_PTY_TIMEOUT=20 \
-    FYAI_PTY_AFTER="wait-frame:Ctrl-]|raw:1d|wait-gone:Ctrl-]|drain:1.5|"\
-"raw:$NAME|wait-frame:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
-"raw:$ZOOM|frame:2|drain:1|"\
+    FYAI_PTY_AFTER="wait-screen:SIZED|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+"raw:$NAME|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+"raw:$ZOOM|frame:2|"\
 "raw:$CLOSE|wait-gone:⤢" \
-    FYAI_PTY_AFTER_PAUSE=0.5 FYAI_PTY_AFTER_TIMEOUT=10 \
+    FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/work_controls=zoom \
@@ -70,10 +73,12 @@ from screen import Screen
 END = b"\x1b[?2026l"
 
 def head(path):
-    """The head row of the tile at rest, before the first click."""
+    """The head row of the tile at rest: after the tile gave the keys back
+    and before the first click gives them to it again."""
     data = open(path, "rb").read()
     screen = Screen(30, 100)
     pos = 0
+    focused = False
     found = None
     while True:
         i = data.find(END, pos)
@@ -83,9 +88,11 @@ def head(path):
         pos = i + len(END)
         rows = screen.display()
         text = "\n".join(rows)
-        if "Ctrl-]" in text and found is not None:
-            break
-        if re.search(r"CLICK \d+ \d+", text) and "Ctrl-]" not in text:
+        if "Ctrl-]" in text:
+            if found is not None:
+                break
+            focused = True
+        elif focused and re.search(r"CLICK \d+ \d+", text):
             found = rows[0].ljust(100)
     if found is None:
         raise SystemExit("%s: the tile never stood at rest" % path)

@@ -19,10 +19,10 @@ run_at()
     # The output is not a word of the command: the command stands in the
     # user card and in the head, and only the screen holds VIEWOUT.
     FYAI_TRACE="$TEST_DIR/trace.log" \
-    FYAI_PTY_INPUT="!sh -c 'printf %s%s VIEW OUT; sleep 2'" \
+    FYAI_PTY_INPUT="!sh -c 'printf %s%s VIEW OUT; sleep 60'" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=20 \
-    FYAI_PTY_AFTER="$view|raw:1d|wait-gone:Ctrl-]|send:/status|wait:Usage / total" \
-    FYAI_PTY_AFTER_PAUSE=1 FYAI_PTY_AFTER_TIMEOUT=10 \
+    FYAI_PTY_AFTER="wait-screen:Ctrl-]|$view|raw:1d|wait-gone:Ctrl-]|send:/status|wait-screen:Usage / total" \
+    FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/renderer=page \
@@ -31,20 +31,20 @@ run_at()
     cp "$TEST_DIR/trace.log" "$CAPTURES/$rows.trace" 2>/dev/null || :
 }
 
-# The screen view takes the head off the tile. The head view has no screen to
-# wait for, and its running mark keeps painting frames.
+# The screen view takes the head off the tile: its output stands without the
+# name. The head view stands without the output.
 # A build without page support says so and never takes the head off: look for
 # that before the status of the driver, whose wait for the view then expires.
 # A bang shell is not a turn, so the warning is not drained to the screen; the
 # trace records it when it is raised.
 driver=0
-run_at 5 "wait-gone:bang-1"
+run_at 5 "wait-screen:VIEWOUT|wait-gone:bang-1"
 if grep -a -q "needs a libfytimui" "$CAPTURES/5.out" "$CAPTURES/5.trace" \
         2>/dev/null; then
     skip "this build has no page support"
 fi
 [ "$driver" -eq 0 ] || fail "the five-row session did not run to its end"
-run_at 3 "frame:2"
+run_at 3 "wait-screen:bang-1"
 [ "$driver" -eq 0 ] || fail "the three-row session did not run to its end"
 
 "$PYTHON" - "$CAPTURES/5.out" "$CAPTURES/3.out" "$TESTS_DIR" <<'PY' || \
