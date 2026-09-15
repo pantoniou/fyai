@@ -501,10 +501,15 @@ rules and the status. `page` states the same screen as one UI Markdown page.
 - `fyai_page_source()` is a function of `struct fyai_page_state` and nothing
   else, so the tests read it without a display. Put a new element of the
   screen in the state and in the source, not in a draw call.
-- A slot holds what the library draws: `tail`, `pane`, `prompt` and
-  `completion`. The height of a slot comes from the library through
-  `fytim_tail_rows()`, `fytim_workpane_rows()` and `fytim_prompt_rows()`: an
-  inline page is as tall as its rows.
+- A slot holds what the library draws: `pane`, `prompt` and `completion`.
+  The height of a slot comes from the library through `fytim_tail_rows()`,
+  `fytim_workpane_rows()` and `fytim_prompt_rows()`: an inline page is as tall
+  as its rows.
+- The tail is drawn on the canvas, not by the library. The page reads its rows
+  back with `fytim_tail_content()` and draws the last rows that fit its region,
+  so the ground of a fullscreen page is under the tail too. A tail that the
+  library draws over the canvas has no ground, and the terminal background
+  shows through it.
 - The page must look as the band stack does. `tests/cases/ui_page_renderer.sh`
   runs one scenario under both renderers and compares the screens: a change
   to the stack chrome is a change to the page source too.
