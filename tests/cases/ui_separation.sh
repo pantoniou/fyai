@@ -1,8 +1,9 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# The separation a live session draws, measured on the terminal cells. A fenced
-# card supplies a blank row at each end, thus the manager adds none. A call is
-# fenced from the call above it.
+# The separation a live session draws, measured on the terminal cells. The
+# bottom row of a fenced card is part of the card, thus the manager adds the
+# blank row of display/user_card_fence under it. A call is fenced from the call
+# above it.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -43,12 +44,12 @@ def blanks_before(i):
     return n
 
 
-# A fenced card supplies the row under its words.
+# The bottom row of the card has no text, and one blank row stands under it.
 card = index("  │ do things")
 first = index("● read hello.c")
 got = blanks_before(first)
-if got != 1:
-    raise SystemExit("%d blank rows stand under the card, want 1" % got)
+if got != 2:
+    raise SystemExit("%d empty rows stand under the card, want 2" % got)
 if first <= card:
     raise SystemExit("the answer is above the card")
 

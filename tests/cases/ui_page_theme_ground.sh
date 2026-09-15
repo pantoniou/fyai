@@ -126,10 +126,22 @@ for label in ("dark", "light"):
         raise SystemExit(label + ": ordinary text kept the terminal background")
     if not ground[0] >= ground[1] >= ground[2]:
         raise SystemExit(label + ": the page ground is not the warm theme ground")
-    for y in (0, heading, heading + 1):
+    for y in (heading, heading + 1):
         for x in (0, screen.cols - 1):
             if screen.backgrounds[y][x] != ground:
                 raise SystemExit(f"{label}: blank cell {y},{x} lost the page ground")
+    # The user card fills its row to the edge of the view, past its text.
+    card = next(y for y, row in enumerate(rows) if "hello" in row)
+    raised_card = screen.backgrounds[card][0]
+    past = len(rows[card].rstrip()) + 10
+    if raised_card == ground or screen.backgrounds[card][past] != raised_card:
+        raise SystemExit(f"{label}: the user card does not fill its row")
+    # A blank row of the page stands between the card and the answer.
+    under = card + 1
+    while screen.backgrounds[under][0] == raised_card:
+        under += 1
+    if rows[under].strip() or screen.backgrounds[under][0] != ground:
+        raise SystemExit(f"{label}: no blank row stands under the user card")
     raised = screen.backgrounds[code][rows[code].index("int value")]
     if raised is None or raised == ground:
         raise SystemExit(label + ": the code block lost its raised background")

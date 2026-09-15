@@ -201,7 +201,7 @@ PY
 
 # A drag over the answer copies its text with OSC 52, and the last exchange is
 # printed on the terminal's own screen when the session ends.
-DRAG=$(printf '\033[<0;3;4M\033[<32;31;4M\033[<0;31;4m' |
+DRAG=$(printf '\033[<0;3;5M\033[<32;31;5M\033[<0;31;5m' |
     od -An -tx1 | tr -d ' \n')
 session fullscreen "wait-screen:Hello from the mock provider.|raw:$DRAG|wait-copy:Hello from the mock provider." 30 1
 "$PYTHON" - "$TEST_DIR/pty.out" <<'PY' ||
