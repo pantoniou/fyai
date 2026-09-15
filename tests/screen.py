@@ -78,16 +78,25 @@ class Screen:
                     i = m.end()
                     continue
                 if data[i:i + 2] in (b"\x1b]", b"\x1bP"):   # OSC / DCS
-                    end = data.find(b"\x07", i)
-                    esc = data.find(b"\x1b\\", i)
-                    if esc >= 0 and (end < 0 or esc < end):
-                        end = esc + 1
-                    if end < 0:                 # the rest is still to come
+                    bel = data.find(b"\x07", i + 2)
+                    esc = data.find(b"\x1b", i + 2)
+                    if esc >= 0 and (bel < 0 or esc < bel):
+                        if esc + 1 >= len(data):    # ST or another escape
+                            self.pending = data[i:]
+                            return
+                        if data[esc + 1:esc + 2] == b"\\":
+                            self._osc(data[i + 2:esc])
+                            i = esc + 2
+                        else:
+                            # A terminal ends a string that has no ST at
+                            # the next escape, and does not act on it.
+                            i = esc
+                        continue
+                    if bel < 0:                 # the rest is still to come
                         self.pending = data[i:]
                         return
-                    self._osc(data[i + 2:end - 1 if data[end] == 0x5C
-                                   else end])
-                    i = end + 1
+                    self._osc(data[i + 2:bel])
+                    i = bel + 1
                     continue
                 if len(data) - i < 2:
                     self.pending = data[i:]     # only the escape so far
