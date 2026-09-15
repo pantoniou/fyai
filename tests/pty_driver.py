@@ -3,6 +3,7 @@
 import fcntl
 import os
 import select
+import signal
 import struct
 import sys
 import termios
@@ -212,7 +213,8 @@ def check_after_script(after_script, snapshot):
     dropped step silently changes what the case proves.
     """
     kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone", "wait-screen",
-             "wait-copy", "frame", "drain", "settle", "snapshot", "release")
+             "wait-copy", "frame", "drain", "settle", "snapshot", "release",
+             "signal")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
@@ -228,6 +230,13 @@ def check_after_script(after_script, snapshot):
             except ValueError:
                 raise RuntimeError(
                     "FYAI_PTY_AFTER step %r is not a frame count" % step)
+        if kind == "signal":
+            try:
+                if int(value) < 1:
+                    raise ValueError
+            except ValueError:
+                raise RuntimeError(
+                    "FYAI_PTY_AFTER step %r is not a signal number" % step)
         if kind == "raw":
             try:
                 bytes.fromhex(value)
@@ -307,6 +316,7 @@ def main():
     TERMINAL = Terminal(rows, cols)
     session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
     expected_status = int(os.environ.get("FYAI_PTY_EXIT_STATUS", "0"))
+    expected_signal = int(os.environ.get("FYAI_PTY_EXIT_SIGNAL", "0"))
     # Post-turn PTY actions, separated by "|":
     #
     #   send:TEXT   type TEXT and submit it
@@ -315,6 +325,9 @@ def main():
     #   wait:TEXT   read until TEXT is on the capture
     #   release:PATH     create a file to release a held fixture
     #   wait-frame:TEXT  require TEXT after the last action and a frame end
+    #   wait-screen:TEXT read until TEXT is on the screen, or on a row that
+    #               scrolled off it since the last action: a row the output
+    #               scrolled away within one read was still shown.
     #   wait-gone:TEXT   read until TEXT is off the screen. A frame paints
     #               only what changed, thus the capture says what arrived
     #               and only the screen says what is still there.
@@ -327,6 +340,8 @@ def main():
     #               after it is when it has been acted on: keys sent with
     #               nothing between them can share a frame, and the window
     #               keeps one of them.
+    #   signal:N    send signal N to fyai; with $FYAI_PTY_EXIT_SIGNAL set to
+    #               N the run is expected to end by it
     #   drain:SEC   keep reading for SEC seconds
     #   settle:SEC  keep reading until no output arrives for SEC seconds
     #               (quiescence); the wait deadline still bounds it
@@ -335,7 +350,7 @@ def main():
     after_script = [step for step in
                     os.environ.get("FYAI_PTY_AFTER", "").split("|") if step]
     after_timeout = float(os.environ.get("FYAI_PTY_AFTER_TIMEOUT", "5")) * scale
-    after_pause = float(os.environ.get("FYAI_PTY_AFTER_PAUSE", "0.3"))
+    after_pause = float(os.environ.get("FYAI_PTY_AFTER_PAUSE", "0"))
     snapshot = os.environ.get("FYAI_PTY_SNAPSHOT", "")
     snapshot_taken = False
     # Fail on a misspelled script before the session starts: a dropped
@@ -534,6 +549,7 @@ def main():
         # frame paints only what changed and says nothing about the rest.
         screen = Screen(rows, cols)
         screen_at = 0
+        scrolled_start = 0
 
         def screen_rows():
             nonlocal screen_at
@@ -551,6 +567,8 @@ def main():
             if kind in ("send", "raw", "resize"):
                 action_start = len(data)
                 copies_start = len(TERMINAL.screen.clipboard)
+                screen_rows()
+                scrolled_start = len(screen.scrollback)
             if kind == "send":
                 os.write(master, value.encode() + b"\n")
                 time.sleep(after_pause)
@@ -572,10 +590,13 @@ def main():
                 # here: rows made for the old size are not on it any more.
                 screen = Screen(resize_rows, resize_cols)
                 screen_at = len(data)
+                scrolled_start = 0
                 time.sleep(after_pause)
             elif kind == "release":
                 with open(value, "wb"):
                     pass
+            elif kind == "signal":
+                os.kill(pid, int(value))
             elif kind == "snapshot":
                 # Capture the screen before subsequent actions modify it.
                 with open(snapshot, "wb") as fp:
@@ -628,7 +649,8 @@ def main():
                     # A screen that repaints only the cells that changed
                     # sends no whole line to wait for: read the screen.
                     if kind == "wait-screen":
-                        return any(value in row for row in screen_rows())
+                        return any(value in row for row in screen_rows() +
+                                   screen.scrollback[scrolled_start:])
                     return not any(value in row for row in screen_rows())
                 step_deadline = time.monotonic() + after_timeout
                 reassert_at = time.monotonic()
@@ -740,8 +762,11 @@ def main():
             done, status = os.waitpid(pid, os.WNOHANG)
             if done:
                 reaped = True
-                if (os.WIFEXITED(status) and
+                if (os.WIFEXITED(status) and not expected_signal and
                         os.WEXITSTATUS(status) == expected_status):
+                    break
+                if (os.WIFSIGNALED(status) and expected_signal and
+                        os.WTERMSIG(status) == expected_signal):
                     break
                 if os.WIFSIGNALED(status):
                     raise RuntimeError(
@@ -756,14 +781,36 @@ def main():
         with open(output, "wb") as fp:
             fp.write(data)
         if not reaped:
+            # SIGTERM first: fyai ends the sessions it serves. A process that
+            # does not end by the deadline is killed.
             try:
-                os.kill(pid, 9)
+                os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            try:
-                os.waitpid(pid, 0)
-            except ChildProcessError:
-                pass
+            term_deadline = time.monotonic() + 2 * scale
+            while not reaped and time.monotonic() < term_deadline:
+                try:
+                    done, _ = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    break
+                if done:
+                    reaped = True
+                    break
+                ready, _, _ = select.select([master], [], [], 0.05)
+                if ready:
+                    try:
+                        os.read(master, 65536)
+                    except OSError:
+                        pass
+            if not reaped:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
         os.close(master)
 
 
