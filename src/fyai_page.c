@@ -1695,6 +1695,53 @@ static int page_lines_draw(struct fyai_page *pg, const char *const *lines,
 	return 0;
 }
 
+/*
+ * The header row in its region @r, as the band stack draws it: the rendered
+ * row and the time of the running turn, in the heading style of the theme,
+ * cut at the edge of the region. The band stack ends a row that carries SGR
+ * in an ellipsis, and stops a plain row at the edge; a plain row is drawn one
+ * column wider, so its ellipsis falls outside the region.
+ */
+static int page_header_draw(struct fyai_page *pg,
+			    const struct fyai_page_state *st,
+			    const struct fymd_region *r)
+{
+	struct fytim_cell *row, *at;
+	const char *text, *styled;
+	bool plain;
+	int n;
+
+	if (r->height < 1 || r->width < 1 || r->col >= pg->cells_cols ||
+	    (int)r->row >= pg->cells_rows ||
+	    (fy_str_empty(st->header_row) && fy_str_empty(st->elapsed)))
+		return 0;
+	text = fy_sprintfa("%s%s", st->header_row ? st->header_row : "",
+			   st->elapsed ? st->elapsed : "");
+	styled = fy_sprintfa("%s%s%s", st->header_on ? st->header_on : "",
+			     text, st->header_off ? st->header_off : "");
+	plain = !strchr(text, '\x1b');
+	at = &pg->cells[(size_t)r->row * (size_t)pg->cells_cols + r->col];
+	if (r->width > pg->cells_cols - r->col)
+		return -1;
+	if (!plain) {
+		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
+					  pg->cells_cols, (int)r->row, r->col,
+					  r->width, 1, styled, strlen(styled));
+		return n < 0 ? -1 : 0;
+	}
+	row = calloc((size_t)r->width + 1, sizeof(*row));
+	if (!row)
+		return -1;
+	memcpy(row, at, (size_t)r->width * sizeof(*row));
+	row[r->width] = row[r->width - 1];
+	n = fytim_cells_draw_text(row, 1, r->width + 1, 0, 0, r->width + 1, 1,
+				  styled, strlen(styled));
+	if (n >= 0)
+		memcpy(at, row, (size_t)r->width * sizeof(*row));
+	free(row);
+	return n < 0 ? -1 : 0;
+}
+
 /* The last rows of the transcript tail that fit its region @r. */
 static int page_tail_draw(struct fyai_page *pg, struct fytim *ft,
 			  const struct fymd_region *r)
@@ -1782,6 +1829,11 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 			rc = page_tail_draw(pg, ft, &fr[i]);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the tail into cells");
+		}
+		if (!strcmp(fr[i].id, "header")) {
+			rc = page_header_draw(pg, st, &fr[i]);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot draw the header into cells");
 		}
 		if (!strcmp(fr[i].id, "transcript") && st->transcript_lines) {
 			rc = page_lines_draw(pg, st->transcript_lines,

@@ -38,6 +38,8 @@ struct fyai_page_action {
  */
 struct fyai_page_state {
 	const char *header;
+	/* The header rendered to one row of SGR, as the band stack draws it. */
+	const char *header_row;
 	const char *elapsed;
 	const char *activity;
 	const char *hint;

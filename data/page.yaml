@@ -80,12 +80,9 @@ pages:
       body:
         - row:
             - space: 1
-        - row:
-            - space: 2
-            - sgr: header.on
-            - markup: header.text
-            - text: "{header.elapsed}"
-            - sgr: header.off
+        # The canvas draws the header row, cut at the edge as the band stack
+        # cuts it. A row of Markdown wraps a long header onto a second row.
+        - slot: { id: header, rows: 1 }
 
     - page: input
 

@@ -1327,6 +1327,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	memset(&st, 0, sizeof(st));
 	(void)fytim_size(ui->ft, &cols, &rows);
 	st.header = ui->status_top_source;
+	st.header_row = ui->status_top;
 	if (ui->busy) {
 		fyai_event_elapsed_format(elapsed, sizeof(elapsed),
 					  ui->busy_since_ms);
