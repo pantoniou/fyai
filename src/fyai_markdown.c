@@ -25,13 +25,10 @@
 #include "fyai_event.h"
 #include "fyai_terminal.h"
 
-#ifdef FYAI_WITH_FYPALETTE
 #include <unistd.h>
 
 #include <libfypalette.h>
-#endif
 
-#ifdef FYAI_FYMD4C_BLOCKS
 #include <libfymermaid.h>
 
 /* A fenced mermaid block of a Markdown answer is drawn as a diagram, with the
@@ -65,7 +62,6 @@ static int markdown_mermaid_block(void *userdata, const char *lang,
 	fymm_free(diagram);
 	return 0;
 }
-#endif
 
 static enum fymd_background markdown_background(const char *theme)
 {
@@ -79,21 +75,14 @@ static enum fymd_background markdown_background(const char *theme)
 /* A theme name that selects a libfypalette theme, not a Markdown theme. */
 static bool markdown_palette_theme(const char *name)
 {
-#ifdef FYAI_WITH_FYPALETTE
 	return name && *name && fypal_builtin_theme_text(name) != NULL;
-#else
-	(void)name;
-	return false;
-#endif
 }
 
-#ifdef FYAI_PALETTE_GLYPHS
 static bool markdown_ascii(const struct fyai_cfg *cfg)
 {
 	return cfg && cfg->diagram_charset &&
 	       !strcmp(cfg->diagram_charset, "ascii");
 }
-#endif
 
 struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 					    const struct fymd_renderer_cfg *rcfg)
@@ -101,42 +90,27 @@ struct fymd_renderer *markdown_renderer_new(const struct fyai_cfg *fcfg,
 	struct fymd_renderer *r;
 
 	r = fymd_renderer_create(rcfg);
-#ifdef FYAI_PALETTE_GLYPHS
 	/* The palette gives the glyphs and the margin in the diagram charset. */
 	if (r && fcfg && fcfg->palette)
 		(void)fymd_renderer_set_palette_flags(r, fcfg->palette,
 				markdown_ascii(fcfg) ? FYMD_PF_ASCII : 0);
-#elif defined(FYAI_WITH_FYPALETTE)
-	/* The theme load checked that a renderer takes the palette. */
-	if (r && fcfg && fcfg->palette)
-		(void)fymd_renderer_set_palette(r, fcfg->palette);
-#endif
-#ifdef FYAI_FYMD4C_BLOCKS
 	/* The renderer borrows the configuration for its diagrams. A renderer
 	 * that cannot take the block renderer draws the block as code. */
 	if (r && fcfg)
 		(void)fymd_renderer_set_block_renderer(r, "mermaid",
 						       markdown_mermaid_block,
 						       (void *)fcfg);
-#endif
-#if !defined(FYAI_WITH_FYPALETTE) && !defined(FYAI_FYMD4C_BLOCKS)
-	(void)fcfg;
-#endif
 	return r;
 }
 
 int markdown_gutter_cols(const struct fyai_cfg *cfg)
 {
-#ifdef FYAI_PALETTE_GLYPHS
 	double cols;
 
 	if (cfg && cfg->palette &&
 	    !fypal_ctx_param(cfg->palette, "gutter.cols", &cols) &&
 	    cols >= 1 && cols <= FYAI_GUTTER_MAX)
 		return (int)cols;
-#else
-	(void)cfg;
-#endif
 	return 2;
 }
 
@@ -150,7 +124,6 @@ const char *markdown_gutter_blank(const struct fyai_cfg *cfg)
 const char *markdown_glyph(const struct fyai_cfg *cfg, const char *name,
 			   const char *fallback)
 {
-#ifdef FYAI_PALETTE_GLYPHS
 	const char *glyph;
 
 	if (cfg && cfg->palette) {
@@ -158,10 +131,6 @@ const char *markdown_glyph(const struct fyai_cfg *cfg, const char *name,
 		if (glyph)
 			return glyph;
 	}
-#else
-	(void)cfg;
-	(void)name;
-#endif
 	return fallback;
 }
 
@@ -249,7 +218,6 @@ void markdown_tool_marker(const struct fyai_cfg *cfg, char *buf, size_t size)
 const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
 			     const char *fallback)
 {
-#ifdef FYAI_WITH_FYPALETTE
 	const struct fypal_role *r;
 
 	if (cfg && cfg->palette) {
@@ -257,17 +225,12 @@ const char *markdown_role_on(const struct fyai_cfg *cfg, const char *role,
 		if (r)
 			return fypal_role_on(cfg->palette, r);
 	}
-#else
-	(void)cfg;
-	(void)role;
-#endif
 	return fallback;
 }
 
 const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
 			      const char *fallback)
 {
-#ifdef FYAI_WITH_FYPALETTE
 	const struct fypal_role *r;
 
 	if (cfg && cfg->palette) {
@@ -275,25 +238,17 @@ const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
 		if (r)
 			return fypal_role_off(cfg->palette, r);
 	}
-#else
-	(void)cfg;
-	(void)role;
-#endif
 	return fallback;
 }
 
 void markdown_palettes_destroy(struct fyai_cfg *cfg)
 {
-#ifdef FYAI_WITH_FYPALETTE
 	size_t i;
-#endif
 
 	if (!cfg)
 		return;
-#ifdef FYAI_WITH_FYPALETTE
 	for (i = 0; i < cfg->npalettes; i++)
 		fypal_ctx_destroy(cfg->palettes[i]);
-#endif
 	free(cfg->palettes);
 	cfg->palettes = NULL;
 	cfg->npalettes = 0;
@@ -443,12 +398,10 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 	struct fymd_renderer *r;
 	const char *on;
 	const char *off;
-#ifdef FYAI_WITH_FYPALETTE
 	enum fypal_variant saved = FYPAL_VARIANT_DARK;
-#endif
 
 	markdown_renderer_cfg(cfg, &rcfg, true, theme, 0);
-#ifdef FYAI_WITH_FYPALETTE
+
 	/* The card of each background comes from the palette of that variant;
 	 * the renderer copies its escapes, so the variant is restored at once. */
 	if (cfg->palette) {
@@ -456,12 +409,10 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 		fypal_ctx_set_variant(cfg->palette, index ? FYPAL_VARIANT_LIGHT :
 							    FYPAL_VARIANT_DARK);
 	}
-#endif
+
 	r = markdown_renderer_new(cfg, &rcfg);
-#ifdef FYAI_WITH_FYPALETTE
 	if (cfg->palette)
 		fypal_ctx_set_variant(cfg->palette, saved);
-#endif
 	if (!r)
 		return;
 	on = "";
@@ -473,7 +424,6 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
 	fymd_renderer_destroy(r);
 }
 
-#ifdef FYAI_WITH_FYPALETTE
 /* The palette of theme @name for @variant and the colour of the output. */
 static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 						 const char *name,
@@ -541,7 +491,6 @@ err_destroy:
 err_out:
 	return NULL;
 }
-#endif
 
 void fyai_markdown_load_style(struct fyai_cfg *cfg)
 {
@@ -564,9 +513,7 @@ void fyai_markdown_load_style(struct fyai_cfg *cfg)
 	if (markdown_palette_theme(name)) {
 		/* A palette theme styles the default Markdown theme. */
 		cfg->markdown_theme = "default";
-#ifdef FYAI_WITH_FYPALETTE
 		cfg->palette = markdown_palette_create(cfg, name, variant);
-#endif
 	} else {
 		cfg->markdown_theme = fy_gb_intern_string(cfg->gb, name);
 	}
@@ -619,11 +566,7 @@ const char *markdown_theme_names(char *buf, size_t bufsz)
 	}
 	/* The palette themes are selected by the same key. */
 	for (i = 0; off < bufsz; i++) {
-#ifdef FYAI_WITH_FYPALETTE
 		name = fypal_builtin_theme_name(i);
-#else
-		name = NULL;
-#endif
 		if (!name)
 			break;
 		rc = snprintf(buf + off, bufsz - off, "%s%s", off ? ", " : "",
@@ -645,11 +588,7 @@ static const char *markdown_theme_at(size_t index)
 	n = fymd_theme_count();
 	if (index < n)
 		return fymd_theme_name(index);
-#ifdef FYAI_WITH_FYPALETTE
 	return fypal_builtin_theme_name(index - n);
-#else
-	return NULL;
-#endif
 }
 
 const char *const *markdown_theme_selectors(void)
@@ -938,11 +877,9 @@ static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text
 	struct markdown_margin_ctx margins = { first_margin, next_margin };
 	struct fymd_renderer_cfg cfg;
 	struct fymd_renderer *r;
-#ifdef FYAI_UI_CLICKS
 	const struct fymd_region *rg;
 	struct markdown_region *copy;
 	size_t count, i;
-#endif
 	char *s = NULL;
 	size_t slen = 0;
 
@@ -961,7 +898,6 @@ static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text
 		fymd_renderer_destroy(r);
 		return -1;
 	}
-#ifdef FYAI_UI_CLICKS
 	/* The regions live in the renderer: copy them before it goes. */
 	if (regionsp && !fymd_renderer_get_regions(r, &rg, &count) && count) {
 		copy = calloc(count, sizeof(*copy));
@@ -980,7 +916,6 @@ static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text
 			*countp = count;
 		}
 	}
-#endif
 	if (response_buffer_reserve(out, out->len + slen + 1)) {
 		fymd_free(s);
 		fymd_renderer_destroy(r);
@@ -1089,14 +1024,9 @@ int markdown_render_margins_ui(struct fyai_cfg *cfg, const char *text,
 			       struct markdown_region **regionsp,
 			       size_t *countp)
 {
-#ifdef FYAI_UI_CLICKS
 	return markdown_render_margins_flags(cfg, text, len, out, first_margin,
 					     next_margin, FYMD_RF_UI, regionsp,
 					     countp);
-#else
-	return markdown_render_margins_flags(cfg, text, len, out, first_margin,
-					     next_margin, 0, regionsp, countp);
-#endif
 }
 
 static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,

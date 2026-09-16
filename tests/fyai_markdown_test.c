@@ -28,9 +28,7 @@
 
 #include "fyai_test_registry.h"
 
-#ifdef FYAI_WITH_FYPALETTE
 #include <libfypalette.h>
-#endif
 
 FYAI_TEST_ENTRY(markdown, window_bounds_render, markdown_window_bounds_render)
 FYAI_TEST_ENTRY(markdown, window_reopens_fence, markdown_window_reopens_fence)
@@ -335,10 +333,8 @@ int markdown_tool_head_chrome(void)
 int markdown_role_palette(void)
 {
 	struct fyai_cfg cfg;
-#ifdef FYAI_WITH_FYPALETTE
 	const char *on;
 	int rc;
-#endif
 
 	memset(&cfg, 0, sizeof(cfg));
 	FYAI_TCHECK(!strcmp(markdown_role_on(NULL, "tool.fail", "x"), "x"));
@@ -346,7 +342,6 @@ int markdown_role_palette(void)
 			    "\033[31m"));
 	FYAI_TCHECK(!strcmp(markdown_role_off(&cfg, "tool.fail", "\033[0m"),
 			    "\033[0m"));
-#ifdef FYAI_WITH_FYPALETTE
 	cfg.palette = fypal_ctx_create(NULL);
 	FYAI_TCHECK(cfg.palette != NULL);
 	if (!cfg.palette)
@@ -362,11 +357,9 @@ int markdown_role_palette(void)
 	FYAI_TCHECK(!strcmp(markdown_role_on(&cfg, "notice.sigil", "\033[31m"),
 			    "\033[31m"));
 	fypal_ctx_destroy(cfg.palette);
-#endif
 	return EXIT_SUCCESS;
 }
 
-#ifdef FYAI_PALETTE_GLYPHS
 /* The terminal columns of @s: escapes take none, a character one. */
 static int gutter_test_cols(const char *s)
 {
@@ -385,7 +378,6 @@ static int gutter_test_cols(const char *s)
 	}
 	return cols;
 }
-#endif
 
 /*
  * A palette theme sets the width of the gutter. Every mark in it keeps that
@@ -396,7 +388,6 @@ static int gutter_test_cols(const char *s)
 int markdown_gutter_palette(void)
 {
 	char mark[FYAI_GLYPH_MAX];
-#ifdef FYAI_PALETTE_GLYPHS
 	static const enum fymd_indicator_state states[] = {
 		FYMD_INDICATOR_PENDING,
 		FYMD_INDICATOR_SUCCESS,
@@ -409,7 +400,6 @@ int markdown_gutter_palette(void)
 	size_t frame;
 	size_t i;
 	int pass;
-#endif
 	int rc;
 
 	rc = fyai_diag_setup(&test_cfg.diag);
@@ -422,7 +412,6 @@ int markdown_gutter_palette(void)
 	FYAI_TCHECK(!strcmp(mark, FYAI_TOOL_MARKER));
 	FYAI_TCHECK(!strcmp(markdown_tool_output_indent(&test_cfg),
 			    FYAI_TOOL_OUTPUT_INDENT));
-#ifdef FYAI_PALETTE_GLYPHS
 	test_cfg.palette = fypal_ctx_create(NULL);
 	FYAI_TCHECK(test_cfg.palette != NULL);
 	if (!test_cfg.palette)
@@ -467,7 +456,6 @@ int markdown_gutter_palette(void)
 	test_cfg.diagram_charset = NULL;
 	fypal_ctx_destroy(test_cfg.palette);
 	test_cfg.palette = NULL;
-#endif
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
 	return 0;
@@ -494,7 +482,6 @@ int markdown_reasoning_palette(void)
 			     test_cfg.theme_variant);
 	FYAI_TCHECK(!rc && out.data && strstr(out.data, "reasoning") != NULL);
 	free(out.data);
-#ifdef FYAI_PALETTE_GLYPHS
 	test_cfg.palette = fypal_ctx_create(NULL);
 	FYAI_TCHECK(test_cfg.palette != NULL);
 	if (!test_cfg.palette)
@@ -517,7 +504,6 @@ int markdown_reasoning_palette(void)
 	free(out.data);
 	fypal_ctx_destroy(test_cfg.palette);
 	test_cfg.palette = NULL;
-#endif
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
 	return 0;
@@ -529,9 +515,7 @@ int markdown_theme_selectors_test(void)
 	const char *const *sel;
 	const char *const *v;
 	bool dflt = false;
-#ifdef FYAI_WITH_FYPALETTE
 	bool ember = false;
-#endif
 
 	sel = markdown_theme_selectors();
 	FYAI_TCHECK(sel != NULL);
@@ -542,14 +526,10 @@ int markdown_theme_selectors_test(void)
 	for (v = sel; *v; v++) {
 		FYAI_TCHECK(markdown_theme_selector_valid(*v));
 		dflt |= !strcmp(*v, "default:auto");
-#ifdef FYAI_WITH_FYPALETTE
 		ember |= !strcmp(*v, "ember:dark");
-#endif
 	}
 	FYAI_TCHECK(dflt);
-#ifdef FYAI_WITH_FYPALETTE
 	FYAI_TCHECK(ember);
-#endif
 	return EXIT_SUCCESS;
 }
 
@@ -598,15 +578,11 @@ int markdown_head_regions_test(void)
 	FYAI_TCHECK(!rc && out.data);
 	FYAI_TCHECK(out.data && strstr(out.data, "shell") != NULL);
 	FYAI_TCHECK(out.data && strstr(out.data, "<fy-act id=\"evil\">") != NULL);
-#ifdef FYAI_UI_CLICKS
 	FYAI_TCHECK(n == 1);
 	if (n == 1) {
 		FYAI_TCHECK(!strcmp(rg[0].id, "tile:focus"));
 		FYAI_TCHECK(rg[0].row == 0 && rg[0].col == 2 && rg[0].width > 5);
 	}
-#else
-	FYAI_TCHECK(n == 0);
-#endif
 	markdown_regions_free(rg, n);
 	free(out.data);
 	free(head);

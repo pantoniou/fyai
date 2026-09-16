@@ -740,7 +740,6 @@ static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 	ui->next_frame_ms = fyai_event_now_ms();
 }
 
-#ifdef FYAI_UI_CLICKS
 /* A click on the head of a tile: act on the label under it. */
 static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 			  int row, int col)
@@ -758,7 +757,6 @@ static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
 	    fyai_workpane_focused(wm) != sf)
 		fyai_workpane_set_focus(wm, sf);
 }
-#endif
 
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
@@ -875,11 +873,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				fyai_workpane_zoomed(ui->ctx->workpane) ==
 					ev.surface ? NULL : ev.surface);
 			break;
-#ifdef FYAI_UI_CLICKS
 		case FYTIM_EVENT_SURFACE_CLICK:
 			ui_head_click(ui, ev.surface, ev.row, ev.col);
 			break;
-#endif
 		case FYTIM_EVENT_SURFACE_CLOSE:
 		case FYTIM_EVENT_SURFACE_SCROLL:
 			/* Route tile controls to the component that owns the work. */
@@ -2125,19 +2121,12 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 		while (tlen && (escaped[tlen - 1] == '\n' ||
 				escaped[tlen - 1] == '\r'))
 			tlen--;
-#ifdef FYAI_UI_CLICKS
 		/* fyai writes @right, so it takes the right edge as it is */
 		if (asprintf(&head,
 			     "<fy-act id=\"tile:focus\">%.*s</fy-act>%s%s\n",
 			     (int)tlen, escaped, right ? "<fy-fill/>" : "",
 			     right ? right : "") < 0)
 			head = NULL;
-#else
-		if (asprintf(&head, "%.*s%s%s\n", (int)tlen, escaped,
-			     right && *right != ' ' ? " " : "",
-			     right ? right : "") < 0)
-			head = NULL;
-#endif
 	}
 
 	/* Render chrome at the granted tile width. */
