@@ -1409,11 +1409,12 @@ Do not pace a test with a delay. A delay that is sufficient on one runner is
 too short on a slower runner, and every run spends its full time. Wait for the
 state that the next step needs. The PTY driver does not pause after an
 action. A PTY case waits on the terminal state that `tests/screen.py` models:
-`wait-screen` for text on the screen or on a row that scrolled off it since
-the last action, `wait-gone` for text that left the screen, `wait-copy` for
-an OSC 52 copy, and `frame` for a key that must be acted on. Do not wait on
-the raw capture bytes with `wait` or `wait-frame`: a frame paints only the
-cells that changed, so the bytes do not say what the screen shows. Do not use
+`wait-screen` for text on the screen, or on a row that scrolled off it or that
+an erase of the display removed since the last action, `wait-gone` for text
+that left the screen, `wait-copy` for an OSC 52 copy, and `frame` for a key
+that must be acted on. Do not wait on the raw capture bytes with `wait` or
+`wait-frame`: a frame paints only the cells that changed, so the bytes do not
+say what the screen shows. Do not use
 `drain` or `settle` to wait for a state. A program in a tile that reports a
 changing value, such as its size, prints it on a short interval, and the case
 waits for the expected value on the screen. A key that must change nothing
