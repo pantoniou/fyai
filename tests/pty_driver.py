@@ -15,6 +15,73 @@ from screen import Screen                                     # noqa: E402
 FRAME_END = b"\x1b[?2026l"
 
 
+QUERY = b"\x1b[6n"
+# A program asks for the background with OSC 11, ended by ST or BEL.
+BACKGROUND_QUERIES = (b"\x1b]11;?\x1b\\", b"\x1b]11;?\x07")
+TERMINAL = None
+
+
+class Terminal:
+    """The terminal a program under test asks where its cursor is.
+
+    A program that stands inline on the screen asks with CSI 6n and waits for
+    CSI row;col R, which a terminal always answers. A pseudo-terminal answers
+    nothing, so the driver answers from a screen fed every byte before the
+    question. A case that sets $FYAI_PTY_BACKGROUND, such as
+    rgb:1e1e/1e1e/2e2e, also gets that answer to an OSC 11 query; without it
+    the background query goes unanswered, as on a terminal that does not
+    answer it.
+    """
+
+    def __init__(self, rows, cols):
+        self.screen = Screen(rows, cols)
+        self.held = b""
+        self.background = os.environ.get("FYAI_PTY_BACKGROUND")
+
+    def resize(self, rows, cols):
+        self.screen = Screen(rows, cols)
+        self.held = b""
+
+    def read(self, fd):
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            return chunk
+        buf = self.held + chunk
+        queries = [QUERY]
+        if self.background:
+            queries += BACKGROUND_QUERIES
+        start = 0
+        while True:
+            found = [(buf.find(q, start), q) for q in queries]
+            found = [f for f in found if f[0] >= 0]
+            if not found:
+                break
+            at, query = min(found)
+            self.screen.feed(buf[start:at + len(query)])
+            if query == QUERY:
+                os.write(fd, b"\x1b[%d;%dR" % (self.screen.row + 1,
+                                                self.screen.col + 1))
+            else:
+                os.write(fd, b"\x1b]11;%s\x1b\\" % self.background.encode())
+            start = at + len(query)
+        # A question can be split between two reads: hold its start.
+        keep = 0
+        for query in queries:
+            for k in range(len(query) - 1, 0, -1):
+                if buf.endswith(query[:k]):
+                    keep = max(keep, k)
+                    break
+        self.screen.feed(buf[start:len(buf) - keep])
+        self.held = buf[len(buf) - keep:]
+        return chunk
+
+
+def terminal_read(fd):
+    if TERMINAL is None:
+        return os.read(fd, 65536)
+    return TERMINAL.read(fd)
+
+
 def input_row_holds(data, text, rows, cols, marker="❯"):
     """Whether the live input row holds @text.
 
@@ -58,7 +125,7 @@ def read_until_input(fd, data, text, rows, cols, deadline,
         if not ready:
             continue
         try:
-            chunk = os.read(fd, 65536)
+            chunk = terminal_read(fd)
         except OSError:
             break
         if not chunk:
@@ -77,7 +144,7 @@ def read_until(fd, data, needle, deadline):
         if not ready:
             continue
         try:
-            chunk = os.read(fd, 65536)
+            chunk = terminal_read(fd)
         except OSError:
             break
         if not chunk:
@@ -95,7 +162,7 @@ def read_until_count(fd, data, needle, count, deadline):
         if not ready:
             continue
         try:
-            chunk = os.read(fd, 65536)
+            chunk = terminal_read(fd)
         except OSError:
             break
         if not chunk:
@@ -234,6 +301,8 @@ def main():
         b"\x1b[?25h"
     rows = int(os.environ.get("FYAI_PTY_ROWS", "30"))
     cols = int(os.environ.get("FYAI_PTY_COLS", "100"))
+    global TERMINAL
+    TERMINAL = Terminal(rows, cols)
     session_timeout = float(os.environ.get("FYAI_PTY_TIMEOUT", "15")) * scale
     expected_status = int(os.environ.get("FYAI_PTY_EXIT_STATUS", "0"))
     # Post-turn PTY actions, separated by "|":
@@ -339,7 +408,7 @@ def main():
                     ready, _, _ = select.select([master], [], [], 0.1)
                     if ready:
                         try:
-                            chunk = os.read(master, 65536)
+                            chunk = terminal_read(master)
                         except OSError:
                             chunk = b""
                         if chunk:
@@ -490,6 +559,7 @@ def main():
                             struct.pack("HHHH", resize_rows, resize_cols,
                                         0, 0))
                 pending_resize = (resize_rows, resize_cols)
+                TERMINAL.resize(resize_rows, resize_cols)
                 # The window is painted again whole, so read it again from
                 # here: rows made for the old size are not on it any more.
                 screen = Screen(resize_rows, resize_cols)
@@ -523,7 +593,7 @@ def main():
                     if not ready:
                         continue
                     try:
-                        chunk = os.read(master, 65536)
+                        chunk = terminal_read(master)
                     except OSError:
                         break
                     if not chunk:
@@ -562,7 +632,7 @@ def main():
                     if not ready:
                         continue
                     try:
-                        chunk = os.read(master, 65536)
+                        chunk = terminal_read(master)
                     except OSError:
                         break
                     if not chunk:
@@ -606,7 +676,7 @@ def main():
                             break
                         continue
                     try:
-                        chunk = os.read(master, 65536)
+                        chunk = terminal_read(master)
                     except OSError:
                         break
                     if not chunk:
@@ -620,7 +690,7 @@ def main():
                     if not ready:
                         continue
                     try:
-                        chunk = os.read(master, 65536)
+                        chunk = terminal_read(master)
                     except OSError:
                         break
                     if not chunk:
@@ -646,7 +716,7 @@ def main():
             ready, _, _ = select.select([] if eof else [master], [], [], 0.1)
             if ready:
                 try:
-                    chunk = os.read(master, 65536)
+                    chunk = terminal_read(master)
                 except OSError:
                     chunk = b""
                 if not chunk:
