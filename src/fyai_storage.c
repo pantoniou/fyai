@@ -1444,23 +1444,6 @@ out:
 	return 0;
 }
 
-/* Delay a branch publish for functional CAS tests. */
-static void branch_publish_test_delay(void)
-{
-	const char *s;
-	char *end;
-	long ms;
-
-	s = getenv("FYAI_TEST_BRANCH_CAS_DELAY_MS");
-	if (!s || !*s)
-		return;
-	errno = 0;
-	ms = strtol(s, &end, 10);
-	if (errno || *end || ms <= 0 || ms > 5000)
-		return;
-	usleep((useconds_t)ms * 1000);
-}
-
 /* The longest wait of a publisher at the functional CAS test gate. */
 #define BRANCH_CAS_GATE_WAIT_MS	60000
 
@@ -1610,7 +1593,6 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 		fyai_error_check(ctx, fy_is_valid(root), err_out,
 				 "could not build branch-table root");
 		desired = (uint64_t)root.v;
-		branch_publish_test_delay();
 		branch_publish_test_gate();
 		rc = fy_allocator_refs_publish(ctx->durable_allocator,
 					       ctx->refs_head, desired,
