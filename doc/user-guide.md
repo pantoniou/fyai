@@ -1036,6 +1036,15 @@ do: in the default header the branch and the directory differ in colour. A
 directory that the shell reached through a symbolic link under your home
 directory shows as `~/...`.
 
+`display/editor` says where an editor runs for `/edit`, `config edit` and a
+log view. `pane`, the default, runs it in a tile of the work pane that takes
+the pane and the keys; the session goes on when the editor ends. `terminal`
+gives the whole terminal to the editor, as before:
+
+```sh
+fyai --set display/editor=terminal -i
+```
+
 ## 11. CLI reference
 
 ```text

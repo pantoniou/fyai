@@ -929,6 +929,13 @@ command.
   `quarter` for the session.
 - A named session shows its handle in the tile head, so the user can tell two
   sessions apart and name one in a later command.
+- An editor for `/edit`, `config edit` or a log view runs as a user-owned
+  session too, through `fyai_tools_user_program()`: its tile, `edit-N`, takes
+  the pane and the keys. The session reports the end of the program to its
+  owner through its exit callback, one time, also when the tile goes first.
+  A caller suspends the UI only when `fyai_editor_in_pane()` is false.
+  `display/editor: terminal` gives the editor the whole terminal, and a command
+  without an interactive UI always does.
 
 ### Palette themes
 
