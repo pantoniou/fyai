@@ -326,8 +326,9 @@ def main():
     #   release:PATH     create a file to release a held fixture
     #   wait-frame:TEXT  require TEXT after the last action and a frame end
     #   wait-screen:TEXT read until TEXT is on the screen, or on a row that
-    #               scrolled off it since the last action: a row the output
-    #               scrolled away within one read was still shown.
+    #               scrolled off it or that an erase of the display removed
+    #               since the last action: a row the output took away within
+    #               one read was still shown.
     #   wait-gone:TEXT   read until TEXT is off the screen. A frame paints
     #               only what changed, thus the capture says what arrived
     #               and only the screen says what is still there.
@@ -550,6 +551,7 @@ def main():
         screen = Screen(rows, cols)
         screen_at = 0
         scrolled_start = 0
+        erased_start = 0
 
         def screen_rows():
             nonlocal screen_at
@@ -569,6 +571,7 @@ def main():
                 copies_start = len(TERMINAL.screen.clipboard)
                 screen_rows()
                 scrolled_start = len(screen.scrollback)
+                erased_start = len(screen.erased)
             if kind == "send":
                 os.write(master, value.encode() + b"\n")
                 time.sleep(after_pause)
@@ -591,6 +594,7 @@ def main():
                 screen = Screen(resize_rows, resize_cols)
                 screen_at = len(data)
                 scrolled_start = 0
+                erased_start = 0
                 time.sleep(after_pause)
             elif kind == "release":
                 with open(value, "wb"):
@@ -650,7 +654,8 @@ def main():
                     # sends no whole line to wait for: read the screen.
                     if kind == "wait-screen":
                         return any(value in row for row in screen_rows() +
-                                   screen.scrollback[scrolled_start:])
+                                   screen.scrollback[scrolled_start:] +
+                                   screen.erased[erased_start:])
                     return not any(value in row for row in screen_rows())
                 step_deadline = time.monotonic() + after_timeout
                 reassert_at = time.monotonic()

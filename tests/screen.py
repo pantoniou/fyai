@@ -30,6 +30,9 @@ class Screen:
         # Rows that left the screen. A transcript is longer than the screen,
         # so the order of what the user saw needs them.
         self.scrollback = []
+        # Rows that an erase of the display removed. They were shown, but a
+        # terminal does not scroll them away, so they are not scrollback.
+        self.erased = []
         # An escape or a UTF-8 character can be split between two writes. A
         # reader that feeds the capture in pieces would otherwise draw the
         # halves as text, so the tail of a piece is held until the rest of it
@@ -193,6 +196,7 @@ class Screen:
         elif final == b"J":
             mode = args[0] if args else 0
             if mode == 2:
+                self.erased.extend(r for r in self.display() if r)
                 for r in range(self.rows):
                     self._clear(r, 0, self.cols)
             elif mode == 0:
