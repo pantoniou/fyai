@@ -16,9 +16,12 @@ shell()
     printf '%s' "!sh -c 'while :; do printf \"\\r\\033[K$1 %s \" \"\$(stty size)\"; sleep 0.2; done'"
 }
 
-# The case waits on the screen for the size each shell is granted beside the
-# other, while the second holds the keys; then for each head to be made again
-# at the width of its grant, which leaves no head cut with an ellipsis.
+# A frame paints only the cells that changed, so a size that a shell prints is
+# not in the output bytes whole. The case waits for the tile head, then on the
+# screen for the size of the first shell alone and for the size each shell is
+# granted beside the other, while the second holds the keys; then for each head
+# to be made again at the width of its grant, which leaves no head cut with an
+# ellipsis.
 run_with()
 {
     renderer=$1
@@ -26,8 +29,9 @@ run_with()
     FYAI_TRACE="$TEST_DIR/trace.log" \
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="$(shell FIRST)" \
-    FYAI_PTY_NEEDLE="FIRST 2" FYAI_PTY_TIMEOUT=20 \
-    FYAI_PTY_AFTER="wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+    FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=20 \
+    FYAI_PTY_AFTER="wait-screen:FIRST 21 98|wait-screen:Ctrl-]|raw:1d|"\
+"wait-gone:Ctrl-]|"\
 "send:$(shell SECOND)|wait-screen:Ctrl-]|"\
 "wait-screen:FIRST 21 47|wait-screen:SECOND 21 46|"\
 "raw:1d|wait-gone:Ctrl-]|wait-gone:…|"\
