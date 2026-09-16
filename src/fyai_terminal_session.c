@@ -836,19 +836,16 @@ void fyai_terminal_relay_resize(struct fyai_terminal_relay *rl, int rows,
 	if (!rl || rl->input != rl->master || rl->master < 0 ||
 	    rows <= 0 || cols <= 0)
 		return;
-	(void)kill(-rl->pid, SIGSTOP);
+	/*
+	 * The output read so far was written at the old size. The program is
+	 * not stopped: a stop races with its forks, and a program that must not
+	 * see the size change mid-operation blocks SIGWINCH. The kernel sends
+	 * SIGWINCH to the foreground group when the size changes.
+	 */
 	relay_drain_output(rl);
 	ws.ws_row = (unsigned short)rows;
 	ws.ws_col = (unsigned short)cols;
 	(void)ioctl(rl->master, TIOCSWINSZ, &ws);
-}
-
-void fyai_terminal_relay_resume(struct fyai_terminal_relay *rl)
-{
-	if (rl && rl->pid > 0) {
-		(void)kill(-rl->pid, SIGCONT);
-		(void)kill(-rl->pid, SIGWINCH);
-	}
 }
 
 /* End the session gracefully, or kill it immediately when forced. */
@@ -869,7 +866,7 @@ void fyai_terminal_relay_close(struct fyai_terminal_relay *rl, bool force)
 	 * ignores SIGTERM and answers only the hangup. */
 	(void)kill(-rl->pid, SIGHUP);
 	(void)kill(-rl->pid, SIGTERM);
-	/* Resume a resize-stopped job so it can process termination signals. */
+	/* Resume a stopped job so it can process termination signals. */
 	(void)kill(-rl->pid, SIGCONT);
 
 	el = fyai_ctx_loop(rl->ctx);

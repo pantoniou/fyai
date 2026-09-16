@@ -1919,8 +1919,6 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		(void)jsonrpc_notify(conn, "tty/resized",
 			fy_gb_mapping(gb, "rows", (long long)tc->ctx->tty_rows,
 				      "cols", (long long)tc->ctx->tty_cols));
-		if (tc->relay)
-			fyai_terminal_relay_resume(tc->relay);
 		return fy_invalid;
 	}
 	if (!strcmp(method, "shell/write")) {
