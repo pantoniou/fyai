@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1460,6 +1461,56 @@ static void branch_publish_test_delay(void)
 	usleep((useconds_t)ms * 1000);
 }
 
+/* The longest wait of a publisher at the functional CAS test gate. */
+#define BRANCH_CAS_GATE_WAIT_MS	60000
+
+/*
+ * Hold a branch publish at a gate for functional CAS tests.
+ * $FYAI_TEST_BRANCH_CAS_GATE names a directory. The publisher records itself
+ * there and waits until $FYAI_TEST_BRANCH_CAS_PEERS publishers did, so that
+ * each opened the same root before one of them publishes. A delay cannot
+ * guarantee this on a slow runner.
+ */
+static void branch_publish_test_gate(void)
+{
+	const char *dir, *s;
+	struct dirent *de;
+	char path[PATH_MAX];
+	long peers, waited;
+	char *end;
+	DIR *d;
+	int fd, n, rc;
+
+	dir = getenv("FYAI_TEST_BRANCH_CAS_GATE");
+	s = getenv("FYAI_TEST_BRANCH_CAS_PEERS");
+	if (fy_str_empty(dir) || fy_str_empty(s))
+		return;
+	errno = 0;
+	peers = strtol(s, &end, 10);
+	if (errno || *end || peers < 2 || peers > 64)
+		return;
+	rc = snprintf(path, sizeof(path), "%s/%ld", dir, (long)getpid());
+	if (rc < 0 || (size_t)rc >= sizeof(path))
+		return;
+	fd = open(path, O_WRONLY | O_CREAT | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return;
+	close(fd);
+	for (waited = 0; waited < BRANCH_CAS_GATE_WAIT_MS; waited += 10) {
+		d = opendir(dir);
+		if (!d)
+			return;
+		n = 0;
+		while ((de = readdir(d)))
+			if (de->d_name[0] != '.')
+				n++;
+		closedir(d);
+		if (n >= peers)
+			return;
+		usleep(10 * 1000);
+	}
+}
+
 /* Reapply a branch-table delta after a lost CAS. */
 static fy_generic branches_delta_apply(struct fyai_ctx *ctx, fy_generic base,
 				       fy_generic desired, fy_generic latest)
@@ -1560,6 +1611,7 @@ int fyai_publish_branches(struct fyai_ctx *ctx, fy_generic base,
 				 "could not build branch-table root");
 		desired = (uint64_t)root.v;
 		branch_publish_test_delay();
+		branch_publish_test_gate();
 		rc = fy_allocator_refs_publish(ctx->durable_allocator,
 					       ctx->refs_head, desired,
 					       FY_ALLOC_REFS_CHECKPOINT);
