@@ -1877,6 +1877,8 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	}
 	spool_restore(&ui->out, STDOUT_FILENO);
 	spool_restore(&ui->err, STDERR_FILENO);
+	/* The workpane frees the surfaces; nothing may keep one after it. */
+	fyai_tools_display_closed(ctx);
 	fyai_workpane_destroy(ctx->workpane);
 	ctx->workpane = NULL;
 	fyai_page_destroy(ui->page);

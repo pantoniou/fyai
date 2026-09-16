@@ -59,6 +59,11 @@ bool fyai_tools_active(const struct fyai_ctx *ctx);
 void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force);
 /* Release the turn sessions, sparing shells the user opened. */
 void fyai_shell_sessions_release_turn(struct fyai_ctx *ctx);
+/*
+ * The display closes: drop every surface that a session or a job holds, and
+ * the animation that paints it. The programs keep running.
+ */
+void fyai_tools_display_closed(struct fyai_ctx *ctx);
 
 /* True when a terminal session owns this call's display. */
 bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);

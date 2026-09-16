@@ -2905,6 +2905,29 @@ static void fyai_shell_session_release_one(struct fyai_shell_session *sess,
 	fyai_shell_session_destroy(sess);
 }
 
+void fyai_tools_display_closed(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	if (!ctx)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (sess->animation) {
+			fyai_event_source_remove(sess->animation);
+			sess->animation = NULL;
+		}
+		sess->surface = NULL;
+	}
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (job->animation) {
+			fyai_event_source_remove(job->animation);
+			job->animation = NULL;
+		}
+		job->surface = NULL;
+	}
+}
+
 /* End and release every session owned by this invocation. */
 void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force)
 {
