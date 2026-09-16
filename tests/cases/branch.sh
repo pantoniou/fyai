@@ -193,16 +193,30 @@ assert_status 1
 assert_stderr_contains "rename-dest/child"
 
 # --- concurrent foreign-branch mutations ---------------------------------
-# Delay both publishers after they have opened the same root. One must lose
-# the CAS and reapply its disjoint branch-table delta to the surviving root.
+# Hold both publishers at a gate after they have opened the same root. One must
+# lose the CAS and reapply its disjoint branch-table delta to the surviving
+# root.
+cas_gate() {
+	CAS_GATE="$TEST_DIR/cas-gate-$1"
+	rm -rf "$CAS_GATE"
+	mkdir -p "$CAS_GATE"
+	export FYAI_TEST_BRANCH_CAS_GATE="$CAS_GATE"
+	export FYAI_TEST_BRANCH_CAS_PEERS=2
+}
+
+cas_gate_end() {
+	unset FYAI_TEST_BRANCH_CAS_GATE FYAI_TEST_BRANCH_CAS_PEERS
+}
+
 run_cas_pair() {
 	tag=$1
 	shift
+	cas_gate "$tag"
 	set +e
-	FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
+	"$FYAI_BIN" --color off \
 		"$@" >"$TEST_DIR/$tag.left.out" 2>"$TEST_DIR/$tag.left.err" &
 	left_pid=$!
-	FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
+	"$FYAI_BIN" --color off \
 		"${CAS_RIGHT[@]}" >"$TEST_DIR/$tag.right.out" \
 		2>"$TEST_DIR/$tag.right.err" &
 	right_pid=$!
@@ -211,6 +225,7 @@ run_cas_pair() {
 	wait "$right_pid"
 	right_status=$?
 	set -e
+	cas_gate_end
 	[ "$left_status" -eq 0 ] || fail "$tag left operation failed"
 	[ "$right_status" -eq 0 ] || fail "$tag right operation failed"
 	grep -qF "reapplied branch-table changes" \
@@ -263,12 +278,13 @@ assert_stdout_not_contains "renamed-b"
 # and the other must fail explicitly rather than claim a dropped update.
 run_fyai branch create cas-same
 assert_status 0
+cas_gate same
 set +e
-FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
+"$FYAI_BIN" --color off \
 	branch describe cas-same "same left" \
 	>"$TEST_DIR/same.left.out" 2>"$TEST_DIR/same.left.err" &
 same_left_pid=$!
-FYAI_TEST_BRANCH_CAS_DELAY_MS=200 "$FYAI_BIN" --color off \
+"$FYAI_BIN" --color off \
 	branch describe cas-same "same right" \
 	>"$TEST_DIR/same.right.out" 2>"$TEST_DIR/same.right.err" &
 same_right_pid=$!
@@ -277,6 +293,7 @@ same_left_status=$?
 wait "$same_right_pid"
 same_right_status=$?
 set -e
+cas_gate_end
 [ $((same_left_status + same_right_status)) -eq 1 ] || \
 	fail "same-branch CAS did not produce exactly one conflict"
 grep -qF "changed concurrently" \
