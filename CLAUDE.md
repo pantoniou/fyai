@@ -900,9 +900,14 @@ grid and draws it again itself. A resize is a barrier between what the program
 wrote at the old size and what it writes at the new one.
 
 - The child owns the pseudo-terminal, so only the child can change its size.
-  The parent sends `tty/resize`, the child stops the foreground job, drains
-  what it wrote, sets the new size, sends `tty/resized`, and resumes the job.
-  The parent then resizes the view and publishes the new grid.
+  The parent sends `tty/resize`, the child drains what the program wrote,
+  sets the new size, and sends `tty/resized`. The parent then resizes the
+  view and publishes the new grid.
+- Do not stop the program for a resize. A stop races with a fork: a process
+  that forks while its group is stopped misses the SIGCONT and stays stopped.
+  The kernel sends SIGWINCH when the size changes. A program that must not
+  see the change during an operation blocks SIGWINCH and gets it when it
+  unblocks it.
 - Publish the grid before the next frame. A resize damages every cell, and the
   retained surface still holds the mechanically resized old cells. A program
   that repaints only what it changed never covers them.
