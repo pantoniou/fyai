@@ -18,7 +18,7 @@ env:
   # Pinned to the same libfyaml revision fyai's CMakeLists fetches, so the
   # statically-linked archive matches what a normal build would pull in.
   LIBFYAML_REPO: https://github.com/pantoniou/libfyaml
-  LIBFYAML_REF: 5e5ed1212de2a489ed10c9c79c56babf17f6fd20
+  LIBFYAML_REF: 1a850a82b3b4ce1e21e4dedb15c7fa677ba2a6c5
 
 jobs:
   build:
@@ -78,7 +78,7 @@ jobs:
     - name: "Build & install static libfypalette"
       run: |
         git clone https://github.com/pantoniou/libfypalette /tmp/libfypalette
-        git -C /tmp/libfypalette checkout 4cb9999029a1c5b420ccfe668232ebb34267d6f9
+        git -C /tmp/libfypalette checkout d80f140bbd6362251eb448030191195488121e41
         cmake -S /tmp/libfypalette -B /tmp/libfypalette/build \
           -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \

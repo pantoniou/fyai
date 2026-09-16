@@ -203,7 +203,7 @@ if(NOT TARGET libfyaml::libfyaml)
     set(BUILD_TESTING OFF)
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
-        GIT_TAG 5e5ed1212de2a489ed10c9c79c56babf17f6fd20
+        GIT_TAG 1a850a82b3b4ce1e21e4dedb15c7fa677ba2a6c5
     )
     FetchContent_MakeAvailable(libfyaml)
     set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
@@ -228,7 +228,7 @@ if(NOT TARGET libfypalette::libfypalette)
     set(BUILD_FYPALETTE_TOOLS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(libfypalette
         GIT_REPOSITORY https://github.com/pantoniou/libfypalette
-        GIT_TAG 4cb9999029a1c5b420ccfe668232ebb34267d6f9
+        GIT_TAG d80f140bbd6362251eb448030191195488121e41
     )
     FetchContent_MakeAvailable(libfypalette)
 endif()
@@ -243,7 +243,7 @@ if(NOT TARGET libfymd4c::libfymd4c AND
         "Build the libfymd4c command-line executable" FORCE)
     FetchContent_Declare(libfymd4c
         GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG 8c2d6c96c01c946521db0cdfb6d74a6cc2061e02
+        GIT_TAG b78a9ff4220a31cd3928e1216cdf9f159951c23c
     )
     FetchContent_MakeAvailable(libfymd4c)
 endif()
@@ -432,7 +432,7 @@ if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG 36125d000cf9a4f4666fff32c7f4c148e2fddb06
+        GIT_TAG ba56569e523142fb93ea5dd4d5ef32c7684a1c81
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
