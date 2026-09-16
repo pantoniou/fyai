@@ -1030,6 +1030,9 @@ background to the terminal and adapts the palette to that background.
 `ember:auto` is the default `display/theme` when fyai is built with
 libfypalette. A build without it uses `default:auto`.
 
+A directory that the shell reached through a symbolic link under your home
+directory shows as `~/...`.
+
 ## 11. CLI reference
 
 ```text
