@@ -1027,6 +1027,9 @@ The page fills default backgrounds with the theme's ground colour and keeps
 card and code backgrounds. `display/theme_ground=terminal` leaves the page
 background to the terminal and adapts the palette to that background.
 
+`ember:auto` is the default `display/theme` when fyai is built with
+libfypalette. A build without it uses `default:auto`.
+
 ## 11. CLI reference
 
 ```text
