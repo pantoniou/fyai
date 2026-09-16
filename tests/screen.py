@@ -19,6 +19,9 @@ class Screen:
         self.rows = rows
         self.cols = cols
         self.grid = [[" "] * cols for _ in range(rows)]
+        # Which cells are drawn in reverse video, and whether the next is.
+        self.rev = [[False] * cols for _ in range(rows)]
+        self.reverse = False
         self.row = 0
         self.col = 0
         # Rows that left the screen. A transcript is longer than the screen,
@@ -33,6 +36,11 @@ class Screen:
     def display(self):
         return ["".join(r).rstrip() for r in self.grid]
 
+    def reversed_display(self):
+        """Each row with "#" where a cell is reversed."""
+        return ["".join("#" if c else " " for c in r).rstrip()
+                for r in self.rev]
+
     def lines(self):
         """Every row in the order it was shown, scrolled-off rows first."""
         return self.scrollback + self.display()
@@ -41,11 +49,14 @@ class Screen:
         self.scrollback.append("".join(self.grid[0]).rstrip())
         self.grid.pop(0)
         self.grid.append([" "] * self.cols)
+        self.rev.pop(0)
+        self.rev.append([False] * self.cols)
 
     def _put(self, ch):
         if self.col >= self.cols:
             return
         self.grid[self.row][self.col] = ch
+        self.rev[self.row][self.col] = self.reverse
         self.col += 1
 
     def feed(self, data):
@@ -114,10 +125,34 @@ class Screen:
                 continue
             i += 1
 
+    def _sgr(self, params):
+        codes = [int(p) if p.isdigit() else 0 for p in params.split(b";")]
+        i = 0
+        while i < len(codes):
+            c = codes[i]
+            if c in (38, 48, 58):
+                # A colour: its sub-parameters are not attributes.
+                i += 3 if i + 1 < len(codes) and codes[i + 1] == 5 else 5
+                continue
+            if c == 0:
+                self.reverse = False
+            elif c == 7:
+                self.reverse = True
+            elif c == 27:
+                self.reverse = False
+            i += 1
+
+    def _clear(self, row, lo, hi):
+        for c in range(lo, hi):
+            self.grid[row][c] = " "
+            self.rev[row][c] = False
+
     def _csi(self, params, final):
         args = [int(p) for p in params.split(b";") if p.isdigit()]
         n = args[0] if args else 1
-        if final == b"A":
+        if final == b"m":
+            self._sgr(params)
+        elif final == b"A":
             self.row = max(0, self.row - max(1, n))
         elif final == b"B":
             self.row = min(self.rows - 1, self.row + max(1, n))
@@ -133,26 +168,29 @@ class Screen:
         elif final == b"J":
             mode = args[0] if args else 0
             if mode == 2:
-                self.grid = [[" "] * self.cols for _ in range(self.rows)]
+                for r in range(self.rows):
+                    self._clear(r, 0, self.cols)
             elif mode == 0:
-                for c in range(self.col, self.cols):
-                    self.grid[self.row][c] = " "
+                self._clear(self.row, self.col, self.cols)
                 for r in range(self.row + 1, self.rows):
-                    self.grid[r] = [" "] * self.cols
+                    self._clear(r, 0, self.cols)
         elif final == b"K":
             mode = args[0] if args else 0
             lo = self.col if mode == 0 else 0
             hi = self.cols if mode in (0, 2) else self.col + 1
-            for c in range(lo, hi):
-                self.grid[self.row][c] = " "
+            self._clear(self.row, lo, min(hi, self.cols))
         elif final == b"L":
             for _ in range(max(1, n)):
                 self.grid.insert(self.row, [" "] * self.cols)
                 self.grid.pop()
+                self.rev.insert(self.row, [False] * self.cols)
+                self.rev.pop()
         elif final == b"M":
             for _ in range(max(1, n)):
                 self.grid.pop(self.row)
                 self.grid.append([" "] * self.cols)
+                self.rev.pop(self.row)
+                self.rev.append([False] * self.cols)
         elif final == b"S":
             for _ in range(max(1, n)):
                 self._scroll()
