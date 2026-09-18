@@ -187,7 +187,7 @@ const char *terminal_detect_theme(void)
 {
 	const char *env = getenv("COLORFGBG");
 	const char *last;
-	const char *result = "dark";
+	const char *result = NULL;
 	struct termios old, raw;
 	struct pollfd pfd;
 	char buf[64];
@@ -203,12 +203,12 @@ const char *terminal_detect_theme(void)
 	}
 	fd = open("/dev/tty", O_RDWR | O_NOCTTY);
 	if (fd < 0)
-		return "dark";
+		return NULL;
 	/* Do not query the terminal from a background process group. */
 	if (!terminal_is_tty(fd) || tcgetpgrp(fd) != getpgrp() ||
 	    tcgetattr(fd, &old)) {
 		close(fd);
-		return "dark";
+		return NULL;
 	}
 	raw = old;
 	raw.c_lflag &= ~(ICANON | ECHO);

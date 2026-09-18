@@ -583,6 +583,7 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 {
 	char name[128];
 	const char *variant;
+	const char *detected;
 
 	if (!markdown_theme_split(cfg->theme, name, sizeof(name), &variant))
 		return;
@@ -593,9 +594,27 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 		else if (cfg->agent_pty)
 			variant = cfg->theme_variant && *cfg->theme_variant ?
 				  cfg->theme_variant : "dark";
-		else
-			variant = markdown_color_enabled(cfg->color) ?
-					terminal_detect_theme() : "dark";
+		else if (!markdown_color_enabled(cfg->color))
+			variant = "dark";
+		else {
+			/*
+			 * Keep the answer of the terminal. A re-derive during
+			 * a live session queries a terminal whose reply the UI
+			 * reads, and a fallback would change the variant under
+			 * the conversation already rendered. A terminal that
+			 * did not answer gives nothing to keep, thus the next
+			 * load asks again.
+			 */
+			if (!cfg->terminal_variant) {
+				detected = terminal_detect_theme();
+				if (detected)
+					cfg->terminal_variant =
+						fy_gb_intern_string(cfg->gb,
+								    detected);
+			}
+			variant = cfg->terminal_variant ?
+				  cfg->terminal_variant : "dark";
+		}
 	}
 	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
 	cfg->palette = NULL;

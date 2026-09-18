@@ -224,6 +224,9 @@ struct fyai_cfg {
 	 * @terminal_ground, -1 the terminal did not answer. */
 	int terminal_ground_state;
 	uint32_t terminal_ground;
+	/* The variant the terminal reported, asked for once. A later query
+	 * runs under a live UI, which reads the reply, and answers dark. */
+	const char *terminal_variant;
 	const char *markdown_rev_on[2];	/* reverse-card pair, [0] dark [1] light */
 	const char *markdown_rev_off[2];
 	const char *turn_separator;	/* history inter-turn break (markdown) */

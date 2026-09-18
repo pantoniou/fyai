@@ -25,6 +25,8 @@ bool terminal_is_tty(int fd);
 bool terminal_window_size(int fd, int *rowsp, int *colsp);
 bool ansi_color_on(const char *color, int fd);
 bool markdown_color_enabled(const char *color);
+/* "light" or "dark" from $COLORFGBG or an OSC 11 query, NULL when the
+ * terminal did not answer. */
 const char *terminal_detect_theme(void);
 bool terminal_text_at_line_start(const char *text, size_t len);
 size_t terminal_trim_blank_rows(const char *text, size_t len);
