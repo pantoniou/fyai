@@ -151,14 +151,20 @@ static char *ui_indicator(struct fyai_ui *ui,
 static int ui_status_render(struct fyai_ui *ui, const char *activity)
 {
 	struct response_buffer out = {0};
+	const char *margin = activity;
 	char *line, *p;
 	size_t start, end, i;
-	int rc;
+	int cols, width, rc;
 
 	if (!ui->status_bottom)
 		return 0;
+	cols = markdown_gutter_cols(ui->ctx->cfg);
+	width = activity ? fymd_str_width(activity, strlen(activity)) : 0;
+	if (width >= 0 && width < cols)
+		margin = fy_sprintfa("%s%*s", activity ? activity : "",
+				      cols - width, "");
 	if (markdown_render_margins(ui->ctx->cfg, ui->status_bottom,
-			strlen(ui->status_bottom), &out, activity, activity))
+			strlen(ui->status_bottom), &out, margin, margin))
 		return -1;
 	start = 0;
 	end = out.len;

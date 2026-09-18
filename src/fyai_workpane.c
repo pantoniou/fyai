@@ -348,6 +348,7 @@ static void workpane_cap_update(struct fyai_workpane_manager *wm)
 	struct response_buffer out = {0};
 	struct fyai_cfg *cfg;
 	char source[512];
+	char *top;
 	int saved_width;
 	int n;
 
@@ -370,18 +371,24 @@ static void workpane_cap_update(struct fyai_workpane_manager *wm)
 	}
 	cfg->render_width = saved_width;
 	response_buffer_trim(&out);
-	if (!out.data || (wm->cap_text && !strcmp(wm->cap_text, out.data))) {
+	if (!out.data || asprintf(&top, "\n%s", out.data) < 0) {
 		free(out.data);
 		return;
 	}
+	free(out.data);
+	if (wm->cap_text && !strcmp(wm->cap_text, top)) {
+		free(top);
+		return;
+	}
 	free(wm->cap_text);
-	wm->cap_text = out.data;
+	wm->cap_text = top;
 	(void)fytim_workpane_set_top(wm->pane, wm->cap_text);
 }
 
 void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 {
 	const struct fyai_cfg *cfg;
+	const char *frame;
 	int cols = 0;
 
 	if (!wm || !wm->pane)
@@ -404,9 +411,14 @@ void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 	wm->cap_text = NULL;
 	if (cfg->work_cap)
 		workpane_cap_update(wm);
-	else
-		(void)fytim_workpane_set_top(wm->pane,
-					     workpane_chrome_text(cfg->work_frame));
+	else {
+		/* One blank row separates the pane from the transcript. */
+		frame = workpane_chrome_text(cfg->work_frame);
+		if (asprintf(&wm->cap_text, "%s%s", frame ? "\n" : " ",
+			     frame ? : "") < 0)
+			wm->cap_text = NULL;
+		(void)fytim_workpane_set_top(wm->pane, wm->cap_text);
+	}
 	(void)fytim_workpane_set_bottom(wm->pane,
 					workpane_chrome_text(cfg->work_frame));
 	(void)fytim_workpane_set_tile_sep(wm->pane, cfg->tile_sep);

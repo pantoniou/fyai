@@ -195,6 +195,8 @@ pages:
 
   # The work pane: its cap row goes first when the page is too tall.
   pane:
+    - row:
+        - space: 1
     - if: pane.cap
       drop: 0
       body:

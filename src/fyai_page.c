@@ -179,6 +179,8 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 		       !fy_str_empty(st->status);
 	if (st->pane_rows > 0 && !fy_str_empty(st->cap))
 		rows++;
+	if (st->pane_rows > 0)
+		rows++;
 	/* A question: its row, who asks, each option, and the hint. */
 	if (st->ask_question)
 		rows += 2 + !fy_str_empty(st->ask_from) + (int)st->ask_noptions;
