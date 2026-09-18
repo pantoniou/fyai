@@ -11,6 +11,13 @@ state.
 The result feels like a Unix command while retaining the history, branching,
 tool use, and rich terminal experience expected from a modern coding agent.
 
+![An interactive fyai session: a Python program written, run through the shell
+tool, read back, and its algorithm drawn as a diagram in the
+terminal](doc/img/demo.gif)
+
+A session writes `fizzbuzz.py`, runs it with the shell tool, reads it back,
+and draws the algorithm of it as a fenced `mermaid` diagram on the terminal.
+
 ## What makes fyai interesting
 
 - **The process is temporary; the work is durable.** Conversations,
