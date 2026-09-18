@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # With display/work_controls the head of a tile takes clicks: its name gives
-# the tile the keys, and its marks zoom and close it. Under
+# the tile the keys, and its buttons maximize and close it. Under
 # display/renderer=page the head is drawn by the page and a click is an act of
 # the page, so both renderers must draw the head alike and act alike.
 set -eu
@@ -18,8 +18,6 @@ click()
 }
 
 NAME=$(click 7 1)
-ZOOM=$(click 99 1)
-CLOSE=$(click 100 1)
 
 # The shell writes SIZED in two parts, so only its output holds the word and
 # not the command in the head: the case waits for the output on the screen
@@ -35,8 +33,8 @@ run_with()
     FYAI_PTY_NEEDLE="CLICK" FYAI_PTY_TIMEOUT=20 \
     FYAI_PTY_AFTER="wait-screen:SIZED|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
 "raw:$NAME|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
-"raw:$ZOOM|frame:2|"\
-"raw:$CLOSE|wait-gone:⤢" \
+"click:□|frame:2|"\
+"click:×|wait-gone:▁" \
     FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
@@ -48,9 +46,9 @@ run_with()
         tail -c 2000 "$CAPTURES/$renderer.out" >&2
         fail "a click on the head of a tile did not act under $renderer"
     fi
-    # The zoom mark zoomed the tile.
+    # The maximize button zoomed the tile.
     grep -a -q "workpane: .*zoomed=0x" "$CAPTURES/$renderer.trace" ||
-        fail "the zoom mark did not zoom the tile under $renderer"
+        fail "the maximize button did not zoom the tile under $renderer"
 }
 
 run_with stack
@@ -101,8 +99,8 @@ def head(path):
 stack = head(sys.argv[1])
 page = head(sys.argv[2])
 for name, row in (("stack", stack), ("page", page)):
-    # The clicks go to these cells: the name, then the two marks.
-    if row[4:18] != "shell [bang-1]" or row[98] != "⤢" or row[99] != "×":
+    # The clicks go to these cells: the name, then the buttons.
+    if row[4:18] != "shell [bang-1]" or "▁ □ ×" not in row:
         raise SystemExit("%s head is not where the clicks go: %r" % (name, row))
 # The running mark in the gutter blinks; the rest of the row is the same.
 if stack[3:] != page[3:]:

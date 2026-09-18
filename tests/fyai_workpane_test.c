@@ -43,6 +43,7 @@ FYAI_TEST_ENTRY(workpane, focus_colour, workpane_focus_colour)
 FYAI_TEST_ENTRY(workpane, grid_has_no_holes, workpane_grid_has_no_holes)
 FYAI_TEST_ENTRY(workpane, tiles_are_placed_in_age, workpane_tiles_in_age)
 FYAI_TEST_ENTRY(workpane, focus_follows_the_screen, workpane_focus_follows_screen)
+FYAI_TEST_ENTRY(workpane, minimized_is_a_head, workpane_minimized_is_a_head)
 FYAI_TEST_ENTRY(workpane, keys_reach_the_program, workpane_keys_reach_program)
 FYAI_TEST_ENTRY(workpane, head_regions_follow_the_tile, workpane_head_regions_follow_tile)
 FYAI_TEST_ENTRY(workpane, cap_accounts_for_tiles, workpane_cap_accounts_for_tiles)
@@ -327,6 +328,7 @@ static void wpt_place(struct fyai_workpane_manager *wm, int n)
 	struct fyai_workpane_tile_info info[FYAI_WORKPANE_TILES_MAX];
 	int i;
 
+	memset(info, 0, sizeof(info));
 	for (i = 0; i < n; i++) {
 		info[i].kind = FYAI_WORKPANE_TILE_SHELL;
 		info[i].preferred_rows = 10;
@@ -452,6 +454,7 @@ int workpane_notices_take_a_row(void)
 	struct fyai_workpane_tile_info info[3];
 	int i;
 
+	memset(info, 0, sizeof(info));
 	for (i = 0; i < 3; i++) {
 		info[i].kind = FYAI_WORKPANE_TILE_SHELL;
 		info[i].preferred_rows = 10;
@@ -697,6 +700,57 @@ int workpane_focus_follows_screen(void)
 
 	wpt_close(wm);
 	printf("ok - focus cycles the tiles in screen order\n");
+	return 0;
+}
+
+/*
+ * A minimized tile is a head on a row of its own under the screens. It gives
+ * its rows to the others, takes no keys, is not zoomed, and comes back where
+ * it was.
+ */
+int workpane_minimized_is_a_head(void)
+{
+	struct fyai_workpane_manager *wm = wpt_open("full", 0);
+	struct fytim_surface *order[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_workpane_grid grid;
+
+	wpt_register_pair(wm);		/* the shell first, then the agent */
+	FYAI_TCHECK(!fyai_workpane_place(wm, NULL, 0, &grid));
+	FYAI_TCHECK(grid.rows == 1 && grid.cols == 2);
+
+	fyai_workpane_set_focus(wm, WPT_SHELL);
+	FYAI_TCHECK(!fyai_workpane_set_zoom(wm, WPT_SHELL));
+	FYAI_TCHECK(!fyai_workpane_set_minimized(wm, WPT_SHELL, true));
+	FYAI_TCHECK(fyai_workpane_minimized(wm, WPT_SHELL));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == NULL);
+	FYAI_TCHECK(fyai_workpane_zoomed(wm) == NULL);
+
+	/* The agent has the pane; the shell is a fitted row under it. */
+	FYAI_TCHECK(!fyai_workpane_place(wm, NULL, 0, &grid));
+	FYAI_TCHECK(grid.rows == 2 && grid.cols == 1);
+	FYAI_TCHECK(grid.place[1].row == 0);
+	FYAI_TCHECK(grid.place[0].row == 1 && grid.place[0].col_span == 1);
+	FYAI_TCHECK(grid.row_size[1] == FYAI_WORKPANE_TRACK_FIT);
+
+	/* The keys skip it. */
+	FYAI_TCHECK(fyai_workpane_screen_order(wm, order, 2) == 1);
+	FYAI_TCHECK(order[0] == WPT_AGENT);
+
+	/* Two minimized tiles share the row, with no hole beside them. */
+	FYAI_TCHECK(!fyai_workpane_set_minimized(wm, WPT_AGENT, true));
+	FYAI_TCHECK(!fyai_workpane_place(wm, NULL, 0, &grid));
+	FYAI_TCHECK(grid.rows == 1 && grid.cols == 2);
+	FYAI_TCHECK(grid.place[0].col == 0 && grid.place[1].col == 1);
+	FYAI_TCHECK(fyai_workpane_screen_order(wm, order, 2) == 0);
+
+	FYAI_TCHECK(!fyai_workpane_set_minimized(wm, WPT_SHELL, false));
+	FYAI_TCHECK(!fyai_workpane_set_minimized(wm, WPT_AGENT, false));
+	FYAI_TCHECK(!fyai_workpane_place(wm, NULL, 0, &grid));
+	FYAI_TCHECK(grid.rows == 1 && grid.cols == 2);
+	FYAI_TCHECK(fyai_workpane_set_minimized(wm, NULL, true) == -1);
+
+	wpt_close(wm);
+	printf("ok - a minimized tile is a head under the screens\n");
 	return 0;
 }
 

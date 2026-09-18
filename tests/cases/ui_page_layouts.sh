@@ -42,7 +42,7 @@ run_with()
     FYAI_PTY_AFTER="wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
 "send:$(shell SECOND)|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
 "send:$(shell THIRD)|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
-"send:/nosuch|wait-screen:unknown|$settled|wait-gone:…|"\
+"send:/nosuch|wait-screen:unknown|$settled|frame:4|"\
 "send:/kill bang-1|wait-screen:stopping shell bang-1|"\
 "send:/kill bang-2|wait-screen:stopping shell bang-2|"\
 "send:/kill bang-3|wait-screen:stopping shell bang-3" \

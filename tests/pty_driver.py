@@ -214,13 +214,13 @@ def check_after_script(after_script, snapshot):
     """
     kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone", "wait-screen",
              "wait-copy", "frame", "drain", "settle", "snapshot", "release",
-             "signal")
+             "signal", "click")
     for step in after_script:
         kind, _, value = step.partition(":")
         if kind not in kinds:
             raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
         if kind in ("send", "wait", "wait-frame", "wait-gone", "wait-screen",
-                    "release") and not value:
+                    "release", "click") and not value:
             raise RuntimeError(
                 "FYAI_PTY_AFTER step %r needs a value" % step)
         if kind == "frame":
@@ -566,7 +566,7 @@ def main():
 
         for step in after_script:
             kind, _, value = step.partition(":")
-            if kind in ("send", "raw", "resize"):
+            if kind in ("send", "raw", "resize", "click"):
                 action_start = len(data)
                 copies_start = len(TERMINAL.screen.clipboard)
                 screen_rows()
@@ -577,6 +577,22 @@ def main():
                 time.sleep(after_pause)
             elif kind == "raw":
                 os.write(master, bytes.fromhex(value))
+                time.sleep(after_pause)
+            elif kind == "click":
+                # Click the first cell of the text on the screen, as a
+                # terminal reports a press and release with the mouse
+                # grabbed. A position found on the screen does not change
+                # with the rows around it. Wait for the text first.
+                shown = screen_rows()
+                at = [(r, row.find(value)) for r, row in enumerate(shown)
+                      if value in row]
+                if not at:
+                    raise RuntimeError(
+                        "%r is not on the screen to click; screen=%r" %
+                        (value, shown))
+                r, c = at[0]
+                os.write(master, b"\x1b[<0;%d;%dM\x1b[<0;%d;%dm" %
+                         (c + 1, r + 1, c + 1, r + 1))
                 time.sleep(after_pause)
             elif kind == "resize":
                 # Resize an idle session.

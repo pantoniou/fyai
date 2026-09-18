@@ -34,7 +34,7 @@ run_with()
 "wait-gone:Ctrl-]|"\
 "send:$(shell SECOND)|wait-screen:Ctrl-]|"\
 "wait-screen:FIRST 21 47|wait-screen:SECOND 21 46|"\
-"raw:1d|wait-gone:Ctrl-]|wait-gone:…|"\
+"raw:1d|wait-gone:Ctrl-]|frame:4|"\
 "send:/kill bang-1|wait-screen:stopping shell bang-1|"\
 "send:/kill bang-2|wait-screen:stopping shell bang-2" \
     FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
