@@ -2206,7 +2206,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->work_controls = DEFAULT_WORK_CONTROLS;
 	cfg->renderer = DEFAULT_RENDERER;
 	cfg->page_path = "";
-	cfg->screen = "inline";
+	cfg->screen = DEFAULT_SCREEN;
 	cfg->recap_exchanges = DEFAULT_RECAP_EXCHANGES;
 	cfg->tool_update_interval_ms = DEFAULT_TOOL_UPDATE_INTERVAL_MS;
 	cfg->tool_detail = DEFAULT_TOOL_DETAIL;

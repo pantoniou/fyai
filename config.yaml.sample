@@ -243,14 +243,15 @@ display:
   # Exchanges of history replayed when an interactive session starts:
   # -1 as many as the screen holds, 0 none.
   recap_exchanges: -1
-  # How the live screen is composed: stack draws the fixed chrome of the
-  # terminal library; page states the screen as one UI Markdown page (needs a
-  # libfytimui and a libfymd4c with page support, else stack is used).
-  renderer: stack
-  # Where a page stands, when the session starts: inline keeps the transcript
-  # in the scrollback; fullscreen takes the alternate screen, where the
-  # transcript is a view that the wheel, PageUp and PageDown scroll.
-  screen: inline
+  # How the live screen is composed: page states the screen as one UI Markdown
+  # page (needs a libfytimui and a libfymd4c with page support, else stack is
+  # used); stack draws the fixed chrome of the terminal library.
+  renderer: page
+  # Where a page stands, when the session starts: fullscreen takes the
+  # alternate screen, where the transcript is a view that the wheel, PageUp
+  # and PageDown scroll; inline keeps the transcript in the scrollback of the
+  # terminal, which scrolls it as it scrolls any other program.
+  screen: fullscreen
   # The page document of the page renderer, a YAML file; empty uses the
   # embedded data/page.yaml. `/page` shows the document in use.
   page: ""
@@ -341,7 +342,7 @@ display:
   # A further ceiling on work_zoom_rows; 0 leaves the height to it alone.
   work_max_rows: 0
   # Height of the work pane: full, half, quarter, or a positive row count.
-  work_zoom_rows: full
+  work_zoom_rows: half
   # The ground of what holds the keys - the prompt, a picker, a focused tile:
   # theme for the focus wash of a palette theme (reverse without one),
   # reverse for the ground the terminal draws text in, or #rrggbb for one of
@@ -359,8 +360,11 @@ display:
   tile_sep: " ┃ "
   session_margin: "  "
   work_cap: false
-  # Mouse controls: none, zoom, or full.
-  work_controls: none
+  # Mouse controls: full adds the buttons of a tile, a scroll bar and the
+  # wheel; zoom adds the buttons alone; none disables them. Anything but none
+  # takes the mouse for the session: selection and copy are then fyai's, which
+  # copies through the terminal, and not the terminal's own.
+  work_controls: full
   pretty: false           # pretty (YAML) debug dumps
   thinking: true           # display model reasoning/thinking output
   cache_info: false       # print provider cache info

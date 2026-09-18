@@ -94,7 +94,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_EDITOR_MODE "pane"
 #define DEFAULT_FOCUS_BG "theme"
 #define DEFAULT_FOCUS_BG_MIX 35
-#define DEFAULT_WORK_ZOOM_ROWS "full"
+#define DEFAULT_WORK_ZOOM_ROWS "half"
 #define DEFAULT_WORK_MIN_TILE_COLS 40
 #define DEFAULT_WORK_HISTORY_ROWS 1000
 #define DEFAULT_WORK_FRAME "none"
@@ -102,9 +102,11 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_TILE_FRAME "none"
 /* Separate adjacent tile columns. */
 #define DEFAULT_TILE_SEP " ┃ "
-#define DEFAULT_WORK_CONTROLS "none"
+#define DEFAULT_WORK_CONTROLS "full"
 /* Compose the live screen with the band stack or a UI Markdown page. */
-#define DEFAULT_RENDERER "stack"
+#define DEFAULT_RENDERER "page"
+/* Put the page on the alternate screen or in the scrollback. */
+#define DEFAULT_SCREEN "fullscreen"
 /* Mark shell commands and align continuation rows. */
 #define FYAI_TOOL_MARKER "⎿  "
 #define FYAI_TOOL_MARKER_PAD "   "

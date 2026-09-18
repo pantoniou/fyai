@@ -633,7 +633,7 @@ properties:
             enum: [full, half, quarter]
           - type: integer
             minimum: 1
-        default: full
+        default: half
         description: >-
           Height of the work pane. full uses the available terminal height,
           half and quarter use that fraction of it, and an integer is a direct
@@ -673,7 +673,7 @@ properties:
       renderer:
         type: string
         enum: [stack, page]
-        default: stack
+        default: page
         description: >-
           How the live screen is composed. stack draws the fixed chrome of the
           terminal library: the header, the prompt between two rules and the
@@ -694,7 +694,7 @@ properties:
       screen:
         type: string
         enum: [inline, fullscreen]
-        default: inline
+        default: fullscreen
         description: >-
           Where the page renderer stands. inline keeps the transcript in the
           scrollback of the terminal. fullscreen takes the alternate screen: the
@@ -705,7 +705,7 @@ properties:
       work_controls:
         type: string
         enum: [none, zoom, full]
-        default: none
+        default: full
         description: >-
           Mouse affordances on a tile. none draws none. zoom ends the head of
           a tile in buttons that minimize, maximize and close it. full adds a
