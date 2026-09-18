@@ -218,125 +218,25 @@ if(FYAI_STATIC_DEPS)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 endif()
 
-# Palette support is consumed by libfymd4c and libfymermaid as well as fyai.
-# Make the target available before either dependent project is fetched.
-if(NOT TARGET libfypalette::libfypalette)
-    find_package(libfypalette CONFIG QUIET)
-endif()
-if(NOT TARGET libfypalette::libfypalette)
-    set(BUILD_FYPALETTE_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_FYPALETTE_TOOLS OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(libfypalette
-        GIT_REPOSITORY https://github.com/pantoniou/libfypalette
-        GIT_TAG 552248158ed345aabc3b3564b2634fc1810422f1
-    )
-    FetchContent_MakeAvailable(libfypalette)
-endif()
-
-# libfypalette styles every renderer from one set of roles.
-if(FYAI_STATIC_DEPS AND TARGET libfypalette::libfypalette_static)
-    set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette_static)
-else()
-    set(FYAI_LIBFYPALETTE_TARGET libfypalette::libfypalette)
-endif()
-
-if(NOT TARGET libfymd4c::libfymd4c)
-    find_package(libfymd4c QUIET)
-endif()
-
-if(NOT TARGET libfymd4c::libfymd4c AND
-   NOT TARGET libfymd4c::libfymd4c_static)
-    set(BUILD_FYMD4C_EXECUTABLE OFF CACHE BOOL
-        "Build the libfymd4c command-line executable" FORCE)
-    FetchContent_Declare(libfymd4c
-        GIT_REPOSITORY https://github.com/pantoniou/libfymd4c
-        GIT_TAG b78a9ff4220a31cd3928e1216cdf9f159951c23c
-    )
-    FetchContent_MakeAvailable(libfymd4c)
-endif()
+# One line per libfy* dependency: name and pinned git tag. fyai_fy_dep()
+# (cmake/FyDeps.cmake) reuses an existing target, else an installed package,
+# else fetches the tag; FYAI_LIB<NAME>_TARGET picks the _static target when
+# FYAI_STATIC_DEPS is on. libfypalette comes first: libfymd4c and
+# libfymermaid consume it.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FyDeps.cmake)
+fyai_fy_dep(libfypalette 552248158ed345aabc3b3564b2634fc1810422f1)
+fyai_fy_dep(libfymd4c b78a9ff4220a31cd3928e1216cdf9f159951c23c)
 
 if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
     set_target_properties(libfyaml::fyaml_static PROPERTIES
         INTERFACE_LINK_LIBRARIES "Threads::Threads;m")
 endif()
 
-if(FYAI_STATIC_DEPS AND TARGET libfymd4c::libfymd4c_static)
-    set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c_static)
-else()
-    set(FYAI_LIBFYMD4C_TARGET libfymd4c::libfymd4c)
-endif()
-
-if(NOT TARGET libfymermaid::libfymermaid AND
-   NOT TARGET libfymermaid::libfymermaid_static)
-    find_package(libfymermaid CONFIG QUIET)
-endif()
-if(NOT TARGET libfymermaid::libfymermaid AND
-   NOT TARGET libfymermaid::libfymermaid_static)
-    set(BUILD_FYMERMAID_EXECUTABLE OFF CACHE BOOL "" FORCE)
-    set(_FYAI_BUILD_TESTING "${BUILD_TESTING}")
-    set(BUILD_TESTING OFF)
-    FetchContent_Declare(libfymermaid
-        GIT_REPOSITORY https://github.com/pantoniou/libfymermaid
-        GIT_TAG a45debc947021bccba5be0dff63e4d114712a31d
-    )
-    FetchContent_MakeAvailable(libfymermaid)
-    set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
-    unset(_FYAI_BUILD_TESTING)
-endif()
-if(FYAI_STATIC_DEPS AND TARGET libfymermaid::libfymermaid_static)
-    set(FYAI_LIBFYMERMAID_TARGET libfymermaid::libfymermaid_static)
-else()
-    set(FYAI_LIBFYMERMAID_TARGET libfymermaid::libfymermaid)
-endif()
-
-if(NOT TARGET libfytimui::libfytimui AND
-   NOT TARGET libfytimui::fytimui)
-    find_package(libfytimui CONFIG QUIET)
-endif()
-if(NOT TARGET libfytimui::libfytimui AND
-   NOT TARGET libfytimui::fytimui AND
-   NOT TARGET libfytimui::libfytimui_static AND
-   NOT TARGET libfytimui::fytimui_static)
-    FetchContent_Declare(libfytimui
-        GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG b6a948a0597d3cfbfae7ebc4b5f810de56643b04
-    )
-    set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(libfytimui)
-endif()
-if(FYAI_STATIC_DEPS AND TARGET libfytimui::libfytimui_static)
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui_static)
-elseif(FYAI_STATIC_DEPS AND TARGET libfytimui::fytimui_static)
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui_static)
-elseif(TARGET libfytimui::libfytimui)
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::libfytimui)
-else()
-    set(FYAI_LIBFYTIMUI_TARGET libfytimui::fytimui)
-endif()
-
+fyai_fy_dep(libfymermaid a45debc947021bccba5be0dff63e4d114712a31d)
+fyai_fy_dep(libfytimui b6a948a0597d3cfbfae7ebc4b5f810de56643b04)
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
-# rendering tests. A parent project may already provide the target (its own
-# find_package or add_subdirectory); reuse that rather than re-resolving. An
-# installed package comes next, and a source fetch is the last resort, as with
-# the other dependencies: CI has none of them installed.
-if(NOT TARGET libfyvterm::libfyvterm)
-    find_package(libfyvterm CONFIG QUIET)
-endif()
-if(NOT TARGET libfyvterm::libfyvterm)
-    set(BUILD_FYVTERM_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_FYVTERM_TOOLS OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(libfyvterm
-        GIT_REPOSITORY https://github.com/pantoniou/libfyvterm
-        GIT_TAG 9d1b261e82c67af71bbb8dbf52011a25a58eabf8
-    )
-    FetchContent_MakeAvailable(libfyvterm)
-endif()
-if(FYAI_STATIC_DEPS AND TARGET libfyvterm::libfyvterm_static)
-    set(FYAI_LIBFYVTERM_TARGET libfyvterm::libfyvterm_static)
-else()
-    set(FYAI_LIBFYVTERM_TARGET libfyvterm::libfyvterm)
-endif()
+# rendering tests.
+fyai_fy_dep(libfyvterm 9d1b261e82c67af71bbb8dbf52011a25a58eabf8)
 
 # Fetch and build a minimal libcurl from source as a static archive linked
 # straight into fyai: OpenSSL TLS + zlib only, with the curl CLI and the heavy
