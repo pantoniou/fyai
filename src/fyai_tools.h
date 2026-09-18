@@ -49,6 +49,8 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call);
 bool fyai_tool_job_done(const struct fyai_tool_job *job);
+/* Serve the control channel of an executed tool child. Does not return. */
+int fyai_tool_child_exec_serve(struct fyai_ctx *ctx);
 /* Repaint the title of the live agent tile that owns @branch. */
 void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch);
 bool fyai_tools_active(const struct fyai_ctx *ctx);

@@ -152,6 +152,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 
 /* Maximum nesting depth of sub-agent branches below a top-level branch. */
 #define DEFAULT_AGENT_MAX_BRANCH_DEPTH 8
+#define DEFAULT_AGENT_SPAWN "exec"
 #define DEFAULT_AGENT_MAX_TIMEOUT_MS 3600000
 
 /*
@@ -296,6 +297,7 @@ struct fyai_cfg {
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
+	const char *agent_spawn;	/* exec or fork: how a sub-agent child starts */
 	int agent_max_live_agents;
 	const char *tool_detail;
 	bool transcript_system;
@@ -369,6 +371,8 @@ struct fyai_cfg {
 	bool tool_child;
 	/* Serve the agent protocol on standard input and output. */
 	bool agent_rpc;
+	/* An executed tool child: serve the tool channel on fds 3 and 4. */
+	bool tool_exec;
 	/* MCP (Model Context Protocol) server settings. */
 	bool mcp_enabled;
 	/* Wait for all MCP servers before the first model step. */
@@ -539,6 +543,8 @@ struct fyai_ctx {
 	char *session_unstored;
 	/* Durable branch for a sub-agent conversation. */
 	char *agent_branch;
+	/* The spawn state an executed sub-agent child received, as JSON. */
+	char *agent_spawn_json;
 	char *tool_submit_error;
 	fy_generic arena_branches;
 	fy_generic branch_prev;

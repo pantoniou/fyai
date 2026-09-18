@@ -38,6 +38,13 @@ fy_generic fyai_root_prev(fy_generic root);
 fy_generic fyai_root_find(struct fy_allocator *a, fy_generic_value from,
 			  fy_generic_value want);
 
+/*
+ * Find the oldest ref-log root in which branch @name has head @head. The
+ * value is compared raw and the matching root is fully validated.
+ */
+fy_generic fyai_root_find_head(struct fy_allocator *a, fy_generic_value from,
+			       const char *name, fy_generic_value head);
+
 /* Resolve a root handle or symbolic reference without a context. */
 int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
 			   const char *spec, fy_generic_value *outp);

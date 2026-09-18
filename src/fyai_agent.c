@@ -20,6 +20,8 @@
 #include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_storage.h"
+#include "fyai_tools.h"
+#include "fyai_auth.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -256,6 +258,88 @@ err:
 	return -1;
 }
 
+int fyai_agent_spawn_config(struct fyai_ctx *ctx, fy_generic spawn)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic config;
+	int rc;
+
+	config = fy_get(spawn, "config", fy_invalid);
+	fyai_error_check(ctx, fy_is_mapping(config), err,
+			 "the sub-agent spawn state has no configuration");
+	/* fyai_config_validate_document() reports the problems it finds. */
+	rc = fyai_config_validate_document(cfg, config,
+					   "sub-agent configuration");
+	if (rc)
+		goto err;
+	cfg->config_doc = fy_gb_internalize(cfg->gb, config);
+	fyai_error_check(ctx, fy_is_valid(cfg->config_doc), err,
+			 "could not store the parent configuration");
+	rc = fy_is_valid(ctx->arena_config) ? fyai_config_adopt_arena(ctx) :
+					      fyai_config_rederive(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not adopt the parent configuration");
+	return 0;
+
+err:
+	return -1;
+}
+
+/* Adopt the parent's branch configuration and published fork point. */
+static int fyai_agent_spawn_adopt(struct fyai_ctx *ctx, fy_generic spawn)
+{
+	struct fyai_branch b;
+	struct fyai_root r;
+	fy_generic branch_config, fork, fork_branch, root;
+	const char *branch;
+	fy_generic_value head;
+	int rc;
+
+	fyai_error_check(ctx, fy_is_mapping(spawn), err,
+			 "the sub-agent spawn state is not a mapping");
+
+	branch_config = fy_get(spawn, "branch_config", fy_invalid);
+	if (fy_is_mapping(branch_config)) {
+		ctx->arena_config = fy_gb_internalize(ctx->gb, branch_config);
+		fyai_error_check(ctx, fy_is_valid(ctx->arena_config), err,
+				 "could not store the parent branch configuration");
+	}
+	rc = fy_is_valid(ctx->arena_config) ? fyai_config_adopt_arena(ctx) :
+					      fyai_config_rederive(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not adopt the parent configuration");
+	rc = fyai_auth_resolve(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not resolve the credentials of the parent");
+
+	fork = fy_get(spawn, "fork", fy_invalid);
+	if (!fy_is_mapping(fork)) {
+		ctx->last_message = fy_invalid;
+		return 0;
+	}
+	fork_branch = fy_get(fork, "branch", fy_invalid);
+	branch = fy_castp(&fork_branch, "");
+	head = fy_get(fork, "head", fy_invalid_value);
+	fyai_error_check(ctx, *branch && head != fy_invalid_value, err,
+			 "the sub-agent fork point is incomplete");
+	root = fyai_root_find_head(ctx->durable_allocator, ctx->refs_head,
+				   branch, head);
+	if (fy_is_invalid(root)) {
+		fyai_diag_tracef("agent", "fork head of '%s' is not "
+				 "published; using the published head", branch);
+		return 0;
+	}
+	rc = fyai_root_decode(root, &r);
+	fyai_error_check(ctx, rc >= 0 &&
+			 fyai_branch_lookup(r.branches, branch, &b), err,
+			 "could not read the fork point on '%s'", branch);
+	ctx->last_message = b.head;
+	return 0;
+
+err:
+	return -1;
+}
+
 fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -264,7 +348,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fy_generic task_v, context_v;
 	fy_generic persona_v, persona, persona_model;
 	fy_generic turn;
-	fy_generic report;
+	fy_generic report, spawn;
 	char *input;
 	struct fyai_branch stored;
 	bool revive = false;
@@ -311,6 +395,14 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 				 "could not restore the sub-agent call");
 		free(args_json);
 		args_json = NULL;
+		/* An executed child adopts the state that its parent sent. */
+		if (ctx->agent_spawn_json) {
+			spawn = parse_json_string(ctx->transient_gb,
+						  ctx->agent_spawn_json);
+			rc = fyai_agent_spawn_adopt(ctx, spawn);
+			fyai_error_check(ctx, !rc, err,
+					 "could not adopt the parent state");
+		}
 		rc = fyai_ctx_set_branch(ctx, ctx->agent_branch);
 		fyai_error_check(ctx, !rc, err,
 				 "could not select the sub-agent branch");
@@ -511,6 +603,8 @@ int fyai_agent_verb(struct fyai_ctx *ctx)
 	const char *task;
 	bool ok = false;
 
+	if (ctx->cfg->tool_exec)
+		return fyai_tool_child_exec_serve(ctx);
 	if (ctx->cfg->agent_rpc)
 		return fyai_agent_rpc_verb(ctx);
 

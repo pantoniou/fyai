@@ -283,6 +283,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	cfg->agent_max_branch_depth = fy_get(fy_get(root, "agent"),
 				"max_branch_depth",
 				cfg->agent_max_branch_depth);
+	cfg->agent_spawn = fy_gb_intern_string(cfg->gb,
+		fy_get(fy_get(root, "agent"), "spawn", cfg->agent_spawn));
 	cfg->top_logprobs = fy_get(root, "top_logprobs",
 				cfg->top_logprobs);
 
@@ -2169,6 +2171,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->temperature = DEFAULT_TEMPERATURE;
 	cfg->top_logprobs = -1;
 	cfg->agent_max_branch_depth = DEFAULT_AGENT_MAX_BRANCH_DEPTH;
+	cfg->agent_spawn = DEFAULT_AGENT_SPAWN;
 	cfg->agent_max_live_agents = 16;
 	cfg->agent_max_timeout_ms = DEFAULT_AGENT_MAX_TIMEOUT_MS;
 	cfg->retry_max_attempts = DEFAULT_RETRY_MAX_ATTEMPTS;

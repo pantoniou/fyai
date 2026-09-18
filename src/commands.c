@@ -2189,6 +2189,36 @@ static int configure_agent(int argc, char **argv, struct fyai_cfg *cfg)
 {
 	char *task;
 
+	/*
+	 * An executed tool child of a parent session: fyai_tool_job_spawn()
+	 * writes this argument vector, and the call arrives on fds 3 and 4.
+	 * The child keeps the arena of the parent and publishes to it.
+	 */
+	if (argc >= 2 && !strcmp(argv[1], "--tool-child")) {
+		for (argc--, argv++; argc >= 2; argc--, argv++) {
+			if (!strcmp(argv[1], "--pty")) {
+				cfg->agent_pty = true;
+			} else if (!strcmp(argv[1], "--arena") && argc >= 3) {
+				cfg->arena_dir = fy_gb_intern_string(cfg->gb,
+								     argv[2]);
+				argc--;
+				argv++;
+			} else {
+				fyai_cfg_error(cfg,
+					"agent: unexpected tool child argument '%s'",
+					argv[1]);
+				return -1;
+			}
+		}
+		cfg->tool_exec = true;
+		cfg->tool_child = true;
+		cfg->interactive = false;
+		cfg->enable_tools = true;
+		cfg->agent_child = true;
+		cfg->mcp_enabled = false;
+		return 0;
+	}
+
 	/* In RPC mode, receive the task through agent/run. */
 	if (argc >= 2 && !strcmp(argv[1], "--rpc")) {
 		cfg->agent_rpc = true;
