@@ -4837,6 +4837,32 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx)
 	fyai_workpane_clear_zoom(ctx->workpane);
 }
 
+bool fyai_tools_focus_tile(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fytim_surface *tiles[FYAI_WORKPANE_TILES_MAX];
+	int n, i;
+
+	if (!ctx || !sf)
+		return false;
+	/* Only visible tiles may receive keyboard focus. */
+	n = fyai_workpane_screen_order(ctx->workpane, tiles,
+				       FYAI_WORKPANE_TILES_MAX);
+	for (i = 0; i < n && tiles[i] != sf; i++)
+		;
+	if (i == n)
+		return false;
+	if (fyai_workpane_focused(ctx->workpane) == sf)
+		return true;
+	return fyai_tools_focus(ctx, sf);
+}
+
+void fyai_tools_focus_prompt(struct fyai_ctx *ctx)
+{
+	/* Preserve zoom and attachment state while returning focus. */
+	if (ctx)
+		fyai_workpane_clear_focus(ctx->workpane);
+}
+
 bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 {
 	if (!ctx)

@@ -1472,22 +1472,37 @@ err_page:
 	free(activity);
 }
 
-/* A click on the head of a tile: act on the label under it. */
-static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
-			  int row, int col)
+/*
+ * Handle a click outside library-rendered tiles. Page-rendered tile slots
+ * receive focus; all other locations return focus to the prompt.
+ */
+static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
 {
-	struct fyai_workpane_manager *wm = ui->ctx->workpane;
-	const char *id;
+	static const char *const prefixes[] = { "head:", "screen:", "tile:" };
+	struct fytim_surface *sf = NULL;
+	char id[FYTIM_PAGE_ID_MAX + 1];
+	unsigned long slot;
+	size_t len, i, plen;
+	char *end;
 
-	if (!sf || row < 0)
+	if (ev->text) {
+		len = ev->text_len < sizeof(id) - 1 ? ev->text_len :
+		      sizeof(id) - 1;
+		memcpy(id, ev->text, len);
+		id[len] = '\0';
+		for (i = 0; i < ARRAY_SIZE(prefixes) && !sf; i++) {
+			plen = strlen(prefixes[i]);
+			if (strncmp(id, prefixes[i], plen))
+				continue;
+			slot = strtoul(id + plen, &end, 10);
+			if (end != id + plen && !*end)
+				sf = fyai_workpane_slot_surface(ui->ctx->workpane,
+								(unsigned int)slot);
+		}
+	}
+	if (sf && fyai_tools_focus_tile(ui->ctx, sf))
 		return;
-	id = fyai_workpane_tile_region_at(wm, sf, (size_t)row, col);
-	if (!id)
-		return;
-	/* The name of a tile gives it the keys, as ^T does. */
-	if (!strcmp(id, "tile:focus") && fyai_workpane_tile_selectable(wm, sf) &&
-	    fyai_workpane_focused(wm) != sf)
-		fyai_workpane_set_focus(wm, sf);
+	fyai_tools_focus_prompt(ui->ctx);
 }
 
 /* A drag over the transcript or the popup: copy the text of the rows it went
@@ -1659,8 +1674,12 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				fyai_workpane_zoomed(ui->ctx->workpane) ==
 					ev.surface ? NULL : ev.surface);
 			break;
-		case FYTIM_EVENT_SURFACE_CLICK:
-			ui_head_click(ui, ev.surface, ev.row, ev.col);
+		case FYTIM_EVENT_SURFACE_FOCUS:
+			/* Clicking a tile gives it keyboard focus. */
+			(void)fyai_tools_focus_tile(ui->ctx, ev.surface);
+			break;
+		case FYTIM_EVENT_FOCUS_PROMPT:
+			ui_click_off_tiles(ui, &ev);
 			break;
 		case FYTIM_EVENT_ACT:
 			ui_act(ui, &ev);
@@ -3009,9 +3028,7 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	if (!sf)
 		return;
 	if (!strcmp(id, "tile:focus")) {
-		if (fyai_workpane_tile_selectable(wm, sf) &&
-		    fyai_workpane_focused(wm) != sf)
-			fyai_workpane_set_focus(wm, sf);
+		(void)fyai_tools_focus_tile(ui->ctx, sf);
 	} else if (!strcmp(id, "tile:zoom")) {
 		(void)fyai_ui_surface_zoom(ui->ctx,
 				fyai_workpane_zoomed(wm) == sf ? NULL : sf);
