@@ -3504,7 +3504,7 @@ static void fyai_agent_head_paint(struct fyai_tool_job *job)
 	fyai_ui_wake(job->ctx);
 }
 
-/* The tile of a running agent has another width. */
+/* Repaint an active agent header after its width changes. */
 static void fyai_agent_head_repaint(void *owner)
 {
 	struct fyai_tool_job *job = owner;
@@ -4883,6 +4883,28 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx)
 	fyai_agents_detach(ctx);
 	fyai_workpane_clear_focus(ctx->workpane);
 	fyai_workpane_clear_zoom(ctx->workpane);
+}
+
+void fyai_tools_counts(struct fyai_ctx *ctx, int *userp, int *shellp,
+		       int *agentp)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	*userp = *shellp = *agentp = 0;
+	if (!ctx)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (sess->exited)
+			continue;
+		if (sess->user_owned)
+			(*userp)++;
+		else
+			(*shellp)++;
+	}
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->agent && !job->done)
+			(*agentp)++;
 }
 
 void fyai_tools_config_changed(struct fyai_ctx *ctx)

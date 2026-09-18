@@ -84,12 +84,14 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name);
 /* Cycle focus through the prompt and live tiles. */
 bool fyai_tools_focus_next(struct fyai_ctx *ctx);
+/* Count active user shells, model shells, and sub-agents. */
+void fyai_tools_counts(struct fyai_ctx *ctx, int *userp, int *shellp,
+		       int *agentp);
 /* Apply a changed configuration to the live sessions and jobs. */
 void fyai_tools_config_changed(struct fyai_ctx *ctx);
-/* Give the keys to @sf, a tile on the screen. False when it cannot take
- * them. */
+/* Focus visible tile @sf. Return false if it cannot receive keyboard focus. */
 bool fyai_tools_focus_tile(struct fyai_ctx *ctx, struct fytim_surface *sf);
-/* Give the keys back to the prompt. The pane geometry does not change. */
+/* Focus the prompt without changing pane geometry. */
 void fyai_tools_focus_prompt(struct fyai_ctx *ctx);
 /* List or terminate live shell sessions and sub-agents. */
 int fyai_tools_sessions(struct fyai_ctx *ctx);

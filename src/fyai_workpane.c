@@ -43,7 +43,7 @@ struct fyai_workpane_tile {
 	int grid_cols;
 
 	bool selectable;
-	bool minimized;			/* the head alone, under the screens */
+	bool minimized;			/* show only the header below screens */
 
 	/* The clickable regions of the head. */
 	struct markdown_region *regions;
@@ -53,7 +53,7 @@ struct fyai_workpane_tile {
 	struct fyai_workpane_ladder ladder;
 	enum fyai_workpane_present present;
 
-	int head_cols;			/* the width its head was made for */
+	int head_cols;			/* width used to render the header */
 
 	/* The page slot "tile:N" the tile stands in. */
 	unsigned int slot;
@@ -86,6 +86,7 @@ struct fyai_workpane_manager {
 
 	struct fytim_surface *focused;
 	struct fytim_surface *zoomed;
+	bool hidden;			/* pane is not rendered */
 
 	fyai_ui_keys_fn keys_cb;
 	void *keys_user;
@@ -289,7 +290,7 @@ static unsigned int workpane_controls(const struct fyai_ctx *ctx)
 {
 	const char *v = ctx->cfg->work_controls;
 
-	/* The buttons of a head are fyai's acts: the library draws the bar. */
+	/* fyai handles header buttons; the library handles the scroll bar. */
 	if (!v || strcmp(v, "full"))
 		return 0;
 	return FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
@@ -589,6 +590,9 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 
 	if (!wm)
 		return -1;
+	/* A hidden pane is not on the page. */
+	if (wm->hidden)
+		return 1;
 	n = workpane_tile_infos(wm, info, order);
 	if (n < 1)
 		return 1;
@@ -889,6 +893,9 @@ void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 		return;
 	if (wm->focused == sf)
 		return;
+	/* Focusing a tile reveals a hidden pane. */
+	if (wm->hidden)
+		fyai_workpane_set_hidden(wm, false);
 	fyai_workpane_clear_focus(wm);
 	/* A headless pane has no keys to route. */
 	if (fyai_ui_active(wm->ctx)) {
@@ -926,7 +933,7 @@ int fyai_workpane_screen_order(struct fyai_workpane_manager *wm,
 	int n, i, j, count = 0;
 	bool placed;
 
-	if (!wm || !out || max < 1)
+	if (!wm || !out || max < 1 || wm->hidden)
 		return 0;
 	n = workpane_tile_infos(wm, info, order);
 	if (n < 1)
@@ -987,6 +994,23 @@ bool fyai_workpane_focus_next(struct fyai_workpane_manager *wm)
 	}
 	fyai_workpane_set_focus(wm, next);
 	return wm->focused == next;
+}
+
+void fyai_workpane_set_hidden(struct fyai_workpane_manager *wm, bool hidden)
+{
+	if (!wm || wm->hidden == hidden)
+		return;
+	wm->hidden = hidden;
+	/* Keys do not go to a program the user cannot see. */
+	if (hidden && wm->focused)
+		fyai_workpane_clear_focus(wm);
+	wm->layout_pending = true;
+	fyai_workpane_reconcile(wm);
+}
+
+bool fyai_workpane_hidden(const struct fyai_workpane_manager *wm)
+{
+	return wm && wm->hidden;
 }
 
 int fyai_workpane_set_minimized(struct fyai_workpane_manager *wm,
@@ -1263,10 +1287,9 @@ static int workpane_place_work(const struct fyai_workpane_manager *wm, int n,
  * goes under the work because the work is what the user is watching.
  */
 /*
- * Place the @nm minimized tiles of @idx under the screens of @g, in rows that
- * fit their heads. A row holds as many as the grid has columns, and the tiles
- * of a short last row share its columns, so no cell is left empty. With no
- * screens the heads make the grid, one to a column.
+ * Place @nm minimized tiles below the screens in header-height rows. Fill
+ * each row and divide a partial final row across all columns. If there are no
+ * screens, create one column per minimized tile.
  */
 static int workpane_place_minimized(struct fyai_workpane_grid *g,
 				    const int *idx, int nm)
@@ -1584,6 +1607,7 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 	}
 
 	/* Apply topology, arrangement, pane cap, and tile requests. */
+	(void)fytim_workpane_set_hidden(wm->pane, wm->hidden);
 	(void)fytim_workpane_set_zoom(wm->pane, wm->zoomed);
 	/* A zoomed tile is one screen and needs no arrangement. */
 	if (wm->zoomed)
@@ -1609,6 +1633,8 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 	workpane_trace(wm);
 	wm->layout_pending = false;
 	wm->reconciling = false;
+	/* Update the header panel after pane state changes. */
+	fyai_ui_panel_update(wm->ctx);
 	fyai_ui_wake(wm->ctx);
 }
 
@@ -1618,7 +1644,8 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 	enum fyai_workpane_present p;
 	int rows, cols;
 
-	if (!wm || !wm->pane)
+	/* Preserve existing grants while the pane is hidden. */
+	if (!wm || !wm->pane || wm->hidden)
 		return;
 	/* Grants must not alter layout requests. */
 	for_each_tile(t, wm) {
@@ -1631,7 +1658,7 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 		 * too small to read becomes the one line that says whose it
 		 * is. This is told even to a tile that was granted nothing.
 		 */
-		/* A minimized tile is its head, whatever it was granted. */
+		/* Minimized tiles render only their headers. */
 		p = t->minimized ? FYAI_WORKPANE_PRESENT_HEAD :
 		    workpane_present_for(t, rows, cols);
 		if (p != t->present) {
@@ -1645,7 +1672,7 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 			t->head_cols = cols;
 			t->ops->repaint_head(t->owner);
 		}
-		/* Its program keeps the size it had: it is coming back. */
+		/* Preserve the program size so restoring the tile does not resize it. */
 		if (cols < 1 || t->minimized || !t->ops || !t->ops->apply_grant)
 			continue;
 		t->granted_rows = rows;

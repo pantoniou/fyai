@@ -1525,24 +1525,21 @@ err_out:
 	return -1;
 }
 
-/* The style of the controls of a tile: not dim, as the band stack draws
- * them, and bold without a style of the theme. */
+/* Return the theme style for tile controls, or NULL if unset. */
 static const char *page_control_sgr(const struct fyai_page_state *st)
 {
-	return st->control_chrome ? st->control_chrome : "\x1b[1m";
+	return st->control_chrome;
 }
 
-/* The columns a scroll bar takes from a screen @width wide after its margin:
- * one, when the bar is drawn and the screen keeps a column. */
+/* Return the column reserved for a scroll bar, if one fits. */
 static int page_bar_cols(bool bar, int width)
 {
 	return bar && width >= 2 ? 1 : 0;
 }
 
 /*
- * The acts of the scroll bar of @t, which stands in the last column of the
- * screen region @r: the arrow at each end steps a row, and the track above
- * and below its middle pages. They cover the rows the screen was drawn in.
+ * Add actions for the scroll bar in the last column of @r. The end cells
+ * scroll one row; cells above or below the midpoint scroll one page.
  */
 static int page_bar_acts(struct fyai_page *pg, const struct fyai_page_tile *t,
 			 const struct fymd_region *r,
@@ -1588,11 +1585,10 @@ err_out:
  * Draw the screen of @t into the cells of the region @r as the terminal
  * library draws a surface: its last rows when the region is short, the margin
  * at the left of each row, and the cells on the ground of the tile with the
- * cursor reversed. With @bar, the scroll bar of the surface stands in the
- * last column, which the grant does not include: its track in @bar and its
- * arrows and thumb in @control. The grant of
- * @t is what the region gives the screen; a tile shown as its head keeps it
- * and draws no screen. Returns 0, or -1.
+ * cursor reversed. If @bar is set, draw the scroll bar in the final column;
+ * that column is excluded from the terminal grant. Use @bar for the track and
+ * @control for the arrows and thumb. A header-only tile keeps its grant but
+ * does not draw its screen. Return 0 on success or -1 on failure.
  */
 static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 			    const struct fymd_region *r, bool truecolor,
@@ -1851,13 +1847,32 @@ static int page_header_draw(struct fyai_page *pg,
 			    const struct fymd_region *r)
 {
 	struct fytim_cell *row, *at;
+	struct fymd_region narrow;
 	const char *text, *styled;
 	bool plain;
 	int n;
 
 	if (r->height < 1 || r->width < 1 || r->col >= pg->cells_cols ||
-	    (int)r->row >= pg->cells_rows ||
-	    (fy_str_empty(st->header_row) && fy_str_empty(st->elapsed)))
+	    (int)r->row >= pg->cells_rows)
+		return 0;
+	/* Reserve one blank column between the header and right panel. */
+	if (!fy_str_empty(st->header_right) && st->header_right_cols > 0 &&
+	    st->header_right_cols < r->width) {
+		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
+					  pg->cells_cols, (int)r->row,
+					  r->col + r->width - st->header_right_cols,
+					  st->header_right_cols, 1,
+					  st->header_right,
+					  strlen(st->header_right));
+		if (n < 0)
+			return -1;
+		narrow = *r;
+		narrow.width = r->width - st->header_right_cols - 1;
+		r = &narrow;
+		if (r->width < 1)
+			return 0;
+	}
+	if (fy_str_empty(st->header_row) && fy_str_empty(st->elapsed))
 		return 0;
 	text = fy_sprintfa("%s%s", st->header_row ? st->header_row : "",
 			   st->elapsed ? st->elapsed : "");
@@ -2177,6 +2192,21 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		regions[n].col = fr[i].col;
 		regions[n].width = fr[i].width;
 		regions[n].height = fr[i].height;
+		n++;
+	}
+	/* Register the header panel button. */
+	for (i = 0; i < count && st->header_act && st->header_right_cols > 0 &&
+	     n < FYTIM_PAGE_REGIONS_MAX; i++) {
+		if (fr[i].kind == FYMD_REGION_ACT || strcmp(fr[i].id, "header") ||
+		    st->header_right_cols >= fr[i].width)
+			continue;
+		regions[n].id = st->header_act->id;
+		regions[n].kind = FYTIM_PAGE_ACT;
+		regions[n].row = (int)fr[i].row + (int)fr[i].height - 1;
+		regions[n].col = fr[i].col + fr[i].width -
+				 st->header_right_cols + st->header_act->col;
+		regions[n].width = st->header_act->width;
+		regions[n].height = 1;
 		n++;
 	}
 	/* The acts of the heads are the page's. */

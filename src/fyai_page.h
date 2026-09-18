@@ -41,6 +41,11 @@ struct fyai_page_state {
 	const char *header;
 	/* The header rendered to one row of SGR, as the band stack draws it. */
 	const char *header_row;
+	/* The panel at the right edge of the header row, SGR fyai wrote, its
+	 * columns, and its button, from the first column of the panel. */
+	const char *header_right;
+	int header_right_cols;
+	const struct fytim_header_act *header_act;
 	const char *elapsed;
 	const char *activity;
 	const char *hint;

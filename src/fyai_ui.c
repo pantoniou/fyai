@@ -58,6 +58,10 @@ struct ui_spool { int saved, reader; off_t off; };
 struct fyai_ui {
 	struct fyai_ctx *ctx;
 	struct fytim *ft;
+	/* Right-side input-header panel shared by both renderers. */
+	char *panel;
+	int panel_cols;
+	struct fytim_header_act panel_act;
 	struct fymd_renderer *chrome_renderer;
 	struct fyai_event_source *input_src, *timer_src;
 	struct ui_line *head, **tail;
@@ -1328,6 +1332,9 @@ static void ui_page_update(struct fyai_ui *ui)
 			 "cannot read the terminal size for the page");
 	st.header = ui->status_top_source;
 	st.header_row = ui->status_top;
+	st.header_right = ui->panel;
+	st.header_right_cols = ui->panel_cols;
+	st.header_act = ui->panel ? &ui->panel_act : NULL;
 	if (ui->busy) {
 		fyai_event_elapsed_format(elapsed, sizeof(elapsed),
 					  ui->busy_since_ms);
@@ -1369,7 +1376,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	fyai_error_check(ctx, n >= 0, err_page,
 			 "cannot measure the work pane separator");
 	sep_cols = n;
-	if (!pane) {
+	if (!pane || fyai_workpane_hidden(ctx->workpane)) {
 		st.pane_rows = 0;
 	} else {
 		rc = fyai_workpane_page_grid(ctx->workpane, 0,
@@ -1533,9 +1540,8 @@ static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
 }
 
 /*
- * A button or the head of the tile @sf was clicked: @id is "tile:minimize",
- * "tile:maximize", or NULL and "tile:focus" for the rest of the head. A click
- * on a minimized tile shows it again first.
+ * Handle a click on tile @sf. @id identifies a minimize or maximize button;
+ * NULL and "tile:focus" focus the header. Restore a minimized tile first.
  */
 static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
 			const char *id)
@@ -2006,6 +2012,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	free(ui->status_bottom);
 	free(ui->status_top);
 	free(ui->status_top_source);
+	free(ui->panel);
 	ctx->cfg->color = ui->saved_color;
 	ctx->cfg->render_width = 0;
 	for (l = ui->head; l; l = n) { n = l->next; free(l->text); free(l); }
@@ -2277,22 +2284,36 @@ out:
 }
 
 /*
- * The SGR of the controls of a tile: its marks, and the arrows and the thumb
- * of its bar. The palette theme names it with the role of the sigil of work,
- * and a theme without a palette gives its strong style. NULL without a
- * renderer: the controls are then bold.
+ * The SGR pair of @role of the palette theme, else of @element of the theme of
+ * the chrome renderer. Both NULL without a renderer: the element is then not
+ * styled. The strings are the theme's and live as long as it does.
  */
-static const char *ui_control_sgr(struct fyai_ui *ui)
+static void ui_theme_pair(struct fyai_ui *ui, const char *role,
+			  enum fymd_style_element element, const char **onp,
+			  const char **offp)
 {
 	const char *on = NULL, *off = NULL;
 
+	*onp = *offp = NULL;
 	if (!ui->chrome_renderer)
-		return NULL;
-	if (fymd_renderer_get_style_pair(ui->chrome_renderer, FYMD_STYLE_STRONG,
-					 &on, &off))
-		on = NULL;
-	(void)off;
-	return markdown_role_on(ui->ctx->cfg, "tile.sigil.work", on);
+		return;
+	if (fymd_renderer_get_style_pair(ui->chrome_renderer, element, &on,
+					 &off))
+		on = off = NULL;
+	*onp = markdown_role_on(ui->ctx->cfg, role, on);
+	*offp = markdown_role_off(ui->ctx->cfg, role, off);
+}
+
+/*
+ * Return the SGR style for tile controls and the header-panel button. Use the
+ * palette's work-sigil role, or the theme's strong style without a palette.
+ */
+static const char *ui_control_sgr(struct fyai_ui *ui)
+{
+	const char *on, *off;
+
+	ui_theme_pair(ui, "tile.sigil.work", FYMD_STYLE_STRONG, &on, &off);
+	return on;
 }
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)
@@ -2572,6 +2593,86 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 		ctx->ui->ready = true;
 		fyai_editor_cancel(ctx->ui->editor_request);
 	}
+}
+
+/* The id of the button of the panel that shows or hides the work pane. */
+#define UI_PANEL_PANE	"panel:pane"
+
+void fyai_ui_panel_update(struct fyai_ctx *ctx)
+{
+	/* Each kind takes a role of the palette theme, else a style of the
+	 * theme of the chrome. */
+	static const struct {
+		const char *glyph, *fallback, *role;
+		enum fymd_style_element element;
+	} kinds[] = {
+		{ "panel.user", "!", "tile.sigil.work", FYMD_STYLE_HEADING },
+		{ "tile.shell", "$", "tile.sigil.view", FYMD_STYLE_STRONG },
+		{ "tile.agent", "@", "tile.state.asks",
+		  FYMD_STYLE_INDICATOR_PENDING },
+	};
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct response_buffer out = {0};
+	const char *glyph, *on, *off;
+	enum fytim_result res;
+	int counts[3], i, n, cols, rc = 0;
+	bool hidden, color;
+
+	if (!ui || !ui->ft)
+		return;
+	fyai_tools_counts(ctx, &counts[0], &counts[1], &counts[2]);
+	hidden = fyai_workpane_hidden(ctx->workpane);
+	free(ui->panel);
+	ui->panel = NULL;
+	ui->panel_cols = 0;
+	if (!hidden && !counts[0] && !counts[1] && !counts[2]) {
+		(void)fytim_set_header_right(ui->ft, NULL, NULL, 0);
+		ui->frame_pending = true;
+		return;
+	}
+	color = markdown_color_enabled(ctx->cfg->color);
+	/* The button: a full box while the pane shows, an empty one while it
+	 * is hidden. */
+	glyph = hidden ? markdown_glyph(ctx->cfg, "panel.hidden", "\xe2\x96\xa2") :
+			 markdown_glyph(ctx->cfg, "panel.shown", "\xe2\x96\xa3");
+	on = off = NULL;
+	if (color)
+		ui_theme_pair(ui, "tile.sigil.work", FYMD_STYLE_STRONG, &on,
+			      &off);
+	rc = response_buffer_append(&out, fy_sprintfa("%s%s%s", on ? on : "",
+			glyph, off ? off : ""));
+	n = fymd_str_width(glyph, strlen(glyph));
+	cols = n > 0 ? n : 1;
+	ui->panel_act.id = UI_PANEL_PANE;
+	ui->panel_act.col = 0;
+	ui->panel_act.width = cols;
+	for (i = 0; i < 3 && !rc; i++) {
+		if (!counts[i])
+			continue;
+		glyph = markdown_glyph(ctx->cfg, kinds[i].glyph,
+				       kinds[i].fallback);
+		on = off = NULL;
+		if (color)
+			ui_theme_pair(ui, kinds[i].role, kinds[i].element, &on,
+				      &off);
+		rc = response_buffer_append(&out, fy_sprintfa(" %s%s%d%s",
+				on ? on : "", glyph, counts[i], off ? off : ""));
+		n = fymd_str_width(glyph, strlen(glyph));
+		cols += 1 + (n > 0 ? n : 1) +
+			(int)strlen(fy_sprintfa("%d", counts[i]));
+	}
+	if (rc) {
+		free(out.data);
+		fyai_warning(ctx, "cannot write the panel of the input header");
+		return;
+	}
+	ui->panel = out.data;
+	ui->panel_cols = cols;
+	res = fytim_set_header_right(ui->ft, ui->panel, &ui->panel_act, 1);
+	if (res != FYTIM_OK)
+		fyai_warning(ctx, "the terminal library did not take the panel "
+			     "of the input header: %s", fytim_result_string(res));
+	ui->frame_pending = true;
 }
 
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
@@ -3126,6 +3227,10 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	len = ev->text_len < sizeof(id) - 1 ? ev->text_len : sizeof(id) - 1;
 	memcpy(id, ev->text, len);
 	id[len] = '\0';
+	if (!strcmp(id, UI_PANEL_PANE)) {
+		fyai_workpane_set_hidden(wm, !fyai_workpane_hidden(wm));
+		return;
+	}
 	/* Any other act of the page names an action of the document. */
 	if (!sf && strncmp(id, "tile:", 5)) {
 		ui_page_action(ui, id);
