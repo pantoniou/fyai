@@ -17,7 +17,8 @@ click()
 # Each program prints a line its command does not hold, so the line leaves
 # the screen with the screen of its tile. In a 100-column terminal the minimize
 # button of the first tile is column 45 and the maximize button of the second
-# is column 98, on row 1. A minimized tile is shown again by a click on its
+# is column 98, on row 2, under the blank row above the pane. A minimized
+# tile is shown again by a click on its
 # head, which is found on the screen. The command of the second tile is whole
 # only while that tile has the whole width, which says the layout moved.
 run_with()
@@ -29,10 +30,10 @@ run_with()
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=20 \
     FYAI_PTY_AFTER="wait-screen:LEFT-OUT|raw:1d|wait-gone:Ctrl-]|"\
 "send:!sh -c 'printf \"%s-%s\\n\" RIGHT OUT; exec cat'|wait-screen:RIGHT-OUT|"\
-"raw:$(click 45 1)|wait-gone:LEFT-OUT|wait-screen:RIGHT OUT; exec cat'|"\
+"raw:$(click 45 2)|wait-gone:LEFT-OUT|wait-screen:RIGHT OUT; exec cat'|"\
 "click:LEFT OUT; exec cat'|wait-screen:LEFT-OUT|wait-gone:RIGHT OUT; exec cat'|"\
-"raw:$(click 98 1)|wait-gone:bang-1|"\
-"raw:$(click 98 1)|wait-screen:bang-1|"\
+"raw:$(click 98 2)|wait-gone:bang-1|"\
+"raw:$(click 98 2)|wait-screen:bang-1|"\
 "raw:1d|wait-gone:Ctrl-]|"\
 "send:/kill bang-1|wait-screen:stopping shell bang-1|"\
 "send:/kill bang-2|wait-screen:stopping shell bang-2" \

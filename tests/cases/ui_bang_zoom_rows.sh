@@ -83,8 +83,8 @@ run_key_cycle()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="$SHELL_SIZE" \
     FYAI_PTY_NEEDLE="bang-1" \
-    FYAI_PTY_AFTER="wait-screen:14 98|raw:1b5b3131363b3675|"\
-"wait-screen:work pane height: quarter|wait-screen:6 98|raw:1d" \
+    FYAI_PTY_AFTER="wait-screen:13 98|raw:1b5b3131363b3675|"\
+"wait-screen:work pane height: quarter|wait-screen:5 98|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/cycle.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
@@ -93,9 +93,9 @@ run_key_cycle()
 
 # The cap includes surrounding UI and shell chrome. The prompt block stands
 # whether the tile holds the keys or not, so these do not change with focus.
-run_focused_size half 14
+run_focused_size half 13
 run_key_cycle
-run_size half 14
-run_size quarter 6
-run_size 12 10
+run_size half 13
+run_size quarter 5
+run_size 12 9
 pass

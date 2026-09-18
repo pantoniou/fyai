@@ -17,7 +17,8 @@ click()
         od -An -tx1 | tr -d ' \n'
 }
 
-NAME=$(click 7 1)
+# The head stands under the blank row above the pane.
+NAME=$(click 7 2)
 
 # The shell writes SIZED in two parts, so only its output holds the word and
 # not the command in the head: the case waits for the output on the screen
@@ -91,7 +92,7 @@ def head(path):
                 break
             focused = True
         elif focused and re.search(r"CLICK \d+ \d+", text):
-            found = rows[0].ljust(100)
+            found = rows[1].ljust(100)
     if found is None:
         raise SystemExit("%s: the tile never stood at rest" % path)
     return found

@@ -19,8 +19,8 @@ focus_keeps_size()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=120 \
     FYAI_PTY_INPUT="$SHELL_SIZE" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=30 \
-    FYAI_PTY_AFTER="wait-screen:Ctrl-]|wait-screen:SIZE 14 118|raw:1d|wait-gone:Ctrl-]|"\
-"send:$SHELL_SIZE|wait-screen:Ctrl-]|wait-screen:SIZE 14 57|wait-screen:SIZE 14 56|"\
+    FYAI_PTY_AFTER="wait-screen:Ctrl-]|wait-screen:SIZE 13 118|raw:1d|wait-gone:Ctrl-]|"\
+"send:$SHELL_SIZE|wait-screen:Ctrl-]|wait-screen:SIZE 13 57|wait-screen:SIZE 13 56|"\
 "raw:14|frame:2|raw:14|frame:2|raw:1d|wait-gone:Ctrl-]|frame:6" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/focus.out" \
         "$FYAI_BIN" -k test-key --theme dark \
@@ -60,12 +60,12 @@ while True:
                 newest[side] = (count, int(m.group(1)), int(m.group(2)))
     sizes = {(r, c) for _, r, c in newest.values()}
     # From the frame in which both tiles stand at their share of the pane.
-    both = both or sizes == {(14, 57), (14, 56)}
+    both = both or sizes == {(13, 57), (13, 56)}
     if both:
         seen |= sizes
 if not both:
     raise SystemExit("the two tiles never stood side by side")
-if {r for r, _ in seen} != {14}:
+if {r for r, _ in seen} != {13}:
     raise SystemExit("a tile changed its height: %r" % sorted(seen))
 PYEOF
 }
@@ -78,8 +78,8 @@ resize_recalculates()
     FYAI_PTY_ROWS=32 FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="$SHELL_SIZE" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=30 \
-    FYAI_PTY_AFTER="wait-screen:Ctrl-]|wait-screen:SIZE 14 98|resize:64x100|"\
-"wait-screen:SIZE 30 98|raw:1d" \
+    FYAI_PTY_AFTER="wait-screen:Ctrl-]|wait-screen:SIZE 13 98|resize:64x100|"\
+"wait-screen:SIZE 29 98|raw:1d" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/resize-half.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \

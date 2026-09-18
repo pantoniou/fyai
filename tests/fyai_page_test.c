@@ -503,7 +503,7 @@ static int page_fit_gives_the_chrome_its_rows_run(void)
 	st.pane_rows = 32;
 	st.tail_rows = 4;
 	chrome = fyai_page_chrome_rows(&st);
-	FYAI_TCHECK(chrome == 2 + 3 + 2 + 1);
+	FYAI_TCHECK(chrome == 2 + 3 + 2 + 1 + 1);
 	fyai_page_fit(&st, 30);
 	FYAI_TCHECK(st.pane_rows == 30 - chrome);
 	FYAI_TCHECK(st.tail_rows == 0);
@@ -571,11 +571,11 @@ static int page_grid_places_the_tiles_run(void)
 	a = region(r, "tile:1");
 	b = region(r, "tile:2");
 	FYAI_TCHECK(a != NULL && b != NULL);
-	FYAI_TCHECK(a->row == 0 && b->row == 0 && a->height == 5);
+	FYAI_TCHECK(a->row == 1 && b->row == 1 && a->height == 5);
 	FYAI_TCHECK(a->col == 0 && b->col == a->col + a->width + 3);
 	FYAI_TCHECK(region(r, "pane") == NULL);
 	FYAI_TCHECK(region(r, "header") != NULL &&
-		    region(r, "header")->row == 6);
+		    region(r, "header")->row == 7);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 	free(src.data);
@@ -768,10 +768,10 @@ static int page_grid_stands_heads_level_run(void)
 	h3 = region(r, "head:3");
 	t3 = region(r, "tile:3");
 	FYAI_TCHECK(h1 && t1 && t2 && h3 && t3);
-	FYAI_TCHECK(h1->row == 0 && h1->height == 2 && t1->row == 2 &&
+	FYAI_TCHECK(h1->row == 1 && h1->height == 2 && t1->row == 3 &&
 		    t1->height == 4 && t1->col == h1->col);
-	FYAI_TCHECK(t2->row == 0 && t2->height == 4);
-	FYAI_TCHECK(h3->row == 6 && t3->row == 8 && t3->height == 1);
+	FYAI_TCHECK(t2->row == 1 && t2->height == 4);
+	FYAI_TCHECK(h3->row == 7 && t3->row == 9 && t3->height == 1);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
 	free(src.data);

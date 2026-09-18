@@ -30,10 +30,10 @@ run_with()
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="$(shell FIRST)" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=20 \
-    FYAI_PTY_AFTER="wait-screen:FIRST 21 98|wait-screen:Ctrl-]|raw:1d|"\
+    FYAI_PTY_AFTER="wait-screen:FIRST 20 98|wait-screen:Ctrl-]|raw:1d|"\
 "wait-gone:Ctrl-]|"\
 "send:$(shell SECOND)|wait-screen:Ctrl-]|"\
-"wait-screen:FIRST 21 47|wait-screen:SECOND 21 46|"\
+"wait-screen:FIRST 20 47|wait-screen:SECOND 20 46|"\
 "raw:1d|wait-gone:Ctrl-]|frame:4|"\
 "send:/kill bang-1|wait-screen:stopping shell bang-1|"\
 "send:/kill bang-2|wait-screen:stopping shell bang-2" \
@@ -67,7 +67,7 @@ sys.path.insert(0, sys.argv[3])
 from screen import Screen
 
 END = b"\x1b[?2026l"
-SIZES = re.compile(r"FIRST 21 47 .*SECOND 21 46")
+SIZES = re.compile(r"FIRST 20 47 .*SECOND 20 46")
 
 def side_by_side(path):
     """The reversed cells of the last frame in which the second tile holds the

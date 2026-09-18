@@ -19,10 +19,10 @@ at()
 }
 
 AFTER="wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|send:$CMD_B|"
-AFTER="${AFTER}wait-screen:A SIZE 21x47|wait-screen:B SIZE 21x46|"
-AFTER="${AFTER}$(at 15 24)$(at 19 28)$(at 17 26)$(at 23 32)raw:1d"
+AFTER="${AFTER}wait-screen:A SIZE 20x47|wait-screen:B SIZE 20x46|"
+AFTER="${AFTER}$(at 14 24)$(at 18 28)$(at 16 26)$(at 22 32)raw:1d"
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
-FYAI_PTY_INPUT="$CMD_A" FYAI_PTY_NEEDLE="A SIZE 21x98" \
+FYAI_PTY_INPUT="$CMD_A" FYAI_PTY_NEEDLE="A SIZE 20x98" \
 FYAI_PTY_AFTER="$AFTER" FYAI_PTY_AFTER_TIMEOUT=10 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

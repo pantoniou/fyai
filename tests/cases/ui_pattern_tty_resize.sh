@@ -10,7 +10,7 @@ fyai_test_setup
 # The screen holds the resized generation once its size line, which the
 # program writes last, stands in a complete frame.
 # Match the width without the "x": the size line is cut to the granted
-# width, and a repaint racing the grant can slice "SIZE 21x50" so only
+# width, and a repaint racing the grant can slice "SIZE 20x50" so only
 # the "50 GEN" tail reaches the capture. The clipped head still proves
 # the child observed the new width, and the verdict below replays the
 # full grid through the screen model, which is what rules on the rows.
@@ -18,7 +18,7 @@ fyai_test_setup
 # the pre-resize generation.
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!$PYTHON $TESTS_DIR/resize_tui.py" \
-FYAI_PTY_NEEDLE="SIZE 21x98 GEN" FYAI_PTY_TIMEOUT=40 \
+FYAI_PTY_NEEDLE="SIZE 20x98 GEN" FYAI_PTY_TIMEOUT=40 \
 FYAI_PTY_AFTER_TIMEOUT=20 \
 FYAI_PTY_AFTER="wait-screen:Ctrl-] returns to the prompt|raw:14|wait-gone:Ctrl-] returns to the prompt|resize:52|wait-screen:50 GEN|snapshot|raw:1d" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/pattern.out" \

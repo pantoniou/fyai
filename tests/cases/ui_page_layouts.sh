@@ -22,10 +22,10 @@ shell()
 sizes()
 {
     case $1 in
-    auto|columns) echo "FIRST 9 47|SECOND 9 46|THIRD 8 98" ;;
-    stack) echo "FIRST 5 98|SECOND 5 98|THIRD 5 98" ;;
-    main-top) echo "FIRST 9 98|SECOND 8 47|THIRD 8 46" ;;
-    main-left) echo "FIRST 19 47|SECOND 9 46|THIRD 8 46" ;;
+    auto|columns) echo "FIRST 8 47|SECOND 8 46|THIRD 8 98" ;;
+    stack) echo "FIRST 6 98|SECOND 4 98|THIRD 4 98" ;;
+    main-top) echo "FIRST 8 98|SECOND 8 47|THIRD 8 46" ;;
+    main-left) echo "FIRST 18 47|SECOND 8 46|THIRD 8 46" ;;
     esac
 }
 

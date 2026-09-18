@@ -19,8 +19,9 @@ mouse()
     fi | od -An -tx1 | tr -d ' \n'
 }
 
-# The tile is the whole width of a 100-column terminal: its head takes rows
-# 1 and 2, the screen starts on row 3, and the bar is the last column. The
+# The tile is the whole width of a 100-column terminal, under the blank row
+# above the pane: its head takes rows 2 and 3, the screen starts on row 4,
+# and the bar is the last column. The
 # last row of the screen is the row of the cursor, under L200.
 run_with()
 {
@@ -31,7 +32,7 @@ run_with()
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=20 \
     FYAI_PTY_AFTER="wait-screen:L200|wait-screen:▴|"\
 "raw:$(mouse 64 20 10)|wait-gone:L200|wait-screen:L198|"\
-"raw:$(mouse 0 100 3)|wait-gone:L198|wait-screen:L197|"\
+"raw:$(mouse 0 100 4)|wait-gone:L198|wait-screen:L197|"\
 "raw:78|wait-screen:L200|"\
 "raw:1d|wait-gone:Ctrl-]|"\
 "send:/kill bang-1|wait-screen:stopping shell bang-1" \

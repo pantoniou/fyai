@@ -40,9 +40,10 @@ if cols != 98:
                      % cols)
 # The prompt block stands whether the tile holds the keys or not, so this is
 # the whole band less the fixed chrome (the blank row and the header, two
-# rules, prompt, two status rows) and the two rows of the tile's own head.
-if rows != 21:
-    raise SystemExit("terminal has %d rows; expected 21 under the chrome "
+# rules, prompt, two status rows), the blank row above the pane and the two
+# rows of the tile's own head.
+if rows != 20:
+    raise SystemExit("terminal has %d rows; expected 20 under the chrome "
                      "that does not move when focus does" %
                      rows)
 if not any("ENV:unset:unset" in line for line in lines):

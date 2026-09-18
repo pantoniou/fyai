@@ -26,7 +26,7 @@ FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
-    --set display/work_max_rows=5 \
+    --set display/work_max_rows=6 \
     --set tools=true --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 
@@ -82,7 +82,7 @@ if not ready:
     raise SystemExit("user shell never drew its output")
 if not echoed:
     raise SystemExit("user shell stopped updating after its second zoom")
-if not sizes or max(r for r, _ in sizes) > 5:
+if not sizes or max(r for r, _ in sizes) > 6:
     raise SystemExit("zoomed-out user shell escaped work_max_rows: %r" %
                      (sizes,))
 PYEOF
