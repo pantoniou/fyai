@@ -1250,6 +1250,27 @@ static char *session_series_text(struct fyai_cfg *cfg, unsigned int n,
 }
 
 /* Abbreviate a token count so that the status row stays short. */
+/*
+ * @path under @home as "~/...", else NULL. A home of "/" abbreviates nothing.
+ * The caller owns the result.
+ */
+static char *session_home_relative(const char *path, const char *home)
+{
+	size_t n;
+	char *out;
+
+	if (!path || !home || *home != '/')
+		return NULL;
+	n = strlen(home);
+	while (n > 1 && home[n - 1] == '/')
+		n--;
+	if (n <= 1 || strncmp(path, home, n) || (path[n] && path[n] != '/'))
+		return NULL;
+	if (asprintf(&out, "~%s", path + n) < 0)
+		return NULL;
+	return out;
+}
+
 static void session_token_count(char *buf, size_t size, long long tokens)
 {
 	if (tokens >= 1000000)
@@ -1274,9 +1295,10 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	char used_str[24], window_str[24], cached_str[24];
 	long long used;
 	char *top, *bottom, *cwd, *directory, *branch, *location;
+	char *tilde, *home_real, *cwd_real;
 	const char *home, *pwd;
 	struct stat pwd_st, cwd_st;
-	size_t home_len, i;
+	size_t i;
 	struct fyai_context_prompt prompt;
 	char *top_md;
 	const char *tmpl;
@@ -1298,11 +1320,23 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		cwd = strdup(pwd);
 	}
 	home = getenv("HOME");
-	home_len = home ? strlen(home) : 0;
-	if (cwd && home_len > 1 && !strncmp(cwd, home, home_len) &&
-	    (!cwd[home_len] || cwd[home_len] == '/')) {
-		memmove(cwd + 1, cwd + home_len, strlen(cwd + home_len) + 1);
-		cwd[0] = '~';
+	tilde = session_home_relative(cwd, home);
+	if (!tilde) {
+		/*
+		 * $HOME can name the home directory through a symbolic link
+		 * while getcwd() answers with the canonical path. Compare the
+		 * canonical form of both, so the two name the same directory.
+		 */
+		home_real = home ? realpath(home, NULL) : NULL;
+		cwd_real = cwd ? realpath(cwd, NULL) : NULL;
+		tilde = session_home_relative(cwd_real ? cwd_real : cwd,
+					      home_real ? home_real : home);
+		free(home_real);
+		free(cwd_real);
+	}
+	if (tilde) {
+		free(cwd);
+		cwd = tilde;
 	}
 	directory = fyai_prompt_literal(cwd ? cwd : "?");
 	branch = fyai_prompt_literal(fyai_agents_attached(ctx) ?
@@ -1614,6 +1648,7 @@ static int session_opt_run(struct fyai_ctx *ctx,
 
 	if (o->restyle && cfg->markdown) {
 		fyai_markdown_load_style(cfg);
+		fyai_config_focus_bg_check(cfg);
 		fyai_error_check(ctx, !fyai_ui_update_prompt_style(ctx), err_out,
 				 "failed to update input bubble style");
 	}
