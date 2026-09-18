@@ -553,6 +553,8 @@ properties:
           because that is where the keys are when no tile holds them. An
           empty string draws no ground and marks focus by reversing the
           margin of the tile alone.
+          A #rrggbb asks for no detection, so a value the theme's text cannot
+          be read on is reported at startup.
       focus_bg_mix:
         type: integer
         minimum: 0

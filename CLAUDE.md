@@ -819,7 +819,10 @@ register, focus, zoom, resize - and sizes nothing itself.
   `theme` is `reverse`. `reverse` is the ground the terminal draws text in,
   named rather than given: it asks for no colour the terminal may not have,
   but reverse video turns text of a colour into a ground of that colour. A
-  `#rrggbb` is a ground of your own. The prompt stands on the same ground, because that is where
+  `#rrggbb` is a ground of your own, which asks for no detection and is thus
+  the one display setting that can leave the input area unreadable:
+  `fyai_config_focus_bg_check()` reports a literal the text of the resolved
+  variant cannot be read on, one time for each value, and the value stands. The prompt stands on the same ground, because that is where
   the keys are when no tile holds them and a tile that takes them takes the
   prompt's rows with them: one setting says where the keys are, wherever they
   went. An empty string draws no ground and reverses the margin of the tile
