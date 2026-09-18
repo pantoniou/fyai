@@ -699,7 +699,9 @@ properties:
           Mouse affordances on a tile. none draws none. zoom draws the marks
           that zoom and close a tile. full adds a scroll bar and its arrows.
           Anything but none grabs the mouse for the whole session, which takes
-          selection and copy from the terminal.
+          selection and copy from the terminal. With the grab, a click on a
+          tile gives it the keys and a click off the tiles gives them back to
+          the prompt.
       tool_detail:
         type: string
         enum: [none, brief, default, full]

@@ -863,6 +863,18 @@ register, focus, zoom, resize - and sizes nothing itself.
   from the terminal, so it is off by default. The library reports a control as
   an event and acts on nothing itself: `fyai_tools_surface_request()` asks the
   component that started the program, because only it can end it.
+- Clicking a tile outside its controls focuses it
+  (`FYTIM_EVENT_SURFACE_FOCUS`). Clicking outside every tile focuses the
+  prompt (`FYTIM_EVENT_FOCUS_PROMPT`). The
+  page draws its tiles itself, so a click on its `head:N` or `screen:N` slot
+  arrives as the second event with the slot named, and
+  `ui_click_off_tiles()` resolves the tile from that slot. Clicking changes
+  only focus and preserves zoom, as does `Ctrl-T`.
+- `Ctrl-T` and `Ctrl-Tab` cycle through tiles in row-major screen order, then
+  the prompt.
+  `fyai_workpane_screen_order()` reads that order from the placement, so a
+  policy of the user's decides it too. A hidden tile takes no keys, and a
+  zoomed tile is the whole cycle.
 - `/zoom` gives one tile the pane and the keys, so the user works in the
   program instead of watching it. The prompt keeps its row while a tile holds
   the keys: it is where the user goes back to, and what says the keys are
