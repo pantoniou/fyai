@@ -1557,30 +1557,94 @@ err_out:
 	return -1;
 }
 
+/* The style of the controls of a tile: not dim, as the band stack draws
+ * them, and bold without a style of the theme. */
+static const char *page_control_sgr(const struct fyai_page_state *st)
+{
+	return st->control_chrome ? st->control_chrome : "\x1b[1m";
+}
+
+/* The columns a scroll bar takes from a screen @width wide after its margin:
+ * one, when the bar is drawn and the screen keeps a column. */
+static int page_bar_cols(bool bar, int width)
+{
+	return bar && width >= 2 ? 1 : 0;
+}
+
+/*
+ * The acts of the scroll bar of @t, which stands in the last column of the
+ * screen region @r: the arrow at each end steps a row, and the track above
+ * and below its middle pages. They cover the rows the screen was drawn in.
+ */
+static int page_bar_acts(struct fyai_page *pg, const struct fyai_page_tile *t,
+			 const struct fymd_region *r,
+			 struct fytim_page_region *regions, size_t *np)
+{
+	const char *name;
+	int row, rows, rc;
+
+	if (t->present != FYAI_WORKPANE_PRESENT_FULL &&
+	    t->present != FYAI_WORKPANE_PRESENT_OUTPUT)
+		return 0;
+	if (!page_bar_cols(true, r->width - page_tile_margin(t, r->width)))
+		return 0;
+	rows = t->granted_rows;
+	for (row = 0; row < rows && *np < FYTIM_PAGE_REGIONS_MAX; row++) {
+		if (rows >= 3 && row == 0)
+			name = "scroll-up";
+		else if (rows >= 3 && row == rows - 1)
+			name = "scroll-down";
+		else
+			name = row < rows / 2 ? "page-up" : "page-down";
+		rc = snprintf(pg->act_ids[*np], sizeof(pg->act_ids[*np]),
+			      "tile:%u:%s", t->slot, name);
+		fyai_error_check(pg->ctx, rc >= 0 &&
+				 (size_t)rc < sizeof(pg->act_ids[*np]), err_out,
+				 "cannot format the scroll bar of tile %u",
+				 t->slot);
+		regions[*np].id = pg->act_ids[*np];
+		regions[*np].kind = FYTIM_PAGE_ACT;
+		regions[*np].row = (int)r->row + row;
+		regions[*np].col = r->col + r->width - 1;
+		regions[*np].width = 1;
+		regions[*np].height = 1;
+		(*np)++;
+	}
+	return 0;
+
+err_out:
+	return -1;
+}
+
 /*
  * Draw the screen of @t into the cells of the region @r as the terminal
  * library draws a surface: its last rows when the region is short, the margin
  * at the left of each row, and the cells on the ground of the tile with the
- * cursor reversed. The grant of @t is what the region gives the screen; a
- * tile shown as its head keeps it and draws no screen. Returns 0, or -1.
+ * cursor reversed. With @bar, the scroll bar of the surface stands in the
+ * last column, which the grant does not include: its track in @bar and its
+ * arrows and thumb in @control. The grant of
+ * @t is what the region gives the screen; a tile shown as its head keeps it
+ * and draws no screen. Returns 0, or -1.
  */
 static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
-			    const struct fymd_region *r, bool truecolor)
+			    const struct fymd_region *r, bool truecolor,
+			    const char *bar, const char *control)
 {
 	struct fyai_ctx *ctx = t->ctx ? t->ctx : pg->ctx;
 	const struct fytim_cell *src;
 	struct fytim_cell *dst;
 	const char *margin = NULL;
 	int grid_rows = 0, grid_cols = 0, crow = 0, ccol = 0;
-	int rows, first, row, y, x, mc, n, rc;
+	int rows, first, row, y, x, mc, bc, n, rc;
 	bool cursor = false;
 
 	rows = t->content_rows < r->height ? t->content_rows : r->height;
 	if (rows < 1)
 		rows = 1;
 	mc = page_tile_margin(t, r->width);
+	bc = page_bar_cols(bar != NULL, r->width - mc);
 	t->granted_rows = rows;
-	t->granted_cols = r->width - mc;
+	t->granted_cols = r->width - mc - bc;
 	if (t->present == FYAI_WORKPANE_PRESENT_HEAD ||
 	    t->present == FYAI_WORKPANE_PRESENT_HIDDEN)
 		return 0;
@@ -1614,7 +1678,7 @@ static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		}
 		src = fytim_surface_row(t->surface, row);
 		x = r->col + mc;
-		n = grid_cols < r->width - mc ? grid_cols : r->width - mc;
+		n = grid_cols < t->granted_cols ? grid_cols : t->granted_cols;
 		if (n > pg->cells_cols - x)
 			n = pg->cells_cols - x;
 		if (!src || n < 1)
@@ -1633,6 +1697,20 @@ static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		/* The cursor is the one cell that is not on the ground. */
 		if (cursor && row == crow && ccol >= 0 && ccol < n)
 			dst[ccol].attrs ^= FYTIM_ATTR_REVERSE;
+	}
+	if (bc) {
+		n = fytim_cells_draw_scroll_bar(pg->cells, pg->cells_rows,
+						pg->cells_cols, (int)r->row,
+						r->col + r->width - 1, rows,
+						t->surface, true, bar, control);
+		fyai_error_check(ctx, n >= 0, err_out,
+				 "cannot draw the scroll bar of tile %u", t->slot);
+		rc = fytim_cells_wash(pg->cells, pg->cells_rows, pg->cells_cols,
+				      (int)r->row, r->col + r->width - 1, 1, rows,
+				      t->ground, t->mix, truecolor);
+		fyai_error_check(ctx, !rc, err_out,
+				 "cannot apply the ground to the scroll bar of tile %u",
+				 t->slot);
 	}
 	return 0;
 
@@ -1959,17 +2037,19 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 		if (t && t->rows) {
 			n = page_head_draw(pg, t, &fr[i],
 					   st->tile_marks && t->surface ?
-					   fy_sprintfa("\x1b[2m%s",
-						       st->band_chrome ?
-						       st->band_chrome : "") :
-					   NULL);
+					   page_control_sgr(st) : NULL);
 			fyai_error_check(ctx, n >= 0, err_out,
 					 "cannot draw the head of tile %u into cells",
 					 t->slot);
 		}
 		t = page_tile_of(st, fr[i].id, "screen");
 		if (t && t->surface) {
-			rc = page_screen_draw(pg, t, &fr[i], truecolor);
+			rc = page_screen_draw(pg, t, &fr[i], truecolor,
+					      st->tile_bar ?
+					      fy_sprintfa("\x1b[2m%s",
+							  st->band_chrome ?
+							  st->band_chrome : "") :
+					      NULL, page_control_sgr(st));
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the screen of tile %u into cells",
 					 t->slot);
@@ -2142,6 +2222,14 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 					    st->tile_marks && t->surface, regions, &n);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot build the actions of tile %u", t->slot);
+		}
+		t = fr[i].kind == FYMD_REGION_ACT || !st->tile_bar ? NULL :
+		    page_tile_of(st, fr[i].id, "screen");
+		if (t && t->surface) {
+			rc = page_bar_acts(pg, t, &fr[i], regions, &n);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot build the scroll bar of tile %u",
+					 t->slot);
 		}
 	}
 	pg->last_nregions = n;

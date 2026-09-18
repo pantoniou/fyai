@@ -608,6 +608,14 @@ properties:
         description: >-
           The narrowest tile the automatic grid makes. A terminal that cannot
           hold two of them shows one screen at a time.
+      work_history_rows:
+        type: integer
+        minimum: 0
+        default: 1000
+        description: >-
+          Rows that left the top of the screen of a tile which it keeps for
+          its scroll bar and the wheel. 0 keeps none. A change applies to
+          tiles that are open.
       work_max_rows:
         type: integer
         minimum: 0
@@ -697,7 +705,9 @@ properties:
         default: none
         description: >-
           Mouse affordances on a tile. none draws none. zoom draws the marks
-          that zoom and close a tile. full adds a scroll bar and its arrows.
+          that zoom and close a tile. full adds a scroll bar and its arrows,
+          which, with the wheel over the tile, move its view back through
+          the history of its program.
           Anything but none grabs the mouse for the whole session, which takes
           selection and copy from the terminal. With the grab, a click on a
           tile gives it the keys and a click off the tiles gives them back to

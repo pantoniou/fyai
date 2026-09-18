@@ -95,6 +95,28 @@ struct fyai_term_cell {
 bool fyai_terminal_view_cell(const struct fyai_terminal_view *view, int row,
 			     int col, struct fyai_term_cell *cell);
 
+/*
+ * Scroll @delta rows into history. A negative value scrolls toward the live
+ * screen. Clamp at both ends. Alternate screens have no history. Return true
+ * if the visible rows changed.
+ */
+bool fyai_terminal_view_scroll(struct fyai_terminal_view *view, int delta);
+
+/*
+ * Retain at most @rows history rows; zero disables history. Shrinking drops
+ * the oldest rows and clamps the scroll offset. History is disabled until
+ * this function is called. Return -1 on allocation failure without changing
+ * the current history.
+ */
+int fyai_terminal_view_set_history(struct fyai_terminal_view *view, int rows);
+
+/* Show the live screen again. True when the view was scrolled back. */
+bool fyai_terminal_view_scroll_live(struct fyai_terminal_view *view);
+
+/* Return the total scroll extent and the first visible row. */
+void fyai_terminal_view_scroll_extent(const struct fyai_terminal_view *view,
+				      int *totalp, int *topp);
+
 /* Where the program left its cursor, and whether it asked for it to show. */
 void fyai_terminal_view_cursor(const struct fyai_terminal_view *view,
 			       int *rowp, int *colp, bool *visiblep);

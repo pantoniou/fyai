@@ -124,6 +124,7 @@ struct fyai_ui {
 };
 
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev);
+static const char *ui_control_sgr(struct fyai_ui *ui);
 
 /* Bands are tiles in the shared work pane. */
 static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
@@ -1360,6 +1361,8 @@ static void ui_page_update(struct fyai_ui *ui)
 	/* The marks that zoom and close a tile, when they grab the mouse. */
 	st.tile_marks = ctx->cfg->work_controls &&
 			strcmp(ctx->cfg->work_controls, "none");
+	st.tile_bar = ctx->cfg->work_controls &&
+		      !strcmp(ctx->cfg->work_controls, "full");
 	pane = fyai_workpane_pane(ctx->workpane);
 	/* The pane is an fy-grid of its tiles, sized first as they ask. */
 	n = ctx->cfg->tile_sep ?
@@ -1396,6 +1399,7 @@ static void ui_page_update(struct fyai_ui *ui)
 				FYMD_STYLE_RULE, &st.band_chrome, &rule_off))
 			st.band_chrome = NULL;
 	}
+	st.control_chrome = ui_control_sgr(ui);
 	/* The cap row of the pane: the slot draws no chrome of the pane. */
 	if (ctx->cfg->work_cap && st.pane_rows > 0) {
 		n = fyai_workpane_cap_source(ctx->workpane, cap, sizeof(cap));
@@ -1472,11 +1476,20 @@ err_page:
 	free(activity);
 }
 
+/* True when the work pane controls take the wheel over a tile. */
+static bool ui_tile_scrolls(const struct fyai_ui *ui)
+{
+	const char *v = ui->ctx->cfg->work_controls;
+
+	return v && strcmp(v, "none");
+}
+
 /*
- * Handle a click outside library-rendered tiles. Page-rendered tile slots
- * receive focus; all other locations return focus to the prompt.
+ * The tile the page draws in the region @text names: a "head:N", "screen:N"
+ * or "tile:N" slot. NULL for any other region, and for no region.
  */
-static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
+static struct fytim_surface *ui_slot_surface(struct fyai_ui *ui,
+					     const char *text, size_t text_len)
 {
 	static const char *const prefixes[] = { "head:", "screen:", "tile:" };
 	struct fytim_surface *sf = NULL;
@@ -1485,21 +1498,32 @@ static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
 	size_t len, i, plen;
 	char *end;
 
-	if (ev->text) {
-		len = ev->text_len < sizeof(id) - 1 ? ev->text_len :
-		      sizeof(id) - 1;
-		memcpy(id, ev->text, len);
-		id[len] = '\0';
-		for (i = 0; i < ARRAY_SIZE(prefixes) && !sf; i++) {
-			plen = strlen(prefixes[i]);
-			if (strncmp(id, prefixes[i], plen))
-				continue;
-			slot = strtoul(id + plen, &end, 10);
-			if (end != id + plen && !*end)
-				sf = fyai_workpane_slot_surface(ui->ctx->workpane,
-								(unsigned int)slot);
-		}
+	if (!text)
+		return NULL;
+	len = text_len < sizeof(id) - 1 ? text_len : sizeof(id) - 1;
+	memcpy(id, text, len);
+	id[len] = '\0';
+	for (i = 0; i < ARRAY_SIZE(prefixes) && !sf; i++) {
+		plen = strlen(prefixes[i]);
+		if (strncmp(id, prefixes[i], plen))
+			continue;
+		slot = strtoul(id + plen, &end, 10);
+		if (end != id + plen && !*end)
+			sf = fyai_workpane_slot_surface(ui->ctx->workpane,
+							(unsigned int)slot);
 	}
+	return sf;
+}
+
+/*
+ * Handle a click outside library-rendered tiles. Page-rendered tile slots
+ * receive focus; all other locations return focus to the prompt.
+ */
+static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
+{
+	struct fytim_surface *sf;
+
+	sf = ui_slot_surface(ui, ev->text, ev->text_len);
 	if (sf && fyai_tools_focus_tile(ui->ctx, sf))
 		return;
 	fyai_tools_focus_prompt(ui->ctx);
@@ -1541,6 +1565,7 @@ static void ui_select(struct fyai_ui *ui, const struct fytim_event *ev)
 
 static enum fyai_event_action ui_service(struct fyai_ui *ui)
 {
+	struct fytim_surface *sf;
 	struct fytim_event ev;
 	bool painted_frame;
 
@@ -1659,6 +1684,14 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				fyai_transcript_view_scroll(ui->popup, ev.delta,
 							    ui->popup_rows);
 				ui->frame_pending = true;
+			} else if (ui->page && ui_tile_scrolls(ui) &&
+				   (sf = ui_slot_surface(ui, ev.text,
+							 ev.text_len))) {
+				/* The wheel over a tile the page draws is
+				 * that tile's, as the library gives it the
+				 * wheel over a tile it draws. */
+				fyai_tools_surface_request(ui->ctx, sf,
+							   ev.delta);
 			} else if (ui->fullscreen &&
 				   (!ev.text || (ev.text_len == 10 &&
 						 !memcmp(ev.text, "transcript",
@@ -1855,6 +1888,7 @@ void fyai_ui_config_changed(struct fyai_ctx *ctx)
 	ui_page_configure(ui);
 	/* The manager owns pane geometry and configuration adoption. */
 	fyai_browser_config_changed(ctx);
+	fyai_tools_config_changed(ctx);
 	fyai_workpane_adopt_config(ctx->workpane);
 	fyai_workpane_configure(ctx->workpane);
 	fyai_workpane_reconcile(ctx->workpane);
@@ -2151,6 +2185,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 		ui_prompt_ground(ctx);
 		for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++)
 			(void)fytim_set_chrome_style(ui->ft, styles[i].slot, NULL);
+		(void)fytim_set_chrome_style(ui->ft, FYTIM_CHROME_CONTROL, NULL);
 		return 0;
 	}
 	markdown_renderer_cfg(ctx->cfg, &rcfg, true,
@@ -2183,10 +2218,34 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	fymd_renderer_destroy(ui->chrome_renderer);
 	ui->chrome_renderer = renderer;
 	renderer = NULL;
+	on = ui_control_sgr(ui);
+	res = fytim_set_chrome_style(ui->ft, FYTIM_CHROME_CONTROL, on);
+	if (res != FYTIM_OK)
+		fyai_warning(ctx, "cannot style the controls of the tiles: %s",
+			     fytim_result_string(res));
 out:
 	fymd_renderer_destroy(renderer);
 	(void)off;
 	return rc;
+}
+
+/*
+ * The SGR of the controls of a tile: its marks, and the arrows and the thumb
+ * of its bar. The palette theme names it with the role of the sigil of work,
+ * and a theme without a palette gives its strong style. NULL without a
+ * renderer: the controls are then bold.
+ */
+static const char *ui_control_sgr(struct fyai_ui *ui)
+{
+	const char *on = NULL, *off = NULL;
+
+	if (!ui->chrome_renderer)
+		return NULL;
+	if (fymd_renderer_get_style_pair(ui->chrome_renderer, FYMD_STYLE_STRONG,
+					 &on, &off))
+		on = NULL;
+	(void)off;
+	return markdown_role_on(ui->ctx->cfg, "tile.sigil.work", on);
 }
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)
@@ -3006,6 +3065,7 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	unsigned long slot;
 	char *end;
 	size_t len;
+	int page;
 
 	if (!ev->text)
 		return;
@@ -3034,6 +3094,17 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 				fyai_workpane_zoomed(wm) == sf ? NULL : sf);
 	} else if (!strcmp(id, "tile:close")) {
 		fyai_tools_surface_request(ui->ctx, sf, 0);
+	} else if (!strcmp(id, "tile:scroll-up") ||
+		   !strcmp(id, "tile:scroll-down")) {
+		fyai_tools_surface_request(ui->ctx, sf,
+					   strcmp(id, "tile:scroll-up") ? -1 : 1);
+	} else if (!strcmp(id, "tile:page-up") ||
+		   !strcmp(id, "tile:page-down")) {
+		page = fyai_ui_surface_granted_rows(ui->ctx, sf);
+		if (page < 1)
+			page = 1;
+		fyai_tools_surface_request(ui->ctx, sf,
+					   strcmp(id, "tile:page-up") ? -page : page);
 	}
 }
 
@@ -3309,6 +3380,7 @@ int fyai_ui_surface_publish(struct fytim_surface *sf,
 	int rows = 0, cols = 0;
 	int first, last, r, c;
 	int crow = 0, ccol = 0;
+	int total = 0, top = 0;
 
 	if (!sf || !view || !fyai_terminal_view_dirty(view))
 		return 0;
@@ -3336,6 +3408,9 @@ int fyai_ui_surface_publish(struct fytim_surface *sf,
 
 	fyai_terminal_view_cursor(view, &crow, &ccol, &visible);
 	(void)fytim_surface_set_cursor(sf, crow, ccol, visible);
+	/* Publish the terminal's scroll extent for the tile scroll bar. */
+	fyai_terminal_view_scroll_extent(view, &total, &top);
+	(void)fytim_surface_set_scroll_extent(sf, total, top);
 	return 1;
 }
 
@@ -3353,16 +3428,6 @@ int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf)
 struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx)
 {
 	return fyai_workpane_zoomed(ctx ? ctx->workpane : NULL);
-}
-
-/* Publish emulator scroll extent to the surface. */
-int fyai_ui_surface_scroll_extent(struct fytim_surface *sf, int total_rows,
-				  int top_row)
-{
-	if (!sf)
-		return -1;
-	return fytim_surface_set_scroll_extent(sf, total_rows, top_row) ==
-	       FYTIM_OK ? 0 : -1;
 }
 
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,

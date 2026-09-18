@@ -84,6 +84,8 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name);
 /* Cycle focus through the prompt and live tiles. */
 bool fyai_tools_focus_next(struct fyai_ctx *ctx);
+/* Apply a changed configuration to the live sessions and jobs. */
+void fyai_tools_config_changed(struct fyai_ctx *ctx);
 /* Give the keys to @sf, a tile on the screen. False when it cannot take
  * them. */
 bool fyai_tools_focus_tile(struct fyai_ctx *ctx, struct fytim_surface *sf);

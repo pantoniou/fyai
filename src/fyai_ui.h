@@ -214,9 +214,6 @@ void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf);
 /* Zoom one tile to the pane; NULL restores the grid. */
 int fyai_ui_surface_zoom(struct fyai_ctx *ctx, struct fytim_surface *sf);
 struct fytim_surface *fyai_ui_surface_zoomed(const struct fyai_ctx *ctx);
-/* Publish emulator scroll extent to the surface. */
-int fyai_ui_surface_scroll_extent(struct fytim_surface *sf, int total_rows,
-				  int top_row);
 
 /* Give the keys to @sf; @cb receives the bytes a terminal would send. */
 int fyai_ui_surface_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,

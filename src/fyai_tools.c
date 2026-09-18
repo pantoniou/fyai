@@ -2492,6 +2492,10 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	fyai_error_check(ctx,
 			 sess->name && sess->command && sess->branch && sess->view,
 			 fail, "shell: could not allocate the terminal session");
+	rc = fyai_terminal_view_set_history(sess->view,
+					    ctx->cfg->work_history_rows);
+	fyai_error_check(ctx, !rc, fail,
+			 "shell: cannot allocate terminal scrollback");
 	/* Pipe output uses bare line feeds. */
 	fyai_terminal_view_cooked(sess->view, pipes);
 	fyai_terminal_view_line_cb(sess->view, fyai_shell_session_line, sess);
@@ -3645,6 +3649,9 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 					      job->pty_cols, 0);
 	if (!job->view)
 		return -1;
+	if (fyai_terminal_view_set_history(job->view,
+					   ctx->cfg->work_history_rows))
+		return -1;
 	fyai_terminal_view_reply_cb(job->view, fyai_agent_view_reply, job);
 	el = fyai_ctx_loop(ctx);
 	if (!el || fyai_event_add_fd(el, job->pty, FYAIEV_READ,
@@ -4735,9 +4742,21 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 {
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
+	struct fytim_surface *surface;
+	struct fyai_terminal_view *view;
 
-	if (!ctx || !sf || delta)
+	if (!ctx || !sf)
 		return;
+	if (delta) {
+		/* Scroll the terminal view without sending input to the program. */
+		fyai_tile_owner(ctx, sf, &sess, &job);
+		view = sess ? sess->view : job ? job->view : NULL;
+		surface = sess ? sess->surface : job ? job->surface : NULL;
+		if (view && surface && fyai_terminal_view_scroll(view, delta) &&
+		    fyai_ui_surface_publish(surface, view) > 0)
+			fyai_ui_wake(ctx);
+		return;
+	}
 	if (fyai_browser_surface(ctx, sf)) {
 		fyai_browser_close(ctx);
 		return;
@@ -4760,6 +4779,13 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 				  struct fyai_tool_job *job, const char *data,
 				  size_t len)
 {
+	struct fyai_terminal_view *view = sess ? sess->view : job ? job->view :
+					  NULL;
+
+	/* Input returns the view to the live screen. */
+	if (view && fyai_terminal_view_scroll_live(view))
+		(void)fyai_ui_surface_publish(sess ? sess->surface :
+					      job->surface, view);
 	if (sess)
 		fyai_shell_session_reply(data, len, sess);
 	else if (job)
@@ -4835,6 +4861,28 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx)
 	fyai_agents_detach(ctx);
 	fyai_workpane_clear_focus(ctx->workpane);
 	fyai_workpane_clear_zoom(ctx->workpane);
+}
+
+void fyai_tools_config_changed(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	int rows;
+
+	if (!ctx)
+		return;
+	/* Apply the new scrollback limit to each active terminal view. */
+	rows = ctx->cfg->work_history_rows;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (sess->view &&
+		    !fyai_terminal_view_set_history(sess->view, rows) &&
+		    sess->surface)
+			(void)fyai_ui_surface_publish(sess->surface, sess->view);
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->view &&
+		    !fyai_terminal_view_set_history(job->view, rows) &&
+		    job->surface)
+			(void)fyai_ui_surface_publish(job->surface, job->view);
 }
 
 bool fyai_tools_focus_tile(struct fyai_ctx *ctx, struct fytim_surface *sf)

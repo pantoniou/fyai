@@ -23,6 +23,12 @@
 #include "fyai_terminal_view.h"
 #include "utils.h"
 
+/* A row saved after it scrolls off the top of the screen. */
+struct tty_history_row {
+	int cols;
+	struct fyvt_screen_cell cells[];
+};
+
 /* The escape-sequence reader of the line log. */
 enum tty_scan {
 	TTYSC_TEXT,
@@ -38,6 +44,12 @@ struct fyai_terminal_view {
 	struct fyvt *vt;
 	struct fyvt_screen *screen;
 	struct response_buffer sb;	/* rows that left the top of the screen */
+	/* Scrollback rows. The view owns each row in this ring buffer. */
+	struct tty_history_row **hist;
+	int hist_max;
+	int hist_head;
+	int hist_count;
+	int scroll;			/* rows shown above the live screen */
 	struct response_buffer log;	/* the line log, sequences removed */
 	size_t log_line;		/* where the line being written begins */
 	size_t log_read;		/* how much of the log was read */
@@ -219,12 +231,52 @@ static void tty_mark_drop(size_t *mark, size_t drop)
 	*mark = *mark > drop ? *mark - drop : 0;
 }
 
+/*
+ * Save a row that scrolled off the screen. Drop the oldest row when the
+ * history is full. Increase the offset while scrolled back to keep the same
+ * rows visible. Allocation failure affects scrollback, not the text log.
+ */
+static void tty_history_push(struct fyai_terminal_view *view, int cols,
+			     const struct fyvt_screen_cell *cells)
+{
+	struct tty_history_row *row;
+	int slot;
+
+	if (cols < 1 || view->hist_max < 1)
+		return;
+	if (!view->hist) {
+		view->hist = calloc((size_t)view->hist_max, sizeof(*view->hist));
+		if (!view->hist)
+			return;
+	}
+	row = malloc(sizeof(*row) + (size_t)cols * sizeof(row->cells[0]));
+	if (!row)
+		return;
+	row->cols = cols;
+	memcpy(row->cells, cells, (size_t)cols * sizeof(row->cells[0]));
+	if (view->hist_count == view->hist_max) {
+		free(view->hist[view->hist_head]);
+		view->hist[view->hist_head] = row;
+		view->hist_head = (view->hist_head + 1) % view->hist_max;
+	} else {
+		slot = (view->hist_head + view->hist_count) % view->hist_max;
+		view->hist[slot] = row;
+		view->hist_count++;
+	}
+	if (view->scroll > 0) {
+		if (view->scroll < view->hist_count)
+			view->scroll++;
+		fyai_terminal_view_damage_all(view);
+	}
+}
+
 /* Retain a scrolled row, joining wrapped rows into their original line. */
 static int tty_sb_pushline4(int cols, const struct fyvt_screen_cell *cells,
 			    bool continuation, void *user)
 {
 	struct fyai_terminal_view *view = user;
 
+	tty_history_push(view, cols, cells);
 	if (!continuation && view->sb.len &&
 	    response_buffer_append_data(&view->sb, "\n", 1))
 		return 0;
@@ -353,6 +405,11 @@ static void tty_csi_alt_screen(struct fyai_terminal_view *view,
 		if (param == 47 || param == 1047 || param == 1049) {
 			view->alt_screen = final == 'h';
 			view->alt_screen_seen = true;
+			/* Switching screens resets scrollback. */
+			if (view->scroll) {
+				view->scroll = 0;
+				fyai_terminal_view_damage_all(view);
+			}
 		}
 		p = next < end && *next == ';' ? next + 1 : end;
 	}
@@ -550,10 +607,17 @@ err:
 
 void fyai_terminal_view_destroy(struct fyai_terminal_view *view)
 {
+	int i;
+
 	if (!view)
 		return;
 	if (view->vt)
 		fyvt_destroy(view->vt);
+	if (view->hist)
+		for (i = 0; i < view->hist_count; i++)
+			free(view->hist[(view->hist_head + i) %
+					view->hist_max]);
+	free(view->hist);
 	free(view->sb.data);
 	free(view->log.data);
 	free(view);
@@ -851,19 +915,31 @@ static void tty_cell_color(const struct fyai_terminal_view *view,
 bool fyai_terminal_view_cell(const struct fyai_terminal_view *view, int row,
 			     int col, struct fyai_term_cell *cell)
 {
+	const struct tty_history_row *hr;
 	struct fyvt_screen_cell vc;
 	struct fyvt_pos pos;
-	int i;
+	int i, srow;
 
 	if (!view || !cell || row < 0 || col < 0 || row >= view->rows ||
 	    col >= view->cols)
 		return false;
 
 	memset(cell, 0, sizeof(*cell));
-	pos.row = row;
-	pos.col = col;
-	if (!fyvt_screen_get_cell(view->screen, pos, &vc))
-		return false;
+	/* Negative screen rows select scrollback rows. */
+	srow = row - view->scroll;
+	if (srow < 0) {
+		hr = view->hist[(view->hist_head + view->hist_count + srow) %
+				view->hist_max];
+		/* Cells beyond the saved row are blank. */
+		if (col >= hr->cols)
+			return true;
+		vc = hr->cells[col];
+	} else {
+		pos.row = srow;
+		pos.col = col;
+		if (!fyvt_screen_get_cell(view->screen, pos, &vc))
+			return false;
+	}
 
 	for (i = 0; i < FYAI_TERM_CELL_CHARS &&
 		    i < FYVT_MAX_CHARS_PER_CELL; i++)
@@ -880,6 +956,82 @@ bool fyai_terminal_view_cell(const struct fyai_terminal_view *view, int row,
 	return true;
 }
 
+bool fyai_terminal_view_scroll(struct fyai_terminal_view *view, int delta)
+{
+	int scroll;
+
+	if (!view || !delta)
+		return false;
+	/* Alternate-screen programs do not have scrollback. */
+	scroll = view->alt_screen ? 0 : view->scroll + delta;
+	if (scroll > view->hist_count)
+		scroll = view->hist_count;
+	if (scroll < 0)
+		scroll = 0;
+	if (scroll == view->scroll)
+		return false;
+	view->scroll = scroll;
+	fyai_terminal_view_damage_all(view);
+	return true;
+}
+
+int fyai_terminal_view_set_history(struct fyai_terminal_view *view, int rows)
+{
+	struct tty_history_row **hist = NULL;
+	int keep, drop, i;
+
+	if (!view || rows < 0)
+		return -1;
+	if (rows == view->hist_max)
+		return 0;
+	keep = view->hist_count < rows ? view->hist_count : rows;
+	drop = view->hist_count - keep;
+	if (rows > 0 && view->hist) {
+		hist = calloc((size_t)rows, sizeof(*hist));
+		fyai_error_check(view->ctx, hist, err,
+				 "terminal: could not allocate a history of %d rows",
+				 rows);
+	}
+	/* Keep the newest rows in chronological order. */
+	for (i = 0; i < view->hist_count; i++) {
+		if (i < drop)
+			free(view->hist[(view->hist_head + i) % view->hist_max]);
+		else if (hist)
+			hist[i - drop] = view->hist[(view->hist_head + i) %
+						   view->hist_max];
+	}
+	free(view->hist);
+	view->hist = hist;
+	view->hist_max = rows;
+	view->hist_head = 0;
+	view->hist_count = hist ? keep : 0;
+	if (view->scroll > view->hist_count) {
+		view->scroll = view->hist_count;
+		fyai_terminal_view_damage_all(view);
+	}
+	return 0;
+
+err:
+	return -1;
+}
+
+bool fyai_terminal_view_scroll_live(struct fyai_terminal_view *view)
+{
+	return view && fyai_terminal_view_scroll(view, -view->scroll);
+}
+
+void fyai_terminal_view_scroll_extent(const struct fyai_terminal_view *view,
+				      int *totalp, int *topp)
+{
+	int count = view ? view->hist_count : 0;
+	int scroll = view ? view->scroll : 0;
+
+	if (totalp)
+		*totalp = count + (view ? view->rows : 0);
+	if (topp)
+		*topp = count - scroll;
+}
+
 void fyai_terminal_view_cursor(const struct fyai_terminal_view *view,
 			       int *rowp, int *colp, bool *visiblep)
 {
@@ -889,8 +1041,9 @@ void fyai_terminal_view_cursor(const struct fyai_terminal_view *view,
 		*rowp = view->cursor_row;
 	if (colp)
 		*colp = view->cursor_col;
+	/* Hide the live-screen cursor while displaying scrollback. */
 	if (visiblep)
-		*visiblep = view->cursor_visible;
+		*visiblep = view->cursor_visible && !view->scroll;
 }
 
 bool fyai_terminal_view_take_damage(struct fyai_terminal_view *view,

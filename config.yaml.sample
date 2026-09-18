@@ -328,6 +328,9 @@ display:
   work_layout: auto
   work_columns: 0
   work_min_tile_cols: 40
+  # Rows a tile keeps to scroll back to with its bar and the wheel; 0 keeps
+  # none.
+  work_history_rows: 1000
   # Where the pane stands: above-prompt, or below-prompt for the rows under
   # the input.
   work_position: above-prompt
