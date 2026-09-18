@@ -265,6 +265,7 @@ struct fyai_cfg {
 	int shell_input_poll_ms;	/* how often a session is asked if it waits */
 	const char *session_margin;	/* left chrome of a terminal session */
 	const char *focus_bg;		/* ground of the focused tile, "" = none */
+	const char *focus_bg_checked;	/* the literal ground already reported */
 	int focus_bg_mix;		/* percent of it mixed into a colour */
 	/* Work-pane configuration. */
 	const char *work_layout;	/* auto | columns | stack */

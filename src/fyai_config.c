@@ -2069,6 +2069,44 @@ int fyai_config_edit(struct fyai_ctx *ctx)
 	return rc;
 }
 
+/*
+ * Report a literal display/focus_bg that the text of the theme cannot be read
+ * on. A colour of the user's own asks for no detection, so it is the one
+ * display setting that can leave the input area unreadable; the variant says
+ * which side the text is on. Warned once for each value.
+ */
+void fyai_config_focus_bg_check(struct fyai_cfg *cfg)
+{
+	uint32_t rgb;
+	bool ground_light;
+	bool text_light;
+
+	/* The variant says which side the text is on, and only a loaded style
+	 * resolves it: without markdown there is no text to read. */
+	if (!cfg || !cfg->theme_variant || !cfg->focus_bg || !*cfg->focus_bg)
+		return;
+	if (!strcmp(cfg->focus_bg, "theme") || !strcmp(cfg->focus_bg, "reverse"))
+		return;
+	if (cfg->focus_bg_checked &&
+	    !strcmp(cfg->focus_bg_checked, cfg->focus_bg))
+		return;
+	cfg->focus_bg_checked = fy_gb_intern_string(cfg->gb, cfg->focus_bg);
+	if (!fyai_ui_color_parse(cfg->focus_bg, &rgb))
+		return;
+	/* Rec. 601 luma, as libfypalette divides the variants */
+	ground_light = (((rgb >> 16) & 0xff) * 299 + ((rgb >> 8) & 0xff) * 587 +
+			(rgb & 0xff) * 114) / 1000 >= 128;
+	text_light = !strcmp(cfg->theme_variant, "dark");
+	if (ground_light != text_light)
+		return;
+	fyai_cfg_warning(cfg, "display/focus_bg: %s is %s, and the %s theme "
+			 "draws %s text on it: the prompt cannot be read. "
+			 "theme follows the palette.", cfg->focus_bg,
+			 ground_light ? "light" : "dark",
+			 text_light ? "dark" : "light",
+			 text_light ? "light" : "dark");
+}
+
 static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -2083,6 +2121,7 @@ static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc)
 
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);
+	fyai_config_focus_bg_check(cfg);
 
 	/* A live display holds display configuration of its own. */
 	if (fyai_ui_active(ctx))
@@ -2927,6 +2966,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 */
 	if (cfg->markdown)
 		fyai_markdown_load_style(cfg);
+	fyai_config_focus_bg_check(cfg);
 
 	if (fyai_config_resolve_model(cfg))
 		goto err_out;

@@ -102,6 +102,9 @@ int fyai_config_edit(struct fyai_ctx *ctx);
  * change takes effect immediately instead of only on the next process.
  */
 int fyai_config_rederive(struct fyai_ctx *ctx);
+/* Report a literal display/focus_bg the theme's text cannot be read on.
+ * Call it after the style is loaded: it reads the resolved variant. */
+void fyai_config_focus_bg_check(struct fyai_cfg *cfg);
 
 /*
  * Adopt the opened arena configuration as the base while preserving the
