@@ -644,8 +644,7 @@ rules and the status. `page` states the same screen as one UI Markdown page.
   text is the text of the rows in its cells, without styles, links and the
   blanks that end a row (`fyai_transcript_view_copy()`), and fyai copies it
   with `fytim_copy()`. When a fullscreen session ends it closes the UI,
-  which gives the terminal its own screen back, and prints the last
-  exchange there through the sink, so the answer stays after the exit.
+  which gives the terminal its own screen back, and prints nothing there.
 - The head of a tile is drawn on the canvas too. A cell of the grid is a
   `head:N` slot over a `tile:N` slot: the head slot is as tall as the tallest
   head of the tiles that start on its row, so their screens stand level, and
