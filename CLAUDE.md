@@ -870,6 +870,24 @@ register, focus, zoom, resize - and sizes nothing itself.
   arrives as the second event with the slot named, and
   `ui_click_off_tiles()` resolves the tile from that slot. Clicking changes
   only focus and preserves zoom, as does `Ctrl-T`.
+- `display/work_controls: full` gives each screen tile a scroll bar. The
+  terminal view keeps the rows that left the top of the screen with their
+  cells, a history of `display/work_history_rows`, and an offset into it; the
+  program is not told. `fyai_tools_config_changed()` gives a changed size to
+  the views that are open.
+  `fyai_ui_surface_publish()` states the extent on the surface, and the bar
+  is drawn from it: by the library under the band stack, and by the page
+  with `fytim_cells_draw_scroll_bar()`, whose `tile:N:scroll-up`,
+  `scroll-down`, `page-up` and `page-down` actions cover its cells. Scroll
+  events, including the wheel over a tile, reach the owner through
+  `fyai_tools_surface_request()`. A view scrolled back stays on its rows
+  while the program writes, and what the user types shows the live screen
+  again. A program on the alternate screen has no history.
+- What the user acts on in the chrome of a tile - the zoom and close marks,
+  the arrows and the thumb of the bar - is not dim. It takes the
+  `tile.sigil.work` role of a palette theme, else the strong style of the
+  theme, through `FYTIM_CHROME_CONTROL` under the band stack and
+  `control_chrome` on the page. The track stays dim chrome.
 - `Ctrl-T` and `Ctrl-Tab` cycle through tiles in row-major screen order, then
   the prompt.
   `fyai_workpane_screen_order()` reads that order from the placement, so a
