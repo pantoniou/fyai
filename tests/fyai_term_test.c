@@ -23,6 +23,7 @@ FYAI_TEST_ENTRY(term, view_cooked, term_view_cooked)
 FYAI_TEST_ENTRY(term, view_reply, term_view_reply)
 FYAI_TEST_ENTRY(term, view_screen_resize, term_view_screen_resize)
 FYAI_TEST_ENTRY(term, view_altscreen_resize, term_view_altscreen_resize)
+FYAI_TEST_ENTRY(term, view_scroll, term_view_scroll)
 
 static void feed(struct fyai_terminal_view *view, const char *bytes)
 {
@@ -314,6 +315,91 @@ int term_view_reply(void)
 	cap.calls = 0;
 	feed(view, "cd");
 	FYAI_TCHECK(!cap.calls);
+
+	fyai_terminal_view_destroy(view);
+	return 0;
+}
+
+/* The first character of row @row of the view, or 0. */
+static uint32_t row_char(struct fyai_terminal_view *view, int row)
+{
+	struct fyai_term_cell cell;
+
+	FYAI_TCHECK(fyai_terminal_view_cell(view, row, 0, &cell));
+	return cell.chars[0];
+}
+
+/*
+ * A view keeps the rows that left the top of the screen, with their cells, and
+ * shows them when the user scrolls back. It stays on the rows it shows while
+ * the program writes, and the live screen comes back on request.
+ */
+int term_view_scroll(void)
+{
+	struct fyai_terminal_view *view;
+	struct fyai_term_cell cell;
+	int total = 0, top = 0;
+	bool visible = true;
+
+	view = fyai_terminal_view_create(NULL, 4, 20, 0);
+	FYAI_TCHECK(view != NULL);
+	FYAI_TCHECK(!fyai_terminal_view_set_history(view, 100));
+
+	feed(view, "\033[1mA\033[0m\r\nB\r\nC\r\nD\r\nE\r\nF\r\nG\r\nH\r\nI");
+	FYAI_TCHECK(row_char(view, 0) == 'F');
+	fyai_terminal_view_scroll_extent(view, &total, &top);
+	FYAI_TCHECK(total == 9 && top == 5);
+	/* A view at the live screen goes no further down. */
+	FYAI_TCHECK(!fyai_terminal_view_scroll(view, -1));
+
+	FYAI_TCHECK(fyai_terminal_view_scroll(view, 2));
+	FYAI_TCHECK(fyai_terminal_view_dirty(view));
+	FYAI_TCHECK(row_char(view, 0) == 'D');
+	FYAI_TCHECK(row_char(view, 3) == 'G');
+	fyai_terminal_view_scroll_extent(view, &total, &top);
+	FYAI_TCHECK(total == 9 && top == 3);
+	/* The cursor is on the live screen, not on these rows. */
+	fyai_terminal_view_cursor(view, NULL, NULL, &visible);
+	FYAI_TCHECK(!visible);
+
+	/* The history ends at its first row, which keeps its style. */
+	FYAI_TCHECK(fyai_terminal_view_scroll(view, 100));
+	FYAI_TCHECK(!fyai_terminal_view_scroll(view, 1));
+	FYAI_TCHECK(fyai_terminal_view_cell(view, 0, 0, &cell));
+	FYAI_TCHECK(cell.chars[0] == 'A' && cell.bold);
+
+	/* Output under a scrolled view does not move what it shows. */
+	feed(view, "\r\nJ");
+	FYAI_TCHECK(row_char(view, 0) == 'A');
+
+	FYAI_TCHECK(fyai_terminal_view_scroll_live(view));
+	FYAI_TCHECK(!fyai_terminal_view_scroll_live(view));
+	FYAI_TCHECK(row_char(view, 3) == 'J');
+	fyai_terminal_view_cursor(view, NULL, NULL, &visible);
+	FYAI_TCHECK(visible);
+
+	/* A smaller history keeps its newest rows, and a view scrolled past
+	 * its end stops there. */
+	FYAI_TCHECK(fyai_terminal_view_scroll(view, 6));
+	FYAI_TCHECK(row_char(view, 0) == 'A');
+	FYAI_TCHECK(!fyai_terminal_view_set_history(view, 2));
+	fyai_terminal_view_scroll_extent(view, &total, &top);
+	FYAI_TCHECK(total == 6 && top == 0);
+	FYAI_TCHECK(row_char(view, 0) == 'E');
+	FYAI_TCHECK(!fyai_terminal_view_scroll(view, 1));
+	/* A history of none keeps no rows. */
+	FYAI_TCHECK(!fyai_terminal_view_set_history(view, 0));
+	feed(view, "\r\nK");
+	fyai_terminal_view_scroll_extent(view, &total, &top);
+	FYAI_TCHECK(total == 4 && top == 0);
+	FYAI_TCHECK(!fyai_terminal_view_scroll(view, 1));
+
+	/* A program on the alternate screen has no history to show. */
+	FYAI_TCHECK(!fyai_terminal_view_set_history(view, 100));
+	feed(view, "\r\nL");
+	FYAI_TCHECK(fyai_terminal_view_scroll(view, 1));
+	feed(view, "\033[?1049h");
+	FYAI_TCHECK(!fyai_terminal_view_scroll(view, 1));
 
 	fyai_terminal_view_destroy(view);
 	return 0;
