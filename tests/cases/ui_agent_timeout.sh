@@ -11,13 +11,14 @@ set -eu
 fyai_test_setup
 mock_start agent_timeout.json
 
+# Keep process startup outside the short deadline under instrumented builds.
 FYAI_PTY_INPUT="delegate a task that does not end" \
 FYAI_PTY_NEEDLE="The sub-agent was stopped." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set tools=true --set api=responses --set builtin_shell=true \
-    --set agent/timeout_ms=1500 \
+    --set agent/spawn=fork --set agent/timeout_ms=1500 \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i
 
 "$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || fail "agent failure is not marked"

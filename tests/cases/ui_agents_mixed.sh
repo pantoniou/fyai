@@ -11,13 +11,15 @@ set -eu
 fyai_test_setup
 mock_start ui_agents_mixed.json
 
+# Keep process startup outside the short deadline under instrumented builds.
 FYAI_PTY_INPUT="delegate both" \
 FYAI_PTY_NEEDLE="Mixed agents done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -b main -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
     --set tools=true --set api=chat-completions \
-    --set retry/max_attempts=1 --set agent/timeout_ms=1500 \
+    --set retry/max_attempts=1 --set agent/spawn=fork \
+    --set agent/timeout_ms=1500 \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 
 # The stored turn is the record: replay it and read the mark of each agent. The
