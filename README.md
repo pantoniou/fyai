@@ -4,8 +4,9 @@
 
 Each invocation opens the repository's durable state, runs the requested verb
 or one complete model/tool loop, atomically publishes any durable changes, and
-exits. Interactive mode keeps that same process alive for a terminal session,
-but there is still no resident service and no hidden process state.
+exits. Interactive mode keeps that same process alive for a fullscreen
+terminal session, but there is still no resident service and no hidden process
+state.
 
 The result feels like a Unix command while retaining the history, branching,
 tool use, and rich terminal experience expected from a modern coding agent.
@@ -81,6 +82,10 @@ interactive terminal:
 fyai
 fyai -i
 ```
+
+The session opens fullscreen and gives the terminal its own screen back when
+it ends; see [Fullscreen and inline](#fullscreen-and-inline) to keep the
+conversation in the scrollback instead.
 
 Useful first commands:
 
@@ -226,6 +231,49 @@ Interactive mode is an invocation-local REPL over the same durable branch
 state. It supports event-driven line editing, terminal resize and interrupt
 handling, progressive Markdown rendering, concurrent tool output, and branch or
 request-setting changes without restarting the process.
+
+### Fullscreen and inline
+
+An interactive session opens fullscreen. It takes the alternate screen of the
+terminal, and it gives the screen back unchanged when it ends. The transcript
+is a view of that screen: the wheel, PageUp and PageDown scroll it. Every live
+shell and sub-agent is a tile of one work pane, which takes half the terminal
+and has the mouse controls of a tile. Selection and copy are then fyai's, which
+copies through the terminal; paste stays the terminal's (`Ctrl-Shift-V`, or
+`Cmd-V` on macOS).
+
+The inline mode keeps the transcript in the scrollback of the terminal, where
+the terminal scrolls it as it scrolls the output of any other program, and the
+prompt stands under it. Use it to keep the conversation in the scrollback, to
+select with the mouse of the terminal, or on a terminal that has no alternate
+screen.
+
+Four settings say which mode a session opens in:
+
+```sh
+fyai config set display/screen inline         # keep the scrollback
+fyai config set display/renderer stack        # the bands of the library
+fyai config set display/work_controls none    # leave the mouse to the terminal
+fyai config set display/work_zoom_rows full   # the work pane takes the screen
+```
+
+`display/screen` is the mode: `fullscreen` (the default) or `inline`.
+`display/renderer` is how the live screen is composed: `page` (the default), a
+UI Markdown page whose slots hold the transcript, the work pane and the prompt,
+or `stack`, the fixed chrome of the terminal library. Fullscreen applies to the
+page renderer alone, thus `stack` is an inline session whatever `display/screen`
+says. Put the defaults back with:
+
+```sh
+fyai config set display/screen fullscreen
+fyai config set display/renderer page
+fyai config set display/work_controls full
+fyai config set display/work_zoom_rows half
+```
+
+A setting takes effect on the next frame, except `display/screen`, which the
+session reads when it starts. `/config set` does the same from inside a
+session, and each setting belongs to the branch it is set on.
 
 ```text
 /branch experiment

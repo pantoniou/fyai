@@ -1013,19 +1013,28 @@ remaining settings below are session-only.
 
 Use `/help` in the running binary for the current command and setting spellings.
 
-`display/renderer` selects how the live screen is composed. `stack`, the
-default, is the chrome of the terminal library. `page` states the same screen
-as one UI Markdown page: the transcript tail, the work pane, the header, the
-prompt between two rules and the status. On a short terminal the page loses
-the status first, then the header, then the rules, and keeps the prompt. A
+`display/renderer` selects how the live screen is composed. `page`, the
+default, states the screen as one UI Markdown page: `stack` is the chrome of
+the terminal library. The page holds the transcript tail, the work pane, the
+header, the prompt between two rules and the status. On a short terminal the
+page loses the status first, then the header, then the rules, and keeps the
+prompt. A
 build without page support uses `stack` and says so. Refer to
 `doc/markdown-ui-plan.md`.
+
+An interactive session opens fullscreen (`display/screen: fullscreen`), with
+the work pane at half the terminal (`display/work_zoom_rows: half`) and the
+mouse controls of a tile (`display/work_controls: full`). For the inline
+session, which keeps the transcript in the scrollback of the terminal, run:
+
+```sh
+fyai config set display/screen inline
+```
 
 For an Ember fullscreen page with the theme background, run:
 
 ```sh
-fyai -i --set display/renderer=page --set display/screen=fullscreen \
-  --set display/theme=ember:auto --set display/theme_ground=theme
+fyai -i --set display/theme=ember:auto --set display/theme_ground=theme
 ```
 
 The page fills default backgrounds with the theme's ground colour and keeps

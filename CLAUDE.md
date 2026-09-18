@@ -494,10 +494,11 @@ display makes them again.
 
 ### The page
 
-`display/renderer` selects how the live screen is composed. `stack` is the
-band stack of libfytimui: the library draws the header, the prompt between two
-rules and the status. `page` states the same screen as one UI Markdown page.
-`src/fyai_page.c` owns the page source; the terminal library draws its slots.
+`display/renderer` selects how the live screen is composed. `page`, the
+default, states the screen as one UI Markdown page. `stack` is the band stack
+of libfytimui: the library draws the header, the prompt between two rules and
+the status. `src/fyai_page.c` owns the page source; the terminal library
+draws its slots.
 
 - The page is rendered again for each frame, from the state of the session.
   libfytimui decision 0007 measured it: the Markdown is at most 0.16 ms of a
@@ -606,9 +607,9 @@ rules and the status. `page` states the same screen as one UI Markdown page.
 - `/page` is a view: it commits the document in use, why a file is not used,
   and the state, source and regions of the last frame to the scrollback. The
   state of a frame lives in the builder of that frame until the next one.
-- `display/screen: fullscreen` puts the page on the alternate screen when the
-  session starts (`FYTIM_SCREEN_ALT`). There is no scrollback there, so the
-  transcript is a view of the page, `src/fyai_transcript_view.c`, drawn into
+- `display/screen: fullscreen`, the default, puts the page on the alternate
+  screen when the session starts (`FYTIM_SCREEN_ALT`). There is no scrollback
+  there, so the transcript is a view of the page, `src/fyai_transcript_view.c`, drawn into
   its `transcript` text region over the tail. The view renders the stored
   conversation through a view context and a render sink, as the branch browser
   renders its preview, so it is not a second transcript renderer. It renders
@@ -861,9 +862,10 @@ register, focus, zoom, resize - and sizes nothing itself.
   reaches fyai only when the mouse is grabbed, which `display/work_controls`
   decides. Never render chrome with UI Markdown without escaping text that
   fyai did not write.
-- `display/work_controls` draws mouse affordances on a tile. Anything but
-  `none` grabs the mouse for the whole session, which takes selection and copy
-  from the terminal, so it is off by default. The library reports a control as
+- `display/work_controls` draws mouse affordances on a tile. `full` is the
+  default. Anything but `none` grabs the mouse for the whole session: selection
+  and copy are then fyai's, which copies through the terminal, and paste stays
+  the terminal's. The library reports a control as
   an event and acts on nothing itself: `fyai_tools_surface_request()` asks the
   component that started the program, because only it can end it.
 - Clicking a tile outside its controls focuses it
@@ -991,8 +993,8 @@ command.
 - A user-owned tile can take more rows than the shared pane granted it. A tile
   of a tool call keeps the grant.
 - `display/work_zoom_rows` is the height of the work pane. `full` uses the
-  terminal height, `half` and `quarter` use that fraction of it, and an
-  integer is a direct row count. It is the pane's disposition, not a mode that
+  terminal height, `half`, the default, and `quarter` use that fraction of it,
+  and an integer is a direct row count. It is the pane's disposition, not a mode that
   zoom turns on: the first bang shell opens at it, and a fraction is recomputed
   from the terminal after every resize. `display/work_max_rows` is a further
   ceiling on it, not an alternative to it. Zooming, unzooming, and moving focus
