@@ -1,5 +1,9 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
+# The case reads the transcript from the scrollback, thus it names the band
+# stack: a fullscreen page repaints the cells that change and the bytes do not
+# say what the screen shows. A named branch does not take the display of the
+# arena, thus the case states it.
 # An editor for the prompt runs in a tile of the work pane by default: the tile
 # of the editor stands while it runs, and what it wrote is the prompt when it
 # ends. display/editor=terminal gives the editor the whole terminal, as before,
@@ -28,6 +32,7 @@ session()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/$name.out" \
         "$FYAI_BIN" -b "editor-$name" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=true \
+        --set display/renderer=stack --set display/screen=inline \
         --set api=chat-completions \
         --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i "$@"
     assert_request 0 \
