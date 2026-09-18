@@ -897,6 +897,17 @@ register, focus, zoom, resize - and sizes nothing itself.
   It cannot be focused or zoomed. Its program keeps its current size because
   the manager does not apply a new grant. Clicking its header restores and
   focuses it.
+- The input header ends in a panel when the pane holds live work: a button
+  that hides and shows the whole pane, then the live shells of the user,
+  the live shells of the model and the running sub-agents, each only when
+  there is one. `fyai_ui_panel_update()` writes it after every reconcile.
+  The band stack draws it with `fytim_set_header_right()`, and the page
+  draws it in the `header` slot with the button as an act of the page; both
+  route `panel:pane` through `ui_act()`. Its glyphs are glyphs of the theme
+  and its colours are roles of the palette, else styles of the theme of the
+  chrome: never a colour escape in C.
+- A hidden pane (`fyai_workpane_set_hidden()`) keeps its tiles, grants
+  nothing new and takes no keys. A tile given the keys shows the pane again.
 - `Ctrl-T` and `Ctrl-Tab` cycle through tiles in row-major screen order, then
   the prompt.
   `fyai_workpane_screen_order()` reads that order from the placement, so a
