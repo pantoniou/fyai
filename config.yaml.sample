@@ -152,6 +152,9 @@ read:
 agent:
   timeout_ms: 0
   max_timeout_ms: 3600000
+  # How a sub-agent child starts: `exec` runs fyai again, `fork` continues
+  # the image of the parent. A transient run and a pinned root use `fork`.
+  spawn: exec
   # Maximum nesting depth of sub-agent branches below a top-level branch.
   # Recursive delegation also uses this allocator limit.
   max_branch_depth: 8

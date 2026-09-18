@@ -1869,6 +1869,40 @@ err:
 	return -1;
 }
 
+/*
+ * Keep the spawn state of an executed child. fyai_agent_run() re-opens the
+ * arena and replaces the builders, so the state is kept as JSON until it is
+ * adopted there. The identity of the parent, a command-line key and the
+ * configuration are applied now.
+ */
+static int fyai_tool_child_spawn_take(struct fyai_ctx *ctx, fy_generic spawn)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	const char *json, *key;
+
+	if (!fy_is_mapping(spawn))
+		return 0;
+	json = emit_json_string(fyai_ctx_transient_gb(ctx), spawn);
+	fyai_error_check(ctx, json, err,
+			 "could not keep the sub-agent spawn state");
+	free(ctx->agent_spawn_json);
+	ctx->agent_spawn_json = strdup(json);
+	fyai_error_check(ctx, ctx->agent_spawn_json, err,
+			 "could not keep the sub-agent spawn state");
+	ctx->agent_parent = fy_get(spawn, "parent", 0LL);
+	key = fy_get(spawn, "api_key", "");
+	if (!fy_str_empty(key)) {
+		cfg->api_key = fy_gb_intern_string(cfg->gb, key);
+		fyai_error_check(ctx, cfg->api_key, err,
+				 "could not keep the parent API key");
+		cfg->api_key_explicit = true;
+		cfg->api_key_auto = false;
+	}
+	return fyai_agent_spawn_config(ctx, spawn);
+
+err:
+	return -1;
+}
 
 struct fyai_tool_child {
 	struct fyai_ctx *ctx;
@@ -1880,6 +1914,7 @@ struct fyai_tool_child {
 	bool pending;
 	bool done;
 	bool session_started;	/* the session this child was asked for opened */
+	bool spawn_failed;	/* the parent state could not be adopted */
 };
 
 static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
@@ -1903,6 +1938,10 @@ static fy_generic fyai_tool_child_serve(struct jsonrpc_conn *conn,
 		}
 		tc->args = fy_get(params, "call", fy_invalid);
 		tc->branch = fy_get(params, "branch", fy_invalid);
+		/* The result carries the diagnostics of a refused state. */
+		if (tc->ctx->cfg->tool_exec)
+			tc->spawn_failed = fyai_tool_child_spawn_take(tc->ctx,
+					fy_get(params, "spawn", fy_invalid));
 		tc->id = id;
 		tc->pending = true;
 		jsonrpc_conn_defer(conn);
@@ -2065,8 +2104,13 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 				ok = tc.session_started;
 				break;
 			}
-			if (fy_equal(fyai_tool_call_name(ctx, tc.args), "agent") &&
-			    fyai_agents_enter(ctx)) {
+			if (tc.spawn_failed) {
+				result = fy_value(fyai_ctx_transient_gb(ctx),
+					"tool error: the sub-agent could not "
+					"adopt the state of its parent");
+			} else if (fy_equal(fyai_tool_call_name(ctx, tc.args),
+					    "agent") &&
+				   fyai_agents_enter(ctx)) {
 				result = fy_value(fyai_ctx_transient_gb(ctx),
 					"tool error: agent admission refused");
 			} else {
@@ -2129,6 +2173,7 @@ struct fyai_tool_job {
 	bool done;
 	bool native_shell;
 	bool agent;
+	bool exec;			/* the child executes fyai again */
 	bool band_progress;
 	int pty;			/* terminal of a sub-agent, -1 if none */
 	int pty_rows, pty_cols;
@@ -3841,6 +3886,25 @@ static void fyai_tool_child_signals(struct fyai_ctx *ctx)
 	}
 }
 
+int fyai_tool_child_exec_serve(struct fyai_ctx *ctx)
+{
+	/*
+	 * A parent gives a child a terminal only from an interactive display,
+	 * and the child opens a display of its own on it.
+	 */
+	ctx->cfg->interactive = ctx->cfg->agent_pty;
+	fyai_diag_tracef("exec", "tool child of pid %ld%s", (long)getppid(),
+			 ctx->cfg->agent_pty ? ", on a terminal" : "");
+	fyai_tool_child_signals_block();
+	fyai_tool_child_signals(ctx);
+	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
+		return -1;
+	if (fyai_tool_apply_sandbox(ctx))
+		_exit(126);
+	fyai_tool_child_serve_loop(ctx);	/* never returns */
+	return -1;
+}
+
 static enum fyai_event_action fyai_tool_job_child(const struct fyai_event *ev)
 {
 	struct fyai_tool_job *job = ev->userdata;
@@ -3985,9 +4049,84 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	ctx->dump_fd = -1;	/* the parent closes its diagnostic copy */
 }
 
+/*
+ * True when a sub-agent child executes fyai again rather than continuing the
+ * forked image. The executed child opens the arena itself, so its fork point
+ * must be in the arena: a transient run keeps its state in memory, and a
+ * pinned root is read-only. `agent/spawn: fork` selects the forked child.
+ */
+static bool fyai_agent_spawn_exec(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+
+	return fyai_exec_self_available() && !fy_str_empty(cfg->agent_spawn) &&
+	       !strcmp(cfg->agent_spawn, "exec") &&
+	       !cfg->transient && !cfg->root_pinned && cfg->arena_dir;
+}
+
+/*
+ * The state an executed sub-agent child cannot read from the arena: the
+ * configuration of this run, the branch configuration, the conversation head
+ * it forks from, and the identity of this execution. A command-line key is
+ * sent on the private channel; it is never stored.
+ */
+static fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
+					 struct fy_generic_builder *gb)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic fork;
+
+	fork = fy_null;
+	if (fy_is_valid(ctx->last_message) && !ctx->session_unstored)
+		fork = fy_gb_mapping(gb,
+			"branch", fy_value(gb, fyai_ctx_branch(ctx)),
+			"head", (long long)ctx->last_message.v);
+	return fy_gb_mapping(gb,
+		"config", fyai_generic_or_null(cfg->config_doc),
+		"branch_config", fyai_generic_or_null(ctx->arena_config),
+		"fork", fork,
+		"parent", ctx->agent_execution,
+		"api_key", cfg->api_key_explicit && cfg->api_key ?
+			fy_value(gb, cfg->api_key) : fy_null);
+}
+
+/*
+ * Replace the forked image with a new fyai that serves the control channel on
+ * fds 3 and 4. Runs in the child between fork and exec: no allocation.
+ * fyai_exec_self() owns the platform-specific executable path.
+ */
+static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty)
+{
+	const char *argv[16];
+	int argc, i;
+
+	argc = 0;
+	argv[argc++] = "fyai";
+	for (i = 0; i < ctx->cfg->debug && i < 4; i++)
+		argv[argc++] = "-d";
+	argv[argc++] = "-b";
+	argv[argc++] = fyai_ctx_branch(ctx);
+	argv[argc++] = "agent";
+	argv[argc++] = "--tool-child";
+	if (pty)
+		argv[argc++] = "--pty";
+	argv[argc++] = "--arena";
+	argv[argc++] = ctx->cfg->arena_dir;
+	argv[argc] = NULL;
+
+	/* The control channel is the one inherited descriptor pair. */
+	if (fcntl(FYAI_TOOL_CHILD_REQ_FD, F_SETFD, 0) < 0 ||
+	    fcntl(FYAI_TOOL_CHILD_RSP_FD, F_SETFD, 0) < 0)
+		_exit(126);
+	if (ctx->signal_mask_valid)
+		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
+	fyai_exec_self(argv);
+	_exit(127);
+}
+
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
-			       struct fyai_tool_job *job, bool pty)
+			       struct fyai_tool_job *job, bool pty, bool exec)
 {
 	int req[2] = { -1, -1 };	/* parent -> child */
 	int rsp[2] = { -1, -1 };	/* child -> parent */
@@ -3999,6 +4138,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 
 	memset(job, 0, sizeof(*job));
 	job->ctx = ctx;
+	job->exec = exec;
 	job->rfd = -1;
 	job->pfd = -1;
 	job->pty = -1;
@@ -4046,6 +4186,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		ctx->cfg->agent_pty = slave >= 0;
 		if (fyai_tool_child_fds(req[0], rsp[1]))
 			_exit(126);
+		if (exec)
+			fyai_tool_child_exec(ctx, slave >= 0);
 
 		fyai_ctx_fork_disown(ctx);
 		ctx->cfg->tool_child = true;
@@ -4333,7 +4475,9 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	/* A sub-agent renders to a terminal of its own; the parent shows it. */
 	rc = fyai_tool_job_spawn(ctx, job, fy_equal(name, "agent") &&
 				 fyai_agents_detail(ctx->agent_execution ? 2 : 1) == 2 &&
-				 fyai_ui_active(ctx));
+				 fyai_ui_active(ctx),
+				 fy_equal(name, "agent") &&
+				 fyai_agent_spawn_exec(ctx));
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
 	fyai_tool_job_link(ctx, job);
@@ -4618,6 +4762,7 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 {
 	struct fyai_event_loop *el;
 	struct fy_generic_builder *gb;
+	fy_generic params;
 	int rc;
 
 	fyai_error_check(ctx, job, err,
@@ -4638,11 +4783,15 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 			 "could not serve the tool control channel");
 
 	job->out_open = true;
-	job->run = jsonrpc_request_submit(job->conn, "tool/run",
-					  job->branch ?
-					  fy_gb_mapping(gb, "call", job->call,
-							"branch", job->branch) :
-					  fy_gb_mapping(gb, "call", job->call),
+	params = !fy_str_empty(job->branch) ?
+		fy_gb_mapping(gb, "call", job->call, "branch", job->branch) :
+		fy_gb_mapping(gb, "call", job->call);
+	if (job->exec)
+		params = fy_assoc(gb, params, fy_value(gb, "spawn"),
+				     fyai_agent_spawn_state(job->ctx, gb));
+	fyai_error_check(ctx, fy_is_mapping(params), err,
+			 "could not build the tool call request");
+	job->run = jsonrpc_request_submit(job->conn, "tool/run", params,
 					  jsonrpc_conn_next_id(job->conn),
 					  false, fyai_tool_job_run_done, job);
 	fyai_error_check(ctx, job->run, err,

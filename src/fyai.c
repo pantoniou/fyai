@@ -1973,6 +1973,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	ctx->session_unstored = NULL;
 	free(ctx->agent_branch);
 	ctx->agent_branch = NULL;
+	free(ctx->agent_spawn_json);
+	ctx->agent_spawn_json = NULL;
 	free(ctx->tool_submit_error);
 	ctx->tool_submit_error = NULL;
 	fyai_patch_display_clear(ctx);
@@ -2197,6 +2199,9 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 		goto err;
 
 	(void)fyai_setup_transient_builder(ctx);
+	/* An executed tool child resolves when the parent state arrives. */
+	if (cfg->tool_exec)
+		return 0;
 	if (fyai_auth_resolve(ctx))
 		goto err;
 

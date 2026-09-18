@@ -10,6 +10,11 @@ extern const char fyai_agent_system_prompt[];
 fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
 int fyai_agent_verb(struct fyai_ctx *ctx);
+/*
+ * Adopt the configuration that a parent sent to an executed sub-agent child.
+ * The call arguments are parsed in the grammar of that configuration.
+ */
+int fyai_agent_spawn_config(struct fyai_ctx *ctx, fy_generic spawn);
 
 /* Return true when the child must suppress display output. */
 bool fyai_agent_delegated(const struct fyai_ctx *ctx);

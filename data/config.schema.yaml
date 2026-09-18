@@ -362,6 +362,16 @@ properties:
                 summary:
                   type: string
                   enum: [auto, concise, detailed]
+      spawn:
+        type: string
+        enum: [exec, fork]
+        default: exec
+        description: >-
+          How a sub-agent child starts. `exec` runs fyai again, and the child
+          receives the state of the parent on its control channel. `fork`
+          continues the forked image of the parent. A transient run, a pinned
+          root, and a platform without a supported executable-image path
+          always use `fork`.
       max_branch_depth:
         type: integer
         minimum: 1

@@ -313,7 +313,7 @@ static fy_generic_value root_for_branch_entry(struct fy_allocator *a,
 	fy_generic_value match;
 	unsigned int n;
 
-	match = 0;
+	match = fy_invalid_value;
 	node = (fy_generic){ .v = from };
 	for (n = 0; n < FYAI_REFLOG_KEEP_MAX; n++) {
 		if (!root_shape_ok(a, node, &r))
@@ -322,7 +322,7 @@ static fy_generic_value root_for_branch_entry(struct fy_allocator *a,
 		have = by_head ? b.head : b.entry;
 		if (fy_is_valid(have) && have.v == want.v) {
 			match = (uint64_t)node.v;
-		} else if (match) {
+		} else if (match != fy_invalid_value) {
 			break;	/* the run ended: keep its oldest root */
 		}
 		node = fyai_root_prev(node);
@@ -330,6 +330,18 @@ static fy_generic_value root_for_branch_entry(struct fy_allocator *a,
 			break;
 	}
 	return match;
+}
+
+fy_generic fyai_root_find_head(struct fy_allocator *a, fy_generic_value from,
+			       const char *name, fy_generic_value head)
+{
+	fy_generic_value v;
+
+	if (from == fy_invalid_value || head == fy_invalid_value || !name)
+		return fy_invalid;
+	v = root_for_branch_entry(a, from, name, (fy_generic){ .v = head },
+				  true);
+	return v != fy_invalid_value ? fyai_root_find(a, from, v) : fy_invalid;
 }
 
 int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
@@ -392,7 +404,7 @@ int fyai_root_resolve_spec(struct fy_allocator *a, fy_generic_value from,
 	} else {
 		*outp = root_for_branch_entry(a, from, name, b.entry, false);
 	}
-	return *outp ? 0 : -1;
+	return *outp != fy_invalid_value ? 0 : -1;
 }
 
 void fyai_reserve_arena_ranges(void)
