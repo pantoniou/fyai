@@ -5,8 +5,9 @@
 # PageUp takes it back to the first of them and PageDown to the end, and the
 # terminal gets its own screen back when the session ends. A long result of a
 # slash command opens a popup over the whole page, and a short one stands above
-# the status until the user types. A drag over the transcript copies its text, and the
-# last exchange stays on the terminal's screen after the exit. An inline
+# the status until the user types. A drag over the transcript copies its text, and
+# nothing of the conversation is printed on the terminal's screen after the
+# exit. An inline
 # session of the same conversation never takes the alternate screen.
 set -eu
 . "$(dirname "$0")/../harness.sh"
@@ -206,8 +207,8 @@ if not popup:
 PY
     fail "the popup did not cover the tiles"
 
-# A drag over the answer copies its text with OSC 52, and the last exchange is
-# printed on the terminal's own screen when the session ends.
+# A drag over the answer copies its text with OSC 52, and the session prints
+# nothing on the terminal's own screen when it ends.
 DRAG=$(printf '\033[<0;3;5M\033[<32;31;5M\033[<0;31;5m' |
     od -An -tx1 | tr -d ' \n')
 session fullscreen "wait-screen:Hello from the mock provider.|raw:$DRAG|wait-copy:Hello from the mock provider." 30 1
@@ -218,10 +219,10 @@ data = open(sys.argv[1], "rb").read()
 left = data.rfind(b"\x1b[?1049l")
 if left < 0:
     raise SystemExit("the session never left the alternate screen")
-if b"Hello from the mock provider." not in data[left:]:
-    raise SystemExit("the last exchange was not printed after the exit")
+if b"Hello from the mock provider." in data[left:]:
+    raise SystemExit("the last exchange was printed after the exit")
 PY
-    fail "the last exchange did not stay on the terminal's screen"
+    fail "the session printed the conversation after the exit"
 
 # The same conversation inline stays on the terminal's own screen.
 session inline "wait-screen:Hello from the mock provider.|send:second question|wait-screen:Hello again from the mock provider."
