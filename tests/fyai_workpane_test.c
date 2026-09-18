@@ -42,6 +42,7 @@ FYAI_TEST_ENTRY(workpane, position_is_config, workpane_position_is_config)
 FYAI_TEST_ENTRY(workpane, focus_colour, workpane_focus_colour)
 FYAI_TEST_ENTRY(workpane, grid_has_no_holes, workpane_grid_has_no_holes)
 FYAI_TEST_ENTRY(workpane, tiles_are_placed_in_age, workpane_tiles_in_age)
+FYAI_TEST_ENTRY(workpane, focus_follows_the_screen, workpane_focus_follows_screen)
 FYAI_TEST_ENTRY(workpane, keys_reach_the_program, workpane_keys_reach_program)
 FYAI_TEST_ENTRY(workpane, head_regions_follow_the_tile, workpane_head_regions_follow_tile)
 FYAI_TEST_ENTRY(workpane, cap_accounts_for_tiles, workpane_cap_accounts_for_tiles)
@@ -659,6 +660,43 @@ int workpane_tiles_in_age(void)
 	FYAI_TCHECK(grid.place[0].row == 0);
 	FYAI_TCHECK(grid.place[1].row == 1);
 	wpt_close(wm);
+	return 0;
+}
+
+/*
+ * Focus cycles through tiles in screen order rather than creation order, then
+ * returns to the prompt. When zoomed, only the zoomed tile participates.
+ */
+int workpane_focus_follows_screen(void)
+{
+	struct fyai_workpane_manager *wm = wpt_open("full", 0);
+	struct fytim_surface *order[FYAI_WORKPANE_TILES_MAX];
+
+	wpt_register_pair(wm);		/* the shell first, then the agent */
+	fyai_workpane_set_policy(wm, wpt_capture, NULL);
+	fyai_workpane_set_layout(wm, FYAI_WORKPANE_LAYOUT_CUSTOM, 0);
+
+	/* The policy puts the newest at the top. */
+	FYAI_TCHECK(fyai_workpane_screen_order(wm, order, 2) == 2);
+	FYAI_TCHECK(order[0] == WPT_AGENT && order[1] == WPT_SHELL);
+
+	FYAI_TCHECK(fyai_workpane_focus_next(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == WPT_AGENT);
+	FYAI_TCHECK(fyai_workpane_focus_next(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == WPT_SHELL);
+	FYAI_TCHECK(fyai_workpane_focus_next(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == NULL);
+
+	/* A zoomed tile is the whole cycle. */
+	FYAI_TCHECK(!fyai_workpane_set_zoom(wm, WPT_SHELL));
+	FYAI_TCHECK(fyai_workpane_screen_order(wm, order, 2) == 1);
+	FYAI_TCHECK(fyai_workpane_focus_next(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == WPT_SHELL);
+	FYAI_TCHECK(fyai_workpane_focus_next(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == NULL);
+
+	wpt_close(wm);
+	printf("ok - focus cycles the tiles in screen order\n");
 	return 0;
 }
 
