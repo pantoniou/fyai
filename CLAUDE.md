@@ -673,18 +673,13 @@ rules and the status. `page` states the same screen as one UI Markdown page.
 - A head act on the page is named for its tile, `tile:N:act`, because the
   page is one component: `ui_act()` finds the tile by its slot.
 - A head the page draws is rendered at the granted columns of the tile, as
-  the band stack renders it, so a long row is cut in the same place. Its zoom
-  and close marks are not in its source: the page draws them in the last two
-  columns of the head in the chrome style, where the band stack draws them,
-  and names their acts `tile:N:zoom` and `tile:N:close`. A mark in the source
-  would stand the right margin of the renderer short of the edge.
+  the band stack renders it, so a long row is cut in the same place.
 - `tests/cases/ui_page_tiles.sh` compares two tiles side by side under both
   renderers.
 - Under the page renderer the head of a shell or agent tile is a tile page
   (`fytim_surface_set_page()`): the rendered head, then a `screen` slot, built
-  by `fyai_page_tile()`. Its zoom and close controls are acts when
-  `display/work_controls` grabbed the mouse, and `FYTIM_EVENT_ACT` routes
-  `tile:focus`, `tile:zoom` and `tile:close`.
+  by `fyai_page_tile()`. `FYTIM_EVENT_ACT` routes its acts, `tile:focus`
+  and the buttons, as the band stack routes a click on its head.
 - The ladder of a tile selects the view of its page, where the manager
   reports the presentation: the whole page, the screen alone
   (`FYAI_WORKPANE_PRESENT_OUTPUT`) or the head alone. A view changes what is
@@ -883,11 +878,25 @@ register, focus, zoom, resize - and sizes nothing itself.
   `fyai_tools_surface_request()`. A view scrolled back stays on its rows
   while the program writes, and what the user types shows the live screen
   again. A program on the alternate screen has no history.
-- What the user acts on in the chrome of a tile - the zoom and close marks,
-  the arrows and the thumb of the bar - is not dim. It takes the
+- What the user acts on in the chrome of a tile - the arrows and the thumb of
+  the bar - is not dim. It takes the
   `tile.sigil.work` role of a palette theme, else the strong style of the
   theme, through `FYTIM_CHROME_CONTROL` under the band stack and
   `control_chrome` on the page. The track stays dim chrome.
+- The head of a tile ends in three buttons when the mouse is grabbed:
+  `tile:minimize`, `tile:maximize` and `tile:close`. They are acts of the
+  head source that `ui_tile_buttons()` writes, so both renderers draw and
+  route them from one source: a click reaches `ui_tile_act()` through
+  `FYTIM_EVENT_SURFACE_CLICK` under the band stack and `FYTIM_EVENT_ACT` on
+  the page. Their regions are regions of the head, so a head is made again
+  at every new width (`repaint_head`), or a click finds a button where the
+  old width put it.
+- Maximize toggles zoom. Minimize is manager state
+  (`fyai_workpane_set_minimized()`). A minimized tile renders only its header
+  in a fitted row below the screens through `fytim_surface_set_collapsed()`.
+  It cannot be focused or zoomed. Its program keeps its current size because
+  the manager does not apply a new grant. Clicking its header restores and
+  focuses it.
 - `Ctrl-T` and `Ctrl-Tab` cycle through tiles in row-major screen order, then
   the prompt.
   `fyai_workpane_screen_order()` reads that order from the placement, so a
@@ -1442,7 +1451,9 @@ action. A PTY case waits on the terminal state that `tests/screen.py` models:
 `wait-screen` for text on the screen, or on a row that scrolled off it or that
 an erase of the display removed since the last action, `wait-gone` for text
 that left the screen, `wait-copy` for an OSC 52 copy, and `frame` for a key
-that must be acted on. Do not wait on the raw capture bytes with `wait` or
+that must be acted on. `click` presses and releases the mouse on the first
+cell of a text found on the screen, so a click does not depend on the rows
+around its target. Do not wait on the raw capture bytes with `wait` or
 `wait-frame`: a frame paints only the cells that changed, so the bytes do not
 say what the screen shows. Do not use
 `drain` or `settle` to wait for a state. A program in a tile that reports a

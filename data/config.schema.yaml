@@ -704,11 +704,11 @@ properties:
         enum: [none, zoom, full]
         default: none
         description: >-
-          Mouse affordances on a tile. none draws none. zoom draws the marks
-          that zoom and close a tile. full adds a scroll bar and its arrows,
-          which, with the wheel over the tile, move its view back through
-          the history of its program.
-          Anything but none grabs the mouse for the whole session, which takes
+          Mouse affordances on a tile. none draws none. zoom ends the head of
+          a tile in buttons that minimize, maximize and close it. full adds a
+          scroll bar and its arrows, which, with the wheel over the tile,
+          move its view back through the history of its program. Anything
+          but none grabs the mouse for the whole session, which takes
           selection and copy from the terminal. With the grab, a click on a
           tile gives it the keys and a click off the tiles gives them back to
           the prompt.
