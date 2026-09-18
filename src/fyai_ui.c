@@ -131,6 +131,7 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev);
 static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
 			const char *id);
 static const char *ui_control_sgr(struct fyai_ui *ui);
+static const char *ui_edge(struct fyai_ui *ui, char *buf, size_t size);
 
 /* Bands are tiles in the shared work pane. */
 static struct fytim_workband *ui_band_open(struct fyai_ui *ui,
@@ -2218,6 +2219,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	enum fytim_result res;
 	const char *on, *off = NULL;
 	char ground[64];
+	char edge[128];
 	static const struct {
 		enum fymd_style_element element;
 		enum fytim_chrome_style slot;
@@ -2240,6 +2242,7 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 		for (i = 0; i < sizeof(styles) / sizeof(styles[0]); i++)
 			(void)fytim_set_chrome_style(ui->ft, styles[i].slot, NULL);
 		(void)fytim_set_chrome_style(ui->ft, FYTIM_CHROME_CONTROL, NULL);
+		(void)fytim_set_prompt_edge(ui->ft, NULL);
 		return 0;
 	}
 	markdown_renderer_cfg(ctx->cfg, &rcfg, true,
@@ -2276,6 +2279,10 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx)
 	res = fytim_set_chrome_style(ui->ft, FYTIM_CHROME_CONTROL, on);
 	if (res != FYTIM_OK)
 		fyai_warning(ctx, "cannot style the controls of the tiles: %s",
+			     fytim_result_string(res));
+	res = fytim_set_prompt_edge(ui->ft, ui_edge(ui, edge, sizeof(edge)));
+	if (res != FYTIM_OK)
+		fyai_warning(ctx, "cannot draw the edge of the prompt: %s",
 			     fytim_result_string(res));
 out:
 	fymd_renderer_destroy(renderer);
@@ -3554,11 +3561,51 @@ bool fyai_ui_color_parse(const char *text, uint32_t *out)
 	return true;
 }
 
+/*
+ * Write the one-column keyboard-focus marker to @buf. Use the pane.edge role,
+ * or the theme's strong style. Return NULL if it is unavailable or too wide.
+ */
+static const char *ui_edge(struct fyai_ui *ui, char *buf, size_t size)
+{
+	const char *glyph, *on, *off;
+	int n;
+
+	glyph = markdown_glyph(ui->ctx->cfg, "pane.edge", "\xe2\x96\x8c");
+	if (!glyph || fymd_str_width(glyph, strlen(glyph)) != 1)
+		return NULL;
+	ui_theme_pair(ui, "pane.edge", FYMD_STYLE_STRONG, &on, &off);
+	if (!on)
+		return NULL;
+	n = snprintf(buf, size, "%s%s%s", on, glyph, off ? off : "");
+	return n > 0 && (size_t)n < size ? buf : NULL;
+}
+
+/*
+ * Replace the first blank margin column with the keyboard-focus marker. Keep
+ * the margin width unchanged. Return the original margin if it is unsuitable
+ * or the result does not fit in @buf.
+ */
+static const char *ui_focus_margin(struct fyai_ui *ui, char *buf, size_t size)
+{
+	const char *margin = ui->ctx->cfg->session_margin;
+	char edge[128];
+	int cols, n;
+
+	cols = margin ? fymd_str_width(margin, strlen(margin)) : 0;
+	/* Replace only a leading column in an all-space margin. */
+	if (cols < 1 || strspn(margin, " ") != strlen(margin) ||
+	    !ui_edge(ui, edge, sizeof(edge)))
+		return margin;
+	n = snprintf(buf, size, "%s%s", edge, margin + 1);
+	return n > 0 && (size_t)n < size ? buf : margin;
+}
+
 void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 			   bool focused)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	const char *text, *on, *off;
+	char edge[256];
 	uint32_t bg = 0;
 	bool reversed;
 
@@ -3572,7 +3619,9 @@ void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 				fy_sprintfa("%s%s%s", on,
 					    ctx->cfg->session_margin, off));
 	else
-		(void)fytim_surface_set_margin(sf, ctx->cfg->session_margin);
+		(void)fytim_surface_set_margin(sf, focused ?
+				ui_focus_margin(ui, edge, sizeof(edge)) :
+				ctx->cfg->session_margin);
 	/* The tile keeps its rows; the way back goes on the status row. */
 	text = ui_chrome_text(ctx->cfg->tile_frame);
 	(void)fytim_surface_set_bottom(sf, text);
