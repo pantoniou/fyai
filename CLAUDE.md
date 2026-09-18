@@ -832,6 +832,12 @@ register, focus, zoom, resize - and sizes nothing itself.
   which reverse video is what makes visible. With no colour configured the
   margin is reversed instead, which is the mark a terminal of sixteen colours
   can carry.
+- Keyboard focus also uses a one-column edge marker because the background
+  wash can be hard to see. Use the palette's `pane.edge` role, or the theme's
+  strong style (`ui_edge()`). For a tile, replace the first blank margin
+  column (`ui_focus_margin()`). For the prompt, use the reserved column before
+  its marker (`fytim_set_prompt_edge()`). Keep that column blank when a tile
+  is focused so changing focus does not move content.
 - `display/work_frame`, `display/tile_frame` and `display/tile_sep` are the
   chrome. `display/session_margin` is the left gutter of a tile, sized
   against the tile. The pane draws no frame by default, and the gutter draws

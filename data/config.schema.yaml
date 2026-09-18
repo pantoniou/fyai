@@ -547,8 +547,9 @@ properties:
           ground the terminal draws text in, which asks for no colour the
           terminal may not have, and #rrggbb is one of your own. It is drawn
           under whatever the program draws: every cell that has no colour of
-          its own takes it, the margin and the head with them, so focus needs
-          no marker of its own, and the prompt stands on the same ground,
+          its own takes it, the margin and the head with them, and the first
+          column of the margin is an edge in a style of the theme, which is
+          seen on a black or a white ground; the prompt stands on the same ground,
           because that is where the keys are when no tile holds them. An
           empty string draws no ground and marks focus by reversing the
           margin of the tile alone.
