@@ -105,13 +105,15 @@ def input_row_holds(data, text, rows, cols, marker="❯"):
     screen.feed(data)
     held = False
     for row in screen.display():
-        if not row.startswith(marker):
+        at = row.find(marker)
+        if at < 0:
             continue
         # The input row is modeled; an empty one is the cleared frame
         # between the interrupt and the redisplay, never the commit.
-        if not row[len(marker):].strip():
+        value = row[at + len(marker):]
+        if not value.strip():
             return False
-        held = text.decode() in row
+        held = text.decode() in value
     return held
 
 

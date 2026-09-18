@@ -39,7 +39,10 @@ for row in range(2, 20):
     matches = [line.strip() for line in lines if token in line]
     if not matches:
         raise SystemExit("ncurses pattern row %d is missing" % row)
+    # The focused tile uses its margin for chrome; program cells start at the
+    # token after the focus marker.
     body = matches[-1]
+    body = body[body.index(token):]
     fill = chr(ord("A") + row % 26)
     if body[len(token):].replace(fill, ""):
         raise SystemExit("ncurses row %d contains foreign cells: %r" %

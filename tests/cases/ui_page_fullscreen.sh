@@ -158,7 +158,7 @@ while True:
                if "nothing is running to zoom into" in r), None)
     if at is not None:
         note = True
-        prompt = next((y for y, r in enumerate(rows) if r.startswith("❯")),
+        prompt = next((y for y, r in enumerate(rows) if "❯" in r),
                       None)
         # A short result stands above the status, under the prompt.
         if prompt is None or at < prompt or at > 28 or \

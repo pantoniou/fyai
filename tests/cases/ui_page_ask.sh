@@ -86,7 +86,7 @@ want = ["  ? Proceed with the mock plan?", "  › 1. yes", "    2. no",
         "    or type an answer"]
 if rows[at:at + 4] != want:
     raise SystemExit("question rows: %r" % rows[at:at + 4])
-if not rows[at + 5].startswith("❯"):
+if "❯" not in rows[at + 5]:
     raise SystemExit("the prompt is not under the question: %r" % rows[at + 5])
 PY
     fail "the page did not draw the question in the input area"
