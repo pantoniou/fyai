@@ -43,6 +43,7 @@ struct fyai_workpane_tile {
 	int grid_cols;
 
 	bool selectable;
+	bool minimized;			/* the head alone, under the screens */
 
 	/* The clickable regions of the head. */
 	struct markdown_region *regions;
@@ -51,6 +52,8 @@ struct fyai_workpane_tile {
 	/* Presentation thresholds. */
 	struct fyai_workpane_ladder ladder;
 	enum fyai_workpane_present present;
+
+	int head_cols;			/* the width its head was made for */
 
 	/* The page slot "tile:N" the tile stands in. */
 	unsigned int slot;
@@ -286,17 +289,17 @@ static unsigned int workpane_controls(const struct fyai_ctx *ctx)
 {
 	const char *v = ctx->cfg->work_controls;
 
-	if (!v || !strcmp(v, "none"))
+	/* The buttons of a head are fyai's acts: the library draws the bar. */
+	if (!v || strcmp(v, "full"))
 		return 0;
-	if (!strcmp(v, "zoom"))
-		return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE;
-	return FYTIM_WORKPANE_ZOOM | FYTIM_WORKPANE_CLOSE |
-	       FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
+	return FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
 }
 
 bool fyai_workpane_wants_mouse(const struct fyai_ctx *ctx)
 {
-	return ctx && workpane_controls(ctx) != 0;
+	const char *v = ctx ? ctx->cfg->work_controls : NULL;
+
+	return v && strcmp(v, "none");
 }
 
 int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
@@ -904,7 +907,7 @@ void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 static bool workpane_tile_focusable(const struct fyai_workpane_manager *wm,
 				    const struct fyai_workpane_tile *t)
 {
-	if (!t->surface || !t->selectable)
+	if (!t->surface || !t->selectable || t->minimized)
 		return false;
 	if (wm->zoomed)
 		return t->surface == wm->zoomed;
@@ -984,6 +987,36 @@ bool fyai_workpane_focus_next(struct fyai_workpane_manager *wm)
 	}
 	fyai_workpane_set_focus(wm, next);
 	return wm->focused == next;
+}
+
+int fyai_workpane_set_minimized(struct fyai_workpane_manager *wm,
+				struct fytim_surface *sf, bool minimized)
+{
+	struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	if (!t)
+		return -1;
+	if (t->minimized == minimized)
+		return 0;
+	t->minimized = minimized;
+	/* A tile that is only a head holds no keys and is not the pane. */
+	if (minimized && wm->focused == sf)
+		fyai_workpane_clear_focus(wm);
+	if (minimized && wm->zoomed == sf) {
+		wm->zoomed = NULL;
+		wm->mode = FYAI_WORKPANE_NORMAL;
+	}
+	wm->layout_pending = true;
+	fyai_workpane_reconcile(wm);
+	return 0;
+}
+
+bool fyai_workpane_minimized(const struct fyai_workpane_manager *wm,
+			     const struct fytim_surface *sf)
+{
+	const struct fyai_workpane_tile *t = workpane_tile(wm, sf);
+
+	return t && t->minimized;
 }
 
 struct fytim_surface *
@@ -1229,20 +1262,58 @@ static int workpane_place_work(const struct fyai_workpane_manager *wm, int n,
  * own beneath it. A report is full width because it is read as text, and it
  * goes under the work because the work is what the user is watching.
  */
+/*
+ * Place the @nm minimized tiles of @idx under the screens of @g, in rows that
+ * fit their heads. A row holds as many as the grid has columns, and the tiles
+ * of a short last row share its columns, so no cell is left empty. With no
+ * screens the heads make the grid, one to a column.
+ */
+static int workpane_place_minimized(struct fyai_workpane_grid *g,
+				    const int *idx, int nm)
+{
+	int i, j, row, cols, per, span, left;
+
+	if (nm < 1)
+		return 0;
+	if (g->cols < 1)
+		g->cols = nm < FYAI_WORKPANE_GRID_MAX ? nm : FYAI_WORKPANE_GRID_MAX;
+	cols = g->cols;
+	for (i = 0; i < nm; i += cols) {
+		row = g->rows++;
+		if (row >= FYAI_WORKPANE_GRID_MAX)
+			return -1;
+		g->row_size[row] = FYAI_WORKPANE_TRACK_FIT;
+		per = nm - i < cols ? nm - i : cols;
+		left = cols;
+		for (j = 0; j < per; j++) {
+			span = j == per - 1 ? left : cols / per;
+			g->place[idx[i + j]].row = row;
+			g->place[idx[i + j]].col = cols - left;
+			g->place[idx[i + j]].row_span = 1;
+			g->place[idx[i + j]].col_span = span;
+			left -= span;
+		}
+	}
+	return 0;
+}
+
 static int workpane_place_standard(const struct fyai_workpane_manager *wm,
 				   const struct fyai_workpane_tile_info *info,
 				   int n, struct fyai_workpane_grid *g)
 {
 	int order[FYAI_WORKPANE_TILES_MAX];
 	int notices[FYAI_WORKPANE_TILES_MAX];
-	int i, row, work = 0, nn = 0, rc;
+	int minimized[FYAI_WORKPANE_TILES_MAX];
+	int i, row, work = 0, nn = 0, nm = 0, rc;
 
 	memset(g, 0, sizeof(*g));
 	for (i = 0; i < n; i++) {
-		if (fyai_workpane_kind_is_work(info[i].kind))
-			order[work++] = i;
-		else
+		if (!fyai_workpane_kind_is_work(info[i].kind))
 			notices[nn++] = i;
+		else if (info[i].minimized)
+			minimized[nm++] = i;
+		else
+			order[work++] = i;
 	}
 	if (work > 0) {
 		rc = workpane_place_work(wm, work, wm->layout, g);
@@ -1253,6 +1324,9 @@ static int workpane_place_standard(const struct fyai_workpane_manager *wm,
 		for (i = work - 1; i >= 0; i--)
 			g->place[order[i]] = g->place[i];
 	}
+	rc = workpane_place_minimized(g, minimized, nm);
+	if (rc)
+		return rc;
 	if (nn < 1)
 		return 0;
 	/* Notices span the work grid. */
@@ -1290,6 +1364,7 @@ static int workpane_tile_infos(const struct fyai_workpane_manager *wm,
 		info[n].kind = t->kind;
 		info[n].preferred_rows = t->preferred_rows;
 		info[n].focused = wm->focused == t->surface;
+		info[n].minimized = t->minimized;
 		order[n] = t;
 		n++;
 	}
@@ -1526,6 +1601,7 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 		/* A fill tile follows the pane, not its rendered content. */
 		if (req < 0)
 			req = wm->terminal_rows > 0 ? wm->terminal_rows : 0;
+		(void)fyai_ui_surface_set_collapsed(t->surface, t->minimized);
 		(void)fyai_ui_surface_request_rows(t->surface, req);
 		(void)fyai_ui_surface_set_max_rows(t->surface, t->max_rows);
 	}
@@ -1555,14 +1631,22 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 		 * too small to read becomes the one line that says whose it
 		 * is. This is told even to a tile that was granted nothing.
 		 */
-		p = workpane_present_for(t, rows, cols);
+		/* A minimized tile is its head, whatever it was granted. */
+		p = t->minimized ? FYAI_WORKPANE_PRESENT_HEAD :
+		    workpane_present_for(t, rows, cols);
 		if (p != t->present) {
 			t->present = p;
 			fyai_ui_surface_set_view(t->surface, (int)p);
 			if (t->ops && t->ops->set_presentation)
 				t->ops->set_presentation(t->owner, p);
 		}
-		if (cols < 1 || !t->ops || !t->ops->apply_grant)
+		if (cols > 0 && cols != t->head_cols && t->ops &&
+		    t->ops->repaint_head) {
+			t->head_cols = cols;
+			t->ops->repaint_head(t->owner);
+		}
+		/* Its program keeps the size it had: it is coming back. */
+		if (cols < 1 || t->minimized || !t->ops || !t->ops->apply_grant)
 			continue;
 		t->granted_rows = rows;
 		t->granted_cols = cols;

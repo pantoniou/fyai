@@ -123,6 +123,7 @@ struct fyai_workpane_tile_info {
 	enum fyai_workpane_tile_kind kind;
 	int preferred_rows;		/* the height it asks layout for */
 	bool focused;
+	bool minimized;			/* shown as its head alone */
 };
 
 /*
@@ -144,6 +145,10 @@ struct fyai_workpane_tile_ops {
 	void (*focus_changed)(void *owner, bool focused);
 	/* Draw this much of the program: the tile is too small for the rest. */
 	void (*set_presentation)(void *owner, enum fyai_workpane_present p);
+	/* The tile has another width: make its head again at it. Its buttons
+	 * are regions of the head, and a head made for the old width puts
+	 * them where they are not drawn. */
+	void (*repaint_head)(void *owner);
 };
 
 struct fyai_workpane_manager *fyai_workpane_create(struct fyai_ctx *ctx,
@@ -317,6 +322,17 @@ int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
 void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 			     struct fytim_surface *sf);
 void fyai_workpane_clear_focus(struct fyai_workpane_manager *wm);
+/*
+ * Show @sf as its head alone, on a row under the screens, or show it again.
+ * A minimized tile gives its rows to the others, takes no keys and is not
+ * zoomed; its program keeps the size it had. Returns 0, or -1 for a tile
+ * the pane does not hold.
+ */
+int fyai_workpane_set_minimized(struct fyai_workpane_manager *wm,
+				struct fytim_surface *sf, bool minimized);
+bool fyai_workpane_minimized(const struct fyai_workpane_manager *wm,
+			     const struct fytim_surface *sf);
+
 /* Move to the next live tile in screen order, then to the prompt. True when
  * focus moved. */
 bool fyai_workpane_focus_next(struct fyai_workpane_manager *wm);

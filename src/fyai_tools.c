@@ -2324,6 +2324,21 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job);
 static void fyai_shell_session_close(struct fyai_shell_session *sess,
 				     bool force);
 
+/* Draw the head of a live terminal session at its current frame. */
+static void fyai_shell_session_head_paint(void *owner)
+{
+	struct fyai_shell_session *sess = owner;
+
+	if (!sess->surface || sess->exited)
+		return;
+	(void)fyai_ui_surface_set_head_frame(sess->ctx, sess->surface,
+					 sess->title ? sess->title : "**shell**",
+					 sess->command, NULL,
+					 FYAI_UI_MARK_RUNNING,
+					 sess->animation_frame, NULL);
+	fyai_ui_wake(sess->ctx);
+}
+
 /* Advance the state mark on the title of a live terminal session. */
 static enum fyai_event_action
 fyai_shell_session_animate(const struct fyai_event *ev)
@@ -2333,12 +2348,7 @@ fyai_shell_session_animate(const struct fyai_event *ev)
 	if (!sess->surface || sess->exited)
 		return FYAIEA_CONTINUE;
 	sess->animation_frame++;
-	(void)fyai_ui_surface_set_head_frame(sess->ctx, sess->surface,
-					 sess->title ? sess->title : "**shell**",
-					 sess->command, NULL,
-					 FYAI_UI_MARK_RUNNING,
-					 sess->animation_frame, NULL);
-	fyai_ui_wake(sess->ctx);
+	fyai_shell_session_head_paint(sess);
 	return FYAIEA_CONTINUE;
 }
 
@@ -2445,6 +2455,7 @@ static void fyai_shell_session_reply(const char *data, size_t len, void *user)
 
 static const struct fyai_workpane_tile_ops fyai_shell_session_tile_ops;
 static const struct fyai_workpane_tile_ops fyai_agent_tile_ops;
+static void fyai_agent_head_repaint(void *owner);
 
 /* Sizes below which a live screen is not worth drawing; the head still
  * shows whose call this is and whether it is running. */
@@ -2621,6 +2632,7 @@ static const struct fyai_workpane_tile_ops fyai_shell_session_tile_ops = {
 	.apply_grant = fyai_shell_session_apply_grant,
 	.focus_changed = fyai_shell_session_focus_changed,
 	.set_presentation = fyai_shell_session_present,
+	.repaint_head = fyai_shell_session_head_paint,
 };
 
 static void fyai_shell_session_resized(struct fyai_shell_session *sess,
@@ -3365,6 +3377,7 @@ static const struct fyai_workpane_tile_ops fyai_agent_tile_ops = {
 	.apply_grant = fyai_agent_apply_grant,
 	.focus_changed = fyai_agent_focus_changed,
 	.set_presentation = fyai_agent_present,
+	.repaint_head = fyai_agent_head_repaint,
 };
 
 /* Publish what every live tile has drawn since the last frame. */
@@ -3489,6 +3502,15 @@ static void fyai_agent_head_paint(struct fyai_tool_job *job)
 			job->animation_frame, NULL);
 	free(title);
 	fyai_ui_wake(job->ctx);
+}
+
+/* The tile of a running agent has another width. */
+static void fyai_agent_head_repaint(void *owner)
+{
+	struct fyai_tool_job *job = owner;
+
+	if (job->surface && !job->done)
+		fyai_agent_head_paint(job);
 }
 
 /* Advance the state mark on the title of a live sub-agent terminal. */

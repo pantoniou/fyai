@@ -124,6 +124,8 @@ struct fyai_ui {
 };
 
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev);
+static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
+			const char *id);
 static const char *ui_control_sgr(struct fyai_ui *ui);
 
 /* Bands are tiles in the shared work pane. */
@@ -1358,9 +1360,6 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.nactions = ui_page_nactions;
 	st.keys = &keys;
 	keys.count = 0;
-	/* The marks that zoom and close a tile, when they grab the mouse. */
-	st.tile_marks = ctx->cfg->work_controls &&
-			strcmp(ctx->cfg->work_controls, "none");
 	st.tile_bar = ctx->cfg->work_controls &&
 		      !strcmp(ctx->cfg->work_controls, "full");
 	pane = fyai_workpane_pane(ctx->workpane);
@@ -1524,9 +1523,54 @@ static void ui_click_off_tiles(struct fyai_ui *ui, const struct fytim_event *ev)
 	struct fytim_surface *sf;
 
 	sf = ui_slot_surface(ui, ev->text, ev->text_len);
+	if (sf && fyai_workpane_minimized(ui->ctx->workpane, sf)) {
+		ui_tile_act(ui, sf, NULL);
+		return;
+	}
 	if (sf && fyai_tools_focus_tile(ui->ctx, sf))
 		return;
 	fyai_tools_focus_prompt(ui->ctx);
+}
+
+/*
+ * A button or the head of the tile @sf was clicked: @id is "tile:minimize",
+ * "tile:maximize", or NULL and "tile:focus" for the rest of the head. A click
+ * on a minimized tile shows it again first.
+ */
+static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
+			const char *id)
+{
+	struct fyai_workpane_manager *wm = ui->ctx->workpane;
+	bool minimized = fyai_workpane_minimized(wm, sf);
+
+	if (id && !strcmp(id, "tile:minimize")) {
+		(void)fyai_workpane_set_minimized(wm, sf, !minimized);
+		return;
+	}
+	if (minimized)
+		(void)fyai_workpane_set_minimized(wm, sf, false);
+	if (id && !strcmp(id, "tile:maximize")) {
+		(void)fyai_ui_surface_zoom(ui->ctx,
+				fyai_workpane_zoomed(wm) == sf ? NULL : sf);
+		return;
+	}
+	(void)fyai_tools_focus_tile(ui->ctx, sf);
+}
+
+/* A click on the head of @sf that the band stack drew, at its (@row, @col). */
+static void ui_head_click(struct fyai_ui *ui, struct fytim_surface *sf,
+			  int row, int col)
+{
+	const char *id;
+
+	if (!sf || row < 0)
+		return;
+	id = fyai_workpane_tile_region_at(ui->ctx->workpane, sf, (size_t)row,
+					  col);
+	if (id && !strcmp(id, "tile:close"))
+		fyai_tools_surface_request(ui->ctx, sf, 0);
+	else
+		ui_tile_act(ui, sf, id);
 }
 
 /* A drag over the transcript or the popup: copy the text of the rows it went
@@ -1706,6 +1750,9 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			(void)fyai_ui_surface_zoom(ui->ctx,
 				fyai_workpane_zoomed(ui->ctx->workpane) ==
 					ev.surface ? NULL : ev.surface);
+			break;
+		case FYTIM_EVENT_SURFACE_CLICK:
+			ui_head_click(ui, ev.surface, ev.row, ev.col);
 			break;
 		case FYTIM_EVENT_SURFACE_FOCUS:
 			/* Clicking a tile gives it keyboard focus. */
@@ -3021,6 +3068,13 @@ int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols)
 	return fytim_surface_resize(sf, rows, cols) == FYTIM_OK ? 0 : -1;
 }
 
+int fyai_ui_surface_set_collapsed(struct fytim_surface *sf, bool collapsed)
+{
+	if (!sf)
+		return -1;
+	return fytim_surface_set_collapsed(sf, collapsed) == FYTIM_OK ? 0 : -1;
+}
+
 int fyai_ui_surface_request_rows(struct fytim_surface *sf, int rows)
 {
 	if (!sf || rows < 0)
@@ -3087,8 +3141,9 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	}
 	if (!sf)
 		return;
-	if (!strcmp(id, "tile:focus")) {
-		(void)fyai_tools_focus_tile(ui->ctx, sf);
+	if (!strcmp(id, "tile:focus") || !strcmp(id, "tile:minimize") ||
+	    !strcmp(id, "tile:maximize")) {
+		ui_tile_act(ui, sf, id);
 	} else if (!strcmp(id, "tile:zoom")) {
 		(void)fyai_ui_surface_zoom(ui->ctx,
 				fyai_workpane_zoomed(wm) == sf ? NULL : sf);
@@ -3119,6 +3174,45 @@ int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
 					      cause, mark, frame, interval_msp);
 }
 
+/*
+ * The buttons at the right of the head of a tile, as UI Markdown: minimize,
+ * maximize and close. The owner decides what each does. NULL when the mouse
+ * is not grabbed, which leaves a click nothing to reach. The caller frees it.
+ */
+static char *ui_tile_buttons(struct fyai_ctx *ctx)
+{
+	static const struct {
+		const char *id, *glyph, *fallback;
+	} buttons[] = {
+		{ "tile:minimize", "tile.minimize", "\xe2\x96\x81" },	/* ▁ */
+		{ "tile:maximize", "tile.maximize", "\xe2\x96\xa1" },	/* □ */
+		{ "tile:close", "tile.close", "\xc3\x97" },		/* × */
+	};
+	struct response_buffer out = {0};
+	char *glyph;
+	size_t i;
+	int rc = 0;
+
+	if (!fyai_workpane_wants_mouse(ctx))
+		return NULL;
+	for (i = 0; i < ARRAY_SIZE(buttons) && !rc; i++) {
+		/* A glyph of the theme is configuration: escape it. */
+		glyph = markdown_ui_escape(markdown_glyph(ctx->cfg,
+							  buttons[i].glyph,
+							  buttons[i].fallback));
+		rc = !glyph || response_buffer_append(&out,
+			fy_sprintfa(" <fy-act id=\"%s\">%s</fy-act>",
+				    buttons[i].id, glyph));
+		free(glyph);
+	}
+	if (rc) {
+		fyai_warning(ctx, "cannot write the buttons of a tile");
+		free(out.data);
+		return NULL;
+	}
+	return out.data;
+}
+
 int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 				   struct fytim_surface *sf,
 				   const char *title, const char *right,
@@ -3136,10 +3230,11 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 	struct markdown_region *regions = NULL;
 	size_t nregions = 0;
 	char *escaped = NULL;
+	char *buttons = NULL;
 	char *head = NULL;
 	char *margin;
 	size_t tlen;
-	int saved_width;
+	int saved_width, margin_cols = 0;
 	int cols;
 	int rc;
 
@@ -3155,20 +3250,30 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 		while (tlen && (escaped[tlen - 1] == '\n' ||
 				escaped[tlen - 1] == '\r'))
 			tlen--;
-		/* fyai writes @right, so it takes the right edge as it is. The
-		 * marks of a page tile are the page's, at the edge of the tile. */
+		/* fyai writes @right and the buttons, so they take the right
+		 * edge as they are. A tile that ended is committed to the
+		 * transcript, where a button acts on nothing. */
+		buttons = mark == FYAI_UI_MARK_RUNNING ? ui_tile_buttons(ctx) :
+			  NULL;
 		if (asprintf(&head,
-			     "<fy-act id=\"tile:focus\">%.*s</fy-act>%s%s\n",
-			     (int)tlen, escaped, right ? "<fy-fill/>" : "",
-			     right ? right : "") < 0)
+			     "<fy-act id=\"tile:focus\">%.*s</fy-act>%s%s%s\n",
+			     (int)tlen, escaped,
+			     right || buttons ? "<fy-fill/>" : "",
+			     right ? right : "", buttons ? buttons : "") < 0)
 			head = NULL;
 	}
 
 	/* Render chrome at the granted tile width. */
 	saved_width = ctx->cfg->render_width;
 	cols = fyai_ui_surface_granted_cols(ctx, sf);
-	if (cols > 0)
+	if (cols > 0) {
+		(void)fytim_surface_margin(sf, &margin_cols);
+		cols += margin_cols;
+		if (ctx->cfg->work_controls &&
+		    !strcmp(ctx->cfg->work_controls, "full"))
+			cols++;
 		ctx->cfg->render_width = cols;
+	}
 	/* Render the marked title row used by work bands. */
 	margin = ui_indicator(ui, states[mark], frame, interval_msp);
 	if (head)
@@ -3184,6 +3289,7 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 				markdown_gutter_blank(ctx->cfg), &out);
 	free(margin);
 	free(head);
+	free(buttons);
 	free(escaped);
 	/* The tile keeps the regions of the head it shows. */
 	fyai_workpane_tile_set_regions(ctx->workpane, sf, regions, nregions);

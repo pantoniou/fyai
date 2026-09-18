@@ -140,6 +140,8 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 void fyai_ui_surface_close(struct fyai_ctx *ctx, struct fytim_surface *sf);
 int fyai_ui_surface_resize(struct fytim_surface *sf, int rows, int cols);
 int fyai_ui_surface_request_rows(struct fytim_surface *sf, int rows);
+/* Draw @sf as its head alone, with no screen rows. */
+int fyai_ui_surface_set_collapsed(struct fytim_surface *sf, bool collapsed);
 /* The rows the grid of @sf was given: by the page when the page draws it. */
 int fyai_ui_surface_granted_rows(struct fyai_ctx *ctx,
 				 const struct fytim_surface *sf);

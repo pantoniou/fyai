@@ -1444,12 +1444,8 @@ static int page_tile_margin(const struct fyai_page_tile *hd, int width)
  * is chrome and draws dim under any styling of its own. Returns the rows
  * drawn, or -1.
  */
-/* The marks of a head, in its last two columns: zoom, then close. */
-#define PAGE_MARK_ZOOM	"\xe2\xa4\xa2"
-#define PAGE_MARK_CLOSE	"\xc3\x97"
-
 static int page_head_draw(struct fyai_page *pg, const struct fyai_page_tile *hd,
-			  const struct fymd_region *r, const char *marks)
+			  const struct fymd_region *r)
 {
 	struct fyai_ctx *ctx = hd->ctx ? hd->ctx : pg->ctx;
 	const char *text = hd->rows, *margin;
@@ -1475,18 +1471,6 @@ static int page_head_draw(struct fyai_page *pg, const struct fyai_page_tile *hd,
 					 hd->slot);
 		}
 	}
-	/* The marks stand where the band stack draws them, on the tile's own
-	 * ground. */
-	if (marks && r->width >= 2) {
-		rc = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-				pg->cells_cols, (int)r->row, r->col + r->width - 2,
-				2, 1, fy_sprintfa("%s" PAGE_MARK_ZOOM PAGE_MARK_CLOSE,
-						  marks),
-				strlen(marks) + sizeof(PAGE_MARK_ZOOM) - 1 +
-				sizeof(PAGE_MARK_CLOSE) - 1);
-		fyai_error_check(ctx, rc >= 0, err_out,
-				 "cannot draw the controls of tile %u", hd->slot);
-	}
 	rc = fytim_cells_ground(pg->cells, pg->cells_rows, pg->cells_cols,
 				(int)r->row, r->col, r->width, r->height,
 				hd->ground);
@@ -1504,10 +1488,9 @@ err_out:
  */
 static int page_head_acts(struct fyai_page *pg,
 			   const struct fyai_page_tile *hd,
-			   const struct fymd_region *r, bool marks,
+			   const struct fymd_region *r,
 			   struct fytim_page_region *regions, size_t *np)
 {
-	static const char *const mark_ids[] = { "zoom", "close" };
 	const struct markdown_region *a;
 	const char *name;
 	int col, width, right, rc;
@@ -1533,21 +1516,6 @@ static int page_head_acts(struct fyai_page *pg,
 		regions[*np].row = (int)r->row + (int)a->row;
 		regions[*np].col = col;
 		regions[*np].width = width;
-		regions[*np].height = 1;
-		(*np)++;
-	}
-	for (i = 0; marks && r->width >= 2 && i < 2 &&
-	     *np < FYTIM_PAGE_REGIONS_MAX; i++) {
-		rc = snprintf(pg->act_ids[*np], sizeof(pg->act_ids[*np]),
-			      "tile:%u:%s", hd->slot, mark_ids[i]);
-		fyai_error_check(pg->ctx, rc >= 0 &&
-				 (size_t)rc < sizeof(pg->act_ids[*np]), err_out,
-				 "cannot format a control of tile %u", hd->slot);
-		regions[*np].id = pg->act_ids[*np];
-		regions[*np].kind = FYTIM_PAGE_ACT;
-		regions[*np].row = (int)r->row;
-		regions[*np].col = r->col + r->width - 2 + (int)i;
-		regions[*np].width = 1;
 		regions[*np].height = 1;
 		(*np)++;
 	}
@@ -2035,9 +2003,7 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 		}
 		t = page_tile_of(st, fr[i].id, "head");
 		if (t && t->rows) {
-			n = page_head_draw(pg, t, &fr[i],
-					   st->tile_marks && t->surface ?
-					   page_control_sgr(st) : NULL);
+			n = page_head_draw(pg, t, &fr[i]);
 			fyai_error_check(ctx, n >= 0, err_out,
 					 "cannot draw the head of tile %u into cells",
 					 t->slot);
@@ -2218,8 +2184,7 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		t = fr[i].kind == FYMD_REGION_ACT ? NULL :
 		    page_tile_of(st, fr[i].id, "head");
 		if (t && t->rows) {
-			rc = page_head_acts(pg, t, &fr[i],
-					    st->tile_marks && t->surface, regions, &n);
+			rc = page_head_acts(pg, t, &fr[i], regions, &n);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot build the actions of tile %u", t->slot);
 		}

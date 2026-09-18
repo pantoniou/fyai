@@ -85,7 +85,6 @@ struct fyai_page_state {
 	/* The SGR of what the user acts on in the chrome of a tile: the marks,
 	 * the arrows and the thumb of its bar. */
 	const char *control_chrome;
-	bool tile_marks;	/* draw the zoom and close marks of the heads */
 	bool tile_bar;		/* draw a scroll bar beside each screen */
 	const char *input_mode;	/* the mode of the input area, or "prompt" */
 	/* The question of the input area in an ask mode, or NULL. */
