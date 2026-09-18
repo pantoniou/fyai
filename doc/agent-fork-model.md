@@ -2,17 +2,19 @@
 
 ## Overview
 
-A sub-agent runs in a child process. The parent creates that child with
-`fork()` and does not call `exec()`. The child keeps the address space of the
-parent and continues in `fyai_tool_child_serve_loop()`.
+A sub-agent runs in a child process. On Linux, the parent creates that child
+with `fork()` and the child executes `fyai` again. The new image receives only
+what the parent sends to it. The forked model, in which the child keeps the
+address space of the parent and continues in `fyai_tool_child_serve_loop()`,
+stays available.
 
-This document records what the child keeps, what it must disown, why the model
-was chosen, and what an `exec()` model would need.
+This document records how each model starts a child, what a forked child keeps
+and must disown, and what the parent sends to an executed child.
 
-## The current model
+## The forked model
 
-`fyai_tool_job_spawn()` creates each tool child, a sub-agent included. In the
-child:
+`fyai_tool_job_spawn()` creates each tool child. A shell child and a forked
+sub-agent continue in the forked image. In the child:
 
 1. `setsid()` makes the child a session leader, so a signal to the parent
    group does not reach it;
@@ -85,51 +87,94 @@ exits.
 ## The exec model
 
 An `exec()` model gives the child nothing but what it is told. The disown list
-becomes unnecessary, because inheritance stops being the default. This removes
+does not apply to it, because inheritance stops being the default. This removes
 the class of defect and not only the known instances of it: state added later
 cannot leak.
 
 The cost is one process start for each delegation. A complete invocation of
 `fyai` measures approximately 48 ms, of which approximately 7 ms opens the
-arena and resolves the configuration. A model request takes much longer. Thus,
-the cost is not the reason to keep the fork model.
+arena and resolves the configuration. A model request takes much longer.
 
-Part of the mechanism exists. `fyai agent --rpc` serves one standalone
-sub-agent over JSON-RPC 2.0 on standard input and output; `doc/agent-protocol.md`
-records it. That worker is transient: it shares the workspace, it does not
-publish arena state, and it can neither ask questions nor delegate.
+### Selection
 
-### What an exec model must supply
+`fyai_agent_spawn_exec()` makes the decision for each delegation from the
+`agent/spawn` configuration key: `exec`, the default, or `fork`. The forked
+child is also used when:
 
-Four things reach a sub-agent today through memory alone.
+- the run is `--transient`, because its state is in memory and not in the
+  arena;
+- the run has a pinned `--root`, which is read-only; or
+- the platform has no supported path for executing the current image. Linux
+  uses `/proc/self/exe`; macOS uses `_NSGetExecutablePath()`.
 
-1. **The conversation of a fork.** `context: fork` starts the child at
-   `ctx->last_message`, which is the turn of the parent that is not published
-   yet. An executed child cannot read it from the arena. Either the parent
-   publishes at the delegation point, which changes when state becomes durable,
-   or the conversation goes in the start frame. `context: fresh` and a revived
-   sub-agent need neither: each is addressed by branch.
-2. **The merged configuration.** `--transient` puts a builder above the durable
-   arena, and `--config` and `--set` do not have to be persisted. An executed
-   child that reads the arena would run a different model or grammar from the
-   one the parent intends. The merged document must go in the start frame.
-3. **The descriptors.** Descriptors 3 and 4 are a private contract today,
-   because there is no `exec()`. A terminal makes standard output unavailable
-   to the protocol, thus an executed sub-agent needs the same two descriptors
-   as a stated contract.
-4. **The protocol.** Delegation carries `tool/progress`, an `ask_user` relay,
-   `agent_input`, and delegation from a sub-agent. The public agent protocol
-   supports none of the last three.
+### Start
 
-Credentials, confinement, and process isolation need no work. Landlock
-restrictions continue through `exec()`, `setsid()` is called before it, and a
-child resolves the credentials it needs by itself.
+`fyai_tool_job_spawn()` forks, installs the terminal and descriptors 3 and 4 as
+for a forked child, and then calls `fyai_tool_child_exec()`. That function does
+not allocate. It clears close-on-exec on descriptors 3 and 4, restores the
+signal mask, and executes:
 
-### The open decision
+```text
+fyai [-d...] -b <parent branch> agent --tool-child [--pty] --arena <dir>
+```
 
-Item 2 makes an existing dependency explicit and is a small change. Item 1 is a
-design decision: it asks when a turn becomes durable. Settle that question
-before code moves.
+On Linux, `/proc/self/exe` is the image that the parent runs, also when a
+rebuild replaced the binary on disk. On macOS, `_NSGetExecutablePath()` names
+the executable; if that file is replaced before `execv()`, the replacement is
+used. The new process opens the arena and serves the tool channel on
+descriptors 3 and 4 through `fyai_tool_child_exec_serve()`. It resolves no
+credentials at startup: it resolves them when the parent state arrives. It
+applies the sandbox before it serves the call.
 
-Until then, the fork model stands and `fyai_ctx_fork_disown()` is the boundary.
-It is one list in one place, which is what keeps the model safe to extend.
+### What the parent sends
+
+The `tool/run` request of an executed child has a `spawn` mapping.
+`fyai_agent_spawn_state()` builds it:
+
+| Key | Content |
+| --- | --- |
+| `config` | `cfg->config_doc`, the merged configuration of the run |
+| `branch_config` | the configuration of the parent branch |
+| `fork` | `{branch, head}`: the parent branch and the raw value of its head |
+| `parent` | the agent execution of the parent |
+| `api_key` | a `--api-key` value; never stored |
+
+The child checks `config` against the schema, which rejects a raw key, and
+adopts it before it parses the call. The call is in the grammar of that
+configuration. `fyai_agent_run()` adopts the branch configuration and the fork
+point after it reopens the arena.
+
+### The fork point
+
+A forked child reopens the arena, which reads the head of the parent branch
+from the published root. The parent publishes only at the end of a turn, thus
+the fork point of either model is the published head at the start of the turn
+that delegates. No checkpoint publish is necessary.
+
+The executed child finds `fork.head` in the ref log of `fork.branch` with
+`fyai_root_find_head()`. It compares raw values and validates the matching
+root. A publish on the parent branch after the spawn thus does not move the
+fork point. A head that no root holds is a head that the parent did not
+publish, such as that of a sub-agent that delegates. The child then uses the
+published head, as a forked child does, and the trace records it. A session
+that is not stored yet sends no fork point.
+
+### What is not sent
+
+The child reads the persona, the catalogue, and the branch of a revived
+sub-agent from the arena. It inherits the environment, thus a `-e` file and a
+provider key variable reach it. `fyai_env_sanitize()` is not applied to a
+sub-agent, which needs its credentials; its own tool children sanitize again.
+
+### Future work: a smaller spawn state
+
+A delegation sends about 1 KB in a test arena. An arena seeded from
+`config.yaml.sample` sends about 35 KB, because `config` and `branch_config`
+each hold the full configuration document.
+
+The two keys are almost the same document. `config` is `branch_config` with
+the `--set`, `--config`, `-m`, and `--color` layers merged over it. The child
+needs `branch_config` only for a session that is not stored yet: for any other
+branch it reads the same value from the arena. Send `branch_config` only in
+that case, or send only the keys that differ from `config`. Either change
+halves the worst case.

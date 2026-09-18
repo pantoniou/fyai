@@ -1280,6 +1280,10 @@ and output routing.
 - Copy the name into the job after spawn.
 - Set child persona fields after `fyai_arena_reopen()`.
 - Reopen the arena in a forked child before it publishes.
+- On Linux, a sub-agent child executes `fyai agent --tool-child` and receives
+  the `spawn` state in `tool/run`: see `doc/agent-fork-model.md`. Send it
+  what it cannot read from the arena. `agent/spawn: fork`, a transient run
+  and a pinned root keep the forked child; keep both paths correct.
 
 `context: fork` starts at the parent head. `context: fresh` sends only the
 task. In fork mode, add the persona as a user instruction message. Do not add a
