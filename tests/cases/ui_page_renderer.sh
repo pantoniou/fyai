@@ -13,7 +13,7 @@ run_with()
 {
     renderer=$1
     fyai_test_setup
-    mock_start ui_band_invocation_held.json
+    mock_start ui_band_invocation_hold_first.json
 
     FYAI_TRACE="$TEST_DIR/trace.log" \
     FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
@@ -52,6 +52,7 @@ grep -a -q "page.*regions=" "$CAPTURES/page.trace" ||
 
 "$PYTHON" - "$CAPTURES/stack.out" "$CAPTURES/page.out" "$TESTS_DIR" \
     <<'PY' || fail "the page did not look as the band stack does"
+import re
 import sys
 
 sys.path.insert(0, sys.argv[3])
@@ -59,16 +60,21 @@ from screen import rows_at
 
 def same(a, b):
     """Equal rows, or rows that differ only in the activity mark of the
-    status gutter: the mark blinks, and two runs meet it in other phases."""
+    status gutter or elapsed time: two runs meet them in other phases."""
     a, b = a.rstrip(), b.rstrip()
+    a = re.sub(r" \d+s(?=\s|$)", " TIME", a)
+    b = re.sub(r" \d+s(?=\s|$)", " TIME", b)
     if a == b:
         return True
     gutter = 2
     marks = set(a[:gutter] + b[:gutter]) - {" "}
     return a[gutter:] == b[gutter:] and all(ord(c) > 127 for c in marks)
 
-# A frame while the tool call runs, and the one after it ends.
-for needle in ("[30%] Building object 3", "Done."):
+# A frame while the tool call runs, and the one after it ends. The shell
+# waits for the release of the driver after its first line, so that frame
+# stands still: a frame later in the call holds what the run had drawn by
+# then, which is not the same in two runs.
+for needle in ("[10%] Building object 1", "Done."):
     stack = rows_at(sys.argv[1], needle.encode())
     page = rows_at(sys.argv[2], needle.encode())
     differ = [(i, a, b) for i, (a, b) in enumerate(zip(stack, page))
