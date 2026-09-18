@@ -1033,6 +1033,15 @@ do not put a colour for a role in C.
   enables it (`FYAI_FYPAL_GROUND`) only when libfypalette has
   `fypal_ctx_set_ground()`; a PTY case answers the query with
   `$FYAI_PTY_BACKGROUND`.
+- A theme of the `auto` variant asks the terminal too, and the answer is kept
+  in the configuration. A configuration change re-derives the display during
+  the session, and a query then runs under a live UI, which reads the reply:
+  the query times out and answers dark. The variant would thus turn dark under
+  a conversation already rendered light. Only an answer is kept:
+  `terminal_detect_theme()` gives NULL when the terminal did not answer, the
+  variant is dark until one does, and the next load asks again. A PTY case
+  stops answering when the session is started
+  (`$FYAI_PTY_BACKGROUND_WHILE_STARTING`).
 - A fullscreen page with `display/theme_ground=theme` fills cells whose
   background is default with the palette's `ground` colour. Keep explicit
   backgrounds and cell attributes. Resolve the escape through the palette's
