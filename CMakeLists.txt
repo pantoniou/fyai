@@ -228,7 +228,7 @@ if(NOT TARGET libfypalette::libfypalette)
     set(BUILD_FYPALETTE_TOOLS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(libfypalette
         GIT_REPOSITORY https://github.com/pantoniou/libfypalette
-        GIT_TAG d80f140bbd6362251eb448030191195488121e41
+        GIT_TAG 552248158ed345aabc3b3564b2634fc1810422f1
     )
     FetchContent_MakeAvailable(libfypalette)
 endif()
@@ -299,7 +299,7 @@ if(NOT TARGET libfytimui::libfytimui AND
    NOT TARGET libfytimui::fytimui_static)
     FetchContent_Declare(libfytimui
         GIT_REPOSITORY https://github.com/pantoniou/libfytimui
-        GIT_TAG ba56569e523142fb93ea5dd4d5ef32c7684a1c81
+        GIT_TAG b6a948a0597d3cfbfae7ebc4b5f810de56643b04
     )
     set(BUILD_FYTIMUI_TESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_TIMUI_CORE_TESTS OFF CACHE BOOL "" FORCE)
