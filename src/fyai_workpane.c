@@ -900,25 +900,80 @@ void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 	fyai_ui_wake(wm->ctx);
 }
 
+/* Return true if @t is a visible live tile that can receive keyboard focus. */
+static bool workpane_tile_focusable(const struct fyai_workpane_manager *wm,
+				    const struct fyai_workpane_tile *t)
+{
+	if (!t->surface || !t->selectable)
+		return false;
+	if (wm->zoomed)
+		return t->surface == wm->zoomed;
+	return t->present != FYAI_WORKPANE_PRESENT_HIDDEN;
+}
+
+int fyai_workpane_screen_order(struct fyai_workpane_manager *wm,
+			       struct fytim_surface **out, int max)
+{
+	struct fyai_workpane_tile_info info[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_workpane_tile *order[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_workpane_place key[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_workpane_place kp;
+	struct fyai_workpane_tile *kt;
+	struct fyai_workpane_grid g;
+	int n, i, j, count = 0;
+	bool placed;
+
+	if (!wm || !out || max < 1)
+		return 0;
+	n = workpane_tile_infos(wm, info, order);
+	if (n < 1)
+		return 0;
+	placed = !fyai_workpane_place(wm, info, n, &g);
+	for (i = 0; i < n; i++) {
+		memset(&key[i], 0, sizeof(key[i]));
+		/* Fall back to creation order when placement fails. */
+		key[i].row = placed ? g.place[i].row : i;
+		key[i].col = placed ? g.place[i].col : 0;
+	}
+	/* Sort by row and column while preserving creation order for ties. */
+	for (i = 1; i < n; i++) {
+		kp = key[i];
+		kt = order[i];
+		for (j = i - 1; j >= 0 &&
+		     (key[j].row > kp.row ||
+		      (key[j].row == kp.row && key[j].col > kp.col)); j--) {
+			key[j + 1] = key[j];
+			order[j + 1] = order[j];
+		}
+		key[j + 1] = kp;
+		order[j + 1] = kt;
+	}
+	for (i = 0; i < n && count < max; i++)
+		if (workpane_tile_focusable(wm, order[i]))
+			out[count++] = order[i]->surface;
+	return count;
+}
+
 bool fyai_workpane_focus_next(struct fyai_workpane_manager *wm)
 {
-	struct fyai_workpane_tile *t;
+	struct fytim_surface *tiles[FYAI_WORKPANE_TILES_MAX];
 	struct fytim_surface *next = NULL;
-	bool take_next;
+	int n, i;
 
 	if (!wm)
 		return false;
-	take_next = wm->focused == NULL;
-	/* Cycle from the oldest tile back to the prompt. */
-	for_each_tile(t, wm) {
-		if (!t->surface || !t->selectable)
-			continue;
-		if (take_next) {
-			next = t->surface;
-			break;
-		}
-		if (t->surface == wm->focused)
-			take_next = true;
+	/* Cycle through tiles in screen order, then return to the prompt. */
+	n = fyai_workpane_screen_order(wm, tiles, FYAI_WORKPANE_TILES_MAX);
+	if (!wm->focused) {
+		next = n > 0 ? tiles[0] : NULL;
+	} else {
+		for (i = 0; i < n && tiles[i] != wm->focused; i++)
+			;
+		/* Restart at the first tile if the focused tile is no longer visible. */
+		if (i == n)
+			next = n > 0 ? tiles[0] : NULL;
+		else if (i + 1 < n)
+			next = tiles[i + 1];
 	}
 	if (!next) {
 		/* The cycle ends at the prompt. */

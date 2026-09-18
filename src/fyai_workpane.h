@@ -317,8 +317,14 @@ int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
 void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 			     struct fytim_surface *sf);
 void fyai_workpane_clear_focus(struct fyai_workpane_manager *wm);
-/* Move to the next live tile, then to the prompt. True when focus moved. */
+/* Move to the next live tile in screen order, then to the prompt. True when
+ * focus moved. */
 bool fyai_workpane_focus_next(struct fyai_workpane_manager *wm);
+/* Fill @out with at most @max tiles that can take the keys, in the order they
+ * stand on the screen: by row, then by column. Returns the count. A hidden
+ * tile is left out, and a zoomed tile is the only one. */
+int fyai_workpane_screen_order(struct fyai_workpane_manager *wm,
+			       struct fytim_surface **out, int max);
 struct fytim_surface *
 fyai_workpane_focused(const struct fyai_workpane_manager *wm);
 
