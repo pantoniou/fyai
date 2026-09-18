@@ -31,13 +31,24 @@ class Terminal:
     question. A case that sets $FYAI_PTY_BACKGROUND, such as
     rgb:1e1e/1e1e/2e2e, also gets that answer to an OSC 11 query; without it
     the background query goes unanswered, as on a terminal that does not
-    answer it.
+    answer it. $FYAI_PTY_BACKGROUND_WHILE_STARTING stops answering once the
+    driver has typed, as a terminal does whose later reply the live display
+    reads: the session is started whatever the machine is doing, and only a
+    query made after that goes unanswered. A slow machine answers
+    more than one: a query is repeated while it has no answer.
     """
 
     def __init__(self, rows, cols):
         self.screen = Screen(rows, cols)
         self.held = b""
         self.background = os.environ.get("FYAI_PTY_BACKGROUND")
+        self.background_starting = bool(
+            os.environ.get("FYAI_PTY_BACKGROUND_WHILE_STARTING"))
+
+    def started(self):
+        """The driver has typed: a later query is the live display's."""
+        if self.background_starting:
+            self.background = None
 
     def resize(self, rows, cols):
         clipboard = self.screen.clipboard
@@ -389,6 +400,8 @@ def main():
         # A session that opens with a tile holding the keys shows no prompt
         # cursor, so it states the text that says it is ready instead.
         data = read_until(master, data, ready_needle, deadline)
+        if TERMINAL is not None:
+            TERMINAL.started()
         if not submit_input:
             pass
         elif edit_input:
