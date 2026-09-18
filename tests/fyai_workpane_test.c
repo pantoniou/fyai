@@ -44,6 +44,7 @@ FYAI_TEST_ENTRY(workpane, grid_has_no_holes, workpane_grid_has_no_holes)
 FYAI_TEST_ENTRY(workpane, tiles_are_placed_in_age, workpane_tiles_in_age)
 FYAI_TEST_ENTRY(workpane, focus_follows_the_screen, workpane_focus_follows_screen)
 FYAI_TEST_ENTRY(workpane, minimized_is_a_head, workpane_minimized_is_a_head)
+FYAI_TEST_ENTRY(workpane, hidden_takes_no_keys, workpane_hidden_takes_no_keys)
 FYAI_TEST_ENTRY(workpane, keys_reach_the_program, workpane_keys_reach_program)
 FYAI_TEST_ENTRY(workpane, head_regions_follow_the_tile, workpane_head_regions_follow_tile)
 FYAI_TEST_ENTRY(workpane, cap_accounts_for_tiles, workpane_cap_accounts_for_tiles)
@@ -751,6 +752,29 @@ int workpane_minimized_is_a_head(void)
 
 	wpt_close(wm);
 	printf("ok - a minimized tile is a head under the screens\n");
+	return 0;
+}
+
+/* A hidden pane takes no keys, and a tile given the keys shows it again. */
+int workpane_hidden_takes_no_keys(void)
+{
+	struct fyai_workpane_manager *wm = wpt_open("full", 0);
+	struct fytim_surface *order[FYAI_WORKPANE_TILES_MAX];
+
+	wpt_register_pair(wm);
+	fyai_workpane_set_focus(wm, WPT_AGENT);
+	fyai_workpane_set_hidden(wm, true);
+	FYAI_TCHECK(fyai_workpane_hidden(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == NULL);
+	FYAI_TCHECK(fyai_workpane_screen_order(wm, order, 2) == 0);
+	FYAI_TCHECK(!fyai_workpane_focus_next(wm));
+
+	fyai_workpane_set_focus(wm, WPT_SHELL);
+	FYAI_TCHECK(!fyai_workpane_hidden(wm));
+	FYAI_TCHECK(fyai_workpane_focused(wm) == WPT_SHELL);
+
+	wpt_close(wm);
+	printf("ok - a hidden pane takes no keys\n");
 	return 0;
 }
 
