@@ -26,6 +26,11 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 
+#ifdef __APPLE__
+#include <limits.h>
+#include <mach-o/dyld.h>
+#endif
+
 #include <libfyaml/libfyaml-align.h>
 
 #include "fyai.h"
@@ -1440,6 +1445,47 @@ bool self_is_valgrinded(void)
 	return result;
 }
 
+#if defined(__linux__)
+bool fyai_exec_self_available(void)
+{
+	return true;
+}
+
+int fyai_exec_self(const char *const argv[])
+{
+	return execv("/proc/self/exe", (char *const *)argv);
+}
+#elif defined(__APPLE__)
+bool fyai_exec_self_available(void)
+{
+	return true;
+}
+
+int fyai_exec_self(const char *const argv[])
+{
+	char executable[PATH_MAX];
+	uint32_t size = sizeof(executable);
+
+	if (_NSGetExecutablePath(executable, &size)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	return execv(executable, (char *const *)argv);
+}
+#else
+bool fyai_exec_self_available(void)
+{
+	return false;
+}
+
+int fyai_exec_self(const char *const argv[])
+{
+	(void)argv;
+	errno = ENOSYS;
+	return -1;
+}
+#endif
+
 /* 0 limit satisfied, 1 not satisfied after reexec, or hard limit, -1 error */
 int raise_stack(size_t bytes, char **argv)
 {
@@ -1486,7 +1532,7 @@ int raise_stack(size_t bytes, char **argv)
 	setenv("STACK_LIMIT_RAISED", "1", 1);
 
 	/* and reexec ourselves */
-	execv("/proc/self/exe", argv);
+	fyai_exec_self((const char *const *)argv);
 
 	/* should never ever happen */
 	perror("execv");
