@@ -737,7 +737,12 @@ int fyai_workpane_register_band(struct fyai_workpane_manager *wm,
 				struct fytim_workband *band,
 				enum fyai_workpane_tile_kind kind, void *owner)
 {
-	return workpane_add(wm, NULL, band, kind, owner, NULL, 0, 0);
+	int rc;
+
+	rc = workpane_add(wm, NULL, band, kind, owner, NULL, 0, 0);
+	if (!rc)
+		fyai_workpane_reconcile(wm);
+	return rc;
 }
 
 static void workpane_drop(struct fyai_workpane_manager *wm,
