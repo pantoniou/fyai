@@ -56,7 +56,7 @@ run_set()
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="/config set display/work_position below-prompt" \
     FYAI_PTY_NEEDLE="below-prompt" \
-    FYAI_PTY_AFTER="send:/config get display/work_position|wait-frame:below-prompt|send:run it|wait-frame:[10%] Building object 1|release:$TMPDIR/band-release|wait:Done." \
+    FYAI_PTY_AFTER="send:/config get display/work_position|wait-row:below-prompt|send:run it|wait-screen:[10%] Building object 1|release:$TMPDIR/band-release|wait-screen:Done." \
     FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/set.out" \
         "$FYAI_BIN" -k test-key --theme dark \

@@ -12,7 +12,7 @@ FYAI_PTY_PROGRESS_TIMEOUT="3" \
 FYAI_PTY_MID_NEEDLE=$'\033[32m●' \
 FYAI_PTY_MID_TIMEOUT="5" \
 FYAI_PTY_NEEDLE="Parallel interactive tools done." \
-FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_AFTER="send:/status|wait-screen:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
 	"$FYAI_BIN" -k test-key --theme dark \

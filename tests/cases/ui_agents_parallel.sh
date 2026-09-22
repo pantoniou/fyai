@@ -11,7 +11,7 @@ FYAI_PTY_INPUT="delegate both halves" \
 FYAI_PTY_MID_NEEDLE="second half" \
 FYAI_PTY_MID_TIMEOUT="3" \
 FYAI_PTY_NEEDLE="Both sub-agents reported." \
-FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_AFTER="send:/status|wait-screen:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

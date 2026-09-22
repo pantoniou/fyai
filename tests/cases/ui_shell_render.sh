@@ -13,7 +13,7 @@ FYAI_PTY_PROGRESS_NEEDLE="tool-progress" \
 FYAI_PTY_PROGRESS_TIMEOUT="1.5" \
 FYAI_PTY_RESIZE_COLS="72" \
 FYAI_PTY_NEEDLE="Interactive shell rendering done." \
-FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_AFTER="send:/status|wait-screen:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -b main -k test-key --theme dark \

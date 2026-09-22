@@ -10,8 +10,7 @@ mock_start ui_reflow.json
 FYAI_PTY_INPUT="say it" \
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_NEEDLE="Reflow streaming done." \
-FYAI_PTY_AFTER="resize:52|wait-frame:Reflow streaming done." \
-FYAI_PTY_AFTER_PAUSE="1.0" \
+FYAI_PTY_AFTER="resize:52|wait-repaint:Reflow streaming done." \
 FYAI_PTY_TIMEOUT=40 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

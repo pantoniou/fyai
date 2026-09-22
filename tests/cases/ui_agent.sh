@@ -16,7 +16,7 @@ FYAI_PTY_INPUT="delegate a greeting to a sub-agent" \
 FYAI_PTY_MID_NEEDLE="printf" \
 FYAI_PTY_MID_TIMEOUT="8" \
 FYAI_PTY_NEEDLE="Delegated and done." \
-FYAI_PTY_AFTER="send:/status|wait:Usage / total" \
+FYAI_PTY_AFTER="send:/status|wait-screen:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \

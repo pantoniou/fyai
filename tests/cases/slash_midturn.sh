@@ -48,7 +48,7 @@ FYAI_PTY_INPUT="first question" \
 FYAI_PTY_NEEDLE="The stalled answer." \
 FYAI_PTY_DURING_INPUT="/status" \
 FYAI_PTY_DURING_DELAY=0.5 \
-FYAI_PTY_AFTER="send:second question|wait:The follow-up answer." \
+FYAI_PTY_AFTER="send:second question|wait-screen:The follow-up answer." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/immediate.out" \
     "$FYAI_BIN" --color off \
     --set display/markdown=false --set display/stream=false \
@@ -92,7 +92,7 @@ FYAI_PTY_INPUT="first question" \
 FYAI_PTY_NEEDLE="The stalled answer." \
 FYAI_PTY_DURING_INPUT="/model baz" \
 FYAI_PTY_DURING_DELAY=0.5 \
-FYAI_PTY_AFTER="send:second question|wait:The follow-up answer." \
+FYAI_PTY_AFTER="send:second question|wait-screen:The follow-up answer." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/queued.out" \
     "$FYAI_BIN" --color off \
     --set display/markdown=false --set display/stream=false \
