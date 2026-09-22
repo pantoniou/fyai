@@ -188,6 +188,8 @@ struct fyai_cfg {
 	 * selected API grammar. Do not persist this derived value.
 	 */
 	bool shell_tool_supported;
+	/* The selected endpoint declares a provider-hosted web search tool. */
+	bool web_search_supported;
 	/* The endpoint implements the OpenAI-specific /responses/compact route. */
 	bool response_compaction_supported;
 	bool model_explicit;
@@ -303,6 +305,8 @@ struct fyai_cfg {
 	bool transcript_system;
 	float temperature;
 	bool enable_tools;
+	/* Opt in to the selected provider's native web search facility. */
+	bool web_search;
 	bool parallel_tool_calls;
 	bool enable_builtin_shell;
 	bool enable_sandbox;	/* Landlock-confine shell tool sub-executions */

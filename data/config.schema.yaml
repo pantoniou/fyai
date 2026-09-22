@@ -82,6 +82,12 @@ properties:
     description: >-
       Allow independent built-in tool calls returned in one model response to
       execute concurrently.
+  web_search:
+    type: boolean
+    default: true
+    description: >-
+      Enable the selected provider's native web-search tool. This is only
+      available when the catalogue endpoint declares hosted web search.
   temperature:
     type: number
     minimum: 0

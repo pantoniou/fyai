@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "msg_web_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [
+          {
+            "type": "server_tool_use",
+            "id": "srvtoolu_web_1",
+            "name": "web_search",
+            "input": {"query": "current fyai status"}
+          },
+          {
+            "type": "web_search_tool_result",
+            "tool_use_id": "srvtoolu_web_1",
+            "content": [{
+              "type": "web_search_result",
+              "title": "Fyai status",
+              "url": "https://example.com/fyai"
+            }]
+          },
+          {"type": "text", "text": "Fyai is current, according to the web search."}
+        ],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 10, "output_tokens": 9}
+      }
+    }
+  ]
+}

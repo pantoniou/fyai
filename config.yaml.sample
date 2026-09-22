@@ -82,6 +82,7 @@ api_key: { type: auto }
 
 # --- Top-level defaults ----------------------------------------------------
 system_prompt: You are a concise assistant.
+web_search: true
 parallel_tool_calls: true
 parallel_tool_calls_prompt: >-
   Independent tool calls may be issued together in one response and will

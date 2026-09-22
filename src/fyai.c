@@ -836,6 +836,21 @@ fyai_model_step_add_tools(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
 	fy_generic tool_choice;
 
 	if (!cfg->enable_tools && !cfg->enable_builtin_shell &&
+	    !cfg->mcp_enabled && !fyai_provider_native_web_search(cfg))
+		return request;
+	if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS &&
+	    fyai_provider_native_web_search(cfg)) {
+		if (fyai_provider_is_openrouter(cfg)) {
+			fy_generic tools = fy_append(gb, ctx->tools,
+				fy_mapping(gb, "type", "openrouter:web_search"));
+			request = fy_assoc(gb, request, "tools", tools);
+		} else {
+			request = fy_assoc(gb, request, "web_search_options",
+					   fy_map_empty);
+		}
+	}
+	if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS &&
+	    !cfg->enable_tools && !cfg->enable_builtin_shell &&
 	    !cfg->mcp_enabled)
 		return request;
 
@@ -2096,7 +2111,8 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	curl_easy_setopt(ctx->curl, CURLOPT_URL, cfg->api_url);
 	curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, ctx->headers);
 
-	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled) {
+	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled ||
+	    cfg->web_search) {
 
 		switch (cfg->api_mode) {
 		case FYAI_API_RESPONSES:
@@ -2107,7 +2123,8 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 				make_tools_filtered(ctx) : fy_seq_empty;
 			break;
 		case FYAI_API_MESSAGES:
-			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ?
+			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ||
+				cfg->web_search ?
 				fyai_make_messages_tools(ctx) : fy_seq_empty;
 			break;
 		}

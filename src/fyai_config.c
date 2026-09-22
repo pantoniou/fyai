@@ -290,6 +290,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 
 	cfg->enable_tools = apply_bool(root, "tools",
 				cfg->enable_tools);
+	cfg->web_search = apply_bool(root, "web_search",
+				cfg->web_search);
 	cfg->parallel_tool_calls = apply_bool(root, "parallel_tool_calls",
 					     cfg->parallel_tool_calls);
 	cfg->enable_builtin_shell = apply_bool(root, "builtin_shell",
@@ -2217,6 +2219,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->transcript_system = false;
 	/* Use the defaults in the schema. */
 	cfg->enable_tools = true;
+	cfg->web_search = true;
 	cfg->enable_builtin_shell = false;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;
@@ -2480,6 +2483,8 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
 	cfg->shell_tool_supported = fy_get(fy_get(cat_ep, "capabilities"),
 					   "shell_tool_supported", false);
+	cfg->web_search_supported =
+		fyai_catalog_endpoint_has_hosted_tool(cat_ep, "web_search");
 	cfg->response_compaction_supported =
 		fy_get(fy_get(cat_ep, "capabilities"),
 		       "response_compaction_supported", false);
@@ -2532,6 +2537,14 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
  */
 int fyai_config_messages_gate(struct fyai_cfg *cfg)
 {
+	if (cfg->web_search && !cfg->web_search_supported) {
+		fyai_cfg_notice(cfg, "native web search is not supported by provider '%s' "
+				"for the %s endpoint; disabling it",
+				cfg->provider ? cfg->provider : "",
+				fyai_api_to_string(cfg->api_mode));
+		cfg->web_search = false;
+	}
+
 	/*
 	 * Multiple providers use the Responses grammar, but only some providers
 	 * accept the built-in shell tool. If the endpoint does not accept the

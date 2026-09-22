@@ -13,6 +13,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "fyai_provider.h"
 #include "fyai_tool_spec.h"
@@ -259,6 +260,9 @@ bool fyai_response_needs_tool_calls(struct fyai_ctx *ctx,
 
 bool fyai_response_is_final(struct fyai_ctx *ctx, fy_generic response_doc)
 {
+	if (ctx->cfg->api_mode == FYAI_API_MESSAGES &&
+	    fy_equal(fy_get(response_doc, "stop_reason"), "pause_turn"))
+		return false;
 	return !fyai_response_needs_tool_calls(ctx, response_doc);
 }
 
@@ -448,6 +452,10 @@ fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
 				"environment", fy_mapping("type", "local"));
 		response_tools = fy_append(response_tools, response_tool);
 	}
+	if (fyai_provider_native_web_search(cfg))
+		response_tools = fy_append(response_tools,
+				fy_mapping("type", fyai_provider_is_openrouter(cfg) ?
+					"openrouter:web_search" : "web_search"));
 
 	response_tools = fy_gb_internalize(ctx->gb, response_tools);
 	return provider_result(ctx, response_tools,
@@ -465,14 +473,20 @@ fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
 	/* Anthropic tools are flat: {name, description, input_schema} - no
 	 * "function" wrapper, and the JSON schema key is input_schema. */
 	messages_tools = fy_seq_empty;
-	tools = make_tools_filtered(ctx);
-	fy_foreach(tool, tools) {
-		function = fy_get(tool, "function");
-		tmp = fy_mapping("name", fy_get(function, "name", ""),
-				 "description", fy_get(function, "description", ""),
-				 "input_schema", fy_get(function, "parameters"));
-		messages_tools = fy_append(messages_tools, tmp);
+	if (ctx->cfg->enable_tools || ctx->cfg->enable_builtin_shell) {
+		tools = make_tools_filtered(ctx);
+		fy_foreach(tool, tools) {
+			function = fy_get(tool, "function");
+			tmp = fy_mapping("name", fy_get(function, "name", ""),
+						 "description", fy_get(function, "description", ""),
+						 "input_schema", fy_get(function, "parameters"));
+			messages_tools = fy_append(messages_tools, tmp);
+		}
 	}
+	if (fyai_provider_native_web_search(ctx->cfg))
+		messages_tools = fy_append(messages_tools,
+				fy_mapping("type", "web_search_20250305",
+						   "name", "web_search"));
 
 	messages_tools = fy_gb_internalize(ctx->gb, messages_tools);
 	return provider_result(ctx, messages_tools,
@@ -501,6 +515,17 @@ bool fyai_provider_native_shell(const struct fyai_cfg *cfg)
 {
 	return cfg->api_mode == FYAI_API_RESPONSES && !cfg->chatgpt_auth &&
 	       cfg->shell_tool_supported;
+}
+
+bool fyai_provider_native_web_search(const struct fyai_cfg *cfg)
+{
+	return cfg && cfg->web_search && cfg->web_search_supported;
+}
+
+bool fyai_provider_is_openrouter(const struct fyai_cfg *cfg)
+{
+	return cfg && cfg->provider &&
+		!strcasecmp(cfg->provider, "openrouter");
 }
 
 /* Detect transient errors that arrive inside a successful HTTP stream. */
@@ -976,6 +1001,13 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (fy_is_invalid(content) ||
 		    fy_is_null(content))
 			content = fy_value("");
+		if (fy_is_sequence(content)) {
+			out = fy_append(gb, out,
+					fy_mapping("role", fy_is_string(role) ?
+							fy_castp(&role, "") : "user",
+						   "content", content));
+			continue;
+		}
 		out = messages_append_block(ctx, out,
 				fy_is_string(role) ? fy_castp(&role, "") : "user",
 				messages_text_block(ctx, content));

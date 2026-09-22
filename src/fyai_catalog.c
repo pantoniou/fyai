@@ -185,6 +185,20 @@ fy_generic fyai_catalog_endpoint(fy_generic provider, enum fyai_api_mode api)
 	return fy_invalid;
 }
 
+bool fyai_catalog_endpoint_has_hosted_tool(fy_generic endpoint,
+						const char *tool)
+{
+	fy_generic hosted, item;
+
+	if (!tool || !*tool)
+		return false;
+	hosted = fy_get(endpoint, "hosted_tools");
+	fy_foreach(item, hosted)
+		if (fy_equal(item, tool))
+			return true;
+	return false;
+}
+
 int fyai_catalog_import(struct fyai_ctx *ctx, const char *path)
 {
 	fy_generic doc, models, providers, new_config;

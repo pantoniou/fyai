@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp_web_1",
+        "object": "response",
+        "model": "mock-model",
+        "output": [
+          {
+            "type": "web_search_call",
+            "id": "ws_1",
+            "status": "completed",
+            "action": {
+              "type": "search",
+              "queries": ["current fyai status"],
+              "sources": [{"type": "url", "url": "https://example.com/fyai"}]
+            }
+          },
+          {
+            "type": "message",
+            "role": "assistant",
+            "content": [{
+              "type": "output_text",
+              "text": "Fyai is current, according to the web search."
+            }]
+          }
+        ],
+        "usage": {"input_tokens": 10, "output_tokens": 9, "total_tokens": 19}
+      }
+    }
+  ]
+}

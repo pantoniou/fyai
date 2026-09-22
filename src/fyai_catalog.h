@@ -71,6 +71,10 @@ fy_generic fyai_catalog_offering(fy_generic provider, const char *model,
 /* endpoints[] entry of @provider for @api mode, or fy_invalid */
 fy_generic fyai_catalog_endpoint(fy_generic provider, enum fyai_api_mode api);
 
+/* True when an endpoint advertises a provider-hosted tool named @tool. */
+bool fyai_catalog_endpoint_has_hosted_tool(fy_generic endpoint,
+						const char *tool);
+
 /* verb backends */
 int fyai_catalog_import(struct fyai_ctx *ctx, const char *path);
 int fyai_catalog_export(struct fyai_ctx *ctx, const char *path);

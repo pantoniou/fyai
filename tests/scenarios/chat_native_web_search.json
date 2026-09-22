@@ -1,0 +1,21 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chat_web_1",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [{
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Fyai is current, according to the web search.",
+            "annotations": [{"type": "url_citation", "url": "https://example.com/fyai"}]
+          },
+          "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 9, "total_tokens": 19}
+      }
+    }
+  ]
+}

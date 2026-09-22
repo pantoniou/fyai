@@ -349,7 +349,16 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 
 		messages = fy_seq_empty;
 		raw = fyai_response_output_text(ctx, response_doc);
-		if (*fy_cast(raw, ""))
+		if (fy_equal(fy_get(response_doc, "stop_reason"), "pause_turn")) {
+			/* Anthropic server tools require the complete assistant block
+			 * array on the continuation request. It remains provider-stream
+			 * data, but is carried transiently in the message shape so the
+			 * next Messages request can resume the paused turn. */
+			if (fy_is_sequence(output) && fy_len(output))
+				messages = fy_append(gb, messages,
+						fy_mapping("role", "assistant",
+							   "content", output));
+		} else if (*fy_cast(raw, ""))
 			messages = fy_append(gb, messages,
 					fy_mapping(gb,
 						"role", "assistant",

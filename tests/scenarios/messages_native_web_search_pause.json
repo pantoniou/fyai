@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "msg_pause_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [
+          {
+            "type": "server_tool_use",
+            "id": "srvtoolu_pause_1",
+            "name": "web_search",
+            "input": {"query": "current fyai status"}
+          },
+          {
+            "type": "web_search_tool_result",
+            "tool_use_id": "srvtoolu_pause_1",
+            "content": [{"type": "web_search_result", "url": "https://example.com/fyai"}]
+          }
+        ],
+        "stop_reason": "pause_turn",
+        "usage": {"input_tokens": 10, "output_tokens": 4}
+      }
+    },
+    {
+      "response": {
+        "id": "msg_pause_2",
+        "type": "message",
+        "role": "assistant",
+        "model": "mock-model",
+        "content": [{"type": "text", "text": "Fyai is current after continuation."}],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 20, "output_tokens": 6}
+      }
+    }
+  ]
+}

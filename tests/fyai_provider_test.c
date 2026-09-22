@@ -27,6 +27,7 @@ FYAI_TEST_ENTRY(provider, messages_input, provider_messages_input)
 FYAI_TEST_ENTRY(provider, token_extents, provider_token_extents)
 FYAI_TEST_ENTRY(provider, messages_response, provider_messages_response)
 FYAI_TEST_ENTRY(provider, tool_calls_strip_user_owned, provider_tool_calls_strip_user_owned)
+FYAI_TEST_ENTRY(provider, native_web_search_tools, provider_native_web_search_tools)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
@@ -603,6 +604,29 @@ int provider_messages_response(void)
 	return provider_run(test_messages_response);
 }
 
+static void test_native_web_search_tools(void)
+{
+	const char *out;
+
+	test_cfg.web_search = true;
+	test_cfg.web_search_supported = true;
+	test_cfg.api_mode = FYAI_API_RESPONSES;
+	test_cfg.provider = "openrouter";
+	out = emit(fyai_make_responses_tools(&test_ctx));
+	expect_contains("openrouter_responses_web_search", out,
+			"\"type\": \"openrouter:web_search\"");
+
+	test_cfg.provider = "openai";
+	out = emit(fyai_make_responses_tools(&test_ctx));
+	expect_contains("responses_web_search", out,
+			"\"type\": \"web_search\"");
+
+	test_cfg.api_mode = FYAI_API_MESSAGES;
+	out = emit(fyai_make_messages_tools(&test_ctx));
+	expect_contains("messages_web_search", out,
+			"web_search_20250305");
+}
+
 
 /* Only fyai_tools_bang() confers user ownership. A provider call that
  * carries _fyai_user_owned passes the time limit, the model close guard
@@ -745,4 +769,9 @@ static void test_tool_calls_strip_user_owned(void)
 int provider_tool_calls_strip_user_owned(void)
 {
 	return provider_run(test_tool_calls_strip_user_owned);
+}
+
+int provider_native_web_search_tools(void)
+{
+	return provider_run(test_native_web_search_tools);
 }
