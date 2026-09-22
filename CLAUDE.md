@@ -761,6 +761,15 @@ register, focus, zoom, resize - and sizes nothing itself.
   `fyai_ui_work_tile_cols()` under it. The share changes as work starts and
   finishes beside it, so a progressive render has to be made again at the new
   width. Rows wrapped for the whole terminal are clipped at the tile.
+- A band has no width before the frame that lays it out. The sink band holds
+  a paint made before that frame and presents it when the first grant
+  arrives, or when the band commits. The frame after registration is then
+  the same whether or not the first output line arrived before it. The
+  manager reports each new width to the owner of a band through
+  `repaint_head`. A producer that wraps its own rows sets
+  `fyai_sink_band_set_repaint()` and renders them again there.
+- The cap counts the tiles of the reconciled state. `fyai_workpane_reconcile()`
+  writes it, so a frame drawn after a tile registers counts that tile.
 - The pane owns the grid. A tile learns the size it was given from
   `fyai_ui_surface_granted_rows()` and `fyai_ui_surface_granted_cols()`, which
   is what a pseudo-terminal is sized to. Do not size a program to the
