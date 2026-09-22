@@ -226,6 +226,7 @@ def check_after_script(after_script, snapshot):
     dropped step silently changes what the case proves.
     """
     kinds = ("send", "raw", "resize", "wait", "wait-frame", "wait-gone", "wait-screen",
+             "wait-repaint", "wait-row",
              "wait-copy", "frame", "drain", "settle", "snapshot", "release",
              "signal", "click")
     for step in after_script:
@@ -233,7 +234,8 @@ def check_after_script(after_script, snapshot):
         if kind not in kinds:
             raise RuntimeError("unknown FYAI_PTY_AFTER step: %r" % step)
         if kind in ("send", "wait", "wait-frame", "wait-gone", "wait-screen",
-                    "release", "click") and not value:
+                    "wait-repaint", "wait-row", "release",
+                    "click") and not value:
             raise RuntimeError(
                 "FYAI_PTY_AFTER step %r needs a value" % step)
         if kind == "frame":
@@ -342,6 +344,11 @@ def main():
     #               scrolled off it or that an erase of the display removed
     #               since the last action: a row the output took away within
     #               one read was still shown.
+    #   wait-row:TEXT    as wait-screen, but the whole row, blanks removed,
+    #               is TEXT: a report of a value, and not a row that quotes it.
+    #   wait-repaint:TEXT read until the display was erased since the last
+    #               action and TEXT is on the screen. An erase clears every
+    #               row, so TEXT was painted again after it.
     #   wait-gone:TEXT   read until TEXT is off the screen. A frame paints
     #               only what changed, thus the capture says what arrived
     #               and only the screen says what is still there.
@@ -349,6 +356,8 @@ def main():
     #               the last action that holds TEXT; an empty TEXT takes any
     #               copy that is not empty. A copy is terminal state, not a
     #               cell of the screen.
+    #   click:TEXT  press and release the mouse on the first cell of the
+    #               first TEXT on the screen, once TEXT is on it
     #   frame:N     read until N frames were painted since the last action.
     #               A key is read at the start of a frame, so two frames
     #               after it is when it has been acted on: keys sent with
@@ -567,6 +576,7 @@ def main():
         screen_at = 0
         scrolled_start = 0
         erased_start = 0
+        erases_start = 0
 
         def screen_rows():
             nonlocal screen_at
@@ -579,6 +589,30 @@ def main():
                 screen_at = end
             return screen.display()
 
+        def read_screen_until(reached):
+            """Read until reached() or the step deadline. A resize not yet
+            seen is stated again each second."""
+            nonlocal data
+            step_deadline = time.monotonic() + after_timeout
+            reassert_at = time.monotonic()
+            while not reached() and time.monotonic() < step_deadline:
+                if (pending_resize is not None and
+                        time.monotonic() - reassert_at >= 1.0):
+                    fcntl.ioctl(master, termios.TIOCSWINSZ,
+                                struct.pack("HHHH", *pending_resize, 0, 0))
+                    reassert_at = time.monotonic()
+                ready, _, _ = select.select([master], [], [], 0.1)
+                if not ready:
+                    continue
+                try:
+                    chunk = terminal_read(master)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+            return reached()
+
         for step in after_script:
             kind, _, value = step.partition(":")
             if kind in ("send", "raw", "resize", "click"):
@@ -587,6 +621,7 @@ def main():
                 screen_rows()
                 scrolled_start = len(screen.scrollback)
                 erased_start = len(screen.erased)
+                erases_start = screen.display_erases
             if kind == "send":
                 os.write(master, value.encode() + b"\n")
                 time.sleep(after_pause)
@@ -598,6 +633,8 @@ def main():
                 # terminal reports a press and release with the mouse
                 # grabbed. A position found on the screen does not change
                 # with the rows around it. Wait for the text first.
+                read_screen_until(lambda: any(value in row
+                                              for row in screen_rows()))
                 shown = screen_rows()
                 at = [(r, row.find(value)) for r, row in enumerate(shown)
                       if value in row]
@@ -626,6 +663,7 @@ def main():
                 screen_at = len(data)
                 scrolled_start = 0
                 erased_start = 0
+                erases_start = 0
                 time.sleep(after_pause)
             elif kind == "release":
                 with open(value, "wb"):
@@ -667,7 +705,8 @@ def main():
                     raise RuntimeError(
                         "PTY output never contained %r; tail=%r" %
                         (needle, data[-2000:]))
-            elif kind in ("wait-gone", "wait-screen", "wait-copy", "frame"):
+            elif kind in ("wait-gone", "wait-screen", "wait-repaint",
+                          "wait-row", "wait-copy", "frame"):
                 # A state the window leaves - a tile giving the keys back -
                 # is said by what is no longer on it, and a key that was
                 # acted on is said by the frames since it. Both are waits
@@ -683,31 +722,21 @@ def main():
                         return data.count(FRAME_END, action_start) >= want
                     # A screen that repaints only the cells that changed
                     # sends no whole line to wait for: read the screen.
+                    if kind == "wait-repaint":
+                        rows_now = screen_rows()
+                        return (screen.display_erases > erases_start and
+                                any(value in row for row in rows_now))
+                    if kind == "wait-row":
+                        return any(row.strip() == value for row in
+                                   screen_rows() +
+                                   screen.scrollback[scrolled_start:] +
+                                   screen.erased[erased_start:])
                     if kind == "wait-screen":
                         return any(value in row for row in screen_rows() +
                                    screen.scrollback[scrolled_start:] +
                                    screen.erased[erased_start:])
                     return not any(value in row for row in screen_rows())
-                step_deadline = time.monotonic() + after_timeout
-                reassert_at = time.monotonic()
-                while not reached() and time.monotonic() < step_deadline:
-                    if (pending_resize is not None and
-                            time.monotonic() - reassert_at >= 1.0):
-                        fcntl.ioctl(master, termios.TIOCSWINSZ,
-                                    struct.pack("HHHH", *pending_resize,
-                                                0, 0))
-                        reassert_at = time.monotonic()
-                    ready, _, _ = select.select([master], [], [], 0.1)
-                    if not ready:
-                        continue
-                    try:
-                        chunk = terminal_read(master)
-                    except OSError:
-                        break
-                    if not chunk:
-                        break
-                    data += chunk
-                if not reached():
+                if not read_screen_until(reached):
                     if kind == "frame":
                         raise RuntimeError(
                             "the window painted %d of %d frames; tail=%r" %
