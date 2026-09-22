@@ -1826,6 +1826,25 @@ static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 			     fs->first_margin);
 }
 
+/* Render the rows again at the new width of the band tile. */
+static bool fenced_stream_repaint(void *arg)
+{
+	struct fyai_fenced_stream *fs = arg;
+
+	/* Without source only the head is presented again. */
+	if (!fs->active || !fs->accum.len)
+		return false;
+	fs->full_render = true;
+	return !fenced_stream_render(fs);
+}
+
+void fyai_fenced_stream_bind_band(struct fyai_fenced_stream *fs,
+				  struct fyai_sink_band *band)
+{
+	fs->band = band;
+	fyai_sink_band_set_repaint(band, fenced_stream_repaint, fs);
+}
+
 /* Rebuild the renderer after its band width changes. */
 static bool fenced_stream_width_changed(struct fyai_fenced_stream *fs)
 {

@@ -4596,7 +4596,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				(size_t)ctx->cfg->tool_preview_lines : 0,
 				markdown_tool_output_indent(ctx->cfg),
 				stderr, true)) {
-			job->stream.band = job->band;
+			fyai_fenced_stream_bind_band(&job->stream, job->band);
 			job->stream.title = job->title;
 			job->stream.command = job->command;
 			fyai_sink_band_paint(job->band, job->title,

@@ -213,6 +213,13 @@ void fyai_sink_band_commit(struct fyai_sink_band *b);
 void fyai_sink_band_destroy(struct fyai_sink_band *b);
 /* Return the granted tile width, or zero for a full-width band. */
 int fyai_sink_band_cols(const struct fyai_sink_band *b);
+/*
+ * Set the function that renders an independent band again when its tile gets
+ * a new width. @repaint returns true when it presented the band. On false the
+ * sink presents the last paint again.
+ */
+void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
+				bool (*repaint)(void *arg), void *arg);
 /* The shared band, or NULL when none is open. */
 struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s);
 

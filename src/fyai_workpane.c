@@ -745,6 +745,19 @@ int fyai_workpane_register_band(struct fyai_workpane_manager *wm,
 	return rc;
 }
 
+void fyai_workpane_band_set_ops(struct fyai_workpane_manager *wm,
+				struct fytim_workband *band,
+				const struct fyai_workpane_tile_ops *ops,
+				void *owner)
+{
+	struct fyai_workpane_tile *t = workpane_band_tile(wm, band);
+
+	if (!t)
+		return;
+	t->ops = ops;
+	t->owner = owner;
+}
+
 static void workpane_drop(struct fyai_workpane_manager *wm,
 			  struct fyai_workpane_tile *t)
 {
@@ -1647,6 +1660,8 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 		(void)fyai_ui_surface_set_max_rows(t->surface, t->max_rows);
 	}
 
+	/* The cap counts the tiles of the reconciled state. */
+	workpane_cap_update(wm);
 	workpane_trace(wm);
 	wm->layout_pending = false;
 	wm->reconciling = false;
@@ -1666,8 +1681,22 @@ void fyai_workpane_layout_complete(struct fyai_workpane_manager *wm)
 		return;
 	/* Grants must not alter layout requests. */
 	for_each_tile(t, wm) {
-		if (!t->surface)
+		if (!t->surface) {
+			/*
+			 * A band wraps its rows at the width it renders at.
+			 * Report a new width to the owner, which renders the
+			 * rows again. The first grant releases a held paint.
+			 * The width of a tile follows its column, not its
+			 * rows, so the repaint does not change the next width.
+			 */
+			cols = fyai_ui_work_tile_cols(wm->ctx, t->band);
+			if (cols > 0 && cols != t->head_cols && t->ops &&
+			    t->ops->repaint_head) {
+				t->head_cols = cols;
+				t->ops->repaint_head(t->owner);
+			}
 			continue;
+		}
 		cols = fyai_ui_surface_granted_cols(wm->ctx, t->surface);
 		rows = fyai_ui_surface_granted_rows(wm->ctx, t->surface);
 		/*

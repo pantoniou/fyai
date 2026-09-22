@@ -302,6 +302,9 @@ int fyai_markdown_quote_stream_start(struct fyai_fenced_stream *fs,
 				     FILE *fp, bool live);
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs, const char *data,
 			    size_t len);
+/* Bind an independent band. The stream renders it again at each new width. */
+void fyai_fenced_stream_bind_band(struct fyai_fenced_stream *fs,
+				  struct fyai_sink_band *band);
 /* Draw the region with no state mark, for a caller whose state is shown
  * elsewhere. */
 void fyai_fenced_stream_clear_indicator(struct fyai_fenced_stream *fs);

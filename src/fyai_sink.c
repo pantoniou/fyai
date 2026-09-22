@@ -21,6 +21,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_view.h"
 #include "fyai_ui.h"
+#include "fyai_workpane.h"
 
 /* The render configuration one diagram source is drawn under. Every path
  * that renders or navigates a diagram must use the same one, because a move
@@ -927,6 +928,29 @@ struct fyai_sink_band {
 	struct fytim_workband *wb;	/* NULL for the shared band */
 	bool shared;
 	bool tile;			/* independent work-pane tile */
+
+	/*
+	 * The last paint of a tile. Rows are wrapped at the granted width. A
+	 * paint made before the first grant is held and presented when the
+	 * grant arrives or the band commits.
+	 */
+	char *title;
+	char *command;
+	char *margin;
+	struct response_buffer body;
+	bool painted;			/* a paint was kept */
+	bool held;			/* the kept paint is not presented */
+
+	/* Renders the rows again at a new width. NULL presents the kept
+	 * paint again. */
+	bool (*repaint)(void *arg);
+	void *repaint_arg;
+};
+
+static void sink_term_band_repaint(void *owner);
+
+static const struct fyai_workpane_tile_ops sink_term_band_ops = {
+	.repaint_head = sink_term_band_repaint,
 };
 
 static bool sink_term_bands_available(const struct fyai_sink *s)
@@ -969,13 +993,47 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		return NULL;
 	}
 	b->tile = true;
+	fyai_workpane_band_set_ops(s->ctx->workpane, b->wb,
+				   &sink_term_band_ops, b);
 	return b;
+}
+
+/* Present the kept paint of a tile at the width it has now. */
+static void sink_term_band_present(struct fyai_sink_band *b)
+{
+	b->held = false;
+	if (b->command)
+		fyai_ui_shell_workband_update(b->ctx, b->wb, b->title,
+					      b->command, b->body.data,
+					      b->body.len, b->margin);
+	else
+		fyai_ui_workband_update(b->ctx, b->wb, b->title, b->body.data,
+					b->body.len, b->margin);
+}
+
+static int sink_term_band_keep_string(struct fyai_ctx *ctx, char **dst,
+				      const char *src)
+{
+	char *copy = NULL;
+
+	if (src) {
+		copy = strdup(src);
+		fyai_error_check(ctx, copy, err_out,
+				 "cannot keep the paint of a work band");
+	}
+	free(*dst);
+	*dst = copy;
+	return 0;
+err_out:
+	return -1;
 }
 
 static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 				 const char *command, const char *body,
 				 size_t len, const char *margin)
 {
+	int rc;
+
 	if (!b)
 		return;
 	/* The shared band keeps the title it opened with; only the body moves. */
@@ -984,11 +1042,55 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 			fyai_ui_tool_update(b->ctx, body, len);
 		return;
 	}
-	if (command)
-		fyai_ui_shell_workband_update(b->ctx, b->wb, title, command,
-					      body, len, margin);
-	else
-		fyai_ui_workband_update(b->ctx, b->wb, title, body, len, margin);
+	/* A paint that cannot be kept is not presented. */
+	rc = sink_term_band_keep_string(b->ctx, &b->title, title);
+	if (rc)
+		goto err_out;
+	rc = sink_term_band_keep_string(b->ctx, &b->command, command);
+	if (rc)
+		goto err_out;
+	rc = sink_term_band_keep_string(b->ctx, &b->margin, margin);
+	if (rc)
+		goto err_out;
+	rc = response_buffer_reserve(&b->body, len + 1);
+	fyai_error_check(b->ctx, !rc, err_out,
+			 "cannot keep the body of a work band");
+	if (len)
+		memcpy(b->body.data, body, len);
+	b->body.len = len;
+	b->body.data[len] = '\0';
+	b->painted = true;
+	/* Hold the paint until the first grant gives the width. */
+	if (fyai_ui_work_tile_cols(b->ctx, b->wb) <= 0) {
+		b->held = true;
+		return;
+	}
+	sink_term_band_present(b);
+	return;
+err_out:
+	b->painted = false;
+	b->held = false;
+}
+
+/* Render the band again at the new width of its tile. */
+static void sink_term_band_repaint(void *owner)
+{
+	struct fyai_sink_band *b = owner;
+
+	if (!b->painted)
+		return;
+	if (b->repaint && b->repaint(b->repaint_arg))
+		return;
+	sink_term_band_present(b);
+}
+
+static void sink_term_band_free(struct fyai_sink_band *b)
+{
+	free(b->title);
+	free(b->command);
+	free(b->margin);
+	free(b->body.data);
+	free(b);
 }
 
 static void sink_term_band_close(struct fyai_sink *s, bool ok,
@@ -1014,9 +1116,13 @@ static void sink_term_band_commit(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
+	/* A held paint is the content of the band. Present it before the
+	 * commit. */
+	if (b->wb && b->held)
+		sink_term_band_present(b);
 	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, true);
-	free(b);
+	sink_term_band_free(b);
 }
 
 static void sink_term_band_destroy(struct fyai_sink_band *b)
@@ -1025,7 +1131,7 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 		return;
 	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
-	free(b);
+	sink_term_band_free(b);
 }
 
 /* Select the stream file, or discard output that can corrupt JSON-RPC. */
@@ -1456,6 +1562,15 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b)
 	if (!b || !b->tile || !b->wb)
 		return 0;
 	return fyai_ui_work_tile_cols(b->ctx, b->wb);
+}
+
+void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
+				bool (*repaint)(void *arg), void *arg)
+{
+	if (!b || !b->tile)
+		return;
+	b->repaint = repaint;
+	b->repaint_arg = arg;
 }
 
 void fyai_sink_band_commit(struct fyai_sink_band *b)

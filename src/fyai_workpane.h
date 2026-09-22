@@ -189,6 +189,14 @@ int fyai_workpane_register(struct fyai_workpane_manager *wm,
 int fyai_workpane_register_band(struct fyai_workpane_manager *wm,
 				struct fytim_workband *band,
 				enum fyai_workpane_tile_kind kind, void *owner);
+/*
+ * Set the owner of a band tile. Only repaint_head of @ops is called, when the
+ * granted width of the band changes.
+ */
+void fyai_workpane_band_set_ops(struct fyai_workpane_manager *wm,
+				struct fytim_workband *band,
+				const struct fyai_workpane_tile_ops *ops,
+				void *owner);
 /* Retire a tile. Focus and zoom that named it are cleared in the same pass. */
 void fyai_workpane_unregister(struct fyai_workpane_manager *wm,
 			      struct fytim_surface *sf);
