@@ -41,21 +41,33 @@ session()
 session theme
 session terminal
 
-"$PYTHON" - "$CAPTURES/theme.out" "$CAPTURES/terminal.out" <<'EOF' ||
-import collections
-import re
+"$PYTHON" - "$CAPTURES/theme.out" "$CAPTURES/terminal.out" "$TESTS_DIR" <<'EOF' ||
 import sys
 
+sys.path.insert(0, sys.argv[3])
+from screen import Screen
+
 def raised(path):
-    """The ground the card and the fenced block stand on: the background
-    colour the answer uses most."""
+    """The ground the fenced block stands on: the background of the cell
+    where its code is drawn, in the frame that first shows it. The count of
+    each colour in the capture depends on how many frames the run painted,
+    so it does not say which one it is."""
     data = open(path, "rb").read()
-    grounds = collections.Counter(
-        tuple(int(v) for v in m.groups())
-        for m in re.finditer(rb"48;2;(\d+);(\d+);(\d+)m", data))
-    if not grounds:
-        raise SystemExit(f"{path}: no palette background colour")
-    return grounds.most_common(1)[0][0]
+    at = data.find(b"value")
+    if at < 0:
+        raise SystemExit(f"{path}: the code never reached the screen")
+    end = data.find(b"\x1b[?2026l", at)
+    end = len(data) if end < 0 else end + len(b"\x1b[?2026l")
+    screen = Screen(30, 100)
+    screen.feed(data[:end])
+    try:
+        ground = screen.ground_at("value")
+    except KeyError:
+        raise SystemExit(f"{path}: the code is not on the screen")
+    if ground is None or ground[0] == "index":
+        raise SystemExit(f"{path}: the code has no direct-colour ground: "
+                         f"{ground!r}")
+    return ground
 
 theme = raised(sys.argv[1])
 terminal = raised(sys.argv[2])
