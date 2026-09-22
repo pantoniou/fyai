@@ -10,16 +10,6 @@ set -eu
 CAPTURES=$(mktemp -d)
 trap 'rm -rf "$CAPTURES"' EXIT
 
-# A press and a release of the first button at 1-based column $1, row $2.
-click()
-{
-    printf '\033[<0;%d;%dM\033[<0;%d;%dm' "$1" "$2" "$1" "$2" |
-        od -An -tx1 | tr -d ' \n'
-}
-
-# The head stands under the blank row above the pane.
-NAME=$(click 7 2)
-
 # The shell writes SIZED in two parts, so only its output holds the word and
 # not the command in the head: the case waits for the output on the screen
 # before the first click.
@@ -33,7 +23,7 @@ run_with()
     FYAI_PTY_INPUT="!sh -c 'while :; do printf \"\\r\\033[KCLICK %s %s%s \" \"\$(stty size)\" SIZ ED; sleep 0.2; done'" \
     FYAI_PTY_NEEDLE="CLICK" FYAI_PTY_TIMEOUT=20 \
     FYAI_PTY_AFTER="wait-screen:SIZED|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
-"raw:$NAME|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
+"click:[bang-1]|wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
 "click:□|frame:2|"\
 "click:×|wait-gone:▁" \
     FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \

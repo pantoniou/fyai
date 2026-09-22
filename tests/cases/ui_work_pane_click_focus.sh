@@ -21,7 +21,8 @@ hex()
     printf '%s' "$1" | od -An -tx1 | tr -d ' \n'
 }
 
-# Each tile runs cat to expose received input. The second tile starts focused.
+# Each tile prints a marker in its screen and then runs cat to expose received
+# input. A click finds the marker. The second tile starts focused.
 # The status row is outside every tile. The provider uses a closed loopback
 # port so accidental prompt input cannot leave the machine.
 run_with()
@@ -29,13 +30,13 @@ run_with()
     renderer=$1
     fyai_test_setup
     FYAI_PTY_COLS=100 FYAI_PTY_ROWS=30 \
-    FYAI_PTY_INPUT="!cat" \
+    FYAI_PTY_INPUT="!sh -c 'echo LEFT\"\"-SCREEN; exec cat'" \
     FYAI_PTY_NEEDLE="bang-1" FYAI_PTY_TIMEOUT=20 \
     FYAI_PTY_AFTER="wait-screen:Ctrl-]|raw:1d|wait-gone:Ctrl-]|"\
-"send:!cat|wait-screen:bang-2|wait-screen:Ctrl-]|"\
-"raw:$(click 10 8)|send:LEFTKEYS|wait-screen:LEFTKEYS|"\
-"raw:$(click 70 8)|send:RIGHTKEYS|wait-screen:RIGHTKEYS|"\
-"raw:$(click 30 1)|send:HEADKEYS|wait-screen:HEADKEYS|"\
+"send:!sh -c 'echo RIGHT\"\"-SCREEN; exec cat'|wait-screen:RIGHT-SCREEN|wait-screen:Ctrl-]|"\
+"click:LEFT-SCREEN|send:LEFTKEYS|wait-screen:LEFTKEYS|"\
+"click:RIGHT-SCREEN|send:RIGHTKEYS|wait-screen:RIGHTKEYS|"\
+"click:[bang-1]|send:HEADKEYS|wait-screen:HEADKEYS|"\
 "raw:$(click 10 30)|wait-gone:Ctrl-]|"\
 "raw:$(hex PROMPTKEYS)|wait-screen:PROMPTKEYS|raw:15|wait-gone:PROMPTKEYS|"\
 "send:/kill bang-1|wait-screen:stopping shell bang-1|"\

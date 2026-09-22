@@ -17,7 +17,7 @@ FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="!sh -c 'echo RE\"\"ADY; while :; do sleep .2; done'" \
 FYAI_PTY_NEEDLE="READY" FYAI_PTY_TIMEOUT=25 FYAI_PTY_AFTER_TIMEOUT=15 \
 FYAI_PTY_AFTER="wait-screen:Ctrl-] returns to the prompt|raw:03|wait-screen:signal 2|raw:1d|"\
-"send:/sessions|wait-screen:sessions" \
+"send:/sessions|wait-screen:no active sessions" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true -m mock-model -i
@@ -32,7 +32,7 @@ plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 if b"killed by signal 2" not in plain:
     raise SystemExit("the program never saw the interrupt")
 # And this program was still there to say so, and to answer afterwards.
-if b"sessions" not in plain:
+if b"no active sessions" not in plain:
     raise SystemExit("fyai took the interrupt for itself")
 PYEOF
 
