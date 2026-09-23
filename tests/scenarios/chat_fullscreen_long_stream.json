@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {
+      "sse": [
+        {
+          "id": "chatcmpl-fullscreen-long",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [{"index": 0, "delta": {"role": "assistant", "content": "stream line 01\nstream line 02\nstream line 03\nstream line 04\nstream line 05\nstream line 06\nstream line 07\nstream line 08\nstream line 09\nstream line 10\n"}, "finish_reason": null}]
+        },
+        {
+          "id": "chatcmpl-fullscreen-long",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [{"index": 0, "delta": {"content": "stream line 11\nstream line 12\nstream line 13\nstream line 14\nstream line 15\nstream line 16\nstream line 17\nstream line 18\nstream line 19\nstream line 20\n"}, "finish_reason": null}]
+        },
+        {
+          "id": "chatcmpl-fullscreen-long",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        }
+      ],
+      "done": true,
+      "wait_after_event": 0,
+      "wait_for": "resume-stream"
+    }
+  ]
+}

@@ -1226,12 +1226,11 @@ static int page_fullscreen_takes_the_transcript_run(void)
 	FYAI_TCHECK(full.tail_rows == 2);
 	FYAI_TCHECK(full.pane_rows == 3);
 	FYAI_TCHECK(full.transcript_rows ==
-		    20 - fyai_page_chrome_rows(&full) - 3 - 2);
+		    20 - fyai_page_chrome_rows(&full) - 3);
 	FYAI_TCHECK(!fyai_page_source(&full, &src));
-	/* The tail of the turn stands under the transcript view. */
+	/* The live tail is drawn inside the transcript region. */
 	FYAI_TCHECK(src.data && strstr(src.data, "<fy-slot id=\"transcript\""));
-	FYAI_TCHECK(strstr(src.data, "<fy-slot id=\"tail\"") >
-		    strstr(src.data, "<fy-slot id=\"transcript\""));
+	FYAI_TCHECK(!strstr(src.data, "<fy-slot id=\"tail\""));
 	free(src.data);
 	memset(&src, 0, sizeof(src));
 

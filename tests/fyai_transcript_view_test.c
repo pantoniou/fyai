@@ -17,6 +17,7 @@
 FYAI_TEST_ENTRY(transcript_view, window_shows_the_last_rows, transcript_view_window_shows_the_last_rows)
 FYAI_TEST_ENTRY(transcript_view, scroll_stops_at_the_ends, transcript_view_scroll_stops_at_the_ends)
 FYAI_TEST_ENTRY(transcript_view, live_rows_follow_the_stored, transcript_view_live_rows_follow_the_stored)
+FYAI_TEST_ENTRY(transcript_view, tail_scrolls_with_transcript, transcript_view_tail_scrolls_with_transcript)
 FYAI_TEST_ENTRY(transcript_view, scrolled_view_keeps_its_top, transcript_view_scrolled_view_keeps_its_top)
 FYAI_TEST_ENTRY(transcript_view, copy_reads_the_selected_cells, transcript_view_copy_reads_the_selected_cells)
 FYAI_TEST_ENTRY(transcript_view, update_renders_what_changed, transcript_view_update_renders_what_changed)
@@ -121,6 +122,37 @@ int transcript_view_live_rows_follow_the_stored(void)
 	fyai_transcript_view_clear_live(v);
 	w = fyai_transcript_view_window(v, 5, &n);
 	FYAI_TCHECK(rows_are(w, n, stored, 1));
+	fyai_transcript_view_destroy(v);
+	return 0;
+}
+
+/* The tail shares the window and keeps a scrolled row in place as it grows. */
+int transcript_view_tail_scrolls_with_transcript(void)
+{
+	static const char *const initial[] = { "b", "live" };
+	static const char *const back[] = { "a", "b" };
+	static const char *const after[] = { "a", "b" };
+	static const char *const end[] = { "live", "more" };
+	struct fyai_transcript_view *v = fyai_transcript_view_create();
+	const char *const *w;
+	int n;
+
+	FYAI_TCHECK(v != NULL);
+	FYAI_TCHECK(!fyai_transcript_view_set_stored(v, "a\nb\n", 4));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "live\n", 5));
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, initial, 2));
+	fyai_transcript_view_scroll(v, 1, 2);
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, back, 2));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "live\nmore\n", 10));
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, after, 2));
+	fyai_transcript_view_scroll(v, -100, 2);
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, end, 2));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, NULL, 0));
+	FYAI_TCHECK(fyai_transcript_view_rows(v) == 2);
 	fyai_transcript_view_destroy(v);
 	return 0;
 }
