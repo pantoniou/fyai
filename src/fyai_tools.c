@@ -2760,6 +2760,13 @@ static void fyai_shell_session_watch(struct fyai_shell_session *sess, pid_t pid)
 	if (!sess || pid <= 0 || sess->waiter)
 		return;
 	sess->pid = pid;
+	/*
+	 * A user-owned session is read by the user on its screen. The model
+	 * must not get its output, and a turn started for it would take the
+	 * screen from the user.
+	 */
+	if (sess->user_owned)
+		return;
 	ms = sess->ctx->cfg->shell_input_poll_ms;
 	el = fyai_ctx_loop(sess->ctx);
 	if (ms <= 0 || !el)
