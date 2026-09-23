@@ -18,6 +18,7 @@
 
 #include <libfytimui.h>
 #include <libfymd4c.h>
+#include <libfypalette.h>
 
 #include "fyai.h"
 #include "fyai_agent.h"
@@ -1838,8 +1839,57 @@ static void ui_complete_cb(void *user, const char *text,
 	fyai_session_completion(user, text, comps);
 }
 
+/*
+ * Give the probe result to the UI. The capabilities that the terminal
+ * reported replace the guess from the environment, and the keys typed during
+ * the probe are read before anything the terminal sends later.
+ */
+static void ui_adopt_probe(struct fyai_ctx *ctx, struct fyai_ui *ui,
+			   const struct fypal_term *term)
+{
+	enum fytim_result rc;
+	unsigned int on = 0, off = 0;
+
+	if (term->flags & FYPAL_TERM_TRUECOLOR)
+		on |= FYTIM_CAP_TRUECOLOR;
+	/* without the DA1 reply, a missing reply does not mean "no" */
+	if (term->flags & FYPAL_TERM_ANSWERED) {
+		if (term->flags & FYPAL_TERM_SYNC)
+			on |= FYTIM_CAP_SYNC_OUTPUT;
+		else
+			off |= FYTIM_CAP_SYNC_OUTPUT;
+		if (term->flags & FYPAL_TERM_KITTY_KEYS)
+			on |= FYTIM_CAP_KITTY_KEYBOARD;
+		else
+			off |= FYTIM_CAP_KITTY_KEYBOARD;
+		if (term->flags & FYPAL_TERM_KITTY_GRAPHICS)
+			on |= FYTIM_CAP_KITTY_GRAPHICS;
+		else
+			off |= FYTIM_CAP_KITTY_GRAPHICS;
+		if (term->flags & FYPAL_TERM_SIXEL)
+			on |= FYTIM_CAP_SIXEL_GRAPHICS;
+		else
+			off |= FYTIM_CAP_SIXEL_GRAPHICS;
+	}
+	rc = fytim_set_caps(ui->ft, on, off);
+	if (rc != FYTIM_OK)
+		fyai_warning(ctx, "cannot set the capabilities the terminal "
+			     "reported: %s", fytim_result_string(rc));
+	if (ctx->cfg->terminal_input_len) {
+		rc = fytim_keys_return(ui->ft, ctx->cfg->terminal_input,
+				       ctx->cfg->terminal_input_len);
+		if (rc != FYTIM_OK)
+			fyai_warning(ctx, "keys typed at startup are lost: %s",
+				     fytim_result_string(rc));
+	}
+	free(ctx->cfg->terminal_input);
+	ctx->cfg->terminal_input = NULL;
+	ctx->cfg->terminal_input_len = 0;
+}
+
 int fyai_ui_open(struct fyai_ctx *ctx)
 {
+	const struct fypal_term *term;
 	struct fytim_cfg cfg;
 	struct fyai_ui *ui;
 	struct fyai_event_loop *el;
@@ -1875,8 +1925,12 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 		ui->view = fyai_transcript_view_create();
 		if (!ui->view) goto fail;
 	}
+	/* Probe before the UI reads the terminal: the UI would take the
+	 * replies as keys. */
+	term = fyai_terminal_probe(ctx->cfg);
 	ui->ft = fytim_create(&cfg);
 	if (!ui->ft) goto fail;
+	ui_adopt_probe(ctx, ui, term);
 	/* A blank row stands above the header, as it does on the page. */
 	(void)fytim_set_header_rows(ui->ft, 2);
 	ui->tty_fd = ttyout;
