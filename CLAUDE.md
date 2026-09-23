@@ -998,7 +998,9 @@ command.
 
 - A bang session is user-owned. The model cannot close it and cannot read its
   output as a tool result. A tool call keeps the output limit of a shell tool.
-  A user-owned session has no such limit: the user reads its screen.
+  A user-owned session has no such limit: the user reads its screen. It is
+  not watched for input waits: the model is not told that it waits, because
+  that would give the model its output and start a turn.
 - A user-owned tile can take more rows than the shared pane granted it. A tile
   of a tool call keeps the grant.
 - `display/work_zoom_rows` is the height of the work pane. `full` uses the
