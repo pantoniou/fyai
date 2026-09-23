@@ -37,6 +37,14 @@ case "$FYAI_TIMEOUT_SCALE" in
 esac
 export FYAI_TIMEOUT_SCALE
 
+# The libfypalette terminal probe ends when the terminal answers DA1. A slow
+# runner answers late; if the time limit ends the probe first, the result is
+# incomplete. A driver that answers ends the probe at once, so a long limit
+# costs nothing.
+export FYPAL_PROBE_TIMEOUT_MS="${FYPAL_PROBE_TIMEOUT_MS:-30000}"
+# PTY scripts import the terminal replies from term_reply.py.
+export PYTHONPATH="$TESTS_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
 fail() {
 	echo "FAIL: $*" >&2
 	[ -f "$TEST_DIR/stdout" ] && { echo "--- stdout ---" >&2; cat "$TEST_DIR/stdout" >&2; }

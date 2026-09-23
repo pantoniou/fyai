@@ -31,6 +31,7 @@ if [ -e "$TEST_DIR/.fyai" ]; then fail "a refused verb created $TEST_DIR/.fyai";
 # On a terminal, an answer of no also leaves nothing behind.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" n <<'PY' || fail "the prompt did not appear"
 import os, pty, select, sys, time
+from term_reply import answer_da1
 
 BIN, DIR, ANSWER = sys.argv[1], sys.argv[2], sys.argv[3]
 
@@ -46,6 +47,7 @@ while time.time() < end:
     if select.select([fd], [], [], 0.2)[0]:
         try:
             chunk = os.read(fd, 65536)
+            answer_da1(fd, chunk)
         except OSError:
             break
         if not chunk:
@@ -69,6 +71,7 @@ if [ -e "$TEST_DIR/.fyai" ]; then fail "an answer of no created $TEST_DIR/.fyai"
 # An answer of yes creates the project, and its config reads back.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" y <<'PY' || fail "the prompt did not appear"
 import os, pty, select, sys, time
+from term_reply import answer_da1
 
 BIN, DIR, ANSWER = sys.argv[1], sys.argv[2], sys.argv[3]
 
@@ -84,6 +87,7 @@ while time.time() < end:
     if select.select([fd], [], [], 0.2)[0]:
         try:
             chunk = os.read(fd, 65536)
+            answer_da1(fd, chunk)
         except OSError:
             break
         if not chunk:

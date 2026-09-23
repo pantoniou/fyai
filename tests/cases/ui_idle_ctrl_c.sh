@@ -15,6 +15,7 @@ import struct
 import sys
 import termios
 import time
+from term_reply import answer_da1
 
 BIN = sys.argv[1]
 
@@ -35,6 +36,7 @@ def drain(fd, seconds):
         if select.select([fd], [], [], 0.1)[0]:
             try:
                 chunk = os.read(fd, 65536)
+                answer_da1(fd, chunk)
             except OSError:
                 break
             if not chunk:

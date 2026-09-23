@@ -13,6 +13,7 @@ import struct
 import sys
 import termios
 import time
+from term_reply import answer_da1
 
 
 def timeout_scale():
@@ -54,6 +55,7 @@ def drain(fd, sink, deadline, stop=None, tick=None):
             continue
         try:
             chunk = os.read(fd, 65536)
+            answer_da1(fd, chunk)
         except OSError:
             break
         if not chunk:
@@ -155,6 +157,7 @@ def main():
             if ready:
                 try:
                     chunk = os.read(master, 65536)
+                    answer_da1(master, chunk)
                 except OSError:
                     chunk = b""
                 sink[0] += chunk

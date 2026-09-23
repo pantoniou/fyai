@@ -17,6 +17,7 @@ import subprocess
 import sys
 import termios
 import time
+from term_reply import answer_da1
 
 BIN, URL = sys.argv[1], sys.argv[2]
 TAGS = ("fyai-term-stubborn", "fyai-term-polite")
@@ -73,6 +74,7 @@ def drain(seconds):
         if select.select([fd], [], [], 0.1)[0]:
             try:
                 chunk = os.read(fd, 65536)
+                answer_da1(fd, chunk)
             except OSError:
                 return
             if not chunk:

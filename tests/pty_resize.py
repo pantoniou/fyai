@@ -15,6 +15,7 @@ import struct
 import sys
 import termios
 import time
+from term_reply import answer_da1
 
 
 def set_size(fd, rows, cols):
@@ -67,6 +68,7 @@ def main():
             continue
         try:
             chunk = os.read(fd, 65536)
+            answer_da1(fd, chunk)
         except OSError:
             break
         if not chunk:

@@ -99,7 +99,9 @@ class Screen:
                     self._csi(m.group(1), m.group(2))
                     i = m.end()
                     continue
-                if data[i:i + 2] in (b"\x1b]", b"\x1bP"):   # OSC / DCS
+                # OSC, DCS, APC, SOS, PM: a string up to BEL or ST
+                if data[i:i + 2] in (b"\x1b]", b"\x1bP", b"\x1b_",
+                                     b"\x1bX", b"\x1b^"):
                     bel = data.find(b"\x07", i + 2)
                     esc = data.find(b"\x1b", i + 2)
                     if esc >= 0 and (bel < 0 or esc < bel):

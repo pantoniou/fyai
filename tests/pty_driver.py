@@ -19,6 +19,9 @@ FRAME_END = b"\x1b[?2026l"
 QUERY = b"\x1b[6n"
 # A program asks for the background with OSC 11, ended by ST or BEL.
 BACKGROUND_QUERIES = (b"\x1b]11;?\x1b\\", b"\x1b]11;?\x07")
+# Every terminal answers DA1, and the fyai terminal probe ends with it.
+DA1_QUERY = b"\x1b[c"
+DA1_REPLY = b"\x1b[?62;22c"
 TERMINAL = None
 
 
@@ -28,14 +31,13 @@ class Terminal:
     A program that stands inline on the screen asks with CSI 6n and waits for
     CSI row;col R, which a terminal always answers. A pseudo-terminal answers
     nothing, so the driver answers from a screen fed every byte before the
-    question. A case that sets $FYAI_PTY_BACKGROUND, such as
+    question. It answers DA1, as every terminal does, which ends the probe
+    that fyai makes at start. A case that sets $FYAI_PTY_BACKGROUND, such as
     rgb:1e1e/1e1e/2e2e, also gets that answer to an OSC 11 query; without it
     the background query goes unanswered, as on a terminal that does not
-    answer it. $FYAI_PTY_BACKGROUND_WHILE_STARTING stops answering once the
-    driver has typed, as a terminal does whose later reply the live display
-    reads: the session is started whatever the machine is doing, and only a
-    query made after that goes unanswered. A slow machine answers
-    more than one: a query is repeated while it has no answer.
+    answer it. $FYAI_PTY_BACKGROUND_WHILE_STARTING stops answering OSC 11
+    once the driver has typed: a query made after the session started goes
+    unanswered.
     """
 
     def __init__(self, rows, cols):
@@ -61,7 +63,7 @@ class Terminal:
         if not chunk:
             return chunk
         buf = self.held + chunk
-        queries = [QUERY]
+        queries = [QUERY, DA1_QUERY]
         if self.background:
             queries += BACKGROUND_QUERIES
         start = 0
@@ -75,6 +77,8 @@ class Terminal:
             if query == QUERY:
                 os.write(fd, b"\x1b[%d;%dR" % (self.screen.row + 1,
                                                 self.screen.col + 1))
+            elif query == DA1_QUERY:
+                os.write(fd, DA1_REPLY)
             else:
                 os.write(fd, b"\x1b]11;%s\x1b\\" % self.background.encode())
             start = at + len(query)
