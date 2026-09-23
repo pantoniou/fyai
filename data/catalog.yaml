@@ -2296,6 +2296,8 @@ providers:
       response_compaction_supported: true
   - protocol: chat_completions
     endpoint: /v1/chat/completions
+    hosted_tools:
+    - web_search
     local_tools:
     - function_calling
     capabilities:
