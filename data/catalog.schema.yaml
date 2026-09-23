@@ -81,6 +81,14 @@ $defs:
       open_source:
         description: "True when some provider evidences open weights (e.g. a HuggingFace link on the model page). An OR across all providers including the vendor: a provider that never mentions weights leaves this at its False default, which is an absent claim rather than a claim of closedness."
         type: boolean
+      introduced:
+        description: Release date of the model itself (ISO 8601), not of any provider's listing of it. Taken from the vendor's own creation stamp where the catalog scrapes that vendor; otherwise the earliest date any reseller began serving it, which bounds the true release date from above.
+        type: string
+        format: date
+      updated:
+        description: "Date the model behind this id was last revised in place (ISO 8601). Rare by construction: a new version normally mints a new canonical id and so a new entry here, so this is set only where a provider publishes a version marker for an otherwise unchanging id."
+        type: string
+        format: date
       arena:
         description: LMArena overall-leaderboard standing, joined by exact normalized name only (no fuzzy matching, so `gpt-5.5-pro` never inherits `gpt-5.5`'s score). Absent when the model isn't on the board or --no-arena was used.
         $ref: "#/$defs/arena"
@@ -168,6 +176,41 @@ $defs:
         type: array
         items:
           $ref: "#/$defs/offering"
+      personas:
+        description: This provider's own models ranked for each orchestration persona, best first, by the persona's strength/cost trade-off. Values are `provider_model_id`s, so a list can be dispatched as-is. Every priced model is ranked, weakest and dearest last, so the whole lineup is tiered rather than filtered. Strength is the merged entry's LMArena Elo, or the Elo of the model an offering is a variant of (`-contributor`, `-pro`, `-latest`) or the strongest scored member of its family; models with no such evidence rank below all of them, ordered by price alone. Cost is this provider's prices, so the same model may rank differently elsewhere. Models tied on both axes are ordered newest first. Only a model with no usable price is left out.
+        type: object
+        additionalProperties: false
+        properties:
+          orchestrate:
+            description: This provider's models ranked for the `orchestrate` persona, best first.
+            type: array
+            items:
+              type: string
+          plan:
+            description: This provider's models ranked for the `plan` persona, best first.
+            type: array
+            items:
+              type: string
+          code:
+            description: This provider's models ranked for the `code` persona, best first.
+            type: array
+            items:
+              type: string
+          explore:
+            description: This provider's models ranked for the `explore` persona, best first.
+            type: array
+            items:
+              type: string
+          review:
+            description: This provider's models ranked for the `review` persona, best first.
+            type: array
+            items:
+              type: string
+          summarize:
+            description: This provider's models ranked for the `summarize` persona, best first.
+            type: array
+            items:
+              type: string
   endpoint:
     description: "One provider API surface: a wire protocol, its request path, and the tools and behaviors available over it."
     type: object
@@ -249,6 +292,9 @@ $defs:
         type: boolean
       reasoning_controls_supported:
         description: Reasoning effort or thinking budget is caller-tunable.
+        type: boolean
+      response_compaction_supported:
+        description: The surface can compact a server-side conversation in place when it approaches the context limit, replacing older turns with a summary it generates and continuing from the same response id. OpenAI's Responses API is the only surface in the catalog that offers this; elsewhere compaction is the caller's job.
         type: boolean
   offering:
     description: "One provider's route to one model: its own id for it, its price, and what it publishes about it."

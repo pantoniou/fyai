@@ -18,6 +18,7 @@ models:
   - predicted_outputs
   - web_search
   open_source: false
+  introduced: 2023-11-08
 - name: auto-beta
   display_name: Auto Router (Beta)
   context_window: 2000000
@@ -37,12 +38,19 @@ models:
   - predicted_outputs
   - web_search
   open_source: false
+  introduced: 2026-07-17
+- name: big-pickle
+  display_name: Big Pickle
+  modalities:
+  - text
+  open_source: false
 - name: bodybuilder
   display_name: Body Builder (beta)
   context_window: 128000
   modalities:
   - text
   open_source: false
+  introduced: 2025-12-05
 - name: claude-fable-5
   display_name: Claude Fable 5
   context_window: 1000000
@@ -62,12 +70,49 @@ models:
   open_source: false
   arena:
     rank: 1
-    elo: 1507.164171675996
-    votes: 27189
+    elo: 1505.6827180827381
+    votes: 30057
+  introduced: 2026-06-07
   agents:
   - claude_code
+- name: claude-fable-5.1
+  display_name: Claude Fable 5.1
+  context_window: 1000000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - structured_outputs
+  - reasoning
+  - reasoning_effort
+  - code_execution
+  - citations
+  - context_management
+  - batch
+  open_source: false
+  introduced: 2026-08-28
+  agents:
+  - claude_code
+- name: claude-fable-latest
+  display_name: 'Anthropic: Claude Fable Latest'
+  context_window: 1000000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-06-09
 - name: claude-haiku-4.5
-  display_name: Claude Haiku 4.5
+  display_name: 'Anthropic: Claude Haiku 4.5'
   context_window: 200000
   max_output_tokens: 64000
   modalities:
@@ -80,6 +125,7 @@ models:
   - json_mode
   - reasoning
   open_source: false
+  introduced: 2025-10-15
   agents:
   - claude_code
 - name: claude-opus-4.8
@@ -100,9 +146,10 @@ models:
   - batch
   open_source: false
   arena:
-    rank: 33
-    elo: 1472.8520033039752
-    votes: 49404
+    rank: 35
+    elo: 1473.2228821497197
+    votes: 53446
+  introduced: 2026-05-28
   agents:
   - claude_code
 - name: claude-opus-5
@@ -122,6 +169,31 @@ models:
   - context_management
   - batch
   open_source: false
+  arena:
+    rank: 10
+    elo: 1492.8999328031769
+    votes: 42617
+  introduced: 2026-07-24
+  agents:
+  - claude_code
+- name: claude-opus-5.5
+  display_name: Claude Opus 5.5
+  context_window: 1000000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - structured_outputs
+  - reasoning
+  - reasoning_effort
+  - code_execution
+  - citations
+  - context_management
+  - batch
+  open_source: false
+  introduced: 2026-09-21
   agents:
   - claude_code
 - name: claude-opus-latest
@@ -139,6 +211,7 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  introduced: 2026-04-21
 - name: claude-sonnet-5
   display_name: Claude Sonnet 5
   context_window: 1000000
@@ -156,10 +229,15 @@ models:
   - context_management
   - batch
   open_source: false
+  arena:
+    rank: 51
+    elo: 1461.2069551775312
+    votes: 35301
+  introduced: 2026-06-29
   agents:
   - claude_code
 - name: claude-sonnet-latest
-  display_name: Anthropic Claude Sonnet Latest
+  display_name: 'Anthropic: Claude Sonnet Latest'
   context_window: 1000000
   max_output_tokens: 128000
   modalities:
@@ -173,6 +251,7 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  introduced: 2026-04-27
 - name: command-a
   display_name: 'Cohere: Command A'
   context_window: 256000
@@ -183,23 +262,53 @@ models:
   - structured_outputs
   - json_mode
   open_source: false
-- name: deepseek-v4-flash
-  display_name: DeepSeek V4 Flash
+  introduced: 2025-03-13
+- name: deepseek-flash
+  display_name: DeepSeek-V4.1-Flash
+  context_window: 1000000
+  max_output_tokens: 384000
   modalities:
   - text
+  capabilities:
+  - tool_calling
+  - json_mode
+  - prefix_completion
+  open_source: true
+- name: deepseek-v4-flash
+  display_name: DeepSeek V4 Flash
+  context_window: 1048576
+  max_output_tokens: 384000
+  modalities:
+  - text
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
   open_source: true
   arena:
-    rank: 91
-    elo: 1435.749787126345
-    votes: 48950
+    rank: 92
+    elo: 1435.5652870419553
+    votes: 48887
+  introduced: 2026-04-24
+- name: deepseek-v4-flash-0731
+  context_window: 1048576
+  modalities:
+  - text
+  capabilities:
+  - tool_calling
+  open_source: false
+  introduced: 2026-07-31
 - name: deepseek-v4-flash-free
   modalities:
   - text
   open_source: false
 - name: deepseek-v4-flash-latest
-  display_name: DeepSeek V4 Flash Latest
+  display_name: 'DeepSeek: DeepSeek V4 Flash Latest'
   context_window: 1310720
-  max_output_tokens: 393216
+  max_output_tokens: 943718
   modalities:
   - text
   capabilities:
@@ -211,15 +320,24 @@ models:
   - reasoning_effort
   - logprobs
   open_source: false
+  introduced: 2026-08-01
 - name: deepseek-v4-pro
-  display_name: DeepSeek-V4-Pro
+  display_name: DeepSeek-V4-Pro-0813
+  context_window: 1000000
+  max_output_tokens: 384000
   modalities:
   - text
+  capabilities:
+  - tool_calling
+  - json_mode
+  - prefix_completion
   open_source: true
   arena:
-    rank: 55
-    elo: 1457.8178163038579
-    votes: 54225
+    rank: 57
+    elo: 1457.3401876620214
+    votes: 54130
+  introduced: 2026-04-24
+  updated: 2026-08-13
 - name: free
   display_name: Free Models Router
   context_window: 200000
@@ -234,12 +352,14 @@ models:
   - reasoning_effort
   - logprobs
   open_source: false
+  introduced: 2026-02-01
 - name: fusion
   display_name: 'OpenRouter: Fusion'
   context_window: 1000000
   modalities:
   - text
   open_source: false
+  introduced: 2026-06-13
 - name: gemini-3.1-pro
   display_name: Gemini 3.1 Pro
   modalities:
@@ -264,10 +384,32 @@ models:
   open_source: false
   arena:
     rank: 15
-    elo: 1486.7298381462967
-    votes: 102999
+    elo: 1486.809321925295
+    votes: 106951
+- name: gemini-3.8-flash
+  display_name: 'Google: Gemini 3.8 Flash'
+  context_window: 1048576
+  max_output_tokens: 65536
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  arena:
+    rank: 9
+    elo: 1493.0082765047282
+    votes: 5076
+  introduced: 2026-09-02
 - name: gemini-flash-latest
-  display_name: Google Gemini Flash Latest
+  display_name: 'Google: Gemini Flash Latest'
   context_window: 1048576
   max_output_tokens: 65536
   modalities:
@@ -283,8 +425,9 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  introduced: 2026-04-27
 - name: gemini-pro-latest
-  display_name: Google Gemini Pro Latest
+  display_name: 'Google: Gemini Pro Latest'
   context_window: 1048576
   max_output_tokens: 65536
   modalities:
@@ -300,10 +443,11 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  introduced: 2026-04-27
 - name: gemma-4-26b-a4b-it
   display_name: 'Google: Gemma 4 26B A4B '
   context_window: 262144
-  max_output_tokens: 16384
+  max_output_tokens: 235929
   modalities:
   - text
   - image
@@ -315,6 +459,7 @@ models:
   - reasoning
   - logprobs
   open_source: true
+  introduced: 2026-04-03
 - name: gemma-4-26b-a4b-it:free
   display_name: 'Google: Gemma 4 26B A4B  (free)'
   context_window: 262144
@@ -328,6 +473,7 @@ models:
   - json_mode
   - reasoning
   open_source: true
+  introduced: 2026-04-03
 - name: gemma-4-31b-it
   display_name: 'Google: Gemma 4 31B'
   context_window: 262144
@@ -343,6 +489,7 @@ models:
   - reasoning
   - logprobs
   open_source: true
+  introduced: 2026-04-02
 - name: gemma-4-31b-it:free
   display_name: 'Google: Gemma 4 31B (free)'
   context_window: 262144
@@ -356,15 +503,20 @@ models:
   - json_mode
   - reasoning
   open_source: true
+  introduced: 2026-04-02
 - name: glm-5.2
   display_name: GLM 5.2
   modalities:
   - text
   open_source: false
+  arena:
+    rank: 38
+    elo: 1472.0968104541143
+    votes: 36798
 - name: glm-5.3
   display_name: GLM-5.3
   context_window: 1310720
-  max_output_tokens: 262144
+  max_output_tokens: 131072
   modalities:
   - text
   capabilities:
@@ -376,16 +528,22 @@ models:
   - reasoning_effort
   - logprobs
   open_source: true
+  arena:
+    rank: 19
+    elo: 1483.0179355440732
+    votes: 10960
+  introduced: 2026-08-18
 - name: glm-5.3-flash
   display_name: GLM 5.3 Flash
   context_window: 1310720
-  max_output_tokens: 131072
+  max_output_tokens: 943718
   modalities:
   - text
   - image
   - video
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -394,12 +552,31 @@ models:
   open_source: true
   arena:
     rank: 29
-    elo: 1474.1588937337372
-    votes: 4672
+    elo: 1475.4044535618318
+    votes: 10038
+  introduced: 2026-08-26
+- name: glm-flash-latest
+  display_name: 'Z.ai: GLM Flash Latest'
+  context_window: 1310720
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - tool_calling
+  - parallel_tool_calls
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
+  open_source: false
+  introduced: 2026-08-27
 - name: glm-latest
   display_name: 'Z.ai: GLM Latest'
   context_window: 1310720
-  max_output_tokens: 943718
+  max_output_tokens: 131072
   modalities:
   - text
   capabilities:
@@ -411,6 +588,7 @@ models:
   - reasoning_effort
   - logprobs
   open_source: false
+  introduced: 2026-08-19
 - name: gpt-5.4-mini
   display_name: 'OpenAI: GPT-5.4 Mini'
   context_window: 400000
@@ -426,6 +604,11 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  arena:
+    rank: 74
+    elo: 1448.11363446197
+    votes: 59387
+  introduced: 2026-03-14
   agents:
   - codex
 - name: gpt-5.5
@@ -444,9 +627,10 @@ models:
   - reasoning_effort
   open_source: false
   arena:
-    rank: 24
-    elo: 1477.1880581544701
-    votes: 64977
+    rank: 28
+    elo: 1476.084135658949
+    votes: 66317
+  introduced: 2026-04-22
   agents:
   - codex
 - name: gpt-5.6-luna
@@ -464,6 +648,11 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  arena:
+    rank: 67
+    elo: 1452.4510036463553
+    votes: 28547
+  introduced: 2026-06-23
   agents:
   - codex
 - name: gpt-5.6-luna-pro
@@ -498,6 +687,11 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  arena:
+    rank: 18
+    elo: 1483.474347288669
+    votes: 27069
+  introduced: 2026-06-23
   agents:
   - codex
 - name: gpt-5.6-sol-pro
@@ -532,6 +726,11 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
+  arena:
+    rank: 45
+    elo: 1466.0372736853974
+    votes: 28119
+  introduced: 2026-06-23
   agents:
   - codex
 - name: gpt-5.6-terra-pro
@@ -551,10 +750,117 @@ models:
   open_source: false
   agents:
   - codex
+- name: gpt-6-astra
+  display_name: 'OpenAI: GPT-6 Astra'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  arena:
+    rank: 24
+    elo: 1479.7712562096513
+    votes: 2693
+  introduced: 2026-08-27
+  agents:
+  - codex
+- name: gpt-6-astra-pro
+  display_name: 'OpenAI: GPT-6 Astra Pro'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  agents:
+  - codex
+- name: gpt-6-luna
+  display_name: 'OpenAI: GPT-6 Luna'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-09-14
+  agents:
+  - codex
+- name: gpt-6-sol
+  display_name: 'OpenAI: GPT-6 Sol'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-09-14
+  agents:
+  - codex
+- name: gpt-astra-latest
+  display_name: 'OpenAI: GPT Astra Latest'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-09-11
+- name: gpt-luna-latest
+  display_name: 'OpenAI: GPT Luna Latest'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-09-11
 - name: gpt-oss-120b
   display_name: OpenAI gpt-oss-120b
   context_window: 131072
-  max_output_tokens: 117964
+  max_output_tokens: 65536
   modalities:
   - text
   capabilities:
@@ -565,14 +871,44 @@ models:
   - reasoning_effort
   - logprobs
   open_source: true
-  arena:
-    rank: 200
-    elo: 1352.447968129115
-    votes: 29955
+  introduced: 2025-08-04
   agents:
   - codex
-- name: grok-4.6
-  display_name: Grok 4.6
+- name: gpt-oss-20b
+  display_name: 'OpenAI: gpt-oss-20b'
+  context_window: 131072
+  max_output_tokens: 32768
+  modalities:
+  - text
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
+  open_source: true
+  introduced: 2025-08-05
+  agents:
+  - codex
+- name: gpt-sol-latest
+  display_name: 'OpenAI: GPT Sol Latest'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-09-11
+- name: grok-4.7
+  display_name: Grok 4.7
   context_window: 500000
   max_output_tokens: 450000
   modalities:
@@ -587,6 +923,7 @@ models:
   - reasoning_effort
   - logprobs
   open_source: false
+  introduced: 2026-09-21
 - name: grok-latest
   display_name: 'xAI: Grok Latest'
   context_window: 500000
@@ -603,6 +940,7 @@ models:
   - reasoning_effort
   - logprobs
   open_source: false
+  introduced: 2026-07-08
 - name: hermes-4-405b
   display_name: 'Nous: Hermes 4 405B'
   context_window: 131072
@@ -613,6 +951,7 @@ models:
   - json_mode
   - reasoning
   open_source: true
+  introduced: 2025-08-26
 - name: hy3
   display_name: 'Tencent: Hy3'
   context_window: 262144
@@ -628,8 +967,9 @@ models:
   open_source: false
   arena:
     rank: 60
-    elo: 1455.3862122530143
-    votes: 6958
+    elo: 1455.7789602016828
+    votes: 8047
+  introduced: 2026-07-06
 - name: inkling
   display_name: Inkling
   context_window: 1048576
@@ -640,14 +980,24 @@ models:
   - audio
   capabilities:
   - tool_calling
-  - json_mode
   - reasoning
   - reasoning_effort
   open_source: true
   arena:
-    rank: 83
-    elo: 1439.4225598928058
-    votes: 22229
+    rank: 85
+    elo: 1440.121967405652
+    votes: 25922
+  introduced: 2026-07-14
+- name: jev-1.13
+  display_name: Jev 1.13
+  modalities:
+  - text
+  open_source: false
+- name: jev-1.13-free
+  display_name: Jev 1.13 Free
+  modalities:
+  - text
+  open_source: false
 - name: kimi-k3
   display_name: Kimi K3
   context_window: 1048576
@@ -664,8 +1014,13 @@ models:
   - reasoning_effort
   - logprobs
   open_source: true
+  arena:
+    rank: 17
+    elo: 1484.7659884633672
+    votes: 20987
+  introduced: 2026-07-16
 - name: kimi-latest
-  display_name: MoonshotAI Kimi Latest
+  display_name: 'MoonshotAI: Kimi Latest'
   context_window: 1048576
   max_output_tokens: 943718
   modalities:
@@ -680,6 +1035,7 @@ models:
   - reasoning_effort
   - logprobs
   open_source: false
+  introduced: 2026-04-27
 - name: laguna-s-2.1
   display_name: 'Poolside: Laguna S 2.1'
   context_window: 1048576
@@ -690,6 +1046,7 @@ models:
   - tool_calling
   - reasoning
   open_source: false
+  introduced: 2026-07-21
 - name: longcat-2.0
   display_name: 'Meituan: LongCat 2.0'
   context_window: 1048756
@@ -700,6 +1057,7 @@ models:
   - tool_calling
   - reasoning
   open_source: false
+  introduced: 2026-07-20
 - name: mimo-v2.5
   display_name: 'Xiaomi: MiMo-V2.5'
   context_window: 1050000
@@ -716,9 +1074,42 @@ models:
   - reasoning
   open_source: false
   arena:
-    rank: 94
-    elo: 1433.8090039662272
-    votes: 44530
+    rank: 96
+    elo: 1433.6144977411013
+    votes: 44466
+  introduced: 2026-04-22
+- name: mimo-v2.6-flash
+  display_name: 'Xiaomi: MiMo-V2.6-Flash'
+  context_window: 1048576
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  open_source: false
+  introduced: 2026-09-21
+- name: mimo-v2.6-pro
+  display_name: 'Xiaomi: MiMo-V2.6-Pro'
+  context_window: 1048576
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  open_source: false
+  introduced: 2026-09-21
 - name: minimax-m3
   display_name: Minimax M3
   context_window: 1048576
@@ -735,9 +1126,10 @@ models:
   - logprobs
   open_source: true
   arena:
-    rank: 80
-    elo: 1442.9482267954468
-    votes: 44829
+    rank: 84
+    elo: 1441.2503431504656
+    votes: 48540
+  introduced: 2026-05-31
 - name: mistral-small-2603
   display_name: 'Mistral: Mistral Small 4'
   context_window: 262144
@@ -752,8 +1144,8 @@ models:
   - reasoning
   - reasoning_effort
   open_source: true
+  introduced: 2026-03-16
 - name: muse-spark-1.2
-  display_name: Muse Spark 1.2
   context_window: 1048576
   modalities:
   - text
@@ -768,6 +1160,10 @@ models:
   - reasoning_effort
   - web_search
   open_source: false
+  arena:
+    rank: 4
+    elo: 1499.5893180176977
+    votes: 3227
 - name: muse-spark-1.2-contributor
   context_window: 1048576
   modalities:
@@ -784,7 +1180,7 @@ models:
   - web_search
   open_source: false
 - name: muse-spark-1.3
-  display_name: 'Meta: Muse Spark 1.3'
+  display_name: Muse Spark 1.3
   context_window: 1048576
   modalities:
   - text
@@ -799,7 +1195,13 @@ models:
   - reasoning_effort
   - web_search
   open_source: false
+  arena:
+    rank: 8
+    elo: 1493.1148813511777
+    votes: 4723
+  introduced: 2026-09-02
 - name: muse-spark-1.3-contributor
+  display_name: 'Meta: Muse Spark 1.3 Contributor'
   context_window: 1048576
   modalities:
   - text
@@ -813,6 +1215,12 @@ models:
   - reasoning
   - reasoning_effort
   - web_search
+  open_source: false
+  introduced: 2026-09-02
+- name: muse-spark-1.3-contributor-free
+  display_name: Muse Spark 1.3 Contributor Free
+  modalities:
+  - text
   open_source: false
 - name: nemotron-3-ultra-550b-a55b
   display_name: 'NVIDIA: Nemotron 3 Ultra'
@@ -827,6 +1235,7 @@ models:
   - reasoning
   - reasoning_effort
   open_source: true
+  introduced: 2026-06-04
 - name: nemotron-3-ultra-550b-a55b:free
   display_name: 'NVIDIA: Nemotron 3 Ultra (free)'
   context_window: 1000000
@@ -838,12 +1247,25 @@ models:
   - reasoning
   - reasoning_effort
   open_source: true
+  introduced: 2026-06-04
+- name: pareto
+  display_name: Pareto
+  context_window: 262144
+  max_output_tokens: 131072
+  modalities:
+  - text
+  - image
+  capabilities:
+  - tool_calling
+  open_source: false
+  introduced: 2026-09-17
 - name: pareto-code
   display_name: Pareto Code Router
   context_window: 2000000
   modalities:
   - text
   open_source: false
+  introduced: 2026-04-21
 - name: phi-4
   display_name: 'Microsoft: Phi 4'
   context_window: 16384
@@ -854,6 +1276,7 @@ models:
   - structured_outputs
   - json_mode
   open_source: true
+  introduced: 2025-01-10
 - name: qwen3-8b
   display_name: 'Qwen: Qwen3 8B'
   context_window: 131072
@@ -865,21 +1288,41 @@ models:
   - json_mode
   - reasoning
   open_source: true
+  introduced: 2025-04-28
 - name: qwen3.8-2.4t-a95b
+  display_name: Qwen3.8-2.4T-A95B
   context_window: 262144
   modalities:
   - text
   capabilities:
   - tool_calling
-  open_source: false
+  open_source: true
+  introduced: 2026-08-12
 - name: qwen3.8-max
-  display_name: Qwen3.8-2.4T-A95B
+  display_name: Qwen 3.8 Max
   modalities:
   - text
   - image
   capabilities:
   - tool_calling
   open_source: true
+  introduced: 2026-08-05
+- name: ternary-bonsai-2-27b
+  display_name: 'PrismML: Ternary Bonsai 2 27B'
+  context_window: 262144
+  max_output_tokens: 32768
+  modalities:
+  - text
+  - image
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
+  open_source: false
+  introduced: 2026-09-18
 providers:
 - name: anthropic
   root_url: https://api.anthropic.com
@@ -982,6 +1425,30 @@ providers:
     - pdf_input
     - structured_outputs
     - thinking
+  - canonical_id: claude-opus-5.5
+    provider_model_id: claude-opus-5-5
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 4.0
+      output: 20.0
+      extra:
+        cache_write_5m: 5.0
+        cache_write_1h: 8.0
+    reported_modalities:
+    - text
+    - image
+    - pdf
+    reported_capabilities:
+    - batch
+    - citations
+    - code_execution
+    - context_management
+    - effort
+    - image_input
+    - pdf_input
+    - structured_outputs
+    - thinking
   - canonical_id: claude-fable-5
     provider_model_id: claude-fable-5
     pricing:
@@ -1006,6 +1473,73 @@ providers:
     - pdf_input
     - structured_outputs
     - thinking
+  - canonical_id: claude-fable-5.1
+    provider_model_id: claude-fable-5-1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_write_5m: 12.5
+        cache_write_1h: 20.0
+    reported_modalities:
+    - text
+    - image
+    - pdf
+    reported_capabilities:
+    - batch
+    - citations
+    - code_execution
+    - context_management
+    - effort
+    - image_input
+    - pdf_input
+    - structured_outputs
+    - thinking
+  personas:
+    orchestrate:
+    - claude-fable-5-1
+    - claude-fable-5
+    - claude-opus-5-5
+    - claude-opus-5
+    - claude-opus-4-8
+    - claude-sonnet-5
+    plan:
+    - claude-fable-5-1
+    - claude-fable-5
+    - claude-opus-5-5
+    - claude-opus-5
+    - claude-opus-4-8
+    - claude-sonnet-5
+    code:
+    - claude-opus-5-5
+    - claude-fable-5-1
+    - claude-fable-5
+    - claude-opus-5
+    - claude-opus-4-8
+    - claude-sonnet-5
+    explore:
+    - claude-opus-5-5
+    - claude-sonnet-5
+    - claude-opus-5
+    - claude-opus-4-8
+    - claude-fable-5-1
+    - claude-fable-5
+    review:
+    - claude-opus-5-5
+    - claude-opus-5
+    - claude-fable-5-1
+    - claude-fable-5
+    - claude-opus-4-8
+    - claude-sonnet-5
+    summarize:
+    - claude-sonnet-5
+    - claude-opus-5-5
+    - claude-opus-5
+    - claude-opus-4-8
+    - claude-fable-5-1
+    - claude-fable-5
 - name: deepseek
   root_url: https://api.deepseek.com
   endpoints:
@@ -1044,12 +1578,57 @@ providers:
   models:
   - canonical_id: deepseek-v4-pro
     provider_model_id: deepseek-v4-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.66
+      output: 1.98
+      extra:
+        cache_read: 0.022
     reported_modalities:
     - text
-  - canonical_id: deepseek-v4-flash
-    provider_model_id: deepseek-v4-flash
+    reported_capabilities:
+    - anthropic_api
+    - chat_prefix_completion
+    - json_output
+    - responses_api
+    - tool_calls
+  - canonical_id: deepseek-flash
+    provider_model_id: deepseek-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.15
+      output: 0.6
+      extra:
+        cache_read: 0.003
     reported_modalities:
     - text
+    reported_capabilities:
+    - anthropic_api
+    - chat_prefix_completion
+    - json_output
+    - responses_api
+    - tool_calls
+  personas:
+    orchestrate:
+    - deepseek-v4-pro
+    - deepseek-flash
+    plan:
+    - deepseek-v4-pro
+    - deepseek-flash
+    code:
+    - deepseek-v4-pro
+    - deepseek-flash
+    explore:
+    - deepseek-flash
+    - deepseek-v4-pro
+    review:
+    - deepseek-v4-pro
+    - deepseek-flash
+    summarize:
+    - deepseek-flash
+    - deepseek-v4-pro
 - name: fireworks
   root_url: https://api.fireworks.ai/inference/v1
   endpoints:
@@ -1163,6 +1742,12 @@ providers:
     - text
     reported_capabilities:
     - function_calling
+  - canonical_id: deepseek-v4-flash-0731
+    provider_model_id: accounts/fireworks/models/deepseek-v4-flash-0731
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - function_calling
   - canonical_id: qwen3.8-2.4t-a95b
     provider_model_id: accounts/fireworks/models/qwen3p8-2p4t-a95b
     reported_modalities:
@@ -1210,6 +1795,55 @@ providers:
     - image
     reported_capabilities:
     - function_calling
+  personas:
+    orchestrate:
+    - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/qwen3p8-max
+    - accounts/fireworks/models/gpt-oss-120b
+    plan:
+    - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/qwen3p8-max
+    - accounts/fireworks/models/gpt-oss-120b
+    code:
+    - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/qwen3p8-max
+    - accounts/fireworks/models/gpt-oss-120b
+    explore:
+    - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/gpt-oss-120b
+    - accounts/fireworks/models/qwen3p8-max
+    review:
+    - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/qwen3p8-max
+    - accounts/fireworks/models/gpt-oss-120b
+    summarize:
+    - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/glm-5p3
+    - accounts/fireworks/models/inkling
+    - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/gpt-oss-120b
+    - accounts/fireworks/models/qwen3p8-max
 - name: google
   root_url: https://generativelanguage.googleapis.com
   endpoints:
@@ -1281,13 +1915,43 @@ providers:
     - tool_choice
     - tools
     - top_p
+  - canonical_id: gemini-3.8-flash
+    provider_model_id: gemini-3.8-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.75
+      output: 3.75
+      extra:
+        cache_read: 0.075
+    reported_modalities:
+    - text
+    - image
+    - video
+    - file
+    - audio
+    reported_capabilities:
+    - include_reasoning
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_p
   - canonical_id: gemma-4-26b-a4b-it
     provider_model_id: gemma-4-26b-a4b-it
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.07
-      output: 0.34
+      input: 0.09
+      output: 0.3
+      extra:
+        cache_read: 0.05
     reported_modalities:
     - image
     - text
@@ -1387,6 +2051,49 @@ providers:
     - tool_choice
     - tools
     - top_p
+  personas:
+    orchestrate:
+    - gemini-3.8-flash
+    - gemini-3.1-pro-preview
+    - gemma-4-31b-it
+    - gemma-4-26b-a4b-it
+    - gemma-4-26b-a4b-it:free
+    - gemma-4-31b-it:free
+    plan:
+    - gemini-3.8-flash
+    - gemini-3.1-pro-preview
+    - gemma-4-31b-it
+    - gemma-4-26b-a4b-it
+    - gemma-4-26b-a4b-it:free
+    - gemma-4-31b-it:free
+    code:
+    - gemini-3.8-flash
+    - gemini-3.1-pro-preview
+    - gemma-4-31b-it
+    - gemma-4-26b-a4b-it
+    - gemma-4-26b-a4b-it:free
+    - gemma-4-31b-it:free
+    explore:
+    - gemini-3.8-flash
+    - gemini-3.1-pro-preview
+    - gemma-4-26b-a4b-it:free
+    - gemma-4-31b-it:free
+    - gemma-4-26b-a4b-it
+    - gemma-4-31b-it
+    review:
+    - gemini-3.8-flash
+    - gemini-3.1-pro-preview
+    - gemma-4-31b-it
+    - gemma-4-26b-a4b-it
+    - gemma-4-26b-a4b-it:free
+    - gemma-4-31b-it:free
+    summarize:
+    - gemini-3.8-flash
+    - gemini-3.1-pro-preview
+    - gemma-4-26b-a4b-it:free
+    - gemma-4-31b-it:free
+    - gemma-4-26b-a4b-it
+    - gemma-4-31b-it
 - name: meta
   root_url: https://api.meta.ai/v1
   endpoints:
@@ -1525,6 +2232,37 @@ providers:
     - reasoning
     - reasoning_effort
     - web_search
+  personas:
+    orchestrate:
+    - muse-spark-1.2-contributor
+    - muse-spark-1.2
+    - muse-spark-1.3-contributor
+    - muse-spark-1.3
+    plan:
+    - muse-spark-1.2-contributor
+    - muse-spark-1.2
+    - muse-spark-1.3-contributor
+    - muse-spark-1.3
+    code:
+    - muse-spark-1.2-contributor
+    - muse-spark-1.2
+    - muse-spark-1.3-contributor
+    - muse-spark-1.3
+    explore:
+    - muse-spark-1.2-contributor
+    - muse-spark-1.3-contributor
+    - muse-spark-1.2
+    - muse-spark-1.3
+    review:
+    - muse-spark-1.2-contributor
+    - muse-spark-1.2
+    - muse-spark-1.3-contributor
+    - muse-spark-1.3
+    summarize:
+    - muse-spark-1.2-contributor
+    - muse-spark-1.3-contributor
+    - muse-spark-1.2
+    - muse-spark-1.3
 - name: openai
   root_url: https://api.openai.com
   endpoints:
@@ -1558,8 +2296,6 @@ providers:
       response_compaction_supported: true
   - protocol: chat_completions
     endpoint: /v1/chat/completions
-    hosted_tools:
-    - web_search
     local_tools:
     - function_calling
     capabilities:
@@ -1579,6 +2315,36 @@ providers:
       reasoning_controls_supported: true
       response_compaction_supported: false
   models:
+  - canonical_id: gpt-oss-20b
+    provider_model_id: gpt-oss-20b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.018
+      output: 0.09
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
   - canonical_id: gpt-5.4-mini
     provider_model_id: gpt-5.4-mini
     pricing:
@@ -1638,6 +2404,8 @@ providers:
       output: 1.2
       extra:
         cache_read: 0.02
+        cache_write: 0.25
+        web_search: 10000.0
     reported_modalities:
     - file
     - image
@@ -1688,6 +2456,8 @@ providers:
       output: 12.0
       extra:
         cache_read: 0.2
+        cache_write: 2.5
+        web_search: 10000.0
     reported_modalities:
     - file
     - image
@@ -1779,6 +2549,189 @@ providers:
     - structured_outputs
     - tool_choice
     - tools
+  - canonical_id: gpt-6-luna
+    provider_model_id: gpt-6-luna
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.5
+      extra:
+        cache_read: 0.01
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-6-sol
+    provider_model_id: gpt-6-sol
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 10.0
+      extra:
+        cache_read: 0.2
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-6-astra
+    provider_model_id: gpt-6-astra
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_read: 1.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-6-astra-pro
+    provider_model_id: gpt-6-astra-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_read: 1.0
+        cache_write: 12.5
+        web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  personas:
+    orchestrate:
+    - gpt-6-sol
+    - gpt-5.6-sol-pro
+    - gpt-5.6-sol
+    - gpt-6-astra
+    - gpt-6-astra-pro
+    - gpt-5.5
+    - gpt-5.6-terra
+    - gpt-5.6-terra-pro
+    - gpt-6-luna
+    - gpt-5.6-luna
+    - gpt-5.6-luna-pro
+    - gpt-5.4-mini
+    - gpt-oss-20b
+    plan:
+    - gpt-6-sol
+    - gpt-5.6-sol-pro
+    - gpt-5.6-sol
+    - gpt-6-astra
+    - gpt-6-astra-pro
+    - gpt-5.5
+    - gpt-5.6-terra
+    - gpt-5.6-terra-pro
+    - gpt-6-luna
+    - gpt-5.6-luna
+    - gpt-5.6-luna-pro
+    - gpt-5.4-mini
+    - gpt-oss-20b
+    code:
+    - gpt-6-sol
+    - gpt-5.6-sol-pro
+    - gpt-5.6-sol
+    - gpt-5.5
+    - gpt-6-astra
+    - gpt-6-astra-pro
+    - gpt-5.6-terra
+    - gpt-5.6-terra-pro
+    - gpt-6-luna
+    - gpt-5.6-luna
+    - gpt-5.6-luna-pro
+    - gpt-5.4-mini
+    - gpt-oss-20b
+    explore:
+    - gpt-6-sol
+    - gpt-5.6-sol-pro
+    - gpt-6-luna
+    - gpt-5.6-luna
+    - gpt-5.6-luna-pro
+    - gpt-5.6-sol
+    - gpt-5.6-terra
+    - gpt-5.6-terra-pro
+    - gpt-5.4-mini
+    - gpt-5.5
+    - gpt-6-astra
+    - gpt-6-astra-pro
+    - gpt-oss-20b
+    review:
+    - gpt-6-sol
+    - gpt-5.6-sol-pro
+    - gpt-5.6-sol
+    - gpt-5.5
+    - gpt-5.6-terra
+    - gpt-5.6-terra-pro
+    - gpt-6-astra
+    - gpt-6-astra-pro
+    - gpt-6-luna
+    - gpt-5.6-luna
+    - gpt-5.6-luna-pro
+    - gpt-5.4-mini
+    - gpt-oss-20b
+    summarize:
+    - gpt-6-luna
+    - gpt-5.6-luna
+    - gpt-5.6-luna-pro
+    - gpt-6-sol
+    - gpt-5.6-sol-pro
+    - gpt-5.4-mini
+    - gpt-5.6-terra
+    - gpt-5.6-terra-pro
+    - gpt-5.6-sol
+    - gpt-5.5
+    - gpt-6-astra
+    - gpt-6-astra-pro
+    - gpt-oss-20b
 - name: opencode
   root_url: https://opencode.ai/zen/v1
   endpoints:
@@ -1827,16 +2780,15 @@ providers:
       system_prompt_supported: true
       developer_role_supported: false
   models:
-  - canonical_id: claude-opus-5
-    provider_model_id: claude-opus-5
+  - canonical_id: big-pickle
+    provider_model_id: big-pickle
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 25.0
+      input: 0.0
+      output: 0.0
       extra:
-        cache_read: 0.5
-        cache_write: 6.25
+        cache_read: 0.0
     reported_modalities:
     - text
   - canonical_id: claude-sonnet-5
@@ -1851,20 +2803,51 @@ providers:
         cache_write: 2.5
     reported_modalities:
     - text
-  - canonical_id: claude-haiku-4.5
-    provider_model_id: claude-haiku-4-5
+  - canonical_id: claude-opus-5
+    provider_model_id: claude-opus-5
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.0
-      output: 5.0
+      input: 5.0
+      output: 25.0
       extra:
-        cache_read: 0.1
-        cache_write: 1.25
+        cache_read: 0.5
+        cache_write: 6.25
+    reported_modalities:
+    - text
+  - canonical_id: claude-opus-5.5
+    provider_model_id: claude-opus-5-5
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 4.0
+      output: 20.0
+      extra:
+        cache_read: 0.2
+        cache_write: 5.0
+    reported_modalities:
+    - text
+  - canonical_id: claude-fable-5.1
+    provider_model_id: claude-fable-5-1
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_read: 0.25
+        cache_write: 12.5
     reported_modalities:
     - text
   - canonical_id: deepseek-v4-flash
     provider_model_id: deepseek-v4-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.14
+      output: 0.28
+      extra:
+        cache_read: 0.028
     reported_modalities:
     - text
   - canonical_id: deepseek-v4-flash-free
@@ -1873,6 +2856,13 @@ providers:
     - text
   - canonical_id: deepseek-v4-pro
     provider_model_id: deepseek-v4-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.74
+      output: 3.48
+      extra:
+        cache_read: 0.145
     reported_modalities:
     - text
   - canonical_id: gpt-5.6-sol
@@ -1880,11 +2870,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.0
-      output: 10.0
+      input: 4.0
+      output: 20.0
       extra:
-        cache_read: 0.2
-        cache_write: 2.5
+        cache_read: 0.4
+        cache_write: 5.0
     reported_modalities:
     - text
   - canonical_id: gpt-5.6-terra
@@ -1911,6 +2901,17 @@ providers:
         cache_write: 0.25
     reported_modalities:
     - text
+  - canonical_id: gemini-3.8-flash
+    provider_model_id: gemini-3.8-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.5
+      output: 7.5
+      extra:
+        cache_read: 0.15
+    reported_modalities:
+    - text
   - canonical_id: gemini-3.1-pro
     provider_model_id: gemini-3.1-pro
     pricing:
@@ -1922,8 +2923,8 @@ providers:
         cache_read: 0.2
     reported_modalities:
     - text
-  - canonical_id: grok-4.6
-    provider_model_id: grok-4.6
+  - canonical_id: grok-4.7
+    provider_model_id: grok-4.7
     pricing:
       currency: USD
       unit: per_million_tokens
@@ -1931,6 +2932,24 @@ providers:
       output: 6.0
       extra:
         cache_read: 0.5
+    reported_modalities:
+    - text
+  - canonical_id: jev-1.13
+    provider_model_id: jev-1.13
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.042
+      output: 0.0
+    reported_modalities:
+    - text
+  - canonical_id: jev-1.13-free
+    provider_model_id: jev-1.13-free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
     reported_modalities:
     - text
   - canonical_id: kimi-k3
@@ -1966,8 +2985,8 @@ providers:
         cache_read: 0.06
     reported_modalities:
     - text
-  - canonical_id: muse-spark-1.2
-    provider_model_id: muse-spark-1.2
+  - canonical_id: muse-spark-1.3
+    provider_model_id: muse-spark-1.3
     pricing:
       currency: USD
       unit: per_million_tokens
@@ -1977,6 +2996,144 @@ providers:
         cache_read: 0.15
     reported_modalities:
     - text
+  - canonical_id: muse-spark-1.3-contributor-free
+    provider_model_id: muse-spark-1.3-contributor-free
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+      extra:
+        cache_read: 0.0
+    reported_modalities:
+    - text
+  personas:
+    orchestrate:
+    - claude-fable-5-1
+    - muse-spark-1.3-contributor-free
+    - muse-spark-1.3
+    - gemini-3.8-flash
+    - claude-opus-5-5
+    - claude-opus-5
+    - gemini-3.1-pro
+    - kimi-k3
+    - gpt-5.6-sol
+    - glm-5.2
+    - gpt-5.6-terra
+    - claude-sonnet-5
+    - deepseek-v4-pro
+    - gpt-5.6-luna
+    - minimax-m3
+    - deepseek-v4-flash
+    - grok-4.7
+    - jev-1.13
+    - big-pickle
+    - jev-1.13-free
+    plan:
+    - claude-fable-5-1
+    - muse-spark-1.3-contributor-free
+    - muse-spark-1.3
+    - gemini-3.8-flash
+    - claude-opus-5-5
+    - claude-opus-5
+    - gemini-3.1-pro
+    - kimi-k3
+    - gpt-5.6-sol
+    - glm-5.2
+    - gpt-5.6-terra
+    - claude-sonnet-5
+    - deepseek-v4-pro
+    - gpt-5.6-luna
+    - minimax-m3
+    - deepseek-v4-flash
+    - grok-4.7
+    - jev-1.13
+    - big-pickle
+    - jev-1.13-free
+    code:
+    - muse-spark-1.3-contributor-free
+    - muse-spark-1.3
+    - gemini-3.8-flash
+    - claude-opus-5-5
+    - gemini-3.1-pro
+    - claude-opus-5
+    - kimi-k3
+    - claude-fable-5-1
+    - gpt-5.6-sol
+    - glm-5.2
+    - gpt-5.6-terra
+    - claude-sonnet-5
+    - deepseek-v4-pro
+    - gpt-5.6-luna
+    - minimax-m3
+    - deepseek-v4-flash
+    - grok-4.7
+    - jev-1.13
+    - big-pickle
+    - jev-1.13-free
+    explore:
+    - muse-spark-1.3-contributor-free
+    - muse-spark-1.3
+    - gemini-3.8-flash
+    - glm-5.2
+    - gemini-3.1-pro
+    - gpt-5.6-luna
+    - deepseek-v4-pro
+    - minimax-m3
+    - kimi-k3
+    - deepseek-v4-flash
+    - gpt-5.6-terra
+    - claude-sonnet-5
+    - claude-opus-5-5
+    - gpt-5.6-sol
+    - claude-opus-5
+    - claude-fable-5-1
+    - big-pickle
+    - jev-1.13-free
+    - jev-1.13
+    - grok-4.7
+    review:
+    - muse-spark-1.3-contributor-free
+    - muse-spark-1.3
+    - gemini-3.8-flash
+    - gemini-3.1-pro
+    - claude-opus-5-5
+    - kimi-k3
+    - claude-opus-5
+    - glm-5.2
+    - gpt-5.6-sol
+    - claude-fable-5-1
+    - gpt-5.6-terra
+    - deepseek-v4-pro
+    - claude-sonnet-5
+    - gpt-5.6-luna
+    - minimax-m3
+    - deepseek-v4-flash
+    - grok-4.7
+    - jev-1.13
+    - big-pickle
+    - jev-1.13-free
+    summarize:
+    - muse-spark-1.3-contributor-free
+    - muse-spark-1.3
+    - gpt-5.6-luna
+    - gemini-3.8-flash
+    - deepseek-v4-flash
+    - minimax-m3
+    - glm-5.2
+    - deepseek-v4-pro
+    - gemini-3.1-pro
+    - claude-sonnet-5
+    - gpt-5.6-terra
+    - kimi-k3
+    - claude-opus-5-5
+    - gpt-5.6-sol
+    - claude-opus-5
+    - claude-fable-5-1
+    - big-pickle
+    - jev-1.13-free
+    - jev-1.13
+    - grok-4.7
 - name: openrouter
   root_url: https://openrouter.ai
   endpoints:
@@ -2195,11 +3352,11 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 5.0
-      output: 25.0
+      input: 4.0
+      output: 20.0
       extra:
-        cache_read: 0.5
-        cache_write: 6.25
+        cache_read: 0.2
+        cache_write: 5.0
         web_search: 10000.0
     reported_modalities:
     - text
@@ -2215,6 +3372,33 @@ providers:
     - stop
     - structured_outputs
     - temperature
+    - tool_choice
+    - tools
+    - verbosity
+  - canonical_id: claude-fable-latest
+    provider_model_id: ~anthropic/claude-fable-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_read: 0.25
+        cache_write: 12.5
+        web_search: 10000.0
+    reported_modalities:
+    - text
+    - image
+    - file
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - stop
+    - structured_outputs
     - tool_choice
     - tools
     - verbosity
@@ -2243,10 +3427,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.084
-      output: 0.168
+      input: 0.088606
+      output: 0.177212
       extra:
-        cache_read: 0.0168
+        cache_read: 0.017721
     reported_modalities:
     - text
     reported_capabilities:
@@ -2277,10 +3461,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.035996
-      output: 2.071992
+      input: 0.95526
+      output: 1.91052
       extra:
-        cache_read: 0.086333
+        cache_read: 0.079605
     reported_modalities:
     - text
     reported_capabilities:
@@ -2310,10 +3494,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.05
-      output: 0.16
+      input: 0.038
+      output: 0.55
       extra:
-        cache_read: 0.013
+        cache_read: 0.0228
     reported_modalities:
     - text
     reported_capabilities:
@@ -2338,6 +3522,38 @@ providers:
     - top_a
     - top_k
     - top_logprobs
+    - top_p
+  - canonical_id: gemini-3.8-flash
+    provider_model_id: google/gemini-3.8-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.75
+      output: 3.75
+      extra:
+        cache_read: 0.075
+        cache_write: 0.041667
+        web_search: 14000.0
+        reasoning: 3.75
+        image: 0.75
+    reported_modalities:
+    - text
+    - image
+    - video
+    - file
+    - audio
+    reported_capabilities:
+    - include_reasoning
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
     - top_p
   - canonical_id: gemini-flash-latest
     provider_model_id: ~google/gemini-flash-latest
@@ -2408,8 +3624,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.07
-      output: 0.34
+      input: 0.09
+      output: 0.3
+      extra:
+        cache_read: 0.05
     reported_modalities:
     - image
     - text
@@ -2565,15 +3783,15 @@ providers:
     - tools
     - top_k
     - top_p
-  - canonical_id: muse-spark-1.2
-    provider_model_id: meta/muse-spark-1.2
+  - canonical_id: muse-spark-1.3-contributor
+    provider_model_id: meta/muse-spark-1.3-contributor
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.25
-      output: 4.25
+      input: 0.1
+      output: 0.2
       extra:
-        cache_read: 0.15
+        cache_read: 0.002
         web_search: 2500.0
     reported_modalities:
     - text
@@ -2676,7 +3894,6 @@ providers:
     - temperature
     - tool_choice
     - tools
-    - top_k
     - top_p
   - canonical_id: kimi-k3
     provider_model_id: moonshotai/kimi-k3
@@ -2717,10 +3934,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.55
-      output: 12.75
+      input: 1.4989
+      output: 10.758
       extra:
-        cache_read: 0.256
+        cache_read: 0.3
     reported_modalities:
     - text
     - image
@@ -2841,60 +4058,8 @@ providers:
     - structured_outputs
     - tool_choice
     - tools
-  - canonical_id: gpt-5.6-luna-pro
-    provider_model_id: openai/gpt-5.6-luna-pro
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.2
-      output: 1.2
-      extra:
-        cache_read: 0.02
-        cache_write: 0.25
-        web_search: 10000.0
-    reported_modalities:
-    - file
-    - image
-    - text
-    reported_capabilities:
-    - include_reasoning
-    - max_completion_tokens
-    - max_tokens
-    - reasoning
-    - reasoning_effort
-    - response_format
-    - seed
-    - structured_outputs
-    - tool_choice
-    - tools
   - canonical_id: gpt-5.6-sol
     provider_model_id: openai/gpt-5.6-sol
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 2.0
-      output: 10.0
-      extra:
-        cache_read: 0.2
-        cache_write: 2.5
-        web_search: 10000.0
-    reported_modalities:
-    - file
-    - image
-    - text
-    reported_capabilities:
-    - include_reasoning
-    - max_completion_tokens
-    - max_tokens
-    - reasoning
-    - reasoning_effort
-    - response_format
-    - seed
-    - structured_outputs
-    - tool_choice
-    - tools
-  - canonical_id: gpt-5.6-sol-pro
-    provider_model_id: openai/gpt-5.6-sol-pro
     pricing:
       currency: USD
       unit: per_million_tokens
@@ -2945,16 +4110,146 @@ providers:
     - structured_outputs
     - tool_choice
     - tools
-  - canonical_id: gpt-5.6-terra-pro
-    provider_model_id: openai/gpt-5.6-terra-pro
+  - canonical_id: gpt-6-luna
+    provider_model_id: openai/gpt-6-luna
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.5
+      extra:
+        cache_read: 0.01
+        cache_write: 0.125
+        web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-6-sol
+    provider_model_id: openai/gpt-6-sol
     pricing:
       currency: USD
       unit: per_million_tokens
       input: 2.0
-      output: 12.0
+      output: 10.0
       extra:
         cache_read: 0.2
         cache_write: 2.5
+        web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-6-astra
+    provider_model_id: openai/gpt-6-astra
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_read: 1.0
+        cache_write: 12.5
+        web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-luna-latest
+    provider_model_id: ~openai/gpt-luna-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.1
+      output: 0.5
+      extra:
+        cache_read: 0.01
+        cache_write: 0.125
+        web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-sol-latest
+    provider_model_id: ~openai/gpt-sol-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 10.0
+      extra:
+        cache_read: 0.2
+        cache_write: 2.5
+        web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+  - canonical_id: gpt-astra-latest
+    provider_model_id: ~openai/gpt-astra-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 10.0
+      output: 50.0
+      extra:
+        cache_read: 1.0
+        cache_write: 12.5
         web_search: 10000.0
     reported_modalities:
     - file
@@ -2976,8 +4271,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.037
-      output: 0.17
+      input: 0.15
+      output: 0.6
+      extra:
+        cache_read: 0.075
     reported_modalities:
     - text
     reported_capabilities:
@@ -2999,6 +4296,36 @@ providers:
     - tool_choice
     - tools
     - top_a
+    - top_k
+    - top_logprobs
+    - top_p
+  - canonical_id: gpt-oss-20b
+    provider_model_id: openai/gpt-oss-20b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.018
+      output: 0.09
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
     - top_k
     - top_logprobs
     - top_p
@@ -3127,6 +4454,35 @@ providers:
     - temperature
     - tool_choice
     - tools
+  - canonical_id: ternary-bonsai-2-27b
+    provider_model_id: prism-ml/ternary-bonsai-2-27b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.075
+      output: 0.5
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logprobs
+    - max_tokens
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
   - canonical_id: qwen3-8b
     provider_model_id: qwen/qwen3-8b
     pricing:
@@ -3155,10 +4511,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0825
-      output: 0.33
+      input: 0.132
+      output: 0.528
       extra:
-        cache_read: 0.020625
+        cache_read: 0.033
     reported_modalities:
     - text
     reported_capabilities:
@@ -3204,7 +4560,6 @@ providers:
     - reasoning
     - reasoning_effort
     - repetition_penalty
-    - response_format
     - seed
     - stop
     - temperature
@@ -3212,15 +4567,33 @@ providers:
     - tools
     - top_k
     - top_p
-  - canonical_id: grok-4.6
-    provider_model_id: x-ai/grok-4.6
+  - canonical_id: pareto
+    provider_model_id: unbiased/pareto
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.0
-      output: 6.0
+      input: 2.5
+      output: 7.5
       extra:
-        cache_read: 0.5
+        cache_read: 0.25
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - max_tokens
+    - temperature
+    - tool_choice
+    - tools
+    - top_p
+  - canonical_id: grok-4.7
+    provider_model_id: x-ai/grok-4.7
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.6
+      output: 4.8
+      extra:
+        cache_read: 0.4
         web_search: 5000.0
     reported_modalities:
     - text
@@ -3234,12 +4607,10 @@ providers:
     - reasoning_effort
     - response_format
     - seed
-    - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
-    - top_k
     - top_logprobs
     - top_p
   - canonical_id: grok-latest
@@ -3247,10 +4618,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 2.0
-      output: 6.0
+      input: 1.6
+      output: 4.8
       extra:
-        cache_read: 0.5
+        cache_read: 0.4
         web_search: 5000.0
     reported_modalities:
     - text
@@ -3264,12 +4635,10 @@ providers:
     - reasoning_effort
     - response_format
     - seed
-    - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
-    - top_k
     - top_logprobs
     - top_p
   - canonical_id: mimo-v2.5
@@ -3304,15 +4673,79 @@ providers:
     - tools
     - top_k
     - top_p
+  - canonical_id: mimo-v2.6-flash
+    provider_model_id: xiaomi/mimo-v2.6-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.14
+      output: 0.28
+      extra:
+        cache_read: 0.0028
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_p
+  - canonical_id: mimo-v2.6-pro
+    provider_model_id: xiaomi/mimo-v2.6-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.435
+      output: 0.87
+      extra:
+        cache_read: 0.0036
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_p
   - canonical_id: glm-5.3
     provider_model_id: z-ai/glm-5.3
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.4
-      output: 4.4
+      input: 0.84
+      output: 2.64
       extra:
-        cache_read: 0.14
+        cache_read: 0.156
     reported_modalities:
     - text
     reported_capabilities:
@@ -3342,6 +4775,41 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
+      input: 0.15
+      output: 0.5
+      extra:
+        cache_read: 0.05
+    reported_modalities:
+    - text
+    - image
+    - video
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_tokens
+    - min_p
+    - parallel_tool_calls
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
+  - canonical_id: glm-flash-latest
+    provider_model_id: ~z-ai/glm-flash-latest
+    pricing:
+      currency: USD
+      unit: per_million_tokens
       input: 0.075
       output: 0.25
       extra:
@@ -3357,6 +4825,7 @@ providers:
     - logprobs
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -3376,10 +4845,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 1.134
-      output: 3.564
+      input: 0.5625
+      output: 2.5
       extra:
-        cache_read: 0.1863
+        cache_read: 0.125
     reported_modalities:
     - text
     reported_capabilities:
@@ -3404,6 +4873,355 @@ providers:
     - top_k
     - top_logprobs
     - top_p
+  personas:
+    orchestrate:
+    - ~anthropic/claude-fable-latest
+    - anthropic/claude-fable-5
+    - meta/muse-spark-1.3-contributor
+    - google/gemini-3.8-flash
+    - ~google/gemini-flash-latest
+    - meta/muse-spark-1.3
+    - ~anthropic/claude-opus-latest
+    - anthropic/claude-opus-5
+    - ~google/gemini-pro-latest
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - moonshotai/kimi-k3
+    - openai/gpt-6-sol
+    - ~openai/gpt-sol-latest
+    - openai/gpt-5.6-sol
+    - ~z-ai/glm-flash-latest
+    - z-ai/glm-5.3-flash
+    - ~openai/gpt-astra-latest
+    - openai/gpt-6-astra
+    - anthropic/claude-opus-4.8
+    - openai/gpt-5.6-terra
+    - anthropic/claude-sonnet-5
+    - ~anthropic/claude-sonnet-latest
+    - deepseek/deepseek-v4-pro
+    - tencent/hy3
+    - openai/gpt-6-luna
+    - ~openai/gpt-luna-latest
+    - openai/gpt-5.6-luna
+    - minimax/minimax-m3
+    - thinkingmachines/inkling
+    - deepseek/deepseek-v4-flash
+    - ~deepseek/deepseek-v4-flash-latest
+    - xiaomi/mimo-v2.5
+    - xiaomi/mimo-v2.6-pro
+    - cohere/command-a
+    - ~moonshotai/kimi-latest
+    - unbiased/pareto
+    - x-ai/grok-4.7
+    - ~x-ai/grok-latest
+    - anthropic/claude-haiku-4.5
+    - nousresearch/hermes-4-405b
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - meituan/longcat-2.0
+    - mistralai/mistral-small-2603
+    - openai/gpt-oss-120b
+    - prism-ml/ternary-bonsai-2-27b
+    - qwen/qwen3-8b
+    - google/gemma-4-31b-it
+    - xiaomi/mimo-v2.6-flash
+    - google/gemma-4-26b-a4b-it
+    - poolside/laguna-s-2.1
+    - microsoft/phi-4
+    - openai/gpt-oss-20b
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - google/gemma-4-26b-a4b-it:free
+    - google/gemma-4-31b-it:free
+    - openrouter/free
+    plan:
+    - meta/muse-spark-1.3-contributor
+    - ~anthropic/claude-fable-latest
+    - anthropic/claude-fable-5
+    - google/gemini-3.8-flash
+    - ~google/gemini-flash-latest
+    - meta/muse-spark-1.3
+    - ~anthropic/claude-opus-latest
+    - anthropic/claude-opus-5
+    - ~google/gemini-pro-latest
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - moonshotai/kimi-k3
+    - openai/gpt-6-sol
+    - ~openai/gpt-sol-latest
+    - openai/gpt-5.6-sol
+    - ~z-ai/glm-flash-latest
+    - z-ai/glm-5.3-flash
+    - ~openai/gpt-astra-latest
+    - openai/gpt-6-astra
+    - anthropic/claude-opus-4.8
+    - openai/gpt-5.6-terra
+    - anthropic/claude-sonnet-5
+    - ~anthropic/claude-sonnet-latest
+    - deepseek/deepseek-v4-pro
+    - tencent/hy3
+    - openai/gpt-6-luna
+    - ~openai/gpt-luna-latest
+    - openai/gpt-5.6-luna
+    - minimax/minimax-m3
+    - thinkingmachines/inkling
+    - deepseek/deepseek-v4-flash
+    - ~deepseek/deepseek-v4-flash-latest
+    - xiaomi/mimo-v2.5
+    - xiaomi/mimo-v2.6-pro
+    - ~moonshotai/kimi-latest
+    - cohere/command-a
+    - unbiased/pareto
+    - x-ai/grok-4.7
+    - ~x-ai/grok-latest
+    - anthropic/claude-haiku-4.5
+    - nousresearch/hermes-4-405b
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - meituan/longcat-2.0
+    - mistralai/mistral-small-2603
+    - openai/gpt-oss-120b
+    - prism-ml/ternary-bonsai-2-27b
+    - qwen/qwen3-8b
+    - google/gemma-4-31b-it
+    - xiaomi/mimo-v2.6-flash
+    - google/gemma-4-26b-a4b-it
+    - poolside/laguna-s-2.1
+    - microsoft/phi-4
+    - openai/gpt-oss-20b
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - google/gemma-4-26b-a4b-it:free
+    - google/gemma-4-31b-it:free
+    - openrouter/free
+    code:
+    - meta/muse-spark-1.3-contributor
+    - google/gemini-3.8-flash
+    - ~google/gemini-flash-latest
+    - meta/muse-spark-1.3
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - ~anthropic/claude-opus-latest
+    - ~google/gemini-pro-latest
+    - anthropic/claude-opus-5
+    - openai/gpt-6-sol
+    - ~openai/gpt-sol-latest
+    - openai/gpt-5.6-sol
+    - moonshotai/kimi-k3
+    - ~z-ai/glm-flash-latest
+    - z-ai/glm-5.3-flash
+    - ~anthropic/claude-fable-latest
+    - anthropic/claude-fable-5
+    - openai/gpt-5.6-terra
+    - anthropic/claude-opus-4.8
+    - deepseek/deepseek-v4-pro
+    - tencent/hy3
+    - anthropic/claude-sonnet-5
+    - ~anthropic/claude-sonnet-latest
+    - openai/gpt-6-luna
+    - ~openai/gpt-luna-latest
+    - openai/gpt-5.6-luna
+    - ~openai/gpt-astra-latest
+    - openai/gpt-6-astra
+    - minimax/minimax-m3
+    - thinkingmachines/inkling
+    - deepseek/deepseek-v4-flash
+    - ~deepseek/deepseek-v4-flash-latest
+    - xiaomi/mimo-v2.5
+    - xiaomi/mimo-v2.6-pro
+    - cohere/command-a
+    - ~moonshotai/kimi-latest
+    - unbiased/pareto
+    - x-ai/grok-4.7
+    - ~x-ai/grok-latest
+    - anthropic/claude-haiku-4.5
+    - nousresearch/hermes-4-405b
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - meituan/longcat-2.0
+    - mistralai/mistral-small-2603
+    - openai/gpt-oss-120b
+    - qwen/qwen3-8b
+    - prism-ml/ternary-bonsai-2-27b
+    - xiaomi/mimo-v2.6-flash
+    - google/gemma-4-31b-it
+    - google/gemma-4-26b-a4b-it
+    - poolside/laguna-s-2.1
+    - microsoft/phi-4
+    - openai/gpt-oss-20b
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - google/gemma-4-26b-a4b-it:free
+    - google/gemma-4-31b-it:free
+    - openrouter/free
+    explore:
+    - meta/muse-spark-1.3-contributor
+    - google/gemini-3.8-flash
+    - ~google/gemini-flash-latest
+    - meta/muse-spark-1.3
+    - ~z-ai/glm-flash-latest
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3-flash
+    - z-ai/glm-5.3
+    - tencent/hy3
+    - openai/gpt-6-luna
+    - ~openai/gpt-luna-latest
+    - ~google/gemini-pro-latest
+    - openai/gpt-6-sol
+    - ~openai/gpt-sol-latest
+    - openai/gpt-5.6-sol
+    - openai/gpt-5.6-luna
+    - deepseek/deepseek-v4-pro
+    - minimax/minimax-m3
+    - deepseek/deepseek-v4-flash
+    - ~deepseek/deepseek-v4-flash-latest
+    - moonshotai/kimi-k3
+    - xiaomi/mimo-v2.5
+    - openai/gpt-5.6-terra
+    - xiaomi/mimo-v2.6-pro
+    - anthropic/claude-sonnet-5
+    - ~anthropic/claude-sonnet-latest
+    - ~anthropic/claude-opus-latest
+    - thinkingmachines/inkling
+    - anthropic/claude-opus-5
+    - anthropic/claude-opus-4.8
+    - ~anthropic/claude-fable-latest
+    - anthropic/claude-fable-5
+    - ~openai/gpt-astra-latest
+    - openai/gpt-6-astra
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - google/gemma-4-26b-a4b-it:free
+    - google/gemma-4-31b-it:free
+    - openrouter/free
+    - openai/gpt-oss-20b
+    - microsoft/phi-4
+    - poolside/laguna-s-2.1
+    - google/gemma-4-26b-a4b-it
+    - google/gemma-4-31b-it
+    - prism-ml/ternary-bonsai-2-27b
+    - xiaomi/mimo-v2.6-flash
+    - qwen/qwen3-8b
+    - mistralai/mistral-small-2603
+    - openai/gpt-oss-120b
+    - meituan/longcat-2.0
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - nousresearch/hermes-4-405b
+    - anthropic/claude-haiku-4.5
+    - x-ai/grok-4.7
+    - ~x-ai/grok-latest
+    - ~moonshotai/kimi-latest
+    - unbiased/pareto
+    - cohere/command-a
+    review:
+    - meta/muse-spark-1.3-contributor
+    - google/gemini-3.8-flash
+    - ~google/gemini-flash-latest
+    - meta/muse-spark-1.3
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - ~google/gemini-pro-latest
+    - ~z-ai/glm-flash-latest
+    - z-ai/glm-5.3-flash
+    - openai/gpt-6-sol
+    - ~openai/gpt-sol-latest
+    - openai/gpt-5.6-sol
+    - ~anthropic/claude-opus-latest
+    - moonshotai/kimi-k3
+    - anthropic/claude-opus-5
+    - ~anthropic/claude-fable-latest
+    - anthropic/claude-fable-5
+    - openai/gpt-5.6-terra
+    - tencent/hy3
+    - deepseek/deepseek-v4-pro
+    - openai/gpt-6-luna
+    - ~openai/gpt-luna-latest
+    - anthropic/claude-sonnet-5
+    - ~anthropic/claude-sonnet-latest
+    - openai/gpt-5.6-luna
+    - anthropic/claude-opus-4.8
+    - minimax/minimax-m3
+    - thinkingmachines/inkling
+    - deepseek/deepseek-v4-flash
+    - ~deepseek/deepseek-v4-flash-latest
+    - xiaomi/mimo-v2.5
+    - xiaomi/mimo-v2.6-pro
+    - ~openai/gpt-astra-latest
+    - openai/gpt-6-astra
+    - cohere/command-a
+    - unbiased/pareto
+    - ~moonshotai/kimi-latest
+    - x-ai/grok-4.7
+    - ~x-ai/grok-latest
+    - anthropic/claude-haiku-4.5
+    - nousresearch/hermes-4-405b
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - meituan/longcat-2.0
+    - mistralai/mistral-small-2603
+    - openai/gpt-oss-120b
+    - qwen/qwen3-8b
+    - xiaomi/mimo-v2.6-flash
+    - prism-ml/ternary-bonsai-2-27b
+    - google/gemma-4-31b-it
+    - google/gemma-4-26b-a4b-it
+    - poolside/laguna-s-2.1
+    - microsoft/phi-4
+    - openai/gpt-oss-20b
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - google/gemma-4-26b-a4b-it:free
+    - google/gemma-4-31b-it:free
+    - openrouter/free
+    summarize:
+    - meta/muse-spark-1.3-contributor
+    - ~z-ai/glm-flash-latest
+    - z-ai/glm-5.3-flash
+    - google/gemini-3.8-flash
+    - ~google/gemini-flash-latest
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - tencent/hy3
+    - openai/gpt-6-luna
+    - ~openai/gpt-luna-latest
+    - meta/muse-spark-1.3
+    - openai/gpt-5.6-luna
+    - ~deepseek/deepseek-v4-flash-latest
+    - deepseek/deepseek-v4-flash
+    - minimax/minimax-m3
+    - xiaomi/mimo-v2.5
+    - deepseek/deepseek-v4-pro
+    - xiaomi/mimo-v2.6-pro
+    - thinkingmachines/inkling
+    - openai/gpt-6-sol
+    - ~openai/gpt-sol-latest
+    - openai/gpt-5.6-sol
+    - ~google/gemini-pro-latest
+    - anthropic/claude-sonnet-5
+    - ~anthropic/claude-sonnet-latest
+    - openai/gpt-5.6-terra
+    - moonshotai/kimi-k3
+    - ~anthropic/claude-opus-latest
+    - anthropic/claude-opus-5
+    - anthropic/claude-opus-4.8
+    - ~anthropic/claude-fable-latest
+    - anthropic/claude-fable-5
+    - ~openai/gpt-astra-latest
+    - openai/gpt-6-astra
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - google/gemma-4-26b-a4b-it:free
+    - google/gemma-4-31b-it:free
+    - openrouter/free
+    - openai/gpt-oss-20b
+    - microsoft/phi-4
+    - poolside/laguna-s-2.1
+    - google/gemma-4-26b-a4b-it
+    - google/gemma-4-31b-it
+    - prism-ml/ternary-bonsai-2-27b
+    - qwen/qwen3-8b
+    - xiaomi/mimo-v2.6-flash
+    - mistralai/mistral-small-2603
+    - openai/gpt-oss-120b
+    - meituan/longcat-2.0
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - nousresearch/hermes-4-405b
+    - anthropic/claude-haiku-4.5
+    - x-ai/grok-4.7
+    - ~x-ai/grok-latest
+    - ~moonshotai/kimi-latest
+    - unbiased/pareto
+    - cohere/command-a
 agents:
 - name: claude_code
   developer: Anthropic
