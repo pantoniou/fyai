@@ -1037,24 +1037,34 @@ do not put a colour for a role in C.
   theme, so a palette stays alive until `fyai_config_cleanup()`. Reuse the
   current palette when the theme, the variant, the colour and the ground did
   not change.
+- fyai asks the terminal what it supports one time, with the libfypalette
+  probe, through `fyai_terminal_probe()`. The configuration keeps the result
+  (`cfg->terminal`) and the keys typed during the probe. A copy of the
+  configuration keeps the result and does not probe. The probe sends all its
+  queries in one write, with DA1 last, and waits for the DA1 reply. Every
+  terminal answers DA1, and answers in order, so a query with no reply before
+  it is not supported. Do not query the terminal anywhere else, and do not
+  decide anything from how long a reply takes. The time limit is 1000 ms;
+  `$FYPAL_PROBE_TIMEOUT_MS` changes it. The test harness sets 30000, which a
+  driver that answers never reaches.
+- `fyai_ui_open()` gives the result to the UI. The capabilities that the
+  terminal reported replace the guess from the environment
+  (`fytim_set_caps()`), and the keys typed during the probe go to
+  `fytim_keys_return()`, before anything the terminal sends later. A reply
+  that arrives after the time limit is dropped by the libfytimui input
+  parser. A sub-agent and the branch browser preview do not probe.
 - `display/theme_ground=terminal` makes the background of the terminal the
   ground of the palette with `fypal_ctx_set_ground()`, so the neutral ramp of
   the theme keeps its steps over that background. The theme names the ground
-  and decides what follows it; fyai holds no colour. The terminal is asked
-  once, with OSC 11, and the answer is kept in the configuration: a query
-  while the UI reads the terminal would take its input. A background of the
-  other variant is not applied, and a sub-agent does not ask. The build
-  enables it (`FYAI_FYPAL_GROUND`) only when libfypalette has
-  `fypal_ctx_set_ground()`; a PTY case answers the query with
-  `$FYAI_PTY_BACKGROUND`.
-- A theme of the `auto` variant asks the terminal too, and the answer is kept
-  in the configuration. A configuration change re-derives the display during
-  the session, and a query then runs under a live UI, which reads the reply:
-  the query times out and answers dark. The variant would thus turn dark under
-  a conversation already rendered light. Only an answer is kept:
-  `terminal_detect_theme()` gives NULL when the terminal did not answer, the
-  variant is dark until one does, and the next load asks again. A PTY case
-  stops answering when the session is started
+  and decides what follows it; fyai holds no colour. The background comes
+  from the probe. A background of the other variant is not applied. A PTY
+  case answers the query with `$FYAI_PTY_BACKGROUND`.
+- A theme of the `auto` variant takes its variant from the probe result with
+  `fypal_term_variant()`: the scheme the terminal reported, then
+  `$COLORFGBG`, then the background colour, else dark. The probe runs one
+  time, so a configuration change during the session gets the same variant,
+  and the colours of the conversation on the screen do not change. A PTY case
+  stops answering OSC 11 when the session is started
   (`$FYAI_PTY_BACKGROUND_WHILE_STARTING`).
 - A fullscreen page with `display/theme_ground=theme` fills cells whose
   background is default with the palette's `ground` colour. Keep explicit
@@ -1505,6 +1515,9 @@ as its size, prints it on a short interval, and the case waits for the
 expected value on the screen. A key that must change nothing has no state to
 wait for: send it in one write with the key that follows it, which keeps their
 order.
+
+A driver that plays a terminal answers DA1 (`tests/term_reply.py`), as
+every terminal does. fyai waits for that reply before it opens the UI.
 
 A case that stops a run does not leave its processes behind. The driver sends
 SIGTERM before SIGKILL, and a case that kills fyai on purpose ends the programs
