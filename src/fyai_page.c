@@ -212,9 +212,9 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 	left -= st->pane_rows;
 	if (st->tail_rows > left)
 		st->tail_rows = left > 0 ? left : 0;
-	/* A fullscreen page gives its transcript view what the tail leaves. */
+	/* The live tail shares the fullscreen transcript region. */
 	if (st->fullscreen)
-		st->transcript_rows = left - st->tail_rows;
+		st->transcript_rows = left;
 }
 
 static int page_repeat(struct response_buffer *out, const char *s, int n)
@@ -2000,11 +2000,13 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the header into cells");
 		}
-		if (!strcmp(fr[i].id, "transcript") && st->transcript_lines) {
-			rc = page_lines_draw(pg, st->transcript_lines,
-					     st->transcript_nlines, &fr[i]);
-			fyai_error_check(ctx, !rc, err_out,
-					 "cannot draw the transcript into cells");
+		if (!strcmp(fr[i].id, "transcript")) {
+			if (st->transcript_lines) {
+				rc = page_lines_draw(pg, st->transcript_lines,
+						     st->transcript_nlines, &fr[i]);
+				fyai_error_check(ctx, !rc, err_out,
+					"cannot draw the transcript into cells");
+			}
 		}
 		if (!strcmp(fr[i].id, "popup") && st->popup_lines) {
 			rc = page_lines_draw(pg, st->popup_lines,

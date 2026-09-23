@@ -54,10 +54,8 @@ struct fyai_page_state {
 	/* UI Markdown of the pane, an fy-grid of tile slots fyai wrote, or
 	 * NULL for one pane slot the terminal library lays out. */
 	const char *pane_source;
-	int tail_rows;
-	/* A fullscreen page shows the transcript view where an inline page shows
-	 * the tail: @transcript_rows rows, which @transcript_lines hold, rendered
-	 * and borrowed for the frame. */
+	int tail_rows;	/* drawn by the view in fullscreen */
+	/* A fullscreen page draws committed rows and the live tail in one region. */
 	bool fullscreen;
 	int transcript_rows;
 	const char *const *transcript_lines;

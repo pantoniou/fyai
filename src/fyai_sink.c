@@ -862,6 +862,7 @@ static void sink_term_reflow(struct fyai_sink *s)
 	/* Replace the complete active region with the new render. */
 	repaint = update;
 	repaint.backtrack = t->active_rows;
+	fyai_ui_tail_reflow_reset(ctx);
 	sink_term_apply(s, &repaint);
 	markdown_renderer_destroy(&t->renderer);
 	t->renderer = r;

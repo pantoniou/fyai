@@ -74,7 +74,11 @@ int fyai_transcript_view_append_live(struct fyai_transcript_view *v,
 /* Drop the live rows, as when the turn they belong to is stored. */
 void fyai_transcript_view_clear_live(struct fyai_transcript_view *v);
 
-/* The rows the view holds: stored, then live. */
+/* Replace the rendered rows of the in-flight tail. The view owns a copy. */
+int fyai_transcript_view_set_tail(struct fyai_transcript_view *v,
+				  const char *text, size_t len);
+
+/* The rows the view holds: stored, committed live rows, then the tail. */
 size_t fyai_transcript_view_rows(const struct fyai_transcript_view *v);
 
 /*

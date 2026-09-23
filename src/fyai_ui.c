@@ -113,6 +113,9 @@ struct fyai_ui {
 	 * and presented rows go to it instead of the scrollback. */
 	bool fullscreen;
 	struct fyai_transcript_view *view;
+	struct response_buffer stream_rows;	/* full rendered stream */
+	size_t stream_frozen;		/* immutable prefix of stream_rows */
+	bool stream_changed;
 	int view_rows;			/* rows of its region in the last frame */
 	/* The popup of a fullscreen page: the results, notices and diagnostics
 	 * of this invocation, which are not stored and so are not the
@@ -1327,7 +1330,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	char elapsed[24], cap[512];
 	struct fyai_page_keys keys;
 	struct ui_question *q, *w;
-	const char *rule_off, *typed;
+	const char *rule_off, *typed, *tail;
 	char *activity = NULL;
 	int cols = 0, rows = 0, n, i, sep_cols, rc;
 
@@ -1443,6 +1446,15 @@ static void ui_page_update(struct fyai_ui *ui)
 			st.popup_rows, &st.popup_nlines);
 	}
 	if (ui->fullscreen) {
+		tail = ui->stream_rows.data;
+
+		if (ui->stream_changed) {
+			rc = fyai_transcript_view_set_tail(ui->view, tail,
+						   ui->stream_rows.len);
+			fyai_error_check(ctx, !rc, err_page,
+					 "cannot keep the live transcript rows");
+			ui->stream_changed = false;
+		}
 		/* The view is made at the width presented rows are made at. */
 		rc = fyai_transcript_view_refresh(ctx, ui->view,
 			ctx->cfg->render_width > 0 ? ctx->cfg->render_width : cols,
@@ -2055,6 +2067,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui_popup_close(ui);
 	ui_note_clear(ui);
 	free(ui->pane_grid.data);
+	free(ui->stream_rows.data);
 	/* Nobody can answer a question now. */
 	while (ui->questions) {
 		q = ui->questions;
@@ -2527,6 +2540,54 @@ err_out:
 	return -1;
 }
 
+/* Keep frozen renderer rows in the fullscreen viewport. */
+static int ui_stream_apply(struct fyai_ui *ui,
+			   const struct markdown_update *u)
+{
+	struct response_buffer *b = &ui->stream_rows;
+	size_t pos = b->len, k, frozen;
+	const char *nl;
+
+	while (pos > ui->stream_frozen && b->data[pos - 1] != '\n')
+		pos--;
+	for (k = 0; k < u->backtrack && pos > ui->stream_frozen; k++) {
+		pos--;
+		while (pos > ui->stream_frozen && b->data[pos - 1] != '\n')
+			pos--;
+	}
+	if (response_buffer_reserve(b, pos + u->content_len + 1))
+		return -1;
+	b->len = pos;
+	if (u->content_len) {
+		memcpy(b->data + pos, u->content, u->content_len);
+		b->len += u->content_len;
+	}
+	b->data[b->len] = '\0';
+	frozen = ui->stream_frozen;
+	for (k = 0; k < u->freeze && frozen < b->len; k++) {
+		nl = memchr(b->data + frozen, '\n', b->len - frozen);
+		if (!nl)
+			break;
+		frozen = (size_t)(nl - b->data) + 1;
+	}
+	ui->stream_frozen = frozen;
+	ui->stream_changed = true;
+	return 0;
+}
+
+void fyai_ui_tail_reflow_reset(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui || !ui->fullscreen)
+		return;
+	ui->stream_rows.len = 0;
+	if (ui->stream_rows.data)
+		ui->stream_rows.data[0] = '\0';
+	ui->stream_frozen = 0;
+	ui->stream_changed = true;
+}
+
 int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *u)
 {
 	struct fyai_ui *ui;
@@ -2545,6 +2606,12 @@ int fyai_ui_tail_apply(struct fyai_ctx *ctx, const struct markdown_update *u)
 			      u->content_len, u->freeze);
 	fyai_error_check(ctx, rc == FYTIM_OK, err_out,
 			 "could not apply the transcript tail");
+	if (ui->fullscreen) {
+		rc = ui_stream_apply(ui, u);
+		fyai_error_check(ctx, !rc, err_out,
+				 "could not keep the streaming transcript");
+		ui->frame_pending = true;
+	}
 	return 0;
 
 err_out:
@@ -2561,6 +2628,11 @@ void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 		fyai_flow_observe(fyai_sink_flow(ctx->sink), buf, len);
 	}
 	(void)fytim_tail_set(ctx->ui->ft, NULL, 0);
+	ctx->ui->stream_rows.len = 0;
+	if (ctx->ui->stream_rows.data)
+		ctx->ui->stream_rows.data[0] = '\0';
+	ctx->ui->stream_frozen = 0;
+	ctx->ui->stream_changed = true;
 }
 
 char *fyai_ui_input_copy(struct fyai_ctx *ctx)

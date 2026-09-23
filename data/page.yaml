@@ -60,12 +60,10 @@ pages:
     - slot: { id: tail, rows: "{tail.rows}" }
     - page: chrome
 
-  # Fullscreen: the transcript view, the tail of the turn under it, then the
-  # chrome.
+  # Fullscreen: committed rows and the live tail share one viewport.
   fullscreen:
     - tight: true
     - slot: { id: transcript, rows: "{transcript.rows}" }
-    - slot: { id: tail, rows: "{tail.rows}" }
     - page: chrome
 
   # The pane, the header, the input area and the status, in either screen.

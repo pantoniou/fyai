@@ -47,6 +47,7 @@ struct fyai_transcript_view {
 	size_t nexchanges;
 	size_t stored;		/* the rows of every exchange */
 	struct view_rows live;
+	struct view_rows tail;
 	bool live_open;		/* the last live row did not end yet */
 	int offset;		/* rows back from the end of the transcript */
 	int height;		/* the rows of the last window */
@@ -335,13 +336,14 @@ void fyai_transcript_view_destroy(struct fyai_transcript_view *v)
 		return;
 	view_exchanges_free(v->exchange, v->nexchanges);
 	view_rows_free(&v->live);
+	view_rows_free(&v->tail);
 	free(v->window);
 	free(v);
 }
 
 size_t fyai_transcript_view_rows(const struct fyai_transcript_view *v)
 {
-	return v ? v->stored + v->live.count : 0;
+	return v ? v->stored + v->live.count + v->tail.count : 0;
 }
 
 bool fyai_transcript_view_at_end(const struct fyai_transcript_view *v)
@@ -380,7 +382,8 @@ static bool view_top(const struct fyai_transcript_view *v, int height,
 
 	if (v->offset <= 0 || height < 1)
 		return false;
-	view_span(v->stored, v->live.count, v->offset, height, &first, &shown);
+	view_span(v->stored, v->live.count + v->tail.count, v->offset,
+		  height, &first, &shown);
 	*topp = first;
 	return true;
 }
@@ -432,7 +435,8 @@ bool fyai_transcript_view_needs_render(const struct fyai_transcript_view *v,
 
 	if (!v || height < 1)
 		return false;
-	view_span(v->stored, v->live.count, v->offset, height, &first, &shown);
+	view_span(v->stored, v->live.count + v->tail.count, v->offset,
+		  height, &first, &shown);
 	for (i = 0; i < v->nexchanges && start < first + shown; i++) {
 		if (!v->exchange[i].rendered && start + v->exchange[i].count > first)
 			return true;
@@ -518,11 +522,12 @@ int fyai_transcript_view_update(struct fyai_transcript_view *v, int width,
 		}
 	if (anchor_at != SIZE_MAX)
 		offset = view_anchor_offset(next, count, anchor_at, anchor_row,
-					    v->live.count, height);
+					    v->live.count + v->tail.count, height);
 	/* Render what the region shows. A render can change the rows of an
 	 * exchange from its measure, and so what the region shows. */
 	for (pass = 0; measure && height > 0 && pass < 4; pass++) {
-		view_span(stored, v->live.count, offset, height, &first, &shown);
+		view_span(stored, v->live.count + v->tail.count, offset,
+			  height, &first, &shown);
 		again = false;
 		for (i = 0, start = 0; i < count && start < first + shown; i++) {
 			if (!next[i].rendered && start + next[i].count > first) {
@@ -541,7 +546,8 @@ int fyai_transcript_view_update(struct fyai_transcript_view *v, int width,
 		 * the view keeps at its top. */
 		if (anchor_at != SIZE_MAX)
 			offset = view_anchor_offset(next, count, anchor_at,
-						    anchor_row, v->live.count,
+						    anchor_row,
+						    v->live.count + v->tail.count,
 						    height);
 	}
 	view_exchanges_free(v->exchange, v->nexchanges);
@@ -595,6 +601,26 @@ void fyai_transcript_view_clear_live(struct fyai_transcript_view *v)
 	v->live_open = false;
 }
 
+int fyai_transcript_view_set_tail(struct fyai_transcript_view *v,
+				  const char *text, size_t len)
+{
+	struct view_rows next;
+	size_t old;
+
+	if (!v || (!text && len) || view_rows_parse(&next, text ? text : "", len))
+		return -1;
+	old = v->tail.count;
+	view_rows_free(&v->tail);
+	v->tail = next;
+	if (v->offset > 0) {
+		long long offset = (long long)v->offset +
+			(long long)v->tail.count - (long long)old;
+		v->offset = offset > INT_MAX ? INT_MAX :
+			    offset < 0 ? 0 : (int)offset;
+	}
+	return 0;
+}
+
 void fyai_transcript_view_scroll(struct fyai_transcript_view *v, int delta,
 				 int height)
 {
@@ -626,7 +652,8 @@ const char *const *fyai_transcript_view_window(struct fyai_transcript_view *v,
 	v->height = height;
 	/* The rows that arrived may have left an offset past the start. */
 	fyai_transcript_view_scroll(v, 0, height);
-	view_span(v->stored, v->live.count, v->offset, height, &first, &n);
+	view_span(v->stored, v->live.count + v->tail.count, v->offset,
+		  height, &first, &n);
 	if ((size_t)height > v->window_alloc) {
 		window = realloc(v->window, (size_t)height * sizeof(*window));
 		if (!window)
@@ -642,6 +669,11 @@ const char *const *fyai_transcript_view_window(struct fyai_transcript_view *v,
 		e++;
 	}
 	for (i = 0; i < n; i++) {
+		if (first + i >= v->stored + v->live.count) {
+			v->window[i] = v->tail.row[first + i - v->stored -
+						 v->live.count];
+			continue;
+		}
 		if (first + i >= v->stored) {
 			v->window[i] = v->live.row[first + i - v->stored];
 			continue;
