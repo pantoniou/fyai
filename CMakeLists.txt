@@ -224,7 +224,7 @@ endif()
 # FYAI_STATIC_DEPS is on. libfypalette comes first: libfymd4c and
 # libfymermaid consume it.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FyDeps.cmake)
-fyai_fy_dep(libfypalette 552248158ed345aabc3b3564b2634fc1810422f1)
+fyai_fy_dep(libfypalette bc236f531f1e6d2c295dac988249d9cbd0d78b77)
 fyai_fy_dep(libfymd4c b78a9ff4220a31cd3928e1216cdf9f159951c23c)
 
 if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
@@ -232,8 +232,8 @@ if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
         INTERFACE_LINK_LIBRARIES "Threads::Threads;m")
 endif()
 
-fyai_fy_dep(libfymermaid a45debc947021bccba5be0dff63e4d114712a31d)
-fyai_fy_dep(libfytimui b6a948a0597d3cfbfae7ebc4b5f810de56643b04)
+fyai_fy_dep(libfymermaid b3b72b5ee5caceea5ff890fa57e1689537b2f5c0)
+fyai_fy_dep(libfytimui faf558bd36c3fedcecf80058272a19930242a3f1)
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests.
 fyai_fy_dep(libfyvterm 9d1b261e82c67af71bbb8dbf52011a25a58eabf8)
