@@ -18,6 +18,7 @@
 #include <libfyaml.h>
 #include <libfyaml/libfyaml-allocator.h>
 #include <libfyaml/libfyaml-generic.h>
+#include <libfypalette.h>
 
 #include "utils.h"
 #include "commands.h"
@@ -225,13 +226,17 @@ struct fyai_cfg {
 	const char *palette_variant;
 	bool palette_color;
 	const char *palette_ground;
-	/* The background of the terminal, asked for once: 0 not asked, 1 in
-	 * @terminal_ground, -1 the terminal did not answer. */
-	int terminal_ground_state;
-	uint32_t terminal_ground;
-	/* The variant the terminal reported, asked for once. A later query
-	 * runs under a live UI, which reads the reply, and answers dark. */
-	const char *terminal_variant;
+	/* The result of fyai_terminal_probe(). The probe runs one time: a
+	 * later probe would run while the UI reads the terminal, and the UI
+	 * would take the replies. A copy of the configuration keeps the
+	 * result and does not probe. */
+	struct fypal_term terminal;
+	bool terminal_probed;
+	/* Keys typed during the probe, for the UI to read first. The
+	 * configuration that ran the probe owns them; a copy does not free
+	 * them. */
+	char *terminal_input;
+	size_t terminal_input_len;
 	const char *markdown_rev_on[2];	/* reverse-card pair, [0] dark [1] light */
 	const char *markdown_rev_off[2];
 	const char *turn_separator;	/* history inter-turn break (markdown) */

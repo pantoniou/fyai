@@ -475,24 +475,54 @@ static void markdown_probe_reverse(struct fyai_cfg *cfg, int index,
  * of the other variant is left alone: a dark ramp over a light ground would
  * lift its text past white.
  */
+const struct fypal_term *fyai_terminal_probe(struct fyai_cfg *cfg)
+{
+	struct fypal_probe *probe;
+	char buf[256], *p;
+	size_t n;
+
+	if (cfg->terminal_probed)
+		return &cfg->terminal;
+	cfg->terminal_probed = true;
+	memset(&cfg->terminal, 0, sizeof(cfg->terminal));
+	/* A sub-agent draws on a terminal that the parent emulates. */
+	if (cfg->agent_pty)
+		return &cfg->terminal;
+	probe = fypal_probe_create();
+	if (!probe) {
+		fyai_cfg_warning(cfg, "cannot create the terminal probe");
+		return &cfg->terminal;
+	}
+	fypal_probe_run(probe, STDOUT_FILENO);
+	cfg->terminal = *fypal_probe_result(probe);
+	while ((n = fypal_probe_take_input(probe, buf, sizeof(buf))) > 0) {
+		p = realloc(cfg->terminal_input, cfg->terminal_input_len + n);
+		if (!p) {
+			fyai_cfg_warning(cfg, "keys typed at startup are lost: "
+					 "out of memory");
+			break;
+		}
+		memcpy(p + cfg->terminal_input_len, buf, n);
+		cfg->terminal_input = p;
+		cfg->terminal_input_len += n;
+	}
+	fypal_probe_destroy(probe);
+	return &cfg->terminal;
+}
+
 static void markdown_palette_ground(struct fyai_cfg *cfg,
 				    struct fypal_ctx *palette)
 {
+	const struct fypal_term *term;
 	uint32_t rgb;
 	bool light;
 
 	if (!cfg->theme_ground || strcmp(cfg->theme_ground, "terminal"))
 		return;
-	/* A sub-agent draws on a terminal that the parent emulates. */
-	if (cfg->agent_pty)
+	term = fyai_terminal_probe(cfg);
+	if (!(term->flags & FYPAL_TERM_BACKGROUND))
 		return;
-	if (!cfg->terminal_ground_state)
-		cfg->terminal_ground_state =
-			fypal_detect_background(STDOUT_FILENO,
-						&cfg->terminal_ground) ? 1 : -1;
-	if (cfg->terminal_ground_state < 0)
-		return;
-	rgb = cfg->terminal_ground;
+	rgb = term->background;
 	/* Rec. 601 luma, as libfypalette divides the variants */
 	light = (((rgb >> 16) & 0xff) * 299 + ((rgb >> 8) & 0xff) * 587 +
 		 (rgb & 0xff) * 114) / 1000 >= 128;
@@ -583,7 +613,7 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 {
 	char name[128];
 	const char *variant;
-	const char *detected;
+	bool known;
 
 	if (!markdown_theme_split(cfg->theme, name, sizeof(name), &variant))
 		return;
@@ -596,25 +626,12 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 				  cfg->theme_variant : "dark";
 		else if (!markdown_color_enabled(cfg->color))
 			variant = "dark";
-		else {
-			/*
-			 * Keep the answer of the terminal. A re-derive during
-			 * a live session queries a terminal whose reply the UI
-			 * reads, and a fallback would change the variant under
-			 * the conversation already rendered. A terminal that
-			 * did not answer gives nothing to keep, thus the next
-			 * load asks again.
-			 */
-			if (!cfg->terminal_variant) {
-				detected = terminal_detect_theme();
-				if (detected)
-					cfg->terminal_variant =
-						fy_gb_intern_string(cfg->gb,
-								    detected);
-			}
-			variant = cfg->terminal_variant ?
-				  cfg->terminal_variant : "dark";
-		}
+		else
+			/* The probe runs one time, so a configuration change
+			 * during the session gets the same variant. */
+			variant = fypal_term_variant(fyai_terminal_probe(cfg),
+						     &known) ==
+				  FYPAL_VARIANT_LIGHT ? "light" : "dark";
 	}
 	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
 	cfg->palette = NULL;

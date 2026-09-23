@@ -9,13 +9,10 @@
 #include "config.h"
 #endif
 
-#include <fcntl.h>
-#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#include <termios.h>
 #include <unistd.h>
 
 #include "fyai_terminal.h"
@@ -163,76 +160,4 @@ size_t terminal_trim_blank_rows(const char *text, size_t len)
 		end = start;
 	}
 	return end;
-}
-
-static bool osc11_reply_is_light(const char *s)
-{
-	const char *p;
-	unsigned long r = 0, g = 0, b = 0;
-	double rf, gf, bf;
-	int nr = 0, ng = 0, nb = 0;
-
-	p = strstr(s, "rgb:");
-	if (!p)
-		return false;
-	if (sscanf(p + 4, "%lx%n/%lx%n/%lx%n", &r, &nr, &g, &ng, &b, &nb) != 3)
-		return false;
-	rf = (double)r / ((1UL << (4 * nr)) - 1);
-	gf = (double)g / ((1UL << (4 * (ng - nr - 1))) - 1);
-	bf = (double)b / ((1UL << (4 * (nb - ng - 1))) - 1);
-	return (0.2126 * rf + 0.7152 * gf + 0.0722 * bf) > 0.5;
-}
-
-const char *terminal_detect_theme(void)
-{
-	const char *env = getenv("COLORFGBG");
-	const char *last;
-	const char *result = NULL;
-	struct termios old, raw;
-	struct pollfd pfd;
-	char buf[64];
-	size_t off = 0;
-	ssize_t n;
-	int fd;
-	int bg;
-
-	if (env) {
-		last = strrchr(env, ';');
-		if (last && sscanf(last + 1, "%d", &bg) == 1)
-			return bg >= 0 && bg <= 6 ? "dark" : "light";
-	}
-	fd = open("/dev/tty", O_RDWR | O_NOCTTY);
-	if (fd < 0)
-		return NULL;
-	/* Do not query the terminal from a background process group. */
-	if (!terminal_is_tty(fd) || tcgetpgrp(fd) != getpgrp() ||
-	    tcgetattr(fd, &old)) {
-		close(fd);
-		return NULL;
-	}
-	raw = old;
-	raw.c_lflag &= ~(ICANON | ECHO);
-	raw.c_cc[VMIN] = 0;
-	raw.c_cc[VTIME] = 0;
-	tcsetattr(fd, TCSANOW, &raw);
-	(void)!write(fd, FYAI_OSC_QUERY_BACKGROUND,
-		     sizeof(FYAI_OSC_QUERY_BACKGROUND) - 1);
-	pfd.fd = fd;
-	pfd.events = POLLIN;
-	while (off < sizeof(buf) - 1 && poll(&pfd, 1, 500) > 0) {
-		n = read(fd, buf + off, sizeof(buf) - 1 - off);
-		if (n <= 0)
-			break;
-		off += (size_t)n;
-		buf[off] = '\0';
-		if (strstr(buf, "rgb:") &&
-		    (memchr(buf, '\\', off) || memchr(buf, '\a', off)))
-			break;
-	}
-	buf[off] = '\0';
-	tcsetattr(fd, TCSANOW, &old);
-	close(fd);
-	if (strstr(buf, "rgb:"))
-		result = osc11_reply_is_light(buf) ? "light" : "dark";
-	return result;
 }

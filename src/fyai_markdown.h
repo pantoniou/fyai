@@ -56,6 +56,14 @@ char *markdown_lang_for_path(const char *path);
  * escapes in C. Locate and load the shipped styling YAML into @cfg->gb; safe to
  * skip (renderer falls back to the library default theme) if it is missing.
  */
+/*
+ * Probe the terminal the first time this is called for @cfg, and return the
+ * result, which @cfg keeps. Keys typed during the probe go to
+ * @cfg->terminal_input. Nothing is sent for a sub-agent, or when @cfg is
+ * already marked as probed.
+ */
+const struct fypal_term *fyai_terminal_probe(struct fyai_cfg *cfg);
+
 void fyai_markdown_load_style(struct fyai_cfg *cfg);
 /* As fyai_markdown_load_style(), but a theme of the auto variant takes
  * @variant and the terminal is not asked. */

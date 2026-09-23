@@ -16,7 +16,6 @@
 #define FYAI_ANSI_ERASE_DOWN		"\r\033[J"
 #define FYAI_ANSI_CURSOR_UP		"\033[1A"
 #define FYAI_ANSI_CURSOR_UP_FMT		"\033[%zuA"
-#define FYAI_OSC_QUERY_BACKGROUND	"\033]11;?\033\\"
 
 int markdown_render_width(void);
 int markdown_render_height(void);
@@ -25,9 +24,6 @@ bool terminal_is_tty(int fd);
 bool terminal_window_size(int fd, int *rowsp, int *colsp);
 bool ansi_color_on(const char *color, int fd);
 bool markdown_color_enabled(const char *color);
-/* "light" or "dark" from $COLORFGBG or an OSC 11 query, NULL when the
- * terminal did not answer. */
-const char *terminal_detect_theme(void);
 bool terminal_text_at_line_start(const char *text, size_t len);
 size_t terminal_trim_blank_rows(const char *text, size_t len);
 

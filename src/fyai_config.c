@@ -2281,6 +2281,7 @@ void fyai_config_cleanup(struct fyai_cfg *cfg)
 		free(cfg->cmd.args.mcp.scopes);
 	free(cfg->branch);
 	free(cfg->root_spec);
+	free(cfg->terminal_input);
 	markdown_palettes_destroy(cfg);
 	fy_generic_builder_destroy(cfg->gb);
 	memset(cfg, 0, sizeof(*cfg));

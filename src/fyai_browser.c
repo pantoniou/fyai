@@ -1602,8 +1602,8 @@ static bool browser_preview_style(struct fyai_browser *b, struct fyai_cfg *cfg,
 	cfg->palette_theme = NULL;
 	cfg->palette_variant = NULL;
 	cfg->palette_ground = NULL;
-	if (!cfg->terminal_ground_state)
-		cfg->terminal_ground_state = -1;
+	/* the preview does not probe the terminal */
+	cfg->terminal_probed = true;
 	rc = fyai_config_apply(cfg, fy_mapping(gb, "display", display));
 	if (rc)
 		fyai_warning(b->ctx, "the preview keeps its display settings: "
