@@ -45,7 +45,10 @@ from screen import Screen
 
 ROWS = 30
 screen = Screen(ROWS, 100)
-screen.feed(open(sys.argv[1], "rb").read())
+data = open(sys.argv[1], "rb").read()
+# Read the opening screen: the exit removes the chrome under it.
+end = data.find(b"/exit")
+screen.feed(data if end < 0 else data[:end])
 used = sum(1 for r in screen.display() if r.strip())
 # Allow rows for prompt and status chrome.
 if used < ROWS // 2:
