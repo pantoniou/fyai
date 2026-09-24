@@ -1609,6 +1609,10 @@ static bool browser_preview_style(struct fyai_browser *b, struct fyai_cfg *cfg,
 	if (rc)
 		fyai_warning(b->ctx, "the preview keeps its display settings: "
 			     "the branch settings are not valid");
+	/* Standard output is not the terminal while the UI is open: take
+	 * the colour that the session resolved for it. */
+	if (!cfg->color || !strcmp(cfg->color, "auto"))
+		cfg->color = b->ctx->cfg->color;
 	if (cfg->markdown)
 		fyai_markdown_load_style_as(cfg, b->ctx->cfg->theme_variant);
 	return true;
