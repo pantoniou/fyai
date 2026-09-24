@@ -613,7 +613,8 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 {
 	char name[128];
 	const char *variant;
-	bool known;
+	const struct fypal_term *term;
+	uint32_t rgb;
 
 	if (!markdown_theme_split(cfg->theme, name, sizeof(name), &variant))
 		return;
@@ -626,12 +627,21 @@ static void markdown_load_style(struct fyai_cfg *cfg, const char *auto_variant)
 				  cfg->theme_variant : "dark";
 		else if (!markdown_color_enabled(cfg->color))
 			variant = "dark";
-		else
-			/* The probe runs one time, so a configuration change
-			 * during the session gets the same variant. */
-			variant = fypal_term_variant(fyai_terminal_probe(cfg),
-						     &known) ==
-				  FYPAL_VARIANT_LIGHT ? "light" : "dark";
+		else {
+			/* The measured background wins over stale environment hints.
+			 * The probe runs once for the lifetime of the session. */
+			term = fyai_terminal_probe(cfg);
+			if (term->flags & FYPAL_TERM_BACKGROUND) {
+				rgb = term->background;
+				variant = (((rgb >> 16) & 0xff) * 299 +
+					   ((rgb >> 8) & 0xff) * 587 +
+					   (rgb & 0xff) * 114) / 1000 >= 128 ?
+					  "light" : "dark";
+			} else {
+				variant = fypal_term_variant(term, NULL) ==
+					  FYPAL_VARIANT_LIGHT ? "light" : "dark";
+			}
+		}
 	}
 	cfg->theme_variant = fy_gb_intern_string(cfg->gb, variant);
 	cfg->palette = NULL;
