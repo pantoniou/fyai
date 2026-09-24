@@ -13,6 +13,8 @@ int fyai_browser_open(struct fyai_ctx *ctx);
  * invocation. @all offers the sessions of every starting directory.
  */
 int fyai_browser_open_resume(struct fyai_ctx *ctx, bool all);
+/* Open the resume picker in a session. Escape returns to the session. */
+int fyai_browser_open_switch(struct fyai_ctx *ctx, bool all);
 void fyai_browser_close(struct fyai_ctx *ctx);
 void fyai_browser_config_changed(struct fyai_ctx *ctx);
 void fyai_browser_service(struct fyai_ctx *ctx);

@@ -48,10 +48,11 @@ struct fyai_browser {
 	unsigned long generation;
 	bool dirty, closing, filtering;
 	unsigned int view, configured_view;
-	/* The resume picker: the session to continue is the only thing being
-	 * chosen, so Escape ends the invocation instead of returning to a
-	 * prompt that has no session behind it. */
-	bool resume, resume_all, picked;
+	/* The resume picker. At the start of an invocation the session to
+	 * continue is the only thing being chosen, so Escape ends the
+	 * invocation instead of returning to a prompt that has no session
+	 * behind it (@quit_on_cancel). In a session, Escape returns to it. */
+	bool resume, resume_all, picked, quit_on_cancel;
 	bool navigated;
 	bool foreign_visible;
 	bool foreign_scheduled;
@@ -1215,7 +1216,8 @@ bool fyai_browser_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf)
  * asks layout for the whole pane, because choosing the session is the only
  * thing the invocation is doing yet.
  */
-static int browser_open(struct fyai_ctx *ctx, bool resume, bool all)
+static int browser_open(struct fyai_ctx *ctx, bool resume, bool all,
+			bool quit_on_cancel)
 {
 	struct fyai_browser *b;
 	int rc;
@@ -1229,6 +1231,7 @@ static int browser_open(struct fyai_ctx *ctx, bool resume, bool all)
 		b->ctx = ctx;
 		b->resume = resume;
 		b->resume_all = all;
+		b->quit_on_cancel = quit_on_cancel;
 		b->view = ctx->cfg->branch_view &&
 			!strcmp(ctx->cfg->branch_view, "gitgraph") ? 1 : 0;
 		b->configured_view = b->view;
@@ -1264,12 +1267,20 @@ err_out:
 
 int fyai_browser_open(struct fyai_ctx *ctx)
 {
-	return browser_open(ctx, false, false);
+	return browser_open(ctx, false, false, false);
 }
 
 int fyai_browser_open_resume(struct fyai_ctx *ctx, bool all)
 {
-	return browser_open(ctx, true, all);
+	return browser_open(ctx, true, all, true);
+}
+
+int fyai_browser_open_switch(struct fyai_ctx *ctx, bool all)
+{
+	/* The branch browser and the picker share the one browser. */
+	if (ctx->browser && !ctx->browser->resume)
+		fyai_browser_close(ctx);
+	return browser_open(ctx, true, all, false);
 }
 
 void fyai_browser_close(struct fyai_ctx *ctx)
@@ -1280,7 +1291,7 @@ void fyai_browser_close(struct fyai_ctx *ctx)
 	if (!b)
 		return;
 	fyai_event_defer_cancel(fyai_ctx_loop(ctx), browser_foreign_scan, b);
-	if (b->resume && !b->picked)
+	if (b->resume && b->quit_on_cancel && !b->picked)
 		fyai_ui_quit_request(ctx);
 	fyai_ui_surface_close(ctx, b->surface);
 	for (i = 0; i < b->count; i++) {

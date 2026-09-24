@@ -2445,6 +2445,26 @@ static int slash_page(struct fyai_ctx *ctx, const char *arg)
 	return fyai_ui_page_report(ctx);
 }
 
+/*
+ * Resume another session in this one: the picker with no argument, the
+ * picker over every starting directory with --all, or the named session.
+ * The session is selected for this invocation; HEAD does not move.
+ */
+static int slash_resume(struct fyai_ctx *ctx, const char *arg)
+{
+	while (arg && isspace((unsigned char)*arg))
+		arg++;
+	if (!arg || !*arg)
+		return fyai_browser_open_switch(ctx, false);
+	if (!strcmp(arg, "--all"))
+		return fyai_browser_open_switch(ctx, true);
+	if (arg[0] == '-') {
+		fyai_error(ctx, "resume: unknown option '%s'", arg);
+		return -1;
+	}
+	return fyai_session_branch_switch(ctx, arg, false, true);
+}
+
 static int slash_branches(struct fyai_ctx *ctx, const char *arg)
 {
 	if (arg && *arg) {
@@ -2458,6 +2478,8 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "branches", "", "open the branch browser", slash_branches },
 	{ "branch", "[name|list|new|delete|rename|show|describe]",
 	  "list or switch branches", slash_branch },
+	{ "resume", "[session|--all]", "resume another session", slash_resume },
+	{ "switch", "[session|--all]", "alias for /resume", slash_resume },
 	{ "clear", "", "start a fresh conversation", slash_clear },
 	{ "compact", "[hint]", "summarize history into a fresh chain",
 	  slash_compact },
@@ -2991,6 +3013,20 @@ static void session_complete_branch(struct fyai_ctx *ctx,
 	}
 }
 
+static void session_complete_resume(struct fyai_ctx *ctx,
+				    struct fytim_completions *lc,
+				    const char *cmd, size_t cmdlen,
+				    const char *word)
+{
+	const char *s;
+
+	session_complete_value(lc, cmd, cmdlen, word, "--all");
+	fy_foreach(s, ctx->arena_branches) {
+		if (!fy_str_empty(s))
+			session_complete_value(lc, cmd, cmdlen, word, s);
+	}
+}
+
 static void session_complete_tools(struct fyai_ctx *ctx,
 					   struct fytim_completions *lc,
 					   const char *cmd, size_t cmdlen,
@@ -3071,6 +3107,10 @@ static void session_complete_command_args(struct fyai_ctx *ctx,
 	}
 	if (!strcmp(cmd->name, "branch")) {
 		session_complete_branch(ctx, lc, command, command_len, word);
+		return;
+	}
+	if (cmd->run == slash_resume) {
+		session_complete_resume(ctx, lc, command, command_len, word);
 		return;
 	}
 	if (!strcmp(cmd->name, "tools")) {
