@@ -46,7 +46,10 @@ session()
 # The view shows both exchanges, goes back to the first with PageUp, and to
 # the end with PageDown. The rows of the view, above the blank row and the
 # header, hold one exchange and a half: thirteen rows leave six to the view.
-session fullscreen "wait-screen:Hello from the mock provider.|send:second question|wait-screen:Hello again from the mock provider.|wait-gone:│ first question|raw:1b5b357e|wait-screen:│ first question|raw:1b5b367e|wait-gone:│ first question" 13
+# The mock answers at once, so no frame need show the first answer over the
+# second question: a wheel step up over the view shows both.
+WHEEL=$(printf '\033[<64;10;3M' | od -An -tx1 | tr -d ' \n')
+session fullscreen "wait-screen:Hello from the mock provider.|send:second question|wait-screen:Hello again from the mock provider.|wait-gone:│ first question|raw:$WHEEL|wait-screen:Hello from the mock provider.|raw:1b5b357e|wait-screen:│ first question|raw:1b5b367e|wait-gone:│ first question" 13
 grep -a -q $'\x1b\[?1049h' "$TEST_DIR/pty.out" ||
     fail "the fullscreen session did not take the alternate screen"
 grep -a -q $'\x1b\[?1049l' "$TEST_DIR/pty.out" ||
