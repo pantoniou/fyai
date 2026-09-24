@@ -1670,7 +1670,9 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 		data = action == 'l' ? fyai_list_reflog_data(&view, gb) : branch.config;
 		rc = fyai_generic_to_markdown(&view, fy_invalid, data);
 	}
-	if (rc)
+	/* A recap returns the exchanges it showed; only a negative is a
+	 * failure. */
+	if (rc < 0)
 		fyai_warning(b->ctx, "the preview of %s is incomplete", name);
 	if (!fp) {
 		captured = fyai_sink_captured(view.sink, NULL);

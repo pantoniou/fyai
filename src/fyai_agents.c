@@ -990,7 +990,8 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 	view.transient_gb = gb;
 	view.sink = fyai_sink_create_capture(&view);
 	if (view.sink) {
-		if (fyai_display_recap(&view, 10, 0))
+		/* The recap returns the exchanges it showed. */
+		if (fyai_display_recap(&view, 10, 0) < 0)
 			fyai_warning(ctx, "the stored history of %s is incomplete", name);
 		text = strdup(fyai_sink_captured(view.sink, NULL));
 		if (!text)
