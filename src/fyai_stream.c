@@ -20,6 +20,7 @@
 #include "fyai_sink.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
+#include "fyai_display.h"
 #include "fyai_tools.h"
 #include "fyai_log.h"
 #include "fyai_provider.h"
@@ -57,6 +58,8 @@ struct stream_response {
 	size_t reasoning_active_rows;
 	fy_generic content_chunks;
 	fy_generic tool_calls;
+	/* Messages server_tool_use blocks: {index, id, name, chunks}. */
+	fy_generic hosted_calls;
 	fy_generic response_items;
 	fy_generic emitted_tools;
 	fy_generic metadata;
@@ -206,6 +209,7 @@ static int stream_response_init(struct stream_response *stream,
 	stream->ctx = ctx;
 	stream->content_chunks = fy_seq_empty;
 	stream->tool_calls = fy_seq_empty;
+	stream->hosted_calls = fy_seq_empty;
 	stream->response_items = fy_seq_empty;
 	stream->emitted_tools = fy_seq_empty;
 	stream->metadata = fy_map_empty;
@@ -796,6 +800,26 @@ static void stream_report_failure(struct stream_response *stream,
 	fyai_error(ctx, "%s", text);
 }
 
+/* Present a provider-run search; the item stays in response_items. */
+static int responses_hosted_search(struct stream_response *stream,
+				   fy_generic item)
+{
+	fy_generic action, query, status;
+	bool ok;
+
+	action = fy_get(item, "action");
+	query = fy_get(action, "query");
+	if (!fy_is_string(query))
+		query = fy_get(fy_get(action, "queries"), 0);
+	status = fy_get(item, "status");
+	ok = fy_not_equal(status, "failed");
+	stream_finish_reasoning(stream);
+	return fyai_present_hosted_call(stream->ctx, "web_search",
+			fy_mapping(stream->gb, "query",
+				   fy_is_string(query) ? query : fy_value("")),
+			ok, ok ? NULL : "search failed");
+}
+
 static int responses_stream_apply_event(struct stream_response *stream,
 					fy_generic event)
 {
@@ -845,6 +869,8 @@ static int responses_stream_apply_event(struct stream_response *stream,
 		if (fy_is_invalid(stream->response_items))
 			return -1;
 		type = fy_get(item, "type");
+		if (fy_equal(type, "web_search_call"))
+			return responses_hosted_search(stream, item);
 		if (fy_not_equal(type, "function_call") &&
 		    fy_not_equal(type, "shell_call"))
 			return 0;
@@ -872,6 +898,71 @@ static int responses_stream_apply_event(struct stream_response *stream,
 	}
 
 	return 0;
+}
+
+/*
+ * Find the server_tool_use block with content index @index, or with the
+ * block ID @id when @id is not NULL. Return its position or -1.
+ */
+static ssize_t messages_hosted_find(struct stream_response *stream,
+				    long long index, const char *id)
+{
+	fy_generic call;
+	size_t i;
+
+	fy_foreach_idx_item(i, call, stream->hosted_calls) {
+		if (id ? fy_equal(fy_get(call, "id"), id) :
+			 fy_get(call, "index", -1LL) == index)
+			return (ssize_t)i;
+	}
+	return -1;
+}
+
+static int messages_hosted_append(struct stream_response *stream,
+				  long long index, const char *text)
+{
+	struct fy_generic_builder *gb = stream->gb;
+	fy_generic call;
+	ssize_t pos;
+
+	pos = messages_hosted_find(stream, index, NULL);
+	call = fy_get(stream->hosted_calls, (size_t)pos);
+	call = fy_assoc(gb, call, "chunks",
+			fy_append(gb, fy_get(call, "chunks", fy_seq_empty),
+				  text));
+	stream->hosted_calls = fy_replace(gb, stream->hosted_calls,
+					  (size_t)pos, call);
+	return fy_is_invalid(stream->hosted_calls) ? -1 : 0;
+}
+
+/*
+ * A web_search_tool_result block ends the server_tool_use block that it
+ * names. Its content is a list of results, or an error object.
+ */
+static int messages_hosted_result(struct stream_response *stream,
+				  fy_generic block)
+{
+	struct fy_generic_builder *gb = stream->gb;
+	fy_generic call, args, content, code, json;
+	const char *id;
+	ssize_t pos;
+	bool ok;
+
+	id = fy_get(block, "tool_use_id", "");
+	pos = messages_hosted_find(stream, -1, id);
+	call = pos >= 0 ? fy_get(stream->hosted_calls, (size_t)pos) :
+			  fy_map_empty;
+	json = fyai_join_strings(gb, fy_get(call, "chunks", fy_seq_empty));
+	args = parse_json_string(gb, fy_castp(&json, ""));
+	if (!fy_is_mapping(args))
+		args = fy_map_empty;
+	content = fy_get(block, "content");
+	ok = !fy_is_mapping(content);
+	code = fy_get(content, "error_code");
+	stream_finish_reasoning(stream);
+	return fyai_present_hosted_call(stream->ctx, "web_search", args, ok,
+			ok ? NULL : fy_is_string(code) ? fy_castp(&code, "") :
+							 "search failed");
 }
 
 /*
@@ -907,6 +998,18 @@ static int messages_stream_apply_event(struct stream_response *stream,
 
 	if (fy_equal(type, "content_block_start")) {
 		block = fy_get(event, "content_block");
+		index = fy_get(event, "index", 0LL);
+		if (fy_equal(fy_get(block, "type"), "server_tool_use")) {
+			stream->hosted_calls = fy_append(gb,
+				stream->hosted_calls,
+				fy_mapping(gb, "index", index,
+					   "id", fy_get(block, "id", ""),
+					   "name", fy_get(block, "name", ""),
+					   "chunks", fy_seq_empty));
+			return fy_is_invalid(stream->hosted_calls) ? -1 : 0;
+		}
+		if (fy_equal(fy_get(block, "type"), "web_search_tool_result"))
+			return messages_hosted_result(stream, block);
 		if (fy_not_equal(fy_get(block, "type"), "tool_use"))
 			return 0;
 		index = fy_get(event, "index", 0LL);
@@ -949,6 +1052,9 @@ static int messages_stream_apply_event(struct stream_response *stream,
 			if (!*text)
 				return 0;
 			index = fy_get(event, "index", 0LL);
+			if (messages_hosted_find(stream, index, NULL) >= 0)
+				return messages_hosted_append(stream, index,
+							      text);
 			if (index < 0 ||
 			    stream_ensure_tool_call(stream, (size_t)index))
 				return -1;

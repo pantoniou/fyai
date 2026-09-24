@@ -59,6 +59,12 @@ int fyai_record_shell_screen(struct fyai_ctx *ctx, const char *description,
 int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 			      fy_generic tool_result, bool tool_ok);
 /*
+ * Present and record a call that the provider ran, such as web_search. It
+ * stores a title row with the outcome and no result fragment.
+ */
+int fyai_present_hosted_call(struct fyai_ctx *ctx, const char *name,
+			     fy_generic args, bool ok, const char *cause);
+/*
  * Print @lead and @url, as a Markdown link labelled @label on a terminal (which
  * renders to an OSC 8 hyperlink) or as plain text otherwise. Keep @label short:
  * the raw URL does not fit a terminal row, and the transcript clips what does.

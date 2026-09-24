@@ -1730,6 +1730,15 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 		fprintf(mf, "**time**\n\n");
 		return;
 	}
+	if (fy_equal(name, "web_search")) {
+		gc = fy_get(args, "query");
+		c = fy_castp(&gc, "");
+		if (*c)
+			fprintf(mf, "**web search** `%s`\n\n", c);
+		else
+			fprintf(mf, "**web search**\n\n");
+		return;
+	}
 	if (fy_equal(name, "wait")) {
 		/* What the wait is for, when the model said, and its name
 		 * when it is one that fires on its own. */
@@ -2529,6 +2538,73 @@ err:
 		fclose(mf);
 err_closed:
 	fyai_md_blocks_free(&blocks);
+	free(md);
+	return -1;
+}
+
+int fyai_present_hosted_call(struct fyai_ctx *ctx, const char *name,
+			     fy_generic args, bool ok, const char *cause)
+{
+	char *md = NULL;
+	size_t mdlen = 0;
+	size_t base;
+	size_t head;
+	const char *nl;
+	bool isolated;
+	FILE *mf;
+	int rc;
+
+	/* A stored turn has no open output document. */
+	if (!ctx || !ctx->display_output)
+		return 0;
+	rc = fyai_output_start_block(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "could not separate the %s call from assistant output",
+			 name);
+	isolated = fyai_output_renders_live(ctx);
+	rc = isolated ? fyai_output_checkpoint(ctx) : 0;
+	fyai_error_check(ctx, !rc, err,
+			 "could not checkpoint output before the %s call", name);
+
+	base = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err_resume,
+			 "could not format the %s call", name);
+	fyai_emit_tool_call(ctx, mf, fyai_ctx_transient_gb(ctx), name, args,
+			    -1, NULL);
+	rc = fclose(mf);
+	fyai_error_check(ctx, !rc, err_resume,
+			 "could not finish the %s call", name);
+	nl = memchr(md, '\n', mdlen);
+	head = nl ? (size_t)(nl - md) : 0;
+
+	/* The provider runs the call: a title row and no result fragment. */
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err_resume,
+			 "could not record the %s call", name);
+	if (head) {
+		rc = fyai_output_add_tool_head_fragment(ctx, base, base + head,
+							name, ok, cause);
+		fyai_error_check(ctx, !rc, err_resume,
+				 "could not record the %s call title", name);
+		if (ctx->cfg->markdown)
+			(void)fyai_display_tool_head(ctx, md, head, ok, cause);
+		else
+			(void)fyai_sink_printf(ctx->sink, FYAI_SINK_STATUS,
+					       "%s %s%s\n", name,
+					       fy_get(args, "query", ""),
+					       ok ? "" : " (failed)");
+	}
+	free(md);
+	md = NULL;
+	rc = isolated ? fyai_output_resume(ctx) : 0;
+	fyai_error_check(ctx, !rc, err,
+			 "could not resume output after the %s call", name);
+	return 0;
+err_resume:
+	if (isolated)
+		(void)fyai_output_resume(ctx);
+err:
 	free(md);
 	return -1;
 }
