@@ -1,0 +1,20 @@
+{
+  "steps": [
+    {
+      "sse": [
+        { "type": "response.output_item.added", "output_index": 0, "item": {
+            "type": "web_search_call", "id": "ws-1", "status": "in_progress"
+        } },
+        { "type": "response.output_item.done", "output_index": 0, "item": {
+            "type": "web_search_call", "id": "ws-1", "status": "completed",
+            "action": { "type": "search", "query": "libfyaml release notes" }
+        } },
+        { "type": "response.output_text.delta", "delta": "Found the notes." },
+        { "type": "response.completed", "response": {
+            "id": "resp-ws-1", "object": "response", "model": "mock-model",
+            "status": "completed", "output": []
+        } }
+      ]
+    }
+  ]
+}
