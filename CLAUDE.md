@@ -319,6 +319,11 @@ provider name. `fyai_config_resolve_model()` derives
 `cfg->shell_tool_supported` for the active endpoint. An endpoint with no
 capability declaration does not support native shell calls.
 
+A hosted tool, such as `web_search`, runs at the provider. The stream parser
+presents it with `fyai_present_hosted_call()`: one title row with the outcome,
+stored as a `tool_head` fragment with no result fragment. Do not send a hosted
+call to the local tool path.
+
 Use `fyai_provider_native_shell()` as the single decision for native shell
 support. If native shell is unavailable, declare the function shell tool and
 rewrite stored native shell items to function-call items in the request
