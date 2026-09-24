@@ -319,6 +319,7 @@ fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc)
 	if (cfg->api_mode == FYAI_API_MESSAGES) {
 		cached = fy_get(usage, "cache_read_input_tokens", 0LL);
 		cache_write = fy_get(usage, "cache_creation_input_tokens", 0LL);
+		input += cached + cache_write;
 	}
 	total = fy_get(usage, "total_tokens", 0LL);
 	if (!total)
