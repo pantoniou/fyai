@@ -20,20 +20,29 @@ assert_status 0
 
 # Make `newer` the most recently updated session, so the row the picker opens
 # on is the one this case names.
-run_fyai -b newer --set temperature=0.5
+# It also holds the mock provider settings that the resumed session uses.
+mock_start chat_basic.json
+run_fyai -b newer --set temperature=0.5 --set api=chat-completions \
+	--set "api_url=$MOCK_URL/v1/chat/completions" \
+	--set display/stream=false
 assert_status 0
 
 # The picker holds the keys as soon as it opens, so the line the driver sends
 # first is read as keys: Enter resumes, Escape cancels.
 
 # --- Enter resumes the selected session ----------------------------------
+# The resumed session publishes its first exchange to the branch the picker
+# chose, so the stored state says which session was resumed.
+# The picker draws its footer before its rows, and Enter with no row does
+# nothing: Enter waits for the header of the selected session.
 FYAI_PTY_ROWS=24 FYAI_PTY_COLS=90 \
-FYAI_PTY_INPUT="" \
+FYAI_PTY_INPUT="" FYAI_PTY_SUBMIT_INPUT=0 \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" \
-FYAI_PTY_AFTER="wait-screen:switched to branch|send:/help|wait-screen:/transcript-system|raw:1d" \
+FYAI_PTY_AFTER="wait-screen:fyai · newer|raw:0d|wait-gone:toggle foreign sessions|send:say hello|wait-screen:Hello from the mock provider.|send:/help|wait-screen:/transcript-system|raw:1d" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pick.out" \
 	"$FYAI_BIN" -k test-key -m mock-model resume
+mock_stop 1
 
 # The picker drew the sessions it offers and selected the newest one.
 grep -qF "toggle foreign sessions" "$TEST_DIR/pick.out" || \
@@ -45,21 +54,21 @@ grep -qF "the newest session" "$TEST_DIR/pick.out" || \
 import sys
 
 data = open(sys.argv[1], "rb").read()
-end = data.find(b"switched to branch")
+end = data.find(b"Hello from the mock provider.")
 if end < 0 or b"\x1b[38;2;" not in data[:end]:
     raise SystemExit("no themed foreground in the picker")
 if b"/clear" in data[:end]:
     raise SystemExit("injected Claude command metadata in the picker")
 EOF
-# Enter resumed the newest of them.
-grep -qF "switched to branch newer" "$TEST_DIR/pick.out" || \
-	fail "Enter did not resume the selected session"
+# Enter resumed the newest of them, and the exchange went to it.
+assert_state_contains "Hello from the mock provider." -b newer dump state
+assert_state_absent "Hello from the mock provider." -b main dump state
 "$PYTHON" - "$TEST_DIR/pick.out" <<'EOF' || \
 	fail "resumed session lost automatic colour"
 import sys
 
 data = open(sys.argv[1], "rb").read()
-start = data.rfind(b"switched to branch")
+start = data.rfind(b"Hello from the mock provider.")
 help_text = data.find(b"Settings", start)
 if start < 0 or help_text < 0 or b"\x1b[" not in data[start:help_text]:
     raise SystemExit("no styling after branch configuration was adopted")
@@ -73,25 +82,29 @@ sed "s|@CWD@|$TEST_DIR|g" \
 	"$TEST_DIR/claude-root/projects/project-a/claude-picker.jsonl"
 touch -t 203001010000 \
 	"$TEST_DIR/claude-root/projects/project-a/claude-picker.jsonl"
+mock_start chat_basic.json
 CLAUDE_CONFIG_DIR="$TEST_DIR/claude-root" \
 FYAI_PTY_ROWS=24 FYAI_PTY_COLS=100 \
 FYAI_PTY_INPUT="" FYAI_PTY_SUBMIT_INPUT=0 \
 FYAI_PTY_READY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_NEEDLE="toggle foreign sessions" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/foreign-picker.snap" \
-FYAI_PTY_AFTER="raw:66|wait-screen:claude-code|raw:66|wait-gone:Continue this imported session|raw:66|wait-screen:Continue this imported session|raw:1b5b48|wait-screen:Group · import|raw:6a|wait-screen:/claude-code|raw:6a|wait-screen:2030-01-01|snapshot|raw:69|wait-screen:Ready to continue.|raw:1b|frame:2|raw:0d|wait-screen:switched to branch|raw:1d" \
+FYAI_PTY_AFTER="raw:66|wait-screen:claude-code|raw:66|wait-gone:Continue this imported session|raw:66|wait-screen:Continue this imported session|raw:1b5b48|wait-screen:Group · import|raw:6a|wait-screen:/claude-code|raw:6a|wait-screen:2030-01-01|snapshot|raw:69|wait-screen:Ready to continue.|raw:1b|frame:2|raw:0d|wait-gone:toggle foreign sessions|send:say hello|wait-screen:Hello from the mock provider.|raw:1d" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/foreign-pick.out" \
 	"$FYAI_BIN" -k test-key --color off -m mock-model \
+		--set api=chat-completions \
+		--set "api_url=$MOCK_URL/v1/chat/completions" \
+		--set display/stream=false \
 		--set display/branch_preview=bottom resume
+mock_stop 1
 
 grep -qF "import/claude-code/claude-picker" "$TEST_DIR/foreign-pick.out" || \
 	fail "the picker did not show the Claude session"
 grep -qF "import [group]" "$TEST_DIR/foreign-pick.out" &&
 	grep -qF "claude-code [group]" "$TEST_DIR/foreign-pick.out" || \
 	fail "the picker did not group foreign sessions in the branch tree"
-grep -qF "switched to branch import/claude-code/claude-picker" \
-	"$TEST_DIR/foreign-pick.out" || \
-	fail "Enter did not import and resume the Claude session"
+assert_state_contains "Hello from the mock provider." \
+	-b import/claude-code/claude-picker dump state
 "$PYTHON" - "$TEST_DIR/foreign-picker.snap" "$TESTS_DIR" <<'EOF' || \
 	fail "the picker regions were not separated"
 import sys
@@ -182,8 +195,6 @@ FYAI_PTY_NEEDLE="toggle foreign sessions" \
 
 grep -qF "toggle foreign sessions" "$TEST_DIR/cancel.out" || \
 	fail "the picker did not open"
-grep -qF "switched to branch" "$TEST_DIR/cancel.out" && \
-	fail "Escape resumed a session" || true
 
 # A cancelled picker publishes nothing.
 run_fyai list reflog

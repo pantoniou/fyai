@@ -2314,7 +2314,9 @@ int fyai_session_branch_switch(struct fyai_ctx *ctx, const char *name,
 
 	fyai_session_banner_update(ctx);
 	fyai_ui_repaint(ctx);
-	fyai_result(ctx, "switched to branch %s\n", name);
+	/* A session the picker selected is named by the header. */
+	if (!keep_head)
+		fyai_result(ctx, "switched to branch %s\n", name);
 	return 0;
 
 rollback:
