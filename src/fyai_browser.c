@@ -1243,7 +1243,8 @@ static int browser_open(struct fyai_ctx *ctx, bool resume, bool all)
 		if (!b->surface)
 			goto fail;
 		rc = fyai_workpane_register(ctx->workpane, b->surface,
-			FYAI_WORKPANE_TILE_BROWSER, b, &browser_ops,
+			resume ? FYAI_WORKPANE_TILE_PICKER :
+				 FYAI_WORKPANE_TILE_BROWSER, b, &browser_ops,
 			resume ? FYAI_WORKPANE_FILL : 16, 0);
 		if (rc)
 			goto fail;

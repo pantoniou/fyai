@@ -140,9 +140,14 @@ workpane_tile(const struct fyai_workpane_manager *wm,
 /* Resolve pane disposition for the current terminal height. */
 static int fyai_workpane_resolve_rows(const struct fyai_workpane_manager *wm)
 {
+	const struct fyai_workpane_tile *t;
 	int rows = wm->terminal_rows > 0 ? wm->terminal_rows : 1;
 	int cap = 0;
 
+	/* Choosing the session is the only work yet: no cap applies. */
+	t = workpane_tile(wm, wm->zoomed);
+	if (t && t->kind == FYAI_WORKPANE_TILE_PICKER)
+		return 0;
 	switch (wm->disposition) {
 	case FYAI_WORKPANE_FIXED:
 		cap = wm->fixed_rows > 0 ? wm->fixed_rows : rows;
