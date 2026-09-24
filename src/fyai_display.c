@@ -4507,9 +4507,6 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 	/* The card is one unit. Its rows continue it. */
 	flow = fyai_sink_flow(ctx->sink);
 	fenced = markdown_reverse_pair(cfg, &on, &off);
-	/* The top row of a fenced card stands for one row of the separation
-	 * above it. */
-	fyai_flow_blank_rows(flow, fenced ? 1 : 0);
 	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT,
 			     FYAI_FLOW_USER_CARD);
 	fyai_flow_emitted(flow, FYAI_FLOW_PROSE, true);
