@@ -85,6 +85,7 @@ assert_request 2 'r["body"]["system"][0]["cache_control"] == {"type": "ephemeral
 assert_request 2 'r["body"]["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}'
 assert_request 2 'sum(1 for m in r["body"]["messages"] for b in m["content"] if isinstance(b, dict) and "cache_control" in b) == 1'
 assert_stderr_contains "cached=64"
+assert_stderr_contains "cached=64 (76.2%)"
 mock_stop 3
 
 pass

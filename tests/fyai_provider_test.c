@@ -513,11 +513,11 @@ static void test_messages_response(void)
 			"\"arguments\": \"{\\\"path\\\": \\\"f\\\"}\"");
 
 	usage = fyai_extract_usage(&test_ctx, doc);
-	if (fy_get(usage, "input", 0LL) != 50 ||
+	if (fy_get(usage, "input", 0LL) != 85 ||
 	    fy_get(usage, "output", 0LL) != 20 ||
 	    fy_get(usage, "cached", 0LL) != 30 ||
 	    fy_get(usage, "cache_write", 0LL) != 5 ||
-	    fy_get(usage, "total", 0LL) != 70) {
+	    fy_get(usage, "total", 0LL) != 105) {
 		fprintf(stderr, "messages usage mismatch: %s\n", emit(usage));
 		exit(1);
 	}
