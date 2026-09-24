@@ -1144,6 +1144,11 @@ In the REPL, `/` starts a slash command and `//` sends a literal slash. Ctrl-C
 discards nonempty input, ends idle input, or cancels an active turn. Escape and
 SIGINT call `fyai_ui_interrupt()`. Keep `ISIG` enabled.
 
+`/resume`, and its alias `/switch`, select another session for the running
+invocation: by name, or through the resume picker. HEAD does not move. In a
+session, Escape in the picker returns to the session; only the picker of the
+`resume` verb ends the invocation.
+
 Request-shaping slash settings persist through the common commit path. Display
 settings remain session-only. `--new` has the same state effect as `/clear`.
 `/compact` makes one tools-disabled summary request and stores the previous
