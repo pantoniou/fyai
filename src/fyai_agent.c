@@ -261,10 +261,14 @@ err:
 int fyai_agent_spawn_config(struct fyai_ctx *ctx, fy_generic spawn)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic config;
+	fy_generic config, variant;
 	int rc;
 
 	config = fy_get(spawn, "config", fy_invalid);
+	variant = fy_get(spawn, "theme_variant", fy_invalid);
+	if (cfg->agent_pty && fy_any_equal(variant, "dark", "light"))
+		cfg->theme_variant = fy_gb_intern_string(cfg->gb,
+						fy_castp(&variant, ""));
 	fyai_error_check(ctx, fy_is_mapping(config), err,
 			 "the sub-agent spawn state has no configuration");
 	/* fyai_config_validate_document() reports the problems it finds. */

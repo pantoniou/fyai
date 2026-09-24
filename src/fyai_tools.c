@@ -4090,6 +4090,8 @@ static fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 			"head", (long long)ctx->last_message.v);
 	return fy_gb_mapping(gb,
 		"config", fyai_generic_or_null(cfg->config_doc),
+		"theme_variant", cfg->theme_variant ?
+			fy_value(gb, cfg->theme_variant) : fy_null,
 		"branch_config", fyai_generic_or_null(ctx->arena_config),
 		"fork", fork,
 		"parent", ctx->agent_execution,
