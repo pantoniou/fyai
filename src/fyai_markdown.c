@@ -575,6 +575,8 @@ static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 	fyai_cfg_error_check(cfg, !rc, err_destroy, "theme '%s': %s", name,
 			     fypal_ctx_error(palette));
 	markdown_palette_ground(cfg, palette);
+	if (!strcmp(name, "ember"))
+		fypal_ctx_set_surface_contrast(palette, 1.5);
 
 	/* A libfymd4c built without libfypalette refuses the palette. */
 	markdown_renderer_cfg(cfg, &rcfg, true, variant, 0);

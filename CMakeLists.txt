@@ -224,7 +224,7 @@ endif()
 # FYAI_STATIC_DEPS is on. libfypalette comes first: libfymd4c and
 # libfymermaid consume it.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FyDeps.cmake)
-fyai_fy_dep(libfypalette 163acf656e85ae86eb18759c342435ee5f6e5256)
+fyai_fy_dep(libfypalette 2e697319cb8081769f3472c98a0f5371dc266135)
 fyai_fy_dep(libfymd4c b78a9ff4220a31cd3928e1216cdf9f159951c23c)
 
 if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)

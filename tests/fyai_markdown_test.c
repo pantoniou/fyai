@@ -518,6 +518,7 @@ int markdown_gutter_palette(void)
 	struct fymd_renderer_cfg rcfg;
 	struct fymd_renderer *r;
 	const char *arrow;
+	const char *result;
 	char *margin;
 	size_t frame;
 	size_t i;
@@ -546,7 +547,13 @@ int markdown_gutter_palette(void)
 	FYAI_TCHECK(!strcmp(markdown_tool_output_indent(&test_cfg), "   "));
 	for (pass = 0; pass < 2; pass++) {
 		test_cfg.diagram_charset = pass ? "ascii" : "unicode";
-		arrow = pass ? "->" : "\u2192";
+		/* The theme names the mark of a call and of its result. */
+		arrow = markdown_glyph(&test_cfg, "tool.ok", NULL);
+		FYAI_TCHECK(arrow != NULL);
+		result = markdown_glyph(&test_cfg, "gutter.result", NULL);
+		FYAI_TCHECK(result != NULL);
+		if (!arrow || !result)
+			break;
 		markdown_renderer_cfg(&test_cfg, &rcfg, false,
 				      test_cfg.theme_variant, 0);
 		r = markdown_renderer_new(&test_cfg, &rcfg);
@@ -560,7 +567,7 @@ int markdown_gutter_palette(void)
 				if (!margin)
 					continue;
 				FYAI_TCHECK(gutter_test_cols(margin) == 3);
-				/* The arrow blinks while the call runs. */
+				/* The mark blinks while the call runs. */
 				if (states[i] != FYMD_INDICATOR_PENDING ||
 				    !(frame & 1))
 					FYAI_TCHECK(strstr(margin, arrow) != NULL);
@@ -572,8 +579,7 @@ int markdown_gutter_palette(void)
 		fymd_renderer_destroy(r);
 		markdown_tool_marker(&test_cfg, mark, sizeof(mark));
 		FYAI_TCHECK(gutter_test_cols(mark) == FYAI_TOOL_MARKER_WIDTH);
-		FYAI_TCHECK(!strncmp(mark, pass ? "`-" : "\u23bf",
-				     strlen(pass ? "`-" : "\u23bf")));
+		FYAI_TCHECK(!strncmp(mark, result, strlen(result)));
 	}
 	test_cfg.diagram_charset = NULL;
 	fypal_ctx_destroy(test_cfg.palette);
