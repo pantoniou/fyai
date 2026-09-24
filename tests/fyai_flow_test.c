@@ -19,6 +19,7 @@ FYAI_TEST_ENTRY(flow, nothing_leads_the_first_unit, flow_first_unit)
 FYAI_TEST_ENTRY(flow, a_tool_group_is_fenced_once, flow_tool_group)
 FYAI_TEST_ENTRY(flow, the_fence_is_configured, flow_fence_configured)
 FYAI_TEST_ENTRY(flow, a_turn_break_is_a_row, flow_turn_separator)
+FYAI_TEST_ENTRY(flow, a_card_keeps_the_turn_break, flow_card_fence)
 FYAI_TEST_ENTRY(flow, reasoning_closes_into_the_answer, flow_section_separator)
 FYAI_TEST_ENTRY(flow, every_transition_is_bounded, flow_all_transitions)
 
@@ -144,6 +145,26 @@ int flow_turn_separator(void)
 		    fyai_flow_sep_rows(&sep), 1);
 	sep = sep_between(&cfg, FYAI_FLOW_PROSE, FYAI_FLOW_SYSTEM);
 	expect_true("a system turn draws no rule either", !sep.markdown);
+	return failures;
+}
+
+int flow_card_fence(void)
+{
+	struct fyai_flow_sep sep;
+	struct fyai_flow flow;
+	struct fyai_cfg cfg;
+
+	failures = 0;
+	flow_cfg(&cfg);
+	fyai_flow_reset(&flow, &cfg);
+	fyai_flow_emitted(&flow, FYAI_FLOW_PROSE, true);
+	sep = fyai_flow_before(&flow, FYAI_FLOW_USER_CARD);
+	expect_rows("the model ends before the card fence", sep.rows, 1);
+	/* The card starts after the manager's row, not in its place. */
+	fyai_flow_observe(&flow, "\n", 1);
+	fyai_flow_emitted(&flow, FYAI_FLOW_USER_CARD, true);
+	expect_rows("the card still fences its answer",
+		    fyai_flow_before(&flow, FYAI_FLOW_PROSE).rows, 1);
 	return failures;
 }
 
