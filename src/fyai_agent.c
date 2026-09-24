@@ -520,7 +520,13 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 
 	turn = fyai_run_turn(ctx, ctx->last_message);
 	while (fy_is_valid(turn) && !ctx->terminate_pending && fyai_event_queued(ctx)) {
-		input = fyai_event_take(ctx);
+		/*
+		 * A wait whose owner settled since the poll is dropped.
+		 * The queue may then be empty, so the loop re-checks.
+		 */
+		input = fyai_event_take_live(ctx);
+		if (!input)
+			break;
 
 		ctx->last_message = turn;
 		ctx->last_message = fyai_turn_append(ctx, turn,

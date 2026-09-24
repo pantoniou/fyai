@@ -2708,6 +2708,15 @@ static void fyai_shell_session_refresh(struct fyai_shell_session *sess)
 		fyai_ui_wake(sess->ctx);
 }
 
+/* Whether the queued wait report of session @name still has a live owner. */
+bool fyai_event_session_live(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_shell_session *sess;
+
+	sess = fyai_shell_session_find(ctx, name);
+	return sess && !sess->exited && !sess->closing && sess->job;
+}
+
 /* Queue the session's input request and visible prompt for the model. */
 static void fyai_shell_session_input_wanted(struct fyai_shell_session *sess)
 {
@@ -2721,8 +2730,19 @@ static void fyai_shell_session_input_wanted(struct fyai_shell_session *sess)
 		strdup(fy_sprintfa("[shell '%s' is waiting for input]",
 				   sess->name));
 	free(prompt);
-	if (text)
-		(void)fyai_event_inject(sess->ctx, text);
+	if (!text)
+		return;
+	/*
+	 * Name the session: the report reaches the model after this poll,
+	 * and the session may have ended by then. A stale report names a
+	 * session with no live owner and is dropped instead of submitted.
+	 */
+	if (fyai_event_inject_owned(sess->ctx, text, FYAI_EVENT_OWNER_SESSION,
+				    strdup(sess->name))) {
+		fyai_warning(sess->ctx,
+			     "the shell '%s' asked for input, which was lost",
+			     sess->name);
+	}
 }
 
 /* Poll for transitions into and out of an input wait. */
@@ -2891,6 +2911,11 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 		fyai_event_source_remove(sess->waiter);
 		sess->waiter = NULL;
 	}
+	/*
+	 * The exited program answers no question: drop the wait reports it
+	 * queued, or a later turn asks the model about a program that ended.
+	 */
+	fyai_events_drop_session(sess->ctx, sess->name);
 	fyai_shell_session_notify_exit(sess, exit_code, signal);
 }
 
@@ -2963,6 +2988,11 @@ static void fyai_shell_session_release_one(struct fyai_shell_session *sess,
 {
 	struct fyai_tool_job *job = sess->job;
 
+	/*
+	 * The session answers no question after this: drop the wait reports
+	 * it queued with it.
+	 */
+	fyai_events_drop_session(sess->ctx, sess->name);
 	if (job) {
 		job->session = NULL;
 		sess->job = NULL;
@@ -3615,6 +3645,22 @@ static enum fyai_event_action fyai_agent_pty_read(const struct fyai_event *ev)
 	}
 }
 
+/* Whether the queued wait report of the sub-agent on @branch is still live. */
+bool fyai_event_agent_live(struct fyai_ctx *ctx, const char *branch)
+{
+	struct fyai_tool_job *job;
+
+	if (!ctx || fy_str_empty(branch))
+		return false;
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->agent || job->done || !job->branch)
+			continue;
+		if (!strcmp(job->branch, branch))
+			return true;
+	}
+	return false;
+}
+
 /* Queue a sub-agent's new input request for the model. */
 static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 {
@@ -3622,9 +3668,10 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 	const char *who;
 	char *prompt = NULL;
 	char *text;
+	char *owner = NULL;
 	bool wants;
 
-	if (job->done)
+	if (job->done || !job->branch)
 		return FYAIEA_CONTINUE;
 	wants = fyai_process_reads_stdin(job->pid);
 	if (wants == job->wants_input)
@@ -3640,8 +3687,27 @@ static enum fyai_event_action fyai_agent_wait_poll(const struct fyai_event *ev)
 				   who, prompt)) :
 		strdup(fy_sprintfa("[agent '%s' is waiting for input]", who));
 	free(prompt);
-	if (text)
-		(void)fyai_event_inject(job->ctx, text);
+	if (!text)
+		return FYAIEA_CONTINUE;
+	/*
+	 * Name the branch: the report reaches the model after this poll,
+	 * and the sub-agent may have ended by then. A stale report names a
+	 * branch with no live owner and is dropped instead of submitted.
+	 */
+	owner = strdup(job->branch);
+	if (!owner) {
+		free(text);
+		fyai_warning(job->ctx,
+			     "the sub-agent '%s' asked for input, which was lost",
+			     who);
+		return FYAIEA_CONTINUE;
+	}
+	if (fyai_event_inject_owned(job->ctx, text,
+					  FYAI_EVENT_OWNER_AGENT, owner)) {
+		fyai_warning(job->ctx,
+			     "the sub-agent '%s' asked for input, which was lost",
+			     who);
+	}
 	return FYAIEA_CONTINUE;
 }
 
@@ -3831,6 +3897,14 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 	if (!was_done && job->done) {
 		/* Remove the deadline before the job waits for its group. */
 		fyai_tool_job_drop(&job->deadline);
+	}
+	if (!was_done && job->done && job->agent && job->branch) {
+		/*
+		 * The sub-agent answers no question now: drop the wait
+		 * reports it queued, or a later turn asks the model about
+		 * an agent that ended.
+		 */
+		fyai_events_drop_agent(job->ctx, job->branch);
 	}
 	if (!was_done && job->done && job->stream.active) {
 		/*
@@ -4293,6 +4367,12 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	if (!job)
 		return;
 	fyai_tool_job_cancel(job);
+	/*
+	 * A discarded job settles nothing through update_done, so drop its
+	 * queued wait reports here: the branch answers no question after this.
+	 */
+	if (job->agent && job->branch)
+		fyai_events_drop_agent(job->ctx, job->branch);
 	fyai_tool_job_close_channel(job);
 	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->csrc);

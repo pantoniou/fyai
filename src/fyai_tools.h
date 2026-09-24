@@ -40,6 +40,9 @@ void fyai_patch_display_clear(struct fyai_ctx *ctx);
 
 /* Send tool progress to the parent through JSON-RPC. */
 void fyai_tool_progress_emit(struct fyai_ctx *ctx, const char *data, size_t len);
+/* Whether a queued wait report still names a live owner. */
+bool fyai_event_agent_live(struct fyai_ctx *ctx, const char *branch);
+bool fyai_event_session_live(struct fyai_ctx *ctx, const char *name);
 fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 				  bool *okp);
 /* Return a short failure cause, or NULL. The caller owns the string. */

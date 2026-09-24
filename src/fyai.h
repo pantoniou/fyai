@@ -698,10 +698,31 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
 
 /* Queue owned @text for the event-loop owner to submit between turns. */
 int fyai_event_inject(struct fyai_ctx *ctx, char *text);
+/*
+ * What a queued event reports for. A wait event names its owner: the
+ * report reaches the model after the poll that queued it, and the wait
+ * may be gone by then. The owner pairs the report with the liveness of
+ * the job or session it came from: a stale wait is dropped instead of
+ * starting a turn for a program that has ended.
+ */
+enum fyai_event_owner_kind {
+	FYAI_EVENT_OWNER_NONE,		/* owned by nobody: always delivered */
+	FYAI_EVENT_OWNER_AGENT,		/* branch of a live sub-agent job */
+	FYAI_EVENT_OWNER_SESSION,	/* name of a live shell session */
+};
+/* Queue owned @text with its owner; the caller gives away @owner. */
+int fyai_event_inject_owned(struct fyai_ctx *ctx, char *text,
+			    enum fyai_event_owner_kind owner_kind,
+			    char *owner);
 /* Take the oldest queued event, or NULL. The caller owns it. */
 char *fyai_event_take(struct fyai_ctx *ctx);
 bool fyai_event_queued(const struct fyai_ctx *ctx);
+/* Take the oldest event with a live owner, dropping stale waits first. */
+char *fyai_event_take_live(struct fyai_ctx *ctx);
 void fyai_events_release(struct fyai_ctx *ctx);
+/* Drop the queued wait events of one settled owner. */
+void fyai_events_drop_agent(struct fyai_ctx *ctx, const char *branch);
+void fyai_events_drop_session(struct fyai_ctx *ctx, const char *name);
 
 /* Wrap @value (possibly fy_invalid) with a diagnostic message. */
 fy_generic fyai_with_diag(struct fy_generic_builder *gb, fy_generic value,
