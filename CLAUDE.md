@@ -1061,9 +1061,10 @@ do not put a colour for a role in C.
   and decides what follows it; fyai holds no colour. The background comes
   from the probe. A background of the other variant is not applied. A PTY
   case answers the query with `$FYAI_PTY_BACKGROUND`.
-- A theme of the `auto` variant takes its variant from the probe result with
+- A theme of the `auto` variant takes its variant from the terminal's measured
+  background when available. Without a background reply, it uses
   `fypal_term_variant()`: the scheme the terminal reported, then
-  `$COLORFGBG`, then the background colour, else dark. The probe runs one
+  `$COLORFGBG`, else dark. The probe runs one
   time, so a configuration change during the session gets the same variant,
   and the colours of the conversation on the screen do not change. A PTY case
   stops answering OSC 11 when the session is started
