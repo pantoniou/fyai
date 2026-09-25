@@ -1286,6 +1286,15 @@ void fyai_model_step_destroy(struct fyai_model_step *step)
 }
 
 /* Asynchronous turn state. */
+static void fyai_interactive_prepare_user_line(struct fyai_ctx *ctx,
+					       const char *histfile, char *line);
+
+static bool fyai_interactive_is_user_line(const char *line)
+{
+	return line && line[0] != '!' &&
+		(line[0] != '/' || line[1] == '/');
+}
+
 enum fyai_turn_run_state {
 	FYAITRS_NEW,
 	FYAITRS_MODEL,
@@ -1308,6 +1317,8 @@ struct fyai_turn_run {
 	int iteration;
 	bool group_parallel;
 	bool cancel_requested;
+	bool accept_pending_user;
+	const char *histfile;
 };
 
 static bool fyai_turn_run_done(const struct fyai_turn_run *run)
@@ -1472,6 +1483,43 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	fyai_turn_run_stop(run, msg);
 }
 
+/* Add queued user lines before the next model request. Commands keep order. */
+static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx = run->ctx;
+	const char *head;
+	char *line;
+	int rc;
+
+	if (!run->accept_pending_user)
+		return 0;
+	head = fyai_ui_peek_line(ctx);
+	if (!fyai_interactive_is_user_line(head))
+		return 0;
+	run->turn = fyai_output_finalize(ctx, run->turn, false);
+	fyai_error_check(ctx, fy_is_valid(run->turn), err,
+			 "could not finish output before pending input");
+	while (fyai_interactive_is_user_line(head = fyai_ui_peek_line(ctx))) {
+		line = fyai_ui_take_line(ctx);
+		fyai_error_check(ctx, line, err,
+				 "could not take pending input");
+		fyai_interactive_prepare_user_line(ctx, run->histfile, line);
+		run->turn = fyai_turn_append(ctx, run->turn,
+			fy_sequence(fyai_make_user_message(ctx, line)));
+		if (fy_is_valid(run->turn))
+			run->turn = fyai_output_record(ctx, run->turn,
+						       FYAI_OUTPUT_USER, line);
+		free(line);
+		fyai_error_check(ctx, fy_is_valid(run->turn), err,
+				 "could not append pending user input");
+	}
+	rc = fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT);
+	fyai_error_check(ctx, !rc, err, "could not resume assistant output");
+	return 0;
+err:
+	return -1;
+}
+
 static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx;
@@ -1486,6 +1534,10 @@ static int fyai_turn_run_submit_model(struct fyai_turn_run *run)
 		fyai_turn_run_stop(run,
 			fy_sprintfa("the tool loop reached its limit of %d iterations",
 				    cfg->max_tool_iterations));
+		return -1;
+	}
+	if (fyai_turn_run_take_pending_user(run)) {
+		fyai_turn_run_abort_output(run);
 		return -1;
 	}
 	/*
@@ -2720,6 +2772,7 @@ static int
 fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
 			    char *line, struct fyai_turn_run **runp)
 {
+	struct fyai_turn_run *run;
 	fy_generic turn;
 	int rc;
 
@@ -2733,9 +2786,12 @@ fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
 	turn = fyai_interactive_append_user_turn(ctx, line);
 	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
 			 "could not append the user turn");
-	*runp = fyai_turn_run_submit(ctx, turn);
-	fyai_error_check(ctx, *runp, err_cleanup,
+	run = fyai_turn_run_submit(ctx, turn);
+	fyai_error_check(ctx, run, err_cleanup,
 			 "could not submit interactive turn");
+	run->accept_pending_user = true;
+	run->histfile = histfile;
+	*runp = run;
 	fyai_ui_set_busy(ctx, true);
 	return 0;
 
@@ -2839,16 +2895,21 @@ static void fyai_interactive_process_interrupt(struct fyai_ctx *ctx,
 }
 
 static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
+					   const char *histfile,
 					   struct fyai_turn_run **runp)
 {
+	struct fyai_turn_run *run;
 	int rc;
 
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient initial storage");
-	*runp = fyai_turn_run_submit(ctx, ctx->last_message);
-	fyai_error_check(ctx, *runp, err_cleanup,
+	run = fyai_turn_run_submit(ctx, ctx->last_message);
+	fyai_error_check(ctx, run, err_cleanup,
 			 "could not submit the initial turn");
+	run->accept_pending_user = true;
+	run->histfile = histfile;
+	*runp = run;
 	fyai_ui_set_busy(ctx, true);
 	return 0;
 err_cleanup:
@@ -2859,8 +2920,10 @@ err:
 
 /* Submit a queued event as a user turn. */
 static int fyai_interactive_submit_event(struct fyai_ctx *ctx, char *text,
+					 const char *histfile,
 					 struct fyai_turn_run **runp)
 {
+	struct fyai_turn_run *run;
 	fy_generic turn;
 	int rc;
 
@@ -2872,9 +2935,12 @@ static int fyai_interactive_submit_event(struct fyai_ctx *ctx, char *text,
 	turn = fyai_interactive_append_user_turn(ctx, text);
 	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
 			 "could not append the event turn");
-	*runp = fyai_turn_run_submit(ctx, turn);
-	fyai_error_check(ctx, *runp, err_cleanup,
+	run = fyai_turn_run_submit(ctx, turn);
+	fyai_error_check(ctx, run, err_cleanup,
 			 "could not submit the event turn");
+	run->accept_pending_user = true;
+	run->histfile = histfile;
+	*runp = run;
 	fyai_ui_set_busy(ctx, true);
 	return 0;
 
@@ -3057,7 +3123,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 		}
 
 		if (!run && gated && initial) {
-			rc = fyai_interactive_submit_initial(ctx, &run);
+			rc = fyai_interactive_submit_initial(ctx, histfile, &run);
 			fyai_error_check(ctx, !rc, out,
 					 "could not submit initial turn");
 		}
@@ -3075,7 +3141,8 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			if (!event)
 				continue;
 
-			rc = fyai_interactive_submit_event(ctx, event, &run);
+			rc = fyai_interactive_submit_event(ctx, event,
+						   histfile, &run);
 			free(event);
 			fyai_error_check(ctx, !rc, out,
 					 "could not submit an event turn");
