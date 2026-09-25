@@ -2243,7 +2243,6 @@ struct fyai_shell_session {
 
 /* Size an agent terminal to its display surface. */
 #define FYAI_AGENT_TTY_ROWS	12
-#define FYAI_AGENT_TTY_MARGIN	2
 
 static void fyai_agent_tty_size(struct fyai_ctx *ctx, int *rowsp, int *colsp)
 {
@@ -2253,7 +2252,7 @@ static void fyai_agent_tty_size(struct fyai_ctx *ctx, int *rowsp, int *colsp)
 		cols = markdown_render_width();
 		rows = markdown_render_height();
 	}
-	cols -= FYAI_AGENT_TTY_MARGIN;
+	cols -= markdown_gutter_cols(ctx->cfg);
 	if (cols < FYAI_TTY_COLS_DEFAULT / 4)
 		cols = FYAI_TTY_COLS_DEFAULT / 4;
 	if (rows > FYAI_AGENT_TTY_ROWS || rows < 1)
