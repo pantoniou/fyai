@@ -471,6 +471,8 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		fyai_error_check(ctx, !rc, err,
 				 "could not apply the sub-agent persona");
 	}
+	if (fy_get(args, "_fyai_btw", false))
+		cfg->screen = "inline";
 
 	if (!ctx->tool_rpc && ctx->curl) {
 		curl_easy_cleanup(ctx->curl);

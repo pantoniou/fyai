@@ -2564,8 +2564,164 @@ static int slash_branches(struct fyai_ctx *ctx, const char *arg)
 	return fyai_browser_open(ctx);
 }
 
+struct fyai_btw_run {
+	struct fyai_btw_run *next;
+	struct fyai_ctx *ctx;
+	struct fyai_tool_job_group *group;
+	char *branch;
+};
+
+static void session_btw_finish(void *userdata)
+{
+	struct fyai_btw_run *run = userdata;
+	struct fyai_btw_run **link = &run->ctx->btw_runs;
+	struct fy_generic_builder *gb;
+	fy_generic result = fy_invalid;
+	bool ok = false;
+
+	gb = fyai_ctx_transient_gb(run->ctx);
+	fyai_error_check(run->ctx, gb, release,
+			 "btw: could not collect the side answer");
+	if (fyai_tool_job_group_collect(run->group, 0, &result, &ok) || !ok) {
+		if (fy_is_string(result))
+			fyai_warning(run->ctx, "btw: %s", fy_castp(&result, "failed"));
+		else
+			fyai_warning(run->ctx, "btw: side question failed");
+	}
+	(void)fyai_tools_zoom(run->ctx, run->branch);
+release:
+	fyai_ui_diag_drain(run->ctx, "btw");
+	while (*link && *link != run)
+		link = &(*link)->next;
+	if (*link)
+		*link = run->next;
+	fyai_tool_job_group_destroy(run->group);
+	free(run->branch);
+	free(run);
+}
+
+static void session_btw_complete(struct fyai_tool_job_group *group,
+				 void *userdata)
+{
+	struct fyai_btw_run *run = userdata;
+
+	(void)group;
+	(void)fyai_event_defer(fyai_ctx_loop(run->ctx), session_btw_finish, run);
+}
+
+void fyai_session_btw_close(struct fyai_ctx *ctx)
+{
+	struct fyai_btw_run *run, *next;
+
+	for (run = ctx->btw_runs; run; run = next) {
+		next = run->next;
+		fyai_event_defer_cancel(fyai_ctx_loop(ctx), session_btw_finish,
+					 run);
+		fyai_tool_job_group_destroy(run->group);
+		free(run->branch);
+		free(run);
+	}
+	ctx->btw_runs = NULL;
+	fyai_tools_btw_panels_close(ctx);
+}
+
+/* Reserve a name absent from stored branches and running side questions. */
+static int session_btw_branch_name(struct fyai_ctx *ctx, char *name,
+				   size_t name_size, char *branch,
+				   size_t branch_size)
+{
+	struct fyai_btw_run *live;
+	unsigned int serial;
+	bool taken;
+	int rc;
+
+	rc = fyai_branches_refresh(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "btw: could not refresh branches");
+	for (serial = 1; serial < 1000000; serial++) {
+		snprintf(name, name_size, "btw-%u", serial);
+		rc = fyai_branch_alloc_child(ctx, fyai_ctx_branch(ctx), name,
+			(unsigned int)ctx->cfg->agent_max_branch_depth,
+			branch, branch_size, &taken);
+		fyai_error_check(ctx, !rc, err,
+				 "btw: could not allocate a side branch");
+		for (live = ctx->btw_runs; live; live = live->next)
+			if (!strcmp(live->branch, branch))
+				break;
+		if (!taken && !live)
+			return 0;
+	}
+	fyai_error(ctx, "btw: no side branch name is available");
+err:
+	return -1;
+}
+
+static int slash_btw(struct fyai_ctx *ctx, const char *arg)
+{
+	struct fyai_btw_run *run;
+	fy_generic args, call;
+	const char *json;
+	char name[32], branch[FYAI_BRANCH_NAME_MAX + 1];
+	int rc;
+
+	fyai_error_check(ctx, arg && *arg, err,
+			 "btw: give a question");
+	rc = fyai_setup_transient_builder(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "btw: could not create side question storage");
+	rc = session_btw_branch_name(ctx, name, sizeof(name),
+				     branch, sizeof(branch));
+	fyai_error_check(ctx, !rc, err,
+			 "btw: could not name the side branch");
+	args = fy_mapping(ctx->transient_gb,
+		"task", fy_value(ctx->transient_gb, arg),
+		"name", fy_value(ctx->transient_gb, name),
+		"description", "side question",
+		"context", "fork",
+		"_fyai_btw", true);
+	json = emit_json_string(ctx->transient_gb, args);
+	fyai_error_check(ctx, json, err,
+			 "btw: could not encode the question");
+	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
+		call = fy_mapping(ctx->transient_gb, "type", "function",
+			"function", fy_mapping(ctx->transient_gb,
+				"name", "agent", "arguments", json));
+	else
+		call = fy_mapping(ctx->transient_gb, "type", "function_call",
+			"name", "agent", "arguments", json);
+	run = calloc(1, sizeof(*run));
+	fyai_error_check(ctx, run, err,
+			 "btw: could not allocate the side question");
+	run->ctx = ctx;
+	run->branch = strdup(branch);
+	fyai_error_check(ctx, run->branch, err_run,
+			 "btw: could not retain the branch name");
+	run->group = fyai_tool_job_group_create_notify(ctx,
+			session_btw_complete, run);
+	fyai_error_check(ctx, run->group, err_run,
+			 "btw: could not create the side question group");
+	rc = fyai_tool_job_group_add(run->group, call);
+	fyai_error_check(ctx, !rc, err_group,
+			 "btw: could not add the side question");
+	rc = fyai_tool_job_group_submit(run->group);
+	fyai_error_check(ctx, !rc, err_group,
+			 "btw: could not start the side question");
+	run->next = ctx->btw_runs;
+	ctx->btw_runs = run;
+	fyai_result(ctx, "btw: %s", branch);
+	return 0;
+err_group:
+	fyai_tool_job_group_destroy(run->group);
+err_run:
+	free(run->branch);
+	free(run);
+err:
+	return -1;
+}
+
 static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "branches", "", "open the branch browser", slash_branches },
+	{ "btw", "QUESTION", "ask on a side branch in a panel", slash_btw },
 	{ "branch", "[name|list|new|delete|rename|show|describe]",
 	  "list or switch branches", slash_branch },
 	{ "checkout", "[-b name] <branch|ref>",
@@ -2922,6 +3078,8 @@ bool fyai_session_slash_immediate(struct fyai_ctx *ctx, const char *line,
 		return session_slash_argless(arg);
 	if (!cmd)
 		return false;
+	if (!strcmp(cmd->name, "btw"))
+		return true;
 	if (!strcmp(cmd->name, "model") || !strcmp(cmd->name, "api"))
 		return session_slash_argless(arg);
 	if (!strcmp(cmd->name, "branch"))

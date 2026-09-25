@@ -17,6 +17,7 @@
 struct fyai_tool_job;
 struct fyai_tool_job_group;
 struct fyai_mcp_call_request;
+struct fytim_surface;
 typedef void (*fyai_tool_group_complete_fn)(
 		struct fyai_tool_job_group *group, void *userdata);
 typedef void (*fyai_mcp_call_complete_fn)(
@@ -69,6 +70,12 @@ void fyai_shell_sessions_release_turn(struct fyai_ctx *ctx);
  * the animation that paints it. The programs keep running.
  */
 void fyai_tools_display_closed(struct fyai_ctx *ctx);
+/* Release completed side-question panels at session close. */
+void fyai_tools_btw_panels_close(struct fyai_ctx *ctx);
+/* Dismiss the focused completed side-question panel. */
+bool fyai_tools_btw_dismiss_focused(struct fyai_ctx *ctx);
+/* True when @sf is a completed side-question panel. */
+bool fyai_tools_btw_surface(struct fyai_ctx *ctx, struct fytim_surface *sf);
 
 /* True when a terminal session owns this call's display. */
 bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
@@ -79,7 +86,6 @@ void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
 void fyai_tool_surfaces_publish(struct fyai_ctx *ctx);
 /* Return true while a terminal owns a work-pane surface. */
 bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx);
-struct fytim_surface;
 
 void fyai_tool_job_cancel(struct fyai_tool_job *job);
 /* Route a surface control request to its owner. */

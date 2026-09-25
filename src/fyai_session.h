@@ -11,6 +11,9 @@
 
 #include "fyai.h"
 
+/* Cancel and release side questions before the interactive loop closes. */
+void fyai_session_btw_close(struct fyai_ctx *ctx);
+
 /*
  * Shared backends for the interactive slash commands and their CLI verb
  * forms (fyai clear|compact|context). Each performs one session operation

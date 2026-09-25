@@ -2151,6 +2151,7 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 struct fyai_tool_job {
 	struct fyai_ctx *ctx;		/* the loop the job's sources live on */
 	fy_generic call;		/* the tool call, sent as tool/run */
+	struct fy_generic_builder *call_gb; /* owns the call across turn cleanup */
 	struct jsonrpc_conn *conn;	/* control channel to the child */
 	struct jsonrpc_request *run;	/* the outstanding tool/run */
 	fy_generic result;
@@ -2173,6 +2174,8 @@ struct fyai_tool_job {
 	bool done;
 	bool native_shell;
 	bool agent;
+	bool btw;			/* the user opened this side question */
+	bool btw_panel;		/* its finished screen remains in the pane */
 	bool exec;			/* the child executes fyai again */
 	bool band_progress;
 	int pty;			/* terminal of a sub-agent, -1 if none */
@@ -3426,7 +3429,8 @@ static void fyai_agent_apply_grant(void *owner, int rows, int cols)
 	job->pty_rows = rows;
 	ws.ws_row = (unsigned short)rows;
 	ws.ws_col = (unsigned short)cols;
-	(void)ioctl(job->pty, TIOCSWINSZ, &ws);
+	if (job->pty >= 0)
+		(void)ioctl(job->pty, TIOCSWINSZ, &ws);
 	fyai_terminal_view_resize(job->view, rows, cols);
 	(void)fyai_ui_surface_resize(job->surface, rows, cols);
 	fyai_workpane_grid_resized(job->ctx->workpane, job->surface, rows, cols);
@@ -3590,9 +3594,18 @@ static void fyai_agent_head_paint(struct fyai_tool_job *job)
 static void fyai_agent_head_repaint(void *owner)
 {
 	struct fyai_tool_job *job = owner;
+	char *title;
 
 	if (job->surface && !job->done)
 		fyai_agent_head_paint(job);
+	else if (job->surface && job->btw_panel) {
+		title = fyai_agent_head_title(job, false, NULL, 0);
+		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
+				title ? title : "**btw**", NULL, NULL,
+				job->result_ok && !job->failed ?
+				FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED);
+		free(title);
+	}
 }
 
 /* Advance the state mark on the title of a live sub-agent terminal. */
@@ -3858,6 +3871,19 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 		fyai_event_source_remove(job->ptysrc);
 		job->ptysrc = NULL;
 	}
+	if (job->btw && !job->btw_panel) {
+		if (job->surface) {
+			fyai_ui_surface_close(job->ctx, job->surface);
+			job->surface = NULL;
+		}
+		if (job->pty >= 0) {
+			close(job->pty);
+			job->pty = -1;
+		}
+		fyai_terminal_view_destroy(job->view);
+		job->view = NULL;
+		return;
+	}
 	if (job->surface) {
 		fyai_agent_view_refresh(job);
 		title = fyai_agent_head_title(job, false, NULL, 0);
@@ -3868,17 +3894,21 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 				ok ? FYAI_UI_MARK_OK :
 				     FYAI_UI_MARK_FAILED);
 		free(title);
-		fyai_surface_retire_zoom(job->ctx, job->surface);
-		fyai_ui_surface_commit(job->ctx, job->surface);
-		job->surface = NULL;
+		if (!job->btw_panel) {
+			fyai_surface_retire_zoom(job->ctx, job->surface);
+			fyai_ui_surface_commit(job->ctx, job->surface);
+			job->surface = NULL;
+		}
 		fyai_ui_wake(job->ctx);
 	}
 	if (job->pty >= 0) {
 		close(job->pty);
 		job->pty = -1;
 	}
-	fyai_terminal_view_destroy(job->view);
-	job->view = NULL;
+	if (!job->btw_panel) {
+		fyai_terminal_view_destroy(job->view);
+		job->view = NULL;
+	}
 }
 
 static void fyai_tool_job_drop(struct fyai_event_source **srcp)
@@ -4334,8 +4364,10 @@ static void fyai_tool_job_live_close(struct fyai_tool_job *job,
 	else
 		fyai_sink_band_destroy(job->band);
 	job->band = NULL;
-	free(job->title);
-	job->title = NULL;
+	if (!job->btw_panel) {
+		free(job->title);
+		job->title = NULL;
+	}
 	free(job->command);
 	job->command = NULL;
 }
@@ -4366,6 +4398,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 {
 	if (!job)
 		return;
+	job->btw_panel = false;
 	fyai_tool_job_cancel(job);
 	/*
 	 * A discarded job settles nothing through update_done, so drop its
@@ -4384,7 +4417,49 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	free(job->progress.data);
 	free(job->branch);
 	free(job->origin);
+	fy_generic_builder_destroy(job->call_gb);
 	free(job);
+}
+
+void fyai_tools_btw_panels_close(struct fyai_ctx *ctx)
+{
+	struct fyai_tool_job *job, *next;
+
+	if (!ctx)
+		return;
+	for (job = ctx->tool_jobs; job; job = next) {
+		next = job->next;
+		if (job->btw_panel)
+			fyai_tool_job_discard(job);
+	}
+}
+
+bool fyai_tools_btw_dismiss_focused(struct fyai_ctx *ctx)
+{
+	struct fyai_tool_job *job;
+	struct fytim_surface *focused;
+
+	if (!ctx || !ctx->workpane)
+		return false;
+	focused = fyai_workpane_focused(ctx->workpane);
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->btw_panel && job->surface == focused) {
+			fyai_tool_job_discard(job);
+			return true;
+		}
+	return false;
+}
+
+bool fyai_tools_btw_surface(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fyai_tool_job *job;
+
+	if (!ctx || !sf)
+		return false;
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->btw_panel && job->surface == sf)
+			return true;
+	return false;
 }
 
 static enum fyai_event_action
@@ -4455,6 +4530,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	bool native_call;
 	bool eligible;
 	bool user_owned;
+	struct fy_generic_builder_cfg call_cfg = {};
 	int srows = 0, scols = 0;
 	int rc;
 
@@ -4604,8 +4680,18 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		fyai_error_check(ctx, job->branch, err,
 				 "out of memory naming the sub-agent branch");
 	}
-	job->call = tool_call;
+	if (fy_get(args, "_fyai_btw", false)) {
+		job->call_gb = fy_generic_builder_create(&call_cfg);
+		fyai_error_check(ctx, job->call_gb, err,
+				 "could not retain side question call");
+		job->call = fy_gb_internalize(job->call_gb, tool_call);
+		fyai_error_check(ctx, fy_is_valid(job->call), err,
+				 "could not retain side question call");
+	} else {
+		job->call = tool_call;
+	}
 	job->agent = fy_equal(name, "agent");
+	job->btw = fy_get(args, "_fyai_btw", false);
 	job->native_shell = native_call;
 	/* A zeroed generic decodes as an empty sequence, not as invalid. */
 	job->diag = fy_invalid;
@@ -4651,11 +4737,15 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	    fyai_ui_active(ctx)) {
 		if (fy_equal(name, "agent")) {
 			job->agent = true;
-			command = fy_get(args, "description", "");
-			job->title = fyai_format_tool_header(ctx, "agent",
-				fy_mapping("name", fy_get(args, "name", ""),
-					   "description",
-					   *command ? command : name), 0);
+			if (job->btw) {
+				job->title = strdup("**btw**\n");
+			} else {
+				command = fy_get(args, "description", "");
+				job->title = fyai_format_tool_header(ctx, "agent",
+					fy_mapping("name", fy_get(args, "name", ""),
+						   "description",
+						   *command ? command : name), 0);
+			}
 		} else {
 			command = native_call ?
 				fy_cast(fy_get_at_path(tool_call, "action",
@@ -4942,6 +5032,40 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 				  struct fyai_tool_job *job, const char *data,
 				  size_t len);
 
+/*
+ * Return the view scroll in rows for a chunk of arrow and page keys. A chunk
+ * can hold several keys; a chunk with any other byte scrolls nothing.
+ */
+static int fyai_btw_scroll_delta(struct fyai_tool_job *job,
+				 const char *data, size_t len)
+{
+	int page = job->pty_rows > 2 ? job->pty_rows - 2 : 1;
+	int delta = 0;
+
+	while (len) {
+		if (len >= 4 && !memcmp(data, "\x1b[5~", 4)) {
+			delta += page;
+			data += 4;
+			len -= 4;
+		} else if (len >= 4 && !memcmp(data, "\x1b[6~", 4)) {
+			delta -= page;
+			data += 4;
+			len -= 4;
+		} else if (len >= 3 && !memcmp(data, "\x1b[A", 3)) {
+			delta += 1;
+			data += 3;
+			len -= 3;
+		} else if (len >= 3 && !memcmp(data, "\x1b[B", 3)) {
+			delta -= 1;
+			data += 3;
+			len -= 3;
+		} else {
+			return 0;
+		}
+	}
+	return delta;
+}
+
 /* Route keyboard input from the focused tile. */
 static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 {
@@ -4949,6 +5073,7 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
 	size_t i;
+	int delta;
 
 	if (fyai_agents_keys(ctx, data, len))
 		return;
@@ -4975,6 +5100,18 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 		/* Return focus after the program exits. */
 		fyai_tools_unzoom(ctx);
 		return;
+	}
+	if (job && job->btw_panel && len == 1 && data[0] == FYAI_KEY_ESC) {
+		fyai_tool_job_discard(job);
+		return;
+	}
+	if (job && job->btw_panel && job->view) {
+		delta = fyai_btw_scroll_delta(job, data, len);
+		if (delta) {
+			if (fyai_terminal_view_scroll(job->view, delta))
+				fyai_agent_view_refresh(job);
+			return;
+		}
 	}
 	for (i = 0; i < len; i++) {
 		if (data[i] != FYAI_FOCUS_NEXT_KEY &&
@@ -5030,8 +5167,12 @@ void fyai_tools_surface_request(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	/* Request graceful termination so the result remains available. */
 	if (sess)
 		fyai_shell_session_close(sess, false);
-	else if (job)
-		fyai_tool_job_cancel(job);
+	else if (job) {
+		if (job->btw_panel)
+			fyai_tool_job_discard(job);
+		else
+			fyai_tool_job_cancel(job);
+	}
 }
 
 /* Send @len bytes to the terminal owner. */
@@ -5043,12 +5184,13 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 					  NULL;
 
 	/* Input returns the view to the live screen. */
-	if (view && fyai_terminal_view_scroll_live(view))
+	if (view && !(job && job->btw_panel) &&
+	    fyai_terminal_view_scroll_live(view))
 		(void)fyai_ui_surface_publish(sess ? sess->surface :
 					      job->surface, view);
 	if (sess)
 		fyai_shell_session_reply(data, len, sess);
-	else if (job)
+	else if (job && job->pty >= 0)
 		fyai_agent_view_reply(data, len, job);
 }
 
@@ -5068,6 +5210,7 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 	struct fyai_shell_session *sess;
 	struct fyai_shell_session *zoom_sess = NULL;
 	struct fyai_tool_job *job;
+	struct fyai_tool_job *zoom_job = NULL;
 	struct fytim_surface *sf = NULL;
 	const char *what = NULL;
 
@@ -5097,6 +5240,7 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 		    (agent && !strcmp(agent, name))) {
 			sf = job->surface;
 			what = agent;
+			zoom_job = job;
 		}
 	}
 	if (!sf)
@@ -5109,6 +5253,10 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name)
 	if (!fyai_tools_focus(ctx, sf)) {
 		(void)fyai_ui_surface_zoom(ctx, NULL);
 		return NULL;
+	}
+	if (zoom_job && zoom_job->btw_panel) {
+		fyai_terminal_view_damage_all(zoom_job->view);
+		fyai_agent_view_refresh(zoom_job);
 	}
 	return what ? what : "";
 }
@@ -5232,12 +5380,13 @@ int fyai_tools_sessions(struct fyai_ctx *ctx)
 				"running"));
 	}
 	for (job = ctx->tool_jobs; job; job = job->next) {
-		if (!job->agent || job->done)
+		if (!job->agent || (job->done && !job->btw_panel))
 			continue;
 		rows = fy_append(gb, rows, fy_mapping(gb,
 			"name", fyai_agent_job_name(job),
-			"kind", "agent",
-			"state", job->terminating ? "stopping" :
+			"kind", job->btw ? "btw" : "agent",
+			"state", job->btw_panel ? "finished" :
+				job->terminating ? "stopping" :
 				fyai_workpane_focused(ctx->workpane) ==
 					job->surface ? "focused" :
 				job->wants_input ? "waiting" : "running"));
@@ -5276,6 +5425,12 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name)
 			break;
 		}
 	agent = fyai_agent_job_named(ctx, name);
+	if (!agent)
+		for (agent = ctx->tool_jobs; agent; agent = agent->next)
+			if (agent->btw_panel &&
+			    (!strcmp(agent->branch, name) ||
+			     !strcmp(fyai_agent_job_name(agent), name)))
+				break;
 	if (sess && agent) {
 		fyai_error(ctx, "kill: '%s' names both a shell and a sub-agent",
 			   name);
@@ -5294,8 +5449,13 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name)
 		fyai_shell_session_close(sess, false);
 		fyai_result(ctx, "stopping shell %s", name);
 	} else {
-		fyai_tool_job_cancel(agent);
-		fyai_result(ctx, "stopping agent %s", name);
+		if (agent->btw_panel) {
+			fyai_tool_job_discard(agent);
+			fyai_result(ctx, "closed btw panel %s", name);
+		} else {
+			fyai_tool_job_cancel(agent);
+			fyai_result(ctx, "stopping agent %s", name);
+		}
 	}
 	return 0;
 }
@@ -5609,7 +5769,8 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			"end it with shell_close.", job->session->name,
 			job->session->command);
 	}
-	fyai_tool_job_live_close(job, false);
+	if (!job->btw_panel)
+		fyai_tool_job_live_close(job, false);
 	fyai_tool_job_close_channel(job);
 	fyai_tool_job_drop(&job->deadline);
 	fyai_tool_job_drop(&job->csrc);
@@ -5715,10 +5876,15 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 		job->result_ok = false;
 	}
 	*okp = job->result_ok && !job->failed;
+	if (job->btw_panel) {
+		job->group = NULL;
+		return result;
+	}
 	fyai_tool_job_unlink(job->ctx, job);
 	free(job->progress.data);
 	free(job->branch);
 	free(job->origin);
+	fy_generic_builder_destroy(job->call_gb);
 	free(job);
 	return result;
 }
@@ -6037,7 +6203,8 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
 		if (!fyai_tool_job_done(entry->job))
 			continue;
-		/* Retire completed presentation while preserving collection order. */
+		/* Keep a side answer in its tile until the user dismisses it. */
+		entry->job->btw_panel = entry->job->btw && entry->job->surface;
 		fyai_tool_job_live_close(entry->job, false);
 		entry->job->group = NULL;
 		entry->state = FYAITGS_PARKED;

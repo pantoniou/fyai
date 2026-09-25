@@ -1976,6 +1976,8 @@ int fyai_setup_transient_builder(struct fyai_ctx *ctx)
 	struct fy_auto_allocator_cfg trans_cfg = {};
 	struct fy_generic_builder_cfg gb_cfg = {};
 
+	if (ctx->transient_gb)
+		return 0;
 	/* now the transient */
 	memset(&trans_cfg, 0, sizeof(trans_cfg));
 	trans_cfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
@@ -3166,6 +3168,12 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			if (line_result == FYAILR_HANDLED)
 				continue;
 		}
+		/* A side question may complete after its parent turn releases scratch. */
+		if (ctx->btw_runs && !ctx->transient_gb) {
+			rc = fyai_setup_transient_builder(ctx);
+			fyai_error_check(ctx, !rc, out,
+					 "could not retain side question storage");
+		}
 		rc = fyai_event_loop_step(el, -1);
 		fyai_error_check(ctx, rc >= 0, out,
 				 "interactive event loop failed");
@@ -3174,6 +3182,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 out:
 	/* Cancel active work and drain MCP shutdown on every exit path. */
 	state = FYAIAS_STOPPING;
+	fyai_session_btw_close(ctx);
 	if (run) {
 		fyai_turn_run_cancel(run);
 		fyai_turn_run_destroy(run);

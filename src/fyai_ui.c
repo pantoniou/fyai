@@ -1698,6 +1698,8 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			}
 			break;
 		case FYTIM_EVENT_INTERRUPT:
+			if (fyai_tools_btw_dismiss_focused(ui->ctx))
+				break;
 			/* Escape only now; ^C arrives as SIGINT. Both mean
 			 * the same thing to the session, except that Escape
 			 * first clears a short result of an idle session. */
@@ -3757,9 +3759,10 @@ void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	/* The tile keeps its rows; the way back goes on the status row. */
 	text = ui_chrome_text(ctx->cfg->tile_frame);
 	(void)fytim_surface_set_bottom(sf, text);
-	ui->status_hint = focused ?
-		"Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus" :
-		NULL;
+	ui->status_hint = !focused ? NULL :
+		fyai_tools_btw_surface(ctx, sf) ?
+		"Esc closes · PgUp/PgDn scroll · Ctrl-] returns to the prompt" :
+		"Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus";
 	(void)fytim_set_status_row(ui->ft, 0, ui->status_hint);
 }
 

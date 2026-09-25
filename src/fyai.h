@@ -30,6 +30,7 @@ struct fyai_ui;
 struct jsonrpc_conn;
 struct fyai_display_output;
 struct fyai_tool_job;
+struct fyai_btw_run;
 struct fyai_shell_session;
 struct fyai_sink;
 struct fyai_patch_display;	/* resolved patch presentation (fyai_tools.c) */
@@ -584,6 +585,7 @@ struct fyai_ctx {
 	int tty_cols;
 	void *tty_session;		/* the PTY session running in this process */
 	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
+	struct fyai_btw_run *btw_runs;	/* side questions in this session */
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;
