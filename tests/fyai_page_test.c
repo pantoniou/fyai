@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <libfymd4c.h>
+#include <libfypalette.h>
 
 #include "fyai.h"
 #include "fyai_config.h"
@@ -35,6 +36,7 @@ FYAI_TEST_ENTRY(page, source_orders_the_chrome, page_source_orders_the_chrome)
 FYAI_TEST_ENTRY(page, source_escapes_text, page_source_escapes_text)
 FYAI_TEST_ENTRY(page, source_omits_empty_slots, page_source_omits_empty_slots)
 FYAI_TEST_ENTRY(page, rows_are_adjacent, page_rows_are_adjacent)
+FYAI_TEST_ENTRY(page, palette_margin_keeps_width, page_palette_margin_keeps_width)
 FYAI_TEST_ENTRY(page, status_drops_first, page_status_drops_first)
 FYAI_TEST_ENTRY(page, blank_activity_is_not_code, page_blank_activity_is_not_code)
 FYAI_TEST_ENTRY(page, cap_stands_over_the_pane, page_cap_stands_over_the_pane)
@@ -271,6 +273,10 @@ static char *page_render(const struct fyai_page_state *st, int height,
 	cfg.width = 40 + markdown_gutter_cols(st->ctx ? st->ctx->cfg : NULL);
 	r = fymd_renderer_create(&cfg);
 	FYAI_TCHECK(r != NULL);
+	if (st->ctx && st->ctx->cfg && st->ctx->cfg->palette) {
+		rc = fymd_renderer_set_palette(r, st->ctx->cfg->palette);
+		FYAI_TCHECK(!rc);
+	}
 	rc = fymd_renderer_set_height(r, height);
 	FYAI_TCHECK(!rc);
 	rc = fymd_render_with_margins(r, src.data, src.len, no_margin, NULL,
@@ -341,6 +347,32 @@ static int page_rows_are_adjacent_run(void)
 	FYAI_TCHECK(prompt->col == 0 && prompt->width == 40);
 	fymd_free(out);
 	fymd_renderer_destroy(r);
+	return 0;
+}
+
+/* A palette margin changes the renderer's right reserve, not slot width. */
+static int page_palette_margin_keeps_width_run(void)
+{
+	struct fyai_page_state st = page_state();
+	struct fyai_cfg cfg = {0};
+	struct fyai_ctx ctx = { .cfg = &cfg };
+	const struct fymd_region *prompt;
+	struct fymd_renderer *r;
+	char *out;
+	int rc;
+
+	cfg.palette = fypal_ctx_create(NULL);
+	FYAI_TCHECK(cfg.palette != NULL);
+	rc = fypal_ctx_load_builtin(cfg.palette, "ember");
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(markdown_gutter_cols(&cfg) == 3);
+	st.ctx = &ctx;
+	out = page_render(&st, 0, &r);
+	prompt = region(r, "prompt");
+	FYAI_TCHECK(prompt != NULL && prompt->col == 0 && prompt->width == 40);
+	fymd_free(out);
+	fymd_renderer_destroy(r);
+	fypal_ctx_destroy(cfg.palette);
 	return 0;
 }
 
@@ -711,6 +743,11 @@ int page_source_omits_empty_slots(void)
 int page_rows_are_adjacent(void)
 {
 	return page_rows_are_adjacent_run();
+}
+
+int page_palette_margin_keeps_width(void)
+{
+	return page_palette_margin_keeps_width_run();
 }
 
 int page_status_drops_first(void)
