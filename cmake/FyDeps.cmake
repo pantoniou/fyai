@@ -4,8 +4,8 @@
 # then an installed package, then fetch the pinned git tag as a last resort.
 # Call site is a single line per dependency - name and git tag:
 #
-#   fyai_fy_dep(libfypalette 552248158ed345aabc3b3564b2634fc1810422f1)
-#   fyai_fy_dep(libfymd4c b78a9ff4220a31cd3928e1216cdf9f159951c23c)
+#   fyai_fy_dep(libfypalette 2e697319cb8081769f3472c98a0f5371dc266135)
+#   fyai_fy_dep(libfymd4c 8c2d6c96c01c946521db0cdfb6d74a6cc2061e02)
 #
 # The result is stored in FYAI_LIB<NAME>_TARGET (e.g. FYAI_LIBFYMD4C_TARGET),
 # holding the _static target when FYAI_STATIC_DEPS is on and one exists,
