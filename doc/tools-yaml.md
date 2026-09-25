@@ -48,13 +48,15 @@ The document is a sequence of tools in wire shape:
 
 Use these rules:
 
-- Keep the tool order: `read_file`, `write_file`, `apply_patch`, `shell`,
-  `ask_user`, `agent`.
+- Keep the tool order: `read_file`, `write_file`, `apply_patch`, `exec_command`,
+  `shell_input`, `shell_output`, `shell_close`, `ask_user`, `agent`, `time`,
+  `wait`.
 - Write each description as a literal block scalar (`|-`) on one line. The
   provider receives the parsed text without a change.
 - Give each parameter object `type: object`, `properties`, `required`, and
   `additionalProperties: false`.
-- Property types are `string`, `integer`, or `array` of `string`.
+- Property types include `string`, `integer`, `boolean`, and `array` of
+  `string`.
 
 ## Embedding
 
@@ -75,7 +77,7 @@ settings.
 `make_tools_filtered()` in `src/fyai_tool_spec.c` adapts the parsed tools to
 the context.
 
-- A sub-agent tool set drops `ask_user` and `agent`.
+- A sub-agent tool set drops `agent` and `agent_input`; it keeps `ask_user`.
 - A parent tool set adds the configured persona names and descriptions to the
   `agent` tool `persona` property description.
 
@@ -85,4 +87,6 @@ This logic is in C. `data/tools.yaml` does not contain context-dependent text.
 
 There is no schema for `data/tools.yaml`. `make_tools()` reports an error when
 it cannot parse the document. The tests in `tests/fyai_tool_spec_test.c` check
-the document shape, tool order, and description fields.
+that descriptions are non-empty and check selected property types. They do not
+validate the full document shape, exact tool order, every `required` list, or
+`additionalProperties`.
