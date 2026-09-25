@@ -2684,7 +2684,7 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 		ui->busy_since_ms = fyai_event_now_ms();
 		(void)ui_activity_refresh(ui);
 	} else {
-		(void)ui_status_render(ui, "  ");
+		(void)ui_status_render(ui, markdown_gutter_blank(ctx->cfg));
 		if (ui->status_top)
 			(void)fytim_set_header(ui->ft, ui->status_top);
 	}
@@ -2844,7 +2844,7 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 	activity = ui->busy ?
 		ui_indicator(ui, FYMD_INDICATOR_PENDING,
 			     (size_t)ui->activity_phase, NULL) :
-		strdup("  ");
+		strdup(markdown_gutter_blank(ctx->cfg));
 	if (!activity)
 		return;
 	if (!ui_status_render(ui, activity))
