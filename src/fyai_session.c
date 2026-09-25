@@ -2445,6 +2445,96 @@ static int slash_page(struct fyai_ctx *ctx, const char *arg)
 	return fyai_ui_page_report(ctx);
 }
 
+/* Check out a branch, or fork a reflog snapshot into a new session branch. */
+static int slash_checkout(struct fyai_ctx *ctx, const char *arg)
+{
+	char name[FYAI_BRANCH_NAME_MAX + 1], ref_name[FYAI_BRANCH_NAME_MAX + 1];
+	const char *start = NULL, *word;
+	size_t len;
+	long long n;
+	int kind, rc;
+	bool rest_blank, spaced;
+
+	if (!arg || !*arg) {
+		fyai_error(ctx, "usage: /checkout [-b name] <branch|ref>");
+		return -1;
+	}
+	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {
+		fyai_error(ctx, "branch changes require idle model and tool work");
+		return -1;
+	}
+	if (!strncmp(arg, "-b", 2) && (!arg[2] || isspace((unsigned char)arg[2]))) {
+		arg += 2;
+		word = branch_word(&arg, &len);
+		fyai_error_check(ctx, len && len <= FYAI_BRANCH_NAME_MAX, err,
+				 "usage: /checkout -b <name> <ref>");
+		memcpy(name, word, len);
+		name[len] = '\0';
+		word = branch_word(&arg, &len);
+		rest_blank = strspn(arg, " \t") == strlen(arg);
+		fyai_error_check(ctx, len && len < sizeof(ref_name) && rest_blank,
+				 err, "usage: /checkout -b <name> <ref>");
+		memcpy(ref_name, word, len);
+		ref_name[len] = '\0';
+		start = ref_name;
+		rc = fyai_branch_create(ctx, name, start, NULL, false);
+		fyai_error_check(ctx, !rc, err,
+				 "checkout: could not create branch '%s'", name);
+		rc = fyai_session_branch_switch(ctx, name, false, false);
+		fyai_error_check(ctx, !rc, err,
+				 "checkout: could not switch to branch '%s'", name);
+		return 0;
+	}
+	spaced = strpbrk(arg, " \t") != NULL;
+	fyai_error_check(ctx, !spaced, err,
+			 "usage: /checkout [-b name] <branch|ref>");
+	kind = fyai_ref_parse(arg, ref_name, sizeof(ref_name), &n);
+	fyai_error_check(ctx, kind >= 0, err,
+			 "checkout: invalid reference '%s'", arg);
+	if (!kind) {
+		rc = fyai_session_branch_switch(ctx,
+			!strcmp(arg, "HEAD") ? fyai_ctx_head_branch(ctx) : arg,
+			false, false);
+		fyai_error_check(ctx, !rc, err,
+				 "checkout: could not switch to '%s'", arg);
+		return 0;
+	}
+	rc = fyai_branch_session_name(ctx->arena_branches, name, sizeof(name));
+	fyai_error_check(ctx, !rc, err,
+			 "checkout: could not name a new session");
+	start = arg;
+	rc = fyai_branch_create(ctx, name, start, NULL, false);
+	fyai_error_check(ctx, !rc, err,
+			 "checkout: could not create branch '%s'", name);
+	rc = fyai_session_branch_switch(ctx, name, false, false);
+	fyai_error_check(ctx, !rc, err,
+			 "checkout: could not switch to branch '%s'", name);
+	return 0;
+err:
+	return -1;
+}
+
+static int slash_reset(struct fyai_ctx *ctx, const char *arg)
+{
+	int rc;
+
+	if (!arg || !*arg || strpbrk(arg, " \t")) {
+		fyai_error(ctx, "usage: /reset <ref> (or /rewind <ref>)");
+		return -1;
+	}
+	if (fyai_ui_busy(ctx) || fyai_tools_active(ctx) || fyai_agents_attached(ctx)) {
+		fyai_error(ctx, "branch changes require idle model and tool work");
+		return -1;
+	}
+	rc = fyai_branch_reset(ctx, arg);
+	fyai_error_check(ctx, !rc, err, "reset: could not move the branch head");
+	fyai_session_banner_update(ctx);
+	fyai_ui_repaint(ctx);
+	return 0;
+err:
+	return -1;
+}
+
 /*
  * Resume another session in this one: the picker with no argument, the
  * picker over every starting directory with --all, or the named session.
@@ -2478,6 +2568,10 @@ static const struct fyai_slash_cmd fyai_slash_cmds[] = {
 	{ "branches", "", "open the branch browser", slash_branches },
 	{ "branch", "[name|list|new|delete|rename|show|describe]",
 	  "list or switch branches", slash_branch },
+	{ "checkout", "[-b name] <branch|ref>",
+	  "check out a branch or fork a reference", slash_checkout },
+	{ "reset", "<ref>", "move the current branch to a reference", slash_reset },
+	{ "rewind", "<ref>", "alias for /reset", slash_reset },
 	{ "resume", "[session|--all]", "resume another session", slash_resume },
 	{ "switch", "[session|--all]", "alias for /resume", slash_resume },
 	{ "clear", "", "start a fresh conversation", slash_clear },
@@ -3027,6 +3121,66 @@ static void session_complete_resume(struct fyai_ctx *ctx,
 	}
 }
 
+/* Complete @label~N and @label@{N} from the entry of one branch. */
+static void session_complete_branch_refs(struct fyai_ctx *ctx,
+					 struct fytim_completions *lc,
+					 const char *cmd, size_t cmdlen,
+					 const char *word, const char *prefix,
+					 const char *label,
+					 struct fyai_branch branch,
+					 size_t limit)
+{
+	struct fyai_branch prev;
+	long long turns;
+	size_t i;
+	char value[FYAI_BRANCH_NAME_MAX + 32];
+
+	turns = fyai_branch_turn_count(branch.head, (long long)limit);
+	for (i = 1; i <= (size_t)turns; i++) {
+		if (snprintf(value, sizeof(value), "%s%s~%zu",
+			     prefix, label, i) > 0)
+			session_complete_value(lc, cmd, cmdlen, word, value);
+	}
+	for (i = 1; i <= limit && fy_is_valid(branch.prev) &&
+			!fy_is_null(branch.prev); i++) {
+		if (!fyai_branch_entry_contained(ctx->durable_allocator,
+						branch.prev, 1) ||
+		    !fyai_branch_decode(branch.prev, &prev))
+			break;
+		branch = prev;
+		if (snprintf(value, sizeof(value), "%s%s@{%zu}",
+			     prefix, label, i) > 0)
+			session_complete_value(lc, cmd, cmdlen, word, value);
+	}
+}
+
+static void session_complete_refs(struct fyai_ctx *ctx,
+				  struct fytim_completions *lc,
+				  const char *cmd, size_t cmdlen,
+				  const char *word, const char *prefix)
+{
+	enum { REF_COMPLETION_LIMIT = 8 };
+	struct fyai_branch branch;
+	const char *s, *base;
+	char value[FYAI_BRANCH_NAME_MAX + 32];
+
+	base = fyai_ctx_branch(ctx);
+	snprintf(value, sizeof(value), "%sHEAD", prefix);
+	session_complete_value(lc, cmd, cmdlen, word, value);
+	fy_foreach(s, ctx->arena_branches) {
+		if (fy_str_empty(s) || !fyai_branch_lookup(ctx->arena_branches, s,
+							       &branch))
+			continue;
+		if (snprintf(value, sizeof(value), "%s%s", prefix, s) > 0)
+			session_complete_value(lc, cmd, cmdlen, word, value);
+		session_complete_branch_refs(ctx, lc, cmd, cmdlen, word, prefix,
+					     s, branch, REF_COMPLETION_LIMIT);
+	}
+	if (base && fyai_branch_lookup(ctx->arena_branches, base, &branch))
+		session_complete_branch_refs(ctx, lc, cmd, cmdlen, word, prefix,
+					     "HEAD", branch, REF_COMPLETION_LIMIT);
+}
+
 static void session_complete_tools(struct fyai_ctx *ctx,
 					   struct fytim_completions *lc,
 					   const char *cmd, size_t cmdlen,
@@ -3098,6 +3252,8 @@ static void session_complete_command_args(struct fyai_ctx *ctx,
 	};
 	size_t i;
 	const char *const *name;
+	const char *after, *s;
+	char prefix[FYAI_BRANCH_NAME_MAX + 8];
 
 	if (!cmd)
 		return;
@@ -3111,6 +3267,31 @@ static void session_complete_command_args(struct fyai_ctx *ctx,
 	}
 	if (cmd->run == slash_resume) {
 		session_complete_resume(ctx, lc, command, command_len, word);
+		return;
+	}
+	if (cmd->run == slash_checkout || cmd->run == slash_reset) {
+		if (cmd->run == slash_checkout) {
+			session_complete_value(lc, command, command_len,
+					       word, "-b ");
+			if (!strncmp(word, "-b ", 3)) {
+				after = word + 3;
+				s = strchr(after, ' ');
+				if (!s) {
+					session_complete_value(lc, command,
+						       command_len, word,
+						       "-b session/");
+					return;
+				}
+				if ((size_t)(s - word + 1) >= sizeof(prefix))
+					return;
+				memcpy(prefix, word, (size_t)(s - word + 1));
+				prefix[s - word + 1] = '\0';
+				session_complete_refs(ctx, lc, command,
+						      command_len, word, prefix);
+				return;
+			}
+		}
+		session_complete_refs(ctx, lc, command, command_len, word, "");
 		return;
 	}
 	if (!strcmp(cmd->name, "tools")) {
