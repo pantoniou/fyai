@@ -559,9 +559,10 @@ draws its slots.
   `page_append_text()`: it is escaped, loses its SGR and its line breaks, and
   loses its leading blanks at the start of a row, where four of them make an
   indented code block.
-- The renderer keeps a right margin of `FYAI_PAGE_RIGHT_MARGIN` columns. The
+- The renderer keeps a right margin of `markdown_gutter_cols()` columns. The
   page renderer is made that much wider, so rows and slots take the terminal
-  width.
+  width as the theme changes its margin. Recreate the renderer when that
+  margin changes at a settled terminal width.
 - The page places the tiles of the work pane itself. Each tile is bound to a
   slot `tile:N` when it is registered, and `fyai_workpane_page_grid()` writes
   the pane as an `fy-grid`: the cells come from `fyai_workpane_place()`, or
