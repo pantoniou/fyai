@@ -418,6 +418,13 @@ during the complete model and tool loop. Store the final document as
 `display_outputs`. Replay these documents for history. Reconstruct a legacy
 arena from message and provider data only as a fallback.
 
+An interactive user line queued during a turn enters before the next model
+request, after active tool calls finish. Close the assistant document, record
+each consecutive queued user line, and open a new assistant document for the
+continuation. A queued slash or shell command waits until the turn ends and
+keeps later lines behind it. A final model response ends the turn before
+pending user lines run.
+
 - Add generated text with `fyai_output_printf()`.
 - Add provider bytes with `fyai_output_append()`.
 - Use `fyai_output_append_recorded()` to add source that another path already
