@@ -3303,6 +3303,9 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 			md = fy_get(output, "markdown", "");
 			if (!cfg->transcript_system && fy_equal(tag, "system"))
 				continue;
+			if (args->raw && emitted)
+				(void)fyai_sink_write(ctx->sink,
+					FYAI_SINK_TRANSCRIPT, "\n\n", 2);
 			if (emitted &&
 			    (fy_equal(tag, "user") || fy_equal(tag, "system")) &&
 			    cfg->turn_separator &&
