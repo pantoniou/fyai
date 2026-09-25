@@ -1149,6 +1149,12 @@ invocation: by name, or through the resume picker. HEAD does not move. In a
 session, Escape in the picker returns to the session; only the picker of the
 `resume` verb ends the invocation.
 
+`/checkout <branch>` selects an existing branch and moves stored HEAD.
+`/checkout <branch>@{N}` and other historical references create a new
+`session/` branch at that state and check it out. `/checkout -b <name> <ref>`
+uses an explicit new branch name. `/reset <ref>` and `/rewind <ref>` move the
+current branch head to a reference; its previous entry remains in the reflog.
+
 Request-shaping slash settings persist through the common commit path. Display
 settings remain session-only. `--new` has the same state effect as `/clear`.
 `/compact` makes one tools-disabled summary request and stores the previous
