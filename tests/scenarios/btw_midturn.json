@@ -1,0 +1,53 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp-btw-side",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-btw-side",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "SIDE-START\nSIDE-LINE-01\nSIDE-LINE-02\nSIDE-LINE-03\nSIDE-LINE-04\nSIDE-LINE-05\nSIDE-LINE-06\nSIDE-LINE-07\nSIDE-LINE-08\nSIDE-LINE-09\nSIDE-LINE-10\nSIDE-LINE-11\nSIDE-LINE-12\nSIDE-LINE-13\nSIDE-LINE-14\nSIDE-LINE-15\nSIDE-LINE-16\nSIDE-LINE-17\nSIDE-LINE-18\nSIDE-LINE-19\nSIDE-LINE-20\nSIDE-LINE-21\nSIDE-LINE-22\nSIDE-LINE-23\nSIDE-LINE-24\nSIDE-LINE-25\nSIDE-LINE-26\nSIDE-LINE-27\nSIDE-LINE-28\nSIDE-LINE-29\nSIDE-LINE-30\nSIDE-LINE-31\nSIDE-LINE-32\nSIDE-LINE-33\nSIDE-LINE-34\nSIDE-LINE-35\nSIDE-ANSWER"
+              }
+            ]
+          }
+        ]
+      },
+      "match": {
+        "body_contains": "side question"
+      }
+    },
+    {
+      "response": {
+        "id": "resp-btw-main",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-btw-main",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "MAIN-ANSWER"
+              }
+            ]
+          }
+        ]
+      },
+      "wait_for": "release-main",
+      "match": {
+        "path": "/v1/responses"
+      }
+    }
+  ]
+}

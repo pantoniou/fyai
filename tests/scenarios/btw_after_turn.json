@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "resp-btw-side-late",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-btw-side-late",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "SIDE-ANSWER"
+              }
+            ]
+          }
+        ]
+      },
+      "wait_for": "release-side",
+      "match": {
+        "body_contains": "side question"
+      }
+    },
+    {
+      "response": {
+        "id": "resp-btw-main-late",
+        "object": "response",
+        "model": "mock-model",
+        "status": "completed",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg-btw-main-late",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "MAIN-ANSWER"
+              }
+            ]
+          }
+        ]
+      },
+      "wait_for": "release-main",
+      "match": {
+        "path": "/v1/responses"
+      }
+    }
+  ]
+}

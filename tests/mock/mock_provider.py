@@ -26,7 +26,9 @@ Each step describes the reply to one request, in order of arrival:
       "raw_sse": ["data: junk", ""], # or verbatim SSE lines
       "chunk_split": [5, 17],        # byte offsets to split the SSE stream at
       "wait_after_event": 2,         # wait after this zero-based SSE event
-      "wait_for": "tool.started",     # run-directory marker to wait for
+      "wait_for": "tool.started",     # run-directory marker to wait for:
+                                     # after wait_after_event when that is
+                                     # set, else before the reply starts
       "close_after": 3               # emit only the first N sse events, then
                                      # close the connection (truncated stream)
     }
@@ -105,6 +107,20 @@ class MockState:
 STATE = None
 
 
+def wait_marker(name):
+    """Wait for run-directory marker @name; record a failure at the deadline."""
+    marker = os.path.join(STATE.rundir, name)
+    failed = os.path.join(STATE.rundir, "stream-wait-failed")
+    scale = float(os.environ.get("FYAI_TIMEOUT_SCALE", "1") or "1")
+    deadline = time.monotonic() + 30.0 * scale
+    while not os.path.exists(marker):
+        if time.monotonic() >= deadline:
+            with open(failed, "w", encoding="utf-8"):
+                pass
+            return
+        time.sleep(0.01)
+
+
 def sse_parts(step):
     """Build independently writable pieces of one SSE response."""
     out = []
@@ -174,6 +190,12 @@ class Handler(BaseHTTPRequestHandler):
                 f.write(json.dumps(record) + "\n")
             with open(os.path.join(st.rundir, "served"), "w") as f:
                 f.write("%d\n" % st.served)
+
+        # A marker without an event index holds the whole reply until the
+        # case creates it: the case decides when the reply may arrive.
+        if step and step.get("wait_for") and \
+                step.get("wait_after_event") is None:
+            wait_marker(step["wait_for"])
 
         # Optional pre-response delay (seconds), for interrupt/timeout tests:
         # the client waits with no body byte yet, exercising the ^C abort path.
