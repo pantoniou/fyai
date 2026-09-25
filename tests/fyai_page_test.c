@@ -268,7 +268,7 @@ static char *page_render(const struct fyai_page_state *st, int height,
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.flags = FYMD_RF_DEFAULT | FYMD_RF_UI | FYMD_RF_NO_COLOR;
 	cfg.sgr_input = FYMD_SGR_SAFE;
-	cfg.width = 40 + FYAI_PAGE_RIGHT_MARGIN;
+	cfg.width = 40 + markdown_gutter_cols(st->ctx ? st->ctx->cfg : NULL);
 	r = fymd_renderer_create(&cfg);
 	FYAI_TCHECK(r != NULL);
 	rc = fymd_renderer_set_height(r, height);

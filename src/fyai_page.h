@@ -8,9 +8,6 @@
 #include "fyai.h"
 #include "utils.h"
 
-/* Columns a libfymd4c render keeps at the right of a document. */
-#define FYAI_PAGE_RIGHT_MARGIN 2
-
 struct fyai_cfg;
 struct fyai_ctx;
 struct fytim;

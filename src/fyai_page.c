@@ -50,6 +50,7 @@ struct fyai_page {
 	struct fyai_ctx *ctx;
 	struct fymd_renderer *renderer;	/* UI renderer at @cols */
 	int cols;
+	int margin_cols;
 	struct response_buffer source;
 	/* The page drawn as cells: a surface in the "canvas" slot under every
 	 * other slot, and the grid it is drawn from. */
@@ -2087,20 +2088,21 @@ static int page_renderer(struct fyai_page *pg, int cols)
 {
 	struct fyai_ctx *ctx = pg->ctx;
 	struct fymd_renderer_cfg rcfg;
+	int margin_cols = markdown_gutter_cols(ctx->cfg);
 
-	if (pg->renderer && pg->cols == cols)
+	if (pg->renderer && pg->cols == cols && pg->margin_cols == margin_cols)
 		return 0;
 	fymd_renderer_destroy(pg->renderer);
 	markdown_renderer_cfg(ctx->cfg, &rcfg,
 			      markdown_color_enabled(ctx->cfg->color),
 			      ctx->cfg->theme_variant, FYMD_RF_UI);
-	/* The renderer keeps a right margin of two columns: the page is given
-	 * them back so that its rows and slots take the whole width. */
-	rcfg.width = cols + FYAI_PAGE_RIGHT_MARGIN;
+	/* Give the renderer's theme margin back to the page width. */
+	rcfg.width = cols + margin_cols;
 	/* The header and the status carry the SGR pairs of the theme. */
 	rcfg.sgr_input = FYMD_SGR_SAFE;
 	pg->renderer = markdown_renderer_new(ctx->cfg, &rcfg);
 	pg->cols = pg->renderer ? cols : 0;
+	pg->margin_cols = pg->renderer ? margin_cols : 0;
 	fyai_error_check(ctx, pg->renderer, err_out,
 			 "cannot create the page renderer at %d columns", cols);
 	return 0;
