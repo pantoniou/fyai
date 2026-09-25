@@ -33,6 +33,14 @@ grep -q 'kind: response' .fyai/logs/conversation.yaml || fail "conversation log 
 run_fyai transcript --raw
 assert_status 0
 assert_stdout_not_contains "You are a test assistant."
+"$PYTHON" - "$TEST_DIR/stdout" <<'PYEOF' || fail "raw transcript joined separate documents"
+import pathlib
+import sys
+
+raw = pathlib.Path(sys.argv[1]).read_text()
+if "hello mock\n\nHello from the mock provider." not in raw:
+    raise SystemExit("raw transcript omitted the user/assistant boundary")
+PYEOF
 
 run_fyai --transient --set display/transcript_system=true transcript --raw
 assert_status 0
