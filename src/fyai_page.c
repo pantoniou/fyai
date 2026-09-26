@@ -56,6 +56,7 @@ struct fyai_page {
 	 * other slot, and the grid it is drawn from. */
 	struct fytim_surface *canvas;
 	struct fytim_cell *cells;
+	struct fytim_links *links;	/* the canvas links, for this frame */
 	int cells_rows, cells_cols;
 	size_t cells_alloc;
 	struct response_buffer blank;	/* the blank rows the page is set with */
@@ -1400,6 +1401,30 @@ void fyai_page_destroy(struct fyai_page *pg)
 }
 
 /* Rows of rendered text: its lines, and a last line without a newline. */
+/* Draw styled text into cells; a link of the text links the cells. */
+static int page_cells_text(struct fyai_page *pg, struct fytim_cell *grid,
+			   int grid_rows, int grid_cols, int row, int col,
+			   int width, int height, const char *text, size_t len)
+{
+	return fytim_cells_draw_text_links(grid, grid_rows, grid_cols, row, col,
+					   width, height, text, len, pg->links);
+}
+
+/*
+ * Give @n copied cells the ids of their links in the canvas table: an id of
+ * a cell names the table of the surface it was drawn for.
+ */
+static void page_cells_relink(struct fyai_page *pg, struct fytim_cell *cells,
+			      int n, const struct fytim_links *from)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+		if (cells[i].link)
+			cells[i].link = fytim_links_add(pg->links,
+					fytim_links_uri(from, cells[i].link));
+}
+
 static int page_count_rows(const char *text, size_t len)
 {
 	size_t i;
@@ -1457,18 +1482,18 @@ static int page_head_draw(struct fyai_page *pg, const struct fyai_page_tile *hd,
 	mc = page_tile_margin(hd, r->width);
 	if (!strchr(text, '\x1b'))
 		text = fy_sprintfa("\x1b[2m%s", text);
-	n = fytim_cells_draw_text(pg->cells, pg->cells_rows, pg->cells_cols,
-				  (int)r->row, r->col + mc, r->width - mc,
-				  r->height, text, strlen(text));
+	n = page_cells_text(pg, pg->cells, pg->cells_rows, pg->cells_cols,
+			    (int)r->row, r->col + mc, r->width - mc,
+			    r->height, text, strlen(text));
 	fyai_error_check(ctx, n >= 0, err_out,
 			 "cannot draw the head of tile %u", hd->slot);
 	if (mc > 0) {
 		margin = fy_sprintfa("\x1b[2m%s", hd->margin);
 		for (row = 0; row < n; row++) {
-			rc = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-						   pg->cells_cols,
-						   (int)r->row + row, r->col, mc,
-						   1, margin, strlen(margin));
+			rc = page_cells_text(pg, pg->cells, pg->cells_rows,
+					     pg->cells_cols,
+					     (int)r->row + row, r->col, mc,
+					     1, margin, strlen(margin));
 			fyai_error_check(ctx, rc >= 0, err_out,
 					 "cannot draw the head margin of tile %u",
 					 hd->slot);
@@ -1632,9 +1657,9 @@ static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 	for (row = first, y = (int)r->row; row < grid_rows && y < pg->cells_rows;
 	     row++, y++) {
 		if (mc > 0) {
-			n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-						  pg->cells_cols, y, r->col, mc, 1,
-						  margin, strlen(margin));
+			n = page_cells_text(pg, pg->cells, pg->cells_rows,
+					    pg->cells_cols, y, r->col, mc, 1,
+					    margin, strlen(margin));
 			rc = fytim_cells_ground(pg->cells, pg->cells_rows,
 						pg->cells_cols, y, r->col, mc, 1,
 						t->ground);
@@ -1652,6 +1677,7 @@ static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 			continue;
 		dst = &pg->cells[(size_t)y * (size_t)pg->cells_cols + (size_t)x];
 		memcpy(dst, src, (size_t)n * sizeof(*dst));
+		page_cells_relink(pg, dst, n, fytim_surface_links(t->surface));
 		/* A wide glyph cut at the edge is not drawn half. */
 		if (dst[n - 1].width > 1) {
 			memset(dst[n - 1].chars, 0, sizeof(dst[n - 1].chars));
@@ -1712,8 +1738,8 @@ static int page_rule_draw(struct fyai_page *pg, int y, int x, int width,
 		fyai_error_check(pg->ctx, !rc, err_out,
 				 "cannot write column %d of the page rule", i);
 	}
-	n = fytim_cells_draw_text(pg->cells, pg->cells_rows, pg->cells_cols, y,
-				  x, width, 1, rule.data, rule.len);
+	n = page_cells_text(pg, pg->cells, pg->cells_rows, pg->cells_cols, y,
+			    x, width, 1, rule.data, rule.len);
 	fyai_error_check(pg->ctx, n >= 0, err_out,
 			 "cannot draw the page rule");
 	free(rule.data);
@@ -1771,7 +1797,7 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		base = strchr(top, '\x1b') ? "" : chrome;
 		for (p = top, i = 0; i < top_rows; i++) {
 			nl = strchr(p, '\n');
-			n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
+			n = page_cells_text(pg, pg->cells, pg->cells_rows,
 				pg->cells_cols, y + i, r->col, r->width, 1,
 				fy_sprintfa("%s%.*s", base,
 					    (int)(nl ? nl - p : (long)strlen(p)), p),
@@ -1793,9 +1819,9 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 				p++;
 		}
 		if (p) {
-			n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-						  pg->cells_cols, y, r->col,
-						  r->width, rows, p, strlen(p));
+			n = page_cells_text(pg, pg->cells, pg->cells_rows,
+					    pg->cells_cols, y, r->col,
+					    r->width, rows, p, strlen(p));
 			if (n < 0)
 				return -1;
 		}
@@ -1806,9 +1832,9 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		return page_rule_draw(pg, y, r->col, r->width, chrome);
 	if (bottom_rows > 0) {
 		p = fy_sprintfa("%s%s", chrome, bottom);
-		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-					  pg->cells_cols, y, r->col, r->width,
-					  bottom_rows, p, strlen(p));
+		n = page_cells_text(pg, pg->cells, pg->cells_rows,
+				    pg->cells_cols, y, r->col, r->width,
+				    bottom_rows, p, strlen(p));
 		if (n < 0)
 			return -1;
 	}
@@ -1829,9 +1855,9 @@ static int page_lines_draw(struct fyai_page *pg, const char *const *lines,
 
 	for (y = 0; y < (int)r->height && y < nlines; y++) {
 		line = lines[y] ? lines[y] : "";
-		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-					  pg->cells_cols, (int)r->row + y, r->col,
-					  r->width, 1, line, strlen(line));
+		n = page_cells_text(pg, pg->cells, pg->cells_rows,
+				    pg->cells_cols, (int)r->row + y, r->col,
+				    r->width, 1, line, strlen(line));
 		if (n < 0)
 			return -1;
 	}
@@ -1861,12 +1887,12 @@ static int page_header_draw(struct fyai_page *pg,
 	/* Reserve one blank column between the header and right panel. */
 	if (!fy_str_empty(st->header_right) && st->header_right_cols > 0 &&
 	    st->header_right_cols < r->width) {
-		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-					  pg->cells_cols, (int)r->row,
-					  r->col + r->width - st->header_right_cols,
-					  st->header_right_cols, 1,
-					  st->header_right,
-					  strlen(st->header_right));
+		n = page_cells_text(pg, pg->cells, pg->cells_rows,
+				    pg->cells_cols, (int)r->row,
+				    r->col + r->width - st->header_right_cols,
+				    st->header_right_cols, 1,
+				    st->header_right,
+				    strlen(st->header_right));
 		if (n < 0)
 			return -1;
 		narrow = *r;
@@ -1886,9 +1912,9 @@ static int page_header_draw(struct fyai_page *pg,
 	if (r->width > pg->cells_cols - r->col)
 		return -1;
 	if (!plain) {
-		n = fytim_cells_draw_text(pg->cells, pg->cells_rows,
-					  pg->cells_cols, (int)r->row, r->col,
-					  r->width, 1, styled, strlen(styled));
+		n = page_cells_text(pg, pg->cells, pg->cells_rows,
+				    pg->cells_cols, (int)r->row, r->col,
+				    r->width, 1, styled, strlen(styled));
 		return n < 0 ? -1 : 0;
 	}
 	row = calloc((size_t)r->width + 1, sizeof(*row));
@@ -1896,8 +1922,8 @@ static int page_header_draw(struct fyai_page *pg,
 		return -1;
 	memcpy(row, at, (size_t)r->width * sizeof(*row));
 	row[r->width] = row[r->width - 1];
-	n = fytim_cells_draw_text(row, 1, r->width + 1, 0, 0, r->width + 1, 1,
-				  styled, strlen(styled));
+	n = page_cells_text(pg, row, 1, r->width + 1, 0, 0, r->width + 1, 1,
+			    styled, strlen(styled));
 	if (n >= 0)
 		memcpy(at, row, (size_t)r->width * sizeof(*row));
 	free(row);
@@ -1922,9 +1948,9 @@ static int page_tail_draw(struct fyai_page *pg, struct fytim *ft,
 	}
 	if (!p)
 		return 0;
-	n = fytim_cells_draw_text(pg->cells, pg->cells_rows, pg->cells_cols,
-				  (int)r->row, r->col, r->width, rows, p,
-				  strlen(p));
+	n = page_cells_text(pg, pg->cells, pg->cells_rows, pg->cells_cols,
+			    (int)r->row, r->col, r->width, rows, p,
+			    strlen(p));
 	return n < 0 ? -1 : 0;
 }
 
@@ -1977,14 +2003,19 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 	}
 	pg->cells_rows = nrows;
 	pg->cells_cols = cols;
+	/* Every row of the canvas is drawn again, so its links are too. */
+	pg->links = fytim_surface_links(pg->canvas);
+	fyai_error_check(ctx, pg->links, err_out,
+			 "cannot make the links of the page canvas");
+	fytim_links_clear(pg->links);
 	memset(pg->cells, 0, need * sizeof(*pg->cells));
 	for (i = 0; i < need; i++) {
 		pg->cells[i].fg = FYTIM_COLOR_DEFAULT;
 		pg->cells[i].bg = FYTIM_COLOR_DEFAULT;
 		pg->cells[i].width = 1;
 	}
-	n = fytim_cells_draw_text(pg->cells, nrows, cols, 0, 0, cols, nrows,
-				  rows, len);
+	n = page_cells_text(pg, pg->cells, nrows, cols, 0, 0, cols, nrows,
+			    rows, len);
 	fyai_error_check(ctx, n >= 0, err_out,
 			 "cannot draw the page rows into cells");
 	truecolor = fytim_truecolor(ft);
