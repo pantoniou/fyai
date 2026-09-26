@@ -1638,6 +1638,13 @@ void fyai_workpane_reconcile(struct fyai_workpane_manager *wm)
 	wm->resolved_max_rows = cap;
 	if (!wm->pane) {
 		wm->reconciling = false;
+		/* The last tile took the pane with it: the panel must stop
+		 * counting it. The reconcile runs on each frame, so update the
+		 * panel only for a change. */
+		if (wm->layout_pending) {
+			wm->layout_pending = false;
+			fyai_ui_panel_update(wm->ctx);
+		}
 		return;
 	}
 
