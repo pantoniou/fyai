@@ -1162,6 +1162,13 @@ session, Escape in the picker returns to the session; only the picker of the
 uses an explicit new branch name. `/reset <ref>` and `/rewind <ref>` move the
 current branch head to a reference; its previous entry remains in the reflog.
 
+`/btw <question>` asks a side question while a turn runs. It forks a
+sub-agent from the current head onto a child branch `agent:btw-N` and does not
+change the conversation of the parent. Its screen is a tile of the work pane.
+The finished answer stays in that tile until the user closes it with Escape,
+the close button, or `/kill`. In the focused tile, arrow keys and PgUp and PgDn
+scroll the answer; one chunk of input can hold several of these keys.
+
 Request-shaping slash settings persist through the common commit path. Display
 settings remain session-only. `--new` has the same state effect as `/clear`.
 `/compact` makes one tools-disabled summary request and stores the previous
