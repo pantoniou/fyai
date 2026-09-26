@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 # The panel at the right of the input header counts the live shells of the
 # user and has a button that hides and shows the work pane. The pane goes and
-# comes back with its program running, under both renderers.
+# comes back with its program running, under both renderers. The panel goes
+# when the last shell ends, also on the fullscreen page, where the result of
+# /kill is a note and no tile keeps the pane.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -12,6 +14,8 @@ set -eu
 run_with()
 {
     renderer=$1
+    screen=inline
+    [ "$renderer" = page ] && screen=fullscreen
     fyai_test_setup
     FYAI_PTY_COLS=100 FYAI_PTY_ROWS=30 \
     FYAI_PTY_INPUT="!sh -c 'printf \"%s-%s\\n\" PANE OUT; exec cat'" \
@@ -26,6 +30,7 @@ run_with()
         --set display/markdown=true \
         --set display/work_controls=zoom \
         --set "display/renderer=$renderer" \
+        --set "display/screen=$screen" \
         --set api=chat-completions \
         --set "api_url=http://127.0.0.1:9/v1/chat/completions" \
         -m mock-model -i ||
