@@ -654,6 +654,12 @@ draws its slots.
   popup drops its rows.
 - A popup hides the tiles, so the page gives them no grant while it is open:
   a grant of no rows would size every program to nothing.
+- A cell of the page keeps the OSC 8 link it was drawn with, so a URL of
+  the transcript stays a link on the alternate screen. Draw page text with
+  `page_cells_text()`, which uses the link table of the canvas; the page
+  clears that table when it draws every row again. A cell copied from a tile
+  surface names the table of that surface: `page_cells_relink()` gives it the
+  id of the canvas.
 - A drag over the transcript view is a selection of its text region. Its
   text is the text of the rows in its cells, without styles, links and the
   blanks that end a row (`fyai_transcript_view_copy()`), and fyai copies it
