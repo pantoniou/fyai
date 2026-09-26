@@ -938,7 +938,9 @@ register, focus, zoom, resize - and sizes nothing itself.
 - The input header ends in a panel when the pane holds live work: a button
   that hides and shows the whole pane, then the live shells of the user,
   the live shells of the model and the running sub-agents, each only when
-  there is one. `fyai_ui_panel_update()` writes it after every reconcile.
+  there is one. `fyai_ui_panel_update()` writes it after every reconcile,
+  and when the last tile takes the pane with it: a reconcile with no pane
+  does nothing else, and a panel left from before counts a shell that ended.
   The band stack draws it with `fytim_set_header_right()`, and the page
   draws it in the `header` slot with the button as an act of the page; both
   route `panel:pane` through `ui_act()`. Its glyphs are glyphs of the theme
