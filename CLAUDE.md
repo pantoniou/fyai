@@ -1550,6 +1550,37 @@ expected value on the screen. A key that must change nothing has no state to
 wait for: send it in one write with the key that follows it, which keeps their
 order.
 
+Do not delay a test at all: not in a case, not in the PTY driver, and not in
+a mock scenario. `FYAI_PTY_DURING_DELAY` and a scenario `delay` are for a
+case that tests a wait itself, such as an interrupt of a request in flight.
+Order the steps of a case with state:
+
+- Before input during a turn, set `FYAI_PTY_PROGRESS_NEEDLE` to text that
+  the turn shows. The driver then sends the input after that text and not
+  after a time.
+- Hold a mock reply with `wait_for: <marker>`. Without `wait_after_event`,
+  the mock holds the whole reply until the marker exists in the run
+  directory. The case creates the marker with the `release:` step of
+  `FYAI_PTY_AFTER` when the state that the reply must follow is on the
+  screen. A marker that is not created in time makes the mock write
+  `stream-wait-failed`; the case must fail on that file.
+- Select the reply for one of several concurrent requests with `match`, for
+  example `body_contains`, and not with the order of arrival. A forked
+  sub-agent request contains the conversation of its parent, so put the
+  more specific match first.
+- Wait for the state that a key acts on before you send the key. A status
+  hint or a heading that the state shows is such a text.
+
+Run the suite under load before you push a change to a PTY case or to event
+timing. A test that passes one time can fail on a loaded CI runner:
+
+```sh
+ctest --test-dir build -j96 --repeat until-fail:5
+```
+
+A case that fails only under this load has a race. Fix the order of its
+steps; do not raise a deadline.
+
 A driver that plays a terminal answers DA1 (`tests/term_reply.py`), as
 every terminal does. fyai waits for that reply before it opens the UI.
 
