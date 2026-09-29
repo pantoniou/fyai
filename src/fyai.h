@@ -356,6 +356,7 @@ struct fyai_cfg {
 	bool stream_logging;
 	bool conversation_logging;
 	bool mcp_logging;
+	bool transport_logging;
 	bool whitewash_api_keys;
 	bool logprobs;
 	/*

@@ -14,7 +14,7 @@
 int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc);
 int fyai_log_clear(struct fyai_ctx *ctx);
 /*
- * The logs of a target: wire, stream, conversation, mcp, or all. Set turns
+ * The logs of a target: wire, stream, conversation, mcp, transport, or all. Set turns
  * them on or off for this run, clear empties them, and view opens them.
  */
 void fyai_log_set(struct fyai_cfg *cfg, const char *target, bool on);

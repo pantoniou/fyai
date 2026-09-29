@@ -573,6 +573,13 @@ properties:
         type: boolean
         default: false
         description: Log MCP lifecycle and JSON-RPC request metadata.
+      transport:
+        type: boolean
+        default: false
+        description: >-
+          Log the credential transport: admissions, rejected messages, request
+          and response events, and its wire traffic. Credentials are always
+          whited out; `whitewash_api_keys` does not apply to this log.
   display:
     x-fyai-scope: session
     type: object

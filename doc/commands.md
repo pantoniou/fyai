@@ -794,7 +794,9 @@ control the trace logs
 **Aliases:** `logging`
 
 Show, start, stop, clear, or view the logs under .fyai/logs. TARGET is
-wire, stream, conversation, mcp, or all.
+wire, stream, conversation, mcp, transport, or all. The logs never hold a
+credential: the values of key headers, bearer tokens, and the key itself
+are whited out when they are written.
 
 
 ### Commands
@@ -811,7 +813,7 @@ wire, stream, conversation, mcp, or all.
 
 | Argument | Description |
 | --- | --- |
-| `TARGET` | the log (wire, stream, conversation, mcp, all); default all |
+| `TARGET` | the log (wire, stream, conversation, mcp, transport, all); default all |
 
 With no command, `show` runs.
 
@@ -2481,7 +2483,9 @@ control the trace logs
 **Aliases:** `logging`
 
 Show, start, stop, clear, or view the logs under .fyai/logs. TARGET is
-wire, stream, conversation, mcp, or all.
+wire, stream, conversation, mcp, transport, or all. The logs never hold a
+credential: the values of key headers, bearer tokens, and the key itself
+are whited out when they are written.
 
 
 ### Commands
@@ -2498,7 +2502,7 @@ wire, stream, conversation, mcp, or all.
 
 | Argument | Description |
 | --- | --- |
-| `TARGET` | the log (wire, stream, conversation, mcp, all); default all |
+| `TARGET` | the log (wire, stream, conversation, mcp, transport, all); default all |
 
 With no command, `show` runs.
 

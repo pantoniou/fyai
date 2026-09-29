@@ -20,6 +20,7 @@
 #include "fyai_sink.h"
 #include "fyai_diag.h"
 #include "fyai_log.h"
+#include "fyai_redact.h"
 #include "fyai_ui.h"
 
 static char *fyai_log_path(struct fyai_ctx *ctx, const char *name)
@@ -115,6 +116,8 @@ int fyai_log_clear(struct fyai_ctx *ctx)
 		ret = -1;
 	if (fyai_log_truncate(ctx, "mcp"))
 		ret = -1;
+	if (fyai_log_truncate(ctx, "transport"))
+		ret = -1;
 	return ret;
 }
 
@@ -134,7 +137,8 @@ fy_generic fyai_log_status_data(struct fyai_ctx *ctx,
 		"wire", cfg->wire_logging,
 		"stream", cfg->stream_logging,
 		"conversation", cfg->conversation_logging,
-		"mcp", cfg->mcp_logging);
+		"mcp", cfg->mcp_logging,
+		"transport", cfg->transport_logging);
 }
 
 void fyai_log_set(struct fyai_cfg *cfg, const char *target, bool on)
@@ -147,6 +151,8 @@ void fyai_log_set(struct fyai_cfg *cfg, const char *target, bool on)
 		cfg->conversation_logging = on;
 	if (!strcmp(target, "mcp") || !strcmp(target, "all"))
 		cfg->mcp_logging = on;
+	if (!strcmp(target, "transport") || !strcmp(target, "all"))
+		cfg->transport_logging = on;
 }
 
 int fyai_log_view(struct fyai_ctx *ctx, const char *target)
@@ -156,7 +162,8 @@ int fyai_log_view(struct fyai_ctx *ctx, const char *target)
 	if (fyai_log_view_target(ctx, "wire") ||
 	    fyai_log_view_target(ctx, "stream") ||
 	    fyai_log_view_target(ctx, "conversation") ||
-	    fyai_log_view_target(ctx, "mcp"))
+	    fyai_log_view_target(ctx, "mcp") ||
+	    fyai_log_view_target(ctx, "transport"))
 		return -1;
 	return 0;
 }
@@ -187,6 +194,8 @@ int fyai_log_generic(struct fyai_ctx *ctx, const char *name, fy_generic doc)
 	if (!strcmp(name, "conversation") && !cfg->conversation_logging)
 		return 0;
 	if (!strcmp(name, "mcp") && !cfg->mcp_logging)
+		return 0;
+	if (!strcmp(name, "transport") && !cfg->transport_logging)
 		return 0;
 
 	path = fyai_log_path(ctx, name);
@@ -224,41 +233,26 @@ void fyai_log_wire_text(struct fyai_ctx *ctx, const char *type,
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder *gb;
+	struct fyai_redactor redactor;
 	fy_generic doc;
-	char *copy = NULL, *p, *line, *eol, *value, *tail;
+	char *copy = NULL;
 	const char *log_data;
-	size_t n;
 
 	if (!data)
 		return;
 	log_data = data;
-	if (cfg->whitewash_api_keys &&
-	    type && !strcmp(type, "header_out")) {
+	if (cfg->whitewash_api_keys) {
 		copy = malloc(size + 1);
 		if (!copy)
 			return;
 		memcpy(copy, data, size);
 		copy[size] = '\0';
-		for (p = copy; p < copy + size; p = eol ? eol + 1 : copy + size) {
-			line = p;
-			eol = memchr(line, '\n', (copy + size) - line);
-			tail = eol ? eol : copy + size;
-			if (!strncasecmp(line, "Authorization:", 14))
-				value = line + 14;
-			else if (!strncasecmp(line, "x-api-key:", 10))
-				value = line + 10;
-			else
-				continue;
-			while (value < tail && (*value == ' ' || *value == '\t'))
-				value++;
-			if (value < tail) {
-				n = (size_t)(tail - value);
-				memset(value, ' ', n);
-				memcpy(value, "[redacted]",
-				       n < sizeof("[redacted]") - 1 ?
-					       n : sizeof("[redacted]") - 1);
-			}
-		}
+		/* Every record can carry a key: a header, an echo, an error. */
+		fyai_redactor_init(&redactor);
+		if (cfg->api_key)
+			(void)fyai_redactor_add_secret(&redactor, cfg->api_key);
+		fyai_redact(&redactor, copy, size);
+		fyai_redactor_clear(&redactor);
 		log_data = copy;
 	}
 	gb = ctx->transient_gb ? ctx->transient_gb : cfg->gb;

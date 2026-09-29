@@ -553,6 +553,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->conversation_logging = apply_bool(v, "conversation",
 						       cfg->conversation_logging);
 		cfg->mcp_logging = apply_bool(v, "mcp", cfg->mcp_logging);
+		cfg->transport_logging = apply_bool(v, "transport",
+						    cfg->transport_logging);
 	}
 
 	v = fy_get(root, "branch");
@@ -2630,6 +2632,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->stream_logging = false;
 	cfg->conversation_logging = false;
 	cfg->mcp_logging = false;
+	cfg->transport_logging = false;
 	cfg->whitewash_api_keys = true;
 	/* This is an opt-in because provider-side response retention is lossy. */
 	cfg->response_chain = false;

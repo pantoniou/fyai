@@ -213,6 +213,7 @@ logging:
   stream: false
   conversation: false
   mcp: false
+  transport: false
 
 # --- Display / theming ------------------------------------------------------
 #

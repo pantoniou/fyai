@@ -1042,7 +1042,9 @@ commands:
     title: control the trace logs
     description: |
       Show, start, stop, clear, or view the logs under .fyai/logs. TARGET is
-      wire, stream, conversation, mcp, or all.
+      wire, stream, conversation, mcp, transport, or all. The logs never hold a
+      credential: the values of key headers, bearer tokens, and the key itself
+      are whited out when they are written.
     surfaces: [cli, session]
     default: show
     arguments:
@@ -1051,7 +1053,7 @@ commands:
       properties:
         target:
           type: string
-          enum: [wire, stream, conversation, mcp, all]
+          enum: [wire, stream, conversation, mcp, transport, all]
           default: all
           description: the log
           x-fyai-positional: 0
@@ -1062,7 +1064,7 @@ commands:
         description: Show which logs are on.
         handler: log
         render:
-          message: "logging: wire {wire}, stream {stream}, conversation {conversation}, mcp {mcp}"
+          message: "logging: wire {wire}, stream {stream}, conversation {conversation}, mcp {mcp}, transport {transport}"
         while_busy: run
       - command: start
         aliases: ["on"]
@@ -1070,7 +1072,7 @@ commands:
         description: Start writing the log.
         handler: log
         render:
-          message: "logging: wire {wire}, stream {stream}, conversation {conversation}, mcp {mcp}"
+          message: "logging: wire {wire}, stream {stream}, conversation {conversation}, mcp {mcp}, transport {transport}"
         while_busy: run
       - command: stop
         aliases: ["off"]
@@ -1078,7 +1080,7 @@ commands:
         description: Stop writing the log.
         handler: log
         render:
-          message: "logging: wire {wire}, stream {stream}, conversation {conversation}, mcp {mcp}"
+          message: "logging: wire {wire}, stream {stream}, conversation {conversation}, mcp {mcp}, transport {transport}"
         while_busy: run
       - command: clear
         title: empty the log
