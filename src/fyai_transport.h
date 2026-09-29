@@ -162,6 +162,14 @@ int fyai_transport_grant_add_header(struct fyai_transport_grant *grant,
 				    const char *name, const char *field,
 				    const char *value);
 
+/*
+ * Copy the profiles of @src into @dst. A profile of the same name in @dst is
+ * replaced, and the others are kept. Return 0 or -ENOMEM; on failure @dst may
+ * hold part of @src.
+ */
+int fyai_transport_grant_merge(struct fyai_transport_grant *dst,
+			       const struct fyai_transport_grant *src);
+
 const struct fyai_transport_profile *
 fyai_transport_grant_find(const struct fyai_transport_grant *grant,
 			  const char *name);
@@ -287,6 +295,12 @@ struct fyai_transport_exec *
 fyai_transport_find(struct fyai_transport_registry *reg, uint64_t id);
 struct fyai_transport_exec *
 fyai_transport_find_channel(struct fyai_transport_registry *reg, int channel);
+
+/* The admitted executions, for a status report. Return false past the end. */
+size_t fyai_transport_registry_count(const struct fyai_transport_registry *reg);
+bool fyai_transport_registry_exec_info(const struct fyai_transport_registry *reg,
+				       size_t index, uint64_t *id,
+				       uint64_t *parent, pid_t *pid);
 
 uint64_t fyai_transport_exec_id(const struct fyai_transport_exec *exec);
 int fyai_transport_exec_channel(const struct fyai_transport_exec *exec);

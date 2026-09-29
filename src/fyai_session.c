@@ -59,6 +59,8 @@
 #include "fyai_session.h"
 #include "fyai_cmd.h"
 #include "fyai_stream.h"
+#include "fyai_transport_boot.h"
+#include "fyai_transport_client.h"
 #include "fyai_xfer.h"
 #include "fyai_ui.h"
 #include "fyai_storage.h"
@@ -558,7 +560,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
 	/* Only a live session sends the next request with it. */
-	if (live && (!tmp.api_key || !*tmp.api_key) &&
+	if (live && !fyai_transport_have_credential(ctx, &tmp) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
 		fyai_error(ctx, "model: no API key for provider '%s' (set %s%s)",
 			   tmp.provider ? tmp.provider : "?",
@@ -651,7 +653,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
 	/* Only a live session sends the next request with it. */
-	if (live && (!tmp.api_key || !*tmp.api_key) &&
+	if (live && !fyai_transport_have_credential(ctx, &tmp) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
 		fyai_error(ctx, "api: no API key for provider '%s' (set %s%s)",
 			   tmp.provider ? tmp.provider : "?",
@@ -959,6 +961,9 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
 	struct fyai_context_prompt p;
 	long long window, shown, out_tokens;
 
+	char iso[160];
+
+	fyai_transport_status_text(ctx, iso, sizeof(iso));
 	window = fyai_context_window(ctx);
 	fyai_context_prompt_at(ctx, ctx->last_message, &p);
 	shown = session_projected_tokens(ctx, &p);
@@ -986,6 +991,7 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
 		"prompt", fy_gb_internalize(gb, session_prompt_text(ctx, &p)),
 		"output_allowance", session_allowance(gb, cfg, out_tokens),
 		"auth", fyai_auth_status_data(ctx, gb, false),
+		"isolation", fy_value(gb, iso),
 		"usage", fyai_stats_data(ctx, gb));
 }
 
@@ -1216,7 +1222,8 @@ static void session_token_count(char *buf, size_t size, long long tokens)
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_tmpl_var vars[14], top_vars[14];
+	struct fyai_tmpl_var vars[15], top_vars[15];
+	char isolation[64];
 	char *coloured[14];
 	const struct fyai_tmpl_var *header_vars;
 	bool colour_ok;
@@ -1352,6 +1359,13 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	vars[11] = (struct fyai_tmpl_var){ "cwd", directory };
 	vars[12] = (struct fyai_tmpl_var){ "location", location };
 	vars[13] = (struct fyai_tmpl_var){ "layout", fyai_ui_page_layout(ctx) };
+	/* Empty unless credentials are isolated, like the other optional fields. */
+	isolation[0] = '\0';
+	if (ctx->tclient)
+		snprintf(isolation, sizeof(isolation), " · isolated %s%s",
+			 fyai_transport_effective_level(ctx),
+			 fyai_tclient_alive(ctx->tclient) ? "" : " (down)");
+	vars[14] = (struct fyai_tmpl_var){ "isolation", isolation };
 	if (fyai_agents_attached(ctx)) {
 		vars[1].val = "agent";
 		vars[2].val = fyai_agents_state(ctx, fyai_agents_attached(ctx));
@@ -1394,6 +1408,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 				     "prompt header");
 	}
 	top_vars[13] = (struct fyai_tmpl_var){ "layout", coloured[13] };
+	top_vars[14] = vars[14];
 	header_vars = colour_ok ? top_vars : vars;
 
 	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?

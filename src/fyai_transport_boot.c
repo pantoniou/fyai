@@ -23,6 +23,7 @@
 #endif
 
 #include "fyai.h"
+#include "fyai_agent.h"
 #include "fyai_event.h"
 #include "fyai_secret.h"
 #include "fyai_transport.h"
@@ -30,9 +31,13 @@
 #include "fyai_transport_cfg.h"
 #include "fyai_transport_client.h"
 #include "fyai_transport_ctl.h"
+#include "fyai_transport_sock.h"
 #include "utils.h"
 
 extern char **environ;
+
+static int ctx_call(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			    fy_generic req, int fd, fy_generic *reply, const char **why);
 
 /* The execution id of the supervisor, which is also the root agent. */
 #define ROOT_EXEC_ID 1
@@ -49,12 +54,13 @@ bool fyai_env_is_credential(const char *name)
 {
 	static const char *const suffixes[] = { "_API_KEY", "_APIKEY", NULL };
 	size_t n = strlen(name), i;
+	size_t s;
 
 	/* The MCP client reads this one; it is not a model credential. */
 	if (!strcasecmp(name, "MCP_API_KEY"))
 		return false;
 	for (i = 0; suffixes[i]; i++) {
-		size_t s = strlen(suffixes[i]);
+		s = strlen(suffixes[i]);
 
 		if (n > s && !strcasecmp(name + n - s, suffixes[i]))
 			return true;
@@ -70,11 +76,13 @@ static int env_scrub(const struct fyai_cfg *cfg)
 	size_t i, len;
 	bool removed;
 	int rc = 0;
+	const char *eq, *end;
+	size_t n;
 
 	do {
 		removed = false;
 		for (i = 0; environ && environ[i]; i++) {
-			const char *eq = strchr(environ[i], '=');
+			eq = strchr(environ[i], '=');
 
 			len = eq ? (size_t)(eq - environ[i]) : strlen(environ[i]);
 			if (len >= sizeof(name)) {
@@ -97,8 +105,8 @@ static int env_scrub(const struct fyai_cfg *cfg)
 	/* The variables that the credential source of this run names. */
 	ref = cfg->api_key_ref;
 	while (ref && *ref) {
-		const char *end = strchr(ref, '|');
-		size_t n = end ? (size_t)(end - ref) : strlen(ref);
+		end = strchr(ref, '|');
+		n = end ? (size_t)(end - ref) : strlen(ref);
 
 		if (n > 4 && !strncmp(ref, "env:", 4) && n - 4 < sizeof(name)) {
 			memcpy(name, ref + 4, n - 4);
@@ -155,8 +163,7 @@ static int boot_call(struct boot *b, struct fy_generic_builder *gb,
 			return 0;
 		if (fy_equal(op, "error")) {
 			m = fy_get(reply, "message", fy_invalid);
-			snprintf(b->error, sizeof(b->error),
-				 "the credential transport refused: %s",
+			snprintf(b->error, sizeof(b->error), "the credential transport refused: %s",
 				 fy_is_string(m) ? fy_castp(&m, "") : "no reason");
 			*why = b->error;
 			return -EPERM;
@@ -290,6 +297,7 @@ static int stdin_restore(const struct fyai_cfg *cfg)
 #ifdef __linux__
 	size_t len, done = 0;
 	int fd;
+	ssize_t n;
 
 	if (!cfg->stdin_consumed)
 		return 0;
@@ -298,7 +306,7 @@ static int stdin_restore(const struct fyai_cfg *cfg)
 	if (fd < 0)
 		return -1;
 	while (done < len) {
-		ssize_t n = write(fd, cfg->prompt + done, len - done);
+		n = write(fd, cfg->prompt + done, len - done);
 
 		if (n <= 0) {
 			close(fd);
@@ -366,6 +374,59 @@ err:
 #endif
 }
 
+const char *fyai_transport_effective_level(const struct fyai_ctx *ctx)
+{
+	const char *level;
+
+	if (!ctx->tclient)
+		return "none";
+	level = getenv(FYAI_TRANSPORT_ISOLATION_ENV);
+	return level && *level ? level : "on";
+}
+
+void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size)
+{
+	char storage[4 * FYAI_CTL_MAX + FY_GENERIC_BUILDER_LINEAR_IN_PLACE_MIN_SIZE];
+	const char *req = getenv(FYAI_TRANSPORT_REQUESTED_ENV);
+	const char *level = fyai_transport_effective_level(ctx);
+	struct fy_generic_builder *gb;
+	char asked[64] = "";
+	fy_generic reply, lv;
+	const char *why = "cannot create the transport status builder";
+	int rc;
+
+	if (!ctx->tclient) {
+		snprintf(buf, size, "none");
+		return;
+	}
+	gb = fy_generic_builder_create_in_place(FYGBCF_SCOPE_LEADER, NULL,
+					      storage, sizeof(storage));
+	if (gb) {
+		rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "status",
+				"seq", ++ctx->transport_seq), -1, &reply, &why);
+		if (!rc) {
+			lv = fy_get(reply, "level", fy_invalid);
+			if (fy_is_string(lv))
+				level = fy_gb_intern_string(gb, fy_castp(&lv, ""));
+			if (req && *req && strcmp(req, level))
+				snprintf(asked, sizeof(asked), "requested %s; ", req);
+			snprintf(buf, size, "%s (%stransport pid %lld; execution %llu of %zu; "
+				 "%zu profiles; %lld in flight)", level, asked,
+				 (long long)fy_get(reply, "pid", 0LL),
+				 (unsigned long long)ctx->transport_exec,
+				 (size_t)fy_len(fy_get(reply, "executions", fy_seq_empty)),
+				 (size_t)fy_len(fy_get(reply, "profiles", fy_seq_empty)),
+				 (long long)fy_get(reply, "active", 0LL));
+			return;
+		}
+	}
+	if (req && *req && strcmp(req, level))
+		snprintf(asked, sizeof(asked), "requested %s; ", req);
+	snprintf(buf, size, "%s (%stransport not answering: %s; process %ld, "
+		 "channel %s)", level, asked, why, (long)ctx->transport_pid,
+		 fyai_tclient_alive(ctx->tclient) ? "up" : "down");
+}
+
 int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 {
 	struct fyai_transport_grant grant = { 0 };
@@ -380,6 +441,7 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	pid_t pid = -1;
 	int rc;
 	const char *over = getenv(FYAI_TRANSPORT_ISOLATION_ENV);
+	const char *requested;
 
 	/* The environment sets the level for one run; a test can turn it on. */
 	if (over && *over)
@@ -387,6 +449,7 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	if (fyai_transport_supervised() || cfg->tool_exec ||
 	    !fyai_cfg_makes_requests(cfg))
 		return 0;
+	requested = cfg->agent_transport_isolation;
 	rc = fyai_transport_level_parse(cfg->agent_transport_isolation, &level);
 	fyai_cfg_error_check(cfg, !rc, err,
 			     "agent/transport_isolation: '%s' is not none, auto, "
@@ -470,6 +533,8 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	 */
 	if (cfg->api_key_ref)
 		setenv(FYAI_TRANSPORT_KEYREF_ENV, cfg->api_key_ref, 1);
+	/* What was asked for, so that `auto` can be told from what it became. */
+	setenv(FYAI_TRANSPORT_REQUESTED_ENV, requested, 1);
 	/* The next image finds the level from the environment, not the key. */
 	setenv(FYAI_TRANSPORT_ISOLATION_ENV, fyai_transport_level_name(level), 1);
 
@@ -534,12 +599,400 @@ static enum fyai_event_action ctl_drain(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
+/*
+ * One request on the control connection of this process, and its reply. The
+ * wait is a poll on the descriptor, not a nested event loop. This process has
+ * one thread, so the drain source cannot run while the call waits and cannot
+ * take the reply. Calls occur only for setup, configuration changes, child
+ * admission, explicit status, and credential checks; transfers use the client.
+ */
+static int ctx_call(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		    fy_generic req, int fd, fy_generic *reply, const char **why)
+{
+	struct pollfd pfd = { .fd = ctx->transport_ctl, .events = POLLIN };
+	fy_generic op, m;
+	int rc;
+
+	*why = NULL;
+	if (ctx->transport_ctl <= STDERR_FILENO) {
+		*why = "this process has no control connection to the transport";
+		return -ENOTCONN;
+	}
+	rc = fyai_ctl_send(ctx->transport_ctl, req, fd, 0);
+	if (rc) {
+		*why = "cannot send to the credential transport";
+		return rc;
+	}
+	for (;;) {
+		rc = poll(&pfd, 1, 30000);
+		if (rc < 0 && errno == EINTR)
+			continue;
+		if (rc <= 0) {
+			*why = "the credential transport did not answer";
+			return rc < 0 ? -errno : -ETIMEDOUT;
+		}
+		rc = fyai_ctl_recv(ctx->transport_ctl, gb, reply, NULL);
+		if (rc == -EAGAIN)
+			continue;
+		if (rc) {
+			*why = "the credential transport is not available";
+			return rc;
+		}
+		op = fy_get(*reply, "op", fy_invalid);
+		if (fy_equal(op, "event"))
+			continue;
+		if (fy_equal(op, "ok"))
+			return 0;
+		m = fy_get(*reply, "message", fy_invalid);
+		*why = fy_is_string(m) ? fy_gb_intern_string(gb, fy_castp(&m, "")) :
+			"the credential transport refused without a reason";
+		return -EPERM;
+	}
+}
+
+static bool names_have(const struct fyai_ctx *ctx, const char *name)
+{
+	unsigned int i;
+
+	for (i = 0; i < ctx->transport_nnames; i++)
+		if (!strcmp(ctx->transport_names[i], name))
+			return true;
+	return false;
+}
+
+static void names_add(struct fyai_ctx *ctx, const char *name)
+{
+	if (names_have(ctx, name))
+		return;
+	if (ctx->transport_nnames >= ARRAY_SIZE(ctx->transport_names))
+		return;
+	snprintf(ctx->transport_names[ctx->transport_nnames++],
+		 sizeof(ctx->transport_names[0]), "%s", name);
+}
+
+/* Most profile names one configuration and its personas need. */
+#define ENSURE_MAX	FYAI_CTL_MAX_GRANT
+
+/*
+ * Add the profiles that @cfg needs to @grant and its names to @names, without
+ * repeating a name that is there. A profile that the configuration cannot
+ * have is left out, and @why says why.
+ */
+static int ensure_add(const struct fyai_cfg *cfg, struct fyai_transport_grant *grant,
+		      char names[][FYAI_TPC_NAME_MAX], size_t *n, const char **why)
+{
+	char one[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX];
+	struct fyai_transport_allow allow[FYAI_TPC_KINDS];
+	size_t i, j, cnt;
+	int rc;
+
+	rc = fyai_transport_profiles_add(grant, cfg, why);
+	if (rc)
+		return rc;
+	cnt = fyai_transport_allow_for(cfg, one, allow);
+	for (i = 0; i < cnt; i++) {
+		for (j = 0; j < *n; j++)
+			if (!strcmp(names[j], one[i]))
+				break;
+		if (j == *n && *n < ENSURE_MAX)
+			snprintf(names[(*n)++], FYAI_TPC_NAME_MAX, "%s", one[i]);
+	}
+	return 0;
+}
+
+/*
+ * Add the profiles of every configured persona. A persona that does not
+ * resolve is left out: a sub-agent that uses it fails when it starts, and an
+ * unused persona must not fail this run.
+ */
+static void ensure_personas(struct fyai_ctx *ctx, struct fyai_transport_grant *grant,
+			    char names[][FYAI_TPC_NAME_MAX], size_t *n)
+{
+	fy_generic personas = fy_get(fy_get(ctx->cfg->config_doc, "agent"),
+				     "personas", fy_invalid);
+	fy_generic key, persona;
+	bool had_error = fyai_diag_got_error(&ctx->cfg->diag);
+	struct fyai_cfg pc;
+	const char *why;
+
+	if (!fy_is_mapping(personas))
+		return;
+	fy_foreach_key_value(key, persona, personas) {
+		if (!fy_is_mapping(persona))
+			continue;
+		if (fyai_agent_persona_cfg(ctx, persona, false, &pc)) {
+			if (!had_error)
+				fyai_diag_reset(&ctx->cfg->diag);
+			continue;
+		}
+		(void)ensure_add(&pc, grant, names, n, &why);
+	}
+}
+
+int fyai_transport_ensure(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_transport_grant grant = { 0 };
+	struct fyai_transport_allow allow[ENSURE_MAX];
+	char names[ENSURE_MAX][FYAI_TPC_NAME_MAX];
+	struct fy_generic_builder *gb = NULL;
+	fy_generic reply;
+	const char *why = NULL;
+	size_t nneed = 0, i, n = 0;
+	struct fyai_transport_allow root[FYAI_TPC_KINDS];
+	char rn[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX];
+	size_t cnt;
+	bool all;
+	int rc;
+
+	/*
+	 * Only the supervisor states profiles: it is the user session, and the
+	 * one that can be told to change the set. A sub-agent has the grant its
+	 * parent gave it, and the transport refuses what that grant lacks.
+	 */
+	if (!ctx->tclient || !ctx->transport_owner ||
+	    ctx->transport_ctl <= STDERR_FILENO)
+		return 0;
+	/* The personas change with the configuration; the model can change without. */
+	if (ctx->transport_stated && ctx->transport_gen == ctx->cfg->config_generation) {
+		cnt = fyai_transport_allow_for(ctx->cfg, rn, root);
+		all = true;
+
+		for (i = 0; i < cnt; i++)
+			all &= names_have(ctx, root[i].profile);
+		if (all)
+			return 0;
+	}
+
+	rc = ensure_add(ctx->cfg, &grant, names, &nneed, &why);
+	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
+	ensure_personas(ctx, &grant, names, &nneed);
+	gb = fy_generic_builder_create(&cfg);
+	fyai_error_check(ctx, gb, err, "out of memory");
+
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "profiles",
+			"seq", ++ctx->transport_seq, "merge", true,
+			"profiles", fyai_ctl_profiles_encode(gb, &grant)),
+		       -1, &reply, &why);
+	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
+
+	/* The grant lists every name this execution may use, old and new. */
+	for (i = 0; i < ctx->transport_nnames && n < ENSURE_MAX; i++) {
+		allow[n].profile = ctx->transport_names[i];
+		allow[n++].model = NULL;
+	}
+	for (i = 0; i < nneed && n < ENSURE_MAX; i++) {
+		if (names_have(ctx, names[i]))
+			continue;
+		allow[n].profile = names[i];
+		allow[n++].model = NULL;
+	}
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "grant",
+			"seq", ++ctx->transport_seq,
+			"id", (long long)ctx->transport_exec,
+			"grant", fyai_ctl_grant_encode(gb, allow, n)),
+		       -1, &reply, &why);
+	fyai_error_check(ctx, !rc, err, "credential isolation: %s", why);
+	for (i = 0; i < nneed; i++)
+		names_add(ctx, names[i]);
+	ctx->transport_gen = ctx->cfg->config_generation;
+	ctx->transport_stated = true;
+	fy_generic_builder_destroy(gb);
+	fyai_transport_grant_clear(&grant);
+	return 0;
+err:
+	if (gb)
+		fy_generic_builder_destroy(gb);
+	fyai_transport_grant_clear(&grant);
+	return -1;
+}
+
+int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int agent_fd,
+			       int ctl_fd, uint64_t *exec_id)
+{
+	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fyai_transport_allow allow[8];
+	struct fy_generic_builder *gb;
+	fy_generic reply;
+	const char *why;
+	unsigned int i;
+	int rc;
+
+	gb = fy_generic_builder_create(&cfg);
+	fyai_error_check(ctx, gb, err, "out of memory");
+	for (i = 0; i < ctx->transport_nnames; i++) {
+		allow[i].profile = ctx->transport_names[i];
+		allow[i].model = NULL;
+	}
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "admit",
+			"seq", ++ctx->transport_seq,
+			"id", 0LL, "parent", (long long)ctx->transport_exec,
+			"pid", (long long)pid, "uid", (long long)getuid(),
+			"grant", fyai_ctl_grant_encode(gb, allow,
+						       ctx->transport_nnames)),
+		       agent_fd, &reply, &why);
+	fyai_error_check(ctx, !rc, err_gb,
+			 "credential isolation: cannot register the sub-agent: %s", why);
+	*exec_id = fy_get(reply, "id", 0LL);
+	fyai_error_check(ctx, *exec_id, err_gb,
+			 "credential isolation: the transport gave no execution id");
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "ctl",
+			"seq", ++ctx->transport_seq, "id", (long long)*exec_id), ctl_fd, &reply, &why);
+	fyai_error_check(ctx, !rc, err_gb,
+			 "credential isolation: cannot give the sub-agent a control "
+			 "connection: %s", why);
+	fy_generic_builder_destroy(gb);
+	return 0;
+err_gb:
+	fy_generic_builder_destroy(gb);
+err:
+	return -1;
+}
+
+fy_generic fyai_transport_spawn_state(struct fyai_ctx *ctx,
+				      struct fy_generic_builder *gb,
+				      uint64_t exec_id)
+{
+	fy_generic names = fy_seq_empty;
+	unsigned int i;
+
+	for (i = 0; i < ctx->transport_nnames; i++)
+		names = fy_append(gb, names, fy_value(gb, ctx->transport_names[i]));
+	return fy_gb_mapping(gb, "exec", (long long)exec_id, "names", names);
+}
+
+int fyai_transport_child_attach(struct fyai_ctx *ctx, fy_generic state)
+{
+	uint64_t exec_id = fy_get(state, "exec", 0LL);
+	fy_generic name;
+
+	fyai_error_check(ctx, exec_id &&
+			 fcntl(FYAI_TRANSPORT_CHILD_AGENT_FD, F_GETFD) >= 0 &&
+			 fcntl(FYAI_TRANSPORT_CHILD_CTL_FD, F_GETFD) >= 0, err,
+			 "the credential transport channels of this sub-agent are not open");
+	ctx->tclient = fyai_tclient_open(ctx, FYAI_TRANSPORT_CHILD_AGENT_FD, exec_id);
+	fyai_error_check(ctx, ctx->tclient, err,
+			 "cannot open the credential transport client");
+	ctx->transport_exec = exec_id;
+	/* What the parent granted this child: it can grant no more to its own. */
+	fy_foreach(name, fy_get(state, "names", fy_invalid)) {
+		if (fy_is_string(name))
+			names_add(ctx, fy_castp(&name, ""));
+	}
+	ctx->transport_ctl = FYAI_TRANSPORT_CHILD_CTL_FD;
+	(void)fyai_event_add_fd(fyai_ctx_loop(ctx), ctx->transport_ctl, FYAIEV_READ,
+				ctl_drain, ctx, &ctx->transport_src);
+	ctx->transport_owner = false;
+	return 0;
+err:
+	return -1;
+}
+
+bool fyai_transport_have_credential(struct fyai_ctx *ctx, const struct fyai_cfg *cfg)
+{
+	struct fy_generic_builder_cfg gcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb;
+	char src[512];
+	fy_generic reply;
+	bool found = false;
+	const char *why;
+
+	if (cfg->no_auth || (cfg->api_key && *cfg->api_key))
+		return true;
+	if (!ctx->tclient || !fyai_transport_credential_source(cfg, src, sizeof(src)))
+		return false;
+	gb = fy_generic_builder_create(&gcfg);
+	if (!gb)
+		return false;
+	if (!ctx_call(ctx, gb, fy_mapping(gb, "op", "probe",
+			"seq", ++ctx->transport_seq, "credential", src), -1, &reply, &why))
+		found = fy_get(reply, "found", false);
+	fy_generic_builder_destroy(gb);
+	return found;
+}
+
+int fyai_transport_env_grant(struct fyai_ctx *ctx, const char *const *names)
+{
+	struct fy_generic_builder_cfg gcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb;
+	fy_generic list = fy_seq_empty, reply;
+	const char *why;
+	size_t n = 0;
+	int sv[2] = { -1, -1 };
+	int rc;
+
+	if (!ctx->tclient || !names || !*names)
+		return 0;
+	fyai_transport_env_release(ctx);
+	gb = fy_generic_builder_create(&gcfg);
+	fyai_error_check(ctx, gb, err, "out of memory");
+	rc = fyai_transport_socketpair(sv);
+	fyai_error_check(ctx, !rc, err_gb,
+			 "credential isolation: cannot make the credential channel: %s",
+			 strerror(errno));
+	for (; *names && n < 16; names++, n++)
+		list = fy_append(gb, list, fy_value(gb, *names));
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "envgrant",
+			"seq", ++ctx->transport_seq, "names", list), sv[1], &reply, &why);
+	close(sv[1]);
+	sv[1] = -1;
+	fyai_error_check(ctx, !rc, err_gb,
+			 "credential isolation: cannot get the credentials of the "
+			 "configured command: %s", why);
+	fy_generic_builder_destroy(gb);
+	ctx->transport_envfd = sv[0];
+	return 0;
+err_gb:
+	fy_generic_builder_destroy(gb);
+err:
+	if (sv[0] >= 0)
+		close(sv[0]);
+	if (sv[1] >= 0)
+		close(sv[1]);
+	return -1;
+}
+
+void fyai_transport_env_take(struct fyai_ctx *ctx)
+{
+	char buf[65536];
+	char *eq;
+	ssize_t len;
+	size_t off;
+
+	if (ctx->transport_envfd <= STDERR_FILENO)
+		return;
+	len = recv(ctx->transport_envfd, buf, sizeof(buf) - 1, 0);
+	close(ctx->transport_envfd);
+	ctx->transport_envfd = 0;
+	if (len <= 0)
+		return;
+	buf[len] = '\0';
+	/* NAME=VALUE, each closed by a NUL. */
+	for (off = 0; off < (size_t)len; off += strlen(buf + off) + 1) {
+		eq = strchr(buf + off, '=');
+
+		if (!eq || eq == buf + off)
+			continue;
+		*eq = '\0';
+		if (setenv(buf + off, eq + 1, 1) < 0)
+			fyai_error(ctx, "could not restore %s in the environment: %s",
+				   buf + off, strerror(errno));
+	}
+	fyai_secret_clear(buf, sizeof(buf));
+}
+
+void fyai_transport_env_release(struct fyai_ctx *ctx)
+{
+	if (ctx->transport_envfd > STDERR_FILENO)
+		close(ctx->transport_envfd);
+	ctx->transport_envfd = 0;
+}
 
 void fyai_transport_sync_logging(struct fyai_ctx *ctx)
 {
 	int rc;
 
-	if (!ctx->tclient || ctx->transport_ctl < 0)
+	if (!ctx->tclient || ctx->transport_ctl <= STDERR_FILENO)
 		return;
 	rc = fyai_ctl_send(ctx->transport_ctl,
 			    fy_mapping("op", "log", "seq", 0LL,
@@ -561,13 +1014,20 @@ int fyai_transport_attach(struct fyai_ctx *ctx)
 	const char *pid = getenv(FYAI_TRANSPORT_PID_ENV);
 	const char *owner = getenv(FYAI_TRANSPORT_OWNER_ENV);
 	const char *keyref = getenv(FYAI_TRANSPORT_KEYREF_ENV);
+	char names[FYAI_TPC_KINDS][FYAI_TPC_NAME_MAX];
+	struct fyai_transport_allow allow[FYAI_TPC_KINDS];
+	size_t n, i;
 	int fdn, ctln;
 
 	ctx->transport_ctl = -1;
-	if (fy_str_empty(fd) || ctx->cfg->tool_exec)
+	if (fy_str_empty(fd))
 		return 0;
+	/* Every image of the run names its profiles from the same source. */
 	if (!fy_str_empty(keyref))
 		ctx->cfg->api_key_ref = fy_gb_intern_string(ctx->cfg->gb, keyref);
+	/* An executed child has its channels from its parent; see the spawn. */
+	if (ctx->cfg->tool_exec)
+		return 0;
 	fdn = atoi(fd);
 	ctln = ctl ? atoi(ctl) : -1;
 	fyai_error_check(ctx, fdn > 2 && exec && fcntl(fdn, F_GETFD) >= 0, err,
@@ -580,6 +1040,11 @@ int fyai_transport_attach(struct fyai_ctx *ctx)
 		(void)fyai_event_add_fd(fyai_ctx_loop(ctx), ctln, FYAIEV_READ,
 					ctl_drain, ctx, &ctx->transport_src);
 	}
+	ctx->transport_exec = exec ? strtoull(exec, NULL, 10) : 0;
+	/* The bootstrap stated the profiles of this configuration. */
+	n = fyai_transport_allow_for(ctx->cfg, names, allow);
+	for (i = 0; i < n; i++)
+		names_add(ctx, allow[i].profile);
 	ctx->transport_pid = pid ? (pid_t)atol(pid) : 0;
 	ctx->transport_owner = owner && (pid_t)atol(owner) == getpid();
 	return 0;
@@ -589,8 +1054,24 @@ err:
 
 void fyai_transport_detach(struct fyai_ctx *ctx)
 {
+
 	if (!ctx->tclient)
 		return;
+	/*
+	 * A reload executes this program again. The next image takes over the
+	 * channels and the transport, which must keep running: drop the client and
+	 * the drain source, and leave the descriptors and the process alone.
+	 */
+	if (ctx->cfg->reload_branch) {
+		(void)fyai_tclient_release(ctx->tclient);
+		ctx->tclient = NULL;
+		if (ctx->transport_src) {
+			fyai_event_source_remove(ctx->transport_src);
+			ctx->transport_src = NULL;
+		}
+		ctx->transport_pid = 0;
+		return;
+	}
 	fyai_tclient_close(ctx->tclient);
 	ctx->tclient = NULL;
 	if (ctx->transport_src) {

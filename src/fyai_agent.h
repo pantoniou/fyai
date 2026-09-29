@@ -10,6 +10,15 @@ extern const char fyai_agent_system_prompt[];
 fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
 int fyai_agent_verb(struct fyai_ctx *ctx);
+
+/*
+ * Resolve @persona against the configuration of @ctx into @out, as a
+ * sub-agent does when it starts, without changing that configuration. Return
+ * 0, or -1 with a diagnostic.
+ */
+int fyai_agent_persona_cfg(struct fyai_ctx *ctx, fy_generic persona,
+			   bool fork_mode, struct fyai_cfg *out);
+
 /*
  * Adopt the configuration that a parent sent to an executed sub-agent child.
  * The call arguments are parsed in the grammar of that configuration.

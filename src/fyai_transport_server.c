@@ -1109,6 +1109,24 @@ int fyai_transport_server_set_profiles(struct fyai_transport_server *srv,
 	return 0;
 }
 
+int fyai_transport_server_add_profiles(struct fyai_transport_server *srv,
+				       struct fyai_transport_grant *add)
+{
+	struct fyai_transport_grant merged = { 0 };
+	int rc = 0;
+
+	if (srv->profiles)
+		rc = fyai_transport_grant_merge(&merged, &srv->profiles->grant);
+	if (!rc)
+		rc = fyai_transport_grant_merge(&merged, add);
+	fyai_transport_grant_clear(add);
+	if (rc) {
+		fyai_transport_grant_clear(&merged);
+		return rc;
+	}
+	return fyai_transport_server_set_profiles(srv, &merged);
+}
+
 int fyai_transport_server_admit(struct fyai_transport_server *srv, uint64_t id,
 				uint64_t parent_id, pid_t pid, uid_t uid,
 				int channel,
@@ -1180,6 +1198,32 @@ int fyai_transport_server_retire(struct fyai_transport_server *srv, uint64_t id)
 		return 0;
 	}
 	return -ENOENT;
+}
+
+size_t fyai_transport_server_profile_count(const struct fyai_transport_server *srv)
+{
+	return srv->profiles ? srv->profiles->grant.count : 0;
+}
+
+const char *fyai_transport_server_profile_name(const struct fyai_transport_server *srv,
+					       size_t index)
+{
+	if (!srv->profiles || index >= srv->profiles->grant.count)
+		return NULL;
+	return srv->profiles->grant.profiles[index].name;
+}
+
+size_t fyai_transport_server_paused(const struct fyai_transport_server *srv)
+{
+	const struct chan *ch;
+	const struct req *rq;
+	size_t n = 0;
+
+	for (ch = srv->chans; ch; ch = ch->next)
+		for (rq = ch->reqs; rq; rq = rq->next)
+			if (rq->paused && !rq->finished)
+				n++;
+	return n;
 }
 
 size_t fyai_transport_server_active(const struct fyai_transport_server *srv)

@@ -268,6 +268,9 @@ display:
   # fields such as {location} and {model}; prompt_bottom replaces the banner.
   # Empty strings select built-in prompt defaults. Templates may contain SGR
   # escapes. Palette themes color template values in series order.
+  # {isolation} is " · isolated LEVEL" while credential isolation is on and
+  # empty otherwise; the default bottom row ends with it, and a template for
+  # either row can place it.
   prompt: "  > "
   prompt_top: " {location}"
   # Initial /branches view: tree or gitgraph; g cycles the available views.
@@ -285,7 +288,7 @@ display:
   # Gitgraph label fit: legend moves labels, shrink compresses, clip crops.
   # Tree layout clips long labels for every fit policy.
   diagram_fit: legend
-  prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}"
+  prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}"
   # Work-pane tile arrangement: auto, columns, stack, main-top, or main-left.
   work_layout: auto
   work_columns: 0

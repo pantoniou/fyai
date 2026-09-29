@@ -110,11 +110,13 @@ static char *fyai_agent_persona_names(struct fyai_ctx *ctx)
 }
 
 /*
- * Apply a persona to a shallow copy. fyai_config_apply() must handle each
- * field that must not keep the parent value. Forks keep the parent model.
+ * Resolve a persona on a shallow copy of the configuration of @ctx and store
+ * the result in @out. fyai_config_apply() must handle each field that must not
+ * keep the parent value. Forks keep the parent model. The configuration of
+ * @ctx does not change.
  */
-static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
-				    bool fork_mode)
+int fyai_agent_persona_cfg(struct fyai_ctx *ctx, fy_generic persona,
+			   bool fork_mode, struct fyai_cfg *out)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_cfg tmp;
@@ -190,11 +192,24 @@ static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
 		    !strcmp(tmp.model, model_slash + 1))
 			tmp.model = fy_gb_intern_string(tmp.gb, model_text);
 	}
-	*cfg = tmp;
+	*out = tmp;
 	return 0;
 
 err:
 	return -1;
+}
+
+/* Apply a persona to the configuration of @ctx. */
+static int fyai_agent_persona_apply(struct fyai_ctx *ctx, fy_generic persona,
+				    bool fork_mode)
+{
+	struct fyai_cfg tmp;
+	int rc;
+
+	rc = fyai_agent_persona_cfg(ctx, persona, fork_mode, &tmp);
+	if (!rc)
+		*ctx->cfg = tmp;
+	return rc;
 }
 
 /* fy_delete_at_pathstr() fails for a key that is not present. */

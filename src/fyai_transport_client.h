@@ -73,6 +73,13 @@ struct fyai_tcall_callbacks {
 struct fyai_tclient *fyai_tclient_open(struct fyai_ctx *ctx, int channel,
 				       uint64_t exec_id);
 
+/*
+ * Free the client and leave the channel open, and return its descriptor. The
+ * owner keeps the channel across an execution of this program, as `/reload`
+ * does. Calls still open are ended as lost.
+ */
+int fyai_tclient_release(struct fyai_tclient *client);
+
 /* Cancel every call, close the channel, and free the client. */
 void fyai_tclient_close(struct fyai_tclient *client);
 
@@ -93,6 +100,9 @@ void fyai_tcall_cancel(struct fyai_tcall *call);
 void fyai_tcall_destroy(struct fyai_tcall *call);
 
 bool fyai_tcall_ended(const struct fyai_tcall *call);
+
+/* True while the channel to the transport works. */
+bool fyai_tclient_alive(const struct fyai_tclient *client);
 
 /*
  * The latest rate-limit report from the provider, copied to @out. It is a

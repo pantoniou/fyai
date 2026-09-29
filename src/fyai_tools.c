@@ -32,6 +32,8 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
+#include "fyai_transport_boot.h"
+#include "fyai_transport_sock.h"
 #include "fyai_agent.h"
 #include "fyai_branch.h"
 #include "fyai_browser.h"
@@ -1815,19 +1817,39 @@ static int fyai_tool_child_tty(int slave)
 	return 0;
 }
 
-static int fyai_tool_child_fds(int req_fd, int rsp_fd)
+/* An executed sub-agent also inherits its channels to the credential transport. */
+#define FYAI_TOOL_CHILD_TP_AGENT_FD 5
+#define FYAI_TOOL_CHILD_TP_CTL_FD 6
+
+/*
+ * Arrange the descriptors of a tool child: the control channel on 3 and 4, and,
+ * for a sub-agent under credential isolation, its transport channels on 5 and
+ * 6. @tp_agent_fd and @tp_ctl_fd are -1 for a child with none. Every other
+ * descriptor is closed.
+ */
+static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
+			       int tp_ctl_fd)
 {
-	int req_dup = -1, rsp_dup = -1;
+	int req_dup = -1, rsp_dup = -1, agent_dup = -1, ctl_dup = -1;
+	bool tp = tp_agent_fd >= 0 && tp_ctl_fd >= 0;
 	int devnull;
 	int rc;
 
-	/* Move both clear of the target numbers before dup2 can clobber one. */
-	req_dup = fcntl(req_fd, F_DUPFD_CLOEXEC, 5);
+	/* Move all clear of the target numbers before dup2 can clobber one. */
+	req_dup = fcntl(req_fd, F_DUPFD_CLOEXEC, 7);
 	if (req_dup < 0)
 		goto err;
-	rsp_dup = fcntl(rsp_fd, F_DUPFD_CLOEXEC, 5);
+	rsp_dup = fcntl(rsp_fd, F_DUPFD_CLOEXEC, 7);
 	if (rsp_dup < 0)
 		goto err;
+	if (tp) {
+		agent_dup = fcntl(tp_agent_fd, F_DUPFD_CLOEXEC, 7);
+		if (agent_dup < 0)
+			goto err;
+		ctl_dup = fcntl(tp_ctl_fd, F_DUPFD_CLOEXEC, 7);
+		if (ctl_dup < 0)
+			goto err;
+	}
 
 	rc = dup2(req_dup, FYAI_TOOL_CHILD_REQ_FD);
 	if (rc < 0)
@@ -1835,18 +1857,30 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 	rc = dup2(rsp_dup, FYAI_TOOL_CHILD_RSP_FD);
 	if (rc < 0)
 		goto err;
-	/* Do not pass the control channel to a shell command. */
+	if (tp) {
+		rc = dup2(agent_dup, FYAI_TOOL_CHILD_TP_AGENT_FD);
+		if (rc < 0)
+			goto err;
+		rc = dup2(ctl_dup, FYAI_TOOL_CHILD_TP_CTL_FD);
+		if (rc < 0)
+			goto err;
+	}
+	/* Do not pass the channels to a shell command. */
 	rc = fcntl(FYAI_TOOL_CHILD_REQ_FD, F_SETFD, FD_CLOEXEC);
 	if (rc < 0)
 		goto err;
 	rc = fcntl(FYAI_TOOL_CHILD_RSP_FD, F_SETFD, FD_CLOEXEC);
 	if (rc < 0)
 		goto err;
+	if (tp && (fcntl(FYAI_TOOL_CHILD_TP_AGENT_FD, F_SETFD, FD_CLOEXEC) < 0 ||
+		   fcntl(FYAI_TOOL_CHILD_TP_CTL_FD, F_SETFD, FD_CLOEXEC) < 0))
+		goto err;
 
 	/* Detach unused input unless the child owns this terminal. */
 	if (isatty(STDIN_FILENO) && ttyname(STDIN_FILENO) &&
 	    getsid(0) == tcgetsid(STDIN_FILENO)) {
-		fyai_close_fds_from(FYAI_TOOL_CHILD_RSP_FD + 1);
+		fyai_close_fds_from(tp ? FYAI_TOOL_CHILD_TP_CTL_FD + 1 :
+				    FYAI_TOOL_CHILD_RSP_FD + 1);
 		return 0;
 	}
 	devnull = open("/dev/null", O_RDONLY);
@@ -1858,7 +1892,8 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd)
 	if (rc < 0)
 		goto err;
 
-	fyai_close_fds_from(FYAI_TOOL_CHILD_RSP_FD + 1);
+	fyai_close_fds_from(tp ? FYAI_TOOL_CHILD_TP_CTL_FD + 1 :
+			    FYAI_TOOL_CHILD_RSP_FD + 1);
 	return 0;
 
 err:
@@ -1866,6 +1901,10 @@ err:
 		close(req_dup);
 	if (rsp_dup >= 0)
 		close(rsp_dup);
+	if (agent_dup >= 0)
+		close(agent_dup);
+	if (ctl_dup >= 0)
+		close(ctl_dup);
 	return -1;
 }
 
@@ -1890,6 +1929,16 @@ static int fyai_tool_child_spawn_take(struct fyai_ctx *ctx, fy_generic spawn)
 	fyai_error_check(ctx, ctx->agent_spawn_json, err,
 			 "could not keep the sub-agent spawn state");
 	ctx->agent_parent = fy_get(spawn, "parent", 0LL);
+	/* Credential isolation: the parent has registered this child. */
+	if (fyai_transport_supervised()) {
+		fyai_error_check(ctx, fy_get(fy_get(spawn, "transport", fy_invalid),
+					     "exec", 0LL), err,
+				 "the parent of this sub-agent did not register it with "
+				 "the credential transport");
+		if (fyai_transport_child_attach(ctx,
+				fy_get(spawn, "transport", fy_invalid)))
+			goto err;
+	}
 	key = fy_get(spawn, "api_key", "");
 	if (!fy_str_empty(key)) {
 		cfg->api_key = fy_gb_intern_string(cfg->gb, key);
@@ -2229,6 +2278,7 @@ struct fyai_tool_job {
 	fy_generic diag;		/* diagnostics collected by the child */
 	char *origin;			/* who the child was, for a diagnostic */
 	pid_t pid;
+	uint64_t transport_exec;	/* the transport's id for this sub-agent, or 0 */
 	int rfd;
 	int pfd;
 	struct fyai_fenced_stream stream;
@@ -4324,9 +4374,15 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 static bool fyai_agent_spawn_exec(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	/*
+	 * With credential isolation there is one way to start a sub-agent: a
+	 * forked child would keep the address space of its parent and could not
+	 * be told from it. `agent/spawn: fork` then means exec.
+	 */
+	bool want_exec = ctx->tclient ||
+		(!fy_str_empty(cfg->agent_spawn) && !strcmp(cfg->agent_spawn, "exec"));
 
-	return fyai_exec_self_available() && !fy_str_empty(cfg->agent_spawn) &&
-	       !strcmp(cfg->agent_spawn, "exec") &&
+	return fyai_exec_self_available() && want_exec &&
 	       !cfg->transient && !cfg->root_pinned && cfg->arena_dir;
 }
 
@@ -4339,7 +4395,8 @@ static bool fyai_agent_spawn_exec(struct fyai_ctx *ctx)
  * sent on the private channel; it is never stored.
  */
 static fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
-					 struct fy_generic_builder *gb)
+					 struct fy_generic_builder *gb,
+					 uint64_t transport_exec)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic fork;
@@ -4358,6 +4415,9 @@ static fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
 			fy_value(gb, (long long)ctx->arena_catalog.v) : fy_null,
 		"fork", fork,
 		"parent", ctx->agent_execution,
+		"transport", transport_exec ?
+			fyai_transport_spawn_state(ctx, gb, transport_exec) :
+			fy_null,
 		"api_key", cfg->api_key_explicit && cfg->api_key ?
 			fy_value(gb, cfg->api_key) : fy_null);
 }
@@ -4367,7 +4427,7 @@ static fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
  * fds 3 and 4. Runs in the child between fork and exec: no allocation.
  * fyai_exec_self() owns the platform-specific executable path.
  */
-static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty)
+static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty, bool tp)
 {
 	const char *argv[16];
 	int argc, i;
@@ -4390,6 +4450,10 @@ static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty)
 	if (fcntl(FYAI_TOOL_CHILD_REQ_FD, F_SETFD, 0) < 0 ||
 	    fcntl(FYAI_TOOL_CHILD_RSP_FD, F_SETFD, 0) < 0)
 		_exit(126);
+	/* and, under credential isolation, its two channels to the transport */
+	if (tp && (fcntl(FYAI_TOOL_CHILD_TP_AGENT_FD, F_SETFD, 0) < 0 ||
+		   fcntl(FYAI_TOOL_CHILD_TP_CTL_FD, F_SETFD, 0) < 0))
+		_exit(126);
 	if (ctx->signal_mask_valid)
 		(void)sigprocmask(SIG_SETMASK, &ctx->signal_mask, NULL);
 	fyai_exec_self(argv);
@@ -4402,9 +4466,12 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 {
 	int req[2] = { -1, -1 };	/* parent -> child */
 	int rsp[2] = { -1, -1 };	/* child -> parent */
+	int tpa[2] = { -1, -1 };	/* the transport channel of a sub-agent */
+	int tpc[2] = { -1, -1 };	/* its control connection */
 	int master = -1, slave = -1;
 	struct winsize ws = {};
 	int rows = 0, cols = 0;
+	bool tp = exec && ctx->tclient;
 	pid_t pid;
 	int rc;
 
@@ -4436,6 +4503,16 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		ws.ws_col = (unsigned short)cols;
 		(void)ioctl(slave, TIOCSWINSZ, &ws);
 	}
+	if (tp) {
+		rc = fyai_transport_socketpair(tpa);
+		fyai_error_check(ctx, !rc, err,
+				 "could not create the sub-agent transport channel: %s",
+				 strerror(errno));
+		rc = fyai_transport_socketpair(tpc);
+		fyai_error_check(ctx, !rc, err,
+				 "could not create the sub-agent control channel: %s",
+				 strerror(errno));
+	}
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, err,
 			 "could not fork tool process: %s", strerror(errno));
@@ -4443,6 +4520,12 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	if (!pid) {			/* child */
 		close(req[1]);
 		close(rsp[0]);
+		if (tp) {
+			close(tpa[1]);
+			close(tpc[1]);
+		}
+		/* A credential grant is for this child; it then holds no other. */
+		fyai_transport_env_take(ctx);
 		if (setsid() < 0)
 			(void)setpgid(0, 0);	/* already a leader: still isolate */
 		fyai_ctx_loop_abandon(ctx);
@@ -4456,10 +4539,11 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			_exit(126);
 		/* Record whether this child presents through its own terminal. */
 		ctx->cfg->agent_pty = slave >= 0;
-		if (fyai_tool_child_fds(req[0], rsp[1]))
+		if (fyai_tool_child_fds(req[0], rsp[1], tp ? tpa[0] : -1,
+					tp ? tpc[0] : -1))
 			_exit(126);
 		if (exec)
-			fyai_tool_child_exec(ctx, slave >= 0);
+			fyai_tool_child_exec(ctx, slave >= 0, tp);
 
 		fyai_ctx_fork_disown(ctx);
 		ctx->cfg->tool_child = true;
@@ -4481,6 +4565,28 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		close(slave);
 		slave = -1;
 	}
+	if (tp) {
+		/*
+		 * Register the child with the transport before it can send a
+		 * request: it sends none until tool/run, which follows this.
+		 * The transport keeps the other ends; ours are closed.
+		 */
+		close(tpa[0]);
+		tpa[0] = -1;
+		close(tpc[0]);
+		tpc[0] = -1;
+		rc = fyai_transport_admit_child(ctx, pid, tpa[1], tpc[1],
+						&job->transport_exec);
+		close(tpa[1]);
+		tpa[1] = -1;
+		close(tpc[1]);
+		tpc[1] = -1;
+		if (rc) {
+			kill(pid, SIGKILL);
+			waitpid(pid, NULL, 0);
+			goto err;
+		}
+	}
 	job->pid = pid;
 	job->rfd = rsp[0];
 	job->pfd = req[1];
@@ -4501,6 +4607,14 @@ err:
 		close(rsp[0]);
 	if (rsp[1] >= 0)
 		close(rsp[1]);
+	if (tpa[0] >= 0)
+		close(tpa[0]);
+	if (tpa[1] >= 0)
+		close(tpa[1]);
+	if (tpc[0] >= 0)
+		close(tpc[0]);
+	if (tpc[1] >= 0)
+		close(tpc[1]);
 	if (master >= 0)
 		close(master);
 	if (slave >= 0)
@@ -4849,6 +4963,19 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		have_session = true;
 	}
 
+	/*
+	 * A forked sub-agent would keep the address space of its parent, and it
+	 * could not be told from the parent by the transport. With credential
+	 * isolation it must be an executed child.
+	 */
+	if (ctx->tclient && fy_equal(name, "agent") && !fyai_agent_spawn_exec(ctx))
+		fyai_tool_submit_error_set(ctx,
+			"tool error: with credential isolation a sub-agent must "
+			"execute fyai again: use agent/spawn exec with a saved "
+			"arena and a root that is not pinned");
+	fyai_tool_submit_check(ctx, !ctx->tool_submit_error, err,
+			       "a sub-agent cannot be forked with credential isolation");
+
 	job = calloc(1, sizeof(*job));
 	fyai_error_check(ctx, job, err,
 			 "could not allocate tool job");
@@ -5196,7 +5323,7 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 		fy_gb_mapping(gb, "call", job->call);
 	if (job->exec)
 		params = fy_assoc(gb, params, fy_value(gb, "spawn"),
-				     fyai_agent_spawn_state(job->ctx, gb));
+				     fyai_agent_spawn_state(job->ctx, gb, job->transport_exec));
 	if (job->start_cols > 0)
 		params = fy_assoc(gb, params, fy_value(gb, "size"),
 				  fy_gb_mapping(gb,

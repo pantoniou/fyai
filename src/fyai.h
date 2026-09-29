@@ -134,7 +134,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
  * defaults; the bottom row is a {key} template reproducing the classic banner. */
 #define DEFAULT_PROMPT_BOTTOM \
 	" {model} · {provider} · {api}{effort}{summary}{temp}" \
-	"{tokens}{cache}{cost}"
+	"{tokens}{cache}{cost}{isolation}"
 #define DEFAULT_PROMPT_TOP " {location}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */
@@ -570,6 +570,14 @@ struct fyai_ctx {
 	pid_t transport_pid;
 	bool transport_owner;		/* this process started the transport */
 	struct fyai_event_source *transport_src;	/* drains the control channel */
+	uint64_t transport_exec;	/* the execution the transport knows us as */
+	long long transport_seq;
+	/* Profile names that this execution has stated and been granted. */
+	char transport_names[64][64];
+	unsigned int transport_nnames;
+	unsigned int transport_gen;	/* the configuration the supervisor last stated */
+	bool transport_stated;
+	int transport_envfd;		/* read end of a credential grant; <= 2: none */
 	/* The model transfer in progress. */
 	const char *xfer_body;
 	const char *xfer_url;		/* NULL: the endpoint of the configuration */

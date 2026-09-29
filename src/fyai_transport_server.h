@@ -60,6 +60,15 @@ int fyai_transport_server_set_profiles(struct fyai_transport_server *srv,
 				       struct fyai_transport_grant *grant);
 
 /*
+ * Add profiles to the current set: a profile of the same name is replaced and
+ * the others stay. Each agent adds the profiles of its own configuration, so
+ * the set grows with the providers in use. @add is cleared. Return 0 or
+ * -ENOMEM.
+ */
+int fyai_transport_server_add_profiles(struct fyai_transport_server *srv,
+				       struct fyai_transport_grant *add);
+
+/*
  * Register an execution with its grant and start serving its channel. The
  * arguments are those of fyai_transport_register(); ownership follows it. The
  * server makes the transport end of the channel non-blocking.
@@ -82,6 +91,14 @@ int fyai_transport_server_set_grant(struct fyai_transport_server *srv,
 
 /* Cancel the transfers of an execution, close its channel, and retire it. */
 int fyai_transport_server_retire(struct fyai_transport_server *srv, uint64_t id);
+
+/* The profile names of the current set, for a status report. */
+size_t fyai_transport_server_profile_count(const struct fyai_transport_server *srv);
+const char *fyai_transport_server_profile_name(const struct fyai_transport_server *srv,
+					       size_t index);
+
+/* Number of transfers that wait for credit or for the agent to read. */
+size_t fyai_transport_server_paused(const struct fyai_transport_server *srv);
 
 /* Number of transfers in flight, for tests and status. */
 size_t fyai_transport_server_active(const struct fyai_transport_server *srv);

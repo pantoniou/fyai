@@ -458,6 +458,67 @@ int fyai_transport_grant_add(struct fyai_transport_grant *grant,
 	return fyai_transport_grant_add_spec(grant, &spec);
 }
 
+/* Copy one profile through the validated path, so a copy is as sound as the original. */
+static int grant_copy_profile(struct fyai_transport_grant *dst,
+			      const struct fyai_transport_profile *p)
+{
+	struct fyai_transport_profile_spec spec = {
+		.name = p->name, .url = p->url, .tag = p->tag, .model = p->model,
+		.auth = p->auth, .header = p->header, .credential = p->credential,
+		.plain_http = p->plain_http,
+	};
+	size_t i;
+	int rc;
+	const char *line, *colon;
+	char *field;
+
+	rc = fyai_transport_grant_add_spec(dst, &spec);
+	if (rc)
+		return rc == -EEXIST ? 0 : rc;
+	for (i = 0; i < p->nheaders; i++) {
+		line = p->headers[i];
+		colon = strchr(line, ':');
+
+		if (!colon)
+			continue;
+		field = strndup(line, colon - line);
+		if (!field)
+			return -ENOMEM;
+		colon++;
+		while (*colon == ' ')
+			colon++;
+		rc = fyai_transport_grant_add_header(dst, p->name, field, colon);
+		free(field);
+		if (rc)
+			return rc;
+	}
+	return 0;
+}
+
+int fyai_transport_grant_merge(struct fyai_transport_grant *dst,
+			       const struct fyai_transport_grant *src)
+{
+	size_t i, j;
+	int rc;
+
+	for (i = 0; i < src->count; i++) {
+		/* A profile of the same name is replaced: drop it first. */
+		for (j = 0; j < dst->count; j++) {
+			if (strcmp(dst->profiles[j].name, src->profiles[i].name))
+				continue;
+			profile_clear(&dst->profiles[j]);
+			memmove(&dst->profiles[j], &dst->profiles[j + 1],
+				(dst->count - j - 1) * sizeof(*dst->profiles));
+			dst->count--;
+			break;
+		}
+		rc = grant_copy_profile(dst, &src->profiles[i]);
+		if (rc)
+			return rc;
+	}
+	return 0;
+}
+
 const struct fyai_transport_profile *
 fyai_transport_grant_find(const struct fyai_transport_grant *grant,
 			  const char *name)
@@ -810,6 +871,33 @@ fyai_transport_find_channel(struct fyai_transport_registry *reg, int channel)
 		if (e->channel == channel)
 			return e;
 	return NULL;
+}
+
+size_t fyai_transport_registry_count(const struct fyai_transport_registry *reg)
+{
+	const struct fyai_transport_exec *e;
+	size_t n = 0;
+
+	for (e = reg->execs; e; e = e->next)
+		n++;
+	return n;
+}
+
+bool fyai_transport_registry_exec_info(const struct fyai_transport_registry *reg,
+				       size_t index, uint64_t *id,
+				       uint64_t *parent, pid_t *pid)
+{
+	const struct fyai_transport_exec *e;
+
+	for (e = reg->execs; e; e = e->next) {
+		if (index--)
+			continue;
+		*id = e->id;
+		*parent = e->parent_id;
+		*pid = e->pid;
+		return true;
+	}
+	return false;
 }
 
 uint64_t fyai_transport_exec_id(const struct fyai_transport_exec *exec)

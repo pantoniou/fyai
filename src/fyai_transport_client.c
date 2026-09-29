@@ -291,6 +291,26 @@ err:
 	return NULL;
 }
 
+int fyai_tclient_release(struct fyai_tclient *c)
+{
+	struct fyai_tcall *call;
+	int fd;
+
+	if (!c)
+		return -1;
+	if (c->src)
+		fyai_event_source_remove(c->src);
+	c->src = NULL;
+	while ((call = c->calls)) {
+		c->calls = call->next;
+		call->client = NULL;
+		call->ended = true;
+	}
+	fd = c->channel;
+	free(c);
+	return fd;
+}
+
 void fyai_tclient_close(struct fyai_tclient *c)
 {
 	struct fyai_tcall *call;
@@ -377,6 +397,11 @@ void fyai_tcall_destroy(struct fyai_tcall *call)
 bool fyai_tcall_ended(const struct fyai_tcall *call)
 {
 	return call && call->ended;
+}
+
+bool fyai_tclient_alive(const struct fyai_tclient *c)
+{
+	return c && !c->lost && c->src;
 }
 
 bool fyai_tclient_ratelimit(const struct fyai_tclient *c,

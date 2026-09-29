@@ -18,6 +18,7 @@
 #include <strings.h>
 #include <unistd.h>
 
+#include "fyai_transport_boot.h"
 #include "fyai_sink.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
@@ -743,9 +744,12 @@ int fyai_catalog_update(struct fyai_ctx *ctx, const char *const *providers,
 	catalog_update_env_keep(ctx, env_keep);
 	opts.timeout_ms = ctx->cfg->catalog_update_timeout_ms;
 	opts.env_keep = env_keep;
-	if (run_shell_command_capture_cb(ctx, cmd, &res, NULL, NULL,
-					 NULL, &opts))
+	rc = run_shell_command_capture_cb(ctx, cmd, &res, NULL, NULL, NULL, &opts);
+	if (rc) {
+		rc = -1;
 		goto out;	/* run_shell_command_capture_cb() says why */
+	}
+	rc = -1;
 	/* The last line of the error output says why; keep it one line. */
 	if (res.stderr_data)
 		while (res.stderr_len && (res.stderr_data[res.stderr_len - 1] == '\n' ||
@@ -801,6 +805,7 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 {
 	struct fyai_catalog_update_request *request;
 	struct response_buffer line = {0};
+	const char *env_names[FYAI_CATALOG_ENV_KEEP_MAX + 1];
 	const char *tmp;
 	int rc;
 
@@ -833,9 +838,15 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 			 "catalogue command");
 
 	fyai_report(ctx, "catalog: running %s\n", request->cmd);
+	/* The credentials are at the transport; only the tool child that
+	 * starts the program gets them. */
+	catalog_update_env_keep(ctx, env_names);
+	if (fyai_transport_env_grant(ctx, env_names))
+		goto err_line;
 	request->session = fyai_tools_config_program(ctx, line.data, "catalog",
-					ctx->cfg->catalog_update_credentials,
-					catalog_update_exited, request);
+				ctx->cfg->catalog_update_credentials,
+				catalog_update_exited, request);
+	fyai_transport_env_release(ctx);
 	if (!request->session)
 		goto err_line;	/* fyai_tools_config_program() says why */
 	free(line.data);

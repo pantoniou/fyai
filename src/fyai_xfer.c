@@ -12,6 +12,7 @@
 
 #include "fyai.h"
 #include "fyai_curl.h"
+#include "fyai_transport_boot.h"
 #include "fyai_transport_cfg.h"
 #include "fyai_transport_client.h"
 #include "fyai_xfer.h"
@@ -164,6 +165,11 @@ static struct fyai_xfer *xfer_tp_submit(struct fyai_ctx *ctx, struct fyai_xfer *
 		.end = xfer_tp_end, .userdata = x,
 	};
 
+	/* This agent may need profiles that its parent did not state. */
+	if (fyai_transport_ensure(ctx)) {
+		free(x);
+		return NULL;
+	}
 	/* The kind names the profile of this configuration; see fyai_transport_cfg.h. */
 	if (!fyai_transport_profile_name(ctx->cfg, ctx->xfer_profile ?
 					 ctx->xfer_profile : FYAI_TPC_MODEL,

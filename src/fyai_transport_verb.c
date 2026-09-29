@@ -34,6 +34,7 @@
 #include "fyai_secret.h"
 #include "fyai_transport.h"
 #include "fyai_transport_ctl.h"
+#include "fyai_transport_sock.h"
 #include "fyai_transport_server.h"
 #include "utils.h"
 
@@ -48,14 +49,38 @@ struct mem_cred {
 	char *value;
 };
 
+struct fyai_transport_verb;
+
+/*
+ * A control connection. The first one, which starts the transport, is the
+ * primary: its close or a shutdown request ends the transport, and it gets the
+ * events. Every agent process gets a connection of its own, so that it can
+ * admit its children; the end of one of those only
+ * removes it. It acts for its own execution and the descendants of it, and
+ * for no other.
+ */
+struct fyai_transport_conn {
+	struct fyai_transport_conn *next;
+	struct fyai_transport_verb *v;
+	int fd;
+	struct fyai_event_source *src;
+	bool primary;
+	bool dead;
+	uint64_t exec;		/* a secondary connection: the execution it belongs to */
+};
+
 struct fyai_transport_verb {
 	struct fyai_ctx *ctx;
-	int ctl;
-	struct fyai_event_source *src;
+	struct fyai_transport_conn *conns;
+	struct fyai_transport_conn *dead;		/* removed by a deferred call */
+	int ctl;			/* the primary connection */
 	struct fyai_transport_registry *reg;
 	struct fyai_transport_server *srv;
 	struct mem_cred *mem;
 	size_t nmem;
+	uint64_t next_id;		/* execution ids assigned to admissions */
+	long long reply_id;		/* 0, or an id to report in the reply */
+	fy_generic reply_extra;		/* fields merged into the reply, or invalid */
 	bool inited;
 	bool fd_taken;		/* the request kept the descriptor it carried */
 	volatile bool done;
@@ -365,157 +390,527 @@ static const char *errno_text(int rc)
 	}
 }
 
-static int op_admit(struct fyai_transport_verb *v, struct fy_generic_builder *gb,
-		    fy_generic m, int fd)
+static enum fyai_event_action conn_on_event(const struct fyai_event *ev);
+
+/* What the transport enforces, from the transport itself. */
+static int op_status(struct fyai_transport_verb *v, struct fy_generic_builder *gb)
 {
+	fy_generic execs = fy_seq_empty, profiles = fy_seq_empty;
+	size_t i, n;
+	uint64_t id, parent;
+	pid_t pid;
+
+	n = fyai_transport_registry_count(v->reg);
+	for (i = 0; i < n; i++) {
+		if (!fyai_transport_registry_exec_info(v->reg, i, &id, &parent, &pid))
+			break;
+		execs = fy_append(gb, execs,
+				  fy_mapping(gb, "id", (long long)id,
+					     "parent", (long long)parent,
+					     "pid", (long long)pid));
+	}
+	n = fyai_transport_server_profile_count(v->srv);
+	for (i = 0; i < n; i++)
+		profiles = fy_append(gb, profiles,
+				     fy_value(gb, fyai_transport_server_profile_name(v->srv, i)));
+	v->reply_extra = fy_mapping(gb,
+		"level", fyai_transport_level_name(fyai_transport_registry_level(v->reg)),
+		"pid", (long long)getpid(),
+		"executions", execs, "profiles", profiles,
+		"active", (long long)fyai_transport_server_active(v->srv),
+		"log", v->ctx->cfg->transport_logging,
+		"wire", v->ctx->cfg->wire_logging);
+	return 0;
+}
+
+/* Does a credential source hold a value? The answer is yes or no, never the value. */
+static int op_probe(struct fyai_transport_verb *v, struct fy_generic_builder *gb,
+		    fy_generic m, const char **detail)
+{
+	fy_generic src = fy_get(m, "credential", fy_invalid);
+	struct fyai_transport_profile pr = { 0 };
+	char *secret = NULL;
+	int rc;
+
+	if (!fy_is_string(src) || fy_empty(src)) {
+		*detail = "probe needs a credential source";
+		return -EINVAL;
+	}
+	pr.credential = (char *)fy_castp(&src, "");
+	rc = verb_cred(v, &pr, &secret);
+	if (secret) {
+		fyai_secret_clear(secret, strlen(secret));
+		free(secret);
+	}
+	/* A comparison is an int in C; the reply needs a JSON boolean. */
+	v->reply_extra = fy_mapping(gb, "found", (bool)(rc == 0));
+	return 0;
+}
+
+/*
+ * Send the value of the named variables into the socket that the request
+ * carries, for one command that the user configured, such as the catalogue
+ * scraper. The requester never reads the socket: the command child does. Only
+ * the primary connection may ask: an agent cannot.
+ */
+static int op_envgrant(struct fyai_transport_conn *c, fy_generic m, int fd,
+		       const char **detail)
+{
+	fy_generic names = fy_get(m, "names", fy_invalid), name;
+	char buf[65536];
+	size_t n = 0, len = 0;
+	ssize_t sent;
+	const char *k, *val;
+	int w, rc;
+
+	if (!c->primary) {
+		*detail = "only the primary connection may ask for a credential grant";
+		return -EPERM;
+	}
+	if (fd < 0) {
+		*detail = "envgrant needs the socket descriptor";
+		return -EBADF;
+	}
+	if (!fy_is_sequence(names)) {
+		*detail = "envgrant needs a list of names";
+		return -EINVAL;
+	}
+	fy_foreach(name, names) {
+		k = fy_is_string(name) ? fy_castp(&name, "") : NULL;
+		val = k && *k ? getenv(k) : NULL;
+
+		if (++n > 16) {
+			*detail = "too many names";
+			rc = -E2BIG;
+			goto out;
+		}
+		if (!val || !*val)
+			continue;
+		w = snprintf(buf + len, sizeof(buf) - len, "%s=%s", k, val);
+		if (w < 0 || (size_t)w + 1 >= sizeof(buf) - len) {
+			*detail = "the credentials are too large";
+			rc = -E2BIG;
+			goto out;
+		}
+		len += (size_t)w + 1;
+	}
+
+	sent = send(fd, buf, len, MSG_NOSIGNAL);
+	rc = sent < 0 ? -errno : (size_t)sent != len ? -EIO : 0;
+	if (rc)
+		*detail = "cannot send the credentials";
+out:
+	fyai_secret_clear(buf, sizeof(buf));
+	return rc;
+}
+
+/* Is @id registered, and if so, whose child is it? */
+static bool exec_parent(struct fyai_transport_verb *v, uint64_t id, uint64_t *parent)
+{
+	size_t i, n = fyai_transport_registry_count(v->reg);
+	uint64_t eid, p;
+	pid_t pid;
+
+	for (i = 0; i < n; i++) {
+		if (!fyai_transport_registry_exec_info(v->reg, i, &eid, &p, &pid))
+			break;
+		if (eid == id) {
+			*parent = p;
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * May @c act for execution @id? The primary may act for every one. A
+ * secondary connection may act for its own execution, when @self_ok, and for
+ * the descendants of it.
+ */
+static bool conn_owns(struct fyai_transport_conn *c, uint64_t id, bool self_ok)
+{
+	uint64_t cur = id, parent;
+	unsigned int depth;
+
+	if (c->primary)
+		return true;
+	for (depth = 0; depth < 64; depth++) {
+		if (cur == c->exec)
+			return self_ok || cur != id;
+		if (!cur || !exec_parent(c->v, cur, &parent))
+			return false;
+		cur = parent;
+	}
+	return false;
+}
+
+/* The transport owns @fd on success. */
+static int op_ctl(struct fyai_transport_conn *sender, fy_generic m, int fd,
+		  const char **detail)
+{
+	struct fyai_transport_verb *v = sender->v;
+	uint64_t id = fy_get(m, "id", 0LL), parent;
+	struct fyai_transport_conn *c;
+	int rc;
+
+	if (fd < 0) {
+		*detail = "ctl needs the channel descriptor";
+		return -EBADF;
+	}
+	if (!id || !exec_parent(v, id, &parent)) {
+		*detail = "ctl names no admitted execution";
+		return -ENOENT;
+	}
+	if (!conn_owns(sender, id, false)) {
+		*detail = "the execution is not a descendant of the caller";
+		return -EPERM;
+	}
+	c = calloc(1, sizeof(*c));
+	if (!c) {
+		*detail = "cannot allocate the control connection";
+		return -ENOMEM;
+	}
+	c->v = v;
+	c->fd = fd;
+	c->exec = id;
+	rc = fyai_event_add_fd(fyai_ctx_loop(v->ctx), fd, FYAIEV_READ,
+			       conn_on_event, c, &c->src);
+	if (rc) {
+		free(c);
+		*detail = "cannot watch the control channel";
+		return rc;
+	}
+	c->next = v->conns;
+	v->conns = c;
+	v->fd_taken = true;
+	return 0;
+}
+
+static bool pool_has(struct fyai_transport_verb *v, const char *name)
+{
+	size_t i, n = fyai_transport_server_profile_count(v->srv);
+
+	for (i = 0; i < n; i++)
+		if (!strcmp(fyai_transport_server_profile_name(v->srv, i), name))
+			return true;
+	return false;
+}
+
+/*
+ * A grant names profiles of the set that the user session stated, and no
+ * other. A connection that is not the primary grants no more than its own
+ * execution holds.
+ */
+static int grant_check(struct fyai_transport_conn *c, const struct fyai_transport_allow *allow,
+			       size_t n, const char **detail)
+{
+	struct fyai_transport_exec *own = NULL;
+	const char *model;
+	size_t i;
+
+	if (!c->primary)
+		own = fyai_transport_find(c->v->reg, c->exec);
+	for (i = 0; i < n; i++) {
+		if (!pool_has(c->v, allow[i].profile)) {
+			*detail = "the grant names a profile that the set does not have";
+			return -ENOENT;
+		}
+		if (!c->primary &&
+		    (!own || !fyai_transport_exec_allows(own, allow[i].profile, &model))) {
+			*detail = "the grant names a profile that the caller does not hold";
+			return -EPERM;
+		}
+	}
+	return 0;
+}
+
+static int op_admit(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
+		    fy_generic m, int fd, const char **detail)
+{
+	struct fyai_transport_verb *v = c->v;
 	struct fyai_transport_allow allow[FYAI_CTL_MAX_GRANT];
 	struct fyai_transport_ns_req ns;
+	long long id = fy_get(m, "id", 0LL);
 	size_t n;
 	int rc;
 
 	if (fd < 0)
 		return -EBADF;
+	if (!conn_owns(c, fy_get(m, "parent", 0LL), true)) {
+		*detail = "the parent is not the caller or a descendant of it";
+		return -EPERM;
+	}
 	rc = fyai_ctl_grant_parse(gb, fy_get(m, "grant", fy_invalid), allow,
 				  FYAI_CTL_MAX_GRANT, &n);
 	if (rc)
 		return rc;
 	rc = fyai_ctl_ns_parse(fy_get(m, "ns", fy_invalid), &ns);
 	if (rc)
+		return -EINVAL;
+	rc = grant_check(c, allow, n, detail);
+	if (rc)
 		return rc;
-	rc = fyai_transport_server_admit(v->srv, fy_get(m, "id", 0LL),
-					 fy_get(m, "parent", 0LL),
+	/* An admission with no id gets the next one, and the reply says which. */
+	if (id <= 0)
+		id = v->next_id++;
+	rc = fyai_transport_server_admit(v->srv, id, fy_get(m, "parent", 0LL),
 					 (pid_t)fy_get(m, "pid", 0LL),
 					 (uid_t)fy_get(m, "uid", -1LL), fd,
 					 allow, n, &ns);
 	v->fd_taken = !rc;
+	v->reply_id = rc ? 0 : id;
 	return rc;
 }
 
-static int op_grant(struct fyai_transport_verb *v, struct fy_generic_builder *gb,
-		    fy_generic m)
+static int op_grant(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
+		    fy_generic m, const char **detail)
 {
+	struct fyai_transport_verb *v = c->v;
 	struct fyai_transport_allow allow[FYAI_CTL_MAX_GRANT];
 	size_t n;
 	int rc;
 
+	/* The parent gives a grant; an agent does not widen its own. */
+	if (!conn_owns(c, fy_get(m, "id", 0LL), false)) {
+		*detail = "the execution is not a descendant of the caller";
+		return -EPERM;
+	}
 	rc = fyai_ctl_grant_parse(gb, fy_get(m, "grant", fy_invalid), allow,
 				  FYAI_CTL_MAX_GRANT, &n);
+	if (rc)
+		return rc;
+	rc = grant_check(c, allow, n, detail);
 	if (rc)
 		return rc;
 	rc = fyai_transport_server_set_grant(v->srv, fy_get(m, "id", 0LL), allow, n);
 	return rc;
 }
 
-static int op_profiles(struct fyai_transport_verb *v, fy_generic m)
+/*
+ * "profiles" replaces the set; with "merge" it adds to it, as the user session
+ * does when its provider or model changes. Only the primary connection, which
+ * is the user session, changes the set.
+ */
+static int op_profiles(struct fyai_transport_conn *c, fy_generic m)
 {
+	struct fyai_transport_verb *v = c->v;
 	struct fyai_transport_grant grant = { 0 };
 	const char *why = "the profiles are not valid";
 	int rc;
 
+	if (!c->primary)
+		return -EPERM;
 	rc = fyai_ctl_profiles_parse(fy_get(m, "profiles", fy_invalid), &grant, &why);
 	if (rc)
 		return rc;
-	rc = fyai_transport_server_set_profiles(v->srv, &grant);
+	if (fy_get(m, "merge", false))
+		rc = fyai_transport_server_add_profiles(v->srv, &grant);
+	else
+		rc = fyai_transport_server_set_profiles(v->srv, &grant);
 	fyai_transport_grant_clear(&grant);
 	return rc;
 }
 
-static int verb_dispatch(struct fyai_transport_verb *v, struct fy_generic_builder *gb,
+static int verb_dispatch(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
 			 fy_generic m, int fd, const char **why)
 {
+	struct fyai_transport_verb *v = c->v;
 	fy_generic opv = fy_get(m, "op", fy_invalid);
 	fy_generic name, value;
 	const char *op = fy_castp(&opv, "");
+	const char *detail = NULL;
 	int rc = 0;
 
-	if (!strcmp(op, "init"))
-		rc = op_init(v, m);
-	else if (!strcmp(op, "credential")) {
+	if (!strcmp(op, "init")) {
+		if (!c->primary) {
+			detail = "only the primary connection starts the transport";
+			rc = -EPERM;
+		} else
+			rc = op_init(v, m);
+		goto out;
+	}
+	if (!strcmp(op, "credential")) {
 		name = fy_get(m, "name", fy_invalid);
 		value = fy_get(m, "value", fy_invalid);
-		if (!fy_is_string(name) || fy_empty(name) ||
-		    !fy_is_string(value) || fy_empty(value)) {
-			*why = "a credential needs a name and a value";
+		if (!c->primary) {
+			detail = "only the primary connection sets a credential";
+			rc = -EPERM;
+		} else if (!fy_is_string(name) || fy_empty(name) ||
+			   !fy_is_string(value) || fy_empty(value)) {
+			detail = "a credential needs a name and a value";
 			rc = -EINVAL;
 		} else
 			rc = mem_set(v, fy_castp(&name, ""), fy_castp(&value, ""));
-	} else if (!strcmp(op, "shutdown"))
-		v->done = true;
-	else if (!v->inited) {
-		*why = "init comes first";
-		rc = -EINVAL;
-	} else if (!strcmp(op, "profiles"))
-		rc = op_profiles(v, m);
-	else if (!strcmp(op, "admit"))
-		rc = op_admit(v, gb, m, fd);
-	else if (!strcmp(op, "grant"))
-		rc = op_grant(v, gb, m);
-	else if (!strcmp(op, "retire"))
-		rc = fyai_transport_server_retire(v->srv, fy_get(m, "id", 0LL));
-	else if (!strcmp(op, "log")) {
-		v->ctx->cfg->transport_logging = fy_get(m, "on", false);
-		v->ctx->cfg->wire_logging = fy_get(m, "wire", false);
-		v->ctx->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
+		goto out;
 	}
-	else {
-		*why = "unknown op";
+	if (!strcmp(op, "shutdown")) {
+		if (!c->primary) {
+			detail = "only the primary connection ends the transport";
+			rc = -EPERM;
+		} else
+			v->done = true;
+		goto out;
+	}
+	if (!v->inited) {
+		detail = "init comes first";
+		rc = -EINVAL;
+		goto out;
+	}
+	if (!strcmp(op, "ctl"))
+		rc = op_ctl(c, m, fd, &detail);
+	else if (!strcmp(op, "status"))
+		rc = op_status(v, gb);
+	else if (!strcmp(op, "probe"))
+		rc = op_probe(v, gb, m, &detail);
+	else if (!strcmp(op, "envgrant"))
+		rc = op_envgrant(c, m, fd, &detail);
+	else if (!strcmp(op, "profiles")) {
+		rc = op_profiles(c, m);
+		if (rc == -EPERM)
+			detail = "only the primary connection changes the profiles";
+	} else if (!strcmp(op, "admit")) {
+		rc = op_admit(c, gb, m, fd, &detail);
+	} else if (!strcmp(op, "grant")) {
+		rc = op_grant(c, gb, m, &detail);
+	} else if (!strcmp(op, "retire")) {
+		if (!conn_owns(c, fy_get(m, "id", 0LL), true)) {
+			detail = "the execution is not the caller or a descendant of it";
+			rc = -EPERM;
+		} else
+			rc = fyai_transport_server_retire(v->srv, fy_get(m, "id", 0LL));
+	} else if (!strcmp(op, "log")) {
+		if (!c->primary) {
+			detail = "only the primary connection changes the logs";
+			rc = -EPERM;
+		} else {
+			v->ctx->cfg->transport_logging = fy_get(m, "on", false);
+			v->ctx->cfg->wire_logging = fy_get(m, "wire", false);
+			v->ctx->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
+		}
+	} else {
+		detail = "unknown op";
 		rc = -EINVAL;
 	}
-	if (rc && !*why)
-		*why = errno_text(rc);
+out:
+	*why = rc ? detail ? detail : errno_text(rc) : NULL;
 	return rc;
 }
 
-static int verb_message(struct fyai_transport_verb *v)
+static void conn_reap(void *userdata)
+{
+	struct fyai_transport_verb *v = userdata;
+	struct fyai_transport_conn *c;
+
+	while ((c = v->dead)) {
+		v->dead = c->next;
+		if (c->src)
+			fyai_event_source_remove(c->src);
+		close(c->fd);
+		free(c);
+	}
+}
+
+/* Take a connection out of service; a deferred call frees it. */
+static void conn_drop(struct fyai_transport_conn *c)
+{
+	struct fyai_transport_verb *v = c->v;
+	struct fyai_transport_conn **pp;
+
+	if (c->dead)
+		return;
+	c->dead = true;
+	for (pp = &v->conns; *pp; pp = &(*pp)->next) {
+		if (*pp == c) {
+			*pp = c->next;
+			break;
+		}
+	}
+	c->next = v->dead;
+	v->dead = c;
+	fyai_event_defer(fyai_ctx_loop(v->ctx), conn_reap, v);
+}
+
+static int verb_message(struct fyai_transport_conn *c)
 {
 	char storage[CTL_BUILDER_SIZE];
 	struct fy_generic_builder *gb;
+	struct fyai_transport_verb *v = c->v;
 	fy_generic m, reply;
-	const char *why = NULL;
+	fy_generic k, val;
+	const char *why;
 	int fd = -1, rc;
 
 	gb = fy_generic_builder_create_in_place(FYGBCF_SCOPE_LEADER, NULL,
 						 storage, sizeof(storage));
 	if (!gb)
 		return -ENOMEM;
-	rc = fyai_ctl_recv(v->ctl, gb, &m, &fd);
+	rc = fyai_ctl_recv(c->fd, gb, &m, &fd);
 	if (rc)
 		return rc;
 	v->fd_taken = false;
-	rc = verb_dispatch(v, gb, m, fd, &why);
-	/* Only an admitted channel outlives its request. */
+	v->reply_id = 0;
+	v->reply_extra = fy_invalid;
+	rc = verb_dispatch(c, gb, m, fd, &why);
+	/* Only an admitted or attached channel outlives its request. */
 	if (fd >= 0 && !v->fd_taken)
 		close(fd);
 	reply = rc ? fyai_ctl_reply_error(gb, fy_get(m, "seq", 0LL), why) :
 		      fyai_ctl_reply_ok(gb, fy_get(m, "seq", 0LL));
-	return fyai_ctl_send(v->ctl, reply, -1, 0);
+	if (!rc && v->reply_id)
+		reply = fy_assoc(gb, reply, fy_value(gb, "id"),
+				 fy_value(gb, v->reply_id));
+	if (!rc && fy_is_mapping(v->reply_extra)) {
+		fy_foreach_key_value(k, val, v->reply_extra)
+			reply = fy_assoc(gb, reply, k, val);
+	}
+	return fyai_ctl_send(c->fd, reply, -1, 0);
 }
 
-static enum fyai_event_action ctl_on_event(const struct fyai_event *ev)
+static enum fyai_event_action conn_on_event(const struct fyai_event *ev)
 {
-	struct fyai_transport_verb *v = ev->userdata;
+	struct fyai_transport_conn *c = ev->userdata;
+	struct fyai_transport_verb *v = c->v;
 	unsigned int n;
 	int rc;
 
+	if (c->dead)
+		return FYAIEA_CONTINUE;
 	if (ev->events & FYAIEV_ERROR) {
-		v->done = true;
-		return FYAIEA_STOP;
+		if (c->primary)
+			v->done = true;
+		else
+			conn_drop(c);
+		return v->done ? FYAIEA_STOP : FYAIEA_CONTINUE;
 	}
 	/* Bound the work of one wake so the channels are served in turn. */
-	for (n = 0; n < CTL_WAKE_BATCH && !v->done; n++) {
-		rc = verb_message(v);
+	for (n = 0; n < CTL_WAKE_BATCH && !v->done && !c->dead; n++) {
+		rc = verb_message(c);
 		if (rc == -EAGAIN)
 			break;
-		if (rc)
-			v->done = true;
+		if (rc) {
+			if (c->primary)
+				v->done = true;
+			else
+				conn_drop(c);
+		}
 	}
 	return v->done ? FYAIEA_STOP : FYAIEA_CONTINUE;
 }
 
 static void verb_cleanup(struct fyai_transport_verb *v)
 {
+	struct fyai_transport_conn *c;
 	size_t i;
 
+	while ((c = v->conns)) {
+		v->conns = c->next;
+		if (c->src)
+			fyai_event_source_remove(c->src);
+		if (!c->primary)
+			close(c->fd);
+		free(c);
+	}
+	conn_reap(v);
 	fyai_transport_server_destroy(v->srv);
 	fyai_transport_registry_destroy(v->reg);
 	for (i = 0; i < v->nmem; i++) {
@@ -529,23 +924,42 @@ static void verb_cleanup(struct fyai_transport_verb *v)
 static int fyai_transport_verb(struct fyai_ctx *ctx)
 {
 	struct fyai_event_loop *el;
-	struct fyai_transport_verb v = { .ctx = ctx, .ctl = ctx->cfg->transport_ctl_fd };
+	struct fyai_transport_verb v = { .ctx = ctx, .ctl = ctx->cfg->transport_ctl_fd,
+			  .next_id = 2 };
+	struct fyai_transport_conn *c;
 	int rc;
+
+	sigset_t term;
 
 	fyai_error_check(ctx, v.ctl >= 0, err,
 			 "transport: there is no control channel");
+	/*
+	 * The transport has no signal event source. Unblock SIGTERM and SIGHUP
+	 * so that their default actions terminate the process.
+	 */
+	sigemptyset(&term);
+	sigaddset(&term, SIGTERM);
+	sigaddset(&term, SIGHUP);
+	sigprocmask(SIG_UNBLOCK, &term, NULL);
 	el = fyai_ctx_loop(ctx);
 	fyai_error_check(ctx, el, err, "transport: cannot create the event loop");
-	rc = fyai_event_add_fd(el, v.ctl, FYAIEV_READ, ctl_on_event, &v, &v.src);
-	fyai_error_check(ctx, !rc, err,
+	c = calloc(1, sizeof(*c));
+	fyai_error_check(ctx, c, err, "transport: out of memory");
+	c->v = &v;
+	c->fd = v.ctl;
+	c->primary = true;
+	v.conns = c;
+	rc = fyai_event_add_fd(el, v.ctl, FYAIEV_READ, conn_on_event, c, &c->src);
+	fyai_error_check(ctx, !rc, err_conn,
 			 "transport: cannot watch the control channel");
 
-	/* Serve until the channel closes, or the supervisor says shutdown. */
+	/* Serve until the primary channel closes, or the supervisor says shutdown. */
 	rc = fyai_event_loop_run_until(el, &v.done, -1);
-	if (v.src)
-		fyai_event_source_remove(v.src);
 	verb_cleanup(&v);
 	return rc < 0 ? -1 : 0;
+err_conn:
+	v.conns = NULL;
+	free(c);
 err:
 	return -1;
 }
