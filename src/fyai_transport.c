@@ -290,7 +290,11 @@ static bool authority_is_loopback(const char *a, size_t len)
 	       (hlen == 9 && !strncmp(a, "127.0.0.1", 9));
 }
 
-static bool url_allowed(const char *url, enum fyai_transport_auth auth)
+/*
+ * Check the endpoint. Plain http needs a loopback host, whose credential does
+ * not leave the host, or the plain_http flag from trusted configuration.
+ */
+static bool url_allowed(const char *url, bool plain_http)
 {
 	const char *a;
 	size_t len;
@@ -298,9 +302,9 @@ static bool url_allowed(const char *url, enum fyai_transport_auth auth)
 	if (!url_chars_ok(url))
 		return false;
 	if (url_authority(url, "https://", &a))
-		return true;
+		return !plain_http;
 	len = url_authority(url, "http://", &a);
-	return len && auth == FYAI_TA_NONE && authority_is_loopback(a, len);
+	return len && (plain_http || authority_is_loopback(a, len));
 }
 
 static bool name_ok(const char *s)
@@ -342,6 +346,11 @@ static char *dup_opt(const char *s)
 
 static void profile_clear(struct fyai_transport_profile *pr)
 {
+	size_t i;
+
+	for (i = 0; i < pr->nheaders; i++)
+		free(pr->headers[i]);
+	free(pr->headers);
 	free(pr->name);
 	free(pr->url);
 	free(pr->tag);
@@ -351,17 +360,19 @@ static void profile_clear(struct fyai_transport_profile *pr)
 	memset(pr, 0, sizeof(*pr));
 }
 
-int fyai_transport_grant_add(struct fyai_transport_grant *grant,
-			     const char *name, const char *url,
-			     const char *tag, const char *model,
-			     enum fyai_transport_auth auth, const char *header,
-			     const char *credential)
+int fyai_transport_grant_add_spec(struct fyai_transport_grant *grant,
+				  const struct fyai_transport_profile_spec *spec)
 {
+	const char *name = spec->name, *url = spec->url, *tag = spec->tag;
+	const char *model = spec->model, *header = spec->header;
+	const char *credential = spec->credential;
+	enum fyai_transport_auth auth = spec->auth;
 	struct fyai_transport_profile pr = { .auth = auth }, *np;
 	size_t i;
 
-	if (!name_ok(name) || !url || !url_allowed(url, auth))
+	if (!name_ok(name) || !url || !url_allowed(url, spec->plain_http))
 		return -EINVAL;
+	pr.plain_http = spec->plain_http;
 	if (auth == FYAI_TA_NONE) {
 		if (header || credential)
 			return -EINVAL;
@@ -395,6 +406,56 @@ int fyai_transport_grant_add(struct fyai_transport_grant *grant,
 	grant->profiles = np;
 	grant->profiles[grant->count++] = pr;
 	return 0;
+}
+
+int fyai_transport_grant_add_header(struct fyai_transport_grant *grant,
+				    const char *name, const char *field,
+				    const char *value)
+{
+	struct fyai_transport_profile *pr;
+	char **nh, *line;
+	const char *p;
+	size_t i;
+
+	pr = (struct fyai_transport_profile *)fyai_transport_grant_find(grant, name);
+	if (!pr)
+		return -ENOENT;
+	if (!header_ok(field) || !value || strlen(value) > 1024 ||
+	    !strcasecmp(field, "authorization") ||
+	    (pr->header && !strcasecmp(field, pr->header)))
+		return -EINVAL;
+	for (p = value; *p; p++)
+		if ((unsigned char)*p < ' ' && *p != '\t')
+			return -EINVAL;
+	for (i = 0; i < pr->nheaders; i++)
+		if (!strncasecmp(pr->headers[i], field, strlen(field)) &&
+		    pr->headers[i][strlen(field)] == ':')
+			return -EINVAL;
+
+	if (asprintf(&line, "%s: %s", field, value) < 0)
+		return -ENOMEM;
+	nh = realloc(pr->headers, (pr->nheaders + 1) * sizeof(*nh));
+	if (!nh) {
+		free(line);
+		return -ENOMEM;
+	}
+	pr->headers = nh;
+	pr->headers[pr->nheaders++] = line;
+	return 0;
+}
+
+int fyai_transport_grant_add(struct fyai_transport_grant *grant,
+			     const char *name, const char *url,
+			     const char *tag, const char *model,
+			     enum fyai_transport_auth auth, const char *header,
+			     const char *credential)
+{
+	struct fyai_transport_profile_spec spec = {
+		.name = name, .url = url, .tag = tag, .model = model,
+		.auth = auth, .header = header, .credential = credential,
+	};
+
+	return fyai_transport_grant_add_spec(grant, &spec);
 }
 
 const struct fyai_transport_profile *

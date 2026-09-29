@@ -110,6 +110,9 @@ struct fyai_transport_profile {
 	enum fyai_transport_auth auth;
 	char *header;			/* FYAI_TA_HEADER only */
 	char *credential;		/* not FYAI_TA_NONE */
+	char **headers;			/* fixed "Name: value" lines, trusted */
+	size_t nheaders;
+	bool plain_http;		/* http to a host that is not loopback */
 };
 
 struct fyai_transport_grant {
@@ -117,17 +120,48 @@ struct fyai_transport_grant {
 	size_t count;
 };
 
+/* The input of one profile. Strings are copied. */
+struct fyai_transport_profile_spec {
+	const char *name;
+	const char *url;
+	const char *tag;		/* may be NULL */
+	const char *model;		/* may be NULL */
+	enum fyai_transport_auth auth;
+	const char *header;		/* FYAI_TA_HEADER only */
+	const char *credential;		/* not FYAI_TA_NONE */
+	bool plain_http;
+};
+
 /*
- * Add a profile. An authenticated profile must be https with a host, no
- * userinfo, and a credential source. A profile with no authentication can be
- * https, or http on loopback, and has no credential source. Names are unique.
- * Return 0, -EINVAL, -EEXIST or -ENOMEM; the grant is unchanged on failure.
+ * Add a profile. The endpoint must be https with a host and no userinfo, with
+ * two exceptions. A loopback endpoint can use http, with or without
+ * authentication: the credential does not leave the host. Any other http
+ * endpoint needs @spec->plain_http, which the trusted configuration sets when
+ * the user chose an http URL: local model servers on a network or in a
+ * container are usually reached that way. An authenticated profile needs a
+ * credential source, and a profile with no authentication has none. Names are
+ * unique. Return 0, -EINVAL, -EEXIST or -ENOMEM; the grant is unchanged on
+ * failure.
  */
+int fyai_transport_grant_add_spec(struct fyai_transport_grant *grant,
+				  const struct fyai_transport_profile_spec *spec);
+
+/* The same for an endpoint that needs no plain_http. */
 int fyai_transport_grant_add(struct fyai_transport_grant *grant,
 			     const char *name, const char *url,
 			     const char *tag, const char *model,
 			     enum fyai_transport_auth auth, const char *header,
 			     const char *credential);
+/*
+ * Add a fixed, non-secret header to profile @name, such as a protocol version.
+ * It comes from trusted configuration, never from a request. The name must be a
+ * valid field name that does not frame the request or carry authentication;
+ * the value has no control character. Return 0, -EINVAL, -ENOENT or -ENOMEM.
+ */
+int fyai_transport_grant_add_header(struct fyai_transport_grant *grant,
+				    const char *name, const char *field,
+				    const char *value);
+
 const struct fyai_transport_profile *
 fyai_transport_grant_find(const struct fyai_transport_grant *grant,
 			  const char *name);

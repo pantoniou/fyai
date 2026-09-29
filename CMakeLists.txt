@@ -449,6 +449,8 @@ set(FYAI_SOURCES
     src/fyai_config.c
     src/fyai_curl.c
     src/fyai_transport.c
+    src/fyai_transport_msg.c
+    src/fyai_transport_server.c
     src/fyai_auth.c
     src/fyai_oauth.c
     src/fyai_auth_util.c
