@@ -335,6 +335,7 @@ struct fyai_cfg {
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_hang_timeout_ms;	/* extra time after the advisory limit */
+	bool stdin_consumed;		/* the prompt was read from standard input */
 	const char *agent_transport_isolation;	/* none, auto, level-a or level-b */
 	bool agent_timeout_kill;	/* terminate an agent after the extra time */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
@@ -565,6 +566,10 @@ struct fyai_ctx {
 	/* Channel to the credential transport; NULL when this process talks to
 	 * the provider itself. See fyai_xfer.h. */
 	struct fyai_tclient *tclient;
+	int transport_ctl;		/* control channel; -1 if none */
+	pid_t transport_pid;
+	bool transport_owner;		/* this process started the transport */
+	struct fyai_event_source *transport_src;	/* drains the control channel */
 	/* The model transfer in progress. */
 	const char *xfer_body;
 	const char *xfer_url;		/* NULL: the endpoint of the configuration */
@@ -818,5 +823,18 @@ int fyai_request_state_apply(struct fyai_ctx *ctx);
  * connection cache after fork.
  */
 int fyai_curl_easy_reinit(struct fyai_ctx *ctx);
+
+/*
+ * True if a model request can be authenticated: this image holds a key, a
+ * ChatGPT login, or needs none, or the key is at the credential transport,
+ * which this image cannot see.
+ */
+static inline bool fyai_credential_available(const struct fyai_ctx *ctx)
+{
+	const struct fyai_cfg *cfg = ctx->cfg;
+
+	return (cfg->api_key && *cfg->api_key) || cfg->chatgpt_auth ||
+	       cfg->no_auth || ctx->tclient;
+}
 
 #endif

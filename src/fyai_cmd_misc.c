@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_transport_boot.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_agents.h"
@@ -440,6 +441,8 @@ int fyai_cmd_log(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	if (fy_any_equal(action, "start", "stop"))
 		fyai_log_set(ctx->cfg, target, fy_equal(action, "start"));
+	/* The wire and the transport logs are written by the transport. */
+	fyai_transport_sync_logging(ctx);
 	data = fyai_log_status_data(ctx, call->gb);
 	*result = call->format == FYAI_CMD_OUT_MARKDOWN ?
 		  log_words(call->gb, data) : data;

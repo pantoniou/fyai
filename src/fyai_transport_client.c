@@ -280,7 +280,6 @@ struct fyai_tclient *fyai_tclient_open(struct fyai_ctx *ctx, int channel,
 	c->el = fyai_ctx_loop(ctx);
 	fyai_error_check(ctx, c->el, err_free,
 			 "could not create the transport event loop");
-	fcntl(channel, F_SETFD, FD_CLOEXEC);
 	rc = fyai_event_add_fd(c->el, channel, FYAIEV_READ, client_on_event, c,
 			       &c->src);
 	fyai_error_check(ctx, !rc, err_free,

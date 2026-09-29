@@ -28,6 +28,7 @@
 
 #include <libfyaml/libfyaml-blake3.h>
 
+#include "fyai_transport_boot.h"
 #include "fyai_sink.h"
 #include "fyai_catalog.h"
 #include "fyai_branch.h"
@@ -325,6 +326,9 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 	if (!*name)
 		return -1;
 	if (fy_equal(fy_get(v, "type"), "secret")) {
+		/* Under isolation only the transport reads the secret store. */
+		if (fyai_transport_supervised())
+			return -1;
 		key_name = fy_sprintfa("fyai:%s", name);
 		rc = fyai_secret_kernel_get(key_name, &secret, &len);
 		if (rc != FYAI_SECRET_OK)
@@ -921,7 +925,9 @@ static int env_apply_line(char *line, fy_generic names, const char *path,
 		return -1;
 	}
 
-	if (env_name_allowed(names, key))
+	/* A supervisor holds no credential: the transport has the keys. */
+	if (env_name_allowed(names, key) &&
+	    !(fyai_transport_supervised() && fyai_env_is_credential(key)))
 		setenv(key, val, 1);
 	return 0;
 }
@@ -2927,6 +2933,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		secret_name = fy_sprintfa("fyai:api-key/%s", cfg->provider);
 
 		if ((!cfg->api_key || !*cfg->api_key) &&
+		    !fyai_transport_supervised() &&
 		    fyai_secret_kernel_get(secret_name, &secret, &secret_len) == FYAI_SECRET_OK) {
 			cfg->api_key = fy_gb_intern_string(cfg->gb, secret);
 			fyai_secret_clear_and_free(&secret, &secret_len);
@@ -3530,6 +3537,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 		prompt = NULL;
 		if (stdin_prompt) {
 			prompt = read_all_stdin();
+			cfg->stdin_consumed = true;
 			if (!prompt) {
 				fyai_cfg_error(cfg, "failed to read prompt from stdin");
 				goto err_out;

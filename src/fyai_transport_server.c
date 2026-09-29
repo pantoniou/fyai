@@ -414,23 +414,40 @@ static int req_debug_cb(CURL *easy, curl_infotype type, char *data, size_t size,
 	const char *name = debug_type_name(type);
 	struct fy_generic_builder *gb;
 	char *copy;
+	char *wire;
 	fy_generic doc;
 
 	(void)easy;
-	if (!name || !cfg->transport_logging || !size)
+	if (!name || !(cfg->transport_logging || cfg->wire_logging) || !size)
 		return 0;
 	copy = malloc(size + 1);
 	if (!copy)
 		return 0;
 	memcpy(copy, data, size);
 	copy[size] = '\0';
-	fyai_redact(&srv->redactor, copy, size);
 	gb = srv->ctx->transient_gb ? srv->ctx->transient_gb : cfg->gb;
-	doc = fy_mapping(gb, "kind", "transport-wire", "type", name,
-			 "exec", (long long)rq->chan->id,
-			 "request", (long long)rq->id,
-			 "data", fy_string_size(copy, size));
-	(void)fyai_log_generic(srv->ctx, "transport", doc);
+	/* Wire logging keeps the standard curl record and its redaction setting. */
+	if (cfg->wire_logging) {
+		wire = cfg->whitewash_api_keys ? strdup(copy) : copy;
+
+		if (wire) {
+			if (wire != copy)
+				fyai_redact(&srv->redactor, wire, size);
+			doc = fy_mapping(gb, "kind", "curl", "type", name,
+					 "data", fy_string_size(wire, size));
+			(void)fyai_log_generic(srv->ctx, "wire", doc);
+			if (wire != copy)
+				free(wire);
+		}
+	}
+	fyai_redact(&srv->redactor, copy, size);
+	if (cfg->transport_logging) {
+		doc = fy_mapping(gb, "kind", "transport-wire", "type", name,
+				 "exec", (long long)rq->chan->id,
+				 "request", (long long)rq->id,
+				 "data", fy_string_size(copy, size));
+		(void)fyai_log_generic(srv->ctx, "transport", doc);
+	}
 	free(copy);
 	return 0;
 }
@@ -707,7 +724,8 @@ static void req_setup_curl(struct req *rq, const struct fyai_transport_request *
 	curl_easy_setopt(rq->easy, CURLOPT_WRITEDATA, rq);
 	curl_easy_setopt(rq->easy, CURLOPT_HEADERFUNCTION, req_header_cb);
 	curl_easy_setopt(rq->easy, CURLOPT_HEADERDATA, rq);
-	if (rq->chan->srv->ctx->cfg->transport_logging) {
+	if (rq->chan->srv->ctx->cfg->transport_logging ||
+	    rq->chan->srv->ctx->cfg->wire_logging) {
 		curl_easy_setopt(rq->easy, CURLOPT_VERBOSE, 1L);
 		curl_easy_setopt(rq->easy, CURLOPT_DEBUGFUNCTION, req_debug_cb);
 		curl_easy_setopt(rq->easy, CURLOPT_DEBUGDATA, rq);

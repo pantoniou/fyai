@@ -21,6 +21,8 @@
 #include "config.h"
 #endif
 
+#include "fyai_transport_boot.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -61,6 +63,18 @@ int main(int argc, char **argv)
 	fyai_diag_drain(&cfg.diag);
 	if (rc)
 		return rc > 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+
+	/*
+	 * With isolation on, this image is the bootstrap: it starts the
+	 * transport and executes itself again without a credential. That does
+	 * not return. There is no fallback to a direct connection.
+	 */
+	if (fyai_transport_bootstrap(&cfg, argc, argv)) {
+		fyai_diag_drain(&cfg.diag);
+		fyai_config_cleanup(&cfg);
+		curl_global_cleanup();
+		return EXIT_FAILURE;
+	}
 
 	rc = fyai_run(&cfg);
 	ret = rc ? EXIT_FAILURE : EXIT_SUCCESS;

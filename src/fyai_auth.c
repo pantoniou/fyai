@@ -2178,7 +2178,9 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 	bool want_chatgpt;
 
 	want_chatgpt = cfg->auth_mode == FYAI_AUTH_CHATGPT ||
-		(cfg->auth_mode == FYAI_AUTH_AUTO && (!cfg->api_key || !*cfg->api_key));
+		(cfg->auth_mode == FYAI_AUTH_AUTO && (!cfg->api_key || !*cfg->api_key) &&
+		 /* The key is at the transport, which this image cannot see. */
+		 !ctx->tclient);
 
 	if (!want_chatgpt)
 		return 0;
@@ -2282,7 +2284,7 @@ static const char *auth_effective_method(struct fyai_ctx *ctx, bool logged_in)
 		return "api-key";
 	if (cfg->auth_mode == FYAI_AUTH_CHATGPT)
 		return logged_in ? "chatgpt" : "unavailable";
-	if (cfg->api_key && *cfg->api_key)
+	if ((cfg->api_key && *cfg->api_key) || ctx->tclient)
 		return "api-key";
 	return logged_in ? "chatgpt" : "unavailable";
 }

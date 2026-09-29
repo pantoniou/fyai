@@ -47,6 +47,7 @@
 #include "fyai_wait.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
+#include "fyai_transport_boot.h"
 #include "fyai_xfer.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
@@ -2059,6 +2060,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_ui_close(ctx);
 
 	/* Before the easy handle: the multi still references it. */
+	fyai_transport_detach(ctx);
 	fyai_curl_cleanup(ctx);
 	if (ctx->curl) {
 		curl_easy_cleanup(ctx->curl);
@@ -2132,7 +2134,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	/* Anthropic authenticates with x-api-key (no Bearer scheme) and
 	 * requires a protocol version header on every request.  Local no-auth
 	 * servers skip the API-key header entirely. */
-	if (!cfg->chatgpt_auth && !cfg->no_auth) {
+	if (!cfg->chatgpt_auth && !cfg->no_auth && !ctx->tclient) {
 		ctx->auth_header = make_header(cfg->api_mode == FYAI_API_MESSAGES ?
 					       "x-api-key: " : "Authorization: Bearer ",
 					       cfg->api_key);
@@ -2272,6 +2274,10 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 		goto err;
 
 	if (fyai_curl_easy_reinit(ctx))
+		goto err;
+
+	/* A supervisor sends its model requests through the transport. */
+	if (fyai_transport_attach(ctx))
 		goto err;
 
 	(void)fyai_setup_transient_builder(ctx);
@@ -3502,8 +3508,7 @@ int fyai_prompt(struct fyai_ctx *ctx)
 	(void)args;
 	assert(ctx);
 
-	if ((!cfg->api_key || !*cfg->api_key) &&
-	    !cfg->chatgpt_auth && !cfg->no_auth) {
+	if (!fyai_credential_available(ctx)) {
 		fyai_error(ctx, "no API key or ChatGPT login is available");
 		return -1;
 	}

@@ -337,6 +337,8 @@ static int op_init(struct fyai_transport_verb *v, fy_generic m)
 	v->reg = reg;
 	v->srv = srv;
 	v->ctx->cfg->transport_logging = fy_get(m, "log", false);
+	v->ctx->cfg->wire_logging = fy_get(m, "wire", false);
+	v->ctx->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
 	v->inited = true;
 	return 0;
 }
@@ -450,8 +452,11 @@ static int verb_dispatch(struct fyai_transport_verb *v, struct fy_generic_builde
 		rc = op_grant(v, gb, m);
 	else if (!strcmp(op, "retire"))
 		rc = fyai_transport_server_retire(v->srv, fy_get(m, "id", 0LL));
-	else if (!strcmp(op, "log"))
+	else if (!strcmp(op, "log")) {
 		v->ctx->cfg->transport_logging = fy_get(m, "on", false);
+		v->ctx->cfg->wire_logging = fy_get(m, "wire", false);
+		v->ctx->cfg->whitewash_api_keys = fy_get(m, "whitewash", true);
+	}
 	else {
 		*why = "unknown op";
 		rc = -EINVAL;
