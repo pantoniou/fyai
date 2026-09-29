@@ -448,6 +448,7 @@ set(FYAI_SOURCES
     src/fyai_catalog.c
     src/fyai_config.c
     src/fyai_curl.c
+    src/fyai_transport.c
     src/fyai_auth.c
     src/fyai_oauth.c
     src/fyai_auth_util.c
@@ -543,6 +544,14 @@ if(BUILD_TESTING)
 
     file(GLOB FYAI_TEST_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/fyai_*_test.c")
+    # The transport channels are message sockets that only Linux has.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(FYAI_TEST_TRANSPORT_MOCK tests/fyai_transport_mock.c)
+    else()
+        list(FILTER FYAI_TEST_SOURCES EXCLUDE REGEX
+            "/fyai_transport_(server_|client_|ctl_)?test\\.c$")
+        set(FYAI_TEST_TRANSPORT_MOCK "")
+    endif()
     set(FYAI_TESTS "")
     foreach(_test_source ${FYAI_TEST_SOURCES})
         file(STRINGS "${_test_source}" _test_entry_lines

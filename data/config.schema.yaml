@@ -425,6 +425,20 @@ properties:
           continues the forked image of the parent. A transient run, a pinned
           root, and a platform without a supported executable-image path
           always use `fork`.
+      transport_isolation:
+        type: string
+        enum: [none, auto, level-a, level-b]
+        default: none
+        description: >-
+          Keep provider credentials out of every agent and tool process. A
+          separate transport process holds the credentials and sends the
+          requests of admitted agents. `none` keeps the credentials in the
+          agents. `level-b` admits an agent by PID and pidfd only, which
+          bounds no descendant, and is the only level that runs now.
+          `level-a`, which adds a cgroup v2 subtree, is not built yet and
+          stops the invocation. `auto` takes the highest level that runs
+          and reports it, which is `level-b`. A level that the host cannot
+          enforce stops the invocation. Linux only. Experimental.
       max_branch_depth:
         type: integer
         minimum: 1

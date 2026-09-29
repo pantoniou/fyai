@@ -329,6 +329,7 @@ struct fyai_cfg {
 	int agent_timeout_ms;		/* sub-agent time limit (0 = none) */
 	int agent_max_timeout_ms;	/* bound on a model-asked limit (0 = none) */
 	int agent_hang_timeout_ms;	/* extra time after the advisory limit */
+	const char *agent_transport_isolation;	/* none, auto, level-a or level-b */
 	bool agent_timeout_kill;	/* terminate an agent after the extra time */
 	int agent_max_branch_depth;	/* nesting cap for sub-agent branches */
 	const char *agent_spawn;	/* exec or fork: how a sub-agent child starts */

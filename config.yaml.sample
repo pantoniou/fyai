@@ -135,6 +135,11 @@ agent:
   # exec starts another fyai process; fork continues the child process.
   # Transient runs and pinned roots use fork.
   spawn: exec
+  # Experimental, Linux only. Keep provider credentials in a separate
+  # transport process; agents and tools never receive them. One of none,
+  # auto, level-a (cgroup v2 subtree; not built yet) and level-b (PID and
+  # pidfd only). auto takes level-b for now.
+  transport_isolation: none
   # Maximum depth of sub-agent branch paths, including ordinary components.
   max_branch_depth: 8
   # Maximum admitted agents in this invocation's descendant tree.
