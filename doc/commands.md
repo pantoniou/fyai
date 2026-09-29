@@ -1968,6 +1968,31 @@ initialize, agent/run, and shutdown. See doc/agent-protocol.md.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai transport
+
+serve model requests for isolated agents
+
+**Usage:** `fyai transport --control-fd FD [--arena DIR]`
+
+Run the credential transport. It holds the provider credentials and sends
+the requests of agents that hold none. A supervisor starts it, and it
+takes its orders on a control channel: a socket that it inherits on
+descriptor `--control-fd`, framed as one JSON message for each datagram.
+The protocol is in doc/agent-transport-isolation-sdd.md. It ends when the
+channel closes. It sets itself not dumpable, closes every other
+descriptor, and leaves the terminal session. A person does not normally run
+it.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--control-fd FD` | the descriptor of the control channel |
+| `--arena DIR` | the arena whose logs directory receives the transport log |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai completion
 
 write a shell completion script

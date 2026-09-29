@@ -411,6 +411,7 @@ struct fyai_cfg {
 	 */
 	bool transient;
 	/* True in a sub-agent child. */
+	int transport_ctl_fd;		/* fyai transport: the control channel */
 	bool agent_child;
 	/* The parent limits a forked tool job. */
 	bool tool_child;

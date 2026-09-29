@@ -2569,6 +2569,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->agent_hang_timeout_ms = DEFAULT_AGENT_HANG_TIMEOUT_MS;
 	cfg->agent_timeout_kill = true;
 	cfg->agent_transport_isolation = "none";
+	cfg->transport_ctl_fd = -1;
 	cfg->retry_max_attempts = DEFAULT_RETRY_MAX_ATTEMPTS;
 	cfg->retry_initial_delay_ms = DEFAULT_RETRY_INITIAL_DELAY_MS;
 	cfg->retry_max_delay_ms = DEFAULT_RETRY_MAX_DELAY_MS;

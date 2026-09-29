@@ -104,6 +104,7 @@ static const struct {
 	{ "kill",		fyai_cmd_kill },
 	{ "status",		fyai_cmd_status },
 	{ "agent",		fyai_cmd_agent },
+	{ "transport",		fyai_cmd_transport },
 	{ "setting",		fyai_cmd_setting },
 	{ "catalog_show",	fyai_cmd_catalog_show },
 	{ "catalog_list",	fyai_cmd_catalog_list },
@@ -129,6 +130,7 @@ static const struct {
 	fyai_cmd_prepare_fn fn;
 } cmd_earlies[] = {
 	{ "resume",		fyai_cmd_resume_early },
+	{ "transport",		fyai_cmd_transport_early },
 };
 
 static const struct {
