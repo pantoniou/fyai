@@ -353,6 +353,7 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
 	fy_generic v, sb, tbv, shell, retry, secret_ref, zoom_rows, preview_width;
+	fy_generic rtype, rname;
 
 	if (fy_is_invalid(root))
 		return 0;
@@ -363,10 +364,19 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	if (fy_is_mapping(secret_ref)) {
 		if (fy_equal(fy_get(secret_ref, "type"), "auto")) {
 			cfg->api_key = NULL;
+			cfg->api_key_ref = NULL;
 			cfg->api_key_auto = true;
 			cfg->api_key_explicit = false;
 		} else {
+			rtype = fy_get(secret_ref, "type", fy_invalid);
+			rname = fy_get(secret_ref, "value", fy_invalid);
+
 			cfg->api_key = NULL;
+			cfg->api_key_ref = NULL;
+			if (fy_is_string(rtype) && fy_is_string(rname))
+				cfg->api_key_ref = fy_gb_intern_string(cfg->gb,
+					fy_sprintfa("%s:%s", fy_castp(&rtype, ""),
+						    fy_castp(&rname, "")));
 			cfg->api_key_auto = false;
 			cfg->api_key_explicit = true;
 			(void)resolve_secret(cfg, &cfg->api_key, secret_ref);
@@ -2542,6 +2552,7 @@ int fyai_config_adopt_arena(struct fyai_ctx *ctx)
 				fyai_cfg_error(cfg, "reload: cannot retain API key");
 				return -1;
 			}
+			cfg->api_key_ref = "mem:cli";
 			cfg->api_key_explicit = true;
 			cfg->api_key_auto = false;
 		}
@@ -2741,8 +2752,8 @@ static const struct option long_options[] = {
  * (openai -> OPENAI_API_KEY, openrouter -> OPENROUTER_API_KEY). Interned into
  * @gb (deduped, so stored once); returns NULL only when @name is too long.
  */
-static const char *provider_env_key(struct fy_generic_builder *gb,
-				    const char *name)
+const char *fyai_config_provider_env_key(struct fy_generic_builder *gb,
+					 const char *name)
 {
 	char buf[128];
 	size_t i;
@@ -2907,7 +2918,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	 */
 	if (cfg->api_key_auto && (!cfg->api_key || !*cfg->api_key) &&
 	    cfg->provider && *cfg->provider) {
-		env = provider_env_key(cfg->gb, cfg->provider);
+		env = fyai_config_provider_env_key(cfg->gb, cfg->provider);
 		if (env) {
 			val = getenv(env);
 			if (val && *val)
@@ -3429,6 +3440,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 				fyai_cfg_error(cfg, "reload: cannot retain API key");
 				goto err_out;
 			}
+			cfg->api_key_ref = "mem:cli";
 			cfg->api_key_explicit = true;
 			cfg->api_key_auto = false;
 		}
@@ -3445,6 +3457,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 * intent, including a pending --set api_key operation. */
 	if (cli.api_key) {
 		cfg->api_key = cli.api_key;
+		cfg->api_key_ref = "mem:cli";
 		cfg->api_key_explicit = true;
 		cfg->api_key_auto = false;
 	}

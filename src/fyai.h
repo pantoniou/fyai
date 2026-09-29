@@ -210,6 +210,12 @@ struct fyai_cfg {
 	 * explicit and is re-derived for the new provider.
 	 */
 	bool api_key_explicit;
+	/*
+	 * Where the credential comes from, as the transport names a source:
+	 * "env:NAME", "secret:NAME", or "mem:cli" for --api-key. NULL when the
+	 * provider default applies. The value is never kept here.
+	 */
+	const char *api_key_ref;
 	bool api_key_auto;
 	const char *provider;
 	const char *prompt;
@@ -556,7 +562,10 @@ struct fyai_ctx {
 	/* Release idle-operation scratch storage on the next loop iteration. */
 	bool transient_autorelease;
 	CURL *curl;
-	/* The model transfer in progress; see fyai_xfer.h. */
+	/* Channel to the credential transport; NULL when this process talks to
+	 * the provider itself. See fyai_xfer.h. */
+	struct fyai_tclient *tclient;
+	/* The model transfer in progress. */
 	const char *xfer_body;
 	const char *xfer_url;		/* NULL: the endpoint of the configuration */
 	const char *xfer_profile;	/* NULL: "model" */

@@ -178,6 +178,9 @@ char *fyai_discover_project_root(void);
  * clears api_url/provider (and api_key unless explicit).
  */
 int fyai_config_resolve_model(struct fyai_cfg *cfg);
+/* The conventional key variable of a provider, such as OPENAI_API_KEY. */
+const char *fyai_config_provider_env_key(struct fy_generic_builder *gb,
+					 const char *name);
 
 /* Reject/downgrade options with no Messages-API mapping; no-op otherwise. */
 int fyai_config_messages_gate(struct fyai_cfg *cfg);

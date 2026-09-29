@@ -38,11 +38,13 @@ typedef void (*fyai_xfer_done_fn)(struct fyai_xfer *xfer, void *userdata);
 void fyai_xfer_set_body(struct fyai_ctx *ctx, const char *body);
 
 /*
- * Send the next transfer to @url, through the transport profile @profile.
- * NULL restores the endpoint of the configuration and the profile "model".
+ * Send the next transfer to @url, through the transport profile of @kind,
+ * "model" or "compact". The transport names a profile from the configuration;
+ * see fyai_transport_cfg.h. NULL restores the endpoint of the configuration and
+ * the kind "model".
  */
 void fyai_xfer_set_endpoint(struct fyai_ctx *ctx, const char *url,
-			    const char *profile);
+			    const char *kind);
 
 /*
  * Start a transfer. @done runs from the event loop, never from this call, and
