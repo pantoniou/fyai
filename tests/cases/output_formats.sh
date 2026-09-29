@@ -30,7 +30,7 @@ check_json '"total" in d' stats
 check_json '"output_max" in d' context
 check_json '"status" in d' auth
 check_json 'd["root"] and d["head"] == "main"' root show
-check_json 'set(d) == {"wire", "stream", "conversation", "mcp"}' log
+check_json 'set(d) == {"wire", "stream", "conversation", "mcp", "transport"}' log
 check_json 'd == {"valid": True}' config validate
 check_json '"model" in d and "api" in d' api
 check_json 'isinstance(d, list) and d and "name" in d[0]' catalog list
