@@ -47,6 +47,7 @@
 #include "fyai_wait.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
+#include "fyai_xfer.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_tool_spec.h"
@@ -717,7 +718,7 @@ static int fyai_model_step_submit_request(struct fyai_model_step *step,
 	/* Build + serialize done: this is "time to emit the request". */
 	fyai_prof_since("request_emit", t_emit);
 
-	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, request_body);
+	fyai_xfer_set_body(ctx, request_body);
 
 	/* The parent surface supplies a delegated sub-agent's activity mark. */
 	step->spinner.enabled = !fyai_ui_active(ctx) &&
@@ -1155,9 +1156,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 		if (step->want_extents_lp && !cfg->logprobs &&
 		    (fy_is_invalid(diag) ||
 		     fy_is_null(diag))) {
-			status = 0;
-			curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE,
-					  &status);
+			status = fyai_xfer_last_status(ctx);
 			if (status >= 400 && status < 500) {
 				ctx->token_extents_off = true;
 				rc = fyai_model_step_retry(step,
@@ -2164,7 +2163,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 			return -1;
 	}
 
-	curl_easy_setopt(ctx->curl, CURLOPT_URL, cfg->api_url);
+	fyai_xfer_set_endpoint(ctx, NULL, NULL);
 	curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, ctx->headers);
 
 	if (cfg->enable_tools || cfg->enable_builtin_shell || cfg->mcp_enabled ||

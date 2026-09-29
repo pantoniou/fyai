@@ -59,6 +59,7 @@
 #include "fyai_session.h"
 #include "fyai_cmd.h"
 #include "fyai_stream.h"
+#include "fyai_xfer.h"
 #include "fyai_ui.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
@@ -180,8 +181,8 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 				"url", url,
 				"body", request));
 
-	curl_easy_setopt(ctx->curl, CURLOPT_URL, url);
-	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, body);
+	fyai_xfer_set_endpoint(ctx, url, "compact");
+	fyai_xfer_set_body(ctx, body);
 	req = fyai_buffered_request_submit(ctx, NULL, NULL);
 	fyai_error_check(ctx, req, err_restore,
 			 "compact: cannot submit the Responses request");
@@ -203,8 +204,8 @@ collect:
 	fyai_buffered_request_destroy(req);
 	req = NULL;
 restore:
-	curl_easy_setopt(ctx->curl, CURLOPT_URL, cfg->api_url);
-	curl_easy_setopt(ctx->curl, CURLOPT_POSTFIELDS, NULL);
+	fyai_xfer_set_endpoint(ctx, NULL, NULL);
+	fyai_xfer_set_body(ctx, NULL);
 	if (rc < 0)
 		goto out;
 

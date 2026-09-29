@@ -556,6 +556,13 @@ struct fyai_ctx {
 	/* Release idle-operation scratch storage on the next loop iteration. */
 	bool transient_autorelease;
 	CURL *curl;
+	/* The model transfer in progress; see fyai_xfer.h. */
+	const char *xfer_body;
+	const char *xfer_url;		/* NULL: the endpoint of the configuration */
+	const char *xfer_profile;	/* NULL: "model" */
+	long xfer_status;		/* of the last transfer that finished */
+	long xfer_retry_after;
+	char xfer_error[256];
 	/* Per-invocation curl multi state. */
 	struct fyai_curl_state *curl_state;
 

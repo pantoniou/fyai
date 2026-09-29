@@ -25,6 +25,7 @@
 #include "fyai_log.h"
 #include "fyai_provider.h"
 #include "fyai_curl.h"
+#include "fyai_xfer.h"
 #include "fyai_event.h"
 #include "fyai_agent.h"
 #include "fyai_agents.h"
@@ -39,7 +40,7 @@ struct stream_spinner {
 
 struct stream_response {
 	struct fyai_ctx *ctx;
-	struct fyai_curl_transfer *transfer;
+	struct fyai_xfer *transfer;
 	struct fyai_auth_refresh_request *auth_refresh;
 	struct fyai_event_source *retry_timer;
 	int attempt;			/* attempts made, survives a resubmit */
@@ -1524,6 +1525,8 @@ fyai_event_ms_t fyai_retry_delay_ms(struct fyai_cfg *cfg, int attempt,
 					    (uint64_t)(base / 2 + 1));
 }
 
+static const char *xfer_error_text(struct fyai_ctx *ctx, CURLcode res);
+
 /* Present a retry in the shared work band or as plain status output. */
 static void stream_retry_report(struct fyai_ctx *ctx, long status,
 				CURLcode res, const char *cause, int attempt,
@@ -1539,7 +1542,7 @@ static void stream_retry_report(struct fyai_ctx *ctx, long status,
 	else if (status)
 		reason = fy_sprintfa("HTTP %ld", status);
 	else
-		reason = curl_easy_strerror(res);
+		reason = xfer_error_text(ctx, res);
 
 	/* Route delegated waits to the parent work band. */
 	if (fyai_agent_delegated(ctx)) {
@@ -1587,14 +1590,18 @@ static void stream_retry_band_close(struct fyai_ctx *ctx, bool *bandp, bool ok,
 	fyai_sink_band_close(ctx->sink, ok, cause);
 }
 
+/* The text of a transfer error: the transport's own, else curl's. */
+static const char *xfer_error_text(struct fyai_ctx *ctx, CURLcode res)
+{
+	const char *text = fyai_xfer_last_error(ctx);
+
+	return *text ? text : curl_easy_strerror(res);
+}
+
 /* Return the Retry-After delay in seconds. */
 static long stream_retry_after(struct fyai_ctx *ctx)
 {
-	curl_off_t secs = 0;
-
-	if (curl_easy_getinfo(ctx->curl, CURLINFO_RETRY_AFTER, &secs) != CURLE_OK)
-		return 0;
-	return secs > 0 ? (long)secs : 0;
+	return fyai_xfer_last_retry_after(ctx);
 }
 
 static void stream_retry_band_close(struct fyai_ctx *ctx, bool *bandp, bool ok,
@@ -1617,8 +1624,7 @@ static void stream_request_notify(struct stream_response *stream)
 		complete(stream, userdata);
 }
 
-static void stream_request_complete(struct fyai_curl_transfer *transfer,
-				    void *userdata);
+static void stream_request_complete(struct fyai_xfer *transfer, void *userdata);
 static void stream_auth_complete(
 		struct fyai_auth_refresh_request *request, void *userdata);
 
@@ -1645,13 +1651,10 @@ static int stream_request_resubmit(struct stream_response *stream)
 	if (rc)
 		return -1;
 	stream->state = FYAISS_RETRYING;
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION,
-			 write_stream_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, stream);
 	stream_state_transition(stream, FYAISS_SUBMITTED);
 	if (stream->state != FYAISS_SUBMITTED)
 		return -1;
-	stream->transfer = fyai_curl_submit(ctx, ctx->curl,
+	stream->transfer = fyai_xfer_submit(ctx, write_stream_response, stream,
 					    stream_request_complete, stream);
 	return stream->transfer ? 0 : -1;
 }
@@ -1761,8 +1764,7 @@ err_out:
 	return FYAIEA_CONTINUE;
 }
 
-static void stream_request_complete(struct fyai_curl_transfer *transfer,
-				    void *userdata)
+static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 {
 	struct stream_response *stream;
 	struct fyai_ctx *ctx;
@@ -1781,8 +1783,8 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 	cfg = ctx->cfg;
 	status = 0;
 	ret = fy_invalid;
-	res = fyai_curl_collect(transfer);
-	fyai_curl_transfer_destroy(transfer);
+	res = fyai_xfer_result(transfer);
+	fyai_xfer_destroy(transfer);
 	stream->transfer = NULL;
 
 	if (stream->cancel_requested || res == CURLE_ABORTED_BY_CALLBACK) {
@@ -1791,7 +1793,7 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 		goto done;
 	}
 
-	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
+	status = fyai_xfer_last_status(ctx);
 	/* Use the stream error before the curl callback error. */
 	if (stream->failed && (!status || (status >= 200 && status < 300))) {
 		stream->attempt++;
@@ -1816,7 +1818,7 @@ static void stream_request_complete(struct fyai_curl_transfer *transfer,
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
 		}
-		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
+		fyai_error(ctx, "request failed: %s", xfer_error_text(ctx, res));
 		stream_state_transition(stream, FYAISS_FAILED);
 		goto done;
 	}
@@ -1915,12 +1917,10 @@ fyai_stream_request_submit(struct fyai_ctx *ctx,
 	fyai_error_check(ctx, !stream_response_init(stream, ctx), err_free,
 			 "could not initialize response stream");
 
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_stream_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, stream);
 	stream_state_transition(stream, FYAISS_SUBMITTED);
 	fyai_error_check(ctx, stream->state == FYAISS_SUBMITTED, err_cleanup,
 			 "could not submit response stream");
-	stream->transfer = fyai_curl_submit(ctx, ctx->curl,
+	stream->transfer = fyai_xfer_submit(ctx, write_stream_response, stream,
 					    stream_request_complete, stream);
 	fyai_error_check(ctx, stream->transfer, err_cleanup,
 			 "could not submit response stream");
@@ -1941,7 +1941,7 @@ void fyai_stream_request_cancel(fyai_stream_request *request)
 	request->cancel_requested = true;
 	if (request->transfer) {
 		stream_state_transition(request, FYAISS_CANCELLING);
-		fyai_curl_cancel(request->transfer);
+		fyai_xfer_cancel(request->transfer);
 	} else if (request->auth_refresh) {
 		stream_state_transition(request, FYAISS_CANCELLING);
 		fyai_auth_refresh_cancel(request->auth_refresh);
@@ -1986,7 +1986,7 @@ void fyai_stream_request_destroy(fyai_stream_request *request)
 		request->retry_timer = NULL;
 	}
 	if (request->transfer)
-		fyai_curl_transfer_destroy(request->transfer);
+		fyai_xfer_destroy(request->transfer);
 	if (request->auth_refresh)
 		fyai_auth_refresh_destroy(request->auth_refresh);
 	stream_response_cleanup(request);
@@ -1995,7 +1995,7 @@ void fyai_stream_request_destroy(fyai_stream_request *request)
 
 struct fyai_buffered_request {
 	struct fyai_ctx *ctx;
-	struct fyai_curl_transfer *transfer;
+	struct fyai_xfer *transfer;
 	struct fyai_auth_refresh_request *auth_refresh;
 	struct fyai_event_source *retry_timer;
 	int attempt;			/* attempts made for this request */
@@ -2008,8 +2008,7 @@ struct fyai_buffered_request {
 	bool cancel_requested;
 };
 
-static void buffered_request_complete(struct fyai_curl_transfer *transfer,
-				      void *userdata);
+static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata);
 static void buffered_auth_complete(
 		struct fyai_auth_refresh_request *request, void *userdata);
 
@@ -2019,9 +2018,8 @@ buffered_request_start(struct fyai_buffered_request *request)
 	struct fyai_ctx *ctx;
 
 	ctx = request->ctx;
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEFUNCTION, write_response);
-	curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, &request->response);
-	request->transfer = fyai_curl_submit(ctx, ctx->curl,
+	request->transfer = fyai_xfer_submit(ctx, write_response,
+					     &request->response,
 					     buffered_request_complete,
 					     request);
 	return request->transfer ? 0 : -1;
@@ -2124,8 +2122,7 @@ done:
 	buffered_request_notify(request);
 }
 
-static void buffered_request_complete(struct fyai_curl_transfer *transfer,
-				      void *userdata)
+static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata)
 {
 	struct fyai_buffered_request *request;
 	struct fyai_ctx *ctx;
@@ -2138,8 +2135,8 @@ static void buffered_request_complete(struct fyai_curl_transfer *transfer,
 	ctx = request->ctx;
 	status = 0;
 	request->result = fy_invalid;
-	res = fyai_curl_collect(transfer);
-	fyai_curl_transfer_destroy(transfer);
+	res = fyai_xfer_result(transfer);
+	fyai_xfer_destroy(transfer);
 	request->transfer = NULL;
 
 	if (res == CURLE_ABORTED_BY_CALLBACK) {
@@ -2155,11 +2152,11 @@ static void buffered_request_complete(struct fyai_curl_transfer *transfer,
 			return;
 		if (retry_rc < 0)
 			goto done;
-		fyai_error(ctx, "request failed: %s", curl_easy_strerror(res));
+		fyai_error(ctx, "request failed: %s", xfer_error_text(ctx, res));
 		goto done;
 	}
 
-	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &status);
+	status = fyai_xfer_last_status(ctx);
 	if (status < 200 || status >= 300) {
 		request->attempt++;
 		retry_rc = buffered_retry_arm(request, status, res);
@@ -2238,7 +2235,7 @@ void fyai_buffered_request_cancel(struct fyai_buffered_request *request)
 		return;
 	request->cancel_requested = true;
 	if (request->transfer)
-		fyai_curl_cancel(request->transfer);
+		fyai_xfer_cancel(request->transfer);
 	else if (request->auth_refresh)
 		fyai_auth_refresh_cancel(request->auth_refresh);
 	else if (request->retry_timer) {
@@ -2274,7 +2271,7 @@ void fyai_buffered_request_destroy(struct fyai_buffered_request *request)
 		request->retry_timer = NULL;
 	}
 	if (request->transfer)
-		fyai_curl_transfer_destroy(request->transfer);
+		fyai_xfer_destroy(request->transfer);
 	if (request->auth_refresh)
 		fyai_auth_refresh_destroy(request->auth_refresh);
 	free(request->response.data);
