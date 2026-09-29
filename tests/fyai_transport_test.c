@@ -32,6 +32,7 @@ FYAI_TEST_ENTRY(transport, rejects_other_sender, transport_rejects_other_sender)
 FYAI_TEST_ENTRY(transport, rejects_dead_sender, transport_rejects_dead_sender)
 FYAI_TEST_ENTRY(transport, rejects_bad_frames, transport_rejects_bad_frames)
 FYAI_TEST_ENTRY(transport, rejects_outside_cgroup, transport_rejects_outside_cgroup)
+FYAI_TEST_ENTRY(transport, grant_plain_http, transport_grant_plain_http)
 FYAI_TEST_ENTRY(transport, grant_names, transport_grant_names)
 FYAI_TEST_ENTRY(transport, level_names, transport_level_names)
 FYAI_TEST_ENTRY(transport, level_b_needs_no_cgroup, transport_level_b_needs_no_cgroup)
@@ -192,14 +193,16 @@ int transport_grant_rejects_profiles(void)
 	BAD("https://u:p@a.example/", FYAI_TA_BEARER, NULL, "c");
 	BAD("https://", FYAI_TA_BEARER, NULL, "c");
 	BAD("https://a.example/ x", FYAI_TA_BEARER, NULL, "c");
-	BAD("http://127.0.0.1:1/", FYAI_TA_BEARER, NULL, "c");
 
 	/* A credential source is required, and forbidden without authentication. */
 	BAD("https://a.example/", FYAI_TA_BEARER, NULL, NULL);
 	BAD("https://a.example/", FYAI_TA_BEARER, NULL, "");
 	BAD("https://a.example/", FYAI_TA_NONE, NULL, "c");
 
-	/* Plain http is allowed only on loopback without credentials. */
+	/* Plain http is allowed only on loopback, with or without a credential. */
+	GOOD("http://127.0.0.1:1/", FYAI_TA_BEARER, NULL, "c");
+	GOOD("http://localhost:9/", FYAI_TA_HEADER, "X-Api-Key", "c");
+	BAD("http://10.0.0.1/", FYAI_TA_BEARER, NULL, "c");
 	GOOD("http://127.0.0.1:8080/v1", FYAI_TA_NONE, NULL, NULL);
 	GOOD("http://localhost/v1", FYAI_TA_NONE, NULL, NULL);
 	GOOD("http://[::1]:1/v1", FYAI_TA_NONE, NULL, NULL);
@@ -574,5 +577,51 @@ int transport_grant_names(void)
 	close(sv[0]);
 	close(sv2[0]);
 	close(sv2[1]);
+	return 0;
+}
+
+/* A local model server on a network is reached over http; configuration says so. */
+int transport_grant_plain_http(void)
+{
+	struct fyai_transport_grant g = { 0 };
+	struct fyai_transport_profile_spec spec = {
+		.name = "p", .url = "http://192.168.1.5:8080/v1",
+		.auth = FYAI_TA_NONE,
+	};
+	const struct fyai_transport_profile *pr;
+
+	/* Without the flag, only loopback may use http. */
+	FYAI_TCHECK(fyai_transport_grant_add_spec(&g, &spec) == -EINVAL);
+	spec.url = "http://ollama.lan:11434/v1";
+	FYAI_TCHECK(fyai_transport_grant_add_spec(&g, &spec) == -EINVAL);
+	spec.url = "http://127.0.0.1:1/";
+	FYAI_TCHECK(!fyai_transport_grant_add_spec(&g, &spec));
+	fyai_transport_grant_clear(&g);
+
+	/* With the flag, any host, with or without a credential. */
+	spec.plain_http = true;
+	spec.url = "http://192.168.1.5:8080/v1";
+	FYAI_TCHECK(!fyai_transport_grant_add_spec(&g, &spec));
+	pr = fyai_transport_grant_find(&g, "p");
+	FYAI_TCHECK(pr && pr->plain_http);
+	fyai_transport_grant_clear(&g);
+
+	spec.url = "http://ollama.lan:11434/v1";
+	spec.auth = FYAI_TA_BEARER;
+	spec.credential = "env:K";
+	FYAI_TCHECK(!fyai_transport_grant_add_spec(&g, &spec));
+	fyai_transport_grant_clear(&g);
+
+	/* The flag is for http; on an https URL it is a mistake. */
+	spec.url = "https://a.example/";
+	FYAI_TCHECK(fyai_transport_grant_add_spec(&g, &spec) == -EINVAL);
+
+	/* The flag does not relax the rest of the check. */
+	spec.url = "http://u:p@ollama.lan/";
+	FYAI_TCHECK(fyai_transport_grant_add_spec(&g, &spec) == -EINVAL);
+	spec.url = "ftp://ollama.lan/";
+	FYAI_TCHECK(fyai_transport_grant_add_spec(&g, &spec) == -EINVAL);
+	spec.url = "http://ollama.lan/ x";
+	FYAI_TCHECK(fyai_transport_grant_add_spec(&g, &spec) == -EINVAL);
 	return 0;
 }
