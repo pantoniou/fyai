@@ -44,6 +44,10 @@ FYAI_TEST_ENTRY(transport_server, enforces_grant, transport_server_enforces_gran
 FYAI_TEST_ENTRY(transport_server, narrows_model, transport_server_narrows_model)
 FYAI_TEST_ENTRY(transport_server, injects_credential, transport_server_injects_credential)
 FYAI_TEST_ENTRY(transport_server, redacts_resolved_credential, transport_server_redacts_resolved_credential)
+FYAI_TEST_ENTRY(transport_server, credential_adds_headers, transport_server_credential_adds_headers)
+FYAI_TEST_ENTRY(transport_server, parks_until_prepared, transport_server_parks_until_prepared)
+FYAI_TEST_ENTRY(transport_server, prepare_failure_ends_request, transport_server_prepare_failure_ends_request)
+FYAI_TEST_ENTRY(transport_server, cancel_while_parked, transport_server_cancel_while_parked)
 FYAI_TEST_ENTRY(transport_server, reload_profiles, transport_server_reload_profiles)
 FYAI_TEST_ENTRY(transport_server, streams_response, transport_server_streams_response)
 FYAI_TEST_ENTRY(transport_server, no_credential_for_no_auth, transport_server_no_credential_for_no_auth)
@@ -97,10 +101,36 @@ static int cred_cb(void *ud, const struct fyai_transport_profile *pr, char **sec
 		   struct curl_slist **extra)
 {
 	(void)ud;
-	(void)pr;	/* every credential source resolves to the same value */
-	(void)extra;
+	/* Every credential source resolves to the same value. */
 	*secret = strdup("sekret");
-	return *secret ? 0 : -ENOMEM;
+	if (!*secret)
+		return -ENOMEM;
+	/* A source can derive header lines from its credential. */
+	if (pr->credential && !strcmp(pr->credential, "mem:acct")) {
+		*extra = curl_slist_append(NULL, "X-Account: acct-1");
+		if (!*extra)
+			return -ENOMEM;
+	}
+	return 0;
+}
+
+/* The state that the prepare callback reports. */
+static struct {
+	int mode;		/* 0 ready, 1 wait then ready, 2 wait then fail */
+	unsigned int started;	/* requests that were told to wait */
+} prep;
+
+static int prepare_cb(void *ud, const struct fyai_transport_profile *pr,
+		      bool resumed)
+{
+	(void)ud;
+	(void)pr;
+	if (!prep.mode)
+		return 0;
+	if (resumed)
+		return prep.mode == 2 ? -ESTALE : 0;
+	prep.started++;
+	return 1;
 }
 
 /* Profiles for the mock provider at @port; @tag names the profile. */
@@ -1056,5 +1086,121 @@ int transport_server_redacts_resolved_credential(void)
 	fy_generic_builder_destroy(test_cfg.gb);
 	test_cfg.gb = NULL;
 	test_cfg.arena_dir = NULL;
+	return 0;
+}
+
+static bool prepare_started(const struct agent *a)
+{
+	(void)a;
+	return prep.started == 1;
+}
+
+/* A source derives header lines from its credential; they reach the wire. */
+int transport_server_credential_adds_headers(void)
+{
+	struct fyai_transport_grant grant = { 0 };
+	struct tmock m;
+	struct agent a;
+	char seen[8192], url[64];
+
+	tmock_start_many(&m, TMOCK_SMALL);
+	agent_open(&a, m.port, false);
+	snprintf(url, sizeof(url), "http://127.0.0.1:%d/v1/x", m.port);
+	FYAI_TCHECK(!fyai_transport_grant_add(&grant, "main", url, NULL, NULL,
+					      FYAI_TA_BEARER, NULL, "mem:acct"));
+	FYAI_TCHECK(!fyai_transport_server_set_profiles(a.srv, &grant));
+	FYAI_TCHECK(served(&a, "main", "{}"));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
+	FYAI_TCHECK(strcasestr(seen, "Authorization: Bearer sekret\r\n"));
+	FYAI_TCHECK(strcasestr(seen, "X-Account: acct-1\r\n"));
+	agent_close(&a);
+	tmock_stop(&m);
+	return 0;
+}
+
+/* A request waits for its credential, and runs when the work ends. */
+int transport_server_parks_until_prepared(void)
+{
+	struct tmock m;
+	struct agent a;
+	char seen[8192];
+
+	prep.mode = 1;
+	prep.started = 0;
+	tmock_start_many(&m, TMOCK_SMALL);
+	agent_open(&a, m.port, false);
+	profiles_set_auth(a.srv, m.port);
+	fyai_transport_server_set_prepare(a.srv, prepare_cb);
+	send_request(&a, "POST", "application/json", "{}");
+	FYAI_TCHECK(agent_wait(&a, prepare_started));
+	FYAI_TCHECK(!a.nframes);
+	FYAI_TCHECK(fyai_transport_server_active(a.srv) == 1);
+	FYAI_TCHECK(!tmock_report_nonblock(&m, seen, sizeof(seen)));
+
+	fyai_transport_server_prepared(a.srv);
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(agent_frame(&a, FYAI_TK_RESP_END));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
+	FYAI_TCHECK(strcasestr(seen, "Authorization: Bearer sekret\r\n"));
+	prep.mode = 0;
+	agent_close(&a);
+	tmock_stop(&m);
+	return 0;
+}
+
+/* A credential that cannot be prepared ends the request with an error. */
+int transport_server_prepare_failure_ends_request(void)
+{
+	struct tmock m;
+	struct agent a;
+	char seen[8192];
+
+	prep.mode = 2;
+	prep.started = 0;
+	tmock_start_many(&m, TMOCK_SMALL);
+	agent_open(&a, m.port, false);
+	profiles_set_auth(a.srv, m.port);
+	fyai_transport_server_set_prepare(a.srv, prepare_cb);
+	send_request(&a, "POST", "application/json", "{}");
+	FYAI_TCHECK(agent_wait(&a, prepare_started));
+	fyai_transport_server_prepared(a.srv);
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(agent_frame(&a, FYAI_TK_RESP_ERROR));
+	FYAI_TCHECK(!agent_has(&a, FYAI_TK_RESP_END));
+	FYAI_TCHECK(!fyai_transport_server_active(a.srv));
+	FYAI_TCHECK(!tmock_report_nonblock(&m, seen, sizeof(seen)));
+	prep.mode = 0;
+	agent_close(&a);
+	tmock_stop(&m);
+	return 0;
+}
+
+/* A cancel reaches a request that waits, and the end of the work skips it. */
+int transport_server_cancel_while_parked(void)
+{
+	struct fyai_transport_hdr h = {
+		.kind = FYAI_TK_CANCEL, .exec_id = 7, .request_id = 1,
+	};
+	struct tmock m;
+	struct agent a;
+
+	prep.mode = 1;
+	prep.started = 0;
+	tmock_start_many(&m, TMOCK_SMALL);
+	agent_open(&a, m.port, false);
+	profiles_set_auth(a.srv, m.port);
+	fyai_transport_server_set_prepare(a.srv, prepare_cb);
+	send_request(&a, "POST", "application/json", "{}");
+	FYAI_TCHECK(agent_wait(&a, prepare_started));
+	FYAI_TCHECK(!fyai_transport_send_frame(a.fd, &h, NULL));
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(error_code(agent_frame(&a, FYAI_TK_RESP_ERROR)) == -2);
+	FYAI_TCHECK(!fyai_transport_server_active(a.srv));
+
+	fyai_transport_server_prepared(a.srv);
+	FYAI_TCHECK(a.nframes == 1);
+	prep.mode = 0;
+	agent_close(&a);
+	tmock_stop(&m);
 	return 0;
 }
