@@ -114,6 +114,52 @@
           "total_tokens": 5
         }
       }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-t-6",
+        "object": "chat.completion",
+        "created": 1735689606,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "sixth reply"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3,
+          "completion_tokens": 2,
+          "total_tokens": 5
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-t-7",
+        "object": "chat.completion",
+        "created": 1735689607,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "seventh reply"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3,
+          "completion_tokens": 2,
+          "total_tokens": 5
+        }
+      }
     }
   ]
 }

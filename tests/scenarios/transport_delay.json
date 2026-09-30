@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-b",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "slow reply"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3,
+          "completion_tokens": 2,
+          "total_tokens": 5
+        }
+      },
+      "wait_for": "release"
+    }
+  ]
+}

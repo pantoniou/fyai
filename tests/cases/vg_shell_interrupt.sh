@@ -20,6 +20,10 @@ valgrind --tool=memcheck true >/dev/null 2>&1 || {
 	exit 0
 }
 
+# Under valgrind the program cannot execute itself, which credential isolation
+# needs: /proc/self/exe names valgrind there.
+[ -n "${FYAI_TEST_TRANSPORT:-}" ] && skip "credential isolation cannot run under valgrind"
+
 fyai_test_setup
 mock_start native_shell_interrupt.json
 

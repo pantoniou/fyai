@@ -166,6 +166,14 @@ fyai_test_setup_bare() {
 	# Treat undefined behavior as a fatal sanitizer finding.
 	export UBSAN_OPTIONS="${UBSAN_OPTIONS:+$UBSAN_OPTIONS:}log_path=$TEST_DIR/sanitizer.log:print_stacktrace=1:halt_on_error=1"
 
+	# FYAI_TEST_TRANSPORT=level-b (or auto) runs every case with credential
+	# isolation on, as the compatibility gate of the transport.
+	if [ -n "${FYAI_TEST_TRANSPORT:-}" ]; then
+		export FYAI_TRANSPORT_ISOLATION="$FYAI_TEST_TRANSPORT"
+	else
+		unset FYAI_TRANSPORT_ISOLATION || true
+	fi
+
 	export HOME="$TEST_DIR/home"
 	export XDG_STATE_HOME="$TEST_DIR/home/.local/state"
 	export XDG_CONFIG_HOME="$TEST_DIR/home/.config"

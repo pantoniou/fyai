@@ -26,7 +26,9 @@ import re
 import sys
 
 starts = re.findall(r"start: pid (\d+)", open(sys.argv[1]).read())
-if len(starts) < 2 or starts[0] != starts[1]:
+# The first process starts again under its own PID: once per exec. With
+# credential isolation the transport is one more start, under another PID.
+if len(starts) < 2 or starts.count(starts[0]) < 2:
     raise SystemExit("reload did not exec in the same process")
 PY
 assert_request 1 'r["auth"] == "Bearer test-key"'

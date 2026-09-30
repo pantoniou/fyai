@@ -616,6 +616,7 @@ if(BUILD_TESTING)
         ${FYAI_TEST_SOURCES}
         tests/fyai_test_registry.c
         tests/fyai_test_scratch.c
+        ${FYAI_TEST_TRANSPORT_MOCK}
         tests/fyai_test_main.c
         "${FYAI_TEST_REGISTER_C}"
     )
@@ -685,6 +686,14 @@ if(BUILD_TESTING)
     set(FYAI_CASE_TIMEOUT_tool_terminate 120)
     set(FYAI_CASE_TIMEOUT_tool_timeout 120)
     set(FYAI_CASE_TIMEOUT_ui_page_layouts 240)
+    # The transport cases wait on states with generous failure bounds: a slow
+    # runner can stall for minutes, and a pass does not wait for the bound.
+    set(FYAI_CASE_TIMEOUT_transport_verb 300)
+    set(FYAI_CASE_TIMEOUT_transport_bootstrap 300)
+    set(FYAI_CASE_TIMEOUT_transport_persona 300)
+    set(FYAI_CASE_TIMEOUT_transport_reload 300)
+    set(FYAI_CASE_TIMEOUT_transport_indicator 300)
+    set(FYAI_CASE_TIMEOUT_transport_indicator_pty 300)
 
     # Every deadline in the suite is multiplied by this. A sanitized build, or
     # a suite run with many jobs at once, takes several times as long for the

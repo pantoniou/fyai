@@ -61,8 +61,12 @@ for mode in exec fork; do
 	# A command-line key reaches the child.
 	assert_request 1 'r["auth"] == "Bearer test-key"'
 
+	# With credential isolation a forked child could not be told from its
+	# parent by the transport, so `fork` runs as `exec`: there is one way.
+	want="$mode"
+	[ -n "${FYAI_TRANSPORT_ISOLATION:-}" ] && want=exec
 	kind="$(spawn_kind "$FYAI_TRACE")" || fail "$mode: $kind"
-	[ "$kind" = "$mode" ] || fail "agent/spawn=$mode started a $kind child"
+	[ "$kind" = "$want" ] || fail "agent/spawn=$mode started a $kind child, not $want"
 
 	run_fyai branch --all
 	assert_status 0

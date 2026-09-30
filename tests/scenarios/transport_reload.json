@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-r-1",
+        "object": "chat.completion",
+        "created": 1735689701,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply one."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3,
+          "completion_tokens": 2,
+          "total_tokens": 5
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-r-2",
+        "object": "chat.completion",
+        "created": 1735689702,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply two."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3,
+          "completion_tokens": 2,
+          "total_tokens": 5
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-r-3",
+        "object": "chat.completion",
+        "created": 1735689703,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Reply three."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 3,
+          "completion_tokens": 2,
+          "total_tokens": 5
+        }
+      }
+    }
+  ]
+}

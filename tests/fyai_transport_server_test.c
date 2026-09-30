@@ -29,6 +29,7 @@
 #include "fyai_event.h"
 #include "fyai_test.h"
 #include "fyai_test_scratch.h"
+#include "fyai_transport_mock.h"
 #include "fyai_redact.h"
 #include "fyai_transport_server.h"
 #include "utils.h"
@@ -53,180 +54,10 @@ FYAI_TEST_ENTRY(transport_server, connect_failure_is_transient, transport_server
 FYAI_TEST_ENTRY(transport_server, refuses_bad_requests, transport_server_refuses_bad_requests)
 FYAI_TEST_ENTRY(transport_server, ignores_copied_descriptor, transport_server_ignores_copied_descriptor)
 
-#define BOUND_MS	10000
-#define BIG_BODY	(1024 * 1024)
+#define BOUND_MS	tmock_bound_ms()
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx = { .cfg = &test_cfg };
-
-/* Mock provider. */
-
-enum mock_mode {
-	MOCK_SMALL,		/* 200 with "hello" */
-	MOCK_BIG,		/* 200 with BIG_BODY bytes */
-	MOCK_STALL,		/* headers and one byte, then wait */
-	MOCK_LIMITED,		/* 429 with rate-limit headers and a body */
-};
-
-struct mock {
-	pid_t pid;
-	int port;
-	int report;		/* request head and body, read after the run */
-};
-
-/* Serve one connection. With @many the report stays open for the next one. */
-static void mock_serve(int listener, enum mock_mode mode, int report, bool many)
-{
-	char req[65536], hdr[512];
-	size_t got = 0, need = 0;
-	static char chunk[16384];
-	ssize_t n;
-	int c;
-
-	c = accept(listener, NULL, NULL);
-	if (c < 0)
-		_exit(1);
-	while (got < sizeof(req) - 1) {
-		char *end, *cl;
-
-		n = read(c, req + got, sizeof(req) - 1 - got);
-		if (n <= 0)
-			_exit(2);
-		got += n;
-		req[got] = '\0';
-		end = strstr(req, "\r\n\r\n");
-		if (!end)
-			continue;
-		cl = strcasestr(req, "content-length:");
-		need = (end + 4 - req) + (cl ? strtoul(cl + 15, NULL, 10) : 0);
-		if (got >= need)
-			break;
-	}
-	if (write(report, req, got) < 0)
-		_exit(3);
-	if (!many)
-		close(report);
-
-	memset(chunk, 'a', sizeof(chunk));
-	switch (mode) {
-	case MOCK_SMALL:
-		snprintf(hdr, sizeof(hdr),
-			 "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
-			 "Retry-After: 7\r\nX-RateLimit-Remaining-Requests: 99\r\n"
-			 "Anthropic-Ratelimit-Requests-Limit: 50\r\nX-Other: 1\r\n"
-			 "Content-Length: 5\r\n\r\nhello");
-		if (write(c, hdr, strlen(hdr)) < 0)
-			_exit(4);
-		break;
-	case MOCK_BIG: {
-		size_t left = BIG_BODY;
-
-		snprintf(hdr, sizeof(hdr),
-			 "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n", BIG_BODY);
-		if (write(c, hdr, strlen(hdr)) < 0)
-			_exit(4);
-		while (left) {
-			size_t k = left > sizeof(chunk) ? sizeof(chunk) : left;
-
-			n = write(c, chunk, k);
-			if (n <= 0)
-				_exit(0);	/* the transport went away */
-			left -= n;
-		}
-		break;
-	}
-	case MOCK_LIMITED:
-		snprintf(hdr, sizeof(hdr),
-			 "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 3\r\n"
-			 "X-RateLimit-Remaining-Requests: 0\r\n"
-			 "RateLimit-Reset: 12\r\nServer: mock\r\n"
-			 "Content-Length: 2\r\n\r\n{}");
-		if (write(c, hdr, strlen(hdr)) < 0)
-			_exit(4);
-		break;
-	case MOCK_STALL:
-		snprintf(hdr, sizeof(hdr),
-			 "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nx");
-		if (write(c, hdr, strlen(hdr)) < 0)
-			_exit(4);
-		pause();
-		break;
-	}
-	close(c);
-}
-
-static void mock_child(int listener, enum mock_mode mode, int report, bool many)
-{
-	do
-		mock_serve(listener, mode, report, many);
-	while (many);
-	_exit(0);
-}
-
-static void mock_start_opt(struct mock *m, enum mock_mode mode, bool many)
-{
-	struct sockaddr_in sa = { .sin_family = AF_INET };
-	socklen_t sl = sizeof(sa);
-	int l, rp[2];
-
-	sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	l = socket(AF_INET, SOCK_STREAM, 0);
-	FYAI_TCHECK(l >= 0);
-	FYAI_TCHECK(!bind(l, (struct sockaddr *)&sa, sizeof(sa)));
-	FYAI_TCHECK(!listen(l, 4));
-	FYAI_TCHECK(!getsockname(l, (struct sockaddr *)&sa, &sl));
-	m->port = ntohs(sa.sin_port);
-	FYAI_TCHECK(!pipe(rp));
-	m->pid = fork();
-	FYAI_TCHECK(m->pid >= 0);
-	if (!m->pid) {
-		close(rp[0]);
-		mock_child(l, mode, rp[1], many);
-	}
-	close(l);
-	close(rp[1]);
-	m->report = rp[0];
-}
-
-static void mock_start(struct mock *m, enum mock_mode mode)
-{
-	mock_start_opt(m, mode, false);
-}
-
-/* A provider that serves any number of requests until it is stopped. */
-static void mock_start_many(struct mock *m, enum mock_mode mode)
-{
-	mock_start_opt(m, mode, true);
-}
-
-static void mock_stop(struct mock *m)
-{
-	kill(m->pid, SIGKILL);
-	waitpid(m->pid, NULL, 0);
-	close(m->report);
-}
-
-/* What the mock saw, as one string. */
-static size_t mock_report(struct mock *m, char *buf, size_t size)
-{
-	size_t got = 0;
-	ssize_t n;
-
-	while (got < size - 1 && (n = read(m->report, buf + got, size - 1 - got)) > 0)
-		got += n;
-	buf[got] = '\0';
-	return got;
-}
-
-/* Return the bytes the mock reported so far, without waiting for more. */
-static size_t mock_report_nonblock(struct mock *m, char *buf, size_t size)
-{
-	ssize_t n;
-
-	fcntl(m->report, F_SETFL, fcntl(m->report, F_GETFL) | O_NONBLOCK);
-	n = read(m->report, buf, size);
-	return n > 0 ? n : 0;
-}
 
 /* Agent side. */
 
@@ -462,6 +293,11 @@ static bool has_body(const struct agent *a)
 	return agent_has(a, FYAI_TK_RESP_BODY);
 }
 
+static bool server_paused(const struct agent *a)
+{
+	return fyai_transport_server_paused(a->srv) == 1;
+}
+
 static bool has_body_credit_limit(const struct agent *a)
 {
 	return a->body_bytes >= FYAI_TRANSPORT_INITIAL_CREDIT - 16384;
@@ -535,7 +371,7 @@ int transport_server_headers_build(void)
 
 int transport_server_streams_response(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	const struct frame *st;
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
@@ -543,7 +379,7 @@ int transport_server_streams_response(void)
 	struct fyai_transport_response rs;
 	char seen[8192];
 
-	mock_start(&m, MOCK_SMALL);
+	tmock_start(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, true);
 	send_request(&a, "POST", "application/json", "{\"model\":\"m1\",\"x\":1}");
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
@@ -569,7 +405,7 @@ int transport_server_streams_response(void)
 	FYAI_TCHECK(!fyai_transport_server_active(a.srv));
 
 	/* The provider saw the fixed header, the body, and the type. */
-	mock_report(&m, seen, sizeof(seen));
+	tmock_report(&m, seen, sizeof(seen));
 	FYAI_TCHECK(strstr(seen, "POST /v1/x HTTP/1.1"));
 	FYAI_TCHECK(strcasestr(seen, "X-Version: 2"));
 	FYAI_TCHECK(strcasestr(seen, "Content-Type: application/json"));
@@ -577,52 +413,49 @@ int transport_server_streams_response(void)
 	FYAI_TCHECK(!strcasestr(seen, "Expect:"));
 	FYAI_TCHECK(strstr(seen, "{\"model\":\"m1\",\"x\":1}"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
 /* A profile without authentication sends no credential, whatever the agent does. */
 int transport_server_no_credential_for_no_auth(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	char seen[8192];
 
-	mock_start(&m, MOCK_SMALL);
+	tmock_start(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
 	FYAI_TCHECK(agent_has(&a, FYAI_TK_RESP_END));
-	mock_report(&m, seen, sizeof(seen));
+	tmock_report(&m, seen, sizeof(seen));
 	FYAI_TCHECK(!strcasestr(seen, "authorization"));
 	FYAI_TCHECK(!strstr(seen, "sekret"));
 	FYAI_TCHECK(!strcasestr(seen, "proxy"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
 /* Without credit the transfer pauses; credit resumes it, in order and whole. */
 int transport_server_credit_bounds_stream(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
-	mock_start(&m, MOCK_BIG);
+	tmock_start(&m, TMOCK_BIG);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_body_credit_limit));
 
-	/* The window is full: the server must not send more than the credit. */
-	{
-		fyai_event_ms_t end = fyai_event_now_ms() + 300;
-		struct fyai_event_loop *el = fyai_ctx_loop(&test_ctx);
-
-		while (fyai_event_now_ms() < end) {
-			FYAI_TCHECK(fyai_event_loop_step(el, 20) >= 0);
-			agent_drain(&a);
-		}
-	}
+	/*
+	 * The window is full: wait until the server says that the transfer is
+	 * paused, which is a state and not a time, and then it must not have sent
+	 * more than the credit.
+	 */
+	FYAI_TCHECK(agent_wait(&a, server_paused));
+	agent_drain(&a);
 	FYAI_TCHECK(a.body_bytes <= FYAI_TRANSPORT_INITIAL_CREDIT);
 	FYAI_TCHECK(!agent_terminal(&a));
 
@@ -631,19 +464,19 @@ int transport_server_credit_bounds_stream(void)
 	FYAI_TCHECK(agent_has(&a, FYAI_TK_RESP_END));
 	FYAI_TCHECK(a.body_bytes == BIG_BODY && a.seq_ok);
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
 int transport_server_cancel_request(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	struct fyai_transport_hdr h = {
 		.kind = FYAI_TK_CANCEL, .exec_id = 7, .request_id = 1,
 	};
 
-	mock_start(&m, MOCK_STALL);
+	tmock_start(&m, TMOCK_STALL);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_body));
@@ -654,7 +487,7 @@ int transport_server_cancel_request(void)
 	FYAI_TCHECK(error_code(agent_frame(&a, FYAI_TK_RESP_ERROR)) == -2);
 	FYAI_TCHECK(!fyai_transport_server_active(a.srv));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
@@ -666,10 +499,10 @@ static bool transfer_gone(const struct agent *a)
 /* An agent that goes away takes its transfers with it. */
 int transport_server_channel_close_cancels(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
-	mock_start(&m, MOCK_STALL);
+	tmock_start(&m, TMOCK_STALL);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_body));
@@ -685,13 +518,13 @@ int transport_server_channel_close_cancels(void)
 	test_ctx.el = NULL;
 	fyai_event_pool_drain(&test_ctx);
 	curl_global_cleanup();
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
 int transport_server_connect_failure_is_transient(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb;
@@ -699,8 +532,8 @@ int transport_server_connect_failure_is_transient(void)
 	const struct frame *f;
 
 	/* Nothing listens after the mock exits. */
-	mock_start(&m, MOCK_SMALL);
-	mock_stop(&m);
+	tmock_start(&m, TMOCK_SMALL);
+	tmock_stop(&m);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
@@ -719,7 +552,7 @@ int transport_server_connect_failure_is_transient(void)
 /* A request that names anything but a profile is refused, and nothing is sent. */
 int transport_server_refuses_bad_requests(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	char seen[64];
 	static const char *const bad[] = {
@@ -735,7 +568,7 @@ int transport_server_refuses_bad_requests(void)
 	};
 	unsigned int i;
 
-	mock_start(&m, MOCK_SMALL);
+	tmock_start(&m, TMOCK_SMALL);
 	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
 		agent_open(&a, m.port, false);
 		send_raw_request(&a, bad[i], "{}");
@@ -760,15 +593,15 @@ int transport_server_refuses_bad_requests(void)
 	agent_close(&a);
 
 	/* The provider was never contacted. */
-	FYAI_TCHECK(!mock_report_nonblock(&m, seen, sizeof(seen)));
-	mock_stop(&m);
+	FYAI_TCHECK(!tmock_report_nonblock(&m, seen, sizeof(seen)));
+	tmock_stop(&m);
 	return 0;
 }
 
 /* A process with a copy of the descriptor cannot get a request served. */
 int transport_server_ignores_copied_descriptor(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	struct fyai_transport_request rq = {
 		.profile = "main", .content_type = "application/json",
@@ -783,7 +616,7 @@ int transport_server_ignores_copied_descriptor(void)
 	pid_t child;
 	int st;
 
-	mock_start(&m, MOCK_SMALL);
+	tmock_start(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	child = fork();
 	FYAI_TCHECK(child >= 0);
@@ -811,7 +644,7 @@ int transport_server_ignores_copied_descriptor(void)
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
 	FYAI_TCHECK(agent_has(&a, FYAI_TK_RESP_END));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
@@ -873,10 +706,10 @@ int transport_server_records_ratelimit(void)
 	struct fy_generic_builder *gb;
 	struct fyai_transport_response rs;
 	char url[64], seen[8192];
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
-	mock_start(&m, MOCK_LIMITED);
+	tmock_start(&m, TMOCK_LIMITED);
 	agent_open(&a, m.port, false);
 	snprintf(url, sizeof(url), "http://127.0.0.1:%d/v1/x", m.port);
 	FYAI_TCHECK(!fyai_transport_server_ratelimit(a.srv, url, &rec));
@@ -905,10 +738,10 @@ int transport_server_records_ratelimit(void)
 	FYAI_TCHECK(!fyai_transport_server_ratelimit(a.srv, "http://other/", &rec));
 
 	/* The provider saw one request only. */
-	mock_report(&m, seen, sizeof(seen));
+	tmock_report(&m, seen, sizeof(seen));
 	FYAI_TCHECK(strstr(seen, "POST /v1/x"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
@@ -939,7 +772,7 @@ int transport_server_logs_without_credentials(void)
 	};
 	const char *dir = fyai_test_scratch_dir("transport-log");
 	char arena[512], path[512], *log, seen[8192];
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
 	snprintf(arena, sizeof(arena), "%s/arena", dir);
@@ -949,23 +782,23 @@ int transport_server_logs_without_credentials(void)
 	test_cfg.arena_dir = arena;
 
 	/* Off by default: nothing is written. */
-	mock_start(&m, MOCK_SMALL);
+	tmock_start(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	FYAI_TCHECK(!(log = slurp(path)));
 
 	test_cfg.transport_logging = true;
-	mock_start(&m, MOCK_SMALL);
+	tmock_start(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	send_request(&a, "POST", "application/json",
 		     "{\"note\":\"Bearer sekrettoken123\"}");
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
-	mock_report(&m, seen, sizeof(seen));
+	tmock_report(&m, seen, sizeof(seen));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	test_cfg.transport_logging = false;
 
 	/* The provider got the body; the log has everything but the token. */
@@ -1014,12 +847,12 @@ int transport_server_reload_profiles(void)
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb;
 	struct fyai_transport_response rs;
-	struct mock m1, m2;
+	struct tmock m1, m2;
 	struct agent a;
 	char seen[8192];
 
-	mock_start(&m1, MOCK_STALL);
-	mock_start(&m2, MOCK_SMALL);
+	tmock_start(&m1, TMOCK_STALL);
+	tmock_start(&m2, TMOCK_SMALL);
 	agent_open(&a, m1.port, false);
 	send_request(&a, "POST", "application/json", "{}");
 	FYAI_TCHECK(agent_wait(&a, has_body));
@@ -1043,7 +876,7 @@ int transport_server_reload_profiles(void)
 						   a.frames[0].len, &rs));
 	FYAI_TCHECK(!strcmp(rs.tag, "second"));
 	fy_generic_builder_destroy(gb);
-	mock_report(&m2, seen, sizeof(seen));
+	tmock_report(&m2, seen, sizeof(seen));
 	FYAI_TCHECK(strstr(seen, "POST /v1/x"));
 
 	/* A set without the profile refuses it. */
@@ -1056,8 +889,8 @@ int transport_server_reload_profiles(void)
 	FYAI_TCHECK(agent_wait(&a, has_terminal));
 	FYAI_TCHECK(error_code(agent_frame(&a, FYAI_TK_RESP_ERROR)) == -1);
 	agent_close(&a);
-	mock_stop(&m1);
-	mock_stop(&m2);
+	tmock_stop(&m1);
+	tmock_stop(&m2);
 	return 0;
 }
 
@@ -1086,10 +919,10 @@ int transport_server_enforces_grant(void)
 	static const struct fyai_transport_allow both[] = {
 		{ "main", NULL }, { "side", NULL },
 	};
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
-	mock_start_many(&m, MOCK_SMALL);
+	tmock_start_many(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	FYAI_TCHECK(served(&a, "main", "{}"));
 	FYAI_TCHECK(!served(&a, "side", "{}"));
@@ -1103,7 +936,7 @@ int transport_server_enforces_grant(void)
 	FYAI_TCHECK(!served(&a, "main", "{}"));
 	FYAI_TCHECK(!served(&a, "side", "{}"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
@@ -1112,28 +945,28 @@ int transport_server_narrows_model(void)
 {
 	static const struct fyai_transport_allow narrow[] = { { "main", "m1" } };
 	static const struct fyai_transport_allow widen[] = { { "main", "m2" } };
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
 	/* The profile takes any model; the grant allows m1. */
-	mock_start_many(&m, MOCK_SMALL);
+	tmock_start_many(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	FYAI_TCHECK(!fyai_transport_server_set_grant(a.srv, 7, narrow, 1));
 	FYAI_TCHECK(!served(&a, "main", "{\"model\":\"m2\"}"));
 	FYAI_TCHECK(!served(&a, "main", "{\"other\":1}"));
 	FYAI_TCHECK(served(&a, "main", "{\"model\":\"m1\"}"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 
 	/* The profile is pinned to m1; a grant for m2 does not widen it. */
-	mock_start_many(&m, MOCK_SMALL);
+	tmock_start_many(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, true);
 	FYAI_TCHECK(served(&a, "main", "{\"model\":\"m1\"}"));
 	FYAI_TCHECK(!fyai_transport_server_set_grant(a.srv, 7, widen, 1));
 	FYAI_TCHECK(!served(&a, "main", "{\"model\":\"m2\"}"));
 	FYAI_TCHECK(!served(&a, "main", "{\"model\":\"m1\"}"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
@@ -1158,25 +991,25 @@ static const struct fyai_transport_allow both_profiles[] = {
 /* The transport adds the credential; the request cannot carry one. */
 int transport_server_injects_credential(void)
 {
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 	char seen[8192];
 
-	mock_start_many(&m, MOCK_SMALL);
+	tmock_start_many(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	profiles_set_auth(a.srv, m.port);
 	FYAI_TCHECK(!fyai_transport_server_set_grant(a.srv, 7, both_profiles, 2));
 
 	FYAI_TCHECK(served(&a, "main", "{}"));
-	mock_report_nonblock(&m, seen, sizeof(seen));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
 	FYAI_TCHECK(strcasestr(seen, "Authorization: Bearer sekret\r\n"));
 
 	FYAI_TCHECK(served(&a, "side", "{}"));
-	mock_report_nonblock(&m, seen, sizeof(seen));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
 	FYAI_TCHECK(strcasestr(seen, "X-Api-Key: sekret\r\n"));
 	FYAI_TCHECK(!strcasestr(seen, "Authorization:"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	return 0;
 }
 
@@ -1188,7 +1021,7 @@ int transport_server_redacts_resolved_credential(void)
 	};
 	const char *dir = fyai_test_scratch_dir("transport-cred-log");
 	char arena[512], path[512], *log, seen[8192];
-	struct mock m;
+	struct tmock m;
 	struct agent a;
 
 	snprintf(arena, sizeof(arena), "%s/arena", dir);
@@ -1198,7 +1031,7 @@ int transport_server_redacts_resolved_credential(void)
 	test_cfg.arena_dir = arena;
 	test_cfg.transport_logging = true;
 
-	mock_start_many(&m, MOCK_SMALL);
+	tmock_start_many(&m, TMOCK_SMALL);
 	agent_open(&a, m.port, false);
 	profiles_set_auth(a.srv, m.port);
 	FYAI_TCHECK(!fyai_transport_server_set_grant(a.srv, 7, both_profiles, 2));
@@ -1206,10 +1039,10 @@ int transport_server_redacts_resolved_credential(void)
 	 * request body carries the key the way an error reply would. */
 	FYAI_TCHECK(served(&a, "main", "{\"echo\":\"sekret\"}"));
 	FYAI_TCHECK(served(&a, "side", "{}"));
-	mock_report_nonblock(&m, seen, sizeof(seen));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
 	FYAI_TCHECK(strcasestr(seen, "sekret"));
 	agent_close(&a);
-	mock_stop(&m);
+	tmock_stop(&m);
 	test_cfg.transport_logging = false;
 
 	log = slurp(path);

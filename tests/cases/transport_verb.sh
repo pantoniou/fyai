@@ -20,4 +20,4 @@ status=$?
 set -e
 [ "$status" -eq 0 ] || fail "transport driver: $(cat "$TEST_DIR/stdout") $(cat "$TEST_DIR/stderr") $(cat "$TEST_DIR/transport.stderr" 2>/dev/null)"
 grep -q '^OK$' "$TEST_DIR/stdout" || fail "transport driver did not finish"
-mock_stop 5
+mock_stop 7
