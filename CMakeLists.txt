@@ -203,7 +203,7 @@ if(NOT TARGET libfyaml::libfyaml)
     set(BUILD_TESTING OFF)
     FetchContent_Declare(libfyaml
         GIT_REPOSITORY https://github.com/pantoniou/libfyaml
-        GIT_TAG d1fb28dfae3fa159c0633bd772d91262fa43bf62
+        GIT_TAG 6ccf9b47de3f54ccb010f251b29b1104831a94b5
     )
     FetchContent_MakeAvailable(libfyaml)
     set(BUILD_TESTING "${_FYAI_BUILD_TESTING}")
@@ -232,7 +232,7 @@ if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
         INTERFACE_LINK_LIBRARIES "Threads::Threads;m")
 endif()
 
-fyai_fy_dep(libfymermaid b3b72b5ee5caceea5ff890fa57e1689537b2f5c0)
+fyai_fy_dep(libfymermaid ebe61d3eb53c2cd5f4248729289319045dedbee0)
 fyai_fy_dep(libfytimui 0aa28cd2d61c18bf5490722024db20039842c521)
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests.
