@@ -36,6 +36,7 @@ struct fyai_ctx;
 #define FYAI_TRANSPORT_PID_ENV		"FYAI_TRANSPORT_PID"	/* the transport */
 #define FYAI_TRANSPORT_OWNER_ENV	"FYAI_TRANSPORT_OWNER"	/* who ends it */
 #define FYAI_TRANSPORT_KEYREF_ENV	"FYAI_TRANSPORT_KEYREF"	/* the source of a key */
+#define FYAI_TRANSPORT_FORCED_ENV	"FYAI_TRANSPORT_FORCED"	/* the user set the level */
 #define FYAI_TRANSPORT_ISOLATION_ENV	"FYAI_TRANSPORT_ISOLATION"
 #define FYAI_TRANSPORT_REQUESTED_ENV	"FYAI_TRANSPORT_REQUESTED"	/* before auto resolved */
 
@@ -126,6 +127,14 @@ const char *fyai_transport_effective_level(const struct fyai_ctx *ctx);
  */
 int fyai_transport_describe(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			    uint64_t exec_id, fy_generic *out);
+
+/*
+ * The configured isolation changed in a live session. Return 1 when the run
+ * must restart to follow it, 0 when it already does, or -1 with @why set when
+ * the level is fixed for this run. The isolation level is taken at startup:
+ * a restart starts the transport, or ends it and clears the channels.
+ */
+int fyai_transport_config_changed(struct fyai_ctx *ctx, const char **why);
 
 void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size);
 

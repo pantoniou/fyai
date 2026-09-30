@@ -465,9 +465,15 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	const char *over = getenv(FYAI_TRANSPORT_ISOLATION_ENV);
 	const char *requested;
 
-	/* The environment sets the level for one run; a test can turn it on. */
-	if (over && *over)
+	/*
+	 * The environment sets the level for one run; a test can turn it on. The
+	 * user's value stays the level of every restart, and is marked so.
+	 */
+	if (over && *over) {
 		cfg->agent_transport_isolation = fy_gb_intern_string(cfg->gb, over);
+		if (!fyai_transport_supervised())
+			setenv(FYAI_TRANSPORT_FORCED_ENV, "1", 1);
+	}
 	if (fyai_transport_supervised() || cfg->tool_exec ||
 	    !fyai_cfg_makes_requests(cfg))
 		return 0;
@@ -1108,8 +1114,43 @@ err:
 	return -1;
 }
 
+int fyai_transport_config_changed(struct fyai_ctx *ctx, const char **why)
+{
+	enum fyai_transport_level level;
+	bool want;
+
+	if (fyai_transport_level_parse(ctx->cfg->agent_transport_isolation,
+				       &level))
+		return 0;
+	want = level != FYAI_TL_NONE;
+	if (want == (ctx->tclient != NULL))
+		return 0;
+	if (getenv(FYAI_TRANSPORT_FORCED_ENV)) {
+		*why = "$FYAI_TRANSPORT_ISOLATION sets the level of this run";
+		return -1;
+	}
+	return 1;
+}
+
+/* A restart that follows the configuration starts from no transport. */
+static void transport_env_clear(void)
+{
+	static const char *const names[] = {
+		FYAI_TRANSPORT_FD_ENV, FYAI_TRANSPORT_CTL_ENV,
+		FYAI_TRANSPORT_EXEC_ENV, FYAI_TRANSPORT_PID_ENV,
+		FYAI_TRANSPORT_OWNER_ENV, FYAI_TRANSPORT_KEYREF_ENV,
+		FYAI_TRANSPORT_ISOLATION_ENV, FYAI_TRANSPORT_REQUESTED_ENV,
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+		unsetenv(names[i]);
+}
+
 void fyai_transport_detach(struct fyai_ctx *ctx)
 {
+	enum fyai_transport_level level;
+	bool ending;
 
 	if (!ctx->tclient)
 		return;
@@ -1118,7 +1159,15 @@ void fyai_transport_detach(struct fyai_ctx *ctx)
 	 * channels and the transport, which must keep running: drop the client and
 	 * the drain source, and leave the descriptors and the process alone.
 	 */
-	if (ctx->cfg->reload_branch) {
+	ending = ctx->cfg->reload_branch &&
+		 !fyai_transport_level_parse(ctx->cfg->agent_transport_isolation,
+					     &level) &&
+		 level == FYAI_TL_NONE && ctx->transport_owner &&
+		 !getenv(FYAI_TRANSPORT_FORCED_ENV);
+	if (ending) {
+		/* The reload turns isolation off: end the transport with this image. */
+		transport_env_clear();
+	} else if (ctx->cfg->reload_branch) {
 		(void)fyai_tclient_release(ctx->tclient);
 		ctx->tclient = NULL;
 		if (ctx->transport_src) {

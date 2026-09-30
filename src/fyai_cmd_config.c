@@ -18,6 +18,7 @@
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
+#include "fyai_transport_boot.h"
 #include "utils.h"
 
 #define FYAI_MODULE FYAIEM_CONFIG
@@ -32,12 +33,32 @@ err:
 	return -1;
 }
 
-/* A change reaches a live session on the next prompt, not after a restart. */
+/*
+ * A change reaches a live session on the next prompt, not after a restart,
+ * except the isolation level: the transport starts and ends with the process,
+ * so a change of it restarts the session. A restart that cannot run leaves
+ * the stored value for the next one.
+ */
 static int config_changed(struct fyai_cmd_call *call)
 {
+	struct fyai_ctx *ctx = call->ctx;
+	fy_generic none;
+	const char *why = NULL;
+	int rc;
+
 	if (call->surface != FYAI_CMD_SESSION)
 		return 0;
-	return fyai_config_rederive(call->ctx);
+	if (fyai_config_rederive(ctx))
+		return -1;
+	rc = fyai_transport_config_changed(ctx, &why);
+	if (rc < 0) {
+		fyai_warning(ctx, "agent/transport_isolation: %s", why);
+		return 0;
+	}
+	if (rc > 0 && fyai_cmd_reload(call, &none))
+		fyai_warning(ctx, "agent/transport_isolation is stored; it "
+			     "applies after the next restart");
+	return 0;
 }
 
 int fyai_cmd_config_show(struct fyai_cmd_call *call, fy_generic *result)
