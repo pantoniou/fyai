@@ -2177,6 +2177,42 @@ commands:
         columns:
           api: {name: API}
 
+  - command: profiles
+    title: list the egress profiles of the credential transport
+    description: |
+      List the egress profiles of the credential transport and whether the
+      agent may use each one. The agent is the session itself, or with
+      `--agent` a sub-agent that it started, by the name it was delegated
+      under, its branch, or its transport execution number. A credential
+      source is named, never its value.
+    surfaces: [session]
+    handler: profiles
+    while_busy: run
+    flags: [transient]
+    arguments:
+      type: object
+      additionalProperties: false
+      properties:
+        agent:
+          type: string
+          minLength: 1
+          description: list for this sub-agent instead of the session
+          x-fyai-meta: AGENT
+    render:
+      table:
+        title: Profiles
+        empty: no profiles
+        keys: [name, granted, url, auth, credential, model, granted_model, tag]
+        columns:
+          name: {name: Profile, align: left}
+          granted: {name: Granted, format: mark}
+          url: {name: URL, align: left}
+          auth: {name: Auth, align: left}
+          credential: {name: Credential, align: left}
+          model: {name: Model, align: left}
+          granted_model: {name: Narrowed to, align: left}
+          tag: {name: Tag, align: left}
+
   - command: usage
     title: show recorded usage and subscription settings
     description: Show selected-conversation token totals and the ChatGPT settings link for account limits and credit permissions.

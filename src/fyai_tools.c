@@ -4311,6 +4311,26 @@ static struct fyai_tool_job *fyai_tool_job_by_branch(struct fyai_ctx *ctx,
 	return NULL;
 }
 
+uint64_t fyai_tool_agent_transport_exec(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_tool_job *job;
+	size_t bl, nl;
+
+	nl = strlen(name);
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->agent || job->done || !job->branch)
+			continue;
+		bl = strlen(job->branch);
+		if (!strcmp(job->branch, name))
+			return job->transport_exec;
+		/* The name that the delegation gave, without the branch path. */
+		if (bl > nl + 6 && !strcmp(job->branch + bl - nl, name) &&
+		    !strncmp(job->branch + bl - nl - 6, "agent:", 6))
+			return job->transport_exec;
+	}
+	return 0;
+}
+
 /* True while a job of this process owns @branch. */
 static bool fyai_tool_job_branch_live(struct fyai_ctx *ctx, const char *branch)
 {

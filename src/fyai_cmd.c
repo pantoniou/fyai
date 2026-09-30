@@ -103,6 +103,7 @@ static const struct {
 	{ "sessions",		fyai_cmd_sessions },
 	{ "kill",		fyai_cmd_kill },
 	{ "status",		fyai_cmd_status },
+	{ "profiles",		fyai_cmd_profiles },
 	{ "agent",		fyai_cmd_agent },
 	{ "transport",		fyai_cmd_transport },
 	{ "setting",		fyai_cmd_setting },

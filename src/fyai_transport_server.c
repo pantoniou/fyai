@@ -1287,6 +1287,12 @@ size_t fyai_transport_server_profile_count(const struct fyai_transport_server *s
 	return srv->profiles ? srv->profiles->grant.count : 0;
 }
 
+const struct fyai_transport_grant *
+fyai_transport_server_profiles(const struct fyai_transport_server *srv)
+{
+	return srv->profiles ? &srv->profiles->grant : NULL;
+}
+
 const char *fyai_transport_server_profile_name(const struct fyai_transport_server *srv,
 					       size_t index)
 {

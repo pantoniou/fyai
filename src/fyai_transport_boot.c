@@ -946,6 +946,27 @@ bool fyai_transport_have_credential(struct fyai_ctx *ctx, const struct fyai_cfg 
 	return found;
 }
 
+int fyai_transport_describe(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			    uint64_t exec_id, fy_generic *out)
+{
+	fy_generic reply;
+	const char *why;
+	int rc;
+
+	*out = fy_invalid;
+	fyai_error_check(ctx, ctx->tclient, err,
+			 "there is no credential transport in this run");
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "describe",
+			"seq", ++ctx->transport_seq, "id", (long long)exec_id),
+		      -1, &reply, &why);
+	fyai_error_check(ctx, !rc, err, "profiles: %s",
+			 why ? why : "the credential transport did not answer");
+	*out = reply;
+	return 0;
+err:
+	return -1;
+}
+
 int fyai_transport_env_grant(struct fyai_ctx *ctx, const char *const *names)
 {
 	struct fy_generic_builder_cfg gcfg = { .flags = FYGBCF_SCOPE_LEADER };

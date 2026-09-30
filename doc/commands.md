@@ -3758,6 +3758,26 @@ Show the model, the provider, the login, and the token use of the session.
 | --- | --- |
 | `-h`, `--help` | show this help |
 
+## /profiles
+
+list the egress profiles of the credential transport
+
+**Usage:** `/profiles [--agent AGENT]`
+
+List the egress profiles of the credential transport and whether the
+agent may use each one. The agent is the session itself, or with
+`--agent` a sub-agent that it started, by the name it was delegated
+under, its branch, or its transport execution number. A credential
+source is named, never its value.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--agent AGENT` | list for this sub-agent instead of the session |
+| `-h`, `--help` | show this help |
+
 ## /usage
 
 show recorded usage and subscription settings

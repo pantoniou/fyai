@@ -119,6 +119,14 @@ const char *fyai_transport_effective_level(const struct fyai_ctx *ctx);
  * so and gives the level that this process was started with. Write "none" when
  * this process talks to the provider itself.
  */
+/*
+ * The profiles of the transport and what execution @exec_id may use of them,
+ * as the reply mapping `{id, profiles}` built in @gb. @exec_id 0 is the
+ * caller. Return 0, or -1 with the cause reported.
+ */
+int fyai_transport_describe(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			    uint64_t exec_id, fy_generic *out);
+
 void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size);
 
 /*

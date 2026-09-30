@@ -56,6 +56,12 @@ bool fyai_tool_job_done(const struct fyai_tool_job *job);
 /* Serve the control channel of an executed tool child. Does not return. */
 int fyai_tool_child_exec_serve(struct fyai_ctx *ctx);
 /* Repaint the title of the live agent tile that owns @branch. */
+/*
+ * The transport execution of the live sub-agent of this process that @name
+ * designates: its branch, or the name it was delegated under. 0 when there is
+ * none or the agent has no transport execution.
+ */
+uint64_t fyai_tool_agent_transport_exec(struct fyai_ctx *ctx, const char *name);
 void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch);
 bool fyai_tools_active(const struct fyai_ctx *ctx);
 /*

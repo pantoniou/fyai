@@ -114,6 +114,10 @@ int fyai_transport_server_set_grant(struct fyai_transport_server *srv,
 /* Cancel the transfers of an execution, close its channel, and retire it. */
 int fyai_transport_server_retire(struct fyai_transport_server *srv, uint64_t id);
 
+/* The profiles of the current set, or NULL before the first is set. */
+const struct fyai_transport_grant *
+fyai_transport_server_profiles(const struct fyai_transport_server *srv);
+
 /* The profile names of the current set, for a status report. */
 size_t fyai_transport_server_profile_count(const struct fyai_transport_server *srv);
 const char *fyai_transport_server_profile_name(const struct fyai_transport_server *srv,

@@ -27,6 +27,7 @@
 #include "fyai_session.h"
 #include "fyai_storage.h"
 #include "fyai_tools.h"
+#include "fyai_transport_boot.h"
 #include "fyai_ui.h"
 #include "utils.h"
 
@@ -174,6 +175,46 @@ static fy_generic status_flatten(struct fy_generic_builder *gb,
 		}
 	}
 	return out;
+}
+
+/*
+ * The sub-agent that @name designates: a transport execution number, or a
+ * name or branch of a live sub-agent of this process. 0 when there is none.
+ */
+static uint64_t profiles_agent(struct fyai_ctx *ctx, const char *name)
+{
+	char *end;
+	unsigned long long n;
+
+	n = strtoull(name, &end, 10);
+	if (*name && !*end)
+		return n;
+	return fyai_tool_agent_transport_exec(ctx, name);
+}
+
+int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *agent = fyai_cmd_arg_str(call, "agent");
+	uint64_t id = 0;
+	fy_generic reply;
+
+	if (!call->ctx->tclient) {
+		fyai_error(call->ctx, "profiles: credential isolation is not "
+			   "active in this run");
+		return -1;
+	}
+	if (!fy_str_empty(agent)) {
+		id = profiles_agent(call->ctx, agent);
+		if (!id) {
+			fyai_error(call->ctx, "profiles: no running sub-agent '%s'",
+				   agent);
+			return -1;
+		}
+	}
+	if (fyai_transport_describe(call->ctx, call->gb, id, &reply))
+		return -1;
+	*result = fy_get(reply, "profiles", fy_seq_empty);
+	return 0;
 }
 
 int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result)

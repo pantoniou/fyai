@@ -502,6 +502,57 @@ static int op_status(struct fyai_transport_verb *v, struct fy_generic_builder *g
 	return 0;
 }
 
+static bool conn_owns(struct fyai_transport_conn *c, uint64_t id, bool self_ok);
+
+/*
+ * The profiles of the set and what one execution may use of them. A primary
+ * connection asks about any execution and sees the credential source names; a
+ * secondary connection asks about itself or a descendant and sees no source.
+ * The default is the execution of the caller. Never a credential value.
+ */
+static int op_describe(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
+		       fy_generic m, const char **detail)
+{
+	struct fyai_transport_verb *v = c->v;
+	const struct fyai_transport_grant *set;
+	const struct fyai_transport_profile *p;
+	const struct fyai_transport_exec *ex;
+	fy_generic rows = fy_seq_empty, row;
+	long long id = fy_get(m, "id", 0LL);
+	const char *narrow;
+	bool granted;
+	size_t i;
+
+	if (id <= 0)
+		id = c->primary ? 1 : (long long)c->exec;
+	if (!conn_owns(c, id, true)) {
+		*detail = "the execution is not the caller or a descendant of it";
+		return -EPERM;
+	}
+	ex = fyai_transport_find(v->reg, id);
+	if (!ex) {
+		*detail = "no such execution";
+		return -ENOENT;
+	}
+	set = fyai_transport_server_profiles(v->srv);
+	for (i = 0; set && i < set->count; i++) {
+		p = &set->profiles[i];
+		granted = fyai_transport_exec_allows(ex, p->name, &narrow);
+		row = fy_null_filtered_mapping(gb, "name", p->name, "url", p->url,
+			"auth", p->auth == FYAI_TA_NONE ? "none" :
+				p->auth == FYAI_TA_BEARER ? "bearer" : "header",
+			"tag", p->tag ? fy_value(gb, p->tag) : fy_null,
+			"model", p->model ? fy_value(gb, p->model) : fy_null,
+			"credential", c->primary && p->credential ?
+				fy_value(gb, p->credential) : fy_null,
+			"granted", granted,
+			"granted_model", granted && narrow ? fy_value(gb, narrow) : fy_null);
+		rows = fy_append(gb, rows, row);
+	}
+	v->reply_extra = fy_mapping(gb, "id", id, "profiles", rows);
+	return 0;
+}
+
 /* Does a credential source hold a value? The answer is yes or no, never the value. */
 static int op_probe(struct fyai_transport_verb *v, struct fy_generic_builder *gb,
 		    fy_generic m, const char **detail)
@@ -852,6 +903,8 @@ static int verb_dispatch(struct fyai_transport_conn *c, struct fy_generic_builde
 		rc = op_profiles(c, m);
 		if (rc == -EPERM)
 			detail = "only the primary connection changes the profiles";
+	} else if (!strcmp(op, "describe")) {
+		rc = op_describe(c, gb, m, &detail);
 	} else if (!strcmp(op, "admit")) {
 		rc = op_admit(c, gb, m, fd, &detail);
 	} else if (!strcmp(op, "grant")) {

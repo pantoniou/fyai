@@ -166,6 +166,7 @@ int fyai_cmd_page_review_sample(struct fyai_cmd_call *call,
 int fyai_cmd_sessions(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_kill(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result);
 
 fyai_cmd_prepare_fn fyai_cmd_prepare(const char *name);
 fyai_cmd_prepare_fn fyai_cmd_early_hook(const char *name);
