@@ -65,6 +65,21 @@ def main(fyai, mock_url, arena):
             {"name": "main", "url": url, "auth": "bearer", "tag": "chat",
              "credential": "oauth:chatgpt"}])
         agent = Agent(tr, 7, [{"profile": "main"}])
+        # The profiles and the grant of an execution, with a source name and no value.
+        tr.ok("profiles", profiles=[
+            {"name": "main", "url": url, "auth": "bearer", "tag": "chat",
+             "credential": "oauth:chatgpt"},
+            {"name": "other", "url": url, "auth": "none"}], merge=True)
+        r = tr.request("describe", id=7)
+        check(r["op"] == "ok" and r["id"] == 7, "describe: %r" % r)
+        rows = {p["name"]: p for p in r["profiles"]}
+        check(rows["main"]["granted"] is True and rows["other"]["granted"] is False,
+              "describe grants: %r" % rows)
+        check(rows["main"]["credential"] == "oauth:chatgpt", "no source name")
+        check("secret-" not in json.dumps(r), "describe returned a token")
+        tr.refused("describe", id=99)
+        tr.refused("describe")		# the default is execution 1, which is absent
+
         start, data, kind, _ = agent.call("main", chat("hi"),
                                           content_type="application/json")
         check(kind == END and start["status"] == 200, "request: %r" % (start,))

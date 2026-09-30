@@ -27,6 +27,7 @@ FYAI_TEST_ENTRY(transport_cfg, messages_profile, transport_cfg_messages_profile)
 FYAI_TEST_ENTRY(transport_cfg, local_endpoints, transport_cfg_local_endpoints)
 FYAI_TEST_ENTRY(transport_cfg, refuses_what_it_cannot_isolate, transport_cfg_refuses_what_it_cannot_isolate)
 FYAI_TEST_ENTRY(transport_cfg, providers_share_a_set, transport_cfg_providers_share_a_set)
+FYAI_TEST_ENTRY(transport_cfg, isolation_change_restarts, transport_cfg_isolation_change_restarts)
 FYAI_TEST_ENTRY(transport_cfg, secret_stays_at_the_transport, transport_cfg_secret_stays_at_the_transport)
 
 static struct fy_generic_builder *new_gb(void)
@@ -314,5 +315,33 @@ int transport_cfg_secret_stays_at_the_transport(void)
 
 	(void)fyai_secret_kernel_delete(name);
 	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A changed isolation level restarts the session, unless the environment fixes it. */
+int transport_cfg_isolation_change_restarts(void)
+{
+	struct fyai_cfg cfg = { 0 };
+	struct fyai_ctx ctx = { .cfg = &cfg };
+	const char *why = NULL;
+
+	unsetenv("FYAI_TRANSPORT_FORCED");
+	cfg.agent_transport_isolation = "level-b";
+	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
+	cfg.agent_transport_isolation = "auto";
+	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
+	cfg.agent_transport_isolation = "none";
+	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 0);
+
+	/* A transport is running: it is the `none` that restarts. */
+	ctx.tclient = (struct fyai_tclient *)&ctx;
+	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 1);
+	cfg.agent_transport_isolation = "level-b";
+	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == 0);
+
+	setenv("FYAI_TRANSPORT_FORCED", "1", 1);
+	cfg.agent_transport_isolation = "none";
+	FYAI_TCHECK(fyai_transport_config_changed(&ctx, &why) == -1 && why);
+	unsetenv("FYAI_TRANSPORT_FORCED");
 	return 0;
 }
