@@ -695,7 +695,8 @@ static int ensure_add(const struct fyai_cfg *cfg, struct fyai_transport_grant *g
 			if (!strcmp(names[j], one[i]))
 				break;
 		if (j == *n && *n < ENSURE_MAX)
-			snprintf(names[(*n)++], FYAI_TPC_NAME_MAX, "%s", one[i]);
+			snprintf(names[(*n)++], FYAI_TPC_NAME_MAX, "%.*s",
+				 FYAI_TPC_NAME_MAX - 1, one[i]);
 	}
 	return 0;
 }
