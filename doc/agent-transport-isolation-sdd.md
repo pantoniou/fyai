@@ -403,8 +403,8 @@ drop it. The transport log, when enabled, records server events separately.
 The main event-loop drain traces control events. A synchronous control caller
 skips event messages while it waits for its reply.
 
-A credential source is `env:NAME`, `secret:NAME`, or `mem:NAME`, or a chain
-separated by `|` that is tried in order. The provider default uses an
+A credential source is `env:NAME`, `secret:NAME`, `mem:NAME`, or
+`oauth:chatgpt`, or a chain separated by `|` that is tried in order. The provider default uses an
 environment source followed by the secret-store source. Agents keep only the
 reference. In an isolated agent image, secret-store and provider-default
 resolution does not load the raw model credential into the agent.
@@ -846,6 +846,18 @@ failure, which the agent can retry through that same transport.
 
 ### 5.5 Configuration, status, reload, and configured credentials
 
+The source `oauth:chatgpt` names the subscription login. Only the transport
+reads its store. Before a request reads the token, the transport checks the
+expiry. A token near expiry starts one refresh, and each request that needs
+it waits. The waiting request keeps a copy of its payload and runs again when
+the refresh ends. A request that waited never starts a second refresh, so a
+login that cannot be refreshed ends each waiting request with an error.
+A cancel or a channel close removes a waiting request. The login must hold a
+registration that authorizes the plan; the transport sends only the bearer
+token to the public Responses endpoint. The bootstrap names the source and
+asks the transport with `probe`; no image of the run reads the store. A model
+that the login cannot serve returns to the provider's own credential source.
+
 The main process is the only writer of the profile set. Before a model
 request, `fyai_transport_ensure()` checks the configuration generation and
 selected profile names. With no relevant change, it sends no control message.
@@ -948,6 +960,95 @@ transport's environment for the requested names; it does not resolve
 no credential entries. A secondary control connection is refused before any
 value is sent.
 
+### 5.6 The ChatGPT subscription login
+
+The login is the credential source `oauth:chatgpt`. It follows the direct
+token-sharing flow in `doc/chatgpt-auth.md`: a registered client, a PKCE
+browser sign-in, and an access token for the public Responses endpoint. This
+section states which process holds each secret.
+
+| Secret | Holder | Never leaves |
+| --- | --- | --- |
+| Access token | Transport memory, for the time of a request | The transport. It is not in a profile, a reply, an event, or a log. |
+| Refresh token, ID token | The login store, and transport memory during a refresh | The transport and the store. |
+| Registration (client ID, host ID, subject) | The login store | Not a secret; `describe` and `status` can show it. |
+
+```mermaid
+sequenceDiagram
+    participant A as Agent image
+    participant T as Transport
+    participant S as Login store
+    participant O as auth.openai.com
+    participant P as api.openai.com
+    A->>T: request(profile main, payload)
+    T->>S: load the record
+    alt token fresh
+        T->>P: payload with Authorization bearer
+    else near expiry
+        T->>T: park the request, keep the payload
+        T->>S: take the store lock
+        T->>O: refresh with the refresh token
+        O-->>T: new tokens
+        T->>S: save the record, release the lock
+        T->>P: parked request with the new bearer
+    end
+    P-->>T: stream
+    T-->>A: redacted stream, no credential
+```
+
+The bootstrap does not read the store. It checks the configuration, names
+`oauth:chatgpt` in the grant, and sends a `probe`. The transport answers only
+`found`. A model that the login cannot serve (another provider, another
+grammar, a custom `api_url`) falls back to the provider's own source; with
+`auth: chatgpt` the bootstrap stops with the reason. The grant fixes the URL
+to the public Responses endpoint. The agent cannot change URL, headers or
+authentication, as for any profile.
+
+What the transport protects:
+
+- The transport reads the store for each request, so a login or logout by
+  another process takes effect at the next request. A request with no usable
+  login is refused and is not sent without authentication.
+- The refresh runs in the transport on its event loop, under the store lock
+  that the verbs use. Its endpoint is fixed in the code. A request that waits
+  for the refresh keeps a copy of its payload and never starts a second
+  refresh.
+- The redactor learns the access token when the transport reads it. The token
+  is whited out of the transport log and of any provider text that echoes it.
+- The transport is undumpable, takes no listening socket, and forks no child
+  after it has read a credential (section 6).
+
+The commands of the login:
+
+| Command | Where it runs | What it does with secrets |
+| --- | --- | --- |
+| `fyai auth login`, `logout`, `status`, `accounts` | A verb is its own process, with no transport. | It reads and writes the store itself. It is not an isolated run. |
+| `/auth ...` in an isolated session | The agent image. | The same code runs in the agent image, so it loads tokens there. See the limits below. |
+| `/usage`, `fyai auth usage` | The agent image. | It shows recorded token totals and a settings link. It reads no token and sends no request. |
+
+A change made by `login` or `logout` reaches a running isolated session
+through the store, because the transport reloads it. The session does not need
+a restart.
+
+Limits of this design, which section 7 repeats:
+
+- Level B installs no filesystem policy. The store file (mode 0600, in the
+  state directory of the user) is readable by a tool of the same user. The
+  refresh token in it is the most valuable secret of the login. The transport
+  keeps the token out of the agent image and the channel, but it cannot keep a
+  tool from reading the file until the filesystem policy of section 6 exists.
+  The keyring backend has the same property for a process that can reach the
+  session bus.
+- `/auth login`, `logout`, `status` and `accounts` in an isolated session load
+  tokens into the agent image, and `logout` sends the revocation from there.
+  They are commands of the user, not of the model, but they break the rule
+  that the agent image holds no token. They should run in the transport or be
+  refused in an isolated session.
+- `status` reports the effective method as `api-key` when a transport exists,
+  also when the login is the source.
+- A 401 response is not retried, and the transport does not force a refresh
+  after a rejection.
+
 
 ## 6. Credential and same-user process protection
 
@@ -991,8 +1092,14 @@ The following parts of the complete protected-mode design remain open:
 - Auxiliary HTTP users, including MCP and OAuth, need an explicit integration
   and credential-ownership policy. Model transport isolation does not imply
   that those operations already use this transport.
-- ChatGPT-login authentication is not supported by isolated bootstrap. It
-  requires an API key or a provider configured with no authentication.
+- The login store is not denied to tools at level B (section 5.6), and the
+  `/auth` commands of an isolated session handle tokens in the agent image.
+- The ChatGPT login runs isolated, but model discovery reads the login store
+  in the agent and is refused. It needs an egress profile. `/usage` shows
+  recorded token totals and needs no credential.
+- A 401 response to a login request is not retried. The transport refreshes a
+  token that is near expiry before a request, but it does not refresh after a
+  rejection.
 - A secondary connection must preserve any optional model narrowing in its
   own grant when it admits or grants a descendant. Current control checks
   constrain profile names; they do not enforce that additional inheritance.
