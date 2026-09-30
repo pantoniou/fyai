@@ -34,6 +34,7 @@
 #include "fyai_merge.h"
 #include "fyai_secret.h"
 #include "fyai_storage.h"
+#include "utils.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
@@ -480,4 +481,25 @@ int fyai_cmd_compact(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
 	return fyai_session_compact(call->ctx, fyai_cmd_arg_str(call, "hint"));
+}
+
+int fyai_cmd_render(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *file = fyai_cmd_arg_str(call, "file");
+	char *md;
+
+	if (fy_str_empty(file) || !strcmp(file, "-"))
+		md = read_all_stdin();
+	else
+		md = read_text_file(file);
+	fyai_error_check(call->ctx, md, err,
+			 "render: cannot read %s", fy_str_empty(file) ||
+			 !strcmp(file, "-") ? "standard input" : file);
+	*result = fy_value(call->gb, (const char *)md);
+	free(md);
+	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+			 "render: cannot keep the Markdown text");
+	return 0;
+err:
+	return -1;
 }

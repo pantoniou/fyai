@@ -65,6 +65,43 @@ describe the command that creates a branch
 explain the reference syntax
 
 
+## fyai render
+
+render Markdown in the terminal
+
+**Usage:** `fyai render [FILE]`
+
+Read Markdown from a file, or from standard input when no file is
+given or the file is `-`, and write it with the renderer of fyai: the
+theme, the tables, the fenced code, and the `mermaid` diagrams of the
+display configuration. With `display/markdown` off, the source is
+written as it is.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `FILE` | the Markdown file (default standard input) |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    fyai render README.md
+
+show a file as the conversation shows an answer
+
+    fyai render - <<< '# Title'
+
+render Markdown from standard input
+
+
 ## fyai branch
 
 list, create, and manage branches

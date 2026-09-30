@@ -108,6 +108,7 @@ static const struct {
 	{ "setting",		fyai_cmd_setting },
 	{ "catalog_show",	fyai_cmd_catalog_show },
 	{ "catalog_list",	fyai_cmd_catalog_list },
+	{ "render",		fyai_cmd_render },
 	{ "catalog_tools",	fyai_cmd_catalog_tools },
 	{ "catalog_get",	fyai_cmd_catalog_get },
 	{ "catalog_set",	fyai_cmd_catalog_set },

@@ -203,6 +203,33 @@ commands:
           description: write the whole reference as the manual page fyai(1)
           x-fyai-surfaces: [cli]
 
+  - command: render
+    title: render Markdown in the terminal
+    description: |
+      Read Markdown from a file, or from standard input when no file is
+      given or the file is `-`, and write it with the renderer of fyai: the
+      theme, the tables, the fenced code, and the `mermaid` diagrams of the
+      display configuration. With `display/markdown` off, the source is
+      written as it is.
+    surfaces: [cli]
+    handler: render
+    flags: [no-storage]
+    examples:
+      - args: render README.md
+        text: show a file as the conversation shows an answer
+      - args: render - <<< '# Title'
+        text: render Markdown from standard input
+    arguments:
+      type: object
+      additionalProperties: false
+      properties:
+        file:
+          type: string
+          description: the Markdown file (default standard input)
+          x-fyai-positional: 0
+          x-fyai-meta: FILE
+          x-fyai-complete: file
+
   - command: branch
     title: list, create, and manage branches
     description: |

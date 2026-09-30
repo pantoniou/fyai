@@ -180,6 +180,7 @@ int fyai_cmd_agent(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_setting(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_show(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_list(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_render(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_tools(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_get(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_set(struct fyai_cmd_call *call, fy_generic *result);
