@@ -391,6 +391,7 @@ endpoints in tool children is therefore part of the boundary.
 | `grant` | Execution `id` and profile-name grant; replace that grant | Primary, or secondary for a descendant within caller profile names |
 | `retire` | Execution `id`; close registered data channel and active transfers | Primary, or secondary for itself or descendants |
 | `status` | Return level, transport PID, executions, profiles, active transfers, log settings | Any control connection |
+| `describe` | Optional `id`; return the profiles and whether execution `id` may use each, with its model narrowing. The source name appears only on the primary connection | Primary for any execution; secondary for itself or a descendant. The default is the caller |
 | `probe` | Credential source reference; return `found`, never a value | Any control connection |
 | `envgrant` | At most 16 environment-variable names and a socket for a configured command | Primary only |
 | `log` | `on`, `wire`, `whitewash`; update logging | Primary only |
@@ -898,6 +899,19 @@ started. A subsequent request uses the current profile definition. Existing
 child grants keep their names; a parent must explicitly update a descendant's
 grant to authorize a newly added name. Newly spawned children inherit their
 parent's current names.
+
+`/profiles` lists the profiles that the session may use. `--agent NAME` lists
+them for a live sub-agent that the session started, by delegated name, branch,
+or transport execution number. It sends `describe` and shows no credential
+value.
+
+The isolation level is taken at startup, because the transport starts and ends
+with the process. A change of `agent/transport_isolation` in a session
+restarts it by the reload path. Turning isolation on starts the transport in
+the new image. Turning it off ends the transport and clears the channel
+variables before the exec. A level that `$FYAI_TRANSPORT_ISOLATION` fixed is
+not changed, and the session reports it. A restart that cannot run, for
+example with a live shell, leaves the stored value for the next start.
 
 Prompt rendering obtains `{isolation}` from the local selected-level state;
 it does not send a `status` request on every redraw. Explicit `/status` asks

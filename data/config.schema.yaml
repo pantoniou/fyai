@@ -438,7 +438,8 @@ properties:
           `level-a`, which adds a cgroup v2 subtree, is not built yet and
           stops the invocation. `auto` takes the highest level that runs
           and reports it, which is `level-b`. A level that the host cannot
-          enforce stops the invocation. Linux only. Experimental.
+          enforce stops the invocation. A change in a running session restarts it.
+          Linux only. Experimental.
       max_branch_depth:
         type: integer
         minimum: 1
