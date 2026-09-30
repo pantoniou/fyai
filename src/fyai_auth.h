@@ -80,6 +80,20 @@ int fyai_auth_login_collect(const struct fyai_auth_login_request *request);
 void fyai_auth_login_destroy(struct fyai_auth_login_request *request);
 int fyai_auth_apply_headers(struct fyai_ctx *ctx,
 			    struct curl_slist **headers);
+
+/*
+ * Load stored credentials into ctx; return -1 if no login is available.
+ * Token pointers are borrowed from ctx until the next load.
+ * Fresh tokens do not need a refresh; valid tokens have not expired.
+ */
+int fyai_auth_store_load(struct fyai_ctx *ctx);
+bool fyai_auth_store_fresh(const struct fyai_ctx *ctx);
+bool fyai_auth_store_valid(const struct fyai_ctx *ctx);
+const char *fyai_auth_store_token(const struct fyai_ctx *ctx);
+/* True when the loaded login holds a registration that authorizes the plan. */
+bool fyai_auth_store_ready(const struct fyai_ctx *ctx);
+/* The Responses endpoint of the subscription. */
+const char *fyai_auth_chatgpt_url(void);
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status);
 fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 			    struct fy_generic_builder *gb, bool full);

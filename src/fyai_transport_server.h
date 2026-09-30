@@ -25,12 +25,27 @@ struct fyai_transport_server;
 
 /*
  * Resolve the credential source of @pr. Return 0 and a malloc'd secret that
- * the server clears and frees, or a negative errno. The callback runs in the
- * transport and is the only code that reads a credential.
+ * the server clears and frees, or a negative errno. A source can also state
+ * header lines that it derives from the credential, such as an account
+ * identifier: it sets @extra to a list that the server frees, or leaves it
+ * NULL. The callback runs in the transport and is the only code that reads a
+ * credential.
  */
 typedef int (*fyai_transport_cred_fn)(void *userdata,
 				      const struct fyai_transport_profile *pr,
-				      char **secret);
+				      char **secret, struct curl_slist **extra);
+
+/*
+ * Make the credential of @pr usable before a request reads it, for a source
+ * that refreshes. Return 0 when the credential is ready, a positive value when
+ * the source started work and will call fyai_transport_server_prepared() when
+ * it ends, or a negative errno. @resumed is true for a request that waited:
+ * the source must then answer from its current state and start no new work, so
+ * that a failed refresh ends each waiting request one time.
+ */
+typedef int (*fyai_transport_prepare_fn)(void *userdata,
+					 const struct fyai_transport_profile *pr,
+					 bool resumed);
 
 /*
  * Report a rejected message or a retired execution. @event is a static
@@ -45,6 +60,13 @@ fyai_transport_server_create(struct fyai_ctx *ctx,
 			     struct fyai_transport_registry *reg,
 			     fyai_transport_cred_fn cred, void *cred_userdata,
 			     fyai_transport_log_fn log, void *log_userdata);
+
+/* Install the optional preparation of credentials. */
+void fyai_transport_server_set_prepare(struct fyai_transport_server *srv,
+				       fyai_transport_prepare_fn prepare);
+
+/* The work that a prepare callback started has ended: run the waiting requests. */
+void fyai_transport_server_prepared(struct fyai_transport_server *srv);
 
 /* Cancel every transfer, remove the sources, and free the server. */
 void fyai_transport_server_destroy(struct fyai_transport_server *srv);

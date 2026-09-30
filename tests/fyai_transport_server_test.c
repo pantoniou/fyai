@@ -93,10 +93,12 @@ static void log_cb(void *ud, uint64_t id, const char *event, const char *detail)
 		a->retired++;
 }
 
-static int cred_cb(void *ud, const struct fyai_transport_profile *pr, char **secret)
+static int cred_cb(void *ud, const struct fyai_transport_profile *pr, char **secret,
+		   struct curl_slist **extra)
 {
 	(void)ud;
 	(void)pr;	/* every credential source resolves to the same value */
+	(void)extra;
 	*secret = strdup("sekret");
 	return *secret ? 0 : -ENOMEM;
 }

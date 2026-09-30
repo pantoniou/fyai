@@ -29,6 +29,7 @@
 #endif
 
 #include "fyai.h"
+#include "fyai_auth.h"
 #include "fyai_cmd_int.h"
 #include "fyai_event.h"
 #include "fyai_secret.h"
@@ -78,6 +79,7 @@ struct fyai_transport_verb {
 	struct fyai_transport_server *srv;
 	struct mem_cred *mem;
 	size_t nmem;
+	struct fyai_auth_refresh_request *refresh;	/* the login being refreshed */
 	uint64_t next_id;		/* execution ids assigned to admissions */
 	long long reply_id;		/* 0, or an id to report in the reply */
 	fy_generic reply_extra;		/* fields merged into the reply, or invalid */
@@ -211,11 +213,13 @@ err:
  * Return 0 and a malloc'd value, -ENOENT if the source holds none, or -EINVAL
  * for a source of another kind.
  */
-static int cred_env(struct fyai_transport_verb *v, const char *name, char **secret)
+static int cred_env(struct fyai_transport_verb *v, const char *name, char **secret,
+		    struct curl_slist **extra)
 {
 	const char *value;
 
 	(void)v;
+	(void)extra;
 	value = getenv(name);
 	if (!value || !*value)
 		return -ENOENT;
@@ -223,10 +227,12 @@ static int cred_env(struct fyai_transport_verb *v, const char *name, char **secr
 	return *secret ? 0 : -ENOMEM;
 }
 
-static int cred_mem(struct fyai_transport_verb *v, const char *name, char **secret)
+static int cred_mem(struct fyai_transport_verb *v, const char *name, char **secret,
+		    struct curl_slist **extra)
 {
 	const struct mem_cred *m;
 
+	(void)extra;
 	m = mem_find(v, name);
 	if (!m || !m->value || !*m->value)
 		return -ENOENT;
@@ -234,13 +240,15 @@ static int cred_mem(struct fyai_transport_verb *v, const char *name, char **secr
 	return *secret ? 0 : -ENOMEM;
 }
 
-static int cred_secret(struct fyai_transport_verb *v, const char *name, char **secret)
+static int cred_secret(struct fyai_transport_verb *v, const char *name, char **secret,
+		       struct curl_slist **extra)
 {
 	char key[300], *found = NULL;
 	size_t flen = 0;
 	int rc, n;
 
 	(void)v;
+	(void)extra;
 	n = snprintf(key, sizeof(key), "fyai:%s", name);
 	if (n < 0 || (size_t)n >= sizeof(key))
 		return -EINVAL;
@@ -256,18 +264,44 @@ static int cred_secret(struct fyai_transport_verb *v, const char *name, char **s
 	return rc;
 }
 
+/*
+ * "oauth:chatgpt": the access token of the subscription login, which only this
+ * process reads. A token that cannot be used is reported, not refreshed here:
+ * cred_prepare() does that before a request reads it.
+ */
+static int cred_oauth(struct fyai_transport_verb *v, const char *name, char **secret,
+		      struct curl_slist **extra)
+{
+	(void)extra;
+	if (strcmp(name, "chatgpt"))
+		return -EINVAL;
+	if (fyai_auth_store_load(v->ctx))
+		return -ENOENT;
+	if (!fyai_auth_store_ready(v->ctx))
+		return -ENOENT;
+	if (!fyai_auth_store_valid(v->ctx))
+		return -ESTALE;
+	*secret = strdup(fyai_auth_store_token(v->ctx));
+	if (!*secret)
+		return -ENOMEM;
+	return 0;
+}
+
 struct credential_source {
 	const char *prefix;
-	int (*get)(struct fyai_transport_verb *, const char *, char **);
+	int (*get)(struct fyai_transport_verb *, const char *, char **,
+		   struct curl_slist **);
 };
 
 static const struct credential_source credential_sources[] = {
 	{ "env:", cred_env },
 	{ "mem:", cred_mem },
 	{ "secret:", cred_secret },
+	{ "oauth:", cred_oauth },
 };
 
-static int cred_one(struct fyai_transport_verb *v, const char *src, size_t len, char **secret)
+static int cred_one(struct fyai_transport_verb *v, const char *src, size_t len, char **secret,
+		    struct curl_slist **extra)
 {
 	char tmp[256];
 	size_t i, n;
@@ -279,7 +313,7 @@ static int cred_one(struct fyai_transport_verb *v, const char *src, size_t len, 
 	for (i = 0; i < sizeof(credential_sources) / sizeof(credential_sources[0]); i++) {
 		n = strlen(credential_sources[i].prefix);
 		if (!strncmp(tmp, credential_sources[i].prefix, n))
-			return credential_sources[i].get(v, tmp + n, secret);
+			return credential_sources[i].get(v, tmp + n, secret, extra);
 	}
 	return -EINVAL;
 }
@@ -290,7 +324,7 @@ static int cred_one(struct fyai_transport_verb *v, const char *src, size_t len, 
  * environment and then the secret store.
  */
 static int verb_cred(void *ud, const struct fyai_transport_profile *pr,
-		     char **secret)
+		     char **secret, struct curl_slist **extra)
 {
 	const char *src = pr->credential;
 	const char *end;
@@ -302,12 +336,56 @@ static int verb_cred(void *ud, const struct fyai_transport_profile *pr,
 		end = strchr(src, '|');
 		len = end ? (size_t)(end - src) : strlen(src);
 
-		rc = cred_one(ud, src, len, secret);
+		rc = cred_one(ud, src, len, secret, extra);
 		if (!rc || rc == -ENOMEM)
 			return rc;
 		src = end ? end + 1 : NULL;
 	}
-	return rc == -EINVAL ? -EINVAL : -ENOENT;
+	return rc == -EINVAL || rc == -ESTALE ? rc : -ENOENT;
+}
+
+static void refresh_done(struct fyai_auth_refresh_request *request, void *ud)
+{
+	struct fyai_transport_verb *v = ud;
+
+	(void)fyai_auth_refresh_collect(request);
+	fyai_auth_refresh_destroy(request);
+	v->refresh = NULL;
+	fyai_transport_server_prepared(v->srv);
+}
+
+/*
+ * Refresh the subscription login before a request uses it. One refresh serves
+ * every request that waits: the first starts it and the others park. A request
+ * that waited never starts another, so a login that cannot be refreshed ends
+ * each waiting request with an error instead of starting a refresh each time.
+ */
+static int verb_prepare(void *ud, const struct fyai_transport_profile *pr,
+			bool resumed)
+{
+	struct fyai_transport_verb *v = ud;
+
+	if (!pr->credential || strcmp(pr->credential, "oauth:chatgpt"))
+		return 0;
+	if (fyai_auth_store_load(v->ctx))
+		return -ENOENT;
+	if (fyai_auth_store_fresh(v->ctx))
+		return 0;
+	if (resumed)
+		return fyai_auth_store_valid(v->ctx) ? 0 : -ESTALE;
+	if (v->refresh)
+		return 1;
+	v->refresh = fyai_auth_refresh_submit(v->ctx, false, refresh_done, v);
+	if (!v->refresh)
+		return fyai_auth_store_valid(v->ctx) ? 0 : -EIO;
+	/* A login that needs no refresh ends at once, with no callback. */
+	if (fyai_auth_refresh_done(v->refresh)) {
+		fyai_auth_refresh_destroy(v->refresh);
+		v->refresh = NULL;
+		(void)fyai_auth_store_load(v->ctx);
+		return fyai_auth_store_valid(v->ctx) ? 0 : -ESTALE;
+	}
+	return 1;
 }
 
 /* Events go to the supervisor if it is listening; a full socket drops them. */
@@ -359,6 +437,7 @@ static int op_init(struct fyai_transport_verb *v, fy_generic m)
 		fyai_transport_registry_destroy(reg);
 		return -ENOMEM;
 	}
+	fyai_transport_server_set_prepare(srv, verb_prepare);
 	v->reg = reg;
 	v->srv = srv;
 	v->ctx->cfg->transport_logging = fy_get(m, "log", false);
@@ -429,6 +508,7 @@ static int op_probe(struct fyai_transport_verb *v, struct fy_generic_builder *gb
 {
 	fy_generic src = fy_get(m, "credential", fy_invalid);
 	struct fyai_transport_profile pr = { 0 };
+	struct curl_slist *extra = NULL;
 	char *secret = NULL;
 	int rc;
 
@@ -437,11 +517,12 @@ static int op_probe(struct fyai_transport_verb *v, struct fy_generic_builder *gb
 		return -EINVAL;
 	}
 	pr.credential = (char *)fy_castp(&src, "");
-	rc = verb_cred(v, &pr, &secret);
+	rc = verb_cred(v, &pr, &secret, &extra);
 	if (secret) {
 		fyai_secret_clear(secret, strlen(secret));
 		free(secret);
 	}
+	curl_slist_free_all(extra);
 	/* A comparison is an int in C; the reply needs a JSON boolean. */
 	v->reply_extra = fy_mapping(gb, "found", (bool)(rc == 0));
 	return 0;
@@ -911,6 +992,11 @@ static void verb_cleanup(struct fyai_transport_verb *v)
 		free(c);
 	}
 	conn_reap(v);
+	if (v->refresh) {
+		fyai_auth_refresh_cancel(v->refresh);
+		fyai_auth_refresh_destroy(v->refresh);
+		v->refresh = NULL;
+	}
 	fyai_transport_server_destroy(v->srv);
 	fyai_transport_registry_destroy(v->reg);
 	for (i = 0; i < v->nmem; i++) {

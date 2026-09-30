@@ -1682,6 +1682,40 @@ int fyai_auth_apply_headers(struct fyai_ctx *ctx, struct curl_slist **headers)
 	return rc;
 }
 
+int fyai_auth_store_load(struct fyai_ctx *ctx)
+{
+	if (!fyai_ctx_transient_gb(ctx))
+		return -1;
+	return auth_load(ctx, &ctx->auth);
+}
+
+bool fyai_auth_store_ready(const struct fyai_ctx *ctx)
+{
+	return fyai_auth_credentials_ready(&ctx->auth);
+}
+
+bool fyai_auth_store_fresh(const struct fyai_ctx *ctx)
+{
+	return ctx->auth.access_token && *ctx->auth.access_token &&
+	       ctx->auth.expires_at > time(NULL) + AUTH_REFRESH_WINDOW;
+}
+
+bool fyai_auth_store_valid(const struct fyai_ctx *ctx)
+{
+	return ctx->auth.access_token && *ctx->auth.access_token &&
+	       ctx->auth.expires_at > time(NULL);
+}
+
+const char *fyai_auth_store_token(const struct fyai_ctx *ctx)
+{
+	return ctx->auth.access_token;
+}
+
+const char *fyai_auth_chatgpt_url(void)
+{
+	return OPENAI_RESPONSES_URL;
+}
+
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status)
 {
 	return status == 401 && ctx->cfg->chatgpt_auth &&

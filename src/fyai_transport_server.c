@@ -86,6 +86,8 @@ struct req {
 	struct fyai_curl_transfer *xfer;
 	struct curl_slist *headers;
 	uint8_t *body;
+	uint8_t *park;			/* the request, while a credential is prepared */
+	size_t park_len;
 
 	uint64_t credit;
 	bool started;			/* the start frame went out */
@@ -125,6 +127,7 @@ struct fyai_transport_server {
 	struct fyai_event_loop *el;
 	struct fyai_transport_registry *reg;
 	fyai_transport_cred_fn cred;
+	fyai_transport_prepare_fn prepare;
 	void *cred_ud;
 	fyai_transport_log_fn log;
 	void *log_ud;
@@ -302,6 +305,7 @@ static void req_free(struct req *rq)
 		curl_easy_cleanup(rq->easy);
 	curl_slist_free_all(rq->headers);
 	free(rq->body);
+	free(rq->park);
 	pset_put(rq->set);
 	free(rq);
 }
@@ -754,18 +758,13 @@ static void req_setup_curl(struct req *rq, const struct fyai_transport_request *
 	}
 }
 
+static void req_run(struct req *rq, const uint8_t *payload, size_t len,
+		    bool resumed);
+
 static void req_start(struct chan *ch, const struct fyai_transport_msg *msg)
 {
-	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fyai_transport_server *srv = ch->srv;
-	struct fyai_transport_request r;
-	struct fy_generic_builder *gb;
-	struct fyai_transport_exec *ex;
-	const char *why = NULL, *narrow = NULL;
-	char *secret = NULL;
-	char note[160];
 	struct req *rq;
-	int rc;
 
 	rq = calloc(1, sizeof(*rq));
 	if (!rq) {
@@ -779,13 +778,38 @@ static void req_start(struct chan *ch, const struct fyai_transport_msg *msg)
 	rq->next = ch->reqs;
 	ch->reqs = rq;
 	srv->active++;
+	req_run(rq, msg->payload, msg->len, false);
+}
 
+/*
+ * Check and start the request in @payload. A request whose credential is
+ * being prepared keeps a copy of its payload and runs again from it, with
+ * @resumed set, when the preparation ends. The caller must not use @rq after
+ * this call: a failed request is freed.
+ */
+static void req_run(struct req *rq, const uint8_t *payload, size_t plen,
+		    bool resumed)
+{
+	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct chan *ch = rq->chan;
+	struct fyai_transport_server *srv = ch->srv;
+	struct fyai_transport_request r;
+	struct fy_generic_builder *gb;
+	struct fyai_transport_exec *ex;
+	const char *why = NULL, *narrow = NULL;
+	struct curl_slist *extra = NULL, *e;
+	char *secret = NULL;
+	const char *note;
+	int rc;
+
+	pset_put(rq->set);
+	rq->set = NULL;
 	gb = fy_generic_builder_create(&cfg);
 	if (!gb) {
 		req_fail(rq, -1, "out of memory", false);
 		return;
 	}
-	rc = fyai_transport_request_parse(gb, msg->payload, msg->len, &r, &why);
+	rc = fyai_transport_request_parse(gb, payload, plen, &r, &why);
 	if (rc) {
 		req_fail(rq, -1, why, false);
 		goto out;
@@ -803,10 +827,12 @@ static void req_start(struct chan *ch, const struct fyai_transport_msg *msg)
 		req_fail(rq, -1, "profile does not exist", false);
 		goto out;
 	}
-	snprintf(note, sizeof(note), "profile %s method %s body %zu%s",
-		 rq->profile->name, r.method, r.body_len,
-		 rq->profile->plain_http ? " plain-http" : "");
-	srv_event(srv, ch->id, rq->id, "request", note);
+	if (!resumed) {
+		note = fy_sprintfa("profile %s method %s body %zu%s",
+			 rq->profile->name, r.method, r.body_len,
+			 rq->profile->plain_http ? " plain-http" : "");
+		srv_event(srv, ch->id, rq->id, "request", note);
+	}
 	if (!strcmp(r.method, "GET") && r.body_len) {
 		req_fail(rq, -1, "a GET request has no body", false);
 		goto out;
@@ -817,8 +843,24 @@ static void req_start(struct chan *ch, const struct fyai_transport_msg *msg)
 		goto out;
 	}
 
+	if (rq->profile->auth != FYAI_TA_NONE && srv->prepare) {
+		rc = srv->prepare(srv->cred_ud, rq->profile, resumed);
+		if (rc > 0) {
+			rq->park = malloc(plen ? plen : 1);
+			fyai_error_check(srv->ctx, rq->park, err_park,
+					 "could not allocate pending transport request");
+			memcpy(rq->park, payload, plen);
+			rq->park_len = plen;
+			goto out;
+		}
+		if (rc < 0) {
+			req_fail(rq, -1, "credential could not be prepared", false);
+			goto out;
+		}
+	}
 	if (rq->profile->auth != FYAI_TA_NONE) {
-		rc = srv->cred ? srv->cred(srv->cred_ud, rq->profile, &secret) : -ENOENT;
+		rc = srv->cred ? srv->cred(srv->cred_ud, rq->profile, &secret,
+					   &extra) : -ENOENT;
 		if (rc || !secret) {
 			req_fail(rq, -1, "credential could not be resolved", false);
 			goto out;
@@ -834,6 +876,10 @@ static void req_start(struct chan *ch, const struct fyai_transport_msg *msg)
 		fyai_secret_clear(secret, strlen(secret));
 		free(secret);
 	}
+	for (e = extra; !rc && e; e = e->next)
+		rc = header_add(&rq->headers, e->data);
+	curl_slist_free_all(extra);
+	extra = NULL;
 	if (rc) {
 		req_fail(rq, -1, "request headers could not be built", false);
 		goto out;
@@ -856,7 +902,11 @@ static void req_start(struct chan *ch, const struct fyai_transport_msg *msg)
 	rq->xfer = fyai_curl_submit(srv->ctx, rq->easy, req_complete_cb, rq);
 	if (!rq->xfer)
 		req_fail(rq, -1, "transfer could not be started", false);
+	goto out;
+err_park:
+	req_fail(rq, -1, "could not allocate pending transport request", false);
 out:
+	curl_slist_free_all(extra);
 	fy_generic_builder_destroy(gb);
 }
 
@@ -868,6 +918,8 @@ static void req_cancel(struct req *rq)
 	rq->cancelled = true;
 	if (rq->xfer)
 		fyai_curl_cancel(rq->xfer);
+	else if (rq->park)
+		req_fail(rq, -2, "cancelled", false);
 }
 
 static void req_resume(struct req *rq)
@@ -1090,6 +1142,36 @@ void fyai_transport_server_destroy(struct fyai_transport_server *srv)
 	pset_put(srv->profiles);
 	fyai_redactor_clear(&srv->redactor);
 	free(srv);
+}
+
+void fyai_transport_server_set_prepare(struct fyai_transport_server *srv,
+				       fyai_transport_prepare_fn prepare)
+{
+	srv->prepare = prepare;
+}
+
+void fyai_transport_server_prepared(struct fyai_transport_server *srv)
+{
+	struct chan *ch;
+	struct req *rq, *next;
+	uint8_t *park;
+	size_t len;
+
+restart:
+	for (ch = srv->chans; ch; ch = ch->next) {
+		for (rq = ch->reqs; rq; rq = next) {
+			next = rq->next;
+			if (!rq->park)
+				continue;
+			park = rq->park;
+			len = rq->park_len;
+			rq->park = NULL;
+			/* A run can free @rq and end channels: walk again. */
+			req_run(rq, park, len, true);
+			free(park);
+			goto restart;
+		}
+	}
 }
 
 int fyai_transport_server_set_profiles(struct fyai_transport_server *srv,
