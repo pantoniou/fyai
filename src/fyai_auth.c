@@ -1636,7 +1636,7 @@ int fyai_auth_refresh(struct fyai_ctx *ctx, bool force)
 	struct fyai_event_loop *el;
 	int rc;
 
-	if (!ctx->cfg->chatgpt_auth)
+	if (!ctx->cfg->chatgpt_auth || fyai_auth_uses_transport(ctx->cfg))
 		return 0;
 	request = fyai_auth_refresh_submit(ctx, force, NULL, NULL);
 	if (!request)
@@ -1674,6 +1674,9 @@ int fyai_auth_apply_headers(struct fyai_ctx *ctx, struct curl_slist **headers)
 	const char *bearer;
 	int rc;
 
+	/* The transport adds the headers of the login. */
+	if (fyai_auth_uses_transport(ctx->cfg))
+		return 0;
 	if (!ctx->cfg->chatgpt_auth || !fyai_auth_credentials_ready(&ctx->auth) ||
 	    !ctx->cfg->api_url || strcmp(ctx->cfg->api_url, OPENAI_RESPONSES_URL))
 		return -1;
@@ -1716,16 +1719,64 @@ const char *fyai_auth_chatgpt_url(void)
 	return OPENAI_RESPONSES_URL;
 }
 
+bool fyai_auth_uses_transport(const struct fyai_cfg *cfg)
+{
+	return cfg->api_key_ref && !strcmp(cfg->api_key_ref, FYAI_AUTH_CHATGPT_REF);
+}
+
+int fyai_auth_chatgpt_eligible(const struct fyai_cfg *cfg, const char **why)
+{
+	if (!cfg->provider || fy_not_equal(cfg->provider, "openai")) {
+		*why = "ChatGPT subscriptions support only the OpenAI provider";
+		return -ENOTSUP;
+	}
+	if (cfg->api_mode != FYAI_API_RESPONSES || cfg->response_chain) {
+		*why = "ChatGPT requires Responses API with "
+		       "response_chain disabled";
+		return -EINVAL;
+	}
+	if (cfg->api_url && fy_not_equal(cfg->api_url, OPENAI_RESPONSES_URL)) {
+		*why = "refusing to send ChatGPT credentials to custom api_url";
+		return -EINVAL;
+	}
+	return 0;
+}
+
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status)
 {
 	return status == 401 && ctx->cfg->chatgpt_auth &&
-	       !ctx->auth_retry_done;
+	       !fyai_auth_uses_transport(ctx->cfg) && !ctx->auth_retry_done;
 }
 
 int fyai_auth_resolve(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	const char *why = NULL;
 	bool want_chatgpt;
+	int rc;
+
+	/*
+	 * The login is at the transport: this image has no token and routes the
+	 * requests through it. A model that the login cannot serve leaves that
+	 * source for the provider default.
+	 */
+	if (fyai_auth_uses_transport(cfg)) {
+		rc = fyai_auth_chatgpt_eligible(cfg, &why);
+		if (!rc) {
+			cfg->chatgpt_auth = true;
+			cfg->api_url = fyai_auth_chatgpt_url();
+			cfg->stream = true;
+			cfg->token_extents = false;
+			cfg->response_compaction_supported = false;
+			return 0;
+		}
+		cfg->api_key_ref = NULL;
+		if (cfg->auth_mode == FYAI_AUTH_CHATGPT) {
+			fyai_error(ctx, "%s", why);
+			return -1;
+		}
+		return 0;
+	}
 
 	want_chatgpt = cfg->auth_mode == FYAI_AUTH_CHATGPT ||
 		(cfg->auth_mode == FYAI_AUTH_AUTO && (!cfg->api_key || !*cfg->api_key) &&
@@ -1735,20 +1786,14 @@ int fyai_auth_resolve(struct fyai_ctx *ctx)
 	if (!want_chatgpt)
 		return 0;
 
-	if (!cfg->provider || fy_not_equal(cfg->provider, "openai")) {
+	rc = fyai_auth_chatgpt_eligible(cfg, &why);
+	if (rc == -ENOTSUP) {
 		if (cfg->auth_mode == FYAI_AUTH_CHATGPT)
-			fyai_error(ctx, "ChatGPT subscriptions support only the OpenAI provider");
+			fyai_error(ctx, "%s", why);
 		return cfg->auth_mode == FYAI_AUTH_CHATGPT ? -1 : 0;
 	}
-
-	if (cfg->api_mode != FYAI_API_RESPONSES || cfg->response_chain) {
-		fyai_error(ctx, "ChatGPT requires Responses API with "
-			   "response_chain disabled");
-		return -1;
-	}
-
-	if (cfg->api_url && fy_not_equal(cfg->api_url, OPENAI_RESPONSES_URL)) {
-		fyai_error(ctx, "refusing to send ChatGPT credentials to custom api_url");
+	if (rc) {
+		fyai_error(ctx, "%s", why);
 		return -1;
 	}
 
@@ -1782,6 +1827,11 @@ fy_generic fyai_auth_models(struct fyai_ctx *ctx,
 	const char *slug;
 	bool active;
 
+	if (fyai_auth_uses_transport(ctx->cfg)) {
+		fyai_error(ctx, "model discovery is not available with "
+			   "credential isolation");
+		return fy_invalid;
+	}
 	if (fyai_auth_resolve(ctx) || !ctx->cfg->chatgpt_auth)
 		return fy_invalid;
 

@@ -540,6 +540,19 @@ static bool session_chatgpt_capable(const struct fyai_cfg *cfg,
 	return cfg->auth_mode == FYAI_AUTH_CHATGPT || cfg->chatgpt_auth;
 }
 
+/*
+ * The login that the transport holds serves only the models it can. Another
+ * model goes back to the provider's own credential source.
+ */
+static void session_login_ref(struct fyai_cfg *tmp)
+{
+	const char *why;
+
+	if (fyai_auth_uses_transport(tmp) &&
+	    fyai_auth_chatgpt_eligible(tmp, &why))
+		tmp->api_key_ref = NULL;
+}
+
 int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -562,6 +575,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 		return -1;
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
+	session_login_ref(&tmp);
 	/* Only a live session sends the next request with it. */
 	if (live && !fyai_transport_have_credential(ctx, &tmp) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {
@@ -655,6 +669,7 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)
 	}
 	if (fyai_config_messages_gate(&tmp))
 		return -1;
+	session_login_ref(&tmp);
 	/* Only a live session sends the next request with it. */
 	if (live && !fyai_transport_have_credential(ctx, &tmp) &&
 	    !session_chatgpt_capable(cfg, &tmp)) {

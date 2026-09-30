@@ -518,6 +518,9 @@ static int op_probe(struct fyai_transport_verb *v, struct fy_generic_builder *gb
 	}
 	pr.credential = (char *)fy_castp(&src, "");
 	rc = verb_cred(v, &pr, &secret, &extra);
+	/* A login that needs a refresh exists. */
+	if (rc == -ESTALE)
+		rc = 0;
 	if (secret) {
 		fyai_secret_clear(secret, strlen(secret));
 		free(secret);

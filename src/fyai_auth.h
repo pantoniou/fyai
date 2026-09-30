@@ -92,6 +92,20 @@ bool fyai_auth_store_valid(const struct fyai_ctx *ctx);
 const char *fyai_auth_store_token(const struct fyai_ctx *ctx);
 /* True when the loaded login holds a registration that authorizes the plan. */
 bool fyai_auth_store_ready(const struct fyai_ctx *ctx);
+/* The credential source that names the login held by the transport. */
+#define FYAI_AUTH_CHATGPT_REF "oauth:chatgpt"
+
+struct fyai_cfg;
+
+/* Is the login at the transport for this configuration? */
+bool fyai_auth_uses_transport(const struct fyai_cfg *cfg);
+/*
+ * Can the ChatGPT login serve this configuration? Return 0, -ENOTSUP for a
+ * provider it does not serve, or -EINVAL for a grammar or endpoint it cannot
+ * use; @why names the reason.
+ */
+int fyai_auth_chatgpt_eligible(const struct fyai_cfg *cfg, const char **why);
+
 /* The Responses endpoint of the subscription. */
 const char *fyai_auth_chatgpt_url(void);
 bool fyai_auth_should_retry(struct fyai_ctx *ctx, long status);

@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_auth.h"
 #include "fyai_config.h"
 #include "fyai_transport_cfg.h"
 
@@ -146,11 +147,6 @@ int fyai_transport_profiles_add(struct fyai_transport_grant *grant,
 {
 	int rc;
 
-	if (cfg->chatgpt_auth) {
-		*why = "the ChatGPT subscription login keeps its tokens in the "
-		       "agent and cannot run with credential isolation";
-		return -ENOTSUP;
-	}
 	if (!cfg->api_url || !*cfg->api_url) {
 		*why = "the configuration has no API URL";
 		return -EINVAL;

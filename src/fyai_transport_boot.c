@@ -26,6 +26,7 @@
 #include "fyai_agent.h"
 #include "fyai_event.h"
 #include "fyai_secret.h"
+#include "fyai_auth.h"
 #include "fyai_transport.h"
 #include "fyai_transport_boot.h"
 #include "fyai_transport_cfg.h"
@@ -125,6 +126,7 @@ struct boot {
 	struct fyai_cfg *cfg;
 	int ctl;
 	long long seq;
+	bool found;		/* the `found` field of the last ok reply */
 	char error[256];
 };
 
@@ -159,8 +161,10 @@ static int boot_call(struct boot *b, struct fy_generic_builder *gb,
 		op = fy_get(reply, "op", fy_invalid);
 		if (fy_equal(op, "event"))
 			continue;
-		if (fy_equal(op, "ok"))
+		if (fy_equal(op, "ok")) {
+			b->found = fy_get(reply, "found", false);
 			return 0;
+		}
 		if (fy_equal(op, "error")) {
 			m = fy_get(reply, "message", fy_invalid);
 			snprintf(b->error, sizeof(b->error), "the credential transport refused: %s",
@@ -211,6 +215,14 @@ static fy_generic build_credential(struct boot *b, struct fy_generic_builder *gb
 	(void)arg;
 	return fy_mapping(gb, "op", "credential", "seq", ++b->seq, "name", "cli",
 			  "value", b->cfg->api_key);
+}
+
+static fy_generic build_probe(struct boot *b, struct fy_generic_builder *gb,
+			      void *arg)
+{
+	const char *source = arg;
+
+	return fy_mapping(gb, "op", "probe", "seq", ++b->seq, "credential", source);
 }
 
 static fy_generic build_profiles(struct boot *b, struct fy_generic_builder *gb,
@@ -427,6 +439,15 @@ void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size)
 		 fyai_tclient_alive(ctx->tclient) ? "up" : "down");
 }
 
+static inline bool transport_wants_chatgpt(const struct fyai_cfg *cfg)
+{
+	const char *why = NULL;
+
+	return cfg->auth_mode == FYAI_AUTH_CHATGPT ||
+	       (cfg->auth_mode == FYAI_AUTH_AUTO && !cfg->no_auth &&
+		fy_str_empty(cfg->api_key) && !fyai_auth_chatgpt_eligible(cfg, &why));
+}
+
 int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 {
 	struct fyai_transport_grant grant = { 0 };
@@ -436,6 +457,7 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	struct admit_arg admit;
 	struct boot b = { .cfg = cfg };
 	const char *why = NULL;
+	bool login = false, has_credential;
 	char **nargv = NULL, fdbuf[16];
 	int ctl[2] = { -1, -1 }, agent[2] = { -1, -1 };
 	pid_t pid = -1;
@@ -463,15 +485,20 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	if (rc)
 		goto err;
 
-	/*
-	 * The key must be here now, in the image that may hold it. Without one,
-	 * an unisolated run falls back to the ChatGPT login, whose tokens the
-	 * agent would keep: that run cannot be isolated.
-	 */
-	fyai_cfg_error_check(cfg, cfg->auth_mode != FYAI_AUTH_CHATGPT &&
-			     (cfg->no_auth || !fy_str_empty(cfg->api_key)), err,
-			     "no API key: credential isolation needs an API key or "
-			     "a provider that takes none; the ChatGPT login cannot run isolated");
+	/* The transport resolves the login source without exposing its tokens. */
+	if (transport_wants_chatgpt(cfg)) {
+		rc = fyai_auth_chatgpt_eligible(cfg, &why);
+		fyai_cfg_error_check(cfg, !rc, err, "%s", why);
+		cfg->api_key_ref = FYAI_AUTH_CHATGPT_REF;
+		cfg->chatgpt_auth = true;
+		cfg->api_url = fyai_auth_chatgpt_url();
+		login = true;
+	} else {
+		has_credential = cfg->no_auth || !fy_str_empty(cfg->api_key);
+		fyai_cfg_error_check(cfg, has_credential,
+				     err, "no API key: credential isolation needs "
+				     "an API key, a login, or a provider that takes none");
+	}
 
 	rc = fyai_transport_profiles_add(&grant, cfg, &why);
 	if (rc) {
@@ -498,6 +525,13 @@ int fyai_transport_bootstrap(struct fyai_cfg *cfg, int argc, char **argv)
 	ctl[1] = -1;
 
 	rc = boot_send(&b, build_init, &level, -1, &why);
+	if (!rc && login) {
+		rc = boot_send(&b, build_probe, (void *)FYAI_AUTH_CHATGPT_REF, -1, &why);
+		if (!rc && !b.found) {
+			why = "no API key and no ChatGPT login: set a key or run `fyai auth login`";
+			rc = -ENOENT;
+		}
+	}
 	if (!rc && cfg->api_key_ref && !strcmp(cfg->api_key_ref, "mem:cli") &&
 	    cfg->api_key && *cfg->api_key)
 		rc = boot_send(&b, build_credential, NULL, -1, &why);

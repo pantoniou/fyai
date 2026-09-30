@@ -232,11 +232,6 @@ int transport_cfg_refuses_what_it_cannot_isolate(void)
 	struct fyai_cfg cfg;
 
 	openai(&cfg, gb);
-	cfg.chatgpt_auth = true;
-	FYAI_TCHECK(fyai_transport_profiles_add(&g, &cfg, &why) == -ENOTSUP);
-	FYAI_TCHECK(strstr(why, "ChatGPT") && !g.count);
-
-	openai(&cfg, gb);
 	cfg.api_url = NULL;
 	FYAI_TCHECK(fyai_transport_profiles_add(&g, &cfg, &why) == -EINVAL);
 	cfg.api_url = "ftp://x.example/responses";
