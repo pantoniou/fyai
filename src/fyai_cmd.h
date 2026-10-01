@@ -257,6 +257,11 @@ void fyai_cmd_complete_help_topics(const char *const *path, size_t npath,
 				   fyai_cmd_candidate_fn add, void *arg);
 
 /* Handlers. */
+int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result);
+
 int fyai_cmd_help(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_completion(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_complete_verb(struct fyai_cmd_call *call, fy_generic *result);

@@ -181,3 +181,96 @@ out:
 	errno = saved;
 	return result;
 }
+
+static fy_generic project_leaf(struct fy_generic_builder *gb,
+		const struct fyai_project_metadata *metadata, const char *kind,
+		const void *payload, size_t length, uint64_t size,
+		char digest[FYAI_CAS_DIGEST_SIZE])
+{
+	static const char domain[] = "fyai/project/leaf/blake3/v1";
+	struct fy_blake3_hasher_cfg cfg = { .num_threads = -1 };
+	struct fy_blake3_hasher *hasher;
+	const uint8_t *hash;
+	fy_generic result;
+
+	if (!gb || !metadata || !digest || (!payload && length) ||
+	    metadata->mode > 07777 || metadata->mtime_nsec >= 1000000000) {
+		errno = EINVAL;
+		return fy_invalid;
+	}
+	hasher = fy_blake3_hasher_create(&cfg);
+	if (!hasher) {
+		errno = ENOMEM;
+		return fy_invalid;
+	}
+	fy_blake3_hasher_update(hasher, domain, sizeof(domain));
+	fy_blake3_hasher_update(hasher, kind, strlen(kind) + 1);
+	project_hash_number(hasher, metadata->mode);
+	project_hash_number(hasher, metadata->uid);
+	project_hash_number(hasher, metadata->gid);
+	project_hash_number(hasher, (uint64_t)metadata->mtime_sec);
+	project_hash_number(hasher, metadata->mtime_nsec);
+	project_hash_number(hasher, size);
+	project_hash_number(hasher, length);
+	fy_blake3_hasher_update(hasher, payload, length);
+	hash = fy_blake3_hasher_finalize(hasher);
+	if (!hash) {
+		fy_blake3_hasher_destroy(hasher);
+		errno = EIO;
+		return fy_invalid;
+	}
+	project_hex(digest, hash, FY_BLAKE3_OUT_LEN);
+	fy_blake3_hasher_destroy(hasher);
+	result = fy_mapping(gb, "version", 1LL, "algorithm", "blake3", "kind", kind,
+		"mode", (long long)metadata->mode, "uid", (long long)metadata->uid,
+		"gid", (long long)metadata->gid, "mtime_sec", (long long)metadata->mtime_sec,
+		"mtime_nsec", (long long)metadata->mtime_nsec);
+	return result;
+}
+
+fy_generic fyai_project_file(struct fy_generic_builder *gb,
+		const struct fyai_project_metadata *metadata,
+		const struct fyai_cas_blob *blob, char digest[FYAI_CAS_DIGEST_SIZE])
+{
+	struct fyai_project_entry check = { .name = (const unsigned char *)"file",
+		.name_length = 4, .kind = FYAI_PROJECT_FILE };
+	fy_generic result;
+
+	if (!blob || blob->size > INT64_MAX) {
+		errno = EINVAL;
+		return fy_invalid;
+	}
+	memcpy(check.digest, blob->digest, sizeof(check.digest));
+	if (!project_entry_valid(&check, false)) {
+		errno = EINVAL;
+		return fy_invalid;
+	}
+	result = project_leaf(gb, metadata, "file", blob->digest, 64, blob->size, digest);
+	if (!fy_is_valid(result))
+		return fy_invalid;
+	return fy_assoc(gb, result, "blob", fy_mapping(gb, "algorithm", "blake3",
+		"digest", fy_value(gb, blob->digest), "size", (long long)blob->size));
+}
+
+fy_generic fyai_project_symlink(struct fy_generic_builder *gb,
+		const struct fyai_project_metadata *metadata,
+		const unsigned char *target, size_t length,
+		char digest[FYAI_CAS_DIGEST_SIZE])
+{
+	fy_generic result;
+	char *encoded;
+
+	if (!target || !length || length > (SIZE_MAX - 1) / 2 || memchr(target, 0, length)) {
+		errno = EINVAL;
+		return fy_invalid;
+	}
+	encoded = malloc(length * 2 + 1);
+	if (!encoded)
+		return fy_invalid;
+	project_hex(encoded, target, length);
+	result = project_leaf(gb, metadata, "symlink", target, length, length, digest);
+	if (fy_is_valid(result))
+		result = fy_assoc(gb, result, "target_hex", fy_value(gb, encoded));
+	free(encoded);
+	return result;
+}

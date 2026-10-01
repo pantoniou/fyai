@@ -39,6 +39,10 @@ static const struct {
 	const char *name;
 	fyai_cmd_fn fn;
 } cmd_handlers[] = {
+	{ "view_create", fyai_cmd_view_create },
+	{ "view_show", fyai_cmd_view_show },
+	{ "view_list", fyai_cmd_view_list },
+	{ "view_enter", fyai_cmd_view_enter },
 	{ "help",		fyai_cmd_help },
 	{ "completion",		fyai_cmd_completion },
 	{ "complete",		fyai_cmd_complete_verb },

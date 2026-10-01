@@ -1396,6 +1396,98 @@ commands:
               x-fyai-meta: PATH
               x-fyai-complete: config-path
 
+  - command: view
+    title: create and enter separate project filesystem views
+    description: |
+      Capture a project into immutable CAS objects and use a separate writable
+      OverlayFS view. Commands in a view do not apply changes to the host.
+      The initial Linux implementation materializes an ordinary-file baseline.
+    surfaces: [cli]
+    default: list
+    commands:
+      - command: create
+        title: capture a project and create a named view
+        description: |
+          Capture PROJECT, excluding its reserved .fyai directory, and record
+          a named view on the active branch. Reject unsupported metadata and
+          observed concurrent changes. No provider credential is required.
+        handler: view_create
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the name of the separate view
+              pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+            project:
+              type: string
+              description: the project directory to capture
+              default: '.'
+              x-fyai-positional: 1
+              x-fyai-meta: PROJECT
+              x-fyai-complete: dir
+        render:
+          document: yaml
+      - command: list
+        title: list the filesystem views of the active branch
+        description: Show the project, baseline, result, and state of each view.
+        handler: view_list
+        render:
+          document: yaml
+      - command: show
+        title: inspect a named filesystem view
+        description: Show a view's baseline and latest recorded result identity.
+        handler: view_show
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the name of the view to inspect
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+        render:
+          document: yaml
+      - command: enter
+        title: run a command in a private filesystem view
+        description: |
+          Mount the named view in private namespaces, run COMMAND in its project
+          directory, and record its result in CAS. The host project stays separate.
+          The mount ends with the command and its descendants. This operation
+          requires Linux user namespaces, OverlayFS, and Landlock.
+        handler: view_enter
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name, command]
+          properties:
+            name:
+              type: string
+              description: the name of the view to enter
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+            command:
+              type: string
+              description: the shell command to run inside the view
+              x-fyai-long: command
+              x-fyai-meta: COMMAND
+            timeout_ms:
+              type: integer
+              description: the command time limit in milliseconds
+              minimum: 1
+              maximum: 4294967295
+              default: 60000
+              x-fyai-long: timeout-ms
+              x-fyai-meta: MS
+        render:
+          document: yaml
+
   - command: sandbox
     title: show or set the stored sandbox policy
     description: |

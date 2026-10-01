@@ -45,4 +45,13 @@ fy_generic fyai_project_directory(struct fy_generic_builder *gb,
 		const struct fyai_project_entry *entries, size_t count,
 		bool project_root, char digest[FYAI_CAS_DIGEST_SIZE]);
 
+/* Returned manifests are owned by gb; payload bytes and metadata are copied. */
+fy_generic fyai_project_file(struct fy_generic_builder *gb,
+		const struct fyai_project_metadata *metadata,
+		const struct fyai_cas_blob *blob, char digest[FYAI_CAS_DIGEST_SIZE]);
+fy_generic fyai_project_symlink(struct fy_generic_builder *gb,
+		const struct fyai_project_metadata *metadata,
+		const unsigned char *target, size_t length,
+		char digest[FYAI_CAS_DIGEST_SIZE]);
+
 #endif

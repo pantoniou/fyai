@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/sendfile.h>
 #include <limits.h>
 #include <unistd.h>
 
@@ -54,32 +55,34 @@ static int cas_copy_hash(int source_fd, int target_fd, struct fyai_cas_blob *blo
 		return -1;
 	size = start < st.st_size ? (size_t)(st.st_size - start) : 0;
 	rc = -1;
-	if (size) {
+	if (target_fd >= 0) {
+		for (offset = 0; offset < size;) {
+			count = size - offset;
+			if (count > 1024U * 1024U * 1024U)
+				count = 1024U * 1024U * 1024U;
+			written = sendfile(target_fd, source_fd, NULL, count);
+			if (written < 0 && errno == EINTR)
+				continue;
+			if (written <= 0) {
+				if (!written)
+					errno = EAGAIN;
+				goto out;
+			}
+			offset += (size_t)written;
+		}
+		/* The private capture cannot be truncated by a host source writer. */
+		if (size) {
+			captured = mmap(NULL, size, PROT_READ, MAP_PRIVATE, target_fd, 0);
+			if (captured == MAP_FAILED)
+				goto out;
+			data = captured;
+		}
+	} else if (size) {
+		/* Verification maps an immutable published CAS object. */
 		source = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, source_fd, 0);
 		if (source == MAP_FAILED)
 			goto out;
 		data = (const unsigned char *)source + (size_t)start;
-	}
-	for (offset = 0; target_fd >= 0 && offset < size;) {
-		count = size - offset;
-		if (count > 1024U * 1024U * 1024U)
-			count = 1024U * 1024U * 1024U;
-		written = write(target_fd, data + offset, count);
-		if (written < 0 && errno == EINTR)
-			continue;
-		if (written <= 0) {
-			if (!written)
-				errno = EIO;
-			goto out;
-		}
-		offset += (size_t)written;
-	}
-	/* Hash captured bytes, not a source that can change between copy and hash. */
-	if (target_fd >= 0 && size) {
-		captured = mmap(NULL, size, PROT_READ, MAP_PRIVATE, target_fd, 0);
-		if (captured == MAP_FAILED)
-			goto out;
-		data = captured;
 	}
 	md = fy_blake3_hasher_create(&cfg);
 	if (!md) {

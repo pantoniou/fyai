@@ -13,8 +13,8 @@ struct fyai_cas_blob {
 
 /*
  * Publish a regular file from its current offset into an owned, private directory.
- * The caller owns both descriptors and excludes source writers during capture.
- * mmap requires that the source cannot be truncated during this call.
+ * The caller owns both descriptors and validates source stability during capture.
+ * Hashing maps the private copy; source truncation fails without a mapped fault.
  * Names are lowercase BLAKE3-256 digests. Existing objects are verified before reuse.
  * On failure errno is set; an installed object can remain after a durability error.
  * The output is valid only on success. This call grants no agent access to storage.
