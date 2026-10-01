@@ -258,6 +258,9 @@ void fyai_cmd_complete_help_topics(const char *const *path, size_t npath,
 
 /* Handlers. */
 int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result);

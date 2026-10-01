@@ -1417,6 +1417,11 @@ commands:
           additionalProperties: false
           required: [name]
           properties:
+            verify:
+              type: boolean
+              default: false
+              description: independently verify copied bytes and hashes serially before publication
+              x-fyai-long: verify
             name:
               type: string
               description: the name of the separate view
@@ -1454,39 +1459,106 @@ commands:
               x-fyai-meta: NAME
         render:
           document: yaml
-      - command: enter
-        title: run a command in a private filesystem view
+      - command: update
+        title: replace a view with a fresh host snapshot
         description: |
-          Mount the named view in private namespaces, run COMMAND in its project
-          directory, and record its result in CAS. The host project stays separate.
-          The mount ends with the command and its descendants. This operation
-          requires Linux user namespaces, OverlayFS, and Landlock.
+          Capture the host project again and replace the named view with a fresh
+          baseline and empty upper. Discard the view's changes without changing
+          the host project. Refuse the update while the view is in use.
+        handler: view_update
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            verify:
+              type: boolean
+              default: false
+              description: independently verify copied bytes and hashes serially before publication
+              x-fyai-long: verify
+            name:
+              type: string
+              description: the name of the view to replace
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+        render:
+          document: yaml
+      - command: mount
+        title: mount a view for read-only inspection
+        description: |
+          Mount the named view at an empty directory for inspection and comparison.
+          The read-only mount persists in the current mount namespace until unmount.
+          Mount privileges are required; rootless inspection can use an explicitly
+          started unshare -Urnm sh session. Unmount before entering or updating.
+        handler: view_mount
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name, path]
+          properties:
+            name:
+              type: string
+              description: the view to inspect
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+            path:
+              type: string
+              description: an empty mount directory, created when absent
+              x-fyai-positional: 1
+              x-fyai-meta: PATH
+              x-fyai-complete: dir
+        render:
+          document: yaml
+      - command: unmount
+        title: unmount the recorded inspection view
+        description: |
+          Verify the recorded namespace, mount IDs, and source before releasing
+          the inspection mount. Busy mounts are retained. Run in the namespace
+          that owns the mount and unmount before leaving a rootless inspection shell.
+        handler: view_unmount
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the mounted view to release
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+        render:
+          document: yaml
+      - command: enter
+        title: enter a private filesystem view
+        description: |
+          Mount the named view in private namespaces and start a shell in its project
+          directory, or execute the remaining command arguments directly. Standard
+          input, output, and error are inherited. Record the result in CAS on exit.
+          The host project stays separate. This operation requires Linux user
+          namespaces, OverlayFS, and Landlock.
         handler: view_enter
         arguments:
           type: object
           additionalProperties: false
-          required: [name, command]
+          required: [name]
           properties:
+            verify:
+              type: boolean
+              default: false
+              description: independently verify copied bytes and hashes serially before publication
+              x-fyai-long: verify
             name:
               type: string
               description: the name of the view to enter
               x-fyai-positional: 0
               x-fyai-meta: NAME
             command:
-              type: string
-              description: the shell command to run inside the view
-              x-fyai-long: command
+              type: array
+              items: {type: string}
+              description: the command and arguments to execute; omit to start a shell
+              x-fyai-positional: 1
+              x-fyai-rest: true
               x-fyai-meta: COMMAND
-            timeout_ms:
-              type: integer
-              description: the command time limit in milliseconds
-              minimum: 1
-              maximum: 4294967295
-              default: 60000
-              x-fyai-long: timeout-ms
-              x-fyai-meta: MS
-        render:
-          document: yaml
 
   - command: sandbox
     title: show or set the stored sandbox policy

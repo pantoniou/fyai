@@ -9,6 +9,8 @@ struct fyai_project_capture_opts {
 	int source_fd;
 	int objects_fd;
 	int baseline_fd; /* -1 records manifests without materializing files. */
+	bool verify; /* Independently verify worker output on the caller. */
+	unsigned int workers; /* 0 uses the current CPU affinity. */
 	bool mapped_owner;
 	uid_t host_uid;
 	gid_t host_gid;

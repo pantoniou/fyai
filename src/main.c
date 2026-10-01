@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 	}
 
 	rc = fyai_run(&cfg);
-	ret = rc ? EXIT_FAILURE : EXIT_SUCCESS;
+	ret = rc ? EXIT_FAILURE : cfg.exit_status;
 	if (!rc && cfg.reload_branch) {
 		ret = fyai_config_reload_exec(&cfg) ? EXIT_FAILURE : EXIT_SUCCESS;
 		fyai_diag_drain(&cfg.diag);

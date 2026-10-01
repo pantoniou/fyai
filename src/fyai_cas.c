@@ -26,17 +26,42 @@ static void cas_hex(char *out, const unsigned char *bytes, size_t count)
 	out[count * 2] = '\0';
 }
 
-static int cas_copy_hash(int source_fd, int target_fd, struct fyai_cas_blob *blob)
+int fyai_cas_copy(int source_fd, int target_fd, uint64_t size)
+{
+	ssize_t copied;
+	size_t count;
+	bool fallback = false;
+
+	while (size) {
+		count = size > (1U << 30) ? (1U << 30) : (size_t)size;
+		copied = fallback ? sendfile(target_fd, source_fd, NULL, count) :
+			copy_file_range(source_fd, NULL, target_fd, NULL, count, 0);
+		if (copied < 0 && errno == EINTR)
+			continue;
+		if (copied < 0 && !fallback &&
+		    (errno == EXDEV || errno == EOPNOTSUPP || errno == ENOSYS || errno == EINVAL)) {
+			fallback = true;
+			continue;
+		}
+		if (copied <= 0) {
+			if (!copied)
+				errno = EAGAIN;
+			return -1;
+		}
+		size -= (uint64_t)copied;
+	}
+	return 0;
+}
+
+static int cas_copy_hash(int source_fd, int target_fd, struct fyai_cas_blob *blob,
+			 struct fy_blake3_hasher *md)
 {
 	const uint8_t *digest;
-	struct fy_blake3_hasher *md = NULL;
-	struct fy_blake3_hasher_cfg cfg = { 0 };
 	struct stat st;
 	void *source = MAP_FAILED, *captured = MAP_FAILED;
 	const unsigned char *data = NULL;
 	off_t start;
-	ssize_t written;
-	size_t size, offset, count;
+	size_t size;
 	int rc, saved;
 
 	rc = fstat(source_fd, &st);
@@ -56,20 +81,10 @@ static int cas_copy_hash(int source_fd, int target_fd, struct fyai_cas_blob *blo
 	size = start < st.st_size ? (size_t)(st.st_size - start) : 0;
 	rc = -1;
 	if (target_fd >= 0) {
-		for (offset = 0; offset < size;) {
-			count = size - offset;
-			if (count > 1024U * 1024U * 1024U)
-				count = 1024U * 1024U * 1024U;
-			written = sendfile(target_fd, source_fd, NULL, count);
-			if (written < 0 && errno == EINTR)
-				continue;
-			if (written <= 0) {
-				if (!written)
-					errno = EAGAIN;
-				goto out;
-			}
-			offset += (size_t)written;
-		}
+		rc = fyai_cas_copy(source_fd, target_fd, size);
+		if (rc)
+			goto out;
+		rc = -1;
 		/* The private capture cannot be truncated by a host source writer. */
 		if (size) {
 			captured = mmap(NULL, size, PROT_READ, MAP_PRIVATE, target_fd, 0);
@@ -84,11 +99,7 @@ static int cas_copy_hash(int source_fd, int target_fd, struct fyai_cas_blob *blo
 			goto out;
 		data = (const unsigned char *)source + (size_t)start;
 	}
-	md = fy_blake3_hasher_create(&cfg);
-	if (!md) {
-		errno = ENOMEM;
-		goto out;
-	}
+	fy_blake3_hasher_reset(md);
 	digest = fy_blake3_hash(md, size ? data : (const unsigned char *)"", size);
 	if (!digest) {
 		errno = EIO;
@@ -105,13 +116,26 @@ out:
 		munmap(captured, size);
 	if (source != MAP_FAILED)
 		munmap(source, (size_t)st.st_size);
-	if (md)
-		fy_blake3_hasher_destroy(md);
 	errno = saved;
 	return rc;
 }
 
-int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob)
+int fyai_cas_verify_file(int fd, const struct fyai_cas_blob *blob,
+			 struct fy_blake3_hasher *hasher)
+{
+	struct fyai_cas_blob actual;
+	int rc;
+
+	rc = cas_copy_hash(fd, -1, &actual, hasher);
+	if (!rc && (actual.size != blob->size || strcmp(actual.digest, blob->digest))) {
+		errno = EIO;
+		return -1;
+	}
+	return rc;
+}
+
+int fyai_cas_verify_hasher(int directory_fd, const struct fyai_cas_blob *blob,
+		      struct fy_blake3_hasher *hasher)
 {
 	struct fyai_cas_blob actual;
 	struct stat st;
@@ -138,7 +162,7 @@ int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob)
 		rc = -1;
 	}
 	if (!rc)
-		rc = cas_copy_hash(fd, -1, &actual);
+		rc = cas_copy_hash(fd, -1, &actual, hasher);
 	if (!rc && (actual.size != blob->size || strcmp(actual.digest, blob->digest))) {
 		errno = EIO;
 		rc = -1;
@@ -151,7 +175,8 @@ int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob)
 	return rc;
 }
 
-int fyai_cas_put(int directory_fd, int source_fd, struct fyai_cas_blob *blob)
+int fyai_cas_put_hasher(int directory_fd, int source_fd, struct fyai_cas_blob *blob,
+			struct fy_blake3_hasher *hasher)
 {
 	struct fyai_cas_blob result;
 	unsigned char random[16];
@@ -177,7 +202,7 @@ int fyai_cas_put(int directory_fd, int source_fd, struct fyai_cas_blob *blob)
 	}
 	if (!created)
 		return -1;
-	rc = cas_copy_hash(source_fd, fd, &result);
+	rc = cas_copy_hash(source_fd, fd, &result, hasher);
 	if (!rc)
 		rc = fchmod(fd, 0444);
 	if (!rc)
@@ -193,7 +218,7 @@ int fyai_cas_put(int directory_fd, int source_fd, struct fyai_cas_blob *blob)
 	/* The directory is private; publication never replaces a digest name. */
 	rc = linkat(directory_fd, temporary, directory_fd, result.digest, 0);
 	if (rc && errno == EEXIST)
-		rc = fyai_cas_verify(directory_fd, &result);
+		rc = fyai_cas_verify_hasher(directory_fd, &result, hasher);
 	if (rc)
 		goto out;
 	rc = unlinkat(directory_fd, temporary, 0);
@@ -207,6 +232,42 @@ out:
 	saved = errno;
 	if (created)
 		unlinkat(directory_fd, temporary, 0);
+	errno = saved;
+	return rc;
+}
+
+int fyai_cas_put(int directory_fd, int source_fd, struct fyai_cas_blob *blob)
+{
+	struct fy_blake3_hasher_cfg cfg = { 0 };
+	struct fy_blake3_hasher *hasher;
+	int rc, saved;
+
+	hasher = fy_blake3_hasher_create(&cfg);
+	if (!hasher) {
+		errno = ENOMEM;
+		return -1;
+	}
+	rc = fyai_cas_put_hasher(directory_fd, source_fd, blob, hasher);
+	saved = errno;
+	fy_blake3_hasher_destroy(hasher);
+	errno = saved;
+	return rc;
+}
+
+int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob)
+{
+	struct fy_blake3_hasher_cfg cfg = { 0 };
+	struct fy_blake3_hasher *hasher;
+	int rc, saved;
+
+	hasher = fy_blake3_hasher_create(&cfg);
+	if (!hasher) {
+		errno = ENOMEM;
+		return -1;
+	}
+	rc = fyai_cas_verify_hasher(directory_fd, blob, hasher);
+	saved = errno;
+	fy_blake3_hasher_destroy(hasher);
 	errno = saved;
 	return rc;
 }
