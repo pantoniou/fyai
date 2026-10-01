@@ -10,6 +10,7 @@
 #include "config.h"
 #endif
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -140,12 +141,118 @@ static void auth_login_input(struct fyai_cmd_call *call, const char *line)
 		fyai_ui_diag_drain(call->ctx, "error");
 }
 
+/*
+ * The login of an isolated run is a program of its own. It receives the
+ * tokens of the sign-in, and the image of a run holds none: the transport
+ * reads the store that the program writes. The tile is its terminal, so the
+ * URL, the browser and a pasted redirect belong to it.
+ */
+struct auth_child {
+	struct fyai_cmd_call *call;
+	struct fyai_shell_session *session;
+};
+
+static int auth_quote(struct response_buffer *line, const char *s)
+{
+	int rc = response_buffer_append(line, "'");
+
+	for (; !rc && *s; s++)
+		rc = *s == '\'' ? response_buffer_append(line, "'\\''") :
+		     response_buffer_append_data(line, s, 1);
+	return rc ? rc : response_buffer_append(line, "'");
+}
+
+static void auth_child_exited(void *userdata, int exit_code, int signal)
+{
+	struct auth_child *child = userdata;
+	struct fyai_cmd_call *call = child->call;
+
+	child->session = NULL;
+	if (exit_code || signal)
+		fyai_error(call->ctx, "login failed; its output is in its tile");
+	fyai_cmd_done(call, exit_code || signal ? -1 : 0,
+		      exit_code || signal ? fy_invalid :
+		      fy_mapping(call->gb, "login", true));
+}
+
+static void auth_child_cancel(struct fyai_cmd_call *call)
+{
+	struct auth_child *child = call->priv;
+
+	if (child && child->session)
+		fyai_tools_user_program_close(child->session);
+}
+
+static void auth_child_cleanup(struct fyai_cmd_call *call)
+{
+	struct auth_child *child = call->priv;
+
+	if (!child)
+		return;
+	if (child->session)
+		fyai_tools_user_program_forget(child->session);
+	free(child);
+	call->priv = NULL;
+}
+
+static int auth_login_child(struct fyai_cmd_call *call)
+{
+	struct response_buffer line = {0};
+	struct auth_child *child;
+	const char *account = fyai_cmd_arg_str(call, "account");
+	char exe[4096];
+	ssize_t n;
+	int rc;
+
+	n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+	fyai_error_check(call->ctx, n > 0, err, "login: cannot find this program: %s",
+			 strerror(errno));
+	exe[n] = '\0';
+	child = calloc(1, sizeof(*child));
+	fyai_error_check(call->ctx, child, err, "login: out of memory");
+	child->call = call;
+	rc = auth_quote(&line, exe) ||
+	     response_buffer_append(&line, " auth openai login");
+	if (!rc && fyai_cmd_arg_bool(call, "no_browser"))
+		rc = response_buffer_append(&line, " --no-browser");
+	if (!rc && fyai_cmd_arg_bool(call, "manual"))
+		rc = response_buffer_append(&line, " --manual");
+	if (!rc && fyai_cmd_arg_bool(call, "device_code"))
+		rc = response_buffer_append(&line, " --device-code");
+	if (!rc && fyai_cmd_arg_bool(call, "new_account"))
+		rc = response_buffer_append(&line, " --new-account");
+	if (!rc && account && *account)
+		rc = response_buffer_append(&line, " --account ") ||
+		     auth_quote(&line, account);
+	fyai_error_check(call->ctx, !rc, err_child, "login: out of memory");
+	call->priv = child;
+	call->cleanup = auth_child_cleanup;
+	child->session = fyai_tools_config_program(call->ctx, line.data, "auth",
+						   fy_seq_empty,
+						   auth_child_exited, child);
+	free(line.data);
+	if (!child->session) {
+		call->priv = NULL;
+		free(child);
+		return -1;	/* fyai_tools_config_program() says why */
+	}
+	call->cancel = auth_child_cancel;
+	return FYAI_CMD_PENDING;
+err_child:
+	free(line.data);
+	free(child);
+err:
+	return -1;
+}
+
 int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_auth_login_request *request;
 
 	if (auth_provider(call))
 		return -1;
+	if (call->ctx->tclient && call->surface == FYAI_CMD_SESSION)
+		return auth_login_child(call);
 	if (fyai_cmd_arg_bool(call, "manual") && call->surface == FYAI_CMD_CLI) {
 		*result = fy_invalid;
 		return fyai_auth_login(call->ctx, false, false, true,
