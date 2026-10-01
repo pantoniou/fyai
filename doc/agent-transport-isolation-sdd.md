@@ -392,6 +392,7 @@ endpoints in tool children is therefore part of the boundary.
 | `retire` | Execution `id`; close registered data channel and active transfers | Primary, or secondary for itself or descendants |
 | `status` | Return level, transport PID, executions, profiles, active transfers, log settings | Any control connection |
 | `describe` | Optional `id`; return the profiles and whether execution `id` may use each, with its model narrowing. The source name appears only on the primary connection | Primary for any execution; secondary for itself or a descendant. The default is the caller |
+| `cmd` | `words`, optional `format`; run a listed command at the transport and return its result in `data` | Primary only |
 | `probe` | Credential source reference; return `found`, never a value | Any control connection |
 | `envgrant` | At most 16 environment-variable names and a socket for a configured command | Primary only |
 | `log` | `on`, `wire`, `whitewash`; update logging | Primary only |
@@ -1037,8 +1038,26 @@ The commands of the login:
 | Command | Where it runs | What it does with secrets |
 | --- | --- | --- |
 | `fyai auth login`, `logout`, `status`, `accounts` | A verb is its own process, with no transport. | It reads and writes the store itself. It is not an isolated run. |
-| `/auth ...` in an isolated session | The agent image. | The same code runs in the agent image, so it loads tokens there. See the limits below. |
+| `/auth status`, `info`, `accounts`, `logout` in an isolated session | The transport. The image forwards the command and presents the result. | The store is loaded in the transport only. The result holds no token. |
+| `/auth login` in an isolated session | A program of its own, `fyai auth openai login`, in a tile. | The program receives the tokens and writes the store. No agent image receives them. |
 | `/usage`, `fyai auth usage` | The agent image. | It shows recorded token totals and a settings link. It reads no token and sends no request. |
+
+The transport is a full image, so a command is forwarded as it is. The `cmd`
+control op carries the CLI words and the output format. The transport parses
+them with the command parser, which validates the arguments, and runs the
+handler of the command with no presentation. Only the primary connection can
+send `cmd`. A fixed list names the handlers that run (`auth_status`,
+`auth_accounts`, `auth_logout`); any other command, an asynchronous command,
+and a request for help are refused. The reply holds the result data. The
+image fills in what the transport cannot know: the configured mode and the
+effective method of `status` follow the configuration of the image. A logout
+is refused while a token refresh runs.
+
+The login is not forwarded. It starts a browser, and the transport forks no
+child after it has read a credential. The user types into the tile, so the
+URL, the browser and a pasted redirect (`--manual`) belong to the program.
+When the program ends, the session reports its status. The transport reads
+the store at the next request, so it uses the new login at once.
 
 A change made by `login` or `logout` reaches a running isolated session
 through the store, because the transport reloads it. The session does not need
@@ -1053,13 +1072,12 @@ Limits of this design, which section 7 repeats:
   tool from reading the file until the filesystem policy of section 6 exists.
   The keyring backend has the same property for a process that can reach the
   session bus.
-- `/auth login`, `logout`, `status` and `accounts` in an isolated session load
-  tokens into the agent image, and `logout` sends the revocation from there.
-  They are commands of the user, not of the model, but they break the rule
-  that the agent image holds no token. They should run in the transport or be
-  refused in an isolated session.
-- `status` reports the effective method as `api-key` when a transport exists,
-  also when the login is the source.
+- The logout sends its revocation from the transport on the event loop of the
+  transport, which then serves no request until the revocation ends or times
+  out.
+- The login program of a session is not an isolated process. It runs as the
+  user, with the sanitized environment of the image, and it reaches the
+  network directly. The user starts it, not the model.
 - A 401 response is not retried, and the transport does not force a refresh
   after a rejection.
 
@@ -1106,8 +1124,7 @@ The following parts of the complete protected-mode design remain open:
 - Auxiliary HTTP users, including MCP and OAuth, need an explicit integration
   and credential-ownership policy. Model transport isolation does not imply
   that those operations already use this transport.
-- The login store is not denied to tools at level B (section 5.6), and the
-  `/auth` commands of an isolated session handle tokens in the agent image.
+- The login store is not denied to tools at level B (section 5.6).
 - The ChatGPT login runs isolated, but model discovery reads the login store
   in the agent and is refused. It needs an egress profile. `/usage` shows
   recorded token totals and needs no credential.
