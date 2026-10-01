@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 #include <errno.h>
+#include "fyai_cas.h"
+
+#ifdef __linux__
 #include <fcntl.h>
 #include <stdbool.h>
 #include <string.h>
@@ -12,7 +15,6 @@
 #include <libfyaml/libfyaml-blake3.h>
 #include <openssl/rand.h>
 
-#include "fyai_cas.h"
 
 static void cas_hex(char *out, const unsigned char *bytes, size_t count)
 {
@@ -271,3 +273,63 @@ int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob)
 	errno = saved;
 	return rc;
 }
+
+#else
+int fyai_cas_copy(int source_fd, int target_fd, uint64_t size)
+{
+	(void)source_fd;
+	(void)target_fd;
+	(void)size;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_cas_put(int directory_fd, int source_fd, struct fyai_cas_blob *blob)
+{
+	(void)directory_fd;
+	(void)source_fd;
+	(void)blob;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_cas_put_hasher(int directory_fd, int source_fd, struct fyai_cas_blob *blob,
+		      struct fy_blake3_hasher *hasher)
+{
+	(void)directory_fd;
+	(void)source_fd;
+	(void)blob;
+	(void)hasher;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob)
+{
+	(void)directory_fd;
+	(void)blob;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_cas_verify_hasher(int directory_fd, const struct fyai_cas_blob *blob,
+			 struct fy_blake3_hasher *hasher)
+{
+	(void)directory_fd;
+	(void)blob;
+	(void)hasher;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_cas_verify_file(int fd, const struct fyai_cas_blob *blob,
+		       struct fy_blake3_hasher *hasher)
+{
+	(void)fd;
+	(void)blob;
+	(void)hasher;
+	errno = ENOTSUP;
+	return -1;
+}
+
+#endif

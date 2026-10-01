@@ -1,4 +1,10 @@
 /* SPDX-License-Identifier: MIT */
+#include "fyai.h"
+#include "fyai_cmd.h"
+
+#define FYAI_MODULE FYAIEM_UNKNOWN
+
+#ifdef __linux__
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -13,15 +19,12 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include "fyai.h"
 #include "fyai_branch.h"
-#include "fyai_cmd.h"
 #include "fyai_fsview.h"
 #include "fyai_event.h"
 #include "fyai_project_capture.h"
 #include "fyai_storage.h"
 
-#define FYAI_MODULE FYAIEM_UNKNOWN
 
 static fy_generic view_store(struct fyai_ctx *ctx)
 {
@@ -761,3 +764,55 @@ out:
 		fyai_error(call->ctx, "view '%s': cannot unmount the recorded inspection mount: %s", name, strerror(saved));
 	return complete ? 0 : -1;
 }
+
+#else
+int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+#endif

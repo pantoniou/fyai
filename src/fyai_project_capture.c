@@ -1,4 +1,8 @@
 /* SPDX-License-Identifier: MIT */
+#include <errno.h>
+#include "fyai_project_capture.h"
+
+#ifdef __linux__
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -17,7 +21,6 @@
 #include <sys/xattr.h>
 #include <unistd.h>
 
-#include "fyai_project_capture.h"
 
 struct capture_node {
 	char *path;
@@ -706,3 +709,17 @@ out:
 	errno = saved;
 	return result;
 }
+
+#else
+fy_generic fyai_project_capture(struct fy_generic_builder *gb,
+		const struct fyai_project_capture_opts *opts,
+		char *error_path, size_t error_size)
+{
+	(void)gb;
+	(void)opts;
+	if (error_path && error_size)
+		error_path[0] = '\0';
+	errno = ENOTSUP;
+	return fy_invalid;
+}
+#endif
