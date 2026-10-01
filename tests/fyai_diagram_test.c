@@ -9,9 +9,11 @@
 #include "fyai.h"
 #include "fyai_sink.h"
 #include "fyai_browser.h"
+#include "utils.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
+FYAI_TEST_ENTRY(diagram, auth_document, diagram_auth_document)
 FYAI_TEST_ENTRY(diagram, branch_topology, diagram_branch_topology)
 FYAI_TEST_ENTRY(diagram, modes, diagram_modes)
 FYAI_TEST_ENTRY(diagram, selection, diagram_selection)
@@ -341,5 +343,35 @@ int diagram_branch_topology(void)
 	fymm_diagram_destroy(diagram);
 	free(source);
 	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+int diagram_auth_document(void)
+{
+	struct fymm_diagram *diagram;
+	char *path, *slash, *text, *start, *end;
+	int count = 0;
+
+	path = strdup(__FILE__);
+	FYAI_TCHECK(path != NULL);
+	slash = strrchr(path, '/');
+	FYAI_TCHECK(slash != NULL);
+	*slash = '\0';
+	text = read_text_file(fy_sprintfa("%s/../doc/chatgpt-auth.md", path));
+	free(path);
+	FYAI_TCHECK(text != NULL);
+	start = text;
+	while ((start = strstr(start, "```mermaid\n"))) {
+		start += strlen("```mermaid\n");
+		end = strstr(start, "```");
+		FYAI_TCHECK(end != NULL);
+		diagram = fymm_parse(start, (size_t)(end - start), NULL);
+		FYAI_TCHECK(diagram && !fymm_diagram_has_errors(diagram));
+		fymm_diagram_destroy(diagram);
+		count++;
+		start = end + 3;
+	}
+	free(text);
+	FYAI_TCHECK(count == 4);
 	return 0;
 }

@@ -10,6 +10,7 @@
 #include "fyai_auth.h"
 #include "fyai_auth_util.h"
 #include "fyai_provider.h"
+#include "fyai_cmd.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 #include "utils.h"
@@ -21,6 +22,8 @@ FYAI_TEST_ENTRY(auth, subscription_request, auth_subscription_request)
 FYAI_TEST_ENTRY(auth, subscription_errors, auth_subscription_errors)
 FYAI_TEST_ENTRY(auth, malformed_base64, auth_malformed_base64)
 FYAI_TEST_ENTRY(auth, billing_route, auth_billing_route)
+FYAI_TEST_ENTRY(auth, recorded_usage, auth_recorded_usage)
+FYAI_TEST_ENTRY(auth, manual_input, auth_manual_input)
 
 struct token_fixture {
 	struct fy_generic_builder *gb;
@@ -364,5 +367,55 @@ int auth_billing_route(void)
 	snprintf(path, sizeof(path), "%s/auth.json", created);
 	unlink(path);
 	rmdir(created);
+	return 0;
+}
+
+int auth_recorded_usage(void)
+{
+	struct fy_generic_builder_cfg gbcfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
+	struct fyai_ctx ctx = { .last_message = fy_invalid };
+	fy_generic result;
+
+	FYAI_TCHECK(gb != NULL);
+	FYAI_TCHECK(!fyai_auth_usage(&ctx, gb, true, &result));
+	FYAI_TCHECK(fy_get(result, "total_tokens", -1LL) == 0);
+	FYAI_TCHECK(fy_equal(fy_get(result, "scope"), "Selected conversation"));
+	FYAI_TCHECK(fy_is_string(fy_get(result, "plan_remaining")));
+	ctx.last_message = fy_mapping(gb, "metadata", fy_mapping(gb,
+		"usage", fy_mapping(gb, "input", 120, "output", 30, "total", 150)),
+		"previous", fy_mapping(gb, "metadata", fy_mapping(gb,
+			"usage", fy_mapping(gb, "input", 80, "cached", 40,
+				"output", 20, "total", 100))));
+	FYAI_TCHECK(!fyai_auth_usage(&ctx, gb, true, &result));
+	FYAI_TCHECK(fy_get(result, "calls", -1LL) == 2);
+	FYAI_TCHECK(fy_get(result, "input_tokens", -1LL) == 200);
+	FYAI_TCHECK(fy_get(result, "cached_tokens", -1LL) == 40);
+	FYAI_TCHECK(fy_get(result, "output_tokens", -1LL) == 50);
+	FYAI_TCHECK(fy_get(result, "total_tokens", -1LL) == 250);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+static void manual_input_record(struct fyai_cmd_call *call, const char *line)
+{
+	FYAI_TCHECK(!strcmp(line, "sensitive-callback"));
+	(*(int *)call->priv)++;
+}
+
+int auth_manual_input(void)
+{
+	struct fyai_ctx ctx = { 0 };
+	struct fyai_cmd_call call = { .input = manual_input_record };
+	int inputs = 0;
+
+	call.priv = &inputs;
+	FYAI_TCHECK(!fyai_cmd_session_input(&ctx, "sensitive-callback"));
+	ctx.cmd_call = &call;
+	FYAI_TCHECK(fyai_cmd_session_input(&ctx, "sensitive-callback"));
+	FYAI_TCHECK(inputs == 1);
+	call.done = true;
+	FYAI_TCHECK(!fyai_cmd_session_input(&ctx, "sensitive-callback"));
+	FYAI_TCHECK(inputs == 1);
 	return 0;
 }

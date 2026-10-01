@@ -106,7 +106,7 @@ set -e
 assert_status 0
 
 assert_stdout_contains "start a fresh conversation"
-assert_stdout_contains "show where to manage subscription usage"
+assert_stdout_contains "show recorded usage and subscription settings"
 assert_stderr_contains "usage: unexpected argument"
 assert_stdout_contains "logging: wire off, stream on, conversation on"
 assert_stdout_contains "logging: wire on, stream on, conversation on"

@@ -100,4 +100,6 @@ assert_stdout_contains 'oaiapp_saved'
 run_fyai auth usage --output json
 assert_status 0
 assert_stdout_contains 'https://chatgpt.com/settings/usage'
+assert_stdout_contains '"total_tokens": 0'
+assert_stdout_contains 'Unavailable through the documented direct-client API'
 pass

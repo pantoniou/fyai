@@ -498,9 +498,9 @@ int cmd_group_args(void)
 	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "auth anthropic", &p);
 	FYAI_TCHECK(!rc && arg_is(p.args, "provider", "anthropic"));
 
-	/* A session-only option is not a verb option. */
-	expect_error(&t, FYAI_CMD_SESSION, "auth login --manual",
-		     "unknown option '--manual'");
+	rc = cmd_test_parse(&t, FYAI_CMD_SESSION, "auth login --manual", &p);
+	FYAI_TCHECK(!rc && !strcmp(p.path, "auth login"));
+	FYAI_TCHECK(fy_get(p.args, "manual", false));
 	cmd_test_close(&t);
 
 	complete(FYAI_CMD_CLI, "auth ", &c);
