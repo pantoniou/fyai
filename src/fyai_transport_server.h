@@ -48,6 +48,23 @@ typedef int (*fyai_transport_prepare_fn)(void *userdata,
 					 bool resumed);
 
 /*
+ * A request was answered with HTTP 401 and the credential may be renewed.
+ * With @probe set, say whether the source of @pr can renew a credential
+ * (nonzero) and do nothing else. Otherwise renew it: @tag identifies the
+ * credential that the request used (fyai_transport_credential_tag()), and a
+ * credential that has changed since needs no renewal. Return 0 when a retry
+ * can start now, a positive value when the source started work and will call
+ * fyai_transport_server_prepared(), or a negative errno when no renewal is
+ * possible and the response goes to the agent.
+ */
+typedef int (*fyai_transport_reject_fn)(void *userdata,
+					const struct fyai_transport_profile *pr,
+					uint64_t tag, bool probe);
+
+/* The tag that names a credential value, for fyai_transport_reject_fn. */
+uint64_t fyai_transport_credential_tag(const char *secret);
+
+/*
  * Report a rejected message or a retired execution. @event is a static
  * string. The callback is optional and never receives request content.
  */
@@ -64,6 +81,13 @@ fyai_transport_server_create(struct fyai_ctx *ctx,
 /* Install the optional preparation of credentials. */
 void fyai_transport_server_set_prepare(struct fyai_transport_server *srv,
 				       fyai_transport_prepare_fn prepare);
+
+/*
+ * Install the optional renewal after an HTTP 401. A request is retried one
+ * time, and the agent never sees the rejected response.
+ */
+void fyai_transport_server_set_reject(struct fyai_transport_server *srv,
+				      fyai_transport_reject_fn reject);
 
 /* The work that a prepare callback started has ended: run the waiting requests. */
 void fyai_transport_server_prepared(struct fyai_transport_server *srv);

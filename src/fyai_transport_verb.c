@@ -389,6 +389,41 @@ static int verb_prepare(void *ud, const struct fyai_transport_profile *pr,
 	return 1;
 }
 
+/*
+ * A request that used the login got HTTP 401. Renew the login one time and
+ * let the request run again. A request that used a token that a refresh has
+ * replaced since needs no new refresh, and one refresh serves every request
+ * that was rejected.
+ */
+static int verb_reject(void *ud, const struct fyai_transport_profile *pr,
+		       uint64_t tag, bool probe)
+{
+	struct fyai_transport_verb *v = ud;
+
+	if (!pr->credential || strcmp(pr->credential, "oauth:chatgpt"))
+		return probe ? 0 : -ENOTSUP;
+	if (probe)
+		return 1;
+	if (fyai_auth_store_load(v->ctx))
+		return -ENOENT;
+	if (tag && fyai_transport_credential_tag(fyai_auth_store_token(v->ctx)) != tag)
+		return fyai_auth_store_valid(v->ctx) ? 0 : -ESTALE;
+	if (v->refresh)
+		return 1;
+	v->refresh = fyai_auth_refresh_submit(v->ctx, true, refresh_done, v);
+	if (!v->refresh)
+		return -EIO;
+	if (fyai_auth_refresh_done(v->refresh)) {
+		fyai_auth_refresh_destroy(v->refresh);
+		v->refresh = NULL;
+		(void)fyai_auth_store_load(v->ctx);
+		return fyai_auth_store_valid(v->ctx) &&
+		       fyai_transport_credential_tag(fyai_auth_store_token(v->ctx)) != tag ?
+		       0 : -ESTALE;
+	}
+	return 1;
+}
+
 /* Events go to the supervisor if it is listening; a full socket drops them. */
 static void verb_event(void *ud, uint64_t id, const char *event,
 		       const char *detail)
@@ -439,6 +474,7 @@ static int op_init(struct fyai_transport_verb *v, fy_generic m)
 		return -ENOMEM;
 	}
 	fyai_transport_server_set_prepare(srv, verb_prepare);
+	fyai_transport_server_set_reject(srv, verb_reject);
 	v->reg = reg;
 	v->srv = srv;
 	v->ctx->cfg->transport_logging = fy_get(m, "log", false);

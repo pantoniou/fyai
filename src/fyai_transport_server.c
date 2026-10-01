@@ -88,6 +88,12 @@ struct req {
 	uint8_t *body;
 	uint8_t *park;			/* the request, while a credential is prepared */
 	size_t park_len;
+	uint8_t *retry;			/* the request, kept for a retry after a 401 */
+	size_t retry_len;
+	uint64_t tag;			/* names the credential that this try used */
+	int reject_rc;			/* the answer to a 401, once asked */
+	bool rejected;			/* a 401 was seen and the source asked */
+	bool retried;			/* the request ran again after a 401 */
 
 	uint64_t credit;
 	bool started;			/* the start frame went out */
@@ -128,6 +134,7 @@ struct fyai_transport_server {
 	struct fyai_transport_registry *reg;
 	fyai_transport_cred_fn cred;
 	fyai_transport_prepare_fn prepare;
+	fyai_transport_reject_fn reject;
 	void *cred_ud;
 	fyai_transport_log_fn log;
 	void *log_ud;
@@ -306,6 +313,7 @@ static void req_free(struct req *rq)
 	curl_slist_free_all(rq->headers);
 	free(rq->body);
 	free(rq->park);
+	free(rq->retry);
 	pset_put(rq->set);
 	free(rq);
 }
@@ -566,6 +574,35 @@ static const char *req_start_json(struct req *rq, struct fy_generic_builder *gb,
 	return fyai_transport_response_encode(gb, &rs);
 }
 
+uint64_t fyai_transport_credential_tag(const char *secret)
+{
+	uint64_t h = 1469598103934665603ULL;
+
+	/* FNV-1a. It tells two values apart; it is not a protection. */
+	for (; secret && *secret; secret++)
+		h = (h ^ (unsigned char)*secret) * 1099511628211ULL;
+	return h;
+}
+
+/*
+ * Is the response a 401 that the credential source can renew? Ask the source
+ * once. A request that asked is held back from the agent when the answer is
+ * not negative: req_complete_cb() runs it again.
+ */
+static bool req_rejected(struct req *rq, long status)
+{
+	struct fyai_transport_server *srv = rq->chan->srv;
+
+	if (status != 401 || !rq->retry || rq->cancelled)
+		return false;
+	if (!rq->rejected) {
+		rq->rejected = true;
+		rq->reject_rc = srv->reject(srv->cred_ud, rq->profile, rq->tag,
+					    false);
+	}
+	return rq->reject_rc >= 0;
+}
+
 static size_t req_write_cb(char *p, size_t size, size_t nmemb, void *ud)
 {
 	struct req *rq = ud;
@@ -579,6 +616,14 @@ static size_t req_write_cb(char *p, size_t size, size_t nmemb, void *ud)
 		return 0;
 	if (len > FYAI_TRANSPORT_MAX_PAYLOAD || rq->cancelled || rq->finished)
 		return 0;
+	if (!rq->started) {
+		long status = 0;
+
+		curl_easy_getinfo(rq->easy, CURLINFO_RESPONSE_CODE, &status);
+		/* The body of a rejected response is not for the agent. */
+		if (req_rejected(rq, status))
+			return len;
+	}
 	if (rq->credit < len || rq->npending) {
 		rq->paused = true;
 		return CURL_WRITEFUNC_PAUSE;
@@ -605,6 +650,8 @@ static size_t req_write_cb(char *p, size_t size, size_t nmemb, void *ud)
 			return 0;
 		rq->seq++;
 		rq->started = true;
+		free(rq->retry);
+		rq->retry = NULL;
 	}
 
 	rc = req_send(rq, FYAI_TK_RESP_BODY, rq->seq, p, len);
@@ -618,6 +665,51 @@ static size_t req_write_cb(char *p, size_t size, size_t nmemb, void *ud)
 	rq->seq++;
 	rq->credit -= len;
 	return len;
+}
+
+/*
+ * Run a request again after a 401 and a renewal of its credential. The
+ * request keeps its place; nothing of the first try reached the agent.
+ */
+static void req_run(struct req *rq, const uint8_t *payload, size_t len,
+		    bool resumed);
+
+static void req_retry(struct req *rq)
+{
+	struct fyai_transport_server *srv = rq->chan->srv;
+	uint8_t *payload = rq->retry;
+	size_t len = rq->retry_len;
+	int rc;
+
+	srv_event(srv, rq->chan->id, rq->id, "retry", "credential rejected");
+	rq->retry = NULL;
+	rq->retried = true;
+	if (rq->easy)
+		curl_easy_cleanup(rq->easy);
+	rq->easy = NULL;
+	curl_slist_free_all(rq->headers);
+	rq->headers = NULL;
+	free(rq->body);
+	rq->body = NULL;
+	/*
+	 * The renewal can have ended while the rejected body was read, before
+	 * this request could wait for it: ask again. The source answers from its
+	 * state and starts no second renewal for one rejected credential.
+	 */
+	rc = srv->reject(srv->cred_ud, rq->profile, rq->tag, false);
+	if (rc < 0) {
+		free(payload);
+		req_fail(rq, -1, "credential could not be renewed", false);
+		return;
+	}
+	if (rc > 0) {
+		/* The source ends the wait with fyai_transport_server_prepared(). */
+		rq->park = payload;
+		rq->park_len = len;
+		return;
+	}
+	req_run(rq, payload, len, true);
+	free(payload);
 }
 
 static void req_complete_cb(struct fyai_curl_transfer *xfer, void *ud)
@@ -643,6 +735,10 @@ static void req_complete_cb(struct fyai_curl_transfer *xfer, void *ud)
 			 fyai_http_transient(code, status));
 		return;
 	}
+	if (!rq->started && req_rejected(rq, status)) {
+		req_retry(rq);
+		return;
+	}
 
 	gb = fy_generic_builder_create(&cfg);
 	json = gb && !rq->started ? req_start_json(rq, gb, true) : NULL;
@@ -657,6 +753,8 @@ static void req_complete_cb(struct fyai_curl_transfer *xfer, void *ud)
 			return;
 		}
 		rq->started = true;
+		free(rq->retry);
+		rq->retry = NULL;
 	}
 	if (gb)
 		fy_generic_builder_destroy(gb);
@@ -867,8 +965,21 @@ static void req_run(struct req *rq, const uint8_t *payload, size_t plen,
 		}
 	}
 	/* Learn the credential before anything can be logged about it. */
-	if (secret)
+	if (secret) {
 		(void)fyai_redactor_add_secret(&srv->redactor, secret);
+		rq->tag = fyai_transport_credential_tag(secret);
+	}
+	/* One retry after a 401, for a source that can renew its credential. */
+	if (secret && srv->reject && !rq->retried && !rq->retry &&
+	    srv->reject(srv->cred_ud, rq->profile, 0, true)) {
+		rq->retry = malloc(plen ? plen : 1);
+		if (!rq->retry) {
+			req_fail(rq, -1, "out of memory", false);
+			goto out;
+		}
+		memcpy(rq->retry, payload, plen);
+		rq->retry_len = plen;
+	}
 	if (rq->profile->auth == FYAI_TA_HEADER)
 		(void)fyai_redactor_add_header(&srv->redactor, rq->profile->header);
 	rc = fyai_transport_headers_build(rq->profile, &r, secret, &rq->headers);
@@ -1148,6 +1259,12 @@ void fyai_transport_server_set_prepare(struct fyai_transport_server *srv,
 				       fyai_transport_prepare_fn prepare)
 {
 	srv->prepare = prepare;
+}
+
+void fyai_transport_server_set_reject(struct fyai_transport_server *srv,
+				      fyai_transport_reject_fn reject)
+{
+	srv->reject = reject;
 }
 
 void fyai_transport_server_prepared(struct fyai_transport_server *srv)
