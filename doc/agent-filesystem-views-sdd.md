@@ -91,8 +91,8 @@ all output through the sink. These names are provisional internal interfaces.
 
 Use versioned generic schemas. Hash a deterministic encoding with an explicit
 object-type and schema-version domain. Do not hash raw C layouts, arena addresses,
-provider data, or unspecified mapping iteration order. Select one digest algorithm
-for the first version and include its identifier in externally stored identities.
+provider data, or unspecified mapping iteration order. Use libfyaml's BLAKE3 implementation for content and canonical object identities
+in the first version. Include the algorithm identifier in externally stored identities.
 
 | Object | Canonical fields |
 | --- | --- |
@@ -147,6 +147,30 @@ must use existing three-way conflict handling; do not create another root CAS
 reconciliation loop. A turn must retain its own baseline/result references rather
 than relying only on a branch's most recent project state. Exact transcript linkage
 is an implementation design gate.
+
+### 4.1 Directory identity encoding
+
+The initial directory builder returns a caller-arena-owned generic manifest with
+`version: 1`, `kind: directory`, `algorithm: blake3`, permission bits, uid, gid,
+mtime seconds/nanoseconds, and sorted `entries`. Each entry contains `name_hex`,
+child kind, and the child's BLAKE3 digest. A directory has no blob identity,
+content payload, host inode, ctime, or observation-cache fields. Hex filename
+encoding preserves arbitrary non-NUL Unix name bytes.
+
+The BLAKE3 input is independent of generic emission style and arena layout. It
+starts with `fyai/project/directory/blake3/v1` including its terminating NUL,
+followed by mode, uid, gid, mtime seconds, mtime nanoseconds, and entry count as
+unsigned eight-byte big-endian words. Signed mtime seconds use their modulo-2^64
+representation. For each entry, append its byte length as an eight-byte word,
+its raw name bytes, its kind as an eight-byte word, and its 64 lowercase digest
+characters. Kind values are file=1, directory=2, and symlink=3 for version 1.
+Changing this encoding requires a new version/domain. Names are sorted by unsigned
+bytes with shorter prefixes first. Duplicate names and invalid references fail.
+
+The builder operates on already captured child identities. Recursive filesystem
+capture, schema ingestion validation, durable publication, and view mounting are
+separate implementation steps. Validation of child digest syntax does not prove
+that the referenced object exists; publication must enforce closure of the tree.
 
 ## 5. CAS blob storage
 
@@ -585,6 +609,46 @@ leave a published root whose blobs were never durable.
 Observation caches and materializations are rebuildable. Losing them affects startup
 cost, not canonical project state. Upper/work/scratch are ephemeral until ingested;
 never present their survival after a crash as a durable result.
+
+### 11.1 User-facing view lifecycle
+
+Add a `view` command group through `data/commands.yaml`, the shared registry,
+argument schema, completion, and result presentation. The same definitions supply
+CLI verbs and applicable session slash commands. The following operations define
+the intended interface; names and arguments are not implemented by this document.
+
+| Operation | Behavior |
+| --- | --- |
+| Create | Capture a project and record a separate named view with its pinned root |
+| Inspect | Show roots, metadata, mount state, and proposed changes without application |
+| Mount | Mount at an explicit host path until an explicit unmount, or use invocation-scoped mode |
+| Unmount | Verify mount ownership, stop/refuse active writers, ingest writable state, and release mount pins |
+| Enter | Construct an invocation-scoped private mount and launch a shell or command with cwd inside it |
+| Merge/apply | Reconcile a recorded view into its parent or the host under configured policy |
+
+Support both explicit persistent mounts and invocation-scoped mounts. A persistent
+mount is an intentional user-visible resource at a supplied path, not a hidden
+resident process. Record its identity, source root, backing resource ownership,
+permissions, and pin in arena state. Later invocations verify the actual mount
+against that record before acting; stale records do not authorize unmounting an
+unrelated filesystem. Where required privileges are unavailable, fail that mode
+and report the requirement rather than starting a background helper.
+
+Invocation-scoped mounts exist only for `view enter` or the execution that owns
+them. Tear them down after writers exit and result ingestion completes. An enter
+verb cannot change its invoking shell's working directory; it starts a child shell
+or executes the requested command within the view. A session operation can select
+a view for future tool launches only after its active writers reach a safe boundary.
+
+Persistent writable mounts require explicit freeze/unmount before a result root
+can be declared final. Active mount pins survive the creating invocation and GC
+must verify mount/resource liveness before releasing them. Persistent-mode recovery
+must handle reboot, remounts, stale mount IDs, and mountpoint replacement. Do not
+claim that a CAS result reflects writes that have not yet been ingested.
+
+Creation and entry use the ordinary inspection/tool projection by default. They
+cannot authorize a caller to reveal the arena. Only authenticated agent admission
+supplies the agent-runtime projection described in section 8.1.
 
 ## 12. Implementation sequence and acceptance gates
 
