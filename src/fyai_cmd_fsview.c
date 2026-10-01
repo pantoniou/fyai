@@ -72,21 +72,11 @@ static int view_writable(struct fyai_cmd_call *call)
 	return 0;
 }
 
-static int view_storage(char **storage, char **objects, char **views)
+static int view_storage(const char *project, char **storage, char **objects, char **views)
 {
-	const char *home = getenv("HOME");
-	char *resolved;
 	int rc;
 
-	if (!home || !*home) {
-		errno = EINVAL;
-		return -1;
-	}
-	resolved = realpath(home, NULL);
-	if (!resolved)
-		return -1;
-	rc = asprintf(storage, "%s/.fyai", resolved);
-	free(resolved);
+	rc = asprintf(storage, "%s/.fyai", project);
 	if (rc < 0)
 		return -1;
 	rc = mkdir_private(*storage);
@@ -148,7 +138,7 @@ int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result)
 		errno = EINVAL;
 		goto out;
 	}
-	rc = view_storage(&storage, &objects, &views);
+	rc = view_storage(resolved, &storage, &objects, &views);
 	if (rc)
 		goto out;
 	if (view_storage_beneath(resolved, storage) ||
