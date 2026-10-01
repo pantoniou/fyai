@@ -531,20 +531,24 @@ static int auth_save_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
 
 static int auth_load(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
+	const char *storage = getenv("FYAI_AUTH_STORAGE");
 	int rc;
 
 	/* A fallback file takes precedence over an unavailable keyring's old entry. */
 	rc = auth_load_file(ctx, c);
 	if (!rc)
 		return 0;
+	if (storage && !strcmp(storage, "file"))
+		return rc;
 	return auth_load_keyring(ctx, c);
 }
 
 static int auth_save(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
+	const char *storage = getenv("FYAI_AUTH_STORAGE");
 	int rc;
 
-	rc = auth_save_keyring(ctx, c);
+	rc = storage && !strcmp(storage, "file") ? -1 : auth_save_keyring(ctx, c);
 	if (!rc) {
 		rc = auth_delete_file(ctx);
 		if (rc)
