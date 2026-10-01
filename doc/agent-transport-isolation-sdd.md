@@ -1033,6 +1033,41 @@ What the transport protects:
 - The transport is undumpable, takes no listening socket, and forks no child
   after it has read a credential (section 6).
 
+A token can be rejected before its expiry time, for example after the
+account revoked it or another process replaced it. The transport then renews
+the login and retries the request one time:
+
+```mermaid
+sequenceDiagram
+    participant A as Agent image
+    participant T as Transport
+    participant P as api.openai.com
+    A->>T: request
+    T->>P: payload with bearer token X
+    P-->>T: 401, body not forwarded
+    alt the stored token is not X
+        T->>P: payload with the stored token
+    else the stored token is X
+        T->>T: force one refresh, park the request
+        T->>P: payload with the new token
+    end
+    P-->>T: stream
+    T-->>A: stream
+```
+
+- Only a request of a source that can renew is held back. The transport keeps
+  a copy of the payload for the retry and frees it when the response starts.
+- The transport never forwards the 401 response, its headers or its body, when
+  it can retry. The agent sees the response of the second try, whatever its
+  status. A second 401 is not retried.
+- A credential is named by a tag of its value, kept with the request. A
+  request whose token was replaced since it was sent runs again with the
+  stored token and starts no refresh. All requests that a rejection reaches
+  share one refresh.
+- A renewal that cannot run (no login, a refresh that fails at once) leaves the
+  401 as the response. A renewal that fails after the request waited for it
+  ends the request with an error.
+
 The commands of the login:
 
 | Command | Where it runs | What it does with secrets |
@@ -1078,8 +1113,6 @@ Limits of this design, which section 7 repeats:
 - The login program of a session is not an isolated process. It runs as the
   user, with the sanitized environment of the image, and it reaches the
   network directly. The user starts it, not the model.
-- A 401 response is not retried, and the transport does not force a refresh
-  after a rejection.
 
 
 ## 6. Credential and same-user process protection
@@ -1128,9 +1161,6 @@ The following parts of the complete protected-mode design remain open:
 - The ChatGPT login runs isolated, but model discovery reads the login store
   in the agent and is refused. It needs an egress profile. `/usage` shows
   recorded token totals and needs no credential.
-- A 401 response to a login request is not retried. The transport refreshes a
-  token that is near expiry before a request, but it does not refresh after a
-  rejection.
 - A secondary connection must preserve any optional model narrowing in its
   own grant when it admits or grants a descendant. Current control checks
   constrain profile names; they do not enforce that additional inheritance.
