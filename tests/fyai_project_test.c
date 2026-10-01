@@ -174,12 +174,12 @@ int project_capture_parallel(void)
 {
 	struct fy_generic_builder *gb;
 	struct fyai_project_capture_opts opts = { .verify = true, .workers = 1 };
-	fy_generic first, second;
+	fy_generic first, second, incremental;
 	char path[] = "/tmp/fyai-project-parallel-XXXXXX", name[32], error[PATH_MAX];
 	unsigned char *data, *mapped;
 	size_t i, j, size = 2U * 1024U * 1024U + 19;
 	struct stat st;
-	int root, fd, rc, lower[2];
+	int root, fd, rc, lower[2], objects;
 
 	FYAI_TCHECK(mkdtemp(path));
 	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -218,6 +218,20 @@ int project_capture_parallel(void)
 	opts.workers = 4;
 	second = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(second) && fy_equal(first, second));
+	FYAI_TCHECK(!mkdirat(root, "upper", 0700));
+	opts.upper_fd = openat(root, "upper", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.upper_fd >= 0);
+	opts.incremental = true;
+	opts.snapshot = first;
+	opts.baseline_fd = -1;
+	opts.verify = false;
+	objects = opts.objects_fd;
+	/* Reused lower files require no CAS descriptor or content ingestion. */
+	opts.objects_fd = -1;
+	incremental = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(incremental) && fy_equal(first, incremental));
+	opts.objects_fd = objects;
+	close(opts.upper_fd);
 	for (i = 0; i < 2; i++) {
 		fd = openat(lower[i], "file-00", O_RDONLY | O_NOFOLLOW);
 		FYAI_TCHECK(fd >= 0 && !fstat(fd, &st) && st.st_size == (off_t)size && st.st_nlink == 1);

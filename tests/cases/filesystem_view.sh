@@ -30,6 +30,16 @@ PY
 run_fyai view create demo "$TEST_DIR/project"
 assert_status 1
 
+run_fyai view enter --verify demo true
+assert_status 0
+run_fyai view show demo --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PYVERIFY'
+import json, sys
+v = json.load(open(sys.argv[1]))
+assert v['baseline'] == v['root']
+PYVERIFY
+
 printf 'host changed\n' > project/file
 run_fyai view enter demo sh -c 'test "$(cat file)" = baseline && test "$(cat link)" = baseline && test ! -e .fyai/private && ! touch .fyai/new && printf scratch > /tmp/scratch && test "$(cat /tmp/scratch)" = scratch && printf agent > file && mkdir child && printf nested > child/new'
 assert_status 0
@@ -37,7 +47,7 @@ assert_status 0
 [ ! -e project/child ] || fail 'view created host directory'
 [ "$(cat project/.fyai/private)" = reserved ] || fail 'reserved host file changed'
 
-run_fyai view enter demo sh -c 'test "$(cat file)" = agent && test "$(cat child/new)" = nested && rm link && mv child renamed'
+run_fyai view enter --verify demo sh -c 'test "$(cat file)" = agent && test "$(cat child/new)" = nested && rm link && mv child renamed'
 assert_status 0
 run_fyai view show demo --output json
 assert_status 0
@@ -50,6 +60,13 @@ PY
 run_fyai view list --output json
 assert_status 0
 assert_stdout_contains 'demo'
+
+run_fyai view enter --verify demo sh -c 'mkdir replacement && printf old > replacement/old'
+assert_status 0
+run_fyai view enter --verify demo sh -c 'rm -rf replacement && mkdir replacement && printf new > replacement/new && chmod 700 renamed && ln -s renamed/new new-link'
+assert_status 0
+run_fyai view enter --verify demo sh -c 'test ! -e replacement/old && test "$(cat replacement/new)" = new && test -L new-link'
+assert_status 0
 
 run_fyai view enter demo printf '%s\n' 'two words' '--help' '--output=json'
 assert_status 0
