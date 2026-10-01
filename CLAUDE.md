@@ -14,7 +14,8 @@ only while its process runs.
 - Do not add a daemon, resident process, or hidden process state.
 - Store persistent manifests, references, configuration, and other structured
   state in content-addressed libfyaml arenas under `~/.fyai`. Project file bytes
-  may also live in immutable content-addressed blob files under `~/.fyai`.
+  may also live in immutable content-addressed blob files under the project’s
+  `.fyai` directory.
   Publish blobs before arena references; never edit a published blob in place.
 - Keep canonical data immutable, deterministic, and address-stable between
   processes.

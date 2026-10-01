@@ -19,7 +19,7 @@ private upper changes during execution. Consequently, file-open interception
 is not needed to capture the baseline. Change notifications optimize subsequent
 capture; they do not provide the agent's isolation.
 
-Canonical file bytes may be stored as immutable CAS blob files under `~/.fyai`.
+Canonical file bytes may be stored as immutable CAS blob files under the project’s `.fyai`.
 This is an explicitly authorized extension of the current arena-only storage
 rule. Canonical manifests, project-root references, transaction records, and
 configuration remain libfyaml generics in content-addressed arenas. Updating
@@ -177,7 +177,7 @@ that the referenced object exists; publication must enforce closure of the tree.
 A proposed storage layout is:
 
 ```text
-~/.fyai/<storage-domain>/
+<project>/.fyai/
     <existing arena storage>
     objects/<algorithm>/<digest-prefix>/<digest>
     materialized/<project-root>/<metadata-policy>/
@@ -655,7 +655,8 @@ supplies the agent-runtime projection described in section 8.1.
 The first implementation provides CLI-only `view create NAME [PROJECT]`,
 `view show NAME`, `view list`, and `view enter NAME --command COMMAND`.
 Omitting PROJECT captures the current directory. Named view references live in
-`store/views` on the selected branch; blobs live in `~/.fyai/objects/blake3`.
+`store/views` on the selected branch; blobs live in `<project>/.fyai/objects/blake3`
+and overlay backing lives in `<project>/.fyai/views/view-XXXXXX/`.
 The same arena and branch must be selected on subsequent invocations.
 
 ```sh
