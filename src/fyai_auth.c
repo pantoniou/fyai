@@ -1181,7 +1181,10 @@ struct fyai_auth_login_request *fyai_auth_login_submit(struct fyai_ctx *ctx,
 		goto failed;
 	url = fy_sprintfa(AUTH_AUTHORIZE_URL "?%s", encoded);
 	free(encoded);
-	fyai_print_login_url(ctx, "Open this link to sign in:", "Continue with ChatGPT", url);
+	if (no_browser)
+		fyai_result(ctx, "Open this link to sign in:\n%s\n", url);
+	else
+		fyai_print_login_url(ctx, "Open this link to sign in:", "Continue with ChatGPT", url);
 	if (!no_browser)
 		fyai_oauth_open_browser(url);
 	return request;
@@ -1875,10 +1878,19 @@ fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
 int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
 			bool raw, fy_generic *datap)
 {
-	(void)ctx;
+	fy_generic stats = fyai_stats_data(ctx, out_gb);
+
 	(void)raw;
-	*datap = fy_mapping(out_gb, "usage", "https://chatgpt.com/settings/usage",
-		"message", "Review app usage and plan or credit permissions in ChatGPT Settings");
+	*datap = fy_mapping(out_gb,
+		"scope", "Selected conversation",
+		"calls", fy_get(stats, "calls", 0LL),
+		"input_tokens", fy_get(stats, "input", 0LL),
+		"cached_tokens", fy_get(stats, "cached", 0LL),
+		"output_tokens", fy_get(stats, "output", 0LL),
+		"total_tokens", fy_get(stats, "total", 0LL),
+		"plan_remaining", "Unavailable through the documented direct-client API",
+		"usage", "https://chatgpt.com/settings/usage",
+		"message", "Review account-wide app limits and credit permissions in ChatGPT Settings");
 	return fy_is_valid(*datap) ? 0 : -1;
 }
 
@@ -1921,6 +1933,27 @@ auth_login_sync_complete(struct fyai_auth_login_request *request,
 	sync->done = true;
 }
 
+int fyai_auth_login_redirect(struct fyai_auth_login_request *request,
+			     const char *url)
+{
+	size_t len;
+	char *redirect_request;
+
+	if (request->state != FYAILS_BROWSER_WAIT) {
+		fyai_error(request->ctx, "login is no longer waiting for a callback");
+		return -1;
+	}
+	len = strlen(request->redirect);
+	if (strncmp(url, request->redirect, len) || url[len] != '?' ||
+	    strpbrk(url, " \t\r\n")) {
+		fyai_error(request->ctx, "paste the complete callback URL from this login attempt, not a bare token or code");
+		return -1;
+	}
+	redirect_request = fy_sprintfa("GET %s HTTP/1.1\r\n", url);
+	fyai_oauth_flow_redirect(request->flow, redirect_request);
+	return 0;
+}
+
 int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 		    bool manual, const char *account, bool new_account)
 {
@@ -1928,7 +1961,6 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 	struct fyai_event_loop *el;
 	struct auth_login_sync sync;
 	char line[8192];
-	char *redirect_request;
 	int rc;
 
 	memset(&sync, 0, sizeof(sync));
@@ -1945,8 +1977,8 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code, bool no_browser,
 			fyai_auth_login_cancel(request);
 		} else {
 			line[strcspn(line, "\r\n")] = '\0';
-			redirect_request = fy_sprintfa("GET %s HTTP/1.1\r\n", line);
-			fyai_oauth_flow_redirect(request->flow, redirect_request);
+			if (fyai_auth_login_redirect(request, line))
+				fyai_auth_login_cancel(request);
 		}
 	}
 	rc = 0;

@@ -72,6 +72,8 @@ struct fyai_cmd_call {
 	/* Set by an async handler; removes its sources, then calls done. */
 	void (*cancel)(struct fyai_cmd_call *call);
 	void *priv;			/* handler state of an async call */
+	/* Consume command input before queueing or history recording. */
+	void (*input)(struct fyai_cmd_call *call, const char *line);
 	/* Set by an async handler; releases @priv with the call. */
 	void (*cleanup)(struct fyai_cmd_call *call);
 	/* Set by a handler whose table options depend on the result. */
@@ -152,6 +154,8 @@ bool fyai_cmd_session_immediate(const char *line);
  * between turns; returns true when a command finished.
  */
 bool fyai_cmd_session_step(struct fyai_ctx *ctx);
+/* Return true when the active command consumed the line. */
+bool fyai_cmd_session_input(struct fyai_ctx *ctx, const char *line);
 
 /* Ask an active async command to stop; it completes as cancelled. */
 void fyai_cmd_session_interrupt(struct fyai_ctx *ctx);

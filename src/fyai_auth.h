@@ -51,7 +51,7 @@ int fyai_auth_login(struct fyai_ctx *ctx, bool device_code,
 fy_generic fyai_auth_accounts_data(struct fyai_ctx *ctx,
 				   struct fy_generic_builder *gb);
 int fyai_auth_logout(struct fyai_ctx *ctx);
-/* Return the supported ChatGPT usage-settings link in out_gb. */
+/* Return recorded conversation usage and the plan-settings link in out_gb. */
 int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
 		    bool raw, fy_generic *datap);
 int fyai_auth_resolve(struct fyai_ctx *ctx);
@@ -71,6 +71,9 @@ fyai_auth_login_submit(struct fyai_ctx *ctx, bool device_code,
 		       bool no_browser, const char *account, bool new_account,
 		       fyai_auth_login_complete_fn complete,
 		       void *userdata);
+/* Validate a pasted complete callback URL without storing it. */
+int fyai_auth_login_redirect(struct fyai_auth_login_request *request,
+			     const char *url);
 void fyai_auth_login_cancel(struct fyai_auth_login_request *request);
 bool fyai_auth_login_done(const struct fyai_auth_login_request *request);
 int fyai_auth_login_collect(const struct fyai_auth_login_request *request);

@@ -1893,6 +1893,16 @@ err:
 	return -1;
 }
 
+bool fyai_cmd_session_input(struct fyai_ctx *ctx, const char *line)
+{
+	struct fyai_cmd_call *call = ctx->cmd_call;
+
+	if (!call || call->done || !call->input)
+		return false;
+	call->input(call, line);
+	return true;
+}
+
 bool fyai_cmd_session_step(struct fyai_ctx *ctx)
 {
 	struct fyai_cmd_call *call = ctx->cmd_call;

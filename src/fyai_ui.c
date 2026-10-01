@@ -21,6 +21,7 @@
 #include <libfypalette.h>
 
 #include "fyai.h"
+#include "fyai_cmd.h"
 #include "fyai_agent.h"
 #include "fyai_diag.h"
 #include "fyai_display.h"
@@ -1881,6 +1882,8 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 		switch (ev.type) {
 		case FYTIM_EVENT_LINE:
 			ui_message_clear(ui);
+			if (fyai_cmd_session_input(ui->ctx, ev.text))
+				break;
 			if (fyai_browser_input(ui->ctx, ev.text))
 				break;
 			if (fyai_agents_input(ui->ctx, ev.text))
@@ -2427,7 +2430,9 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		free(out.data);
 		return;
 	}
-	if (command && !strcmp(ctx->cfg->command_output, "transcript")) {
+	/* A command that waits for input must keep the prompt accessible. */
+	if ((ctx->cmd_call && ctx->cmd_call->input) ||
+	    (command && !strcmp(ctx->cfg->command_output, "transcript"))) {
 		ui_pane_to_transcript(ui, &out);
 		free(out.data);
 		return;

@@ -18,6 +18,8 @@
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_auth.h"
+#include "fyai_ui.h"
+#include "fyai_sink.h"
 
 #define FYAI_MODULE FYAIEM_AUTH
 
@@ -53,7 +55,7 @@ err:
 	return -1;
 }
 
-/* The summary of the limits; a machine format takes the whole response. */
+/* Report recorded usage and the available plan information. */
 int fyai_cmd_auth_usage(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (fy_is_valid(fy_get(call->args, "provider", fy_invalid)) &&
@@ -104,20 +106,27 @@ static void auth_login_cleanup(struct fyai_cmd_call *call)
  * Browser authorization runs on the event loop. A manual callback uses the
  * same state machine after it reads the complete redirect URL.
  */
+static void auth_login_input(struct fyai_cmd_call *call, const char *line)
+{
+	if (fyai_auth_login_redirect(call->priv, line))
+		fyai_ui_diag_drain(call->ctx, "error");
+}
+
 int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_auth_login_request *request;
 
 	if (auth_provider(call))
 		return -1;
-	if (fyai_cmd_arg_bool(call, "manual")) {
+	if (fyai_cmd_arg_bool(call, "manual") && call->surface == FYAI_CMD_CLI) {
 		*result = fy_invalid;
 		return fyai_auth_login(call->ctx, false, false, true,
 			fyai_cmd_arg_str(call, "account"), fyai_cmd_arg_bool(call, "new_account"));
 	}
 	request = fyai_auth_login_submit(call->ctx,
 					 fyai_cmd_arg_bool(call, "device_code"),
-					 fyai_cmd_arg_bool(call, "no_browser"),
+					 fyai_cmd_arg_bool(call, "no_browser") ||
+					 fyai_cmd_arg_bool(call, "manual"),
 					 fyai_cmd_arg_str(call, "account"),
 					 fyai_cmd_arg_bool(call, "new_account"),
 					 auth_login_complete, call);
@@ -125,6 +134,10 @@ int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 			 "could not start authentication login");
 	call->priv = request;
 	call->cleanup = auth_login_cleanup;
+	if (fyai_cmd_arg_bool(call, "manual")) {
+		call->input = auth_login_input;
+		fyai_result(call->ctx, "Paste the complete redirect URL into the input area. ^C or Escape cancels.\n");
+	}
 	/* A flow that failed at once has completed already. */
 	if (call->done) {
 		*result = call->result;

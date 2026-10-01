@@ -1780,12 +1780,12 @@ commands:
               storage: {name: Credential storage}
 
       - command: usage
-        title: show where to manage subscription usage
-        description: Show the ChatGPT settings link for app usage and credit permissions.
-        flags: [no-storage, transient]
+        title: show recorded usage and subscription settings
+        description: Show selected-conversation token totals and the ChatGPT settings link for account limits and credit permissions.
+        flags: [storage-optional, transient]
         handler: auth_usage
         render:
-          table: {title: OpenAI subscription usage}
+          table: {title: Recorded usage and ChatGPT plan settings}
 
       - command: login
         title: sign in to the subscription
@@ -1817,8 +1817,7 @@ commands:
               description: write the URL and start no browser
             manual:
               type: boolean
-              description: paste the redirect URL back
-              x-fyai-surfaces: [cli]
+              description: paste the complete redirect URL back without a local browser
         render:
           message: "auth: login succeeded"
 
@@ -2179,12 +2178,12 @@ commands:
           api: {name: API}
 
   - command: usage
-    title: show where to manage subscription usage
-    description: Show the ChatGPT settings link for app usage and credit permissions.
+    title: show recorded usage and subscription settings
+    description: Show selected-conversation token totals and the ChatGPT settings link for account limits and credit permissions.
     surfaces: [session]
     handler: auth_usage
     render:
-      table: {title: OpenAI subscription usage}
+      table: {title: Recorded usage and ChatGPT plan settings}
     flags: [transient]
 
   - command: tools
