@@ -1,0 +1,25 @@
+{
+  "steps": [
+    {
+      "status": 401,
+      "wait_for": "release",
+      "raw": "{\"error\": {\"message\": \"token expired\"}}"
+    },
+    {
+      "response": {
+        "id": "chatcmpl-retry",
+        "object": "chat.completion",
+        "created": 1735689601,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {"role": "assistant", "content": "after retry"},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+      }
+    }
+  ]
+}

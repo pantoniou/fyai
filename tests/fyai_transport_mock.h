@@ -36,6 +36,7 @@ enum tmock_mode {
 	TMOCK_BIG,		/* 200 with BIG_BODY bytes */
 	TMOCK_STALL,		/* headers and one byte, then wait */
 	TMOCK_LIMITED,		/* 429 with rate-limit headers and a body */
+	TMOCK_AUTH,		/* 401 unless the bearer token is "fresh" */
 };
 
 struct tmock {

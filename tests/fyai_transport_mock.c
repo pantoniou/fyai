@@ -90,6 +90,17 @@ static void tmock_serve(int listener, enum tmock_mode mode, int report, bool man
 		if (write(c, hdr, strlen(hdr)) < 0)
 			_exit(4);
 		break;
+	case TMOCK_AUTH:
+		if (strstr(req, "Authorization: Bearer fresh\r\n"))
+			snprintf(hdr, sizeof(hdr),
+				 "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
+		else
+			snprintf(hdr, sizeof(hdr),
+				 "HTTP/1.1 401 Unauthorized\r\n"
+				 "Content-Length: 17\r\n\r\n{\"error\":\"stale\"}");
+		if (write(c, hdr, strlen(hdr)) < 0)
+			_exit(4);
+		break;
 	case TMOCK_STALL:
 		snprintf(hdr, sizeof(hdr),
 			 "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nx");

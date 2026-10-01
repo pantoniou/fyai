@@ -23,7 +23,7 @@ def enc(value):
     return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
 
 
-def write_store(expires_in, refresh="secret-refresh"):
+def write_store(expires_in, refresh="secret-refresh", access="secret-access"):
     path = os.path.join(os.environ["XDG_STATE_HOME"], "fyai", "auth.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     jwt = ".".join((enc({"alg": "none"}), enc({
@@ -40,7 +40,7 @@ def write_store(expires_in, refresh="secret-refresh"):
                        "email": "user@example.com", "subject": "user-test"}},
                    "scope": "openid offline_access resource.invoke "
                             "chatgpt.tokens.use.direct",
-                   "access_token": "secret-access",
+                   "access_token": access,
                    "refresh_token": refresh, "id_token": jwt,
                    "expires_at": int(time.time()) + expires_in}, f)
     os.chmod(path, 0o600)

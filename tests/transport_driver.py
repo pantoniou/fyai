@@ -132,12 +132,17 @@ class Agent:
         self.sock.send(HDR.pack(MAGIC, 1, kind, self.id, rid, seq,
                                 len(payload), flags) + payload)
 
-    def call(self, profile, body, **hdr):
-        """One request; return (start, body bytes, terminal kind, terminal)."""
+    def call(self, profile, body, between=None, **hdr):
+        """One request; return (start, body bytes, terminal kind, terminal).
+
+        @between runs after the request is sent and before the reply is read.
+        """
         self.rid += 1
         header = json.dumps(dict(profile=profile, **hdr)).encode()
         self.send(REQUEST, self.rid,
                   struct.pack("<I", len(header)) + header + body)
+        if between:
+            between()
         start, data = None, b""
         expect = 0
         while True:

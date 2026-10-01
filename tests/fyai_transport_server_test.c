@@ -48,6 +48,10 @@ FYAI_TEST_ENTRY(transport_server, credential_adds_headers, transport_server_cred
 FYAI_TEST_ENTRY(transport_server, parks_until_prepared, transport_server_parks_until_prepared)
 FYAI_TEST_ENTRY(transport_server, prepare_failure_ends_request, transport_server_prepare_failure_ends_request)
 FYAI_TEST_ENTRY(transport_server, cancel_while_parked, transport_server_cancel_while_parked)
+FYAI_TEST_ENTRY(transport_server, rejection_retries_once, transport_server_rejection_retries_once)
+FYAI_TEST_ENTRY(transport_server, rejection_waits_for_renewal, transport_server_rejection_waits_for_renewal)
+FYAI_TEST_ENTRY(transport_server, rejection_without_renewal_passes, transport_server_rejection_without_renewal_passes)
+FYAI_TEST_ENTRY(transport_server, second_rejection_passes, transport_server_second_rejection_passes)
 FYAI_TEST_ENTRY(transport_server, reload_profiles, transport_server_reload_profiles)
 FYAI_TEST_ENTRY(transport_server, streams_response, transport_server_streams_response)
 FYAI_TEST_ENTRY(transport_server, no_credential_for_no_auth, transport_server_no_credential_for_no_auth)
@@ -97,12 +101,14 @@ static void log_cb(void *ud, uint64_t id, const char *event, const char *detail)
 		a->retired++;
 }
 
+/* The value of every credential source; a renewal changes it. */
+static const char *cred_value = "sekret";
+
 static int cred_cb(void *ud, const struct fyai_transport_profile *pr, char **secret,
 		   struct curl_slist **extra)
 {
 	(void)ud;
-	/* Every credential source resolves to the same value. */
-	*secret = strdup("sekret");
+	*secret = strdup(cred_value);
 	if (!*secret)
 		return -ENOMEM;
 	/* A source can derive header lines from its credential. */
@@ -131,6 +137,41 @@ static int prepare_cb(void *ud, const struct fyai_transport_profile *pr,
 		return prep.mode == 2 ? -ESTALE : 0;
 	prep.started++;
 	return 1;
+}
+
+/* What the reject callback does after an HTTP 401. */
+static struct {
+	int mode;		/* 0 renewed now, 1 later, 2 not possible, 3 no change */
+	unsigned int calls;
+	uint64_t tag;		/* the tag that the last call received */
+	bool asked;		/* the first answer was given */
+	bool done;		/* mode 1: the renewal ended */
+} rej;
+
+static int reject_cb(void *ud, const struct fyai_transport_profile *pr,
+		     uint64_t tag, bool probe)
+{
+	(void)ud;
+	(void)pr;
+	if (probe)
+		return 1;
+	/* A request that can wait asks again; the answer follows the state. */
+	if (rej.asked)
+		return rej.mode == 2 ? -ESTALE :
+		       rej.mode == 1 && !rej.done ? 1 : 0;
+	rej.asked = true;
+	rej.calls++;
+	rej.tag = tag;
+	switch (rej.mode) {
+	case 1:
+		return 1;
+	case 2:
+		return -ESTALE;
+	case 3:
+		return 0;	/* renewed, but the new value is no better */
+	}
+	cred_value = "fresh";
+	return 0;
 }
 
 /* Profiles for the mock provider at @port; @tag names the profile. */
@@ -1145,6 +1186,136 @@ int transport_server_parks_until_prepared(void)
 	prep.mode = 0;
 	agent_close(&a);
 	tmock_stop(&m);
+	return 0;
+}
+
+static unsigned int count_of(const char *text, const char *needle)
+{
+	unsigned int n = 0;
+
+	for (; (text = strstr(text, needle)); text += strlen(needle))
+		n++;
+	return n;
+}
+
+static void rejection_begin(struct tmock *m, struct agent *a, int mode)
+{
+	cred_value = "stale";
+	rej.mode = mode;
+	rej.calls = 0;
+	rej.asked = rej.done = false;
+	tmock_start_many(m, TMOCK_AUTH);
+	agent_open(a, m->port, false);
+	profiles_set_auth(a->srv, m->port);
+	fyai_transport_server_set_reject(a->srv, reject_cb);
+	send_request(a, "POST", "application/json", "{}");
+}
+
+static void rejection_end(struct tmock *m, struct agent *a)
+{
+	cred_value = "sekret";
+	agent_close(a);
+	tmock_stop(m);
+}
+
+static bool rejected_once(const struct agent *a)
+{
+	(void)a;
+	return rej.calls == 1;
+}
+
+static long start_status(struct agent *a)
+{
+	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb = fy_generic_builder_create(&cfg);
+	struct fyai_transport_response rs;
+	long status;
+
+	FYAI_TCHECK(gb);
+	FYAI_TCHECK(a->frames[0].kind == FYAI_TK_RESP_START);
+	FYAI_TCHECK(!fyai_transport_response_parse(gb, a->frames[0].data,
+						   a->frames[0].len, &rs));
+	status = rs.status;
+	fy_generic_builder_destroy(gb);
+	return status;
+}
+
+/* A 401 renews the credential and the request runs again; the agent sees 200 only. */
+int transport_server_rejection_retries_once(void)
+{
+	struct tmock m;
+	struct agent a;
+	char seen[16384];
+
+	rejection_begin(&m, &a, 0);
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(a.nframes == 3 && a.seq_ok);
+	FYAI_TCHECK(start_status(&a) == 200);
+	FYAI_TCHECK(a.frames[1].kind == FYAI_TK_RESP_BODY);
+	FYAI_TCHECK(a.frames[2].kind == FYAI_TK_RESP_END);
+	FYAI_TCHECK(rej.calls == 1);
+	FYAI_TCHECK(rej.tag == fyai_transport_credential_tag("stale"));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
+	FYAI_TCHECK(count_of(seen, "POST /v1/x") == 2);
+	FYAI_TCHECK(strcasestr(seen, "Authorization: Bearer stale\r\n"));
+	FYAI_TCHECK(strcasestr(seen, "Authorization: Bearer fresh\r\n"));
+	rejection_end(&m, &a);
+	return 0;
+}
+
+/* A renewal that takes time holds the request, and nothing reaches the agent. */
+int transport_server_rejection_waits_for_renewal(void)
+{
+	struct tmock m;
+	struct agent a;
+
+	rejection_begin(&m, &a, 1);
+	FYAI_TCHECK(agent_wait(&a, rejected_once));
+	FYAI_TCHECK(!a.nframes);
+	FYAI_TCHECK(fyai_transport_server_active(a.srv) == 1);
+	/* The request may or may not wait yet; the end of the renewal runs it. */
+	cred_value = "fresh";
+	rej.done = true;
+	fyai_transport_server_prepared(a.srv);
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(start_status(&a) == 200);
+	FYAI_TCHECK(rej.calls == 1);
+	rejection_end(&m, &a);
+	return 0;
+}
+
+/* A credential that cannot be renewed leaves the 401 as the response. */
+int transport_server_rejection_without_renewal_passes(void)
+{
+	struct tmock m;
+	struct agent a;
+	char seen[16384];
+
+	rejection_begin(&m, &a, 2);
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(start_status(&a) == 401);
+	FYAI_TCHECK(agent_frame(&a, FYAI_TK_RESP_BODY));
+	FYAI_TCHECK(agent_frame(&a, FYAI_TK_RESP_END));
+	tmock_report_nonblock(&m, seen, sizeof(seen));
+	FYAI_TCHECK(count_of(seen, "POST /v1/x") == 1);
+	rejection_end(&m, &a);
+	return 0;
+}
+
+/* A credential that is rejected again after a renewal is not renewed again. */
+int transport_server_second_rejection_passes(void)
+{
+	struct tmock m;
+	struct agent a;
+	char seen[16384];
+
+	rejection_begin(&m, &a, 3);
+	FYAI_TCHECK(agent_wait(&a, has_terminal));
+	FYAI_TCHECK(start_status(&a) == 401);
+	FYAI_TCHECK(rej.calls == 1);
+	tmock_report_nonblock(&m, seen, sizeof(seen));
+	FYAI_TCHECK(count_of(seen, "POST /v1/x") == 2);
+	rejection_end(&m, &a);
 	return 0;
 }
 
