@@ -232,7 +232,7 @@ if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
         INTERFACE_LINK_LIBRARIES "Threads::Threads;m")
 endif()
 
-fyai_fy_dep(libfymermaid ebe61d3eb53c2cd5f4248729289319045dedbee0)
+fyai_fy_dep(libfymermaid 59727e84ce577af7854b37f3f89213b368604c04)
 fyai_fy_dep(libfytimui 0aa28cd2d61c18bf5490722024db20039842c521)
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests.
