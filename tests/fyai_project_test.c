@@ -144,6 +144,7 @@ int project_directory_validation(void)
 	return 0;
 }
 
+#ifdef __linux__
 static void project_remove_tree(int fd)
 {
 	struct dirent *entry;
@@ -238,3 +239,7 @@ int project_capture_parallel(void)
 	FYAI_TCHECK(!rmdir(path));
 	return 0;
 }
+
+#else
+int project_capture_parallel(void) { return 0; }
+#endif

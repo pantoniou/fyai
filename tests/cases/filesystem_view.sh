@@ -1,6 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 set -eu
+[ "$(uname -s)" = Linux ] || exit 77
 . "$(dirname "$0")/../harness.sh"
 
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"

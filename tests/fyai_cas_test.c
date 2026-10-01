@@ -14,6 +14,7 @@ FYAI_TEST_ENTRY(cas, mapped_capture, cas_mapped_capture)
 FYAI_TEST_ENTRY(cas, publication, cas_publication)
 FYAI_TEST_ENTRY(cas, corrupt_reuse, cas_corrupt_reuse)
 
+#ifdef __linux__
 int cas_publication(void)
 {
 	char directory[] = "/tmp/fyai-cas-test-XXXXXX";
@@ -149,3 +150,9 @@ int cas_mapped_capture(void)
 	rmdir(path);
 	return 0;
 }
+
+#else
+int cas_publication(void) { return 0; }
+int cas_corrupt_reuse(void) { return 0; }
+int cas_mapped_capture(void) { return 0; }
+#endif
