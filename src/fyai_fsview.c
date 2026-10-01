@@ -71,7 +71,7 @@ static int view_namespace(bool pid_namespace)
 static int view_overlay(const char *target)
 {
 	return mount("overlay", target, "overlay", MS_NOSUID | MS_NODEV,
-		     "lowerdir=baseline,upperdir=upper,workdir=work,userxattr,index=off,redirect_dir=nofollow");
+		     "lowerdir=baseline,upperdir=upper,workdir=work,userxattr,index=off,redirect_dir=nofollow,metacopy=off");
 }
 
 static int view_mkdirs(const char *path)
@@ -390,7 +390,7 @@ int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
 	if (rc)
 		goto out;
 	rc = mount(source, target, "overlay", MS_RDONLY | MS_NOSUID | MS_NODEV,
-		"lowerdir=baseline,upperdir=upper,workdir=work,userxattr,index=off,redirect_dir=nofollow");
+		"lowerdir=baseline,upperdir=upper,workdir=work,userxattr,index=off,redirect_dir=nofollow,metacopy=off");
 	if (rc)
 		goto out;
 	mounted = true;
@@ -485,10 +485,11 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb,
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED };
 	struct fy_generic_builder *child_gb;
 	struct fyai_project_capture_opts opts = { .baseline_fd = -1,
+		.incremental = true, .snapshot = view->baseline, .upper_fd = -1,
 		.mapped_owner = true, .host_uid = getuid(), .host_gid = getgid(),
 		.verify = view->verify };
 	struct view_capture_reply reply = { 0 };
-	fy_generic snapshot = fy_invalid, emitted;
+	fy_generic snapshot = fy_invalid, emitted, verified;
 	fy_generic_sized_string input;
 	const char *text;
 	char *buffer = NULL, objects[PATH_MAX];
@@ -525,13 +526,23 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb,
 		rc = view_overlay("merged");
 		if (rc)
 			goto child_error;
+		opts.upper_fd = open("upper", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 		opts.source_fd = open("merged", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 		opts.objects_fd = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-		if (opts.source_fd < 0 || opts.objects_fd < 0)
+		if (opts.source_fd < 0 || opts.objects_fd < 0 || opts.upper_fd < 0)
 			goto child_error;
 		snapshot = fyai_project_capture(child_gb, &opts, reply.path, sizeof(reply.path));
 		if (!fy_is_valid(snapshot))
 			goto child_error;
+		if (view->verify) {
+			opts.incremental = false;
+			verified = fyai_project_capture(child_gb, &opts, reply.path, sizeof(reply.path));
+			if (!fy_is_valid(verified) || !fy_equal(verified, snapshot)) {
+				if (fy_is_valid(verified))
+					errno = EIO;
+				goto child_error;
+			}
+		}
 		emitted = fy_emit(child_gb, snapshot, FYOPEF_DISABLE_DIRECTORY |
 			FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_FLOW | FYOPEF_WIDTH_INF, NULL);
 		if (!fy_is_string(emitted)) {

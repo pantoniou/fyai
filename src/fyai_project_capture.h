@@ -6,6 +6,9 @@
 #include "fyai_project.h"
 
 struct fyai_project_capture_opts {
+	bool incremental; /* Source is a frozen merged overlay with an immutable lower. */
+	int upper_fd; /* Required only for incremental capture. */
+	fy_generic snapshot; /* Borrowed baseline manifest; required for incremental capture. */
 	int source_fd;
 	int objects_fd;
 	int baseline_fd; /* -1 records manifests without materializing files. */

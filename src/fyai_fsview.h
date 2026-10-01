@@ -9,6 +9,7 @@ struct fyai_fsview {
 	const char *runtime;
 	const char *storage;
 	const char *arena;
+	fy_generic baseline; /* Borrowed immutable lower manifest for result capture. */
 	bool terminal;
 	bool verify;
 };
