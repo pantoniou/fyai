@@ -46,6 +46,13 @@ int fyai_auth_parse_tokens(struct fyai_ctx *ctx, struct fyai_credentials *c,
 const char *fyai_auth_mode_string(enum fyai_auth_mode mode);
 fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
 				 struct fy_generic_builder *gb, bool info);
+/*
+ * Replace the mode and the method of status data that another process made:
+ * they follow the configuration of this image. Returns fy_invalid when @doc is
+ * not a mapping.
+ */
+fy_generic fyai_auth_status_overlay(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb, fy_generic doc);
 int fyai_auth_login(struct fyai_ctx *ctx, bool device_code,
 		    bool no_browser, bool manual, const char *account, bool new_account);
 fy_generic fyai_auth_accounts_data(struct fyai_ctx *ctx,

@@ -18,6 +18,8 @@
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_auth.h"
+#include "fyai_tools.h"
+#include "fyai_transport_boot.h"
 #include "fyai_ui.h"
 #include "fyai_sink.h"
 
@@ -36,6 +38,19 @@ err:
 }
 
 /*
+ * An isolated image never loads the login store: the transport runs the
+ * command, and this image presents what it returns.
+ */
+static int auth_forward(struct fyai_cmd_call *call, const char *sub,
+			fy_generic *data)
+{
+	const char *words[3] = { "auth", fyai_cmd_arg_str(call, "provider"), sub };
+
+	return fyai_transport_command(call->ctx, call->gb, words, 3,
+				      (int)call->format, data);
+}
+
+/*
  * The login and the health of the credentials. info, and a machine format,
  * add the details of the account.
  */
@@ -47,6 +62,14 @@ int fyai_cmd_auth_status(struct fyai_cmd_call *call, fy_generic *result)
 		return -1;
 	detail = fy_equal(fy_get(call->def, "command", fy_invalid), "info") ||
 		 call->format != FYAI_CMD_OUT_MARKDOWN;
+	if (call->ctx->tclient) {
+		fy_generic data;
+
+		if (auth_forward(call, detail ? "info" : "status", &data))
+			return -1;
+		*result = fyai_auth_status_overlay(call->ctx, call->gb, data);
+		return fy_is_valid(*result) ? 0 : -1;
+	}
 	*result = fyai_auth_status_data(call->ctx, call->gb, detail);
 	fyai_error_check(call->ctx, fy_is_valid(*result), err,
 			 "auth: cannot read the status");
@@ -69,7 +92,12 @@ int fyai_cmd_auth_logout(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (auth_provider(call))
 		return -1;
-	if (fyai_auth_logout(call->ctx))
+	if (call->ctx->tclient) {
+		fy_generic data;
+
+		if (auth_forward(call, "logout", &data))
+			return -1;
+	} else if (fyai_auth_logout(call->ctx))
 		return -1;
 	*result = fy_mapping(call->gb, "logged_out", true);
 	return 0;
@@ -153,6 +181,8 @@ int fyai_cmd_auth_accounts(struct fyai_cmd_call *call, fy_generic *result)
 {
 	if (auth_provider(call))
 		return -1;
+	if (call->ctx->tclient)
+		return auth_forward(call, "accounts", result);
 	*result = fyai_auth_accounts_data(call->ctx, call->gb);
 	return fy_is_valid(*result) ? 0 : -1;
 }

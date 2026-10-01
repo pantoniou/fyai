@@ -31,6 +31,7 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_cmd_int.h"
+#include "fyai_diag.h"
 #include "fyai_event.h"
 #include "fyai_secret.h"
 #include "fyai_transport.h"
@@ -553,6 +554,98 @@ static int op_describe(struct fyai_transport_conn *c, struct fy_generic_builder 
 	return 0;
 }
 
+/*
+ * The commands that the transport runs for the primary image. The transport
+ * is a full image: a command that reads or changes a credential store runs
+ * here, so the store is never loaded by an agent image. Only commands listed
+ * here run; an entry says whether the command needs no refresh in flight.
+ */
+static const struct {
+	const char *handler;
+	bool idle;
+} forwarded[] = {
+	{ "auth_status", false },
+	{ "auth_accounts", false },
+	{ "auth_logout", true },
+};
+
+#define FORWARD_WORDS 8
+
+static int op_cmd(struct fyai_transport_conn *c, struct fy_generic_builder *gb,
+		  fy_generic m, const char **detail)
+{
+	struct fyai_transport_verb *v = c->v;
+	struct fyai_cmd_parsed parsed;
+	struct fyai_cmd_call call;
+	fy_generic words = fy_get(m, "words", fy_invalid), handler;
+	const char *w;
+	const char *argv[FORWARD_WORDS];
+	const char *name;
+	char *text;
+	size_t n = 0, i;
+	int rc;
+
+	if (!c->primary) {
+		*detail = "only the primary connection runs commands";
+		return -EPERM;
+	}
+	if (!fy_is_sequence(words) || !fy_len(words) || fy_len(words) > FORWARD_WORDS) {
+		*detail = "a command is a list of words";
+		return -EINVAL;
+	}
+	fy_foreach(w, words) {
+		if (!*w) {
+			*detail = "a command word is a string";
+			return -EINVAL;
+		}
+		argv[n++] = w;
+	}
+	rc = fyai_cmd_parse(v->ctx->cfg, gb, FYAI_CMD_CLI, n, argv, NULL, NULL,
+			    &parsed);
+	if (rc || parsed.help) {
+		rc = -EINVAL;
+		goto fail;
+	}
+	handler = fy_get(parsed.def, "handler", fy_invalid);
+	name = fy_castp(&handler, "");
+	for (i = 0; i < sizeof(forwarded) / sizeof(forwarded[0]); i++)
+		if (!strcmp(name, forwarded[i].handler))
+			break;
+	if (i == sizeof(forwarded) / sizeof(forwarded[0])) {
+		*detail = "the transport does not run this command";
+		return -EPERM;
+	}
+	if (forwarded[i].idle && v->refresh) {
+		*detail = "a token refresh is running; retry the command";
+		return -EBUSY;
+	}
+	if (!fyai_ctx_transient_gb(v->ctx)) {
+		rc = -ENOMEM;
+		goto fail;
+	}
+	parsed.format = (enum fyai_cmd_format)fy_get(m, "format", 0LL);
+	rc = fyai_cmd_call_init(&call, v->ctx, &parsed, FYAI_CMD_CLI);
+	if (rc) {
+		rc = -ENOMEM;
+		goto fail;
+	}
+	rc = fyai_cmd_call_run(&call);
+	if (!rc)
+		v->reply_extra = fy_mapping(gb, "data",
+			fy_is_valid(call.result) ?
+				fy_gb_internalize(gb, call.result) : fy_null);
+	fyai_cmd_call_release(&call);
+	if (!rc)
+		return 0;
+	rc = -EIO;
+fail:
+	text = fyai_diag_string(&v->ctx->cfg->diag);
+	*detail = fy_gb_intern_string(gb, text && *text ? text : "the command failed");
+	free(text);
+	fyai_diag_reset(&v->ctx->cfg->diag);
+	return rc;
+}
+
 /* Does a credential source hold a value? The answer is yes or no, never the value. */
 static int op_probe(struct fyai_transport_verb *v, struct fy_generic_builder *gb,
 		    fy_generic m, const char **detail)
@@ -903,6 +996,8 @@ static int verb_dispatch(struct fyai_transport_conn *c, struct fy_generic_builde
 		rc = op_profiles(c, m);
 		if (rc == -EPERM)
 			detail = "only the primary connection changes the profiles";
+	} else if (!strcmp(op, "cmd")) {
+		rc = op_cmd(c, gb, m, &detail);
 	} else if (!strcmp(op, "describe")) {
 		rc = op_describe(c, gb, m, &detail);
 	} else if (!strcmp(op, "admit")) {

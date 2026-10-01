@@ -127,6 +127,14 @@ const char *fyai_transport_effective_level(const struct fyai_ctx *ctx);
  */
 int fyai_transport_describe(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			    uint64_t exec_id, fy_generic *out);
+/*
+ * Run the command with the CLI words @words at the transport, which holds the
+ * credential stores, and return its result in *@out, built in @gb. Only
+ * listed commands run there, and only for the primary image.
+ */
+int fyai_transport_command(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			   const char *const *words, size_t nwords,
+			   int format, fy_generic *out);
 
 /*
  * The configured isolation changed in a live session. Return 1 when the run

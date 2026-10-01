@@ -679,8 +679,14 @@ static int ctx_call(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			return rc;
 		}
 		op = fy_get(*reply, "op", fy_invalid);
-		if (fy_equal(op, "event"))
+		/* Asynchronous logging acknowledgements have sequence zero. */
+		if (fy_equal(op, "event") || !fy_get(*reply, "seq", 0LL))
 			continue;
+		if (fy_not_equal(fy_get(*reply, "seq", fy_invalid),
+				 fy_get(req, "seq", fy_invalid))) {
+			*why = "the credential transport returned an unexpected reply sequence";
+			return -EPROTO;
+		}
 		if (fy_equal(op, "ok"))
 			return 0;
 		m = fy_get(*reply, "message", fy_invalid);
@@ -968,6 +974,32 @@ int fyai_transport_describe(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	fyai_error_check(ctx, !rc, err, "profiles: %s",
 			 why ? why : "the credential transport did not answer");
 	*out = reply;
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_transport_command(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+			   const char *const *words, size_t nwords,
+			   int format, fy_generic *out)
+{
+	fy_generic list = fy_seq_empty, reply;
+	const char *why;
+	size_t i;
+	int rc;
+
+	*out = fy_invalid;
+	fyai_error_check(ctx, ctx->tclient, err,
+			 "there is no credential transport in this run");
+	for (i = 0; i < nwords; i++)
+		list = fy_append(gb, list, fy_value(gb, words[i]));
+	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "cmd",
+			"seq", ++ctx->transport_seq, "words", list,
+			"format", (long long)format),
+		      -1, &reply, &why);
+	fyai_error_check(ctx, !rc, err, "%s",
+			 why ? why : "the credential transport did not answer");
+	*out = fy_get(reply, "data", fy_null);
 	return 0;
 err:
 	return -1;

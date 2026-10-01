@@ -1961,6 +1961,18 @@ fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
 	return doc;
 }
 
+fy_generic fyai_auth_status_overlay(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb, fy_generic doc)
+{
+	if (!fy_is_mapping(doc))
+		return fy_invalid;
+	doc = fy_assoc(gb, doc, "configured_mode",
+		       fyai_auth_mode_string(ctx->cfg->auth_mode));
+	return fy_assoc(gb, doc, "effective_method",
+		auth_effective_method(ctx,
+			fy_equal(fy_get(doc, "status", ""), "signed_in")));
+}
+
 int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
 			bool raw, fy_generic *datap)
 {
