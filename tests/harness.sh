@@ -177,6 +177,8 @@ fyai_test_setup_bare() {
 	export HOME="$TEST_DIR/home"
 	export XDG_STATE_HOME="$TEST_DIR/home/.local/state"
 	export XDG_CONFIG_HOME="$TEST_DIR/home/.config"
+	# System keyrings are shared across private HOME and XDG directories.
+	export FYAI_AUTH_STORAGE=file
 	mkdir -p "$HOME"
 	unset OPENAI_API_KEY OPENROUTER_API_KEY DEEPSEEK_API_KEY ANTHROPIC_API_KEY \
 	      GOOGLE_API_KEY || true
