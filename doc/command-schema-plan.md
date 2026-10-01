@@ -107,7 +107,7 @@ a command line. The validator ignores them as annotations.
 | Keyword | Meaning |
 |---|---|
 | `x-fyai-positional: N` | the property takes positional word N |
-| `x-fyai-rest: true` | the property takes the rest of the line as one string (`/btw QUESTION`, `/compact [hint]`) |
+| `x-fyai-rest: true` | a string takes the remaining line; an array forwards all remaining words verbatim, including options (`view enter NAME COMMAND...`) |
 | `x-fyai-long: name` | long option name; the default is the property name with `_` changed to `-` |
 | `x-fyai-short: c` | one-letter option |
 | `x-fyai-meta: NAME` | placeholder in the usage line and in help |

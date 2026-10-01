@@ -653,7 +653,8 @@ supplies the agent-runtime projection described in section 8.1.
 ### 11.1. Initial executable command scope
 
 The first implementation provides CLI-only `view create NAME [PROJECT]`,
-`view show NAME`, `view list`, and `view enter NAME --command COMMAND`.
+`view update NAME`, `view show NAME`, `view list`, and
+`view enter NAME [COMMAND [ARG...]]`.
 Omitting PROJECT captures the current directory. Named view references live in
 `store/views` on the selected branch; blobs live in `<project>/.fyai/objects/blake3`
 and overlay backing lives in `<project>/.fyai/views/view-XXXXXX/`.
@@ -661,8 +662,11 @@ The same arena and branch must be selected on subsequent invocations.
 
 ```sh
 fyai view create experiment .
-fyai view enter experiment --command 'pwd; git status --short'
-fyai view enter experiment --command 'printf "hello\n" > example.txt'
+fyai view enter experiment
+fyai view enter experiment git status --short
+fyai view enter experiment sh -c 'printf "hello\n" > example.txt'
+fyai view enter experiment cat example.txt | tee captured.txt
+fyai view update experiment
 fyai view show experiment
 fyai view list
 ```
@@ -676,10 +680,35 @@ File hashing maps the private captured file, not the mutable host source. This
 keeps host truncation from causing a mapped-source fault while retaining the
 optimized BLAKE3 implementation.
 
+Capture uses Linux `copy_file_range` for source-to-CAS and CAS-to-baseline copies,
+with `sendfile` fallback when range copying is unsupported. One affinity-sized
+libfyaml `fy_thread` pool runs file jobs and BLAKE3 chunk jobs. Each capture worker
+reuses a hasher bound to that same pool. Workers never modify the generic builder;
+the caller constructs directory manifests after all jobs join. Directory metadata
+is applied after descendants are materialized. Source lookup rejects symlink and
+mount traversal with `openat2`.
+
+The temporary `--verify` option enables an independent serial stage before root
+publication. A separate reused hasher has threading disabled. It checks CAS sizes
+and digests, compares source bytes against the immutable mapped CAS capture, and
+checks materialized baseline sizes and digests. Source metadata is checked around
+verification. Normal capture does not run this stage. The option applies to create,
+update, and entered-result ingestion; place it before NAME for entry so command
+arguments remain unchanged:
+
+```sh
+fyai view create --verify experiment .
+fyai view update --verify experiment
+fyai view enter --verify experiment make -j8
+```
+
 Entry creates private user, mount, and PID namespaces, mounts the overlay at the
 original absolute project path, changes the child working directory there, and
-executes the command. Host mounts are recursively read-only. `/tmp` is a fresh
-writable tmpfs. The reserved root `.fyai` is omitted from CAS and covered by an
+executes the remaining argument list directly, or starts `$SHELL` (falling back
+to `/bin/sh`) when no command is supplied. The caller’s UID and GID are preserved
+inside the user namespace. Standard input, output, and error are inherited; pipes
+and redirects belong to the invoking shell. Host mounts are recursively read-only.
+`/tmp` is a fresh writable tmpfs. The reserved root `.fyai` is omitted from CAS and covered by an
 empty read-only mount. Backing mounts and storage are inaccessible to tool code;
 Landlock and dropped namespace capabilities enforce the execution policy.
 The command cannot change its invoking shell's directory.
@@ -702,15 +731,23 @@ concurrent writers; entry records `state: running`, and successful result
 publication records `state: ready`. An observed execution or ingestion failure
 records `state: incomplete`; a process crash may leave the running marker.
 The previous published result remains available until a new result is captured.
-The PID namespace stops descendants when its command exits, before a trusted
-helper mounts and ingests the merged state. Returned data includes `exit_code`,
-`timed_out`, captured output, and the result root. A nonzero command exit is
-returned as data after result capture; setup or capture failure fails the verb.
-`--timeout-ms` defaults to 60000.
+The PID namespace supervisor waits for the executed child, then stops descendants
+before a trusted helper mounts and ingests the merged state. Tool code does not
+run as PID 1, so ordinary command signal handling remains available. Terminal
+entry transfers foreground ownership and restores terminal settings on exit.
+The CLI returns the child’s exit status after publishing its result and emits no
+result document on the command’s standard output. Setup or capture failure fails
+the verb. Inspect the resulting root separately with `view show`.
+
+`view update NAME` captures the host project into a new baseline and an empty
+upper, replacing the named view and discarding its changes. It requires the old
+view’s exclusive lock. Failed capture leaves the old reference intact. Old backing
+directories remain unreachable caches pending garbage collection; previous CAS
+objects remain immutable.
 
 Host changes after creation do not change the baseline. View changes are retained
-separately and are never applied to the host by these commands. Persistent explicit
-mount/unmount, interactive shell entry, automatic tool/agent view selection,
+separately and are never applied to the host by these commands. Automatic
+tool/agent view selection,
 parent merge/apply, incremental monitoring, cache reconstruction, and CAS garbage
 collection remain later implementation steps. This initial capture rejects
 hard-linked files, special files, and unsupported metadata rather than losing them.
@@ -768,3 +805,28 @@ presentation conventions.
 These references inform mechanisms. The acceptance tests establish which combinations
 fyai actually supports; upstream feature descriptions are not evidence that a proposed
 mount/security combination has been validated.
+
+### Read-only inspection mounts
+
+`fyai view mount NAME PATH` installs a persistent read-only overlay at an empty
+directory, with `.fyai` covered by the empty read-only control-directory mount.
+`fyai view unmount NAME` removes it. Mounted views reject entry and update.
+The record stores the mount namespace identity, mount IDs, and root inode;
+unmount checks these identities before removing any mount.
+
+These operations require mount privileges in the current namespace. A rootless
+inspection session can own a namespace without a daemon:
+
+```sh
+unshare -Urnm sh
+fyai view mount experiment /tmp/experiment
+fyai view mount comparison /tmp/comparison
+diff -ru /tmp/experiment /tmp/comparison
+fyai view unmount comparison
+fyai view unmount experiment
+exit
+```
+
+Unmount before leaving that shell. Mounts are visible in its namespace, and
+stale records after an abandoned namespace require future recovery support.
+A busy unmount retains its record for retry; it never uses lazy or forced unmount.

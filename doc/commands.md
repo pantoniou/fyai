@@ -1304,7 +1304,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|enter} ...`
+**Usage:** `fyai view {create|list|show|update|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1318,7 +1318,10 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `create` | capture a project and create a named view |
 | `list` | list the filesystem views of the active branch |
 | `show` | inspect a named filesystem view |
-| `enter` | run a command in a private filesystem view |
+| `update` | replace a view with a fresh host snapshot |
+| `mount` | mount a view for read-only inspection |
+| `unmount` | unmount the recorded inspection view |
+| `enter` | enter a private filesystem view |
 
 With no command, `list` runs.
 
@@ -1326,7 +1329,7 @@ With no command, `list` runs.
 
 capture a project and create a named view
 
-**Usage:** `fyai view create NAME [PROJECT]`
+**Usage:** `fyai view create [--verify] NAME [PROJECT]`
 
 Capture PROJECT, excluding its reserved .fyai directory, and record
 a named view on the active branch. Reject unsupported metadata and
@@ -1344,6 +1347,7 @@ observed concurrent changes. No provider credential is required.
 
 | Option | Description |
 | --- | --- |
+| `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -1383,16 +1387,92 @@ Show a view's baseline and latest recorded result identity.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai view update
+
+replace a view with a fresh host snapshot
+
+**Usage:** `fyai view update [--verify] NAME`
+
+Capture the host project again and replace the named view with a fresh
+baseline and empty upper. Discard the view's changes without changing
+the host project. Refuse the update while the view is in use.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the view to replace |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view mount
+
+mount a view for read-only inspection
+
+**Usage:** `fyai view mount NAME PATH`
+
+Mount the named view at an empty directory for inspection and comparison.
+The read-only mount persists in the current mount namespace until unmount.
+Mount privileges are required; rootless inspection can use an explicitly
+started unshare -Urnm sh session. Unmount before entering or updating.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view to inspect |
+| `PATH` | an empty mount directory, created when absent |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view unmount
+
+unmount the recorded inspection view
+
+**Usage:** `fyai view unmount NAME`
+
+Verify the recorded namespace, mount IDs, and source before releasing
+the inspection mount. Busy mounts are retained. Run in the namespace
+that owns the mount and unmount before leaving a rootless inspection shell.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the mounted view to release |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai view enter
 
-run a command in a private filesystem view
+enter a private filesystem view
 
-**Usage:** `fyai view enter --command COMMAND [--timeout-ms MS] NAME`
+**Usage:** `fyai view enter [--verify] NAME [COMMAND...]`
 
-Mount the named view in private namespaces, run COMMAND in its project
-directory, and record its result in CAS. The host project stays separate.
-The mount ends with the command and its descendants. This operation
-requires Linux user namespaces, OverlayFS, and Landlock.
+Mount the named view in private namespaces and start a shell in its project
+directory, or execute the remaining command arguments directly. Standard
+input, output, and error are inherited. Record the result in CAS on exit.
+The host project stays separate. This operation requires Linux user
+namespaces, OverlayFS, and Landlock.
 
 
 ### Arguments
@@ -1400,13 +1480,13 @@ requires Linux user namespaces, OverlayFS, and Landlock.
 | Argument | Description |
 | --- | --- |
 | `NAME` | the name of the view to enter |
+| `COMMAND` | the command and arguments to execute; omit to start a shell |
 
 ### Options
 
 | Option | Description |
 | --- | --- |
-| `--command COMMAND` | the shell command to run inside the view |
-| `--timeout-ms MS` | the command time limit in milliseconds; default 60000 |
+| `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
