@@ -19,6 +19,12 @@ v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 assert v['state'] == 'ready'
 PY
+[ -d project/.fyai/objects/blake3 ] || fail 'missing project CAS store'
+[ -n "$(find project/.fyai/objects/blake3 -type f -print -quit)" ] || fail 'missing project CAS blob'
+[ -n "$(find project/.fyai/views -mindepth 2 -maxdepth 2 -name upper -type d -print -quit)" ] || fail 'missing project overlay upper'
+[ ! -e "$HOME/.fyai/objects" ] || fail 'CAS store created under HOME'
+[ ! -e "$HOME/.fyai/views" ] || fail 'overlay created under HOME'
+
 run_fyai view create demo "$TEST_DIR/project"
 assert_status 1
 
