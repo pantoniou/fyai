@@ -38,6 +38,11 @@ jwt = ".".join((enc({"alg": "none"}), enc({
 with open(sys.argv[1], "w") as f:
     json.dump({
         "type": "chatgpt",
+        "client_id": "oaiapp_test",
+        "ext_agent_host_id": "urn:uuid:00000000-0000-4000-8000-000000000000",
+        "subject": "account-test",
+        "email": "user@example.com",
+        "scope": "openid resource.invoke chatgpt.tokens.use.direct",
         "access_token": "secret-access",
         "refresh_token": "secret-refresh",
         "id_token": jwt,
@@ -53,7 +58,7 @@ assert_stdout_contains 'openai'
 assert_stdout_contains 'user@example.com'
 assert_stdout_contains 'account-test'
 assert_stdout_contains 'Subscription'
-assert_stdout_contains 'pro'
+assert_stdout_contains 'ChatGPT plan'
 assert_stdout_contains 'Effective method'
 assert_stdout_contains 'chatgpt'
 assert_stdout_not_contains "secret-access"
@@ -63,7 +68,7 @@ run_fyai auth openai info --output json
 assert_status 0
 assert_stdout_contains '"provider": "openai"'
 assert_stdout_contains '"status": "signed_in"'
-assert_stdout_contains '"plan": "pro"'
+assert_stdout_contains '"plan_usage_authorized": true'
 assert_stdout_not_contains "secret-access"
 
 run_fyai auth anthropic status

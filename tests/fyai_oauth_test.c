@@ -47,6 +47,8 @@ FYAI_TEST_ENTRY(oauth, connection_flood, oauth_connection_flood)
 FYAI_TEST_ENTRY(oauth, destroy_while_listening, oauth_destroy_while_listening)
 FYAI_TEST_ENTRY(oauth, pkce, oauth_pkce)
 FYAI_TEST_ENTRY(oauth, query_value, oauth_query_value)
+FYAI_TEST_ENTRY(oauth, registration_redirect, oauth_registration_redirect)
+FYAI_TEST_ENTRY(oauth, declined_redirect, oauth_declined_redirect)
 
 #define TEST_BOUND_MS	5000
 #define TEST_STATE	"s3cr3t-state"
@@ -647,6 +649,41 @@ static void test_query_value(void)
 }
 
 /* Run one test with an isolated OAuth context. */
+static void test_registration_redirect(void)
+{
+	struct fyai_oauth_params p = test_params(TEST_BOUND_MS);
+	struct fyai_event_loop *el = fyai_event_loop_create(&test_ctx);
+	struct fyai_oauth_flow *f = NULL;
+	int rc;
+
+	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
+	FYAI_TCHECK(!rc);
+	fyai_oauth_flow_redirect(f, "GET /auth/callback?state=" TEST_STATE
+		"&code=registration&client_id=oaiapp_test HTTP/1.1\r\n");
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_GOT_CODE);
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_client_id(f), "oaiapp_test"));
+	fyai_oauth_flow_destroy(f);
+	fyai_event_loop_destroy(el);
+}
+
+static void test_declined_redirect(void)
+{
+	struct fyai_oauth_params p = test_params(TEST_BOUND_MS);
+	struct fyai_event_loop *el = fyai_event_loop_create(&test_ctx);
+	struct fyai_oauth_flow *f = NULL;
+	int rc;
+
+	rc = fyai_oauth_flow_start(&test_ctx, el, &p, NULL, NULL, &f);
+	FYAI_TCHECK(!rc);
+	fyai_oauth_flow_redirect(f, "GET /auth/callback?state=" TEST_STATE
+		"&error=access_denied&code=ignored HTTP/1.1\r\n");
+	FYAI_TCHECK(fyai_oauth_flow_state(f) == FYAI_OAUTH_FAILED);
+	FYAI_TCHECK(!strcmp(fyai_oauth_flow_error(f), "access_denied"));
+	FYAI_TCHECK(!fyai_oauth_flow_code(f));
+	fyai_oauth_flow_destroy(f);
+	fyai_event_loop_destroy(el);
+}
+
 static int oauth_run(void (*testfn)(void))
 {
 	int rc;
@@ -727,4 +764,14 @@ int oauth_pkce(void)
 int oauth_query_value(void)
 {
 	return oauth_run(test_query_value);
+}
+
+int oauth_registration_redirect(void)
+{
+	return oauth_run(test_registration_redirect);
+}
+
+int oauth_declined_redirect(void)
+{
+	return oauth_run(test_declined_redirect);
 }
