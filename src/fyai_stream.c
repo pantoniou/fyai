@@ -798,7 +798,10 @@ static void stream_report_failure(struct stream_response *stream,
 		stream->retry_hint = true;
 		return;
 	}
-	fyai_error(ctx, "%s", text);
+	if (fy_equal(fy_get(err, "code", ""), "subscription_sharing_usage_limit_exceeded"))
+		fyai_error(ctx, "%s; review app limits at https://chatgpt.com/settings/usage", text);
+	else
+		fyai_error(ctx, "%s", text);
 }
 
 /* Present a provider-run search; the item stays in response_items. */

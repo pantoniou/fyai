@@ -101,9 +101,8 @@ static void auth_login_cleanup(struct fyai_cmd_call *call)
 }
 
 /*
- * The browser and device-code flows run on the event loop: the verb waits for
- * them, and a session goes on while the user signs in. A pasted redirect
- * reads the terminal, thus it runs at once.
+ * Browser authorization runs on the event loop. A manual callback uses the
+ * same state machine after it reads the complete redirect URL.
  */
 int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 {
@@ -113,11 +112,14 @@ int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 		return -1;
 	if (fyai_cmd_arg_bool(call, "manual")) {
 		*result = fy_invalid;
-		return fyai_auth_login(call->ctx, false, false, true);
+		return fyai_auth_login(call->ctx, false, false, true,
+			fyai_cmd_arg_str(call, "account"), fyai_cmd_arg_bool(call, "new_account"));
 	}
 	request = fyai_auth_login_submit(call->ctx,
 					 fyai_cmd_arg_bool(call, "device_code"),
 					 fyai_cmd_arg_bool(call, "no_browser"),
+					 fyai_cmd_arg_str(call, "account"),
+					 fyai_cmd_arg_bool(call, "new_account"),
 					 auth_login_complete, call);
 	fyai_error_check(call->ctx, request, err,
 			 "could not start authentication login");
@@ -132,4 +134,12 @@ int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result)
 	return FYAI_CMD_PENDING;
 err:
 	return -1;
+}
+
+int fyai_cmd_auth_accounts(struct fyai_cmd_call *call, fy_generic *result)
+{
+	if (auth_provider(call))
+		return -1;
+	*result = fyai_auth_accounts_data(call->ctx, call->gb);
+	return fy_is_valid(*result) ? 0 : -1;
 }

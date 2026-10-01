@@ -380,6 +380,9 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	}
 	assert(ctx->transient_gb);
 
+	if (cfg->chatgpt_auth)
+		cfg->response_compaction_supported = false;
+
 	if (fyai_session_compact_v2(cfg))
 		return session_compact_responses_v2(ctx, hint);
 

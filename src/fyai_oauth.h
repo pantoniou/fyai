@@ -26,6 +26,7 @@ struct fyai_oauth_pkce {
 	char *verifier;		/* sent at token exchange */
 	char *challenge;	/* S256(verifier), sent at authorize */
 	char *state;		/* echoed back on the redirect */
+	char *nonce;		/* bound to the ID token */
 };
 
 int fyai_oauth_pkce_generate(struct fyai_oauth_pkce *p);
@@ -70,6 +71,10 @@ unsigned short fyai_oauth_flow_port(const struct fyai_oauth_flow *f);
 /* The authorization code, valid once the state is GOT_CODE and until the flow
  * is destroyed. */
 const char *fyai_oauth_flow_code(const struct fyai_oauth_flow *f);
+const char *fyai_oauth_flow_client_id(const struct fyai_oauth_flow *f);
+const char *fyai_oauth_flow_error(const struct fyai_oauth_flow *f);
+/* Validate a pasted callback through the same receiver as a browser redirect. */
+void fyai_oauth_flow_redirect(struct fyai_oauth_flow *f, const char *request);
 
 /* Tell the browser how the login ended. */
 void fyai_oauth_flow_finish(struct fyai_oauth_flow *f, bool ok);

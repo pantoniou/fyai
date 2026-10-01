@@ -536,6 +536,14 @@ bool fyai_provider_error_transient(fy_generic err)
 
 	code = fy_get(err, "code");
 	type = fy_get(err, "type");
+	if (fy_any_equal(code, "subscription_sharing_usage_limit_exceeded",
+		"subscription_sharing_user_not_eligible", "subscription_sharing_invalid_user",
+		"subscription_sharing_unsupported_capability", "subscription_sharing_route_not_supported",
+		"chatpass_v2_scope_not_authorized", "chatpass_v2_invalid_authorization_context"))
+		return false;
+	if (fy_any_equal(code, "subscription_sharing_usage_unavailable",
+		"subscription_sharing_user_unavailable"))
+		return true;
 	if (fy_any_equal(code, "rate_limit_exceeded", "server_error",
 			 "service_unavailable"))
 		return true;

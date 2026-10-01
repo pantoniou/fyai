@@ -120,6 +120,7 @@ static const struct {
 	{ "catalog_reset",	fyai_cmd_catalog_reset },
 	{ "catalog_edit",	fyai_cmd_catalog_edit },
 	{ "catalog_update",	fyai_cmd_catalog_update },
+	{ "auth_accounts",	fyai_cmd_auth_accounts },
 	{ "auth_status",	fyai_cmd_auth_status },
 	{ "auth_usage",		fyai_cmd_auth_usage },
 	{ "auth_login",		fyai_cmd_auth_login },

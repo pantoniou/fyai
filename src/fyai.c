@@ -36,6 +36,7 @@
 #include "fyai_markdown.h"
 #include "fyai_model.h"
 #include "fyai_provider.h"
+#include "fyai_auth_util.h"
 #include "fyai_output.h"
 #include "fyai_sink.h"
 #include "fyai_session.h"
@@ -991,6 +992,14 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	step->tool_sink.ctx = ctx;
 	step->tool_sink.group = step->tool_group;
 
+	if (cfg->chatgpt_auth) {
+		fyai_error_check(ctx, cfg->api_mode == FYAI_API_RESPONSES &&
+			!cfg->response_chain && cfg->api_url &&
+			!strcmp(cfg->api_url, OPENAI_RESPONSES_URL), out,
+			"ChatGPT plan usage requires the public, stateless Responses endpoint");
+		cfg->stream = true;
+	}
+
 	rc = fyai_model_step_context_check(ctx, turn);
 	fyai_error_check(ctx, !rc, out,
 			 "could not fit the request in the context window");
@@ -1044,6 +1053,8 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		request = fy_assoc(ctx->transient_gb, request, "top_logprobs",
 				   cfg->top_logprobs);
 	request = fyai_model_step_add_stream_options(ctx, cfg, request);
+	if (cfg->chatgpt_auth)
+		request = fyai_auth_subscription_request(ctx->transient_gb, request);
 	fyai_error_check(ctx, fy_is_valid(request), out,
 			 "could not finish the model request");
 
@@ -2232,6 +2243,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->cfg = cfg;
+	ctx->auth.registrations = fy_invalid;
 
 	ctx->stdout_tty = terminal_is_tty(STDOUT_FILENO);
 	if (!terminal_window_size(STDOUT_FILENO, &ctx->tty_rows, &ctx->tty_cols))

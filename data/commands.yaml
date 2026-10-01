@@ -1748,6 +1748,10 @@ commands:
             title: Authentication
             columns:
               status: {format: humanize}
+              configured_mode: {name: Configured mode}
+              effective_method: {name: Effective method}
+              plan_usage_authorized: {name: Plan usage authorized}
+              client_id: {name: Client registration}
               account_id: {name: Account}
               plan: {name: Subscription}
               expires_at: {name: Token expires}
@@ -1765,6 +1769,10 @@ commands:
             title: Authentication
             columns:
               status: {format: humanize}
+              configured_mode: {name: Configured mode}
+              effective_method: {name: Effective method}
+              plan_usage_authorized: {name: Plan usage authorized}
+              client_id: {name: Client registration}
               account_id: {name: Account}
               plan: {name: Subscription}
               expires_at: {name: Token expires}
@@ -1772,8 +1780,8 @@ commands:
               storage: {name: Credential storage}
 
       - command: usage
-        title: show the live limits and credits
-        description: Fetch and show the live limits and credits of the subscription.
+        title: show where to manage subscription usage
+        description: Show the ChatGPT settings link for app usage and credit permissions.
         flags: [no-storage, transient]
         handler: auth_usage
         render:
@@ -1782,10 +1790,11 @@ commands:
       - command: login
         title: sign in to the subscription
         description: |
-          Sign in with the browser and a loopback callback. `--device-code`
-          uses the device-code flow, `--no-browser` writes the URL and does
-          not start a browser, and `--manual` reads a pasted redirect URL,
-          for a browser on another machine. `^C` or Escape cancels.
+          Register fyai and authorize ChatGPT plan usage with a browser and
+          a loopback callback. Reuse the active registration, select one with
+          `--account`, or add one with `--new-account`. `--no-browser` writes
+          the URL; `--manual` reads a complete pasted redirect URL. Device-code
+          registration is not supported. `^C` or Escape cancels.
         flags: [no-storage, transient]
         handler: auth_login
         mode: async
@@ -1795,7 +1804,14 @@ commands:
           properties:
             device_code:
               type: boolean
-              description: use the headless device-code flow
+              description: reject the unsupported legacy device-code flow
+            account:
+              type: string
+              description: reuse the issued client ID of a saved account
+              x-fyai-meta: CLIENT_ID
+            new_account:
+              type: boolean
+              description: register another ChatGPT account or workspace
             no_browser:
               type: boolean
               description: write the URL and start no browser
@@ -1806,11 +1822,27 @@ commands:
         render:
           message: "auth: login succeeded"
 
+      - command: accounts
+        title: list saved ChatGPT registrations
+        description: List saved accounts and workspace registrations without tokens.
+        flags: [no-storage, transient]
+        handler: auth_accounts
+        while_busy: run
+        render:
+          table:
+            title: ChatGPT accounts
+            columns:
+              client_id: {name: Client registration}
+              email: {name: Email}
+              subject: {name: Account}
+              active: {name: Active}
+              signed_in: {name: Signed in}
+
       - command: logout
         title: sign out and remove the credentials
         description: |
           Revoke the login when the provider allows it, and remove the local
-          credentials.
+          tokens. Keep the client registration and host ID for later sign-in.
         flags: [no-storage, transient]
         handler: auth_logout
         render:
@@ -2147,8 +2179,8 @@ commands:
           api: {name: API}
 
   - command: usage
-    title: show the live limits and credits
-    description: Fetch and show the live limits and credits of the subscription.
+    title: show where to manage subscription usage
+    description: Show the ChatGPT settings link for app usage and credit permissions.
     surfaces: [session]
     handler: auth_usage
     render:

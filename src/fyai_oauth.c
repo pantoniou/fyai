@@ -83,19 +83,21 @@ char *fyai_oauth_query_value(CURL *curl, const char *request, const char *key)
 
 int fyai_oauth_pkce_generate(struct fyai_oauth_pkce *p)
 {
-	unsigned char verifier_random[48], state_random[32];
+	unsigned char verifier_random[48], state_random[32], nonce_random[32];
 	unsigned char digest[SHA256_DIGEST_LENGTH];
 
 	memset(p, 0, sizeof(*p));
 
 	if (RAND_bytes(verifier_random, sizeof(verifier_random)) != 1 ||
-	    RAND_bytes(state_random, sizeof(state_random)) != 1)
+	    RAND_bytes(state_random, sizeof(state_random)) != 1 ||
+	    RAND_bytes(nonce_random, sizeof(nonce_random)) != 1)
 		return -1;
 
 	p->verifier = fyai_base64url_encode(verifier_random,
 					    sizeof(verifier_random));
 	p->state = fyai_base64url_encode(state_random, sizeof(state_random));
-	if (!p->verifier || !p->state)
+	p->nonce = fyai_base64url_encode(nonce_random, sizeof(nonce_random));
+	if (!p->verifier || !p->state || !p->nonce)
 		goto err_out;
 
 	SHA256((unsigned char *)p->verifier, strlen(p->verifier), digest);
@@ -117,6 +119,7 @@ void fyai_oauth_pkce_cleanup(struct fyai_oauth_pkce *p)
 	free(p->verifier);
 	free(p->challenge);
 	free(p->state);
+	free(p->nonce);
 	memset(p, 0, sizeof(*p));
 }
 
@@ -174,6 +177,8 @@ struct fyai_oauth_flow {
 	const char *expect_state;
 
 	char *code;
+	char *client_id;
+	char *error;
 	int winner;				/* conn index owed a response */
 
 	fyai_oauth_done_cb done_cb;
@@ -268,7 +273,6 @@ static void oauth_settle(struct fyai_oauth_flow *f, enum fyai_oauth_state st)
 /* Consume one connection's request once its headers are complete. */
 static void oauth_consume(struct fyai_oauth_flow *f, struct oauth_conn *c)
 {
-	char *got_state;
 	size_t plen;
 
 	plen = strlen(f->path);
@@ -282,25 +286,43 @@ static void oauth_consume(struct fyai_oauth_flow *f, struct oauth_conn *c)
 		return;
 	}
 
-	f->code = fyai_oauth_query_value(f->ctx->curl, c->buf, "code");
-	got_state = fyai_oauth_query_value(f->ctx->curl, c->buf, "state");
+	c->state = OAUTH_CONN_HELD;
+	f->winner = (int)(c - f->conns);
+	fyai_oauth_flow_redirect(f, c->buf);
+}
 
-	/* A redirect with the wrong state is a cross-site request or a stale tab, not
-	 * a reason to keep listening. */
-	if (!f->code || !got_state || strcmp(got_state, f->expect_state)) {
-		free(f->code);
-		f->code = NULL;
+void fyai_oauth_flow_redirect(struct fyai_oauth_flow *f, const char *request)
+{
+	char *got_state;
+
+	if (f->settled)
+		return;
+	got_state = fyai_oauth_query_value(f->ctx->curl, request, "state");
+	if (!got_state || strcmp(got_state, f->expect_state)) {
 		free(got_state);
-		oauth_respond(c->fd, oauth_resp_bad, sizeof(oauth_resp_bad) - 1);
-		oauth_conn_close(c);
 		oauth_settle(f, FYAI_OAUTH_BAD_STATE);
 		return;
 	}
-
 	free(got_state);
-	c->state = OAUTH_CONN_HELD;
-	f->winner = (int)(c - f->conns);
-	oauth_settle(f, FYAI_OAUTH_GOT_CODE);
+	f->error = fyai_oauth_query_value(f->ctx->curl, request, "error");
+	if (f->error) {
+		oauth_settle(f, FYAI_OAUTH_FAILED);
+		return;
+	}
+	f->code = fyai_oauth_query_value(f->ctx->curl, request, "code");
+	f->client_id = fyai_oauth_query_value(f->ctx->curl, request, "client_id");
+	oauth_settle(f, f->code && *f->code ?
+		     FYAI_OAUTH_GOT_CODE : FYAI_OAUTH_FAILED);
+}
+
+const char *fyai_oauth_flow_client_id(const struct fyai_oauth_flow *f)
+{
+	return f->client_id;
+}
+
+const char *fyai_oauth_flow_error(const struct fyai_oauth_flow *f)
+{
+	return f->error;
 }
 
 static enum fyai_event_action oauth_on_client(const struct fyai_event *ev)
@@ -549,6 +571,8 @@ void fyai_oauth_flow_destroy(struct fyai_oauth_flow *f)
 	if (f->listen_fd >= 0)
 		close(f->listen_fd);
 	free(f->code);
+	free(f->client_id);
+	free(f->error);
 	free(f);
 }
 

@@ -4,6 +4,10 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <time.h>
+#include <libfyaml/libfyaml-generic.h>
+
+#define FYAI_AUTH_ISSUER "https://auth.openai.com"
 
 struct fyai_ctx;
 
@@ -17,5 +21,15 @@ char *fyai_auth_store_read(struct fyai_ctx *ctx, const char *name);
 int fyai_auth_store_write(struct fyai_ctx *ctx, const char *name,
 			  const char *text);
 int fyai_auth_store_delete(struct fyai_ctx *ctx, const char *name);
+
+bool fyai_auth_scope_has(const char *scopes, const char *scope);
+/* The verified claims live in gb; an invalid token returns fy_invalid. */
+fy_generic fyai_auth_verify_id_token(struct fy_generic_builder *gb,
+		const char *token, fy_generic jwks, const char *client_id,
+		const char *nonce, const char *subject, time_t now);
+
+/* Adapt a Responses request to the ChatGPT plan HTTP contract in gb. */
+fy_generic fyai_auth_subscription_request(struct fy_generic_builder *gb,
+					 fy_generic request);
 
 #endif

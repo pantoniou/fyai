@@ -21,8 +21,13 @@ enum fyai_auth_mode {
 	FYAI_AUTH_CHATGPT,
 };
 
-/* all pointer are stable in the cfg builder */
+/* Credential strings live in the authentication builder. */
 struct fyai_credentials {
+	const char *client_id;
+	const char *host_id;
+	const char *subject;
+	const char *scope;
+	fy_generic registrations;
 	const char *access_token;
 	const char *refresh_token;
 	const char *id_token;
@@ -34,16 +39,19 @@ struct fyai_credentials {
 	const char *storage;
 };
 
+bool fyai_auth_credentials_ready(const struct fyai_credentials *c);
+/* Token strings are copied into ctx's authentication builder. */
+int fyai_auth_parse_tokens(struct fyai_ctx *ctx, struct fyai_credentials *c,
+			  fy_generic doc, bool refresh);
 const char *fyai_auth_mode_string(enum fyai_auth_mode mode);
 fy_generic fyai_auth_status_data(struct fyai_ctx *ctx,
 				 struct fy_generic_builder *gb, bool info);
 int fyai_auth_login(struct fyai_ctx *ctx, bool device_code,
-		    bool no_browser, bool manual);
+		    bool no_browser, bool manual, const char *account, bool new_account);
+fy_generic fyai_auth_accounts_data(struct fyai_ctx *ctx,
+				   struct fy_generic_builder *gb);
 int fyai_auth_logout(struct fyai_ctx *ctx);
-/*
- * Fetch the live limits of the active subscription into @out_gb: the
- * response as the provider sends it with @raw, else a summary of it.
- */
+/* Return the supported ChatGPT usage-settings link in out_gb. */
 int fyai_auth_usage(struct fyai_ctx *ctx, struct fy_generic_builder *out_gb,
 		    bool raw, fy_generic *datap);
 int fyai_auth_resolve(struct fyai_ctx *ctx);
@@ -60,7 +68,8 @@ int fyai_auth_refresh_collect(
 void fyai_auth_refresh_destroy(struct fyai_auth_refresh_request *request);
 struct fyai_auth_login_request *
 fyai_auth_login_submit(struct fyai_ctx *ctx, bool device_code,
-		       bool no_browser, fyai_auth_login_complete_fn complete,
+		       bool no_browser, const char *account, bool new_account,
+		       fyai_auth_login_complete_fn complete,
 		       void *userdata);
 void fyai_auth_login_cancel(struct fyai_auth_login_request *request);
 bool fyai_auth_login_done(const struct fyai_auth_login_request *request);

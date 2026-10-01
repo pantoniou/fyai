@@ -192,6 +192,7 @@ int fyai_cmd_catalog_schema(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_reset(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_edit(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_update(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_auth_accounts(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_auth_status(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_auth_usage(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_auth_login(struct fyai_cmd_call *call, fy_generic *result);
