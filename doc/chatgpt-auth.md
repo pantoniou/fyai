@@ -203,6 +203,10 @@ optional Linux Secret Service, and an atomic mode-0600 file at
 client ID has a separate registration record. The host URI is shared on this
 host. This storage is an explicit exception to arena-only persistence.
 
+Set `FYAI_AUTH_STORAGE=file` to use only the private file store and bypass
+the system keyring. The functional test harness selects this mode so tests
+cannot read or change the machine's saved registrations.
+
 All authorization, lock waits, refresh, and cancellation run within the current
 invocation. There is no daemon. Isolated supervised bootstrap does not support
 ChatGPT login; see the [transport limitations](agent-transport-isolation-sdd.md).
