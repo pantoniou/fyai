@@ -650,6 +650,70 @@ Creation and entry use the ordinary inspection/tool projection by default. They
 cannot authorize a caller to reveal the arena. Only authenticated agent admission
 supplies the agent-runtime projection described in section 8.1.
 
+### 11.1. Initial executable command scope
+
+The first implementation provides CLI-only `view create NAME [PROJECT]`,
+`view show NAME`, `view list`, and `view enter NAME --command COMMAND`.
+Omitting PROJECT captures the current directory. Named view references live in
+`store/views` on the selected branch; blobs live in `~/.fyai/objects/blake3`.
+The same arena and branch must be selected on subsequent invocations.
+
+```sh
+fyai view create experiment .
+fyai view enter experiment --command 'pwd; git status --short'
+fyai view enter experiment --command 'printf "hello\n" > example.txt'
+fyai view show experiment
+fyai view list
+```
+
+Creation scans the project, publishes immutable blobs and Merkle manifests, and
+materializes a separate baseline with ordinary copied files. This initial
+`materialization: copy` backend builds no image. Rootless OverlayFS on Linux 6.8
+cannot combine its `userxattr` mode with the intended data-only/metacopy layout;
+the metadata-only CAS backend remains a later capability-dependent optimization.
+File hashing maps the private captured file, not the mutable host source. This
+keeps host truncation from causing a mapped-source fault while retaining the
+optimized BLAKE3 implementation.
+
+Entry creates private user, mount, and PID namespaces, mounts the overlay at the
+original absolute project path, changes the child working directory there, and
+executes the command. Host mounts are recursively read-only. `/tmp` is a fresh
+writable tmpfs. The reserved root `.fyai` is omitted from CAS and covered by an
+empty read-only mount. Backing mounts and storage are inaccessible to tool code;
+Landlock and dropped namespace capabilities enforce the execution policy.
+The command cannot change its invoking shell's directory.
+
+```mermaid
+flowchart LR
+    H["Mutable host project"] --> C["Capture and mmap hash"]
+    C --> B["Immutable CAS blobs and Merkle manifests"]
+    C --> L["Copied baseline"]
+    L --> O["Private OverlayFS view"]
+    U["Separate writable upper"] --> O
+    O --> E["Command in project cwd"]
+    E --> F["Exit and stop namespace descendants"]
+    F --> R["Capture merged result into CAS"]
+    R --> P["Publish branch view reference"]
+```
+
+The view retains its upper between entries. An exclusive runtime lock prevents
+concurrent writers; entry records `state: running`, and successful result
+publication records `state: ready`. An observed execution or ingestion failure
+records `state: incomplete`; a process crash may leave the running marker.
+The previous published result remains available until a new result is captured.
+The PID namespace stops descendants when its command exits, before a trusted
+helper mounts and ingests the merged state. Returned data includes `exit_code`,
+`timed_out`, captured output, and the result root. A nonzero command exit is
+returned as data after result capture; setup or capture failure fails the verb.
+`--timeout-ms` defaults to 60000.
+
+Host changes after creation do not change the baseline. View changes are retained
+separately and are never applied to the host by these commands. Persistent explicit
+mount/unmount, interactive shell entry, automatic tool/agent view selection,
+parent merge/apply, incremental monitoring, cache reconstruction, and CAS garbage
+collection remain later implementation steps. This initial capture rejects
+hard-linked files, special files, and unsupported metadata rather than losing them.
+
 ## 12. Implementation sequence and acceptance gates
 
 1. Specify canonical schemas, hash encoding, byte-name representation, metadata

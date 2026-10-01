@@ -1300,6 +1300,116 @@ document.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai view
+
+create and enter separate project filesystem views
+
+**Usage:** `fyai view {create|list|show|enter} ...`
+
+Capture a project into immutable CAS objects and use a separate writable
+OverlayFS view. Commands in a view do not apply changes to the host.
+The initial Linux implementation materializes an ordinary-file baseline.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `create` | capture a project and create a named view |
+| `list` | list the filesystem views of the active branch |
+| `show` | inspect a named filesystem view |
+| `enter` | run a command in a private filesystem view |
+
+With no command, `list` runs.
+
+## fyai view create
+
+capture a project and create a named view
+
+**Usage:** `fyai view create NAME [PROJECT]`
+
+Capture PROJECT, excluding its reserved .fyai directory, and record
+a named view on the active branch. Reject unsupported metadata and
+observed concurrent changes. No provider credential is required.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the separate view |
+| `PROJECT` | the project directory to capture; default . |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view list
+
+list the filesystem views of the active branch
+
+**Usage:** `fyai view list`
+
+Show the project, baseline, result, and state of each view.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view show
+
+inspect a named filesystem view
+
+**Usage:** `fyai view show NAME`
+
+Show a view's baseline and latest recorded result identity.
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the view to inspect |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view enter
+
+run a command in a private filesystem view
+
+**Usage:** `fyai view enter --command COMMAND [--timeout-ms MS] NAME`
+
+Mount the named view in private namespaces, run COMMAND in its project
+directory, and record its result in CAS. The host project stays separate.
+The mount ends with the command and its descendants. This operation
+requires Linux user namespaces, OverlayFS, and Landlock.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the view to enter |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--command COMMAND` | the shell command to run inside the view |
+| `--timeout-ms MS` | the command time limit in milliseconds; default 60000 |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai sandbox
 
 show or set the stored sandbox policy
