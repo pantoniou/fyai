@@ -1743,7 +1743,7 @@ names the subscription provider; only `openai` is supported.
 | --- | --- |
 | `status` | show the login and the health of the credentials |
 | `info` | show the subscription and the account |
-| `usage` | show where to manage subscription usage |
+| `usage` | show recorded usage and subscription settings |
 | `login` | sign in to the subscription |
 | `accounts` | list saved ChatGPT registrations |
 | `logout` | sign out and remove the credentials |
@@ -1790,11 +1790,11 @@ Show the details of the subscription and the account.
 
 ## fyai auth usage
 
-show where to manage subscription usage
+show recorded usage and subscription settings
 
 **Usage:** `fyai auth usage`
 
-Show the ChatGPT settings link for app usage and credit permissions.
+Show selected-conversation token totals and the ChatGPT settings link for account limits and credit permissions.
 
 ### Options
 
@@ -1824,7 +1824,7 @@ registration is not supported. `^C` or Escape cancels.
 | `--account CLIENT_ID` | reuse the issued client ID of a saved account |
 | `--new-account` | register another ChatGPT account or workspace |
 | `--no-browser` | write the URL and start no browser |
-| `--manual` | paste the redirect URL back |
+| `--manual` | paste the complete redirect URL back without a local browser |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -3349,7 +3349,7 @@ names the subscription provider; only `openai` is supported.
 | --- | --- |
 | `status` | show the login and the health of the credentials |
 | `info` | show the subscription and the account |
-| `usage` | show where to manage subscription usage |
+| `usage` | show recorded usage and subscription settings |
 | `login` | sign in to the subscription |
 | `accounts` | list saved ChatGPT registrations |
 | `logout` | sign out and remove the credentials |
@@ -3394,11 +3394,11 @@ Show the details of the subscription and the account.
 
 ## /auth usage
 
-show where to manage subscription usage
+show recorded usage and subscription settings
 
 **Usage:** `/auth usage`
 
-Show the ChatGPT settings link for app usage and credit permissions.
+Show selected-conversation token totals and the ChatGPT settings link for account limits and credit permissions.
 
 ### Options
 
@@ -3410,7 +3410,7 @@ Show the ChatGPT settings link for app usage and credit permissions.
 
 sign in to the subscription
 
-**Usage:** `/auth login [--device-code] [--account CLIENT_ID] [--new-account] [--no-browser]`
+**Usage:** `/auth login [--device-code] [--account CLIENT_ID] [--new-account] [--no-browser] [--manual]`
 
 Register fyai and authorize ChatGPT plan usage with a browser and
 a loopback callback. Reuse the active registration, select one with
@@ -3427,6 +3427,7 @@ registration is not supported. `^C` or Escape cancels.
 | `--account CLIENT_ID` | reuse the issued client ID of a saved account |
 | `--new-account` | register another ChatGPT account or workspace |
 | `--no-browser` | write the URL and start no browser |
+| `--manual` | paste the complete redirect URL back without a local browser |
 | `-h`, `--help` | show this help |
 
 ## /auth accounts
@@ -3759,11 +3760,11 @@ Show the model, the provider, the login, and the token use of the session.
 
 ## /usage
 
-show where to manage subscription usage
+show recorded usage and subscription settings
 
 **Usage:** `/usage`
 
-Show the ChatGPT settings link for app usage and credit permissions.
+Show selected-conversation token totals and the ChatGPT settings link for account limits and credit permissions.
 
 ### Options
 

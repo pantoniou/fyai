@@ -99,7 +99,10 @@ Logout clears the active registration's tokens and retains its client ID and
 the host ID. A failed login does not replace another account's credentials.
 
 For a browser on another machine, use `fyai auth login --manual` and paste the
-complete callback URL. A bare authorization code is not accepted. The
+complete callback URL. In a session, use `/auth login --manual`. Open the
+link in your local browser and paste the callback URL from its address bar
+even if the loopback page cannot load. No SSH port forwarding is required.
+A bare authorization code is not accepted. The
 subscription registration flow does not support device-code login.
 
 Subscription requests use the public Responses API with streaming enabled and
@@ -112,7 +115,8 @@ The [authentication flow](chatgpt-auth.md) documents registration, refresh,
 logout, and credential ownership with Mermaid diagrams.
 
 `fyai auth status` shows the configured mode, effective method, and plan
-permission. `fyai auth usage` links to ChatGPT Settings, where you can review
+permission. `fyai auth usage` shows selected-conversation token totals and links to
+ChatGPT Settings, where you can review
 app limits and control whether the app may use credits after plan limits.
 
 
@@ -920,8 +924,10 @@ fyai context
 ```
 
 Interactive `/stats` reports cumulative usage over the selected conversation
-chain, including turns from earlier invocations. `/usage` links to ChatGPT
-Settings to review app limits and credit permissions.
+chain, including turns from earlier invocations. `/usage` shows recorded
+conversation token totals and links to ChatGPT Settings for account-wide app
+limits and credit permissions. Remaining plan allowance is unavailable through
+the documented direct-client API; local totals do not measure that allowance.
 
 ### Logging
 
@@ -1034,7 +1040,7 @@ A line beginning with `//` is sent to the model verbatim with one slash removed.
 | `/context` | Report context fill |
 | `/status` | Show model, provider, auth, context, and usage overview |
 | `/stats` | Show cumulative token usage for the selected conversation chain |
-| `/usage` | Link to ChatGPT app limits and credit settings |
+| `/usage` | Show recorded token totals and ChatGPT usage settings |
 | `/catalog ...` | Inspect or edit the catalogue of the branch |
 | `/diff [-u] [from [to]]` | Compare two reflog entries |
 | `/tools [agent] [--brief\|--full]` | List catalogue agent tools |

@@ -41,7 +41,8 @@ flowchart TD
 
 The granted `chatgpt.tokens.use.direct` scope authorizes the subscription route.
 ChatGPT Settings can permit credit use after plan limits. Subscription access
-therefore does not promise zero charges. `fyai auth usage` and `/usage` link to
+therefore does not promise zero charges. `fyai auth usage` and `/usage` show recorded token totals for the selected
+conversation and link to
 [ChatGPT usage settings](https://chatgpt.com/settings/usage); they do not query
 private usage endpoints. The implementation has mock coverage, but live account
 eligibility and billing behavior require verification with the account in use.
@@ -68,7 +69,7 @@ sequenceDiagram
     participant S as Local credential store
     participant O as auth.openai.com
     F->>S: Save or load stable host URI
-    F->>F: Start loopback receiver; generate state, nonce, PKCE
+    F->>F: Start loopback receiver#59; generate state, nonce, PKCE
     F->>User: Open authorization URL
     User->>O: Sign in and grant plan permission
     O-->>F: Callback with state, code, issued client ID
@@ -100,9 +101,25 @@ fyai auth login --manual
 
 A returning login uses the saved issued client ID. fyai omits ID tokens from
 printable authorization URLs. `--new-account` starts another registration.
-`--no-browser` prints the URL while retaining the loopback receiver. CLI
+`--no-browser` prints the URL while retaining the loopback receiver.
 `--manual` reads a complete pasted callback URL for a browser on another
-machine; a bare code is rejected. Device-code login is unsupported. Legacy
+machine. It also works as `/auth login --manual` in a session.
+
+For SSH login:
+
+1. Run `fyai auth login --manual` or `/auth login --manual` on the SSH host.
+2. Open the displayed authorization link in your local browser.
+3. Complete sign-in. The loopback callback can fail to load locally; copy its
+   complete URL from the browser address bar.
+4. Paste that URL into fyai on the SSH host. No port forwarding is required.
+
+The callback contains a one-use code, state, and the issued registration ID.
+fyai checks the callback URI and state, then exchanges the code with its PKCE
+verifier. A raw access token or bare code is insufficient for this validated
+registration flow. Pasted callbacks are consumed before session history or
+transcript recording. Invalid URL input can be corrected while the session
+continues to wait. `^C` or Escape cancels. Device-code login is unsupported.
+Legacy
 Codex-compatible credentials require a new login.
 
 ## Inference
@@ -169,7 +186,7 @@ sequenceDiagram
     F->>O: Discover revocation endpoint
     F->>O: Attempt refresh-token revocation with issued client ID
     O-->>F: Revocation result or failure
-    F->>S: Clear active tokens; retain host and registration identity
+    F->>S: Clear active tokens#59; retain host and registration identity
     F->>S: Release lock
     F-->>User: Report local logout and any unconfirmed revocation
 ```

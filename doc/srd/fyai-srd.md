@@ -141,8 +141,9 @@ before redeeming the rotating refresh token, validates the renewed identity,
 and atomically saves the token set. Logout attempts remote revocation and
 clears active tokens locally, but retains the host and issued client IDs.
 Other registrations remain intact. `auth status` displays non-secret identity,
-registration, expiry, and permission metadata. `auth usage` links to ChatGPT
-Settings; it does not query private usage endpoints. Server-side permissions
+registration, expiry, and permission metadata. `auth usage` shows recorded
+conversation token totals and links to ChatGPT Settings. It does not query
+private usage endpoints or estimate plan allowance. Server-side permissions
 control plan access and any allowed credit use after plan limits.
 
 The [ChatGPT authentication flow](../chatgpt-auth.md) contains the protocol
