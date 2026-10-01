@@ -58,12 +58,26 @@ try:
     # A rejected token must not enter stored conversation data.
     marker = "secret-do-not-store"
     os.write(master, (marker + "\n").encode())
-    until(lambda: "not a bare token" in screen())
+    isolated = env.get("FYAI_TEST_TRANSPORT") not in (None, "", "none")
+    if isolated:
+        until(lambda: "login failed; its output is in its tile" in screen() and
+              "Ctrl-] returns to the prompt" not in screen())
+        os.write(master, b"/auth login --manual\n")
+        previous_state = query["state"]
+        until(lambda: login_query() is not None and
+              login_query()["state"] != previous_state)
+        query = login_query()
+    else:
+        until(lambda: "not a bare token" in screen())
 
     callback = query["redirect_uri"][0] + "?" + urllib.parse.urlencode({
         "state": query["state"][0], "error": "access_denied", "code": marker})
     os.write(master, (callback + "\n").encode())
-    until(lambda: "permission declined" in screen())
+    if isolated:
+        until(lambda: "login failed; its output is in its tile" in screen() and
+              "Ctrl-] returns to the prompt" not in screen())
+    else:
+        until(lambda: "permission declined" in screen())
     os.write(master, b"/auth status\n")
     until(lambda: "Signed out" in screen())
     os.write(master, b"\x1b\x00")

@@ -16,14 +16,14 @@ import os
 import sys
 import time
 
-from transport_driver import Agent, END, Fail, Transport, chat, check, reply_text
+from transport_driver import Agent, END, Fail, Transport, chat, check, connection, reply_text
 
 
 def enc(value):
     return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
 
 
-def write_store(expires_in):
+def write_store(expires_in, refresh="secret-refresh"):
     path = os.path.join(os.environ["XDG_STATE_HOME"], "fyai", "auth.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     jwt = ".".join((enc({"alg": "none"}), enc({
@@ -36,10 +36,12 @@ def write_store(expires_in):
         json.dump({"type": "chatgpt", "client_id": "oaiapp_test",
                    "ext_agent_host_id": "urn:uuid:00000000-0000-4000-8000-000000000000",
                    "subject": "user-test",
+                   "registrations": {"oaiapp_test": {
+                       "email": "user@example.com", "subject": "user-test"}},
                    "scope": "openid offline_access resource.invoke "
                             "chatgpt.tokens.use.direct",
                    "access_token": "secret-access",
-                   "refresh_token": "secret-refresh", "id_token": jwt,
+                   "refresh_token": refresh, "id_token": jwt,
                    "expires_at": int(time.time()) + expires_in}, f)
     os.chmod(path, 0o600)
 
@@ -89,6 +91,34 @@ def main(fyai, mock_url, arena):
         check(seen[-1]["auth"] == "Bearer secret-access",
               "the provider saw %r" % seen[-1]["auth"])
         check("secret-access" not in json.dumps(start), "the start frame has a token")
+
+        # The commands of the login run here, on the primary connection, and
+        # their results hold no token.
+        r = tr.request("cmd", words=["auth", "openai", "status"])
+        check(r["op"] == "ok" and r["data"]["status"] == "signed_in",
+              "status: %r" % r)
+        check(r["data"]["client_id"] == "oaiapp_test", "status client: %r" % r)
+        r = tr.request("cmd", words=["auth", "openai", "info"], format=1)
+        check(r["op"] == "ok" and "storage" in r["data"], "info: %r" % r)
+        r = tr.request("cmd", words=["auth", "openai", "accounts"])
+        check(r["op"] == "ok" and r["data"][0]["client_id"] == "oaiapp_test",
+              "accounts: %r" % r)
+        check("secret-" not in json.dumps(r), "accounts returned a token")
+        for words in (["auth", "openai", "login"], ["branch", "list"],
+                      ["auth", "openai", "status", "--bogus"], [], ["auth"] * 9):
+            r = tr.request("cmd", words=words)
+            check(r["op"] == "error", "%r ran at the transport: %r" % (words, r))
+        via = connection(tr, 7)
+        check("primary" in via.refused("cmd", words=["auth", "openai", "status"]),
+              "a command from an agent")
+
+        # Logout clears the tokens of the store. The record has no refresh
+        # token, so the case sends no revocation.
+        write_store(3600, refresh="")
+        r = tr.request("cmd", words=["auth", "openai", "logout"])
+        check(r["op"] == "ok", "logout: %r" % r)
+        with open(os.path.join(os.environ["XDG_STATE_HOME"], "fyai", "auth.json")) as f:
+            check(json.load(f)["access_token"] == "", "logout kept the access token")
 
         # Logged out between requests: the next one is refused, not sent bare.
         os.unlink(os.path.join(os.environ["XDG_STATE_HOME"], "fyai", "auth.json"))
