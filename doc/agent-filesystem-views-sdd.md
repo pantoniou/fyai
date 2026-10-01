@@ -702,6 +702,21 @@ fyai view update --verify experiment
 fyai view enter --verify experiment make -j8
 ```
 
+Exit capture uses the immutable baseline manifest and the frozen upper tree.
+A merged child with no upper entry reuses its baseline object and subtree without
+reading file contents or scanning the subtree. Only directories represented in
+the upper are enumerated through the merged mount; OverlayFS resolves whiteouts
+and opaque directories there. Changed files are ingested with the shared pool,
+and affected directory manifests are rebuilt. Unreachable baseline objects are
+excluded from the result manifest. The mount explicitly disables metacopy, so an
+upper file contains its complete data; redirected directories are not followed.
+The cumulative upper is compared against the original baseline on every exit.
+
+For `view enter --verify NAME ...`, capture also runs the full slow generation
+with serial byte verification and compares the complete manifests before
+publication. A mismatch fails ingestion and retains the previous published root.
+Normal entry does not perform that full capture.
+
 Entry creates private user, mount, and PID namespaces, mounts the overlay at the
 original absolute project path, changes the child working directory there, and
 executes the remaining argument list directly, or starts `$SHELL` (falling back
