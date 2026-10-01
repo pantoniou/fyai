@@ -6,6 +6,11 @@
 implementation uses PKCE and a loopback redirect receiver. OAuth operations use
 the application event loop.
 
+MCP resource authorization and [ChatGPT plan authorization](chatgpt-auth.md)
+share the provider-independent browser receiver and PKCE helpers. Their client
+registration and logout rules differ; the MCP rules below do not apply to
+ChatGPT registrations.
+
 Browser login is disabled unless the server configuration contains:
 
 ```yaml

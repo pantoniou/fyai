@@ -224,15 +224,13 @@ The remaining MCP implementation order is:
 
 1. Handle `isError`, structured output, resource links, and non-text tool
    content.
-2. Add arbitrary HTTP headers and native MCP OAuth authentication. This is a
-   future change: reuse the existing OpenAI subscription OAuth primitives for
-   PKCE, loopback/manual login, refresh, locking, and secure storage, while
-   adding MCP protected-resource and authorization-server discovery,
-   per-server credentials, dynamic or configured client registration, and the
-   required resource indicator. Initial interoperability targets are GitHub,
-   Linear, Notion, Atlassian Rovo, and Stripe; Slack additionally requires a
-   configured confidential client. Until then, use bearer-token/PAT
-   authentication where a server supports it.
+2. Review server interoperability with the implemented
+   [native MCP OAuth flow](mcp-oauth.md). It uses shared provider-independent
+   PKCE and loopback helpers, protected-resource and authorization-server
+   discovery, per-server credentials, and configured or dynamic clients.
+   [ChatGPT subscription authorization](chatgpt-auth.md) has a separate
+   registration contract. Use bearer-token/PAT authentication where the MCP
+   server supports it, or configure OAuth as required by that server.
 3. Expose MCP resources and prompts.
 4. Load tool schemas lazily when many servers are configured and extend
    `/mcp` with server management and detailed status.

@@ -78,13 +78,43 @@ For OpenAI Responses requests, an eligible ChatGPT subscription may be used inst
 
 ```sh
 fyai auth openai login
-fyai auth openai login --device-code
+fyai auth openai login --no-browser
 fyai auth openai status
 fyai auth openai usage
 fyai config set auth chatgpt
 ```
 
 `auth: auto` prefers an available API key and otherwise falls back to a saved ChatGPT login. `auth: api-key` disables that fallback. `auth: chatgpt` selects subscription access explicitly.
+
+The first login registers fyai with OpenAI and requests permission to use your
+ChatGPT plan. No client ID from a developer dashboard is required. fyai saves
+an opaque host ID before login and saves the issued client ID for later login
+and token refresh. It verifies the ID token and the granted plan-usage scope.
+Old Codex-compatible credentials require a new login.
+
+Use `fyai auth accounts` to list saved registrations. Use
+`fyai auth login --account CLIENT_ID` to authorize one again, or
+`fyai auth login --new-account` to register another account or workspace.
+Logout clears the active registration's tokens and retains its client ID and
+the host ID. A failed login does not replace another account's credentials.
+
+For a browser on another machine, use `fyai auth login --manual` and paste the
+complete callback URL. A bare authorization code is not accepted. The
+subscription registration flow does not support device-code login.
+
+Subscription requests use the public Responses API with streaming enabled and
+server-side storage disabled. They send the full required history and group
+local tools in a namespace. They do not use ChatGPT's private backend endpoints
+or fall back to an API key after a subscription failure. See
+[OpenAI's registration documentation](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
+and [preview limits](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
+The [authentication flow](chatgpt-auth.md) documents registration, refresh,
+logout, and credential ownership with Mermaid diagrams.
+
+`fyai auth status` shows the configured mode, effective method, and plan
+permission. `fyai auth usage` links to ChatGPT Settings, where you can review
+app limits and control whether the app may use credits after plan limits.
+
 
 ### Run the first task
 
@@ -453,7 +483,7 @@ fyai \
 
 ```sh
 fyai auth openai login
-fyai auth openai login --device-code
+fyai auth openai login --no-browser
 fyai auth openai status
 fyai auth openai info
 fyai auth openai usage
@@ -890,8 +920,8 @@ fyai context
 ```
 
 Interactive `/stats` reports cumulative usage over the selected conversation
-chain, including turns from earlier invocations. `/usage` queries live
-subscription limits and credits where supported.
+chain, including turns from earlier invocations. `/usage` links to ChatGPT
+Settings to review app limits and credit permissions.
 
 ### Logging
 
@@ -1004,7 +1034,7 @@ A line beginning with `//` is sent to the model verbatim with one slash removed.
 | `/context` | Report context fill |
 | `/status` | Show model, provider, auth, context, and usage overview |
 | `/stats` | Show cumulative token usage for the selected conversation chain |
-| `/usage` | Show live subscription limits and credits |
+| `/usage` | Link to ChatGPT app limits and credit settings |
 | `/catalog ...` | Inspect or edit the catalogue of the branch |
 | `/diff [-u] [from [to]]` | Compare two reflog entries |
 | `/tools [agent] [--brief\|--full]` | List catalogue agent tools |

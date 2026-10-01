@@ -1731,7 +1731,7 @@ write the messages as JSON Lines
 
 manage the subscription login of a provider
 
-**Usage:** `fyai auth [PROVIDER] {status|info|usage|login|logout} ...`
+**Usage:** `fyai auth [PROVIDER] {status|info|usage|login|accounts|logout} ...`
 
 Manage the machine-local ChatGPT subscription credentials. PROVIDER
 names the subscription provider; only `openai` is supported.
@@ -1743,8 +1743,9 @@ names the subscription provider; only `openai` is supported.
 | --- | --- |
 | `status` | show the login and the health of the credentials |
 | `info` | show the subscription and the account |
-| `usage` | show the live limits and credits |
+| `usage` | show where to manage subscription usage |
 | `login` | sign in to the subscription |
+| `accounts` | list saved ChatGPT registrations |
 | `logout` | sign out and remove the credentials |
 
 ### Arguments
@@ -1789,11 +1790,11 @@ Show the details of the subscription and the account.
 
 ## fyai auth usage
 
-show the live limits and credits
+show where to manage subscription usage
 
 **Usage:** `fyai auth usage`
 
-Fetch and show the live limits and credits of the subscription.
+Show the ChatGPT settings link for app usage and credit permissions.
 
 ### Options
 
@@ -1806,21 +1807,39 @@ Fetch and show the live limits and credits of the subscription.
 
 sign in to the subscription
 
-**Usage:** `fyai auth login [--device-code] [--no-browser] [--manual]`
+**Usage:** `fyai auth login [--device-code] [--account CLIENT_ID] [--new-account] [--no-browser] [--manual]`
 
-Sign in with the browser and a loopback callback. `--device-code`
-uses the device-code flow, `--no-browser` writes the URL and does
-not start a browser, and `--manual` reads a pasted redirect URL,
-for a browser on another machine. `^C` or Escape cancels.
+Register fyai and authorize ChatGPT plan usage with a browser and
+a loopback callback. Reuse the active registration, select one with
+`--account`, or add one with `--new-account`. `--no-browser` writes
+the URL; `--manual` reads a complete pasted redirect URL. Device-code
+registration is not supported. `^C` or Escape cancels.
 
 
 ### Options
 
 | Option | Description |
 | --- | --- |
-| `--device-code` | use the headless device-code flow |
+| `--device-code` | reject the unsupported legacy device-code flow |
+| `--account CLIENT_ID` | reuse the issued client ID of a saved account |
+| `--new-account` | register another ChatGPT account or workspace |
 | `--no-browser` | write the URL and start no browser |
 | `--manual` | paste the redirect URL back |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai auth accounts
+
+list saved ChatGPT registrations
+
+**Usage:** `fyai auth accounts`
+
+List saved accounts and workspace registrations without tokens.
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -1831,7 +1850,7 @@ sign out and remove the credentials
 **Usage:** `fyai auth logout`
 
 Revoke the login when the provider allows it, and remove the local
-credentials.
+tokens. Keep the client registration and host ID for later sign-in.
 
 
 ### Options
@@ -3318,7 +3337,7 @@ write the messages as JSON Lines
 
 manage the subscription login of a provider
 
-**Usage:** `/auth [PROVIDER] {status|info|usage|login|logout} ...`
+**Usage:** `/auth [PROVIDER] {status|info|usage|login|accounts|logout} ...`
 
 Manage the machine-local ChatGPT subscription credentials. PROVIDER
 names the subscription provider; only `openai` is supported.
@@ -3330,8 +3349,9 @@ names the subscription provider; only `openai` is supported.
 | --- | --- |
 | `status` | show the login and the health of the credentials |
 | `info` | show the subscription and the account |
-| `usage` | show the live limits and credits |
+| `usage` | show where to manage subscription usage |
 | `login` | sign in to the subscription |
+| `accounts` | list saved ChatGPT registrations |
 | `logout` | sign out and remove the credentials |
 
 ### Arguments
@@ -3374,11 +3394,11 @@ Show the details of the subscription and the account.
 
 ## /auth usage
 
-show the live limits and credits
+show where to manage subscription usage
 
 **Usage:** `/auth usage`
 
-Fetch and show the live limits and credits of the subscription.
+Show the ChatGPT settings link for app usage and credit permissions.
 
 ### Options
 
@@ -3390,20 +3410,37 @@ Fetch and show the live limits and credits of the subscription.
 
 sign in to the subscription
 
-**Usage:** `/auth login [--device-code] [--no-browser]`
+**Usage:** `/auth login [--device-code] [--account CLIENT_ID] [--new-account] [--no-browser]`
 
-Sign in with the browser and a loopback callback. `--device-code`
-uses the device-code flow, `--no-browser` writes the URL and does
-not start a browser, and `--manual` reads a pasted redirect URL,
-for a browser on another machine. `^C` or Escape cancels.
+Register fyai and authorize ChatGPT plan usage with a browser and
+a loopback callback. Reuse the active registration, select one with
+`--account`, or add one with `--new-account`. `--no-browser` writes
+the URL; `--manual` reads a complete pasted redirect URL. Device-code
+registration is not supported. `^C` or Escape cancels.
 
 
 ### Options
 
 | Option | Description |
 | --- | --- |
-| `--device-code` | use the headless device-code flow |
+| `--device-code` | reject the unsupported legacy device-code flow |
+| `--account CLIENT_ID` | reuse the issued client ID of a saved account |
+| `--new-account` | register another ChatGPT account or workspace |
 | `--no-browser` | write the URL and start no browser |
+| `-h`, `--help` | show this help |
+
+## /auth accounts
+
+list saved ChatGPT registrations
+
+**Usage:** `/auth accounts`
+
+List saved accounts and workspace registrations without tokens.
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `-h`, `--help` | show this help |
 
 ## /auth logout
@@ -3413,7 +3450,7 @@ sign out and remove the credentials
 **Usage:** `/auth logout`
 
 Revoke the login when the provider allows it, and remove the local
-credentials.
+tokens. Keep the client registration and host ID for later sign-in.
 
 
 ### Options
@@ -3722,11 +3759,11 @@ Show the model, the provider, the login, and the token use of the session.
 
 ## /usage
 
-show the live limits and credits
+show where to manage subscription usage
 
 **Usage:** `/usage`
 
-Fetch and show the live limits and credits of the subscription.
+Show the ChatGPT settings link for app usage and credit permissions.
 
 ### Options
 

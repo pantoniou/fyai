@@ -223,14 +223,19 @@ Eligible OpenAI Responses requests can instead use ChatGPT subscription access:
 
 ```sh
 fyai auth openai login
-fyai auth openai login --device-code
+fyai auth openai login --manual
 fyai auth openai status
 fyai auth openai usage
 fyai config set auth chatgpt
 ```
 
+The first login dynamically registers this client and requests permission to
+use your ChatGPT plan. No developer-dashboard client ID is required.
 Subscription credentials are machine-local and never enter the repository
-arena or model tool arguments.
+arena or model tool arguments. `auth: auto` still prefers an available API key;
+use `auth: chatgpt` to require subscription access. ChatGPT settings control
+whether the app may use credits after plan limits. See the
+[authentication flow and diagrams](doc/chatgpt-auth.md).
 
 ## Interactive work without a daemon
 

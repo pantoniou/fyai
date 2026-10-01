@@ -2,7 +2,7 @@
 
 # OpenAI Responses compaction
 
-OpenAI has two server-side compaction protocols. Both protocols return an
+fyai contains two server-side Responses compaction paths. Both return an
 opaque `compaction` item that replaces the earlier Responses input when the
 client continues the conversation.
 
@@ -34,12 +34,20 @@ The client appends this item to the request input:
 The stream must complete with one output item whose type is `compaction`. The
 client stores that item and sends it as input to the next Responses request.
 
-Current Codex releases use version 2 for ChatGPT subscription authentication.
-They retain version 1 as a legacy path. This behavior does not, by itself,
-mean that OpenAI has formally deprecated the version 1 endpoint.
+This is a legacy compatibility path. Its presence in fyai does not establish
+support in the public ChatGPT subscription API.
 
 ## Provider capability
 
 These items are part of the OpenAI Responses protocol. A compatible provider
 can implement them, but fyai must not infer support from a provider name. The
 selected catalogue endpoint must declare server-side compaction support.
+
+## ChatGPT subscription access
+
+The direct subscription flow disables both server-side paths, even if the
+catalogue declares compaction support. Context compaction uses an ordinary
+streamed summarization request instead. It sends the required input to the
+public Responses endpoint with `store:false`. See the
+[authentication flow](chatgpt-auth.md) and
+[OpenAI preview limits](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
