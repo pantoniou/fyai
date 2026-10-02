@@ -794,6 +794,11 @@ host state against that plan; do not blindly roll back over new user edits. Repo
 applied, conflicted, untouched, and uncertain paths. CAS success and host-application
 success are separate outcomes.
 
+The `.git` directory is not merged or applied per path; section 11.3.2 gives the
+transfer of commits. Trust in content taken from a view is a property of the
+host-application policy as a whole. A file such as a `Makefile` or an `.envrc`
+has the same trust question as Git configuration.
+
 Configuration selects explicit parent merge, explicit host application, or
 automatic host application. A request originating in an untrusted tool cannot
 change that policy or authorize its own host application. Retain the recorded
@@ -1057,10 +1062,18 @@ construction. Otherwise an ignored build directory omitted initially would be
 published when the agent creates it in the upper. Exclusion affects canonical
 state, not whether the agent may generate and use the directory in its workspace.
 
-Retain `.git` for the initial design, subject to secret and visibility policy.
-Its contents participate in canonical identity when included. Git commands then
-modify the workspace's repository metadata, not the host repository. Host branch
-commit orchestration and workspace Git operations remain distinct responsibilities.
+Retain `.git` in the capture, subject to secret and visibility policy. Its
+contents participate in canonical identity, so a view and a child agent see
+history that agrees with their working tree. Git commands then modify the
+workspace's repository metadata, not the host repository. Host branch commit
+orchestration and workspace Git operations remain distinct responsibilities.
+
+Merge, host application, and `view diff` skip `.git`. They never write inside
+the `.git` of a destination. The repository of a view is a pull-only Git remote.
+A `git-remote-fyai` helper gives access to it: `git fetch fyai::NAME` runs
+`fyai view enter NAME git upload-pack .` through the `connect` capability of
+the Git remote-helper protocol. The Git of the user does the pull; fyai needs no
+Git library.
 
 A `.git` file can refer to metadata outside the project, as with Git worktrees.
 Submodules and object alternates can introduce additional external references.
@@ -1338,20 +1351,6 @@ mount/security combination has been validated.
 Each item states a finding, its effect, and a proposal. The decision is pending
 until review closes the item. A closed item changes the applicable sections
 above and is then removed from this list. An identifier is not used again.
-
-### R6. Path-level merge of `.git`
-
-**Finding:** Section 11.3.2 keeps `.git` in canonical state. Section 10 merges
-and applies changes for each path.
-
-**Effect:** `.git/index`, pack files, refs, and `ORIG_HEAD` conflict in almost
-every merge, or a merge combines them into a repository that is not valid.
-
-**Proposal:** Keep `.git` visible in the view. Exclude it from the path-level
-merge and from host application. Transfer repository changes through Git, for
-example with a fetch from the view repository or a bundle.
-
-**Decision:** Pending.
 
 ### R7. Rejection of hard-linked files
 
