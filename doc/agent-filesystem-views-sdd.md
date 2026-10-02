@@ -28,8 +28,10 @@ migration of other state to files.
 
 Completed views remain separate by default. Their parent can inspect the recorded
 result and explicitly merge it into its own view or apply it to the host. Automatic
-application is configurable and uses the same reconciliation machinery. No new
-command syntax is specified here.
+application is configurable and uses the same reconciliation machinery. Child
+propagation may publish after each completed tool call; it never exposes a running
+child tool’s intermediate writes. Host application remains a separate policy. No
+new command syntax is specified here.
 
 ## 2. Guarantees and limits
 
@@ -471,13 +473,14 @@ stateDiagram-v2
 
 A transaction is shared by an agent and its ordinary tool descendants. Each
 delegated agent execution instead receives a private upper rooted in a sealed
-capture of the parent view. The parent inspects and merges that result
-explicitly. Capturing a running parent view requires pausing its writers or another
+checkpoint of the parent view. The parent inspects and merges that result
+explicitly, or enables tool-boundary propagation. Capturing a running parent view requires pausing its writers or another
 validated snapshot mechanism. Do not share writable uppers between independent
 views or silently substitute a fresh host baseline for the parent state.
 
 Delegation pins a parent-derived baseline. The child result remains separate until
-its parent requests reconciliation; a merge replaces the parent view at a safe boundary.
+explicit reconciliation or configured propagation accepts it; a merge replaces
+the parent view at a safe boundary.
 
 ```mermaid
 sequenceDiagram
@@ -527,6 +530,110 @@ Cancellation stops writers before unmount and pin release. A result may be retai
 as cancelled work only after successful ingestion. Report incomplete capture or
 lost uncommitted writes explicitly. Namespace destruction handles mount teardown;
 it does not replace cleanup of backing directories and pins.
+
+### 9.1 Managed branch roots and tool checkpoints
+
+Managed project roots are the ordinary source of successive turn and agent views.
+The host tree is imported at initialization or explicit refresh. A new turn mounts
+its branch’s recorded project root; spawning an agent uses a pinned parent
+checkpoint. Neither operation rescans the live host project. The existing
+`view update NAME` command retains its fresh-host replacement semantics; updating
+a managed view from a recorded root is a distinct internal operation or explicit
+future source option.
+
+At a completed turn, publish the conversation and its project baseline/result
+references through the same branch publication. Each tool checkpoint records its
+project root and provenance without inventing a completed conversation turn.
+Subsequent turn commitment links the checkpoint state to the actual turn. A lost
+branch CAS reconciles through the existing branch publication machinery.
+
+```mermaid
+flowchart TD
+    H["Host project"] -->|"Explicit import or refresh"| B["Immutable branch project root"]
+    B --> P["Parent view: sealed lower + private upper"]
+    P -->|"Quiesce and ingest affected paths"| S["Pinned spawn checkpoint B0"]
+    S --> C["Child view: sealed parent checkpoint + private upper"]
+    C -->|"Completed tool call"| A["Immutable child checkpoint C1"]
+    A --> I["Read-only inspection and explicit merge"]
+    A --> Q["Configured propagation queue"]
+    I --> M["Three-way merge at parent execution boundary"]
+    Q --> M
+    S --> M
+    P -->|"Checkpoint current parent state"| M
+    M --> R["New parent root and replacement view"]
+    R -->|"Turn commitment"| B
+```
+
+The upper bounds the changed-path candidates inside an owned view. Whiteouts,
+opaque directories, replacements, and metadata are interpreted through the merged
+view. Copy-up alone is not evidence of changed canonical content. Hash changed
+objects and rebuild affected Merkle ancestors; reuse immutable lower objects.
+No notification stream or timestamp heuristic is needed to establish which managed
+subtrees can be reused. This assumes exclusive supervisor ownership of backing
+layers and a validated writer-quiescence boundary.
+
+A stacked child view must use an immutable parent checkpoint, never the parent’s
+live writable mount. If a frozen materialized parent projection serves as an
+OverlayFS lower, pin it until all dependent children and inspection mounts release
+it. Each independent view owns distinct upper and work directories. Lower layers
+may be shared; changing backing layers underneath a live overlay is unsupported.
+See the [kernel OverlayFS documentation](https://docs.kernel.org/filesystems/overlayfs.html).
+Layer freezing/rotation occurs only after all writers and retained writable file
+references have been retired. Layer compaction is a quiescent reconstruction from
+CAS, not an in-place edit of a live lower.
+
+There are two child publication policies:
+
+| Policy | Publication and visibility |
+| --- | --- |
+| Separate | Record child roots for read-only inspection and explicit parent pull/merge |
+| Propagate | After each completed child tool call, ingest and publish its checkpoint, then queue reconciliation into the parent |
+
+Propagation is immediate at tool boundaries, not at individual writes. Before
+checkpoint ingestion, retire every writer owned by that tool call, including
+background descendants. Persistent shells and writable mappings must participate
+in the barrier or prevent publication. If the parent has a tool in flight, defer
+installation until its next quiescent boundary. Reads from the next admitted
+parent tool see the accepted root. An already-running parent tool retains its
+original view. No parent backing tree is modified while mounted.
+
+The first propagation merge uses the spawn root B0 as its base, the child
+checkpoint C1 as its incoming state, and the current checkpointed parent root P
+as its destination. After successful acceptance of C1, record C1 as the base for
+the next child publication C2. Comparing every child checkpoint to B0 would
+reapply earlier edits and create false conflicts with already accepted changes.
+The accepted checkpoint reference is durable and separate for each child.
+
+```mermaid
+sequenceDiagram
+    participant C as Child tools
+    participant S as Supervisor
+    participant A as CAS and branch arena
+    participant P as Parent tools
+    C->>S: Tool call completes
+    S->>S: Retire child tool writers
+    S->>A: Ingest delta and publish child checkpoint C1
+    S->>S: Queue C1 with last accepted child base B0
+    P->>S: Reach quiescent tool boundary
+    S->>A: Checkpoint current parent root P
+    S->>S: Merge B0, C1, P
+    alt Conflict-free acceptance
+        S->>A: Publish parent root and accepted child base C1
+        S->>P: Admit next tool in replacement parent view
+    else Conflict
+        S->>A: Retain C1 and pending propagation record
+        S->>P: Report conflict; preserve parent view and accepted base B0
+    end
+```
+
+Automatic propagation accepts a checkpoint as one transaction. Conflicts preserve
+the parent root and leave the child checkpoint available for explicit resolution;
+they do not silently choose a winner or install a partially merged root. Duplicate
+checkpoint delivery is idempotent. Accepted parent roots and child merge bases
+publish together so crash recovery cannot replay an already accepted delta.
+These records live in branch-store generics and retain the relevant CAS roots.
+Propagation requires no daemon: the active invocation supervisor owns execution,
+publication, and installation; durable pending checkpoints survive its exit.
 
 ## 10. Result ingestion, parent merge, and host application
 
@@ -650,7 +757,7 @@ Creation and entry use the ordinary inspection/tool projection by default. They
 cannot authorize a caller to reveal the arena. Only authenticated agent admission
 supplies the agent-runtime projection described in section 8.1.
 
-### 11.1. Initial executable command scope
+### 11.2 Initial executable command scope
 
 The first implementation provides CLI-only `view create NAME [PROJECT]`,
 `view update NAME`, `view show NAME`, `view list`, and
@@ -672,15 +779,38 @@ fyai view list
 ```
 
 Creation scans the project, publishes immutable blobs and Merkle manifests, and
-materializes a separate baseline with ordinary copied files. This initial
-`materialization: copy` backend builds no image. Rootless OverlayFS on Linux 6.8
-cannot combine its `userxattr` mode with the intended data-only/metacopy layout;
-the metadata-only CAS backend remains a later capability-dependent optimization.
+materializes a separate baseline of sparse metadata-only files. The
+`materialization: metacopy` backend builds no image and requires rootless
+OverlayFS data-only support. Creation tests redirected reads and isolated write
+copy-up before ingestion. When this capability is unavailable, creation uses
+`materialization: copy`, preserving project metadata on ordinary files copied
+from CAS with `copy_file_range` and its `sendfile` fallback. The selected backend
+is stored with the view and used consistently for entry, inspection mounts, and
+exit capture. Existing copied views remain mountable. Linux 6.8 on the development
+host uses the copied baseline.
+
+Each baseline inode preserves project mode, ownership, size, and mtime. Its
+`user.overlay.metacopy` marker and `user.overlay.redirect` path select a CAS blob
+from the private snapshot `data` directory. This data-only directory hard-links
+only blobs reachable from that snapshot, including one entry per content hash.
+Metadata inodes remain distinct even when content is identical. CAS permissions
+and timestamps are never changed. The data-only namespace is not a second
+project-history layer; one project metadata lower and one writable upper remain.
+No metadata cache or image construction is needed.
+
+```mermaid
+flowchart LR
+    M["Baseline inode: project metadata"] -->|"metacopy + redirect xattrs"| D["Snapshot data directory"]
+    D -->|"hard link by BLAKE3 digest"| C["Immutable CAS blob"]
+    M --> O["OverlayFS merged view"]
+    C -->|"read bytes"| O
+    O -->|"first write copies data"| U["Private writable upper"]
+```
 File hashing maps the private captured file, not the mutable host source. This
 keeps host truncation from causing a mapped-source fault while retaining the
 optimized BLAKE3 implementation.
 
-Capture uses Linux `copy_file_range` for source-to-CAS and CAS-to-baseline copies,
+Capture uses Linux `copy_file_range` for source-to-CAS copies,
 with `sendfile` fallback when range copying is unsupported. One affinity-sized
 libfyaml `fy_thread` pool runs file jobs and BLAKE3 chunk jobs. Each capture worker
 reuses a hasher bound to that same pool. Workers never modify the generic builder;
@@ -691,7 +821,7 @@ mount traversal with `openat2`.
 The temporary `--verify` option enables an independent serial stage before root
 publication. A separate reused hasher has threading disabled. It checks CAS sizes
 and digests, compares source bytes against the immutable mapped CAS capture, and
-checks materialized baseline sizes and digests. Source metadata is checked around
+checks baseline metadata and redirect xattrs, and independently verifies snapshot data blobs. Source metadata is checked around
 verification. Normal capture does not run this stage. The option applies to create,
 update, and entered-result ingestion; place it before NAME for entry so command
 arguments remain unchanged:
@@ -708,8 +838,10 @@ reading file contents or scanning the subtree. Only directories represented in
 the upper are enumerated through the merged mount; OverlayFS resolves whiteouts
 and opaque directories there. Changed files are ingested with the shared pool,
 and affected directory manifests are rebuilt. Unreachable baseline objects are
-excluded from the result manifest. The mount explicitly disables metacopy, so an
-upper file contains its complete data; redirected directories are not followed.
+excluded from the result manifest. Data-only mounts resolve unchanged baseline
+bytes from CAS. Upper files contain their own complete data after write copy-up;
+ordinary metadata-only upper metacopy is not enabled, and directory redirects
+are not followed.
 The cumulative upper is compared against the original baseline on every exit.
 
 For `view enter --verify NAME ...`, capture also runs the full slow generation
@@ -732,7 +864,7 @@ The command cannot change its invoking shell's directory.
 flowchart LR
     H["Mutable host project"] --> C["Capture and mmap hash"]
     C --> B["Immutable CAS blobs and Merkle manifests"]
-    C --> L["Copied baseline"]
+    C --> L["Metadata baseline + CAS data-only lower"]
     L --> O["Private OverlayFS view"]
     U["Separate writable upper"] --> O
     O --> E["Command in project cwd"]
@@ -766,6 +898,262 @@ tool/agent view selection,
 parent merge/apply, incremental monitoring, cache reconstruction, and CAS garbage
 collection remain later implementation steps. This initial capture rejects
 hard-linked files, special files, and unsupported metadata rather than losing them.
+
+### 11.3 Session filesystem policy and retained workspace caches
+
+This section specifies the intended coding-session behavior. It extends the
+managed root and checkpoint model in section 9.1; it does not claim that all
+policy options or mount reuse described here are implemented by the current
+`view` commands.
+
+A session owns two related states with different lifetimes:
+
+- The canonical project snapshot contains policy-included project objects and
+  is identified by its Merkle BLAKE3 root. It is published with the appropriate
+  branch, turn, or tool checkpoint.
+- The retained workspace contains a sealed baseline, its writable upper, its
+  work directory, and optional private scratch and cache directories. It can
+  contain additional files that are intentionally absent from canonical state.
+
+A project checkpoint is not a request to discard or reconstruct the workspace.
+The same workspace can serve repeated tool calls and context entries, retaining
+compiler outputs and other generated data without publishing those bytes to CAS.
+
+#### 11.3.1 Filesystem classes and default visibility
+
+| Class | Tool-visible state | Canonical capture | Lifetime and ownership |
+| --- | --- | --- | --- |
+| Project source | Writable merged overlay over a frozen baseline | Included according to project policy | Session workspace; roots retained by branches and turns |
+| Ignored build outputs | Absent initially when excluded; writable when generated | Excluded according to project policy | Retained upper, subject to workspace retention policy |
+| Temporary directories | Initially empty private writable mounts | Excluded | Execution or session scope, chosen explicitly |
+| Secret files and directories | Inaccessible to tools | Never ingested | Host-owned; trusted harness access is separately authorized |
+| Selected application caches | Explicit private or shared writable mounts | Excluded from the project root | Per-session cache or explicitly shared host cache |
+| Project `.fyai` | Hidden from ordinary tools; available to authorized harness code | Reserved and excluded from project objects | Harness-owned arena, CAS, and workspace resources |
+| Other host paths | Read-only where reads are authorized | Excluded | Host-owned and outside project snapshot identity |
+| Devices, process filesystems, and sockets | Explicitly constrained endpoints | Excluded | Execution namespace and containment policy |
+
+The default capture policy keeps project contents, apart from reserved harness
+storage and secret exclusions. Git-aware filtering is an explicit policy choice,
+not an implicit property of every project directory. Paths needed by the runtime
+remain available through the external read policy; they are not copied into the
+project simply because a compiler or shell reads them.
+
+#### 11.3.2 Git-aware project inclusion
+
+For a conventional Git project, a useful capture mode includes tracked files and
+untracked files that Git does not ignore. Preserve `.gitignore` files themselves.
+Ignore matching applies to untracked paths: a tracked file remains included even
+when its name matches an ignore pattern. Evaluate Git ignore semantics, including
+nested rules and negation, through Git-compatible behavior rather than a separate
+incomplete glob implementation.
+
+Ignored paths are candidates for exclusion, not proof that their contents are
+rebuildable. An ignored dependency directory or local build configuration may be
+required for execution. Policy must support explicit inclusions. Explicit secret
+exclusion takes precedence over an inclusion or Git tracking status; a tracked
+credential must not become accessible merely because it is tracked.
+
+Apply the inclusion policy at both initial host capture and subsequent checkpoint
+construction. Otherwise an ignored build directory omitted initially would be
+published when the agent creates it in the upper. Exclusion affects canonical
+state, not whether the agent may generate and use the directory in its workspace.
+
+Retain `.git` for the initial design, subject to secret and visibility policy.
+Its contents participate in canonical identity when included. Git commands then
+modify the workspace's repository metadata, not the host repository. Host branch
+commit orchestration and workspace Git operations remain distinct responsibilities.
+
+A `.git` file can refer to metadata outside the project, as with Git worktrees.
+Submodules and object alternates can introduce additional external references.
+Detect such layouts and either construct an isolated repository projection or
+reject unsupported layouts with an actionable diagnostic. Do not grant writes to
+external repository metadata merely to make an in-view Git command succeed.
+
+#### 11.3.3 Capture policy and canonical identity
+
+Store the effective policy as structured arena state associated with the workspace
+and its published project state. The policy needs a versioned identity covering
+inclusion rules, reserved paths, secret exclusions, and the canonical metadata
+schema. Do not place a separate canonical policy sidecar beside the arena.
+
+A root identifies exactly the included project contents and metadata under that
+policy. It does not identify the contents of external caches, scratch mounts, or
+excluded files still present in the upper. Compare or merge roots only under
+compatible policies, or perform an explicit policy conversion. Identical roots do
+not imply that two retained workspaces have identical build caches.
+
+When constructing a checkpoint, interpret upper changes against the merged view
+and the pinned baseline. Preserve deletions, replacements, whiteouts, and opaque
+directory effects on included paths. An excluded directory must not cause an
+included descendant to be missed when policy permits that descendant. Reuse
+unchanged included objects and rebuild affected directory manifests.
+
+The checkpoint operation does not erase excluded files from the upper. Conversely,
+discarding an excluded cache path must not be published as deletion of an included
+project object. Policy evaluation and OverlayFS change interpretation must agree
+on which namespace the resulting Merkle tree represents.
+
+#### 11.3.4 Secret exclusion and host read access
+
+Read-only host access and secret exclusion are separate rules. Read-only mounts
+prevent modification; they do not make credentials unreadable. Landlock filesystem
+rules grant access to allowed hierarchies. A broad read grant for `/` cannot be
+combined with a narrower rule that denies a secret below it.
+
+Use read allowlists that avoid secret hierarchies, or targeted mount covers for
+secret locations where the surrounding host tree must remain readable. This does
+not require an overlay over the entire host filesystem. Select and validate the
+combination before tool execution; failure to enforce a required secret exclusion
+must prevent execution.
+
+Exclude secrets before ingestion as well as at execution. Keep them out of CAS
+blobs and directory manifests. Account for alternate paths and aliases, not just
+the configured spelling of a path. Close inherited file descriptors that expose
+secrets and remove unauthorized credential environment variables before launching
+an agent-controlled process. A filesystem rule does not revoke data already
+available through an inherited descriptor or environment value.
+
+Define handling for `/proc`, `/dev`, shared memory, and host Unix sockets explicitly.
+A readable or read-only pathname can still expose process information or permit
+communication with a host service. Grant only the endpoints required by the
+execution policy.
+
+#### 11.3.5 Temporary storage and writable application caches
+
+Temporary mounts start empty. Choose whether they belong to one tool execution or
+the entire session. Execution-scoped scratch is discarded after the tool's
+process tree exits; session-scoped scratch can survive context re-entry. Set
+`TMPDIR` consistently with the selected private mount and cover relevant host
+temporary locations according to policy.
+
+Application caches are separate writable exceptions. Prefer private session cache
+directories and set `XDG_CACHE_HOME` and applicable tool-specific cache variables
+to those directories. Treat XDG configuration, data, runtime, and cache locations
+as distinct classes; granting cache writes must not grant credential access.
+
+An explicitly shared host cache is outside transaction isolation: its mutations
+can affect the host, sibling agents, and concurrent sessions. Shared-cache policy
+must define ownership, concurrency, cleanup, and whether arbitrary tool writes are
+acceptable. Private caches are the default when that sharing is not requested.
+
+#### 11.3.6 Role-specific `.fyai` visibility
+
+The trusted session harness needs access to arenas, CAS, workspace records, and
+child admission state. Ordinary tool calls do not receive that access. Apply the
+role-specific projection from section 8.1 at the execution boundary rather than
+recording a permanent `.fyai` deletion in the canonical project tree.
+
+An authenticated subagent starts in the trusted runtime projection needed to
+initialize its own session. Its tool children receive the covered projection
+again. A tool process cannot reveal `.fyai` by changing role or spawning a process.
+Trusted admission constructs the appropriate projection and descriptor set.
+
+Reserved harness storage is not part of the project root and must remain
+inaccessible through alternate paths to the upper, work directory, baseline, or
+CAS data-only directory. Reusing a mount must preserve these visibility rules on
+every tool launch.
+
+#### 11.3.7 Mount cache and backing workspace cache
+
+Retain mounts while the active session supervisor owns their mount namespace.
+Repeated tool calls and context entries can reuse the mounted workspace after
+checking ownership and execution policy. The supervising process remains an
+ordinary invocation, not a daemon or hidden resident service.
+
+Retained backing directories provide a second cache level. They can outlive the
+invocation and be remounted by a later invocation without rehashing the host or
+reconstructing the baseline. Their survival does not require a process to keep a
+private mount namespace alive. An explicit persistent inspection mount follows
+the ownership and identity rules of section 11.1.
+
+Keep the baseline, upper, and work directory as one workspace resource. Record
+its pinned baseline root, capture-policy identity, materialization backend,
+workspace identity, last published checkpoint, and retention policy in the arena.
+A retained workspace must keep its baseline CAS objects pinned against GC.
+Retained workspace bytes are not canonical merely because their paths are recorded.
+
+On re-entry, validate the recorded backing paths, ownership, locks, and mount
+identity where applicable. Do not share an upper/work pair between simultaneous
+OverlayFS mounts. Refuse or coordinate a second writer. A stale mount record must
+not authorize adoption or unmounting of an unrelated mount.
+
+Retention policy determines when backing storage and excluded artifacts are
+removed: for example, at tool completion, turn completion, session completion,
+explicit deletion, or cache eviction. These are proposed policy choices, not new
+command-line options specified by this section. Losing the workspace cache changes
+startup cost and removes uncommitted or excluded state; it does not invalidate an
+already published CAS root.
+
+#### 11.3.8 Checkpoints, children, and baseline changes
+
+At a checkpoint, stop or otherwise quiesce the relevant writers, derive the
+policy-included result from the upper, publish CAS objects, and then publish the
+root reference. Resume work on the same baseline/upper pair after the checkpoint.
+A checkpoint root is the publication result; it does not automatically replace the
+mounted lower. The cumulative upper continues to describe changes against the
+original pinned baseline.
+
+A spawned child starts from a frozen parent checkpoint root with its own upper
+and work directory. It does not use the parent's live writable mount as a lower.
+Parent build-cache inheritance is a separate explicit policy. If enabled, seed or
+share only approved cache state with defined isolation; identical project roots
+do not automatically authorize shared writable build artifacts.
+
+Child checkpoints remain available for parent merge, drop, or replacement as
+specified in section 9.1. Immediate propagation occurs after completed child tool
+calls and installation waits for a safe parent boundary. It does not expose live
+child writes to an executing parent tool.
+
+Never replace or mutate a lower beneath a retained upper. A new host snapshot,
+accepted parent merge, or replacement root requires a new workspace when it changes
+the baseline. Transfer included edits through the defined merge/application path.
+Retain, copy, or discard excluded artifacts according to cache policy. Preserving
+an artifact is not a claim that it is valid for the new source root; ordinary build
+tools must revalidate their dependencies.
+
+```mermaid
+flowchart TD
+    H["Host project + capture policy"] --> B["Frozen included CAS root B"]
+    B --> W["Retained workspace: baseline B + upper + work"]
+    W --> T["Tool call or context re-entry"]
+    T --> Q["Quiescent checkpoint"]
+    Q --> I["Included changes -> CAS root C"]
+    Q --> K["Excluded build artifacts remain in upper"]
+    I --> P["Publish branch / turn / tool checkpoint"]
+    P --> W
+    K --> W
+    P --> CHILD["Child: frozen C + private upper"]
+    P --> CHANGE["Accepted baseline change"]
+    CHANGE --> NEW["New workspace + explicit cache transfer policy"]
+```
+
+#### 11.3.9 Recovery and acceptance criteria
+
+A retained upper is a workspace cache until its included changes are ingested.
+Do not promise crash durability for excluded artifacts or uncheckpointed edits.
+Recovery must distinguish a committed root, a recoverable backing workspace, and
+an obsolete mount record. Reconcile retained upper state through trusted capture
+before presenting it as a newer canonical result.
+
+Acceptance checks must demonstrate that:
+
+- Ignored build outputs survive repeated entry but do not enter published roots.
+- Tracked files matching ignore patterns remain included, and explicit inclusions
+  work without overriding secret exclusions.
+- Included deletions and opaque-directory changes remain correct beside excluded
+  artifacts.
+- Repeated checkpoints preserve the baseline/upper relationship and do not create
+  duplicate application of earlier changes.
+- Both copied and metacopy baselines support the same retention and policy behavior.
+- Secret paths, inherited descriptors, and environment credentials remain
+  unavailable to tools, including after authenticated subagent admission.
+- Writable cache exceptions do not grant writes elsewhere in the host filesystem.
+- Re-entry reuses valid backing resources without host recapture, while conflicting
+  writers and stale mount identities are rejected.
+- Baseline changes create a new workspace and apply the selected artifact-retention
+  policy without changing an active mount's lower.
+- GC preserves objects pinned by retained workspaces and can remove discarded
+  workspace caches independently of canonical project history.
 
 ## 12. Implementation sequence and acceptance gates
 
