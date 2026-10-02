@@ -161,8 +161,24 @@ faithful capture.
 Content deduplication does not imply hard-link identity. A pair of independent
 files with equal content must remain independent. Hard-link topology needs a
 separate deterministic representation; host inode numbers only discover groups
-within one capture. Until copy-up and topology preservation are validated, reject
-projects containing multiply linked regular files with an actionable diagnostic.
+within one capture. The topology is not part of the identity.
+
+Capture counts the aliases of each host (device, inode) pair that it finds in
+the project and compares the count with the link count:
+
+- A file with one alias in the project has its other links outside the
+  project, for example in a pnpm store or in the repository that a
+  `git clone --local` linked. Capture records it as an ordinary file and loses
+  nothing.
+- A file with two or more aliases in the project loses its topology when the
+  aliases are captured as independent files.
+
+A configuration option selects the behavior for multiply linked files:
+`reject` refuses the capture with an actionable diagnostic; `accept` captures
+each alias as an independent file; an allow list of paths accepts the listed
+paths and rejects the others. Host application replaces a file through a staged
+file and `rename` (section 10). It never writes into an existing inode, which
+can be shared with a store outside the project.
 
 A child-object change changes the identities of its ancestor directories. Equal
 root identities mean equal canonical state under the same schema and metadata
@@ -282,7 +298,39 @@ an inode. On a filesystem without extent sharing, the host project and one copy
 are the stored bytes; a later baseline stores only the changed files. GC that
 removes a CAS name or a baseline removes one link and does not affect the other.
 
-### 5.2 Collection
+### 5.2 Borrowed blobs (proposed)
+
+A path that a policy declares immutable by contract can be captured by a hard
+link to the host inode instead of a copy. The default list is
+`.git/objects/**`: Git writes an object or a pack through a temporary file and
+`rename`, deletes it on `gc`, and never writes into it. Its only change to an
+existing file updates the mtime, which is not part of the identity. Capture
+reads the file one time to calculate its digest and writes no bytes.
+
+The link shares the inode, not a directory. The baseline directories remain
+owned by fyai. A host rename, deletion, or `gc` removes only a host name; the
+link keeps the inode. Only a write into the inode reaches the CAS.
+
+The immutability of a borrowed blob thus depends on the host, not on fyai. A
+write into the inode makes the content under the digest name incorrect for every
+root that refers to it. The CAS therefore records that the blob is borrowed, and
+verifies its digest before it trusts it: when a new baseline uses it, during
+`--verify`, and before GC counts it as valid. A blob that fails is quarantined,
+and the file is captured by copy. The link requires the CAS and the project on
+one filesystem, and `fs.protected_hardlinks` permits it because the user owns
+the file.
+
+OverlayFS does not define the behavior when a lower layer changes while it is
+mounted; it does not crash or deadlock. A file that has no copy-up reads the
+lower inode, a cached directory listing can be stale, and a copy-up takes the
+content of that time. The effects stay in that view, and the upper can be
+discarded. The integrity of the records is the cost: exit capture reuses the
+baseline identity of each path that has no upper entry and does not read it, so
+a changed lower inode makes the result root state bytes that the agent did not
+see. Only paths declared immutable can thus be borrowed. All other baseline
+files are inodes that fyai owns.
+
+### 5.3 Collection
 
 Published objects are never edited in place. GC deletes only unreachable, unpinned
 objects. Active views and incomplete recoverable application records pin their
@@ -1001,7 +1049,8 @@ separately and are never applied to the host by these commands. Automatic
 tool/agent view selection,
 parent merge/apply, incremental monitoring, cache reconstruction, and CAS garbage
 collection remain later implementation steps. This initial capture rejects
-hard-linked files, special files, and unsupported metadata rather than losing them.
+hard-linked files, special files, and unsupported metadata rather than losing
+them. Section 4 specifies the proposed option for hard-linked files.
 
 ### 11.3 Session filesystem policy and retained workspace caches
 
@@ -1351,19 +1400,6 @@ mount/security combination has been validated.
 Each item states a finding, its effect, and a proposal. The decision is pending
 until review closes the item. A closed item changes the applicable sections
 above and is then removed from this list. An identifier is not used again.
-
-### R7. Rejection of hard-linked files
-
-**Finding:** Capture rejects a project that contains a regular file with more
-than one link.
-
-**Effect:** `git clone --local` hard-links objects, and pnpm hard-links
-`node_modules` entries from its store. Such projects cannot be captured.
-
-**Proposal:** Add a policy that captures each link as an independent file and
-reports a warning. Keep rejection as the strict policy.
-
-**Decision:** Pending.
 
 ### R8. Mount locking of covers
 
