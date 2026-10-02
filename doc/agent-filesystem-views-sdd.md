@@ -3,6 +3,7 @@
 **Status:** Proposed; implementation and capability validation pending
 **Scope:** Linux project-directory views for one fyai invocation and its agents
 **Related design:** [Agent transport isolation](agent-transport-isolation-sdd.md)
+**Open review items:** [Section 14](#14-open-review-items)
 
 ## 1. Purpose and decisions
 
@@ -1233,3 +1234,182 @@ exit
 Unmount before leaving that shell. Mounts are visible in its namespace, and
 stale records after an abandoned namespace require future recovery support.
 A busy unmount retains its record for retry; it never uses lazy or forced unmount.
+
+## 14. Open review items
+
+Each item states a finding, its effect, and a proposal. The decision is pending
+until review closes the item. A closed item changes the applicable sections
+above and is then removed from this list.
+
+### R1. Two lifecycle models
+
+**Finding:** Sections 2, 6, and 9 describe a transaction that captures the host
+project for each turn, with change monitoring and monitor epochs. Sections 9.1
+and 11.3 describe managed branch roots. In that model the host is imported only
+at initialization or at an explicit refresh.
+
+**Effect:** A reader cannot tell which lifecycle is normative. Under managed
+roots, most of section 6.2 (fanotify, overflow, monitor epochs) is not
+necessary. A refresh needs only the observation cache of section 6.1.
+
+**Proposal:** Make sections 9.1 and 11.3 the normative model. Move section 6.2
+to an optional future optimization of explicit refresh.
+
+**Decision:** Pending.
+
+### R2. Status and scope statements
+
+**Finding:** The header says that implementation is pending. The commands
+`view create`, `update`, `show`, `list`, `enter`, `mount`, and `unmount`
+exist. Section 1 says that the document specifies no command syntax, and
+section 12 says that it makes no command or configuration schema change.
+Section 11.2 specifies commands. The read-only inspection mount text is after
+section 13 (references).
+
+**Effect:** The document does not separate implemented behavior from design
+intent.
+
+**Proposal:** Update the status. Mark each section as implemented, partly
+implemented, or proposed. Move the inspection mount text into section 11.
+
+**Decision:** Pending.
+
+### R3. Storage paths and store member names
+
+**Finding:** Section 5 gives `objects/<algorithm>/<digest-prefix>/<digest>`,
+`materialized/...`, and `runtime/<invocation>/<transaction>/...`. Section 11.2
+gives `.fyai/objects/blake3` and `.fyai/views/view-XXXXXX/`. Section 4
+proposes a `project` store member; the implementation uses `store/views`. The
+implementation also uses `/tmp/.fyai-view-runtime` as a backing mount point,
+which the document does not state.
+
+**Effect:** The storage domain, GC, and recovery design refer to paths that do
+not agree.
+
+**Proposal:** Record one layout and one store member set. State the purpose of
+the runtime mount point and why it is covered.
+
+**Decision:** Pending.
+
+### R4. Rootless metacopy and the copy backend
+
+**Finding:** Mainline OverlayFS sets `metacopy=off` and `redirect_dir=nofollow`
+when `userxattr` is given. A data-only lower layer (`lowerdir=a::b`) requires
+metacopy, so a rootless mount of the metacopy backend fails. This agrees with
+the observation that Linux 6.8 uses the copied baseline. Kernel versions that
+change this behavior must be confirmed by the probe, not assumed.
+
+**Effect:**
+
+- The copy backend is the normal rootless path, not a fallback.
+- On a filesystem without reflink, such as ext4, a view stores the project
+  bytes three times: the host project, CAS, and the copied baseline. On XFS
+  and Btrfs, `copy_file_range` can share extents.
+- With `redirect_dir` off, `rename(2)` of a directory that is in the lower
+  layer returns `EXDEV`. `mv` copies and deletes. A tool that renames a
+  directory atomically fails.
+
+**Proposal:** State that metacopy requires privileged mounts or a kernel that
+the probe accepts. Document the storage cost for each filesystem class and
+measure it. Use `FICLONE` explicitly when it is available. Document the
+directory-rename limitation and add a test for it.
+
+**Decision:** Pending.
+
+### R5. Metadata in canonical identity and merge
+
+**Finding:** The version 1 directory encoding (section 4.1) includes the
+directory mtime, uid, and gid. The file manifest includes mtime. A change of
+membership, a checkout, or a copy-up changes a directory mtime.
+
+**Effect:**
+
+- Two captures of the same content give different roots.
+- The three-way merge of section 10 reports a conflict when both sides touched
+  a file or a directory, also when the content is equal.
+- If host application restores the agent mtime, a host build can skip a
+  rebuild because the restored mtime is older than its outputs.
+
+**Proposal:** Calculate the merge identity from type, content, executable
+permission, and symlink target. Keep mtime and ownership as advisory metadata
+outside that identity, or exclude them from conflict detection. On host
+application, give a written file the current time. Decide this before roots
+are published under the version 1 encoding.
+
+**Decision:** Pending.
+
+### R6. Path-level merge of `.git`
+
+**Finding:** Section 11.3.2 keeps `.git` in canonical state. Section 10 merges
+and applies changes for each path.
+
+**Effect:** `.git/index`, pack files, refs, and `ORIG_HEAD` conflict in almost
+every merge, or a merge combines them into a repository that is not valid.
+
+**Proposal:** Keep `.git` visible in the view. Exclude it from the path-level
+merge and from host application. Transfer repository changes through Git, for
+example with a fetch from the view repository or a bundle.
+
+**Decision:** Pending.
+
+### R7. Rejection of hard-linked files
+
+**Finding:** Capture rejects a project that contains a regular file with more
+than one link.
+
+**Effect:** `git clone --local` hard-links objects, and pnpm hard-links
+`node_modules` entries from its store. Such projects cannot be captured.
+
+**Proposal:** Add a policy that captures each link as an independent file and
+reports a warning. Keep rejection as the strict policy.
+
+**Decision:** Pending.
+
+### R8. Mount locking of covers
+
+**Finding:** The `.fyai` cover and the read-only remounts are made in the user
+namespace in which tool code runs. Thus, the kernel does not lock them
+(`MNT_LOCKED`). Landlock, the capability drop, and `SECBIT_NOROOT_LOCKED`
+prevent their removal.
+
+**Effect:** The cover is correct only while every adapter applies these steps
+in the correct order. A mistake in one adapter makes the cover removable.
+
+**Proposal:** After setup, run tool code in a nested user and mount namespace.
+The kernel then locks every inherited mount. Add a test that tries to unmount
+the cover and the read-only mounts from a tool.
+
+**Decision:** Pending.
+
+### R9. Writer quiescence mechanism
+
+**Finding:** Sections 9 and 11.3.8 require that writers stop or are quiesced
+at a checkpoint and that containment owns their lifecycle. The document does
+not name the mechanism. A PID namespace ends all processes at exit but cannot
+pause them. `SIGSTOP` races with `fork()`.
+
+**Effect:** The checkpoint barrier has no defined implementation.
+
+**Proposal:** Use cgroup v2 `cgroup.freeze` and `cgroup.kill` when a delegated
+subtree is available. State the behavior without one, for example rejection
+of a checkpoint while a writer is alive. Under the retained workspace model of
+section 11.3, a checkpoint does not replace the lower. A frozen writer can
+thus resume on the same upper. Only a baseline change requires the end of
+retained terminal sessions. Change section 9 to agree.
+
+**Decision:** Pending.
+
+### R10. Smaller items
+
+**Finding and proposal:**
+
+- Section 4.1 hashes each child digest as 64 hexadecimal characters. The raw
+  32 bytes are more conventional. Change this before version 1 roots are
+  published, or keep it.
+- The three-way merge does not detect renames. A rename on one side and an
+  edit on the other side give a conflict. State this as a known limitation.
+- The copy backend names only `sendfile` as the fallback of
+  `copy_file_range`. Name `FICLONE` as the first choice where it is
+  available.
+
+**Decision:** Pending.
