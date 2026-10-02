@@ -460,15 +460,18 @@ flowchart TD
 Solid arrows show execution access or backing references. The dashed capture edge
 is a setup operation; the mounted view never reads live project bytes from the host.
 
-Mainline OverlayFS sets `metacopy=off` and `redirect_dir=nofollow` when
-`userxattr` is given, and a data-only lower layer requires metacopy. A rootless
-view therefore uses the copy backend of section 11.2. The copy backend is the
-normal rootless path; the metacopy backend applies to privileged mounts, or to a
-kernel that the probe accepts.
+OverlayFS sets `metacopy=off` and `redirect_dir=nofollow` when `userxattr` is
+given. Up to Linux 6.15, a data-only lower layer requires metacopy, so a rootless
+mount of the metacopy backend fails and the view uses the copy backend of
+section 11.2. Linux 6.16 and later follow a redirect into a data-only layer
+without `metacopy=on`, also with `userxattr`, so the metacopy backend works
+rootless. The probe decides; the kernel release only explains the result. With
+`userxattr`, the privilege to change a `user.overlay.redirect` xattr controls
+which data a lower file shows: tool code must not reach a backing layer.
 
 With `redirect_dir` off, `rename(2)` of a directory that is in the lower layer
-returns `EXDEV`. This is a known limitation of the copy backend. Most programs,
-`mv` included, then copy and delete.
+returns `EXDEV` with either backend. This is a known limitation of rootless
+views. Most programs, `mv` included, then copy and delete.
 
 Probe the actual kernel, filesystem, namespace privileges, xattr support, and
 mount configuration. Do not infer support from kernel release alone. Data-only
@@ -885,18 +888,20 @@ so every process gets the same result.
 1. Exact subtree move: a directory identity that is removed at one path and
    added at another path is a move of the complete subtree.
 2. Exact file rename: removed and added files are indexed by content, the blob
-   digest or the symlink target. A unique match is a rename. When several
-   paths have the same content, a pair with the same basename is preferred;
-   else the first path in order. A change of mode or ownership is a
-   modification at the new path. An empty file is not a rename source.
+   digest or the symlink target. A file pairs only with a file and a symlink
+   only with a symlink. A unique match is a rename. When several paths have the
+   same content, a source that is not used yet and has the same basename is
+   preferred; else the first path in order. A change of mode or ownership is a
+   modification at the new path. An empty file is neither a rename source nor a
+   rename destination.
 3. Directory rename: a directory that no longer exists on a side is renamed to
    the directory that received the most of its renamed files. A tie between
-   two targets is a split, and no directory rename is inferred. Inside an
-   inferred directory rename, a removed `d/x` pairs with an added `e/x` whatever
-   its content.
+   two targets is a split conflict, and no directory rename is inferred. When
+   both sides rename the same directory, no directory rename is inferred for it;
+   its files follow their own file renames.
 
-Renames with changed content outside an inferred directory rename (Git's
-similarity detection) are not detected in the first version.
+Renames with changed content (Git's similarity detection) are not detected in
+the first version. Such a rename is a deletion and an addition.
 
 Each side gives a map from a path of B to its path on that side. The merge then
 decides the content and the location of each object of B separately:
@@ -1001,9 +1006,9 @@ fyai view list
 
 Creation scans the project, publishes immutable blobs and Merkle manifests, and
 materializes a separate baseline. Creation probes the metacopy backend: it tests
-redirected reads and isolated write copy-up. Rootless mounts fail this probe
-(section 7), and creation then uses `materialization: copy`, the normal rootless
-backend. It preserves project metadata on ordinary files copied from CAS with
+redirected reads and isolated write copy-up. Rootless mounts fail this probe up
+to Linux 6.15 (section 7), and creation then uses `materialization: copy`. It
+preserves project metadata on ordinary files copied from CAS with
 `copy_file_range` and its `sendfile` fallback. Section 5.1 proposes `FICLONE`
 and shared inodes for this backend. The `materialization: metacopy` backend
 builds a baseline of sparse metadata-only files and no image. The selected
