@@ -851,6 +851,30 @@ A, because the host can have built outputs after the agent wrote the file. Do
 not overwrite unrelated host edits. Text merging, if later added, is explicit
 policy; object identity comparison does not itself merge file contents.
 
+Host application is not atomic across a project. Use anchored parent descriptors,
+private staged replacement files, verification immediately before mutation, and
+atomic rename where applicable. A check followed by rename still has a race against
+an uncooperative writer; ordinary Unix operations do not provide a content-based
+compare-and-swap for a pathname. Cooperative locking or a filesystem-specific
+transaction is required for a stronger guarantee. Never claim that staging alone
+prevents all lost updates.
+
+Before writes, record a durable application plan with baseline, target, expected
+host identities, and progress/recovery information. Crash recovery reconciles actual
+host state against that plan; do not blindly roll back over new user edits. Report
+applied, conflicted, untouched, and uncertain paths. CAS success and host-application
+success are separate outcomes.
+
+The `.git` directory is not merged or applied per path; section 11.3.2 gives the
+transfer of commits. Trust in content taken from a view is a property of the
+host-application policy as a whole. A file such as a `Makefile` or an `.envrc`
+has the same trust question as Git configuration.
+
+Configuration selects explicit parent merge, explicit host application, or
+automatic host application. A request originating in an untrusted tool cannot
+change that policy or authorize its own host application. Retain the recorded
+result when conflicts or application failures occur.
+
 ### 10.1 Renames
 
 The merge detects renames from identities, as Git does. Detection runs on each
@@ -896,30 +920,6 @@ that the merge inferred. `view diff` reports a move as a move. The host
 application plan has a move step: it uses `renameat` when the host source still
 has the expected identity, and otherwise writes the new path and removes the old
 path. Crash recovery handles a move as any other step.
-
-Host application is not atomic across a project. Use anchored parent descriptors,
-private staged replacement files, verification immediately before mutation, and
-atomic rename where applicable. A check followed by rename still has a race against
-an uncooperative writer; ordinary Unix operations do not provide a content-based
-compare-and-swap for a pathname. Cooperative locking or a filesystem-specific
-transaction is required for a stronger guarantee. Never claim that staging alone
-prevents all lost updates.
-
-Before writes, record a durable application plan with baseline, target, expected
-host identities, and progress/recovery information. Crash recovery reconciles actual
-host state against that plan; do not blindly roll back over new user edits. Report
-applied, conflicted, untouched, and uncertain paths. CAS success and host-application
-success are separate outcomes.
-
-The `.git` directory is not merged or applied per path; section 11.3.2 gives the
-transfer of commits. Trust in content taken from a view is a property of the
-host-application policy as a whole. A file such as a `Makefile` or an `.envrc`
-has the same trust question as Git configuration.
-
-Configuration selects explicit parent merge, explicit host application, or
-automatic host application. A request originating in an untrusted tool cannot
-change that policy or authorize its own host application. Retain the recorded
-result when conflicts or application failures occur.
 
 ## 11. Persistence, recovery, and GC
 
