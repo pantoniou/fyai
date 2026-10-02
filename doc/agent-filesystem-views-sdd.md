@@ -3,7 +3,6 @@
 **Status:** Partly implemented; section 1.1 lists the implemented parts
 **Scope:** Linux project-directory views for one fyai invocation and its agents
 **Related design:** [Agent transport isolation](agent-transport-isolation-sdd.md)
-**Open review items:** [Section 14](#14-open-review-items)
 
 ## 1. Purpose and decisions
 
@@ -852,6 +851,52 @@ A, because the host can have built outputs after the agent wrote the file. Do
 not overwrite unrelated host edits. Text merging, if later added, is explicit
 policy; object identity comparison does not itself merge file contents.
 
+### 10.1 Renames
+
+The merge detects renames from identities, as Git does. Detection runs on each
+side against B, over the delta of that side only, so its cost follows the size
+of the delta and not of the tree. All pairing uses unsigned bytewise path order,
+so every process gets the same result.
+
+1. Exact subtree move: a directory identity that is removed at one path and
+   added at another path is a move of the complete subtree.
+2. Exact file rename: removed and added files are indexed by content, the blob
+   digest or the symlink target. A unique match is a rename. When several
+   paths have the same content, a pair with the same basename is preferred;
+   else the first path in order. A change of mode or ownership is a
+   modification at the new path. An empty file is not a rename source.
+3. Directory rename: a directory that no longer exists on a side is renamed to
+   the directory that received the most of its renamed files. A tie between
+   two targets is a split, and no directory rename is inferred. Inside an
+   inferred directory rename, a removed `d/x` pairs with an added `e/x` whatever
+   its content.
+
+Renames with changed content outside an inferred directory rename (Git's
+similarity detection) are not detected in the first version.
+
+Each side gives a map from a path of B to its path on that side. The merge then
+decides the content and the location of each object of B separately:
+
+| Case | Result |
+| --- | --- |
+| Content | The table of section 10, which compares A at its path with H at its path |
+| One side moved the object | Take the move |
+| Both sides moved it to the same path | Already satisfied |
+| Both sides moved it to different paths | Rename/rename conflict |
+| One side renamed it, the other side deleted it | Rename/delete conflict |
+| One side renamed and modified it, the other side modified it | Content conflict |
+| One side added a path under `d`, the other side renamed `d` to `e` | Move the addition to `e/` and report it as a conflict for review |
+| Two objects are put at one path | Conflict that names every source |
+
+A file renamed on one side and edited on the other side needs no text merge:
+the result is the content of the editor at the path of the renamer. A path that
+a directory rename moves is reported as a conflict for review, which is the Git
+default (`merge.directoryRenames=conflict`). The merge result records the pairs
+that the merge inferred. `view diff` reports a move as a move. The host
+application plan has a move step: it uses `renameat` when the host source still
+has the expected identity, and otherwise writes the new path and removes the old
+path. Crash recovery handles a move as any other step.
+
 Host application is not atomic across a project. Use anchored parent descriptors,
 private staged replacement files, verification immediately before mutation, and
 atomic rename where applicable. A check followed by rename still has a race against
@@ -1423,18 +1468,3 @@ presentation conventions.
 These references inform mechanisms. The acceptance tests establish which combinations
 fyai actually supports; upstream feature descriptions are not evidence that a proposed
 mount/security combination has been validated.
-
-## 14. Open review items
-
-Each item states a finding, its effect, and a proposal. The decision is pending
-until review closes the item. A closed item changes the applicable sections
-above and is then removed from this list. An identifier is not used again.
-
-### R10. Rename detection in merge
-
-**Finding:** The three-way merge does not detect renames. A rename on one side
-and an edit on the other side give a conflict.
-
-**Proposal:** State this as a known limitation of section 10.
-
-**Decision:** Pending.
