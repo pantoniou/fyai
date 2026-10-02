@@ -44,7 +44,7 @@ specify no command syntax.
 
 | Part | Status |
 | --- | --- |
-| Directory identity encoding (section 4.1) | Implemented |
+| Identity encoding (section 4.1) | Version 1 implemented; version 2 is specified |
 | CAS blob publication (section 5) | Implemented; hard-link sharing is proposed |
 | Capture, copy and metacopy materialization (sections 6.3, 7, 11.2) | Implemented |
 | `view create`, `update`, `show`, `list`, `enter` (section 11.2) | Implemented |
@@ -121,9 +121,9 @@ in the first version. Include the algorithm identifier in externally stored iden
 | Object | Canonical fields |
 | --- | --- |
 | Blob | Digest algorithm, byte length, content digest; exact bytes stored separately |
-| Regular file | Blob identity, preserved mode and metadata |
-| Symlink | Exact target bytes and preserved metadata |
-| Directory | Preserved metadata and bytewise-sorted name/type/child-identity entries |
+| Regular file | Blob identity, mode, ownership; mtime as an unhashed attribute |
+| Symlink | Exact target bytes, mode, ownership; mtime as an unhashed attribute |
+| Directory | Mode, ownership, bytewise-sorted name/type/child-identity entries; mtime as an unhashed attribute |
 | Project state | Schema version, root identity, metadata policy, hard-link topology if supported |
 | Transaction | Baseline root, result root when available, project binding, lifecycle, application outcome |
 
@@ -149,10 +149,14 @@ in manifests; an encoding must never confuse distinct names. Reject duplicate
 entries and invalid components such as slash, NUL, dot, and dot-dot.
 
 Exclude host inode numbers, mount IDs, atime, and ctime from canonical identities.
-They belong to the observation cache. Explicitly version whether mtime, uid/gid,
-ACLs, and selected xattrs are preserved. Proposed first scope preserves permission
-bits and mtime, records ownership subject to mount feasibility, and rejects
-unsupported metadata rather than silently claiming a faithful capture.
+They belong to the observation cache. The identity of an object covers its kind,
+its content, its permission bits, and its ownership. A change of mode or a
+`chown` thus gives a new root. The mtime is an attribute: the manifest stores it
+so that a baseline materializes with it, but the identity does not include it.
+A change of mtime alone, or a directory mtime that a change of membership
+updates, gives no new root and no merge conflict. ACLs and other xattrs are not
+preserved in version 2; capture rejects them rather than silently claiming a
+faithful capture.
 
 Content deduplication does not imply hard-link identity. A pair of independent
 files with equal content must remain independent. Hard-link topology needs a
@@ -173,24 +177,32 @@ reconciliation loop. A turn must retain its own baseline/result references rathe
 than relying only on a branch's most recent project state. Exact transcript linkage
 is an implementation design gate.
 
-### 4.1 Directory identity encoding
+### 4.1 Identity encoding
 
-The initial directory builder returns a caller-arena-owned generic manifest with
-`version: 1`, `kind: directory`, `algorithm: blake3`, permission bits, uid, gid,
-mtime seconds/nanoseconds, and sorted `entries`. Each entry contains `name_hex`,
-child kind, and the child's BLAKE3 digest. A directory has no blob identity,
-content payload, host inode, ctime, or observation-cache fields. Hex filename
-encoding preserves arbitrary non-NUL Unix name bytes.
+A builder returns a caller-arena-owned generic manifest with `version: 2` and
+`algorithm: blake3`. A file or symlink manifest has `kind`, mode, uid, gid,
+`mtime_sec`, `mtime_nsec`, and its content: the blob digest and size, or the
+target bytes. A directory manifest has the same metadata fields and sorted
+`entries`. Each entry contains `name_hex`, child kind, and the child's BLAKE3
+digest. A manifest has no host inode, ctime, or observation-cache fields. Hex
+filename encoding preserves arbitrary non-NUL Unix name bytes.
 
-The BLAKE3 input is independent of generic emission style and arena layout. It
-starts with `fyai/project/directory/blake3/v1` including its terminating NUL,
-followed by mode, uid, gid, mtime seconds, mtime nanoseconds, and entry count as
-unsigned eight-byte big-endian words. Signed mtime seconds use their modulo-2^64
-representation. For each entry, append its byte length as an eight-byte word,
-its raw name bytes, its kind as an eight-byte word, and its 64 lowercase digest
-characters. Kind values are file=1, directory=2, and symlink=3 for version 1.
-Changing this encoding requires a new version/domain. Names are sorted by unsigned
-bytes with shorter prefixes first. Duplicate names and invalid references fail.
+The BLAKE3 input is independent of generic emission style and arena layout. Each
+number is an unsigned eight-byte big-endian word. Each digest is its 32 raw
+bytes. The mtime fields are not part of the input.
+
+- A leaf starts with `fyai/project/leaf/blake3/v2` including its terminating
+  NUL, then its kind string including its terminating NUL, mode, uid, gid, and
+  the content. File content is the blob size and the blob digest. Symlink
+  content is the target length and the raw target bytes.
+- A directory starts with `fyai/project/directory/blake3/v2` including its
+  terminating NUL, then mode, uid, gid, and the entry count. For each entry,
+  append the name length, the raw name bytes, the kind, and the child digest.
+
+Kind values are file=1, directory=2, and symlink=3. Changing this encoding
+requires a new version and domain. Version 1 is not read. Names are sorted by
+unsigned bytes with shorter prefixes first. Duplicate names and invalid
+references fail.
 
 The builder operates on already captured child identities. Recursive filesystem
 capture, schema ingestion validation, durable publication, and view mounting are
@@ -760,8 +772,12 @@ flowchart TD
 
 Directory membership is merged by name, not by treating any directory hash change
 as a blanket conflict. Include ancestor type changes, symlink replacement,
-hard-link effects, deletions versus new children, and metadata in reconciliation.
-Do not overwrite unrelated host edits. Text merging, if later added, is explicit
+hard-link effects, deletions versus new children, mode, and ownership in
+reconciliation. The mtime is not compared and does not conflict: a path taken
+from A keeps the attributes of A, and a path kept from H keeps the attributes
+of H. Host application gives a written file the current time, not the mtime of
+A, because the host can have built outputs after the agent wrote the file. Do
+not overwrite unrelated host edits. Text merging, if later added, is explicit
 policy; object identity comparison does not itself merge file contents.
 
 Host application is not atomic across a project. Use anchored parent descriptors,
@@ -1323,28 +1339,6 @@ Each item states a finding, its effect, and a proposal. The decision is pending
 until review closes the item. A closed item changes the applicable sections
 above and is then removed from this list. An identifier is not used again.
 
-### R5. Metadata in canonical identity and merge
-
-**Finding:** The version 1 directory encoding (section 4.1) includes the
-directory mtime, uid, and gid. The file manifest includes mtime. A change of
-membership, a checkout, or a copy-up changes a directory mtime.
-
-**Effect:**
-
-- Two captures of the same content give different roots.
-- The three-way merge of section 10 reports a conflict when both sides touched
-  a file or a directory, also when the content is equal.
-- If host application restores the agent mtime, a host build can skip a
-  rebuild because the restored mtime is older than its outputs.
-
-**Proposal:** Calculate the merge identity from type, content, executable
-permission, and symlink target. Keep mtime and ownership as advisory metadata
-outside that identity, or exclude them from conflict detection. On host
-application, give a written file the current time. Decide this before roots
-are published under the version 1 encoding.
-
-**Decision:** Pending.
-
 ### R6. Path-level merge of `.git`
 
 **Finding:** Section 11.3.2 keeps `.git` in canonical state. Section 10 merges
@@ -1406,17 +1400,11 @@ retained terminal sessions. Change section 9 to agree.
 
 **Decision:** Pending.
 
-### R10. Smaller items
+### R10. Rename detection in merge
 
-**Finding and proposal:**
+**Finding:** The three-way merge does not detect renames. A rename on one side
+and an edit on the other side give a conflict.
 
-- Section 4.1 hashes each child digest as 64 hexadecimal characters. The raw
-  32 bytes are more conventional. Change this before version 1 roots are
-  published, or keep it.
-- The three-way merge does not detect renames. A rename on one side and an
-  edit on the other side give a conflict. State this as a known limitation.
-- The copy backend names only `sendfile` as the fallback of
-  `copy_file_range`. Name `FICLONE` as the first choice where it is
-  available.
+**Proposal:** State this as a known limitation of section 10.
 
 **Decision:** Pending.
