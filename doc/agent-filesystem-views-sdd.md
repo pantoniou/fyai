@@ -1,6 +1,6 @@
 # Software Design Document: agent project filesystem transactions
 
-**Status:** Proposed; implementation and capability validation pending
+**Status:** Partly implemented; section 1.1 lists the implemented parts
 **Scope:** Linux project-directory views for one fyai invocation and its agents
 **Related design:** [Agent transport isolation](agent-transport-isolation-sdd.md)
 **Open review items:** [Section 14](#14-open-review-items)
@@ -15,10 +15,15 @@ separate host-application step reconciles them.
 The agreed design uses native OverlayFS over ordinary directories, immutable
 content-addressed file blobs, and a Merkle directory tree. It does not build an
 EROFS, Composefs, or other filesystem image. The backing project tree is fully
-populated before the turn starts and remains unchanged while mounted. Only the
-private upper changes during execution. Consequently, file-open interception
-is not needed to capture the baseline. Change notifications optimize subsequent
-capture; they do not provide the agent's isolation.
+populated before the view is mounted and remains unchanged while mounted. Only
+the private upper changes during execution. Consequently, file-open
+interception is not needed to capture the baseline.
+
+The normative lifecycle is the managed-root model of sections 9.1 and 11.3. The
+host project is imported at initialization and at an explicit refresh. A turn
+or an agent mounts a recorded root; it does not capture the host again. Change
+notifications (section 6.2) are an optional optimization of a refresh; they do
+not provide the agent's isolation.
 
 Canonical file bytes may be stored as immutable CAS blob files under the project’s `.fyai`.
 This is an explicitly authorized extension of the current arena-only storage
@@ -31,8 +36,24 @@ Completed views remain separate by default. Their parent can inspect the recorde
 result and explicitly merge it into its own view or apply it to the host. Automatic
 application is configurable and uses the same reconciliation machinery. Child
 propagation may publish after each completed tool call; it never exposes a running
-child tool’s intermediate writes. Host application remains a separate policy. No
-new command syntax is specified here.
+child tool’s intermediate writes. Host application remains a separate policy.
+Sections 11.2 and 11.4 describe the implemented `view` commands. Other sections
+specify no command syntax.
+
+### 1.1 Implementation status
+
+| Part | Status |
+| --- | --- |
+| Directory identity encoding (section 4.1) | Implemented |
+| CAS blob publication (section 5) | Implemented; hard-link sharing is proposed |
+| Capture, copy and metacopy materialization (sections 6.3, 7, 11.2) | Implemented |
+| `view create`, `update`, `show`, `list`, `enter` (section 11.2) | Implemented |
+| `view mount`, `unmount` (section 11.4) | Implemented |
+| Observation cache and change monitoring (sections 6.1, 6.2) | Proposed |
+| Role projections and agent execution (section 8) | Proposed; `view enter` applies the tool projection |
+| Turn, agent, and checkpoint lifecycle (section 9) | Proposed |
+| Merge and host application (section 10) | Proposed |
+| GC, retained workspaces, and capture policy (sections 11, 11.3) | Proposed |
 
 ## 2. Guarantees and limits
 
@@ -144,8 +165,9 @@ root identities mean equal canonical state under the same schema and metadata
 policy. They do not prove the current host still has that state.
 
 Store project references in the open branch `store` through the existing store
-build/merge/publication path. A proposed `project` member carries versioned project
-state and transaction references. Concurrent different updates to this member
+build/merge/publication path. Named views live in `store/views` (section 11.2).
+A proposed `project` member carries the managed project state and transaction
+references of section 9.1. Concurrent different updates to this member
 must use existing three-way conflict handling; do not create another root CAS
 reconciliation loop. A turn must retain its own baseline/result references rather
 than relying only on a branch's most recent project state. Exact transcript linkage
@@ -177,17 +199,32 @@ that the referenced object exists; publication must enforce closure of the tree.
 
 ## 5. CAS blob storage
 
-A proposed storage layout is:
+The storage layout is:
 
 ```text
 <project>/.fyai/
-    <existing arena storage>
-    objects/<algorithm>/<digest-prefix>/<digest>
-    materialized/<project-root>/<metadata-policy>/
-    runtime/<invocation>/<transaction>/{upper,work,scratch}
+    objects/blake3/<digest>
+    views/view-XXXXXX/
+        baseline/    sealed metadata or copied lower
+        data/        data-only lower of the metacopy backend
+        upper/       writable upper
+        work/        OverlayFS work directory
+        cover/       empty directory for read-only cover mounts
+        merged/      mount point for trusted ingestion
 ```
 
-Resolve the storage domain against existing arena ownership and GC before fixing
+The arena directory is selected by the configuration and can be outside the
+project. A view rejects an arena or storage directory inside the project other
+than the reserved `.fyai`. The CAS, the baselines, and the uppers are on one
+filesystem, which section 5.1 requires.
+
+`view enter` clones the view directory into its mount namespace at
+`/tmp/.fyai-view-runtime` before it mounts the overlay. The overlay then covers
+the project path, and with it `<project>/.fyai`; the clone keeps the backing
+directories reachable for the mount. After the mount, a read-only cover hides
+the clone from tool code. A project at that path is rejected.
+
+Resolve the storage domain against existing arena ownership and GC before adding
 paths. No raw provider credentials enter blobs through configuration capture.
 Exclude fyai storage and internal runtime paths from project ingestion. Do not
 implicitly exclude user source files by Git ignore rules; ignored files may be
@@ -207,12 +244,44 @@ must hide backing paths and enforce access restrictions. Optional fs-verity can
 strengthen immutability and integrity. Its digest is a separate field from an
 ordinary content hash unless the schema deliberately uses the verity algorithm.
 
+### 5.1 Shared inodes (proposed)
+
+OverlayFS never writes to a lower inode; copy-up writes to the upper. Tools
+cannot reach a backing path. A baseline inode thus has the same immutability as
+a CAS blob, and the two share an inode:
+
+1. Capture writes the bytes one time, into the baseline file, and hashes them.
+   If the digest is new, it links that inode into `objects/blake3/<digest>`.
+   The CAS ignores inode metadata. After publication, no writable descriptor to
+   the inode remains and its metadata does not change.
+2. A new baseline links the inode of the previous baseline for a path when the
+   file manifest of that path is equal. The test compares the inode metadata
+   (mode, mtime, and ownership), because the inode carries it, even when that
+   metadata is not in the merge identity.
+3. One baseline never gives one inode to two paths. Files with equal content
+   and metadata are frequent. A shared inode would show them as hard links to
+   `tar`, `rsync -H`, and `cp -a`. Reuse is thus keyed by path and file
+   manifest, across baselines only.
+4. A file that is not linked is cloned with `FICLONE`, else copied with
+   `copy_file_range`, else with `sendfile`.
+
+A file in a view reports a link count above one. No two paths of one view share
+an inode. On a filesystem without extent sharing, the host project and one copy
+are the stored bytes; a later baseline stores only the changed files. GC that
+removes a CAS name or a baseline removes one link and does not affect the other.
+
+### 5.2 Collection
+
 Published objects are never edited in place. GC deletes only unreachable, unpinned
 objects. Active views and incomplete recoverable application records pin their
 roots before mounting. Cross-process GC needs durable or locked pin ownership and
 a crash-recovery protocol; an in-memory reference count is insufficient.
 
 ## 6. Host capture and avoiding redundant work
+
+Host capture occurs at initialization and at an explicit refresh (section 9.1).
+Section 6.1 makes a refresh read only changed files. Section 6.2 is an optional
+later optimization of a refresh; the managed-root model does not require it.
 
 ### 6.1 Observation cache
 
@@ -234,7 +303,7 @@ unchanged descendant contents. After an unobserved interval, inspect cached chil
 objects even when the directory fingerprint is unchanged. Merkle hashes avoid
 rebuilding unchanged canonical paths; they do not detect external writes.
 
-### 6.2 Monitor lifecycle
+### 6.2 Monitor lifecycle (optional)
 
 Start monitoring before the initial scan. Record an epoch and collect events while
 capture runs. Reconcile dirty paths and directory memberships before declaring the
@@ -331,6 +400,16 @@ flowchart TD
 
 Solid arrows show execution access or backing references. The dashed capture edge
 is a setup operation; the mounted view never reads live project bytes from the host.
+
+Mainline OverlayFS sets `metacopy=off` and `redirect_dir=nofollow` when
+`userxattr` is given, and a data-only lower layer requires metacopy. A rootless
+view therefore uses the copy backend of section 11.2. The copy backend is the
+normal rootless path; the metacopy backend applies to privileged mounts, or to a
+kernel that the probe accepts.
+
+With `redirect_dir` off, `rename(2)` of a directory that is in the lower layer
+returns `EXDEV`. This is a known limitation of the copy backend. Most programs,
+`mv` included, then copy and delete.
 
 Probe the actual kernel, filesystem, namespace privileges, xattr support, and
 mount configuration. Do not infer support from kernel release alone. Data-only
@@ -447,6 +526,9 @@ namespace; expose or deny their host writes separately. User-owned session shell
 commands remain host operations and are distinguished from model-owned tools.
 
 ## 9. Turn and agent lifecycle
+
+Section 9.1 is the normative lifecycle. A transaction captures the host only at
+import or explicit refresh; a turn or an agent starts from a recorded root.
 
 ```mermaid
 stateDiagram-v2
@@ -780,17 +862,17 @@ fyai view list
 ```
 
 Creation scans the project, publishes immutable blobs and Merkle manifests, and
-materializes a separate baseline of sparse metadata-only files. The
-`materialization: metacopy` backend builds no image and requires rootless
-OverlayFS data-only support. Creation tests redirected reads and isolated write
-copy-up before ingestion. When this capability is unavailable, creation uses
-`materialization: copy`, preserving project metadata on ordinary files copied
-from CAS with `copy_file_range` and its `sendfile` fallback. The selected backend
-is stored with the view and used consistently for entry, inspection mounts, and
-exit capture. Existing copied views remain mountable. Linux 6.8 on the development
-host uses the copied baseline.
+materializes a separate baseline. Creation probes the metacopy backend: it tests
+redirected reads and isolated write copy-up. Rootless mounts fail this probe
+(section 7), and creation then uses `materialization: copy`, the normal rootless
+backend. It preserves project metadata on ordinary files copied from CAS with
+`copy_file_range` and its `sendfile` fallback. Section 5.1 proposes `FICLONE`
+and shared inodes for this backend. The `materialization: metacopy` backend
+builds a baseline of sparse metadata-only files and no image. The selected
+backend is stored with the view and used consistently for entry, inspection
+mounts, and exit capture.
 
-Each baseline inode preserves project mode, ownership, size, and mtime. Its
+With the metacopy backend, each baseline inode preserves project mode, ownership, size, and mtime. Its
 `user.overlay.metacopy` marker and `user.overlay.redirect` path select a CAS blob
 from the private snapshot `data` directory. This data-only directory hard-links
 only blobs reachable from that snapshot, including one entry per content hash.
@@ -1156,6 +1238,31 @@ Acceptance checks must demonstrate that:
 - GC preserves objects pinned by retained workspaces and can remove discarded
   workspace caches independently of canonical project history.
 
+### 11.4 Read-only inspection mounts
+
+`fyai view mount NAME PATH` installs a persistent read-only overlay at an empty
+directory, with `.fyai` covered by the empty read-only control-directory mount.
+`fyai view unmount NAME` removes it. Mounted views reject entry and update.
+The record stores the mount namespace identity, mount IDs, and root inode;
+unmount checks these identities before removing any mount.
+
+These operations require mount privileges in the current namespace. A rootless
+inspection session can own a namespace without a daemon:
+
+```sh
+unshare -Urnm sh
+fyai view mount experiment /tmp/experiment
+fyai view mount comparison /tmp/comparison
+diff -ru /tmp/experiment /tmp/comparison
+fyai view unmount comparison
+fyai view unmount experiment
+exit
+```
+
+Unmount before leaving that shell. Mounts are visible in its namespace, and
+stale records after an abandoned namespace require future recovery support.
+A busy unmount retains its record for retry; it never uses lazy or forced unmount.
+
 ## 12. Implementation sequence and acceptance gates
 
 1. Specify canonical schemas, hash encoding, byte-name representation, metadata
@@ -1185,8 +1292,8 @@ unconfined execution.
 The first supported scope is local project trees with ordinary files, directories,
 and symlinks, no nested mounts, and supported metadata. Unsupported hard-link,
 special-file, ACL, or xattr cases must be rejected or covered by an explicit implemented
-policy. No command/config schema changes are made by this document. When implemented,
-use the command registry, schema validation, generated documentation, and sink result
+policy. Commands beyond those of sections 11.2 and 11.4 are not specified by this
+document. When implemented, use the command registry, schema validation, generated documentation, and sink result
 presentation conventions.
 
 ## 13. Prior work and references
@@ -1210,111 +1317,11 @@ These references inform mechanisms. The acceptance tests establish which combina
 fyai actually supports; upstream feature descriptions are not evidence that a proposed
 mount/security combination has been validated.
 
-### Read-only inspection mounts
-
-`fyai view mount NAME PATH` installs a persistent read-only overlay at an empty
-directory, with `.fyai` covered by the empty read-only control-directory mount.
-`fyai view unmount NAME` removes it. Mounted views reject entry and update.
-The record stores the mount namespace identity, mount IDs, and root inode;
-unmount checks these identities before removing any mount.
-
-These operations require mount privileges in the current namespace. A rootless
-inspection session can own a namespace without a daemon:
-
-```sh
-unshare -Urnm sh
-fyai view mount experiment /tmp/experiment
-fyai view mount comparison /tmp/comparison
-diff -ru /tmp/experiment /tmp/comparison
-fyai view unmount comparison
-fyai view unmount experiment
-exit
-```
-
-Unmount before leaving that shell. Mounts are visible in its namespace, and
-stale records after an abandoned namespace require future recovery support.
-A busy unmount retains its record for retry; it never uses lazy or forced unmount.
-
 ## 14. Open review items
 
 Each item states a finding, its effect, and a proposal. The decision is pending
 until review closes the item. A closed item changes the applicable sections
-above and is then removed from this list.
-
-### R1. Two lifecycle models
-
-**Finding:** Sections 2, 6, and 9 describe a transaction that captures the host
-project for each turn, with change monitoring and monitor epochs. Sections 9.1
-and 11.3 describe managed branch roots. In that model the host is imported only
-at initialization or at an explicit refresh.
-
-**Effect:** A reader cannot tell which lifecycle is normative. Under managed
-roots, most of section 6.2 (fanotify, overflow, monitor epochs) is not
-necessary. A refresh needs only the observation cache of section 6.1.
-
-**Proposal:** Make sections 9.1 and 11.3 the normative model. Move section 6.2
-to an optional future optimization of explicit refresh.
-
-**Decision:** Pending.
-
-### R2. Status and scope statements
-
-**Finding:** The header says that implementation is pending. The commands
-`view create`, `update`, `show`, `list`, `enter`, `mount`, and `unmount`
-exist. Section 1 says that the document specifies no command syntax, and
-section 12 says that it makes no command or configuration schema change.
-Section 11.2 specifies commands. The read-only inspection mount text is after
-section 13 (references).
-
-**Effect:** The document does not separate implemented behavior from design
-intent.
-
-**Proposal:** Update the status. Mark each section as implemented, partly
-implemented, or proposed. Move the inspection mount text into section 11.
-
-**Decision:** Pending.
-
-### R3. Storage paths and store member names
-
-**Finding:** Section 5 gives `objects/<algorithm>/<digest-prefix>/<digest>`,
-`materialized/...`, and `runtime/<invocation>/<transaction>/...`. Section 11.2
-gives `.fyai/objects/blake3` and `.fyai/views/view-XXXXXX/`. Section 4
-proposes a `project` store member; the implementation uses `store/views`. The
-implementation also uses `/tmp/.fyai-view-runtime` as a backing mount point,
-which the document does not state.
-
-**Effect:** The storage domain, GC, and recovery design refer to paths that do
-not agree.
-
-**Proposal:** Record one layout and one store member set. State the purpose of
-the runtime mount point and why it is covered.
-
-**Decision:** Pending.
-
-### R4. Rootless metacopy and the copy backend
-
-**Finding:** Mainline OverlayFS sets `metacopy=off` and `redirect_dir=nofollow`
-when `userxattr` is given. A data-only lower layer (`lowerdir=a::b`) requires
-metacopy, so a rootless mount of the metacopy backend fails. This agrees with
-the observation that Linux 6.8 uses the copied baseline. Kernel versions that
-change this behavior must be confirmed by the probe, not assumed.
-
-**Effect:**
-
-- The copy backend is the normal rootless path, not a fallback.
-- On a filesystem without reflink, such as ext4, a view stores the project
-  bytes three times: the host project, CAS, and the copied baseline. On XFS
-  and Btrfs, `copy_file_range` can share extents.
-- With `redirect_dir` off, `rename(2)` of a directory that is in the lower
-  layer returns `EXDEV`. `mv` copies and deletes. A tool that renames a
-  directory atomically fails.
-
-**Proposal:** State that metacopy requires privileged mounts or a kernel that
-the probe accepts. Document the storage cost for each filesystem class and
-measure it. Use `FICLONE` explicitly when it is available. Document the
-directory-rename limitation and add a test for it.
-
-**Decision:** Pending.
+above and is then removed from this list. An identifier is not used again.
 
 ### R5. Metadata in canonical identity and merge
 
