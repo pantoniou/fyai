@@ -580,6 +580,15 @@ Verify the policy handles truncation and other required rights. Read-only mounts
 supply metadata restrictions Landlock alone cannot guarantee. Preserve independent
 network policy and existing transport sender authentication.
 
+The covers and the read-only mounts are made in the user namespace in which tool
+code runs, so the kernel does not lock them (`MNT_LOCKED`). Two layers prevent
+their removal. Landlock in strict mode denies every change of the mount
+topology, and fails closed when Landlock is not available. The capability drop
+removes all capabilities and the bounding set and sets `SECBIT_NOROOT_LOCKED`. A
+tool that makes its own user and mount namespace receives locked copies of the
+mounts. Every tool adapter applies both layers; an adapter that cannot apply
+them fails its launch.
+
 Every tool adapter acquires the execution view explicitly. MCP services outside
 this process tree do not become isolated by attaching the local shell to a mount
 namespace; expose or deny their host writes separately. User-owned session shell
@@ -1367,6 +1376,11 @@ with surviving writers; interrupted blob publication and host application; and c
 publication/GC. Capability failure must be exercised as a failure path, not skipped into
 unconfined execution.
 
+From a tool, `umount <project>/.fyai`, `umount /tmp/.fyai-view-runtime`, and
+`mount -o remount,rw /` must fail, also from a further `unshare -Urm`. Run these
+cases with Landlock and with Landlock disabled for the test only, so that each
+layer is proven alone.
+
 The first supported scope is local project trees with ordinary files, directories,
 and symlinks, no nested mounts, and supported metadata. Unsupported hard-link,
 special-file, ACL, or xattr cases must be rejected or covered by an explicit implemented
@@ -1400,22 +1414,6 @@ mount/security combination has been validated.
 Each item states a finding, its effect, and a proposal. The decision is pending
 until review closes the item. A closed item changes the applicable sections
 above and is then removed from this list. An identifier is not used again.
-
-### R8. Mount locking of covers
-
-**Finding:** The `.fyai` cover and the read-only remounts are made in the user
-namespace in which tool code runs. Thus, the kernel does not lock them
-(`MNT_LOCKED`). Landlock, the capability drop, and `SECBIT_NOROOT_LOCKED`
-prevent their removal.
-
-**Effect:** The cover is correct only while every adapter applies these steps
-in the correct order. A mistake in one adapter makes the cover removable.
-
-**Proposal:** After setup, run tool code in a nested user and mount namespace.
-The kernel then locks every inherited mount. Add a test that tries to unmount
-the cover and the read-only mounts from a tool.
-
-**Decision:** Pending.
 
 ### R9. Writer quiescence mechanism
 
