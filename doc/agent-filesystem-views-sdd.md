@@ -18,7 +18,7 @@ populated before the view is mounted and remains unchanged while mounted. Only
 the private upper changes during execution. Consequently, file-open
 interception is not needed to capture the baseline.
 
-The normative lifecycle is the managed-root model of sections 9.1 and 11.3. The
+The normative lifecycle is the managed-root model of sections 9 and 11.3. The
 host project is imported at initialization and at an explicit refresh. A turn
 or an agent mounts a recorded root; it does not capture the host again. Change
 notifications (section 6.2) are an optional optimization of a refresh; they do
@@ -56,14 +56,14 @@ specify no command syntax.
 
 ## 2. Guarantees and limits
 
-1. A ready transaction pins a complete immutable project root. Host edits after
-   capture cannot change its baseline or its visible file bytes.
+1. A workspace pins a complete immutable project root. Host edits after import
+   or refresh cannot change its baseline or its visible file bytes.
 2. Agent-controlled processes write only to the merged project view, private
    scratch, and explicitly required device endpoints.
 3. Existing read denials remain effective. A read-only outside filesystem does
    not authorize reading credentials or the tool-denied arena.
 4. No agent or tool can mutate CAS blobs, baseline metadata, workdir, or another
-   transaction's upper through an alternative pathname or inherited descriptor.
+   workspace's upper through an alternative pathname or inherited descriptor.
 5. Every tool belonging to an execution uses its view, including direct file
    tools, shell children, terminal programs, and configured model-owned programs.
 6. CAS publication precedes publication of any manifest referencing the blob.
@@ -73,8 +73,10 @@ specify no command syntax.
 8. Helpers and watchers belong to the invocation and exit with it. No daemon or
    persistent watcher is introduced.
 
-A capture is consistent per accepted object, subject to its verification policy;
-it is not a single-instant snapshot of the entire host tree. Continuous writes
+A host import or refresh is consistent per accepted object, subject to its
+verification policy; it is not a single-instant snapshot of the entire host
+tree. A checkpoint of a workspace is a consistent state of its view, because
+its writers are frozen (section 9). Continuous writes
 may prevent capture from completing. Ordinary stat comparisons cannot prove
 absence of concurrent content changes. Network filesystems and timestamp cache
 assumptions require explicit support policies.
@@ -87,9 +89,9 @@ Dropping tool privileges and securing inherited descriptors remain required.
 
 | Component | Responsibility |
 | --- | --- |
-| Invocation supervisor | Own view lifecycle, capture, pins, setup, freeze, ingestion, and host application |
-| Host scanner | Reconcile observed host objects against cached fingerprints and a prior root |
-| Change monitor | Record dirty objects, directory membership, and loss of coverage |
+| Invocation supervisor | Own workspace lifecycle, import, pins, setup, freeze, checkpoint ingestion, and host application |
+| Host scanner | Import and refresh: reconcile observed host objects against cached fingerprints and a prior root |
+| Change monitor (optional) | Record dirty objects, directory membership, and loss of coverage for a refresh |
 | CAS manager | Publish immutable blobs; verify, pin, and collect unreachable objects |
 | Tree builder | Build deterministic file, symlink, and Merkle directory manifests |
 | Baseline materializer | Build and seal ordinary metadata paths referencing CAS data |
@@ -186,7 +188,7 @@ policy. They do not prove the current host still has that state.
 Store project references in the open branch `store` through the existing store
 build/merge/publication path. Named views live in `store/views` (section 11.2).
 A proposed `project` member carries the managed project state and transaction
-references of section 9.1. Concurrent different updates to this member
+references of section 9.3. Concurrent different updates to this member
 must use existing three-way conflict handling; do not create another root CAS
 reconciliation loop. A turn must retain its own baseline/result references rather
 than relying only on a branch's most recent project state. Exact transcript linkage
@@ -338,7 +340,7 @@ a crash-recovery protocol; an in-memory reference count is insufficient.
 
 ## 6. Host capture and avoiding redundant work
 
-Host capture occurs at initialization and at an explicit refresh (section 9.1).
+Host capture occurs at initialization and at an explicit refresh (section 9.3).
 Section 6.1 makes a refresh read only changed files. Section 6.2 is an optional
 later optimization of a refresh; the managed-root model does not require it.
 
@@ -389,8 +391,8 @@ or remote changes on network filesystems. Monitoring alone must not enable a
 strong unchanged-content claim. Metadata reconciliation or strict content checking
 remains necessary under those conditions.
 
-Between invocations there is no watcher. Startup performs metadata reconciliation,
-usually reusing cached content digests. It cannot skip a complete subtree solely
+Between invocations there is no watcher. A refresh after an unobserved interval
+performs metadata reconciliation, usually reusing cached content digests. It cannot skip a complete subtree solely
 because its directory timestamp matches. Durable cache data lives in arenas;
 watch descriptors and dirty queues do not survive the process.
 
@@ -598,18 +600,39 @@ commands remain host operations and are distinguished from model-owned tools.
 
 ## 9. Turn and agent lifecycle
 
-Section 9.1 is the normative lifecycle. A transaction captures the host only at
-import or explicit refresh; a turn or an agent starts from a recorded root.
+The lifecycle uses these objects:
+
+| Object | Definition |
+| --- | --- |
+| Project root | An immutable CAS root that a branch records. A host import or refresh makes one; a checkpoint or a merge makes the others. |
+| Workspace | The sealed baseline of one root, its upper and work directory, its PID namespace, and its cgroup (section 11.3). It serves tool calls and turns until its baseline changes. |
+| Checkpoint | A root ingested from a frozen workspace: after a tool call, at the end of a turn, and before a delegation. |
+| Transaction | The record of one workspace: its baseline root, its checkpoints, its result root, and the outcome of merge or host application. |
+
+The host is read only at import and at an explicit refresh. A turn and an agent
+start from a recorded root and never capture the host.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Capturing
-    Capturing --> Ready: CAS root and sealed materialization complete
-    Capturing --> Failed: capture or capability failure
-    Ready --> Running: confinement established
-    Running --> Freezing: turn completes or cancellation begins
-    Freezing --> Ingesting: all writers stopped
-    Ingesting --> Recorded: result root committed
+    [*] --> Materializing: root recorded by import, refresh, checkpoint, or merge
+    Materializing --> Ready: sealed baseline complete
+    Materializing --> Failed: capture or capability failure
+    Ready --> Running: confinement established, tool admitted
+    Running --> Frozen: tool call or turn ends, delegation, or cancellation
+    Frozen --> Checkpointed: changed paths ingested, root published
+    Checkpointed --> Running: thaw, next tool admitted
+    Checkpointed --> Idle: thaw, no tool running
+    Idle --> Running: next tool or next turn
+    Idle --> Retired: baseline change or retention policy
+    Failed --> Retired
+    Retired --> [*]
+```
+
+A recorded root then has its own outcome, which does not change the workspace:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Recorded
     Recorded --> Merging: parent requests merge
     Merging --> Recorded: new parent root recorded
     Merging --> Conflict: destination changed
@@ -621,60 +644,22 @@ stateDiagram-v2
     Applied --> Released
     Conflict --> Released
     Partial --> Released: recovery record durable
-    Failed --> Released
     Released --> [*]
 ```
 
-A transaction is shared by an agent and its ordinary tool descendants. Each
-delegated agent execution instead receives a private upper rooted in a sealed
-checkpoint of the parent view. The parent inspects and merges that result
-explicitly, or enables tool-boundary propagation. Capturing a running parent view requires pausing its writers or another
-validated snapshot mechanism. Do not share writable uppers between independent
-views or silently substitute a fresh host baseline for the parent state.
+### 9.1 Writers and checkpoints
 
-Delegation pins a parent-derived baseline. The child result remains separate until
-explicit reconciliation or configured propagation accepts it; a merge replaces
-the parent view at a safe boundary.
-
-```mermaid
-sequenceDiagram
-    participant P as Parent execution
-    participant S as Invocation supervisor
-    participant C as Delegated agent and tools
-    participant CAS as CAS and arena manifests
-    P->>S: Delegate from current project view
-    S->>P: Pause writers for capture boundary
-    S->>CAS: Capture and pin parent-derived baseline B
-    S->>S: Construct child agent projection with direct arena mount
-    S->>S: Admit child transport identity and establish containment
-    S->>C: Release private view rooted at B
-    S->>P: Resume parent with its own upper
-    C->>C: Run tools in child upper with arena cover projection
-    C->>S: Finish execution
-    S->>S: Stop child writers and freeze view
-    S->>CAS: Ingest and record child result A
-    S-->>P: Result identity and baseline-to-result diff
-    opt Parent requests merge
-        P->>S: Merge A against B and current parent H
-        S->>S: Reconcile and report conflicts
-        S->>CAS: Record accepted merged root
-        S->>P: Replace view at safe boundary
-    end
-```
-
-A conflicted merge does not install an unresolved root. The parent can inspect the
-recorded child result without changing its own view.
-
-An open writable descriptor or a shared writable mapping keeps authority over an
-upper. A PID namespace for each workspace owns the lifecycle of its processes:
-no descendant can leave it, and the exit of its init ends all of them. Each
-workspace also has a cgroup of its own, below the cgroup of the invocation.
-Every process of the view joins it before it runs tool code. A checkpoint writes
-`cgroup.freeze` and waits until `cgroup.events` reports `frozen 1`. The freeze
-includes processes forked during it. It sends no signal and does not change job
-control, so a retained shell does not see it. The capture reads through the
-merged mount, which also shows page-cache data and writable mappings. The
-checkpoint then thaws the cgroup.
+An agent and its ordinary tool descendants share one workspace. An open writable
+descriptor or a shared writable mapping keeps authority over its upper. A PID
+namespace for each workspace owns the lifecycle of its processes: no descendant
+can leave it, and the exit of its init ends all of them. Each workspace also has
+a cgroup of its own, below the cgroup of the invocation. Every process of the
+view joins it before it runs tool code. A checkpoint writes `cgroup.freeze` and
+waits until `cgroup.events` reports `frozen 1`. The freeze includes processes
+forked during it. It sends no signal and does not change job control, so a
+retained shell does not see it. The capture reads through the merged mount,
+which also shows page-cache data and writable mappings. The checkpoint then
+thaws the cgroup.
 
 All agent processes end when the turn ends. The freeze holds a straggler that
 did not end, such as a background descendant. When a writable cgroup is not
@@ -684,28 +669,65 @@ diagnostic names the processes and states that no cgroup is available.
 `cgroup.kill` can end the processes of a workspace when its cgroup exists; the
 PID namespace remains because it also gives the private `/proc`.
 
-A checkpoint or a turn boundary does not replace the lower (section 11.3.8), so a
-frozen writer resumes on the same upper. Only a baseline change ends the
-terminal sessions that hold the view.
+A checkpoint does not replace the lower (section 11.3.8), so a frozen writer
+resumes on the same upper. A turn continues on the workspace of the previous
+turn when it is retained; else it materializes a new workspace from the
+recorded root of its branch. Host changes enter only through an explicit
+refresh, or through a configured policy. A refresh, an accepted merge, or
+another baseline change makes a new workspace and ends the terminal sessions
+that hold the old one; included edits move through the merge of section 10.
+Never change a live lower in place.
 
-For interactive multi-turn sessions, the next baseline normally continues from
-the recorded result without importing intervening host changes. Importing host or
-parent changes is an explicit reconciliation operation, or a configured policy.
-Never refresh a live lower in place. Resolve conflicts before releasing a view
-that depends on that reconciliation. Long-running programs cannot transparently
-retain descriptors across view replacement in the first version.
+Cancellation freezes and stops writers before unmount and pin release. A result
+may be retained as cancelled work only after successful ingestion. Report
+incomplete capture or lost uncommitted writes explicitly. Namespace destruction
+handles mount teardown; it does not replace cleanup of backing directories and
+pins.
 
-Cancellation stops writers before unmount and pin release. A result may be retained
-as cancelled work only after successful ingestion. Report incomplete capture or
-lost uncommitted writes explicitly. Namespace destruction handles mount teardown;
-it does not replace cleanup of backing directories and pins.
+### 9.2 Delegation
 
-### 9.1 Managed branch roots and tool checkpoints
+Each delegated agent receives its own workspace, rooted in a checkpoint of the
+parent workspace. The parent inspects and merges the result explicitly, or
+enables tool-boundary propagation (section 9.3). Do not share writable uppers
+between workspaces, and do not substitute a fresh host baseline for the parent
+state.
+
+```mermaid
+sequenceDiagram
+    participant P as Parent execution
+    participant S as Invocation supervisor
+    participant C as Delegated agent and tools
+    participant CAS as CAS and arena manifests
+    P->>S: Delegate from current workspace
+    S->>P: Freeze parent cgroup
+    S->>CAS: Ingest and pin parent checkpoint B
+    S->>P: Thaw parent cgroup
+    S->>S: Materialize child workspace from B
+    S->>S: Construct child agent projection with direct arena mount
+    S->>S: Admit child transport identity and establish containment
+    S->>C: Release child workspace
+    C->>C: Run tools in child upper with arena cover projection
+    C->>S: Finish execution
+    S->>S: Freeze child cgroup
+    S->>CAS: Ingest and record child result A
+    S-->>P: Result identity and baseline-to-result diff
+    opt Parent requests merge
+        P->>S: Merge A against B and current parent checkpoint H
+        S->>S: Reconcile and report conflicts
+        S->>CAS: Record accepted merged root
+        S->>P: New parent workspace at safe boundary
+    end
+```
+
+A conflicted merge does not install an unresolved root. The parent can inspect the
+recorded child result without changing its own workspace.
+
+### 9.3 Managed branch roots and tool checkpoints
 
 Managed project roots are the ordinary source of successive turn and agent views.
-The host tree is imported at initialization or explicit refresh. A new turn mounts
-its branch’s recorded project root; spawning an agent uses a pinned parent
-checkpoint. Neither operation rescans the live host project. The existing
+The host tree is imported at initialization or explicit refresh. A new turn uses
+the retained workspace of its branch, or mounts the branch's recorded project
+root; spawning an agent uses a pinned parent checkpoint. Neither operation rescans the live host project. The existing
 `view update NAME` command retains its fresh-host replacement semantics; updating
 a managed view from a recorded root is a distinct internal operation or explicit
 future source option.
@@ -1129,7 +1151,7 @@ them. Section 4 specifies the proposed option for hard-linked files.
 ### 11.3 Session filesystem policy and retained workspace caches
 
 This section specifies the intended coding-session behavior. It extends the
-managed root and checkpoint model in section 9.1; it does not claim that all
+managed root and checkpoint model in section 9.3; it does not claim that all
 policy options or mount reuse described here are implemented by the current
 `view` commands.
 
@@ -1321,7 +1343,7 @@ already published CAS root.
 
 #### 11.3.8 Checkpoints, children, and baseline changes
 
-At a checkpoint, freeze the cgroup of the workspace (section 9), derive the
+At a checkpoint, freeze the cgroup of the workspace (section 9.1), derive the
 policy-included result from the upper, publish CAS objects, and then publish the
 root reference. Thaw the cgroup and resume work on the same baseline/upper pair.
 A checkpoint root is the publication result; it does not automatically replace the
@@ -1335,7 +1357,7 @@ share only approved cache state with defined isolation; identical project roots
 do not automatically authorize shared writable build artifacts.
 
 Child checkpoints remain available for parent merge, drop, or replacement as
-specified in section 9.1. Immediate propagation occurs after completed child tool
+specified in section 9.3. Immediate propagation occurs after completed child tool
 calls and installation waits for a safe parent boundary. It does not expose live
 child writes to an executing parent tool.
 
