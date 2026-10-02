@@ -10,6 +10,7 @@ struct fyai_fsview {
 	const char *storage;
 	const char *arena;
 	fy_generic baseline; /* Borrowed immutable lower manifest for result capture. */
+	bool metacopy;
 	bool terminal;
 	bool verify;
 };
@@ -21,6 +22,9 @@ struct fyai_fsview_mount {
 	uint64_t cover_id;
 	uint64_t root_inode;
 };
+
+/* Probe rootless CAS reads, metadata, and isolated write copy-up. */
+int fyai_fsview_metacopy_check(const char *runtime);
 
 /* Read-only inspection mounts persist in the caller's mount namespace. */
 int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
