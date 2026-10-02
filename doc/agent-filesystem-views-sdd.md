@@ -663,13 +663,28 @@ sequenceDiagram
 A conflicted merge does not install an unresolved root. The parent can inspect the
 recorded child result without changing its own view.
 
-Turn boundaries with persistent shell sessions require care: an open writable FD
-or shared writable mapping retains authority over an old upper. Before finalizing,
-stop and reap view-owned writers, close terminal sessions holding the view, and
-ensure no descendant can continue writing. Process discovery alone is insufficient
-against escaping descendants; the containment mechanism must supply lifecycle
-ownership. Without that guarantee, require tools to terminate and reject retained
-writers rather than claim a frozen transaction.
+An open writable descriptor or a shared writable mapping keeps authority over an
+upper. A PID namespace for each workspace owns the lifecycle of its processes:
+no descendant can leave it, and the exit of its init ends all of them. Each
+workspace also has a cgroup of its own, below the cgroup of the invocation.
+Every process of the view joins it before it runs tool code. A checkpoint writes
+`cgroup.freeze` and waits until `cgroup.events` reports `frozen 1`. The freeze
+includes processes forked during it. It sends no signal and does not change job
+control, so a retained shell does not see it. The capture reads through the
+merged mount, which also shows page-cache data and writable mappings. The
+checkpoint then thaws the cgroup.
+
+All agent processes end when the turn ends. The freeze holds a straggler that
+did not end, such as a background descendant. When a writable cgroup is not
+available, a checkpoint is permitted only when no process other than the
+namespace init is alive. Otherwise the checkpoint is refused, and the
+diagnostic names the processes and states that no cgroup is available.
+`cgroup.kill` can end the processes of a workspace when its cgroup exists; the
+PID namespace remains because it also gives the private `/proc`.
+
+A checkpoint or a turn boundary does not replace the lower (section 11.3.8), so a
+frozen writer resumes on the same upper. Only a baseline change ends the
+terminal sessions that hold the view.
 
 For interactive multi-turn sessions, the next baseline normally continues from
 the recorded result without importing intervening host changes. Importing host or
@@ -1256,9 +1271,9 @@ already published CAS root.
 
 #### 11.3.8 Checkpoints, children, and baseline changes
 
-At a checkpoint, stop or otherwise quiesce the relevant writers, derive the
+At a checkpoint, freeze the cgroup of the workspace (section 9), derive the
 policy-included result from the upper, publish CAS objects, and then publish the
-root reference. Resume work on the same baseline/upper pair after the checkpoint.
+root reference. Thaw the cgroup and resume work on the same baseline/upper pair.
 A checkpoint root is the publication result; it does not automatically replace the
 mounted lower. The cumulative upper continues to describe changes against the
 original pinned baseline.
@@ -1414,24 +1429,6 @@ mount/security combination has been validated.
 Each item states a finding, its effect, and a proposal. The decision is pending
 until review closes the item. A closed item changes the applicable sections
 above and is then removed from this list. An identifier is not used again.
-
-### R9. Writer quiescence mechanism
-
-**Finding:** Sections 9 and 11.3.8 require that writers stop or are quiesced
-at a checkpoint and that containment owns their lifecycle. The document does
-not name the mechanism. A PID namespace ends all processes at exit but cannot
-pause them. `SIGSTOP` races with `fork()`.
-
-**Effect:** The checkpoint barrier has no defined implementation.
-
-**Proposal:** Use cgroup v2 `cgroup.freeze` and `cgroup.kill` when a delegated
-subtree is available. State the behavior without one, for example rejection
-of a checkpoint while a writer is alive. Under the retained workspace model of
-section 11.3, a checkpoint does not replace the lower. A frozen writer can
-thus resume on the same upper. Only a baseline change requires the end of
-retained terminal sessions. Change section 9 to agree.
-
-**Decision:** Pending.
 
 ### R10. Rename detection in merge
 
