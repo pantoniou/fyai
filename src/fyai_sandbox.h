@@ -74,6 +74,9 @@ int fyai_env_sanitize(const char *const *keep);
 #define FYAI_ENV_NAME_MAX 256
 
 struct fyai_sandbox_spec {
+	/* Grant read and execute beneath /, except globally denied paths. */
+	bool read_all;
+
 	/*
 	 * Project root, granted read/write recursively EXCEPT any path in
 	 * @deny that falls beneath it (the arena ".fyai" is always denied).

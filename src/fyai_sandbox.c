@@ -413,6 +413,10 @@ int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 	if (fd < 0)
 		return -1;
 
+	if (spec->read_all && grant_except(fd, "/", FYAI_FS_READ & mask,
+					    spec->deny, spec->deny_global_n))
+		goto out;
+
 	/* Carve configured denies out of every granted hierarchy. */
 	for (p = fyai_sys_ro; *p; p++)
 		if (grant_except(fd, *p, FYAI_FS_READ & mask,
