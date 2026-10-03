@@ -9,6 +9,10 @@ fyai_test_setup
 unshare -Urnm true 2>/dev/null || exit 77
 mkdir project
 printf 'baseline\n' > project/file
+printf '#!/bin/sh\nprintf executable\n' > project/executable
+chmod 755 project/executable
+printf readonly > project/readonly
+chmod 444 project/readonly
 mkdir project/.fyai
 printf 'reserved\n' > project/.fyai/private
 ln -s file project/link
@@ -20,6 +24,7 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 assert v['state'] == 'ready'
+assert v['materialization'] in ('copy', 'metacopy')
 PY
 [ -d project/.fyai/objects/blake3 ] || fail 'missing project CAS store'
 [ -n "$(find project/.fyai/objects/blake3 -type f -print -quit)" ] || fail 'missing project CAS blob'
@@ -40,6 +45,13 @@ v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 PYVERIFY
 
+sha256sum project/.fyai/objects/blake3/* > cas-before.sha256
+run_fyai view enter --verify demo sh -c './executable && test "$(cat readonly)" = readonly && ! sh -c "printf denied > readonly" && chmod u+w readonly && printf changed > readonly'
+assert_status 0
+assert_stdout_contains executable
+sha256sum -c cas-before.sha256 >/dev/null || fail 'copy-up changed a CAS blob'
+[ "$(cat project/readonly)" = readonly ] || fail 'copy-up changed the host read-only file'
+
 printf 'host changed\n' > project/file
 run_fyai view enter demo sh -c 'test "$(cat file)" = baseline && test "$(cat link)" = baseline && test ! -e .fyai/private && ! touch .fyai/new && printf scratch > /tmp/scratch && test "$(cat /tmp/scratch)" = scratch && printf agent > file && mkdir child && printf nested > child/new'
 assert_status 0
@@ -56,6 +68,7 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 assert v['baseline'] != v['root']
 assert v['state'] == 'ready'
+assert v['materialization'] in ('copy', 'metacopy')
 PY
 run_fyai view list --output json
 assert_status 0
@@ -146,6 +159,7 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 assert v['state'] == 'ready'
+assert v['materialization'] in ('copy', 'metacopy')
 PY
 run_fyai view enter demo sh -c 'test "$(cat file)" = "host changed" && test ! -e renamed && test ! -e interactive && test -L link'
 assert_status 0

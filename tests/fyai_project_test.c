@@ -18,6 +18,9 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#ifdef __linux__
+#include <sys/xattr.h>
+#endif
 #include <unistd.h>
 
 #include "fyai_project.h"
@@ -231,8 +234,11 @@ int project_capture_parallel(void)
 	char path[] = "/tmp/fyai-project-parallel-XXXXXX", name[32], error[PATH_MAX];
 	unsigned char *data, *mapped;
 	size_t i, j, size = 2U * 1024U * 1024U + 19;
-	struct stat st;
-	int root, fd, rc, lower[2], objects;
+	struct stat st, blob_stat, linked_stat;
+	struct dirent *de;
+	DIR *directory;
+	fy_generic linked;
+	int root, fd, rc, lower[2], objects, linked_lower, data_directory;
 
 	FYAI_TCHECK(mkdtemp(path));
 	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -260,6 +266,10 @@ int project_capture_parallel(void)
 		FYAI_TCHECK(write(fd, data, i < 8 ? size : 4096) == (ssize_t)(i < 8 ? size : 4096));
 		close(fd);
 	}
+	FYAI_TCHECK(!fchmodat(opts.source_fd, "file-01", 0755, 0));
+	fd = openat(opts.source_fd, "zero", O_WRONLY | O_CREAT | O_EXCL, 0644);
+	FYAI_TCHECK(fd >= 0);
+	close(fd);
 	FYAI_TCHECK(!mkdirat(opts.source_fd, "empty", 0700));
 	FYAI_TCHECK(!symlinkat("file-00", opts.source_fd, "link"));
 	FYAI_TCHECK(!mkdirat(opts.source_fd, ".fyai", 0700));
@@ -300,6 +310,46 @@ int project_capture_parallel(void)
 		FYAI_TCHECK(!fstatat(lower[i], "link", &st, AT_SYMLINK_NOFOLLOW) &&
 			    S_ISLNK(st.st_mode));
 	}
+	/*
+	 * Distinct metadata inodes share CAS data without copying file bytes.
+	 */
+	directory = fdopendir(dup(objects));
+	FYAI_TCHECK(directory);
+	while ((de = readdir(directory))) {
+		FYAI_TCHECK(!fstatat(objects, de->d_name, &blob_stat, AT_SYMLINK_NOFOLLOW));
+		if (S_ISREG(blob_stat.st_mode) && blob_stat.st_size == (off_t)size)
+			break;
+	}
+	FYAI_TCHECK(de);
+	FYAI_TCHECK(!mkdirat(root, "metadata", 0700) && !mkdirat(root, "data", 0700));
+	linked_lower = openat(root, "metadata", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	data_directory = openat(root, "data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(linked_lower >= 0 && data_directory >= 0);
+	opts.incremental = false;
+	opts.baseline_fd = linked_lower;
+	opts.data_fd = data_directory;
+	opts.metacopy = true;
+	opts.verify = true;
+	linked = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(linked) && fy_equal(first, linked));
+	FYAI_TCHECK(!fstatat(data_directory, de->d_name, &st, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(st.st_ino == blob_stat.st_ino && st.st_dev == blob_stat.st_dev);
+	FYAI_TCHECK(st.st_mode == blob_stat.st_mode &&
+		    st.st_mtim.tv_sec == blob_stat.st_mtim.tv_sec &&
+		    st.st_mtim.tv_nsec == blob_stat.st_mtim.tv_nsec);
+	closedir(directory);
+	FYAI_TCHECK(!fstatat(linked_lower, "file-00", &linked_stat, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(linked_stat.st_ino != blob_stat.st_ino && linked_stat.st_size == (off_t)size &&
+		    (linked_stat.st_mode & 07777) == 0600);
+	FYAI_TCHECK(!fstatat(linked_lower, "file-01", &st, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(st.st_ino != linked_stat.st_ino && (st.st_mode & 07777) == 0755);
+	fd = openat(linked_lower, "file-00", O_RDONLY | O_NOFOLLOW);
+	FYAI_TCHECK(fd >= 0 && fgetxattr(fd, "user.overlay.metacopy", NULL, 0) == 0);
+	errno = 0;
+	FYAI_TCHECK(lseek(fd, 0, SEEK_DATA) == -1 && errno == ENXIO);
+	close(fd);
+	close(linked_lower);
+	close(data_directory);
 	free(data);
 	fy_generic_builder_destroy(gb);
 	close(opts.source_fd);
