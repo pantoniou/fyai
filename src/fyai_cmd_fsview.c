@@ -132,6 +132,33 @@ static bool view_storage_beneath(const char *project, const char *storage)
 	       strncmp(storage + length + 1, ".fyai/", 6) && strcmp(storage + length + 1, ".fyai");
 }
 
+static int view_initialize_upper(int runtime, int baseline)
+{
+	struct stat st;
+	struct timespec times[2];
+	int fd, rc, saved;
+
+	rc = fstat(baseline, &st);
+	if (rc)
+		return -1;
+	fd = openat(runtime, "upper", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	times[0] = (struct timespec){ .tv_nsec = UTIME_OMIT };
+	times[1] = st.st_mtim;
+	rc = fchown(fd, st.st_uid, st.st_gid);
+	if (!rc)
+		rc = fchmod(fd, st.st_mode & 07777);
+	if (!rc)
+		rc = futimens(fd, times);
+	if (!rc)
+		rc = fsync(fd);
+	saved = errno;
+	close(fd);
+	errno = saved;
+	return rc;
+}
+
 static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool replace)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
@@ -221,7 +248,9 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	snapshot = fyai_project_capture(call->ctx->gb, &opts, error, sizeof(error));
 	if (!fy_is_valid(snapshot))
 		goto out;
-	rc = fsync(opts.baseline_fd);
+	rc = view_initialize_upper(root, opts.baseline_fd);
+	if (!rc)
+		rc = fsync(opts.baseline_fd);
 	if (!rc)
 		rc = fsync(root);
 	if (rc)
@@ -510,6 +539,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	spec.storage = fy_castp(&storage, "");
 	spec.arena = call->ctx->cfg->arena_dir;
 	spec.verify = fyai_cmd_arg_bool(call, "verify");
+	spec.baseline = fy_get(view, "baseline", fy_invalid);
 	resolved = realpath(spec.runtime, NULL);
 	if (!resolved)
 		goto out;

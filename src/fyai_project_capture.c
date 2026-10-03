@@ -35,6 +35,8 @@
 struct capture_node {
 	char *path;
 	char *link;
+	fy_generic baseline;
+	bool reused;
 	struct stat before;
 	struct fyai_project_entry entry;
 	struct fyai_cas_blob blob;
@@ -194,6 +196,7 @@ static int capture_add(struct project_capture *capture, size_t parent, const cha
 	*index = capture->count++;
 	node = &capture->nodes[*index];
 	memset(node, 0, sizeof(*node));
+	node->baseline = fy_invalid;
 	node->path = path;
 	node->before = *st;
 	node->entry.name =
@@ -228,9 +231,53 @@ static int capture_add(struct project_capture *capture, size_t parent, const cha
 	return 0;
 }
 
+/* Directory entries are sorted by filename bytes, equivalently by their hex
+ * encoding. */
+static fy_generic capture_baseline_child(struct project_capture *capture, size_t parent,
+					 const char *name, char digest[FYAI_CAS_DIGEST_SIZE])
+{
+	static const char hex[] = "0123456789abcdef";
+	fy_generic entries, entry, value;
+	char encoded[NAME_MAX * 2 + 1];
+	const char *stored;
+	size_t i, length = strlen(name), low = 0, high, middle;
+	int cmp;
+
+	if (!capture->opts->incremental || length > NAME_MAX)
+		return fy_invalid;
+	entries = fy_get(capture->nodes[parent].baseline, "entries", fy_invalid);
+	if (!fy_is_sequence(entries))
+		return fy_invalid;
+	for (i = 0; i < length; i++) {
+		encoded[i * 2] = hex[(unsigned char)name[i] >> 4];
+		encoded[i * 2 + 1] = hex[(unsigned char)name[i] & 15];
+	}
+	encoded[length * 2] = '\0';
+	high = fy_len(entries);
+	while (low < high) {
+		middle = low + (high - low) / 2;
+		entry = fy_get_at(entries, middle);
+		stored = fy_get(entry, "name_hex", "");
+		cmp = strcmp(encoded, stored);
+		if (cmp < 0)
+			high = middle;
+		else if (cmp > 0)
+			low = middle + 1;
+		else {
+			stored = fy_get(entry, "digest", "");
+			if (strlen(stored) != FYAI_CAS_DIGEST_SIZE - 1)
+				return fy_invalid;
+			memcpy(digest, stored, FYAI_CAS_DIGEST_SIZE);
+			value = fy_get(capture->opts->snapshot, "objects", fy_invalid);
+			return fy_get(value, stored, fy_invalid);
+		}
+	}
+	return fy_invalid;
+}
+
 static int capture_scan(struct project_capture *capture, size_t index, unsigned int depth)
 {
-	struct stat before, after;
+	struct stat before, after, upper;
 	struct dirent *dent;
 	DIR *directory = NULL;
 	char link[PATH_MAX];
@@ -285,6 +332,18 @@ static int capture_scan(struct project_capture *capture, size_t index, unsigned 
 		rc = capture_add(capture, index, dent->d_name, &before, &child);
 		if (rc)
 			goto out;
+		capture->nodes[child].baseline = capture_baseline_child(
+			capture, index, dent->d_name, capture->nodes[child].entry.digest);
+		if (capture->opts->incremental) {
+			rc = fstatat(capture->opts->upper_fd, capture->nodes[child].path, &upper,
+				     AT_SYMLINK_NOFOLLOW);
+			if (rc && errno != ENOENT && errno != ENOTDIR)
+				goto out;
+			if (rc && fy_is_mapping(capture->nodes[child].baseline)) {
+				capture->nodes[child].reused = true;
+				continue;
+			}
+		}
 		if (S_ISDIR(before.st_mode)) {
 			if (target >= 0) {
 				rc = mkdirat(target, dent->d_name, 0700);
@@ -345,7 +404,7 @@ static void capture_files(void *arg)
 		if (index >= capture->count)
 			break;
 		node = &capture->nodes[index];
-		if (node->entry.kind != FYAI_PROJECT_FILE)
+		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE)
 			continue;
 		target = -1;
 		source = capture_open(capture->opts->source_fd, node->path, O_RDONLY | O_NONBLOCK,
@@ -455,7 +514,7 @@ static int capture_verify(struct project_capture *capture)
 			errno = node->error;
 			goto failed;
 		}
-		if (node->entry.kind != FYAI_PROJECT_FILE)
+		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE)
 			continue;
 		source = capture_open(capture->opts->source_fd, node->path, O_RDONLY | O_NONBLOCK,
 				      0);
@@ -533,6 +592,8 @@ static fy_generic capture_finish(struct project_capture *capture, size_t index)
 	size_t i;
 	int source = -1, target = -1, rc, saved;
 
+	if (node->reused)
+		return node->baseline;
 	if (node->error) {
 		errno = node->error;
 		goto out;
@@ -633,6 +694,40 @@ out:
 	return result;
 }
 
+static int capture_reused_objects(struct project_capture *capture, const char *digest,
+				  fy_generic *objects, unsigned int depth, size_t *count)
+{
+	fy_generic source, object, entries, entry;
+	const char *child;
+	int rc;
+
+	if (depth > 128 || ++*count > 100001) {
+		errno = E2BIG;
+		return -1;
+	}
+	if (fy_is_valid(fy_get(*objects, digest, fy_invalid)))
+		return 0;
+	source = fy_get(capture->opts->snapshot, "objects", fy_invalid);
+	object = fy_get(source, digest, fy_invalid);
+	if (!fy_is_mapping(object)) {
+		errno = EINVAL;
+		return -1;
+	}
+	*objects = fy_assoc(capture->gb, *objects, fy_value(capture->gb, digest), object);
+	if (!fy_is_valid(*objects)) {
+		errno = ENOMEM;
+		return -1;
+	}
+	entries = fy_get(object, "entries", fy_invalid);
+	fy_foreach(entry, entries) {
+		child = fy_get(entry, "digest", "");
+		rc = capture_reused_objects(capture, child, objects, depth + 1, count);
+		if (rc)
+			return -1;
+	}
+	return 0;
+}
+
 fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 				const struct fyai_project_capture_opts *opts, char *error_path,
 				size_t error_size)
@@ -644,9 +739,11 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	struct fy_blake3_hasher_cfg hash_cfg = { 0 };
 	struct capture_worker *workers = NULL;
 	struct stat st;
+	const char *digest;
+	fy_generic source;
 	cpu_set_t affinity;
 	fy_generic objects, object, result = fy_invalid;
-	size_t root, i, worker_count = 0, initialized = 0;
+	size_t root, i, worker_count = 0, initialized = 0, reused_count = 0, files = 0;
 	int rc, saved, cpus;
 
 	if (error_path && error_size)
@@ -667,9 +764,25 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	rc = capture_add(&capture, SIZE_MAX, "", &st, &root);
 	if (rc)
 		goto out;
+	if (opts->incremental) {
+		digest = fy_get(opts->snapshot, "root", "");
+		source = fy_get(opts->snapshot, "objects", fy_invalid);
+
+		capture.nodes[root].baseline = fy_get(source, digest, fy_invalid);
+		if (opts->upper_fd < 0 || opts->baseline_fd >= 0 ||
+		    !fy_is_mapping(capture.nodes[root].baseline)) {
+			errno = EINVAL;
+			goto out;
+		}
+	}
 	rc = capture_scan(&capture, root, 0);
 	if (rc)
 		goto out;
+	for (i = 0; i < capture.count; i++)
+		if (!capture.nodes[i].reused && capture.nodes[i].entry.kind == FYAI_PROJECT_FILE)
+			files++;
+	if (!files)
+		goto finish;
 	cpus = sched_getaffinity(0, sizeof(affinity), &affinity) ? 1 : CPU_COUNT(&affinity);
 	if (cpus < 1)
 		cpus = 1;
@@ -701,6 +814,7 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	fy_thread_arg_array_join(capture.pool, capture_files, NULL, workers, sizeof(*workers),
 				 worker_count);
+finish:
 	if (opts->verify) {
 		rc = capture_verify(&capture);
 		if (rc)
@@ -708,6 +822,13 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	objects = fy_mapping(gb);
 	for (i = capture.count; i > 0; i--) {
+		if (capture.nodes[i - 1].reused) {
+			rc = capture_reused_objects(&capture, capture.nodes[i - 1].entry.digest,
+						    &objects, 0, &reused_count);
+			if (rc)
+				goto out;
+			continue;
+		}
 		object = capture_finish(&capture, i - 1);
 		if (!fy_is_valid(object))
 			goto out;
