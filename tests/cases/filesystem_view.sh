@@ -351,6 +351,19 @@ run([binary, 'view', 'enter', '--verify', 'git-worktree', 'sh', '-c',
      'git -c user.name=Test -c user.email=test@example.test -c core.hooksPath=/dev/null commit -m isolated'])
 assert run(['git', 'rev-parse', 'HEAD'], work).stdout.strip() == head
 assert all(p.read_bytes() == data for p, data in originals.items())
+# The remote helper must ignore the client's repository environment.
+view_head = run([binary, 'view', 'enter', 'git-worktree', 'git', 'rev-parse', 'HEAD']).stdout.strip()
+env = os.environ.copy()
+env['PATH'] = str(pathlib.Path(binary).parent) + os.pathsep + env['PATH']
+env['GIT_DIR'] = str(repo / '.git')
+fetch = subprocess.run(['git', 'fetch', 'fyai::git-worktree', 'HEAD'], cwd=repo,
+                       env=env, capture_output=True, text=True, timeout=30)
+assert fetch.returncode == 0, (fetch.stdout, fetch.stderr)
+assert run(['git', 'rev-parse', 'FETCH_HEAD'], repo).stdout.strip() == view_head
+assert run(['git', 'rev-parse', 'HEAD'], work).stdout.strip() == head
+push = subprocess.run(['git', 'push', 'fyai::git-worktree', 'HEAD:refs/heads/forbidden'],
+                      cwd=repo, env=env, capture_output=True, text=True, timeout=30)
+assert push.returncode != 0 and 'pull only' in push.stderr, push.stderr
 run([binary, 'view', 'update', 'git-worktree', '--verify'])
 assert head in run([binary, 'view', 'enter', '--verify', 'git-worktree', 'git', 'rev-parse', 'HEAD']).stdout
 run([binary, 'view', 'create', 'git-worktree-owned', str(work), '--copy-git-objects', '--verify'])
