@@ -844,6 +844,47 @@ static int view_transfer(int fd, void *data, size_t length, bool writing)
 	return 0;
 }
 
+static fy_generic view_wire_value(struct fy_generic_builder *gb, fy_generic value,
+				  unsigned int depth)
+{
+	fy_generic *items = NULL, key, child, result = fy_invalid;
+	size_t count, i = 0;
+	bool mapping;
+
+	if (depth > 512) {
+		errno = ELOOP;
+		return fy_invalid;
+	}
+	if (fy_is_string(value))
+		return fy_generic_set_scalar_style(gb, value, FYSS_DOUBLE_QUOTED);
+	mapping = fy_is_mapping(value);
+	if (!mapping && !fy_is_sequence(value))
+		return value;
+	count = fy_len(value);
+	items = calloc(count ? count * (mapping ? 2 : 1) : 1, sizeof(*items));
+	if (!items)
+		return fy_invalid;
+	if (mapping) {
+		fy_foreach_key_value(key, child, value) {
+			items[i++] = view_wire_value(gb, key, depth + 1);
+			items[i++] = view_wire_value(gb, child, depth + 1);
+			if (!fy_is_valid(items[i - 1]) || !fy_is_valid(items[i - 2]))
+				goto out;
+		}
+		result = fy_gb_mapping_create(gb, count, items);
+	} else {
+		fy_foreach(child, value) {
+			items[i++] = view_wire_value(gb, child, depth + 1);
+			if (!fy_is_valid(items[i - 1]))
+				goto out;
+		}
+		result = fy_gb_sequence_create(gb, count, items);
+	}
+out:
+	free(items);
+	return result;
+}
+
 fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai_fsview *view,
 				char *error, size_t error_size)
 {
@@ -859,7 +900,7 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 						  .verify = view->verify,
 						  .defer_sync = view->lazy };
 	struct view_capture_reply reply = { 0 };
-	fy_generic snapshot = fy_invalid, emitted, verified;
+	fy_generic snapshot = fy_invalid, emitted, verified, wire;
 	fy_generic_sized_string input;
 	const char *text;
 	char *buffer = NULL, objects[PATH_MAX];
@@ -915,7 +956,12 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 				goto child_error;
 			}
 		}
-		emitted = fy_emit(child_gb, snapshot,
+		wire = view_wire_value(child_gb, snapshot, 0);
+		if (!fy_is_valid(wire)) {
+			errno = ENOMEM;
+			goto child_error;
+		}
+		emitted = fy_emit(child_gb, wire,
 				  FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_YAML_1_2 |
 					  FYOPEF_STYLE_FLOW | FYOPEF_WIDTH_INF,
 				  NULL);
