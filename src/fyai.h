@@ -182,6 +182,7 @@ enum fyai_api_mode {
 struct fypal_ctx;
 
 struct fyai_cfg {
+	int exit_status; /* Exit status of a successfully executed CLI child. */
 	struct fy_allocator *allocator;
 	struct fy_generic_builder *gb;	/* the builder for the configuration */
 	enum fyai_api_mode api_mode;
