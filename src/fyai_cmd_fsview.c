@@ -896,7 +896,7 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 		error_path = "formatting metadata";
 		note = fy_emit(call->gb, row,
 			       FYOPEF_DISABLE_DIRECTORY | FYOPEF_NO_ENDING_NEWLINE |
-				       FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_FLOW | FYOPEF_WIDTH_INF,
+				       FYOPEF_MODE_JSON | FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF,
 			       NULL);
 		if (!fy_is_string(note) || response_buffer_append(&listing, "# metadata ") ||
 		    response_buffer_append(&listing, fy_castp(&note, "")) ||
