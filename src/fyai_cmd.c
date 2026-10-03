@@ -839,6 +839,17 @@ static int parse_args(struct fyai_cmd_parse_state *st, size_t i)
 	npos = 0;
 	for (; i < st->nwords; i++) {
 		w = st->words[i];
+		cp = fyai_cmd_prop_positional(props, n, npos);
+		if (cp && cp->rest && cp->array) {
+			if (!strcmp(w, "--"))
+				i++;
+			for (j = i; j < st->nwords; j++) {
+				if (prop_value(st->gb, cp, st->words[j], &value) ||
+				    parse_set(st, cp, value))
+					return -1;
+			}
+			break;
+		}
 		if (!opts_done && !strcmp(w, "--")) {
 			opts_done = true;
 			continue;
