@@ -32,6 +32,7 @@ FYAI_TEST_ENTRY(cmd, usage, cmd_usage)
 FYAI_TEST_ENTRY(cmd, help, cmd_help_text)
 FYAI_TEST_ENTRY(cmd, complete, cmd_complete_words)
 FYAI_TEST_ENTRY(cmd, complete_session, cmd_complete_session)
+FYAI_TEST_ENTRY(cmd, complete_view, cmd_complete_view)
 FYAI_TEST_ENTRY(cmd, immediate, cmd_immediate)
 FYAI_TEST_ENTRY(cmd, group_args, cmd_group_args)
 FYAI_TEST_ENTRY(cmd, config_args, cmd_config_args)
@@ -394,6 +395,51 @@ static unsigned int complete(enum fyai_cmd_surface s, const char *line,
 			      cands_add, c);
 	fyai_cmd_split_free(words, n, offs);
 	return d;
+}
+
+int cmd_complete_view(void)
+{
+	struct cmd_test t;
+	struct fyai_ctx ctx = { 0 };
+	struct cands c;
+	fy_generic views;
+	const char *commands[] = { "show", "update", "remove", "sync",
+				   "mount", "unmount", "enter" };
+	const char *words[] = { "view", NULL, "te" };
+	size_t i;
+
+	cmd_test_open(&t);
+	ctx.cfg = &t.cfg;
+	views = fy_mapping(t.gb, "test-view",
+			   fy_mapping(t.gb, "project", "/project"),
+			   "other-view", fy_mapping(t.gb, "project", "/other"),
+			   "test-invalid", 42LL);
+	ctx.branch_prev =
+		fy_mapping(t.gb, "store", fy_mapping(t.gb, "views", views));
+	for (i = 0; i < ARRAY_SIZE(commands); i++) {
+		words[1] = commands[i];
+		memset(&c, 0, sizeof(c));
+		fyai_cmd_complete(&ctx, FYAI_CMD_CLI, 3, words, cands_add, &c);
+		FYAI_TCHECK(!strcmp(c.buf, "test-view\n"));
+	}
+	words[1] = "create";
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(&ctx, FYAI_CMD_CLI, 3, words, cands_add, &c);
+	FYAI_TCHECK(!strstr(c.buf, "test-view"));
+	words[1] = "enter";
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(NULL, FYAI_CMD_CLI, 3, words, cands_add, &c);
+	FYAI_TCHECK(!c.len);
+	ctx.branch_prev = fy_mapping(
+		t.gb, "store",
+		fy_mapping(t.gb, "views",
+			   fy_mapping(t.gb, "team-view",
+				      fy_mapping(t.gb, "project", "/team"))));
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(&ctx, FYAI_CMD_CLI, 3, words, cands_add, &c);
+	FYAI_TCHECK(!strcmp(c.buf, "team-view\n"));
+	cmd_test_close(&t);
+	return 0;
 }
 
 int cmd_complete_words(void)
