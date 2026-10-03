@@ -11,14 +11,24 @@
 
 #include <errno.h>
 #include <string.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "fyai_project.h"
+#include "fyai_project_capture.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
 FYAI_TEST_ENTRY(project, identity_attributes, project_identity_attributes)
 FYAI_TEST_ENTRY(project, directory_order, project_directory_order)
 FYAI_TEST_ENTRY(project, directory_ancestors, project_directory_ancestors)
+FYAI_TEST_ENTRY(project, capture_parallel, project_capture_parallel)
 FYAI_TEST_ENTRY(project, directory_validation, project_directory_validation)
 
 static struct fy_generic_builder *project_builder(void)
@@ -186,3 +196,111 @@ int project_directory_validation(void)
 	fy_generic_builder_destroy(gb);
 	return 0;
 }
+
+#ifdef __linux__
+static void project_remove_tree(int fd)
+{
+	struct dirent *entry;
+	struct stat st;
+	DIR *directory;
+	int child;
+
+	directory = fdopendir(dup(fd));
+	FYAI_TCHECK(directory);
+	while ((entry = readdir(directory))) {
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		FYAI_TCHECK(!fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW));
+		if (S_ISDIR(st.st_mode)) {
+			child = openat(fd, entry->d_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+			FYAI_TCHECK(child >= 0);
+			project_remove_tree(child);
+			close(child);
+			FYAI_TCHECK(!unlinkat(fd, entry->d_name, AT_REMOVEDIR));
+		} else
+			FYAI_TCHECK(!unlinkat(fd, entry->d_name, 0));
+	}
+	closedir(directory);
+}
+
+int project_capture_parallel(void)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_project_capture_opts opts = { .verify = true, .workers = 1 };
+	fy_generic first, second;
+	char path[] = "/tmp/fyai-project-parallel-XXXXXX", name[32], error[PATH_MAX];
+	unsigned char *data, *mapped;
+	size_t i, j, size = 2U * 1024U * 1024U + 19;
+	struct stat st;
+	int root, fd, rc, lower[2];
+
+	FYAI_TCHECK(mkdtemp(path));
+	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(root >= 0);
+	FYAI_TCHECK(!mkdirat(root, "source", 0700));
+	FYAI_TCHECK(!mkdirat(root, "objects", 0700));
+	FYAI_TCHECK(!mkdirat(root, "one", 0700));
+	FYAI_TCHECK(!mkdirat(root, "many", 0700));
+	opts.source_fd = openat(root, "source", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	opts.objects_fd = openat(root, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	lower[0] = openat(root, "one", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	lower[1] = openat(root, "many", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.source_fd >= 0 && opts.objects_fd >= 0 && lower[0] >= 0 && lower[1] >= 0);
+	data = malloc(size);
+	FYAI_TCHECK(data);
+	for (j = 0; j < size; j++)
+		data[j] = (unsigned char)(j * 131 + j / 4096);
+	for (i = 0; i < 32; i++) {
+		rc = snprintf(name, sizeof(name), "file-%02zu", i);
+		FYAI_TCHECK(rc > 0 && rc < (int)sizeof(name));
+		fd = openat(opts.source_fd, name, O_WRONLY | O_CREAT | O_EXCL, 0600);
+		FYAI_TCHECK(fd >= 0);
+		/* Repeated bytes exercise concurrent publication of one CAS
+		 * identity. */
+		FYAI_TCHECK(write(fd, data, i < 8 ? size : 4096) == (ssize_t)(i < 8 ? size : 4096));
+		close(fd);
+	}
+	FYAI_TCHECK(!mkdirat(opts.source_fd, "empty", 0700));
+	FYAI_TCHECK(!symlinkat("file-00", opts.source_fd, "link"));
+	FYAI_TCHECK(!mkdirat(opts.source_fd, ".fyai", 0700));
+	FYAI_TCHECK(!mkdirat(opts.source_fd, "empty/.fyai", 0700));
+	gb = project_builder();
+	FYAI_TCHECK(gb);
+	opts.baseline_fd = lower[0];
+	first = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(first));
+	opts.baseline_fd = lower[1];
+	opts.workers = 4;
+	second = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(second) && fy_equal(first, second));
+	for (i = 0; i < 2; i++) {
+		fd = openat(lower[i], "file-00", O_RDONLY | O_NOFOLLOW);
+		FYAI_TCHECK(fd >= 0 && !fstat(fd, &st) && st.st_size == (off_t)size &&
+			    st.st_nlink == 1);
+		mapped = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+		FYAI_TCHECK(mapped != MAP_FAILED && !memcmp(mapped, data, size));
+		munmap(mapped, size);
+		close(fd);
+		FYAI_TCHECK(!fstatat(lower[i], "empty", &st, AT_SYMLINK_NOFOLLOW) &&
+			    S_ISDIR(st.st_mode));
+		FYAI_TCHECK(!fstatat(lower[i], "link", &st, AT_SYMLINK_NOFOLLOW) &&
+			    S_ISLNK(st.st_mode));
+	}
+	free(data);
+	fy_generic_builder_destroy(gb);
+	close(opts.source_fd);
+	close(opts.objects_fd);
+	close(lower[0]);
+	close(lower[1]);
+	project_remove_tree(root);
+	close(root);
+	FYAI_TCHECK(!rmdir(path));
+	return 0;
+}
+
+#else
+int project_capture_parallel(void)
+{
+	return 0;
+}
+#endif
