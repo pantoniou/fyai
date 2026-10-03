@@ -77,8 +77,8 @@ int diff_many_edits(void)
 		return 1;
 	a[0] = b[0] = '\0';
 	for (i = 0; i < n; i++) {
-		sprintf(a + strlen(a), "a%zu\n", i);
-		sprintf(b + strlen(b), "b%zu\n", i);
+		snprintf(a + strlen(a), n * 8 - strlen(a), "a%zu\n", i);
+		snprintf(b + strlen(b), n * 8 - strlen(b), "b%zu\n", i);
 	}
 	rc = fyai_diff_unified(a, strlen(a), b, strlen(b), "a", "b", 3, &out);
 	free(a);
