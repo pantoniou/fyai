@@ -28,6 +28,7 @@
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
+FYAI_TEST_ENTRY(project, borrowed_git, project_borrowed_git)
 FYAI_TEST_ENTRY(project, identity_attributes, project_identity_attributes)
 FYAI_TEST_ENTRY(project, directory_order, project_directory_order)
 FYAI_TEST_ENTRY(project, directory_ancestors, project_directory_ancestors)
@@ -226,11 +227,81 @@ static void project_remove_tree(int fd)
 	closedir(directory);
 }
 
+int project_borrowed_git(void)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_project_capture_opts opts = { .borrow_git = true,
+						  .verify = true,
+						  .workers = 4 };
+	fy_generic snapshot;
+	char path[] = "/tmp/fyai-project-borrowed-XXXXXX", error[PATH_MAX];
+	struct stat host, baseline, other;
+	int root, git, source, fd, rc;
+
+	FYAI_TCHECK(mkdtemp(path));
+	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(root >= 0);
+	FYAI_TCHECK(!mkdirat(root, "source", 0700) && !mkdirat(root, "objects", 0700) &&
+		    !mkdirat(root, "baseline", 0700));
+	opts.source_fd = openat(root, "source", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	opts.objects_fd = openat(root, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	opts.baseline_fd = openat(root, "baseline", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.source_fd >= 0 && opts.objects_fd >= 0 && opts.baseline_fd >= 0);
+	FYAI_TCHECK(!mkdirat(opts.source_fd, ".git", 0700));
+	git = openat(opts.source_fd, ".git", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(git >= 0 && !mkdirat(git, "objects", 0700));
+	source = openat(git, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(source >= 0);
+	fd = openat(source, "a", O_RDWR | O_CREAT | O_EXCL, 0600);
+	FYAI_TCHECK(fd >= 0 && write(fd, "abc", 3) == 3 && !fchmod(fd, 0444));
+	FYAI_TCHECK(!linkat(source, "a", source, "b", 0));
+	close(fd);
+	gb = project_builder();
+	FYAI_TCHECK(gb);
+	snapshot = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(snapshot));
+	FYAI_TCHECK(!fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error)));
+	FYAI_TCHECK(!fstatat(source, "a", &host, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(!fstatat(opts.baseline_fd, ".git/objects/a", &baseline, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(!fstatat(opts.baseline_fd, ".git/objects/b", &other, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(baseline.st_ino != other.st_ino);
+	FYAI_TCHECK(host.st_dev == baseline.st_dev &&
+		    (host.st_ino == baseline.st_ino || host.st_ino == other.st_ino));
+	/* Rename and deletion leave the borrowed inode available. */
+	FYAI_TCHECK(!unlinkat(source, "a", 0));
+	FYAI_TCHECK(!fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error)));
+	FYAI_TCHECK(!fchmodat(source, "b", 0644, 0));
+	rc = fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error));
+	FYAI_TCHECK(rc < 0 && errno == EIO);
+	FYAI_TCHECK(!fchmodat(source, "b", 0444, 0));
+	fd = openat(source, "b", O_WRONLY | O_CLOEXEC);
+	if (fd < 0) {
+		FYAI_TCHECK(!fchmodat(source, "b", 0644, 0));
+		fd = openat(source, "b", O_WRONLY | O_CLOEXEC);
+		FYAI_TCHECK(fd >= 0 && !fchmod(fd, 0444));
+	}
+	FYAI_TCHECK(fd >= 0 && write(fd, "bad", 3) == 3);
+	close(fd);
+	rc = fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error));
+	FYAI_TCHECK(rc < 0 && errno == EIO && strstr(error, "--copy-git-objects"));
+	fy_generic_builder_destroy(gb);
+	close(source);
+	close(git);
+	close(opts.source_fd);
+	close(opts.objects_fd);
+	close(opts.baseline_fd);
+	project_remove_tree(root);
+	close(root);
+	FYAI_TCHECK(!rmdir(path));
+	return 0;
+}
+
 int project_capture_parallel(void)
 {
 	struct fy_generic_builder *gb;
 	struct fyai_project_capture_opts opts = { .verify = true, .workers = 1 };
-	fy_generic first, second, incremental;
+	fy_generic first, second, incremental, refreshed, attrs;
+	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, { .tv_sec = 123, .tv_nsec = 456 } };
 	char path[] = "/tmp/fyai-project-parallel-XXXXXX", name[32], error[PATH_MAX];
 	unsigned char *data, *mapped;
 	size_t i, j, size = 2U * 1024U * 1024U + 19;
@@ -239,6 +310,7 @@ int project_capture_parallel(void)
 	DIR *directory;
 	fy_generic linked;
 	int root, fd, rc, lower[2], objects, linked_lower, data_directory;
+	bool shared = false;
 
 	FYAI_TCHECK(mkdtemp(path));
 	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -267,6 +339,7 @@ int project_capture_parallel(void)
 		close(fd);
 	}
 	FYAI_TCHECK(!fchmodat(opts.source_fd, "file-01", 0755, 0));
+	FYAI_TCHECK(!linkat(opts.source_fd, "file-00", root, "external", 0));
 	fd = openat(opts.source_fd, "zero", O_WRONLY | O_CREAT | O_EXCL, 0644);
 	FYAI_TCHECK(fd >= 0);
 	close(fd);
@@ -281,8 +354,17 @@ int project_capture_parallel(void)
 	FYAI_TCHECK(fy_is_mapping(first));
 	opts.baseline_fd = lower[1];
 	opts.workers = 4;
+	opts.reuse_baseline = true;
+	opts.previous_baseline_fd = lower[0];
+	opts.snapshot = first;
 	second = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(second) && fy_equal(first, second));
+	FYAI_TCHECK(!fstatat(lower[0], "file-00", &st, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(!fstatat(lower[1], "file-00", &linked_stat, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(st.st_ino == linked_stat.st_ino && st.st_dev == linked_stat.st_dev);
+	FYAI_TCHECK(!fstatat(lower[0], "file-02", &linked_stat, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(st.st_ino != linked_stat.st_ino);
+	opts.reuse_baseline = false;
 	FYAI_TCHECK(!mkdirat(root, "upper", 0700));
 	opts.upper_fd = openat(root, "upper", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	FYAI_TCHECK(opts.upper_fd >= 0);
@@ -300,7 +382,7 @@ int project_capture_parallel(void)
 	for (i = 0; i < 2; i++) {
 		fd = openat(lower[i], "file-00", O_RDONLY | O_NOFOLLOW);
 		FYAI_TCHECK(fd >= 0 && !fstat(fd, &st) && st.st_size == (off_t)size &&
-			    st.st_nlink == 1);
+			    st.st_nlink >= 1);
 		mapped = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
 		FYAI_TCHECK(mapped != MAP_FAILED && !memcmp(mapped, data, size));
 		munmap(mapped, size);
@@ -321,6 +403,13 @@ int project_capture_parallel(void)
 			break;
 	}
 	FYAI_TCHECK(de);
+	for (i = 0; i < 8; i++) {
+		snprintf(name, sizeof(name), "file-%02zu", i);
+		FYAI_TCHECK(!fstatat(lower[0], name, &st, AT_SYMLINK_NOFOLLOW));
+		if (st.st_ino == blob_stat.st_ino && st.st_dev == blob_stat.st_dev)
+			shared = true;
+	}
+	FYAI_TCHECK(shared);
 	FYAI_TCHECK(!mkdirat(root, "metadata", 0700) && !mkdirat(root, "data", 0700));
 	linked_lower = openat(root, "metadata", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	data_directory = openat(root, "data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -348,6 +437,30 @@ int project_capture_parallel(void)
 	errno = 0;
 	FYAI_TCHECK(lseek(fd, 0, SEEK_DATA) == -1 && errno == ENXIO);
 	close(fd);
+	/* Timestamp-only edits retain the content root and create one sparse
+	 * override. */
+	FYAI_TCHECK(!utimensat(opts.source_fd, "file-00", times, 0));
+	opts.metacopy = false;
+	opts.baseline_fd = -1;
+	opts.snapshot = first;
+	refreshed = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(refreshed));
+	FYAI_TCHECK(
+		fy_equal(fy_get(first, "root", fy_invalid), fy_get(refreshed, "root", fy_invalid)));
+	attrs = fy_get(refreshed, "attributes", fy_invalid);
+	FYAI_TCHECK(fy_is_mapping(fy_get(attrs, "66696c652d3030", fy_invalid)));
+	FYAI_TCHECK(!fyai_project_snapshot_equal(first, refreshed));
+	FYAI_TCHECK(fyai_project_snapshot_equal(refreshed, refreshed));
+	FYAI_TCHECK(!unlinkat(opts.source_fd, "file-00", 0));
+	FYAI_TCHECK(!linkat(opts.source_fd, "file-02", opts.source_fd, "alias", 0));
+	/* Unsupported project hard links are still rejected by this phase. */
+	second = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_invalid(second) && errno == ENOTSUP);
+	FYAI_TCHECK(!unlinkat(opts.source_fd, "alias", 0));
+	second = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(second));
+	FYAI_TCHECK(fy_is_invalid(
+		fy_get(fy_get(second, "attributes", fy_invalid), "66696c652d3030", fy_invalid)));
 	close(linked_lower);
 	close(data_directory);
 	free(data);
@@ -363,6 +476,10 @@ int project_capture_parallel(void)
 }
 
 #else
+int project_borrowed_git(void)
+{
+	return 0;
+}
 int project_capture_parallel(void)
 {
 	return 0;

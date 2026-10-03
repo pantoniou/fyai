@@ -210,4 +210,25 @@ assert_stdout_contains 'host changed'
 run_fyai view create unsupported "$TEST_DIR/project"
 assert_status 1
 assert_stderr_contains 'Operation not supported'
+mkdir -p git-project/.git/objects
+printf 'git object' > git-project/.git/objects/object
+chmod 444 git-project/.git/objects/object
+run_fyai view create git-borrowed "$TEST_DIR/git-project" --verify
+assert_status 0
+run_fyai view create git-copied "$TEST_DIR/git-project" --copy-git-objects --verify
+assert_status 0
+run_fyai view enter --verify git-borrowed sh -c 'test "$(cat .git/objects/object)" = "git object"'
+assert_status 0
+chmod 644 git-project/.git/objects/object
+printf 'bad object' > git-project/.git/objects/object
+chmod 444 git-project/.git/objects/object
+run_fyai view enter git-borrowed true
+assert_status 1
+assert_stderr_contains '--copy-git-objects'
+run_fyai view update git-borrowed --copy-git-objects --verify
+assert_status 0
+run_fyai view enter --verify git-borrowed sh -c 'test "$(cat .git/objects/object)" = "bad object"'
+assert_status 0
+run_fyai view enter --verify git-copied sh -c 'test "$(cat .git/objects/object)" = "git object"'
+assert_status 0
 pass
