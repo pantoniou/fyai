@@ -1304,7 +1304,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|sync|mount|unmount|enter} ...`
+**Usage:** `fyai view {create|list|show|update|remove|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1319,6 +1319,7 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `list` | list the filesystem views of the active branch |
 | `show` | inspect a named filesystem view |
 | `update` | replace a view with a fresh host snapshot |
+| `remove` | remove a named filesystem view |
 | `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
 | `unmount` | unmount the recorded inspection view |
@@ -1416,6 +1417,30 @@ the host project. Refuse the update while the view is in use.
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
 | `--quiet` | suppress live capture progress while retaining the result summary; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view remove
+
+remove a named filesystem view
+
+**Usage:** `fyai view remove NAME`
+
+Remove the named view from the active branch. Keep CAS objects and
+cached runtime files for retained history and garbage collection.
+Refuse removal while a command is using the view or it is mounted.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the filesystem view to remove |
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

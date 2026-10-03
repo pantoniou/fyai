@@ -1515,6 +1515,25 @@ commands:
               x-fyai-meta: NAME
         render:
           document: yaml
+      - command: remove
+        title: remove a named filesystem view
+        description: |
+          Remove the named view from the active branch. Keep CAS objects and
+          cached runtime files for retained history and garbage collection.
+          Refuse removal while a command is using the view or it is mounted.
+        handler: view_remove
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the filesystem view to remove
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+        render:
+          message: 'Removed view {name}.'
       - command: sync
         title: force a filesystem view to persistent storage
         description: |

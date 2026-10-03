@@ -60,7 +60,8 @@ static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 
 	store = view_store(ctx);
 	views = fy_get(store, "views", fy_map_empty);
-	views = fy_assoc(ctx->gb, views, fy_value(ctx->gb, name), view);
+	views = fy_is_valid(view) ? fy_assoc(ctx->gb, views, fy_value(ctx->gb, name), view) :
+				    fy_disassoc(ctx->gb, views, fy_value(ctx->gb, name));
 	ctx->branch_store = fy_assoc(ctx->gb, store, "views", views);
 	if (!fy_is_valid(ctx->branch_store)) {
 		errno = ENOMEM;
@@ -1003,6 +1004,57 @@ static int view_mount_paths(fy_generic view, struct fyai_fsview *spec)
 	return 0;
 }
 
+int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	struct fyai_fsview spec = { 0 };
+	fy_generic view;
+	char lockpath[PATH_MAX];
+	int lock = -1, rc, saved;
+
+	if (view_writable(call))
+		return -1;
+	view = view_find(call, name);
+	if (!fy_is_mapping(view)) {
+		fyai_error(call->ctx, "view '%s' does not exist", name);
+		return -1;
+	}
+	if (fy_is_valid(fy_get(view, "mount", fy_invalid))) {
+		fyai_error(call->ctx, "view '%s' is mounted; unmount it first", name);
+		return -1;
+	}
+	rc = view_mount_paths(view, &spec);
+	if (rc)
+		goto out;
+	rc = snprintf(lockpath, sizeof(lockpath), "%s/lock", spec.runtime);
+	if (rc < 0 || rc >= (int)sizeof(lockpath)) {
+		errno = ENAMETOOLONG;
+		rc = -1;
+		goto out;
+	}
+	lock = open(lockpath, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
+	if (lock < 0 && errno != ENOENT) {
+		rc = -1;
+		goto out;
+	}
+	if (lock >= 0 && flock(lock, LOCK_EX | LOCK_NB)) {
+		rc = -1;
+		goto out;
+	}
+	/* Retained branch history can still name this runtime and its CAS
+	 * objects. */
+	rc = view_save(call->ctx, name, fy_invalid);
+	if (!rc)
+		*result = fy_mapping(call->gb, "name", fy_value(call->gb, name), "removed", true);
+out:
+	saved = errno;
+	if (lock >= 0)
+		close(lock);
+	if (rc)
+		fyai_error(call->ctx, "view '%s': cannot remove: %s", name, strerror(saved));
+	return rc ? -1 : 0;
+}
+
 int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
@@ -1247,6 +1299,13 @@ out:
 }
 
 #else
+int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
 int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
