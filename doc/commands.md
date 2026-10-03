@@ -1558,7 +1558,8 @@ enter a private filesystem view
 
 Mount the named view in private namespaces and start a shell in its project
 directory, or execute the remaining command arguments directly. Standard
-input, output, and error are inherited. Record the result in CAS on exit.
+input, output, and error are inherited on the CLI. In a session, open
+the command or shell in a terminal tile. Record the result in CAS on exit.
 The host project stays separate. This operation requires Linux user
 namespaces, OverlayFS, and Landlock.
 
@@ -3288,6 +3289,275 @@ document.
 
 | Option | Description |
 | --- | --- |
+| `-h`, `--help` | show this help |
+
+## /view
+
+create and enter separate project filesystem views
+
+**Usage:** `/view {create|list|show|update|diff|remove|sync|mount|unmount|enter} ...`
+
+Capture a project into immutable CAS objects and use a separate writable
+OverlayFS view. Commands in a view do not apply changes to the host.
+The initial Linux implementation materializes an ordinary-file baseline.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `create` | capture a project and create a named view |
+| `list` | list the filesystem views of the active branch |
+| `show` | inspect a named filesystem view |
+| `update` | replace a view with a fresh host snapshot |
+| `diff` | compare recorded filesystem view snapshots |
+| `remove` | remove a named filesystem view |
+| `sync` | force a filesystem view to persistent storage |
+| `mount` | mount a view for read-only inspection |
+| `unmount` | unmount the recorded inspection view |
+| `enter` | enter a private filesystem view |
+
+With no command, `list` runs.
+
+## /view create
+
+capture a project and create a named view
+
+**Usage:** `/view create [--durability POLICY] [--copy-git-objects] [--debug] [--quiet] [--verify] NAME [PROJECT]`
+
+Capture PROJECT, excluding its reserved .fyai directory, and record
+a named view on the active branch. Reject unsupported metadata and
+observed concurrent changes. No provider credential is required.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the separate view |
+| `PROJECT` | the project directory to capture; default . |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--durability POLICY` | select lazy persistence or a durable filesystem barrier; default from view/durability (lazy, durable) |
+| `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
+| `--debug` | show capture progress and the final summary; default false |
+| `--quiet` | suppress debug progress and the summary unless an output format is requested; default false |
+| `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `-h`, `--help` | show this help |
+
+## /view list
+
+list the filesystem views of the active branch
+
+**Usage:** `/view list [--full]`
+
+List view names, projects, and states; use --full for stored details.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--full` | show complete stored view records; default false |
+| `-h`, `--help` | show this help |
+
+## /view show
+
+inspect a named filesystem view
+
+**Usage:** `/view show NAME`
+
+Show a view's baseline and latest recorded result identity.
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the view to inspect |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /view update
+
+replace a view with a fresh host snapshot
+
+**Usage:** `/view update [--durability POLICY] [--copy-git-objects] [--debug] [--quiet] [--verify] NAME`
+
+Capture the host project again and replace the named view with a fresh
+baseline and empty upper. Discard the view's changes without changing
+the host project. Refuse the update while the view is in use.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the view to replace |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--durability POLICY` | select lazy persistence or a durable filesystem barrier; update inherits the view policy (lazy, durable) |
+| `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
+| `--debug` | show capture progress and the final summary; default false |
+| `--quiet` | suppress debug progress and the summary unless an output format is requested; default false |
+| `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `-h`, `--help` | show this help |
+
+## /view diff
+
+compare recorded filesystem view snapshots
+
+**Usage:** `/view diff [-u] [--stat] NAME [OTHER]`
+
+Compare NAME's baseline and recorded result, or the recorded results
+of NAME and OTHER. Skip .git and .fyai. Show a unified patch, including
+binary changes, or a changed-path list with --stat. Output formats
+return structured content and metadata changes with the patch.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view to compare |
+| `OTHER` | compare against this view's recorded result |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-u`, `--unified` | write unified rows, coloured on a terminal; default false |
+| `--stat` | list changed paths instead of emitting a unified patch; default false |
+| `-h`, `--help` | show this help |
+
+## /view remove
+
+remove a named filesystem view
+
+**Usage:** `/view remove NAME`
+
+Remove the named view from the active branch. Keep CAS objects and
+cached runtime files for retained history and garbage collection.
+Refuse removal while a command is using the view or it is mounted.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the filesystem view to remove |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /view sync
+
+force a filesystem view to persistent storage
+
+**Usage:** `/view sync NAME`
+
+Flush the view's CAS objects and backing files before recording that
+its current snapshot is synchronized. Keep its configured durability
+policy. Refuse synchronization while a command is using the view.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the filesystem view to synchronize |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /view mount
+
+mount a view for read-only inspection
+
+**Usage:** `/view mount NAME PATH`
+
+Mount the named view at an empty directory for inspection and comparison.
+The read-only mount persists in the current mount namespace until unmount.
+Mount privileges are required; rootless inspection can use an explicitly
+started unshare -Urnm sh session. Unmount before entering or updating.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view to inspect |
+| `PATH` | an empty mount directory, created when absent |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /view unmount
+
+unmount the recorded inspection view
+
+**Usage:** `/view unmount NAME`
+
+Verify the recorded namespace, mount IDs, and source before releasing
+the inspection mount. Busy mounts are retained. Run in the namespace
+that owns the mount and unmount before leaving a rootless inspection shell.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the mounted view to release |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /view enter
+
+enter a private filesystem view
+
+**Usage:** `/view enter [--verify] NAME [COMMAND...]`
+
+Mount the named view in private namespaces and start a shell in its project
+directory, or execute the remaining command arguments directly. Standard
+input, output, and error are inherited on the CLI. In a session, open
+the command or shell in a terminal tile. Record the result in CAS on exit.
+The host project stays separate. This operation requires Linux user
+namespaces, OverlayFS, and Landlock.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the name of the view to enter |
+| `COMMAND` | the command and arguments to execute; omit to start a shell |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `-h`, `--help` | show this help |
 
 ## /catalog

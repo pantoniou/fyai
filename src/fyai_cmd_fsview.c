@@ -38,6 +38,7 @@
 #include "fyai_project_capture.h"
 #include "fyai_storage.h"
 #include "fyai_sink.h"
+#include "fyai_tools.h"
 
 static fy_generic view_store(struct fyai_ctx *ctx)
 {
@@ -58,6 +59,8 @@ static fy_generic view_find(struct fyai_cmd_call *call, const char *name)
 static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 {
 	fy_generic store, views;
+	char *unstored;
+	int rc;
 
 	store = view_store(ctx);
 	views = fy_get(store, "views", fy_map_empty);
@@ -69,7 +72,16 @@ static int view_save(struct fyai_ctx *ctx, const char *name, fy_generic view)
 		return -1;
 	}
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
-	return fyai_publish_root(ctx, fy_invalid, fy_invalid, fy_invalid);
+	/* View references must be published before a terminal child opens the
+	 * branch. */
+	unstored = ctx->session_unstored;
+	ctx->session_unstored = NULL;
+	rc = fyai_publish_root(ctx, fy_invalid, fy_invalid, fy_invalid);
+	if (rc)
+		ctx->session_unstored = unstored;
+	else
+		free(unstored);
+	return rc;
 }
 
 static fy_generic view_summary(struct fy_generic_builder *gb, const char *name, fy_generic view)
@@ -1164,6 +1176,79 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 	return rc;
 }
 
+static int view_terminal_quote(struct response_buffer *line, const char *text)
+{
+	int rc = response_buffer_append(line, "'");
+
+	for (; !rc && *text; text++)
+		rc = *text == '\'' ? response_buffer_append(line, "'\\''") :
+				     response_buffer_append_data(line, text, 1);
+	return rc ? rc : response_buffer_append(line, "'");
+}
+
+static void view_terminal_exited(void *userdata, int exit_code, int signal)
+{
+	struct fyai_ctx *ctx = userdata;
+
+	if (fyai_branches_refresh(ctx))
+		fyai_error(ctx, "view: cannot refresh references after the "
+				"terminal exited");
+	if (exit_code || signal)
+		fyai_error(ctx, "view command failed; its output is in its "
+				"terminal tile");
+}
+
+static int view_enter_terminal(struct fyai_cmd_call *call)
+{
+	struct response_buffer line = { 0 };
+	struct fyai_shell_session *session;
+	const char *argument;
+	fy_generic arena;
+	char executable[PATH_MAX];
+	ssize_t length;
+	int rc;
+
+	if (view_writable(call))
+		return -1;
+	length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+	if (length <= 0 || length == sizeof(executable) - 1) {
+		fyai_error(call->ctx, "view: cannot locate the executable for "
+				      "the terminal child");
+		return -1;
+	}
+	executable[length] = '\0';
+	arena = fy_emit(call->gb, fy_value(call->gb, call->ctx->cfg->arena_dir),
+			FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON | FYOPEF_NO_ENDING_NEWLINE,
+			NULL);
+	if (!fy_is_string(arena)) {
+		fyai_error(call->ctx, "view: cannot encode the terminal child's arena path");
+		return -1;
+	}
+	rc = view_terminal_quote(&line, executable) || response_buffer_append(&line, " --set ") ||
+	     view_terminal_quote(&line, fy_sprintfa("arena_dir=%s", fy_castp(&arena, ""))) ||
+	     response_buffer_append(&line, " --branch ") ||
+	     view_terminal_quote(&line, fyai_ctx_branch(call->ctx)) ||
+	     response_buffer_append(&line, " view enter ");
+	if (!rc && fyai_cmd_arg_bool(call, "verify"))
+		rc = response_buffer_append(&line, "--verify ");
+	if (!rc)
+		rc = view_terminal_quote(&line, fyai_cmd_arg_str(call, "name")) ||
+		     response_buffer_append(&line, " --");
+	fy_foreach(argument, fy_get(call->args, "command", fy_seq_empty))
+		if (!rc)
+			rc = response_buffer_append(&line, " ") ||
+			     view_terminal_quote(&line, argument);
+	if (rc) {
+		fyai_error(call->ctx, "view: cannot allocate the terminal command");
+		free(line.data);
+		return -1;
+	}
+	session = fyai_tools_config_program(call->ctx, line.data, "view", fy_seq_empty,
+					    view_terminal_exited, call->ctx);
+	free(line.data);
+	return session ? 0 : -1;
+}
+
 int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
@@ -1180,6 +1265,8 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	int lock = -1, rc = -1, saved;
 	bool complete = false, started = false;
 
+	if (call->surface == FYAI_CMD_SESSION)
+		return view_enter_terminal(call);
 	if (view_writable(call))
 		return -1;
 	view = view_find(call, name);
