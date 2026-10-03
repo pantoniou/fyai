@@ -122,6 +122,26 @@ PY
 run_fyai view list --output json
 assert_status 0
 assert_stdout_contains 'demo'
+"$PYTHON" - "$TEST_DIR/stdout" <<'PYLIST'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+assert rows and all(set(row) == {'name', 'project', 'state'} for row in rows)
+PYLIST
+run_fyai view list --full --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PYFULL'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+assert all('baseline' in row and 'runtime' in row for row in rows)
+PYFULL
+run_fyai view list
+assert_status 0
+assert_stdout_contains 'Filesystem views'
+assert_stdout_not_contains 'logical_bytes'
+run_fyai view list --full
+assert_status 0
+assert_stdout_contains '```yaml'
+assert_stdout_contains 'runtime:'
 
 run_fyai view enter --verify demo sh -c 'mkdir replacement && printf old > replacement/old'
 assert_status 0
