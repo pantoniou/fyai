@@ -440,4 +440,21 @@ run_fyai view enter comparison true
 assert_status 0
 [ -n "$(find project/.fyai/objects/blake3 -type f -print -quit)" ] || fail 'remove erased CAS objects'
 
+mkdir silent-project
+run_fyai view create durable "$TEST_DIR/silent-project"
+assert_status 0
+[ ! -s "$TEST_DIR/stdout" ] && [ ! -s "$TEST_DIR/stderr" ] || fail 'default create emitted output'
+run_fyai view update durable
+assert_status 0
+[ ! -s "$TEST_DIR/stdout" ] && [ ! -s "$TEST_DIR/stderr" ] || fail 'default update emitted output'
+run_fyai view update durable --debug
+assert_status 0
+assert_stdout_contains 'capture:'
+assert_stderr_contains 'view durable: scanning'
+run_fyai view update durable --debug --quiet
+assert_status 0
+[ ! -s "$TEST_DIR/stdout" ] && [ ! -s "$TEST_DIR/stderr" ] || fail 'quiet update emitted output'
+run_fyai view remove durable
+assert_status 0
+
 pass
