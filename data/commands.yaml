@@ -1460,10 +1460,22 @@ commands:
           document: yaml
       - command: list
         title: list the filesystem views of the active branch
-        description: Show the project, baseline, result, and state of each view.
+        description: List view names, projects, and states; use --full for stored details.
         handler: view_list
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            full:
+              type: boolean
+              default: false
+              description: show complete stored view records
+              x-fyai-long: full
         render:
-          document: yaml
+          table:
+            title: Filesystem views
+            empty: no views
+            keys: [name, project, state]
       - command: show
         title: inspect a named filesystem view
         description: Show a view's baseline and latest recorded result identity.

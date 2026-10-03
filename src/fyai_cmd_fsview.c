@@ -964,12 +964,27 @@ int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name;
-	fy_generic view, views;
+	fy_generic view, views, row, yaml;
 
 	views = fy_get(view_store(call->ctx), "views", fy_map_empty);
 	*result = fy_sequence(call->gb);
-	fy_foreach_key_value(name, view, views)
-		*result = fy_append(call->gb, *result, view_summary(call->gb, name, view));
+	fy_foreach_key_value(name, view, views) {
+		row = fyai_cmd_arg_bool(call, "full") ?
+			      fy_assoc(call->gb, view, "name", fy_value(call->gb, name)) :
+			      fy_mapping(call->gb, "name", name, "project",
+					 fy_get(view, "project", ""), "state",
+					 fy_get(view, "state", "ready"));
+		*result = fy_append(call->gb, *result, row);
+	}
+	if (fyai_cmd_arg_bool(call, "full") && call->format == FYAI_CMD_OUT_MARKDOWN) {
+		yaml = fy_emit(call->gb, *result,
+			       FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_YAML_1_2 |
+				       FYOPEF_STYLE_PRETTY,
+			       NULL);
+		*result = fy_is_string(yaml) ?
+				  fy_stringf(call->gb, "```yaml\n%s\n```\n", fy_castp(&yaml, "")) :
+				  fy_invalid;
+	}
 	return fy_is_valid(*result) ? 0 : -1;
 }
 

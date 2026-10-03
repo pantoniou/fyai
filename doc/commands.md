@@ -1362,14 +1362,15 @@ observed concurrent changes. No provider credential is required.
 
 list the filesystem views of the active branch
 
-**Usage:** `fyai view list`
+**Usage:** `fyai view list [--full]`
 
-Show the project, baseline, result, and state of each view.
+List view names, projects, and states; use --full for stored details.
 
 ### Options
 
 | Option | Description |
 | --- | --- |
+| `--full` | show complete stored view records; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
