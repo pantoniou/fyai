@@ -93,6 +93,7 @@ enum fyai_child_stage {
 	FYAI_CHILD_STAGE_STDERR,	/* standard error */
 	FYAI_CHILD_STAGE_STATUS,	/* the status descriptor it reports on */
 	FYAI_CHILD_STAGE_ENV,		/* removal of the credentials */
+	FYAI_CHILD_STAGE_VIEW,		/* entry to the filesystem view */
 	FYAI_CHILD_STAGE_WORKDIR,
 	FYAI_CHILD_STAGE_SANDBOX,
 	FYAI_CHILD_STAGE_EXEC,		/* the shell itself */
@@ -132,8 +133,11 @@ const char *fyai_child_start_text(const struct fyai_child_start *start,
 				  const char *shell, const char *workdir,
 				  char *buf, size_t size);
 
+struct fyai_fsview;
+
 /* Options for one shell command. */
 struct shell_command_opts {
+	const struct fyai_fsview *view; /* optional private project projection */
 	const char *workdir;		/* chdir in the child before exec */
 	unsigned int timeout_ms;	/* 0 = no limit */
 	const char *shell;		/* the program to run; NULL = /bin/sh */
@@ -222,6 +226,7 @@ bool fyai_process_reads_stdin(pid_t pid);
 
 /* Configuration applied to a forked child before exec. */
 struct fyai_child_spec {
+	const struct fyai_fsview *view;
 	int in_fd;			/* standard input; -1 keeps it */
 	int out_fd;			/* standard output; -1 keeps it */
 	int err_fd;			/* standard error; -1 keeps it */

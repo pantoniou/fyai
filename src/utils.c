@@ -39,6 +39,7 @@
 #include "fyai_event.h"
 #include "fyai_sink.h"
 #include "fyai_sandbox.h"
+#include "fyai_fsview.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
 #include "fyai_ui.h"
@@ -878,6 +879,10 @@ const char *fyai_child_start_text(const struct fyai_child_start *start,
 		return NULL;
 	why = start->err ? strerror(start->err) : "no reason was reported";
 	switch (start->stage) {
+	case FYAI_CHILD_STAGE_VIEW:
+		snprintf(buf, size,
+			 "could not establish the filesystem view: %s", why);
+		break;
 	case FYAI_CHILD_STAGE_WORKDIR:
 		snprintf(buf, size, "cannot enter workdir %s: %s",
 			 workdir ? workdir : "", why);
@@ -1011,6 +1016,11 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		unsetenv("LINES");
 		unsetenv("COLUMNS");
 	}
+	if (spec->view && fyai_fsview_enter(spec->view, status_fd)) {
+		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_VIEW,
+					 errno);
+		return FYAI_SHELL_EXIT_SANDBOX;
+	}
 	/* Enter the directory before applying confinement. */
 	if (spec->workdir && *spec->workdir && chdir(spec->workdir) < 0) {
 		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_WORKDIR,
@@ -1080,6 +1090,7 @@ static void shell_capture_exec(struct fyai_ctx *ctx, const char *command,
 	spec.out_fd = stdout_pipe[1];
 	spec.err_fd = stderr_pipe[1];
 	spec.ctty_fd = -1;
+	spec.view = opts ? opts->view : NULL;
 	spec.workdir = opts ? opts->workdir : NULL;
 	spec.sandbox = sandbox;
 	spec.status_fd = status_fd;
