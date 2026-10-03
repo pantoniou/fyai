@@ -75,4 +75,9 @@ int fyai_project_verify_borrowed(int objects_fd, fy_generic snapshot, char *erro
  */
 bool fyai_project_snapshot_equal(fy_generic a, fy_generic b);
 
+/*
+ * Return sorted content and metadata changes in gb, excluding .git and .fyai.
+ */
+fy_generic fyai_project_diff(struct fy_generic_builder *gb, fy_generic left, fy_generic right);
+
 #endif
