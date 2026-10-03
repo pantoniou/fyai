@@ -149,6 +149,26 @@ run_fyai view update demo
 assert_status 1
 wait "$writer"
 
+run_fyai view create comparison "$TEST_DIR/project"
+assert_status 0
+run_fyai view enter comparison sh -c 'printf comparison > file'
+assert_status 0
+unshare -Urnm sh -eu -c '
+    bin=$1
+    root=$2
+    "$bin" view mount demo "$root/inspect-a"
+    "$bin" view mount comparison "$root/inspect-b"
+    test "$(cat "$root/inspect-a/file")" = "host changed"
+    test "$(cat "$root/inspect-b/file")" = comparison
+    if touch "$root/inspect-a/new" 2>/dev/null; then exit 1; fi
+    test ! -e "$root/inspect-a/.fyai/private"
+    if "$bin" view update demo; then exit 1; fi
+    if "$bin" view enter demo true; then exit 1; fi
+    if unshare -m "$bin" view unmount demo; then exit 1; fi
+    "$bin" view unmount comparison
+    "$bin" view unmount demo
+' sh "$FYAI_BIN" "$TEST_DIR"
+
 mkfifo project/fifo
 run_fyai view update demo
 assert_status 1
