@@ -215,6 +215,19 @@ int cmd_parse_cli(void)
 	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "branch describe x one two", &p);
 	FYAI_TCHECK(!rc && arg_is(p.args, "text", "one two"));
 
+	rc = cmd_test_parse(&t, FYAI_CMD_CLI,
+			    "view enter demo printf '%s' 'two words' --help "
+			    "--output=json", &p);
+	FYAI_TCHECK(!rc && !p.help && p.format == FYAI_CMD_OUT_MARKDOWN);
+	FYAI_TCHECK(fy_equal(fy_get(p.args, "command", fy_invalid),
+			     fy_sequence("printf", "%s", "two words", "--help",
+					 "--output=json")));
+	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "view enter demo", &p);
+	FYAI_TCHECK(!rc && !p.help);
+	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "view enter demo -- sh -c true", &p);
+	FYAI_TCHECK(!rc && fy_equal(fy_get(p.args, "command", fy_invalid),
+		fy_sequence("sh", "-c", "true")));
+
 	/* A variadic positional takes every word; -- ends the options. */
 	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "__complete -- branch -a ''", &p);
 	FYAI_TCHECK(!rc && fy_len(fy_get(p.args, "words", fy_invalid)) == 3);
