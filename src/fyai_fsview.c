@@ -47,7 +47,7 @@ int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t size)
 	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (fd < 0)
 		return -1;
-	rc = fyai_project_verify_borrowed(fd, view->baseline, error, size);
+	rc = fyai_project_check_borrowed(fd, view->baseline, view->verify, error, size);
 	saved = errno;
 	close(fd);
 	errno = saved;
@@ -630,9 +630,6 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 	int pipefd[2], rc, status, saved;
 	pid_t child, waited;
 
-	rc = fyai_fsview_verify(view, error, error_size);
-	if (rc)
-		return fy_invalid;
 	rc = snprintf(objects, sizeof(objects), "%s/objects/blake3", view->storage);
 	if (rc < 0 || rc >= (int)sizeof(objects)) {
 		errno = ENAMETOOLONG;

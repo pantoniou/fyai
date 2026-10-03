@@ -237,7 +237,7 @@ assert_status 0
 chmod 644 git-project/.git/objects/object
 printf 'bad object' > git-project/.git/objects/object
 chmod 444 git-project/.git/objects/object
-run_fyai view enter git-borrowed true
+run_fyai view enter --verify git-borrowed true
 assert_status 1
 assert_stderr_contains '--copy-git-objects'
 run_fyai view update git-borrowed --copy-git-objects --verify
