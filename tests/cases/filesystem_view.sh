@@ -25,7 +25,16 @@ v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 assert v['state'] == 'ready'
 assert v['materialization'] in ('copy', 'metacopy')
+c = v['capture']
+assert c['files'] == 3 and c['directories'] == 1 and c['symlinks'] == 1
+assert c['logical_bytes'] == 9 + len('#!/bin/sh\nprintf executable\n') + 8
+assert sum(x['files'] for x in c['storage'].values()) == c['files']
+assert abs(sum(x['percent'] for x in c['storage'].values()) - 100) < 0.001
+assert c['workers'] > 0 and c['elapsed_ms'] >= 0
+
 PY
+assert_stderr_contains 'view demo: scanning'
+assert_stderr_contains 'hardlink'
 [ -d project/.fyai/objects/blake3 ] || fail 'missing project CAS store'
 [ -n "$(find project/.fyai/objects/blake3 -type f -print -quit)" ] || fail 'missing project CAS blob'
 [ -n "$(find project/.fyai/views -mindepth 2 -maxdepth 2 -name upper -type d -print -quit)" ] || fail 'missing project overlay upper'
@@ -180,8 +189,14 @@ run_fyai view update demo
 assert_status 1
 wait "$writer"
 
-run_fyai view create comparison "$TEST_DIR/project"
+run_fyai view create comparison "$TEST_DIR/project" --quiet --output json
 assert_status 0
+[ ! -s "$TEST_DIR/stderr" ] || fail 'quiet create emitted progress'
+assert_stdout_contains 'capture'
+run_fyai view update comparison --quiet --output json
+assert_status 0
+[ ! -s "$TEST_DIR/stderr" ] || fail 'quiet update emitted progress'
+assert_stdout_contains 'capture'
 run_fyai view enter comparison sh -c 'printf comparison > file'
 assert_status 0
 unshare -Urnm sh -eu -c '

@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #ifdef __linux__
 #include <sys/xattr.h>
+#include <pthread.h>
 #endif
 #include <unistd.h>
 
@@ -202,6 +203,22 @@ int project_directory_validation(void)
 }
 
 #ifdef __linux__
+struct project_progress_check {
+	pthread_t owner;
+	unsigned int phases;
+};
+
+static void project_progress_check(void *arg, const struct fyai_project_capture_stats *stats)
+{
+	struct project_progress_check *check = arg;
+
+	FYAI_TCHECK(pthread_equal(check->owner, pthread_self()));
+	check->phases |= 1U << stats->phase;
+	FYAI_TCHECK(stats->completed <= stats->files);
+	FYAI_TCHECK(stats->copies + stats->reflinks + stats->hardlinks + stats->metacopies <=
+		    stats->files);
+}
+
 static void project_remove_tree(int fd)
 {
 	struct dirent *entry;
@@ -230,9 +247,10 @@ static void project_remove_tree(int fd)
 int project_borrowed_git(void)
 {
 	struct fy_generic_builder *gb;
-	struct fyai_project_capture_opts opts = { .borrow_git = true,
-						  .verify = true,
-						  .workers = 4 };
+	struct fyai_project_capture_stats stats;
+	struct fyai_project_capture_opts opts = {
+		.borrow_git = true, .verify = true, .workers = 4, .stats = &stats
+	};
 	fy_generic snapshot;
 	char path[] = "/tmp/fyai-project-borrowed-XXXXXX", error[PATH_MAX];
 	struct stat host, baseline, other;
@@ -260,6 +278,8 @@ int project_borrowed_git(void)
 	FYAI_TCHECK(gb);
 	snapshot = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(snapshot));
+	FYAI_TCHECK(stats.borrowed_files == 2 && stats.borrowed_bytes == 6);
+	FYAI_TCHECK(stats.hardlinks == 1 && stats.copies + stats.reflinks == 1);
 	FYAI_TCHECK(!fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error)));
 	FYAI_TCHECK(!fstatat(source, "a", &host, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(!fstatat(opts.baseline_fd, ".git/objects/a", &baseline, AT_SYMLINK_NOFOLLOW));
@@ -299,7 +319,13 @@ int project_borrowed_git(void)
 int project_capture_parallel(void)
 {
 	struct fy_generic_builder *gb;
-	struct fyai_project_capture_opts opts = { .verify = true, .workers = 1 };
+	struct fyai_project_capture_stats stats;
+	struct project_progress_check progress = { .owner = pthread_self() };
+	struct fyai_project_capture_opts opts = { .verify = true,
+						  .workers = 1,
+						  .stats = &stats,
+						  .progress = project_progress_check,
+						  .progress_arg = &progress };
 	fy_generic first, second, incremental, refreshed, attrs;
 	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, { .tv_sec = 123, .tv_nsec = 456 } };
 	char path[] = "/tmp/fyai-project-parallel-XXXXXX", name[32], error[PATH_MAX];
@@ -310,6 +336,8 @@ int project_capture_parallel(void)
 	DIR *directory;
 	fy_generic linked;
 	int root, fd, rc, lower[2], objects, linked_lower, data_directory;
+	gid_t groups[128];
+	int group_count;
 	bool shared = false;
 
 	FYAI_TCHECK(mkdtemp(path));
@@ -338,6 +366,13 @@ int project_capture_parallel(void)
 		FYAI_TCHECK(write(fd, data, i < 8 ? size : 4096) == (ssize_t)(i < 8 ? size : 4096));
 		close(fd);
 	}
+	group_count = getgroups(128, groups);
+	for (i = 0; geteuid() && group_count > 0 && i < (size_t)group_count; i++) {
+		if (groups[i] == getegid())
+			continue;
+		FYAI_TCHECK(!fchownat(opts.source_fd, "file-00", (uid_t)-1, groups[i], 0));
+		break;
+	}
 	FYAI_TCHECK(!fchmodat(opts.source_fd, "file-01", 0755, 0));
 	FYAI_TCHECK(!linkat(opts.source_fd, "file-00", root, "external", 0));
 	fd = openat(opts.source_fd, "zero", O_WRONLY | O_CREAT | O_EXCL, 0644);
@@ -352,6 +387,10 @@ int project_capture_parallel(void)
 	opts.baseline_fd = lower[0];
 	first = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(first));
+	FYAI_TCHECK(stats.files == 33 && stats.copies + stats.reflinks == 33);
+	FYAI_TCHECK(stats.copied_bytes + stats.reflinked_bytes == stats.logical_bytes);
+	FYAI_TCHECK(stats.hardlinks == 0 && stats.metacopies == 0);
+	FYAI_TCHECK(progress.phases == (1U << (FYAI_PROJECT_DONE + 1)) - 1);
 	opts.baseline_fd = lower[1];
 	opts.workers = 4;
 	opts.reuse_baseline = true;
@@ -359,9 +398,11 @@ int project_capture_parallel(void)
 	opts.snapshot = first;
 	second = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(second) && fy_equal(first, second));
+	FYAI_TCHECK(stats.hardlinks == 33 && stats.copies == 0 && stats.reflinks == 0);
 	FYAI_TCHECK(!fstatat(lower[0], "file-00", &st, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(!fstatat(lower[1], "file-00", &linked_stat, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(st.st_ino == linked_stat.st_ino && st.st_dev == linked_stat.st_dev);
+	FYAI_TCHECK(!geteuid() || (st.st_uid == geteuid() && st.st_gid == getegid()));
 	FYAI_TCHECK(!fstatat(lower[0], "file-02", &linked_stat, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(st.st_ino != linked_stat.st_ino);
 	opts.reuse_baseline = false;
@@ -421,6 +462,7 @@ int project_capture_parallel(void)
 	opts.verify = true;
 	linked = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(linked) && fy_equal(first, linked));
+	FYAI_TCHECK(stats.metacopies == 33 && stats.copies == 0 && stats.hardlinks == 0);
 	FYAI_TCHECK(!fstatat(data_directory, de->d_name, &st, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(st.st_ino == blob_stat.st_ino && st.st_dev == blob_stat.st_dev);
 	FYAI_TCHECK(st.st_mode == blob_stat.st_mode &&
