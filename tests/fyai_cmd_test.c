@@ -403,8 +403,8 @@ int cmd_complete_view(void)
 	struct fyai_ctx ctx = { 0 };
 	struct cands c;
 	fy_generic views;
-	const char *commands[] = { "show", "update", "remove", "sync",
-				   "mount", "unmount", "enter" };
+	const char *commands[] = { "show", "update", "diff", "remove",
+				   "sync", "mount", "unmount", "enter" };
 	const char *words[] = { "view", NULL, "te" };
 	size_t i;
 

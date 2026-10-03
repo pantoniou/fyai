@@ -46,7 +46,7 @@ if [ "$(uname -s)" = Linux ]; then
 	mkdir view-project
 	run_fyai view create test-view "$TEST_DIR/view-project"
 	assert_status 0
-	for verb in show update remove sync mount unmount enter; do
+	for verb in show update diff remove sync mount unmount enter; do
 		complete_line view "$verb" te >"$TEST_DIR/words"
 		grep -qx test-view "$TEST_DIR/words" || fail "view $verb: no view name"
 	done
