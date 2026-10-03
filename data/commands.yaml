@@ -1478,6 +1478,7 @@ commands:
               description: the name of the view to inspect
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
         render:
           document: yaml
       - command: update
@@ -1523,6 +1524,7 @@ commands:
               description: the name of the view to replace
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
         render:
           document: yaml
       - command: remove
@@ -1542,6 +1544,7 @@ commands:
               description: the filesystem view to remove
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
         render:
           message: 'Removed view {name}.'
       - command: sync
@@ -1561,6 +1564,7 @@ commands:
               description: the filesystem view to synchronize
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
         render:
           document: yaml
       - command: mount
@@ -1581,6 +1585,7 @@ commands:
               description: the view to inspect
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
             path:
               type: string
               description: an empty mount directory, created when absent
@@ -1606,6 +1611,7 @@ commands:
               description: the mounted view to release
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
         render:
           document: yaml
       - command: enter
@@ -1632,6 +1638,7 @@ commands:
               description: the name of the view to enter
               x-fyai-positional: 0
               x-fyai-meta: NAME
+              x-fyai-complete: view
             command:
               type: array
               items: {type: string}

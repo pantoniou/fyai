@@ -93,6 +93,20 @@ static void kind_branch(struct complete_req *r)
 	kind_branch_filtered(r, false, NULL);
 }
 
+static void kind_view(struct complete_req *r)
+{
+	struct fyai_branch branch;
+	fy_generic view;
+	const char *name;
+
+	if (!r->ctx || !fyai_branch_decode(r->ctx->branch_prev, &branch))
+		return;
+	fy_foreach_key_value(name, view, fy_get(branch.store, "views", fy_invalid)) {
+		if (!fy_str_empty(name) && fy_is_mapping(view))
+			cand(r, name, fy_get(view, "project", ""));
+	}
+}
+
 static void kind_agent_branch(struct complete_req *r)
 {
 	kind_branch_filtered(r, true, NULL);
@@ -548,6 +562,7 @@ static const struct {
 	void (*fn)(struct complete_req *r);
 } complete_kinds[] = {
 	{ "branch",		kind_branch },
+	{ "view",		kind_view },
 	{ "agent-branch",	kind_agent_branch },
 	{ "session",		kind_session },
 	{ "ref",		kind_ref },
