@@ -6,6 +6,10 @@
 #include "fyai_project.h"
 
 struct fyai_project_capture_opts {
+	/* Borrow immutable Git object files by host contract. */
+	bool borrow_git;
+	bool reuse_baseline;
+	int previous_baseline_fd; /* Used only when reuse_baseline is set. */
 	/* Materialize metadata-only files redirected into data_fd. */
 	bool metacopy;
 	/* Private snapshot data-only directory; required for metacopy. */

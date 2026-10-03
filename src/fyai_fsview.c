@@ -34,6 +34,26 @@
 #include <linux/mount.h>
 #include <linux/securebits.h>
 
+int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t size)
+{
+	char path[PATH_MAX];
+	int fd, rc, saved;
+
+	rc = snprintf(path, sizeof(path), "%s/objects/blake3", view->storage);
+	if (rc < 0 || rc >= (int)sizeof(path)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	rc = fyai_project_verify_borrowed(fd, view->baseline, error, size);
+	saved = errno;
+	close(fd);
+	errno = saved;
+	return rc;
+}
+
 static int view_write_file(const char *path, const char *value)
 {
 	int fd, rc = 0, saved;
@@ -242,6 +262,9 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 	size_t denied = 0;
 	pid_t child, waited, parent = getppid();
 
+	rc = fyai_fsview_verify(view, NULL, 0);
+	if (rc)
+		return -1;
 	runtime = open(view->runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (runtime < 0)
 		return -1;
@@ -432,6 +455,9 @@ static int view_mount_source(const struct fyai_fsview *view, uint64_t mount_id)
 	unsigned long long id;
 	int rc = -1, saved;
 
+	rc = fyai_fsview_verify(view, NULL, 0);
+	if (rc)
+		return -1;
 	base = base ? base + 1 : view->runtime;
 	rc = snprintf(expected, sizeof(expected), "fyai-%s", base);
 	if (rc < 0 || rc >= (int)sizeof(expected)) {
@@ -471,6 +497,9 @@ int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
 	int cwd = -1, runtime = -1, rc = -1, saved;
 	bool mounted = false, covered = false;
 
+	rc = fyai_fsview_verify(view, NULL, 0);
+	if (rc)
+		return -1;
 	base = base ? base + 1 : view->runtime;
 	rc = snprintf(source, sizeof(source), "fyai-%s", base);
 	if (rc < 0 || rc >= (int)sizeof(source)) {
@@ -601,6 +630,9 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 	int pipefd[2], rc, status, saved;
 	pid_t child, waited;
 
+	rc = fyai_fsview_verify(view, error, error_size);
+	if (rc)
+		return fy_invalid;
 	rc = snprintf(objects, sizeof(objects), "%s/objects/blake3", view->storage);
 	if (rc < 0 || rc >= (int)sizeof(objects)) {
 		errno = ENAMETOOLONG;
@@ -643,7 +675,8 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 			opts.incremental = false;
 			verified = fyai_project_capture(child_gb, &opts, reply.path,
 							sizeof(reply.path));
-			if (!fy_is_valid(verified) || !fy_equal(verified, snapshot)) {
+			if (!fy_is_valid(verified) ||
+			    !fyai_project_snapshot_equal(verified, snapshot)) {
 				if (fy_is_valid(verified))
 					errno = EIO;
 				goto child_error;
@@ -713,6 +746,15 @@ out:
 	return snapshot;
 }
 #else
+int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t error_size)
+{
+	(void)view;
+	(void)error;
+	(void)error_size;
+	errno = ENOTSUP;
+	return -1;
+}
+
 int fyai_fsview_metacopy_check(const char *runtime)
 {
 	(void)runtime;

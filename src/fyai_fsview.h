@@ -34,8 +34,13 @@ int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
 int fyai_fsview_unmount(const struct fyai_fsview *view, const char *target,
 			struct fyai_fsview_mount *identity);
 
-/* Called only in a prepared tool child. Parent waits for the PID-namespace
- * init. */
+/* Verify borrowed CAS provenance and bytes; error is a caller-owned buffer. */
+int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t error_size);
+
+/*
+ * Called only in a prepared tool child. Parent waits for the PID-namespace
+ * init.
+ */
 int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd);
 
 /* Ingest a frozen upper through a trusted private overlay mount. Result belongs

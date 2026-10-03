@@ -37,6 +37,8 @@ struct capture_node {
 	char *link;
 	fy_generic baseline;
 	bool reused;
+	bool materialized;
+	bool link_blob;
 	struct stat before;
 	struct fyai_project_entry entry;
 	struct fyai_cas_blob blob;
@@ -51,6 +53,7 @@ struct project_capture {
 	const struct fyai_project_capture_opts *opts;
 	struct capture_node *nodes;
 	struct fy_thread_pool *pool;
+	struct fyai_cas_copy_state copy;
 	atomic_size_t next;
 	dev_t device;
 	size_t count;
@@ -71,6 +74,17 @@ static bool capture_same(const struct stat *a, const struct stat *b)
 	       a->st_nlink == b->st_nlink && a->st_mtim.tv_sec == b->st_mtim.tv_sec &&
 	       a->st_mtim.tv_nsec == b->st_mtim.tv_nsec && a->st_ctim.tv_sec == b->st_ctim.tv_sec &&
 	       a->st_ctim.tv_nsec == b->st_ctim.tv_nsec;
+}
+
+static bool capture_node_same(const struct capture_node *node, const struct stat *after)
+{
+	struct stat observed = *after;
+
+	if (node->blob.borrowed) {
+		observed.st_nlink = node->before.st_nlink;
+		observed.st_ctim = node->before.st_ctim;
+	}
+	return capture_same(&node->before, &observed);
 }
 
 static struct fyai_project_metadata capture_metadata(struct project_capture *capture,
@@ -203,11 +217,13 @@ static int capture_add(struct project_capture *capture, size_t parent, const cha
 		(const unsigned char *)(strrchr(path, '/') ? strrchr(path, '/') + 1 : path);
 	node->entry.name_length = strlen((const char *)node->entry.name);
 	if (S_ISREG(st->st_mode)) {
-		if (st->st_nlink != 1 || (st->st_mode & 06000)) {
+		if (st->st_mode & 06000) {
 			errno = ENOTSUP;
 			return -1;
 		}
 		node->entry.kind = FYAI_PROJECT_FILE;
+		node->blob.borrowed =
+			capture->opts->borrow_git && !strncmp(path, ".git/objects/", 13);
 	} else if (S_ISDIR(st->st_mode))
 		node->entry.kind = FYAI_PROJECT_DIRECTORY;
 	else if (S_ISLNK(st->st_mode))
@@ -390,6 +406,106 @@ out:
 	return rc;
 }
 
+static int capture_owned_file(struct capture_worker *worker, struct capture_node *node, int source)
+{
+	struct project_capture *capture = worker->capture;
+	struct stat previous;
+	int target, old = -1, rc, saved;
+
+	if (capture->opts->reuse_baseline && strncmp(node->path, ".git/objects/", 13))
+		old = capture_open(capture->opts->previous_baseline_fd, node->path, O_RDONLY, 0);
+	if (old >= 0) {
+		rc = fstat(old, &previous);
+		if (!rc && previous.st_size == node->before.st_size &&
+		    (previous.st_mode & 07777) == (node->before.st_mode & 07777) &&
+		    previous.st_uid == node->before.st_uid &&
+		    previous.st_gid == node->before.st_gid &&
+		    previous.st_mtim.tv_sec == node->before.st_mtim.tv_sec &&
+		    previous.st_mtim.tv_nsec == node->before.st_mtim.tv_nsec) {
+			/* Capture mutable source bytes before comparing with an
+			 * immutable lower. */
+			rc = fyai_cas_put_hasher_state(capture->opts->objects_fd, source,
+						       &node->blob, worker->hasher, &capture->copy);
+			if (!rc)
+				rc = fyai_cas_verify_file(old, &node->blob, worker->hasher);
+			if (!rc)
+				rc = linkat(capture->opts->previous_baseline_fd, node->path,
+					    capture->opts->baseline_fd, node->path, 0);
+			close(old);
+			if (!rc) {
+				node->materialized = true;
+				return 0;
+			}
+			if (errno != EIO)
+				return -1;
+			if (lseek(source, 0, SEEK_SET) < 0)
+				return -1;
+		} else
+			close(old);
+	}
+	target = capture_open(capture->opts->baseline_fd, node->path, O_RDWR | O_CREAT | O_EXCL,
+			      0600);
+	if (target < 0)
+		return -1;
+	rc = fyai_cas_clone_state(source, target, node->before.st_size, &capture->copy);
+	if (!rc)
+		rc = capture_apply(target, &node->before);
+	if (!rc && lseek(target, 0, SEEK_SET) < 0)
+		rc = -1;
+	if (!rc)
+		rc = fyai_cas_hash_file(target, &node->blob, worker->hasher);
+	saved = errno;
+	if (close(target) < 0 && !rc) {
+		rc = -1;
+		saved = errno;
+	}
+	errno = saved;
+	if (!rc)
+		rc = fyai_cas_link(capture->opts->objects_fd, capture->opts->baseline_fd,
+				   node->path, &node->blob, worker->hasher);
+	if (!rc)
+		node->materialized = true;
+	return rc;
+}
+
+static int capture_inode_compare(const void *a, const void *b)
+{
+	const struct capture_node *const *left = a, *const *right = b;
+
+	if ((*left)->before.st_dev != (*right)->before.st_dev)
+		return ((*left)->before.st_dev > (*right)->before.st_dev) ? 1 : -1;
+	return ((*left)->before.st_ino > (*right)->before.st_ino) -
+	       ((*left)->before.st_ino < (*right)->before.st_ino);
+}
+
+static int capture_links(struct project_capture *capture)
+{
+	struct capture_node **files;
+	size_t i, count = 0;
+	int rc = 0;
+
+	files = malloc(capture->count * sizeof(*files));
+	if (!files)
+		return -1;
+	for (i = 0; i < capture->count; i++)
+		if (capture->nodes[i].entry.kind == FYAI_PROJECT_FILE)
+			files[count++] = &capture->nodes[i];
+	qsort(files, count, sizeof(*files), capture_inode_compare);
+	for (i = 1; i < count; i++) {
+		if (!capture_inode_compare(&files[i - 1], &files[i]) &&
+		    (strncmp(files[i - 1]->path, ".git/objects/", 13) ||
+		     strncmp(files[i]->path, ".git/objects/", 13))) {
+			if (capture->error && capture->error_size)
+				snprintf(capture->error, capture->error_size, "%s", files[i]->path);
+			errno = ENOTSUP;
+			rc = -1;
+			break;
+		}
+	}
+	free(files);
+	return rc;
+}
+
 static void capture_files(void *arg)
 {
 	struct capture_worker *worker = arg;
@@ -397,7 +513,7 @@ static void capture_files(void *arg)
 	struct capture_node *node;
 	struct stat after;
 	size_t index;
-	int source, rc;
+	int source, object, rc;
 
 	for (;;) {
 		index = atomic_fetch_add_explicit(&capture->next, 1, memory_order_relaxed);
@@ -413,19 +529,52 @@ static void capture_files(void *arg)
 			continue;
 		}
 		rc = fstat(source, &after);
-		if (!rc && !capture_same(&node->before, &after)) {
+		if (!rc && !capture_node_same(node, &after)) {
 			errno = EAGAIN;
 			rc = -1;
 		}
 		if (!rc)
 			rc = capture_xattrs(capture, source);
-		if (!rc)
-			rc = fyai_cas_put_hasher(capture->opts->objects_fd, source, &node->blob,
-						 worker->hasher);
+		if (!rc && capture->opts->borrow_git && !strncmp(node->path, ".git/objects/", 13)) {
+			node->blob.borrowed = true;
+			rc = fyai_cas_hash_file(source, &node->blob, worker->hasher);
+			if (!rc)
+				rc = fyai_cas_link(capture->opts->objects_fd,
+						   capture->opts->source_fd, node->path,
+						   &node->blob, worker->hasher);
+			if (!rc) {
+				object = fyai_cas_open(capture->opts->objects_fd, &node->blob);
+				if (object < 0)
+					rc = -1;
+				else {
+					rc = fstat(object, &after);
+					close(object);
+					if (!rc) {
+						node->blob.source_device = after.st_dev;
+						node->blob.source_inode = after.st_ino;
+						node->blob.source_mode = after.st_mode & 07777;
+						node->blob.source_uid = after.st_uid;
+						node->blob.source_gid = after.st_gid;
+					}
+				}
+			}
+			/* Publication adds a link and changes ctime, but not
+			 * project metadata. */
+			if (!rc)
+				rc = fstat(source, &after);
+			if (!rc) {
+				node->before.st_nlink = after.st_nlink;
+				node->before.st_ctim = after.st_ctim;
+			}
+		} else if (!rc && capture->opts->baseline_fd >= 0 && !capture->opts->metacopy)
+			rc = capture_owned_file(worker, node, source);
+		else if (!rc)
+			rc = fyai_cas_put_hasher_state(capture->opts->objects_fd, source,
+						       &node->blob, worker->hasher, &capture->copy);
 
 		if (!rc) {
 			rc = fstat(source, &after);
-			if (!rc && !capture_same(&node->before, &after)) {
+			if (!rc && !capture_node_same(node, &after)) {
 				errno = EAGAIN;
 				rc = -1;
 			}
@@ -439,20 +588,29 @@ static void capture_files(void *arg)
 static int capture_materialize_file(struct project_capture *capture, struct capture_node *node)
 {
 	struct stat object_stat;
-	char redirect[sizeof(node->blob.digest) + 1];
+	char redirect[sizeof(node->blob.digest) + 3], object_name[sizeof(node->blob.digest) + 9];
 	int object = -1, target = -1, rc = -1, saved;
 
-	object = openat(capture->opts->objects_fd, node->blob.digest,
-			O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	object = fyai_cas_open(capture->opts->objects_fd, &node->blob);
 	if (object < 0)
 		goto out;
 	rc = fstat(object, &object_stat);
 	if (rc)
 		goto out;
-	if (!S_ISREG(object_stat.st_mode) || (object_stat.st_mode & 0222) ||
-	    (uint64_t)object_stat.st_size != node->blob.size) {
+	if (!S_ISREG(object_stat.st_mode) || (uint64_t)object_stat.st_size != node->blob.size) {
 		errno = EINVAL;
 		rc = -1;
+		goto out;
+	}
+	if (node->link_blob && !capture->opts->metacopy &&
+	    (object_stat.st_mode & 07777) == (node->before.st_mode & 07777) &&
+	    object_stat.st_uid == node->before.st_uid &&
+	    object_stat.st_gid == node->before.st_gid &&
+	    object_stat.st_mtim.tv_sec == node->before.st_mtim.tv_sec &&
+	    object_stat.st_mtim.tv_nsec == node->before.st_mtim.tv_nsec) {
+		snprintf(object_name, sizeof(object_name), "borrowed/%s", node->blob.digest);
+		rc = linkat(capture->opts->objects_fd, object_name, capture->opts->baseline_fd,
+			    node->path, 0);
 		goto out;
 	}
 	target = capture_open(capture->opts->baseline_fd, node->path, O_RDWR | O_CREAT | O_EXCL,
@@ -462,21 +620,24 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 		goto out;
 	}
 	if (capture->opts->metacopy) {
-		rc = linkat(capture->opts->objects_fd, node->blob.digest, capture->opts->data_fd,
-			    node->blob.digest, 0);
+		snprintf(object_name, sizeof(object_name), "%s%s",
+			 node->blob.borrowed ? "borrowed/" : "", node->blob.digest);
+		snprintf(redirect, sizeof(redirect), "/%s%s", node->blob.borrowed ? "b-" : "",
+			 node->blob.digest);
+		rc = linkat(capture->opts->objects_fd, object_name, capture->opts->data_fd,
+			    redirect + 1, 0);
 		if (rc && errno == EEXIST)
 			rc = 0;
 		if (!rc)
 			rc = ftruncate(target, node->blob.size);
-		redirect[0] = '/';
-		memcpy(redirect + 1, node->blob.digest, sizeof(node->blob.digest));
+
 		if (!rc)
 			rc = fsetxattr(target, "user.overlay.metacopy", "", 0, XATTR_CREATE);
 		if (!rc)
 			rc = fsetxattr(target, "user.overlay.redirect", redirect, strlen(redirect),
 				       XATTR_CREATE);
 	} else
-		rc = fyai_cas_copy(object, target, node->blob.size);
+		rc = fyai_cas_clone_state(object, target, node->blob.size, &capture->copy);
 	if (!rc)
 		rc = capture_apply(target, &node->before);
 out:
@@ -502,7 +663,8 @@ static void capture_materialize_files(void *arg)
 		if (index >= capture->count)
 			break;
 		node = &capture->nodes[index];
-		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE || node->error)
+		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE || node->error ||
+		    node->materialized)
 			continue;
 		rc = capture_materialize_file(capture, node);
 		if (rc)
@@ -553,7 +715,7 @@ static int capture_verify(struct project_capture *capture)
 	struct stat metadata;
 	char redirect[sizeof(node->blob.digest) + 3], actual[sizeof(redirect)];
 	ssize_t length;
-	int source = -1, object = -1, baseline = -1, rc = -1, saved;
+	int source = -1, object = -1, baseline = -1, data = -1, rc = -1, saved;
 
 	hasher = fy_blake3_hasher_create(&cfg);
 	if (!hasher) {
@@ -578,15 +740,14 @@ static int capture_verify(struct project_capture *capture)
 		rc = fstat(source, &after);
 		if (rc)
 			goto failed;
-		if (!capture_same(&node->before, &after)) {
+		if (!capture_node_same(node, &after)) {
 			errno = EAGAIN;
 			goto failed;
 		}
 		rc = fyai_cas_verify_hasher(capture->opts->objects_fd, &node->blob, hasher);
 		if (rc)
 			goto failed;
-		object = openat(capture->opts->objects_fd, node->blob.digest,
-				O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+		object = fyai_cas_open(capture->opts->objects_fd, &node->blob);
 		if (object < 0)
 			goto failed;
 		rc = capture_compare_source(source, object, node->blob.size, buffer);
@@ -598,8 +759,8 @@ static int capture_verify(struct project_capture *capture)
 			if (baseline < 0)
 				goto failed;
 			if (capture->opts->metacopy) {
-				redirect[0] = '/';
-				memcpy(redirect + 1, node->blob.digest, sizeof(node->blob.digest));
+				snprintf(redirect, sizeof(redirect), "/%s%s",
+					 node->blob.borrowed ? "b-" : "", node->blob.digest);
 				rc = fstat(baseline, &metadata);
 				if (!rc &&
 				    (metadata.st_size != (off_t)node->blob.size ||
@@ -623,9 +784,18 @@ static int capture_verify(struct project_capture *capture)
 					errno = EIO;
 					rc = -1;
 				}
-				if (!rc)
-					rc = fyai_cas_verify_hasher(capture->opts->data_fd,
-								    &node->blob, hasher);
+				if (!rc) {
+					data = openat(capture->opts->data_fd, redirect + 1,
+						      O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+					if (data < 0)
+						rc = -1;
+					else {
+						rc = fyai_cas_verify_file(data, &node->blob,
+									  hasher);
+						close(data);
+						data = -1;
+					}
+				}
 			} else
 				rc = fyai_cas_verify_file(baseline, &node->blob, hasher);
 			if (rc)
@@ -636,7 +806,7 @@ static int capture_verify(struct project_capture *capture)
 		rc = fstat(source, &after);
 		if (rc)
 			goto failed;
-		if (!capture_same(&node->before, &after)) {
+		if (!capture_node_same(node, &after)) {
 			errno = EAGAIN;
 			goto failed;
 		}
@@ -711,7 +881,7 @@ static fy_generic capture_finish(struct project_capture *capture, size_t index)
 	}
 	if (rc)
 		goto out;
-	if (!capture_same(&node->before, &after)) {
+	if (!capture_node_same(node, &after)) {
 		errno = EAGAIN;
 		goto out;
 	}
@@ -827,15 +997,28 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	const char *digest;
 	fy_generic source;
 	cpu_set_t affinity;
-	fy_generic objects, object, result = fy_invalid;
+	fy_generic objects, object, base, attributes, timestamps, key, value, linked,
+		result = fy_invalid;
+	char *encoded = NULL;
+	size_t length, j;
+	static const char hex[] = "0123456789abcdef";
 	size_t root, i, worker_count = 0, initialized = 0, reused_count = 0, files = 0;
 	int rc, saved, cpus;
 
 	if (error_path && error_size)
 		error_path[0] = '\0';
-	if (!gb || !opts || (opts->metacopy && (opts->data_fd < 0 || opts->baseline_fd < 0))) {
+	if (!gb || !opts ||
+	    (fy_is_mapping(opts->snapshot) &&
+	     !fy_equal(fy_get(opts->snapshot, "version", fy_invalid), 2LL)) ||
+	    (opts->metacopy && (opts->data_fd < 0 || opts->baseline_fd < 0))) {
 		errno = EINVAL;
 		return fy_invalid;
+	}
+	if (fy_is_mapping(opts->snapshot) && (opts->incremental || opts->borrow_git)) {
+		rc = fyai_project_verify_borrowed(opts->objects_fd, opts->snapshot, error_path,
+						  error_size);
+		if (rc)
+			return fy_invalid;
 	}
 	rc = fstat(opts->source_fd, &st);
 	if (rc)
@@ -846,6 +1029,7 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	capture.device = st.st_dev;
 	atomic_init(&capture.next, 0);
+	atomic_init(&capture.copy.backend, 0);
 	rc = capture_add(&capture, SIZE_MAX, "", &st, &root);
 	if (rc)
 		goto out;
@@ -854,13 +1038,16 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 		source = fy_get(opts->snapshot, "objects", fy_invalid);
 
 		capture.nodes[root].baseline = fy_get(source, digest, fy_invalid);
-		if (opts->upper_fd < 0 || opts->baseline_fd >= 0 ||
+		if (!fy_equal(fy_get(opts->snapshot, "version", fy_invalid), 2LL) ||
+		    opts->upper_fd < 0 || opts->baseline_fd >= 0 ||
 		    !fy_is_mapping(capture.nodes[root].baseline)) {
 			errno = EINVAL;
 			goto out;
 		}
 	}
 	rc = capture_scan(&capture, root, 0);
+	if (!rc)
+		rc = capture_links(&capture);
 	if (rc)
 		goto out;
 	for (i = 0; i < capture.count; i++)
@@ -899,6 +1086,20 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	fy_thread_arg_array_join(capture.pool, capture_files, NULL, workers, sizeof(*workers),
 				 worker_count);
+	linked = fy_mapping(gb);
+	for (i = 0; i < capture.count; i++) {
+		if (!capture.nodes[i].blob.borrowed || capture.nodes[i].error)
+			continue;
+		if (!fy_is_valid(fy_get(linked, capture.nodes[i].blob.digest, fy_invalid))) {
+			capture.nodes[i].link_blob = true;
+			linked = fy_assoc(gb, linked, fy_value(gb, capture.nodes[i].blob.digest),
+					  true);
+			if (!fy_is_mapping(linked)) {
+				errno = ENOMEM;
+				goto out;
+			}
+		}
+	}
 	if (opts->baseline_fd >= 0) {
 		atomic_store_explicit(&capture.next, 0, memory_order_relaxed);
 		fy_thread_arg_array_join(capture.pool, capture_materialize_files, NULL, workers,
@@ -911,6 +1112,7 @@ finish:
 			goto out;
 	}
 	objects = fy_mapping(gb);
+	attributes = fy_get(opts->snapshot, "attributes", fy_mapping(gb));
 	for (i = capture.count; i > 0; i--) {
 		if (capture.nodes[i - 1].reused) {
 			rc = capture_reused_objects(&capture, capture.nodes[i - 1].entry.digest,
@@ -922,17 +1124,74 @@ finish:
 		object = capture_finish(&capture, i - 1);
 		if (!fy_is_valid(object))
 			goto out;
+		base = fy_get(fy_get(opts->snapshot, "objects", fy_invalid),
+			      capture.nodes[i - 1].entry.digest, fy_invalid);
+		if (!fy_is_valid(base)) {
+			base = fy_get(objects, capture.nodes[i - 1].entry.digest, object);
+			if (fy_get(object, "mtime_sec", 0LL) < fy_get(base, "mtime_sec", 0LL) ||
+			    (fy_get(object, "mtime_sec", 0LL) == fy_get(base, "mtime_sec", 0LL) &&
+			     fy_get(object, "mtime_nsec", 0LL) < fy_get(base, "mtime_nsec", 0LL)))
+				base = object;
+		}
+		if (capture.nodes[i - 1].entry.kind == FYAI_PROJECT_FILE) {
+			base = fy_assoc(gb, base, "blob", fy_get(object, "blob", fy_invalid));
+			base = fy_disassoc(gb, base, "borrowed");
+			if (fy_is_valid(fy_get(object, "borrowed", fy_invalid)))
+				base = fy_assoc(gb, base, "borrowed",
+						fy_get(object, "borrowed", fy_invalid));
+		}
 		objects = fy_assoc(gb, objects, fy_value(gb, capture.nodes[i - 1].entry.digest),
-				   object);
+				   base);
+
 		if (!fy_is_valid(objects)) {
 			errno = ENOMEM;
 			goto out;
 		}
 	}
-	result = fy_mapping(gb, "version", 1LL, "algorithm", "blake3", "root",
-			    fy_value(gb, capture.nodes[0].entry.digest), "objects", objects);
+	for (i = 0; i < capture.count; i++) {
+		if (capture.nodes[i].reused)
+			continue;
+		base = fy_get(objects, capture.nodes[i].entry.digest, fy_invalid);
+		length = strlen(capture.nodes[i].path);
+		encoded = malloc(length * 2 + 1);
+		if (!encoded)
+			goto out;
+		for (j = 0; j < length; j++) {
+			encoded[j * 2] = hex[(unsigned char)capture.nodes[i].path[j] >> 4];
+			encoded[j * 2 + 1] = hex[(unsigned char)capture.nodes[i].path[j] & 15];
+		}
+		encoded[length * 2] = '\0';
+		attributes = fy_disassoc(gb, attributes, encoded);
+		if (!fy_equal((long long)capture.nodes[i].before.st_mtim.tv_sec,
+			      fy_get(base, "mtime_sec", fy_invalid)) ||
+		    !fy_equal((long long)capture.nodes[i].before.st_mtim.tv_nsec,
+			      fy_get(base, "mtime_nsec", fy_invalid))) {
+			timestamps = fy_mapping(
+				gb, "mtime_sec", (long long)capture.nodes[i].before.st_mtim.tv_sec,
+				"mtime_nsec", (long long)capture.nodes[i].before.st_mtim.tv_nsec);
+			attributes = fy_assoc(gb, attributes, fy_value(gb, encoded), timestamps);
+		}
+		free(encoded);
+		encoded = NULL;
+		if (!fy_is_mapping(attributes)) {
+			errno = ENOMEM;
+			goto out;
+		}
+	}
+	result = fy_mapping(gb, "version", 2LL, "algorithm", "blake3", "root",
+			    fy_value(gb, capture.nodes[0].entry.digest), "objects", objects,
+			    "attributes", attributes);
+	base = attributes;
+	fy_foreach_key_value(key, value, base) {
+		object = fyai_project_lookup(result, fy_castp(&key, ""));
+		if (!fy_is_mapping(object))
+			attributes = fy_disassoc(gb, attributes, key);
+	}
+	result = fy_assoc(gb, result, "attributes", attributes);
+
 out:
 	saved = errno;
+	free(encoded);
 	for (i = 0; i < initialized; i++)
 		fy_blake3_hasher_destroy(workers[i].hasher);
 	free(workers);

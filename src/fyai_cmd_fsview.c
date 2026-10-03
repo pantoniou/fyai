@@ -250,12 +250,30 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	if (opts.data_fd < 0)
 		goto out;
 	opts.verify = fyai_cmd_arg_bool(call, "verify");
+	opts.borrow_git = !fyai_cmd_arg_bool(call, "copy_git_objects");
 	opts.source_fd = open(resolved, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	opts.objects_fd = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	opts.baseline_fd =
 		openat(root, "baseline", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (opts.source_fd < 0 || opts.objects_fd < 0 || opts.baseline_fd < 0)
 		goto out;
+	if (replace && !opts.metacopy &&
+	    fy_equal(fy_get(previous, "materialization", fy_invalid), "copy") &&
+	    fy_equal(fy_get(fy_get(previous, "baseline", fy_invalid), "version", fy_invalid),
+		     2LL)) {
+		rc = snprintf(lockpath, sizeof(lockpath), "%s/baseline",
+			      fy_castp(&stored_runtime, ""));
+		if (rc < 0 || rc >= (int)sizeof(lockpath)) {
+			errno = ENAMETOOLONG;
+			goto out;
+		}
+		opts.previous_baseline_fd =
+			open(lockpath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (opts.previous_baseline_fd < 0)
+			goto out;
+		opts.reuse_baseline = true;
+		opts.snapshot = fy_get(previous, "baseline", fy_invalid);
+	}
 	snapshot = fyai_project_capture(call->ctx->gb, &opts, error, sizeof(error));
 	if (!fy_is_valid(snapshot))
 		goto out;
@@ -280,6 +298,8 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	complete = true;
 out:
 	saved = errno;
+	if (opts.reuse_baseline)
+		close(opts.previous_baseline_fd);
 	if (opts.source_fd >= 0)
 		close(opts.source_fd);
 	if (opts.objects_fd >= 0)
@@ -555,6 +575,13 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	spec.arena = call->ctx->cfg->arena_dir;
 	spec.verify = fyai_cmd_arg_bool(call, "verify");
 	spec.baseline = fy_get(view, "baseline", fy_invalid);
+	if (!fy_equal(fy_get(spec.baseline, "version", fy_invalid), 2LL)) {
+		fyai_error(call->ctx,
+			   "view '%s': unsupported snapshot version; recreate "
+			   "the view",
+			   name);
+		return -1;
+	}
 	spec.metacopy = fy_equal(fy_get(view, "materialization", fy_invalid), "metacopy");
 	resolved = realpath(spec.runtime, NULL);
 	if (!resolved)
@@ -592,7 +619,9 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, spec.project, startup, sizeof(startup));
 	if (why) {
-		fyai_error(call->ctx, "view '%s': %s", name, why);
+		rc = fyai_fsview_verify(&spec, error, sizeof(error));
+		if (!rc || !*error)
+			fyai_error(call->ctx, "view '%s': %s", name, why);
 		rc = -1;
 		goto out;
 	}
@@ -650,6 +679,11 @@ static int view_mount_paths(fy_generic view, struct fyai_fsview *spec)
 	spec->project = fy_get(view, "project", "");
 	spec->runtime = fy_get(view, "runtime", "");
 	spec->storage = fy_get(view, "storage", "");
+	spec->baseline = fy_get(view, "baseline", fy_invalid);
+	if (!fy_equal(fy_get(spec->baseline, "version", fy_invalid), 2LL)) {
+		errno = ENOTSUP;
+		return -1;
+	}
 	spec->metacopy = fy_equal(fy_get(view, "materialization", fy_invalid), "metacopy");
 	return 0;
 }

@@ -1417,6 +1417,11 @@ commands:
           additionalProperties: false
           required: [name]
           properties:
+            copy_git_objects:
+              type: boolean
+              default: false
+              description: copy Git object bytes instead of borrowing host inodes
+              x-fyai-long: copy-git-objects
             verify:
               type: boolean
               default: false
@@ -1471,6 +1476,11 @@ commands:
           additionalProperties: false
           required: [name]
           properties:
+            copy_git_objects:
+              type: boolean
+              default: false
+              description: copy Git object bytes instead of borrowing host inodes
+              x-fyai-long: copy-git-objects
             verify:
               type: boolean
               default: false
