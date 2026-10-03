@@ -36,6 +36,8 @@ size_t fyai_display_source_rows(const struct fyai_cfg *cfg, const char *md,
 int fyai_display_repaint(struct fyai_ctx *ctx, int rows);
 int fyai_export_view(struct fyai_ctx *ctx, const char *path,
 		     const char *ref);
+/* Present a raw patch on pipes and the configured diff renderer on terminals. */
+int fyai_present_diff(struct fyai_ctx *ctx, const char *diff, bool unified);
 /*
  * Show the diff of the exports of two ref-log entries: the unified text on
  * output that is not a terminal; on a terminal the diff view, or with

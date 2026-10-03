@@ -871,6 +871,17 @@ static int fyai_diff_view(struct fyai_ctx *ctx, const char *diff)
 	return rc;
 }
 
+int fyai_present_diff(struct fyai_ctx *ctx, const char *diff, bool unified)
+{
+	if (!ctx->stdout_tty || !markdown_color_enabled(ctx->cfg->color))
+		return fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, diff,
+				     strlen(diff));
+	else if (unified || !ctx->cfg->markdown)
+		return fyai_diff_present(ctx, diff);
+	else
+		return fyai_diff_view(ctx, diff);
+}
+
 int fyai_export_diff(struct fyai_ctx *ctx, const char *from, const char *to,
 		     bool unified)
 {
@@ -894,17 +905,7 @@ int fyai_export_diff(struct fyai_ctx *ctx, const char *from, const char *to,
 		rc = 0;
 		goto out;
 	}
-	/*
-	 * A file or a pipe takes the unified text as it is. A terminal shows
-	 * the diff view, or with @unified the unified rows in colour.
-	 */
-	if (!ctx->stdout_tty || !markdown_color_enabled(ctx->cfg->color))
-		rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, diff,
-				     strlen(diff));
-	else if (unified || !ctx->cfg->markdown)
-		rc = fyai_diff_present(ctx, diff);
-	else
-		rc = fyai_diff_view(ctx, diff);
+	rc = fyai_present_diff(ctx, diff, unified);
 out:
 	free(diff);
 	free(b);
