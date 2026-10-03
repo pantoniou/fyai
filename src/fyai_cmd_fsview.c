@@ -416,7 +416,7 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 
 	if (view_writable(call))
 		return -1;
-	if (fyai_cmd_arg_bool(call, "quiet"))
+	if (!fyai_cmd_arg_bool(call, "debug") || fyai_cmd_arg_bool(call, "quiet"))
 		opts.progress = NULL;
 	previous = view_find(call, name);
 	if (!durability)
@@ -580,7 +580,9 @@ retry:
 	rc = view_save(call->ctx, name, record);
 	if (rc)
 		goto out;
-	*result = view_summary(call->gb, name, record);
+	*result = call->format != FYAI_CMD_OUT_MARKDOWN || opts.progress ?
+			  view_summary(call->gb, name, record) :
+			  fy_invalid;
 	complete = true;
 out:
 	saved = errno;

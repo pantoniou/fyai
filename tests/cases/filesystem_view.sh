@@ -17,7 +17,7 @@ mkdir project/.fyai
 printf 'reserved\n' > project/.fyai/private
 ln -s file project/link
 
-run_fyai view create demo "$TEST_DIR/project" --verify --output json
+run_fyai view create demo "$TEST_DIR/project" --debug --verify --output json
 assert_status 0
 "$PYTHON" - "$TEST_DIR/stdout" <<'PY'
 import json, sys
@@ -385,7 +385,8 @@ for i in range(500):
 
 def capture(name, continuous):
     proc = subprocess.Popen([binary, '--color', 'off', 'view', 'create', name,
-                             str(project), '--output', 'json'], cwd=scratch,
+                             str(project), '--debug', '--output', 'json'],
+                            cwd=scratch,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     mutations = 0
     lines = []

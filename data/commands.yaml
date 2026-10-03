@@ -1428,10 +1428,15 @@ commands:
               default: false
               description: copy Git object bytes instead of borrowing host inodes
               x-fyai-long: copy-git-objects
+            debug:
+              type: boolean
+              default: false
+              description: show capture progress and the final summary
+              x-fyai-long: debug
             quiet:
               type: boolean
               default: false
-              description: suppress live capture progress while retaining the result summary
+              description: suppress debug progress and the summary unless an output format is requested
               x-fyai-long: quiet
             verify:
               type: boolean
@@ -1498,10 +1503,15 @@ commands:
               default: false
               description: copy Git object bytes instead of borrowing host inodes
               x-fyai-long: copy-git-objects
+            debug:
+              type: boolean
+              default: false
+              description: show capture progress and the final summary
+              x-fyai-long: debug
             quiet:
               type: boolean
               default: false
-              description: suppress live capture progress while retaining the result summary
+              description: suppress debug progress and the summary unless an output format is requested
               x-fyai-long: quiet
             verify:
               type: boolean

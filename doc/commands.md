@@ -1331,7 +1331,7 @@ With no command, `list` runs.
 
 capture a project and create a named view
 
-**Usage:** `fyai view create [--durability POLICY] [--copy-git-objects] [--quiet] [--verify] NAME [PROJECT]`
+**Usage:** `fyai view create [--durability POLICY] [--copy-git-objects] [--debug] [--quiet] [--verify] NAME [PROJECT]`
 
 Capture PROJECT, excluding its reserved .fyai directory, and record
 a named view on the active branch. Reject unsupported metadata and
@@ -1351,7 +1351,8 @@ observed concurrent changes. No provider credential is required.
 | --- | --- |
 | `--durability POLICY` | select lazy persistence or a durable filesystem barrier; default from view/durability (lazy, durable) |
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
-| `--quiet` | suppress live capture progress while retaining the result summary; default false |
+| `--debug` | show capture progress and the final summary; default false |
+| `--quiet` | suppress debug progress and the summary unless an output format is requested; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
@@ -1396,7 +1397,7 @@ Show a view's baseline and latest recorded result identity.
 
 replace a view with a fresh host snapshot
 
-**Usage:** `fyai view update [--durability POLICY] [--copy-git-objects] [--quiet] [--verify] NAME`
+**Usage:** `fyai view update [--durability POLICY] [--copy-git-objects] [--debug] [--quiet] [--verify] NAME`
 
 Capture the host project again and replace the named view with a fresh
 baseline and empty upper. Discard the view's changes without changing
@@ -1415,7 +1416,8 @@ the host project. Refuse the update while the view is in use.
 | --- | --- |
 | `--durability POLICY` | select lazy persistence or a durable filesystem barrier; update inherits the view policy (lazy, durable) |
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
-| `--quiet` | suppress live capture progress while retaining the result summary; default false |
+| `--debug` | show capture progress and the final summary; default false |
+| `--quiet` | suppress debug progress and the summary unless an output format is requested; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
