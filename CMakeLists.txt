@@ -404,6 +404,7 @@ message(STATUS "fyai: crash backtrace ${FYAI_HAVE_BACKTRACE}")
 set(FYAI_SOURCES
     src/fyai_cas.c
     src/fyai_project.c
+    src/fyai_project_capture.c
     ${FYAI_EVENT_SOURCES}
     src/fyai_crash.c
     src/fyai_display.c
