@@ -12,8 +12,11 @@ only while its process runs.
 ### Architecture rules
 
 - Do not add a daemon, resident process, or hidden process state.
-- Store persistent state only in content-addressed libfyaml arenas under
-  `~/.fyai`.
+- Store persistent manifests, references, configuration, and other structured
+  state in content-addressed libfyaml arenas under `~/.fyai`. Project file bytes
+  may also live in immutable content-addressed blob files under the project's
+  `.fyai` directory.
+  Publish blobs before arena references; never edit a published blob in place.
 - Keep canonical data immutable, deterministic, and address-stable between
   processes.
 - Do not relocate an arena during normal operation.
