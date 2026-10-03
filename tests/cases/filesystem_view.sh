@@ -332,5 +332,55 @@ failed = run([binary, 'view', 'create', 'git-nested', str(work)], ok=False)
 assert failed.returncode and 'submodules are unsupported' in failed.stderr
 PYTEST
 
+# A source-directory change must restart capture with a private fresh baseline.
+"$PYTHON" - "$FYAI_BIN" "$TEST_DIR" <<'PY'
+import json, os, pathlib, select, subprocess, sys, time
+binary, scratch = sys.argv[1:]
+project = pathlib.Path(scratch, 'capture-race')
+project.mkdir()
+for i in range(500):
+    (project / ('file-%04d' % i)).write_bytes(i.to_bytes(8, 'little'))
+
+def capture(name, continuous):
+    proc = subprocess.Popen([binary, '--color', 'off', 'view', 'create', name,
+                             str(project), '--output', 'json'], cwd=scratch,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    mutations = 0
+    lines = []
+    deadline = time.monotonic() + 30 * int(os.environ.get('FYAI_TIMEOUT_SCALE', '1'))
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, 'capture retry timed out'
+            ready, _, _ = select.select([proc.stderr], [], [], remaining)
+            assert ready, 'capture retry timed out'
+            line = proc.stderr.readline()
+            if not line:
+                break
+            lines.append(line)
+            if b': capturing: 0/' in line and (continuous or not mutations):
+                mutations += 1
+                (project / ('%s-mutation-%d' % (name, mutations))).write_text('changed')
+        out, _ = proc.communicate(timeout=max(1, deadline - time.monotonic()))
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    return proc.returncode, out, b''.join(lines), mutations
+
+rc, out, err, mutations = capture('race-once', False)
+assert rc == 0, err.decode()
+assert mutations == 1
+result = json.loads(out)
+assert result['capture']['attempts'] == 2, result
+assert result['capture']['files'] == 501, result
+assert b'project changed during capture' in err
+assert len(list((project / '.fyai/views').iterdir())) == 1
+
+rc, out, err, mutations = capture('race-always', True)
+assert rc != 0 and mutations == 3, (rc, err.decode(), mutations)
+assert b'project changed during capture' in err and b'after 3 attempts' in err
+assert len(list((project / '.fyai/views').iterdir())) == 1
+PY
 
 pass
