@@ -369,6 +369,7 @@ static int fyai_credential_isolation_available(struct fyai_cfg *cfg,
 						enum fyai_transport_level level)
 {
 #ifndef __linux__
+	(void)level;
 	fyai_cfg_error(cfg, "credential isolation needs Linux");
 	return -1;
 #else
@@ -713,7 +714,8 @@ static void names_add(struct fyai_ctx *ctx, const char *name)
 	if (ctx->transport_nnames >= ARRAY_SIZE(ctx->transport_names))
 		return;
 	snprintf(ctx->transport_names[ctx->transport_nnames++],
-		 sizeof(ctx->transport_names[0]), "%s", name);
+		 sizeof(ctx->transport_names[0]), "%.*s",
+		 (int)sizeof(ctx->transport_names[0]) - 1, name);
 }
 
 /* Most profile names one configuration and its personas need. */
