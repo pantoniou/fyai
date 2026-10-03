@@ -237,6 +237,8 @@ assert_status 0
 chmod 644 git-project/.git/objects/object
 printf 'bad object' > git-project/.git/objects/object
 chmod 444 git-project/.git/objects/object
+run_fyai view enter git-borrowed true
+assert_status 0
 run_fyai view enter --verify git-borrowed true
 assert_status 1
 assert_stderr_contains '--copy-git-objects'
@@ -246,4 +248,89 @@ run_fyai view enter --verify git-borrowed sh -c 'test "$(cat .git/objects/object
 assert_status 0
 run_fyai view enter --verify git-copied sh -c 'test "$(cat .git/objects/object)" = "git object"'
 assert_status 0
+
+# Git worktree metadata is projected into an independent in-view repository.
+"$PYTHON" - "$FYAI_BIN" "$TEST_DIR" <<'PYTEST'
+import json, os, pathlib, subprocess, sys
+binary, scratch = sys.argv[1:]
+root = pathlib.Path(scratch)
+repo, work = root / 'git-main', root / 'git-work'
+env = os.environ.copy()
+env['GIT_CONFIG_NOSYSTEM'] = '1'
+env['XDG_CONFIG_HOME'] = str(root / 'home/.config')
+def run(args, cwd=root, ok=True):
+    proc = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True)
+    if ok:
+        assert proc.returncode == 0, (args, proc.stdout, proc.stderr)
+    return proc
+run(['git', 'init', str(repo)])
+(repo / 'file').write_text('original\n')
+(repo / 'bulk').mkdir()
+for i in range(256):
+    (repo / 'bulk' / f'file-{i}').write_text(f'unique content {i}\n')
+(repo / 'bulk' / 'alias').write_text('unique content 7\n')
+run(['git', 'add', '.'], repo)
+run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.test',
+     '-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'initial'], repo)
+main_branch = run(['git', 'branch', '--show-current'], repo).stdout.strip()
+run(['git', 'worktree', 'add', '-b', 'projected', str(work)], repo)
+# Common configuration must not redirect the view to the host working tree.
+run(['git', 'config', '--file', str(repo / '.git/config'), 'core.worktree', str(repo)])
+run(['git', 'config', '--file', str(repo / '.git/config'), 'extensions.worktreeConfig', 'true'])
+run(['git', 'config', '--worktree', 'core.worktree', str(work)], work)
+(work / 'file').write_text('dirty worktree\n')
+head = run(['git', 'rev-parse', 'HEAD'], work).stdout.strip()
+status = run(['git', 'status', '--porcelain'], work).stdout.strip()
+private = pathlib.Path((work / '.git').read_text().strip().removeprefix('gitdir: '))
+(private / 'refs/worktree').mkdir(parents=True)
+(private / 'refs/worktree/local').write_text(head + '\n')
+(private / 'private-link').symlink_to('HEAD')
+originals = {p: p.read_bytes() for p in [repo / '.git/config', private / 'config.worktree',
+                                      private / 'HEAD', private / 'index', work / '.git']}
+result = json.loads(run([binary, 'view', 'create', 'git-worktree', str(work),
+                        '--verify', '--output', 'json']).stdout)
+assert result['capture']['borrowed_files'] > 0
+assert result['capture']['storage']['hardlink']['files'] > 0
+script = ('test -d .git && test ! -e .git/gitdir && test ! -e .git/commondir && '
+          'test ! -e .git/worktrees && test "$(git config core.worktree)" = .. && '
+          'test -L .git/private-link && test "$(git rev-parse refs/worktree/local)" = ' + head +
+          ' && git status --porcelain && git rev-parse HEAD && git reflog show ' + main_branch)
+inside = run([binary, 'view', 'enter', '--verify', 'git-worktree', 'sh', '-c', script]).stdout
+assert status in inside and head in inside and 'initial' in inside
+run([binary, 'view', 'enter', '--verify', 'git-worktree', 'sh', '-c',
+     'rm bulk/file-0; mv bulk/file-1 bulk/renamed; printf changed > bulk/file-7'])
+assert (work / 'bulk/file-0').exists() and (work / 'bulk/file-1').exists()
+assert (work / 'bulk/file-7').read_text() == 'unique content 7\n'
+run([binary, 'view', 'enter', '--verify', 'git-worktree', 'sh', '-c',
+     'git -c user.name=Test -c user.email=test@example.test -c core.hooksPath=/dev/null add file && '
+     'git -c user.name=Test -c user.email=test@example.test -c core.hooksPath=/dev/null commit -m isolated'])
+assert run(['git', 'rev-parse', 'HEAD'], work).stdout.strip() == head
+assert all(p.read_bytes() == data for p, data in originals.items())
+run([binary, 'view', 'update', 'git-worktree', '--verify'])
+assert head in run([binary, 'view', 'enter', '--verify', 'git-worktree', 'git', 'rev-parse', 'HEAD']).stdout
+run([binary, 'view', 'create', 'git-worktree-owned', str(work), '--copy-git-objects', '--verify'])
+# A bare common repository still needs an in-view working tree.
+bare, bare_work = root / 'git-bare', root / 'git-bare-work'
+run(['git', 'clone', '--bare', str(repo), str(bare)])
+run(['git', 'worktree', 'add', '-b', 'bare-projected', str(bare_work)], bare)
+run([binary, 'view', 'create', 'git-bare-worktree', str(bare_work), '--verify'])
+inside = run([binary, 'view', 'enter', '--verify', 'git-bare-worktree', 'git',
+              'rev-parse', '--is-bare-repository']).stdout
+assert inside.strip() == 'false', inside
+# Unsupported external layouts must fail before publishing a view.
+(private / 'outside-link').symlink_to('/outside/git')
+failed = run([binary, 'view', 'create', 'git-external-link', str(work)], ok=False)
+assert failed.returncode and 'Git metadata symlink leaves the project' in failed.stderr
+(private / 'outside-link').unlink()
+(repo / '.git/objects/info/alternates').write_text('/outside/objects\n')
+failed = run([binary, 'view', 'create', 'git-alternates', str(work)], ok=False)
+assert failed.returncode and 'external object alternates are unsupported' in failed.stderr
+(repo / '.git/objects/info/alternates').unlink()
+(work / 'nested').mkdir()
+(work / 'nested/.git').write_text('gitdir: /outside/git\n')
+failed = run([binary, 'view', 'create', 'git-nested', str(work)], ok=False)
+assert failed.returncode and 'submodules are unsupported' in failed.stderr
+PYTEST
+
+
 pass

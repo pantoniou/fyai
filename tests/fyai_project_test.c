@@ -287,6 +287,8 @@ int project_borrowed_git(void)
 	FYAI_TCHECK(baseline.st_ino != other.st_ino);
 	FYAI_TCHECK(host.st_dev == baseline.st_dev &&
 		    (host.st_ino == baseline.st_ino || host.st_ino == other.st_ino));
+	FYAI_TCHECK(!fyai_project_check_borrowed(opts.objects_fd, snapshot, false, error,
+						 sizeof(error)));
 	/* Rename and deletion leave the borrowed inode available. */
 	FYAI_TCHECK(!unlinkat(source, "a", 0));
 	FYAI_TCHECK(!fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error)));
@@ -302,6 +304,8 @@ int project_borrowed_git(void)
 	}
 	FYAI_TCHECK(fd >= 0 && write(fd, "bad", 3) == 3);
 	close(fd);
+	FYAI_TCHECK(!fyai_project_check_borrowed(opts.objects_fd, snapshot, false, error,
+						 sizeof(error)));
 	rc = fyai_project_verify_borrowed(opts.objects_fd, snapshot, error, sizeof(error));
 	FYAI_TCHECK(rc < 0 && errno == EIO && strstr(error, "--copy-git-objects"));
 	fy_generic_builder_destroy(gb);
