@@ -1304,7 +1304,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|remove|sync|mount|unmount|enter} ...`
+**Usage:** `fyai view {create|list|show|update|diff|remove|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1319,6 +1319,7 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `list` | list the filesystem views of the active branch |
 | `show` | inspect a named filesystem view |
 | `update` | replace a view with a fresh host snapshot |
+| `diff` | compare recorded filesystem view snapshots |
 | `remove` | remove a named filesystem view |
 | `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
@@ -1419,6 +1420,34 @@ the host project. Refuse the update while the view is in use.
 | `--debug` | show capture progress and the final summary; default false |
 | `--quiet` | suppress debug progress and the summary unless an output format is requested; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view diff
+
+compare recorded filesystem view snapshots
+
+**Usage:** `fyai view diff [-u] [--stat] NAME [OTHER]`
+
+Compare NAME's baseline and recorded result, or the recorded results
+of NAME and OTHER. Skip .git and .fyai. Show a unified patch, including
+binary changes, or a changed-path list with --stat. Output formats
+return structured content and metadata changes with the patch.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view to compare |
+| `OTHER` | compare against this view's recorded result |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-u`, `--unified` | write unified rows, coloured on a terminal; default false |
+| `--stat` | list changed paths instead of emitting a unified patch; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

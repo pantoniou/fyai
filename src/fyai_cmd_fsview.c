@@ -33,6 +33,7 @@
 
 #include "fyai_branch.h"
 #include "fyai_fsview.h"
+#include "fyai_display.h"
 #include "fyai_event.h"
 #include "fyai_project_capture.h"
 #include "fyai_storage.h"
@@ -633,6 +634,307 @@ out:
 	free(views);
 	free(runtime);
 	return complete ? 0 : -1;
+}
+
+static int view_diff_decode(const char *hex, char **text)
+{
+	char *bytes;
+	size_t i, length = strlen(hex);
+	const char *high, *low, *digits = "0123456789abcdef";
+
+	if (length & 1) {
+		errno = EINVAL;
+		return -1;
+	}
+	bytes = malloc(length / 2 + 1);
+	if (!bytes)
+		return -1;
+	for (i = 0; i < length; i += 2) {
+		high = strchr(digits, hex[i]);
+		low = strchr(digits, hex[i + 1]);
+		if (!high || !low || (high == digits && low == digits)) {
+			free(bytes);
+			errno = EINVAL;
+			return -1;
+		}
+		bytes[i / 2] = ((high - digits) << 4) | (low - digits);
+	}
+	bytes[length / 2] = '\0';
+	*text = bytes;
+	return 0;
+}
+
+static int view_diff_file(int root, int objects, const char *path, fy_generic object,
+			  struct fyai_cas_copy_state *copy)
+{
+	struct fyai_cas_blob blob = { 0 };
+	struct stat st;
+	fy_generic value;
+	char *parent = strdup(path), *part, *next, *target = NULL;
+	const char *kind = fy_get(object, "kind", ""), *digest;
+	int directory = -1, child, source = -1, file = -1, rc = -1, saved;
+
+	if (!parent)
+		return -1;
+	directory = dup(root);
+	if (directory < 0)
+		goto out;
+	part = parent;
+	while ((next = strchr(part, '/'))) {
+		*next++ = '\0';
+		if (mkdirat(directory, part, 0700) && errno != EEXIST)
+			goto out;
+		child = openat(directory, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (child < 0)
+			goto out;
+		close(directory);
+		directory = child;
+		part = next;
+	}
+	if (!strcmp(kind, "symlink")) {
+		if (view_diff_decode(fy_get(object, "target_hex", ""), &target))
+			goto out;
+		rc = symlinkat(target, directory, part);
+		goto out;
+	}
+	value = fy_get(object, "blob", fy_invalid);
+	digest = fy_get(value, "digest", "");
+	if (strcmp(kind, "file") || strlen(digest) != sizeof(blob.digest) - 1) {
+		errno = EINVAL;
+		goto out;
+	}
+	memcpy(blob.digest, digest, sizeof(blob.digest));
+	blob.size = fy_get(value, "size", 0LL);
+	blob.borrowed = fy_equal(fy_get(value, "storage", ""), "borrowed");
+	source = fyai_cas_open(objects, &blob);
+	if (source < 0 || fstat(source, &st))
+		goto out;
+	if (!S_ISREG(st.st_mode) || st.st_size != (off_t)blob.size) {
+		errno = EIO;
+		goto out;
+	}
+	file = openat(directory, part, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (file < 0)
+		goto out;
+	rc = fyai_cas_clone_state(source, file, blob.size, copy);
+	if (!rc)
+		rc = fchmod(file, fy_get(object, "mode", 0LL) & 0111 ? 0755 : 0644);
+out:
+	saved = errno;
+	if (directory >= 0)
+		close(directory);
+	if (source >= 0)
+		close(source);
+	if (file >= 0)
+		close(file);
+	free(parent);
+	free(target);
+	errno = saved;
+	return rc;
+}
+
+static int view_diff_recover(struct fyai_cmd_call *call, const char *name, fy_generic *view)
+{
+	struct fyai_fsview spec = { 0 };
+	char boot[37], lockpath[PATH_MAX], error[PATH_MAX] = "";
+	int lock = -1, rc, saved;
+
+	if (view_boot_id(boot))
+		return -1;
+	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
+		return 0;
+	spec.project = fy_get(*view, "project", "");
+	spec.runtime = fy_get(*view, "runtime", "");
+	spec.storage = fy_get(*view, "storage", "");
+	spec.baseline = fy_get(*view, "baseline", fy_invalid);
+	spec.metacopy = fy_equal(fy_get(*view, "materialization", ""), "metacopy");
+	rc = snprintf(lockpath, sizeof(lockpath), "%s/lock", spec.runtime);
+	if (rc < 0 || rc >= (int)sizeof(lockpath)) {
+		errno = ENAMETOOLONG;
+		rc = -1;
+		goto out;
+	}
+	lock = open(lockpath, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
+	if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB)) {
+		rc = -1;
+		goto out;
+	}
+	rc = view_recover(call->ctx, view, &spec, error, sizeof(error));
+	if (!rc && !call->ctx->cfg->root_spec && call->ctx->gb == call->ctx->durable_gb)
+		rc = view_save(call->ctx, name, *view);
+out:
+	saved = errno;
+	if (lock >= 0)
+		close(lock);
+	if (rc)
+		fyai_error(call->ctx, "view '%s': cannot validate after reboot%s%s: %s", name,
+			   *error ? ": " : "", error, strerror(saved));
+	return rc ? -1 : 0;
+}
+
+int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	const char *other = fyai_cmd_arg_str(call, "other");
+	struct shell_command_result output = { 0 };
+	struct response_buffer listing = { 0 };
+	struct shell_command_opts opts = { 0 };
+	struct fyai_cas_copy_state copy[2] = { 0 };
+	fy_generic view, peer, snapshots[2], changes, row, object, patch, before, after, note;
+	char *runtime = NULL, objects[PATH_MAX];
+	const char *stores[2], *path, *hex, *error_path = "";
+	const char *sides[] = { "a", "b" };
+	int root = -1, directories[2] = { -1, -1 }, cas[2] = { -1, -1 };
+	int rc = -1, saved;
+	size_t i;
+
+	view = view_find(call, name);
+	peer = other ? view_find(call, other) : view;
+	if (!fy_is_mapping(view) || !fy_is_mapping(peer)) {
+		fyai_error(call->ctx, "view '%s' does not exist",
+			   fy_is_mapping(view) ? other : name);
+		return -1;
+	}
+	if (view_diff_recover(call, name, &view) ||
+	    (other && view_diff_recover(call, other, &peer)))
+		return -1;
+	if (!other)
+		peer = view;
+	snapshots[0] = other ? fy_get(view, "result", fy_get(view, "baseline", fy_invalid)) :
+			       fy_get(view, "baseline", fy_invalid);
+	snapshots[1] = fy_get(peer, "result", fy_get(peer, "baseline", fy_invalid));
+	changes = fyai_project_diff(call->gb, snapshots[0], snapshots[1]);
+	if (!fy_is_sequence(changes))
+		goto out;
+	*result = fy_mapping(call->gb, "changes", changes);
+	if (!fy_len(changes)) {
+		*result = call->format == FYAI_CMD_OUT_MARKDOWN ?
+				  fy_invalid :
+				  fy_assoc(call->gb, *result, "patch", "");
+		rc = 0;
+		goto out;
+	}
+	if (fyai_cmd_arg_bool(call, "stat")) {
+		fy_foreach(row, changes) {
+			if (response_buffer_append(&listing, fy_get(row, "status", "")) ||
+			    response_buffer_append(&listing, " ") ||
+			    response_buffer_append(&listing, fy_get(row, "path", "")) ||
+			    response_buffer_append(&listing, "\n"))
+				goto out;
+		}
+		*result = fy_assoc(call->gb, *result, "patch", fy_value(call->gb, listing.data));
+		rc = 0;
+		goto out;
+	}
+	stores[0] = fy_get(view, "storage", "");
+	stores[1] = fy_get(peer, "storage", "");
+	if (asprintf(&runtime, "%s/views/diff-XXXXXX", stores[0]) < 0 || !mkdtemp(runtime))
+		goto out;
+	root = open(runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (root < 0)
+		goto out;
+	for (i = 0; i < 2; i++) {
+		atomic_init(&copy[i].backend, 0);
+		atomic_init(&copy[i].copied_bytes, 0);
+		atomic_init(&copy[i].reflinked_bytes, 0);
+		if (mkdirat(root, sides[i], 0700))
+			goto out;
+		directories[i] =
+			openat(root, sides[i], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		rc = snprintf(objects, sizeof(objects), "%s/objects/blake3", stores[i]);
+		if (rc < 0 || rc >= (int)sizeof(objects)) {
+			errno = ENAMETOOLONG;
+			rc = -1;
+			goto out;
+		}
+		rc = -1;
+		cas[i] = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (directories[i] < 0 || cas[i] < 0)
+			goto out;
+		fy_foreach(row, changes) {
+			path = fy_get(row, "path", "");
+			hex = fy_get(row, "path_hex", "");
+			object = fyai_project_lookup(snapshots[i], hex);
+			if (!fy_is_mapping(object) ||
+			    fy_equal(fy_get(object, "kind", ""), "directory"))
+				continue;
+			error_path = path;
+			if (view_diff_file(directories[i], cas[i], path, object, &copy[i]))
+				goto out;
+		}
+	}
+	error_path = "";
+	opts.workdir = runtime;
+	rc = run_shell_command_capture_cb(
+		call->ctx,
+		"git --no-pager diff --no-index --no-color "
+		"--diff-algorithm=myers --no-indent-heuristic --binary "
+		"--find-renames --no-ext-diff --no-textconv --src-prefix= "
+		"--dst-prefix= -- a b",
+		&output, NULL, NULL, NULL, &opts);
+	if (rc || output.exit_code > 1 || output.signaled || output.timed_out) {
+		rc = -1;
+		errno = EIO;
+		goto out;
+	}
+	if (response_buffer_append(&listing, output.stdout_data ? output.stdout_data : "")) {
+		rc = -1;
+		goto out;
+	}
+	fy_foreach(row, changes) {
+		before = fy_get(row, "before", fy_invalid);
+		after = fy_get(row, "after", fy_invalid);
+		if (!fy_equal(fy_get(before, "kind", ""), "directory") &&
+		    !fy_equal(fy_get(after, "kind", ""), "directory") &&
+		    (!fy_is_mapping(before) || !fy_is_mapping(after) ||
+		     !fy_equal(fy_get(before, "kind", ""), fy_get(after, "kind", "")) ||
+		     !fy_equal(fy_get(before, "digest", fy_null),
+			       fy_get(after, "digest", fy_null)) ||
+		     !fy_equal(fy_get(before, "target_hex", fy_null),
+			       fy_get(after, "target_hex", fy_null))))
+			continue;
+		error_path = "formatting metadata";
+		note = fy_emit(call->gb, row,
+			       FYOPEF_DISABLE_DIRECTORY | FYOPEF_NO_ENDING_NEWLINE |
+				       FYOPEF_MODE_YAML_1_2 | FYOPEF_STYLE_FLOW | FYOPEF_WIDTH_INF,
+			       NULL);
+		if (!fy_is_string(note) || response_buffer_append(&listing, "# metadata ") ||
+		    response_buffer_append(&listing, fy_castp(&note, "")) ||
+		    response_buffer_append(&listing, "\n")) {
+			rc = -1;
+			goto out;
+		}
+	}
+	error_path = "";
+	patch = fy_value(call->gb, listing.data ? listing.data : "");
+	*result = fy_assoc(call->gb, *result, "patch", patch);
+	rc = 0;
+	if (call->format == FYAI_CMD_OUT_MARKDOWN) {
+		rc = fyai_present_diff(call->ctx, fy_castp(&patch, ""),
+				       fyai_cmd_arg_bool(call, "unified"));
+		*result = fy_invalid;
+	}
+out:
+	saved = errno;
+	for (i = 0; i < 2; i++) {
+		if (directories[i] >= 0)
+			close(directories[i]);
+		if (cas[i] >= 0)
+			close(cas[i]);
+	}
+	if (root >= 0) {
+		view_runtime_clear(root, 0);
+		close(root);
+		rmdir(runtime);
+	}
+	free(runtime);
+	free(listing.data);
+	if (rc)
+		fyai_error(call->ctx, "view '%s': cannot diff%s%s%s%s: %s", name,
+			   *error_path ? " at " : "", error_path, output.stderr_len ? ": " : "",
+			   output.stderr_data ? output.stderr_data : "", strerror(saved));
+	shell_command_result_cleanup(&output);
+	return rc ? -1 : 0;
 }
 
 int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result)
@@ -1301,6 +1603,13 @@ out:
 }
 
 #else
+int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
 int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;

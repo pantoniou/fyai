@@ -1527,6 +1527,43 @@ commands:
               x-fyai-complete: view
         render:
           document: yaml
+      - command: diff
+        title: compare recorded filesystem view snapshots
+        description: |
+          Compare NAME's baseline and recorded result, or the recorded results
+          of NAME and OTHER. Skip .git and .fyai. Show a unified patch, including
+          binary changes, or a changed-path list with --stat. Output formats
+          return structured content and metadata changes with the patch.
+        handler: view_diff
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the view to compare
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: view
+            other:
+              type: string
+              description: compare against this view's recorded result
+              x-fyai-positional: 1
+              x-fyai-meta: OTHER
+              x-fyai-complete: view
+            unified:
+              type: boolean
+              default: false
+              description: write unified rows, coloured on a terminal
+              x-fyai-short: u
+            stat:
+              type: boolean
+              default: false
+              description: list changed paths instead of emitting a unified patch
+              x-fyai-long: stat
+        render:
+          message: '{patch}'
       - command: remove
         title: remove a named filesystem view
         description: |
