@@ -6,6 +6,10 @@
 #include "fyai_project.h"
 
 struct fyai_project_capture_opts {
+	/* Materialize metadata-only files redirected into data_fd. */
+	bool metacopy;
+	/* Private snapshot data-only directory; required for metacopy. */
+	int data_fd;
 	/* Source is a frozen merged overlay with an immutable lower. */
 	bool incremental;
 	int upper_fd; /* Required only for incremental capture. */

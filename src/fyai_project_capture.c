@@ -397,7 +397,7 @@ static void capture_files(void *arg)
 	struct capture_node *node;
 	struct stat after;
 	size_t index;
-	int source, target, rc, saved, object;
+	int source, rc;
 
 	for (;;) {
 		index = atomic_fetch_add_explicit(&capture->next, 1, memory_order_relaxed);
@@ -406,7 +406,6 @@ static void capture_files(void *arg)
 		node = &capture->nodes[index];
 		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE)
 			continue;
-		target = -1;
 		source = capture_open(capture->opts->source_fd, node->path, O_RDONLY | O_NONBLOCK,
 				      0);
 		if (source < 0) {
@@ -423,26 +422,7 @@ static void capture_files(void *arg)
 		if (!rc)
 			rc = fyai_cas_put_hasher(capture->opts->objects_fd, source, &node->blob,
 						 worker->hasher);
-		if (!rc && capture->opts->baseline_fd >= 0) {
-			target = capture_open(capture->opts->baseline_fd, node->path,
-					      O_RDWR | O_CREAT | O_EXCL, 0600);
-			if (target < 0)
-				rc = -1;
-			if (!rc) {
-				object = openat(capture->opts->objects_fd, node->blob.digest,
-						O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-				if (object < 0)
-					rc = -1;
-				else {
-					rc = fyai_cas_copy(object, target, node->blob.size);
-					saved = errno;
-					close(object);
-					errno = saved;
-				}
-			}
-			if (!rc)
-				rc = capture_apply(target, &node->before);
-		}
+
 		if (!rc) {
 			rc = fstat(source, &after);
 			if (!rc && !capture_same(&node->before, &after)) {
@@ -452,9 +432,81 @@ static void capture_files(void *arg)
 		}
 		if (rc)
 			node->error = errno ? errno : EIO;
-		if (target >= 0)
-			close(target);
 		close(source);
+	}
+}
+
+static int capture_materialize_file(struct project_capture *capture, struct capture_node *node)
+{
+	struct stat object_stat;
+	char redirect[sizeof(node->blob.digest) + 1];
+	int object = -1, target = -1, rc = -1, saved;
+
+	object = openat(capture->opts->objects_fd, node->blob.digest,
+			O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	if (object < 0)
+		goto out;
+	rc = fstat(object, &object_stat);
+	if (rc)
+		goto out;
+	if (!S_ISREG(object_stat.st_mode) || (object_stat.st_mode & 0222) ||
+	    (uint64_t)object_stat.st_size != node->blob.size) {
+		errno = EINVAL;
+		rc = -1;
+		goto out;
+	}
+	target = capture_open(capture->opts->baseline_fd, node->path, O_RDWR | O_CREAT | O_EXCL,
+			      0600);
+	if (target < 0) {
+		rc = -1;
+		goto out;
+	}
+	if (capture->opts->metacopy) {
+		rc = linkat(capture->opts->objects_fd, node->blob.digest, capture->opts->data_fd,
+			    node->blob.digest, 0);
+		if (rc && errno == EEXIST)
+			rc = 0;
+		if (!rc)
+			rc = ftruncate(target, node->blob.size);
+		redirect[0] = '/';
+		memcpy(redirect + 1, node->blob.digest, sizeof(node->blob.digest));
+		if (!rc)
+			rc = fsetxattr(target, "user.overlay.metacopy", "", 0, XATTR_CREATE);
+		if (!rc)
+			rc = fsetxattr(target, "user.overlay.redirect", redirect, strlen(redirect),
+				       XATTR_CREATE);
+	} else
+		rc = fyai_cas_copy(object, target, node->blob.size);
+	if (!rc)
+		rc = capture_apply(target, &node->before);
+out:
+	saved = errno;
+	if (target >= 0)
+		close(target);
+	if (object >= 0)
+		close(object);
+	errno = saved;
+	return rc;
+}
+
+static void capture_materialize_files(void *arg)
+{
+	struct capture_worker *worker = arg;
+	struct project_capture *capture = worker->capture;
+	struct capture_node *node;
+	size_t index;
+	int rc;
+
+	for (;;) {
+		index = atomic_fetch_add_explicit(&capture->next, 1, memory_order_relaxed);
+		if (index >= capture->count)
+			break;
+		node = &capture->nodes[index];
+		if (node->reused || node->entry.kind != FYAI_PROJECT_FILE || node->error)
+			continue;
+		rc = capture_materialize_file(capture, node);
+		if (rc)
+			node->error = errno ? errno : EIO;
 	}
 }
 
@@ -498,6 +550,9 @@ static int capture_verify(struct project_capture *capture)
 	struct stat after;
 	unsigned char *buffer;
 	size_t i;
+	struct stat metadata;
+	char redirect[sizeof(node->blob.digest) + 3], actual[sizeof(redirect)];
+	ssize_t length;
 	int source = -1, object = -1, baseline = -1, rc = -1, saved;
 
 	hasher = fy_blake3_hasher_create(&cfg);
@@ -542,7 +597,37 @@ static int capture_verify(struct project_capture *capture)
 				capture_open(capture->opts->baseline_fd, node->path, O_RDONLY, 0);
 			if (baseline < 0)
 				goto failed;
-			rc = fyai_cas_verify_file(baseline, &node->blob, hasher);
+			if (capture->opts->metacopy) {
+				redirect[0] = '/';
+				memcpy(redirect + 1, node->blob.digest, sizeof(node->blob.digest));
+				rc = fstat(baseline, &metadata);
+				if (!rc &&
+				    (metadata.st_size != (off_t)node->blob.size ||
+				     (metadata.st_mode & 07777) != (node->before.st_mode & 07777) ||
+				     metadata.st_uid != node->before.st_uid ||
+				     metadata.st_gid != node->before.st_gid ||
+				     metadata.st_mtim.tv_sec != node->before.st_mtim.tv_sec ||
+				     metadata.st_mtim.tv_nsec != node->before.st_mtim.tv_nsec)) {
+					errno = EIO;
+					rc = -1;
+				}
+				length = fgetxattr(baseline, "user.overlay.redirect", actual,
+						   sizeof(actual));
+				if (!rc && (length != (ssize_t)strlen(redirect) ||
+					    memcmp(actual, redirect, length))) {
+					errno = EIO;
+					rc = -1;
+				}
+				if (!rc &&
+				    fgetxattr(baseline, "user.overlay.metacopy", NULL, 0) != 0) {
+					errno = EIO;
+					rc = -1;
+				}
+				if (!rc)
+					rc = fyai_cas_verify_hasher(capture->opts->data_fd,
+								    &node->blob, hasher);
+			} else
+				rc = fyai_cas_verify_file(baseline, &node->blob, hasher);
 			if (rc)
 				goto failed;
 			close(baseline);
@@ -748,7 +833,7 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 
 	if (error_path && error_size)
 		error_path[0] = '\0';
-	if (!gb || !opts) {
+	if (!gb || !opts || (opts->metacopy && (opts->data_fd < 0 || opts->baseline_fd < 0))) {
 		errno = EINVAL;
 		return fy_invalid;
 	}
@@ -814,6 +899,11 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	fy_thread_arg_array_join(capture.pool, capture_files, NULL, workers, sizeof(*workers),
 				 worker_count);
+	if (opts->baseline_fd >= 0) {
+		atomic_store_explicit(&capture.next, 0, memory_order_relaxed);
+		fy_thread_arg_array_join(capture.pool, capture_materialize_files, NULL, workers,
+					 sizeof(*workers), worker_count);
+	}
 finish:
 	if (opts->verify) {
 		rc = capture_verify(&capture);

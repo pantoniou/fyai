@@ -75,10 +75,10 @@ static fy_generic view_summary(struct fy_generic_builder *gb, const char *name, 
 	baseline = fy_get(view, "baseline", fy_invalid);
 	result = fy_get(view, "result", baseline);
 
-	summary = fy_mapping(gb, "name", fy_value(gb, name), "project", fy_get(view, "project", ""),
-			     "baseline", fy_get(baseline, "root", ""), "root",
-			     fy_get(result, "root", ""), "materialization", "copy", "state",
-			     fy_get(view, "state", "ready"));
+	summary = fy_mapping(
+		gb, "name", fy_value(gb, name), "project", fy_get(view, "project", ""), "baseline",
+		fy_get(baseline, "root", ""), "root", fy_get(result, "root", ""), "materialization",
+		fy_get(view, "materialization", "copy"), "state", fy_get(view, "state", "ready"));
 	if (fy_is_valid(fy_get(view, "mount", fy_invalid)))
 		summary = fy_assoc(gb, summary, "mount", fy_get(view, "mount", fy_invalid));
 	return summary;
@@ -165,11 +165,15 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	const char *project = fyai_cmd_arg_str(call, "project");
 	struct fyai_project_capture_opts opts = { .source_fd = -1,
 						  .objects_fd = -1,
-						  .baseline_fd = -1 };
+						  .baseline_fd = -1,
+						  .data_fd = -1,
+						  .metacopy = true };
 	fy_generic snapshot, record, previous, stored_project, stored_runtime;
 	char *resolved = NULL, *storage = NULL, *objects = NULL, *views = NULL, *runtime = NULL;
 	char error[PATH_MAX] = "", lockpath[PATH_MAX];
-	const char *const directories[] = { "baseline", "upper", "work", "cover", "merged" };
+	const char *const directories[] = {
+		"baseline", "data", "upper", "work", "cover", "merged"
+	};
 	size_t i;
 	int rc = -1, root = -1, lock = -1, saved;
 	bool complete = false;
@@ -238,6 +242,13 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 		if (rc)
 			goto out;
 	}
+	rc = fyai_fsview_metacopy_check(runtime);
+	if (rc && errno != ENOTSUP)
+		goto out;
+	opts.metacopy = !rc;
+	opts.data_fd = openat(root, "data", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (opts.data_fd < 0)
+		goto out;
 	opts.verify = fyai_cmd_arg_bool(call, "verify");
 	opts.source_fd = open(resolved, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	opts.objects_fd = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -252,6 +263,8 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	if (!rc)
 		rc = fsync(opts.baseline_fd);
 	if (!rc)
+		rc = fsync(opts.data_fd);
+	if (!rc)
 		rc = fsync(root);
 	if (rc)
 		goto out;
@@ -259,7 +272,7 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 			    "project", fy_value(call->ctx->gb, resolved), "storage",
 			    fy_value(call->ctx->gb, storage), "runtime",
 			    fy_value(call->ctx->gb, runtime), "baseline", snapshot, "state",
-			    "ready", "materialization", "copy");
+			    "ready", "materialization", opts.metacopy ? "metacopy" : "copy");
 	rc = view_save(call->ctx, name, record);
 	if (rc)
 		goto out;
@@ -273,6 +286,8 @@ out:
 		close(opts.objects_fd);
 	if (opts.baseline_fd >= 0)
 		close(opts.baseline_fd);
+	if (opts.data_fd >= 0)
+		close(opts.data_fd);
 	if (root >= 0)
 		close(root);
 	if (lock >= 0)
@@ -540,6 +555,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	spec.arena = call->ctx->cfg->arena_dir;
 	spec.verify = fyai_cmd_arg_bool(call, "verify");
 	spec.baseline = fy_get(view, "baseline", fy_invalid);
+	spec.metacopy = fy_equal(fy_get(view, "materialization", fy_invalid), "metacopy");
 	resolved = realpath(spec.runtime, NULL);
 	if (!resolved)
 		goto out;
@@ -634,6 +650,7 @@ static int view_mount_paths(fy_generic view, struct fyai_fsview *spec)
 	spec->project = fy_get(view, "project", "");
 	spec->runtime = fy_get(view, "runtime", "");
 	spec->storage = fy_get(view, "storage", "");
+	spec->metacopy = fy_equal(fy_get(view, "materialization", fy_invalid), "metacopy");
 	return 0;
 }
 

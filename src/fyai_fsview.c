@@ -26,6 +26,7 @@
 
 #ifdef __linux__
 #include <sched.h>
+#include <sys/xattr.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
@@ -78,11 +79,92 @@ static int view_namespace(bool pid_namespace)
 	return mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL);
 }
 
-static int view_overlay(const char *target)
+static const char *view_overlay_options(bool metacopy)
+{
+	return metacopy ? "lowerdir=baseline::data,upperdir=upper,workdir=work,"
+			  "userxattr,index=off" :
+			  "lowerdir=baseline,upperdir=upper,workdir=work,"
+			  "userxattr,index=off,redirect_dir=nofollow,metacopy=off";
+}
+
+static int view_overlay(const char *target, bool metacopy)
 {
 	return mount("overlay", target, "overlay", MS_NOSUID | MS_NODEV,
-		     "lowerdir=baseline,upperdir=upper,workdir=work,userxattr,"
-		     "index=off,redirect_dir=nofollow,metacopy=off");
+		     view_overlay_options(metacopy));
+}
+
+static int view_metacopy_probe(void)
+{
+	static const char bytes[] = "fyai CAS probe";
+	char buffer[sizeof(bytes)];
+	struct stat st;
+	int data = -1, metadata = -1, merged = -1, rc = -1;
+	bool mounted = false;
+
+	data = open("data/.probe", O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	metadata = open("baseline/.probe", O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	if (data < 0 || metadata < 0)
+		goto out;
+	if (write(data, bytes, sizeof(bytes)) != sizeof(bytes) || fchmod(data, 0444) ||
+	    ftruncate(metadata, sizeof(bytes)) || fchmod(metadata, 0644) ||
+	    fsetxattr(metadata, "user.overlay.metacopy", "", 0, XATTR_CREATE) ||
+	    fsetxattr(metadata, "user.overlay.redirect", "/.probe", strlen("/.probe"),
+		      XATTR_CREATE))
+		goto out;
+	if (view_overlay("merged", true))
+		goto out;
+	mounted = true;
+	merged = open("merged/.probe", O_RDONLY | O_CLOEXEC);
+	if (merged < 0 || fstat(merged, &st) || st.st_size != sizeof(bytes) ||
+	    (st.st_mode & 07777) != 0644 ||
+	    pread(merged, buffer, sizeof(buffer), 0) != sizeof(buffer) ||
+	    memcmp(bytes, buffer, sizeof(bytes)))
+		goto out;
+	close(merged);
+	merged = open("merged/.probe", O_RDWR | O_CLOEXEC);
+	if (merged < 0 || pwrite(merged, "changed", 7, 0) != 7 ||
+	    pread(data, buffer, sizeof(buffer), 0) != sizeof(buffer) ||
+	    memcmp(bytes, buffer, sizeof(bytes)))
+		goto out;
+	rc = 0;
+out:
+	if (merged >= 0)
+		close(merged);
+	if (mounted && umount("merged"))
+		rc = -1;
+	if (metadata >= 0)
+		close(metadata);
+	if (data >= 0)
+		close(data);
+	unlink("upper/.probe");
+	unlink("baseline/.probe");
+	unlink("data/.probe");
+	return rc;
+}
+
+int fyai_fsview_metacopy_check(const char *runtime)
+{
+	pid_t child, waited;
+	int status;
+
+	child = fork();
+	if (child < 0)
+		return -1;
+	if (!child) {
+		if (view_namespace(false) || chdir(runtime))
+			_exit(1);
+		_exit(view_metacopy_probe() ? 1 : 0);
+	}
+	do {
+		waited = waitpid(child, &status, 0);
+	} while (waited < 0 && errno == EINTR);
+	if (waited < 0)
+		return -1;
+	if (!WIFEXITED(status) || WEXITSTATUS(status)) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return 0;
 }
 
 static int view_mkdirs(const char *path)
@@ -242,7 +324,7 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 		if (rc)
 			goto out;
 	}
-	rc = view_overlay(view->project);
+	rc = view_overlay(view->project, view->metacopy);
 	if (rc)
 		goto out;
 	rc = snprintf(protected, sizeof(protected), "%s/.fyai", view->project);
@@ -410,8 +492,7 @@ int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
 	if (rc)
 		goto out;
 	rc = mount(source, target, "overlay", MS_RDONLY | MS_NOSUID | MS_NODEV,
-		   "lowerdir=baseline,upperdir=upper,workdir=work,userxattr,"
-		   "index=off,redirect_dir=nofollow,metacopy=off");
+		   view_overlay_options(view->metacopy));
 	if (rc)
 		goto out;
 	mounted = true;
@@ -547,7 +628,7 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 		rc = chdir(view->runtime);
 		if (rc)
 			goto child_error;
-		rc = view_overlay("merged");
+		rc = view_overlay("merged", view->metacopy);
 		if (rc)
 			goto child_error;
 		opts.upper_fd = open("upper", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -632,6 +713,13 @@ out:
 	return snapshot;
 }
 #else
+int fyai_fsview_metacopy_check(const char *runtime)
+{
+	(void)runtime;
+	errno = ENOTSUP;
+	return -1;
+}
+
 int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
 		      struct fyai_fsview_mount *identity)
 {
