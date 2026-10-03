@@ -169,6 +169,10 @@ int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result);
 
 /* Handlers of the filesystem views. */
+int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result);
+
+/* Handlers of the filesystem views. */
 int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result);

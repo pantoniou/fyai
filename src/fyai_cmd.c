@@ -126,6 +126,8 @@ static const struct {
 	{ "auth_usage",		fyai_cmd_auth_usage },
 	{ "auth_login",		fyai_cmd_auth_login },
 	{ "auth_logout",	fyai_cmd_auth_logout },
+	{ "view_mount",		fyai_cmd_view_mount },
+	{ "view_unmount",	fyai_cmd_view_unmount },
 	{ "view_create",	fyai_cmd_view_create },
 	{ "view_update",	fyai_cmd_view_update },
 	{ "view_show",		fyai_cmd_view_show },

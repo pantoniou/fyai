@@ -1304,7 +1304,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|enter} ...`
+**Usage:** `fyai view {create|list|show|update|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1319,6 +1319,8 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `list` | list the filesystem views of the active branch |
 | `show` | inspect a named filesystem view |
 | `update` | replace a view with a fresh host snapshot |
+| `mount` | mount a view for read-only inspection |
+| `unmount` | unmount the recorded inspection view |
 | `enter` | enter a private filesystem view |
 
 With no command, `list` runs.
@@ -1407,6 +1409,56 @@ the host project. Refuse the update while the view is in use.
 | Option | Description |
 | --- | --- |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view mount
+
+mount a view for read-only inspection
+
+**Usage:** `fyai view mount NAME PATH`
+
+Mount the named view at an empty directory for inspection and comparison.
+The read-only mount persists in the current mount namespace until unmount.
+Mount privileges are required; rootless inspection can use an explicitly
+started unshare -Urnm sh session. Unmount before entering or updating.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view to inspect |
+| `PATH` | an empty mount directory, created when absent |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view unmount
+
+unmount the recorded inspection view
+
+**Usage:** `fyai view unmount NAME`
+
+Verify the recorded namespace, mount IDs, and source before releasing
+the inspection mount. Busy mounts are retained. Run in the namespace
+that owns the mount and unmount before leaving a rootless inspection shell.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the mounted view to release |
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

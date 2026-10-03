@@ -17,6 +17,7 @@
 
 #ifdef __linux__
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -578,6 +579,223 @@ out:
 	return complete ? 0 : -1;
 }
 
+static fy_generic view_mount_record(struct fy_generic_builder *gb, const char *path,
+				    const struct fyai_fsview_mount *identity)
+{
+	return fy_mapping(gb, "path", fy_value(gb, path), "readonly", true, "namespace_device",
+			  (long long)identity->namespace_device, "namespace_inode",
+			  (long long)identity->namespace_inode, "mount_id",
+			  (long long)identity->mount_id, "cover_id", (long long)identity->cover_id,
+			  "root_inode", (long long)identity->root_inode);
+}
+
+static int view_mount_paths(fy_generic view, struct fyai_fsview *spec)
+{
+	fy_generic project, runtime, storage;
+
+	project = fy_get(view, "project", fy_invalid);
+	runtime = fy_get(view, "runtime", fy_invalid);
+	storage = fy_get(view, "storage", fy_invalid);
+	if (!fy_is_string(project) || !fy_is_string(runtime) || !fy_is_string(storage)) {
+		errno = EINVAL;
+		return -1;
+	}
+	/* Cast pointers name arena members, not local generic copies. */
+	spec->project = fy_get(view, "project", "");
+	spec->runtime = fy_get(view, "runtime", "");
+	spec->storage = fy_get(view, "storage", "");
+	return 0;
+}
+
+static bool view_path_contains(const char *parent, const char *path)
+{
+	size_t length = strlen(parent);
+
+	return !strncmp(parent, path, length) && (!path[length] || path[length] == '/');
+}
+
+int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	const char *target = fyai_cmd_arg_str(call, "path");
+	struct fyai_fsview spec = { 0 };
+	struct fyai_fsview_mount identity = { 0 };
+	fy_generic view, updated;
+	char *resolved = NULL, lockpath[PATH_MAX];
+	struct dirent *entry;
+	DIR *directory = NULL;
+	int lock = -1, rc = -1, saved;
+	bool complete = false, mounted = false;
+
+	if (view_writable(call))
+		return -1;
+	view = view_find(call, name);
+	if (!fy_is_mapping(view)) {
+		fyai_error(call->ctx, "view '%s' does not exist", name);
+		return -1;
+	}
+	if (fy_is_valid(fy_get(view, "mount", fy_invalid))) {
+		fyai_error(call->ctx, "view '%s' is already mounted; unmount it first", name);
+		return -1;
+	}
+	rc = view_mount_paths(view, &spec);
+	if (rc)
+		goto out;
+	rc = mkdir(target, 0700);
+	if (rc && errno != EEXIST)
+		goto out;
+	resolved = realpath(target, NULL);
+	if (!resolved)
+		goto out;
+	if (view_path_contains(spec.project, resolved) ||
+	    view_path_contains(resolved, spec.project) ||
+	    view_path_contains(spec.storage, resolved) ||
+	    view_path_contains(resolved, spec.storage) ||
+	    view_path_contains(call->ctx->cfg->arena_dir, resolved) ||
+	    view_path_contains(resolved, call->ctx->cfg->arena_dir)) {
+		errno = EINVAL;
+		goto out;
+	}
+	directory = opendir(resolved);
+	if (!directory)
+		goto out;
+	for (;;) {
+		errno = 0;
+		entry = readdir(directory);
+		if (!entry) {
+			if (errno)
+				goto out;
+			break;
+		}
+		if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+			errno = ENOTEMPTY;
+			goto out;
+		}
+	}
+	closedir(directory);
+	directory = NULL;
+	rc = snprintf(lockpath, sizeof(lockpath), "%s/lock", spec.runtime);
+	if (rc < 0 || rc >= (int)sizeof(lockpath)) {
+		errno = ENAMETOOLONG;
+		goto out;
+	}
+	lock = open(lockpath, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (lock < 0)
+		goto out;
+	rc = flock(lock, LOCK_EX | LOCK_NB);
+	if (rc)
+		goto out;
+	rc = fyai_fsview_mount(&spec, resolved, &identity);
+	if (rc)
+		goto out;
+	mounted = true;
+	updated = fy_assoc(call->ctx->gb, view, "mount",
+			   view_mount_record(call->ctx->gb, resolved, &identity));
+	updated = fy_assoc(call->ctx->gb, updated, "state", "mounted");
+	rc = view_save(call->ctx, name, updated);
+	if (rc)
+		goto out;
+	*result = view_summary(call->gb, name, updated);
+	complete = true;
+out:
+	saved = errno;
+	if (mounted && !complete)
+		fyai_fsview_unmount(&spec, resolved, &identity);
+	if (directory)
+		closedir(directory);
+	if (lock >= 0)
+		close(lock);
+	if (!complete) {
+		if (saved == EPERM || saved == EACCES)
+			fyai_error(call->ctx,
+				   "view '%s': mount at '%s' requires mount "
+				   "privileges in the current namespace; for "
+				   "rootless inspection start unshare -Urnm "
+				   "sh: %s",
+				   name, target, strerror(saved));
+		else
+			fyai_error(call->ctx, "view '%s': cannot mount at '%s': %s", name, target,
+				   strerror(saved));
+	}
+	free(resolved);
+	return complete ? 0 : -1;
+}
+
+int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	struct fyai_fsview spec = { 0 };
+	struct fyai_fsview_mount identity;
+	fy_generic view, mount, updated, path;
+	char lockpath[PATH_MAX];
+	int lock = -1, rc = -1, saved;
+	bool complete = false;
+
+	if (view_writable(call))
+		return -1;
+	view = view_find(call, name);
+	mount = fy_get(view, "mount", fy_invalid);
+	path = fy_get(mount, "path", fy_invalid);
+	if (!fy_is_mapping(view) || !fy_is_mapping(mount) || !fy_is_string(path)) {
+		fyai_error(call->ctx, "view '%s' has no recorded mount", name);
+		return -1;
+	}
+	rc = view_mount_paths(view, &spec);
+	if (rc)
+		goto out;
+	identity = (struct fyai_fsview_mount){
+		.namespace_device = fy_get(mount, "namespace_device", 0LL),
+		.namespace_inode = fy_get(mount, "namespace_inode", 0LL),
+		.mount_id = fy_get(mount, "mount_id", 0LL),
+		.cover_id = fy_get(mount, "cover_id", 0LL),
+		.root_inode = fy_get(mount, "root_inode", 0LL),
+	};
+	if (!identity.mount_id || !identity.namespace_inode || !identity.root_inode) {
+		errno = EINVAL;
+		goto out;
+	}
+	rc = snprintf(lockpath, sizeof(lockpath), "%s/lock", spec.runtime);
+	if (rc < 0 || rc >= (int)sizeof(lockpath)) {
+		errno = ENAMETOOLONG;
+		goto out;
+	}
+	lock = open(lockpath, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (lock < 0)
+		goto out;
+	rc = flock(lock, LOCK_EX | LOCK_NB);
+	if (rc)
+		goto out;
+	rc = fyai_fsview_unmount(&spec, fy_castp(&path, ""), &identity);
+	if (rc) {
+		saved = errno;
+		if (identity.cover_id != (uint64_t)fy_get(mount, "cover_id", 0LL)) {
+			updated = fy_assoc(
+				call->ctx->gb, view, "mount",
+				view_mount_record(call->ctx->gb, fy_castp(&path, ""), &identity));
+			view_save(call->ctx, name, updated);
+		}
+		errno = saved;
+		goto out;
+	}
+	updated = fy_disassoc(call->ctx->gb, view, "mount");
+	updated = fy_assoc(call->ctx->gb, updated, "state", "ready");
+	rc = view_save(call->ctx, name, updated);
+	if (rc)
+		goto out;
+	*result = view_summary(call->gb, name, updated);
+	complete = true;
+out:
+	saved = errno;
+	if (lock >= 0)
+		close(lock);
+	if (!complete)
+		fyai_error(call->ctx,
+			   "view '%s': cannot unmount the recorded inspection "
+			   "mount: %s",
+			   name, strerror(saved));
+	return complete ? 0 : -1;
+}
+
 #else
 int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result)
 {
@@ -608,6 +826,20 @@ int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result)
 }
 
 int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
 	fyai_error(call->ctx, "view: filesystem views require Linux");

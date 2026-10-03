@@ -311,6 +311,168 @@ out:
 	return rc;
 }
 
+static int view_mount_identity(const char *target, struct fyai_fsview_mount *identity)
+{
+	struct stat namespace;
+	struct statx root, cover;
+	char protected[PATH_MAX];
+	int rc;
+
+	rc = stat("/proc/self/ns/mnt", &namespace);
+	if (rc)
+		return -1;
+	rc = statx(AT_FDCWD, target, AT_SYMLINK_NOFOLLOW, STATX_INO | STATX_MNT_ID, &root);
+	if (rc)
+		return -1;
+	rc = snprintf(protected, sizeof(protected), "%s/.fyai", target);
+	if (rc < 0 || rc >= (int)sizeof(protected)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	rc = statx(AT_FDCWD, protected, AT_SYMLINK_NOFOLLOW, STATX_MNT_ID, &cover);
+	if (rc)
+		return -1;
+	identity->namespace_device = namespace.st_dev;
+	identity->namespace_inode = namespace.st_ino;
+	identity->mount_id = root.stx_mnt_id;
+	identity->root_inode = root.stx_ino;
+	identity->cover_id = cover.stx_mnt_id == root.stx_mnt_id ? 0 : cover.stx_mnt_id;
+	return 0;
+}
+
+static int view_mount_source(const struct fyai_fsview *view, uint64_t mount_id)
+{
+	const char *base = strrchr(view->runtime, '/');
+	char *line = NULL, *separator, *source;
+	char expected[128];
+	FILE *file;
+	size_t capacity = 0, length;
+	unsigned long long id;
+	int rc = -1, saved;
+
+	base = base ? base + 1 : view->runtime;
+	rc = snprintf(expected, sizeof(expected), "fyai-%s", base);
+	if (rc < 0 || rc >= (int)sizeof(expected)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	file = fopen("/proc/self/mountinfo", "re");
+	if (!file)
+		return -1;
+	rc = -1;
+	errno = ESTALE;
+	while (getline(&line, &capacity, file) >= 0) {
+		id = strtoull(line, NULL, 10);
+		if (id != mount_id)
+			continue;
+		separator = strstr(line, " - overlay ");
+		if (!separator)
+			break;
+		source = separator + strlen(" - overlay ");
+		length = strcspn(source, " ");
+		if (length == strlen(expected) && !memcmp(source, expected, length))
+			rc = 0;
+		break;
+	}
+	saved = errno;
+	free(line);
+	fclose(file);
+	errno = saved;
+	return rc;
+}
+
+int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
+		      struct fyai_fsview_mount *identity)
+{
+	const char *base = strrchr(view->runtime, '/');
+	char source[128], protected[PATH_MAX];
+	int cwd = -1, runtime = -1, rc = -1, saved;
+	bool mounted = false, covered = false;
+
+	base = base ? base + 1 : view->runtime;
+	rc = snprintf(source, sizeof(source), "fyai-%s", base);
+	if (rc < 0 || rc >= (int)sizeof(source)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	rc = snprintf(protected, sizeof(protected), "%s/.fyai", target);
+	if (rc < 0 || rc >= (int)sizeof(protected)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	cwd = open(".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	runtime = open(view->runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (cwd < 0 || runtime < 0) {
+		rc = -1;
+		goto out;
+	}
+	rc = fchdir(runtime);
+	if (rc)
+		goto out;
+	rc = mount(source, target, "overlay", MS_RDONLY | MS_NOSUID | MS_NODEV,
+		   "lowerdir=baseline,upperdir=upper,workdir=work,userxattr,"
+		   "index=off,redirect_dir=nofollow");
+	if (rc)
+		goto out;
+	mounted = true;
+	rc = view_cover("cover", protected);
+	if (rc)
+		goto out;
+	covered = true;
+	rc = view_mount_identity(target, identity);
+out:
+	saved = errno;
+	if (rc && covered)
+		umount2(protected, 0);
+	if (rc && mounted)
+		umount2(target, 0);
+	if (cwd >= 0) {
+		if (fchdir(cwd) && !rc) {
+			rc = -1;
+			saved = errno;
+		}
+		close(cwd);
+	}
+	if (runtime >= 0)
+		close(runtime);
+	errno = saved;
+	return rc;
+}
+
+int fyai_fsview_unmount(const struct fyai_fsview *view, const char *target,
+			struct fyai_fsview_mount *identity)
+{
+	struct fyai_fsview_mount current;
+	char protected[PATH_MAX];
+	int rc;
+
+	rc = view_mount_identity(target, &current);
+	if (rc)
+		return -1;
+	if (current.namespace_device != identity->namespace_device ||
+	    current.namespace_inode != identity->namespace_inode ||
+	    current.mount_id != identity->mount_id || current.cover_id != identity->cover_id ||
+	    current.root_inode != identity->root_inode) {
+		errno = ESTALE;
+		return -1;
+	}
+	rc = view_mount_source(view, current.mount_id);
+	if (rc)
+		return -1;
+	rc = snprintf(protected, sizeof(protected), "%s/.fyai", target);
+	if (rc < 0 || rc >= (int)sizeof(protected)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	if (identity->cover_id) {
+		rc = umount2(protected, 0);
+		if (rc)
+			return -1;
+		identity->cover_id = 0;
+	}
+	return umount2(target, 0);
+}
+
 struct view_capture_reply {
 	int error;
 	uint64_t length;
@@ -456,6 +618,26 @@ out:
 	return snapshot;
 }
 #else
+int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
+		      struct fyai_fsview_mount *identity)
+{
+	(void)view;
+	(void)target;
+	(void)identity;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_fsview_unmount(const struct fyai_fsview *view, const char *target,
+			struct fyai_fsview_mount *identity)
+{
+	(void)view;
+	(void)target;
+	(void)identity;
+	errno = ENOTSUP;
+	return -1;
+}
+
 int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 {
 	(void)view;

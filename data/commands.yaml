@@ -1483,6 +1483,51 @@ commands:
               x-fyai-meta: NAME
         render:
           document: yaml
+      - command: mount
+        title: mount a view for read-only inspection
+        description: |
+          Mount the named view at an empty directory for inspection and comparison.
+          The read-only mount persists in the current mount namespace until unmount.
+          Mount privileges are required; rootless inspection can use an explicitly
+          started unshare -Urnm sh session. Unmount before entering or updating.
+        handler: view_mount
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name, path]
+          properties:
+            name:
+              type: string
+              description: the view to inspect
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+            path:
+              type: string
+              description: an empty mount directory, created when absent
+              x-fyai-positional: 1
+              x-fyai-meta: PATH
+              x-fyai-complete: dir
+        render:
+          document: yaml
+      - command: unmount
+        title: unmount the recorded inspection view
+        description: |
+          Verify the recorded namespace, mount IDs, and source before releasing
+          the inspection mount. Busy mounts are retained. Run in the namespace
+          that owns the mount and unmount before leaving a rootless inspection shell.
+        handler: view_unmount
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the mounted view to release
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+        render:
+          document: yaml
       - command: enter
         title: enter a private filesystem view
         description: |
