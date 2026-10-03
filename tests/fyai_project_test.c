@@ -505,6 +505,9 @@ int project_capture_parallel(void)
 	opts.baseline_fd = linked_lower;
 	refreshed = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(refreshed) && !fy_equal(first, refreshed));
+	attrs = fyai_project_diff(gb, first, refreshed);
+	FYAI_TCHECK(fy_is_sequence(attrs) && fy_len(attrs) == 1);
+	FYAI_TCHECK(fy_equal(fy_get(fy_get_at(attrs, 0), "path", ""), "file-03"));
 	FYAI_TCHECK(stats.hardlinks == 32 && stats.copies + stats.reflinks == 1);
 	FYAI_TCHECK(!fstatat(lower[0], "file-03", &st, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(!fstatat(linked_lower, "file-03", &linked_stat, AT_SYMLINK_NOFOLLOW));
