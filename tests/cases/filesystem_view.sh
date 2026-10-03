@@ -229,6 +229,8 @@ run_fyai view update demo
 assert_status 1
 run_fyai view sync demo
 assert_status 1
+run_fyai view remove demo
+assert_status 1
 wait "$writer"
 
 run_fyai view create comparison "$TEST_DIR/project" --quiet --output json
@@ -251,6 +253,7 @@ unshare -Urnm sh -eu -c '
     if touch "$root/inspect-a/new" 2>/dev/null; then exit 1; fi
     test ! -e "$root/inspect-a/.fyai/private"
     if "$bin" view update demo; then exit 1; fi
+    if "$bin" view remove demo; then exit 1; fi
     if "$bin" view enter demo true; then exit 1; fi
     if unshare -m "$bin" view unmount demo; then exit 1; fi
     "$bin" view unmount comparison
@@ -425,5 +428,16 @@ assert rc != 0 and mutations == 3, (rc, err.decode(), mutations)
 assert b'project changed during capture' in err and b'after 3 attempts' in err
 assert len(list((project / '.fyai/views').iterdir())) == 1
 PY
+
+run_fyai view remove durable --output json
+assert_status 0
+assert_stdout_contains '"removed": true'
+run_fyai view show durable
+assert_status 1
+run_fyai view remove durable
+assert_status 1
+run_fyai view enter comparison true
+assert_status 0
+[ -n "$(find project/.fyai/objects/blake3 -type f -print -quit)" ] || fail 'remove erased CAS objects'
 
 pass
