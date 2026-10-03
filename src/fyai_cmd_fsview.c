@@ -253,6 +253,69 @@ static void view_capture_progress(void *arg, const struct fyai_project_capture_s
 		fyai_report(progress->ctx, "%s: %s\n", title, body);
 }
 
+/*
+ * Remove only private runtime entries; never change shared blob file metadata.
+ */
+static int view_runtime_clear(int fd, unsigned int depth)
+{
+	struct dirent *entry;
+	struct stat st;
+	DIR *directory;
+	int child, rc = 0, saved;
+
+	if (depth > 128) {
+		errno = ELOOP;
+		return -1;
+	}
+	rc = fchmod(fd, 0700);
+	if (rc)
+		return -1;
+	child = openat(fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (child < 0)
+		return -1;
+	directory = fdopendir(child);
+	if (!directory) {
+		saved = errno;
+		close(child);
+		errno = saved;
+		return -1;
+	}
+	for (;;) {
+		errno = 0;
+		entry = readdir(directory);
+		if (!entry) {
+			rc = errno ? -1 : 0;
+			break;
+		}
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		rc = fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW);
+		if (rc)
+			break;
+		if (S_ISDIR(st.st_mode)) {
+			child = openat(fd, entry->d_name,
+				       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+			if (child < 0) {
+				rc = -1;
+				break;
+			}
+			rc = view_runtime_clear(child, depth + 1);
+			saved = errno;
+			close(child);
+			errno = saved;
+			if (rc)
+				break;
+		}
+		rc = unlinkat(fd, entry->d_name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
+		if (rc)
+			break;
+	}
+	saved = errno;
+	closedir(directory);
+	errno = saved;
+	return rc;
+}
+
 static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool replace)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
@@ -275,7 +338,8 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	};
 	size_t i;
 	int rc = -1, root = -1, lock = -1, saved;
-	bool complete = false;
+	unsigned int attempt = 0;
+	bool complete = false, unstable = false;
 
 	if (view_writable(call))
 		return -1;
@@ -330,6 +394,10 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 		errno = EINVAL;
 		goto out;
 	}
+retry:
+	attempt++;
+	unstable = false;
+	progress.shown = false;
 	rc = asprintf(&runtime, "%s/view-XXXXXX", views);
 	if (rc < 0)
 		goto out;
@@ -358,7 +426,7 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 		openat(root, "baseline", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (opts.source_fd < 0 || opts.objects_fd < 0 || opts.baseline_fd < 0)
 		goto out;
-	if (replace && !opts.metacopy &&
+	if (replace && !opts.reuse_baseline && !opts.metacopy &&
 	    fy_equal(fy_get(previous, "materialization", fy_invalid), "copy") &&
 	    fy_equal(fy_get(fy_get(previous, "baseline", fy_invalid), "version", fy_invalid),
 		     2LL)) {
@@ -375,12 +443,43 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 		opts.reuse_baseline = true;
 		opts.snapshot = fy_get(previous, "baseline", fy_invalid);
 	}
-	if (opts.progress && fyai_sink_bands_available(call->ctx->sink))
+	if (opts.progress && !progress.band && fyai_sink_bands_available(call->ctx->sink))
 		progress.band =
 			fyai_sink_band_open(call->ctx->sink, false, "Capturing project view", NULL);
 	snapshot = fyai_project_capture(call->ctx->gb, &opts, error, sizeof(error));
-	if (!fy_is_valid(snapshot))
-		goto out;
+	if (!fy_is_valid(snapshot)) {
+		unstable = errno == EAGAIN;
+		if (errno != EAGAIN || attempt >= 3)
+			goto out;
+		if (opts.progress) {
+			if (progress.band)
+				fyai_sink_band_paint(progress.band,
+						     "Project changed during "
+						     "capture; retrying",
+						     NULL, error, strlen(error), NULL);
+			else
+				fyai_report(call->ctx,
+					    "view %s: project changed during "
+					    "capture at %s; retrying (%u/3)\n",
+					    name, *error ? error : ".", attempt + 1);
+		}
+		close(opts.source_fd);
+		close(opts.objects_fd);
+		close(opts.baseline_fd);
+		close(opts.data_fd);
+		opts.source_fd = opts.objects_fd = opts.baseline_fd = opts.data_fd = -1;
+		rc = view_runtime_clear(root, 0);
+		if (rc)
+			goto out;
+		close(root);
+		root = -1;
+		rc = rmdir(runtime);
+		if (rc)
+			goto out;
+		free(runtime);
+		runtime = NULL;
+		goto retry;
+	}
 	rc = view_initialize_upper(root, opts.baseline_fd);
 	if (!rc)
 		rc = fsync(opts.baseline_fd);
@@ -390,12 +489,13 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 		rc = fsync(root);
 	if (rc)
 		goto out;
-	record = fy_mapping(call->ctx->gb, "version", 1LL, "name", fy_value(call->ctx->gb, name),
-			    "project", fy_value(call->ctx->gb, resolved), "storage",
-			    fy_value(call->ctx->gb, storage), "runtime",
-			    fy_value(call->ctx->gb, runtime), "baseline", snapshot, "state",
-			    "ready", "materialization", opts.metacopy ? "metacopy" : "copy",
-			    "capture", view_capture_statistics(call->ctx->gb, &statistics));
+	record = fy_mapping(
+		call->ctx->gb, "version", 1LL, "name", fy_value(call->ctx->gb, name), "project",
+		fy_value(call->ctx->gb, resolved), "storage", fy_value(call->ctx->gb, storage),
+		"runtime", fy_value(call->ctx->gb, runtime), "baseline", snapshot, "state", "ready",
+		"materialization", opts.metacopy ? "metacopy" : "copy", "capture",
+		fy_assoc(call->ctx->gb, view_capture_statistics(call->ctx->gb, &statistics),
+			 "attempts", (long long)attempt));
 	rc = view_save(call->ctx, name, record);
 	if (rc)
 		goto out;
@@ -409,6 +509,17 @@ out:
 					     strerror(saved), strlen(strerror(saved)), NULL);
 		fyai_sink_band_commit(progress.band);
 		fyai_sink_band_destroy(progress.band);
+	}
+
+	if (!complete && root >= 0) {
+		rc = view_runtime_clear(root, 0);
+		if (!rc)
+			rc = rmdir(runtime);
+		if (rc)
+			fyai_warning(call->ctx,
+				     "view '%s': cannot remove failed runtime "
+				     "'%s': %s",
+				     name, runtime, strerror(errno));
 	}
 
 	if (opts.reuse_baseline)
@@ -425,7 +536,12 @@ out:
 		close(root);
 	if (lock >= 0)
 		close(lock);
-	if (!complete)
+	if (!complete && unstable && saved == EAGAIN)
+		fyai_error(call->ctx,
+			   "view '%s': project changed during capture at %s after "
+			   "%u attempts; retry when project activity stops",
+			   name, *error ? error : ".", attempt);
+	else if (!complete)
 		fyai_error(call->ctx, "view '%s': cannot capture '%s'%s%s: %s", name, project,
 			   *error ? " at " : "", error, strerror(saved));
 	free(resolved);
