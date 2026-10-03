@@ -482,6 +482,9 @@ set(FYAI_SOURCES
     src/fyai_cmd_fsview.c
 )
 
+configure_file(scripts/git-remote-fyai git-remote-fyai COPYONLY)
+install(PROGRAMS scripts/git-remote-fyai DESTINATION bin/)
+
 add_executable(fyai
     src/main.c
     ${FYAI_SOURCES}

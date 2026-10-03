@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+
+view=${2:-${1:-}}
+case "$view" in
+    ''|*[!A-Za-z0-9_.-]*|-*)
+        printf '%s\n' 'git-remote-fyai: expected a view name' >&2
+        exit 1
+        ;;
+esac
+fyai_bin=${FYAI_BIN:-$(dirname "$0")/fyai}
+while IFS= read -r request; do
+    case "$request" in
+        capabilities)
+            printf 'connect\n\n'
+            ;;
+        'connect git-upload-pack')
+            unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+            unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+            printf '\n'
+            exec "$fyai_bin" view enter "$view" git upload-pack .
+            ;;
+        '') exit 0 ;;
+        *)
+            printf 'git-remote-fyai: unsupported request: %s (pull only)\n' "$request" >&2
+            exit 1
+            ;;
+    esac
+done
