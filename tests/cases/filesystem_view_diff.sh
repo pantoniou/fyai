@@ -62,6 +62,9 @@ assert b'-before' in patch and b'+after' in patch
 assert b'GIT binary patch' in patch
 assert b'old mode 100644' in patch and b'new mode 100755' in patch
 assert b'# metadata ' in patch
+assert all(line.startswith(b'# metadata {') and line.endswith(b'}')
+           for line in patch.splitlines() if line.startswith(b'# metadata '))
+assert b'\n  path:' not in patch
 assert b'.git/private' not in patch
 assert patch == run(binary, 'view', 'diff', 'before', 'after').stdout
 assert patch == run(binary, 'view', 'diff', '-u', 'after').stdout
