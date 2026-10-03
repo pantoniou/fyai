@@ -1,6 +1,6 @@
 # Software Design Document: agent project filesystem transactions
 
-**Status:** Proposed
+**Status:** Partly implemented; section 1.1 lists the implemented parts
 **Scope:** Linux project-directory views for one fyai invocation and its agents
 **Related design:** [Agent transport isolation](agent-transport-isolation-sdd.md)
 
@@ -36,8 +36,32 @@ result and explicitly merge it into its own view or apply it to the host. Automa
 application is configurable and uses the same reconciliation machinery. Child
 propagation may publish after each completed tool call; it never exposes a running
 child tool’s intermediate writes. Host application remains a separate policy.
-Sections 11.2 and 11.4 specify the `view` commands. Other sections
+Sections 11.2 and 11.4 describe the implemented `view` commands. Other sections
 specify no command syntax.
+
+### 1.1 Implementation status
+
+The implemented scope is the standalone named-view subsystem. Managed agent
+workspaces and exchange publication remain proposed; `/view enter` is a terminal
+entry command, not automatic confinement of the coding harness's tool loop.
+
+| Part | Status |
+| --- | --- |
+| Canonical project model and identity (section 4) | Implemented: version 2 Merkle BLAKE3 roots, byte names, sparse timestamp attributes; version 1 rejected |
+| CAS publication and durability (section 5) | Implemented: atomic blob publication, inode sharing, Git borrowing, lazy/durable policies, explicit `view sync` |
+| Capture and materialization (sections 6.3, 7) | Implemented: parallel capture, bounded retries, cached copy backend, capability-probed metacopy with copy fallback |
+| Named view commands (section 11.2) | Implemented: create, update, show, list, remove, sync, enter; CLI and session surfaces, name completion, concise list and `--full` |
+| Inspection and comparison (section 11.4) | Implemented: read-only mount/unmount, recorded-root diffs including binary patches and enhanced colors, pull-only Git remote helper |
+| Observation cache and change monitoring (sections 6.1, 6.2) | Proposed; current update still captures the host explicitly |
+| Execution containment and role projections (section 8) | Partial: standalone enter applies the tool projection; unified tool adapter and supervisor-admitted agent projection remain proposed |
+| Exchange and delegated-agent lifecycle (section 9) | Proposed: retained managed mounts, writer barriers, exchange provenance, child admission and propagation |
+| Result ingestion and application (section 10) | Partial: standalone enter ingests on exit; managed parent merge/replace/drop and recoverable host application remain proposed |
+| GC, session caches, and capture policy (sections 11, 11.3) | Proposed; standalone backing storage is retained, but managed cache lifecycle and general policy enforcement are not implemented |
+
+The shared-lower inode warning seen with Vim is deferred (section 12). It does
+not block the implemented command scope. Metacopy support remains capability
+probed; its expected Vim compatibility benefit has not been validated on a
+supporting kernel.
 
 ## 2. Guarantees and limits
 
@@ -1702,16 +1726,17 @@ A busy unmount retains its record for retry; it never uses lazy or forced unmoun
 
 ## 12. Implementation sequence and acceptance gates
 
-The work items below give the implementation order. The completion of one item
-does not imply that the managed lifecycle or containment gates of a later item
-pass.
+The work items below retain their implementation order. Partial completion does
+not imply that the remaining managed lifecycle or containment gates have passed.
 
-1. Canonical schemas and ownership.
-2. Native mount and containment prototype.
-3. Immutable publication and capture.
-4. Unified execution-view adapter.
-5. Ingestion, provenance and GC.
-6. Reconciliation and application.
+| Item | Status | Completed scope | Remaining work |
+| --- | --- | --- | --- |
+| 1. Canonical schemas and ownership | Complete | Version 2 identity, metadata policy, byte names, arena manifests and CAS blob exception | Extend schemas as managed lifecycle records are introduced |
+| 2. Native mount and containment prototype | Complete for standalone views | Ordinary sealed baseline, private upper, CAS metacopy probe/fallback, Landlock and tool arena cover | Validate admitted-agent projection and managed writer ownership in item 4 |
+| 3. Immutable publication and capture | Partial | Atomic publication, Merkle capture, parallel copy/hash, bounded retries, Git borrowing, durability configuration | Persistent stat cache with racy-entry handling; optional monitoring and recovery |
+| 4. Unified execution-view adapter | Partial; next integration priority | CLI entry and session terminal commands | Direct tools, harness shell/terminal execution, configured programs, admitted delegation, writer ownership and retained exchange mounts |
+| 5. Ingestion, provenance and GC | Partial | Standalone exit ingestion, branch-owned view references, recorded roots, explicit sync and lazy recovery | Exchange baseline/result publication, coordination pins, child provenance, retention and GC |
+| 6. Reconciliation and application | Pending | Inspection, native snapshot diffs and Git fetch provide retrieval primitives | Explicit parent merge/drop/replace, configured propagation, recoverable host reconciliation and application |
 
 The next integration milestone is one managed workspace per agent, active across
 its complete exchange. Route ordinary tools through that workspace and checkpoint
