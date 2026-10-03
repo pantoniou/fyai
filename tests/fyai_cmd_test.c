@@ -35,6 +35,7 @@ FYAI_TEST_ENTRY(cmd, complete_session, cmd_complete_session)
 FYAI_TEST_ENTRY(cmd, complete_view, cmd_complete_view)
 FYAI_TEST_ENTRY(cmd, immediate, cmd_immediate)
 FYAI_TEST_ENTRY(cmd, group_args, cmd_group_args)
+FYAI_TEST_ENTRY(cmd, view_session_args, cmd_view_session_args)
 FYAI_TEST_ENTRY(cmd, config_args, cmd_config_args)
 FYAI_TEST_ENTRY(cmd, history_args, cmd_history_args)
 FYAI_TEST_ENTRY(cmd, complete_config, cmd_complete_config)
@@ -564,6 +565,28 @@ int cmd_group_args(void)
 
 	complete(FYAI_CMD_CLI, "auth ", &c);
 	FYAI_TCHECK(strstr(c.buf, "login\n") && strstr(c.buf, "status\n"));
+	return 0;
+}
+
+int cmd_view_session_args(void)
+{
+	struct fyai_cmd_parsed p;
+	struct cmd_test t;
+	int rc;
+
+	cmd_test_open(&t);
+	rc = cmd_test_parse(&t, FYAI_CMD_SESSION, "view", &p);
+	FYAI_TCHECK(!rc && !strcmp(p.path, "view list"));
+	rc = cmd_test_parse(&t, FYAI_CMD_SESSION, "view list --full", &p);
+	FYAI_TCHECK(!rc && fy_get(p.args, "full", false));
+	rc = cmd_test_parse(&t, FYAI_CMD_SESSION,
+			    "view enter demo sh -c 'printf two words'", &p);
+	FYAI_TCHECK(!rc && !strcmp(p.path, "view enter"));
+	FYAI_TCHECK(arg_is(p.args, "name", "demo"));
+	FYAI_TCHECK(fy_len(fy_get(p.args, "command")) == 3);
+	FYAI_TCHECK(fy_equal(fy_get_at(fy_get(p.args, "command"), 2),
+			     "printf two words"));
+	cmd_test_close(&t);
 	return 0;
 }
 
