@@ -25,10 +25,12 @@
 #include <unistd.h>
 
 #include "fyai_project.h"
+#include "fyai_fsview.h"
 #include "fyai_project_capture.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
+FYAI_TEST_ENTRY(project, recovery_damage, project_recovery_damage)
 FYAI_TEST_ENTRY(project, borrowed_git, project_borrowed_git)
 FYAI_TEST_ENTRY(project, identity_attributes, project_identity_attributes)
 FYAI_TEST_ENTRY(project, directory_order, project_directory_order)
@@ -233,6 +235,7 @@ static void project_remove_tree(int fd)
 			continue;
 		FYAI_TCHECK(!fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW));
 		if (S_ISDIR(st.st_mode)) {
+			FYAI_TCHECK(!fchmodat(fd, entry->d_name, 0700, 0));
 			child = openat(fd, entry->d_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
 			FYAI_TCHECK(child >= 0);
 			project_remove_tree(child);
@@ -314,6 +317,83 @@ int project_borrowed_git(void)
 	close(opts.source_fd);
 	close(opts.objects_fd);
 	close(opts.baseline_fd);
+	project_remove_tree(root);
+	close(root);
+	FYAI_TCHECK(!rmdir(path));
+	return 0;
+}
+
+int project_recovery_damage(void)
+{
+	struct fy_generic_builder *gb;
+	struct fyai_project_capture_opts opts = { .workers = 1,
+						  .defer_sync = true,
+						  .data_fd = -1,
+						  .upper_fd = -1,
+						  .previous_baseline_fd = -1 };
+	struct fyai_fsview view = { .lazy = true };
+	struct stat st;
+	struct timespec times[2], directory_times[2];
+	fy_generic snapshot;
+	char path[] = "/tmp/fyai-project-recovery-XXXXXX", source[PATH_MAX], error[PATH_MAX];
+	int root, objects, fd, rc;
+
+	FYAI_TCHECK(mkdtemp(path));
+	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(root >= 0);
+	FYAI_TCHECK(!mkdirat(root, "source", 0700));
+	FYAI_TCHECK(!mkdirat(root, "objects", 0700));
+	objects = openat(root, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(objects >= 0 && !mkdirat(objects, "blake3", 0700));
+	FYAI_TCHECK(!mkdirat(root, "baseline", 0700));
+	opts.source_fd = openat(root, "source", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	opts.objects_fd = openat(objects, "blake3", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	opts.baseline_fd = openat(root, "baseline", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.source_fd >= 0 && opts.objects_fd >= 0 && opts.baseline_fd >= 0);
+	fd = openat(opts.source_fd, "file", O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0644);
+	FYAI_TCHECK(fd >= 0 && write(fd, "correct", 7) == 7);
+	close(fd);
+	gb = project_builder();
+	FYAI_TCHECK(gb);
+	snapshot = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(snapshot));
+	snprintf(source, sizeof(source), "%s/source", path);
+	view.project = source;
+	view.runtime = path;
+	view.storage = path;
+	view.baseline = snapshot;
+	FYAI_TCHECK(!mkdirat(root, "upper", 0700) && !mkdirat(root, "work", 0700) &&
+		    !mkdirat(root, "merged", 0700));
+	FYAI_TCHECK(!fstat(opts.baseline_fd, &st));
+	directory_times[0].tv_nsec = UTIME_OMIT;
+	directory_times[1] = st.st_mtim;
+	FYAI_TCHECK(!utimensat(root, "upper", directory_times, 0));
+	rc = fyai_fsview_recover(gb, &view, snapshot, error, sizeof(error));
+	FYAI_TCHECK(!rc || errno == EPERM || errno == EACCES || errno == ENOTSUP);
+	/* Recovery rejects same-size damage even when timestamps have been
+	 * restored. */
+	fd = openat(opts.baseline_fd, "file", O_WRONLY | O_CLOEXEC);
+	FYAI_TCHECK(fd >= 0 && !fstat(fd, &st));
+	times[0].tv_nsec = UTIME_OMIT;
+	times[1] = st.st_mtim;
+	FYAI_TCHECK(pwrite(fd, "damaged", 7, 0) == 7 && !futimens(fd, times));
+	close(fd);
+	FYAI_TCHECK(fyai_fsview_recover(gb, &view, snapshot, error, sizeof(error)) < 0 &&
+		    errno == EIO);
+	/* Missing lower entries must fail before any namespace or mount is
+	 * created. */
+	FYAI_TCHECK(!fstat(opts.baseline_fd, &st));
+	directory_times[0].tv_nsec = UTIME_OMIT;
+	directory_times[1] = st.st_mtim;
+	FYAI_TCHECK(!unlinkat(opts.baseline_fd, "file", 0) &&
+		    !futimens(opts.baseline_fd, directory_times));
+	FYAI_TCHECK(fyai_fsview_recover(gb, &view, snapshot, error, sizeof(error)) < 0 &&
+		    errno == EIO);
+	fy_generic_builder_destroy(gb);
+	close(opts.source_fd);
+	close(opts.objects_fd);
+	close(opts.baseline_fd);
+	close(objects);
 	project_remove_tree(root);
 	close(root);
 	FYAI_TCHECK(!rmdir(path));
@@ -409,6 +489,27 @@ int project_capture_parallel(void)
 	FYAI_TCHECK(!geteuid() || (st.st_uid == geteuid() && st.st_gid == getegid()));
 	FYAI_TCHECK(!fstatat(lower[0], "file-02", &linked_stat, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(st.st_ino != linked_stat.st_ino);
+	/* Equal size and restored timestamps must not conceal changed source
+	 * bytes. */
+	FYAI_TCHECK(!fstatat(opts.source_fd, "file-03", &st, AT_SYMLINK_NOFOLLOW));
+	times[1] = st.st_mtim;
+	fd = openat(opts.source_fd, "file-03", O_WRONLY | O_CLOEXEC);
+	FYAI_TCHECK(fd >= 0 && pwrite(fd, "x", 1, 0) == 1 && !futimens(fd, times));
+	close(fd);
+	FYAI_TCHECK(!mkdirat(root, "changed", 0700));
+	linked_lower = openat(root, "changed", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(linked_lower >= 0);
+	opts.baseline_fd = linked_lower;
+	refreshed = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(fy_is_mapping(refreshed) && !fy_equal(first, refreshed));
+	FYAI_TCHECK(stats.hardlinks == 32 && stats.copies + stats.reflinks == 1);
+	FYAI_TCHECK(!fstatat(lower[0], "file-03", &st, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(!fstatat(linked_lower, "file-03", &linked_stat, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(st.st_ino != linked_stat.st_ino);
+	fd = openat(opts.source_fd, "file-03", O_WRONLY | O_CLOEXEC);
+	FYAI_TCHECK(fd >= 0 && pwrite(fd, data, 1, 0) == 1 && !futimens(fd, times));
+	close(fd);
+	close(linked_lower);
 	opts.reuse_baseline = false;
 	FYAI_TCHECK(!mkdirat(root, "upper", 0700));
 	opts.upper_fd = openat(root, "upper", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -422,6 +523,15 @@ int project_capture_parallel(void)
 	opts.objects_fd = -1;
 	incremental = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(incremental) && fy_equal(first, incremental));
+	/*
+	 * A failed durability barrier must not return a publishable snapshot.
+	 */
+	opts.objects_fd = openat(root, "objects", O_PATH | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(opts.objects_fd >= 0);
+	refreshed = fyai_project_capture(gb, &opts, error, sizeof(error));
+	FYAI_TCHECK(!fy_is_valid(refreshed) && errno == EBADF &&
+		    strstr(error, "persistence barrier"));
+	close(opts.objects_fd);
 	opts.objects_fd = objects;
 	close(opts.upper_fd);
 	for (i = 0; i < 2; i++) {
@@ -522,6 +632,10 @@ int project_capture_parallel(void)
 }
 
 #else
+int project_recovery_damage(void)
+{
+	return 0;
+}
 int project_borrowed_git(void)
 {
 	return 0;

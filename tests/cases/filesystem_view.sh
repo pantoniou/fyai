@@ -24,6 +24,7 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 assert v['state'] == 'ready'
+assert v['durability'] == 'lazy' and not v['synchronized']
 assert v['materialization'] in ('copy', 'metacopy')
 c = v['capture']
 assert c['files'] == 3 and c['directories'] == 1 and c['symlinks'] == 1
@@ -43,6 +44,45 @@ assert_stderr_contains 'hardlink'
 
 run_fyai view create demo "$TEST_DIR/project"
 assert_status 1
+
+run_fyai view sync demo --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PYSYNC'
+import json, sys
+v = json.load(open(sys.argv[1]))
+assert v['durability'] == 'lazy' and v['synchronized']
+PYSYNC
+run_fyai view create durable "$TEST_DIR/project" --durability durable --quiet --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PYDURABLE'
+import json, sys
+v = json.load(open(sys.argv[1]))
+assert v['durability'] == 'durable' and v['synchronized']
+PYDURABLE
+run_fyai view update durable --quiet --output json
+assert_status 0
+assert_stdout_contains '"durability": "durable"'
+run_fyai view update durable --durability lazy --quiet --output json
+assert_status 0
+assert_stdout_contains '"durability": "lazy"'
+
+"$PYTHON" - "$FYAI_BIN" "$TEST_DIR/project" <<'PYCONCURRENT'
+import json, subprocess, sys
+processes = [subprocess.Popen([sys.argv[1], 'view', 'create', name, sys.argv[2],
+                              '--quiet', '--output', 'json'],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+             for name in ('concurrent-one', 'concurrent-two')]
+roots = []
+for p in processes:
+    out, err = p.communicate(timeout=30)
+    assert p.returncode == 0, (out, err)
+    roots.append(json.loads(out)['root'])
+assert roots[0] == roots[1]
+for name in ('concurrent-one', 'concurrent-two'):
+    p = subprocess.run([sys.argv[1], 'view', 'enter', '--verify', name, 'true'],
+                       capture_output=True, timeout=30)
+    assert p.returncode == 0, (p.stdout, p.stderr)
+PYCONCURRENT
 
 run_fyai view enter --verify demo true
 assert_status 0
@@ -186,6 +226,8 @@ else:
     raise SystemExit('writer did not start')
 PY
 run_fyai view update demo
+assert_status 1
+run_fyai view sync demo
 assert_status 1
 wait "$writer"
 
