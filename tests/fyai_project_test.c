@@ -466,6 +466,9 @@ int project_capture_parallel(void)
 	FYAI_TCHECK(!symlinkat("file-00", opts.source_fd, "link"));
 	FYAI_TCHECK(!mkdirat(opts.source_fd, ".fyai", 0700));
 	FYAI_TCHECK(!mkdirat(opts.source_fd, "empty/.fyai", 0700));
+	/* Nested runtime stores must not enter the project hard-link check. */
+	FYAI_TCHECK(!linkat(opts.source_fd, "file-00", opts.source_fd, "empty/.fyai/blob", 0));
+	FYAI_TCHECK(!linkat(opts.source_fd, "file-00", opts.source_fd, "empty/.fyai/alias", 0));
 	gb = project_builder();
 	FYAI_TCHECK(gb);
 	opts.baseline_fd = lower[0];
