@@ -5,7 +5,35 @@
 #include <sys/types.h>
 #include "fyai_project.h"
 
+enum fyai_project_capture_phase {
+	FYAI_PROJECT_SCAN,
+	FYAI_PROJECT_INGEST,
+	FYAI_PROJECT_MATERIALIZE,
+	FYAI_PROJECT_VERIFY,
+	FYAI_PROJECT_MANIFEST,
+	FYAI_PROJECT_DONE,
+};
+
+struct fyai_project_capture_stats {
+	enum fyai_project_capture_phase phase;
+	uint64_t files, directories, symlinks, completed;
+	uint64_t logical_bytes, copied_bytes, reflinked_bytes, borrowed_bytes;
+	uint64_t copies, reflinks, hardlinks, metacopies;
+	uint64_t borrowed_files;
+	uint64_t elapsed_ms;
+	unsigned int workers;
+	int copy_backend;
+};
+
+/* Called only on the capture caller; worker counters are sampled atomically. */
+typedef void (*fyai_project_capture_progress_fn)(void *arg,
+						 const struct fyai_project_capture_stats *stats);
+
 struct fyai_project_capture_opts {
+	/* Optional caller-owned result. */
+	struct fyai_project_capture_stats *stats;
+	fyai_project_capture_progress_fn progress;
+	void *progress_arg;
 	/* Borrow immutable Git object files by host contract. */
 	bool borrow_git;
 	bool reuse_baseline;

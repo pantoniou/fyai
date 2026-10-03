@@ -1329,7 +1329,7 @@ With no command, `list` runs.
 
 capture a project and create a named view
 
-**Usage:** `fyai view create [--copy-git-objects] [--verify] NAME [PROJECT]`
+**Usage:** `fyai view create [--copy-git-objects] [--quiet] [--verify] NAME [PROJECT]`
 
 Capture PROJECT, excluding its reserved .fyai directory, and record
 a named view on the active branch. Reject unsupported metadata and
@@ -1348,6 +1348,7 @@ observed concurrent changes. No provider credential is required.
 | Option | Description |
 | --- | --- |
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
+| `--quiet` | suppress live capture progress while retaining the result summary; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
@@ -1392,7 +1393,7 @@ Show a view's baseline and latest recorded result identity.
 
 replace a view with a fresh host snapshot
 
-**Usage:** `fyai view update [--copy-git-objects] [--verify] NAME`
+**Usage:** `fyai view update [--copy-git-objects] [--quiet] [--verify] NAME`
 
 Capture the host project again and replace the named view with a fresh
 baseline and empty upper. Discard the view's changes without changing
@@ -1410,6 +1411,7 @@ the host project. Refuse the update while the view is in use.
 | Option | Description |
 | --- | --- |
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
+| `--quiet` | suppress live capture progress while retaining the result summary; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |

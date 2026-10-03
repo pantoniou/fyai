@@ -31,6 +31,8 @@
 #include <sys/mman.h>
 #include <sys/xattr.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <time.h>
 
 struct capture_node {
 	char *path;
@@ -39,7 +41,9 @@ struct capture_node {
 	bool reused;
 	bool materialized;
 	bool link_blob;
+	int storage;
 	struct stat before;
+	struct stat metadata;
 	struct fyai_project_entry entry;
 	struct fyai_cas_blob blob;
 	size_t *children;
@@ -54,6 +58,9 @@ struct project_capture {
 	struct capture_node *nodes;
 	struct fy_thread_pool *pool;
 	struct fyai_cas_copy_state copy;
+	struct fyai_project_capture_stats stats;
+	struct timespec started;
+	atomic_uint_fast64_t completed, storage[6];
 	atomic_size_t next;
 	dev_t device;
 	size_t count;
@@ -66,6 +73,99 @@ struct capture_worker {
 	struct project_capture *capture;
 	struct fy_blake3_hasher *hasher;
 };
+
+static void capture_progress(struct project_capture *capture)
+{
+	struct timespec now;
+	struct fyai_project_capture_stats *stats = &capture->stats;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	stats->elapsed_ms = (now.tv_sec - capture->started.tv_sec) * 1000LL +
+			    (now.tv_nsec - capture->started.tv_nsec) / 1000000LL;
+	stats->completed = atomic_load_explicit(&capture->completed, memory_order_relaxed);
+	stats->copied_bytes =
+		atomic_load_explicit(&capture->copy.copied_bytes, memory_order_relaxed);
+	stats->reflinked_bytes =
+		atomic_load_explicit(&capture->copy.reflinked_bytes, memory_order_relaxed);
+	stats->copy_backend = atomic_load_explicit(&capture->copy.backend, memory_order_relaxed);
+	stats->reflinks = atomic_load_explicit(&capture->storage[1], memory_order_relaxed);
+	stats->copies = atomic_load_explicit(&capture->storage[2], memory_order_relaxed) +
+			atomic_load_explicit(&capture->storage[3], memory_order_relaxed);
+	stats->hardlinks = atomic_load_explicit(&capture->storage[4], memory_order_relaxed);
+	stats->metacopies = atomic_load_explicit(&capture->storage[5], memory_order_relaxed);
+	if (capture->opts->stats)
+		*capture->opts->stats = *stats;
+	if (capture->opts->progress)
+		capture->opts->progress(capture->opts->progress_arg, stats);
+}
+
+struct capture_join {
+	struct project_capture *capture;
+	struct capture_worker *workers;
+	size_t count;
+	fy_work_exec_fn fn;
+	pthread_mutex_t mutex;
+	pthread_cond_t condition;
+	bool done;
+};
+
+static void *capture_join_thread(void *arg)
+{
+	struct capture_join *join = arg;
+
+	fy_thread_arg_array_join(join->capture->pool, join->fn, NULL, join->workers,
+				 sizeof(*join->workers), join->count);
+	pthread_mutex_lock(&join->mutex);
+	join->done = true;
+	pthread_cond_signal(&join->condition);
+	pthread_mutex_unlock(&join->mutex);
+	return NULL;
+}
+
+/* The coordinator uses the existing pool; only the caller renders progress. */
+static int capture_join_workers(struct project_capture *capture, fy_work_exec_fn fn,
+				struct capture_worker *workers, size_t count)
+{
+	struct capture_join join = { .capture = capture,
+				     .workers = workers,
+				     .count = count,
+				     .fn = fn,
+				     .mutex = PTHREAD_MUTEX_INITIALIZER,
+				     .condition = PTHREAD_COND_INITIALIZER };
+	struct timespec deadline;
+	pthread_t thread;
+	int rc;
+
+	if (!capture->opts->progress) {
+		fy_thread_arg_array_join(capture->pool, fn, NULL, workers, sizeof(*workers), count);
+		return 0;
+	}
+	rc = pthread_create(&thread, NULL, capture_join_thread, &join);
+	if (rc) {
+		errno = rc;
+		return -1;
+	}
+	pthread_mutex_lock(&join.mutex);
+	while (!join.done) {
+		clock_gettime(CLOCK_REALTIME, &deadline);
+		deadline.tv_nsec += 200000000;
+		if (deadline.tv_nsec >= 1000000000) {
+			deadline.tv_sec++;
+			deadline.tv_nsec -= 1000000000;
+		}
+		pthread_cond_timedwait(&join.condition, &join.mutex, &deadline);
+		pthread_mutex_unlock(&join.mutex);
+		capture_progress(capture);
+		pthread_mutex_lock(&join.mutex);
+	}
+	pthread_mutex_unlock(&join.mutex);
+	rc = pthread_join(thread, NULL);
+	pthread_cond_destroy(&join.condition);
+	pthread_mutex_destroy(&join.mutex);
+	if (rc)
+		errno = rc;
+	return rc ? -1 : 0;
+}
 
 static bool capture_same(const struct stat *a, const struct stat *b)
 {
@@ -213,6 +313,11 @@ static int capture_add(struct project_capture *capture, size_t parent, const cha
 	node->baseline = fy_invalid;
 	node->path = path;
 	node->before = *st;
+	node->metadata = *st;
+	if (!capture->opts->incremental && geteuid()) {
+		node->metadata.st_uid = geteuid();
+		node->metadata.st_gid = getegid();
+	}
 	node->entry.name =
 		(const unsigned char *)(strrchr(path, '/') ? strrchr(path, '/') + 1 : path);
 	node->entry.name_length = strlen((const char *)node->entry.name);
@@ -244,6 +349,20 @@ static int capture_add(struct project_capture *capture, size_t parent, const cha
 		}
 		node->children[node->count++] = *index;
 	}
+	if (capture->nodes[*index].entry.kind == FYAI_PROJECT_FILE) {
+		capture->stats.files++;
+		capture->stats.logical_bytes += st->st_size;
+		if (capture->nodes[*index].blob.borrowed) {
+			capture->stats.borrowed_files++;
+			capture->stats.borrowed_bytes += st->st_size;
+		}
+	} else if (capture->nodes[*index].entry.kind == FYAI_PROJECT_DIRECTORY)
+		capture->stats.directories++;
+	else
+		capture->stats.symlinks++;
+	if (!(capture->count & 127))
+		capture_progress(capture);
+
 	return 0;
 }
 
@@ -418,8 +537,8 @@ static int capture_owned_file(struct capture_worker *worker, struct capture_node
 		rc = fstat(old, &previous);
 		if (!rc && previous.st_size == node->before.st_size &&
 		    (previous.st_mode & 07777) == (node->before.st_mode & 07777) &&
-		    previous.st_uid == node->before.st_uid &&
-		    previous.st_gid == node->before.st_gid &&
+		    previous.st_uid == node->metadata.st_uid &&
+		    previous.st_gid == node->metadata.st_gid &&
 		    previous.st_mtim.tv_sec == node->before.st_mtim.tv_sec &&
 		    previous.st_mtim.tv_nsec == node->before.st_mtim.tv_nsec) {
 			/* Capture mutable source bytes before comparing with an
@@ -434,6 +553,7 @@ static int capture_owned_file(struct capture_worker *worker, struct capture_node
 			close(old);
 			if (!rc) {
 				node->materialized = true;
+				node->storage = 4;
 				return 0;
 			}
 			if (errno != EIO)
@@ -447,9 +567,10 @@ static int capture_owned_file(struct capture_worker *worker, struct capture_node
 			      0600);
 	if (target < 0)
 		return -1;
-	rc = fyai_cas_clone_state(source, target, node->before.st_size, &capture->copy);
+	rc = fyai_cas_clone_method(source, target, node->before.st_size, &capture->copy,
+				   &node->storage);
 	if (!rc)
-		rc = capture_apply(target, &node->before);
+		rc = capture_apply(target, &node->metadata);
 	if (!rc && lseek(target, 0, SEEK_SET) < 0)
 		rc = -1;
 	if (!rc)
@@ -581,6 +702,12 @@ static void capture_files(void *arg)
 		}
 		if (rc)
 			node->error = errno ? errno : EIO;
+		else {
+			atomic_fetch_add_explicit(&capture->completed, 1, memory_order_relaxed);
+			if (node->materialized)
+				atomic_fetch_add_explicit(&capture->storage[node->storage], 1,
+							  memory_order_relaxed);
+		}
 		close(source);
 	}
 }
@@ -604,13 +731,15 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 	}
 	if (node->link_blob && !capture->opts->metacopy &&
 	    (object_stat.st_mode & 07777) == (node->before.st_mode & 07777) &&
-	    object_stat.st_uid == node->before.st_uid &&
-	    object_stat.st_gid == node->before.st_gid &&
+	    object_stat.st_uid == node->metadata.st_uid &&
+	    object_stat.st_gid == node->metadata.st_gid &&
 	    object_stat.st_mtim.tv_sec == node->before.st_mtim.tv_sec &&
 	    object_stat.st_mtim.tv_nsec == node->before.st_mtim.tv_nsec) {
 		snprintf(object_name, sizeof(object_name), "borrowed/%s", node->blob.digest);
 		rc = linkat(capture->opts->objects_fd, object_name, capture->opts->baseline_fd,
 			    node->path, 0);
+		if (!rc)
+			node->storage = 4;
 		goto out;
 	}
 	target = capture_open(capture->opts->baseline_fd, node->path, O_RDWR | O_CREAT | O_EXCL,
@@ -620,6 +749,7 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 		goto out;
 	}
 	if (capture->opts->metacopy) {
+		node->storage = 5;
 		snprintf(object_name, sizeof(object_name), "%s%s",
 			 node->blob.borrowed ? "borrowed/" : "", node->blob.digest);
 		snprintf(redirect, sizeof(redirect), "/%s%s", node->blob.borrowed ? "b-" : "",
@@ -637,9 +767,10 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 			rc = fsetxattr(target, "user.overlay.redirect", redirect, strlen(redirect),
 				       XATTR_CREATE);
 	} else
-		rc = fyai_cas_clone_state(object, target, node->blob.size, &capture->copy);
+		rc = fyai_cas_clone_method(object, target, node->blob.size, &capture->copy,
+					   &node->storage);
 	if (!rc)
-		rc = capture_apply(target, &node->before);
+		rc = capture_apply(target, &node->metadata);
 out:
 	saved = errno;
 	if (target >= 0)
@@ -669,6 +800,11 @@ static void capture_materialize_files(void *arg)
 		rc = capture_materialize_file(capture, node);
 		if (rc)
 			node->error = errno ? errno : EIO;
+		else {
+			atomic_fetch_add_explicit(&capture->completed, 1, memory_order_relaxed);
+			atomic_fetch_add_explicit(&capture->storage[node->storage], 1,
+						  memory_order_relaxed);
+		}
 	}
 }
 
@@ -765,8 +901,8 @@ static int capture_verify(struct project_capture *capture)
 				if (!rc &&
 				    (metadata.st_size != (off_t)node->blob.size ||
 				     (metadata.st_mode & 07777) != (node->before.st_mode & 07777) ||
-				     metadata.st_uid != node->before.st_uid ||
-				     metadata.st_gid != node->before.st_gid ||
+				     metadata.st_uid != node->metadata.st_uid ||
+				     metadata.st_gid != node->metadata.st_gid ||
 				     metadata.st_mtim.tv_sec != node->before.st_mtim.tv_sec ||
 				     metadata.st_mtim.tv_nsec != node->before.st_mtim.tv_nsec)) {
 					errno = EIO;
@@ -813,6 +949,8 @@ static int capture_verify(struct project_capture *capture)
 		close(source);
 		close(object);
 		source = object = -1;
+		atomic_fetch_add_explicit(&capture->completed, 1, memory_order_relaxed);
+		capture_progress(capture);
 	}
 	rc = 0;
 	goto out;
@@ -837,7 +975,7 @@ out:
 static fy_generic capture_finish(struct project_capture *capture, size_t index)
 {
 	struct capture_node *node = &capture->nodes[index];
-	struct fyai_project_metadata metadata = capture_metadata(capture, &node->before);
+	struct fyai_project_metadata metadata = capture_metadata(capture, &node->metadata);
 	struct fyai_project_entry *entries = NULL;
 	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, node->before.st_mtim };
 	struct stat after;
@@ -900,8 +1038,8 @@ static fy_generic capture_finish(struct project_capture *capture, size_t index)
 				goto invalid;
 			rc = symlinkat(node->link, target, name);
 			if (!rc)
-				rc = fchownat(target, name, node->before.st_uid,
-					      node->before.st_gid, AT_SYMLINK_NOFOLLOW);
+				rc = fchownat(target, name, node->metadata.st_uid,
+					      node->metadata.st_gid, AT_SYMLINK_NOFOLLOW);
 			if (!rc)
 				rc = utimensat(target, name, times, AT_SYMLINK_NOFOLLOW);
 			if (rc)
@@ -925,7 +1063,7 @@ static fy_generic capture_finish(struct project_capture *capture, size_t index)
 				if (rc)
 					goto out;
 			}
-			rc = capture_apply(target, &node->before);
+			rc = capture_apply(target, &node->metadata);
 			if (rc)
 				goto out;
 		}
@@ -946,6 +1084,126 @@ out:
 	if (!fy_is_valid(result) && capture->error && capture->error_size && !capture->error[0])
 		snprintf(capture->error, capture->error_size, "%s", *node->path ? node->path : ".");
 	errno = saved;
+	return result;
+}
+
+static int capture_digest_compare(const void *a, const void *b)
+{
+	const struct capture_node *const *left = a, *const *right = b;
+	int rc = strcmp((*left)->entry.digest, (*right)->entry.digest);
+
+	if (rc)
+		return rc;
+	return (*left < *right) - (*left > *right);
+}
+
+/*
+ * Build each immutable collection once; repeated association copies its prefix.
+ */
+static fy_generic capture_fresh_manifest(struct project_capture *capture)
+{
+	static const char hex[] = "0123456789abcdef";
+	struct capture_node **sorted = NULL, *node;
+	fy_generic *pairs = NULL, *attrs = NULL;
+	fy_generic object, base, previous, objects, attributes, result = fy_invalid;
+	char *path = NULL;
+	size_t i, j, end, count = 0, overrides = 0, length;
+
+	sorted = malloc(capture->count * sizeof(*sorted));
+	pairs = malloc(capture->count * 2 * sizeof(*pairs));
+	attrs = malloc(capture->count * 2 * sizeof(*attrs));
+	if (!sorted || !pairs || !attrs) {
+		errno = ENOMEM;
+		goto out;
+	}
+	for (i = capture->count; i > 0; i--) {
+		node = &capture->nodes[i - 1];
+		node->baseline = capture_finish(capture, i - 1);
+		if (!fy_is_mapping(node->baseline))
+			goto out;
+		sorted[i - 1] = node;
+	}
+	qsort(sorted, capture->count, sizeof(*sorted), capture_digest_compare);
+	previous = fy_get(capture->opts->snapshot, "objects", fy_invalid);
+	for (i = 0; i < capture->count; i = end) {
+		end = i + 1;
+		while (end < capture->count &&
+		       !strcmp(sorted[i]->entry.digest, sorted[end]->entry.digest))
+			end++;
+		base = fy_get(previous, sorted[i]->entry.digest, fy_invalid);
+		if (!fy_is_mapping(base)) {
+			base = sorted[i]->baseline;
+			for (j = i + 1; j < end; j++) {
+				object = sorted[j]->baseline;
+				if (fy_get(object, "mtime_sec", 0LL) <
+					    fy_get(base, "mtime_sec", 0LL) ||
+				    (fy_get(object, "mtime_sec", 0LL) ==
+					     fy_get(base, "mtime_sec", 0LL) &&
+				     fy_get(object, "mtime_nsec", 0LL) <
+					     fy_get(base, "mtime_nsec", 0LL)))
+					base = object;
+			}
+		}
+		/* The last reverse-walk occurrence selects physical blob
+		 * provenance. */
+		node = sorted[end - 1];
+		if (node->entry.kind == FYAI_PROJECT_FILE) {
+			base = fy_assoc(capture->gb, base, "blob",
+					fy_get(node->baseline, "blob", fy_invalid));
+			base = fy_disassoc(capture->gb, base, "borrowed");
+			object = fy_get(node->baseline, "borrowed", fy_invalid);
+			if (fy_is_valid(object))
+				base = fy_assoc(capture->gb, base, "borrowed", object);
+		}
+		pairs[count * 2] = fy_value(capture->gb, node->entry.digest);
+		pairs[count * 2 + 1] = base;
+		count++;
+		for (j = i; j < end; j++)
+			sorted[j]->baseline = base;
+	}
+	objects = fy_gb_mapping_create(capture->gb, count, pairs);
+	if (!fy_is_mapping(objects)) {
+		errno = ENOMEM;
+		goto out;
+	}
+	for (i = 0; i < capture->count; i++) {
+		node = &capture->nodes[i];
+		base = node->baseline;
+		if (node->before.st_mtim.tv_sec == fy_get(base, "mtime_sec", 0LL) &&
+		    node->before.st_mtim.tv_nsec == fy_get(base, "mtime_nsec", 0LL))
+			continue;
+		length = strlen(node->path);
+		path = malloc(length * 2 + 1);
+		if (!path) {
+			errno = ENOMEM;
+			goto out;
+		}
+		for (j = 0; j < length; j++) {
+			path[j * 2] = hex[(unsigned char)node->path[j] >> 4];
+			path[j * 2 + 1] = hex[(unsigned char)node->path[j] & 15];
+		}
+		path[length * 2] = '\0';
+		attrs[overrides * 2] = fy_value(capture->gb, path);
+		attrs[overrides * 2 + 1] =
+			fy_mapping(capture->gb, "mtime_sec", (long long)node->before.st_mtim.tv_sec,
+				   "mtime_nsec", (long long)node->before.st_mtim.tv_nsec);
+		overrides++;
+		free(path);
+		path = NULL;
+	}
+	attributes = fy_gb_mapping_create(capture->gb, overrides, attrs);
+	if (!fy_is_mapping(attributes)) {
+		errno = ENOMEM;
+		goto out;
+	}
+	result = fy_mapping(capture->gb, "version", 2LL, "algorithm", "blake3", "root",
+			    fy_value(capture->gb, capture->nodes[0].entry.digest), "objects",
+			    objects, "attributes", attributes);
+out:
+	free(path);
+	free(attrs);
+	free(pairs);
+	free(sorted);
 	return result;
 }
 
@@ -1005,6 +1263,14 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	size_t root, i, worker_count = 0, initialized = 0, reused_count = 0, files = 0;
 	int rc, saved, cpus;
 
+	clock_gettime(CLOCK_MONOTONIC, &capture.started);
+	atomic_init(&capture.completed, 0);
+	atomic_init(&capture.copy.copied_bytes, 0);
+	atomic_init(&capture.copy.reflinked_bytes, 0);
+	atomic_init(&capture.copy.backend, 0);
+	for (i = 0; i < 6; i++)
+		atomic_init(&capture.storage[i], 0);
+
 	if (error_path && error_size)
 		error_path[0] = '\0';
 	if (!gb || !opts ||
@@ -1029,7 +1295,7 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	capture.device = st.st_dev;
 	atomic_init(&capture.next, 0);
-	atomic_init(&capture.copy.backend, 0);
+	capture_progress(&capture);
 	rc = capture_add(&capture, SIZE_MAX, "", &st, &root);
 	if (rc)
 		goto out;
@@ -1084,8 +1350,20 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 		}
 		initialized++;
 	}
-	fy_thread_arg_array_join(capture.pool, capture_files, NULL, workers, sizeof(*workers),
-				 worker_count);
+	capture.stats.workers = worker_count;
+	capture.stats.phase = FYAI_PROJECT_INGEST;
+	capture_progress(&capture);
+	rc = capture_join_workers(&capture, capture_files, workers, worker_count);
+	if (rc)
+		goto out;
+	for (i = 0; i < capture.count; i++) {
+		if (!capture.nodes[i].error)
+			continue;
+		if (capture.error && capture.error_size)
+			snprintf(capture.error, capture.error_size, "%s", capture.nodes[i].path);
+		errno = capture.nodes[i].error;
+		goto out;
+	}
 	linked = fy_mapping(gb);
 	for (i = 0; i < capture.count; i++) {
 		if (!capture.nodes[i].blob.borrowed || capture.nodes[i].error)
@@ -1102,14 +1380,34 @@ fy_generic fyai_project_capture(struct fy_generic_builder *gb,
 	}
 	if (opts->baseline_fd >= 0) {
 		atomic_store_explicit(&capture.next, 0, memory_order_relaxed);
-		fy_thread_arg_array_join(capture.pool, capture_materialize_files, NULL, workers,
-					 sizeof(*workers), worker_count);
+		capture.stats.phase = FYAI_PROJECT_MATERIALIZE;
+		atomic_store_explicit(&capture.completed, 0, memory_order_relaxed);
+		for (i = 0; i < capture.count; i++)
+			if (capture.nodes[i].materialized)
+				atomic_fetch_add_explicit(&capture.completed, 1,
+							  memory_order_relaxed);
+		capture_progress(&capture);
+		rc = capture_join_workers(&capture, capture_materialize_files, workers,
+					  worker_count);
+		if (rc)
+			goto out;
 	}
 finish:
 	if (opts->verify) {
+		capture.stats.phase = FYAI_PROJECT_VERIFY;
+		atomic_store_explicit(&capture.completed, 0, memory_order_relaxed);
+		capture_progress(&capture);
 		rc = capture_verify(&capture);
 		if (rc)
 			goto out;
+	}
+	capture.stats.phase = FYAI_PROJECT_MANIFEST;
+	capture_progress(&capture);
+	if (!opts->incremental) {
+		result = capture_fresh_manifest(&capture);
+		if (!fy_is_mapping(result))
+			goto out;
+		goto complete;
 	}
 	objects = fy_mapping(gb);
 	attributes = fy_get(opts->snapshot, "attributes", fy_mapping(gb));
@@ -1189,6 +1487,9 @@ finish:
 	}
 	result = fy_assoc(gb, result, "attributes", attributes);
 
+complete:
+	capture.stats.phase = FYAI_PROJECT_DONE;
+	capture_progress(&capture);
 out:
 	saved = errno;
 	free(encoded);

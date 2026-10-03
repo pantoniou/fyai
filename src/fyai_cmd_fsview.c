@@ -29,12 +29,14 @@
 #include <signal.h>
 #include <termios.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "fyai_branch.h"
 #include "fyai_fsview.h"
 #include "fyai_event.h"
 #include "fyai_project_capture.h"
 #include "fyai_storage.h"
+#include "fyai_sink.h"
 
 static fy_generic view_store(struct fyai_ctx *ctx)
 {
@@ -79,6 +81,8 @@ static fy_generic view_summary(struct fy_generic_builder *gb, const char *name, 
 		gb, "name", fy_value(gb, name), "project", fy_get(view, "project", ""), "baseline",
 		fy_get(baseline, "root", ""), "root", fy_get(result, "root", ""), "materialization",
 		fy_get(view, "materialization", "copy"), "state", fy_get(view, "state", "ready"));
+	if (fy_is_mapping(fy_get(view, "capture", fy_invalid)))
+		summary = fy_assoc(gb, summary, "capture", fy_get(view, "capture", fy_invalid));
 	if (fy_is_valid(fy_get(view, "mount", fy_invalid)))
 		summary = fy_assoc(gb, summary, "mount", fy_get(view, "mount", fy_invalid));
 	return summary;
@@ -159,11 +163,106 @@ static int view_initialize_upper(int runtime, int baseline)
 	return rc;
 }
 
+static const char *view_copy_backend(int backend)
+{
+	switch (backend) {
+	case 1:
+		return "reflink";
+	case 2:
+		return "copy_file_range";
+	case 3:
+		return "sendfile";
+	default:
+		return "none";
+	}
+}
+
+static fy_generic view_capture_statistics(struct fy_generic_builder *gb,
+					  const struct fyai_project_capture_stats *stats)
+{
+	uint64_t total = stats->copies + stats->reflinks + stats->hardlinks + stats->metacopies;
+	double unit = total ? 100.0 / total : 0.0;
+
+	return fy_mapping(gb, "elapsed_ms", (long long)stats->elapsed_ms, "files",
+			  (long long)stats->files, "directories", (long long)stats->directories,
+			  "symlinks", (long long)stats->symlinks, "logical_bytes",
+			  (long long)stats->logical_bytes, "copied_bytes",
+			  (long long)stats->copied_bytes, "reflinked_bytes",
+			  (long long)stats->reflinked_bytes, "borrowed_bytes",
+			  (long long)stats->borrowed_bytes, "borrowed_files",
+			  (long long)stats->borrowed_files, "workers", (long long)stats->workers,
+			  "copy_backend", view_copy_backend(stats->copy_backend), "storage",
+			  fy_mapping(gb, "copy",
+				     fy_mapping(gb, "files", (long long)stats->copies, "percent",
+						stats->copies * unit),
+				     "reflink",
+				     fy_mapping(gb, "files", (long long)stats->reflinks, "percent",
+						stats->reflinks * unit),
+				     "hardlink",
+				     fy_mapping(gb, "files", (long long)stats->hardlinks, "percent",
+						stats->hardlinks * unit),
+				     "metacopy",
+				     fy_mapping(gb, "files", (long long)stats->metacopies,
+						"percent", stats->metacopies * unit)));
+}
+
+struct view_capture_progress {
+	struct fyai_ctx *ctx;
+	const char *name;
+	struct fyai_sink_band *band;
+	uint64_t last_ms;
+	enum fyai_project_capture_phase phase;
+	bool shown;
+};
+
+static void view_capture_progress(void *arg, const struct fyai_project_capture_stats *stats)
+{
+	static const char *const phases[] = { "scanning",  "capturing",		 "materializing",
+					      "verifying", "building manifests", "complete" };
+	struct view_capture_progress *progress = arg;
+	char title[160], body[320];
+	uint64_t total = stats->copies + stats->reflinks + stats->hardlinks + stats->metacopies;
+	double unit = total ? 100.0 / total : 0.0;
+	int length;
+
+	if (progress->shown && progress->phase == stats->phase &&
+	    stats->elapsed_ms - progress->last_ms < 500)
+		return;
+	progress->shown = true;
+	progress->phase = stats->phase;
+	progress->last_ms = stats->elapsed_ms;
+	snprintf(title, sizeof(title), "view %s: %s", progress->name, phases[stats->phase]);
+	if (stats->phase == FYAI_PROJECT_SCAN || stats->phase == FYAI_PROJECT_MANIFEST)
+		length = snprintf(body, sizeof(body), "%llu files discovered; %.2f s",
+				  (unsigned long long)stats->files, stats->elapsed_ms / 1000.0);
+	else
+		length = snprintf(
+			body, sizeof(body),
+			"%llu/%llu files, %.1f%%; %.2f s; materialized: copy "
+			"%.1f%%, reflink %.1f%%, hardlink %.1f%%, metacopy "
+			"%.1f%%; borrowed Git %llu files; %s",
+			(unsigned long long)stats->completed, (unsigned long long)stats->files,
+			stats->files ? 100.0 * stats->completed / stats->files : 0.0,
+			stats->elapsed_ms / 1000.0, stats->copies * unit, stats->reflinks * unit,
+			stats->hardlinks * unit, stats->metacopies * unit,
+			(unsigned long long)stats->borrowed_files,
+			view_copy_backend(stats->copy_backend));
+	if (progress->band)
+		fyai_sink_band_paint(progress->band, title, NULL, body, length, NULL);
+	else
+		fyai_report(progress->ctx, "%s: %s\n", title, body);
+}
+
 static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool replace)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *project = fyai_cmd_arg_str(call, "project");
-	struct fyai_project_capture_opts opts = { .source_fd = -1,
+	struct fyai_project_capture_stats statistics = { 0 };
+	struct view_capture_progress progress = { .ctx = call->ctx, .name = name };
+	struct fyai_project_capture_opts opts = { .stats = &statistics,
+						  .progress = view_capture_progress,
+						  .progress_arg = &progress,
+						  .source_fd = -1,
 						  .objects_fd = -1,
 						  .baseline_fd = -1,
 						  .data_fd = -1,
@@ -180,6 +279,8 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 
 	if (view_writable(call))
 		return -1;
+	if (fyai_cmd_arg_bool(call, "quiet"))
+		opts.progress = NULL;
 	previous = view_find(call, name);
 	if (!replace && fy_is_valid(previous)) {
 		fyai_error(call->ctx, "view '%s' already exists", name);
@@ -274,6 +375,9 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 		opts.reuse_baseline = true;
 		opts.snapshot = fy_get(previous, "baseline", fy_invalid);
 	}
+	if (opts.progress && fyai_sink_bands_available(call->ctx->sink))
+		progress.band =
+			fyai_sink_band_open(call->ctx->sink, false, "Capturing project view", NULL);
 	snapshot = fyai_project_capture(call->ctx->gb, &opts, error, sizeof(error));
 	if (!fy_is_valid(snapshot))
 		goto out;
@@ -290,7 +394,8 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 			    "project", fy_value(call->ctx->gb, resolved), "storage",
 			    fy_value(call->ctx->gb, storage), "runtime",
 			    fy_value(call->ctx->gb, runtime), "baseline", snapshot, "state",
-			    "ready", "materialization", opts.metacopy ? "metacopy" : "copy");
+			    "ready", "materialization", opts.metacopy ? "metacopy" : "copy",
+			    "capture", view_capture_statistics(call->ctx->gb, &statistics));
 	rc = view_save(call->ctx, name, record);
 	if (rc)
 		goto out;
@@ -298,6 +403,14 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	complete = true;
 out:
 	saved = errno;
+	if (progress.band) {
+		if (!complete)
+			fyai_sink_band_paint(progress.band, "Project view capture failed", NULL,
+					     strerror(saved), strlen(strerror(saved)), NULL);
+		fyai_sink_band_commit(progress.band);
+		fyai_sink_band_destroy(progress.band);
+	}
+
 	if (opts.reuse_baseline)
 		close(opts.previous_baseline_fd);
 	if (opts.source_fd >= 0)
