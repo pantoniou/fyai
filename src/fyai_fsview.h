@@ -14,6 +14,7 @@ struct fyai_fsview {
 	bool metacopy;
 	bool terminal;
 	bool verify;
+	bool lazy;
 };
 
 struct fyai_fsview_mount {
@@ -36,6 +37,13 @@ int fyai_fsview_unmount(const struct fyai_fsview *view, const char *target,
 
 /* Verify borrowed CAS provenance and bytes; error is a caller-owned buffer. */
 int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t error_size);
+
+/*
+ * Validate the retained lower, CAS bytes, and latest merged snapshot after
+ * reboot.
+ */
+int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview *view,
+			fy_generic expected, char *error, size_t error_size);
 
 /*
  * Called only in a prepared tool child. Parent waits for the PID-namespace

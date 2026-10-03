@@ -34,6 +34,8 @@ struct fyai_project_capture_opts {
 	struct fyai_project_capture_stats *stats;
 	fyai_project_capture_progress_fn progress;
 	void *progress_arg;
+	/* Caller chooses whether to persist the completed capture. */
+	bool defer_sync;
 	/* Borrow immutable Git object files by host contract. */
 	bool borrow_git;
 	bool reuse_baseline;

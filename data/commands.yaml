@@ -1417,6 +1417,12 @@ commands:
           additionalProperties: false
           required: [name]
           properties:
+            durability:
+              type: string
+              enum: [lazy, durable]
+              description: select lazy persistence or a durable filesystem barrier; default from view/durability
+              x-fyai-long: durability
+              x-fyai-meta: POLICY
             copy_git_objects:
               type: boolean
               default: false
@@ -1481,6 +1487,12 @@ commands:
           additionalProperties: false
           required: [name]
           properties:
+            durability:
+              type: string
+              enum: [lazy, durable]
+              description: select lazy persistence or a durable filesystem barrier; update inherits the view policy
+              x-fyai-long: durability
+              x-fyai-meta: POLICY
             copy_git_objects:
               type: boolean
               default: false
@@ -1499,6 +1511,25 @@ commands:
             name:
               type: string
               description: the name of the view to replace
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+        render:
+          document: yaml
+      - command: sync
+        title: force a filesystem view to persistent storage
+        description: |
+          Flush the view's CAS objects and backing files before recording that
+          its current snapshot is synchronized. Keep its configured durability
+          policy. Refuse synchronization while a command is using the view.
+        handler: view_sync
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: the filesystem view to synchronize
               x-fyai-positional: 0
               x-fyai-meta: NAME
         render:

@@ -11,6 +11,18 @@ description: >-
   Configuration settings for fyai. The document resides in an arena; see
   config.yaml.sample for the key list and defaults.
 properties:
+  view:
+    type: object
+    description: Configure project filesystem views.
+    properties:
+      durability:
+        type: string
+        enum: [lazy, durable]
+        default: lazy
+        description: >-
+          Set the default persistence policy for new views. lazy skips backing
+          filesystem flushes and may lose snapshots after power loss; durable
+          flushes the backing filesystem before publishing snapshot references.
   auth:
     type: string
     enum: [auto, api-key, chatgpt]

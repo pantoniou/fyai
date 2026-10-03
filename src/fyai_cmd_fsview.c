@@ -79,7 +79,9 @@ static fy_generic view_summary(struct fy_generic_builder *gb, const char *name, 
 
 	summary = fy_mapping(
 		gb, "name", fy_value(gb, name), "project", fy_get(view, "project", ""), "baseline",
-		fy_get(baseline, "root", ""), "root", fy_get(result, "root", ""), "materialization",
+		fy_get(baseline, "root", ""), "root", fy_get(result, "root", ""), "durability",
+		fy_get(view, "durability", "durable"), "synchronized",
+		fy_get(view, "synchronized", true), "materialization",
 		fy_get(view, "materialization", "copy"), "state", fy_get(view, "state", "ready"));
 	if (fy_is_mapping(fy_get(view, "capture", fy_invalid)))
 		summary = fy_assoc(gb, summary, "capture", fy_get(view, "capture", fy_invalid));
@@ -136,6 +138,76 @@ static bool view_storage_beneath(const char *project, const char *storage)
 	       strncmp(storage + length + 1, ".fyai/", 6) && strcmp(storage + length + 1, ".fyai");
 }
 
+static int view_boot_id(char id[37])
+{
+	char text[37];
+	ssize_t count;
+	int fd, saved;
+
+	fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	do {
+		count = read(fd, text, sizeof(text));
+	} while (count < 0 && errno == EINTR);
+	saved = errno;
+	close(fd);
+	errno = saved;
+	if (count != 37 || text[36] != '\n') {
+		if (count >= 0)
+			errno = EIO;
+		return -1;
+	}
+	memcpy(id, text, 36);
+	id[36] = '\0';
+	return 0;
+}
+
+static int view_sync_backing(const char *runtime)
+{
+	int fd, rc, saved;
+
+	fd = open(runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	do {
+		rc = syncfs(fd);
+	} while (rc && errno == EINTR);
+	saved = errno;
+	close(fd);
+	errno = saved;
+	return rc;
+}
+
+static int view_recover(struct fyai_ctx *ctx, fy_generic *view, const struct fyai_fsview *spec,
+			char *error, size_t error_size)
+{
+	fy_generic expected;
+	char boot[37];
+	int rc;
+
+	rc = view_boot_id(boot);
+	if (rc)
+		return -1;
+	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
+		return 0;
+	expected = fy_get(*view, "result", fy_get(*view, "baseline", fy_invalid));
+	rc = fyai_fsview_recover(ctx->gb, spec, expected, error, error_size);
+	if (rc) {
+		if (error && error_size)
+			snprintf(error, error_size,
+				 "reboot recovery validation failed; view may "
+				 "be lost or corrupted; update or recreate it");
+		return -1;
+	}
+	*view = fy_assoc(ctx->gb, *view, "validated_boot", fy_value(ctx->gb, boot));
+	if (!fy_is_mapping(*view)) {
+		errno = ENOMEM;
+		return -1;
+	}
+	return 0;
+}
+
 static int view_initialize_upper(int runtime, int baseline)
 {
 	struct stat st;
@@ -155,8 +227,6 @@ static int view_initialize_upper(int runtime, int baseline)
 		rc = fchmod(fd, st.st_mode & 07777);
 	if (!rc)
 		rc = futimens(fd, times);
-	if (!rc)
-		rc = fsync(fd);
 	saved = errno;
 	close(fd);
 	errno = saved;
@@ -320,6 +390,7 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *project = fyai_cmd_arg_str(call, "project");
+	const char *durability = fyai_cmd_arg_str(call, "durability");
 	struct fyai_project_capture_stats statistics = { 0 };
 	struct view_capture_progress progress = { .ctx = call->ctx, .name = name };
 	struct fyai_project_capture_opts opts = { .stats = &statistics,
@@ -329,10 +400,11 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 						  .objects_fd = -1,
 						  .baseline_fd = -1,
 						  .data_fd = -1,
-						  .metacopy = true };
+						  .metacopy = true,
+						  .defer_sync = true };
 	fy_generic snapshot, record, previous, stored_project, stored_runtime;
 	char *resolved = NULL, *storage = NULL, *objects = NULL, *views = NULL, *runtime = NULL;
-	char error[PATH_MAX] = "", lockpath[PATH_MAX];
+	char error[PATH_MAX] = "", lockpath[PATH_MAX], boot[37];
 	const char *const directories[] = {
 		"baseline", "data", "upper", "work", "cover", "merged"
 	};
@@ -346,6 +418,14 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	if (fyai_cmd_arg_bool(call, "quiet"))
 		opts.progress = NULL;
 	previous = view_find(call, name);
+	if (!durability)
+		durability = replace ?
+				     fy_get(previous, "durability", "durable") :
+				     fy_get(fy_get(call->ctx->cfg->config_doc, "view", fy_invalid),
+					    "durability", "lazy");
+	rc = view_boot_id(boot);
+	if (rc)
+		goto out;
 	if (!replace && fy_is_valid(previous)) {
 		fyai_error(call->ctx, "view '%s' already exists", name);
 		return -1;
@@ -426,7 +506,8 @@ retry:
 		openat(root, "baseline", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (opts.source_fd < 0 || opts.objects_fd < 0 || opts.baseline_fd < 0)
 		goto out;
-	if (replace && !opts.reuse_baseline && !opts.metacopy &&
+	if (replace && fy_equal(fy_get(previous, "validated_boot", fy_invalid), boot) &&
+	    !opts.reuse_baseline && !opts.metacopy &&
 	    fy_equal(fy_get(previous, "materialization", fy_invalid), "copy") &&
 	    fy_equal(fy_get(fy_get(previous, "baseline", fy_invalid), "version", fy_invalid),
 		     2LL)) {
@@ -481,19 +562,18 @@ retry:
 		goto retry;
 	}
 	rc = view_initialize_upper(root, opts.baseline_fd);
-	if (!rc)
-		rc = fsync(opts.baseline_fd);
-	if (!rc)
-		rc = fsync(opts.data_fd);
-	if (!rc)
-		rc = fsync(root);
+	if (!rc && !strcmp(durability, "durable"))
+		rc = view_sync_backing(runtime);
 	if (rc)
 		goto out;
 	record = fy_mapping(
 		call->ctx->gb, "version", 1LL, "name", fy_value(call->ctx->gb, name), "project",
 		fy_value(call->ctx->gb, resolved), "storage", fy_value(call->ctx->gb, storage),
-		"runtime", fy_value(call->ctx->gb, runtime), "baseline", snapshot, "state", "ready",
-		"materialization", opts.metacopy ? "metacopy" : "copy", "capture",
+		"runtime", fy_value(call->ctx->gb, runtime), "baseline", snapshot, "durability",
+		fy_value(call->ctx->gb, durability), "synchronized",
+		(bool)!strcmp(durability, "durable"), "validated_boot",
+		fy_value(call->ctx->gb, boot), "state", "ready", "materialization",
+		opts.metacopy ? "metacopy" : "copy", "capture",
 		fy_assoc(call->ctx->gb, view_capture_statistics(call->ctx->gb, &statistics),
 			 "attempts", (long long)attempt));
 	rc = view_save(call->ctx, name, record);
@@ -803,6 +883,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	spec.storage = fy_castp(&storage, "");
 	spec.arena = call->ctx->cfg->arena_dir;
 	spec.verify = fyai_cmd_arg_bool(call, "verify");
+	spec.lazy = fy_equal(fy_get(view, "durability", "durable"), "lazy");
 	spec.baseline = fy_get(view, "baseline", fy_invalid);
 	if (!fy_equal(fy_get(spec.baseline, "version", fy_invalid), 2LL)) {
 		fyai_error(call->ctx,
@@ -833,6 +914,9 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	rc = flock(lock, LOCK_EX | LOCK_NB);
 	if (rc)
 		goto out;
+	rc = view_recover(call->ctx, &view, &spec, error, sizeof(error));
+	if (rc)
+		goto out;
 	view = fy_assoc(call->ctx->gb, view, "state", "running");
 	rc = view_save(call->ctx, name, view);
 	if (rc)
@@ -861,6 +945,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	updated = fy_assoc(call->ctx->gb, view, "result", snapshot);
 	updated = fy_assoc(call->ctx->gb, updated, "state", "ready");
+	updated = fy_assoc(call->ctx->gb, updated, "synchronized", (bool)!spec.lazy);
 	rc = view_save(call->ctx, name, updated);
 	if (rc)
 		goto out;
@@ -913,8 +998,60 @@ static int view_mount_paths(fy_generic view, struct fyai_fsview *spec)
 		errno = ENOTSUP;
 		return -1;
 	}
+	spec->lazy = fy_equal(fy_get(view, "durability", "durable"), "lazy");
 	spec->metacopy = fy_equal(fy_get(view, "materialization", fy_invalid), "metacopy");
 	return 0;
+}
+
+int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	struct fyai_fsview spec = { 0 };
+	fy_generic view;
+	char lockpath[PATH_MAX], error[PATH_MAX] = "";
+	int lock = -1, rc, saved;
+
+	if (view_writable(call))
+		return -1;
+	view = view_find(call, name);
+	if (!fy_is_mapping(view)) {
+		fyai_error(call->ctx, "view '%s' does not exist", name);
+		return -1;
+	}
+	rc = view_mount_paths(view, &spec);
+	if (rc)
+		goto out;
+	rc = snprintf(lockpath, sizeof(lockpath), "%s/lock", spec.runtime);
+	if (rc < 0 || rc >= (int)sizeof(lockpath)) {
+		errno = ENAMETOOLONG;
+		rc = -1;
+		goto out;
+	}
+	lock = open(lockpath, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (lock < 0) {
+		rc = -1;
+		goto out;
+	}
+	rc = flock(lock, LOCK_EX | LOCK_NB);
+	if (rc)
+		goto out;
+	rc = view_recover(call->ctx, &view, &spec, error, sizeof(error));
+	if (!rc)
+		rc = view_sync_backing(spec.runtime);
+	if (rc)
+		goto out;
+	view = fy_assoc(call->ctx->gb, view, "synchronized", true);
+	rc = view_save(call->ctx, name, view);
+	if (!rc)
+		*result = view_summary(call->gb, name, view);
+out:
+	saved = errno;
+	if (lock >= 0)
+		close(lock);
+	if (rc)
+		fyai_error(call->ctx, "view '%s': cannot synchronize%s%s: %s", name,
+			   *error ? " at " : "", error, strerror(saved));
+	return rc ? -1 : 0;
 }
 
 static bool view_path_contains(const char *parent, const char *path)
@@ -931,7 +1068,7 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_fsview spec = { 0 };
 	struct fyai_fsview_mount identity = { 0 };
 	fy_generic view, updated;
-	char *resolved = NULL, lockpath[PATH_MAX];
+	char *resolved = NULL, lockpath[PATH_MAX], error[PATH_MAX] = "";
 	struct dirent *entry;
 	DIR *directory = NULL;
 	int lock = -1, rc = -1, saved;
@@ -995,6 +1132,9 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 	rc = flock(lock, LOCK_EX | LOCK_NB);
 	if (rc)
 		goto out;
+	rc = view_recover(call->ctx, &view, &spec, error, sizeof(error));
+	if (rc)
+		goto out;
 	rc = fyai_fsview_mount(&spec, resolved, &identity);
 	if (rc)
 		goto out;
@@ -1024,8 +1164,8 @@ out:
 				   "sh: %s",
 				   name, target, strerror(saved));
 		else
-			fyai_error(call->ctx, "view '%s': cannot mount at '%s': %s", name, target,
-				   strerror(saved));
+			fyai_error(call->ctx, "view '%s': cannot mount at '%s'%s%s: %s", name,
+				   target, *error ? " at " : "", error, strerror(saved));
 	}
 	free(resolved);
 	return complete ? 0 : -1;
@@ -1107,6 +1247,12 @@ out:
 }
 
 #else
+int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
 int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;

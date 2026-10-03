@@ -26,6 +26,8 @@
 
 #ifdef __linux__
 #include <sched.h>
+#include <dirent.h>
+#include <libfyaml/libfyaml-blake3.h>
 #include <sys/xattr.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
@@ -50,6 +52,239 @@ int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t size)
 	rc = fyai_project_check_borrowed(fd, view->baseline, view->verify, error, size);
 	saved = errno;
 	close(fd);
+	errno = saved;
+	return rc;
+}
+
+static int view_unhex(const char *encoded, char *bytes, size_t capacity)
+{
+	size_t i, length = strlen(encoded);
+	int high, low;
+
+	if ((length & 1) || length / 2 >= capacity) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (i = 0; i < length; i += 2) {
+		high = encoded[i] >= '0' && encoded[i] <= '9' ? encoded[i] - '0' :
+		       encoded[i] >= 'a' && encoded[i] <= 'f' ? encoded[i] - 'a' + 10 :
+								-1;
+		low = encoded[i + 1] >= '0' && encoded[i + 1] <= '9' ? encoded[i + 1] - '0' :
+		      encoded[i + 1] >= 'a' && encoded[i + 1] <= 'f' ? encoded[i + 1] - 'a' + 10 :
+								       -1;
+		if (high < 0 || low < 0 || !(high | low)) {
+			errno = EINVAL;
+			return -1;
+		}
+		bytes[i / 2] = (high << 4) | low;
+	}
+	bytes[length / 2] = '\0';
+	return 0;
+}
+
+static int view_verify_lower(const struct fyai_fsview *view, int parent, const char *name,
+			     fy_generic object, const char *path, int objects, int data,
+			     struct fy_blake3_hasher *hasher, unsigned int depth, size_t *count)
+{
+	struct fyai_cas_blob blob = { 0 };
+	struct stat st;
+	fy_generic times, entry, value, origin;
+	char child[NAME_MAX + 1], target[PATH_MAX], actual[PATH_MAX];
+	char redirect[sizeof(blob.digest) + 4];
+	char *next = NULL;
+	const char *hex, *digest, *kind;
+	size_t length, children = 0;
+	DIR *directory;
+	struct dirent *item;
+	ssize_t amount;
+	int fd = -1, payload = -1, rc = -1, saved;
+
+	if (depth > 128 || ++*count > 100001 || !fy_is_mapping(object)) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (fstatat(parent, name, &st, AT_SYMLINK_NOFOLLOW))
+		return -1;
+	times = fyai_project_attributes(view->baseline, path, object);
+	kind = fy_get(object, "kind", "");
+	if ((st.st_mode & 07777) != fy_get(object, "mode", -1LL) ||
+	    st.st_uid != fy_get(object, "uid", -1LL) || st.st_gid != fy_get(object, "gid", -1LL) ||
+	    st.st_mtim.tv_sec != fy_get(times, "mtime_sec", -1LL) ||
+	    st.st_mtim.tv_nsec != fy_get(times, "mtime_nsec", -1LL)) {
+		errno = EIO;
+		return -1;
+	}
+	if (!strcmp(kind, "symlink")) {
+		if (!S_ISLNK(st.st_mode)) {
+			errno = EIO;
+			return -1;
+		}
+		if (view_unhex(fy_get(object, "target_hex", ""), target, sizeof(target)))
+			return -1;
+		amount = readlinkat(parent, name, actual, sizeof(actual));
+		if (amount < 0)
+			return -1;
+		if ((size_t)amount != strlen(target) || memcmp(actual, target, amount)) {
+			errno = EIO;
+			return -1;
+		}
+		return 0;
+	}
+	fd = openat(parent, name,
+		    O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC |
+			    (!strcmp(kind, "directory") ? O_DIRECTORY : 0));
+	if (fd < 0)
+		return -1;
+	if (!strcmp(kind, "directory")) {
+		directory = fdopendir(dup(fd));
+		if (!directory)
+			goto out;
+		errno = 0;
+		while ((item = readdir(directory))) {
+			if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..") ||
+			    (!depth && !strcmp(item->d_name, ".fyai")))
+				continue;
+			children++;
+		}
+		saved = errno;
+		closedir(directory);
+		if (saved || children != fy_len(fy_get(object, "entries", fy_invalid))) {
+			errno = saved ? saved : EIO;
+			goto out;
+		}
+		fy_foreach(entry, fy_get(object, "entries", fy_invalid)) {
+			hex = fy_get(entry, "name_hex", "");
+			if (view_unhex(hex, child, sizeof(child)) || !*child ||
+			    strchr(child, '/') || !strcmp(child, ".") || !strcmp(child, "..")) {
+				errno = EINVAL;
+				goto out;
+			}
+			length = strlen(path) + strlen(hex) + 3;
+			if (length > PATH_MAX * 2) {
+				errno = ENAMETOOLONG;
+				goto out;
+			}
+			next = malloc(length);
+			if (!next)
+				goto out;
+			snprintf(next, length, "%s%s%s", path, *path ? "2f" : "", hex);
+			value = fy_get(fy_get(view->baseline, "objects", fy_invalid),
+				       fy_get(entry, "digest", ""), fy_invalid);
+			rc = view_verify_lower(view, fd, child, value, next, objects, data, hasher,
+					       depth + 1, count);
+			free(next);
+			next = NULL;
+			if (rc)
+				goto out;
+		}
+		rc = 0;
+		goto out;
+	}
+	if (strcmp(kind, "file") || !S_ISREG(st.st_mode)) {
+		errno = EIO;
+		goto out;
+	}
+	value = fy_get(object, "blob", fy_invalid);
+	digest = fy_get(value, "digest", "");
+	if (strlen(digest) != sizeof(blob.digest) - 1 || fy_get(value, "size", -1LL) < 0) {
+		errno = EINVAL;
+		goto out;
+	}
+	memcpy(blob.digest, digest, sizeof(blob.digest));
+	blob.size = fy_get(value, "size", 0LL);
+	blob.borrowed = fy_equal(fy_get(value, "storage", fy_invalid), "borrowed");
+	origin = fy_get(object, "borrowed", fy_invalid);
+	blob.source_device = fy_get(origin, "device", 0LL);
+	blob.source_inode = fy_get(origin, "inode", 0LL);
+	blob.source_mode = fy_get(origin, "mode", 0LL);
+	blob.source_uid = fy_get(origin, "uid", 0LL);
+	blob.source_gid = fy_get(origin, "gid", 0LL);
+	rc = fyai_cas_verify_hasher(objects, &blob, hasher);
+	if (rc)
+		goto out;
+	if (!view->metacopy) {
+		rc = fyai_cas_verify_file(fd, &blob, hasher);
+		goto out;
+	}
+	snprintf(redirect, sizeof(redirect), "/%s%s", blob.borrowed ? "b-" : "", blob.digest);
+	amount = fgetxattr(fd, "user.overlay.redirect", actual, sizeof(actual));
+	if (st.st_size != (off_t)blob.size || amount != (ssize_t)strlen(redirect) ||
+	    memcmp(actual, redirect, amount > 0 ? (size_t)amount : 0) ||
+	    fgetxattr(fd, "user.overlay.metacopy", NULL, 0) != 0) {
+		errno = EIO;
+		rc = -1;
+		goto out;
+	}
+	payload = openat(data, redirect + 1, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+	rc = payload < 0 ? -1 : fyai_cas_verify_file(payload, &blob, hasher);
+out:
+	saved = errno;
+	free(next);
+	if (payload >= 0)
+		close(payload);
+	close(fd);
+	errno = saved;
+	return rc;
+}
+
+int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview *view,
+			fy_generic expected, char *error, size_t error_size)
+{
+	struct fy_blake3_hasher_cfg cfg = { .num_threads = -1 };
+	struct fy_blake3_hasher *hasher = NULL;
+	struct fyai_fsview recovery = *view;
+	fy_generic root, snapshot;
+	char path[PATH_MAX];
+	size_t count = 0;
+	int runtime = -1, objects = -1, data = -1, rc = -1, saved;
+
+	runtime = open(view->runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (runtime < 0)
+		goto out;
+	rc = snprintf(path, sizeof(path), "%s/objects/blake3", view->storage);
+	if (rc < 0 || rc >= (int)sizeof(path)) {
+		errno = ENAMETOOLONG;
+		rc = -1;
+		goto out;
+	}
+	rc = -1;
+	objects = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (objects < 0)
+		goto out;
+	if (view->metacopy) {
+		data = openat(runtime, "data", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (data < 0)
+			goto out;
+	}
+	hasher = fy_blake3_hasher_create(&cfg);
+	if (!hasher) {
+		errno = ENOMEM;
+		goto out;
+	}
+	root = fy_get(fy_get(view->baseline, "objects", fy_invalid),
+		      fy_get(view->baseline, "root", ""), fy_invalid);
+	rc = view_verify_lower(view, runtime, "baseline", root, "", objects, data, hasher, 0,
+			       &count);
+	if (rc)
+		goto out;
+	recovery.verify = true;
+	recovery.lazy = true;
+	snapshot = fyai_fsview_snapshot(gb, &recovery, error, error_size);
+	if (!fy_is_mapping(snapshot) || !fyai_project_snapshot_equal(snapshot, expected)) {
+		if (fy_is_mapping(snapshot) || !errno)
+			errno = EIO;
+		rc = -1;
+	}
+out:
+	saved = errno;
+	if (hasher)
+		fy_blake3_hasher_destroy(hasher);
+	if (data >= 0)
+		close(data);
+	if (objects >= 0)
+		close(objects);
+	if (runtime >= 0)
+		close(runtime);
 	errno = saved;
 	return rc;
 }
@@ -621,7 +856,8 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 						  .mapped_owner = true,
 						  .host_uid = getuid(),
 						  .host_gid = getgid(),
-						  .verify = view->verify };
+						  .verify = view->verify,
+						  .defer_sync = view->lazy };
 	struct view_capture_reply reply = { 0 };
 	fy_generic snapshot = fy_invalid, emitted, verified;
 	fy_generic_sized_string input;
@@ -743,6 +979,17 @@ out:
 	return snapshot;
 }
 #else
+int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview *view,
+			fy_generic expected, char *error, size_t error_size)
+{
+	(void)gb;
+	(void)view;
+	(void)expected;
+	(void)error;
+	(void)error_size;
+	errno = ENOTSUP;
+	return -1;
+}
 int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t error_size)
 {
 	(void)view;

@@ -1304,7 +1304,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|mount|unmount|enter} ...`
+**Usage:** `fyai view {create|list|show|update|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1319,6 +1319,7 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `list` | list the filesystem views of the active branch |
 | `show` | inspect a named filesystem view |
 | `update` | replace a view with a fresh host snapshot |
+| `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
 | `unmount` | unmount the recorded inspection view |
 | `enter` | enter a private filesystem view |
@@ -1329,7 +1330,7 @@ With no command, `list` runs.
 
 capture a project and create a named view
 
-**Usage:** `fyai view create [--copy-git-objects] [--quiet] [--verify] NAME [PROJECT]`
+**Usage:** `fyai view create [--durability POLICY] [--copy-git-objects] [--quiet] [--verify] NAME [PROJECT]`
 
 Capture PROJECT, excluding its reserved .fyai directory, and record
 a named view on the active branch. Reject unsupported metadata and
@@ -1347,6 +1348,7 @@ observed concurrent changes. No provider credential is required.
 
 | Option | Description |
 | --- | --- |
+| `--durability POLICY` | select lazy persistence or a durable filesystem barrier; default from view/durability (lazy, durable) |
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
 | `--quiet` | suppress live capture progress while retaining the result summary; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
@@ -1393,7 +1395,7 @@ Show a view's baseline and latest recorded result identity.
 
 replace a view with a fresh host snapshot
 
-**Usage:** `fyai view update [--copy-git-objects] [--quiet] [--verify] NAME`
+**Usage:** `fyai view update [--durability POLICY] [--copy-git-objects] [--quiet] [--verify] NAME`
 
 Capture the host project again and replace the named view with a fresh
 baseline and empty upper. Discard the view's changes without changing
@@ -1410,9 +1412,34 @@ the host project. Refuse the update while the view is in use.
 
 | Option | Description |
 | --- | --- |
+| `--durability POLICY` | select lazy persistence or a durable filesystem barrier; update inherits the view policy (lazy, durable) |
 | `--copy-git-objects` | copy Git object bytes instead of borrowing host inodes; default false |
 | `--quiet` | suppress live capture progress while retaining the result summary; default false |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view sync
+
+force a filesystem view to persistent storage
+
+**Usage:** `fyai view sync NAME`
+
+Flush the view's CAS objects and backing files before recording that
+its current snapshot is synchronized. Keep its configured durability
+policy. Refuse synchronization while a command is using the view.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the filesystem view to synchronize |
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
