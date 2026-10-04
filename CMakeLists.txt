@@ -411,6 +411,7 @@ set(FYAI_SOURCES
     src/fyai_project_capture.c
     src/fyai_fsview.c
     src/fyai_view_apply.c
+    src/fyai_view_gc.c
     ${FYAI_EVENT_SOURCES}
     src/fyai_crash.c
     src/fyai_display.c

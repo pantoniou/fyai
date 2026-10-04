@@ -1026,15 +1026,22 @@ commands:
           description: join branches that have no common base
 
   - command: gc
-    title: collect the garbage of the arena
+    title: collect the garbage of the arena and of the project storage
     description: |
       Compact the arena. `--keep-reflogs N` also cuts the ref log to the
-      last N entries.
+      last N entries. Then remove, from the project storage (`.fyai` of a
+      project), the manifests, the blobs and the view trees that no branch
+      reaches: the project states of the ref log, the views that a branch
+      stores, and the base of a delta manifest. A file younger than `--grace`
+      seconds stays, because a capture that made it can still record it, and so
+      does a storage that a command holds. A removed view or a ref-log entry
+      that was cut frees its files at the next gc.
     surfaces: [cli]
     handler: gc
     render:
       message:
         - "gc: compacted {arena}{?compacted}"
+        - "gc: project storage: {project}{?compacted}"
         - "gc: no arena at {arena}{?missing}"
     flags: [no-storage]
     arguments:
@@ -1046,6 +1053,13 @@ commands:
           minimum: 1
           description: keep only the last N ref-log entries
           x-fyai-meta: N
+        grace:
+          type: integer
+          minimum: 0
+          default: 3600
+          description: keep the files of the project storage that are younger than this many seconds
+          x-fyai-long: grace
+          x-fyai-meta: SECONDS
 
   - command: export
     title: write the conversation in the textual export format

@@ -1945,6 +1945,9 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_gc_args *args = &cfg->cmd.args.gc;
+	struct fyai_view_gc_stats stats;
+	struct fyai_root r;
+	fy_generic root;
 	int rc;
 
 	if (access(cfg->arena_dir, F_OK)) {
@@ -1960,16 +1963,33 @@ int fyai_gc_storage(struct fyai_ctx *ctx)
 	 * the rewrite and release it again - the compaction needs a quiescent
 	 * arena.
 	 */
+	if (fyai_setup_storage(ctx))
+		return -1;
 	if (args->keep_reflogs >= 1) {
-		if (fyai_setup_storage(ctx))
-			return -1;
 		rc = fyai_reflog_truncate(ctx, args->keep_reflogs);
-		fyai_close_storage(ctx);
 		if (rc) {
+			fyai_close_storage(ctx);
 			fyai_error(ctx, "gc: failed to truncate ref log");
 			return -1;
 		}
+		/* The roots are those of the cut ref log. */
+		root = (fy_generic){ .v = ctx->refs_head };
+		if (fyai_root_decode(root, &r) >= 0)
+			ctx->arena_branches = r.branches;
 	}
+	/*
+	 * The files of the project storage that the arena no longer reaches go
+	 * while the arena is open to read the references, and before the
+	 * compaction needs it quiet.
+	 */
+	rc = fyai_view_gc(ctx, args->grace, &stats);
+	args->manifests = stats.manifests;
+	args->objects = stats.objects;
+	args->runtimes = stats.runtimes;
+	args->bytes = stats.bytes;
+	fyai_close_storage(ctx);
+	if (rc)
+		return -1;
 	rc = fy_durable_arena_gc(cfg->arena_dir);
 	if (rc == 1) {
 		fyai_error(ctx, "gc: arena is busy");

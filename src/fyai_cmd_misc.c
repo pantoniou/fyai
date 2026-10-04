@@ -409,11 +409,16 @@ int fyai_cmd_gc(struct fyai_cmd_call *call, fy_generic *result)
 	int rc;
 
 	args->keep_reflogs = fy_get(call->args, "keep_reflogs", -1LL);
+	args->grace = (unsigned int)fy_get(call->args, "grace", 3600LL);
 	rc = fyai_gc_storage(call->ctx);
 	if (rc < 0)
 		return -1;
 	*result = fy_mapping(call->gb, "arena", call->ctx->cfg->arena_dir,
-			     "compacted", rc == 0, "missing", rc == 1);
+			     "compacted", (bool)(rc == 0), "missing", (bool)(rc == 1),
+			     "project", fy_stringf(call->gb, "removed %zu manifests, %zu objects "
+						   "and %zu view trees (%llu bytes)",
+						   args->manifests, args->objects, args->runtimes,
+						   args->bytes));
 	return 0;
 }
 

@@ -442,7 +442,7 @@ int fyai_view_capture(const struct fyai_view_request *request, fy_generic *recor
 		"baseline", "data", "upper", "work", "cover", "merged"
 	};
 	size_t i;
-	int rc = -1, root = -1, lock = -1, saved;
+	int rc = -1, root = -1, lock = -1, gc_lock = -1, saved;
 	unsigned int attempt = 0;
 	bool complete = false, unstable = false;
 
@@ -503,6 +503,12 @@ int fyai_view_capture(const struct fyai_view_request *request, fy_generic *recor
 	if (view_storage_beneath(resolved, storage) ||
 	    view_storage_beneath(resolved, ctx->cfg->arena_dir)) {
 		errno = EINVAL;
+		goto out;
+	}
+	/* The capture and its record in the arena are not collected while it runs. */
+	gc_lock = fyai_view_storage_lock_shared(storage);
+	if (gc_lock < 0) {
+		rc = -1;
 		goto out;
 	}
 retry:
@@ -659,6 +665,8 @@ out:
 		close(root);
 	if (lock >= 0)
 		close(lock);
+	if (gc_lock >= 0)
+		close(gc_lock);
 	if (!complete && unstable && saved == EAGAIN)
 		fyai_error(ctx,
 			   "view '%s': project changed during capture at %s after "
@@ -2335,6 +2343,27 @@ static char *project_state_root(struct fyai_ctx *ctx)
 	return root;
 }
 
+char *fyai_view_project_root(struct fyai_ctx *ctx)
+{
+	return project_state_root(ctx);
+}
+
+int fyai_view_runtime_remove(const char *runtime)
+{
+	int fd, rc, saved;
+
+	fd = open(runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	rc = view_runtime_clear(fd, 0);
+	saved = errno;
+	close(fd);
+	errno = saved;
+	if (rc)
+		return -1;
+	return rmdir(runtime);
+}
+
 bool fyai_view_isolation_available(struct fyai_ctx *ctx)
 {
 	char *root;
@@ -2373,7 +2402,7 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
 	bool durable = fy_equal(fy_get(section, "durability", "lazy"), "durable");
 	unsigned int attempt;
-	int rc = -1, saved;
+	int rc = -1, saved, gc_lock = -1;
 
 	*ref = fy_invalid;
 	root = project_state_root(ctx);
@@ -2382,6 +2411,11 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	rc = view_storage(root, &storage, &objects, &views);
 	if (rc)
 		goto out;
+	gc_lock = fyai_view_storage_lock_shared(storage);
+	if (gc_lock < 0) {
+		rc = -1;
+		goto out;
+	}
 	opts.source_fd = open(root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	opts.objects_fd = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (opts.source_fd < 0 || opts.objects_fd < 0) {
@@ -2412,6 +2446,8 @@ out:
 		close(opts.source_fd);
 	if (opts.objects_fd >= 0)
 		close(opts.objects_fd);
+	if (gc_lock >= 0)
+		close(gc_lock);
 	fyai_manifest_close(&manifest);
 	free(root);
 	free(storage);
@@ -2699,5 +2735,18 @@ int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool forc
 	(void)gb;
 	*report = fy_invalid;
 	return 0;
+}
+
+char *fyai_view_project_root(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return NULL;
+}
+
+int fyai_view_runtime_remove(const char *runtime)
+{
+	(void)runtime;
+	errno = ENOTSUP;
+	return -1;
 }
 #endif

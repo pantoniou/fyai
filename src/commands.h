@@ -124,6 +124,11 @@ struct fyai_gc_args {
 	 * predecessors); the rest are cut from the chain and freed. -1 keeps
 	 * the whole chain. */
 	int keep_reflogs;
+	/* A file of the project storage younger than this many seconds stays. */
+	unsigned int grace;
+	/* What the collection of the project storage removed. */
+	size_t manifests, objects, runtimes;
+	unsigned long long bytes;
 };
 
 struct fyai_diff_args {

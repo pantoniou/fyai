@@ -3,6 +3,7 @@
 #define FYAI_VIEW_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <libfyaml/libfyaml-generic.h>
 
@@ -108,5 +109,33 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx);
  */
 int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool force,
 			       struct fy_generic_builder *gb, fy_generic *report);
+
+/* The project that the arena belongs to, or NULL; the caller frees it. */
+char *fyai_view_project_root(struct fyai_ctx *ctx);
+
+/* Remove the runtime tree of a view: the directory and all that it holds. */
+int fyai_view_runtime_remove(const char *runtime);
+
+/*
+ * Garbage collection of the project storage. A manifest, a blob and a view runtime
+ * that no reference of the arena reaches is removed. The references are the project
+ * state of the ref-log entries, the stored views of each branch, and the base of a
+ * delta manifest. A file that is newer than grace seconds stays, because the
+ * capture that made it can record it later. A storage in use by a capture or by gc
+ * is skipped. The storage that the capture holds shared is the one that gc takes
+ * exclusive.
+ */
+struct fyai_view_gc_stats {
+	size_t manifests;
+	size_t objects;
+	size_t runtimes;
+	/* The bytes that the removed files held alone. */
+	uint64_t bytes;
+};
+
+int fyai_view_gc(struct fyai_ctx *ctx, unsigned int grace, struct fyai_view_gc_stats *stats);
+
+/* Take the lock of a storage that a capture holds while it writes; close the fd to release. */
+int fyai_view_storage_lock_shared(const char *storage);
 
 #endif

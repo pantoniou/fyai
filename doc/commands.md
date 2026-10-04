@@ -785,12 +785,18 @@ in the order in which they happened.
 
 ## fyai gc
 
-collect the garbage of the arena
+collect the garbage of the arena and of the project storage
 
-**Usage:** `fyai gc [--keep-reflogs N]`
+**Usage:** `fyai gc [--keep-reflogs N] [--grace SECONDS]`
 
 Compact the arena. `--keep-reflogs N` also cuts the ref log to the
-last N entries.
+last N entries. Then remove, from the project storage (`.fyai` of a
+project), the manifests, the blobs and the view trees that no branch
+reaches: the project states of the ref log, the views that a branch
+stores, and the base of a delta manifest. A file younger than `--grace`
+seconds stays, because a capture that made it can still record it, and so
+does a storage that a command holds. A removed view or a ref-log entry
+that was cut frees its files at the next gc.
 
 
 ### Options
@@ -798,6 +804,7 @@ last N entries.
 | Option | Description |
 | --- | --- |
 | `--keep-reflogs N` | keep only the last N ref-log entries |
+| `--grace SECONDS` | keep the files of the project storage that are younger than this many seconds; default 3600 |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
