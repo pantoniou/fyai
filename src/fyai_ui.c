@@ -8,6 +8,7 @@
 #define FYAI_MODULE FYAIEM_DISPLAY
 
 #include <fcntl.h>
+#include <errno.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
@@ -467,11 +468,19 @@ static void ui_pending_refresh(struct fyai_ui *ui)
 
 static int spool_open(struct ui_spool *s, int target)
 {
-	char path[] = "/tmp/fyai-ui-XXXXXX";
-	int writer = -1;
+	const char *directory = getenv("TMPDIR");
+	char path[PATH_MAX];
+	int writer = -1, length;
 
 	memset(s, 0, sizeof(*s));
 	s->saved = s->reader = -1;
+	/* A view makes TMPDIR the one directory that a session can write. */
+	length = snprintf(path, sizeof(path), "%s/fyai-ui-XXXXXX",
+			  directory && *directory ? directory : "/tmp");
+	if (length < 0 || (size_t)length >= sizeof(path)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
 	writer = mkstemp(path);
 	if (writer < 0)
 		return -1;

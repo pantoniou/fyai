@@ -423,6 +423,8 @@ struct fyai_cfg {
 	bool agent_child;
 	/* The parent limits a forked tool job. */
 	bool tool_child;
+	/* The command line of this process, kept to run it again in a view. */
+	char *const *argv;
 	/* Serve the agent protocol on standard input and output. */
 	bool agent_rpc;
 	/* An executed tool child: serve the tool channel on fds 3 and 4. */

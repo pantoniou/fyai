@@ -46,4 +46,12 @@ const char *fyai_view_run_name(const struct fyai_view_run *run);
 int fyai_view_run_finish(struct fyai_ctx *ctx, struct fyai_view_run *run, char **summary);
 void fyai_view_run_free(struct fyai_view_run *run);
 
+/*
+ * Run this invocation again in the view named session when view/isolate_session
+ * asks for it. Return 1 when the session ran and ended, with the exit status in
+ * the configuration; 0 when it does not apply, and the caller runs the verb;
+ * -1 when the cause was reported.
+ */
+int fyai_view_session_bootstrap(struct fyai_ctx *ctx);
+
 #endif

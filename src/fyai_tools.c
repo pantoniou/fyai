@@ -4575,7 +4575,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		 * entering closes none of them. The process that enters
 		 * waits for the namespace init and then ends with its status.
 		 */
-		if (view && fyai_fsview_enter(view, -1))
+		if (view && (setenv("FYAI_VIEW", "1", 1) ||
+			     fyai_fsview_enter(view, -1)))
 			_exit(FYAI_SHELL_EXIT_SANDBOX);
 		if (exec)
 			fyai_tool_child_exec(ctx, slave >= 0, tp);
@@ -4715,6 +4716,9 @@ static bool fyai_agent_isolated(struct fyai_ctx *ctx, fy_generic args)
 	fy_generic asked = fy_get(args, "isolated", fy_invalid);
 	fy_generic section = fy_get(ctx->cfg->config_doc, "agent", fy_invalid);
 
+	/* The view that an agent or a session runs in is shared by what it starts. */
+	if (getenv("FYAI_VIEW"))
+		return false;
 	if (fy_is_bool(asked))
 		return fy_cast(asked, false);
 	return fy_equal(fy_get(section, "isolation", "none"), "view");

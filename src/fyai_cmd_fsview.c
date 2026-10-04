@@ -1202,13 +1202,14 @@ out:
 }
 
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
-		     struct shell_command_result *result)
+		     bool self, struct shell_command_result *result)
 {
 	struct fyai_child_spec spec = { .in_fd = -1,
 					.out_fd = -1,
 					.err_fd = -1,
 					.ctty_fd = -1,
 					.status_fd = -1,
+					.inherit_env = view->agent,
 					.view = view };
 	struct sigaction ignore = { .sa_handler = SIG_IGN }, previous;
 	struct termios terminal;
@@ -1252,10 +1253,16 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		if (rc != 1)
 			_exit(FYAI_SHELL_EXIT_EXEC);
 		spec.status_fd = status_pipe[1];
+		/* What an agent runtime starts is in the view, and shares it. */
+		if (view->agent && setenv("FYAI_VIEW", "1", 1))
+			_exit(FYAI_SHELL_EXIT_EXEC);
 		rc = fyai_child_exec_prepare(ctx, &spec);
 		if (rc)
 			_exit(rc);
-		if (argv && argv[0]) {
+		if (self) {
+			fyai_exec_self((const char *const *)argv);
+			fyai_child_status_report(3, FYAI_CHILD_STAGE_EXEC, errno);
+		} else if (argv && argv[0]) {
 			execvp(argv[0], argv);
 			fyai_child_status_report(3, FYAI_CHILD_STAGE_EXEC, errno);
 		} else {
@@ -1513,7 +1520,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	fy_foreach(argument, arguments)
 		argv[index++] = (char *)argument;
-	rc = view_exec(call->ctx, &run.spec, argv, &output);
+	rc = view_exec(call->ctx, &run.spec, argv, false, &output);
 	if (rc)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
@@ -1870,6 +1877,8 @@ out:
 /* A short account of the change, for the parent of an isolated agent. */
 static char *view_run_summary(struct fyai_ctx *ctx, const struct fyai_view_run *run, fy_generic result)
 {
+	struct fy_generic_builder_cfg builder_cfg = { 0 };
+	struct fy_generic_builder *gb = NULL;
 	struct fyai_manifest manifests[2] = { 0 };
 	fy_generic changes, row;
 	FILE *text;
@@ -1877,10 +1886,12 @@ static char *view_run_summary(struct fyai_ctx *ctx, const struct fyai_view_run *
 	char *out = NULL;
 	size_t count = 0, listed = 0, size = 0;
 
+	gb = fy_generic_builder_create(&builder_cfg);
+	fyai_error_check(ctx, gb, out, "could not make a builder for the change summary");
 	if (fyai_fsview_manifest_open(run->spec.storage, run->spec.baseline, &manifests[0]) ||
 	    fyai_fsview_manifest_open(run->spec.storage, result, &manifests[1]))
 		goto out;
-	changes = fyai_manifest_diff(ctx->transient_gb, &manifests[0], &manifests[1]);
+	changes = fyai_manifest_diff(gb, &manifests[0], &manifests[1]);
 	if (!fy_is_sequence(changes))
 		goto out;
 	fy_foreach(row, changes)
@@ -1909,6 +1920,8 @@ static char *view_run_summary(struct fyai_ctx *ctx, const struct fyai_view_run *
 		out = NULL;
 	}
 out:
+	if (gb)
+		fy_generic_builder_destroy(gb);
 	fyai_manifest_close(&manifests[0]);
 	fyai_manifest_close(&manifests[1]);
 	return out;
@@ -2006,6 +2019,79 @@ void fyai_view_run_free(struct fyai_view_run *run)
 		return;
 	view_run_release(run);
 	free(run);
+}
+
+int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic section = fy_get(cfg->config_doc, "view", fy_invalid);
+	struct shell_command_result output = { 0 };
+	struct fyai_view_run *run = NULL;
+	char **argv = NULL, startup[FYAI_CHILD_START_TEXT_MAX];
+	char *summary = NULL;
+	const char *why;
+	size_t argc = 0, i;
+	int rc = -1, saved;
+
+	if (!fy_get(section, "isolate_session", false) || getenv("FYAI_VIEW") ||
+	    cfg->tool_child || !cfg->argv || fyai_cfg_no_requests(cfg))
+		return 0;
+	if (ctx->tclient) {
+		fyai_error(ctx, "view: a session in a view cannot use credential isolation");
+		return -1;
+	}
+	if (!fyai_exec_self_available()) {
+		fyai_error(ctx, "view: this system cannot run the program again");
+		return -1;
+	}
+	while (cfg->argv[argc])
+		argc++;
+	argv = calloc(argc + 1, sizeof(*argv));
+	fyai_error_check(ctx, argv, out, "could not allocate the command line of the view");
+	for (i = 0; i < argc; i++)
+		argv[i] = cfg->argv[i];
+	if (fyai_view_run_begin(ctx, "session", &run))
+		goto out;
+	/*
+	 * The record of the view is on this branch. The session continues on it,
+	 * so the view and the conversation stay together, and a later command
+	 * finds the view on the branch that it names.
+	 */
+	if (setenv("FYAI_BRANCH", fyai_ctx_branch(ctx), 1)) {
+		fyai_error(ctx, "view: cannot pass the branch to the session: %s", strerror(errno));
+		goto out;
+	}
+	rc = view_exec(ctx, &run->spec, argv, true, &output);
+	if (rc) {
+		saved = errno;
+		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
+		fyai_error(ctx, "view 'session': cannot run the session: %s", strerror(saved));
+		goto out;
+	}
+	why = fyai_child_start_text(&output.start, NULL, run->spec.project, startup,
+				    sizeof(startup));
+	if (why) {
+		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
+		fyai_error(ctx, "view 'session': %s", why);
+		rc = -1;
+		goto out;
+	}
+	rc = fyai_view_run_finish(ctx, run, &summary);
+	if (rc)
+		goto out;
+	cfg->exit_status = output.exit_code;
+	fyai_notice(ctx, "The session ran in the view 'session' on the branch %s. Its changes "
+			 "are not in the project; %s\nReview them with `fyai -b %s view diff "
+			 "session` and apply them with `fyai -b %s view apply session`.\n",
+		    fyai_ctx_branch(ctx), summary ? summary : "the change could not be listed",
+		    fyai_ctx_branch(ctx), fyai_ctx_branch(ctx));
+	rc = 1;
+out:
+	free(summary);
+	free(argv);
+	shell_command_result_cleanup(&output);
+	fyai_view_run_free(run);
+	return rc;
 }
 
 #else
@@ -2117,5 +2203,11 @@ int fyai_view_run_finish(struct fyai_ctx *ctx, struct fyai_view_run *run, char *
 void fyai_view_run_free(struct fyai_view_run *run)
 {
 	(void)run;
+}
+
+int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return 0;
 }
 #endif

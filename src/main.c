@@ -63,6 +63,7 @@ int main(int argc, char **argv)
 	fyai_diag_drain(&cfg.diag);
 	if (rc)
 		return rc > 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+	cfg.argv = argv;
 
 	/*
 	 * With isolation on, this image is the bootstrap: it starts the

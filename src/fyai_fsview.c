@@ -537,6 +537,7 @@ char *fyai_fsview_scratch(const char *configured)
 bool fyai_fsview_project_usable(const char *project, const char *scratch)
 {
 	return strcmp(project, "/") && strcmp(project, scratch) &&
+	       !view_beneath(scratch, project) &&
 	       !view_beneath(project, fy_sprintfa("%s/" FYAI_FSVIEW_BACKING_NAME, scratch));
 }
 

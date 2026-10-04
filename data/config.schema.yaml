@@ -28,7 +28,17 @@ properties:
         default: ""
         description: >-
           Set the directory that a view replaces with a private tmpfs. An empty
-          value selects $TMPDIR, else /tmp. The path must be absolute and exist.
+          value selects $TMPDIR, else /tmp. The path must be absolute and exist,
+          and must not lie inside the project.
+      isolate_session:
+        type: boolean
+        default: false
+        description: >-
+          Run each session and prompt in the view named session of the
+          project. The invocation captures the project, runs again inside the
+          view, and records the result. Its changes stay in the view until
+          `view apply` writes them to the project. Linux only. It needs a
+          writable arena and no credential isolation.
   auth:
     type: string
     enum: [auto, api-key, chatgpt]

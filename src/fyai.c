@@ -45,6 +45,7 @@
 #include "fyai_prof.h"
 #include "fyai_ui.h"
 #include "fyai_tools.h"
+#include "fyai_view.h"
 #include "fyai_wait.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
@@ -3594,6 +3595,12 @@ int fyai_run(struct fyai_cfg *cfg)
 	rc = fyai_apply_config_ops(&ctx);
 	fyai_cfg_error_check(cfg, !rc, err_out, "config operation failed");
 
+	rc = fyai_view_session_bootstrap(&ctx);
+	fyai_cfg_error_check(cfg, rc >= 0, err_out, "could not run the session in a view");
+	if (rc > 0) {
+		rc = 0;
+		goto out;
+	}
 	rc = fyai_execute(&ctx);
 	fyai_cfg_error_check(cfg, !rc, err_out, "fyai execution failed");
 	if (cfg->reload_branch) {

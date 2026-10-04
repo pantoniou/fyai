@@ -1002,7 +1002,7 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 	}
 	/* Fail closed if any provider credential cannot be removed. */
 	stage = FYAI_CHILD_STAGE_ENV;
-	if (fyai_env_sanitize(spec->env_keep))
+	if (!spec->inherit_env && fyai_env_sanitize(spec->env_keep))
 		goto err_setup;
 	/* Describe the child's terminal and screen dimensions. */
 	if (spec->term)

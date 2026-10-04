@@ -66,7 +66,10 @@ int fyai_fsview_manifest_open(const char *storage, fy_generic reference,
 int fyai_fsview_manifest_publish(const char *storage, const struct fyai_manifest *manifest,
 				 bool durable, char name[FYAI_MANIFEST_NAME_SIZE]);
 
-/* Reject a project that the scratch tmpfs or the backing tree would hide. */
+/*
+ * Reject a project that the scratch tmpfs or the backing tree would hide, and a
+ * scratch directory that the project mount would hide.
+ */
 bool fyai_fsview_project_usable(const char *project, const char *scratch);
 
 /* Probe rootless CAS reads, metadata, and isolated write copy-up. */

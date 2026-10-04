@@ -239,6 +239,7 @@ struct fyai_child_spec {
 	const struct fyai_sandbox_spec *sandbox;
 	int status_fd;			/* says why a start stopped; -1 none */
 	const char *const *env_keep;	/* credentials to keep; NULL-terminated */
+	bool inherit_env;		/* a trusted runtime keeps its environment */
 };
 
 /* Apply @spec before exec, returning the child's failure exit status. */
