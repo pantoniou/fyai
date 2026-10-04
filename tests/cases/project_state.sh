@@ -55,5 +55,34 @@ run_fyai view diff 'main@{4}' 'main@{0}' --stat
 assert_status 0
 assert_stdout_contains 'modified file'
 
+# A reset takes the files back with the head.
+[ "$(cat file)" = two ] || fail 'the file is not at the state of the last turn'
+run_fyai reset HEAD~4
+assert_status 0
+[ "$(cat file)" = one ] || fail 'reset did not restore the file'
+
+# A path that changed since the state was recorded stops the reset, and
+# nothing changes.
+printf host > file
+run_fyai reset 'main@{1}'
+assert_status 1
+assert_stderr_contains 'the project changed since its state was recorded'
+[ "$(cat file)" = host ] || fail 'a refused reset changed the file'
+run_fyai list reflog --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+assert rows[0]['kind'] == 'reset', rows[0]
+PY
+
+# --force takes the state over the edit, and the edit is recorded first.
+run_fyai reset --force 'main@{1}'
+assert_status 0
+[ "$(cat file)" = two ] || fail 'a forced reset did not restore the file'
+run_fyai reset 'main@{1}'
+assert_status 0
+[ "$(cat file)" = host ] || fail 'the edit was not recorded before the forced reset'
+
 mock_stop 3
 pass
