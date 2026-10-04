@@ -44,5 +44,16 @@ assert states[3] != states[4], states
 assert states[4] == states[5], states
 PY
 
+# A reference names the files of its point: the edit is between the first
+# answer and the last, and a view diff takes the references as it takes views.
+run_fyai view diff HEAD~4 HEAD --stat
+assert_status 0
+assert_stdout_contains 'modified file'
+run_fyai view diff HEAD~2 HEAD --stat
+assert_status 0
+run_fyai view diff 'main@{4}' 'main@{0}' --stat
+assert_status 0
+assert_stdout_contains 'modified file'
+
 mock_stop 3
 pass
