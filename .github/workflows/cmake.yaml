@@ -96,10 +96,13 @@ jobs:
         python -m pip install --upgrade yq
 
     - name: "Configure"
+      # The hosted runners are slow: scale every test deadline, the CTest
+      # timeouts included. The scale is a configure option, not a delay.
       run: |
         cmake -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-          -DENABLE_ASAN=${{ matrix.asan }}
+          -DENABLE_ASAN=${{ matrix.asan }} \
+          -DFYAI_TIMEOUT_SCALE=${{ matrix.asan == 'ON' && '6' || '3' }}
 
     - name: "Build"
       run: |
