@@ -374,6 +374,15 @@ properties:
         description: >-
           Terminate a sub-agent after hang_timeout_ms. Disable this to report
           advisory overruns without terminating agents.
+      isolation:
+        type: string
+        enum: [none, view]
+        default: none
+        description: >-
+          Select where sub-agents run. none shares the project with the parent.
+          view runs each sub-agent in a private view of the project: its
+          changes stay in the view until the user applies them. The call can
+          override this with the `isolated` parameter.
       personas:
         type: object
         description: >-

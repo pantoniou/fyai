@@ -140,6 +140,10 @@ agent:
   # auto, level-a (cgroup v2 subtree; not built yet) and level-b (PID and
   # pidfd only). auto takes level-b for now.
   transport_isolation: none
+  # Linux only. none shares the project with the parent. view runs each
+  # sub-agent in a private view of the project; its changes stay in the view
+  # until the user applies them.
+  isolation: none
   # Maximum depth of sub-agent branch paths, including ordinary components.
   max_branch_depth: 8
   # Maximum admitted agents in this invocation's descendant tree.

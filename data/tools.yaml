@@ -332,6 +332,10 @@
           type: integer
           description: |-
             Optional time limit in milliseconds. The sub-agent and every process it started are stopped when it expires.
+        isolated:
+          type: boolean
+          description: |-
+            Run the sub-agent in a private view of the project. It sees the project as it is now and can change it freely, but its changes do not reach the project: the tool result names the view that holds them and lists what changed. The user takes them with `view apply`. Omit it to use the `agent/isolation` setting. Use it for work that edits files speculatively or in parallel with other work.
       required:
         - name
         - description

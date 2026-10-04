@@ -51,6 +51,8 @@
 #include "fyai_terminal_session.h"
 #include "fyai_output.h"
 #include "fyai_tools.h"
+#include "fyai_view.h"
+#include "fyai_fsview.h"
 #include "fyai_wait.h"
 #include "fyai_prof.h"
 #include "fyai_render.h"
@@ -2329,6 +2331,8 @@ struct fyai_tool_job {
 	struct fyai_tool_job_group *group;
 	struct fyai_tool_job *next;	/* ctx->tool_jobs, for a resize */
 	struct fyai_shell_session *session;	/* the session this job drives */
+	struct fyai_view_run *view_run;	/* the view of an isolated sub-agent */
+	bool view_entry_failed;		/* the child could not enter that view */
 };
 
 /* A named job whose terminal view remains readable after exit. */
@@ -4485,7 +4489,8 @@ static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty, bool tp)
 
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
-			       struct fyai_tool_job *job, bool pty, bool exec)
+			       struct fyai_tool_job *job, bool pty, bool exec,
+			       const struct fyai_fsview *view)
 {
 	int req[2] = { -1, -1 };	/* parent -> child */
 	int rsp[2] = { -1, -1 };	/* child -> parent */
@@ -4565,6 +4570,13 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		if (fyai_tool_child_fds(req[0], rsp[1], tp ? tpa[0] : -1,
 					tp ? tpc[0] : -1))
 			_exit(126);
+		/*
+		 * The view is entered after the descriptors are arranged:
+		 * entering closes none of them. The process that enters
+		 * waits for the namespace init and then ends with its status.
+		 */
+		if (view && fyai_fsview_enter(view, -1))
+			_exit(FYAI_SHELL_EXIT_SANDBOX);
 		if (exec)
 			fyai_tool_child_exec(ctx, slave >= 0, tp);
 
@@ -4694,6 +4706,80 @@ static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
 	job->pfd = -1;
 }
 
+/*
+ * Whether a sub-agent runs in a view of its own: the call decides, else the
+ * agent/isolation setting does.
+ */
+static bool fyai_agent_isolated(struct fyai_ctx *ctx, fy_generic args)
+{
+	fy_generic asked = fy_get(args, "isolated", fy_invalid);
+	fy_generic section = fy_get(ctx->cfg->config_doc, "agent", fy_invalid);
+
+	if (fy_is_bool(asked))
+		return fy_cast(asked, false);
+	return fy_equal(fy_get(section, "isolation", "none"), "view");
+}
+
+/* The view of a sub-agent is named for it; a name that a command takes needs no quoting. */
+static int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
+				 struct fyai_view_run **run)
+{
+	char name[FYAI_BRANCH_NAME_MAX + 8];
+	size_t i, n;
+	int rc;
+
+	if (getenv("FYAI_VIEW")) {
+		fyai_error(ctx, "a sub-agent that runs in a view cannot isolate "
+			   "its own sub-agents");
+		return -1;
+	}
+	/*
+	 * The transport admits a sub-agent by the process it started. An agent
+	 * in a view runs in another PID namespace, so the transport would
+	 * refuse its requests.
+	 */
+	if (ctx->tclient) {
+		fyai_error(ctx, "a sub-agent cannot run in a view under credential isolation");
+		return -1;
+	}
+	n = snprintf(name, sizeof(name), "agent-");
+	for (i = 0; agent[i] && n + 1 < sizeof(name); i++)
+		name[n++] = isalnum((unsigned char)agent[i]) || agent[i] == '_' ||
+			    agent[i] == '-' ? agent[i] : '-';
+	name[n] = '\0';
+	rc = fyai_view_run_begin(ctx, name, run);
+	return rc;
+}
+
+/* Capture what the isolated sub-agent changed and tell its parent where it is. */
+static void fyai_agent_view_finish(struct fyai_ctx *ctx, struct fyai_tool_job *job,
+				   fy_generic *result)
+{
+	char *summary = NULL;
+	const char *name = fyai_view_run_name(job->view_run);
+	int rc;
+
+	rc = fyai_view_run_finish(ctx, job->view_run, &summary);
+	if (!fy_is_string(*result)) {
+		fyai_view_run_free(job->view_run);
+		job->view_run = NULL;
+		free(summary);
+		return;
+	}
+	if (rc)
+		*result = fy_stringf(ctx->transient_gb, "%s\n\n[The sub-agent ran in the view "
+				     "'%s', but its changes could not be captured; see the "
+				     "diagnostics.]", fy_castp(result, ""), name);
+	else
+		*result = fy_stringf(ctx->transient_gb, "%s\n\n[The sub-agent ran in the view "
+				     "'%s'. Its changes are not in the project; %s\nReview "
+				     "them with `view diff %s`.]", fy_castp(result, ""), name,
+				     summary ? summary : "the change could not be listed", name);
+	free(summary);
+	fyai_view_run_free(job->view_run);
+	job->view_run = NULL;
+}
+
 static void fyai_tool_job_discard(struct fyai_tool_job *job)
 {
 	if (!job)
@@ -4715,6 +4801,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 			;
 	fyai_tool_job_live_close(job, false);
 	fyai_tool_job_unlink(job->ctx, job);
+	fyai_view_run_free(job->view_run);
 	free(job->progress.data);
 	free(job->branch);
 	free(job->origin);
@@ -4866,6 +4953,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 					    fy_generic tool_call)
 {
 	struct fyai_tool_job *job = NULL;
+	struct fyai_view_run *view_run = NULL;
 	struct response_buffer view = {0};
 	const char *name, *args_text, *command;
 	const char *asked, *cmdtext;
@@ -4948,6 +5036,12 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		fyai_tool_submit_check(ctx, !rc, err,
 				       "could not name the sub-agent branch");
 		have_branch = true;
+		if (fyai_agent_isolated(ctx, args)) {
+			rc = fyai_agent_view_begin(ctx, fy_castp(&agent_name, "agent"),
+						   &view_run);
+			fyai_tool_submit_check(ctx, !rc, err,
+					       "could not isolate the sub-agent");
+		}
 	}
 
 	/* A named session must explicitly request a terminal. */
@@ -5007,9 +5101,12 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				 fyai_agents_detail(ctx->agent_execution ? 2 : 1) == 2 &&
 				 fyai_ui_active(ctx),
 				 fy_equal(name, "agent") &&
-				 fyai_agent_spawn_exec(ctx));
+				 fyai_agent_spawn_exec(ctx),
+				 view_run ? fyai_view_run_spec(view_run) : NULL);
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
+	job->view_run = view_run;
+	view_run = NULL;
 	fyai_tool_job_link(ctx, job);
 	if (have_session) {
 		user_owned = fy_get(args, "_fyai_user_owned", false);
@@ -5175,6 +5272,7 @@ live_open_done:
 
 err:
 	free(session_name);
+	fyai_view_run_free(view_run);
 	fyai_tool_job_discard(job);
 	return NULL;
 }
@@ -6223,6 +6321,9 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 						 WEXITSTATUS(status) == 0;
 			job->term_signal = WIFSIGNALED(status) ?
 						WTERMSIG(status) : 0;
+			job->view_entry_failed = job->view_run && !job->have_result &&
+				WIFEXITED(status) &&
+				WEXITSTATUS(status) == FYAI_SHELL_EXIT_SANDBOX;
 		}
 	}
 	/* Adopt diagnostics before reporting a missing child result. */
@@ -6244,6 +6345,10 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 			       "[%s] terminated by signal %d",
 			       job->origin ? job->origin : "tool",
 			       job->term_signal);
+	} else if (job->view_entry_failed) {
+		fyai_error(ctx, "[%s] could not enter its view: the mount setup "
+			   "failed; run it without isolation",
+			   job->origin ? job->origin : "agent");
 	} else if (!job->timed_out && !job->have_result) {
 		fyai_error(ctx, "[%s] ended without a result%s",
 			   job->origin ? job->origin : "tool",
@@ -6333,6 +6438,8 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 				fy_castp(&result, ""), job->timeout_ms,
 				(long long)job->elapsed_ms);
 	}
+	if (job->view_run)
+		fyai_agent_view_finish(ctx, job, &result);
 	*okp = job->result_ok && !job->failed;
 	if (job->btw_panel) {
 		job->group = NULL;
