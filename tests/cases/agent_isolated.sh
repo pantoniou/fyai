@@ -23,6 +23,11 @@ run_fyai --set api=chat-completions --set display/stream=false --set tools=true 
 assert_status 0
 assert_stdout_contains "Isolated and done."
 
+# The model is told that isolation is optional, and is given the tool to pull.
+assert_request 0 'any(t["function"]["name"] == "agent" and "set `isolated` to true" in t["function"]["description"] and "{{" not in t["function"]["description"] for t in r["body"]["tools"])'
+assert_request 0 'any(t["function"]["name"] == "project_view" for t in r["body"]["tools"])'
+assert_request 1 'not any(t["function"]["name"] == "project_view" for t in r["body"]["tools"])'
+
 # The parent pulled the changes with the project_view tool, and only then.
 assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent-worker'"'"'" in m.get("content", "") for m in r["body"]["messages"])'
 assert_request 4 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_view_1" and isinstance(m.get("content"), dict) and m["content"].get("applied") == 2 for m in r["body"]["messages"])'
