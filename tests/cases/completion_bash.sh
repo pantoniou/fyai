@@ -42,6 +42,20 @@ grep -qx "<nospace>" "$TEST_DIR/words" || fail "--set: a space follows a path"
 complete_line config set reasoning/effort med >"$TEST_DIR/words"
 grep -qx medium "$TEST_DIR/words" || fail "config set: no value medium"
 
+if [ "$(uname -s)" = Linux ]; then
+	mkdir view-project
+	run_fyai view create test-view "$TEST_DIR/view-project"
+	assert_status 0
+	for verb in show update diff remove sync mount unmount enter; do
+		complete_line view "$verb" te >"$TEST_DIR/words"
+		grep -qx test-view "$TEST_DIR/words" || fail "view $verb: no view name"
+	done
+	run_fyai view remove test-view
+	assert_status 0
+	complete_line view enter te >"$TEST_DIR/words"
+	if grep -qx test-view "$TEST_DIR/words"; then fail "removed view still completes"; fi
+fi
+
 # Outside a project, completion gives the commands and makes no project.
 fyai_test_setup_bare
 run_fyai completion bash
