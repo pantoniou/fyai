@@ -36,5 +36,29 @@ assert_status 0
 assert_stdout_contains 'file'
 assert_stdout_contains 'added'
 
+# A dry run reports the writes and makes none.
+run_fyai view apply --dry-run agent-worker
+assert_status 0
+assert_stdout_contains 'would write'
+[ "$(cat file)" = baseline ] || fail 'a dry run changed the project'
+[ ! -e added ] || fail 'a dry run added a file'
+
+# A path that the project changed since the baseline is a conflict, and is
+# left alone. The other paths are applied.
+printf host > file
+run_fyai view apply agent-worker
+assert_status 1
+assert_stdout_contains 'action: conflict'
+[ "$(cat file)" = host ] || fail 'a conflict changed the project'
+[ "$(cat added)" = new ] || fail 'the added file was not applied'
+rm added
+
+# A selected path applies alone, once the project is at the baseline again.
+printf baseline > file
+run_fyai view apply agent-worker file
+assert_status 0
+[ "$(cat file)" = changed ] || fail 'the selected path was not applied'
+[ ! -e added ] || fail 'an unselected path was applied'
+
 mock_stop 4
 pass

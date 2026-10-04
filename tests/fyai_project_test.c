@@ -23,8 +23,10 @@
 #include <pthread.h>
 #endif
 #include <unistd.h>
+#include <ftw.h>
 
 #include "fyai_manifest.h"
+#include "fyai_view_apply.h"
 #include "fyai_project.h"
 #include "fyai_fsview.h"
 #include "fyai_project_capture.h"
@@ -40,6 +42,7 @@ FYAI_TEST_ENTRY(project, capture_parallel, project_capture_parallel)
 FYAI_TEST_ENTRY(project, directory_validation, project_directory_validation)
 FYAI_TEST_ENTRY(project, table_lookup, project_table_lookup)
 FYAI_TEST_ENTRY(project, capture_delta, project_capture_delta)
+FYAI_TEST_ENTRY(project, view_apply, project_view_apply)
 
 static struct fy_generic_builder *project_builder(void)
 {
@@ -834,5 +837,173 @@ int project_capture_delta(void)
 	close(source);
 	close(opts.objects_fd);
 	close(root);
+	return 0;
+}
+
+static int apply_remove(const char *path, const struct stat *st, int type, struct FTW *walk)
+{
+	(void)st;
+	(void)type;
+	(void)walk;
+	return remove(path);
+}
+
+/* Write the files of the baseline tree of the apply test into a directory. */
+static int apply_baseline(int directory)
+{
+	if (mkdirat(directory, "a", 0755) || mkdirat(directory, "b", 0755) ||
+	    mkdirat(directory, "c", 0755))
+		return -1;
+	if (delta_put(directory, "a/x", "one") || delta_put(directory, "a/y", "two") ||
+	    delta_put(directory, "b/z", "three") || delta_put(directory, "c/w", "four") ||
+	    delta_put(directory, "top", "top"))
+		return -1;
+	return symlinkat("a/x", directory, "link");
+}
+
+static int apply_read(int directory, const char *path, char *text, size_t size)
+{
+	ssize_t length;
+	int fd = openat(directory, path, O_RDONLY | O_CLOEXEC);
+
+	if (fd < 0)
+		return -1;
+	length = read(fd, text, size - 1);
+	close(fd);
+	if (length < 0)
+		return -1;
+	text[length] = '\0';
+	return 0;
+}
+
+static bool apply_is(int directory, const char *path, const char *expected)
+{
+	char text[64];
+
+	return !apply_read(directory, path, text, sizeof(text)) && !strcmp(text, expected);
+}
+
+static bool apply_absent(int directory, const char *path)
+{
+	struct stat st;
+
+	return fstatat(directory, path, &st, AT_SYMLINK_NOFOLLOW) && errno == ENOENT;
+}
+
+/*
+ * The result of a view is applied to a host that still has the baseline, to a
+ * host that changed a path, and to a host that put a symlink in place of a
+ * directory. Only the first kind takes every change.
+ */
+int project_view_apply(void)
+{
+	struct fyai_project_capture_opts opts = { .baseline_fd = -1, .upper_fd = -1, .workers = 2 };
+	struct fyai_manifest base = { 0 }, result = { 0 };
+	struct fyai_apply_summary summary;
+	struct fy_generic_builder *gb;
+	struct stat st;
+	const char *only[] = { "a/n", "d" };
+	char path[] = "/tmp/fyai-project-apply-XXXXXX", error[PATH_MAX], link[64];
+	fy_generic rows;
+	int root, source, host, outside, objects;
+	ssize_t length;
+
+#ifndef __linux__
+	/* The capture is not available here. */
+	return 0;
+#endif
+	FYAI_TCHECK(mkdtemp(path));
+	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(root >= 0);
+	FYAI_TCHECK(!mkdirat(root, "source", 0700) && !mkdirat(root, "objects", 0700));
+	source = openat(root, "source", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	objects = openat(root, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(source >= 0 && objects >= 0);
+	opts.source_fd = source;
+	opts.objects_fd = objects;
+	FYAI_TCHECK(!apply_baseline(source));
+	FYAI_TCHECK(!fyai_project_capture_manifest(&opts, &base, error, sizeof(error)));
+	/* The result: edited, added, removed, nested new directories, and a mode. */
+	FYAI_TCHECK(!delta_put(source, "a/x", "ONE!") && !delta_put(source, "a/n", "new") &&
+		    !unlinkat(source, "a/y", 0) && !unlinkat(source, "c/w", 0) &&
+		    !unlinkat(source, "c", AT_REMOVEDIR) && !mkdirat(source, "d", 0755) &&
+		    !mkdirat(source, "d/e", 0755) && !delta_put(source, "d/e/f", "deep") &&
+		    !delta_put(source, "run", "#!/bin/sh\n") && !fchmodat(source, "run", 0755, 0) &&
+		    !unlinkat(source, "link", 0) && !symlinkat("b/z", source, "link"));
+	FYAI_TCHECK(!fyai_project_capture_manifest(&opts, &result, error, sizeof(error)));
+	gb = project_builder();
+	FYAI_TCHECK(gb);
+
+	/* A host at the baseline takes every change. */
+	FYAI_TCHECK(!mkdirat(root, "host", 0755));
+	host = openat(root, "host", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(host >= 0 && !apply_baseline(host));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, true, &rows,
+				     &summary));
+	FYAI_TCHECK(summary.applied > 0 && !summary.conflicts && apply_is(host, "a/x", "one"));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(!summary.conflicts && !summary.skipped);
+	FYAI_TCHECK(apply_is(host, "a/x", "ONE!") && apply_is(host, "a/n", "new") &&
+		    apply_is(host, "d/e/f", "deep") && apply_is(host, "top", "top"));
+	FYAI_TCHECK(apply_absent(host, "a/y") && apply_absent(host, "c/w") &&
+		    apply_absent(host, "c"));
+	FYAI_TCHECK(!fstatat(host, "run", &st, 0) && (st.st_mode & 0111));
+	length = readlinkat(host, "link", link, sizeof(link) - 1);
+	FYAI_TCHECK(length == 3 && !memcmp(link, "b/z", 3));
+	/* Nothing is left to apply, and no staging file remains. */
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(!summary.applied && !summary.conflicts && summary.satisfied > 0);
+	FYAI_TCHECK(apply_absent(host, "a/.fyai-apply-0"));
+	close(host);
+
+	/* A path that the host changed is a conflict and keeps the host. */
+	FYAI_TCHECK(!mkdirat(root, "edited", 0755));
+	host = openat(root, "edited", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(host >= 0 && !apply_baseline(host) && !delta_put(host, "a/x", "mine") &&
+		    !delta_put(host, "c/w", "four, and more"));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(summary.conflicts == 2 && apply_is(host, "a/x", "mine") &&
+		    apply_is(host, "c/w", "four, and more") && apply_is(host, "a/n", "new") &&
+		    apply_absent(host, "a/y"));
+	close(host);
+
+	/* A selection takes the named path and what is beneath it. */
+	FYAI_TCHECK(!mkdirat(root, "selected", 0755));
+	host = openat(root, "selected", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(host >= 0 && !apply_baseline(host));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, only, 2, false, &rows,
+				     &summary));
+	FYAI_TCHECK(!summary.conflicts && apply_is(host, "a/n", "new") &&
+		    apply_is(host, "d/e/f", "deep") && apply_is(host, "a/x", "one") &&
+		    apply_is(host, "a/y", "two"));
+	close(host);
+
+	/* A symlink where a directory was expected is not followed. */
+	FYAI_TCHECK(!mkdirat(root, "outside", 0755) && !mkdirat(root, "linked", 0755));
+	outside = openat(root, "outside", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	host = openat(root, "linked", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(outside >= 0 && host >= 0);
+	FYAI_TCHECK(!delta_put(outside, "x", "one") && !delta_put(outside, "y", "two"));
+	FYAI_TCHECK(!symlinkat("../outside", host, "a") && !mkdirat(host, "b", 0755) &&
+		    !mkdirat(host, "c", 0755) && !delta_put(host, "b/z", "three") &&
+		    !delta_put(host, "c/w", "four") && !delta_put(host, "top", "top") &&
+		    !symlinkat("a/x", host, "link"));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(summary.conflicts >= 3 && apply_is(outside, "x", "one") &&
+		    apply_is(outside, "y", "two") && apply_absent(outside, "n"));
+	close(outside);
+	close(host);
+
+	fy_generic_builder_destroy(gb);
+	fyai_manifest_close(&result);
+	fyai_manifest_close(&base);
+	close(source);
+	close(objects);
+	close(root);
+	FYAI_TCHECK(!nftw(path, apply_remove, 16, FTW_DEPTH | FTW_PHYS));
 	return 0;
 }
