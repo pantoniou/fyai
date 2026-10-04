@@ -17,6 +17,8 @@
 #include "fyai.h"
 #include "fyai_config.h"
 #include "fyai_tool_spec.h"
+#include "fyai_tool_template.h"
+#include "fyai_view.h"
 
 /* The embedded data/tools.yaml document. */
 #include "embedded_tools.inc"
@@ -78,6 +80,19 @@ static fy_generic tools_describe_personas(struct fyai_ctx *ctx, fy_generic tool)
 					fy_get(params, "additionalProperties"))));
 }
 
+/* A run that cannot isolate a sub-agent does not offer the parameter that asks for it. */
+static fy_generic tools_strip_isolated(struct fyai_ctx *ctx, fy_generic tool)
+{
+	struct fy_generic_builder *gb = ctx->cfg->gb;
+	fy_generic fn = fy_get(tool, "function"), params = fy_get(fn, "parameters");
+	fy_generic props = fy_get(params, "properties");
+
+	props = fy_disassoc(gb, props, "isolated");
+	params = fy_assoc(gb, params, "properties", props);
+	fn = fy_assoc(gb, fn, "parameters", params);
+	return fy_assoc(gb, tool, "function", fn);
+}
+
 static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 {
 	return fy_is_invalid(ctx->tools_spec) ||
@@ -90,18 +105,24 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb = ctx->cfg->gb;
 	fy_generic tools, tool, fn, name, out;
+	bool isolation;
 
 	if (!fyai_tool_spec_needs_update(ctx))
 		return ctx->tools_spec;
 
 	tools = make_tools(ctx);
+	isolation = fyai_view_isolation_available(ctx);
 	out = fy_seq_empty;
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
 		name = fy_get(fn, "name");
-		out = fy_append(gb, out,
-				fy_equal(name, "agent") ?
-				tools_describe_personas(ctx, tool) : tool);
+		if (!isolation && fy_equal(name, "project_view"))
+			continue;
+		if (!isolation && fy_equal(name, "agent"))
+			tool = tools_strip_isolated(ctx, tool);
+		if (fy_equal(name, "agent"))
+			tool = tools_describe_personas(ctx, tool);
+		out = fy_append(gb, out, fyai_tool_template_expand(ctx, tool));
 	}
 	tools = assert_valid_generic(fy_gb_internalize(gb, out),
 				     "Unable to describe personas");

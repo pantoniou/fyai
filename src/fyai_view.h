@@ -88,4 +88,11 @@ fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 bool fyai_project_state_enabled(struct fyai_ctx *ctx);
 int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref);
 
+/*
+ * Whether this run can give a sub-agent a view of the project: Linux, a writable
+ * durable arena in the .fyai directory of the project, no credential isolation,
+ * and a run that is not itself in a view.
+ */
+bool fyai_view_isolation_available(struct fyai_ctx *ctx);
+
 #endif

@@ -2151,6 +2151,20 @@ static char *project_state_root(struct fyai_ctx *ctx)
 	return root;
 }
 
+bool fyai_view_isolation_available(struct fyai_ctx *ctx)
+{
+	char *root;
+	bool available;
+
+	if (ctx->cfg->transient || ctx->cfg->root_spec || ctx->gb != ctx->durable_gb ||
+	    getenv("FYAI_VIEW") || ctx->tclient)
+		return false;
+	root = project_state_root(ctx);
+	available = root != NULL;
+	free(root);
+	return available;
+}
+
 bool fyai_project_state_enabled(struct fyai_ctx *ctx)
 {
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
@@ -2375,5 +2389,11 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	(void)ctx;
 	*ref = fy_invalid;
 	return 0;
+}
+
+bool fyai_view_isolation_available(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return false;
 }
 #endif
