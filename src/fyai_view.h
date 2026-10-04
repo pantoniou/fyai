@@ -54,4 +54,26 @@ void fyai_view_run_free(struct fyai_view_run *run);
  */
 int fyai_view_session_bootstrap(struct fyai_ctx *ctx);
 
+enum fyai_view_pull_mode {
+	/* List the changes of the result. */
+	FYAI_VIEW_PULL_CHANGES,
+	/* Report what an apply would do. */
+	FYAI_VIEW_PULL_DRY_RUN,
+	/* Write the result to the project. */
+	FYAI_VIEW_PULL_APPLY,
+};
+
+/*
+ * Read the result of a view back into the project: the one entry of the
+ * `view diff --stat`, `view apply --dry-run` and `view apply` commands and of
+ * the project_view tool. The result is built in gb. paths selects what to
+ * apply; none selects every change. Return 0, or -1 with the cause reported.
+ */
+int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
+		   const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
+		   fy_generic *result);
+
+/* The stored views of the branch, by name; the value is borrowed. */
+fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+
 #endif

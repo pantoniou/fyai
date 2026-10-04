@@ -112,7 +112,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 			fn = fy_get(tool, "function");
 			name = fy_get(fn, "name");
 			/* A sub-agent may ask upward but cannot manage agents. */
-			if (fy_any_equal(name, "agent", "agent_input"))
+			if (fy_any_equal(name, "agent", "agent_input", "project_view"))
 				continue;
 			out = fy_append(gb, out, tool);
 		}

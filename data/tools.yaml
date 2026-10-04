@@ -343,6 +343,36 @@
       additionalProperties: false
 - type: function
   function:
+    name: project_view
+    description: |-
+      Work with the project views that isolated sub-agents leave. A sub-agent that ran with `isolated` changed its own private copy of the project, not the project; its report names the view that holds the changes. `list` shows the views and their state, `changes` lists what a view changed against its baseline, and `apply` writes those changes into the project. Apply only takes a path that the project still has as the baseline had it: a path that you or another agent changed since is reported as a conflict and is left alone. Name `paths` to apply only those paths and what is beneath them. Use `dry_run` to see the outcome first. The user can review the same views with `view diff NAME`.
+    parameters:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [list, changes, apply]
+          description: |-
+            `list` the views, `changes` of one view, or `apply` them to the project.
+        name:
+          type: string
+          description: |-
+            The view, as the report of the sub-agent names it. Required for `changes` and `apply`.
+        paths:
+          type: array
+          description: |-
+            For `apply`: project-relative paths to apply. Omit it to apply every change.
+          items:
+            type: string
+        dry_run:
+          type: boolean
+          description: |-
+            For `apply`: report what would change and write nothing.
+      required:
+        - action
+      additionalProperties: false
+- type: function
+  function:
     name: time
     description: |-
       Report the current time. The system instructions are frozen when a conversation starts, so they cannot tell you what the time is now; ask for it when it matters, and to measure how long something took.

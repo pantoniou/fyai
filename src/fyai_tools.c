@@ -1481,6 +1481,7 @@ static char *fyai_shell_output_tool(struct fyai_ctx *ctx, fy_generic args,
 				    bool *okp);
 static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
+static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
 static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
@@ -1717,6 +1718,9 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		result = fyai_agent_input_tool(ctx, args, okp);
 	} else if (fy_equal(name, "shell_close")) {
 		result = fyai_shell_close_tool(ctx, args, okp);
+	} else if (fy_equal(name, "project_view")) {
+		result_generic = fyai_view_tool(ctx, args, okp);
+		return result_generic;
 	} else if (fy_equal(name, "time")) {
 		result = fyai_time_tool(ctx, okp);
 	} else if (fy_equal(name, "wait")) {
@@ -3625,7 +3629,7 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	return !fy_equal(name, "ask_user") &&
 	       !fy_any_equal(name, "shell_output", "shell_input",
 			     "shell_close") &&
-	       !fy_any_equal(name, "time", "wait") &&
+	       !fy_any_equal(name, "time", "wait", "project_view") &&
 	       !fyai_mcp_tool_name(name);
 }
 
@@ -4711,6 +4715,57 @@ static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
  * Whether a sub-agent runs in a view of its own: the call decides, else the
  * agent/isolation setting does.
  */
+/* The project_view tool: list the views, list a change or apply it. */
+static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	enum fyai_view_pull_mode mode;
+	fy_generic paths = fy_get(args, "paths", fy_seq_empty), result, view, views;
+	const char *action = fy_get(args, "action", ""), *name = fy_get(args, "name", "");
+	const char **selected = NULL, *path, *key;
+	size_t count = fy_len(paths), index = 0;
+	char *diag;
+	int rc;
+
+	*okp = false;
+	if (getenv("FYAI_VIEW"))
+		return fy_value(ctx->transient_gb, "tool error: project_view is not available inside a view");
+	if (!strcmp(action, "list")) {
+		result = fy_sequence(ctx->transient_gb);
+		views = fyai_view_list(ctx, ctx->transient_gb);
+		fy_foreach_key_value(key, view, views)
+			result = fy_append(ctx->transient_gb, result,
+					   fy_mapping(ctx->transient_gb, "name", fy_value(ctx->transient_gb, key),
+						      "state", fy_get(view, "state", "ready")));
+		*okp = true;
+		return fy_gb_internalize(ctx->transient_gb, result);
+	}
+	if (strcmp(action, "changes") && strcmp(action, "apply"))
+		return fy_value(ctx->transient_gb, "tool error: action is list, changes or apply");
+	if (!*name)
+		return fy_value(ctx->transient_gb, "tool error: name the view");
+	selected = calloc(count + 1, sizeof(*selected));
+	fyai_error_check(ctx, selected, err, "could not allocate the path list");
+	fy_foreach(path, paths)
+		selected[index++] = path;
+	mode = !strcmp(action, "changes") ? FYAI_VIEW_PULL_CHANGES :
+	       fy_get(args, "dry_run", false) ? FYAI_VIEW_PULL_DRY_RUN : FYAI_VIEW_PULL_APPLY;
+	rc = fyai_view_pull(ctx, ctx->transient_gb, name, selected, count, mode, &result);
+	free(selected);
+	if (rc) {
+		diag = fyai_diag_string(&ctx->cfg->diag);
+		result = fy_gb_internalize(ctx->transient_gb,
+			fy_stringf("tool error: %s", diag && *diag ? diag : "the view could not be read"));
+		free(diag);
+		return result;
+	}
+	/* A conflict is an outcome to read, not a failure of the call. */
+	ctx->cfg->exit_status = 0;
+	*okp = true;
+	return fy_gb_internalize(ctx->transient_gb, result);
+err:
+	return fy_value(ctx->transient_gb, "tool error: out of memory");
+}
+
 static bool fyai_agent_isolated(struct fyai_ctx *ctx, fy_generic args)
 {
 	fy_generic asked = fy_get(args, "isolated", fy_invalid);
@@ -4777,7 +4832,7 @@ static void fyai_agent_view_finish(struct fyai_ctx *ctx, struct fyai_tool_job *j
 	else
 		*result = fy_stringf(ctx->transient_gb, "%s\n\n[The sub-agent ran in the view "
 				     "'%s'. Its changes are not in the project; %s\nReview "
-				     "them with `view diff %s`.]", fy_castp(result, ""), name,
+				     "them with the project_view tool or `view diff %s`.]", fy_castp(result, ""), name,
 				     summary ? summary : "the change could not be listed", name);
 	free(summary);
 	fyai_view_run_free(job->view_run);
@@ -4805,6 +4860,13 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 			;
 	fyai_tool_job_live_close(job, false);
 	fyai_tool_job_unlink(job->ctx, job);
+	/* A cancelled isolated agent still leaves what it wrote in its view. */
+	if (job->view_run) {
+		char *summary = NULL;
+
+		(void)fyai_view_run_finish(job->ctx, job->view_run, &summary);
+		free(summary);
+	}
 	fyai_view_run_free(job->view_run);
 	free(job->progress.data);
 	free(job->branch);

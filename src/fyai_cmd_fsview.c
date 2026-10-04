@@ -840,7 +840,7 @@ out:
 	return rc;
 }
 
-static int view_diff_recover(struct fyai_cmd_call *call, const char *name, fy_generic *view)
+static int view_diff_recover(struct fyai_ctx *ctx, const char *name, fy_generic *view)
 {
 	struct fyai_fsview spec = { 0 };
 	char boot[37], error[PATH_MAX] = "";
@@ -862,15 +862,15 @@ static int view_diff_recover(struct fyai_cmd_call *call, const char *name, fy_ge
 		rc = -1;
 		goto out;
 	}
-	rc = view_recover(call->ctx, view, &spec, error, sizeof(error));
-	if (!rc && !call->ctx->cfg->root_spec && call->ctx->gb == call->ctx->durable_gb)
-		rc = view_save(call->ctx, name, *view);
+	rc = view_recover(ctx, view, &spec, error, sizeof(error));
+	if (!rc && !ctx->cfg->root_spec && ctx->gb == ctx->durable_gb)
+		rc = view_save(ctx, name, *view);
 out:
 	saved = errno;
 	if (lock >= 0)
 		close(lock);
 	if (rc)
-		fyai_error(call->ctx, "view '%s': cannot validate after reboot%s%s: %s", name,
+		fyai_error(ctx, "view '%s': cannot validate after reboot%s%s: %s", name,
 			   *error ? ": " : "", error, strerror(saved));
 	return rc ? -1 : 0;
 }
@@ -895,8 +895,8 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 			   fy_is_mapping(view) ? other : name);
 		return -1;
 	}
-	if (view_diff_recover(call, name, &view) ||
-	    (other && view_diff_recover(call, other, &peer)))
+	if (view_diff_recover(call->ctx, name, &view) ||
+	    (other && view_diff_recover(call->ctx, other, &peer)))
 		return -1;
 	if (!other)
 		peer = view;
@@ -993,50 +993,58 @@ out:
 	return rc ? -1 : 0;
 }
 
-int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
+fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 {
-	const char *name = fyai_cmd_arg_str(call, "name");
-	fy_generic paths = fy_get(call->args, "paths", fy_seq_empty);
+	(void)gb;
+	return fy_get(view_store(ctx), "views", fy_map_empty);
+}
+
+int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
+		   const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
+		   fy_generic *result)
+{
 	struct fyai_apply_summary summary;
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
 	fy_generic view, rows, snapshots[2];
-	const char *path, *project, *storage, *objects, **selected = NULL;
-	size_t count = fy_len(paths), index = 0;
+	const char *project, *storage, *objects;
 	int root = -1, cas = -1, rc = -1, saved;
 
-	view = view_find(call->ctx, name);
+	view = view_find(ctx, name);
 	if (!fy_is_mapping(view)) {
-		fyai_error(call->ctx, "view '%s' does not exist", name);
+		fyai_error(ctx, "view '%s' does not exist", name);
 		return -1;
 	}
-	if (view_diff_recover(call, name, &view))
+	if (view_diff_recover(ctx, name, &view))
 		return -1;
 	project = fy_get(view, "project", "");
 	storage = fy_get(view, "storage", "");
 	snapshots[0] = fy_get(view, "baseline", fy_invalid);
 	snapshots[1] = fy_get(view, "result", snapshots[0]);
-	selected = calloc(count + 1, sizeof(*selected));
-	if (!selected)
-		goto out;
-	fy_foreach(path, paths)
-		selected[index++] = path;
 	if (fyai_fsview_manifest_open(storage, snapshots[0], &manifests[0]) ||
 	    fyai_fsview_manifest_open(storage, snapshots[1], &manifests[1]))
 		goto out;
+	if (mode == FYAI_VIEW_PULL_CHANGES) {
+		rows = fyai_manifest_diff(gb, &manifests[0], &manifests[1]);
+		if (!fy_is_sequence(rows))
+			goto out;
+		*result = fy_mapping(gb, "changes", rows);
+		rc = 0;
+		goto out;
+	}
 	root = open(project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	objects = fy_sprintfa("%s/objects/blake3", storage);
 	cas = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (root < 0 || cas < 0)
 		goto out;
-	rc = fyai_view_apply(call->gb, root, cas, &manifests[0], &manifests[1], selected, count,
-			     fyai_cmd_arg_bool(call, "dry_run"), &rows, &summary);
+	rc = fyai_view_apply(gb, root, cas, &manifests[0], &manifests[1], paths, count,
+			     mode == FYAI_VIEW_PULL_DRY_RUN, &rows, &summary);
 	if (rc)
 		goto out;
-	*result = fy_mapping(call->gb, "applied", (long long)summary.applied, "satisfied",
+	*result = fy_mapping(gb, "applied", (long long)summary.applied, "satisfied",
 			     (long long)summary.satisfied, "conflicts", (long long)summary.conflicts,
 			     "skipped", (long long)summary.skipped, "changes", rows);
 	if (summary.conflicts)
-		call->ctx->cfg->exit_status = 1;
+		ctx->cfg->exit_status = 1;
 out:
 	saved = errno;
 	if (root >= 0)
@@ -1045,12 +1053,34 @@ out:
 		close(cas);
 	fyai_manifest_close(&manifests[0]);
 	fyai_manifest_close(&manifests[1]);
-	free(selected);
 	if (rc)
-		fyai_error(call->ctx, "view '%s': cannot apply to '%s': %s", name, project,
-			   strerror(saved));
+		fyai_error(ctx, "view '%s': cannot %s '%s': %s", name,
+			   mode == FYAI_VIEW_PULL_CHANGES ? "list the changes of" : "apply to",
+			   project, strerror(saved));
 	errno = saved;
 	return rc ? -1 : 0;
+}
+
+int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
+{
+	fy_generic paths = fy_get(call->args, "paths", fy_seq_empty);
+	const char *path, **selected;
+	size_t count = fy_len(paths), index = 0;
+	int rc;
+
+	selected = calloc(count + 1, sizeof(*selected));
+	if (!selected) {
+		fyai_error(call->ctx, "could not allocate the path list");
+		return -1;
+	}
+	fy_foreach(path, paths)
+		selected[index++] = path;
+	rc = fyai_view_pull(call->ctx, call->gb, fyai_cmd_arg_str(call, "name"), selected, count,
+			    fyai_cmd_arg_bool(call, "dry_run") ? FYAI_VIEW_PULL_DRY_RUN :
+								 FYAI_VIEW_PULL_APPLY,
+			    result);
+	free(selected);
+	return rc;
 }
 
 static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool replace)
@@ -2209,5 +2239,26 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 {
 	(void)ctx;
 	return 0;
+}
+
+int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
+		   const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
+		   fy_generic *result)
+{
+	(void)gb;
+	(void)name;
+	(void)paths;
+	(void)count;
+	(void)mode;
+	(void)result;
+	fyai_error(ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+{
+	(void)ctx;
+	(void)gb;
+	return fy_map_empty;
 }
 #endif
