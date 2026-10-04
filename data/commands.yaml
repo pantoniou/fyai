@@ -750,12 +750,17 @@ commands:
     title: move the head of the branch to a reference
     description: |
       Move the head of the current branch to REF. The previous head stays
-      in the ref log as `<branch>@{1}`.
+      in the ref log as `<branch>@{1}`. With view/track_project the project
+      files also go back to the state that REF recorded. A path that changed
+      since the state of the head was recorded is a conflict: nothing is
+      changed and the reset fails. `--force` takes the recorded state over
+      such paths, and records the project as it is first, so that a reset to
+      `<branch>@{1}` undoes the reset.
     surfaces: [cli, session]
     handler: reset
     see_also: [refs, checkout]
     render:
-      message: "{branch} is now at {ref} ({turns} turns); the previous head is {previous}"
+      message: "{branch} is now at {ref} ({turns} turns); the previous head is {previous}{project_note}"
     examples:
       - args: reset HEAD~2
         text: drop the last exchange
@@ -764,6 +769,11 @@ commands:
       required: [ref]
       additionalProperties: false
       properties:
+        force:
+          type: boolean
+          default: false
+          description: take the recorded project state over paths that changed
+          x-fyai-long: force
         ref:
           type: string
           minLength: 1

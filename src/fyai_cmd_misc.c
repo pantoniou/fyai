@@ -34,6 +34,7 @@
 #include "fyai_merge.h"
 #include "fyai_secret.h"
 #include "fyai_storage.h"
+#include "fyai_view.h"
 #include "utils.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
@@ -43,6 +44,7 @@ int fyai_cmd_reset(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = call->ctx;
 	const char *ref = fyai_cmd_arg_str(call, "ref");
 	const char *branch;
+	fy_generic project;
 	long long turns;
 	int rc;
 
@@ -52,6 +54,10 @@ int fyai_cmd_reset(struct fyai_cmd_call *call, fy_generic *result)
 				 !fyai_agents_attached(ctx), err,
 				 "branch changes require idle model and tool "
 				 "work");
+	/* The files first: a project that cannot take the state leaves the head where it is. */
+	rc = fyai_project_state_restore(ctx, ref, fyai_cmd_arg_bool(call, "force"), call->gb,
+					&project);
+	fyai_error_check(ctx, !rc, err, "reset: could not restore the project state");
 	rc = fyai_branch_reset(ctx, ref);
 	fyai_error_check(ctx, !rc, err, "reset: could not move the branch "
 			 "head");
@@ -64,7 +70,13 @@ int fyai_cmd_reset(struct fyai_cmd_call *call, fy_generic *result)
 				       FYAI_BRANCH_WALK_MAX);
 	*result = fy_mapping(call->gb, "branch", branch, "ref", ref,
 			     "turns", turns,
-			     "previous", fy_sprintfa("%s@{1}", branch));
+			     "previous", fy_sprintfa("%s@{1}", branch),
+			     "project_note", fy_is_valid(project) ?
+				     fy_stringf(call->gb, "; the project: %s",
+						fy_castp(&project, "")) :
+				     fy_value(call->gb, ""));
+	if (fy_is_valid(project))
+		*result = fy_assoc(call->gb, *result, "project", project);
 	return 0;
 err:
 	return -1;

@@ -95,4 +95,16 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref);
  */
 bool fyai_view_isolation_available(struct fyai_ctx *ctx);
 
+/*
+ * Restore the project state that a reference recorded, for reset. The project
+ * takes the state by the rule of view apply, with the state recorded at the head
+ * as the base: a path that changed since is a conflict, nothing is written and the
+ * call fails. With force the base is the project as it is now, which is recorded
+ * as an entry first. Without track_project, or without a state at the reference,
+ * the call does nothing. On success the next entry records the restored state,
+ * and report holds a line for the caller.
+ */
+int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool force,
+			       struct fy_generic_builder *gb, fy_generic *report);
+
 #endif

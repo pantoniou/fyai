@@ -505,12 +505,17 @@ Run a shell, or COMMAND, in a full-screen terminal that fyai draws.
 
 move the head of the branch to a reference
 
-**Usage:** `fyai reset REF`
+**Usage:** `fyai reset [--force] REF`
 
 **Aliases:** `rewind`
 
 Move the head of the current branch to REF. The previous head stays
-in the ref log as `<branch>@{1}`.
+in the ref log as `<branch>@{1}`. With view/track_project the project
+files also go back to the state that REF recorded. A path that changed
+since the state of the head was recorded is a conflict: nothing is
+changed and the reset fails. `--force` takes the recorded state over
+such paths, and records the project as it is first, so that a reset to
+`<branch>@{1}` undoes the reset.
 
 
 ### Arguments
@@ -523,6 +528,7 @@ in the ref log as `<branch>@{1}`.
 
 | Option | Description |
 | --- | --- |
+| `--force` | take the recorded project state over paths that changed; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -2719,12 +2725,17 @@ one provider.
 
 move the head of the branch to a reference
 
-**Usage:** `/reset REF`
+**Usage:** `/reset [--force] REF`
 
 **Aliases:** `rewind`
 
 Move the head of the current branch to REF. The previous head stays
-in the ref log as `<branch>@{1}`.
+in the ref log as `<branch>@{1}`. With view/track_project the project
+files also go back to the state that REF recorded. A path that changed
+since the state of the head was recorded is a conflict: nothing is
+changed and the reset fails. `--force` takes the recorded state over
+such paths, and records the project as it is first, so that a reset to
+`<branch>@{1}` undoes the reset.
 
 
 ### Arguments
@@ -2737,6 +2748,7 @@ in the ref log as `<branch>@{1}`.
 
 | Option | Description |
 | --- | --- |
+| `--force` | take the recorded project state over paths that changed; default false |
 | `-h`, `--help` | show this help |
 
 ### Examples

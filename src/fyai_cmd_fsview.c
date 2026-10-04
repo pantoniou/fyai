@@ -875,6 +875,12 @@ out:
 	return rc ? -1 : 0;
 }
 
+#define view_state_error(quiet, ctx, ...) \
+	do { \
+		if (!(quiet)) \
+			fyai_error(ctx, __VA_ARGS__); \
+	} while (0)
+
 /* A snapshot that a command compares: a view, or the project state of a reference. */
 struct view_state {
 	fy_generic reference;
@@ -884,10 +890,10 @@ struct view_state {
 };
 
 static int view_state_set(struct fyai_ctx *ctx, struct view_state *state, fy_generic reference,
-			  const char *storage, const char *what)
+			  const char *storage, const char *what, bool quiet)
 {
 	if (!fy_is_mapping(reference) || fy_str_empty(storage) || strlen(storage) >= PATH_MAX) {
-		fyai_error(ctx, "no project state is recorded at '%s'", what);
+		view_state_error(quiet, ctx, "no project state is recorded at '%s'", what);
 		return -1;
 	}
 	state->reference = reference;
@@ -920,7 +926,8 @@ static fy_generic view_entry_of_head(struct fyai_ctx *ctx, struct fyai_branch *b
  * gives the project state that its ref-log entry recorded, or the nearest earlier
  * entry that recorded one.
  */
-static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct view_state *state)
+static int view_state_find(struct fyai_ctx *ctx, const char *spec, struct view_state *state,
+			   bool quiet)
 {
 	char parsed[256];
 	struct fyai_branch b, e;
@@ -937,18 +944,18 @@ static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct vie
 		state->is_view = true;
 		state->baseline = fy_get(view, "baseline", fy_invalid);
 		return view_state_set(ctx, state, fy_get(view, "result", state->baseline),
-				      fy_get(view, "storage", ""), spec);
+				      fy_get(view, "storage", ""), spec, quiet);
 	}
 	kind = fyai_ref_parse(spec, parsed, sizeof(parsed), &n);
 	if (kind < 0) {
-		fyai_error(ctx, "'%s' is not a view or a reference; use a view name, <branch>, "
+		view_state_error(quiet, ctx, "'%s' is not a view or a reference; use a view name, <branch>, "
 				"<branch>~N or <branch>@{N}", spec);
 		return -1;
 	}
 	name = !strcmp(parsed, "HEAD") ? fyai_ctx_branch(ctx) : parsed;
 	if (!fyai_branch_name_ref_valid(name) ||
 	    !fyai_branch_lookup(ctx->arena_branches, name, &b)) {
-		fyai_error(ctx, "'%s' is not a view, and there is no branch '%s'", spec, name);
+		view_state_error(quiet, ctx, "'%s' is not a view, and there is no branch '%s'", spec, name);
 		return -1;
 	}
 	entry = b.entry;
@@ -956,7 +963,7 @@ static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct vie
 		for (i = 0; i < n; i++) {
 			if (!fyai_branch_entry_contained(ctx->durable_allocator, b.prev, 1) ||
 			    !fyai_branch_decode(b.prev, &b)) {
-				fyai_error(ctx, "%s: the ref log has no entry %lld", name, n);
+				view_state_error(quiet, ctx, "%s: the ref log has no entry %lld", name, n);
 				return -1;
 			}
 		}
@@ -965,14 +972,14 @@ static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct vie
 		cur = b.head;
 		for (i = 0; i < n; i++) {
 			if (!fy_is_valid(cur) || fy_is_null(cur)) {
-				fyai_error(ctx, "%s: only %lld turns, cannot go back %lld", name, i, n);
+				view_state_error(quiet, ctx, "%s: only %lld turns, cannot go back %lld", name, i, n);
 				return -1;
 			}
 			cur = fy_get(cur, "previous");
 		}
 		entry = view_entry_of_head(ctx, &b, cur);
 		if (!fy_is_valid(entry)) {
-			fyai_error(ctx, "%s: no ref-log entry holds that turn", spec);
+			view_state_error(quiet, ctx, "%s: no ref-log entry holds that turn", spec);
 			return -1;
 		}
 	}
@@ -982,13 +989,18 @@ static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct vie
 			break;
 		if (fy_is_mapping(e.project))
 			return view_state_set(ctx, state, e.project,
-					      fy_get(e.project, "storage", ""), spec);
+					      fy_get(e.project, "storage", ""), spec, quiet);
 		if (!fyai_branch_entry_contained(ctx->durable_allocator, e.prev, 1))
 			break;
 		entry = e.prev;
 	}
-	fyai_error(ctx, "no project state is recorded at '%s'; set view/track_project", spec);
+	view_state_error(quiet, ctx, "no project state is recorded at '%s'; set view/track_project", spec);
 	return -1;
+}
+
+static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct view_state *state)
+{
+	return view_state_find(ctx, spec, state, false);
 }
 
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
@@ -2355,6 +2367,114 @@ out:
 	return rc;
 }
 
+int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool force,
+			       struct fy_generic_builder *gb, fy_generic *report)
+{
+	struct view_state target = { 0 }, current = { 0 };
+	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
+	struct fyai_apply_summary summary;
+	fy_generic rows, row, forced = fy_invalid;
+	const char *path, *action;
+	char *root = NULL, *objects = NULL, list[512] = "";
+	size_t shown = 0;
+	int project = -1, cas = -1, rc = -1, saved;
+	bool have_current;
+
+	*report = fy_invalid;
+	if (!fyai_project_state_enabled(ctx))
+		return 0;
+	root = project_state_root(ctx);
+	if (!root)
+		return 0;
+	if (view_state_find(ctx, spec, &target, true)) {
+		fyai_notice(ctx, "reset: no project state is recorded at '%s'; the files are "
+				 "not changed", spec);
+		free(root);
+		return 0;
+	}
+	have_current = !view_state_find(ctx, "HEAD", &current, true);
+	if (!have_current && !force) {
+		fyai_error(ctx, "reset: no project state is recorded for the current head, so "
+				"edits of the project cannot be told from the state of '%s'; use "
+				"--force to take that state over them", spec);
+		goto out;
+	}
+	if (force) {
+		/* What the project holds now is the base, and is recorded first. */
+		if (fyai_project_state_capture(ctx, &forced) || !fy_is_mapping(forced))
+			goto out;
+		current.reference = forced;
+		snprintf(current.storage, sizeof(current.storage), "%s",
+			 fy_get(forced, "storage", ""));
+	}
+	rc = fyai_fsview_manifest_open(current.storage, current.reference, &manifests[0]);
+	if (!rc)
+		rc = fyai_fsview_manifest_open(target.storage, target.reference, &manifests[1]);
+	if (rc) {
+		fyai_error(ctx, "reset: cannot open a recorded project state: %s", strerror(errno));
+		goto out;
+	}
+	project = open(root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (asprintf(&objects, "%s/objects/blake3", target.storage) < 0) {
+		objects = NULL;
+		rc = -1;
+		goto out;
+	}
+	cas = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (project < 0 || cas < 0) {
+		rc = -1;
+		goto out;
+	}
+	/* Nothing is written while a path differs from what was recorded. */
+	rc = fyai_view_apply(gb, project, cas, &manifests[0], &manifests[1], NULL, 0, true, &rows,
+			     &summary);
+	if (rc)
+		goto out;
+	if (summary.conflicts || summary.skipped) {
+		fy_foreach(row, rows) {
+			action = fy_get(row, "action", "");
+			if (!strcmp(action, "applied") || !strcmp(action, "satisfied") || shown >= 5)
+				continue;
+			path = fy_get(row, "path", "");
+			snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s",
+				 shown ? ", " : "", path);
+			shown++;
+		}
+		fyai_error(ctx, "reset: the project changed since its state was recorded (%s); "
+				"nothing was changed. Use --force to take the state of '%s' over "
+				"the changes", list, spec);
+		rc = -1;
+		goto out;
+	}
+	if (fy_is_mapping(forced)) {
+		/* An entry for the state that is about to go, so that the reset can be undone. */
+		ctx->project_state = forced;
+		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
+		rc = fyai_publish_state(ctx);
+		if (rc)
+			goto out;
+	}
+	rc = fyai_view_apply(gb, project, cas, &manifests[0], &manifests[1], NULL, 0, false, &rows,
+			     &summary);
+	if (rc)
+		goto out;
+	/* The project holds the state now, so the entry of the reset records it. */
+	ctx->project_state = target.reference;
+	*report = fy_stringf(gb, "%zu paths restored", summary.applied);
+out:
+	saved = errno;
+	if (project >= 0)
+		close(project);
+	if (cas >= 0)
+		close(cas);
+	fyai_manifest_close(&manifests[0]);
+	fyai_manifest_close(&manifests[1]);
+	free(root);
+	free(objects);
+	errno = saved;
+	return rc ? -1 : 0;
+}
+
 #else
 int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
 {
@@ -2510,5 +2630,16 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx)
 {
 	(void)ctx;
 	return false;
+}
+
+int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool force,
+			       struct fy_generic_builder *gb, fy_generic *report)
+{
+	(void)ctx;
+	(void)spec;
+	(void)force;
+	(void)gb;
+	*report = fy_invalid;
+	return 0;
 }
 #endif
