@@ -3172,6 +3172,9 @@ static void fyai_shell_sessions_abandon(struct fyai_ctx *ctx)
 		sess->idle = NULL;
 		sess->waiter = NULL;
 		sess->animation = NULL;
+		/* Exit callbacks belong to the parent invocation. */
+		sess->on_exit = NULL;
+		sess->on_exit_data = NULL;
 		/* Only the parent records its session. */
 		sess->recorded = true;
 		fyai_shell_session_destroy(sess);
