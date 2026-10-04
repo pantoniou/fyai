@@ -1762,6 +1762,21 @@ last process of the namespace has ended, and stores it as a delta over the
 baseline. The tool result names the view and lists up to 20 changed paths.
 A job that was stopped or timed out is captured as it stands.
 
+**Parallel agents.** Each isolated agent has a view of its own, named for the
+agent, and captures its baseline at submission. Agents run side by side and
+the parent need not wait: it collects each result when its job ends. A job that
+the parent cancels is still captured, from what its upper holds. Two views that
+change one path are not a conflict until the second is applied.
+
+**The `project_view` tool.** The parent model reads a view back with the
+`project_view` tool: `list` gives the views, `changes` gives the changed paths
+with their status, and `apply` (with `paths` and `dry_run`) writes the result to
+the project. The tool and the `view apply` command use one function, so the
+outcome is the same. A conflict is part of the result, not a failure of the
+call. The tool runs in the parent process, where the arena is readable, and it
+is not given to a sub-agent or to anything that runs in a view. It returns the
+list of changed paths and not a patch, because a patch needs a nested event loop.
+
 **Session.** With `view/isolate_session`, the invocation of a verb that makes
 requests captures the view `session` and runs again inside it, with the same
 command line, on the same branch (`FYAI_BRANCH`). The terminal, the signals and
