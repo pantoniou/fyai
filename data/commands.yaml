@@ -1543,7 +1543,10 @@ commands:
         title: compare recorded filesystem view snapshots
         description: |
           Compare NAME's baseline and recorded result, or the recorded results
-          of NAME and OTHER. Skip .git and .fyai. Show a unified patch, including
+          of NAME and OTHER. NAME and OTHER can also be a reference such as
+          HEAD~1 or main@{2}: it stands for the project state that its ref-log
+          entry recorded (see view/track_project). A reference alone is compared
+          with the head of the branch. Skip .git and .fyai. Show a unified patch, including
           binary changes, or a changed-path list with --stat. Output formats
           return structured content and metadata changes with the patch.
         handler: view_diff
@@ -1554,13 +1557,13 @@ commands:
           properties:
             name:
               type: string
-              description: the view to compare
+              description: the view or reference to compare
               x-fyai-positional: 0
               x-fyai-meta: NAME
               x-fyai-complete: view
             other:
               type: string
-              description: compare against this view's recorded result
+              description: compare against the recorded result of this view or reference
               x-fyai-positional: 1
               x-fyai-meta: OTHER
               x-fyai-complete: view

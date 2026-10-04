@@ -1432,7 +1432,10 @@ compare recorded filesystem view snapshots
 **Usage:** `fyai view diff [-u] [--stat] NAME [OTHER]`
 
 Compare NAME's baseline and recorded result, or the recorded results
-of NAME and OTHER. Skip .git and .fyai. Show a unified patch, including
+of NAME and OTHER. NAME and OTHER can also be a reference such as
+HEAD~1 or main@{2}: it stands for the project state that its ref-log
+entry recorded (see view/track_project). A reference alone is compared
+with the head of the branch. Skip .git and .fyai. Show a unified patch, including
 binary changes, or a changed-path list with --stat. Output formats
 return structured content and metadata changes with the patch.
 
@@ -1441,8 +1444,8 @@ return structured content and metadata changes with the patch.
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the view to compare |
-| `OTHER` | compare against this view's recorded result |
+| `NAME` | the view or reference to compare |
+| `OTHER` | compare against the recorded result of this view or reference |
 
 ### Options
 
@@ -3451,7 +3454,10 @@ compare recorded filesystem view snapshots
 **Usage:** `/view diff [-u] [--stat] NAME [OTHER]`
 
 Compare NAME's baseline and recorded result, or the recorded results
-of NAME and OTHER. Skip .git and .fyai. Show a unified patch, including
+of NAME and OTHER. NAME and OTHER can also be a reference such as
+HEAD~1 or main@{2}: it stands for the project state that its ref-log
+entry recorded (see view/track_project). A reference alone is compared
+with the head of the branch. Skip .git and .fyai. Show a unified patch, including
 binary changes, or a changed-path list with --stat. Output formats
 return structured content and metadata changes with the patch.
 
@@ -3460,8 +3466,8 @@ return structured content and metadata changes with the patch.
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the view to compare |
-| `OTHER` | compare against this view's recorded result |
+| `NAME` | the view or reference to compare |
+| `OTHER` | compare against the recorded result of this view or reference |
 
 ### Options
 

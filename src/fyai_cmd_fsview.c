@@ -875,36 +875,151 @@ out:
 	return rc ? -1 : 0;
 }
 
+/* A snapshot that a command compares: a view, or the project state of a reference. */
+struct view_state {
+	fy_generic reference;
+	fy_generic baseline;
+	char storage[PATH_MAX];
+	bool is_view;
+};
+
+static int view_state_set(struct fyai_ctx *ctx, struct view_state *state, fy_generic reference,
+			  const char *storage, const char *what)
+{
+	if (!fy_is_mapping(reference) || fy_str_empty(storage) || strlen(storage) >= PATH_MAX) {
+		fyai_error(ctx, "no project state is recorded at '%s'", what);
+		return -1;
+	}
+	state->reference = reference;
+	strcpy(state->storage, storage);
+	return 0;
+}
+
+/* The oldest entry of the run that holds the head, so the state is that of the turn's end. */
+static fy_generic view_entry_of_head(struct fyai_ctx *ctx, struct fyai_branch *b, fy_generic head)
+{
+	struct fyai_branch cur = *b, next;
+	fy_generic found = fy_invalid;
+
+	while (fy_is_valid(cur.entry)) {
+		if (cur.head.v == head.v)
+			found = cur.entry;
+		else if (fy_is_valid(found))
+			break;
+		if (!fyai_branch_entry_contained(ctx->durable_allocator, cur.prev, 1) ||
+		    !fyai_branch_decode(cur.prev, &next))
+			break;
+		cur = next;
+	}
+	return found;
+}
+
+/*
+ * Resolve a name to a snapshot. A view gives its result, and its baseline for
+ * the comparison with one name. A reference (BRANCH, BRANCH~N, BRANCH@{N}, HEAD)
+ * gives the project state that its ref-log entry recorded, or the nearest earlier
+ * entry that recorded one.
+ */
+static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct view_state *state)
+{
+	char parsed[256];
+	struct fyai_branch b, e;
+	fy_generic view, cur, entry;
+	const char *name;
+	long long n, i;
+	int kind;
+
+	memset(state, 0, sizeof(*state));
+	view = view_find(ctx, spec);
+	if (fy_is_mapping(view)) {
+		if (view_diff_recover(ctx, spec, &view))
+			return -1;
+		state->is_view = true;
+		state->baseline = fy_get(view, "baseline", fy_invalid);
+		return view_state_set(ctx, state, fy_get(view, "result", state->baseline),
+				      fy_get(view, "storage", ""), spec);
+	}
+	kind = fyai_ref_parse(spec, parsed, sizeof(parsed), &n);
+	if (kind < 0) {
+		fyai_error(ctx, "'%s' is not a view or a reference; use a view name, <branch>, "
+				"<branch>~N or <branch>@{N}", spec);
+		return -1;
+	}
+	name = !strcmp(parsed, "HEAD") ? fyai_ctx_branch(ctx) : parsed;
+	if (!fyai_branch_name_ref_valid(name) ||
+	    !fyai_branch_lookup(ctx->arena_branches, name, &b)) {
+		fyai_error(ctx, "'%s' is not a view, and there is no branch '%s'", spec, name);
+		return -1;
+	}
+	entry = b.entry;
+	if (kind == '@') {
+		for (i = 0; i < n; i++) {
+			if (!fyai_branch_entry_contained(ctx->durable_allocator, b.prev, 1) ||
+			    !fyai_branch_decode(b.prev, &b)) {
+				fyai_error(ctx, "%s: the ref log has no entry %lld", name, n);
+				return -1;
+			}
+		}
+		entry = b.entry;
+	} else if (kind == '~') {
+		cur = b.head;
+		for (i = 0; i < n; i++) {
+			if (!fy_is_valid(cur) || fy_is_null(cur)) {
+				fyai_error(ctx, "%s: only %lld turns, cannot go back %lld", name, i, n);
+				return -1;
+			}
+			cur = fy_get(cur, "previous");
+		}
+		entry = view_entry_of_head(ctx, &b, cur);
+		if (!fy_is_valid(entry)) {
+			fyai_error(ctx, "%s: no ref-log entry holds that turn", spec);
+			return -1;
+		}
+	}
+	/* An entry that recorded no state is at the state of the entry before it. */
+	for (i = 0; fy_is_valid(entry) && i < 4096; i++) {
+		if (!fyai_branch_decode(entry, &e))
+			break;
+		if (fy_is_mapping(e.project))
+			return view_state_set(ctx, state, e.project,
+					      fy_get(e.project, "storage", ""), spec);
+		if (!fyai_branch_entry_contained(ctx->durable_allocator, e.prev, 1))
+			break;
+		entry = e.prev;
+	}
+	fyai_error(ctx, "no project state is recorded at '%s'; set view/track_project", spec);
+	return -1;
+}
+
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
 	const char *other = fyai_cmd_arg_str(call, "other");
 	struct response_buffer listing = { 0 };
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
-	fy_generic view, peer, snapshots[2], changes, row, patch, before, after, note;
+	struct view_state left = { 0 }, right = { 0 };
+	fy_generic snapshots[2], changes, row, patch, before, after, note;
 	const char *objects;
 	const char *stores[2], *path, *error_path = "";
 	int cas[2] = { -1, -1 };
 	int rc = -1, saved;
 	size_t i;
 
-	view = view_find(call->ctx, name);
-	peer = other ? view_find(call->ctx, other) : view;
-	if (!fy_is_mapping(view) || !fy_is_mapping(peer)) {
-		fyai_error(call->ctx, "view '%s' does not exist",
-			   fy_is_mapping(view) ? other : name);
+	if (view_state_resolve(call->ctx, name, &left) ||
+	    (other && view_state_resolve(call->ctx, other, &right)))
 		return -1;
+	if (!other && !left.is_view) {
+		/* A reference alone is compared with the head of the branch. */
+		if (view_state_resolve(call->ctx, "HEAD", &right))
+			return -1;
+	} else if (!other) {
+		right = left;
+		left.reference = left.baseline;
 	}
-	if (view_diff_recover(call->ctx, name, &view) ||
-	    (other && view_diff_recover(call->ctx, other, &peer)))
-		return -1;
-	if (!other)
-		peer = view;
-	snapshots[0] = other ? fy_get(view, "result", fy_get(view, "baseline", fy_invalid)) :
-			       fy_get(view, "baseline", fy_invalid);
-	snapshots[1] = fy_get(peer, "result", fy_get(peer, "baseline", fy_invalid));
-	stores[0] = fy_get(view, "storage", "");
-	stores[1] = fy_get(peer, "storage", "");
+	snapshots[0] = left.reference;
+	snapshots[1] = right.reference;
+	stores[0] = left.storage;
+	stores[1] = right.storage;
 	if (fyai_fsview_manifest_open(stores[0], snapshots[0], &manifests[0]) ||
 	    fyai_fsview_manifest_open(stores[1], snapshots[1], &manifests[1]))
 		goto out;
