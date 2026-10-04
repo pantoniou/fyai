@@ -69,5 +69,10 @@ assert_status 0
 [ "$(cat file)" = changed ] || fail 'the selected path was not applied'
 [ ! -e added ] || fail 'an unselected path was applied'
 
+# The view keeps what was applied from it.
+run_fyai view list --full
+assert_status 0
+assert_stdout_contains 'applied:'
+
 mock_stop 5
 pass

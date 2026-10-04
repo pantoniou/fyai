@@ -43,6 +43,7 @@ FYAI_TEST_ENTRY(project, directory_validation, project_directory_validation)
 FYAI_TEST_ENTRY(project, table_lookup, project_table_lookup)
 FYAI_TEST_ENTRY(project, capture_delta, project_capture_delta)
 FYAI_TEST_ENTRY(project, view_apply, project_view_apply)
+FYAI_TEST_ENTRY(project, view_apply_moves, project_view_apply_moves)
 
 static struct fy_generic_builder *project_builder(void)
 {
@@ -996,6 +997,106 @@ int project_view_apply(void)
 	FYAI_TCHECK(summary.conflicts >= 3 && apply_is(outside, "x", "one") &&
 		    apply_is(outside, "y", "two") && apply_absent(outside, "n"));
 	close(outside);
+	close(host);
+
+	fy_generic_builder_destroy(gb);
+	fyai_manifest_close(&result);
+	fyai_manifest_close(&base);
+	close(source);
+	close(objects);
+	close(root);
+	FYAI_TCHECK(!nftw(path, apply_remove, 16, FTW_DEPTH | FTW_PHYS));
+	return 0;
+}
+
+static int moves_baseline(int directory)
+{
+	if (mkdirat(directory, "a", 0755) || mkdirat(directory, "d", 0755))
+		return -1;
+	if (delta_put(directory, "a/x", "payload of x") || delta_put(directory, "a/y", "payload of y") ||
+	    delta_put(directory, "m", "payload of m") || delta_put(directory, "d/f", "inside d") ||
+	    delta_put(directory, "e", "a file named e"))
+		return -1;
+	return 0;
+}
+
+/*
+ * A file that moves is moved in the project, and a path that changes between a
+ * file and a directory is replaced. A moved file whose old path the project
+ * edited is written at the new path, and the edit stays.
+ */
+int project_view_apply_moves(void)
+{
+	struct fyai_project_capture_opts opts = { .baseline_fd = -1, .upper_fd = -1, .workers = 2 };
+	struct fyai_manifest base = { 0 }, result = { 0 };
+	struct fyai_apply_summary summary;
+	struct fy_generic_builder *gb;
+	struct stat st;
+	char path[] = "/tmp/fyai-project-moves-XXXXXX", error[PATH_MAX];
+	fy_generic rows, row;
+	bool renamed = false;
+	int root, source, host, objects;
+
+#ifndef __linux__
+	/* The capture is not available here. */
+	return 0;
+#endif
+	FYAI_TCHECK(mkdtemp(path));
+	root = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(root >= 0 && !mkdirat(root, "source", 0700) && !mkdirat(root, "objects", 0700));
+	source = openat(root, "source", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	objects = openat(root, "objects", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(source >= 0 && objects >= 0);
+	opts.source_fd = source;
+	opts.objects_fd = objects;
+	FYAI_TCHECK(!moves_baseline(source));
+	FYAI_TCHECK(!fyai_project_capture_manifest(&opts, &base, error, sizeof(error)));
+	/* a/x moves to a new directory, m moves under a new name, d becomes a file and e a directory. */
+	FYAI_TCHECK(!mkdirat(source, "b", 0755) && !renameat(source, "a/x", source, "b/x") &&
+		    !renameat(source, "m", source, "moved"));
+	FYAI_TCHECK(!unlinkat(source, "d/f", 0) && !unlinkat(source, "d", AT_REMOVEDIR) &&
+		    !delta_put(source, "d", "d is a file now"));
+	FYAI_TCHECK(!unlinkat(source, "e", 0) && !mkdirat(source, "e", 0755) &&
+		    !delta_put(source, "e/g", "inside e"));
+	FYAI_TCHECK(!fyai_project_capture_manifest(&opts, &result, error, sizeof(error)));
+	gb = project_builder();
+	FYAI_TCHECK(gb);
+
+	FYAI_TCHECK(!mkdirat(root, "host", 0755));
+	host = openat(root, "host", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(host >= 0 && !moves_baseline(host));
+	FYAI_TCHECK(!fstatat(host, "a/x", &st, 0));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(!summary.conflicts && !summary.skipped);
+	FYAI_TCHECK(apply_absent(host, "a/x") && apply_absent(host, "m"));
+	FYAI_TCHECK(apply_is(host, "b/x", "payload of x") && apply_is(host, "moved", "payload of m"));
+	FYAI_TCHECK(apply_is(host, "a/y", "payload of y"));
+	FYAI_TCHECK(apply_is(host, "d", "d is a file now") && apply_is(host, "e/g", "inside e"));
+	fy_foreach(row, rows)
+		renamed |= !strcmp(fy_get(row, "status", ""), "renamed");
+	FYAI_TCHECK(renamed);
+	/* The inode of a renamed file is the inode that it had. */
+	FYAI_TCHECK(!fstatat(host, "b/x", &st, 0) && st.st_nlink == 1);
+	close(host);
+
+	/* The project edited the old path: the file is written at the new path, and the edit stays. */
+	FYAI_TCHECK(!mkdirat(root, "edited", 0755));
+	host = openat(root, "edited", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(host >= 0 && !moves_baseline(host) && !delta_put(host, "a/x", "my edit"));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(summary.conflicts == 1 && apply_is(host, "a/x", "my edit") &&
+		    apply_is(host, "b/x", "payload of x"));
+	close(host);
+
+	/* A directory with a file that the project added is not removed. */
+	FYAI_TCHECK(!mkdirat(root, "extra", 0755));
+	host = openat(root, "extra", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(host >= 0 && !moves_baseline(host) && !delta_put(host, "d/mine", "kept"));
+	FYAI_TCHECK(!fyai_view_apply(gb, host, objects, &base, &result, NULL, 0, false, &rows,
+				     &summary));
+	FYAI_TCHECK(summary.conflicts >= 1 && apply_is(host, "d/mine", "kept"));
 	close(host);
 
 	fy_generic_builder_destroy(gb);

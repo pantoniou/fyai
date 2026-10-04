@@ -57,6 +57,23 @@ assert_stdout_contains 'modified file'
 
 # A reset takes the files back with the head.
 [ "$(cat file)" = two ] || fail 'the file is not at the state of the last turn'
+
+# A reference can be applied: the change from the first answer to the last.
+printf one > file
+run_fyai view apply --base 'main@{5}' 'main@{0}'
+assert_status 0
+assert_stdout_contains 'applied: 1'
+[ "$(cat file)" = two ] || fail 'apply of a reference did not write the file'
+run_fyai list reflog --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+# The apply is an entry of its own, and it records the project as it is.
+assert rows[0]['kind'] == 'config' or rows[0]['project'], rows[0]
+assert rows[0]['project'] == rows[1]['project'], rows[:2]
+PY
+
 run_fyai reset HEAD~4
 assert_status 0
 [ "$(cat file)" = one ] || fail 'reset did not restore the file'
