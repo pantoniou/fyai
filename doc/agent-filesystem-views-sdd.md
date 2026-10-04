@@ -60,8 +60,8 @@ entry command, not automatic confinement of the coding harness's tool loop.
 | Inspection and comparison (section 11.4) | Implemented: read-only mount/unmount, recorded-root diffs with enhanced colors, pull-only Git remote helper |
 | Observation cache and change monitoring (sections 6.1, 6.2) | Proposed; current update still captures the host explicitly |
 | Execution containment and role projections (section 8) | Partial: standalone enter applies the tool projection; unified tool adapter and supervisor-admitted agent projection remain proposed |
-| Exchange and delegated-agent lifecycle (section 9) | Proposed: retained managed mounts, writer barriers, exchange provenance, child admission and propagation |
-| Result ingestion and application (section 10) | Partial: standalone enter ingests on exit; managed parent merge/replace/drop and recoverable host application remain proposed |
+| Exchange and delegated-agent lifecycle (section 9) | Partial: a sub-agent or a session runs in one view for its whole life (section 11.5); retained managed mounts, writer barriers, exchange provenance and propagation remain proposed |
+| Result ingestion and application (section 10) | Partial: enter and isolated runs ingest on exit; `view apply` writes a result to the host with the three-way table of section 10; managed parent merge, renames and recoverable application plans remain proposed |
 | GC, session caches, and capture policy (sections 11, 11.3) | Proposed; standalone backing storage is retained, but managed cache lifecycle and general policy enforcement are not implemented |
 
 The shared-lower inode warning seen with Vim is deferred (section 12). It does
@@ -1159,7 +1159,8 @@ existing summary for one view.
 
 The implementation provides CLI and session forms of `view create NAME [PROJECT]`,
 `view update NAME`, `view show NAME`, `view list`, and
-`view enter NAME [COMMAND [ARG...]]`.
+`view enter NAME [COMMAND [ARG...]]`. `view apply` and `view diff` take the result
+to the host (section 11.5).
 Omitting PROJECT captures the current directory. Named view references live in
 `store/views` on the selected branch; blobs live in `<project>/.fyai/objects/blake3`
 and overlay backing lives in `<project>/.fyai/views/view-XXXXXX/`.
@@ -1734,6 +1735,64 @@ exit
 Unmount before leaving that shell. Mounts are visible in its namespace, and
 stale records after an abandoned namespace require future recovery support.
 A busy unmount retains its record for retry; it never uses lazy or forced unmount.
+
+### 11.5 Isolated sub-agents and sessions
+
+An agent or a session can run in a view for its whole life. The parent does not
+see the changes while it runs. It takes them afterwards with `view diff` and
+`view apply`.
+
+**Agent projection.** The projection of section 8.1 for an agent runtime keeps
+the arena writable at its own path, because the agent publishes its own branch.
+The enter code takes the arena as a clone of the mount before the outside
+mounts become read-only, and moves it back after the cover of `.fyai`. When the
+arena is inside the project, the supervisor first makes the mount point below
+the cover. The project storage (objects, manifests, views) stays denied. The
+runtime keeps its environment, because it holds the provider credential that
+its own tools never receive. Landlock and the capability drop apply as for a
+tool projection. A tool that the agent starts keeps its own sandbox, which
+denies the arena.
+
+**Sub-agent.** The `agent` tool takes `isolated`; the setting `agent/isolation`
+(`none` or `view`) gives the default. At submission the parent captures the
+project into the view `agent-NAME`, which it makes or replaces. The child
+enters the view before it starts, and sets `FYAI_VIEW` so that what it starts
+shares the view. When the job ends, the parent captures the result after the
+last process of the namespace has ended, and stores it as a delta over the
+baseline. The tool result names the view and lists up to 20 changed paths.
+A job that was stopped or timed out is captured as it stands.
+
+**Session.** With `view/isolate_session`, the invocation of a verb that makes
+requests captures the view `session` and runs again inside it, with the same
+command line, on the same branch (`FYAI_BRANCH`). The terminal, the signals and
+the exit status go through the same code as `view enter`. At the end the
+invocation records the result and prints a notice that names the branch and the
+commands to review and apply the result. The view is on that branch, so name
+the branch with `-b` for a later command. A session in a view shares the view
+with its sub-agents; `isolated` does nothing there.
+
+**Apply.** `view apply [--dry-run] NAME [PATH...]` reconciles each changed path
+with the host by the table of section 10. The host takes the result when it
+still equals the baseline. A path that already equals the result is satisfied.
+A path that both sides changed is a conflict: it is reported and not changed,
+and the exit status is 1. Equality compares the kind, the bytes (or the
+symlink target) and the execute bits; time and ownership do not conflict. A
+written file is staged beside its destination and renamed into place, and has
+the time of the write. Every path is walked from the project descriptor with no
+symlink followed, so a result cannot write outside the project. A directory is
+created, or removed when it is empty. `.git` and `.fyai` are never touched. A
+selection takes the path and what is beneath it. The view is not changed:
+update it to compare again. Renames, an application plan and crash recovery
+(section 10.1) are not implemented.
+
+**Limits.** The scratch directory must lie outside the project, because the
+view replaces it with a tmpfs. The capture of the baseline runs before the
+agent starts, and costs what `view create` costs (see view-performance.md).
+A session or a sub-agent in a view cannot use credential isolation: the transport
+admits a sub-agent by the process it started, and a view is another PID
+namespace, so the run refuses it. A nested view is not made.
+The terminal UI keeps its spool in `$TMPDIR`, which is the one directory that a
+view can write.
 
 ## 12. Implementation sequence and acceptance gates
 

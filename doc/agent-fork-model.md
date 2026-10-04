@@ -181,3 +181,13 @@ needs `branch_config` only for a session that is not stored yet: for any other
 branch it reads the same value from the arena. Send `branch_config` only in
 that case, or send only the keys that differ from `config`. Either change
 halves the worst case.
+
+## An isolated sub-agent
+
+With `isolated` on the call, or `agent/isolation: view`, the parent captures
+the project into a view before it spawns the child. The child, forked or
+executed, enters the view first: it runs in new mount and PID namespaces, with
+the project overlay and the arena mounted at their own paths, and with
+`FYAI_VIEW` set. Nothing it starts makes another view. The parent captures the
+result after it reaps the child. See section 11.5 of
+`agent-filesystem-views-sdd.md`.
