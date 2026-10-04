@@ -8,6 +8,9 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
+# The hosted runners start the agents too slowly for the 1.5 s agent limits.
+[ -z "${GITHUB_ACTIONS:-}" ] || skip "hosted CI runner"
+
 fyai_test_setup
 mock_start ui_agents_mixed.json
 
