@@ -1796,9 +1796,23 @@ written file is staged beside its destination and renamed into place, and has
 the time of the write. Every path is walked from the project descriptor with no
 symlink followed, so a result cannot write outside the project. A directory is
 created, or removed when it is empty. `.git` and `.fyai` are never touched. A
-selection takes the path and what is beneath it. The view is not changed:
-update it to compare again. Renames, an application plan and crash recovery
-(section 10.1) are not implemented.
+selection takes the path and what is beneath it.
+
+NAME can be a reference as well as a view (section 11.6); the change is from
+`--base` (a view or a reference), else from the baseline of a view, else from the
+head, to the state of NAME. Name the base before NAME, because the words after
+NAME are paths. An exact rename is followed with a rename: a file that the
+result has at another path with the same bytes pairs with the deleted file
+(an empty file pairs with none; the same name wins among several, else the first
+in path order). It is a rename only when the old path still has the baseline
+file and the new path is free; else the paths go one at a time. A path that
+becomes a directory, or a directory that becomes a file, is replaced: the file
+goes first, and the directory after what is beneath it, and a directory that
+holds files of the project is a conflict. After an apply, the view records the
+applied result (`applied` in `view list --full`), and with `track_project` the
+next ref-log entry records the project as it is. The baseline of the view stays,
+because its tree is the lower layer of the mounts: `view update` takes a new one.
+An application plan and crash recovery (section 10) are not implemented.
 
 **Limits.** The scratch directory must lie outside the project, because the
 view replaces it with a tmpfs. The capture of the baseline runs before the
