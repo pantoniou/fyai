@@ -1304,7 +1304,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|diff|remove|sync|mount|unmount|enter} ...`
+**Usage:** `fyai view {create|list|show|update|diff|apply|remove|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1320,6 +1320,7 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `show` | inspect a named filesystem view |
 | `update` | replace a view with a fresh host snapshot |
 | `diff` | compare recorded filesystem view snapshots |
+| `apply` | apply the changes of a view to the project |
 | `remove` | remove a named filesystem view |
 | `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
@@ -1449,6 +1450,37 @@ return structured content and metadata changes with the patch.
 | --- | --- |
 | `-u`, `--unified` | write unified rows, coloured on a terminal; default false |
 | `--stat` | list changed paths instead of emitting a unified patch; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai view apply
+
+apply the changes of a view to the project
+
+**Usage:** `fyai view apply [--dry-run] NAME [PATH...]`
+
+Take the changes that NAME recorded, from its baseline to its result,
+and write them into the project. A path that the project still has
+as the baseline had it takes the result. A path that already equals
+the result is left as it is. A path that the project and the view
+changed differently is a conflict: it is reported and not changed.
+Name paths to apply only those and what is beneath them. Skip .git
+and .fyai. A written file gets the time of the write. The view stays
+unchanged; update it to compare again.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view whose changes to apply |
+| `PATH` | the paths to apply, relative to the project; omit to apply every change |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--dry-run` | report what would change and write nothing; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -3295,7 +3327,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `/view {create|list|show|update|diff|remove|sync|mount|unmount|enter} ...`
+**Usage:** `/view {create|list|show|update|diff|apply|remove|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -3311,6 +3343,7 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `show` | inspect a named filesystem view |
 | `update` | replace a view with a fresh host snapshot |
 | `diff` | compare recorded filesystem view snapshots |
+| `apply` | apply the changes of a view to the project |
 | `remove` | remove a named filesystem view |
 | `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
@@ -3436,6 +3469,36 @@ return structured content and metadata changes with the patch.
 | --- | --- |
 | `-u`, `--unified` | write unified rows, coloured on a terminal; default false |
 | `--stat` | list changed paths instead of emitting a unified patch; default false |
+| `-h`, `--help` | show this help |
+
+## /view apply
+
+apply the changes of a view to the project
+
+**Usage:** `/view apply [--dry-run] NAME [PATH...]`
+
+Take the changes that NAME recorded, from its baseline to its result,
+and write them into the project. A path that the project still has
+as the baseline had it takes the result. A path that already equals
+the result is left as it is. A path that the project and the view
+changed differently is a conflict: it is reported and not changed.
+Name paths to apply only those and what is beneath them. Skip .git
+and .fyai. A written file gets the time of the write. The view stays
+unchanged; update it to compare again.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | the view whose changes to apply |
+| `PATH` | the paths to apply, relative to the project; omit to apply every change |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--dry-run` | report what would change and write nothing; default false |
 | `-h`, `--help` | show this help |
 
 ## /view remove

@@ -1576,6 +1576,43 @@ commands:
               x-fyai-long: stat
         render:
           message: '{patch}'
+      - command: apply
+        title: apply the changes of a view to the project
+        description: |
+          Take the changes that NAME recorded, from its baseline to its result,
+          and write them into the project. A path that the project still has
+          as the baseline had it takes the result. A path that already equals
+          the result is left as it is. A path that the project and the view
+          changed differently is a conflict: it is reported and not changed.
+          Name paths to apply only those and what is beneath them. Skip .git
+          and .fyai. A written file gets the time of the write. The view stays
+          unchanged; update it to compare again.
+        handler: view_apply
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            dry_run:
+              type: boolean
+              default: false
+              description: report what would change and write nothing
+              x-fyai-long: dry-run
+            name:
+              type: string
+              description: the view whose changes to apply
+              x-fyai-positional: 0
+              x-fyai-meta: NAME
+              x-fyai-complete: view
+            paths:
+              type: array
+              items: {type: string}
+              description: the paths to apply, relative to the project; omit to apply every change
+              x-fyai-positional: 1
+              x-fyai-rest: true
+              x-fyai-meta: PATH
+        render:
+          document: yaml
       - command: remove
         title: remove a named filesystem view
         description: |

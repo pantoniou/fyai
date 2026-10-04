@@ -37,6 +37,7 @@
 #include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_fsview.h"
+#include "fyai_view_apply.h"
 #include "fyai_diff.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
@@ -989,6 +990,66 @@ out:
 	if (rc)
 		fyai_error(call->ctx, "view '%s': cannot diff%s%s: %s", name,
 			   *error_path ? " at " : "", error_path, strerror(saved));
+	return rc ? -1 : 0;
+}
+
+int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
+{
+	const char *name = fyai_cmd_arg_str(call, "name");
+	fy_generic paths = fy_get(call->args, "paths", fy_seq_empty);
+	struct fyai_apply_summary summary;
+	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
+	fy_generic view, rows, snapshots[2];
+	const char *path, *project, *storage, *objects, **selected = NULL;
+	size_t count = fy_len(paths), index = 0;
+	int root = -1, cas = -1, rc = -1, saved;
+
+	view = view_find(call->ctx, name);
+	if (!fy_is_mapping(view)) {
+		fyai_error(call->ctx, "view '%s' does not exist", name);
+		return -1;
+	}
+	if (view_diff_recover(call, name, &view))
+		return -1;
+	project = fy_get(view, "project", "");
+	storage = fy_get(view, "storage", "");
+	snapshots[0] = fy_get(view, "baseline", fy_invalid);
+	snapshots[1] = fy_get(view, "result", snapshots[0]);
+	selected = calloc(count + 1, sizeof(*selected));
+	if (!selected)
+		goto out;
+	fy_foreach(path, paths)
+		selected[index++] = path;
+	if (fyai_fsview_manifest_open(storage, snapshots[0], &manifests[0]) ||
+	    fyai_fsview_manifest_open(storage, snapshots[1], &manifests[1]))
+		goto out;
+	root = open(project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	objects = fy_sprintfa("%s/objects/blake3", storage);
+	cas = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (root < 0 || cas < 0)
+		goto out;
+	rc = fyai_view_apply(call->gb, root, cas, &manifests[0], &manifests[1], selected, count,
+			     fyai_cmd_arg_bool(call, "dry_run"), &rows, &summary);
+	if (rc)
+		goto out;
+	*result = fy_mapping(call->gb, "applied", (long long)summary.applied, "satisfied",
+			     (long long)summary.satisfied, "conflicts", (long long)summary.conflicts,
+			     "skipped", (long long)summary.skipped, "changes", rows);
+	if (summary.conflicts)
+		call->ctx->cfg->exit_status = 1;
+out:
+	saved = errno;
+	if (root >= 0)
+		close(root);
+	if (cas >= 0)
+		close(cas);
+	fyai_manifest_close(&manifests[0]);
+	fyai_manifest_close(&manifests[1]);
+	free(selected);
+	if (rc)
+		fyai_error(call->ctx, "view '%s': cannot apply to '%s': %s", name, project,
+			   strerror(saved));
+	errno = saved;
 	return rc ? -1 : 0;
 }
 
@@ -1948,6 +2009,13 @@ void fyai_view_run_free(struct fyai_view_run *run)
 }
 
 #else
+int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;

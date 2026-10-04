@@ -169,6 +169,7 @@ int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result);
 
 /* Handlers of the filesystem views. */
+int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result);
 
 /* Handlers of the filesystem views. */
