@@ -4557,7 +4557,7 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 	struct fyai_branch b;
 	fy_generic out, entry;
 	const char *kind, *name;
-	char ref[256];
+	char ref[256], brief[13];
 	long long idx;
 
 	out = fy_seq_empty;
@@ -4584,6 +4584,9 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 		 * correct and is what fyai_resolve_ref() accepts back.
 		 */
 		snprintf(ref, sizeof(ref), "%s@{%lld}", name, idx);
+		/* The start of the root is enough to tell two states apart. */
+		snprintf(brief, sizeof(brief), "%.12s",
+			 fy_get(fy_get(entry, "project", fy_invalid), "root", ""));
 
 		out = fy_append(gb, out,
 			fy_mapping(gb,
@@ -4595,7 +4598,8 @@ fy_generic fyai_list_reflog_data(struct fyai_ctx *ctx,
 					fy_get(b.config, "model", "-")),
 				   "kind", fy_value(gb, kind),
 				   "from", fy_value(gb,
-					fy_get(entry, "from", ""))));
+					fy_get(entry, "from", "")),
+				   "project", fy_value(gb, brief)));
 		/* Validate the next link before following it. */
 		if (!fyai_branch_entry_contained(ctx->durable_allocator,
 						 b.prev, 1))

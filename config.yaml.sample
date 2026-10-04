@@ -390,6 +390,8 @@ view:
   # Directory that a view replaces with a private tmpfs. Empty selects $TMPDIR,
   # else /tmp.
   scratch_dir: ""
+  # Record the project state with each ref-log entry that moves a head.
+  track_project: false
   # Run each session and prompt in the view named session of the project.
   # Its changes stay in the view until `view apply session` takes them.
   isolate_session: false

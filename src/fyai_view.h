@@ -76,4 +76,16 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 /* The stored views of the branch, by name; the value is borrowed. */
 fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
 
+/*
+ * The project state of a ref-log entry. When view/track_project is on, each
+ * entry that moves the head of a branch records a reference to a manifest of
+ * the project, so a reference to a point of the branch is a reference to the
+ * files at that point. Only a run whose arena is in the .fyai directory of the
+ * project records one. Capture builds the reference with its storage path in
+ * ctx->gb; it returns 0, with *ref invalid when there is nothing to capture,
+ * and -1 after a warning when the capture failed.
+ */
+bool fyai_project_state_enabled(struct fyai_ctx *ctx);
+int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref);
+
 #endif

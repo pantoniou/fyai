@@ -656,6 +656,8 @@ struct fyai_ctx {
 	 * branch_prev, or fy_invalid. The publish consumes it.
 	 */
 	fy_generic branch_store;
+	/* The project state that the next entry records, or fy_invalid. */
+	fy_generic project_state;
 	uint64_t refs_head;
 	struct curl_slist *headers;
 	char *auth_header;

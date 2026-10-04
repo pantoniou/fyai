@@ -295,7 +295,7 @@ static fy_generic list_renderopts(struct fy_generic_builder *gb,
 	if (!strcmp(what, "reflog"))
 		return fy_mapping(gb, "empty", "no ref log",
 			"keys", fy_sequence(gb, "index", "ref", "kind", "from",
-					    "model", "created"),
+					    "model", "created", "project"),
 			"columns", fy_mapping(gb,
 				"ref", fy_mapping(gb, "name", "Ref",
 						  "align", "left"),

@@ -335,6 +335,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->op = fy_invalid;
 	b->from = fy_invalid;
 	b->prev = fy_invalid;
+	b->project = fy_invalid;
 	b->store = fy_invalid;
 	b->config = fy_invalid;
 	b->catalog = fy_invalid;
@@ -356,6 +357,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->op = fyai_branch_member(entry, "op");
 	b->from = fyai_branch_member(entry, "from");
 	b->prev = fyai_branch_member(entry, "prev");
+	b->project = fyai_branch_member(entry, "project");
 	return fyai_branch_decode_store(store, b);
 }
 
@@ -643,18 +645,22 @@ fy_generic fyai_branch_store_merge(struct fy_generic_builder *gb,
 fy_generic fyai_branch_build(struct fy_generic_builder *gb,
 			     const struct fyai_branch *b)
 {
-	fy_generic store;
+	fy_generic store, entry;
 
 	store = fyai_branch_store_build(gb, b);
 	if (fy_is_invalid(store))
 		return fy_invalid;
-	return fy_mapping(gb,
-			  "head", fyai_generic_or_null(b->head),
-			  "updated", fyai_generic_or_null(b->updated),
-			  "op", fyai_generic_or_null(b->op),
-			  "from", fyai_generic_or_null(b->from),
-			  "prev", fyai_generic_or_null(b->prev),
-			  "store", store);
+	entry = fy_mapping(gb,
+			   "head", fyai_generic_or_null(b->head),
+			   "updated", fyai_generic_or_null(b->updated),
+			   "op", fyai_generic_or_null(b->op),
+			   "from", fyai_generic_or_null(b->from),
+			   "prev", fyai_generic_or_null(b->prev),
+			   "store", store);
+	/* An entry that records no project state has no such member. */
+	if (fy_is_mapping(b->project))
+		entry = fy_assoc(gb, entry, "project", b->project);
+	return entry;
 }
 
 /* Cap on ref-log entries reported for one branch. */

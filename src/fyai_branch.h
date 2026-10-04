@@ -57,6 +57,7 @@ struct fyai_branch {
 	fy_generic op;		/* the operation that made this entry */
 	fy_generic from;	/* the previous name, on a rename */
 	fy_generic prev;	/* previous entry of this branch (its ref log) */
+	fy_generic project;	/* reference to the project state, if recorded */
 	fy_generic store;	/* the store mapping itself */
 	/* Members of the store. */
 	fy_generic config;	/* this branch's configuration document */

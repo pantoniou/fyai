@@ -2124,6 +2124,108 @@ out:
 	return rc;
 }
 
+/*
+ * The project that the arena belongs to: the directory that holds the .fyai
+ * directory of the arena. A run whose arena is elsewhere has no project state
+ * to record, so it never captures a directory by chance.
+ */
+static char *project_state_root(struct fyai_ctx *ctx)
+{
+	const char *arena = ctx->cfg->arena_dir, *marker;
+	char *root, *real;
+
+	if (fy_str_empty(arena))
+		return NULL;
+	real = realpath(arena, NULL);
+	if (!real)
+		return NULL;
+	marker = strstr(real, "/.fyai/");
+	if (!marker && strlen(real) > 6 && !strcmp(real + strlen(real) - 6, "/.fyai"))
+		marker = real + strlen(real) - 6;
+	if (!marker || marker == real) {
+		free(real);
+		return NULL;
+	}
+	root = strndup(real, (size_t)(marker - real));
+	free(real);
+	return root;
+}
+
+bool fyai_project_state_enabled(struct fyai_ctx *ctx)
+{
+	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
+
+	return fy_get(section, "track_project", false) && !ctx->cfg->transient &&
+	       !ctx->cfg->root_spec && !ctx->cfg->tool_child && !getenv("FYAI_VIEW");
+}
+
+int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
+{
+	struct fyai_project_capture_stats statistics = { 0 };
+	struct fyai_project_capture_opts opts = { .stats = &statistics,
+						  .source_fd = -1,
+						  .objects_fd = -1,
+						  .baseline_fd = -1,
+						  .data_fd = -1,
+						  .borrow_git = true,
+						  .defer_sync = true };
+	struct fyai_manifest manifest = { 0 };
+	char manifest_name[FYAI_MANIFEST_NAME_SIZE], error[PATH_MAX] = "";
+	char *root, *storage = NULL, *objects = NULL, *views = NULL;
+	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
+	bool durable = fy_equal(fy_get(section, "durability", "lazy"), "durable");
+	unsigned int attempt;
+	int rc = -1, saved;
+
+	*ref = fy_invalid;
+	root = project_state_root(ctx);
+	if (!root)
+		return 0;
+	rc = view_storage(root, &storage, &objects, &views);
+	if (rc)
+		goto out;
+	opts.source_fd = open(root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	opts.objects_fd = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (opts.source_fd < 0 || opts.objects_fd < 0) {
+		rc = -1;
+		goto out;
+	}
+	for (attempt = 0; attempt < 3; attempt++) {
+		rc = fyai_project_capture_manifest(&opts, &manifest, error, sizeof(error));
+		if (!rc || errno != EAGAIN)
+			break;
+	}
+	if (rc)
+		goto out;
+	rc = fyai_fsview_manifest_publish(storage, &manifest, durable, manifest_name);
+	if (rc)
+		goto out;
+	*ref = fy_assoc(ctx->gb, fyai_fsview_reference(ctx->gb, manifest.root, manifest.object_count,
+						       manifest_name),
+			"storage", fy_value(ctx->gb, storage));
+	if (!fy_is_mapping(*ref)) {
+		*ref = fy_invalid;
+		errno = ENOMEM;
+		rc = -1;
+	}
+out:
+	saved = errno;
+	if (opts.source_fd >= 0)
+		close(opts.source_fd);
+	if (opts.objects_fd >= 0)
+		close(opts.objects_fd);
+	fyai_manifest_close(&manifest);
+	free(root);
+	free(storage);
+	free(objects);
+	free(views);
+	if (rc)
+		fyai_warning(ctx, "project state: cannot capture the project%s%s: %s",
+			     *error ? " at " : "", error, strerror(saved));
+	errno = saved;
+	return rc;
+}
+
 #else
 int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
 {
@@ -2260,5 +2362,18 @@ fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	(void)ctx;
 	(void)gb;
 	return fy_map_empty;
+}
+
+bool fyai_project_state_enabled(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return false;
+}
+
+int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
+{
+	(void)ctx;
+	*ref = fy_invalid;
+	return 0;
 }
 #endif

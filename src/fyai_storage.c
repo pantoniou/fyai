@@ -33,6 +33,7 @@
 #include "fyai_terminal.h"
 #include "fyai_prof.h"
 #include "fyai_branch.h"
+#include "fyai_view.h"
 #include "fyai_merge.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
@@ -197,6 +198,7 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 		    !root_ref_contained(a, b.import) ||
 		    !root_ref_contained(a, b.op) ||
 		    !root_ref_contained(a, b.from) ||
+		    !root_ref_contained(a, b.project) ||
 		    !root_ref_contained(a, b.prev))
 			return false;
 		entry = b.prev;
@@ -1056,6 +1058,9 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 	nb.from = ctx->branch_op_from ?
 		fy_value(ctx->gb, ctx->branch_op_from) : fy_invalid;
 	nb.prev = ctx->branch_prev;
+	/* An entry with no capture of its own keeps the state of its predecessor. */
+	if (fy_is_mapping(ctx->project_state))
+		nb.project = ctx->project_state;
 	fyai_branch_op_set(ctx, NULL, NULL);
 
 	entry = fyai_branch_build(ctx->gb, &nb);
@@ -1478,6 +1483,32 @@ err_out:
 	return -1;
 }
 
+/*
+ * Record the project with an entry that moves the head. A caller that set the
+ * state itself, as reset does, keeps it. A capture that fails is reported and
+ * the entry keeps the state of its predecessor.
+ */
+static void storage_project_state(struct fyai_ctx *ctx)
+{
+	struct fyai_branch prev;
+	fy_generic ref, section;
+
+	if (fy_is_mapping(ctx->project_state) || !fyai_project_state_enabled(ctx) ||
+	    storage_session_defer(ctx))
+		return;
+	fyai_branch_decode(ctx->branch_prev, &prev);
+	if (prev.head.v == ctx->last_message.v)
+		return;
+	if (fyai_project_state_capture(ctx, &ref) || !fy_is_mapping(ref))
+		return;
+	/* A state that did not change is shared with the entry before it. */
+	section = prev.project;
+	if (fy_is_mapping(section) && fy_equal(fy_get(section, "root", ""),
+					       fy_get(ref, "root", "")))
+		return;
+	ctx->project_state = ref;
+}
+
 int fyai_publish_state(struct fyai_ctx *ctx)
 {
 	struct timespec t_reconcile, t_publish;
@@ -1500,6 +1531,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 	op = ctx->branch_op;
 	from = ctx->branch_op_from;
 	fyai_prof_stamp(&t_publish);
+	storage_project_state(ctx);
 
 	for (tries = 0; tries < FYAI_STATE_PUBLISH_TRIES; tries++) {
 		fyai_branch_op_set(ctx, op, from);
@@ -1510,6 +1542,7 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 				fyai_prof_count("publish_cas_lost", tries);
 			fyai_prof_since("publish_total", &t_publish);
 			ctx->branch_store = fy_invalid;
+			ctx->project_state = fy_invalid;
 			return 0;
 		}
 		if (rc < 0)
@@ -1518,12 +1551,14 @@ int fyai_publish_state(struct fyai_ctx *ctx)
 		fyai_prof_stamp(&t_reconcile);
 		if (publish_reconcile(ctx)) {
 			ctx->branch_store = fy_invalid;
+			ctx->project_state = fy_invalid;
 			return -1;
 		}
 		fyai_prof_since("publish_reconcile", &t_reconcile);
 	}
 	fyai_prof_count("publish_cas_lost", tries);
 	ctx->branch_store = fy_invalid;
+	ctx->project_state = fy_invalid;
 	/* Report the branch and the exhausted retry count. */
 	if (rc > 0)
 		fyai_error(ctx, "branch '%s' lost the state race %d times; "

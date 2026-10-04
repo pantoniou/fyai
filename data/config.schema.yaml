@@ -30,6 +30,16 @@ properties:
           Set the directory that a view replaces with a private tmpfs. An empty
           value selects $TMPDIR, else /tmp. The path must be absolute and exist,
           and must not lie inside the project.
+      track_project:
+        type: boolean
+        default: false
+        description: >-
+          Record the state of the project with each ref-log entry that moves
+          the head of a branch, when the arena is in the .fyai directory of the
+          project. A reference to a point of a branch then names the files of
+          that point: `view diff` takes it, and `reset` restores it. Each entry
+          costs a scan of the project, and a state that did not change is
+          shared with the entry before it. Linux only.
       isolate_session:
         type: boolean
         default: false
