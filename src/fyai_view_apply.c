@@ -373,16 +373,14 @@ static int apply_one(struct apply *apply, const char *path, const char *status, 
 	if (fyai_manifest_lookup(apply->result, (const unsigned char *)path, strlen(path), &after,
 				 NULL))
 		new = &after;
-	if ((old && old->kind == FYAI_PROJECT_DIRECTORY) ||
-	    (new && new->kind == FYAI_PROJECT_DIRECTORY)) {
-		/* Only the creation and the removal of a directory carry a change. */
-		if (old && new && old->kind == new->kind)
-			return apply_report(apply, path, status, SATISFIED,
-					    "directory attributes are not applied");
-		if (old && new)
-			return apply_report(apply, path, status, SKIPPED,
-					    "a change of type that involves a directory");
-	}
+	/* Only the creation and the removal of a directory carry a change. */
+	if (old && new && old->kind == FYAI_PROJECT_DIRECTORY &&
+	    new->kind == FYAI_PROJECT_DIRECTORY)
+		return apply_report(apply, path, status, SATISFIED,
+				    "directory attributes are not applied");
+	/* A directory that becomes a file goes after what is beneath it: the removal pass. */
+	if (old && new && old->kind == FYAI_PROJECT_DIRECTORY && !remove)
+		return 0;
 	rc = apply_host(apply, path, &host, &parent, &leaf);
 	if (rc) {
 		saved = errno;
@@ -412,12 +410,20 @@ static int apply_one(struct apply *apply, const char *path, const char *status, 
 		if (!apply->dry_run &&
 		    unlinkat(parent, leaf, old->kind == FYAI_PROJECT_DIRECTORY ? AT_REMOVEDIR : 0)) {
 			saved = errno;
-			rc = apply_report(apply, path, status, saved == ENOTEMPTY ? SKIPPED : CONFLICT,
-					  saved == ENOTEMPTY ? "directory is not empty" :
+			/* A directory that is to become a file is a conflict, not a leftover. */
+			rc = apply_report(apply, path, status,
+					  saved == ENOTEMPTY && !new ? SKIPPED : CONFLICT,
+					  saved == ENOTEMPTY ? "the directory holds other files" :
 							       strerror(saved));
 			goto out;
 		}
-		rc = apply_report(apply, path, status, APPLIED, apply->dry_run ? "would remove" : "");
+		if (!apply->dry_run && new && apply_write(apply, parent, leaf, new)) {
+			saved = errno;
+			rc = apply_report(apply, path, status, SKIPPED, strerror(saved));
+			goto out;
+		}
+		rc = apply_report(apply, path, status, APPLIED,
+				  apply->dry_run ? (new ? "would replace" : "would remove") : "");
 		goto out;
 	}
 	equal_new = parent < 0 ? 0 : apply_equals(apply, parent, leaf, &host, new);
@@ -447,6 +453,12 @@ static int apply_one(struct apply *apply, const char *path, const char *status, 
 			if (rc)
 				goto fail;
 		}
+		/* A file or a symlink that becomes a directory makes room first. */
+		if (host.present && !S_ISDIR(host.st.st_mode) &&
+		    new->kind == FYAI_PROJECT_DIRECTORY && unlinkat(parent, leaf, 0)) {
+			rc = -1;
+			goto fail;
+		}
 		rc = apply_write(apply, parent, leaf, new);
 		if (rc)
 			goto fail;
@@ -464,6 +476,144 @@ out:
 	return rc;
 }
 
+/*
+ * A file that the result has at another path, with the same bytes, is a rename.
+ * The project follows it with a rename when the old path still has the
+ * baseline file and the new path is free. Return 1 when the rename is done,
+ * or reported, and 0 when the paths are to be handled one at a time.
+ */
+static int apply_rename(struct apply *apply, const char *from, const char *to)
+{
+	struct fyai_mobject old, new;
+	struct host_state source, target;
+	const char *from_leaf, *to_leaf;
+	char reason[PATH_MAX + 16];
+	int from_parent = -1, to_parent = -1, ok = 0, rc = 0, saved;
+
+	if (!fyai_manifest_lookup(apply->baseline, (const unsigned char *)from, strlen(from), &old,
+				  NULL) ||
+	    !fyai_manifest_lookup(apply->result, (const unsigned char *)to, strlen(to), &new, NULL))
+		return 0;
+	if (apply_host(apply, from, &source, &from_parent, &from_leaf))
+		return 0;
+	if (apply_host(apply, to, &target, &to_parent, &to_leaf))
+		goto out;
+	if (source.blocked || target.blocked || !source.present || target.present ||
+	    from_parent < 0 || apply_equals(apply, from_parent, from_leaf, &source, &old) != 1)
+		goto out;
+	if (!apply->dry_run) {
+		if (to_parent < 0) {
+			if (apply_parents(apply, to))
+				goto out;
+			if (apply_host(apply, to, &target, &to_parent, &to_leaf) || to_parent < 0)
+				goto out;
+		}
+		if (renameat(from_parent, from_leaf, to_parent, to_leaf))
+			goto out;
+		if ((old.meta.mode ^ new.meta.mode) & 0111 &&
+		    fchmodat(to_parent, to_leaf, new.meta.mode & 07777, 0))
+			goto out;
+	}
+	snprintf(reason, sizeof(reason), "%s from %s", apply->dry_run ? "would rename" : "renamed",
+		 from);
+	rc = apply_report(apply, to, "renamed", APPLIED, reason);
+	ok = rc ? -1 : 1;
+out:
+	saved = errno;
+	if (from_parent >= 0)
+		close(from_parent);
+	if (to_parent >= 0)
+		close(to_parent);
+	errno = saved;
+	return ok;
+}
+
+/* One changed path, with the objects of both sides and the rename it belongs to. */
+struct change {
+	const char *path;
+	const char *status;
+	struct fyai_mobject before, after;
+	bool has_before, has_after;
+	/* The index of the other path of a rename, or -1. */
+	long pair;
+	/* The removed path of a rename that was done: nothing more to do. */
+	bool done;
+};
+
+static int change_digest_order(const void *a, const void *b, void *arg)
+{
+	const struct change *list = arg;
+	const struct change *x = &list[*(const size_t *)a], *y = &list[*(const size_t *)b];
+	int order = memcmp(x->before.blob.digest, y->before.blob.digest, FYAI_CAS_HASH_SIZE);
+
+	if (order)
+		return order;
+	return *(const size_t *)a < *(const size_t *)b ? -1 : *(const size_t *)a > *(const size_t *)b;
+}
+
+static const char *change_base(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash ? slash + 1 : path;
+}
+
+/*
+ * Pair each added file with a deleted file of the same bytes. A file pairs only
+ * with a file, and an empty file with none. Among several candidates the one with
+ * the same name wins, else the first in path order, as section 10.1 says.
+ */
+static void changes_pair(struct change *list, size_t count)
+{
+	size_t *deleted, i, n = 0, low, high, mid, k, pick;
+	int order;
+
+	deleted = malloc((count + 1) * sizeof(*deleted));
+	if (!deleted)
+		return;
+	for (i = 0; i < count; i++) {
+		list[i].pair = -1;
+		if (list[i].has_before && !list[i].has_after &&
+		    list[i].before.kind == FYAI_PROJECT_FILE && list[i].before.blob.size)
+			deleted[n++] = i;
+	}
+	qsort_r(deleted, n, sizeof(*deleted), change_digest_order, list);
+	for (i = 0; i < count; i++) {
+		if (list[i].has_before || !list[i].has_after || list[i].after.kind != FYAI_PROJECT_FILE ||
+		    !list[i].after.blob.size)
+			continue;
+		low = 0;
+		high = n;
+		while (low < high) {
+			mid = (low + high) / 2;
+			order = memcmp(list[deleted[mid]].before.blob.digest, list[i].after.blob.digest,
+				       FYAI_CAS_HASH_SIZE);
+			if (order < 0)
+				low = mid + 1;
+			else
+				high = mid;
+		}
+		pick = n;
+		for (k = low; k < n && !memcmp(list[deleted[k]].before.blob.digest,
+					       list[i].after.blob.digest, FYAI_CAS_HASH_SIZE);
+		     k++) {
+			if (list[deleted[k]].pair >= 0)
+				continue;
+			if (pick == n)
+				pick = k;
+			if (!strcmp(change_base(list[deleted[k]].path), change_base(list[i].path))) {
+				pick = k;
+				break;
+			}
+		}
+		if (pick == n)
+			continue;
+		list[i].pair = (long)deleted[pick];
+		list[deleted[pick]].pair = (long)i;
+	}
+	free(deleted);
+}
+
 int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_fd,
 		    const struct fyai_manifest *baseline, const struct fyai_manifest *result,
 		    const char *const *paths, size_t path_count, bool dry_run, fy_generic *rows,
@@ -477,11 +627,11 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 			       .result = result,
 			       .dry_run = dry_run,
 			       .summary = summary };
+	struct change *list = NULL, *c;
 	fy_generic changes, row;
 	const char *path, *hex, *status;
-	size_t count, i, indices;
-	size_t *removals = NULL;
-	int rc = -1, saved;
+	size_t count, i, used = 0, removals = 0, *removal = NULL;
+	int rc = -1, saved, done;
 
 	memset(summary, 0, sizeof(*summary));
 	apply.rows = fy_sequence(gb);
@@ -494,18 +644,16 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 	if (!fy_is_sequence(changes))
 		goto out;
 	count = fy_len(changes);
-	removals = calloc(count + 1, sizeof(*removals));
-	if (!removals) {
+	list = calloc(count + 1, sizeof(*list));
+	removal = calloc(count + 1, sizeof(*removal));
+	if (!list || !removal) {
 		errno = ENOMEM;
 		goto out;
 	}
-	indices = 0;
-	i = 0;
 	fy_foreach(row, changes) {
 		path = fy_get(row, "path", "");
 		hex = fy_get(row, "path_hex", "");
 		status = fy_get(row, "status", "");
-		i++;
 		if (!strcmp(path, ".") || !apply_selected(path, paths, path_count))
 			continue;
 		if (!apply_path_safe(path) || strlen(hex) != 2 * strlen(path)) {
@@ -513,24 +661,51 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 				goto out;
 			continue;
 		}
-		if (!strcmp(status, "deleted")) {
-			removals[indices++] = i - 1;
+		c = &list[used++];
+		c->path = path;
+		c->status = status;
+		c->pair = -1;
+		c->has_before = fyai_manifest_lookup(baseline, (const unsigned char *)path,
+						     strlen(path), &c->before, NULL);
+		c->has_after = fyai_manifest_lookup(result, (const unsigned char *)path,
+						    strlen(path), &c->after, NULL);
+	}
+	changes_pair(list, used);
+	for (i = 0; i < used; i++) {
+		c = &list[i];
+		if (c->done)
+			continue;
+		if (c->pair >= 0 && c->has_after) {
+			done = apply_rename(&apply, list[c->pair].path, c->path);
+			if (done < 0)
+				goto out;
+			if (done) {
+				list[c->pair].done = true;
+				continue;
+			}
+		}
+		/* A removal waits for the rest: what is beneath a directory goes before it. */
+		if (!c->has_after || (c->has_before && c->before.kind == FYAI_PROJECT_DIRECTORY &&
+				      c->after.kind != FYAI_PROJECT_DIRECTORY)) {
+			removal[removals++] = i;
 			continue;
 		}
-		if (apply_one(&apply, path, status, false))
+		if (apply_one(&apply, c->path, c->status, false))
 			goto out;
 	}
-	/* Remove in reverse order: what is beneath a directory goes before it. */
-	while (indices) {
-		row = fy_get_at(changes, removals[--indices]);
-		if (apply_one(&apply, fy_get(row, "path", ""), "deleted", true))
+	while (removals) {
+		c = &list[removal[--removals]];
+		if (c->done)
+			continue;
+		if (apply_one(&apply, c->path, c->has_after ? "modified" : "deleted", true))
 			goto out;
 	}
 	*rows = apply.rows;
 	rc = 0;
 out:
 	saved = errno;
-	free(removals);
+	free(list);
+	free(removal);
 	fy_blake3_hasher_destroy(apply.hasher);
 	errno = saved;
 	return rc;

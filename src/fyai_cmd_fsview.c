@@ -886,18 +886,29 @@ struct view_state {
 	fy_generic reference;
 	fy_generic baseline;
 	char storage[PATH_MAX];
+	/* The directory that the snapshot is of, and that an apply writes. */
+	char project[PATH_MAX];
 	bool is_view;
 };
 
 static int view_state_set(struct fyai_ctx *ctx, struct view_state *state, fy_generic reference,
 			  const char *storage, const char *what, bool quiet)
 {
+	size_t length;
+
 	if (!fy_is_mapping(reference) || fy_str_empty(storage) || strlen(storage) >= PATH_MAX) {
 		view_state_error(quiet, ctx, "no project state is recorded at '%s'", what);
 		return -1;
 	}
 	state->reference = reference;
 	strcpy(state->storage, storage);
+	/* The storage of a project is its .fyai directory. */
+	if (!state->project[0]) {
+		length = strlen(storage);
+		if (length > 6 && !strcmp(storage + length - 6, "/.fyai"))
+			snprintf(state->project, sizeof(state->project), "%.*s", (int)(length - 6),
+				 storage);
+	}
 	return 0;
 }
 
@@ -943,6 +954,7 @@ static int view_state_find(struct fyai_ctx *ctx, const char *spec, struct view_s
 			return -1;
 		state->is_view = true;
 		state->baseline = fy_get(view, "baseline", fy_invalid);
+		snprintf(state->project, sizeof(state->project), "%s", fy_get(view, "project", ""));
 		return view_state_set(ctx, state, fy_get(view, "result", state->baseline),
 				      fy_get(view, "storage", ""), spec, quiet);
 	}
@@ -1126,29 +1138,67 @@ fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	return fy_get(view_store(ctx), "views", fy_map_empty);
 }
 
-int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
-		   const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
-		   fy_generic *result)
+/*
+ * Record that a result was applied. The project now holds files that the next
+ * entry of the ref log should record, so with track_project it takes the state
+ * that the project has after the apply. A view keeps the result that was
+ * applied, which `view list` shows; its baseline stays, because the baseline
+ * tree is the lower layer of the mounts (view update takes a new one). A
+ * failure is a warning: the files are written.
+ */
+static void view_applied_record(struct fyai_ctx *ctx, const char *name,
+				const struct view_state *target,
+				const struct fyai_apply_summary *summary)
 {
+	fy_generic view, captured, applied;
+
+	if (ctx->cfg->root_spec || ctx->gb != ctx->durable_gb)
+		return;
+	if (fyai_project_state_enabled(ctx) && !fyai_project_state_capture(ctx, &captured) &&
+	    fy_is_mapping(captured))
+		ctx->project_state = captured;
+	view = target->is_view ? view_find(ctx, name) : fy_invalid;
+	if (fy_is_mapping(view)) {
+		applied = fy_mapping(ctx->gb, "root", fy_get(target->reference, "root", ""), "at",
+				     (long long)fyai_branch_timestamp(), "applied",
+				     (long long)summary->applied, "conflicts",
+				     (long long)summary->conflicts);
+		view_save(ctx, name, fy_assoc(ctx->gb, view, "applied", applied));
+	} else if (fy_is_mapping(ctx->project_state)) {
+		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_COMMAND, NULL);
+		fyai_publish_state(ctx);
+	}
+	ctx->project_state = fy_invalid;
+}
+
+int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
+		   const char *base, const char *const *paths, size_t count,
+		   enum fyai_view_pull_mode mode, fy_generic *result)
+{
+	struct view_state target = { 0 }, from = { 0 };
 	struct fyai_apply_summary summary;
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
-	fy_generic view, rows, snapshots[2];
-	const char *project, *storage, *objects;
+	fy_generic rows;
+	const char *objects;
 	int root = -1, cas = -1, rc = -1, saved;
 
-	view = view_find(ctx, name);
-	if (!fy_is_mapping(view)) {
-		fyai_error(ctx, "view '%s' does not exist", name);
+	if (view_state_find(ctx, name, &target, false))
+		return -1;
+	/*
+	 * The change is from the base to the target. A view has its baseline for a
+	 * base, and a reference has the head of the branch.
+	 */
+	if (base) {
+		if (view_state_find(ctx, base, &from, false))
+			return -1;
+	} else if (target.is_view) {
+		from = target;
+		from.reference = target.baseline;
+	} else if (view_state_find(ctx, "HEAD", &from, false)) {
 		return -1;
 	}
-	if (view_diff_recover(ctx, name, &view))
-		return -1;
-	project = fy_get(view, "project", "");
-	storage = fy_get(view, "storage", "");
-	snapshots[0] = fy_get(view, "baseline", fy_invalid);
-	snapshots[1] = fy_get(view, "result", snapshots[0]);
-	if (fyai_fsview_manifest_open(storage, snapshots[0], &manifests[0]) ||
-	    fyai_fsview_manifest_open(storage, snapshots[1], &manifests[1]))
+	if (fyai_fsview_manifest_open(from.storage, from.reference, &manifests[0]) ||
+	    fyai_fsview_manifest_open(target.storage, target.reference, &manifests[1]))
 		goto out;
 	if (mode == FYAI_VIEW_PULL_CHANGES) {
 		rows = fyai_manifest_diff(gb, &manifests[0], &manifests[1]);
@@ -1158,8 +1208,12 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 		rc = 0;
 		goto out;
 	}
-	root = open(project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-	objects = fy_sprintfa("%s/objects/blake3", storage);
+	if (!target.project[0]) {
+		errno = EINVAL;
+		goto out;
+	}
+	root = open(target.project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	objects = fy_sprintfa("%s/objects/blake3", target.storage);
 	cas = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (root < 0 || cas < 0)
 		goto out;
@@ -1172,6 +1226,8 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 			     "skipped", (long long)summary.skipped, "changes", rows);
 	if (summary.conflicts)
 		ctx->cfg->exit_status = 1;
+	if (mode == FYAI_VIEW_PULL_APPLY && summary.applied)
+		view_applied_record(ctx, name, &target, &summary);
 out:
 	saved = errno;
 	if (root >= 0)
@@ -1183,7 +1239,7 @@ out:
 	if (rc)
 		fyai_error(ctx, "view '%s': cannot %s '%s': %s", name,
 			   mode == FYAI_VIEW_PULL_CHANGES ? "list the changes of" : "apply to",
-			   project, strerror(saved));
+			   target.project, strerror(saved));
 	errno = saved;
 	return rc ? -1 : 0;
 }
@@ -1202,7 +1258,8 @@ int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	fy_foreach(path, paths)
 		selected[index++] = path;
-	rc = fyai_view_pull(call->ctx, call->gb, fyai_cmd_arg_str(call, "name"), selected, count,
+	rc = fyai_view_pull(call->ctx, call->gb, fyai_cmd_arg_str(call, "name"),
+			    fyai_cmd_arg_str(call, "base"), selected, count,
 			    fyai_cmd_arg_bool(call, "dry_run") ? FYAI_VIEW_PULL_DRY_RUN :
 								 FYAI_VIEW_PULL_APPLY,
 			    result);
@@ -2593,10 +2650,11 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 }
 
 int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
-		   const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
-		   fy_generic *result)
+		   const char *base, const char *const *paths, size_t count,
+		   enum fyai_view_pull_mode mode, fy_generic *result)
 {
 	(void)gb;
+	(void)base;
 	(void)name;
 	(void)paths;
 	(void)count;

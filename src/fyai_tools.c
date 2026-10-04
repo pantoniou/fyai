@@ -4749,7 +4749,7 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 		selected[index++] = path;
 	mode = !strcmp(action, "changes") ? FYAI_VIEW_PULL_CHANGES :
 	       fy_get(args, "dry_run", false) ? FYAI_VIEW_PULL_DRY_RUN : FYAI_VIEW_PULL_APPLY;
-	rc = fyai_view_pull(ctx, ctx->transient_gb, name, selected, count, mode, &result);
+	rc = fyai_view_pull(ctx, ctx->transient_gb, name, NULL, selected, count, mode, &result);
 	free(selected);
 	if (rc) {
 		diag = fyai_diag_string(&ctx->cfg->diag);

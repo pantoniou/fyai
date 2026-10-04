@@ -1593,7 +1593,10 @@ commands:
         title: apply the changes of a view to the project
         description: |
           Take the changes that NAME recorded, from its baseline to its result,
-          and write them into the project. A path that the project still has
+          and write them into the project. NAME can be a reference such as
+          main@{2}, which stands for the project state that its ref-log entry
+          recorded; the change is then from BASE, or from the head of the
+          branch, to that state. Name BASE before NAME. A path that the project still has
           as the baseline had it takes the result. A path that already equals
           the result is left as it is. A path that the project and the view
           changed differently is a conflict: it is reported and not changed.
@@ -1611,9 +1614,15 @@ commands:
               default: false
               description: report what would change and write nothing
               x-fyai-long: dry-run
+            base:
+              type: string
+              description: the view or reference that the change starts from
+              x-fyai-long: base
+              x-fyai-meta: BASE
+              x-fyai-complete: view
             name:
               type: string
-              description: the view whose changes to apply
+              description: the view or reference whose changes to apply
               x-fyai-positional: 0
               x-fyai-meta: NAME
               x-fyai-complete: view

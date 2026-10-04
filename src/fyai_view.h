@@ -66,12 +66,14 @@ enum fyai_view_pull_mode {
 /*
  * Read the result of a view back into the project: the one entry of the
  * `view diff --stat`, `view apply --dry-run` and `view apply` commands and of
- * the project_view tool. The result is built in gb. paths selects what to
- * apply; none selects every change. Return 0, or -1 with the cause reported.
+ * the project_view tool. The result is built in gb. name is a view or a
+ * reference, and base the state that the change starts from: a view's baseline,
+ * or the head, when it is NULL. paths selects what to apply; none selects every
+ * change. Return 0, or -1 with the cause reported.
  */
 int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,
-		   const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
-		   fy_generic *result);
+		   const char *base, const char *const *paths, size_t count,
+		   enum fyai_view_pull_mode mode, fy_generic *result);
 
 /* The stored views of the branch, by name; the value is borrowed. */
 fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb);

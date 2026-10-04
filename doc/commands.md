@@ -1466,10 +1466,13 @@ return structured content and metadata changes with the patch.
 
 apply the changes of a view to the project
 
-**Usage:** `fyai view apply [--dry-run] NAME [PATH...]`
+**Usage:** `fyai view apply [--dry-run] [--base BASE] NAME [PATH...]`
 
 Take the changes that NAME recorded, from its baseline to its result,
-and write them into the project. A path that the project still has
+and write them into the project. NAME can be a reference such as
+main@{2}, which stands for the project state that its ref-log entry
+recorded; the change is then from BASE, or from the head of the
+branch, to that state. Name BASE before NAME. A path that the project still has
 as the baseline had it takes the result. A path that already equals
 the result is left as it is. A path that the project and the view
 changed differently is a conflict: it is reported and not changed.
@@ -1482,7 +1485,7 @@ unchanged; update it to compare again.
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the view whose changes to apply |
+| `NAME` | the view or reference whose changes to apply |
 | `PATH` | the paths to apply, relative to the project; omit to apply every change |
 
 ### Options
@@ -1490,6 +1493,7 @@ unchanged; update it to compare again.
 | Option | Description |
 | --- | --- |
 | `--dry-run` | report what would change and write nothing; default false |
+| `--base BASE` | the view or reference that the change starts from |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -3493,10 +3497,13 @@ return structured content and metadata changes with the patch.
 
 apply the changes of a view to the project
 
-**Usage:** `/view apply [--dry-run] NAME [PATH...]`
+**Usage:** `/view apply [--dry-run] [--base BASE] NAME [PATH...]`
 
 Take the changes that NAME recorded, from its baseline to its result,
-and write them into the project. A path that the project still has
+and write them into the project. NAME can be a reference such as
+main@{2}, which stands for the project state that its ref-log entry
+recorded; the change is then from BASE, or from the head of the
+branch, to that state. Name BASE before NAME. A path that the project still has
 as the baseline had it takes the result. A path that already equals
 the result is left as it is. A path that the project and the view
 changed differently is a conflict: it is reported and not changed.
@@ -3509,7 +3516,7 @@ unchanged; update it to compare again.
 
 | Argument | Description |
 | --- | --- |
-| `NAME` | the view whose changes to apply |
+| `NAME` | the view or reference whose changes to apply |
 | `PATH` | the paths to apply, relative to the project; omit to apply every change |
 
 ### Options
@@ -3517,6 +3524,7 @@ unchanged; update it to compare again.
 | Option | Description |
 | --- | --- |
 | `--dry-run` | report what would change and write nothing; default false |
+| `--base BASE` | the view or reference that the change starts from |
 | `-h`, `--help` | show this help |
 
 ## /view remove
