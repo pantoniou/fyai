@@ -65,4 +65,17 @@ assert_stdout_contains 'keep'
 run_fyai gc --grace 0
 assert_status 0
 assert_stdout_contains 'removed 0 manifests, 0 objects and 0 view trees'
+
+# --tips drops every ref log and keeps the tip of the branch and the views.
+run_fyai gc --grace 0 --tips
+assert_status 0
+run_fyai list reflog --output json
+assert_status 0
+"$PYTHON" - "$TEST_DIR/stdout" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+assert len(rows) == 1, rows
+PY
+run_fyai view show keep
+assert_status 0
 pass
