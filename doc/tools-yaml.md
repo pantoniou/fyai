@@ -58,6 +58,41 @@ Use these rules:
 - Property types include `string`, `integer`, `boolean`, and `array` of
   `string`.
 
+## Placeholders
+
+A description can hold `{{name}}`. When the tools are built for a run, each
+name is replaced by the text that the run needs, so the model learns what the
+run can do.
+
+The run decides the state of a name, and the tool holds the text of each
+state under `templates`, beside its description:
+
+```yaml
+- type: function
+  function:
+    name: agent
+    description: |-
+      ... {{project_isolation_description}}
+  templates:
+    project_isolation_description:
+      default: >-
+        Text for a run where the option is on.
+      optional: >-
+        Text for a run where the option can be chosen.
+```
+
+`fyai_tool_template_state()` in `src/fyai_tool_template.c` lists the names and
+gives the state of each. A name that has no text in this run, or in a state
+that the tool does not list, stands for nothing, and the blank it leaves is
+removed. The `templates` key is not sent to the provider.
+
+| Name | States |
+| --- | --- |
+| `project_isolation_description` | `default`: a sub-agent runs on a private copy of the project unless told otherwise (`agent/isolation: view`). `optional`: it does when asked (`none`). It has no state when the run cannot isolate: then the `isolated` parameter and the `project_view` tool are not offered either. |
+
+A unit test fails when a description names a placeholder that the table does
+not list.
+
 ## Embedding
 
 `CMakeLists.txt` reads `data/tools.yaml` as hexadecimal data. It writes the
