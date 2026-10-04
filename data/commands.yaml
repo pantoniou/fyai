@@ -1029,7 +1029,9 @@ commands:
     title: collect the garbage of the arena and of the project storage
     description: |
       Compact the arena. `--keep-reflogs N` also cuts the ref log to the
-      last N entries. Then remove, from the project storage (`.fyai` of a
+      last N entries; `--tips` is `--keep-reflogs 1`: each branch keeps only
+      its tip, with the project state and the views of the tip, and the
+      older entries and everything only they reached go. Then remove, from the project storage (`.fyai` of a
       project), the manifests, the blobs and the view trees that no branch
       reaches: the project states of the ref log, the views that a branch
       stores, and the base of a delta manifest. A file younger than `--grace`
@@ -1053,6 +1055,11 @@ commands:
           minimum: 1
           description: keep only the last N ref-log entries
           x-fyai-meta: N
+        tips:
+          type: boolean
+          default: false
+          description: keep only the tip of each branch and the views it stores, and drop every ref log
+          x-fyai-long: tips
         grace:
           type: integer
           minimum: 0

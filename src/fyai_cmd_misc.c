@@ -409,6 +409,8 @@ int fyai_cmd_gc(struct fyai_cmd_call *call, fy_generic *result)
 	int rc;
 
 	args->keep_reflogs = fy_get(call->args, "keep_reflogs", -1LL);
+	if (fy_get(call->args, "tips", false))
+		args->keep_reflogs = 1;
 	args->grace = (unsigned int)fy_get(call->args, "grace", 3600LL);
 	rc = fyai_gc_storage(call->ctx);
 	if (rc < 0)
