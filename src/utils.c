@@ -2080,3 +2080,34 @@ int mkdir_private(const char *path)
 		return -1;
 	return 0;
 }
+
+int hex_nibble(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	return -1;
+}
+
+int hex_decode(const char *text, unsigned char *bytes, size_t *count)
+{
+	size_t length = strlen(text), i;
+	int high, low;
+
+	if (length & 1) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (i = 0; i < length / 2; i++) {
+		high = hex_nibble(text[i * 2]);
+		low = hex_nibble(text[i * 2 + 1]);
+		if (high < 0 || low < 0) {
+			errno = EINVAL;
+			return -1;
+		}
+		bytes[i] = (unsigned char)(high << 4 | low);
+	}
+	*count = length / 2;
+	return 0;
+}

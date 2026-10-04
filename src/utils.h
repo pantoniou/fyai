@@ -312,4 +312,14 @@ const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v);
 
 int mkdir_private(const char *path);
 
+/* The value of a lowercase hex digit, or -1. */
+int hex_nibble(char c);
+
+/*
+ * Decode lowercase hex text into bytes and store the count, which is half the
+ * length of the text. Return 0, or -1 with errno set to EINVAL for an odd
+ * length or a character that is not a lowercase hex digit.
+ */
+int hex_decode(const char *text, unsigned char *bytes, size_t *count);
+
 #endif
