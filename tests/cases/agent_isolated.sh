@@ -23,9 +23,13 @@ run_fyai --set api=chat-completions --set display/stream=false --set tools=true 
 assert_status 0
 assert_stdout_contains "Isolated and done."
 
-# The sub-agent changed the files in its view and not in the project.
-[ "$(cat file)" = baseline ] || fail 'the isolated sub-agent changed the project'
-[ ! -e added ] || fail 'the isolated sub-agent added a file to the project'
+# The parent pulled the changes with the project_view tool, and only then.
+assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent-worker'"'"'" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 4 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_view_1" and isinstance(m.get("content"), dict) and m["content"].get("applied") == 2 for m in r["body"]["messages"])'
+[ "$(cat file)" = changed ] || fail 'the tool did not apply the change'
+[ "$(cat added)" = new ] || fail 'the tool did not apply the added file'
+printf baseline > file
+rm added
 
 # The parent is told which view holds the changes, and what they are.
 assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent-worker'"'"'" in m.get("content", "") and "2 paths changed:" in m.get("content", "") for m in r["body"]["messages"])'
@@ -60,5 +64,5 @@ assert_status 0
 [ "$(cat file)" = changed ] || fail 'the selected path was not applied'
 [ ! -e added ] || fail 'an unselected path was applied'
 
-mock_stop 4
+mock_stop 5
 pass
