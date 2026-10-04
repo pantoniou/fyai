@@ -101,5 +101,20 @@ run_fyai reset 'main@{1}'
 assert_status 0
 [ "$(cat file)" = host ] || fail 'the edit was not recorded before the forced reset'
 
+# gc keeps the states that the ref log names, and collects those that a cut of
+# the ref log leaves behind.
+before=$(find .fyai/manifests -type f | wc -l)
+run_fyai gc --grace 0
+assert_status 0
+assert_stdout_contains 'removed 0 manifests'
+[ "$(find .fyai/manifests -type f | wc -l)" = "$before" ] || fail 'gc removed a state of the ref log'
+run_fyai view diff 'main@{0}' 'main@{2}' --stat
+assert_status 0
+run_fyai gc --grace 0 --keep-reflogs 2
+assert_status 0
+[ "$(find .fyai/manifests -type f | wc -l)" -lt "$before" ] || fail 'gc kept a state of a cut entry'
+run_fyai view diff 'main@{0}' 'main@{1}' --stat
+assert_status 0
+
 mock_stop 3
 pass
