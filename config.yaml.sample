@@ -379,3 +379,10 @@ branch:
   # or replay unpublished turns with rebase or merge. Other branches do not
   # conflict.
   on_conflict: abort
+
+# New project views trade crash durability for fast capture by default.
+view:
+  durability: lazy
+  # Directory that a view replaces with a private tmpfs. Empty selects $TMPDIR,
+  # else /tmp.
+  scratch_dir: ""

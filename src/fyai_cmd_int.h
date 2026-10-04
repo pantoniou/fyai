@@ -168,6 +168,26 @@ int fyai_cmd_kill(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_profiles(struct fyai_cmd_call *call, fy_generic *result);
 
+/* Handlers of the filesystem views. */
+int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result);
+
+/* Handlers of the filesystem views. */
+int fyai_cmd_view_remove(struct fyai_cmd_call *call, fy_generic *result);
+
+/* Handlers of the filesystem views. */
+int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result);
+
+/* Handlers of the filesystem views. */
+int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result);
+
+/* Handlers of the filesystem views. */
+int fyai_cmd_view_create(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result);
+
 fyai_cmd_prepare_fn fyai_cmd_prepare(const char *name);
 fyai_cmd_prepare_fn fyai_cmd_early_hook(const char *name);
 int fyai_cmd_resume_early(struct fyai_cfg *cfg, fy_generic args);

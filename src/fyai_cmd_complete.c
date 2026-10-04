@@ -93,6 +93,20 @@ static void kind_branch(struct complete_req *r)
 	kind_branch_filtered(r, false, NULL);
 }
 
+static void kind_view(struct complete_req *r)
+{
+	struct fyai_branch branch;
+	fy_generic view;
+	const char *name;
+
+	if (!r->ctx || !fyai_branch_decode(r->ctx->branch_prev, &branch))
+		return;
+	fy_foreach_key_value(name, view, fy_get(branch.store, "views", fy_invalid)) {
+		if (!fy_str_empty(name) && fy_is_mapping(view))
+			cand(r, name, fy_get(view, "project", ""));
+	}
+}
+
 static void kind_agent_branch(struct complete_req *r)
 {
 	kind_branch_filtered(r, true, NULL);
@@ -233,15 +247,18 @@ static bool config_is_object(fy_generic node)
 static void config_paths(struct complete_req *r, const char *suffix)
 {
 	fy_generic node, child, d;
-	const char *key;
+	const char *key, *tail;
 	size_t base;
 
 	node = config_node(r, r->partial, &base);
 	fy_foreach_key_value(key, child, fy_get(node, "properties",
 						  fy_invalid)) {
+		if (!key)
+			continue;
 		d = fy_get(child, "description", fy_invalid);
+		tail = config_is_object(child) ? "/" : (suffix ? suffix : "");
 		cand(r, fy_sprintfa("%.*s%s%s", (int)base, r->partial, key,
-				    config_is_object(child) ? "/" : suffix),
+				    tail),
 		     gstr(&d));
 	}
 }
@@ -548,6 +565,7 @@ static const struct {
 	void (*fn)(struct complete_req *r);
 } complete_kinds[] = {
 	{ "branch",		kind_branch },
+	{ "view",		kind_view },
 	{ "agent-branch",	kind_agent_branch },
 	{ "session",		kind_session },
 	{ "ref",		kind_ref },

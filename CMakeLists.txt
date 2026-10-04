@@ -405,10 +405,10 @@ set(FYAI_SOURCES
     src/fyai_cas.c
     src/fyai_scratch.c
     src/fyai_manifest.c
+    src/fyai_wire.c
     src/fyai_project.c
     src/fyai_project_diff.c
     src/fyai_project_capture.c
-    src/fyai_wire.c
     src/fyai_fsview.c
     ${FYAI_EVENT_SOURCES}
     src/fyai_crash.c
@@ -483,6 +483,7 @@ set(FYAI_SOURCES
     src/fyai_cmd_misc.c
     src/fyai_cmd_store.c
     src/fyai_cmd_view.c
+    src/fyai_cmd_fsview.c
 )
 
 add_executable(fyai

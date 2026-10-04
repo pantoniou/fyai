@@ -126,6 +126,16 @@ static const struct {
 	{ "auth_usage",		fyai_cmd_auth_usage },
 	{ "auth_login",		fyai_cmd_auth_login },
 	{ "auth_logout",	fyai_cmd_auth_logout },
+	{ "view_diff",		fyai_cmd_view_diff },
+	{ "view_remove",	fyai_cmd_view_remove },
+	{ "view_sync",		fyai_cmd_view_sync },
+	{ "view_mount",		fyai_cmd_view_mount },
+	{ "view_unmount",	fyai_cmd_view_unmount },
+	{ "view_create",	fyai_cmd_view_create },
+	{ "view_update",	fyai_cmd_view_update },
+	{ "view_show",		fyai_cmd_view_show },
+	{ "view_list",		fyai_cmd_view_list },
+	{ "view_enter",		fyai_cmd_view_enter },
 };
 
 static const struct {
