@@ -83,6 +83,8 @@ static int diff_ops_push(struct diff_ops *ops, char op, size_t times)
 	char *grown;
 	size_t cap;
 
+	if (!times)
+		return 0;
 	if (ops->count + times > ops->cap) {
 		cap = ops->cap ? ops->cap : 256;
 		while (cap < ops->count + times)
