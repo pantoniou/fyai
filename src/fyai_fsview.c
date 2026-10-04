@@ -577,17 +577,32 @@ static int view_cover_protected(const char *protected, const char *backing)
 	return view_cover("cover", backing);
 }
 
+int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
+{
+	const char *protected = fy_sprintfa("%s/.fyai", view->project);
+	const char *path;
+
+	if (!view_beneath(view->arena, protected))
+		return 0;
+	path = fy_sprintfa("%s/cover%s", view->runtime, view->arena + strlen(view->project) +
+			   strlen("/.fyai"));
+	return fyai_mkdir_p(path);
+}
+
 int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 {
 	const char *backing = fy_sprintfa("%s/" FYAI_FSVIEW_BACKING_NAME, view->scratch);
 	struct sigaction ignore = { .sa_handler = SIG_IGN }, previous;
 	struct mount_attr attrs = { .attr_set = MOUNT_ATTR_RDONLY };
-	struct fyai_sandbox_path scratch = { .path = view->scratch, .mode = FYAI_SB_RW };
+	struct fyai_sandbox_path allowed[2] = {
+		{ .path = view->scratch, .mode = FYAI_SB_RW },
+		{ .path = view->arena, .mode = FYAI_SB_RW },
+	};
 	struct fyai_sandbox_spec sandbox = {
-		.strict = true, .read_all = true, .allow = &scratch, .allow_n = 1
+		.strict = true, .read_all = true, .allow = allowed, .allow_n = 1
 	};
 	const char *deny[4], *protected;
-	int runtime, rc, saved, status, tree = -1;
+	int runtime, rc, saved, status, tree = -1, arena_tree = -1;
 	size_t denied = 0;
 	pid_t child, waited, parent = getppid();
 
@@ -650,6 +665,15 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 		rc = -1;
 		goto out;
 	}
+	if (view->agent) {
+		/* Taken before the outside mounts become read-only. */
+		arena_tree = syscall(SYS_open_tree, AT_FDCWD, view->arena,
+				     OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC);
+		if (arena_tree < 0) {
+			rc = -1;
+			goto out;
+		}
+	}
 	rc = mount("/", "/", NULL, MS_BIND | MS_REC, NULL);
 	if (rc)
 		goto out;
@@ -683,12 +707,22 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 	rc = view_cover_protected(protected, backing);
 	if (rc)
 		goto out;
+	if (view->agent) {
+		rc = syscall(SYS_move_mount, arena_tree, "", AT_FDCWD, view->arena,
+			     MOVE_MOUNT_F_EMPTY_PATH);
+		if (rc)
+			goto out;
+		close(arena_tree);
+		arena_tree = -1;
+		sandbox.allow_n = 2;
+	}
 	rc = view_mount_pseudo();
 	if (rc)
 		goto out;
 	if (!view_beneath(view->storage, protected) && !view_beneath(view->storage, view->scratch))
 		deny[denied++] = view->storage;
-	if (!view_beneath(view->arena, protected) && !view_beneath(view->arena, view->scratch))
+	if (!view->agent && !view_beneath(view->arena, protected) &&
+	    !view_beneath(view->arena, view->scratch))
 		deny[denied++] = view->arena;
 	sandbox.project_root = view->project;
 	sandbox.deny = deny;
@@ -731,6 +765,8 @@ out:
 	saved = errno;
 	if (tree >= 0)
 		close(tree);
+	if (arena_tree >= 0)
+		close(arena_tree);
 	if (runtime >= 0)
 		close(runtime);
 	errno = saved;
@@ -1207,6 +1243,13 @@ int fyai_fsview_unmount(const struct fyai_fsview *view, const char *target,
 	(void)view;
 	(void)target;
 	(void)identity;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
+{
+	(void)view;
 	errno = ENOTSUP;
 	return -1;
 }

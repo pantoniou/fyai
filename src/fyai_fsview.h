@@ -21,6 +21,12 @@ struct fyai_fsview {
 	bool terminal;
 	bool verify;
 	bool lazy;
+	/*
+	 * Agent runtime projection: the arena stays writable at its own path
+	 * and only the project storage is denied. A tool projection covers
+	 * both.
+	 */
+	bool agent;
 };
 
 struct fyai_fsview_mount {
@@ -82,6 +88,12 @@ int fyai_fsview_verify(const struct fyai_fsview *view, char *error, size_t error
  */
 int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview *view,
 			fy_generic expected, char *error, size_t error_size);
+
+/*
+ * Make the mount points that the agent projection needs below the cover of
+ * the protected directory. Call it in the supervisor before the child enters.
+ */
+int fyai_fsview_agent_prepare(const struct fyai_fsview *view);
 
 /*
  * Called only in a prepared tool child. Parent waits for the PID-namespace
