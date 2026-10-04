@@ -29,8 +29,9 @@ and draws the algorithm of it as a fenced `mermaid` diagram on the terminal.
   different model, provider, or supported API grammar without adopting a
   provider's wire transcript as its identity.
 
-- **Branches are first-class agent work.** Every branch owns both its
-  conversation and its configuration. Create alternatives, inspect symbolic
+- **Branches are first-class agent work.** Every branch owns its
+  conversation, its configuration, its views, and, when tracked, the state of
+  the project files. Create alternatives, inspect symbolic
   history, reset safely through the reflog, rebase exchanges, or merge them in
   recorded-time order.
 
@@ -47,6 +48,15 @@ and draws the algorithm of it as a fenced `mermaid` diagram on the terminal.
   and delegation tools stay Unix-shaped. On Linux, shell sub-executions can be
   confined with Landlock, including project-relative path carve-outs and TCP
   port restrictions.
+
+- **Work can happen beside the project, not in it.** On Linux, a view
+  captures the project into content-addressed storage and mounts a private
+  overlay over it. A session or a sub-agent runs there; its changes stay in
+  the view until you review and apply them.
+
+- **Credentials can stay out of the agent.** With transport isolation, a
+  separate process holds the provider credentials and sends the model
+  requests. Agent and tool processes run without them.
 
 - **Secrets stay outside the arena.** Configuration stores credential
   indirections, not raw keys. API keys can come from environment variables or
@@ -367,6 +377,88 @@ The repository `.fyai` directory is always denied to sandboxed tools. Landlock
 is Linux-specific and best-effort when the host kernel lacks required features;
 the portable command/tool policy remains separate.
 
+## Project views
+
+A view is a private, writable copy of the project. fyai captures the project
+into immutable content-addressed objects under `.fyai` and mounts an OverlayFS
+upper over that baseline in private namespaces. Nothing written in the view
+reaches the project until you apply it. Capture runs in parallel, and an
+unchanged file is stored once.
+
+```sh
+fyai view create try-refactor
+fyai view enter try-refactor make test     # or no command for a shell
+fyai view diff -u try-refactor
+fyai view apply --dry-run try-refactor
+fyai view apply try-refactor src/parser.c
+```
+
+`apply` is a three-way decision per path: a path the project still has as the
+baseline had it takes the result, and a path that both sides changed is
+reported as a conflict and left alone.
+
+A whole session can run in a view:
+
+```yaml
+view:
+  isolate_session: true
+```
+
+Sub-agents can each get a view of their own, which lets several of them edit
+the same tree in parallel without touching it:
+
+```yaml
+agent:
+  isolation: view
+```
+
+The model can also ask for this per call with the `isolated` parameter of the
+`agent` tool. The parent reviews and applies the results with the
+`project_view` tool; you can review the same views with `fyai view diff`.
+
+Views belong to a branch, like its conversation and configuration. The same
+views serve the user (`fyai view`, `/view`) and the model (`project_view`), so
+both work on one record of what changed.
+
+With `view/track_project`, each ref-log entry that moves a head also records
+the state of the project files. A state that did not change is shared with
+the entry before it. A reference then names files as well as conversation, and
+rewinding a branch rewinds both:
+
+```sh
+fyai view diff HEAD~2              # what the files did over the last exchange
+fyai view apply main@{3}           # take the files of that point
+fyai reset main@{3}                # conversation and files together
+```
+
+`reset` refuses to overwrite a path that changed since the recorded state;
+`--force` records the project as it is first, so the reset itself can be
+undone through the reflog.
+
+Views need Linux user namespaces, OverlayFS, and Landlock.
+
+## Credential transport
+
+```yaml
+agent:
+  transport_isolation: auto
+```
+
+With transport isolation on, a separate `fyai transport` process holds the
+provider credentials. The session and its sub-agents run without them and
+send model requests to the transport over a control channel; the transport
+admits each agent by PID and pidfd and sends its requests through a named
+egress profile. Shell commands started by an agent therefore have no key to
+read from the environment. `level-b` installs no filesystem or keyring
+policy, so a tool of the same user can still reach a key stored outside the
+environment; the design document lists these limits.
+
+`/profiles` lists the egress profiles and whether an agent may use them. The
+status line shows the active level as `isolated LEVEL`. `level-b` is the level
+that runs today; `level-a`, which adds a cgroup v2 boundary, is planned. A
+level the host cannot enforce stops the invocation rather than running
+without it. This feature is Linux only and experimental.
+
 ## MCP tools
 
 fyai can connect to named MCP servers over Streamable HTTP or local stdio:
@@ -439,6 +531,10 @@ interfaces may still evolve.
 - [Sub-agent protocol](doc/agent-protocol.md) — transient agent JSON-RPC
 - [Sub-agent fork model](doc/agent-fork-model.md) — how a sub-agent child
   starts, and what it keeps
+- [Filesystem views](doc/agent-filesystem-views-sdd.md) — capture, overlay
+  views, and apply
+- [Transport isolation](doc/agent-transport-isolation-sdd.md) — the
+  credential transport and its protocol
 - [System requirements and design](doc/srd/fyai-srd.md) — authoritative design
 
 Start with `fyai help VERB`, `/help` in an interactive session, and
