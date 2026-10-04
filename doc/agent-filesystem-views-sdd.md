@@ -62,7 +62,7 @@ entry command, not automatic confinement of the coding harness's tool loop.
 | Execution containment and role projections (section 8) | Partial: standalone enter applies the tool projection; unified tool adapter and supervisor-admitted agent projection remain proposed |
 | Exchange and delegated-agent lifecycle (section 9) | Partial: a sub-agent or a session runs in one view for its whole life (section 11.5); retained managed mounts, writer barriers, exchange provenance and propagation remain proposed |
 | Result ingestion and application (section 10) | Partial: enter and isolated runs ingest on exit; `view apply` writes a result to the host with the three-way table of section 10; managed parent merge, renames and recoverable application plans remain proposed |
-| GC, session caches, and capture policy (sections 11, 11.3) | Proposed; standalone backing storage is retained, but managed cache lifecycle and general policy enforcement are not implemented |
+| GC, session caches, and capture policy (sections 11, 11.3, 11.7) | Partial: `gc` collects the manifests, blobs and view trees that no branch reaches (section 11.7); managed cache lifecycle, retention policy and capture policy are not implemented |
 
 The shared-lower inode warning seen with Vim is deferred (section 12). It does
 not block the implemented command scope. Metacopy support remains capability
@@ -440,7 +440,8 @@ files are inodes that fyai owns.
 Published objects are never edited in place. GC deletes only unreachable, unpinned
 objects. Active views and incomplete recoverable application records pin their
 roots before mounting. Cross-process GC needs durable or locked pin ownership and
-a crash-recovery protocol; an in-memory reference count is insufficient.
+a crash-recovery protocol; an in-memory reference count is insufficient. Section
+11.7 gives the collection that is implemented.
 
 ## 6. Host capture and avoiding redundant work
 
@@ -1854,8 +1855,38 @@ mount. It is made before the publish, and not again after a lost CAS.
   to that entry undoes the reset. Without a state at REF the reset moves the
   head only, and says so.
 - The list of the ref log (`list reflog`) shows the start of the root for each
-  entry. Collection of the manifests and blobs that entries name is not
-  implemented, as for views.
+  entry. Section 11.7 collects the manifests and blobs that entries name.
+
+### 11.7 Collection of the project storage
+
+`fyai gc` collects the project storage after it cuts the ref log (`--keep-reflogs`)
+and before it compacts the arena. The arena is open for the walk, so the roots
+are read from it and not from the files.
+
+**Roots.** The project state of every ref-log entry of every branch (at most 4096
+entries each), and the baseline, the result and the runtime tree of each view
+that the newest entry of a branch stores. A view that only an older entry stored
+is not a root: removing a view, or cutting the ref log, makes its files garbage.
+The base of a delta manifest is a root of the delta. A storage is swept when a
+root names it, and the storage next to the arena always is.
+
+**Sweep.** For each storage: the manifests that no root reaches; the blobs, owned
+and borrowed, that no live manifest names; and the `view-*` runtime trees that no
+view names, and the `diff-*` staging trees. A manifest that cannot be read keeps
+what it names, and the sweep of blobs is skipped for that storage, so a damaged
+manifest never causes the loss of a blob.
+
+**Safety.** A file whose modification and status change are both newer than the
+grace (`--grace`, 3600 s) stays, because the capture that wrote it records it in
+the arena later. The status change time is the time of the last link, so a blob
+that shares the inode of an old file is still young when it was published now.
+A capture holds `gc.lock` of the storage shared, and gc takes it exclusive
+without waiting: a storage in use is skipped with a warning. A view tree is
+removed only when its own `lock` file can be taken, so a view that a command
+holds is never removed. A storage that has an arena of another run is not
+collected, because the references of that arena are not known. The report counts
+the manifests, the blobs and the trees that were removed, and the bytes that the
+removed files held alone.
 
 ## 12. Implementation sequence and acceptance gates
 
