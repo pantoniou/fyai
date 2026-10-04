@@ -1809,6 +1809,40 @@ namespace, so the run refuses it. A nested view is not made.
 The terminal UI keeps its spool in `$TMPDIR`, which is the one directory that a
 view can write.
 
+### 11.6 Project state in the ref log
+
+With `view/track_project`, a ref-log entry that moves the head of a branch
+records the state of the project. The entry has a `project` member next to
+`head`, `updated`, `op`, `from`, `prev` and `store`: the reference of section
+11.2 (version, root, manifest, object count) and the `storage` path. The state
+is a full capture into the project storage, with no baseline tree and no
+mount. It is made before the publish, and not again after a lost CAS.
+
+- An entry that records no state of its own, such as a configuration change,
+  keeps the member of its predecessor. A capture whose root equals the root of
+  the predecessor is not recorded again, so entries that have one state share
+  one manifest.
+- Only a run whose arena is in the `.fyai` directory of the project records a
+  state, so a run never captures a directory by chance. A run in a view, a
+  tool child and a transient or pinned run do not record one. A capture that
+  fails is a warning, and the entry keeps the earlier state.
+- A reference stands for the state of its entry. `HEAD~N` stands for the oldest
+  entry that holds that turn, which is the state at the end of the turn.
+  `BRANCH@{N}` is the entry, and a bare branch name is its newest entry. An
+  entry that has no state is at the state of the nearest earlier entry that has
+  one. `view diff A B` takes a view or a reference on each side; one reference
+  is compared with the head of the branch.
+- `reset REF` also restores the files. The base is the state recorded at the
+  head, and the rule is that of `view apply`: a path that the project changed
+  since is a conflict. A dry run decides first, so a refused reset changes
+  neither the files nor the head. `--force` takes the state of REF over such
+  paths, after it records the project as it is in an entry of its own; a reset
+  to that entry undoes the reset. Without a state at REF the reset moves the
+  head only, and says so.
+- The list of the ref log (`list reflog`) shows the start of the root for each
+  entry. Collection of the manifests and blobs that entries name is not
+  implemented, as for views.
+
 ## 12. Implementation sequence and acceptance gates
 
 The work items below retain their implementation order. Partial completion does
