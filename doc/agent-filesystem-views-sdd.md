@@ -1914,9 +1914,13 @@ An application plan and crash recovery (section 10) are not implemented.
 **Limits.** The scratch directory must lie outside the project, because the
 view replaces it with a tmpfs. The capture of the baseline runs before the
 agent starts, and costs what `view create` costs (see view-performance.md).
-A session or a sub-agent in a view cannot use credential isolation: the transport
-admits a sub-agent by the process it started, and a view is another PID
-namespace, so the run refuses it. A nested view is not made.
+A session in a view cannot use credential isolation. A sub-agent in a view can.
+The transport admits a sub-agent by its PID, and the process that runs the
+sub-agent is two forks inside a new PID namespace. Before the process runs, it
+sends one credentialed byte to the supervisor. The kernel gives the supervisor
+the PID of the sender in the namespace of the supervisor, and the supervisor
+registers that PID with the transport. The process waits for the supervisor to
+finish the registration. A nested view is not made.
 The terminal UI keeps its spool in `$TMPDIR`, which is the one directory that a
 view can write.
 
