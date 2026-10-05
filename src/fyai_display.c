@@ -871,15 +871,80 @@ static int fyai_diff_view(struct fyai_ctx *ctx, const char *diff)
 	return rc;
 }
 
+#define FYAI_DIFF_TAB 8
+
+/*
+ * Return @diff with each tab of a hunk row replaced by blanks up to the next
+ * tab stop of the file text, which starts after the one-column row marker.
+ * The diff view measures a tab as one column, and a terminal places it at a
+ * stop that depends on the column where the row starts: either way the row is
+ * not the width the view lays out for it. The caller frees the result.
+ */
+static char *fyai_diff_expand_tabs(struct fyai_ctx *ctx, const char *diff)
+{
+	struct response_buffer out = {0};
+	const char *line, *nl, *p, *end;
+	size_t len, col, pad;
+	bool hunk;
+	int rc;
+
+	hunk = false;
+	rc = 0;
+	for (line = diff; !rc && *line; line = nl ? nl + 1 : end) {
+		nl = strchr(line, '\n');
+		len = nl ? (size_t)(nl - line) : strlen(line);
+		end = line + len;
+		if (!strncmp(line, "diff ", 5))
+			hunk = false;
+		else if (!strncmp(line, "@@", 2))
+			hunk = true;
+		if (!hunk || !(*line == ' ' || *line == '+' || *line == '-') ||
+		    !memchr(line, '\t', len)) {
+			rc = response_buffer_append_data(&out, line, len);
+		} else {
+			rc = response_buffer_append_data(&out, line, 1);
+			col = 0;
+			for (p = line + 1; !rc && p < end; p++) {
+				if (*p != '\t') {
+					/* Count code points, not UTF-8 continuation bytes. */
+					if (((unsigned char)*p & 0xc0) != 0x80)
+						col++;
+					rc = response_buffer_append_data(&out, p, 1);
+					continue;
+				}
+				pad = FYAI_DIFF_TAB - col % FYAI_DIFF_TAB;
+				col += pad;
+				while (!rc && pad--)
+					rc = response_buffer_append_data(&out, " ", 1);
+			}
+		}
+		if (!rc && nl)
+			rc = response_buffer_append_data(&out, "\n", 1);
+	}
+	fyai_error_check(ctx, !rc, err, "diff: out of memory expanding tabs");
+	return out.data ? out.data : strdup("");
+err:
+	free(out.data);
+	return NULL;
+}
+
 int fyai_present_diff(struct fyai_ctx *ctx, const char *diff, bool unified)
 {
+	char *text;
+	int rc;
+
 	if (!ctx->stdout_tty || !markdown_color_enabled(ctx->cfg->color))
 		return fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, diff,
 				     strlen(diff));
-	else if (unified || !ctx->cfg->markdown)
+	/* The unified rows are for tools: they keep the bytes of the patch. */
+	if (unified || !ctx->cfg->markdown)
 		return fyai_diff_present(ctx, diff);
-	else
-		return fyai_diff_view(ctx, diff);
+	text = fyai_diff_expand_tabs(ctx, diff);
+	if (!text)
+		return -1;
+	rc = fyai_diff_view(ctx, text);
+	free(text);
+	return rc;
 }
 
 int fyai_export_diff(struct fyai_ctx *ctx, const char *from, const char *to,
