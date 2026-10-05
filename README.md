@@ -435,7 +435,9 @@ the ignored paths out when they are taken.
 
 A path of a view is written NAME:PATH, as scp writes a file of a host. The same
 address serves four commands. `view ls NAME[:PATH]` lists a directory of the
-result of a view, and `view diff NAME:PATH` compares only that path. `view rm
+result of a view as `ls` does: sorted, with the names that start with a dot left
+out unless `-a` is given, which also lists `.` and `..`, and `NAME:/` is the root.
+`view diff NAME:PATH` compares only that path. `view rm
 NAME:PATH...` removes paths in the view, and `view cp` copies paths between the
 project and a view: `view cp src/a.c session:src/` puts a file of the project in
 the view, and `view cp session:src/a.c src/a.c` takes the file of the view back,
@@ -444,6 +446,21 @@ directory; any other is the new name. A path that the view does not have is an
 error for `ls`, `rm` and `cp`; for `diff` a path that was added or removed is
 selected like any other. Nothing of this changes the project, except a copy to
 it.
+
+A model edits files with a shell command as often as with the edit tools, and a
+command can change anything without saying what. `view/tool_diff` (default off)
+brings you back into that: fyai records the state of the project before a turn and
+after each group of tool calls that can change files, and shows the difference as
+a diff under the calls. A patch then names its files and leaves the change to that
+diff, so it is shown one time. It is stored with the exchange, so the history shows it
+again. The paths that `view/ignore` and the `.gitignore` files name are left out.
+`/undo` takes the newest group back, and `/undo N` the Nth newest: a path that
+still has what the group left takes what it had before, and a path that changed
+since is a conflict and stays. The groups are kept for the session, the newest
+`view/undo_depth` of them (default sixteen). A group costs a scan of the project, and the arena must be in its `.fyai`
+directory. A session that runs in a view (`view/isolate_session`) shows the diffs
+too: the project storage is out of its reach, so it keeps its states in a
+directory of the arena, which it removes when it ends.
 
 With `view/track_project`, each ref-log entry that moves a head also records
 the state of the project files. A state that did not change is shared with

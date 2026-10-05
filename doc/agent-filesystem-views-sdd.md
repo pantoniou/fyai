@@ -1822,7 +1822,10 @@ a sub-agent, and PATH is a path of plain names from the project root: it has no
 argument whose text before the first colon is not a view name is a path of the
 project, and `./` before it keeps a colon in the name.
 
-`ls` and `diff` read the recorded result and the baseline from their manifests and
+`ls` lists a directory as the command of that name does: the entries sort by name,
+a name that starts with a dot is left out unless `--all` is given, which also lists
+`.` and `..`, and a file lists itself. A leading slash is the root of the view, so
+`NAME`, `NAME:/` and `NAME:.` are one path. `ls` and `diff` read the recorded result and the baseline from their manifests and
 mount nothing. `diff` selects changes by path, so a path that one side lacks,
 because the view added or removed it, is selected as any other; a path that
 neither side has is an error. `rm` and `cp` change a view, which only a process
@@ -1837,6 +1840,39 @@ A path that a source lacks fails before a view changes. A file is written beside
 its place and renamed to it. A stream is data: a name that is not plain names is
 refused. Copying to the project replaces the file with no check, and `view apply`
 is the copy that compares. Copying a whole view is another command.
+
+**Diffs of tool calls.** With `view/tool_diff` a turn takes the project state when it
+starts, and again after each group of tool calls that can change files, with the
+capture that `view/track_project` uses and the ignore rules of the views. A group
+is the calls of one response that run together, because the calls of a group run in
+parallel and so a change cannot be given to one of them. The difference of the two
+states is shown under the calls of every group that can change files: a patch, a
+file write, a shell, a terminal session, a sub-agent or a tool of a server. While a
+turn is tracked, `apply_patch` names its files and does not draw its own diff, so
+the change is shown one time; when the states cannot be taken the turn is not
+tracked, and a patch draws its diff as before. A sub-agent is not tracked. The diff is stored as a `tool_text`
+fragment with the language `diff` and the tool `diff`, shown whole, and a replay
+draws it from the record with no capture. A diff of more than 256 KiB is cut
+with a note. A failure to capture stops the diffs of that turn and not the turn.
+What the user or another process changed between turns is not part of the next
+turn, because the state is taken again when it starts.
+
+A session that runs in a view (`view/isolate_session`) takes the diffs as well. It
+cannot reach the storage of the project, which is covered, so its states go to
+the directory `tooldiff` of the arena, which stays writable there and lies on the
+filesystem of the project. The view admits one session, so the run owns the
+directory: it removes what an earlier run left before the first capture, and
+removes it again when it ends. The capture reads the overlay of the view, whose
+files have the owners of the user namespace of the session. A sub-agent does not
+take diffs: its parent shows what it changed.
+
+`undo` keeps the two states of each shown group for the session, in memory. The
+newest `view/undo_depth` groups stay (default sixteen). It is the reverse of
+`view apply`: the baseline is the state that the group left and the result is the state before it, so a path that still
+has what the group left takes what it had and a path that changed since is a
+conflict that is left alone. A group with no conflict is dropped. The states are
+manifests in the project storage, which `gc` removes when it is run. They are not
+kept across sessions, and `undo` is a command of a session.
 
 **Session.** With `view/isolate_session`, the invocation of a verb that makes
 requests captures the view `session` and runs again inside it, with the same
