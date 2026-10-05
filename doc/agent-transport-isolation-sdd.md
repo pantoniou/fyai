@@ -420,6 +420,14 @@ again in the same process, so its PID, its pidfd registration and its
 descriptors stay valid, and the transport lives through it as it does for the
 supervisor.
 
+A restart of the session, which `/session pull` asks for, ends it and starts a new
+one in a fresh view. The supervisor repeats the sequence above: new channels, a new
+announcement, a new admission, and a new execution ID. The channel of the ended
+session closes, so the transport retires its execution; the transport itself and the
+primary control connection are not touched. `/session push` does not involve the
+transport: the supervisor applies the view to the project, and the session sends the
+transport nothing for it.
+
 A session in a view with its own PID namespace has no way to switch the
 transport on or off: the transport is started by the first image of the
 invocation and ended by the supervisor. `/session lockdown` from a session that

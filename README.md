@@ -509,7 +509,17 @@ the other way: no transport, no sandbox, no view of the session. It stores the k
 session that runs with the transport or in a view keeps them until fyai starts
 again, because the key lives in the transport and a restart could not give it
 back; the changes of the view are then reviewed and applied with `view diff` and
-`view apply`. `/session` shows the state. A session that runs in a view shows
+`view apply`. `/session` shows the state. A session in a view moves work between
+its view and the project with `/session push` and `/session pull`. `push` writes the
+changes of the session into the project, with the rules of `view apply`: a path that
+the project still has as the view began takes the result, and a path that both
+changed differently is a conflict, reported and left alone. `--dry-run` writes
+nothing, and paths limit the push. The session keeps running. `pull` takes the
+project as it is now: it replaces the view with a fresh capture and starts the
+session again on it, on the same branch. It refuses while a push would still write or
+conflict, so work is never dropped by accident; `--discard` drops it. The project is
+not reachable from inside the view, so the supervisor of the session does both. A
+session that runs in a view shows
 `view session` in the status line (`{view}` in the prompt templates) and in
 `/status`.
 

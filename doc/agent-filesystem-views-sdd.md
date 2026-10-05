@@ -1885,6 +1885,30 @@ with its sub-agents; `isolated` does nothing there. With credential isolation th
 supervisor admits the session at the transport when the session enters its view,
 and the session keeps the control connection of the supervisor for the run.
 
+**Push and pull.** A session in a view cannot reach the project: the view covers it.
+The supervisor, which started the session and stays outside the view, does the work
+that needs the project. It gives the session a sequenced-packet socket on descriptor
+8 (`FYAI_SESSION_FD`), and serves it on its event loop while it waits for the
+session. A request is one JSON datagram with an `op`, and the reply is `ok` with a
+`result` or `error` with a `message`, as in the control protocol of the transport.
+
+`push` records the live view first: the supervisor captures the result of the view
+as it is, stores it in the record of the view (the state stays `running`), and
+applies it as `view apply` does, so the rules of section 10 hold. A reply carries at
+most 300 rows of the change and says how many more there were. The view keeps its
+baseline, so a later push of the same paths finds them satisfied.
+
+`pull` replaces the view: the supervisor starts the session again after the next
+capture, which replaces the view of that name with a fresh baseline and an empty
+upper, as `view update` does. The replacement drops what the view holds, so `pull`
+first records the view and runs a dry application: if a push would still write or
+conflict, it refuses, and `--discard` skips the check. What was pushed is not lost.
+The session ends when the supervisor has replied, and the supervisor starts it again
+on the branch of the first run (`FYAI_BRANCH`) with `FYAI_SESSION_RESTART` set, which
+drops the initial prompt of the first run so that it does not run twice. Under
+credential isolation each start admits a new execution at the transport, and the
+channel of the ended one retires it.
+
 **Moving between lockdown and no isolation.** `/session lockdown` stores
 `view/isolate_session` where a view for the session can be made (the arena in the
 project, the scratch directory outside it, user namespaces available) and restarts
@@ -1892,7 +1916,9 @@ the session. The view is made from the project as it is at that moment. A change
 that is made to the project later is not in the view; `view update session` takes
 it. `/session yolo` stores the key off, and a session that runs in a view stays in
 it until fyai starts again; its changes are then not applied, and the notice names
-the commands that review and apply them. `/session` shows the state of both.
+the commands that review and apply them. `/session push` applies them while the
+session runs, and `/session pull` takes the project into a fresh view (see above).
+`/session` shows the state of both.
 
 **Apply.** `view apply [--dry-run] NAME [PATH...]` reconciles each changed path
 with the host by the table of section 10. The host takes the result when it
