@@ -1756,7 +1756,8 @@ denies the arena.
 
 **Sub-agent.** The `agent` tool takes `isolated`; the setting `agent/isolation`
 (`none` or `view`) gives the default. At submission the parent captures the
-project into the view `agent-NAME`, which it makes or replaces. The child
+project into the view `agent/NAME`, which it makes or replaces. The view is
+stored on the branch of the parent. The child
 enters the view before it starts, and sets `FYAI_VIEW` so that what it starts
 shares the view. When the job ends, the parent captures the result after the
 last process of the namespace has ended, and stores it as a delta over the
@@ -1770,12 +1771,25 @@ the parent cancels is still captured, from what its upper holds. Two views that
 change one path are not a conflict until the second is applied.
 
 **The `project_view` tool.** The parent model reads a view back with the
-`project_view` tool: `list` gives the views, `changes` gives the changed paths
-with their status, and `apply` (with `paths` and `dry_run`) writes the result to
-the project. The tool and the `view apply` command use one function, so the
-outcome is the same. A conflict is part of the result, not a failure of the
-call. The tool runs in the parent process, where the arena is readable, and it
-is not given to a sub-agent or to anything that runs in a view. It returns the
+`project_view` tool: `list` gives the sub-agents that left a view, `changes`
+gives the changed paths with their status, and `apply` (with `paths` and
+`dry_run`) writes the result to the project. The tool and the `view apply`
+command use one function, so the outcome is the same. A conflict is part of the
+result, not a failure of the call. The tool runs in the parent process, where
+the arena is readable, and it is not given to a sub-agent that the supervisor did
+not register, or to anything that runs in a view. The handler refuses such a
+call too.
+
+**Scope of names.** The namespace `agent/` holds the views of sub-agents, and
+the component marker `agent:` holds their branches. The agent tool makes both. A
+user cannot create a view or a branch there: a view name has no separator, the
+root `agent` is reserved, and `--branch` and `FYAI_BRANCH` select a branch of the
+namespace only when a sub-agent made it. The tool takes the name that the agent
+gave the sub-agent, with no prefix and no separator, and resolves it in the store
+of the calling branch. A user view, a reference, a branch and the view of a
+sub-agent of another agent are not reachable. A view of a grandchild is in the
+store of the child, so the child applies it before the parent can. The tool
+returns the
 list of changed paths and not a patch, because a patch needs a nested event loop.
 
 **Session.** With `view/isolate_session`, the invocation of a verb that makes

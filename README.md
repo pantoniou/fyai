@@ -414,7 +414,10 @@ agent:
 
 The model can also ask for this per call with the `isolated` parameter of the
 `agent` tool. The parent reviews and applies the results with the
-`project_view` tool; you can review the same views with `fyai view diff`.
+`project_view` tool; you can review the same views with `fyai view diff
+agent/NAME`. The views of sub-agents are in the namespace `agent/`: a user
+cannot make a view there, and the tool reaches only the views of the sub-agents
+that the calling agent started, by the name it gave them.
 
 Views belong to a branch, like its conversation and configuration. The same
 views serve the user (`fyai view`, `/view`) and the model (`project_view`), so
