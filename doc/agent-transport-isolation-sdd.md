@@ -375,6 +375,14 @@ fields include an admission `id`, a status snapshot, or a probe `found`
 boolean. Control replies do not currently carry the C helper's integer
 return code. The implementation uses that code to choose the reply kind.
 
+An `admit` that carries a pidfd names the execution by it, and the `pid` field
+is not used. The transport reads the PID that the pidfd has in its own namespace
+(`Pid:` in `/proc/self/fdinfo`) and keeps the pidfd to pin the identity. A PID
+number cannot name a process in a PID namespace below the registrar, so this is
+how an execution in a view with a namespace of its own is admitted, and how its
+own sub-agents are. Per-message checks compare the PID that the kernel gives with
+credentials, which is the one in the namespace of the transport.
+
 Control authorization comes from possession of the private connection and,
 for a secondary connection, its transport execution owner. Per-message
 `SCM_CREDENTIALS` and PID verification apply to the agent data channels. They
@@ -386,7 +394,7 @@ endpoints in tool children is therefore part of the boundary.
 | `init` | `level`, optional `cgroup`, `log`, `wire`, `whitewash`; create registry and server, once | Primary only; first request |
 | `credential` | `name`, `value`; store `mem:NAME` in transport memory | Primary only |
 | `profiles` | Profile definitions; replace set, or add with `merge: true` | Primary only |
-| `admit` | `id`, `parent`, `pid`, `uid`, `grant`, optional `ns`, plus agent fd; register execution | Primary, or secondary acting within its subtree and profile names |
+| `admit` | `id`, `parent`, `pid`, `uid`, `grant`, optional `ns`, plus agent fd and optionally a pidfd of the execution; register execution | Primary, or secondary acting within its subtree and profile names |
 | `ctl` | Admitted execution `id`, plus control fd; bind connection owner | Primary, or secondary for a descendant |
 | `grant` | Execution `id` and profile-name grant; replace that grant | Primary, or secondary for a descendant within caller profile names |
 | `retire` | Execution `id`; close registered data channel and active transfers | Primary, or secondary for itself or descendants |

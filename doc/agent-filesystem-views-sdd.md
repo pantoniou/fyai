@@ -1915,12 +1915,11 @@ An application plan and crash recovery (section 10) are not implemented.
 view replaces it with a tmpfs. The capture of the baseline runs before the
 agent starts, and costs what `view create` costs (see view-performance.md).
 A session in a view cannot use credential isolation. A sub-agent in a view can.
-The transport admits a sub-agent by its PID, and the process that runs the
-sub-agent is two forks inside a new PID namespace. Before the process runs, it
-sends one credentialed byte to the supervisor. The kernel gives the supervisor
-the PID of the sender in the namespace of the supervisor, and the supervisor
-registers that PID with the transport. The process waits for the supervisor to
-finish the registration. A nested view is not made.
+The process that runs the sub-agent is two forks inside a new PID namespace, so
+its PID there is not the PID that the transport sees. Before it runs, it sends a
+pidfd of itself to the supervisor. A pidfd names the process in every namespace,
+and the supervisor passes it to the transport, which reads the PID that it has
+in its own namespace. A nested view is not made.
 The terminal UI keeps its spool in `$TMPDIR`, which is the one directory that a
 view can write.
 
