@@ -495,6 +495,20 @@ read from the environment. `level-b` installs no filesystem or keyring
 policy, so a tool of the same user can still reach a key stored outside the
 environment; the design document lists these limits.
 
+`/session lockdown` takes the strongest isolation this host can enforce in one step:
+the credential transport (`auto`), the sandbox with no network egress where
+the kernel can restrict it, and a view for each sub-agent
+(`agent/isolation: view`). The session itself is not put in a view, because
+the transport cannot serve a session in a view; `view/isolate_session` is
+turned off. It checks that the transport can run before it changes anything,
+refuses while shells or sub-agents are live, and restarts the session to
+start the transport. `/session yolo` goes the other way: no transport, no sandbox, no
+views. It stores the keys, and a session that runs with the transport keeps
+it until fyai starts again, because the key lives in the transport and a
+restart could not give it back. A session that runs in a view shows
+`view session` in the status line (`{view}` in the prompt templates) and in
+`/status`.
+
 `/profiles` lists the egress profiles and whether an agent may use them. The
 status line shows the active level as `isolated LEVEL`. `level-b` is the level
 that runs today; `level-a`, which adds a cgroup v2 boundary, is planned. A

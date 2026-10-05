@@ -860,6 +860,18 @@ token to the public Responses endpoint. The bootstrap names the source and
 asks the transport with `probe`; no image of the run reads the store. A model
 that the login cannot serve returns to the provider's own credential source.
 
+`/session lockdown` and `/session yolo` set the isolation keys as a group. `/session lockdown` stores
+`agent/transport_isolation: auto` and `agent/isolation: view`, and sets the
+sandbox, with no network egress when the kernel can restrict it, for the
+session. It turns `view/isolate_session` off, because the transport cannot
+serve a session in a view, and it first checks that the transport can run: the
+host, the credential, and the endpoint. Both commands refuse while a shell or a
+sub-agent is live and change nothing in that case. `/session lockdown` restarts the
+session as `/reload` does, because the bootstrap holds the key that the transport
+needs. `/session yolo` does not restart a session that has the transport: the transport
+holds the only copy of the key, and the next image would start with none. The
+keys are stored, and the transport ends when fyai starts again with the key.
+
 The main process is the only writer of the profile set. Before a model
 request, `fyai_transport_ensure()` checks the configuration generation and
 selected profile names. With no relevant change, it sends no control message.
