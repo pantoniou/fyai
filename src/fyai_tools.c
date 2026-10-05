@@ -1849,18 +1849,23 @@ static int fyai_tool_child_tty(int slave)
 /* An executed sub-agent also inherits its channels to the credential transport. */
 #define FYAI_TOOL_CHILD_TP_AGENT_FD 5
 #define FYAI_TOOL_CHILD_TP_CTL_FD 6
+/* A sub-agent in a view announces its process to the supervisor on this one. */
+#define FYAI_TOOL_CHILD_VIEW_FD 7
 
 /*
  * Arrange the descriptors of a tool child: the control channel on 3 and 4, and,
  * for a sub-agent under credential isolation, its transport channels on 5 and
- * 6. @tp_agent_fd and @tp_ctl_fd are -1 for a child with none. Every other
- * descriptor is closed.
+ * 6. @tp_agent_fd and @tp_ctl_fd are -1 for a child with none. A
+ * non-negative @view_fd moves to FYAI_TOOL_CHILD_VIEW_FD, which only the
+ * entry of the view reads. Every other descriptor is closed.
  */
 static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
-			       int tp_ctl_fd)
+			       int tp_ctl_fd, int view_fd)
 {
-	int req_dup = -1, rsp_dup = -1, agent_dup = -1, ctl_dup = -1;
+	int req_dup = -1, rsp_dup = -1, agent_dup = -1, ctl_dup = -1, view_dup = -1;
 	bool tp = tp_agent_fd >= 0 && tp_ctl_fd >= 0;
+	int first_free = view_fd >= 0 ? FYAI_TOOL_CHILD_VIEW_FD + 1 :
+			 tp ? FYAI_TOOL_CHILD_TP_CTL_FD + 1 : FYAI_TOOL_CHILD_RSP_FD + 1;
 	int devnull;
 	int rc;
 
@@ -1879,6 +1884,11 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
 		if (ctl_dup < 0)
 			goto err;
 	}
+	if (view_fd >= 0) {
+		view_dup = fcntl(view_fd, F_DUPFD_CLOEXEC, FYAI_TOOL_CHILD_VIEW_FD + 1);
+		if (view_dup < 0)
+			goto err;
+	}
 
 	rc = dup2(req_dup, FYAI_TOOL_CHILD_REQ_FD);
 	if (rc < 0)
@@ -1891,6 +1901,14 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
 		if (rc < 0)
 			goto err;
 		rc = dup2(ctl_dup, FYAI_TOOL_CHILD_TP_CTL_FD);
+		if (rc < 0)
+			goto err;
+	}
+	if (view_fd >= 0) {
+		rc = dup2(view_dup, FYAI_TOOL_CHILD_VIEW_FD);
+		if (rc < 0)
+			goto err;
+		rc = fcntl(FYAI_TOOL_CHILD_VIEW_FD, F_SETFD, FD_CLOEXEC);
 		if (rc < 0)
 			goto err;
 	}
@@ -1908,8 +1926,7 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
 	/* Detach unused input unless the child owns this terminal. */
 	if (isatty(STDIN_FILENO) && ttyname(STDIN_FILENO) &&
 	    getsid(0) == tcgetsid(STDIN_FILENO)) {
-		fyai_close_fds_from(tp ? FYAI_TOOL_CHILD_TP_CTL_FD + 1 :
-				    FYAI_TOOL_CHILD_RSP_FD + 1);
+		fyai_close_fds_from(first_free);
 		return 0;
 	}
 	devnull = open("/dev/null", O_RDONLY);
@@ -1921,8 +1938,7 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
 	if (rc < 0)
 		goto err;
 
-	fyai_close_fds_from(tp ? FYAI_TOOL_CHILD_TP_CTL_FD + 1 :
-			    FYAI_TOOL_CHILD_RSP_FD + 1);
+	fyai_close_fds_from(first_free);
 	return 0;
 
 err:
@@ -1934,6 +1950,8 @@ err:
 		close(agent_dup);
 	if (ctl_dup >= 0)
 		close(ctl_dup);
+	if (view_dup >= 0)
+		close(view_dup);
 	return -1;
 }
 
@@ -4535,11 +4553,12 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	int rsp[2] = { -1, -1 };	/* child -> parent */
 	int tpa[2] = { -1, -1 };	/* the transport channel of a sub-agent */
 	int tpc[2] = { -1, -1 };	/* its control connection */
+	int vsync[2] = { -1, -1 };	/* the view namespace init announces itself */
 	int master = -1, slave = -1;
 	struct winsize ws = {};
 	int rows = 0, cols = 0;
 	bool tp = exec && ctx->tclient;
-	pid_t pid;
+	pid_t pid, init;
 	int rc;
 
 	memset(job, 0, sizeof(*job));
@@ -4580,6 +4599,18 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 				 "could not create the sub-agent control channel: %s",
 				 strerror(errno));
 	}
+	if (tp && view) {
+		int on = 1;
+
+		rc = socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, vsync);
+		fyai_error_check(ctx, !rc, err,
+				 "could not create the view announcement channel: %s",
+				 strerror(errno));
+		rc = setsockopt(vsync[0], SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
+		fyai_error_check(ctx, !rc, err,
+				 "could not enable credentials on the view announcement channel: %s",
+				 strerror(errno));
+	}
 	pid = fork();
 	fyai_error_check(ctx, pid >= 0, err,
 			 "could not fork tool process: %s", strerror(errno));
@@ -4587,6 +4618,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	if (!pid) {			/* child */
 		close(req[1]);
 		close(rsp[0]);
+		if (vsync[0] >= 0)
+			close(vsync[0]);
 		if (tp) {
 			close(tpa[1]);
 			close(tpc[1]);
@@ -4607,7 +4640,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		/* Record whether this child presents through its own terminal. */
 		ctx->cfg->agent_pty = slave >= 0;
 		if (fyai_tool_child_fds(req[0], rsp[1], tp ? tpa[0] : -1,
-					tp ? tpc[0] : -1))
+					tp ? tpc[0] : -1, vsync[1]))
 			_exit(126);
 		/*
 		 * The view is entered after the descriptors are arranged:
@@ -4615,7 +4648,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		 * waits for the namespace init and then ends with its status.
 		 */
 		if (view && (setenv("FYAI_VIEW", "1", 1) ||
-			     fyai_fsview_enter(view, -1)))
+			     fyai_fsview_enter(view, -1, vsync[1] >= 0 ?
+						       FYAI_TOOL_CHILD_VIEW_FD : -1)))
 			_exit(FYAI_SHELL_EXIT_SANDBOX);
 		if (exec)
 			fyai_tool_child_exec(ctx, slave >= 0, tp);
@@ -4650,17 +4684,34 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		tpa[0] = -1;
 		close(tpc[0]);
 		tpc[0] = -1;
-		rc = fyai_transport_admit_child(ctx, pid, tpa[1], tpc[1],
+		init = pid;
+		if (vsync[0] >= 0) {
+			close(vsync[1]);
+			vsync[1] = -1;
+			rc = fyai_fsview_init_pid(vsync[0], &init);
+			fyai_error_check(ctx, !rc, err_kill,
+					 "could not learn the process of the sub-agent in its view: %s",
+					 strerror(errno));
+		}
+		rc = fyai_transport_admit_child(ctx, init, tpa[1], tpc[1],
 						&job->transport_exec);
+		if (!rc && vsync[0] >= 0) {
+			/* The agent runs only after the transport knows it. */
+			rc = fyai_fsview_init_release(vsync[0]);
+			fyai_error_check(ctx, !rc, err_kill,
+					 "could not release the sub-agent in its view: %s",
+					 strerror(errno));
+		}
 		close(tpa[1]);
 		tpa[1] = -1;
 		close(tpc[1]);
 		tpc[1] = -1;
-		if (rc) {
-			kill(pid, SIGKILL);
-			waitpid(pid, NULL, 0);
-			goto err;
+		if (vsync[0] >= 0) {
+			close(vsync[0]);
+			vsync[0] = -1;
 		}
+		if (rc)
+			goto err_kill;
 	}
 	job->pid = pid;
 	job->rfd = rsp[0];
@@ -4673,6 +4724,9 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	master = -1;
 	return 0;
 
+err_kill:
+	kill(pid, SIGKILL);
+	waitpid(pid, NULL, 0);
 err:
 	if (req[0] >= 0)
 		close(req[0]);
@@ -4690,6 +4744,10 @@ err:
 		close(tpc[0]);
 	if (tpc[1] >= 0)
 		close(tpc[1]);
+	if (vsync[0] >= 0)
+		close(vsync[0]);
+	if (vsync[1] >= 0)
+		close(vsync[1]);
 	if (master >= 0)
 		close(master);
 	if (slave >= 0)
@@ -4929,15 +4987,6 @@ static int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
 	if (getenv("FYAI_VIEW")) {
 		fyai_error(ctx, "a sub-agent that runs in a view cannot isolate "
 			   "its own sub-agents");
-		return -1;
-	}
-	/*
-	 * The transport admits a sub-agent by the process it started. An agent
-	 * in a view runs in another PID namespace, so the transport would
-	 * refuse its requests.
-	 */
-	if (ctx->tclient) {
-		fyai_error(ctx, "a sub-agent cannot run in a view under credential isolation");
 		return -1;
 	}
 	n = snprintf(name, sizeof(name), FYAI_VIEW_AGENT_PREFIX);

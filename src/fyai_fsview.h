@@ -100,9 +100,21 @@ int fyai_fsview_agent_prepare(const struct fyai_fsview *view);
 
 /*
  * Called only in a prepared tool child. Parent waits for the PID-namespace
- * init.
+ * init. A non-negative @announce_fd is a stream socket with SO_PASSCRED set
+ * on the peer. The process that runs tool code sends one credentialed byte,
+ * then waits for a non-zero byte before it returns. The receiver thus reads
+ * the PID of that process in its own namespace. Every process closes the
+ * descriptor.
  */
-int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd);
+int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd);
+
+/*
+ * Supervisor side of @announce_fd. Receive the announcement and return the
+ * PID of the sender in the namespace of the caller. The channel needs
+ * SO_PASSCRED. Release lets the announced process continue.
+ */
+int fyai_fsview_init_pid(int fd, pid_t *pid);
+int fyai_fsview_init_release(int fd);
 
 /* Ingest a frozen upper through a trusted private overlay mount. Result belongs
  * to gb. */

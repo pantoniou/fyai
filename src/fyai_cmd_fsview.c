@@ -3250,7 +3250,7 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx)
 	bool available;
 
 	if (ctx->cfg->transient || ctx->cfg->root_spec || ctx->gb != ctx->durable_gb ||
-	    getenv("FYAI_VIEW") || ctx->tclient)
+	    getenv("FYAI_VIEW"))
 		return false;
 	root = project_state_root(ctx);
 	available = root != NULL;

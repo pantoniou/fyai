@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -578,6 +579,94 @@ static int view_cover_protected(const char *protected, const char *backing)
 	return view_cover("cover", backing);
 }
 
+/*
+ * Report the host PID of the process that runs tool code. The kernel gives the
+ * receiver the PID of the sender in its own namespace, so the supervisor learns
+ * the PID that the transport sees. The process waits for the answer: it stays
+ * unreaped, so its PID cannot be reused before the supervisor registers it.
+ */
+static int view_announce(int fd)
+{
+	char byte = 0, ack = 0;
+	union {
+		struct cmsghdr align;
+		char raw[CMSG_SPACE(sizeof(struct ucred))];
+	} ctl = { 0 };
+	struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
+	struct msghdr mh = {
+		.msg_iov = &iov, .msg_iovlen = 1,
+		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
+	};
+	struct cmsghdr *c = CMSG_FIRSTHDR(&mh);
+	struct ucred cred = { .pid = getpid(), .uid = getuid(), .gid = getgid() };
+	ssize_t n;
+
+	c->cmsg_level = SOL_SOCKET;
+	c->cmsg_type = SCM_CREDENTIALS;
+	c->cmsg_len = CMSG_LEN(sizeof(cred));
+	memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+	do {
+		n = sendmsg(fd, &mh, MSG_NOSIGNAL);
+	} while (n < 0 && errno == EINTR);
+	if (n != 1)
+		return -1;
+	do {
+		n = read(fd, &ack, 1);
+	} while (n < 0 && errno == EINTR);
+	if (n != 1 || !ack) {
+		errno = n < 0 ? errno : ECONNABORTED;
+		return -1;
+	}
+	return 0;
+}
+
+int fyai_fsview_init_pid(int fd, pid_t *pid)
+{
+	char byte;
+	union {
+		struct cmsghdr align;
+		char raw[CMSG_SPACE(sizeof(struct ucred))];
+	} ctl = { 0 };
+	struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
+	struct msghdr mh = {
+		.msg_iov = &iov, .msg_iovlen = 1,
+		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
+	};
+	struct cmsghdr *c;
+	struct ucred cred;
+	ssize_t n;
+
+	do {
+		n = recvmsg(fd, &mh, MSG_CMSG_CLOEXEC);
+	} while (n < 0 && errno == EINTR);
+	if (n < 0)
+		return -1;
+	c = CMSG_FIRSTHDR(&mh);
+	if (n != 1 || (mh.msg_flags & MSG_CTRUNC) || !c || c->cmsg_level != SOL_SOCKET ||
+	    c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len != CMSG_LEN(sizeof(cred))) {
+		errno = n ? EPROTO : ECONNRESET;
+		return -1;
+	}
+	memcpy(&cred, CMSG_DATA(c), sizeof(cred));
+	if (cred.pid <= 0) {
+		/* The sender is outside the namespace of this process. */
+		errno = ESRCH;
+		return -1;
+	}
+	*pid = cred.pid;
+	return 0;
+}
+
+int fyai_fsview_init_release(int fd)
+{
+	ssize_t n;
+
+	do {
+		n = write(fd, "\1", 1);
+	} while (n < 0 && errno == EINTR);
+	return n == 1 ? 0 : -1;
+}
+
 int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
 {
 	const char *protected = fy_sprintfa("%s/.fyai", view->project);
@@ -590,7 +679,7 @@ int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
 	return fyai_mkdir_p(path);
 }
 
-int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
+int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd)
 {
 	const char *backing = fy_sprintfa("%s/" FYAI_FSVIEW_BACKING_NAME, view->scratch);
 	struct sigaction ignore = { .sa_handler = SIG_IGN }, previous;
@@ -634,6 +723,8 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 		 * descendants. */
 		if (status_fd >= 0)
 			close(status_fd);
+		if (announce_fd >= 0)
+			close(announce_fd);
 		close(runtime);
 		do {
 			waited = waitpid(child, &status, 0);
@@ -747,6 +838,8 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 		if (child) {
 			if (status_fd >= 0)
 				close(status_fd);
+			if (announce_fd >= 0)
+				close(announce_fd);
 			do {
 				waited = waitpid(child, &status, 0);
 			} while (waited < 0 && errno == EINTR);
@@ -760,6 +853,12 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
 			if (!rc)
 				rc = tcsetpgrp(STDIN_FILENO, getpgrp());
 			sigaction(SIGTTOU, &previous, NULL);
+		}
+		if (!rc && announce_fd >= 0) {
+			rc = view_announce(announce_fd);
+			saved = errno;
+			close(announce_fd);
+			errno = saved;
 		}
 	}
 out:
@@ -1255,10 +1354,26 @@ int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
 	return -1;
 }
 
-int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd)
+int fyai_fsview_init_pid(int fd, pid_t *pid)
+{
+	(void)fd;
+	(void)pid;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_fsview_init_release(int fd)
+{
+	(void)fd;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd)
 {
 	(void)view;
 	(void)status_fd;
+	(void)announce_fd;
 	errno = ENOTSUP;
 	return -1;
 }

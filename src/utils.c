@@ -1016,7 +1016,7 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		unsetenv("LINES");
 		unsetenv("COLUMNS");
 	}
-	if (spec->view && fyai_fsview_enter(spec->view, status_fd)) {
+	if (spec->view && fyai_fsview_enter(spec->view, status_fd, -1)) {
 		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_VIEW,
 					 errno);
 		return FYAI_SHELL_EXIT_SANDBOX;
