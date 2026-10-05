@@ -394,6 +394,11 @@ view:
   track_project: false
   # Run each session and prompt in the view named session of the project.
   # Its changes stay in the view until `view apply session` takes them.
+  # Show what each group of tool calls changed in the project, as a diff under
+  # the calls, and let `/undo` take it back. A patch names its files only.
+  tool_diff: false
+  # The number of groups of tool calls that `/undo` can take back.
+  undo_depth: 16
   # Paths that the diff and the apply of a view leave out, as lines of a gitignore
   # file. A view holds the whole project.
   ignore: []

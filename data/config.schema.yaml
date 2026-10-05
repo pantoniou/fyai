@@ -40,6 +40,31 @@ properties:
           that point: `view diff` takes it, and `reset` restores it. Each entry
           costs a scan of the project, and a state that did not change is
           shared with the entry before it. Linux only.
+      tool_diff:
+        type: boolean
+        default: false
+        x-fyai-scope: session
+        description: >-
+          Show what each group of tool calls changed in the project, as a diff
+          under the calls, so a change that a shell command made is as visible
+          as a patch. The project state is recorded before the turn and after
+          each group of calls, with the paths that view/ignore and view/gitignore
+          leave out left out. Each group costs a scan of the project. A call
+          that can change files is followed: a patch, a file write, a shell, a
+          terminal session, a sub-agent or a tool of a server. A patch and a
+          file write then name their files and leave the change to this diff.
+          The arena must be in the .fyai directory of the project. A session that runs in a view
+          (view/isolate_session) shows them too. Linux only.
+      undo_depth:
+        type: integer
+        minimum: 1
+        default: 16
+        x-fyai-scope: session
+        description: >-
+          Set how many groups of tool calls that view/tool_diff shows stay
+          available to `/undo`. Each group holds two project states, so the
+          depth limits the storage that a session keeps. The oldest group is
+          dropped first.
       ignore:
         type: array
         items:

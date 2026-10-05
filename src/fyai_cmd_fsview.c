@@ -3266,6 +3266,218 @@ bool fyai_project_state_enabled(struct fyai_ctx *ctx)
 	       !ctx->cfg->root_spec && !ctx->cfg->tool_child && !getenv("FYAI_VIEW");
 }
 
+void fyai_tool_change_record(struct fyai_ctx *ctx, fy_generic before, fy_generic after)
+{
+	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
+	long long depth = fy_get(section, "undo_depth", 16LL);
+	fy_generic kept = fy_sequence(ctx->gb), item;
+	size_t count = fy_len(ctx->tool_changes), skip, i = 0;
+
+	/* The new group is kept, so the older ones fill the rest of the depth. */
+	skip = count >= (size_t)depth ? count - (size_t)depth + 1 : 0;
+	fy_foreach(item, ctx->tool_changes)
+		if (i++ >= skip)
+			kept = fy_append(ctx->gb, kept, item);
+	ctx->tool_changes = fy_append(ctx->gb, kept, fy_mapping(ctx->gb, "before", before, "after", after));
+}
+
+int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long back,
+			  fy_generic *result)
+{
+	struct fyai_apply_summary summary;
+	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
+	fy_generic item, before, after, rows, kept;
+	size_t count = fy_len(ctx->tool_changes), index, i = 0;
+	char *root = NULL;
+	int project = -1, cas = -1, rc = -1, saved;
+
+	if (!count) {
+		fyai_error(ctx, "undo: no tool call of this session changed the project");
+		return -1;
+	}
+	if (back < 1 || (size_t)back > count) {
+		fyai_error(ctx, "undo: only %zu changes of the tool calls are kept", count);
+		return -1;
+	}
+	index = count - (size_t)back;
+	item = fy_get_at(ctx->tool_changes, index);
+	before = fy_get(item, "before", fy_invalid);
+	after = fy_get(item, "after", fy_invalid);
+	root = project_state_root(ctx);
+	if (!root) {
+		errno = ENOENT;
+		goto out;
+	}
+	/* The group moved the project from before to after: the baseline is where it left it. */
+	if (fyai_fsview_manifest_open(fy_get(after, "storage", ""), after, &manifests[0]) ||
+	    fyai_fsview_manifest_open(fy_get(before, "storage", ""), before, &manifests[1]))
+		goto out;
+	project = open(root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	cas = open(fy_sprintfa("%s/objects/blake3", fy_get(before, "storage", "")),
+		   O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (project < 0 || cas < 0)
+		goto out;
+	rc = fyai_view_apply(gb, project, cas, &manifests[0], &manifests[1], NULL, 0, false, &rows,
+			     &summary);
+	if (rc)
+		goto out;
+	*result = fy_mapping(gb, "applied", (long long)summary.applied, "satisfied",
+			     (long long)summary.satisfied, "conflicts", (long long)summary.conflicts,
+			     "skipped", (long long)summary.skipped, "changes", rows);
+	if (summary.conflicts) {
+		ctx->cfg->exit_status = 1;
+	} else {
+		kept = fy_sequence(ctx->gb);
+		fy_foreach(item, ctx->tool_changes)
+			if (i++ != index)
+				kept = fy_append(ctx->gb, kept, item);
+		ctx->tool_changes = kept;
+	}
+out:
+	saved = errno;
+	if (project >= 0)
+		close(project);
+	if (cas >= 0)
+		close(cas);
+	fyai_manifest_close(&manifests[0]);
+	fyai_manifest_close(&manifests[1]);
+	free(root);
+	if (rc)
+		fyai_error(ctx, "undo: cannot take the project back: %s", strerror(saved));
+	errno = saved;
+	return rc ? -1 : 0;
+}
+
+int fyai_cmd_undo(struct fyai_cmd_call *call, fy_generic *result)
+{
+	return fyai_tool_change_undo(call->ctx, call->gb, fy_get(call->args, "back", 1LL), result);
+}
+
+bool fyai_tool_diff_enabled(struct fyai_ctx *ctx)
+{
+	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
+
+	return fy_get(section, "tool_diff", false) && !ctx->cfg->transient && !ctx->cfg->root_spec &&
+	       !ctx->cfg->tool_child && !ctx->cfg->agent_child;
+}
+
+#define TOOL_DIFF_DIRECTORY "tooldiff"
+
+/*
+ * The storage of the project states. A run in a view cannot reach the storage of the
+ * project, so it keeps them in a directory of the arena, which stays writable there
+ * and lies on the filesystem of the project. The view admits one session, so the
+ * directory is the run's: what an earlier run left is removed before the first use.
+ */
+static int tool_diff_storage(struct fyai_ctx *ctx, const char *root, char **storage, char **objects,
+			     char **views)
+{
+	const char *names[1] = { TOOL_DIFF_DIRECTORY };
+	char error[PATH_MAX];
+	int arena, rc;
+
+	if (!getenv("FYAI_VIEW"))
+		return view_storage(root, storage, objects, views);
+	arena = open(ctx->cfg->arena_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (arena < 0)
+		return -1;
+	if (!ctx->tool_diff_storage)
+		fyai_view_fs_remove(arena, names, 1, true, error, sizeof(error));
+	close(arena);
+	if (asprintf(storage, "%s/" TOOL_DIFF_DIRECTORY, ctx->cfg->arena_dir) < 0)
+		return -1;
+	rc = mkdir_private(*storage);
+	if (rc)
+		return -1;
+	ctx->tool_diff_storage = true;
+	if (asprintf(objects, "%s/objects", *storage) < 0 || mkdir_private(*objects))
+		return -1;
+	free(*objects);
+	*objects = NULL;
+	if (asprintf(objects, "%s/objects/blake3", *storage) < 0 || mkdir_private(*objects))
+		return -1;
+	*views = NULL;
+	return 0;
+}
+
+void fyai_tool_diff_cleanup(struct fyai_ctx *ctx)
+{
+	const char *names[1] = { TOOL_DIFF_DIRECTORY };
+	char error[PATH_MAX];
+	int arena;
+
+	if (!ctx || !ctx->tool_diff_storage || fy_str_empty(ctx->cfg->arena_dir))
+		return;
+	ctx->tool_diff_storage = false;
+	arena = open(ctx->cfg->arena_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (arena < 0)
+		return;
+	fyai_view_fs_remove(arena, names, 1, true, error, sizeof(error));
+	close(arena);
+}
+
+int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb, fy_generic before,
+			    fy_generic after, size_t limit, fy_generic *text)
+{
+	struct response_buffer listing = { 0 };
+	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
+	fy_generic snapshots[2] = { before, after }, changes, row;
+	const char *stores[2], *path;
+	int cas[2] = { -1, -1 };
+	int rc = -1, saved;
+	size_t i;
+
+	*text = fy_value(gb, "");
+	for (i = 0; i < 2; i++) {
+		stores[i] = fy_get(snapshots[i], "storage", "");
+		if (!fy_is_mapping(snapshots[i]) || fy_str_empty(stores[i])) {
+			errno = EINVAL;
+			goto out;
+		}
+		if (fyai_fsview_manifest_open(stores[i], snapshots[i], &manifests[i]))
+			goto out;
+	}
+	changes = fyai_manifest_diff(gb, &manifests[0], &manifests[1]);
+	if (!fy_is_sequence(changes))
+		goto out;
+	if (!fy_len(changes)) {
+		rc = 0;
+		goto out;
+	}
+	for (i = 0; i < 2; i++) {
+		cas[i] = open(fy_sprintfa("%s/objects/blake3", stores[i]),
+			      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (cas[i] < 0)
+			goto out;
+	}
+	fy_foreach(row, changes) {
+		path = fy_get(row, "path", "");
+		if (!strcmp(path, "."))
+			continue;
+		if (listing.len >= limit) {
+			if (response_buffer_append(&listing, "# the rest of the changes is not shown\n"))
+				goto out;
+			break;
+		}
+		if (view_diff_path(&listing, manifests, cas, path))
+			goto out;
+	}
+	*text = fy_value(gb, listing.data ? listing.data : "");
+	rc = 0;
+out:
+	saved = errno;
+	for (i = 0; i < 2; i++) {
+		if (cas[i] >= 0)
+			close(cas[i]);
+		fyai_manifest_close(&manifests[i]);
+	}
+	free(listing.data);
+	if (rc)
+		fyai_warning(ctx, "tool diff: cannot compare the project states: %s", strerror(saved));
+	errno = saved;
+	return rc;
+}
+
 int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 {
 	struct fyai_project_capture_stats statistics = { 0 };
@@ -3275,6 +3487,10 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 						  .baseline_fd = -1,
 						  .data_fd = -1,
 						  .borrow_git = true,
+						  /* In a view the owners are those of its user namespace. */
+						  .mapped_owner = getenv("FYAI_VIEW") != NULL,
+						  .host_uid = getuid(),
+						  .host_gid = getgid(),
 						  .defer_sync = true };
 	struct fyai_ignore_spec ignore;
 	struct fyai_manifest manifest = { 0 };
@@ -3291,7 +3507,7 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	root = project_state_root(ctx);
 	if (!root)
 		return 0;
-	rc = view_storage(root, &storage, &objects, &views);
+	rc = tool_diff_storage(ctx, root, &storage, &objects, &views);
 	if (rc)
 		goto out;
 	gc_lock = fyai_view_storage_lock_shared(storage);
@@ -3635,6 +3851,50 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 {
 	(void)ctx;
 	*ref = fy_invalid;
+	return 0;
+}
+
+bool fyai_tool_diff_enabled(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return false;
+}
+
+void fyai_tool_diff_cleanup(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+}
+
+void fyai_tool_change_record(struct fyai_ctx *ctx, fy_generic before, fy_generic after)
+{
+	(void)ctx;
+	(void)before;
+	(void)after;
+}
+
+int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long back,
+			  fy_generic *result)
+{
+	(void)gb;
+	(void)back;
+	(void)result;
+	fyai_error(ctx, "undo: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_undo(struct fyai_cmd_call *call, fy_generic *result)
+{
+	return fyai_tool_change_undo(call->ctx, call->gb, 1, result);
+}
+
+int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb, fy_generic before,
+			    fy_generic after, size_t limit, fy_generic *text)
+{
+	(void)ctx;
+	(void)before;
+	(void)after;
+	(void)limit;
+	*text = fy_value(gb, "");
 	return 0;
 }
 

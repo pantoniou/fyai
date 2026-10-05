@@ -72,6 +72,15 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
  * Present and record a call that the provider ran, such as web_search. It
  * stores a title row with the outcome and no result fragment.
  */
+/*
+ * Present what a group of tool calls changed in the project, as the diff text,
+ * under the calls. It is stored in the open assistant document as a `tool_text`
+ * fragment with the language diff, so a replay draws it again from the record. Does
+ * nothing for an empty diff or without an open document. Return 0, or -1 with the
+ * cause reported.
+ */
+int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff);
+
 int fyai_present_hosted_call(struct fyai_ctx *ctx, const char *name,
 			     fy_generic args, bool ok, const char *cause);
 /*

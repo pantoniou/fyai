@@ -130,6 +130,7 @@ static const struct {
 	{ "view_diff",		fyai_cmd_view_diff },
 	{ "view_remove",	fyai_cmd_view_remove },
 	{ "view_ls",		fyai_cmd_view_ls },
+	{ "undo",		fyai_cmd_undo },
 	{ "view_rm",		fyai_cmd_view_rm },
 	{ "view_cp",		fyai_cmd_view_cp },
 	{ "view_fs",		fyai_cmd_view_fs },

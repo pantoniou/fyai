@@ -136,6 +136,44 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx);
 int fyai_project_state_restore(struct fyai_ctx *ctx, const char *spec, bool force,
 			       struct fy_generic_builder *gb, fy_generic *report);
 
+/*
+ * Whether this run shows what each group of tool calls changed (view/tool_diff).
+ * It needs a run that owns its conversation and an arena in the project; a forked
+ * child, a sub-agent and a pinned root do not. A session that runs in a view
+ * (view/isolate_session) does: the storage of the project is out of its reach, so
+ * its states are kept in a directory of the arena that the run removes when it ends.
+ */
+bool fyai_tool_diff_enabled(struct fyai_ctx *ctx);
+
+/* Remove the private storage of the project states of a run in a view, if it made one. */
+void fyai_tool_diff_cleanup(struct fyai_ctx *ctx);
+
+/*
+ * Keep the project states around a group of tool calls whose diff was shown, for
+ * undo. The newest are kept; the older ones are dropped.
+ */
+void fyai_tool_change_record(struct fyai_ctx *ctx, fy_generic before, fy_generic after);
+
+/*
+ * Take the project back from the state after a recorded group of tool calls to the
+ * state before it, back groups from the newest (1 is the newest). It is `view apply`
+ * the other way: a path that still has what the group left takes what it had
+ * before, and a path that changed since is a conflict and is left alone. The
+ * group is dropped when it had no conflict. The result holds the counts and the
+ * rows, as `view apply` does. Return 0, or -1 with the cause reported.
+ */
+int fyai_tool_change_undo(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long back,
+			  fy_generic *result);
+
+/*
+ * The unified patch between two project states that fyai_project_state_capture()
+ * made, as `view diff` writes it, with no metadata rows. The patch is built in gb.
+ * *text is an empty string when nothing changed, and is cut with a note at limit
+ * bytes. Return 0, or -1 with the cause reported.
+ */
+int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb, fy_generic before,
+			    fy_generic after, size_t limit, fy_generic *text);
+
 /* The project that the arena belongs to, or NULL; the caller frees it. */
 char *fyai_view_project_root(struct fyai_ctx *ctx);
 

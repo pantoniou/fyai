@@ -48,6 +48,14 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 				  bool *okp);
 /* Return a short failure cause, or NULL. The caller owns the string. */
 char *fyai_tool_error_cause(fy_generic result);
+/*
+ * What a tool call can do to the files of the project: nothing, as a read does
+ * (0); change them in a way that its own display shows, as a patch does (1); or
+ * run a program that can change anything, as a shell, a terminal session, a
+ * sub-agent or a tool of a server does (2).
+ */
+int fyai_tool_call_file_effect(struct fyai_ctx *ctx, fy_generic tool_call);
+
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 				      fy_generic tool_call);
 struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,

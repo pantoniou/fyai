@@ -1415,7 +1415,7 @@ static bool fyai_tool_result_is_error(const char *text)
 }
 
 static void fyai_emit_patch(struct fyai_ctx *ctx, FILE *mf, const char *patch,
-			    struct fyai_md_blocks *blocks);
+			    struct fyai_md_blocks *blocks, bool titles_only);
 
 /* One rendered file operation. */
 struct patch_op_view {
@@ -1827,6 +1827,7 @@ out:
 struct patch_emit_ctx {
 	FILE *mf;
 	struct fyai_md_blocks *blocks;
+	bool titles_only;
 };
 
 /* Emit one file operation into the tool-call Markdown. */
@@ -1837,7 +1838,7 @@ static int patch_emit_op(void *user, struct patch_op_view *op)
 	size_t block_start;
 
 	fprintf(mf, "%s\n\n", op->title ? op->title : "**patch**");
-	if (!op->body.len)
+	if (!op->body.len || ctx->titles_only)
 		return 0;
 	block_start = (size_t)ftell(mf);
 	fprintf(mf, "```%s\n", op->lang ? op->lang : "");
@@ -1857,9 +1858,9 @@ static int patch_emit_op(void *user, struct patch_op_view *op)
  * view does.
  */
 static void fyai_emit_patch(struct fyai_ctx *ctx, FILE *mf, const char *patch,
-			    struct fyai_md_blocks *blocks)
+			    struct fyai_md_blocks *blocks, bool titles_only)
 {
-	struct patch_emit_ctx emit_ctx = { .mf = mf, .blocks = blocks };
+	struct patch_emit_ctx emit_ctx = { .mf = mf, .blocks = blocks, .titles_only = titles_only };
 
 	(void)patch_walk(ctx, patch, &emit_ctx, patch_emit_op);
 }
@@ -1979,8 +1980,11 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 	if (fy_equal(name, "apply_patch")) {
 		gc = fy_get(args, "patch");
 		c = fy_castp(&gc, "");
-		if (*c && preview_lines < 0)
-			fyai_emit_patch(ctx, mf, c, blocks);
+		/* The diff of the group of calls shows the change: name the files only. */
+		if (*c && preview_lines && ctx && ctx->tool_diff_tracking)
+			fyai_emit_patch(ctx, mf, c, blocks, true);
+		else if (*c && preview_lines < 0)
+			fyai_emit_patch(ctx, mf, c, blocks, false);
 		else if (*c && preview_lines > 0)
 			fyai_emit_tool_result_blocks(mf, c, preview_lines,
 						     "diff", blocks);
@@ -2260,7 +2264,8 @@ int fyai_tool_preview_lines(const struct fyai_cfg *cfg, const char *name)
 		return 0;
 	if (!strcmp(name, "agent"))
 		return 0;
-	if (!strcmp(name, "apply_patch"))
+	/* A diff is read as a whole, as a patch is. */
+	if (!strcmp(name, "apply_patch") || !strcmp(name, "diff"))
 		return -1;
 	return cfg->tool_preview_lines;
 }
@@ -2843,6 +2848,66 @@ err:
 		fclose(mf);
 err_closed:
 	fyai_md_blocks_free(&blocks);
+	free(md);
+	return -1;
+}
+
+int fyai_present_tool_diff(struct fyai_ctx *ctx, const char *diff)
+{
+	struct fyai_cfg *cfg;
+	size_t start, length;
+	char *md = NULL;
+	size_t mdlen = 0;
+	bool isolated = false;
+	FILE *mf;
+	int rc, lines;
+
+	/* A stored turn has no open output document. */
+	if (!ctx || !ctx->display_output || fy_str_empty(diff))
+		return 0;
+	cfg = ctx->cfg;
+	length = strlen(diff);
+	rc = fyai_output_start_block(ctx);
+	fyai_error_check(ctx, !rc, err, "could not separate the tool diff from the calls");
+	isolated = fyai_output_renders_live(ctx);
+	rc = isolated ? fyai_output_checkpoint(ctx) : 0;
+	fyai_error_check(ctx, !rc, err, "could not checkpoint output before the tool diff");
+
+	/* Draw it as the replay draws it: one fenced block of the language diff. */
+	lines = fyai_tool_preview_lines(cfg, "diff");
+	rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_TOOL_TEXT);
+	fyai_error_check(ctx, !rc, err_resume, "could not fence the tool diff");
+	fyai_print_tool_separator(ctx->sink, cfg);
+	fyai_print_fenced(ctx->sink, cfg, diff, length, "diff", fy_invalid,
+			  lines < 0 ? 0 : (size_t)lines);
+
+	/* Store the source that was drawn, with the separator outside the fragment. */
+	start = strlen(fyai_output_markdown(ctx, NULL));
+	mf = open_memstream(&md, &mdlen);
+	fyai_error_check(ctx, mf, err_resume, "could not format the tool diff");
+	fputs(diff, mf);
+	if (diff[length - 1] != '\n')
+		fputc('\n', mf);
+	fyai_error_check(ctx, !fflush(mf), err_closed, "could not format the tool diff");
+	length = (size_t)ftell(mf);
+	fputc('\n', mf);
+	fyai_error_check(ctx, !fclose(mf), err_closed, "could not finish the tool diff");
+	mf = NULL;
+	rc = fyai_output_append_recorded(ctx, md, mdlen);
+	fyai_error_check(ctx, !rc, err_resume, "could not record the tool diff");
+	rc = fyai_output_add_fragment(ctx, "tool_text", start, start + length, "diff", "diff");
+	fyai_error_check(ctx, !rc, err_resume, "could not record the tool diff fragment");
+	free(md);
+	rc = isolated ? fyai_output_resume(ctx) : 0;
+	fyai_error_check(ctx, !rc, err, "could not resume output after the tool diff");
+	return 0;
+err_closed:
+	if (mf)
+		fclose(mf);
+err_resume:
+	if (isolated)
+		(void)fyai_output_resume(ctx);
+err:
 	free(md);
 	return -1;
 }
@@ -3512,8 +3577,8 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
 		fyai_error_check(ctx, !rc, out, "could not fence a tool screen");
 		fyai_print_tool_separator(ctx->sink, cfg);
-		fyai_print_fenced(ctx->sink, cfg, f->md, f->len, NULL,
-				  fy_invalid,
+		fyai_print_fenced(ctx->sink, cfg, f->md, f->len,
+				  *f->lang ? f->lang : NULL, fy_invalid,
 				  f->preview_lines < 0 ? 0 :
 				  (size_t)f->preview_lines);
 		return 0;

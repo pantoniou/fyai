@@ -189,6 +189,7 @@ int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_ls(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_undo(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_rm(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_fs(struct fyai_cmd_call *call, fy_generic *result);

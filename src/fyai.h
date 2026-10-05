@@ -658,6 +658,19 @@ struct fyai_ctx {
 	fy_generic branch_store;
 	/* The project state that the next entry records, or fy_invalid. */
 	fy_generic project_state;
+	/*
+	 * The groups of tool calls of this session that changed the project and showed it:
+	 * a sequence of {before, after} project states, the newest last. `undo` takes it back.
+	 */
+	fy_generic tool_changes;
+	/* The private storage of the project states of a run in a view exists. */
+	bool tool_diff_storage;
+	/*
+	 * The turn in flight shows what each group of tool calls changed, so a patch
+	 * does not display its own diff. Set from the start of the turn until it ends,
+	 * and cleared when the project states can no longer be taken.
+	 */
+	bool tool_diff_tracking;
 	uint64_t refs_head;
 	struct curl_slist *headers;
 	char *auth_header;

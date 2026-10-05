@@ -3642,6 +3642,18 @@ out:
 	return NULL;
 }
 
+int fyai_tool_call_file_effect(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	const char *name = fyai_tool_call_name(ctx, tool_call);
+
+	if (fy_any_equal(name, "apply_patch", "write_file"))
+		return 1;
+	if (fy_any_equal(name, "shell", "shell_input", "shell_close", "agent") ||
+	    fyai_mcp_tool_name(name))
+		return 2;
+	return 0;
+}
+
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 				      fy_generic tool_call)
 {

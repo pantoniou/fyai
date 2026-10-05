@@ -2633,6 +2633,31 @@ commands:
         empty: no active sessions
         keys: [name, kind, state]
 
+  - command: undo
+    title: take back the changes of a group of tool calls
+    description: |
+      Take the project back from what the newest group of tool calls left to what it
+      had before them. A group is a response of the model whose calls ran a program,
+      and whose changes were shown as a diff (see view/tool_diff). A path that still
+      has what the group left takes what it had; a path that you or another call
+      changed since is a conflict and stays as it is. Give N to take back the Nth
+      newest group; the groups of the session are kept, the newest sixteen.
+    surfaces: [session]
+    handler: undo
+    render:
+      message: "{applied} paths restored, {conflicts} left as changed since"
+    arguments:
+      type: object
+      additionalProperties: false
+      properties:
+        back:
+          type: integer
+          minimum: 1
+          default: 1
+          description: which group to take back, 1 for the newest
+          x-fyai-positional: 0
+          x-fyai-meta: N
+
   - command: kill
     title: stop a shell session or sub-agent
     description: Stop the live shell session or sub-agent NAME.

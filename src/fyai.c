@@ -1333,7 +1333,12 @@ struct fyai_turn_run {
 	bool cancel_requested;
 	bool accept_pending_user;
 	const char *histfile;
+	/* The project state before the next group of tool calls, when the diffs are shown. */
+	fy_generic diff_before;
 };
+
+/* A diff that is longer than this is cut: the human reads it, and a full tree is not that. */
+#define FYAI_TOOL_DIFF_LIMIT (256 * 1024)
 
 static bool fyai_turn_run_done(const struct fyai_turn_run *run)
 {
@@ -1389,6 +1394,7 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 			   fyai_turn_run_state_name(state));
 		if (!fyai_turn_run_done(run))
 			run->state = FYAITRS_FAILED;
+		run->ctx->tool_diff_tracking = false;
 		return -1;
 	}
 	if (run->ctx->cfg->debug)
@@ -1396,6 +1402,8 @@ fyai_turn_run_transition(struct fyai_turn_run *run,
 			   fyai_turn_run_state_name(run->state),
 			   fyai_turn_run_state_name(state));
 	run->state = state;
+	if (state == FYAITRS_DONE || state == FYAITRS_FAILED)
+		run->ctx->tool_diff_tracking = false;
 	if (state == FYAITRS_MODEL)
 		fyai_agents_activity(run->ctx, "running");
 	return 0;
@@ -1626,6 +1634,35 @@ err:
 	return -1;
 }
 
+/*
+ * Record the project after a group of tool calls that can change files and show
+ * what the group changed. A patch or a file write does not display its own diff
+ * while the turn is tracked, so this one is the only place that shows it. A
+ * failure stops the diffs of the turn and not the turn.
+ */
+static void fyai_turn_run_tool_diff(struct fyai_turn_run *run)
+{
+	struct fyai_ctx *ctx = run->ctx;
+	fy_generic after, text;
+	const char *patch;
+	int rc;
+
+	rc = fyai_project_state_capture(ctx, &after);
+	if (rc || !fy_is_mapping(after)) {
+		ctx->tool_diff_tracking = false;
+		return;
+	}
+	if (!fyai_project_state_diff(ctx, ctx->transient_gb, run->diff_before, after,
+					     FYAI_TOOL_DIFF_LIMIT, &text)) {
+		patch = fy_castp(&text, "");
+		if (*patch) {
+			(void)fyai_present_tool_diff(ctx, patch);
+			fyai_tool_change_record(ctx, run->diff_before, after);
+		}
+	}
+	run->diff_before = after;
+}
+
 static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx;
@@ -1636,11 +1673,12 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 	size_t total;
 	bool interrupted;
 	bool ok;
-	int rc;
+	int rc, effect;
 
 	ctx = run->ctx;
 	total = fy_len(run->tool_calls);
 	group_index = 0;
+	effect = 0;
 	for (i = 0; i < total; i++) {
 		tool_call = fy_get_at(run->tool_calls, i);
 		if (run->group_parallel !=
@@ -1648,6 +1686,9 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 			continue;
 		if (!run->group_parallel && i != run->exclusive_index)
 			continue;
+		if (ctx->tool_diff_tracking &&
+		    fyai_tool_call_file_effect(ctx, tool_call) > effect)
+			effect = fyai_tool_call_file_effect(ctx, tool_call);
 		result = fy_invalid;
 		ok = false;
 		rc = fyai_tool_job_group_collect(run->tool_group,
@@ -1665,6 +1706,8 @@ static int fyai_turn_run_collect_tools(struct fyai_turn_run *run)
 	run->turn = fy_gb_internalize(ctx->transient_gb, run->turn);
 	fyai_error_check(ctx, fy_is_valid(run->turn), err,
 			 "could not append the tool calls");
+	if (effect)
+		fyai_turn_run_tool_diff(run);
 	if (ctx->ask_abort) {
 		fyai_turn_run_finish(run, fy_null, true);
 		return 0;
@@ -1861,12 +1904,18 @@ fyai_turn_run_submit(struct fyai_ctx *ctx, fy_generic turn)
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not start assistant display output");
 	fyai_interrupt_check(ctx);
+	/* What the user or another program changed between turns is not the turn's. */
+	if (fyai_tool_diff_enabled(ctx)) {
+		rc = fyai_project_state_capture(ctx, &run->diff_before);
+		ctx->tool_diff_tracking = !rc && fy_is_mapping(run->diff_before);
+	}
 	rc = fyai_turn_run_submit_model(run);
 	fyai_error_check(ctx, !rc, err_free,
 			 "could not submit turn");
 	return run;
 
 err_free:
+	ctx->tool_diff_tracking = false;
 	free(run);
 err:
 	return NULL;
@@ -1924,6 +1973,7 @@ static void fyai_turn_run_destroy(struct fyai_turn_run *run)
 				run);
 	fyai_model_step_destroy(run->model_step);
 	fyai_turn_run_drop_tool_group(run);
+	run->ctx->tool_diff_tracking = false;
 	free(run);
 }
 
@@ -2022,6 +2072,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
 	fyai_waits_release(ctx);
+	fyai_tool_diff_cleanup(ctx);
 	fyai_events_release(ctx);
 	fyai_terminal_winch_close(ctx);
 	fyai_event_interrupt_close(ctx);
@@ -2268,6 +2319,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->branch_agent = fy_invalid;
 	ctx->branch_store = fy_invalid;
 	ctx->project_state = fy_invalid;
+	ctx->tool_changes = fy_seq_empty;
 	ctx->last_token_extents = fy_invalid;
 	if (fyai_signals_open(ctx))
 		goto err;

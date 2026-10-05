@@ -4620,6 +4620,32 @@ List the live shell sessions and sub-agents of the work pane.
 | --- | --- |
 | `-h`, `--help` | show this help |
 
+## /undo
+
+take back the changes of a group of tool calls
+
+**Usage:** `/undo [N]`
+
+Take the project back from what the newest group of tool calls left to what it
+had before them. A group is a response of the model whose calls ran a program,
+and whose changes were shown as a diff (see view/tool_diff). A path that still
+has what the group left takes what it had; a path that you or another call
+changed since is a conflict and stays as it is. Give N to take back the Nth
+newest group; the groups of the session are kept, the newest sixteen.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `N` | which group to take back, 1 for the newest; default 1 |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
 ## /kill
 
 stop a shell session or sub-agent
