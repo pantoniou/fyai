@@ -1,15 +1,20 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Verify /session lockdown and /session yolo: each sets the group of isolation keys together,
-# a restart follows when the credential transport must start or end, and
-# nothing changes when a switch cannot run.
+# Verify /session lockdown and /session yolo: each sets the group of isolation keys
+# together, the session restarts when the credential transport or the view of the
+# session must start, and /session shows the state.
 set -eu
 [ "$(uname -s)" = Linux ] || exit 77
 # The level of this run is set by the environment under the transport gate.
 [ -z "${FYAI_TEST_TRANSPORT:-}" ] || exit 77
 . "$(dirname "$0")/../harness.sh"
 
+FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
 fyai_test_setup
+# The scratch directory of a view must lie outside the project.
+export TMPDIR="$FYAI_TMPDIR_BASE"
+VIEW=no
+unshare -Urnm true 2>/dev/null && VIEW=yes
 mock_start tool_diff.json
 
 session() {
@@ -26,30 +31,48 @@ stored() {
 	"$FYAI_BIN" -b lock config get "$1" 2>/dev/null
 }
 
-# Nothing is set to begin with.
 [ "$(stored agent/transport_isolation)" != auto ] || fail 'the transport was on at the start'
-
-# /session lockdown stores the keys, and the session restarts to start the transport.
 "$FYAI_BIN" branch create lock >/dev/null 2>&1 || fail 'no branch'
+# The user sets the views of sub-agents by hand.
+"$FYAI_BIN" -b lock config set agent/isolation none >/dev/null 2>&1 || fail 'cannot set agent/isolation'
+
+# The state before anything is set.
+session '/session' '/exit'
+[ "$rc" = 0 ] || fail "/session ended with status $rc: $(cat "$TEST_DIR/err")"
+grep -qF 'credential transport: off' "$TEST_DIR/out" || fail "/session does not say the transport is off: $(cat "$TEST_DIR/out")"
+grep -qF 'session view: none' "$TEST_DIR/out" || fail "/session names a view: $(cat "$TEST_DIR/out")"
+
+# lockdown stores the keys, and the session restarts to start the transport and the view.
 session '/session lockdown' '/exit'
 [ "$rc" = 0 ] || fail "lockdown ended with status $rc: $(cat "$TEST_DIR/err")"
 grep -qF 'lockdown: credential transport auto' "$TEST_DIR/out" || fail "lockdown said nothing: $(cat "$TEST_DIR/out" "$TEST_DIR/err")"
 [ "$(stored agent/transport_isolation)" = auto ] || fail 'lockdown did not store the transport level'
-[ "$(stored agent/isolation)" = view ] || fail 'lockdown did not store the views of sub-agents'
-# The next session follows the stored level: it runs with the transport.
-session '/status' '/exit'
-[ "$rc" = 0 ] || fail "the isolated session ended with status $rc: $(cat "$TEST_DIR/err")"
-grep -qiE 'level-b' "$TEST_DIR/out" || fail "the session did not run isolated: $(cat "$TEST_DIR/out" "$TEST_DIR/err")"
+# The views of sub-agents are the user's setting, and lockdown leaves them alone.
+[ "$(stored agent/isolation)" = none ] || fail 'lockdown changed the views of sub-agents'
+if [ "$VIEW" = yes ]; then
+	[ "$(stored view/isolate_session)" = true ] || fail 'lockdown did not store the view of the session'
+fi
 
-# /session yolo takes everything off. The session keeps its transport, which ends when
-# fyai starts again: the next session runs without it.
+# The next session follows the stored keys: the transport, and the view of the session.
+session '/session' '/status' '/exit'
+[ "$rc" = 0 ] || fail "the isolated session ended with status $rc: $(cat "$TEST_DIR/err")"
+grep -qE 'credential transport: level-b' "$TEST_DIR/out" || fail "the session did not run with the transport: $(cat "$TEST_DIR/out" "$TEST_DIR/err")"
+if [ "$VIEW" = yes ]; then
+	grep -qF 'session view: session' "$TEST_DIR/out" || fail "the session did not run in its view: $(cat "$TEST_DIR/out")"
+	grep -qE '^ *View +│ +session' "$TEST_DIR/out" || fail "/status does not name the view: $(cat "$TEST_DIR/out")"
+fi
+
+# yolo takes everything off. The session keeps its transport and its view, which end
+# when fyai starts again: the next session runs without them.
 session '/session yolo' '/exit'
 [ "$rc" = 0 ] || fail "yolo ended with status $rc: $(cat "$TEST_DIR/err")"
 grep -qF 'yolo: credential transport none' "$TEST_DIR/out" || fail "yolo said nothing: $(cat "$TEST_DIR/out" "$TEST_DIR/err")"
 [ "$(stored agent/transport_isolation)" = none ] || fail 'yolo did not store the transport level'
-[ "$(stored agent/isolation)" = none ] || fail 'yolo did not store the views of sub-agents'
-session '/status' '/exit'
-! grep -qiE 'level-b' "$TEST_DIR/out" || fail 'the session kept the transport after yolo'
+[ "$(stored agent/isolation)" = none ] || fail 'yolo changed the views of sub-agents'
+[ "$(stored view/isolate_session)" != true ] || fail 'yolo kept the view of the session'
+session '/session' '/exit'
+grep -qF 'credential transport: off' "$TEST_DIR/out" || fail "the session kept the transport after yolo: $(cat "$TEST_DIR/out")"
+grep -qF 'session view: none' "$TEST_DIR/out" || fail "the session kept its view after yolo: $(cat "$TEST_DIR/out")"
 
 mock_stop 0
 pass

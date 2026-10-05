@@ -5,8 +5,6 @@
 # stays as it was, and the view holds the changes.
 set -eu
 [ "$(uname -s)" = Linux ] || exit 77
-# A session in a view cannot hold the credentials apart: the run refuses it.
-[ -z "${FYAI_TEST_TRANSPORT:-}" ] || exit 77
 . "$(dirname "$0")/../harness.sh"
 
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"

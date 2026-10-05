@@ -5,8 +5,6 @@
 # holds the changes.
 set -eu
 [ "$(uname -s)" = Linux ] || exit 77
-# A session in a view cannot hold the credentials apart: the run refuses it.
-[ -z "${FYAI_TEST_TRANSPORT:-}" ] || exit 77
 . "$(dirname "$0")/../harness.sh"
 
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
@@ -49,6 +47,11 @@ printf '/status\n/exit\n' | "$FYAI_BIN" -k test-key --color off --set view/isola
 	>"$TEST_DIR/status-view.out" 2>"$TEST_DIR/status-view.err"
 set -e
 grep -qE '^ *View +│ +session' "$TEST_DIR/status-view.out" || fail "/status does not name the view: $(cat "$TEST_DIR/status-view.out" "$TEST_DIR/status-view.err")"
+# Under the credential transport the session in the view is an agent of its own,
+# and says so.
+if [ -n "${FYAI_TEST_TRANSPORT:-}" ]; then
+	grep -qE 'level-b' "$TEST_DIR/status-view.out" || fail "the session in the view does not run with the transport: $(cat "$TEST_DIR/status-view.out")"
+fi
 set +e
 printf '/status\n/exit\n' | "$FYAI_BIN" -k test-key --color off --set view/isolate_session=false \
 	--set api=chat-completions --set display/stream=false --set display/markdown=false \
