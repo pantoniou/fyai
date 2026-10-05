@@ -1792,6 +1792,29 @@ store of the child, so the child applies it before the parent can. The tool
 returns the
 list of changed paths and not a patch, because a patch needs a nested event loop.
 
+**Ignored paths.** Ignore rules face the user and the project, not the view. A view
+captures and runs with the whole project, because an agent needs its build
+artifacts, and the rules apply when changes are shown or written back: `view diff`,
+the list of changes of `project_view`, and `view apply`, which leaves an ignored
+path out as though it were not a change and does not report it. `view ls` and
+`view enter` show the whole view. The rules have the syntax of gitignore(5) and three
+sources. The first is `view/ignore`, a list of strings with one rule each, which
+outranks the others. The second is the `.gitignore` file of each directory of the
+project, which governs that directory and what is below it, a nearer file before a
+farther one. The third is `.git/info/exclude`, which a `.gitignore` file outranks.
+`view/gitignore` turns the last two off. The files are those of the project on
+disk, read when a diff or an apply asks for a path, with no symbolic link
+followed, so a rule that an agent adds to its view does not apply until it is
+applied to the project. The global Git ignore file is not read, and the `.git`
+directory is never ignored. A rule applies to every path, whether Git tracks it
+or not. A directory that is ignored hides what is below it.
+
+The states that `view/track_project` and `view/tool_diff` record are another case:
+nobody reviews build artifacts in a state, and `reset` and `undo` must not
+touch them, so those captures leave the ignored paths out when they are taken, with
+the rules that were in force then. A view that predates the setting needs no
+change.
+
 **Session.** With `view/isolate_session`, the invocation of a verb that makes
 requests captures the view `session` and runs again inside it, with the same
 command line, on the same branch (`FYAI_BRANCH`). The terminal, the signals and

@@ -423,6 +423,16 @@ Views belong to a branch, like its conversation and configuration. The same
 views serve the user (`fyai view`, `/view`) and the model (`project_view`), so
 both work on one record of what changed.
 
+A view holds the whole project, build artifacts included, because the agent that
+works in it needs them. What faces you and the project leaves out the paths that
+the `.gitignore` files of the project name, as `git status` does: `view diff`, the
+changes that `project_view` lists, and `view apply` and `/undo`. `view/gitignore`
+(default on) selects the files, and `view/ignore` is a list of more rules, each a
+line of a gitignore file, that outrank them. A file that an agent writes in
+`build/` stays in its view and never lands in the project, and `view ls` still
+shows it. The states that `view/track_project` and `view/tool_diff` record leave
+the ignored paths out when they are taken.
+
 With `view/track_project`, each ref-log entry that moves a head also records
 the state of the project files. A state that did not change is shared with
 the entry before it. A reference then names files as well as conversation, and
