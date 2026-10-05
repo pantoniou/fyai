@@ -1815,6 +1815,29 @@ touch them, so those captures leave the ignored paths out when they are taken, w
 the rules that were in force then. A view that predates the setting needs no
 change.
 
+**Paths of a view.** One address, NAME:PATH, names a path of a view in `view ls`,
+`view diff`, `view rm` and `view cp`. NAME is a view, or agent/NAME for the view of
+a sub-agent, and PATH is a path of plain names from the project root: it has no
+`.` or `..` component and none of the reserved names `.git` and `.fyai`. An
+argument whose text before the first colon is not a view name is a path of the
+project, and `./` before it keeps a colon in the name.
+
+`ls` and `diff` read the recorded result and the baseline from their manifests and
+mount nothing. `diff` selects changes by path, so a path that one side lacks,
+because the view added or removed it, is selected as any other; a path that
+neither side has is an error. `rm` and `cp` change a view, which only a process
+inside it can do, because the writable layer is an overlay: the command starts the
+program again in the view, as the session does, with a verb of its own
+(`__view-fs`) that works on the current directory, and the view records the result
+when it ends, as `view enter` does. `cp` moves the files as a stream through a
+pipe: a directory, a regular file or a symbolic link, with its permission bits and
+its time. The side in the project runs on a thread of the command, and the helper
+is the other side, so the project is read or written by the process that holds it.
+A path that a source lacks fails before a view changes. A file is written beside
+its place and renamed to it. A stream is data: a name that is not plain names is
+refused. Copying to the project replaces the file with no check, and `view apply`
+is the copy that compares. Copying a whole view is another command.
+
 **Session.** With `view/isolate_session`, the invocation of a verb that makes
 requests captures the view `session` and runs again inside it, with the same
 command line, on the same branch (`FYAI_BRANCH`). The terminal, the signals and

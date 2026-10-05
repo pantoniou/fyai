@@ -433,6 +433,18 @@ line of a gitignore file, that outrank them. A file that an agent writes in
 shows it. The states that `view/track_project` and `view/tool_diff` record leave
 the ignored paths out when they are taken.
 
+A path of a view is written NAME:PATH, as scp writes a file of a host. The same
+address serves four commands. `view ls NAME[:PATH]` lists a directory of the
+result of a view, and `view diff NAME:PATH` compares only that path. `view rm
+NAME:PATH...` removes paths in the view, and `view cp` copies paths between the
+project and a view: `view cp src/a.c session:src/` puts a file of the project in
+the view, and `view cp session:src/a.c src/a.c` takes the file of the view back,
+with no check of what the project held. A destination that ends in a slash is a
+directory; any other is the new name. A path that the view does not have is an
+error for `ls`, `rm` and `cp`; for `diff` a path that was added or removed is
+selected like any other. Nothing of this changes the project, except a copy to
+it.
+
 With `view/track_project`, each ref-log entry that moves a head also records
 the state of the project files. A state that did not change is shared with
 the entry before it. A reference then names files as well as conversation, and
