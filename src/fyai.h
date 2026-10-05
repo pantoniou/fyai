@@ -134,7 +134,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
  * defaults; the bottom row is a {key} template reproducing the classic banner. */
 #define DEFAULT_PROMPT_BOTTOM \
 	" {model} · {provider} · {api}{effort}{summary}{temp}" \
-	"{tokens}{cache}{cost}{isolation}"
+	"{tokens}{cache}{cost}{isolation}{view}"
 #define DEFAULT_PROMPT_TOP " {location}"
 /* Streaming markdown render cadence / colour / theme defaults. */
 #define DEFAULT_MARKDOWN_MODE "line"	/* oneshot | line | stream */

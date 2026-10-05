@@ -1118,22 +1118,24 @@ properties:
         description: >-
           Set the top row of the interactive prompt. It is a {key} template over the
           session vars (model, provider, api, effort, summary, temp, ctx,
-          tokens, cache, cost, branch, cwd, location, layout, isolation).
+          tokens, cache, cost, branch, cwd, location, layout, isolation, view).
           Empty uses the built-in branch and working-directory row.
           A custom template replaces it. May carry SGR colour escapes. Add
           {isolation} to show the credential isolation here; the default
           bottom row already ends with it.
       prompt_bottom:
         type: string
-        default: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}"
+        default: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}{view}"
         description: >-
           Set the bottom status row of the prompt. It is a {key} template that
           replaces the built-in banner. Empty reproduces
-          "{model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}".
+          "{model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}{view}".
           {branch} is the invocation branch, {cwd} is its working directory,
           and {location} combines both. {layout} is the layout of the page
           in use. {isolation} is " · isolated LEVEL" while credential isolation
-          is on, and empty otherwise; `/status` gives the detail. The default top row shows location;
+          is on, and empty otherwise; `/status` gives the detail. {view} is
+          " · view session" while the session runs in a view
+          (view/isolate_session), and empty otherwise. The default top row shows location;
           the bottom row retains model and usage information.
           {tokens} is the used and maximum context tokens with the percent,
           {cache} is the cached input tokens with the hit percent, and {cost}

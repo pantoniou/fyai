@@ -125,6 +125,13 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref);
 bool fyai_view_isolation_available(struct fyai_ctx *ctx);
 
 /*
+ * The name of the view that the main session runs in (view/isolate_session), or
+ * NULL when it runs in none. A sub-agent and a tool child are not the main
+ * session. The name is static storage.
+ */
+const char *fyai_view_session_name(const struct fyai_ctx *ctx);
+
+/*
  * Restore the project state that a reference recorded, for reset. The project
  * takes the state by the rule of view apply, with the state recorded at the head
  * as the base: a path that changed since is a conflict, nothing is written and the

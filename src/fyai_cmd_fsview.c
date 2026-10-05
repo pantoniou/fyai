@@ -3244,6 +3244,13 @@ int fyai_view_runtime_remove(const char *runtime)
 	return rmdir(runtime);
 }
 
+const char *fyai_view_session_name(const struct fyai_ctx *ctx)
+{
+	/* The session starts itself again in the view named session, with FYAI_VIEW set. */
+	return getenv("FYAI_VIEW") && !ctx->cfg->agent_child && !ctx->cfg->tool_child ?
+	       "session" : NULL;
+}
+
 bool fyai_view_isolation_available(struct fyai_ctx *ctx)
 {
 	char *root;
@@ -3896,6 +3903,12 @@ int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	(void)limit;
 	*text = fy_value(gb, "");
 	return 0;
+}
+
+const char *fyai_view_session_name(const struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return NULL;
 }
 
 bool fyai_view_isolation_available(struct fyai_ctx *ctx)

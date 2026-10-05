@@ -275,6 +275,8 @@ display:
   # {isolation} is " · isolated LEVEL" while credential isolation is on and
   # empty otherwise; the default bottom row ends with it, and a template for
   # either row can place it.
+  # {view} is " · view session" while the session runs in a view
+  # (view/isolate_session), and empty otherwise.
   prompt: "  > "
   prompt_top: " {location}"
   # Initial /branches view: tree or gitgraph; g cycles the available views.
@@ -292,7 +294,7 @@ display:
   # Gitgraph label fit: legend moves labels, shrink compresses, clip crops.
   # Tree layout clips long labels for every fit policy.
   diagram_fit: legend
-  prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}"
+  prompt_bottom: " {model} · {provider} · {api}{effort}{summary}{temp}{tokens}{cache}{cost}{isolation}{view}"
   # Work-pane tile arrangement: auto, columns, stack, main-top, or main-left.
   work_layout: auto
   work_columns: 0

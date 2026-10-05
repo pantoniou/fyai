@@ -67,6 +67,7 @@
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
 #include "fyai_turn.h"
+#include "fyai_view.h"
 #include "utils.h"
 
 /*
@@ -1010,6 +1011,7 @@ fy_generic fyai_session_status_data(struct fyai_ctx *ctx,
 		"output_allowance", session_allowance(gb, cfg, out_tokens),
 		"auth", fyai_auth_status_data(ctx, gb, false),
 		"isolation", fy_value(gb, iso),
+		"view", fy_value(gb, fyai_view_session_name(ctx) ? fyai_view_session_name(ctx) : "none"),
 		"usage", fyai_stats_data(ctx, gb));
 }
 
@@ -1240,8 +1242,8 @@ static void session_token_count(char *buf, size_t size, long long tokens)
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_tmpl_var vars[15], top_vars[15];
-	char isolation[64];
+	struct fyai_tmpl_var vars[16], top_vars[16];
+	char isolation[64], view[64];
 	char *coloured[14];
 	const struct fyai_tmpl_var *header_vars;
 	bool colour_ok;
@@ -1384,6 +1386,11 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 			 fyai_transport_effective_level(ctx),
 			 fyai_tclient_alive(ctx->tclient) ? "" : " (down)");
 	vars[14] = (struct fyai_tmpl_var){ "isolation", isolation };
+	/* Empty unless the session itself runs in a view. */
+	view[0] = '\0';
+	if (fyai_view_session_name(ctx))
+		snprintf(view, sizeof(view), " · view %s", fyai_view_session_name(ctx));
+	vars[15] = (struct fyai_tmpl_var){ "view", view };
 	if (fyai_agents_attached(ctx)) {
 		vars[1].val = "agent";
 		vars[2].val = fyai_agents_state(ctx, fyai_agents_attached(ctx));
@@ -1427,6 +1434,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	}
 	top_vars[13] = (struct fyai_tmpl_var){ "layout", coloured[13] };
 	top_vars[14] = vars[14];
+	top_vars[15] = vars[15];
 	header_vars = colour_ok ? top_vars : vars;
 
 	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
