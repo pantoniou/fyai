@@ -5,8 +5,6 @@
 # no agent sees the edit of the other, and the project changes only by a pull.
 set -eu
 [ "$(uname -s)" = Linux ] || exit 77
-# A sub-agent in a view cannot be admitted by the credential transport.
-[ -z "${FYAI_TEST_TRANSPORT:-}" ] || exit 77
 . "$(dirname "$0")/../harness.sh"
 
 FYAI_TMPDIR_BASE="$(dirname "$FYAI_BIN")"
