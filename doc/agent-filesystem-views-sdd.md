@@ -1881,7 +1881,18 @@ the exit status go through the same code as `view enter`. At the end the
 invocation records the result and prints a notice that names the branch and the
 commands to review and apply the result. The view is on that branch, so name
 the branch with `-b` for a later command. A session in a view shares the view
-with its sub-agents; `isolated` does nothing there.
+with its sub-agents; `isolated` does nothing there. With credential isolation the
+supervisor admits the session at the transport when the session enters its view,
+and the session keeps the control connection of the supervisor for the run.
+
+**Moving between lockdown and no isolation.** `/session lockdown` stores
+`view/isolate_session` where a view for the session can be made (the arena in the
+project, the scratch directory outside it, user namespaces available) and restarts
+the session. The view is made from the project as it is at that moment. A change
+that is made to the project later is not in the view; `view update session` takes
+it. `/session yolo` stores the key off, and a session that runs in a view stays in
+it until fyai starts again; its changes are then not applied, and the notice names
+the commands that review and apply them. `/session` shows the state of both.
 
 **Apply.** `view apply [--dry-run] NAME [PATH...]` reconciles each changed path
 with the host by the table of section 10. The host takes the result when it
@@ -1914,12 +1925,18 @@ An application plan and crash recovery (section 10) are not implemented.
 **Limits.** The scratch directory must lie outside the project, because the
 view replaces it with a tmpfs. The capture of the baseline runs before the
 agent starts, and costs what `view create` costs (see view-performance.md).
-A session in a view cannot use credential isolation. A sub-agent in a view can.
-The process that runs the sub-agent is two forks inside a new PID namespace, so
-its PID there is not the PID that the transport sees. Before it runs, it sends a
-pidfd of itself to the supervisor. A pidfd names the process in every namespace,
-and the supervisor passes it to the transport, which reads the PID that it has
-in its own namespace. A nested view is not made.
+A session in a view, and a sub-agent in a view, can use credential isolation. The
+process that runs either is a few forks inside a new PID namespace, so its PID
+there is not the PID that the transport sees. Before it runs, it sends a pidfd of
+itself to the supervisor, which stays outside the view, and waits for the release
+of the supervisor. A pidfd names the process in every namespace. The supervisor
+passes it to the transport, which reads the PID that it has in its own namespace,
+registers it, and the supervisor releases the process with the identity that the
+transport gave it. The session also receives the data channel and the control
+connection of the transport on fixed descriptors. A session in a view admits its
+own sub-agents the same way, by pidfd, so the view keeps its PID namespace. See
+agent-transport-isolation-sdd.md section 3.6 for the timeline. A nested view is
+not made.
 The terminal UI keeps its spool in `$TMPDIR`, which is the one directory that a
 view can write.
 

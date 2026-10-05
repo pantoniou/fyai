@@ -13,6 +13,7 @@ image and is not a transport-protocol message.
 | Process roles and root startup | [3.1](#31-implemented-roles), [3.2](#32-root-startup-timeline) |
 | Channel and descriptor ownership | [3.3](#33-channels-and-descriptor-ownership) |
 | Child and recursive admission | [3.4](#34-direct-sub-agent-admission-timeline), [3.5](#35-recursive-admission-timeline) |
+| Session in a view | [3.6](#36-session-in-a-view-timeline) |
 | Control authority and sender verification | [4.1](#41-control-protocol-and-authority), [4.2](#42-registration-checks-and-per-message-checks) |
 | Current and planned containment | [4.3](#43-implemented-level-b-and-planned-level-a) |
 | Normal requests and tools | [5.3](#53-normal-model-and-tool-loop-timeline) |
@@ -280,8 +281,8 @@ sequenceDiagram
     M->>A: fork<br/>arrange fds<br/>exec fyai agent --tool-child
     A->>A: Open child runtime<br/>wait on job RPC fd 3
     Note over A,T: Child has sockets but sends no model request yet
-    M->>T: control: admit(seq, id=0, parent=1, child PID, UID, grant) + agent fd
-    T->>T: Check parent authority and grant<br/>register child PID and pidfd
+    M->>T: control: admit(seq, id=0, parent=1, UID, grant) + agent fd + pidfd of the child
+    T->>T: Check parent authority and grant<br/>read the PID of the pidfd, register both
     alt Admission succeeds
         T-->>M: control: ok(seq, id=2)
         M->>T: control: ctl(seq, id=2) + child control fd
@@ -363,6 +364,68 @@ still has to name a granted profile; possessing a name does not allow the
 child to redefine its endpoint or credential source. A sub-agent whose stored
 provider has no profile in the root or persona configuration fails when it
 requests that profile.
+
+### 3.6 Session in a view timeline
+
+With `view/isolate_session` the user session runs in a view of the project, in new
+user, mount and PID namespaces, and with the transport it is an agent of its own.
+The supervisor stays outside the view and starts the session there. The session
+cannot be named by a PID: its PID in its namespace is not the one that the
+transport sees. A pidfd names a process in every namespace, and the transport,
+which is in an ancestor namespace, reads the PID that the pidfd has there. So the
+session keeps its PID namespace, and so do its sub-agents.
+
+The descriptors that the session needs are passed to the child by number, and
+every other descriptor is closed before the view is entered: the data channel on
+5, the primary control connection of the supervisor on 6, and the announcement
+socket on 7. The session shares the primary control connection, so it changes the
+profiles and runs commands at the transport, as the user session always did. The
+supervisor does nothing on that connection while the session runs, and it stays
+the owner of the transport: it ends it when the session ends.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Supervisor, outside the view
+    participant V as Session, in the view
+    participant T as Credential transport
+    participant A as Sub-agent of the session
+    S->>S: Capture the project, make the view<br/>create the channel and the announcement socket
+    S->>V: fork<br/>enter user, mount and PID namespaces<br/>pass fds 5, 6, 7
+    V->>S: announcement: pidfd of itself
+    Note over V: waits for the release
+    S->>T: control: admit(parent=1, UID, grant) + agent fd + pidfd
+    T->>T: Read the PID of the pidfd in its own namespace<br/>register it, and keep the pidfd
+    T-->>S: control: ok(id=3)
+    S->>V: release: FYAI_TRANSPORT_EXEC=3
+    V->>V: exec fyai in the view<br/>attach data fd 5 and control fd 6
+    V->>T: agent: REQUEST(exec=3, ...)
+    T-->>V: agent: RESP_START, RESP_BODY, terminal frame
+    V->>A: fork and exec fyai agent --tool-child
+    V->>T: control: admit(parent=3, ...) + agent fd + pidfd_open(child)
+    T->>T: Read the PID of the pidfd in its own namespace
+    T-->>V: control: ok(id=4)
+    V->>A: job RPC: tool/run
+    A->>T: agent: REQUEST(exec=4, ...)
+    V-->>S: session ends: exit status
+    S->>S: Capture the result of the view<br/>print the notice
+    S->>T: control: shutdown<br/>reap the transport
+```
+
+The session sends no request before the release, because the release carries the
+execution ID that every frame names. A session that is not released, or whose
+admission fails, ends, and the supervisor reports why: the end of the
+announcement socket is the signal. A reload of the session executes the program
+again in the same process, so its PID, its pidfd registration and its
+descriptors stay valid, and the transport lives through it as it does for the
+supervisor.
+
+A session in a view with its own PID namespace has no way to switch the
+transport on or off: the transport is started by the first image of the
+invocation and ended by the supervisor. `/session lockdown` from a session that
+runs in a view stores the keys and asks for a restart of fyai; `/session yolo`
+from a session that has the transport stores them and the transport ends when
+fyai starts again, because the key lives only in the transport.
 
 ## 4. Admission, authority, and containment
 
@@ -868,17 +931,23 @@ token to the public Responses endpoint. The bootstrap names the source and
 asks the transport with `probe`; no image of the run reads the store. A model
 that the login cannot serve returns to the provider's own credential source.
 
-`/session lockdown` and `/session yolo` set the isolation keys as a group. `/session lockdown` stores
-`agent/transport_isolation: auto` and `agent/isolation: view`, and sets the
-sandbox, with no network egress when the kernel can restrict it, for the
-session. It turns `view/isolate_session` off, because the transport cannot
-serve a session in a view, and it first checks that the transport can run: the
-host, the credential, and the endpoint. Both commands refuse while a shell or a
-sub-agent is live and change nothing in that case. `/session lockdown` restarts the
-session as `/reload` does, because the bootstrap holds the key that the transport
-needs. `/session yolo` does not restart a session that has the transport: the transport
+`/session lockdown` and `/session yolo` set the isolation keys as a group, and
+`/session` shows the state. `lockdown` stores `agent/transport_isolation: auto`,
+sets the sandbox, with no network egress when the kernel can restrict it, for
+the session, and stores `view/isolate_session: true` where a view for the session
+can be made. It first checks that the transport can run: the host, the
+credential, and the endpoint. A session in a view has the transport (section
+3.6). Sub-agents then share the view of the session. `agent/isolation`, which
+gives each sub-agent a view of its own, is not touched by either command: it stays
+as the user set it. Both commands refuse
+while a shell or a sub-agent is live and change nothing in that case.
+`lockdown` restarts the session as `/reload` does, because the bootstrap holds
+the key that the transport needs, and the restart starts the transport and the
+view. `yolo` does not restart a session that has the transport: the transport
 holds the only copy of the key, and the next image would start with none. The
-keys are stored, and the transport ends when fyai starts again with the key.
+keys are stored, and the transport and the view end when fyai starts again with
+the key. A session that runs in a view cannot start the transport itself, so
+`lockdown` there stores the keys and asks for a restart of fyai.
 
 The main process is the only writer of the profile set. Before a model
 request, `fyai_transport_ensure()` checks the configuration generation and
