@@ -1771,9 +1771,9 @@ the parent cancels is still captured, from what its upper holds. Two views that
 change one path are not a conflict until the second is applied.
 
 **The `project_view` tool.** The parent model reads a view back with the
-`project_view` tool: `list` gives the sub-agents that left a view, `changes`
-gives the changed paths with their status, and `apply` (with `paths` and
-`dry_run`) writes the result to the project. The tool and the `view apply`
+`project_view` tool: `changes` gives the changed paths with their status, and
+`apply` (with `paths` and `dry_run`) writes the result to the project. The `list`
+tool names the sub-agents and the views that the caller has. The tool and the `view apply`
 command use one function, so the outcome is the same. A conflict is part of the
 result, not a failure of the call. The tool runs in the parent process, where
 the arena is readable, and it is not given to a sub-agent that the supervisor did

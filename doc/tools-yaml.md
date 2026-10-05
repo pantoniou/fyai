@@ -49,8 +49,8 @@ The document is a sequence of tools in wire shape:
 Use these rules:
 
 - Keep the tool order: `read_file`, `write_file`, `apply_patch`, `exec_command`,
-  `shell_input`, `shell_output`, `shell_close`, `ask_user`, `agent`, `time`,
-  `wait`.
+  `shell_input`, `shell_output`, `shell_close`, `ask_user`, `agent`, `list`,
+  `time`, `wait`.
 - Write each description as a literal block scalar (`|-`) on one line. The
   provider receives the parsed text without a change.
 - Give each parameter object `type: object`, `properties`, `required`, and

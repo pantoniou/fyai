@@ -685,6 +685,15 @@ sub-agent that ended is not typed into. Call `agent` with its name instead.
 `shell/input_poll_ms` sets how often the parent asks the state of a program.
 The value 0 stops the question.
 
+### Listing what the model owns
+
+`list` gives the model the objects that it can name in another call: `agents`
+(the sub-agents it started, running or ended), `views` (the views that isolated
+sub-agents left), `shells` (its open terminal sessions) and `waits` (its pending
+named waits). A row has the name that the model gave the object. The tool lists
+only what the calling agent owns: your views and branches, and the objects of
+other agents, are not rows. Branches are not a kind.
+
 ### Telling the time, and waiting
 
 The system instructions are frozen when a conversation starts, so they cannot
