@@ -37,7 +37,7 @@ assert not run(binary, 'view', 'diff', 'after').stdout
 run(binary, 'view', 'enter', 'after', 'sh', '-c',
     "printf 'after\\n' > text; printf '\\000binary changed\\377' > binary; "
     "rm deleted link kind; ln -s binary link; mkdir kind; printf child > kind/child; "
-    "printf addition > added; chmod 755 exec; touch -m -d @123 metadata; "
+    "printf addition > added; printf 'one-tab\\ttwo-tabs\\tthree-tabs\\n' > tabs; chmod 755 exec; touch -m -d @123 metadata; "
     "printf changed > .git/private")
 run(binary, 'view', 'enter', '--verify', 'after', 'true')
 result = json.loads(run(binary, 'view', 'diff', '--stat', 'after', '--output', 'json').stdout)
@@ -100,6 +100,13 @@ for unified in (False, True):
     rows = [line for line in data.splitlines()
             if b'+after' in re.sub(rb'\x1b\[[0-9;]*m', b'', line)]
     assert len(rows) == 1 and b'\x1b[' in rows[0], data[-500:]
+    plain = re.sub(rb'\x1b\[[0-9;]*m', b'', data)
+    # The view expands a tab, as it cannot size a row that holds one; the unified rows keep the patch.
+    if unified:
+        assert b'+one-tab\ttwo-tabs\tthree-tabs' in plain, data[-500:]
+    else:
+        assert b'\t' not in data, data[-500:]
+        assert b'+one-tab two-tabs        three-tabs' in plain, data[-500:]
     assert (b'[48;2;' in rows[0]) != unified, rows[0]
 
 stat = run(binary, 'view', 'diff', '--stat', 'after').stdout
