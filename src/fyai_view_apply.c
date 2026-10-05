@@ -619,6 +619,16 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 		    const char *const *paths, size_t path_count, bool dry_run, fy_generic *rows,
 		    struct fyai_apply_summary *summary)
 {
+	return fyai_view_apply_filtered(gb, project_fd, objects_fd, baseline, result, paths,
+					path_count, dry_run, NULL, NULL, rows, summary);
+}
+
+int fyai_view_apply_filtered(struct fy_generic_builder *gb, int project_fd, int objects_fd,
+			     const struct fyai_manifest *baseline, const struct fyai_manifest *result,
+			     const char *const *paths, size_t path_count, bool dry_run,
+			     fyai_apply_skip_fn skip, void *skip_arg, fy_generic *rows,
+			     struct fyai_apply_summary *summary)
+{
 	struct fy_blake3_hasher_cfg cfg = { 0 };
 	struct apply apply = { .gb = gb,
 			       .project = project_fd,
@@ -632,6 +642,7 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 	const char *path, *hex, *status;
 	size_t count, i, used = 0, removals = 0, *removal = NULL;
 	int rc = -1, saved, done;
+	bool is_dir;
 
 	memset(summary, 0, sizeof(*summary));
 	apply.rows = fy_sequence(gb);
@@ -669,6 +680,10 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 						     strlen(path), &c->before, NULL);
 		c->has_after = fyai_manifest_lookup(result, (const unsigned char *)path,
 						    strlen(path), &c->after, NULL);
+		is_dir = (c->has_after ? c->after.kind : c->before.kind) == FYAI_PROJECT_DIRECTORY ||
+			 (c->has_before && c->before.kind == FYAI_PROJECT_DIRECTORY);
+		if (skip && skip(skip_arg, path, is_dir))
+			used--;
 	}
 	changes_pair(list, used);
 	for (i = 0; i < used; i++) {

@@ -38,4 +38,19 @@ int fyai_view_apply(struct fy_generic_builder *gb, int project_fd, int objects_f
 		    const char *const *paths, size_t path_count, bool dry_run,
 		    fy_generic *rows, struct fyai_apply_summary *summary);
 
+/*
+ * A test that leaves a path out of the apply: true for a path that is not to be
+ * written, as when the project ignores it. The path is that of a change, and is_dir
+ * says whether it is a directory on either side. A path that is left out is not
+ * reported and does not count as a conflict or as skipped.
+ */
+typedef bool (*fyai_apply_skip_fn)(void *arg, const char *path, bool is_dir);
+
+/* fyai_view_apply() with a test for the paths that it leaves out; NULL leaves out none. */
+int fyai_view_apply_filtered(struct fy_generic_builder *gb, int project_fd, int objects_fd,
+			     const struct fyai_manifest *baseline, const struct fyai_manifest *result,
+			     const char *const *paths, size_t path_count, bool dry_run,
+			     fyai_apply_skip_fn skip, void *skip_arg, fy_generic *rows,
+			     struct fyai_apply_summary *summary);
+
 #endif

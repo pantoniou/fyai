@@ -1023,6 +1023,55 @@ static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct vie
 	return view_state_find(ctx, spec, state, false);
 }
 
+/*
+ * The paths that the project ignores are kept out of what faces the user and the
+ * project: a diff, a list of changes and an apply. A view holds the whole project,
+ * build artifacts included, because the agent that works in it needs them; the
+ * rules apply when its changes are shown or written back. They are the rules of
+ * view/ignore, then the .gitignore files of the project on disk, as git reads them.
+ * NULL when no rule applies or the project cannot be read.
+ */
+static struct fyai_ignore_tree *view_ignore_tree(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+						 const char *project, struct fyai_ignore_spec *spec)
+{
+	struct fyai_ignore_tree *tree;
+	int root;
+
+	if (fy_str_empty(project))
+		return NULL;
+	fyai_ignore_spec_load(spec, fyai_ignore_record(gb, ctx->cfg->config_doc));
+	root = open(project, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (root < 0)
+		return NULL;
+	tree = fyai_ignore_tree_open(spec, root);
+	close(root);
+	return tree;
+}
+
+static bool view_ignore_skip(void *arg, const char *path, bool is_dir)
+{
+	return fyai_ignore_tree_match(arg, path, is_dir);
+}
+
+/* The rows of a list of changes that the project does not ignore. */
+static fy_generic view_changes_visible(struct fy_generic_builder *gb, struct fyai_ignore_tree *tree,
+				       fy_generic changes)
+{
+	fy_generic kept, row;
+	bool is_dir;
+
+	if (!tree)
+		return changes;
+	kept = fy_sequence(gb);
+	fy_foreach(row, changes) {
+		is_dir = fy_equal(fy_get(fy_get(row, "before", fy_invalid), "kind", ""), "directory") ||
+			 fy_equal(fy_get(fy_get(row, "after", fy_invalid), "kind", ""), "directory");
+		if (!fyai_ignore_tree_match(tree, fy_get(row, "path", ""), is_dir))
+			kept = fy_append(gb, kept, row);
+	}
+	return kept;
+}
+
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");
@@ -1030,6 +1079,8 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	struct response_buffer listing = { 0 };
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
 	struct view_state left = { 0 }, right = { 0 };
+	struct fyai_ignore_spec ignore;
+	struct fyai_ignore_tree *tree;
 	fy_generic snapshots[2], changes, row, patch, before, after, note;
 	const char *objects;
 	const char *stores[2], *path, *error_path = "";
@@ -1058,6 +1109,11 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	changes = fyai_manifest_diff(call->gb, &manifests[0], &manifests[1]);
 	if (!fy_is_sequence(changes))
 		goto out;
+	/* What the project ignores is not a change that the user is asked about. */
+	tree = view_ignore_tree(call->ctx, call->gb, *right.project ? right.project : left.project,
+				&ignore);
+	changes = view_changes_visible(call->gb, tree, changes);
+	fyai_ignore_tree_close(tree);
 	*result = fy_mapping(call->gb, "changes", changes);
 	if (!fy_len(changes)) {
 		*result = call->format == FYAI_CMD_OUT_MARKDOWN ?
@@ -1186,6 +1242,8 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 	struct view_state target = { 0 }, from = { 0 };
 	struct fyai_apply_summary summary;
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
+	struct fyai_ignore_spec ignore;
+	struct fyai_ignore_tree *tree = NULL;
 	fy_generic rows;
 	const char *objects;
 	int root = -1, cas = -1, rc = -1, saved;
@@ -1208,11 +1266,12 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 	if (fyai_fsview_manifest_open(from.storage, from.reference, &manifests[0]) ||
 	    fyai_fsview_manifest_open(target.storage, target.reference, &manifests[1]))
 		goto out;
+	tree = view_ignore_tree(ctx, gb, target.project, &ignore);
 	if (mode == FYAI_VIEW_PULL_CHANGES) {
 		rows = fyai_manifest_diff(gb, &manifests[0], &manifests[1]);
 		if (!fy_is_sequence(rows))
 			goto out;
-		*result = fy_mapping(gb, "changes", rows);
+		*result = fy_mapping(gb, "changes", view_changes_visible(gb, tree, rows));
 		rc = 0;
 		goto out;
 	}
@@ -1225,8 +1284,9 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 	cas = open(objects, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (root < 0 || cas < 0)
 		goto out;
-	rc = fyai_view_apply(gb, root, cas, &manifests[0], &manifests[1], paths, count,
-			     mode == FYAI_VIEW_PULL_DRY_RUN, &rows, &summary);
+	rc = fyai_view_apply_filtered(gb, root, cas, &manifests[0], &manifests[1], paths, count,
+				      mode == FYAI_VIEW_PULL_DRY_RUN, tree ? view_ignore_skip : NULL, tree,
+				      &rows, &summary);
 	if (rc)
 		goto out;
 	*result = fy_mapping(gb, "applied", (long long)summary.applied, "satisfied",
@@ -1238,6 +1298,7 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 		view_applied_record(ctx, name, &target, &summary);
 out:
 	saved = errno;
+	fyai_ignore_tree_close(tree);
 	if (root >= 0)
 		close(root);
 	if (cas >= 0)
@@ -2132,6 +2193,8 @@ static char *view_run_summary(struct fyai_ctx *ctx, const struct fyai_view_run *
 	struct fy_generic_builder_cfg builder_cfg = { 0 };
 	struct fy_generic_builder *gb = NULL;
 	struct fyai_manifest manifests[2] = { 0 };
+	struct fyai_ignore_spec ignore;
+	struct fyai_ignore_tree *tree;
 	fy_generic changes, row;
 	FILE *text;
 	const char *path;
@@ -2146,6 +2209,10 @@ static char *view_run_summary(struct fyai_ctx *ctx, const struct fyai_view_run *
 	changes = fyai_manifest_diff(gb, &manifests[0], &manifests[1]);
 	if (!fy_is_sequence(changes))
 		goto out;
+	/* The summary faces the user and the agent that started the run, as the diff does. */
+	tree = view_ignore_tree(ctx, gb, run->spec.project, &ignore);
+	changes = view_changes_visible(gb, tree, changes);
+	fyai_ignore_tree_close(tree);
 	fy_foreach(row, changes)
 		count += strcmp(fy_get(row, "path", ""), ".") != 0;
 	if (!count) {
@@ -2426,6 +2493,7 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 						  .data_fd = -1,
 						  .borrow_git = true,
 						  .defer_sync = true };
+	struct fyai_ignore_spec ignore;
 	struct fyai_manifest manifest = { 0 };
 	char manifest_name[FYAI_MANIFEST_NAME_SIZE], error[PATH_MAX] = "";
 	char *root, *storage = NULL, *objects = NULL, *views = NULL;
@@ -2435,6 +2503,8 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 	int rc = -1, saved, gc_lock = -1;
 
 	*ref = fy_invalid;
+	fyai_ignore_spec_load(&ignore, fyai_ignore_record(ctx->gb, ctx->cfg->config_doc));
+	opts.ignore = &ignore;
 	root = project_state_root(ctx);
 	if (!root)
 		return 0;

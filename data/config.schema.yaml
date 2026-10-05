@@ -40,6 +40,29 @@ properties:
           that point: `view diff` takes it, and `reset` restores it. Each entry
           costs a scan of the project, and a state that did not change is
           shared with the entry before it. Linux only.
+      ignore:
+        type: array
+        items:
+          type: string
+        default: []
+        description: >-
+          List the paths that the user and the project do not see of a view. A
+          view holds the whole project, build artifacts included, because the
+          agent that works in it needs them; an ignored path is left out of
+          its diff, its list of changes and its apply, and of the state that
+          view/track_project and view/tool_diff record. Each entry is a line of
+          a gitignore file: a trailing slash selects directories, a slash in
+          the pattern anchors it to the project root, ! negates, and ** matches
+          any number of directories. These rules outrank the .gitignore files.
+      gitignore:
+        type: boolean
+        default: true
+        description: >-
+          Apply the .gitignore files of the project, and its .git/info/exclude,
+          as view/ignore does, as `git status` leaves out what they name. The
+          rules of view/ignore are applied first. The files are read from the
+          project when a diff or an apply needs them. The global Git ignore file
+          is not read. The .git directory is never ignored.
       isolate_session:
         type: boolean
         default: false

@@ -4,6 +4,7 @@
 
 #include <sys/types.h>
 #include "fyai_cas.h"
+#include "fyai_ignore.h"
 #include "fyai_manifest.h"
 #include "fyai_project.h"
 
@@ -55,6 +56,13 @@ struct fyai_project_capture_opts {
 	 */
 	const struct fyai_manifest *baseline_manifest;
 	fy_generic snapshot;
+	/*
+	 * What the scan leaves out, besides the reserved directories: the paths that the
+	 * rules ignore, in the project and in a view that continues it. NULL ignores
+	 * nothing. Only the paths that a rule ignores are changed: the capture of a
+	 * result must use what the capture of its baseline used.
+	 */
+	const struct fyai_ignore_spec *ignore;
 	int source_fd;
 	int objects_fd;
 	int baseline_fd; /* -1 records manifests without materializing files. */

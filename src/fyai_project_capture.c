@@ -65,6 +65,8 @@ struct capture_node {
 	struct stat before;
 	struct stat metadata;
 	/* The entry holds the identity of the object in binary. */
+	/* The ignore rules in force for the children: those of the parent, then its own file. */
+	const struct fyai_ignore_scope *ignore;
 	struct fyai_project_entry entry;
 	struct fyai_cas_blob blob;
 	size_t *children;
@@ -77,6 +79,9 @@ struct project_capture {
 	/* Nodes, paths and the other temporaries of one capture; released at the end. */
 	struct fyai_scratch scratch;
 	const struct fyai_project_capture_opts *opts;
+	/* The rules of the configuration: they outrank the ignore files of the project. */
+	const struct fyai_ignore_scope *ignore_config;
+	bool gitignore;
 	/* The baseline manifest, or NULL. */
 	const struct fyai_manifest *base;
 	struct fy_blake3_hasher *finish_hasher;
@@ -574,6 +579,8 @@ static int capture_add(struct project_capture *capture, size_t parent, const cha
 	node->path = path;
 	node->before = *st;
 	node->metadata = *st;
+	if (parent != SIZE_MAX)
+		node->ignore = capture->nodes[parent].ignore;
 	if (!capture->opts->incremental && capture->euid) {
 		node->metadata.st_uid = capture->euid;
 		node->metadata.st_gid = capture->egid;
@@ -734,13 +741,39 @@ static int scan_item_add(struct scan_item *item, size_t child)
 	return 0;
 }
 
+/*
+ * Put the ignore file of a directory in force for its children. The root also reads
+ * the exclude file of the repository, which an ignore file outranks.
+ */
+static int capture_ignore_load(struct project_capture *capture, size_t index, int directory)
+{
+	static const char *const names[] = { ".git/info/exclude", ".gitignore" };
+	struct capture_node *node = &capture->nodes[index];
+	struct fyai_ignore_scope *scope;
+	char *text;
+	size_t length, i;
+
+	for (i = *node->path ? 1 : 0; i < 2; i++) {
+		if (fyai_ignore_read(directory, names[i], &text, &length))
+			return -1;
+		if (!text)
+			continue;
+		scope = fyai_ignore_parse(&capture->scratch, node->ignore, node->path, text, length);
+		free(text);
+		if (!scope)
+			return -1;
+		node->ignore = scope;
+	}
+	return 0;
+}
+
 static int capture_scan_dir(struct project_capture *capture, size_t index, unsigned int depth,
 			    struct scan_item *item)
 {
 	struct stat before, after, upper, alternate;
 	struct dirent *dent;
 	DIR *directory = NULL;
-	char link[PATH_MAX];
+	char link[PATH_MAX], child_path[PATH_MAX];
 	const char *path = capture->nodes[index].path;
 	struct fyai_project_entry *base_entries = NULL;
 	const struct fyai_project_entry *base_entry;
@@ -773,6 +806,11 @@ static int capture_scan_dir(struct project_capture *capture, size_t index, unsig
 	rc = capture_xattrs(capture, source);
 	if (rc)
 		goto out;
+	if (capture->gitignore && !capture->nodes[index].git) {
+		rc = capture_ignore_load(capture, index, source);
+		if (rc)
+			goto out;
+	}
 	if (capture->nodes[index].other_root >= 0) {
 		other = capture_open(capture->nodes[index].other_root,
 				     capture->nodes[index].source_path, O_RDONLY | O_DIRECTORY, 0);
@@ -822,6 +860,19 @@ next_directory:
 		rc = fstatat(current, dent->d_name, &before, AT_SYMLINK_NOFOLLOW);
 		if (rc)
 			goto out;
+		/*
+		 * The Git metadata is never ignored. A path that is too long is left to
+		 * capture_add(), which says so.
+		 */
+		if ((capture->gitignore || capture->ignore_config) && !capture->nodes[index].git &&
+		    (depth || strcmp(dent->d_name, ".git")) &&
+		    strlen(path) + strlen(dent->d_name) + 2 < PATH_MAX) {
+			snprintf(child_path, sizeof(child_path), "%s%s%s", path, *path ? "/" : "",
+				 dent->d_name);
+			if (fyai_ignore_match(capture->ignore_config, capture->nodes[index].ignore,
+					      child_path, S_ISDIR(before.st_mode)))
+				continue;
+		}
 		projected = !depth && !strcmp(dent->d_name, ".git") && capture->git_private >= 0;
 		if (projected) {
 			if (!capture_same(&capture->git_before, &before))
@@ -2185,6 +2236,8 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 	struct stat st;
 	cpu_set_t affinity;
 	size_t root, i, worker_count = 0, initialized = 0, files = 0, capacity = 16;
+	size_t count, count_lines = 0;
+	const char **lines, *pattern;
 	int status = -1, rc, saved, cpus, git_check;
 	struct stat git_root, checked_root;
 
@@ -2194,6 +2247,22 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 	rc = fyai_scratch_open(&capture.scratch);
 	if (rc)
 		goto out;
+	if (opts && opts->ignore) {
+		capture.gitignore = opts->ignore->gitignore;
+		count = fy_len(opts->ignore->patterns);
+		if (count) {
+			lines = fyai_scratch_calloc(&capture.scratch, count, sizeof(*lines));
+			if (!lines)
+				goto out;
+			/* The string of a loop variable names the stored item. */
+			fy_foreach(pattern, opts->ignore->patterns)
+				lines[count_lines++] = pattern;
+			capture.ignore_config = fyai_ignore_parse_lines(&capture.scratch, lines,
+									count_lines);
+			if (!capture.ignore_config)
+				goto out;
+		}
+	}
 	atomic_init(&capture.completed, 0);
 	atomic_init(&capture.copy.copied_bytes, 0);
 	atomic_init(&capture.copy.reflinked_bytes, 0);
