@@ -49,6 +49,9 @@ run_fyai view create v project
 assert_status 0
 run_fyai view enter v sh -c 'test -e build/out && test -e a.o && test -e src/b.o && test -e doc/n.tmp && test -e cfg.local'
 assert_status 0
+run_fyai view ls v
+assert_stdout_contains 'build/'
+assert_stdout_contains 'a.o'
 run_fyai view enter v sh -c "$EDIT"
 assert_status 0
 
@@ -77,6 +80,11 @@ paths="$(paths_of v --set view/gitignore=false)"
 for want in build/new z.o doc/q.tmp; do
 	has "$paths" "$want" || fail "$want is not in the changes: $paths"
 done
+
+# A scope narrows the diff as before, and the rules still apply inside it.
+run_fyai view diff --stat v:build
+assert_status 0
+assert_stdout_not_contains 'build/new'
 
 # The apply leaves the ignored paths alone.
 run_fyai --transient --set 'view/ignore=["cfg.local"]' view apply v
