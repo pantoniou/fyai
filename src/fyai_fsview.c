@@ -580,17 +580,16 @@ static int view_cover_protected(const char *protected, const char *backing)
 }
 
 /*
- * Report the host PID of the process that runs tool code. The kernel gives the
- * receiver the PID of the sender in its own namespace, so the supervisor learns
- * the PID that the transport sees. The process waits for the answer: it stays
- * unreaped, so its PID cannot be reused before the supervisor registers it.
+ * Report the process that runs tool code to the supervisor: send a pidfd of
+ * this process. A pidfd names a process in any namespace, so the supervisor and
+ * the transport, which are in an ancestor namespace, take its PID there.
  */
 static int view_announce(int fd)
 {
-	char byte = 0, ack = 0;
+	char byte = 0;
 	union {
 		struct cmsghdr align;
-		char raw[CMSG_SPACE(sizeof(struct ucred))];
+		char raw[CMSG_SPACE(sizeof(int))];
 	} ctl = { 0 };
 	struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
 	struct msghdr mh = {
@@ -598,34 +597,31 @@ static int view_announce(int fd)
 		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
 	};
 	struct cmsghdr *c = CMSG_FIRSTHDR(&mh);
-	struct ucred cred = { .pid = getpid(), .uid = getuid(), .gid = getgid() };
+	int pidfd, saved;
 	ssize_t n;
 
+	pidfd = syscall(SYS_pidfd_open, getpid(), 0);
+	if (pidfd < 0)
+		return -1;
 	c->cmsg_level = SOL_SOCKET;
-	c->cmsg_type = SCM_CREDENTIALS;
-	c->cmsg_len = CMSG_LEN(sizeof(cred));
-	memcpy(CMSG_DATA(c), &cred, sizeof(cred));
+	c->cmsg_type = SCM_RIGHTS;
+	c->cmsg_len = CMSG_LEN(sizeof(int));
+	memcpy(CMSG_DATA(c), &pidfd, sizeof(int));
 	do {
 		n = sendmsg(fd, &mh, MSG_NOSIGNAL);
 	} while (n < 0 && errno == EINTR);
-	if (n != 1)
-		return -1;
-	do {
-		n = read(fd, &ack, 1);
-	} while (n < 0 && errno == EINTR);
-	if (n != 1 || !ack) {
-		errno = n < 0 ? errno : ECONNABORTED;
-		return -1;
-	}
-	return 0;
+	saved = errno;
+	close(pidfd);
+	errno = saved;
+	return n == 1 ? 0 : -1;
 }
 
-int fyai_fsview_init_pid(int fd, pid_t *pid)
+int fyai_fsview_init_pidfd(int fd, int *pidfd)
 {
 	char byte;
 	union {
 		struct cmsghdr align;
-		char raw[CMSG_SPACE(sizeof(struct ucred))];
+		char raw[CMSG_SPACE(sizeof(int))];
 	} ctl = { 0 };
 	struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
 	struct msghdr mh = {
@@ -633,7 +629,6 @@ int fyai_fsview_init_pid(int fd, pid_t *pid)
 		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
 	};
 	struct cmsghdr *c;
-	struct ucred cred;
 	ssize_t n;
 
 	do {
@@ -643,28 +638,12 @@ int fyai_fsview_init_pid(int fd, pid_t *pid)
 		return -1;
 	c = CMSG_FIRSTHDR(&mh);
 	if (n != 1 || (mh.msg_flags & MSG_CTRUNC) || !c || c->cmsg_level != SOL_SOCKET ||
-	    c->cmsg_type != SCM_CREDENTIALS || c->cmsg_len != CMSG_LEN(sizeof(cred))) {
+	    c->cmsg_type != SCM_RIGHTS || c->cmsg_len != CMSG_LEN(sizeof(int))) {
 		errno = n ? EPROTO : ECONNRESET;
 		return -1;
 	}
-	memcpy(&cred, CMSG_DATA(c), sizeof(cred));
-	if (cred.pid <= 0) {
-		/* The sender is outside the namespace of this process. */
-		errno = ESRCH;
-		return -1;
-	}
-	*pid = cred.pid;
+	memcpy(pidfd, CMSG_DATA(c), sizeof(int));
 	return 0;
-}
-
-int fyai_fsview_init_release(int fd)
-{
-	ssize_t n;
-
-	do {
-		n = write(fd, "\1", 1);
-	} while (n < 0 && errno == EINTR);
-	return n == 1 ? 0 : -1;
 }
 
 int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
@@ -1354,17 +1333,10 @@ int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
 	return -1;
 }
 
-int fyai_fsview_init_pid(int fd, pid_t *pid)
+int fyai_fsview_init_pidfd(int fd, int *pidfd)
 {
 	(void)fd;
-	(void)pid;
-	errno = ENOTSUP;
-	return -1;
-}
-
-int fyai_fsview_init_release(int fd)
-{
-	(void)fd;
+	(void)pidfd;
 	errno = ENOTSUP;
 	return -1;
 }

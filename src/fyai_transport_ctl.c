@@ -19,21 +19,24 @@
 
 #define CTL_MAX_FDS 4
 
-static void close_fds(struct msghdr *mh, int *keep_first, int **firstp)
+/*
+ * Take the first descriptors of a datagram into @keep, up to @nkeep of them; a
+ * descriptor with no place is closed. A NULL @keep closes them all.
+ */
+static void take_fds(struct msghdr *mh, int *keep, size_t nkeep)
 {
 	struct cmsghdr *c;
-	size_t n, i;
+	size_t n, i, taken = 0;
 	int *fds;
 
-	*firstp = NULL;
 	for (c = CMSG_FIRSTHDR(mh); c; c = CMSG_NXTHDR(mh, c)) {
 		if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
 			continue;
 		n = (c->cmsg_len - CMSG_LEN(0)) / sizeof(int);
 		fds = (int *)CMSG_DATA(c);
 		for (i = 0; i < n; i++) {
-			if (keep_first && *keep_first < 0) {
-				*keep_first = fds[i];
+			if (keep && taken < nkeep) {
+				keep[taken++] = fds[i];
 				continue;
 			}
 			close(fds[i]);
@@ -41,8 +44,8 @@ static void close_fds(struct msghdr *mh, int *keep_first, int **firstp)
 	}
 }
 
-int fyai_ctl_recv(int sock, struct fy_generic_builder *gb, fy_generic *doc,
-		  int *fdp)
+int fyai_ctl_recv2(int sock, struct fy_generic_builder *gb, fy_generic *doc,
+		   int *fdp, int *fd2p)
 {
 	char buf[FYAI_CTL_MAX + 1];
 	union {
@@ -54,22 +57,24 @@ int fyai_ctl_recv(int sock, struct fy_generic_builder *gb, fy_generic *doc,
 		.msg_iov = &iov, .msg_iovlen = 1,
 		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
 	};
-	int fd = -1, *unused;
+	int fd[2] = { -1, -1 }, i;
 	ssize_t n;
 	fy_generic op;
 
 	n = recvmsg(sock, &mh, MSG_DONTWAIT | MSG_CMSG_CLOEXEC);
 	if (n < 0)
 		return (errno == EAGAIN || errno == EWOULDBLOCK) ? -EAGAIN : -errno;
-	close_fds(&mh, fdp ? &fd : NULL, &unused);
-	/* Where the receive cannot set it, the received descriptor gets it here. */
-	if (fd >= 0)
-		(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+	take_fds(&mh, fdp ? fd : NULL, fd2p ? 2 : 1);
+	/* Where the receive cannot set it, a received descriptor gets it here. */
+	for (i = 0; i < 2; i++)
+		if (fd[i] >= 0)
+			(void)fcntl(fd[i], F_SETFD, FD_CLOEXEC);
 	if (n == 0)
 		return -ECONNRESET;
 	if (mh.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) {
-		if (fd >= 0)
-			close(fd);
+		for (i = 0; i < 2; i++)
+			if (fd[i] >= 0)
+				close(fd[i]);
 		return -EMSGSIZE;
 	}
 
@@ -77,27 +82,36 @@ int fyai_ctl_recv(int sock, struct fy_generic_builder *gb, fy_generic *doc,
 	*doc = parse_json_string_size(gb, buf, n);
 	op = fy_get(*doc, "op", fy_invalid);
 	if (!fy_is_mapping(*doc) || !fy_is_string(op) || fy_empty(op)) {
-		if (fd >= 0)
-			close(fd);
+		for (i = 0; i < 2; i++)
+			if (fd[i] >= 0)
+				close(fd[i]);
 		return -EPROTO;
 	}
 	if (fdp)
-		*fdp = fd;
+		*fdp = fd[0];
+	if (fd2p)
+		*fd2p = fd[1];
 	return 0;
 }
 
-int fyai_ctl_send(int sock, fy_generic doc, int fd, int flags)
+int fyai_ctl_recv(int sock, struct fy_generic_builder *gb, fy_generic *doc,
+		  int *fdp)
+{
+	return fyai_ctl_recv2(sock, gb, doc, fdp, NULL);
+}
+
+int fyai_ctl_send2(int sock, fy_generic doc, int fd, int fd2, int flags)
 {
 	char storage[4 * FYAI_CTL_MAX + FY_GENERIC_BUILDER_LINEAR_IN_PLACE_MIN_SIZE];
 	struct fy_generic_builder *tmp;
 	union {
 		struct cmsghdr align;
-		char raw[CMSG_SPACE(sizeof(int))];
+		char raw[CMSG_SPACE(2 * sizeof(int))];
 	} ctl;
 	struct iovec iov;
 	struct msghdr mh = { .msg_iov = &iov, .msg_iovlen = 1 };
 	const char *json;
-	int rc;
+	int rc, fds[2], nfds = 0;
 	ssize_t n;
 	struct cmsghdr *c;
 
@@ -116,15 +130,25 @@ int fyai_ctl_send(int sock, fy_generic doc, int fd, int flags)
 		rc = -EMSGSIZE;
 		goto out;
 	}
-	if (fd >= 0) {
+	if (fd >= 0)
+		fds[nfds++] = fd;
+	if (fd2 >= 0) {
+		/* The second descriptor has a place only after the first. */
+		if (fd < 0) {
+			rc = -EINVAL;
+			goto out;
+		}
+		fds[nfds++] = fd2;
+	}
+	if (nfds) {
 		memset(&ctl, 0, sizeof(ctl));
 		mh.msg_control = ctl.raw;
-		mh.msg_controllen = sizeof(ctl.raw);
+		mh.msg_controllen = CMSG_SPACE(nfds * sizeof(int));
 		c = CMSG_FIRSTHDR(&mh);
 		c->cmsg_level = SOL_SOCKET;
 		c->cmsg_type = SCM_RIGHTS;
-		c->cmsg_len = CMSG_LEN(sizeof(int));
-		memcpy(CMSG_DATA(c), &fd, sizeof(int));
+		c->cmsg_len = CMSG_LEN(nfds * sizeof(int));
+		memcpy(CMSG_DATA(c), fds, nfds * sizeof(int));
 	}
 	do
 		n = sendmsg(sock, &mh, MSG_NOSIGNAL | flags);
@@ -132,6 +156,11 @@ int fyai_ctl_send(int sock, fy_generic doc, int fd, int flags)
 	rc = n < 0 ? -errno : 0;
 out:
 	return rc;
+}
+
+int fyai_ctl_send(int sock, fy_generic doc, int fd, int flags)
+{
+	return fyai_ctl_send2(sock, doc, fd, -1, flags);
 }
 
 fy_generic fyai_ctl_reply_ok(struct fy_generic_builder *gb, long long seq)

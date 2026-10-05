@@ -647,8 +647,19 @@ static enum fyai_event_action ctl_drain(const struct fyai_event *ev)
  * take the reply. Calls occur only for setup, configuration changes, child
  * admission, explicit status, and credential checks; transfers use the client.
  */
+static int ctx_call2(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		     fy_generic req, int fd, int fd2, fy_generic *reply,
+		     const char **why);
+
 static int ctx_call(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		    fy_generic req, int fd, fy_generic *reply, const char **why)
+{
+	return ctx_call2(ctx, gb, req, fd, -1, reply, why);
+}
+
+static int ctx_call2(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		     fy_generic req, int fd, int fd2, fy_generic *reply,
+		     const char **why)
 {
 	struct pollfd pfd = { .fd = ctx->transport_ctl, .events = POLLIN };
 	fy_generic op, m;
@@ -659,7 +670,7 @@ static int ctx_call(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		*why = "this process has no control connection to the transport";
 		return -ENOTCONN;
 	}
-	rc = fyai_ctl_send(ctx->transport_ctl, req, fd, 0);
+	rc = fyai_ctl_send2(ctx->transport_ctl, req, fd, fd2, 0);
 	if (rc) {
 		*why = "cannot send to the credential transport";
 		return rc;
@@ -856,8 +867,8 @@ err:
 	return -1;
 }
 
-int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int agent_fd,
-			       int ctl_fd, uint64_t *exec_id)
+int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int pidfd,
+			       int agent_fd, int ctl_fd, uint64_t *exec_id)
 {
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fyai_transport_allow allow[8];
@@ -873,13 +884,13 @@ int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int agent_fd,
 		allow[i].profile = ctx->transport_names[i];
 		allow[i].model = NULL;
 	}
-	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "admit",
+	rc = ctx_call2(ctx, gb, fy_mapping(gb, "op", "admit",
 			"seq", ++ctx->transport_seq,
 			"id", 0LL, "parent", (long long)ctx->transport_exec,
 			"pid", (long long)pid, "uid", (long long)getuid(),
 			"grant", fyai_ctl_grant_encode(gb, allow,
 						       ctx->transport_nnames)),
-		       agent_fd, &reply, &why);
+		       agent_fd, pidfd, &reply, &why);
 	fyai_error_check(ctx, !rc, err_gb,
 			 "credential isolation: cannot register the sub-agent: %s", why);
 	*exec_id = fy_get(reply, "id", 0LL);

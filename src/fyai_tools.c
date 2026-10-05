@@ -4558,8 +4558,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 	struct winsize ws = {};
 	int rows = 0, cols = 0;
 	bool tp = exec && ctx->tclient;
-	pid_t pid, init;
-	int rc;
+	pid_t pid;
+	int pidfd, rc;
 
 	memset(job, 0, sizeof(*job));
 	job->ctx = ctx;
@@ -4600,15 +4600,9 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 				 strerror(errno));
 	}
 	if (tp && view) {
-		int on = 1;
-
 		rc = socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, vsync);
 		fyai_error_check(ctx, !rc, err,
 				 "could not create the view announcement channel: %s",
-				 strerror(errno));
-		rc = setsockopt(vsync[0], SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
-		fyai_error_check(ctx, !rc, err,
-				 "could not enable credentials on the view announcement channel: %s",
 				 strerror(errno));
 	}
 	pid = fork();
@@ -4684,24 +4678,24 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		tpa[0] = -1;
 		close(tpc[0]);
 		tpc[0] = -1;
-		init = pid;
+		/*
+		 * A child in a view runs in a PID namespace of its own, which the
+		 * transport cannot name by a PID: it takes the pidfd that the child
+		 * sent.
+		 */
+		pidfd = -1;
 		if (vsync[0] >= 0) {
 			close(vsync[1]);
 			vsync[1] = -1;
-			rc = fyai_fsview_init_pid(vsync[0], &init);
+			rc = fyai_fsview_init_pidfd(vsync[0], &pidfd);
 			fyai_error_check(ctx, !rc, err_kill,
 					 "could not learn the process of the sub-agent in its view: %s",
 					 strerror(errno));
 		}
-		rc = fyai_transport_admit_child(ctx, init, tpa[1], tpc[1],
+		rc = fyai_transport_admit_child(ctx, pid, pidfd, tpa[1], tpc[1],
 						&job->transport_exec);
-		if (!rc && vsync[0] >= 0) {
-			/* The agent runs only after the transport knows it. */
-			rc = fyai_fsview_init_release(vsync[0]);
-			fyai_error_check(ctx, !rc, err_kill,
-					 "could not release the sub-agent in its view: %s",
-					 strerror(errno));
-		}
+		if (pidfd >= 0)
+			close(pidfd);
 		close(tpa[1]);
 		tpa[1] = -1;
 		close(tpc[1]);

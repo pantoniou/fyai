@@ -86,6 +86,8 @@ struct fyai_transport_verb {
 	fy_generic reply_extra;		/* fields merged into the reply, or invalid */
 	bool inited;
 	bool fd_taken;		/* the request kept the descriptor it carried */
+	int fd2;		/* the second descriptor of the request, or -1 */
+	bool fd2_taken;
 	volatile bool done;
 };
 
@@ -898,6 +900,8 @@ static int op_admit(struct fyai_transport_conn *c, struct fy_generic_builder *gb
 	size_t n;
 	int rc;
 
+	int pidfd = v->fd2;
+
 	if (fd < 0)
 		return -EBADF;
 	if (!conn_owns(c, fy_get(m, "parent", 0LL), true)) {
@@ -917,11 +921,18 @@ static int op_admit(struct fyai_transport_conn *c, struct fy_generic_builder *gb
 	/* An admission with no id gets the next one, and the reply says which. */
 	if (id <= 0)
 		id = v->next_id++;
-	rc = fyai_transport_server_admit(v->srv, id, fy_get(m, "parent", 0LL),
-					 (pid_t)fy_get(m, "pid", 0LL),
-					 (uid_t)fy_get(m, "uid", -1LL), fd,
-					 allow, n, &ns);
+	/* A pidfd names the process in any namespace below this one; a PID cannot. */
+	if (pidfd >= 0)
+		rc = fyai_transport_server_admit_pidfd(v->srv, id, fy_get(m, "parent", 0LL),
+						       pidfd, (uid_t)fy_get(m, "uid", -1LL),
+						       fd, allow, n, &ns);
+	else
+		rc = fyai_transport_server_admit(v->srv, id, fy_get(m, "parent", 0LL),
+						 (pid_t)fy_get(m, "pid", 0LL),
+						 (uid_t)fy_get(m, "uid", -1LL), fd,
+						 allow, n, &ns);
 	v->fd_taken = !rc;
+	v->fd2_taken = !rc && pidfd >= 0;
 	v->reply_id = rc ? 0 : id;
 	return rc;
 }
@@ -1106,22 +1117,27 @@ static int verb_message(struct fyai_transport_conn *c)
 	fy_generic m, reply;
 	fy_generic k, val;
 	const char *why;
-	int fd = -1, rc;
+	int fd = -1, fd2 = -1, rc;
 
 	gb = fy_generic_builder_create_in_place(FYGBCF_SCOPE_LEADER, NULL,
 						 storage, sizeof(storage));
 	if (!gb)
 		return -ENOMEM;
-	rc = fyai_ctl_recv(c->fd, gb, &m, &fd);
+	rc = fyai_ctl_recv2(c->fd, gb, &m, &fd, &fd2);
 	if (rc)
 		return rc;
 	v->fd_taken = false;
+	v->fd2 = fd2;
+	v->fd2_taken = false;
 	v->reply_id = 0;
 	v->reply_extra = fy_invalid;
 	rc = verb_dispatch(c, gb, m, fd, &why);
 	/* Only an admitted or attached channel outlives its request. */
 	if (fd >= 0 && !v->fd_taken)
 		close(fd);
+	if (fd2 >= 0 && !v->fd2_taken)
+		close(fd2);
+	v->fd2 = -1;
 	reply = rc ? fyai_ctl_reply_error(gb, fy_get(m, "seq", 0LL), why) :
 		      fyai_ctl_reply_ok(gb, fy_get(m, "seq", 0LL));
 	if (!rc && v->reply_id)

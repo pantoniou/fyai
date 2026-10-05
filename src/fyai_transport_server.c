@@ -1326,12 +1326,11 @@ int fyai_transport_server_add_profiles(struct fyai_transport_server *srv,
 	return fyai_transport_server_set_profiles(srv, &merged);
 }
 
-int fyai_transport_server_admit(struct fyai_transport_server *srv, uint64_t id,
-				uint64_t parent_id, pid_t pid, uid_t uid,
-				int channel,
-				const struct fyai_transport_allow *allow,
-				size_t nallow,
-				const struct fyai_transport_ns_req *ns)
+/* Admit by PID, or by pidfd when @pidfd is not negative. */
+static int server_admit(struct fyai_transport_server *srv, uint64_t id,
+			uint64_t parent_id, pid_t pid, int pidfd, uid_t uid,
+			int channel, const struct fyai_transport_allow *allow,
+			size_t nallow, const struct fyai_transport_ns_req *ns)
 {
 	struct chan *ch;
 	char note[64];
@@ -1340,8 +1339,12 @@ int fyai_transport_server_admit(struct fyai_transport_server *srv, uint64_t id,
 	ch = calloc(1, sizeof(*ch));
 	if (!ch)
 		return -ENOMEM;
-	rc = fyai_transport_register(srv->reg, id, parent_id, pid, uid, channel,
-				     allow, nallow, ns);
+	if (pidfd >= 0)
+		rc = fyai_transport_register_pidfd(srv->reg, id, parent_id, pidfd, uid,
+						   channel, allow, nallow, ns);
+	else
+		rc = fyai_transport_register(srv->reg, id, parent_id, pid, uid, channel,
+					     allow, nallow, ns);
 	if (rc) {
 		free(ch);
 		return rc;
@@ -1363,6 +1366,8 @@ int fyai_transport_server_admit(struct fyai_transport_server *srv, uint64_t id,
 	}
 	ch->next = srv->chans;
 	srv->chans = ch;
+	if (pidfd >= 0)
+		pid = fyai_transport_exec_pid(fyai_transport_find_channel(srv->reg, channel));
 	snprintf(note, sizeof(note), "pid %d", (int)pid);
 	srv_event(srv, id, 0, "admitted", note);
 	return 0;
@@ -1371,6 +1376,26 @@ err_retire:
 	fyai_transport_retire(srv->reg, id);
 	free(ch);
 	return rc;
+}
+
+int fyai_transport_server_admit(struct fyai_transport_server *srv, uint64_t id,
+				uint64_t parent_id, pid_t pid, uid_t uid,
+				int channel,
+				const struct fyai_transport_allow *allow,
+				size_t nallow,
+				const struct fyai_transport_ns_req *ns)
+{
+	return server_admit(srv, id, parent_id, pid, -1, uid, channel, allow, nallow, ns);
+}
+
+int fyai_transport_server_admit_pidfd(struct fyai_transport_server *srv, uint64_t id,
+				      uint64_t parent_id, int pidfd, uid_t uid,
+				      int channel,
+				      const struct fyai_transport_allow *allow,
+				      size_t nallow,
+				      const struct fyai_transport_ns_req *ns)
+{
+	return server_admit(srv, id, parent_id, 0, pidfd, uid, channel, allow, nallow, ns);
 }
 
 int fyai_transport_server_set_grant(struct fyai_transport_server *srv,

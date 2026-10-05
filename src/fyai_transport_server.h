@@ -127,6 +127,17 @@ int fyai_transport_server_admit(struct fyai_transport_server *srv, uint64_t id,
 				const struct fyai_transport_ns_req *ns);
 
 /*
+ * The same for an execution that the caller names by a pidfd. See
+ * fyai_transport_register_pidfd(); the pidfd is owned as the channel is.
+ */
+int fyai_transport_server_admit_pidfd(struct fyai_transport_server *srv, uint64_t id,
+				      uint64_t parent_id, int pidfd, uid_t uid,
+				      int channel,
+				      const struct fyai_transport_allow *allow,
+				      size_t nallow,
+				      const struct fyai_transport_ns_req *ns);
+
+/*
  * Replace the grant of an execution. A request in flight is not affected; the
  * next request is checked against the new grant. See fyai_transport_set_grant().
  */

@@ -554,6 +554,38 @@ static int sender_pidfd_open(pid_t pid)
 	return fd < 0 ? -errno : fd;
 }
 
+/*
+ * The PID that a pidfd names in the PID namespace of this process. A process in
+ * a descendant namespace has a PID here, so the registrar can be in a namespace
+ * of its own. Return 0, -ESRCH when the process has exited or is not visible
+ * here, or -EIO when the descriptor says nothing about a process.
+ */
+static int sender_pidfd_pid(int pidfd, pid_t *pid)
+{
+	char path[64], line[256];
+	FILE *fp;
+	long value = 0;
+	bool found = false;
+
+	snprintf(path, sizeof(path), "/proc/self/fdinfo/%d", pidfd);
+	fp = fopen(path, "re");
+	if (!fp)
+		return -errno;
+	while (fgets(line, sizeof(line), fp)) {
+		if (sscanf(line, "Pid: %ld", &value) == 1) {
+			found = true;
+			break;
+		}
+	}
+	fclose(fp);
+	if (!found)
+		return -EIO;
+	if (value <= 0)
+		return -ESRCH;
+	*pid = (pid_t)value;
+	return 0;
+}
+
 /* Return 0 when the process is alive, -ESRCH when it has exited. */
 static int sender_pidfd_alive(int pidfd)
 {
@@ -634,6 +666,19 @@ int fyai_transport_channel_prepare(int channel)
 static int sender_pidfd_open(pid_t pid)
 {
 	(void)pid;
+	return -ENOSYS;
+}
+
+static int sender_pidfd_pid(int pidfd, pid_t *pid)
+{
+	(void)pidfd;
+	(void)pid;
+	return -ENOSYS;
+}
+
+static int sender_pidfd_alive(int pidfd)
+{
+	(void)pidfd;
 	return -ENOSYS;
 }
 
@@ -905,21 +950,30 @@ uint64_t fyai_transport_exec_id(const struct fyai_transport_exec *exec)
 	return exec->id;
 }
 
+pid_t fyai_transport_exec_pid(const struct fyai_transport_exec *exec)
+{
+	return exec->pid;
+}
+
 int fyai_transport_exec_channel(const struct fyai_transport_exec *exec)
 {
 	return exec->channel;
 }
 
-int fyai_transport_register(struct fyai_transport_registry *reg, uint64_t id,
-			    uint64_t parent_id, pid_t pid, uid_t uid,
-			    int channel, const struct fyai_transport_allow *allow,
-			    size_t nallow, const struct fyai_transport_ns_req *ns)
+/*
+ * Register an execution. On success the registry owns @channel and @pidfd, which
+ * pins the identity of @pid. On failure the caller keeps both.
+ */
+static int register_exec(struct fyai_transport_registry *reg, uint64_t id,
+			 uint64_t parent_id, pid_t pid, int pidfd, uid_t uid,
+			 int channel, const struct fyai_transport_allow *allow,
+			 size_t nallow, const struct fyai_transport_ns_req *ns)
 {
 	struct fyai_transport_exec *e, *o;
 	int k, rc;
 	uint64_t own;
 
-	if (id == 0 || pid <= 0 || channel < 0)
+	if (id == 0 || pid <= 0 || channel < 0 || pidfd < 0)
 		return -EINVAL;
 	if (ns && (ns->mask >> FYAI_NS_COUNT))
 		return -EINVAL;
@@ -941,16 +995,7 @@ int fyai_transport_register(struct fyai_transport_registry *reg, uint64_t id,
 	rc = allow_copy(e, allow, nallow);
 	if (rc)
 		goto err;
-
-	/*
-	 * The supervisor has not reaped the child, so its PID cannot be reused
-	 * before the pidfd exists. The pidfd then pins the identity.
-	 */
-	e->pidfd = sender_pidfd_open(pid);
-	if (e->pidfd < 0) {
-		rc = e->pidfd;
-		goto err;
-	}
+	e->pidfd = pidfd;
 
 	/* A namespace the sender shares with the transport isolates nothing. */
 	for (k = 0; k < FYAI_NS_COUNT; k++) {
@@ -983,10 +1028,54 @@ int fyai_transport_register(struct fyai_transport_registry *reg, uint64_t id,
 	reg->execs = e;
 	return 0;
 err:
-	/* The caller keeps the channel on failure. */
+	/* The caller keeps the channel and the pidfd on failure. */
 	e->channel = -1;
+	e->pidfd = -1;
 	exec_free(e);
 	return rc;
+}
+
+int fyai_transport_register(struct fyai_transport_registry *reg, uint64_t id,
+			    uint64_t parent_id, pid_t pid, uid_t uid,
+			    int channel, const struct fyai_transport_allow *allow,
+			    size_t nallow, const struct fyai_transport_ns_req *ns)
+{
+	int pidfd, rc;
+
+	if (pid <= 0)
+		return -EINVAL;
+	/*
+	 * The supervisor has not reaped the child, so its PID cannot be reused
+	 * before the pidfd exists. The pidfd then pins the identity.
+	 */
+	pidfd = sender_pidfd_open(pid);
+	if (pidfd < 0)
+		return pidfd;
+	rc = register_exec(reg, id, parent_id, pid, pidfd, uid, channel, allow,
+			   nallow, ns);
+	if (rc)
+		close(pidfd);
+	return rc;
+}
+
+int fyai_transport_register_pidfd(struct fyai_transport_registry *reg, uint64_t id,
+				  uint64_t parent_id, int pidfd, uid_t uid,
+				  int channel, const struct fyai_transport_allow *allow,
+				  size_t nallow, const struct fyai_transport_ns_req *ns)
+{
+	pid_t pid = 0;
+	int rc;
+
+	if (pidfd < 0)
+		return -EINVAL;
+	rc = sender_pidfd_pid(pidfd, &pid);
+	if (rc)
+		return rc;
+	rc = sender_pidfd_alive(pidfd);
+	if (rc)
+		return rc;
+	return register_exec(reg, id, parent_id, pid, pidfd, uid, channel, allow,
+			     nallow, ns);
 }
 
 int fyai_transport_retire(struct fyai_transport_registry *reg, uint64_t id)

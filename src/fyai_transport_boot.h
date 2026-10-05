@@ -78,12 +78,13 @@ int fyai_transport_ensure(struct fyai_ctx *ctx);
 /*
  * Register a child process with the transport: give the transport its channel
  * @agent_fd and its control connection @ctl_fd, which stay open in this
- * process for the caller to close. @pid is the child. Store the execution id in
- * @exec_id. The child starts with the grant of this agent and states its own
+ * process for the caller to close. The child is named by @pidfd when it is not
+ * negative, which also names a child in a PID namespace of its own, else by @pid.
+ * Store the execution id in @exec_id. The child starts with the grant of this agent and states its own
  * with fyai_transport_ensure(). Return 0 or -1, with a diagnostic.
  */
-int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int agent_fd,
-			       int ctl_fd, uint64_t *exec_id);
+int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int pidfd,
+			       int agent_fd, int ctl_fd, uint64_t *exec_id);
 
 /*
  * The transport part of the spawn state that a parent sends to an executed

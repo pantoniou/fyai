@@ -273,6 +273,19 @@ int fyai_transport_register(struct fyai_transport_registry *reg, uint64_t id,
 			    size_t nallow, const struct fyai_transport_ns_req *ns);
 
 /*
+ * Admit an execution that the caller names by a pidfd instead of a PID. The PID
+ * is the one that the pidfd has in the namespace of the registry, so the caller
+ * can be in a PID namespace of its own, as long as the registry is in an
+ * ancestor of it. On success the registry owns @channel and @pidfd. On failure
+ * the caller keeps both. Return 0 or a negative errno, and -ESRCH when the
+ * process has exited or the registry cannot see it.
+ */
+int fyai_transport_register_pidfd(struct fyai_transport_registry *reg, uint64_t id,
+				  uint64_t parent_id, int pidfd, uid_t uid,
+				  int channel, const struct fyai_transport_allow *allow,
+				  size_t nallow, const struct fyai_transport_ns_req *ns);
+
+/*
  * Replace the grant of an execution, for example when its agent changes the
  * provider or the model. Return 0, -ENOENT or -EINVAL; the old grant stands on
  * failure.
@@ -303,6 +316,8 @@ bool fyai_transport_registry_exec_info(const struct fyai_transport_registry *reg
 				       uint64_t *parent, pid_t *pid);
 
 uint64_t fyai_transport_exec_id(const struct fyai_transport_exec *exec);
+/* The PID of the execution in the namespace of the registry. */
+pid_t fyai_transport_exec_pid(const struct fyai_transport_exec *exec);
 int fyai_transport_exec_channel(const struct fyai_transport_exec *exec);
 
 /*

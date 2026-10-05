@@ -55,6 +55,20 @@ int fyai_ctl_recv(int sock, struct fy_generic_builder *gb, fy_generic *doc,
  */
 int fyai_ctl_send(int sock, fy_generic doc, int fd, int flags);
 
+/*
+ * The same with up to two descriptors. @fd2p gets the second one, or -1; a
+ * datagram with more than two has the others closed. With @fd2p NULL a second
+ * descriptor is closed, as in fyai_ctl_recv().
+ */
+int fyai_ctl_recv2(int sock, struct fy_generic_builder *gb, fy_generic *doc,
+		   int *fdp, int *fd2p);
+
+/*
+ * Send @doc with up to two descriptors: @fd2 only with a @fd. A descriptor
+ * that is negative is not sent. Return 0 or a negative errno.
+ */
+int fyai_ctl_send2(int sock, fy_generic doc, int fd, int fd2, int flags);
+
 /* Build a request or reply with the given op and sequence number. */
 fy_generic fyai_ctl_reply_ok(struct fy_generic_builder *gb, long long seq);
 fy_generic fyai_ctl_reply_error(struct fy_generic_builder *gb, long long seq,
