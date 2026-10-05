@@ -1576,7 +1576,10 @@ commands:
         title: compare recorded filesystem view snapshots
         description: |
           Compare NAME's baseline and recorded result, or the recorded results
-          of NAME and OTHER. NAME and OTHER can also be a reference such as
+          of NAME and OTHER. Name a view as NAME:PATH to compare only that path
+          and what is beneath it, in the way that `view ls`, `view cp` and
+          `view rm` name a path. The path need not exist on both sides: a file
+          that was added or removed is selected too. NAME and OTHER can also be a reference such as
           HEAD~1 or main@{2}: it stands for the project state that its ref-log
           entry recorded (see view/track_project). A reference alone is compared
           with the head of the branch. Skip .git and .fyai. Show a unified patch, including
@@ -1678,6 +1681,107 @@ commands:
               x-fyai-complete: view
         render:
           message: 'Removed view {name}.'
+      - command: ls
+        title: list the files of a view
+        description: |
+          List what a view holds, from the result that it recorded: nothing is
+          mounted. Name a path as NAME:PATH, in the way that scp names a file of a
+          host. A directory lists its entries by name, in the order of ls, and a
+          file lists itself; NAME, NAME:/ and NAME:. are the root of the view. As
+          ls does, a name that starts with a dot is left out unless --all is given,
+          which also lists . and .. . A path that the view does not have is an
+          error.
+        handler: view_ls
+        examples:
+          - args: view ls session:src
+            text: list the directory src of the view session
+          - args: view ls -a session:/
+            text: list the root of the view session, the names with a dot included
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [paths]
+          properties:
+            all:
+              type: boolean
+              default: false
+              description: list the names that start with a dot, and . and ..
+              x-fyai-short: a
+            paths:
+              type: array
+              minItems: 1
+              items: {type: string}
+              description: the views and paths to list, as NAME or NAME:PATH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME[:PATH]
+        render:
+          table:
+            title: View files
+            empty: no files
+            keys: [view, dir, name, kind, mode, size]
+      - command: rm
+        title: remove files in a view
+        description: |
+          Remove paths, and what they hold, in a view. Name each as NAME:PATH. The
+          view records the result, so `view apply` removes the same paths from the
+          project. The project is not changed. A path that the view does not have
+          is an error, unless --force. The names .git and .fyai are never removed.
+        handler: view_rm
+        examples:
+          - args: view rm session:build session:doc/old.md
+            text: remove a directory and a file of the view session
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [paths]
+          properties:
+            force:
+              type: boolean
+              default: false
+              description: ignore a path that the view does not have
+              x-fyai-short: f
+              x-fyai-long: force
+            paths:
+              type: array
+              minItems: 1
+              items: {type: string}
+              description: the paths to remove, each as NAME:PATH
+              x-fyai-positional: 0
+              x-fyai-meta: NAME:PATH
+      - command: cp
+        title: copy files between the project and a view
+        description: |
+          Copy paths between the project and a view. Name the view side as NAME:PATH,
+          in the way that scp names a file of a host; the other side is a path of the
+          project, whatever the current directory is. The sources are all of the
+          project, or all of one view, and the destination is the other. A directory
+          is copied with what it holds, and a path that exists is replaced. A
+          destination that ends in a slash is a directory that takes the sources by
+          their names; any other destination is the new name of one source. Copying
+          into a view records the result there, and the project is not changed.
+          Copying to the project replaces its files with no check of what they
+          held; `view apply` is the copy that compares them. Regular files,
+          directories and symbolic links are copied, and the names .git and .fyai
+          are not. A path that begins with a view name and a colon, but is a path
+          of the project, is written with a leading ./
+        handler: view_cp
+        examples:
+          - args: view cp src/main.c session:src/
+            text: put the file of the project in the directory src of the view
+          - args: view cp session:src/main.c src/main.c
+            text: replace the file of the project with the one of the view
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [paths]
+          properties:
+            paths:
+              type: array
+              minItems: 2
+              items: {type: string}
+              description: the sources, then the destination
+              x-fyai-positional: 0
+              x-fyai-meta: SOURCE... DESTINATION
       - command: sync
         title: force a filesystem view to persistent storage
         description: |
@@ -3051,6 +3155,40 @@ commands:
           description: the shell
           x-fyai-positional: 0
           x-fyai-meta: SHELL
+
+  - command: __view-fs
+    title: run an operation of `view cp` and `view rm` in a view
+    description: |
+      The helper that `view cp` and `view rm` run in a view, with the project as
+      its directory. `rm` removes the paths, `pack` writes them to its standard
+      output as a stream, and `unpack` writes a stream from its standard input.
+      It is not for a person.
+    surfaces: [cli]
+    handler: view_fs
+    hidden: true
+    flags: [no-storage]
+    arguments:
+      type: object
+      additionalProperties: false
+      required: [op]
+      properties:
+        force:
+          type: boolean
+          default: false
+          description: ignore a path that is absent
+          x-fyai-long: force
+        op:
+          type: string
+          enum: [rm, pack, unpack]
+          description: the operation
+          x-fyai-positional: 0
+          x-fyai-meta: OPERATION
+        paths:
+          type: array
+          items: {type: string}
+          description: the paths of the operation
+          x-fyai-positional: 1
+          x-fyai-meta: PATH
 
   - command: __complete
     title: list the completion candidates of a command line

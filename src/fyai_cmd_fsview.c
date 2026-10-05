@@ -20,7 +20,9 @@
 #include "fyai_view.h"
 
 #ifdef __linux__
+#include <ctype.h>
 #include <dirent.h>
+#include <pthread.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -38,6 +40,7 @@
 #include "fyai_config.h"
 #include "fyai_fsview.h"
 #include "fyai_view_apply.h"
+#include "fyai_view_fs.h"
 #include "fyai_diff.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
@@ -1024,6 +1027,45 @@ static int view_state_resolve(struct fyai_ctx *ctx, const char *spec, struct vie
 }
 
 /*
+ * A path argument that names a view is NAME:PATH, as scp names a host. The name is
+ * the name of a view, or agent/NAME for the view of a sub-agent. An argument with
+ * no valid name before its first colon is a path of the project; "./a:b" keeps a
+ * colon in a project path.
+ */
+static bool view_spec_name_valid(const char *name, size_t length)
+{
+	size_t i, prefix = sizeof(FYAI_VIEW_AGENT_PREFIX) - 1;
+
+	if (length > prefix && !strncmp(name, FYAI_VIEW_AGENT_PREFIX, prefix)) {
+		name += prefix;
+		length -= prefix;
+	}
+	if (!length || !isalnum((unsigned char)name[0]))
+		return false;
+	for (i = 0; i < length; i++)
+		if (!isalnum((unsigned char)name[i]) && name[i] != '_' && name[i] != '.' &&
+		    name[i] != '-')
+			return false;
+	return true;
+}
+
+static bool view_spec_split(const char *arg, char *view, size_t size, const char **path)
+{
+	const char *colon = strchr(arg, ':');
+	size_t length;
+
+	if (!colon)
+		return false;
+	length = (size_t)(colon - arg);
+	if (length >= size || !view_spec_name_valid(arg, length))
+		return false;
+	memcpy(view, arg, length);
+	view[length] = '\0';
+	*path = colon + 1;
+	return true;
+}
+
+/*
  * The paths that the project ignores are kept out of what faces the user and the
  * project: a diff, a list of changes and an apply. A view holds the whole project,
  * build artifacts included, because the agent that works in it needs them; the
@@ -1072,22 +1114,76 @@ static fy_generic view_changes_visible(struct fy_generic_builder *gb, struct fya
 	return kept;
 }
 
+/*
+ * Split NAME[:PATH] into the name of a snapshot and the scope of the path. A name
+ * that is a view takes a scope, in the way that the other commands of a view
+ * address a file; any other argument, such as a reference, is a name with no
+ * scope. The scope is normalized and empty for the whole tree.
+ */
+static int view_scope_split(struct fyai_ctx *ctx, const char *argument, char *name, size_t size,
+			    char *scope, size_t scope_size)
+{
+	const char *tail;
+
+	*scope = '\0';
+	if (!view_spec_split(argument, name, size, &tail)) {
+		if (strlen(argument) >= size) {
+			fyai_error(ctx, "'%s' is too long", argument);
+			return -1;
+		}
+		strcpy(name, argument);
+		return 0;
+	}
+	if (*tail && !fyai_view_fs_path(tail, scope, scope_size)) {
+		fyai_error(ctx, "'%s' is not a path of a view", tail);
+		return -1;
+	}
+	return 0;
+}
+
+/* Whether a changed path is the scope or below it; the empty scope is every path. */
+static bool view_scope_has(const char *scope, const char *path)
+{
+	size_t length = strlen(scope);
+
+	return !length || (!strncmp(path, scope, length) && (!path[length] || path[length] == '/'));
+}
+
 int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 {
-	const char *name = fyai_cmd_arg_str(call, "name");
-	const char *other = fyai_cmd_arg_str(call, "other");
+	const char *given = fyai_cmd_arg_str(call, "name");
+	const char *given_other = fyai_cmd_arg_str(call, "other");
+	const char *name, *other = NULL;
+	char names[2][PATH_MAX], scopes[2][PATH_MAX];
 	struct response_buffer listing = { 0 };
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
 	struct view_state left = { 0 }, right = { 0 };
+	struct fyai_mobject probe;
 	struct fyai_ignore_spec ignore;
 	struct fyai_ignore_tree *tree;
-	fy_generic snapshots[2], changes, row, patch, before, after, note;
+	fy_generic snapshots[2], changes, row, patch, before, after, note, scoped;
 	const char *objects;
 	const char *stores[2], *path, *error_path = "";
 	int cas[2] = { -1, -1 };
 	int rc = -1, saved;
 	size_t i;
 
+	/* One scope narrows both sides; two that differ name two different things. */
+	if (view_scope_split(call->ctx, given, names[0], sizeof(names[0]), scopes[0], sizeof(scopes[0])) ||
+	    (given_other && view_scope_split(call->ctx, given_other, names[1], sizeof(names[1]),
+					     scopes[1], sizeof(scopes[1]))))
+		return -1;
+	if (!given_other)
+		*scopes[1] = '\0';
+	if (*scopes[0] && *scopes[1] && strcmp(scopes[0], scopes[1])) {
+		fyai_error(call->ctx, "view diff: the paths '%s' and '%s' differ; name one", scopes[0],
+			   scopes[1]);
+		return -1;
+	}
+	if (!*scopes[0])
+		strcpy(scopes[0], scopes[1]);
+	name = names[0];
+	other = given_other ? names[1] : NULL;
 	if (view_state_resolve(call->ctx, name, &left) ||
 	    (other && view_state_resolve(call->ctx, other, &right)))
 		return -1;
@@ -1109,6 +1205,26 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	changes = fyai_manifest_diff(call->gb, &manifests[0], &manifests[1]);
 	if (!fy_is_sequence(changes))
 		goto out;
+	/*
+	 * The scope selects changes, not files: a path that one side lacks, because
+	 * it was added or removed, is in the change list and is selected as any other.
+	 */
+	if (*scopes[0]) {
+		scoped = fy_sequence(call->gb);
+		fy_foreach(row, changes)
+			if (view_scope_has(scopes[0], fy_get(row, "path", "")))
+				scoped = fy_append(call->gb, scoped, row);
+		changes = scoped;
+		/* An unchanged path is an empty diff; a path that neither side has is a mistake. */
+		if (!fy_len(changes) && !fyai_manifest_lookup(&manifests[0],
+							      (const unsigned char *)scopes[0],
+							      strlen(scopes[0]), &probe, NULL) &&
+		    !fyai_manifest_lookup(&manifests[1], (const unsigned char *)scopes[0],
+					  strlen(scopes[0]), &probe, NULL)) {
+			fyai_error(call->ctx, "view diff: no path '%s' in either side", scopes[0]);
+			goto out;
+		}
+	}
 	/* What the project ignores is not a change that the user is asked about. */
 	tree = view_ignore_tree(call->ctx, call->gb, *right.project ? right.project : left.project,
 				&ignore);
@@ -1515,10 +1631,10 @@ out:
 }
 
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
-		     bool self, struct shell_command_result *result)
+		     bool self, int in_fd, int out_fd, struct shell_command_result *result)
 {
-	struct fyai_child_spec spec = { .in_fd = -1,
-					.out_fd = -1,
+	struct fyai_child_spec spec = { .in_fd = in_fd,
+					.out_fd = out_fd,
 					.err_fd = -1,
 					.ctty_fd = -1,
 					.status_fd = -1,
@@ -1833,7 +1949,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	fy_foreach(argument, arguments)
 		argv[index++] = (char *)argument;
-	rc = view_exec(call->ctx, &run.spec, argv, false, &output);
+	rc = view_exec(call->ctx, &run.spec, argv, false, -1, -1, &output);
 	if (rc)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
@@ -1871,6 +1987,673 @@ out:
 		fyai_error(call->ctx, "view '%s': cannot complete execution%s%s: %s", name,
 			   *error ? " at " : "", error, strerror(saved));
 	return complete ? 0 : -1;
+}
+
+/*
+ * What a command runs in a view, and what it does around the run. The view is
+ * entered for the command and left when it ends. start runs when the view is
+ * ready, and can give the command its standard input and output; finish runs when
+ * the command has ended, whatever became of it.
+ */
+struct view_job {
+	char *const *argv;
+	bool record;
+	int (*start)(void *arg, const struct fyai_fsview *spec, int *in_fd, int *out_fd);
+	int (*finish)(void *arg);
+	void *arg;
+	int exit_code;
+};
+
+/*
+ * Run a job in the view NAME. The program runs again in the view, as it does for a
+ * session, so a verb of its own does the work with the project as its directory.
+ * With record the result is captured and stored: the view holds what the job
+ * changed, even when the job failed half way.
+ */
+static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job *job)
+{
+	struct fyai_view_run run = { .lock = -1 };
+	struct shell_command_result output = { 0 };
+	fy_generic snapshot, updated;
+	char error[PATH_MAX] = "", startup[FYAI_CHILD_START_TEXT_MAX];
+	const char *why;
+	int rc, finished = 0, saved, in_fd = -1, out_fd = -1;
+	bool complete = false, reported = false;
+
+	if (view_writable(ctx))
+		return -1;
+	if (!fyai_exec_self_available()) {
+		fyai_error(ctx, "view: this system cannot run the program again");
+		return -1;
+	}
+	rc = view_open_run(ctx, name, &run, error, sizeof(error));
+	if (rc == -1) {
+		view_run_release(&run);
+		return -1;
+	}
+	run.started = rc == 0;
+	if (rc)
+		goto out;
+	if (job->start && job->start(job->arg, &run.spec, &in_fd, &out_fd)) {
+		/* Nothing ran in the view, so it is as it was. */
+		run.started = false;
+		reported = true;
+		rc = -1;
+		goto out;
+	}
+	rc = view_exec(ctx, &run.spec, job->argv, true, in_fd, out_fd, &output);
+	saved = errno;
+	if (job->finish)
+		finished = job->finish(job->arg);
+	errno = saved;
+	if (rc)
+		goto out;
+	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
+	if (why) {
+		rc = fyai_fsview_verify(&run.spec, error, sizeof(error));
+		if (!rc || !*error)
+			fyai_error(ctx, "view '%s': %s", name, why);
+		reported = true;
+		rc = -1;
+		goto out;
+	}
+	if (job->record) {
+		snapshot = fyai_fsview_snapshot(ctx->gb, &run.spec, error, sizeof(error));
+		if (!fy_is_valid(snapshot)) {
+			rc = -1;
+			goto out;
+		}
+		updated = fy_assoc(ctx->gb, run.view, "result", snapshot);
+		updated = fy_assoc(ctx->gb, updated, "state", "ready");
+		updated = fy_assoc(ctx->gb, updated, "synchronized", (bool)!run.spec.lazy);
+		rc = view_save(ctx, name, updated);
+		if (rc)
+			goto out;
+	}
+	job->exit_code = output.exit_code;
+	complete = true;
+out:
+	saved = errno;
+	if (run.started && !complete) {
+		updated = fy_assoc(ctx->gb, run.view, "state", "incomplete");
+		view_save(ctx, name, updated);
+	}
+	view_run_release(&run);
+	shell_command_result_cleanup(&output);
+	if (!complete && !reported)
+		fyai_error(ctx, "view '%s': cannot complete execution%s%s: %s", name,
+			   *error ? " at " : "", error, strerror(saved));
+	return complete && !finished ? 0 : -1;
+}
+
+/* The standard output of the helper verb, which another process reads as a stream. */
+static int view_fs_emit_sink(void *arg, const void *data, size_t length)
+{
+	struct fyai_ctx *ctx = arg;
+
+	if (fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, data, length)) {
+		errno = EIO;
+		return -1;
+	}
+	return 0;
+}
+
+static long view_fs_fill_stdin(void *arg, void *data, size_t length)
+{
+	ssize_t n;
+
+	(void)arg;
+	do {
+		n = read(STDIN_FILENO, data, length);
+	} while (n < 0 && errno == EINTR);
+	return n;
+}
+
+/*
+ * The helper that runs in a view: `rm` removes the paths, `pack` writes them to
+ * its standard output as a stream, in pairs of a path and the name that the
+ * stream gives it, and `unpack` writes a stream from its standard input. The
+ * project is its current directory. It is not a command for a person.
+ */
+int fyai_cmd_view_fs(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	const char *op = fyai_cmd_arg_str(call, "op"), *argument, **paths, **names;
+	fy_generic list = fy_get(call->args, "paths", fy_seq_empty);
+	char error[PATH_MAX] = "", clean[PATH_MAX];
+	size_t count = fy_len(list), i = 0;
+	int root, rc = -1, saved;
+
+	*result = fy_invalid;
+	paths = calloc(count + 1, sizeof(*paths));
+	fyai_error_check(ctx, paths, err, "view: could not allocate the path list");
+	fy_foreach(argument, list)
+		paths[i++] = argument;
+	for (i = 0; i < count; i++)
+		if (!fyai_view_fs_path(paths[i], clean, sizeof(clean)) || strcmp(paths[i], clean)) {
+			fyai_error(ctx, "'%s' is not a path of the project", paths[i]);
+			goto out;
+		}
+	root = open(".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	fyai_error_check(ctx, root >= 0, out, "view: cannot open the project: %s", strerror(errno));
+	if (!strcmp(op, "rm")) {
+		rc = fyai_view_fs_remove(root, paths, count, fyai_cmd_arg_bool(call, "force"), error,
+					 sizeof(error));
+	} else if (!strcmp(op, "unpack")) {
+		rc = fyai_view_fs_unpack(root, view_fs_fill_stdin, NULL, error, sizeof(error));
+	} else if (!strcmp(op, "pack") && !(count & 1)) {
+		names = calloc(count / 2 + 1, sizeof(*names));
+		fyai_error_check(ctx, names, close_root, "view: could not allocate the path list");
+		for (i = 0; i < count / 2; i++) {
+			names[i] = paths[2 * i + 1];
+			paths[i] = paths[2 * i];
+		}
+		rc = fyai_view_fs_pack(root, paths, names, count / 2, view_fs_emit_sink, ctx, error,
+				       sizeof(error));
+		free(names);
+	} else {
+		fyai_error(ctx, "view: '%s' is not an operation of the helper", op);
+	}
+	saved = errno;
+	if (rc && *error)
+		fyai_error(ctx, "%s: %s", error, strerror(saved));
+	else if (rc)
+		fyai_error(ctx, "%s failed: %s", op, strerror(saved));
+close_root:
+	close(root);
+out:
+	free(paths);
+	return rc ? -1 : 0;
+err:
+	return -1;
+}
+
+struct view_cp {
+	struct fyai_ctx *ctx;
+	/* The stream goes from the project into the view; else from the view into the project. */
+	bool to_view;
+	const char *const *sources;
+	const char *const *names;
+	size_t count;
+	int project_fd;
+	int pipe_fd[2];
+	pthread_t thread;
+	bool threaded;
+	int rc, error_number;
+	char error[PATH_MAX];
+};
+
+static int view_cp_emit(void *arg, const void *data, size_t length)
+{
+	struct view_cp *cp = arg;
+	const char *p = data;
+	ssize_t n;
+
+	while (length) {
+		n = write(cp->pipe_fd[1], p, length);
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n <= 0)
+			return -1;
+		p += n;
+		length -= (size_t)n;
+	}
+	return 0;
+}
+
+static long view_cp_fill(void *arg, void *data, size_t length)
+{
+	struct view_cp *cp = arg;
+	ssize_t n;
+
+	do {
+		n = read(cp->pipe_fd[0], data, length);
+	} while (n < 0 && errno == EINTR);
+	return n;
+}
+
+/*
+ * The side of the stream that is in this process, on its own thread: the other
+ * side is the helper in the view, and the parent waits for it.
+ */
+static void *view_cp_thread(void *arg)
+{
+	struct view_cp *cp = arg;
+
+	if (cp->to_view) {
+		cp->rc = fyai_view_fs_pack(cp->project_fd, cp->sources, cp->names, cp->count,
+					   view_cp_emit, cp, cp->error, sizeof(cp->error));
+		cp->error_number = errno;
+		/* The end of the stream is the end of the helper's input. */
+		close(cp->pipe_fd[1]);
+		cp->pipe_fd[1] = -1;
+	} else {
+		cp->rc = fyai_view_fs_unpack(cp->project_fd, view_cp_fill, cp, cp->error,
+					     sizeof(cp->error));
+		cp->error_number = errno;
+		close(cp->pipe_fd[0]);
+		cp->pipe_fd[0] = -1;
+	}
+	return NULL;
+}
+
+static int view_cp_start(void *arg, const struct fyai_fsview *spec, int *in_fd, int *out_fd)
+{
+	struct view_cp *cp = arg;
+	int rc;
+
+	cp->project_fd = open(spec->project, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (cp->project_fd < 0) {
+		fyai_error(cp->ctx, "view cp: cannot open the project %s: %s", spec->project,
+			   strerror(errno));
+		return -1;
+	}
+	/* Walk the sources first: a path that is absent fails before the view changes. */
+	if (cp->to_view && fyai_view_fs_pack(cp->project_fd, cp->sources, cp->names, cp->count, NULL,
+					     NULL, cp->error, sizeof(cp->error))) {
+		fyai_error(cp->ctx, "view cp: %s: %s", cp->error, strerror(errno));
+		return -1;
+	}
+	if (pipe2(cp->pipe_fd, O_CLOEXEC)) {
+		fyai_error(cp->ctx, "view cp: cannot make a pipe: %s", strerror(errno));
+		return -1;
+	}
+	rc = pthread_create(&cp->thread, NULL, view_cp_thread, cp);
+	if (rc) {
+		fyai_error(cp->ctx, "view cp: cannot start the copy: %s", strerror(rc));
+		return -1;
+	}
+	cp->threaded = true;
+	if (cp->to_view)
+		*in_fd = cp->pipe_fd[0];
+	else
+		*out_fd = cp->pipe_fd[1];
+	return 0;
+}
+
+static int view_cp_finish(void *arg)
+{
+	struct view_cp *cp = arg;
+
+	/*
+	 * Close the end that the helper used, so that this side sees its end: a writer
+	 * of a helper that ended gets an error and a reader gets the end of the stream.
+	 */
+	if (cp->to_view) {
+		close(cp->pipe_fd[0]);
+		cp->pipe_fd[0] = -1;
+	} else {
+		close(cp->pipe_fd[1]);
+		cp->pipe_fd[1] = -1;
+	}
+	if (cp->threaded)
+		pthread_join(cp->thread, NULL);
+	cp->threaded = false;
+	if (cp->project_fd >= 0)
+		close(cp->project_fd);
+	cp->project_fd = -1;
+	return cp->rc ? -1 : 0;
+}
+
+int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	fy_generic list = fy_get(call->args, "paths", fy_seq_empty);
+	struct view_cp cp = { .ctx = ctx, .project_fd = -1, .pipe_fd = { -1, -1 } };
+	struct view_job job = { .record = true };
+	const char **given = NULL, **argv = NULL, **sources = NULL, **names = NULL, *argument, *path,
+		   *tail;
+	char (*text)[PATH_MAX] = NULL, view[PATH_MAX], other[PATH_MAX], leaf[PATH_MAX];
+	size_t count = fy_len(list), nsrc, i = 0, length;
+	bool named, directory;
+	int rc = -1;
+
+	*result = fy_invalid;
+	if (count < 2) {
+		fyai_error(ctx, "view cp: name a source and a destination");
+		return -1;
+	}
+	nsrc = count - 1;
+	given = calloc(count + 1, sizeof(*given));
+	sources = calloc(nsrc + 1, sizeof(*sources));
+	names = calloc(nsrc + 1, sizeof(*names));
+	argv = calloc(2 * nsrc + 6, sizeof(*argv));
+	text = calloc(2 * nsrc + 1, sizeof(*text));
+	fyai_error_check(ctx, given && sources && names && argv && text, out,
+			 "view cp: could not allocate the path list");
+	fy_foreach(argument, list)
+		given[i++] = argument;
+	/* The side that names a view is the view; the other is the project. */
+	cp.to_view = view_spec_split(given[nsrc], view, sizeof(view), &tail);
+	if (!cp.to_view) {
+		tail = given[nsrc];
+		named = view_spec_split(given[0], view, sizeof(view), &path);
+		if (!named) {
+			fyai_error(ctx, "view cp: name the view as NAME:PATH on one side");
+			goto out;
+		}
+	}
+	for (i = 0; i < nsrc; i++) {
+		named = view_spec_split(given[i], other, sizeof(other), &path);
+		if (named == cp.to_view || (named && strcmp(view, other))) {
+			fyai_error(ctx, "view cp: copy between one view and the project");
+			goto out;
+		}
+		path = named ? path : given[i];
+		if (!fyai_view_fs_path(path, text[i], sizeof(text[i]))) {
+			fyai_error(ctx, "view cp: '%s' is not a path of %s", path,
+				   named ? "a view" : "the project");
+			goto out;
+		}
+		sources[i] = text[i];
+	}
+	/* A destination that ends in a slash, or is the view itself, is a directory. */
+	length = strlen(tail);
+	directory = !length || tail[length - 1] == '/';
+	if (length && !fyai_view_fs_path(tail, leaf, sizeof(leaf))) {
+		fyai_error(ctx, "view cp: '%s' is not a path", tail);
+		goto out;
+	}
+	if (!length)
+		*leaf = '\0';
+	if (!directory && nsrc > 1) {
+		fyai_error(ctx, "view cp: the destination of several paths ends in a slash");
+		goto out;
+	}
+	for (i = 0; i < nsrc; i++) {
+		if (directory) {
+			path = strrchr(sources[i], '/');
+			path = path ? path + 1 : sources[i];
+			if (snprintf(text[nsrc + i], sizeof(text[0]), "%s%s%s", leaf, *leaf ? "/" : "",
+				     path) >= (int)sizeof(text[0]) ||
+			    !fyai_view_fs_path(text[nsrc + i], text[nsrc + i], sizeof(text[0]))) {
+				fyai_error(ctx, "view cp: '%s' cannot be copied there", sources[i]);
+				goto out;
+			}
+		} else {
+			strcpy(text[nsrc + i], leaf);
+		}
+		names[i] = text[nsrc + i];
+	}
+	cp.sources = (const char *const *)sources;
+	cp.names = (const char *const *)names;
+	cp.count = nsrc;
+	job.start = view_cp_start;
+	job.finish = view_cp_finish;
+	job.arg = &cp;
+	i = 0;
+	argv[i++] = "fyai";
+	argv[i++] = "__view-fs";
+	argv[i++] = cp.to_view ? "unpack" : "pack";
+	if (!cp.to_view) {
+		argv[i++] = "--";
+		/* The helper packs from the view: a source and the name that the project gives it. */
+		for (length = 0; length < nsrc; length++) {
+			argv[i++] = sources[length];
+			argv[i++] = names[length];
+		}
+		job.record = false;
+	}
+	job.argv = (char *const *)argv;
+	if (view_run_job(ctx, view, &job)) {
+		/* The side in this process is the cause only when the helper did not fail first. */
+		if (job.exit_code)
+			fyai_error(ctx, "view '%s': the copy failed", view);
+		else if (cp.rc)
+			fyai_error(ctx, "view cp: %s: %s", *cp.error ? cp.error : "the copy",
+				   strerror(cp.error_number));
+		goto out;
+	}
+	if (job.exit_code) {
+		fyai_error(ctx, "view '%s': the copy failed", view);
+		goto out;
+	}
+	rc = 0;
+out:
+	free(given);
+	free(sources);
+	free(names);
+	free(argv);
+	free(text);
+	return rc;
+}
+
+int fyai_cmd_view_rm(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	fy_generic list = fy_get(call->args, "paths", fy_seq_empty);
+	struct view_job job = { .record = true };
+	const char **given = NULL, **argv = NULL, *argument, *path;
+	char (*text)[PATH_MAX] = NULL, view[PATH_MAX], other[PATH_MAX];
+	size_t count = fy_len(list), i = 0, j, n;
+	bool *done = NULL;
+	int rc = -1;
+
+	*result = fy_invalid;
+	given = calloc(count + 1, sizeof(*given));
+	argv = calloc(count + 6, sizeof(*argv));
+	text = calloc(count + 1, sizeof(*text));
+	done = calloc(count + 1, sizeof(*done));
+	fyai_error_check(ctx, given && argv && text && done, out,
+			 "view rm: could not allocate the path list");
+	fy_foreach(argument, list)
+		given[i++] = argument;
+	/* Every path names its view: a path with no view would be one of the project. */
+	for (i = 0; i < count; i++) {
+		if (!view_spec_split(given[i], view, sizeof(view), &path) ||
+		    !fyai_view_fs_path(path, text[i], sizeof(text[i]))) {
+			fyai_error(ctx, "view rm: '%s' is not NAME:PATH of a view", given[i]);
+			goto out;
+		}
+	}
+	for (i = 0; i < count; i++) {
+		if (done[i])
+			continue;
+		view_spec_split(given[i], view, sizeof(view), &path);
+		n = 0;
+		argv[n++] = "fyai";
+		argv[n++] = "__view-fs";
+		argv[n++] = "rm";
+		if (fyai_cmd_arg_bool(call, "force"))
+			argv[n++] = "--force";
+		argv[n++] = "--";
+		/* The paths of one view go in one run. */
+		for (j = i; j < count; j++) {
+			if (done[j] || !view_spec_split(given[j], other, sizeof(other), &path) ||
+			    strcmp(view, other))
+				continue;
+			argv[n++] = text[j];
+			done[j] = true;
+		}
+		memset(&job, 0, sizeof(job));
+		job.record = true;
+		job.argv = (char *const *)argv;
+		if (view_run_job(ctx, view, &job))
+			goto out;
+		if (job.exit_code) {
+			fyai_error(ctx, "view '%s': the paths were not removed", view);
+			goto out;
+		}
+	}
+	rc = 0;
+out:
+	free(given);
+	free(argv);
+	free(text);
+	free(done);
+	return rc;
+}
+
+/* A row of `view ls`: the object that a directory entry names, in its manifest. */
+static fy_generic view_ls_row(struct fy_generic_builder *gb, const char *view, const char *dir,
+			      const char *name, const struct fyai_mobject *object)
+{
+	char mode[16];
+
+	snprintf(mode, sizeof(mode), "%04o", object->meta.mode & 07777);
+	return fy_mapping(gb, "view", fy_value(gb, view),
+			  "dir", fy_value(gb, *dir ? dir : "/"),
+			  "name", fy_value(gb, name),
+			  "kind", object->kind == FYAI_PROJECT_DIRECTORY ? "dir" :
+				  object->kind == FYAI_PROJECT_SYMLINK ? "link" : "file",
+			  "mode", fy_value(gb, mode),
+			  "size", (long long)(object->kind == FYAI_PROJECT_FILE ? object->blob.size :
+					      object->kind == FYAI_PROJECT_SYMLINK ?
+						      object->target_length : 0),
+			  "mtime", object->meta.mtime_sec);
+}
+
+struct view_ls_entry {
+	char name[NAME_MAX + 1];
+	struct fyai_mobject object;
+};
+
+static int view_ls_compare(const void *a, const void *b)
+{
+	return strcmp(((const struct view_ls_entry *)a)->name, ((const struct view_ls_entry *)b)->name);
+}
+
+/*
+ * The path of a view as ls reads it: the root is NAME, NAME:/, NAME:. and the paths
+ * that lead to it. A leading slash is the root of the view, never of the host.
+ */
+static bool view_ls_path(const char *in, char *out, size_t size)
+{
+	while (*in == '/' || !strncmp(in, "./", 2))
+		in += *in == '/' ? 1 : 2;
+	if (!*in || !strcmp(in, "."))
+		return !(*out = '\0') && size;
+	return fyai_view_fs_path(in, out, size);
+}
+
+/* Append a name of a directory with its object, for the sort. */
+static int view_ls_add(struct view_ls_entry **list, size_t *count, size_t *capacity,
+		       const char *name, size_t length, const struct fyai_mobject *object)
+{
+	struct view_ls_entry *grown;
+
+	if (length > NAME_MAX)
+		return 0;
+	if (*count == *capacity) {
+		grown = realloc(*list, (*capacity ? *capacity * 2 : 32) * sizeof(**list));
+		if (!grown)
+			return -1;
+		*list = grown;
+		*capacity = *capacity ? *capacity * 2 : 32;
+	}
+	memcpy((*list)[*count].name, name, length);
+	(*list)[*count].name[length] = '\0';
+	(*list)[*count].object = *object;
+	(*count)++;
+	return 0;
+}
+
+/*
+ * List what a view holds at the paths of its arguments, from the result that it
+ * recorded: nothing is mounted. A directory lists its entries, sorted by name, and a
+ * file is itself. A name that starts with a dot is listed only with --all, which also
+ * lists . and .. as ls does.
+ */
+int fyai_cmd_view_ls(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	fy_generic list = fy_get(call->args, "paths", fy_seq_empty), rows;
+	bool all = fyai_cmd_arg_bool(call, "all");
+	struct fyai_manifest manifest;
+	struct fyai_mobject object, child;
+	struct fyai_mdir directory;
+	struct fyai_project_entry entry;
+	struct view_ls_entry *entries = NULL;
+	struct view_state state;
+	const char *argument, *tail, *slash;
+	char view[PATH_MAX], path[PATH_MAX], parent[PATH_MAX], name[NAME_MAX + 2];
+	size_t count, capacity, i;
+	int rc = -1;
+
+	rows = fy_sequence(call->gb);
+	fy_foreach(argument, list) {
+		memset(&state, 0, sizeof(state));
+		memset(&manifest, 0, sizeof(manifest));
+		count = capacity = 0;
+		/* A name alone is the root of the view. */
+		if (!view_spec_split(argument, view, sizeof(view), &tail)) {
+			if (!view_spec_name_valid(argument, strlen(argument))) {
+				fyai_error(ctx, "view ls: '%s' is not NAME[:PATH] of a view", argument);
+				goto out;
+			}
+			snprintf(view, sizeof(view), "%s", argument);
+			tail = "";
+		}
+		/* The root has the empty path in a manifest. */
+		if (!view_ls_path(tail, path, sizeof(path))) {
+			fyai_error(ctx, "view ls: '%s' is not a path of a view", tail);
+			goto out;
+		}
+		if (view_state_resolve(ctx, view, &state))
+			goto out;
+		if (fyai_fsview_manifest_open(state.storage, state.reference, &manifest))
+			goto out;
+		if (!fyai_manifest_lookup(&manifest, (const unsigned char *)path, strlen(path), &object,
+					  NULL)) {
+			fyai_error(ctx, "view ls: '%s' has no %s", view, *path ? path : "files");
+			goto out;
+		}
+		if (object.kind != FYAI_PROJECT_DIRECTORY) {
+			slash = strrchr(path, '/');
+			snprintf(parent, sizeof(parent), "%.*s", slash ? (int)(slash - path) : 0, path);
+			rows = fy_append(call->gb, rows,
+					 view_ls_row(call->gb, view, parent, slash ? slash + 1 : path, &object));
+			fyai_manifest_close(&manifest);
+			continue;
+		}
+		if (all) {
+			slash = strrchr(path, '/');
+			snprintf(parent, sizeof(parent), "%.*s", slash ? (int)(slash - path) : 0, path);
+			child = object;
+			/* The parent of the root is the root. */
+			if (*path && !fyai_manifest_lookup(&manifest, (const unsigned char *)parent,
+							   strlen(parent), &child, NULL))
+				child = object;
+			if (view_ls_add(&entries, &count, &capacity, ".", 1, &object) ||
+			    view_ls_add(&entries, &count, &capacity, "..", 2, &child)) {
+				fyai_error(ctx, "view ls: out of memory");
+				goto out;
+			}
+		}
+		if (!fyai_mdir_open(&object, &directory)) {
+			while (fyai_mdir_next(&directory, &entry)) {
+				if (!all && entry.name_length && entry.name[0] == '.')
+					continue;
+				if (!fyai_manifest_find(&manifest, entry.digest, &child))
+					continue;
+				if (view_ls_add(&entries, &count, &capacity, (const char *)entry.name,
+						entry.name_length, &child)) {
+					fyai_error(ctx, "view ls: out of memory");
+					goto out;
+				}
+			}
+		}
+		qsort(entries, count, sizeof(*entries), view_ls_compare);
+		for (i = 0; i < count; i++) {
+			snprintf(name, sizeof(name), "%s%s", entries[i].name,
+				 entries[i].object.kind == FYAI_PROJECT_DIRECTORY &&
+				 strcmp(entries[i].name, ".") && strcmp(entries[i].name, "..") ?
+					 "/" : "");
+			rows = fy_append(call->gb, rows,
+					 view_ls_row(call->gb, view, path, name, &entries[i].object));
+		}
+		free(entries);
+		entries = NULL;
+		fyai_manifest_close(&manifest);
+		memset(&manifest, 0, sizeof(manifest));
+	}
+	*result = rows;
+	rc = 0;
+out:
+	free(entries);
+	if (rc)
+		fyai_manifest_close(&manifest);
+	return rc;
 }
 
 static fy_generic view_mount_record(struct fy_generic_builder *gb, const char *path,
@@ -2380,7 +3163,7 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 		fyai_error(ctx, "view: cannot pass the branch to the session: %s", strerror(errno));
 		goto out;
 	}
-	rc = view_exec(ctx, &run->spec, argv, true, &output);
+	rc = view_exec(ctx, &run->spec, argv, true, -1, -1, &output);
 	if (rc) {
 		saved = errno;
 		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
@@ -2739,6 +3522,34 @@ int fyai_cmd_view_mount(struct fyai_cmd_call *call, fy_generic *result)
 }
 
 int fyai_cmd_view_unmount(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_ls(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_rm(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	fyai_error(call->ctx, "view: filesystem views require Linux");
+	return -1;
+}
+
+int fyai_cmd_view_fs(struct fyai_cmd_call *call, fy_generic *result)
 {
 	(void)result;
 	fyai_error(call->ctx, "view: filesystem views require Linux");

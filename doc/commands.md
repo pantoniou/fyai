@@ -1320,7 +1320,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|diff|apply|remove|sync|mount|unmount|enter} ...`
+**Usage:** `fyai view {create|list|show|update|diff|apply|remove|ls|rm|cp|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1338,6 +1338,9 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `diff` | compare recorded filesystem view snapshots |
 | `apply` | apply the changes of a view to the project |
 | `remove` | remove a named filesystem view |
+| `ls` | list the files of a view |
+| `rm` | remove files in a view |
+| `cp` | copy files between the project and a view |
 | `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
 | `unmount` | unmount the recorded inspection view |
@@ -1450,7 +1453,10 @@ compare recorded filesystem view snapshots
 **Usage:** `fyai view diff [-u] [--stat] NAME [OTHER]`
 
 Compare NAME's baseline and recorded result, or the recorded results
-of NAME and OTHER. NAME and OTHER can also be a reference such as
+of NAME and OTHER. Name a view as NAME:PATH to compare only that path
+and what is beneath it, in the way that `view ls`, `view cp` and
+`view rm` name a path. The path need not exist on both sides: a file
+that was added or removed is selected too. NAME and OTHER can also be a reference such as
 HEAD~1 or main@{2}: it stands for the project state that its ref-log
 entry recorded (see view/track_project). A reference alone is compared
 with the head of the branch. Skip .git and .fyai. Show a unified patch, including
@@ -1532,6 +1538,124 @@ Refuse removal while a command is using the view or it is mounted.
 | --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
+
+## fyai view ls
+
+list the files of a view
+
+**Usage:** `fyai view ls [-a] NAME[:PATH]...`
+
+List what a view holds, from the result that it recorded: nothing is
+mounted. Name a path as NAME:PATH, in the way that scp names a file of a
+host. A directory lists its entries by name, in the order of ls, and a
+file lists itself; NAME, NAME:/ and NAME:. are the root of the view. As
+ls does, a name that starts with a dot is left out unless --all is given,
+which also lists . and .. . A path that the view does not have is an
+error.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME[:PATH]` | the views and paths to list, as NAME or NAME:PATH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-a`, `--all` | list the names that start with a dot, and . and ..; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    fyai view ls session:src
+
+list the directory src of the view session
+
+    fyai view ls -a session:/
+
+list the root of the view session, the names with a dot included
+
+
+## fyai view rm
+
+remove files in a view
+
+**Usage:** `fyai view rm [-f] NAME:PATH...`
+
+Remove paths, and what they hold, in a view. Name each as NAME:PATH. The
+view records the result, so `view apply` removes the same paths from the
+project. The project is not changed. A path that the view does not have
+is an error, unless --force. The names .git and .fyai are never removed.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME:PATH` | the paths to remove, each as NAME:PATH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-f`, `--force` | ignore a path that the view does not have; default false |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    fyai view rm session:build session:doc/old.md
+
+remove a directory and a file of the view session
+
+
+## fyai view cp
+
+copy files between the project and a view
+
+**Usage:** `fyai view cp SOURCE... DESTINATION...`
+
+Copy paths between the project and a view. Name the view side as NAME:PATH,
+in the way that scp names a file of a host; the other side is a path of the
+project, whatever the current directory is. The sources are all of the
+project, or all of one view, and the destination is the other. A directory
+is copied with what it holds, and a path that exists is replaced. A
+destination that ends in a slash is a directory that takes the sources by
+their names; any other destination is the new name of one source. Copying
+into a view records the result there, and the project is not changed.
+Copying to the project replaces its files with no check of what they
+held; `view apply` is the copy that compares them. Regular files,
+directories and symbolic links are copied, and the names .git and .fyai
+are not. A path that begins with a view name and a colon, but is a path
+of the project, is written with a leading ./
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `SOURCE... DESTINATION` | the sources, then the destination |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    fyai view cp src/main.c session:src/
+
+put the file of the project in the directory src of the view
+
+    fyai view cp session:src/main.c src/main.c
+
+replace the file of the project with the one of the view
+
 
 ## fyai view sync
 
@@ -3358,7 +3482,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `/view {create|list|show|update|diff|apply|remove|sync|mount|unmount|enter} ...`
+**Usage:** `/view {create|list|show|update|diff|apply|remove|ls|rm|cp|sync|mount|unmount|enter} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -3376,6 +3500,9 @@ The initial Linux implementation materializes an ordinary-file baseline.
 | `diff` | compare recorded filesystem view snapshots |
 | `apply` | apply the changes of a view to the project |
 | `remove` | remove a named filesystem view |
+| `ls` | list the files of a view |
+| `rm` | remove files in a view |
+| `cp` | copy files between the project and a view |
 | `sync` | force a filesystem view to persistent storage |
 | `mount` | mount a view for read-only inspection |
 | `unmount` | unmount the recorded inspection view |
@@ -3484,7 +3611,10 @@ compare recorded filesystem view snapshots
 **Usage:** `/view diff [-u] [--stat] NAME [OTHER]`
 
 Compare NAME's baseline and recorded result, or the recorded results
-of NAME and OTHER. NAME and OTHER can also be a reference such as
+of NAME and OTHER. Name a view as NAME:PATH to compare only that path
+and what is beneath it, in the way that `view ls`, `view cp` and
+`view rm` name a path. The path need not exist on both sides: a file
+that was added or removed is selected too. NAME and OTHER can also be a reference such as
 HEAD~1 or main@{2}: it stands for the project state that its ref-log
 entry recorded (see view/track_project). A reference alone is compared
 with the head of the branch. Skip .git and .fyai. Show a unified patch, including
@@ -3563,6 +3693,121 @@ Refuse removal while a command is using the view or it is mounted.
 | Option | Description |
 | --- | --- |
 | `-h`, `--help` | show this help |
+
+## /view ls
+
+list the files of a view
+
+**Usage:** `/view ls [-a] NAME[:PATH]...`
+
+List what a view holds, from the result that it recorded: nothing is
+mounted. Name a path as NAME:PATH, in the way that scp names a file of a
+host. A directory lists its entries by name, in the order of ls, and a
+file lists itself; NAME, NAME:/ and NAME:. are the root of the view. As
+ls does, a name that starts with a dot is left out unless --all is given,
+which also lists . and .. . A path that the view does not have is an
+error.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME[:PATH]` | the views and paths to list, as NAME or NAME:PATH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-a`, `--all` | list the names that start with a dot, and . and ..; default false |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    /view ls session:src
+
+list the directory src of the view session
+
+    /view ls -a session:/
+
+list the root of the view session, the names with a dot included
+
+
+## /view rm
+
+remove files in a view
+
+**Usage:** `/view rm [-f] NAME:PATH...`
+
+Remove paths, and what they hold, in a view. Name each as NAME:PATH. The
+view records the result, so `view apply` removes the same paths from the
+project. The project is not changed. A path that the view does not have
+is an error, unless --force. The names .git and .fyai are never removed.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `NAME:PATH` | the paths to remove, each as NAME:PATH |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-f`, `--force` | ignore a path that the view does not have; default false |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    /view rm session:build session:doc/old.md
+
+remove a directory and a file of the view session
+
+
+## /view cp
+
+copy files between the project and a view
+
+**Usage:** `/view cp SOURCE... DESTINATION...`
+
+Copy paths between the project and a view. Name the view side as NAME:PATH,
+in the way that scp names a file of a host; the other side is a path of the
+project, whatever the current directory is. The sources are all of the
+project, or all of one view, and the destination is the other. A directory
+is copied with what it holds, and a path that exists is replaced. A
+destination that ends in a slash is a directory that takes the sources by
+their names; any other destination is the new name of one source. Copying
+into a view records the result there, and the project is not changed.
+Copying to the project replaces its files with no check of what they
+held; `view apply` is the copy that compares them. Regular files,
+directories and symbolic links are copied, and the names .git and .fyai
+are not. A path that begins with a view name and a colon, but is a path
+of the project, is written with a leading ./
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `SOURCE... DESTINATION` | the sources, then the destination |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+### Examples
+
+    /view cp src/main.c session:src/
+
+put the file of the project in the directory src of the view
+
+    /view cp session:src/main.c src/main.c
+
+replace the file of the project with the one of the view
+
 
 ## /view sync
 

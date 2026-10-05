@@ -188,6 +188,10 @@ int fyai_cmd_view_update(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_show(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_list(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_ls(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_rm(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_view_fs(struct fyai_cmd_call *call, fy_generic *result);
 
 fyai_cmd_prepare_fn fyai_cmd_prepare(const char *name);
 fyai_cmd_prepare_fn fyai_cmd_early_hook(const char *name);
