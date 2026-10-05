@@ -107,7 +107,7 @@
                   "type": "function",
                   "function": {
                     "name": "project_view",
-                    "arguments": "{\"action\": \"apply\", \"name\": \"agent-worker\"}"
+                    "arguments": "{\"action\": \"apply\", \"name\": \"worker\"}"
                   }
                 }
               ]

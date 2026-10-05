@@ -35,8 +35,8 @@ assert_request 6 'any(m.get("tool_call_id") in ("call_view_alpha", "call_view_be
 
 run_fyai view list
 assert_status 0
-assert_stdout_contains 'agent-alpha'
-assert_stdout_contains 'agent-beta'
+assert_stdout_contains 'agent/alpha'
+assert_stdout_contains 'agent/beta'
 
 mock_stop 7
 pass

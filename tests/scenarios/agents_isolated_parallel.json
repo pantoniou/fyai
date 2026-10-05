@@ -202,7 +202,7 @@
                   "type": "function",
                   "function": {
                     "name": "project_view",
-                    "arguments": "{\"action\": \"apply\", \"name\": \"agent-alpha\"}"
+                    "arguments": "{\"action\": \"apply\", \"name\": \"alpha\"}"
                   }
                 },
                 {
@@ -210,7 +210,7 @@
                   "type": "function",
                   "function": {
                     "name": "project_view",
-                    "arguments": "{\"action\": \"apply\", \"name\": \"agent-beta\"}"
+                    "arguments": "{\"action\": \"apply\", \"name\": \"beta\"}"
                   }
                 }
               ]

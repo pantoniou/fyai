@@ -29,7 +29,7 @@ assert_request 0 'any(t["function"]["name"] == "project_view" for t in r["body"]
 assert_request 1 'not any(t["function"]["name"] == "project_view" for t in r["body"]["tools"])'
 
 # The parent pulled the changes with the project_view tool, and only then.
-assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent-worker'"'"'" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent/worker'"'"'" in m.get("content", "") for m in r["body"]["messages"])'
 assert_request 4 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_view_1" and isinstance(m.get("content"), dict) and m["content"].get("applied") == 2 for m in r["body"]["messages"])'
 [ "$(cat file)" = changed ] || fail 'the tool did not apply the change'
 [ "$(cat added)" = new ] || fail 'the tool did not apply the added file'
@@ -37,16 +37,16 @@ printf baseline > file
 rm added
 
 # The parent is told which view holds the changes, and what they are.
-assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent-worker'"'"'" in m.get("content", "") and "2 paths changed:" in m.get("content", "") for m in r["body"]["messages"])'
+assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent/worker'"'"'" in m.get("content", "") and "2 paths changed:" in m.get("content", "") for m in r["body"]["messages"])'
 
 # The view records the result.
-run_fyai view diff agent-worker --stat
+run_fyai view diff agent/worker --stat
 assert_status 0
 assert_stdout_contains 'file'
 assert_stdout_contains 'added'
 
 # A dry run reports the writes and makes none.
-run_fyai view apply --dry-run agent-worker
+run_fyai view apply --dry-run agent/worker
 assert_status 0
 assert_stdout_contains 'would write'
 [ "$(cat file)" = baseline ] || fail 'a dry run changed the project'
@@ -55,7 +55,7 @@ assert_stdout_contains 'would write'
 # A path that the project changed since the baseline is a conflict, and is
 # left alone. The other paths are applied.
 printf host > file
-run_fyai view apply agent-worker
+run_fyai view apply agent/worker
 assert_status 1
 assert_stdout_contains 'action: conflict'
 [ "$(cat file)" = host ] || fail 'a conflict changed the project'
@@ -64,7 +64,7 @@ rm added
 
 # A selected path applies alone, once the project is at the baseline again.
 printf baseline > file
-run_fyai view apply agent-worker file
+run_fyai view apply agent/worker file
 assert_status 0
 [ "$(cat file)" = changed ] || fail 'the selected path was not applied'
 [ ! -e added ] || fail 'an unselected path was applied'
