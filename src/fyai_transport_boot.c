@@ -896,11 +896,15 @@ int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int pidfd,
 	*exec_id = fy_get(reply, "id", 0LL);
 	fyai_error_check(ctx, *exec_id, err_gb,
 			 "credential isolation: the transport gave no execution id");
-	rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "ctl",
-			"seq", ++ctx->transport_seq, "id", (long long)*exec_id), ctl_fd, &reply, &why);
-	fyai_error_check(ctx, !rc, err_gb,
-			 "credential isolation: cannot give the sub-agent a control "
-			 "connection: %s", why);
+	/* A child that shares the control connection of this process has no other. */
+	if (ctl_fd >= 0) {
+		rc = ctx_call(ctx, gb, fy_mapping(gb, "op", "ctl",
+				"seq", ++ctx->transport_seq, "id", (long long)*exec_id),
+			      ctl_fd, &reply, &why);
+		fyai_error_check(ctx, !rc, err_gb,
+				 "credential isolation: cannot give the sub-agent a control "
+				 "connection: %s", why);
+	}
 	fy_generic_builder_destroy(gb);
 	return 0;
 err_gb:

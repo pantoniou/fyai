@@ -224,6 +224,8 @@ bool fyai_process_reads_stdin(pid_t pid);
 /* Processes looked at in one such walk, of a program and what it started. */
 #define FYAI_PROC_WALK_MAX 32
 
+#define FYAI_CHILD_PASS_MAX 4
+
 /* Configuration applied to a forked child before exec. */
 struct fyai_child_spec {
 	const struct fyai_fsview *view;
@@ -240,6 +242,16 @@ struct fyai_child_spec {
 	int status_fd;			/* says why a start stopped; -1 none */
 	const char *const *env_keep;	/* credentials to keep; NULL-terminated */
 	bool inherit_env;		/* a trusted runtime keeps its environment */
+	/*
+	 * Descriptors that the child keeps, each under the number in @pass_as.
+	 * Every other descriptor above the status descriptor is closed. A kept
+	 * descriptor is not close-on-exec in the child.
+	 */
+	int pass_fd[FYAI_CHILD_PASS_MAX];
+	int pass_as[FYAI_CHILD_PASS_MAX];
+	size_t pass_n;
+	/* The number in the child of the descriptor that announces the view; 0 none. */
+	int announce_as;
 };
 
 /* Apply @spec before exec, returning the child's failure exit status. */

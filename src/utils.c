@@ -949,6 +949,69 @@ static void fyai_child_exec_prepare_signals(void)
 	(void)sigaction(SIGHUP, &sa, NULL);
 }
 
+/* Close the descriptors from @from to @to, both included. */
+static void close_fds_range(unsigned int from, unsigned int to)
+{
+	long max_fd;
+	unsigned int fd;
+
+#if defined(__linux__) && defined(SYS_close_range)
+	if (!syscall(SYS_close_range, from, to, 0U))
+		return;
+#endif
+	max_fd = sysconf(_SC_OPEN_MAX);
+	if (max_fd < 0)
+		max_fd = 1024;
+	for (fd = from; fd <= to && fd < (unsigned int)max_fd; fd++)
+		close((int)fd);
+}
+
+/*
+ * Close every descriptor from @lowfd on except the ones that the spec passes,
+ * which first take the numbers that the child asks for. A copy goes to a number
+ * above every target first, so that no target overwrites a source that is still
+ * to be copied.
+ */
+static int child_pass_fds(const struct fyai_child_spec *spec, int lowfd)
+{
+	int tmp[FYAI_CHILD_PASS_MAX], keep[FYAI_CHILD_PASS_MAX], top = lowfd, swap;
+	unsigned int next = (unsigned int)lowfd;
+	size_t i, j;
+
+	if (!spec->pass_n) {
+		fyai_close_fds_from(lowfd);
+		return 0;
+	}
+	for (i = 0; i < spec->pass_n; i++) {
+		keep[i] = spec->pass_as[i];
+		if (keep[i] >= top)
+			top = keep[i] + 1;
+	}
+	for (i = 0; i < spec->pass_n; i++) {
+		tmp[i] = fcntl(spec->pass_fd[i], F_DUPFD_CLOEXEC, top);
+		if (tmp[i] < 0)
+			return -1;
+	}
+	for (i = 0; i < spec->pass_n; i++)
+		if (dup2(tmp[i], spec->pass_as[i]) < 0)
+			return -1;
+	/* The numbers in order, so that the ranges between them can be closed. */
+	for (i = 1; i < spec->pass_n; i++)
+		for (j = i; j > 0 && keep[j - 1] > keep[j]; j--) {
+			swap = keep[j];
+			keep[j] = keep[j - 1];
+			keep[j - 1] = swap;
+		}
+	for (i = 0; i < spec->pass_n; i++) {
+		if ((unsigned int)keep[i] > next)
+			close_fds_range(next, (unsigned int)keep[i] - 1);
+		next = (unsigned int)keep[i] + 1;
+	}
+	/* The copies sit above every number kept, and go with the rest. */
+	close_fds_range(next, ~0U);
+	return 0;
+}
+
 int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			    const struct fyai_child_spec *spec)
 {
@@ -996,9 +1059,10 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			goto err_setup;
 		status_fd = 3;
 		(void)fcntl(status_fd, F_SETFD, FD_CLOEXEC);
-		fyai_close_fds_from(4);
-	} else {
-		fyai_close_fds_from(3);
+		if (child_pass_fds(spec, 4))
+			goto err_setup;
+	} else if (child_pass_fds(spec, 3)) {
+		goto err_setup;
 	}
 	/* Fail closed if any provider credential cannot be removed. */
 	stage = FYAI_CHILD_STAGE_ENV;
@@ -1016,7 +1080,8 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		unsetenv("LINES");
 		unsetenv("COLUMNS");
 	}
-	if (spec->view && fyai_fsview_enter(spec->view, status_fd, -1)) {
+	if (spec->view && fyai_fsview_enter(spec->view, status_fd,
+					  spec->announce_as > 0 ? spec->announce_as : -1)) {
 		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_VIEW,
 					 errno);
 		return FYAI_SHELL_EXIT_SANDBOX;

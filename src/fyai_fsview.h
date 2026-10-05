@@ -74,6 +74,8 @@ bool fyai_fsview_project_usable(const char *project, const char *scratch);
 
 /* Probe rootless CAS reads, metadata, and isolated write copy-up. */
 int fyai_fsview_metacopy_check(const char *runtime);
+/* Whether this process may enter the user, mount and PID namespaces of a view. */
+bool fyai_fsview_namespace_usable(void);
 
 /* Read-only inspection mounts persist in the caller's mount namespace. */
 int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
@@ -100,11 +102,12 @@ int fyai_fsview_agent_prepare(const struct fyai_fsview *view);
 
 /*
  * Called only in a prepared tool child. Parent waits for the PID-namespace
- * init. A non-negative @announce_fd is a stream socket. The process that runs
- * tool code sends one byte with a pidfd of itself, then returns. The pidfd names
- * the process in every namespace, so a supervisor in an ancestor namespace, and
- * the credential transport, take its PID there. Every process closes the
- * descriptor.
+ * init. A non-negative @announce_fd is a sequenced-packet socket. The process
+ * that runs tool code sends one byte with a pidfd of itself, then waits for the
+ * release of the supervisor and returns. The pidfd names the process in every
+ * namespace, so a supervisor in an ancestor namespace, and the credential
+ * transport, take its PID there. The release can carry one environment variable.
+ * Every process closes the descriptor.
  */
 int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd);
 
@@ -113,6 +116,12 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announc
  * of the process in @pidfd, which the caller closes.
  */
 int fyai_fsview_init_pidfd(int fd, int *pidfd);
+
+/*
+ * Release the announced process, with one environment variable for it when @name
+ * and @value are given. Not releasing it, and closing @fd, makes it fail.
+ */
+int fyai_fsview_init_release(int fd, const char *name, const char *value);
 
 /* Ingest a frozen upper through a trusted private overlay mount. Result belongs
  * to gb. */

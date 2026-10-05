@@ -485,6 +485,22 @@ int fyai_fsview_metacopy_check(const char *runtime)
 	return 0;
 }
 
+bool fyai_fsview_namespace_usable(void)
+{
+	pid_t child, waited;
+	int status;
+
+	child = fork();
+	if (child < 0)
+		return false;
+	if (!child)
+		_exit(view_namespace(true) ? 1 : 0);
+	do {
+		waited = waitpid(child, &status, 0);
+	} while (waited < 0 && errno == EINTR);
+	return waited == child && WIFEXITED(status) && !WEXITSTATUS(status);
+}
+
 static int view_cover(const char *source, const char *target)
 {
 	int rc;
@@ -582,11 +598,15 @@ static int view_cover_protected(const char *protected, const char *backing)
 /*
  * Report the process that runs tool code to the supervisor: send a pidfd of
  * this process. A pidfd names a process in any namespace, so the supervisor and
- * the transport, which are in an ancestor namespace, take its PID there.
+ * the transport, which are in an ancestor namespace, take its PID there. The
+ * process then waits for the supervisor to release it, and takes the variable
+ * that the release carries into its environment: the supervisor registers the
+ * process first, so it sends nothing before it is known.
  */
 static int view_announce(int fd)
 {
-	char byte = 0;
+	char byte = 0, release[512], *name, *value, *end;
+	ssize_t got;
 	union {
 		struct cmsghdr align;
 		char raw[CMSG_SPACE(sizeof(int))];
@@ -613,7 +633,46 @@ static int view_announce(int fd)
 	saved = errno;
 	close(pidfd);
 	errno = saved;
-	return n == 1 ? 0 : -1;
+	if (n != 1)
+		return -1;
+	do {
+		got = recv(fd, release, sizeof(release) - 1, 0);
+	} while (got < 0 && errno == EINTR);
+	if (got < 1 || release[0] != 1) {
+		errno = got < 0 ? errno : ECONNABORTED;
+		return -1;
+	}
+	release[got] = '\0';
+	end = release + got;
+	for (name = release + 1; name < end; name = value + strlen(value) + 1) {
+		value = name + strlen(name) + 1;
+		if (value >= end || setenv(name, value, 1)) {
+			errno = EPROTO;
+			return -1;
+		}
+	}
+	return 0;
+}
+
+int fyai_fsview_init_release(int fd, const char *name, const char *value)
+{
+	char release[512];
+	size_t n = 1;
+	ssize_t sent;
+
+	release[0] = 1;
+	if (name && value) {
+		if (strlen(name) + strlen(value) + 4 > sizeof(release)) {
+			errno = E2BIG;
+			return -1;
+		}
+		n += (size_t)snprintf(release + n, sizeof(release) - n, "%s", name) + 1;
+		n += (size_t)snprintf(release + n, sizeof(release) - n, "%s", value) + 1;
+	}
+	do {
+		sent = send(fd, release, n, MSG_NOSIGNAL);
+	} while (sent < 0 && errno == EINTR);
+	return sent == (ssize_t)n ? 0 : -1;
 }
 
 int fyai_fsview_init_pidfd(int fd, int *pidfd)
@@ -1299,6 +1358,11 @@ int fyai_fsview_manifest_publish(const char *storage, const struct fyai_manifest
 	return -1;
 }
 
+bool fyai_fsview_namespace_usable(void)
+{
+	return false;
+}
+
 int fyai_fsview_metacopy_check(const char *runtime)
 {
 	(void)runtime;
@@ -1337,6 +1401,15 @@ int fyai_fsview_init_pidfd(int fd, int *pidfd)
 {
 	(void)fd;
 	(void)pidfd;
+	errno = ENOTSUP;
+	return -1;
+}
+
+int fyai_fsview_init_release(int fd, const char *name, const char *value)
+{
+	(void)fd;
+	(void)name;
+	(void)value;
 	errno = ENOTSUP;
 	return -1;
 }

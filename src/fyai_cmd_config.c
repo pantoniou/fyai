@@ -716,7 +716,7 @@ int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 	bool in_view = preset_in_view(ctx);
 	bool net = fyai_sandbox_net_restrictable(-1);
 	bool was_view = preset_view_session(ctx);
-	bool want_view = fyai_view_isolation_available(ctx);
+	bool want_view = fyai_view_session_available(ctx);
 	const char *note = NULL;
 	fy_generic none;
 	int rc;

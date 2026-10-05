@@ -48,6 +48,8 @@
 #include "fyai_storage.h"
 #include "fyai_sink.h"
 #include "fyai_tools.h"
+#include "fyai_transport_boot.h"
+#include "fyai_transport_sock.h"
 
 static fy_generic view_store(struct fyai_ctx *ctx)
 {
@@ -1630,8 +1632,54 @@ out:
 	return rc;
 }
 
+/*
+ * What a session in a view needs to run with the credential transport: its data
+ * channel, which the transport serves, and the descriptor on which it announces
+ * itself. The session shares the primary control connection of the supervisor.
+ */
+struct view_session_transport {
+	int agent_child;	/* the end that the session keeps */
+	int agent_transport;	/* the end that the transport serves */
+	int announce[2];	/* the supervisor end, then the session end */
+};
+
+#define VIEW_SESSION_AGENT_FD 5
+#define VIEW_SESSION_CTL_FD 6
+#define VIEW_SESSION_ANNOUNCE_FD 7
+
+/*
+ * Admit the session that has just entered its view: take its pidfd, give the
+ * transport the channel, and release it with the id of its execution. The
+ * session sends no request before the release. The caller closes the
+ * announcement end, which fails a session that is not released.
+ */
+static int view_session_admit(struct fyai_ctx *ctx, struct view_session_transport *tp)
+{
+	char id[24];
+	uint64_t exec = 0;
+	int pidfd = -1, rc;
+
+	rc = fyai_fsview_init_pidfd(tp->announce[0], &pidfd);
+	if (rc) {
+		fyai_error(ctx, "view: the session did not announce itself: %s", strerror(errno));
+		return -1;
+	}
+	rc = fyai_transport_admit_child(ctx, 0, pidfd, tp->agent_transport, -1, &exec);
+	close(pidfd);
+	if (rc)
+		return -1;
+	snprintf(id, sizeof(id), "%llu", (unsigned long long)exec);
+	rc = fyai_fsview_init_release(tp->announce[0], "FYAI_TRANSPORT_EXEC", id);
+	if (rc) {
+		fyai_error(ctx, "view: cannot release the session: %s", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
-		     bool self, int in_fd, int out_fd, struct shell_command_result *result)
+		     bool self, int in_fd, int out_fd, struct view_session_transport *tp,
+		     struct shell_command_result *result)
 {
 	struct fyai_child_spec spec = { .in_fd = in_fd,
 					.out_fd = out_fd,
@@ -1685,6 +1733,27 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		/* What an agent runtime starts is in the view, and shares it. */
 		if (view->agent && setenv("FYAI_VIEW", "1", 1))
 			_exit(FYAI_SHELL_EXIT_EXEC);
+		if (tp) {
+			close(tp->announce[0]);
+			/*
+			 * The session is an execution of its own: the channel, the
+			 * control connection of the supervisor, and its place in the
+			 * environment. The id comes with the release, once the
+			 * transport has registered the process; it owns nothing.
+			 */
+			spec.pass_fd[0] = tp->agent_child;
+			spec.pass_as[0] = VIEW_SESSION_AGENT_FD;
+			spec.pass_fd[1] = ctx->transport_ctl;
+			spec.pass_as[1] = VIEW_SESSION_CTL_FD;
+			spec.pass_fd[2] = tp->announce[1];
+			spec.pass_as[2] = VIEW_SESSION_ANNOUNCE_FD;
+			spec.pass_n = 3;
+			spec.announce_as = VIEW_SESSION_ANNOUNCE_FD;
+			if (setenv("FYAI_TRANSPORT_FD", "5", 1) ||
+			    setenv("FYAI_TRANSPORT_CTL", "6", 1) ||
+			    setenv("FYAI_TRANSPORT_OWNER", "0", 1))
+				_exit(FYAI_SHELL_EXIT_EXEC);
+		}
 		rc = fyai_child_exec_prepare(ctx, &spec);
 		if (rc)
 			_exit(rc);
@@ -1713,6 +1782,18 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 	}
 	saved = errno;
 	close(gate[1]);
+	if (tp) {
+		/* The session enters its view, then announces itself. */
+		close(tp->announce[1]);
+		tp->announce[1] = -1;
+		if (!rc && view_session_admit(ctx, tp)) {
+			rc = -1;
+			saved = errno;
+		}
+		/* Not released, the session ends: the end of its channel says so. */
+		close(tp->announce[0]);
+		tp->announce[0] = -1;
+	}
 	waited = view_wait_child(ctx, child, &status, &cancelled);
 	if (tty) {
 		sigaction(SIGTTOU, &ignore, &previous);
@@ -1949,7 +2030,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	fy_foreach(argument, arguments)
 		argv[index++] = (char *)argument;
-	rc = view_exec(call->ctx, &run.spec, argv, false, -1, -1, &output);
+	rc = view_exec(call->ctx, &run.spec, argv, false, -1, -1, NULL, &output);
 	if (rc)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
@@ -2041,7 +2122,7 @@ static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job 
 		rc = -1;
 		goto out;
 	}
-	rc = view_exec(ctx, &run.spec, job->argv, true, in_fd, out_fd, &output);
+	rc = view_exec(ctx, &run.spec, job->argv, true, in_fd, out_fd, NULL, &output);
 	saved = errno;
 	if (job->finish)
 		finished = job->finish(job->arg);
@@ -3128,7 +3209,9 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic section = fy_get(cfg->config_doc, "view", fy_invalid);
 	struct shell_command_result output = { 0 };
+	struct view_session_transport tp = { -1, -1, { -1, -1 } }, *tpp = NULL;
 	struct fyai_view_run *run = NULL;
+	int agent[2] = { -1, -1 };
 	char **argv = NULL, startup[FYAI_CHILD_START_TEXT_MAX];
 	char *summary = NULL;
 	const char *why;
@@ -3138,10 +3221,6 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 	if (!fy_get(section, "isolate_session", false) || getenv("FYAI_VIEW") ||
 	    cfg->tool_child || !cfg->argv || fyai_cfg_no_requests(cfg))
 		return 0;
-	if (ctx->tclient) {
-		fyai_error(ctx, "view: a session in a view cannot use credential isolation");
-		return -1;
-	}
 	if (!fyai_exec_self_available()) {
 		fyai_error(ctx, "view: this system cannot run the program again");
 		return -1;
@@ -3163,7 +3242,38 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 		fyai_error(ctx, "view: cannot pass the branch to the session: %s", strerror(errno));
 		goto out;
 	}
-	rc = view_exec(ctx, &run->spec, argv, true, -1, -1, &output);
+	/*
+	 * With the credential transport the session is an agent of its own, and the
+	 * supervisor admits it when it has entered the view. The session keeps its
+	 * PID namespace: the transport names it by a pidfd.
+	 */
+	if (ctx->tclient) {
+		tp.agent_child = tp.agent_transport = tp.announce[0] = tp.announce[1] = -1;
+		if (fyai_transport_socketpair(agent) ||
+		    socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, tp.announce)) {
+			saved = errno;
+			fyai_error(ctx, "view 'session': cannot create its channels: %s", strerror(saved));
+			if (agent[0] >= 0) {
+				close(agent[0]);
+				close(agent[1]);
+			}
+			rc = -1;
+			goto out;
+		}
+		tp.agent_child = agent[0];
+		tp.agent_transport = agent[1];
+		tpp = &tp;
+	}
+	rc = view_exec(ctx, &run->spec, argv, true, -1, -1, tpp, &output);
+	if (tpp) {
+		close(agent[0]);
+		close(agent[1]);
+		agent[0] = agent[1] = -1;
+		if (tp.announce[0] >= 0)
+			close(tp.announce[0]);
+		if (tp.announce[1] >= 0)
+			close(tp.announce[1]);
+	}
 	if (rc) {
 		saved = errno;
 		view_save(ctx, run->name, fy_assoc(ctx->gb, run->view, "state", "incomplete"));
@@ -3242,6 +3352,27 @@ int fyai_view_runtime_remove(const char *runtime)
 	if (rc)
 		return -1;
 	return rmdir(runtime);
+}
+
+/*
+ * Whether a session can run in a view here: nothing around it, the arena in the
+ * project, the scratch directory outside it, and user namespaces that this process
+ * may make. A probe child makes them, because the namespaces belong to a process.
+ */
+bool fyai_view_session_available(struct fyai_ctx *ctx)
+{
+	char *root = NULL, *scratch = NULL;
+	bool usable = false;
+
+	if (!fyai_view_isolation_available(ctx))
+		return false;
+	root = project_state_root(ctx);
+	scratch = view_scratch(ctx);
+	if (root && scratch && fyai_fsview_project_usable(root, scratch))
+		usable = fyai_fsview_namespace_usable();
+	free(root);
+	free(scratch);
+	return usable;
 }
 
 const char *fyai_view_session_name(const struct fyai_ctx *ctx)
@@ -3909,6 +4040,12 @@ const char *fyai_view_session_name(const struct fyai_ctx *ctx)
 {
 	(void)ctx;
 	return NULL;
+}
+
+bool fyai_view_session_available(struct fyai_ctx *ctx)
+{
+	(void)ctx;
+	return false;
 }
 
 bool fyai_view_isolation_available(struct fyai_ctx *ctx)

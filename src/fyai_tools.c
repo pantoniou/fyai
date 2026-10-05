@@ -4600,7 +4600,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 				 strerror(errno));
 	}
 	if (tp && view) {
-		rc = socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, vsync);
+		rc = fyai_transport_socketpair(vsync);
 		fyai_error_check(ctx, !rc, err,
 				 "could not create the view announcement channel: %s",
 				 strerror(errno));
@@ -4692,8 +4692,20 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 					 "could not learn the process of the sub-agent in its view: %s",
 					 strerror(errno));
 		}
+		/* A pidfd names the child also from inside a PID namespace of its own. */
+#ifdef SYS_pidfd_open
+		if (pidfd < 0)
+			pidfd = syscall(SYS_pidfd_open, pid, 0);
+#endif
 		rc = fyai_transport_admit_child(ctx, pid, pidfd, tpa[1], tpc[1],
 						&job->transport_exec);
+		if (!rc && vsync[0] >= 0) {
+			/* The agent runs only after the transport knows it. */
+			rc = fyai_fsview_init_release(vsync[0], NULL, NULL);
+			fyai_error_check(ctx, !rc, err_kill,
+					 "could not release the sub-agent in its view: %s",
+					 strerror(errno));
+		}
 		if (pidfd >= 0)
 			close(pidfd);
 		close(tpa[1]);
