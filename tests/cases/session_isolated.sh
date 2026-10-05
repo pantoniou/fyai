@@ -40,5 +40,22 @@ assert_status 0
 [ "$(cat file)" = changed ] || fail 'apply did not write the file'
 [ "$(cat added)" = new ] || fail 'apply did not write the added file'
 
+# A session in a view says which one, in /status and in the {view} field of the
+# header. A session outside a view says none.
+set +e
+printf '/status\n/exit\n' | "$FYAI_BIN" -k test-key --color off --set view/isolate_session=true \
+	--set api=chat-completions --set display/stream=false --set display/markdown=false \
+	--set api_url="$MOCK_URL/v1/chat/completions" -m mock-model -i \
+	>"$TEST_DIR/status-view.out" 2>"$TEST_DIR/status-view.err"
+set -e
+grep -qE '^ *View +│ +session' "$TEST_DIR/status-view.out" || fail "/status does not name the view: $(cat "$TEST_DIR/status-view.out" "$TEST_DIR/status-view.err")"
+set +e
+printf '/status\n/exit\n' | "$FYAI_BIN" -k test-key --color off --set view/isolate_session=false \
+	--set api=chat-completions --set display/stream=false --set display/markdown=false \
+	--set api_url="$MOCK_URL/v1/chat/completions" -m mock-model -i \
+	>"$TEST_DIR/status-plain.out" 2>/dev/null
+set -e
+grep -qE '^ *View +│ +none' "$TEST_DIR/status-plain.out" || fail "/status names a view outside one: $(cat "$TEST_DIR/status-plain.out")"
+
 mock_stop 2
 pass

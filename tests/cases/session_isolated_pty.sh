@@ -43,5 +43,16 @@ assert_status 0
 assert_stdout_contains 'file'
 assert_stdout_contains 'added'
 
+# The bottom row of the prompt names the view that the session runs in.
+FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="/stream" FYAI_PTY_NEEDLE="/stream" \
+FYAI_PTY_TIMEOUT=60 FYAI_PTY_AFTER="wait-screen:· view session|send:/exit" \
+"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty-view.out" \
+    "$FYAI_BIN" -k test-key --set view/isolate_session=true \
+    --theme dark --set display/markdown=true \
+    --set display/renderer=page --set display/screen=fullscreen \
+    --set display/stream=false --set tools=true --set api=chat-completions \
+    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||
+	fail "the bottom row does not name the view"
+
 mock_stop 2
 pass
