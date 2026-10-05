@@ -18,7 +18,12 @@
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
+#include "fyai_agents.h"
+#include "fyai_sandbox.h"
+#include "fyai_tools.h"
+#include "fyai_ui.h"
 #include "fyai_transport_boot.h"
+#include "fyai_view.h"
 #include "utils.h"
 
 #define FYAI_MODULE FYAIEM_CONFIG
@@ -624,4 +629,202 @@ int fyai_cmd_setting(struct fyai_cmd_call *call, fy_generic *result)
 	return 0;
 err:
 	return -1;
+}
+
+/*
+ * /session lockdown and /session yolo set a group of isolation keys at once. A session-scoped
+ * key goes into the session layer, any other key is stored, as for a setting.
+ * Values are YAML flow documents.
+ */
+static int preset_set(struct fyai_cmd_call *call, const char *key, const char *text)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	fy_generic value;
+
+	if (!fyai_config_session_scoped(key))
+		return fyai_config_set(ctx, key, text);
+	value = fy_parse(call->gb, text, FYAI_YAML_PARSE_FLAGS |
+			 FYOPPF_INPUT_TYPE_STRING, NULL);
+	fyai_error_check(ctx, fy_is_valid(value), err, "%s: invalid value '%s'",
+			 key, text);
+	return fyai_config_session_set(ctx, key, value);
+err:
+	return -1;
+}
+
+/* Whether the configuration puts the session itself in a view. */
+static bool preset_view_session(struct fyai_ctx *ctx)
+{
+	return fy_get(fy_get(ctx->cfg->config_doc, "view", fy_invalid),
+		      "isolate_session", false);
+}
+
+/* Whether this session runs in a view now; a restart cannot leave it. */
+static bool preset_in_view(struct fyai_ctx *ctx)
+{
+	return fyai_view_session_name(ctx) != NULL;
+}
+
+/*
+ * A switch ends the processes that hold the old isolation, so nothing may run:
+ * the check comes before any key changes, and a refused switch changes nothing.
+ */
+static int preset_idle(struct fyai_cmd_call *call)
+{
+	struct fyai_ctx *ctx = call->ctx;
+
+	fyai_error_check(ctx, !fyai_tools_active(ctx), err,
+			 "%s: close live shells and sub-agents first", call->path);
+	fyai_error_check(ctx, !fyai_agents_attached(ctx), err,
+			 "%s: close attached agents first", call->path);
+	fyai_error_check(ctx, !fyai_ui_has_line(ctx), err,
+			 "%s: process queued input first", call->path);
+	return 0;
+err:
+	return -1;
+}
+
+/* Apply the change and restart when the credential transport must follow. */
+static int preset_commit(struct fyai_cmd_call *call, bool in_view)
+{
+	if (in_view)
+		return fyai_config_rederive(call->ctx);
+	return config_changed(call);
+}
+
+/* Where sub-agents run: in the view of the session, or as `agent/isolation` says. */
+static const char *preset_agents(struct fyai_ctx *ctx, bool session_view)
+{
+	if (session_view)
+		return "share the view of the session";
+	return !strcmp(fy_get(fy_get(ctx->cfg->config_doc, "agent", fy_invalid),
+			      "isolation", "none"), "view") ?
+	       "in a view each" : "share the project";
+}
+
+/*
+ * The strongest isolation that this host can enforce: the credential
+ * transport, the sandbox with no network egress, and a view for the session,
+ * which its sub-agents share. The views of sub-agents (`agent/isolation`) stay
+ * as the user set them. A session that runs in a view already cannot start
+ * the transport itself, and only asks for a restart of fyai. Nothing changes when
+ * the transport cannot run.
+ */
+int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	bool in_view = preset_in_view(ctx);
+	bool net = fyai_sandbox_net_restrictable(-1);
+	bool was_view = preset_view_session(ctx);
+	bool want_view = fyai_view_isolation_available(ctx);
+	const char *note = NULL;
+	fy_generic none;
+	int rc;
+
+	if (preset_idle(call) || fyai_transport_preflight(ctx))
+		return -1;
+	rc = preset_set(call, "sandbox", "{enabled: true}");
+	if (!rc && net)
+		rc = preset_set(call, "sandbox/network/ports", "[]");
+	/* A session already in its view keeps it; this host may not make another. */
+	if (!rc && !in_view && want_view != was_view)
+		rc = preset_set(call, "view/isolate_session", want_view ? "true" : "false");
+	if (!rc)
+		rc = preset_set(call, "agent/transport_isolation", "auto");
+	if (rc || preset_commit(call, in_view))
+		return -1;
+	/* The view alone also needs a restart: the transport may be running already. */
+	if (!in_view && !ctx->cfg->reload_branch && want_view != was_view &&
+	    fyai_cmd_reload(call, &none))
+		fyai_warning(ctx, "view/isolate_session is stored; it applies after the next restart");
+	if (in_view)
+		note = "this session runs in a view already: restart fyai to start the "
+		       "credential transport";
+	else if (ctx->cfg->reload_branch)
+		note = want_view ? "restarting to start the credential transport and the "
+				   "view of the session" :
+				   "restarting to start the credential transport";
+	else if (!want_view)
+		note = "no view for the session here: the arena must be in the .fyai "
+		       "directory of the project, the scratch directory outside the "
+		       "project, and user namespaces available";
+	else if (!fyai_sandbox_available())
+		note = "this kernel has no Landlock: the sandbox cannot confine anything";
+	else if (!net)
+		note = "this kernel cannot restrict network egress: it stays open";
+	*result = fy_mapping(call->gb, "mode", "lockdown",
+			     "transport", "auto",
+			     "sandbox", net ? "on, no network egress" : "on",
+			     "agents", preset_agents(ctx, in_view || want_view));
+	if (note)
+		*result = fy_assoc(call->gb, *result, "note", fy_value(call->gb, note));
+	return 0;
+}
+
+/*
+ * The opposite of lockdown: no transport, no sandbox and no view. A restart
+ * cannot end the transport of a live session: the key lived only in the
+ * transport, and the next image would start with none. The keys are stored and
+ * the transport ends when fyai starts again, with the key of that run.
+ */
+int fyai_cmd_yolo(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	bool in_view = preset_in_view(ctx);
+	const char *note = NULL;
+	int rc;
+
+	if (preset_idle(call))
+		return -1;
+	rc = preset_set(call, "sandbox", "false");
+	if (!rc && preset_view_session(ctx))
+		rc = preset_set(call, "view/isolate_session", "false");
+	if (!rc)
+		rc = preset_set(call, "agent/transport_isolation", "none");
+	if (rc || preset_commit(call, in_view || ctx->tclient))
+		return -1;
+	if (ctx->tclient)
+		note = "the credential transport of this session ends when fyai starts "
+		       "again: start it with the key, from the environment or `fyai auth`";
+	else if (in_view)
+		note = "this session stays in its view until fyai restarts";
+	*result = fy_mapping(call->gb, "mode", "yolo", "transport", "none",
+			     "sandbox", "off", "agents", preset_agents(ctx, in_view));
+	if (note)
+		*result = fy_assoc(call->gb, *result, "note", fy_value(call->gb, note));
+	return 0;
+}
+
+/* Show the isolation of the session as it runs, and what is stored beyond that. */
+int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic sandbox = fy_get(cfg->config_doc, "sandbox", fy_invalid), net;
+	const char *running = fyai_transport_effective_level(ctx), *name = fyai_view_session_name(ctx);
+	const char *stored = cfg->agent_transport_isolation ? cfg->agent_transport_isolation : "none";
+	const char *note = NULL;
+	bool enabled, want_view = preset_view_session(ctx), stored_on, running_on, view_on;
+
+	if (fy_is_bool(sandbox))
+		enabled = fy_cast(sandbox, false);
+	else
+		enabled = fy_is_mapping(sandbox) && fy_get(sandbox, "enabled", true);
+	net = fy_get(sandbox, "network", fy_invalid);
+	/* A key that is stored and not yet in force waits for the next start. */
+	stored_on = strcmp(stored, "none") != 0;
+	running_on = strcmp(running, "none") != 0;
+	view_on = name != NULL;
+	if (stored_on != running_on)
+		note = "the credential transport changes when fyai starts again";
+	else if (want_view != view_on)
+		note = "the view of the session changes when fyai starts again";
+	*result = fy_mapping(call->gb,
+			     "transport", running_on ? running : "off",
+			     "sandbox", !enabled ? "off" : fy_is_valid(net) ? "on, network restricted" : "on",
+			     "agents", preset_agents(ctx, view_on),
+			     "view", name ? name : "none");
+	if (note)
+		*result = fy_assoc(call->gb, *result, "note", fy_value(call->gb, note));
+	return 0;
 }

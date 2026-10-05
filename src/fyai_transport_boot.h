@@ -144,6 +144,13 @@ int fyai_transport_command(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
  */
 int fyai_transport_config_changed(struct fyai_ctx *ctx, const char **why);
 
+/*
+ * Check that this run could start the transport: the host, the credential and
+ * the endpoint. Return 0, or -1 with the cause reported. A run that already has
+ * the transport passes. It changes nothing.
+ */
+int fyai_transport_preflight(struct fyai_ctx *ctx);
+
 void fyai_transport_status_text(struct fyai_ctx *ctx, char *buf, size_t size);
 
 /*

@@ -1148,6 +1148,35 @@ err:
 	return -1;
 }
 
+int fyai_transport_preflight(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_transport_grant grant = { 0 };
+	const char *why = NULL;
+	int rc;
+
+	/* A run that has the transport has nothing left to check. */
+	if (ctx->tclient)
+		return 0;
+	rc = fyai_credential_isolation_available(cfg, FYAI_TL_B);
+	if (rc)
+		return -1;
+	if (transport_wants_chatgpt(cfg)) {
+		rc = fyai_auth_chatgpt_eligible(cfg, &why);
+		fyai_cfg_error_check(cfg, !rc, err, "credential isolation: %s", why);
+	} else {
+		fyai_cfg_error_check(cfg, cfg->no_auth || !fy_str_empty(cfg->api_key), err,
+				     "credential isolation: no API key; it needs a key, "
+				     "a login, or a provider that takes none");
+	}
+	rc = fyai_transport_profiles_add(&grant, cfg, &why);
+	fyai_transport_grant_clear(&grant);
+	fyai_cfg_error_check(cfg, !rc, err, "credential isolation: %s", why);
+	return 0;
+err:
+	return -1;
+}
+
 int fyai_transport_config_changed(struct fyai_ctx *ctx, const char **why)
 {
 	enum fyai_transport_level level;

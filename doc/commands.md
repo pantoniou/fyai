@@ -4765,6 +4765,97 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 | --- | --- |
 | `-h`, `--help` | show this help |
 
+## /session
+
+set the isolation of this session and move work between it and the project
+
+**Usage:** `/session {status|lockdown|yolo} ...`
+
+The isolation of the session. With no subcommand, show the state.
+`lockdown` takes the strongest isolation that this host can enforce, and
+`yolo` takes it all off.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `status` | show the isolation of this session |
+| `lockdown` | take the strongest isolation that this host can enforce |
+| `yolo` | take off the isolation of the session |
+
+With no command, `status` runs.
+
+**See also:** `/help view`, `/help reload`
+
+## /session status
+
+show the isolation of this session
+
+**Usage:** `/session status`
+
+Show the credential transport, the sandbox, the views of sub-agents and
+the view that the session itself runs in, and whether a restart is still
+to apply what is stored.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /session lockdown
+
+take the strongest isolation that this host can enforce
+
+**Usage:** `/session lockdown`
+
+Set the isolation keys together: `agent/transport_isolation: auto`, so
+the provider credentials stay in a separate process; the `sandbox`
+with no network egress where the kernel can restrict it, for this
+session; and `view/isolate_session`, so the session runs in a view
+of the project, made from the project as it is now, where this host
+can make one. A sub-agent then shares the view of the session. The
+views of sub-agents (`agent/isolation`) are not touched: set that key
+yourself. Nothing changes when the transport cannot run here. The session restarts to
+start the transport and the view, as `/reload` does, so live shells
+and sub-agents must finish first. A change of the project that is
+made later is not in the view: `view update session` takes it.
+`/session yolo` goes the other way.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /session yolo
+
+take off the isolation of the session
+
+**Usage:** `/session yolo`
+
+Turn off the credential transport and the sandbox:
+`agent/transport_isolation: none` and `sandbox: false`, and the view of
+the session, `view/isolate_session`, when it is on. The views of
+sub-agents (`agent/isolation`) are not touched.
+The keys are stored. A session that runs with the credential transport
+or in a view stays so until fyai starts again: the key lives in the
+transport, and a restart of the session could not give it back. Start
+fyai again with the key. The changes of a session in a view are not
+applied: `view apply session` writes them to the project. `/session
+lockdown` goes the other way, and restarts the session to start the
+transport.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
 ## /reasoning-effort
 
 the reasoning effort of the model
