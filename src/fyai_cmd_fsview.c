@@ -1275,6 +1275,30 @@ int fyai_cmd_view_apply(struct fyai_cmd_call *call, fy_generic *result)
 	return rc;
 }
 
+int fyai_view_pull_agent(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *child,
+			 const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
+			 fy_generic *result)
+{
+	char name[FYAI_BRANCH_NAME_MAX + sizeof(FYAI_VIEW_AGENT_PREFIX)];
+
+	/*
+	 * A child is one name: a separator, a marker or a reference character
+	 * would address another branch, a user view or a reference.
+	 */
+	if (fy_str_empty(child) || strlen(child) > FYAI_BRANCH_NAME_MAX ||
+	    !fyai_branch_name_valid(child) || strchr(child, '/')) {
+		fyai_error(ctx, "'%s' is not the name of a sub-agent", child ? child : "");
+		return -1;
+	}
+	snprintf(name, sizeof(name), FYAI_VIEW_AGENT_PREFIX "%s", child);
+	/* The view is looked up first, so a name that is not one never reaches the references. */
+	if (!fy_is_mapping(view_find(ctx, name))) {
+		fyai_error(ctx, "no sub-agent '%s' of this agent left a view", child);
+		return -1;
+	}
+	return fyai_view_pull(ctx, gb, name, NULL, paths, count, mode, result);
+}
+
 static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool replace)
 {
 	struct fyai_view_request request = {
@@ -1290,6 +1314,12 @@ static int view_capture(struct fyai_cmd_call *call, fy_generic *result, bool rep
 	fy_generic record;
 	int rc;
 
+	/* The views of sub-agents are made by the agent tool, never by a user. */
+	if (!replace && fyai_view_name_is_agent(request.name)) {
+		fyai_error(call->ctx, "view '%s': the name is reserved for sub-agent views",
+			   request.name);
+		return -1;
+	}
 	rc = fyai_view_capture(&request, &record);
 	if (rc)
 		return -1;
@@ -2683,6 +2713,13 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 {
 	(void)ctx;
 	return 0;
+}
+
+int fyai_view_pull_agent(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *child,
+			 const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
+			 fy_generic *result)
+{
+	return fyai_view_pull(ctx, gb, child, NULL, paths, count, mode, result);
 }
 
 int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *name,

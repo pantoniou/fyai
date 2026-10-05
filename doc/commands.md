@@ -1354,6 +1354,8 @@ capture a project and create a named view
 Capture PROJECT, excluding its reserved .fyai directory, and record
 a named view on the active branch. Reject unsupported metadata and
 observed concurrent changes. No provider credential is required.
+The names that start with agent/ belong to the views of sub-agents;
+a view cannot be created there.
 
 
 ### Arguments
@@ -3390,6 +3392,8 @@ capture a project and create a named view
 Capture PROJECT, excluding its reserved .fyai directory, and record
 a named view on the active branch. Reject unsupported metadata and
 observed concurrent changes. No provider credential is required.
+The names that start with agent/ belong to the views of sub-agents;
+a view cannot be created there.
 
 
 ### Arguments

@@ -9,6 +9,21 @@
 
 struct fyai_ctx;
 
+/*
+ * The namespace of the views that sub-agents leave. A view in it belongs to
+ * the agent that started the sub-agent and is stored in the branch of that
+ * agent, under the name of the sub-agent: `agent/NAME`. A user cannot create a
+ * view there, and the project_view tool reaches nothing outside it.
+ */
+#define FYAI_VIEW_AGENT_PREFIX "agent/"
+
+/* Whether a view name is in the namespace of the sub-agents, or is its root. */
+static inline bool fyai_view_name_is_agent(const char *name)
+{
+	return name && (!strncmp(name, FYAI_VIEW_AGENT_PREFIX, sizeof(FYAI_VIEW_AGENT_PREFIX) - 1) ||
+			!strcmp(name, "agent"));
+}
+
 /* The parameters of a capture that makes or replaces a stored view. */
 struct fyai_view_request {
 	struct fyai_ctx *ctx;
@@ -78,6 +93,17 @@ int fyai_view_pull(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const ch
 
 /* The stored views of the branch, by name; the value is borrowed. */
 fy_generic fyai_view_list(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+
+/*
+ * The project_view tool reads a sub-agent view through this entry. child is the
+ * name that the caller gave the sub-agent, with no prefix and no separator.
+ * Only a view in the namespace of the sub-agents of this branch is reached: a
+ * user view, another branch and a reference are not. Otherwise as
+ * fyai_view_pull().
+ */
+int fyai_view_pull_agent(struct fyai_ctx *ctx, struct fy_generic_builder *gb, const char *child,
+			 const char *const *paths, size_t count, enum fyai_view_pull_mode mode,
+			 fy_generic *result);
 
 /*
  * The project state of a ref-log entry. When view/track_project is on, each

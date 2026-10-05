@@ -4715,41 +4715,54 @@ static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
  * Whether a sub-agent runs in a view of its own: the call decides, else the
  * agent/isolation setting does.
  */
-/* The project_view tool: list the views, list a change or apply it. */
+/*
+ * The project_view tool: list the views of the sub-agents that this agent started,
+ * list a change or apply it. The name is the one the agent gave the sub-agent. A
+ * user view, a reference and the views of other agents are not reachable: each
+ * agent has its own store, and the namespace of the sub-agents is the only one
+ * the tool names.
+ */
 static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	enum fyai_view_pull_mode mode;
 	fy_generic paths = fy_get(args, "paths", fy_seq_empty), result, view, views;
 	const char *action = fy_get(args, "action", ""), *name = fy_get(args, "name", "");
 	const char **selected = NULL, *path, *key;
-	size_t count = fy_len(paths), index = 0;
+	size_t count = fy_len(paths), index = 0, prefix = sizeof(FYAI_VIEW_AGENT_PREFIX) - 1;
 	char *diag;
 	int rc;
 
 	*okp = false;
 	if (getenv("FYAI_VIEW"))
 		return fy_value(ctx->transient_gb, "tool error: project_view is not available inside a view");
+	/* The tool is not given to such an agent: refuse a call that names it anyway. */
+	if (ctx->cfg->agent_child && !ctx->agent_execution)
+		return fy_value(ctx->transient_gb, "tool error: project_view is not available to this agent");
 	if (!strcmp(action, "list")) {
 		result = fy_sequence(ctx->transient_gb);
 		views = fyai_view_list(ctx, ctx->transient_gb);
-		fy_foreach_key_value(key, view, views)
+		fy_foreach_key_value(key, view, views) {
+			if (strncmp(key, FYAI_VIEW_AGENT_PREFIX, prefix))
+				continue;
 			result = fy_append(ctx->transient_gb, result,
-					   fy_mapping(ctx->transient_gb, "name", fy_value(ctx->transient_gb, key),
+					   fy_mapping(ctx->transient_gb, "name",
+						      fy_value(ctx->transient_gb, key + prefix),
 						      "state", fy_get(view, "state", "ready")));
+		}
 		*okp = true;
 		return fy_gb_internalize(ctx->transient_gb, result);
 	}
 	if (strcmp(action, "changes") && strcmp(action, "apply"))
 		return fy_value(ctx->transient_gb, "tool error: action is list, changes or apply");
 	if (!*name)
-		return fy_value(ctx->transient_gb, "tool error: name the view");
+		return fy_value(ctx->transient_gb, "tool error: name the sub-agent");
 	selected = calloc(count + 1, sizeof(*selected));
 	fyai_error_check(ctx, selected, err, "could not allocate the path list");
 	fy_foreach(path, paths)
 		selected[index++] = path;
 	mode = !strcmp(action, "changes") ? FYAI_VIEW_PULL_CHANGES :
 	       fy_get(args, "dry_run", false) ? FYAI_VIEW_PULL_DRY_RUN : FYAI_VIEW_PULL_APPLY;
-	rc = fyai_view_pull(ctx, ctx->transient_gb, name, NULL, selected, count, mode, &result);
+	rc = fyai_view_pull_agent(ctx, ctx->transient_gb, name, selected, count, mode, &result);
 	free(selected);
 	if (rc) {
 		diag = fyai_diag_string(&ctx->cfg->diag);
@@ -4779,7 +4792,11 @@ static bool fyai_agent_isolated(struct fyai_ctx *ctx, fy_generic args)
 	return fy_equal(fy_get(section, "isolation", "none"), "view");
 }
 
-/* The view of a sub-agent is named for it; a name that a command takes needs no quoting. */
+/*
+ * The view of a sub-agent is named for it in the namespace of the sub-agents. The
+ * name is one component of characters that a command takes without quoting, so
+ * the name of an agent cannot leave the namespace.
+ */
 static int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
 				 struct fyai_view_run **run)
 {
@@ -4801,7 +4818,7 @@ static int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
 		fyai_error(ctx, "a sub-agent cannot run in a view under credential isolation");
 		return -1;
 	}
-	n = snprintf(name, sizeof(name), "agent-");
+	n = snprintf(name, sizeof(name), FYAI_VIEW_AGENT_PREFIX);
 	for (i = 0; agent[i] && n + 1 < sizeof(name); i++)
 		name[n++] = isalnum((unsigned char)agent[i]) || agent[i] == '_' ||
 			    agent[i] == '-' ? agent[i] : '-';
@@ -4832,8 +4849,10 @@ static void fyai_agent_view_finish(struct fyai_ctx *ctx, struct fyai_tool_job *j
 	else
 		*result = fy_stringf(ctx->transient_gb, "%s\n\n[The sub-agent ran in the view "
 				     "'%s'. Its changes are not in the project; %s\nReview "
-				     "them with the project_view tool or `view diff %s`.]", fy_castp(result, ""), name,
-				     summary ? summary : "the change could not be listed", name);
+				     "them with the project_view tool, as '%s', or `view diff %s`.]",
+				     fy_castp(result, ""), name,
+				     summary ? summary : "the change could not be listed",
+				     name + sizeof(FYAI_VIEW_AGENT_PREFIX) - 1, name);
 	free(summary);
 	fyai_view_run_free(job->view_run);
 	job->view_run = NULL;

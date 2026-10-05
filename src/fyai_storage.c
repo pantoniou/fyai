@@ -740,6 +740,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_branch b, lb;
+	bool exists, claimed;
 	struct fyai_root r;
 	char session[FYAI_BRANCH_NAME_MAX + 1];
 	char cwd[PATH_MAX];
@@ -832,8 +833,18 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		 * the catalogue of the branch HEAD names, as the catalogue was
 		 * there before the branch was.
 		 */
-		if (!fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &b) &&
-		    name && fyai_branch_lookup(r.branches, name, &lb))
+		exists = fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &b);
+		/*
+		 * The namespace of the sub-agents belongs to the agent tool: a user
+		 * selects a branch there only when a sub-agent made it, and cannot
+		 * make one by naming it.
+		 */
+		claimed = !exists && cfg->branch_explicit && !cfg->agent_child &&
+			  fyai_branch_name_has_agent(fyai_ctx_branch(ctx));
+		fyai_error_check(ctx, !claimed, err_out,
+				 "branch '%s' is in the namespace of sub-agent branches; "
+				 "only a sub-agent creates one", fyai_ctx_branch(ctx));
+		if (!exists && name && fyai_branch_lookup(r.branches, name, &lb))
 			ctx->arena_catalog = lb.catalog;
 		else
 			ctx->arena_catalog = b.catalog;

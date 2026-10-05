@@ -216,6 +216,17 @@ bool fyai_branch_name_ref_valid(const char *name)
 	return branch_name_valid(name, true);
 }
 
+bool fyai_branch_name_has_agent(const char *name)
+{
+	const char *comp;
+	size_t len = strlen(FYAI_BRANCH_AGENT_PREFIX);
+
+	for (comp = name; comp && *comp; comp = strchr(comp, '/') ? strchr(comp, '/') + 1 : NULL)
+		if (!strncmp(comp, FYAI_BRANCH_AGENT_PREFIX, len))
+			return true;
+	return false;
+}
+
 bool fyai_branch_is_below(const char *name, const char *parent)
 {
 	size_t plen;

@@ -133,6 +133,9 @@ int fyai_branch_session_name(fy_generic branches, char *buf, size_t size);
 /* The marker that makes a branch component a sub-agent branch. */
 #define FYAI_BRANCH_AGENT_PREFIX "agent:"
 
+/* Whether a component of @name is a sub-agent marker: the name is in their namespace. */
+bool fyai_branch_name_has_agent(const char *name);
+
 
 /* Return true if @name is @parent or is below @parent. */
 bool fyai_branch_is_below(const char *name, const char *parent);
