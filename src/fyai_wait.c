@@ -254,6 +254,25 @@ bool fyai_wait_pending(const struct fyai_ctx *ctx)
 	return false;
 }
 
+fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+{
+	const struct fyai_wait *w;
+	fy_generic rows, row;
+	int64_t left;
+
+	rows = fy_sequence(gb);
+	fyai_waits_reap(ctx);
+	for (w = ctx->waits; w; w = w->next) {
+		left = w->due_ms - fyai_event_now_ms();
+		row = fy_mapping(gb, "name", w->name,
+				 "remaining_seconds", (long long)(left > 0 ? (left + 999) / 1000 : 0));
+		if (w->reason && *w->reason)
+			row = fy_assoc(gb, row, "reason", fy_value(gb, w->reason));
+		rows = fy_append(gb, rows, row);
+	}
+	return rows;
+}
+
 void fyai_waits_release(struct fyai_ctx *ctx)
 {
 	struct fyai_wait *w, *next;

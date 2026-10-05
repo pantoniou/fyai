@@ -19,6 +19,12 @@ char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 /* True while a named wait is pending. */
 bool fyai_wait_pending(const struct fyai_ctx *ctx);
 
+/*
+ * The pending waits of this run, as rows of name, reason and the seconds that
+ * remain. A wait belongs to the run that made it: a child has none of its parent.
+ */
+fy_generic fyai_waits_rows(struct fyai_ctx *ctx, struct fy_generic_builder *gb);
+
 /* Drop every wait. They live for one invocation, as a session does. */
 void fyai_waits_release(struct fyai_ctx *ctx);
 

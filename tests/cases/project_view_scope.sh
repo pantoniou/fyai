@@ -42,13 +42,13 @@ assert_status 1
 run_fyai branch list
 assert_stdout_not_contains 'agent:'
 
-# The tool lists and reads only the views of the sub-agents of the caller.
+# The tools list and read only the views of the sub-agents of the caller.
 run_fyai --set api=chat-completions --set display/stream=false --set tools=true \
 	 --set view/track_project=true --set api_url="$MOCK_URL/v1/chat/completions" \
 	 -m mock-model "look at the views"
 assert_status 0
 assert_stdout_contains 'Scope checked.'
-assert_request 1 'any(m.get("role") == "tool" and m.get("tool_call_id") == "list" and m["content"] == [] for m in r["body"]["messages"])'
+assert_request 1 'any(m.get("role") == "tool" and m.get("tool_call_id") == "list" and json.loads(m["content"]) == {"views": []} for m in r["body"]["messages"])'
 for id in user branch ref prefixed dots; do
 	assert_request 6 'any(m.get("role") == "tool" and m.get("tool_call_id") == "'$id'" and str(m["content"]).startswith("tool error:") for m in r["body"]["messages"])'
 done

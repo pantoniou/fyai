@@ -1925,6 +1925,8 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 	const char *c;
 	fy_generic gpath;
 	fy_generic gc;
+	fy_generic paths, item;
+	bool first = true;
 	char *lang;
 	char *s;
 
@@ -2029,6 +2031,31 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 			fprintf(mf, " [%s]", path);
 		if (*c)
 			fprintf(mf, " %s", c);
+		fprintf(mf, "\n\n");
+		return;
+	}
+	if (fy_equal(name, "list")) {
+		gc = fy_get(args, "kind");
+		c = fy_castp(&gc, "");
+		fprintf(mf, "**list** %s\n\n", *c ? c : "all");
+		return;
+	}
+	if (fy_equal(name, "project_view")) {
+		gc = fy_get(args, "action");
+		c = fy_castp(&gc, "");
+		gpath = fy_get(args, "name");
+		path = fy_castp(&gpath, "");
+		paths = fy_get(args, "paths", fy_invalid);
+		fprintf(mf, "**view %s**", *c ? c : "?");
+		if (*path)
+			fprintf(mf, " `%s`", path);
+		fy_foreach(item, paths) {
+			gc = item;
+			fprintf(mf, "%s`%s`", first ? " " : ", ", fy_castp(&gc, ""));
+			first = false;
+		}
+		if (fy_get(args, "dry_run", false))
+			fprintf(mf, " (dry run)");
 		fprintf(mf, "\n\n");
 		return;
 	}

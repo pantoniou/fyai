@@ -576,6 +576,22 @@ static fy_generic fyai_shell_outcome_sanitized(struct fy_generic_builder *gb,
 }
 
 /* @m, a shell_call_output item, with every outcome of its output sanitized. */
+/*
+ * A tool result that is a structure goes on the wire as its JSON text: every grammar
+ * takes a string as the output of a function call, and an object is a request error.
+ */
+static fy_generic wire_tool_text(struct fyai_ctx *ctx, fy_generic output)
+{
+	const char *text;
+
+	if (!fy_is_valid(output) || fy_is_null(output))
+		return fy_value(ctx->transient_gb, "");
+	if (!fy_is_mapping(output))
+		return output;
+	text = emit_json_string(ctx->transient_gb, output);
+	return fy_value(ctx->transient_gb, text ? text : "");
+}
+
 static fy_generic fyai_shell_output_sanitized(struct fyai_ctx *ctx,
 					      fy_generic m)
 {
@@ -676,6 +692,9 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 
 		/* Other native Responses items (function_call,
 		 * function_call_output, message, ...): pass through. */
+		if (fy_equal(type, "function_call_output"))
+			m = fy_assoc(ctx->transient_gb, m, "output",
+				     wire_tool_text(ctx, fy_get(m, "output", fy_invalid)));
 		if (fy_is_string(type)) {
 			input = fy_append(ctx->transient_gb, input, m);
 			continue;
@@ -699,7 +718,7 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 						"call_id", fy_get(m, "tool_call_id", ""),
 						"output",
 						fy_is_valid(content) && !fy_is_null(content) ?
-							content :
+							wire_tool_text(ctx, content) :
 							fy_value("")));
 			continue;
 		}
@@ -823,7 +842,7 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (fyai_item_type_is_call_output(type)) {
 			tmp = fy_mapping("role", "tool",
 					 "tool_call_id", fy_get(m, "call_id", ""),
-					 "content", fy_get(m, "output", ""));
+					 "content", wire_tool_text(ctx, fy_get(m, "output", fy_invalid)));
 			out = fy_append(ctx->transient_gb, out, tmp);
 			continue;
 		}
@@ -840,6 +859,9 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 			continue;
 
 		/* Already Chat-shaped. */
+		if (fy_equal(fy_get(m, "role"), "tool") && fy_is_mapping(fy_get(m, "content", fy_invalid)))
+			m = fy_assoc(ctx->transient_gb, m, "content",
+				     wire_tool_text(ctx, fy_get(m, "content", fy_invalid)));
 		out = fy_append(ctx->transient_gb, out, m);
 	}
 

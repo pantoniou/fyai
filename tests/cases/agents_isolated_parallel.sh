@@ -31,7 +31,7 @@ alpha-edit | beta-edit) ;;
 *) fail 'the shared file has a value that no agent wrote' ;;
 esac
 # The second pull found the file changed and left it alone.
-assert_request 6 'any(m.get("tool_call_id") in ("call_view_alpha", "call_view_beta") and isinstance(m.get("content"), dict) and m["content"].get("conflicts") == 1 for m in r["body"]["messages"])'
+assert_request 6 'any(m.get("tool_call_id") in ("call_view_alpha", "call_view_beta") and isinstance(m.get("content"), str) and json.loads(m["content"]).get("conflicts") == 1 for m in r["body"]["messages"])'
 
 run_fyai view list
 assert_status 0

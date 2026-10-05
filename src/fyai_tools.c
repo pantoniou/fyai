@@ -1487,6 +1487,7 @@ static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 						  const char *name);
 static const char *fyai_agent_job_name(const struct fyai_tool_job *job);
+static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 static char *fyai_shell_close_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp);
 
@@ -1683,6 +1684,25 @@ out:
 	return result_generic;
 }
 
+/*
+ * The result of a function tool is text: the APIs take a string as the output of
+ * a function call and refuse an object. A tool that builds a structure gives it
+ * to the model as its compact JSON.
+ */
+static fy_generic fyai_tool_result_text(struct fyai_ctx *ctx, fy_generic result)
+{
+	const char *text;
+
+	if (!fy_is_mapping(result) && !fy_is_sequence(result))
+		return result;
+	text = emit_json_string(ctx->transient_gb, result);
+	if (!text) {
+		fyai_error(ctx, "could not format the tool result");
+		return fy_value(ctx->transient_gb, "tool error: could not format the result");
+	}
+	return fy_value(ctx->transient_gb, text);
+}
+
 fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 			     fy_generic args, bool *okp)
 {
@@ -1720,7 +1740,10 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 		result = fyai_shell_close_tool(ctx, args, okp);
 	} else if (fy_equal(name, "project_view")) {
 		result_generic = fyai_view_tool(ctx, args, okp);
-		return result_generic;
+		return fyai_tool_result_text(ctx, result_generic);
+	} else if (fy_equal(name, "list")) {
+		result_generic = fyai_list_tool(ctx, args, okp);
+		return fyai_tool_result_text(ctx, result_generic);
 	} else if (fy_equal(name, "time")) {
 		result = fyai_time_tool(ctx, okp);
 	} else if (fy_equal(name, "wait")) {
@@ -3629,7 +3652,7 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	return !fy_equal(name, "ask_user") &&
 	       !fy_any_equal(name, "shell_output", "shell_input",
 			     "shell_close") &&
-	       !fy_any_equal(name, "time", "wait", "project_view") &&
+	       !fy_any_equal(name, "time", "wait", "project_view", "list") &&
 	       !fyai_mcp_tool_name(name);
 }
 
@@ -4715,9 +4738,110 @@ static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
  * Whether a sub-agent runs in a view of its own: the call decides, else the
  * agent/isolation setting does.
  */
+/* The sub-agents that this agent started: the live ones, then the ones that ended. */
+static fy_generic fyai_list_agents(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+{
+	struct fyai_tool_job *job;
+	fy_generic rows, branch, entry, views;
+	const char *nm, *rest;
+	char prefix[FYAI_BRANCH_NAME_MAX + sizeof(FYAI_BRANCH_AGENT_PREFIX) + 1];
+	size_t len;
+
+	rows = fy_sequence(gb);
+	len = snprintf(prefix, sizeof(prefix), "%s/" FYAI_BRANCH_AGENT_PREFIX, fyai_ctx_branch(ctx));
+	views = fyai_view_list(ctx, gb);
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->agent || job->btw || job->done || !job->branch ||
+		    strncmp(job->branch, prefix, len) || strchr(job->branch + len, '/'))
+			continue;
+		rest = job->branch + len;
+		rows = fy_append(gb, rows, fy_mapping(gb, "name", rest,
+			"state", job->terminating ? "stopping" : job->wants_input ? "waiting" : "running",
+			"view", fy_is_mapping(fy_get(views, fy_sprintfa(FYAI_VIEW_AGENT_PREFIX "%s", rest),
+						     fy_invalid))));
+	}
+	/* The branch table is what the ended ones left. */
+	if (fyai_branches_refresh(ctx) || !fy_is_mapping(ctx->arena_branches))
+		return rows;
+	fy_foreach_key_value(branch, entry, ctx->arena_branches) {
+		nm = fy_castp(&branch, "");
+		if (strncmp(nm, prefix, len) || !nm[len] || strchr(nm + len, '/') ||
+		    !strncmp(nm + len, "btw-", 4) || fyai_agent_job_named(ctx, nm))
+			continue;
+		rest = nm + len;
+		rows = fy_append(gb, rows, fy_mapping(gb, "name", rest, "state", "finished",
+			"view", fy_is_mapping(fy_get(views, fy_sprintfa(FYAI_VIEW_AGENT_PREFIX "%s", rest),
+						     fy_invalid))));
+	}
+	return rows;
+}
+
+/* The agent views that this agent has: a sub-agent leaves one when it ran isolated. */
+static fy_generic fyai_list_views(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+{
+	fy_generic rows, view, views;
+	const char *key;
+	size_t prefix = sizeof(FYAI_VIEW_AGENT_PREFIX) - 1;
+
+	rows = fy_sequence(gb);
+	views = fyai_view_list(ctx, gb);
+	fy_foreach_key_value(key, view, views) {
+		if (strncmp(key, FYAI_VIEW_AGENT_PREFIX, prefix))
+			continue;
+		rows = fy_append(gb, rows, fy_mapping(gb, "name", fy_value(gb, key + prefix),
+						      "state", fy_get(view, "state", "ready")));
+	}
+	return rows;
+}
+
+/* The named terminal sessions of this run that still have a program. */
+static fy_generic fyai_list_shells(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
+{
+	struct fyai_shell_session *sess;
+	fy_generic rows;
+
+	rows = fy_sequence(gb);
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (sess->exited)
+			continue;
+		rows = fy_append(gb, rows, fy_mapping(gb, "name", sess->name,
+			"command", sess->command ? sess->command : "",
+			"state", sess->closing ? "stopping" : sess->wants_input ? "waiting" : "running"));
+	}
+	return rows;
+}
+
 /*
- * The project_view tool: list the views of the sub-agents that this agent started,
- * list a change or apply it. The name is the one the agent gave the sub-agent. A
+ * The list tool: what this agent owns and can name in another call. It is the one
+ * way to enumerate; each row is scoped to the caller. A name that a row gives is
+ * relative to the caller, and a branch, a user view or the object of another
+ * agent is not a row.
+ */
+static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	const char *kind = fy_get(args, "kind", "");
+	fy_generic result = fy_map_empty;
+	bool all = !*kind;
+
+	*okp = false;
+	if (!all && !fy_any_equal(kind, "agents", "views", "shells", "waits"))
+		return fy_value(gb, "tool error: kind is agents, views, shells or waits");
+	if (all || !strcmp(kind, "agents"))
+		result = fy_assoc(gb, result, "agents", fyai_list_agents(ctx, gb));
+	if (all || !strcmp(kind, "views"))
+		result = fy_assoc(gb, result, "views", fyai_list_views(ctx, gb));
+	if (all || !strcmp(kind, "shells"))
+		result = fy_assoc(gb, result, "shells", fyai_list_shells(ctx, gb));
+	if (all || !strcmp(kind, "waits"))
+		result = fy_assoc(gb, result, "waits", fyai_waits_rows(ctx, gb));
+	*okp = true;
+	return fy_gb_internalize(gb, result);
+}
+
+/*
+ * The project_view tool: list a change of the view of a sub-agent that this agent
+ * started, or apply it. The name is the one the agent gave the sub-agent. A
  * user view, a reference and the views of other agents are not reachable: each
  * agent has its own store, and the namespace of the sub-agents is the only one
  * the tool names.
@@ -4725,10 +4849,10 @@ static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
 static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	enum fyai_view_pull_mode mode;
-	fy_generic paths = fy_get(args, "paths", fy_seq_empty), result, view, views;
+	fy_generic paths = fy_get(args, "paths", fy_seq_empty), result;
 	const char *action = fy_get(args, "action", ""), *name = fy_get(args, "name", "");
-	const char **selected = NULL, *path, *key;
-	size_t count = fy_len(paths), index = 0, prefix = sizeof(FYAI_VIEW_AGENT_PREFIX) - 1;
+	const char **selected = NULL, *path;
+	size_t count = fy_len(paths), index = 0;
 	char *diag;
 	int rc;
 
@@ -4738,22 +4862,8 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	/* The tool is not given to such an agent: refuse a call that names it anyway. */
 	if (ctx->cfg->agent_child && !ctx->agent_execution)
 		return fy_value(ctx->transient_gb, "tool error: project_view is not available to this agent");
-	if (!strcmp(action, "list")) {
-		result = fy_sequence(ctx->transient_gb);
-		views = fyai_view_list(ctx, ctx->transient_gb);
-		fy_foreach_key_value(key, view, views) {
-			if (strncmp(key, FYAI_VIEW_AGENT_PREFIX, prefix))
-				continue;
-			result = fy_append(ctx->transient_gb, result,
-					   fy_mapping(ctx->transient_gb, "name",
-						      fy_value(ctx->transient_gb, key + prefix),
-						      "state", fy_get(view, "state", "ready")));
-		}
-		*okp = true;
-		return fy_gb_internalize(ctx->transient_gb, result);
-	}
 	if (strcmp(action, "changes") && strcmp(action, "apply"))
-		return fy_value(ctx->transient_gb, "tool error: action is list, changes or apply");
+		return fy_value(ctx->transient_gb, "tool error: action is changes or apply");
 	if (!*name)
 		return fy_value(ctx->transient_gb, "tool error: name the sub-agent");
 	selected = calloc(count + 1, sizeof(*selected));

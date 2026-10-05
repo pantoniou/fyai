@@ -30,7 +30,7 @@ assert_request 1 'not any(t["function"]["name"] == "project_view" for t in r["bo
 
 # The parent pulled the changes with the project_view tool, and only then.
 assert_request 3 'any(m.get("role") == "tool" and "view '"'"'agent/worker'"'"'" in m.get("content", "") for m in r["body"]["messages"])'
-assert_request 4 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_view_1" and isinstance(m.get("content"), dict) and m["content"].get("applied") == 2 for m in r["body"]["messages"])'
+assert_request 4 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_view_1" and isinstance(m.get("content"), str) and json.loads(m["content"]).get("applied") == 2 for m in r["body"]["messages"])'
 [ "$(cat file)" = changed ] || fail 'the tool did not apply the change'
 [ "$(cat added)" = new ] || fail 'the tool did not apply the added file'
 printf baseline > file

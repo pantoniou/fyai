@@ -370,15 +370,15 @@
   function:
     name: project_view
     description: |-
-      Work with the project views that the sub-agents you started leave. A sub-agent that ran with `isolated` changed its own private copy of the project, not the project; its report names it. `list` shows your sub-agents that left a view and their state, `changes` lists what one changed against its baseline, and `apply` writes those changes into the project. You reach only the sub-agents you started, by the name you gave them. A sub-agent of another agent, a view of the user and a branch are not reachable. Apply only takes a path that the project still has as the baseline had it: a path that you or another agent changed since is reported as a conflict and is left alone. Name `paths` to apply only those paths and what is beneath them. Use `dry_run` to see the outcome first. The user can review the same views with `view diff agent/NAME`.
+      Work with the project views that the sub-agents you started leave. A sub-agent that ran with `isolated` changed its own private copy of the project, not the project; its report names it. Use the `list` tool to see which sub-agents left a view. `changes` lists what one changed against its baseline, and `apply` writes those changes into the project. You reach only the sub-agents you started, by the name you gave them. A sub-agent of another agent, a view of the user and a branch are not reachable. Apply only takes a path that the project still has as the baseline had it: a path that you or another agent changed since is reported as a conflict and is left alone. Name `paths` to apply only those paths and what is beneath them. Use `dry_run` to see the outcome first. The user can review the same views with `view diff agent/NAME`.
     parameters:
       type: object
       properties:
         action:
           type: string
-          enum: [list, changes, apply]
+          enum: [changes, apply]
           description: |-
-            `list` the sub-agents that left a view, `changes` of one, or `apply` it to the project.
+            `changes` of the view of one sub-agent, or `apply` it to the project.
         name:
           type: string
           description: |-
@@ -395,6 +395,20 @@
             For `apply`: report what would change and write nothing.
       required:
         - action
+      additionalProperties: false
+- type: function
+  function:
+    name: list
+    description: |-
+      List what you can name in another call: `agents` are the sub-agents you started, running or ended, with their state and whether they left a view for `project_view`; `views` are those views; `shells` are your open terminal sessions; `waits` are your pending named waits. Each name is the one you gave it. You see only what you own: the objects of the user and of other agents are not listed. Omit `kind` to list all four.
+    parameters:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [agents, views, shells, waits]
+          description: |-
+            What to list. Omit it to list every kind.
       additionalProperties: false
 - type: function
   function:

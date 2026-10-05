@@ -17,8 +17,8 @@
                   "id": "list",
                   "type": "function",
                   "function": {
-                    "name": "project_view",
-                    "arguments": "{\"action\": \"list\"}"
+                    "name": "list",
+                    "arguments": "{\"kind\": \"views\"}"
                   }
                 }
               ]
