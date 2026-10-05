@@ -10,6 +10,8 @@
 #include "config.h"
 #endif
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +21,8 @@
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
 #include "fyai_agents.h"
+#include "fyai_event.h"
+#include "fyai_transport_ctl.h"
 #include "fyai_sandbox.h"
 #include "fyai_tools.h"
 #include "fyai_ui.h"
@@ -827,4 +831,119 @@ int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 	if (note)
 		*result = fy_assoc(call->gb, *result, "note", fy_value(call->gb, note));
 	return 0;
+}
+
+/*
+ * push and pull ask the supervisor of the session, which stays outside the view
+ * and so reaches the project. The request goes on the descriptor that the
+ * supervisor passed (FYAI_SESSION_FD), and the reply comes back on the event loop.
+ */
+struct session_request {
+	struct fyai_cmd_call *call;
+	struct fyai_event_source *source;
+	bool ends_session;	/* a pull that went through: the supervisor starts a new session */
+};
+
+static void session_request_cleanup(struct fyai_cmd_call *call)
+{
+	struct session_request *r = call->priv;
+
+	if (!r)
+		return;
+	if (r->source)
+		fyai_event_source_remove(r->source);
+	free(r);
+	call->priv = NULL;
+}
+
+static void session_quit(void *userdata)
+{
+	fyai_ui_quit_request(userdata);
+}
+
+static enum fyai_event_action session_reply(const struct fyai_event *ev)
+{
+	struct session_request *r = ev->userdata;
+	struct fyai_cmd_call *call = r->call;
+	struct fyai_ctx *ctx = call->ctx;
+	bool ends = r->ends_session;
+	fy_generic m, op, why;
+	int fd = ev->fd, rc;
+
+	rc = fyai_ctl_recv(fd, call->gb, &m, NULL);
+	if (rc == -EAGAIN)
+		return FYAIEA_CONTINUE;
+	if (rc) {
+		fyai_error(ctx, "%s: the supervisor of the session did not answer", call->path);
+		fyai_cmd_done(call, -1, fy_invalid);
+		return FYAIEA_CONTINUE;
+	}
+	op = fy_get(m, "op", fy_invalid);
+	if (!fy_equal(op, "ok")) {
+		why = fy_get(m, "message", fy_invalid);
+		fyai_error(ctx, "%s: %s", call->path, fy_is_string(why) ? fy_castp(&why, "") :
+			   "the supervisor refused");
+		fyai_cmd_done(call, -1, fy_invalid);
+		return FYAIEA_CONTINUE;
+	}
+	fyai_cmd_done(call, 0, fy_get(m, "result", fy_map_empty));
+	/*
+	 * The supervisor starts the session again on the fresh view once this one ends.
+	 * The result is drawn first, so the quit waits for the next turn of the loop.
+	 */
+	if (ends)
+		(void)fyai_event_defer(fyai_ctx_loop(ctx), session_quit, ctx);
+	return FYAIEA_CONTINUE;
+}
+
+static int session_request(struct fyai_cmd_call *call, const char *op, fy_generic request,
+			   bool ends_session)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct session_request *r;
+	const char *env = getenv("FYAI_SESSION_FD");
+	int fd = env ? atoi(env) : -1, rc;
+
+	fyai_error_check(ctx, fyai_view_session_name(ctx) && fd > 2 && fcntl(fd, F_GETFD) >= 0, err,
+			 "%s: this session does not run in a view; `/session lockdown` puts it in one",
+			 call->path);
+	fyai_error_check(ctx, !call->priv, err, "%s: a request is in flight", call->path);
+	r = calloc(1, sizeof(*r));
+	fyai_error_check(ctx, r, err, "%s: out of memory", call->path);
+	r->call = call;
+	r->ends_session = ends_session;
+	call->priv = r;
+	call->cleanup = session_request_cleanup;
+	request = fy_assoc(call->gb, request, "op", fy_value(call->gb, op));
+	request = fy_assoc(call->gb, request, "seq", 1LL);
+	rc = fyai_ctl_send(fd, request, -1, 0);
+	fyai_error_check(ctx, !rc, err_priv, "%s: cannot reach the supervisor of the session: %s",
+			 call->path, strerror(-rc));
+	rc = fyai_event_add_fd(fyai_ctx_loop(ctx), fd, FYAIEV_READ, session_reply, r, &r->source);
+	fyai_error_check(ctx, !rc, err_priv, "%s: cannot wait for the supervisor of the session",
+			 call->path);
+	return FYAI_CMD_PENDING;
+err_priv:
+	session_request_cleanup(call);
+err:
+	return -1;
+}
+
+/* Apply the changes of the session to the project. */
+int fyai_cmd_session_push(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	return session_request(call, "push",
+			       fy_mapping(call->gb, "dry_run", fyai_cmd_arg_bool(call, "dry_run"),
+					  "paths", fy_get(call->args, "paths", fy_seq_empty)),
+			       false);
+}
+
+/* Replace the view with the project as it is now, and start the session again on it. */
+int fyai_cmd_session_pull(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	return session_request(call, "pull",
+			       fy_mapping(call->gb, "discard", fyai_cmd_arg_bool(call, "discard")),
+			       true);
 }

@@ -49,6 +49,7 @@
 #include "fyai_sink.h"
 #include "fyai_tools.h"
 #include "fyai_transport_boot.h"
+#include "fyai_transport_ctl.h"
 #include "fyai_transport_sock.h"
 
 static fy_generic view_store(struct fyai_ctx *ctx)
@@ -1646,6 +1647,24 @@ struct view_session_transport {
 #define VIEW_SESSION_AGENT_FD 5
 #define VIEW_SESSION_CTL_FD 6
 #define VIEW_SESSION_ANNOUNCE_FD 7
+#define VIEW_SESSION_LINK_FD 8
+
+struct fyai_view_run;
+
+/*
+ * The requests of a session in a view to its supervisor. The session cannot reach
+ * the project, which its view covers: it asks the supervisor, which stays outside,
+ * to apply its changes (push) or to start it again on a fresh view (pull).
+ */
+struct view_session_link {
+	struct fyai_ctx *ctx;
+	struct fyai_view_run *run;
+	int fd[2];			/* the supervisor end, then the session end */
+	struct fyai_event_source *source;
+	bool restart;			/* the session asked for a fresh view */
+};
+
+static enum fyai_event_action view_session_request(const struct fyai_event *ev);
 
 /*
  * Admit the session that has just entered its view: take its pidfd, give the
@@ -1679,7 +1698,7 @@ static int view_session_admit(struct fyai_ctx *ctx, struct view_session_transpor
 
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
 		     bool self, int in_fd, int out_fd, struct view_session_transport *tp,
-		     struct shell_command_result *result)
+		     struct view_session_link *link, struct shell_command_result *result)
 {
 	struct fyai_child_spec spec = { .in_fd = in_fd,
 					.out_fd = out_fd,
@@ -1733,6 +1752,13 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		/* What an agent runtime starts is in the view, and shares it. */
 		if (view->agent && setenv("FYAI_VIEW", "1", 1))
 			_exit(FYAI_SHELL_EXIT_EXEC);
+		if (link) {
+			close(link->fd[0]);
+			spec.pass_fd[spec.pass_n] = link->fd[1];
+			spec.pass_as[spec.pass_n++] = VIEW_SESSION_LINK_FD;
+			if (setenv("FYAI_SESSION_FD", "8", 1))
+				_exit(FYAI_SHELL_EXIT_EXEC);
+		}
 		if (tp) {
 			close(tp->announce[0]);
 			/*
@@ -1741,13 +1767,12 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 			 * environment. The id comes with the release, once the
 			 * transport has registered the process; it owns nothing.
 			 */
-			spec.pass_fd[0] = tp->agent_child;
-			spec.pass_as[0] = VIEW_SESSION_AGENT_FD;
-			spec.pass_fd[1] = ctx->transport_ctl;
-			spec.pass_as[1] = VIEW_SESSION_CTL_FD;
-			spec.pass_fd[2] = tp->announce[1];
-			spec.pass_as[2] = VIEW_SESSION_ANNOUNCE_FD;
-			spec.pass_n = 3;
+			spec.pass_fd[spec.pass_n] = tp->agent_child;
+			spec.pass_as[spec.pass_n++] = VIEW_SESSION_AGENT_FD;
+			spec.pass_fd[spec.pass_n] = ctx->transport_ctl;
+			spec.pass_as[spec.pass_n++] = VIEW_SESSION_CTL_FD;
+			spec.pass_fd[spec.pass_n] = tp->announce[1];
+			spec.pass_as[spec.pass_n++] = VIEW_SESSION_ANNOUNCE_FD;
 			spec.announce_as = VIEW_SESSION_ANNOUNCE_FD;
 			if (setenv("FYAI_TRANSPORT_FD", "5", 1) ||
 			    setenv("FYAI_TRANSPORT_CTL", "6", 1) ||
@@ -1770,6 +1795,8 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 	}
 	close(status_pipe[1]);
 	close(gate[0]);
+	if (link)
+		close(link->fd[1]);
 	rc = setpgid(child, child);
 	if (!rc && tty) {
 		sigaction(SIGTTOU, &ignore, &previous);
@@ -1794,7 +1821,16 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		close(tp->announce[0]);
 		tp->announce[0] = -1;
 	}
+	/* The requests of the session are served while the loop waits for it. */
+	if (link && fyai_ctx_loop(ctx) &&
+	    fyai_event_add_fd(fyai_ctx_loop(ctx), link->fd[0], FYAIEV_READ, view_session_request,
+			      link, &link->source))
+		link->source = NULL;
 	waited = view_wait_child(ctx, child, &status, &cancelled);
+	if (link && link->source) {
+		fyai_event_source_remove(link->source);
+		link->source = NULL;
+	}
 	if (tty) {
 		sigaction(SIGTTOU, &ignore, &previous);
 		if (tcsetpgrp(STDIN_FILENO, foreground) && !rc) {
@@ -2030,7 +2066,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	fy_foreach(argument, arguments)
 		argv[index++] = (char *)argument;
-	rc = view_exec(call->ctx, &run.spec, argv, false, -1, -1, NULL, &output);
+	rc = view_exec(call->ctx, &run.spec, argv, false, -1, -1, NULL, NULL, &output);
 	if (rc)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
@@ -2122,7 +2158,7 @@ static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job 
 		rc = -1;
 		goto out;
 	}
-	rc = view_exec(ctx, &run.spec, job->argv, true, in_fd, out_fd, NULL, &output);
+	rc = view_exec(ctx, &run.spec, job->argv, true, in_fd, out_fd, NULL, NULL, &output);
 	saved = errno;
 	if (job->finish)
 		finished = job->finish(job->arg);
@@ -3204,12 +3240,168 @@ void fyai_view_run_free(struct fyai_view_run *run)
 	free(run);
 }
 
+/*
+ * Record the result of the live view as it is now, for a command that compares or
+ * applies it. The state of the record stays what it is: the session still runs.
+ */
+static int view_run_checkpoint(struct fyai_ctx *ctx, struct fyai_view_run *run)
+{
+	char error[PATH_MAX] = "";
+	fy_generic snapshot, updated;
+	int saved;
+
+	snapshot = fyai_fsview_snapshot(ctx->gb, &run->spec, error, sizeof(error));
+	if (!fy_is_valid(snapshot)) {
+		saved = errno;
+		fyai_error(ctx, "view '%s': cannot capture the result%s%s: %s", run->name,
+			   *error ? " at " : "", error, strerror(saved));
+		return -1;
+	}
+	updated = fy_assoc(ctx->gb, run->view, "result", snapshot);
+	if (view_save(ctx, run->name, updated))
+		return -1;
+	run->view = updated;
+	return 0;
+}
+
+/* Rows of a reply beyond this are counted, not sent: a datagram is bounded. */
+#define VIEW_SESSION_ROWS 300
+
+/* Reply to the session with the cause that the diagnostics hold, and clear them. */
+static fy_generic view_session_failure(struct fyai_ctx *ctx, struct fy_generic_builder *gb, long long seq,
+				       const char *fallback)
+{
+	char *why = fyai_diag_string(&ctx->cfg->diag);
+	fy_generic reply = fyai_ctl_reply_error(gb, seq, why && *why ? why : fallback);
+
+	free(why);
+	fyai_diag_reset(&ctx->cfg->diag);
+	return reply;
+}
+
+/* push: apply the changes of the view to the project, as `view apply` does. */
+static fy_generic view_session_push(struct view_session_link *link, struct fy_generic_builder *gb,
+				    fy_generic m)
+{
+	struct fyai_ctx *ctx = link->ctx;
+	long long seq = fy_get(m, "seq", 0LL);
+	fy_generic list = fy_get(m, "paths", fy_seq_empty), path, result, rows, kept;
+	const char **paths = NULL;
+	size_t count = 0, n = fy_len(list), i = 0;
+	int status = ctx->cfg->exit_status;
+	bool dry = fy_get(m, "dry_run", false);
+	int rc;
+
+	if (n) {
+		paths = calloc(n, sizeof(*paths));
+		if (!paths)
+			return fyai_ctl_reply_error(gb, seq, "out of memory");
+		fy_foreach(path, list)
+			paths[count++] = fy_castp(&path, "");
+	}
+	rc = view_run_checkpoint(ctx, link->run);
+	if (!rc)
+		rc = fyai_view_pull(ctx, gb, link->run->name, NULL, paths, count,
+				    dry ? FYAI_VIEW_PULL_DRY_RUN : FYAI_VIEW_PULL_APPLY, &result);
+	free(paths);
+	/* A conflict is an outcome to read; it does not end the supervisor with a status. */
+	ctx->cfg->exit_status = status;
+	if (rc)
+		return view_session_failure(ctx, gb, seq, "cannot apply the view to the project");
+	rows = fy_get(result, "changes", fy_seq_empty);
+	if (fy_len(rows) > VIEW_SESSION_ROWS) {
+		kept = fy_sequence(gb);
+		fy_foreach(path, rows)
+			if (i++ < VIEW_SESSION_ROWS)
+				kept = fy_append(gb, kept, path);
+		result = fy_assoc(gb, result, "changes", kept);
+		result = fy_assoc(gb, result, "more", (long long)(fy_len(rows) - VIEW_SESSION_ROWS));
+	}
+	return fy_assoc(gb, fyai_ctl_reply_ok(gb, seq), "result", result);
+}
+
+/*
+ * pull: replace the view with a fresh capture of the project, and start the session
+ * again on it. The replacement drops what the view holds that the project does
+ * not, so it is refused when a push would still write or conflict, unless the user
+ * said to discard it. What is pushed already is not lost.
+ */
+static fy_generic view_session_pull(struct view_session_link *link, struct fy_generic_builder *gb,
+				    fy_generic m)
+{
+	struct fyai_ctx *ctx = link->ctx;
+	long long seq = fy_get(m, "seq", 0LL), pending;
+	int status = ctx->cfg->exit_status;
+	fy_generic result;
+	int rc;
+
+	if (!fy_get(m, "discard", false)) {
+		rc = view_run_checkpoint(ctx, link->run);
+		if (!rc)
+			rc = fyai_view_pull(ctx, gb, link->run->name, NULL, NULL, 0,
+					    FYAI_VIEW_PULL_DRY_RUN, &result);
+		ctx->cfg->exit_status = status;
+		if (rc)
+			return view_session_failure(ctx, gb, seq, "cannot compare the view with the project");
+		pending = fy_get(result, "applied", 0LL) + fy_get(result, "conflicts", 0LL);
+		if (pending)
+			return fyai_ctl_reply_error(gb, seq, fy_gb_intern_string(gb, fy_sprintfa(
+				"%lld path%s of the session would be dropped, because the project does "
+				"not have them: push them first, or pull --discard", pending,
+				pending == 1 ? "" : "s")));
+	}
+	link->restart = true;
+	fyai_diag_tracef("session", "pull accepted: the session starts again");
+	return fy_assoc(gb, fyai_ctl_reply_ok(gb, seq), "result", fy_mapping(gb, "restart", true));
+}
+
+static enum fyai_event_action view_session_request(const struct fyai_event *ev)
+{
+	struct view_session_link *link = ev->userdata;
+	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
+	struct fy_generic_builder *gb;
+	fy_generic m, reply, opv;
+	const char *op;
+	int rc;
+
+	gb = fy_generic_builder_create(&cfg);
+	if (!gb)
+		return FYAIEA_CONTINUE;
+	rc = fyai_ctl_recv(link->fd[0], gb, &m, NULL);
+	if (rc == -EAGAIN) {
+		fy_generic_builder_destroy(gb);
+		return FYAIEA_CONTINUE;
+	}
+	if (rc) {
+		/* The session ended or sent what is not a request: stop listening. */
+		if (link->source) {
+			fyai_event_source_remove(link->source);
+			link->source = NULL;
+		}
+		fy_generic_builder_destroy(gb);
+		return FYAIEA_CONTINUE;
+	}
+	opv = fy_get(m, "op", fy_invalid);
+	op = fy_castp(&opv, "");
+	fyai_diag_tracef("session", "request %s", op);
+	if (!strcmp(op, "push"))
+		reply = view_session_push(link, gb, m);
+	else if (!strcmp(op, "pull"))
+		reply = view_session_pull(link, gb, m);
+	else
+		reply = fyai_ctl_reply_error(gb, fy_get(m, "seq", 0LL), "the supervisor has no such request");
+	(void)fyai_ctl_send(link->fd[0], reply, -1, 0);
+	fy_generic_builder_destroy(gb);
+	return FYAIEA_CONTINUE;
+}
+
 int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic section = fy_get(cfg->config_doc, "view", fy_invalid);
 	struct shell_command_result output = { 0 };
 	struct view_session_transport tp = { -1, -1, { -1, -1 } }, *tpp = NULL;
+	struct view_session_link link = { .fd = { -1, -1 } };
 	struct fyai_view_run *run = NULL;
 	int agent[2] = { -1, -1 };
 	char **argv = NULL, startup[FYAI_CHILD_START_TEXT_MAX];
@@ -3231,6 +3423,8 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 	fyai_error_check(ctx, argv, out, "could not allocate the command line of the view");
 	for (i = 0; i < argc; i++)
 		argv[i] = cfg->argv[i];
+restart:
+	tpp = NULL;
 	if (fyai_view_run_begin(ctx, "session", &run))
 		goto out;
 	/*
@@ -3264,7 +3458,21 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 		tp.agent_transport = agent[1];
 		tpp = &tp;
 	}
-	rc = view_exec(ctx, &run->spec, argv, true, -1, -1, tpp, &output);
+	/* The session asks its supervisor to push its changes, or to replace its view. */
+	link.ctx = ctx;
+	link.run = run;
+	link.restart = false;
+	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, link.fd)) {
+		saved = errno;
+		fyai_error(ctx, "view 'session': cannot create its request channel: %s", strerror(saved));
+		link.fd[0] = link.fd[1] = -1;
+		rc = -1;
+		goto out;
+	}
+	rc = view_exec(ctx, &run->spec, argv, true, -1, -1, tpp, &link, &output);
+	if (link.fd[0] >= 0)
+		close(link.fd[0]);
+	link.fd[0] = link.fd[1] = -1;
 	if (tpp) {
 		close(agent[0]);
 		close(agent[1]);
@@ -3287,6 +3495,20 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 		fyai_error(ctx, "view 'session': %s", why);
 		rc = -1;
 		goto out;
+	}
+	fyai_diag_tracef("session", "the session ended: exit %d restart %d", output.exit_code, (int)link.restart);
+	if (link.restart) {
+		/* The next capture replaces this view; the session starts again on it. */
+		shell_command_result_cleanup(&output);
+		memset(&output, 0, sizeof(output));
+		fyai_view_run_free(run);
+		run = NULL;
+		if (setenv("FYAI_SESSION_RESTART", "1", 1)) {
+			fyai_error(ctx, "view 'session': cannot mark the restart: %s", strerror(errno));
+			rc = -1;
+			goto out;
+		}
+		goto restart;
 	}
 	rc = fyai_view_run_finish(ctx, run, &summary);
 	if (rc)

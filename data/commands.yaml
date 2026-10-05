@@ -2780,11 +2780,64 @@ commands:
     description: |
       The isolation of the session. With no subcommand, show the state.
       `lockdown` takes the strongest isolation that this host can enforce, and
-      `yolo` takes it all off.
+      `yolo` takes it all off. A session that runs in a view moves work between
+      its view and the project: `push` writes its changes into the project, and
+      `pull` replaces the view with the project as it is now.
     surfaces: [session]
     default: status
     see_also: [view, reload]
     commands:
+      - command: push
+        title: apply the changes of the session to the project
+        description: |
+          Write the changes of a session that runs in a view into the project, as
+          `view apply` does: a path that the project still has as the view began
+          with it takes the result, a path that already equals the result is left
+          alone, and a path that the project and the session changed differently
+          is a conflict, reported and not changed. Name paths to apply only those.
+          The session keeps running on its view. The view cannot reach the project,
+          so the supervisor of the session, which stays outside it, does the work.
+        handler: session_push
+        mode: async
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            dry_run:
+              type: boolean
+              default: false
+              description: report what would change and write nothing
+              x-fyai-long: dry-run
+            paths:
+              type: array
+              items: {type: string}
+              description: the paths to apply, relative to the project; omit to apply every change
+              x-fyai-positional: 0
+              x-fyai-meta: PATH
+        render:
+          document: yaml
+
+      - command: pull
+        title: take the project as it is now into the session
+        description: |
+          Replace the view of the session with a fresh capture of the project, and
+          start the session again on it, on the same branch. The replacement drops
+          the changes of the view, so a session that has some is not replaced:
+          push them first, or give `--discard`. A restart ends the shells and
+          sub-agents of the session, so they must finish first.
+        handler: session_pull
+        mode: async
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            discard:
+              type: boolean
+              default: false
+              description: drop the changes of the view instead of refusing
+        render:
+          message: "the session starts again on a fresh view of the project"
+
       - command: status
         title: show the isolation of this session
         description: |

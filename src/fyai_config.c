@@ -3549,6 +3549,15 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 				goto err_out;;
 			}
 		}
+		/*
+		 * A session started again on a fresh view has had its first prompt already.
+		 * The mark is for this process alone: a program that the session runs does not inherit it.
+		 */
+		if (getenv("FYAI_SESSION_RESTART")) {
+			unsetenv("FYAI_SESSION_RESTART");
+			free(prompt);
+			prompt = NULL;
+		}
 		cfg->prompt = fy_gb_intern_string(cfg->gb, prompt ? prompt : "");
 		free(prompt);
 		prompt = NULL;

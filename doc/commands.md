@@ -4769,17 +4769,21 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `/session {status|lockdown|yolo} ...`
+**Usage:** `/session {push|pull|status|lockdown|yolo} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
-`yolo` takes it all off.
+`yolo` takes it all off. A session that runs in a view moves work between
+its view and the project: `push` writes its changes into the project, and
+`pull` replaces the view with the project as it is now.
 
 
 ### Commands
 
 | Command | Description |
 | --- | --- |
+| `push` | apply the changes of the session to the project |
+| `pull` | take the project as it is now into the session |
 | `status` | show the isolation of this session |
 | `lockdown` | take the strongest isolation that this host can enforce |
 | `yolo` | take off the isolation of the session |
@@ -4787,6 +4791,54 @@ The isolation of the session. With no subcommand, show the state.
 With no command, `status` runs.
 
 **See also:** `/help view`, `/help reload`
+
+## /session push
+
+apply the changes of the session to the project
+
+**Usage:** `/session push [--dry-run] [PATH...]`
+
+Write the changes of a session that runs in a view into the project, as
+`view apply` does: a path that the project still has as the view began
+with it takes the result, a path that already equals the result is left
+alone, and a path that the project and the session changed differently
+is a conflict, reported and not changed. Name paths to apply only those.
+The session keeps running on its view. The view cannot reach the project,
+so the supervisor of the session, which stays outside it, does the work.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PATH` | the paths to apply, relative to the project; omit to apply every change |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--dry-run` | report what would change and write nothing; default false |
+| `-h`, `--help` | show this help |
+
+## /session pull
+
+take the project as it is now into the session
+
+**Usage:** `/session pull [--discard]`
+
+Replace the view of the session with a fresh capture of the project, and
+start the session again on it, on the same branch. The replacement drops
+the changes of the view, so a session that has some is not replaced:
+push them first, or give `--discard`. A restart ends the shells and
+sub-agents of the session, so they must finish first.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--discard` | drop the changes of the view instead of refusing; default false |
+| `-h`, `--help` | show this help |
 
 ## /session status
 
