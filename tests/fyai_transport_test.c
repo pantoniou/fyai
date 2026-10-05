@@ -7,12 +7,15 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -36,6 +39,8 @@ FYAI_TEST_ENTRY(transport, grant_plain_http, transport_grant_plain_http)
 FYAI_TEST_ENTRY(transport, grant_names, transport_grant_names)
 FYAI_TEST_ENTRY(transport, level_names, transport_level_names)
 FYAI_TEST_ENTRY(transport, level_b_needs_no_cgroup, transport_level_b_needs_no_cgroup)
+FYAI_TEST_ENTRY(transport, registers_by_pidfd, transport_registers_by_pidfd)
+FYAI_TEST_ENTRY(transport, registers_pidfd_in_pid_namespace, transport_registers_pidfd_in_pid_namespace)
 FYAI_TEST_ENTRY(transport, rejects_shared_namespace, transport_rejects_shared_namespace)
 FYAI_TEST_ENTRY(transport, accepts_isolated_namespace, transport_accepts_isolated_namespace)
 
@@ -438,6 +443,167 @@ int transport_level_b_needs_no_cgroup(void)
 	FYAI_TCHECK(fyai_transport_recv(reg, sv[1], &msg) == FYAI_TV_OK);
 	fyai_transport_registry_destroy(reg);
 	close(sv[0]);
+	return 0;
+}
+
+/* A pidfd names the execution, and a message from that process is accepted. */
+int transport_registers_by_pidfd(void)
+{
+	struct fyai_transport_registry *reg = fyai_transport_registry_create(FYAI_TL_B, NULL);
+	struct fyai_transport_msg msg;
+	int sv[2], pidfd, rc;
+
+	FYAI_TCHECK(reg);
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv));
+	pidfd = syscall(SYS_pidfd_open, getpid(), 0);
+	FYAI_TCHECK(pidfd >= 0);
+	/* A descriptor that is not a pidfd names no process. */
+	FYAI_TCHECK(fyai_transport_register_pidfd(reg, 7, 0, sv[0], getuid(), sv[1], NULL, 0, NULL) < 0);
+	rc = fyai_transport_register_pidfd(reg, 7, 0, pidfd, getuid(), sv[1], NULL, 0, NULL);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!send_req(sv[0], 7, FYAI_TK_REQUEST, "x"));
+	FYAI_TCHECK(fyai_transport_recv(reg, sv[1], &msg) == FYAI_TV_OK);
+	fyai_transport_registry_destroy(reg);
+	close(sv[0]);
+	return 0;
+}
+
+static int proc_write(const char *path, const char *text)
+{
+	int fd = open(path, O_WRONLY | O_CLOEXEC), rc;
+
+	if (fd < 0)
+		return -1;
+	rc = write(fd, text, strlen(text)) == (ssize_t)strlen(text) ? 0 : -1;
+	close(fd);
+	return rc;
+}
+
+static int send_fd(int sock, int fd)
+{
+	char byte = 0;
+	union {
+		struct cmsghdr align;
+		char raw[CMSG_SPACE(sizeof(int))];
+	} ctl = { 0 };
+	struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
+	struct msghdr mh = {
+		.msg_iov = &iov, .msg_iovlen = 1,
+		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
+	};
+	struct cmsghdr *c = CMSG_FIRSTHDR(&mh);
+
+	c->cmsg_level = SOL_SOCKET;
+	c->cmsg_type = SCM_RIGHTS;
+	c->cmsg_len = CMSG_LEN(sizeof(int));
+	memcpy(CMSG_DATA(c), &fd, sizeof(int));
+	return sendmsg(sock, &mh, 0) == 1 ? 0 : -1;
+}
+
+static int recv_fd(int sock)
+{
+	char byte;
+	union {
+		struct cmsghdr align;
+		char raw[CMSG_SPACE(sizeof(int))];
+	} ctl = { 0 };
+	struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
+	struct msghdr mh = {
+		.msg_iov = &iov, .msg_iovlen = 1,
+		.msg_control = ctl.raw, .msg_controllen = sizeof(ctl.raw),
+	};
+	struct cmsghdr *c;
+	int fd;
+
+	if (recvmsg(sock, &mh, MSG_CMSG_CLOEXEC) != 1)
+		return -1;
+	c = CMSG_FIRSTHDR(&mh);
+	if (!c || c->cmsg_type != SCM_RIGHTS)
+		return -1;
+	memcpy(&fd, CMSG_DATA(c), sizeof(int));
+	return fd;
+}
+
+/*
+ * The agent runs in a PID namespace of its own, where its PID is not the one that
+ * the registry sees. The registry takes the PID that the pidfd has in its own
+ * namespace, and the message of the agent, whose credentials the kernel
+ * translates for the receiver, is from that execution.
+ */
+int transport_registers_pidfd_in_pid_namespace(void)
+{
+	struct fyai_transport_registry *reg = fyai_transport_registry_create(FYAI_TL_B, NULL);
+	struct fyai_transport_msg msg;
+	int sv[2], pf[2], pidfd, st, rc;
+	pid_t mid;
+	char c;
+
+	FYAI_TCHECK(reg);
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv));
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_STREAM, 0, pf));
+	mid = fork();
+	FYAI_TCHECK(mid >= 0);
+	if (!mid) {
+		uid_t uid = getuid();
+		gid_t gid = getgid();
+		char map[64];
+		pid_t g;
+		int fd;
+
+		close(pf[0]);
+		/* A name space needs a user name space; no permission to make one is a skip. */
+		if (unshare(CLONE_NEWUSER | CLONE_NEWPID))
+			_exit(77);
+		snprintf(map, sizeof(map), "%u %u 1\n", uid, uid);
+		if (proc_write("/proc/self/setgroups", "deny\n") ||
+		    proc_write("/proc/self/uid_map", map))
+			_exit(77);
+		snprintf(map, sizeof(map), "%u %u 1\n", gid, gid);
+		if (proc_write("/proc/self/gid_map", map))
+			_exit(77);
+		g = fork();
+		if (g < 0)
+			_exit(1);
+		if (!g) {
+			/* The first process of the new name space: its PID here is 1. */
+			fd = syscall(SYS_pidfd_open, getpid(), 0);
+			if (fd < 0 || getpid() != 1 || send_fd(pf[1], fd))
+				_exit(2);
+			/* The agent sends after it is admitted, as the real one does. */
+			if (read(pf[1], &c, 1) != 1 || send_req(sv[0], 7, FYAI_TK_REQUEST, "x"))
+				_exit(3);
+			if (read(pf[1], &c, 1) != 1)
+				_exit(3);
+			_exit(0);
+		}
+		if (waitpid(g, &st, 0) != g)
+			_exit(4);
+		_exit(WIFEXITED(st) ? WEXITSTATUS(st) : 5);
+	}
+	close(pf[1]);
+	pidfd = recv_fd(pf[0]);
+	if (pidfd < 0) {
+		/* The child ended before it sent anything: it could not make the name space. */
+		FYAI_TCHECK(waitpid(mid, &st, 0) == mid);
+		FYAI_TCHECK(WIFEXITED(st) && WEXITSTATUS(st) == 77);
+		fyai_transport_registry_destroy(reg);
+		close(sv[0]);
+		close(sv[1]);
+		close(pf[0]);
+		return 0;
+	}
+	rc = fyai_transport_register_pidfd(reg, 7, 0, pidfd, getuid(), sv[1], NULL, 0, NULL);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(write(pf[0], "g", 1) == 1);
+	/* The receive does not block: wait for the datagram. */
+	FYAI_TCHECK(poll(&(struct pollfd){ .fd = sv[1], .events = POLLIN }, 1, 10000) == 1);
+	FYAI_TCHECK(fyai_transport_recv(reg, sv[1], &msg) == FYAI_TV_OK);
+	FYAI_TCHECK(write(pf[0], "g", 1) == 1);
+	FYAI_TCHECK(waitpid(mid, &st, 0) == mid);
+	FYAI_TCHECK(WIFEXITED(st) && !WEXITSTATUS(st));
+	fyai_transport_registry_destroy(reg);
+	close(sv[0]);
+	close(pf[0]);
 	return 0;
 }
 

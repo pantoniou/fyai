@@ -23,6 +23,7 @@ FYAI_TEST_ENTRY(transport_ctl, profiles_rejected, transport_ctl_profiles_rejecte
 FYAI_TEST_ENTRY(transport_ctl, grant_and_ns, transport_ctl_grant_and_ns)
 FYAI_TEST_ENTRY(transport_ctl, passes_descriptor, transport_ctl_passes_descriptor)
 FYAI_TEST_ENTRY(transport_ctl, refuses_bad_datagrams, transport_ctl_refuses_bad_datagrams)
+FYAI_TEST_ENTRY(transport_ctl, passes_two_descriptors, transport_ctl_passes_two_descriptors)
 
 static struct fy_generic_builder *new_gb(void)
 {
@@ -139,6 +140,41 @@ int transport_ctl_grant_and_ns(void)
 	FYAI_TCHECK(fyai_ctl_ns_parse(parse_json_string(gb, "{\"net\":\"x\"}"), &ns) == -EINVAL);
 	FYAI_TCHECK(fyai_ctl_ns_parse(parse_json_string(gb, "[1]"), &ns) == -EINVAL);
 	fy_generic_builder_destroy(gb);
+	return 0;
+}
+
+/* A datagram carries two descriptors, in order, and a caller that wants one closes the other. */
+int transport_ctl_passes_two_descriptors(void)
+{
+	struct fy_generic_builder *gb = new_gb(), *gb2 = new_gb();
+	int sv[2], first[2], second[2], fd = -1, fd2 = -1;
+	fy_generic m;
+	char c = 0;
+
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv));
+	FYAI_TCHECK(!pipe(first) && !pipe(second));
+	FYAI_TCHECK(!fyai_ctl_send2(sv[0], fy_mapping(gb, "op", "admit", "seq", 6LL), first[1],
+				    second[1], 0));
+	FYAI_TCHECK(!fyai_ctl_recv2(sv[1], gb2, &m, &fd, &fd2));
+	FYAI_TCHECK(fd >= 0 && fd2 >= 0 && fd != fd2);
+	FYAI_TCHECK(write(fd, "a", 1) == 1 && read(first[0], &c, 1) == 1 && c == 'a');
+	FYAI_TCHECK(write(fd2, "b", 1) == 1 && read(second[0], &c, 1) == 1 && c == 'b');
+	close(fd);
+	close(fd2);
+
+	/* With no place for the second one it is closed: the pipe then reads end of file. */
+	FYAI_TCHECK(!fyai_ctl_send2(sv[0], fy_mapping(gb, "op", "admit", "seq", 7LL), first[1],
+				    second[1], 0));
+	fd = fd2 = -1;
+	FYAI_TCHECK(!fyai_ctl_recv(sv[1], gb2, &m, &fd));
+	FYAI_TCHECK(fd >= 0);
+	close(fd);
+	/* A second descriptor with no first one has no place on the wire. */
+	FYAI_TCHECK(fyai_ctl_send2(sv[0], fy_mapping(gb, "op", "admit"), -1, second[1], 0) == -EINVAL);
+	close(sv[0]);
+	close(sv[1]);
+	fy_generic_builder_destroy(gb);
+	fy_generic_builder_destroy(gb2);
 	return 0;
 }
 
