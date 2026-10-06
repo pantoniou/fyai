@@ -166,68 +166,6 @@ static char *ui_indicator(struct fyai_ui *ui,
 					 interval_msp);
 }
 
-static int ui_status_render(struct fyai_ui *ui, const char *activity)
-{
-	struct response_buffer out = {0};
-	const char *margin = activity;
-	char *line, *p;
-	size_t start, end, i;
-	int cols, width, rc;
-
-	if (!ui->status_bottom)
-		return 0;
-	cols = markdown_gutter_cols(ui->ctx->cfg);
-	width = activity ? fymd_str_width(activity, strlen(activity)) : 0;
-	if (width >= 0 && width < cols)
-		margin = fy_sprintfa("%s%*s", activity ? activity : "",
-				      cols - width, "");
-	if (markdown_render_margins(ui->ctx->cfg, ui->status_bottom,
-			strlen(ui->status_bottom), &out, margin, margin))
-		return -1;
-	start = 0;
-	end = out.len;
-	while (start < end &&
-	       (out.data[start] == '\n' || out.data[start] == '\r'))
-		start++;
-	while (end > start &&
-	       (out.data[end - 1] == '\n' || out.data[end - 1] == '\r'))
-		end--;
-	rc = asprintf(&line, "%.*s", (int)(end - start), out.data + start);
-	free(out.data);
-	fyai_error_check(ui->ctx, rc >= 0, err_out,
-			 "cannot format the status row");
-	for (p = line, i = 0; i < end - start; i++)
-		if (p[i] == '\n' || p[i] == '\r')
-			p[i] = ' ';
-	rc = fytim_set_status_row(ui->ft, 1, line) == FYTIM_OK ? 0 : -1;
-	free(line);
-	return rc;
-
-err_out:
-	return -1;
-}
-
-/* Show the busy-turn duration after the stored input pane header. */
-static int ui_header_tick(struct fyai_ui *ui)
-{
-	char elapsed[24];
-	char *line;
-	int rc;
-
-	if (!ui->busy || !ui->status_top)
-		return 0;
-	fyai_event_elapsed_format(elapsed, sizeof(elapsed), ui->busy_since_ms);
-	rc = asprintf(&line, "%s%s", ui->status_top, elapsed);
-	fyai_error_check(ui->ctx, rc >= 0, err_out,
-			 "cannot format the input pane header");
-	rc = fytim_set_header(ui->ft, line) == FYTIM_OK ? 0 : -1;
-	free(line);
-	return rc;
-
-err_out:
-	return -1;
-}
-
 static int ui_append_shell_command(struct fyai_cfg *cfg,
 				   struct response_buffer *out,
 				   const char *command)
@@ -402,12 +340,6 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 		return -1;
 	if (ui->tool_band && ui_tool_render(ui, activity, false))
 		goto out;
-	if (ui->busy) {
-		if (ui_status_render(ui, activity))
-			goto out;
-		if (ui_header_tick(ui))
-			goto out;
-	}
 	rc = 0;
 out:
 	free(activity);
@@ -1108,8 +1040,8 @@ static void ui_side_width(struct fyai_ui *ui, int cols)
 }
 
 /*
- * Follow display/renderer: make the page when it is asked for and this build
- * can compose one, and give the screen back to the band stack otherwise.
+ * Make the page, and make it again when display/page selects another
+ * document. The page is the only screen renderer.
  */
 static void ui_page_actions_get(const struct fyai_page_action **actions,
 				size_t *n);
@@ -1117,32 +1049,26 @@ static void ui_page_actions_get(const struct fyai_page_action **actions,
 static void ui_page_configure(struct fyai_ui *ui)
 {
 	struct fyai_ctx *ctx = ui->ctx;
-	bool want = fyai_page_requested(ctx->cfg);
 	const struct fyai_page_action *actions = NULL;
 	const char *made_for, *path;
 	size_t nactions = 0;
-	bool remake;
 
 	/* A page made for another display/page is made again. */
 	made_for = ui->page ? fyai_page_document_path(ui->page) : NULL;
 	path = ctx->cfg->page_path;
-	remake = want && ui->page &&
-		 strcmp(made_for ? made_for : "", path ? path : "");
-	ui_page_actions_get(&actions, &nactions);
-	if (want && !ui->page) {
-		ui->page = fyai_page_create(ctx, actions, nactions);
-	} else if (remake) {
-		fyai_page_destroy(ui->page);
-		ui->page = fyai_page_create(ctx, actions, nactions);
-		if (!ui->page) {
-			fytim_page_clear(ui->ft);
-			(void)fytim_set_key_bindings(ui->ft, NULL, 0);
-			ui->page_keys.count = 0;
-		}
-	} else if (!want && ui->page) {
+	if (ui->page &&
+	    !strcmp(made_for ? made_for : "", path ? path : "")) {
+		ui->frame_pending = true;
+		return;
+	}
+	if (ui->page) {
 		fyai_page_destroy(ui->page);
 		ui->page = NULL;
 		ui_side_width(ui, 0);
+	}
+	ui_page_actions_get(&actions, &nactions);
+	ui->page = fyai_page_create(ctx, actions, nactions);
+	if (!ui->page) {
 		fytim_page_clear(ui->ft);
 		/* The keys of its modes go back to the prompt. */
 		(void)fytim_set_key_bindings(ui->ft, NULL, 0);
@@ -1172,10 +1098,7 @@ int fyai_ui_page_report(struct fyai_ctx *ctx)
 	int rc;
 
 	if (!ui || !ui->page) {
-		fyai_result(ctx, "the page renderer does not draw the screen; "
-			    "display/renderer is %s\n",
-			    ctx && ctx->cfg->renderer ? ctx->cfg->renderer :
-			    "not set");
+		fyai_result(ctx, "the page is not available\n");
 		return 0;
 	}
 	rc = fyai_page_report(ui->page, &md);
@@ -1208,10 +1131,7 @@ int fyai_ui_page_review(struct fyai_ctx *ctx, const char *how, bool *on)
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 
 	if (!ui || !ui->page) {
-		fyai_error(ctx, "the page renderer does not draw the screen; "
-			   "display/renderer is %s",
-			   ctx && ctx->cfg->renderer ? ctx->cfg->renderer :
-			   "not set");
+		fyai_error(ctx, "the page is not available");
 		return -1;
 	}
 	if (fy_str_empty(how))
@@ -1689,13 +1609,13 @@ static void ui_page_update(struct fyai_ui *ui)
 	rc = fyai_page_publish(ui->page, ui->ft, &st, cols, rows);
 	if (rc) {
 err_page:
+		/* A frame of the page that cannot be built stops the page. */
 		fyai_page_destroy(ui->page);
 		ui->page = NULL;
 		ui_side_width(ui, 0);
 		fytim_page_clear(ui->ft);
 		ui_page_keys_clear(ui);
-		fyai_warning(ctx, "the page renderer stopped; "
-			     "the band stack draws the screen");
+		fyai_warning(ctx, "the page renderer stopped");
 	} else {
 		ui_page_keys_bind(ui, &keys);
 		/* What the page gave a tile is the grant of the tile. A popup
@@ -1987,7 +1907,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 				fyai_transcript_view_scroll(ui->popup, ev.delta,
 							    ui->popup_rows);
 				ui->frame_pending = true;
-			} else if (ui->page && ui_tile_scrolls(ui) &&
+			} else if (ui_tile_scrolls(ui) &&
 				   (sf = ui_slot_surface(ui, ev.text,
 							 ev.text_len))) {
 				/* The wheel over a tile the page draws is
@@ -2024,8 +1944,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			ui_act(ui, &ev);
 			break;
 		case FYTIM_EVENT_KEY:
-			if (ui->page)
-				ui_page_key(ui, &ev);
+			ui_page_key(ui, &ev);
 			break;
 		case FYTIM_EVENT_SELECT:
 			ui_select(ui, &ev);
@@ -2162,7 +2081,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	cfg.mouse = fyai_workpane_wants_mouse(ctx);
 	/* A fullscreen page takes the alternate screen, where its text is
 	 * selected and copied. */
-	if (fyai_page_requested(ctx->cfg) && ctx->cfg->screen &&
+	if (ctx->cfg->screen &&
 	    !strcmp(ctx->cfg->screen, "fullscreen")) {
 		cfg.screen = FYTIM_SCREEN_ALT;
 		cfg.clipboard = true;
@@ -2276,6 +2195,9 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	fyai_browser_close(ctx);
 	fyai_agents_detach(ctx);
 	fyai_ui_drain_output(ctx);
+	/* A result drawn just before the exit is still a pending frame. */
+	if (ui->ft && ui->page && ui->frame_pending)
+		ui_page_update(ui);
 	if (ui->ft)
 		(void)fytim_pump(ui->ft);
 	fyai_event_source_remove(ui->timer_src);
@@ -3057,10 +2979,6 @@ void fyai_ui_set_busy(struct fyai_ctx *ctx, bool busy)
 		ui->activity_phase = -1;
 		ui->busy_since_ms = fyai_event_now_ms();
 		(void)ui_activity_refresh(ui);
-	} else {
-		(void)ui_status_render(ui, markdown_gutter_blank(ctx->cfg));
-		if (ui->status_top)
-			(void)fytim_set_header(ui->ft, ui->status_top);
 	}
 	ui_rearm(ui);
 }
@@ -3140,7 +3058,6 @@ void fyai_ui_panel_update(struct fyai_ctx *ctx)
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct response_buffer out = {0};
 	const char *glyph, *on, *off;
-	enum fytim_result res;
 	int counts[3], i, n, cols, rc = 0;
 	bool hidden, color;
 
@@ -3152,7 +3069,6 @@ void fyai_ui_panel_update(struct fyai_ctx *ctx)
 	ui->panel = NULL;
 	ui->panel_cols = 0;
 	if (!hidden && !counts[0] && !counts[1] && !counts[2]) {
-		(void)fytim_set_header_right(ui->ft, NULL, NULL, 0);
 		ui->frame_pending = true;
 		return;
 	}
@@ -3193,10 +3109,6 @@ void fyai_ui_panel_update(struct fyai_ctx *ctx)
 	}
 	ui->panel = out.data;
 	ui->panel_cols = cols;
-	res = fytim_set_header_right(ui->ft, ui->panel, &ui->panel_act, 1);
-	if (res != FYTIM_OK)
-		fyai_warning(ctx, "the terminal library did not take the panel "
-			     "of the input header: %s", fytim_result_string(res));
 	ui->frame_pending = true;
 }
 
@@ -3204,7 +3116,7 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 			   const char *top_source, const char *bottom)
 {
 	struct fyai_ui *ui;
-	char *copy, *header, *source, *activity;
+	char *copy, *header, *source;
 
 	if (!fyai_ui_active(ctx)) return;
 	ui = ctx->ui;
@@ -3224,16 +3136,6 @@ void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 	ui->status_top = header;
 	free(ui->status_top_source);
 	ui->status_top_source = source;
-	(void)fytim_set_header(ui->ft, top);
-	activity = ui->busy ?
-		ui_indicator(ui, FYMD_INDICATOR_PENDING,
-			     (size_t)ui->activity_phase, NULL) :
-		strdup(markdown_gutter_blank(ctx->cfg));
-	if (!activity)
-		return;
-	if (!ui_status_render(ui, activity))
-		(void)ui_header_tick(ui);
-	free(activity);
 }
 
 /* Select the tile width for a band render and return the previous width. */
@@ -3994,11 +3896,12 @@ int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
 	}
 	if (!rc) {
 		response_buffer_trim(&out);
-		if (ui->page)
-			rc = ui_page_tile_set(ui, sf, out.data ? out.data : "");
-		else
-		rc = fytim_surface_set_top(sf, out.data ? out.data : title) ==
-		     FYTIM_OK ? 0 : -1;
+		rc = ui_page_tile_set(ui, sf, out.data ? out.data : "");
+		/* The commit of the surface writes its top into the
+		 * transcript; the tile page draws the head by itself. */
+		if (!rc && fytim_surface_set_top(sf, out.data ? out.data :
+						 title) != FYTIM_OK)
+			rc = -1;
 	}
 	ctx->cfg->render_width = saved_width;
 	free(out.data);
@@ -4047,8 +3950,7 @@ void fyai_ui_tile_bind(struct fytim_surface *sf, struct fytim_workband *band,
 {
 	char id[32];
 
-	/* A page places each tile in a slot of its own; the band stack ignores
-	 * the binding. */
+	/* The page places each tile in a slot of its own. */
 	snprintf(id, sizeof(id), "tile:%u", slot);
 	if (sf)
 		(void)fytim_surface_bind(sf, id);
@@ -4081,7 +3983,7 @@ void fyai_ui_surface_chrome(const struct fytim_surface *sf,
 
 void fyai_ui_surface_set_view(struct fytim_surface *sf, int present)
 {
-	/* A surface without a tile page draws what it did: the view is a page's. */
+	/* The view of a tile page: what the page draws of the surface. */
 	(void)fytim_surface_set_page_view(sf,
 			(enum fytim_page_view)fyai_page_view_for(present));
 }
@@ -4212,7 +4114,6 @@ void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		fyai_tools_kept_surface(ctx, sf) ?
 		"Esc closes · Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus" :
 		"Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus";
-	(void)fytim_set_status_row(ui->ft, 0, ui->status_hint);
 }
 
 int fyai_ui_surface_publish(struct fytim_surface *sf,

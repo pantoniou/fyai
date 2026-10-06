@@ -29,11 +29,6 @@
 #include "fyai_terminal.h"
 #include "fyai_workpane.h"
 
-bool fyai_page_requested(const struct fyai_cfg *cfg)
-{
-	return cfg && cfg->renderer && !strcmp(cfg->renderer, "page");
-}
-
 const struct fyai_page_action *
 fyai_page_action_find(const struct fyai_page_action *actions, size_t n,
 		      const char *name, size_t len)

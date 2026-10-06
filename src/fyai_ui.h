@@ -126,7 +126,7 @@ bool fyai_ui_interrupt(struct fyai_ctx *ctx);
 void fyai_ui_signal(struct fyai_ctx *ctx, int signo);
 /*
  * Set the header and the status of the input area. @top is the rendered
- * header that the band stack draws. @top_source is its Markdown, with the
+ * header row. @top_source is its Markdown, with the
  * values escaped and in the colours of the palette, which the page draws as
  * UI Markdown.
  */

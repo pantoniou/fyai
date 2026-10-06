@@ -965,17 +965,6 @@ properties:
           keeps the screens off it. It is what divides two programs; the
           session_margin gutter runs down the inside of one. An empty
           string draws none.
-      renderer:
-        type: string
-        enum: [stack, page]
-        default: page
-        description: >-
-          Select how the live screen is composed. stack draws the fixed chrome of the
-          terminal library: the header, the prompt between two rules and the
-          status. page states the screen as one UI Markdown page whose slots
-          hold the transcript tail, the work pane and the prompt. page needs a
-          libfytimui and a libfymd4c that support pages; without them stack is
-          used and the session reports the fallback.
       page:
         type: string
         default: ""
@@ -995,8 +984,7 @@ properties:
           scrollback of the terminal. fullscreen takes the alternate screen: the
           transcript is a view of the page that the wheel, PageUp and PageDown
           scroll, and the terminal shows what it showed before when the session
-          ends. It applies only with display/renderer page, when the session
-          starts.
+          ends. It takes effect when the session starts.
       work_controls:
         type: string
         enum: [none, zoom, full]

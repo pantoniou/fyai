@@ -769,8 +769,6 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "tile_sep", cfg->tile_sep));
 		cfg->work_controls = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "work_controls", cfg->work_controls));
-		cfg->renderer = fy_gb_intern_string(cfg->gb,
-			fy_get(v, "renderer", cfg->renderer));
 		cfg->page_path = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "page", cfg->page_path));
 		cfg->screen = fy_gb_intern_string(cfg->gb,
@@ -2661,7 +2659,6 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->tile_frame = DEFAULT_TILE_FRAME;
 	cfg->tile_sep = DEFAULT_TILE_SEP;
 	cfg->work_controls = DEFAULT_WORK_CONTROLS;
-	cfg->renderer = DEFAULT_RENDERER;
 	cfg->page_path = "";
 	cfg->screen = DEFAULT_SCREEN;
 	cfg->recap_exchanges = DEFAULT_RECAP_EXCHANGES;

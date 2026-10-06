@@ -38,7 +38,7 @@ struct fyai_page_action {
 struct fyai_page_state {
 	struct fyai_ctx *ctx;	/* diagnostic context for source construction */
 	const char *header;
-	/* The header rendered to one row of SGR, as the band stack draws it. */
+	/* The header rendered to one row of SGR. */
 	const char *header_row;
 	/* The panel at the right edge of the header row, SGR fyai wrote, its
 	 * columns, and its button, from the first column of the panel. */
@@ -144,8 +144,6 @@ struct fyai_page_tile {
 	int granted_rows, granted_cols;
 };
 
-/* Whether the configuration asks for the page renderer. */
-bool fyai_page_requested(const struct fyai_cfg *cfg);
 /* Rows the chrome of @st takes: the header, the prompt block, the status
  * rows and the cap row. */
 int fyai_page_chrome_rows(const struct fyai_page_state *st);

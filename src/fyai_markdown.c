@@ -224,7 +224,6 @@ int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,
 		return 0;
 	buf[0] = '\0';
 	if (!cfg || !cfg->markdown || !cfg->palette ||
-	    !cfg->renderer || strcmp(cfg->renderer, "page") ||
 	    !cfg->screen || strcmp(cfg->screen, "fullscreen") ||
 	    (cfg->theme_ground && strcmp(cfg->theme_ground, "theme")) ||
 	    !markdown_color_enabled(cfg->color))

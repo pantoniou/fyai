@@ -237,9 +237,6 @@ display:
   stream: true            # Present model output as it arrives.
   # Exchanges replayed at session start: -1 fills the screen; 0 skips replay.
   recap_exchanges: -1
-  # page composes the screen as UI Markdown; stack uses terminal-library
-  # chrome. A build without page support uses stack.
-  renderer: page
   # fullscreen uses the alternate screen and a scrollable transcript view;
   # inline uses terminal scrollback.
   screen: fullscreen

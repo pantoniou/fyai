@@ -439,7 +439,6 @@ int markdown_fullscreen_ground_test(void)
 	struct fyai_cfg cfg = {
 		.markdown = true,
 		.color = "on",
-		.renderer = "page",
 		.screen = "fullscreen",
 		.theme_ground = "theme",
 	};
@@ -489,9 +488,6 @@ int markdown_fullscreen_ground_test(void)
 	cfg.screen = "inline";
 	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
 	cfg.screen = "fullscreen";
-	cfg.renderer = "stack";
-	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
-	cfg.renderer = "page";
 	cfg.color = "off";
 	FYAI_TCHECK(!markdown_fullscreen_ground_sgr(&cfg, sgr, sizeof(sgr)));
 	cfg.color = "on";
