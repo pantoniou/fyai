@@ -12,7 +12,7 @@ mock_start ui_band_invocation_held.json
 
 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
 FYAI_PTY_NEEDLE="Done." \
-FYAI_PTY_PROGRESS_NEEDLE="⋯" \
+FYAI_PTY_PROGRESS_NEEDLE="▴" \
 FYAI_PTY_PROGRESS_TIMEOUT=5 \
 FYAI_PTY_PROGRESS_RELEASE="$TMPDIR/band-release" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
@@ -20,18 +20,20 @@ FYAI_PTY_PROGRESS_RELEASE="$TMPDIR/band-release" \
     --set display/markdown=true --set display/stream=false \
     --set display/tool_update_interval_ms=0 \
     --set display/tool_preview_lines=5 \
+    --set display/work_controls=full \
     --set builtin_shell=true --set api=responses \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i
 
-# The cap binds once the body fills it, which is when the omission row appears.
+# The cap binds once the body outgrows it, which is when the scroll bar
+# draws its arrow on the first row of the body.
 "$PYTHON" - "$TEST_DIR/pty.out" "$TESTS_DIR" <<'PY' || fail "the band dropped its invocation rows"
 import sys
 
 sys.path.insert(0, sys.argv[2])
 from screen import rows_at
 
-rows = rows_at(sys.argv[1], "⋯".encode())
-body = [i for i, r in enumerate(rows) if "⋯" in r]
+rows = rows_at(sys.argv[1], "▴".encode())
+body = [i for i, r in enumerate(rows) if "▴" in r]
 if not body:
     raise SystemExit("no bounded body on screen")
 above = rows[:body[0]]

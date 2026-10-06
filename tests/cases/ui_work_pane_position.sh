@@ -21,7 +21,7 @@ run_at()
 
     FYAI_PTY_COLS=100 FYAI_PTY_INPUT="run it" \
     FYAI_PTY_NEEDLE="Done." \
-    FYAI_PTY_PROGRESS_NEEDLE="[10%] Building object 1" \
+    FYAI_PTY_PROGRESS_NEEDLE="[50%] Building object 5" \
     FYAI_PTY_PROGRESS_TIMEOUT=5 \
     FYAI_PTY_PROGRESS_RELEASE="$TMPDIR/band-release" \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/$position.out" \
@@ -56,7 +56,7 @@ run_set()
     FYAI_PTY_COLS=100 \
     FYAI_PTY_INPUT="/config set display/work_position below-prompt" \
     FYAI_PTY_NEEDLE="below-prompt" \
-    FYAI_PTY_AFTER="send:/config get display/work_position|wait-row:below-prompt|send:run it|wait-screen:[10%] Building object 1|release:$TMPDIR/band-release|wait-screen:Done." \
+    FYAI_PTY_AFTER="send:/config get display/work_position|wait-row:below-prompt|send:run it|wait-screen:[50%] Building object 5|release:$TMPDIR/band-release|wait-screen:Done." \
     FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/set.out" \
         "$FYAI_BIN" -k test-key --theme dark \
@@ -84,7 +84,7 @@ from screen import rows_at
 
 def where(path):
     # The fixture stays live until its first output frame is complete.
-    marker = "[10%] Building object 1"
+    marker = "[50%] Building object 5"
     rows = rows_at(path, marker.encode())
     band = [i for i, r in enumerate(rows) if marker in r]
     prompt = [i for i, r in enumerate(rows) if "PROMPTMARK" in r]

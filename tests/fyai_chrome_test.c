@@ -20,6 +20,8 @@ FYAI_TEST_ENTRY(chrome, zoom_gives_controls_and_no_bar, chrome_zoom)
 FYAI_TEST_ENTRY(chrome, full_gives_every_screen_a_bar, chrome_full)
 FYAI_TEST_ENTRY(chrome, a_committed_tile_has_no_buttons, chrome_committed)
 FYAI_TEST_ENTRY(chrome, a_tile_of_text_has_no_bar, chrome_text)
+FYAI_TEST_ENTRY(chrome, a_tool_exchange_scrolls, chrome_tool_text)
+FYAI_TEST_ENTRY(chrome, the_bar_follows_the_rows_it_shows, chrome_bar)
 FYAI_TEST_ENTRY(chrome, a_row_divides_into_margin_bar_and_body, chrome_frame)
 
 static int failures;
@@ -125,5 +127,56 @@ int chrome_frame(void)
 	expect_frame("no room for a bar", fyai_chrome_frame(FYAI_CHROME_SCROLL, 2, 3),
 		     2, 0, 1);
 	expect_frame("empty", fyai_chrome_frame(FYAI_CHROME_SCROLL, 0, 0), 0, 0, 0);
+	return failures;
+}
+
+int chrome_tool_text(void)
+{
+	failures = 0;
+	expect_items("tool exchange", items("full", FYAI_WORKPANE_TILE_TEXT,
+					    FYAI_CHROME_RUNNING),
+		     FYAI_CHROME_BUTTONS | FYAI_CHROME_WHEEL |
+		     FYAI_CHROME_SCROLL);
+	return failures;
+}
+
+static void expect_part(const char *what, enum fyai_chrome_bar_part got,
+			enum fyai_chrome_bar_part want)
+{
+	if (got == want)
+		return;
+	fprintf(stderr, "FAIL %s\n  got:  %d\n  want: %d\n", what, got, want);
+	failures++;
+}
+
+int chrome_bar(void)
+{
+	int i;
+
+	failures = 0;
+	/* 10 rows of which 5 show at the end: arrows, then the thumb below. */
+	expect_part("up arrow", fyai_chrome_bar_part(10, 5, 5, 5, true, 0),
+		    FYAI_CHROME_BAR_UP);
+	expect_part("down arrow", fyai_chrome_bar_part(10, 5, 5, 5, true, 4),
+		    FYAI_CHROME_BAR_DOWN);
+	/* The track is three rows; the thumb is two (ceil(3 * 5 / 10)). */
+	expect_part("thumb at the end", fyai_chrome_bar_part(10, 5, 5, 5, true, 3),
+		    FYAI_CHROME_BAR_THUMB);
+	expect_part("track above the thumb",
+		    fyai_chrome_bar_part(10, 5, 5, 5, true, 1),
+		    FYAI_CHROME_BAR_TRACK);
+	/* At the start the thumb is on top. */
+	expect_part("thumb at the start", fyai_chrome_bar_part(10, 0, 5, 5, true, 1),
+		    FYAI_CHROME_BAR_THUMB);
+	/* A bar of two rows has no arrows. */
+	expect_part("no arrows when short", fyai_chrome_bar_part(10, 0, 2, 2, true, 0),
+		    FYAI_CHROME_BAR_THUMB);
+	/* A top past the end is held at the end. */
+	expect_part("top clamps", fyai_chrome_bar_part(10, 99, 5, 5, true, 3),
+		    FYAI_CHROME_BAR_THUMB);
+	/* Content that fits fills the track. */
+	for (i = 1; i < 4; i++)
+		expect_part("short content", fyai_chrome_bar_part(3, 0, 5, 5, true, i),
+			    FYAI_CHROME_BAR_THUMB);
 	return failures;
 }
