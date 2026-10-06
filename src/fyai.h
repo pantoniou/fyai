@@ -81,6 +81,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define FYAI_BYTES_PER_TOKEN 4
 /* Default rendered rows of a tool result shown in the display view. */
 #define DEFAULT_TOOL_PREVIEW_LINES 5
+/* Rows of a running tool call that its tile keeps for scrolling back. */
+#define DEFAULT_TOOL_HISTORY_LINES 40
 /* Interactive history recap: -1 fills the screen, 0 is off, N is a count. */
 #define DEFAULT_RECAP_EXCHANGES (-1)
 #define DEFAULT_TOOL_UPDATE_INTERVAL_MS 33
@@ -273,6 +275,7 @@ struct fyai_cfg {
 	int max_tokens;			/* output cap (required by Messages) */
 	int top_logprobs;
 	int tool_preview_lines;
+	int tool_history_lines;		/* rows of a live tool tile to scroll back */
 	int recap_exchanges;		/* interactive history recap exchanges */
 	int tool_update_interval_ms;
 	int retry_max_attempts;		/* provider attempts, 1 = no retry */

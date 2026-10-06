@@ -245,6 +245,8 @@ display:
   page: ""
   # Rendered rows shown for a bounded tool result.
   tool_preview_lines: 5
+  # Rows of a running tool call that its tile keeps to scroll back through.
+  tool_history_lines: 40
   # Minimum period between tool redraws; 0 redraws every update.
   tool_update_interval_ms: 33
   # Tool result detail: none, brief, default, or full.

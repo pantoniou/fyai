@@ -766,6 +766,16 @@ properties:
         minimum: 0
         default: 5
         description: Set the number of tool-result preview rows.
+      tool_history_lines:
+        type: integer
+        minimum: 0
+        default: 40
+        description: >-
+          Set how many rows of the output of a running tool call its tile
+          keeps, which the scroll bar and the wheel move back through. The tile
+          shows tool_preview_lines of them, and the stored exchange keeps the
+          preview. A value that is not above tool_preview_lines keeps no
+          history.
       tool_update_interval_ms:
         type: integer
         minimum: 0
@@ -993,7 +1003,8 @@ properties:
           Select tile mouse controls. none draws none. zoom ends the head of
           a tile in buttons that minimize, maximize and close it. full adds a
           scroll bar and its arrows, which, with the wheel over the tile,
-          move its view back through the history of its program. Anything
+          move its view back through the history of its program, or through
+          the output of a running tool call. Anything
           but none grabs the mouse for the whole session, which takes
           selection and copy from the terminal. With the grab, a click on a
           tile gives it the keys and a click off the tiles gives them back to

@@ -5192,6 +5192,20 @@ static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
 		}							\
 	} while (0)
 
+/*
+ * The rows that a live tool band keeps. The band shows the preview rows and
+ * the user scrolls back through the rest, so the stream renders more rows than
+ * the band draws. The committed exchange keeps the preview.
+ */
+static size_t fyai_tool_history_lines(const struct fyai_cfg *cfg)
+{
+	if (cfg->tool_preview_lines <= 0)
+		return 0;
+	return cfg->tool_history_lines > cfg->tool_preview_lines ?
+	       (size_t)cfg->tool_history_lines :
+	       (size_t)cfg->tool_preview_lines;
+}
+
 static void fyai_tool_job_band_open(struct fyai_tool_job *job)
 {
 	struct fyai_ctx *ctx = job->ctx;
@@ -5199,8 +5213,7 @@ static void fyai_tool_job_band_open(struct fyai_tool_job *job)
 	job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
 	if (!job->band ||
 	    fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg, NULL,
-		ctx->cfg->tool_preview_lines > 0 ?
-		(size_t)ctx->cfg->tool_preview_lines : 0,
+		fyai_tool_history_lines(ctx->cfg),
 		markdown_tool_output_indent(ctx->cfg), NULL, true)) {
 		fyai_tool_job_live_close(job, false);
 		return;

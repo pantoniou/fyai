@@ -1816,6 +1816,8 @@ static int page_bar_acts(struct fyai_page *pg, const struct fyai_page_tile *t,
 		return 0;
 	if (!page_tile_frame(t, r->width).bar)
 		return 0;
+	if (t->band && !t->overflow)
+		return 0;
 	rows = t->granted_rows;
 	for (row = 0; row < rows && *np < FYTIM_PAGE_REGIONS_MAX; row++) {
 		if (rows >= 3 && row == 0)
@@ -1832,7 +1834,7 @@ static int page_bar_acts(struct fyai_page *pg, const struct fyai_page_tile *t,
 				 t->slot);
 		regions[*np].id = pg->act_ids[*np];
 		regions[*np].kind = FYTIM_PAGE_ACT;
-		regions[*np].row = (int)r->row + row;
+		regions[*np].row = (int)r->row + t->bar_top + row;
 		regions[*np].col = r->col + r->width - 1;
 		regions[*np].width = 1;
 		regions[*np].height = 1;
@@ -1996,10 +1998,15 @@ err_out:
  * always does. Sets the grant of @t and returns 0, or -1.
  */
 static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
-			  const struct fymd_region *r, const char *chrome)
+			  const struct fymd_region *r, const char *chrome,
+			  const char *control)
 {
 	const char *content, *top, *bottom, *p, *nl, *base;
-	int lines = 0, rows, top_rows, bottom_rows, max, y, skip, n, i;
+	struct fyai_chrome_frame frame;
+	struct response_buffer bar = {0};
+	enum fyai_chrome_bar_part part;
+	const char *style;
+	int lines = 0, rows, top_rows, bottom_rows, max, y, skip, n, i, rc;
 
 	content = fytim_workband_content(t->band, &lines);
 	top = fytim_workband_top(t->band);
@@ -2020,8 +2027,12 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		else
 			rows--;
 	}
+	/* The column of the scroll bar is taken from the rows of text, so they
+	 * are made at the width that is left. */
+	frame = fyai_chrome_frame(t->items, 0, r->width);
 	t->granted_rows = rows;
-	t->granted_cols = r->width;
+	t->granted_cols = frame.body;
+	t->overflow = frame.bar && lines > rows;
 	y = (int)r->row;
 
 	if (top_rows > 0 && !*top) {
@@ -2047,9 +2058,12 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		}
 	}
 	y += top_rows;
+	t->bar_top = top_rows;
 
 	if (rows > 0 && content && *content) {
 		skip = lines - rows;
+		if (t->scrolled && t->scroll_top < skip)
+			skip = t->scroll_top < 0 ? 0 : t->scroll_top;
 		for (p = content; skip > 0 && p; skip--) {
 			p = strchr(p, '\n');
 			if (p)
@@ -2058,11 +2072,34 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 		if (p) {
 			n = page_cells_text(pg, pg->cells, pg->cells_rows,
 					    pg->cells_cols, y, r->col,
-					    r->width, rows, p, strlen(p));
+					    frame.body, rows, p, strlen(p));
 			if (n < 0)
 				return -1;
 		}
 	}
+	if (t->overflow) {
+		skip = lines - rows;
+		if (t->scrolled && t->scroll_top < skip)
+			skip = t->scroll_top < 0 ? 0 : t->scroll_top;
+		for (i = 0; i < rows; i++) {
+			part = fyai_chrome_bar_part(lines, skip, rows, rows,
+						    true, i);
+			style = part == FYAI_CHROME_BAR_TRACK ? chrome : control;
+			rc = response_buffer_append(&bar,
+				fy_sprintfa("%s%s\x1b[0m\n", style ? style : "",
+					    fyai_chrome_bar_glyph(part)));
+			fyai_error_check(pg->ctx, !rc, bar_err,
+					 "cannot write the scroll bar of tile %u",
+					 t->slot);
+		}
+		n = page_cells_text(pg, pg->cells, pg->cells_rows,
+				    pg->cells_cols, y, r->col + r->width - 1,
+				    1, rows, bar.data, bar.len);
+		fyai_error_check(pg->ctx, n >= 0, bar_err,
+				 "cannot draw the scroll bar of tile %u", t->slot);
+	}
+	free(bar.data);
+	bar.data = NULL;
 	y += rows;
 
 	if (bottom_rows > 0 && !*bottom)
@@ -2076,6 +2113,10 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 			return -1;
 	}
 	return 0;
+
+bar_err:
+	free(bar.data);
+	return -1;
 }
 
 /*
@@ -2312,7 +2353,8 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 			rc = page_text_draw(pg, t, &fr[i],
 					    fy_sprintfa("\x1b[2m%s",
 							st->band_chrome ?
-							st->band_chrome : ""));
+							st->band_chrome : ""),
+					    page_control_sgr(st));
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the text of tile %u into cells",
 					 t->slot);
@@ -2503,7 +2545,12 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		}
 		t = fr[i].kind == FYMD_REGION_ACT ? NULL :
 		    page_tile_of(st, fr[i].id, "screen");
-		if (t && t->surface) {
+		if (!t && fr[i].kind != FYMD_REGION_ACT) {
+			t = page_tile_of(st, fr[i].id, "text");
+			if (t && !t->band)
+				t = NULL;
+		}
+		if (t && (t->surface || t->overflow)) {
 			rc = page_bar_acts(pg, t, &fr[i], regions, &n);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot build the scroll bar of tile %u",

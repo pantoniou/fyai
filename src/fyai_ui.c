@@ -117,6 +117,7 @@ struct fyai_ui {
 	bool capture;
 	bool recalled;
 	bool frame_pending;
+	unsigned long typed_hash;	/* the line being typed, to see it change */
 	int render_rows;		/* height used to arrange work-pane tiles */
 	int render_cols;		/* width used to wrap screen rows */
 	bool reflow_pending;		/* live rows require reflow */
@@ -1421,6 +1422,20 @@ static void ui_page_keys_clear(struct fyai_ui *ui)
 }
 
 /* Build and publish the page of this frame from the state of the session. */
+/* Whether the line being typed is not the line of the last frame. */
+static bool ui_typed_changed(struct fyai_ui *ui, const char *typed)
+{
+	unsigned long h = 5381;
+	const char *p;
+
+	for (p = typed; p && *p; p++)
+		h = h * 33 + (unsigned char)*p;
+	if (h == ui->typed_hash)
+		return false;
+	ui->typed_hash = h;
+	return true;
+}
+
 static void ui_page_update(struct fyai_ui *ui)
 {
 	struct fyai_ctx *ctx = ui->ctx;
@@ -1550,6 +1565,10 @@ static void ui_page_update(struct fyai_ui *ui)
 		}
 	}
 	/* The tiles that hold a surface, which the page draws itself. */
+	/* What the user types shows the live rows of a tile of text again. */
+	typed = fytim_input(ui->ft);
+	if (ui_typed_changed(ui, typed))
+		fyai_workpane_bands_follow(ctx->workpane);
 	st.ntiles = fyai_workpane_page_tiles(ctx->workpane, tiles,
 					     FYAI_WORKPANE_TILES_MAX);
 	st.tiles = tiles;
@@ -1635,6 +1654,29 @@ err_page:
 		}
 	}
 	free(activity);
+}
+
+/*
+ * Scroll the tile of text that the page slot @text names, "text:N", by @delta
+ * rows. Returns false for any other slot.
+ */
+static bool ui_band_wheel(struct fyai_ui *ui, const char *text, size_t len,
+			  int delta)
+{
+	char id[FYTIM_PAGE_ID_MAX + 1];
+	unsigned long slot;
+	char *end;
+
+	if (!text || len < 6 || len > FYTIM_PAGE_ID_MAX ||
+	    memcmp(text, "text:", 5))
+		return false;
+	memcpy(id, text, len);
+	id[len] = '\0';
+	slot = strtoul(id + 5, &end, 10);
+	if (end == id + 5 || *end)
+		return false;
+	return fyai_workpane_band_scroll(ui->ctx->workpane,
+					 (unsigned int)slot, delta, false);
 }
 
 /* True when the work pane controls take the wheel over a tile. */
@@ -1907,6 +1949,10 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			if (ui->popup) {
 				fyai_transcript_view_scroll(ui->popup, ev.delta,
 							    ui->popup_rows);
+				ui->frame_pending = true;
+			} else if (ui_tile_scrolls(ui) &&
+				   ui_band_wheel(ui, ev.text, ev.text_len,
+						 ev.delta)) {
 				ui->frame_pending = true;
 			} else if (ui_tile_scrolls(ui) &&
 				   (sf = ui_slot_surface(ui, ev.text,
@@ -3589,6 +3635,34 @@ int fyai_ui_surface_granted_rows(struct fyai_ctx *ctx,
 	return rows;
 }
 
+
+/* The scroll act @id of the tile of text in @slot. False if it is not one. */
+static bool ui_band_scroll_act(struct fyai_ui *ui, unsigned int slot,
+			       const char *id)
+{
+	static const struct {
+		const char *id;
+		int delta;
+		bool pages;
+	} acts[] = {
+		{ "tile:scroll-up", 1, false },
+		{ "tile:scroll-down", -1, false },
+		{ "tile:page-up", 1, true },
+		{ "tile:page-down", -1, true },
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(acts); i++) {
+		if (strcmp(id, acts[i].id))
+			continue;
+		if (fyai_workpane_band_scroll(ui->ctx->workpane, slot,
+					      acts[i].delta, acts[i].pages))
+			ui->frame_pending = true;
+		return true;
+	}
+	return false;
+}
+
 /* A click on an act of a tile page: the head gives the tile the keys, and
  * the controls zoom or close it. */
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
@@ -3621,6 +3695,10 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 		if (end != id + 5 && *end == ':') {
 			sf = fyai_workpane_slot_surface(wm, (unsigned int)slot);
 			memmove(id + 5, end + 1, strlen(end + 1) + 1);
+			/* A tile of text has no surface: its bar scrolls rows
+			 * of the manager. */
+			if (!sf && ui_band_scroll_act(ui, (unsigned int)slot, id))
+				return;
 		}
 	}
 	if (!sf)

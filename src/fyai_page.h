@@ -139,6 +139,10 @@ struct fyai_page_tile {
 	int mix;		/* percent of @ground in a colour of the program */
 	int content_rows;	/* the rows the screen asks for */
 	unsigned int items;	/* FYAI_CHROME_*: the chrome the tile carries */
+	bool scrolled;		/* a tile of text stays on @scroll_top */
+	int scroll_top;		/* the first row of its content it shows */
+	bool overflow;		/* set by the page: more content than rows */
+	int bar_top;		/* set by the page: the row of the bar in the slot */
 	int present;		/* enum fyai_workpane_present */
 	/* Set by the page: the rows and the columns the screen was given. */
 	int granted_rows, granted_cols;

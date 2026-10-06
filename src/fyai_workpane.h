@@ -300,6 +300,16 @@ int fyai_workpane_tile_set_head(struct fyai_workpane_manager *wm,
  */
 int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
 			     struct fyai_page_tile *tiles, int max);
+/*
+ * Scroll the tile of text in the page slot @slot by @delta rows toward the
+ * start of its content, or by @delta pages. It stays on the rows it shows
+ * while the content grows, until it is back at the end. Returns false when
+ * @slot is not a tile of text.
+ */
+bool fyai_workpane_band_scroll(struct fyai_workpane_manager *wm,
+			       unsigned int slot, int delta, bool pages);
+/* Return every tile of text to the end of its content. */
+void fyai_workpane_bands_follow(struct fyai_workpane_manager *wm);
 /* Record what the page gave the screen of @sf in its last frame. */
 void fyai_workpane_tile_set_page_grant(struct fyai_workpane_manager *wm,
 				       const struct fytim_surface *sf,

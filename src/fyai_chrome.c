@@ -32,7 +32,8 @@ enum fyai_chrome_level fyai_chrome_level(const struct fyai_ctx *ctx)
 	return !strcmp(v, "full") ? FYAI_CHROME_FULL : FYAI_CHROME_ZOOM;
 }
 
-/* True when a tile of @kind draws a screen of cells, which scrolls. */
+/* True when the content of a tile of @kind scrolls: a screen of cells, or the
+ * rows of a tool exchange. A notice is sized to what it holds. */
 static bool chrome_kind_scrolls(enum fyai_workpane_tile_kind kind)
 {
 	switch (kind) {
@@ -40,6 +41,7 @@ static bool chrome_kind_scrolls(enum fyai_workpane_tile_kind kind)
 	case FYAI_WORKPANE_TILE_AGENT:
 	case FYAI_WORKPANE_TILE_AGENT_VIEW:
 	case FYAI_WORKPANE_TILE_BROWSER:
+	case FYAI_WORKPANE_TILE_TEXT:
 		return true;
 	default:
 		return false;
@@ -412,4 +414,52 @@ int fyai_chrome_cap_source(const struct fyai_ctx *ctx,
 			cap->zoomed ? " zoomed" : "", cap->tiles,
 			cap->tiles == 1 ? "tile" : "tiles",
 			cap->tiles - cap->hidden, hidden, rule);
+}
+
+enum fyai_chrome_bar_part fyai_chrome_bar_part(int total, int top, int rows,
+					       int height, bool arrows, int i)
+{
+	int off = 0, track_h = height, thumb_h, thumb_y = 0;
+
+	if (arrows && height >= 3) {
+		off = 1;
+		track_h = height - 2;
+	}
+	if (off && i == 0)
+		return FYAI_CHROME_BAR_UP;
+	if (off && i == height - 1)
+		return FYAI_CHROME_BAR_DOWN;
+	if (rows < 1)
+		rows = 1;
+	if (total < rows)
+		total = rows;
+	if (top > total - rows)
+		top = total - rows;
+	if (top < 0)
+		top = 0;
+	thumb_h = (int)(((long)track_h * rows + total - 1) / total);
+	if (thumb_h < 1)
+		thumb_h = 1;
+	if (thumb_h > track_h)
+		thumb_h = track_h;
+	if (total > rows)
+		thumb_y = (int)(((long)(track_h - thumb_h) * top) /
+				(total - rows));
+	i -= off;
+	return i >= thumb_y && i < thumb_y + thumb_h ? FYAI_CHROME_BAR_THUMB :
+						       FYAI_CHROME_BAR_TRACK;
+}
+
+const char *fyai_chrome_bar_glyph(enum fyai_chrome_bar_part part)
+{
+	switch (part) {
+	case FYAI_CHROME_BAR_UP:
+		return "\xe2\x96\xb4";
+	case FYAI_CHROME_BAR_DOWN:
+		return "\xe2\x96\xbe";
+	case FYAI_CHROME_BAR_THUMB:
+		return "\xe2\x96\x88";
+	default:
+		return "\xe2\x94\x82";
+	}
 }

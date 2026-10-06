@@ -63,6 +63,12 @@ struct fyai_workpane_tile {
 	char *head;
 	int head_rows;
 
+	/* A tile of text scrolled back stays on the same rows while the
+	 * content grows: it keeps the first row it shows, not the distance
+	 * from the end. */
+	bool scrolled;
+	int scroll_top;
+
 	/* What the last page gave the screen, which it draws itself. */
 	int page_rows, page_cols;
 	bool page_granted;
@@ -475,6 +481,8 @@ int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
 		pt->acts = t->regions;
 		pt->nacts = t->nregions;
 		pt->present = (int)t->present;
+		pt->scrolled = t->scrolled;
+		pt->scroll_top = t->scroll_top;
 		pt->items = fyai_chrome_items(wm->ctx, t->kind,
 					      FYAI_CHROME_RUNNING);
 		fyai_ui_surface_chrome(t->surface, &pt->margin, &pt->margin_cols,
@@ -559,6 +567,52 @@ bool fyai_workpane_tile_page_grant(const struct fyai_workpane_manager *wm,
 	*rows = t->page_rows;
 	*cols = t->page_cols;
 	return true;
+}
+
+bool fyai_workpane_band_scroll(struct fyai_workpane_manager *wm,
+			       unsigned int slot, int delta, bool pages)
+{
+	struct fyai_workpane_tile *t;
+	int lines = 0, rows, top, max;
+
+	if (!wm)
+		return false;
+	for_each_tile(t, wm)
+		if (!t->surface && t->band && t->slot == slot)
+			break;
+	if (!t || t->surface || !t->band)
+		return false;
+	(void)fytim_workband_content(t->band, &lines);
+	rows = t->page_granted ? t->page_rows : lines;
+	max = fytim_workband_max_rows(t->band);
+	if (!t->page_granted && max > 0 && rows > max)
+		rows = max;
+	if (rows < 1 || lines <= rows)
+		return true;
+	if (pages)
+		delta *= rows;
+	/* The tail follows the content, so the first row shown is derived. */
+	top = t->scrolled ? t->scroll_top : lines - rows;
+	top -= delta;
+	if (top > lines - rows)
+		top = lines - rows;
+	if (top < 0)
+		top = 0;
+	/* Back at the tail, the tile follows what arrives again. */
+	t->scrolled = top < lines - rows;
+	t->scroll_top = top;
+	return true;
+}
+
+void fyai_workpane_bands_follow(struct fyai_workpane_manager *wm)
+{
+	struct fyai_workpane_tile *t;
+
+	if (!wm)
+		return;
+	for_each_tile(t, wm)
+		if (!t->surface)
+			t->scrolled = false;
 }
 
 struct fytim_surface *

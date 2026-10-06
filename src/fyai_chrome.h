@@ -72,6 +72,25 @@ struct fyai_chrome_frame {
 struct fyai_chrome_frame fyai_chrome_frame(unsigned int items, int margin_cols,
 					   int width);
 
+/* The parts of a scroll bar. The arrows and the thumb act; the track does not. */
+enum fyai_chrome_bar_part {
+	FYAI_CHROME_BAR_TRACK,
+	FYAI_CHROME_BAR_THUMB,
+	FYAI_CHROME_BAR_UP,
+	FYAI_CHROME_BAR_DOWN,
+};
+
+/*
+ * The part of row @i of a bar @height rows tall for content of @total rows of
+ * which @rows show from row @top. It is the geometry of the bar that the
+ * terminal library draws on a screen, so a bar of text and a bar of a screen
+ * look the same.
+ */
+enum fyai_chrome_bar_part fyai_chrome_bar_part(int total, int top, int rows,
+					       int height, bool arrows, int i);
+/* The glyph of @part. */
+const char *fyai_chrome_bar_glyph(enum fyai_chrome_bar_part part);
+
 /* What the head of a tile says. All strings are borrowed for the call. */
 struct fyai_chrome_spec {
 	const char *title;	/* what the call is: Markdown */
