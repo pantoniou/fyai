@@ -915,6 +915,15 @@ own.
 - A committed tile has no buttons: a button there acts on nothing. Its head is
   also the top of the rows that the surface commit writes, so the transcript
   keeps the title row.
+- A tile of text scrolls too. The manager keeps `scrolled` and `scroll_top` for
+  it (`fyai_workpane_band_scroll()`): a tile scrolled back keeps the first row
+  it shows while the content grows, until it is back at the end, or until the
+  user types (`fyai_workpane_bands_follow()`, called when the line being typed
+  changes). The page draws the bar only when the content outgrows the rows, and
+  `fyai_chrome_bar_part()` is the one geometry of a bar of text and of a screen.
+  The live stream of a tool call renders `display/tool_history_lines` rows and
+  the band shows `display/tool_preview_lines` of them. The stored exchange keeps
+  the preview, so history is a property of the live view only.
 - `fyai_chrome_frame()` divides a row between margin, scroll bar, and body.
   The head, the screen, and the scroll-bar acts of the page all use it, so
   they act on the same columns. The page reads `items` from the tile, not a
