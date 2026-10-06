@@ -271,8 +271,8 @@ The storage layout is:
 
 ```text
 <project>/.fyai/
-    objects/blake3/<digest>          owned immutable bytes
-    objects/blake3/borrowed/<digest> host-dependent Git object bytes
+    objects/blake3/AA/BBCC...          owned immutable bytes
+    objects/blake3/borrowed/AA/BBCC... host-dependent Git object bytes
     views/view-XXXXXX/
         baseline/    sealed metadata or copied lower
         data/        data-only lower of the metacopy backend
@@ -322,7 +322,7 @@ cannot reach a backing path. A baseline inode thus has the same immutability as
 a CAS blob, and the two share an inode:
 
 1. Capture writes the bytes one time, into the baseline file, and hashes them.
-   If the digest is new, it links that inode into `objects/blake3/<digest>`.
+   If the digest is new, it links that inode into `objects/blake3/AA/BBCC...`.
    The CAS ignores inode metadata. After publication, no writable descriptor to
    the inode remains and its metadata does not change.
 2. A new baseline links the inode of the previous baseline for a path when the
@@ -362,7 +362,15 @@ and hashes the borrowed file without copying its bytes. With the copy backend,
 one matching baseline path can also link that inode. Equal-content aliases
 within the same baseline receive separate inodes.
 
-Borrowed objects have their own namespace, `objects/blake3/borrowed/<digest>`.
+An object name is the hex digest split after its first byte: `AA/BBCC...` for the
+digest `AABBCC...`. One level of directories keeps a directory from growing with
+the number of objects: it has at most 256 entries of the level above it, and a
+filesystem with a limit on the entries of a directory is not reached. A writer
+makes the directory of an object before it links the name, and `gc` removes a
+directory that it emptied. There is no flat layout: the store of an older build
+is not read.
+
+Borrowed objects have their own namespace, `objects/blake3/borrowed/AA/BBCC...`.
 A file manifest records `blob/storage: borrowed` and an unhashed `borrowed`
 observation: device, inode, mode, uid, and gid. Owned bytes use the ordinary CAS
 namespace. The storage class and observation do not change content identity.
@@ -1192,7 +1200,8 @@ mounts, and exit capture.
 
 With the metacopy backend, each baseline inode preserves project mode, ownership, size, and mtime. Its
 `user.overlay.metacopy` marker and `user.overlay.redirect` path select a CAS blob
-from the private snapshot `data` directory. This data-only directory hard-links
+from the private snapshot `data` directory. The redirect is `/AA/BBCC...`, the
+name of the blob in the CAS. This data-only directory hard-links
 only blobs reachable from that snapshot, including one entry per content hash.
 Metadata inodes remain distinct even when content is identical. CAS permissions
 and timestamps are never changed. The data-only namespace is not a second
