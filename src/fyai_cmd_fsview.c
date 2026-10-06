@@ -1688,6 +1688,7 @@ static int view_session_admit(struct fyai_ctx *ctx, struct view_session_transpor
 	if (rc)
 		return -1;
 	snprintf(id, sizeof(id), "%llu", (unsigned long long)exec);
+	fyai_transport_ctl_lend(ctx);
 	rc = fyai_fsview_init_release(tp->announce[0], "FYAI_TRANSPORT_EXEC", id);
 	if (rc) {
 		fyai_error(ctx, "view: cannot release the session: %s", strerror(errno));
@@ -1827,6 +1828,8 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 			      link, &link->source))
 		link->source = NULL;
 	waited = view_wait_child(ctx, child, &status, &cancelled);
+	if (tp)
+		fyai_transport_ctl_reclaim(ctx);
 	if (link && link->source) {
 		fyai_event_source_remove(link->source);
 		link->source = NULL;

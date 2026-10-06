@@ -34,7 +34,7 @@ struct fyai_ctx;
 #define FYAI_TRANSPORT_CTL_ENV		"FYAI_TRANSPORT_CTL"	/* control channel */
 #define FYAI_TRANSPORT_EXEC_ENV		"FYAI_TRANSPORT_EXEC"	/* execution id */
 #define FYAI_TRANSPORT_PID_ENV		"FYAI_TRANSPORT_PID"	/* the transport */
-#define FYAI_TRANSPORT_OWNER_ENV	"FYAI_TRANSPORT_OWNER"	/* who ends it */
+#define FYAI_TRANSPORT_OWNER_ENV	"FYAI_TRANSPORT_OWNER"	/* PID that ends it; 0: the supervisor outside the view */
 #define FYAI_TRANSPORT_KEYREF_ENV	"FYAI_TRANSPORT_KEYREF"	/* the source of a key */
 #define FYAI_TRANSPORT_FORCED_ENV	"FYAI_TRANSPORT_FORCED"	/* the user set the level */
 #define FYAI_TRANSPORT_ISOLATION_ENV	"FYAI_TRANSPORT_ISOLATION"
@@ -74,6 +74,14 @@ int fyai_transport_attach(struct fyai_ctx *ctx);
  * once the profiles are stated. Return 0 or -1, with a diagnostic.
  */
 int fyai_transport_ensure(struct fyai_ctx *ctx);
+
+/*
+ * Lend the primary control connection to a session in a view, and take it back
+ * when the session ends. The connection is one socket that both processes hold:
+ * a reader in the supervisor would take replies that the session waits for.
+ */
+void fyai_transport_ctl_lend(struct fyai_ctx *ctx);
+void fyai_transport_ctl_reclaim(struct fyai_ctx *ctx);
 
 /*
  * Register a child process with the transport: give the transport its channel

@@ -572,6 +572,8 @@ struct fyai_ctx {
 	int transport_ctl;		/* control channel; -1 if none */
 	pid_t transport_pid;
 	bool transport_owner;		/* this process started the transport */
+	/* This process holds the primary control connection and states the profiles. */
+	bool transport_primary;
 	struct fyai_event_source *transport_src;	/* drains the control channel */
 	uint64_t transport_exec;	/* the execution the transport knows us as */
 	long long transport_seq;

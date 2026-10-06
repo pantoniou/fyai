@@ -806,11 +806,12 @@ int fyai_transport_ensure(struct fyai_ctx *ctx)
 	int rc;
 
 	/*
-	 * Only the supervisor states profiles: it is the user session, and the
-	 * one that can be told to change the set. A sub-agent has the grant its
-	 * parent gave it, and the transport refuses what that grant lacks.
+	 * Only the user session states profiles: it holds the primary control
+	 * connection, as the supervisor or as the session in a view. A sub-agent
+	 * has the grant its parent gave it, and the transport refuses what that
+	 * grant lacks.
 	 */
-	if (!ctx->tclient || !ctx->transport_owner ||
+	if (!ctx->tclient || !ctx->transport_primary ||
 	    ctx->transport_ctl <= STDERR_FILENO)
 		return 0;
 	/* The personas change with the configuration; the model can change without. */
@@ -865,6 +866,22 @@ err:
 		fy_generic_builder_destroy(gb);
 	fyai_transport_grant_clear(&grant);
 	return -1;
+}
+
+void fyai_transport_ctl_lend(struct fyai_ctx *ctx)
+{
+	if (!ctx->transport_src)
+		return;
+	fyai_event_source_remove(ctx->transport_src);
+	ctx->transport_src = NULL;
+}
+
+void fyai_transport_ctl_reclaim(struct fyai_ctx *ctx)
+{
+	if (!ctx->tclient || ctx->transport_ctl <= STDERR_FILENO || ctx->transport_src)
+		return;
+	(void)fyai_event_add_fd(fyai_ctx_loop(ctx), ctx->transport_ctl, FYAIEV_READ,
+				ctl_drain, ctx, &ctx->transport_src);
 }
 
 int fyai_transport_admit_child(struct fyai_ctx *ctx, pid_t pid, int pidfd,
@@ -947,6 +964,7 @@ int fyai_transport_child_attach(struct fyai_ctx *ctx, fy_generic state)
 	(void)fyai_event_add_fd(fyai_ctx_loop(ctx), ctx->transport_ctl, FYAIEV_READ,
 				ctl_drain, ctx, &ctx->transport_src);
 	ctx->transport_owner = false;
+	ctx->transport_primary = false;
 	return 0;
 err:
 	return -1;
@@ -1158,6 +1176,8 @@ int fyai_transport_attach(struct fyai_ctx *ctx)
 		names_add(ctx, allow[i].profile);
 	ctx->transport_pid = pid ? (pid_t)atol(pid) : 0;
 	ctx->transport_owner = owner && (pid_t)atol(owner) == getpid();
+	/* An owner of 0 is the supervisor outside a view: this image holds the primary connection. */
+	ctx->transport_primary = ctx->transport_owner || (owner && !strcmp(owner, "0"));
 	return 0;
 err:
 	return -1;
