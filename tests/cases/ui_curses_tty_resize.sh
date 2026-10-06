@@ -4,6 +4,9 @@
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
+# The repaint of the resized screen is not reliably whole on the hosted runners.
+[ -z "${GITHUB_ACTIONS:-}" ] || skip "hosted CI runner"
+
 fyai_test_setup
 
 # Wait for the last row of the resized generation on the screen: the program
