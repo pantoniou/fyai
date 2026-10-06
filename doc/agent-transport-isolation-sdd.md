@@ -379,7 +379,9 @@ The descriptors that the session needs are passed to the child by number, and
 every other descriptor is closed before the view is entered: the data channel on
 5, the primary control connection of the supervisor on 6, and the announcement
 socket on 7. The session shares the primary control connection, so it changes the
-profiles and runs commands at the transport, as the user session always did. The
+profiles and runs commands at the transport, as the user session always did. A
+switch of model or provider in the session thus states the new profile and grants
+it to the session, as it does in the supervisor. The
 supervisor does nothing on that connection while the session runs, and it stays
 the owner of the transport: it ends it when the session ends.
 
