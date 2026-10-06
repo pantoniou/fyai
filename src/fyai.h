@@ -578,6 +578,7 @@ struct fyai_ctx {
 	struct fyai_event_source *transport_src;	/* drains the control channel */
 	uint64_t transport_exec;	/* the execution the transport knows us as */
 	long long transport_seq;
+	char transport_why[160];	/* the cause of a failed control request */
 	/* Profile names that this execution has stated and been granted. */
 	char transport_names[64][64];
 	unsigned int transport_nnames;

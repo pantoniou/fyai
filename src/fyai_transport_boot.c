@@ -672,7 +672,10 @@ static int ctx_call2(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	}
 	rc = fyai_ctl_send2(ctx->transport_ctl, req, fd, fd2, 0);
 	if (rc) {
-		*why = "cannot send to the credential transport";
+		snprintf(ctx->transport_why, sizeof(ctx->transport_why),
+			 "cannot send to the credential transport on descriptor %d: %s",
+			 ctx->transport_ctl, strerror(rc < 0 ? -rc : rc));
+		*why = ctx->transport_why;
 		return rc;
 	}
 	for (;;) {
