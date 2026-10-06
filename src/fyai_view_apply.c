@@ -540,15 +540,14 @@ struct change {
 	bool done;
 };
 
-static int change_digest_order(const void *a, const void *b, void *arg)
+static int change_digest_order(const void *a, const void *b)
 {
-	const struct change *list = arg;
-	const struct change *x = &list[*(const size_t *)a], *y = &list[*(const size_t *)b];
+	const struct change *x = *(struct change *const *)a, *y = *(struct change *const *)b;
 	int order = memcmp(x->before.blob.digest, y->before.blob.digest, FYAI_CAS_HASH_SIZE);
 
 	if (order)
 		return order;
-	return *(const size_t *)a < *(const size_t *)b ? -1 : *(const size_t *)a > *(const size_t *)b;
+	return x < y ? -1 : x > y;
 }
 
 static const char *change_base(const char *path)
@@ -565,7 +564,8 @@ static const char *change_base(const char *path)
  */
 static void changes_pair(struct change *list, size_t count)
 {
-	size_t *deleted, i, n = 0, low, high, mid, k, pick;
+	struct change **deleted;
+	size_t i, n = 0, low, high, mid, k, pick;
 	int order;
 
 	deleted = malloc((count + 1) * sizeof(*deleted));
@@ -575,9 +575,9 @@ static void changes_pair(struct change *list, size_t count)
 		list[i].pair = -1;
 		if (list[i].has_before && !list[i].has_after &&
 		    list[i].before.kind == FYAI_PROJECT_FILE && list[i].before.blob.size)
-			deleted[n++] = i;
+			deleted[n++] = &list[i];
 	}
-	qsort_r(deleted, n, sizeof(*deleted), change_digest_order, list);
+	qsort(deleted, n, sizeof(*deleted), change_digest_order);
 	for (i = 0; i < count; i++) {
 		if (list[i].has_before || !list[i].has_after || list[i].after.kind != FYAI_PROJECT_FILE ||
 		    !list[i].after.blob.size)
@@ -586,7 +586,7 @@ static void changes_pair(struct change *list, size_t count)
 		high = n;
 		while (low < high) {
 			mid = (low + high) / 2;
-			order = memcmp(list[deleted[mid]].before.blob.digest, list[i].after.blob.digest,
+			order = memcmp(deleted[mid]->before.blob.digest, list[i].after.blob.digest,
 				       FYAI_CAS_HASH_SIZE);
 			if (order < 0)
 				low = mid + 1;
@@ -594,22 +594,22 @@ static void changes_pair(struct change *list, size_t count)
 				high = mid;
 		}
 		pick = n;
-		for (k = low; k < n && !memcmp(list[deleted[k]].before.blob.digest,
+		for (k = low; k < n && !memcmp(deleted[k]->before.blob.digest,
 					       list[i].after.blob.digest, FYAI_CAS_HASH_SIZE);
 		     k++) {
-			if (list[deleted[k]].pair >= 0)
+			if (deleted[k]->pair >= 0)
 				continue;
 			if (pick == n)
 				pick = k;
-			if (!strcmp(change_base(list[deleted[k]].path), change_base(list[i].path))) {
+			if (!strcmp(change_base(deleted[k]->path), change_base(list[i].path))) {
 				pick = k;
 				break;
 			}
 		}
 		if (pick == n)
 			continue;
-		list[i].pair = (long)deleted[pick];
-		list[deleted[pick]].pair = (long)i;
+		list[i].pair = (long)(deleted[pick] - list);
+		deleted[pick]->pair = (long)i;
 	}
 	free(deleted);
 }
