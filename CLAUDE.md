@@ -143,6 +143,8 @@ initialize each generic field explicitly.
 - `src/fyai_diag.c`: collected diagnostics.
 - `src/utils.c`: HTTP buffers, shell capture, and generic serialization.
 - `src/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
+- `src/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
+  bar a tile carries, and its head.
 - `src/fyai_sandbox.c`: Linux Landlock confinement.
 - `src/fyai_oauth.c`: provider-independent OAuth browser flow.
 - `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP.
@@ -898,6 +900,39 @@ choose a banded presentation, open with `fyai_sink_band_open()`, repaint with
 `fyai_sink_band_paint()`, and commit the shared band with
 `fyai_sink_band_close()`. Do not call `fyai_ui_*` band functions from a
 producer; the terminal backend owns that.
+
+### Tile chrome
+
+`src/fyai_chrome.c` decides the chrome of every tile of the work pane. An
+owner states the content of the head with `struct fyai_chrome_spec` and calls
+`fyai_chrome_update()`. It does not build a head, a button, or a column of its
+own.
+
+- `fyai_chrome_items()` is the one policy: the tile kind, its phase (running,
+  kept, committed), and `display/work_controls` give a mask of
+  `FYAI_CHROME_BUTTONS`, `FYAI_CHROME_SCROLL`, and `FYAI_CHROME_WHEEL`. Do not
+  read `display/work_controls` anywhere else; use `fyai_chrome_level()`.
+- A committed tile has no buttons: a button there acts on nothing. Its head is
+  also the top of the rows that the surface commit writes, so the transcript
+  keeps the title row.
+- `fyai_chrome_frame()` divides a row between margin, scroll bar, and body.
+  The head, the screen, and the scroll-bar acts of the page all use it, so
+  they act on the same columns. The page reads `items` from the tile, not a
+  page-wide flag.
+- `fyai_chrome_body()` gives a tile its unfocused look when an owner opens
+  it, and `fyai_chrome_focus()` is the one place that changes it when the keys
+  move: the ground, the edge marker or reversed margin, and the status hint.
+  The theme primitives stay in `fyai_ui.c`; the policy of which tile gets
+  which hint is the chrome's.
+- `fyai_chrome_panel()` builds the panel of the input header: the pane button
+  and the counts of live user shells, model shells, and sub-agents.
+  `fyai_ui_panel_update()` only stores it. A new kind of live work adds a row to
+  the table of that function.
+- `fyai_chrome_cap_source()` writes the cap row from a summary that the
+  manager gathers: height, tiles, hidden tiles, and zoom. The manager owns the
+  facts; the chrome owns the text and the glyphs.
+- A new kind of tile gets its chrome by a line in the policy, not by a draw
+  path. `tests/fyai_chrome_test.c` states the table.
 
 ### The work pane
 
