@@ -47,6 +47,13 @@ session '/session lockdown' '/exit'
 [ "$rc" = 0 ] || fail "lockdown ended with status $rc: $(cat "$TEST_DIR/err")"
 grep -qF 'lockdown: credential transport auto' "$TEST_DIR/out" || fail "lockdown said nothing: $(cat "$TEST_DIR/out" "$TEST_DIR/err")"
 [ "$(stored agent/transport_isolation)" = auto ] || fail 'lockdown did not store the transport level'
+# The lockdown profile is stored, so the next image confines its tools too, and the
+# normal sandbox policy is not replaced.
+[ "$(stored sandbox_profile)" = lockdown ] || fail 'lockdown did not store the sandbox profile'
+case "$(stored sandbox)" in
+'' | false) ;;
+*) fail "lockdown changed the normal sandbox policy: $(stored sandbox)" ;;
+esac
 # The views of sub-agents are the user's setting, and lockdown leaves them alone.
 [ "$(stored agent/isolation)" = none ] || fail 'lockdown changed the views of sub-agents'
 if [ "$VIEW" = yes ]; then
@@ -68,6 +75,7 @@ session '/session yolo' '/exit'
 [ "$rc" = 0 ] || fail "yolo ended with status $rc: $(cat "$TEST_DIR/err")"
 grep -qF 'yolo: credential transport none' "$TEST_DIR/out" || fail "yolo said nothing: $(cat "$TEST_DIR/out" "$TEST_DIR/err")"
 [ "$(stored agent/transport_isolation)" = none ] || fail 'yolo did not store the transport level'
+[ "$(stored sandbox_profile)" = normal ] || fail 'yolo did not select the normal sandbox profile'
 [ "$(stored agent/isolation)" = none ] || fail 'yolo changed the views of sub-agents'
 [ "$(stored view/isolate_session)" != true ] || fail 'yolo kept the view of the session'
 session '/session' '/exit'
