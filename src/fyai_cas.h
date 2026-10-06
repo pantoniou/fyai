@@ -25,20 +25,35 @@ int fyai_cas_digest_parse(unsigned char out[FYAI_CAS_HASH_SIZE], const char *hex
 
 struct fyai_cas_blob;
 
+/* Size of the name of an object, with its NUL: borrowed/, two digits, a slash, the rest. */
+#define FYAI_CAS_NAME_SIZE (9 + FYAI_CAS_DIGEST_SIZE + 1)
+
 /* Size of the overlay redirect string of a blob, with its NUL. */
-#define FYAI_CAS_REDIRECT_SIZE (FYAI_CAS_DIGEST_SIZE + 3)
+#define FYAI_CAS_REDIRECT_SIZE (FYAI_CAS_NAME_SIZE + 1)
 
 /* Write the lowercase hex name of the blob digest and a NUL. */
 void fyai_cas_blob_hex(char out[FYAI_CAS_DIGEST_SIZE], const struct fyai_cas_blob *blob);
 
 /*
- * Write the object name relative to the objects directory: the hex digest,
- * prefixed with borrowed/ for a borrowed object. size must be at least
- * 9 + FYAI_CAS_DIGEST_SIZE.
+ * Write the object name relative to the objects directory: the hex digest
+ * split after its first byte, AA/BBCC..., prefixed with borrowed/ for a
+ * borrowed object. A directory holds at most 256 entries of the level above
+ * it, so no directory grows with the number of objects. size must be at least
+ * FYAI_CAS_NAME_SIZE.
  */
 int fyai_cas_name(char *path, size_t size, const struct fyai_cas_blob *blob);
 
-/* Write the overlay redirect "/<hex>", or "/b-<hex>" for a borrowed blob. */
+/*
+ * Create the directories that hold the object name of the blob below
+ * directory_fd, and those that exist are kept. A caller that links or creates
+ * the name makes them first.
+ */
+int fyai_cas_mkdirs(int directory_fd, const struct fyai_cas_blob *blob);
+
+/*
+ * Write the overlay redirect "/<name>" of a blob: the object name below the
+ * data layer, which has the layout of the objects directory.
+ */
 void fyai_cas_redirect(char out[FYAI_CAS_REDIRECT_SIZE], const struct fyai_cas_blob *blob);
 
 /* How bytes move from a source to a CAS file. */

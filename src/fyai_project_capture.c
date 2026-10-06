@@ -1334,7 +1334,7 @@ static void capture_publish_owned(void *arg)
 static int capture_materialize_file(struct project_capture *capture, struct capture_node *node)
 {
 	struct stat object_stat;
-	char redirect[FYAI_CAS_REDIRECT_SIZE], object_name[9 + FYAI_CAS_DIGEST_SIZE];
+	char redirect[FYAI_CAS_REDIRECT_SIZE], object_name[FYAI_CAS_NAME_SIZE];
 	int object = -1, target = -1, rc = -1, saved;
 
 	object = fyai_cas_open(capture->opts->objects_fd, &node->blob);
@@ -1375,6 +1375,9 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 		if (rc)
 			goto out;
 		fyai_cas_redirect(redirect, &node->blob);
+		rc = fyai_cas_mkdirs(capture->opts->data_fd, &node->blob);
+		if (rc)
+			goto out;
 		rc = linkat(capture->opts->objects_fd, object_name, capture->opts->data_fd,
 			    redirect + 1, 0);
 		if (rc && errno == EEXIST)

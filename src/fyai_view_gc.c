@@ -104,16 +104,21 @@ static void strv_free(struct strv *v)
 	memset(v, 0, sizeof(*v));
 }
 
-static bool name_is_digest(const char *name)
+static bool name_is_hex(const char *name, size_t length)
 {
 	size_t i;
 
-	if (strlen(name) != FYAI_CAS_DIGEST_SIZE - 1)
+	if (strlen(name) != length)
 		return false;
 	for (i = 0; name[i]; i++)
 		if (!((name[i] >= '0' && name[i] <= '9') || (name[i] >= 'a' && name[i] <= 'f')))
 			return false;
 	return true;
+}
+
+static bool name_is_digest(const char *name)
+{
+	return name_is_hex(name, FYAI_CAS_DIGEST_SIZE - 1);
 }
 
 /* Whether the arena at path is the one of this run. */
@@ -279,7 +284,11 @@ static int gc_live(struct gc *gc, struct storage_roots *roots, int manifests, st
 	return 0;
 }
 
-static void gc_sweep_directory(struct gc *gc, int directory, const char *prefix,
+/*
+ * Remove the old files of a directory whose names have @length hex digits and
+ * are not in @live. @prefix is the name of the directory in @live.
+ */
+static void gc_sweep_directory(struct gc *gc, int directory, const char *prefix, size_t length,
 			       struct strv *live, size_t *counter)
 {
 	struct dirent *entry;
@@ -297,7 +306,7 @@ static void gc_sweep_directory(struct gc *gc, int directory, const char *prefix,
 		return;
 	}
 	while ((entry = readdir(stream))) {
-		if (!name_is_digest(entry->d_name))
+		if (!name_is_hex(entry->d_name, length))
 			continue;
 		snprintf(name, sizeof(name), "%s%s", prefix, entry->d_name);
 		if (strv_has(live, name) || fstatat(directory, entry->d_name, &st, AT_SYMLINK_NOFOLLOW))
@@ -307,6 +316,48 @@ static void gc_sweep_directory(struct gc *gc, int directory, const char *prefix,
 		if (unlinkat(directory, entry->d_name, 0))
 			continue;
 		gc_count(gc, &st, counter);
+	}
+	closedir(stream);
+}
+
+/*
+ * Sweep an objects directory: the directories of its first digest byte, each
+ * holding the files of the other digits. A directory that the sweep empties is
+ * removed.
+ */
+static void gc_sweep_objects(struct gc *gc, int directory, const char *prefix, struct strv *live,
+			     size_t *counter)
+{
+	struct dirent *entry;
+	struct stat st;
+	char name[PATH_MAX];
+	DIR *stream;
+	int fd, shard;
+	bool old;
+
+	fd = dup(directory);
+	if (fd < 0)
+		return;
+	stream = fdopendir(fd);
+	if (!stream) {
+		close(fd);
+		return;
+	}
+	while ((entry = readdir(stream))) {
+		if (!name_is_hex(entry->d_name, 2))
+			continue;
+		shard = openat(directory, entry->d_name,
+			       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (shard < 0)
+			continue;
+		/* A writer makes the directory and then links into it: remove only an old one. */
+		old = !fstat(shard, &st) && gc_old(gc, &st);
+		snprintf(name, sizeof(name), "%s%s/", prefix, entry->d_name);
+		gc_sweep_directory(gc, shard, name, FYAI_CAS_DIGEST_SIZE - 3, live, counter);
+		close(shard);
+		/* Fails while the directory holds a live object; that is the answer. */
+		if (old)
+			unlinkat(directory, entry->d_name, AT_REMOVEDIR);
 	}
 	closedir(stream);
 }
@@ -390,17 +441,18 @@ static void gc_sweep_storage(struct gc *gc, struct storage_roots *roots)
 		goto out;
 	if (gc_live(gc, roots, manifests, &blobs, &complete))
 		goto out;
-	gc_sweep_directory(gc, manifests, "", &roots->manifests, &gc->stats->manifests);
+	gc_sweep_directory(gc, manifests, "", FYAI_CAS_DIGEST_SIZE - 1, &roots->manifests,
+			   &gc->stats->manifests);
 	if (!complete)
 		goto out;
 	objects = open(fy_sprintfa("%s/objects/blake3", roots->path),
 		       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (objects < 0)
 		goto out;
-	gc_sweep_directory(gc, objects, "", &blobs, &gc->stats->objects);
+	gc_sweep_objects(gc, objects, "", &blobs, &gc->stats->objects);
 	borrowed = openat(objects, "borrowed", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (borrowed >= 0)
-		gc_sweep_directory(gc, borrowed, "borrowed/", &blobs, &gc->stats->objects);
+		gc_sweep_objects(gc, borrowed, "borrowed/", &blobs, &gc->stats->objects);
 out:
 	if (manifests >= 0)
 		close(manifests);

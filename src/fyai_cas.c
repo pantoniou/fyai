@@ -54,26 +54,28 @@ void fyai_cas_blob_hex(char out[FYAI_CAS_DIGEST_SIZE], const struct fyai_cas_blo
 	fyai_cas_hex(out, blob->digest, sizeof(blob->digest));
 }
 
-void fyai_cas_redirect(char out[FYAI_CAS_REDIRECT_SIZE], const struct fyai_cas_blob *blob)
-{
-	out[0] = '/';
-	if (blob->borrowed)
-		memcpy(out + 1, "b-", 2);
-	fyai_cas_blob_hex(out + 1 + (blob->borrowed ? 2 : 0), blob);
-}
-
 int fyai_cas_name(char *path, size_t size, const struct fyai_cas_blob *blob)
 {
 	size_t prefix = blob->borrowed ? 9 : 0;
+	char hex[FYAI_CAS_DIGEST_SIZE];
 
-	if (size < prefix + FYAI_CAS_DIGEST_SIZE) {
+	if (size < FYAI_CAS_NAME_SIZE) {
 		errno = ENAMETOOLONG;
 		return -1;
 	}
 	if (prefix)
 		memcpy(path, "borrowed/", prefix);
-	fyai_cas_blob_hex(path + prefix, blob);
+	fyai_cas_blob_hex(hex, blob);
+	memcpy(path + prefix, hex, 2);
+	path[prefix + 2] = '/';
+	memcpy(path + prefix + 3, hex + 2, FYAI_CAS_DIGEST_SIZE - 2);
 	return 0;
+}
+
+void fyai_cas_redirect(char out[FYAI_CAS_REDIRECT_SIZE], const struct fyai_cas_blob *blob)
+{
+	out[0] = '/';
+	fyai_cas_name(out + 1, FYAI_CAS_NAME_SIZE, blob);
 }
 
 #ifdef __linux__
@@ -256,7 +258,7 @@ int fyai_cas_clone(int source_fd, int target_fd, uint64_t size)
 
 int fyai_cas_open(int directory_fd, const struct fyai_cas_blob *blob)
 {
-	char path[9 + FYAI_CAS_DIGEST_SIZE];
+	char path[FYAI_CAS_NAME_SIZE];
 	int rc;
 
 	rc = fyai_cas_name(path, sizeof(path), blob);
@@ -385,6 +387,51 @@ int fyai_cas_hash_file(int fd, struct fyai_cas_blob *blob, struct fy_blake3_hash
 	return cas_copy_hash(fd, -1, blob, hasher, NULL);
 }
 
+int fyai_cas_mkdirs(int directory_fd, const struct fyai_cas_blob *blob)
+{
+	char name[FYAI_CAS_NAME_SIZE];
+	char *slash;
+	int rc;
+
+	rc = fyai_cas_name(name, sizeof(name), blob);
+	if (rc)
+		return -1;
+	for (slash = strchr(name, '/'); slash; slash = strchr(slash + 1, '/')) {
+		*slash = '\0';
+		rc = mkdirat(directory_fd, name, 0700);
+		*slash = '/';
+		if (rc && errno != EEXIST)
+			return -1;
+	}
+	return 0;
+}
+
+/*
+ * Make the directory entries of an object name durable: each directory on the
+ * path from the deepest, then the objects directory that names the first one.
+ */
+static int cas_sync_parents(int directory_fd, const char *name)
+{
+	char parent[FYAI_CAS_NAME_SIZE];
+	char *slash;
+	int fd, rc, saved;
+
+	snprintf(parent, sizeof(parent), "%s", name);
+	for (slash = strrchr(parent, '/'); slash; slash = strrchr(parent, '/')) {
+		*slash = '\0';
+		fd = openat(directory_fd, parent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (fd < 0)
+			return -1;
+		rc = fsync(fd);
+		saved = errno;
+		close(fd);
+		errno = saved;
+		if (rc)
+			return -1;
+	}
+	return fsync(directory_fd);
+}
+
 /*
  * An object needs no rehash when it is the inode of the hashed descriptor. An
  * owned object also needs none when it has the published form: a regular file of
@@ -421,17 +468,15 @@ int fyai_cas_link_hashed_state(int directory_fd, int source_directory, const cha
 			       const struct fyai_cas_blob *blob, struct fy_blake3_hasher *hasher,
 			       int hashed_fd, struct fyai_cas_copy_state *state)
 {
-	char name[9 + FYAI_CAS_DIGEST_SIZE];
-	int rc, fd = -1, borrowed = -1, saved;
+	char name[FYAI_CAS_NAME_SIZE];
+	int rc, fd = -1, saved;
 
 	rc = fyai_cas_name(name, sizeof(name), blob);
 	if (rc)
 		return -1;
-	if (blob->borrowed) {
-		rc = mkdirat(directory_fd, "borrowed", 0700);
-		if (rc && errno != EEXIST)
-			return -1;
-	}
+	rc = fyai_cas_mkdirs(directory_fd, blob);
+	if (rc)
+		return -1;
 	rc = linkat(source_directory, path, directory_fd, name, 0);
 	if (rc && errno != EEXIST)
 		return -1;
@@ -454,21 +499,11 @@ int fyai_cas_link_hashed_state(int directory_fd, int source_directory, const cha
 		rc = 0;
 		goto err_out;
 	}
-	if (blob->borrowed) {
-		borrowed = openat(directory_fd, "borrowed",
-				  O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-		if (borrowed < 0)
-			goto err_out;
-		if (fsync(borrowed))
-			goto err_out;
-	}
-	rc = fsync(directory_fd);
+	rc = cas_sync_parents(directory_fd, name);
 err_out:
 	saved = errno;
 	if (fd >= 0)
 		close(fd);
-	if (borrowed >= 0)
-		close(borrowed);
 	errno = saved;
 	return rc;
 }
@@ -552,7 +587,7 @@ static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
 	struct fyai_cas_blob result = { 0 };
 	unsigned char random[16];
 	char temporary[sizeof(".tmp-") + sizeof(random) * 2];
-	char name[FYAI_CAS_DIGEST_SIZE];
+	char name[FYAI_CAS_NAME_SIZE];
 	int fd = -1, rc = -1, saved, attempt;
 	bool created = false;
 
@@ -598,7 +633,11 @@ static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
 	/*
 	 * The directory is private; publication never replaces a digest name.
 	 */
-	fyai_cas_blob_hex(name, &result);
+	rc = fyai_cas_name(name, sizeof(name), &result);
+	if (!rc)
+		rc = fyai_cas_mkdirs(directory_fd, &result);
+	if (rc)
+		goto out;
 	rc = linkat(directory_fd, temporary, directory_fd, name, 0);
 	if (rc && errno == EEXIST)
 		rc = fyai_cas_verify_hasher(directory_fd, &result, hasher);
@@ -609,7 +648,7 @@ static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
 		goto out;
 	created = false;
 	if (!state || !state->defer_directory_sync)
-		rc = fsync(directory_fd);
+		rc = cas_sync_parents(directory_fd, name);
 	if (!rc)
 		*blob = result;
 out:
