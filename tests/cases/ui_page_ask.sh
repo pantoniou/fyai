@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Under display/renderer=page a question of ask_user takes the input area: its
+# A question of ask_user takes the input area: its
 # options are drawn above the prompt, the arrows move the selection, Enter
 # accepts it, a number key or a click chooses, typed text answers freely and
 # Escape answers nothing. A question of a sub-agent is drawn there too, with who
@@ -24,7 +24,7 @@ ask()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=false \
-        --set tools=true --set display/renderer=page \
+        --set tools=true \
         --set api=chat-completions \
         --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model \
         "${@:3}" -i ||
@@ -129,7 +129,7 @@ FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
-    --set display/renderer=page --set api=responses \
+    --set api=responses \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i || driver=$?
 if [ "$driver" -ne 0 ]; then
     tail -c 2000 "$TEST_DIR/pty.out" >&2
@@ -160,7 +160,7 @@ FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
-    --set tools=true --set display/renderer=page \
+    --set tools=true \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||
     driver=$?
@@ -202,7 +202,7 @@ FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
-    --set tools=true --set display/renderer=page --set api=responses \
+    --set tools=true --set api=responses \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i || driver=$?
 if [ "$driver" -ne 0 ]; then
     tail -c 2000 "$TEST_DIR/pty.out" >&2

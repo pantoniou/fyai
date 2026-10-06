@@ -23,7 +23,7 @@ session()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --color on --set display/markdown=true \
         --set "display/theme=ember:$variant" --set "display/theme_ground=$ground" \
-        --set display/renderer=page --set "display/screen=$screen" \
+        --set "display/screen=$screen" \
         --set display/stream=false --set api=chat-completions \
         --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i \
         2>"$TEST_DIR/stderr" || driver=$?

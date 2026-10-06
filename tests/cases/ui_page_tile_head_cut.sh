@@ -17,7 +17,7 @@ FYAI_PTY_AFTER="wait-screen:CUTOUT|wait-screen:×" \
 FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
-    --set display/markdown=true --set display/renderer=page \
+    --set display/markdown=true \
     --set display/work_controls=full --set display/stream=false \
     --set tools=true --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||
@@ -43,10 +43,12 @@ while True:
         break
     screen.feed(data[pos:i + len(END)])
     pos = i + len(END)
-    if any("CUTOUT" in r for r in screen.display()):
-        rows = screen.display()
+    # A tile that ended is committed without buttons: read the live one.
+    shown = screen.display()
+    if any("CUTOUT" in r for r in shown) and any("×" in r for r in shown):
+        rows = shown
 if rows is None:
-    raise SystemExit("no frame showed the tile")
+    raise SystemExit("no frame showed the live tile")
 head = [r for r in rows if "×" in r]
 if len(head) != 1:
     raise SystemExit("the buttons are on %d rows: %r" % (len(head), rows))

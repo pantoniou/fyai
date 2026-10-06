@@ -18,7 +18,7 @@ FYAI_PTY_AFTER="wait-screen:SIZEDONE|wait-screen:Esc closes|raw:1b|wait-gone:ban
 FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
-    --set display/markdown=true --set display/renderer=page \
+    --set display/markdown=true \
     -m mock-model -i || driver=$?
 if [ "$driver" -ne 0 ]; then
     tail -c 2000 "$TEST_DIR/pty.out" >&2

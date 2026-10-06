@@ -17,7 +17,7 @@ FYAI_PTY_AFTER="raw:6e6f742073656e74|wait-screen:not sent|raw:1b00|wait-gone:not
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=true \
-    --set display/renderer=page --set display/screen=fullscreen \
+    --set display/screen=fullscreen \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||
 	fail "Escape at an idle prompt ended the session"

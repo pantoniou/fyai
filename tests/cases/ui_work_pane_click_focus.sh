@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # With mouse capture enabled, clicking a tile screen or header focuses that
-# tile. Clicking outside all tiles focuses the prompt. Both renderers must
-# handle the same click coordinates.
+# tile. Clicking outside all tiles focuses the prompt. The page draws its
+# tiles, so a click resolves through the slot of the page.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -46,7 +46,6 @@ run_with()
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/work_controls=zoom \
         --set display/work_min_tile_cols=30 \
-        --set "display/renderer=$renderer" \
         --set retry/max_attempts=1 \
         --set api=chat-completions \
         --set "api_url=http://127.0.0.1:9/v1/chat/completions" \
@@ -55,15 +54,13 @@ run_with()
     cp "$TEST_DIR/pty.out" "$CAPTURES/$renderer.out"
 }
 
-run_with stack
 run_with page
 
 if grep -a -q "needs a libfytimui" "$CAPTURES/page.out"; then
     skip "this build has no page support"
 fi
 
-for renderer in stack page; do
-    "$PYTHON" - "$CAPTURES/$renderer.out" "$renderer" <<'PYEOF' ||
+"$PYTHON" - "$CAPTURES/page.out" <<'PYEOF' ||
 import os
 import sys
 
@@ -81,7 +78,7 @@ def column(needle):
             at = row.find(needle)
             if at >= 0:
                 return at
-    raise SystemExit("%s: %s was never shown" % (sys.argv[2], needle))
+    raise SystemExit("%s was never shown" % needle)
 
 
 # The left tile ends before the middle of the terminal, the right starts
@@ -96,7 +93,6 @@ if not any(row.lstrip().startswith("❯ PROMPTKEYS")
            for disp in shown for row in disp):
     raise SystemExit("clicking outside the tiles did not focus the prompt")
 PYEOF
-        fail "$renderer: keyboard focus moved to the wrong target"
-done
+    fail "keyboard focus moved to the wrong target"
 
 pass

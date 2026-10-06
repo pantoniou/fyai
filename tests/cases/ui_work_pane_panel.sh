@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 # The panel at the right of the input header counts the live shells of the
 # user and has a button that hides and shows the work pane. The pane goes and
-# comes back with its program running, under both renderers. The panel goes
-# when the last shell ends, also on the fullscreen page, where the result of
+# comes back with its program running. The panel goes when the last shell
+# ends, also on the fullscreen page, where the result of
 # /kill is a note and no tile keeps the pane.
 set -eu
 . "$(dirname "$0")/../harness.sh"
@@ -29,7 +29,6 @@ run_with()
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
         --set display/work_controls=zoom \
-        --set "display/renderer=$renderer" \
         --set "display/screen=$screen" \
         --set api=chat-completions \
         --set "api_url=http://127.0.0.1:9/v1/chat/completions" \
@@ -41,7 +40,6 @@ run_with()
     fi
 }
 
-run_with stack
 run_with page
 
 pass

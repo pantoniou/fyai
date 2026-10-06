@@ -27,7 +27,7 @@ session()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=false \
-        --set display/renderer=page --set "display/screen=$screen" \
+        --set "display/screen=$screen" \
         ${5:+--set} ${5:+"$5"} \
         --set api=chat-completions \
         --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||

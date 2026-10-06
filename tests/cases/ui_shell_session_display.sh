@@ -20,7 +20,8 @@ fyai_test_setup
 mock_start shell_session.json
 
 FYAI_PTY_INPUT="drive the shell" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="send:/status|wait-screen:Usage / total" \
+FYAI_PTY_AFTER="wait-screen:   shell [lines]|wait-screen:● shell [lines]|"\
+"send:/status|wait-screen:Usage / total" \
 FYAI_PTY_SNAPSHOT="$TEST_DIR/snapshot.out" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -b main -k test-key --theme dark \
@@ -97,12 +98,8 @@ if not re.search(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f[^\n]*shell", data):
 if not re.search(rb"\x1b\[32m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f[^\n]*shell", data):
     raise SystemExit("the session was never committed as done")
 
-# The compositor can repaint only the changed marker cell. Verify both the
-# blank frame and a later dot frame in the terminal byte stream.
-if not re.search(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)* ", data):
-    raise SystemExit("the running session mark never blinked off")
-if len(re.findall(rb"\x1b\[33m(?:\x1b\[[0-9;]*m)*\xe2\x97\x8f", data)) < 2:
-    raise SystemExit("the running session mark never blinked on again")
+# The blink is host-side: the driver waited for the screen to show the mark
+# off and then on again on the live session row, before it sent /status.
 EOF
 
 "$PYTHON" "$TESTS_DIR/assert_work_retired.py" \

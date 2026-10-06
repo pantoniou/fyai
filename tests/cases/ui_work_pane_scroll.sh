@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # The scroll bar of a tile moves its view through the history of its program.
-# With display/work_controls=full a tile has a bar under both renderers: the
-# band stack draws it in the library and the page draws it on its canvas. The
+# With display/work_controls=full a tile has a bar that the page draws on its
+# canvas. The
 # wheel over the tile moves three rows, the arrow at the top of the bar moves
 # one, and what the user types shows the live screen again.
 set -eu
@@ -40,7 +40,6 @@ run_with()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/work_controls=full \
-        --set "display/renderer=$renderer" \
         --set retry/max_attempts=1 \
         --set api=chat-completions \
         --set "api_url=http://127.0.0.1:9/v1/chat/completions" \
@@ -52,7 +51,6 @@ run_with()
     fi
 }
 
-run_with stack
 run_with page
 
 pass

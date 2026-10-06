@@ -1,10 +1,9 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# The header is one row under display/renderer=page, cut at the edge as the
-# band stack cuts it. A working directory with a long path runs the header past
-# the terminal: a shell that takes the pane and the keys must leave the status
-# row that says how to give the keys back, and both renderers draw the same
-# header row.
+# The header is one row, cut at the edge. A working directory with a long path
+# runs the header past the terminal: a shell that takes the pane and the keys
+# must leave the status row that says how to give the keys back, and the header
+# must not wrap onto a second row.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -27,7 +26,7 @@ run_with()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
-        --set "display/renderer=$renderer" -m mock-model -i || driver=$?
+        -m mock-model -i || driver=$?
     cp "$TEST_DIR/pty.out" "$CAPTURES/$renderer.out"
     cp "$TEST_DIR/trace.log" "$CAPTURES/$renderer.trace" 2>/dev/null || :
     if [ "$driver" -ne 0 ]; then
@@ -39,15 +38,14 @@ run_with()
     fi
 }
 
-run_with stack
 run_with page
 
-"$PYTHON" - "$CAPTURES/stack.out" "$CAPTURES/page.out" "$TESTS_DIR" \
-    <<'PY' || fail "the page did not draw the long header as the band stack does"
+"$PYTHON" - "$CAPTURES/page.out" "$TESTS_DIR" \
+    <<'PY' || fail "the page did not draw the long header"
 import re
 import sys
 
-sys.path.insert(0, sys.argv[3])
+sys.path.insert(0, sys.argv[2])
 from screen import Screen
 
 END = b"\x1b[?2026l"
@@ -71,19 +69,14 @@ def held(path):
         raise SystemExit("%s: the shell never held the keys" % path)
     return found
 
-def header(rows):
-    at = next((y for y, r in enumerate(rows) if "fyai: session/" in r), None)
-    if at is None:
-        raise SystemExit("no header row: %r" % rows)
-    # The session row names its run.
-    return at, [re.sub(r"session/\S+", "session", r) for r in rows[at:at + 2]]
-
-stack_at, stack = header(held(sys.argv[1]))
-page_at, page = header(held(sys.argv[2]))
-if (stack_at, stack) != (page_at, page):
-    raise SystemExit("header differs:\n stack %d|%s\n page  %d|%s" %
-                     (stack_at, "\n          |".join(stack),
-                      page_at, "\n          |".join(page)))
+rows = held(sys.argv[1])
+at = next((y for y, r in enumerate(rows) if "fyai: session/" in r), None)
+if at is None:
+    raise SystemExit("no header row: %r" % rows)
+# The long directory is drawn on the header row alone: another row that holds
+# it means the header wrapped.
+if any("a-directory" in r for r in rows[:at] + rows[at + 1:]):
+    raise SystemExit("the header is not one row: %r" % rows)
 PY
 
 pass

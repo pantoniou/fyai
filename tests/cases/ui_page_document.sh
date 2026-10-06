@@ -43,7 +43,7 @@ page()
     FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
-        --set display/markdown=true --set display/renderer=page \
+        --set display/markdown=true \
         --set "display/page=$DOCS/$name.yaml" -m mock-model -i ||
         driver=$?
     if grep -a -q "needs a libfytimui" "$TEST_DIR/pty.out" \

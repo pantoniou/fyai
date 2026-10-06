@@ -47,7 +47,7 @@ FYAI_PTY_TIMEOUT=60 FYAI_PTY_AFTER="wait-screen:· view session|send:/exit" \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty-view.out" \
     "$FYAI_BIN" -k test-key --set view/isolate_session=true \
     --theme dark --set display/markdown=true \
-    --set display/renderer=page --set display/screen=fullscreen \
+    --set display/screen=fullscreen \
     --set display/stream=false --set tools=true --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||
 	fail "the bottom row does not name the view"

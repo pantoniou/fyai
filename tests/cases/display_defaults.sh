@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# An interactive session opens on the page renderer, on the alternate screen,
-# with the work pane at half the terminal and the mouse controls of a tile.
+# An interactive session opens on the alternate screen, with the work pane at
+# half the terminal and the mouse controls of a tile.
 # The arena of a case states another display, thus the defaults need a case of
 # their own.
 set -eu
@@ -23,7 +23,6 @@ want()
         fail "display/$key is $got, expected $value"
 }
 
-want renderer page
 want screen fullscreen
 want work_zoom_rows half
 want work_controls full
@@ -35,7 +34,7 @@ import sys
 
 schema = subprocess.run([sys.argv[1], "config", "schema"],
                         capture_output=True, text=True, check=True).stdout
-want = {"renderer": "page", "screen": "fullscreen",
+want = {"screen": "fullscreen",
         "work_zoom_rows": "half", "work_controls": "full"}
 missing = []
 for key, value in want.items():

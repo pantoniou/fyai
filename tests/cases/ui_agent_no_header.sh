@@ -15,7 +15,6 @@ FYAI_PTY_NEEDLE="Delegated and done." \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
-    --set display/renderer=page \
     --set tools=true --set api=responses --set builtin_shell=true \
     --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i || driver=$?
 if [ "$driver" -ne 0 ]; then

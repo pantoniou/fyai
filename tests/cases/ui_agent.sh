@@ -62,7 +62,7 @@ if "printf" not in shown:
 if "agent-was-here" not in shown:
     raise SystemExit("the sub-agent's own screen was not shown")
 # Require the sub-agent screen below its tile title.
-title = [l for l in seen if l.startswith("\u25cf agent [greeter]")]
+title = [l for l in seen if l.lstrip().startswith("\u25cf agent [greeter]")]
 if not title:
     raise SystemExit("the tile of the sub-agent has no title row")
 # The tile header names the session beside the description: the branch

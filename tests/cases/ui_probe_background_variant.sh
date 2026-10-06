@@ -19,7 +19,7 @@ session()
     FYAI_PTY_NEEDLE=READY FYAI_PTY_AFTER='raw:1d' FYAI_PTY_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --color on --set display/markdown=true \
-        --theme ember:auto --set display/renderer=page \
+        --theme ember:auto \
         --set display/screen=fullscreen -m mock-model -i
     cp "$TEST_DIR/pty.out" "$CAPTURES/$label.out"
 }

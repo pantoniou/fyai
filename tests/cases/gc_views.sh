@@ -10,7 +10,7 @@ set -eu
 fyai_test_setup
 mkdir project
 cd project
-printf 'display:\n  markdown: false\n  renderer: stack\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n' > config.yaml
+printf 'display:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n' > config.yaml
 "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
 rm -f config.yaml
 

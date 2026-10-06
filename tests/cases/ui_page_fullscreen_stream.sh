@@ -18,7 +18,7 @@ FYAI_PTY_AFTER="wait-screen:Streaming begins here.|wait-screen: 1s|"\
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=true \
-    --set display/renderer=page --set display/screen=fullscreen \
+    --set display/screen=fullscreen \
     --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i
 

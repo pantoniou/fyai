@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Under display/renderer=page the ladder of a tile selects the view of its
+# The ladder of a tile selects the view of its
 # page. A pane of five rows leaves a bang tile a screen too short for its
 # head: it shows the screen alone. A pane of three rows leaves no screen worth
 # reading: it shows the head that says whose call it is.
@@ -25,7 +25,7 @@ run_at()
     FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
-        --set display/markdown=true --set display/renderer=page \
+        --set display/markdown=true \
         --set "display/work_zoom_rows=$rows" -m mock-model -i || driver=$?
     cp "$TEST_DIR/pty.out" "$CAPTURES/$rows.out"
     cp "$TEST_DIR/trace.log" "$CAPTURES/$rows.trace" 2>/dev/null || :

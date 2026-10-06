@@ -8,20 +8,31 @@ set -eu
 
 fyai_test_setup
 
-# The screen as it stood when the second argument first appeared. A capture
-# replayed whole ends blank, because leaving erases the band: the reading has
-# to be taken at the moment the content was on screen.
+# The screen as it stood when the second argument first appeared, with the rows
+# that scrolled off it. A capture replayed whole ends blank, because leaving
+# erases the page: the reading has to be taken at the moment the content was on
+# screen. A program that ends is committed to the scrollback as its last
+# screen.
 screen_at() {
 	FYAI_SCREEN_ROWS="${FYAI_TERM_ROWS:-24}" \
 	FYAI_SCREEN_COLS="${FYAI_TERM_COLS:-80}" \
 	"$PYTHON" - "$1" "$2" <<'SCREENPY'
 import os, sys
 sys.path.insert(0, os.environ["TESTS_DIR"])
-from screen import rows_at
+from screen import Screen
 rows = int(os.environ.get("FYAI_SCREEN_ROWS", "24"))
 cols = int(os.environ.get("FYAI_SCREEN_COLS", "80"))
-for row in rows_at(sys.argv[1], sys.argv[2].encode(), rows=rows, cols=cols):
-    print(row)
+data = open(sys.argv[1], "rb").read()
+at = data.find(sys.argv[2].encode())
+if at < 0:
+    raise SystemExit("needle not in capture: %r" % sys.argv[2])
+end = data.find(b"\x1b[?2026l", at)
+end = end + 8 if end >= 0 else at + 400
+screen = Screen(rows, cols)
+screen.feed(data[:end])
+for row in screen.scrollback + screen.display():
+    if row.strip():
+        print(row)
 SCREENPY
 }
 

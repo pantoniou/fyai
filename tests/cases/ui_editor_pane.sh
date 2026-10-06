@@ -32,7 +32,7 @@ session()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/$name.out" \
         "$FYAI_BIN" -b "editor-$name" -k test-key --theme dark \
         --set display/markdown=true --set display/stream=true \
-        --set display/renderer=stack --set display/screen=inline \
+        --set display/screen=inline \
         --set api=chat-completions \
         --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i "$@"
     assert_request 0 \

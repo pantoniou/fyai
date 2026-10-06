@@ -3,7 +3,7 @@
 # The buttons at the right of the head of a tile. With the mouse grabbed, the
 # minimize button makes a tile a head under the screens, a click on that head
 # shows it again, and the maximize button gives a tile the pane and gives it
-# back. Both renderers draw the buttons from the same head source.
+# back.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -42,7 +42,6 @@ run_with()
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
         --set display/work_controls=zoom \
-        --set "display/renderer=$renderer" \
         --set retry/max_attempts=1 \
         --set api=chat-completions \
         --set "api_url=http://127.0.0.1:9/v1/chat/completions" \
@@ -56,7 +55,6 @@ run_with()
         fail "$renderer: the head has no buttons"
 }
 
-run_with stack
 run_with page
 
 pass

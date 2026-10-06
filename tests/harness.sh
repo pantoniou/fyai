@@ -193,7 +193,7 @@ fyai_test_setup() {
 	# are the page on the alternate screen with the mouse taken; a case
 	# that tests them selects them, and every other case reads its output
 	# from the scrollback of the terminal.
-	printf 'display:\n  markdown: false\n  renderer: stack\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n' > config.yaml
+	printf 'display:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n' > config.yaml
 	${FYAI_VALGRIND} "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
 	rm -f config.yaml
 }

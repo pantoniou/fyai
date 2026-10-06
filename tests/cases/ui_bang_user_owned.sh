@@ -12,7 +12,7 @@ mock_start ui_bang_user_owned.json
 # seconds. A report made before the tile was granted its rows names the whole
 # terminal, so the case waits for the granted size. The status hint says that
 # a tile holds the keys: the notice of /zoom names Ctrl-] too.
-ZOOM_AFTER="wait-screen:READY|wait-screen:SIZE 3 98|wait-screen:Ctrl-] returns to the prompt|raw:1d|wait-gone:Ctrl-] returns to the prompt|"
+ZOOM_AFTER="wait-screen:READY|wait-screen:SIZE 4 98|wait-screen:Ctrl-] returns to the prompt|raw:1d|wait-gone:Ctrl-] returns to the prompt|"
 ZOOM_AFTER="${ZOOM_AFTER}send:try to close my shell|"
 ZOOM_AFTER="${ZOOM_AFTER}wait-screen:User shell ownership preserved.|"
 ZOOM_AFTER="${ZOOM_AFTER}send:/zoom bang-1|wait-screen:Ctrl-] returns to the prompt|"
@@ -71,7 +71,7 @@ while True:
     zoomed = zoomed or any("/zoom bang-1" in line for line in frames.display())
     if reports and not zoomed:
         newest = max(reports)[1:]
-        granted = granted or newest == (3, 98)
+        granted = granted or newest == (4, 98)
         if granted:
             sizes.append(newest)
     ready = ready or any("READY" in line for line in frames.display())

@@ -24,7 +24,7 @@ run_pty() {
 	    "$FYAI_BIN" -k test-key --theme dark -b main --set api=chat-completions \
 	    --set "api_url=$MOCK_URL/v1/chat/completions" \
 	    --set display/stream=false --set display/markdown=true \
-	    --set display/renderer=page --set display/screen=fullscreen \
+	    --set display/screen=fullscreen \
 	    -m mock-model -i
 }
 

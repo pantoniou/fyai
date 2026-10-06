@@ -1,9 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Under display/renderer=page the page places the tiles of every
-# display/work_layout. Three shells and a notice must stand as the band stack
-# places them in each layout: the same rows, the same size given to each shell,
-# and the same reversed cells.
+# The page places the tiles of every display/work_layout. Three shells and a
+# notice must stand in each layout: the same rows, the same size given to each
+# shell, and the same reversed cells.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -17,8 +16,7 @@ shell()
 
 # The size each shell is granted once the notice stands under the screens.
 # The case waits for these on the screen, and for each head to be made again
-# at the width of its grant, which leaves no head cut with an ellipsis: both
-# renderers are then at rest.
+# at the width of its grant, which leaves no head cut with an ellipsis.
 sizes()
 {
     case $1 in
@@ -51,14 +49,13 @@ run_with()
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/work_min_tile_cols=30 \
         --set "display/work_layout=$layout" --set display/work_columns=2 \
-        --set "display/renderer=$renderer" -m mock-model -i
+        -m mock-model -i
     cp "$TEST_DIR/pty.out" "$CAPTURES/$renderer-$layout.out"
     cp "$TEST_DIR/trace.log" "$CAPTURES/$renderer-$layout.trace"
 }
 
 LAYOUTS="auto columns stack main-top main-left"
 for layout in $LAYOUTS; do
-    run_with stack "$layout"
     run_with page "$layout"
     if grep -a -q "needs a libfytimui" "$CAPTURES/page-$layout.out" \
         "$CAPTURES/page-$layout.trace"; then
@@ -67,61 +64,5 @@ for layout in $LAYOUTS; do
     grep -a -q "page: .*tiles=4" "$CAPTURES/page-$layout.trace" ||
         fail "the page did not place three shells and a notice in $layout"
 done
-
-"$PYTHON" - "$CAPTURES" "$TESTS_DIR" $LAYOUTS <<'PY' ||
-import re
-import sys
-
-sys.path.insert(0, sys.argv[2])
-from screen import Screen
-
-END = b"\x1b[?2026l"
-SIZES = re.compile(r"(FIRST|SECOND|THIRD) \d+ \d+")
-
-def before_kill(path):
-    """The last frame that shows the three shells with their sizes and the
-    notice while the session is idle: before the first stop is entered, so
-    both renderers are compared at rest."""
-    data = open(path, "rb").read()
-    screen = Screen(30, 100)
-    pos = 0
-    found = None
-    while True:
-        i = data.find(END, pos)
-        if i < 0:
-            break
-        screen.feed(data[pos:i + len(END)])
-        pos = i + len(END)
-        rows = [r.rstrip() for r in screen.display()]
-        text = "\n".join(rows)
-        if "/kill" in text:
-            break
-        if len(set(SIZES.findall(text))) == 3 and "unknown" in text:
-            found = (rows, screen.reversed_display())
-    if found is None:
-        raise SystemExit("%s: the shells and the notice never stood together"
-                         % path)
-    return found
-
-def normal(row):
-    # The session row names its run, and a running mark blinks.
-    row = re.sub(r"session/\S+ ·\s+\S+", "session", row)
-    return re.sub(r"[^\x00-\x7f┃│⎿…─]", " ", row)
-
-failed = []
-for layout in sys.argv[3:]:
-    stack, stack_rev = before_kill("%s/stack-%s.out" % (sys.argv[1], layout))
-    page, page_rev = before_kill("%s/page-%s.out" % (sys.argv[1], layout))
-    differ = [(i, a, b) for i, (a, b) in enumerate(zip(stack, page))
-              if normal(a) != normal(b)]
-    differ += [(i, "rev " + a, "rev " + b)
-               for i, (a, b) in enumerate(zip(stack_rev, page_rev)) if a != b]
-    if differ:
-        failed.append("layout %s:\n%s" % (layout, "\n".join(
-            "%2d stack|%s\n   page |%s" % d for d in differ)))
-if failed:
-    raise SystemExit("\n".join(failed))
-PY
-    fail "the page did not place the tiles as the band stack does"
 
 pass

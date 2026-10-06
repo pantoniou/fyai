@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Both renderers mark keyboard focus with a themed edge. Tiles use the first
+# The page marks keyboard focus with a themed edge. Tiles use the first
 # margin column; the prompt uses the column before its marker. The inactive
 # location remains blank so changing focus does not move content.
 set -eu
@@ -20,7 +20,6 @@ run_with()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true \
-        --set "display/renderer=$renderer" \
         --set api=chat-completions \
         --set "api_url=http://127.0.0.1:9/v1/chat/completions" \
         -m mock-model -i ||
@@ -31,7 +30,6 @@ run_with()
     fi
 }
 
-run_with stack
 run_with page
 
 pass

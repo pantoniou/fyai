@@ -21,7 +21,7 @@ def control_terminal():
     fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 process = subprocess.Popen([binary, "-k", "test-key", "--color", "off", "--set",
                            "api=chat-completions", "--set", "display/screen=fullscreen",
-                           "--set", "display/renderer=page", "-i"],
+                           "-i"],
                           stdin=slave, stdout=slave, stderr=slave, env=env,
                           preexec_fn=control_terminal)
 os.close(slave)

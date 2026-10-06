@@ -1,9 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # With display/work_controls the head of a tile takes clicks: its name gives
-# the tile the keys, and its buttons maximize and close it. Under
-# display/renderer=page the head is drawn by the page and a click is an act of
-# the page, so both renderers must draw the head alike and act alike.
+# the tile the keys, and its buttons maximize and close it. The page draws the
+# head itself, so a click is an act of the page.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -30,7 +29,7 @@ run_with()
     "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
         "$FYAI_BIN" -k test-key --theme dark \
         --set display/markdown=true --set display/work_controls=zoom \
-        --set "display/renderer=$renderer" -m mock-model -i || driver=$?
+        -m mock-model -i || driver=$?
     cp "$TEST_DIR/pty.out" "$CAPTURES/$renderer.out"
     cp "$TEST_DIR/trace.log" "$CAPTURES/$renderer.trace"
     if [ "$driver" -ne 0 ]; then
@@ -42,7 +41,6 @@ run_with()
         fail "the maximize button did not zoom the tile under $renderer"
 }
 
-run_with stack
 run_with page
 
 if grep -a -q "needs a libfytimui" "$CAPTURES/page.out" "$CAPTURES/page.trace"; then
@@ -51,12 +49,12 @@ fi
 grep -a -q "page: .*tiles=1" "$CAPTURES/page.trace" ||
     fail "the page did not draw the tile"
 
-"$PYTHON" - "$CAPTURES/stack.out" "$CAPTURES/page.out" "$TESTS_DIR" \
-    <<'PY' || fail "the page did not draw the head of the tile as the band stack does"
+"$PYTHON" - "$CAPTURES/page.out" "$TESTS_DIR" \
+    <<'PY' || fail "the head of the tile is not where the clicks go"
 import re
 import sys
 
-sys.path.insert(0, sys.argv[3])
+sys.path.insert(0, sys.argv[2])
 from screen import Screen
 
 END = b"\x1b[?2026l"
@@ -87,15 +85,10 @@ def head(path):
         raise SystemExit("%s: the tile never stood at rest" % path)
     return found
 
-stack = head(sys.argv[1])
-page = head(sys.argv[2])
-for name, row in (("stack", stack), ("page", page)):
-    # The clicks go to these cells: the name, then the buttons.
-    if row[4:18] != "shell [bang-1]" or "▁ □ ×" not in row:
-        raise SystemExit("%s head is not where the clicks go: %r" % (name, row))
-# The running mark in the gutter blinks; the rest of the row is the same.
-if stack[3:] != page[3:]:
-    raise SystemExit("head differs:\n stack|%s\n page |%s" % (stack, page))
+row = head(sys.argv[1])
+# The clicks go to these cells: the name, then the buttons.
+if row[4:18] != "shell [bang-1]" or "▁ □ ×" not in row:
+    raise SystemExit("head is not where the clicks go: %r" % row)
 PY
 
 pass
