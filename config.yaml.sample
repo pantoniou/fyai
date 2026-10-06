@@ -198,6 +198,16 @@ builtin_shell: false
 # `fyai sandbox on` stores this policy:
 # sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { ports: [443] } }
 sandbox: false
+# The profile that confines shell executions: normal uses `sandbox` above, and
+# lockdown uses `sandbox_lockdown` and enables the sandbox. `/session lockdown`
+# selects lockdown and `/session yolo` selects normal.
+sandbox_profile: normal
+# The lockdown profile takes deny, allow and network as `sandbox` does.
+# A key that it omits keeps this default:
+# sandbox_lockdown:
+#   deny: [~/.ssh]        # The secret locations of the platform.
+#   network:
+#     ports: []           # No network egress.
 
 logprobs: false
 top_logprobs: -1

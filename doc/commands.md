@@ -4864,9 +4864,11 @@ take the strongest isolation that this host can enforce
 **Usage:** `/session lockdown`
 
 Set the isolation keys together: `agent/transport_isolation: auto`, so
-the provider credentials stay in a separate process; the `sandbox`
-with no network egress where the kernel can restrict it, for this
-session; and `view/isolate_session`, so the session runs in a view
+the provider credentials stay in a separate process; the lockdown
+sandbox profile, `sandbox_profile: lockdown`, which confines the tools
+by `sandbox_lockdown` whatever `sandbox` says, and by default denies
+`~/.ssh` and all network egress where the kernel can restrict it; and
+`view/isolate_session`, so the session runs in a view
 of the project, made from the project as it is now, where this host
 can make one. A sub-agent then shares the view of the session. The
 views of sub-agents (`agent/isolation`) are not touched: set that key
@@ -4890,7 +4892,8 @@ take off the isolation of the session
 **Usage:** `/session yolo`
 
 Turn off the credential transport and the sandbox:
-`agent/transport_isolation: none` and `sandbox: false`, and the view of
+`agent/transport_isolation: none`, `sandbox_profile: normal` and
+`sandbox: false`, and the view of
 the session, `view/isolate_session`, when it is on. The views of
 sub-agents (`agent/isolation`) are not touched.
 The keys are stored. A session that runs with the credential transport

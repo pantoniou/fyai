@@ -608,6 +608,68 @@ properties:
                   minimum: 1
                   maximum: 65535
                   description: Set one allowed TCP port number.
+  sandbox_profile:
+    type: string
+    enum: [normal, lockdown]
+    default: normal
+    description: >-
+      Select the sandbox policy that confines shell-tool executions. `normal`
+      uses `sandbox`. `lockdown` uses `sandbox_lockdown` and enables the sandbox
+      whatever `sandbox` says. `/session lockdown` selects `lockdown` and
+      `/session yolo` selects `normal`.
+  sandbox_lockdown:
+    type: object
+    description: >-
+      Set the sandbox policy of the `lockdown` profile, apart from `sandbox`.
+      It is always enabled. A key that this mapping omits keeps its default: the
+      secret locations of the platform are denied and network egress is denied.
+      The `sandbox` mapping describes each key.
+    properties:
+      deny:
+        type: array
+        default: ["~/.ssh"]
+        description: >-
+          Deny access to the specified paths. Paths can be project-relative,
+          absolute, or home-relative. The .fyai arena is always denied. A path
+          that does not exist is left out.
+        items:
+          type: string
+      allow:
+        type: array
+        description: Grant access to paths outside the project.
+        items:
+          anyOf:
+            - type: string
+              description: Grant read and write access to this path.
+            - type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Name the path for this sandbox grant.
+                mode:
+                  type: string
+                  enum: [rw, ro, edit, append]
+                  description: >-
+                    Select the access mode for this path. rw is the default;
+                    ro allows read and execute; edit modifies existing files
+                    without create or delete; append writes without truncation.
+      network:
+        type: object
+        description: >-
+          Restrict network egress to listed TCP ports. An empty ports list,
+          the default, denies all egress. A kernel that cannot restrict egress
+          leaves it open.
+        properties:
+          ports:
+            type: array
+            default: []
+            description: List TCP ports allowed for network egress.
+            items:
+              type: integer
+              minimum: 1
+              maximum: 65535
+              description: Set one allowed TCP port number.
   logprobs:
     type: boolean
     default: false

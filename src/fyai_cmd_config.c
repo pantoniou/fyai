@@ -722,14 +722,13 @@ int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 	bool was_view = preset_view_session(ctx);
 	bool want_view = fyai_view_session_available(ctx);
 	const char *note = NULL;
-	fy_generic none;
+	fy_generic none, policy;
 	int rc;
 
 	if (preset_idle(call) || fyai_transport_preflight(ctx))
 		return -1;
-	rc = preset_set(call, "sandbox", "{enabled: true}");
-	if (!rc && net)
-		rc = preset_set(call, "sandbox/network/ports", "[]");
+	/* The profile is stored, so the next image of the session confines its tools too. */
+	rc = preset_set(call, "sandbox_profile", "lockdown");
 	/* A session already in its view keeps it; this host may not make another. */
 	if (!rc && !in_view && want_view != was_view)
 		rc = preset_set(call, "view/isolate_session", want_view ? "true" : "false");
@@ -756,9 +755,12 @@ int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 		note = "this kernel has no Landlock: the sandbox cannot confine anything";
 	else if (!net)
 		note = "this kernel cannot restrict network egress: it stays open";
+	policy = fy_get(ctx->cfg->sandbox, "network", fy_invalid);
 	*result = fy_mapping(call->gb, "mode", "lockdown",
 			     "transport", "auto",
-			     "sandbox", net ? "on, no network egress" : "on",
+			     "sandbox", !net || !fy_is_valid(policy) ? "on" :
+					fy_empty(fy_get(policy, "ports", fy_invalid)) ?
+					"on, no network egress" : "on, network restricted",
 			     "agents", preset_agents(ctx, in_view || want_view));
 	if (note)
 		*result = fy_assoc(call->gb, *result, "note", fy_value(call->gb, note));
@@ -780,7 +782,9 @@ int fyai_cmd_yolo(struct fyai_cmd_call *call, fy_generic *result)
 
 	if (preset_idle(call))
 		return -1;
-	rc = preset_set(call, "sandbox", "false");
+	rc = preset_set(call, "sandbox_profile", "normal");
+	if (!rc)
+		rc = preset_set(call, "sandbox", "false");
 	if (!rc && preset_view_session(ctx))
 		rc = preset_set(call, "view/isolate_session", "false");
 	if (!rc)
@@ -804,17 +808,13 @@ int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = call->ctx;
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic sandbox = fy_get(cfg->config_doc, "sandbox", fy_invalid), net;
+	fy_generic net = fy_get(cfg->sandbox, "network", fy_invalid);
 	const char *running = fyai_transport_effective_level(ctx), *name = fyai_view_session_name(ctx);
 	const char *stored = cfg->agent_transport_isolation ? cfg->agent_transport_isolation : "none";
 	const char *note = NULL;
-	bool enabled, want_view = preset_view_session(ctx), stored_on, running_on, view_on;
+	bool want_view = preset_view_session(ctx), stored_on, running_on, view_on, restricted;
 
-	if (fy_is_bool(sandbox))
-		enabled = fy_cast(sandbox, false);
-	else
-		enabled = fy_is_mapping(sandbox) && fy_get(sandbox, "enabled", true);
-	net = fy_get(sandbox, "network", fy_invalid);
+	restricted = fy_is_valid(net) && (!cfg->sandbox_lockdown || fyai_sandbox_net_restrictable(-1));
 	/* A key that is stored and not yet in force waits for the next start. */
 	stored_on = strcmp(stored, "none") != 0;
 	running_on = strcmp(running, "none") != 0;
@@ -825,7 +825,10 @@ int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 		note = "the view of the session changes when fyai starts again";
 	*result = fy_mapping(call->gb,
 			     "transport", running_on ? running : "off",
-			     "sandbox", !enabled ? "off" : fy_is_valid(net) ? "on, network restricted" : "on",
+			     "sandbox", !cfg->enable_sandbox ? "off" :
+					cfg->sandbox_lockdown ? (restricted ? "on, lockdown, network restricted" :
+								 "on, lockdown") :
+					restricted ? "on, network restricted" : "on",
 			     "agents", preset_agents(ctx, view_on),
 			     "view", name ? name : "none");
 	if (note)

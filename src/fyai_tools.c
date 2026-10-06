@@ -764,6 +764,9 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	/* network: present => restrict egress to network.ports (empty = deny
 	 * all); absent => leave egress unrestricted. */
 	net = fy_get(cs, "network");
+	/* The lockdown profile asks for egress control where the kernel has it. */
+	if (ctx->cfg->sandbox_lockdown && !fyai_sandbox_net_restrictable(-1))
+		net = fy_invalid;
 	if (fy_is_valid(net)) {
 		/* Check here because the child cannot report why it failed. */
 		fyai_error_check(ctx, fyai_sandbox_net_restrictable(-1), err_out,

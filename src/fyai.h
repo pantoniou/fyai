@@ -351,7 +351,8 @@ struct fyai_cfg {
 	bool parallel_tool_calls;
 	bool enable_builtin_shell;
 	bool enable_sandbox;	/* Landlock-confine shell tool sub-executions */
-	fy_generic sandbox;	/* config sandbox: mapping (allow/deny/network) */
+	fy_generic sandbox;	/* policy in force: mapping (allow/deny/network), or invalid */
+	bool sandbox_lockdown;	/* the policy is the lockdown profile */
 	bool interactive;
 	int debug;
 	bool pretty;

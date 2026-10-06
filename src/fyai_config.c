@@ -349,6 +349,28 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 }
 
 /*
+ * The policy of the lockdown profile: the keys of sandbox_lockdown over the
+ * default, which denies the secret locations of the platform and all network
+ * egress. The result lives in the builder of the configuration.
+ */
+static fy_generic sandbox_lockdown_policy(struct fyai_cfg *cfg, fy_generic root)
+{
+	fy_generic set = fy_get(root, "sandbox_lockdown", fy_invalid);
+	fy_generic deny = fy_get(set, "deny", fy_invalid);
+	fy_generic allow = fy_get(set, "allow", fy_invalid);
+	fy_generic net = fy_get(set, "network", fy_invalid);
+
+	if (!fy_is_sequence(deny))
+		deny = fy_sequence(cfg->gb, "~/.ssh");
+	if (!fy_is_mapping(net))
+		net = fy_mapping(cfg->gb, "ports", fy_sequence(cfg->gb));
+	if (!fy_is_sequence(allow))
+		allow = fy_sequence(cfg->gb);
+	return fy_mapping(cfg->gb, "enabled", true, "deny", deny, "allow", allow,
+			  "network", net);
+}
+
+/*
  * Overlay the keys present in @root onto @cfg. Absent keys leave the
  * existing value untouched, so each layer only overrides what it sets.
  *
@@ -496,12 +518,21 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 					       cfg->enable_builtin_shell);
 	/* sandbox is either a bool (enable with defaults) or a mapping
 	 * { enabled, allow, deny, network }. A mapping enables unless it says
-	 * otherwise and is retained for the tool path to read grants from. */
+	 * otherwise and is retained for the tool path to read grants from. The
+	 * lockdown profile replaces it and is always enabled. */
+	v = fy_get(root, "sandbox_profile", fy_invalid);
+	if (fy_is_string(v))
+		cfg->sandbox_lockdown = fy_equal(v, "lockdown");
 	sb = fy_get(root, "sandbox");
-	if (fy_is_mapping(sb)) {
+	if (cfg->sandbox_lockdown) {
+		cfg->sandbox = sandbox_lockdown_policy(cfg, root);
+		cfg->enable_sandbox = true;
+	} else if (fy_is_mapping(sb)) {
 		cfg->sandbox = sb;
 		cfg->enable_sandbox = apply_bool(sb, "enabled", true);
 	} else {
+		if (fy_is_valid(sb))
+			cfg->sandbox = fy_invalid;
 		cfg->enable_sandbox = apply_bool(root, "sandbox",
 				cfg->enable_sandbox);
 	}
