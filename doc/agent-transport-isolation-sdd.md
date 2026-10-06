@@ -942,9 +942,12 @@ asks the transport with `probe`; no image of the run reads the store. A model
 that the login cannot serve returns to the provider's own credential source.
 
 `/session lockdown` and `/session yolo` set the isolation keys as a group, and
-`/session` shows the state. `lockdown` stores `agent/transport_isolation: auto`,
-sets the sandbox, with no network egress when the kernel can restrict it, for
-the session, and stores `view/isolate_session: true` where a view for the session
+`/session` shows the state. `lockdown` stores `agent/transport_isolation: auto` and
+`sandbox_profile: lockdown`. The profile confines the tools by `sandbox_lockdown`:
+by default `~/.ssh` is denied and so is network egress, when the kernel can restrict
+it. It is stored, so the restarted session and its view keep it, and the `sandbox`
+policy of the user is not replaced. `lockdown` also stores
+`view/isolate_session: true` where a view for the session
 can be made. It first checks that the transport can run: the host, the
 credential, and the endpoint. A session in a view has the transport (section
 3.6). Sub-agents then share the view of the session. `agent/isolation`, which

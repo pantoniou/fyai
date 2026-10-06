@@ -879,6 +879,23 @@ The `.fyai` arena is denied to sandboxed tools. Landlock is best-effort on unsup
 
 Supported path modes include `rw`, `ro`, `edit`, and `append`. Supplying `network` restricts outbound TCP ports; an empty port list denies all configured egress.
 
+`sandbox_profile` selects the policy: `normal` uses `sandbox`, and `lockdown` uses
+`sandbox_lockdown` and enables the sandbox whatever `sandbox` says. `/session
+lockdown` selects the lockdown profile and `/session yolo` selects `normal`. The
+profile is stored, so a restart of the session keeps it, and it leaves the
+`sandbox` policy as it was. `sandbox_lockdown` takes `deny`, `allow` and `network`
+as `sandbox` does. A key that it omits keeps its default: `deny` lists `~/.ssh`,
+the secret location of the platform, and `network` has an empty port list, which
+denies all egress. A kernel that cannot restrict egress leaves it open.
+
+```yaml
+sandbox_profile: lockdown
+sandbox_lockdown:
+  deny: [~/.ssh, ~/.aws]
+  network:
+    ports: [443]
+```
+
 ### Secret handling
 
 Secrets are deliberately kept out of immutable arena data:
