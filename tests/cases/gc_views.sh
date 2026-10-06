@@ -28,7 +28,7 @@ printf two > file
 run_fyai view create drop .
 assert_status 0
 [ "$(trees)" = 2 ] || fail "expected two view trees"
-blobs=$(count objects/blake3)
+blobs=$(count objects/blake3 2)
 manifests=$(count manifests)
 
 # A view that is stored keeps everything: nothing is garbage yet.
@@ -52,7 +52,11 @@ assert_stdout_contains 'removed 1 manifests'
 assert_stdout_contains '1 view trees'
 [ "$(trees)" = 1 ] || fail "the tree of the removed view stays"
 [ "$(count manifests)" -lt "$manifests" ] || fail "the manifest of the removed view stays"
-[ "$(count objects/blake3)" -lt "$blobs" ] || fail "the blob of the removed view stays"
+[ "$(count objects/blake3 2)" -lt "$blobs" ] || fail "the blob of the removed view stays"
+# An object is below the directory of its first digest byte, and gc removes a
+# directory that it emptied.
+[ -z "$(find .fyai/objects/blake3 -maxdepth 1 -type f -name '[0-9a-f]*')" ] || fail "an object is not in a shard directory"
+[ -z "$(find .fyai/objects/blake3 -mindepth 1 -type d -empty)" ] || fail "gc left an empty shard directory"
 
 # The view that stays still reads.
 run_fyai view diff keep --stat

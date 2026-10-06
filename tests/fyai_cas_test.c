@@ -29,6 +29,7 @@ FYAI_TEST_ENTRY(cas, mapped_capture, cas_mapped_capture)
 FYAI_TEST_ENTRY(cas, publication, cas_publication)
 FYAI_TEST_ENTRY(cas, corrupt_reuse, cas_corrupt_reuse)
 FYAI_TEST_ENTRY(cas, sized, cas_sized)
+FYAI_TEST_ENTRY(cas, layout, cas_layout)
 
 int cas_digest_parse(void)
 {
@@ -63,12 +64,27 @@ int cas_digest_parse(void)
 }
 
 #ifdef __linux__
+/* Remove the directories that hold the object name of a blob, deepest first. */
+static int cas_rmdirs(int dir, const struct fyai_cas_blob *blob)
+{
+	char name[FYAI_CAS_NAME_SIZE], *slash;
+
+	if (fyai_cas_name(name, sizeof(name), blob))
+		return -1;
+	for (slash = strrchr(name, '/'); slash; slash = strrchr(name, '/')) {
+		*slash = '\0';
+		if (unlinkat(dir, name, AT_REMOVEDIR))
+			return -1;
+	}
+	return 0;
+}
+
 int cas_linked_digest(void)
 {
 	struct fy_blake3_hasher_cfg cfg = { .num_threads = -1 };
 	struct fy_blake3_hasher *hasher;
 	struct fyai_cas_blob blob = { .borrowed = true };
-	char path[] = "/tmp/fyai-cas-linked-XXXXXX", name[80], hex[FYAI_CAS_DIGEST_SIZE];
+	char path[] = "/tmp/fyai-cas-linked-XXXXXX", name[FYAI_CAS_NAME_SIZE];
 	int dir, source, other, rc;
 
 	FYAI_TCHECK(mkdtemp(path));
@@ -85,8 +101,8 @@ int cas_linked_digest(void)
 	FYAI_TCHECK(!rc);
 	rc = fyai_cas_link_hashed(dir, dir, "source", &blob, hasher, source);
 	FYAI_TCHECK(!rc);
-	fyai_cas_blob_hex(hex, &blob);
-	snprintf(name, sizeof(name), "borrowed/%s", hex);
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &blob));
+	FYAI_TCHECK(!strncmp(name, "borrowed/", 9) && name[11] == '/');
 	FYAI_TCHECK(!unlinkat(dir, name, 0));
 	other = openat(dir, name, O_WRONLY | O_CREAT | O_EXCL, 0600);
 	FYAI_TCHECK(other >= 0 && write(other, "bad", 3) == 3);
@@ -102,7 +118,7 @@ int cas_linked_digest(void)
 	rc = fyai_cas_link_hashed(dir, dir, "source", &blob, hasher, source);
 	FYAI_TCHECK(rc < 0 && errno == EIO);
 	FYAI_TCHECK(!unlinkat(dir, name, 0) && !unlinkat(dir, "source", 0));
-	FYAI_TCHECK(!unlinkat(dir, "borrowed", AT_REMOVEDIR));
+	FYAI_TCHECK(!cas_rmdirs(dir, &blob));
 	close(source);
 	close(dir);
 	fy_blake3_hasher_destroy(hasher);
@@ -120,7 +136,7 @@ int cas_owned_reuse(void)
 	struct fy_blake3_hasher_cfg cfg = { .num_threads = -1 };
 	struct fy_blake3_hasher *hasher;
 	struct fyai_cas_blob blob = { 0 };
-	char path[] = "/tmp/fyai-cas-owned-XXXXXX", name[FYAI_CAS_DIGEST_SIZE + 16];
+	char path[] = "/tmp/fyai-cas-owned-XXXXXX", name[FYAI_CAS_NAME_SIZE];
 	int dir, source, other, rc;
 
 	FYAI_TCHECK(mkdtemp(path));
@@ -133,6 +149,7 @@ int cas_owned_reuse(void)
 	FYAI_TCHECK(lseek(source, 0, SEEK_SET) == 0);
 	FYAI_TCHECK(!fyai_cas_hash_file(source, &blob, hasher));
 	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &blob));
+	FYAI_TCHECK(!fyai_cas_mkdirs(dir, &blob));
 	/* The stored object holds other bytes of the same size, and is read-only. */
 	other = openat(dir, name, O_WRONLY | O_CREAT | O_EXCL, 0444);
 	FYAI_TCHECK(other >= 0 && write(other, "bad", 3) == 3);
@@ -150,6 +167,7 @@ int cas_owned_reuse(void)
 	rc = fyai_cas_link_hashed(dir, dir, "source", &blob, hasher, FYAI_CAS_HASHED_BY_PATH);
 	FYAI_TCHECK(!rc);
 	FYAI_TCHECK(!unlinkat(dir, name, 0) && !unlinkat(dir, "source", 0));
+	FYAI_TCHECK(!cas_rmdirs(dir, &blob));
 	close(source);
 	close(dir);
 	fy_blake3_hasher_destroy(hasher);
@@ -162,7 +180,7 @@ int cas_publication(void)
 	char directory[] = "/tmp/fyai-cas-test-XXXXXX";
 	struct fyai_cas_blob first, second;
 	struct stat st;
-	char *path, hex[FYAI_CAS_DIGEST_SIZE];
+	char *path, hex[FYAI_CAS_DIGEST_SIZE], name[FYAI_CAS_NAME_SIZE];
 	int dir, source, rc;
 	off_t offset;
 
@@ -180,12 +198,16 @@ int cas_publication(void)
 				 "25c9adc112b7cc9a93cae41f3262"));
 	rc = fyai_cas_verify(dir, &first);
 	FYAI_TCHECK(!rc);
-	rc = fstatat(dir, hex, &st, AT_SYMLINK_NOFOLLOW);
+	/* The name is the first digest byte, a slash, and the other digits. */
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &first));
+	FYAI_TCHECK(!strncmp(name, hex, 2) && name[2] == '/' && !strcmp(name + 3, hex + 2));
+	rc = fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW);
 	FYAI_TCHECK(!rc && !(st.st_mode & 0222));
 	rc = fyai_cas_put(dir, source, &second);
 	FYAI_TCHECK(!rc && !memcmp(first.digest, second.digest, sizeof(first.digest)));
-	rc = unlinkat(dir, hex, 0);
+	rc = unlinkat(dir, name, 0);
 	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!cas_rmdirs(dir, &first));
 	rc = write(source, "abc", 3);
 	FYAI_TCHECK(rc == 3);
 	offset = lseek(source, 0, SEEK_SET);
@@ -195,8 +217,10 @@ int cas_publication(void)
 	fyai_cas_blob_hex(hex, &first);
 	FYAI_TCHECK(!strcmp(hex, "6437b3ac38465133ffb63b75273a8db548c5"
 				 "58465d79db03fd359c6cd5bd9d85"));
-	rc = unlinkat(dir, hex, 0);
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &first));
+	rc = unlinkat(dir, name, 0);
 	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!cas_rmdirs(dir, &first));
 	close(source);
 	unlinkat(dir, "source", 0);
 	close(dir);
@@ -208,7 +232,7 @@ int cas_corrupt_reuse(void)
 {
 	char directory[] = "/tmp/fyai-cas-test-XXXXXX";
 	struct fyai_cas_blob blob, output;
-	char hex[FYAI_CAS_DIGEST_SIZE];
+	char name[FYAI_CAS_NAME_SIZE];
 	char *path;
 	int dir, source, bad, rc;
 
@@ -220,10 +244,10 @@ int cas_corrupt_reuse(void)
 	FYAI_TCHECK(source >= 0);
 	rc = fyai_cas_put(dir, source, &blob);
 	FYAI_TCHECK(!rc);
-	fyai_cas_blob_hex(hex, &blob);
-	rc = unlinkat(dir, hex, 0);
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &blob));
+	rc = unlinkat(dir, name, 0);
 	FYAI_TCHECK(!rc);
-	bad = openat(dir, hex, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	bad = openat(dir, name, O_WRONLY | O_CREAT | O_EXCL, 0600);
 	FYAI_TCHECK(bad >= 0);
 	rc = write(bad, "bad", 3);
 	FYAI_TCHECK(rc == 3);
@@ -232,16 +256,17 @@ int cas_corrupt_reuse(void)
 	close(bad);
 	rc = fyai_cas_put(dir, source, &output);
 	FYAI_TCHECK(rc < 0 && errno == EIO);
-	rc = unlinkat(dir, hex, 0);
+	rc = unlinkat(dir, name, 0);
 	FYAI_TCHECK(!rc);
-	rc = symlinkat("source", dir, hex);
+	rc = symlinkat("source", dir, name);
 	FYAI_TCHECK(!rc);
 	rc = fyai_cas_put(dir, source, &output);
 	FYAI_TCHECK(rc < 0 && errno == ELOOP);
 	memset(&output, 0, sizeof(output));
 	rc = fyai_cas_verify(dir, &output);
 	FYAI_TCHECK(rc < 0 && errno == ENOENT);
-	unlinkat(dir, hex, 0);
+	unlinkat(dir, name, 0);
+	cas_rmdirs(dir, &blob);
 	close(source);
 	unlinkat(dir, "source", 0);
 	close(dir);
@@ -256,7 +281,7 @@ int cas_mapped_capture(void)
 	const size_t size = 8 * 1024 * 1024 + 19;
 	unsigned char *input;
 	void *copy;
-	char *path, hex[FYAI_CAS_DIGEST_SIZE];
+	char *path, name[FYAI_CAS_NAME_SIZE];
 	int dir, source, object, rc;
 	size_t i;
 	off_t offset;
@@ -281,8 +306,8 @@ int cas_mapped_capture(void)
 	FYAI_TCHECK(offset == (off_t)size);
 	rc = fyai_cas_verify(dir, &blob);
 	FYAI_TCHECK(!rc);
-	fyai_cas_blob_hex(hex, &blob);
-	object = openat(dir, hex, O_RDONLY | O_NOFOLLOW);
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &blob));
+	object = openat(dir, name, O_RDONLY | O_NOFOLLOW);
 	FYAI_TCHECK(object >= 0);
 	copy = mmap(NULL, blob.size, PROT_READ, MAP_PRIVATE, object, 0);
 	FYAI_TCHECK(copy != MAP_FAILED);
@@ -291,7 +316,8 @@ int cas_mapped_capture(void)
 	munmap(input, size);
 	close(object);
 	close(source);
-	unlinkat(dir, hex, 0);
+	unlinkat(dir, name, 0);
+	cas_rmdirs(dir, &blob);
 	unlinkat(dir, "source", 0);
 	close(dir);
 	rmdir(path);
@@ -306,7 +332,7 @@ int cas_sized(void)
 	struct fy_blake3_hasher *hasher;
 	struct fyai_cas_blob legacy, sized, hashed;
 	char first[] = "/tmp/fyai-cas-sized-XXXXXX", second[] = "/tmp/fyai-cas-sized-XXXXXX";
-	char hex[FYAI_CAS_DIGEST_SIZE];
+	char name[FYAI_CAS_NAME_SIZE];
 	unsigned char *data;
 	size_t i;
 	int one, two, source, again, rc;
@@ -351,8 +377,9 @@ int cas_sized(void)
 			FYAI_TCHECK(memcmp(legacy.digest, hashed.digest, sizeof(legacy.digest)));
 			close(again);
 		}
-		fyai_cas_blob_hex(hex, &legacy);
-		FYAI_TCHECK(!unlinkat(one, hex, 0) && !unlinkat(two, hex, 0));
+		FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &legacy));
+		FYAI_TCHECK(!unlinkat(one, name, 0) && !unlinkat(two, name, 0));
+		FYAI_TCHECK(!cas_rmdirs(one, &legacy) && !cas_rmdirs(two, &legacy));
 		FYAI_TCHECK(!unlinkat(one, "source", 0));
 		close(source);
 	}
@@ -364,7 +391,52 @@ int cas_sized(void)
 	return 0;
 }
 
+/*
+ * An object is AA/BBCC..., so a directory has at most 256 entries of the level
+ * above it. The overlay redirect names the same path below the data layer.
+ */
+int cas_layout(void)
+{
+	char directory[] = "/tmp/fyai-cas-layout-XXXXXX";
+	struct fyai_cas_blob owned = { 0 }, borrowed = { .borrowed = true };
+	char name[FYAI_CAS_NAME_SIZE], redirect[FYAI_CAS_REDIRECT_SIZE], small[FYAI_CAS_NAME_SIZE - 1];
+	struct stat st;
+	int dir;
+
+	memset(owned.digest, 0xab, sizeof(owned.digest));
+	memcpy(borrowed.digest, owned.digest, sizeof(owned.digest));
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &owned));
+	FYAI_TCHECK(name[2] == '/' && strlen(name) == 65);
+	FYAI_TCHECK(!strncmp(name, "ab", 2) && !strncmp(name + 3, "abab", 4));
+	fyai_cas_redirect(redirect, &owned);
+	FYAI_TCHECK(redirect[0] == '/' && !strcmp(redirect + 1, name));
+	FYAI_TCHECK(!fyai_cas_name(name, sizeof(name), &borrowed));
+	FYAI_TCHECK(!strncmp(name, "borrowed/ab/abab", 16) && strlen(name) == 74);
+	fyai_cas_redirect(redirect, &borrowed);
+	FYAI_TCHECK(redirect[0] == '/' && !strcmp(redirect + 1, name));
+	/* A buffer too small for the name is refused, not cut. */
+	FYAI_TCHECK(fyai_cas_name(small, sizeof(small), &owned) < 0 && errno == ENAMETOOLONG);
+
+	FYAI_TCHECK(mkdtemp(directory));
+	dir = open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	FYAI_TCHECK(dir >= 0);
+	/* The directories are made once, and a second call keeps them. */
+	FYAI_TCHECK(!fyai_cas_mkdirs(dir, &owned) && !fyai_cas_mkdirs(dir, &owned));
+	FYAI_TCHECK(!fstatat(dir, "ab", &st, AT_SYMLINK_NOFOLLOW) && S_ISDIR(st.st_mode));
+	FYAI_TCHECK(!fyai_cas_mkdirs(dir, &borrowed) && !fyai_cas_mkdirs(dir, &borrowed));
+	FYAI_TCHECK(!fstatat(dir, "borrowed/ab", &st, AT_SYMLINK_NOFOLLOW) && S_ISDIR(st.st_mode));
+	FYAI_TCHECK(!cas_rmdirs(dir, &owned) && !cas_rmdirs(dir, &borrowed));
+	close(dir);
+	FYAI_TCHECK(!rmdir(directory));
+	return 0;
+}
+
 #else
+int cas_layout(void)
+{
+	return 0;
+}
+
 int cas_owned_reuse(void)
 {
 	return 0;

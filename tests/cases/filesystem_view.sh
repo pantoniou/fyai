@@ -94,7 +94,7 @@ v = json.load(open(sys.argv[1]))
 assert v['baseline'] == v['root']
 PYVERIFY
 
-sha256sum project/.fyai/objects/blake3/* > cas-before.sha256
+find project/.fyai/objects/blake3 -type f -exec sha256sum {} + | sort -k2 > cas-before.sha256
 run_fyai view enter --verify demo sh -c './executable && test "$(cat readonly)" = readonly && ! sh -c "printf denied > readonly" && chmod u+w readonly && printf changed > readonly'
 assert_status 0
 assert_stdout_contains executable

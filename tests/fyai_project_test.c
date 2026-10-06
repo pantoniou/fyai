@@ -428,10 +428,11 @@ int project_capture_parallel(void)
 	unsigned char *data, *mapped;
 	size_t i, j, size = 2U * 1024U * 1024U + 19;
 	struct stat st, blob_stat, linked_stat;
-	struct dirent *de;
-	DIR *directory;
+	struct dirent *de, *entry;
+	DIR *directory, *shard;
 	fy_generic linked;
-	int root, fd, rc, lower[2], objects, linked_lower, data_directory;
+	char blob_name[PATH_MAX];
+	int root, fd, rc, lower[2], objects, linked_lower, data_directory, shard_fd;
 	gid_t groups[128];
 	int group_count;
 	bool shared = false;
@@ -570,17 +571,34 @@ int project_capture_parallel(void)
 	 */
 	directory = fdopendir(dup(objects));
 	FYAI_TCHECK(directory);
-	/* Later captures add blobs of the same size; any of them can come first. */
+	/*
+	 * Later captures add blobs of the same size; any of them can come first.
+	 * Each blob is below the directory of its first digest byte.
+	 */
 	while (!shared && (de = readdir(directory))) {
-		FYAI_TCHECK(!fstatat(objects, de->d_name, &blob_stat, AT_SYMLINK_NOFOLLOW));
-		if (!S_ISREG(blob_stat.st_mode) || blob_stat.st_size != (off_t)size)
+		if (de->d_name[0] == '.')
 			continue;
-		for (i = 0; i < 8; i++) {
-			snprintf(name, sizeof(name), "file-%02zu", i);
-			FYAI_TCHECK(!fstatat(lower[0], name, &st, AT_SYMLINK_NOFOLLOW));
-			if (st.st_ino == blob_stat.st_ino && st.st_dev == blob_stat.st_dev)
-				shared = true;
+		shard_fd = openat(objects, de->d_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (shard_fd < 0)
+			continue;
+		shard = fdopendir(shard_fd);
+		FYAI_TCHECK(shard);
+		while (!shared && (entry = readdir(shard))) {
+			if (entry->d_name[0] == '.')
+				continue;
+			FYAI_TCHECK(!fstatat(shard_fd, entry->d_name, &blob_stat, AT_SYMLINK_NOFOLLOW));
+			if (!S_ISREG(blob_stat.st_mode) || blob_stat.st_size != (off_t)size)
+				continue;
+			for (i = 0; i < 8; i++) {
+				snprintf(name, sizeof(name), "file-%02zu", i);
+				FYAI_TCHECK(!fstatat(lower[0], name, &st, AT_SYMLINK_NOFOLLOW));
+				if (st.st_ino == blob_stat.st_ino && st.st_dev == blob_stat.st_dev)
+					shared = true;
+			}
+			if (shared)
+				snprintf(blob_name, sizeof(blob_name), "%s/%s", de->d_name, entry->d_name);
 		}
+		closedir(shard);
 	}
 	FYAI_TCHECK(shared);
 	FYAI_TCHECK(!mkdirat(root, "metadata", 0700) && !mkdirat(root, "data", 0700));
@@ -595,7 +613,7 @@ int project_capture_parallel(void)
 	linked = fyai_project_capture(gb, &opts, error, sizeof(error));
 	FYAI_TCHECK(fy_is_mapping(linked) && fy_equal(first, linked));
 	FYAI_TCHECK(stats.metacopies == 33 && stats.copies == 0 && stats.hardlinks == 0);
-	FYAI_TCHECK(!fstatat(data_directory, de->d_name, &st, AT_SYMLINK_NOFOLLOW));
+	FYAI_TCHECK(!fstatat(data_directory, blob_name, &st, AT_SYMLINK_NOFOLLOW));
 	FYAI_TCHECK(st.st_ino == blob_stat.st_ino && st.st_dev == blob_stat.st_dev);
 	FYAI_TCHECK(st.st_mode == blob_stat.st_mode &&
 		    st.st_mtim.tv_sec == blob_stat.st_mtim.tv_sec &&
