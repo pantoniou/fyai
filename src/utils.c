@@ -970,18 +970,15 @@ static void close_fds_range(unsigned int from, unsigned int to)
  * Close every descriptor from @lowfd on except the ones that the spec passes,
  * which first take the numbers that the child asks for. A copy goes to a number
  * above every target first, so that no target overwrites a source that is still
- * to be copied.
+ * to be copied. A status descriptor takes number 3 after the copies: the number
+ * can be that of a source, and a copy made later would read the status pipe.
  */
-static int child_pass_fds(const struct fyai_child_spec *spec, int lowfd)
+static int child_pass_fds(const struct fyai_child_spec *spec, int lowfd, int status_fd)
 {
 	int tmp[FYAI_CHILD_PASS_MAX], keep[FYAI_CHILD_PASS_MAX], top = lowfd, swap;
 	unsigned int next = (unsigned int)lowfd;
 	size_t i, j;
 
-	if (!spec->pass_n) {
-		fyai_close_fds_from(lowfd);
-		return 0;
-	}
 	for (i = 0; i < spec->pass_n; i++) {
 		keep[i] = spec->pass_as[i];
 		if (keep[i] >= top)
@@ -991,6 +988,15 @@ static int child_pass_fds(const struct fyai_child_spec *spec, int lowfd)
 		tmp[i] = fcntl(spec->pass_fd[i], F_DUPFD_CLOEXEC, top);
 		if (tmp[i] < 0)
 			return -1;
+	}
+	if (status_fd >= 0) {
+		if (dup2(status_fd, 3) < 0)
+			return -1;
+		(void)fcntl(3, F_SETFD, FD_CLOEXEC);
+	}
+	if (!spec->pass_n) {
+		fyai_close_fds_from(lowfd);
+		return 0;
 	}
 	for (i = 0; i < spec->pass_n; i++)
 		if (dup2(tmp[i], spec->pass_as[i]) < 0)
@@ -1054,16 +1060,10 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		goto err_setup;
 	/* Preserve the close-on-exec status fd while closing inherited fds. */
 	stage = FYAI_CHILD_STAGE_STATUS;
-	if (status_fd >= 0) {
-		if (dup2(status_fd, 3) < 0)
-			goto err_setup;
-		status_fd = 3;
-		(void)fcntl(status_fd, F_SETFD, FD_CLOEXEC);
-		if (child_pass_fds(spec, 4))
-			goto err_setup;
-	} else if (child_pass_fds(spec, 3)) {
+	if (child_pass_fds(spec, status_fd >= 0 ? 4 : 3, status_fd))
 		goto err_setup;
-	}
+	if (status_fd >= 0)
+		status_fd = 3;
 	/* Fail closed if any provider credential cannot be removed. */
 	stage = FYAI_CHILD_STAGE_ENV;
 	if (!spec->inherit_env && fyai_env_sanitize(spec->env_keep))
