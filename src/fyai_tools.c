@@ -38,6 +38,7 @@
 #include "fyai_branch.h"
 #include "fyai_browser.h"
 #include "fyai_agents.h"
+#include "fyai_chrome.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
@@ -2565,11 +2566,13 @@ static void fyai_shell_session_head_paint(void *owner)
 
 	if (!sess->surface || sess->exited)
 		return;
-	(void)fyai_ui_surface_set_head_frame(sess->ctx, sess->surface,
-					 sess->title ? sess->title : "**shell**",
-					 sess->command, NULL,
-					 FYAI_UI_MARK_RUNNING,
-					 sess->animation_frame, NULL);
+	(void)fyai_chrome_update(sess->ctx, sess->surface,
+		&(struct fyai_chrome_spec){
+			.title = sess->title ? sess->title : "**shell**",
+			.command = sess->command,
+			.mark = FYAI_UI_MARK_RUNNING,
+			.frame = sess->animation_frame,
+		}, NULL);
 	fyai_ui_wake(sess->ctx);
 }
 
@@ -2762,12 +2765,13 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 					     user_owned ? 0 : rows);
 		fyai_workpane_tile_set_ladder(ctx->workpane, sess->surface,
 					      &fyai_tile_ladder);
-		(void)fyai_ui_surface_set_head_frame(ctx, sess->surface,
-				 sess->title ? sess->title : "**shell**",
-				 sess->command, NULL,
-				 FYAI_UI_MARK_RUNNING, 0, &animation_ms);
-		(void)fyai_ui_surface_set_margin(sess->surface,
-						 ctx->cfg->session_margin);
+		(void)fyai_chrome_update(ctx, sess->surface,
+			&(struct fyai_chrome_spec){
+				.title = sess->title ? sess->title : "**shell**",
+				.command = sess->command,
+				.mark = FYAI_UI_MARK_RUNNING,
+			}, &animation_ms);
+		fyai_chrome_body(ctx, sess->surface);
 		el = fyai_ctx_loop(ctx);
 		if (el && animation_ms) {
 			rc = fyai_event_add_timer(el, animation_ms, animation_ms,
@@ -3088,11 +3092,13 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	}
 	fyai_shell_session_refresh(sess);
 	cause = fyai_shell_session_cause(sess, &ok);
-	(void)fyai_ui_surface_set_head(sess->ctx, sess->surface,
-				       sess->title ? sess->title : "**shell**",
-				       sess->command, cause,
-				       ok ? FYAI_UI_MARK_OK :
-					    FYAI_UI_MARK_FAILED);
+	(void)fyai_chrome_update(sess->ctx, sess->surface,
+		&(struct fyai_chrome_spec){
+			.title = sess->title ? sess->title : "**shell**",
+			.command = sess->command,
+			.cause = cause,
+			.mark = ok ? FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED,
+		}, NULL);
 	free(cause);
 	/* A full-screen program leaves nothing to read, and a tile the user
 	 * closed is not wanted: its tile goes. */
@@ -3109,7 +3115,7 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 	 * hint of the status row says. */
 	if (sess->keep_tile) {
 		if (fyai_workpane_focused(sess->ctx->workpane) == sess->surface)
-			fyai_ui_surface_focus(sess->ctx, sess->surface, true);
+			fyai_chrome_focus(sess->ctx, sess->surface, true);
 		fyai_ui_wake(sess->ctx);
 		return;
 	}
@@ -3847,11 +3853,14 @@ static void fyai_agent_head_paint(struct fyai_tool_job *job)
 	right = fy_sprintfa("%s%s", job->overdue ? "overdue " : "",
 			    elapsed[0] == ' ' ? elapsed + 1 : elapsed);
 	title = fyai_agent_head_title(job);
-	(void)fyai_ui_surface_set_head_right(job->ctx, job->surface,
-			title ? title :
-			job->title ? job->title : "**agent**",
-			*right ? right : NULL, NULL, NULL,
-			FYAI_UI_MARK_RUNNING, job->animation_frame, NULL);
+	(void)fyai_chrome_update(job->ctx, job->surface,
+		&(struct fyai_chrome_spec){
+			.title = title ? title :
+				 job->title ? job->title : "**agent**",
+			.right = *right ? right : NULL,
+			.mark = FYAI_UI_MARK_RUNNING,
+			.frame = job->animation_frame,
+		}, NULL);
 	free(title);
 	fyai_ui_wake(job->ctx);
 }
@@ -3866,10 +3875,12 @@ static void fyai_agent_head_repaint(void *owner)
 		fyai_agent_head_paint(job);
 	else if (job->surface && job->btw_panel) {
 		title = fyai_agent_head_title(job);
-		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
-				title ? title : "**btw**", NULL, NULL,
-				job->result_ok && !job->failed ?
-				FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED);
+		(void)fyai_chrome_update(job->ctx, job->surface,
+			&(struct fyai_chrome_spec){
+				.title = title ? title : "**btw**",
+				.mark = job->result_ok && !job->failed ?
+					FYAI_UI_MARK_OK : FYAI_UI_MARK_FAILED,
+			}, NULL);
 		free(title);
 	}
 }
@@ -4096,11 +4107,12 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 					     job->pty_rows, 0);
 		fyai_workpane_tile_set_ladder(ctx->workpane, job->surface,
 					      &fyai_tile_ladder);
-		(void)fyai_ui_surface_set_head_frame(ctx, job->surface,
-				 job->title ? job->title : "**agent**", NULL,
-				 NULL, FYAI_UI_MARK_RUNNING, 0, &animation_ms);
-		(void)fyai_ui_surface_set_margin(job->surface,
-						 ctx->cfg->session_margin);
+		(void)fyai_chrome_update(ctx, job->surface,
+			&(struct fyai_chrome_spec){
+				.title = job->title ? job->title : "**agent**",
+				.mark = FYAI_UI_MARK_RUNNING,
+			}, &animation_ms);
+		fyai_chrome_body(ctx, job->surface);
 		if (animation_ms) {
 			rc = fyai_event_add_timer(el, animation_ms, animation_ms,
 					  fyai_agent_view_animate, job,
@@ -4153,12 +4165,14 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	if (job->surface) {
 		fyai_agent_view_refresh(job);
 		title = fyai_agent_head_title(job);
-		(void)fyai_ui_surface_set_head(job->ctx, job->surface,
-				title ? title :
-				job->title ? job->title : "**agent**",
-				NULL, cause,
-				ok ? FYAI_UI_MARK_OK :
-				     FYAI_UI_MARK_FAILED);
+		(void)fyai_chrome_update(job->ctx, job->surface,
+			&(struct fyai_chrome_spec){
+				.title = title ? title :
+					 job->title ? job->title : "**agent**",
+				.cause = cause,
+				.mark = ok ? FYAI_UI_MARK_OK :
+					     FYAI_UI_MARK_FAILED,
+			}, NULL);
 		free(title);
 		if (!job->btw_panel) {
 			fyai_surface_retire_zoom(job->ctx, job->surface);

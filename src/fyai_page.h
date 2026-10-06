@@ -94,7 +94,6 @@ struct fyai_page_state {
 	/* The SGR of what the user acts on in the chrome of a tile: the marks,
 	 * the arrows and the thumb of its bar. */
 	const char *control_chrome;
-	bool tile_bar;		/* draw a scroll bar beside each screen */
 	const char *input_mode;	/* the mode of the input area, or "prompt" */
 	/* The question of the input area in an ask mode, or NULL. */
 	const char *ask_question;
@@ -139,6 +138,7 @@ struct fyai_page_tile {
 	uint32_t ground;	/* FYTIM_COLOR_DEFAULT for no ground */
 	int mix;		/* percent of @ground in a colour of the program */
 	int content_rows;	/* the rows the screen asks for */
+	unsigned int items;	/* FYAI_CHROME_*: the chrome the tile carries */
 	int present;		/* enum fyai_workpane_present */
 	/* Set by the page: the rows and the columns the screen was given. */
 	int granted_rows, granted_cols;

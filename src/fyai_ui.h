@@ -3,9 +3,12 @@
 #define FYAI_UI_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 struct fyai_ctx;
+struct fyai_cfg;
+struct response_buffer;
 struct markdown_update;
 struct fytim_workband;
 struct fytim_surface;
@@ -191,8 +194,6 @@ int fyai_ui_surface_granted_cols(struct fyai_ctx *ctx,
 void fyai_ui_surface_chrome(const struct fytim_surface *sf,
 			    const char **marginp, int *colsp, uint32_t *bgp,
 			    int *mixp);
-/* Chrome at the left of every row of @sf. */
-int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text);
 /* Blank the grid: the tile is no longer drawing its program. */
 int fyai_ui_surface_clear(struct fytim_surface *sf);
 /* Limit grid height; zero accepts all granted rows. */
@@ -207,9 +208,21 @@ void fyai_ui_surface_set_view(struct fytim_surface *sf, int present);
 int fyai_ui_surface_set_max_rows(struct fytim_surface *sf, int rows);
 /* Show or hide the surface's emulated program cursor. */
 int fyai_ui_surface_cursor_visible(struct fytim_surface *sf, bool visible);
-/* Update keyboard-focus chrome. */
-void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			   bool focused);
+/*
+ * The keyboard-focus look, from the theme: the ground of a tile that holds the
+ * keys into *@bgp (true when none is configured and the margin is reversed
+ * instead), the session margin with its first column replaced by the edge
+ * marker, and the hint row of the status. Tile chrome applies them with
+ * fyai_chrome_focus().
+ */
+bool fyai_ui_focus_ground(const struct fyai_ctx *ctx, bool focused,
+			  uint32_t *bgp);
+const char *fyai_ui_focus_margin(struct fyai_ctx *ctx, char *buf, size_t size);
+void fyai_ui_set_hint(struct fyai_ctx *ctx, const char *hint);
+/* The SGR pair of the palette @role, else of the theme element @element (an
+ * enum fymd_style_element). Both NULL when the element is not styled. */
+void fyai_ui_theme_pair(struct fyai_ctx *ctx, const char *role, int element,
+			const char **onp, const char **offp);
 int fyai_ui_surface_set_title(struct fytim_surface *sf, const char *top,
 			      const char *bottom);
 /* Copy what changed in @view onto @sf. Returns 1 when it published. */
@@ -227,28 +240,15 @@ enum fyai_ui_mark {
 	FYAI_UI_MARK_FAILED
 };
 
-/* Set the marked title and optional command chrome for @sf. */
-/*
- * fyai_ui_surface_set_head_frame() with @right, fyai chrome such as an
- * elapsed time, at the right edge of the title row when the build renders UI
- * Markdown, and after the title otherwise.
- */
-int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
-				   struct fytim_surface *sf,
-				   const char *title, const char *right,
-				   const char *command, const char *cause,
-				   enum fyai_ui_mark mark, size_t frame,
-				   unsigned int *interval_msp);
-int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *command,
-			     const char *cause, enum fyai_ui_mark mark);
-/* Set one animation frame and return its interval through @interval_msp. */
-int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
-				   struct fytim_surface *sf,
-				   const char *title, const char *command,
-				   const char *cause,
-				   enum fyai_ui_mark mark, size_t frame,
-				   unsigned int *interval_msp);
+/* The mark of the state @mark at animation @frame, padded to the gutter
+ * width; the interval of its animation goes to @interval_msp. The caller frees
+ * it. */
+char *fyai_ui_indicator(struct fyai_ctx *ctx, enum fyai_ui_mark mark,
+			size_t frame, unsigned int *interval_msp);
+/* Append the command row of a tile head to @out. */
+int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
+				 struct response_buffer *out,
+				 const char *command);
 
 /* Keep the last screen: it goes into the transcript and @sf is retired. */
 void fyai_ui_surface_commit(struct fyai_ctx *ctx, struct fytim_surface *sf);

@@ -27,6 +27,7 @@
 #include "fyai_page.h"
 #include "fyai_schema.h"
 #include "fyai_terminal.h"
+#include "fyai_chrome.h"
 #include "fyai_workpane.h"
 
 const struct fyai_page_action *
@@ -1692,11 +1693,17 @@ static struct fyai_page_tile *page_tile_of(const struct fyai_page_state *st,
 }
 
 /* The columns of the margin of @hd in a region @width wide. */
+static struct fyai_chrome_frame page_tile_frame(const struct fyai_page_tile *t,
+						int width)
+{
+	return fyai_chrome_frame(t->items,
+				 fy_str_empty(t->margin) ? 0 : t->margin_cols,
+				 width);
+}
+
 static int page_tile_margin(const struct fyai_page_tile *hd, int width)
 {
-	if (fy_str_empty(hd->margin) || hd->margin_cols < 1)
-		return 0;
-	return hd->margin_cols < width ? hd->margin_cols : width;
+	return page_tile_frame(hd, width).margin;
 }
 
 /*
@@ -1793,12 +1800,6 @@ static const char *page_control_sgr(const struct fyai_page_state *st)
 	return st->control_chrome;
 }
 
-/* Return the column reserved for a scroll bar, if one fits. */
-static int page_bar_cols(bool bar, int width)
-{
-	return bar && width >= 2 ? 1 : 0;
-}
-
 /*
  * Add actions for the scroll bar in the last column of @r. The end cells
  * scroll one row; cells above or below the midpoint scroll one page.
@@ -1813,7 +1814,7 @@ static int page_bar_acts(struct fyai_page *pg, const struct fyai_page_tile *t,
 	if (t->present != FYAI_WORKPANE_PRESENT_FULL &&
 	    t->present != FYAI_WORKPANE_PRESENT_OUTPUT)
 		return 0;
-	if (!page_bar_cols(true, r->width - page_tile_margin(t, r->width)))
+	if (!page_tile_frame(t, r->width).bar)
 		return 0;
 	rows = t->granted_rows;
 	for (row = 0; row < rows && *np < FYTIM_PAGE_REGIONS_MAX; row++) {
@@ -1859,6 +1860,7 @@ static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 	struct fyai_ctx *ctx = t->ctx ? t->ctx : pg->ctx;
 	const struct fytim_cell *src;
 	struct fytim_cell *dst;
+	struct fyai_chrome_frame frame;
 	const char *margin = NULL;
 	int grid_rows = 0, grid_cols = 0, crow = 0, ccol = 0;
 	int rows, first, row, y, x, mc, bc, n, rc;
@@ -1867,8 +1869,9 @@ static int page_screen_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 	rows = t->content_rows < r->height ? t->content_rows : r->height;
 	if (rows < 1)
 		rows = 1;
-	mc = page_tile_margin(t, r->width);
-	bc = page_bar_cols(bar != NULL, r->width - mc);
+	frame = page_tile_frame(t, r->width);
+	mc = frame.margin;
+	bc = bar ? frame.bar : 0;
 	t->granted_rows = rows;
 	t->granted_cols = r->width - mc - bc;
 	if (t->present == FYAI_WORKPANE_PRESENT_HEAD ||
@@ -2296,11 +2299,10 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 		t = page_tile_of(st, fr[i].id, "screen");
 		if (t && t->surface) {
 			rc = page_screen_draw(pg, t, &fr[i], truecolor,
-					      st->tile_bar ?
 					      fy_sprintfa("\x1b[2m%s",
 							  st->band_chrome ?
-							  st->band_chrome : "") :
-					      NULL, page_control_sgr(st));
+							  st->band_chrome : ""),
+					      page_control_sgr(st));
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the screen of tile %u into cells",
 					 t->slot);
@@ -2499,7 +2501,7 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot build the actions of tile %u", t->slot);
 		}
-		t = fr[i].kind == FYMD_REGION_ACT || !st->tile_bar ? NULL :
+		t = fr[i].kind == FYMD_REGION_ACT ? NULL :
 		    page_tile_of(st, fr[i].id, "screen");
 		if (t && t->surface) {
 			rc = page_bar_acts(pg, t, &fr[i], regions, &n);

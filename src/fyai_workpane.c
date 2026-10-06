@@ -14,6 +14,7 @@
 #include <libfytimui.h>
 
 #include "fyai.h"
+#include "fyai_chrome.h"
 #include "fyai_diag.h"
 #include "fyai_sink.h"
 #include "fyai_terminal.h"
@@ -283,64 +284,41 @@ void fyai_workpane_destroy(struct fyai_workpane_manager *wm)
 	free(wm);
 }
 
-/* Map "none" to absent chrome; preserve an empty rule string. */
-static const char *workpane_chrome_text(const char *v)
-{
-	if (!v || !strcmp(v, "none"))
-		return NULL;
-	return v;
-}
-
 static unsigned int workpane_controls(const struct fyai_ctx *ctx)
 {
-	const char *v = ctx->cfg->work_controls;
-
 	/* fyai handles header buttons; the library handles the scroll bar. */
-	if (!v || strcmp(v, "full"))
+	if (fyai_chrome_level(ctx) != FYAI_CHROME_FULL)
 		return 0;
 	return FYTIM_WORKPANE_SCROLLBAR | FYTIM_WORKPANE_ARROWS;
 }
 
 bool fyai_workpane_wants_mouse(const struct fyai_ctx *ctx)
 {
-	const char *v = ctx ? ctx->cfg->work_controls : NULL;
-
-	return v && strcmp(v, "none");
+	return fyai_chrome_level(ctx) != FYAI_CHROME_NONE;
 }
 
 int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
 			     char *buf, size_t size)
 {
 	const struct fyai_workpane_tile *t;
-	const char *rule;
-	char height[24], hidden[32];
-	int tiles = 0, hid = 0;
+	struct fyai_chrome_cap cap = { 0 };
+	char height[24];
 
 	if (!wm)
 		return snprintf(buf, size, "%s", "");
 	for_each_tile(t, wm) {
-		tiles++;
+		cap.tiles++;
 		if (t->present == FYAI_WORKPANE_PRESENT_HIDDEN)
-			hid++;
+			cap.hidden++;
 	}
 	if (wm->disposition == FYAI_WORKPANE_FIXED)
 		snprintf(height, sizeof(height), "%d rows", wm->fixed_rows);
 	else
 		snprintf(height, sizeof(height), "%s",
 			 workpane_disposition_name(wm->disposition));
-	hidden[0] = '\0';
-	/* A tile the layout hid is never silently gone. */
-	if (hid)
-		snprintf(hidden, sizeof(hidden), " \u00b7 +%d hidden", hid);
-	rule = markdown_glyph(wm->ctx->cfg, "md.rule", "\u2500");
-	return snprintf(buf, size,
-			"<fy-role name=\"chrome\">%s%swork%s%s</fy-role> "
-			"%s%s \u00b7 %d %s \u00b7 %d shown%s "
-			"<fy-role name=\"chrome\"><fy-fill char=\"%s\"/></fy-role>"
-			" ^T focus \u00b7 ^] prompt\n",
-			rule, rule, rule, rule, height,
-			wm->zoomed ? " zoomed" : "", tiles,
-			tiles == 1 ? "tile" : "tiles", tiles - hid, hidden, rule);
+	cap.height = height;
+	cap.zoomed = wm->zoomed != NULL;
+	return fyai_chrome_cap_source(wm->ctx, &cap, buf, size);
 }
 
 /*
@@ -418,14 +396,14 @@ void fyai_workpane_configure(struct fyai_workpane_manager *wm)
 		workpane_cap_update(wm);
 	else {
 		/* One blank row separates the pane from the transcript. */
-		frame = workpane_chrome_text(cfg->work_frame);
+		frame = fyai_chrome_text(cfg->work_frame);
 		if (asprintf(&wm->cap_text, "%s%s", frame ? "\n" : " ",
 			     frame ? : "") < 0)
 			wm->cap_text = NULL;
 		(void)fytim_workpane_set_top(wm->pane, wm->cap_text);
 	}
 	(void)fytim_workpane_set_bottom(wm->pane,
-					workpane_chrome_text(cfg->work_frame));
+					fyai_chrome_text(cfg->work_frame));
 	(void)fytim_workpane_set_tile_sep(wm->pane, cfg->tile_sep);
 	(void)fytim_workpane_set_controls(wm->pane, workpane_controls(wm->ctx));
 	wm->layout_pending = true;
@@ -497,6 +475,8 @@ int fyai_workpane_page_tiles(const struct fyai_workpane_manager *wm,
 		pt->acts = t->regions;
 		pt->nacts = t->nregions;
 		pt->present = (int)t->present;
+		pt->items = fyai_chrome_items(wm->ctx, t->kind,
+					      FYAI_CHROME_RUNNING);
 		fyai_ui_surface_chrome(t->surface, &pt->margin, &pt->margin_cols,
 				       &pt->ground, &pt->mix);
 		/* The rows the screen asks for, as the reconcile asks layout. */
@@ -884,7 +864,7 @@ void fyai_workpane_clear_focus(struct fyai_workpane_manager *wm)
 	wm->focused = NULL;
 	/* Chrome and key routing belong to the display; focus does not. */
 	if (fyai_ui_active(wm->ctx)) {
-		fyai_ui_surface_focus(wm->ctx, sf, false);
+		fyai_chrome_focus(wm->ctx, sf, false);
 		(void)fyai_ui_surface_keys(wm->ctx, sf, false, NULL, NULL);
 	}
 	t = workpane_tile(wm, sf);
@@ -956,7 +936,7 @@ void fyai_workpane_set_focus(struct fyai_workpane_manager *wm,
 		if (fyai_ui_surface_keys(wm->ctx, sf, true, wm->keys_cb,
 					 wm->keys_user))
 			return;
-		fyai_ui_surface_focus(wm->ctx, sf, true);
+		fyai_chrome_focus(wm->ctx, sf, true);
 	}
 	wm->focused = sf;
 	if (t->ops && t->ops->focus_changed)

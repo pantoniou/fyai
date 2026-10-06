@@ -37,6 +37,7 @@
 #include "fyai_transcript_view.h"
 #include "fyai_browser.h"
 #include "fyai_agents.h"
+#include "fyai_chrome.h"
 #include "fyai_tools.h"
 #include <sys/ioctl.h>
 #include "fyai_terminal_view.h"
@@ -166,9 +167,22 @@ static char *ui_indicator(struct fyai_ui *ui,
 					 interval_msp);
 }
 
-static int ui_append_shell_command(struct fyai_cfg *cfg,
-				   struct response_buffer *out,
-				   const char *command)
+char *fyai_ui_indicator(struct fyai_ctx *ctx, enum fyai_ui_mark mark,
+			size_t frame, unsigned int *interval_msp)
+{
+	static const enum fymd_indicator_state states[] = {
+		[FYAI_UI_MARK_RUNNING] = FYMD_INDICATOR_PENDING,
+		[FYAI_UI_MARK_OK] = FYMD_INDICATOR_SUCCESS,
+		[FYAI_UI_MARK_FAILED] = FYMD_INDICATOR_FAILURE,
+	};
+
+	return ctx && ctx->ui ? ui_indicator(ctx->ui, states[mark], frame,
+					     interval_msp) : NULL;
+}
+
+int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
+				 struct response_buffer *out,
+				 const char *command)
 {
 	struct response_buffer rendered = {};
 	char mark[FYAI_GLYPH_MAX];
@@ -246,7 +260,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			first_margin, markdown_gutter_blank(ui->ctx->cfg), &head))
 		goto out;
 	if (ui->tool_command &&
-	    ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
+	    fyai_ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
 		goto out;
 	response_buffer_trim(&head);
 	if (fytim_workband_set_top(ui->tool_band,
@@ -939,15 +953,6 @@ err_out:
 	return;
 }
 
-/* Convert configured mouse controls to library flags. */
-/* Map "none" to absent chrome; preserve an empty rule string. */
-static const char *ui_chrome_text(const char *v)
-{
-	if (!v || !strcmp(v, "none"))
-		return NULL;
-	return v;
-}
-
 /* Apply one terminal size through reflow and tile grants. The caller
  * supplies one snapshot for both dimensions. A repeated size converges:
  * an unchanged size records nothing and reconciles nothing beyond what
@@ -1491,8 +1496,6 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.nactions = ui_page_nactions;
 	st.keys = &keys;
 	keys.count = 0;
-	st.tile_bar = ctx->cfg->work_controls &&
-		      !strcmp(ctx->cfg->work_controls, "full");
 	pane = fyai_workpane_pane(ctx->workpane);
 	/* The pane is an fy-grid of its tiles, sized first as they ask. */
 	n = ctx->cfg->tile_sep ?
@@ -1637,9 +1640,7 @@ err_page:
 /* True when the work pane controls take the wheel over a tile. */
 static bool ui_tile_scrolls(const struct fyai_ui *ui)
 {
-	const char *v = ui->ctx->cfg->work_controls;
-
-	return v && strcmp(v, "none");
+	return fyai_chrome_level(ui->ctx) != FYAI_CHROME_NONE;
 }
 
 /*
@@ -2632,6 +2633,15 @@ static void ui_theme_pair(struct fyai_ui *ui, const char *role,
 	*offp = markdown_role_off(ui->ctx->cfg, role, off);
 }
 
+void fyai_ui_theme_pair(struct fyai_ctx *ctx, const char *role, int element,
+			const char **onp, const char **offp)
+{
+	*onp = *offp = NULL;
+	if (ctx && ctx->ui)
+		ui_theme_pair(ctx->ui, role, (enum fymd_style_element)element,
+			      onp, offp);
+}
+
 /*
  * Return the SGR style for tile controls and the header-panel button. Use the
  * palette's text role, or the theme's strong style without a palette.
@@ -3039,76 +3049,29 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 	}
 }
 
-/* The id of the button of the panel that shows or hides the work pane. */
-#define UI_PANEL_PANE	"panel:pane"
-
 void fyai_ui_panel_update(struct fyai_ctx *ctx)
 {
-	/* Each kind takes a role of the palette theme, else a style of the
-	 * theme of the chrome. */
-	static const struct {
-		const char *glyph, *fallback, *role;
-		enum fymd_style_element element;
-	} kinds[] = {
-		{ "panel.user", "!", "tile.sigil.work", FYMD_STYLE_HEADING },
-		{ "tile.shell", "$", "tile.sigil.view", FYMD_STYLE_STRONG },
-		{ "tile.agent", "@", "tile.state.asks",
-		  FYMD_STYLE_INDICATOR_PENDING },
-	};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct response_buffer out = {0};
-	const char *glyph, *on, *off;
-	int counts[3], i, n, cols, rc = 0;
-	bool hidden, color;
+	int cols = 0, button = 0, rc;
 
 	if (!ui || !ui->ft)
 		return;
-	fyai_tools_counts(ctx, &counts[0], &counts[1], &counts[2]);
-	hidden = fyai_workpane_hidden(ctx->workpane);
 	free(ui->panel);
 	ui->panel = NULL;
 	ui->panel_cols = 0;
-	if (!hidden && !counts[0] && !counts[1] && !counts[2]) {
-		ui->frame_pending = true;
-		return;
-	}
-	color = markdown_color_enabled(ctx->cfg->color);
-	/* The button: a full box while the pane shows, an empty one while it
-	 * is hidden. */
-	glyph = hidden ? markdown_glyph(ctx->cfg, "panel.hidden", "\xe2\x96\xa2") :
-			 markdown_glyph(ctx->cfg, "panel.shown", "\xe2\x96\xa3");
-	on = off = NULL;
-	if (color)
-		ui_theme_pair(ui, "text", FYMD_STYLE_STRONG, &on, &off);
-	rc = response_buffer_append(&out, fy_sprintfa("%s%s%s", on ? on : "",
-			glyph, off ? off : ""));
-	n = fymd_str_width(glyph, strlen(glyph));
-	cols = n > 0 ? n : 1;
-	ui->panel_act.id = UI_PANEL_PANE;
-	ui->panel_act.col = 0;
-	ui->panel_act.width = cols;
-	for (i = 0; i < 3 && !rc; i++) {
-		if (!counts[i])
-			continue;
-		glyph = markdown_glyph(ctx->cfg, kinds[i].glyph,
-				       kinds[i].fallback);
-		on = off = NULL;
-		if (color)
-			ui_theme_pair(ui, kinds[i].role, kinds[i].element, &on,
-				      &off);
-		rc = response_buffer_append(&out, fy_sprintfa(" %s%s%d%s",
-				on ? on : "", glyph, counts[i], off ? off : ""));
-		n = fymd_str_width(glyph, strlen(glyph));
-		cols += 1 + (n > 0 ? n : 1) +
-			(int)strlen(fy_sprintfa("%d", counts[i]));
-	}
-	if (rc) {
-		free(out.data);
+	rc = fyai_chrome_panel(ctx, &out, &cols, &button);
+	if (rc < 0) {
 		fyai_warning(ctx, "cannot write the panel of the input header");
 		return;
 	}
-	ui->panel = out.data;
-	ui->panel_cols = cols;
+	if (rc > 0) {
+		ui->panel = out.data;
+		ui->panel_cols = cols;
+		ui->panel_act.id = FYAI_CHROME_PANEL_PANE;
+		ui->panel_act.col = 0;
+		ui->panel_act.width = button;
+	}
 	ui->frame_pending = true;
 }
 
@@ -3252,7 +3215,7 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	head.len = end - start;
 	head.data[head.len++] = '\n';
 	head.data[head.len] = '\0';
-	if (ui_append_shell_command(ctx->cfg, &head, command))
+	if (fyai_ui_append_shell_command(ctx->cfg, &head, command))
 		goto out;
 	response_buffer_trim(&head);
 	/* Keep the call title and command in persistent chrome. */
@@ -3523,7 +3486,7 @@ struct fytim_surface *fyai_ui_surface_open(struct fyai_ctx *ctx, int rows,
 		return NULL;
 	}
 	(void)fytim_surface_set_cursor(sf, 0, 0, false);
-	(void)fytim_surface_set_bottom(sf, ui_chrome_text(ctx->cfg->tile_frame));
+	(void)fytim_surface_set_bottom(sf, fyai_chrome_text(ctx->cfg->tile_frame));
 	return sf;
 }
 
@@ -3626,17 +3589,6 @@ int fyai_ui_surface_granted_rows(struct fyai_ctx *ctx,
 	return rows;
 }
 
-
-/* Keep @head with the tile of @sf: the page draws it onto its canvas. */
-static int ui_page_tile_set(struct fyai_ui *ui, struct fytim_surface *sf,
-			    const char *head)
-{
-	if (fyai_workpane_tile_set_head(ui->ctx->workpane, sf, head))
-		return -1;
-	fyai_diag_tracef("page", "tile=%p head=%zu", (void *)sf, strlen(head));
-	return 0;
-}
-
 /* A click on an act of a tile page: the head gives the tile the keys, and
  * the controls zoom or close it. */
 static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
@@ -3654,7 +3606,7 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	len = ev->text_len < sizeof(id) - 1 ? ev->text_len : sizeof(id) - 1;
 	memcpy(id, ev->text, len);
 	id[len] = '\0';
-	if (!strcmp(id, UI_PANEL_PANE)) {
+	if (!strcmp(id, FYAI_CHROME_PANEL_PANE)) {
 		fyai_workpane_set_hidden(wm, !fyai_workpane_hidden(wm));
 		return;
 	}
@@ -3695,227 +3647,6 @@ static void ui_act(struct fyai_ui *ui, const struct fytim_event *ev)
 	}
 }
 
-int fyai_ui_surface_set_head_frame(struct fyai_ctx *ctx,
-				   struct fytim_surface *sf,
-				   const char *title, const char *command,
-				   const char *cause,
-				   enum fyai_ui_mark mark, size_t frame,
-				   unsigned int *interval_msp)
-{
-	return fyai_ui_surface_set_head_right(ctx, sf, title, NULL, command,
-					      cause, mark, frame, interval_msp);
-}
-
-/*
- * The buttons at the right of the head of a tile, as UI Markdown: minimize,
- * maximize and close. The owner decides what each does. NULL when the mouse
- * is not grabbed, which leaves a click nothing to reach. The caller frees it.
- */
-static char *ui_tile_buttons(struct fyai_ctx *ctx)
-{
-	static const struct {
-		const char *id, *glyph, *fallback;
-	} buttons[] = {
-		{ "tile:minimize", "tile.minimize", "\xe2\x96\x81" },	/* ▁ */
-		{ "tile:maximize", "tile.maximize", "\xe2\x96\xa1" },	/* □ */
-		{ "tile:close", "tile.close", "\xc3\x97" },		/* × */
-	};
-	struct response_buffer out = {0};
-	char *glyph;
-	size_t i;
-	int rc = 0;
-
-	if (!fyai_workpane_wants_mouse(ctx))
-		return NULL;
-	for (i = 0; i < ARRAY_SIZE(buttons) && !rc; i++) {
-		/* A glyph of the theme is configuration: escape it. */
-		glyph = markdown_ui_escape(markdown_glyph(ctx->cfg,
-							  buttons[i].glyph,
-							  buttons[i].fallback));
-		rc = !glyph || response_buffer_append(&out,
-			fy_sprintfa(" <fy-act id=\"%s\">%s</fy-act>",
-				    buttons[i].id, glyph));
-		free(glyph);
-	}
-	if (rc) {
-		fyai_warning(ctx, "cannot write the buttons of a tile");
-		free(out.data);
-		return NULL;
-	}
-	return out.data;
-}
-
-/*
- * The columns that the text of the UI Markdown @s takes on a row: no tag, no
- * SGR sequence and no emphasis marker counts. With @plain, the text itself
- * goes to @plain, and a codepoint that would take it past @max columns ends
- * it. Returns the columns.
- */
-static int ui_markup_cols(const char *s, struct response_buffer *plain,
-			  int max)
-{
-	unsigned int cp, prev = 0;
-	size_t n, len = s ? strlen(s) : 0;
-	int cols = 0, w;
-	const char *p = s, *end = s + len;
-
-	while (p && p < end) {
-		if (*p == '<') {
-			while (p < end && *p != '>')
-				p++;
-			p += p < end;
-			continue;
-		}
-		if (*p == '\x1b') {
-			for (p++; p < end && !(*p >= '@' && *p <= '~' &&
-					       p[-1] != '\x1b'); p++)
-				;
-			p += p < end;
-			continue;
-		}
-		if (*p == '*' || *p == '`' || *p == '_' || *p == '\\') {
-			p++;
-			continue;
-		}
-		n = fymd_utf8_decode(p, (size_t)(end - p), &cp);
-		if (!n)
-			break;
-		w = fymd_cp_width_next(prev, cp);
-		if (plain && cols + w > max)
-			break;
-		if (plain && response_buffer_append_data(plain, p, n))
-			break;
-		cols += w;
-		prev = cp;
-		p += n;
-	}
-	return cols;
-}
-
-int fyai_ui_surface_set_head_right(struct fyai_ctx *ctx,
-				   struct fytim_surface *sf,
-				   const char *title, const char *right,
-				   const char *command, const char *cause,
-				   enum fyai_ui_mark mark, size_t frame,
-				   unsigned int *interval_msp)
-{
-	static const enum fymd_indicator_state states[] = {
-		[FYAI_UI_MARK_RUNNING] = FYMD_INDICATOR_PENDING,
-		[FYAI_UI_MARK_OK] = FYMD_INDICATOR_SUCCESS,
-		[FYAI_UI_MARK_FAILED] = FYMD_INDICATOR_FAILURE,
-	};
-	struct response_buffer out = {0}, cut = {0};
-	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct markdown_region *regions = NULL;
-	size_t nregions = 0;
-	const char *short_title = NULL;
-	char *escaped = NULL;
-	char *buttons = NULL;
-	char *head = NULL;
-	char *margin;
-	size_t tlen;
-	int saved_width, margin_cols = 0;
-	int cols, granted, room;
-	int rc;
-
-	if (!ui || !sf || !title)
-		return -1;
-	/* fyai writes @right and the buttons, so they take the right edge as
-	 * they are. A tile that ended is committed to the transcript, where a
-	 * button acts on nothing, unless it stays in the pane. */
-	buttons = mark == FYAI_UI_MARK_RUNNING ||
-		  fyai_tools_kept_surface(ctx, sf) ? ui_tile_buttons(ctx) : NULL;
-	/*
-	 * The title row is one row: a title that would wrap takes the buttons
-	 * with it. The title keeps the columns that the gutter, @right and the
-	 * buttons leave, and loses the rest to an ellipsis.
-	 */
-	granted = fyai_ui_surface_granted_cols(ctx, sf);
-	room = granted - markdown_gutter_cols(ctx->cfg) - 1 -
-	       ui_markup_cols(right, NULL, 0) -
-	       ui_markup_cols(buttons, NULL, 0) - 1;
-	if (granted > 0 && room > 1 && ui_markup_cols(title, NULL, 0) > room) {
-		(void)ui_markup_cols(title, &cut, room - 1);
-		if (!response_buffer_append(&cut, "\xe2\x80\xa6"))
-			short_title = cut.data;
-	}
-	/*
-	 * The title holds what a model or a program wrote. Escape it, then
-	 * make it the label that gives the tile the keys.
-	 */
-	escaped = markdown_ui_escape(short_title ? short_title : title);
-	if (escaped) {
-		tlen = strlen(escaped);
-		while (tlen && (escaped[tlen - 1] == '\n' ||
-				escaped[tlen - 1] == '\r'))
-			tlen--;
-		if (asprintf(&head,
-			     "<fy-act id=\"tile:focus\">%.*s</fy-act>%s%s%s\n",
-			     (int)tlen, escaped,
-			     right || buttons ? "<fy-fill/>" : "",
-			     right ? right : "", buttons ? buttons : "") < 0)
-			head = NULL;
-	}
-
-	/* Render chrome at the granted tile width. */
-	saved_width = ctx->cfg->render_width;
-	cols = fyai_ui_surface_granted_cols(ctx, sf);
-	if (cols > 0) {
-		(void)fytim_surface_margin(sf, &margin_cols);
-		cols += margin_cols;
-		if (ctx->cfg->work_controls &&
-		    !strcmp(ctx->cfg->work_controls, "full"))
-			cols++;
-		ctx->cfg->render_width = cols;
-	}
-	/* Render the marked title row used by work bands. */
-	margin = ui_indicator(ui, states[mark], frame, interval_msp);
-	if (head)
-		rc = markdown_render_tool_head_ui(ctx->cfg, head, strlen(head),
-				cause,
-				margin ? margin : markdown_gutter_blank(ctx->cfg),
-				markdown_gutter_blank(ctx->cfg), &out,
-				&regions, &nregions);
-	else
-		rc = markdown_render_tool_head(ctx->cfg, title, strlen(title),
-				cause,
-				margin ? margin : markdown_gutter_blank(ctx->cfg),
-				markdown_gutter_blank(ctx->cfg), &out);
-	free(margin);
-	free(head);
-	free(buttons);
-	free(escaped);
-	free(cut.data);
-	/* The tile keeps the regions of the head it shows. */
-	fyai_workpane_tile_set_regions(ctx->workpane, sf, regions, nregions);
-	if (!rc) {
-		/* Append the shell command below the title row. */
-		response_buffer_trim(&out);
-		if (command && *command)
-			rc = ui_append_shell_command(ctx->cfg, &out, command);
-	}
-	if (!rc) {
-		response_buffer_trim(&out);
-		rc = ui_page_tile_set(ui, sf, out.data ? out.data : "");
-		/* The commit of the surface writes its top into the
-		 * transcript; the tile page draws the head by itself. */
-		if (!rc && fytim_surface_set_top(sf, out.data ? out.data :
-						 title) != FYTIM_OK)
-			rc = -1;
-	}
-	ctx->cfg->render_width = saved_width;
-	free(out.data);
-	return rc;
-}
-
-int fyai_ui_surface_set_head(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			     const char *title, const char *command,
-			     const char *cause, enum fyai_ui_mark mark)
-{
-	return fyai_ui_surface_set_head_frame(ctx, sf, title, command, cause,
-					      mark, 0, NULL);
-}
-
 int fyai_ui_surface_granted_cols(struct fyai_ctx *ctx,
 				 const struct fytim_surface *sf)
 {
@@ -3929,13 +3660,6 @@ int fyai_ui_surface_granted_cols(struct fyai_ctx *ctx,
 	if (fytim_surface_granted_cols(sf, &cols) != FYTIM_OK)
 		return 0;
 	return cols;
-}
-
-int fyai_ui_surface_set_margin(struct fytim_surface *sf, const char *text)
-{
-	if (!sf)
-		return -1;
-	return fytim_surface_set_margin(sf, text) == FYTIM_OK ? 0 : -1;
 }
 
 int fyai_ui_surface_clear(struct fytim_surface *sf)
@@ -4083,37 +3807,24 @@ static const char *ui_focus_margin(struct fyai_ui *ui, char *buf, size_t size)
 	return n > 0 && (size_t)n < size ? buf : margin;
 }
 
-void fyai_ui_surface_focus(struct fyai_ctx *ctx, struct fytim_surface *sf,
-			   bool focused)
+bool fyai_ui_focus_ground(const struct fyai_ctx *ctx, bool focused,
+			  uint32_t *bgp)
+{
+	return ui_tile_ground(ctx, focused, bgp);
+}
+
+const char *fyai_ui_focus_margin(struct fyai_ctx *ctx, char *buf, size_t size)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	const char *text, *on, *off;
-	char edge[256];
-	uint32_t bg = 0;
-	bool reversed;
 
-	if (!ctx || !ctx->cfg || !sf || !ui)
-		return;
-	/* Without a configured ground, mark focus by reversing the margin. */
-	reversed = ui_tile_ground(ctx, focused, &bg);
-	(void)fytim_surface_set_bg(sf, bg, ctx->cfg->focus_bg_mix);
-	if (reversed && markdown_reverse_pair(ctx->cfg, &on, &off))
-		(void)fytim_surface_set_margin(sf,
-				fy_sprintfa("%s%s%s", on,
-					    ctx->cfg->session_margin, off));
-	else
-		(void)fytim_surface_set_margin(sf, focused ?
-				ui_focus_margin(ui, edge, sizeof(edge)) :
-				ctx->cfg->session_margin);
-	/* The tile keeps its rows; the way back goes on the status row. */
-	text = ui_chrome_text(ctx->cfg->tile_frame);
-	(void)fytim_surface_set_bottom(sf, text);
-	ui->status_hint = !focused ? NULL :
-		fyai_tools_btw_surface(ctx, sf) ?
-		"Esc closes · PgUp/PgDn scroll · Ctrl-] returns to the prompt" :
-		fyai_tools_kept_surface(ctx, sf) ?
-		"Esc closes · Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus" :
-		"Ctrl-] returns to the prompt · Ctrl-Tab/Ctrl-T moves focus";
+	return ui ? ui_focus_margin(ui, buf, size) :
+		    ctx->cfg->session_margin;
+}
+
+void fyai_ui_set_hint(struct fyai_ctx *ctx, const char *hint)
+{
+	if (ctx && ctx->ui)
+		ctx->ui->status_hint = hint;
 }
 
 int fyai_ui_surface_publish(struct fytim_surface *sf,
