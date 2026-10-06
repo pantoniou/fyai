@@ -1115,14 +1115,10 @@ remaining settings below are session-only.
 
 Use `/help` in the running binary for the current command and setting spellings.
 
-`display/renderer` selects how the live screen is composed. `page`, the
-default, states the screen as one UI Markdown page: `stack` is the chrome of
-the terminal library. The page holds the transcript tail, the work pane, the
-header, the prompt between two rules and the status. On a short terminal the
-page loses the status first, then the header, then the rules, and keeps the
-prompt. A
-build without page support uses `stack` and says so. Refer to
-`doc/markdown-ui-plan.md`.
+The live screen is one UI Markdown page. The page holds the transcript tail,
+the work pane, the header, the prompt between two rules and the status. On a
+short terminal the page loses the status first, then the header, then the
+rules, and keeps the prompt. Refer to `doc/markdown-ui-plan.md`.
 
 An interactive session opens fullscreen (`display/screen: fullscreen`), with
 the work pane at half the terminal (`display/work_zoom_rows: half`) and the

@@ -635,11 +635,8 @@ display makes them again.
 
 ### The page
 
-`display/renderer` selects how the live screen is composed. `page`, the
-default, states the screen as one UI Markdown page. `stack` is the band stack
-of libfytimui: the library draws the header, the prompt between two rules and
-the status. `src/fyai_page.c` owns the page source; the terminal library
-draws its slots.
+The page states the live screen as one UI Markdown page. `src/fyai_page.c` owns
+the page source; the terminal library draws its slots.
 
 - The page is rendered again for each frame, from the state of the session.
   libfytimui decision 0007 measured it: the Markdown is at most 0.16 ms of a
@@ -656,9 +653,6 @@ draws its slots.
   so the ground of a fullscreen page is under the tail too. A tail that the
   library draws over the canvas has no ground, and the terminal background
   shows through it.
-- The page must look as the band stack does. `tests/cases/ui_page_renderer.sh`
-  runs one scenario under both renderers and compares the screens: a change
-  to the stack chrome is a change to the page source too.
 - The chrome is the stack's: a blank row and the header row, the prompt on its
   card (`fytim_prompt_card()`, a slot two rows taller) or between two rules,
   and two status rows - the focus hint or the keys of the completion popup,

@@ -270,25 +270,20 @@ prompt stands under it. Use it to keep the conversation in the scrollback, to
 select with the mouse of the terminal, or on a terminal that has no alternate
 screen.
 
-Four settings say which mode a session opens in:
+Three settings say which mode a session opens in:
 
 ```sh
 fyai config set display/screen inline         # keep the scrollback
-fyai config set display/renderer stack        # the bands of the library
 fyai config set display/work_controls none    # leave the mouse to the terminal
 fyai config set display/work_zoom_rows full   # the work pane takes the screen
 ```
 
 `display/screen` is the mode: `fullscreen` (the default) or `inline`.
-`display/renderer` is how the live screen is composed: `page` (the default), a
-UI Markdown page whose slots hold the transcript, the work pane and the prompt,
-or `stack`, the fixed chrome of the terminal library. Fullscreen applies to the
-page renderer alone, thus `stack` is an inline session whatever `display/screen`
-says. Put the defaults back with:
+The live screen is one UI Markdown page whose slots hold the transcript, the
+work pane and the prompt. Put the defaults back with:
 
 ```sh
 fyai config set display/screen fullscreen
-fyai config set display/renderer page
 fyai config set display/work_controls full
 fyai config set display/work_zoom_rows half
 ```
