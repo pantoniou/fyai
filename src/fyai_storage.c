@@ -160,8 +160,10 @@ static bool generic_same(fy_generic a, fy_generic b)
  */
 static bool root_ref_contained(struct fy_allocator *a, fy_generic v)
 {
-	if (fy_is_invalid(v) || !fy_is_mapping(v))
-		return true;	/* null / inplace: no out-of-place pointer */
+	/* Null, a scalar and an in-place collection, such as the empty
+	 * mapping, hold no pointer out of place. */
+	if (fy_is_invalid(v) || !fy_is_mapping(v) || fy_generic_is_in_place(v))
+		return true;
 	return fy_allocator_contains(a, -1, fy_generic_resolve_collection_ptr(v));
 }
 
