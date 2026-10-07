@@ -138,6 +138,24 @@ int fyai_cmd_config_import(struct fyai_cmd_call *call, fy_generic *result)
 	return 0;
 }
 
+int fyai_cmd_config_reset(struct fyai_cmd_call *call, fy_generic *result)
+{
+	if (fyai_config_reset(call->ctx) || config_changed(call))
+		return -1;
+	*result = fy_mapping(call->gb, "reset", true);
+	return 0;
+}
+
+int fyai_cmd_config_undo(struct fyai_cmd_call *call, fy_generic *result)
+{
+	long long n = fy_get(call->args, "count", 1LL), found;
+
+	if (fyai_config_undo(call->ctx, n, &found) || config_changed(call))
+		return -1;
+	*result = fy_mapping(call->gb, "count", n);
+	return 0;
+}
+
 int fyai_cmd_config_export(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *file = fyai_cmd_arg_str(call, "file");

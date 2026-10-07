@@ -81,6 +81,20 @@ int fyai_config_set_generic(struct fyai_ctx *ctx, const char *key,
 int fyai_config_delete(struct fyai_ctx *ctx, const char *key);
 int fyai_apply_config_ops(struct fyai_ctx *ctx);
 int fyai_config_import(struct fyai_ctx *ctx, const char *path);
+/*
+ * Store an empty configuration on the branch, so every key takes the default
+ * of the schema, and drop the settings of this session. Returns 0, or -1 with
+ * a diagnostic.
+ */
+int fyai_config_reset(struct fyai_ctx *ctx);
+/*
+ * Store the configuration that the branch had @n changes ago. The ref log is
+ * walked back, and each entry whose configuration differs from the one after
+ * it is a change: an entry that moved only the head is not. The undo is a
+ * change itself, so a second undo of 1 returns to where the first started.
+ * *@foundp receives the changes found. Returns 0, or -1 with a diagnostic.
+ */
+int fyai_config_undo(struct fyai_ctx *ctx, long long n, long long *foundp);
 int fyai_config_export(struct fyai_ctx *ctx, const char *path);
 
 struct fyai_config_edit_request;

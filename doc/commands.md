@@ -1066,7 +1066,7 @@ summary.
 
 inspect or change the configuration of the branch
 
-**Usage:** `fyai config {show|effective|get|set|delete|import|export|edit|validate|schema|describe} ...`
+**Usage:** `fyai config {show|effective|get|set|delete|import|reset|undo|export|edit|validate|schema|describe} ...`
 
 The configuration is a document stored with each branch. Paths are
 slash-separated keys, and values are YAML flow documents; see
@@ -1083,6 +1083,8 @@ slash-separated keys, and values are YAML flow documents; see
 | `set` | set the value of a key |
 | `delete` | remove a key |
 | `import` | store a configuration file |
+| `reset` | return to the built-in configuration |
+| `undo` | return to an earlier configuration |
 | `export` | write the configuration to a file |
 | `edit` | edit the configuration in an editor |
 | `validate` | check the configuration against the schema |
@@ -1214,6 +1216,50 @@ the configuration of the branch.
 | Argument | Description |
 | --- | --- |
 | `FILE` | the YAML file |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai config reset
+
+return to the built-in configuration
+
+**Usage:** `fyai config reset`
+
+Store an empty configuration on the branch, so every key takes
+its built-in default, and drop the settings that this session
+changed. The previous configuration stays in the ref log;
+`config undo` returns to it.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai config undo
+
+return to an earlier configuration
+
+**Usage:** `fyai config undo [N]`
+
+Store the configuration that the branch had N changes ago, 1 by
+default. A ref-log entry that moved only the conversation is not
+a change. The undo is a change itself: a second `config undo`
+returns to where the first started.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `N` | the configuration changes to go back; default 1 |
 
 ### Options
 
@@ -3239,7 +3285,7 @@ summary.
 
 inspect or change the configuration of the branch
 
-**Usage:** `/config {show|effective|get|set|delete|import|export|edit|validate|schema|describe} ...`
+**Usage:** `/config {show|effective|get|set|delete|import|reset|undo|export|edit|validate|schema|describe} ...`
 
 The configuration is a document stored with each branch. Paths are
 slash-separated keys, and values are YAML flow documents; see
@@ -3256,6 +3302,8 @@ slash-separated keys, and values are YAML flow documents; see
 | `set` | set the value of a key |
 | `delete` | remove a key |
 | `import` | store a configuration file |
+| `reset` | return to the built-in configuration |
+| `undo` | return to an earlier configuration |
 | `export` | write the configuration to a file |
 | `edit` | edit the configuration in an editor |
 | `validate` | check the configuration against the schema |
@@ -3382,6 +3430,48 @@ the configuration of the branch.
 | Argument | Description |
 | --- | --- |
 | `FILE` | the YAML file |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /config reset
+
+return to the built-in configuration
+
+**Usage:** `/config reset`
+
+Store an empty configuration on the branch, so every key takes
+its built-in default, and drop the settings that this session
+changed. The previous configuration stays in the ref log;
+`config undo` returns to it.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /config undo
+
+return to an earlier configuration
+
+**Usage:** `/config undo [N]`
+
+Store the configuration that the branch had N changes ago, 1 by
+default. A ref-log entry that moved only the conversation is not
+a change. The undo is a change itself: a second `config undo`
+returns to where the first started.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `N` | the configuration changes to go back; default 1 |
 
 ### Options
 

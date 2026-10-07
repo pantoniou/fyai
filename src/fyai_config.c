@@ -2112,6 +2112,77 @@ int fyai_config_import(struct fyai_ctx *ctx, const char *path)
 	return 0;
 }
 
+int fyai_config_reset(struct fyai_ctx *ctx)
+{
+	fy_generic report, doc = fy_map_empty;
+
+	if (!ctx->gb) {
+		fyai_error(ctx, "no arena; run fyai init");
+		return -1;
+	}
+	/* An empty document takes every default of the schema. */
+	report = fyai_config_validate_report(ctx->cfg, doc, "config");
+	if (config_report_commit(report, &doc))
+		return -1;
+	if (fyai_publish_root(ctx, doc, fy_invalid, fy_invalid))
+		return -1;
+	/* The settings of this session go too: the defaults are the whole
+	 * configuration. */
+	ctx->cfg->config_session = fy_invalid;
+	return 0;
+}
+
+/* The bound on the ref-log entries an undo walks. */
+#define FYAI_CONFIG_UNDO_WALK_MAX 100000
+
+int fyai_config_undo(struct fyai_ctx *ctx, long long n, long long *foundp)
+{
+	struct fyai_branch b;
+	fy_generic last, config, report;
+	const char *name = fyai_ctx_branch(ctx);
+	long long changes = 0, walked = 0;
+
+	*foundp = 0;
+	if (!ctx->gb) {
+		fyai_error(ctx, "no arena; run fyai init");
+		return -1;
+	}
+	if (n < 1) {
+		fyai_error(ctx, "config undo: the count must be 1 or more");
+		return -1;
+	}
+	if (!fyai_branch_lookup(ctx->arena_branches, name, &b)) {
+		fyai_error(ctx, "config undo: no branch '%s'", name);
+		return -1;
+	}
+	/*
+	 * Walk the ref log back and count each change of the configuration;
+	 * an entry that moved only the head does not count.
+	 */
+	last = fy_get(b.store, "config", fy_invalid);
+	config = fy_invalid;
+	while (changes < n && walked++ < FYAI_CONFIG_UNDO_WALK_MAX &&
+	       fyai_branch_decode(b.prev, &b)) {
+		config = fy_get(b.store, "config", fy_invalid);
+		if (!fy_is_mapping(config) || !fy_is_mapping(last) ||
+		    fy_compare(config, last) != 0) {
+			changes++;
+			last = config;
+		}
+	}
+	*foundp = changes;
+	if (changes < n || !fy_is_mapping(config)) {
+		fyai_error(ctx, "config undo: branch %s has %lld earlier "
+			   "configuration%s, not %lld", name, changes,
+			   changes == 1 ? "" : "s", n);
+		return -1;
+	}
+	report = fyai_config_validate_report(ctx->cfg, config, "config");
+	if (config_report_commit(report, &config))
+		return -1;
+	return fyai_publish_root(ctx, config, fy_invalid, fy_invalid);
+}
+
 static fy_generic config_emit_yaml(struct fy_generic_builder *gb, fy_generic v)
 {
 	return fy_gb_emit(gb, v, FYAI_YAML_EMIT_FLAGS, NULL);

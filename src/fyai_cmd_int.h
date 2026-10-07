@@ -116,6 +116,8 @@ int fyai_cmd_config_get(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_set(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_delete(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_import(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_config_reset(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_config_undo(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_export(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_validate(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_schema(struct fyai_cmd_call *call, fy_generic *result);

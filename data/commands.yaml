@@ -1361,6 +1361,39 @@ commands:
         render:
           message: "config: imported {file}"
 
+      - command: reset
+        title: return to the built-in configuration
+        description: |
+          Store an empty configuration on the branch, so every key takes
+          its built-in default, and drop the settings that this session
+          changed. The previous configuration stays in the ref log;
+          `config undo` returns to it.
+        handler: config_reset
+        render:
+          message: "config: reset to the built-in defaults"
+
+      - command: undo
+        title: return to an earlier configuration
+        description: |
+          Store the configuration that the branch had N changes ago, 1 by
+          default. A ref-log entry that moved only the conversation is not
+          a change. The undo is a change itself: a second `config undo`
+          returns to where the first started.
+        handler: config_undo
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            count:
+              type: integer
+              minimum: 1
+              default: 1
+              description: the configuration changes to go back
+              x-fyai-positional: 0
+              x-fyai-meta: N
+        render:
+          message: "config: returned {count} change(s) back"
+
       - command: export
         title: write the configuration to a file
         description: |

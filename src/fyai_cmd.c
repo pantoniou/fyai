@@ -59,6 +59,8 @@ static const struct {
 	{ "config_set",		fyai_cmd_config_set },
 	{ "config_delete",	fyai_cmd_config_delete },
 	{ "config_import",	fyai_cmd_config_import },
+	{ "config_reset",	fyai_cmd_config_reset },
+	{ "config_undo",	fyai_cmd_config_undo },
 	{ "config_export",	fyai_cmd_config_export },
 	{ "config_validate",	fyai_cmd_config_validate },
 	{ "config_schema",	fyai_cmd_config_schema },
