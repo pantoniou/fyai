@@ -225,7 +225,7 @@ int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,
 	buf[0] = '\0';
 	if (!cfg || !cfg->markdown || !cfg->palette ||
 	    !cfg->screen || strcmp(cfg->screen, "fullscreen") ||
-	    (cfg->theme_ground && strcmp(cfg->theme_ground, "theme")) ||
+	    (!cfg->theme_ground || strcmp(cfg->theme_ground, "theme")) ||
 	    !markdown_color_enabled(cfg->color))
 		return 0;
 	n = fypal_ctx_color_sgr(cfg->palette, "ground", FYPAL_LAYER_BG, buf, size);
@@ -331,7 +331,7 @@ bool markdown_command_ground(const struct fyai_cfg *cfg, uint32_t *rgb)
 	/* The ground under the text: the page fills it from the theme on a
 	 * fullscreen page with a theme ground, else it is the terminal's. */
 	if (cfg->screen && !strcmp(cfg->screen, "fullscreen") &&
-	    (!cfg->theme_ground || !strcmp(cfg->theme_ground, "theme")) &&
+	    (cfg->theme_ground && !strcmp(cfg->theme_ground, "theme")) &&
 	    markdown_role_ground(cfg, "ground", &base)) {
 		;
 	} else if (cfg->terminal.flags & FYPAL_TERM_BACKGROUND) {
@@ -673,6 +673,14 @@ const struct fypal_term *fyai_terminal_probe(struct fyai_cfg *cfg)
 	/* A sub-agent draws on a terminal that the parent emulates. */
 	if (cfg->agent_pty)
 		return &cfg->terminal;
+	/*
+	 * Ask the terminal that this run draws on and reads from. A process can
+	 * have a controlling terminal with its output elsewhere, as a build
+	 * machine gives it, and nothing answers there: the probe would wait for
+	 * its time limit.
+	 */
+	if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
+		return &cfg->terminal;
 	probe = fypal_probe_create();
 	if (!probe) {
 		fyai_cfg_warning(cfg, "cannot create the terminal probe");
@@ -768,7 +776,7 @@ static struct fypal_ctx *markdown_palette_create(struct fyai_cfg *cfg,
 						 const char *name,
 						 const char *variant)
 {
-	const char *ground = cfg->theme_ground ? cfg->theme_ground : "theme";
+	const char *ground = cfg->theme_ground ? cfg->theme_ground : "terminal";
 	struct fymd_renderer_cfg rcfg;
 	struct fymd_renderer *r;
 	struct fypal_ctx **palettes;

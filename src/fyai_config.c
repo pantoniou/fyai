@@ -2776,7 +2776,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 		DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS;
 	cfg->color = DEFAULT_COLOR;
 	cfg->theme = DEFAULT_THEME;
-	cfg->theme_ground = "theme";
+	cfg->theme_ground = "terminal";
 	cfg->theme_variant = NULL;
 	cfg->markdown_theme = NULL;
 	cfg->turn_separator = DEFAULT_TURN_SEPARATOR;

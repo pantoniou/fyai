@@ -265,7 +265,7 @@ display:
   theme: ember:auto
   # Palette ground: theme fills default backgrounds of fullscreen pages;
   # terminal uses the detected terminal background.
-  theme_ground: theme
+  theme_ground: terminal
   # Table border: theme, grid, or none.
   table_border: theme
   # Markdown separators: turn_separator separates history exchanges;

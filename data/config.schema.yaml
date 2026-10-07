@@ -1101,10 +1101,10 @@ properties:
       theme_ground:
         type: string
         enum: [theme, terminal]
-        default: theme
+        default: terminal
         description: >-
           Select the background used by a palette theme. theme uses the ground of
-          the theme. terminal asks the terminal for its background and makes
+          the theme. terminal, the default, asks the terminal for its background and makes
           it the ground of the theme, so the neutral colours - the card,
           rules, faint, dim and ink text - keep their steps over the real
           background. The hue colours do not change. It applies when the
