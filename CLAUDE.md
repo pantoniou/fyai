@@ -1090,6 +1090,9 @@ register, focus, zoom, resize - and sizes nothing itself.
   which reverse video is what makes visible. With no colour configured the
   margin is reversed instead, which is the mark a terminal of sixteen colours
   can carry.
+- `display/focus_mark: edge`, the default, drops the wash: `ui_focus_ground()` gives the
+  prompt, a picker and a focused tile the ground of the terminal, and the
+  edge marker alone says where the keys are. The margin is not reversed.
 - Keyboard focus also uses a one-column edge marker because the background
   wash can be hard to see. Use the palette's `pane.edge` role, or the theme's
   strong style (`ui_edge()`). For a tile, replace the first blank margin
