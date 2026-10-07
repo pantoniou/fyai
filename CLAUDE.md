@@ -817,6 +817,10 @@ the page source; the terminal library draws its slots.
   replay takes the settings of its own session.
 - The test harness selects `pane`, which most cases read; a case of the
   transcript selects `transcript`.
+- `config reset` stores an empty configuration and drops the session layer;
+  `config undo N` stores the configuration of N changes ago, walking the ref
+  log and counting only entries whose configuration differs. Both leave the
+  replaced configuration in the ref log.
 - With `pane`, the transcript keeps nothing of a slash command:
   no card is drawn and nothing is stored. Its output, and every notice and
   diagnostic, goes to the pane. `fyai_ui_pane_end()` shows a
