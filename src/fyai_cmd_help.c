@@ -138,9 +138,10 @@ char *fyai_cmd_usage(fy_generic def, const char *path,
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
 	struct response_buffer out = { 0 };
-	fy_generic subs, sub, name;
+	fy_generic subs, sub, name, *sdefs;
 	bool fail = false, first;
 	long long pos;
+	size_t nsub, si;
 	int n, i;
 
 	putf(&out, &fail, "%s%s", surface_prefix(surface), path);
@@ -153,7 +154,11 @@ char *fyai_cmd_usage(fy_generic def, const char *path,
 					   prop_required(def, props[i].name));
 		put(&out, &fail, " {");
 		first = true;
-		fy_foreach(sub, subs) {
+		sdefs = fyai_cmd_defs_sorted(subs, "command", &nsub);
+		if (!sdefs)
+			fail = true;
+		for (si = 0; si < nsub; si++) {
+			sub = sdefs[si];
 			if (!fyai_cmd_def_on(sub, fy_invalid, surface) ||
 			    fy_get(sub, "hidden", false))
 				continue;
@@ -162,6 +167,7 @@ char *fyai_cmd_usage(fy_generic def, const char *path,
 			     gstr(&name));
 			first = false;
 		}
+		free(sdefs);
 		put(&out, &fail, "} ...");
 		goto out;
 	}
@@ -233,7 +239,8 @@ static void help_command(struct response_buffer *out, bool *failp,
 			 enum fyai_cmd_surface surface)
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
-	fy_generic title, desc, subs, sub, alias, ex, v;
+	fy_generic title, desc, subs, sub, alias, ex, v, *sdefs;
+	size_t nsub, si;
 	const char *pfx = surface_prefix(surface);
 	char *usage;
 	bool first, any;
@@ -263,7 +270,11 @@ static void help_command(struct response_buffer *out, bool *failp,
 	if (fy_is_valid(subs)) {
 		put(out, failp, "\n### Commands\n\n| Command | Description |\n"
 		    "| --- | --- |\n");
-		fy_foreach(sub, subs) {
+		sdefs = fyai_cmd_defs_sorted(subs, "command", &nsub);
+		if (!sdefs)
+			*failp = true;
+		for (si = 0; si < nsub; si++) {
+			sub = sdefs[si];
 			if (!fyai_cmd_def_on(sub, fy_invalid, surface) ||
 			    fy_get(sub, "hidden", false))
 				continue;
@@ -274,6 +285,7 @@ static void help_command(struct response_buffer *out, bool *failp,
 			put_cell(out, failp, gstr(&title));
 			put(out, failp, " |\n");
 		}
+		free(sdefs);
 		n = fyai_cmd_props(def, surface, props, ARRAY_SIZE(props));
 		any = false;
 		for (i = 0; i < n; i++) {
@@ -344,8 +356,9 @@ static void help_list(struct response_buffer *out, bool *failp,
 		      enum fyai_cmd_surface surface)
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
-	fy_generic reg, def, name, title, topic;
+	fy_generic reg, def, name, title, topic, *defs;
 	const char *pfx = surface_prefix(surface);
+	size_t nd, d;
 	int n, k;
 
 	reg = fyai_cmd_registry();
@@ -357,7 +370,12 @@ static void help_list(struct response_buffer *out, bool *failp,
 		    "arguments, fyai starts an interactive session.\n\n");
 	put(out, failp, "### Commands\n\n| Command | Description |\n"
 	    "| --- | --- |\n");
-	fy_foreach(def, fy_get(reg, "commands", fy_invalid)) {
+	defs = fyai_cmd_defs_sorted(fy_get(reg, "commands", fy_invalid),
+				    "command", &nd);
+	if (!defs)
+		*failp = true;
+	for (d = 0; d < nd; d++) {
+		def = defs[d];
 		if (!fyai_cmd_def_on(def, fy_invalid, surface) ||
 		    fy_get(def, "hidden", false))
 			continue;
@@ -369,6 +387,7 @@ static void help_list(struct response_buffer *out, bool *failp,
 		put_cell(out, failp, gstr(&title));
 		put(out, failp, " |\n");
 	}
+	free(defs);
 	if (surface == FYAI_CMD_CLI) {
 		def = fy_get(reg, "global", fy_invalid);
 		n = fyai_cmd_props(def, surface, props, ARRAY_SIZE(props));
@@ -382,13 +401,19 @@ static void help_list(struct response_buffer *out, bool *failp,
 		    "model with one slash.\n");
 	put(out, failp, "\n### Topics\n\n| Topic | Description |\n"
 	    "| --- | --- |\n");
-	fy_foreach(topic, fy_get(reg, "topics", fy_invalid)) {
+	defs = fyai_cmd_defs_sorted(fy_get(reg, "topics", fy_invalid),
+				    "topic", &nd);
+	if (!defs)
+		*failp = true;
+	for (d = 0; d < nd; d++) {
+		topic = defs[d];
 		name = fy_get(topic, "topic", fy_invalid);
 		title = fy_get(topic, "title", fy_invalid);
 		putf(out, failp, "| `%shelp %s` | ", pfx, gstr(&name));
 		put_cell(out, failp, gstr(&title));
 		put(out, failp, " |\n");
 	}
+	free(defs);
 }
 
 static fy_generic help_topic(const char *word)

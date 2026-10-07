@@ -386,6 +386,51 @@ const char *fyai_cmd_surface_name(enum fyai_cmd_surface surface)
 	return surface == FYAI_CMD_SESSION ? "session" : "cli";
 }
 
+static int defs_cmp_key(const void *a, const void *b, const char *key)
+{
+	fy_generic va = fy_get(*(const fy_generic *)a, key, fy_invalid);
+	fy_generic vb = fy_get(*(const fy_generic *)b, key, fy_invalid);
+	const char *sa = fy_str(va), *sb = fy_str(vb);
+
+	return strcmp(sa ? sa : "", sb ? sb : "");
+}
+
+#ifndef __APPLE__
+static int defs_cmp(const void *a, const void *b, void *arg)
+{
+	return defs_cmp_key(a, b, arg);
+}
+#define defs_sort(_base, _n, _key) \
+	qsort_r((_base), (_n), sizeof(fy_generic), defs_cmp, (void *)(_key))
+#else
+/* macOS takes the argument first, in the call and in the comparator. */
+static int defs_cmp(void *arg, const void *a, const void *b)
+{
+	return defs_cmp_key(a, b, arg);
+}
+#define defs_sort(_base, _n, _key) \
+	qsort_r((_base), (_n), sizeof(fy_generic), (void *)(_key), defs_cmp)
+#endif
+
+fy_generic *fyai_cmd_defs_sorted(fy_generic list, const char *key, size_t *np)
+{
+	fy_generic item, *arr;
+	size_t n = 0, i = 0;
+
+	fy_foreach(item, list)
+		n++;
+	arr = malloc((n ? n : 1) * sizeof(*arr));
+	fyai_error_check(NULL, arr, err_out, "cannot allocate a command list");
+	fy_foreach(item, list)
+		arr[i++] = item;
+	defs_sort(arr, n, key);
+	*np = n;
+	return arr;
+err_out:
+	*np = 0;
+	return NULL;
+}
+
 bool fyai_cmd_def_on(fy_generic def, fy_generic inherited,
 		     enum fyai_cmd_surface surface)
 {

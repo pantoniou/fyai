@@ -106,7 +106,7 @@ render Markdown from standard input
 
 list, create, and manage branches
 
-**Usage:** `fyai branch {list|new|delete|rename|show|describe} ...`
+**Usage:** `fyai branch {delete|describe|list|new|rename|show} ...`
 
 A branch holds one conversation and the configuration that goes with
 it. See `help refs` for the reference syntax.
@@ -116,12 +116,12 @@ it. See `help refs` for the reference syntax.
 
 | Command | Description |
 | --- | --- |
+| `delete`, `rm` | delete a branch |
+| `describe` | set the description of a branch |
 | `list` | list the branches |
 | `new`, `create` | create a branch |
-| `delete`, `rm` | delete a branch |
 | `rename`, `mv` | rename a branch |
 | `show` | show the details of a branch |
-| `describe` | set the description of a branch |
 
 With no command, `list` runs.
 
@@ -842,7 +842,7 @@ that ref-log entry.
 
 control the trace logs
 
-**Usage:** `fyai log [TARGET] {show|start|stop|clear|view} ...`
+**Usage:** `fyai log [TARGET] {clear|show|start|stop|view} ...`
 
 **Aliases:** `logging`
 
@@ -856,10 +856,10 @@ are whited out when they are written.
 
 | Command | Description |
 | --- | --- |
+| `clear` | empty the log |
 | `show` | show which logs are on |
 | `start`, `on` | start logging |
 | `stop`, `off` | stop logging |
-| `clear` | empty the log |
 | `view` | view the log |
 
 ### Arguments
@@ -953,7 +953,7 @@ Open the log in a viewer.
 
 manage secrets without showing their values
 
-**Usage:** `fyai secret {status|set|delete} ...`
+**Usage:** `fyai secret {delete|set|status} ...`
 
 Manage logical secrets in the machine-local secret store. A provider
 API key is conventionally named `api-key/<provider>`. A value is read
@@ -965,9 +965,9 @@ never from the command line.
 
 | Command | Description |
 | --- | --- |
-| `status` | show the backend, or whether a secret exists |
-| `set` | store a secret |
 | `delete` | remove a secret |
+| `set` | store a secret |
+| `status` | show the backend, or whether a secret exists |
 
 With no command, `status` runs.
 
@@ -1066,7 +1066,7 @@ summary.
 
 inspect or change the configuration of the branch
 
-**Usage:** `fyai config {show|effective|get|set|delete|import|reset|undo|export|edit|validate|schema|describe} ...`
+**Usage:** `fyai config {delete|describe|edit|effective|export|get|import|reset|schema|set|show|undo|validate} ...`
 
 The configuration is a document stored with each branch. Paths are
 slash-separated keys, and values are YAML flow documents; see
@@ -1077,19 +1077,19 @@ slash-separated keys, and values are YAML flow documents; see
 
 | Command | Description |
 | --- | --- |
-| `show` | write the stored configuration |
-| `effective` | write the merged configuration |
-| `get` | write the value of a key |
-| `set` | set the value of a key |
 | `delete` | remove a key |
+| `describe` | describe the keys of the configuration |
+| `edit` | edit the configuration in an editor |
+| `effective` | write the merged configuration |
+| `export` | write the configuration to a file |
+| `get` | write the value of a key |
 | `import` | store a configuration file |
 | `reset` | return to the built-in configuration |
-| `undo` | return to an earlier configuration |
-| `export` | write the configuration to a file |
-| `edit` | edit the configuration in an editor |
-| `validate` | check the configuration against the schema |
 | `schema` | write the configuration schema |
-| `describe` | describe the keys of the configuration |
+| `set` | set the value of a key |
+| `show` | write the stored configuration |
+| `undo` | return to an earlier configuration |
+| `validate` | check the configuration against the schema |
 
 With no command, `show` runs.
 
@@ -1366,7 +1366,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `fyai view {create|list|show|update|diff|apply|remove|ls|rm|cp|sync|mount|unmount|enter} ...`
+**Usage:** `fyai view {apply|cp|create|diff|enter|list|ls|mount|remove|rm|show|sync|unmount|update} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -1377,20 +1377,20 @@ The initial Linux implementation materializes an ordinary-file baseline.
 
 | Command | Description |
 | --- | --- |
-| `create` | capture a project and create a named view |
-| `list` | list the filesystem views of the active branch |
-| `show` | inspect a named filesystem view |
-| `update` | replace a view with a fresh host snapshot |
-| `diff` | compare recorded filesystem view snapshots |
 | `apply` | apply the changes of a view to the project |
-| `remove` | remove a named filesystem view |
-| `ls` | list the files of a view |
-| `rm` | remove files in a view |
 | `cp` | copy files between the project and a view |
-| `sync` | force a filesystem view to persistent storage |
-| `mount` | mount a view for read-only inspection |
-| `unmount` | unmount the recorded inspection view |
+| `create` | capture a project and create a named view |
+| `diff` | compare recorded filesystem view snapshots |
 | `enter` | enter a private filesystem view |
+| `list` | list the filesystem views of the active branch |
+| `ls` | list the files of a view |
+| `mount` | mount a view for read-only inspection |
+| `remove` | remove a named filesystem view |
+| `rm` | remove files in a view |
+| `show` | inspect a named filesystem view |
+| `sync` | force a filesystem view to persistent storage |
+| `unmount` | unmount the recorded inspection view |
+| `update` | replace a view with a fresh host snapshot |
 
 With no command, `list` runs.
 
@@ -1810,7 +1810,7 @@ namespaces, OverlayFS, and Landlock.
 
 show or set the stored sandbox policy
 
-**Usage:** `fyai sandbox {show|on|off|edit} ...`
+**Usage:** `fyai sandbox {edit|off|on|show} ...`
 
 Show or change the `sandbox` key of the configuration. `on` stores a
 policy that denies secrets and ~/.ssh and allows port 443; `edit`
@@ -1822,10 +1822,10 @@ of the session instead.
 
 | Command | Description |
 | --- | --- |
-| `show`, `get` | write the stored sandbox value |
-| `on`, `enable` | store the default sandbox policy |
-| `off`, `disable` | store no sandbox |
 | `edit` | edit the configuration in an editor |
+| `off`, `disable` | store no sandbox |
+| `on`, `enable` | store the default sandbox policy |
+| `show`, `get` | write the stored sandbox value |
 
 With no command, `show` runs.
 
@@ -1901,7 +1901,7 @@ Edit the configuration with $VISUAL or $EDITOR.
 
 inspect or change the model catalogue of the branch
 
-**Usage:** `fyai catalog {show|list|tools|get|set|delete|import|export|edit|validate|schema|reset|update} ...`
+**Usage:** `fyai catalog {delete|edit|export|get|import|list|reset|schema|set|show|tools|update|validate} ...`
 
 The catalogue lists the providers, their endpoints, and the models
 they offer. Each branch owns its catalogue. A path is slash-separated;
@@ -1913,19 +1913,19 @@ an item of a list is named by its name, such as
 
 | Command | Description |
 | --- | --- |
-| `show` | summarize the catalogue |
-| `list` | list the models or the providers |
-| `tools` | list the tools of a coding agent |
-| `get` | write the value at a path |
-| `set` | set the value at a path |
 | `delete` | remove the value at a path |
-| `import` | store a catalogue file |
-| `export` | write the catalogue to a file |
 | `edit` | edit the catalogue in an editor |
-| `validate` | check the catalogue against the schema |
-| `schema` | write the catalogue schema |
+| `export` | write the catalogue to a file |
+| `get` | write the value at a path |
+| `import` | store a catalogue file |
+| `list` | list the models or the providers |
 | `reset` | return to the embedded catalogue |
+| `schema` | write the catalogue schema |
+| `set` | set the value at a path |
+| `show` | summarize the catalogue |
+| `tools` | list the tools of a coding agent |
 | `update` | update the catalogue from the providers |
+| `validate` | check the catalogue against the schema |
 
 With no command, `show` runs.
 
@@ -2237,7 +2237,7 @@ write the messages as JSON Lines
 
 manage the subscription login of a provider
 
-**Usage:** `fyai auth [PROVIDER] {status|info|usage|login|accounts|logout} ...`
+**Usage:** `fyai auth [PROVIDER] {accounts|info|login|logout|status|usage} ...`
 
 Manage the machine-local ChatGPT subscription credentials. PROVIDER
 names the subscription provider; only `openai` is supported.
@@ -2247,12 +2247,12 @@ names the subscription provider; only `openai` is supported.
 
 | Command | Description |
 | --- | --- |
-| `status` | show the login and the health of the credentials |
-| `info` | show the subscription and the account |
-| `usage` | show recorded usage and subscription settings |
-| `login` | sign in to the subscription |
 | `accounts` | list saved ChatGPT registrations |
+| `info` | show the subscription and the account |
+| `login` | sign in to the subscription |
 | `logout` | sign out and remove the credentials |
+| `status` | show the login and the health of the credentials |
+| `usage` | show recorded usage and subscription settings |
 
 ### Arguments
 
@@ -2617,7 +2617,7 @@ explain the reference syntax
 
 list, create, and manage branches
 
-**Usage:** `/branch {list|new|delete|rename|show|describe|switch|attach|detach} ...`
+**Usage:** `/branch {attach|delete|describe|detach|list|new|rename|show|switch} ...`
 
 A branch holds one conversation and the configuration that goes with
 it. See `help refs` for the reference syntax.
@@ -2627,15 +2627,15 @@ it. See `help refs` for the reference syntax.
 
 | Command | Description |
 | --- | --- |
+| `attach` | show the screen of a live sub-agent |
+| `delete`, `rm` | delete a branch |
+| `describe` | set the description of a branch |
+| `detach` | leave the screen of a sub-agent |
 | `list` | list the branches |
 | `new`, `create` | create a branch |
-| `delete`, `rm` | delete a branch |
 | `rename`, `mv` | rename a branch |
 | `show` | show the details of a branch |
-| `describe` | set the description of a branch |
 | `switch` | switch the session to a branch |
-| `attach` | show the screen of a live sub-agent |
-| `detach` | leave the screen of a sub-agent |
 
 With no command, `list` runs.
 
@@ -3071,7 +3071,7 @@ and `HEAD`: the change that the last operation made.
 
 control the trace logs
 
-**Usage:** `/log [TARGET] {show|start|stop|clear|view} ...`
+**Usage:** `/log [TARGET] {clear|show|start|stop|view} ...`
 
 **Aliases:** `logging`
 
@@ -3085,10 +3085,10 @@ are whited out when they are written.
 
 | Command | Description |
 | --- | --- |
+| `clear` | empty the log |
 | `show` | show which logs are on |
 | `start`, `on` | start logging |
 | `stop`, `off` | stop logging |
-| `clear` | empty the log |
 | `view` | view the log |
 
 ### Arguments
@@ -3177,7 +3177,7 @@ Open the log in a viewer.
 
 manage secrets without showing their values
 
-**Usage:** `/secret {status|set|delete} ...`
+**Usage:** `/secret {delete|set|status} ...`
 
 Manage logical secrets in the machine-local secret store. A provider
 API key is conventionally named `api-key/<provider>`. A value is read
@@ -3189,9 +3189,9 @@ never from the command line.
 
 | Command | Description |
 | --- | --- |
-| `status` | show the backend, or whether a secret exists |
-| `set` | store a secret |
 | `delete` | remove a secret |
+| `set` | store a secret |
+| `status` | show the backend, or whether a secret exists |
 
 With no command, `status` runs.
 
@@ -3285,7 +3285,7 @@ summary.
 
 inspect or change the configuration of the branch
 
-**Usage:** `/config {show|effective|get|set|delete|import|reset|undo|export|edit|validate|schema|describe} ...`
+**Usage:** `/config {delete|describe|edit|effective|export|get|import|reset|schema|set|show|undo|validate} ...`
 
 The configuration is a document stored with each branch. Paths are
 slash-separated keys, and values are YAML flow documents; see
@@ -3296,19 +3296,19 @@ slash-separated keys, and values are YAML flow documents; see
 
 | Command | Description |
 | --- | --- |
-| `show` | write the stored configuration |
-| `effective` | write the merged configuration |
-| `get` | write the value of a key |
-| `set` | set the value of a key |
 | `delete` | remove a key |
+| `describe` | describe the keys of the configuration |
+| `edit` | edit the configuration in an editor |
+| `effective` | write the merged configuration |
+| `export` | write the configuration to a file |
+| `get` | write the value of a key |
 | `import` | store a configuration file |
 | `reset` | return to the built-in configuration |
-| `undo` | return to an earlier configuration |
-| `export` | write the configuration to a file |
-| `edit` | edit the configuration in an editor |
-| `validate` | check the configuration against the schema |
 | `schema` | write the configuration schema |
-| `describe` | describe the keys of the configuration |
+| `set` | set the value of a key |
+| `show` | write the stored configuration |
+| `undo` | return to an earlier configuration |
+| `validate` | check the configuration against the schema |
 
 With no command, `show` runs.
 
@@ -3572,7 +3572,7 @@ document.
 
 create and enter separate project filesystem views
 
-**Usage:** `/view {create|list|show|update|diff|apply|remove|ls|rm|cp|sync|mount|unmount|enter} ...`
+**Usage:** `/view {apply|cp|create|diff|enter|list|ls|mount|remove|rm|show|sync|unmount|update} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
 OverlayFS view. Commands in a view do not apply changes to the host.
@@ -3583,20 +3583,20 @@ The initial Linux implementation materializes an ordinary-file baseline.
 
 | Command | Description |
 | --- | --- |
-| `create` | capture a project and create a named view |
-| `list` | list the filesystem views of the active branch |
-| `show` | inspect a named filesystem view |
-| `update` | replace a view with a fresh host snapshot |
-| `diff` | compare recorded filesystem view snapshots |
 | `apply` | apply the changes of a view to the project |
-| `remove` | remove a named filesystem view |
-| `ls` | list the files of a view |
-| `rm` | remove files in a view |
 | `cp` | copy files between the project and a view |
-| `sync` | force a filesystem view to persistent storage |
-| `mount` | mount a view for read-only inspection |
-| `unmount` | unmount the recorded inspection view |
+| `create` | capture a project and create a named view |
+| `diff` | compare recorded filesystem view snapshots |
 | `enter` | enter a private filesystem view |
+| `list` | list the filesystem views of the active branch |
+| `ls` | list the files of a view |
+| `mount` | mount a view for read-only inspection |
+| `remove` | remove a named filesystem view |
+| `rm` | remove files in a view |
+| `show` | inspect a named filesystem view |
+| `sync` | force a filesystem view to persistent storage |
+| `unmount` | unmount the recorded inspection view |
+| `update` | replace a view with a fresh host snapshot |
 
 With no command, `list` runs.
 
@@ -4002,7 +4002,7 @@ namespaces, OverlayFS, and Landlock.
 
 inspect or change the model catalogue of the branch
 
-**Usage:** `/catalog {show|list|tools|get|set|delete|import|export|edit|validate|schema|reset|update} ...`
+**Usage:** `/catalog {delete|edit|export|get|import|list|reset|schema|set|show|tools|update|validate} ...`
 
 The catalogue lists the providers, their endpoints, and the models
 they offer. Each branch owns its catalogue. A path is slash-separated;
@@ -4014,19 +4014,19 @@ an item of a list is named by its name, such as
 
 | Command | Description |
 | --- | --- |
-| `show` | summarize the catalogue |
-| `list` | list the models or the providers |
-| `tools` | list the tools of a coding agent |
-| `get` | write the value at a path |
-| `set` | set the value at a path |
 | `delete` | remove the value at a path |
-| `import` | store a catalogue file |
-| `export` | write the catalogue to a file |
 | `edit` | edit the catalogue in an editor |
-| `validate` | check the catalogue against the schema |
-| `schema` | write the catalogue schema |
+| `export` | write the catalogue to a file |
+| `get` | write the value at a path |
+| `import` | store a catalogue file |
+| `list` | list the models or the providers |
 | `reset` | return to the embedded catalogue |
+| `schema` | write the catalogue schema |
+| `set` | set the value at a path |
+| `show` | summarize the catalogue |
+| `tools` | list the tools of a coding agent |
 | `update` | update the catalogue from the providers |
+| `validate` | check the catalogue against the schema |
 
 With no command, `show` runs.
 
@@ -4323,7 +4323,7 @@ write the messages as JSON Lines
 
 manage the subscription login of a provider
 
-**Usage:** `/auth [PROVIDER] {status|info|usage|login|accounts|logout} ...`
+**Usage:** `/auth [PROVIDER] {accounts|info|login|logout|status|usage} ...`
 
 Manage the machine-local ChatGPT subscription credentials. PROVIDER
 names the subscription provider; only `openai` is supported.
@@ -4333,12 +4333,12 @@ names the subscription provider; only `openai` is supported.
 
 | Command | Description |
 | --- | --- |
-| `status` | show the login and the health of the credentials |
-| `info` | show the subscription and the account |
-| `usage` | show recorded usage and subscription settings |
-| `login` | sign in to the subscription |
 | `accounts` | list saved ChatGPT registrations |
+| `info` | show the subscription and the account |
+| `login` | sign in to the subscription |
 | `logout` | sign out and remove the credentials |
+| `status` | show the login and the health of the credentials |
+| `usage` | show recorded usage and subscription settings |
 
 ### Arguments
 
@@ -4450,7 +4450,7 @@ tokens. Keep the client registration and host ID for later sign-in.
 
 inspect and control the MCP servers
 
-**Usage:** `/mcp {status|login|logout|on|off} ...`
+**Usage:** `/mcp {login|logout|off|on|status} ...`
 
 In a session, show the MCP servers, sign in to or out of one, or turn
 them all on or off. A verb imports the OAuth client of a server.
@@ -4460,11 +4460,11 @@ them all on or off. A verb imports the OAuth client of a server.
 
 | Command | Description |
 | --- | --- |
-| `status`, `show` | show the MCP servers and their state |
 | `login` | sign in to an MCP server |
 | `logout` | sign out of an MCP server |
-| `on` | turn the MCP servers on |
 | `off` | turn the MCP servers off |
+| `on` | turn the MCP servers on |
+| `status`, `show` | show the MCP servers and their state |
 
 With no command, `status` runs.
 
@@ -4644,7 +4644,7 @@ shows every tile again.
 
 show and review the page of the screen
 
-**Usage:** `/page {show|review} ...`
+**Usage:** `/page {review|show} ...`
 
 Show the page that draws the screen, or paint and name its areas to
 see which part of the page document draws which rows.
@@ -4654,8 +4654,8 @@ see which part of the page document draws which rows.
 
 | Command | Description |
 | --- | --- |
-| `show` | show the page of the screen and its state |
 | `review` | paint and name the areas of the screen |
+| `show` | show the page of the screen and its state |
 
 With no command, `show` runs.
 
@@ -4859,7 +4859,7 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `/session {push|pull|status|lockdown|yolo} ...`
+**Usage:** `/session {lockdown|pull|push|status|yolo} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
@@ -4872,10 +4872,10 @@ its view and the project: `push` writes its changes into the project, and
 
 | Command | Description |
 | --- | --- |
-| `push` | apply the changes of the session to the project |
-| `pull` | take the project as it is now into the session |
-| `status` | show the isolation of this session |
 | `lockdown` | take the strongest isolation that this host can enforce |
+| `pull` | take the project as it is now into the session |
+| `push` | apply the changes of the session to the project |
+| `status` | show the isolation of this session |
 | `yolo` | take off the isolation of the session |
 
 With no command, `status` runs.

@@ -78,6 +78,11 @@ bool fyai_cmd_seq_has(fy_generic seq, const char *word);
 bool fyai_cmd_def_on(fy_generic def, fy_generic inherited,
 		     enum fyai_cmd_surface surface);
 fy_generic fyai_cmd_def_surfaces(fy_generic def, fy_generic inherited);
+/*
+ * Return the items of @list ordered by their string member @key, in a new
+ * array of *@np items. The caller frees it. NULL when allocation fails.
+ */
+fy_generic *fyai_cmd_defs_sorted(fy_generic list, const char *key, size_t *np);
 bool fyai_cmd_def_names(fy_generic def, const char *word);
 fy_generic fyai_cmd_def_find(fy_generic defs, fy_generic inherited,
 			     const char *word, size_t len,
