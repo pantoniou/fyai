@@ -32,6 +32,7 @@ FYAI_TEST_ENTRY(cmd, usage, cmd_usage)
 FYAI_TEST_ENTRY(cmd, help, cmd_help_text)
 FYAI_TEST_ENTRY(cmd, complete, cmd_complete_words)
 FYAI_TEST_ENTRY(cmd, complete_session, cmd_complete_session)
+FYAI_TEST_ENTRY(cmd, sorted, cmd_sorted)
 FYAI_TEST_ENTRY(cmd, complete_view, cmd_complete_view)
 FYAI_TEST_ENTRY(cmd, immediate, cmd_immediate)
 FYAI_TEST_ENTRY(cmd, group_args, cmd_group_args)
@@ -396,6 +397,63 @@ static unsigned int complete(enum fyai_cmd_surface s, const char *line,
 			      cands_add, c);
 	fyai_cmd_split_free(words, n, offs);
 	return d;
+}
+
+/* Whether the lines of @buf, a candidate list, are in ascending order. */
+static bool cands_sorted(const char *buf)
+{
+	const char *line = buf, *next;
+	size_t n, m;
+	int d;
+
+	while ((next = strchr(line, '\n')) && next[1]) {
+		n = (size_t)(next - line);
+		m = strcspn(next + 1, "\n");
+		d = strncmp(line, next + 1, n < m ? n : m);
+		if (d > 0 || (!d && n > m))
+			return false;
+		line = next + 1;
+	}
+	return true;
+}
+
+/* Usage, help, and completion list commands in ascending order. */
+int cmd_sorted(void)
+{
+	struct cmd_test t;
+	struct cands c;
+	struct response_buffer out = { 0 };
+	const char *top[] = { "" };
+	const char *sub[] = { "branch", "" };
+	const char *branch[] = { "branch" };
+	const char *a, *b;
+	int rc;
+
+	cmd_test_open(&t);
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(NULL, FYAI_CMD_CLI, 1, top, cands_add, &c);
+	FYAI_TCHECK(c.len && cands_sorted(c.buf));
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(NULL, FYAI_CMD_SESSION, 1, top, cands_add, &c);
+	FYAI_TCHECK(c.len && cands_sorted(c.buf));
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_complete(NULL, FYAI_CMD_CLI, 2, sub, cands_add, &c);
+	FYAI_TCHECK(strstr(c.buf, "list\n") && cands_sorted(c.buf));
+	rc = fyai_cmd_help_source(&t.cfg, FYAI_CMD_CLI, 1, branch, &out);
+	FYAI_TCHECK(!rc && strstr(out.data, "`fyai branch "
+				  "{delete|describe|list|new|rename|show} ...`"));
+	free(out.data);
+	memset(&out, 0, sizeof(out));
+	rc = fyai_cmd_help_source(&t.cfg, FYAI_CMD_CLI, 0, top, &out);
+	FYAI_TCHECK(!rc && out.data);
+	if (!rc && out.data) {
+		a = strstr(out.data, "`fyai branch`");
+		b = strstr(out.data, "`fyai catalog`");
+		FYAI_TCHECK(a && b && a < b);
+	}
+	free(out.data);
+	cmd_test_close(&t);
+	return 0;
 }
 
 int cmd_complete_view(void)
