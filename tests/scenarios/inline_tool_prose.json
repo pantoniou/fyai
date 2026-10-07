@@ -1,0 +1,56 @@
+{
+ "steps": [
+  {
+   "sse": [
+    {
+     "type": "response.output_text.delta",
+     "delta": "Executing foo"
+    },
+    {
+     "type": "response.output_text.delta",
+     "delta": " now.\n\nSecond paragraph of prose."
+    },
+    {
+     "type": "response.output_item.done",
+     "output_index": 1,
+     "item": {
+      "type": "function_call",
+      "id": "fc1",
+      "call_id": "call1",
+      "name": "shell",
+      "arguments": "{\"command\": \"for i in 1 2 3; do echo line-$i; sleep 0.1; done; while [ ! -e \\\"$TMPDIR/dup-release\\\" ]; do sleep 0.05; done\"}",
+      "status": "completed"
+     }
+    },
+    {
+     "type": "response.completed",
+     "response": {
+      "id": "r",
+      "object": "response",
+      "model": "mock-model",
+      "status": "completed",
+      "output": []
+     }
+    }
+   ]
+  },
+  {
+   "sse": [
+    {
+     "type": "response.output_text.delta",
+     "delta": "All done."
+    },
+    {
+     "type": "response.completed",
+     "response": {
+      "id": "r",
+      "object": "response",
+      "model": "mock-model",
+      "status": "completed",
+      "output": []
+     }
+    }
+   ]
+  }
+ ]
+}
