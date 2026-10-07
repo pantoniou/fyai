@@ -140,6 +140,63 @@ int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);
 /* Create an independent text tile in the work pane. */
+/*
+ * Whether the live output of a shell or agent call goes into the transcript at
+ * the position of the call: display/tool_display is inline on a fullscreen
+ * page.
+ */
+bool fyai_ui_tools_inline(const struct fyai_ctx *ctx);
+/*
+ * Render a band into the transcript block of @key, as
+ * fyai_ui_shell_workband_update() renders a tile when @command is set, else
+ * as fyai_ui_workband_update(). @commit drops the block and presents the
+ * whole band in the transcript. Returns 0, or -1.
+ */
+int fyai_ui_inline_update(struct fyai_ctx *ctx, uintptr_t key, bool commit,
+			  const char *title, const char *command,
+			  const char *body, size_t len,
+			  const char *first_margin);
+/*
+ * Draw the @screen of a terminal session, @len bytes of rows that already
+ * carry the indent of tool output, in the transcript block of @key under the
+ * head of a call, with the @command row of a shell call when it is not NULL:
+ * the last @rows rows of it, with frame @frame of the mark of a call that
+ * runs. @done presents the whole of it in the transcript with the mark
+ * of the outcome @ok, and drops the block. Returns 0, or -1.
+ */
+int fyai_ui_inline_terminal(struct fyai_ctx *ctx, uintptr_t key,
+			    const char *title, const char *command,
+			    const char *screen, size_t len, int rows,
+			    size_t frame, bool done, bool ok);
+/*
+ * Give the keys to the transcript block of @key, which has no surface: the
+ * canvas of the page takes them, @cb gets what is typed, and a fullscreen
+ * view scrolls to the block. A @key of 0 gives the keys back to the prompt.
+ * Returns 0, or -1 when the block is not shown.
+ */
+int fyai_ui_inline_keys(struct fyai_ctx *ctx, uintptr_t key,
+			fyai_ui_keys_fn cb, void *user);
+/* The place of the transcript block of @key in the transcript, from 0, or -1
+ * when it is not shown. */
+int fyai_ui_inline_index(struct fyai_ctx *ctx, uintptr_t key);
+/*
+ * The place on the screen, in the last frame, of the first row of the
+ * transcript block of @key, or of the tile @sf: row and column into *@rowp
+ * and *@colp. A block scrolled out of the view has a row outside it. False
+ * when the page has no such place.
+ */
+bool fyai_ui_inline_pos(struct fyai_ctx *ctx, uintptr_t key, int *rowp,
+			int *colp);
+bool fyai_ui_tile_pos(struct fyai_ctx *ctx, struct fytim_surface *sf,
+		      int *rowp, int *colp);
+/* The transcript block that holds the keys, or 0. */
+uintptr_t fyai_ui_inline_focused(const struct fyai_ctx *ctx);
+/* @margin with the focus edge in its first column, in @buf, or @margin when
+ * it does not start with a blank. */
+const char *fyai_ui_inline_margin(struct fyai_ctx *ctx, const char *margin,
+				  char *buf, size_t size);
+/* Drop the transcript block of @key without a commit. */
+void fyai_ui_inline_drop(struct fyai_ctx *ctx, uintptr_t key);
 struct fytim_workband *fyai_ui_work_tile_create(struct fyai_ctx *ctx);
 void fyai_ui_work_tile_destroy(struct fyai_ctx *ctx,
 			       struct fytim_workband *band, bool commit);

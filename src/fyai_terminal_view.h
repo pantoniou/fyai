@@ -150,6 +150,17 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
 			      const struct fyai_terminal_region *region,
 			      size_t *lenp);
 
+/*
+ * Append the visible rows of @view to @out as text with SGR styles, one line
+ * for each row, each after @margin when it is not NULL. A row does not keep
+ * the blanks that end it. With @cursor, a visible cursor is drawn reversed.
+ * Returns 0, or -1 when memory runs out.
+ */
+struct response_buffer;
+int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
+				const char *margin, bool cursor,
+				struct response_buffer *out);
+
 /* Return the owned prompt row nearest the cursor, or NULL. */
 char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view);
 

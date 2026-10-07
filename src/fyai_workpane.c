@@ -615,6 +615,22 @@ void fyai_workpane_bands_follow(struct fyai_workpane_manager *wm)
 			t->scrolled = false;
 }
 
+bool fyai_workpane_surface_slot(const struct fyai_workpane_manager *wm,
+				const struct fytim_surface *sf,
+				unsigned int *slotp)
+{
+	const struct fyai_workpane_tile *t;
+
+	if (!wm || !sf)
+		return false;
+	for_each_tile(t, wm)
+		if (t->surface == sf) {
+			*slotp = t->slot;
+			return true;
+		}
+	return false;
+}
+
 struct fytim_surface *
 fyai_workpane_slot_surface(const struct fyai_workpane_manager *wm,
 			   unsigned int slot)

@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -1085,4 +1086,148 @@ void fyai_terminal_view_damage_all(struct fyai_terminal_view *view)
 bool fyai_terminal_view_used_alt_screen(const struct fyai_terminal_view *view)
 {
 	return view && view->alt_screen_used;
+}
+
+/* Append the UTF-8 form of @cp to @out. */
+static int tty_sgr_utf8(struct response_buffer *out, uint32_t cp)
+{
+	char b[4];
+	size_t n;
+
+	if (cp < 0x80) {
+		b[0] = (char)cp;
+		n = 1;
+	} else if (cp < 0x800) {
+		b[0] = (char)(0xc0 | (cp >> 6));
+		b[1] = (char)(0x80 | (cp & 0x3f));
+		n = 2;
+	} else if (cp < 0x10000) {
+		b[0] = (char)(0xe0 | (cp >> 12));
+		b[1] = (char)(0x80 | ((cp >> 6) & 0x3f));
+		b[2] = (char)(0x80 | (cp & 0x3f));
+		n = 3;
+	} else {
+		b[0] = (char)(0xf0 | (cp >> 18));
+		b[1] = (char)(0x80 | ((cp >> 12) & 0x3f));
+		b[2] = (char)(0x80 | ((cp >> 6) & 0x3f));
+		b[3] = (char)(0x80 | (cp & 0x3f));
+		n = 4;
+	}
+	return response_buffer_append_data(out, b, n);
+}
+
+/* Whether two cells draw with the same style. */
+static bool tty_sgr_same(const struct fyai_term_cell *a,
+			 const struct fyai_term_cell *b)
+{
+	return a->bold == b->bold && a->underline == b->underline &&
+	       a->italic == b->italic && a->blink == b->blink &&
+	       a->reverse == b->reverse && a->strike == b->strike &&
+	       a->fg.is_default == b->fg.is_default &&
+	       (a->fg.is_default || (a->fg.r == b->fg.r &&
+				     a->fg.g == b->fg.g &&
+				     a->fg.b == b->fg.b)) &&
+	       a->bg.is_default == b->bg.is_default &&
+	       (a->bg.is_default || (a->bg.r == b->bg.r &&
+				     a->bg.g == b->bg.g &&
+				     a->bg.b == b->bg.b));
+}
+
+/* Append the escape that selects the style of @c from the default. */
+static int tty_sgr_style(struct response_buffer *out,
+			 const struct fyai_term_cell *c)
+{
+	char buf[96];
+	int n;
+
+	n = snprintf(buf, sizeof(buf), "\x1b[0%s%s%s%s%s%s",
+		     c->bold ? ";1" : "", c->italic ? ";3" : "",
+		     c->underline ? ";4" : "", c->blink ? ";5" : "",
+		     c->reverse ? ";7" : "", c->strike ? ";9" : "");
+	if (n < 0 || response_buffer_append_data(out, buf, (size_t)n))
+		return -1;
+	if (!c->fg.is_default) {
+		n = snprintf(buf, sizeof(buf), ";38;2;%u;%u;%u",
+			     c->fg.r, c->fg.g, c->fg.b);
+		if (n < 0 || response_buffer_append_data(out, buf, (size_t)n))
+			return -1;
+	}
+	if (!c->bg.is_default) {
+		n = snprintf(buf, sizeof(buf), ";48;2;%u;%u;%u",
+			     c->bg.r, c->bg.g, c->bg.b);
+		if (n < 0 || response_buffer_append_data(out, buf, (size_t)n))
+			return -1;
+	}
+	return response_buffer_append_data(out, "m", 1);
+}
+
+/* Whether @c draws nothing: a blank with no style of its own. */
+static bool tty_sgr_blank(const struct fyai_term_cell *c)
+{
+	return (!c->chars[0] || c->chars[0] == ' ') && !c->reverse &&
+	       !c->underline && !c->strike && c->bg.is_default;
+}
+
+int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
+				const char *margin, bool cursor,
+				struct response_buffer *out)
+{
+	struct fyai_term_cell cell, prev, plain;
+	int rows = 0, cols = 0, crow = -1, ccol = -1, row, col, last, i;
+	bool visible = false, styled;
+
+	if (!view || !out)
+		return -1;
+	fyai_terminal_view_size(view, &rows, &cols);
+	if (cursor)
+		fyai_terminal_view_cursor(view, &crow, &ccol, &visible);
+	if (!visible)
+		crow = -1;
+	memset(&plain, 0, sizeof(plain));
+	plain.fg.is_default = plain.bg.is_default = true;
+	for (row = 0; row < rows; row++) {
+		if (margin && response_buffer_append_data(out, margin,
+							  strlen(margin)))
+			return -1;
+		/* The blanks that end a row are not drawn. */
+		for (last = cols - 1; last >= 0; last--) {
+			if (row == crow && last == ccol)
+				break;
+			if (!fyai_terminal_view_cell(view, row, last, &cell) ||
+			    !tty_sgr_blank(&cell))
+				break;
+		}
+		prev = plain;
+		styled = false;
+		for (col = 0; col <= last; col++) {
+			if (!fyai_terminal_view_cell(view, row, col, &cell))
+				break;
+			/* The program left its cursor here: draw it reversed. */
+			if (row == crow && col == ccol)
+				cell.reverse = !cell.reverse;
+			if (!tty_sgr_same(&cell, &prev)) {
+				if (tty_sgr_style(out, &cell))
+					return -1;
+				prev = cell;
+				styled = true;
+			}
+			if (!cell.chars[0]) {
+				if (response_buffer_append_data(out, " ", 1))
+					return -1;
+				continue;
+			}
+			for (i = 0; i < FYAI_TERM_CELL_CHARS && cell.chars[i];
+			     i++)
+				if (tty_sgr_utf8(out, cell.chars[i]))
+					return -1;
+			/* A wide glyph covers the cell after it. */
+			if (cell.width > 1)
+				col += cell.width - 1;
+		}
+		if (styled && response_buffer_append_data(out, "\x1b[0m", 4))
+			return -1;
+		if (response_buffer_append_data(out, "\n", 1))
+			return -1;
+	}
+	return 0;
 }

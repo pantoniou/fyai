@@ -92,7 +92,46 @@ int fyai_transcript_view_replace_live(struct fyai_transcript_view *v,
 int fyai_transcript_view_set_tail(struct fyai_transcript_view *v,
 				  const char *text, size_t len);
 
-/* The rows the view holds: stored, committed live rows, then the tail. */
+/*
+ * Replace the rendered rows of the live block of @key, which a call in flight
+ * owns, and open it after the other blocks when it is not open. Blocks stand
+ * after the live rows and before the tail. The view owns a copy. Returns 0,
+ * or -1.
+ */
+int fyai_transcript_view_block_set(struct fyai_transcript_view *v,
+				   uintptr_t key, const char *text, size_t len);
+
+/* Drop the live block of @key, as when its call commits its rows. */
+void fyai_transcript_view_block_drop(struct fyai_transcript_view *v,
+				     uintptr_t key);
+
+/*
+ * Scroll a region of @height rows so that it shows the live block of @key, or
+ * its last rows when it is taller than the region. A block already shown
+ * moves nothing.
+ */
+void fyai_transcript_view_show_block(struct fyai_transcript_view *v,
+				     uintptr_t key, int height);
+
+/*
+ * The row of the first row of the live block of @key in a region of @height
+ * rows, from its top, into *@rowp: negative above the region and @height or
+ * more under it. False when the block is not open.
+ */
+bool fyai_transcript_view_block_top(struct fyai_transcript_view *v,
+				    uintptr_t key, int height, int *rowp);
+
+/* The place of the live block of @key among the blocks, from 0 in the order
+ * they opened, or -1 when it is not open. */
+int fyai_transcript_view_block_index(const struct fyai_transcript_view *v,
+				     uintptr_t key);
+
+/* Whether the live block of @key is open. */
+bool fyai_transcript_view_has_block(const struct fyai_transcript_view *v,
+				    uintptr_t key);
+
+/* The rows the view holds: stored, committed live rows, live blocks, then the
+ * tail. */
 size_t fyai_transcript_view_rows(const struct fyai_transcript_view *v);
 
 /*

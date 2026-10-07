@@ -54,6 +54,11 @@ struct fyai_page_state {
 	 * NULL for one pane slot the terminal library lays out. */
 	const char *pane_source;
 	int tail_rows;	/* drawn by the view in fullscreen */
+	/* The rows of the calls drawn at their place in the transcript, which
+	 * an inline page draws under the tail: @tail_rows counts them. The
+	 * rows are borrowed for the frame. */
+	const char *const *block_lines;
+	int block_nlines;
 	/* A fullscreen page draws committed rows and the live tail in one region. */
 	bool fullscreen;
 	int transcript_rows;
@@ -325,6 +330,15 @@ const char *fyai_page_document_path(const struct fyai_page *pg);
  */
 int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md);
 void fyai_page_destroy(struct fyai_page *pg);
+/*
+ * The place of the region @id in the last frame: its first row and column
+ * into *@rowp and *@colp, and its rows into *@heightp when it is not NULL.
+ * False when the last frame had no such region.
+ */
+bool fyai_page_region(const struct fyai_page *pg, const char *id, int *rowp,
+		      int *colp, int *heightp);
+/* The surface the page draws on, or NULL before its first frame. */
+struct fytim_surface *fyai_page_canvas(const struct fyai_page *pg);
 
 /*
  * Build, render and give the page of this frame to @ft, at @cols by @rows.

@@ -525,6 +525,7 @@ struct sink_term {
 	int render_cols;		/* width used to wrap the rows */
 	int64_t last_draw_ms;		/* monotonic time of the last repaint */
 	struct fyai_sink_band *shared_band;
+	struct fyai_sink_band *inline_bands;	/* blocks of the transcript */
 	enum fyai_sink_doc_kind kind;
 	bool render_live;
 	bool doc_open;
@@ -936,6 +937,8 @@ struct fyai_sink_band {
 	struct fytim_workband *wb;	/* NULL for the shared band */
 	bool shared;
 	bool tile;			/* independent work-pane tile */
+	bool inline_block;		/* a block of the transcript view */
+	struct fyai_sink_band *inline_next;	/* the next of the sink */
 
 	/*
 	 * The last paint of a tile. Rows are wrapped at the granted width. A
@@ -994,7 +997,14 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		t->shared_band = b;
 		return b;
 	}
-	/* Place independent work in a work-pane tile. */
+	/* Draw independent work at its call in the transcript, or in a tile
+	 * of the work pane. */
+	if (fyai_ui_tools_inline(s->ctx)) {
+		b->inline_block = true;
+		b->inline_next = t->inline_bands;
+		t->inline_bands = b;
+		return b;
+	}
 	b->wb = fyai_ui_work_tile_create(s->ctx);
 	if (!b->wb) {
 		free(b);
@@ -1010,6 +1020,14 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 static void sink_term_band_present(struct fyai_sink_band *b)
 {
 	b->held = false;
+	if (b->inline_block) {
+		if (fyai_ui_inline_update(b->ctx, (uintptr_t)b, false, b->title,
+					  b->command, b->body.data,
+					  b->body.len, b->margin))
+			fyai_warning(b->ctx,
+				     "cannot draw the output of a call in the transcript");
+		return;
+	}
 	if (b->command)
 		fyai_ui_shell_workband_update(b->ctx, b->wb, b->title,
 					      b->command, b->body.data,
@@ -1069,7 +1087,7 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 	b->body.data[len] = '\0';
 	b->painted = true;
 	/* Hold the paint until the first grant gives the width. */
-	if (fyai_ui_work_tile_cols(b->ctx, b->wb) <= 0) {
+	if (!b->inline_block && fyai_ui_work_tile_cols(b->ctx, b->wb) <= 0) {
 		b->held = true;
 		return;
 	}
@@ -1094,6 +1112,15 @@ static void sink_term_band_repaint(void *owner)
 
 static void sink_term_band_free(struct fyai_sink_band *b)
 {
+	struct sink_term *t = sink_term_state(b->ctx->sink);
+	struct fyai_sink_band **pp;
+
+	for (pp = t ? &t->inline_bands : NULL; b->inline_block && pp && *pp;
+	     pp = &(*pp)->inline_next)
+		if (*pp == b) {
+			*pp = b->inline_next;
+			break;
+		}
 	free(b->title);
 	free(b->command);
 	free(b->margin);
@@ -1113,6 +1140,15 @@ static void sink_term_band_close(struct fyai_sink *s, bool ok,
 	t->shared_band = NULL;
 }
 
+static void sink_term_bands_reflow(struct fyai_sink *s)
+{
+	struct sink_term *t = sink_term_state(s);
+	struct fyai_sink_band *b;
+
+	for (b = t ? t->inline_bands : NULL; b; b = b->inline_next)
+		sink_term_band_repaint(b);
+}
+
 static struct fyai_sink_band *sink_term_band_shared(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
@@ -1128,6 +1164,15 @@ static void sink_term_band_commit(struct fyai_sink_band *b)
 	 * commit. */
 	if (b->wb && b->held)
 		sink_term_band_present(b);
+	/* The block gives its place to the rows of the whole band. */
+	if (b->inline_block && b->painted &&
+	    fyai_ui_inline_update(b->ctx, (uintptr_t)b, true, b->title,
+				  b->command, b->body.data, b->body.len,
+				  b->margin))
+		fyai_warning(b->ctx,
+			     "cannot commit the output of a call to the transcript");
+	if (b->inline_block)
+		fyai_ui_inline_drop(b->ctx, (uintptr_t)b);
 	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, true);
 	sink_term_band_free(b);
@@ -1139,6 +1184,8 @@ static void sink_term_band_destroy(struct fyai_sink_band *b)
 		return;
 	if (b->wb)
 		fyai_ui_work_tile_destroy(b->ctx, b->wb, false);
+	if (b->inline_block)
+		fyai_ui_inline_drop(b->ctx, (uintptr_t)b);
 	sink_term_band_free(b);
 }
 
@@ -1293,6 +1340,7 @@ static const struct fyai_sink_ops sink_terminal_ops = {
 	.band_commit	= sink_term_band_commit,
 	.band_destroy	= sink_term_band_destroy,
 	.band_shared	= sink_term_band_shared,
+	.bands_reflow	= sink_term_bands_reflow,
 	.markdown	= sink_term_markdown,
 	.write		= sink_term_write,
 	.flush		= sink_term_flush,
@@ -1627,7 +1675,7 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b)
 void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
 				bool (*repaint)(void *arg), void *arg)
 {
-	if (!b || !b->tile)
+	if (!b || (!b->tile && !b->inline_block))
 		return;
 	b->repaint = repaint;
 	b->repaint_arg = arg;
@@ -1643,6 +1691,12 @@ void fyai_sink_band_destroy(struct fyai_sink_band *b)
 {
 	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_destroy)
 		b->ctx->sink->ops->band_destroy(b);
+}
+
+void fyai_sink_bands_reflow(struct fyai_sink *s)
+{
+	if (s && s->ops->bands_reflow)
+		s->ops->bands_reflow(s);
 }
 
 struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s)

@@ -326,6 +326,11 @@ display:
   # Slash-command output: pane shows a tile or popup without storing it;
   # transcript draws and stores the command and output.
   command_output: pane
+  # Live output of a shell or agent call: inline draws it in the transcript
+  # at the call; pane shows a tile of the work pane.
+  tool_display: inline
+  # Rows of a terminal that tool_display inline draws in the transcript.
+  inline_terminal_rows: 12
   # Editor location for /edit, config edit, and log views: pane or terminal.
   # Without an interactive UI, the editor uses the terminal.
   editor: pane

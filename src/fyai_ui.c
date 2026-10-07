@@ -80,6 +80,7 @@ struct fyai_ui {
 	bool activity_paused;
 	bool external;
 	struct fytim_workband *tool_band;
+	bool tool_inline;		/* the shared band is a transcript block */
 	struct fytim_workband *pending_band;
 	struct fytim_workband *message_band;
 	/* The surface holding the keys, and where its bytes go. */
@@ -126,6 +127,14 @@ struct fyai_ui {
 	 * and presented rows go to it instead of the scrollback. */
 	bool fullscreen;
 	struct fyai_transcript_view *view;
+	/* The live blocks of an inline page, which draws them under the tail;
+	 * a fullscreen page keeps them in @view. */
+	struct fyai_transcript_view *blocks;
+	/* The live block that holds the keys, or 0: the canvas of the page
+	 * takes them for it, since a block has no surface of its own. */
+	uintptr_t inline_focus;
+	fyai_ui_keys_fn inline_keys_fn;	/* takes what is typed for it */
+	void *inline_keys_data;
 	struct response_buffer stream_rows;	/* full rendered stream */
 	size_t stream_frozen;		/* immutable prefix of stream_rows */
 	bool stream_changed;
@@ -149,6 +158,7 @@ static void ui_tile_act(struct fyai_ui *ui, struct fytim_surface *sf,
 			const char *id);
 static const char *ui_control_sgr(struct fyai_ui *ui);
 static const char *ui_edge(struct fyai_ui *ui, char *buf, size_t size);
+static void ui_inline_keys_hold(struct fyai_ui *ui);
 static void ui_popup_style(struct fyai_ui *ui);
 static void ui_completion_configure(struct fyai_ctx *ctx);
 static bool ui_interrupt(struct fyai_ctx *ctx, bool quit);
@@ -239,6 +249,10 @@ out:
 }
 
 /* Render persistent band chrome and its committed transcript form. */
+static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
+			 size_t hlen, const char *body, size_t blen,
+			 int max_rows, bool commit, bool fenced);
+
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
@@ -251,7 +265,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	int trc;
 	int rc = -1;
 
-	if (!ui->tool_band)
+	if (!ui->tool_band && !ui->tool_inline)
 		return 0;
 	title_len = ui->tool_title ? strlen(ui->tool_title) : 0;
 	/* Render the failure mark and cause in the shared title row. */
@@ -264,6 +278,22 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	    fyai_ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
 		goto out;
 	response_buffer_trim(&head);
+	if (ui->tool_inline) {
+		body = ui->tool_body;
+		body_len = ui->tool_body_len;
+		while (body_len && (*body == '\n' || *body == '\r')) {
+			body++;
+			body_len--;
+		}
+		preview = ui->ctx->cfg->tool_preview_lines;
+		rc = ui_inline_set(ui, (uintptr_t)&ui->tool_band, head.data,
+				   head.len, body, body_len,
+				   preview > 0 ? preview : 1, commit, true);
+		if (!rc && commit)
+			fyai_flow_emitted(fyai_sink_flow(ui->ctx->sink),
+					  FYAI_FLOW_TOOL_HEAD, true);
+		goto out;
+	}
 	if (fytim_workband_set_top(ui->tool_band,
 				   head.len ? head.data : NULL) != FYTIM_OK)
 		goto out;
@@ -320,7 +350,8 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 	char *activity;
 	int rc = -1;
 
-	if (ui->activity_paused || (!ui->busy && !ui->tool_band))
+	if (ui->activity_paused ||
+	    (!ui->busy && !ui->tool_band && !ui->tool_inline))
 		return 0;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
 		return -1;
@@ -353,7 +384,8 @@ static int ui_activity_refresh(struct fyai_ui *ui)
 				(size_t)phase, NULL);
 	if (!activity)
 		return -1;
-	if (ui->tool_band && ui_tool_render(ui, activity, false))
+	if ((ui->tool_band || ui->tool_inline) &&
+	    ui_tool_render(ui, activity, false))
 		goto out;
 	rc = 0;
 out:
@@ -928,7 +960,8 @@ static void ui_rearm(struct fyai_ui *ui)
 	/* A UI that is closing has no timer to arm. */
 	if (!ui->timer_src)
 		return;
-	if (!ui->activity_paused && (ui->busy || ui->tool_band) &&
+	if (!ui->activity_paused &&
+	    (ui->busy || ui->tool_band || ui->tool_inline) &&
 	    ui->activity_interval_ms &&
 	    (ms < 1 || ui->activity_interval_ms < (unsigned int)ms))
 		ms = (int)ui->activity_interval_ms;
@@ -1446,6 +1479,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	char elapsed[24], cap[512];
 	struct fyai_page_keys keys;
 	struct ui_question *q, *w;
+	struct fyai_transcript_view *blocks;
 	const char *rule_off, *typed, *tail;
 	char *activity = NULL;
 	int cols = 0, rows = 0, n, i, sep_cols, rc;
@@ -1453,6 +1487,7 @@ static void ui_page_update(struct fyai_ui *ui)
 
 	if (!ui->page)
 		return;
+	ui_inline_keys_hold(ui);
 	memset(&st, 0, sizeof(st));
 	st.ctx = ctx;
 	rc = fytim_size(ui->ft, &cols, &rows);
@@ -1490,6 +1525,14 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.hint = ui->status_hint;
 	st.status = ui->status_bottom;
 	st.tail_rows = fytim_tail_rows(ui->ft);
+	/* An inline page draws the live blocks under its tail. */
+	blocks = ui->fullscreen ? NULL : ui->blocks;
+	if (blocks && fyai_transcript_view_rows(blocks) > 0) {
+		st.block_lines = fyai_transcript_view_window(blocks,
+			(int)fyai_transcript_view_rows(blocks),
+			&st.block_nlines);
+		st.tail_rows += st.block_nlines;
+	}
 	/* A question takes the input area; its options take the number keys
 	 * while nothing is typed. */
 	q = ui->questions;
@@ -1932,7 +1975,10 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			break;
 		case FYTIM_EVENT_SURFACE_KEYS:
 			/* The keys belong to a program, not to the prompt. */
-			if (ui->keys_fn)
+			if (ui->inline_focus && ui->inline_keys_fn)
+				ui->inline_keys_fn(ui->inline_keys_data,
+						   ev.text, ev.text_len);
+			else if (ui->keys_fn)
 				ui->keys_fn(ui->keys_data, ev.text,
 					    ev.text_len);
 			else
@@ -2027,6 +2073,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	if (ui->reflow_pending) {
 		ui->reflow_pending = false;
 		fyai_sink_reflow(ui->ctx->sink);
+		fyai_sink_bands_reflow(ui->ctx->sink);
 		ui->frame_pending = true;
 	}
 	if (ui->repaint_pending && !ui->busy) {
@@ -2270,6 +2317,8 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui->page = NULL;
 	fyai_transcript_view_destroy(ui->view);
 	ui->view = NULL;
+	fyai_transcript_view_destroy(ui->blocks);
+	ui->blocks = NULL;
 	ui_popup_close(ui);
 	ui_note_clear(ui);
 	free(ui->pane_grid.data);
@@ -3058,6 +3107,10 @@ static bool ui_interrupt(struct fyai_ctx *ctx, bool quit)
 	 * program the user was typing into instead of stopping the turn. */
 	if (fyai_workpane_keys_deliver(ctx->workpane, "\x03", 1))
 		return true;
+	if (ui->inline_focus && ui->inline_keys_fn) {
+		ui->inline_keys_fn(ui->inline_keys_data, "\x03", 1);
+		return true;
+	}
 	/* A question of the input area is left without an answer, and the
 	 * turn that asked it goes on. */
 	if (ui->questions) {
@@ -3165,20 +3218,133 @@ static void ui_band_width_end(struct fyai_ctx *ctx, int saved)
 	ctx->cfg->render_width = saved;
 }
 
-void fyai_ui_workband_update(struct fyai_ctx *ctx,
-			     struct fytim_workband *band,
-			     const char *title, const char *body, size_t len,
-			     const char *first_margin)
+bool fyai_ui_tools_inline(const struct fyai_ctx *ctx)
+{
+	const struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	/* A fullscreen page draws a block in its transcript view, an inline
+	 * page under its tail. The band stack draws no block. */
+	return ui && (ui->fullscreen ? ui->view != NULL : ui->page != NULL) &&
+	       ctx->cfg && ctx->cfg->tool_display &&
+	       !strcmp(ctx->cfg->tool_display, "inline");
+}
+
+/* Where the live blocks are kept, made on the first use with @make. */
+static struct fyai_transcript_view *ui_blocks(struct fyai_ui *ui, bool make)
+{
+	if (ui->fullscreen)
+		return ui->view;
+	if (!ui->blocks && make)
+		ui->blocks = fyai_transcript_view_create();
+	return ui->blocks;
+}
+
+/* The start of the last @rows rows of @body, which @len bytes hold. */
+static size_t ui_last_rows(const char *body, size_t len, int rows)
+{
+	size_t end = len;
+
+	if (rows < 1)
+		return 0;
+	if (end && body[end - 1] == '\n')
+		end--;
+	while (end > 0) {
+		if (body[end - 1] == '\n' && --rows == 0)
+			return end;
+		end--;
+	}
+	return 0;
+}
+
+/*
+ * Present the rows of a band that the transcript holds at the position of its
+ * call: @head, then @body. A live block shows the last @max_rows rows of the
+ * body under the separation the flow would draw for it. A commit drops the
+ * block and presents the whole band as a tile commit does. @fenced says that
+ * the separation was drawn when the band opened.
+ */
+static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
+			 size_t hlen, const char *body, size_t blen,
+			 int max_rows, bool commit, bool fenced)
+{
+	struct response_buffer out = {0};
+	struct fyai_flow_sep sep;
+	struct fyai_flow *flow;
+	fyai_event_ms_t now;
+	size_t from;
+	unsigned i;
+	int rc = -1;
+
+	flow = fyai_sink_flow(ui->ctx->sink);
+	if (commit) {
+		if (ui->inline_focus == key)
+			(void)fyai_ui_inline_keys(ui->ctx, 0, NULL, NULL);
+		fyai_transcript_view_block_drop(ui_blocks(ui, false), key);
+		if (!fenced && ui_flow_fence(ui->ctx, FYAI_FLOW_TOOL_HEAD))
+			goto out;
+	} else if (flow && !fenced) {
+		sep = fyai_flow_before(flow, FYAI_FLOW_TOOL_HEAD);
+		if (sep.markdown &&
+		    (response_buffer_append_data(&out, sep.markdown,
+						  strlen(sep.markdown)) ||
+		     response_buffer_append_data(&out, "\n", 1)))
+			goto out;
+		for (i = 0; i < sep.rows; i++)
+			if (response_buffer_append_data(&out, "\n", 1))
+				goto out;
+	}
+	if (hlen && response_buffer_append_data(&out, head, hlen))
+		goto out;
+	if (blen) {
+		from = commit ? 0 : ui_last_rows(body, blen, max_rows);
+		if (hlen && head[hlen - 1] != '\n' &&
+		    response_buffer_append_data(&out, "\n", 1))
+			goto out;
+		if (response_buffer_append_data(&out, body + from, blen - from))
+			goto out;
+	}
+	if (out.len && out.data[out.len - 1] != '\n' &&
+	    response_buffer_append_data(&out, "\n", 1))
+		goto out;
+	if (commit) {
+		rc = out.len ? ui_present(ui, out.data, out.len) : 0;
+		if (!rc && flow)
+			fyai_flow_observe(flow, out.data, out.len);
+		goto out;
+	}
+	rc = fyai_transcript_view_block_set(ui_blocks(ui, true), key, out.data,
+					    out.len);
+	if (rc)
+		goto out;
+	now = fyai_event_now_ms();
+	ui->frame_pending = true;
+	if (!ui->ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
+		ui->next_frame_ms = now;
+	ui_rearm(ui);
+out:
+	free(out.data);
+	return rc;
+}
+
+/*
+ * Render a band: to the tile @band, or with @key to the transcript block of
+ * that key. @commit, with @key, presents the band in the transcript.
+ */
+static int ui_band_update(struct fyai_ctx *ctx, struct fytim_workband *band,
+			  uintptr_t key, bool commit, int max_rows,
+			  const char *title,
+			  const char *body, size_t len,
+			  const char *first_margin)
 {
 	struct fyai_ui *ui;
 	struct response_buffer out = { 0 };
 	fyai_event_ms_t now;
 	size_t title_len;
 	char *margin = NULL;
-	int saved_width;
+	int saved_width, rc = -1;
 
-	if (!fyai_ui_active(ctx) || !band)
-		return;
+	if (!fyai_ui_active(ctx) || (!band && !key))
+		return 0;
 	ui = ctx->ui;
 	saved_width = ui_band_width_begin(ctx, band);
 	title = title ? title : "tool";
@@ -3191,6 +3357,15 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 				    title_len ? title_len : 4, &out,
 				    margin, markdown_gutter_blank(ctx->cfg)))
 		goto out;
+	if (key) {
+		response_buffer_trim(&out);
+		if (max_rows < 1)
+			max_rows = ctx->cfg->tool_preview_lines > 0 ?
+				   ctx->cfg->tool_preview_lines : 1;
+		rc = ui_inline_set(ui, key, out.data, out.len, body, len,
+				   max_rows, commit, false);
+		goto out;
+	}
 	if (len) {
 		if (out.len && out.data[out.len - 1] != '\n') {
 			if (response_buffer_reserve(&out, out.len + 2))
@@ -3213,17 +3388,30 @@ void fyai_ui_workband_update(struct fyai_ctx *ctx,
 	if (!ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
 		ui->next_frame_ms = now;
 	ui_rearm(ui);
+	rc = 0;
 out:
 	ui_band_width_end(ctx, saved_width);
 	free(margin);
 	free(out.data);
+	return rc;
 }
 
-void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
-				   struct fytim_workband *band,
-				   const char *title, const char *command,
-				   const char *body, size_t len,
-				   const char *first_margin)
+void fyai_ui_workband_update(struct fyai_ctx *ctx,
+			     struct fytim_workband *band,
+			     const char *title, const char *body, size_t len,
+			     const char *first_margin)
+{
+	(void)ui_band_update(ctx, band, 0, false, 0, title, body, len,
+			     first_margin);
+}
+
+/* Render a shell band: to the tile @band, or with @key to the transcript
+ * block of that key. */
+static int ui_shell_band_update(struct fyai_ctx *ctx,
+				struct fytim_workband *band, uintptr_t key,
+				bool commit, int max_rows, const char *title,
+				const char *command, const char *body,
+				size_t len, const char *first_margin)
 {
 	struct fyai_ui *ui;
 	struct response_buffer top = {0};
@@ -3233,10 +3421,10 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	char *margin = NULL;
 	size_t start;
 	size_t end;
-	int saved_width;
+	int saved_width, rc = -1;
 
-	if (!fyai_ui_active(ctx) || !band)
-		return;
+	if (!fyai_ui_active(ctx) || (!band && !key))
+		return 0;
 	ui = ctx->ui;
 	saved_width = ui_band_width_begin(ctx, band);
 	title = title ? title : "shell";
@@ -3264,15 +3452,23 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	if (fyai_ui_append_shell_command(ctx->cfg, &head, command))
 		goto out;
 	response_buffer_trim(&head);
-	/* Keep the call title and command in persistent chrome. */
-	if (fytim_workband_set_top(band, head.len ? head.data : NULL) !=
-	    FYTIM_OK)
-		goto out;
 	/* Remove the renderer's leading row below separate chrome. */
 	while (len && (*body == '\n' || *body == '\r')) {
 		body++;
 		len--;
 	}
+	if (key) {
+		if (max_rows < 1)
+			max_rows = ctx->cfg->tool_preview_lines > 0 ?
+				   ctx->cfg->tool_preview_lines : 1;
+		rc = ui_inline_set(ui, key, head.data, head.len, body, len,
+				   max_rows, commit, false);
+		goto out;
+	}
+	/* Keep the call title and command in persistent chrome. */
+	if (fytim_workband_set_top(band, head.len ? head.data : NULL) !=
+	    FYTIM_OK)
+		goto out;
 	if (fytim_workband_set_max_rows(band,
 			ctx->cfg->tool_preview_lines > 0 ?
 			ctx->cfg->tool_preview_lines : 1) != FYTIM_OK)
@@ -3300,12 +3496,210 @@ void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
 	if (!ctx->cfg->tool_update_interval_ms || now >= ui->next_frame_ms)
 		ui->next_frame_ms = now;
 	ui_rearm(ui);
+	rc = 0;
 out:
 	ui_band_width_end(ctx, saved_width);
 	free(margin);
 	free(top.data);
 	free(head.data);
 	free(out.data);
+	return rc;
+}
+
+void fyai_ui_shell_workband_update(struct fyai_ctx *ctx,
+				   struct fytim_workband *band,
+				   const char *title, const char *command,
+				   const char *body, size_t len,
+				   const char *first_margin)
+{
+	(void)ui_shell_band_update(ctx, band, 0, false, 0, title, command,
+				   body, len, first_margin);
+}
+
+int fyai_ui_inline_update(struct fyai_ctx *ctx, uintptr_t key, bool commit,
+			  const char *title, const char *command,
+			  const char *body, size_t len,
+			  const char *first_margin)
+{
+	if (!fyai_ui_tools_inline(ctx) || !key)
+		return -1;
+	if (command)
+		return ui_shell_band_update(ctx, NULL, key, commit, 0, title,
+					    command, body, len, first_margin);
+	return ui_band_update(ctx, NULL, key, commit, 0, title, body, len,
+			      first_margin);
+}
+
+int fyai_ui_inline_terminal(struct fyai_ctx *ctx, uintptr_t key,
+			    const char *title, const char *command,
+			    const char *screen, size_t len, int rows,
+			    size_t frame, bool done, bool ok)
+{
+	struct fyai_ui *ui;
+	char *margin;
+	int rc;
+
+	if (!fyai_ui_tools_inline(ctx) || !key)
+		return -1;
+	ui = ctx->ui;
+	margin = ui_indicator(ui, !done ? FYMD_INDICATOR_PENDING :
+			      ok ? FYMD_INDICATOR_SUCCESS :
+			      FYMD_INDICATOR_FAILURE,
+			      done ? 0 : frame, NULL);
+	fyai_error_check(ctx, margin, err_out,
+			 "cannot draw the mark of a terminal session");
+	rc = command ?
+	     ui_shell_band_update(ctx, NULL, key, done, rows, title, command,
+				  screen, len, margin) :
+	     ui_band_update(ctx, NULL, key, done, rows, title, screen, len,
+			    margin);
+	free(margin);
+	return rc;
+err_out:
+	return -1;
+}
+
+/* Give the canvas of the page the keys while a block holds them; a new
+ * canvas takes them again. */
+static void ui_inline_keys_hold(struct fyai_ui *ui)
+{
+	struct fytim_surface *canvas = fyai_page_canvas(ui->page);
+
+	if (ui->inline_focus && canvas && !fytim_surface_has_keys(canvas) &&
+	    fytim_surface_set_keys(canvas, true) != FYTIM_OK)
+		fyai_warning(ui->ctx, "a call in the transcript cannot take the keys");
+}
+
+int fyai_ui_inline_keys(struct fyai_ctx *ctx, uintptr_t key,
+			fyai_ui_keys_fn cb, void *user)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fytim_surface *canvas;
+
+	if (!ui)
+		return -1;
+	canvas = fyai_page_canvas(ui->page);
+	if (!key) {
+		if (!ui->inline_focus)
+			return 0;
+		ui->inline_focus = 0;
+		ui->inline_keys_fn = NULL;
+		ui->inline_keys_data = NULL;
+		if (canvas)
+			(void)fytim_surface_set_keys(canvas, false);
+		fyai_ui_set_hint(ctx, NULL);
+		ui->frame_pending = true;
+		return 0;
+	}
+	if (!fyai_ui_tools_inline(ctx) || !canvas ||
+	    !fyai_transcript_view_has_block(ui_blocks(ui, false), key))
+		return -1;
+	/* A tile that held the keys gives them up. */
+	fyai_workpane_clear_focus(ctx->workpane);
+	ui->inline_focus = key;
+	ui->inline_keys_fn = cb;
+	ui->inline_keys_data = user;
+	ui_inline_keys_hold(ui);
+	if (ui->fullscreen)
+		fyai_transcript_view_show_block(ui->view, key, ui->view_rows);
+	fyai_ui_set_hint(ctx, "Ctrl-] returns to the prompt \xc2\xb7 "
+			 "Ctrl-Tab/Ctrl-T moves focus");
+	ui->frame_pending = true;
+	return 0;
+}
+
+int fyai_ui_inline_index(struct fyai_ctx *ctx, uintptr_t key)
+{
+	return ctx && ctx->ui ?
+	       fyai_transcript_view_block_index(ui_blocks(ctx->ui, false),
+						key) : -1;
+}
+
+bool fyai_ui_inline_pos(struct fyai_ctx *ctx, uintptr_t key, int *rowp,
+			int *colp)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct fyai_transcript_view *v;
+	int row, col, height, top;
+
+	if (!ui || !ui->page)
+		return false;
+	v = ui_blocks(ui, false);
+	if (ui->fullscreen) {
+		if (!fyai_page_region(ui->page, "transcript", &row, &col,
+				      &height) ||
+		    !fyai_transcript_view_block_top(v, key, height, &top))
+			return false;
+		*rowp = row + top;
+		*colp = col;
+		return true;
+	}
+	/* An inline page draws the blocks at the bottom of its tail. */
+	if (!fyai_page_region(ui->page, "tail", &row, &col, &height) ||
+	    !fyai_transcript_view_block_top(v, key,
+			(int)fyai_transcript_view_rows(v), &top))
+		return false;
+	*rowp = row + height - ((int)fyai_transcript_view_rows(v) - top);
+	*colp = col;
+	return true;
+}
+
+bool fyai_ui_tile_pos(struct fyai_ctx *ctx, struct fytim_surface *sf,
+		      int *rowp, int *colp)
+{
+	static const char *const kinds[] = { "head", "tile", "screen", "text" };
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	char id[32];
+	unsigned int slot;
+	size_t k;
+	int row, col;
+	bool found = false;
+
+	if (!ui || !ui->page ||
+	    !fyai_workpane_surface_slot(ctx->workpane, sf, &slot))
+		return false;
+	/* The tile starts at the first row of any of its slots. */
+	for (k = 0; k < sizeof(kinds) / sizeof(kinds[0]); k++) {
+		snprintf(id, sizeof(id), "%s:%u", kinds[k], slot);
+		if (!fyai_page_region(ui->page, id, &row, &col, NULL))
+			continue;
+		if (!found || row < *rowp || (row == *rowp && col < *colp)) {
+			*rowp = row;
+			*colp = col;
+		}
+		found = true;
+	}
+	return found;
+}
+
+uintptr_t fyai_ui_inline_focused(const struct fyai_ctx *ctx)
+{
+	return ctx && ctx->ui ? ctx->ui->inline_focus : 0;
+}
+
+const char *fyai_ui_inline_margin(struct fyai_ctx *ctx, const char *margin,
+				  char *buf, size_t size)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	char edge[128];
+	int n;
+
+	/* Replace only a leading column of a blank margin. */
+	if (!ui || !margin || !*margin || margin[0] != ' ' ||
+	    !ui_edge(ui, edge, sizeof(edge)))
+		return margin;
+	n = snprintf(buf, size, "%s%s", edge, margin + 1);
+	return n > 0 && (size_t)n < size ? buf : margin;
+}
+
+void fyai_ui_inline_drop(struct fyai_ctx *ctx, uintptr_t key)
+{
+	if (!ctx || !ctx->ui)
+		return;
+	if (ctx->ui->inline_focus == key)
+		(void)fyai_ui_inline_keys(ctx, 0, NULL, NULL);
+	fyai_transcript_view_block_drop(ui_blocks(ctx->ui, false), key);
+	ctx->ui->frame_pending = true;
 }
 
 void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
@@ -3321,6 +3715,10 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	(void)ui_flow_fence(ctx, FYAI_FLOW_TOOL_HEAD);
 	ui = ctx->ui;
 	ui_band_close(ui, &ui->tool_band);
+	if (ui->tool_inline)
+		fyai_transcript_view_block_drop(ui_blocks(ui, false),
+						(uintptr_t)&ui->tool_band);
+	ui->tool_inline = false;
 	free(ui->tool_title);
 	free(ui->tool_command);
 	ui->tool_command = NULL;
@@ -3330,6 +3728,13 @@ void fyai_ui_tool_begin(struct fyai_ctx *ctx, const char *title)
 	ui->tool_body = NULL;
 	ui->tool_body_len = 0;
 	ui->tool_title = strdup(title ? title : "tool");
+	/* A call drawn in the transcript stands where it was called. */
+	if (fyai_ui_tools_inline(ctx)) {
+		ui->tool_inline = true;
+		ui->activity_phase = -1;
+		(void)ui_activity_refresh(ui);
+		return;
+	}
 	ui->tool_band = ui_band_open(ui, FYAI_WORKPANE_TILE_TEXT,
 				     ctx->cfg->tool_preview_lines + 2);
 	if (!ui->tool_band) return;
@@ -3341,7 +3746,9 @@ void fyai_ui_tool_update(struct fyai_ctx *ctx, const char *body, size_t len)
 {
 	struct fyai_ui *ui;
 	char *margin;
-	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
+	if (!fyai_ui_active(ctx) ||
+	    (!ctx->ui->tool_band && !ctx->ui->tool_inline))
+		return;
 	ui = ctx->ui;
 	free(ui->tool_body);
 	ui->tool_body = len ? malloc(len) : NULL;
@@ -3360,7 +3767,9 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 {
 	struct fyai_ui *ui;
 	char *margin;
-	if (!fyai_ui_active(ctx) || !ctx->ui->tool_band) return;
+	if (!fyai_ui_active(ctx) ||
+	    (!ctx->ui->tool_band && !ctx->ui->tool_inline))
+		return;
 	ui = ctx->ui;
 	free(ui->tool_error);
 	ui->tool_error = (!ok && cause && *cause) ? strdup(cause) : NULL;
@@ -3371,10 +3780,13 @@ void fyai_ui_tool_end(struct fyai_ctx *ctx, bool ok, const char *cause)
 		free(margin);
 	}
 	/* The committed transcript owns the band after its tile retires. */
-	fyai_workpane_unregister_band(ui->ctx->workpane, ui->tool_band);
-	ui_band_commit(ui, ui->tool_band);
-	ui->tool_band = NULL;
-	fyai_workpane_release(ui->ctx->workpane);
+	if (ui->tool_band) {
+		fyai_workpane_unregister_band(ui->ctx->workpane, ui->tool_band);
+		ui_band_commit(ui, ui->tool_band);
+		ui->tool_band = NULL;
+		fyai_workpane_release(ui->ctx->workpane);
+	}
+	ui->tool_inline = false;
 	/* The flow keeps the tool unit. The next prose commit fences it. */
 	free(ui->tool_title); ui->tool_title = NULL;
 	free(ui->tool_command); ui->tool_command = NULL;

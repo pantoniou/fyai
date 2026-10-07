@@ -79,6 +79,9 @@ struct fyai_page {
 		bool act;
 		int row, col, width, height;
 	} last_regions[FYTIM_PAGE_REGIONS_MAX];
+	/* The tail of the last frame, which the canvas draws and the library
+	 * is not given; a height of 0 for none. */
+	int last_tail_row, last_tail_col, last_tail_height;
 };
 
 /*
@@ -1614,6 +1617,37 @@ const char *fyai_page_document_path(const struct fyai_page *pg)
 	return pg ? pg->doc_path : NULL;
 }
 
+bool fyai_page_region(const struct fyai_page *pg, const char *id, int *rowp,
+		      int *colp, int *heightp)
+{
+	size_t i;
+
+	if (pg && id && !strcmp(id, "tail")) {
+		if (pg->last_tail_height < 1)
+			return false;
+		*rowp = pg->last_tail_row;
+		*colp = pg->last_tail_col;
+		if (heightp)
+			*heightp = pg->last_tail_height;
+		return true;
+	}
+	for (i = 0; pg && id && i < pg->last_nregions; i++) {
+		if (pg->last_regions[i].act || strcmp(pg->last_regions[i].id, id))
+			continue;
+		*rowp = pg->last_regions[i].row;
+		*colp = pg->last_regions[i].col;
+		if (heightp)
+			*heightp = pg->last_regions[i].height;
+		return true;
+	}
+	return false;
+}
+
+struct fytim_surface *fyai_page_canvas(const struct fyai_page *pg)
+{
+	return pg ? pg->canvas : NULL;
+}
+
 void fyai_page_destroy(struct fyai_page *pg)
 {
 	if (!pg)
@@ -2208,28 +2242,54 @@ static int page_header_draw(struct fyai_page *pg,
 	return n < 0 ? -1 : 0;
 }
 
-/* The last rows of the transcript tail that fit its region @r. */
+/*
+ * The last rows of the transcript tail that fit its region @r, and under them
+ * the rows of the calls that the transcript draws at their place. When they
+ * do not all fit, the last rows stay.
+ */
 static int page_tail_draw(struct fyai_page *pg, struct fytim *ft,
+			  const struct fyai_page_state *st,
 			  const struct fymd_region *r)
 {
-	const char *content, *p;
-	int lines = 0, rows, skip, n;
+	const char *content, *p = NULL;
+	int lines = 0, rows, skip, tail, n, i, y;
 
+	if (r->height < 1)
+		return 0;
 	content = fytim_tail_content(ft, &lines);
-	if (!content || !*content || lines < 1 || r->height < 1)
-		return 0;
-	rows = lines < (int)r->height ? lines : (int)r->height;
-	for (p = content, skip = lines - rows; skip > 0 && p; skip--) {
-		p = strchr(p, '\n');
-		if (p)
-			p++;
+	if (!content || !*content || lines < 1)
+		lines = 0;
+	rows = lines + st->block_nlines;
+	if (rows > (int)r->height)
+		rows = (int)r->height;
+	skip = lines + st->block_nlines - rows;
+	tail = lines - skip > 0 ? lines - skip : 0;
+	y = (int)r->row;
+	if (tail > 0) {
+		for (p = content, i = skip; i > 0 && p; i--) {
+			p = strchr(p, '\n');
+			if (p)
+				p++;
+		}
+		if (p) {
+			n = page_cells_text(pg, pg->cells, pg->cells_rows,
+					    pg->cells_cols, y, r->col, r->width,
+					    tail, p, strlen(p));
+			if (n < 0)
+				return -1;
+		}
+		y += tail;
 	}
-	if (!p)
-		return 0;
-	n = page_cells_text(pg, pg->cells, pg->cells_rows, pg->cells_cols,
-			    (int)r->row, r->col, r->width, rows, p,
-			    strlen(p));
-	return n < 0 ? -1 : 0;
+	for (i = skip > lines ? skip - lines : 0; i < st->block_nlines &&
+	     y < (int)(r->row + r->height); i++, y++) {
+		n = page_cells_text(pg, pg->cells, pg->cells_rows,
+				    pg->cells_cols, y, r->col, r->width, 1,
+				    st->block_lines[i],
+				    strlen(st->block_lines[i]));
+		if (n < 0)
+			return -1;
+	}
+	return 0;
 }
 
 static int page_canvas(struct fyai_page *pg, struct fytim *ft,
@@ -2301,7 +2361,7 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 		if (fr[i].kind != FYMD_REGION_SLOT)
 			continue;
 		if (!strcmp(fr[i].id, "tail")) {
-			rc = page_tail_draw(pg, ft, &fr[i]);
+			rc = page_tail_draw(pg, ft, st, &fr[i]);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the tail into cells");
 		}
@@ -2493,13 +2553,18 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot build the rows of the page");
 	}
+	pg->last_tail_height = 0;
 	for (i = 0; i < count && n < FYTIM_PAGE_REGIONS_MAX; i++) {
 		/* A mark names an area of a review; it has no cells. */
 		if (fr[i].kind == FYMD_REGION_MARK)
 			continue;
 		/* The tail is drawn on the canvas, on its ground. */
-		if (fr[i].kind != FYMD_REGION_ACT && !strcmp(fr[i].id, "tail"))
+		if (fr[i].kind != FYMD_REGION_ACT && !strcmp(fr[i].id, "tail")) {
+			pg->last_tail_row = (int)fr[i].row;
+			pg->last_tail_col = fr[i].col;
+			pg->last_tail_height = (int)fr[i].height;
 			continue;
+		}
 		if (fr[i].kind != FYMD_REGION_ACT &&
 		    (!strncmp(fr[i].id, "tile:", 5) ||
 		     !strncmp(fr[i].id, "screen:", 7) ||

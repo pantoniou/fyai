@@ -2360,6 +2360,8 @@ struct fyai_tool_job {
 	enum fyai_workpane_present present;
 	struct fyai_terminal_view *view;	/* what it drew there */
 	struct fytim_surface *surface;		/* and where that is shown */
+	/* The screen is a block of the transcript at the call, not a tile. */
+	bool inline_block;
 	struct fyai_event_source *ptysrc;
 	struct fyai_event_source *animation;
 	size_t animation_frame;
@@ -2427,14 +2429,26 @@ struct fyai_shell_session {
 	enum fyai_workpane_present present;		/* opened by a bang command */
 	int resize_rows;		/* pending child resize */
 	int resize_cols;
+	/* The screen is a block of the transcript at the call, not a tile. */
+	bool inline_block;
 };
 
 /* Size an agent terminal to its display surface. */
 #define FYAI_AGENT_TTY_ROWS	12
 
+static int fyai_shell_inline_cols(struct fyai_ctx *ctx);
+
 static void fyai_agent_tty_size(struct fyai_ctx *ctx, int *rowsp, int *colsp)
 {
 	int rows = 0, cols = 0;
+
+	/* A screen drawn in the transcript has the rows of the setting and
+	 * the width of the transcript. */
+	if (fyai_ui_tools_inline(ctx)) {
+		*rowsp = ctx->cfg->inline_terminal_rows;
+		*colsp = fyai_shell_inline_cols(ctx);
+		return;
+	}
 
 	if (fyai_ui_size(ctx, &cols, &rows) || cols < 1) {
 		cols = markdown_render_width();
@@ -2576,12 +2590,44 @@ static void fyai_shell_session_head_paint(void *owner)
 	fyai_ui_wake(sess->ctx);
 }
 
+static void fyai_shell_session_inline_paint(struct fyai_shell_session *sess,
+					    bool done);
+static void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
+				    bool ok);
+
+/*
+ * Arm the timer that advances the state mark of a block of the transcript, at
+ * the interval of the indicator of the theme. A mark that does not move asks
+ * for none.
+ */
+static void fyai_inline_animation_arm(struct fyai_ctx *ctx,
+		enum fyai_event_action (*fn)(const struct fyai_event *ev),
+		void *owner, struct fyai_event_source **srcp)
+{
+	struct fyai_event_loop *el = fyai_ctx_loop(ctx);
+	unsigned int ms = 0;
+	char *mark;
+
+	mark = fyai_ui_indicator(ctx, FYAI_UI_MARK_RUNNING, 0, &ms);
+	free(mark);
+	if (!el || !ms)
+		return;
+	if (fyai_event_add_timer(el, ms, ms, fn, owner, srcp))
+		fyai_warning(ctx, "the indicator of a call in the transcript "
+			     "could not start");
+}
+
 /* Advance the state mark on the title of a live terminal session. */
 static enum fyai_event_action
 fyai_shell_session_animate(const struct fyai_event *ev)
 {
 	struct fyai_shell_session *sess = ev->userdata;
 
+	if (sess->inline_block && !sess->exited) {
+		sess->animation_frame++;
+		fyai_shell_session_inline_paint(sess, false);
+		return FYAIEA_CONTINUE;
+	}
 	if (!sess->surface || sess->exited)
 		return FYAIEA_CONTINUE;
 	sess->animation_frame++;
@@ -2753,7 +2799,16 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	sess->rows = rows;
 	sess->pipes = pipes;
 	sess->user_owned = user_owned;
-	sess->surface = fyai_ui_surface_open(ctx, rows, cols);
+	/* A call of the model draws its screen at the call in the
+	 * transcript; a program of the user keeps its tile. */
+	sess->inline_block = !user_owned && fyai_ui_tools_inline(ctx);
+	sess->surface = sess->inline_block ? NULL :
+			fyai_ui_surface_open(ctx, rows, cols);
+	if (sess->inline_block) {
+		fyai_inline_animation_arm(ctx, fyai_shell_session_animate, sess,
+					  &sess->animation);
+		fyai_terminal_view_damage_all(sess->view);
+	}
 	if (sess->surface) {
 		/* A user program accepts what the pane grants; a model
 		 * session keeps the height it asked for. */
@@ -2807,7 +2862,7 @@ static void fyai_shell_session_apply_grant(void *owner, int rows, int cols)
 	struct fy_generic_builder *gb;
 	int have_rows = 0, have_cols = 0;
 
-	if (!sess->surface || cols < 1)
+	if ((!sess->surface && !sess->inline_block) || cols < 1)
 		return;
 	fyai_terminal_view_size(sess->view, &have_rows, &have_cols);
 	if (rows < 1)
@@ -2849,6 +2904,13 @@ static void fyai_shell_session_start_size(struct fyai_tool_job *job,
 	struct fyai_shell_session *sess = job->session;
 	int rows, cols;
 
+	/* A block of the transcript has the size it opened with. */
+	if (sess && sess->inline_block) {
+		fyai_terminal_view_size(sess->view, &rows, &cols);
+		job->start_rows = rows;
+		job->start_cols = cols;
+		return;
+	}
 	if (!sess || !sess->surface || fy_get(args, "rows", 0LL) > 0 ||
 	    fy_get(args, "cols", 0LL) > 0 || !fyai_ui_layout_now(sess->ctx))
 		return;
@@ -2901,9 +2963,19 @@ static const struct fyai_workpane_tile_ops fyai_shell_session_tile_ops = {
 static void fyai_shell_session_resized(struct fyai_shell_session *sess,
 				       int rows, int cols)
 {
-	if (!sess || !sess->surface || rows <= 0 || cols <= 0)
+	if (!sess || (!sess->surface && !sess->inline_block) || rows <= 0 ||
+	    cols <= 0)
 		return;
 	fyai_terminal_view_resize(sess->view, rows, cols);
+	if (sess->inline_block) {
+		fyai_terminal_view_damage_all(sess->view);
+		if (rows == sess->resize_rows && cols == sess->resize_cols) {
+			sess->resize_rows = 0;
+			sess->resize_cols = 0;
+		}
+		fyai_ui_wake(sess->ctx);
+		return;
+	}
 	(void)fyai_ui_surface_resize(sess->surface, rows, cols);
 	/* An acknowledgement records the grid; it schedules no new request. */
 	fyai_workpane_grid_resized(sess->ctx->workpane, sess->surface, rows,
@@ -3040,6 +3112,90 @@ static char *fyai_shell_session_cause(const struct fyai_shell_session *sess,
 	return NULL;
 }
 
+/* The columns of a terminal drawn in the transcript: the render width less
+ * the indent of tool output. */
+static int fyai_shell_inline_cols(struct fyai_ctx *ctx)
+{
+	int width = ctx->cfg->render_width, rows = 0;
+	int indent = (int)strlen(markdown_tool_output_indent(ctx->cfg));
+
+	/* Without a render width the transcript is as wide as the terminal. */
+	if (width < 1 && (fyai_ui_size(ctx, &width, &rows) || width < 1))
+		width = FYAI_TTY_COLS_DEFAULT;
+
+	return width - indent > 10 ? width - indent : 10;
+}
+
+/*
+ * The length of the @len bytes of @screen without the rows at its end that
+ * hold only the indent of tool output: what the transcript keeps ends at the
+ * last row the program drew.
+ */
+static size_t fyai_inline_screen_trim(struct fyai_ctx *ctx, const char *screen,
+				      size_t len)
+{
+	const char *indent = markdown_tool_output_indent(ctx->cfg);
+	size_t ilen = strlen(indent);
+
+	while (len >= ilen + 1 && screen[len - 1] == '\n' &&
+	       !memcmp(screen + len - 1 - ilen, indent, ilen) &&
+	       (len - 1 - ilen == 0 || screen[len - 2 - ilen] == '\n'))
+		len -= ilen + 1;
+	return len;
+}
+
+/* Draw the screen of an inline session in its block of the transcript, or
+ * with @done present it there with its outcome. */
+static void fyai_shell_session_inline_paint(struct fyai_shell_session *sess,
+					    bool done)
+{
+	struct response_buffer screen = {0};
+	const char *indent = markdown_tool_output_indent(sess->ctx->cfg);
+	char *cause = NULL;
+	char edge[256];
+	int first, last, rc;
+	bool ok = true;
+
+	/* The paint draws every row: the damage is taken. */
+	(void)fyai_terminal_view_take_damage(sess->view, &first, &last);
+	if (!done && fyai_ui_inline_focused(sess->ctx) == (uintptr_t)sess)
+		indent = fyai_ui_inline_margin(sess->ctx, indent, edge,
+					       sizeof(edge));
+	rc = fyai_terminal_view_rows_sgr(sess->view, indent, !done, &screen);
+	fyai_error_check(sess->ctx, !rc, out,
+			 "shell: cannot draw the screen of session '%s'",
+			 sess->name ? sess->name : "");
+	if (done) {
+		cause = fyai_shell_session_cause(sess, &ok);
+		screen.len = fyai_inline_screen_trim(sess->ctx, screen.data,
+						     screen.len);
+	}
+	if (fyai_ui_inline_terminal(sess->ctx, (uintptr_t)sess,
+				    sess->title ? sess->title : "**shell**",
+				    sess->command, screen.data, screen.len,
+				    sess->rows, sess->animation_frame, done,
+				    ok))
+		fyai_warning(sess->ctx,
+			     "shell: cannot draw session '%s' in the transcript",
+			     sess->name ? sess->name : "");
+out:
+	free(cause);
+	free(screen.data);
+}
+
+/* A terminal drawn in the transcript follows the width of the transcript. */
+static void fyai_shell_session_inline_follow(struct fyai_shell_session *sess)
+{
+	int rows = 0, cols = 0, want;
+
+	if (sess->exited)
+		return;
+	fyai_terminal_view_size(sess->view, &rows, &cols);
+	want = fyai_shell_inline_cols(sess->ctx);
+	if (want != cols)
+		fyai_shell_session_apply_grant(sess, rows, want);
+}
+
 /* A program that ended may no longer be focused or zoomed. */
 static void fyai_surface_retire_zoom(struct fyai_ctx *ctx,
 				     struct fytim_surface *surface)
@@ -3081,6 +3237,16 @@ static void fyai_shell_session_display_finish(struct fyai_shell_session *sess)
 				     sess->name ? sess->name : "");
 		free(text);
 		free(cause);
+	}
+	if (sess->inline_block) {
+		if (sess->animation) {
+			fyai_event_source_remove(sess->animation);
+			sess->animation = NULL;
+		}
+		fyai_shell_session_inline_paint(sess, true);
+		sess->inline_block = false;
+		fyai_ui_wake(sess->ctx);
+		return;
 	}
 
 	if (!sess->surface)
@@ -3193,6 +3359,8 @@ static void fyai_shell_session_destroy(struct fyai_shell_session *sess)
 		fyai_shell_session_notify_exit(sess, -1, SIGKILL);
 	/* Commit output displayed before teardown. */
 	fyai_shell_session_display_finish(sess);
+	if (sess->inline_block)
+		fyai_ui_inline_drop(sess->ctx, (uintptr_t)sess);
 	/* A finished bang session keeps its tile until now. */
 	if (sess->surface) {
 		fyai_surface_retire_zoom(sess->ctx, sess->surface);
@@ -3701,7 +3869,7 @@ static void fyai_agent_apply_grant(void *owner, int rows, int cols)
 	struct fyai_tool_job *job = owner;
 	struct winsize ws = {};
 
-	if (!job->surface || cols < 1)
+	if ((!job->surface && !job->inline_block) || cols < 1)
 		return;
 	if (rows < 1)
 		rows = job->pty_rows;
@@ -3715,6 +3883,10 @@ static void fyai_agent_apply_grant(void *owner, int rows, int cols)
 	if (job->pty >= 0)
 		(void)ioctl(job->pty, TIOCSWINSZ, &ws);
 	fyai_terminal_view_resize(job->view, rows, cols);
+	if (job->inline_block) {
+		fyai_terminal_view_damage_all(job->view);
+		return;
+	}
 	(void)fyai_ui_surface_resize(job->surface, rows, cols);
 	fyai_workpane_grid_resized(job->ctx->workpane, job->surface, rows, cols);
 }
@@ -3749,6 +3921,49 @@ static const struct fyai_workpane_tile_ops fyai_agent_tile_ops = {
 	.repaint_head = fyai_agent_head_repaint,
 };
 
+/* Draw the screen of an inline sub-agent in its block of the transcript, or
+ * with @done present it there with the outcome @ok. */
+static void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
+				    bool ok)
+{
+	struct response_buffer screen = {0};
+	const char *indent;
+	char edge[256];
+	int first, last, rc;
+
+	if (!job->view)
+		return;
+	(void)fyai_terminal_view_take_damage(job->view, &first, &last);
+	indent = markdown_tool_output_indent(job->ctx->cfg);
+	if (!done && fyai_ui_inline_focused(job->ctx) == (uintptr_t)job)
+		indent = fyai_ui_inline_margin(job->ctx, indent, edge,
+					       sizeof(edge));
+	rc = fyai_terminal_view_rows_sgr(job->view, indent, false, &screen);
+	fyai_error_check(job->ctx, !rc, out,
+			 "agent: cannot draw the screen of a sub-agent");
+	if (done)
+		screen.len = fyai_inline_screen_trim(job->ctx, screen.data,
+						     screen.len);
+	if (fyai_ui_inline_terminal(job->ctx, (uintptr_t)job,
+				    job->title ? job->title : "**agent**",
+				    NULL, screen.data, screen.len,
+				    job->pty_rows, job->animation_frame, done,
+				    ok))
+		fyai_warning(job->ctx,
+			     "agent: cannot draw a sub-agent in the transcript");
+out:
+	free(screen.data);
+}
+
+/* A sub-agent drawn in the transcript follows the width of the transcript. */
+static void fyai_agent_inline_follow(struct fyai_tool_job *job)
+{
+	int want = fyai_shell_inline_cols(job->ctx);
+
+	if (want != job->pty_cols)
+		fyai_agent_apply_grant(job, job->pty_rows, want);
+}
+
 /* Publish what every live tile has drawn since the last frame. */
 void fyai_tool_surfaces_publish(struct fyai_ctx *ctx)
 {
@@ -3757,14 +3972,28 @@ void fyai_tool_surfaces_publish(struct fyai_ctx *ctx)
 
 	if (!ctx)
 		return;
-	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (sess->inline_block) {
+			fyai_shell_session_inline_follow(sess);
+			if (fyai_terminal_view_dirty(sess->view))
+				fyai_shell_session_inline_paint(sess, false);
+			continue;
+		}
 		if (sess->surface && fyai_tile_draws_program(sess->present) &&
 		    fyai_ui_surface_publish(sess->surface, sess->view) > 0)
 			fyai_ui_wake(ctx);
-	for (job = ctx->tool_jobs; job; job = job->next)
+	}
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (job->inline_block) {
+			fyai_agent_inline_follow(job);
+			if (fyai_terminal_view_dirty(job->view))
+				fyai_agent_inline_paint(job, false, true);
+			continue;
+		}
 		if (job->surface && fyai_tile_draws_program(job->present) &&
 		    fyai_ui_surface_publish(job->surface, job->view) > 0)
 			fyai_ui_wake(ctx);
+	}
 }
 
 bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx)
@@ -3891,6 +4120,11 @@ fyai_agent_view_animate(const struct fyai_event *ev)
 {
 	struct fyai_tool_job *job = ev->userdata;
 
+	if (job->inline_block && !job->done) {
+		job->animation_frame++;
+		fyai_agent_inline_paint(job, false, true);
+		return FYAIEA_CONTINUE;
+	}
 	if (!job->surface || job->done)
 		return FYAIEA_CONTINUE;
 	job->animation_frame++;
@@ -4097,6 +4331,16 @@ static int fyai_agent_view_open(struct fyai_ctx *ctx,
 				 "agent: could not watch for input requests");
 	}
 
+	/* A delegation of the model draws its screen at the call in the
+	 * transcript; a side question keeps its tile. */
+	if (!job->btw && fyai_ui_tools_inline(ctx)) {
+		job->inline_block = true;
+		fyai_inline_animation_arm(ctx, fyai_agent_view_animate, job,
+					  &job->animation);
+		fyai_terminal_view_damage_all(job->view);
+		fyai_ui_wake(ctx);
+		return 0;
+	}
 	job->surface = fyai_ui_surface_open(ctx, job->pty_rows, job->pty_cols);
 	if (job->surface) {
 		/* A sub-agent keeps the height it opened with, whatever it
@@ -4148,6 +4392,11 @@ static void fyai_agent_view_close(struct fyai_tool_job *job, bool ok,
 	if (job->ptysrc) {
 		fyai_event_source_remove(job->ptysrc);
 		job->ptysrc = NULL;
+	}
+	if (job->inline_block) {
+		fyai_agent_inline_paint(job, true, ok);
+		job->inline_block = false;
+		fyai_ui_wake(job->ctx);
 	}
 	if (job->btw && !job->btw_panel) {
 		if (job->surface) {
@@ -5057,6 +5306,10 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	if (!job)
 		return;
 	job->btw_panel = false;
+	if (job->inline_block) {
+		fyai_ui_inline_drop(job->ctx, (uintptr_t)job);
+		job->inline_block = false;
+	}
 	fyai_tool_job_cancel(job);
 	/*
 	 * A discarded job settles nothing through update_done, so drop its
@@ -5195,12 +5448,18 @@ static void fyai_tool_submit_error_set(struct fyai_ctx *ctx,
 /*
  * The rows that a live tool band keeps. The band shows the preview rows and
  * the user scrolls back through the rest, so the stream renders more rows than
- * the band draws. The committed exchange keeps the preview.
+ * the band draws. The committed exchange keeps the preview. A call drawn in
+ * the transcript keeps the preview alone.
  */
-static size_t fyai_tool_history_lines(const struct fyai_cfg *cfg)
+static size_t fyai_tool_history_lines(const struct fyai_ctx *ctx)
 {
+	const struct fyai_cfg *cfg = ctx->cfg;
+
 	if (cfg->tool_preview_lines <= 0)
 		return 0;
+	/* The transcript scrolls a call drawn in it: it keeps no history. */
+	if (fyai_ui_tools_inline(ctx))
+		return (size_t)cfg->tool_preview_lines;
 	return cfg->tool_history_lines > cfg->tool_preview_lines ?
 	       (size_t)cfg->tool_history_lines :
 	       (size_t)cfg->tool_preview_lines;
@@ -5213,7 +5472,7 @@ static void fyai_tool_job_band_open(struct fyai_tool_job *job)
 	job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
 	if (!job->band ||
 	    fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg, NULL,
-		fyai_tool_history_lines(ctx->cfg),
+		fyai_tool_history_lines(ctx),
 		markdown_tool_output_indent(ctx->cfg), NULL, true)) {
 		fyai_tool_job_live_close(job, false);
 		return;
@@ -5403,6 +5662,14 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	if (have_session) {
 		user_owned = fy_get(args, "_fyai_user_owned", false);
 		fyai_shell_tty_size(ctx, args, &srows, &scols);
+		/* A screen drawn in the transcript has the rows of the setting
+		 * and the width of the transcript, unless the call asks. */
+		if (!user_owned && fyai_ui_tools_inline(ctx)) {
+			if (fy_get(args, "rows", 0LL) <= 0)
+				srows = ctx->cfg->inline_terminal_rows;
+			if (fy_get(args, "cols", 0LL) <= 0)
+				scols = fyai_shell_inline_cols(ctx);
+		}
 		session_command = fy_get(args, "command", fy_invalid);
 		session_desc = fy_get(args, "description", fy_invalid);
 		session_title = fyai_format_shell_label(args);
@@ -5524,7 +5791,10 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		if (have_session)
 			goto live_open_done;
 		el = fyai_ctx_loop(ctx);
+		/* A call drawn in the transcript grows in place: it has no
+		 * jump of the page to hide. */
 		if (ctx->cfg->work_open_delay_ms > 0 && el &&
+		    !fyai_ui_tools_inline(ctx) &&
 		    !fyai_event_add_timer(el, ctx->cfg->work_open_delay_ms, 0,
 					 fyai_tool_job_band_delay, job,
 					 &job->band_delay))
@@ -5972,7 +6242,8 @@ static void fyai_tools_zoom_write(struct fyai_shell_session *sess,
 
 	/* Input returns the view to the live screen. */
 	if (view && !(job && job->btw_panel) &&
-	    fyai_terminal_view_scroll_live(view))
+	    fyai_terminal_view_scroll_live(view) &&
+	    (sess ? sess->surface : job->surface))
 		(void)fyai_ui_surface_publish(sess ? sess->surface :
 					      job->surface, view);
 	if (sess)
@@ -6128,12 +6399,207 @@ void fyai_tools_focus_prompt(struct fyai_ctx *ctx)
 		fyai_workpane_clear_focus(ctx->workpane);
 }
 
+/* What Ctrl-T can give the keys to: a block of the transcript or a tile,
+ * where the last frame drew it. */
+struct fyai_focus_target {
+	int row, col, seq;
+	uintptr_t key;			/* a block of the transcript, or 0 */
+	struct fytim_surface *sf;	/* a tile, or NULL */
+};
+
+static int fyai_focus_target_cmp(const void *a, const void *b)
+{
+	const struct fyai_focus_target *x = a, *y = b;
+
+	if (x->row != y->row)
+		return x->row < y->row ? -1 : 1;
+	if (x->col != y->col)
+		return x->col < y->col ? -1 : 1;
+	return x->seq - y->seq;
+}
+
+/*
+ * The places that take the keys, in the order the screen shows them: from
+ * the top row down, and from left to right in a row. A block or a tile that
+ * the page did not place goes after those it did, in the order it opened.
+ */
+static int fyai_focus_targets(struct fyai_ctx *ctx,
+			      struct fyai_focus_target *out, int max)
+{
+	struct fytim_surface *tiles[FYAI_WORKPANE_TILES_MAX];
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	uintptr_t key;
+	int n = 0, ntiles, i, row, col, at;
+
+	for (sess = ctx->shell_sessions; sess; sess = sess->next) {
+		if (!sess->inline_block || sess->exited || n >= max)
+			continue;
+		out[n].key = (uintptr_t)sess;
+		out[n].sf = NULL;
+		n++;
+	}
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->inline_block || job->done || n >= max)
+			continue;
+		out[n].key = (uintptr_t)job;
+		out[n].sf = NULL;
+		n++;
+	}
+	for (i = 0; i < n; i++) {
+		key = out[i].key;
+		at = fyai_ui_inline_index(ctx, key);
+		out[i].seq = at;
+		if (fyai_ui_inline_pos(ctx, key, &row, &col)) {
+			out[i].row = row;
+			out[i].col = col;
+		} else {
+			out[i].row = INT_MAX / 2 + at;
+			out[i].col = 0;
+		}
+	}
+	ntiles = fyai_workpane_screen_order(ctx->workpane, tiles,
+					    FYAI_WORKPANE_TILES_MAX);
+	for (i = 0; i < ntiles && n < max; i++, n++) {
+		out[n].key = 0;
+		out[n].sf = tiles[i];
+		out[n].seq = FYAI_WORKPANE_TILES_MAX + i;
+		if (!fyai_ui_tile_pos(ctx, tiles[i], &out[n].row,
+				      &out[n].col)) {
+			out[n].row = INT_MAX / 2 + FYAI_WORKPANE_TILES_MAX + i;
+			out[n].col = 0;
+		}
+	}
+	qsort(out, (size_t)n, sizeof(*out), fyai_focus_target_cmp);
+	return n;
+}
+
+/* The owner of the live block of @key: a session or a sub-agent. */
+static void fyai_inline_owner(struct fyai_ctx *ctx, uintptr_t key,
+			      struct fyai_shell_session **sessp,
+			      struct fyai_tool_job **jobp)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	*sessp = NULL;
+	*jobp = NULL;
+	if (!key)
+		return;
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if ((uintptr_t)sess == key && sess->inline_block) {
+			*sessp = sess;
+			return;
+		}
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if ((uintptr_t)job == key && job->inline_block) {
+			*jobp = job;
+			return;
+		}
+}
+
+/* Draw the block of @key again, as the focus edge moved to it or from it. */
+static void fyai_inline_repaint(struct fyai_ctx *ctx, uintptr_t key)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+
+	fyai_inline_owner(ctx, key, &sess, &job);
+	if (sess)
+		fyai_shell_session_inline_paint(sess, false);
+	else if (job)
+		fyai_agent_inline_paint(job, false, true);
+}
+
+static void fyai_inline_keys(void *user, const char *data, size_t len);
+
+/* Give the keys to the block of @key, or with 0 back to the prompt. */
+static bool fyai_inline_focus(struct fyai_ctx *ctx, uintptr_t key)
+{
+	uintptr_t was = fyai_ui_inline_focused(ctx);
+	int rc;
+
+	rc = fyai_ui_inline_keys(ctx, key, fyai_inline_keys, ctx);
+	if (was && was != key)
+		fyai_inline_repaint(ctx, was);
+	if (key && !rc)
+		fyai_inline_repaint(ctx, key);
+	return !rc;
+}
+
+/*
+ * What is typed while a block of the transcript holds the keys goes to its
+ * program. Ctrl-T moves the keys on, and Ctrl-] gives them to the prompt; what
+ * follows that key goes to the new owner.
+ */
+static void fyai_inline_keys(void *user, const char *data, size_t len)
+{
+	struct fyai_ctx *ctx = user;
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	size_t i;
+
+	fyai_inline_owner(ctx, fyai_ui_inline_focused(ctx), &sess, &job);
+	if (!sess && !job) {
+		(void)fyai_inline_focus(ctx, 0);
+		(void)fyai_ui_keys_return(ctx, data, len);
+		return;
+	}
+	for (i = 0; i < len; i++) {
+		if (data[i] != FYAI_FOCUS_NEXT_KEY &&
+		    data[i] != FYAI_FOCUS_PROMPT_KEY)
+			continue;
+		if (i)
+			fyai_tools_zoom_write(sess, job, data, i);
+		if (data[i] == FYAI_FOCUS_NEXT_KEY)
+			(void)fyai_tools_focus_next(ctx);
+		else
+			(void)fyai_inline_focus(ctx, 0);
+		if (i + 1 < len)
+			(void)fyai_ui_keys_return(ctx, data + i + 1,
+						  len - i - 1);
+		return;
+	}
+	fyai_tools_zoom_write(sess, job, data, len);
+}
+
+/*
+ * Move the keys on to the next place that takes them in the order the screen
+ * shows them, blocks of the transcript and tiles alike, and from the last
+ * back to the prompt. A zoomed tile is the whole cycle.
+ */
 bool fyai_tools_focus_next(struct fyai_ctx *ctx)
 {
+	struct fyai_focus_target targets[2 * FYAI_WORKPANE_TILES_MAX];
+	struct fytim_surface *focused;
+	uintptr_t cur;
+	int n, i;
+
 	if (!ctx)
 		return false;
 	fyai_workpane_set_keys_router(ctx->workpane, fyai_tools_zoom_keys, ctx);
-	return fyai_workpane_focus_next(ctx->workpane);
+	if (fyai_workpane_zoomed(ctx->workpane))
+		return fyai_workpane_focus_next(ctx->workpane);
+	cur = fyai_ui_inline_focused(ctx);
+	focused = fyai_workpane_focused(ctx->workpane);
+	n = fyai_focus_targets(ctx, targets, 2 * FYAI_WORKPANE_TILES_MAX);
+	for (i = 0; i < n; i++)
+		if ((cur && targets[i].key == cur) ||
+		    (!cur && focused && targets[i].sf == focused))
+			break;
+	/* From the prompt the cycle starts at the first place. */
+	i = (cur || focused) ? i + 1 : 0;
+	if (i >= n) {
+		if (!cur && !focused)
+			return false;
+		(void)fyai_inline_focus(ctx, 0);
+		fyai_workpane_clear_focus(ctx->workpane);
+		return true;
+	}
+	if (targets[i].key)
+		return fyai_inline_focus(ctx, targets[i].key);
+	(void)fyai_inline_focus(ctx, 0);
+	return fyai_tools_focus(ctx, targets[i].sf);
 }
 
 fy_generic fyai_tools_sessions_data(struct fyai_ctx *ctx,

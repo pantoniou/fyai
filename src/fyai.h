@@ -102,6 +102,8 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_EDITOR_MODE "pane"
 #define DEFAULT_COMPLETION_MODE "tab"
 #define DEFAULT_COMMAND_OUTPUT "pane"
+#define DEFAULT_TOOL_DISPLAY "inline"
+#define DEFAULT_INLINE_TERMINAL_ROWS 12
 #define DEFAULT_FOCUS_BG "theme"
 #define DEFAULT_FOCUS_BG_MIX 35
 #define DEFAULT_WORK_ZOOM_ROWS "half"
@@ -300,6 +302,8 @@ struct fyai_cfg {
 	const char *editor_mode;	/* pane | terminal */
 	const char *completion_mode;	/* tab | auto */
 	const char *command_output;	/* pane | transcript */
+	const char *tool_display;	/* pane | inline */
+	int inline_terminal_rows;	/* rows of an inline terminal */
 	int work_columns;		/* columns when work_layout is columns */
 	/* A side layout of the page document: auto takes it at the size the
 	 * document names, on whatever the size, off never. A panel size of 0

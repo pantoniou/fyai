@@ -850,6 +850,23 @@ properties:
           Select where slash-command output appears. pane shows it in a popup or a
           tile, and the transcript keeps nothing of it. transcript draws the
           command and its output in the transcript, and stores both there.
+      tool_display:
+        type: string
+        enum: [pane, inline]
+        default: inline
+        description: >-
+          Select where the live output of a shell or agent call appears. pane
+          shows it in a tile of the work pane. inline draws it in the
+          transcript at the position of the call. An inline page draws it
+          under the live tail until it is committed to the scrollback. A
+          display without a page uses pane.
+      inline_terminal_rows:
+        type: integer
+        minimum: 1
+        default: 12
+        description: >-
+          Set the rows of a terminal that tool_display inline draws in the
+          transcript.
       editor:
         type: string
         enum: [pane, terminal]

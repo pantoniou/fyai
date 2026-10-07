@@ -325,6 +325,10 @@ void fyai_workpane_band_set_page_grant(struct fyai_workpane_manager *wm,
 bool fyai_workpane_band_page_grant(const struct fyai_workpane_manager *wm,
 				   const struct fytim_workband *band, int *rows,
 				   int *cols);
+/* The page slot of the tile of @sf into *@slotp; false for no such tile. */
+bool fyai_workpane_surface_slot(const struct fyai_workpane_manager *wm,
+				const struct fytim_surface *sf,
+				unsigned int *slotp);
 /* The surface of the tile in the page slot "tile:@slot", or NULL. */
 struct fytim_surface *
 fyai_workpane_slot_surface(const struct fyai_workpane_manager *wm,

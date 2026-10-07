@@ -142,6 +142,8 @@ struct fyai_sink_ops {
 	void (*band_commit)(struct fyai_sink_band *b);
 	void (*band_destroy)(struct fyai_sink_band *b);
 	struct fyai_sink_band *(*band_shared)(struct fyai_sink *s);
+	/* Render the bands drawn in the transcript again at a new width. */
+	void (*bands_reflow)(struct fyai_sink *s);
 	/* Render @md as Markdown on @stream. */
 	int (*markdown)(struct fyai_sink *s, enum fyai_sink_stream stream,
 			const char *md);
@@ -220,6 +222,9 @@ int fyai_sink_band_cols(const struct fyai_sink_band *b);
  */
 void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
 				bool (*repaint)(void *arg), void *arg);
+/* Render the bands that the transcript draws at their calls again, after the
+ * width of the transcript changed. */
+void fyai_sink_bands_reflow(struct fyai_sink *s);
 /* The shared band, or NULL when none is open. */
 struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s);
 
