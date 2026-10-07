@@ -680,6 +680,11 @@ static int sink_term_render_finish(struct fyai_sink *s)
 	}
 	t->active_rows = 0;
 	t->render_live = false;
+	/* The finished rows are presented. A reflow of the resumed renderer
+	 * renders only the source that follows them. */
+	t->source.len = 0;
+	if (t->source.data)
+		t->source.data[0] = '\0';
 	free(rendered.data);
 	return 0;
 }
