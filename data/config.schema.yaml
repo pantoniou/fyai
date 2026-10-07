@@ -1242,8 +1242,13 @@ properties:
           the bottom row retains model and usage information.
           {tokens} is the used and maximum context tokens with the percent,
           {cache} is the cached input tokens with the hit percent, and {cost}
-          is the session cost. {ctx} keeps the short percent-only form. May
-          carry SGR colour escapes.
+          is the session cost, from the stored conversation. A call that the
+          provider did not price is priced from the catalogue, at the model of
+          the call, and a total that holds such a call starts with "~". After
+          a change of model, {cost} also gives the estimated cost of the
+          prompt cache that the change leaves behind, until the next call
+          ends. {ctx} keeps the short percent-only form. May carry SGR colour
+          escapes.
       pretty:
         type: boolean
         default: false
