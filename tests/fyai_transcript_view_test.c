@@ -24,6 +24,9 @@ FYAI_TEST_ENTRY(transcript_view, update_renders_what_changed, transcript_view_up
 FYAI_TEST_ENTRY(transcript_view, update_keeps_the_row_at_the_top, transcript_view_update_keeps_the_row_at_the_top)
 FYAI_TEST_ENTRY(transcript_view, update_renders_what_shows, transcript_view_update_renders_what_shows)
 FYAI_TEST_ENTRY(transcript_view, stored_turn_replaces_live_rows, transcript_view_stored_turn_replaces_live_rows)
+FYAI_TEST_ENTRY(transcript_view, blocks_stand_at_their_calls, transcript_view_blocks_stand_at_their_calls)
+FYAI_TEST_ENTRY(transcript_view, block_keeps_the_scrolled_top, transcript_view_block_keeps_the_scrolled_top)
+FYAI_TEST_ENTRY(transcript_view, show_block_scrolls_to_it, transcript_view_show_block_scrolls_to_it)
 
 /* Whether the @count rows of @w are @want, one row for each string. */
 static bool rows_are(const char *const *w, int count, const char *const *want,
@@ -404,6 +407,105 @@ int transcript_view_stored_turn_replaces_live_rows(void)
 	FYAI_TCHECK(!fyai_transcript_view_needs_render(v, 4));
 	w = fyai_transcript_view_window(v, 4, &n);
 	FYAI_TCHECK(n == 4 && !strcmp(w[0], "x2.1@40") && !strcmp(w[3], "x2.4@40"));
+	fyai_transcript_view_destroy(v);
+	return 0;
+}
+
+/* Live blocks stand after the live rows and before the tail, in the order
+ * their calls opened them. A block that changes keeps its place. */
+int transcript_view_blocks_stand_at_their_calls(void)
+{
+	static const char *const all[] = {
+		"s", "l", "a1", "b1", "b2", "t"
+	};
+	static const char *const grown[] = {
+		"s", "l", "a1", "a2", "b1", "b2", "t"
+	};
+	static const char *const dropped[] = { "s", "l", "b1", "b2", "t" };
+	struct fyai_transcript_view *v = fyai_transcript_view_create();
+	const char *const *w;
+	int n;
+
+	FYAI_TCHECK(v != NULL);
+	FYAI_TCHECK(!fyai_transcript_view_set_stored(v, "s\n", 2));
+	FYAI_TCHECK(!fyai_transcript_view_append_live(v, "l\n", 2));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "t\n", 2));
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 1, "a1\n", 3));
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 2, "b1\nb2\n", 6));
+	w = fyai_transcript_view_window(v, 10, &n);
+	FYAI_TCHECK(rows_are(w, n, all, 6));
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 1, "a1\na2\n", 6));
+	w = fyai_transcript_view_window(v, 10, &n);
+	FYAI_TCHECK(rows_are(w, n, grown, 7));
+	FYAI_TCHECK(fyai_transcript_view_has_block(v, 1));
+	fyai_transcript_view_block_drop(v, 1);
+	FYAI_TCHECK(!fyai_transcript_view_has_block(v, 1));
+	w = fyai_transcript_view_window(v, 10, &n);
+	FYAI_TCHECK(rows_are(w, n, dropped, 5));
+	FYAI_TCHECK(fyai_transcript_view_rows(v) == 5);
+	fyai_transcript_view_destroy(v);
+	return 0;
+}
+
+/* A view scrolled back stays on the rows being read while a block below them
+ * grows, shrinks, or leaves. */
+int transcript_view_block_keeps_the_scrolled_top(void)
+{
+	static const char *const read[] = { "a", "b" };
+	struct fyai_transcript_view *v = fyai_transcript_view_create();
+	const char *const *w;
+	int n;
+
+	FYAI_TCHECK(v != NULL);
+	FYAI_TCHECK(!fyai_transcript_view_set_stored(v, "a\nb\nc\nd\n", 8));
+	fyai_transcript_view_scroll(v, 2, 2);
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 7, "x\ny\nz\n", 6));
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, read, 2));
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 7, "x\n", 2));
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, read, 2));
+	fyai_transcript_view_block_drop(v, 7);
+	w = fyai_transcript_view_window(v, 2, &n);
+	FYAI_TCHECK(rows_are(w, n, read, 2));
+	FYAI_TCHECK(!fyai_transcript_view_at_end(v));
+	fyai_transcript_view_destroy(v);
+	return 0;
+}
+
+/* A block that the region does not show is scrolled into it: a block above
+ * the region comes to its top, one taller than the region shows its last
+ * rows, and one already shown moves nothing. */
+int transcript_view_show_block_scrolls_to_it(void)
+{
+	static const char *const top[] = { "x1", "x2", "c" };
+	static const char *const tall[] = { "y2", "y3", "y4" };
+	static const char *const end[] = { "y4", "t1", "t2" };
+	struct fyai_transcript_view *v = fyai_transcript_view_create();
+	const char *const *w;
+	int n;
+
+	FYAI_TCHECK(v != NULL);
+	FYAI_TCHECK(!fyai_transcript_view_set_stored(v, "a\nb\n", 4));
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 1, "x1\nx2\n", 6));
+	FYAI_TCHECK(!fyai_transcript_view_block_set(v, 2,
+		"c\ny1\ny2\ny3\ny4\n", 14));
+	FYAI_TCHECK(!fyai_transcript_view_set_tail(v, "t1\nt2\n", 6));
+	fyai_transcript_view_show_block(v, 1, 3);
+	w = fyai_transcript_view_window(v, 3, &n);
+	FYAI_TCHECK(rows_are(w, n, top, 3));
+	fyai_transcript_view_show_block(v, 2, 3);
+	w = fyai_transcript_view_window(v, 3, &n);
+	FYAI_TCHECK(rows_are(w, n, tall, 3));
+	fyai_transcript_view_scroll(v, -100, 3);
+	w = fyai_transcript_view_window(v, 3, &n);
+	FYAI_TCHECK(rows_are(w, n, end, 3));
+	fyai_transcript_view_show_block(v, 2, 3);
+	w = fyai_transcript_view_window(v, 3, &n);
+	FYAI_TCHECK(rows_are(w, n, tall, 3));
+	fyai_transcript_view_show_block(v, 2, 3);
+	w = fyai_transcript_view_window(v, 3, &n);
+	FYAI_TCHECK(rows_are(w, n, tall, 3));
 	fyai_transcript_view_destroy(v);
 	return 0;
 }

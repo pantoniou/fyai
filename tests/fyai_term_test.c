@@ -9,12 +9,14 @@
  * damage that the terminal view reports from the bytes a program wrote.
  */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
 #include "fyai_terminal_view.h"
+#include "utils.h"
 
 FYAI_TEST_ENTRY(term, view_cells, term_view_cells)
 FYAI_TEST_ENTRY(term, view_damage, term_view_damage)
@@ -24,6 +26,7 @@ FYAI_TEST_ENTRY(term, view_reply, term_view_reply)
 FYAI_TEST_ENTRY(term, view_screen_resize, term_view_screen_resize)
 FYAI_TEST_ENTRY(term, view_altscreen_resize, term_view_altscreen_resize)
 FYAI_TEST_ENTRY(term, view_scroll, term_view_scroll)
+FYAI_TEST_ENTRY(term, view_rows_sgr, term_view_rows_sgr)
 
 static void feed(struct fyai_terminal_view *view, const char *bytes)
 {
@@ -402,5 +405,42 @@ int term_view_scroll(void)
 	FYAI_TCHECK(!fyai_terminal_view_scroll(view, 1));
 
 	fyai_terminal_view_destroy(view);
+	return 0;
+}
+
+/* The rows of a terminal drawn in the transcript: each after its margin, in
+ * the styles of its cells, without the blanks that end it, and with a wide
+ * glyph drawn once. The cursor, when asked for, is reversed. */
+int term_view_rows_sgr(void)
+{
+	static const char want[] =
+		"> a\033[0;1;38;2;10;20;30mB\033[0m \344\270\255x\033[0m\n"
+		"> \n"
+		"> \n"
+		"> \n";
+	static const char cursor[] =
+		"> ok\n"
+		"> \033[0;7m \033[0m\n"
+		"> \n"
+		"> \n";
+	struct fyai_terminal_view *view;
+	struct response_buffer out = {0};
+
+	view = fyai_terminal_view_create(NULL, 4, 20, 0);
+	FYAI_TCHECK(view != NULL);
+	feed(view, "a\033[1;38;2;10;20;30mB\033[0m \344\270\255x\033[?25l");
+	FYAI_TCHECK(!fyai_terminal_view_rows_sgr(view, "> ", true, &out));
+	FYAI_TCHECK(out.len == strlen(want) && !memcmp(out.data, want, out.len));
+	fyai_terminal_view_destroy(view);
+
+	out.len = 0;
+	view = fyai_terminal_view_create(NULL, 4, 20, 0);
+	FYAI_TCHECK(view != NULL);
+	feed(view, "ok\r\n");
+	FYAI_TCHECK(!fyai_terminal_view_rows_sgr(view, "> ", true, &out));
+	FYAI_TCHECK(out.len == strlen(cursor) &&
+		    !memcmp(out.data, cursor, out.len));
+	fyai_terminal_view_destroy(view);
+	free(out.data);
 	return 0;
 }

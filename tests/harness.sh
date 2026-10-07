@@ -192,8 +192,9 @@ fyai_test_setup() {
 	# The arena states the display a case runs under. The shipped defaults
 	# are the page on the alternate screen with the mouse taken; a case
 	# that tests them selects them, and every other case reads its output
-	# from the scrollback of the terminal.
-	printf 'display:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n' > config.yaml
+	# from the scrollback of the terminal. The live output of a call goes to
+	# the pane, which most cases read; a case of the transcript selects it.
+	printf 'display:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n  tool_display: pane\n' > config.yaml
 	${FYAI_VALGRIND} "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
 	rm -f config.yaml
 }
