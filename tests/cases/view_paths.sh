@@ -139,6 +139,30 @@ assert_stdout_contains 'added renamed.txt'
 run_fyai view cp v:renamed.txt out/
 assert_status 0
 [ "$(cat project/out/renamed.txt)" = host ] || fail 'cp to the project did not write the file'
+# "." and "./" are the top of the project and "dir/." is the directory: each takes
+# the source by its name, as cp does.
+run_fyai view cp v:renamed.txt .
+assert_status 0
+[ "$(cat project/renamed.txt)" = host ] || fail 'cp to . did not write the file'
+printf 'stale\n' > project/renamed.txt
+run_fyai view cp v:renamed.txt ./
+assert_status 0
+[ "$(cat project/renamed.txt)" = host ] || fail 'cp to ./ did not write the file'
+run_fyai view cp v:renamed.txt out/.
+assert_status 0
+[ "$(cat project/out/renamed.txt)" = host ] || fail 'cp to out/. did not write the file'
+run_fyai view cp v:renamed.txt v:.
+assert_status 1
+printf 'late\n' > project/late.txt
+run_fyai view cp late.txt v:.
+assert_status 0
+run_fyai view ls v:late.txt
+assert_status 0
+printf 'later\n' > project/later.txt
+run_fyai view cp later.txt v:./
+assert_status 0
+run_fyai view ls v:later.txt
+assert_status 0
 printf 'changed in the project\n' > project/host.txt
 run_fyai view cp v:renamed.txt host.txt
 assert_status 0
