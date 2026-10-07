@@ -3029,7 +3029,21 @@ err_out:
 
 void fyai_ui_tail_finish(struct fyai_ctx *ctx, const char *buf, size_t len)
 {
+	struct fyai_ui *ui;
+
 	if (!fyai_ui_active(ctx)) return;
+	ui = ctx->ui;
+	/*
+	 * The rows the renderer froze are not in the healed render. The
+	 * terminal library commits them to the scrollback; a fullscreen page
+	 * keeps them in the stream rows, and they join the live rows here.
+	 */
+	if (ui->fullscreen && ui->stream_frozen) {
+		(void)ui_flow_fence(ctx, FYAI_FLOW_PROSE);
+		(void)ui_present(ui, ui->stream_rows.data, ui->stream_frozen);
+		fyai_flow_observe(fyai_sink_flow(ctx->sink),
+				  ui->stream_rows.data, ui->stream_frozen);
+	}
 	/* The same fence: a healed render lands here when the tail drains. */
 	if (len) {
 		(void)ui_flow_fence(ctx, FYAI_FLOW_PROSE);
