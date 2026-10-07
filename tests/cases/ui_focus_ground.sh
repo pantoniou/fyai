@@ -1,6 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# display/focus_bg gives the tile that holds the keys a ground of its own.
+# display/focus_bg, with display/focus_mark wash, gives the tile that holds
+# the keys a ground of its own.
 # That the cells are drawn with it is the library's own claim, proved there
 # against a terminal; what this case proves is that fyai asks for it - the
 # colour reaches the terminal when a tile is focused, and only then.
@@ -28,7 +29,8 @@ run_with()
 }
 
 run_with plain
-run_with ground --set 'display/focus_bg="#1c2b3a"'
+run_with ground --set display/focus_mark=wash \
+    --set 'display/focus_bg="#1c2b3a"'
 
 "$PYTHON" - "$CAPTURES/plain.out" "$CAPTURES/ground.out" <<'PY' || \
     fail "focus_bg did not reach the terminal"
