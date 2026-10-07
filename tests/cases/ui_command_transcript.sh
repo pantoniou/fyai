@@ -4,7 +4,7 @@
 # output are drawn and stored in the conversation. The next turn draws the
 # fullscreen transcript again from storage, so both stay on the screen after
 # it. With pane, the output goes to the pane and the transcript keeps nothing
-# of the command.
+# of the command. The harness selects pane; transcript is the default.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -73,8 +73,8 @@ for row in rows[card + 1:output]:
 PY
 	fail "the command is not in the transcript"
 
-# pane, the default: the output is in the popup, and the transcript keeps
-# nothing of the command, in no frame.
+# pane, which the harness selects: the output is in the popup, and the
+# transcript keeps nothing of the command, in no frame.
 run_steps \
 	"send:/status|wait-screen:Auth / provider|raw:1b|wait-gone:Auth / provider|send:yellow?|wait-screen:second"
 "$PYTHON" - "$TEST_DIR/pty.out" "$TESTS_DIR" <<'PY' ||

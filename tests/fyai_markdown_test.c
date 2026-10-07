@@ -33,6 +33,7 @@
 FYAI_TEST_ENTRY(markdown, window_bounds_render, markdown_window_bounds_render)
 FYAI_TEST_ENTRY(markdown, window_reopens_fence, markdown_window_reopens_fence)
 FYAI_TEST_ENTRY(markdown, window_off_when_unbounded, markdown_window_off_when_unbounded)
+FYAI_TEST_ENTRY(markdown, ground_rows_keep_ground, markdown_ground_rows_keep_ground)
 FYAI_TEST_ENTRY(markdown, final_render_is_whole, markdown_final_render_is_whole)
 FYAI_TEST_ENTRY(markdown, tool_head_chrome, markdown_tool_head_chrome)
 FYAI_TEST_ENTRY(markdown, source_rows_utf8, markdown_source_rows_utf8)
@@ -713,5 +714,37 @@ int markdown_head_regions_test(void)
 	free(title);
 	fyai_diag_drain(&test_cfg.diag);
 	fyai_diag_cleanup(&test_cfg.diag);
+	return 0;
+}
+
+/*
+ * Rows put on a ground take it again after each SGR that resets the
+ * background - a code span ending its own background with 49, a reset among
+ * other attributes - and run to the render width. The parameters of a colour
+ * are not read as resets: a red of 5 or 2 is a component, not a type.
+ */
+int markdown_ground_rows_keep_ground(void)
+{
+	static const char in[] =
+		"a\x1b[48;5;236mfoo\x1b[49m b\n"
+		"\x1b[38;2;5;0;0mx\x1b[0;1my\x1b[38;2;2;0;0mz\n";
+	static const char want[] =
+		"\x1b[48;2;1;2;3ma\x1b[48;5;236mfoo\x1b[49m\x1b[48;2;1;2;3m b"
+		"      \x1b[0m\n"
+		"\x1b[48;2;1;2;3m\x1b[38;2;5;0;0mx\x1b[0;1m\x1b[48;2;1;2;3my"
+		"\x1b[38;2;2;0;0mz         \x1b[0m\n";
+	struct response_buffer out = {0};
+	struct fyai_cfg cfg;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.render_width = 12;
+	FYAI_TCHECK(!markdown_ground_rows(&cfg, 0x010203, in, strlen(in),
+					  &out));
+	if (out.len != strlen(want) || memcmp(out.data, want, out.len)) {
+		fprintf(stderr, "got: %.*s\n", (int)out.len, out.data);
+		free(out.data);
+		return 1;
+	}
+	free(out.data);
 	return 0;
 }
