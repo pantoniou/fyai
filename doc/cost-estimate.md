@@ -30,8 +30,20 @@ estimate prices the whole prompt at the input price.
 The status row and `stats` total the usage that the turns carry. A session that
 starts from a stored conversation shows its cost at once: the counters are made
 again when the head moves (`fyai_usage_sync()`). A total that includes an
-estimate starts with `~`. `stats` gives the estimated part as
-`cost_est`. A sub-agent counts its own calls.
+estimate starts with `~`. `stats` gives the estimated part as `cost_est`.
+
+The cost of the session includes its sub-agents. Each sub-agent keeps its
+calls on its own branch below the branch of the session, as
+`BRANCH/agent:NAME`. `fyai_usage_agents()` adds the usage of every such
+branch, nested agents included. A sub-agent that forked from the conversation
+starts its branch with the turns of its parent, which the parent counts
+already, so the walk of an agent ends at the first turn that the conversation
+holds. The sum is made again when the branch table changes, so a running agent
+is counted when its branch is published.
+
+`stats` keeps the conversation in `cost` and gives the agents as `agents`
+(`count`, `calls`, `total`, `cost`, `cost_est`), with the sum as `cost_all`. A
+sub-agent process counts its own calls only.
 
 ## A change of model
 
