@@ -24,6 +24,7 @@
 #include "fyai_cost.h"
 #include "fyai_branch.h"
 #include "fyai_diff.h"
+#include "fyai_session.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
 #include "fyai_markdown.h"
@@ -1027,6 +1028,8 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	double ratio;
 	double arena_ratio;
 	double switch_cost;
+	struct fyai_usage_sum agents;
+	int nagents;
 	fy_generic newer;
 	bool have_arena;
 	int calls;
@@ -1097,6 +1100,16 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 					"generation", generation) :
 				fy_null);
 	/* Only a conversation that has them carries these. */
+	fyai_usage_agents(ctx, &agents, &nagents);
+	if (nagents > 0) {
+		out = fy_assoc(gb, out, "agents", fy_gb_mapping(gb,
+				"count", (long long)nagents,
+				"calls", (long long)agents.calls,
+				"total", agents.total,
+				"cost", agents.cost,
+				"cost_est", agents.cost_est));
+		out = fy_assoc(gb, out, "cost_all", cost + agents.cost);
+	}
 	if (cost_est > 0.0)
 		out = fy_assoc(gb, out, "cost_est", cost_est);
 	if (switches > 0) {
@@ -1116,7 +1129,7 @@ static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_stats_args *args = &cfg->cmd.args.stats;
-	fy_generic arena;
+	fy_generic arena, agents;
 	char *md;
 	size_t mdlen;
 	FILE *mf;
@@ -1144,6 +1157,16 @@ static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 	if (fy_get(stats, "cost_est", 0.0) > 0.0)
 		fprintf(mf, "| Cost estimated from prices | $%.6f |\n",
 			fy_get(stats, "cost_est", 0.0));
+	agents = fy_get(stats, "agents");
+	if (!fy_is_invalid(agents)) {
+		fprintf(mf, "| Sub-agents | %lld (%lld calls, %lld tokens) |\n",
+			fy_get(agents, "count", 0LL), fy_get(agents, "calls", 0LL),
+			fy_get(agents, "total", 0LL));
+		fprintf(mf, "| Sub-agent cost | $%.6f |\n",
+			fy_get(agents, "cost", 0.0));
+		fprintf(mf, "| Cost with sub-agents | $%.6f |\n",
+			fy_get(stats, "cost_all", 0.0));
+	}
 	if (fy_get(stats, "switches", 0LL) > 0)
 		fprintf(mf, "| Model changes | %lld (cache miss ~$%.6f) |\n",
 			fy_get(stats, "switches", 0LL),

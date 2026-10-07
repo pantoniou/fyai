@@ -128,6 +128,13 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
 void fyai_session_banner_update(struct fyai_ctx *ctx);
 /* Total the stored usage of the conversation again after a head change. */
 void fyai_usage_sync(struct fyai_ctx *ctx);
+/*
+ * Total the usage of the sub-agent branches below the current branch, without
+ * the turns that an agent shares with the conversation. @nagents gets the
+ * number of agent branches.
+ */
+void fyai_usage_agents(struct fyai_ctx *ctx, struct fyai_usage_sum *sum,
+		       int *nagents);
 
 struct fyai_tmpl_var {
 	const char *key;

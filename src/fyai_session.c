@@ -107,41 +107,126 @@ static void session_reset_usage(struct fyai_ctx *ctx)
 	ctx->usage_head = ctx->last_message;
 }
 
+static void usage_sum_add(struct fyai_usage_sum *s, fy_generic u)
+{
+	double cost = fy_get(u, "cost", 0.0);
+
+	s->input += fy_get(u, "input", 0LL);
+	s->cached += fy_get(u, "cached", 0LL);
+	s->cache_write += fy_get(u, "cache_write", 0LL);
+	s->output += fy_get(u, "output", 0LL);
+	s->reasoning += fy_get(u, "reasoning", 0LL);
+	s->total += fy_get(u, "total", 0LL);
+	s->cost += cost;
+	if (fy_get(u, "est", (_Bool)false))
+		s->cost_est += cost;
+	s->calls++;
+}
+
+static int usage_value_cmp(const void *a, const void *b)
+{
+	fy_generic_value x = *(const fy_generic_value *)a;
+	fy_generic_value y = *(const fy_generic_value *)b;
+
+	return x < y ? -1 : x > y ? 1 : 0;
+}
+
 /*
- * The counters total the usage that the turns of the conversation carry.
- * A head that moved since the last total, by a resume, a checkout, or a
- * reset, makes them again from the stored turns, so a session that starts
- * from stored turns shows what they cost. A sub-agent counts its own calls
- * only: its stored chain starts with the conversation of its parent.
+ * A sub-agent that forked from the conversation starts its branch with the
+ * turns of its parent. Those turns carry the usage of the parent, which the
+ * parent counts already, so the walk of an agent stops at the first turn that
+ * the conversation holds.
+ */
+void fyai_usage_agents(struct fyai_ctx *ctx, struct fyai_usage_sum *sum,
+		       int *nagents)
+{
+	struct fyai_turn_stack own = { 0 };
+	fy_generic_value *seen = NULL, v;
+	const char *branch = fyai_ctx_branch(ctx), *nm;
+	struct fyai_branch b;
+	fy_generic entry, cur;
+	size_t i, blen;
+	int rc;
+
+	memset(sum, 0, sizeof(*sum));
+	*nagents = 0;
+	if (!branch || !*branch)
+		return;
+	blen = strlen(branch);
+	rc = fyai_turn_stack_init(&own, ctx->last_message, fy_invalid);
+	fyai_error_check(ctx, !rc, out,
+			 "cannot total the usage of the sub-agents");
+	if (own.count) {
+		seen = malloc(own.count * sizeof(*seen));
+		fyai_error_check(ctx, seen, out,
+				 "cannot total the usage of the sub-agents");
+		for (i = 0; i < own.count; i++)
+			seen[i] = own.items[i].v;
+		qsort(seen, own.count, sizeof(*seen), usage_value_cmp);
+	}
+	fy_foreach_key_value(nm, entry, ctx->arena_branches) {
+		if (fy_str_empty(nm) || !fyai_branch_is_below(nm, branch) ||
+		    strncmp(nm + blen, "/agent:", 7) ||
+		    !fyai_branch_decode(entry, &b))
+			continue;
+		(*nagents)++;
+		fyai_turn_foreach(cur, b.head) {
+			v = cur.v;
+			if (seen && bsearch(&v, seen, own.count, sizeof(v),
+					    usage_value_cmp))
+				break;
+			if (fy_is_valid(fy_get(fyai_turn_meta(cur), "usage")))
+				usage_sum_add(sum, fy_get(fyai_turn_meta(cur),
+							  "usage"));
+		}
+	}
+out:
+	free(seen);
+	if (own.items)
+		fyai_turn_stack_cleanup(&own);
+}
+
+/*
+ * The counters total the usage that the turns of the conversation carry,
+ * and what its sub-agents used on their branches. A head that moved since the
+ * last total, by a resume, a checkout, or a reset, makes the first again from
+ * the stored turns, so a session that starts from stored turns shows what
+ * they cost. A new branch table makes the second again. A sub-agent counts
+ * its own calls only: its stored chain starts with the conversation of its
+ * parent.
  */
 void fyai_usage_sync(struct fyai_ctx *ctx)
 {
+	struct fyai_usage_sum own;
 	fy_generic cur, u;
-	double cost;
+	bool moved;
 
-	if (ctx->cfg->tool_child || ctx->usage_head.v == ctx->last_message.v)
+	if (ctx->cfg->tool_child)
 		return;
-	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
-	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
-	ctx->usage_cost = ctx->usage_cost_est = 0.0;
-	ctx->usage_calls = 0;
-	fyai_turn_foreach(cur, ctx->last_message) {
-		u = fy_get(fyai_turn_meta(cur), "usage");
-		if (fy_is_invalid(u))
-			continue;
-		ctx->usage_input += fy_get(u, "input", 0LL);
-		ctx->usage_cached += fy_get(u, "cached", 0LL);
-		ctx->usage_cache_write += fy_get(u, "cache_write", 0LL);
-		ctx->usage_output += fy_get(u, "output", 0LL);
-		ctx->usage_reasoning += fy_get(u, "reasoning", 0LL);
-		ctx->usage_total += fy_get(u, "total", 0LL);
-		cost = fy_get(u, "cost", 0.0);
-		ctx->usage_cost += cost;
-		if (fy_get(u, "est", (_Bool)false))
-			ctx->usage_cost_est += cost;
-		ctx->usage_calls++;
+	moved = ctx->usage_head.v != ctx->last_message.v;
+	if (moved) {
+		memset(&own, 0, sizeof(own));
+		fyai_turn_foreach(cur, ctx->last_message) {
+			u = fy_get(fyai_turn_meta(cur), "usage");
+			if (fy_is_valid(u))
+				usage_sum_add(&own, u);
+		}
+		ctx->usage_input = own.input;
+		ctx->usage_cached = own.cached;
+		ctx->usage_cache_write = own.cache_write;
+		ctx->usage_output = own.output;
+		ctx->usage_reasoning = own.reasoning;
+		ctx->usage_total = own.total;
+		ctx->usage_cost = own.cost;
+		ctx->usage_cost_est = own.cost_est;
+		ctx->usage_calls = own.calls;
+		ctx->usage_head = ctx->last_message;
 	}
-	ctx->usage_head = ctx->last_message;
+	if (moved || ctx->usage_agents_root.v != ctx->arena_branches.v) {
+		fyai_usage_agents(ctx, &ctx->usage_agents,
+				  &ctx->usage_agent_count);
+		ctx->usage_agents_root = ctx->arena_branches;
+	}
 }
 
 int fyai_session_clear(struct fyai_ctx *ctx)
@@ -1418,9 +1503,12 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 			 (double)used * 100.0 / (double)window);
 	}
 	fyai_usage_sync(ctx);
-	if (ctx->usage_cost > 0.0) {
-		fyai_cost_format(amount, sizeof(amount), ctx->usage_cost,
-				 ctx->usage_cost_est > 0.0);
+	/* What the sub-agents used is a part of the cost of the session. */
+	if (ctx->usage_cost + ctx->usage_agents.cost > 0.0) {
+		fyai_cost_format(amount, sizeof(amount),
+				 ctx->usage_cost + ctx->usage_agents.cost,
+				 ctx->usage_cost_est +
+				 ctx->usage_agents.cost_est > 0.0);
 		snprintf(cost, sizeof(cost), " · %s", amount);
 	}
 	/* The next request has no cache on the model just chosen. */

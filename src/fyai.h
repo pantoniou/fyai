@@ -558,6 +558,19 @@ struct fyai_catalog_update_request;
 struct fyai_event_loop;
 struct fyai_event_source;
 
+/* Token and cost totals of the usage that some turns carry. */
+struct fyai_usage_sum {
+	long long input;
+	long long cached;
+	long long cache_write;
+	long long output;
+	long long reasoning;
+	long long total;
+	double cost;
+	double cost_est;	/* the part of @cost that is estimated */
+	int calls;
+};
+
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
 	struct fy_allocator *durable_allocator;
@@ -749,6 +762,14 @@ struct fyai_ctx {
 	/* The part of usage_cost that is estimated from the catalogue prices. */
 	double usage_cost_est;
 	int usage_calls;
+	/*
+	 * What the sub-agents of the branch used, from their own branches.
+	 * Made again when the branch table or the head changes; @usage_agents_root
+	 * is the branch table that it was made from.
+	 */
+	struct fyai_usage_sum usage_agents;
+	int usage_agent_count;
+	fy_generic usage_agents_root;
 	/* The turn that the counters above total; see fyai_usage_sync(). */
 	fy_generic usage_head;
 	/*

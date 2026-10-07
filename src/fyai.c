@@ -2317,6 +2317,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->tools_spec = fy_invalid;
 	ctx->last_message = fy_invalid;
 	ctx->usage_head = fy_invalid;
+	ctx->usage_agents_root = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
 	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */
