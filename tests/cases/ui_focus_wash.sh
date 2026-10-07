@@ -68,7 +68,9 @@ for path, light in ((sys.argv[1], True), (sys.argv[2], False)):
                         % (path, wash, runs))
     if light and luma(wash) < 200:
         problems.append("%s: the ground %s is not light" % (path, wash))
-    if not light and luma(wash) > 60:
+    # The wash over the ground of the terminal is a little lighter than the
+    # one over the ground of the theme, and both are dark.
+    if not light and luma(wash) > 80:
         problems.append("%s: the ground %s is not dark" % (path, wash))
     # Reverse video is the ground without a wash.
     reversed_runs = data.count(b"\x1b[7m")
