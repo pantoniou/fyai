@@ -869,8 +869,8 @@ the page source; the terminal library draws its slots.
   `popup.border`, else `chrome.rule`; the selected row from `popup.selected`,
   else `pane.focus`, else the card; the typed part of a label from
   `popup.match`, else `prompt`; and the `pane.edge` mark before the selected
-  label. Do not put a colour for them in C. Up and Down select, and Tab and
-  Enter take the selection. `display/completion: auto` opens the popup as
+  label. Do not put a colour for them in C. Up, Down, Tab and Shift-Tab
+  select, and Tab wraps; Enter takes the selection. `display/completion: auto` opens the popup as
   the line is typed, with no Tab (`fytim_set_completion_auto()`).
 - A tile of text - a tool exchange, a notice, the queued-input report - is
   drawn on the canvas too, in the slot `text:N`. The page reads the content,
