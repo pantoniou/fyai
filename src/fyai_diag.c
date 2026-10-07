@@ -317,6 +317,19 @@ static void diag_emit(FILE *fp, bool source, enum fyai_error_type type,
 		fprintf(fp, "  at %s:%d %s()\n", file, line, func ? func : "");
 }
 
+bool fyai_diag_pending(struct fyai_diag *diag)
+{
+	fy_generic item, list;
+
+	if (!diag || !diag->gb)
+		return false;
+	list.v = fy_atomic_load(&diag->list);
+	fy_foreach(item, list)
+		if (fy_get(item, "type", 0LL) >= (long long)FYAIET_NOTICE)
+			return true;
+	return false;
+}
+
 bool fyai_diag_got_error(struct fyai_diag *diag)
 {
 	fy_generic item, list;

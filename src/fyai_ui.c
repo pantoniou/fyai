@@ -2539,17 +2539,22 @@ char *fyai_ui_pane_take(struct fyai_ctx *ctx)
 void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title)
 {
 	struct fyai_diag *diag;
+	bool error;
 
 	if (!ctx || !ctx->cfg)
 		return;
 	diag = &ctx->cfg->diag;
-	if (!fyai_ui_active(ctx) || !fyai_diag_got_error(diag)) {
+	if (!fyai_ui_active(ctx) || !fyai_diag_pending(diag)) {
 		fyai_diag_drain(diag);
 		return;
 	}
+	/* A notice or a warning belongs to the panel too: drained to the
+	 * error spool it would be drawn into the transcript. */
+	error = fyai_diag_got_error(diag);
 	fyai_ui_pane_begin(ctx);
 	fyai_diag_drain(diag);
-	ui_pane_end(ctx, title ? title : "error", true, true, false);
+	ui_pane_end(ctx, error ? (title ? title : "error") : "notice", error,
+		    true, false);
 }
 
 bool fyai_ui_active(const struct fyai_ctx *ctx) { return ctx && ctx->ui; }

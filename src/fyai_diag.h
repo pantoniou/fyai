@@ -114,6 +114,12 @@ void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
 bool fyai_diag_got_error(struct fyai_diag *diag);
 
 /*
+ * True while a notice, a warning, or an error waits for a drain. Debug and
+ * info records are a trace of the run, not a message to the user.
+ */
+bool fyai_diag_pending(struct fyai_diag *diag);
+
+/*
  * Discard the collected diagnostics without reporting them: the caller
  * recovered, so its complaints are moot - and dropping the error with them lets
  * the next failure be reported as the cause again. Use it where a failure is
