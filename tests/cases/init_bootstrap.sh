@@ -30,7 +30,7 @@ if [ -e "$TEST_DIR/.fyai" ]; then fail "a refused verb created $TEST_DIR/.fyai";
 
 # On a terminal, an answer of no also leaves nothing behind.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" n <<'PY' || fail "the prompt did not appear"
-import os, pty, select, sys, time
+import os, pty, select, signal, sys, time
 from term_reply import answer_da1
 
 BIN, DIR, ANSWER = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -63,14 +63,25 @@ try:
     os.close(fd)
 except OSError:
     pass
-os.waitpid(pid, 0)
+# A program that does not end is stopped, and what it wrote says where it
+# waited.
+signal.signal(signal.SIGALRM, lambda *args: (_ for _ in ()).throw(TimeoutError()))
+signal.alarm(30)
+try:
+    os.waitpid(pid, 0)
+except TimeoutError:
+    os.kill(pid, 9)
+    os.waitpid(pid, 0)
+    sys.stderr.write("fyai did not end; it wrote: %r\n" % buf[-2000:])
+    sys.exit(1)
+signal.alarm(0)
 sys.exit(0 if b"[y/N]" in buf else 1)
 PY
 if [ -e "$TEST_DIR/.fyai" ]; then fail "an answer of no created $TEST_DIR/.fyai"; fi
 
 # An answer of yes creates the project, and its config reads back.
 "$PYTHON" - "$FYAI_BIN" "$TEST_DIR" y <<'PY' || fail "the prompt did not appear"
-import os, pty, select, sys, time
+import os, pty, select, signal, sys, time
 from term_reply import answer_da1
 
 BIN, DIR, ANSWER = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -110,7 +121,18 @@ try:
     os.close(fd)
 except OSError:
     pass
-os.waitpid(pid, 0)
+# A program that does not end is stopped, and what it wrote says where it
+# waited.
+signal.signal(signal.SIGALRM, lambda *args: (_ for _ in ()).throw(TimeoutError()))
+signal.alarm(30)
+try:
+    os.waitpid(pid, 0)
+except TimeoutError:
+    os.kill(pid, 9)
+    os.waitpid(pid, 0)
+    sys.stderr.write("fyai did not end; it wrote: %r\n" % buf[-2000:])
+    sys.exit(1)
+signal.alarm(0)
 sys.exit(0 if b"initialized" in buf else 1)
 PY
 [ -d "$TEST_DIR/.fyai/arena" ] || fail "an answer of yes created no arena"
