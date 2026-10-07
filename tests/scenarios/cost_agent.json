@@ -1,0 +1,83 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "m",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call-1",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"greeter\", \"description\": \"greet and report\", \"task\": \"say hello\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 100,
+          "completion_tokens": 10,
+          "total_tokens": 110
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "m",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "agent report"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 50,
+          "completion_tokens": 5,
+          "total_tokens": 55
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "m",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Delegated and done."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 200,
+          "completion_tokens": 20,
+          "total_tokens": 220
+        }
+      }
+    }
+  ]
+}
