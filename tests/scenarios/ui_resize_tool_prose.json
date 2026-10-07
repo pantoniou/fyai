@@ -1,0 +1,162 @@
+{
+  "steps": [
+    {
+      "sse": [
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "I will look at the diff first.\n\n"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "Starting a review "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "agent on the last commit."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                      "name": "agent",
+                      "arguments": "{\"name\": \"greeter\", \"description\": \"greet and report\", \"task\": \"say hello\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "tool_calls"
+            }
+          ]
+        }
+      ],
+      "done": true
+    },
+    {
+      "sse": [
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "agent-was-here"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "done": true,
+      "wait_for": "release-child"
+    },
+    {
+      "sse": [
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Delegated and done."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "c1",
+          "object": "chat.completion.chunk",
+          "created": 1735689600,
+          "model": "mock-model",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      ],
+      "done": true
+    }
+  ]
+}
