@@ -127,6 +127,10 @@ transcript scroll is the scroll). Kill via `/kill`.
 
 ## Phasing (patch series: implementation, tests, docs)
 
+Status: steps 1 to 6 are done, and an inline page draws the blocks too,
+under its tail. The PTY cases and the documentation of step 7 came with
+each step.
+
 1. config key + predicate.
 2. transcript view blocks (+ unit tests in `tests/fyai_transcript_view_test.c`).
 3. sink/UI placement for text bands; tools path skips the delay.

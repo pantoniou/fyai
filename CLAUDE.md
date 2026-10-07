@@ -1175,10 +1175,13 @@ register, focus, zoom, resize - and sizes nothing itself.
   chrome: never a colour escape in C.
 - A hidden pane (`fyai_workpane_set_hidden()`) keeps its tiles, grants
   nothing new and takes no keys. A tile given the keys shows the pane again.
-- `Ctrl-T` and `Ctrl-Tab` cycle through tiles in row-major screen order, then
-  the prompt.
-  `fyai_workpane_screen_order()` reads that order from the placement, so a
-  policy of the user's decides it too. A hidden tile takes no keys, and a
+- `Ctrl-T` and `Ctrl-Tab` cycle through what takes the keys in the order the
+  screen shows it, from the top row down and from left to right in a row,
+  then the prompt: tiles and the terminal blocks of the transcript alike.
+  `fyai_tools_focus_next()` sorts them by where the last frame drew them
+  (`fyai_ui_tile_pos()`, `fyai_ui_inline_pos()`); a place the page did not
+  draw goes last. `fyai_workpane_screen_order()` orders the tiles from the
+  placement, so a policy of the user's decides it too. A hidden tile takes no keys, and a
   zoomed tile is the whole cycle.
 - `/zoom` gives one tile the pane and the keys, so the user works in the
   program instead of watching it. The prompt keeps its row while a tile holds
@@ -1235,6 +1238,49 @@ wrote at the old size and what it writes at the new one.
   that buffer. When the program leaves it, the primary screen is empty: the
   whole-session read returns the stripped log, which is the result of the
   call.
+
+### Inline tool display
+
+`display/tool_display: inline`, the default, draws the live output of a call
+in the transcript, at the call, in place of a tile of the work pane. The test
+harness selects `pane`, which most cases read.
+`fyai_ui_tools_inline()` is the one decision: it applies to a page, and a
+display without one uses the pane.
+`doc/inline-tool-display-plan.md` gives the design and the steps that remain.
+
+- A live call is a block of the transcript view
+  (`fyai_transcript_view_block_set()`): after the live rows, before the
+  tail, in the order the calls opened. A view scrolled back keeps its top
+  row while a block changes.
+- Producers keep the band interface. The terminal backend of the sink puts
+  an independent band in a block, and the UI puts the shared tool band
+  there. Both render the rows that a tile shows.
+- A live block takes the separation that the flow would draw, and changes
+  no flow state. Its commit drops the block and presents the band as a tile
+  commit does, so the stored exchange replaces the same rows.
+- A block shows the last `display/tool_preview_lines` rows. The transcript
+  scrolls it, so the stream keeps no history for it, and the band opens at
+  once: `display/work_open_delay_ms` hides a jump that a block does not make.
+- `fyai_transcript_view_show_block()` scrolls a block into the view.
+- An inline page has no transcript view: the terminal keeps the committed
+  rows. The UI keeps its blocks in a view of their own (`ui_blocks()`), and
+  the page draws them under the tail rows, which count them. When they do
+  not fit, the last rows stay. A row committed while a block runs goes into
+  the scrollback above it.
+- A terminal block, a session or a sub-agent, has
+  `display/inline_terminal_rows` rows and the width of the transcript less
+  the indent of tool output, and follows that width. Its mark blinks on the
+  timer of a tile.
+- A block of text is rendered again at a new width through the repaint of its
+  band: the sink keeps its bands drawn in the transcript, and the UI calls
+  `fyai_sink_bands_reflow()` when the live rows reflow.
+- `Ctrl-T` takes the terminal blocks in the order of the screen with the
+  tiles. A block has no surface, so the canvas of the page takes the keys
+  for it (`fyai_ui_inline_keys()`), with a callback of its own: the pane
+  clears the callback of a tile when it moves the keys. The block draws the
+  edge in its first indent column, a fullscreen view scrolls to it, `^C` goes
+  to its program, and `Ctrl-]` gives the keys back. A block that commits gives
+  them back too.
 
 ### Bang commands
 
