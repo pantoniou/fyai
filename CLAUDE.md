@@ -798,8 +798,8 @@ the page source; the terminal library draws its slots.
   what arrives, and a view scrolled back keeps its top row. A frame repaints
   only the cells that changed, so a PTY case waits on the screen
   (`wait-screen`), not on a line of bytes.
-- With `display/command_output: transcript`, a slash command is a part of
-  the transcript: its card is drawn, its output is drawn under the card, and
+- With `display/command_output: transcript`, the default, a slash command is
+  a part of the transcript: its card is drawn, its output is drawn under the card, and
   after it runs `fyai_interactive_record_command()` appends a turn with no
   messages and one `command` display record: the line, which replays as its
   card, and the rows its output drew. The card names the command, so no
@@ -808,7 +808,16 @@ the page source; the terminal library draws its slots.
   command beside a turn, or in a session that holds no exchange yet, is not
   stored. A command turn goes with the exchange before it in a merge or a
   rebase, and `~N` counts it.
-- With `pane`, the default, the transcript keeps nothing of a slash command:
+- The output stands on a ground of its own, `markdown_command_ground()`:
+  `display/command_bg` as given, or with `theme` `display/command_bg_mix`
+  percent of the `pane.focus` wash over the ground under the text - the
+  theme's on a fullscreen page with a theme ground, else the background the
+  probe measured. `markdown_ground_rows()` puts the rows on it when they are
+  presented, live and on replay; the record keeps them without it, so a
+  replay takes the settings of its own session.
+- The test harness selects `pane`, which most cases read; a case of the
+  transcript selects `transcript`.
+- With `pane`, the transcript keeps nothing of a slash command:
   no card is drawn and nothing is stored. Its output, and every notice and
   diagnostic, goes to the pane. `fyai_ui_pane_end()` shows a
   result of two rows or less above the status, until the input changes or
