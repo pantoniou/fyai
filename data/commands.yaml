@@ -533,7 +533,9 @@ commands:
           x-fyai-meta: MODEL
           x-fyai-complete: model
     render:
-      message: "model: {model} (provider {provider}, api {api})"
+      message:
+        - "model: {model} (provider {provider}, api {api})"
+        - "cache miss: {cache}"
 
   - command: init
     title: create the arena in this directory

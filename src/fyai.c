@@ -156,7 +156,11 @@ static void fyai_accumulate_usage(struct fyai_ctx *ctx, fy_generic usage)
 	ctx->usage_reasoning += fy_get(usage, "reasoning", 0LL);
 	ctx->usage_total += fy_get(usage, "total", 0LL);
 	ctx->usage_cost += fy_get(usage, "cost", 0.0);
+	if (fy_get(usage, "est", (_Bool)false))
+		ctx->usage_cost_est += fy_get(usage, "cost", 0.0);
 	ctx->usage_calls++;
+	/* The request that paid for the change of model is over. */
+	ctx->switch_pending = false;
 
 	/* Last-call snapshot: ground truth for the /context fill report. */
 	ctx->last_call_input = fy_get(usage, "input", 0LL);
@@ -188,7 +192,9 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 		(void)fyai_report(ctx, " reasoning=%lld", ctx->usage_reasoning);
 	(void)fyai_report(ctx, " total=%lld", ctx->usage_total);
 	if (ctx->usage_cost > 0.0)
-		(void)fyai_report(ctx, " cost=$%.6f", ctx->usage_cost);
+		(void)fyai_report(ctx, " cost=%s$%.6f",
+				  ctx->usage_cost_est > 0.0 ? "~" : "",
+				  ctx->usage_cost);
 	(void)fyai_report(ctx, "\n");
 }
 
@@ -2310,6 +2316,7 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->tools = fy_invalid;
 	ctx->tools_spec = fy_invalid;
 	ctx->last_message = fy_invalid;
+	ctx->usage_head = fy_invalid;
 	ctx->arena_config = fy_invalid;
 	ctx->arena_catalog = fy_invalid;
 	/* A zeroed fy_generic is an empty sequence, not fy_invalid. */

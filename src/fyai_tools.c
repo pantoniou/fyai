@@ -4706,8 +4706,9 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	 */
 	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
 	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
-	ctx->usage_cost = 0;
+	ctx->usage_cost = ctx->usage_cost_est = 0;
 	ctx->usage_calls = 0;
+	ctx->switch_pending = false;
 	ctx->last_call_input = ctx->last_call_output = ctx->last_call_total = 0;
 	ctx->last_token_extents = fy_invalid;
 	ctx->response_chain_linked = false;

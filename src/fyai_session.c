@@ -44,6 +44,7 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_catalog.h"
+#include "fyai_cost.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
@@ -98,10 +99,49 @@ static void session_reset_usage(struct fyai_ctx *ctx)
 	ctx->usage_reasoning = 0;
 	ctx->usage_total = 0;
 	ctx->usage_cost = 0.0;
+	ctx->usage_cost_est = 0.0;
 	ctx->usage_calls = 0;
 	ctx->last_call_input = 0;
 	ctx->last_call_output = 0;
 	ctx->last_call_total = 0;
+	ctx->usage_head = ctx->last_message;
+}
+
+/*
+ * The counters total the usage that the turns of the conversation carry.
+ * A head that moved since the last total, by a resume, a checkout, or a
+ * reset, makes them again from the stored turns, so a session that starts
+ * from stored turns shows what they cost. A sub-agent counts its own calls
+ * only: its stored chain starts with the conversation of its parent.
+ */
+void fyai_usage_sync(struct fyai_ctx *ctx)
+{
+	fy_generic cur, u;
+	double cost;
+
+	if (ctx->cfg->tool_child || ctx->usage_head.v == ctx->last_message.v)
+		return;
+	ctx->usage_input = ctx->usage_cached = ctx->usage_cache_write = 0;
+	ctx->usage_output = ctx->usage_reasoning = ctx->usage_total = 0;
+	ctx->usage_cost = ctx->usage_cost_est = 0.0;
+	ctx->usage_calls = 0;
+	fyai_turn_foreach(cur, ctx->last_message) {
+		u = fy_get(fyai_turn_meta(cur), "usage");
+		if (fy_is_invalid(u))
+			continue;
+		ctx->usage_input += fy_get(u, "input", 0LL);
+		ctx->usage_cached += fy_get(u, "cached", 0LL);
+		ctx->usage_cache_write += fy_get(u, "cache_write", 0LL);
+		ctx->usage_output += fy_get(u, "output", 0LL);
+		ctx->usage_reasoning += fy_get(u, "reasoning", 0LL);
+		ctx->usage_total += fy_get(u, "total", 0LL);
+		cost = fy_get(u, "cost", 0.0);
+		ctx->usage_cost += cost;
+		if (fy_get(u, "est", (_Bool)false))
+			ctx->usage_cost_est += cost;
+		ctx->usage_calls++;
+	}
+	ctx->usage_head = ctx->last_message;
 }
 
 int fyai_session_clear(struct fyai_ctx *ctx)
@@ -554,6 +594,37 @@ static void session_login_ref(struct fyai_cfg *tmp)
 		tmp->api_key_ref = NULL;
 }
 
+/*
+ * A change of model leaves the prompt cache behind: the conversation goes to
+ * the new model at the full input price, where the old model would have read
+ * it from its cache. Keep what that costs until the next call ends.
+ */
+static void session_switch_estimate(struct fyai_ctx *ctx,
+				    struct fyai_cfg *to)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_context_prompt prompt;
+	struct fyai_switch_cost cost;
+	struct fyai_pricing from_price, to_price;
+
+	ctx->switch_pending = false;
+	if (fy_is_invalid(ctx->last_message) || !cfg->model || !to->model ||
+	    (!strcmp(cfg->model, to->model) &&
+	     !strcmp(cfg->provider ? cfg->provider : "",
+		     to->provider ? to->provider : "")))
+		return;
+	fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
+	if (prompt.prompt <= 0 ||
+	    !fyai_pricing_lookup(cfg, cfg->provider, cfg->model, &from_price) ||
+	    !fyai_pricing_lookup(to, to->provider, to->model, &to_price))
+		return;
+	fyai_pricing_switch(&from_price, &to_price, prompt.prompt, &cost);
+	ctx->switch_prefix = prompt.prompt;
+	ctx->switch_fresh = cost.fresh;
+	ctx->switch_stay = cost.stay;
+	ctx->switch_pending = true;
+}
+
 int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
@@ -587,6 +658,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 		return -1;
 	}
 
+	session_switch_estimate(ctx, &tmp);
 	*cfg = tmp;
 
 	/* Re-derive ChatGPT subscription routing (endpoint + token) for the
@@ -1249,10 +1321,11 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	bool colour_ok;
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
-	char tokens[64], cost[32], cache[64];
+	char tokens[64], cost[96], cache[64], amount[32];
 	/* Wide enough for any long long, so the abbreviation never truncates. */
 	char used_str[24], window_str[24], cached_str[24];
 	long long used;
+	double delta;
 	char *top, *bottom, *cwd, *directory, *branch, *location;
 	char *tilde, *home_real, *cwd_real;
 	const char *home, *pwd;
@@ -1344,8 +1417,19 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 			 used_str, window_str,
 			 (double)used * 100.0 / (double)window);
 	}
-	if (ctx->usage_cost > 0.0)
-		snprintf(cost, sizeof(cost), " · $%.4f", ctx->usage_cost);
+	fyai_usage_sync(ctx);
+	if (ctx->usage_cost > 0.0) {
+		fyai_cost_format(amount, sizeof(amount), ctx->usage_cost,
+				 ctx->usage_cost_est > 0.0);
+		snprintf(cost, sizeof(cost), " · %s", amount);
+	}
+	/* The next request has no cache on the model just chosen. */
+	if (ctx->switch_pending) {
+		delta = ctx->switch_fresh - ctx->switch_stay;
+		snprintf(cost + strlen(cost), sizeof(cost) - strlen(cost),
+			 " · cache miss ~%s$%.4f", delta < 0.0 ? "-" : "+",
+			 delta < 0.0 ? -delta : delta);
+	}
 	if (ctx->usage_input > 0) {
 		session_token_count(cached_str, sizeof(cached_str),
 				    ctx->usage_cached);

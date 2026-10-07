@@ -746,7 +746,20 @@ struct fyai_ctx {
 	long long usage_reasoning;
 	long long usage_total;
 	double usage_cost;
+	/* The part of usage_cost that is estimated from the catalogue prices. */
+	double usage_cost_est;
 	int usage_calls;
+	/* The turn that the counters above total; see fyai_usage_sync(). */
+	fy_generic usage_head;
+	/*
+	 * The cost of a change of model: the next request has no cache on the
+	 * new model. @switch_prefix tokens cost @switch_fresh there, and
+	 * @switch_stay on the model that was left. Pending until a call ends.
+	 */
+	bool switch_pending;
+	long long switch_prefix;
+	double switch_fresh;
+	double switch_stay;
 	/* Last model call's usage (ground truth for context fill). */
 	long long last_call_input;
 	long long last_call_output;

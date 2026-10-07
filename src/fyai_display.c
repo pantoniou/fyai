@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "fyai_cost.h"
 #include "fyai_branch.h"
 #include "fyai_diff.h"
 #include "fyai_config.h"
@@ -978,6 +979,35 @@ out:
 	return rc;
 }
 
+/*
+ * The turns come newest first. A call on another model than the call after it
+ * (@call) found no cache for the conversation: what it read at full price,
+ * the cache of its model would have charged at the cache price. Add that to
+ * @cost, and return true, when @older ran on another model than @call.
+ */
+static bool stats_model_change(struct fyai_ctx *ctx, fy_generic older,
+			       fy_generic call, double *cost)
+{
+	struct fyai_pricing price;
+	fy_generic om, cm;
+	char model[128];
+	long long lost;
+
+	om = fy_get(older, "model", fy_invalid);
+	cm = fy_get(call, "model", fy_invalid);
+	if (!fy_is_string(om) || !fy_is_string(cm) || fy_equal(om, cm))
+		return false;
+	snprintf(model, sizeof(model), "%s", fy_castp(&cm, ""));
+	lost = fy_get(older, "input", 0LL);
+	if (lost > fy_get(call, "input", 0LL))
+		lost = fy_get(call, "input", 0LL);
+	lost -= fy_get(call, "cached", 0LL);
+	if (lost > 0 && fyai_pricing_lookup(ctx->cfg, ctx->cfg->provider,
+					    model, &price))
+		*cost += (double)lost * (price.input - price.cache_read) / 1e6;
+	return true;
+}
+
 fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 {
 	struct fy_allocator_usage arena;
@@ -993,10 +1023,14 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	long long reasoning;
 	long long total;
 	double cost;
+	double cost_est;
 	double ratio;
 	double arena_ratio;
+	double switch_cost;
+	fy_generic newer;
 	bool have_arena;
 	int calls;
+	int switches;
 
 	memset(&arena, 0, sizeof(arena));
 	have_arena = ctx->durable_allocator &&
@@ -1012,14 +1046,21 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 	reasoning = 0;
 	total = 0;
 	cost = 0.0;
+	cost_est = 0.0;
 	ratio = 0.0;
 	arena_ratio = 0.0;
+	switch_cost = 0.0;
 	calls = 0;
+	switches = 0;
+	newer = fy_invalid;
 
 	fyai_turn_foreach(cur, ctx->last_message) {
 		u = fy_get(fyai_turn_meta(cur), "usage");
 		if (fy_is_invalid(u))
 			continue;
+		if (stats_model_change(ctx, u, newer, &switch_cost))
+			switches++;
+		newer = u;
 		input += fy_get(u, "input", 0);
 		cached += fy_get(u, "cached", 0);
 		cache_write += fy_get(u, "cache_write", 0);
@@ -1027,6 +1068,8 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 		reasoning += fy_get(u, "reasoning", 0);
 		total += fy_get(u, "total", 0);
 		cost += fy_get(u, "cost", 0.0);
+		if (fy_get(u, "est", (_Bool)false))
+			cost_est += fy_get(u, "cost", 0.0);
 		calls++;
 	}
 	if (input)
@@ -1053,6 +1096,13 @@ fy_generic fyai_stats_data(struct fyai_ctx *ctx, struct fy_generic_builder *gb)
 					"chunks", chunks,
 					"generation", generation) :
 				fy_null);
+	/* Only a conversation that has them carries these. */
+	if (cost_est > 0.0)
+		out = fy_assoc(gb, out, "cost_est", cost_est);
+	if (switches > 0) {
+		out = fy_assoc(gb, out, "switches", (long long)switches);
+		out = fy_assoc(gb, out, "switch_cost", switch_cost);
+	}
 
 	return out;
 }
@@ -1091,6 +1141,13 @@ static int fyai_emit_stats_markdown(struct fyai_ctx *ctx, fy_generic stats)
 		fy_get(stats, "reasoning", 0LL));
 	fprintf(mf, "| Total tokens | %lld |\n", fy_get(stats, "total", 0LL));
 	fprintf(mf, "| Cost | $%.6f |\n", fy_get(stats, "cost", 0.0));
+	if (fy_get(stats, "cost_est", 0.0) > 0.0)
+		fprintf(mf, "| Cost estimated from prices | $%.6f |\n",
+			fy_get(stats, "cost_est", 0.0));
+	if (fy_get(stats, "switches", 0LL) > 0)
+		fprintf(mf, "| Model changes | %lld (cache miss ~$%.6f) |\n",
+			fy_get(stats, "switches", 0LL),
+			fy_get(stats, "switch_cost", 0.0));
 
 	arena = fy_get(stats, "arena");
 	if (!fy_is_invalid(arena)) {

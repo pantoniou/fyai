@@ -460,6 +460,7 @@ set(FYAI_SOURCES
     src/fyai_turn.c
     src/utils.c
     src/fyai_catalog.c
+    src/fyai_cost.c
     src/fyai_config.c
     src/fyai_curl.c
     src/fyai_xfer.c

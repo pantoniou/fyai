@@ -220,17 +220,31 @@ int fyai_cmd_model(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = call->ctx;
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name = fyai_cmd_arg_str(call, "name");
+	const char *old = cfg->model ? cfg->model : "";
 	long long window;
+	fy_generic note = fy_invalid;
+	double delta;
 
 	if (name && fyai_session_model(ctx, name,
 				       call->surface == FYAI_CMD_SESSION))
 		return -1;
+	if (name && ctx->switch_pending) {
+		delta = ctx->switch_fresh - ctx->switch_stay;
+		note = fy_stringf(call->gb, "%lld tokens go to %s with no cache: "
+				  "~$%.4f, against ~$%.4f read from the cache "
+				  "of %s (%s~$%.4f)", ctx->switch_prefix,
+				  cfg->model, ctx->switch_fresh,
+				  ctx->switch_stay, old, delta < 0.0 ? "-" : "+",
+				  delta < 0.0 ? -delta : delta);
+	}
 	window = fyai_context_window(ctx);
 	*result = fy_mapping(call->gb,
 		"model", cfg->model ? cfg->model : "",
 		"provider", cfg->provider ? cfg->provider : "?",
 		"api", fyai_api_to_string(cfg->api_mode),
 		"window", window);
+	if (fy_is_valid(*result) && fy_is_valid(note))
+		*result = fy_assoc(call->gb, *result, "cache", note);
 	fyai_error_check(ctx, fy_is_valid(*result), err,
 			 "model: cannot build the result");
 	return 0;

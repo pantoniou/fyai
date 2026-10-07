@@ -126,6 +126,8 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
  * the context fill. No-op outside an interactive markdown tty session.
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx);
+/* Total the stored usage of the conversation again after a head change. */
+void fyai_usage_sync(struct fyai_ctx *ctx);
 
 struct fyai_tmpl_var {
 	const char *key;
