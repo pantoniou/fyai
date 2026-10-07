@@ -853,11 +853,28 @@ properties:
       command_output:
         type: string
         enum: [pane, transcript]
-        default: pane
+        default: transcript
         description: >-
           Select where slash-command output appears. pane shows it in a popup or a
           tile, and the transcript keeps nothing of it. transcript draws the
           command and its output in the transcript, and stores both there.
+      command_bg:
+        type: string
+        default: theme
+        description: >-
+          Set the background of slash-command output in the transcript. theme
+          mixes command_bg_mix percent of the palette's pane.focus colour into
+          the ground under the text, which needs a palette and 24-bit colour.
+          #rrggbb sets an explicit colour. An empty value or none draws no
+          background.
+      command_bg_mix:
+        type: integer
+        minimum: 0
+        maximum: 100
+        default: 6
+        description: >-
+          Set how much of the theme colour command_bg theme mixes into the
+          ground under the text, in percent.
       tool_display:
         type: string
         enum: [pane, inline]

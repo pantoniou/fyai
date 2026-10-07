@@ -3659,12 +3659,22 @@ static void fyai_display_command_output(struct fyai_ctx *ctx,
 	fy_generic gtext = fy_get(output, "output");
 	const char *text = fy_castp(&gtext, "");
 	size_t len = strlen(text);
+	struct response_buffer washed = {0};
+	uint32_t bg;
 
 	(void)fyai_render_display_output(ctx, "user", line);
 	if (!len)
 		return;
 	(void)fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, FYAI_FLOW_NOTICE);
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, text, len);
+	if (markdown_command_ground(ctx->cfg, &bg) &&
+	    !markdown_ground_rows(ctx->cfg, bg, text, len, &washed) &&
+	    washed.len)
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT,
+				      washed.data, washed.len);
+	else
+		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, text,
+				      len);
+	free(washed.data);
 	if (text[len - 1] != '\n')
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
 }

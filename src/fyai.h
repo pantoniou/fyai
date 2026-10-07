@@ -101,7 +101,9 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Where an editor runs: a tile of the work pane, or the whole terminal. */
 #define DEFAULT_EDITOR_MODE "pane"
 #define DEFAULT_COMPLETION_MODE "tab"
-#define DEFAULT_COMMAND_OUTPUT "pane"
+#define DEFAULT_COMMAND_OUTPUT "transcript"
+#define DEFAULT_COMMAND_BG "theme"
+#define DEFAULT_COMMAND_BG_MIX 6
 #define DEFAULT_TOOL_DISPLAY "inline"
 #define DEFAULT_FOCUS_MARK "edge"
 #define DEFAULT_INLINE_TERMINAL_ROWS 12
@@ -304,6 +306,8 @@ struct fyai_cfg {
 	const char *editor_mode;	/* pane | terminal */
 	const char *completion_mode;	/* tab | auto */
 	const char *command_output;	/* pane | transcript */
+	const char *command_bg;		/* theme | none | #rrggbb */
+	int command_bg_mix;		/* percent of the theme colour */
 	const char *tool_display;	/* pane | inline */
 	int inline_terminal_rows;	/* rows of an inline terminal */
 	int work_columns;		/* columns when work_layout is columns */

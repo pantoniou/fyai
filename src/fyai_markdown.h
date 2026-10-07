@@ -92,6 +92,23 @@ const char *markdown_role_off(const struct fyai_cfg *cfg, const char *role,
 /* The ground of what holds the keys, the pane.focus wash of the palette theme,
  * as 0xRRGGBB in *@rgb. False when there is no palette, no colour or no wash. */
 bool markdown_focus_ground(const struct fyai_cfg *cfg, uint32_t *rgb);
+/*
+ * The ground of the output of a slash command in the transcript into *@rgb:
+ * display/command_bg as given, or with theme display/command_bg_mix percent
+ * of the pane.focus wash of the palette over the ground under the text. That
+ * ground is the theme's on a fullscreen page with a theme ground, else the
+ * terminal's background from the probe. False for none, or when the colour
+ * cannot be made.
+ */
+bool markdown_command_ground(const struct fyai_cfg *cfg, uint32_t *rgb);
+/*
+ * Append the @len bytes of @text rows to @out on the ground @rgb: each row
+ * starts on it, takes it again after each reset, and runs to the render
+ * width. Returns 0, or -1 when memory runs out.
+ */
+int markdown_ground_rows(const struct fyai_cfg *cfg, uint32_t rgb,
+			 const char *text, size_t len,
+			 struct response_buffer *out);
 /* Write the palette ground escape for a fullscreen page using theme ground.
  * Return its length, or zero with an empty buffer when no ground applies. */
 int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,

@@ -731,6 +731,10 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "completion", cfg->completion_mode));
 		cfg->command_output = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "command_output", cfg->command_output));
+		cfg->command_bg = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "command_bg", cfg->command_bg));
+		cfg->command_bg_mix = (int)fy_get(v, "command_bg_mix",
+						  (long long)cfg->command_bg_mix);
 		cfg->tool_display = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "tool_display", cfg->tool_display));
 		cfg->inline_terminal_rows = fy_get(v, "inline_terminal_rows",
@@ -2650,6 +2654,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->editor_mode = DEFAULT_EDITOR_MODE;
 	cfg->completion_mode = DEFAULT_COMPLETION_MODE;
 	cfg->command_output = DEFAULT_COMMAND_OUTPUT;
+	cfg->command_bg = DEFAULT_COMMAND_BG;
+	cfg->command_bg_mix = DEFAULT_COMMAND_BG_MIX;
 	cfg->tool_display = DEFAULT_TOOL_DISPLAY;
 	cfg->focus_mark = DEFAULT_FOCUS_MARK;
 	cfg->inline_terminal_rows = DEFAULT_INLINE_TERMINAL_ROWS;

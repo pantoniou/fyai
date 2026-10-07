@@ -323,9 +323,13 @@ display:
   work_position: above-prompt
   # Completion popup: tab opens on Tab; auto opens when typing finds matches.
   completion: tab
-  # Slash-command output: pane shows a tile or popup without storing it;
-  # transcript draws and stores the command and output.
-  command_output: pane
+  # Slash-command output: transcript draws and stores the command and output;
+  # pane shows a tile or popup without storing it.
+  command_output: transcript
+  # Ground of command output in the transcript: theme mixes command_bg_mix
+  # percent of the theme focus colour into the ground; #rrggbb or none.
+  command_bg: theme
+  command_bg_mix: 6
   # Live output of a shell or agent call: inline draws it in the transcript
   # at the call; pane shows a tile of the work pane.
   tool_display: inline

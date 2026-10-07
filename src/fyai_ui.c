@@ -2421,11 +2421,24 @@ static void ui_pane_to_transcript(struct fyai_ui *ui,
 				  struct response_buffer *out)
 {
 	struct fyai_flow *flow = fyai_sink_flow(ui->ctx->sink);
+	struct response_buffer washed = {0};
+	uint32_t bg;
+	int rc;
 
 	(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
-	if (ui_present(ui, out->data, out->len) ||
-	    (out->data[out->len - 1] != '\n' && ui_present(ui, "\n", 1)))
+	/* The output stands on a ground of its own; the record keeps the rows
+	 * without it, so a replay draws the ground of its own settings. */
+	if (markdown_command_ground(ui->ctx->cfg, &bg)) {
+		rc = markdown_ground_rows(ui->ctx->cfg, bg, out->data, out->len,
+					  &washed);
+		if (!rc && washed.len)
+			rc = ui_present(ui, washed.data, washed.len);
+	} else {
+		rc = ui_present(ui, out->data, out->len);
+	}
+	if (rc || (out->data[out->len - 1] != '\n' && ui_present(ui, "\n", 1)))
 		fyai_warning(ui->ctx, "could not draw the output of a command");
+	free(washed.data);
 	fyai_flow_emitted(flow, FYAI_FLOW_NOTICE, true);
 	free(ui->pane_kept);
 	ui->pane_kept = strndup(out->data, out->len);
