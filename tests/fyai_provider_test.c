@@ -11,6 +11,7 @@
 
 #include "fyai.h"
 #include "fyai_provider.h"
+#include "fyai_cost.h"
 #include "utils.h"
 
 #include "fyai_test_registry.h"
@@ -18,6 +19,7 @@
 FYAI_TEST_ENTRY(provider, responses_input, provider_responses_input)
 FYAI_TEST_ENTRY(provider, chat_input, provider_chat_input)
 FYAI_TEST_ENTRY(provider, extract_usage, provider_extract_usage)
+FYAI_TEST_ENTRY(provider, usage_cost, provider_usage_cost)
 FYAI_TEST_ENTRY(provider, chatgpt_shell_tool, provider_chatgpt_shell_tool)
 FYAI_TEST_ENTRY(provider, foreign_shell_tool, provider_foreign_shell_tool)
 FYAI_TEST_ENTRY(provider, shell_downgrade, provider_shell_downgrade)
@@ -198,6 +200,115 @@ static void test_extract_usage(void)
 		fprintf(stderr, "usage from empty doc\n");
 		exit(1);
 	}
+}
+
+/* A catalogue of two providers that price the same model differently. */
+static const char *const cost_catalog =
+	"{\"providers\":["
+	"{\"name\":\"acme\",\"models\":["
+	"{\"canonical_id\":\"big\",\"provider_model_id\":\"big\","
+	"\"pricing\":{\"input\":10,\"output\":40,"
+	"\"extra\":{\"cache_read\":1,\"cache_write\":12}}},"
+	"{\"canonical_id\":\"small\",\"provider_model_id\":\"small\","
+	"\"pricing\":{\"input\":2,\"output\":8,"
+	"\"extra\":{\"cache_read\":0.5}}},"
+	"{\"canonical_id\":\"free\",\"provider_model_id\":\"free\"}"
+	"]}]}";
+
+static void test_usage_cost(void)
+{
+	struct fyai_switch_cost sw;
+	struct fyai_pricing big, small;
+	fy_generic doc, usage;
+	char buf[32];
+
+	test_cfg.catalog = parse(cost_catalog);
+	test_cfg.provider = "acme";
+	test_cfg.api_mode = FYAI_API_CHAT_COMPLETIONS;
+
+	/* The prices of an offering, with the input price for a missing cache
+	 * price. */
+	if (!fyai_pricing_lookup(&test_cfg, "acme", "big", &big) ||
+	    !fyai_pricing_lookup(&test_cfg, NULL, "small", &small) ||
+	    big.cache_write != 12.0 || small.cache_write != 2.0 ||
+	    small.cache_read != 0.5 ||
+	    fyai_pricing_lookup(&test_cfg, "acme", "free", &small) ||
+	    fyai_pricing_lookup(&test_cfg, "acme", "none", &small)) {
+		fprintf(stderr, "pricing lookup mismatch\n");
+		exit(1);
+	}
+	(void)fyai_pricing_lookup(&test_cfg, "acme", "small", &small);
+
+	/* 1000 prompt tokens: 600 cached, 100 written, 300 at full price. */
+	if (fyai_pricing_cost(&big, 1000, 600, 100, 50) !=
+	    (300 * 10.0 + 600 * 1.0 + 100 * 12.0 + 50 * 40.0) / 1e6) {
+		fprintf(stderr, "pricing cost mismatch\n");
+		exit(1);
+	}
+
+	/* The call is priced at its model, and a reported cost is kept. */
+	test_cfg.model = "big";
+	doc = parse("{\"usage\":{\"prompt_tokens\":1000,"
+		    "\"completion_tokens\":50,"
+		    "\"prompt_tokens_details\":{\"cached_tokens\":600}}}");
+	usage = fyai_extract_usage(&test_ctx, doc);
+	if (!fy_get(usage, "est", (_Bool)false) ||
+	    fy_get(usage, "cost", 0.0) !=
+	    (400 * 10.0 + 600 * 1.0 + 50 * 40.0) / 1e6 ||
+	    !fy_equal(fy_get(usage, "model"), "big")) {
+		fprintf(stderr, "estimated usage mismatch: %s\n", emit(usage));
+		exit(1);
+	}
+	test_cfg.model = "small";
+	usage = fyai_extract_usage(&test_ctx, doc);
+	if (fy_get(usage, "cost", 0.0) !=
+	    (400 * 2.0 + 600 * 0.5 + 50 * 8.0) / 1e6) {
+		fprintf(stderr, "second model usage mismatch: %s\n", emit(usage));
+		exit(1);
+	}
+	doc = parse("{\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,"
+		    "\"cost\":0.25}}");
+	usage = fyai_extract_usage(&test_ctx, doc);
+	if (fy_get(usage, "est", (_Bool)true) || fy_get(usage, "cost", 0.0) != 0.25) {
+		fprintf(stderr, "reported cost mismatch: %s\n", emit(usage));
+		exit(1);
+	}
+	/* A model with no price has no estimate. */
+	test_cfg.model = "free";
+	doc = parse("{\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}");
+	usage = fyai_extract_usage(&test_ctx, doc);
+	if (fy_get(usage, "est", (_Bool)true) || fy_get(usage, "cost", 1.0) != 0.0) {
+		fprintf(stderr, "unpriced usage mismatch: %s\n", emit(usage));
+		exit(1);
+	}
+
+	/* The first call on another model reads the prefix with no cache. */
+	(void)fyai_pricing_lookup(&test_cfg, "acme", "big", &big);
+	fyai_pricing_switch(&small, &big, 100000, &sw);
+	if (sw.fresh != 100000 * 10.0 / 1e6 || sw.stay != 100000 * 0.5 / 1e6) {
+		fprintf(stderr, "switch cost mismatch\n");
+		exit(1);
+	}
+	big.explicit_cache = true;
+	fyai_pricing_switch(&small, &big, 100000, &sw);
+	if (sw.fresh != 100000 * 12.0 / 1e6) {
+		fprintf(stderr, "explicit cache switch cost mismatch\n");
+		exit(1);
+	}
+
+	fyai_cost_format(buf, sizeof(buf), 0.5, true);
+	if (strcmp(buf, "~$0.5000")) {
+		fprintf(stderr, "cost format mismatch: %s\n", buf);
+		exit(1);
+	}
+	fyai_cost_format(buf, sizeof(buf), 0.5, false);
+	if (strcmp(buf, "$0.5000")) {
+		fprintf(stderr, "cost format mismatch: %s\n", buf);
+		exit(1);
+	}
+	test_cfg.catalog = fy_invalid;
+	test_cfg.model = NULL;
+	test_cfg.provider = NULL;
 }
 
 static void test_chatgpt_shell_tool(void)
@@ -562,6 +673,11 @@ int provider_chat_input(void)
 int provider_extract_usage(void)
 {
 	return provider_run(test_extract_usage);
+}
+
+int provider_usage_cost(void)
+{
+	return provider_run(test_usage_cost);
 }
 
 int provider_chatgpt_shell_tool(void)
