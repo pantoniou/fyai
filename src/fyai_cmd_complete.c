@@ -908,9 +908,15 @@ struct session_cands {
 static void session_cand(void *arg, const char *value, const char *desc)
 {
 	struct session_cands *sc = arg;
+	size_t len = strlen(value);
+	bool more = len && (value[len - 1] == '/' || value[len - 1] == '=');
 
-	sc->add(sc->arg, fy_sprintfa("%.*s%s", (int)sc->keep, sc->line, value),
-		desc);
+	/*
+	 * A taken candidate ends the word, so the next one can follow at once. A
+	 * path segment or an assignment goes on in the same word.
+	 */
+	sc->add(sc->arg, fy_sprintfa("%.*s%s%s", (int)sc->keep, sc->line, value,
+				     more ? "" : " "), desc);
 }
 
 void fyai_cmd_session_complete(struct fyai_ctx *ctx, const char *buf,
