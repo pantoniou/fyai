@@ -1395,8 +1395,8 @@ do not put a colour for a role in C.
   `fytim_keys_return()`, before anything the terminal sends later. A reply
   that arrives after the time limit is dropped by the libfytimui input
   parser. A sub-agent and the branch browser preview do not probe.
-- `display/theme_ground=terminal` makes the background of the terminal the
-  ground of the palette with `fypal_ctx_set_ground()`, so the neutral ramp of
+- `display/theme_ground=terminal`, the default, makes the background of the
+  terminal the ground of the palette with `fypal_ctx_set_ground()`, so the neutral ramp of
   the theme keeps its steps over that background. The theme names the ground
   and decides what follows it; fyai holds no colour. The background comes
   from the probe. A background of the other variant is not applied. A PTY
