@@ -803,6 +803,14 @@ properties:
           empty value draws no ground and reverses the tile margin to mark
           focus. fyai reports an explicit colour if the theme text is hard
           to read on it.
+      focus_mark:
+        type: string
+        enum: [wash, edge]
+        default: edge
+        description: >-
+          Select how the input area that has the keys is marked. edge draws
+          the edge column alone, and the ground stays that of the terminal.
+          wash also draws focus_bg under it.
       focus_bg_mix:
         type: integer
         minimum: 0

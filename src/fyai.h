@@ -103,6 +103,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_COMPLETION_MODE "tab"
 #define DEFAULT_COMMAND_OUTPUT "pane"
 #define DEFAULT_TOOL_DISPLAY "inline"
+#define DEFAULT_FOCUS_MARK "edge"
 #define DEFAULT_INLINE_TERMINAL_ROWS 12
 #define DEFAULT_FOCUS_BG "theme"
 #define DEFAULT_FOCUS_BG_MIX 35
@@ -296,6 +297,7 @@ struct fyai_cfg {
 	const char *focus_bg;		/* ground of the focused tile, "" = none */
 	const char *focus_bg_checked;	/* the literal ground already reported */
 	int focus_bg_mix;		/* percent of it mixed into a colour */
+	const char *focus_mark;		/* wash | edge */
 	/* Work-pane configuration. */
 	const char *work_layout;	/* auto | columns | stack */
 	const char *work_position;	/* above-prompt | below-prompt */

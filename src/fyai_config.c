@@ -737,6 +737,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 						   cfg->inline_terminal_rows);
 		cfg->focus_bg = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "focus_bg", cfg->focus_bg));
+		cfg->focus_mark = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "focus_mark", cfg->focus_mark));
 		cfg->focus_bg_mix = (int)fy_get(v, "focus_bg_mix",
 						(long long)cfg->focus_bg_mix);
 		cfg->work_columns = fy_get(v, "work_columns",
@@ -2649,6 +2651,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->completion_mode = DEFAULT_COMPLETION_MODE;
 	cfg->command_output = DEFAULT_COMMAND_OUTPUT;
 	cfg->tool_display = DEFAULT_TOOL_DISPLAY;
+	cfg->focus_mark = DEFAULT_FOCUS_MARK;
 	cfg->inline_terminal_rows = DEFAULT_INLINE_TERMINAL_ROWS;
 	cfg->focus_bg = DEFAULT_FOCUS_BG;
 	cfg->focus_bg_mix = DEFAULT_FOCUS_BG_MIX;

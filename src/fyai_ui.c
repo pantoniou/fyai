@@ -1020,12 +1020,18 @@ static void ui_apply_resize(struct fyai_ui *ui, int rows, int width)
 /*
  * The ground of what holds the keys - the prompt, a picker, a focused tile -
  * into *@bgp. theme takes the focus wash of the palette theme, and the ground
- * the terminal draws text in when there is none. Returns false for an empty
- * or malformed value.
+ * the terminal draws text in when there is none. With display/focus_mark
+ * edge the ground is that of the terminal: the edge column alone marks
+ * focus. Returns false for an empty or malformed value.
  */
 static bool ui_focus_ground(const struct fyai_ctx *ctx, uint32_t *bgp)
 {
 	const char *text = ctx->cfg->focus_bg;
+
+	if (ctx->cfg->focus_mark && !strcmp(ctx->cfg->focus_mark, "edge")) {
+		*bgp = FYTIM_COLOR_DEFAULT;
+		return true;
+	}
 
 	if (text && !strcmp(text, "theme")) {
 		if (!markdown_focus_ground(ctx->cfg, bgp))

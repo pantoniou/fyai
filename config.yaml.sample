@@ -344,6 +344,8 @@ display:
   # focus_bg_mix controls the percentage mixed into program-colored cells.
   focus_bg: theme
   focus_bg_mix: 35
+  # Focus mark: edge draws the edge column alone; wash also draws focus_bg.
+  focus_mark: edge
   # Pane chrome: work_frame surrounds the pane, tile_frame ends each tile,
   # tile_sep divides columns, and session_margin precedes terminal rows.
   # work_cap replaces the upper frame with pane and tile status.
