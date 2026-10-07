@@ -1669,8 +1669,9 @@ in the way that scp names a file of a host; the other side is a path of the
 project, whatever the current directory is. The sources are all of the
 project, or all of one view, and the destination is the other. A directory
 is copied with what it holds, and a path that exists is replaced. A
-destination that ends in a slash is a directory that takes the sources by
-their names; any other destination is the new name of one source. Copying
+destination that ends in a slash, or is . (the top of the project or of the
+view), is a directory that takes the sources by their names; any other
+destination is the new name of one source. Copying
 into a view records the result there, and the project is not changed.
 Copying to the project replaces its files with no check of what they
 held; `view apply` is the copy that compares them. Regular files,
@@ -1701,6 +1702,10 @@ put the file of the project in the directory src of the view
     fyai view cp session:src/main.c src/main.c
 
 replace the file of the project with the one of the view
+
+    fyai view cp session:notes.txt .
+
+copy the file of the view to the top of the project
 
 
 ## fyai view sync
@@ -3866,8 +3871,9 @@ in the way that scp names a file of a host; the other side is a path of the
 project, whatever the current directory is. The sources are all of the
 project, or all of one view, and the destination is the other. A directory
 is copied with what it holds, and a path that exists is replaced. A
-destination that ends in a slash is a directory that takes the sources by
-their names; any other destination is the new name of one source. Copying
+destination that ends in a slash, or is . (the top of the project or of the
+view), is a directory that takes the sources by their names; any other
+destination is the new name of one source. Copying
 into a view records the result there, and the project is not changed.
 Copying to the project replaces its files with no check of what they
 held; `view apply` is the copy that compares them. Regular files,
@@ -3897,6 +3903,10 @@ put the file of the project in the directory src of the view
     /view cp session:src/main.c src/main.c
 
 replace the file of the project with the one of the view
+
+    /view cp session:notes.txt .
+
+copy the file of the view to the top of the project
 
 
 ## /view sync

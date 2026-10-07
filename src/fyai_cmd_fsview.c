@@ -2415,6 +2415,18 @@ static int view_cp_finish(void *arg)
 	return cp->rc ? -1 : 0;
 }
 
+/* Whether @path names the top of the project or the view: "", ".", "./", "./.". */
+static bool view_dest_is_top(const char *path)
+{
+	for (; *path; path++) {
+		if (*path == '.' && path[1] && path[1] != '/')
+			return false;
+		if (*path != '.' && *path != '/')
+			return false;
+	}
+	return true;
+}
+
 int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = call->ctx;
@@ -2423,7 +2435,7 @@ int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
 	struct view_job job = { .record = true };
 	const char **given = NULL, **argv = NULL, **sources = NULL, **names = NULL, *argument, *path,
 		   *tail;
-	char (*text)[PATH_MAX] = NULL, view[PATH_MAX], other[PATH_MAX], leaf[PATH_MAX];
+	char (*text)[PATH_MAX] = NULL, view[PATH_MAX], other[PATH_MAX], leaf[PATH_MAX], dest[PATH_MAX];
 	size_t count = fy_len(list), nsrc, i = 0, length;
 	bool named, directory;
 	int rc = -1;
@@ -2467,9 +2479,25 @@ int fyai_cmd_view_cp(struct fyai_cmd_call *call, fy_generic *result)
 		}
 		sources[i] = text[i];
 	}
-	/* A destination that ends in a slash, or is the view itself, is a directory. */
+	/*
+	 * A destination that ends in a slash, or is the top of the project or of the view
+	 * (".", "./"), is a directory. So is "dir/.", as it is for cp.
+	 */
 	length = strlen(tail);
 	directory = !length || tail[length - 1] == '/';
+	if (view_dest_is_top(tail)) {
+		directory = true;
+		length = 0;
+	} else if (length >= 2 && !strcmp(tail + length - 2, "/.")) {
+		directory = true;
+		if (length >= sizeof(dest)) {
+			fyai_error(ctx, "view cp: '%s' is not a path", tail);
+			goto out;
+		}
+		memcpy(dest, tail, length - 1);
+		dest[length - 1] = '\0';
+		tail = dest;
+	}
 	if (length && !fyai_view_fs_path(tail, leaf, sizeof(leaf))) {
 		fyai_error(ctx, "view cp: '%s' is not a path", tail);
 		goto out;
