@@ -559,20 +559,24 @@ int cmd_complete_session(void)
 
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/bra", cands_add, &c);
-	FYAI_TCHECK(!strcmp(c.buf, "/branch\n/branches\n"));
+	FYAI_TCHECK(!strcmp(c.buf, "/branch \n/branches \n"));
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/branch  sw", cands_add, &c);
-	FYAI_TCHECK(!strcmp(c.buf, "/branch  switch\n"));
+	FYAI_TCHECK(!strcmp(c.buf, "/branch  switch \n"));
 	/* A value comes from the schema of the item the key names. */
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/config set mcp/enabled ", cands_add,
 				  &c);
-	FYAI_TCHECK(!strcmp(c.buf, "/config set mcp/enabled true\n"
-			    "/config set mcp/enabled false\n"));
+	FYAI_TCHECK(!strcmp(c.buf, "/config set mcp/enabled true \n"
+			    "/config set mcp/enabled false \n"));
 	/* The popup of the session completes a help path the same way. */
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/help config se", cands_add, &c);
-	FYAI_TCHECK(!strcmp(c.buf, "/help config set\n"));
+	FYAI_TCHECK(!strcmp(c.buf, "/help config set \n"));
+	/* A path segment goes on in the same word: it takes no space. */
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_session_complete(NULL, "/config set mc", cands_add, &c);
+	FYAI_TCHECK(!strcmp(c.buf, "/config set mcp/\n"));
 	/* --output is not a session option. */
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/branch delete --o", cands_add, &c);
@@ -779,9 +783,9 @@ int cmd_setting_scope(void)
 	/* A setting completes from the schema of its key. */
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/effort m", cands_add, &c);
-	FYAI_TCHECK(strstr(c.buf, "/effort medium\n"));
+	FYAI_TCHECK(strstr(c.buf, "/effort medium \n"));
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/markdown o", cands_add, &c);
-	FYAI_TCHECK(!strcmp(c.buf, "/markdown on\n/markdown off\n"));
+	FYAI_TCHECK(!strcmp(c.buf, "/markdown on \n/markdown off \n"));
 	return 0;
 }

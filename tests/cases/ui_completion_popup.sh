@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Tab on a slash command with several completions opens a popup above the
 # prompt: each row is a command and its title. Down selects the next, and
-# Enter puts it into the line without submitting it; a click on a row takes
-# it. The popup is a layer:
+# Enter puts it into the line without submitting it, with a space after it
+# for the next word; a click on a row takes it. The popup is a layer:
 # the prompt and the status stay in their rows.
 set -eu
 . "$(dirname "$0")/../harness.sh"
@@ -13,7 +13,7 @@ mock_start chat_basic.json
 driver=0
 FYAI_PTY_ROWS=24 FYAI_PTY_COLS=100 FYAI_PTY_INPUT="first question" \
 FYAI_PTY_NEEDLE="Hello" FYAI_PTY_TIMEOUT=20 \
-FYAI_PTY_AFTER="wait-screen:Hello from the mock provider.|raw:2f627261|raw:09|wait-screen:open the branch browser|wait-screen:list, create, and manage branches|raw:1b5b42|raw:0d|wait-gone:open the branch browser|wait-screen:/branches|raw:7f7f7f7f7f7f7f7f7f|wait-gone:/branches|raw:2f627261|raw:09|wait-screen:open the branch browser|click:open the branch browser|wait-gone:open the branch browser|wait-screen:/branches|raw:7f7f7f7f7f7f7f7f7f|wait-gone:/branches" \
+FYAI_PTY_AFTER="wait-screen:Hello from the mock provider.|raw:2f627261|raw:09|wait-screen:open the branch browser|wait-screen:list, create, and manage branches|raw:1b5b42|raw:0d|wait-gone:open the branch browser|wait-screen:/branches|raw:78|wait-screen:/branches x|raw:7f7f7f7f7f7f7f7f7f7f7f|wait-gone:/branches|raw:2f627261|raw:09|wait-screen:open the branch browser|click:open the branch browser|wait-gone:open the branch browser|wait-screen:/branches|raw:7f7f7f7f7f7f7f7f7f7f|wait-gone:/branches" \
 FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=10 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
