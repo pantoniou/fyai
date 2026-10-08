@@ -745,8 +745,17 @@ wait{for: ["a", "b"], mode: "any", seconds: 60}  # the first, or 60 seconds
 `mode: any` is the default. `seconds` or `until` set the longest wait; the
 call then returns the reports it has and names what still runs. A report that
 the wait returns is not given again in a later turn. A sub-agent or session
-that stops to ask for input ends its part of the wait. The call sleeps on the
-event loop, so the interface and interrupts stay live.
+that stops to ask for input ends its part of the wait.
+
+Waits in one response run at the same time, and an event that several of them
+wait for reaches each of them: both results hold the report. A wait does not
+poll. The event loop wakes it when an event is queued, when what it waits for
+changes, or at its time limit, and the interface and interrupts stay live.
+
+Background work belongs to the conversation that started it. `/clear`,
+`/resume`, `/checkout` and `/reset` end the background sub-agents, monitors and
+named waits of the old conversation and drop its queued events, so nothing
+reports into the new one. Terminal sessions stay, as they are on the screen.
 
 ### Monitors
 

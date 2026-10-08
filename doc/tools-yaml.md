@@ -137,8 +137,13 @@ tables. An entry holds:
 - `head`: the title row of the call, unless the tool is `FYAI_TOOL_SILENT`;
 - `effect`: the ordering class of the call against other calls of a batch;
 - `flags`: `PARENT` (never runs in a job), `SILENT`, `MARKED`,
-  `NOT_FOR_CHILD`, and `HOSTED` (the provider runs it); and
+  `NOT_FOR_CHILD`, `HOSTED` (the provider runs it), and `INSTANT` (a call in
+  the parent returns at once and starts work for later); and
 - `in_parent`: a test of the arguments that keeps one call in the parent.
+
+A call with `INSTANT` runs in the order of the response, inside the group of
+the other calls. A `wait` that follows it in the same response thus sees the
+work that it started. Any other call of the parent runs after the group.
 
 To add a tool, add it to `data/tools.yaml` and add one entry. The test
 `tools/registry` fails when a tool of the file has no entry, no run function,
