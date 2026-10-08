@@ -101,15 +101,22 @@ struct fyai_sandbox_spec {
 	size_t deny_global_n;
 
 	/*
-	 * Network egress. When @restrict_net is false the network access type
-	 * is left unhandled and egress is unaffected. When true, TCP connect is
-	 * denied except to the ports in @ports (an empty list denies all
-	 * egress). Requires Landlock ABI >= 4; on older kernels a requested net
-	 * restriction is treated per @strict.
+	 * Each selected protocol is restricted to its listed destination ports.
+	 * TCP binds are restricted only when @restrict_tcp_bind is set. UDP binds
+	 * are restricted with UDP sends; destination grants permit ephemeral source
+	 * binds. TCP requires ABI 4; UDP requires ABI 10.
 	 */
-	bool restrict_net;
-	const uint16_t *ports;
-	size_t ports_n;
+	bool restrict_tcp;
+	const uint16_t *tcp_ports;
+	size_t tcp_ports_n;
+	bool restrict_tcp_bind;
+	const uint16_t *tcp_bind_ports;
+	size_t tcp_bind_ports_n;
+	bool restrict_udp;
+	const uint16_t *udp_ports;
+	size_t udp_ports_n;
+	const uint16_t *udp_bind_ports;
+	size_t udp_bind_ports_n;
 
 	/*
 	 * When Landlock is unavailable or too old for the requested policy:
@@ -125,8 +132,11 @@ int fyai_sandbox_abi(void);
 /* True when at least filesystem confinement is available on this kernel. */
 bool fyai_sandbox_available(void);
 
-/* True if this build and kernel can restrict network egress; -1 probes ABI. */
+/* True if this build and kernel can restrict TCP connect; -1 probes ABI. */
 bool fyai_sandbox_net_restrictable(int abi);
+
+/* True if this build and kernel can restrict UDP bind and send; -1 probes ABI. */
+bool fyai_sandbox_udp_restrictable(int abi);
 
 /*
  * Apply @spec to the current process irreversibly. Returns 0 on success (the

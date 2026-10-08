@@ -597,17 +597,45 @@ properties:
           network:
             type: object
             description: >-
-              Restrict network egress to listed TCP ports. Omit this mapping
-              to leave egress open; an empty ports list denies all egress.
+              Restrict selected network protocols. Omit a protocol to leave it
+              unrestricted. TCP needs Landlock ABI 4; UDP needs ABI 10.
             properties:
-              ports:
-                type: array
-                description: List TCP ports allowed for network egress.
-                items:
-                  type: integer
-                  minimum: 1
-                  maximum: 65535
-                  description: Set one allowed TCP port number.
+              tcp:
+                type: object
+                description: Restrict TCP connects to listed destination ports.
+                properties:
+                  ports:
+                    type: array
+                    description: Allowed TCP destination ports; empty denies TCP connects.
+                    items:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+                  bind_ports:
+                    type: array
+                    description: Allowed local TCP bind ports; omit to leave binds unrestricted.
+                    items:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+              udp:
+                type: object
+                description: Restrict UDP sends to listed destination ports.
+                properties:
+                  ports:
+                    type: array
+                    description: Allowed UDP destination ports; empty denies UDP sends.
+                    items:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+                  bind_ports:
+                    type: array
+                    description: Allowed local UDP bind ports; ephemeral binds are allowed for permitted sends.
+                    items:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
   sandbox_profile:
     type: string
     enum: [normal, lockdown]
@@ -622,7 +650,8 @@ properties:
     description: >-
       Set the sandbox policy of the `lockdown` profile, apart from `sandbox`.
       It is always enabled. A key that this mapping omits keeps its default: the
-      secret locations of the platform are denied and network egress is denied.
+      secret locations of the platform are denied and available Landlock
+      network rights are restricted.
       The `sandbox` mapping describes each key.
     properties:
       deny:
@@ -657,19 +686,50 @@ properties:
       network:
         type: object
         description: >-
-          Restrict network egress to listed TCP ports. An empty ports list,
-          the default, denies all egress. A kernel that cannot restrict egress
-          leaves it open.
+          Restrict TCP connects and UDP sends independently. Omitted protocol
+          entries retain their lockdown default of an empty destination list.
+          TCP needs Landlock ABI 4; UDP needs ABI 10.
         properties:
-          ports:
-            type: array
-            default: []
-            description: List TCP ports allowed for network egress.
-            items:
-              type: integer
-              minimum: 1
-              maximum: 65535
-              description: Set one allowed TCP port number.
+          tcp:
+            type: object
+            description: Restrict TCP connects to listed destination ports.
+            properties:
+              ports:
+                type: array
+                default: []
+                description: Allowed TCP destination ports; empty denies TCP connects.
+                items:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+              bind_ports:
+                type: array
+                default: []
+                description: Allowed local TCP bind ports; empty denies TCP binds.
+                items:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+          udp:
+            type: object
+            description: Restrict UDP sends to listed destination ports.
+            properties:
+              ports:
+                type: array
+                default: []
+                description: Allowed UDP destination ports; empty denies UDP sends.
+                items:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+              bind_ports:
+                type: array
+                default: []
+                description: Allowed local UDP bind ports; ephemeral binds are allowed for permitted sends.
+                items:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
   logprobs:
     type: boolean
     default: false

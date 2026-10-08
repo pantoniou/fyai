@@ -534,7 +534,8 @@ int fyai_cmd_sandbox_set(struct fyai_cmd_call *call, fy_generic *result)
 {
 	static const char policy[] =
 		"{ enabled: true, deny: [secrets, ~/.ssh], "
-		"network: { ports: [443] } }";
+		"network: { tcp: { ports: [443], bind_ports: [] }, "
+		"udp: { ports: [], bind_ports: [] } } }";
 	bool on = fy_equal(fy_get(call->def, "command", fy_invalid), "on");
 
 	if (fyai_config_set(call->ctx, "sandbox", on ? policy : "false"))

@@ -371,8 +371,8 @@ static int resolve_secret(struct fyai_cfg *cfg, const char **out, fy_generic v)
 
 /*
  * The policy of the lockdown profile: the keys of sandbox_lockdown over the
- * default, which denies the secret locations of the platform and all network
- * egress. The result lives in the builder of the configuration.
+ * default, which denies the secret locations of the platform and supported
+ * TCP and UDP operations. The result lives in the builder of the configuration.
  */
 static fy_generic sandbox_lockdown_policy(struct fyai_cfg *cfg, fy_generic root)
 {
@@ -380,11 +380,25 @@ static fy_generic sandbox_lockdown_policy(struct fyai_cfg *cfg, fy_generic root)
 	fy_generic deny = fy_get(set, "deny", fy_invalid);
 	fy_generic allow = fy_get(set, "allow", fy_invalid);
 	fy_generic net = fy_get(set, "network", fy_invalid);
+	fy_generic tcp, udp;
 
 	if (!fy_is_sequence(deny))
 		deny = fy_sequence(cfg->gb, "~/.ssh");
 	if (!fy_is_mapping(net))
-		net = fy_mapping(cfg->gb, "ports", fy_sequence(cfg->gb));
+		net = fy_mapping(cfg->gb);
+	tcp = fy_get(net, "tcp", fy_invalid);
+	udp = fy_get(net, "udp", fy_invalid);
+	if (!fy_is_mapping(tcp))
+		tcp = fy_mapping(cfg->gb);
+	if (!fy_is_mapping(udp))
+		udp = fy_mapping(cfg->gb);
+	tcp = fy_mapping(cfg->gb,
+			 "ports", fy_get(tcp, "ports", fy_sequence(cfg->gb)),
+			 "bind_ports", fy_get(tcp, "bind_ports", fy_sequence(cfg->gb)));
+	udp = fy_mapping(cfg->gb,
+			 "ports", fy_get(udp, "ports", fy_sequence(cfg->gb)),
+			 "bind_ports", fy_get(udp, "bind_ports", fy_sequence(cfg->gb)));
+	net = fy_mapping(cfg->gb, "tcp", tcp, "udp", udp);
 	if (!fy_is_sequence(allow))
 		allow = fy_sequence(cfg->gb);
 	return fy_mapping(cfg->gb, "enabled", true, "deny", deny, "allow", allow,

@@ -640,7 +640,10 @@ struct fyai_shell_sandbox {
 	char *root;
 	struct fyai_sandbox_path *allow;	/* each .path owned */
 	const char **deny;			/* each entry owned */
-	uint16_t *ports;
+	uint16_t *tcp_ports;
+	uint16_t *tcp_bind_ports;
+	uint16_t *udp_ports;
+	uint16_t *udp_bind_ports;
 };
 
 static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb);
@@ -674,8 +677,7 @@ static char *sandbox_resolve(const char *base, const char *p)
  * Build the tool sandbox spec from cfg->sandbox, or return NULL when disabled.
  * Confinement is scoped to the project root (or cwd when none is found), with
  * the arena .fyai plus every config deny entry carved out, the config allow
- * entries added, and egress restricted to config network.ports when a network
- * policy is present.
+ * entries added, and the configured TCP and UDP network policies applied.
  */
 static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 				    struct fyai_shell_sandbox *sb,
@@ -683,7 +685,7 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 {
 	struct fyai_sandbox_spec *sp = &sb->spec;
 	fy_generic cs = ctx->cfg->sandbox;
-	fy_generic allow, deny, net, ports, e;
+	fy_generic allow, deny, net, tcp, udp, ports, e;
 	fy_generic port, pv;
 	enum fyai_sandbox_mode mode;
 	char cwd[4096];
@@ -764,28 +766,74 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	}
 	sp->allow = sb->allow;
 
-	/* network: present => restrict egress to network.ports (empty = deny
-	 * all); absent => leave egress unrestricted. */
+	/* Each present protocol mapping restricts its destination ports. */
 	net = fy_get(cs, "network");
-	/* The lockdown profile asks for egress control where the kernel has it. */
-	if (ctx->cfg->sandbox_lockdown && !fyai_sandbox_net_restrictable(-1))
-		net = fy_invalid;
-	if (fy_is_valid(net)) {
+	tcp = fy_get(net, "tcp");
+	udp = fy_get(net, "udp");
+	if (fy_is_valid(tcp) && !fyai_sandbox_net_restrictable(-1) &&
+	    ctx->cfg->sandbox_lockdown) {
+		fyai_warning(ctx, "sandbox: TCP egress remains open; Landlock ABI 4 is unavailable");
+		tcp = fy_invalid;
+	}
+	if (fy_is_valid(tcp)) {
 		/* Check here because the child cannot report why it failed. */
 		fyai_error_check(ctx, fyai_sandbox_net_restrictable(-1), err_out,
-				 "sandbox: network egress cannot be restricted by this build or kernel");
-		sp->restrict_net = true;
-		ports = fy_get(net, "ports");
+				 "sandbox: TCP egress cannot be restricted by this build or kernel");
+		sp->restrict_tcp = true;
+		ports = fy_get(tcp, "ports");
 		n = fy_is_sequence(ports) ? fy_len(ports) : 0;
 		if (n) {
-			sb->ports = calloc(n, sizeof(*sb->ports));
-			fyai_error_check(ctx, sb->ports, err_out,
-					 "sandbox: could not allocate the port list");
+			sb->tcp_ports = calloc(n, sizeof(*sb->tcp_ports));
+			fyai_error_check(ctx, sb->tcp_ports, err_out,
+					 "sandbox: could not allocate the TCP port list");
 			fy_foreach(port, ports)
-				sb->ports[sp->ports_n++] = (uint16_t)
+				sb->tcp_ports[sp->tcp_ports_n++] = (uint16_t)
 					fy_cast(port, 0LL);
 		}
-		sp->ports = sb->ports;
+		sp->tcp_ports = sb->tcp_ports;
+		ports = fy_get(tcp, "bind_ports");
+		if (fy_is_valid(ports)) {
+			sp->restrict_tcp_bind = true;
+			n = fy_is_sequence(ports) ? fy_len(ports) : 0;
+			if (n) {
+				sb->tcp_bind_ports = calloc(n, sizeof(*sb->tcp_bind_ports));
+				fyai_error_check(ctx, sb->tcp_bind_ports, err_out,
+						 "sandbox: could not allocate the TCP bind port list");
+				fy_foreach(port, ports)
+					sb->tcp_bind_ports[sp->tcp_bind_ports_n++] = (uint16_t)
+						fy_cast(port, 0LL);
+			}
+			sp->tcp_bind_ports = sb->tcp_bind_ports;
+		}
+	}
+	if (fy_is_valid(udp)) {
+		if (!fyai_sandbox_udp_restrictable(-1)) {
+			fyai_warning(ctx, "sandbox: UDP egress remains open; Landlock ABI 10 is unavailable");
+		} else {
+			sp->restrict_udp = true;
+			ports = fy_get(udp, "ports");
+			n = fy_is_sequence(ports) ? fy_len(ports) : 0;
+			if (n) {
+				sb->udp_ports = calloc(n, sizeof(*sb->udp_ports));
+				fyai_error_check(ctx, sb->udp_ports, err_out,
+						 "sandbox: could not allocate the UDP port list");
+				fy_foreach(port, ports)
+					sb->udp_ports[sp->udp_ports_n++] = (uint16_t)
+						fy_cast(port, 0LL);
+			}
+			sp->udp_ports = sb->udp_ports;
+			ports = fy_get(udp, "bind_ports");
+			n = fy_is_sequence(ports) ? fy_len(ports) : 0;
+			if (n) {
+				sb->udp_bind_ports = calloc(n, sizeof(*sb->udp_bind_ports));
+				fyai_error_check(ctx, sb->udp_bind_ports, err_out,
+						 "sandbox: could not allocate the UDP bind port list");
+				fy_foreach(port, ports)
+					sb->udp_bind_ports[sp->udp_bind_ports_n++] = (uint16_t)
+						fy_cast(port, 0LL);
+			}
+			sp->udp_bind_ports = sb->udp_bind_ports;
+		}
 	}
 
 	*specp = sp;
@@ -805,7 +853,10 @@ static void fyai_shell_sandbox_end(struct fyai_shell_sandbox *sb)
 		free((char *)sb->allow[i].path);
 	free(sb->deny);
 	free(sb->allow);
-	free(sb->ports);
+	free(sb->tcp_ports);
+	free(sb->tcp_bind_ports);
+	free(sb->udp_ports);
+	free(sb->udp_bind_ports);
 	free(sb->root);
 	memset(sb, 0, sizeof(*sb));
 }

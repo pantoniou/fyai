@@ -2105,6 +2105,9 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		if (!fyai_sandbox_net_restrictable(-1))
 			fyai_warning(call->ctx, "view '%s': this kernel cannot restrict network "
 				     "egress: it stays open", name);
+		else if (!fyai_sandbox_udp_restrictable(-1))
+			fyai_warning(call->ctx, "view '%s': UDP egress remains open; Landlock "
+				     "ABI 10 is unavailable", name);
 	}
 	run.spec.verify = fyai_cmd_arg_bool(call, "verify");
 	rc = view_open_run(call->ctx, name, &run, error, sizeof(error));
