@@ -748,6 +748,24 @@ the wait returns is not given again in a later turn. A sub-agent or session
 that stops to ask for input ends its part of the wait. The call sleeps on the
 event loop, so the interface and interrupts stay live.
 
+### Monitors
+
+The `monitor` tool watches a long-running command. The command runs in the
+background as a shell call, with the confinement, the environment and the
+time limit of one. Each complete line that it prints reaches the model as an
+event between its tool calls, and the end of the command is the last event:
+
+```text
+  │ [monitor 'ci'] build: step 3 of 9 passed
+  │ [monitor 'ci' ended]
+```
+
+The default time limit is five minutes and the most is thirty. Both output
+streams are events, so the command should print only the lines that the model
+acts on. A monitor that sends more than 200 events is stopped. `wait` with
+`for` holds the turn until a monitor reports, `list` shows the running ones,
+and `cancel` stops one.
+
 ### Background sub-agents and cancel
 
 An `agent` call with `background: true` starts the sub-agent and returns at
@@ -763,8 +781,8 @@ A sub-agent that fails reports `[agent 'NAME' failed: CAUSE]`. A background
 sub-agent lives for one invocation and is stopped when the run ends.
 
 The `cancel` tool ends background work by name: a pending wait, a running
-sub-agent (with every process it started), or an open terminal session. Give
-`kind` (`wait`, `agent` or `shell`) when one name refers to more than one
+sub-agent (with every process it started), a monitor, or an open terminal
+session. Give `kind` (`wait`, `agent`, `monitor` or `shell`) when one name refers to more than one
 object. A session is killed at once; use `shell_close` when the program must
 save its work. The user can stop a sub-agent with `/kill`.
 
