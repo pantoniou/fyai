@@ -400,15 +400,17 @@ static void test_registry(void)
 	/* A call that reads the tables of the parent never runs in a job. */
 	for (i = 0; i < 4; i++) {
 		static const char *const parent[] = {
-			"agent_input", "cancel", "shell_close", "wait",
+			"agent_input", "cancel", "shell_close", "time",
 		};
 
 		require(fyai_tool_has(parent[i], FYAI_TOOL_PARENT),
 			"a tool of the parent runs in a job");
 		require(fyai_tool_find(parent[i])->effect !=
-			FYAI_TOOL_EFFECT_NONE || !strcmp(parent[i], "wait"),
+			FYAI_TOOL_EFFECT_NONE || !strcmp(parent[i], "time"),
 			"a tool that ends processes needs an ordering class");
 	}
+	/* A wait stays in the parent unless it waits for an event. */
+	require(fyai_tool_find("wait")->in_parent, "wait needs an in_parent test");
 	/* The wire name of the shell finds the shell. */
 	require(fyai_tool_find("exec_command") == fyai_tool_find("shell"),
 		"the wire name of the shell must find it");
