@@ -215,6 +215,7 @@ int fyai_cmd_setting(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_yolo(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_session_new(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_push(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_session_pull(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_catalog_show(struct fyai_cmd_call *call, fy_generic *result);

@@ -2847,6 +2847,16 @@ commands:
     default: status
     see_also: [view, reload]
     commands:
+      - command: new
+        title: start a new session with an empty conversation
+        description: |
+          Start a new `session/` branch with the configuration of the current
+          branch and no conversation, and continue on it. The branch that the
+          session leaves is not changed: `resume` returns to it. `clear` empties
+          the current branch instead. The background work of the session ends.
+        handler: session_new
+        render:
+          message: "new session {branch}"
       - command: push
         title: apply the changes of the session to the project
         description: |

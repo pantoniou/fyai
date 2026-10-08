@@ -114,6 +114,29 @@ int fyai_cmd_resume(struct fyai_cmd_call *call, fy_generic *result)
 	return fyai_session_branch_switch(call->ctx, name, false, true);
 }
 
+/* A new `session/` branch that starts empty; the branch left is not changed. */
+int fyai_cmd_session_new(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	char name[FYAI_BRANCH_NAME_MAX + 1];
+	int rc;
+
+	rc = fyai_branches_refresh(ctx);
+	fyai_error_check(ctx, !rc, err, "session: could not refresh the branches");
+	rc = fyai_branch_session_name(ctx->arena_branches, name, sizeof(name));
+	fyai_error_check(ctx, !rc, err, "session: could not name a new session");
+	rc = fyai_session_branch_switch(ctx, name, true, true);
+	if (rc)
+		return -1;
+	rc = fyai_session_clear(ctx);
+	fyai_error_check(ctx, !rc, err,
+			 "session: could not empty the new session '%s'", name);
+	*result = fy_mapping(call->gb, "branch", fyai_ctx_branch(ctx));
+	return 0;
+err:
+	return -1;
+}
+
 int fyai_cmd_zoom(struct fyai_cmd_call *call, fy_generic *result)
 {
 	const char *name = fyai_cmd_arg_str(call, "name");

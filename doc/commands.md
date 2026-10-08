@@ -4874,7 +4874,7 @@ Commit the current branch and restart fyai on it. Live shells and sub-agents mus
 
 set the isolation of this session and move work between it and the project
 
-**Usage:** `/session {lockdown|pull|push|status|yolo} ...`
+**Usage:** `/session {lockdown|new|pull|push|status|yolo} ...`
 
 The isolation of the session. With no subcommand, show the state.
 `lockdown` takes the strongest isolation that this host can enforce, and
@@ -4888,6 +4888,7 @@ its view and the project: `push` writes its changes into the project, and
 | Command | Description |
 | --- | --- |
 | `lockdown` | take the strongest isolation that this host can enforce |
+| `new` | start a new session with an empty conversation |
 | `pull` | take the project as it is now into the session |
 | `push` | apply the changes of the session to the project |
 | `status` | show the isolation of this session |
@@ -4896,6 +4897,24 @@ its view and the project: `push` writes its changes into the project, and
 With no command, `status` runs.
 
 **See also:** `/help view`, `/help reload`
+
+## /session new
+
+start a new session with an empty conversation
+
+**Usage:** `/session new`
+
+Start a new `session/` branch with the configuration of the current
+branch and no conversation, and continue on it. The branch that the
+session leaves is not changed: `resume` returns to it. `clear` empties
+the current branch instead. The background work of the session ends.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
 
 ## /session push
 

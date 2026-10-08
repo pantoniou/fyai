@@ -112,6 +112,7 @@ static const struct {
 	{ "lockdown",		fyai_cmd_lockdown },
 	{ "yolo",		fyai_cmd_yolo },
 	{ "session_status",	fyai_cmd_session_status },
+	{ "session_new",	fyai_cmd_session_new },
 	{ "session_push",	fyai_cmd_session_push },
 	{ "session_pull",	fyai_cmd_session_pull },
 	{ "catalog_show",	fyai_cmd_catalog_show },
