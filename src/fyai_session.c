@@ -234,6 +234,7 @@ int fyai_session_clear(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 
 	ctx->last_message = fy_invalid;
+	fyai_background_reset(ctx);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CLEAR, NULL);
 	session_reset_usage(ctx);
 

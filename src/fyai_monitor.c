@@ -24,6 +24,7 @@
 #include "fyai_monitor.h"
 #include "fyai_tool_registry.h"
 #include "fyai_tools.h"
+#include "fyai_wait.h"
 #include "utils.h"
 
 #define FYAI_MONITOR_NAME_MAX	32
@@ -319,6 +320,7 @@ bool fyai_monitor_cancel(struct fyai_ctx *ctx, const char *name)
 	fyai_event_defer_cancel(fyai_ctx_loop(ctx), monitor_finish, run);
 	monitor_unlink(run);
 	monitor_free(run);
+	fyai_waiters_kick(ctx);
 	return true;
 }
 
@@ -354,7 +356,8 @@ void fyai_monitor_abandon(struct fyai_ctx *ctx)
 /* The command is a job of the parent, so the tool is a call of the parent. */
 const struct fyai_tool_def fyai_monitor_defs[] = {
 	{ .name = "monitor", .run = tool_monitor, .head = tool_head_monitor,
-	  .flags = FYAI_TOOL_PARENT, .effect = FYAI_TOOL_EFFECT_PROCESS },
+	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_INSTANT,
+	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 };
 const size_t fyai_monitor_defs_count = sizeof(fyai_monitor_defs) /
 				       sizeof(fyai_monitor_defs[0]);

@@ -859,7 +859,8 @@ static void tool_head_agent(struct fyai_ctx *ctx, FILE *mf,
 const struct fyai_tool_def fyai_agent_defs[] = {
 	{ .name = "agent", .run = tool_agent, .head = tool_head_agent,
 	  .in_parent = fyai_agent_background_requested,
-	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_NOT_FOR_CHILD,
+	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_NOT_FOR_CHILD |
+		   FYAI_TOOL_INSTANT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 };
 const size_t fyai_agent_defs_count = ARRAY_SIZE(fyai_agent_defs);

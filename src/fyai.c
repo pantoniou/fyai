@@ -2107,6 +2107,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
 	fyai_waits_release(ctx);
+	fyai_waiters_release(ctx);
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
 	fyai_tool_diff_cleanup(ctx);
@@ -2491,6 +2492,7 @@ struct fyai_pending_event {
 	char *text;
 	char *owner;
 	enum fyai_event_owner_kind owner_kind;
+	bool seen;		/* a waiter has it: the turn loop leaves it */
 };
 
 /* The context takes @text and @owner; both are freed on every path. */
@@ -2514,6 +2516,7 @@ static int fyai_event_inject_queue(struct fyai_ctx *ctx, char *text,
 		ctx->events_tail = &ctx->events;
 	*ctx->events_tail = ev;
 	ctx->events_tail = &ev->next;
+	fyai_waiters_kick(ctx);
 	return 0;
 
 err:
@@ -2570,7 +2573,12 @@ char *fyai_event_take(struct fyai_ctx *ctx)
 
 bool fyai_event_queued(const struct fyai_ctx *ctx)
 {
-	return ctx && ctx->events;
+	const struct fyai_pending_event *ev;
+
+	for (ev = ctx ? ctx->events : NULL; ev; ev = ev->next)
+		if (!ev->seen)
+			return true;
+	return false;
 }
 
 /*
@@ -2600,27 +2608,43 @@ bool fyai_event_pending_prefix(struct fyai_ctx *ctx, const char *prefix)
 	return false;
 }
 
-char *fyai_event_take_prefix(struct fyai_ctx *ctx, const char *prefix)
+char *fyai_event_peek_prefix(struct fyai_ctx *ctx, const char *prefix)
 {
-	struct fyai_pending_event **link, *ev;
+	struct fyai_pending_event *ev;
 	size_t len = strlen(prefix);
 	char *text;
 
-	if (!ctx)
-		return NULL;
-	for (link = &ctx->events; (ev = *link); link = &ev->next) {
+	for (ev = ctx ? ctx->events : NULL; ev; ev = ev->next) {
 		if (strncmp(ev->text, prefix, len) ||
 		    !fyai_event_owner_live(ctx, ev))
 			continue;
-		*link = ev->next;
-		if (!*link)
-			ctx->events_tail = link;
-		text = ev->text;
-		free(ev->owner);
-		free(ev);
+		text = strdup(ev->text);
+		if (text)
+			ev->seen = true;
 		return text;
 	}
 	return NULL;
+}
+
+void fyai_events_purge_seen(struct fyai_ctx *ctx)
+{
+	struct fyai_pending_event **link, *ev;
+
+	if (!ctx)
+		return;
+	link = &ctx->events;
+	while ((ev = *link)) {
+		if (!ev->seen) {
+			link = &ev->next;
+			continue;
+		}
+		*link = ev->next;
+		if (!*link)
+			ctx->events_tail = link;
+		free(ev->text);
+		free(ev->owner);
+		free(ev);
+	}
 }
 
 /* Drop every queued wait event owned by @name of @kind. */
@@ -2649,6 +2673,16 @@ static void fyai_events_drop_owner(struct fyai_ctx *ctx,
 		free(ev->owner);
 		free(ev);
 	}
+}
+
+void fyai_background_reset(struct fyai_ctx *ctx)
+{
+	if (!ctx)
+		return;
+	fyai_agent_background_close(ctx);
+	fyai_monitor_close(ctx);
+	fyai_waits_release(ctx);
+	fyai_events_release(ctx);
 }
 
 void fyai_events_release(struct fyai_ctx *ctx)
@@ -2680,17 +2714,26 @@ void fyai_events_drop_session(struct fyai_ctx *ctx, const char *name)
  */
 char *fyai_event_take_live(struct fyai_ctx *ctx)
 {
-	struct fyai_pending_event *ev;
+	struct fyai_pending_event **link, *ev;
+	char *text;
 
 	if (!ctx)
 		return NULL;
-	while (ctx->events) {
-		ev = ctx->events;
-		if (fyai_event_owner_live(ctx, ev))
-			break;
-		ctx->events = ev->next;
-		if (!ctx->events)
-			ctx->events_tail = &ctx->events;
+	link = &ctx->events;
+	while ((ev = *link)) {
+		if (ev->seen) {
+			link = &ev->next;
+			continue;
+		}
+		*link = ev->next;
+		if (!*link)
+			ctx->events_tail = link;
+		if (fyai_event_owner_live(ctx, ev)) {
+			text = ev->text;
+			free(ev->owner);
+			free(ev);
+			return text;
+		}
 		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",
 				 ev->owner_kind == FYAI_EVENT_OWNER_AGENT ?
 				 "agent" : "session",
@@ -2699,7 +2742,7 @@ char *fyai_event_take_live(struct fyai_ctx *ctx)
 		free(ev->owner);
 		free(ev);
 	}
-	return fyai_event_take(ctx);
+	return NULL;
 }
 
 int fyai_prompt_batch(struct fyai_ctx *ctx)

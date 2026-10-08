@@ -1525,6 +1525,7 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 	ctx->branch_desc = b.description;
 	ctx->branch_agent = b.agent;
 	ctx->branch_prev = b.entry;
+	fyai_background_reset(ctx);
 	return 0;
 
 err_out:
@@ -1581,6 +1582,7 @@ int fyai_branch_reset(struct fyai_ctx *ctx, const char *spec)
 
 	/* The previous head remains available as "<branch>@{1}". */
 	ctx->last_message = head;
+	fyai_background_reset(ctx);
 	fyai_branch_op_set(ctx, FYAI_BRANCH_OP_RESET, NULL);
 	if (fyai_publish_state(ctx))
 		return -1;

@@ -44,6 +44,12 @@ enum {
 	FYAI_TOOL_NOT_FOR_CHILD	= 1 << 3,
 	/* The provider runs it: there is no local run, only a head. */
 	FYAI_TOOL_HOSTED	= 1 << 4,
+	/*
+	 * A call kept in the parent returns at once and starts work that ends
+	 * later. It runs in order inside a group, so a later call of the same
+	 * response can wait for it.
+	 */
+	FYAI_TOOL_INSTANT	= 1 << 5,
 };
 
 /*

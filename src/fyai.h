@@ -736,6 +736,9 @@ struct fyai_ctx {
 	/* The one owner of work-pane geometry, focus, and zoom. */
 	struct fyai_workpane_manager *workpane;
 	struct fyai_wait *waits;	/* named waits, live for this run */
+	struct fyai_waiter *waiters;	/* waits that hold a call, active */
+	struct fyai_event_source *waiter_tick;	/* earliest deadline of a waiter */
+	bool waiter_kick;			/* a look at the waiters is queued */
 	/* Events queued for model turns in arrival order. */
 	struct fyai_pending_event *events;
 	struct fyai_pending_event **events_tail;
@@ -889,8 +892,22 @@ char *fyai_event_take(struct fyai_ctx *ctx);
 bool fyai_event_queued(const struct fyai_ctx *ctx);
 /* Whether a live event whose text starts with @prefix is queued. */
 bool fyai_event_pending_prefix(struct fyai_ctx *ctx, const char *prefix);
-/* Take the oldest live event whose text starts with @prefix, or NULL. */
-char *fyai_event_take_prefix(struct fyai_ctx *ctx, const char *prefix);
+/*
+ * Copy the oldest live event whose text starts with @prefix, or return NULL.
+ * The event stays queued and is marked as seen by a waiter: every waiter that
+ * asks while the mark stands gets the same event, and the turn loop does not
+ * deliver it. fyai_events_purge_seen() removes the marked events.
+ */
+char *fyai_event_peek_prefix(struct fyai_ctx *ctx, const char *prefix);
+/*
+ * The conversation was replaced (resume, checkout, reset, clear): what the
+ * model started in the old one does not report into the new one. End the
+ * background sub-agents, monitors and named waits, and drop the queued
+ * events. Terminal sessions belong to the user's screen and stay.
+ */
+void fyai_background_reset(struct fyai_ctx *ctx);
+/* Remove the events that waiters have seen. */
+void fyai_events_purge_seen(struct fyai_ctx *ctx);
 /* Take the oldest event with a live owner, dropping stale waits first. */
 char *fyai_event_take_live(struct fyai_ctx *ctx);
 void fyai_events_release(struct fyai_ctx *ctx);

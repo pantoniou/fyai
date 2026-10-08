@@ -3540,6 +3540,7 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	 */
 	fyai_events_drop_session(sess->ctx, sess->name);
 	fyai_shell_session_notify_exit(sess, exit_code, signal);
+	fyai_waiters_kick(sess->ctx);
 }
 
 static void fyai_shell_session_close(struct fyai_shell_session *sess,
@@ -4114,6 +4115,18 @@ int fyai_tool_call_file_effect(struct fyai_ctx *ctx, fy_generic tool_call)
 					  FYAI_TOOL_EFFECT_NONE;
 }
 
+/* A call of the parent that returns at once and starts work for later. */
+static bool fyai_tool_call_instant(struct fyai_ctx *ctx, fy_generic tool_call)
+{
+	const struct fyai_tool_def *def =
+		fyai_tool_find(fyai_tool_call_name(ctx, tool_call));
+
+	return def && (def->flags & FYAI_TOOL_INSTANT) &&
+	       ((def->flags & FYAI_TOOL_PARENT) ||
+		(def->in_parent && def->in_parent(
+			fyai_tool_call_args(ctx, tool_call))));
+}
+
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 				      fy_generic tool_call)
 {
@@ -4123,6 +4136,9 @@ bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
 	if (fyai_mcp_tool_name(name))
 		return false;
 	if (!def)
+		return true;
+	/* The group runs it in order, so a wait of the response sees it. */
+	if (fyai_tool_call_instant(ctx, tool_call))
 		return true;
 	if (def->flags & FYAI_TOOL_PARENT)
 		return false;
@@ -4949,6 +4965,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_shell_sessions_abandon(ctx);	/* named shells of the parent */
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
 	fyai_waits_abandon(ctx);		/* its named waits */
+	fyai_waiters_abandon(ctx);		/* and the waits that hold a call */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
 	fyai_monitor_abandon(ctx);		/* and its monitors */
 	fyai_events_release(ctx);		/* and what they queued for it */
@@ -7538,6 +7555,7 @@ struct fyai_tool_group_entry {
 	char *result_text;
 	struct fyai_tool_job *job;
 	struct fyai_mcp_call_request *mcp_request;
+	struct fyai_waiter *waiter;	/* a wait for an event of this group */
 	enum fyai_tool_group_state state;
 	bool parallel;
 	bool result_ok;
@@ -7692,7 +7710,7 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 {
 	const char *text;
 	char *copy;
-	bool parallel;
+	bool parallel, instant;
 	int rc;
 	size_t i;
 
@@ -7702,6 +7720,7 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 	if (rc)
 		return -1;
 	parallel = fyai_tool_call_parallel_eligible(group->ctx, tool_call);
+	instant = fyai_tool_call_instant(group->ctx, tool_call);
 	if (group->submitted && !parallel)
 		return 1;
 	if (group->count && (group->exclusive || !parallel))
@@ -7717,7 +7736,7 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 		}
 	}
 	group->entries[group->count].call_text = copy;
-	group->entries[group->count].parallel = parallel;
+	group->entries[group->count].parallel = parallel && !instant;
 	group->entries[group->count].state = FYAITGS_QUEUED;
 	if (!parallel) {
 		group->exclusive = true;
@@ -7729,6 +7748,12 @@ int fyai_tool_job_group_add(struct fyai_tool_job_group *group,
 	return 0;
 }
 
+/* A waiter of the group ended: look at the group again. */
+static void fyai_tool_job_group_waiter_done(void *userdata)
+{
+	fyai_tool_job_group_service(userdata);
+}
+
 static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 {
 	struct fyai_tool_group_entry *entry;
@@ -7737,6 +7762,7 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 	fy_generic result;
 	const char *name;
 	const char *text;
+	char *why;
 
 	while (!group->cancelled && group->next < group->count &&
 	       group->active < group->max_parallel) {
@@ -7759,6 +7785,37 @@ static void fyai_tool_job_group_dispatch(struct fyai_tool_job_group *group)
 			}
 			result = fy_value(group->ctx->transient_gb,
 					  "tool error: MCP call failed");
+			text = emit_json_string(group->ctx->transient_gb,
+						result);
+			entry->result_text = text ? strdup(text) : NULL;
+			entry->state = entry->result_text ?
+				FYAITGS_PARKED : FYAITGS_SUBMIT_FAILED;
+			group->parked++;
+			continue;
+		}
+		if (entry->parallel && name && !strcmp(name, "wait") &&
+		    fyai_wait_for_requested(fyai_tool_call_args(group->ctx,
+								  call))) {
+			/* A wait for an event runs beside the other calls. */
+			why = NULL;
+			entry->waiter = fyai_waiter_start(group->ctx,
+				fyai_tool_call_args(group->ctx, call),
+				fyai_tool_job_group_waiter_done, group, &why);
+			if (entry->waiter) {
+				entry->state = FYAITGS_RUNNING;
+				group->active++;
+				/* It can end at once: nothing else parks it. */
+				if (fyai_waiter_done(entry->waiter)) {
+					entry->state = FYAITGS_PARKED;
+					group->active--;
+					group->parked++;
+				}
+				continue;
+			}
+			result = fy_value(group->ctx->transient_gb,
+					  why ? why : "tool error: the wait "
+					  "could not start");
+			free(why);
 			text = emit_json_string(group->ctx->transient_gb,
 						result);
 			entry->result_text = text ? strdup(text) : NULL;
@@ -7836,6 +7893,14 @@ void fyai_tool_job_group_service(struct fyai_tool_job_group *group)
 			group->parked++;
 			continue;
 		}
+		if (entry->waiter) {
+			if (!fyai_waiter_done(entry->waiter))
+				continue;
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
+			continue;
+		}
 		(void)fyai_fenced_stream_animate(&entry->job->stream, now);
 		if (!fyai_tool_job_done(entry->job))
 			continue;
@@ -7895,7 +7960,13 @@ void fyai_tool_job_group_cancel(struct fyai_tool_job_group *group)
 	group->sealed = true;
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
-		if (entry->state == FYAITGS_RUNNING) {
+		if (entry->state == FYAITGS_RUNNING && entry->waiter) {
+			/* Nothing runs for it: it ends here and parks. */
+			fyai_waiter_cancel(entry->waiter);
+			entry->state = FYAITGS_PARKED;
+			group->active--;
+			group->parked++;
+		} else if (entry->state == FYAITGS_RUNNING) {
 			if (entry->mcp_request)
 				fyai_mcp_call_cancel(entry->mcp_request);
 			else
@@ -7932,6 +8003,7 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 				size_t index, fy_generic *result, bool *okp)
 {
 	struct fyai_tool_group_entry *entry;
+	char *text;
 
 	if (!group || !result || !okp || index >= group->count)
 		return -1;
@@ -7942,6 +8014,13 @@ int fyai_tool_job_group_collect(struct fyai_tool_job_group *group,
 	if (entry->job) {
 		*result = fyai_tool_job_collect(group->ctx, entry->job, okp);
 		entry->job = NULL;
+	} else if (entry->waiter) {
+		text = fyai_waiter_result(entry->waiter, okp);
+		fyai_waiter_destroy(entry->waiter);
+		entry->waiter = NULL;
+		*result = fy_gb_internalize(group->ctx->transient_gb,
+					    fy_value(text ? text : ""));
+		free(text);
 	} else if (entry->mcp_request) {
 		*result = fyai_mcp_call_collect(entry->mcp_request, okp);
 		fyai_mcp_call_destroy(entry->mcp_request);
@@ -7975,6 +8054,7 @@ void fyai_tool_job_group_destroy(struct fyai_tool_job_group *group)
 		if (entry->job)
 			fyai_tool_job_discard(entry->job);
 		fyai_mcp_call_destroy(entry->mcp_request);
+		fyai_waiter_destroy(entry->waiter);
 		free(entry->call_text);
 		free(entry->result_text);
 	}
