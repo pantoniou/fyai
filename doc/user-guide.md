@@ -730,6 +730,24 @@ a call that sends `until: ""` beside `seconds` asks for the seconds.
 A wait lives for one invocation, as a terminal session does. No daemon can
 receive it, so a wait that did not fire is dropped when the run ends.
 
+### Waiting for what the model started
+
+`wait` with `for` holds the turn until something the model started ends. It
+takes the name of a background sub-agent, a terminal session or a named wait,
+or a list of up to 16 names:
+
+```text
+wait{for: "review"}                            # until one thing ends
+wait{for: ["a", "b", "c"], mode: "all"}        # until every one ends
+wait{for: ["a", "b"], mode: "any", seconds: 60}  # the first, or 60 seconds
+```
+
+`mode: any` is the default. `seconds` or `until` set the longest wait; the
+call then returns the reports it has and names what still runs. A report that
+the wait returns is not given again in a later turn. A sub-agent or session
+that stops to ask for input ends its part of the wait. The call sleeps on the
+event loop, so the interface and interrupts stay live.
+
 ### Background sub-agents and cancel
 
 An `agent` call with `background: true` starts the sub-agent and returns at
