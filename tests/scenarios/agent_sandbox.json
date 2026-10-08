@@ -51,7 +51,7 @@
                   "type": "function",
                   "function": {
                     "name": "exec_command",
-                    "arguments": "{\"command\": \"set -e; printf changed > file; touch root-new; mv root-new root-renamed; rm root-renamed; test ! -e .fyai; if env | grep -q '^FYAI_VIEW'; then exit 1; fi; for fd in /proc/[0-9]*/fd/*; do if [ -e \\\"$fd/arena-0.bin\\\" ]; then exit 1; fi; done; awk '$1 ~ /^Cap(Eff|Prm|Bnd|Inh|Amb):$/ && $2 != \\\"0000000000000000\\\" {exit 1}' /proc/self/status; echo agent-tool-isolated\"}"
+                    "arguments": "{\"command\": \"printf changed > file; if touch .fyai/forbidden; then echo arena-writable; fi; echo agent-tool-confined\"}"
                   }
                 }
               ]
@@ -100,7 +100,7 @@
             "index": 0,
             "message": {
               "role": "assistant",
-              "content": "Session and sub-agent done."
+              "content": "Parent and sub-agent done."
             },
             "finish_reason": "stop"
           }

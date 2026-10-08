@@ -34,6 +34,7 @@ assert_request 0 'r["auth"] == "Bearer test-key"'
 assert_request 1 'r["auth"] == "Bearer test-key"'
 assert_request 2 'r["auth"] == "Bearer test-key"'
 assert_request 3 'r["auth"] == "Bearer test-key"'
+assert_request 2 'any(m.get("role") == "tool" and "agent-tool-isolated\n" in m.get("content", "") for m in r["body"]["messages"])'
 
 mock_stop 4
 pass

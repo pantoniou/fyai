@@ -1,11 +1,16 @@
 /* SPDX-License-Identifier: MIT */
+#include <errno.h>
+#include <fcntl.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 #include "utils.h"
 
 FYAI_TEST_ENTRY(utils, wire_text_utf8, utils_wire_text_utf8)
+FYAI_TEST_ENTRY(utils, close_fds_except, utils_close_fds_except)
 
 int utils_wire_text_utf8(void)
 {
@@ -25,5 +30,36 @@ int utils_wire_text_utf8(void)
 	for (i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++)
 		FYAI_TCHECK(!data_is_wire_text((const char *)invalid[i],
 					       lengths[i]));
+	return 0;
+}
+
+int utils_close_fds_except(void)
+{
+	pid_t child;
+	int status;
+
+	child = fork();
+	FYAI_TCHECK(child >= 0);
+	if (!child) {
+		int first, keep, last;
+
+		first = open("/dev/null", O_RDONLY);
+		if (first < 0)
+			_exit(1);
+		keep = fcntl(first, F_DUPFD_CLOEXEC, first + 16);
+		last = keep >= 0 ? fcntl(first, F_DUPFD_CLOEXEC, keep + 1) : -1;
+		if (last < 0)
+			_exit(1);
+		fyai_close_fds_except(first, keep);
+		if (fcntl(first, F_GETFD) >= 0 || fcntl(last, F_GETFD) >= 0 ||
+		    fcntl(keep, F_GETFD) < 0 || fcntl(STDERR_FILENO, F_GETFD) < 0)
+			_exit(1);
+		fyai_close_fds_except(first, -1);
+		_exit(fcntl(keep, F_GETFD) < 0 ? 0 : 1);
+	}
+	while (waitpid(child, &status, 0) < 0) {
+		FYAI_TCHECK(errno == EINTR);
+	}
+	FYAI_TCHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	return 0;
 }
