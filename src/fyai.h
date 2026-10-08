@@ -451,6 +451,17 @@ struct fyai_cfg {
 	fy_generic mcp_servers;		/* named server mapping (mapping generic) */
 	int mcp_timeout;			/* seconds (default 30) */
 
+	/* Invocation-local filesystem view paths; never stored in configuration. */
+	const char *view_project;
+	const char *view_scratch;
+	/*
+	 * The arena of an agent runtime in a view: a detached mount that only
+	 * this descriptor reaches, and its /proc/self/fd path. -1 and NULL
+	 * when absent. The descriptor is close-on-exec; only an execution of
+	 * this program receives it.
+	 */
+	int view_arena_fd;
+	const char *view_arena;
 	const char *arena_dir;
 	/*
 	 * Catalogue of the selected branch, internalized into gb (fy_invalid

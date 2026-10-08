@@ -83,6 +83,8 @@ struct fyai_sandbox_spec {
 	 * NULL skips the project grant.
 	 */
 	const char *project_root;
+	/* Private scratch directory of a filesystem view, with global denies applied. */
+	const char *scratch_root;
 
 	/* Extra explicit grants (config sandbox.allow), applied after the
 	 * project. Each is granted whole; deny carve-outs are not applied to

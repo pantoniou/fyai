@@ -425,6 +425,9 @@ int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 	for (p = fyai_scratch_rw; *p; p++)
 		if (grant_except(fd, *p, mask, spec->deny, spec->deny_global_n))
 			goto out;
+	if (spec->scratch_root && grant_except(fd, spec->scratch_root, mask,
+					    spec->deny, spec->deny_global_n))
+		goto out;
 
 	if (spec->project_root &&
 	    grant_except(fd, spec->project_root, mask, spec->deny, spec->deny_n))

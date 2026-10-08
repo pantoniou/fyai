@@ -1697,6 +1697,37 @@ static int view_session_admit(struct fyai_ctx *ctx, struct view_session_transpor
 	return 0;
 }
 
+/*
+ * Execute this program again in the view. An agent runtime holds its arena
+ * behind a descriptor, and passes that descriptor on: only this execution
+ * receives it. Returns only on failure, with errno set.
+ */
+static void view_exec_self(struct fyai_ctx *ctx, char *const argv[])
+{
+	const char **child_argv;
+	char arena_text[32];
+	size_t argc = 0, i;
+
+	if (ctx->cfg->view_arena_fd < 0) {
+		fyai_exec_self((const char *const *)argv);
+		return;
+	}
+	while (argv[argc])
+		argc++;
+	child_argv = calloc(argc + 3, sizeof(*child_argv));
+	if (!child_argv)
+		return;
+	snprintf(arena_text, sizeof(arena_text), "%d", ctx->cfg->view_arena_fd);
+	child_argv[0] = argv[0];
+	child_argv[1] = "--view-arena-fd";
+	child_argv[2] = arena_text;
+	for (i = 1; i < argc; i++)
+		child_argv[i + 2] = argv[i];
+	if (!fyai_fsview_arena_pass(ctx->cfg))
+		fyai_exec_self(child_argv);
+	free(child_argv);
+}
+
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
 		     bool self, int in_fd, int out_fd, struct view_session_transport *tp,
 		     struct view_session_link *link, struct shell_command_result *result)
@@ -1750,9 +1781,6 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		if (rc != 1)
 			_exit(FYAI_SHELL_EXIT_EXEC);
 		spec.status_fd = status_pipe[1];
-		/* What an agent runtime starts is in the view, and shares it. */
-		if (view->agent && setenv("FYAI_VIEW", "1", 1))
-			_exit(FYAI_SHELL_EXIT_EXEC);
 		if (link) {
 			close(link->fd[0]);
 			spec.pass_fd[spec.pass_n] = link->fd[1];
@@ -1784,7 +1812,7 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		if (rc)
 			_exit(rc);
 		if (self) {
-			fyai_exec_self((const char *const *)argv);
+			view_exec_self(ctx, argv);
 			fyai_child_status_report(3, FYAI_CHILD_STAGE_EXEC, errno);
 		} else if (argv && argv[0]) {
 			execvp(argv[0], argv);
@@ -3187,7 +3215,8 @@ int fyai_view_run_begin(struct fyai_ctx *ctx, const char *name, struct fyai_view
 
 	request.replace = fy_is_mapping(view_find(ctx, name));
 	if (!request.replace) {
-		root = fyai_discover_project_root();
+		root = ctx->cfg->view_project ? strdup(ctx->cfg->view_project) :
+		       fyai_discover_project_root();
 		request.project = root ? root : ".";
 	}
 	rc = fyai_view_capture(&request, &record);
@@ -3212,13 +3241,6 @@ err:
 	}
 	run->started = true;
 	run->spec.agent = true;
-	rc = fyai_fsview_agent_prepare(&run->spec);
-	if (rc) {
-		saved = errno;
-		fyai_error(ctx, "view '%s': cannot prepare the agent mounts: %s", name,
-			   strerror(saved));
-		goto fail;
-	}
 	*out = run;
 	return 0;
 fail:
@@ -3441,7 +3463,7 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 	size_t argc = 0, i;
 	int rc = -1, saved;
 
-	if (!fy_get(section, "isolate_session", false) || getenv("FYAI_VIEW") ||
+	if (!fy_get(section, "isolate_session", false) || ctx->cfg->view_project ||
 	    cfg->tool_child || !cfg->argv || fyai_cfg_no_requests(cfg))
 		return 0;
 	if (!fyai_exec_self_available()) {
@@ -3450,23 +3472,26 @@ int fyai_view_session_bootstrap(struct fyai_ctx *ctx)
 	}
 	while (cfg->argv[argc])
 		argc++;
-	argv = calloc(argc + 1, sizeof(*argv));
+	argv = calloc(argc + 7, sizeof(*argv));
 	fyai_error_check(ctx, argv, out, "could not allocate the command line of the view");
-	for (i = 0; i < argc; i++)
-		argv[i] = cfg->argv[i];
+	argv[0] = cfg->argv[0];
+	argv[1] = "--view-project";
+	argv[3] = "--view-scratch";
+	argv[5] = "--branch";
+	for (i = 1; i < argc; i++)
+		argv[i + 6] = cfg->argv[i];
 restart:
 	tpp = NULL;
 	if (fyai_view_run_begin(ctx, "session", &run))
 		goto out;
+	argv[2] = (char *)run->spec.project;
+	argv[4] = (char *)run->spec.scratch;
 	/*
 	 * The record of the view is on this branch. The session continues on it,
 	 * so the view and the conversation stay together, and a later command
 	 * finds the view on the branch that it names.
 	 */
-	if (setenv("FYAI_BRANCH", fyai_ctx_branch(ctx), 1)) {
-		fyai_error(ctx, "view: cannot pass the branch to the session: %s", strerror(errno));
-		goto out;
-	}
+	argv[6] = (char *)fyai_ctx_branch(ctx);
 	/*
 	 * With the credential transport the session is an agent of its own, and the
 	 * supervisor admits it when it has entered the view. The session keeps its
@@ -3569,6 +3594,8 @@ static char *project_state_root(struct fyai_ctx *ctx)
 	const char *arena = ctx->cfg->arena_dir, *marker;
 	char *root, *real;
 
+	if (ctx->cfg->view_project)
+		return strdup(ctx->cfg->view_project);
 	if (fy_str_empty(arena))
 		return NULL;
 	real = realpath(arena, NULL);
@@ -3630,8 +3657,8 @@ bool fyai_view_session_available(struct fyai_ctx *ctx)
 
 const char *fyai_view_session_name(const struct fyai_ctx *ctx)
 {
-	/* The session starts itself again in the view named session, with FYAI_VIEW set. */
-	return getenv("FYAI_VIEW") && !ctx->cfg->agent_child && !ctx->cfg->tool_child ?
+	/* The session restarts with explicit paths to the view named session. */
+	return ctx->cfg->view_project && !ctx->cfg->agent_child && !ctx->cfg->tool_child ?
 	       "session" : NULL;
 }
 
@@ -3641,7 +3668,7 @@ bool fyai_view_isolation_available(struct fyai_ctx *ctx)
 	bool available;
 
 	if (ctx->cfg->transient || ctx->cfg->root_spec || ctx->gb != ctx->durable_gb ||
-	    getenv("FYAI_VIEW"))
+	    ctx->cfg->view_project)
 		return false;
 	root = project_state_root(ctx);
 	available = root != NULL;
@@ -3654,7 +3681,7 @@ bool fyai_project_state_enabled(struct fyai_ctx *ctx)
 	fy_generic section = fy_get(ctx->cfg->config_doc, "view", fy_invalid);
 
 	return fy_get(section, "track_project", false) && !ctx->cfg->transient &&
-	       !ctx->cfg->root_spec && !ctx->cfg->tool_child && !getenv("FYAI_VIEW");
+	       !ctx->cfg->root_spec && !ctx->cfg->tool_child && !ctx->cfg->view_project;
 }
 
 void fyai_tool_change_record(struct fyai_ctx *ctx, fy_generic before, fy_generic after)
@@ -3767,7 +3794,7 @@ static int tool_diff_storage(struct fyai_ctx *ctx, const char *root, char **stor
 	char error[PATH_MAX];
 	int arena, rc;
 
-	if (!getenv("FYAI_VIEW"))
+	if (!ctx->cfg->view_project)
 		return view_storage(root, storage, objects, views);
 	arena = open(ctx->cfg->arena_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 	if (arena < 0)
@@ -3879,7 +3906,7 @@ int fyai_project_state_capture(struct fyai_ctx *ctx, fy_generic *ref)
 						  .data_fd = -1,
 						  .borrow_git = true,
 						  /* In a view the owners are those of its user namespace. */
-						  .mapped_owner = getenv("FYAI_VIEW") != NULL,
+						  .mapped_owner = ctx->cfg->view_project != NULL,
 						  .host_uid = getuid(),
 						  .host_gid = getgid(),
 						  .defer_sync = true };

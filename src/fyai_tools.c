@@ -697,12 +697,14 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	if (!ctx->cfg->enable_sandbox || ctx->sandbox_applied)
 		return 0;
 
-	sb->root = fyai_discover_project_root();
+	sb->root = ctx->cfg->view_project ? strdup(ctx->cfg->view_project) :
+		   fyai_discover_project_root();
 	if (!sb->root && getcwd(cwd, sizeof(cwd)))
 		sb->root = strdup(cwd);
 	fyai_error_check(ctx, sb->root, err_out,
 			 "sandbox: could not resolve the project root");
 	sp->project_root = sb->root;
+	sp->scratch_root = ctx->cfg->view_scratch;
 	sp->strict = false;			/* floor is the config policy */
 
 	/* deny: always the arena, then each config sandbox.deny entry. */
@@ -727,7 +729,7 @@ static int fyai_shell_sandbox_begin(struct fyai_ctx *ctx,
 	resolved = sandbox_resolve(sb->root, ".fyai");
 	fyai_error_check(ctx, resolved, err_out,
 			 "sandbox: could not resolve the arena deny path");
-	if (access(resolved, F_OK))
+	if (ctx->cfg->view_project || access(resolved, F_OK))
 		free(resolved);
 	else
 		sb->deny[sp->deny_n++] = resolved;
@@ -1868,16 +1870,27 @@ static int fyai_tool_child_tty(int slave)
  * non-negative @view_fd moves to FYAI_TOOL_CHILD_VIEW_FD, which only the
  * entry of the view reads. Every other descriptor is closed.
  */
-static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
-			       int tp_ctl_fd, int view_fd)
+static int fyai_tool_child_fds(struct fyai_ctx *ctx, int req_fd, int rsp_fd, int tp_agent_fd,
+			       int tp_ctl_fd, int view_fd, bool keep_arena)
 {
 	int req_dup = -1, rsp_dup = -1, agent_dup = -1, ctl_dup = -1, view_dup = -1;
 	bool tp = tp_agent_fd >= 0 && tp_ctl_fd >= 0;
 	int first_free = view_fd >= 0 ? FYAI_TOOL_CHILD_VIEW_FD + 1 :
 			 tp ? FYAI_TOOL_CHILD_TP_CTL_FD + 1 : FYAI_TOOL_CHILD_RSP_FD + 1;
-	int devnull;
+	int devnull, arena_dup;
 	int rc;
 
+	/* Only a sub-agent runtime keeps the arena of the view, above the fixed targets. */
+	if (keep_arena && ctx->cfg->view_arena_fd >= 0) {
+		arena_dup = fcntl(ctx->cfg->view_arena_fd, F_DUPFD_CLOEXEC, first_free);
+		if (arena_dup < 0)
+			goto err;
+		close(ctx->cfg->view_arena_fd);
+		if (fyai_fsview_arena_adopt(ctx->cfg, arena_dup))
+			goto err;
+	} else {
+		fyai_fsview_arena_drop(ctx->cfg);
+	}
 	/* Move all clear of the target numbers before dup2 can clobber one. */
 	req_dup = fcntl(req_fd, F_DUPFD_CLOEXEC, 7);
 	if (req_dup < 0)
@@ -1935,8 +1948,7 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
 	/* Detach unused input unless the child owns this terminal. */
 	if (isatty(STDIN_FILENO) && ttyname(STDIN_FILENO) &&
 	    getsid(0) == tcgetsid(STDIN_FILENO)) {
-		fyai_close_fds_from(first_free);
-		return 0;
+		goto close_fds;
 	}
 	devnull = open("/dev/null", O_RDONLY);
 	if (devnull < 0)
@@ -1947,7 +1959,8 @@ static int fyai_tool_child_fds(int req_fd, int rsp_fd, int tp_agent_fd,
 	if (rc < 0)
 		goto err;
 
-	fyai_close_fds_from(first_free);
+close_fds:
+	fyai_close_fds_except(first_free, ctx->cfg->view_arena_fd);
 	return 0;
 
 err:
@@ -4792,7 +4805,8 @@ static fy_generic fyai_agent_spawn_state(struct fyai_ctx *ctx,
  */
 static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty, bool tp)
 {
-	const char *argv[16];
+	const char *argv[24];
+	char arena_text[32];
 	int argc, i;
 
 	argc = 0;
@@ -4801,6 +4815,19 @@ static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty, bool tp)
 		argv[argc++] = "-d";
 	argv[argc++] = "-b";
 	argv[argc++] = fyai_ctx_branch(ctx);
+	if (ctx->cfg->view_project) {
+		argv[argc++] = "--view-project";
+		argv[argc++] = ctx->cfg->view_project;
+		argv[argc++] = "--view-scratch";
+		argv[argc++] = ctx->cfg->view_scratch;
+	}
+	if (ctx->cfg->view_arena_fd >= 0) {
+		snprintf(arena_text, sizeof(arena_text), "%d", ctx->cfg->view_arena_fd);
+		argv[argc++] = "--view-arena-fd";
+		argv[argc++] = arena_text;
+		if (fyai_fsview_arena_pass(ctx->cfg))
+			_exit(126);
+	}
 	argv[argc++] = "agent";
 	argv[argc++] = "--tool-child";
 	if (pty)
@@ -4826,7 +4853,7 @@ static void fyai_tool_child_exec(struct fyai_ctx *ctx, bool pty, bool tp)
 /* Spawn a tool child, optionally with a PTY on its standard descriptors. */
 static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			       struct fyai_tool_job *job, bool pty, bool exec,
-			       const struct fyai_fsview *view)
+			       const struct fyai_fsview *view, bool agent_runtime)
 {
 	int req[2] = { -1, -1 };	/* parent -> child */
 	int rsp[2] = { -1, -1 };	/* child -> parent */
@@ -4912,18 +4939,19 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			_exit(126);
 		/* Record whether this child presents through its own terminal. */
 		ctx->cfg->agent_pty = slave >= 0;
-		if (fyai_tool_child_fds(req[0], rsp[1], tp ? tpa[0] : -1,
-					tp ? tpc[0] : -1, vsync[1]))
+		if (fyai_tool_child_fds(ctx, req[0], rsp[1], tp ? tpa[0] : -1,
+					tp ? tpc[0] : -1, vsync[1], agent_runtime))
 			_exit(126);
 		/*
 		 * The view is entered after the descriptors are arranged:
 		 * entering closes none of them. The process that enters
 		 * waits for the namespace init and then ends with its status.
 		 */
-		if (view && (setenv("FYAI_VIEW", "1", 1) ||
-			     fyai_fsview_enter(view, -1, vsync[1] >= 0 ?
-						       FYAI_TOOL_CHILD_VIEW_FD : -1)))
+		if (view && fyai_fsview_enter(ctx->cfg, view, -1, vsync[1] >= 0 ?
+						       FYAI_TOOL_CHILD_VIEW_FD : -1))
 			_exit(FYAI_SHELL_EXIT_SANDBOX);
+		if (view && agent_runtime)
+			ctx->cfg->arena_dir = ctx->cfg->view_arena;
 		if (exec)
 			fyai_tool_child_exec(ctx, slave >= 0, tp);
 
@@ -5210,7 +5238,7 @@ static fy_generic fyai_view_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	int rc;
 
 	*okp = false;
-	if (getenv("FYAI_VIEW"))
+	if (ctx->cfg->view_project)
 		return fy_value(ctx->transient_gb, "tool error: project_view is not available inside a view");
 	/* The tool is not given to such an agent: refuse a call that names it anyway. */
 	if (ctx->cfg->agent_child && !ctx->agent_execution)
@@ -5248,7 +5276,7 @@ static bool fyai_agent_isolated(struct fyai_ctx *ctx, fy_generic args)
 	fy_generic section = fy_get(ctx->cfg->config_doc, "agent", fy_invalid);
 
 	/* The view that an agent or a session runs in is shared by what it starts. */
-	if (getenv("FYAI_VIEW"))
+	if (ctx->cfg->view_project)
 		return false;
 	if (fy_is_bool(asked))
 		return fy_cast(asked, false);
@@ -5267,7 +5295,7 @@ static int fyai_agent_view_begin(struct fyai_ctx *ctx, const char *agent,
 	size_t i, n;
 	int rc;
 
-	if (getenv("FYAI_VIEW")) {
+	if (ctx->cfg->view_project) {
 		fyai_error(ctx, "a sub-agent that runs in a view cannot isolate "
 			   "its own sub-agents");
 		return -1;
@@ -5664,7 +5692,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 				 fyai_ui_active(ctx),
 				 fy_equal(name, "agent") &&
 				 fyai_agent_spawn_exec(ctx),
-				 view_run ? fyai_view_run_spec(view_run) : NULL);
+				 view_run ? fyai_view_run_spec(view_run) : NULL, fy_equal(name, "agent"));
 	fyai_error_check(ctx, !rc, err,
 		"could not spawn tool job");
 	job->view_run = view_run;

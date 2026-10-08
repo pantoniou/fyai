@@ -52,6 +52,23 @@ global:
         type: string
         description: read one exact state by root handle (read-only)
         x-fyai-meta: HANDLE
+      view-project:
+        type: string
+        description: use this project root in an internal view child
+        x-fyai-meta: DIR
+        x-fyai-hidden: true
+      view-scratch:
+        type: string
+        description: use this scratch directory in an internal view child
+        x-fyai-meta: DIR
+        x-fyai-hidden: true
+      view-arena-fd:
+        type: integer
+        minimum: 3
+        maximum: 2147483647
+        description: use the arena behind this inherited descriptor in an internal view child
+        x-fyai-meta: FD
+        x-fyai-hidden: true
       set:
         type: array
         items: {type: string}

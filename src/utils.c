@@ -714,23 +714,37 @@ shell_capture_deadline(const struct fyai_event *ev)
 	return FYAIEA_CONTINUE;
 }
 
-void fyai_close_fds_from(int lowfd)
+/* Close the descriptors from @from to @to, both included. */
+static void close_fds_range(unsigned int from, unsigned int to)
 {
-	long max_fd, fd;
-	int rc;
+	long max_fd;
+	unsigned int fd;
 
 #if defined(__linux__) && defined(SYS_close_range)
-	rc = (int)syscall(SYS_close_range, (unsigned int)lowfd, ~0U, 0U);
-	if (!rc)
+	if (!syscall(SYS_close_range, from, to, 0U))
 		return;
-#else
-	(void)rc;
 #endif
 	max_fd = sysconf(_SC_OPEN_MAX);
 	if (max_fd < 0)
 		max_fd = 1024;
-	for (fd = lowfd; fd < max_fd; fd++)
+	for (fd = from; fd <= to && fd < (unsigned int)max_fd; fd++)
 		close((int)fd);
+}
+
+void fyai_close_fds_from(int lowfd)
+{
+	close_fds_range((unsigned int)lowfd, ~0U);
+}
+
+void fyai_close_fds_except(int lowfd, int keepfd)
+{
+	if (keepfd < lowfd) {
+		fyai_close_fds_from(lowfd);
+		return;
+	}
+	if (keepfd > lowfd)
+		close_fds_range((unsigned int)lowfd, (unsigned int)keepfd - 1);
+	close_fds_range((unsigned int)keepfd + 1, ~0U);
 }
 
 #ifdef __linux__
@@ -949,22 +963,6 @@ static void fyai_child_exec_prepare_signals(void)
 	(void)sigaction(SIGHUP, &sa, NULL);
 }
 
-/* Close the descriptors from @from to @to, both included. */
-static void close_fds_range(unsigned int from, unsigned int to)
-{
-	long max_fd;
-	unsigned int fd;
-
-#if defined(__linux__) && defined(SYS_close_range)
-	if (!syscall(SYS_close_range, from, to, 0U))
-		return;
-#endif
-	max_fd = sysconf(_SC_OPEN_MAX);
-	if (max_fd < 0)
-		max_fd = 1024;
-	for (fd = from; fd <= to && fd < (unsigned int)max_fd; fd++)
-		close((int)fd);
-}
 
 /*
  * Close every descriptor from @lowfd on except the ones that the spec passes,
@@ -1080,7 +1078,7 @@ int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 		unsetenv("LINES");
 		unsetenv("COLUMNS");
 	}
-	if (spec->view && fyai_fsview_enter(spec->view, status_fd,
+	if (spec->view && fyai_fsview_enter(ctx->cfg, spec->view, status_fd,
 					  spec->announce_as > 0 ? spec->announce_as : -1)) {
 		fyai_child_status_report(status_fd, FYAI_CHILD_STAGE_VIEW,
 					 errno);

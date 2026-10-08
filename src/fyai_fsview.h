@@ -5,8 +5,22 @@
 #include "fyai_manifest.h"
 #include "fyai_project.h"
 
+struct fyai_cfg;
+
 /* Mount point of the backing runtime tree below the scratch directory. */
 #define FYAI_FSVIEW_BACKING_NAME ".fyai-view-runtime"
+
+/*
+ * Make @fd, a directory of the arena, the arena of an agent runtime in a view:
+ * close-on-exec, named /proc/self/fd/@fd, and in a process that is not
+ * dumpable, so another process of the view cannot open it through /proc. An
+ * arena directory that named the previous descriptor names the new one.
+ */
+int fyai_fsview_arena_adopt(struct fyai_cfg *cfg, int fd);
+/* Close the arena descriptor in a process that runs no agent runtime. */
+void fyai_fsview_arena_drop(struct fyai_cfg *cfg);
+/* Keep the arena descriptor across the next execution of this program. */
+int fyai_fsview_arena_pass(const struct fyai_cfg *cfg);
 
 struct fyai_fsview {
 	const char *project;
@@ -22,9 +36,8 @@ struct fyai_fsview {
 	bool verify;
 	bool lazy;
 	/*
-	 * Agent runtime projection: the arena stays writable at its own path
-	 * and only the project storage is denied. A tool projection covers
-	 * both.
+	 * An agent runtime keeps the arena as a detached mount behind a
+	 * descriptor. No projection mounts the arena at a path.
 	 */
 	bool agent;
 };
@@ -95,12 +108,6 @@ int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview 
 			fy_generic expected, char *error, size_t error_size);
 
 /*
- * Make the mount points that the agent projection needs below the cover of
- * the protected directory. Call it in the supervisor before the child enters.
- */
-int fyai_fsview_agent_prepare(const struct fyai_fsview *view);
-
-/*
  * Called only in a prepared tool child. Parent waits for the PID-namespace
  * init. A non-negative @announce_fd is a sequenced-packet socket. The process
  * that runs tool code sends one byte with a pidfd of itself, then waits for the
@@ -109,7 +116,8 @@ int fyai_fsview_agent_prepare(const struct fyai_fsview *view);
  * transport, take its PID there. The release can carry one environment variable.
  * Every process closes the descriptor.
  */
-int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd);
+int fyai_fsview_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
+		      int status_fd, int announce_fd);
 
 /*
  * Supervisor side of @announce_fd. Receive the announcement and return the pidfd

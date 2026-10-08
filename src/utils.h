@@ -217,6 +217,8 @@ void shell_command_result_cleanup(struct shell_command_result *result);
 
 /* Close every descriptor from @lowfd upward. */
 void fyai_close_fds_from(int lowfd);
+/* Close descriptors from lowfd, except keepfd. A negative keepfd keeps none. */
+void fyai_close_fds_except(int lowfd, int keepfd);
 
 /* True when @pid or a bounded descendant is blocked reading standard input. */
 bool fyai_process_reads_stdin(pid_t pid);

@@ -22,6 +22,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #ifdef __linux__
 #include <sys/mman.h>
 #endif
@@ -43,6 +44,7 @@
 #include "fyai_storage.h"
 #include "commands.h"
 #include "fyai_cmd.h"
+#include "fyai_fsview.h"
 #include "utils.h"
 
 #define FYAI_RELOAD_FD_ENV "FYAI_RELOAD_FD"
@@ -128,12 +130,12 @@ static FILE *config_reload_file(struct fyai_cfg *cfg)
 
 int fyai_config_reload_exec(struct fyai_cfg *cfg)
 {
-	const char *argv[5];
+	const char *argv[13];
 	const char *text;
 	fy_generic config, session, state;
 	FILE *fp;
-	char fd_text[32];
-	int fd, flags, rc;
+	char fd_text[32], arena_text[32];
+	int fd, flags, rc, argc;
 	size_t len;
 
 	if (!cfg->reload_branch || !cfg->reload_config ||
@@ -191,11 +193,30 @@ int fyai_config_reload_exec(struct fyai_cfg *cfg)
 		fclose(fp);
 		return -1;
 	}
-	argv[0] = "fyai";
-	argv[1] = "-b";
-	argv[2] = cfg->reload_branch;
-	argv[3] = "-i";
-	argv[4] = NULL;
+	argc = 0;
+	argv[argc++] = "fyai";
+	if (cfg->view_project) {
+		argv[argc++] = "--view-project";
+		argv[argc++] = cfg->view_project;
+		argv[argc++] = "--view-scratch";
+		argv[argc++] = cfg->view_scratch;
+	}
+	if (cfg->view_arena_fd >= 0) {
+		snprintf(arena_text, sizeof(arena_text), "%d", cfg->view_arena_fd);
+		argv[argc++] = "--view-arena-fd";
+		argv[argc++] = arena_text;
+		if (fyai_fsview_arena_pass(cfg)) {
+			fyai_cfg_error(cfg, "reload: cannot pass the arena of the view: %s",
+				       strerror(errno));
+			unsetenv(FYAI_RELOAD_FD_ENV);
+			fclose(fp);
+			return -1;
+		}
+	}
+	argv[argc++] = "-b";
+	argv[argc++] = cfg->reload_branch;
+	argv[argc++] = "-i";
+	argv[argc] = NULL;
 	fyai_exec_self(argv);
 	fyai_cfg_error(cfg, "reload: cannot execute this binary: %s",
 		       strerror(errno));
@@ -438,7 +459,9 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		fy_get(root, "parallel_tool_calls_prompt",
 		       cfg->parallel_tool_calls_prompt);
 	cfg->api_url = fy_get(root, "api_url", cfg->api_url);
-	cfg->arena_dir = fy_get(root, "arena_dir", cfg->arena_dir);
+	cfg->arena_dir = cfg->view_arena ?
+		cfg->view_arena :
+		fy_get(root, "arena_dir", cfg->arena_dir);
 
 	cfg->temperature = fy_get(root, "temperature",
 				cfg->temperature);
@@ -1292,7 +1315,8 @@ int fyai_config_load(struct fyai_cfg *cfg,
 
 	/* Load the catalogue and selected branch configuration. */
 	branch = NULL;
-	if (fyai_peek_arena_config(fy_is_mapping(cfg->reload_state) ?
+	if (fyai_peek_arena_config(cfg->view_arena ? cfg->view_arena :
+				   fy_is_mapping(cfg->reload_state) ?
 				   cfg->arena_dir : NULL,
 				   cfg->branch_explicit ? cfg->branch : NULL,
 				   cfg->root_spec, gb, &root_repo, &cfg->catalog,
@@ -2699,6 +2723,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->agent_timeout_kill = true;
 	cfg->agent_transport_isolation = "none";
 	cfg->transport_ctl_fd = -1;
+	cfg->view_arena_fd = -1;
 	cfg->retry_max_attempts = DEFAULT_RETRY_MAX_ATTEMPTS;
 	cfg->retry_initial_delay_ms = DEFAULT_RETRY_INITIAL_DELAY_MS;
 	cfg->retry_max_delay_ms = DEFAULT_RETRY_MAX_DELAY_MS;
@@ -2843,6 +2868,9 @@ enum {
 	OPT_TRANSIENT,
 	OPT_VERSION,
 	OPT_ROOT,
+	OPT_VIEW_PROJECT,
+	OPT_VIEW_SCRATCH,
+	OPT_VIEW_ARENA_FD,
 };
 
 static const struct option long_options[] = {
@@ -2854,6 +2882,9 @@ static const struct option long_options[] = {
 	{ "api-key", required_argument, NULL, 'k' },
 	{ "branch", required_argument, NULL, 'b' },
 	{ "root", required_argument, NULL, OPT_ROOT },
+	{ "view-project", required_argument, NULL, OPT_VIEW_PROJECT },
+	{ "view-scratch", required_argument, NULL, OPT_VIEW_SCRATCH },
+	{ "view-arena-fd", required_argument, NULL, OPT_VIEW_ARENA_FD },
 	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -3301,6 +3332,9 @@ static int config_parse_set_option(struct fyai_cfg *cfg, int argc, char *argv[])
 static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[],
 				    struct config_cli_options *options)
 {
+	struct stat st;
+	char *end;
+	long fd;
 	int opt;
 
 	options->config = NULL;
@@ -3391,6 +3425,26 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 		case OPT_DELETE:
 			if (config_queue_op(cfg, 'd', optarg, NULL, true, true))
 				return -1;
+			break;
+		case OPT_VIEW_PROJECT:
+			cfg->view_project = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case OPT_VIEW_SCRATCH:
+			cfg->view_scratch = fy_gb_intern_string(cfg->gb, optarg);
+			break;
+		case OPT_VIEW_ARENA_FD:
+			errno = 0;
+			fd = strtol(optarg, &end, 10);
+			if (errno || !*optarg || *end || fd < 3 || fd > INT_MAX ||
+			    fstat((int)fd, &st) || !S_ISDIR(st.st_mode)) {
+				fyai_cfg_error(cfg, "view: '%s' names no arena directory", optarg);
+				return -1;
+			}
+			if (fyai_fsview_arena_adopt(cfg, (int)fd)) {
+				fyai_cfg_error(cfg, "view: cannot adopt the arena descriptor %ld: %s",
+					       fd, strerror(errno));
+				return -1;
+			}
 			break;
 		case OPT_ROOT:
 			if (fyai_cfg_set_root(cfg, optarg))

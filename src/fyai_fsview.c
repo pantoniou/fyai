@@ -582,20 +582,6 @@ static int view_mount_pseudo(void)
 }
 
 /*
- * Directories of the project that the tool can read but never change. The
- * storage and arena stay reachable only when they lie inside one of them.
- */
-static int view_cover_protected(const char *protected, const char *backing)
-{
-	int rc;
-
-	rc = view_cover("cover", protected);
-	if (rc)
-		return -1;
-	return view_cover("cover", backing);
-}
-
-/*
  * Report the process that runs tool code to the supervisor: send a pidfd of
  * this process. A pidfd names a process in any namespace, so the supervisor and
  * the transport, which are in an ancestor namespace, take its PID there. The
@@ -705,31 +691,61 @@ int fyai_fsview_init_pidfd(int fd, int *pidfd)
 	return 0;
 }
 
-int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
+int fyai_fsview_arena_adopt(struct fyai_cfg *cfg, int fd)
 {
-	const char *protected = fy_sprintfa("%s/.fyai", view->project);
-	const char *path;
+	const char *previous = cfg->view_arena, *path;
+	int rc;
 
-	if (!view_beneath(view->arena, protected))
-		return 0;
-	path = fy_sprintfa("%s/cover%s", view->runtime, view->arena + strlen(view->project) +
-			   strlen("/.fyai"));
-	return fyai_mkdir_p(path);
+	rc = fcntl(fd, F_SETFD, FD_CLOEXEC);
+	if (rc)
+		return -1;
+	/* A tool child in the same Landlock domain could open /proc/PID/fd of this process. */
+	rc = prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+	if (rc)
+		return -1;
+	path = fy_gb_intern_string(cfg->gb, fy_sprintfa("/proc/self/fd/%d", fd));
+	if (!path) {
+		errno = ENOMEM;
+		return -1;
+	}
+	cfg->view_arena_fd = fd;
+	cfg->view_arena = path;
+	if (previous && cfg->arena_dir && !strcmp(cfg->arena_dir, previous))
+		cfg->arena_dir = path;
+	return 0;
 }
 
-int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd)
+void fyai_fsview_arena_drop(struct fyai_cfg *cfg)
+{
+	if (cfg->view_arena_fd >= 0)
+		close(cfg->view_arena_fd);
+	cfg->view_arena_fd = -1;
+	cfg->view_arena = NULL;
+}
+
+int fyai_fsview_arena_pass(const struct fyai_cfg *cfg)
+{
+	if (cfg->view_arena_fd < 0)
+		return 0;
+	return fcntl(cfg->view_arena_fd, F_SETFD, 0);
+}
+
+int fyai_fsview_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
+		      int status_fd, int announce_fd)
 {
 	const char *backing = fy_sprintfa("%s/" FYAI_FSVIEW_BACKING_NAME, view->scratch);
 	struct sigaction ignore = { .sa_handler = SIG_IGN }, previous;
 	struct mount_attr attrs = { .attr_set = MOUNT_ATTR_RDONLY };
 	struct fyai_sandbox_path allowed[2] = {
 		{ .path = view->scratch, .mode = FYAI_SB_RW },
-		{ .path = view->arena, .mode = FYAI_SB_RW },
+		{ .path = NULL, .mode = FYAI_SB_RW },
 	};
 	struct fyai_sandbox_spec sandbox = {
 		.strict = true, .read_all = true, .allow = allowed, .allow_n = 1
 	};
 	const char *deny[4], *protected;
+	struct stat project_stat;
+	struct timespec project_times[2];
 	int runtime, rc, saved, status, tree = -1, arena_tree = -1;
 	size_t denied = 0;
 	pid_t child, waited, parent = getppid();
@@ -834,17 +850,51 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announc
 	if (rc)
 		goto out;
 	protected = fy_sprintfa("%s/.fyai", view->project);
-	rc = view_cover_protected(protected, backing);
+	rc = stat(view->project, &project_stat);
 	if (rc)
 		goto out;
-	if (view->agent) {
-		rc = syscall(SYS_move_mount, arena_tree, "", AT_FDCWD, view->arena,
-			     MOVE_MOUNT_F_EMPTY_PATH);
+	/*
+	 * A whiteout hides the storage and leaves the project root a plain
+	 * directory, which the sandbox grants whole. Keep the timestamp of the
+	 * root, so a snapshot does not record the whiteout as a change.
+	 */
+	rc = rmdir(protected);
+	if (rc && errno != ENOENT)
+		goto out;
+	if (!rc) {
+		project_times[0] = project_stat.st_atim;
+		project_times[1] = project_stat.st_mtim;
+		rc = utimensat(AT_FDCWD, view->project, project_times, 0);
 		if (rc)
 			goto out;
-		close(arena_tree);
+	}
+	if (view->agent && !view_beneath(view->arena, protected) &&
+	    !view_beneath(view->arena, view->scratch)) {
+		rc = view_cover("cover", view->arena);
+		if (rc)
+			goto out;
+	}
+	rc = view_cover("cover", backing);
+	if (rc)
+		goto out;
+	/*
+	 * The arena of an agent runtime is mounted at no path of the view. The
+	 * runtime reaches the detached mount through its descriptor, which no
+	 * other program receives.
+	 */
+	if (view->agent) {
+		rc = fyai_fsview_arena_adopt(cfg, arena_tree);
+		if (rc)
+			goto out;
 		arena_tree = -1;
+		allowed[1].path = cfg->view_arena;
 		sandbox.allow_n = 2;
+	}
+	cfg->view_project = fy_gb_intern_string(cfg->gb, view->project);
+	cfg->view_scratch = fy_gb_intern_string(cfg->gb, view->scratch);
+	if (!cfg->view_project || !cfg->view_scratch) {
+		rc = -1;
+		goto out;
 	}
 	rc = view_mount_pseudo();
 	if (rc)
@@ -862,6 +912,8 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announc
 		goto out;
 	close(runtime);
 	runtime = -1;
+	close(tree);
+	tree = -1;
 	rc = fyai_sandbox_apply(&sandbox);
 	if (!rc)
 		rc = view_drop_capabilities();
@@ -874,6 +926,7 @@ int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announc
 			goto out;
 		}
 		if (child) {
+			fyai_fsview_arena_drop(cfg);
 			if (status_fd >= 0)
 				close(status_fd);
 			if (announce_fd >= 0)
@@ -926,13 +979,13 @@ static int view_mount_identity(const char *target, struct fyai_fsview_mount *ide
 		return -1;
 	protected = fy_sprintfa("%s/.fyai", target);
 	rc = statx(AT_FDCWD, protected, AT_SYMLINK_NOFOLLOW, STATX_MNT_ID, &cover);
-	if (rc)
+	if (rc && errno != ENOENT)
 		return -1;
 	identity->namespace_device = namespace.st_dev;
 	identity->namespace_inode = namespace.st_ino;
 	identity->mount_id = root.stx_mnt_id;
 	identity->root_inode = root.stx_ino;
-	identity->cover_id = cover.stx_mnt_id == root.stx_mnt_id ? 0 : cover.stx_mnt_id;
+	identity->cover_id = rc || cover.stx_mnt_id == root.stx_mnt_id ? 0 : cover.stx_mnt_id;
 	return 0;
 }
 
@@ -1005,9 +1058,9 @@ int fyai_fsview_mount(const struct fyai_fsview *view, const char *target,
 		goto out;
 	mounted = true;
 	rc = view_cover("cover", protected);
-	if (rc)
+	if (rc && errno != ENOENT)
 		goto out;
-	covered = true;
+	covered = !rc;
 	rc = view_mount_identity(target, identity);
 out:
 	saved = errno;
@@ -1305,6 +1358,25 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 	return snapshot;
 }
 #else
+int fyai_fsview_arena_adopt(struct fyai_cfg *cfg, int fd)
+{
+	(void)cfg;
+	(void)fd;
+	errno = ENOTSUP;
+	return -1;
+}
+
+void fyai_fsview_arena_drop(struct fyai_cfg *cfg)
+{
+	(void)cfg;
+}
+
+int fyai_fsview_arena_pass(const struct fyai_cfg *cfg)
+{
+	(void)cfg;
+	return 0;
+}
+
 int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview *view,
 			fy_generic expected, char *error, size_t error_size)
 {
@@ -1390,13 +1462,6 @@ int fyai_fsview_unmount(const struct fyai_fsview *view, const char *target,
 	return -1;
 }
 
-int fyai_fsview_agent_prepare(const struct fyai_fsview *view)
-{
-	(void)view;
-	errno = ENOTSUP;
-	return -1;
-}
-
 int fyai_fsview_init_pidfd(int fd, int *pidfd)
 {
 	(void)fd;
@@ -1414,8 +1479,10 @@ int fyai_fsview_init_release(int fd, const char *name, const char *value)
 	return -1;
 }
 
-int fyai_fsview_enter(const struct fyai_fsview *view, int status_fd, int announce_fd)
+int fyai_fsview_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
+		      int status_fd, int announce_fd)
 {
+	(void)cfg;
 	(void)view;
 	(void)status_fd;
 	(void)announce_fd;
