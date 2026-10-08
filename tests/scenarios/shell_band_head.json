@@ -39,7 +39,7 @@
       "index": 0,
       "message": {
        "role": "assistant",
-       "content": "done.",
+       "content": "FYAI_TEST_END_SHELL_BAND_HEAD_6f2c91a8",
        "tool_calls": null
       },
       "finish_reason": "stop"

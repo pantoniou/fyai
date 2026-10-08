@@ -7,7 +7,8 @@ set -eu
 fyai_test_setup
 mock_start shell_band_head.json
 
-FYAI_PTY_INPUT="count" FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=40 \
+FYAI_PTY_INPUT="count" \
+FYAI_PTY_NEEDLE="FYAI_TEST_END_SHELL_BAND_HEAD_6f2c91a8" FYAI_PTY_TIMEOUT=40 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -26,9 +27,6 @@ data = open(sys.argv[1], "rb").read()
 live = 0
 elided = 0
 for disp in frames(data, 30, 100):
-    # Stop at the completed model answer.
-    if any("done." in r for r in disp):
-        continue
     # Select frames that contain shell output.
     if not any(r.strip().isdigit() for r in disp):
         continue

@@ -11,7 +11,7 @@ FYAI_PTY_INPUT="count" \
 FYAI_PTY_ROWS=30 FYAI_PTY_COLS=100 \
 FYAI_PTY_MID_NEEDLE="⎿" FYAI_PTY_MID_TIMEOUT="8" \
 FYAI_PTY_RESIZE_COLS="60" \
-FYAI_PTY_NEEDLE="done." FYAI_PTY_TIMEOUT=60 \
+FYAI_PTY_NEEDLE="FYAI_TEST_END_SHELL_BAND_HEAD_6f2c91a8" FYAI_PTY_TIMEOUT=60 \
 "$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark \
     --set display/markdown=true --set display/stream=false \
@@ -30,7 +30,7 @@ COLS = 60
 # Inspect complete post-resize screens without clipping rows.
 seen = False
 for disp in frames(open(sys.argv[1], "rb").read(), 30, 100):
-    if not any("done." in r for r in disp):
+    if not any("FYAI_TEST_END_SHELL_BAND_HEAD_6f2c91a8" in r for r in disp):
         continue
     seen = True
     widest = max((len(r.rstrip()) for r in disp), default=0)
