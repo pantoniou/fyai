@@ -49,7 +49,7 @@ The document is a sequence of tools in wire shape:
 Use these rules:
 
 - Keep the tool order: `read_file`, `write_file`, `apply_patch`, `exec_command`,
-  `shell_input`, `shell_output`, `shell_close`, `ask_user`, `agent`, `list`,
+  `shell_input`, `shell_output`, `shell_close`, `cancel`, `ask_user`, `agent`, `list`,
   `time`, `wait`.
 - Write each description as a literal block scalar (`|-`) on one line. The
   provider receives the parsed text without a change.
@@ -125,3 +125,21 @@ it cannot parse the document. The tests in `tests/fyai_tool_spec_test.c` check
 that descriptions are non-empty and check selected property types. They do not
 validate the full document shape, exact tool order, every `required` list, or
 `additionalProperties`.
+
+## Tool registry
+
+`data/tools.yaml` describes a tool to the model. `struct fyai_tool_def`
+(`src/fyai_tool_registry.h`) describes it to the program. The file that
+implements a tool defines its entry, and `src/fyai_tool_registry.c` joins the
+tables. An entry holds:
+
+- `run` or `run_text`: the function that runs the call;
+- `head`: the title row of the call, unless the tool is `FYAI_TOOL_SILENT`;
+- `effect`: the ordering class of the call against other calls of a batch;
+- `flags`: `PARENT` (never runs in a job), `SILENT`, `MARKED`,
+  `NOT_FOR_CHILD`, and `HOSTED` (the provider runs it); and
+- `in_parent`: a test of the arguments that keeps one call in the parent.
+
+To add a tool, add it to `data/tools.yaml` and add one entry. The test
+`tools/registry` fails when a tool of the file has no entry, no run function,
+or no head.

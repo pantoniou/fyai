@@ -728,6 +728,26 @@ a call that sends `until: ""` beside `seconds` asks for the seconds.
 A wait lives for one invocation, as a terminal session does. No daemon can
 receive it, so a wait that did not fire is dropped when the run ends.
 
+### Background sub-agents and cancel
+
+An `agent` call with `background: true` starts the sub-agent and returns at
+once. When the sub-agent ends, the model receives its final report as a turn of
+its own, as it does for a named wait:
+
+```text
+  │ [agent 'review' finished]
+  <final report of the sub-agent>
+```
+
+A sub-agent that fails reports `[agent 'NAME' failed: CAUSE]`. A background
+sub-agent lives for one invocation and is stopped when the run ends.
+
+The `cancel` tool ends background work by name: a pending wait, a running
+sub-agent (with every process it started), or an open terminal session. Give
+`kind` (`wait`, `agent` or `shell`) when one name refers to more than one
+object. A session is killed at once; use `shell_close` when the program must
+save its work. The user can stop a sub-agent with `/kill`.
+
 ### A terminal for the user: `fyai term`
 
 The same terminal, drawn for a user. `fyai term` runs a program on a
