@@ -710,8 +710,10 @@ wait{name: "build", seconds: 30}     # returns at once and fires later
 ```
 
 A named wait does not hold the turn. The call returns when the wait is armed,
-and the model continues. When the wait fires, the model receives a turn of its
-own, which no person typed:
+and the model continues. When the wait fires, the model receives a report that
+no person typed. A report that arrives while the model works joins the same turn
+before the next model request, after the active tool calls finish. A report that
+arrives while the session is idle starts a turn of its own:
 
 ```text
   │ start the build and come back to it
