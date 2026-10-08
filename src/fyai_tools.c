@@ -2233,7 +2233,7 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 	struct fyai_event_loop *el;
 	struct jsonrpc_conn *conn;
 	fy_generic result, diag;
-	bool ok = false;
+	bool ok = false, unconfined;
 
 	memset(&tc, 0, sizeof(tc));
 	tc.ctx = ctx;
@@ -2273,13 +2273,22 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			    fyai_env_sanitize(env_keep))
 				fyai_error(ctx,
 					   "could not remove every credential from the tool environment");
-			if (fyai_shell_session_call(ctx, tc.args)) {
+			/*
+			 * A sub-agent runtime publishes to the arena that the sandbox
+			 * denies. Each tool that it runs is confined in its own child.
+			 */
+			unconfined = !fy_equal(fyai_tool_call_name(ctx, tc.args), "agent") &&
+				     fyai_tool_apply_sandbox(ctx);
+			if (!unconfined && fyai_shell_session_call(ctx, tc.args)) {
 				fyai_tool_child_session(ctx, &tc, conn);
 				/* Exit according to whether the session opened. */
 				ok = tc.session_started;
 				break;
 			}
-			if (tc.spawn_failed) {
+			if (unconfined) {
+				result = fy_value(fyai_ctx_transient_gb(ctx),
+					"tool error: the sandbox could not confine the tool");
+			} else if (tc.spawn_failed) {
 				result = fy_value(fyai_ctx_transient_gb(ctx),
 					"tool error: the sub-agent could not "
 					"adopt the state of its parent");
@@ -4550,8 +4559,6 @@ int fyai_tool_child_exec_serve(struct fyai_ctx *ctx)
 	fyai_tool_child_signals(ctx);
 	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
 		return -1;
-	if (fyai_tool_apply_sandbox(ctx))
-		_exit(126);
 	fyai_tool_child_serve_loop(ctx);	/* never returns */
 	return -1;
 }
@@ -4926,8 +4933,6 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))
 			_exit(1);
-		if (fyai_tool_apply_sandbox(ctx))
-			_exit(126);
 		fyai_tool_child_serve_loop(ctx);	/* never returns */
 		_exit(1);
 	}
