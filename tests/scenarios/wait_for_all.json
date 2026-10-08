@@ -1,0 +1,148 @@
+{
+ "steps": [
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "run two and collect"
+   },
+   "response": {
+    "id": "p1",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "c_one",
+         "type": "function",
+         "function": {
+          "name": "agent",
+          "arguments": "{\"name\": \"one\", \"description\": \"one work\", \"task\": \"do TASKONE\", \"context\": \"fresh\", \"isolated\": false, \"background\": true}"
+         }
+        },
+        {
+         "id": "c_two",
+         "type": "function",
+         "function": {
+          "name": "agent",
+          "arguments": "{\"name\": \"two\", \"description\": \"two work\", \"task\": \"do TASKTWO\", \"context\": \"fresh\", \"isolated\": false, \"background\": true}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "started in the background"
+   },
+   "response": {
+    "id": "p2",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "c_w",
+         "type": "function",
+         "function": {
+          "name": "wait",
+          "arguments": "{\"for\": [\"one\", \"two\"], \"mode\": \"all\"}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "TASKONE"
+   },
+   "response": {
+    "id": "c1",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "REPORT-ONE"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "TASKTWO"
+   },
+   "delay": 1,
+   "response": {
+    "id": "c2",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "REPORT-TWO"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "REPORT-TWO"
+   },
+   "response": {
+    "id": "p3",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "Collected both."
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

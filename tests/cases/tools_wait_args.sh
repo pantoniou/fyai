@@ -32,6 +32,13 @@ grep -q "23:59" "$TEST_DIR/stdout" ||
 run_fyai tool wait '{"name":"nothing"}'
 grep -q "seconds or until" "$TEST_DIR/stdout" || fail "a wait with no time was accepted"
 
+# A name beside `for` is ignored: `for` holds the turn, so the call is not
+# refused for it, and the refusal that is left is about the target.
+run_fyai tool wait '{"for":"nothing","name":"label","seconds":0}'
+if grep -q "give for or name" "$TEST_DIR/stdout"; then
+	fail "a name beside for was refused"
+fi
+
 # An unreadable time says what it could not read.
 run_fyai tool wait '{"until":"soon"}'
 grep -q "HH:MM" "$TEST_DIR/stdout" || fail "an unreadable time was not explained"
