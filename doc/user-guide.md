@@ -872,12 +872,13 @@ sandbox:
     - { path: /ro/data, mode: ro }
     - { path: /src, mode: edit }
   network:
-    ports: [443]
+    tcp: { ports: [443], bind_ports: [] }
+    udp: { ports: [], bind_ports: [] }
 ```
 
 The `.fyai` arena is denied to sandboxed tools. Landlock is best-effort on unsupported systems; the portable tool policy remains in force.
 
-Supported path modes include `rw`, `ro`, `edit`, and `append`. Supplying `network` restricts outbound TCP ports; an empty port list denies all configured egress.
+Supported path modes include `rw`, `ro`, `edit`, and `append`. `network.tcp.ports` and `network.udp.ports` list permitted destination ports independently. `bind_ports` under each protocol lists permitted local ports. An empty list denies that operation; omitting a protocol leaves it unrestricted in the normal profile. UDP sends also permit an ephemeral source bind. TCP needs Landlock ABI 4 and UDP needs ABI 10. On older ABIs fyai reports that the requested UDP restriction is unavailable. Local Unix sockets remain available.
 
 `sandbox_profile` selects the policy: `normal` uses `sandbox`, and `lockdown` uses
 `sandbox_lockdown` and enables the sandbox whatever `sandbox` says. `/session
@@ -886,14 +887,15 @@ profile is stored, so a restart of the session keeps it, and it leaves the
 `sandbox` policy as it was. `sandbox_lockdown` takes `deny`, `allow` and `network`
 as `sandbox` does. A key that it omits keeps its default: `deny` lists `~/.ssh`,
 the secret location of the platform, and `network` has an empty port list, which
-denies all egress. A kernel that cannot restrict egress leaves it open.
+denies TCP connects and binds and, on Landlock ABI 10 or newer, UDP sends and binds. On older ABIs UDP remains unrestricted. A kernel without network rights leaves egress open. Each omitted protocol entry keeps its lockdown default.
 
 ```yaml
 sandbox_profile: lockdown
 sandbox_lockdown:
   deny: [~/.ssh, ~/.aws]
   network:
-    ports: [443]
+    tcp: { ports: [443], bind_ports: [] }
+    udp: { ports: [], bind_ports: [] }
 ```
 
 ### Secret handling

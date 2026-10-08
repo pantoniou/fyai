@@ -355,7 +355,7 @@ fyai sandbox show
 ```
 
 The policy can grant paths outside the project, carve paths out of the project
-grant, and restrict TCP egress:
+grant, and restrict TCP and UDP ports:
 
 ```yaml
 sandbox:
@@ -365,7 +365,8 @@ sandbox:
     - { path: /opt/toolchain, mode: ro }
     - { path: /work/generated, mode: rw }
   network:
-    ports: [443]
+    tcp: { ports: [443], bind_ports: [] }
+    udp: { ports: [], bind_ports: [] }
 ```
 
 The repository `.fyai` directory is always denied to sandboxed tools. A
@@ -493,8 +494,8 @@ policy, so a tool of the same user can still reach a key stored outside the
 environment; the design document lists these limits.
 
 `/session lockdown` takes the strongest isolation this host can enforce in one
-step: the credential transport (`auto`), the sandbox with no network egress where
-the kernel can restrict it, and the session itself in a view of the project
+step: the credential transport (`auto`), the sandbox with TCP egress restricted
+on Landlock ABI 4 and UDP egress restricted on ABI 10, and the session itself in a view of the project
 (`view/isolate_session`), where one can be made. Its sub-agents share that view;
 `agent/isolation`, which gives each sub-agent a view of its own, is yours to set
 and the commands leave it alone. The view is

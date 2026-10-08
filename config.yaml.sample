@@ -193,10 +193,11 @@ builtin_shell: false
 #       - { path: /src, mode: edit }        # Modify existing files.
 #       - { path: /logs, mode: append }     # Write without truncation.
 #       # Modes: rw (default), ro, edit, append.
-#     network:              # Restrict egress to listed TCP ports.
-#       ports: [443]        # Omit network to allow egress; [] denies egress.
+#     network:              # Restrict TCP and UDP independently.
+#       tcp: { ports: [443], bind_ports: [] }
+#       udp: { ports: [], bind_ports: [] } # Omit either protocol to leave it unrestricted.
 # `fyai sandbox on` stores this policy:
-# sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { ports: [443] } }
+# sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { tcp: { ports: [443], bind_ports: [] }, udp: { ports: [], bind_ports: [] } } }
 sandbox: false
 # The profile that confines shell executions: normal uses `sandbox` above, and
 # lockdown uses `sandbox_lockdown` and enables the sandbox. `/session lockdown`
@@ -207,7 +208,12 @@ sandbox_profile: normal
 # sandbox_lockdown:
 #   deny: [~/.ssh]        # The secret locations of the platform.
 #   network:
-#     ports: []           # No network egress.
+#     tcp:
+#       ports: []       # No TCP connects.
+#       bind_ports: []  # No TCP binds.
+#     udp:
+#       ports: []       # No UDP sends on ABI 10.
+#       bind_ports: []  # No UDP binds on ABI 10.
 
 logprobs: false
 top_logprobs: -1
