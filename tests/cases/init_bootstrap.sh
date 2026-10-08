@@ -93,7 +93,7 @@ if pid == 0:
     os.execv(BIN, [BIN, "-k", "test-key", "--color", "off",
                    "--config", os.path.join(DIR, "bootstrap.yaml"), "-i"])
 
-buf, sent, end = b"", False, time.time() + 20
+buf, sent, exit_sent, end = b"", False, False, time.time() + 20
 while time.time() < end:
     if select.select([fd], [], [], 0.2)[0]:
         try:
@@ -108,11 +108,11 @@ while time.time() < end:
             os.write(fd, ANSWER.encode() + b"\n")
             sent = True
             end = time.time() + 10
-        elif sent and b"initialized" in buf:
-            # End the reader. The program may have left already, and a pty
-            # that has no reader reports EIO rather than a short write.
+        elif sent and not exit_sent and b"initialized" in buf:
+            # Send EOF once; repeated PTY writes can block.
             try:
                 os.write(fd, b"\x04")
+                exit_sent = True
             except OSError:
                 break
 # Closing a pty master can report EIO on macOS. The read is over: the
