@@ -368,9 +368,11 @@ sandbox:
     ports: [443]
 ```
 
-The repository `.fyai` directory is always denied to sandboxed tools. Landlock
-is Linux-specific and best-effort when the host kernel lacks required features;
-the portable command/tool policy remains separate.
+The repository `.fyai` directory is always denied to sandboxed tools. A
+sub-agent runs outside the tool sandbox, as fyai itself does, because it
+publishes to that arena; each tool that it runs is confined in its own child.
+Landlock is Linux-specific and best-effort when the host kernel lacks required
+features; the portable command/tool policy remains separate.
 
 ## Project views
 
@@ -499,7 +501,9 @@ and the commands leave it alone. The view is
 made from the project as it is at that moment, and a later change to the project
 reaches it with `view update session`. The command checks that the transport can
 run before it changes anything, refuses while shells or sub-agents are live, and
-restarts the session to start the transport and the view. `/session yolo` goes
+restarts the session to start the transport and the view. `fyai view enter
+--lockdown NAME` runs a shell or a command in a view as a tool of such a session
+runs, so you can check its isolation by hand. `/session yolo` goes
 the other way: no transport, no sandbox, no view of the session. It stores the keys, and a
 session that runs with the transport or in a view keeps them until fyai starts
 again, because the key lives in the transport and a restart could not give it

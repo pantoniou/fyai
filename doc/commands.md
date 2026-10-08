@@ -14,6 +14,9 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `-m`, `--model MODEL` | model, optionally as provider/model |
 | `-b`, `--branch BRANCH` | work on this branch (else $FYAI_BRANCH, else HEAD) |
 | `--root HANDLE` | read one exact state by root handle (read-only) |
+| `--view-project DIR` | use this project root in an internal view child |
+| `--view-scratch DIR` | use this scratch directory in an internal view child |
+| `--view-arena-fd FD` | use the arena behind this inherited descriptor in an internal view child |
 | `--set KEY=VALUE` | set a configuration key for this run and store it |
 | `--get KEY` | print a configuration key as one-line flow |
 | `--delete KEY` | delete a configuration key |
@@ -1786,7 +1789,7 @@ that owns the mount and unmount before leaving a rootless inspection shell.
 
 enter a private filesystem view
 
-**Usage:** `fyai view enter [--verify] NAME [COMMAND...]`
+**Usage:** `fyai view enter [--verify] [--lockdown] NAME [COMMAND...]`
 
 Mount the named view in private namespaces and start a shell in its project
 directory, or execute the remaining command arguments directly. Standard
@@ -1808,6 +1811,7 @@ namespaces, OverlayFS, and Landlock.
 | Option | Description |
 | --- | --- |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--lockdown` | confine the command as a tool of a session under /session lockdown, for this run only; default false |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -3984,7 +3988,7 @@ that owns the mount and unmount before leaving a rootless inspection shell.
 
 enter a private filesystem view
 
-**Usage:** `/view enter [--verify] NAME [COMMAND...]`
+**Usage:** `/view enter [--verify] [--lockdown] NAME [COMMAND...]`
 
 Mount the named view in private namespaces and start a shell in its project
 directory, or execute the remaining command arguments directly. Standard
@@ -4006,6 +4010,7 @@ namespaces, OverlayFS, and Landlock.
 | Option | Description |
 | --- | --- |
 | `--verify` | independently verify copied bytes and hashes serially before publication; default false |
+| `--lockdown` | confine the command as a tool of a session under /session lockdown, for this run only; default false |
 | `-h`, `--help` | show this help |
 
 ## /catalog

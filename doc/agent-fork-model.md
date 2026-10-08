@@ -123,8 +123,9 @@ rebuild replaced the binary on disk. On macOS, `_NSGetExecutablePath()` names
 the executable; if that file is replaced before `execv()`, the replacement is
 used. The new process opens the arena and serves the tool channel on
 descriptors 3 and 4 through `fyai_tool_child_exec_serve()`. It resolves no
-credentials at startup: it resolves them when the parent state arrives. It
-applies the sandbox before it serves the call.
+credentials at startup: it resolves them when the parent state arrives. The
+tool sandbox does not confine it: it publishes to the arena that the sandbox
+denies. Each tool that it runs applies the sandbox in its own child.
 
 ### What the parent sends
 

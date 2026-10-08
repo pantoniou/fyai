@@ -1664,6 +1664,11 @@ and output routing.
   the `spawn` state in `tool/run`: see `doc/agent-fork-model.md`. Send it
   what it cannot read from the arena. `agent/spawn: fork`, a transient run
   and a pinned root keep the forked child; keep both paths correct.
+- In a view, an agent runtime holds its arena only as a close-on-exec
+  descriptor of a detached mount, adopted with `fyai_fsview_arena_adopt()`.
+  Pass it only to an execution of fyai, with `fyai_fsview_arena_pass()` and
+  `--view-arena-fd`; drop it in any other child with
+  `fyai_fsview_arena_drop()`. Do not mount the arena at a path of the view.
 
 `context: fork` starts at the parent head. `context: fresh` sends only the
 task. In fork mode, add the persona as a user instruction message. Do not add a

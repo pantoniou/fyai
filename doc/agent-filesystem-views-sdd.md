@@ -1752,23 +1752,44 @@ An agent or a session can run in a view for its whole life. The parent does not
 see the changes while it runs. It takes them afterwards with `view diff` and
 `view apply`.
 
-**Agent projection.** The projection of section 8.1 for an agent runtime keeps
-the arena writable at its own path, because the agent publishes its own branch.
-The enter code takes the arena as a clone of the mount before the outside
-mounts become read-only, and moves it back after the cover of `.fyai`. When the
-arena is inside the project, the supervisor first makes the mount point below
-the cover. The project storage (objects, manifests, views) stays denied. The
-runtime keeps its environment, because it holds the provider credential that
-its own tools never receive. Landlock and the capability drop apply as for a
-tool projection. A tool that the agent starts keeps its own sandbox, which
-denies the arena.
+**Agent projection.** The project overlay has a whiteout for `.fyai`. This
+keeps storage hidden and leaves the project root a plain directory, which the
+tool sandbox grants whole, so tools can create, rename, and remove entries at
+the project root. The whiteout keeps the timestamp of the root, so a snapshot
+does not record it as a change.
+
+The enter code clones the arena mount before the outside mounts become
+read-only, and mounts the clone at no path of the view. The runtime keeps the
+detached mount behind a close-on-exec descriptor and opens the arena as
+`/proc/self/fd/N`, which needs a libfyaml whose durable allocator opens the
+directory by the path that it is given. The original arena path and the project
+storage stay hidden or denied, and the arena does not move on the host. Garbage
+collection works on the sibling paths of the arena directory and is not
+available to a runtime in a view.
+
+Only an execution of fyai receives the descriptor: the parent clears
+close-on-exec for that execution alone and passes `--view-arena-fd`. Every
+other program that the runtime starts, a shell or an editor included, loses it
+at exec without a step of its own, and a forked tool child closes it. The
+runtime is not dumpable, so a process of the view that shares its Landlock
+domain cannot open the descriptor through `/proc/PID/fd`. The runtime and its
+tools hold no capabilities.
+
+The parent passes `--view-project` and `--view-scratch` to an executed fyai
+child. A forked child keeps the same paths in its configuration structure.
+These paths are invocation state and do not enter stored configuration. No
+environment variable selects the view or its arena.
+
+`view enter --lockdown` runs the command in the view under the lockdown sandbox
+profile, as a tool call of a session under `/session lockdown` runs, for that
+run only. It checks the isolation of such a session by hand.
 
 **Sub-agent.** The `agent` tool takes `isolated`; the setting `agent/isolation`
 (`none` or `view`) gives the default. At submission the parent captures the
 project into the view `agent/NAME`, which it makes or replaces. The view is
 stored on the branch of the parent. The child
-enters the view before it starts, and sets `FYAI_VIEW` so that what it starts
-shares the view. When the job ends, the parent captures the result after the
+enters the view before it starts, and passes the view paths to its children
+so that they share the view. When the job ends, the parent captures the result after the
 last process of the namespace has ended, and stores it as a delta over the
 baseline. The tool result names the view and lists up to 20 changed paths.
 A job that was stopped or timed out is captured as it stands.
