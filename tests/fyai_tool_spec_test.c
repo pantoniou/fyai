@@ -17,6 +17,7 @@
 #include "fyai.h"
 #include "fyai_tool_spec.h"
 #include "fyai_tool_template.h"
+#include "fyai_tool_registry.h"
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -27,6 +28,7 @@ FYAI_TEST_ENTRY(tools, filtered, tools_filtered)
 FYAI_TEST_ENTRY(tools, personas, tools_personas)
 FYAI_TEST_ENTRY(tools, cache, tools_cache)
 FYAI_TEST_ENTRY(tools, templates, tools_templates)
+FYAI_TEST_ENTRY(tools, registry, tools_registry)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
@@ -360,4 +362,60 @@ static void test_templates(void)
 int tools_templates(void)
 {
 	return tools_run(test_templates);
+}
+
+/* Every tool of data/tools.yaml is registered with all that it needs. */
+static void test_registry(void)
+{
+	fy_generic tools = make_tools(&test_ctx);
+	const struct fyai_tool_def *def, *other;
+	fy_generic tool, gname;
+	const char *name;
+	size_t i, j;
+
+	fy_foreach(tool, tools) {
+		gname = fy_get(fy_get(tool, "function"), "name");
+		name = fy_castp(&gname, "");
+		def = fyai_tool_find(name);
+		if (!def) {
+			fprintf(stderr, "tool '%s' is not registered\n", name);
+			fail("a tool of tools.yaml has no registry entry");
+		}
+		require(def->run || def->run_text, "a tool needs a run function");
+		require(def->head || (def->flags & FYAI_TOOL_SILENT),
+			"a tool needs a head or must be silent");
+	}
+
+	/* The entries are unique, named, and hosted ones have no local run. */
+	for (i = 0; (def = fyai_tool_at(i)); i++) {
+		require(def->name && *def->name, "an entry needs a name");
+		require(!(def->flags & FYAI_TOOL_HOSTED) ||
+			(!def->run && !def->run_text),
+			"a hosted tool is run by the provider");
+		for (j = i + 1; (other = fyai_tool_at(j)); j++)
+			require(strcmp(def->name, other->name),
+				"a tool is registered twice");
+	}
+
+	/* A call that reads the tables of the parent never runs in a job. */
+	for (i = 0; i < 4; i++) {
+		static const char *const parent[] = {
+			"agent_input", "cancel", "shell_close", "wait",
+		};
+
+		require(fyai_tool_has(parent[i], FYAI_TOOL_PARENT),
+			"a tool of the parent runs in a job");
+		require(fyai_tool_find(parent[i])->effect !=
+			FYAI_TOOL_EFFECT_NONE || !strcmp(parent[i], "wait"),
+			"a tool that ends processes needs an ordering class");
+	}
+	/* The wire name of the shell finds the shell. */
+	require(fyai_tool_find("exec_command") == fyai_tool_find("shell"),
+		"the wire name of the shell must find it");
+	require(!fyai_tool_find("no_such_tool"), "an unknown name has no entry");
+}
+
+int tools_registry(void)
+{
+	return tools_run(test_registry);
 }
