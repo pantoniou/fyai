@@ -1838,6 +1838,11 @@ static int fyai_tool_apply_sandbox(struct fyai_ctx *ctx)
 	return 0;
 }
 
+int fyai_tools_confine(struct fyai_ctx *ctx)
+{
+	return fyai_tool_apply_sandbox(ctx);
+}
+
 /* These descriptors contain the private JSON-RPC channel. */
 #define FYAI_TOOL_CHILD_REQ_FD 3	/* parent -> child, read by the child */
 #define FYAI_TOOL_CHILD_RSP_FD 4	/* child -> parent, written by the child */

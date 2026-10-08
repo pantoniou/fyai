@@ -391,6 +391,13 @@ static fy_generic sandbox_lockdown_policy(struct fyai_cfg *cfg, fy_generic root)
 			  "network", net);
 }
 
+void fyai_config_sandbox_lockdown(struct fyai_cfg *cfg)
+{
+	cfg->sandbox_lockdown = true;
+	cfg->sandbox = sandbox_lockdown_policy(cfg, cfg->config_doc);
+	cfg->enable_sandbox = true;
+}
+
 /*
  * Overlay the keys present in @root onto @cfg. Absent keys leave the
  * existing value untouched, so each layer only overrides what it sets.

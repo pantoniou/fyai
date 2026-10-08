@@ -39,6 +39,7 @@
 #include "fyai_branch.h"
 #include "fyai_config.h"
 #include "fyai_fsview.h"
+#include "fyai_sandbox.h"
 #include "fyai_view_apply.h"
 #include "fyai_view_fs.h"
 #include "fyai_diff.h"
@@ -1728,8 +1729,12 @@ static void view_exec_self(struct fyai_ctx *ctx, char *const argv[])
 	free(child_argv);
 }
 
+/*
+ * With @confine the command runs under the tool sandbox of this invocation,
+ * applied in the view, as a tool call of a session in the view would.
+ */
 static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const argv[],
-		     bool self, int in_fd, int out_fd, struct view_session_transport *tp,
+		     bool self, bool confine, int in_fd, int out_fd, struct view_session_transport *tp,
 		     struct view_session_link *link, struct shell_command_result *result)
 {
 	struct fyai_child_spec spec = { .in_fd = in_fd,
@@ -1811,6 +1816,10 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		rc = fyai_child_exec_prepare(ctx, &spec);
 		if (rc)
 			_exit(rc);
+		if (confine && fyai_tools_confine(ctx)) {
+			fyai_child_status_report(3, FYAI_CHILD_STAGE_SANDBOX, errno);
+			_exit(FYAI_SHELL_EXIT_SANDBOX);
+		}
 		if (self) {
 			view_exec_self(ctx, argv);
 			fyai_child_status_report(3, FYAI_CHILD_STAGE_EXEC, errno);
@@ -1943,6 +1952,8 @@ static int view_enter_terminal(struct fyai_cmd_call *call)
 	     response_buffer_append(&line, " view enter ");
 	if (!rc && fyai_cmd_arg_bool(call, "verify"))
 		rc = response_buffer_append(&line, "--verify ");
+	if (!rc && fyai_cmd_arg_bool(call, "lockdown"))
+		rc = response_buffer_append(&line, "--lockdown ");
 	if (!rc)
 		rc = view_terminal_quote(&line, fyai_cmd_arg_str(call, "name")) ||
 		     response_buffer_append(&line, " --");
@@ -2077,12 +2088,24 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	char error[PATH_MAX] = "", startup[FYAI_CHILD_START_TEXT_MAX];
 	const char *why;
 	int rc = -1, saved;
-	bool complete = false;
+	bool complete = false, lockdown = fyai_cmd_arg_bool(call, "lockdown");
 
 	if (call->surface == FYAI_CMD_SESSION)
 		return view_enter_terminal(call);
 	if (view_writable(call->ctx))
 		return -1;
+	/* What a tool of a session under /session lockdown gets in its view. */
+	if (lockdown) {
+		if (!fyai_sandbox_available()) {
+			fyai_error(call->ctx, "view '%s': --lockdown needs Landlock, which this "
+				   "kernel lacks", name);
+			return -1;
+		}
+		fyai_config_sandbox_lockdown(call->ctx->cfg);
+		if (!fyai_sandbox_net_restrictable(-1))
+			fyai_warning(call->ctx, "view '%s': this kernel cannot restrict network "
+				     "egress: it stays open", name);
+	}
 	run.spec.verify = fyai_cmd_arg_bool(call, "verify");
 	rc = view_open_run(call->ctx, name, &run, error, sizeof(error));
 	if (rc == -1) {
@@ -2097,7 +2120,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	fy_foreach(argument, arguments)
 		argv[index++] = (char *)argument;
-	rc = view_exec(call->ctx, &run.spec, argv, false, -1, -1, NULL, NULL, &output);
+	rc = view_exec(call->ctx, &run.spec, argv, false, lockdown, -1, -1, NULL, NULL, &output);
 	if (rc)
 		goto out;
 	why = fyai_child_start_text(&output.start, NULL, run.spec.project, startup, sizeof(startup));
@@ -2189,7 +2212,7 @@ static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job 
 		rc = -1;
 		goto out;
 	}
-	rc = view_exec(ctx, &run.spec, job->argv, true, in_fd, out_fd, NULL, NULL, &output);
+	rc = view_exec(ctx, &run.spec, job->argv, true, false, in_fd, out_fd, NULL, NULL, &output);
 	saved = errno;
 	if (job->finish)
 		finished = job->finish(job->arg);
@@ -3525,7 +3548,7 @@ restart:
 		rc = -1;
 		goto out;
 	}
-	rc = view_exec(ctx, &run->spec, argv, true, -1, -1, tpp, &link, &output);
+	rc = view_exec(ctx, &run->spec, argv, true, false, -1, -1, tpp, &link, &output);
 	if (link.fd[0] >= 0)
 		close(link.fd[0]);
 	link.fd[0] = link.fd[1] = -1;

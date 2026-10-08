@@ -1924,6 +1924,11 @@ commands:
               default: false
               description: independently verify copied bytes and hashes serially before publication
               x-fyai-long: verify
+            lockdown:
+              type: boolean
+              default: false
+              description: confine the command as a tool of a session under /session lockdown, for this run only
+              x-fyai-long: lockdown
             name:
               type: string
               description: the name of the view to enter

@@ -211,6 +211,12 @@ void fyai_config_cleanup(struct fyai_cfg *cfg);
 int fyai_config_select_resume(struct fyai_cfg *cfg);
 
 /*
+ * Select the lockdown sandbox profile for this invocation only, as
+ * `sandbox_profile: lockdown` does. Nothing is stored.
+ */
+void fyai_config_sandbox_lockdown(struct fyai_cfg *cfg);
+
+/*
  * Set @key to @value in the session layer of the configuration: this session
  * uses it, and nothing stores it. The merged document is checked against the
  * schema first; a failure changes nothing. Returns 0, or -1 with the cause

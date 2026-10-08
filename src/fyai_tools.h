@@ -137,6 +137,12 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 void fyai_tools_unzoom(struct fyai_ctx *ctx);
 /* Start a user-owned TTY shell in the work pane. */
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command);
+/*
+ * Confine this process as the tool sandbox confines a tool call. Call it in a
+ * child that runs a program, after the child enters its view. Returns 0, or -1
+ * with the cause raised.
+ */
+int fyai_tools_confine(struct fyai_ctx *ctx);
 
 /* Told that a program the user runs through fyai ended: its exit code, or
  * the signal that ended it. */
