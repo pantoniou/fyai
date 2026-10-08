@@ -1768,6 +1768,11 @@ fy_generic fyai_tool_run_one(struct fyai_ctx *ctx, const char *name,
 			strdup(fy_castp(&agent_name, "")) : NULL;
 		result_generic = fyai_agent_run(ctx, args, okp);
 		if (fy_is_invalid(result_generic)) {
+			/* A failed arena reopen leaves no transient builder. */
+			if (!ctx->transient_gb && fyai_setup_transient_builder(ctx)) {
+				free(who);
+				return fy_invalid;
+			}
 			/* Quote the cause without consuming the user's diagnostic. */
 			diag = fyai_diag_string(&ctx->cfg->diag);
 			result_generic = fy_gb_internalize(ctx->transient_gb,
