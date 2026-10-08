@@ -27,6 +27,7 @@
 #include "fyai_session.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
+#include "fyai_tool_registry.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
 #include "fyai_provider.h"
@@ -1995,152 +1996,134 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 				      strlen(plain));
 }
 
-void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
-			struct fy_generic_builder *gb,
-				const char *name, fy_generic args,
-				int preview_lines, struct fyai_md_blocks *blocks)
+void fyai_tool_head_shell(struct fyai_ctx *ctx, FILE *mf,
+			  struct fy_generic_builder *gb, fy_generic args,
+			  int preview_lines, struct fyai_md_blocks *blocks)
 {
 	size_t block_start;
-	const char *path;
-	const char *cmd;
-	const char *c;
-	fy_generic gpath;
+	const char *cmd, *c;
 	fy_generic gc;
-	fy_generic paths, item;
-	bool first = true;
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	cmd = fy_get(args, "command", "");
+	/*
+	 * The model describes the purpose of the command. Show this
+	 * description in brackets before the command. A delegation
+	 * shows its sub-agent name in the same position.
+	 */
+	gc = fy_get(args, "description");
+	c = fy_castp(&gc, "");
+	fprintf(mf, "**shell**");
+	if (*c)
+		fprintf(mf, " [%s]", c);
+	fprintf(mf, "\n\n");
+	block_start = (size_t)ftell(mf);
+	fprintf(mf, "```sh\n%s\n```\n", cmd);
+	(void)md_blocks_push(blocks, block_start, (size_t)ftell(mf), "sh");
+	fprintf(mf, "\n");
+}
+
+void fyai_tool_head_read_file(struct fyai_ctx *ctx, FILE *mf,
+			      struct fy_generic_builder *gb, fy_generic args,
+			      int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic gpath = fy_get(args, "path");
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	fprintf(mf, "**read** `%s`\n\n", fy_castp(&gpath, ""));
+}
+
+void fyai_tool_head_write_file(struct fyai_ctx *ctx, FILE *mf,
+			       struct fy_generic_builder *gb, fy_generic args,
+			       int preview_lines, struct fyai_md_blocks *blocks)
+{
+	const char *path, *c;
+	fy_generic gpath, gc;
 	char *lang;
+
+	(void)ctx;
+	(void)gb;
+	/*
+	 * Hold the path/content generics in locals and read them with
+	 * fy_castp: a short (inline) string lives in the fy_generic word,
+	 * so a pointer from fy_cast on the fy_get temporary would dangle
+	 * once that temporary dies - and these are used past that point.
+	 */
+	gpath = fy_get(args, "path");
+	gc = fy_get(args, "content");
+	path = fy_castp(&gpath, "");
+	c = fy_castp(&gc, "");
+	fprintf(mf, "**write** `%s` (%zu byte%s)\n\n",
+		path, strlen(c), strlen(c) == 1 ? "" : "s");
+	if (*c) {
+		lang = markdown_lang_for_path(path);
+		fyai_emit_tool_result_blocks(mf, c, preview_lines, lang,
+					     blocks);
+		free(lang);
+	}
+}
+
+void fyai_tool_head_apply_patch(struct fyai_ctx *ctx, FILE *mf,
+				struct fy_generic_builder *gb, fy_generic args,
+				int preview_lines, struct fyai_md_blocks *blocks)
+{
+	const char *c;
+	fy_generic gc;
+
+	(void)gb;
+	gc = fy_get(args, "patch");
+	c = fy_castp(&gc, "");
+	/* The diff of the group of calls shows the change: name the files only. */
+	if (*c && preview_lines && ctx && ctx->tool_diff_tracking)
+		fyai_emit_patch(ctx, mf, c, blocks, true);
+	else if (*c && preview_lines < 0)
+		fyai_emit_patch(ctx, mf, c, blocks, false);
+	else if (*c && preview_lines > 0)
+		fyai_emit_tool_result_blocks(mf, c, preview_lines,
+					     "diff", blocks);
+	else
+		fprintf(mf, "**patch**\n\n");
+}
+
+static void tool_head_web_search(struct fyai_ctx *ctx, FILE *mf,
+				 struct fy_generic_builder *gb, fy_generic args,
+				 int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic gc = fy_get(args, "query");
+	const char *c = fy_castp(&gc, "");
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	if (*c)
+		fprintf(mf, "**web search** `%s`\n\n", c);
+	else
+		fprintf(mf, "**web search**\n\n");
+}
+
+/* The provider runs a hosted tool: the program only presents its call. */
+const struct fyai_tool_def fyai_display_defs[] = {
+	{ .name = "web_search", .head = tool_head_web_search,
+	  .flags = FYAI_TOOL_HOSTED },
+};
+const size_t fyai_display_defs_count = ARRAY_SIZE(fyai_display_defs);
+
+void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
+			 struct fy_generic_builder *gb,
+			 const char *name, fy_generic args,
+			 int preview_lines, struct fyai_md_blocks *blocks)
+{
+	const struct fyai_tool_def *def = fyai_tool_find(name);
 	char *s;
 
-	if (fy_equal(name, "shell")) {
-		cmd = fy_get(args, "command", "");
-		/*
-		 * The model describes the purpose of the command. Show this
-		 * description in brackets before the command. A delegation
-		 * shows its sub-agent name in the same position.
-		 */
-		gc = fy_get(args, "description");
-		c = fy_castp(&gc, "");
-		fprintf(mf, "**shell**");
-		if (*c)
-			fprintf(mf, " [%s]", c);
-		fprintf(mf, "\n\n");
-		block_start = (size_t)ftell(mf);
-		fprintf(mf, "```sh\n%s\n```\n", cmd);
-		(void)md_blocks_push(blocks, block_start, (size_t)ftell(mf),
-				     "sh");
-		fprintf(mf, "\n");
-		return;
-	}
-	if (fy_equal(name, "read_file")) {
-		fprintf(mf, "**read** `%s`\n\n", fy_cast(
-			fy_get(args, "path", ""), ""));
-		return;
-	}
-	if (fy_equal(name, "write_file")) {
-		/*
-		 * Hold the path/content generics in locals and read them with
-		 * fy_castp: a short (inline) string lives in the fy_generic word,
-		 * so a pointer from fy_cast on the fy_get temporary would dangle
-		 * once that temporary dies - and these are used past that point.
-		 */
-		gpath = fy_get(args, "path");
-		gc = fy_get(args, "content");
-		path = fy_castp(&gpath, "");
-		c = fy_castp(&gc, "");
-		fprintf(mf, "**write** `%s` (%zu byte%s)\n\n",
-			path, strlen(c), strlen(c) == 1 ? "" : "s");
-		if (*c) {
-			lang = markdown_lang_for_path(path);
-			fyai_emit_tool_result_blocks(mf, c, preview_lines, lang,
-						     blocks);
-			free(lang);
-		}
-		return;
-	}
-	if (fy_equal(name, "apply_patch")) {
-		gc = fy_get(args, "patch");
-		c = fy_castp(&gc, "");
-		/* The diff of the group of calls shows the change: name the files only. */
-		if (*c && preview_lines && ctx && ctx->tool_diff_tracking)
-			fyai_emit_patch(ctx, mf, c, blocks, true);
-		else if (*c && preview_lines < 0)
-			fyai_emit_patch(ctx, mf, c, blocks, false);
-		else if (*c && preview_lines > 0)
-			fyai_emit_tool_result_blocks(mf, c, preview_lines,
-						     "diff", blocks);
-		else
-			fprintf(mf, "**patch**\n\n");
-		return;
-	}
-	if (fy_equal(name, "agent")) {
-		gpath = fy_get(args, "name");
-		gc = fy_get(args, "description");
-		path = fy_castp(&gpath, "");
-		c = fy_castp(&gc, "");
-		if (*path)
-			fprintf(mf, "**agent** [%s] %s\n\n", path,
-				*c ? c : "delegated task");
-		else
-			fprintf(mf, "**agent** %s\n\n",
-				*c ? c : "delegated task");
-		return;
-	}
-	if (fy_equal(name, "ask_user")) {
-		fprintf(mf, "**❓ %s**\n\n",
-			fy_cast(fy_get(args, "question", ""), ""));
-		return;
-	}
-	if (fy_equal(name, "time")) {
-		fprintf(mf, "**time**\n\n");
-		return;
-	}
-	if (fy_equal(name, "web_search")) {
-		gc = fy_get(args, "query");
-		c = fy_castp(&gc, "");
-		if (*c)
-			fprintf(mf, "**web search** `%s`\n\n", c);
-		else
-			fprintf(mf, "**web search**\n\n");
-		return;
-	}
-	if (fy_equal(name, "wait")) {
-		/* What the wait is for, when the model said, and its name
-		 * when it is one that fires on its own. */
-		gc = fy_get(args, "reason");
-		c = fy_castp(&gc, "");
-		gpath = fy_get(args, "name");
-		path = fy_castp(&gpath, "");
-		fprintf(mf, "**wait**");
-		if (*path)
-			fprintf(mf, " [%s]", path);
-		if (*c)
-			fprintf(mf, " %s", c);
-		fprintf(mf, "\n\n");
-		return;
-	}
-	if (fy_equal(name, "list")) {
-		gc = fy_get(args, "kind");
-		c = fy_castp(&gc, "");
-		fprintf(mf, "**list** %s\n\n", *c ? c : "all");
-		return;
-	}
-	if (fy_equal(name, "project_view")) {
-		gc = fy_get(args, "action");
-		c = fy_castp(&gc, "");
-		gpath = fy_get(args, "name");
-		path = fy_castp(&gpath, "");
-		paths = fy_get(args, "paths", fy_invalid);
-		fprintf(mf, "**view %s**", *c ? c : "?");
-		if (*path)
-			fprintf(mf, " `%s`", path);
-		fy_foreach(item, paths) {
-			gc = item;
-			fprintf(mf, "%s`%s`", first ? " " : ", ", fy_castp(&gc, ""));
-			first = false;
-		}
-		if (fy_get(args, "dry_run", false))
-			fprintf(mf, " (dry run)");
-		fprintf(mf, "\n\n");
+	if (def && def->head) {
+		def->head(ctx, mf, gb, args, preview_lines, blocks);
 		return;
 	}
 	/* Unknown tool: fall back to name + JSON arguments. */
@@ -3335,8 +3318,7 @@ static bool stored_call_is_session(struct fyai_ctx *ctx, fy_generic call)
 	n = fy_castp(&name, "");
 	if (fy_str_empty(n))
 		return false;
-	if (!strcmp(n, "shell_input") || !strcmp(n, "shell_output") ||
-	    !strcmp(n, "shell_close"))
+	if (fyai_tool_has(n, FYAI_TOOL_SILENT))
 		return true;
 	if (strcmp(n, FYAI_TOOL_EXEC_WIRE_NAME) && strcmp(n, "shell"))
 		return false;

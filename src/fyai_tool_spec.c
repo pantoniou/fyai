@@ -17,6 +17,7 @@
 #include "fyai.h"
 #include "fyai_config.h"
 #include "fyai_tool_spec.h"
+#include "fyai_tool_registry.h"
 #include "fyai_tool_template.h"
 #include "fyai_view.h"
 
@@ -133,7 +134,8 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 			fn = fy_get(tool, "function");
 			name = fy_get(fn, "name");
 			/* A sub-agent may ask upward but cannot manage agents. */
-			if (fy_any_equal(name, "agent", "agent_input", "project_view"))
+			if (fyai_tool_has(fy_castp(&name, ""),
+					  FYAI_TOOL_NOT_FOR_CHILD))
 				continue;
 			out = fy_append(gb, out, tool);
 		}

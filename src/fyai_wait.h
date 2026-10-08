@@ -16,6 +16,12 @@ char *fyai_time_now_text(void);
 /* Wait synchronously, or schedule a named asynchronous wait. */
 char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp);
 
+/* Cancel the pending wait @name; false when no such wait is pending. */
+bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name);
+
+/* True when a named wait @name is pending. */
+bool fyai_wait_exists(struct fyai_ctx *ctx, const char *name);
+
 /* True while a named wait is pending. */
 bool fyai_wait_pending(const struct fyai_ctx *ctx);
 

@@ -117,6 +117,19 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 			 struct fy_generic_builder *gb,
 			 const char *name, fy_generic args, int preview_lines,
 			 struct fyai_md_blocks *blocks);
+/* Title rows of the tools whose head needs the block and patch emitters. */
+void fyai_tool_head_shell(struct fyai_ctx *ctx, FILE *mf,
+			  struct fy_generic_builder *gb, fy_generic args,
+			  int preview_lines, struct fyai_md_blocks *blocks);
+void fyai_tool_head_read_file(struct fyai_ctx *ctx, FILE *mf,
+			      struct fy_generic_builder *gb, fy_generic args,
+			      int preview_lines, struct fyai_md_blocks *blocks);
+void fyai_tool_head_write_file(struct fyai_ctx *ctx, FILE *mf,
+			       struct fy_generic_builder *gb, fy_generic args,
+			       int preview_lines, struct fyai_md_blocks *blocks);
+void fyai_tool_head_apply_patch(struct fyai_ctx *ctx, FILE *mf,
+				struct fy_generic_builder *gb, fy_generic args,
+				int preview_lines, struct fyai_md_blocks *blocks);
 int fyai_tool_preview_lines(const struct fyai_cfg *cfg, const char *name);
 
 /*

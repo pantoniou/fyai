@@ -26,6 +26,7 @@
 #include "fyai.h"
 #include "fyai_cmd.h"
 #include "fyai_agent.h"
+#include "fyai_tool_registry.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_crash.h"
@@ -200,8 +201,7 @@ void fyai_print_usage_stats(struct fyai_ctx *ctx)
 
 static bool fyai_is_tool_marked(const char *name)
 {
-	return fy_any_equal(name, "shell", "agent", "read_file", "write_file",
-			    "apply_patch");
+	return fyai_tool_has(name, FYAI_TOOL_MARKED);
 }
 
 static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
@@ -2078,6 +2078,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
 	fyai_waits_release(ctx);
+	fyai_agent_background_close(ctx);
 	fyai_tool_diff_cleanup(ctx);
 	fyai_events_release(ctx);
 	fyai_terminal_winch_close(ctx);
@@ -2495,6 +2496,21 @@ int fyai_event_inject(struct fyai_ctx *ctx, char *text)
 {
 	return fyai_event_inject_queue(ctx, text, FYAI_EVENT_OWNER_NONE,
 				       NULL);
+}
+
+int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
+{
+	va_list ap;
+	char *text;
+	int rc;
+
+	va_start(ap, fmt);
+	rc = vasprintf(&text, fmt, ap);
+	va_end(ap);
+	fyai_error_check(ctx, rc >= 0, err, "could not format an event");
+	return fyai_event_inject(ctx, text);
+err:
+	return -1;
 }
 
 /* Queue owned @text for the loop owner; the caller gives away @owner. */
@@ -3351,7 +3367,7 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 				continue;
 		}
 		/* A side question may complete after its parent turn releases scratch. */
-		if (ctx->btw_runs && !ctx->transient_gb) {
+		if ((ctx->btw_runs || ctx->agent_bg_runs) && !ctx->transient_gb) {
 			rc = fyai_setup_transient_builder(ctx);
 			fyai_error_check(ctx, !rc, out,
 					 "could not retain side question storage");
@@ -3365,6 +3381,7 @@ out:
 	/* Cancel active work and drain MCP shutdown on every exit path. */
 	state = FYAIAS_STOPPING;
 	fyai_session_btw_close(ctx);
+	fyai_agent_background_close(ctx);
 	if (run) {
 		fyai_turn_run_cancel(run);
 		fyai_turn_run_destroy(run);

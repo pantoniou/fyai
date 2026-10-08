@@ -728,6 +728,7 @@ struct fyai_ctx {
 	void *tty_session;		/* the PTY session running in this process */
 	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
 	struct fyai_btw_run *btw_runs;	/* side questions in this session */
+	struct fyai_agent_bg_run *agent_bg_runs; /* background sub-agents */
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;
@@ -863,6 +864,9 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn);
 
 /* Queue owned @text for the event-loop owner to submit between turns. */
 int fyai_event_inject(struct fyai_ctx *ctx, char *text);
+/* The same, with the text made from a format. Return 0, or -1 on failure. */
+int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
+	__attribute__((format(printf, 2, 3)));
 /*
  * What a queued event reports for. A wait event names its owner: the
  * report reaches the model after the poll that queued it, and the wait

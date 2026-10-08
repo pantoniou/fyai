@@ -21,6 +21,7 @@
 #include "fyai_config.h"
 #include "fyai_storage.h"
 #include "fyai_tools.h"
+#include "fyai_tool_registry.h"
 #include "fyai_auth.h"
 
 #include <stdio.h>
@@ -631,6 +632,226 @@ err:
 	free(args_json);
 	return fy_invalid;
 }
+
+/*
+ * A background sub-agent runs in a job group of its own, because the group of
+ * the turn that started it is cancelled when that turn ends. The run owns the
+ * group until the sub-agent ends, and then queues the report as an event.
+ */
+struct fyai_agent_bg_run {
+	struct fyai_agent_bg_run *next;
+	struct fyai_ctx *ctx;
+	struct fyai_tool_job_group *group;
+	char *name;
+};
+
+bool fyai_agent_background_requested(fy_generic args)
+{
+	return fy_get(args, "background", false);
+}
+
+static void agent_bg_unlink(struct fyai_agent_bg_run *run)
+{
+	struct fyai_agent_bg_run **link = &run->ctx->agent_bg_runs;
+
+	while (*link && *link != run)
+		link = &(*link)->next;
+	if (*link)
+		*link = run->next;
+}
+
+static void agent_bg_free(struct fyai_agent_bg_run *run)
+{
+	fyai_tool_job_group_destroy(run->group);
+	free(run->name);
+	free(run);
+}
+
+/* Queue the end of the sub-agent for the model; it is not shown to the user. */
+static void agent_bg_finish(void *userdata)
+{
+	struct fyai_agent_bg_run *run = userdata;
+	struct fyai_ctx *ctx = run->ctx;
+	fy_generic result = fy_invalid;
+	const char *report;
+	bool ok = false;
+	int rc;
+
+	fyai_error_check(ctx, fyai_ctx_transient_gb(ctx), release,
+			 "agent: could not collect the report of '%s'",
+			 run->name);
+	rc = fyai_tool_job_group_collect(run->group, 0, &result, &ok);
+	report = fy_is_string(result) ? fy_castp(&result, "") : "";
+	if (rc || !ok)
+		rc = fyai_event_injectf(ctx, "[agent '%s' failed: %s]",
+					run->name, *report ? report :
+					"no reason was recorded");
+	else
+		rc = fyai_event_injectf(ctx, "[agent '%s' finished]\n%s",
+					run->name, report);
+	fyai_error_check(ctx, !rc, release,
+			 "the report of the sub-agent '%s' was lost", run->name);
+release:
+	agent_bg_unlink(run);
+	agent_bg_free(run);
+}
+
+static void agent_bg_complete(struct fyai_tool_job_group *group, void *userdata)
+{
+	struct fyai_agent_bg_run *run = userdata;
+
+	(void)group;
+	(void)fyai_event_defer(fyai_ctx_loop(run->ctx), agent_bg_finish, run);
+}
+
+fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
+				 bool *okp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	struct fyai_agent_bg_run *run = NULL;
+	fy_generic call, result = fy_invalid;
+	const char *json, *name;
+	bool ok = false;
+	int rc;
+
+	*okp = false;
+	name = fy_get(args, "name", "agent");
+	/* The group runs the call as a foreground one, retained past the turn. */
+	args = fy_assoc(gb, fy_disassoc(gb, args, "background"),
+			"_fyai_background", true);
+	json = emit_json_string(gb, args);
+	fyai_error_check(ctx, json, err,
+			 "agent: could not encode the background call");
+	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
+		call = fy_mapping(gb, "type", "function",
+			"function", fy_mapping(gb,
+				"name", "agent", "arguments", json));
+	else
+		call = fy_mapping(gb, "type", "function_call",
+			"name", "agent", "arguments", json);
+	run = calloc(1, sizeof(*run));
+	fyai_error_check(ctx, run, err,
+			 "agent: could not allocate the background run");
+	run->ctx = ctx;
+	run->name = strdup(name);
+	fyai_error_check(ctx, run->name, err,
+			 "agent: could not retain the agent name");
+	run->group = fyai_tool_job_group_create_notify(ctx,
+			agent_bg_complete, run);
+	fyai_error_check(ctx, run->group, err,
+			 "agent: could not create the background group");
+	rc = fyai_tool_job_group_add(run->group, call);
+	fyai_error_check(ctx, !rc, err,
+			 "agent: could not add the background call");
+	rc = fyai_tool_job_group_submit(run->group);
+	fyai_error_check(ctx, !rc, err,
+			 "agent: could not start the background call");
+	if (fyai_tool_job_group_done(run->group)) {
+		/* A job that ends at once did not start: this is its cause. */
+		fyai_event_defer_cancel(fyai_ctx_loop(ctx), agent_bg_finish, run);
+		(void)fyai_tool_job_group_collect(run->group, 0, &result, &ok);
+		if (fy_is_string(result))
+			result = fy_gb_internalize(gb, result);
+		agent_bg_free(run);
+		return fy_is_string(result) ? result :
+			fy_value(gb, "tool error: the sub-agent did not start");
+	}
+	run->next = ctx->agent_bg_runs;
+	ctx->agent_bg_runs = run;
+	*okp = true;
+	return fy_stringf(gb, "[agent '%s' started in the background]\n"
+			  "It does not hold your turn. Keep working; its "
+			  "report is given to you in a new turn when it ends.",
+			  name);
+
+err:
+	if (run)
+		agent_bg_free(run);
+	return fy_value(gb, "tool error: the sub-agent could not start in the "
+			"background");
+}
+
+void fyai_agent_background_close(struct fyai_ctx *ctx)
+{
+	struct fyai_agent_bg_run *run, *next;
+
+	for (run = ctx->agent_bg_runs; run; run = next) {
+		next = run->next;
+		fyai_event_defer_cancel(fyai_ctx_loop(ctx), agent_bg_finish, run);
+		agent_bg_free(run);
+	}
+	ctx->agent_bg_runs = NULL;
+}
+
+/* The loop sources of the parent are not the child's to remove. */
+void fyai_agent_background_abandon(struct fyai_ctx *ctx)
+{
+	ctx->agent_bg_runs = NULL;
+}
+
+/* The `agent` tool: delegate the call, or start it in the background. */
+static fy_generic tool_agent(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	fy_generic result_generic;
+	fy_generic agent_name;
+	const char *who;
+	char *diag;
+
+	if (fyai_agent_background_requested(args))
+		return fyai_agent_background(ctx, args, okp);
+
+	/* Copy the name to this frame before fyai_agent_run() reopens the arena. */
+	agent_name = fy_get(args, "name");
+	who = fy_is_string(agent_name) ?
+		fy_sprintfa("%s", fy_castp(&agent_name, "")) : NULL;
+	result_generic = fyai_agent_run(ctx, args, okp);
+	if (fy_is_valid(result_generic))
+		return result_generic;
+	/* A failed arena reopen leaves no transient builder. */
+	if (!ctx->transient_gb && fyai_setup_transient_builder(ctx))
+		return fy_invalid;
+	/* Quote the cause without consuming the user's diagnostic. */
+	diag = fyai_diag_string(&ctx->cfg->diag);
+	result_generic = fy_stringf(ctx->transient_gb,
+		"tool error: sub-agent%s%s%s failed: %s",
+		who && *who ? " '" : "", who ? who : "",
+		who && *who ? "'" : "",
+		diag && *diag ? diag : "no reason was recorded");
+	free(diag);
+	return result_generic;
+}
+
+static void tool_head_agent(struct fyai_ctx *ctx, FILE *mf,
+			    struct fy_generic_builder *gb, fy_generic args,
+			    int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic gname, gdesc;
+	const char *name, *desc;
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	gname = fy_get(args, "name");
+	gdesc = fy_get(args, "description");
+	name = fy_castp(&gname, "");
+	desc = fy_castp(&gdesc, "");
+	if (*name)
+		fprintf(mf, "**agent** [%s] %s\n\n", name,
+			*desc ? desc : "delegated task");
+	else
+		fprintf(mf, "**agent** %s\n\n",
+			*desc ? desc : "delegated task");
+}
+
+/* A background call starts in the parent, because it holds no job of the turn. */
+const struct fyai_tool_def fyai_agent_defs[] = {
+	{ .name = "agent", .run = tool_agent, .head = tool_head_agent,
+	  .in_parent = fyai_agent_background_requested,
+	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_NOT_FOR_CHILD,
+	  .effect = FYAI_TOOL_EFFECT_PROCESS },
+};
+const size_t fyai_agent_defs_count = ARRAY_SIZE(fyai_agent_defs);
 
 static int fyai_agent_rpc_verb(struct fyai_ctx *ctx);
 

@@ -22,6 +22,7 @@
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_wait.h"
+#include "fyai_tool_registry.h"
 #include "utils.h"
 
 /* A name says what is being waited for, as a session name does. */
@@ -241,6 +242,27 @@ static void fyai_waits_reap(struct fyai_ctx *ctx)
 	}
 }
 
+bool fyai_wait_exists(struct fyai_ctx *ctx, const char *name)
+{
+	fyai_waits_reap(ctx);
+	return fyai_wait_find(ctx, name) != NULL;
+}
+
+bool fyai_wait_cancel(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_wait **pp, *w;
+
+	fyai_waits_reap(ctx);
+	for (pp = &ctx->waits; (w = *pp); pp = &w->next) {
+		if (strcmp(w->name, name))
+			continue;
+		*pp = w->next;
+		fyai_wait_free(w);
+		return true;
+	}
+	return false;
+}
+
 bool fyai_wait_pending(const struct fyai_ctx *ctx)
 {
 	const struct fyai_wait *w;
@@ -402,3 +424,51 @@ char *fyai_time_tool(struct fyai_ctx *ctx, bool *okp)
 	*okp = text != NULL;
 	return text ? text : strdup("tool error: could not read the clock");
 }
+
+static char *tool_time(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	(void)args;
+	return fyai_time_tool(ctx, okp);
+}
+
+static void tool_head_time(struct fyai_ctx *ctx, FILE *mf,
+			   struct fy_generic_builder *gb, fy_generic args,
+			   int preview_lines, struct fyai_md_blocks *blocks)
+{
+	(void)ctx;
+	(void)gb;
+	(void)args;
+	(void)preview_lines;
+	(void)blocks;
+	fprintf(mf, "**time**\n\n");
+}
+
+/* What the wait is for, when the model said, and its name when it fires alone. */
+static void tool_head_wait(struct fyai_ctx *ctx, FILE *mf,
+			   struct fy_generic_builder *gb, fy_generic args,
+			   int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic greason = fy_get(args, "reason"), gname = fy_get(args, "name");
+	const char *reason = fy_castp(&greason, ""), *name = fy_castp(&gname, "");
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	fprintf(mf, "**wait**");
+	if (*name)
+		fprintf(mf, " [%s]", name);
+	if (*reason)
+		fprintf(mf, " %s", reason);
+	fprintf(mf, "\n\n");
+}
+
+/* The waits and the clock belong to the parent, which has the event loop. */
+const struct fyai_tool_def fyai_wait_defs[] = {
+	{ .name = "time", .run_text = tool_time, .head = tool_head_time,
+	  .flags = FYAI_TOOL_PARENT },
+	{ .name = "wait", .run_text = fyai_wait_tool, .head = tool_head_wait,
+	  .flags = FYAI_TOOL_PARENT },
+};
+const size_t fyai_wait_defs_count = sizeof(fyai_wait_defs) /
+				    sizeof(fyai_wait_defs[0]);

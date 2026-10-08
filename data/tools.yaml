@@ -251,6 +251,26 @@
       additionalProperties: false
 - type: function
   function:
+    name: cancel
+    description: |-
+      Cancel something you started in the background, by the name you gave it: a pending named `wait`, a running sub-agent (also one started with `background`), or an open terminal session. A sub-agent is stopped with every process it started, and you are told in a new turn that it ended; a session is killed at once, so prefer `shell_close` when the program should save its work. Use `list` to see what is open.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            Name of the wait, sub-agent or session to cancel.
+        kind:
+          type: string
+          enum: [wait, agent, shell]
+          description: |-
+            What the name refers to. Omit it when the name is unique among your waits, sub-agents and sessions.
+      required:
+        - name
+      additionalProperties: false
+- type: function
+  function:
     name: agent_input
     description: |-
       Answer a sub-agent that is running and waiting for input. You are told
@@ -350,6 +370,10 @@
           type: boolean
           description: |-
             True runs the sub-agent on a private copy of the project, and false on the project itself. Omit it to use the default.
+        background:
+          type: boolean
+          description: |-
+            True starts the sub-agent and returns at once, without holding your turn. Keep working meanwhile: when the sub-agent ends, its final report is given to you in a new turn. Use it for work that does not block your next step, and to run several sub-agents beside other work. The default, false, waits for the report and returns it as the result. Do not poll a background sub-agent; `list` shows its state, and `agent_input` answers it when it waits for input.
       required:
         - name
         - description

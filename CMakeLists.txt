@@ -456,6 +456,7 @@ set(FYAI_SOURCES
     src/fyai_schema.c
     src/fyai_tools.c
     src/fyai_tool_spec.c
+    src/fyai_tool_registry.c
     src/fyai_tool_template.c
     src/fyai_turn.c
     src/utils.c
