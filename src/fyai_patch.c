@@ -396,7 +396,7 @@ static int patch_mkdir_p(const char *path)
 	return mkdir(tmp, 0700) && errno != EEXIST ? -1 : 0;
 }
 
-static int patch_ensure_parent_dir(const char *path)
+int fyai_patch_ensure_parent_dir(const char *path)
 {
 	char tmp[PATH_MAX];
 	char *slash;
@@ -1105,13 +1105,13 @@ static char *patch_ops_commit(struct patch_op *ops)
 	for (op = ops; op; op = op->next) {
 		switch (op->kind) {
 		case PATCH_OP_ADD:
-			if (patch_ensure_parent_dir(op->path) ||
+			if (fyai_patch_ensure_parent_dir(op->path) ||
 			    write_text_file_atomic(op->path, op->content))
 				return patch_errno("write", op->path);
 			break;
 		case PATCH_OP_UPDATE:
 			if (op->new_path) {
-				if (patch_ensure_parent_dir(op->new_path) ||
+				if (fyai_patch_ensure_parent_dir(op->new_path) ||
 				    write_text_file_atomic(op->new_path,
 							   op->content))
 					return patch_errno("write", op->new_path);

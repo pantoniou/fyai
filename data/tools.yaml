@@ -43,7 +43,7 @@
   function:
     name: write_file
     description: |-
-      Write UTF-8 text to a workspace file.
+      Write UTF-8 text to a workspace file. Missing parent directories are created.
     parameters:
       type: object
       properties:

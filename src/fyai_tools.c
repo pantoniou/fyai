@@ -1773,14 +1773,21 @@ static char *tool_read_file(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 static char *tool_write_file(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	const char *path, *content;
-	int rc;
+	int rc, err;
 
 	(void)ctx;
 	path = fy_get(args, "path", "");
 	content = fy_get(args, "content", "");
-	rc = write_text_file(path, content);
+	/* The directories above the file are made, as apply_patch makes them. */
+	rc = fyai_patch_ensure_parent_dir(path);
+	if (!rc)
+		rc = write_text_file(path, content);
+	err = errno;
 	*okp = !rc;
-	return strdup(!rc ? "ok" : "error");
+	if (rc)
+		return strdup(fy_sprintfa("tool error: write %s: %s", path,
+					  strerror(err)));
+	return strdup("ok");
 }
 
 static char *tool_apply_patch(struct fyai_ctx *ctx, fy_generic args, bool *okp)

@@ -5,6 +5,8 @@
 struct fyai_ctx;
 
 char *fyai_apply_patch_text_ctx(struct fyai_ctx *ctx, const char *patch);
+/* Make the missing directories above @path. Return 0, or -1 with errno set. */
+int fyai_patch_ensure_parent_dir(const char *path);
 char *fyai_apply_patch_text(const char *patch);
 /*
  * Convert an envelope to a unified diff for display. Call this before patch
