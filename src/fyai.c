@@ -1511,40 +1511,68 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	fyai_turn_run_stop(run, msg);
 }
 
-/* Add queued user lines before the next model request. Commands keep order. */
+/*
+ * Append @text as a user message of the run. An event and a typed line enter
+ * the conversation in the same way.
+ */
+static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text)
+{
+	struct fyai_ctx *ctx = run->ctx;
+
+	run->turn = fyai_turn_append(ctx, run->turn,
+		fy_sequence(fyai_make_user_message(ctx, text)));
+	if (fy_is_valid(run->turn))
+		run->turn = fyai_output_record(ctx, run->turn,
+					       FYAI_OUTPUT_USER, text);
+	return fy_is_valid(run->turn) ? 0 : -1;
+}
+
+/*
+ * Add queued events and user lines before the next model request. An event
+ * enters first, as it was queued before the line that is read now. Commands
+ * keep order.
+ */
 static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx = run->ctx;
 	const char *head;
-	char *line;
+	char *line, *event;
 	int rc;
 
 	if (!run->accept_pending_user)
 		return 0;
+	/* A stale event is dropped here, so a live one is taken before output ends. */
+	event = fyai_event_take_live(ctx);
 	head = fyai_ui_peek_line(ctx);
-	if (!fyai_interactive_is_user_line(head))
+	if (!event && !fyai_interactive_is_user_line(head))
 		return 0;
 	run->turn = fyai_output_finalize(ctx, run->turn, false);
 	fyai_error_check(ctx, fy_is_valid(run->turn), err,
 			 "could not finish output before pending input");
+	while (event) {
+		fyai_echo_user_turn(ctx, event);
+		rc = fyai_turn_run_append_user(run, event);
+		free(event);
+		event = NULL;
+		fyai_error_check(ctx, !rc, err,
+				 "could not append the pending event");
+		event = fyai_event_take_live(ctx);
+	}
 	while (fyai_interactive_is_user_line(head = fyai_ui_peek_line(ctx))) {
 		line = fyai_ui_take_line(ctx);
 		fyai_error_check(ctx, line, err,
 				 "could not take pending input");
 		fyai_interactive_prepare_user_line(ctx, run->histfile, line);
-		run->turn = fyai_turn_append(ctx, run->turn,
-			fy_sequence(fyai_make_user_message(ctx, line)));
-		if (fy_is_valid(run->turn))
-			run->turn = fyai_output_record(ctx, run->turn,
-						       FYAI_OUTPUT_USER, line);
+		rc = fyai_turn_run_append_user(run, line);
 		free(line);
-		fyai_error_check(ctx, fy_is_valid(run->turn), err,
+		fyai_error_check(ctx, !rc, err,
 				 "could not append pending user input");
 	}
 	rc = fyai_output_begin(ctx, FYAI_OUTPUT_ASSISTANT);
 	fyai_error_check(ctx, !rc, err, "could not resume assistant output");
 	return 0;
 err:
+	free(event);
 	return -1;
 }
 
