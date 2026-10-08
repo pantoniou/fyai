@@ -2586,6 +2586,41 @@ static bool fyai_event_owner_live(struct fyai_ctx *ctx,
 	return fyai_event_session_live(ctx, ev->owner);
 }
 
+bool fyai_event_pending_prefix(struct fyai_ctx *ctx, const char *prefix)
+{
+	const struct fyai_pending_event *ev;
+	size_t len = strlen(prefix);
+
+	for (ev = ctx ? ctx->events : NULL; ev; ev = ev->next)
+		if (!strncmp(ev->text, prefix, len) &&
+		    fyai_event_owner_live(ctx, ev))
+			return true;
+	return false;
+}
+
+char *fyai_event_take_prefix(struct fyai_ctx *ctx, const char *prefix)
+{
+	struct fyai_pending_event **link, *ev;
+	size_t len = strlen(prefix);
+	char *text;
+
+	if (!ctx)
+		return NULL;
+	for (link = &ctx->events; (ev = *link); link = &ev->next) {
+		if (strncmp(ev->text, prefix, len) ||
+		    !fyai_event_owner_live(ctx, ev))
+			continue;
+		*link = ev->next;
+		if (!*link)
+			ctx->events_tail = link;
+		text = ev->text;
+		free(ev->owner);
+		free(ev);
+		return text;
+	}
+	return NULL;
+}
+
 /* Drop every queued wait event owned by @name of @kind. */
 static void fyai_events_drop_owner(struct fyai_ctx *ctx,
 				   enum fyai_event_owner_kind kind,

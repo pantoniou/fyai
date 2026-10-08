@@ -886,6 +886,10 @@ int fyai_event_inject_owned(struct fyai_ctx *ctx, char *text,
 /* Take the oldest queued event, or NULL. The caller owns it. */
 char *fyai_event_take(struct fyai_ctx *ctx);
 bool fyai_event_queued(const struct fyai_ctx *ctx);
+/* Whether a live event whose text starts with @prefix is queued. */
+bool fyai_event_pending_prefix(struct fyai_ctx *ctx, const char *prefix);
+/* Take the oldest live event whose text starts with @prefix, or NULL. */
+char *fyai_event_take_prefix(struct fyai_ctx *ctx, const char *prefix);
 /* Take the oldest event with a live owner, dropping stale waits first. */
 char *fyai_event_take_live(struct fyai_ctx *ctx);
 void fyai_events_release(struct fyai_ctx *ctx);

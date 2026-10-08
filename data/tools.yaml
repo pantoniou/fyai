@@ -447,7 +447,7 @@
   function:
     name: wait
     description: |-
-      Wait for a while. Use it instead of a shell that sleeps: it starts no process and can be interrupted. Give `seconds`, or `until` for a wall-clock time. Name it to wait in the background: the call returns at once and you are told when it fires, so you can keep working meanwhile.
+      Wait for something you started to finish, or wait for a time. To wait for a background sub-agent or a terminal session, give only `for`, with its name. To wait for a time, give `seconds` or `until`; use this instead of a shell that sleeps. Give a time wait a `name` to run it in the background: the call returns at once, and you are told when the time is up.
     parameters:
       type: object
       properties:
@@ -459,10 +459,23 @@
           type: string
           description: |-
             Wall-clock time to wait for, as `HH:MM`, `HH:MM:SS` or a full `YYYY-MM-DDTHH:MM:SS` in local time. A time that has passed does not wait.
+        for:
+          description: |-
+            The name of what to wait for: a background sub-agent, a terminal session or a named wait. A list of up to 16 names is also allowed. The call returns when it has finished, with its report; you will not get the same report again later. A sub-agent or session that stops to ask for input counts as finished. Without `seconds` or `until` the call waits until the work is done. With one of them it stops waiting at that limit and says what is still running.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        mode:
+          type: string
+          enum: [any, all]
+          description: |-
+            Only for a list in `for`. `any` (the default) returns when the first one has finished. `all` returns when all of them have finished. `seconds` or `until` still set the limit.
         name:
           type: string
           description: |-
-            Name this wait to run it in the background instead of holding your turn. The call returns at once, and when the wait fires you are told, in a new turn, that it did. Use it to come back to something later: start a slow job, wait in the background, keep working, and pick it up when the wait fires. The name says what you are waiting for (letters, digits, '-' or '_'), and must be unique among the waits you have open.
+            Gives a time wait a name and runs it in the background: the call returns at once, and you are told in a new turn when the time is up. Not for use with `for`. The name can use letters, digits, '-' and '_', and it must differ from every other open wait.
         reason:
           type: string
           description: |-

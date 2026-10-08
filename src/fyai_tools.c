@@ -3192,6 +3192,19 @@ static void fyai_shell_session_refresh(struct fyai_shell_session *sess)
 		fyai_ui_wake(sess->ctx);
 }
 
+char *fyai_shell_session_ended_text(struct fyai_ctx *ctx, const char *name,
+				    bool *knownp)
+{
+	struct fyai_shell_session *sess = fyai_shell_session_find(ctx, name);
+
+	*knownp = sess != NULL;
+	if (!sess || !sess->exited)
+		return NULL;
+	return strdup(fy_sprintfa("[shell '%s' ended: status %d]", name,
+				  sess->signal ? 128 + sess->signal :
+						 sess->exit_code));
+}
+
 /* Whether the queued wait report of session @name still has a live owner. */
 bool fyai_event_session_live(struct fyai_ctx *ctx, const char *name)
 {

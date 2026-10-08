@@ -26,6 +26,13 @@ typedef void (*fyai_mcp_call_complete_fn)(
 /* Map the exec_command wire name to the internal shell tool name. */
 #define FYAI_TOOL_EXEC_WIRE_NAME "exec_command"
 const char *fyai_tool_name_canonical(const char *name);
+/*
+ * The state of the terminal session @name for a wait: NULL while it runs, a
+ * report in malloc'd text when it has ended, and *knownp false when there is
+ * no such session.
+ */
+char *fyai_shell_session_ended_text(struct fyai_ctx *ctx, const char *name,
+				    bool *knownp);
 
 void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 			  bool execute);

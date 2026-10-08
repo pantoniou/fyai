@@ -709,13 +709,14 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	struct fyai_agent_bg_run *run = NULL;
-	fy_generic call, result = fy_invalid;
+	fy_generic call, gname, result = fy_invalid;
 	const char *json, *name;
 	bool ok = false;
 	int rc;
 
 	*okp = false;
-	name = fy_get(args, "name", "agent");
+	gname = fy_get(args, "name", fy_invalid);
+	name = fy_is_string(gname) ? fy_castp(&gname, "agent") : "agent";
 	/* The group runs the call as a foreground one, retained past the turn. */
 	args = fy_assoc(gb, fy_disassoc(gb, args, "background"),
 			"_fyai_background", true);
@@ -769,6 +770,16 @@ err:
 		agent_bg_free(run);
 	return fy_value(gb, "tool error: the sub-agent could not start in the "
 			"background");
+}
+
+bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_agent_bg_run *run;
+
+	for (run = ctx->agent_bg_runs; run; run = run->next)
+		if (!strcmp(run->name, name))
+			return true;
+	return false;
 }
 
 void fyai_agent_background_close(struct fyai_ctx *ctx)

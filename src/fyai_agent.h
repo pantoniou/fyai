@@ -37,6 +37,9 @@ bool fyai_agent_background_requested(fy_generic args);
 fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 				 bool *okp);
 
+/* Whether the background sub-agent @name has not ended. */
+bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name);
+
 /* Cancel and release the background sub-agents of this invocation. */
 void fyai_agent_background_close(struct fyai_ctx *ctx);
 

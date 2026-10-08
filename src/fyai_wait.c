@@ -22,6 +22,8 @@
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_wait.h"
+#include "fyai_agent.h"
+#include "fyai_tools.h"
 #include "fyai_tool_registry.h"
 #include "utils.h"
 
@@ -158,7 +160,9 @@ static double fyai_wait_seconds(fy_generic args, char **whyp)
 		return seconds;
 	}
 	if (seconds < 0) {
-		*whyp = strdup("say how long to wait: seconds or until");
+		*whyp = strdup("say how long to wait with seconds or until, or "
+				       "give for to hold the turn for work you "
+				       "started");
 		return -1;
 	}
 	return seconds;
@@ -369,10 +373,252 @@ out:
 	return NULL;
 }
 
+/* A wait for an event looks again this often; no source wakes it earlier. */
+#define FYAI_WAIT_FOR_SLICE_MS	50
+/* The most things one wait holds the turn for. */
+#define FYAI_WAIT_FOR_MAX	16
+
+enum fyai_wait_for_kind {
+	FYAI_WAIT_FOR_NONE,
+	FYAI_WAIT_FOR_AGENT,
+	FYAI_WAIT_FOR_SHELL,
+	FYAI_WAIT_FOR_WAIT,
+};
+
+struct fyai_wait_for_item {
+	enum fyai_wait_for_kind kind;
+	const char *name;
+	char *text;		/* its report, once it has one */
+};
+
+/*
+ * Look for the end of one target. Take its report out of the event queue so
+ * that the model gets it once. Return NULL while the target goes on.
+ */
+static char *fyai_wait_for_check(struct fyai_ctx *ctx,
+				 const struct fyai_wait_for_item *it)
+{
+	char *text;
+	bool known;
+
+	switch (it->kind) {
+	case FYAI_WAIT_FOR_AGENT:
+		/* An end and a request for input both start this way. */
+		return fyai_event_take_prefix(ctx,
+				fy_sprintfa("[agent '%s' ", it->name));
+	case FYAI_WAIT_FOR_SHELL:
+		text = fyai_shell_session_ended_text(ctx, it->name, &known);
+		if (text)
+			return text;
+		return fyai_event_take_prefix(ctx,
+				fy_sprintfa("[shell '%s' is waiting", it->name));
+	case FYAI_WAIT_FOR_WAIT:
+		return fyai_event_take_prefix(ctx,
+				fy_sprintfa("[wait '%s' fired", it->name));
+	default:
+		return NULL;
+	}
+}
+
+/* Whether a target can still produce the report that a wait is for. */
+static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
+				const struct fyai_wait_for_item *it)
+{
+	bool known;
+
+	switch (it->kind) {
+	case FYAI_WAIT_FOR_AGENT:
+		return fyai_agent_background_running(ctx, it->name);
+	case FYAI_WAIT_FOR_SHELL:
+		(void)fyai_shell_session_ended_text(ctx, it->name, &known);
+		return known;
+	case FYAI_WAIT_FOR_WAIT:
+		return fyai_wait_exists(ctx, it->name);
+	default:
+		return false;
+	}
+}
+
+/* Pick what @target names: a sub-agent, a session or a named wait. */
+static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
+						     const char *target)
+{
+	bool known;
+
+	if (fyai_agent_background_running(ctx, target) ||
+	    fyai_event_pending_prefix(ctx, fy_sprintfa("[agent '%s' ", target)))
+		return FYAI_WAIT_FOR_AGENT;
+	(void)fyai_shell_session_ended_text(ctx, target, &known);
+	if (known)
+		return FYAI_WAIT_FOR_SHELL;
+	if (fyai_wait_exists(ctx, target) ||
+	    fyai_event_pending_prefix(ctx, fy_sprintfa("[wait '%s' fired",
+						       target)))
+		return FYAI_WAIT_FOR_WAIT;
+	return FYAI_WAIT_FOR_NONE;
+}
+
+/* Join the reports that a wait collected, each one as its own paragraph. */
+static char *fyai_wait_for_report(struct fyai_wait_for_item *items, size_t n,
+				  double seconds)
+{
+	struct response_buffer out = {0};
+	const char *sep = "", *pending = "", *text;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		if (!items[i].text) {
+			/* At most FYAI_WAIT_FOR_MAX short names: the frame holds them. */
+			pending = fy_sprintfa("%s%s'%s'", pending,
+					      *pending ? ", " : "", items[i].name);
+			continue;
+		}
+		if (response_buffer_append(&out, sep) ||
+		    response_buffer_append(&out, items[i].text))
+			goto out;
+		sep = "\n\n";
+	}
+	if (*pending) {
+		text = fy_sprintfa("%s[still waiting for %s after %.3g seconds]",
+				   sep, pending, seconds);
+		if (response_buffer_append(&out, text))
+			goto out;
+	}
+	return out.data ? out.data : strdup("");
+out:
+	free(out.data);
+	return NULL;
+}
+
+/*
+ * Hold the turn until the targets end or @seconds pass. With @all, every
+ * target must end; otherwise the first one to end is enough. A timeout is not
+ * an error: the reports collected so far are the result.
+ */
+static char *fyai_wait_for(struct fyai_ctx *ctx, const char **targets, size_t n,
+			   bool all, double seconds, bool *okp)
+{
+	struct fyai_wait_for_item items[FYAI_WAIT_FOR_MAX] = {0};
+	struct fyai_event_loop *el;
+	fyai_event_ms_t deadline, left;
+	char *result = NULL;
+	size_t i, ended;
+
+	for (i = 0; i < n; i++) {
+		items[i].name = targets[i];
+		items[i].kind = fyai_wait_for_resolve(ctx, targets[i]);
+		if (items[i].kind == FYAI_WAIT_FOR_NONE)
+			return strdup(fy_sprintfa("tool error: nothing named "
+				"'%s' is running to wait for; use list to see "
+				"what is open", targets[i]));
+	}
+	el = fyai_ctx_loop(ctx);
+	if (!el)
+		return strdup("tool error: no event loop for a wait");
+	deadline = fyai_event_now_ms() + (fyai_event_ms_t)(seconds * 1000.0);
+	for (;;) {
+		ended = 0;
+		for (i = 0; i < n; i++) {
+			if (!items[i].text)
+				items[i].text = fyai_wait_for_check(ctx, &items[i]);
+			if (!items[i].text && !fyai_wait_for_alive(ctx, &items[i]))
+				items[i].text = strdup(fy_sprintfa(
+					"[%s ended without a report]",
+					items[i].name));
+			ended += items[i].text != NULL;
+		}
+		if (all ? ended == n : ended > 0)
+			break;
+		left = deadline - fyai_event_now_ms();
+		if (left <= 0 || fyai_interrupt_pending(ctx))
+			break;
+		if (fyai_event_sleep(el, left < FYAI_WAIT_FOR_SLICE_MS ? left :
+					 FYAI_WAIT_FOR_SLICE_MS))
+			break;
+	}
+	result = fyai_wait_for_report(items, n, seconds);
+	for (i = 0; i < n; i++)
+		free(items[i].text);
+	*okp = result != NULL;
+	return result ? result : strdup("tool error: out of memory");
+}
+
+/*
+ * Read the `for` arguments of a wait and hold the turn. A name is copied: a
+ * short string lives in the generic that it was read from, which the loop
+ * variable of the list replaces at each item.
+ */
+static char *fyai_wait_for_args(struct fyai_ctx *ctx, fy_generic args,
+				fy_generic forv, bool *okp)
+{
+	const char *targets[FYAI_WAIT_FOR_MAX];
+	char *names[FYAI_WAIT_FOR_MAX];
+	fy_generic item, mode;
+	const char *msg;
+	double seconds;
+	size_t n = 0, i;
+	char *why, *out = NULL;
+
+	if (fy_is_string(forv)) {
+		names[n] = strdup(fy_castp(&forv, ""));
+		fyai_error_check(ctx, names[n], oom, "wait: could not copy a name");
+		n++;
+	} else {
+		fy_foreach(item, forv) {
+			if (n == FYAI_WAIT_FOR_MAX || !fy_is_string(item)) {
+				msg = fy_sprintfa("tool error: for takes up to "
+						  "%d names", FYAI_WAIT_FOR_MAX);
+				goto reject;
+			}
+			names[n] = strdup(fy_castp(&item, ""));
+			fyai_error_check(ctx, names[n], oom,
+					 "wait: could not copy a name");
+			n++;
+		}
+	}
+	if (!n) {
+		msg = "tool error: for names nothing";
+		goto reject;
+	}
+	/* The time is a limit here, and is optional. */
+	if (fy_is_valid(fy_get(args, "seconds", fy_invalid)) ||
+	    fy_is_valid(fy_get(args, "until", fy_invalid))) {
+		seconds = fyai_wait_seconds(args, &why);
+		if (seconds < 0) {
+			msg = fy_sprintfa("tool error: %s", why ? why :
+					  "the wait could not be read");
+			free(why);
+			goto reject;
+		}
+	} else {
+		seconds = FYAI_WAIT_MAX_MS / 1000.0;
+	}
+	mode = fy_get(args, "mode", fy_invalid);
+	if (fy_is_string(mode) && !fy_any_equal(mode, "any", "all")) {
+		msg = "tool error: mode is any or all";
+		goto reject;
+	}
+	for (i = 0; i < n; i++)
+		targets[i] = names[i];
+	out = fyai_wait_for(ctx, targets, n, fy_equal(mode, "all"), seconds,
+			    okp);
+	goto free_names;
+oom:
+	msg = "tool error: out of memory";
+reject:
+	out = strdup(msg);
+	fyai_error_check(ctx, out, free_names,
+			 "wait: could not copy the refusal");
+free_names:
+	for (i = 0; i < n; i++)
+		free(names[i]);
+	return out;
+}
+
 char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 {
 	struct fyai_event_loop *el;
-	fy_generic reason;
+	fy_generic reason, forv;
 	const char *name, *reason_text;
 	double seconds;
 	char *why;
@@ -380,6 +626,9 @@ char *fyai_wait_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	int rc;
 
 	*okp = false;
+	forv = fy_get(args, "for", fy_invalid);
+	if (fy_is_string(forv) || fy_is_sequence(forv))
+		return fyai_wait_for_args(ctx, args, forv, okp);
 	seconds = fyai_wait_seconds(args, &why);
 	if (seconds < 0) {
 		out = strdup(fy_sprintfa("tool error: %s", why ? why :
@@ -449,6 +698,7 @@ static void tool_head_wait(struct fyai_ctx *ctx, FILE *mf,
 			   int preview_lines, struct fyai_md_blocks *blocks)
 {
 	fy_generic greason = fy_get(args, "reason"), gname = fy_get(args, "name");
+	fy_generic gfor;
 	const char *reason = fy_castp(&greason, ""), *name = fy_castp(&gname, "");
 
 	(void)ctx;
@@ -456,6 +706,9 @@ static void tool_head_wait(struct fyai_ctx *ctx, FILE *mf,
 	(void)preview_lines;
 	(void)blocks;
 	fprintf(mf, "**wait**");
+	gfor = fy_get(args, "for");
+	if (fy_is_string(gfor) && *fy_castp(&gfor, ""))
+		fprintf(mf, " for %s", fy_castp(&gfor, ""));
 	if (*name)
 		fprintf(mf, " [%s]", name);
 	if (*reason)
