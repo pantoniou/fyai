@@ -70,6 +70,8 @@ extern const struct fyai_tool_def fyai_wait_defs[];
 extern const size_t fyai_wait_defs_count;
 extern const struct fyai_tool_def fyai_agent_defs[];
 extern const size_t fyai_agent_defs_count;
+extern const struct fyai_tool_def fyai_monitor_defs[];
+extern const size_t fyai_monitor_defs_count;
 extern const struct fyai_tool_def fyai_display_defs[];
 extern const size_t fyai_display_defs_count;
 

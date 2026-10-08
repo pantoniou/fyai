@@ -729,6 +729,7 @@ struct fyai_ctx {
 	struct fyai_tool_job *tool_jobs;	/* live jobs, for a resize */
 	struct fyai_btw_run *btw_runs;	/* side questions in this session */
 	struct fyai_agent_bg_run *agent_bg_runs; /* background sub-agents */
+	struct fyai_monitor_run *monitors;	/* running monitors */
 	/* Named terminal sessions, each one a process of its own. The view of
 	 * a session lives here and so outlives the process that drove it. */
 	struct fyai_shell_session *shell_sessions;

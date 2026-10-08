@@ -251,21 +251,53 @@
       additionalProperties: false
 - type: function
   function:
-    name: cancel
+    name: monitor
     description: |-
-      Cancel something you started in the background, by the name you gave it: a pending named `wait`, a running sub-agent (also one started with `background`), or an open terminal session. A sub-agent is stopped with every process it started, and you are told in a new turn that it ended; a session is killed at once, so prefer `shell_close` when the program should save its work. Use `list` to see what is open.
+      Watch a long-running command: it runs in the background, and each complete line it prints reaches you as an event, `[monitor 'NAME'] line`, between your tool calls. Its end is the last event: `[monitor 'NAME' ended]`. Use it for many events, such as every error line of a log or every step of a build. For a single "tell me when it is ready" use `exec_command` with `name` or a `wait` instead. Stdout and stderr are both events, so filter the command to the lines you would act on, and make every pipe stage flush per line (`grep --line-buffered`). Match every way the job can end, not only success: silence looks the same as a job that is still running. A monitor that sends more than 200 events is stopped. It ends when the command ends or its time limit passes, and `cancel` stops it. `wait` with `for` holds your turn until it reports.
     parameters:
       type: object
       properties:
         name:
           type: string
           description: |-
-            Name of the wait, sub-agent or session to cancel.
+            Name for this monitor (letters, digits, '-' or '_'), unique among your monitors. Events and `cancel` use it.
+        command:
+          type: string
+          description: |-
+            Shell command to run. Each line it writes is an event; its exit ends the monitor.
+        description:
+          type: string
+          description: |-
+            Short label of what is watched, shown to the user.
+        timeout:
+          type: integer
+          description: |-
+            Time limit in milliseconds. The default is 300000 (5 minutes) and the most is 1800000 (30 minutes). The command is stopped when it expires, and you start it again to go on.
+        workdir:
+          type: string
+          description: |-
+            Optional directory to run the command in.
+      required:
+        - name
+        - command
+      additionalProperties: false
+- type: function
+  function:
+    name: cancel
+    description: |-
+      Stop something you started in the background, by its name: a named `wait`, a sub-agent (also one started with `background`), a `monitor`, or an open terminal session. Stopping a sub-agent also stops the processes it started, and you are told in a new turn that it ended. A terminal session is killed at once; use `shell_close` instead if the program should save its work. Use `list` to see what is open.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: |-
+            Name of the wait, sub-agent, monitor or session to cancel.
         kind:
           type: string
-          enum: [wait, agent, shell]
+          enum: [wait, agent, shell, monitor]
           description: |-
-            What the name refers to. Omit it when the name is unique among your waits, sub-agents and sessions.
+            What the name refers to. Omit it when the name is unique among your waits, sub-agents, monitors and sessions.
       required:
         - name
       additionalProperties: false
@@ -424,13 +456,13 @@
   function:
     name: list
     description: |-
-      List what you can name in another call: `agents` are the sub-agents you started, running or ended, with their state and whether they left a view for `project_view`; `views` are those views; `shells` are your open terminal sessions; `waits` are your pending named waits. Each name is the one you gave it. You see only what you own: the objects of the user and of other agents are not listed. Omit `kind` to list all four.
+      List what you can name in other calls. `agents`: the sub-agents you started, running or ended, with their state and whether they left a view for `project_view`. `views`: those views. `shells`: your open terminal sessions. `waits`: your pending named waits. `monitors`: your running monitors. Each name is the one you gave it. You only see your own: those of the user and of other agents are not listed. Leave `kind` out to list all five.
     parameters:
       type: object
       properties:
         kind:
           type: string
-          enum: [agents, views, shells, waits]
+          enum: [agents, views, shells, waits, monitors]
           description: |-
             What to list. Omit it to list every kind.
       additionalProperties: false
@@ -447,7 +479,7 @@
   function:
     name: wait
     description: |-
-      Wait for something you started to finish, or wait for a time. To wait for a background sub-agent or a terminal session, give only `for`, with its name. To wait for a time, give `seconds` or `until`; use this instead of a shell that sleeps. Give a time wait a `name` to run it in the background: the call returns at once, and you are told when the time is up.
+      Wait for something you started to finish, or wait for a time. To wait for a background sub-agent, monitor or terminal session, give only `for`, with its name. To wait for a time, give `seconds` or `until`; use this instead of a shell that sleeps. Give a time wait a `name` to run it in the background: the call returns at once, and you are told when the time is up.
     parameters:
       type: object
       properties:
@@ -461,7 +493,7 @@
             Wall-clock time to wait for, as `HH:MM`, `HH:MM:SS` or a full `YYYY-MM-DDTHH:MM:SS` in local time. A time that has passed does not wait.
         for:
           description: |-
-            The name of what to wait for: a background sub-agent, a terminal session or a named wait. A list of up to 16 names is also allowed. The call returns when it has finished, with its report; you will not get the same report again later. A sub-agent or session that stops to ask for input counts as finished. Without `seconds` or `until` the call waits until the work is done. With one of them it stops waiting at that limit and says what is still running.
+            The name of what to wait for: a background sub-agent, a monitor, a terminal session or a named wait. A list of up to 16 names is also allowed. The call returns when it has finished, with its report; you will not get the same report again later. A sub-agent or session that stops to ask for input counts as finished. Without `seconds` or `until` the call waits until the work is done. With one of them it stops waiting at that limit and says what is still running.
           oneOf:
             - type: string
             - type: array

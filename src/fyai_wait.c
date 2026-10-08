@@ -24,6 +24,7 @@
 #include "fyai_wait.h"
 #include "fyai_agent.h"
 #include "fyai_tools.h"
+#include "fyai_monitor.h"
 #include "fyai_tool_registry.h"
 #include "utils.h"
 
@@ -383,6 +384,7 @@ enum fyai_wait_for_kind {
 	FYAI_WAIT_FOR_AGENT,
 	FYAI_WAIT_FOR_SHELL,
 	FYAI_WAIT_FOR_WAIT,
+	FYAI_WAIT_FOR_MONITOR,
 };
 
 struct fyai_wait_for_item {
@@ -415,6 +417,9 @@ static char *fyai_wait_for_check(struct fyai_ctx *ctx,
 	case FYAI_WAIT_FOR_WAIT:
 		return fyai_event_take_prefix(ctx,
 				fy_sprintfa("[wait '%s' fired", it->name));
+	case FYAI_WAIT_FOR_MONITOR:
+		return fyai_event_take_prefix(ctx,
+				fy_sprintfa("[monitor '%s'", it->name));
 	default:
 		return NULL;
 	}
@@ -434,6 +439,8 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 		return known;
 	case FYAI_WAIT_FOR_WAIT:
 		return fyai_wait_exists(ctx, it->name);
+	case FYAI_WAIT_FOR_MONITOR:
+		return fyai_monitor_running(ctx, it->name);
 	default:
 		return false;
 	}
@@ -448,6 +455,9 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	if (fyai_agent_background_running(ctx, target) ||
 	    fyai_event_pending_prefix(ctx, fy_sprintfa("[agent '%s' ", target)))
 		return FYAI_WAIT_FOR_AGENT;
+	if (fyai_monitor_running(ctx, target) ||
+	    fyai_event_pending_prefix(ctx, fy_sprintfa("[monitor '%s'", target)))
+		return FYAI_WAIT_FOR_MONITOR;
 	(void)fyai_shell_session_ended_text(ctx, target, &known);
 	if (known)
 		return FYAI_WAIT_FOR_SHELL;

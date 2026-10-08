@@ -13,6 +13,7 @@ static const struct fyai_tool_table tables[] = {
 	{ fyai_tools_defs, &fyai_tools_defs_count },
 	{ fyai_wait_defs, &fyai_wait_defs_count },
 	{ fyai_agent_defs, &fyai_agent_defs_count },
+	{ fyai_monitor_defs, &fyai_monitor_defs_count },
 	{ fyai_display_defs, &fyai_display_defs_count },
 };
 

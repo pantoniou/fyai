@@ -26,6 +26,7 @@
 #include "fyai.h"
 #include "fyai_cmd.h"
 #include "fyai_agent.h"
+#include "fyai_monitor.h"
 #include "fyai_tool_registry.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
@@ -2107,6 +2108,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_shell_sessions_release(ctx, false);
 	fyai_waits_release(ctx);
 	fyai_agent_background_close(ctx);
+	fyai_monitor_close(ctx);
 	fyai_tool_diff_cleanup(ctx);
 	fyai_events_release(ctx);
 	fyai_terminal_winch_close(ctx);
@@ -3430,7 +3432,8 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 				continue;
 		}
 		/* A side question may complete after its parent turn releases scratch. */
-		if ((ctx->btw_runs || ctx->agent_bg_runs) && !ctx->transient_gb) {
+		if ((ctx->btw_runs || ctx->agent_bg_runs || ctx->monitors) &&
+		    !ctx->transient_gb) {
 			rc = fyai_setup_transient_builder(ctx);
 			fyai_error_check(ctx, !rc, out,
 					 "could not retain side question storage");
@@ -3445,6 +3448,7 @@ out:
 	state = FYAIAS_STOPPING;
 	fyai_session_btw_close(ctx);
 	fyai_agent_background_close(ctx);
+	fyai_monitor_close(ctx);
 	if (run) {
 		fyai_turn_run_cancel(run);
 		fyai_turn_run_destroy(run);

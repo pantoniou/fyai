@@ -35,6 +35,7 @@
 #include "fyai_transport_boot.h"
 #include "fyai_transport_sock.h"
 #include "fyai_agent.h"
+#include "fyai_monitor.h"
 #include "fyai_tool_registry.h"
 #include "fyai_branch.h"
 #include "fyai_browser.h"
@@ -2570,6 +2571,7 @@ struct fyai_tool_job {
 	fyai_event_ms_t elapsed_ms;
 	struct response_buffer progress;	/* tail, for a timeout report */
 	char *branch;			/* sub-agent branch, allocated by us */
+	char *monitor;			/* monitor that this command feeds */
 	struct fyai_event_source *deadline;
 	struct fyai_event_source *hang_deadline;
 	int term_signal;
@@ -4053,7 +4055,7 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	struct fyai_tool_job *job;
 	fy_generic name_v, kind_v;
 	const char *name, *kind;
-	bool is_wait, is_agent, is_shell;
+	bool is_wait, is_agent, is_shell, is_monitor;
 	char *result;
 
 	*okp = false;
@@ -4070,9 +4072,15 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		   (!*kind || !strcmp(kind, "shell"));
 	is_wait = (!*kind || !strcmp(kind, "wait")) &&
 		  fyai_wait_exists(ctx, name);
-	if (is_wait + is_agent + is_shell > 1)
+	is_monitor = (!*kind || !strcmp(kind, "monitor")) &&
+		     fyai_monitor_running(ctx, name);
+	if (is_wait + is_agent + is_shell + is_monitor > 1)
 		return strdup(fy_sprintfa("tool error: '%s' names more than "
 					  "one thing; say its kind", name));
+	if (is_monitor && fyai_monitor_cancel(ctx, name)) {
+		*okp = true;
+		return strdup(fy_sprintfa("[monitor '%s' cancelled]", name));
+	}
 	if (is_agent) {
 		fyai_tool_job_cancel(job);
 		*okp = true;
@@ -4942,6 +4950,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
 	fyai_waits_abandon(ctx);		/* its named waits */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
+	fyai_monitor_abandon(ctx);		/* and its monitors */
 	fyai_events_release(ctx);		/* and what they queued for it */
 	fyai_patch_display_clear(ctx);		/* patches it resolved */
 	free(ctx->patch_display);
@@ -5439,8 +5448,10 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	bool all = !*kind;
 
 	*okp = false;
-	if (!all && !fy_any_equal(kind, "agents", "views", "shells", "waits"))
-		return fy_value(gb, "tool error: kind is agents, views, shells or waits");
+	if (!all && !fy_any_equal(kind, "agents", "views", "shells", "waits",
+				  "monitors"))
+		return fy_value(gb, "tool error: kind is agents, views, shells, "
+				"waits or monitors");
 	if (all || !strcmp(kind, "agents"))
 		result = fy_assoc(gb, result, "agents", fyai_list_agents(ctx, gb));
 	if (all || !strcmp(kind, "views"))
@@ -5449,6 +5460,9 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 		result = fy_assoc(gb, result, "shells", fyai_list_shells(ctx, gb));
 	if (all || !strcmp(kind, "waits"))
 		result = fy_assoc(gb, result, "waits", fyai_waits_rows(ctx, gb));
+	if (all || !strcmp(kind, "monitors"))
+		result = fy_assoc(gb, result, "monitors",
+				  fyai_monitors_rows(ctx, gb));
 	*okp = true;
 	return fy_gb_internalize(gb, result);
 }
@@ -5608,6 +5622,7 @@ static void fyai_tool_job_discard(struct fyai_tool_job *job)
 	fyai_view_run_free(job->view_run);
 	free(job->progress.data);
 	free(job->branch);
+	free(job->monitor);
 	free(job->origin);
 	fy_generic_builder_destroy(job->call_gb);
 	free(job);
@@ -5780,7 +5795,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	struct response_buffer view = {0};
 	const char *name, *args_text, *command;
 	const char *asked, *cmdtext;
-	fy_generic args, progress_args, agent_name;
+	fy_generic args, progress_args, agent_name, monitor_v;
 	bool agent_stored = false;
 	fy_generic session_call, session_command, session_desc;
 	struct fyai_event_loop *el;
@@ -5988,6 +6003,12 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	}
 	job->agent = fy_equal(name, "agent");
 	job->btw = fy_get(args, "_fyai_btw", false);
+	monitor_v = fy_get(args, "_fyai_monitor", fy_invalid);
+	if (fy_is_string(monitor_v)) {
+		job->monitor = strdup(fy_castp(&monitor_v, ""));
+		fyai_error_check(ctx, job->monitor, err,
+				 "out of memory naming the monitor");
+	}
 	job->native_shell = native_call;
 	/* A zeroed generic decodes as an empty sequence, not as invalid. */
 	job->diag = fy_invalid;
@@ -6209,6 +6230,8 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	len = strlen(p);
 	if (data_is_binary(p, len))
 		return fy_invalid;
+	if (job->monitor)
+		fyai_monitor_output(job->ctx, job->monitor, p, len);
 	if (!job->agent && job->timeout_ms)
 		fyai_tool_job_progress_retain(job, p, len);
 	if (job->band_progress && job->stream.active)
@@ -7495,6 +7518,7 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 	fyai_tool_job_unlink(job->ctx, job);
 	free(job->progress.data);
 	free(job->branch);
+	free(job->monitor);
 	free(job->origin);
 	fy_generic_builder_destroy(job->call_gb);
 	free(job);
