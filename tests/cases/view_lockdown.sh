@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Verify that view enter --lockdown confines the command as a tool call of a
 # session under /session lockdown: the lockdown profile denies ~/.ssh and
-# network egress, and the command can still change the root of the project.
+# supported network operations, and the command can still change the root of
+# the project.
 # Without the option, the view alone confines the command.
 set -eu
 [ "$(uname -s)" = Linux ] || exit 77
@@ -25,6 +26,7 @@ assert_status 0
 # The environment of the command is sanitized: the port goes in the text.
 probe='cat "$HOME/.ssh/id" >/dev/null 2>&1 && echo ssh-readable || echo ssh-denied
 bash -c "exec 3<>/dev/tcp/127.0.0.1/'"$MOCK_PORT"'" 2>/dev/null && echo net-open || echo net-denied
+bash -c "exec 3<>/dev/udp/127.0.0.1/'"$MOCK_PORT"'" 2>/dev/null && echo udp-open || echo udp-denied
 touch new && mv new renamed && rm renamed && mkdir d && rmdir d && echo root-writable
 touch src/new && rm src/main.c src/new && echo below-writable; true'
 
@@ -32,6 +34,7 @@ run_fyai view enter demo sh -c "$probe"
 assert_status 0
 assert_stdout_contains 'ssh-readable'
 assert_stdout_contains 'net-open'
+assert_stdout_contains 'udp-open'
 assert_stdout_contains 'root-writable'
 assert_stdout_contains 'below-writable'
 
@@ -42,8 +45,14 @@ assert_stdout_contains 'root-writable'
 # The lockdown profile restricts egress where the kernel can.
 if grep -q 'cannot restrict network egress' "$TEST_DIR/stderr"; then
 	assert_stdout_contains 'net-open'
+	assert_stdout_contains 'udp-open'
 else
 	assert_stdout_contains 'net-denied'
+	if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
+		assert_stdout_contains 'udp-open'
+	else
+		assert_stdout_contains 'udp-denied'
+	fi
 fi
 
 # The changes stay in the view.

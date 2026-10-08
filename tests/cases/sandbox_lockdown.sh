@@ -1,8 +1,9 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # Verify the lockdown sandbox profile: sandbox_profile=lockdown confines the tools
-# whatever `sandbox` says, with the secret locations of the platform and the network
-# denied by default, and sandbox_lockdown changes only the keys that it names.
+# whatever `sandbox` says, with the secret locations of the platform and
+# supported network operations denied by default. sandbox_lockdown changes
+# only the keys that it names.
 set -eu
 [ "$(uname -s)" = Linux ] || exit 77
 . "$(dirname "$0")/../harness.sh"
@@ -17,6 +18,7 @@ mkdir -p "$HOME/.ssh" other
 printf 'classified\n' >"$HOME/.ssh/id_test"
 printf 'other-data\n' >other/data.txt
 CONNECT="bash -c 'exec 3<>/dev/tcp/127.0.0.1/$PORT' && echo connected"
+UDP_CONNECT="bash -c 'exec 3<>/dev/udp/127.0.0.1/$PORT' && echo udp-connected"
 
 # shell_with YAML COMMAND: run a command in the shell tool under a configuration
 # file, which does not change the stored configuration.
@@ -47,10 +49,23 @@ if [ "$(printf '%s\n6.7\n' "${RELEASE%%-*}" | sort -V | head -n 1)" = 6.7 ]; the
 	shell_with 'sandbox_profile: lockdown' "$CONNECT || echo net-denied"
 	assert_stdout_contains net-denied
 	assert_stdout_not_contains connected
+	shell_with 'sandbox_profile: lockdown' "$UDP_CONNECT || echo udp-denied"
+	if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
+		assert_stdout_contains udp-connected
+	else
+		assert_stdout_contains udp-denied
+	fi
 	# A port that the profile lists is open.
 	shell_with "sandbox_profile: lockdown
-sandbox_lockdown: { network: { ports: [$PORT] } }" "$CONNECT || echo net-denied"
+sandbox_lockdown: { network: { tcp: { ports: [$PORT] } } }" "$CONNECT || echo net-denied"
 	assert_stdout_contains connected
+	shell_with "sandbox_profile: lockdown
+sandbox_lockdown: { network: { tcp: { ports: [$PORT] } } }" "$UDP_CONNECT || echo udp-denied"
+	if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
+		assert_stdout_contains udp-connected
+	else
+		assert_stdout_contains udp-denied
+	fi
 fi
 
 # A key that the profile names does not drop the default deny.
