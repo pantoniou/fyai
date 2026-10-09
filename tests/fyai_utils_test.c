@@ -11,6 +11,7 @@
 
 FYAI_TEST_ENTRY(utils, wire_text_utf8, utils_wire_text_utf8)
 FYAI_TEST_ENTRY(utils, close_fds_except, utils_close_fds_except)
+FYAI_TEST_ENTRY(utils, utf8_length, utils_utf8_length)
 
 int utils_wire_text_utf8(void)
 {
@@ -61,5 +62,16 @@ int utils_close_fds_except(void)
 		FYAI_TCHECK(errno == EINTR);
 	}
 	FYAI_TCHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	return 0;
+}
+
+int utils_utf8_length(void)
+{
+	FYAI_TCHECK(fyai_utf8_length("") == 0);
+	FYAI_TCHECK(fyai_utf8_length("abc") == 3);
+	/* Two, three and four byte sequences count once. */
+	FYAI_TCHECK(fyai_utf8_length("\xc3\xa9") == 1);
+	FYAI_TCHECK(fyai_utf8_length("a\xe2\x86\x92" "b") == 3);
+	FYAI_TCHECK(fyai_utf8_length("\xf0\x9f\x98\x80") == 1);
 	return 0;
 }
