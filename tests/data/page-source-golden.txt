@@ -39,6 +39,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -81,9 +91,29 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 2
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -103,9 +133,29 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 3
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -131,6 +181,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 4
@@ -188,6 +248,16 @@ CAP <fy-fill/>
 === case 6
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -236,6 +306,16 @@ CAP <fy-fill/>
 
 <fy-space/>STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -370,6 +450,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -420,6 +510,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -454,9 +554,29 @@ STATUS line
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 13
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -523,6 +643,16 @@ HINT <b>x</b>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -537,9 +667,29 @@ HINT <b>x</b>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 16
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -565,6 +715,16 @@ HINT <b>x</b>
 
 *STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -684,6 +844,16 @@ STATUS line
 === case 20
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -791,6 +961,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -817,6 +997,16 @@ CAP <fy-fill/>
 
 <fy-slot id="completion" height="1"/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -896,6 +1086,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -1023,6 +1223,16 @@ CAP <fy-fill/>
 === case 31
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>[1mScope <h>[22m  Proceed <now>?<fy-role name="chrome">  (1 of 3)</fy-role>  (1 more)
 
 <fy-space n="4"/><fy-role name="chrome">asked by main/agent:x</fy-role>
@@ -1055,11 +1265,31 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 32
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -1101,6 +1331,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -1131,6 +1371,16 @@ CAP <fy-fill/>
 === case 34
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -1140,6 +1390,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="note" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 35
@@ -1255,6 +1515,16 @@ CAP <fy-fill/>
 === case 38
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-grid rows="3" cols="*">
@@ -1358,6 +1628,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -1413,6 +1693,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -1442,6 +1732,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -1485,6 +1785,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -1519,6 +1829,16 @@ CAP <fy-fill/>
 
 <fy-space/>STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -1562,6 +1882,16 @@ CAP <fy-fill/>
 
 === case 45
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -1709,6 +2039,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -1789,6 +2129,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -1824,6 +2174,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -1865,6 +2225,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -1905,6 +2275,16 @@ CAP <fy-fill/>
 
 STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -2012,6 +2392,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -2053,11 +2443,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 58
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -2130,6 +2540,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -2164,6 +2584,16 @@ CAP <fy-fill/>
 
 <fy-space/>[2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -2246,6 +2676,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -2391,6 +2831,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -2436,6 +2886,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 67
@@ -2558,6 +3018,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -2582,11 +3052,31 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 71
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -2636,6 +3126,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -2719,6 +3219,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -2916,6 +3426,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -3206,6 +3726,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -3230,6 +3760,16 @@ CAP <fy-fill/>
 
 <fy-slot id="completion" height="1"/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -3331,6 +3871,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -3361,6 +3911,16 @@ CAP <fy-fill/>
 
 
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -3470,6 +4030,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -3514,11 +4084,31 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 94
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -3538,11 +4128,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 95
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -3632,6 +4242,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -3671,6 +4291,16 @@ CAP <fy-fill/>
 
 === case 99
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -3836,6 +4466,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -3860,6 +4500,16 @@ STATUS line
 
 <fy-space/>STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -4053,6 +4703,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -4090,11 +4750,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 111
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -4131,6 +4811,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -4183,6 +4873,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -4253,6 +4953,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -4296,6 +5006,16 @@ CAP <fy-fill/>
 === case 117
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -4328,6 +5048,16 @@ CAP <fy-fill/>
 
 <fy-space/>STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -4505,6 +5235,16 @@ STATUS line
 === case 123
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -4554,6 +5294,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 124
@@ -4614,6 +5364,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -4702,6 +5462,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -4736,6 +5506,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -4758,6 +5538,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 131
@@ -4819,6 +5609,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -4855,6 +5655,16 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 133
 <fy-tight>
@@ -4876,6 +5686,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -4934,9 +5754,29 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 135
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -4958,11 +5798,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 136
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -5012,6 +5872,16 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 137
 <fy-tight>
@@ -5042,6 +5912,16 @@ CAP <fy-fill/>
 
 === case 138
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -5078,6 +5958,16 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -5123,6 +6013,16 @@ STATUS line
 === case 140
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -5152,11 +6052,31 @@ STATUS line
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 141
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -5255,6 +6175,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -5291,6 +6221,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -5311,11 +6251,31 @@ STATUS line
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 147
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -5354,9 +6314,29 @@ STATUS line
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 148
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -5407,9 +6387,29 @@ STATUS line
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 149
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -5523,6 +6523,16 @@ STATUS line
 === case 152
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -5578,6 +6588,16 @@ STATUS line
 
 === case 155
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -5762,6 +6782,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -5907,6 +6937,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -5947,6 +6987,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -5984,11 +7034,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 166
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -6089,6 +7159,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6115,6 +7195,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>Scope <h>  Proceed <now>?<fy-role name="chrome">  (2 of 3)</fy-role>  (2 more)
 
 <fy-space n="4"/><fy-role name="chrome">Preview · No <b></fy-role>
@@ -6136,6 +7226,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -6177,11 +7277,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 172
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -6238,6 +7358,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6272,6 +7402,16 @@ HINT <b>x</b>
 
 <fy-space n="3"/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -6356,6 +7496,16 @@ HINT <b>x</b>
 
 === case 177
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -6486,6 +7636,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6554,6 +7714,16 @@ CAP <fy-fill/>
 === case 182
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6613,6 +7783,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 183
@@ -6683,6 +7863,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6741,6 +7931,16 @@ CAP <fy-fill/>
 === case 188
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6761,6 +7961,16 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 189
 <fy-tight>
@@ -6772,6 +7982,16 @@ CAP <fy-fill/>
 
 === case 190
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -6858,6 +8078,16 @@ CAP <fy-fill/>
 === case 192
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -6914,9 +8144,29 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 193
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -6973,6 +8223,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 194
@@ -7068,6 +8328,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
@@ -7095,6 +8365,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -7138,6 +8418,16 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 201
 <fy-tight>
@@ -7165,6 +8455,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -7282,6 +8582,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
@@ -7305,6 +8615,16 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -7365,6 +8685,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -7577,6 +8907,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -7708,6 +9048,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -7824,6 +9174,16 @@ HINT <b>x</b>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -7844,6 +9204,16 @@ HINT <b>x</b>
 
 <fy-space n="3"/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -7930,6 +9300,16 @@ CAP <fy-fill/>
 === case 227
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-grid rows="3" cols="*">
@@ -7962,6 +9342,16 @@ STATUS line
 
 === case 228
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -8023,6 +9413,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -8053,6 +9453,16 @@ STATUS line
 
 *<fy-space n="2"/>[2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -8132,6 +9542,16 @@ HINT <b>x</b>
 
 === case 233
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -8238,6 +9658,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -8279,11 +9709,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 236
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -8401,6 +9851,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -8441,9 +9901,29 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 241
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -8469,6 +9949,16 @@ CAP <fy-fill/>
 
 [2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -8589,6 +10079,16 @@ CAP <fy-fill/>
 === case 246
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -8603,6 +10103,16 @@ CAP <fy-fill/>
 
 *<fy-space n="2"/>[2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -8655,6 +10165,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-grid rows="3" cols="*">
@@ -8700,6 +10220,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -8732,6 +10262,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 250
@@ -8809,6 +10349,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -8843,6 +10393,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 253
@@ -8951,6 +10511,16 @@ CAP <fy-fill/>
 
 === case 256
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -9143,6 +10713,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -9201,6 +10781,16 @@ CAP <fy-fill/>
 === case 266
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -9240,6 +10830,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 267
@@ -9451,6 +11051,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -9676,6 +11286,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -9697,6 +11317,16 @@ STATUS line
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 279
@@ -10166,6 +11796,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -10208,6 +11848,16 @@ CAP <fy-fill/>
 
 [2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -10326,6 +11976,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>[1mScope <h>[22m  Proceed <now>?  (2 more)
 
 <fy-space n="2"/><fy-role name="select.bar">▌</fy-role><fy-role name="select.row"><fy-space/><fy-act id="ask.choose:1" role="select.label">1. [ ] Yes <b></fy-act><fy-fill/></fy-role>
@@ -10346,6 +12006,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 300
@@ -10423,6 +12093,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -10604,6 +12284,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -10633,6 +12323,16 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 308
 <fy-tight>
@@ -10646,6 +12346,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -10681,6 +12391,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 310
@@ -10803,6 +12523,16 @@ CAP <fy-fill/>
 === case 314
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -10853,11 +12583,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 315
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -10894,6 +12644,16 @@ STATUS line
 
 === case 316
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -11032,6 +12792,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -11083,6 +12853,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -11117,6 +12897,16 @@ CAP <fy-fill/>
 === case 324
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -11144,6 +12934,16 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -11211,6 +13011,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -11241,6 +13051,16 @@ STATUS line
 
 *<fy-space n="2"/>[2m[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -11279,6 +13099,16 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -11448,6 +13278,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>[1mScope <h>[22m  Proceed <now>?<fy-role name="chrome">  (2 of 2)</fy-role>  (1 more)
 
 <fy-space n="4"/><fy-role name="chrome">asked by main/agent:x</fy-role>
@@ -11498,6 +13338,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -11536,11 +13386,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 335
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -11729,6 +13599,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -11765,6 +13645,16 @@ STATUS line
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 342
@@ -11864,6 +13754,16 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -11965,6 +13865,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>[1mScope <h>[22m  Proceed <now>?<fy-role name="chrome">  (3 of 3)</fy-role>  (2 more)
 
 <fy-space n="4"/><fy-role name="chrome">asked by main/agent:x</fy-role>
@@ -11981,9 +13891,29 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 347
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -12116,6 +14046,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -12145,6 +14085,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -12301,6 +14251,16 @@ CAP <fy-fill/>
 === case 356
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -12337,11 +14297,31 @@ HINT <b>x</b>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 357
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -12399,6 +14379,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -12556,6 +14546,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
@@ -12579,6 +14579,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -12615,6 +14625,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -12669,6 +14689,16 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 368
 <fy-tight>
@@ -12707,6 +14737,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -12726,6 +14766,16 @@ CAP <fy-fill/>
 
 === case 370
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -12771,11 +14821,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 371
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -12799,9 +14869,29 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 372
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -12838,6 +14928,16 @@ CAP <fy-fill/>
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 373
@@ -12880,6 +14980,16 @@ CAP <fy-fill/>
 
 === case 374
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -13005,6 +15115,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -13040,11 +15160,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 377
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -13097,11 +15237,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 378
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -13143,6 +15303,16 @@ CAP <fy-fill/>
 
 === case 379
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -13232,6 +15402,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-slot id="note" height="2"/>
 
 <fy-drop order="1">
@@ -13301,6 +15481,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-slot id="note" height="1"/>
 
 <fy-drop order="1">
@@ -13311,11 +15501,31 @@ HINT <b>x</b>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 385
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -13340,6 +15550,16 @@ CAP <fy-fill/>
 </fy-drop>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 386
@@ -13395,6 +15615,16 @@ CAP <fy-fill/>
 === case 387
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -13430,6 +15660,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -13493,6 +15733,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -13526,6 +15776,16 @@ CAP <fy-fill/>
 
 === case 391
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -13596,6 +15856,16 @@ CAP <fy-fill/>
 === case 394
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -13620,6 +15890,16 @@ CAP <fy-fill/>
 
 <fy-space/>[2m[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -13665,6 +15945,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -13712,6 +16002,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -13743,6 +16043,16 @@ CAP <fy-fill/>
 
 === case 399
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -13802,6 +16112,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -13837,6 +16157,16 @@ STATUS line
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 402
@@ -13880,6 +16210,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -13920,11 +16260,31 @@ STATUS line
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 404
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -13958,11 +16318,31 @@ STATUS line
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 405
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -14023,6 +16403,16 @@ CAP <fy-fill/>
 
 === case 406
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -14317,6 +16707,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
@@ -14369,6 +16769,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -14394,9 +16804,29 @@ STATUS line
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 417
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -14613,6 +17043,16 @@ STATUS line
 === case 424
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>Scope <h>  Proceed <now>?<fy-role name="chrome">  (1 of 2)</fy-role>
 
 <fy-space n="2"/><fy-role name="select.bar">▌</fy-role><fy-role name="select.row"><fy-space/><fy-act id="ask.choose:1" role="select.label">1. [ ] Yes <b></fy-act><fy-fill/></fy-role>
@@ -14687,6 +17127,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -14740,11 +17190,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 427
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -14788,6 +17258,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -14810,9 +17290,29 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 429
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -14853,6 +17353,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -14923,6 +17433,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -14941,6 +17461,16 @@ STATUS line
 
 [2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -15202,6 +17732,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -15242,6 +17782,16 @@ CAP <fy-fill/>
 
 [2m[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -15388,6 +17938,16 @@ CAP <fy-fill/>
 === case 448
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -15503,6 +18063,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -15531,9 +18101,29 @@ STATUS line
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 453
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -15603,6 +18193,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -15652,6 +18252,16 @@ STATUS line
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -15824,6 +18434,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space n="2"/>[1mReview[22m  Send these answers?
 
 <fy-space n="2"/><fy-role name="select.bar">▌</fy-role><fy-role name="select.row"><fy-space/><fy-act id="ask.choose:1" role="select.label">1. [ ] Yes <b></fy-act><fy-fill/></fy-role>
@@ -15859,6 +18479,16 @@ HINT <b>x</b>
 
 === case 462
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -15922,6 +18552,16 @@ HINT <b>x</b>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -15957,6 +18597,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -16005,6 +18655,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -16035,6 +18695,16 @@ STATUS line
 
 *<fy-space n="2"/>[2m[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -16070,6 +18740,16 @@ CAP <fy-fill/>
 
 === case 468
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16130,6 +18810,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space n="2"/>[1mScope <h>[22m  Proceed <now>?<fy-role name="chrome">  (1 of 2)</fy-role>
 
@@ -16197,6 +18887,16 @@ CAP <fy-fill/>
 === case 473
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -16229,9 +18929,29 @@ STATUS line
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 474
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16269,6 +18989,16 @@ HINT <b>x</b>
 
 <fy-space n="3"/>STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -16317,6 +19047,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16403,6 +19143,16 @@ HINT <b>x</b>
 === case 478
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -16440,6 +19190,16 @@ HINT <b>x</b>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 479
 <fy-tight>
@@ -16453,6 +19213,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16527,6 +19297,16 @@ HINT <b>x</b>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16609,6 +19389,16 @@ CAP <fy-fill/>
 === case 484
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
@@ -16638,6 +19428,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16683,11 +19483,31 @@ CAP <fy-fill/>
 
 <fy-slot id="pane" height="3"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 486
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16733,6 +19553,16 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 487
 <fy-tight>
@@ -16774,6 +19604,16 @@ HINT <b>x</b>
 
 === case 488
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -16856,6 +19696,16 @@ HINT <b>x</b>
 
 === case 491
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -16949,6 +19799,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -17005,6 +19865,16 @@ HINT <b>x</b>
 === case 495
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -17037,6 +19907,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 496
@@ -17078,6 +19958,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -17100,6 +19990,16 @@ STATUS line
 
 <fy-slot id="completion" height="1"/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -17463,6 +20363,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -17494,9 +20404,29 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 510
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -17532,6 +20462,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-slot id="note" height="2"/>
 
 <fy-space/>
@@ -17539,11 +20479,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 512
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -17593,6 +20553,16 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 513
 <fy-tight>
@@ -17606,6 +20576,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -17633,11 +20613,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 515
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -17670,6 +20670,16 @@ CAP <fy-fill/>
 
 === case 516
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -17718,6 +20728,16 @@ CAP <fy-fill/>
 === case 517
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-grid rows="3" cols="*">
@@ -17744,6 +20764,16 @@ CAP <fy-fill/>
 
 === case 518
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -17785,6 +20815,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 519
@@ -17840,6 +20880,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -17964,6 +21014,16 @@ CAP <fy-fill/>
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -18013,6 +21073,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -18048,6 +21118,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -18085,11 +21165,31 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 528
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -18117,6 +21217,16 @@ CAP <fy-fill/>
 
 *<fy-space n="2"/>[2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -18173,6 +21283,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -18216,11 +21336,31 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 531
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -18269,6 +21409,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -18398,6 +21548,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-grid rows="3" cols="*">
@@ -18459,6 +21619,16 @@ CAP <fy-fill/>
 === case 538
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -18483,6 +21653,16 @@ CAP <fy-fill/>
 
 <fy-space/>[2mSTATUS line[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -18583,6 +21763,16 @@ CAP <fy-fill/>
 === case 541
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -18611,6 +21801,16 @@ CAP <fy-fill/>
 
 [2m[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -18682,6 +21882,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -18715,6 +21925,16 @@ CAP <fy-fill/>
 <fy-space/>
 
 <fy-slot id="pane" height="3"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 545
@@ -18834,6 +22054,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -19114,6 +22344,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-space/>
 
 <fy-drop order="0">
@@ -19180,6 +22420,16 @@ CAP <fy-fill/>
 === case 556
 <fy-tight>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -19220,6 +22470,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 557
@@ -19292,6 +22552,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -19310,6 +22580,16 @@ STATUS line
 
 <fy-space/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -19354,6 +22634,16 @@ STATUS line
 
 <fy-slot id="tail" height="2"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -19372,11 +22662,31 @@ STATUS line
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 562
 <fy-tight>
 
 <fy-slot id="transcript" height="20"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -19421,6 +22731,16 @@ CAP <fy-fill/>
 <fy-grid rows="3" cols="*">
 </fy-grid>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 563
 <fy-tight>
@@ -19456,6 +22776,16 @@ STATUS line
 
 === case 564
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space n="2"/>[1mScope <h>[22m  Proceed <now>?  (1 more)
 
@@ -19611,6 +22941,16 @@ STATUS line
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -19635,6 +22975,16 @@ STATUS line
 
 *[2m[22m
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -19722,6 +23072,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -19748,6 +23108,16 @@ CAP <fy-fill/>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 573
 <fy-tight>
@@ -19762,10 +23132,30 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="1">
 
 <fy-slot id="completion" height="1"/>
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -19773,6 +23163,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -19830,6 +23230,16 @@ CAP <fy-fill/>
 
 <fy-grid rows="3" cols="*">
 </fy-grid>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 
 === case 576
@@ -19926,6 +23336,16 @@ CAP <fy-fill/>
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 
@@ -20041,6 +23461,16 @@ CAP <fy-fill/>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -20067,6 +23497,16 @@ CAP <fy-fill/>
 
 *<fy-space n="2"/>STATUS line
 
+</fy-drop>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
 </fy-drop>
 
 
@@ -20388,6 +23828,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -20402,9 +23852,29 @@ HINT <b>x</b>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 594
 <fy-tight>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -20432,11 +23902,31 @@ HINT <b>x</b>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 595
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-drop order="2">
 
@@ -20482,6 +23972,16 @@ HINT <b>x</b>
 
 <fy-slot id="transcript" height="20"/>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 <fy-drop order="2">
 
 <fy-space/>
@@ -20522,11 +24022,31 @@ HINT <b>x</b>
 
 </fy-drop>
 
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
+
 
 === case 598
 <fy-tight>
 
 <fy-slot id="tail" height="2"/>
+
+<fy-drop order="0">
+
+<fy-space/>
+
+<fy-role name="chrome">Todos</fy-role>
+
+- [>] First <b>task</b>
+- [ ] Second task
+</fy-drop>
 
 <fy-space/>
 

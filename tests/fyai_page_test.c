@@ -42,6 +42,7 @@ FYAI_TEST_ENTRY(page, palette_margin_keeps_width, page_palette_margin_keeps_widt
 FYAI_TEST_ENTRY(page, status_drops_first, page_status_drops_first)
 FYAI_TEST_ENTRY(page, blank_activity_is_not_code, page_blank_activity_is_not_code)
 FYAI_TEST_ENTRY(page, cap_stands_over_the_pane, page_cap_stands_over_the_pane)
+FYAI_TEST_ENTRY(page, todo_stands_over_the_prompt, page_todo_stands_over_the_prompt)
 FYAI_TEST_ENTRY(page, prompt_card_takes_the_rules, page_prompt_card_takes_the_rules)
 FYAI_TEST_ENTRY(page, chrome_keeps_the_margins, page_chrome_keeps_the_margins)
 FYAI_TEST_ENTRY(page, fit_gives_the_chrome_its_rows, page_fit_gives_the_chrome_its_rows)
@@ -142,6 +143,9 @@ static void page_golden_state(unsigned i, struct fyai_page_state *st)
 	static const char *const sources[] = {
 		NULL, "<fy-grid rows=\"3\" cols=\"*\">\n</fy-grid>\n\n",
 	};
+	static const char *const todos[] = {
+		NULL, "- [>] First <b>task</b>\n- [ ] Second task\n",
+	};
 
 	memset(st, 0, sizeof(*st));
 	st->prompt_rows = (int)page_golden_pick(i, 0, 3);
@@ -168,6 +172,9 @@ static void page_golden_state(unsigned i, struct fyai_page_state *st)
 	st->transcript_rows = st->fullscreen ? 20 : 0;
 	st->note_lines = lines;
 	st->note_nlines = (int)page_golden_pick(i, 16, 3);
+	st->todo_source = todos[page_golden_pick(i, 29, 2)];
+	st->todo_rows = st->todo_source ? 2 : 0;
+	st->todo_shown = st->todo_source != NULL;
 	st->input_mode = modes[page_golden_pick(i, 17, 3)];
 	if (st->input_mode) {
 		memset(&ask, 0, sizeof(ask));
@@ -537,6 +544,51 @@ static int page_cap_stands_over_the_pane_run(void)
 	return 0;
 }
 
+/* The todo panel stands above the prompt with the work pane, and only then. */
+static int page_todo_stands_over_the_prompt_run(void)
+{
+	struct response_buffer out = {0};
+	struct fyai_page_state st = page_state();
+	const char *p;
+	int rc;
+
+	st.todo_source = "- [>] First task\n- [ ] Second task\n";
+	st.todo_rows = 2;
+	st.todo_shown = true;
+	rc = fyai_page_source(&st, &out);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(strstr(out.data, "<fy-drop order=\"0\">") != NULL);
+	p = after(out.data, "<fy-role name=\"chrome\">Todos</fy-role>");
+	p = after(p, "- [>] First task");
+	FYAI_TCHECK(p != NULL);
+	free(out.data);
+
+	/* hidden, nothing is drawn */
+	out = (struct response_buffer){0};
+	st.todo_shown = false;
+	rc = fyai_page_source(&st, &out);
+	FYAI_TCHECK(!rc);
+	FYAI_TCHECK(!strstr(out.data, "First task"));
+	free(out.data);
+
+	/* the panel counts as chrome rows, so the fit grants it first */
+	st = page_state();
+	st.todo_source = "- [>] First task\n";
+	st.todo_rows = 2;
+	st.todo_shown = true;
+	{
+		struct fyai_page_state plain = page_state();
+		FYAI_TCHECK(fyai_page_chrome_rows(&st) ==
+			    fyai_page_chrome_rows(&plain) + 4);
+	}
+	fyai_page_fit(&st, 20);
+	FYAI_TCHECK(st.todo_shown);
+	st.todo_rows = 20;
+	fyai_page_fit(&st, 20);
+	FYAI_TCHECK(!st.todo_shown);
+	return 0;
+}
+
 /* A prompt on a card is one slot two rows taller, with no rules. */
 static int page_prompt_card_takes_the_rules_run(void)
 {
@@ -783,6 +835,11 @@ int page_grid_fits_and_spans(void)
 int page_view_follows_the_presentation(void)
 {
 	return page_view_follows_the_presentation_run();
+}
+
+int page_todo_stands_over_the_prompt(void)
+{
+	return page_todo_stands_over_the_prompt_run();
 }
 
 int page_prompt_card_takes_the_rules(void)

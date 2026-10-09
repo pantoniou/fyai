@@ -1,0 +1,93 @@
+{
+ "steps": [
+  {
+   "response": {
+    "id": "s1",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "todos",
+         "type": "function",
+         "function": {
+          "name": "todo_write",
+          "arguments": "{\"todos\": [{\"content\": \"task one\", \"status\": \"in_progress\", \"priority\": \"high\"}, {\"content\": \"task two\", \"status\": \"pending\", \"priority\": \"low\"}]}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 1,
+     "completion_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  },
+  {
+   "response": {
+    "id": "s2",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "todos2",
+         "type": "function",
+         "function": {
+          "name": "todo_write",
+          "arguments": "{\"todos\": [{\"content\": \"task one\", \"status\": \"completed\", \"priority\": \"high\"}, {\"content\": \"task two\", \"status\": \"completed\", \"priority\": \"low\"}]}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 1,
+     "completion_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  },
+  {
+   "response": {
+    "id": "done",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "Planned."
+      },
+      "finish_reason": "stop"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 1,
+     "completion_tokens": 1,
+     "total_tokens": 2
+    }
+   }
+  }
+ ]
+}
