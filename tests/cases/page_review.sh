@@ -6,16 +6,18 @@ set -eu
 . "$(dirname "$0")/../harness.sh"
 
 fyai_test_setup
-out=$("$FYAI_BIN" --color=off page review question --width 70 --height 22) ||
+out=$("$FYAI_BIN" --color=off page review question --width 70 --height 30) ||
     fail "page review did not draw the question sample"
 for name in transcript "pane/blank" pane.cap "header.shown/blank" header \
-        question ask.from_agent "ask.options/selected" "ask.options/other" \
+        question ask.question_shown ask.from_agent "ask.options/selected" \
+        "ask.options/other" "ask.options/selected_description" \
+        "ask.options/other_description" \
         prompt status.hint status.row; do
     printf '%s\n' "$out" | grep -q -F " $name " ||
         fail "page review did not name the area $name"
 done
 # The row of the question keeps its text; the name stands at the right.
-printf '%s\n' "$out" | grep -q -E '^  \? Apply the patch\?.* question $' ||
+printf '%s\n' "$out" | grep -q -E '^  Patch  Apply the patch\?.* ask.question_shown $' ||
     fail "the name of a row covered its text"
 
 json=$("$FYAI_BIN" page review popup --width 60 --height 12 --output json) ||

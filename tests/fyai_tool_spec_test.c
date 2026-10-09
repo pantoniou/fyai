@@ -143,15 +143,15 @@ static void test_descriptions(void)
 	require(fy_equal(
 		fy_get(fy_get(fy_get(fy_get(fy_get(
 			tool_by_name(tools, "ask_user"), "function"),
-			"parameters"), "properties"), "options"), "type"),
-		"array"), "ask_user.options type");
+			"parameters"), "properties"), "questions"), "type"),
+		"array"), "ask_user.questions type");
 	require(fy_equal(
 		fy_get(fy_get(fy_get(fy_get(fy_get(fy_get(
 			tool_by_name(tools, "ask_user"), "function"),
-			"parameters"), "properties"), "options"), "items"),
+			"parameters"), "properties"), "questions"), "items"),
 		"type"),
-		"string"),
-		"ask_user.options items");
+		"object"),
+		"ask_user.questions items");
 }
 
 static void test_filtered(void)

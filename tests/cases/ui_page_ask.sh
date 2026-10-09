@@ -38,7 +38,8 @@ ask()
     fi
 }
 
-# The tool result that the model was given.
+# The tool result that the model was given: "sel:LABEL", "other:TEXT" or
+# "declined".
 answered()
 {
     "$PYTHON" - "$TEST_DIR/requests.jsonl" "$1" <<'PY' ||
@@ -49,8 +50,15 @@ want = sys.argv[2]
 for line in open(sys.argv[1]):
     for m in json.loads(line)["body"]["messages"]:
         if m.get("role") == "tool" and m.get("tool_call_id") == "call_ask_1":
-            if m.get("content") != want:
-                raise SystemExit("answer %r, not %r" % (m.get("content"), want))
+            res = json.loads(m["content"])
+            if want == "declined":
+                got = res["status"]
+            else:
+                a = res["answers"][0]
+                got = ("sel:" + ",".join(a["selected"]) if a["selected"]
+                       else "other:" + a.get("other", ""))
+            if got != want:
+                raise SystemExit("answer %r, not %r" % (got, want))
             raise SystemExit(0)
 raise SystemExit("the model was not given an answer")
 PY
@@ -81,41 +89,39 @@ while True:
         break
 if rows is None:
     raise SystemExit("the question was never drawn")
-at = next(i for i, r in enumerate(rows) if "? Proceed with the mock plan?" in r)
-want = ["  ? Proceed with the mock plan?", "  › 1. yes", "    2. no",
+at = next(i for i, r in enumerate(rows) if "Proceed with the mock plan?" in r)
+want = ["  Plan  Proceed with the mock plan?", "  ▌ 1. yes",
+        "  ▌    The yes choice", "    2. no", "       The no choice",
         "    or type an answer"]
-if rows[at:at + 4] != want:
-    raise SystemExit("question rows: %r" % rows[at:at + 4])
-if "❯" not in rows[at + 5]:
-    raise SystemExit("the prompt is not under the question: %r" % rows[at + 5])
+if rows[at:at + 6] != want:
+    raise SystemExit("question rows: %r" % rows[at:at + 6])
+if "❯" not in rows[at + 7]:
+    raise SystemExit("the prompt is not under the question: %r" % rows[at + 7])
 PY
     fail "the page did not draw the question in the input area"
-answered yes "Enter"
+answered sel:yes "Enter"
 mock_stop 2
 
-ask down "raw:1b5b42|wait-screen:› 2. no|raw:0d"
-answered no "Down and Enter"
+ask down "raw:1b5b42|wait-screen:▌ 2. no|raw:0d"
+answered sel:no "Down and Enter"
 mock_stop 2
 
 ask number "raw:32"
-answered no "the key 2"
+answered sel:no "the key 2"
 mock_stop 2
 
 # Once text is typed the number keys type too.
 ask typed "raw:6d|frame:2|raw:32|frame:2|raw:0d"
-answered m2 "typed text"
+answered other:m2 "typed text"
 mock_stop 2
 
 ask escape "raw:1b"
-answered "tool note: the user did not provide an answer" "Escape"
+answered declined "Escape"
 mock_stop 2
 
-# A click on an option chooses it. The page stands under the transcript, so the
-# row of the click on the screen is not the row of the option in the page; the
-# tile controls grab the mouse.
-CLICK=$(printf '\033[<0;7;8M\033[<0;7;8m' | od -An -tx1 | tr -d ' \n')
-ask click "raw:$CLICK" --set display/work_controls=zoom
-answered no "a click on the option"
+# A click on an option chooses it; the tile controls grab the mouse.
+ask click "click:2. no" --set display/work_controls=zoom
+answered sel:no "a click on the option"
 mock_stop 2
 
 # A sub-agent asks through its parent, whose page names it.
@@ -173,7 +179,7 @@ import json
 import sys
 
 data = open(sys.argv[1], "rb").read()
-first = {name: data.find(b"? %s-QUESTION?" % name.upper().encode())
+first = {name: data.find(b"%s-QUESTION?" % name.upper().encode())
          for name in ("alpha", "beta")}
 if min(first.values()) < 0:
     raise SystemExit("a question was never drawn: %r" % first)
@@ -183,7 +189,8 @@ for line in open(sys.argv[2]):
     for m in json.loads(line)["body"]["messages"]:
         call = str(m.get("tool_call_id", ""))
         if m.get("role") == "tool" and call.startswith("call_ask_"):
-            answers[call[len("call_ask_"):]] = m.get("content")
+            answers[call[len("call_ask_"):]] = json.loads(
+                m["content"])["answers"][0]["selected"][0]
 want = {order[0]: order[0] + "-one", order[1]: order[1] + "-two"}
 if answers != want:
     raise SystemExit("answers %r, not %r" % (answers, want))

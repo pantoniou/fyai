@@ -16,7 +16,10 @@
                 {
                   "id": "call_ask_1",
                   "type": "function",
-                  "function": { "name": "ask_user", "arguments": "{\"questions\":[{\"header\":\"Plan\",\"question\":\"Proceed with the mock plan?\",\"options\":[{\"label\":\"yes\",\"description\":\"The yes choice\"},{\"label\":\"no\",\"description\":\"The no choice\"}]}]}" }
+                  "function": {
+                    "name": "ask_user",
+                    "arguments": "{\"questions\":[{\"id\":\"scope\",\"header\":\"Scope\",\"question\":\"How wide?\",\"options\":[{\"label\":\"small\",\"description\":\"The small choice\"},{\"label\":\"medium\",\"description\":\"The medium choice\"},{\"label\":\"large\",\"description\":\"The large choice\"}]},{\"header\":\"Checks\",\"question\":\"Which checks?\",\"multi_select\":true,\"options\":[{\"label\":\"lint\",\"description\":\"The lint choice\"},{\"label\":\"unit\",\"description\":\"The unit choice\"},{\"label\":\"asan\",\"description\":\"The asan choice\"}]}]}"
+                  }
                 }
               ]
             },
@@ -34,7 +37,10 @@
         "choices": [
           {
             "index": 0,
-            "message": { "role": "assistant", "content": "User said yes, proceeding." },
+            "message": {
+              "role": "assistant",
+              "content": "Answers received."
+            },
             "finish_reason": "stop"
           }
         ]

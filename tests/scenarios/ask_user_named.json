@@ -1,0 +1,110 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "c1",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_ask",
+                  "type": "function",
+                  "function": {
+                    "name": "ask_user",
+                    "arguments": "{\"questions\":[{\"header\":\"Scope\",\"question\":\"How wide?\",\"options\":[{\"label\":\"small\",\"description\":\"The small choice\"},{\"label\":\"medium\",\"description\":\"The medium choice\"}]}],\"background\":true}"
+                  }
+                },
+                {
+                  "id": "call_list",
+                  "type": "function",
+                  "function": {
+                    "name": "list",
+                    "arguments": "{\"kind\":\"questions\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "c15",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_poll",
+                  "type": "function",
+                  "function": {
+                    "name": "wait",
+                    "arguments": "{\"for\":\"ask-1\",\"poll\":true}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "c2",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_wait",
+                  "type": "function",
+                  "function": {
+                    "name": "wait",
+                    "arguments": "{\"for\": \"ask-1\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "response": {
+        "id": "c3",
+        "object": "chat.completion",
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Scope settled."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

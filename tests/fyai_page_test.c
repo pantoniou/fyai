@@ -109,41 +109,28 @@ static const struct fyai_page_action page_golden_actions[] = {
 	{ "ask.accept", page_golden_noop },
 	{ "ask.dismiss", page_golden_noop },
 	{ "ask.choose", page_golden_noop },
+	{ "ask.toggle", page_golden_noop },
+	{ "ask.back", page_golden_noop },
+	{ "ask.forward", page_golden_noop },
 	{ "popup.close", page_golden_noop },
 	{ "popup.scroll", page_golden_noop },
 };
-
-/* Show a question with the options @labels in @st. */
-static void page_ask_show(struct fyai_page_state *st, struct fyai_page_ask *ask,
-			  struct fyai_page_ask_option *opts,
-			  const char *question, const char *from,
-			  const char *const *labels, size_t n, size_t selected,
-			  int waiting)
-{
-	size_t i;
-
-	memset(ask, 0, sizeof(*ask));
-	for (i = 0; i < n; i++)
-		opts[i].label = labels[i];
-	ask->question = question;
-	ask->from = from;
-	ask->options = opts;
-	ask->noptions = n;
-	ask->selected = selected;
-	ask->waiting = waiting;
-	ask->count = 1;
-	st->ask = ask;
-}
-
-/* The question of the state that page_golden_state() makes. */
-static struct fyai_page_ask golden_ask;
-static struct fyai_page_ask_option golden_opts[4];
 
 static void page_golden_state(unsigned i, struct fyai_page_state *st)
 {
 	static const char *const modes[] = { NULL, "ask", "ask_text" };
 	static const char *const froms[] = { NULL, "main/agent:x" };
-	static const char *const options[] = { "Yes <b>", "No", "Other" };
+	static const struct fyai_page_ask_option options[] = {
+		{ "Yes <b>", "means <i>yes</i>", false },
+		{ "No", "", true },
+		{ "Other", "something else", false },
+		{ "Last", "", false },
+	};
+	static const struct fyai_page_ask_review review[] = {
+		{ "Scope <b>", "Small, Medium" },
+		{ "Style", "own <answer>" },
+	};
+	static struct fyai_page_ask ask;
 	static const char *const lines[] = { "row one", "row two" };
 	static const char *const hints[] = { NULL, "HINT <b>x</b>", "  " };
 	static const char *const statuses[] = { NULL, "  STATUS\nline" };
@@ -183,11 +170,28 @@ static void page_golden_state(unsigned i, struct fyai_page_state *st)
 	st->note_nlines = (int)page_golden_pick(i, 16, 3);
 	st->input_mode = modes[page_golden_pick(i, 17, 3)];
 	if (st->input_mode) {
-		page_ask_show(st, &golden_ask, golden_opts, "Proceed <now>?",
-			      froms[page_golden_pick(i, 18, 2)], options,
-			      page_golden_pick(i, 19, 4),
-			      page_golden_pick(i, 20, 3),
-			      (int)page_golden_pick(i, 21, 3));
+		memset(&ask, 0, sizeof(ask));
+		ask.header = "Scope <h>";
+		ask.question = "Proceed <now>?";
+		ask.from = froms[page_golden_pick(i, 18, 2)];
+		ask.options = options;
+		ask.noptions = page_golden_pick(i, 19, 4);
+		ask.selected = page_golden_pick(i, 20, 3);
+		ask.waiting = (int)page_golden_pick(i, 21, 3);
+		ask.multi = page_golden_pick(i, 23, 2);
+		ask.count = 1 + page_golden_pick(i, 24, 3);
+		ask.index = page_golden_pick(i, 25, ask.count);
+		if (ask.count > 1 && page_golden_pick(i, 26, 2)) {
+			ask.review = true;
+			ask.lines = review;
+			ask.nlines = 1 + page_golden_pick(i, 27, 2);
+		}
+		if (!ask.multi && !ask.review && page_golden_pick(i, 28, 3)) {
+			ask.preview = lines;
+			ask.npreview = 2;
+			ask.preview_title = "No <b>";
+		}
+		st->ask = &ask;
 	}
 	/* The popup covers the whole page: one case in four. */
 	if (st->fullscreen && !page_golden_pick(i, 22, 4)) {
@@ -806,15 +810,19 @@ int page_cap_stands_over_the_pane(void)
  * nothing. */
 static int page_review_marks_each_row_run(void)
 {
-	static const char *const opts[] = { "Yes", "No" };
-	struct fyai_page_ask_option ask_opts[2];
-	struct fyai_page_ask ask;
+	static const struct fyai_page_ask_option opts[] = {
+		{ "Yes", "", false }, { "No", "", false },
+	};
+	static const struct fyai_page_ask ask = {
+		.header = "Go", .question = "Proceed?", .options = opts,
+		.noptions = 2, .count = 1,
+	};
 	struct response_buffer out = {0};
 	struct fyai_page_state st = page_state();
 	int rc;
 
 	st.input_mode = "ask";
-	page_ask_show(&st, &ask, ask_opts, "Proceed?", NULL, opts, 2, 0, 0);
+	st.ask = &ask;
 	st.pane_rows = 2;
 	st.actions = page_golden_actions;
 	st.nactions = sizeof(page_golden_actions) /
@@ -1253,6 +1261,9 @@ static const struct fyai_page_action page_test_ask_actions[] = {
 	{ "ask.prev", page_test_ask_noop },
 	{ "ask.next", page_test_ask_noop },
 	{ "ask.choose", page_test_ask_noop },
+	{ "ask.toggle", page_test_ask_noop },
+	{ "ask.back", page_test_ask_noop },
+	{ "ask.forward", page_test_ask_noop },
 	{ "ask.accept", page_test_ask_noop },
 	{ "ask.dismiss", page_test_ask_noop },
 	{ "popup.close", page_test_ask_noop },
@@ -1263,10 +1274,17 @@ static const struct fyai_page_action page_test_ask_actions[] = {
  * draws them, so a page with a question fits as one without. */
 static int page_chrome_counts_a_question_run(void)
 {
-	static const char *const options[] = { "yes", "no", "maybe" };
+	static const struct fyai_page_ask_option options[] = {
+		{ "yes", "", false },
+		{ "no", "the other way", false },
+		{ "maybe", "", false },
+	};
+	static const struct fyai_page_ask ask = {
+		.header = "Go", .question = "Proceed?",
+		.from = "main/agent:asker", .options = options,
+		.noptions = 3, .selected = 1, .count = 1,
+	};
 	struct fyai_page_state plain = page_state(), asked;
-	struct fyai_page_ask_option ask_opts[3];
-	struct fyai_page_ask ask;
 	struct fymd_renderer *r;
 	int plain_rows, asked_rows;
 	char *out;
@@ -1276,8 +1294,7 @@ static int page_chrome_counts_a_question_run(void)
 			 sizeof(page_test_ask_actions[0]);
 	asked = plain;
 	asked.input_mode = "ask";
-	page_ask_show(&asked, &ask, ask_opts, "Proceed?", "main/agent:asker",
-		      options, 3, 1, 0);
+	asked.ask = &ask;
 
 	out = page_render(&plain, 0, &r);
 	plain_rows = rows_of(out);
@@ -1294,7 +1311,7 @@ static int page_chrome_counts_a_question_run(void)
 	FYAI_TCHECK(asked_rows - plain_rows ==
 		    fyai_page_chrome_rows(&asked) - fyai_page_chrome_rows(&plain));
 	FYAI_TCHECK(fyai_page_chrome_rows(&asked) - fyai_page_chrome_rows(&plain) ==
-		    2 + 1 + 3);
+		    2 + 1 + 3 + 1);
 	return 0;
 }
 

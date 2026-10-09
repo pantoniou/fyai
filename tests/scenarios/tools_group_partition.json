@@ -25,7 +25,7 @@
                 "type": "function",
                 "function": {
                   "name": "ask_user",
-                  "arguments": "{\"question\":\"continue?\"}"
+                  "arguments": "{\"questions\":[{\"header\":\"Go\",\"question\":\"continue?\",\"options\":[{\"label\":\"yes\",\"description\":\"The yes choice\"},{\"label\":\"no\",\"description\":\"The no choice\"}]}]}"
                 }
               },
               {

@@ -10,10 +10,10 @@ mock_start ask_user.json
 
 run_fyai --set api=chat-completions --set display/stream=false --set tools=true \
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model \
-	 --answer yes "ask me something"
+	 --answer 1 "ask me something"
 assert_status 0
 assert_stdout_contains "User said yes, proceeding."
-assert_request 1 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_ask_1" and m.get("content") == "yes" for m in r["body"]["messages"])'
+assert_request 1 'any(m.get("role") == "tool" and m.get("tool_call_id") == "call_ask_1" and json.loads(m["content"])["answers"][0]["selected"] == ["yes"] for m in r["body"]["messages"])'
 mock_stop 2
 
 # negative: no --answer, stdin is not a tty -> the run flags an abort

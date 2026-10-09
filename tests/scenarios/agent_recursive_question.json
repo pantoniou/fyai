@@ -49,7 +49,7 @@
             "call_id": "c-ask",
             "name": "ask_user",
             "status": "completed",
-            "arguments": "{\"question\":\"NESTED_COLOUR?\",\"options\":[\"red\",\"green\"]}"
+            "arguments": "{\"questions\":[{\"header\":\"Colour\",\"question\":\"NESTED_COLOUR?\",\"options\":[{\"label\":\"red\",\"description\":\"The red choice\"},{\"label\":\"green\",\"description\":\"The green choice\"}]}]}"
           }
         ]
       }

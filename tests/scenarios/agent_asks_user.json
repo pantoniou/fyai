@@ -21,7 +21,7 @@
       "id": "fc-c2",
       "call_id": "c2",
       "name": "ask_user",
-      "arguments": "{\"question\": \"WHICH-COLOUR?\", \"options\": [\"red\", \"green\"]}"
+      "arguments": "{\"questions\":[{\"header\":\"Colour\",\"question\":\"WHICH-COLOUR?\",\"options\":[{\"label\":\"red\",\"description\":\"The red choice\"},{\"label\":\"green\",\"description\":\"The green choice\"}]}]}"
      }
     ]
    }

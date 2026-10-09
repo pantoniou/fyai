@@ -37,7 +37,7 @@
         "choices": [{ "index": 0, "finish_reason": "tool_calls", "message": {
           "role": "assistant", "content": null,
           "tool_calls": [{ "id": "call_ask_alpha", "type": "function", "function": { "name": "ask_user",
-            "arguments": "{\"question\": \"ALPHA-QUESTION?\", \"options\": [\"alpha-one\", \"alpha-two\"]}" } }] } }]
+            "arguments": "{\"questions\":[{\"header\":\"Alpha\",\"question\":\"ALPHA-QUESTION?\",\"options\":[{\"label\":\"alpha-one\",\"description\":\"The alpha-one choice\"},{\"label\":\"alpha-two\",\"description\":\"The alpha-two choice\"}]}]}" } }] } }]
       }
     },
     {
@@ -47,7 +47,7 @@
         "choices": [{ "index": 0, "finish_reason": "tool_calls", "message": {
           "role": "assistant", "content": null,
           "tool_calls": [{ "id": "call_ask_beta", "type": "function", "function": { "name": "ask_user",
-            "arguments": "{\"question\": \"BETA-QUESTION?\", \"options\": [\"beta-one\", \"beta-two\"]}" } }] } }]
+            "arguments": "{\"questions\":[{\"header\":\"Beta\",\"question\":\"BETA-QUESTION?\",\"options\":[{\"label\":\"beta-one\",\"description\":\"The beta-one choice\"},{\"label\":\"beta-two\",\"description\":\"The beta-two choice\"}]}]}" } }] } }]
       }
     },
     {
