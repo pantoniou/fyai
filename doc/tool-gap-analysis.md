@@ -1,6 +1,6 @@
 # Tool gap analysis
 
-Updated 2026-10-09 against commit `7e67102910e5cef961b5a3485d77da900992d1b1`.
+Updated 2026-10-09 against commit `adf35b6a51fa6296bfd4bc2a7181d69a183261ce`.
 This review reconciles the two root reports,
 [`fyai-gap-analysis-2026-10-08.md`](../fyai-gap-analysis-2026-10-08.md) and
 [`fyai-alternative-harness-gap-analysis-2026-10-09.md`](../fyai-alternative-harness-gap-analysis-2026-10-09.md),
@@ -10,13 +10,14 @@ a shell or MCP workaround. No P0 defect is established by these reviews.
 
 ## Executive conclusion
 
-fyai already has a substantial local coding loop, background and supervised
-agents, and isolated Linux project views. The earlier analysis described several
-of these as missing. The broad remaining opportunities are structured plans and
-questions, reusable skills and trusted extensions, provider-independent URL
-retrieval, MCP resources and deferred discovery, and a stable external session
-control protocol. Image inspection, durable unattended execution, and editor
-clients depend more strongly on the intended audience.
+fyai already has a substantial local coding loop, a branch-stored todo list,
+multiquestion user interaction, background and supervised agents, and isolated
+Linux project views. The earlier analysis described several of these as
+missing. The broad remaining opportunities are reusable skills and trusted
+extensions, provider-independent URL retrieval, MCP resources and deferred
+discovery, busy-agent steering, and a stable external session control protocol.
+Image inspection, durable unattended execution, and editor clients depend more
+strongly on the intended audience.
 
 Preserve the stateless invocation, content-addressed history, existing sandbox,
 and project-view model. Feature-name parity with another harness is not a reason
@@ -24,14 +25,14 @@ to add a daemon, a second store, or a new isolation policy.
 
 ## Evidence and current native surface
 
-`data/tools.yaml` defines **16** model tools:
+`data/tools.yaml` defines **17** model tools:
 
 | Area | Tools | Current capability |
 | --- | --- | --- |
 | Files and commands | `read_file`, `write_file`, `apply_patch`, `exec_command` | Text editing, patches, foreground commands, and PTY sessions. |
 | Live sessions | `shell_input`, `shell_output`, `shell_close`, `monitor` | Named shell interaction and bounded event monitoring. |
 | Agents | `agent`, `agent_input`, `list`, `cancel`, `project_view` | Fork/fresh context, background launch, status, cancellation, input while waiting, isolated views, change inspection, and conflict-aware apply. |
-| Interaction and time | `ask_user`, `time`, `wait` | One question with string options and interruptible waits. |
+| Planning, interaction, and time | `todo_write`, `ask_user`, `time`, `wait` | Branch-stored task lists; one to four questions with stable IDs, descriptions, previews, multi-select, free text, and background answers; interruptible waits. |
 
 The `agent` schema supports `background` and `isolated`; `list` exposes agent
 state; `cancel` stops agents, monitors, waits, and shells. `agent_input` answers
@@ -42,6 +43,16 @@ worktrees on supported Linux hosts. The relevant source is
 [`agent-protocol.md`](agent-protocol.md) and filesystem views in
 [`agent-filesystem-views-sdd.md`](agent-filesystem-views-sdd.md).
 
+`todo_write` replaces the branch's list. `fyai todo` and `/todo` show it;
+`todo clear` drops it. A sub-agent branch inherits its parent's list and can
+then change its own copy. The live panel shows the list when it fits. A list
+whose items are all completed or cancelled is cleared after publication, with
+the finished version retained in the branch reflog. `ask_user` can ask up to
+four questions in one call, collect answers in a review, and route a
+sub-agent's questions to the parent. Named background questions work with
+`list`, `wait`, and `cancel`. See the [user guide](user-guide.md) for the
+interaction and [todo commands](commands.md#fyai-todo) for branch behavior.
+
 Other existing foundations include MCP tool calls over stdio and Streamable
 HTTP with OAuth; provider-hosted web search on endpoints declaring support;
 project instruction discovery; conversation branches, merge/rebase, compaction,
@@ -49,11 +60,13 @@ and foreign import. These capabilities have different boundaries from a native
 URL-fetch tool, MCP resource reader, portable skill loader, or durable job
 controller. Availability in source is not a production reliability claim.
 
-### Corrections to the September review
+### Corrections to the earlier reviews
 
 | Former claim | Current assessment |
 | --- | --- |
-| 12 native tools | 16 definitions in `data/tools.yaml`. |
+| 12 native tools | 17 definitions in `data/tools.yaml`. |
+| No native task list | `todo_write` publishes a list in branch state and the live page shows it. |
+| Only simple, serial clarification | `ask_user` supports one to four questions, structured options and answers, previews, multi-select, and background calls. |
 | No model-facing agent status or cancellation | `list` and `cancel` provide both. |
 | No background agent mode | `agent.background` runs work concurrently within the owning invocation and delivers completion in a later turn. |
 | No workspace isolation | `agent.isolated` and `project_view` provide private project copies, inspection, and conflict-aware apply on supported Linux hosts. |
@@ -64,9 +77,8 @@ controller. Availability in source is not a production reliability claim.
 
 | Area | fyai boundary today | Useful next contract | Priority |
 | --- | --- | --- | --- |
-| Plans and tasks | Prose and branches, without a native plan/task object | Stable step IDs and statuses; sink rendering; define resume and compaction behavior | P1 |
 | Skills and extensions | Instructions and personas; no native `SKILL.md` discovery or general trusted lifecycle extension contract established | Discover metadata, load on demand, define precedence and bounded trusted hooks | P1 |
-| Questions and active-agent steering | `ask_user` asks one question with string options; `agent_input` serves a waiting agent | Question/option IDs, descriptions, optional multi-select, cancellation and origin routing; acknowledged messages to busy agents | P1 |
+| Busy-agent steering | `ask_user` has structured multiquestion and background flows; `agent_input` serves a waiting agent | Acknowledged messages to agents while they work | P1 |
 | Web retrieval | Hosted search depends on endpoint; no native bounded URL fetch | Provider-independent fetch with URL, title, time, source, limits, network policy, and replayable citation metadata | P1 |
 | MCP breadth | Tool calls and OAuth work; native resource/template reads and deferred tool discovery not established | List/read resources and templates, pagination, reconnect handling, bounded lazy metadata | P1 |
 | External control | One-run worker RPC and internal agent protocol; no stable durable-session client contract established | Versioned branch open/resume, input, correlated events, questions, cancellation, and reconnect semantics | P1 |
@@ -78,13 +90,15 @@ controller. Availability in source is not a production reliability claim.
 
 ### Planning and interaction
 
-An invocation-local plan is the smallest useful first step. Render changes
-through the sink; specify whether and how a final snapshot joins durable
-history. A cross-invocation goal is a separate persistent-state design, not a
-sidecar file. `ask_user` can expand without another event loop: preserve one
-active question, bound the queue, and carry stable IDs and explicit cancellation
-through the answer. An agent that is busy needs a separate acknowledged
-message path from the existing waiting-agent input path.
+The todo list is branch state in the content-addressed arena. A full-list
+rewrite records the status and priority of each item; `todo clear` removes the
+current list. The finished list remains reachable through the branch reflog.
+This supplies a durable task snapshot across invocations, although it is not
+an execution scheduler. `ask_user` already provides stable question and option
+IDs, free-text and multi-select answers, previews, explicit decline, and
+background questions that can be listed, waited on, or cancelled. An agent
+that is busy still needs a separate acknowledged message path from the
+existing waiting-agent input path.
 
 ### Retrieval and MCP
 
@@ -141,8 +155,8 @@ solves more coding tasks, costs less, or has stronger security in practice.
 1. Keep the native-tool inventory mechanically checked against this review and
    establish a small reproducible task evaluation. Do not treat tool count as
    a quality score.
-2. Add structured plans and richer questions, then busy-agent steering, using
-   the current sink and agent machinery. Specify compaction and resume behavior.
+2. Evaluate the existing todo and ask-user flows on resumed and delegated work;
+   add acknowledged busy-agent steering where those flows cannot deliver input.
 3. Add portable skills and a trusted extension contract. Demonstrate one
    shareable workflow without changing core source.
 4. Add bounded URL fetch, MCP resource access, and deferred discovery. Verify
