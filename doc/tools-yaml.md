@@ -135,6 +135,12 @@ tables. An entry holds:
 
 - `run` or `run_text`: the function that runs the call;
 - `head`: the title row of the call, unless the tool is `FYAI_TOOL_SILENT`;
+- `format_result`: writes the result of a call that succeeded as Markdown for
+  the user, when the result is a structure that reads badly as the text the
+  model gets (`ask_user` uses it for its answers). It returns a string or NULL
+  for the result as it is. The transcript stores that Markdown as the
+  `tool_result` fragment, with the language `fyai:markdown`, and replays it;
+  the model always gets the result as it is;
 - `effect`: the ordering class of the call against other calls of a batch;
 - `flags`: `PARENT` (never runs in a job), `SILENT`, `MARKED`,
   `NOT_FOR_CHILD`, `HOSTED` (the provider runs it), and `INSTANT` (a call in

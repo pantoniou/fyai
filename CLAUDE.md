@@ -159,8 +159,8 @@ initialize each generic field explicitly.
 ## Tools
 
 `data/tools.yaml` describes each model tool. `struct fyai_tool_def`
-(`src/fyai_tool_registry.h`) holds the rest: run function, title row, ordering
-class, and flags. Define the entry in the file that implements the tool. Do
+(`src/fyai_tool_registry.h`) holds the rest: run function, title row, result
+formatter for the user, ordering class, and flags. Define the entry in the file that implements the tool. Do
 not test a tool name in another place; add a field to the entry. See
 `doc/tools-yaml.md`.
 
