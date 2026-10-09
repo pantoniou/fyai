@@ -27,6 +27,7 @@
 #include "fyai_session.h"
 #include "fyai_config.h"
 #include "fyai_display.h"
+#include "fyai_event_fmt.h"
 #include "fyai_tool_registry.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
@@ -5080,8 +5081,22 @@ static void fyai_bubble_fence(struct fyai_ctx *ctx, const char *on,
 }
 
 /* Draw a user card through the live or transcript path. */
+static void fyai_print_card(struct fyai_ctx *ctx, const char *line, bool live);
+
+/*
+ * Draw a user card. An event, which is a line for the model in brackets, is
+ * drawn as the user should read it: see fyai_event_pretty().
+ */
 static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 				 bool live)
+{
+	char *pretty = fyai_event_pretty(line);
+
+	fyai_print_card(ctx, pretty ? pretty : line, live);
+	free(pretty);
+}
+
+static void fyai_print_card(struct fyai_ctx *ctx, const char *line, bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct response_buffer rb = {0};

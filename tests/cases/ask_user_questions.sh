@@ -37,7 +37,7 @@ fyai_test_setup
 mock_start ask_user_multi.json
 run --answer "1,2" --answer "none of them" "ask me two things"
 assert_status 0
-tool_result 'json.loads([m for m in r["body"]["messages"] if m.get("role") == "tool"][-1]["content"])["answers"][0] == {"id": "scope", "header": "Scope", "question": "How wide?", "selected": [], "other": "1,2"}'
+tool_result 'json.loads([m for m in r["body"]["messages"] if m.get("role") == "tool"][-1]["content"])["answers"][0] == {"id": "scope", "header": "Scope", "question": "How wide?", "selected": [], "labels": [], "other": "1,2"}'
 tool_result 'json.loads([m for m in r["body"]["messages"] if m.get("role") == "tool"][-1]["content"])["answers"][1]["other"] == "none of them"'
 mock_stop 2
 

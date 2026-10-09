@@ -163,7 +163,7 @@ bool fyai_ask_reply_given(const struct fyai_ask_reply *reply)
 fy_generic fyai_ask_result(struct fy_generic_builder *gb, fy_generic questions,
 			   const struct fyai_ask_reply *replies, size_t n)
 {
-	fy_generic q, options, answers, selected, answer;
+	fy_generic q, options, answers, selected, labels, answer;
 	size_t i, o;
 
 	if (!replies)
@@ -176,15 +176,20 @@ fy_generic fyai_ask_result(struct fy_generic_builder *gb, fy_generic questions,
 			break;
 		options = fy_get(q, "options", fy_invalid);
 		selected = fy_sequence(gb);
+		labels = fy_sequence(gb);
 		for (o = 0; o < fy_len(options); o++)
-			if (replies[i].selected & (1u << o))
+			if (replies[i].selected & (1u << o)) {
 				selected = fy_append(gb, selected,
 					fy_get(fy_get_at(options, o), "id",
 					       fy_invalid));
+				labels = fy_append(gb, labels,
+					fy_get(fy_get_at(options, o), "label",
+					       fy_invalid));
+			}
 		answer = fy_mapping(gb, "id", fy_get(q, "id", fy_invalid),
 				    "header", fy_get(q, "header", fy_invalid),
 				    "question", fy_get(q, "question", fy_invalid),
-				    "selected", selected);
+				    "selected", selected, "labels", labels);
 		if (replies[i].other && *replies[i].other)
 			answer = fy_assoc(gb, answer, "other", replies[i].other);
 		answers = fy_append(gb, answers, answer);
@@ -193,47 +198,20 @@ fy_generic fyai_ask_result(struct fy_generic_builder *gb, fy_generic questions,
 	return fy_mapping(gb, "status", "answered", "answers", answers);
 }
 
-/*
- * The label of the option @id of question @qid, else @id itself. A short
- * label lives in the word of its generic, so it is copied to @gb.
- */
-static const char *ask_label(struct fy_generic_builder *gb,
-			     fy_generic questions, const char *qid,
-			     const char *id)
-{
-	fy_generic q, o, gid, glabel;
-
-	fy_foreach(q, questions) {
-		gid = fy_get(q, "id", fy_invalid);
-		if (strcmp(fy_castp(&gid, ""), qid))
-			continue;
-		fy_foreach(o, fy_get(q, "options", fy_invalid)) {
-			gid = fy_get(o, "id", fy_invalid);
-			if (strcmp(fy_castp(&gid, ""), id))
-				continue;
-			glabel = fy_get(o, "label", fy_invalid);
-			return fy_gb_intern_string(gb, fy_castp(&glabel, id));
-		}
-	}
-	return id;
-}
-
 char *fyai_ask_format(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		      fy_generic args, const char *result)
 {
-	fy_generic res, answers, a, id, sel, s, questions = fy_invalid;
-	const char *qid, *other, *status;
-	char why[128];
+	fy_generic res, answers, a, sel, s;
+	const char *other, *status;
 	char *out = NULL;
 	size_t len = 0, n;
 	FILE *mf;
 
 	(void)ctx;
+	(void)args;
 	res = parse_json_string(gb, result);
 	if (!fy_is_mapping(res))
 		return NULL;
-	if (fy_is_valid(args))
-		questions = fyai_ask_normalize(gb, args, why, sizeof(why));
 	status = fy_get(res, "status", "");
 	mf = open_memstream(&out, &len);
 	if (!mf)
@@ -243,16 +221,16 @@ char *fyai_ask_format(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	} else if (!strcmp(status, "answered")) {
 		answers = fy_get(res, "answers", fy_invalid);
 		fy_foreach(a, answers) {
-			id = fy_get(a, "id", fy_invalid);
-			qid = fy_castp(&id, "");
 			fprintf(mf, "- **%s** %s  \n", fy_get(a, "header", ""),
 				fy_get(a, "question", ""));
-			sel = fy_get(a, "selected", fy_invalid);
+			/* The labels are the options as the user read them. */
+			sel = fy_get(a, "labels", fy_invalid);
+			if (!fy_is_sequence(sel))
+				sel = fy_get(a, "selected", fy_invalid);
 			n = 0;
 			fy_foreach(s, sel)
 				fprintf(mf, "%s%s", n++ ? ", " : "  \u2192 ",
-					ask_label(gb, questions, qid,
-						  fy_castp(&s, "")));
+					fy_castp(&s, ""));
 			other = fy_get(a, "other", "");
 			if (*other)
 				fprintf(mf, "%s\u201c%s\u201d", n++ ? ", " : "  \u2192 ",

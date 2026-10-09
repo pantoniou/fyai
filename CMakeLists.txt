@@ -425,6 +425,7 @@ set(FYAI_SOURCES
     src/fyai_agent.c
     src/fyai_agents.c
     src/fyai_ask.c
+    src/fyai_event_fmt.c
     src/fyai_asks.c
     src/fyai_branch.c
     src/fyai_merge.c
