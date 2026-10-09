@@ -656,10 +656,86 @@ static void complete_options(struct complete_req *r, struct fyai_cmd_prop *props
 	cand(r, "--help", "show the help of the command");
 }
 
+/* A word that names a command, with the title of the command. Both are owned. */
+struct cmd_word {
+	char *name;
+	char *title;
+};
+
+struct cmd_words {
+	struct cmd_word *v;
+	size_t n, cap;
+};
+
+static int cmd_words_push(struct cmd_words *ws, const char *name,
+			  const char *title)
+{
+	struct cmd_word *v;
+	size_t cap;
+
+	if (ws->n == ws->cap) {
+		cap = ws->cap ? ws->cap * 2 : 64;
+		v = realloc(ws->v, cap * sizeof(*v));
+		if (!v)
+			return -1;
+		ws->v = v;
+		ws->cap = cap;
+	}
+	ws->v[ws->n].name = strdup(name);
+	ws->v[ws->n].title = strdup(title);
+	if (!ws->v[ws->n].name || !ws->v[ws->n].title) {
+		free(ws->v[ws->n].name);
+		free(ws->v[ws->n].title);
+		return -1;
+	}
+	ws->n++;
+	return 0;
+}
+
+/*
+ * Collect the name of @def and its aliases. An alias is a word that names
+ * the command, so it completes as one.
+ */
+static int cmd_words_add(struct cmd_words *ws, fy_generic def)
+{
+	fy_generic gname, gtitle;
+	const char *alias;
+	int rc;
+
+	gname = fy_get(def, "command", fy_invalid);
+	gtitle = fy_get(def, "title", fy_invalid);
+	rc = cmd_words_push(ws, gstr(&gname), gstr(&gtitle));
+	fy_foreach(alias, fy_get(def, "aliases", fy_invalid))
+		rc |= cmd_words_push(ws, alias, gstr(&gtitle));
+	return rc;
+}
+
+static int cmd_word_cmp(const void *a, const void *b)
+{
+	return strcmp(((const struct cmd_word *)a)->name,
+		      ((const struct cmd_word *)b)->name);
+}
+
+/* Offer the collected words in order, and release them. */
+static void cmd_words_emit(struct complete_req *r, struct cmd_words *ws)
+{
+	size_t i;
+
+	qsort(ws->v, ws->n, sizeof(*ws->v), cmd_word_cmp);
+	for (i = 0; i < ws->n; i++) {
+		cand(r, ws->v[i].name, ws->v[i].title);
+		free(ws->v[i].name);
+		free(ws->v[i].title);
+	}
+	free(ws->v);
+	memset(ws, 0, sizeof(*ws));
+}
+
 static void complete_subcommands(struct complete_req *r, fy_generic group,
 				 fy_generic surfaces)
 {
-	fy_generic sub, name, title, *subs;
+	struct cmd_words ws = { 0 };
+	fy_generic sub, *subs;
 	size_t n, i;
 
 	subs = fyai_cmd_defs_sorted(fy_get(group, "commands", fy_invalid),
@@ -669,11 +745,11 @@ static void complete_subcommands(struct complete_req *r, fy_generic group,
 		if (!fyai_cmd_def_on(sub, surfaces, r->surface) ||
 		    fy_get(sub, "hidden", false))
 			continue;
-		name = fy_get(sub, "command", fy_invalid);
-		title = fy_get(sub, "title", fy_invalid);
-		cand(r, gstr(&name), gstr(&title));
+		if (cmd_words_add(&ws, sub))
+			fyai_error(r->ctx, "cannot collect the commands to complete");
 	}
 	free(subs);
+	cmd_words_emit(r, &ws);
 }
 
 /* The next positional argument of the innermost group on the path. */
@@ -833,7 +909,8 @@ unsigned int fyai_cmd_complete(struct fyai_ctx *ctx,
 	};
 	struct complete_req r;
 	struct fyai_cmd_walk w;
-	fy_generic reg, def, name, title, *defs;
+	struct cmd_words ws = { 0 };
+	fy_generic reg, def, *defs;
 	size_t start, nd, d;
 	bool done;
 
@@ -866,11 +943,11 @@ unsigned int fyai_cmd_complete(struct fyai_ctx *ctx,
 			if (!fyai_cmd_def_on(def, fy_invalid, surface) ||
 			    fy_get(def, "hidden", false))
 				continue;
-			name = fy_get(def, "command", fy_invalid);
-			title = fy_get(def, "title", fy_invalid);
-			cand(&r, gstr(&name), gstr(&title));
+			if (cmd_words_add(&ws, def))
+				fyai_error(ctx, "cannot collect the commands to complete");
 		}
 		free(defs);
+		cmd_words_emit(&r, &ws);
 		goto out;
 	}
 	if (fyai_cmd_walk(surface, nwords - start, words + start,
