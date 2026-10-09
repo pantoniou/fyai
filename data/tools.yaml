@@ -22,20 +22,23 @@
             Workspace-relative path to read.
         offset:
           type: integer
-          description: |-
-            Optional 1-based line to start at. Use it with the offset the result reports to read on through a large file.
+          description: >-
+            Optional 1-based line to start at. Use it with the offset the result reports to read on
+            through a large file.
         offset_bytes:
           type: integer
-          description: |-
-            Optional zero-based byte offset. It takes precedence over offset and lets a later call continue after a byte-limited result.
+          description: >-
+            Optional zero-based byte offset. It takes precedence over offset and lets a later call
+            continue after a byte-limited result.
         limit:
           type: integer
           description: |-
             Optional number of lines to return. Omit to read to the end of the file.
         max_bytes:
           type: integer
-          description: |-
-            Optional cap on the bytes returned. A larger window is truncated and the result says so. Omit for the configured default.
+          description: >-
+            Optional cap on the bytes returned. A larger window is truncated and the result says so.
+            Omit for the configured default.
       required:
         - path
       additionalProperties: false
@@ -64,8 +67,12 @@
 - type: function
   function:
     name: apply_patch
-    description: |-
-      Apply a patch to workspace files. Prefer a unified diff: one "--- a/path" and "+++ b/path" header per file, then "@@ -old,count +new,count @@" hunks whose rows start with a space (context), "-" (removed) or "+" (added). Use /dev/null as the old path to add a file and as the new path to delete one. Line numbers are advisory; hunks are matched by their context. A Codex-style *** Begin Patch / *** End Patch envelope is also accepted.
+    description: >-
+      Apply a patch to workspace files. Prefer a unified diff: one "--- a/path" and "+++ b/path"
+      header per file, then "@@ -old,count +new,count @@" hunks whose rows start with a space
+      (context), "-" (removed) or "+" (added). Use /dev/null as the old path to add a file and as
+      the new path to delete one. Line numbers are advisory; hunks are matched by their context. A
+      Codex-style *** Begin Patch / *** End Patch envelope is also accepted.
     parameters:
       type: object
       properties:
@@ -102,8 +109,15 @@
             that waits for input will wait until the time limit expires.
         name:
           type: string
-          description: |-
-            Name this shell to keep it open as a session, instead of running one command to completion. It needs `tty`, because a session is a program you drive as a person would: a name without it is refused, and the command runs to completion instead. The command keeps its own process until it ends or you close it, and you reach it by this name with shell_input, shell_output and shell_close. Use it for a program that expects a person: an editor, a pager, a REPL, a prompt for a password. The name must be unique among the sessions you have open, and describes what the shell is for (letters, digits, '-' or '_'). The call returns as soon as the terminal exists; read it when you want.
+          description: >-
+            Name this shell to keep it open as a session, instead of running one command to
+            completion. It needs `tty`, because a session is a program you drive as a person would:
+            a name without it is refused, and the command runs to completion instead. The command
+            keeps its own process until it ends or you close it, and you reach it by this name with
+            shell_input, shell_output and shell_close. Use it for a program that expects a person:
+            an editor, a pager, a REPL, a prompt for a password. The name must be unique among the
+            sessions you have open, and describes what the shell is for (letters, digits, '-' or
+            '_'). The call returns as soon as the terminal exists; read it when you want.
         shell:
           type: string
           description: |-
@@ -131,28 +145,33 @@
             user, or 80.
         workdir:
           type: string
-          description: |-
-            Optional directory to run the command in, absolute or workspace-relative. Prefer this over a leading `cd`.
+          description: >-
+            Optional directory to run the command in, absolute or workspace-relative. Prefer this
+            over a leading `cd`.
         timeout:
           type: integer
           description: |-
             Optional time limit in milliseconds. The command is stopped when it expires.
         max_output_tokens:
           type: integer
-          description: |-
-            Optional cap on the output returned. Longer output keeps its end and the result says how much was elided. Omit for the configured default.
+          description: >-
+            Optional cap on the output returned. Longer output keeps its end and the result says how
+            much was elided. Omit for the configured default.
         description:
           type: string
-          description: |-
-            Optional short (3-5 word) description of what the command does, used as its label in the display.
+          description: >-
+            Optional short (3-5 word) description of what the command does, used as its label in the
+            display.
       required:
         - command
       additionalProperties: false
 - type: function
   function:
     name: shell_input
-    description: |-
-      Type into a terminal session opened by `exec_command` with a name. The text is sent as keystrokes, so control characters work: use \u0003 for Ctrl-C, \u001b for escape, \u0004 for end of input. Returns what the program showed afterwards, in the same shape as shell_output.
+    description: >-
+      Type into a terminal session opened by `exec_command` with a name. The text is sent as
+      keystrokes, so control characters work: use \u0003 for Ctrl-C, \u001b for escape, \u0004 for
+      end of input. Returns what the program showed afterwards, in the same shape as shell_output.
     parameters:
       type: object
       properties:
@@ -166,20 +185,26 @@
             The characters to send.
         enter:
           type: boolean
-          description: |-
-            Append a carriage return, as a person pressing return would. True by default; set it to false to send raw keys.
+          description: >-
+            Append a carriage return, as a person pressing return would. True by default; set it to
+            false to send raw keys.
         wait_ms:
           type: integer
-          description: |-
-            Time to let the program answer before the output is read. Defaults to 250 ms. A program that needs longer can be read again with shell_output.
+          description: >-
+            Time to let the program answer before the output is read. Defaults to 250 ms. A program
+            that needs longer can be read again with shell_output.
         idle_trigger:
           type: integer
-          description: |-
-            Time the session must write nothing before the keystrokes are sent. Defaults to 100 ms. A program that is still starting has not taken its terminal and loses what is typed at it, so raise this for one that is slow to draw its first screen; a program stopped for input writes nothing and is answered at once.
+          description: >-
+            Time the session must write nothing before the keystrokes are sent. Defaults to 100 ms.
+            A program that is still starting has not taken its terminal and loses what is typed at
+            it, so raise this for one that is slow to draw its first screen; a program stopped for
+            input writes nothing and is answered at once.
         max_wait:
           type: integer
-          description: |-
-            Time after which the keystrokes are sent whatever the program is doing. Defaults to 5000 ms. It bounds `idle_trigger` for a program that never stops writing.
+          description: >-
+            Time after which the keystrokes are sent whatever the program is doing. Defaults to 5000
+            ms. It bounds `idle_trigger` for a program that never stops writing.
         view:
           type: string
           enum:
@@ -195,8 +220,11 @@
 - type: function
   function:
     name: shell_output
-    description: |-
-      Read a terminal session opened by `exec_command` with a name, without typing into it. A program that only writes lines is returned as lines, whole and in order. A program that draws a screen is returned as the screen it drew, which is the only useful reading of it. A session can be read after its program has ended.
+    description: >-
+      Read a terminal session opened by `exec_command` with a name, without typing into it. A
+      program that only writes lines is returned as lines, whole and in order. A program that draws
+      a screen is returned as the screen it drew, which is the only useful reading of it. A session
+      can be read after its program has ended.
     parameters:
       type: object
       properties:
@@ -211,8 +239,10 @@
             - screen
             - all
             - region
-          description: |-
-            `new` returns what appeared since your last read, and is the usual choice. `screen` returns the whole screen. `all` returns everything the session has produced. `region` returns a part of the screen, for a program that draws one.
+          description: >-
+            `new` returns what appeared since your last read, and is the usual choice. `screen`
+            returns the whole screen. `all` returns everything the session has produced. `region`
+            returns a part of the screen, for a program that draws one.
         region:
           type: object
           description: |-
@@ -233,8 +263,10 @@
 - type: function
   function:
     name: shell_close
-    description: |-
-      End a terminal session. The program is asked to stop and killed if it does not. Prefer driving the program out itself, such as `:q!` in an editor, so that it can save or restore what it owns.
+    description: >-
+      End a terminal session. The program is asked to stop and killed if it does not. Prefer driving
+      the program out itself, such as `:q!` in an editor, so that it can save or restore what it
+      owns.
     parameters:
       type: object
       properties:
@@ -252,15 +284,24 @@
 - type: function
   function:
     name: monitor
-    description: |-
-      Watch a long-running command: it runs in the background, and each complete line it prints reaches you as an event, `[monitor 'NAME'] line`, between your tool calls. Its end is the last event: `[monitor 'NAME' ended]`. Use it for many events, such as every error line of a log or every step of a build. For a single "tell me when it is ready" use `exec_command` with `name` or a `wait` instead. Stdout and stderr are both events, so filter the command to the lines you would act on, and make every pipe stage flush per line (`grep --line-buffered`). Match every way the job can end, not only success: silence looks the same as a job that is still running. A monitor that sends more than 200 events is stopped. It ends when the command ends or its time limit passes, and `cancel` stops it. `wait` with `for` holds your turn until it reports.
+    description: >-
+      Watch a long-running command: it runs in the background, and each complete line it prints
+      reaches you as an event, `[monitor 'NAME'] line`, between your tool calls. Its end is the last
+      event: `[monitor 'NAME' ended]`. Use it for many events, such as every error line of a log or
+      every step of a build. For a single "tell me when it is ready" use `exec_command` with `name`
+      or a `wait` instead. Stdout and stderr are both events, so filter the command to the lines you
+      would act on, and make every pipe stage flush per line (`grep --line-buffered`). Match every
+      way the job can end, not only success: silence looks the same as a job that is still running.
+      A monitor that sends more than 200 events is stopped. It ends when the command ends or its
+      time limit passes, and `cancel` stops it. `wait` with `for` holds your turn until it reports.
     parameters:
       type: object
       properties:
         name:
           type: string
-          description: |-
-            Name for this monitor (letters, digits, '-' or '_'), unique among your monitors. Events and `cancel` use it.
+          description: >-
+            Name for this monitor (letters, digits, '-' or '_'), unique among your monitors. Events
+            and `cancel` use it.
         command:
           type: string
           description: |-
@@ -271,8 +312,9 @@
             Short label of what is watched, shown to the user.
         timeout:
           type: integer
-          description: |-
-            Time limit in milliseconds. The default is 300000 (5 minutes) and the most is 1800000 (30 minutes). The command is stopped when it expires, and you start it again to go on.
+          description: >-
+            Time limit in milliseconds. The default is 300000 (5 minutes) and the most is 1800000
+            (30 minutes). The command is stopped when it expires, and you start it again to go on.
         workdir:
           type: string
           description: |-
@@ -284,8 +326,12 @@
 - type: function
   function:
     name: cancel
-    description: |-
-      Stop something you started in the background, by its name: a named `wait`, a sub-agent (also one started with `background`), a `monitor`, or an open terminal session. Stopping a sub-agent also stops the processes it started, and you are told in a new turn that it ended. A terminal session is killed at once; use `shell_close` instead if the program should save its work. Use `list` to see what is open.
+    description: >-
+      Stop something you started in the background, by its name: a named `wait`, a sub-agent (also
+      one started with `background`), a `monitor`, or an open terminal session. Stopping a sub-agent
+      also stops the processes it started, and you are told in a new turn that it ended. A terminal
+      session is killed at once; use `shell_close` instead if the program should save its work. Use
+      `list` to see what is open.
     parameters:
       type: object
       properties:
@@ -296,8 +342,9 @@
         kind:
           type: string
           enum: [wait, agent, shell, monitor]
-          description: |-
-            What the name refers to. Omit it when the name is unique among your waits, sub-agents, monitors and sessions.
+          description: >-
+            What the name refers to. Omit it when the name is unique among your waits, sub-agents,
+            monitors and sessions.
       required:
         - name
       additionalProperties: false
@@ -334,8 +381,11 @@
 - type: function
   function:
     name: ask_user
-    description: |-
-      Ask the user a question and wait for their answer. Use this when you need a decision or clarification only the user can give. Provide `options` to offer specific choices; the user may still answer freely. From a sub-agent the question goes to whoever delegated the work, who puts it to the user and sends the answer back.
+    description: >-
+      Ask the user a question and wait for their answer. Use this when you need a decision or
+      clarification only the user can give. Provide `options` to offer specific choices; the user
+      may still answer freely. From a sub-agent the question goes to whoever delegated the work, who
+      puts it to the user and sends the answer back.
     parameters:
       type: object
       properties:
@@ -372,20 +422,26 @@
       properties:
         name:
           type: string
-          description: |-
-            A very short name for this sub-agent (at most 3 words). It is how you reach it: a new name starts a sub-agent, and a name you have used before goes back to that one, with everything it did still in its conversation. A sub-agent that is still running cannot be addressed - wait for its report.
+          description: >-
+            A very short name for this sub-agent (at most 3 words). It is how you reach it: a new
+            name starts a sub-agent, and a name you have used before goes back to that one, with
+            everything it did still in its conversation. A sub-agent that is still running cannot be
+            addressed - wait for its report.
         description:
           type: string
           description: |-
             A short (3-5 word) description of the delegated task, used as its label.
         task:
           type: string
-          description: |-
-            Complete, self-contained instructions for the sub-agent. For one you have called before, this is what you are asking it now; it remembers the rest.
+          description: >-
+            Complete, self-contained instructions for the sub-agent. For one you have called before,
+            this is what you are asking it now; it remembers the rest.
         persona:
           type: string
-          description: |-
-            Optional named persona for the sub-agent, from the `agent/personas` configuration. A persona carries its own instructions and model settings. Omit it for the default sub-agent.
+          description: >-
+            Optional named persona for the sub-agent, from the `agent/personas` configuration. A
+            persona carries its own instructions and model settings. Omit it for the default
+            sub-agent.
         context:
           type: string
           description: >-
@@ -396,16 +452,23 @@
             keeps the conversation it has.
         timeout:
           type: integer
-          description: |-
-            Optional time limit in milliseconds. The sub-agent and every process it started are stopped when it expires.
+          description: >-
+            Optional time limit in milliseconds. The sub-agent and every process it started are
+            stopped when it expires.
         isolated:
           type: boolean
-          description: |-
-            True runs the sub-agent on a private copy of the project, and false on the project itself. Omit it to use the default.
+          description: >-
+            True runs the sub-agent on a private copy of the project, and false on the project
+            itself. Omit it to use the default.
         background:
           type: boolean
-          description: |-
-            True starts the sub-agent and returns at once, without holding your turn. Keep working meanwhile: when the sub-agent ends, its final report is given to you in a new turn. Use it for work that does not block your next step, and to run several sub-agents beside other work. The default, false, waits for the report and returns it as the result. Do not poll a background sub-agent; `list` shows its state, and `agent_input` answers it when it waits for input.
+          description: >-
+            True starts the sub-agent and returns at once, without holding your turn. Keep working
+            meanwhile: when the sub-agent ends, its final report is given to you in a new turn. Use
+            it for work that does not block your next step, and to run several sub-agents beside
+            other work. The default, false, waits for the report and returns it as the result. Do
+            not poll a background sub-agent; `list` shows its state, and `agent_input` answers it
+            when it waits for input.
       required:
         - name
         - description
@@ -425,8 +488,16 @@
 - type: function
   function:
     name: project_view
-    description: |-
-      Work with the project views that the sub-agents you started leave. A sub-agent that ran with `isolated` changed its own private copy of the project, not the project; its report names it. Use the `list` tool to see which sub-agents left a view. `changes` lists what one changed against its baseline, and `apply` writes those changes into the project. You reach only the sub-agents you started, by the name you gave them. A sub-agent of another agent, a view of the user and a branch are not reachable. Apply only takes a path that the project still has as the baseline had it: a path that you or another agent changed since is reported as a conflict and is left alone. Name `paths` to apply only those paths and what is beneath them. Use `dry_run` to see the outcome first. The user can review the same views with `view diff agent/NAME`.
+    description: >-
+      Work with the project views that the sub-agents you started leave. A sub-agent that ran with
+      `isolated` changed its own private copy of the project, not the project; its report names it.
+      Use the `list` tool to see which sub-agents left a view. `changes` lists what one changed
+      against its baseline, and `apply` writes those changes into the project. You reach only the
+      sub-agents you started, by the name you gave them. A sub-agent of another agent, a view of the
+      user and a branch are not reachable. Apply only takes a path that the project still has as the
+      baseline had it: a path that you or another agent changed since is reported as a conflict and
+      is left alone. Name `paths` to apply only those paths and what is beneath them. Use `dry_run`
+      to see the outcome first. The user can review the same views with `view diff agent/NAME`.
     parameters:
       type: object
       properties:
@@ -437,8 +508,9 @@
             `changes` of the view of one sub-agent, or `apply` it to the project.
         name:
           type: string
-          description: |-
-            The name that you gave the sub-agent, as its report names it. Required for `changes` and `apply`.
+          description: >-
+            The name that you gave the sub-agent, as its report names it. Required for `changes` and
+            `apply`.
         paths:
           type: array
           description: |-
@@ -455,8 +527,12 @@
 - type: function
   function:
     name: list
-    description: |-
-      List what you can name in other calls. `agents`: the sub-agents you started, running or ended, with their state and whether they left a view for `project_view`. `views`: those views. `shells`: your open terminal sessions. `waits`: your pending named waits. `monitors`: your running monitors. Each name is the one you gave it. You only see your own: those of the user and of other agents are not listed. Leave `kind` out to list all five.
+    description: >-
+      List what you can name in other calls. `agents`: the sub-agents you started, running or ended,
+      with their state and whether they left a view for `project_view`. `views`: those views.
+      `shells`: your open terminal sessions. `waits`: your pending named waits. `monitors`: your
+      running monitors. Each name is the one you gave it. You only see your own: those of the user
+      and of other agents are not listed. Leave `kind` out to list all five.
     parameters:
       type: object
       properties:
@@ -469,8 +545,10 @@
 - type: function
   function:
     name: time
-    description: |-
-      Report the current time. The system instructions are frozen when a conversation starts, so they cannot tell you what the time is now; ask for it when it matters, and to measure how long something took.
+    description: >-
+      Report the current time. The system instructions are frozen when a conversation starts, so
+      they cannot tell you what the time is now; ask for it when it matters, and to measure how long
+      something took.
     parameters:
       type: object
       properties: {}
@@ -478,8 +556,11 @@
 - type: function
   function:
     name: wait
-    description: |-
-      Wait for something you started to finish, or wait for a time. To wait for a background sub-agent, monitor or terminal session, give only `for`, with its name. To wait for a time, give `seconds` or `until`; use this instead of a shell that sleeps. Give a time wait a `name` to run it in the background: the call returns at once, and you are told when the time is up.
+    description: >-
+      Wait for something you started to finish, or wait for a time. To wait for a background
+      sub-agent, monitor or terminal session, give only `for`, with its name. To wait for a time,
+      give `seconds` or `until`; use this instead of a shell that sleeps. Give a time wait a `name`
+      to run it in the background: the call returns at once, and you are told when the time is up.
     parameters:
       type: object
       properties:
@@ -489,11 +570,17 @@
             How long to wait, in seconds. A fraction is allowed.
         until:
           type: string
-          description: |-
-            Wall-clock time to wait for, as `HH:MM`, `HH:MM:SS` or a full `YYYY-MM-DDTHH:MM:SS` in local time. A time that has passed does not wait.
+          description: >-
+            Wall-clock time to wait for, as `HH:MM`, `HH:MM:SS` or a full `YYYY-MM-DDTHH:MM:SS` in
+            local time. A time that has passed does not wait.
         for:
-          description: |-
-            The name of what to wait for: a background sub-agent, a monitor, a terminal session or a named wait. A list of up to 16 names is also allowed. The call returns when it has finished, with its report; you will not get the same report again later. A sub-agent or session that stops to ask for input counts as finished. Without `seconds` or `until` the call waits until the work is done. With one of them it stops waiting at that limit and says what is still running.
+          description: >-
+            The name of what to wait for: a background sub-agent, a monitor, a terminal session or a
+            named wait. A list of up to 16 names is also allowed. The call returns when it has
+            finished, with its report; you will not get the same report again later. A sub-agent or
+            session that stops to ask for input counts as finished. Without `seconds` or `until` the
+            call waits until the work is done. With one of them it stops waiting at that limit and
+            says what is still running.
           oneOf:
             - type: string
             - type: array
@@ -502,14 +589,18 @@
         mode:
           type: string
           enum: [any, all]
-          description: |-
-            Only for a list in `for`. `any` (the default) returns when the first one has finished. `all` returns when all of them have finished. `seconds` or `until` still set the limit.
+          description: >-
+            Only for a list in `for`. `any` (the default) returns when the first one has finished.
+            `all` returns when all of them have finished. `seconds` or `until` still set the limit.
         name:
           type: string
-          description: |-
-            Gives a time wait a name and runs it in the background: the call returns at once, and you are told in a new turn when the time is up. Not for use with `for`. The name can use letters, digits, '-' and '_', and it must differ from every other open wait.
+          description: >-
+            Gives a time wait a name and runs it in the background: the call returns at once, and
+            you are told in a new turn when the time is up. Not for use with `for`. The name can use
+            letters, digits, '-' and '_', and it must differ from every other open wait.
         reason:
           type: string
-          description: |-
-            Optional short note on what this wait is for. It is shown to the user and given back to you when the wait fires.
+          description: >-
+            Optional short note on what this wait is for. It is shown to the user and given back to
+            you when the wait fires.
       additionalProperties: false
