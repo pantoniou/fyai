@@ -233,7 +233,7 @@ if(FYAI_STATIC_DEPS AND TARGET libfyaml::fyaml_static)
 endif()
 
 fyai_fy_dep(libfymermaid 59727e84ce577af7854b37f3f89213b368604c04)
-fyai_fy_dep(libfytimui 814ad84eebcab4c69b2afce9b989d4dbea291af0)
+fyai_fy_dep(libfytimui 4677f7a0a571f1d4d1180d30244b7d08c366ac77)
 # libfyvterm: the terminal emulator behind the terminal view and the terminal
 # rendering tests.
 fyai_fy_dep(libfyvterm b71ae17bd756d95291f352648f5adbc3633ee266)
