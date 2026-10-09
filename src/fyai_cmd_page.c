@@ -45,8 +45,19 @@ int fyai_cmd_page_review(struct fyai_cmd_call *call, fy_generic *result)
 static void page_sample_state(const char *name, int height,
 			      struct fyai_page_state *st)
 {
-	static const char *const options[] = {
-		"Yes", "No", "Show me the diff first",
+	static const struct fyai_page_ask_option options[] = {
+		{ "Yes", "Apply it as written", false },
+		{ "No", "Leave the files alone", false },
+		{ "Show me the diff first", "Open the change before deciding", false },
+	};
+	static const struct fyai_page_ask ask = {
+		.header = "Patch",
+		.question = "Apply the patch?",
+		.from = "main/agent:review",
+		.options = options,
+		.noptions = sizeof(options) / sizeof(options[0]),
+		.count = 1,
+		.waiting = 1,
 	};
 
 	memset(st, 0, sizeof(*st));
@@ -66,11 +77,7 @@ static void page_sample_state(const char *name, int height,
 	st->tail_rows = height;
 	if (!strcmp(name, "question")) {
 		st->input_mode = "ask";
-		st->ask_question = "Apply the patch?";
-		st->ask_from = "main/agent:review";
-		st->ask_options = options;
-		st->ask_noptions = sizeof(options) / sizeof(options[0]);
-		st->ask_waiting = 1;
+		st->ask = &ask;
 	} else if (!strcmp(name, "popup")) {
 		st->popup_title = "/stats";
 	}

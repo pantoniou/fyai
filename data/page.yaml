@@ -142,6 +142,9 @@ pages:
           keys:
             Up: ask.prev
             Down: ask.next
+            Left: ask.back
+            Right: ask.forward
+            Space: ask.toggle
             Enter: ask.accept
             Escape: ask.dismiss
             "1": "ask.choose:1"
@@ -178,15 +181,30 @@ pages:
     - if: prompt.rules
       page: rule
 
-  # A question to the user: who asks, its options, and the typed answer below.
+  # A question to the user: its header and text, who asks, each option with
+  # its description, and the hint below. Many questions end in a review.
   question:
-    - row:
+    - if: ask.question_shown
+      row:
         - space: 2
         - sgr: header.on
-        - text: "? {ask.question}"
+        - text: "{ask.header}"
         - sgr: header.off
+        - text: "  {ask.question}"
+        - if: ask.progress_shown
+          role:
+            name: chrome
+            items:
+              - text: "  ({ask.progress})"
         - if: ask.waiting_shown
           text: "  ({ask.waiting} more)"
+    - if: ask.review
+      row:
+        - space: 2
+        - sgr: header.on
+        - text: "Review"
+        - sgr: header.off
+        - text: "  Send these answers?"
     - if: ask.from_agent
       row:
         - space: 4
@@ -196,21 +214,62 @@ pages:
               - text: "asked by {ask.from}"
     - each: ask.options
       body:
+        # The option under the cursor stands on the ground of the theme and
+        # carries its bar, which its description shares.
         - if: selected
           row:
             - space: 2
-            - text: "› "
-            - act: { action: ask.choose, arg: "{number}", text: "{number}. {text}" }
+            - role: { name: select.bar, items: [ { text: "{ask.bar}" } ] }
+            - role:
+                name: select.row
+                items:
+                  - space: 1
+                  - act: { action: ask.choose, arg: "{number}", role: select.label, text: "{number}. {box}{text}" }
+                  - fill: {}
         - if: other
           row:
             - space: 4
-            - act: { action: ask.choose, arg: "{number}", text: "{number}. {text}" }
+            - act: { action: ask.choose, arg: "{number}", role: select.label, text: "{number}. {box}{text}" }
+        - if: selected_description
+          row:
+            - space: 2
+            - role: { name: select.bar, items: [ { text: "{ask.bar}" } ] }
+            - role:
+                name: select.row
+                items:
+                  - space: 4
+                  - role:
+                      name: chrome
+                      items:
+                        - text: "{description}"
+                  - fill: {}
+        - if: other_description
+          row:
+            - space: 7
+            - role:
+                name: chrome
+                items:
+                  - text: "{description}"
+    - if: ask.preview_shown
+      row:
+        - space: 4
+        - role:
+            name: chrome
+            items:
+              - text: "Preview \u00b7 {ask.preview_title}"
+    - if: ask.preview_shown
+      slot: { id: preview, rows: "{ask.preview_rows}" }
+    - each: ask.lines
+      body:
+        - row:
+            - space: 4
+            - text: "{header}: {answer}"
     - row:
         - space: 4
         - role:
             name: chrome
             items:
-              - text: "or type an answer"
+              - text: "{ask.hint}"
 
   # The work pane: its cap row goes first when the page is too tall.
   pane:

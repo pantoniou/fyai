@@ -35,6 +35,41 @@ struct fyai_page_action {
  * of the palette. hint is Markdown that fyai or the user configuration wrote;
  * activity may carry SGR, which is removed.
  */
+/* One option of a question in the input area. */
+struct fyai_page_ask_option {
+	const char *label;
+	const char *description;
+	bool checked;		/* a many-choice question holds the option */
+};
+
+/* One line of the review that ends a series of questions. */
+struct fyai_page_ask_review {
+	const char *header;
+	const char *answer;
+};
+
+/* The question that the input area shows. All text is borrowed. */
+struct fyai_page_ask {
+	const char *header;		/* the short label of the question */
+	const char *question;
+	const char *from;		/* the sub-agent that asks, or NULL */
+	const struct fyai_page_ask_option *options;
+	size_t noptions;
+	size_t selected;		/* the option under the cursor */
+	bool multi;			/* more than one option can be chosen */
+	const char *bar;		/* the glyph of the bar of the selected option */
+	size_t index, count;		/* question index of count, from 0 */
+	/* The review step: every answer given, before they are sent. */
+	bool review;
+	const struct fyai_page_ask_review *lines;
+	size_t nlines;
+	int waiting;			/* the questions after these */
+	/* The rendered rows of the preview of the option under the cursor. */
+	const char *const *preview;
+	int npreview;
+	const char *preview_title;	/* the label of that option */
+};
+
 struct fyai_page_state {
 	struct fyai_ctx *ctx;	/* diagnostic context for source construction */
 	const char *header;
@@ -101,12 +136,7 @@ struct fyai_page_state {
 	const char *control_chrome;
 	const char *input_mode;	/* the mode of the input area, or "prompt" */
 	/* The question of the input area in an ask mode, or NULL. */
-	const char *ask_question;
-	const char *ask_from;		/* the sub-agent that asks, or NULL */
-	const char *const *ask_options;
-	size_t ask_noptions;
-	size_t ask_selected;
-	int ask_waiting;		/* the questions after this one */
+	const struct fyai_page_ask *ask;
 	/* The actions that the document may name, and where the keys of its
 	 * active modes go, or NULL. */
 	const struct fyai_page_action *actions;

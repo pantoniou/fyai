@@ -23,9 +23,10 @@ properties:
   ask:
     type: object
     additionalProperties: false
-    required: [question, from, from_agent, options, waiting, waiting_shown]
+    required: [question, header, from, from_agent, options, lines, hint, progress, progress_shown, review, preview_shown, preview_rows, preview_title, bar, question_shown, waiting, waiting_shown]
     properties:
       question: { description: The question to the user., type: string }
+      header: { description: The short label of the question., type: string }
       from: { description: The sub-agent that asks., type: string }
       from_agent: { description: A sub-agent asks., type: boolean }
       options:
@@ -34,13 +35,37 @@ properties:
         items:
           type: object
           additionalProperties: false
-          required: [text, selected, other]
+          required: [text, box, description, has_description, selected_description, other_description, selected, other]
           properties:
             text: { description: The answer., type: string }
-            selected: { description: The answer is selected., type: boolean }
-            other: { description: The answer is not selected., type: boolean }
-      waiting: { description: Questions after this one., type: integer }
-      waiting_shown: { description: Questions wait after this one., type: boolean }
+            box: { description: The mark of a many-choice question, with a blank after it, else empty., type: string }
+            description: { description: What the answer means., type: string }
+            has_description: { description: The answer has a description., type: boolean }
+            selected_description: { description: The cursor is on the answer and it has a description., type: boolean }
+            other_description: { description: The cursor is not on the answer and it has a description., type: boolean }
+            selected: { description: The cursor is on the answer., type: boolean }
+            other: { description: The cursor is not on the answer., type: boolean }
+      lines:
+        description: The answers given, in the review step.
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [header, answer]
+          properties:
+            header: { description: The short label of the question., type: string }
+            answer: { description: The answer given., type: string }
+      hint: { description: The keys and the free answer, as one line., type: string }
+      progress: { description: Which question of the series this is., type: string }
+      progress_shown: { description: More than one question is asked., type: boolean }
+      review: { description: The step that shows every answer before they are sent., type: boolean }
+      preview_shown: { description: An option has a preview to show., type: boolean }
+      preview_rows: { description: The rows of the preview., type: integer }
+      preview_title: { description: The label of the option that the preview belongs to., type: string }
+      bar: { description: The glyph of the bar at the edge of the selected answer, one column wide., type: string }
+      question_shown: { description: A question, not the review, is shown., type: boolean }
+      waiting: { description: Questions after these., type: integer }
+      waiting_shown: { description: Questions wait after these., type: boolean }
   screen:
     type: object
     additionalProperties: false

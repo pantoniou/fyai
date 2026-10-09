@@ -47,6 +47,9 @@
 struct ui_line { struct ui_line *next; char *text; };
 
 /* A question that the input area puts to the user. */
+/* The options of a question that the page shows. */
+#define UI_ASK_OPTIONS_MAX 16
+
 struct ui_question {
 	struct ui_question *next;
 	char *question;
@@ -1485,6 +1488,8 @@ static void ui_page_update(struct fyai_ui *ui)
 	char elapsed[24], cap[512];
 	struct fyai_page_keys keys;
 	struct ui_question *q, *w;
+	struct fyai_page_ask ask;
+	struct fyai_page_ask_option ask_options[UI_ASK_OPTIONS_MAX] = {};
 	struct fyai_transcript_view *blocks;
 	const char *rule_off, *typed, *tail;
 	char *activity = NULL;
@@ -1546,15 +1551,23 @@ static void ui_page_update(struct fyai_ui *ui)
 	if (q) {
 		typed = fytim_input(ui->ft);
 		st.input_mode = typed && *typed ? "ask_text" : "ask";
-		st.ask_question = q->question;
-		st.ask_from = q->from;
-		st.ask_options = (const char *const *)q->options;
-		st.ask_noptions = q->noptions;
-		st.ask_selected = q->selected;
+		memset(&ask, 0, sizeof(ask));
+		ask.question = q->question;
+		ask.from = q->from;
+		ask.count = 1;
+		ask.noptions = q->noptions < UI_ASK_OPTIONS_MAX ?
+			       q->noptions : UI_ASK_OPTIONS_MAX;
+		for (i = 0; i < (int)ask.noptions; i++)
+			ask_options[i].label = q->options[i];
+		ask.options = ask_options;
+		ask.selected = q->selected;
+		ask.bar = markdown_glyph(ctx->cfg, "select.bar",
+			markdown_glyph(ctx->cfg, "pane.edge", "\xe2\x96\x8c"));
 		for (w = q->next; w; w = w->next)
-			st.ask_waiting++;
+			ask.waiting++;
 		/* Agents put one question at a time: count those behind it. */
-		st.ask_waiting += fyai_agents_questions_waiting(ctx);
+		ask.waiting += (int)fyai_agents_questions_waiting(ctx);
+		st.ask = &ask;
 	}
 	st.actions = ui_page_actions;
 	st.nactions = ui_page_nactions;

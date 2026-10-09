@@ -185,6 +185,21 @@ static fy_generic page_escaped(struct fy_generic_builder *gb, const char *text)
 	return v;
 }
 
+/* The rows a question takes: its line, who asks, each option with its
+ * description, and the hint. The review takes a line for each answer. */
+static int page_ask_rows(const struct fyai_page_ask *ask)
+{
+	int rows;
+	size_t i;
+
+	if (ask->review)
+		return 2 + (int)ask->nlines;
+	rows = 2 + !fy_str_empty(ask->from);
+	for (i = 0; i < ask->noptions; i++)
+		rows += 1 + !fy_str_empty(ask->options[i].description);
+	return rows + (ask->npreview ? ask->npreview + 1 : 0);
+}
+
 int fyai_page_chrome_rows(const struct fyai_page_state *st)
 {
 	int rows = 0;
@@ -204,9 +219,8 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 		rows++;
 	if (st->pane_rows > 0)
 		rows++;
-	/* A question: its row, who asks, each option, and the hint. */
-	if (st->ask_question)
-		rows += 2 + !fy_str_empty(st->ask_from) + (int)st->ask_noptions;
+	if (st->ask)
+		rows += page_ask_rows(st->ask);
 	return rows + st->note_nlines;
 }
 
@@ -593,6 +607,79 @@ static const char *page_str(const char *s)
 	return s ? s : "";
 }
 
+static const char *page_ask_hint(const struct fyai_page_ask *ask)
+{
+	if (ask->review)
+		return "Enter sends the answers \u00b7 \u2190 revises \u00b7 Esc cancels";
+	if (ask->multi && ask->count > 1)
+		return "Space toggles \u00b7 Enter confirms \u00b7 \u2190 back \u00b7 or type an answer";
+	if (ask->multi)
+		return "Space toggles \u00b7 Enter confirms \u00b7 or type an answer";
+	if (ask->count > 1)
+		return "\u2190 back \u00b7 or type an answer";
+	return "or type an answer";
+}
+
+/* The question of the input area, as the document names it. */
+static fy_generic page_ask_generic(struct fy_generic_builder *gb,
+				   const struct fyai_page_ask *ask)
+{
+	fy_generic options = fy_seq_empty, lines = fy_seq_empty;
+	const struct fyai_page_ask_option *o;
+	char box[8], progress[32];
+	size_t i;
+
+	if (!ask)
+		return fy_mapping(gb, "question", "", "header", "", "from", "",
+			"from_agent", false, "options", options,
+			"lines", lines, "hint", "", "progress", "",
+			"progress_shown", false, "review", false,
+			"preview_shown", false, "preview_rows", 0,
+			"preview_title", "", "bar", "",
+			"question_shown", false, "waiting", 0,
+			"waiting_shown", false);
+	for (i = 0; i < ask->noptions; i++) {
+		o = &ask->options[i];
+		snprintf(box, sizeof(box), "%s", !ask->multi ? "" :
+			 o->checked ? "[x] " : "[ ] ");
+		options = fy_append(gb, options, fy_mapping(gb,
+			"text", page_str(o->label),
+			"box", box,
+			"description", page_str(o->description),
+			"has_description", (_Bool)!fy_str_empty(o->description),
+			"selected_description", (_Bool)(i == ask->selected &&
+				!fy_str_empty(o->description)),
+			"other_description", (_Bool)(i != ask->selected &&
+				!fy_str_empty(o->description)),
+			"selected", (_Bool)(i == ask->selected),
+			"other", (_Bool)(i != ask->selected)));
+	}
+	for (i = 0; i < ask->nlines; i++)
+		lines = fy_append(gb, lines, fy_mapping(gb,
+			"header", page_str(ask->lines[i].header),
+			"answer", page_str(ask->lines[i].answer)));
+	snprintf(progress, sizeof(progress), "%zu of %zu", ask->index + 1,
+		 ask->count);
+	return fy_mapping(gb,
+		"question", page_str(ask->question),
+		"header", page_str(ask->header),
+		"from", page_str(ask->from),
+		"from_agent", (_Bool)!fy_str_empty(ask->from),
+		"options", options,
+		"lines", lines,
+		"hint", page_ask_hint(ask),
+		"progress", progress,
+		"progress_shown", (_Bool)(ask->count > 1 && !ask->review),
+		"review", ask->review,
+		"preview_shown", (_Bool)(ask->npreview > 0),
+		"preview_rows", ask->npreview,
+		"preview_title", page_str(ask->preview_title),
+		"bar", ask->bar ? ask->bar : "\xe2\x96\x8c",
+		"question_shown", (_Bool)!ask->review,
+		"waiting", ask->waiting,
+		"waiting_shown", (_Bool)(ask->waiting > 0));
+}
+
 /*
  * The state of @st that the document names. Every flag is decided here: the
  * document has no expressions.
@@ -604,25 +691,12 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 	bool grid = !fy_str_empty(st->pane_source);
 	bool hint = page_text_visible(st->hint);
 	bool side = st->pane_side && grid;
-	fy_generic options = fy_seq_empty;
-	size_t i;
-
-	for (i = 0; st->ask_question && i < st->ask_noptions; i++)
-		options = fy_append(gb, options, fy_mapping(gb,
-			"text", page_str(st->ask_options[i]),
-			"selected", (bool)(i == st->ask_selected),
-			"other", (bool)(i != st->ask_selected)));
+	fy_generic ask = page_ask_generic(gb, st->ask);
 
 	return fy_mapping(gb,
 		"input", fy_mapping(gb, "mode",
 				    st->input_mode ? st->input_mode : "prompt"),
-		"ask", fy_mapping(gb,
-			"question", page_str(st->ask_question),
-			"from", page_str(st->ask_from),
-			"from_agent", (bool)!fy_str_empty(st->ask_from),
-			"options", options,
-			"waiting", st->ask_waiting,
-			"waiting_shown", (bool)(st->ask_waiting > 0)),
+		"ask", ask,
 		"screen", fy_mapping(gb, "mode",
 				     st->fullscreen ? "fullscreen" : "inline"),
 		"tail", fy_mapping(gb,
@@ -907,8 +981,9 @@ static int page_doc_act(struct page_doc_ctx *c, fy_generic act,
 {
 	struct response_buffer arg = {0}, text = {0};
 	const char *action = fy_get(act, "action", "");
+	const char *role;
 	fy_generic v;
-	char tag[FYTIM_PAGE_ID_MAX + 32];
+	char tag[FYTIM_PAGE_ID_MAX + 96];
 	int rc = -1;
 
 	if (!fyai_page_action_find(c->actions, c->nactions, action,
@@ -928,8 +1003,17 @@ static int page_doc_act(struct page_doc_ctx *c, fy_generic act,
 		page_doc_fail(c, "the id of an act of '%s' is too long", action);
 		goto out;
 	}
-	rc = snprintf(tag, sizeof(tag), "<fy-act id=\"%s%s%s\">", action,
-		      arg.data ? ":" : "", arg.data ? arg.data : "");
+	role = fy_get(act, "role", "");
+	if (*role && !page_id_chars(role)) {
+		page_doc_fail(c, "the role of an act of '%s' is not a name",
+			      action);
+		goto out;
+	}
+	/* role="NAME" styles the label with a role of the theme, in place of
+	 * the underline of the action style. */
+	rc = snprintf(tag, sizeof(tag), "<fy-act id=\"%s%s%s\"%s%s%s>", action,
+		      arg.data ? ":" : "", arg.data ? arg.data : "",
+		      *role ? " role=\"" : "", role, *role ? "\"" : "");
 	fyai_error_check(c->ctx, rc >= 0 && (size_t)rc < sizeof(tag), err_out,
 			 "cannot format the page action '%s'", action);
 	v = fy_get(act, "text", fy_invalid);
@@ -2383,6 +2467,13 @@ static int page_canvas(struct fyai_page *pg, struct fytim *ft,
 					     st->popup_nlines, &fr[i]);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot draw the popup into cells");
+		}
+		if (!strcmp(fr[i].id, "preview") && st->ask &&
+		    st->ask->preview) {
+			rc = page_lines_draw(pg, st->ask->preview,
+					     st->ask->npreview, &fr[i]);
+			fyai_error_check(ctx, !rc, err_out,
+					 "cannot draw the preview into cells");
 		}
 		if (!strcmp(fr[i].id, "note") && st->note_lines) {
 			rc = page_lines_draw(pg, st->note_lines,

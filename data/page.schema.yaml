@@ -201,3 +201,4 @@ $defs:
               action: { type: string, minLength: 1 }
               arg: { $ref: "#/$defs/text" }
               text: { $ref: "#/$defs/text" }
+              role: { type: string, minLength: 1 }
