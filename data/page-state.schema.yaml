@@ -3,7 +3,7 @@
 # binding names any value. fyai decides every flag.
 type: object
 additionalProperties: false
-required: [input, ask, screen, tail, transcript, popup, note, layout, pane, header, prompt, status]
+required: [input, ask, screen, tail, transcript, popup, note, todo, layout, pane, header, prompt, status]
 properties:
   layout:
     type: object
@@ -103,6 +103,15 @@ properties:
     properties:
       shown: { description: A short result stands above the status., type: boolean }
       rows: { description: Rows of the short result., type: integer }
+  todo:
+    type: object
+    additionalProperties: false
+    required: [shown, below, source, rows]
+    properties:
+      shown: { description: The branch holds a todo list., type: boolean }
+      below: { description: The todo panel stands below the prompt., type: boolean }
+      source: { description: UI Markdown of the todo list that fyai wrote., type: string }
+      rows: { description: Rows of the todo panel., type: integer }
   tail:
     type: object
     additionalProperties: false

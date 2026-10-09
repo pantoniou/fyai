@@ -7,7 +7,7 @@
 # tests consume, so keep them in sync with tests/fyai_tool_spec_test.c.
 #
 # Tool order is fixed: read_file, write_file, apply_patch, shell, shell_input,
-# shell_output, shell_close, ask_user, agent, time, wait.
+# shell_output, shell_close, ask_user, agent, todo_write, time, wait.
 - type: function
   function:
     name: read_file
@@ -615,6 +615,56 @@
           enum: [agents, views, shells, waits, monitors, questions]
           description: |-
             What to list. Omit it to list every kind.
+      additionalProperties: false
+- type: function
+  function:
+    name: todo_write
+    description: >-
+      Use this tool to create and manage a structured task list for your current coding session.
+      This helps you track progress, organize complex tasks, and demonstrate thoroughness to the
+      user. It also helps the user understand the progress of the task and overall progress of
+      their requests.
+
+      Use this tool proactively in these scenarios: complex multistep tasks with 3 or more
+      distinct steps, non-trivial tasks that require careful planning or multiple operations, when
+      the user explicitly requests a todo list, when the user provides multiple tasks, after
+      receiving new instructions, after completing a task, and when you start working on a new
+      task. Skip it for a single straightforward task, a trivial task, a task of less than 3
+      trivial steps, or a purely conversational or informational task.
+
+      Task states: pending (not yet started), in_progress (currently working on), completed
+      (finished successfully), cancelled (no longer needed). Update task status in real-time as
+      you work. Mark tasks complete immediately after finishing. Only have one task in_progress
+      at any time. Complete current tasks before starting new ones. Cancel tasks that become
+      irrelevant. Create specific, actionable items and break complex tasks into smaller steps.
+    parameters:
+      type: object
+      properties:
+        todos:
+          type: array
+          description: The updated todo list
+          minItems: 1
+          items:
+            type: object
+            properties:
+              content:
+                type: string
+                description: Brief description of the task
+              status:
+                type: string
+                description: 'Current status of the task: pending, in_progress, completed, cancelled'
+                enum: [pending, in_progress, completed, cancelled]
+              priority:
+                type: string
+                description: 'Priority level of the task: high, medium, low'
+                enum: [high, medium, low]
+            required:
+              - content
+              - status
+              - priority
+            additionalProperties: false
+      required:
+        - todos
       additionalProperties: false
 - type: function
   function:

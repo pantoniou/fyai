@@ -88,6 +88,10 @@ pages:
 
   # The pane, the header, the input area and the status, in either screen.
   chrome:
+    - if: todo.shown
+      drop: 0
+      body:
+        - page: todos
     - if: pane.above
       page: pane
 
@@ -130,6 +134,10 @@ pages:
 
     - if: pane.below
       page: pane
+    - if: todo.below
+      drop: 0
+      body:
+        - page: todos
   # The input area, in one mode at a time.
   input:
     - switch: input.mode
@@ -283,6 +291,16 @@ pages:
       markup: pane.grid_source
     - if: pane.slot
       slot: { id: pane, rows: "{pane.rows}" }
+
+  # The todo list of the branch, above the prompt with the work pane.
+  todos:
+    - blank: true
+    - row:
+        - role:
+            name: chrome
+            items:
+              - text: "Todos"
+    - markup: todo.source
 
   # The popup of a fullscreen session: its heading, then the result.
   popup:

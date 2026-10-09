@@ -109,6 +109,15 @@ struct fyai_page_state {
 	/* The rows of a short result, which stand above the status. */
 	const char *const *note_lines;
 	int note_nlines;
+	/*
+	 * The rows of the todo list of the branch, which stand above the
+	 * prompt. UI Markdown that fyai wrote from the stored list, borrowed
+	 * for the frame. NULL when the branch holds no list.
+	 */
+	const char *todo_source;
+	/* The rows @todo_source takes, and whether the panel is shown. */
+	int todo_rows;
+	bool todo_shown;
 	int pane_rows;
 	bool pane_below;
 	int prompt_rows;

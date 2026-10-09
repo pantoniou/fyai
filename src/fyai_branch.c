@@ -350,6 +350,7 @@ bool fyai_branch_decode(fy_generic entry, struct fyai_branch *b)
 	b->store = fy_invalid;
 	b->config = fy_invalid;
 	b->catalog = fy_invalid;
+	b->todos = fy_invalid;
 	b->created = fy_invalid;
 	b->cwd = fy_invalid;
 	b->description = fy_invalid;
@@ -381,6 +382,7 @@ bool fyai_branch_decode_store(fy_generic store, struct fyai_branch *b)
 	b->store = store;
 	b->config = fyai_branch_member(store, "config");
 	b->catalog = fyai_branch_member(store, "catalog");
+	b->todos = fyai_branch_member(store, "todos");
 	b->created = fyai_branch_member(store, "created");
 	b->cwd = fyai_branch_member(store, "cwd");
 	b->description = fyai_branch_member(store, "description");
@@ -441,6 +443,7 @@ fy_generic fyai_branch_store_build(struct fy_generic_builder *gb,
 	store = fy_is_mapping(b->store) ? b->store : fy_map_empty;
 	store = store_member_set(gb, store, "config", b->config);
 	store = store_member_set(gb, store, "catalog", b->catalog);
+	store = store_member_set(gb, store, "todos", b->todos);
 	store = store_member_set(gb, store, "created", b->created);
 	store = store_member_set(gb, store, "cwd", b->cwd);
 	store = store_member_set(gb, store, "description", b->description);
@@ -573,6 +576,17 @@ static fy_generic store_merge3(struct fy_generic_builder *gb, fy_generic base,
 		return ours;
 	if (store_value_same(base, ours))
 		return theirs;
+	/*
+	 * The todo list is one value: a rewrite on either side wins over the
+	 * base without a key-by-key merge. Two rewrites conflict, and the
+	 * value of this run is kept.
+	 */
+	if (!strcmp(path, "todos")) {
+		*conflictsp = fy_append(gb, *conflictsp, fy_value(gb, path));
+		if (fy_is_invalid(*conflictsp))
+			*failp = true;
+		return ours;
+	}
 	/* A sequence of named items, such as the models, merges by name. */
 	if (fy_is_sequence(ours) && fy_is_sequence(theirs) &&
 	    depth < STORE_MERGE_DEPTH_MAX) {

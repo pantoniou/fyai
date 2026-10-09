@@ -193,6 +193,7 @@ bool fyai_branch_entry_contained(struct fy_allocator *a, fy_generic entry,
 		if (!root_ref_contained(a, b.store) ||
 		    !root_ref_contained(a, b.config) ||
 		    !root_ref_contained(a, b.catalog) ||
+		    !root_ref_contained(a, b.todos) ||
 		    !root_ref_contained(a, b.head) ||
 		    !root_ref_contained(a, b.cwd) ||
 		    !root_ref_contained(a, b.description) ||
@@ -1067,6 +1068,14 @@ static fy_generic fyai_branches_commit(struct fyai_ctx *ctx)
 		nb.cwd = fyai_branch_cwd_generic(ctx->gb);
 	nb.description = ctx->branch_desc;
 	nb.agent = ctx->branch_agent;
+	/*
+	 * The todo list lives only in the store: take it from the store the
+	 * entry is built from, or a rebuild drops the new list. A null reads
+	 * as no list.
+	 */
+	nb.todos = fy_get(nb.store, "todos", fy_invalid);
+	if (!fy_is_sequence(nb.todos))
+		nb.todos = fy_invalid;
 	nb.op = fy_value(ctx->gb, op);
 	nb.from = ctx->branch_op_from ?
 		fy_value(ctx->gb, ctx->branch_op_from) : fy_invalid;

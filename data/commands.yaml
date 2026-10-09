@@ -2693,6 +2693,39 @@ commands:
         empty: no active sessions
         keys: [name, kind, state]
 
+  - command: todo
+    title: show or clear the todo list of the branch
+    description: |
+      The todo list is branch state, as the configuration is: `todo_write`
+      replaces it, `todo` shows it, and `todo clear` drops it. A sub-agent
+      branch inherits a copy of the list of its parent.
+    surfaces: [cli, session]
+    default: show
+    commands:
+      - command: show
+        aliases: [list]
+        title: show the todo list
+        description: Show the todo list of the branch.
+        handler: todo_show
+        view: true
+        while_busy: run
+        render:
+          table:
+            title: Todos
+            empty: no todos
+            keys: [content, status, priority]
+            columns:
+              content: {name: Task, align: left}
+              status: {name: Status, align: left}
+              priority: {name: Priority, align: left}
+      - command: clear
+        title: drop the todo list
+        description: Drop the todo list of the branch.
+        handler: todo_clear
+        while_busy: run
+        render:
+          message: "todos cleared"
+
   - command: undo
     title: take back the changes of a group of tool calls
     description: |

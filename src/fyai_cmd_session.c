@@ -27,6 +27,7 @@
 #include "fyai_session.h"
 #include "fyai_storage.h"
 #include "fyai_tools.h"
+#include "fyai_todo.h"
 #include "fyai_transport_boot.h"
 #include "fyai_ui.h"
 #include "utils.h"
@@ -252,4 +253,23 @@ int fyai_cmd_status(struct fyai_cmd_call *call, fy_generic *result)
 	return 0;
 err:
 	return -1;
+}
+
+int fyai_cmd_todo_show(struct fyai_cmd_call *call, fy_generic *result)
+{
+	*result = fyai_todo_rows(call->ctx, call->gb);
+	fyai_error_check(call->ctx, fy_is_valid(*result), err,
+			 "todo: cannot build the todo list");
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_cmd_todo_clear(struct fyai_cmd_call *call, fy_generic *result)
+{
+	(void)result;
+	if (fyai_todo_clear(call->ctx))
+		return -1;
+	*result = fy_mapping(call->gb, "cleared", true);
+	return 0;
 }

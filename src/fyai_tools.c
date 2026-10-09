@@ -54,6 +54,7 @@
 #include "fyai_terminal_session.h"
 #include "fyai_output.h"
 #include "fyai_ask.h"
+#include "fyai_todo.h"
 #include "fyai_tools.h"
 #include "fyai_view.h"
 #include "fyai_fsview.h"
@@ -1851,6 +1852,57 @@ static fy_generic tool_ask_user(struct fyai_ctx *ctx, fy_generic args,
 	return fyai_tool_result_text(ctx, result);
 }
 
+/*
+ * Execute the `todo_write` tool: replace the todo list of the branch with
+ * the normalized list and publish it. The list is branch state, as the
+ * configuration is, so a sub-agent branch inherits a copy of the list of
+ * its parent and then diverges from it.
+ */
+static fy_generic tool_todo_write(struct fyai_ctx *ctx, fy_generic args,
+				  bool *okp)
+{
+	fy_generic todos;
+	char why[1024];
+	char *text;
+
+	todos = fyai_todo_normalize(ctx->transient_gb, args, why, sizeof(why));
+	if (fy_is_invalid(todos)) {
+		*okp = false;
+		return fy_value(ctx->transient_gb,
+				fy_sprintfa("tool error: todo_write: %s", why));
+	}
+	text = fyai_todo_commit(ctx, todos);
+	if (!text) {
+		*okp = false;
+		return fy_value(ctx->transient_gb,
+				"tool error: the todo list was not stored");
+	}
+	*okp = true;
+	todos = fy_value(ctx->transient_gb, text);
+	free(text);
+	return todos;
+}
+
+static void tool_head_todo_write(struct fyai_ctx *ctx, FILE *mf,
+				 struct fy_generic_builder *gb, fy_generic args,
+				 int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic todos = fy_get(args, "todos", fy_invalid);
+	fy_generic first = fy_get_at(todos, 0);
+	fy_generic gcontent = fy_get(first, "content", fy_invalid);
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	/* One row, as the head of every call is: the first item, and how
+	 * many more there are. */
+	fprintf(mf, "**todo** %s", fy_castp(&gcontent, ""));
+	if (fy_len(todos) > 1)
+		fprintf(mf, " (+%zu more)", fy_len(todos) - 1);
+	fprintf(mf, "\n\n");
+}
+
 static void tool_head_list(struct fyai_ctx *ctx, FILE *mf,
 			   struct fy_generic_builder *gb, fy_generic args,
 			   int preview_lines, struct fyai_md_blocks *blocks)
@@ -1986,6 +2038,9 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	  .head = tool_head_project_view,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
+	{ .name = "todo_write", .run = tool_todo_write,
+	  .head = tool_head_todo_write, .format_result = fyai_todo_format_result,
+	  .flags = FYAI_TOOL_PARENT },
 	{ .name = "list", .run = tool_list, .head = tool_head_list,
 	  .flags = FYAI_TOOL_PARENT },
 };

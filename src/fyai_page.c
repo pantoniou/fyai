@@ -221,12 +221,14 @@ int fyai_page_chrome_rows(const struct fyai_page_state *st)
 		rows++;
 	if (st->ask)
 		rows += page_ask_rows(st->ask);
-	return rows + st->note_nlines;
+	/* The todo panel stands above the prompt with the work pane. */
+	rows += st->note_nlines;
+	return rows + (st->todo_shown ? st->todo_rows + 2 : 0);
 }
 
 void fyai_page_fit(struct fyai_page_state *st, int height)
 {
-	int left;
+	int left, todo_rows;
 
 	if (!st || height <= 0)
 		return;
@@ -234,9 +236,19 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 	if (st->fullscreen && st->popup_title) {
 		st->popup_rows = height > 1 ? height - 1 : 0;
 		st->pane_rows = 0;
+		st->todo_rows = 0;
+		st->todo_shown = false;
 		st->tail_rows = 0;
 		st->transcript_rows = 0;
 		return;
+	}
+	/* Keep the input visible when the branch list exceeds its space. */
+	if (st->todo_shown) {
+		todo_rows = st->todo_rows + 2;
+		st->todo_shown = false;
+		left = height - fyai_page_chrome_rows(st) - st->pane_rows;
+		if (todo_rows <= left)
+			st->todo_shown = true;
 	}
 	left = height - fyai_page_chrome_rows(st);
 	/* The work outranks the tail, which shows its last rows. */
@@ -709,6 +721,11 @@ fy_generic fyai_page_state_generic(struct fy_generic_builder *gb,
 			"mode", st->popup_title ? "open" : "closed",
 			"title", page_str(st->popup_title),
 			"rows", st->popup_rows),
+		"todo", fy_mapping(gb,
+			"shown", (bool)st->todo_shown,
+			"below", (bool)(st->todo_shown && st->pane_below),
+			"source", page_str(st->todo_source),
+			"rows", st->todo_rows),
 		"note", fy_mapping(gb,
 			"shown", (bool)(st->note_nlines > 0),
 			"rows", st->note_nlines),

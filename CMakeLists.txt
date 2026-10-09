@@ -427,6 +427,7 @@ set(FYAI_SOURCES
     src/fyai_ask.c
     src/fyai_event_fmt.c
     src/fyai_asks.c
+    src/fyai_todo.c
     src/fyai_branch.c
     src/fyai_merge.c
     src/fyai_diff.c

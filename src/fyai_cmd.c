@@ -115,6 +115,8 @@ static const struct {
 	{ "session_new",	fyai_cmd_session_new },
 	{ "session_push",	fyai_cmd_session_push },
 	{ "session_pull",	fyai_cmd_session_pull },
+	{ "todo_show",		fyai_cmd_todo_show },
+	{ "todo_clear",		fyai_cmd_todo_clear },
 	{ "catalog_show",	fyai_cmd_catalog_show },
 	{ "catalog_list",	fyai_cmd_catalog_list },
 	{ "render",		fyai_cmd_render },

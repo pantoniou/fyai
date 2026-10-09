@@ -35,6 +35,7 @@
 #include "fyai_ui.h"
 #include "fyai_ask.h"
 #include "fyai_page.h"
+#include "fyai_todo.h"
 #include "fyai_transcript_view.h"
 #include "fyai_browser.h"
 #include "fyai_agents.h"
@@ -163,6 +164,17 @@ struct fyai_ui {
 	/* A short result stands above the status until the input changes:
 	 * its rows, and the input it was shown over. */
 	char *note[2];
+	/*
+	 * The todo list of the branch, above the prompt with the work pane:
+	 * its UI Markdown source, its rows, and whether the panel is shown.
+	 * Rebuilt when the branch changes under the session.
+	 */
+	char *todo_source;
+	int todo_rows;
+	int todo_cols;
+	bool todo_shown;
+	/* The entry the todo panel was built from, to see it change. */
+	fy_generic_value todo_entry;
 	/* The rendered preview of the option under the cursor of a question. */
 	char **preview;
 	int preview_nlines;
@@ -536,6 +548,28 @@ static void ui_note_clear(struct fyai_ui *ui)
 	free(ui->note_input);
 	ui->note_input = NULL;
 	ui->frame_pending = true;
+}
+
+/* Bound the rows a todo source can wrap to at @cols columns. */
+static int ui_todo_rows(const char *text, int cols)
+{
+	int rows = 0;
+	const char *line, *end;
+	int width, available;
+
+	if (!text || !*text)
+		return 0;
+	available = cols > 5 ? cols - 4 : 1;
+	for (line = text; *line; line = *end ? end + 1 : end) {
+		end = strchr(line, '\n');
+		if (!end)
+			end = line + strlen(line);
+		width = fymd_str_width(line, (size_t)(end - line));
+		if (width < 0)
+			width = (int)(end - line);
+		rows += width > 0 ? (width + available - 1) / available : 1;
+	}
+	return rows;
 }
 
 /* Close the popup and drop its rows; the next long result opens it again. */
@@ -1993,6 +2027,41 @@ static void ui_page_update(struct fyai_ui *ui)
 		ui_note_clear(ui);
 	st.note_lines = (const char *const *)ui->note;
 	st.note_nlines = ui->note_nlines;
+	/*
+	 * The todo panel follows the stored list: rebuild it when the branch
+	 * entry moved. The panel is branch state, as the configuration is,
+	 * so a publish on this or another branch can change it.
+	 */
+	if (ctx->branch_prev.v != ui->todo_entry) {
+		const char *panel;
+
+		ui->todo_entry = ctx->branch_prev.v;
+		free(ui->todo_source);
+		ui->todo_source = NULL;
+		ui->todo_rows = 0;
+		ui->todo_cols = 0;
+		ui->todo_shown = false;
+		panel = fyai_todo_panel(ctx);
+		if (panel) {
+			ui->todo_source = strdup(panel);
+			free((char *)panel);
+			if (!ui->todo_source) {
+				fyai_warning(ctx, "cannot show the todo list");
+			} else {
+				ui->todo_shown = true;
+			}
+		}
+		ui->frame_pending = true;
+	}
+	if (ui->todo_source && ui->todo_cols != cols) {
+		ui->todo_rows = ui_todo_rows(ui->todo_source, cols);
+		ui->todo_cols = cols;
+	}
+	st.todo_source = ui->todo_source;
+	st.todo_rows = ui->todo_rows;
+	st.todo_shown = ui->todo_shown &&
+			!fyai_agent_delegated(ctx) &&
+			!(st.fullscreen && st.popup_title);
 	st.popup_title = ui->popup ? ui->popup_title : NULL;
 	st.fullscreen = ui->fullscreen;
 	fyai_page_fit(&st, rows);
@@ -2694,6 +2763,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	ui->blocks = NULL;
 	ui_popup_close(ui);
 	ui_note_clear(ui);
+	free(ui->todo_source);
 	free(ui->pane_grid.data);
 	free(ui->stream_rows.data);
 	free(ui->pane_out.data);
