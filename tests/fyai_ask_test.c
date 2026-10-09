@@ -20,6 +20,7 @@
 FYAI_TEST_ENTRY(ask, normalize_defaults, ask_normalize_defaults)
 FYAI_TEST_ENTRY(ask, normalize_rejects, ask_normalize_rejects)
 FYAI_TEST_ENTRY(ask, result_shape, ask_result_shape)
+FYAI_TEST_ENTRY(ask, format_answers, ask_format_answers)
 FYAI_TEST_ENTRY(ask, reply_from_line, ask_reply_from_line)
 FYAI_TEST_ENTRY(ask, text_and_echo, ask_text_and_echo)
 
@@ -164,6 +165,61 @@ int ask_result_shape(void)
 	FYAI_TCHECK(fy_equal(fy_get(res, "status", fy_invalid), "declined"));
 	fy_generic_builder_destroy(gb);
 	printf("ok - the result names the options chosen and the text typed\n");
+	return 0;
+}
+
+/* The result as the text the model is given. */
+static char *ask_json(struct fy_generic_builder *gb, fy_generic res)
+{
+	fy_generic text = fy_gb_emit(gb, res, FYOPEF_DISABLE_DIRECTORY |
+				     FYOPEF_MODE_JSON | FYOPEF_STYLE_COMPACT |
+				     FYOPEF_WIDTH_INF, NULL);
+
+	return fy_is_string(text) ? strdup(fy_castp(&text, "")) : NULL;
+}
+
+int ask_format_answers(void)
+{
+	struct fy_generic_builder *gb = ask_builder();
+	struct fyai_ask_reply replies[2] = { { 0, NULL }, { 0, NULL } };
+	fy_generic args, qs;
+	char why[160], *json, *md;
+
+	FYAI_TCHECK(gb != NULL);
+	args = fy_mapping(gb, "questions", fy_sequence(gb,
+		ask_q(gb, "Scope", false), ask_q(gb, "Style", true)));
+	qs = fyai_ask_normalize(gb, args, why, sizeof(why));
+	replies[0].selected = 1u << 2;
+	replies[1].selected = (1u << 0) | (1u << 1);
+	replies[1].other = strdup("own style");
+	FYAI_TCHECK(replies[1].other != NULL);
+	json = ask_json(gb, fyai_ask_result(gb, qs, replies, 2));
+	FYAI_TCHECK(json != NULL);
+	/* The options are named by their labels, and the typed text is quoted. */
+	md = fyai_ask_format(NULL, gb, args, json);
+	FYAI_TCHECK(md != NULL);
+	FYAI_TCHECK(strstr(md, "- **Scope** Which Scope?  \n  \u2192 c\n") != NULL);
+	FYAI_TCHECK(strstr(md, "- **Style** Which Style?  \n  \u2192 a, b, "
+			       "\u201cown style\u201d\n") != NULL);
+	free(md);
+	/* Without the call the options are shown by their ids. */
+	md = fyai_ask_format(NULL, gb, fy_invalid, json);
+	FYAI_TCHECK(md != NULL && strstr(md, "\u2192 c\n") != NULL);
+	free(md);
+	free(json);
+	fyai_ask_replies_free(replies, 2);
+
+	json = ask_json(gb, fyai_ask_result(gb, qs, NULL, 0));
+	md = fyai_ask_format(NULL, gb, args, json);
+	FYAI_TCHECK(md != NULL && strstr(md, "did not answer") != NULL);
+	free(md);
+	free(json);
+	/* A result that is not an answer is shown as it is. */
+	FYAI_TCHECK(fyai_ask_format(NULL, gb, args, "not json") == NULL);
+	FYAI_TCHECK(fyai_ask_format(NULL, gb, args,
+				    "{\"status\":\"asking\",\"name\":\"n\"}") == NULL);
+	fy_generic_builder_destroy(gb);
+	printf("ok - the answers are shown as Markdown for the user\n");
 	return 0;
 }
 

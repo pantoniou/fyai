@@ -101,6 +101,25 @@ PY
     fail "the page did not draw the question in the input area"
 answered sel:yes "Enter"
 mock_stop 2
+# The transcript shows the answer as the user would read it, not the JSON the
+# model was given.
+"$PYTHON" - "$TEST_DIR/pty.out" "$TESTS_DIR" <<'PY' ||
+import sys
+
+sys.path.insert(0, sys.argv[2])
+from screen import Screen
+
+screen = Screen(30, 100)
+screen.feed(open(sys.argv[1], "rb").read())
+rows = [r.rstrip() for r in screen.display()]
+text = "\n".join(rows)
+if '"status"' in text or '"answers"' in text:
+    raise SystemExit("the answer is shown as JSON:\n" + text)
+at = [i for i, r in enumerate(rows) if "Plan Proceed with the mock plan?" in r]
+if not at or "\u2192 yes" not in rows[at[0] + 1]:
+    raise SystemExit("the answer is not shown under its question:\n" + text)
+PY
+    fail "the transcript did not show the answer for the user"
 
 ask down "raw:1b5b42|wait-screen:▌ 2. no|raw:0d"
 answered sel:no "Down and Enter"
