@@ -728,10 +728,27 @@ the page source; the terminal library draws its slots.
   action with its argument. An action is a named function of
   `struct fyai_page_action`. A document that names an unknown action, or binds
   `Ctrl-]`, `Ctrl-T` or `Ctrl-Tab`, does not transcribe.
-- The keys of the active cases are bound with `fytim_set_key_bindings()` when
-  they change, and are cleared when the page renderer stops. A bound key
-  reaches fyai as `FYTIM_EVENT_KEY` and not the editor. A new name of the
-  state goes into `data/page-state.schema.yaml`, which its test checks.
+- The keys of the active cases are the keys of the library mode `page`, which
+  inherits `prompt`. They are bound with `fytim_mode_bind()` when they change,
+  the mode is selected while there are any, and both are cleared when the page
+  renderer stops. A bound key reaches fyai as `FYTIM_EVENT_KEY`, whose action
+  is the name of the key, and not the editor. A new name of the state goes
+  into `data/page-state.schema.yaml`, which its test checks.
+- `display/keys` binds the keys of the three modes of the library - `prompt`,
+  `completion` and `surface` - to the built-in actions of libfytimui
+  (`fytim_action_name()` lists them), or to "" to unbind a key. A key is a
+  name, or a chord of up to four keys such as `"Escape Escape"`.
+  `ui_keys_configure()` resets each mode to its defaults and binds the keys
+  over them, on every configuration change; a mode that the library rejects,
+  or an action it does not know, is reported and keeps its defaults.
+  `display/chord_timeout_ms` is the time a chord waits. Do not hard-code a key
+  of the prompt in C: the library has it as data. The keys that leave a tile
+  are keys of the `surface` mode: `ui_keys_configure()` binds `Ctrl-T` to
+  `fytim.focus.next` and `Ctrl-]` to the action `fyai.focus.prompt`
+  (`fyai_tools_keys_to_prompt()`) before `display/keys`, so the user can move
+  them. Do not scan the bytes of a surface for them. The library reports them
+  in order with the bytes around them, so what is typed after one reaches the
+  new owner.
 - Questions to the user are a mode of the input area. `src/fyai_ask.c` owns
   their model: `fyai_ask_normalize()` checks the arguments of `ask_user` and
   makes the one normalized sequence that the UI, the `user/ask` forward of a
@@ -1252,14 +1269,15 @@ register, focus, zoom, resize - and sizes nothing itself.
   the user was typing into a program, not stopping the model. `^\` and `^Z`
   stay this terminal's, because a program that took them could not be left.
 - The keys of a tile arrive one frame at a time, not one key at a time. A key
-  this program keeps for itself - `Ctrl-Tab`, `Ctrl-T`, and `Ctrl-]` - can
-  thus arrive with
-  what was typed after it, and that input belongs to whoever holds the keys
-  once the key is acted on: another tile, or the prompt. Give the rest of the
-  chunk back with `fyai_ui_keys_return()`, which puts it in front of the input
-  the terminal has sent since, to be read again and routed then. Dropping it
-  loses what the user typed, and a paste or a fast typist makes one chunk of
-  the key and the line under it.
+  this program keeps for itself - `Ctrl-Tab`, `Ctrl-T`, and `Ctrl-]` - is a
+  key of the `surface` mode, which the library reports as an event between the
+  bytes before it and the bytes after it, so the bytes after it go to whoever
+  holds the keys once the key is acted on. A handler that stops taking keys
+  for another reason - a closed browser, a finished action - gives the rest of
+  its chunk back with `fyai_ui_keys_return()`, which puts it in front of the
+  input the terminal has sent since, to be read again and routed then.
+  Dropping it loses what the user typed, and a paste or a fast typist makes
+  one chunk of the key and the line under it.
 - Look a tile's owner up by surface. A program that ended must not leave a
   pointer behind for the next keystroke to follow.
 
