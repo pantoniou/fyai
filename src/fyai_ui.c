@@ -1695,10 +1695,10 @@ static void ui_preview_rows(struct fyai_ui *ui, const char *rendered,
 			nl = line;
 		if (nl == line && n == cap - 1 && line < end)
 			ui->preview[n] = strdup("    \xe2\x80\xa6");
-		else
-			(void)asprintf(&ui->preview[n], "%*s%.*s",
-				       UI_PREVIEW_INDENT, "", (int)(nl - line),
-				       line);
+		else if (asprintf(&ui->preview[n], "%*s%.*s",
+				  UI_PREVIEW_INDENT, "", (int)(nl - line),
+				  line) < 0)
+			ui->preview[n] = NULL;
 		fyai_error_check(ui->ctx, ui->preview[n], err_out,
 				 "cannot keep the preview of an option");
 		ui->preview_nlines = ++n;
