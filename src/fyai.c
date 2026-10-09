@@ -2075,8 +2075,12 @@ int fyai_setup_transient_builder(struct fyai_ctx *ctx)
 	struct fy_auto_allocator_cfg trans_cfg = {};
 	struct fy_generic_builder_cfg gb_cfg = {};
 
-	if (ctx->transient_gb)
+	/* An explicit owner adopts a builder that fyai_ctx_transient_gb()
+	 * made: the idle loop must not release it while the owner works. */
+	if (ctx->transient_gb) {
+		ctx->transient_autorelease = false;
 		return 0;
+	}
 	/* now the transient */
 	memset(&trans_cfg, 0, sizeof(trans_cfg));
 	trans_cfg.scenario = FYAST_PER_TAG_FREE_DEDUP;
