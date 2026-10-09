@@ -25,7 +25,11 @@ Delivery:
 
 - The turn loop takes queued events before each model request, after the
   active tool calls finish. An idle session starts a turn for the event.
-  Each event is echoed as a card and stored as a user message.
+  Each event is echoed as a card and stored as a user message. The card
+  shows the event as the user should read it (`fyai_event_pretty()`): the
+  kind in bold, the name in code, what happened, and the body under it, with
+  the answers of a question listed as the `ask_user` tool lists them. The
+  stored message, and so the model, keep the text as it is.
 - `wait` with `for` holds the turn for named targets, with `mode` any or all
   and an optional time limit. Waits of one response run at the same time. A
   waiter reads an event and leaves it queued, so every waiter that waits for

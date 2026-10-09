@@ -164,6 +164,12 @@ formatter for the user, ordering class, and flags. Define the entry in the file 
 not test a tool name in another place; add a field to the entry. See
 `doc/tools-yaml.md`.
 
+An event is a line `[KIND 'NAME' TAIL]` and an optional body, queued for the
+model. The card that echoes it, live and on replay, draws it through
+`fyai_event_pretty()` (`src/fyai_event_fmt.c`); a new producer keeps that
+header form and needs no code of its own. Do not change the text the model
+gets to make the card read better.
+
 ## Commands
 
 A verb (`fyai branch new x`) and a slash command (`/branch new x`) are one
