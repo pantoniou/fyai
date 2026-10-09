@@ -784,6 +784,10 @@ int cmd_setting_scope(void)
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/effort m", cands_add, &c);
 	FYAI_TCHECK(strstr(c.buf, "/effort medium \n"));
+	/* An alias completes as a word of its own. */
+	memset(&c, 0, sizeof(c));
+	fyai_cmd_session_complete(NULL, "/eff", cands_add, &c);
+	FYAI_TCHECK(!strcmp(c.buf, "/effort \n"));
 	memset(&c, 0, sizeof(c));
 	fyai_cmd_session_complete(NULL, "/markdown o", cands_add, &c);
 	FYAI_TCHECK(!strcmp(c.buf, "/markdown on \n/markdown off \n"));
