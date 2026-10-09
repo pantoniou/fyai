@@ -72,7 +72,7 @@ time, and a standalone `exit=0`) while retaining command output. The empty
 | `Write` | `write_file` | Adapted | `file_path` becomes `path`; preserve `content`. |
 | `Edit` | source call | Preserved | The exact old/new-string operation cannot be converted to a patch without reading mutable workspace state. |
 | `Agent` | source call | Preserved | Agent type, isolation, resume, model, and background semantics are not equivalent to fyai `agent`. |
-| `AskUserQuestion` | source call | Preserved | Multiple questions and structured choices are not equivalent to `ask_user`. |
+| `AskUserQuestion` | source call | Preserved | The shape is close to `ask_user` (`multiSelect` is `multi_select`, and `previews` are not converted), but the answers come back in a different form. |
 | `WebFetch` | source call | Preserved | Runtime/network facility, not a built-in fyai tool. |
 | `WebSearch` | source call | Preserved | Runtime/network facility, not a built-in fyai tool. |
 | `NotebookEdit` | source call | Preserved | Fyai has no notebook-cell editing primitive. |

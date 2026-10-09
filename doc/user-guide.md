@@ -689,8 +689,9 @@ The value 0 stops the question.
 
 `list` gives the model the objects that it can name in another call: `agents`
 (the sub-agents it started, running or ended), `views` (the views that isolated
-sub-agents left), `shells` (its open terminal sessions) and `waits` (its pending
-named waits). A row has the name that the model gave the object. The tool lists
+sub-agents left), `shells` (its open terminal sessions), `waits` (its pending
+named waits), `monitors` (its running monitors) and `questions` (the questions
+it put to the user in the background that still wait for an answer). A row has the name that the model gave the object. The tool lists
 only what the calling agent owns: your views and branches, and the objects of
 other agents, are not rows. Branches are not a kind.
 
@@ -790,8 +791,9 @@ A sub-agent that fails reports `[agent 'NAME' failed: CAUSE]`. A background
 sub-agent lives for one invocation and is stopped when the run ends.
 
 The `cancel` tool ends background work by name: a pending wait, a running
-sub-agent (with every process it started), a monitor, or an open terminal
-session. Give `kind` (`wait`, `agent`, `monitor` or `shell`) when one name refers to more than one
+sub-agent (with every process it started), a monitor, a question that waits for
+the user, or an open terminal session. Give `kind` (`wait`, `agent`, `monitor`,
+`question` or `shell`) when one name refers to more than one
 object. A session is killed at once; use `shell_close` when the program must
 save its work. The user can stop a sub-agent with `/kill`.
 
@@ -898,11 +900,71 @@ The tile header of a sub-agent shows the branch, the model, the execution id,
 and the running time after the agent description. While a turn runs, the input
 pane header shows the running time of the turn.
 
+### Questions to the user
+
+The `ask_user` tool puts one to four questions to the user. Each question has
+a `header` of at most 12 characters, the question text, and two to four options.
+An option has a `label`, a `description`, and optionally a `preview`. The user
+can always type an answer of their own, so the model does not offer an
+"Other" option. A question with `multi_select` allows more than one choice.
+
+In an interactive session the questions take the input area. One question is
+shown at a time, with its position when there are several:
+
+| Key | Action |
+|---|---|
+| Up, Down | move the cursor over the options |
+| `1` to `9` | choose an option, or toggle it in a many-choice question |
+| Space | toggle the option under the cursor, or choose it |
+| Enter | take the typed text or the option under the cursor and go on |
+| Left, Right | go to the question before, or after one that is answered |
+| Escape, `^C` | decline every question |
+
+After the last of several questions a review lists every answer. Enter sends
+them, Left goes back to change one, and Escape declines. Text typed in place of
+the options is the answer; in a many-choice question it adds to the options
+that were toggled.
+
+A `preview` is Markdown. While the option is under the cursor, the page draws
+it under the options, and a fenced `mermaid` block is drawn as a diagram. Only
+a question that allows one choice has previews.
+
+The model receives the answers as JSON. Every question has an `id`, which is
+`q1`, `q2` and so on unless the model named it, and every option has an `id`,
+which is its label unless the model named it:
+
+```json
+{"status": "answered", "answers": [
+  {"id": "q1", "header": "Scope", "question": "How wide?",
+   "selected": ["medium"], "other": "but not the parser"}]}
+```
+
+`status` is `declined` when the user gave no answer. Without a terminal page,
+`ask_user` writes each question as text, and a number or a list of numbers
+separated by commas chooses; `--answer` supplies one answer for each question
+in order, and a blank answer declines.
+
+A call with `background: true`, or with a `name`, does not hold the turn. It
+returns at once with the name of the question (`ask-1`, `ask-2` and so on when
+the model gave none), and the user answers when ready. The model then has the
+same tools as for other background work: `list` with kind `questions`, `cancel`
+to withdraw it, and `wait` with `for` to hold a call for the answers. `wait`
+with `poll: true` looks once and reports what has ended and what still runs.
+The answers arrive in a turn of their own when nothing waits for them:
+
+```text
+  │ [question 'ask-1' answered]
+  {"status": "answered", "answers": [...]}
+```
+
+Without a terminal page a background call is asked at once like any other.
+
 ### A question from a sub-agent
 
 A sub-agent has a terminal, but no person is at it. Its `ask_user` call
-therefore goes to the parent, which has the user. The question names the
-sub-agent that asked it, and it carries the options that the sub-agent offered.
+therefore goes to the parent, which has the user. The questions name the
+sub-agent that asked them, and they carry the options that the sub-agent offered.
+A sub-agent always waits for the answers; `background` does not apply to it.
 The answer of the user comes back as the result of that call, and the sub-agent
 continues.
 
@@ -1289,7 +1351,7 @@ Global parsing stops at the first non-option. A known token is dispatched as a v
 | `--color MODE` | `auto`, `off`, or `on` |
 | `--theme THEME` | Select markdown theme |
 | `--interactive`, `-i` | Start interactive mode |
-| `--answer TEXT` | Pre-supply an `ask_user` answer; repeatable |
+| `--answer TEXT` | Pre-supply the answer to one `ask_user` question; repeatable |
 | `--debug`, `-d` | Increase diagnostic verbosity |
 
 ## 12. Architecture and operational notes

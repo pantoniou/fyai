@@ -732,16 +732,42 @@ the page source; the terminal library draws its slots.
   they change, and are cleared when the page renderer stops. A bound key
   reaches fyai as `FYTIM_EVENT_KEY` and not the editor. A new name of the
   state goes into `data/page-state.schema.yaml`, which its test checks.
-- A question to the user is a mode of the input area. `fyai_ui_ask()` puts it
-  in the queue of the UI and calls its `done` function with the answer, or
-  with NULL for none; the caller waits in the event loop, not in a nested
-  loop of its own. `ask_user` and the question of a sub-agent take this path
-  when `fyai_ui_ask_available()` says so and no `--answer` remains. The mode
-  is `ask` while nothing is typed, where the number keys choose, and
+- Questions to the user are a mode of the input area. `src/fyai_ask.c` owns
+  their model: `fyai_ask_normalize()` checks the arguments of `ask_user` and
+  makes the one normalized sequence that the UI, the `user/ask` forward of a
+  sub-agent, and the text fallbacks all read; `fyai_ask_result()` builds the
+  structured result. Do not parse the arguments or build the result anywhere
+  else. `fyai_ui_ask()` puts the questions in the queue of the UI and calls its
+  `done` function with one `struct fyai_ask_reply` for each question, or with
+  NULL for none; the caller waits in the event loop, not in a nested loop of
+  its own. `ask_user` and the questions of a sub-agent take this path when
+  `fyai_ui_ask_available()` says so and no `--answer` remains. The mode is
+  `ask` while nothing is typed, where the number keys choose or toggle, and
   `ask_text` once text is typed, where they type. Escape and `^C` answer
-  nothing. A caller that goes away withdraws its question with
-  `fyai_ui_ask_withdraw()`. Agents put one question at a time, so the page
-  adds `fyai_agents_questions_waiting()` to the questions it says wait.
+  nothing. A caller that goes away withdraws its questions with
+  `fyai_ui_ask_withdraw()`. Agents put one set of questions at a time, so the
+  page adds `fyai_agents_questions_waiting()` to the sets it says wait. The UI
+  copies the text of the questions it shows; the page gets them as
+  `struct fyai_page_ask` and does not read generics. A preview is rendered
+  with `markdown_render()` at the width the indent leaves, kept until the
+  option, the question or the width changes, and drawn in the `preview` slot.
+  The option under the cursor is drawn as the completion popup draws its
+  selected row: the roles `select.row` (the ground of each of its rows, to the
+  edge) and `select.bar` (the bar in its first column, the glyph `select.bar`,
+  shared by the label and the description of the option) of the palette theme.
+  The page document names the roles; do not put a colour for them in C. A
+  theme without them leaves the bar uncoloured and the row bare, so the
+  selection is still marked.
+- A question given `background` or a `name` is an object of the run, as a
+  named wait is. `src/fyai_asks.c` keeps them in `ctx->asks` with a builder of
+  their own, because the turn that asked ends before the user answers. `list`
+  shows them (kind `questions`), `cancel` withdraws one with
+  `fyai_ui_ask_withdraw()`, and `wait` resolves a name to it. When the user
+  answers, the registry queues `[question 'NAME' answered]` and the JSON as an
+  event; a cancel by the model queues nothing, because the model has the
+  result of that call. `ask_user` is an instant tool only for such a call
+  (`in_parent` on its entry says so). A forked child drops the registry in
+  `fyai_ctx_fork_disown()` without withdrawing the questions of the parent.
 - `display/page` names the file of a page document. `fyai_page_create()`
   loads it with `fyai_page_load()`: the file holds a mapping, matches
   `data/page.schema.yaml`, and passes `fyai_page_check()`, which transcribes
