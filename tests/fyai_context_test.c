@@ -91,3 +91,20 @@ int context_source_names(void)
 	printf("ok - each prompt source has a reported name\n");
 	return 0;
 }
+
+FYAI_TEST_ENTRY(context, transient_adopted, context_transient_adopted)
+
+int context_transient_adopted(void)
+{
+	struct fyai_ctx ctx = { .cfg = &ctxt_cfg };
+
+	/* A lazy builder is released when idle; an explicit owner keeps it. */
+	FYAI_TCHECK(fyai_ctx_transient_gb(&ctx));
+	FYAI_TCHECK(ctx.transient_autorelease);
+	FYAI_TCHECK(!fyai_setup_transient_builder(&ctx));
+	FYAI_TCHECK(!ctx.transient_autorelease);
+	fyai_cleanup_transient_builder(&ctx);
+
+	printf("ok - an explicit setup adopts a lazily made transient builder\n");
+	return 0;
+}
