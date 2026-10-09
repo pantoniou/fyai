@@ -1714,6 +1714,49 @@ out:
 	return -1;
 }
 
+int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			     const char *text, size_t len)
+{
+	struct response_buffer out = {0};
+	const char *indent = markdown_tool_output_indent(cfg);
+	char *indented = NULL;
+	size_t ilen = 0, start = 0, end;
+	FILE *mf;
+	int saved, rc;
+
+	if (!len)
+		return 0;
+	saved = fyai_width_reserve_begin(cfg, fyai_indent_cols(indent));
+	rc = markdown_render(cfg, text, len, &out,
+			     markdown_color_enabled(cfg->color),
+			     cfg->theme_variant);
+	fyai_width_reserve_end(cfg, saved);
+	if (rc || !out.data) {
+		free(out.data);
+		return -1;
+	}
+	end = out.len;
+	while (start < end && (out.data[start] == '\n' || out.data[start] == '\r'))
+		start++;
+	while (end > start && (out.data[end - 1] == '\n' ||
+			       out.data[end - 1] == '\r'))
+		end--;
+	if (end > start) {
+		mf = open_memstream(&indented, &ilen);
+		if (mf) {
+			fyai_fwrite_indented(mf, indent, out.data + start,
+					     end - start);
+			fclose(mf);
+			(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT,
+					      indented, ilen);
+			free(indented);
+		}
+	}
+	(void)fyai_sink_write(sink, FYAI_SINK_TRANSCRIPT, "\n", 1);
+	free(out.data);
+	return 0;
+}
+
 int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
 		      const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,

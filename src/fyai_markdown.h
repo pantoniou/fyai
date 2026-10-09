@@ -250,6 +250,10 @@ int fyai_print_markdown_limited(const char *text, struct fyai_cfg *cfg,
  * for tool errors); @template_vars supplies {key} decoration values or may be
  * fy_invalid. Returns 0 on success, -1 on renderer failure (raw text printed).
  */
+/* Print @len bytes of Markdown as the body of a tool call: rendered at the
+ * width the indent leaves, then indented. */
+int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			     const char *text, size_t len);
 int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
 		      const char *text, size_t len,
 		      const char *lang, fy_generic template_vars,

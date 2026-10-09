@@ -39,6 +39,14 @@ void fyai_ask_replies_free(struct fyai_ask_reply *replies, size_t n);
  * Build the result of the tool in @gb from the @n replies to @questions. A
  * NULL @replies says that the user declined to answer.
  */
+/*
+ * The result of the tool as Markdown for the user: each question with the
+ * answer given. @args are the arguments of the call, which name the options,
+ * or fy_invalid. Returns a malloc'd string, or NULL for a result that is not
+ * an answer, which is shown as it is.
+ */
+char *fyai_ask_format(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		      fy_generic args, const char *result);
 fy_generic fyai_ask_result(struct fy_generic_builder *gb, fy_generic questions,
 			   const struct fyai_ask_reply *replies, size_t n);
 

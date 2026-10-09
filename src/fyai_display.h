@@ -93,6 +93,14 @@ void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 void fyai_render_tool_result(struct fyai_sink *sink, struct fyai_cfg *cfg,
 			     fy_generic content,
 			     const char *lang, int preview_lines);
+/*
+ * The language of a tool result that is Markdown written for the user by the
+ * format_result function of the tool. The stored fragment keeps that Markdown.
+ */
+#define FYAI_RESULT_MARKDOWN "fyai:markdown"
+/* Draw @len bytes of Markdown as the body of a tool call. */
+void fyai_render_tool_markdown(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			       const char *md, size_t len);
 int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 			       const char *markdown);
 /* Build the title and marked body of a tool call. */

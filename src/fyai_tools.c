@@ -1897,18 +1897,22 @@ static void tool_head_ask_user(struct fyai_ctx *ctx, FILE *mf,
 			       int preview_lines, struct fyai_md_blocks *blocks)
 {
 	fy_generic questions = fy_get(args, "questions", fy_invalid);
-	fy_generic q, gq, gn = fy_get(args, "name", fy_invalid);
+	fy_generic gq, gn = fy_get(args, "name", fy_invalid);
 	const char *name = fy_castp(&gn, "");
 
 	(void)ctx;
 	(void)gb;
 	(void)preview_lines;
 	(void)blocks;
-	fy_foreach(q, questions) {
-		gq = fy_get(q, "question", fy_invalid);
-		fprintf(mf, "**❓ %s**%s%s%s\n\n", fy_castp(&gq, ""),
-			*name ? " [" : "", name, *name ? "]" : "");
-	}
+	/* One row, as the head of every call is: the first question, and how
+	 * many more there are. */
+	gq = fy_get(fy_get_at(questions, 0), "question", fy_invalid);
+	fprintf(mf, "**ask** %s", fy_castp(&gq, ""));
+	if (fy_len(questions) > 1)
+		fprintf(mf, " (+%zu more)", fy_len(questions) - 1);
+	if (*name)
+		fprintf(mf, " [%s]", name);
+	fprintf(mf, "\n\n");
 }
 
 static void tool_head_cancel(struct fyai_ctx *ctx, FILE *mf,
@@ -1975,6 +1979,7 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 	{ .name = "ask_user", .run = tool_ask_user, .head = tool_head_ask_user,
+	  .format_result = fyai_ask_format,
 	  .in_parent = fyai_asks_background,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_INSTANT },
 	{ .name = "project_view", .run = tool_project_view,

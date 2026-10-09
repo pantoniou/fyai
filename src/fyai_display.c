@@ -2273,6 +2273,11 @@ static void fyai_emit_tool_result_blocks(FILE *mf, const char *text,
 	 */
 	if (!preview_lines)
 		return;
+	/* Markdown that the tool wrote for the user is the body as it is. */
+	if (lang && !strcmp(lang, FYAI_RESULT_MARKDOWN)) {
+		fprintf(mf, "%s\n\n", text);
+		return;
+	}
 	limit = preview_lines > 0 ? (size_t)preview_lines : SIZE_MAX;
 	total = 0;
 	shown = 0;
@@ -2655,6 +2660,13 @@ static void fyai_print_tool_separator(struct fyai_sink *sink,
 					 cfg->tool_separator);
 }
 
+void fyai_render_tool_markdown(struct fyai_sink *sink, struct fyai_cfg *cfg,
+			       const char *md, size_t len)
+{
+	fyai_print_tool_separator(sink, cfg);
+	(void)fyai_print_markdown_body(sink, cfg, md, len);
+}
+
 void fyai_render_tool_result(struct fyai_sink *sink, struct fyai_cfg *cfg,
 			     fy_generic content,
 			     const char *lang, int preview_lines)
@@ -2664,6 +2676,10 @@ void fyai_render_tool_result(struct fyai_sink *sink, struct fyai_cfg *cfg,
 
 	if (!preview_lines)
 		return;
+	if (lang && !strcmp(lang, FYAI_RESULT_MARKDOWN) && fy_is_string(content)) {
+		fyai_render_tool_markdown(sink, cfg, s, strlen(s));
+		return;
+	}
 	max_lines = preview_lines < 0 ? 0 : (size_t)preview_lines;
 	fyai_print_tool_separator(sink, cfg);
 	if (fy_is_string(content)) {
@@ -2685,6 +2701,8 @@ struct fyai_tool_view {
 	fy_generic args;
 	int preview_lines;
 	char *lang;
+	/* What the user is shown: the result, or the Markdown a tool made. */
+	fy_generic shown;
 };
 
 static void fyai_tool_view_cleanup(struct fyai_tool_view *tv)
@@ -2708,8 +2726,10 @@ static int fyai_tool_view_init(struct fyai_ctx *ctx, struct fyai_tool_view *tv,
 	const char *args_text;
 	const char *resolved;
 	const char *res_str;
+	const struct fyai_tool_def *def;
 	fy_generic gcmd;
 	fy_generic gpath;
+	char *text;
 
 	memset(tv, 0, sizeof(*tv));
 	tv->ctx = ctx;
@@ -2755,6 +2775,19 @@ static int fyai_tool_view_init(struct fyai_ctx *ctx, struct fyai_tool_view *tv,
 		gpath = fy_get(tv->args, "path");
 		tv->lang = markdown_lang_for_path(fy_castp(&gpath, ""));
 	}
+	tv->shown = tool_result;
+	/* A tool that writes its result for the user shows that instead. */
+	def = fyai_tool_find(tv->name);
+	if (def && def->format_result && fy_is_string(tool_result) && *res_str &&
+	    !fyai_tool_result_is_error(res_str)) {
+		text = def->format_result(ctx, gb, tv->args, res_str);
+		if (text) {
+			tv->shown = fy_value(gb, text);
+			free(tv->lang);
+			tv->lang = strdup(FYAI_RESULT_MARKDOWN);
+			free(text);
+		}
+	}
 	return 0;
 }
 
@@ -2798,7 +2831,7 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 		free(body.data);
 	}
 	/* The shared renderer draws the result frameless and row-bounded. */
-	fyai_render_tool_result(ctx->sink, cfg, tool_result, tv.lang,
+	fyai_render_tool_result(ctx->sink, cfg, tv.shown, tv.lang,
 				tv.preview_lines);
 	free(cause);
 	fyai_tool_view_cleanup(&tv);
@@ -3101,8 +3134,8 @@ int fyai_record_tool_exchange(struct fyai_ctx *ctx, fy_generic tool_call,
 	start = strlen(fyai_output_markdown(ctx, NULL));
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, err, "could not format tool result output");
-	if (fy_is_string(tool_result))
-		fyai_emit_tool_result(mf, fy_castp(&tool_result, ""), -1, tv.lang);
+	if (fy_is_string(tv.shown))
+		fyai_emit_tool_result(mf, fy_castp(&tv.shown, ""), -1, tv.lang);
 	else
 		fyai_emit_shell_output(mf, tool_result, -1);
 	fyai_error_check(ctx, !fclose(mf), err_closed,
@@ -3649,6 +3682,11 @@ static int render_walk_unit(void *user, const struct fyai_fragment *f)
 				 "missing a stored tool result");
 		rc = fyai_sink_unit(ctx->sink, FYAI_SINK_TRANSCRIPT, f->unit);
 		fyai_error_check(ctx, !rc, out, "could not fence a tool result");
+		/* The stored source is the Markdown the tool wrote for the user. */
+		if (!strcmp(f->lang, FYAI_RESULT_MARKDOWN)) {
+			fyai_render_tool_markdown(ctx->sink, cfg, f->md, f->len);
+			return 0;
+		}
 		fyai_render_tool_result(ctx->sink, cfg, f->content, f->lang,
 					f->preview_lines);
 		return 0;
@@ -4334,7 +4372,10 @@ static int measure_walk_unit(void *user, const struct fyai_fragment *f)
 
 	/* Include the preview and the row that reports the omission. */
 	cap = f->preview_lines > 0 ? (size_t)f->preview_lines + 1 : 0;
-	if (f->unit == FYAI_FLOW_TOOL_RESULT)
+	if (f->unit == FYAI_FLOW_TOOL_RESULT &&
+	    !strcmp(f->lang, FYAI_RESULT_MARKDOWN))
+		w->rows += measure_rows(w->m, f->md, f->len);
+	else if (f->unit == FYAI_FLOW_TOOL_RESULT)
 		w->rows += fyai_display_result_rows(f->content,
 						    f->preview_lines);
 	else if (f->unit == FYAI_FLOW_TOOL_HEAD || !cap)

@@ -193,6 +193,83 @@ fy_generic fyai_ask_result(struct fy_generic_builder *gb, fy_generic questions,
 	return fy_mapping(gb, "status", "answered", "answers", answers);
 }
 
+/*
+ * The label of the option @id of question @qid, else @id itself. A short
+ * label lives in the word of its generic, so it is copied to @gb.
+ */
+static const char *ask_label(struct fy_generic_builder *gb,
+			     fy_generic questions, const char *qid,
+			     const char *id)
+{
+	fy_generic q, o, gid, glabel;
+
+	fy_foreach(q, questions) {
+		gid = fy_get(q, "id", fy_invalid);
+		if (strcmp(fy_castp(&gid, ""), qid))
+			continue;
+		fy_foreach(o, fy_get(q, "options", fy_invalid)) {
+			gid = fy_get(o, "id", fy_invalid);
+			if (strcmp(fy_castp(&gid, ""), id))
+				continue;
+			glabel = fy_get(o, "label", fy_invalid);
+			return fy_gb_intern_string(gb, fy_castp(&glabel, id));
+		}
+	}
+	return id;
+}
+
+char *fyai_ask_format(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
+		      fy_generic args, const char *result)
+{
+	fy_generic res, answers, a, id, sel, s, questions = fy_invalid;
+	const char *qid, *other, *status;
+	char why[128];
+	char *out = NULL;
+	size_t len = 0, n;
+	FILE *mf;
+
+	(void)ctx;
+	res = parse_json_string(gb, result);
+	if (!fy_is_mapping(res))
+		return NULL;
+	if (fy_is_valid(args))
+		questions = fyai_ask_normalize(gb, args, why, sizeof(why));
+	status = fy_get(res, "status", "");
+	mf = open_memstream(&out, &len);
+	if (!mf)
+		return NULL;
+	if (!strcmp(status, "declined")) {
+		fprintf(mf, "_The user did not answer._\n");
+	} else if (!strcmp(status, "answered")) {
+		answers = fy_get(res, "answers", fy_invalid);
+		fy_foreach(a, answers) {
+			id = fy_get(a, "id", fy_invalid);
+			qid = fy_castp(&id, "");
+			fprintf(mf, "- **%s** %s  \n", fy_get(a, "header", ""),
+				fy_get(a, "question", ""));
+			sel = fy_get(a, "selected", fy_invalid);
+			n = 0;
+			fy_foreach(s, sel)
+				fprintf(mf, "%s%s", n++ ? ", " : "  \u2192 ",
+					ask_label(gb, questions, qid,
+						  fy_castp(&s, "")));
+			other = fy_get(a, "other", "");
+			if (*other)
+				fprintf(mf, "%s\u201c%s\u201d", n++ ? ", " : "  \u2192 ",
+					other);
+			if (!n)
+				fprintf(mf, "  \u2192 _no answer_");
+			fprintf(mf, "\n");
+		}
+	} else {
+		fclose(mf);
+		free(out);
+		return NULL;
+	}
+	fclose(mf);
+	return out;
+}
+
 /* Read @s as a list of option numbers; false when it is anything else. */
 static bool ask_numbers(const char *s, size_t noptions, bool multi,
 			unsigned int *mask)

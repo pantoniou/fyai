@@ -26,6 +26,17 @@ typedef void (*fyai_tool_head_fn)(struct fyai_ctx *ctx, FILE *mf,
 				  fy_generic args, int preview_lines,
 				  struct fyai_md_blocks *blocks);
 
+/*
+ * Write the result of a call as Markdown for the user, for a result that is
+ * a structure and reads badly as the text the model is given. @args are the
+ * arguments of the call, or fy_invalid when the call is not known. Return a
+ * malloc'd string, or NULL to show the result as it is. The model always
+ * gets the result as it is.
+ */
+typedef char *(*fyai_tool_format_fn)(struct fyai_ctx *ctx,
+				     struct fy_generic_builder *gb,
+				     fy_generic args, const char *result);
+
 /* Ordering classes of fyai_tool_def.effect. */
 enum {
 	FYAI_TOOL_EFFECT_NONE,		/* reads nothing that others write */
@@ -64,6 +75,8 @@ struct fyai_tool_def {
 	fyai_tool_run_fn run;
 	fyai_tool_run_text_fn run_text;
 	fyai_tool_head_fn head;
+	/* When set, the result of a call that succeeded is shown through it. */
+	fyai_tool_format_fn format_result;
 	/* When set, a call is kept in the parent if this says so of its arguments. */
 	bool (*in_parent)(fy_generic args);
 	unsigned int flags;
