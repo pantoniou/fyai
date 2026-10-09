@@ -2509,6 +2509,58 @@ load as display/page does.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai todo
+
+show or clear the todo list of the branch
+
+**Usage:** `fyai todo {clear|show} ...`
+
+The todo list is branch state, as the configuration is: `todo_write`
+replaces it, `todo` shows it, and `todo clear` drops it. A sub-agent
+branch inherits a copy of the list of its parent.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `clear` | drop the todo list |
+| `show`, `list` | show the todo list |
+
+With no command, `show` runs.
+
+## fyai todo show
+
+show the todo list
+
+**Usage:** `fyai todo show`
+
+**Aliases:** `list`
+
+Show the todo list of the branch.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai todo clear
+
+drop the todo list
+
+**Usage:** `fyai todo clear`
+
+Drop the todo list of the branch.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai agent
 
 run one sub-agent on a task
@@ -4718,6 +4770,56 @@ list the live shell sessions and sub-agents
 **Usage:** `/sessions`
 
 List the live shell sessions and sub-agents of the work pane.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /todo
+
+show or clear the todo list of the branch
+
+**Usage:** `/todo {clear|show} ...`
+
+The todo list is branch state, as the configuration is: `todo_write`
+replaces it, `todo` shows it, and `todo clear` drops it. A sub-agent
+branch inherits a copy of the list of its parent.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `clear` | drop the todo list |
+| `show`, `list` | show the todo list |
+
+With no command, `show` runs.
+
+## /todo show
+
+show the todo list
+
+**Usage:** `/todo show`
+
+**Aliases:** `list`
+
+Show the todo list of the branch.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | show this help |
+
+## /todo clear
+
+drop the todo list
+
+**Usage:** `/todo clear`
+
+Drop the todo list of the branch.
 
 ### Options
 
