@@ -910,6 +910,33 @@ properties:
           Select when the completion popup opens. tab opens it on Tab; auto
           opens it when the current input has candidates. A candidate still
           requires an explicit selection.
+      keys:
+        type: object
+        description: >-
+          Bind keys of the prompt. Each member names a mode of the terminal
+          library - prompt, completion or surface - and maps keys to
+          actions. A key is a name such as Up, Escape, Ctrl-g or Ctrl-Shift-t,
+          or a chord of up to four keys apart by blanks, such as "Ctrl-x
+          Ctrl-e" or "Escape Escape". An action is a name of the library,
+          such as fytim.history.prev, fytim.redraw, fytim.edit,
+          fytim.interrupt, fytim.quit, fytim.focus.next or
+          fytim.complete.next, or an empty string to unbind a key. The mode
+          surface also takes fyai.focus.prompt, which gives the keys of a tile
+          back to the prompt. A key that
+          the config does not name keeps the binding it has. The mode prompt
+          keeps a key that leaves the program. The mode surface binds single
+          keys only.
+        additionalProperties:
+          type: object
+          additionalProperties:
+            type: string
+      chord_timeout_ms:
+        type: integer
+        minimum: 0
+        default: 1000
+        description: >-
+          Set the time in milliseconds that a chord of keys, such as a double
+          tap of Escape, waits for its next key. 0 waits for ever.
       command_output:
         type: string
         enum: [pane, transcript]

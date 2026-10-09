@@ -101,6 +101,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 /* Where an editor runs: a tile of the work pane, or the whole terminal. */
 #define DEFAULT_EDITOR_MODE "pane"
 #define DEFAULT_COMPLETION_MODE "tab"
+#define DEFAULT_CHORD_TIMEOUT_MS 1000
 #define DEFAULT_COMMAND_OUTPUT "transcript"
 #define DEFAULT_COMMAND_BG "theme"
 #define DEFAULT_COMMAND_BG_MIX 6
@@ -305,6 +306,7 @@ struct fyai_cfg {
 	const char *work_position;	/* above-prompt | below-prompt */
 	const char *editor_mode;	/* pane | terminal */
 	const char *completion_mode;	/* tab | auto */
+	int chord_timeout_ms;		/* wait of a chord for its next key */
 	const char *command_output;	/* pane | transcript */
 	const char *command_bg;		/* theme | none | #rrggbb */
 	int command_bg_mix;		/* percent of the theme colour */

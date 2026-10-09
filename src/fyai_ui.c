@@ -182,6 +182,11 @@ static const char *ui_edge(struct fyai_ui *ui, char *buf, size_t size);
 static void ui_inline_keys_hold(struct fyai_ui *ui);
 static void ui_popup_style(struct fyai_ui *ui);
 static void ui_completion_configure(struct fyai_ctx *ctx);
+static void ui_keys_configure(struct fyai_ctx *ctx);
+static void ui_page_keys_clear(struct fyai_ui *ui);
+
+/* The library mode that holds the keys of the cases of the page. */
+#define UI_PAGE_MODE "page"
 static bool ui_interrupt(struct fyai_ctx *ctx, bool quit);
 
 /* Bands are tiles in the shared work pane. */
@@ -1137,8 +1142,7 @@ static void ui_page_configure(struct fyai_ui *ui)
 	if (!ui->page) {
 		fytim_page_clear(ui->ft);
 		/* The keys of its modes go back to the prompt. */
-		(void)fytim_set_key_bindings(ui->ft, NULL, 0);
-		ui->page_keys.count = 0;
+		ui_page_keys_clear(ui);
 	}
 	ui->frame_pending = true;
 }
@@ -1572,9 +1576,19 @@ static void ui_page_action(struct fyai_ui *ui, const char *id)
 }
 
 /* A key that the page bound: call the action that the active mode gives it. */
+/* The action of a key of the surface mode that gives the keys back. */
+#define UI_ACT_FOCUS_PROMPT "fyai.focus.prompt"
+
 static void ui_page_key(struct fyai_ui *ui, const struct fytim_event *ev)
 {
 	size_t i;
+
+	if (ev->text && ev->text_len == strlen(UI_ACT_FOCUS_PROMPT) &&
+	    !strncmp(ev->text, UI_ACT_FOCUS_PROMPT, ev->text_len)) {
+		fyai_tools_keys_to_prompt(ui->ctx);
+		fyai_ui_wake(ui->ctx);
+		return;
+	}
 
 	for (i = 0; ev->text && i < ui->page_keys.count; i++)
 		if (strlen(ui->page_keys.key[i].name) == ev->text_len &&
@@ -1586,11 +1600,13 @@ static void ui_page_key(struct fyai_ui *ui, const struct fytim_event *ev)
 		     (int)ev->text_len, ev->text ? ev->text : "");
 }
 
-/* Bind the keys of the active modes of the page when they change. */
+/* Bind the keys of the active modes of the page when they change. They are
+ * the keys of the mode "page", which inherits the prompt: the library reports
+ * each as an action with the name of the key. */
 static void ui_page_keys_bind(struct fyai_ui *ui,
 			      const struct fyai_page_keys *keys)
 {
-	const char *names[FYAI_PAGE_KEYS_MAX];
+	struct fytim_keymap_entry entries[FYAI_PAGE_KEYS_MAX];
 	size_t i;
 
 	if (keys->count == ui->page_keys.count) {
@@ -1602,9 +1618,17 @@ static void ui_page_keys_bind(struct fyai_ui *ui,
 		if (i == keys->count)
 			return;
 	}
-	for (i = 0; i < keys->count; i++)
-		names[i] = keys->key[i].name;
-	if (fytim_set_key_bindings(ui->ft, names, keys->count) != FYTIM_OK) {
+	for (i = 0; i < keys->count; i++) {
+		entries[i].key = keys->key[i].name;
+		entries[i].action = keys->key[i].name;
+	}
+	/* The mode is made by its first binding, so a first reset finds none. */
+	(void)fytim_mode_reset(ui->ft, UI_PAGE_MODE, 0);
+	if (fytim_mode_bind(ui->ft, UI_PAGE_MODE, entries, keys->count) !=
+	    FYTIM_OK ||
+	    fytim_mode_set_parent(ui->ft, UI_PAGE_MODE, "prompt") != FYTIM_OK ||
+	    fytim_set_mode(ui->ft, keys->count ? UI_PAGE_MODE : NULL) !=
+	    FYTIM_OK) {
 		fyai_warning(ui->ctx, "the terminal library rejected the keys "
 			     "of the page");
 		return;
@@ -1615,7 +1639,8 @@ static void ui_page_keys_bind(struct fyai_ui *ui,
 /* The page renderer stopped: its keys go back to the prompt. */
 static void ui_page_keys_clear(struct fyai_ui *ui)
 {
-	(void)fytim_set_key_bindings(ui->ft, NULL, 0);
+	(void)fytim_set_mode(ui->ft, NULL);
+	(void)fytim_mode_reset(ui->ft, UI_PAGE_MODE, 0);
 	ui->page_keys.count = 0;
 }
 
@@ -2571,6 +2596,7 @@ int fyai_ui_open(struct fyai_ctx *ctx)
 	(void)fytim_history_set_max_len(ui->ft, 1000);
 	(void)fytim_set_complete_fn(ui->ft, ui_complete_cb, ctx);
 	ui_completion_configure(ctx);
+	ui_keys_configure(ctx);
 	ui_rearm(ui);
 	return 0;
 fail:
@@ -2607,6 +2633,7 @@ void fyai_ui_config_changed(struct fyai_ctx *ctx)
 			       ctx->cfg->prompt_marker : "❯ ");
 	(void)fyai_ui_update_prompt_style(ctx);
 	ui_completion_configure(ctx);
+	ui_keys_configure(ctx);
 	ui_page_configure(ui);
 	/* The manager owns pane geometry and configuration adoption. */
 	fyai_browser_config_changed(ctx);
@@ -3161,6 +3188,83 @@ static void ui_completion_configure(struct fyai_ctx *ctx)
 
 	(void)fytim_set_completion_auto(ctx->ui->ft,
 					mode && !strcmp(mode, "auto"));
+}
+
+/* The keys of fyai in the surface mode, bound before display/keys: a surface
+ * that holds the keys gets every key but these. */
+static const struct fytim_keymap_entry ui_surface_keys[] = {
+	{ "Ctrl-t", "fytim.focus.next" },
+	{ "Ctrl-]", UI_ACT_FOCUS_PROMPT },
+};
+
+/* Whether @action is "", a built-in action of the terminal library or an
+ * action of fyai. */
+static bool ui_key_action_known(const char *action)
+{
+	size_t i;
+	const char *name;
+
+	if (!*action)
+		return true;
+	if (!strcmp(action, UI_ACT_FOCUS_PROMPT))
+		return true;
+	for (i = 0; (name = fytim_action_name(i)); i++)
+		if (!strcmp(name, action))
+			return true;
+	return false;
+}
+
+/*
+ * display/keys: the keys of the three modes of the terminal library. A mode
+ * starts from its defaults, and the keys of the configuration go over them.
+ * A mode that the library rejects keeps its defaults, and the cause is
+ * reported once.
+ */
+static void ui_keys_configure(struct fyai_ctx *ctx)
+{
+	static const char *const modes[] = { "prompt", "completion", "surface" };
+	struct fytim_keymap_entry entries[FYTIM_MODE_KEYS_MAX];
+	fy_generic keys, table, key, action;
+	size_t m, n;
+
+	(void)fytim_set_chord_timeout(ctx->ui->ft,
+				      (unsigned)ctx->cfg->chord_timeout_ms);
+	keys = fy_get(fy_get(ctx->cfg->config_doc, "display", fy_invalid),
+		      "keys", fy_invalid);
+	for (m = 0; m < sizeof modes / sizeof modes[0]; m++) {
+		(void)fytim_mode_reset(ctx->ui->ft, modes[m], 1);
+		if (!strcmp(modes[m], "surface") &&
+		    fytim_mode_bind(ctx->ui->ft, "surface", ui_surface_keys,
+				    sizeof ui_surface_keys /
+				    sizeof ui_surface_keys[0]) != FYTIM_OK)
+			fyai_warning(ctx, "the terminal library rejected the "
+				     "focus keys of a surface");
+		table = fy_get(keys, modes[m], fy_invalid);
+		if (!fy_is_mapping(table))
+			continue;
+		n = 0;
+		fy_foreach_key_value(key, action, table) {
+			if (n >= FYTIM_MODE_KEYS_MAX)
+				break;
+			entries[n].key = fy_castp(&key, "");
+			entries[n].action = fy_castp(&action, "");
+			if (!ui_key_action_known(entries[n].action)) {
+				fyai_warning(ctx, "display/keys: the key '%s' "
+					     "of the mode '%s' names the "
+					     "unknown action '%s'",
+					     entries[n].key, modes[m],
+					     entries[n].action);
+				n = 0;
+				break;
+			}
+			n++;
+		}
+		if (n && fytim_mode_bind(ctx->ui->ft, modes[m], entries, n) !=
+		    FYTIM_OK)
+			fyai_warning(ctx, "display/keys: the terminal library "
+				     "rejected the keys of the mode '%s'",
+				     modes[m]);
+	}
 }
 
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)

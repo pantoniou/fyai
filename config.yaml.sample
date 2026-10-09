@@ -329,6 +329,14 @@ display:
   work_position: above-prompt
   # Completion popup: tab opens on Tab; auto opens when typing finds matches.
   completion: tab
+  # Keys of the prompt, by mode (prompt, completion, surface): a key or a
+  # chord of keys to an action of the terminal library, or "" to unbind it.
+  # A chord such as "Escape Escape" waits chord_timeout_ms for its next key.
+  # keys:
+  #   prompt:
+  #     Ctrl-r: fytim.redraw
+  #     Ctrl-d: ""
+  chord_timeout_ms: 1000
   # Slash-command output: transcript draws and stores the command and output;
   # pane shows a tile or popup without storing it.
   command_output: transcript

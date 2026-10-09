@@ -773,6 +773,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 			fy_get(v, "editor", cfg->editor_mode));
 		cfg->completion_mode = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "completion", cfg->completion_mode));
+		cfg->chord_timeout_ms = (int)fy_get(v, "chord_timeout_ms",
+						    (long long)cfg->chord_timeout_ms);
 		cfg->command_output = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "command_output", cfg->command_output));
 		cfg->command_bg = fy_gb_intern_string(cfg->gb,
@@ -2770,6 +2772,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->work_position = DEFAULT_WORK_POSITION;
 	cfg->editor_mode = DEFAULT_EDITOR_MODE;
 	cfg->completion_mode = DEFAULT_COMPLETION_MODE;
+	cfg->chord_timeout_ms = DEFAULT_CHORD_TIMEOUT_MS;
 	cfg->command_output = DEFAULT_COMMAND_OUTPUT;
 	cfg->command_bg = DEFAULT_COMMAND_BG;
 	cfg->command_bg_mix = DEFAULT_COMMAND_BG_MIX;

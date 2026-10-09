@@ -1199,17 +1199,10 @@ bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len)
 			fyai_ui_wake(ctx);
 			continue;
 		}
-		if (data[i] == FYAI_FOCUS_NEXT_KEY) {
-			fyai_tools_focus_next(ctx);
-			if (i + 1 < len && fyai_ui_keys_return(ctx, data + i + 1,
-							       len - i - 1))
-				fyai_warning(ctx, "input typed after ^T was lost");
-			break;
-		}
 		/* The view is this program's, so the keys that leave a tool
-		 * tile leave it too. */
-		if (data[i] == FYAI_KEY_ESC || data[i] == FYAI_KEY_INTR ||
-		    data[i] == FYAI_FOCUS_PROMPT_KEY) {
+		 * tile leave it too. The keys that move the focus are keys of
+		 * the surface mode of the terminal library. */
+		if (data[i] == FYAI_KEY_ESC || data[i] == FYAI_KEY_INTR) {
 			fyai_agents_detach(ctx);
 			if (i + 1 < len && fyai_ui_keys_return(ctx, data + i + 1,
 							       len - i - 1))

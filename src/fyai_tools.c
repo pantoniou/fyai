@@ -6492,25 +6492,11 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 	struct fyai_ctx *ctx = user;
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
-	size_t i;
 	int delta;
 
 	if (fyai_agents_keys(ctx, data, len))
 		return;
 	if (fyai_browser_surface(ctx, fyai_workpane_focused(ctx->workpane))) {
-		for (i = 0; i < len; i++) {
-			if (data[i] != FYAI_FOCUS_NEXT_KEY && data[i] != FYAI_FOCUS_PROMPT_KEY)
-				continue;
-			if (i)
-				(void)fyai_browser_keys(ctx, data, i);
-			if (data[i] == FYAI_FOCUS_NEXT_KEY)
-				fyai_tools_focus_next(ctx);
-			else
-				fyai_tools_unzoom(ctx);
-			if (i + 1 < len)
-				(void)fyai_ui_keys_return(ctx, data + i + 1, len - i - 1);
-			return;
-		}
 		(void)fyai_browser_keys(ctx, data, len);
 		return;
 	}
@@ -6540,23 +6526,6 @@ static void fyai_tools_zoom_keys(void *user, const char *data, size_t len)
 				fyai_agent_view_refresh(job);
 			return;
 		}
-	}
-	for (i = 0; i < len; i++) {
-		if (data[i] != FYAI_FOCUS_NEXT_KEY &&
-		    data[i] != FYAI_FOCUS_PROMPT_KEY)
-			continue;
-		/* Send bytes that precede the intercepted focus key. */
-		if (i)
-			fyai_tools_zoom_write(sess, job, data, i);
-		if (data[i] == FYAI_FOCUS_NEXT_KEY)
-			fyai_tools_focus_next(ctx);
-		else
-			fyai_tools_unzoom(ctx);
-		/* Return the unconsumed frame tail to the new input owner. */
-		if (i + 1 < len)
-			(void)fyai_ui_keys_return(ctx, data + i + 1,
-						  len - i - 1);
-		return;
 	}
 	fyai_tools_zoom_write(sess, job, data, len);
 }
@@ -6905,15 +6874,15 @@ static bool fyai_inline_focus(struct fyai_ctx *ctx, uintptr_t key)
 
 /*
  * What is typed while a block of the transcript holds the keys goes to its
- * program. Ctrl-T moves the keys on, and Ctrl-] gives them to the prompt; what
- * follows that key goes to the new owner.
+ * program. The keys that move the focus are keys of the surface mode of the
+ * terminal library: it reports them in order with these bytes, so what
+ * follows such a key goes to the new owner.
  */
 static void fyai_inline_keys(void *user, const char *data, size_t len)
 {
 	struct fyai_ctx *ctx = user;
 	struct fyai_shell_session *sess;
 	struct fyai_tool_job *job;
-	size_t i;
 
 	fyai_inline_owner(ctx, fyai_ui_inline_focused(ctx), &sess, &job);
 	if (!sess && !job) {
@@ -6921,22 +6890,22 @@ static void fyai_inline_keys(void *user, const char *data, size_t len)
 		(void)fyai_ui_keys_return(ctx, data, len);
 		return;
 	}
-	for (i = 0; i < len; i++) {
-		if (data[i] != FYAI_FOCUS_NEXT_KEY &&
-		    data[i] != FYAI_FOCUS_PROMPT_KEY)
-			continue;
-		if (i)
-			fyai_tools_zoom_write(sess, job, data, i);
-		if (data[i] == FYAI_FOCUS_NEXT_KEY)
-			(void)fyai_tools_focus_next(ctx);
-		else
-			(void)fyai_inline_focus(ctx, 0);
-		if (i + 1 < len)
-			(void)fyai_ui_keys_return(ctx, data + i + 1,
-						  len - i - 1);
-		return;
-	}
 	fyai_tools_zoom_write(sess, job, data, len);
+}
+
+/*
+ * Give the keys to the prompt from wherever they are: a view of the agents
+ * is left, a block of the transcript lets go of them, and a tile or the
+ * branch browser is unzoomed.
+ */
+void fyai_tools_keys_to_prompt(struct fyai_ctx *ctx)
+{
+	if (fyai_ui_inline_focused(ctx))
+		(void)fyai_inline_focus(ctx, 0);
+	else if (fyai_agents_surface(ctx, fyai_workpane_focused(ctx->workpane)))
+		fyai_agents_detach(ctx);
+	else
+		fyai_tools_unzoom(ctx);
 }
 
 /*

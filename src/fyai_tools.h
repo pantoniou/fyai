@@ -5,12 +5,11 @@
 #include "fyai.h"
 
 /*
- * Keys a tile does not keep. The focus keys move the keyboard between tiles
- * and back to the prompt; escape and the interrupt character are the
- * program's, and leave a view this program draws itself.
+ * Escape and the interrupt character are the program's, and leave a view this
+ * program draws itself. The keys that move the keyboard between tiles and back
+ * to the prompt are keys of the surface mode of the terminal library, bound in
+ * ui_keys_configure().
  */
-#define FYAI_FOCUS_NEXT_KEY 0x14	/* ^T */
-#define FYAI_FOCUS_PROMPT_KEY 0x1d	/* ^] */
 #define FYAI_KEY_ESC 0x1b
 #define FYAI_KEY_INTR 0x03
 
@@ -142,6 +141,8 @@ int fyai_tools_kill(struct fyai_ctx *ctx, const char *name,
 		    const char **actionp);
 /* Return the pane and keyboard focus to the prompt. */
 void fyai_tools_unzoom(struct fyai_ctx *ctx);
+/* Give the keys to the prompt: the action of Ctrl-] on a surface. */
+void fyai_tools_keys_to_prompt(struct fyai_ctx *ctx);
 /* Start a user-owned TTY shell in the work pane. */
 int fyai_tools_bang(struct fyai_ctx *ctx, const char *command);
 /*
