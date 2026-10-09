@@ -582,6 +582,7 @@ struct fyai_usage_sum {
 	int calls;
 };
 
+struct fyai_ask_pending;
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
 	struct fy_allocator *durable_allocator;
@@ -736,6 +737,8 @@ struct fyai_ctx {
 	/* The one owner of work-pane geometry, focus, and zoom. */
 	struct fyai_workpane_manager *workpane;
 	struct fyai_wait *waits;	/* named waits, live for this run */
+	struct fyai_ask_pending *asks;	/* background questions that wait for the user */
+	unsigned int asks_seq;		/* the number of the last question named by default */
 	struct fyai_waiter *waiters;	/* waits that hold a call, active */
 	struct fyai_event_source *waiter_tick;	/* earliest deadline of a waiter */
 	bool waiter_kick;			/* a look at the waiters is queued */

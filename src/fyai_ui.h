@@ -73,9 +73,11 @@ void fyai_ui_repaint(struct fyai_ctx *ctx);
 char *fyai_ui_input_copy(struct fyai_ctx *ctx);
 void fyai_ui_input_set(struct fyai_ctx *ctx, const char *text);
 
-/* Called once with the answer to a question, or with NULL when the user gave
- * none. The answer is valid for the call. */
-typedef void (*fyai_ui_ask_fn)(void *user, const char *answer);
+/* Called once with the replies to the questions, or with NULL when the user
+ * gave none. The replies are valid for the call. */
+struct fyai_ask_reply;
+typedef void (*fyai_ui_ask_fn)(void *user, const struct fyai_ask_reply *replies,
+			       size_t n);
 /* Whether the input area can put a question to the user: the page renderer
  * draws it. */
 bool fyai_ui_ask_available(struct fyai_ctx *ctx);
@@ -106,14 +108,13 @@ const struct fyai_page *fyai_ui_page(struct fyai_ctx *ctx);
 struct fyai_page_action;
 void fyai_ui_page_actions(const struct fyai_page_action **actions, size_t *n);
 /*
- * Put @question to the user in the input area, after the questions before it.
- * @from names the sub-agent that asks, or is NULL, and the @n @options are
- * offered. @done is called once, from the event loop, with @user. Returns 0,
- * or -1 after it reported why the question cannot be put.
+ * Put @questions, a sequence normalized by fyai_ask_normalize(), to the user in
+ * the input area, after the questions before them. @from names the sub-agent
+ * that asks, or is NULL. @done is called once, from the event loop, with
+ * @user. Returns 0, or -1 after it reported why they cannot be put.
  */
-int fyai_ui_ask(struct fyai_ctx *ctx, const char *question, const char *from,
-		const char *const *options, size_t n, fyai_ui_ask_fn done,
-		void *user);
+int fyai_ui_ask(struct fyai_ctx *ctx, fy_generic questions, const char *from,
+		fyai_ui_ask_fn done, void *user);
 /* Take back the questions of @user without an answer: nobody waits for them. */
 void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user);
 /* An interrupt reached the session (Escape, or SIGINT from ^C). Discards a

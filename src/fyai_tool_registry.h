@@ -47,7 +47,8 @@ enum {
 	/*
 	 * A call kept in the parent returns at once and starts work that ends
 	 * later. It runs in order inside a group, so a later call of the same
-	 * response can wait for it.
+	 * response can wait for it. When the entry has `in_parent`, only a call
+	 * that function accepts is instant.
 	 */
 	FYAI_TOOL_INSTANT	= 1 << 5,
 };

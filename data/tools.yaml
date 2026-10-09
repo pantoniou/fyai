@@ -328,7 +328,8 @@
     name: cancel
     description: >-
       Stop something you started in the background, by its name: a named `wait`, a sub-agent (also
-      one started with `background`), a `monitor`, or an open terminal session. Stopping a sub-agent
+      one started with `background`), a `monitor`, a question put to the user with a name, or an
+      open terminal session. Stopping a sub-agent
       also stops the processes it started, and you are told in a new turn that it ended. A terminal
       session is killed at once; use `shell_close` instead if the program should save its work. Use
       `list` to see what is open.
@@ -338,13 +339,13 @@
         name:
           type: string
           description: |-
-            Name of the wait, sub-agent, monitor or session to cancel.
+            Name of the wait, sub-agent, monitor, question or session to cancel.
         kind:
           type: string
-          enum: [wait, agent, shell, monitor]
+          enum: [wait, agent, shell, monitor, question]
           description: >-
             What the name refers to. Omit it when the name is unique among your waits, sub-agents,
-            monitors and sessions.
+            monitors, questions and sessions.
       required:
         - name
       additionalProperties: false
@@ -382,25 +383,97 @@
   function:
     name: ask_user
     description: >-
-      Ask the user a question and wait for their answer. Use this when you need a decision or
-      clarification only the user can give. Provide `options` to offer specific choices; the user
-      may still answer freely. From a sub-agent the question goes to whoever delegated the work, who
-      puts it to the user and sends the answer back.
+      Ask the user one to four questions and wait for the answers. Use this when you need a decision
+      or clarification only the user can give. Each question offers two to four options. The user
+      can always type another answer, so do not add an "Other" option. Put the option you recommend
+      first and end its label with "(Recommended)". Set multi_select when more than one option can
+      apply. Give an option a preview when the choice is easier to judge by looking at it, such as a
+      layout or a diagram; a preview is Markdown and shows beside the options of a question that
+      allows one choice. Set `background` to ask without holding your turn: the call returns at once
+      with the name of the question, you keep working, and you are told when the user has answered.
+      `wait` for the name to hold a call for the answer, `list` with kind `questions` to see what
+      still waits, and `cancel` to take a question back. From a sub-agent the questions go to whoever delegated the work, who puts
+      them to the user and sends the answers back.
     parameters:
       type: object
       properties:
-        question:
-          type: string
-          description: |-
-            The question to put to the user.
-        options:
+        questions:
           type: array
           description: |-
-            Optional list of suggested answers to present as a numbered menu.
+            The questions to put to the user, asked together. One to four.
+          minItems: 1
+          maxItems: 4
           items:
-            type: string
+            type: object
+            properties:
+              id:
+                type: string
+                description: >-
+                  Optional stable name of the question, used in the answer. Defaults to q1, q2 and
+                  so on.
+              header:
+                type: string
+                description: |-
+                  A short label for the question, at most 12 characters, such as "Scope".
+                maxLength: 12
+              question:
+                type: string
+                description: |-
+                  The complete question, ending with a question mark.
+              multi_select:
+                type: boolean
+                description: |-
+                  Allow more than one option to be chosen. Defaults to false.
+              options:
+                type: array
+                description: |-
+                  The choices, two to four, each distinct.
+                minItems: 2
+                maxItems: 4
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      description: >-
+                        Optional stable name of the option, used in the answer. Defaults to the
+                        label.
+                    label:
+                      type: string
+                      description: |-
+                        The text of the choice, one to five words.
+                    description:
+                      type: string
+                      description: |-
+                        What the choice means or what follows from it.
+                    preview:
+                      type: string
+                      description: >-
+                        Optional Markdown shown while the option is selected. Only for a question
+                        with one choice. A fenced mermaid block is drawn as a diagram.
+                  required:
+                    - label
+                    - description
+                  additionalProperties: false
+            required:
+              - question
+              - header
+              - options
+            additionalProperties: false
+        background:
+          type: boolean
+          description: >-
+            Ask without holding your turn. The call returns at once and you are told when the user
+            has answered. Defaults to false: the call waits for the answers. A call that gives a
+            `name` is a background call too.
+        name:
+          type: string
+          description: >-
+            Optional name of a background question, for `wait`, `list` and `cancel`. It can use
+            letters, digits, '-' and '_', and it must differ from every other open question. Left
+            out, the question is named ask-1, ask-2 and so on.
       required:
-        - question
+        - questions
       additionalProperties: false
 - type: function
   function:
@@ -531,14 +604,15 @@
       List what you can name in other calls. `agents`: the sub-agents you started, running or ended,
       with their state and whether they left a view for `project_view`. `views`: those views.
       `shells`: your open terminal sessions. `waits`: your pending named waits. `monitors`: your
-      running monitors. Each name is the one you gave it. You only see your own: those of the user
-      and of other agents are not listed. Leave `kind` out to list all five.
+      running monitors. `questions`: the questions you put to the user with a name that still wait
+      for an answer. Each name is the one you gave it. You only see your own: those of the user and
+      of other agents are not listed. Leave `kind` out to list all six.
     parameters:
       type: object
       properties:
         kind:
           type: string
-          enum: [agents, views, shells, waits, monitors]
+          enum: [agents, views, shells, waits, monitors, questions]
           description: |-
             What to list. Omit it to list every kind.
       additionalProperties: false
@@ -558,7 +632,8 @@
     name: wait
     description: >-
       Wait for something you started to finish, or wait for a time. To wait for a background
-      sub-agent, monitor or terminal session, give only `for`, with its name. To wait for a time,
+      sub-agent, monitor, terminal session or question put to the user, give only `for`, with its
+      name; add `poll` to look once and carry on instead of waiting. To wait for a time,
       give `seconds` or `until`; use this instead of a shell that sleeps. Give a time wait a `name`
       to run it in the background: the call returns at once, and you are told when the time is up.
     parameters:
@@ -575,8 +650,8 @@
             local time. A time that has passed does not wait.
         for:
           description: >-
-            The name of what to wait for: a background sub-agent, a monitor, a terminal session or a
-            named wait. A list of up to 16 names is also allowed. The call returns when it has
+            The name of what to wait for: a background sub-agent, a monitor, a terminal session, a
+            question put to the user or a named wait. A list of up to 16 names is also allowed. The call returns when it has
             finished, with its report; you will not get the same report again later. A sub-agent or
             session that stops to ask for input counts as finished. Without `seconds` or `until` the
             call waits until the work is done. With one of them it stops waiting at that limit and
@@ -586,6 +661,12 @@
             - type: array
               items:
                 type: string
+        poll:
+          type: boolean
+          description: >-
+            Only with `for`. Look once and return at once: what has finished is reported, and what is
+            still running is named. Nothing waits, and the call does not take `seconds` or `until`.
+            Use it to check on background work and carry on.
         mode:
           type: string
           enum: [any, all]

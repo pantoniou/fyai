@@ -23,6 +23,7 @@
 #include "fyai_event.h"
 #include "fyai_wait.h"
 #include "fyai_agent.h"
+#include "fyai_asks.h"
 #include "fyai_tools.h"
 #include "fyai_monitor.h"
 #include "fyai_tool_registry.h"
@@ -384,6 +385,7 @@ enum fyai_wait_for_kind {
 	FYAI_WAIT_FOR_SHELL,
 	FYAI_WAIT_FOR_WAIT,
 	FYAI_WAIT_FOR_MONITOR,
+	FYAI_WAIT_FOR_QUESTION,
 };
 
 struct fyai_wait_for_item {
@@ -404,6 +406,7 @@ struct fyai_waiter {
 	struct fyai_wait_for_item items[FYAI_WAIT_FOR_MAX];
 	size_t n;
 	bool all;
+	bool poll;		/* report what has ended and return at once */
 	bool done;
 	double seconds;
 	fyai_event_ms_t deadline;
@@ -440,6 +443,9 @@ static char *fyai_wait_for_check(struct fyai_ctx *ctx,
 	case FYAI_WAIT_FOR_MONITOR:
 		return fyai_event_peek_prefix(ctx,
 				fy_sprintfa("[monitor '%s'", it->name));
+	case FYAI_WAIT_FOR_QUESTION:
+		return fyai_event_peek_prefix(ctx,
+				fy_sprintfa("[question '%s' ", it->name));
 	default:
 		return NULL;
 	}
@@ -461,6 +467,8 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 		return fyai_wait_exists(ctx, it->name);
 	case FYAI_WAIT_FOR_MONITOR:
 		return fyai_monitor_running(ctx, it->name);
+	case FYAI_WAIT_FOR_QUESTION:
+		return fyai_asks_exists(ctx, it->name);
 	default:
 		return false;
 	}
@@ -485,6 +493,10 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	    fyai_event_pending_prefix(ctx, fy_sprintfa("[wait '%s' fired",
 						       target)))
 		return FYAI_WAIT_FOR_WAIT;
+	if (fyai_asks_exists(ctx, target) ||
+	    fyai_event_pending_prefix(ctx, fy_sprintfa("[question '%s' ",
+						       target)))
+		return FYAI_WAIT_FOR_QUESTION;
 	return FYAI_WAIT_FOR_NONE;
 }
 
@@ -511,9 +523,10 @@ static char *fyai_waiter_report(const struct fyai_waiter *w)
 	}
 	if (pending.len) {
 		if (response_buffer_append(&out, sep) ||
-		    response_buffer_append(&out, fy_sprintfa(
-				"[still waiting for %s after %.3g seconds]",
-				pending.data, w->seconds)))
+		    response_buffer_append(&out, w->poll ?
+				fy_sprintfa("[still running: %s]", pending.data) :
+				fy_sprintfa("[still waiting for %s after %.3g seconds]",
+					    pending.data, w->seconds)))
 			goto fail;
 	}
 	free(pending.data);
@@ -752,8 +765,12 @@ static int fyai_waiter_parse(struct fyai_waiter *w, fy_generic args,
 	if (!w->n)
 		return fyai_waiter_refuse(ctx, errp,
 					  "tool error: for names nothing");
+	/* A poll looks once: what has ended is reported, the rest is running. */
+	w->poll = fy_get(args, "poll", false);
 	/* The time is a limit here, and is optional. */
-	if (fy_is_valid(fy_get(args, "seconds", fy_invalid)) ||
+	if (w->poll) {
+		w->seconds = 0;
+	} else if (fy_is_valid(fy_get(args, "seconds", fy_invalid)) ||
 	    fy_is_valid(fy_get(args, "until", fy_invalid))) {
 		w->seconds = fyai_wait_seconds(args, &why);
 		if (w->seconds < 0) {

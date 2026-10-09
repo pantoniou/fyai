@@ -53,9 +53,11 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_output.h"
+#include "fyai_ask.h"
 #include "fyai_tools.h"
 #include "fyai_view.h"
 #include "fyai_fsview.h"
+#include "fyai_asks.h"
 #include "fyai_wait.h"
 #include "fyai_prof.h"
 #include "fyai_render.h"
@@ -1320,29 +1322,36 @@ out:
 }
 
 /*
- * Execute the `ask_user` tool: put the model's question (and any suggested
- * options, as a numbered menu) to the user and return their answer as the tool
- * result. A bare number selects the matching option; anything else is returned
- * verbatim as a free-form answer. When no answer can be read (non-interactive
- * stdin, EOF), the model is told the user did not answer so it can proceed.
+ * Execute the `ask_user` tool: put the questions of the model to the user and
+ * return their answers as the tool result. The input area of the page, a
+ * parent invocation, --answer values, or a terminal line can supply them. When
+ * no answer can be read, the model is told the user did not answer so it can
+ * proceed.
  */
-/* Ask the parent to present a delegated sub-agent's question. */
-static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx, fy_generic args)
+static fy_generic fyai_ask_declined(struct fyai_ctx *ctx)
+{
+	return fyai_ask_result(ctx->transient_gb, fy_invalid, NULL, 0);
+}
+
+/* Ask the parent to present the questions of a delegated sub-agent. */
+static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx,
+				       fy_generic questions)
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct jsonrpc_request *req;
 	fy_generic result = fy_invalid;
-	fy_generic answer;
+	fy_generic params;
 
 	fyai_agents_activity(ctx, "waiting for input");
-	args = fy_assoc(gb, args, "branch", fyai_ctx_branch(ctx));
-	req = jsonrpc_request_submit(ctx->tool_rpc, "user/ask", args,
+	params = fy_mapping(gb, "questions", questions, "branch",
+			    fyai_ctx_branch(ctx));
+	req = jsonrpc_request_submit(ctx->tool_rpc, "user/ask", params,
 				     jsonrpc_conn_next_id(ctx->tool_rpc),
 				     false, NULL, NULL);
 	if (!req) {
-		fyai_error(ctx, "ask_user: could not put the question to the "
+		fyai_error(ctx, "ask_user: could not put the questions to the "
 			   "parent");
-		return fy_value(gb, "tool error: the question could not be "
+		return fy_value(gb, "tool error: the questions could not be "
 				"asked");
 	}
 	/* The loop of this process serves the channel while it waits. */
@@ -1350,65 +1359,58 @@ static fy_generic fyai_ask_user_upward(struct fyai_ctx *ctx, fy_generic args)
 		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
 			break;
 	}
-	if (jsonrpc_request_ok(req)) {
-		answer = fy_get(jsonrpc_request_result(req), "answer",
-				fy_invalid);
-		if (fy_is_string(answer))
-			result = fy_value(gb, fy_castp(&answer, ""));
-	}
+	if (jsonrpc_request_ok(req) &&
+	    fy_is_mapping(jsonrpc_request_result(req)))
+		result = fy_gb_internalize(gb, jsonrpc_request_result(req));
 	jsonrpc_request_destroy(req);
 	fyai_agents_activity(ctx, "running");
 	if (!fy_is_valid(result)) {
 		fyai_error(ctx, "ask_user: the parent did not answer");
-		return fy_value(gb, "tool note: the user did not provide an "
-				"answer");
+		return fyai_ask_declined(ctx);
 	}
-	/* An empty answer is a question the user left: no answer, no error. */
-	if (!*fy_castp(&result, ""))
-		return fy_value(gb, "tool note: the user did not provide an "
-				"answer");
 	return result;
 }
 
-/* A question put through the input area of the page, and its answer. */
+/* The questions put through the input area of the page, and their replies. */
 struct fyai_ask_wait {
 	bool done;
 	bool failed;
-	char *answer;
+	bool given;
+	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
+	size_t n;
 };
 
-static void fyai_ask_user_done(void *user, const char *answer)
+static void fyai_ask_user_done(void *user, const struct fyai_ask_reply *replies,
+			       size_t n)
 {
 	struct fyai_ask_wait *w = user;
+	size_t i;
 
 	w->done = true;
-	if (!answer)
+	if (!replies)
 		return;
-	w->answer = strdup(answer);
-	w->failed = !w->answer;
+	w->given = true;
+	for (i = 0; i < n; i++) {
+		w->replies[i].selected = replies[i].selected;
+		if (!replies[i].other)
+			continue;
+		w->replies[i].other = strdup(replies[i].other);
+		w->failed |= !w->replies[i].other;
+	}
+	w->n = n;
 }
 
-/* The options a question of the page offers at most. */
-#define FYAI_ASK_OPTIONS_MAX 32
-
-/* Ask through the input area of the page and wait for the answer. */
-static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, const char *question,
-				     const char *from, fy_generic options)
+/* Ask through the input area of the page and wait for the answers. */
+static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, fy_generic questions,
+				     const char *from)
 {
-	const char *opts[FYAI_ASK_OPTIONS_MAX];
 	struct fyai_ask_wait w = { 0 };
-	const char *option;
 	fy_generic result;
-	size_t n = 0;
+	char *echo;
 
-	fy_foreach(option, options) {
-		if (n >= FYAI_ASK_OPTIONS_MAX)
-			break;
-		opts[n++] = option;
-	}
-	if (fyai_ui_ask(ctx, question, from, opts, n, fyai_ask_user_done, &w))
+	if (fyai_ui_ask(ctx, questions, from, fyai_ask_user_done, &w))
 		return fy_value(ctx->transient_gb,
-				"tool error: the question could not be asked");
+				"tool error: the questions could not be asked");
 	while (!w.done) {
 		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
 			break;
@@ -1417,116 +1419,141 @@ static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, const char *question,
 		fyai_ui_ask_withdraw(ctx, &w);
 		fyai_error(ctx, "ask_user: the event loop stopped while waiting "
 			   "for an answer");
-		return fy_value(ctx->transient_gb,
-				"tool note: the user did not provide an answer");
+		return fyai_ask_declined(ctx);
 	}
 	if (w.failed)
 		fyai_error(ctx, "ask_user: could not keep the answer");
-	fyai_report(ctx, "\n? %s\n> %s\n", question,
-		    w.answer ? w.answer : "(no answer)");
-	if (!w.answer)
-		return fy_value(ctx->transient_gb,
-				"tool note: the user did not provide an answer");
-	result = fy_value(ctx->transient_gb, w.answer);
-	free(w.answer);
-	if (fy_is_invalid(result))
-		fyai_error(ctx, "ask_user: could not retain the answer");
+	echo = fyai_ask_echo(questions, w.given ? w.replies : NULL, w.n);
+	if (echo)
+		fyai_report(ctx, "\n%s", echo);
+	free(echo);
+	result = fyai_ask_result(ctx->transient_gb, questions,
+				 w.given ? w.replies : NULL, w.n);
+	fyai_ask_replies_free(w.replies, w.n);
 	return result;
+}
+
+/*
+ * Read the answers of a terminal that has no page: each question is
+ * written, and its answer is the next --answer value or a line from the
+ * terminal. A blank line declines every question.
+ */
+static fy_generic fyai_ask_user_lines(struct fyai_ctx *ctx, fy_generic questions,
+				      const char *from)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX] = { 0 };
+	fy_generic question, result;
+	bool declined = false;
+	const char *a;
+	char *line, *text;
+	size_t n = 0;
+	int rc;
+
+	fy_foreach(question, questions) {
+		text = fyai_ask_text(question);
+		if (!text) {
+			fyai_error(ctx, "ask_user: cannot format a question");
+			declined = true;
+			break;
+		}
+		/* A sub-agent that asks is named. */
+		if (from && *from && !n)
+			fyai_report(ctx, "\nthe sub-agent '%s' asks:", from);
+		if (ansi_color_on(cfg->color, STDERR_FILENO))
+			fyai_report(ctx, "\n" FYAI_ANSI_BOLD "%s" FYAI_ANSI_RESET,
+				    text);
+		else
+			fyai_report(ctx, "\n%s", text);
+		free(text);
+
+		/*
+		 * Batch use: --answer values are consumed in order, one per
+		 * question, instead of prompting. Echo the consumed answer so
+		 * the transcript still reads sensibly.
+		 */
+		if (ctx->answer_next < cfg->answer_count) {
+			a = cfg->answers[ctx->answer_next++];
+			fyai_report(ctx, "> %s\n", a);
+			line = strdup(a ? a : "");
+		} else if (!terminal_is_tty(STDIN_FILENO)) {
+			/*
+			 * Nobody can be prompted, so an expected answer
+			 * cannot be obtained. Flag the run to abort rather
+			 * than let the model proceed on a guess.
+			 */
+			fyai_error(ctx, "ask_user: an answer is expected but none is "
+				   "available (non-interactive; supply --answer)");
+			ctx->ask_abort = true;
+			fyai_ask_replies_free(replies, n);
+			return fy_value(ctx->transient_gb, "tool error: no answer "
+					"available (non-interactive)");
+		} else {
+			/* Editable input via linenoise. */
+			line = fyai_readline(ctx, "> ");
+		}
+		if (!line) {
+			declined = true;
+			break;
+		}
+		rc = fyai_ask_reply_from_line(question, line, &replies[n]);
+		free(line);
+		if (rc) {
+			fyai_error(ctx, "ask_user: could not retain the answer");
+			declined = true;
+			break;
+		}
+		if (!fyai_ask_reply_given(&replies[n])) {
+			declined = true;
+			break;
+		}
+		n++;
+	}
+	result = fyai_ask_result(ctx->transient_gb, questions,
+				 declined ? NULL : replies, n);
+	fyai_ask_replies_free(replies, n);
+	return result;
+}
+
+/* Ask the user, for the sub-agent @from when it is not NULL. */
+static fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
+				     const char *from)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	fy_generic questions, gname, result;
+	const char *name;
+	char why[160];
+	char *text;
+
+	questions = fyai_ask_normalize(ctx->transient_gb, args, why, sizeof(why));
+	if (fy_is_invalid(questions))
+		return fy_value(ctx->transient_gb,
+				fy_sprintfa("tool error: ask_user: %s", why));
+	if (!from && fyai_agent_delegated(ctx) && ctx->tool_rpc)
+		return fyai_ask_user_upward(ctx, questions);
+
+	/* The page renderer puts the questions in its input area. */
+	if (ctx->answer_next >= cfg->answer_count && fyai_ui_ask_available(ctx)) {
+		gname = fy_get(args, "name", fy_invalid);
+		name = fy_castp(&gname, "");
+		/* A background question does not hold the turn. */
+		if (!from && fyai_asks_background(args)) {
+			text = fyai_asks_start(ctx, name, questions);
+			if (!text)
+				return fy_value(ctx->transient_gb, "tool error: "
+						"the questions could not be asked");
+			result = fy_value(ctx->transient_gb, text);
+			free(text);
+			return result;
+		}
+		return fyai_ask_user_page(ctx, questions, from);
+	}
+	return fyai_ask_user_lines(ctx, questions, from);
 }
 
 static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 {
-	struct fyai_cfg *cfg = ctx->cfg;
-	const char *question = fy_get(args, "question", "");
-	const char *from = fy_get(args, "from", "");
-	fy_generic options = fy_get(args, "options");
-	size_t n = fy_is_sequence(options) ? fy_len(options) : 0;
-	fy_generic result;
-	char *line, *end;
-	const char *a;
-	size_t i;
-	long sel;
-
-	if (fyai_agent_delegated(ctx) && ctx->tool_rpc)
-		return fyai_ask_user_upward(ctx, args);
-
-	/* The page renderer puts the question in its input area. */
-	if (ctx->answer_next >= cfg->answer_count && fyai_ui_ask_available(ctx))
-		return fyai_ask_user_page(ctx, question, from, options);
-
-	/* A sub-agent that asks is named in the question. */
-	if (*from)
-		question = fy_sprintfa("the sub-agent '%s' asks: %s", from,
-				       question);
-	if (ansi_color_on(cfg->color, STDERR_FILENO))
-		fyai_report(ctx, "\n" FYAI_ANSI_BOLD "? %s" FYAI_ANSI_RESET
-			"\n", question);
-	else
-		fyai_report(ctx, "\n? %s\n", question);
-	i = 0;
-	fy_foreach(result, options) {
-		fyai_report(ctx, "  %zu) %s\n", i + 1,
-			fy_castp(&result, ""));
-		i++;
-	}
-
-	/*
-	 * Batch use: --answer values are consumed in order, one per ask_user
-	 * call, instead of prompting. Echo the consumed answer so the
-	 * transcript still reads sensibly.
-	 */
-	if (ctx->answer_next < cfg->answer_count) {
-		a = cfg->answers[ctx->answer_next++];
-
-		fyai_report(ctx, "%s%s\n",
-			n ? "choose a number or type an answer> " : "> ", a);
-		line = strdup(a ? a : "");
-		if (!line)
-			return fy_value(ctx->transient_gb, "tool error: out of memory");
-		goto have_line;
-	}
-
-	/*
-	 * Batch use with no answer left: if stdin is not a terminal there is no
-	 * one to prompt, so an expected answer cannot be obtained. Flag the run
-	 * to abort rather than letting the model proceed on a guess.
-	 */
-	if (!terminal_is_tty(STDIN_FILENO)) {
-		fyai_error(ctx, "ask_user: an answer is expected but none is "
-			   "available (non-interactive; supply --answer)");
-		ctx->ask_abort = true;
-		return fy_value(ctx->transient_gb, "tool error: no answer available (non-interactive)");
-	}
-
-	/* Editable input via linenoise (only reached on an interactive tty). */
-	line = fyai_readline(ctx, n ? "choose a number or type an answer> " : "> ");
-have_line:
-	if (!line || !*line) {
-		free(line);
-		return fy_value(ctx->transient_gb, "tool note: the user did not provide an answer");
-	}
-
-	/* A bare number (optionally surrounded by space) selects an option. */
-	if (n) {
-		sel = strtol(line, &end, 10);
-		while (*end == ' ' || *end == '\t' || *end == '\n')
-			end++;
-		if (end != line && !*end && sel >= 1 && (size_t)sel <= n) {
-			result = fy_get_at(options, sel - 1);
-			if (fy_is_invalid(result))
-				result = fy_value("");
-			free(line);
-			if (fy_is_invalid(result))
-				fyai_error(ctx, "ask_user: could not retain the answer");
-			return result;
-		}
-	}
-
-	result = fy_value(ctx->transient_gb, line);
-	free(line);
-	if (fy_is_invalid(result))
-		fyai_error(ctx, "ask_user: could not retain the answer");
-	return result;
+	return fyai_ask_user_from(ctx, args, NULL);
 }
 
 
@@ -1819,8 +1846,9 @@ static fy_generic tool_ask_user(struct fyai_ctx *ctx, fy_generic args,
 {
 	fy_generic result = fyai_ask_user(ctx, args);
 
-	*okp = strncmp(fy_castp(&result, ""), "tool error:", 11) != 0;
-	return result;
+	*okp = !fy_is_string(result) ||
+	       strncmp(fy_castp(&result, ""), "tool error:", 11) != 0;
+	return fyai_tool_result_text(ctx, result);
 }
 
 static void tool_head_list(struct fyai_ctx *ctx, FILE *mf,
@@ -1868,13 +1896,19 @@ static void tool_head_ask_user(struct fyai_ctx *ctx, FILE *mf,
 			       struct fy_generic_builder *gb, fy_generic args,
 			       int preview_lines, struct fyai_md_blocks *blocks)
 {
-	fy_generic gq = fy_get(args, "question");
+	fy_generic questions = fy_get(args, "questions", fy_invalid);
+	fy_generic q, gq, gn = fy_get(args, "name", fy_invalid);
+	const char *name = fy_castp(&gn, "");
 
 	(void)ctx;
 	(void)gb;
 	(void)preview_lines;
 	(void)blocks;
-	fprintf(mf, "**❓ %s**\n\n", fy_castp(&gq, ""));
+	fy_foreach(q, questions) {
+		gq = fy_get(q, "question", fy_invalid);
+		fprintf(mf, "**❓ %s**%s%s%s\n\n", fy_castp(&gq, ""),
+			*name ? " [" : "", name, *name ? "]" : "");
+	}
 }
 
 static void tool_head_cancel(struct fyai_ctx *ctx, FILE *mf,
@@ -1941,7 +1975,8 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 	{ .name = "ask_user", .run = tool_ask_user, .head = tool_head_ask_user,
-	  .flags = FYAI_TOOL_PARENT },
+	  .in_parent = fyai_asks_background,
+	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_INSTANT },
 	{ .name = "project_view", .run = tool_project_view,
 	  .head = tool_head_project_view,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
@@ -4063,7 +4098,7 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	struct fyai_tool_job *job;
 	fy_generic name_v, kind_v;
 	const char *name, *kind;
-	bool is_wait, is_agent, is_shell, is_monitor;
+	bool is_wait, is_agent, is_shell, is_monitor, is_question;
 	char *result;
 
 	*okp = false;
@@ -4082,7 +4117,9 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		  fyai_wait_exists(ctx, name);
 	is_monitor = (!*kind || !strcmp(kind, "monitor")) &&
 		     fyai_monitor_running(ctx, name);
-	if (is_wait + is_agent + is_shell + is_monitor > 1)
+	is_question = (!*kind || !strcmp(kind, "question")) &&
+		      fyai_asks_exists(ctx, name);
+	if (is_wait + is_agent + is_shell + is_monitor + is_question > 1)
 		return strdup(fy_sprintfa("tool error: '%s' names more than "
 					  "one thing; say its kind", name));
 	if (is_monitor && fyai_monitor_cancel(ctx, name)) {
@@ -4100,6 +4137,10 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 			fy_mapping(ctx->transient_gb, "name", name,
 				   "force", true), okp);
 		return result;
+	}
+	if (is_question && fyai_asks_cancel(ctx, name)) {
+		*okp = true;
+		return strdup(fy_sprintfa("[question '%s' cancelled]", name));
 	}
 	if (is_wait && fyai_wait_cancel(ctx, name)) {
 		*okp = true;
@@ -4128,10 +4169,11 @@ static bool fyai_tool_call_instant(struct fyai_ctx *ctx, fy_generic tool_call)
 	const struct fyai_tool_def *def =
 		fyai_tool_find(fyai_tool_call_name(ctx, tool_call));
 
-	return def && (def->flags & FYAI_TOOL_INSTANT) &&
-	       ((def->flags & FYAI_TOOL_PARENT) ||
-		(def->in_parent && def->in_parent(
-			fyai_tool_call_args(ctx, tool_call))));
+	if (!def || !(def->flags & FYAI_TOOL_INSTANT))
+		return false;
+	if (def->in_parent)
+		return def->in_parent(fyai_tool_call_args(ctx, tool_call));
+	return def->flags & FYAI_TOOL_PARENT;
 }
 
 bool fyai_tool_call_parallel_eligible(struct fyai_ctx *ctx,
@@ -4890,25 +4932,22 @@ static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
 					  struct jsonrpc_conn *conn,
 					  fy_generic id, fy_generic params)
 {
-	struct fy_generic_builder *gb;
-	fy_generic question;
-	fy_generic answer;
+	fy_generic result;
 	const char *who, *origin;
 	int rc;
 
-	gb = fyai_ctx_transient_gb(job->ctx);
 	who = fyai_agent_job_name(job);
 	origin = fy_get(params, "branch", "");
 	if (*origin && (!job->branch || strcmp(origin, job->branch)))
 		who = origin;
-	question = fy_get(params, "question", fy_invalid);
-	answer = fyai_ask_user(job->ctx, fy_gb_mapping(gb, "question", question,
-					"from", fy_value(gb, who),
-					"options", fy_get(params, "options",
-							  fy_invalid)));
-	rc = jsonrpc_conn_respond(conn, id,
-				  fy_gb_mapping(gb, "answer", answer),
-				  fy_invalid);
+	result = fyai_ask_user_from(job->ctx, params, who);
+	if (fy_is_string(result)) {
+		/* The question was not valid, or nobody can be asked. */
+		fyai_error(job->ctx, "agent: the questions of '%s' were not asked: %s",
+			   who, fy_castp(&result, ""));
+		result = fyai_ask_declined(job->ctx);
+	}
+	rc = jsonrpc_conn_respond(conn, id, result, fy_invalid);
 	fyai_error_check(job->ctx, !rc, err,
 			 "agent: could not return the user's answer to '%s'", who);
 
@@ -4972,6 +5011,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_shell_sessions_abandon(ctx);	/* named shells of the parent */
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
 	fyai_waits_abandon(ctx);		/* its named waits */
+	fyai_asks_abandon(ctx);			/* and its pending questions */
 	fyai_waiters_abandon(ctx);		/* and the waits that hold a call */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
 	fyai_monitor_abandon(ctx);		/* and its monitors */
@@ -5473,9 +5513,9 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 
 	*okp = false;
 	if (!all && !fy_any_equal(kind, "agents", "views", "shells", "waits",
-				  "monitors"))
+				  "monitors", "questions"))
 		return fy_value(gb, "tool error: kind is agents, views, shells, "
-				"waits or monitors");
+				"waits, monitors or questions");
 	if (all || !strcmp(kind, "agents"))
 		result = fy_assoc(gb, result, "agents", fyai_list_agents(ctx, gb));
 	if (all || !strcmp(kind, "views"))
@@ -5487,6 +5527,9 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	if (all || !strcmp(kind, "monitors"))
 		result = fy_assoc(gb, result, "monitors",
 				  fyai_monitors_rows(ctx, gb));
+	if (all || !strcmp(kind, "questions"))
+		result = fy_assoc(gb, result, "questions",
+				  fyai_asks_rows(ctx, gb));
 	*okp = true;
 	return fy_gb_internalize(gb, result);
 }

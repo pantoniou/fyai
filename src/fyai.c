@@ -48,6 +48,7 @@
 #include "fyai_ui.h"
 #include "fyai_tools.h"
 #include "fyai_view.h"
+#include "fyai_asks.h"
 #include "fyai_wait.h"
 #include "fyai_storage.h"
 #include "fyai_stream.h"
@@ -2110,6 +2111,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	/* A session cannot outlive the invocation that opened it, and neither
 	 * can a wait: there is no daemon for either to be handed to. */
 	fyai_shell_sessions_release(ctx, false);
+	fyai_asks_release(ctx);
 	fyai_waits_release(ctx);
 	fyai_waiters_release(ctx);
 	fyai_agent_background_close(ctx);
@@ -2685,6 +2687,7 @@ void fyai_background_reset(struct fyai_ctx *ctx)
 		return;
 	fyai_agent_background_close(ctx);
 	fyai_monitor_close(ctx);
+	fyai_asks_release(ctx);
 	fyai_waits_release(ctx);
 	fyai_events_release(ctx);
 }

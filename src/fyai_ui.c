@@ -33,6 +33,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
+#include "fyai_ask.h"
 #include "fyai_page.h"
 #include "fyai_transcript_view.h"
 #include "fyai_browser.h"
@@ -46,17 +47,28 @@
 
 struct ui_line { struct ui_line *next; char *text; };
 
-/* A question that the input area puts to the user. */
-/* The options of a question that the page shows. */
-#define UI_ASK_OPTIONS_MAX 16
+/* The text of one question, copied: it outlives the call that queued it. */
+struct ui_qtext {
+	char *header, *question;
+	bool multi;
+	size_t nopts;
+	struct {
+		char *label, *description, *preview;
+	} opt[FYAI_ASK_OPTIONS_MAX];
+};
 
+/*
+ * The questions of one ask_user call, that the input area puts to the user.
+ * With many questions, @cur == @nq is the review step.
+ */
 struct ui_question {
 	struct ui_question *next;
-	char *question;
+	struct ui_qtext text[FYAI_ASK_QUESTIONS_MAX];
 	char *from;		/* the sub-agent that asks, or NULL */
-	char **options;
-	size_t noptions;
-	size_t selected;
+	size_t nq, cur;
+	size_t cursor[FYAI_ASK_QUESTIONS_MAX];
+	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
+	bool given[FYAI_ASK_QUESTIONS_MAX];
 	fyai_ui_ask_fn done;
 	void *user;
 };
@@ -151,6 +163,12 @@ struct fyai_ui {
 	/* A short result stands above the status until the input changes:
 	 * its rows, and the input it was shown over. */
 	char *note[2];
+	/* The rendered preview of the option under the cursor of a question. */
+	char **preview;
+	int preview_nlines;
+	const struct ui_question *preview_q;
+	size_t preview_cur, preview_opt;
+	int preview_cols, preview_cap;
 	int note_nlines;
 	char *note_input;
 	fyai_event_ms_t next_frame_ms;
@@ -1127,16 +1145,58 @@ static void ui_page_configure(struct fyai_ui *ui)
 
 static void ui_question_free(struct ui_question *q)
 {
-	size_t i;
+	size_t i, o;
 
 	if (!q)
 		return;
-	for (i = 0; i < q->noptions; i++)
-		free(q->options[i]);
-	free(q->options);
-	free(q->question);
+	for (i = 0; i < q->nq; i++) {
+		free(q->text[i].header);
+		free(q->text[i].question);
+		for (o = 0; o < q->text[i].nopts; o++) {
+			free(q->text[i].opt[o].label);
+			free(q->text[i].opt[o].description);
+			free(q->text[i].opt[o].preview);
+		}
+	}
+	fyai_ask_replies_free(q->replies, q->nq);
 	free(q->from);
 	free(q);
+}
+
+/* Copy @text of @map, empty when it has none. Returns NULL when out of memory. */
+static char *ui_ask_copy(fy_generic map, const char *key)
+{
+	fy_generic g = fy_get(map, key, fy_invalid);
+
+	return strdup(fy_castp(&g, ""));
+}
+
+/* Copy the normalized questions into @q. */
+static bool ui_question_copy(struct ui_question *q, fy_generic questions)
+{
+	fy_generic question, option;
+	struct ui_qtext *t;
+	size_t o;
+
+	fy_foreach(question, questions) {
+		t = &q->text[q->nq++];
+		t->header = ui_ask_copy(question, "header");
+		t->question = ui_ask_copy(question, "question");
+		t->multi = fy_get(question, "multi_select", false);
+		if (!t->header || !t->question)
+			return false;
+		o = 0;
+		fy_foreach(option, fy_get(question, "options", fy_invalid)) {
+			t->opt[o].label = ui_ask_copy(option, "label");
+			t->opt[o].description = ui_ask_copy(option, "description");
+			t->opt[o].preview = ui_ask_copy(option, "preview");
+			t->nopts = ++o;
+			if (!t->opt[o - 1].label || !t->opt[o - 1].description ||
+			    !t->opt[o - 1].preview)
+				return false;
+		}
+	}
+	return true;
 }
 
 int fyai_ui_page_report(struct fyai_ctx *ctx)
@@ -1196,37 +1256,26 @@ bool fyai_ui_ask_available(struct fyai_ctx *ctx)
 	return fyai_ui_active(ctx) && ctx->ui->page != NULL;
 }
 
-int fyai_ui_ask(struct fyai_ctx *ctx, const char *question, const char *from,
-		const char *const *options, size_t n, fyai_ui_ask_fn done,
-		void *user)
+int fyai_ui_ask(struct fyai_ctx *ctx, fy_generic questions, const char *from,
+		fyai_ui_ask_fn done, void *user)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct ui_question *q, **qp;
-	size_t i;
+	size_t nq;
 
-	if (!ui || !ui->page || !question || !done || (n && !options))
+	nq = fy_is_sequence(questions) ? fy_len(questions) : 0;
+	if (!ui || !ui->page || !done || !nq || nq > FYAI_ASK_QUESTIONS_MAX)
 		return -1;
 	q = calloc(1, sizeof(*q));
 	fyai_error_check(ctx, q, err_out, "cannot allocate a question");
 	q->done = done;
 	q->user = user;
-	q->question = strdup(question);
-	fyai_error_check(ctx, q->question, err_free, "cannot keep a question");
+	fyai_error_check(ctx, ui_question_copy(q, questions), err_free,
+			 "cannot keep a question");
 	if (from && *from) {
 		q->from = strdup(from);
 		fyai_error_check(ctx, q->from, err_free,
 				 "cannot keep who asks a question");
-	}
-	if (n) {
-		q->options = calloc(n, sizeof(*q->options));
-		fyai_error_check(ctx, q->options, err_free,
-				 "cannot keep the options of a question");
-	}
-	for (i = 0; i < n; i++) {
-		q->options[i] = strdup(options[i] ? options[i] : "");
-		fyai_error_check(ctx, q->options[i], err_free,
-				 "cannot keep the options of a question");
-		q->noptions++;
 	}
 	for (qp = &ui->questions; *qp; qp = &(*qp)->next)
 		;
@@ -1241,8 +1290,8 @@ err_out:
 	return -1;
 }
 
-/* Answer the question the input area shows with @answer, or with none. */
-static void ui_question_answer(struct fyai_ui *ui, const char *answer)
+/* Settle the question at the head of the queue with the replies, or none. */
+static void ui_question_finish(struct fyai_ui *ui, bool answered)
 {
 	struct ui_question *q = ui->questions;
 
@@ -1250,7 +1299,8 @@ static void ui_question_answer(struct fyai_ui *ui, const char *answer)
 		return;
 	ui->questions = q->next;
 	ui->frame_pending = true;
-	q->done(q->user, answer);
+	(void)fytim_set_input(ui->ft, NULL);
+	q->done(q->user, answered ? q->replies : NULL, q->nq);
 	ui_question_free(q);
 	fyai_ui_wake(ui->ctx);
 }
@@ -1268,10 +1318,41 @@ void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user)
 			qp = &q->next;
 			continue;
 		}
+		/* What was typed for the question that was shown goes with it. */
+		if (q == ui->questions && ui->ft)
+			(void)fytim_set_input(ui->ft, NULL);
 		*qp = q->next;
 		ui_question_free(q);
 	}
 	ui->frame_pending = true;
+}
+
+/* The question the user is on. The caller has checked that it is not the
+ * review. */
+static const struct ui_qtext *ui_question_current(const struct ui_question *q)
+{
+	return &q->text[q->cur];
+}
+
+/* Show question @cur: the answer typed before it is put back to be edited. */
+static void ui_question_enter(struct fyai_ui *ui, struct ui_question *q,
+			      size_t cur)
+{
+	q->cur = cur;
+	(void)fytim_set_input(ui->ft, cur < q->nq ? q->replies[cur].other : NULL);
+	ui->frame_pending = true;
+}
+
+/* The answer to the question is given: the next one, else the review, else
+ * the replies go to the asker. */
+static void ui_question_next(struct fyai_ui *ui, struct ui_question *q)
+{
+	q->given[q->cur] = true;
+	if (q->nq == 1) {
+		ui_question_finish(ui, true);
+		return;
+	}
+	ui_question_enter(ui, q, q->cur + 1);
 }
 
 static void ui_ask_prev(struct fyai_ctx *ctx, const char *arg)
@@ -1279,8 +1360,8 @@ static void ui_ask_prev(struct fyai_ctx *ctx, const char *arg)
 	struct ui_question *q = ctx->ui->questions;
 
 	(void)arg;
-	if (q && q->selected > 0) {
-		q->selected--;
+	if (q && q->cur < q->nq && q->cursor[q->cur] > 0) {
+		q->cursor[q->cur]--;
 		ctx->ui->frame_pending = true;
 	}
 }
@@ -1290,13 +1371,33 @@ static void ui_ask_next(struct fyai_ctx *ctx, const char *arg)
 	struct ui_question *q = ctx->ui->questions;
 
 	(void)arg;
-	if (q && q->selected + 1 < q->noptions) {
-		q->selected++;
+	if (!q || q->cur >= q->nq)
+		return;
+	if (q->cursor[q->cur] + 1 < ui_question_current(q)->nopts) {
+		q->cursor[q->cur]++;
 		ctx->ui->frame_pending = true;
 	}
 }
 
-/* Answer with option @arg, counted from 1. */
+/* Put option @n of the question on the replies: a many-choice question
+ * toggles it, any other holds it alone, and then the user goes on. */
+static void ui_question_pick(struct fyai_ui *ui, struct ui_question *q, size_t n)
+{
+	struct fyai_ask_reply *r = &q->replies[q->cur];
+
+	q->cursor[q->cur] = n;
+	if (ui_question_current(q)->multi) {
+		r->selected ^= 1u << n;
+		ui->frame_pending = true;
+		return;
+	}
+	r->selected = 1u << n;
+	free(r->other);
+	r->other = NULL;
+	ui_question_next(ui, q);
+}
+
+/* Choose option @arg, counted from 1. */
 static void ui_ask_choose(struct fyai_ctx *ctx, const char *arg)
 {
 	struct ui_question *q = ctx->ui->questions;
@@ -1304,40 +1405,92 @@ static void ui_ask_choose(struct fyai_ctx *ctx, const char *arg)
 	char *end;
 
 	n = strtoul(arg, &end, 10);
-	if (q && end != arg && !*end && n >= 1 && n <= q->noptions)
-		ui_question_answer(ctx->ui, q->options[n - 1]);
+	if (q && q->cur < q->nq && end != arg && !*end && n >= 1 &&
+	    n <= ui_question_current(q)->nopts)
+		ui_question_pick(ctx->ui, q, n - 1);
 }
 
-/* Answer with the text typed, or with the selected option. */
+/* Space: toggle the option under the cursor, or choose it. */
+static void ui_ask_toggle(struct fyai_ctx *ctx, const char *arg)
+{
+	struct ui_question *q = ctx->ui->questions;
+
+	(void)arg;
+	if (q && q->cur < q->nq)
+		ui_question_pick(ctx->ui, q, q->cursor[q->cur]);
+}
+
+/* Go back to the question before this one. */
+static void ui_ask_back(struct fyai_ctx *ctx, const char *arg)
+{
+	struct ui_question *q = ctx->ui->questions;
+
+	(void)arg;
+	if (q && q->cur > 0)
+		ui_question_enter(ctx->ui, q, q->cur - 1);
+}
+
+/* Go on to the next question, when this one has an answer. */
+static void ui_ask_forward(struct fyai_ctx *ctx, const char *arg)
+{
+	struct ui_question *q = ctx->ui->questions;
+
+	(void)arg;
+	if (q && q->cur < q->nq && q->given[q->cur])
+		ui_question_enter(ctx->ui, q, q->cur + 1);
+}
+
+/* Keep the text typed as the answer of this question. */
+static bool ui_question_take_text(struct fyai_ctx *ctx, struct ui_question *q,
+				  const char *typed)
+{
+	struct fyai_ask_reply *r = &q->replies[q->cur];
+	char *text;
+
+	text = strdup(typed);
+	if (!text) {
+		fyai_warning(ctx, "cannot keep the answer that was typed");
+		return false;
+	}
+	free(r->other);
+	r->other = text;
+	/* A question of one choice has either an option or the text. */
+	if (!ui_question_current(q)->multi)
+		r->selected = 0;
+	return true;
+}
+
+/* Enter: send the answers at the review, else take the text typed or the
+ * choice, and go on. */
 static void ui_ask_accept(struct fyai_ctx *ctx, const char *arg)
 {
 	struct fyai_ui *ui = ctx->ui;
 	struct ui_question *q = ui->questions;
+	struct fyai_ask_reply *r;
 	const char *typed = fytim_input(ui->ft);
-	char *text;
 
 	(void)arg;
 	if (!q)
 		return;
-	if (typed && *typed) {
-		text = strdup(typed);
-		if (!text) {
-			fyai_warning(ctx, "cannot keep the answer that was typed");
-			return;
-		}
-		(void)fytim_set_input(ui->ft, NULL);
-		ui_question_answer(ui, text);
-		free(text);
+	if (q->cur >= q->nq) {
+		ui_question_finish(ui, true);
 		return;
 	}
-	if (q->noptions)
-		ui_question_answer(ui, q->options[q->selected]);
+	r = &q->replies[q->cur];
+	if (typed && *typed) {
+		if (!ui_question_take_text(ctx, q, typed))
+			return;
+	} else if (!fyai_ask_reply_given(r)) {
+		/* Nothing chosen yet: the option under the cursor. */
+		r->selected = 1u << q->cursor[q->cur];
+	}
+	ui_question_next(ui, q);
 }
 
 static void ui_ask_dismiss(struct fyai_ctx *ctx, const char *arg)
 {
 	(void)arg;
-	ui_question_answer(ctx->ui, NULL);
+	ui_question_finish(ctx->ui, false);
 }
 
 static void ui_popup_close_act(struct fyai_ctx *ctx, const char *arg)
@@ -1363,6 +1516,9 @@ static const struct fyai_page_action ui_page_action_table[] = {
 	{ "ask.prev", ui_ask_prev },
 	{ "ask.next", ui_ask_next },
 	{ "ask.choose", ui_ask_choose },
+	{ "ask.toggle", ui_ask_toggle },
+	{ "ask.back", ui_ask_back },
+	{ "ask.forward", ui_ask_forward },
 	{ "ask.accept", ui_ask_accept },
 	{ "ask.dismiss", ui_ask_dismiss },
 	{ "popup.close", ui_popup_close_act },
@@ -1478,6 +1634,179 @@ static bool ui_typed_changed(struct fyai_ui *ui, const char *typed)
 	return true;
 }
 
+/* The rows of the preview of an option, at most. */
+#define UI_PREVIEW_ROWS_MAX 14
+/* The blanks before each row of a preview. */
+#define UI_PREVIEW_INDENT 4
+
+static void ui_preview_clear(struct fyai_ui *ui)
+{
+	int i;
+
+	for (i = 0; i < ui->preview_nlines; i++)
+		free(ui->preview[i]);
+	free(ui->preview);
+	ui->preview = NULL;
+	ui->preview_nlines = 0;
+	ui->preview_q = NULL;
+}
+
+/* Keep the rows of @rendered, at most @cap, each under the indent. A longer
+ * preview ends in a row that says so. */
+static void ui_preview_rows(struct fyai_ui *ui, const char *rendered,
+			    size_t len, int cap)
+{
+	const char *line = rendered, *end = rendered + len, *nl;
+	int n = 0;
+
+	ui->preview = calloc((size_t)cap, sizeof(*ui->preview));
+	fyai_error_check(ui->ctx, ui->preview, err_out,
+			 "cannot keep the preview of an option");
+	while (line < end && n < cap) {
+		nl = memchr(line, '\n', (size_t)(end - line));
+		if (!nl)
+			nl = end;
+		if (n == cap - 1 && nl < end)
+			nl = line;
+		if (nl == line && n == cap - 1 && line < end)
+			ui->preview[n] = strdup("    \xe2\x80\xa6");
+		else
+			(void)asprintf(&ui->preview[n], "%*s%.*s",
+				       UI_PREVIEW_INDENT, "", (int)(nl - line),
+				       line);
+		fyai_error_check(ui->ctx, ui->preview[n], err_out,
+				 "cannot keep the preview of an option");
+		ui->preview_nlines = ++n;
+		line = nl < end ? nl + 1 : end;
+	}
+	return;
+
+err_out:
+	ui_preview_clear(ui);
+}
+
+/*
+ * Render the preview of the option under the cursor of @q, when the question
+ * has one and the user chooses once. The rows are kept until the option, the
+ * question or the size changes. Returns the number of rows.
+ */
+static int ui_preview_update(struct fyai_ui *ui, const struct ui_question *q,
+			     int cols, int rows)
+{
+	const struct ui_qtext *t;
+	struct response_buffer out = { 0 };
+	struct fyai_cfg *cfg = ui->ctx->cfg;
+	const char *text;
+	size_t opt;
+	int cap, saved, rc;
+
+	if (!q || q->cur >= q->nq)
+		goto none;
+	t = &q->text[q->cur];
+	opt = q->cursor[q->cur];
+	text = opt < t->nopts ? t->opt[opt].preview : NULL;
+	if (t->multi || !text || !*text)
+		goto none;
+	/* A third of the screen at most, so the options stay in view. */
+	cap = rows / 3 < UI_PREVIEW_ROWS_MAX ? rows / 3 : UI_PREVIEW_ROWS_MAX;
+	if (cap < 3)
+		goto none;
+	if (ui->preview_q == q && ui->preview_cur == q->cur &&
+	    ui->preview_opt == opt && ui->preview_cols == cols &&
+	    ui->preview_cap == cap)
+		return ui->preview_nlines;
+	ui_preview_clear(ui);
+	saved = fyai_width_reserve_begin(cfg, UI_PREVIEW_INDENT + 2);
+	rc = markdown_render(cfg, text, strlen(text), &out,
+			     markdown_color_enabled(cfg->color),
+			     cfg->theme_variant);
+	fyai_width_reserve_end(cfg, saved);
+	if (rc) {
+		fyai_warning(ui->ctx, "cannot render the preview of an option");
+		free(out.data);
+		goto none;
+	}
+	while (out.len && (out.data[out.len - 1] == '\n' ||
+			   out.data[out.len - 1] == '\r'))
+		out.len--;
+	ui_preview_rows(ui, out.data ? out.data : "", out.len, cap);
+	free(out.data);
+	ui->preview_q = q;
+	ui->preview_cur = q->cur;
+	ui->preview_opt = opt;
+	ui->preview_cols = cols;
+	ui->preview_cap = cap;
+	return ui->preview_nlines;
+
+none:
+	ui_preview_clear(ui);
+	return 0;
+}
+
+/* Write the answer given to question @i of @q as one line. */
+static void ui_question_describe(const struct ui_question *q, size_t i,
+				 char *out, size_t size)
+{
+	const struct ui_qtext *t = &q->text[i];
+	size_t o, len = 0;
+	int n;
+
+	out[0] = '\0';
+	for (o = 0; o < t->nopts; o++) {
+		if (!(q->replies[i].selected & (1u << o)))
+			continue;
+		n = snprintf(out + len, size - len, "%s%s", len ? ", " : "",
+			     t->opt[o].label);
+		if (n < 0 || (size_t)n >= size - len)
+			return;
+		len += (size_t)n;
+	}
+	if (q->replies[i].other && *q->replies[i].other)
+		(void)snprintf(out + len, size - len, "%s%s", len ? ", " : "",
+			       q->replies[i].other);
+}
+
+/* Describe the question that the user is on, or the review, for the page.
+ * The text is borrowed from @q and the buffers. */
+static void ui_question_state(const struct ui_question *q,
+			      struct fyai_page_ask *ask,
+			      struct fyai_page_ask_option *options,
+			      struct fyai_page_ask_review *lines,
+			      char answers[][256])
+{
+	const struct ui_qtext *t;
+	size_t i;
+
+	memset(ask, 0, sizeof(*ask));
+	ask->from = q->from;
+	ask->count = q->nq;
+	if (q->cur >= q->nq) {
+		ask->index = q->nq - 1;
+		ask->review = true;
+		for (i = 0; i < q->nq; i++) {
+			lines[i].header = q->text[i].header;
+			ui_question_describe(q, i, answers[i], sizeof(answers[i]));
+			lines[i].answer = answers[i];
+		}
+		ask->lines = lines;
+		ask->nlines = q->nq;
+		return;
+	}
+	t = &q->text[q->cur];
+	ask->index = q->cur;
+	ask->header = t->header;
+	ask->question = t->question;
+	ask->multi = t->multi;
+	for (i = 0; i < t->nopts; i++) {
+		options[i].label = t->opt[i].label;
+		options[i].description = t->opt[i].description;
+		options[i].checked = q->replies[q->cur].selected & (1u << i);
+	}
+	ask->options = options;
+	ask->noptions = t->nopts;
+	ask->selected = q->cursor[q->cur];
+}
+
 static void ui_page_update(struct fyai_ui *ui)
 {
 	struct fyai_ctx *ctx = ui->ctx;
@@ -1489,7 +1818,9 @@ static void ui_page_update(struct fyai_ui *ui)
 	struct fyai_page_keys keys;
 	struct ui_question *q, *w;
 	struct fyai_page_ask ask;
-	struct fyai_page_ask_option ask_options[UI_ASK_OPTIONS_MAX] = {};
+	struct fyai_page_ask_option ask_options[FYAI_ASK_OPTIONS_MAX];
+	struct fyai_page_ask_review ask_lines[FYAI_ASK_QUESTIONS_MAX];
+	char ask_answers[FYAI_ASK_QUESTIONS_MAX][256];
 	struct fyai_transcript_view *blocks;
 	const char *rule_off, *typed, *tail;
 	char *activity = NULL;
@@ -1551,18 +1882,14 @@ static void ui_page_update(struct fyai_ui *ui)
 	if (q) {
 		typed = fytim_input(ui->ft);
 		st.input_mode = typed && *typed ? "ask_text" : "ask";
-		memset(&ask, 0, sizeof(ask));
-		ask.question = q->question;
-		ask.from = q->from;
-		ask.count = 1;
-		ask.noptions = q->noptions < UI_ASK_OPTIONS_MAX ?
-			       q->noptions : UI_ASK_OPTIONS_MAX;
-		for (i = 0; i < (int)ask.noptions; i++)
-			ask_options[i].label = q->options[i];
-		ask.options = ask_options;
-		ask.selected = q->selected;
+		ui_question_state(q, &ask, ask_options, ask_lines, ask_answers);
 		ask.bar = markdown_glyph(ctx->cfg, "select.bar",
 			markdown_glyph(ctx->cfg, "pane.edge", "\xe2\x96\x8c"));
+		ask.npreview = ui_preview_update(ui, q, cols, rows);
+		ask.preview = (const char *const *)ui->preview;
+		if (ask.npreview) {
+			ask.preview_title = q->text[q->cur].opt[q->cursor[q->cur]].label;
+		}
 		for (w = q->next; w; w = w->next)
 			ask.waiting++;
 		/* Agents put one question at a time: count those behind it. */
@@ -1913,7 +2240,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			ui->ctx->cfg->tool_update_interval_ms;
 	}
 	while (fytim_next_event(ui->ft, &ev)) {
-		switch (ev.type) {
+			switch (ev.type) {
 		case FYTIM_EVENT_LINE:
 			ui_message_clear(ui);
 			if (fyai_cmd_session_input(ui->ctx, ev.text))
@@ -2345,11 +2672,12 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	free(ui->pane_out.data);
 	free(ui->open_row.data);
 	free(ui->pane_kept);
+	ui_preview_clear(ui);
 	/* Nobody can answer a question now. */
 	while (ui->questions) {
 		q = ui->questions;
 		ui->questions = q->next;
-		q->done(q->user, NULL);
+		q->done(q->user, NULL, 0);
 		ui_question_free(q);
 	}
 	fymd_set_glyph_width(NULL);
@@ -3165,7 +3493,7 @@ static bool ui_interrupt(struct fyai_ctx *ctx, bool quit)
 	/* A question of the input area is left without an answer, and the
 	 * turn that asked it goes on. */
 	if (ui->questions) {
-		ui_question_answer(ui, NULL);
+		ui_question_finish(ui, false);
 		return true;
 	}
 	input = fytim_input(ui->ft);

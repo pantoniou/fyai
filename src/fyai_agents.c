@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "fyai_agents.h"
+#include "fyai_ask.h"
 #include "fyai_branch.h"
 #include "fyai_browser.h"
 #include "fyai_display.h"
@@ -43,6 +44,9 @@ struct agent_question {
 	struct jsonrpc_conn *from;
 	struct fy_generic_builder *gb;
 	fy_generic id, params;
+	/* The replies a terminal without a page has read so far. */
+	size_t cur;
+	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 };
 
 /*
@@ -1071,33 +1075,25 @@ void fyai_agents_detach(struct fyai_ctx *ctx)
 }
 
 /*
- * Answer the question at the head of the queue with @line. A line that names
- * one of the offered options answers with that option; any other line is the
- * answer as typed.
+ * Send the answers to the agent that asked and take the question off the
+ * queue. A NULL @replies says that the user gave none.
  */
-static void agents_answer(struct fyai_ctx *ctx, struct fyai_agents *a,
-			  const char *line, bool numbered)
+static void agents_settle(struct fyai_ctx *ctx, struct fyai_agents *a,
+			  const struct fyai_ask_reply *replies, size_t n)
 {
-	struct agent_question *q;
-	fy_generic answer, options;
-	char *end;
-	long selected;
+	struct agent_question *q = a->questions;
+	fy_generic result;
 	int rc;
 
-	q = a->questions;
-	answer = fy_value(q->gb, line);
-	options = fy_get(q->params, "options", fy_invalid);
-	selected = strtol(line, &end, 10);
-	if (numbered && end != line && !*end && selected >= 1 &&
-	    (size_t)selected <= fy_len(options))
-		answer = fy_get(options, selected - 1);
-	rc = jsonrpc_conn_respond(q->from, q->id,
-		fy_mapping(q->gb, "answer", answer), fy_invalid);
+	result = fyai_ask_result(q->gb, fy_get(q->params, "questions", fy_invalid),
+				 replies, n);
+	rc = jsonrpc_conn_respond(q->from, q->id, result, fy_invalid);
 	if (rc)
 		fyai_warning(ctx, "the agent that asked did not take the answer");
 	a->questions = q->next;
 	if (!a->questions)
 		a->question_tail = &a->questions;
+	fyai_ask_replies_free(q->replies, FYAI_ASK_QUESTIONS_MAX);
 	fy_generic_builder_destroy(q->gb);
 	free(q);
 	fyai_ui_input_set(ctx, a->question_draft);
@@ -1105,6 +1101,50 @@ static void agents_answer(struct fyai_ctx *ctx, struct fyai_agents *a,
 	a->question_draft = NULL;
 	a->question_presented = false;
 	a->generation++;
+}
+
+/* Put question @n of the head of the queue to the user as plain text. */
+static void agents_report_question(struct fyai_ctx *ctx, struct fyai_agents *a,
+				   size_t n)
+{
+	fy_generic questions = fy_get(a->questions->params, "questions", fy_invalid);
+	char *text;
+
+	text = fyai_ask_text(fy_get_at(questions, n));
+	if (!text) {
+		fyai_error(ctx, "cannot format a question of an agent");
+		return;
+	}
+	fyai_report(ctx, "[%s] %s", fy_get(a->questions->params, "branch", "agent"),
+		    text);
+	free(text);
+}
+
+/*
+ * Take @line as the answer to the question the terminal showed. A blank line
+ * declines them all; the last answer sends them.
+ */
+static void agents_answer(struct fyai_ctx *ctx, struct fyai_agents *a,
+			  const char *line)
+{
+	struct agent_question *q = a->questions;
+	fy_generic questions = fy_get(q->params, "questions", fy_invalid);
+	size_t nq = fy_len(questions);
+	int rc;
+
+	rc = fyai_ask_reply_from_line(fy_get_at(questions, q->cur), line,
+				      &q->replies[q->cur]);
+	if (rc)
+		fyai_error(ctx, "cannot keep the answer of an agent question");
+	if (rc || !fyai_ask_reply_given(&q->replies[q->cur])) {
+		agents_settle(ctx, a, NULL, 0);
+		return;
+	}
+	if (++q->cur < nq) {
+		agents_report_question(ctx, a, q->cur);
+		return;
+	}
+	agents_settle(ctx, a, q->replies, nq);
 }
 
 bool fyai_agents_input(struct fyai_ctx *ctx, const char *line)
@@ -1115,7 +1155,7 @@ bool fyai_agents_input(struct fyai_ctx *ctx, const char *line)
 	if (!a)
 		return false;
 	if (a->questions && a->question_presented) {
-		agents_answer(ctx, a, line, true);
+		agents_answer(ctx, a, line);
 		return true;
 	}
 	if (!a->attached)
@@ -1193,9 +1233,10 @@ size_t fyai_agents_questions_waiting(struct fyai_ctx *ctx)
 	return n && a->question_presented ? n - 1 : n;
 }
 
-/* The answer of the input area of the page to a question of an agent: the
- * option or the text as given, and an empty answer for none. */
-static void agents_ask_done(void *user, const char *answer)
+/* The replies of the input area of the page to the questions of an agent, or
+ * none. */
+static void agents_ask_done(void *user, const struct fyai_ask_reply *replies,
+			    size_t n)
 {
 	struct agent_question *q = user;
 	struct fyai_ctx *ctx = q->ctx;
@@ -1203,29 +1244,20 @@ static void agents_ask_done(void *user, const char *answer)
 
 	if (!a || a->questions != q)
 		return;
-	agents_answer(ctx, a, answer ? answer : "", false);
+	agents_settle(ctx, a, replies, n);
 }
 
-/* Put the question at the head of the queue to the user. */
+/* Put the questions at the head of the queue to the user. */
 static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
 {
-	fy_generic question, option;
-	const char *opts[32];
-	const char *text;
-	size_t index, n = 0;
+	fy_generic params = a->questions->params;
 
-	question = a->questions->params;
-	/* The page renderer puts it in its input area. */
+	/* The page renderer puts them in its input area. */
 	if (fyai_ui_ask_available(ctx)) {
-		fy_foreach(text, fy_get(question, "options", fy_invalid)) {
-			if (n >= sizeof(opts) / sizeof(opts[0]))
-				break;
-			opts[n++] = text;
-		}
 		a->question_presented = true;
 		fyai_workpane_clear_focus(ctx->workpane);
-		if (!fyai_ui_ask(ctx, fy_get(question, "question", ""),
-				 fy_get(question, "branch", "agent"), opts, n,
+		if (!fyai_ui_ask(ctx, fy_get(params, "questions", fy_invalid),
+				 fy_get(params, "branch", "agent"),
 				 agents_ask_done, a->questions))
 			return;
 		a->question_presented = false;
@@ -1235,10 +1267,7 @@ static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
 	a->question_presented = true;
 	fyai_workpane_clear_focus(ctx->workpane);
 	fyai_ui_input_set(ctx, "");
-	fyai_report(ctx, "[%s] %s\n", fy_get(question, "branch", "agent"),
-		    fy_get(question, "question", ""));
-	fy_foreach_idx_item(index, option, fy_get(question, "options", fy_invalid))
-		fyai_report(ctx, "%zu) %s\n", index + 1, fy_castp(&option, ""));
+	agents_report_question(ctx, a, 0);
 }
 
 /*
