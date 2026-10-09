@@ -23,6 +23,7 @@
 
 #include "fyai_sink.h"
 #include "fyai_schema.h"
+#include "utils.h"
 
 /*
  * Append a problem string to @problems. @fmt is a printf-style format that
@@ -257,21 +258,6 @@ static bool schema_nonnegative_size(fy_generic v, size_t *sizep)
 		return false;
 	*sizep = (size_t)value;
 	return true;
-}
-
-/*
- * JSON strings are valid UTF-8, so each non-continuation byte starts a code
- * point.
- */
-static size_t schema_utf8_length(const char *s)
-{
-	size_t len = 0;
-
-	for (; *s; s++) {
-		if (((unsigned char)*s & 0xc0) != 0x80)
-			len++;
-	}
-	return len;
 }
 
 /*
@@ -546,7 +532,7 @@ static fy_generic schema_validate_string(struct fy_generic_builder *gb,
 	int rc;
 
 	s = fy_castp(&instance, "");
-	len = schema_utf8_length(s);
+	len = fyai_utf8_length(s);
 	v = fy_get(schema, "minLength");
 	if (schema_nonnegative_size(v, &limit) && len < limit)
 		problems = schema_problem_add(gb, problems,

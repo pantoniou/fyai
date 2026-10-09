@@ -108,6 +108,18 @@ bool data_is_binary(const char *data, size_t len)
 	return false;
 }
 
+size_t fyai_utf8_length(const char *s)
+{
+	size_t len = 0;
+
+	/* Each byte that is not a continuation byte starts a code point. */
+	for (; *s; s++) {
+		if (((unsigned char)*s & 0xc0) != 0x80)
+			len++;
+	}
+	return len;
+}
+
 bool data_is_wire_text(const char *data, size_t len)
 {
 	const unsigned char *p = (const unsigned char *)data;

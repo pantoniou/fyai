@@ -163,6 +163,9 @@ bool data_is_binary(const char *data, size_t len);
 /* True when JSON can carry @data unchanged as UTF-8 text. */
 bool data_is_wire_text(const char *data, size_t len);
 
+/* The number of code points of the valid UTF-8 string @s. */
+size_t fyai_utf8_length(const char *s);
+
 struct fy_generic_builder;
 /* Carry bytes as plain `text`, or base64 `data` when required. */
 fy_generic fyai_bytes_to_generic(struct fy_generic_builder *gb,
