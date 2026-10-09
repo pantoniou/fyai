@@ -3267,18 +3267,44 @@ static void ui_keys_configure(struct fyai_ctx *ctx)
 	}
 }
 
+/* Encoded entries start with ASCII Record Separator and 'M'. */
+#define HISTORY_ENCODED_PREFIX "\036M"
+
 void fyai_ui_history_load(struct fyai_ctx *ctx, const char *path)
 {
 	char *line = NULL;
+	char *decoded;
 	size_t cap = 0;
+	size_t j;
 	ssize_t len;
+	ssize_t i;
 	FILE *fp;
 
 	if (!fyai_ui_active(ctx) || !path || !(fp = fopen(path, "r"))) return;
 	while ((len = getline(&line, &cap, fp)) >= 0) {
 		while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
 			line[--len] = '\0';
-		if (len) (void)fytim_history_add(ctx->ui->ft, line);
+		if (!len) continue;
+		if (len < (ssize_t)(sizeof(HISTORY_ENCODED_PREFIX) - 1) ||
+		    memcmp(line, HISTORY_ENCODED_PREFIX,
+			   sizeof(HISTORY_ENCODED_PREFIX) - 1)) {
+			(void)fytim_history_add(ctx->ui->ft, line);
+			continue;
+		}
+		decoded = malloc((size_t)len);
+		if (!decoded) continue;
+		j = 0;
+		for (i = sizeof(HISTORY_ENCODED_PREFIX) - 1; i < len; i++) {
+			if (line[i] == '\\' && i + 1 < len) {
+				i++;
+				decoded[j++] = line[i] == 'n' ? '\n' : line[i];
+			} else {
+				decoded[j++] = line[i];
+			}
+		}
+		decoded[j] = '\0';
+		(void)fytim_history_add(ctx->ui->ft, decoded);
+		free(decoded);
 	}
 	free(line);
 	fclose(fp);
@@ -3288,8 +3314,21 @@ void fyai_ui_history_save(struct fyai_ctx *ctx, const char *path,
 			  const char *line)
 {
 	FILE *fp;
+	const char *p;
 	if (!fyai_ui_active(ctx) || !path || !line || !(fp = fopen(path, "a"))) return;
-	fprintf(fp, "%s\n", line);
+	if (strchr(line, '\n') ||
+	    !strncmp(line, HISTORY_ENCODED_PREFIX,
+		     sizeof(HISTORY_ENCODED_PREFIX) - 1)) {
+		fputs(HISTORY_ENCODED_PREFIX, fp);
+		for (p = line; *p; p++) {
+			if (*p == '\n') fputs("\\n", fp);
+			else if (*p == '\\') fputs("\\\\", fp);
+			else fputc(*p, fp);
+		}
+		fputc('\n', fp);
+	} else {
+		fprintf(fp, "%s\n", line);
+	}
 	fclose(fp);
 }
 
