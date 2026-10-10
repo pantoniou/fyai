@@ -1842,6 +1842,112 @@ static fy_generic tool_list(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	return fyai_tool_result_text(ctx, fyai_list_tool(ctx, args, okp));
 }
 
+static char *tool_list_format(struct fyai_ctx *ctx,
+			      struct fy_generic_builder *gb, fy_generic args,
+			      const char *result)
+{
+	static const char *const kinds[] = {
+		"agents", "views", "shells", "waits", "monitors",
+		"questions", "messages",
+	};
+	fy_generic data, rows, shown, row, opts;
+	char *out = NULL, *table;
+	const char *kind = fy_get(args, "kind", "");
+	size_t len = 0, i, n, j;
+	FILE *mf;
+	bool any = false;
+
+	(void)ctx;
+	data = parse_json_string(gb, result);
+	if (!fy_is_mapping(data))
+		return NULL;
+	mf = open_memstream(&out, &len);
+	if (!mf)
+		return NULL;
+	for (i = 0; i < ARRAY_SIZE(kinds); i++) {
+		rows = fy_get(data, kinds[i], fy_invalid);
+		if (!fy_is_sequence(rows))
+			continue;
+		n = fy_len(rows);
+		if (!n && (!*kind || strcmp(kind, kinds[i])))
+			continue;
+		if (any)
+			fputc('\n', mf);
+		fprintf(mf, "**%c%s**\n\n", toupper((unsigned char)kinds[i][0]),
+			kinds[i] + 1);
+		shown = fy_sequence(gb);
+		j = 0;
+		fy_foreach(row, rows) {
+			if (j++ == 30)
+				break;
+			shown = fy_append(gb, shown, row);
+		}
+		opts = fy_mapping(gb, "empty", "none");
+		table = fyai_generic_markdown_source(opts, shown);
+		if (table) {
+			fputs(table, mf);
+			free(table);
+		}
+		if (n > 30)
+			fprintf(mf, "\n_%zu more._\n", n - 30);
+		any = true;
+	}
+	if (!any)
+		fputs("_Nothing to list._\n", mf);
+	if (fclose(mf)) {
+		free(out);
+		return NULL;
+	}
+	return out;
+}
+
+static char *tool_project_view_format(struct fyai_ctx *ctx,
+				      struct fy_generic_builder *gb,
+				      fy_generic args, const char *result)
+{
+	fy_generic data, rows, shown, row, opts, keys;
+	const char *action = fy_get(args, "action", "");
+	char *out = NULL, *table;
+	size_t len = 0, n = 0, total;
+	FILE *mf;
+
+	(void)ctx;
+	data = parse_json_string(gb, result);
+	rows = fy_get(data, "changes", fy_invalid);
+	if (!fy_is_mapping(data) || !fy_is_sequence(rows))
+		return NULL;
+	total = fy_len(rows);
+	mf = open_memstream(&out, &len);
+	if (!mf)
+		return NULL;
+	if (!strcmp(action, "apply"))
+		fprintf(mf, "%lld applied · %lld satisfied · %lld conflicts · %lld skipped\n\n",
+			fy_get(data, "applied", 0LL), fy_get(data, "satisfied", 0LL),
+			fy_get(data, "conflicts", 0LL), fy_get(data, "skipped", 0LL));
+	shown = fy_sequence(gb);
+	fy_foreach(row, rows) {
+		if (n++ == 30)
+			break;
+		shown = fy_append(gb, shown, row);
+	}
+	keys = !strcmp(action, "apply") ?
+		fy_sequence(gb, "path", "status", "action", "reason") :
+		fy_sequence(gb, "path", "status");
+	opts = fy_mapping(gb, "keys", keys, "empty", "no changes");
+	table = fyai_generic_markdown_source(opts, shown);
+	if (table) {
+		fputs(table, mf);
+		free(table);
+	}
+	if (total > 30)
+		fprintf(mf, "\n_%zu more._\n", total - 30);
+	if (fclose(mf)) {
+		free(out);
+		return NULL;
+	}
+	return out;
+}
+
 static fy_generic tool_ask_user(struct fyai_ctx *ctx, fy_generic args,
 				bool *okp)
 {
@@ -2036,12 +2142,14 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_INSTANT },
 	{ .name = "project_view", .run = tool_project_view,
 	  .head = tool_head_project_view,
+	  .format_result = tool_project_view_format,
 	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_NOT_FOR_CHILD,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 	{ .name = "todo_write", .run = tool_todo_write,
 	  .head = tool_head_todo_write, .format_result = fyai_todo_format_result,
 	  .flags = FYAI_TOOL_PARENT },
 	{ .name = "list", .run = tool_list, .head = tool_head_list,
+	  .format_result = tool_list_format,
 	  .flags = FYAI_TOOL_PARENT },
 };
 const size_t fyai_tools_defs_count = ARRAY_SIZE(fyai_tools_defs);

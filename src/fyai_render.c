@@ -414,23 +414,21 @@ static void render_kv_table(FILE *fp, fy_generic data, fy_generic renderopts)
 	}
 }
 
-int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
-			     fy_generic data)
+char *fyai_generic_markdown_source(fy_generic renderopts, fy_generic data)
 {
 	const char *preamble;
 	const char *title;
 	size_t mdlen;
 	char *md;
 	FILE *mf;
-	int rc;
 
 	if (!fy_is_mapping(data) && !fy_is_sequence(data))
-		return -1;
+		return NULL;
 	md = NULL;
 	mdlen = 0;
 	mf = open_memstream(&md, &mdlen);
 	if (!mf)
-		return -1;
+		return NULL;
 	title = fy_get(renderopts, "title", "");
 	if (*title)
 		fprintf(mf, "# %s\n\n", title);
@@ -441,9 +439,23 @@ int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 		render_kv_table(mf, data, renderopts);
 	else
 		render_seq_table(mf, data, renderopts);
-	fclose(mf);
+	if (fclose(mf)) {
+		free(md);
+		return NULL;
+	}
+	return md;
+}
+
+int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
+			     fy_generic data)
+{
+	char *md = fyai_generic_markdown_source(renderopts, data);
+	int rc;
+
+	if (!md)
+		return -1;
 	if (fy_get(renderopts, "raw", false))
-		rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, md, mdlen);
+		rc = fyai_sink_write(ctx->sink, FYAI_SINK_NOTICE, md, strlen(md));
 	else
 		rc = fyai_sink_markdown(ctx->sink, FYAI_SINK_NOTICE, md);
 	free(md);

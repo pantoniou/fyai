@@ -45,6 +45,9 @@
 int fyai_generic_to_markdown(struct fyai_ctx *ctx, fy_generic renderopts,
 			     fy_generic data);
 
+/* Return allocated Markdown source, or NULL on failure. The caller frees it. */
+char *fyai_generic_markdown_source(fy_generic renderopts, fy_generic data);
+
 
 /*
  * Render a stored timestamp, in seconds or microseconds, as local time. An
