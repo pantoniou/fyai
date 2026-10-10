@@ -305,6 +305,15 @@ static void test_take_generic(struct fyai_diag *diag)
 		   "request\n");
 	free(out);
 
+	fyai_notice(&test_ctx, "endpoint feature unavailable");
+	fyai_warning(&test_ctx, "child warning");
+	list = fyai_diag_take_generic(diag, gb);
+	fyai_diag_adopt_agent(diag, list, "main/agent:greeter");
+	out = drain_to_string(diag);
+	expect_str("agent notices stay in the user session", out,
+		   "config: warning: [main/agent:greeter] child warning\n");
+	free(out);
+
 	fy_generic_builder_destroy(gb);
 }
 
