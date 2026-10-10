@@ -154,3 +154,8 @@ work that it started. Any other call of the parent runs after the group.
 To add a tool, add it to `data/tools.yaml` and add one entry. The test
 `tools/registry` fails when a tool of the file has no entry, no run function,
 or no head.
+
+A tool registry entry can set `format_result` to return allocated Markdown
+source. The caller frees the source. This changes the user result card only;
+the model still receives the structured tool result. List and project view
+results use bounded tables with at most 30 rows.
