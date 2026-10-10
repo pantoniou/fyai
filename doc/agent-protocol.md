@@ -85,7 +85,32 @@ does not acquire recursive delegation through this interface.
   admission. An old event cannot reactivate a completed execution.
 - `agent/control` carries execution ID and an action: `subscribe`, `input`, or
   `cancel`. Subscribe enables bounded Markdown source snapshots. Input queues
-  a user turn in the existing owner. Cancel interrupts that owner.
+  a user turn in the existing owner. A request receives `{ "ok": true }` only
+  after the owner queues the input; a notification has no delivery
+  acknowledgement. Cancel interrupts that owner.
+- `agent/message` carries `execution`, `target`, `from`, `sender_execution`,
+  `text`, `message_id`, and optional `reply_to`. A child can target `parent`;
+  a parent targets a live child by name. Intermediate owners route the request
+  to the execution owner. The receiver queues a typed agent event and returns
+  `{ "ok": true }`. The receiving conversation stores the message with role
+  `agent` and an origin containing the sender branch, execution, message ID,
+  and reply reference. Provider request builders present this message as
+  attributed user-role text while preserving the canonical record.
+
+The `agent_message` model tool submits `agent/message` without blocking the
+turn. Its named receipt is a `wait` target and appears in `list` under
+`messages` until the owner answers. The receipt confirms queueing, not a reply.
+When a background child has started but has not reported admission, the parent
+keeps the message pending and sends it after the child's first running event.
+If the child exits before admission, the receipt reports `not queued`.
+The recipient can send a separate message with `reply_to` set to the original
+message ID. `cancel` with kind `message` stops waiting for the receipt; it
+cannot retract a message already sent to the owner. Agent messages are
+consumed at a model request boundary or after a completed turn. This exchange
+exists only while the invocations are live; it creates no resident service.
+The branch handle shown by `list` is a lowercase form of the delegated name.
+`agent_message` and `wait` accept either that handle or the name supplied to
+`agent`; a wait resolves both to the same completion event.
 - `user/ask` carries the originating branch, question, and options. Intermediate
   owners defer and forward the request. The root queues interactive questions
   and returns each answer on the original request route.
