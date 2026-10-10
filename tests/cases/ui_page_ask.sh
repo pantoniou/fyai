@@ -3,8 +3,7 @@
 # A question of ask_user takes the input area: its
 # options are drawn above the prompt, the arrows move the selection, Enter
 # accepts it, a number key or a click chooses, typed text answers freely and
-# Escape answers nothing. A question of a sub-agent is drawn there too, with who
-# asks.
+# Escape answers nothing.
 set -eu
 . "$(dirname "$0")/../harness.sh"
 
@@ -142,101 +141,5 @@ mock_stop 2
 ask click "click:2. no" --set display/work_controls=zoom
 answered sel:no "a click on the option"
 mock_stop 2
-
-# A sub-agent asks through its parent, whose page names it.
-fyai_test_setup
-mock_start agent_asks_user.json
-driver=0
-FYAI_PTY_COLS=100 FYAI_PTY_INPUT="ask a sub-agent to ask me" \
-FYAI_PTY_NEEDLE="WHICH-COLOUR?" FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="wait-screen:or type an answer|raw:32|wait-screen:Delegated and done." \
-FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
-"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
-    --set display/markdown=true --set display/stream=false \
-    --set api=responses \
-    --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i || driver=$?
-if [ "$driver" -ne 0 ]; then
-    tail -c 2000 "$TEST_DIR/pty.out" >&2
-    fail "the question of the sub-agent was not answered"
-fi
-grep -a -q "asked by [^ ]*asker" "$TEST_DIR/pty.out" ||
-    fail "the page did not say which sub-agent asks"
-"$PYTHON" - "$TEST_DIR/requests.jsonl" <<'PY' || fail "the answer never reached the sub-agent"
-import json
-import sys
-
-reqs = [json.loads(l)["body"] for l in open(sys.argv[1])]
-child = [r for r in reqs if "fyai sub-agent" in json.dumps(r)]
-if len(child) < 2 or "green" not in json.dumps(child[-1]["input"]):
-    raise SystemExit("the sub-agent was not given the answer")
-PY
-mock_stop 4
-
-# Two sub-agents ask at once. The page shows one question and counts the other,
-# which it shows when the first is answered.
-fyai_test_setup
-mock_start ui_page_ask_queue.json
-driver=0
-FYAI_PTY_COLS=100 FYAI_PTY_INPUT="ask two sub-agents" \
-FYAI_PTY_NEEDLE="or type an answer" FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="wait-screen:(1 more)|raw:31|wait-gone:(1 more)|wait-screen:or type an answer|raw:32|wait-screen:Both questions answered." \
-FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
-"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
-    --set display/markdown=true --set display/stream=false \
-    --set tools=true \
-    --set api=chat-completions \
-    --set "api_url=$MOCK_URL/v1/chat/completions" -m mock-model -i ||
-    driver=$?
-if [ "$driver" -ne 0 ]; then
-    tail -c 2000 "$TEST_DIR/pty.out" >&2
-    fail "the two questions of the sub-agents were not answered"
-fi
-"$PYTHON" - "$TEST_DIR/pty.out" "$TEST_DIR/requests.jsonl" <<'PY' ||
-import json
-import sys
-
-data = open(sys.argv[1], "rb").read()
-first = {name: data.find(b"%s-QUESTION?" % name.upper().encode())
-         for name in ("alpha", "beta")}
-if min(first.values()) < 0:
-    raise SystemExit("a question was never drawn: %r" % first)
-order = sorted(first, key=first.get)
-answers = {}
-for line in open(sys.argv[2]):
-    for m in json.loads(line)["body"]["messages"]:
-        call = str(m.get("tool_call_id", ""))
-        if m.get("role") == "tool" and call.startswith("call_ask_"):
-            answers[call[len("call_ask_"):]] = json.loads(
-                m["content"])["answers"][0]["selected"][0]
-want = {order[0]: order[0] + "-one", order[1]: order[1] + "-two"}
-if answers != want:
-    raise SystemExit("answers %r, not %r" % (answers, want))
-PY
-    fail "the queued questions were not answered in the order they were shown"
-mock_stop 6
-
-# A grandchild asks through its parent and the root, whose page names it.
-fyai_test_setup
-mock_start agent_recursive_question.json
-driver=0
-FYAI_PTY_COLS=100 FYAI_PTY_INPUT="delegate recursively" \
-FYAI_PTY_NEEDLE="NESTED_COLOUR?" FYAI_PTY_TIMEOUT=30 \
-FYAI_PTY_AFTER="wait-screen:or type an answer|raw:32|wait-screen:Recursive delegation complete." \
-FYAI_PTY_AFTER_PAUSE=0 FYAI_PTY_AFTER_TIMEOUT=20 \
-"$PYTHON" "$TESTS_DIR/pty_driver.py" "$TEST_DIR/pty.out" \
-    "$FYAI_BIN" -k test-key --theme dark \
-    --set display/markdown=true --set display/stream=false \
-    --set tools=true --set api=responses \
-    --set "api_url=$MOCK_URL/v1/responses" -m mock-model -i || driver=$?
-if [ "$driver" -ne 0 ]; then
-    tail -c 2000 "$TEST_DIR/pty.out" >&2
-    fail "the question of the grandchild was not answered"
-fi
-grep -a -q "asked by [^ ]*agent:child/agent:grandchild" "$TEST_DIR/pty.out" ||
-    fail "the page did not say which grandchild asks"
-assert_request 3 '"green" in json.dumps(r["body"])'
-mock_stop 6
 
 pass

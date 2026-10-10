@@ -38,6 +38,16 @@ bool fyai_agents_input(struct fyai_ctx *ctx, const char *line);
 /* The questions of agents waiting behind the one put to the user. */
 size_t fyai_agents_questions_waiting(struct fyai_ctx *ctx);
 int fyai_agents_kill(struct fyai_ctx *ctx, const char *name);
+/* Submit a message; the event loop reports the owner's queue acknowledgement. */
+int fyai_agents_message(struct fyai_ctx *ctx, const char *name,
+			const char *text, const char *receipt,
+			const char *reply_to);
+bool fyai_agents_message_pending(struct fyai_ctx *ctx, const char *receipt);
+bool fyai_agents_message_cancel(struct fyai_ctx *ctx, const char *receipt);
+/* Settle messages queued for a child that ended before admission. */
+void fyai_agents_message_branch_closed(struct fyai_ctx *ctx, const char *branch);
+fy_generic fyai_agents_message_rows(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb);
 bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf);
 bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len);
 void fyai_agents_present(struct fyai_ctx *ctx);

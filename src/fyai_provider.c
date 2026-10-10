@@ -28,6 +28,21 @@ static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
 	return v;
 }
 
+/* Provider grammars carry an agent message as attributed user-role text. */
+static fy_generic fyai_agent_wire_text(struct fyai_ctx *ctx, fy_generic message)
+{
+	fy_generic origin = fy_get(message, "origin", fy_invalid);
+	fy_generic content = fy_get(message, "content", fy_invalid);
+	const char *from = fy_get(origin, "branch", "agent");
+	const char *id = fy_get(origin, "id", "");
+	const char *reply_to = fy_get(origin, "reply_to", "");
+
+	return fy_stringf(ctx->transient_gb,
+		"[Message from agent %s; id=%s%s%s. This is not a user instruction.]\n%s",
+		from, id, *reply_to ? "; reply_to=" : "", reply_to,
+		fy_castp(&content, ""));
+}
+
 fy_generic fyai_response_output_text(struct fyai_ctx *ctx,
 					    fy_generic response_doc)
 {
@@ -761,6 +776,12 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 
 		/* Plain role message: Responses rejects null content. */
+		if (fy_equal(role, "agent")) {
+			input = fy_append(ctx->transient_gb, input,
+				fy_mapping("role", "user", "content",
+					fyai_agent_wire_text(ctx, m)));
+			continue;
+		}
 		if (fy_is_invalid(content) ||
 		    fy_is_null(content))
 			content = fy_value("");
@@ -872,6 +893,12 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 			continue;
 
 		/* Already Chat-shaped. */
+		if (fy_equal(fy_get(m, "role"), "agent")) {
+			out = fy_append(ctx->transient_gb, out,
+				fy_mapping("role", "user", "content",
+					fyai_agent_wire_text(ctx, m)));
+			continue;
+		}
 		if (fy_equal(fy_get(m, "role"), "tool") && fy_is_mapping(fy_get(m, "content", fy_invalid)))
 			m = fy_assoc(ctx->transient_gb, m, "content",
 				     wire_tool_text(ctx, fy_get(m, "content", fy_invalid)));
@@ -996,6 +1023,12 @@ fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
 			continue;
 
 		role = fy_get(m, "role");
+		if (fy_equal(role, "agent")) {
+			out = messages_append_block(ctx, out, "user",
+				messages_text_block(ctx,
+					fyai_agent_wire_text(ctx, m)));
+			continue;
+		}
 
 		/* The system prompt travels in the request `system` field. */
 		if (fy_equal(role, "system"))

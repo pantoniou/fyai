@@ -1513,10 +1513,28 @@ fyai_turn_run_request_failed(struct fyai_turn_run *run, fy_generic response)
 	fyai_turn_run_stop(run, msg);
 }
 
-/*
- * Append @text as a user message of the run. An event and a typed line enter
- * the conversation in the same way.
- */
+/* Append an event with its sender metadata to ctx->gb storage. */
+fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
+				  const struct fyai_event_input *input)
+{
+	const char *display;
+
+	if (input->from) {
+		turn = fyai_turn_append(ctx, turn,
+			fy_sequence(fyai_make_agent_message(ctx, input->text,
+				input->from, input->execution, input->message_id,
+				input->reply_to)));
+		display = fy_sprintfa("**Agent %s** (message %s%s%s)\n\n%s",
+			input->from, input->message_id,
+			input->reply_to && *input->reply_to ? ", reply to " : "",
+			input->reply_to ? input->reply_to : "", input->text);
+		return fyai_output_record(ctx, turn, FYAI_OUTPUT_AGENT, display);
+	}
+	turn = fyai_turn_append(ctx, turn,
+		fy_sequence(fyai_make_user_message(ctx, input->text)));
+	return fyai_output_record(ctx, turn, FYAI_OUTPUT_USER, input->text);
+}
+
 static int fyai_turn_run_append_user(struct fyai_turn_run *run, const char *text)
 {
 	struct fyai_ctx *ctx = run->ctx;
@@ -1538,27 +1556,29 @@ static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 {
 	struct fyai_ctx *ctx = run->ctx;
 	const char *head;
-	char *line, *event;
+	char *line;
+	struct fyai_event_input event = {};
+	bool have_event;
 	int rc;
 
 	if (!run->accept_pending_user)
 		return 0;
 	/* A stale event is dropped here, so a live one is taken before output ends. */
-	event = fyai_event_take_live(ctx);
+	have_event = fyai_event_take_live_input(ctx, &event);
 	head = fyai_ui_peek_line(ctx);
-	if (!event && !fyai_interactive_is_user_line(head))
+	if (!have_event && !fyai_interactive_is_user_line(head))
 		return 0;
 	run->turn = fyai_output_finalize(ctx, run->turn, false);
 	fyai_error_check(ctx, fy_is_valid(run->turn), err,
 			 "could not finish output before pending input");
-	while (event) {
-		fyai_echo_user_turn(ctx, event);
-		rc = fyai_turn_run_append_user(run, event);
-		free(event);
-		event = NULL;
-		fyai_error_check(ctx, !rc, err,
+	while (have_event) {
+		if (!event.from)
+			fyai_echo_user_turn(ctx, event.text);
+		run->turn = fyai_turn_append_event(ctx, run->turn, &event);
+		fyai_event_input_clear(&event);
+		fyai_error_check(ctx, fy_is_valid(run->turn), err,
 				 "could not append the pending event");
-		event = fyai_event_take_live(ctx);
+		have_event = fyai_event_take_live_input(ctx, &event);
 	}
 	while (fyai_interactive_is_user_line(head = fyai_ui_peek_line(ctx))) {
 		line = fyai_ui_take_line(ctx);
@@ -1574,7 +1594,7 @@ static int fyai_turn_run_take_pending_user(struct fyai_turn_run *run)
 	fyai_error_check(ctx, !rc, err, "could not resume assistant output");
 	return 0;
 err:
-	free(event);
+	fyai_event_input_clear(&event);
 	return -1;
 }
 
@@ -2025,6 +2045,7 @@ fy_generic fyai_run_turn(struct fyai_ctx *ctx, fy_generic turn)
 	run = fyai_turn_run_submit(ctx, turn);
 	if (!run)
 		return fy_invalid;
+	run->accept_pending_user = ctx->cfg->agent_child;
 	el = fyai_ctx_loop(ctx);
 	assert(el);
 	while (!fyai_turn_run_done(run)) {
@@ -2496,6 +2517,8 @@ err:
 struct fyai_pending_event {
 	struct fyai_pending_event *next;
 	char *text;
+	char *from, *message_id, *reply_to;
+	long long execution;
 	char *owner;
 	enum fyai_event_owner_kind owner_kind;
 	bool seen;		/* a waiter has it: the turn loop leaves it */
@@ -2504,7 +2527,10 @@ struct fyai_pending_event {
 /* The context takes @text and @owner; both are freed on every path. */
 static int fyai_event_inject_queue(struct fyai_ctx *ctx, char *text,
 				   enum fyai_event_owner_kind owner_kind,
-				   char *owner)
+				   char *owner, const char *from,
+				   long long execution,
+				   const char *message_id,
+				   const char *reply_to)
 {
 	struct fyai_pending_event *ev;
 
@@ -2516,6 +2542,14 @@ static int fyai_event_inject_queue(struct fyai_ctx *ctx, char *text,
 	ev = calloc(1, sizeof(*ev));
 	fyai_error_check(ctx, ev, err, "could not queue event");
 	ev->text = text;
+	if (from) {
+		ev->from = strdup(from);
+		ev->message_id = strdup(message_id ? message_id : "");
+		ev->reply_to = strdup(reply_to ? reply_to : "");
+		fyai_error_check(ctx, ev->from && ev->message_id && ev->reply_to,
+				 err_event, "could not copy event sender metadata");
+		ev->execution = execution;
+	}
 	ev->owner_kind = owner_kind;
 	ev->owner = owner;
 	if (!ctx->events_tail)
@@ -2525,6 +2559,11 @@ static int fyai_event_inject_queue(struct fyai_ctx *ctx, char *text,
 	fyai_waiters_kick(ctx);
 	return 0;
 
+err_event:
+	free(ev->from);
+	free(ev->message_id);
+	free(ev->reply_to);
+	free(ev);
 err:
 	free(text);
 	free(owner);
@@ -2534,7 +2573,17 @@ err:
 int fyai_event_inject(struct fyai_ctx *ctx, char *text)
 {
 	return fyai_event_inject_queue(ctx, text, FYAI_EVENT_OWNER_NONE,
-				       NULL);
+				       NULL, NULL, 0, NULL, NULL);
+}
+
+int fyai_event_inject_agent(struct fyai_ctx *ctx, const char *text,
+			    const char *from, long long execution,
+			    const char *message_id, const char *reply_to)
+{
+	char *copy = text ? strdup(text) : NULL;
+
+	return fyai_event_inject_queue(ctx, copy, FYAI_EVENT_OWNER_NONE,
+		NULL, from, execution, message_id, reply_to);
 }
 
 int fyai_event_injectf(struct fyai_ctx *ctx, const char *fmt, ...)
@@ -2557,7 +2606,31 @@ int fyai_event_inject_owned(struct fyai_ctx *ctx, char *text,
 			    enum fyai_event_owner_kind owner_kind,
 			    char *owner)
 {
-	return fyai_event_inject_queue(ctx, text, owner_kind, owner);
+	return fyai_event_inject_queue(ctx, text, owner_kind, owner,
+		NULL, 0, NULL, NULL);
+}
+
+void fyai_event_input_clear(struct fyai_event_input *input)
+{
+	if (!input)
+		return;
+	free(input->text);
+	free(input->from);
+	free(input->message_id);
+	free(input->reply_to);
+	memset(input, 0, sizeof(*input));
+}
+
+static void fyai_pending_event_free(struct fyai_pending_event *ev)
+{
+	if (!ev)
+		return;
+	free(ev->text);
+	free(ev->from);
+	free(ev->message_id);
+	free(ev->reply_to);
+	free(ev->owner);
+	free(ev);
 }
 
 char *fyai_event_take(struct fyai_ctx *ctx)
@@ -2572,8 +2645,8 @@ char *fyai_event_take(struct fyai_ctx *ctx)
 	if (!ctx->events)
 		ctx->events_tail = &ctx->events;
 	text = ev->text;
-	free(ev->owner);
-	free(ev);
+	ev->text = NULL;
+	fyai_pending_event_free(ev);
 	return text;
 }
 
@@ -2647,9 +2720,7 @@ void fyai_events_purge_seen(struct fyai_ctx *ctx)
 		*link = ev->next;
 		if (!*link)
 			ctx->events_tail = link;
-		free(ev->text);
-		free(ev->owner);
-		free(ev);
+		fyai_pending_event_free(ev);
 	}
 }
 
@@ -2675,9 +2746,7 @@ static void fyai_events_drop_owner(struct fyai_ctx *ctx,
 		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",
 				 kind == FYAI_EVENT_OWNER_AGENT ?
 				 "agent" : "session", name);
-		free(ev->text);
-		free(ev->owner);
-		free(ev);
+		fyai_pending_event_free(ev);
 	}
 }
 
@@ -2719,13 +2788,14 @@ void fyai_events_drop_session(struct fyai_ctx *ctx, const char *name)
  * starting a turn for it would ask the model to answer a program that has
  * ended. Each drop is traced; delivery of an unowned event never changes.
  */
-char *fyai_event_take_live(struct fyai_ctx *ctx)
+bool fyai_event_take_live_input(struct fyai_ctx *ctx,
+				struct fyai_event_input *input)
 {
 	struct fyai_pending_event **link, *ev;
-	char *text;
 
+	memset(input, 0, sizeof(*input));
 	if (!ctx)
-		return NULL;
+		return false;
 	link = &ctx->events;
 	while ((ev = *link)) {
 		if (ev->seen) {
@@ -2736,20 +2806,35 @@ char *fyai_event_take_live(struct fyai_ctx *ctx)
 		if (!*link)
 			ctx->events_tail = link;
 		if (fyai_event_owner_live(ctx, ev)) {
-			text = ev->text;
-			free(ev->owner);
-			free(ev);
-			return text;
+			input->text = ev->text;
+			input->from = ev->from;
+			input->message_id = ev->message_id;
+			input->reply_to = ev->reply_to;
+			input->execution = ev->execution;
+			ev->text = ev->from = ev->message_id = ev->reply_to = NULL;
+			fyai_pending_event_free(ev);
+			return true;
 		}
 		fyai_diag_tracef("event", "dropped stale %s wait from '%s'",
 				 ev->owner_kind == FYAI_EVENT_OWNER_AGENT ?
 				 "agent" : "session",
 				 ev->owner ? ev->owner : "?");
-		free(ev->text);
-		free(ev->owner);
-		free(ev);
+		fyai_pending_event_free(ev);
 	}
-	return NULL;
+	return false;
+}
+
+char *fyai_event_take_live(struct fyai_ctx *ctx)
+{
+	struct fyai_event_input input;
+	char *text;
+
+	if (!fyai_event_take_live_input(ctx, &input))
+		return NULL;
+	text = input.text;
+	input.text = NULL;
+	fyai_event_input_clear(&input);
+	return text;
 }
 
 int fyai_prompt_batch(struct fyai_ctx *ctx)
@@ -3227,8 +3312,9 @@ err:
 	return -1;
 }
 
-/* Submit a queued event as a user turn. */
-static int fyai_interactive_submit_event(struct fyai_ctx *ctx, char *text,
+/* Submit a queued event with its source. */
+static int fyai_interactive_submit_event(struct fyai_ctx *ctx,
+					 const struct fyai_event_input *input,
 					 const char *histfile,
 					 struct fyai_turn_run **runp)
 {
@@ -3236,12 +3322,13 @@ static int fyai_interactive_submit_event(struct fyai_ctx *ctx, char *text,
 	fy_generic turn;
 	int rc;
 
-	fyai_echo_user_turn(ctx, text);
+	if (!input->from)
+		fyai_echo_user_turn(ctx, input->text);
 	fyai_ui_drain_output(ctx);
 	rc = fyai_setup_transient_builder(ctx);
 	fyai_error_check(ctx, !rc, err,
 			 "could not create transient event storage");
-	turn = fyai_interactive_append_user_turn(ctx, text);
+	turn = fyai_turn_append_event(ctx, ctx->last_message, input);
 	fyai_error_check(ctx, fy_is_valid(turn), err_cleanup,
 			 "could not append the event turn");
 	run = fyai_turn_run_submit(ctx, turn);
@@ -3447,14 +3534,14 @@ static int fyai_prompt_interactive_async(struct fyai_ctx *ctx)
 			 * dropped, not submitted: answering it would ask
 			 * the model about a program that has ended.
 			 */
-			char *event = fyai_event_take_live(ctx);
+			struct fyai_event_input event;
 
-			if (!event)
+			if (!fyai_event_take_live_input(ctx, &event))
 				continue;
 
-			rc = fyai_interactive_submit_event(ctx, event,
+			rc = fyai_interactive_submit_event(ctx, &event,
 						   histfile, &run);
-			free(event);
+			fyai_event_input_clear(&event);
 			fyai_error_check(ctx, !rc, out,
 					 "could not submit an event turn");
 			continue;

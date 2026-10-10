@@ -113,7 +113,7 @@ bool fyai_turn_has_user_message(fy_generic turn)
 
 	msgs = fy_get(turn, "messages", fy_seq_empty);
 	fy_foreach(m, msgs)
-		if (fy_equal(fy_get(m, "role"), "user"))
+		if (fy_any_equal(fy_get(m, "role"), "user", "agent"))
 			return true;
 	return false;
 }
@@ -382,6 +382,17 @@ fy_generic fyai_make_user_message(struct fyai_ctx *ctx, const char *text)
 	return fy_mapping(ctx->gb,
 		"role", "user",
 		"content", text);
+}
+
+fy_generic fyai_make_agent_message(struct fyai_ctx *ctx, const char *text,
+				   const char *from, long long execution,
+				   const char *id, const char *reply_to)
+{
+	return fy_mapping(ctx->gb,
+		"role", "agent", "content", text,
+		"origin", fy_mapping(ctx->gb,
+			"branch", from, "execution", execution,
+			"id", id, "reply_to", reply_to ? reply_to : ""));
 }
 
 fy_generic fyai_make_system_message(struct fyai_ctx *ctx, const char *text)

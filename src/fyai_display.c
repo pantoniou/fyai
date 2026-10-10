@@ -2544,7 +2544,7 @@ static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
 				 int preview_lines, const char *result_lang,
 				 bool thinking)
 {
-	fy_generic part;
+	fy_generic part, origin;
 	const char *text;
 	char *s;
 
@@ -2567,6 +2567,11 @@ static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
 		fyai_emit_italic(mf, text);
 	} else if (c->is_str && fy_equal(c->role, "user")) {
 		fyai_emit_blockquote(mf, text);
+	} else if (c->is_str && fy_equal(c->role, "agent")) {
+		origin = fy_get(c->msg, "origin", fy_invalid);
+		fprintf(mf, "**Agent %s** (message %s)\n\n%s\n\n",
+			fy_get(origin, "branch", "?"),
+			fy_get(origin, "id", "?"), text);
 	} else if (c->has_text) {
 		fprintf(mf, "%s\n\n", text);
 	} else if (!c->has_tc && fy_is_valid(c->content) &&
@@ -3382,7 +3387,7 @@ static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
 	for (i = lo; i < hi; i++) {
 		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
 		fy_foreach(msg, msgs) {
-			if (fy_equal(fy_get(msg, "role"), "user"))
+			if (fy_any_equal(fy_get(msg, "role"), "user", "agent"))
 				users++;
 			c = fyai_classify_message(msg);
 			if (fyai_msg_is_tool_result(&c, &result))
@@ -3401,7 +3406,7 @@ static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
 		}
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
 		fy_foreach(output, outputs) {
-			if (fy_equal(fy_get(output, "tag"), "user"))
+			if (fy_any_equal(fy_get(output, "tag"), "user", "agent"))
 				user_outputs++;
 			else if (fy_equal(fy_get(output, "tag"), "assistant"))
 				assistant_outputs++;
@@ -3806,7 +3811,7 @@ static int fyai_display_stored_outputs(struct fyai_ctx *ctx,
 				(void)fyai_sink_write(ctx->sink,
 					FYAI_SINK_TRANSCRIPT, "\n\n", 2);
 			if (emitted &&
-			    (fy_equal(tag, "user") || fy_equal(tag, "system")) &&
+			    fy_any_equal(tag, "user", "agent", "system") &&
 			    cfg->turn_separator &&
 			    *cfg->turn_separator) {
 				if (args->raw) {
@@ -4063,7 +4068,7 @@ static size_t fyai_display_exchange_end(const struct fyai_turn_stack *stack,
 		user = false;
 		msgs = fy_get(stack->items[i], "messages", fy_seq_empty);
 		fy_foreach(msg, msgs) {
-			if (fy_equal(fy_get(msg, "role"), "user")) {
+			if (fy_any_equal(fy_get(msg, "role"), "user", "agent")) {
 				user = true;
 				break;
 			}

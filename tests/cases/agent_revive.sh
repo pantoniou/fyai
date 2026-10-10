@@ -59,4 +59,22 @@ assert_stdout_contains "ORANGE"
 assert_stdout_contains "what word did you remember"
 
 mock_stop
+
+# Direct user control restores the root question tool on that branch.
+mock_start agent_user_resume.json
+run_fyai --branch main/agent:greeter --set display/stream=false \
+	--set api=responses --set api_url="$MOCK_URL/v1/responses" \
+	-m mock-model "continue this branch directly"
+assert_status 0
+assert_stdout_contains "Resumed directly."
+"$PYTHON" - "$TEST_DIR/requests.jsonl" <<'PYEOF' || fail "the user-resumed tool set is wrong"
+import json
+import sys
+
+req = json.loads(open(sys.argv[1]).readlines()[-1])["body"]
+tools = {t.get("name") for t in req["tools"]}
+if "ask_user" not in tools or "ask_parent" in tools:
+    raise SystemExit("wrong tools after direct resume: %r" % tools)
+PYEOF
+mock_stop 1
 pass

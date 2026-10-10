@@ -377,7 +377,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	fy_generic persona_v, persona, persona_model;
 	fy_generic turn;
 	fy_generic report, spawn;
-	char *input;
+	struct fyai_event_input input = {};
 	struct fyai_branch stored;
 	bool revive = false;
 	const char *json;
@@ -552,16 +552,12 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		 * A wait whose owner settled since the poll is dropped.
 		 * The queue may then be empty, so the loop re-checks.
 		 */
-		input = fyai_event_take_live(ctx);
-		if (!input)
+		if (!fyai_event_take_live_input(ctx, &input))
 			break;
 
 		ctx->last_message = turn;
-		ctx->last_message = fyai_turn_append(ctx, turn,
-			fy_sequence(fyai_make_user_message(ctx, input)));
-		ctx->last_message = fyai_output_record(ctx, ctx->last_message,
-			FYAI_OUTPUT_USER, input);
-		free(input);
+		ctx->last_message = fyai_turn_append_event(ctx, turn, &input);
+		fyai_event_input_clear(&input);
 		turn = fyai_run_turn(ctx, ctx->last_message);
 	}
 	turn = fyai_report_diag(ctx, turn);
@@ -636,28 +632,20 @@ err:
 /*
  * A background sub-agent runs in a job group of its own, because the group of
  * the turn that started it is cancelled when that turn ends. The run owns the
- * group until the sub-agent ends, and then queues the report as an event.
+ * group until the sub-agent ends, then retains its name for event lookup.
  */
 struct fyai_agent_bg_run {
 	struct fyai_agent_bg_run *next;
 	struct fyai_ctx *ctx;
 	struct fyai_tool_job_group *group;
 	char *name;
+	char handle[FYAI_BRANCH_COMPONENT_MAX + 1];
+	bool finished;
 };
 
 bool fyai_agent_background_requested(fy_generic args)
 {
 	return fy_get(args, "background", false);
-}
-
-static void agent_bg_unlink(struct fyai_agent_bg_run *run)
-{
-	struct fyai_agent_bg_run **link = &run->ctx->agent_bg_runs;
-
-	while (*link && *link != run)
-		link = &(*link)->next;
-	if (*link)
-		*link = run->next;
 }
 
 static void agent_bg_free(struct fyai_agent_bg_run *run)
@@ -692,8 +680,9 @@ static void agent_bg_finish(void *userdata)
 	fyai_error_check(ctx, !rc, release,
 			 "the report of the sub-agent '%s' was lost", run->name);
 release:
-	agent_bg_unlink(run);
-	agent_bg_free(run);
+	fyai_tool_job_group_destroy(run->group);
+	run->group = NULL;
+	run->finished = true;
 }
 
 static void agent_bg_complete(struct fyai_tool_job_group *group, void *userdata)
@@ -735,6 +724,7 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 			 "agent: could not allocate the background run");
 	run->ctx = ctx;
 	run->name = strdup(name);
+	fyai_branch_sanitize(name, "agent", run->handle, sizeof(run->handle));
 	fyai_error_check(ctx, run->name, err,
 			 "agent: could not retain the agent name");
 	run->group = fyai_tool_job_group_create_notify(ctx,
@@ -777,9 +767,21 @@ bool fyai_agent_background_running(struct fyai_ctx *ctx, const char *name)
 	struct fyai_agent_bg_run *run;
 
 	for (run = ctx->agent_bg_runs; run; run = run->next)
-		if (!strcmp(run->name, name))
+		if (!run->finished &&
+		    (!strcmp(run->name, name) || !strcmp(run->handle, name)))
 			return true;
 	return false;
+}
+
+const char *fyai_agent_background_original_name(struct fyai_ctx *ctx,
+						 const char *name)
+{
+	struct fyai_agent_bg_run *run;
+
+	for (run = ctx->agent_bg_runs; run; run = run->next)
+		if (!strcmp(run->name, name) || !strcmp(run->handle, name))
+			return run->name;
+	return NULL;
 }
 
 void fyai_agent_background_close(struct fyai_ctx *ctx)
@@ -855,12 +857,46 @@ static void tool_head_agent(struct fyai_ctx *ctx, FILE *mf,
 			*desc ? desc : "delegated task");
 }
 
-/* A background call starts in the parent, because it holds no job of the turn. */
+static char *tool_agent_message(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	fy_generic name = fy_get(args, "name", fy_invalid);
+	fy_generic message = fy_get(args, "message", fy_invalid);
+	fy_generic receipt = fy_get(args, "receipt", fy_invalid);
+	fy_generic reply = fy_get(args, "reply_to", fy_invalid);
+	const char *who = fy_castp(&name, "");
+	const char *body = fy_castp(&message, "");
+	const char *label = fy_castp(&receipt, "");
+	const char *reply_to = fy_castp(&reply, "");
+
+	*okp = !fyai_agents_message(ctx, who, body, label, reply_to);
+	return strdup(*okp ?
+		fy_sprintfa("message sent; wait for '%s' to learn whether it was queued",
+			    label) :
+		"tool error: agent is not running or the message could not be sent");
+}
+
+static void tool_head_agent_message(struct fyai_ctx *ctx, FILE *mf,
+		struct fy_generic_builder *gb, fy_generic args,
+		int preview_lines, struct fyai_md_blocks *blocks)
+{
+	fy_generic name = fy_get(args, "name", fy_invalid);
+
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	fprintf(mf, "**agent message** [%s]\n\n", fy_castp(&name, ""));
+}
+
 const struct fyai_tool_def fyai_agent_defs[] = {
 	{ .name = "agent", .run = tool_agent, .head = tool_head_agent,
 	  .in_parent = fyai_agent_background_requested,
 	  .flags = FYAI_TOOL_MARKED | FYAI_TOOL_NOT_FOR_CHILD |
 		   FYAI_TOOL_INSTANT,
+	  .effect = FYAI_TOOL_EFFECT_PROCESS },
+	{ .name = "agent_message", .run_text = tool_agent_message,
+	  .head = tool_head_agent_message,
+	  .flags = FYAI_TOOL_PARENT,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 };
 const size_t fyai_agent_defs_count = ARRAY_SIZE(fyai_agent_defs);

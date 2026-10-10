@@ -32,6 +32,7 @@ static enum fyai_sink_doc_kind fyai_output_doc_kind(enum fyai_output_tag tag)
 	case FYAI_OUTPUT_SYSTEM:
 		return FYAI_SINK_DOC_SYSTEM;
 	case FYAI_OUTPUT_USER:
+	case FYAI_OUTPUT_AGENT:
 		return FYAI_SINK_DOC_USER;
 	case FYAI_OUTPUT_ASSISTANT:
 		break;
@@ -46,6 +47,8 @@ const char *fyai_output_tag_name(enum fyai_output_tag tag)
 		return "system";
 	case FYAI_OUTPUT_USER:
 		return "user";
+	case FYAI_OUTPUT_AGENT:
+		return "agent";
 	case FYAI_OUTPUT_ASSISTANT:
 		return "assistant";
 	}

@@ -892,6 +892,22 @@ enum fyai_event_owner_kind {
 int fyai_event_inject_owned(struct fyai_ctx *ctx, char *text,
 			    enum fyai_event_owner_kind owner_kind,
 			    char *owner);
+/* Agent input keeps its sender separate from model-visible text. */
+struct fyai_event_input {
+	char *text;
+	char *from;
+	char *message_id;
+	char *reply_to;
+	long long execution;
+};
+int fyai_event_inject_agent(struct fyai_ctx *ctx, const char *text,
+			    const char *from, long long execution,
+			    const char *message_id, const char *reply_to);
+bool fyai_event_take_live_input(struct fyai_ctx *ctx,
+				struct fyai_event_input *input);
+void fyai_event_input_clear(struct fyai_event_input *input);
+fy_generic fyai_turn_append_event(struct fyai_ctx *ctx, fy_generic turn,
+				  const struct fyai_event_input *input);
 /* Take the oldest queued event, or NULL. The caller owns it. */
 char *fyai_event_take(struct fyai_ctx *ctx);
 bool fyai_event_queued(const struct fyai_ctx *ctx);

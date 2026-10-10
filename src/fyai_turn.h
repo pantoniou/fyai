@@ -88,6 +88,9 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 					  fy_generic turn,
 					  fy_generic response_doc);
 fy_generic fyai_make_user_message(struct fyai_ctx *ctx, const char *text);
+fy_generic fyai_make_agent_message(struct fyai_ctx *ctx, const char *text,
+				   const char *from, long long execution,
+				   const char *id, const char *reply_to);
 fy_generic fyai_make_system_message(struct fyai_ctx *ctx, const char *text);
 
 /* The provider identity recorded on a turn (provider_stream's only key). */

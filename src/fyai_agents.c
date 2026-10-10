@@ -49,6 +49,20 @@ struct agent_question {
 	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 };
 
+struct agent_message_ack {
+	struct agent_message_ack *next;
+	struct fyai_ctx *ctx;
+	struct jsonrpc_request *request;
+	char *name;
+	char *agent;
+	char *branch, *from, *text, *reply_to;
+	bool pending;
+	bool cancelled;
+};
+
+static void agents_messages_admitted(struct fyai_agents *a,
+				    struct agent_record *r);
+
 /*
  * The parent reports through the context that owns the registry, and a
  * forward through the context it recorded.
@@ -91,6 +105,8 @@ struct fyai_agents {
 	struct agent_record *records;
 	struct agent_forward *forwards;
 	struct agent_question *questions, **question_tail;
+	struct agent_message_ack *messages;
+	bool closing;
 	struct fyai_event_source *timer;
 	struct fytim_surface *surface;
 	struct fyai_sink_band *progress;
@@ -172,16 +188,18 @@ static struct agent_record *agents_named(struct fyai_ctx *ctx, const char *name)
 {
 	struct agent_record *r, *found = NULL;
 	const char *leaf;
+	char slug[FYAI_BRANCH_COMPONENT_MAX + 1];
 
 	if (!ctx->agents || fy_str_empty(name))
 		return NULL;
+	fyai_branch_sanitize(name, "agent", slug, sizeof(slug));
 	for (r = ctx->agents->records; r; r = r->next) {
 		if (!r->active)
 			continue;
 		if (!strcmp(r->branch, name))
 			return r;
 		leaf = agent_leaf_name(r->branch);
-		if (!leaf || strcmp(leaf, name))
+		if (!leaf || (strcmp(leaf, name) && strcmp(leaf, slug)))
 			continue;
 		if (found)
 			return NULL;
@@ -363,6 +381,9 @@ static void agents_event(struct fyai_ctx *ctx, struct jsonrpc_conn *from,
 	changed = strcmp(r->state, state) != 0;
 	snprintf(r->state, sizeof(r->state), "%s", state);
 	r->active = agent_state_active(r->state);
+	/* Running follows the admission response; the child now knows its ID. */
+	if (r->active)
+		agents_messages_admitted(a, r);
 	model = fy_get(params, "model", "");
 	if (!fy_str_empty(model) && strcmp(model, r->model)) {
 		copy = strdup(model);
@@ -642,6 +663,57 @@ err_out:
 	return AGENTS_SERVED_FAIL;
 }
 
+static enum agents_served agents_serve_message(struct fyai_ctx *ctx,
+		struct fyai_agents *a, struct fy_generic_builder *gb,
+		struct jsonrpc_conn *conn, fy_generic params, fy_generic id,
+		fy_generic *result)
+{
+	struct agent_record *r;
+	fy_generic text_v = fy_get(params, "text", fy_invalid);
+	fy_generic msg_v = fy_get(params, "message_id", fy_invalid);
+	fy_generic reply_v = fy_get(params, "reply_to", fy_invalid);
+	const char *text = fy_castp(&text_v, "");
+	const char *msg = fy_castp(&msg_v, "");
+	const char *reply = fy_castp(&reply_v, "");
+	const char *target = fy_get(params, "target", "");
+	const char *from;
+	long long execution = fy_get(params, "execution", 0LL);
+	long long sender_execution;
+	int rc;
+	fyai_error_check(ctx, *text && *msg, err_out,
+		"agent message needs text and identity");
+	if (!strcmp(target, "parent")) {
+		for (r = a->records; r; r = r->next)
+			if (r->route == conn && r->active)
+				break;
+		fyai_error_check(ctx, r && r->execution == execution, err_out,
+				 "agent message sender is not live");
+		from = r->branch;
+		sender_execution = r->execution;
+	} else if (execution > 0 && execution == ctx->agent_execution) {
+		fyai_error_check(ctx, conn == ctx->tool_rpc, err_out,
+				 "agent message did not come from its parent");
+		from = fy_get(params, "from", "");
+		sender_execution = fy_get(params, "sender_execution", 0LL);
+		fyai_error_check(ctx, *from, err_out,
+				 "agent message has no sender");
+	} else {
+		r = agents_record(a, execution);
+		fyai_error_check(ctx, r && r->active && r->route, err_out,
+				 "agent message target is not live");
+		rc = agents_forward(ctx, conn, r->route, "agent/message",
+			params, id);
+		return rc ? AGENTS_SERVED_FAIL : AGENTS_SERVED_OK;
+	}
+	rc = fyai_event_inject_agent(ctx, text, from, sender_execution,
+		fy_sprintfa("%s:%s", from, msg), reply);
+	fyai_error_check(ctx, !rc, err_out, "could not queue agent message");
+	*result = fy_mapping(gb, "ok", true);
+	return AGENTS_SERVED_OK;
+err_out:
+	return AGENTS_SERVED_FAIL;
+}
+
 bool fyai_agents_serve(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 		       const char *method, fy_generic params, fy_generic id,
 		       fy_generic *result, fy_generic *error)
@@ -669,6 +741,8 @@ bool fyai_agents_serve(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
 		served = agents_serve_admit(ctx, a, gb, conn, params, id, result);
 	else if (!strcmp(method, "agent/control"))
 		served = agents_serve_control(ctx, a, gb, conn, params, id, result);
+	else if (!strcmp(method, "agent/message"))
+		served = agents_serve_message(ctx, a, gb, conn, params, id, result);
 	else {
 		fyai_error(ctx, "unknown agent method \"%s\"", method);
 		served = AGENTS_SERVED_FAIL;
@@ -1177,6 +1251,183 @@ int fyai_agents_kill(struct fyai_ctx *ctx, const char *name)
 	return agents_control(ctx, agents_named(ctx, name), "cancel", NULL, false);
 }
 
+static void agents_message_done(struct jsonrpc_request *request, void *userdata)
+{
+	struct agent_message_ack *ack = userdata;
+	fy_generic result = jsonrpc_request_result(request);
+	bool queued = jsonrpc_request_ok(request) &&
+		fy_get(result, "ok", false);
+
+	ack->pending = false;
+	ack->request = NULL;
+	if (!ack->ctx->agents->closing && !ack->cancelled)
+		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]", ack->name,
+			queued ? "queued" : "not queued");
+	jsonrpc_request_destroy(request);
+}
+
+static void agents_message_settle(struct agent_message_ack *ack, bool queued)
+{
+	ack->pending = false;
+	if (!ack->ctx->agents->closing && !ack->cancelled)
+		fyai_event_injectf(ack->ctx, "[agent_message '%s' %s]",
+			ack->name, queued ? "queued" : "not queued");
+}
+
+static int agents_message_submit(struct agent_message_ack *ack,
+				 struct agent_record *r)
+{
+	struct fyai_ctx *ctx = ack->ctx;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct jsonrpc_conn *route = r ? r->route : ctx->tool_rpc;
+	long long execution = r ? r->execution : ctx->agent_execution;
+
+	if (!gb || !route || !execution)
+		return -1;
+	ack->request = jsonrpc_request_submit(route, "agent/message",
+		fy_mapping(gb, "execution", execution,
+			"target", r ? "agent" : "parent", "from", ack->from,
+			"sender_execution", ctx->agent_execution,
+			"text", ack->text, "message_id", ack->name,
+			"reply_to", ack->reply_to),
+		jsonrpc_conn_next_id(route), false,
+		agents_message_done, ack);
+	return ack->request ? 0 : -1;
+}
+
+static void agents_messages_admitted(struct fyai_agents *a,
+				    struct agent_record *r)
+{
+	struct agent_message_ack *ack;
+
+	for (ack = a->messages; ack; ack = ack->next) {
+		if (!ack->pending || ack->request || !ack->branch ||
+		    strcmp(ack->branch, r->branch))
+			continue;
+		if (agents_message_submit(ack, r))
+			agents_message_settle(ack, false);
+	}
+}
+
+bool fyai_agents_message_pending(struct fyai_ctx *ctx, const char *name)
+{
+	struct agent_message_ack *ack;
+
+	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	     ack = ack->next)
+		if (!strcmp(ack->name, name))
+			return ack->pending;
+	return false;
+}
+
+fy_generic fyai_agents_message_rows(struct fyai_ctx *ctx,
+				    struct fy_generic_builder *gb)
+{
+	struct agent_message_ack *ack;
+	fy_generic rows = fy_sequence(gb);
+
+	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	     ack = ack->next)
+		if (ack->pending)
+			rows = fy_append(gb, rows, fy_mapping(gb,
+				"name", ack->name, "agent", ack->agent));
+	return rows;
+}
+
+bool fyai_agents_message_cancel(struct fyai_ctx *ctx, const char *name)
+{
+	struct agent_message_ack *ack;
+
+	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	     ack = ack->next) {
+		if (strcmp(ack->name, name) || !ack->pending)
+			continue;
+		ack->cancelled = true;
+		if (ack->request)
+			jsonrpc_request_cancel(ack->request);
+		else
+			ack->pending = false;
+		return true;
+	}
+	return false;
+}
+
+int fyai_agents_message(struct fyai_ctx *ctx, const char *name,
+			const char *text, const char *receipt,
+			const char *reply_to)
+{
+	bool parent = !strcmp(name, "parent");
+	struct fyai_agents *a = agents_get(ctx);
+	struct agent_record *r = parent ? NULL : agents_named(ctx, name);
+	struct agent_message_ack *ack;
+	const char *branch = NULL;
+	const unsigned char *p;
+	const char *from = ctx->agent_branch ? ctx->agent_branch :
+		fyai_ctx_branch(ctx);
+
+	if (parent) {
+		if (!ctx->tool_rpc || !ctx->agent_execution)
+			return -1;
+	} else if (!r || !r->route || !r->active) {
+		branch = fyai_tool_agent_live_branch(ctx, name);
+		if (!branch)
+			return -1;
+	}
+	if (!a || fy_str_empty(text) || fy_str_empty(from) ||
+	    fy_str_empty(receipt))
+		return -1;
+	if (strlen(receipt) > 32)
+		return -1;
+	for (p = (const unsigned char *)receipt; *p; p++)
+		if (!(*p >= 'A' && *p <= 'Z') &&
+		    !(*p >= 'a' && *p <= 'z') &&
+		    !(*p >= '0' && *p <= '9') && *p != '-' && *p != '_')
+			return -1;
+	for (ack = a->messages; ack; ack = ack->next)
+		if (!strcmp(ack->name, receipt))
+			return -1;
+	ack = calloc(1, sizeof(*ack));
+	if (!ack)
+		return -1;
+	ack->name = strdup(receipt);
+	ack->agent = strdup(name);
+	ack->branch = branch ? strdup(branch) : NULL;
+	ack->from = strdup(from);
+	ack->text = strdup(text);
+	ack->reply_to = strdup(reply_to ? reply_to : "");
+	if (!ack->name || !ack->agent || (branch && !ack->branch) ||
+	    !ack->from || !ack->text || !ack->reply_to)
+		goto err_ack;
+	ack->ctx = ctx;
+	ack->pending = true;
+	if (!branch && agents_message_submit(ack, r))
+		goto err_ack;
+	ack->next = a->messages;
+	a->messages = ack;
+	return 0;
+
+err_ack:
+	free(ack->name);
+	free(ack->agent);
+	free(ack->branch);
+	free(ack->from);
+	free(ack->text);
+	free(ack->reply_to);
+	free(ack);
+	return -1;
+}
+
+void fyai_agents_message_branch_closed(struct fyai_ctx *ctx, const char *branch)
+{
+	struct agent_message_ack *ack;
+
+	for (ack = ctx->agents ? ctx->agents->messages : NULL; ack;
+	     ack = ack->next)
+		if (ack->pending && !ack->request && ack->branch &&
+		    !strcmp(ack->branch, branch))
+			agents_message_settle(ack, false);
+}
+
 bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf)
 {
 	return ctx->agents && ctx->agents->surface && ctx->agents->surface == sf;
@@ -1357,9 +1608,23 @@ void fyai_agents_cleanup(struct fyai_ctx *ctx)
 	struct fyai_agents *a = ctx->agents;
 	struct agent_record *r, *next;
 	struct agent_question *q;
+	struct agent_message_ack *ack;
 
 	if (!a)
 		return;
+	a->closing = true;
+	while ((ack = a->messages)) {
+		a->messages = ack->next;
+		if (ack->request)
+			jsonrpc_request_cancel(ack->request);
+		free(ack->name);
+		free(ack->agent);
+		free(ack->branch);
+		free(ack->from);
+		free(ack->text);
+		free(ack->reply_to);
+		free(ack);
+	}
 	fyai_agents_detach(ctx);
 	fyai_event_source_remove(a->timer);
 	while (a->forwards)

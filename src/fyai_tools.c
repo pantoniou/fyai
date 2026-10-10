@@ -122,7 +122,7 @@ fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
 		assert(0);
 		__builtin_unreachable();
 	}
-	return parse_json_string(ctx->transient_gb, args_text);
+	return parse_json_string(fyai_ctx_transient_gb(ctx), args_text);
 }
 
 static bool fyai_shell_tty_requested(struct fyai_ctx *ctx, fy_generic call);
@@ -4158,7 +4158,7 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	struct fyai_tool_job *job;
 	fy_generic name_v, kind_v;
 	const char *name, *kind;
-	bool is_wait, is_agent, is_shell, is_monitor, is_question;
+	bool is_wait, is_agent, is_shell, is_monitor, is_question, is_message;
 	char *result;
 
 	*okp = false;
@@ -4179,7 +4179,10 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		     fyai_monitor_running(ctx, name);
 	is_question = (!*kind || !strcmp(kind, "question")) &&
 		      fyai_asks_exists(ctx, name);
-	if (is_wait + is_agent + is_shell + is_monitor + is_question > 1)
+	is_message = (!*kind || !strcmp(kind, "message")) &&
+		     fyai_agents_message_pending(ctx, name);
+	if (is_wait + is_agent + is_shell + is_monitor + is_question +
+	    is_message > 1)
 		return strdup(fy_sprintfa("tool error: '%s' names more than "
 					  "one thing; say its kind", name));
 	if (is_monitor && fyai_monitor_cancel(ctx, name)) {
@@ -4201,6 +4204,11 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (is_question && fyai_asks_cancel(ctx, name)) {
 		*okp = true;
 		return strdup(fy_sprintfa("[question '%s' cancelled]", name));
+	}
+	if (is_message && fyai_agents_message_cancel(ctx, name)) {
+		*okp = true;
+		return strdup(fy_sprintfa("[agent_message '%s' receipt cancelled; "
+			"the message may still be queued]", name));
 	}
 	if (is_wait && fyai_wait_cancel(ctx, name)) {
 		*okp = true;
@@ -4974,17 +4982,27 @@ static struct fyai_tool_job *fyai_agent_job_named(struct fyai_ctx *ctx,
 {
 	struct fyai_tool_job *job;
 	const char *who;
+	char slug[FYAI_BRANCH_COMPONENT_MAX + 1];
 
 	if (fy_str_empty(name))
 		return NULL;
+	fyai_branch_sanitize(name, "agent", slug, sizeof(slug));
 	for (job = ctx->tool_jobs; job; job = job->next) {
 		if (!job->agent || job->done || !job->branch)
 			continue;
 		who = fyai_agent_job_name(job);
-		if (!strcmp(job->branch, name) || !strcmp(who, name))
+		if (!strcmp(job->branch, name) || !strcmp(who, name) ||
+		    !strcmp(who, slug))
 			return job;
 	}
 	return NULL;
+}
+
+const char *fyai_tool_agent_live_branch(struct fyai_ctx *ctx, const char *name)
+{
+	struct fyai_tool_job *job = fyai_agent_job_named(ctx, name);
+
+	return job ? job->branch : NULL;
 }
 
 /* Present a named sub-agent's question and return the user's answer. */
@@ -5464,6 +5482,8 @@ static int fyai_tool_job_attach(struct fyai_ctx *ctx,
 
 static void fyai_tool_job_close_channel(struct fyai_tool_job *job)
 {
+	if (job->agent && job->branch)
+		fyai_agents_message_branch_closed(job->ctx, job->branch);
 	if (job->run) {
 		jsonrpc_request_destroy(job->run);
 		job->run = NULL;
@@ -5573,9 +5593,9 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 
 	*okp = false;
 	if (!all && !fy_any_equal(kind, "agents", "views", "shells", "waits",
-				  "monitors", "questions"))
+				  "monitors", "questions", "messages"))
 		return fy_value(gb, "tool error: kind is agents, views, shells, "
-				"waits, monitors or questions");
+				"waits, monitors, questions or messages");
 	if (all || !strcmp(kind, "agents"))
 		result = fy_assoc(gb, result, "agents", fyai_list_agents(ctx, gb));
 	if (all || !strcmp(kind, "views"))
@@ -5590,6 +5610,9 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 	if (all || !strcmp(kind, "questions"))
 		result = fy_assoc(gb, result, "questions",
 				  fyai_asks_rows(ctx, gb));
+	if (all || !strcmp(kind, "messages"))
+		result = fy_assoc(gb, result, "messages",
+				  fyai_agents_message_rows(ctx, gb));
 	*okp = true;
 	return fy_gb_internalize(gb, result);
 }

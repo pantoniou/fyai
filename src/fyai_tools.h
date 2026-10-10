@@ -76,6 +76,8 @@ int fyai_tool_child_exec_serve(struct fyai_ctx *ctx);
  * none or the agent has no transport execution.
  */
 uint64_t fyai_tool_agent_transport_exec(struct fyai_ctx *ctx, const char *name);
+/* Borrow the branch of a live direct sub-agent, including one still admitting. */
+const char *fyai_tool_agent_live_branch(struct fyai_ctx *ctx, const char *name);
 void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch);
 bool fyai_tools_active(const struct fyai_ctx *ctx);
 /*

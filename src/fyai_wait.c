@@ -23,6 +23,7 @@
 #include "fyai_event.h"
 #include "fyai_wait.h"
 #include "fyai_agent.h"
+#include "fyai_agents.h"
 #include "fyai_asks.h"
 #include "fyai_tools.h"
 #include "fyai_monitor.h"
@@ -386,6 +387,7 @@ enum fyai_wait_for_kind {
 	FYAI_WAIT_FOR_WAIT,
 	FYAI_WAIT_FOR_MONITOR,
 	FYAI_WAIT_FOR_QUESTION,
+	FYAI_WAIT_FOR_AGENT_MESSAGE,
 };
 
 struct fyai_wait_for_item {
@@ -446,6 +448,9 @@ static char *fyai_wait_for_check(struct fyai_ctx *ctx,
 	case FYAI_WAIT_FOR_QUESTION:
 		return fyai_event_peek_prefix(ctx,
 				fy_sprintfa("[question '%s' ", it->name));
+	case FYAI_WAIT_FOR_AGENT_MESSAGE:
+		return fyai_event_peek_prefix(ctx,
+				fy_sprintfa("[agent_message '%s' ", it->name));
 	default:
 		return NULL;
 	}
@@ -469,6 +474,8 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 		return fyai_monitor_running(ctx, it->name);
 	case FYAI_WAIT_FOR_QUESTION:
 		return fyai_asks_exists(ctx, it->name);
+	case FYAI_WAIT_FOR_AGENT_MESSAGE:
+		return fyai_agents_message_pending(ctx, it->name);
 	default:
 		return false;
 	}
@@ -497,6 +504,10 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	    fyai_event_pending_prefix(ctx, fy_sprintfa("[question '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_QUESTION;
+	if (fyai_agents_message_pending(ctx, target) ||
+	    fyai_event_pending_prefix(ctx, fy_sprintfa("[agent_message '%s' ",
+						       target)))
+		return FYAI_WAIT_FOR_AGENT_MESSAGE;
 	return FYAI_WAIT_FOR_NONE;
 }
 
@@ -799,6 +810,8 @@ struct fyai_waiter *fyai_waiter_start(struct fyai_ctx *ctx, fy_generic args,
 {
 	struct fyai_event_loop *el;
 	struct fyai_waiter *w;
+	const char *original;
+	char *copy;
 	size_t i;
 
 	*errp = NULL;
@@ -813,6 +826,21 @@ struct fyai_waiter *fyai_waiter_start(struct fyai_ctx *ctx, fy_generic args,
 	if (fyai_waiter_parse(w, args, errp))
 		goto err;
 	for (i = 0; i < w->n; i++) {
+		original = fyai_agent_background_original_name(ctx,
+			w->items[i].name);
+		if (original && strcmp(original, w->items[i].name) &&
+		    (fyai_agent_background_running(ctx, original) ||
+		     fyai_event_pending_prefix(ctx,
+			fy_sprintfa("[agent '%s' ", original)))) {
+			copy = strdup(original);
+			if (!copy) {
+				fyai_waiter_refuse(ctx, errp,
+					"tool error: out of memory");
+				goto err;
+			}
+			free(w->items[i].name);
+			w->items[i].name = copy;
+		}
 		w->items[i].kind = fyai_wait_for_resolve(ctx, w->items[i].name);
 		if (w->items[i].kind == FYAI_WAIT_FOR_NONE) {
 			fyai_waiter_refuse(ctx, errp, fy_sprintfa(
