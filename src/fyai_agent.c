@@ -37,11 +37,24 @@ const char fyai_agent_system_prompt[] =
 	"create or edit files with exec_command, Python, or other shell write "
 	"tricks; formatting commands and bulk mechanical rewrites are exempt. "
 	"Investigate before acting, make the smallest change that satisfies the "
-	"task, and verify your work. Use ask_user when a decision truly requires "
-	"the user; the delegating agent will forward the answer. Otherwise decide "
+	"task, and verify your work. Use ask_parent when a decision requires "
+	"the delegating agent; it can ask the user when needed. Otherwise decide "
 	"with sensible defaults and state any assumptions. When the task is "
 	"complete, stop and reply with a concise final report of what you did "
 	"and what you found; that report is your entire return value.";
+
+static const char fyai_agent_user_system_prompt[] =
+	"You are a fyai sub-agent: an autonomous coding assistant delegated a "
+	"single, self-contained task. Work in the current workspace using the "
+	"tools available to you. Use apply_patch for manual code edits. Do not "
+	"create or edit files with exec_command, Python, or other shell write "
+	"tricks; formatting commands and bulk mechanical rewrites are exempt. "
+	"Investigate before acting, make the smallest change that satisfies the "
+	"task, and verify your work. Use ask_user when a decision truly requires "
+	"the user. Otherwise decide with sensible defaults and state any "
+	"assumptions. When the task is complete, stop and reply with a concise "
+	"final report of what you did and what you found; that report is your "
+	"entire return value.";
 
 bool fyai_agent_delegated(const struct fyai_ctx *ctx)
 {
@@ -491,7 +504,8 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	/* Apply child settings after the arena restores branch configuration. */
 	cfg->agent_child = true;
 	cfg->mcp_enabled = false;
-	cfg->system_prompt = fyai_agent_system_prompt;
+	cfg->system_prompt = ctx->tool_rpc ? fyai_agent_system_prompt :
+		fyai_agent_user_system_prompt;
 	if (fy_is_mapping(persona)) {
 		rc = fyai_agent_persona_apply(ctx, persona, fork_mode);
 		fyai_error_check(ctx, !rc, err,
@@ -888,6 +902,29 @@ static void tool_head_agent_message(struct fyai_ctx *ctx, FILE *mf,
 	fprintf(mf, "**agent message** [%s]\n\n", fy_castp(&name, ""));
 }
 
+static char *tool_ask_parent(struct fyai_ctx *ctx, fy_generic args, bool *okp)
+{
+	const char *name = fy_get(args, "name", "");
+	const char *question = fy_get(args, "question", "");
+
+	*okp = !fyai_agents_ask_parent(ctx, name, question);
+	return strdup(*okp ?
+		fy_sprintfa("question sent; wait for '%s' to receive the parent's answer",
+			    name) :
+		"tool error: ask_parent needs a live parent and a unique question name");
+}
+
+static void tool_head_ask_parent(struct fyai_ctx *ctx, FILE *mf,
+		struct fy_generic_builder *gb, fy_generic args,
+		int preview_lines, struct fyai_md_blocks *blocks)
+{
+	(void)ctx;
+	(void)gb;
+	(void)preview_lines;
+	(void)blocks;
+	fprintf(mf, "**ask parent** [%s]\n\n", fy_get(args, "name", ""));
+}
+
 const struct fyai_tool_def fyai_agent_defs[] = {
 	{ .name = "agent", .run = tool_agent, .head = tool_head_agent,
 	  .in_parent = fyai_agent_background_requested,
@@ -897,6 +934,10 @@ const struct fyai_tool_def fyai_agent_defs[] = {
 	{ .name = "agent_message", .run_text = tool_agent_message,
 	  .head = tool_head_agent_message,
 	  .flags = FYAI_TOOL_PARENT,
+	  .effect = FYAI_TOOL_EFFECT_PROCESS },
+	{ .name = "ask_parent", .run_text = tool_ask_parent,
+	  .head = tool_head_ask_parent,
+	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_CHILD_ONLY,
 	  .effect = FYAI_TOOL_EFFECT_PROCESS },
 };
 const size_t fyai_agent_defs_count = ARRAY_SIZE(fyai_agent_defs);

@@ -48,6 +48,13 @@ bool fyai_agents_message_cancel(struct fyai_ctx *ctx, const char *receipt);
 void fyai_agents_message_branch_closed(struct fyai_ctx *ctx, const char *branch);
 fy_generic fyai_agents_message_rows(struct fyai_ctx *ctx,
 				    struct fy_generic_builder *gb);
+/* A child question is a named answer wait, distinct from its delivery receipt. */
+int fyai_agents_ask_parent(struct fyai_ctx *ctx, const char *name,
+			   const char *question);
+bool fyai_agents_parent_ask_pending(struct fyai_ctx *ctx, const char *name);
+bool fyai_agents_parent_ask_cancel(struct fyai_ctx *ctx, const char *name);
+fy_generic fyai_agents_parent_ask_rows(struct fyai_ctx *ctx,
+				       struct fy_generic_builder *gb);
 bool fyai_agents_surface(struct fyai_ctx *ctx, const struct fytim_surface *sf);
 bool fyai_agents_keys(struct fyai_ctx *ctx, const char *data, size_t len);
 void fyai_agents_present(struct fyai_ctx *ctx);

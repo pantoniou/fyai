@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_agent.h"
 #include "fyai_config.h"
 #include "fyai_tool_spec.h"
 #include "fyai_tool_registry.h"
@@ -98,25 +99,34 @@ static bool fyai_tool_spec_needs_update(struct fyai_ctx *ctx)
 {
 	return fy_is_invalid(ctx->tools_spec) ||
 	       ctx->tools_spec_generation != ctx->cfg->config_generation ||
-	       ctx->tools_spec_agent_child != ctx->cfg->agent_child;
+	       ctx->tools_spec_agent_child != fyai_agent_delegated(ctx) ||
+	       ctx->tools_spec_agent_restricted !=
+		(ctx->cfg->agent_child && !ctx->agent_execution);
 }
 
-/* Remove ask_user and agent from a sub-agent tool set. */
+/* Select question and delegation tools for the current session owner. */
 fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb = ctx->cfg->gb;
 	fy_generic tools, tool, fn, name, out;
-	bool isolation;
+	bool isolation, delegated;
 
 	if (!fyai_tool_spec_needs_update(ctx))
 		return ctx->tools_spec;
 
 	tools = make_tools(ctx);
+	delegated = fyai_agent_delegated(ctx);
 	isolation = fyai_view_isolation_available(ctx);
 	out = fy_seq_empty;
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
 		name = fy_get(fn, "name");
+		if (!delegated &&
+		    fyai_tool_has(fy_castp(&name, ""), FYAI_TOOL_CHILD_ONLY))
+			continue;
+		if (delegated &&
+		    fyai_tool_has(fy_castp(&name, ""), FYAI_TOOL_ROOT_ONLY))
+			continue;
 		if (!isolation && fy_equal(name, "project_view"))
 			continue;
 		if (!isolation && fy_equal(name, "agent"))
@@ -133,7 +143,7 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 		fy_foreach(tool, tools) {
 			fn = fy_get(tool, "function");
 			name = fy_get(fn, "name");
-			/* A sub-agent may ask upward but cannot manage agents. */
+			/* A delegated agent cannot manage its parent's agents. */
 			if (fyai_tool_has(fy_castp(&name, ""),
 					  FYAI_TOOL_NOT_FOR_CHILD))
 				continue;
@@ -146,6 +156,8 @@ fy_generic make_tools_filtered(struct fyai_ctx *ctx)
 
 	ctx->tools_spec = out;
 	ctx->tools_spec_generation = ctx->cfg->config_generation;
-	ctx->tools_spec_agent_child = ctx->cfg->agent_child;
+	ctx->tools_spec_agent_child = delegated;
+	ctx->tools_spec_agent_restricted =
+		ctx->cfg->agent_child && !ctx->agent_execution;
 	return out;
 }

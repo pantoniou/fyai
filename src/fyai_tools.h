@@ -14,6 +14,7 @@
 #define FYAI_KEY_INTR 0x03
 
 struct fyai_tool_job;
+struct jsonrpc_conn;
 struct fyai_tool_job_group;
 struct fyai_mcp_call_request;
 struct fytim_surface;
@@ -78,6 +79,9 @@ int fyai_tool_child_exec_serve(struct fyai_ctx *ctx);
 uint64_t fyai_tool_agent_transport_exec(struct fyai_ctx *ctx, const char *name);
 /* Borrow the branch of a live direct sub-agent, including one still admitting. */
 const char *fyai_tool_agent_live_branch(struct fyai_ctx *ctx, const char *name);
+/* True while a foreground agent call blocks this owner on @conn. */
+bool fyai_tool_agent_foreground_wait(struct fyai_ctx *ctx,
+				     struct jsonrpc_conn *conn);
 void fyai_tool_agent_title_refresh(struct fyai_ctx *ctx, const char *branch);
 bool fyai_tools_active(const struct fyai_ctx *ctx);
 /*

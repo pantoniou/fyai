@@ -387,6 +387,7 @@ enum fyai_wait_for_kind {
 	FYAI_WAIT_FOR_WAIT,
 	FYAI_WAIT_FOR_MONITOR,
 	FYAI_WAIT_FOR_QUESTION,
+	FYAI_WAIT_FOR_PARENT_ASK,
 	FYAI_WAIT_FOR_AGENT_MESSAGE,
 };
 
@@ -448,6 +449,9 @@ static char *fyai_wait_for_check(struct fyai_ctx *ctx,
 	case FYAI_WAIT_FOR_QUESTION:
 		return fyai_event_peek_prefix(ctx,
 				fy_sprintfa("[question '%s' ", it->name));
+	case FYAI_WAIT_FOR_PARENT_ASK:
+		return fyai_event_peek_prefix(ctx,
+				fy_sprintfa("[ask_parent '%s' ", it->name));
 	case FYAI_WAIT_FOR_AGENT_MESSAGE:
 		return fyai_event_peek_prefix(ctx,
 				fy_sprintfa("[agent_message '%s' ", it->name));
@@ -474,6 +478,8 @@ static bool fyai_wait_for_alive(struct fyai_ctx *ctx,
 		return fyai_monitor_running(ctx, it->name);
 	case FYAI_WAIT_FOR_QUESTION:
 		return fyai_asks_exists(ctx, it->name);
+	case FYAI_WAIT_FOR_PARENT_ASK:
+		return fyai_agents_parent_ask_pending(ctx, it->name);
 	case FYAI_WAIT_FOR_AGENT_MESSAGE:
 		return fyai_agents_message_pending(ctx, it->name);
 	default:
@@ -504,6 +510,10 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 	    fyai_event_pending_prefix(ctx, fy_sprintfa("[question '%s' ",
 						       target)))
 		return FYAI_WAIT_FOR_QUESTION;
+	if (fyai_agents_parent_ask_pending(ctx, target) ||
+	    fyai_event_pending_prefix(ctx, fy_sprintfa("[ask_parent '%s' ",
+						       target)))
+		return FYAI_WAIT_FOR_PARENT_ASK;
 	if (fyai_agents_message_pending(ctx, target) ||
 	    fyai_event_pending_prefix(ctx, fy_sprintfa("[agent_message '%s' ",
 						       target)))

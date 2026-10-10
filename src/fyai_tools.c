@@ -1554,6 +1554,9 @@ static fy_generic fyai_ask_user_from(struct fyai_ctx *ctx, fy_generic args,
 
 static fy_generic fyai_ask_user(struct fyai_ctx *ctx, fy_generic args)
 {
+	if (fyai_agent_delegated(ctx))
+		return fy_value(ctx->transient_gb,
+			"tool error: ask_user is available only in the root session; use ask_parent");
 	return fyai_ask_user_from(ctx, args, NULL);
 }
 
@@ -2139,7 +2142,8 @@ const struct fyai_tool_def fyai_tools_defs[] = {
 	{ .name = "ask_user", .run = tool_ask_user, .head = tool_head_ask_user,
 	  .format_result = fyai_ask_format,
 	  .in_parent = fyai_asks_background,
-	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_INSTANT },
+	  .flags = FYAI_TOOL_PARENT | FYAI_TOOL_INSTANT |
+		   FYAI_TOOL_ROOT_ONLY },
 	{ .name = "project_view", .run = tool_project_view,
 	  .head = tool_head_project_view,
 	  .format_result = tool_project_view_format,
@@ -4286,7 +4290,8 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	is_monitor = (!*kind || !strcmp(kind, "monitor")) &&
 		     fyai_monitor_running(ctx, name);
 	is_question = (!*kind || !strcmp(kind, "question")) &&
-		      fyai_asks_exists(ctx, name);
+		      (fyai_asks_exists(ctx, name) ||
+		       fyai_agents_parent_ask_pending(ctx, name));
 	is_message = (!*kind || !strcmp(kind, "message")) &&
 		     fyai_agents_message_pending(ctx, name);
 	if (is_wait + is_agent + is_shell + is_monitor + is_question +
@@ -4312,6 +4317,10 @@ static char *fyai_cancel_tool(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 	if (is_question && fyai_asks_cancel(ctx, name)) {
 		*okp = true;
 		return strdup(fy_sprintfa("[question '%s' cancelled]", name));
+	}
+	if (is_question && fyai_agents_parent_ask_cancel(ctx, name)) {
+		*okp = true;
+		return strdup(fy_sprintfa("[ask_parent '%s' cancelled]", name));
 	}
 	if (is_message && fyai_agents_message_cancel(ctx, name)) {
 		*okp = true;
@@ -5113,6 +5122,22 @@ const char *fyai_tool_agent_live_branch(struct fyai_ctx *ctx, const char *name)
 	return job ? job->branch : NULL;
 }
 
+bool fyai_tool_agent_foreground_wait(struct fyai_ctx *ctx,
+				     struct jsonrpc_conn *conn)
+{
+	struct fyai_tool_job *job;
+	fy_generic args;
+
+	for (job = ctx->tool_jobs; job; job = job->next) {
+		if (!job->agent || job->done || job->conn != conn)
+			continue;
+		args = fyai_tool_call_args(ctx, job->call);
+		if (!fy_get(args, "_fyai_background", false) && !job->btw)
+			return true;
+	}
+	return false;
+}
+
 /* Present a named sub-agent's question and return the user's answer. */
 static fy_generic fyai_ask_user_for_child(struct fyai_tool_job *job,
 					  struct jsonrpc_conn *conn,
@@ -5717,7 +5742,8 @@ static fy_generic fyai_list_tool(struct fyai_ctx *ctx, fy_generic args, bool *ok
 				  fyai_monitors_rows(ctx, gb));
 	if (all || !strcmp(kind, "questions"))
 		result = fy_assoc(gb, result, "questions",
-				  fyai_asks_rows(ctx, gb));
+				  fy_concat(gb, fyai_asks_rows(ctx, gb),
+					fyai_agents_parent_ask_rows(ctx, gb)));
 	if (all || !strcmp(kind, "messages"))
 		result = fy_assoc(gb, result, "messages",
 				  fyai_agents_message_rows(ctx, gb));

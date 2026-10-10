@@ -663,6 +663,7 @@ struct fyai_ctx {
 	fy_generic tools_spec;
 	unsigned int tools_spec_generation;
 	bool tools_spec_agent_child;
+	bool tools_spec_agent_restricted;
 	fy_generic last_message;
 	fy_generic arena_config;	/* the active branch's config, or fy_invalid */
 	fy_generic arena_catalog;	/* catalogue of the branch, or fy_invalid */

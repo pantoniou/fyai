@@ -62,6 +62,10 @@ enum {
 	 * that function accepts is instant.
 	 */
 	FYAI_TOOL_INSTANT	= 1 << 5,
+	/* The root cannot call a tool meant for its delegating parent. */
+	FYAI_TOOL_CHILD_ONLY	= 1 << 6,
+	/* A delegated agent cannot call a tool reserved for the user-owned root. */
+	FYAI_TOOL_ROOT_ONLY	= 1 << 7,
 };
 
 /*
