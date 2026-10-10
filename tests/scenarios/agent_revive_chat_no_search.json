@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "response": {
+        "choices": [{"message": {"role": "assistant", "content": null,
+          "tool_calls": [{"id": "call-agent-1", "type": "function",
+            "function": {"name": "agent", "arguments": "{\"name\":\"greeter\",\"description\":\"remember a word\",\"task\":\"remember ORANGE\"}"}}]},
+          "finish_reason": "tool_calls"}]
+      }
+    },
+    {
+      "response": {
+        "choices": [{"message": {"role": "assistant", "content": "SUBAGENT_REPORT: remembered ORANGE."},
+          "finish_reason": "stop"}]
+      }
+    },
+    {
+      "response": {
+        "choices": [{"message": {"role": "assistant", "content": null,
+          "tool_calls": [{"id": "call-agent-2", "type": "function",
+            "function": {"name": "agent", "arguments": "{\"name\":\"greeter\",\"description\":\"recall a word\",\"task\":\"what word?\"}"}}]},
+          "finish_reason": "tool_calls"}]
+      }
+    },
+    {
+      "response": {
+        "choices": [{"message": {"role": "assistant", "content": "SUBAGENT_REPORT: ORANGE."},
+          "finish_reason": "stop"}]
+      }
+    },
+    {
+      "response": {
+        "choices": [{"message": {"role": "assistant", "content": "Delegated twice."},
+          "finish_reason": "stop"}]
+      }
+    }
+  ]
+}
