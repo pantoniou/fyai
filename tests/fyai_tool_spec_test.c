@@ -173,7 +173,7 @@ static void test_filtered(void)
 	require(has_ask_user && has_agent,
 		"plain context must have ask_user and agent");
 
-	/* A sub-agent context removes agent and agent_input. */
+	/* A sub-agent context removes agent and parent agent controls. */
 	test_cfg.agent_child = true;
 	tools = make_tools_filtered(&test_ctx);
 	has_ask_user = has_agent = false;
@@ -398,9 +398,10 @@ static void test_registry(void)
 	}
 
 	/* A call that reads the tables of the parent never runs in a job. */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < 5; i++) {
 		static const char *const parent[] = {
-			"agent_input", "cancel", "shell_close", "time",
+			"agent_input", "agent_message", "cancel",
+			"shell_close", "time",
 		};
 
 		require(fyai_tool_has(parent[i], FYAI_TOOL_PARENT),

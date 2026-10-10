@@ -11,6 +11,7 @@
 #include "fyai_jsonrpc.h"
 #include "fyai_session.h"
 #include "fyai_sink.h"
+#include "fyai_wait.h"
 #include "fyai_test.h"
 #include "fyai_test_registry.h"
 
@@ -21,6 +22,93 @@ FYAI_TEST_ENTRY(branch_ui, depth_detail, branch_ui_depth_detail)
 FYAI_TEST_ENTRY(branch_ui, subscription_activity, branch_ui_subscription_activity)
 FYAI_TEST_ENTRY(branch_ui, preview_extent, branch_ui_preview_extent)
 FYAI_TEST_ENTRY(branch_ui, tile_identity, branch_ui_tile_identity)
+FYAI_TEST_ENTRY(branch_ui, agent_message_receipt, branch_ui_agent_message_receipt)
+
+static fy_generic serve_agent_control(struct jsonrpc_conn *conn,
+		const char *method, fy_generic params, fy_generic id,
+		void *userdata, fy_generic *errorp)
+{
+	struct fyai_ctx *ctx = userdata;
+	fy_generic result;
+
+	(void)fyai_agents_serve(ctx, conn, method, params, id, &result, errorp);
+	return result;
+}
+
+int branch_ui_agent_message_receipt(void)
+{
+	struct fy_generic_builder_cfg gbcfg = {
+		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
+	};
+	struct fy_generic_builder *gb = fy_generic_builder_create(&gbcfg);
+	struct fyai_cfg cfg = { .agent_max_live_agents = 2 };
+	struct fyai_ctx root = { .cfg = &cfg, .transient_gb = gb };
+	struct fyai_ctx child = { .cfg = &cfg, .transient_gb = gb,
+		.agent_execution = 1, .agent_branch = "main/agent:worker" };
+	struct fyai_event_input input;
+	struct jsonrpc_conn *to_child, *to_root;
+	fy_generic params, result, error;
+	bool handled, ok;
+	char *report;
+	int forward[2], back[2];
+
+	FYAI_TCHECK(gb != NULL);
+	FYAI_TCHECK(!pipe(forward) && !pipe(back));
+	to_child = jsonrpc_conn_stdio(&root, forward[1], back[0], 0,
+		"child", NULL);
+	child.el = fyai_ctx_loop(&root);
+	to_root = jsonrpc_conn_stdio(&child, back[1], forward[0], 0,
+		"parent", NULL);
+	FYAI_TCHECK(to_child && to_root);
+	child.tool_rpc = to_root;
+	FYAI_TCHECK(!jsonrpc_conn_serve(to_child, serve_agent_control, &root));
+	FYAI_TCHECK(!jsonrpc_conn_serve(to_root, serve_agent_control, &child));
+	params = fy_mapping(gb, "branch", "main/agent:worker", "parent", 0LL);
+	handled = fyai_agents_serve(&root, to_child, "agent/admit", params,
+		fy_value(1LL), &result, &error);
+	FYAI_TCHECK(handled && fy_is_invalid(error));
+	FYAI_TCHECK(!fyai_agents_message(&root, "worker", "change course", "steer1", NULL));
+	FYAI_TCHECK(fyai_agents_message_pending(&root, "steer1"));
+	/* The receipt is resolved by the ordinary wait path. */
+	params = fy_mapping(gb, "for", "steer1", "seconds", 1.0);
+	report = fyai_wait_tool(&root, params, &ok);
+	FYAI_TCHECK(ok && report && strstr(report, "'steer1' queued]"));
+	FYAI_TCHECK(!fyai_agents_message_pending(&root, "steer1"));
+	FYAI_TCHECK(fyai_event_take_live_input(&child, &input));
+	FYAI_TCHECK(!strcmp(input.text, "change course"));
+	FYAI_TCHECK(!strcmp(input.from, "main"));
+	FYAI_TCHECK(!strcmp(input.message_id, "main:steer1"));
+	fyai_event_input_clear(&input);
+	free(report);
+	FYAI_TCHECK(!fyai_agents_message(&child, "parent", "acknowledged",
+		"reply1", "main:steer1"));
+	params = fy_mapping(gb, "for", "reply1", "seconds", 1.0);
+	report = fyai_wait_tool(&child, params, &ok);
+	FYAI_TCHECK(ok && report && strstr(report, "'reply1' queued]"));
+	free(report);
+	FYAI_TCHECK(fyai_event_take_live_input(&root, &input));
+	FYAI_TCHECK(!strcmp(input.from, "main/agent:worker"));
+	FYAI_TCHECK(!strcmp(input.reply_to, "main:steer1"));
+	fyai_event_input_clear(&input);
+	FYAI_TCHECK(!fyai_agents_message(&root, "worker", "second message", "steer2", NULL));
+	FYAI_TCHECK(fy_len(fyai_agents_message_rows(&root, gb)) == 1);
+	FYAI_TCHECK(fyai_agents_message_cancel(&root, "steer2"));
+	FYAI_TCHECK(!fyai_agents_message_pending(&root, "steer2"));
+	FYAI_TCHECK(fy_empty(fyai_agents_message_rows(&root, gb)));
+	fyai_agents_cleanup(&root);
+	fyai_agents_cleanup(&child);
+	jsonrpc_conn_destroy(to_child);
+	jsonrpc_conn_destroy(to_root);
+	close(forward[0]);
+	close(forward[1]);
+	close(back[0]);
+	close(back[1]);
+	fyai_event_loop_destroy(root.el);
+	fyai_event_pool_drain(&root);
+	fyai_event_pool_drain(&child);
+	fy_generic_builder_destroy(gb);
+	return 0;
+}
 
 struct activity_capture {
 	volatile bool received;

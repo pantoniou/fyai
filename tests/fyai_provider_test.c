@@ -26,6 +26,7 @@ FYAI_TEST_ENTRY(provider, shell_downgrade, provider_shell_downgrade)
 FYAI_TEST_ENTRY(provider, shell_outcome, provider_shell_outcome)
 FYAI_TEST_ENTRY(provider, response_accessors, provider_response_accessors)
 FYAI_TEST_ENTRY(provider, messages_input, provider_messages_input)
+FYAI_TEST_ENTRY(provider, agent_message_input, provider_agent_message_input)
 FYAI_TEST_ENTRY(provider, token_extents, provider_token_extents)
 FYAI_TEST_ENTRY(provider, messages_response, provider_messages_response)
 FYAI_TEST_ENTRY(provider, tool_calls_strip_user_owned, provider_tool_calls_strip_user_owned)
@@ -658,6 +659,37 @@ static int provider_run(void (*testfn)(void))
 
 	fy_generic_builder_destroy(test_ctx.transient_gb);
 	return 0;
+}
+
+static void test_agent_message_input(void)
+{
+	fy_generic messages = parse("[{\"role\":\"agent\",\"content\":\"done\","
+		"\"origin\":{\"branch\":\"main/agent:worker\","
+		"\"execution\":7,\"id\":\"main/agent:worker:reply1\","
+		"\"reply_to\":\"main:steer1\"}}]");
+	const char *out;
+
+	out = emit(fyai_responses_input(&test_ctx, messages));
+	expect_contains("agent responses", out, "\"role\": \"user\"");
+	expect_contains("agent responses", out, "main/agent:worker");
+	expect_contains("agent responses", out, "reply_to=main:steer1");
+	expect_contains("agent responses", out, "done");
+	expect_absent("agent responses", out, "\"role\": \"agent\"");
+
+	out = emit(fyai_chat_input(&test_ctx, messages));
+	expect_contains("agent chat", out, "\"role\": \"user\"");
+	expect_contains("agent chat", out, "main/agent:worker");
+	expect_contains("agent chat", out, "reply_to=main:steer1");
+
+	out = emit(fyai_messages_input(&test_ctx, messages));
+	expect_contains("agent messages", out, "\"role\": \"user\"");
+	expect_contains("agent messages", out, "main/agent:worker");
+	expect_contains("agent messages", out, "reply_to=main:steer1");
+}
+
+int provider_agent_message_input(void)
+{
+	return provider_run(test_agent_message_input);
 }
 
 int provider_responses_input(void)

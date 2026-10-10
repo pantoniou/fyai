@@ -1,0 +1,154 @@
+{
+  "steps": [
+    {
+      "match": {
+        "body_contains": "start message test"
+      },
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call-bg",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"Beta\", \"task\": \"wait and report\", \"background\": true, \"context\": \"fresh\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "body_contains": "You are a fyai sub-agent"
+      },
+      "wait_for": "release-child",
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "COUNTER DONE"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "body_contains": "started in the background"
+      },
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call-msg",
+                  "type": "function",
+                  "function": {
+                    "name": "agent_message",
+                    "arguments": "{\"name\": \"Beta\", \"message\": \"hello\", \"receipt\": \"ping1\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "body_contains": "message sent; wait"
+      },
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "MESSAGE SUBMITTED"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "body_contains": "[agent_message 'ping1' queued]"
+      },
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call-wait-beta",
+                  "type": "function",
+                  "function": {
+                    "name": "wait",
+                    "arguments": "{\"for\": \"beta\", \"seconds\": 15}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "body_contains": "[Message from agent"
+      },
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "COUNTER ACK"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "body_contains": "[agent 'Beta' finished]"
+      },
+      "response": {
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "REPORT RECEIVED"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
