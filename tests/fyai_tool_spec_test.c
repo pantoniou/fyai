@@ -29,6 +29,7 @@ FYAI_TEST_ENTRY(tools, personas, tools_personas)
 FYAI_TEST_ENTRY(tools, cache, tools_cache)
 FYAI_TEST_ENTRY(tools, templates, tools_templates)
 FYAI_TEST_ENTRY(tools, registry, tools_registry)
+FYAI_TEST_ENTRY(tools, result_format, tools_result_format)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
@@ -421,4 +422,51 @@ static void test_registry(void)
 int tools_registry(void)
 {
 	return tools_run(test_registry);
+}
+
+static void test_result_format(void)
+{
+	const struct fyai_tool_def *def;
+	fy_generic args;
+	char *text;
+
+	def = fyai_tool_find("list");
+	require(def && def->format_result, "list result formatter missing");
+	args = fy_mapping(test_ctx.gb, "kind", "agents");
+	text = def->format_result(&test_ctx, test_ctx.gb, args,
+		"{\"agents\":[{\"name\":\"beta\",\"state\":\"running\",\"view\":false}]}");
+	require(text && strstr(text, "| Name | State | View |") &&
+		strstr(text, "| beta | running | no |") &&
+		!strstr(text, "{\"agents\""), "list result is a table");
+	free(text);
+	text = def->format_result(&test_ctx, test_ctx.gb, args,
+		"{\"agents\":[]}");
+	require(text && strstr(text, "_none_"), "empty list has a readable note");
+	free(text);
+
+	def = fyai_tool_find("project_view");
+	require(def && def->format_result, "project_view result formatter missing");
+	args = fy_mapping(test_ctx.gb, "action", "apply");
+	text = def->format_result(&test_ctx, test_ctx.gb, args,
+		"{\"applied\":1,\"satisfied\":0,\"conflicts\":0,\"skipped\":0,"
+		"\"changes\":[{\"path\":\"a.c\",\"status\":\"changed\","
+		"\"action\":\"applied\",\"reason\":\"\",\"before\":{\"large\":\"hidden\"}}]}");
+	require(text && strstr(text, "1 applied") &&
+		strstr(text, "| Path | Status | Action | Reason |") &&
+		strstr(text, "| a.c | changed | applied |") &&
+		!strstr(text, "large"), "project_view result summarizes changes");
+	free(text);
+	args = fy_mapping(test_ctx.gb, "action", "changes");
+	text = def->format_result(&test_ctx, test_ctx.gb, args,
+		"{\"changes\":[{\"path\":\"b.c\",\"status\":\"added\","
+		"\"before\":{\"large\":\"hidden\"}}]}");
+	require(text && strstr(text, "| Path | Status |") &&
+		strstr(text, "| b.c | added |") && !strstr(text, "large"),
+		"project_view changes shows only useful columns");
+	free(text);
+}
+
+int tools_result_format(void)
+{
+	return tools_run(test_result_format);
 }
