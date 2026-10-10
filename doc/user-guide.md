@@ -1267,6 +1267,12 @@ The page fills default backgrounds with the theme's ground colour and keeps
 card and code backgrounds. `display/theme_ground=terminal`, the default, leaves
 the page background to the terminal and adapts the palette to that background.
 
+`display/notice_output=transcript` draws headed session notices and warnings in
+the live transcript. It is the default. Set `display/notice_output=pane` to
+show them in the notice panel or fullscreen popup. Errors still use the error
+panel. This setting is separate from `display/command_output`, which places
+slash-command results.
+
 `ember:auto` is the default `display/theme` when fyai is built with
 libfypalette. A build without it uses `default:auto`.
 
