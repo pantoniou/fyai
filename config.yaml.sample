@@ -340,6 +340,8 @@ display:
   # Slash-command output: transcript draws and stores the command and output;
   # pane shows a tile or popup without storing it.
   command_output: transcript
+  # Session notices and warnings: transcript or a notice pane/popup.
+  notice_output: transcript
   # Ground of command output in the transcript: theme mixes command_bg_mix
   # percent of the theme focus colour into the ground; #rrggbb or none.
   command_bg: theme

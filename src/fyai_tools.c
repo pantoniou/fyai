@@ -5474,6 +5474,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 
 		fyai_ctx_fork_disown(ctx);
 		ctx->cfg->tool_child = true;
+		if (agent_runtime)
+			ctx->cfg->diag.mask &= ~(1u << FYAIET_NOTICE);
 		fyai_diag_trace_reopen();
 		fyai_tool_child_signals(ctx);
 		if (fyai_setup_transient_builder(ctx))
@@ -7654,8 +7656,14 @@ fy_generic fyai_tool_job_collect(struct fyai_ctx *ctx,
 					    (job->result_ok ? 0 : 1),
 			 job->timed_out ? ", timed out" :
 			 (job->have_result ? "" : ", no result"));
-	if (fy_is_valid(job->diag))
-		fyai_diag_adopt(fyai_ctx_diag(ctx), job->diag, job->origin);
+	if (fy_is_valid(job->diag)) {
+		if (job->agent)
+			fyai_diag_adopt_agent(fyai_ctx_diag(ctx), job->diag,
+					      job->origin);
+		else
+			fyai_diag_adopt(fyai_ctx_diag(ctx), job->diag,
+					    job->origin);
+	}
 	/* Supply a cause when a failed child returned no diagnostic. */
 	if (!job->timed_out && job->term_signal) {
 		/* A job we stopped ended as we asked it to; that is not a

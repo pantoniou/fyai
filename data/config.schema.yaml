@@ -945,6 +945,14 @@ properties:
           Select where slash-command output appears. pane shows it in a popup or a
           tile, and the transcript keeps nothing of it. transcript draws the
           command and its output in the transcript, and stores both there.
+      notice_output:
+        type: string
+        enum: [pane, transcript]
+        default: transcript
+        description: >-
+          Select where session notices and warnings appear. pane shows them in
+          the notice panel or fullscreen popup. transcript draws a headed
+          notice in the live transcript. Errors still use the error panel.
       command_bg:
         type: string
         default: theme

@@ -103,6 +103,7 @@ static inline fy_generic fyai_generic_or_null(fy_generic v)
 #define DEFAULT_COMPLETION_MODE "tab"
 #define DEFAULT_CHORD_TIMEOUT_MS 1000
 #define DEFAULT_COMMAND_OUTPUT "transcript"
+#define DEFAULT_NOTICE_OUTPUT "transcript"
 #define DEFAULT_COMMAND_BG "theme"
 #define DEFAULT_COMMAND_BG_MIX 6
 #define DEFAULT_TOOL_DISPLAY "inline"
@@ -207,6 +208,8 @@ struct fyai_cfg {
 	bool shell_tool_supported;
 	/* The selected endpoint declares a provider-hosted web search tool. */
 	bool web_search_supported;
+	/* An unsupported-search notice is emitted once per invocation. */
+	bool web_search_notice_emitted;
 	/* The endpoint implements the OpenAI-specific /responses/compact route. */
 	bool response_compaction_supported;
 	bool model_explicit;
@@ -308,6 +311,7 @@ struct fyai_cfg {
 	const char *completion_mode;	/* tab | auto */
 	int chord_timeout_ms;		/* wait of a chord for its next key */
 	const char *command_output;	/* pane | transcript */
+	const char *notice_output;	/* pane | transcript */
 	const char *command_bg;		/* theme | none | #rrggbb */
 	int command_bg_mix;		/* percent of the theme colour */
 	const char *tool_display;	/* pane | inline */

@@ -109,6 +109,9 @@ fy_generic fyai_diag_take_generic(struct fyai_diag *diag,
 /* Adopt transferred diagnostics. Add @origin if they have no marker. */
 void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
 		     const char *origin);
+/* Preserve child failures while omitting notices owned by the user session. */
+void fyai_diag_adopt_agent(struct fyai_diag *diag, fy_generic list,
+			   const char *origin);
 
 /* True once an error has been raised and not yet drained or reset. */
 bool fyai_diag_got_error(struct fyai_diag *diag);

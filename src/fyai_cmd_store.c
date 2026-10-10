@@ -234,6 +234,7 @@ int fyai_cmd_agent_prepare(struct fyai_cfg *cfg, fy_generic args)
 	cfg->agent_child = true;
 	cfg->mcp_enabled = false;
 	if (fy_get(args, "tool_child", false)) {
+		cfg->diag.mask &= ~(1u << FYAIET_NOTICE);
 		cfg->agent_pty = fy_get(args, "pty", false);
 		if (prep_str(cfg, args, "arena"))
 			cfg->arena_dir = prep_str(cfg, args, "arena");

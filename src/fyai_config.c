@@ -777,6 +777,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 						    (long long)cfg->chord_timeout_ms);
 		cfg->command_output = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "command_output", cfg->command_output));
+		cfg->notice_output = fy_gb_intern_string(cfg->gb,
+			fy_get(v, "notice_output", cfg->notice_output));
 		cfg->command_bg = fy_gb_intern_string(cfg->gb,
 			fy_get(v, "command_bg", cfg->command_bg));
 		cfg->command_bg_mix = (int)fy_get(v, "command_bg_mix",
@@ -2774,6 +2776,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->completion_mode = DEFAULT_COMPLETION_MODE;
 	cfg->chord_timeout_ms = DEFAULT_CHORD_TIMEOUT_MS;
 	cfg->command_output = DEFAULT_COMMAND_OUTPUT;
+	cfg->notice_output = DEFAULT_NOTICE_OUTPUT;
 	cfg->command_bg = DEFAULT_COMMAND_BG;
 	cfg->command_bg_mix = DEFAULT_COMMAND_BG_MIX;
 	cfg->tool_display = DEFAULT_TOOL_DISPLAY;
@@ -2807,6 +2810,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	/* Use the defaults in the schema. */
 	cfg->enable_tools = true;
 	cfg->web_search = true;
+	cfg->web_search_notice_emitted = false;
 	cfg->enable_builtin_shell = false;
 	cfg->markdown = true;
 	cfg->parallel_tool_calls = true;
@@ -3139,10 +3143,12 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 int fyai_config_messages_gate(struct fyai_cfg *cfg)
 {
 	if (cfg->web_search && !cfg->web_search_supported) {
-		fyai_cfg_notice(cfg, "native web search is not supported by provider '%s' "
-				"for the %s endpoint; disabling it",
-				cfg->provider ? cfg->provider : "",
-				fyai_api_to_string(cfg->api_mode));
+		if (!cfg->web_search_notice_emitted)
+			fyai_cfg_notice(cfg, "native web search is not supported by provider '%s' "
+					"for the %s endpoint; disabling it",
+					cfg->provider ? cfg->provider : "",
+					fyai_api_to_string(cfg->api_mode));
+		cfg->web_search_notice_emitted = true;
 		cfg->web_search = false;
 	}
 

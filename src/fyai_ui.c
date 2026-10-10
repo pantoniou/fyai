@@ -2884,6 +2884,33 @@ static void ui_pane_to_transcript(struct fyai_ui *ui,
 		fyai_warning(ui->ctx, "could not keep the output of a command");
 }
 
+/* Keep an asynchronous notice distinct from conversation prose. */
+static void ui_notice_to_transcript(struct fyai_ui *ui,
+				    const char *heading,
+				    struct response_buffer *out)
+{
+	struct fyai_flow *flow = fyai_sink_flow(ui->ctx->sink);
+	int rc;
+
+	/* The published turn replaces earlier live rows on the next frame. */
+	if (ui->fullscreen && fyai_transcript_view_refresh(ui->ctx, ui->view,
+			ui->ctx->cfg->render_width > 0 ?
+			ui->ctx->cfg->render_width : ui->render_cols,
+			ui->view_rows))
+		fyai_warning(ui->ctx, "could not refresh the transcript for a notice");
+	(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
+	rc = ui_present(ui, heading, strlen(heading));
+	if (!rc)
+		rc = ui_present(ui, "\n", 1);
+	if (!rc)
+		rc = ui_present(ui, out->data, out->len);
+	if (!rc && out->data[out->len - 1] != '\n')
+		rc = ui_present(ui, "\n", 1);
+	if (rc)
+		fyai_warning(ui->ctx, "could not draw the notice");
+	fyai_flow_emitted(flow, FYAI_FLOW_NOTICE, true);
+}
+
 /* @command: the output of a slash command, which display/command_output
  * places. */
 static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
@@ -2925,6 +2952,13 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	if (!heading) {
 		fyai_error(ctx, "could not make the heading of %s",
 			   title ? title : "the command");
+		free(out.data);
+		return;
+	}
+	if (!command && !error &&
+	    !strcmp(ctx->cfg->notice_output, "transcript")) {
+		ui_notice_to_transcript(ui, heading, &out);
+		free(heading);
 		free(out.data);
 		return;
 	}

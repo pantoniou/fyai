@@ -521,13 +521,15 @@ fy_generic fyai_diag_take_generic(struct fyai_diag *diag,
 	return out;
 }
 
-void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
-		     const char *origin)
+static void diag_adopt(struct fyai_diag *diag, fy_generic list,
+		       const char *origin, bool agent)
 {
 	fy_generic item, msg, file, func;
 	const char *text, *open, *mark, *close;
 
 	fy_foreach(item, list) {
+		if (agent && fy_get(item, "type", 0LL) == FYAIET_NOTICE)
+			continue;
 		msg = fy_get(item, "msg", fy_invalid);
 		if (fy_is_invalid(msg))
 			continue;
@@ -549,6 +551,18 @@ void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
 			   fy_castp(&func, ""), "%s%s%s%s",
 			   open, mark, close, text);
 	}
+}
+
+void fyai_diag_adopt(struct fyai_diag *diag, fy_generic list,
+		     const char *origin)
+{
+	diag_adopt(diag, list, origin, false);
+}
+
+void fyai_diag_adopt_agent(struct fyai_diag *diag, fy_generic list,
+			   const char *origin)
+{
+	diag_adopt(diag, list, origin, true);
 }
 
 struct fyai_diag *fyai_ctx_diag(struct fyai_ctx *ctx)
