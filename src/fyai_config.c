@@ -2570,7 +2570,9 @@ static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc)
 	if (fyai_ui_active(ctx))
 		fyai_ui_config_changed(ctx);
 
-	return fyai_config_resolve_model(cfg);
+	if (fyai_config_resolve_model(cfg))
+		return -1;
+	return fyai_config_messages_gate(cfg);
 }
 
 int fyai_config_rederive(struct fyai_ctx *ctx)
