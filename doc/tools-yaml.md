@@ -112,7 +112,10 @@ settings.
 `make_tools_filtered()` in `src/fyai_tool_spec.c` adapts the parsed tools to
 the context.
 
-- A sub-agent tool set drops `agent` and `agent_input`; it keeps `ask_user`.
+- A delegated session offers `ask_parent` and removes `ask_user`. A session
+  resumed by the user offers `ask_user` and removes `ask_parent`.
+- A child without delegation admission removes tools marked
+  `FYAI_TOOL_NOT_FOR_CHILD`. An admitted child can delegate recursively.
 - A parent tool set adds the configured persona names and descriptions to the
   `agent` tool `persona` property description.
 

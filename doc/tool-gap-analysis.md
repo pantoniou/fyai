@@ -47,9 +47,9 @@ worktrees on supported Linux hosts. The relevant source is
 `todo clear` drops it. A sub-agent branch inherits its parent's list and can
 then change its own copy. The live panel shows the list when it fits. A list
 whose items are all completed or cancelled is cleared after publication, with
-the finished version retained in the branch reflog. `ask_user` can ask up to
-four questions in one call, collect answers in a review, and route a
-sub-agent's questions to the parent. Named background questions work with
+the finished version retained in the branch reflog. The root's `ask_user` can
+ask up to four questions in one call and collect answers in a review. A live
+sub-agent uses `ask_parent` for its delegating agent. Named questions work with
 `list`, `wait`, and `cancel`. See the [user guide](user-guide.md) for the
 interaction and [todo commands](commands.md#fyai-todo) for branch behavior.
 
@@ -64,7 +64,7 @@ controller. Availability in source is not a production reliability claim.
 
 | Former claim | Current assessment |
 | --- | --- |
-| 12 native tools | 17 definitions in `data/tools.yaml`. |
+| 12 native tools | 19 definitions in `data/tools.yaml`. |
 | No native task list | `todo_write` publishes a list in branch state and the live page shows it. |
 | Only simple, serial clarification | `ask_user` supports one to four questions, structured options and answers, previews, multi-select, and background calls. |
 | No model-facing agent status or cancellation | `list` and `cancel` provide both. |

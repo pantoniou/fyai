@@ -111,9 +111,13 @@ exists only while the invocations are live; it creates no resident service.
 The branch handle shown by `list` is a lowercase form of the delegated name.
 `agent_message` and `wait` accept either that handle or the name supplied to
 `agent`; a wait resolves both to the same completion event.
-- `user/ask` carries the originating branch, question, and options. Intermediate
-  owners defer and forward the request. The root queues interactive questions
-  and returns each answer on the original request route.
+- `ask_parent` sends an `agent/message` with `ask_parent: true` to the immediate
+  owner. It returns after submission; a named `wait` holds for a correlated
+  `agent_message` reply. The owner rejects the question when it is waiting for
+  that foreground child to finish. A pending `wait` on a background child
+  receives the question event and returns, so the parent can answer it.
+- `ask_user` is offered only in the root session. A user-resumed agent has no
+  parent route and is offered `ask_user` again.
 
 Each owner routes descendant messages through its immediate child connection.
 Forwarded request IDs and question parameters live in owned builder arenas

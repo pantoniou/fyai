@@ -961,16 +961,13 @@ Without a terminal page a background call is asked at once like any other.
 
 ### A question from a sub-agent
 
-A sub-agent has a terminal, but no person is at it. Its `ask_user` call
-therefore goes to the parent, which has the user. The questions name the
-sub-agent that asked them, and they carry the options that the sub-agent offered.
-A sub-agent always waits for the answers; `background` does not apply to it.
-The answer of the user comes back as the result of that call, and the sub-agent
-continues.
+A sub-agent uses `ask_parent` to ask its delegating agent for a decision. The
+question returns at once; `wait` with its name receives the answer. The parent
+answers with `agent_message` and the question's `reply_to` ID. The root session
+alone has `ask_user` to ask the person. An agent resumed directly by the user
+has `ask_user` again.
 
-Questions from any delegation depth reach the main prompt. A nested question
-names its full branch. Answer with an option number or free text. The answer
-returns to the owner of the question.
+Only a question the root asks with `ask_user` reaches the main prompt.
 
 Use `/branch attach <full-branch-name>` to view a running agent and submit
 additional input to it. The same process handles this input after its current
