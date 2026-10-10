@@ -36,7 +36,7 @@
       "content": [
        {
         "type": "output_text",
-        "text": "SUBAGENT_REPORT: they chose green."
+        "text": "SUBAGENT_REPORT: ask_user was unavailable."
        }
       ]
      }

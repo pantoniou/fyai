@@ -1,0 +1,5 @@
+{
+  "steps": [
+    {"response": {"output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Resumed directly."}]}]}}
+  ]
+}

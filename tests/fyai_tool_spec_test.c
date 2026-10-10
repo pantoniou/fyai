@@ -159,6 +159,7 @@ static void test_filtered(void)
 {
 	fy_generic tools, tool, fn, n;
 	bool has_ask_user = false;
+	bool has_ask_parent = false;
 	bool has_agent = false;
 
 	/* A plain context keeps all tools. */
@@ -168,28 +169,62 @@ static void test_filtered(void)
 		n = fy_get(fn, "name");
 		if (fy_equal(n, "ask_user"))
 			has_ask_user = true;
+		if (fy_equal(n, "ask_parent"))
+			has_ask_parent = true;
 		if (fy_equal(n, "agent"))
 			has_agent = true;
 	}
-	require(has_ask_user && has_agent,
-		"plain context must have ask_user and agent");
+	require(has_ask_user && !has_ask_parent && has_agent,
+		"root has ask_user, not ask_parent");
 
 	/* A sub-agent context removes agent and parent agent controls. */
 	test_cfg.agent_child = true;
+	test_ctx.tool_rpc = (struct jsonrpc_conn *)1;
 	tools = make_tools_filtered(&test_ctx);
-	has_ask_user = has_agent = false;
+	has_ask_user = has_ask_parent = has_agent = false;
 	fy_foreach(tool, tools) {
 		fn = fy_get(tool, "function");
 		n = fy_get(fn, "name");
 		if (fy_equal(n, "ask_user"))
 			has_ask_user = true;
+		if (fy_equal(n, "ask_parent"))
+			has_ask_parent = true;
 		if (fy_equal(n, "agent"))
 			has_agent = true;
 	}
-	/* It cannot delegate or answer another sub-agent, but it can ask:
-	 * the question goes up to the parent, where the person is. */
-	require(has_ask_user && !has_agent,
-		"a sub-agent keeps ask_user and loses agent");
+	require(!has_ask_user && has_ask_parent && !has_agent,
+		"delegated agent has ask_parent, not ask_user");
+
+	/* An admitted agent can delegate recursively. */
+	test_ctx.agent_execution = 3;
+	tools = make_tools_filtered(&test_ctx);
+	has_ask_user = has_ask_parent = has_agent = false;
+	fy_foreach(tool, tools) {
+		n = fy_get(fy_get(tool, "function"), "name");
+		if (fy_equal(n, "ask_user"))
+			has_ask_user = true;
+		if (fy_equal(n, "ask_parent"))
+			has_ask_parent = true;
+		if (fy_equal(n, "agent"))
+			has_agent = true;
+	}
+	require(!has_ask_user && has_ask_parent && has_agent,
+		"recursive agent keeps delegation and ask_parent");
+
+	/* A user-resumed branch has no parent connection. */
+	test_ctx.tool_rpc = NULL;
+	test_ctx.agent_execution = 0;
+	tools = make_tools_filtered(&test_ctx);
+	has_ask_user = has_ask_parent = false;
+	fy_foreach(tool, tools) {
+		n = fy_get(fy_get(tool, "function"), "name");
+		if (fy_equal(n, "ask_user"))
+			has_ask_user = true;
+		if (fy_equal(n, "ask_parent"))
+			has_ask_parent = true;
+	}
+	require(has_ask_user && !has_ask_parent,
+		"user-resumed agent has ask_user again");
 }
 
 static void test_personas(void)

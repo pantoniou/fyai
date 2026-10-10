@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "match": {"body_contains": "start parent question deadlock test"},
+      "response": {"output": [{"type": "function_call", "call_id": "parent-agent", "name": "agent", "arguments": "{\"name\":\"asker\",\"task\":\"Ask the parent a question.\"}"}]}
+    },
+    {
+      "match": {"body_contains": "You are a fyai sub-agent"},
+      "response": {"output": [{"type": "function_call", "call_id": "child-ask", "name": "ask_parent", "arguments": "{\"name\":\"choice\",\"question\":\"Which colour should I use?\"}"}]}
+    },
+    {
+      "match": {"body_contains": "question sent; wait for"},
+      "response": {"output": [{"type": "function_call", "call_id": "child-wait", "name": "wait", "arguments": "{\"for\":\"choice\",\"seconds\":3}"}]}
+    },
+    {
+      "match": {"body_contains": "[ask_parent 'choice' not queued]"},
+      "response": {"output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "The parent question was rejected as a deadlock."}]}]}
+    },
+    {
+      "match": {"body_contains": "The parent question was rejected"},
+      "response": {"output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Deadlock handled."}]}]}
+    }
+  ]
+}
