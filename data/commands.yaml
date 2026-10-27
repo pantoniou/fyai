@@ -101,8 +101,10 @@ global:
         type: boolean
         description: start a new conversation
       sandbox:
-        type: boolean
-        description: confine shell tools with Landlock (Linux)
+        type: string
+        description: confine shell tools by this sandbox profile, for this run only; none confines nothing
+        x-fyai-meta: PROFILE
+        x-fyai-complete: sandbox-profile
       color:
         type: string
         enum: [auto, "off", "on"]
@@ -2239,21 +2241,36 @@ commands:
             value_header: Value
 
   - command: sandbox
-    title: show or set the stored sandbox policy
+    title: show the policy of a sandbox profile
     description: |
-      Show or change the `sandbox` key of the configuration. `on` stores a
-      policy that denies secrets and ~/.ssh and allows port 443; `edit`
-      edits the whole configuration. In a session, `/sandbox` is the setting
-      of the session instead.
+      Show the policy of a sandbox profile. The profile of the configuration is
+      `sandbox_profile`, and `none` confines nothing; `edit` edits the whole
+      configuration. A profile is defined in `sandbox_profiles`.
     surfaces: [cli]
     default: show
     see_also: [config]
     commands:
       - command: show
         aliases: [get]
-        title: write the stored sandbox value
-        description: Write the stored sandbox value as YAML.
+        title: write the policy of a sandbox profile
+        description: |
+          Write the policy that PROFILE resolves to as YAML, as a tool gets it:
+          the `extends` chain applied, the placeholders expanded, and the
+          built-in profiles included. Without PROFILE, write that of the
+          configuration. It needs no project.
         handler: sandbox_show
+        flags: [storage-optional]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            profile:
+              type: string
+              minLength: 1
+              description: the profile to show
+              x-fyai-positional: 0
+              x-fyai-meta: PROFILE
+              x-fyai-complete: sandbox-profile
         render:
           document: yaml
       - command: apparmor
@@ -2270,20 +2287,6 @@ commands:
           doc/apparmor-userns.md.
         handler: sandbox_apparmor
         flags: [no-storage]
-      - command: "on"
-        aliases: [enable]
-        title: store the default sandbox policy
-        description: Store the default sandbox policy.
-        handler: sandbox_set
-        render:
-          message: []
-      - command: "off"
-        aliases: [disable]
-        title: store no sandbox
-        description: Store `sandbox false`.
-        handler: sandbox_set
-        render:
-          message: []
       - command: edit
         title: edit the configuration in an editor
         description: Edit the configuration with $VISUAL or $EDITOR.
@@ -3815,9 +3818,9 @@ commands:
           new session runs in a view or outside one as the profile says. The
           credential transport stays as it is, which `/session dev`, `/session
           lockdown` and `/session yolo` also set. With
-          no name, list the profiles and mark the current one. `normal` is the
-          `sandbox` key; the others are the built-in `dev` and `lockdown` and
-          those of `sandbox_profiles`. A profile can use `{{hostname}}`,
+          no name, list the profiles and mark the current one. `none` confines
+          nothing; the others are the built-in `dev` and `lockdown` and those of
+          `sandbox_profiles`. A profile can use `{{hostname}}`,
           `{{os}}`, `{{arch}}` and `{{host_specific}}` in its paths.
         handler: session_profile
         mode: async
@@ -3886,8 +3889,7 @@ commands:
         title: take off the isolation of the session
         description: |
           Turn off the credential transport and the sandbox:
-          `agent/transport_isolation: none`, `sandbox_profile: normal` and
-          `sandbox: false`, and the view of
+          `agent/transport_isolation: none`, `sandbox_profile: none`, and the view of
           the session, `view/isolate_session`, when it is on. The views of
           sub-agents (`agent/isolation`) are not touched.
           The keys are stored. A session that runs with the credential transport
@@ -4388,30 +4390,6 @@ commands:
     surfaces: [session]
     handler: setting
     setting: {key: display/stats}
-    while_busy: bare
-    arguments:
-      type: object
-      additionalProperties: false
-      properties:
-        value:
-          type: string
-          description: the new value
-          x-fyai-positional: 0
-          x-fyai-meta: VALUE
-          x-fyai-complete: setting-value
-    render:
-      message: "{setting}: {value}"
-
-  - command: sandbox
-    title: confine the shell tools
-    description: |
-      With no value, show confine the shell tools. With a value,
-      change it; the configuration schema gives the values. `sandbox/enabled` is the
-      key; a session-scoped key changes for this session only, any other
-      key is stored.
-    surfaces: [session]
-    handler: setting
-    setting: {key: sandbox/enabled}
     while_busy: bare
     arguments:
       type: object

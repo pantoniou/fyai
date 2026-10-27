@@ -4,8 +4,8 @@
 
 #include "fyai.h"
 
-/* The profile that selects the `sandbox` key and confines nothing by itself. */
-#define FYAI_SANDBOX_PROFILE_NORMAL	"normal"
+/* The name that selects no profile: the tools are not confined. */
+#define FYAI_SANDBOX_PROFILE_NONE	"none"
 /* The profile that a configuration names when it names none. */
 #define FYAI_SANDBOX_PROFILE_DEFAULT	"dev"
 

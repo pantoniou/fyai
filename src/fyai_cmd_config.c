@@ -639,7 +639,7 @@ static fy_generic describe_row(struct fy_generic_builder *gb, const char *name,
 /*
  * `config describe [path]`: the rows (name, type, constraint, default,
  * description) of a config.schema.yaml node, resolved by a slash path into
- * `properties`, oneOf and anyOf branches included ("sandbox/enabled"). An
+ * `properties`, oneOf and anyOf branches included ("mcp/enabled"). An
  * object node gives one row for each property; a leaf gives one row for
  * itself. No path describes the whole document.
  */
@@ -716,30 +716,57 @@ err:
 	return -1;
 }
 
-/* `sandbox` names the stored sandbox policy of the configuration. */
-int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result)
+/*
+ * Without an arena no configuration was applied: an empty document gives the
+ * built-in defaults of every sandbox key, and the profiles are built in.
+ */
+static int sandbox_config_ready(struct fyai_ctx *ctx)
 {
-	fy_generic v;
-
-	if (config_need_arena(call))
-		return -1;
-	v = fy_get(call->ctx->arena_config, "sandbox", fy_invalid);
-	*result = fy_is_valid(v) ? v : fy_false;
-	return 0;
+	if (ctx->cfg->sandbox_scope)
+		return 0;
+	ctx->cfg->config_doc = fy_map_empty;
+	return fyai_config_apply(ctx->cfg, ctx->cfg->config_doc);
 }
 
-int fyai_cmd_sandbox_set(struct fyai_cmd_call *call, fy_generic *result)
+/*
+ * `none` is the name that confines nothing, so it has no policy to show or to
+ * enter.
+ */
+static int sandbox_named_check(struct fyai_ctx *ctx, const char *name)
 {
-	static const char policy[] =
-		"{ enabled: true, deny: [secrets, ~/.ssh], "
-		"network: { tcp: { ports: [443], bind_ports: [] }, "
-		"udp: { ports: [], bind_ports: [] } } }";
-	bool on = fy_equal(fy_get(call->def, "command", fy_invalid), "on");
+	if (strcmp(name, FYAI_SANDBOX_PROFILE_NONE))
+		return 0;
+	fyai_error(ctx, "sandbox profile 'none' confines nothing: it has no policy");
+	return -1;
+}
 
-	if (fyai_config_set(call->ctx, "sandbox", on ? policy : "false"))
+/*
+ * The policy that a profile resolves to: `extends` applied, placeholders
+ * expanded, and the built-in profiles included. Without a name, the profile of
+ * the configuration.
+ */
+int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	const char *name = fyai_cmd_arg_str(call, "profile");
+	fy_generic v;
+
+	if (sandbox_config_ready(ctx))
 		return -1;
-	*result = fy_mapping(call->gb, "sandbox", on ? "on" : "off");
+	if (!name || !*name)
+		name = ctx->cfg->sandbox_profile;
+	fyai_error_check(ctx, name, err,
+			 "sandbox_profile is none: nothing confines the tools; "
+			 "`sandbox profiles` lists the profiles");
+	if (sandbox_named_check(ctx, name))
+		return -1;
+	v = fyai_sandbox_profile_policy(ctx->cfg, ctx->cfg->config_doc, name);
+	if (fy_is_invalid(v))
+		return -1;
+	*result = v;
 	return 0;
+err:
+	return -1;
 }
 
 /* The embedded data/apparmor.in profile, with @FYAI_BIN@ for the binary that runs. */
@@ -834,18 +861,9 @@ err:
 /* The value that the session uses now, as the setting shows it. */
 static const char *setting_show(struct fyai_cmd_call *call, const char *key)
 {
-	fy_generic v, parent;
+	fy_generic v;
 
 	v = fy_get_at_pathstr(call->gb, call->ctx->cfg->config_doc, key);
-	/* `sandbox: false` has no enabled member. Any other parent is a
-	 * mapping that does not hold the key. */
-	if (!fy_is_valid(v) && strrchr(key, '/')) {
-		parent = fy_get_at_pathstr(call->gb, call->ctx->cfg->config_doc,
-				fy_sprintfa("%.*s",
-					    (int)(strrchr(key, '/') - key), key));
-		if (fy_is_bool(parent))
-			v = parent;
-	}
 	/* A key that is not set has the default of the schema. */
 	if (!fy_is_valid(v))
 		v = fy_get(fyai_config_schema_node(key), "default", fy_invalid);
@@ -1039,7 +1057,7 @@ int fyai_cmd_lockdown(struct fyai_cmd_call *call, fy_generic *result)
 
 /*
  * Take off the isolation that lockdown added: no transport and no view. The
- * sandbox profile is @profile; the profile `normal` also turns `sandbox` off.
+ * sandbox profile is @profile; the profile `none` confines nothing.
  * A restart cannot end the transport of a live session: the key lived only in
  * the transport, and the next image would start with none. The keys are stored
  * and the transport ends when fyai starts again, with the key of that run.
@@ -1049,15 +1067,13 @@ static int preset_relax(struct fyai_cmd_call *call, fy_generic *result,
 {
 	struct fyai_ctx *ctx = call->ctx;
 	bool in_view = preset_in_view(ctx);
-	bool normal = !strcmp(profile, "normal");
+	bool none = !strcmp(profile, FYAI_SANDBOX_PROFILE_NONE);
 	const char *note = NULL;
 	int rc;
 
 	if (preset_idle(call))
 		return -1;
 	rc = preset_set(call, "sandbox_profile", profile);
-	if (!rc && normal)
-		rc = preset_set(call, "sandbox", "false");
 	if (!rc && preset_view_session(ctx))
 		rc = preset_set(call, "view/isolate_session", "false");
 	if (!rc)
@@ -1069,8 +1085,8 @@ static int preset_relax(struct fyai_cmd_call *call, fy_generic *result,
 		       "again: start it with the key, from the environment or `fyai auth`";
 	else if (in_view)
 		note = "this session stays in its view until fyai restarts";
-	*result = fy_mapping(call->gb, "mode", normal ? "yolo" : "dev", "transport", "none",
-			     "sandbox", normal ? "off" : "dev", "agents",
+	*result = fy_mapping(call->gb, "mode", none ? "yolo" : "dev", "transport", "none",
+			     "sandbox", none ? "off" : "dev", "agents",
 			     preset_agents(ctx, in_view));
 	if (note)
 		*result = fy_assoc(call->gb, *result, "note", fy_value(call->gb, note));
@@ -1080,7 +1096,7 @@ static int preset_relax(struct fyai_cmd_call *call, fy_generic *result,
 /* The opposite of lockdown: no transport, no sandbox and no view. */
 int fyai_cmd_yolo(struct fyai_cmd_call *call, fy_generic *result)
 {
-	return preset_relax(call, result, "normal");
+	return preset_relax(call, result, FYAI_SANDBOX_PROFILE_NONE);
 }
 
 /*
@@ -1103,7 +1119,7 @@ int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 	const char *note = NULL;
 	bool want_view = preset_view_session(ctx), stored_on, running_on, view_on, restricted;
 
-	restricted = fy_is_valid(net) && (!cfg->sandbox_profile || fyai_sandbox_net_restrictable(-1));
+	restricted = fy_is_valid(net) && fyai_sandbox_net_restrictable(-1);
 	/* A key that is stored and not yet in force waits for the next start. */
 	stored_on = strcmp(stored, "none") != 0;
 	running_on = strcmp(running, "none") != 0;
@@ -1115,10 +1131,8 @@ int fyai_cmd_session_status(struct fyai_cmd_call *call, fy_generic *result)
 	*result = fy_mapping(call->gb,
 			     "transport", running_on ? running : "off",
 			     "sandbox", !cfg->enable_sandbox ? "off" :
-					cfg->sandbox_profile ?
-						fy_sprintfa("on, %s%s", cfg->sandbox_profile,
-							    restricted ? ", network restricted" : "") :
-					restricted ? "on, network restricted" : "on",
+					fy_sprintfa("on, %s%s", cfg->sandbox_profile,
+						    restricted ? ", network restricted" : ""),
 			     "agents", preset_agents(ctx, view_on),
 			     "view", name ? name : "none");
 	if (note)
@@ -1289,7 +1303,7 @@ int fyai_cmd_session_profile(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name = fyai_cmd_arg_str(call, "name");
 	struct profile_list list = { .gb = call->gb,
-		.current = cfg->sandbox_profile ? cfg->sandbox_profile : "normal" };
+		.current = cfg->sandbox_profile ? cfg->sandbox_profile : FYAI_SANDBOX_PROFILE_NONE };
 	bool in_view = preset_in_view(ctx), was_view = preset_view_session(ctx);
 	bool pview = false, want_view;
 	const char *c, *note = NULL, *old = list.current;
@@ -1303,7 +1317,7 @@ int fyai_cmd_session_profile(struct fyai_cmd_call *call, fy_generic *result)
 			fyai_error_check(ctx, isalnum((unsigned char)*c) || *c == '_' ||
 					 *c == '-', err,
 					 "profile: '%s' is not a profile name", name);
-		if (strcmp(name, "normal")) {
+		if (strcmp(name, FYAI_SANDBOX_PROFILE_NONE)) {
 			policy = fyai_sandbox_profile_policy(cfg, cfg->config_doc, name);
 			fyai_error_check(ctx, fy_is_valid(policy), err,
 					 "profile: could not select '%s'", name);

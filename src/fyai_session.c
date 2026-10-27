@@ -1571,8 +1571,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		snprintf(view, sizeof(view), " · view %s", fyai_view_session_name(ctx));
 	vars[15] = (struct fyai_tmpl_var){ "view", view };
 	/* The sandbox of the tools: the profile in use, or that there is none. */
-	profile = !cfg->enable_sandbox ? NULL :
-		  cfg->sandbox_profile ? cfg->sandbox_profile : "on";
+	profile = cfg->enable_sandbox ? cfg->sandbox_profile : NULL;
 	snprintf(sandbox, sizeof(sandbox), " · %s%s", profile ? "sandbox " : "no sandbox",
 		 profile ? profile : "");
 	vars[16] = (struct fyai_tmpl_var){ "sandbox", sandbox };

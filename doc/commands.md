@@ -23,7 +23,7 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `--transient` | keep the edits and the state of this run in memory only |
 | `-k`, `--api-key KEY` | API key (else the PROVIDER_API_KEY variable) |
 | `--new` | start a new conversation |
-| `--sandbox` | confine shell tools with Landlock (Linux) |
+| `--sandbox PROFILE` | confine shell tools by this sandbox profile, for this run only; none confines nothing |
 | `--color VALUE` | colour output (auto, off, on) |
 | `--theme THEME` | Markdown theme |
 | `-i`, `--interactive` | interactive prompt loop |
@@ -2091,14 +2091,13 @@ Show the size, the time and the command of the recording, and what the program k
 
 ## fyai sandbox
 
-show or set the stored sandbox policy
+show the policy of a sandbox profile
 
-**Usage:** `fyai sandbox {apparmor|edit|off|on|show} ...`
+**Usage:** `fyai sandbox {apparmor|edit|show} ...`
 
-Show or change the `sandbox` key of the configuration. `on` stores a
-policy that denies secrets and ~/.ssh and allows port 443; `edit`
-edits the whole configuration. In a session, `/sandbox` is the setting
-of the session instead.
+Show the policy of a sandbox profile. The profile of the configuration is
+`sandbox_profile`, and `none` confines nothing; `edit` edits the whole
+configuration. A profile is defined in `sandbox_profiles`.
 
 
 ### Commands
@@ -2107,9 +2106,7 @@ of the session instead.
 | --- | --- |
 | `apparmor` | write the AppArmor profile that lets fyai make user namespaces |
 | `edit` | edit the configuration in an editor |
-| `off`, `disable` | store no sandbox |
-| `on`, `enable` | store the default sandbox policy |
-| `show`, `get` | write the stored sandbox value |
+| `show`, `get` | write the policy of a sandbox profile |
 
 With no command, `show` runs.
 
@@ -2117,13 +2114,23 @@ With no command, `show` runs.
 
 ## fyai sandbox show
 
-write the stored sandbox value
+write the policy of a sandbox profile
 
-**Usage:** `fyai sandbox show`
+**Usage:** `fyai sandbox show [PROFILE]`
 
 **Aliases:** `get`
 
-Write the stored sandbox value as YAML.
+Write the policy that PROFILE resolves to as YAML, as a tool gets it:
+the `extends` chain applied, the placeholders expanded, and the
+built-in profiles included. Without PROFILE, write that of the
+configuration. It needs no project.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `PROFILE` | the profile to show |
 
 ### Options
 
@@ -2148,40 +2155,6 @@ permission and confines nothing else. The other fix is to install
 bubblewrap with its AppArmor profile; see `sandbox_cover` and
 doc/apparmor-userns.md.
 
-
-### Options
-
-| Option | Description |
-| --- | --- |
-| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
-| `-h`, `--help` | show this help |
-
-## fyai sandbox on
-
-store the default sandbox policy
-
-**Usage:** `fyai sandbox on`
-
-**Aliases:** `enable`
-
-Store the default sandbox policy.
-
-### Options
-
-| Option | Description |
-| --- | --- |
-| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
-| `-h`, `--help` | show this help |
-
-## fyai sandbox off
-
-store no sandbox
-
-**Usage:** `fyai sandbox off`
-
-**Aliases:** `disable`
-
-Store `sandbox false`.
 
 ### Options
 
@@ -6560,9 +6533,9 @@ push` does, and refuses when a path conflicts: nothing changes then. The
 new session runs in a view or outside one as the profile says. The
 credential transport stays as it is, which `/session dev`, `/session
 lockdown` and `/session yolo` also set. With
-no name, list the profiles and mark the current one. `normal` is the
-`sandbox` key; the others are the built-in `dev` and `lockdown` and
-those of `sandbox_profiles`. A profile can use `{{hostname}}`,
+no name, list the profiles and mark the current one. `none` confines
+nothing; the others are the built-in `dev` and `lockdown` and those of
+`sandbox_profiles`. A profile can use `{{hostname}}`,
 `{{os}}`, `{{arch}}` and `{{host_specific}}` in its paths.
 
 
@@ -6638,8 +6611,7 @@ take off the isolation of the session
 **Usage:** `/session yolo`
 
 Turn off the credential transport and the sandbox:
-`agent/transport_isolation: none`, `sandbox_profile: normal` and
-`sandbox: false`, and the view of
+`agent/transport_isolation: none`, `sandbox_profile: none`, and the view of
 the session, `view/isolate_session`, when it is on. The views of
 sub-agents (`agent/isolation`) are not touched.
 The keys are stored. A session that runs with the credential transport
@@ -6910,30 +6882,6 @@ show the token use at the end of a run
 
 With no value, show show the token use at the end of a run. With a value,
 change it; the configuration schema gives the values. `display/stats` is the
-key; a session-scoped key changes for this session only, any other
-key is stored.
-
-
-### Arguments
-
-| Argument | Description |
-| --- | --- |
-| `VALUE` | the new value |
-
-### Options
-
-| Option | Description |
-| --- | --- |
-| `-h`, `--help` | show this help |
-
-## /sandbox
-
-confine the shell tools
-
-**Usage:** `/sandbox [VALUE]`
-
-With no value, show confine the shell tools. With a value,
-change it; the configuration schema gives the values. `sandbox/enabled` is the
 key; a session-scoped key changes for this session only, any other
 key is stored.
 

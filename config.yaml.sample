@@ -193,32 +193,13 @@ model_access: review
 # Enable the native OpenAI shell tool instead of the exec_command function.
 # Native calls use pipes and cannot request a terminal or named session.
 builtin_shell: false
-# Landlock confines shell sub-executions on supported Linux systems. Defaults
-# grant read-only system paths and read/write project and temporary paths.
-# Command admission remains separate from filesystem confinement. Use a
-# boolean for the default policy or a mapping for explicit rules:
-#   sandbox:
-#     enabled: true
-#     deny:                 # Paths excluded from grants; .fyai is excluded.
-#       - secrets           # Paths can be project-relative, absolute, or ~-relative.
-#       - ~/.ssh
-#     allow:                # Additional grants outside the project.
-#       - /opt/toolchain    # String grants read/write access.
-#       - { path: /ro/data, mode: ro }      # Read and execute.
-#       - { path: /src, mode: edit }        # Modify existing files.
-#       - { path: /logs, mode: append }     # Write without truncation.
-#       # Modes: rw (default), ro, edit, append.
-#     network:              # Restrict TCP and UDP independently.
-#       tcp: { ports: [443], bind_ports: [] }
-#       udp: { ports: [], bind_ports: [] } # Omit either protocol to leave it unrestricted.
-# `fyai sandbox on` stores this policy:
-# sandbox: { enabled: true, deny: [secrets, ~/.ssh], network: { tcp: { ports: [443], bind_ports: [] }, udp: { ports: [], bind_ports: [] } } }
-sandbox: false
-# The profile that confines shell executions: `normal` uses `sandbox` above; any
-# other name is a profile of `sandbox_profiles` below. A profile enables the
-# sandbox whatever `sandbox` says. `/session profile NAME` selects one and
-# restarts the session; `/session dev`, `/session lockdown` and `/session yolo`
-# select `dev`, `lockdown` and `normal` and set the other isolation keys too.
+# Landlock confines shell sub-executions on supported Linux systems, by the
+# profile that `sandbox_profile` names. `none` confines nothing; any other name is
+# a profile of `sandbox_profiles` below. Defaults grant read-only system paths and
+# read/write project and temporary paths. Command admission remains separate from
+# filesystem confinement. `/session profile NAME` selects one and restarts the
+# session; `/session dev`, `/session lockdown` and `/session yolo` select `dev`,
+# `lockdown` and `none` and set the other isolation keys too.
 sandbox_profile: dev
 # How a sandboxed tool hides the arena and the denied paths in a mount namespace:
 # auto (a user namespace of the tool, else a holder that bubblewrap starts), userns,
@@ -240,9 +221,21 @@ sandbox_grace_ms: 5000
 # The profiles. This sample is the source of `dev` and `lockdown`: an arena that
 # has none of them uses these, and one that stores them uses its own. A profile
 # has a description, `extends` (the profile it starts from), `deny`, `allow`,
-# `network`, `list_root`, `home` and `view` (the session runs in a view of the project). A key that a
-# profile names replaces the key of the profile it extends, except `allow`, which
-# adds to it. A path may use {{hostname}}, {{os}}, {{arch}} and {{host_specific}}
+# `network`, `list_root`, `home` and `view` (the session runs in a view of the project).
+#   deny:                 # Paths excluded from grants; .fyai is excluded.
+#     - secrets           # Paths can be project-relative, absolute, or ~-relative.
+#     - ~/.ssh
+#   allow:                # Additional grants outside the project.
+#     - /opt/toolchain    # String grants read/write access.
+#     - { path: /ro/data, mode: ro }      # Read and execute.
+#     - { path: /src, mode: edit }        # Modify existing files.
+#     - { path: /logs, mode: append }     # Write without truncation.
+#     # Modes: rw (default), ro, edit, append.
+#   network:              # Restrict TCP and UDP independently.
+#     tcp: { ports: [443], bind_ports: [] }
+#     udp: { ports: [], bind_ports: [] } # Omit either protocol to leave it unrestricted.
+# A key that a profile names replaces the key of the profile it extends, except
+# `allow`, which adds to it. A path may use {{hostname}}, {{os}}, {{arch}} and {{host_specific}}
 # (~/.fyai/hosts/{{hostname}}), so one profile serves hosts that differ.
 sandbox_profiles:
   lockdown:
@@ -415,8 +408,8 @@ display:
   # {view} is " · view session" while the session runs in a view
   # (view/isolate_session), and empty otherwise.
   # {sandbox} is " · sandbox PROFILE" for the profile that confines the tools,
-  # " · sandbox on" for the `sandbox` setting alone, and " · no sandbox" when nothing
-  # confines them; the default top row ends with it.
+  # and " · no sandbox" when nothing confines them; the default top row ends
+  # with it.
   prompt: "  > "
   # prompt_busy is the glyph of the prompt marker while a line would wait.
   # Empty takes the prompt.busy glyph of the theme, else an ellipsis.

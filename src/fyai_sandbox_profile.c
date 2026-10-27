@@ -392,7 +392,7 @@ void fyai_sandbox_profile_names(struct fyai_cfg *cfg, fy_generic root,
 	fy_generic key, val, d;
 	const char *name;
 
-	fn(arg, FYAI_SANDBOX_PROFILE_NORMAL, "the `sandbox` key decides");
+	fn(arg, FYAI_SANDBOX_PROFILE_NONE, "no sandbox: the tools are not confined");
 	fy_foreach_key_value(key, val, builtin) {
 		name = fy_castp(&key, "");
 		fn(arg, name, profile_desc(&d, user, builtin, name));

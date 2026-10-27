@@ -400,7 +400,7 @@ int fyai_config_sandbox_select(struct fyai_cfg *cfg, const char *name)
  */
 int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
-	fy_generic v, sb, tbv, shell, retry, secret_ref, zoom_rows, preview_width;
+	fy_generic v, tbv, shell, retry, secret_ref, zoom_rows, preview_width;
 	fy_generic rtype, rname, media;
 
 	if (fy_is_invalid(root))
@@ -554,14 +554,25 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 		cfg->model_access = -1;
 	else if (fyai_model_access_parse(v) >= 0)
 		cfg->model_access = fyai_model_access_parse(v);
-	/* sandbox is either a bool (enable with defaults) or a mapping
-	 * { enabled, allow, deny, network }. A mapping enables unless it says
-	 * otherwise and is retained for the tool path to read grants from. The
-	 * dev and lockdown profiles replace it and are always enabled. */
+	/* The profile that sandbox_profile names confines the tools; `none` confines nothing. */
+	/* A stored configuration can still hold the removed key: ignore it, so that
+	 * `config delete sandbox` can run. */
+	if (fy_is_valid(fy_get(root, "sandbox", fy_invalid)))
+		fyai_cfg_warning(cfg, "the `sandbox` key no longer exists and is ignored: "
+				 "define the policy in `sandbox_profiles`, select it with "
+				 "`sandbox_profile`, and remove the key with `fyai config delete "
+				 "sandbox`");
 	v = fy_get(root, "sandbox_profile", fy_invalid);
 	cfg->sandbox_profile = fy_gb_intern_string(cfg->gb,
 			fy_is_string(v) ? fy_castp(&v, "") : FYAI_SANDBOX_PROFILE_DEFAULT);
-	if (!strcmp(cfg->sandbox_profile, FYAI_SANDBOX_PROFILE_NORMAL))
+	/* The retired name stood for the removed `sandbox` key: confine, do not release. */
+	if (!strcmp(cfg->sandbox_profile, "normal")) {
+		fyai_cfg_warning(cfg, "the sandbox profile `normal` no longer exists: using "
+				 "`%s`; set `sandbox_profile` to `%s`, or to `none` for no sandbox",
+				 FYAI_SANDBOX_PROFILE_DEFAULT, FYAI_SANDBOX_PROFILE_DEFAULT);
+		cfg->sandbox_profile = FYAI_SANDBOX_PROFILE_DEFAULT;
+	}
+	if (!strcmp(cfg->sandbox_profile, FYAI_SANDBOX_PROFILE_NONE))
 		cfg->sandbox_profile = NULL;
 	v = fy_get(root, "sandbox_cover", fy_invalid);
 	cfg->sandbox_cover = fy_gb_intern_string(cfg->gb,
@@ -573,21 +584,15 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	cfg->sandbox_scope = fy_gb_intern_string(cfg->gb,
 			fy_is_string(v) ? fy_castp(&v, "") : "exchange");
 	cfg->sandbox_grace_ms = fy_get(root, "sandbox_grace_ms", 5000LL);
-	sb = fy_get(root, "sandbox");
 	if (cfg->sandbox_profile) {
 		cfg->sandbox = fyai_sandbox_profile_policy(cfg, root,
 							   cfg->sandbox_profile);
 		if (fy_is_invalid(cfg->sandbox))
 			return -1;
 		cfg->enable_sandbox = true;
-	} else if (fy_is_mapping(sb)) {
-		cfg->sandbox = sb;
-		cfg->enable_sandbox = apply_bool(sb, "enabled", true);
 	} else {
-		if (fy_is_valid(sb))
-			cfg->sandbox = fy_invalid;
-		cfg->enable_sandbox = apply_bool(root, "sandbox",
-				cfg->enable_sandbox);
+		cfg->sandbox = fy_invalid;
+		cfg->enable_sandbox = false;
 	}
 
 	/* MCP server group: nested mapping; read enabled, endpoint, timeout,
@@ -2632,7 +2637,7 @@ void fyai_config_sandbox_report(struct fyai_ctx *ctx)
 	if (!fyai_cfg_makes_requests(cfg) &&
 	    !fyai_cmd_state_is(&cfg->cmd.reg, "tool"))
 		return;
-	key = cfg->sandbox_profile ? cfg->sandbox_profile : cfg->enable_sandbox ? "sandbox" : NULL;
+	key = cfg->sandbox_profile;
 	if (!key || !fy_is_mapping(cfg->sandbox)) {
 		cfg->sandbox_reported = NULL;
 		return;
@@ -2643,7 +2648,7 @@ void fyai_config_sandbox_report(struct fyai_ctx *ctx)
 	net = fy_get(cfg->sandbox, "network", fy_invalid);
 	tcp = fy_get(net, "tcp", fy_invalid);
 	udp = fy_get(net, "udp", fy_invalid);
-	if (cfg->sandbox_profile && fy_is_valid(tcp) && !fyai_sandbox_net_restrictable(-1))
+	if (fy_is_valid(tcp) && !fyai_sandbox_net_restrictable(-1))
 		fyai_cfg_warning(cfg, "sandbox '%s': TCP egress remains open; Landlock ABI 4 "
 				 "is unavailable", key);
 	if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
@@ -3237,7 +3242,7 @@ static const struct option long_options[] = {
 	{ "view-project", required_argument, NULL, OPT_VIEW_PROJECT },
 	{ "view-scratch", required_argument, NULL, OPT_VIEW_SCRATCH },
 	{ "view-arena-fd", required_argument, NULL, OPT_VIEW_ARENA_FD },
-	{ "sandbox", no_argument, NULL, OPT_SANDBOX },
+	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
 	{ "cast", required_argument, NULL, OPT_CAST },
@@ -3844,8 +3849,8 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			options->api_key = fy_gb_intern_string(cfg->gb, optarg);
 			break;
 		case OPT_SANDBOX:
-			if (config_queue_set_literal(cfg, "sandbox", "true",
-						     false, false))
+			if (config_queue_set_quoted(cfg, "sandbox_profile", optarg,
+						    false, false))
 				return -1;
 			break;
 		case OPT_NEW:

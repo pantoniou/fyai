@@ -658,93 +658,6 @@ properties:
           Limit concurrent agents in this invocation's complete
           descendant tree. The root grants admission before provider work
           starts. Excess calls fail so the caller can wait or change its task.
-  sandbox:
-    x-fyai-model: read
-    x-fyai-scope: session
-    default: false
-    description: >-
-      Confine shell-tool executions with Landlock. This applies on Linux only;
-      it has no effect elsewhere. `false` disables it; `true` or a mapping enables it -
-      read-only system paths, read/write the project and temp dirs,
-      everything else denied by default. Best-effort: the allow-list/prompt
-      remains the portable floor when Landlock is unavailable.
-    oneOf:
-      - type: boolean
-      - type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: Enable or disable the sandbox. A mapping defaults to enabled.
-          deny:
-            type: array
-            description: >-
-              Deny access to the specified paths. Paths can be project-relative,
-              absolute, or home-relative. The .fyai arena is always denied.
-            items:
-              type: string
-          allow:
-            type: array
-            description: Grant access to paths outside the project.
-            items:
-              anyOf:
-                - type: string
-                  description: Grant read and write access to this path.
-                - type: object
-                  required: [path]
-                  properties:
-                    path:
-                      type: string
-                      description: Name the path for this sandbox grant.
-                    mode:
-                      type: string
-                      enum: [rw, ro, edit, append]
-                      description: >-
-                        Select the access mode for this path. rw is the default;
-                        ro allows read and execute; edit modifies existing files
-                        without create or delete; append writes without truncation.
-          network:
-            type: object
-            description: >-
-              Restrict selected network protocols. Omit a protocol to leave it
-              unrestricted. TCP needs Landlock ABI 4; UDP needs ABI 10.
-            properties:
-              tcp:
-                type: object
-                description: Restrict TCP connects to listed destination ports.
-                properties:
-                  ports:
-                    type: array
-                    description: Allowed TCP destination ports; empty denies TCP connects.
-                    items:
-                      type: integer
-                      minimum: 1
-                      maximum: 65535
-                  bind_ports:
-                    type: array
-                    description: Allowed local TCP bind ports; omit to leave binds unrestricted.
-                    items:
-                      type: integer
-                      minimum: 1
-                      maximum: 65535
-              udp:
-                type: object
-                description: Restrict UDP sends to listed destination ports.
-                properties:
-                  ports:
-                    type: array
-                    description: Allowed UDP destination ports; empty denies UDP sends.
-                    items:
-                      type: integer
-                      minimum: 1
-                      maximum: 65535
-                  bind_ports:
-                    type: array
-                    description: Allowed local UDP bind ports; ephemeral binds are allowed for permitted sends.
-                    items:
-                      type: integer
-                      minimum: 1
-                      maximum: 65535
   sandbox_cover:
     x-fyai-model: read
     type: string
@@ -804,14 +717,14 @@ properties:
     type: string
     default: dev
     description: >-
-      Name the sandbox profile that confines shell-tool executions: `normal`,
-      which uses `sandbox`, or a profile of `sandbox_profiles`, built-in or
+      Name the sandbox profile that confines shell-tool executions: `none`,
+      which confines nothing, or a profile of `sandbox_profiles`, built-in or
       your own. `dev` is the default: the project, the toolchains and package
       caches, and TCP to git and the registries. `lockdown` is the project and
-      no network. A profile other than `normal` enables the sandbox whatever
-      `sandbox` says. `/session profile NAME` selects one; `/session dev`,
+      no network. `/session profile NAME` selects one; `/session dev`,
       `/session lockdown` and `/session yolo` select `dev`, `lockdown` and
-      `normal`. A name that no profile has is an error.
+      `none`. A name that no profile has is an error. The `sandbox` key no
+      longer exists: a configuration that holds it is ignored, with a warning.
   sandbox_profiles:
     x-fyai-model: read
     type: object
@@ -1004,11 +917,11 @@ properties:
     type: object
     description: >-
       Legacy: the same as `sandbox_profiles: {lockdown: ...}`, which is
-      preferred. Set the sandbox policy of the `lockdown` profile, apart from `sandbox`.
+      preferred. Set the sandbox policy of the `lockdown` profile.
       It is always enabled. A key that this mapping omits keeps its default: the
       secret locations of the platform are denied and available Landlock
       network rights are restricted.
-      The `sandbox` mapping describes each key.
+      The keys are those of a profile of `sandbox_profiles`.
     properties:
       deny:
         type: array
@@ -1714,7 +1627,7 @@ properties:
           session vars (model, provider, api, effort, summary, temp, ctx,
           tokens, cache, cost, branch, cwd, location, layout, isolation, view,
           sandbox). {sandbox} is " · sandbox PROFILE" for the profile that
-          confines the tools, " · sandbox on" for the `sandbox` setting alone, and
+          confines the tools, and
           " · no sandbox" when nothing confines them.
           Empty uses the built-in branch and working-directory row.
           A custom template replaces it. May carry SGR colour escapes. Add

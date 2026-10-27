@@ -78,7 +78,6 @@ static const struct {
 	{ "config_edit",	fyai_cmd_config_edit },
 	{ "config_describe",	fyai_cmd_config_describe },
 	{ "sandbox_show",	fyai_cmd_sandbox_show },
-	{ "sandbox_set",	fyai_cmd_sandbox_set },
 	{ "sandbox_apparmor",	fyai_cmd_sandbox_apparmor },
 	{ "cast_play",		fyai_cmd_cast_play },
 	{ "cast_markers",	fyai_cmd_cast_markers },
