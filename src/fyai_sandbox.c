@@ -130,7 +130,12 @@ int fyai_sandbox_mode_parse(const char *name, enum fyai_sandbox_mode *modep)
 #if defined(__linux__) && __has_include(<linux/landlock.h>)
 #include <sys/syscall.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
 #include <linux/landlock.h>
+#include <linux/seccomp.h>
+#include <asm/unistd.h>
 #define FYAI_HAVE_LANDLOCK 1
 #endif
 
@@ -369,6 +374,47 @@ static int grant_except(int fd, const char *dir, uint64_t rights,
 	return rc;
 }
 
+#if defined(__x86_64__)
+#define FYAI_SECCOMP_ARCH AUDIT_ARCH_X86_64
+#define FYAI_SECCOMP_X32 __X32_SYSCALL_BIT
+#elif defined(__aarch64__)
+#define FYAI_SECCOMP_ARCH AUDIT_ARCH_AARCH64
+#define FYAI_SECCOMP_X32 0
+#endif
+
+#if defined(FYAI_SECCOMP_ARCH) && defined(__NR_socket) && defined(__NR_io_uring_setup)
+#include "embedded_seccomp_udp.inc"
+#endif
+
+#ifdef FYAI_SECCOMP_UDP_GENERATED
+#define FYAI_HAVE_SECCOMP_UDP 1
+/*
+ * fyai_seccomp_udp[] denies every datagram and raw IP socket, a syscall of
+ * another architecture, and io_uring_setup(), because a ring creates sockets
+ * without socket(). Unix and netlink sockets, and IP stream sockets, stay
+ * available. A socket that the process inherited is not closed.
+ */
+static int seccomp_deny_udp(void)
+{
+	struct sock_fprog prog = {
+		.len = sizeof(fyai_seccomp_udp) / sizeof(fyai_seccomp_udp[0]),
+		.filter = fyai_seccomp_udp,
+	};
+
+	return prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog);
+}
+#endif
+
+bool fyai_sandbox_udp_deniable(void)
+{
+#ifdef FYAI_HAVE_SECCOMP_UDP
+	/* EINVAL: the kernel has no seccomp. */
+	return prctl(PR_GET_SECCOMP) >= 0;
+#else
+	return false;
+#endif
+}
+
 int fyai_sandbox_abi(void)
 {
 	long v = ll_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
@@ -507,6 +553,8 @@ int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 		return -1;
 	if (spec->restrict_udp && !fyai_sandbox_udp_restrictable(abi))
 		return -1;
+	if (spec->deny_udp && !fyai_sandbox_udp_deniable())
+		return -1;
 
 	/* The cover comes first: the ruleset then sees the tree as the tool does. */
 	if (spec->cover_holder > 0) {
@@ -610,6 +658,10 @@ int fyai_sandbox_apply(const struct fyai_sandbox_spec *spec)
 		goto out;
 	if (ll_restrict_self(fd, 0))
 		goto out;
+#ifdef FYAI_HAVE_SECCOMP_UDP
+	if (spec->deny_udp && seccomp_deny_udp())
+		goto out;
+#endif
 	if (spec->filter_path)
 		sandbox_filter_path(spec);
 	rc = 0;
@@ -639,6 +691,11 @@ bool fyai_sandbox_net_restrictable(int abi)
 bool fyai_sandbox_udp_restrictable(int abi)
 {
 	(void)abi;
+	return false;
+}
+
+bool fyai_sandbox_udp_deniable(void)
+{
 	return false;
 }
 

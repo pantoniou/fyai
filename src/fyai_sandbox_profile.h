@@ -36,4 +36,10 @@ void fyai_sandbox_profile_names(struct fyai_cfg *cfg, fy_generic root,
 					   const char *desc),
 				void *arg);
 
+/*
+ * True when the `network.udp` mapping @udp permits a destination or a local
+ * port. A seccomp filter denies UDP whole and cannot enforce such a list.
+ */
+bool fyai_sandbox_udp_ports_listed(fy_generic udp);
+
 #endif

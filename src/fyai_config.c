@@ -2646,7 +2646,8 @@ void fyai_config_sandbox_report(struct fyai_ctx *ctx)
 	if (cfg->sandbox_profile && fy_is_valid(tcp) && !fyai_sandbox_net_restrictable(-1))
 		fyai_cfg_warning(cfg, "sandbox '%s': TCP egress remains open; Landlock ABI 4 "
 				 "is unavailable", key);
-	if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1))
+	if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
+	    (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable()))
 		fyai_cfg_warning(cfg, "sandbox '%s': UDP egress remains open; Landlock ABI 10 "
 				 "is unavailable", key);
 	config_cover_report(ctx, key);

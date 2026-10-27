@@ -159,6 +159,12 @@ struct fyai_sandbox_spec {
 	size_t udp_ports_n;
 	const uint16_t *udp_bind_ports;
 	size_t udp_bind_ports_n;
+	/*
+	 * Deny every UDP socket with a seccomp filter, for a kernel without
+	 * Landlock ABI 10. The filter cannot test a port: use it only when no UDP
+	 * port is permitted. Exclusive with @restrict_udp.
+	 */
+	bool deny_udp;
 
 	/*
 	 * Existing paths to hide: each is covered by an empty read-only mount in a
@@ -210,6 +216,12 @@ bool fyai_sandbox_net_restrictable(int abi);
 
 /* True if this build and kernel can restrict UDP bind and send; -1 probes ABI. */
 bool fyai_sandbox_udp_restrictable(int abi);
+
+/*
+ * True if a seccomp filter can deny all UDP sockets: a supported architecture
+ * and a kernel with seccomp. It stands in for ABI 10 when no port is permitted.
+ */
+bool fyai_sandbox_udp_deniable(void);
 
 /*
  * Apply @spec to the current process irreversibly. Returns 0 on success (the

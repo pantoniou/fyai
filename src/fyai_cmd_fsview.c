@@ -40,6 +40,7 @@
 #include "fyai_config.h"
 #include "fyai_fsview.h"
 #include "fyai_sandbox.h"
+#include "fyai_sandbox_profile.h"
 #include "fyai_view_apply.h"
 #include "fyai_view_fs.h"
 #include "fyai_diff.h"
@@ -2086,7 +2087,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	size_t argc = fy_len(arguments), index = 0;
 	struct fyai_view_run run = { .lock = -1 };
 	struct shell_command_result output = { 0 };
-	fy_generic snapshot, updated;
+	fy_generic snapshot, updated, udp;
 	char error[PATH_MAX] = "", startup[FYAI_CHILD_START_TEXT_MAX];
 	const char *why;
 	int rc = -1, saved;
@@ -2112,7 +2113,10 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 		if (!fyai_sandbox_net_restrictable(-1))
 			fyai_warning(call->ctx, "view '%s': this kernel cannot restrict network "
 				     "egress: it stays open", name);
-		else if (!fyai_sandbox_udp_restrictable(-1))
+		udp = fy_get(fy_get(call->ctx->cfg->sandbox, "network", fy_invalid), "udp",
+			     fy_invalid);
+		if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
+		    (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable()))
 			fyai_warning(call->ctx, "view '%s': UDP egress remains open; Landlock "
 				     "ABI 10 is unavailable", name);
 	}

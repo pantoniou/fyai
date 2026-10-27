@@ -434,6 +434,24 @@ else()
         DEPENDS fyai_mkimage "${CMAKE_CURRENT_SOURCE_DIR}/data/catalog.yaml"
         COMMENT "Building the image of the catalogue" VERBATIM)
 endif()
+
+# The seccomp filter that denies UDP where Landlock has no UDP right. The tool
+# only assembles labels into offsets, so its output holds C expressions that
+# the target compiler evaluates. A cross build has no such filter.
+set(FYAI_SECCOMP_INC "${CMAKE_CURRENT_BINARY_DIR}/embedded_seccomp_udp.inc")
+if(CMAKE_CROSSCOMPILING)
+    file(WRITE "${FYAI_SECCOMP_INC}" "/* No filter in a cross build. */\n")
+else()
+    add_executable(fyai_mkseccomp tools/fyai_mkseccomp.c)
+    target_compile_options(fyai_mkseccomp PRIVATE ${FYAI_C_DIALECT}
+        ${FYAI_C_WARNINGS})
+    add_custom_command(
+        OUTPUT "${FYAI_SECCOMP_INC}"
+        COMMAND fyai_mkseccomp "${FYAI_SECCOMP_INC}"
+        DEPENDS fyai_mkseccomp
+        COMMENT "Building the seccomp filter" VERBATIM)
+endif()
+list(APPEND FYAI_IMAGE_INCS "${FYAI_SECCOMP_INC}")
 fyai_embed(FYAI_EMBEDDED_COMMAND_SCHEMA embedded_command_schema.inc
     data/command.schema.yaml)
 

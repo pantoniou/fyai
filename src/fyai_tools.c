@@ -48,6 +48,7 @@
 #include "fyai_markdown.h"
 #include "fyai_patch.h"
 #include "fyai_sandbox.h"
+#include "fyai_sandbox_profile.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
@@ -1020,8 +1021,14 @@ static int fyai_shell_sandbox_build(struct fyai_ctx *ctx,
 		}
 	}
 	if (fy_is_valid(udp)) {
-		/* Without Landlock ABI 10 the parent said that UDP stays open. */
-		if (fyai_sandbox_udp_restrictable(-1)) {
+		/*
+		 * Without Landlock ABI 10 a seccomp filter denies UDP when no port is
+		 * permitted; else the parent said that UDP stays open.
+		 */
+		if (!fyai_sandbox_udp_restrictable(-1)) {
+			if (!fyai_sandbox_udp_ports_listed(udp) && fyai_sandbox_udp_deniable())
+				sp->deny_udp = true;
+		} else {
 			sp->restrict_udp = true;
 			ports = fy_get(udp, "ports");
 			n = fy_is_sequence(ports) ? fy_len(ports) : 0;

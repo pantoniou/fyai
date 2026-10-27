@@ -404,3 +404,12 @@ void fyai_sandbox_profile_names(struct fyai_cfg *cfg, fy_generic root,
 		fn(arg, name, profile_desc(&d, user, builtin, name));
 	}
 }
+
+bool fyai_sandbox_udp_ports_listed(fy_generic udp)
+{
+	fy_generic ports = fy_get(udp, "ports", fy_invalid);
+	fy_generic bind = fy_get(udp, "bind_ports", fy_invalid);
+
+	return (fy_is_sequence(ports) && !fy_empty(ports)) ||
+	       (fy_is_sequence(bind) && !fy_empty(bind));
+}
