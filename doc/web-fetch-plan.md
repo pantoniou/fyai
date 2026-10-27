@@ -81,8 +81,8 @@ A fetched page is data from an unknown author. Three rules apply.
    enforced in C, below.
 
 The tool sends data out: a URL can carry a secret in its path or query. The
-model can already do this with `curl` in the `normal` sandbox profile, so the
-`normal` profile gains no new power. In the `lockdown` profile the shell has
+model can already do this with `curl` in the `none` sandbox profile, so the
+`none` profile gains no new power. In the `lockdown` profile the shell has
 no network, so `web_fetch` must not be a way around it (see Policy).
 
 ## Policy
@@ -209,7 +209,7 @@ no real DNS.
    alternative asks the user once per host in an interactive session and
    denies in a headless run. It matches the exfiltration concern but adds a
    prompt path to every fetch. Recommendation: allow by default, because the
-   shell already has the same reach in `normal`, and keep `deny`.
+   shell already has the same reach in `none`, and keep `deny`.
 3. **Proxy.** `env` honors `HTTPS_PROXY`, which a corporate network needs, but
    a proxy sees the policy bypass at its own address: the address check then
    runs on the proxy, not on the target. Recommendation: with a proxy, check

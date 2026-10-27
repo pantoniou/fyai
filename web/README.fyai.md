@@ -347,8 +347,8 @@ page then serves none of them.
 - **Sandbox**: fyai confines its tools with a sandbox profile, not with a
   question for each call, so the bridge runs fyai in `bypassPermissions`
   and the page shows no prompt. The page does not show the profile yet; run
-  `/session lockdown` or `/sandbox on` (when the command picker lists them),
-  or `fyai sandbox` in the project, to change it.
+  `/session lockdown` or `/session profile NAME` (when the command picker lists
+  them), or `fyai sandbox profiles` in the project, to change it.
 - **Audio and video**: the composer accepts them, but fyai takes images (PNG,
   JPEG, GIF, WebP) and text files only, so the page refuses the message and
   says so. An image reaches a model that takes images; for any other model

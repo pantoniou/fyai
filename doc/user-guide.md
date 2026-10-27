@@ -707,7 +707,7 @@ fyai --delete display/prompt_top "continue the review"
 fyai config validate
 fyai config schema
 fyai config describe
-fyai config describe sandbox/network
+fyai config describe sandbox_profiles
 ```
 
 These commands describe and validate the configuration nodes covered by the
@@ -1320,36 +1320,44 @@ The sandbox confines the commands that tools run. It is Linux only. It uses Land
 
 ### The policy
 
+A sandbox policy is a profile of `sandbox_profiles`; `sandbox_profile` names the one in use. There is no other key for it.
+
 ```sh
-fyai sandbox          # show the stored policy
-fyai sandbox on
-fyai sandbox off
+fyai sandbox profiles                 # list the profiles
+fyai sandbox show dev                 # the policy that a profile resolves to
+fyai sandbox enter -- make            # run a command under a profile
+fyai config set sandbox_profile none  # no sandbox
 ```
 
+A profile is a mapping:
+
 ```yaml
-sandbox:
-  enabled: true
-  deny:
-    - secrets
-    - ~/.ssh
-  allow:
-    - { path: /ro/data, mode: ro }
-    - { path: /src, mode: edit }
-  network:
-    tcp: { ports: [443], bind_ports: [] }
-    udp: { ports: [], bind_ports: [] }
+sandbox_profile: tight
+sandbox_profiles:
+  tight:
+    extends: dev
+    deny:
+      - secrets
+      - ~/.ssh
+    allow:
+      - { path: /ro/data, mode: ro }
+      - { path: /src, mode: edit }
+    network:
+      tcp: { ports: [443], bind_ports: [] }
+      udp: { ports: [], bind_ports: [] }
 ```
 
 - The `.fyai` arena is always denied to sandboxed tools.
 - Path modes are `rw`, `ro`, `edit` and `append`.
-- `network.tcp.ports` and `network.udp.ports` list the permitted destination ports. `bind_ports` lists the permitted local ports. An empty list denies the operation. A protocol that is not listed is unrestricted in the normal profile.
+- `network.tcp.ports` and `network.udp.ports` list the permitted destination ports. `bind_ports` lists the permitted local ports. An empty list denies the operation. A protocol that is not listed is unrestricted.
 - A UDP send also permits an ephemeral source bind. Local Unix sockets stay available.
 - TCP limits need Landlock ABI 4. UDP limits need ABI 10. On an older ABI, fyai reports that the restriction is not available. A kernel with no network rights leaves egress open, and fyai warns once for each process.
+- On a kernel below ABI 10, a profile that permits no UDP port is enforced with a seccomp filter instead, and fyai does not warn. The filter denies datagram and raw IP sockets and `io_uring_setup()`. It cannot test a port, so a profile that lists a UDP port, such as `dev` with port 53, keeps UDP open there and fyai warns. `doc/seccomp-network-filter.md` describes the filter.
 - On a system without Landlock, the portable tool policy stays in force.
 
 ### Profiles
 
-`sandbox_profile` names the policy. `normal` uses the `sandbox` key. Any other name is a profile, and a profile enables the sandbox whatever `sandbox` says. The default is `dev`.
+`sandbox_profile` names the policy. `none` confines nothing. Any other name is a profile. The default is `dev`.
 
 Profiles are the `sandbox_profiles` key. `config.yaml.sample` has `dev` and `lockdown`. An arena that starts from the sample stores them, and `fyai config show` lists them. An arena that stores none of them uses those of the sample.
 
@@ -1381,7 +1389,7 @@ sandbox_profiles:
       tcp: { ports: [80, 443, 3000] }
 ```
 
-The top row of the prompt names the profile (`{sandbox}` in `display/prompt_top`): ` · sandbox dev`, ` · sandbox on` when only `sandbox` is set, or ` · no sandbox`.
+The top row of the prompt names the profile (`{sandbox}` in `display/prompt_top`): ` · sandbox dev`, or ` · no sandbox`.
 
 ### Built-in profiles
 
@@ -1419,7 +1427,7 @@ sandbox_lockdown:
 
 - `/session profile` lists the profiles and marks the current one.
 - `/session profile NAME` stores the profile and its `view` setting and restarts the session, as `/reload` does. Live shells and sub-agents must finish first.
-- `/session dev`, `/session lockdown` and `/session yolo` select `dev`, `lockdown` and `normal`. They also set the credential transport and the view (chapter 9). The `sandbox` policy is not changed.
+- `/session dev`, `/session lockdown` and `/session yolo` select `dev`, `lockdown` and `none`. They also set the credential transport and the view (chapter 9).
 - A session in a view is restarted by its supervisor, which stays outside the view. The supervisor first applies the changes of the view to the project, as `/session push` does. If a path conflicts, nothing changes and the stored profile is put back.
 - The new session runs in a view or outside one as the profile says. A session outside a view restarts in one for a profile that asks for it.
 - The credential must come from the environment or `fyai auth`, not from `-k`, because the new session has no command line to carry it.
@@ -1986,7 +1994,6 @@ remaining settings below are session-only.
 | `/markdown` | `on` or `off` |
 | `/stream` | `on` or `off` |
 | `/thinking` | `on` or `off` |
-| `/sandbox` | `on` or `off` |
 | `/token-extents` | `on` or `off` |
 | `/print-stats` | `on` or `off` |
 
@@ -2134,7 +2141,7 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 | `--transient` | Keep the edits and the state of this run in memory. |
 | `-k`, `--api-key KEY` | Give an API key for this run. |
 | `--new` | Start a new conversation. |
-| `--sandbox` | Confine shell tools with Landlock (Linux). |
+| `--sandbox PROFILE` | Confine shell tools by this sandbox profile, for this run. |
 | `--color VALUE` | `auto`, `off` or `on`. |
 | `--theme THEME` | Select the Markdown theme. |
 | `-i`, `--interactive` | Start interactive mode. |

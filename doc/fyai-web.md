@@ -526,7 +526,7 @@ dropped: fyai has no such prompt. A tool runs confined by the sandbox profile
 - The page shows the profile of the session: the bridge reads `sandbox_profile`
   and the sandbox state from fyai and puts them in `/api/fyai/info`.
 - The user chooses the profile through the fyai commands that exist for it,
-  `/session dev|lockdown|yolo` and `sandbox on|off`, which the command picker
+  `/session dev|lockdown|yolo` and `/session profile NAME`, which the command picker
   already offers where the schema lists them. The page does not keep a
   second list of profiles.
 - A host that cannot make the sandbox warns once (`sandbox_on_failure`); the

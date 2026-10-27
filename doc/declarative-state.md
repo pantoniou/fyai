@@ -165,12 +165,12 @@ different from its default.
 
 The model has no tool for this state. Its programs run in a shell, and the
 shell is the one place where a program of the model could reach the arena,
-for example with `fyai config set sandbox false`:
+for example with `fyai config set sandbox_profile none`:
 
 - With the sandbox on, `fyai_shell_sandbox_begin()` (`src/fyai_tools.c`)
   denies `<project>/.fyai`. An arena outside the project is out of reach
-  when no grant of `sandbox/allow` covers it.
-- With the sandbox off, the default of the `normal` profile, a shell
+  when no `allow` grant of the profile covers it.
+- With the sandbox off (`sandbox_profile: none`), a shell
   program can write the arena.
 
 Part 2 rests on the invariant that the model never modifies the arena. The

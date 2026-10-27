@@ -621,7 +621,7 @@ gives the strictest access below a path, as `fyai_config_model_access_tree()`
 The rules for a value:
 
 - A key that weakens confinement, runs a program, sends data out, names a
-  credential or lifts a limit is `read` or `hidden`: `sandbox/*`, `shell/*`
+  credential or lifts a limit is `read` or `hidden`: `sandbox_*`, `shell/*`
   programs, `catalog_update/*`, `mcp/*` commands, `api_key`, `remote/*`.
 - A display key is `write`, but it changes only the session layer of that
   client (section 11.2).

@@ -1,77 +1,50 @@
-# Seccomp network filter prototype
+# Seccomp UDP filter
 
-This prototype supplemented Landlock TCP port rules on kernels without
-Landlock UDP rights. It is saved here for review. It is not active code.
+Landlock ABI 10 adds UDP rights. A kernel below ABI 10 cannot restrict UDP
+with Landlock. For that case, fyai installs a seccomp filter that denies UDP
+sockets whole.
 
-The filter checked the syscall architecture, rejected x32 and legacy
-`socketcall` requests, and allowed new IP sockets only for TCP streams.
-It left Unix and netlink sockets available. The caller installed it after
-`PR_SET_NO_NEW_PRIVS` and `landlock_restrict_self()` when `restrict_net` was set.
+## When it applies
 
-```c
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <linux/audit.h>
-#include <linux/filter.h>
-#include <linux/seccomp.h>
-#include <asm/unistd.h>
+- The profile has a `network.udp` mapping that permits no destination port
+  and no bind port.
+- The kernel has no Landlock ABI 10.
+- The build supports the architecture (x86-64 and AArch64).
 
-/* Landlock controls TCP ports; deny other network socket types. */
-static int restrict_non_tcp_sockets(void)
-{
-#if defined(__x86_64__)
-#define FYAI_SECCOMP_ARCH AUDIT_ARCH_X86_64
-#elif defined(__aarch64__)
-#define FYAI_SECCOMP_ARCH AUDIT_ARCH_AARCH64
-#else
-	errno = ENOTSUP;
-	return -1;
-#endif
-#if defined(FYAI_SECCOMP_ARCH) && defined(__NR_socket)
-	struct sock_filter filter[] = {
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, FYAI_SECCOMP_ARCH, 1, 0),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-#if defined(__x86_64__)
-		BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, __X32_SYSCALL_BIT, 0, 1),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
-#endif
-#ifdef __NR_socketcall
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socketcall, 0, 1),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
-#endif
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 13),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 11, 0),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_NETLINK, 10, 0),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET, 2, 0),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET6, 1, 0),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
-		BPF_STMT(BPF_ALU | BPF_AND | BPF_K, 0xf),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOCK_STREAM, 0, 3),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 2, 0),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_TCP, 1, 0),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-	};
-	struct sock_fprog prog = {
-		.len = sizeof(filter) / sizeof(filter[0]),
-		.filter = filter,
-	};
+A profile that lists a UDP port is not filtered. A seccomp filter sees only
+the syscall number and the argument registers. The port is in a `sockaddr`
+that `connect()` and `sendto()` receive by pointer, and a filter cannot read
+it. Such a profile keeps UDP open on a kernel below ABI 10, and fyai warns.
 
-	return prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog);
-#else
-	errno = ENOTSUP;
-	return -1;
-#endif
-}
-```
+## The filter
 
-The filter does not close inherited sockets. A reachable Unix socket can
-still act as a network proxy. The numeric BPF jumps need review before any
-reuse, and the code supports only x86-64 and AArch64. Landlock still provides
-the TCP port policy. Landlock ABI 10 adds UDP bind and connect/send rights,
-which are the active approach for UDP confinement.
+The filter is classic BPF. A seccomp filter cannot be eBPF. It allows every
+syscall except these:
+
+- any syscall of another architecture, and of the x32 ABI;
+- `io_uring_setup()`, because a ring makes sockets without `socket()`; and
+- `socket()` with an `AF_INET` or `AF_INET6` domain and a `SOCK_DGRAM` or
+  `SOCK_RAW` type. A raw socket can build a UDP packet by hand.
+
+Unix and netlink sockets, and IP stream sockets, stay available. The tool
+installs the filter after `PR_SET_NO_NEW_PRIVS` and `landlock_restrict_self()`,
+in the child, before `exec`. The filter applies to every descendant and no
+process can remove it.
+
+## Limits
+
+- A socket that the process inherited is not closed.
+- A reachable Unix socket can still act as a proxy for a process outside the
+  sandbox.
+- A process outside the sandbox keeps its own sockets. Yama `ptrace_scope`
+  stops a tool from taking one with `pidfd_getfd()` on most systems.
+
+## The build
+
+`tools/fyai_mkseccomp.c` assembles the program from labeled instructions and
+writes `embedded_seccomp_udp.inc`. It resolves each jump label to a relative
+offset and fails the build for a missing label, a backward jump or an offset
+above 255. The note of each instruction is a comment in the output. Each
+operand is a C expression that the target compiler evaluates, so the file does
+not depend on the build host. A cross build has no filter and fyai warns that
+UDP stays open.

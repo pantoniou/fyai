@@ -949,7 +949,7 @@ arena stores them; an arena that stores neither uses those of the sample. The
 `lockdown` profile denies `~/.ssh` and all network egress, when the kernel can
 restrict it, and asks for a view of the session. The legacy key `sandbox_lockdown`
 still changes it. The profile is stored, so the restarted session and its view keep
-it, and the `sandbox` policy of the user is not replaced. `dev`, the default profile,
+it. `dev`, the default profile,
 confines the tools to project work and sets no transport and no view; `/session dev`
 takes the transport and the view off and selects it. `/session profile NAME` selects
 any profile and changes neither the transport nor the credential: it stores the
