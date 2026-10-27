@@ -1096,7 +1096,13 @@ static int parse_args(struct fyai_cmd_parse_state *st, size_t i)
 	for (; i < st->nwords; i++) {
 		w = st->words[i];
 		cp = fyai_cmd_prop_positional(props, n, npos);
-		if (cp && cp->rest && cp->array) {
+		/*
+		 * An array that follows another positional forwards every word. One
+		 * that stands first leaves a leading option to the parser; "--"
+		 * starts the command.
+		 */
+		if (cp && cp->rest && cp->array &&
+		    (npos || opts_done || w[0] != '-' || !strcmp(w, "--"))) {
 			if (!strcmp(w, "--"))
 				i++;
 			for (j = i; j < st->nwords; j++) {
