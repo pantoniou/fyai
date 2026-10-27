@@ -2091,13 +2091,15 @@ Show the size, the time and the command of the recording, and what the program k
 
 ## fyai sandbox
 
-show the policy of a sandbox profile
+show, list or enter the sandbox profiles
 
-**Usage:** `fyai sandbox {apparmor|edit|show} ...`
+**Usage:** `fyai sandbox {apparmor|edit|enter|profiles|show} ...`
 
-Show the policy of a sandbox profile. The profile of the configuration is
-`sandbox_profile`, and `none` confines nothing; `edit` edits the whole
-configuration. A profile is defined in `sandbox_profiles`.
+Show the policy of a sandbox profile, list the profiles, or run a command
+under one. The profile of the configuration is `sandbox_profile`, and
+`none` confines nothing; `edit` edits the whole configuration. A profile
+is defined in `sandbox_profiles`. In a session, `/sandbox` is the setting
+of the session instead.
 
 
 ### Commands
@@ -2106,6 +2108,8 @@ configuration. A profile is defined in `sandbox_profiles`.
 | --- | --- |
 | `apparmor` | write the AppArmor profile that lets fyai make user namespaces |
 | `edit` | edit the configuration in an editor |
+| `enter` | run a command or a shell under a sandbox profile |
+| `profiles`, `list` | list the sandbox profiles |
 | `show`, `get` | write the policy of a sandbox profile |
 
 With no command, `show` runs.
@@ -2123,7 +2127,7 @@ write the policy of a sandbox profile
 Write the policy that PROFILE resolves to as YAML, as a tool gets it:
 the `extends` chain applied, the placeholders expanded, and the
 built-in profiles included. Without PROFILE, write that of the
-configuration. It needs no project.
+configuration. It needs no project; `sandbox profiles` lists the names.
 
 
 ### Arguments
@@ -2160,6 +2164,61 @@ doc/apparmor-userns.md.
 
 | Option | Description |
 | --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai sandbox profiles
+
+list the sandbox profiles
+
+**Usage:** `fyai sandbox profiles`
+
+**Aliases:** `list`
+
+List the sandbox profiles: `none`, which confines nothing, the built-in
+`dev` and `lockdown`, and those of `sandbox_profiles`. The
+list follows the stored configuration when there is a project with an
+arena, else the built-in profiles. The mark shows the profile that
+`sandbox enter` uses when none is named.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai sandbox enter
+
+run a command or a shell under a sandbox profile
+
+**Usage:** `fyai sandbox enter [--profile PROFILE] [COMMAND...]`
+
+Run COMMAND, or a shell when there is none, confined as a tool of a
+session is: the same Landlock rules, the same seccomp filter where the
+kernel has no Landlock UDP rights, and the same environment with the
+credentials removed. The sandbox is PROFILE when it is given. Else it is
+the sandbox of the stored configuration, when there is a project with an
+arena and that configuration enables one. Else it is the built-in `dev`
+profile, so the command needs no project and no stored state. Standard
+input, output and error are inherited, and the exit status is that of
+the command. Status 126 says that the sandbox could not be applied, and
+127 that the command could not be started. Use it to see what a tool
+sees.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `COMMAND` | the command and arguments to execute; omit to start a shell |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--profile PROFILE` | the sandbox profile, for this run only |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

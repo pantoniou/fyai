@@ -2241,11 +2241,13 @@ commands:
             value_header: Value
 
   - command: sandbox
-    title: show the policy of a sandbox profile
+    title: show, list or enter the sandbox profiles
     description: |
-      Show the policy of a sandbox profile. The profile of the configuration is
-      `sandbox_profile`, and `none` confines nothing; `edit` edits the whole
-      configuration. A profile is defined in `sandbox_profiles`.
+      Show the policy of a sandbox profile, list the profiles, or run a command
+      under one. The profile of the configuration is `sandbox_profile`, and
+      `none` confines nothing; `edit` edits the whole configuration. A profile
+      is defined in `sandbox_profiles`. In a session, `/sandbox` is the setting
+      of the session instead.
     surfaces: [cli]
     default: show
     see_also: [config]
@@ -2257,7 +2259,7 @@ commands:
           Write the policy that PROFILE resolves to as YAML, as a tool gets it:
           the `extends` chain applied, the placeholders expanded, and the
           built-in profiles included. Without PROFILE, write that of the
-          configuration. It needs no project.
+          configuration. It needs no project; `sandbox profiles` lists the names.
         handler: sandbox_show
         flags: [storage-optional]
         arguments:
@@ -2287,6 +2289,61 @@ commands:
           doc/apparmor-userns.md.
         handler: sandbox_apparmor
         flags: [no-storage]
+      - command: profiles
+        aliases: [list]
+        title: list the sandbox profiles
+        description: |
+          List the sandbox profiles: `none`, which confines nothing, the built-in
+          `dev` and `lockdown`, and those of `sandbox_profiles`. The
+          list follows the stored configuration when there is a project with an
+          arena, else the built-in profiles. The mark shows the profile that
+          `sandbox enter` uses when none is named.
+        handler: sandbox_profiles
+        flags: [storage-optional]
+        render:
+          table:
+            title: Sandbox profiles
+            empty: no sandbox profiles
+            keys: [current, profile, description]
+            columns:
+              current: {name: "*", format: mark}
+              profile: {name: Profile, align: left}
+              description: {name: Description, align: left}
+      - command: enter
+        title: run a command or a shell under a sandbox profile
+        description: |
+          Run COMMAND, or a shell when there is none, confined as a tool of a
+          session is: the same Landlock rules, the same seccomp filter where the
+          kernel has no Landlock UDP rights, and the same environment with the
+          credentials removed. The sandbox is PROFILE when it is given. Else it is
+          the sandbox of the stored configuration, when there is a project with an
+          arena and that configuration enables one. Else it is the built-in `dev`
+          profile, so the command needs no project and no stored state. Standard
+          input, output and error are inherited, and the exit status is that of
+          the command. Status 126 says that the sandbox could not be applied, and
+          127 that the command could not be started. Use it to see what a tool
+          sees.
+        handler: sandbox_enter
+        surfaces: [cli]
+        flags: [storage-optional]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            profile:
+              type: string
+              description: the sandbox profile, for this run only
+              x-fyai-long: profile
+              x-fyai-meta: PROFILE
+              x-fyai-complete: sandbox-profile
+            command:
+              type: array
+              items:
+                type: string
+              description: the command and arguments to execute; omit to start a shell
+              x-fyai-positional: 0
+              x-fyai-rest: true
+              x-fyai-meta: COMMAND
       - command: edit
         title: edit the configuration in an editor
         description: Edit the configuration with $VISUAL or $EDITOR.

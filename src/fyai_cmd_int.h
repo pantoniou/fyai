@@ -136,6 +136,8 @@ int fyai_cmd_config_schema(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_edit(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_config_describe(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_sandbox_enter(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_sandbox_profiles(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_sandbox_apparmor(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_cast_play(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_cast_markers(struct fyai_cmd_call *call, fy_generic *result);

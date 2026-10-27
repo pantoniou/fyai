@@ -16,6 +16,9 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <signal.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "fyai.h"
 #include "fyai_cmd.h"
@@ -766,6 +769,151 @@ int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result)
 	*result = v;
 	return 0;
 err:
+	return -1;
+}
+
+/*
+ * The profile that `sandbox enter` uses when none is named: that of the
+ * configuration, else the built-in default.
+ */
+static const char *sandbox_effective_profile(struct fyai_cfg *cfg)
+{
+	return cfg->sandbox_profile ? cfg->sandbox_profile : FYAI_SANDBOX_PROFILE_DEFAULT;
+}
+
+/*
+ * Start the command in a child that this process confines as it confines a
+ * tool, and wait for it. The child keeps the terminal and the process group,
+ * so a key of the user reaches it. Status 126 and 127 are those of a shell:
+ * the sandbox was not applied, and the program did not start.
+ */
+static int sandbox_enter_run(struct fyai_ctx *ctx, char *const *argv)
+{
+	struct sigaction ignore = { .sa_handler = SIG_IGN }, saved_int, saved_quit;
+	sigset_t none;
+	pid_t pid;
+	int status = 0, rc;
+
+	pid = fork();
+	fyai_error_check(ctx, pid >= 0, err_out,
+			 "sandbox enter: could not fork: %s", strerror(errno));
+	if (!pid) {
+		/* The parent blocks SIGPIPE and handles others; the program gets the defaults. */
+		sigemptyset(&none);
+		sigprocmask(SIG_SETMASK, &none, NULL);
+		signal(SIGINT, SIG_DFL);
+		signal(SIGQUIT, SIG_DFL);
+		/* The event loop belongs to the parent; the program never gets it. */
+		fyai_ctx_loop_abandon(ctx);
+		if (fyai_env_sanitize(NULL) || fyai_tools_confine(ctx))
+			_exit(FYAI_SHELL_EXIT_SANDBOX);
+		fyai_close_fds_from(3);
+		execvp(argv[0], argv);
+		_exit(FYAI_SHELL_EXIT_EXEC);
+	}
+	/* ^C goes to the program, which shares the terminal; it must not end this wait. */
+	sigaction(SIGINT, &ignore, &saved_int);
+	sigaction(SIGQUIT, &ignore, &saved_quit);
+	do {
+		rc = waitpid(pid, &status, 0);
+	} while (rc < 0 && errno == EINTR);
+	sigaction(SIGINT, &saved_int, NULL);
+	sigaction(SIGQUIT, &saved_quit, NULL);
+	fyai_error_check(ctx, rc == pid, err_out,
+			 "sandbox enter: could not wait for the command: %s", strerror(errno));
+	if (WIFEXITED(status))
+		return WEXITSTATUS(status);
+	return 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+err_out:
+	return -1;
+}
+
+struct sandbox_profiles {
+	struct fy_generic_builder *gb;
+	const char *current;
+	fy_generic rows;
+};
+
+static void sandbox_profiles_add(void *arg, const char *name, const char *desc)
+{
+	struct sandbox_profiles *l = arg;
+
+	l->rows = fy_append(l->gb, l->rows, fy_mapping(l->gb,
+			    "current", (bool)!strcmp(name, l->current),
+			    "profile", fy_value(l->gb, name),
+			    "description", fy_value(l->gb, desc ? desc : "")));
+}
+
+int fyai_cmd_sandbox_profiles(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct sandbox_profiles list = { .gb = call->gb, .rows = fy_seq_empty };
+
+	if (sandbox_config_ready(ctx))
+		return -1;
+	list.current = sandbox_effective_profile(ctx->cfg);
+	fyai_sandbox_profile_names(ctx->cfg, ctx->cfg->config_doc,
+				   sandbox_profiles_add, &list);
+	*result = list.rows;
+	return 0;
+}
+
+int fyai_cmd_sandbox_enter(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	fy_generic arguments = fy_get(call->args, "command", fy_seq_empty);
+	const char *profile = fyai_cmd_arg_str(call, "profile");
+	const char *argument, *shell;
+	fy_generic net, udp;
+	char **argv = NULL;
+	size_t argc = fy_len(arguments), index = 0;
+	int rc;
+
+	if (!fyai_sandbox_available()) {
+		fyai_error(ctx, "sandbox enter: this kernel has no Landlock");
+		return -1;
+	}
+	if (sandbox_config_ready(ctx))
+		return -1;
+	/* A profile that is named wins; else the one of the configuration, else the default. */
+	if (!profile || !*profile)
+		profile = sandbox_effective_profile(ctx->cfg);
+	if (sandbox_named_check(ctx, profile) ||
+	    fyai_config_sandbox_select(ctx->cfg, profile))
+		return -1;
+	/*
+	 * Say what stays open. UDP is denied by Landlock ABI 10, or by the seccomp
+	 * filter when the policy permits no UDP port; a listed port needs ABI 10.
+	 */
+	net = fy_get(ctx->cfg->sandbox, "network", fy_invalid);
+	if (fy_is_valid(fy_get(net, "tcp", fy_invalid)) && !fyai_sandbox_net_restrictable(-1))
+		fyai_warning(ctx, "sandbox enter: this kernel cannot restrict network "
+			     "egress: it stays open");
+	udp = fy_get(net, "udp", fy_invalid);
+	if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
+	    (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable()))
+		fyai_warning(ctx, "sandbox enter: UDP egress remains open; Landlock "
+			     "ABI 10 is unavailable");
+
+	argv = calloc(argc + 2, sizeof(*argv));
+	fyai_error_check(ctx, argv, err_out, "sandbox enter: could not allocate the arguments");
+	if (argc) {
+		fy_foreach(argument, arguments)
+			argv[index++] = (char *)argument;
+	} else {
+		shell = getenv("SHELL");
+		argv[0] = (char *)(shell && *shell ? shell : "/bin/sh");
+	}
+	rc = sandbox_enter_run(ctx, argv);
+	free(argv);
+	if (rc < 0)
+		return -1;
+	ctx->cfg->exit_status = rc;
+	if (rc == FYAI_SHELL_EXIT_SANDBOX)
+		fyai_error(ctx, "sandbox enter: the sandbox could not be applied");
+	*result = fy_invalid;
+	return rc == FYAI_SHELL_EXIT_SANDBOX ? -1 : 0;
+err_out:
 	return -1;
 }
 
