@@ -38,6 +38,7 @@ FYAI_TEST_ENTRY(cmd, immediate, cmd_immediate)
 FYAI_TEST_ENTRY(cmd, group_args, cmd_group_args)
 FYAI_TEST_ENTRY(cmd, view_session_args, cmd_view_session_args)
 FYAI_TEST_ENTRY(cmd, config_args, cmd_config_args)
+FYAI_TEST_ENTRY(cmd, rest_array_option, cmd_rest_array_option)
 FYAI_TEST_ENTRY(cmd, history_args, cmd_history_args)
 FYAI_TEST_ENTRY(cmd, complete_config, cmd_complete_config)
 FYAI_TEST_ENTRY(cmd, complete_catalog, cmd_complete_catalog)
@@ -666,6 +667,28 @@ int cmd_config_args(void)
 			    "config set mcp { enabled: true }", &p);
 	FYAI_TCHECK(!rc && arg_is(p.args, "value", "{ enabled: true }"));
 	expect_error(&t, FYAI_CMD_CLI, "config get", "KEY is required");
+	cmd_test_close(&t);
+	return 0;
+}
+
+/* An array that stands first leaves a leading option to the parser. */
+int cmd_rest_array_option(void)
+{
+	struct fyai_cmd_parsed p;
+	struct cmd_test t;
+	int rc;
+
+	cmd_test_open(&t);
+	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "sandbox list", &p);
+	FYAI_TCHECK(!rc && !strcmp(p.path, "sandbox profiles"));
+	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "sandbox enter --profile lockdown -- true", &p);
+	FYAI_TCHECK(!rc && !strcmp(p.path, "sandbox enter"));
+	FYAI_TCHECK(arg_is(p.args, "profile", "lockdown"));
+	FYAI_TCHECK(fy_len(fy_get(p.args, "command", fy_seq_empty)) == 1);
+	/* After "--", and after another positional, an option is part of the command. */
+	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "sandbox enter -- ls --profile", &p);
+	FYAI_TCHECK(!rc && !fy_is_valid(fy_get(p.args, "profile", fy_invalid)));
+	FYAI_TCHECK(fy_len(fy_get(p.args, "command", fy_seq_empty)) == 2);
 	cmd_test_close(&t);
 	return 0;
 }
