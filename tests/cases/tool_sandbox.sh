@@ -15,22 +15,22 @@ export OPENAI_API_KEY=sk-should-not-leak
 
 # The tool's environment is stripped of everything but a safe allow-list, so
 # neither an arbitrary secret nor a provider key is visible to the command.
-run_fyai --set sandbox=true tool shell '{"command": "echo v=[$MY_SECRET] k=[$OPENAI_API_KEY]"}'
+run_fyai --set sandbox_profile=dev tool shell '{"command": "echo v=[$MY_SECRET] k=[$OPENAI_API_KEY]"}'
 assert_status 0
 assert_stdout_contains "v=[] k=[]"
 assert_stdout_not_contains "topsecret-xyz"
 
 # PATH is preserved so tools still resolve.
-run_fyai --set sandbox=true tool shell '{"command": "test -n \"$PATH\" && echo path-ok"}'
+run_fyai --set sandbox_profile=dev tool shell '{"command": "test -n \"$PATH\" && echo path-ok"}'
 assert_stdout_contains "path-ok"
 
 # The sandbox does not break /dev/null redirection or basic commands.
-run_fyai --set sandbox=true tool shell '{"command": "echo hi > /dev/null && echo devnull-ok"}'
+run_fyai --set sandbox_profile=dev tool shell '{"command": "echo hi > /dev/null && echo devnull-ok"}'
 assert_stdout_contains "devnull-ok"
 
 # A file in the project stays readable under the sandbox.
-run_fyai --set sandbox=false tool write_file '{"path": "keep.txt", "content": "visible\n"}'
-run_fyai --set sandbox=true tool shell '{"command": "cat keep.txt"}'
+run_fyai --set sandbox_profile=none tool write_file '{"path": "keep.txt", "content": "visible\n"}'
+run_fyai --set sandbox_profile=dev tool shell '{"command": "cat keep.txt"}'
 assert_stdout_contains "visible"
 
 # Landlock denies apply only on Linux.
@@ -39,7 +39,8 @@ if [ "$(uname -s)" = Linux ]; then
 	mkdir -p "$SECRET_DIR"
 	printf 'classified\n' >"$SECRET_DIR/s.txt"
 	DENY_CONFIG="$TEST_DIR/deny-sandbox.yaml"
-	printf 'sandbox: { enabled: true, deny: [%s] }\n' "$SECRET_DIR" >"$DENY_CONFIG"
+	printf 'sandbox_profile: t\nsandbox_profiles: { t: { extends: dev, deny: [%s] } }\n' \
+		"$SECRET_DIR" >"$DENY_CONFIG"
 	run_fyai --config "$DENY_CONFIG" tool shell \
 		'{"command": "cat '"$SECRET_DIR"'/s.txt || echo deny-ok"}'
 	assert_stdout_contains "deny-ok"
@@ -49,7 +50,8 @@ fi
 # A misspelled allow mode must fail before the command runs. An explicit
 # config file is validated at ingestion, so the schema rejects it there.
 BAD_CONFIG="$TEST_DIR/bad-sandbox.yaml"
-printf '%s\n' 'sandbox: { enabled: true, allow: [{ path: /tmp, mode: readonly }] }' \
+printf '%s\n' 'sandbox_profile: t' \
+	'sandbox_profiles: { t: { extends: dev, allow: [{ path: /tmp, mode: readonly }] } }' \
 	>"$BAD_CONFIG"
 run_fyai --config "$BAD_CONFIG" tool shell '{"command": "echo must-not-run"}'
 assert_status_nonzero

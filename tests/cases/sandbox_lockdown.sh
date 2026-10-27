@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # Verify the lockdown sandbox profile: sandbox_profile=lockdown confines the tools
-# whatever `sandbox` says, with the secret locations of the platform and
+# with the secret locations of the platform and
 # supported network operations denied by default. sandbox_lockdown changes
 # only the keys that it names.
 set -eu
@@ -27,16 +27,14 @@ shell_with() {
 	run_fyai --config "$TEST_DIR/lockdown.yaml" tool shell '{"command": "'"$2"'"}'
 }
 
-# The normal profile does not confine the tools: the key file and the network are open.
-shell_with 'sandbox: false
-sandbox_profile: normal' "cat ~/.ssh/id_test; $CONNECT"
+# The none profile does not confine the tools: the key file and the network are open.
+shell_with 'sandbox_profile: none' "cat ~/.ssh/id_test; $CONNECT"
 assert_status 0
 assert_stdout_contains classified
 assert_stdout_contains connected
 
-# The lockdown profile enables the sandbox although `sandbox` is off, and denies ~/.ssh.
-shell_with 'sandbox: false
-sandbox_profile: lockdown' 'cat ~/.ssh/id_test || echo deny-ok'
+# The lockdown profile denies ~/.ssh.
+shell_with 'sandbox_profile: lockdown' 'cat ~/.ssh/id_test || echo deny-ok'
 assert_stdout_contains deny-ok
 assert_stdout_not_contains classified
 

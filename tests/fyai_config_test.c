@@ -578,9 +578,7 @@ int config_model_access(void)
 	/* Keys that weaken confinement, run a program, send data out, or
 	 * lift a limit on the model: never changed by the model. */
 	static const char *const closed[] = {
-		"sandbox", "sandbox/enabled", "sandbox/allow", "sandbox/deny",
-		"sandbox/network/tcp/ports", "sandbox_profile",
-		"sandbox_lockdown", "sandbox_lockdown/allow",
+		"sandbox_profile", "sandbox_lockdown", "sandbox_lockdown/allow",
 		"sandbox_profiles", "sandbox_profiles/dev/allow", "sandbox_cover",
 		"sandbox_on_failure", "sandbox_scope",
 		"agent/isolation", "agent/transport_isolation", "agent/spawn",

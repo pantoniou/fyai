@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # Verify the dev sandbox profile: sandbox_profile=dev confines the tools to
-# project work whatever `sandbox` says. The project and the toolchains are
+# project work. The project and the toolchains are
 # open, the secret locations are denied, PATH keeps only the directories that
 # the tools reach, and TCP connects only to the ports of the profile.
 set -eu
@@ -53,9 +53,8 @@ grep -q 'extends: build' "$TEST_DIR/profile.out" && grep -q 'private: true' "$TE
 grep -q 'extends: dev' "$TEST_DIR/profile.out" && grep -q 'view: true' "$TEST_DIR/profile.out" ||
 	fail 'the dev-view profile is not in the stored configuration'
 
-# The dev profile enables the sandbox although `sandbox` is off.
-shell_with 'sandbox: false
-sandbox_profile: dev' 'cat ~/.ssh/id_test || echo deny-ok'
+# The dev profile confines the tools.
+shell_with 'sandbox_profile: dev' 'cat ~/.ssh/id_test || echo deny-ok'
 assert_stdout_contains deny-ok
 assert_stdout_not_contains classified
 

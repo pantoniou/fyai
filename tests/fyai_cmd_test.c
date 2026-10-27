@@ -663,14 +663,8 @@ int cmd_config_args(void)
 	FYAI_TCHECK(!rc && !strcmp(p.path, "config show"));
 	/* The value is the rest of the line, as a YAML flow document. */
 	rc = cmd_test_parse(&t, FYAI_CMD_SESSION,
-			    "config set sandbox { enabled: true }", &p);
+			    "config set mcp { enabled: true }", &p);
 	FYAI_TCHECK(!rc && arg_is(p.args, "value", "{ enabled: true }"));
-	rc = cmd_test_parse(&t, FYAI_CMD_CLI, "sandbox enable", &p);
-	FYAI_TCHECK(!rc && !strcmp(p.path, "sandbox on"));
-	/* In a session, /sandbox is the setting, not this command. */
-	rc = cmd_test_parse(&t, FYAI_CMD_SESSION, "sandbox on", &p);
-	FYAI_TCHECK(!rc && !strcmp(p.path, "sandbox"));
-	FYAI_TCHECK(arg_is(p.args, "value", "on"));
 	expect_error(&t, FYAI_CMD_CLI, "config get", "KEY is required");
 	cmd_test_close(&t);
 	return 0;
@@ -773,7 +767,6 @@ int cmd_setting_scope(void)
 
 	FYAI_TCHECK(fyai_config_session_scoped("display/markdown"));
 	FYAI_TCHECK(fyai_config_session_scoped("display/stream"));
-	FYAI_TCHECK(fyai_config_session_scoped("sandbox/enabled"));
 	FYAI_TCHECK(fyai_config_session_scoped("token_extents"));
 	FYAI_TCHECK(!fyai_config_session_scoped("display/theme"));
 	FYAI_TCHECK(!fyai_config_session_scoped("temperature"));

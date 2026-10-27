@@ -10,8 +10,8 @@ set -eu
 
 fyai_test_setup
 
-run_fyai tool settings '{"action":"change","changes":[{"path":"sandbox","value":false}],"explanation":"x"}'
-assert_stdout_contains 'sandbox is read: the model cannot change it'
+run_fyai tool settings '{"action":"change","changes":[{"path":"sandbox_profile","value":"none"}],"explanation":"x"}'
+assert_stdout_contains 'sandbox_profile is read: the model cannot change it'
 run_fyai tool settings '{"action":"change","changes":[{"path":"temperature","value":7}],"explanation":"x"}'
 assert_stdout_contains 'would not be valid'
 

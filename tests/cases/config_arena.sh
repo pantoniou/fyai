@@ -29,31 +29,28 @@ run_fyai config get display/theme
 assert_status 0
 assert_stdout_contains "catppuccin:dark"
 
-run_fyai --sandbox config effective
+run_fyai --sandbox lockdown config effective
 assert_status 0
-assert_stdout_contains "sandbox: true"
+assert_stdout_contains "sandbox_profile: lockdown"
 
-run_fyai config set sandbox true
+run_fyai config set sandbox_profile lockdown
 assert_status 0
 run_fyai config show
 assert_status 0
-assert_stdout_contains "sandbox: true"
+assert_stdout_contains "sandbox_profile: lockdown"
 run_fyai config effective
 assert_status 0
-assert_stdout_contains "sandbox: true"
+assert_stdout_contains "sandbox_profile: lockdown"
 
-run_fyai sandbox off
+# The removed `sandbox` key is ignored with a warning, and can be deleted.
+run_fyai config set sandbox true
 assert_status 0
-run_fyai sandbox show
+run_fyai config get model
+assert_stderr_contains "no longer exists"
+run_fyai config delete sandbox
 assert_status 0
-assert_stdout_contains "false"
-run_fyai sandbox on
-assert_status 0
-run_fyai sandbox show
-assert_status 0
-assert_stdout_contains "enabled: true"
-assert_stdout_contains "~/.ssh"
-assert_stdout_contains "443"
+run_fyai config get model
+assert_stderr_not_contains "no longer exists"
 
 # effective config picks the arena values up
 run_fyai config show
@@ -84,9 +81,9 @@ assert_stderr_contains "nested inside the fyai project"
 run_fyai config get model
 assert_status 0
 assert_stdout_contains "gpt-5.4-mini"
-run_fyai config get sandbox
+run_fyai config get sandbox_profile
 assert_status 0
-assert_stdout_contains "false"
+assert_stdout_contains "dev"
 cd ..
 
 # messages-mode feature notes stay off config verbs

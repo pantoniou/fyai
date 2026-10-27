@@ -31,12 +31,12 @@ PTY
 
 session dev
 
-# A session with the sandbox off says so: `normal` takes the `sandbox` setting.
+# A session with the sandbox off says so.
 pty_run "$TEST_DIR/pty.out" \
     "$FYAI_BIN" -k test-key --theme dark -b main --set api=chat-completions \
     --set "api_url=$MOCK_URL/v1/chat/completions" \
     --set display/stream=false --set display/markdown=true \
-    --set display/screen=fullscreen --set sandbox_profile=normal --set sandbox=false \
+    --set display/screen=fullscreen --set sandbox_profile=none \
     -m mock-model -i <<'PTY'
 rows: 30
 cols: 100

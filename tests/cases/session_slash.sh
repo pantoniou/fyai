@@ -73,8 +73,6 @@ set +e
 /tool-detail
 /transcript-system on
 /transcript-system
-/sandbox on
-/sandbox
 /secret status api-key/not-configured
 /auth status
 /auth invalid
@@ -112,7 +110,6 @@ assert_stdout_contains "logging: wire off, stream on, conversation on"
 assert_stdout_contains "logging: wire on, stream on, conversation on"
 assert_stdout_contains "logging: cleared conversation"
 assert_stdout_contains "7"
-assert_stdout_contains "sandbox: on"
 assert_stdout_contains "Authentication"
 assert_stderr_contains "auth: provider 'invalid' is not supported yet"
 # A named status is absent where the OS secret backend is available, and

@@ -13,7 +13,7 @@ fyai_test_setup
 printf baseline > file
 mock_start agent_sandbox.json
 
-run_fyai --set sandbox=true --set api=chat-completions \
+run_fyai --set sandbox_profile=dev --set api=chat-completions \
 	 --set display/stream=false --set tools=true \
 	 --set api_url="$MOCK_URL/v1/chat/completions" -m mock-model \
 	 "delegate an edit"

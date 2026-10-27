@@ -237,7 +237,7 @@ fyai_test_setup() {
 	# from the scrollback of the terminal. Slash-command output and the live
 	# output of a call go to the pane, which most cases read; a case of the
 	# transcript selects it.
-	printf 'sandbox_profile: normal\ndisplay:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n  command_output: pane\n  tool_display: pane\n  idle_poll_ms: 100\n' > config.yaml
+	printf 'sandbox_profile: none\ndisplay:\n  markdown: false\n  screen: inline\n  work_controls: none\n  work_zoom_rows: full\n  command_output: pane\n  tool_display: pane\n  idle_poll_ms: 100\n' > config.yaml
 	${FYAI_VALGRIND} "$FYAI_BIN" init >/dev/null 2>&1 || fail "fyai init"
 	rm -f config.yaml
 }

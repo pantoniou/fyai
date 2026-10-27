@@ -10,7 +10,7 @@ set -eu
 
 fyai_test_setup
 # fyai applies a change of write keys unasked only in this state.
-run_fyai config set sandbox true
+run_fyai config set sandbox_profile dev
 assert_status 0
 run_fyai config set model_access write
 assert_status 0
