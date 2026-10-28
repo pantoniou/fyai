@@ -63,7 +63,7 @@ int cas_digest_parse(void)
 	return 0;
 }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 /* Remove the directories that hold the object name of a blob, deepest first. */
 static int cas_rmdirs(int dir, const struct fyai_cas_blob *blob)
 {
