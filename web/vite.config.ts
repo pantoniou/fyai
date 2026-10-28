@@ -84,8 +84,11 @@ export default defineConfig(({ mode }) => {
 					extends: './vite.config.ts',
 					test: {
 						environment: 'node',
+						// A loaded CTest run makes a cold module import take seconds.
+						hookTimeout: 60000,
 						include: ['tests/unit/**/*.{test,spec}.{js,ts}'],
-						name: 'unit'
+						name: 'unit',
+						testTimeout: 60000
 					}
 				},
 
