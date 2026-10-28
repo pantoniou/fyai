@@ -833,6 +833,17 @@ if(BUILD_TESTING)
             "-framework Security" "-framework CoreFoundation")
     endif()
 
+    if(APPLE)
+        add_executable(fyai_macos_sandbox_test
+            tests/macos/sandbox_backend_test.c src/fyai_sandbox.c
+            src/fyai_sandbox_macos.c)
+        target_include_directories(fyai_macos_sandbox_test PRIVATE src)
+        target_compile_options(fyai_macos_sandbox_test PRIVATE
+            ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS} ${ASAN_C_FLAGS})
+        target_link_libraries(fyai_macos_sandbox_test PRIVATE ${ASAN_LINK_OPTS})
+        add_test(NAME fyai/macos/sandbox COMMAND fyai_macos_sandbox_test)
+    endif()
+
     # Add one CTest test for each registry entry. Each runs through
     # tests/unit_run.sh so that a run can put FYAI_VALGRIND in front of the
     # binary, the same variable the functional cases take.
