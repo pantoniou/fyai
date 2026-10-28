@@ -151,7 +151,11 @@ initialize each generic field explicitly.
 - `src/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
 - `src/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
   bar a tile carries, and its head.
-- `src/fyai_sandbox.c`: Linux Landlock confinement.
+- `src/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
+  to the backend of the platform (`src/fyai_sandbox_backend.h`).
+  `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter, and
+  `src/fyai_sandbox_none.c` confines nothing. Put platform code in a backend,
+  not in the core.
 - `src/fyai_oauth.c`: provider-independent OAuth browser flow.
 - `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP.
 - `src/fyai_config.c`: layered configuration and config commands.

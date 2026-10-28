@@ -124,7 +124,7 @@ without separating its host responsibilities.
 
 A candidate source split is `fyai_project` for canonical trees and capture,
 `fyai_cas` for blobs, and `fyai_fsview` for Linux mounts and execution lifecycle.
-Keep Landlock policy in `fyai_sandbox.c`, agent integration in `fyai_agent.c`, and
+Keep Landlock policy in `fyai_sandbox_linux.c`, agent integration in `fyai_agent.c`, and
 all output through the sink. These names are provisional internal interfaces.
 
 ## 4. Canonical project model
