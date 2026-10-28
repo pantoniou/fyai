@@ -11,6 +11,7 @@
  * backend that this build selects.
  *
  *   Linux   fyai_fsview_linux.c   OverlayFS, namespaces and CAS-backed mounts
+ *   macOS   fyai_fsview_macos.c   a cloned project directory
  *   other   fyai_fsview_none.c    no views
  *
  * A member that is NULL is not supported by the backend. The core then fails
@@ -19,6 +20,8 @@
  */
 #if defined(__linux__)
 #define FYAI_FSVIEW_BACKEND_LINUX 1
+#elif defined(__APPLE__)
+#define FYAI_FSVIEW_BACKEND_MACOS 1
 #else
 #define FYAI_FSVIEW_BACKEND_NONE 1
 #endif
@@ -65,6 +68,9 @@ struct fyai_fsview_backend {
 
 #ifdef FYAI_FSVIEW_BACKEND_LINUX
 extern const struct fyai_fsview_backend fyai_fsview_backend_linux;
+#endif
+#ifdef FYAI_FSVIEW_BACKEND_MACOS
+extern const struct fyai_fsview_backend fyai_fsview_backend_macos;
 #endif
 #ifdef FYAI_FSVIEW_BACKEND_NONE
 extern const struct fyai_fsview_backend fyai_fsview_backend_none;

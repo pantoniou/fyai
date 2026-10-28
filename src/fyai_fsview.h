@@ -25,6 +25,8 @@ int fyai_fsview_arena_pass(const struct fyai_cfg *cfg);
 
 struct fyai_fsview {
 	const char *project;
+	/* Physical project directory of a native materialized view; NULL on Linux. */
+	const char *execution;
 	/* Absolute directory that the child replaces with a private tmpfs. */
 	const char *scratch;
 	const char *runtime;
@@ -189,6 +191,9 @@ int fyai_fsview_recover(struct fy_generic_builder *gb, const struct fyai_fsview 
  * namespace, so a supervisor in an ancestor namespace, and the credential
  * transport, take its PID there. The release can carry one environment variable.
  * Every process closes the descriptor.
+ * On macOS this prepares the native directory and environment, with no
+ * announcement protocol. The standalone launcher must then call
+ * fyai_tools_confine_native_view() before executing untrusted code.
  */
 int fyai_fsview_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 		      int status_fd, int announce_fd);
@@ -205,8 +210,11 @@ int fyai_fsview_init_pidfd(int fd, int *pidfd);
  */
 int fyai_fsview_init_release(int fd, const char *name, const char *value);
 
-/* Ingest a frozen upper through a trusted private overlay mount. Result belongs
- * to gb. */
+/*
+ * Ingest a frozen upper through a trusted private overlay mount on Linux, or
+ * scan the native execution directory on macOS. The caller owns the writer
+ * lifetime. The result belongs to gb.
+ */
 fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai_fsview *view,
 				char *error, size_t error_size);
 

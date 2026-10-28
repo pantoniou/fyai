@@ -232,6 +232,8 @@ static int runtime_clear(int fd, unsigned int depth)
 
 #if defined(FYAI_FSVIEW_BACKEND_LINUX)
 #define backend (&fyai_fsview_backend_linux)
+#elif defined(FYAI_FSVIEW_BACKEND_MACOS)
+#define backend (&fyai_fsview_backend_macos)
 #else
 #define backend (&fyai_fsview_backend_none)
 #endif

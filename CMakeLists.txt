@@ -521,6 +521,7 @@ set(FYAI_SOURCES
     src/fyai_project_capture_none.c
     src/fyai_fsview.c
     src/fyai_fsview_linux.c
+    src/fyai_fsview_macos.c
     src/fyai_fsview_none.c
     src/fyai_view_apply.c
     src/fyai_view_gc.c

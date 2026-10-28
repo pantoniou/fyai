@@ -2534,6 +2534,60 @@ int fyai_tools_confine(struct fyai_ctx *ctx)
 	return fyai_tool_apply_sandbox(ctx);
 }
 
+int fyai_tools_confine_native_view(struct fyai_ctx *ctx, const struct fyai_fsview *view)
+{
+	struct fyai_shell_sandbox sb;
+	const struct fyai_sandbox_spec *configured;
+	struct fyai_sandbox_spec policy = { 0 };
+	const char *previous_project = ctx->cfg->view_project;
+	const char *previous_scratch = ctx->cfg->view_scratch;
+	const char **deny = NULL, *scratch;
+	const char *slash = strrchr(view->execution, '/');
+	size_t i, count;
+	int rc, saved;
+
+	if (!slash || ctx->sandbox_applied) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	scratch = fy_sprintfa("%.*s/tmp", (int)(slash - view->execution), view->execution);
+	ctx->cfg->view_project = view->execution;
+	ctx->cfg->view_scratch = scratch;
+	rc = fyai_shell_sandbox_build(ctx, &sb, &configured);
+	ctx->cfg->view_project = previous_project;
+	ctx->cfg->view_scratch = previous_scratch;
+	if (rc)
+		return -1;
+	if (configured)
+		policy = *configured;
+	count = policy.deny_n;
+	deny = calloc(count + 2, sizeof(*deny));
+	if (!deny) {
+		rc = -1;
+		goto out;
+	}
+	for (i = 0; i < count; i++)
+		deny[i] = policy.deny[i];
+	deny[count++] = view->project;
+	if (view->arena)
+		deny[count++] = view->arena;
+	policy.project_root = view->execution;
+	policy.scratch_root = scratch;
+	policy.deny = deny;
+	policy.deny_n = policy.deny_global_n = count;
+	policy.strict = true;
+	policy.filter_path = true;
+	rc = fyai_sandbox_apply(&policy);
+	if (!rc)
+		ctx->sandbox_applied = true;
+out:
+	saved = errno;
+	free(deny);
+	fyai_shell_sandbox_end(&sb);
+	errno = saved;
+	return rc;
+}
+
 /*
  * Tell the model that a call left a process running, and when it ends. A
  * scope of one call ends the process with the call, so it needs no note.

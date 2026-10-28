@@ -175,6 +175,9 @@ int fyai_tools_bang(struct fyai_ctx *ctx, const char *command);
  * with the cause raised.
  */
 int fyai_tools_confine(struct fyai_ctx *ctx);
+struct fyai_fsview;
+/* Merge configured tool policy with mandatory native view confinement. */
+int fyai_tools_confine_native_view(struct fyai_ctx *ctx, const struct fyai_fsview *view);
 
 /*
  * The scope of an exchange (doc/exchange-scope.md). fyai_scope_exchange() says

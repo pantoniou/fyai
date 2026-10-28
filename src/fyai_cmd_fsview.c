@@ -1885,7 +1885,7 @@ struct fyai_view_run {
 	fy_generic view;
 	char *name;
 	/* The strings that spec names. */
-	char *project, *runtime, *storage, *scratch;
+	char *project, *runtime, *storage, *scratch, *execution;
 	int lock;
 	bool started;
 };
@@ -1899,6 +1899,7 @@ static void view_run_release(struct fyai_view_run *run)
 	free(run->runtime);
 	free(run->storage);
 	free(run->scratch);
+	free(run->execution);
 }
 
 
