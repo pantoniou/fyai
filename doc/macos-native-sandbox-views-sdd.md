@@ -1,6 +1,6 @@
 # Software Design Document: native macOS sandbox and project views
 
-**Status:** Native filesystem sandbox implemented; materialized views proposed
+**Status:** Standalone native view commands implemented; session integration pending
 **Date:** 2026-10-28
 **Scope:** Native macOS tool execution and private writable project views
 **Related designs:** [Project filesystem transactions](agent-filesystem-views-sdd.md),
@@ -443,8 +443,58 @@ reference whose root does not match the manifest.
 
 All eight CAS tests and the new native capture test pass on macOS. The 20
 selected Linux CAS/project tests pass normally and under ASAN with leak
-detection disabled for the test environment. View command dispatch, writable
-materialization, and execution-root environment mapping remain to be connected.
+detection disabled for the test environment. Section 8.3 describes command
+dispatch, writable materialization, and execution-root environment mapping.
+
+### 8.3 Implemented standalone native commands
+
+The common view command handlers now run on macOS. Native helpers supply the
+boot-session UUID, close-on-exec pipes, executable path, and filesystem barriers.
+The shared storage lock and garbage collector also run there. Inspection mounts
+remain unsupported and are not replaced with directory copies.
+
+The first standalone entry clones the sealed baseline into
+`SCRATCH/fyai-view-XXXXXX/project` and makes a private sibling `tmp` directory.
+The existing view record stores the physical path as `execution`. Later entries
+validate and reuse it under the existing exclusive runtime lock. The path must
+be canonical, have the expected layout below configured scratch, and have a
+private parent owned by the current user. The first clone is captured and
+checked against the pinned baseline before execution. A missing directory is an error;
+entry does not silently restart from the baseline.
+
+The native entry adapter maps project-root values and supported path-list
+environment variables, sets the physical PWD and private TMPDIR, and changes
+the working directory. Native toolchain path variables survive the existing
+credential sanitizer. Arbitrary command strings are not rewritten.
+
+After entry preparation, the child builds its policy through the existing tool
+sandbox builder. It adds mandatory denials for the host project and active
+arena and grants the physical project and scratch. This preserves configured
+tool denials and explicit grants while keeping the view's host protections.
+The complete policy is applied once. A disabled optional sandbox does not
+disable mandatory view confinement.
+
+On command exit, the supervisor performs a full capture, publishes its manifest,
+and stores the result through the existing view lifecycle. Diff and apply use
+the common implementations. Native manifests use F_FULLFSYNC for durable file
+publication. Temporary worktree loss does not remove recorded CAS results;
+those results can still be applied.
+
+The unit test `view/native_commands` (`tests/fyai_view_native_test.c`) runs
+the fyai binary that `FYAI_BIN` names. It tests creation, listing, inspection,
+native compiler execution with mapped CPATH and CMAKE_PREFIX_PATH, stable-path
+re-entry, host path and alias denial, configured denial, diff, explicit apply,
+and removal. It includes paths with spaces, unsupported-profile rejection, and
+application of a recorded result after temporary-worktree loss. The workflow
+passes normally and under native AddressSanitizer, including Git discovery and
+compilation in a checkout with spaces in its paths.
+
+This implementation admits standalone external commands only. Session entry,
+agents, profile-selected entry, internal view file commands, and protected
+transport still reject unsupported operations. Detached-writer retirement,
+automatic reconstruction of a lost worktree, and collection of external
+temporary worktrees remain feature gaps. Existing stored results and runtime
+references remain canonical; no daemon or sidecar metadata is added.
 
 ## 9. Acceptance tests
 
@@ -541,8 +591,8 @@ It does not establish the production profile, automatic command integration,
 network confinement, adversarial alias protection, or runtime arena separation.
 Phase one has evidence for the storage/build approach and a confirmed lifetime
 gap. The user accepted deferring feature gaps while implementation continues.
-Section 8.1 records the implemented portion of phase two. View execution will
-initially document its descendant-retirement limit instead of claiming a
+Section 8.1 records the implemented portion of phase two. View execution documents
+its descendant-retirement limit instead of claiming a
 verified writer barrier. Clone-backed command integration, session integration,
 and protected transport remain pending.
 

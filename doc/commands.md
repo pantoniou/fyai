@@ -1546,8 +1546,8 @@ create and enter separate project filesystem views
 **Usage:** `fyai view {apply|cp|create|diff|enter|list|ls|mount|remove|rm|show|sync|unmount|update} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
-OverlayFS view. Commands in a view do not apply changes to the host.
-The initial Linux implementation materializes an ordinary-file baseline.
+view. Linux uses OverlayFS; macOS uses a cloned directory with native tools.
+Commands in a view do not apply changes to the host until view apply.
 
 
 ### Commands
@@ -1969,8 +1969,10 @@ Mount the named view in private namespaces and start a shell in its project
 directory, or execute the remaining command arguments directly. Standard
 input, output, and error are inherited on the CLI. In a session, open
 the command or shell in a terminal tile. Record the result in CAS on exit.
-The host project stays separate. This operation requires Linux user
-namespaces, OverlayFS, and Landlock.
+The host project stays separate. Linux uses user namespaces, OverlayFS,
+and Landlock. On macOS, standalone commands use a cloned directory at
+a different absolute path, with Seatbelt confinement. Session entry,
+--profile, and --lockdown are not supported on macOS.
 
 
 ### Arguments
@@ -4645,8 +4647,8 @@ create and enter separate project filesystem views
 **Usage:** `/view {apply|cp|create|diff|enter|list|ls|mount|remove|rm|show|sync|unmount|update} ...`
 
 Capture a project into immutable CAS objects and use a separate writable
-OverlayFS view. Commands in a view do not apply changes to the host.
-The initial Linux implementation materializes an ordinary-file baseline.
+view. Linux uses OverlayFS; macOS uses a cloned directory with native tools.
+Commands in a view do not apply changes to the host until view apply.
 
 
 ### Commands
@@ -5055,8 +5057,10 @@ Mount the named view in private namespaces and start a shell in its project
 directory, or execute the remaining command arguments directly. Standard
 input, output, and error are inherited on the CLI. In a session, open
 the command or shell in a terminal tile. Record the result in CAS on exit.
-The host project stays separate. This operation requires Linux user
-namespaces, OverlayFS, and Landlock.
+The host project stays separate. Linux uses user namespaces, OverlayFS,
+and Landlock. On macOS, standalone commands use a cloned directory at
+a different absolute path, with Seatbelt confinement. Session entry,
+--profile, and --lockdown are not supported on macOS.
 
 
 ### Arguments

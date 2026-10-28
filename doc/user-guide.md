@@ -1541,7 +1541,31 @@ Secrets stay out of immutable arena data:
 
 ## 8. Project views
 
-A view is a private, writable copy of the project. Nothing written in a view reaches the project until you apply it. Views need Linux user namespaces, OverlayFS, and Landlock.
+A view is a private, writable copy of the project. Nothing written in a view
+reaches the project until you apply it. Linux views use user namespaces,
+OverlayFS, and Landlock.
+
+On macOS, `view enter NAME -- COMMAND ...` runs a native command in a cloned
+project directory under Seatbelt. The directory has a different absolute path
+and stays the same across later entries into that named view. Project paths in
+supported environment variables, such as CPATH and CMAKE_PREFIX_PATH, refer to
+that directory. Native toolchain paths remain available under the selected
+sandbox policy. Build output captured in the view stays separate until
+`view apply NAME`.
+
+The initial macOS implementation supports standalone command entry, capture,
+update, list, show, diff, apply, and remove. Session entry, agent execution,
+`--profile`, `--lockdown`, inspection mounts, and internal view file commands
+are not supported. Reconfigure build output that contains absolute paths from
+the host checkout. Stop background writers before the command exits: detached
+children are not yet retired reliably before result capture.
+
+Native work directories are private temporary data. If the system removes one,
+entry fails rather than discarding its recorded changes. The last completed
+result remains available to diff and apply. Automatic reconstruction and
+collection of these temporary directories are not implemented yet.
+
+The following mount details describe Linux views.
 
 fyai captures the project into immutable content-addressed objects under `.fyai`. It mounts an OverlayFS upper layer over that baseline in private namespaces. Capture runs in parallel, and an unchanged file is stored once.
 

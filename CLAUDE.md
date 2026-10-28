@@ -153,7 +153,8 @@ initialize each generic field explicitly.
   bar a tile carries, and its head.
 - `src/fyai_fsview.c`: the portable part of the filesystem views and the
   dispatch to the backend of the platform (`src/fyai_fsview_backend.h`).
-  `src/fyai_fsview_linux.c` is OverlayFS and the namespaces, and
+  `src/fyai_fsview_linux.c` is OverlayFS and the namespaces,
+  `src/fyai_fsview_macos.c` is the native cloned directory, and
   `src/fyai_fsview_none.c` has no views. Put platform code in a backend.
   The view commands (`src/fyai_cmd_fsview.c`) use its pipe, socket, boot id,
   sync, prepare and confine members and test no platform.
