@@ -14,7 +14,8 @@
  *   other   fyai_fsview_none.c    no views
  *
  * A member that is NULL is not supported by the backend. The core then fails
- * with ENOTSUP, or does nothing where the function cannot fail.
+ * with ENOTSUP, or does nothing where the function cannot fail. A member that
+ * says otherwise below has another default.
  */
 #if defined(__linux__)
 #define FYAI_FSVIEW_BACKEND_LINUX 1
@@ -52,6 +53,19 @@ struct fyai_fsview_backend {
 	int (*init_release)(int fd, const char *name, const char *value);
 	fy_generic (*snapshot)(struct fy_generic_builder *gb, const struct fyai_fsview *view,
 			       char *error, size_t error_size);
+	/* Runs terminal sessions, agents, the transport and profiles in a view. */
+	bool sessions;
+	/* NULL: pipe() with close-on-exec set afterwards. */
+	int (*pipe)(int fd[2]);
+	int (*seqpacket_pair)(int fd[2]);
+	ssize_t (*executable)(char *path, size_t capacity);
+	int (*boot_id)(char id[37]);
+	int (*sync_backing)(const char *runtime, const char *storage);
+	/* NULL: nothing to prepare. */
+	int (*prepare)(struct fyai_ctx *ctx, struct fyai_fsview *spec, fy_generic *view,
+		       char **execution, char *error, size_t error_size);
+	/* NULL: nothing to confine. */
+	int (*confine)(struct fyai_ctx *ctx, const struct fyai_fsview *view);
 };
 
 #ifdef FYAI_FSVIEW_BACKEND_LINUX

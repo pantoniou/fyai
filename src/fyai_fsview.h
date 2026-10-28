@@ -210,4 +210,54 @@ int fyai_fsview_init_release(int fd, const char *name, const char *value);
 fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai_fsview *view,
 				char *error, size_t error_size);
 
+/*
+ * Remove the contents of the runtime tree @fd, a directory of this process, and
+ * leave the directory. Only private entries: it never changes the metadata of a
+ * shared blob. Returns 0, or -1 with errno set.
+ */
+int fyai_fsview_runtime_clear(int fd);
+
+/*
+ * Whether a view can run what the Linux views run: terminal sessions, agents,
+ * the transport, a confinement profile and the program itself again. A platform
+ * without it runs standalone commands only.
+ */
+bool fyai_fsview_sessions_supported(void);
+
+/* Make a pipe whose ends close on exec. */
+int fyai_fsview_pipe(int fd[2]);
+
+/* Make a connected pair of sequenced-packet sockets that close on exec. */
+int fyai_fsview_seqpacket_pair(int fd[2]);
+
+/*
+ * Write the absolute path of the running program to @path, which holds
+ * @capacity bytes, with no terminating NUL guarantee. Returns the length, or -1
+ * with errno set.
+ */
+ssize_t fyai_fsview_executable(char *path, size_t capacity);
+
+/* Write the identity of this boot of the machine, 36 characters, and a NUL. */
+int fyai_fsview_boot_id(char id[37]);
+
+/*
+ * Make the data of a view that the runtime and the storage directories hold
+ * durable. Returns 0, or -1 with errno set.
+ */
+int fyai_fsview_sync_backing(const char *runtime, const char *storage);
+
+/*
+ * Make a stored view ready to run. A backend that runs the view in a physical
+ * directory checks the baseline and makes that directory, or finds it again,
+ * and sets spec->execution; *@execution is then the string that spec names, which
+ * the caller frees, and *@view records it. A platform that needs nothing does
+ * nothing. Returns 0, or -1 with errno set or the cause in @error.
+ */
+struct fyai_ctx;
+int fyai_fsview_prepare(struct fyai_ctx *ctx, struct fyai_fsview *spec, fy_generic *view,
+			char **execution, char *error, size_t error_size);
+
+/* Confine the calling child to the physical directory of the view, if the platform needs it. */
+int fyai_fsview_confine(struct fyai_ctx *ctx, const struct fyai_fsview *view);
+
 #endif

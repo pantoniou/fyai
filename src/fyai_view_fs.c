@@ -22,12 +22,7 @@
 #include <unistd.h>
 
 #include "fyai_view_fs.h"
-
-#ifdef __APPLE__
-#define view_fs_mtime(st) ((st)->st_mtimespec)
-#else
-#define view_fs_mtime(st) ((st)->st_mtim)
-#endif
+#include "fyai_stat.h"
 
 #define VIEW_FS_DEPTH_MAX 128
 #define VIEW_FS_CHUNK 65536
@@ -194,8 +189,8 @@ static int view_fs_pack_entry(struct view_fs_pack *pack, int parent, const char 
 	    fstatat(parent, leaf, &st, AT_SYMLINK_NOFOLLOW))
 		return -1;
 	header.mode = st.st_mode & 0777;
-	header.mtime_sec = view_fs_mtime(&st).tv_sec;
-	header.mtime_nsec = view_fs_mtime(&st).tv_nsec;
+	header.mtime_sec = fyai_st_mtime(&st).tv_sec;
+	header.mtime_nsec = fyai_st_mtime(&st).tv_nsec;
 	header.path_length = (uint32_t)strlen(path);
 	if (S_ISDIR(st.st_mode)) {
 		header.kind = VIEW_FS_DIRECTORY;

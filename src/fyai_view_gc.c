@@ -18,10 +18,11 @@
 
 #include "fyai.h"
 #include "fyai_view.h"
+#include "fyai_fsview_backend.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
-#ifdef __linux__
+#ifndef FYAI_FSVIEW_BACKEND_NONE
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>

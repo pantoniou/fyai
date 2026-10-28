@@ -9,6 +9,7 @@
 #include "config.h"
 #endif
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -158,6 +159,76 @@ bool fyai_fsview_project_usable(const char *project, const char *scratch)
 	       !fyai_path_beneath(project, fy_sprintfa("%s/" FYAI_FSVIEW_BACKING_NAME, scratch));
 }
 
+
+/*
+ * Remove only private runtime entries; never change shared blob file metadata.
+ */
+static int runtime_clear(int fd, unsigned int depth)
+{
+	struct dirent *entry;
+	struct stat st;
+	DIR *directory;
+	int child, rc = 0, saved;
+
+	if (depth > 128) {
+		errno = ELOOP;
+		return -1;
+	}
+	rc = fchmod(fd, 0700);
+	if (rc)
+		return -1;
+	child = openat(fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (child < 0)
+		return -1;
+	directory = fdopendir(child);
+	if (!directory) {
+		saved = errno;
+		close(child);
+		errno = saved;
+		return -1;
+	}
+	for (;;) {
+		errno = 0;
+		entry = readdir(directory);
+		if (!entry) {
+			rc = errno ? -1 : 0;
+			break;
+		}
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		rc = fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW);
+		if (rc)
+			break;
+		if (S_ISDIR(st.st_mode)) {
+			/*
+			 * OverlayFS leaves a work directory with no mode, which not even its
+			 * owner can open. It is a directory, not a link: open it after the mode.
+			 */
+			rc = fchmodat(fd, entry->d_name, 0700, 0);
+			if (rc && errno != EPERM)
+				break;
+			child = openat(fd, entry->d_name,
+				       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+			if (child < 0) {
+				rc = -1;
+				break;
+			}
+			rc = runtime_clear(child, depth + 1);
+			saved = errno;
+			close(child);
+			errno = saved;
+			if (rc)
+				break;
+		}
+		rc = unlinkat(fd, entry->d_name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
+		if (rc)
+			break;
+	}
+	saved = errno;
+	closedir(directory);
+	errno = saved;
+	return rc;
+}
 
 #if defined(FYAI_FSVIEW_BACKEND_LINUX)
 #define backend (&fyai_fsview_backend_linux)
@@ -325,4 +396,83 @@ fy_generic fyai_fsview_snapshot(struct fy_generic_builder *gb, const struct fyai
 		return fy_invalid;
 	}
 	return backend->snapshot(gb, view, error, error_size);
+}
+
+int fyai_fsview_runtime_clear(int fd)
+{
+	return runtime_clear(fd, 0);
+}
+
+bool fyai_fsview_sessions_supported(void)
+{
+	return backend->sessions;
+}
+
+int fyai_fsview_pipe(int fd[2])
+{
+	int rc, saved;
+
+	if (backend->pipe)
+		return backend->pipe(fd);
+	rc = pipe(fd);
+	if (rc)
+		return -1;
+	rc = fcntl(fd[0], F_SETFD, FD_CLOEXEC);
+	if (!rc)
+		rc = fcntl(fd[1], F_SETFD, FD_CLOEXEC);
+	if (!rc)
+		return 0;
+	saved = errno;
+	close(fd[0]);
+	close(fd[1]);
+	errno = saved;
+	return -1;
+}
+
+int fyai_fsview_seqpacket_pair(int fd[2])
+{
+	if (!backend->seqpacket_pair) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return backend->seqpacket_pair(fd);
+}
+
+ssize_t fyai_fsview_executable(char *path, size_t capacity)
+{
+	if (!backend->executable) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return backend->executable(path, capacity);
+}
+
+int fyai_fsview_boot_id(char id[37])
+{
+	if (!backend->boot_id) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return backend->boot_id(id);
+}
+
+int fyai_fsview_sync_backing(const char *runtime, const char *storage)
+{
+	if (!backend->sync_backing) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return backend->sync_backing(runtime, storage);
+}
+
+int fyai_fsview_prepare(struct fyai_ctx *ctx, struct fyai_fsview *spec, fy_generic *view,
+			char **execution, char *error, size_t error_size)
+{
+	return backend->prepare ?
+	       backend->prepare(ctx, spec, view, execution, error, error_size) : 0;
+}
+
+int fyai_fsview_confine(struct fyai_ctx *ctx, const struct fyai_fsview *view)
+{
+	return backend->confine ? backend->confine(ctx, view) : 0;
 }

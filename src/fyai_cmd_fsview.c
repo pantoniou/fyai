@@ -18,8 +18,10 @@
 #include <errno.h>
 
 #include "fyai_view.h"
+#include "fyai_fsview_backend.h"
+#include "fyai_stat.h"
 
-#ifdef __linux__
+#ifndef FYAI_FSVIEW_BACKEND_NONE
 #include <ctype.h>
 #include <dirent.h>
 #include <pthread.h>
@@ -53,6 +55,8 @@
 #include "fyai_transport_boot.h"
 #include "fyai_transport_ctl.h"
 #include "fyai_transport_sock.h"
+
+
 
 static fy_generic view_store(struct fyai_ctx *ctx)
 {
@@ -173,47 +177,6 @@ static bool view_storage_beneath(const char *project, const char *storage)
 	       strncmp(storage + length + 1, ".fyai/", 6) && strcmp(storage + length + 1, ".fyai");
 }
 
-static int view_boot_id(char id[37])
-{
-	char text[37];
-	ssize_t count;
-	int fd, saved;
-
-	fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-	if (fd < 0)
-		return -1;
-	do {
-		count = read(fd, text, sizeof(text));
-	} while (count < 0 && errno == EINTR);
-	saved = errno;
-	close(fd);
-	errno = saved;
-	if (count != 37 || text[36] != '\n') {
-		if (count >= 0)
-			errno = EIO;
-		return -1;
-	}
-	memcpy(id, text, 36);
-	id[36] = '\0';
-	return 0;
-}
-
-static int view_sync_backing(const char *runtime)
-{
-	int fd, rc, saved;
-
-	fd = open(runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-	if (fd < 0)
-		return -1;
-	do {
-		rc = syncfs(fd);
-	} while (rc && errno == EINTR);
-	saved = errno;
-	close(fd);
-	errno = saved;
-	return rc;
-}
-
 static int view_recover(struct fyai_ctx *ctx, fy_generic *view, const struct fyai_fsview *spec,
 			char *error, size_t error_size)
 {
@@ -221,7 +184,7 @@ static int view_recover(struct fyai_ctx *ctx, fy_generic *view, const struct fya
 	char boot[37];
 	int rc;
 
-	rc = view_boot_id(boot);
+	rc = fyai_fsview_boot_id(boot);
 	if (rc)
 		return -1;
 	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
@@ -256,7 +219,7 @@ static int view_initialize_upper(int runtime, int baseline)
 	if (fd < 0)
 		return -1;
 	times[0] = (struct timespec){ .tv_nsec = UTIME_OMIT };
-	times[1] = st.st_mtim;
+	times[1] = fyai_st_mtime(&st);
 	rc = fchown(fd, st.st_uid, st.st_gid);
 	if (!rc)
 		rc = fchmod(fd, st.st_mode & 07777);
@@ -358,75 +321,6 @@ static void view_capture_progress(void *arg, const struct fyai_project_capture_s
 		fyai_report(progress->ctx, "%s: %s\n", title, body);
 }
 
-/*
- * Remove only private runtime entries; never change shared blob file metadata.
- */
-static int view_runtime_clear(int fd, unsigned int depth)
-{
-	struct dirent *entry;
-	struct stat st;
-	DIR *directory;
-	int child, rc = 0, saved;
-
-	if (depth > 128) {
-		errno = ELOOP;
-		return -1;
-	}
-	rc = fchmod(fd, 0700);
-	if (rc)
-		return -1;
-	child = openat(fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-	if (child < 0)
-		return -1;
-	directory = fdopendir(child);
-	if (!directory) {
-		saved = errno;
-		close(child);
-		errno = saved;
-		return -1;
-	}
-	for (;;) {
-		errno = 0;
-		entry = readdir(directory);
-		if (!entry) {
-			rc = errno ? -1 : 0;
-			break;
-		}
-		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
-			continue;
-		rc = fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW);
-		if (rc)
-			break;
-		if (S_ISDIR(st.st_mode)) {
-			/*
-			 * OverlayFS leaves a work directory with no mode, which not even its
-			 * owner can open. It is a directory, not a link: open it after the mode.
-			 */
-			rc = fchmodat(fd, entry->d_name, 0700, 0);
-			if (rc && errno != EPERM)
-				break;
-			child = openat(fd, entry->d_name,
-				       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-			if (child < 0) {
-				rc = -1;
-				break;
-			}
-			rc = view_runtime_clear(child, depth + 1);
-			saved = errno;
-			close(child);
-			errno = saved;
-			if (rc)
-				break;
-		}
-		rc = unlinkat(fd, entry->d_name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0);
-		if (rc)
-			break;
-	}
-	saved = errno;
-	closedir(directory);
-	errno = saved;
-	return rc;
-}
 
 int fyai_view_capture(const struct fyai_view_request *request, fy_generic *record)
 {
@@ -471,7 +365,7 @@ int fyai_view_capture(const struct fyai_view_request *request, fy_generic *recor
 				     fy_get(previous, "durability", "durable") :
 				     fy_get(fy_get(ctx->cfg->config_doc, "view", fy_invalid),
 					    "durability", "lazy");
-	rc = view_boot_id(boot);
+	rc = fyai_fsview_boot_id(boot);
 	if (rc)
 		goto out;
 	if (!replace && fy_is_valid(previous)) {
@@ -601,7 +495,7 @@ retry:
 		close(opts.baseline_fd);
 		close(opts.data_fd);
 		opts.source_fd = opts.objects_fd = opts.baseline_fd = opts.data_fd = -1;
-		rc = view_runtime_clear(root, 0);
+		rc = fyai_fsview_runtime_clear(root);
 		if (rc)
 			goto out;
 		close(root);
@@ -622,7 +516,7 @@ retry:
 	fyai_manifest_close(&manifest);
 	rc = view_initialize_upper(root, opts.baseline_fd);
 	if (!rc && !strcmp(durability, "durable"))
-		rc = view_sync_backing(runtime);
+		rc = fyai_fsview_sync_backing(runtime, storage);
 	if (rc)
 		goto out;
 	*record = fy_mapping(ctx->gb,
@@ -654,7 +548,7 @@ out:
 	}
 
 	if (!complete && root >= 0) {
-		rc = view_runtime_clear(root, 0);
+		rc = fyai_fsview_runtime_clear(root);
 		if (!rc)
 			rc = rmdir(runtime);
 		if (rc)
@@ -870,7 +764,7 @@ static int view_diff_recover(struct fyai_ctx *ctx, const char *name, fy_generic 
 	const char *lockpath;
 	int lock = -1, rc, saved;
 
-	if (view_boot_id(boot))
+	if (fyai_fsview_boot_id(boot))
 		return -1;
 	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
 		return 0;
@@ -1761,16 +1655,20 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 	char ready;
 	bool tty = isatty(STDIN_FILENO), term_saved = false;
 
+	if (!fyai_fsview_sessions_supported() && (self || confine || view->agent || tp || link)) {
+		errno = ENOTSUP;
+		return -1;
+	}
 	if (tty) {
 		foreground = tcgetpgrp(STDIN_FILENO);
 		if (foreground < 0)
 			return -1;
 		term_saved = !tcgetattr(STDIN_FILENO, &terminal);
 	}
-	rc = pipe2(status_pipe, O_CLOEXEC);
+	rc = fyai_fsview_pipe(status_pipe);
 	if (rc)
 		return -1;
-	rc = pipe2(gate, O_CLOEXEC);
+	rc = fyai_fsview_pipe(gate);
 	if (rc) {
 		close(status_pipe[0]);
 		close(status_pipe[1]);
@@ -1825,6 +1723,10 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 		rc = fyai_child_exec_prepare(ctx, &spec);
 		if (rc)
 			_exit(rc);
+		if (fyai_fsview_confine(ctx, view)) {
+			fyai_child_status_report(3, FYAI_CHILD_STAGE_SANDBOX, errno);
+			_exit(FYAI_SHELL_EXIT_SANDBOX);
+		}
 		if (confine && fyai_tools_confine(ctx)) {
 			fyai_child_status_report(3, FYAI_CHILD_STAGE_SANDBOX, errno);
 			_exit(FYAI_SHELL_EXIT_SANDBOX);
@@ -1930,7 +1832,7 @@ static int view_enter_terminal(struct fyai_cmd_call *call)
 
 	if (view_writable(call->ctx))
 		return -1;
-	length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+	length = fyai_fsview_executable(executable, sizeof(executable) - 1);
 	if (length <= 0 || length == sizeof(executable) - 1) {
 		fyai_error(call->ctx, "view: cannot locate the executable for "
 				      "the terminal child");
@@ -1997,6 +1899,7 @@ static void view_run_release(struct fyai_view_run *run)
 	free(run->storage);
 	free(run->scratch);
 }
+
 
 /*
  * Open the stored view for execution: check its paths and baseline, take the
@@ -2070,6 +1973,9 @@ static int view_open_run(struct fyai_ctx *ctx, const char *name, struct fyai_vie
 	rc = flock(run->lock, LOCK_EX | LOCK_NB);
 	if (rc)
 		return -2;
+	rc = fyai_fsview_prepare(ctx, spec, view, &run->execution, error, error_size);
+	if (rc)
+		return -2;
 	rc = view_recover(ctx, view, spec, error, error_size);
 	if (rc)
 		return -2;
@@ -2094,6 +2000,13 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 	bool complete = false, lockdown;
 	const char *profile = fyai_cmd_arg_str(call, "profile");
 
+	if (!fyai_fsview_sessions_supported() &&
+	    (call->surface == FYAI_CMD_SESSION || (profile && *profile) ||
+	     fyai_cmd_arg_bool(call, "lockdown"))) {
+		fyai_error(call->ctx, "view enter: this system supports standalone "
+			   "commands without --profile or --lockdown only");
+		return -1;
+	}
 	if (call->surface == FYAI_CMD_SESSION)
 		return view_enter_terminal(call);
 	if (view_writable(call->ctx))
@@ -2205,6 +2118,10 @@ static int view_run_job(struct fyai_ctx *ctx, const char *name, struct view_job 
 	int rc, finished = 0, saved, in_fd = -1, out_fd = -1;
 	bool complete = false, reported = false;
 
+	if (!fyai_fsview_sessions_supported()) {
+		fyai_error(ctx, "view: internal command execution is not supported on this system");
+		return -1;
+	}
 	if (view_writable(ctx))
 		return -1;
 	if (!fyai_exec_self_available()) {
@@ -2439,7 +2356,7 @@ static int view_cp_start(void *arg, const struct fyai_fsview *spec, int *in_fd, 
 		fyai_error(cp->ctx, "view cp: %s: %s", cp->error, strerror(errno));
 		return -1;
 	}
-	if (pipe2(cp->pipe_fd, O_CLOEXEC)) {
+	if (fyai_fsview_pipe(cp->pipe_fd)) {
 		fyai_error(cp->ctx, "view cp: cannot make a pipe: %s", strerror(errno));
 		return -1;
 	}
@@ -2981,7 +2898,7 @@ int fyai_cmd_view_sync(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	rc = view_recover(call->ctx, &view, &spec, error, sizeof(error));
 	if (!rc)
-		rc = view_sync_backing(spec.runtime);
+		rc = fyai_fsview_sync_backing(spec.runtime, spec.storage);
 	if (rc)
 		goto out;
 	view = fy_assoc(call->ctx->gb, view, "synchronized", true);
@@ -3670,7 +3587,7 @@ restart:
 	if (ctx->tclient) {
 		tp.agent_child = tp.agent_transport = tp.announce[0] = tp.announce[1] = -1;
 		if (fyai_transport_socketpair(agent) ||
-		    socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, tp.announce)) {
+		    fyai_fsview_seqpacket_pair(tp.announce)) {
 			saved = errno;
 			fyai_error(ctx, "view 'session': cannot create its channels: %s", strerror(saved));
 			if (agent[0] >= 0) {
@@ -3689,7 +3606,7 @@ restart:
 	link.run = run;
 	link.restart = false;
 	link.leave = false;
-	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, link.fd)) {
+	if (fyai_fsview_seqpacket_pair(link.fd)) {
 		saved = errno;
 		fyai_error(ctx, "view 'session': cannot create its request channel: %s", strerror(saved));
 		link.fd[0] = link.fd[1] = -1;
@@ -3829,7 +3746,7 @@ int fyai_view_runtime_remove(const char *runtime)
 	fd = open(runtime, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (fd < 0)
 		return -1;
-	rc = view_runtime_clear(fd, 0);
+	rc = fyai_fsview_runtime_clear(fd);
 	saved = errno;
 	close(fd);
 	errno = saved;
