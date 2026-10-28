@@ -26,6 +26,7 @@
 
 #include <libfyaml/libfyaml-util.h>
 
+#include "fyai_host.h"
 #include "fyai.h"
 #include "fyai_auth_util.h"
 #include "fyai_event.h"
@@ -127,13 +128,8 @@ void fyai_oauth_open_browser(const char *url)
 {
 	extern char **environ;
 	pid_t pid;
-#ifdef __APPLE__
-	char *const argv[] = { "open", (char *)url, NULL };
-	const char *program = "open";
-#else
-	char *const argv[] = { "xdg-open", (char *)url, NULL };
-	const char *program = "xdg-open";
-#endif
+	const char *program = fyai_host_open_url_program();
+	char *const argv[] = { (char *)program, (char *)url, NULL };
 
 	/* Deliberately not reaped: the helper detaches immediately and the
 	 * login flow is short-lived, so the zombie is collected at exit. */

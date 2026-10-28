@@ -20,6 +20,7 @@
 #include "fyai_view.h"
 #include "fyai_fsview_backend.h"
 #include "fyai_stat.h"
+#include "fyai_host.h"
 
 #ifndef FYAI_FSVIEW_BACKEND_NONE
 #include <ctype.h>
@@ -184,7 +185,7 @@ static int view_recover(struct fyai_ctx *ctx, fy_generic *view, const struct fya
 	char boot[37];
 	int rc;
 
-	rc = fyai_fsview_boot_id(boot);
+	rc = fyai_host_boot_id(boot);
 	if (rc)
 		return -1;
 	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
@@ -365,7 +366,7 @@ int fyai_view_capture(const struct fyai_view_request *request, fy_generic *recor
 				     fy_get(previous, "durability", "durable") :
 				     fy_get(fy_get(ctx->cfg->config_doc, "view", fy_invalid),
 					    "durability", "lazy");
-	rc = fyai_fsview_boot_id(boot);
+	rc = fyai_host_boot_id(boot);
 	if (rc)
 		goto out;
 	if (!replace && fy_is_valid(previous)) {
@@ -764,7 +765,7 @@ static int view_diff_recover(struct fyai_ctx *ctx, const char *name, fy_generic 
 	const char *lockpath;
 	int lock = -1, rc, saved;
 
-	if (fyai_fsview_boot_id(boot))
+	if (fyai_host_boot_id(boot))
 		return -1;
 	if (fy_equal(fy_get(*view, "validated_boot", fy_invalid), boot))
 		return 0;
@@ -1665,10 +1666,10 @@ static int view_exec(struct fyai_ctx *ctx, struct fyai_fsview *view, char *const
 			return -1;
 		term_saved = !tcgetattr(STDIN_FILENO, &terminal);
 	}
-	rc = fyai_fsview_pipe(status_pipe);
+	rc = fyai_host_pipe(status_pipe);
 	if (rc)
 		return -1;
-	rc = fyai_fsview_pipe(gate);
+	rc = fyai_host_pipe(gate);
 	if (rc) {
 		close(status_pipe[0]);
 		close(status_pipe[1]);
@@ -1832,7 +1833,7 @@ static int view_enter_terminal(struct fyai_cmd_call *call)
 
 	if (view_writable(call->ctx))
 		return -1;
-	length = fyai_fsview_executable(executable, sizeof(executable) - 1);
+	length = fyai_host_executable(executable, sizeof(executable) - 1);
 	if (length <= 0 || length == sizeof(executable) - 1) {
 		fyai_error(call->ctx, "view: cannot locate the executable for "
 				      "the terminal child");
@@ -2356,7 +2357,7 @@ static int view_cp_start(void *arg, const struct fyai_fsview *spec, int *in_fd, 
 		fyai_error(cp->ctx, "view cp: %s: %s", cp->error, strerror(errno));
 		return -1;
 	}
-	if (fyai_fsview_pipe(cp->pipe_fd)) {
+	if (fyai_host_pipe(cp->pipe_fd)) {
 		fyai_error(cp->ctx, "view cp: cannot make a pipe: %s", strerror(errno));
 		return -1;
 	}
@@ -3587,7 +3588,7 @@ restart:
 	if (ctx->tclient) {
 		tp.agent_child = tp.agent_transport = tp.announce[0] = tp.announce[1] = -1;
 		if (fyai_transport_socketpair(agent) ||
-		    fyai_fsview_seqpacket_pair(tp.announce)) {
+		    fyai_host_seqpacket_pair(tp.announce)) {
 			saved = errno;
 			fyai_error(ctx, "view 'session': cannot create its channels: %s", strerror(saved));
 			if (agent[0] >= 0) {
@@ -3606,7 +3607,7 @@ restart:
 	link.run = run;
 	link.restart = false;
 	link.leave = false;
-	if (fyai_fsview_seqpacket_pair(link.fd)) {
+	if (fyai_host_seqpacket_pair(link.fd)) {
 		saved = errno;
 		fyai_error(ctx, "view 'session': cannot create its request channel: %s", strerror(saved));
 		link.fd[0] = link.fd[1] = -1;

@@ -20,15 +20,8 @@
 #include <unistd.h>
 
 #include <fcntl.h>
-#ifdef __linux__
-#include <sys/syscall.h>
-#endif
-/* openpty(3) lives in <util.h> on the BSDs, <pty.h> on glibc */
-#ifdef __APPLE__
-#include <util.h>
-#else
-#include <pty.h>
-#endif
+#include <termios.h>
+#include "fyai_host.h"
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
@@ -5833,7 +5826,7 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 			 "could not make the tool channel non-blocking: %s",
 			 strerror(errno));
 	if (pty) {
-		rc = openpty(&master, &slave, NULL, NULL, NULL);
+		rc = fyai_host_openpty(&master, &slave);
 		fyai_error_check(ctx, !rc, err,
 				 "could not open a terminal for the tool: %s",
 				 strerror(errno));
@@ -5947,10 +5940,8 @@ static int fyai_tool_job_spawn(struct fyai_ctx *ctx,
 					 strerror(errno));
 		}
 		/* A pidfd names the child also from inside a PID namespace of its own. */
-#ifdef SYS_pidfd_open
 		if (pidfd < 0)
-			pidfd = syscall(SYS_pidfd_open, pid, 0);
-#endif
+			pidfd = fyai_host_pidfd_open(pid);
 		rc = fyai_transport_admit_child(ctx, pid, pidfd, tpa[1], tpc[1],
 						&job->transport_exec);
 		if (!rc && vsync[0] >= 0) {

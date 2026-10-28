@@ -17,6 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fyai_host.h"
 #include "fyai_sink.h"
 #include "fyai_markdown.h"
 #include "fyai_output.h"
@@ -1488,25 +1489,10 @@ static void stream_store_token_extents(struct stream_response *stream,
 /* Read jitter from the operating system entropy source. */
 static uint64_t stream_jitter_next(void)
 {
-#if !defined(__APPLE__)
-	struct timespec ts;
-#endif
 	uint64_t value;
-#if !defined(__APPLE__)
-	int rc;
-#endif
 
-#if defined(__APPLE__)
-	arc4random_buf(&value, sizeof(value));
+	fyai_host_random(&value, sizeof(value));
 	return value;
-#else
-	rc = getentropy(&value, sizeof(value));
-	if (!rc)
-		return value;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (uint64_t)ts.tv_sec << 32 ^ (uint64_t)ts.tv_nsec ^
-	       ((uint64_t)getpid() << 16);
-#endif
 }
 
 /* Apply exponential backoff, jitter, and the configured delay limit. */

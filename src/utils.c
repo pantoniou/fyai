@@ -27,17 +27,13 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 
-#ifdef __APPLE__
-#include <limits.h>
-#include <mach-o/dyld.h>
-#endif
-
 #include <libfyaml/libfyaml-align.h>
 
 #include "fyai.h"
 #include "fyai_auth_util.h"
 #include "fyai_diag.h"
 #include "fyai_event.h"
+#include "fyai_host.h"
 #include "fyai_sink.h"
 #include "fyai_sandbox.h"
 #include "fyai_fsview.h"
@@ -777,10 +773,8 @@ static void close_fds_range(unsigned int from, unsigned int to)
 	long max_fd;
 	unsigned int fd;
 
-#if defined(__linux__) && defined(SYS_close_range)
-	if (!syscall(SYS_close_range, from, to, 0U))
+	if (!fyai_host_close_range(from, to))
 		return;
-#endif
 	max_fd = sysconf(_SC_OPEN_MAX);
 	if (max_fd < 0)
 		max_fd = 1024;
@@ -804,68 +798,8 @@ void fyai_close_fds_except(int lowfd, int keepfd)
 	close_fds_range((unsigned int)keepfd + 1, ~0U);
 }
 
-#ifdef __linux__
-/* Check whether Linux reports @pid blocked reading descriptor 0. */
-static bool proc_reads_stdin(pid_t pid)
-{
-	char path[64];
-	char buf[256];
-	long long nr = -1;
-	long long fd = -1;
-	ssize_t n;
-	int f;
-
-	snprintf(path, sizeof(path), "/proc/%ld/syscall", (long)pid);
-	f = open(path, O_RDONLY | O_CLOEXEC);
-	if (f < 0)
-		return false;
-	n = read(f, buf, sizeof(buf) - 1);
-	close(f);
-	if (n <= 0)
-		return false;
-	buf[n] = 0;
-	/* "running" for a process on a processor: it waits for nothing. */
-	if (sscanf(buf, "%lld %llx", &nr, &fd) != 2)
-		return false;
-	return (nr == SYS_read || nr == SYS_readv) && fd == 0;
-}
-
-/* The children of @pid, into @out. Returns how many were read. */
-static size_t proc_children(pid_t pid, pid_t *out, size_t max)
-{
-	char path[80];
-	char buf[512];
-	size_t count = 0;
-	const char *p;
-	ssize_t n;
-	long v;
-	int f;
-
-	snprintf(path, sizeof(path), "/proc/%ld/task/%ld/children",
-		 (long)pid, (long)pid);
-	f = open(path, O_RDONLY | O_CLOEXEC);
-	if (f < 0)
-		return 0;
-	n = read(f, buf, sizeof(buf) - 1);
-	close(f);
-	if (n <= 0)
-		return 0;
-	buf[n] = 0;
-	for (p = buf; *p && count < max; ) {
-		while (*p == ' ')
-			p++;
-		v = strtol(p, (char **)&p, 10);
-		if (v <= 0)
-			break;
-		out[count++] = (pid_t)v;
-	}
-	return count;
-}
-#endif
-
 bool fyai_process_reads_stdin(pid_t pid)
 {
-#ifdef __linux__
 	/* Search the bounded child tree for the process reading input. */
 	pid_t queue[FYAI_PROC_WALK_MAX];
 	size_t head = 0, tail = 0;
@@ -876,33 +810,19 @@ bool fyai_process_reads_stdin(pid_t pid)
 	queue[tail++] = pid;
 	while (head < tail) {
 		pid = queue[head++];
-		if (proc_reads_stdin(pid))
+		if (fyai_host_process_reads_stdin(pid))
 			return true;
 		room = FYAI_PROC_WALK_MAX - tail;
 		if (room)
-			tail += proc_children(pid, queue + tail, room);
+			tail += fyai_host_process_children(pid, queue + tail, room);
 	}
 	return false;
-#else
-	(void)pid;
-	return false;
-#endif
 }
 
 int fyai_child_status_open(int fds[2])
 {
 	fds[0] = fds[1] = -1;
-#if defined(O_CLOEXEC) && defined(__linux__)
-	if (pipe2(fds, O_CLOEXEC))
-		return -1;
-	return 0;
-#else
-	if (pipe(fds))
-		return -1;
-	(void)fcntl(fds[0], F_SETFD, FD_CLOEXEC);
-	(void)fcntl(fds[1], F_SETFD, FD_CLOEXEC);
-	return 0;
-#endif
+	return fyai_host_pipe(fds);
 }
 
 void fyai_child_status_report(int fd, enum fyai_child_stage stage, int err)
@@ -1595,46 +1515,15 @@ bool self_is_valgrinded(void)
 	return result;
 }
 
-#if defined(__linux__)
 bool fyai_exec_self_available(void)
 {
-	return true;
+	return fyai_host_exec_self_available();
 }
 
 int fyai_exec_self(const char *const argv[])
 {
-	return execv("/proc/self/exe", (char *const *)argv);
+	return fyai_host_exec_self(argv);
 }
-#elif defined(__APPLE__)
-bool fyai_exec_self_available(void)
-{
-	return true;
-}
-
-int fyai_exec_self(const char *const argv[])
-{
-	char executable[PATH_MAX];
-	uint32_t size = sizeof(executable);
-
-	if (_NSGetExecutablePath(executable, &size)) {
-		errno = ENAMETOOLONG;
-		return -1;
-	}
-	return execv(executable, (char *const *)argv);
-}
-#else
-bool fyai_exec_self_available(void)
-{
-	return false;
-}
-
-int fyai_exec_self(const char *const argv[])
-{
-	(void)argv;
-	errno = ENOSYS;
-	return -1;
-}
-#endif
 
 /* 0 limit satisfied, 1 not satisfied after reexec, or hard limit, -1 error */
 int raise_stack(size_t bytes, char **argv)
@@ -1923,31 +1812,11 @@ const char *emit_json_string(struct fy_generic_builder *gb, fy_generic v)
  * one-invocation process, so the main-thread region is the only one that
  * matters.
  */
-#ifdef __linux__
 static uintptr_t fyai_stack_lo, fyai_stack_hi;
 
 static bool fyai_stack_bounds_read(void)
 {
-	char line[256];
-	unsigned long lo, hi;
-	bool found = false;
-	FILE *fp;
-
-	fp = fopen("/proc/self/maps", "r");
-	if (!fp)
-		return false;
-	while (fgets(line, sizeof(line), fp)) {
-		if (!strstr(line, "[stack]"))
-			continue;
-		if (sscanf(line, "%lx-%lx", &lo, &hi) == 2) {
-			fyai_stack_lo = lo;
-			fyai_stack_hi = hi;
-			found = true;
-		}
-		break;
-	}
-	fclose(fp);
-	return found;
+	return fyai_host_stack_bounds(&fyai_stack_lo, &fyai_stack_hi);
 }
 
 bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor)
@@ -1979,14 +1848,6 @@ bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor)
 	return ptr >= fyai_stack_lo && ptr < fyai_stack_hi &&
 	       ptr < (uintptr_t)live_floor;
 }
-#else
-bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor)
-{
-	(void)v;
-	(void)live_floor;
-	return false;
-}
-#endif
 
 /*
  * External editor child operation:

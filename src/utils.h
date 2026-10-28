@@ -50,7 +50,7 @@
  */
 bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor);
 
-#if defined(__linux__) && defined(__has_builtin)
+#if defined(__has_builtin)
 #if __has_builtin(__builtin_stack_address)
 #define generic_in_dead_stack_frame(_v) \
 	generic_ptr_in_dead_stack((_v), __builtin_stack_address())

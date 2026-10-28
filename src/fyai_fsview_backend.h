@@ -55,11 +55,6 @@ struct fyai_fsview_backend {
 			       char *error, size_t error_size);
 	/* Runs terminal sessions, agents, the transport and profiles in a view. */
 	bool sessions;
-	/* NULL: pipe() with close-on-exec set afterwards. */
-	int (*pipe)(int fd[2]);
-	int (*seqpacket_pair)(int fd[2]);
-	ssize_t (*executable)(char *path, size_t capacity);
-	int (*boot_id)(char id[37]);
 	int (*sync_backing)(const char *runtime, const char *storage);
 	/* NULL: nothing to prepare. */
 	int (*prepare)(struct fyai_ctx *ctx, struct fyai_fsview *spec, fy_generic *view,

@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fyai_host.h"
 #include "fyai.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
@@ -63,12 +64,11 @@ int fyai_cmd_reload(struct fyai_cmd_call *call, fy_generic *result)
 			 "reload: process queued input before restarting");
 	fyai_error_check(ctx, fyai_exec_self_available(), err,
 			 "reload: executing this binary is not supported here");
-#ifndef __linux__
-	fyai_error_check(ctx,
+	if (!fyai_host_memfd_available())
+		fyai_error_check(ctx,
 			 !ctx->cfg->api_key_explicit || !ctx->cfg->api_key, err,
 			 "reload: this platform cannot pass an explicit API key "
 			 "without storing it");
-#endif
 	branch = strdup(fyai_ctx_branch(ctx));
 	fyai_error_check(ctx, branch, err,
 			 "reload: cannot retain the active branch");

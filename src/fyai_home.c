@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "fyai_host.h"
 #include "fyai.h"
 #include "fyai_cas.h"
 #include "fyai_cmd.h"
@@ -636,17 +637,7 @@ err_out:
  */
 static bool home_is_mount_root(const char *path)
 {
-#ifdef __linux__
-	struct statx sx;
-
-	if (statx(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW, 0, &sx) ||
-	    !(sx.stx_attributes_mask & STATX_ATTR_MOUNT_ROOT))
-		return true;
-	return sx.stx_attributes & STATX_ATTR_MOUNT_ROOT;
-#else
-	(void)path;
-	return false;
-#endif
+	return fyai_host_mount_root(path);
 }
 
 /*

@@ -18,11 +18,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#ifdef __linux__
-#include <sys/mman.h>
-#endif
-
 #include "fyai.h"
+#include "fyai_host.h"
 #include "fyai_agent.h"
 #include "fyai_event.h"
 #include "fyai_secret.h"
@@ -306,15 +303,14 @@ static char **argv_without_key(int argc, char **argv)
 /* Give the next image the stdin prompt that this one consumed. */
 static int stdin_restore(const struct fyai_cfg *cfg)
 {
-#ifdef __linux__
 	size_t len, done = 0;
 	int fd;
 	ssize_t n;
 
-	if (!cfg->stdin_consumed)
+	if (!cfg->stdin_consumed || !fyai_host_memfd_available())
 		return 0;
 	len = cfg->prompt ? strlen(cfg->prompt) : 0;
-	fd = memfd_create("fyai-stdin", 0);
+	fd = fyai_host_memfd("fyai-stdin", false);
 	if (fd < 0)
 		return -1;
 	while (done < len) {
@@ -333,10 +329,6 @@ static int stdin_restore(const struct fyai_cfg *cfg)
 	if (fd != STDIN_FILENO)
 		close(fd);
 	return 0;
-#else
-	(void)cfg;
-	return 0;
-#endif
 }
 
 static void transport_kill(pid_t pid)
@@ -368,11 +360,8 @@ err:
 static int fyai_credential_isolation_available(struct fyai_cfg *cfg,
 						enum fyai_transport_level level)
 {
-#ifndef __linux__
-	(void)level;
-	fyai_cfg_error(cfg, "credential isolation needs Linux");
-	return -1;
-#else
+	fyai_cfg_error_check(cfg, fyai_host_isolation_available(), err,
+			     "credential isolation is not available on this system");
 	fyai_cfg_error_check(cfg, !self_is_valgrinded(), err,
 			     "credential isolation cannot run under valgrind: "
 			     "the program cannot execute itself there");
@@ -384,7 +373,6 @@ static int fyai_credential_isolation_available(struct fyai_cfg *cfg,
 	return 0;
 err:
 	return -1;
-#endif
 }
 
 const char *fyai_transport_effective_level(const struct fyai_ctx *ctx)

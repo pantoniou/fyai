@@ -23,9 +23,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#ifdef __linux__
-#include <sys/mman.h>
-#endif
+#include "fyai_host.h"
 
 #include <libfyaml/libfyaml-blake3.h>
 
@@ -112,23 +110,21 @@ static fy_generic config_reload_read(struct fyai_cfg *cfg)
 static FILE *config_reload_file(struct fyai_cfg *cfg)
 {
 	FILE *fp;
-#ifdef __linux__
 	int fd;
 
-	(void)cfg;
-	fd = memfd_create("fyai-reload", MFD_CLOEXEC);
+	if (!fyai_host_memfd_available()) {
+		if (cfg->reload_key) {
+			errno = ENOTSUP;
+			return NULL;
+		}
+		return tmpfile();
+	}
+	fd = fyai_host_memfd("fyai-reload", true);
 	if (fd < 0)
 		return NULL;
 	fp = fdopen(fd, "w+");
 	if (!fp)
 		close(fd);
-#else
-	if (cfg->reload_key) {
-		errno = ENOTSUP;
-		return NULL;
-	}
-	fp = tmpfile();
-#endif
 	return fp;
 }
 

@@ -15,12 +15,6 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
-/* openpty(3) lives in <util.h> on the BSDs, <pty.h> on glibc */
-#ifdef __APPLE__
-#include <util.h>
-#else
-#include <pty.h>
-#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +24,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "fyai_host.h"
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_sandbox.h"
@@ -224,7 +219,7 @@ int fyai_terminal_pty_spawn(struct fyai_ctx *ctx, const char *command,
 	int flags, rc;
 	pid_t pid;
 
-	rc = openpty(&master, &slave, NULL, NULL, NULL);
+	rc = fyai_host_openpty(&master, &slave);
 	if (rc) {
 		fyai_error(ctx, "openpty: %s", strerror(errno));
 		return -1;

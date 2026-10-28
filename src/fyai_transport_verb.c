@@ -24,9 +24,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#ifdef __linux__
-#include <sys/prctl.h>
-#endif
+#include "fyai_host.h"
 
 #include "fyai.h"
 #include "fyai_auth.h"
@@ -101,29 +99,20 @@ struct fyai_transport_verb {
  */
 int fyai_cmd_transport_early(struct fyai_cfg *cfg, fy_generic args)
 {
-#ifdef __linux__
-	struct rlimit nocore = { 0, 0 };
+	const char *step;
 	long long fd = fy_get(args, "control_fd", -1LL);
 	fy_generic arena = fy_get(args, "arena", fy_invalid);
 	int null, rc;
 
+	fyai_cfg_error_check(cfg, fyai_host_isolation_available(), err,
+			     "transport: credential isolation is not available on this system");
 	fyai_cfg_error_check(cfg, fd >= CTL_FD && fd <= 1 << 20, err,
 			     "transport: --control-fd names no descriptor");
-	rc = prctl(PR_SET_DUMPABLE, 0);
-	fyai_cfg_error_check(cfg, !rc, err,
-			     "transport: cannot make the process undumpable: %s",
-			     strerror(errno));
-	rc = setrlimit(RLIMIT_CORE, &nocore);
-	fyai_cfg_error_check(cfg, !rc, err,
-			     "transport: cannot disable core dumps: %s",
-			     strerror(errno));
-	rc = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-	fyai_cfg_error_check(cfg, !rc, err,
-			     "transport: cannot set no-new-privileges: %s",
-			     strerror(errno));
-	rc = prctl(PR_SET_PDEATHSIG, SIGTERM);
-	fyai_cfg_error_check(cfg, !rc && getppid() != 1, err,
-			     "transport: supervisor is no longer running");
+	step = NULL;
+	rc = fyai_host_harden(&step);
+	fyai_cfg_error_check(cfg, !rc || !step, err,
+			     "transport: cannot %s: %s", step, strerror(errno));
+	fyai_cfg_error_check(cfg, !rc, err, "transport: supervisor is no longer running");
 
 	/* An inherited descriptor is never a channel of this process. */
 	fyai_cfg_error_check(cfg, fcntl((int)fd, F_GETFD) >= 0, err,
@@ -159,11 +148,6 @@ int fyai_cmd_transport_early(struct fyai_cfg *cfg, fy_generic args)
 	return 0;
 err:
 	return -1;
-#else
-	(void)args;
-	fyai_cfg_error(cfg, "transport: credential isolation needs Linux");
-	return -1;
-#endif
 }
 
 /* Credentials. */

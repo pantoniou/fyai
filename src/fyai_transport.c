@@ -22,12 +22,9 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#ifdef __linux__
-#include <sys/syscall.h>
-#endif
-
 #include <libfyaml/libfyaml-endian.h>
 
+#include "fyai_host_backend.h"
 #include "fyai_transport.h"
 #include "fyai_transport_sock.h"
 
@@ -545,165 +542,10 @@ void fyai_transport_grant_clear(struct fyai_transport_grant *grant)
 
 /* Platform primitives. Without them protected mode cannot start. */
 
-#ifdef __linux__
-
-static int sender_pidfd_open(pid_t pid)
-{
-	int fd = syscall(SYS_pidfd_open, pid, 0);
-
-	return fd < 0 ? -errno : fd;
-}
-
-/*
- * The PID that a pidfd names in the PID namespace of this process. A process in
- * a descendant namespace has a PID here, so the registrar can be in a namespace
- * of its own. Return 0, -ESRCH when the process has exited or is not visible
- * here, or -EIO when the descriptor says nothing about a process.
- */
-static int sender_pidfd_pid(int pidfd, pid_t *pid)
-{
-	char path[64], line[256];
-	FILE *fp;
-	long value = 0;
-	bool found = false;
-
-	snprintf(path, sizeof(path), "/proc/self/fdinfo/%d", pidfd);
-	fp = fopen(path, "re");
-	if (!fp)
-		return -errno;
-	while (fgets(line, sizeof(line), fp)) {
-		if (sscanf(line, "Pid: %ld", &value) == 1) {
-			found = true;
-			break;
-		}
-	}
-	fclose(fp);
-	if (!found)
-		return -EIO;
-	if (value <= 0)
-		return -ESRCH;
-	*pid = (pid_t)value;
-	return 0;
-}
-
-/* Return 0 when the process is alive, -ESRCH when it has exited. */
-static int sender_pidfd_alive(int pidfd)
-{
-	int rc = syscall(SYS_pidfd_send_signal, pidfd, 0, NULL, 0);
-
-	return rc < 0 ? -errno : 0;
-}
-
-/* Return 1 if @pid is in the subtree @root, 0 if not, or a negative errno. */
-static int sender_in_cgroup(const char *root, pid_t pid)
-{
-	char path[64], line[4096];
-	size_t rlen = strlen(root);
-	FILE *fp;
-	int found = 0;
-	size_t len;
-	const char *p;
-
-	snprintf(path, sizeof(path), "/proc/%d/cgroup", (int)pid);
-	fp = fopen(path, "re");
-	if (!fp)
-		return -errno;
-
-	while (fgets(line, sizeof(line), fp)) {
-		len = strlen(line);
-
-		if (len && line[len - 1] == '\n')
-			line[--len] = '\0';
-		else
-			continue;	/* an over-long line is not a match */
-		if (strncmp(line, "0::", 3))
-			continue;
-		p = line + 3;
-		found = !strncmp(p, root, rlen) &&
-			(p[rlen] == '\0' || p[rlen] == '/');
-		break;
-	}
-	fclose(fp);
-	return found;
-}
-
-static const char *const ns_dirs[FYAI_NS_COUNT] = {
-	[FYAI_NS_NET] = "net",
-	[FYAI_NS_MNT] = "mnt",
-	[FYAI_NS_PID] = "pid",
-};
-
-/* Store the inode of a namespace of @pid, or of this process for pid 0. */
-static int sender_ns_ino(pid_t pid, enum fyai_transport_ns ns, uint64_t *ino)
-{
-	char path[64];
-	struct stat st;
-
-	if (pid)
-		snprintf(path, sizeof(path), "/proc/%d/ns/%s", (int)pid,
-			 ns_dirs[ns]);
-	else
-		snprintf(path, sizeof(path), "/proc/self/ns/%s", ns_dirs[ns]);
-	if (stat(path, &st) < 0)
-		return -errno;
-	*ino = st.st_ino;
-	return 0;
-}
-
 int fyai_transport_channel_prepare(int channel)
 {
-	int on = 1;
-
-	if (setsockopt(channel, SOL_SOCKET, SO_PASSCRED, &on, sizeof(on)) < 0)
-		return -errno;
-	return 0;
+	return fyai_host_channel_prepare(channel);
 }
-
-#define HAVE_SENDER_CREDS 1
-
-#else
-
-static int sender_pidfd_open(pid_t pid)
-{
-	(void)pid;
-	return -ENOSYS;
-}
-
-static int sender_pidfd_pid(int pidfd, pid_t *pid)
-{
-	(void)pidfd;
-	(void)pid;
-	return -ENOSYS;
-}
-
-static int sender_pidfd_alive(int pidfd)
-{
-	(void)pidfd;
-	return -ENOSYS;
-}
-
-static int sender_in_cgroup(const char *root, pid_t pid)
-{
-	(void)root;
-	(void)pid;
-	return -ENOSYS;
-}
-
-static int sender_ns_ino(pid_t pid, enum fyai_transport_ns ns, uint64_t *ino)
-{
-	(void)pid;
-	(void)ns;
-	(void)ino;
-	return -ENOSYS;
-}
-
-int fyai_transport_channel_prepare(int channel)
-{
-	(void)channel;
-	return -ENOSYS;
-}
-
-#endif
 
 /* Registry. */
 
@@ -769,7 +611,7 @@ static int contained(struct fyai_transport_registry *reg,
 
 	reg->failed = NULL;
 	if (reg->level == FYAI_TL_A) {
-		rc = sender_in_cgroup(reg->cgroup_root, e->pid);
+		rc = fyai_host_in_cgroup(reg->cgroup_root, e->pid);
 		if (rc <= 0) {
 			if (!rc)
 				reg->failed = "cgroup";
@@ -779,7 +621,7 @@ static int contained(struct fyai_transport_registry *reg,
 	for (k = 0; k < FYAI_NS_COUNT; k++) {
 		if (!(e->ns.mask & (1u << k)))
 			continue;
-		rc = sender_ns_ino(e->pid, k, &ino);
+		rc = fyai_host_ns_ino(e->pid, k, &ino);
 		if (rc)
 			return rc;
 		if (ino != e->ns.ino[k]) {
@@ -1001,7 +843,7 @@ static int register_exec(struct fyai_transport_registry *reg, uint64_t id,
 	for (k = 0; k < FYAI_NS_COUNT; k++) {
 		if (!(e->ns.mask & (1u << k)))
 			continue;
-		rc = sender_ns_ino(0, k, &own);
+		rc = fyai_host_ns_ino(0, k, &own);
 		if (rc)
 			goto err;
 		if (own == e->ns.ino[k]) {
@@ -1048,7 +890,7 @@ int fyai_transport_register(struct fyai_transport_registry *reg, uint64_t id,
 	 * The supervisor has not reaped the child, so its PID cannot be reused
 	 * before the pidfd exists. The pidfd then pins the identity.
 	 */
-	pidfd = sender_pidfd_open(pid);
+	pidfd = fyai_host_pidfd_open(pid);
 	if (pidfd < 0)
 		return pidfd;
 	rc = register_exec(reg, id, parent_id, pid, pidfd, uid, channel, allow,
@@ -1068,10 +910,10 @@ int fyai_transport_register_pidfd(struct fyai_transport_registry *reg, uint64_t 
 
 	if (pidfd < 0)
 		return -EINVAL;
-	rc = sender_pidfd_pid(pidfd, &pid);
+	rc = fyai_host_pidfd_pid(pidfd, &pid);
 	if (rc)
 		return rc;
-	rc = sender_pidfd_alive(pidfd);
+	rc = fyai_host_pidfd_alive(pidfd);
 	if (rc)
 		return rc;
 	return register_exec(reg, id, parent_id, pid, pidfd, uid, channel, allow,
@@ -1094,7 +936,7 @@ int fyai_transport_retire(struct fyai_transport_registry *reg, uint64_t id)
 
 /* Receive. */
 
-#ifdef HAVE_SENDER_CREDS
+#ifdef FYAI_HOST_PEER_CREDENTIALS
 
 static void asm_reset(struct fyai_transport_exec *e)
 {
@@ -1207,7 +1049,7 @@ fyai_transport_recv(struct fyai_transport_registry *reg, int channel,
 	if (cred->pid != e->pid || cred->uid != e->uid)
 		return FYAI_TV_WRONG_SENDER;
 
-	rc = sender_pidfd_alive(e->pidfd);
+	rc = fyai_host_pidfd_alive(e->pidfd);
 	if (rc)
 		return rc == -ESRCH ? FYAI_TV_DEAD : FYAI_TV_ERROR;
 	rc = contained(reg, e);

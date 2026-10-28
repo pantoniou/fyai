@@ -224,22 +224,6 @@ int fyai_fsview_runtime_clear(int fd);
  */
 bool fyai_fsview_sessions_supported(void);
 
-/* Make a pipe whose ends close on exec. */
-int fyai_fsview_pipe(int fd[2]);
-
-/* Make a connected pair of sequenced-packet sockets that close on exec. */
-int fyai_fsview_seqpacket_pair(int fd[2]);
-
-/*
- * Write the absolute path of the running program to @path, which holds
- * @capacity bytes, with no terminating NUL guarantee. Returns the length, or -1
- * with errno set.
- */
-ssize_t fyai_fsview_executable(char *path, size_t capacity);
-
-/* Write the identity of this boot of the machine, 36 characters, and a NUL. */
-int fyai_fsview_boot_id(char id[37]);
-
 /*
  * Make the data of a view that the runtime and the storage directories hold
  * durable. Returns 0, or -1 with errno set.

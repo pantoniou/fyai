@@ -408,54 +408,6 @@ bool fyai_fsview_sessions_supported(void)
 	return backend->sessions;
 }
 
-int fyai_fsview_pipe(int fd[2])
-{
-	int rc, saved;
-
-	if (backend->pipe)
-		return backend->pipe(fd);
-	rc = pipe(fd);
-	if (rc)
-		return -1;
-	rc = fcntl(fd[0], F_SETFD, FD_CLOEXEC);
-	if (!rc)
-		rc = fcntl(fd[1], F_SETFD, FD_CLOEXEC);
-	if (!rc)
-		return 0;
-	saved = errno;
-	close(fd[0]);
-	close(fd[1]);
-	errno = saved;
-	return -1;
-}
-
-int fyai_fsview_seqpacket_pair(int fd[2])
-{
-	if (!backend->seqpacket_pair) {
-		errno = ENOTSUP;
-		return -1;
-	}
-	return backend->seqpacket_pair(fd);
-}
-
-ssize_t fyai_fsview_executable(char *path, size_t capacity)
-{
-	if (!backend->executable) {
-		errno = ENOTSUP;
-		return -1;
-	}
-	return backend->executable(path, capacity);
-}
-
-int fyai_fsview_boot_id(char id[37])
-{
-	if (!backend->boot_id) {
-		errno = ENOTSUP;
-		return -1;
-	}
-	return backend->boot_id(id);
-}
-
 int fyai_fsview_sync_backing(const char *runtime, const char *storage)
 {
 	if (!backend->sync_backing) {

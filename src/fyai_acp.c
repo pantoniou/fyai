@@ -15,9 +15,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#ifdef __linux__
-#include <sys/syscall.h>
-#endif
+#include "fyai_host.h"
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -375,9 +373,7 @@ static int acp_worker_transport_admit(struct fyai_ctx *ctx, pid_t pid,
 	int pidfd = -1, rc;
 	ssize_t len;
 
-#ifdef SYS_pidfd_open
-	pidfd = syscall(SYS_pidfd_open, pid, 0);
-#endif
+	pidfd = fyai_host_pidfd_open(pid);
 	rc = fyai_transport_admit_child(ctx, pid, pidfd, agent_fd, ctl_fd,
 					&exec_id);
 	acp_close_fd(&pidfd);

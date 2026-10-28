@@ -1613,46 +1613,6 @@ static fy_generic linux_snapshot(struct fy_generic_builder *gb, const struct fya
 	return snapshot;
 }
 
-static int linux_pipe(int fd[2])
-{
-	return pipe2(fd, O_CLOEXEC);
-}
-
-static int linux_seqpacket_pair(int fd[2])
-{
-	return socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, fd);
-}
-
-static ssize_t linux_executable(char *path, size_t capacity)
-{
-	return readlink("/proc/self/exe", path, capacity);
-}
-
-static int linux_boot_id(char id[37])
-{
-	char text[37];
-	ssize_t count;
-	int fd, saved;
-
-	fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-	if (fd < 0)
-		return -1;
-	do {
-		count = read(fd, text, sizeof(text));
-	} while (count < 0 && errno == EINTR);
-	saved = errno;
-	close(fd);
-	errno = saved;
-	if (count != 37 || text[36] != '\n') {
-		if (count >= 0)
-			errno = EIO;
-		return -1;
-	}
-	memcpy(id, text, 36);
-	id[36] = '\0';
-	return 0;
-}
-
 static int linux_sync_backing(const char *runtime, const char *storage)
 {
 	int fd, rc, saved;
@@ -1693,10 +1653,6 @@ const struct fyai_fsview_backend fyai_fsview_backend_linux = {
 	.init_release = linux_init_release,
 	.snapshot = linux_snapshot,
 	.sessions = true,
-	.pipe = linux_pipe,
-	.seqpacket_pair = linux_seqpacket_pair,
-	.executable = linux_executable,
-	.boot_id = linux_boot_id,
 	.sync_backing = linux_sync_backing,
 };
 
