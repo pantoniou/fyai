@@ -155,6 +155,12 @@ initialize each generic field explicitly.
   dispatch to the backend of the platform (`src/fyai_fsview_backend.h`).
   `src/fyai_fsview_linux.c` is OverlayFS and the namespaces, and
   `src/fyai_fsview_none.c` has no views. Put platform code in a backend.
+  The view commands (`src/fyai_cmd_fsview.c`) use its pipe, socket, boot id,
+  sync, prepare and confine members and test no platform.
+- `src/fyai_project_capture.c`: the portable part of the project capture. Its
+  file system primitives are in a backend
+  (`src/fyai_project_capture_backend.h`): `src/fyai_project_capture_linux.c`
+  and `src/fyai_project_capture_none.c`.
 - `src/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
   to the backend of the platform (`src/fyai_sandbox_backend.h`).
   `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter, and
