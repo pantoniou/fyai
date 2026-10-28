@@ -501,6 +501,8 @@ message(STATUS "fyai: crash backtrace ${FYAI_HAVE_BACKTRACE}")
 
 set(FYAI_SOURCES
     src/fyai_cas.c
+    src/fyai_cas_linux.c
+    src/fyai_cas_none.c
     src/fyai_scratch.c
     src/fyai_ignore.c
     src/fyai_view_fs.c

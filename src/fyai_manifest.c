@@ -832,7 +832,7 @@ int fyai_manifest_write(const struct fyai_manifest *manifest, int directory_fd, 
 	if (!rc)
 		rc = fchmod(fd, 0444);
 	if (!rc && durable)
-		rc = fsync(fd);
+		rc = fyai_cas_sync_file(fd);
 	saved = errno;
 	if (close(fd) < 0 && !rc) {
 		rc = -1;

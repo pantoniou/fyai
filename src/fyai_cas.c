@@ -11,7 +11,7 @@
 
 #include <errno.h>
 #include <string.h>
-#include "fyai_cas.h"
+#include "fyai_cas_backend.h"
 #include "utils.h"
 
 void fyai_cas_hex(char *out, const unsigned char *bytes, size_t count)
@@ -78,15 +78,23 @@ void fyai_cas_redirect(char out[FYAI_CAS_REDIRECT_SIZE], const struct fyai_cas_b
 	fyai_cas_name(out + 1, FYAI_CAS_NAME_SIZE, blob);
 }
 
-#ifdef __linux__
+#if defined(FYAI_CAS_BACKEND_LINUX)
+#define cas_backend (&fyai_cas_backend_linux)
+#else
+#define cas_backend (&fyai_cas_backend_none)
+#endif
+
+int fyai_cas_sync_file(int fd)
+{
+	return cas_backend->sync_file(fd);
+}
+
+#ifndef FYAI_CAS_BACKEND_NONE
 #include <fcntl.h>
 #include <stdbool.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <sys/sendfile.h>
-#include <sys/ioctl.h>
-#include <linux/fs.h>
 #include <sched.h>
 #include <limits.h>
 #include <unistd.h>
@@ -102,12 +110,44 @@ static bool cas_copy_unsupported(int err)
 /* Each method moves at most one chunk at the current offsets. */
 static ssize_t cas_copy_chunk_range(int source_fd, int target_fd, size_t count)
 {
-	return copy_file_range(source_fd, NULL, target_fd, NULL, count, 0);
+	if (!cas_backend->copy_range) {
+		errno = ENOSYS;
+		return -1;
+	}
+	return cas_backend->copy_range(source_fd, target_fd, count);
+}
+
+/* The portable method: read and write through a buffer. */
+static ssize_t cas_copy_chunk_buffer(int source_fd, int target_fd, size_t count)
+{
+	unsigned char buffer[65536];
+	ssize_t length, written;
+	size_t offset = 0;
+
+	do {
+		length = read(source_fd, buffer, count < sizeof(buffer) ? count : sizeof(buffer));
+	} while (length < 0 && errno == EINTR);
+	if (length <= 0)
+		return length;
+	while (offset < (size_t)length) {
+		written = write(target_fd, buffer + offset, (size_t)length - offset);
+		if (written < 0 && errno == EINTR)
+			continue;
+		if (written <= 0) {
+			if (!written)
+				errno = EIO;
+			return -1;
+		}
+		offset += (size_t)written;
+	}
+	return length;
 }
 
 static ssize_t cas_copy_chunk_sendfile(int source_fd, int target_fd, size_t count)
 {
-	return sendfile(target_fd, source_fd, NULL, count);
+	if (!cas_backend->sendfile)
+		return cas_copy_chunk_buffer(source_fd, target_fd, count);
+	return cas_backend->sendfile(source_fd, target_fd, count);
 }
 
 static ssize_t (*const cas_copy_chunk[])(int, int, size_t) = {
@@ -164,22 +204,7 @@ int fyai_cas_copy(int source_fd, int target_fd, uint64_t size)
  */
 static int cas_reflink(int source_fd, int target_fd, uint64_t size)
 {
-	struct stat st;
-	int rc;
-
-	rc = fstat(source_fd, &st);
-	if (rc)
-		return -1;
-	if ((uint64_t)st.st_size != size || lseek(source_fd, 0, SEEK_CUR) != 0 ||
-	    lseek(target_fd, 0, SEEK_CUR) != 0)
-		return 1;
-	do {
-		rc = ioctl(target_fd, FICLONE, source_fd);
-	} while (rc && errno == EINTR);
-	if (rc)
-		return cas_copy_unsupported(errno) || errno == ENOTTY ? 1 : -1;
-	rc = lseek(source_fd, size, SEEK_SET) < 0 || lseek(target_fd, size, SEEK_SET) < 0;
-	return rc ? -1 : 0;
+	return cas_backend->reflink ? cas_backend->reflink(source_fd, target_fd, size) : 1;
 }
 
 int fyai_cas_clone_method(int source_fd, int target_fd, uint64_t size,
@@ -492,7 +517,7 @@ int fyai_cas_link_hashed_state(int directory_fd, int source_directory, const cha
 		fd = fyai_cas_open(directory_fd, blob);
 		if (fd < 0)
 			goto err_out;
-		if (fsync(fd))
+		if (fyai_cas_sync_file(fd))
 			goto err_out;
 	}
 	if (state && state->defer_directory_sync) {
@@ -621,7 +646,7 @@ static int cas_put(int directory_fd, int source_fd, bool sized, uint64_t size,
 	if (!rc)
 		rc = fchmod(fd, 0444);
 	if (!rc && (!state || !state->defer_file_sync))
-		rc = fsync(fd);
+		rc = fyai_cas_sync_file(fd);
 	saved = errno;
 	if (close(fd) < 0 && !rc) {
 		rc = -1;

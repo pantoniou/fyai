@@ -166,4 +166,7 @@ bool fyai_cas_borrowed_matches(const struct stat *st, const struct fyai_cas_blob
 /* Verify a no-follow regular object against its complete identity. */
 int fyai_cas_verify(int directory_fd, const struct fyai_cas_blob *blob);
 
+/* Make the data of the open file @fd durable. Returns 0, or -1 with errno set. */
+int fyai_cas_sync_file(int fd);
+
 #endif
