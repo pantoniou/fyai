@@ -167,9 +167,9 @@ initialize each generic field explicitly.
   `src/fyai_cas_none.c`.
 - `src/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
   to the backend of the platform (`src/fyai_sandbox_backend.h`).
-  `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter, and
-  `src/fyai_sandbox_none.c` confines nothing. Put platform code in a backend,
-  not in the core.
+  `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter,
+  `src/fyai_sandbox_macos.c` is Seatbelt, and `src/fyai_sandbox_none.c`
+  confines nothing. Put platform code in a backend, not in the core.
 - `src/fyai_host.c`: the portable part of the operating system primitives
   (descriptors, processes, peer identity, entropy, browser launch) and the
   dispatch to the backend of the platform (`src/fyai_host_backend.h`).
