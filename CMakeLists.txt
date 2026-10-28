@@ -553,6 +553,8 @@ set(FYAI_SOURCES
     src/fyai_provider.c
     src/fyai_render.c
     src/fyai_sandbox.c
+    src/fyai_sandbox_linux.c
+    src/fyai_sandbox_none.c
     src/fyai_cover.c
     src/fyai_orphan.c
     src/fyai_home.c
