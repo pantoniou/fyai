@@ -11,11 +11,12 @@
 #endif
 
 #include <errno.h>
-#include "fyai_project_capture.h"
+#include "fyai_project_capture_backend.h"
+#include "fyai_stat.h"
 #include "fyai_manifest.h"
 #include "fyai_scratch.h"
 
-#ifdef __linux__
+#ifndef FYAI_PROJECT_CAPTURE_BACKEND_NONE
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -23,8 +24,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/syscall.h>
-#include <linux/openat2.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <libfyaml/libfyaml-thread.h>
@@ -36,6 +35,13 @@
 #include <pthread.h>
 #include <time.h>
 #include <stdarg.h>
+
+
+#if defined(FYAI_PROJECT_CAPTURE_BACKEND_LINUX)
+#define capture_backend (&fyai_project_capture_backend_linux)
+#else
+#define capture_backend (&fyai_project_capture_backend_none)
+#endif
 
 /* How a node reached its baseline; the first values are the CAS copy methods. */
 enum capture_storage {
@@ -250,9 +256,9 @@ static bool capture_same(const struct stat *a, const struct stat *b)
 {
 	return a->st_dev == b->st_dev && a->st_ino == b->st_ino && a->st_mode == b->st_mode &&
 	       a->st_uid == b->st_uid && a->st_gid == b->st_gid && a->st_size == b->st_size &&
-	       a->st_nlink == b->st_nlink && a->st_mtim.tv_sec == b->st_mtim.tv_sec &&
-	       a->st_mtim.tv_nsec == b->st_mtim.tv_nsec && a->st_ctim.tv_sec == b->st_ctim.tv_sec &&
-	       a->st_ctim.tv_nsec == b->st_ctim.tv_nsec;
+	       a->st_nlink == b->st_nlink && fyai_st_mtime(a).tv_sec == fyai_st_mtime(b).tv_sec &&
+	       fyai_st_mtime(a).tv_nsec == fyai_st_mtime(b).tv_nsec && fyai_st_ctime(a).tv_sec == fyai_st_ctime(b).tv_sec &&
+	       fyai_st_ctime(a).tv_nsec == fyai_st_ctime(b).tv_nsec;
 }
 
 static bool capture_node_same(const struct capture_node *node, const struct stat *after)
@@ -261,7 +267,7 @@ static bool capture_node_same(const struct capture_node *node, const struct stat
 
 	if (node->blob.borrowed) {
 		observed.st_nlink = node->before.st_nlink;
-		observed.st_ctim = node->before.st_ctim;
+		fyai_st_ctime(&observed) = fyai_st_ctime(&node->before);
 	}
 	if (!capture_same(&node->before, &observed))
 		return false;
@@ -286,8 +292,8 @@ static struct fyai_project_metadata capture_metadata(struct project_capture *cap
 		.mode = st->st_mode & 07777,
 		.uid = st->st_uid,
 		.gid = st->st_gid,
-		.mtime_sec = st->st_mtim.tv_sec,
-		.mtime_nsec = st->st_mtim.tv_nsec,
+		.mtime_sec = fyai_st_mtime(st).tv_sec,
+		.mtime_nsec = fyai_st_mtime(st).tv_nsec,
 	};
 
 	if (capture->opts->mapped_owner) {
@@ -304,21 +310,20 @@ static int capture_xattrs(struct project_capture *capture, int fd)
 	char *names, *name;
 	ssize_t length, actual;
 
-	length = flistxattr(fd, NULL, 0);
+	length = capture_backend->flistxattr(fd, NULL, 0);
 	if (length <= 0)
 		return length < 0 ? -1 : 0;
-	if (!capture->opts->mapped_owner) {
-		errno = ENOTSUP;
-		return -1;
-	}
 	names = fyai_scratch_alloc(&capture->scratch, length);
 	if (!names)
 		return -1;
-	actual = flistxattr(fd, names, length);
+	actual = capture_backend->flistxattr(fd, names, length);
 	if (actual < 0)
 		return -1;
 	for (name = names; name < names + actual; name += strlen(name) + 1) {
-		if (strncmp(name, "user.overlay.", 13)) {
+		/* Attributes of the OS are not project content and are not copied. */
+		if (capture_backend->xattr_ignored && capture_backend->xattr_ignored(name))
+			continue;
+		if (!capture->opts->mapped_owner || strncmp(name, "user.overlay.", 13)) {
 			errno = ENOTSUP;
 			return -1;
 		}
@@ -328,7 +333,7 @@ static int capture_xattrs(struct project_capture *capture, int fd)
 
 static int capture_apply_metadata(int fd, const struct stat *st)
 {
-	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, st->st_mtim };
+	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, fyai_st_mtime(st) };
 	int rc;
 
 	rc = fchown(fd, st->st_uid, st->st_gid);
@@ -339,14 +344,11 @@ static int capture_apply_metadata(int fd, const struct stat *st)
 	return rc;
 }
 
+
+/* Each component is opened without following links or crossing devices. */
 static int capture_open(int root, const char *path, int flags, unsigned int mode)
 {
-	struct open_how how = { .flags = flags | O_NOFOLLOW | O_CLOEXEC,
-				.mode = mode,
-				.resolve =
-					RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV };
-
-	return syscall(SYS_openat2, root, *path ? path : ".", &how, sizeof(how));
+	return capture_backend->open_beneath(root, path, flags, mode);
 }
 
 static int capture_node_open(const struct capture_node *node, int flags)
@@ -500,7 +502,7 @@ static int capture_git_config(struct project_capture *capture, struct capture_no
 	size += sizeof(suffix) - 1;
 	directory = capture->opts->baseline_fd >= 0 ? capture->opts->baseline_fd :
 						      capture->opts->objects_fd;
-	node->staged_fd = openat(directory, ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
+	node->staged_fd = capture_backend->tmpfile(directory);
 	if (node->staged_fd < 0)
 		goto out;
 	for (offset = 0; offset < size; offset += amount) {
@@ -1094,6 +1096,7 @@ static int capture_scan(struct project_capture *capture, size_t root)
 	return 0;
 }
 
+
 static int capture_owned_file(struct capture_worker *worker, struct capture_node *node, int source)
 {
 	struct project_capture *capture = worker->capture;
@@ -1114,16 +1117,28 @@ static int capture_owned_file(struct capture_worker *worker, struct capture_node
 			   (previous.st_mode & 07777) == (node->before.st_mode & 07777) &&
 			   previous.st_uid == node->metadata.st_uid &&
 			   previous.st_gid == node->metadata.st_gid &&
-			   previous.st_mtim.tv_sec == node->before.st_mtim.tv_sec &&
-			   previous.st_mtim.tv_nsec == node->before.st_mtim.tv_nsec;
+			   fyai_st_mtime(&previous).tv_sec == fyai_st_mtime(&node->before).tv_sec &&
+			   fyai_st_mtime(&previous).tv_nsec == fyai_st_mtime(&node->before).tv_nsec;
 		close(old);
 	}
-	target = capture_open(capture->opts->baseline_fd, node->path, O_RDWR | O_CREAT | O_EXCL,
-			      0600);
-	if (target < 0)
+	target = capture_backend->clone_file ? capture_backend->clone_file(source, capture->opts->baseline_fd,
+							    node->path, node->before.st_size) : -2;
+	if (target == -1)
 		return -1;
-	rc = fyai_cas_clone_method(source, target, node->before.st_size, &capture->copy,
-				   &node->storage);
+	if (target >= 0) {
+		node->storage = FYAI_CAS_METHOD_REFLINK;
+		atomic_fetch_add_explicit(&capture->copy.reflinked_bytes, node->before.st_size,
+					 memory_order_relaxed);
+		rc = 0;
+	} else
+	{
+		target = capture_open(capture->opts->baseline_fd, node->path,
+				      O_RDWR | O_CREAT | O_EXCL, 0600);
+		if (target < 0)
+			return -1;
+		rc = fyai_cas_clone_method(source, target, node->before.st_size, &capture->copy,
+					   &node->storage);
+	}
 	if (!rc)
 		rc = fyai_cas_hash_file_sized(target, node->before.st_size, &node->blob,
 					      worker->hasher);
@@ -1242,7 +1257,7 @@ static int capture_file(struct capture_worker *worker, struct capture_node *node
 		if (rc)
 			goto err_out;
 		node->before.st_nlink = after.st_nlink;
-		node->before.st_ctim = after.st_ctim;
+		fyai_st_ctime(&node->before) = fyai_st_ctime(&after);
 	} else if (capture->opts->baseline_fd >= 0 && !capture->opts->metacopy) {
 		rc = capture_owned_file(worker, node, source);
 		if (rc)
@@ -1352,8 +1367,8 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 	    (object_stat.st_mode & 07777) == (node->before.st_mode & 07777) &&
 	    object_stat.st_uid == node->metadata.st_uid &&
 	    object_stat.st_gid == node->metadata.st_gid &&
-	    object_stat.st_mtim.tv_sec == node->before.st_mtim.tv_sec &&
-	    object_stat.st_mtim.tv_nsec == node->before.st_mtim.tv_nsec) {
+	    fyai_st_mtime(&object_stat).tv_sec == fyai_st_mtime(&node->before).tv_sec &&
+	    fyai_st_mtime(&object_stat).tv_nsec == fyai_st_mtime(&node->before).tv_nsec) {
 		rc = fyai_cas_name(object_name, sizeof(object_name), &node->blob);
 		if (rc)
 			goto out;
@@ -1386,9 +1401,9 @@ static int capture_materialize_file(struct project_capture *capture, struct capt
 			rc = ftruncate(target, node->blob.size);
 
 		if (!rc)
-			rc = fsetxattr(target, "user.overlay.metacopy", "", 0, XATTR_CREATE);
+			rc = capture_backend->fsetxattr(target, "user.overlay.metacopy", "", 0, XATTR_CREATE);
 		if (!rc)
-			rc = fsetxattr(target, "user.overlay.redirect", redirect, strlen(redirect),
+			rc = capture_backend->fsetxattr(target, "user.overlay.redirect", redirect, strlen(redirect),
 				       XATTR_CREATE);
 	} else
 		rc = fyai_cas_clone_method(object, target, node->blob.size, &capture->copy,
@@ -1525,12 +1540,12 @@ static int capture_verify(struct project_capture *capture)
 				     (metadata.st_mode & 07777) != (node->before.st_mode & 07777) ||
 				     metadata.st_uid != node->metadata.st_uid ||
 				     metadata.st_gid != node->metadata.st_gid ||
-				     metadata.st_mtim.tv_sec != node->before.st_mtim.tv_sec ||
-				     metadata.st_mtim.tv_nsec != node->before.st_mtim.tv_nsec)) {
+				     fyai_st_mtime(&metadata).tv_sec != fyai_st_mtime(&node->before).tv_sec ||
+				     fyai_st_mtime(&metadata).tv_nsec != fyai_st_mtime(&node->before).tv_nsec)) {
 					errno = EIO;
 					rc = -1;
 				}
-				length = fgetxattr(baseline, "user.overlay.redirect", actual,
+				length = capture_backend->fgetxattr(baseline, "user.overlay.redirect", actual,
 						   sizeof(actual));
 				if (!rc && (length != (ssize_t)strlen(redirect) ||
 					    memcmp(actual, redirect, length))) {
@@ -1538,7 +1553,7 @@ static int capture_verify(struct project_capture *capture)
 					rc = -1;
 				}
 				if (!rc &&
-				    fgetxattr(baseline, "user.overlay.metacopy", NULL, 0) != 0) {
+				    capture_backend->fgetxattr(baseline, "user.overlay.metacopy", NULL, 0) != 0) {
 					errno = EIO;
 					rc = -1;
 				}
@@ -1607,7 +1622,7 @@ static int capture_finish(struct project_capture *capture, size_t index,
 	struct fyai_project_metadata metadata = capture_metadata(capture, &node->metadata);
 	struct fyai_project_entry *entries = NULL;
 	struct capture_node *child;
-	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, node->before.st_mtim };
+	struct timespec times[2] = { { .tv_nsec = UTIME_OMIT }, fyai_st_mtime(&node->before) };
 	struct stat after;
 	char *parent = NULL, *slash;
 	const char *name = NULL;
@@ -1940,8 +1955,8 @@ static int capture_slot_map(struct project_capture *capture, struct capture_map 
 		if (node->reused)
 			continue;
 		slot = capture_map_slot(map, node->entry.digest);
-		sec = node->metadata.st_mtim.tv_sec;
-		nsec = (uint32_t)node->metadata.st_mtim.tv_nsec;
+		sec = fyai_st_mtime(&node->metadata).tv_sec;
+		nsec = (uint32_t)fyai_st_mtime(&node->metadata).tv_nsec;
 		if (capture->base && fyai_manifest_find(capture->base, node->entry.digest, &previous)) {
 			sec = previous.meta.mtime_sec;
 			nsec = previous.meta.mtime_nsec;
@@ -2057,13 +2072,13 @@ static int capture_assemble(struct project_capture *capture, struct fyai_manifes
 		if (node->reused)
 			continue;
 		slot = capture_map_slot(&map, node->entry.digest);
-		if (node->before.st_mtim.tv_sec == slot->sec &&
-		    (uint32_t)node->before.st_mtim.tv_nsec == slot->nsec)
+		if (fyai_st_mtime(&node->before).tv_sec == slot->sec &&
+		    (uint32_t)fyai_st_mtime(&node->before).tv_nsec == slot->nsec)
 			continue;
 		if (fyai_manifest_builder_attribute(&builder, (const unsigned char *)node->path,
 						    strlen(node->path),
-						    node->before.st_mtim.tv_sec,
-						    (uint32_t)node->before.st_mtim.tv_nsec))
+						    fyai_st_mtime(&node->before).tv_sec,
+						    (uint32_t)fyai_st_mtime(&node->before).tv_nsec))
 			return -1;
 	}
 	return fyai_manifest_builder_finish(&builder, capture->nodes[0].entry.digest, out);
@@ -2175,8 +2190,8 @@ static int capture_assemble_delta(struct project_capture *capture,
 		}
 		slot = capture_map_slot(&map, node->entry.digest);
 		path_length = strlen(node->path);
-		sec = node->before.st_mtim.tv_sec;
-		nsec = (uint32_t)node->before.st_mtim.tv_nsec;
+		sec = fyai_st_mtime(&node->before).tv_sec;
+		nsec = (uint32_t)fyai_st_mtime(&node->before).tv_nsec;
 		has = fyai_manifest_attribute(base, (const unsigned char *)node->path, path_length,
 					      &base_sec, &base_nsec);
 		if (sec != slot->sec || nsec != slot->nsec) {
@@ -2237,7 +2252,6 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 	struct capture_map linked = { 0 };
 	struct capture_slot *linked_slot;
 	struct stat st;
-	cpu_set_t affinity;
 	size_t root, i, worker_count = 0, initialized = 0, files = 0, capacity = 16;
 	size_t count, count_lines = 0;
 	const char **lines, *pattern;
@@ -2272,6 +2286,8 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 	atomic_init(&capture.copy.backend, FYAI_CAS_METHOD_NONE);
 	capture.copy.defer_directory_sync = true;
 	capture.copy.defer_file_sync = true;
+	if (capture_backend->sync_policy)
+		capture_backend->sync_policy(&capture.copy, opts);
 	for (i = 0; i < CAPTURE_STORAGE_COUNT; i++)
 		atomic_init(&capture.storage[i], 0);
 
@@ -2279,6 +2295,10 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 		error_path[0] = '\0';
 	if (!opts || !manifest || (opts->metacopy && (opts->data_fd < 0 || opts->baseline_fd < 0))) {
 		errno = EINVAL;
+		goto out;
+	}
+	if (!capture_backend->overlay && (opts->metacopy || opts->incremental)) {
+		errno = ENOTSUP;
 		goto out;
 	}
 	/* The baseline is a manifest, or a snapshot that is converted here. */
@@ -2320,7 +2340,7 @@ static int capture_run(const struct fyai_project_capture_opts *opts, const char 
 	 * nodes, so the array has room for the most that a capture can hold; its
 	 * pages are used as the nodes are added.
 	 */
-	cpus = sched_getaffinity(0, sizeof(affinity), &affinity) ? 1 : CPU_COUNT(&affinity);
+	cpus = capture_backend->cpu_count();
 	if (cpus < 1)
 		cpus = 1;
 	if (cpus > 128)
@@ -2521,7 +2541,11 @@ finish:
 			goto out;
 		}
 	}
-	if (!opts->defer_sync && opts->objects_fd >= 0 && syncfs(opts->objects_fd)) {
+	rc = 0;
+	if (!opts->defer_sync && opts->objects_fd >= 0) {
+		rc = capture_backend->sync_objects(opts->objects_fd);
+	}
+	if (rc) {
 		if (error_path && error_size)
 			snprintf(error_path, error_size, "CAS persistence barrier");
 		fyai_manifest_close(manifest);

@@ -509,6 +509,8 @@ set(FYAI_SOURCES
     src/fyai_project.c
     src/fyai_project_diff.c
     src/fyai_project_capture.c
+    src/fyai_project_capture_linux.c
+    src/fyai_project_capture_none.c
     src/fyai_fsview.c
     src/fyai_fsview_linux.c
     src/fyai_fsview_none.c
