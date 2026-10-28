@@ -1,5 +1,5 @@
 /*
- * fyai_cover.c - hide paths from a tool in a mount namespace
+ * fyai_cover_linux.c - hide paths from a tool in a mount namespace
  *
  * Copyright (c) 2026 Pantelis Antoniou <pantelis.antoniou@konsulko.com>
  *
@@ -28,10 +28,11 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include "fyai_host_backend.h"
 #include "fyai_cover.h"
 #include "fyai_fsview.h"
 
-#ifdef __linux__
+#ifdef FYAI_HOST_BACKEND_LINUX
 #include <sched.h>
 
 #define COVER_ENV_HOLDER	"FYAI_COVER_HOLDER"
@@ -604,73 +605,4 @@ void fyai_cover_probe(struct fyai_cover *cover, bool *userns, bool *bwrap)
 	cover->bwrap_failed = !*bwrap;
 }
 
-#else /* !__linux__ */
-
-void fyai_cover_init(struct fyai_cover *cover)
-{
-	memset(cover, 0, sizeof(*cover));
-	cover->hold_fd = -1;
-	cover->userns = -1;
-}
-
-void fyai_cover_abandon(struct fyai_cover *cover)
-{
-	(void)cover;
-}
-
-void fyai_cover_release(struct fyai_cover *cover)
-{
-	(void)cover;
-}
-
-void fyai_cover_drain(struct fyai_cover *cover)
-{
-	(void)cover;
-}
-
-enum fyai_cover_method fyai_cover_select(struct fyai_cover *cover, const char *mode,
-				  const char *const *paths, size_t n, pid_t *holder,
-				  enum fyai_cover_start start)
-{
-	(void)cover;
-	(void)mode;
-	(void)paths;
-	(void)n;
-	(void)start;
-	*holder = 0;
-	return FYAI_COVER_NONE;
-}
-
-size_t fyai_cover_members(const struct fyai_cover *cover, pid_t *pids, size_t max)
-{
-	(void)cover;
-	(void)pids;
-	(void)max;
-	return 0;
-}
-
-bool fyai_cover_covers(const struct fyai_cover *cover, const char *path)
-{
-	(void)cover;
-	(void)path;
-	return false;
-}
-
-int fyai_cover_join(pid_t holder, const struct fyai_sandbox_mount *mount,
-		    size_t mount_n)
-{
-	(void)holder;
-	(void)mount;
-	(void)mount_n;
-	errno = ENOTSUP;
-	return -1;
-}
-
-void fyai_cover_probe(struct fyai_cover *cover, bool *userns, bool *bwrap)
-{
-	(void)cover;
-	*userns = false;
-	*bwrap = false;
-}
-
-#endif
+#endif /* FYAI_HOST_BACKEND_LINUX */
