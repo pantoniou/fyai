@@ -863,6 +863,10 @@ if(BUILD_TESTING)
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_run.sh
                 $<TARGET_FILE:fyai_test> ${_suite}/${_name})
     endforeach()
+    # The native view test runs the view commands of the fyai binary.
+    set_tests_properties(fyai/unit/view/native_commands PROPERTIES
+        ENVIRONMENT "FYAI_BIN=$<TARGET_FILE:fyai>"
+        FIXTURES_REQUIRED fyai_binary)
 
     # Functional cases: each script drives the real fyai binary against the
     # scenario-driven mock provider (fyai __mock-server) in a
