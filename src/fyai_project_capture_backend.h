@@ -16,10 +16,13 @@
  * one table.
  *
  *   Linux   fyai_project_capture_linux.c   openat2, O_TMPFILE, OverlayFS xattrs
+ *   macOS   fyai_project_capture_macos.c   per-component open, APFS clones
  *   other   fyai_project_capture_none.c    no capture
  */
 #if defined(__linux__)
 #define FYAI_PROJECT_CAPTURE_BACKEND_LINUX 1
+#elif defined(__APPLE__)
+#define FYAI_PROJECT_CAPTURE_BACKEND_MACOS 1
 #else
 #define FYAI_PROJECT_CAPTURE_BACKEND_NONE 1
 #endif
@@ -58,6 +61,9 @@ struct fyai_project_capture_backend {
 
 #ifdef FYAI_PROJECT_CAPTURE_BACKEND_LINUX
 extern const struct fyai_project_capture_backend fyai_project_capture_backend_linux;
+#endif
+#ifdef FYAI_PROJECT_CAPTURE_BACKEND_MACOS
+extern const struct fyai_project_capture_backend fyai_project_capture_backend_macos;
 #endif
 #ifdef FYAI_PROJECT_CAPTURE_BACKEND_NONE
 extern const struct fyai_project_capture_backend fyai_project_capture_backend_none;

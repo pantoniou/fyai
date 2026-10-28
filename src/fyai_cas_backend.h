@@ -12,10 +12,13 @@
  * primitives of a platform. A backend lives in one file and exports one table.
  *
  *   Linux   fyai_cas_linux.c   copy_file_range, sendfile, FICLONE
+ *   macOS   fyai_cas_macos.c   F_FULLFSYNC; copies through a buffer
  *   other   fyai_cas_none.c    no blob store
  */
 #if defined(__linux__)
 #define FYAI_CAS_BACKEND_LINUX 1
+#elif defined(__APPLE__)
+#define FYAI_CAS_BACKEND_MACOS 1
 #else
 #define FYAI_CAS_BACKEND_NONE 1
 #endif
@@ -41,6 +44,9 @@ struct fyai_cas_backend {
 
 #ifdef FYAI_CAS_BACKEND_LINUX
 extern const struct fyai_cas_backend fyai_cas_backend_linux;
+#endif
+#ifdef FYAI_CAS_BACKEND_MACOS
+extern const struct fyai_cas_backend fyai_cas_backend_macos;
 #endif
 #ifdef FYAI_CAS_BACKEND_NONE
 extern const struct fyai_cas_backend fyai_cas_backend_none;

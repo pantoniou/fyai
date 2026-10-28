@@ -39,6 +39,8 @@
 
 #if defined(FYAI_PROJECT_CAPTURE_BACKEND_LINUX)
 #define capture_backend (&fyai_project_capture_backend_linux)
+#elif defined(FYAI_PROJECT_CAPTURE_BACKEND_MACOS)
+#define capture_backend (&fyai_project_capture_backend_macos)
 #else
 #define capture_backend (&fyai_project_capture_backend_none)
 #endif

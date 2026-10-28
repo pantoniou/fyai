@@ -80,6 +80,8 @@ void fyai_cas_redirect(char out[FYAI_CAS_REDIRECT_SIZE], const struct fyai_cas_b
 
 #if defined(FYAI_CAS_BACKEND_LINUX)
 #define cas_backend (&fyai_cas_backend_linux)
+#elif defined(FYAI_CAS_BACKEND_MACOS)
+#define cas_backend (&fyai_cas_backend_macos)
 #else
 #define cas_backend (&fyai_cas_backend_none)
 #endif

@@ -506,6 +506,7 @@ set(FYAI_SOURCES
     src/fyai_host_macos.c
     src/fyai_host_none.c
     src/fyai_cas_linux.c
+    src/fyai_cas_macos.c
     src/fyai_cas_none.c
     src/fyai_scratch.c
     src/fyai_ignore.c
@@ -516,6 +517,7 @@ set(FYAI_SOURCES
     src/fyai_project_diff.c
     src/fyai_project_capture.c
     src/fyai_project_capture_linux.c
+    src/fyai_project_capture_macos.c
     src/fyai_project_capture_none.c
     src/fyai_fsview.c
     src/fyai_fsview_linux.c
