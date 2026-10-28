@@ -605,6 +605,11 @@ set(FYAI_SOURCES
     src/fyai_oauth.c
     src/fyai_auth_util.c
     src/fyai_secret.c
+    src/fyai_secret_store.c
+    src/fyai_secret_keyctl.c
+    src/fyai_secret_keychain.c
+    src/fyai_secret_libsecret.c
+    src/fyai_secret_none.c
     src/fyai_redact.c
     src/fyai_cmd.c
     src/fyai_cmd_auth.c

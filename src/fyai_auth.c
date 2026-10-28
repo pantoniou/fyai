@@ -23,30 +23,19 @@
 #include <unistd.h>
 #include <openssl/rand.h>
 
-#ifdef HAVE_LIBSECRET
-#include <libsecret/secret.h>
-#endif
-#ifdef __APPLE__
-#include <Security/Security.h>
-#endif
-
 #include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_event.h"
 #include "fyai_oauth.h"
 #include "fyai_auth.h"
+#include "fyai_secret.h"
+#include "fyai_secret_store.h"
 #include "fyai_curl.h"
 #include "fyai_auth_util.h"
 #include "fyai_display.h"
 #include "fyai_markdown.h"
 #include "fyai_render.h"
 #include "fyai_config.h"
-
-#if defined(__APPLE__) || defined(HAVE_LIBSECRET)
-#define HAVE_KEYRING
-#else
-#undef HAVE_KEYRING
-#endif
 
 /* Subscription credentials are sent only to these trusted OpenAI endpoints. */
 #define AUTH_ISSUER FYAI_AUTH_ISSUER
@@ -345,189 +334,37 @@ static const char *auth_json(struct fyai_ctx *ctx, struct fyai_credentials *c)
 	return emit_json_string(ctx->transient_gb, doc);
 }
 
-#if defined(__APPLE__)
-/*
- * The legacy SecKeychain* file-based API is deprecated since macOS 10.10.
- * Use the modern keychain-item API (SecItem*) with a generic-password class
- * keyed by service/account, matching the semantics of the previous code.
- */
-static CFDictionaryRef auth_keychain_query(void)
-{
-	const char service[] = "org.fyai.Auth";
-	const char account[] = "default";
-	const void *keys[3];
-	const void *vals[3];
-	CFStringRef svc, acct;
-	CFDictionaryRef query;
-
-	svc = CFStringCreateWithCString(NULL, service, kCFStringEncodingUTF8);
-	acct = CFStringCreateWithCString(NULL, account, kCFStringEncodingUTF8);
-	if (!svc || !acct) {
-		if (svc)
-			CFRelease(svc);
-		if (acct)
-			CFRelease(acct);
-		return NULL;
-	}
-
-	keys[0] = kSecClass;
-	vals[0] = kSecClassGenericPassword;
-	keys[1] = kSecAttrService;
-	vals[1] = svc;
-	keys[2] = kSecAttrAccount;
-	vals[2] = acct;
-
-	query = CFDictionaryCreate(NULL, keys, vals, 3,
-		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	CFRelease(svc);
-	CFRelease(acct);
-
-	return query;
-}
+#define AUTH_KEYRING_SERVICE "org.fyai.Auth"
+#define AUTH_KEYRING_ACCOUNT "default"
 
 static int auth_load_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
-	CFMutableDictionaryRef query;
-	CFDictionaryRef base;
-	CFTypeRef result;
-	OSStatus status;
+	char *secret = NULL;
+	size_t len = 0;
 	int rc;
 
-	base = auth_keychain_query();
-	if (!base)
+	rc = fyai_secret_store_keyring()->get(AUTH_KEYRING_SERVICE, AUTH_KEYRING_ACCOUNT,
+					      &secret, &len);
+	if (rc != FYAI_SECRET_OK)
 		return -1;
-
-	query = CFDictionaryCreateMutableCopy(NULL, 0, base);
-	CFRelease(base);
-	if (!query)
-		return -1;
-	CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
-	CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
-
-	result = NULL;
-	status = SecItemCopyMatching(query, &result);
-	CFRelease(query);
-	if (status != errSecSuccess || !result)
-		return -1;
-
-	rc = auth_parse_content(ctx, c,
-		(const char *)CFDataGetBytePtr((CFDataRef)result),
-		(size_t)CFDataGetLength((CFDataRef)result), "keychain");
-	CFRelease(result);
-
-	return rc;
-}
-
-static int auth_save_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
-{
-	CFDictionaryRef query, update, add;
-	CFDataRef value;
-	const char *json;
-	const void *ukey, *uval;
-	OSStatus status;
-
-	json = auth_json(ctx, c);
-	if (!json || !*json)
-		return -1;
-
-	query = auth_keychain_query();
-	if (!query)
-		return -1;
-
-	value = CFDataCreate(NULL, (const UInt8 *)json, (CFIndex)strlen(json));
-	if (!value) {
-		CFRelease(query);
-		return -1;
-	}
-
-	ukey = kSecValueData;
-	uval = value;
-	update = CFDictionaryCreate(NULL, &ukey, &uval, 1,
-		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	status = SecItemUpdate(query, update);
-	if (update)
-		CFRelease(update);
-
-	if (status == errSecItemNotFound) {
-		add = CFDictionaryCreateMutableCopy(NULL, 0, query);
-		if (add) {
-			CFDictionarySetValue((CFMutableDictionaryRef)add,
-				kSecValueData, value);
-			status = SecItemAdd(add, NULL);
-			CFRelease(add);
-		} else {
-			status = errSecAllocate;
-		}
-	}
-
-	CFRelease(value);
-	CFRelease(query);
-
-	return status == errSecSuccess ? 0 : -1;
-}
-
-
-#elif defined(HAVE_LIBSECRET)
-static const SecretSchema fyai_secret_schema = {
-	"org.fyai.Auth", SECRET_SCHEMA_NONE,
-	{
-		{ "account", SECRET_SCHEMA_ATTRIBUTE_STRING },
-		{ NULL, 0 },
-	}
-};
-
-static int auth_load_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
-{
-	char *secret;
-	size_t len;
-	int rc;
-
-	secret = secret_password_lookup_sync(&fyai_secret_schema, NULL, NULL,
-					     "account", "default", NULL);
-	if (!secret)
-		return -1;
-
-	len = strlen(secret);
-	rc = auth_parse_content(ctx, c, secret, (size_t)len, "keychain");
-	secret_password_free(secret);
-
+	rc = auth_parse_content(ctx, c, secret, len, "keychain");
+	fyai_secret_clear_and_free(&secret, &len);
 	return rc;
 }
 
 static int auth_save_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
 	const char *json;
-	gboolean ok;
+	int rc;
 
 	json = auth_json(ctx, c);
 	if (!json || !*json)
 		return -1;
-
-	ok = secret_password_store_sync(&fyai_secret_schema,
-		SECRET_COLLECTION_DEFAULT, "fyai ChatGPT authentication", json,
-		NULL, NULL, "account", "default", NULL);
-
-	return ok ? 0 : -1;
+	rc = fyai_secret_store_keyring()->set(AUTH_KEYRING_SERVICE,
+					      "fyai ChatGPT authentication",
+					      AUTH_KEYRING_ACCOUNT, json, strlen(json));
+	return rc == FYAI_SECRET_OK ? 0 : -1;
 }
-
-
-#else
-static int auth_load_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
-{
-	(void)ctx;
-	(void)c;
-	return -1;
-}
-
-static int auth_save_keyring(struct fyai_ctx *ctx, struct fyai_credentials *c)
-{
-	(void)ctx;
-	(void)c;
-	return -1;
-}
-
-
-#endif
 
 static int auth_load(struct fyai_ctx *ctx, struct fyai_credentials *c)
 {
