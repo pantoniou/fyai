@@ -170,6 +170,19 @@ initialize each generic field explicitly.
   `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter, and
   `src/fyai_sandbox_none.c` confines nothing. Put platform code in a backend,
   not in the core.
+- `src/fyai_host.c`: the portable part of the operating system primitives
+  (descriptors, processes, peer identity, entropy, browser launch) and the
+  dispatch to the backend of the platform (`src/fyai_host_backend.h`).
+  `src/fyai_host_linux.c`, `src/fyai_host_macos.c` and `src/fyai_host_none.c`
+  hold the platform code. Test a capability (`fyai_host_memfd_available()`),
+  never the name of a platform. `src/fyai_orphan_linux.c` and
+  `src/fyai_cover_linux.c` are the Linux code of the scope and the cover; the
+  `_none.c` files hold their stubs.
+- `src/fyai_secret.c`: the `secret` verb and the machine-local secrets.
+  `src/fyai_secret_store.h` is the interface of the stores: the kernel keyring
+  (`fyai_secret_keyctl.c`), the macOS keychain (`fyai_secret_keychain.c`), the
+  Secret Service (`fyai_secret_libsecret.c`) and none. The login uses
+  `fyai_secret_store_keyring()`.
 - `src/fyai_oauth.c`: provider-independent OAuth browser flow.
 - `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP.
 - `src/fyai_config.c`: layered configuration and config commands.
