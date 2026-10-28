@@ -1405,6 +1405,11 @@ for future level A, not claims made by the current level-B suite:
 
 ## 10. Optional macOS capabilities
 
+[Credential isolation on macOS](macos-transport-isolation-sdd.md) replaces
+this section. It uses Mach ports, whose audit trailer identifies the sender of
+each message, and needs no signed helper. The text below records the earlier
+proposal.
+
 The planned level-A mechanism in section 4.3 is the required full
 protected-mode design.
 macOS support is optional and must advertise its own verified guarantee. A
