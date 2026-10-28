@@ -123,7 +123,7 @@ that context. Do not apply irreversible restrictions to the combined main proces
 without separating its host responsibilities.
 
 A candidate source split is `fyai_project` for canonical trees and capture,
-`fyai_cas` for blobs, and `fyai_fsview` for Linux mounts and execution lifecycle.
+`fyai_cas` for blobs, and `fyai_fsview` for the views, with the Linux mounts and execution lifecycle in `fyai_fsview_linux.c`.
 Keep Landlock policy in `fyai_sandbox_linux.c`, agent integration in `fyai_agent.c`, and
 all output through the sink. These names are provisional internal interfaces.
 

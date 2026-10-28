@@ -151,6 +151,10 @@ initialize each generic field explicitly.
 - `src/fyai_workpane.c`: the one owner of work-pane geometry, focus, and zoom.
 - `src/fyai_chrome.c`: the one owner of tile chrome: which controls and scroll
   bar a tile carries, and its head.
+- `src/fyai_fsview.c`: the portable part of the filesystem views and the
+  dispatch to the backend of the platform (`src/fyai_fsview_backend.h`).
+  `src/fyai_fsview_linux.c` is OverlayFS and the namespaces, and
+  `src/fyai_fsview_none.c` has no views. Put platform code in a backend.
 - `src/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
   to the backend of the platform (`src/fyai_sandbox_backend.h`).
   `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter, and
