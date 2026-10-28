@@ -154,6 +154,8 @@ void fyai_sandbox_filter_path(const struct fyai_sandbox_spec *spec)
 
 #if defined(FYAI_SANDBOX_BACKEND_LINUX)
 #define backend (&fyai_sandbox_backend_linux)
+#elif defined(FYAI_SANDBOX_BACKEND_MACOS)
+#define backend (&fyai_sandbox_backend_macos)
 #else
 #define backend (&fyai_sandbox_backend_none)
 #endif

@@ -11,9 +11,12 @@
  * backend that this build selects; nothing else names a platform.
  *
  *   Linux   fyai_sandbox_linux.c   Landlock and a seccomp filter
+ *   macOS   fyai_sandbox_macos.c   Seatbelt
  *   other   fyai_sandbox_none.c    no confinement
  */
-#if defined(__linux__) && __has_include(<linux/landlock.h>)
+#if defined(__APPLE__)
+#define FYAI_SANDBOX_BACKEND_MACOS 1
+#elif defined(__linux__) && __has_include(<linux/landlock.h>)
 #define FYAI_SANDBOX_BACKEND_LINUX 1
 #else
 #define FYAI_SANDBOX_BACKEND_NONE 1
@@ -33,6 +36,9 @@ struct fyai_sandbox_backend {
 
 #ifdef FYAI_SANDBOX_BACKEND_LINUX
 extern const struct fyai_sandbox_backend fyai_sandbox_backend_linux;
+#endif
+#ifdef FYAI_SANDBOX_BACKEND_MACOS
+extern const struct fyai_sandbox_backend fyai_sandbox_backend_macos;
 #endif
 #ifdef FYAI_SANDBOX_BACKEND_NONE
 extern const struct fyai_sandbox_backend fyai_sandbox_backend_none;

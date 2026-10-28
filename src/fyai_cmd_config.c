@@ -870,7 +870,7 @@ int fyai_cmd_sandbox_enter(struct fyai_cmd_call *call, fy_generic *result)
 	int rc;
 
 	if (!fyai_sandbox_available()) {
-		fyai_error(ctx, "sandbox enter: this kernel has no Landlock");
+		fyai_error(ctx, "sandbox enter: native filesystem confinement is unavailable");
 		return -1;
 	}
 	if (sandbox_config_ready(ctx))

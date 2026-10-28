@@ -8,12 +8,12 @@
 #include <sys/types.h>
 
 /*
- * Landlock-based confinement for tool sub-executions (the built-in shell
- * tool). The spec is applied in the forked child, after the stdio dup2 and
+ * Native confinement for tool sub-executions: Landlock on Linux and Seatbelt
+ * on macOS. The spec is applied in the forked child, after the stdio dup2 and
  * immediately before exec, so the restriction is inherited by the tool and
- * every process it spawns. Landlock restrictions are additive and one-way:
- * once applied they cannot be relaxed, which is exactly the per-tool
- * tightening model the approval policy asks for.
+ * every process it spawns. Landlock restrictions can be tightened in a child.
+ * Seatbelt does not support nested application; launch each confined execution
+ * from an unconfined supervisor.
  *
  * fyai keeps the admission decision (config policy / prompt) elsewhere; this
  * module is only the enforcement floor: given that a command is allowed to

@@ -564,6 +564,7 @@ set(FYAI_SOURCES
     src/fyai_render.c
     src/fyai_sandbox.c
     src/fyai_sandbox_linux.c
+    src/fyai_sandbox_macos.c
     src/fyai_sandbox_none.c
     src/fyai_cover_linux.c
     src/fyai_cover_none.c
