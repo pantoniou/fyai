@@ -413,6 +413,39 @@ test resolves clang and the SDK before confinement and supplies `-isysroot`
 explicitly. Automatic native toolchain discovery for view executions remains
 part of the materialized-view integration.
 
+### 8.2 Implemented native storage and capture
+
+The CAS implementation now runs on macOS. Existing-target descriptor copies
+use a bounded read/write fallback; they do not claim APFS clone support.
+Project capture uses a component-by-component descriptor walk on macOS,
+rejects symlink traversal and device changes, and uses native timestamp and
+extended-attribute APIs. Linux retains its openat2 path.
+
+When capture creates a sealed baseline, macOS attempts `fclonefileat` into a
+new destination name. It validates the resulting file size before hashing.
+Unsupported cloning or a filesystem boundary selects an independent copy;
+other failures remain errors. A test on the Mac's APFS filesystem verifies
+that the clone counter increases and that later source writes do not change
+the materialized bytes. Baselines remain sealed storage; this does not yet
+provide a writable view command.
+
+The automatically generated `com.apple.provenance` attribute is omitted from
+project content. Other unsupported extended attributes still reject capture.
+macOS rejects OverlayFS metacopy and incremental-upper modes. Capture publishes
+each durable object's file with F_FULLFSYNC and synchronizes its parent
+directories, instead of relying on Linux syncfs. Anonymous staging files use
+exclusive random names that are unlinked immediately after opening.
+
+Manifest reference construction, publication, opening, and borrowed-object
+validation now use the shared platform-independent fsview functions. The
+native capture regression checks manifest round trips and rejection of a
+reference whose root does not match the manifest.
+
+All eight CAS tests and the new native capture test pass on macOS. The 20
+selected Linux CAS/project tests pass normally and under ASAN with leak
+detection disabled for the test environment. View command dispatch, writable
+materialization, and execution-root environment mapping remain to be connected.
+
 ## 9. Acceptance tests
 
 Run security and native-tool tests on real macOS hosts. A Linux mock of profile

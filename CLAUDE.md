@@ -159,12 +159,12 @@ initialize each generic field explicitly.
   sync, prepare and confine members and test no platform.
 - `src/fyai_project_capture.c`: the portable part of the project capture. Its
   file system primitives are in a backend
-  (`src/fyai_project_capture_backend.h`): `src/fyai_project_capture_linux.c`
-  and `src/fyai_project_capture_none.c`.
+  (`src/fyai_project_capture_backend.h`): `src/fyai_project_capture_linux.c`,
+  `src/fyai_project_capture_macos.c` and `src/fyai_project_capture_none.c`.
 - `src/fyai_cas.c`: the portable part of the blob store. Its file system
   primitives (sync, kernel copy, clone) are in a backend
-  (`src/fyai_cas_backend.h`): `src/fyai_cas_linux.c` and
-  `src/fyai_cas_none.c`.
+  (`src/fyai_cas_backend.h`): `src/fyai_cas_linux.c`, `src/fyai_cas_macos.c`
+  and `src/fyai_cas_none.c`.
 - `src/fyai_sandbox.c`: the portable part of tool confinement and the dispatch
   to the backend of the platform (`src/fyai_sandbox_backend.h`).
   `src/fyai_sandbox_linux.c` is Landlock and the seccomp UDP filter,
