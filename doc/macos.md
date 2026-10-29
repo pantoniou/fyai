@@ -310,30 +310,146 @@ OpenAI key. To use Claude in every project, do one of these steps:
 
   The alias works only in a shell. The app does not use it.
 
+## Sandbox
+
+On macOS the sandbox uses Seatbelt (`sandbox_init`) in place of Landlock and
+namespaces. fyai applies the profile in the tool child before it runs the
+command, so the command and all its descendants stay confined. Seatbelt is
+deprecated by Apple, but it still works. fyai tests at run time that it can
+apply a profile.
+
+The sandbox profiles are the same ones that Linux uses
+(`sandbox_profile`, `sandbox_profiles`; see
+[Sandboxing](user-guide.md#7-sandboxing-and-secret-boundaries)). The default
+profile is `dev`. On macOS the sandbox confines files:
+
+- A tool can read the system and toolchain directories (`/System`, `/usr`,
+  `/bin`, `/Library`, `/Applications`, `/opt` and others), and it can read and
+  write the project, the scratch directory and the `allow` paths of the
+  profile. It cannot read other files, such as your home directory.
+- The paths in `deny` take precedence over every grant. The `.fyai` directory
+  of the project, which holds the arena, is always denied.
+- `PATH` keeps only the directories that the grants reach.
+- Seatbelt resolves symbolic links, so `/var` and `/private/var` are one
+  path.
+
+Make sure that your toolchain is under a granted path. Add the location of a
+toolchain in your home directory, such as `~/.cargo/bin`, to `allow` in the
+profile. The `dev` profile has the usual ones.
+
+These parts of a profile are not available on macOS:
+
+- **Network limits.** TCP and UDP ports are not restricted: network access
+  stays open. A profile that lists network ports still runs, but each model
+  request reports warnings such as these:
+
+  ```text
+  config: warning: sandbox 'dev': TCP egress remains open; Landlock ABI 4 is unavailable
+  config: warning: sandbox 'dev': UDP egress remains open; Landlock ABI 10 is unavailable
+  ```
+
+  The warnings are correct. They say that the network part of the profile
+  does nothing here. The profile `lockdown` is thus not isolated from the
+  network on macOS.
+- **Mounts, covers, `home` and `expose`.** A profile that needs a mount
+  namespace is rejected. The profile `yocto`, which has a private home, is
+  one of them.
+- **Read-only exceptions inside a denied tree and append-only modes.** The
+  modes of an `allow` entry are `ro` and `rw` only.
+- **A second sandbox.** Seatbelt does not nest. A tool that applies its own
+  sandbox, for example one that confines its own build, fails with
+  `sandbox_apply: Operation not permitted`.
+
+fyai also reports that it cannot hide the project arena in a namespace, and
+it names AppArmor and bubblewrap as the fix. These fixes are for Linux only.
+Seatbelt denies the arena, so the arena is protected. To stop this warning,
+set the cover to `none`:
+
+```sh
+fyai config set sandbox_cover none
+```
+
+The network warnings stop only for a profile that has no `network` key, or
+with `sandbox_profile none`. `none` removes all file confinement: do not use
+it only to silence a warning.
+
+`fyai sandbox enter -- COMMAND` runs a command under a profile, so you can
+check what a profile allows. `sandbox_on_failure` (`warn` or `fail`) says
+what happens when the sandbox cannot start. Use `fail` where an unconfined
+tool is not acceptable.
+
+## Project views
+
+A project view is a private, writable copy of the project. Nothing that a
+command writes in it reaches the project until you apply the view. On Linux a
+view is an OverlayFS mount. On macOS fyai makes it as a cloned directory and
+runs native commands in it, with the macOS compiler, SDK and your configured
+tools.
+
+```sh
+fyai view create try-build
+fyai view enter try-build -- cmake --build build   # a command, after --
+fyai view diff -u try-build
+fyai view apply --dry-run try-build
+fyai view apply try-build
+```
+
+How it works:
+
+- fyai captures the project into immutable blobs under `.fyai` and clones them
+  into `SCRATCH/fyai-view-XXXXXX/project`. On APFS a clone shares the file
+  data with the original, so a large tree takes little space. When the volume
+  cannot clone, fyai copies the files. `view/scratch_dir` selects the
+  directory that holds `SCRATCH`; an empty value selects `$TMPDIR`.
+- The view has a different absolute path from your project. Inside it, `pwd`
+  shows that path, and a command that names the original checkout is denied,
+  not redirected. fyai maps the project path in `PWD`, in `CPATH`,
+  `CMAKE_PREFIX_PATH` and the other supported path-list variables. It sets
+  `TMPDIR` to private scratch space in the view. It does not rewrite command
+  lines or files.
+- The command runs under Seatbelt. It can write the view and its scratch
+  directory, and it cannot read or write the original project or the arena.
+  This confinement is always on for a view, also when the sandbox profile is
+  `none`. The rules of your profile (`deny`, `allow`) still apply.
+- The directory is the same for each later `view enter` of the same name, so
+  an incremental build continues where it stopped.
+- When the command exits, fyai scans the tree, stores the result in the
+  arena, and leaves the project unchanged. `view diff` and `view apply` work
+  as on Linux, with the same three-way check, and `view apply` is the only
+  step that changes the project.
+
+Limits:
+
+- **Standalone commands only.** `view enter` works on the command line, and a
+  command comes after `--`. `view enter` in a session, `--profile`,
+  `--lockdown`, `view mount`, and the internal view commands are not
+  available. Neither are agent execution in a view and a session that runs in
+  a view (`view/isolate_session`).
+- **Build output with absolute paths.** A CMake cache or a `build.ninja` file
+  that you made in the original checkout names the original path. Configure
+  the build again in the view, in a new build directory.
+- **Detached processes.** A command that starts a background process that
+  outlives the command can still write to the view when fyai captures the
+  result. Stop such processes before the command exits.
+- **Temporary directories.** The work directory is temporary data. If the
+  system removes it, `view enter` stops with an error and does not start again
+  from the baseline, so that your recorded changes are not lost. The last
+  completed result stays in the arena, and `view diff` and `view apply` still
+  work. fyai does not remove old directories by itself.
+
+The user guide has the full text of [Project views](user-guide.md#8-project-views).
+
 ## Features that are not available
 
 These features need the Linux kernel and are not available on macOS:
 
-- the sandbox (`--sandbox`, sandbox profiles), which uses Landlock and
-  namespaces;
-- project views (chapter 8 of the user guide);
+- the Landlock network limits, the mount, PID and user namespaces, and what
+  they give: covers, a private home, and the hiding of denied paths (see
+  [Sandbox](#sandbox));
+- project views in a session, for agents, with a mount, and with `--profile`
+  or `--lockdown` (see [Project views](#project-views));
 - the kernel secret store. The Keychain replaces it.
 
 `/session lockdown` takes the strongest isolation that the host can enforce.
-On macOS that is less than on Linux: it gives no sandbox and no view.
-
-The default sandbox profile, `dev`, confines nothing on macOS. Each model
-request still writes warnings such as these:
-
-```text
-config: warning: sandbox 'dev': TCP egress remains open; Landlock ABI 4 is unavailable
-config: warning: sandbox 'dev': UDP egress remains open; Landlock ABI 10 is unavailable
-```
-
-Two more warnings tell you to install an AppArmor profile or bubblewrap. These
-fixes are for Linux only. To stop the warnings, select the profile `normal`
-for the project. This removes no protection on macOS:
-
-```sh
-fyai config set sandbox_profile normal
-```
+On macOS that is less than on Linux: it gives the file sandbox, but it gives no
+network restriction and no view of the session.

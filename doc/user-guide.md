@@ -1318,7 +1318,7 @@ files. `doc/skills.md` has the details.
 
 ## 7. Sandboxing and secret boundaries
 
-The sandbox confines the commands that tools run. It is Linux only. It uses Landlock for paths and ports, and mount, PID and user namespaces for the arena and the processes of an exchange. `doc/sandbox-namespaces.md` explains the namespaces.
+The sandbox confines the commands that tools run. On Linux it uses Landlock for paths and ports, and mount, PID and user namespaces for the arena and the processes of an exchange. `doc/sandbox-namespaces.md` explains the namespaces. On macOS it uses Seatbelt for paths only: network egress stays open and a profile that needs a mount is rejected. See [fyai on macOS](macos.md#sandbox).
 
 ### The policy
 
@@ -2187,7 +2187,7 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 - When fyai creates a conversation, it adds repository instructions such as `AGENTS.md` and `CLAUDE.md` to the system prompt. A continuation uses the stored system turn. Files with identical content are added once, by content hash and not by path.
 - Streamed output is for display. Only completed canonical state is published.
 - `history` is for people. Use the `dump` views to inspect exact state.
-- Linux is the primary platform. macOS has its own credential and event backends. Landlock, namespaces and the kernel secret store are Linux only. See [fyai on macOS](macos.md).
+- Linux is the primary platform. macOS has its own credential and event backends. Landlock, namespaces, network egress limits and the kernel secret store are Linux only. macOS has a Seatbelt file sandbox and standalone native views. See [fyai on macOS](macos.md).
 
 ## 15. Where to look next
 
