@@ -27,6 +27,7 @@
 #include "fyai_catalog.h"
 #include "fyai_config.h"
 #include "fyai_foreign_import.h"
+#include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_sink.h"
 #include "fyai_storage.h"
@@ -877,17 +878,6 @@ fy_generic fyai_foreign_sessions(struct fyai_ctx *ctx,
 	return list.rows;
 }
 
-static fy_generic foreign_loss(struct foreign_build *build, const char *kind,
-			       fy_generic type, const char *placeholder)
-{
-	fy_generic loss;
-
-	loss = fy_mapping(build->gb, "kind", kind, "content_type",
-			  fy_is_string(type) ? type : fy_value(build->gb, "unknown"));
-	build->losses = fy_append(build->gb, build->losses, loss);
-	return fy_value(build->gb, placeholder);
-}
-
 static void foreign_mapping_loss(struct foreign_build *build,
 				 const char *tool, const char *reason)
 {
@@ -896,81 +886,46 @@ static void foreign_mapping_loss(struct foreign_build *build,
 			"reason", reason));
 }
 
-static fy_generic foreign_content_text(struct foreign_build *build,
-				       fy_generic content)
+/*
+ * A call or a result with no id gets a generated one, so that a result can
+ * name its call. The tool of each call is recorded for its result.
+ */
+static fy_generic foreign_ids(struct foreign_build *build, fy_generic messages,
+			      unsigned int *sequence)
 {
-	fy_generic item, text, joined, type;
-
-	if (fy_is_string(content))
-		return content;
-	joined = fy_value(build->gb, "");
-	if (!fy_is_sequence(content))
-		return joined;
-	fy_foreach(item, content) {
-		type = fy_get(item, "type", fy_invalid);
-		if (foreign_ignored_content_type(type) ||
-		    fy_any_equal(type, "tool_use", "tool_result"))
-			continue;
-		if (foreign_text_type(type)) {
-			text = fy_get(item, "text", fy_invalid);
-			if (!fy_is_string(text))
-				continue;
-		} else {
-			text = foreign_loss(build, "unsupported_content", type,
-					    "[foreign content omitted]");
-		}
-		joined = fy_join(build->gb, "", joined, text);
-	}
-	return joined;
-}
-
-static fy_generic foreign_arguments(struct fy_generic_builder *gb,
-				    fy_generic args)
-{
-	if (fy_is_string(args))
-		return args;
-	if (fy_is_invalid(args) || fy_is_null(args))
-		args = fy_map_empty;
-	return fy_gb_emit(gb, args,
-			  FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON |
-			  FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF, NULL);
-}
-
-static fy_generic foreign_call(struct fy_generic_builder *gb,
-			       fy_generic item, unsigned int *sequence)
-{
-	fy_generic id, args;
+	struct fy_generic_builder *gb = build->gb;
+	fy_generic out, item, type, id, name;
 	char generated[64];
+	bool call;
 
-	id = fy_get(item, "call_id",
-		    fy_get(item, "id", fy_invalid));
-	if (!fy_is_string(id)) {
-		snprintf(generated, sizeof(generated), "foreign_call_%u",
-			 ++*sequence);
-		id = fy_value(gb, generated);
+	out = fy_seq_empty;
+	fy_foreach(item, messages) {
+		type = fy_get(item, "type", fy_invalid);
+		call = fyai_item_type_is_call(type);
+		if (call || fyai_item_type_is_call_output(type)) {
+			id = fy_get(item, "call_id", fy_invalid);
+			if (!fy_is_string(id) || fy_empty(id)) {
+				if (call)
+					snprintf(generated, sizeof(generated),
+						 "foreign_call_%u", ++*sequence);
+				else
+					snprintf(generated, sizeof(generated),
+						 "foreign_orphan_%u", ++*sequence);
+				id = fy_value(gb, generated);
+				item = fy_assoc(gb, item, "call_id", id);
+			}
+			name = fy_get(item, "name", fy_invalid);
+			if (call && (!fy_is_string(name) || fy_empty(name))) {
+				name = fy_value(gb, "foreign_tool");
+				item = fy_assoc(gb, item, "name", name);
+			}
+			if (call)
+				build->calls = fy_assoc(gb, build->calls,
+					fy_castp(&id, ""), name);
+		}
+		out = fy_append(gb, out, item);
 	}
-	args = fy_get(item, "arguments",
-		      fy_get(item, "input", fy_invalid));
-	args = foreign_arguments(gb, args);
-	return fy_mapping(gb, "type", "function_call", "call_id", id,
-			  "name", fy_get(item, "name", "foreign_tool"),
-			  "arguments", args);
-}
-
-static fy_generic foreign_mapped_call(struct foreign_build *build,
-				      fy_generic item, unsigned int *sequence,
-				      const char *name, fy_generic args)
-{
-	fy_generic converted, call, id;
-
-	converted = fy_assoc(build->gb, item, "name", name);
-	converted = fy_assoc(build->gb, converted, "arguments", args);
-	call = foreign_call(build->gb, converted, sequence);
-	id = fy_get(call, "call_id", fy_invalid);
-	if (fy_is_string(id))
-		build->calls = fy_assoc(build->gb, build->calls,
-			fy_castp(&id, ""), fy_value(build->gb, name));
-	return call;
+	return out;
 }
 
 static const char *foreign_json_end(const char *start)
@@ -1093,213 +1048,191 @@ static fy_generic foreign_codex_tool_args(struct foreign_build *build,
 	return foreign_codex_args_clean(build, tool, args);
 }
 
-static fy_generic foreign_codex_call(struct foreign_build *build,
-				     fy_generic item,
-				     unsigned int *sequence)
-{
-	fy_generic input, args, converted, call, id, name, arguments;
-	const char *tool_name;
-
-	if (!fy_equal(fy_get(item, "type", fy_invalid), "custom_tool_call")) {
-		call = foreign_call(build->gb, item, sequence);
-		name = fy_get(call, "name", fy_invalid);
-		if (fy_equal(name, "exec_command")) {
-			arguments = fy_get(call, "arguments", fy_invalid);
-			args = parse_json_string(build->gb,
-				fy_castp(&arguments, "{}"));
-			args = foreign_codex_args_clean(build, "exec_command", args);
-			if (fy_is_mapping(args)) {
-				call = foreign_mapped_call(build, item, sequence,
-					"exec_command", args);
-			}
-		}
-		goto record;
-	}
-	input = fy_get(item, "input", fy_invalid);
-	tool_name = NULL;
-	args = foreign_codex_tool_args(build, fy_castp(&input, ""), &tool_name);
-	if (!tool_name || !fy_is_mapping(args))
-		call = foreign_call(build->gb, item, sequence);
-	else {
-		converted = fy_assoc(build->gb, item, "name", tool_name);
-		converted = fy_assoc(build->gb, converted, "arguments", args);
-		call = foreign_call(build->gb, converted, sequence);
-	}
-record:
-	id = fy_get(call, "call_id", fy_invalid);
-	name = fy_get(call, "name", fy_invalid);
-	if (fy_is_string(id) && fy_is_string(name))
-		build->calls = fy_assoc(build->gb, build->calls,
-			fy_castp(&id, ""), name);
-	if (fy_is_string(name) &&
-	    !fy_any_equal(name, "exec_command", "apply_patch", "read_file",
-			  "write_file"))
-		foreign_mapping_loss(build, fy_castp(&name, "foreign_tool"),
-			"no native fyai tool mapping");
-	return call;
-}
-
-static fy_generic foreign_output(struct foreign_build *build,
-				 fy_generic item, unsigned int *sequence)
+/*
+ * The output of a Codex tool: the words of its parts, without the status
+ * that its orchestration script adds.
+ */
+static fy_generic foreign_codex_output(struct foreign_build *build,
+				       fy_generic output)
 {
 	struct fy_generic_builder *gb = build->gb;
-	fy_generic id, output, part, text, joined, tool;
+	fy_generic part, text, joined;
 	const char *value, *body;
-	char generated[64];
 
-	id = fy_get(item, "call_id",
-		    fy_get(item, "tool_use_id", fy_invalid));
-	if (!fy_is_string(id)) {
-		snprintf(generated, sizeof(generated), "foreign_orphan_%u",
-			 ++*sequence);
-		id = fy_value(gb, generated);
-	}
-	output = fy_get(item, "output", fy_invalid);
-	if (fy_is_invalid(output))
-		output = fy_get(item, "content", fy_invalid);
-	if (fy_is_invalid(output) || fy_is_null(output))
-		output = fy_value(gb, "result unavailable");
-	if (fy_is_sequence(output)) {
-		joined = fy_value(gb, "");
-		fy_foreach(part, output) {
-			text = fy_get(part, "text", fy_invalid);
-			if (!fy_is_string(text))
-				continue;
-			value = fy_castp(&text, "");
-			if (!strncmp(value, "Script completed\n", 17)) {
-				body = strstr(value, "\nOutput:\n");
-				value = body ? body + strlen("\nOutput:\n") : value;
-			}
-			if (!strcmp(value, "exit=0"))
-				continue;
-			joined = fy_join(gb, "", joined, value);
+	if (!fy_is_sequence(output))
+		return output;
+	joined = fy_value(gb, "");
+	fy_foreach(part, output) {
+		text = fy_get(part, "text", fy_invalid);
+		if (!fy_is_string(text))
+			continue;
+		value = fy_castp(&text, "");
+		if (!strncmp(value, "Script completed\n", 17)) {
+			body = strstr(value, "\nOutput:\n");
+			value = body ? body + strlen("\nOutput:\n") : value;
 		}
-		output = joined;
+		if (!strcmp(value, "exit=0"))
+			continue;
+		joined = fy_join(gb, "", joined, value);
 	}
+	return joined;
+}
+
+/*
+ * A Codex item as a Responses item that names a native tool. Codex records
+ * catalogue tools as custom calls of an orchestration script: the item is
+ * the called tool and its arguments, not that script.
+ */
+static fy_generic foreign_codex_wire(struct foreign_build *build,
+				     fy_generic item)
+{
+	struct fy_generic_builder *gb = build->gb;
+	fy_generic type, input, args, name, id, output, tool;
+	const char *tool_name;
+
+	type = fy_get(item, "type", fy_invalid);
+	if (fy_equal(type, "custom_tool_call")) {
+		input = fy_get(item, "input", fy_invalid);
+		tool_name = NULL;
+		args = foreign_codex_tool_args(build, fy_castp(&input, ""),
+					       &tool_name);
+		if (tool_name && fy_is_mapping(args))
+			name = fy_value(gb, tool_name);
+		else {
+			name = fy_get(item, "name", fy_invalid);
+			args = input;
+		}
+		item = fy_mapping(gb, "type", "function_call",
+				  "call_id", fy_get(item, "call_id", ""),
+				  "name", fyai_generic_or_null(name),
+				  "arguments", fyai_generic_or_null(args));
+		type = fy_value(gb, "function_call");
+	} else if (fy_equal(type, "function_call") &&
+		   fy_equal(fy_get(item, "name"), "exec_command")) {
+		args = parse_json_string(gb, fy_get(item, "arguments", "{}"));
+		args = foreign_codex_args_clean(build, "exec_command", args);
+		if (fy_is_mapping(args))
+			item = fy_assoc(gb, item, "arguments", args);
+	}
+	if (fy_equal(type, "function_call")) {
+		name = fy_get(item, "name", fy_invalid);
+		if (!fy_any_equal(name, "exec_command", "apply_patch",
+				  "read_file", "write_file"))
+			foreign_mapping_loss(build, fy_is_string(name) ?
+					     fy_castp(&name, "") : "foreign_tool",
+					     "no native fyai tool mapping");
+		return item;
+	}
+	if (!fy_any_equal(type, "function_call_output",
+			  "custom_tool_call_output"))
+		return item;
+	id = fy_get(item, "call_id", fy_invalid);
+	output = foreign_codex_output(build, fy_get(item, "output", fy_invalid));
 	tool = fy_get(build->calls, fy_castp(&id, ""));
 	if (fy_equal(tool, "apply_patch") && fy_equal(output, "{}"))
 		output = fy_value(gb, "");
-	else if (!fy_is_string(output))
-		output = fy_gb_emit(gb, output,
-				    FYOPEF_DISABLE_DIRECTORY | FYOPEF_MODE_JSON |
-				    FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF,
-				    NULL);
 	return fy_mapping(gb, "type", "function_call_output",
-			  "call_id", id, "output", output);
+			  "call_id", fyai_generic_or_null(id),
+			  "output", fyai_generic_or_null(output));
 }
 
+/* A Codex response item, which is a Responses item, as one canonical item. */
 static fy_generic foreign_codex_item(struct foreign_build *build,
 				     fy_generic item,
 				     unsigned int *sequence)
 {
-	fy_generic type, text;
-	const char *name;
+	fy_generic messages;
 
-	type = fy_get(item, "type", fy_invalid);
-	name = fy_castp(&type, "");
-	if (!strcmp(name, "message")) {
-		text = foreign_content_text(build,
-					    fy_get(item, "content", fy_invalid));
-		return fy_mapping(build->gb, "role", fy_get(item, "role", "user"),
-				  "content", text);
-	}
-	if (!strcmp(name, "function_call") ||
-	    !strcmp(name, "custom_tool_call"))
-		return foreign_codex_call(build, item, sequence);
-	if (!strcmp(name, "function_call_output") ||
-	    !strcmp(name, "custom_tool_call_output"))
-		return foreign_output(build, item, sequence);
-	if (strcmp(name, "reasoning"))
-		foreign_loss(build, "unsupported_item", type,
-			     "[foreign item omitted]");
-	return fy_invalid;
+	messages = fyai_grammar_history(&fyai_grammar_responses, build->ctx,
+			fy_sequence(build->gb, foreign_codex_wire(build, item)),
+			&build->losses);
+	messages = foreign_ids(build, messages, sequence);
+	return fy_len(messages) ? fy_get_at(messages, 0) : fy_invalid;
 }
 
-static fy_generic foreign_claude_call(struct foreign_build *build,
-				      fy_generic item,
-				      unsigned int *sequence)
+/*
+ * A Claude Code tool_use block as one that names a native tool where fyai
+ * has one with the same meaning.
+ */
+static fy_generic foreign_claude_block(struct foreign_build *build,
+				       fy_generic block)
 {
+	struct fy_generic_builder *gb = build->gb;
 	fy_generic input, args;
-	const char *name;
+	const char *name, *native;
 
-	name = fy_get(item, "name", "foreign_tool");
-	input = fy_get(item, "input", fy_map_empty);
+	name = fy_get(block, "name", "foreign_tool");
+	input = fy_get(block, "input", fy_map_empty);
+	native = NULL;
+	args = input;
 	if (!strcmp(name, "Write")) {
-		args = fy_mapping(build->gb,
+		native = "write_file";
+		args = fy_mapping(gb,
 			"path", fy_get(input, "file_path", ""),
 			"content", fy_get(input, "content", ""));
-		return foreign_mapped_call(build, item, sequence,
-			"write_file", args);
-	}
-	if (!strcmp(name, "Read") &&
-	    !fy_is_valid(fy_get(input, "pages", fy_invalid))) {
-		args = fy_mapping(build->gb,
-			"path", fy_get(input, "file_path", ""));
+	} else if (!strcmp(name, "Read") &&
+		   !fy_is_valid(fy_get(input, "pages", fy_invalid))) {
+		native = "read_file";
+		args = fy_mapping(gb, "path", fy_get(input, "file_path", ""));
 		if (fy_is_valid(fy_get(input, "offset", fy_invalid)))
-			args = fy_assoc(build->gb, args, "offset",
+			args = fy_assoc(gb, args, "offset",
 				fy_get(input, "offset", fy_invalid));
 		if (fy_is_valid(fy_get(input, "limit", fy_invalid)))
-			args = fy_assoc(build->gb, args, "limit",
+			args = fy_assoc(gb, args, "limit",
 				fy_get(input, "limit", fy_invalid));
-		return foreign_mapped_call(build, item, sequence,
-			"read_file", args);
-	}
-	if (!strcmp(name, "Bash") &&
-	    !fy_get(input, "run_in_background", false) &&
-	    !fy_get(input, "dangerouslyDisableSandbox", false)) {
-		args = fy_mapping(build->gb,
-			"command", fy_get(input, "command", ""));
+	} else if (!strcmp(name, "Bash") &&
+		   !fy_get(input, "run_in_background", false) &&
+		   !fy_get(input, "dangerouslyDisableSandbox", false)) {
+		native = "exec_command";
+		args = fy_mapping(gb, "command", fy_get(input, "command", ""));
 		if (fy_is_valid(fy_get(input, "timeout", fy_invalid)))
-			args = fy_assoc(build->gb, args, "timeout",
+			args = fy_assoc(gb, args, "timeout",
 				fy_get(input, "timeout", fy_invalid));
 		if (fy_is_valid(fy_get(input, "description", fy_invalid)))
-			args = fy_assoc(build->gb, args, "description",
+			args = fy_assoc(gb, args, "description",
 				fy_get(input, "description", fy_invalid));
-		return foreign_mapped_call(build, item, sequence,
-			"exec_command", args);
-	}
-	if (!strcmp(name, "Read"))
+	} else if (!strcmp(name, "Read")) {
 		foreign_mapping_loss(build, name,
 			"page selection has no native read_file equivalent");
-	else if (!strcmp(name, "Bash"))
+	} else if (!strcmp(name, "Bash")) {
 		foreign_mapping_loss(build, name,
 			"background or sandbox semantics have no native equivalent");
-	else
+	} else {
 		foreign_mapping_loss(build, name,
 			"no native fyai tool mapping");
-	return foreign_mapped_call(build, item, sequence, name, input);
+	}
+	return fy_mapping(gb, "type", "tool_use",
+			  "id", fy_get(block, "id", ""),
+			  "name", native ? native : name,
+			  "input", args);
 }
 
+/* A Claude Code record, which holds a Messages message, as canonical messages. */
 static fy_generic foreign_claude_messages(struct foreign_build *build,
 					  fy_generic record,
 					  unsigned int *sequence)
 {
-	fy_generic message, content, item, messages, text, type;
-	const char *role, *name;
+	struct fy_generic_builder *gb = build->gb;
+	fy_generic message, content, block, blocks, messages;
+	const char *role;
 
 	message = fy_get(record, "message", fy_invalid);
 	role = fy_get(message, "role", fy_get(record, "type", "user"));
 	content = fy_get(message, "content", fy_invalid);
-	messages = fy_seq_empty;
-	if (fy_is_string(content))
-		return fy_sequence(build->gb,
-			fy_mapping(build->gb, "role", role, "content", content));
-	text = foreign_content_text(build, content);
-	if (fy_is_string(text) && !fy_empty(text))
-		messages = fy_append(build->gb, messages,
-			fy_mapping(build->gb, "role", role, "content", text));
-	fy_foreach(item, content) {
-		type = fy_get(item, "type", fy_invalid);
-		name = fy_castp(&type, "");
-		if (!strcmp(name, "tool_use"))
-			messages = fy_append(build->gb, messages,
-					     foreign_claude_call(build, item,
-							 sequence));
-		else if (!strcmp(name, "tool_result"))
-			messages = fy_append(build->gb, messages,
-					     foreign_output(build, item, sequence));
+	if (fy_is_sequence(content)) {
+		blocks = fy_seq_empty;
+		fy_foreach(block, content) {
+			if (fy_equal(fy_get(block, "type"), "tool_use"))
+				block = foreign_claude_block(build, block);
+			blocks = fy_append(gb, blocks, block);
+		}
+		content = blocks;
 	}
-	return messages;
+	messages = fyai_grammar_history(&fyai_grammar_messages, build->ctx,
+			fy_sequence(gb, fy_mapping(gb, "role", role,
+						   "content", content)),
+			&build->losses);
+	return foreign_ids(build, messages, sequence);
 }
 
 static fy_generic foreign_system_head(struct fyai_ctx *ctx)
