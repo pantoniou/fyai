@@ -86,6 +86,24 @@ static fy_generic messages_append_block(struct fyai_ctx *ctx, fy_generic out,
 				   "content", fy_sequence(gb, block)));
 }
 
+/* True when the last message of @out is the assistant's and holds tool_use @id. */
+static bool messages_has_tool_use(fy_generic out, fy_generic id)
+{
+	fy_generic last, content, block;
+
+	if (!fy_len(out) || !fy_is_string(id))
+		return false;
+	last = fy_get_at(out, fy_len(out) - 1);
+	if (fy_not_equal(fy_get(last, "role"), "assistant"))
+		return false;
+	content = fy_get(last, "content", fy_seq_empty);
+	fy_foreach(block, content)
+		if (fy_equal(fy_get(block, "type"), "tool_use") &&
+		    fy_equal(fy_get(block, "id"), id))
+			return true;
+	return false;
+}
+
 /*
  * Build the block in the builder, not as a builder-less scratch generic: a
  * scratch generic lives in the creating function's stack frame and dies with
@@ -124,7 +142,13 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 	fy_foreach(m, messages) {
 		type = fy_get(m, "type");
 
-		/* Responses-style native call items -> assistant tool_use. */
+		/*
+		 * Call items -> assistant tool_use. The block array of a
+		 * paused turn holds its calls already.
+		 */
+		if (fyai_item_type_is_call(type) &&
+		    messages_has_tool_use(out, fy_get(m, "call_id", fy_invalid)))
+			continue;
 		if (fy_equal(type, "function_call")) {
 			input = parse_json_string(gb, fy_get(m, "arguments", "{}"));
 			if (fy_is_invalid(input))

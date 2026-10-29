@@ -115,6 +115,10 @@ static fy_generic chat_input(struct fyai_ctx *ctx, fy_generic messages)
 					fyai_agent_wire_text(ctx, m)));
 			continue;
 		}
+		content = fy_get(m, "content");
+		if (!fy_equal(fyai_wire_canonical_content(ctx, content), content))
+			m = fy_assoc(gb, m, "content",
+				     fyai_wire_canonical_content(ctx, content));
 		if (fyai_media_content_has_attachments(fy_get(m, "content"))) {
 			content = fyai_wire_content(ctx, fy_get(m, "content"),
 						    "text");

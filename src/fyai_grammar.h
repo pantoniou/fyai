@@ -302,6 +302,13 @@ fy_generic fyai_wire_parts_text(struct fyai_ctx *ctx, fy_generic content,
 /* The output of a tool result as text. */
 fy_generic fyai_wire_output_text(struct fyai_ctx *ctx, fy_generic output);
 
+/*
+ * @content as canonical content. The content blocks of another grammar, which
+ * a paused Messages turn keeps, are reduced to their words; the calls among
+ * them are stored as call items of their own.
+ */
+fy_generic fyai_wire_canonical_content(struct fyai_ctx *ctx, fy_generic content);
+
 /* The call items of the canonical @messages. */
 fy_generic fyai_wire_calls(struct fyai_ctx *ctx, fy_generic messages);
 

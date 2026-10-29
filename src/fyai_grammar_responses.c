@@ -228,6 +228,7 @@ static fy_generic responses_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (fy_is_invalid(content) ||
 		    fy_is_null(content))
 			content = fy_value("");
+		content = fyai_wire_canonical_content(ctx, content);
 		content = fyai_wire_content(ctx, content, "input_text");
 		if (fy_is_invalid(content))
 			return fyai_provider_result(ctx, content,

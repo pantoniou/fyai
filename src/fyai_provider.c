@@ -485,3 +485,18 @@ fy_generic fyai_wire_calls(struct fyai_ctx *ctx, fy_generic messages)
 			calls = fy_append(ctx->transient_gb, calls, item);
 	return calls;
 }
+
+fy_generic fyai_wire_canonical_content(struct fyai_ctx *ctx, fy_generic content)
+{
+	fy_generic part, type;
+
+	if (!fy_is_sequence(content))
+		return content;
+	fy_foreach(part, content) {
+		type = fy_get(part, "type", fy_invalid);
+		if (!fy_any_equal(type, FYAI_MEDIA_PART_TEXT,
+				  FYAI_MEDIA_PART_IMAGE))
+			return fyai_wire_parts_text(ctx, content, NULL);
+	}
+	return content;
+}
