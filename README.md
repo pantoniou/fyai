@@ -180,6 +180,8 @@ fyai help branch
 
 - [User guide](doc/user-guide.md): workflows, configuration, tools, sandbox and
   command reference
+- [fyai on macOS](doc/macos.md): install the release app and program, and
+  store an API key in the Keychain
 - [Command reference](doc/commands.md)
 - [Annotated configuration](config.yaml.sample)
 - [Changelog](CHANGELOG.md)

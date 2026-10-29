@@ -26,6 +26,8 @@ Authority, in order: the implementation and its tests, `fyai help VERB` for the 
 
 There is no required daemon or resident agent service. Interactive mode keeps one process alive for convenience, but it uses the same durable state model as batch invocations.
 
+On a Mac, [fyai on macOS](macos.md) tells how to install the release app and program past Gatekeeper, and how to store an Anthropic API key in the Keychain.
+
 ### Build
 
 ```sh
@@ -576,7 +578,7 @@ fyai \
 
 ### API keys and secrets
 
-On Linux, a logical key can be stored in the kernel secret store:
+A logical key can be stored in the secret store of the machine: the kernel secret store on Linux, the Keychain on macOS ([fyai on macOS](macos.md#keychain)):
 
 ```sh
 fyai secret set api-key/openai
@@ -2185,7 +2187,7 @@ The list follows `fyai help`. `fyai help VERB` gives the syntax of one verb, and
 - When fyai creates a conversation, it adds repository instructions such as `AGENTS.md` and `CLAUDE.md` to the system prompt. A continuation uses the stored system turn. Files with identical content are added once, by content hash and not by path.
 - Streamed output is for display. Only completed canonical state is published.
 - `history` is for people. Use the `dump` views to inspect exact state.
-- Linux is the primary platform. macOS has its own credential and event backends. Landlock, namespaces and the kernel secret store are Linux only.
+- Linux is the primary platform. macOS has its own credential and event backends. Landlock, namespaces and the kernel secret store are Linux only. See [fyai on macOS](macos.md).
 
 ## 15. Where to look next
 
