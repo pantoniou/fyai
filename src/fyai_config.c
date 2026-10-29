@@ -35,6 +35,7 @@
 #include "fyai_cover.h"
 #include "fyai_sandbox.h"
 #include "fyai_sandbox_profile.h"
+#include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_event.h"
 #include "fyai_schema.h"
@@ -280,10 +281,9 @@ static int config_validate_api(struct fyai_cfg *cfg, fy_generic root)
 	v = fy_get(root, "api");
 	if (fy_is_invalid(v))
 		return 0;
-	if (config_contains(fy_sequence("responses", "messages", "chat",
-					"chat-completions"), v))
+	if (fyai_grammar_find(fy_castp(&v, "")))
 		return 0;
-	fyai_cfg_error(cfg, "invalid api '%s' (responses|chat-completions|messages)",
+	fyai_cfg_error(cfg, "invalid api '%s' (" FYAI_GRAMMAR_NAMES ")",
 		       fy_str(v));
 	return -1;
 }
@@ -396,6 +396,7 @@ int fyai_config_sandbox_select(struct fyai_cfg *cfg, const char *name)
  */
 int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 {
+	const struct fyai_grammar *grammar;
 	fy_generic v, tbv, shell, retry, secret_ref, zoom_rows, preview_width;
 	fy_generic rtype, rname, media;
 
@@ -692,12 +693,9 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 	}
 
 	v = fy_get(root, "api");
-	if (fy_any_equal(v, "chat-completions", "chat"))
-		cfg->api_mode = FYAI_API_CHAT_COMPLETIONS;
-	else if (fy_equal(v, "responses"))
-		cfg->api_mode = FYAI_API_RESPONSES;
-	else if (fy_equal(v, "messages"))
-		cfg->api_mode = FYAI_API_MESSAGES;
+	grammar = fyai_grammar_find(fy_castp(&v, ""));
+	if (grammar)
+		cfg->api_mode = grammar->mode;
 
 	/* Stylistic options live in the display: group (the only form). */
 	v = fy_get(root, "display");
@@ -1639,7 +1637,7 @@ static int config_doc_finalize(struct fyai_cfg *cfg)
 	tmp = *cfg;
 	if (fyai_config_resolve_model(&tmp))
 		return -1;
-	if (fyai_config_messages_gate(&tmp))
+	if (fyai_config_grammar_gate(&tmp))
 		return -1;
 	return 0;
 }
@@ -1705,24 +1703,22 @@ static fy_generic config_doc_sync_derived_api(struct fy_generic_builder *gb,
 					      fy_generic doc,
 					      fy_generic *changesp)
 {
+	const struct fyai_grammar *grammar;
 	fy_generic cat_ep, before, after, new_api, new_api_url;
-	enum fyai_api_mode mode;
-	int i;
 
 	doc = fy_delete_at_pathstr(gb, doc, "api");
 	doc = fy_delete_at_pathstr(gb, doc, "api_url");
 
-	mode = FYAI_API_RESPONSES;
 	cat_ep = fy_invalid;
-	for (i = 0; i < FYAI_API_COUNT && fy_is_invalid(cat_ep); i++) {
-		cat_ep = fyai_catalog_endpoint(cat_prov, (enum fyai_api_mode)i);
+	fyai_grammar_foreach(grammar) {
+		cat_ep = fyai_catalog_endpoint(cat_prov, grammar->mode);
 		if (fy_is_valid(cat_ep))
-			mode = (enum fyai_api_mode)i;
+			break;
 	}
-	if (fy_is_invalid(cat_ep))
+	if (!grammar)
 		return doc;
 
-	new_api = fy_value(fyai_api_to_string(mode));
+	new_api = fy_value(grammar->name);
 	new_api_url = fy_stringf("%s%s", fy_get(cat_prov, "root_url", ""),
 				 fy_get(cat_ep, "endpoint", ""));
 
@@ -1816,6 +1812,7 @@ fy_generic fyai_config_sync_catalog(struct fy_generic_builder *gb,
 static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 				      fy_generic *changesp)
 {
+	const struct fyai_grammar *grammar;
 	fy_generic changes, before, after;
 	fy_generic api;
 	bool builtin_shell, tools, logprobs;
@@ -1824,15 +1821,7 @@ static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 	changes = fy_seq_empty;
 
 	api = fy_get(doc, "api");
-	if (fy_equal(api, "chat")) {
-		before = fy_get(doc, "api");
-		doc = fy_set_at_pathstr(cfg->gb, doc, "api",
-					fy_value("chat-completions"));
-		after = fy_get(doc, "api");
-		changes = config_change_add(cfg->gb, changes, "api", "changed",
-					    before, after);
-		api = after;
-	}
+	grammar = fyai_grammar_find(fy_castp(&api, ""));
 
 	top_logprobs = fy_get(doc, "top_logprobs", -1LL);
 	logprobs = fy_get(doc, "logprobs", false);
@@ -1848,7 +1837,7 @@ static fy_generic config_doc_sanitize(struct fyai_cfg *cfg, fy_generic doc,
 
 	builtin_shell = fy_get(doc, "builtin_shell", false);
 	tools = fy_get(doc, "tools", false);
-	if (fy_equal(api, "messages") && builtin_shell) {
+	if (grammar && !grammar->builtin_shell && builtin_shell) {
 		before = fy_get(doc, "builtin_shell");
 		doc = fy_set_at_pathstr(cfg->gb, doc, "builtin_shell", false);
 		after = fy_get(doc, "builtin_shell");
@@ -1939,10 +1928,9 @@ static fy_generic config_validate_report_shallow(struct fyai_cfg *cfg,
 
 	v = fy_get(doc, "api");
 	if (!fy_is_invalid(v) &&
-	    !config_contains(fy_sequence("responses", "messages", "chat",
-					 "chat-completions"), v))
+	    !fyai_grammar_find(fy_castp(&v, "")))
 		problems = config_problem_add(cfg->gb, problems,
-				"invalid api '%s' (responses|chat-completions|messages)",
+				"invalid api '%s' (" FYAI_GRAMMAR_NAMES ")",
 				fy_str(v));
 
 	v = fy_get(doc, "reasoning");
@@ -2680,7 +2668,7 @@ static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc,
 		return 0;
 	if (fyai_config_resolve_model(cfg))
 		return -1;
-	return fyai_config_messages_gate(cfg);
+	return fyai_config_grammar_gate(cfg);
 }
 
 int fyai_config_rederive(struct fyai_ctx *ctx)
@@ -3044,7 +3032,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 {
 	cfg->api_key_auto = true;
 	cfg->auth_mode = FYAI_AUTH_AUTO;
-	cfg->api_mode = FYAI_API_RESPONSES;
+	cfg->api_mode = fyai_grammar_next(NULL)->mode;
 	cfg->api_url = NULL;
 	cfg->system_prompt = DEFAULT_SYSTEM_PROMPT;
 	cfg->parallel_tool_calls_prompt =
@@ -3290,11 +3278,7 @@ static bool config_api_url_is_derived(fy_generic catalog, const char *url)
 	fy_generic providers, provider, endpoints, endpoint;
 	const char *root;
 
-	if (!url || !*url)
-		return true;
-	if (!strcmp(url, OPENAI_RESPONSES_URL) ||
-	    !strcmp(url, OPENAI_CHAT_COMPLETIONS_URL) ||
-	    !strcmp(url, ANTHROPIC_MESSAGES_URL))
+	if (fy_str_empty(url) || fyai_grammar_default_url(url))
 		return true;
 	providers = fy_get(catalog, "providers");
 	fy_foreach(provider, providers) {
@@ -3320,9 +3304,9 @@ static bool config_api_url_is_derived(fy_generic catalog, const char *url)
 static void config_api_url_follow_grammar(struct fyai_cfg *cfg,
 					  fy_generic cat_prov)
 {
+	const struct fyai_grammar *other;
 	fy_generic ep, want;
 	const char *root, *url;
-	int i;
 
 	ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
 	if (fy_is_invalid(ep))
@@ -3332,10 +3316,10 @@ static void config_api_url_follow_grammar(struct fyai_cfg *cfg,
 	want = fy_stringf(cfg->gb, "%s%s", root, url);
 	if (fy_equal(want, cfg->api_url))
 		return;
-	for (i = 0; i < FYAI_API_COUNT; i++) {
-		if (i == (int)cfg->api_mode)
+	fyai_grammar_foreach(other) {
+		if (other->mode == cfg->api_mode)
 			continue;
-		ep = fyai_catalog_endpoint(cat_prov, (enum fyai_api_mode)i);
+		ep = fyai_catalog_endpoint(cat_prov, other->mode);
 		if (fy_is_invalid(ep))
 			continue;
 		if (!fy_equal(fy_stringf(cfg->gb, "%s%s", root,
@@ -3343,9 +3327,8 @@ static void config_api_url_follow_grammar(struct fyai_cfg *cfg,
 			      cfg->api_url))
 			continue;
 		fyai_cfg_notice(cfg, "api_url %s is the endpoint of %s, not of %s; using %s",
-				cfg->api_url,
-				fyai_api_to_string((enum fyai_api_mode)i),
-				fyai_api_to_string(cfg->api_mode),
+				cfg->api_url, other->name,
+				fyai_grammar(cfg)->name,
 				fy_castp(&want, ""));
 		cfg->api_url = fy_gb_intern_string(cfg->gb,
 						   fy_castp(&want, ""));
@@ -3357,11 +3340,11 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 					fy_generic catalog,
 					fy_generic *cat_provp)
 {
+	const struct fyai_grammar *other;
 	fy_generic cat_prov, cat_offer, cat_ep, pinned_prov;
 	fy_generic preferred_offer;
 	const char *pmid, *slash;
 	char *pfx;
-	int i;
 
 	pinned_prov = fy_invalid;
 	slash = cfg->model ? strchr(cfg->model, '/') : NULL;
@@ -3411,11 +3394,12 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 	cat_ep = fyai_catalog_endpoint(cat_prov, cfg->api_mode);
 	if (fy_is_valid(cat_prov) && fy_is_invalid(cat_ep)) {
 		/* Take the first grammar the provider offers that fyai speaks. */
-		for (i = 0; i < FYAI_API_COUNT && fy_is_invalid(cat_ep); i++) {
-			cat_ep = fyai_catalog_endpoint(cat_prov,
-					(enum fyai_api_mode)i);
-			if (fy_is_valid(cat_ep))
-				cfg->api_mode = (enum fyai_api_mode)i;
+		fyai_grammar_foreach(other) {
+			cat_ep = fyai_catalog_endpoint(cat_prov, other->mode);
+			if (fy_is_valid(cat_ep)) {
+				cfg->api_mode = other->mode;
+				break;
+			}
 		}
 		if (fy_is_valid(cat_ep)) {
 			if (config_api_url_is_derived(catalog, cfg->api_url))
@@ -3460,8 +3444,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 
 	/* Use a grammar-specific model when none is configured. */
 	if (!cfg->model || !*cfg->model)
-		cfg->model = cfg->api_mode == FYAI_API_MESSAGES ?
-			DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL;
+		cfg->model = fyai_grammar(cfg)->default_model;
 
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
 
@@ -3498,8 +3481,7 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 	 * fails with a misleading "no API key".
 	 */
 	if (!cfg->provider || !*cfg->provider)
-		cfg->provider = cfg->api_mode == FYAI_API_MESSAGES ?
-			"anthropic" : "openai";
+		cfg->provider = fyai_grammar(cfg)->default_provider;
 
 	/*
 	 * Get endpoint capabilities from the catalogue by protocol. Do not use
@@ -3549,51 +3531,42 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 		}
 	}
 
-	if (!cfg->api_url || !*cfg->api_url) {
-		switch (cfg->api_mode) {
-		case FYAI_API_CHAT_COMPLETIONS:
-			cfg->api_url = OPENAI_CHAT_COMPLETIONS_URL;
-			break;
-		case FYAI_API_MESSAGES:
-			cfg->api_url = ANTHROPIC_MESSAGES_URL;
-			break;
-		case FYAI_API_RESPONSES:
-		default:
-			cfg->api_url = OPENAI_RESPONSES_URL;
-			break;
-		}
-	}
+	if (fy_str_empty(cfg->api_url))
+		cfg->api_url = fyai_grammar(cfg)->default_url;
 
 	return 0;
 }
 
 /*
- * Features with no Messages-API mapping yet: extended thinking (the
- * reasoning options), the OpenAI built-in shell tool, and logprobs. Reject
- * them up front rather than sending a request the API 400s. No-op unless the
- * Messages API is selected.
+ * Disable or reject a feature that the grammar or the endpoint cannot carry,
+ * before a request that the API would reject is sent.
  */
-int fyai_config_messages_gate(struct fyai_cfg *cfg)
+int fyai_config_grammar_gate(struct fyai_cfg *cfg)
 {
+	const struct fyai_grammar *grammar = fyai_grammar(cfg);
+
 	if (cfg->web_search && !cfg->web_search_supported) {
 		if (!cfg->web_search_notice_emitted)
 			fyai_cfg_notice(cfg, "native web search is not supported by provider '%s' "
 					"for the %s endpoint; disabling it",
 					cfg->provider ? cfg->provider : "",
-					fyai_api_to_string(cfg->api_mode));
+					grammar->name);
 		cfg->web_search_notice_emitted = true;
 		cfg->web_search = false;
 	}
 
 	/*
-	 * Multiple providers use the Responses grammar, but only some providers
-	 * accept the built-in shell tool. If the endpoint does not accept the
-	 * declaration, use the function shell tool. The Messages API uses the
-	 * same fallback.
+	 * The configuration commonly enables the built-in shell for every
+	 * model. Where the endpoint does not accept its declaration, use the
+	 * function shell tool instead of failing the run. Not a failure: an
+	 * error here would also demote the next real one.
 	 */
-	if (cfg->api_mode == FYAI_API_RESPONSES && cfg->enable_builtin_shell &&
-	    !fyai_provider_native_shell(cfg)) {
-		if (cfg->chatgpt_auth)
+	if (cfg->enable_builtin_shell && !fyai_provider_native_shell(cfg)) {
+		if (!grammar->builtin_shell)
+			fyai_cfg_notice(cfg, "the built-in shell tool is not "
+					"available with the %s; using the "
+					"function shell tool", grammar->title);
+		else if (cfg->chatgpt_auth)
 			fyai_cfg_notice(cfg, "the built-in shell tool is not "
 					"accepted with ChatGPT authentication; "
 					"using the function shell tool");
@@ -3606,31 +3579,14 @@ int fyai_config_messages_gate(struct fyai_cfg *cfg)
 		cfg->enable_builtin_shell = false;
 		cfg->enable_tools = true;
 	}
-	if (cfg->api_mode != FYAI_API_MESSAGES)
-		return 0;
-	if ((cfg->reasoning_effort && *cfg->reasoning_effort) ||
-	    (cfg->reasoning_summary && *cfg->reasoning_summary)) {
+	if (!grammar->reasoning && fyai_grammar_reasoning_set(cfg)) {
 		fyai_cfg_error(cfg, "reasoning options are not supported "
-			"with the Messages API yet");
+			"with the %s yet", grammar->title);
 		return -1;
 	}
-	/*
-	 * The OpenAI built-in shell tool has no Messages analogue. Config
-	 * commonly enables it globally, so downgrade to the function shell
-	 * tool instead of failing the run.
-	 */
-	if (cfg->enable_builtin_shell) {
-		/* Not a failure: the run continues on the function shell tool.
-		 * An error here would also demote the next real one. */
-		fyai_cfg_notice(cfg, "the built-in shell tool is not "
-				"available with the Messages API; using the "
-				"function shell tool");
-		cfg->enable_builtin_shell = false;
-		cfg->enable_tools = true;
-	}
-	if (cfg->logprobs || cfg->top_logprobs >= 0) {
-		fyai_cfg_error(cfg, "logprobs are not supported with the "
-			"Messages API");
+	if (!grammar->logprobs && (cfg->logprobs || cfg->top_logprobs >= 0)) {
+		fyai_cfg_error(cfg, "logprobs are not supported with the %s",
+			       grammar->title);
 		return -1;
 	}
 	return 0;
@@ -4247,7 +4203,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	 * pays for that. */
 	if (fyai_cfg_needs_model(cfg) && fyai_config_resolve_model(cfg))
 		goto err_out;
-	if (fyai_cfg_makes_requests(cfg) && fyai_config_messages_gate(cfg))
+	if (fyai_cfg_makes_requests(cfg) && fyai_config_grammar_gate(cfg))
 		goto err_out;
 
 	free(help_argv);

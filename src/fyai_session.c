@@ -47,6 +47,7 @@
 #include "fyai_catalog.h"
 #include "fyai_cost.h"
 #include "fyai_config.h"
+#include "fyai_grammar.h"
 #include "fyai_display.h"
 #include "fyai_event.h"
 #include "fyai_render.h"
@@ -397,7 +398,7 @@ out:
 
 bool fyai_session_compact_v2(const struct fyai_cfg *cfg)
 {
-	return cfg->api_mode == FYAI_API_RESPONSES &&
+	return fyai_grammar_compacts(cfg) &&
 		cfg->response_compaction_supported && cfg->chatgpt_auth;
 }
 
@@ -515,7 +516,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	if (fyai_session_compact_v2(cfg))
 		return session_compact_responses_v2(ctx, hint);
 
-	if (cfg->api_mode == FYAI_API_RESPONSES &&
+	if (fyai_grammar_compacts(cfg) &&
 	    cfg->response_compaction_supported)
 		return session_compact_responses(ctx, hint);
 
@@ -664,7 +665,7 @@ static bool session_chatgpt_capable(const struct fyai_cfg *cfg,
 {
 	if (!tmp->provider || fy_not_equal(tmp->provider, "openai"))
 		return false;
-	if (tmp->api_mode != FYAI_API_RESPONSES)
+	if (!fyai_grammar(tmp)->chatgpt)
 		return false;
 	return cfg->auth_mode == FYAI_AUTH_CHATGPT || cfg->chatgpt_auth;
 }
@@ -733,7 +734,7 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 
 	if (fyai_config_resolve_model(&tmp))
 		return -1;
-	if (fyai_config_messages_gate(&tmp))
+	if (fyai_config_grammar_gate(&tmp))
 		return -1;
 	session_login_ref(&tmp);
 	/* Only a live session sends the next request with it. */
@@ -764,22 +765,10 @@ int fyai_session_model(struct fyai_ctx *ctx, const char *name, bool live)
 	return 0;
 }
 
-static int session_api_parse(const char *s, enum fyai_api_mode *modep)
-{
-	if (!strcmp(s, "responses"))
-		*modep = FYAI_API_RESPONSES;
-	else if (!strcmp(s, "chat-completions") || !strcmp(s, "chat"))
-		*modep = FYAI_API_CHAT_COMPLETIONS;
-	else if (!strcmp(s, "messages"))
-		*modep = FYAI_API_MESSAGES;
-	else
-		return -1;
-	return 0;
-}
-
 int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	const struct fyai_grammar *grammar;
 	struct fyai_cfg tmp;
 	enum fyai_api_mode mode;
 	fy_generic catalog;
@@ -788,11 +777,13 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)
 	if (!arg || !*arg)
 		return 0;
 
-	if (session_api_parse(arg, &mode)) {
-		fyai_error(ctx, "api: unknown grammar '%s' "
-			   "(responses|chat-completions|messages)", arg);
+	grammar = fyai_grammar_find(arg);
+	if (!grammar) {
+		fyai_error(ctx, "api: unknown grammar '%s' (" FYAI_GRAMMAR_NAMES ")",
+			   arg);
 		return -1;
 	}
+	mode = grammar->mode;
 	if (mode == cfg->api_mode)
 		return 0;
 
@@ -825,10 +816,10 @@ int fyai_session_api(struct fyai_ctx *ctx, const char *arg, bool live)
 	if (tmp.api_mode != mode) {
 		fyai_error(ctx, "api: provider '%s' does not offer %s",
 			   cfg->provider ? cfg->provider : "?",
-			   fyai_api_to_string(mode));
+			   grammar->name);
 		return -1;
 	}
-	if (fyai_config_messages_gate(&tmp))
+	if (fyai_config_grammar_gate(&tmp))
 		return -1;
 	session_login_ref(&tmp);
 	/* Only a live session sends the next request with it. */

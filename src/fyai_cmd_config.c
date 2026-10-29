@@ -24,6 +24,7 @@
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
+#include "fyai_grammar.h"
 #include "fyai_sandbox_profile.h"
 #include "fyai_skill.h"
 #include "fyai_sink.h"
@@ -1042,9 +1043,10 @@ int fyai_cmd_setting(struct fyai_cmd_call *call, fy_generic *result)
 	typed = fyai_cmd_arg_str(call, "value");
 	if (typed) {
 		fyai_error_check(ctx, strncmp(key, "reasoning/", 10) ||
-				 ctx->cfg->api_mode != FYAI_API_MESSAGES, err,
+				 fyai_grammar(ctx->cfg)->reasoning, err,
 				 "%s: reasoning options are not supported with "
-				 "the Messages API yet", call->path);
+				 "the %s yet", call->path,
+				 fyai_grammar(ctx->cfg)->title);
 		if (setting_value(call, key, typed, &value))
 			return -1;
 		if (fyai_config_session_scoped(key)) {

@@ -655,7 +655,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		fyai_error_check(ctx, !rc, err,
 				 "could not apply the sub-agent persona");
 	}
-	rc = fyai_config_messages_gate(cfg);
+	rc = fyai_config_grammar_gate(cfg);
 	fyai_error_check(ctx, !rc, err,
 			 "could not apply sub-agent endpoint capabilities");
 	if (fy_get(args, "_fyai_btw", false))

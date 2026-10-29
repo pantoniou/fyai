@@ -13,6 +13,7 @@
 #include "fyai.h"
 #include "fyai_auth.h"
 #include "fyai_config.h"
+#include "fyai_grammar.h"
 #include "fyai_transport_cfg.h"
 
 bool fyai_transport_credential_source(const struct fyai_cfg *cfg, char *out,
@@ -51,7 +52,7 @@ bool fyai_transport_compact_url(const struct fyai_cfg *cfg, char *out, size_t si
 	static const char suffix[] = "/responses";
 	size_t len;
 
-	if (!cfg->api_url || cfg->api_mode != FYAI_API_RESPONSES)
+	if (!cfg->api_url || !fyai_grammar_compacts(cfg))
 		return false;
 	len = strlen(cfg->api_url);
 	if (len < sizeof(suffix) - 1 ||
@@ -84,7 +85,8 @@ bool fyai_transport_profile_name(const struct fyai_cfg *cfg, const char *kind,
 	if (!fyai_transport_credential_source(cfg, cred, sizeof(cred)))
 		cred[0] = '\0';
 	h = fnv(h, url);
-	h = fnv(h, cfg->api_mode == FYAI_API_MESSAGES ? "messages" : "other");
+	h = fnv(h, fyai_grammar(cfg)->key_header ? fyai_grammar(cfg)->name :
+						  "other");
 	h = fnv(h, cred);
 	snprintf(out, size, "%s-%08x", compact ? "c" : "m", h);
 	return true;
@@ -93,6 +95,8 @@ bool fyai_transport_profile_name(const struct fyai_cfg *cfg, const char *kind,
 static int add_one(struct fyai_transport_grant *grant, const struct fyai_cfg *cfg,
 		   const char *kind, const char **why)
 {
+	const struct fyai_grammar *grammar = fyai_grammar(cfg);
+	const struct fyai_grammar_header *hdr;
 	struct fyai_transport_profile_spec spec = { 0 };
 	char name[FYAI_TPC_NAME_MAX], url[1024], cred[512];
 	int rc;
@@ -117,9 +121,9 @@ static int add_one(struct fyai_transport_grant *grant, const struct fyai_cfg *cf
 			return -EINVAL;
 		}
 		spec.credential = cred;
-		if (cfg->api_mode == FYAI_API_MESSAGES) {
+		if (grammar->key_header) {
 			spec.auth = FYAI_TA_HEADER;
-			spec.header = "x-api-key";
+			spec.header = grammar->key_header;
 		} else {
 			spec.auth = FYAI_TA_BEARER;
 		}
@@ -130,10 +134,9 @@ static int add_one(struct fyai_transport_grant *grant, const struct fyai_cfg *cf
 		       "the endpoint is not one that the transport accepts";
 		return rc == -ENOMEM ? rc : -EINVAL;
 	}
-	if (cfg->api_mode == FYAI_API_MESSAGES) {
-		rc = fyai_transport_grant_add_header(grant, name,
-						     "anthropic-version",
-						     ANTHROPIC_VERSION);
+	for (hdr = grammar->headers; hdr->name; hdr++) {
+		rc = fyai_transport_grant_add_header(grant, name, hdr->name,
+						     hdr->value);
 		if (rc) {
 			*why = "out of memory";
 			return rc;

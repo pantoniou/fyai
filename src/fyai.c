@@ -30,6 +30,7 @@
 #include "fyai_tool_registry.h"
 #include "fyai_catalog.h"
 #include "fyai_config.h"
+#include "fyai_grammar.h"
 #include "fyai_crash.h"
 #include "fyai_curl.h"
 #include "fyai_event.h"
@@ -2808,6 +2809,8 @@ int fyai_curl_easy_reinit(struct fyai_ctx *ctx)
 int fyai_request_state_apply(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	const struct fyai_grammar *grammar = fyai_grammar(cfg);
+	const struct fyai_grammar_header *hdr;
 	fy_generic native, mt, tool, fn, converted;
 	const char *name;
 	int rc;
@@ -2826,14 +2829,13 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	}
 	ctx->tools = fy_invalid;
 
-	/* Anthropic authenticates with x-api-key (no Bearer scheme) and
-	 * requires a protocol version header on every request.  Local no-auth
-	 * servers skip the API-key header entirely. */
+	/* A local server without authentication gets no API-key header. */
 	if (!cfg->chatgpt_auth && !cfg->no_auth && !ctx->tclient &&
 	    (!cfg->interactive || (cfg->api_key && *cfg->api_key))) {
-		ctx->auth_header = make_header(cfg->api_mode == FYAI_API_MESSAGES ?
-					       "x-api-key: " : "Authorization: Bearer ",
-					       cfg->api_key);
+		ctx->auth_header = grammar->key_header ?
+			make_header(fy_sprintfa("%s: ", grammar->key_header),
+				    cfg->api_key) :
+			make_header("Authorization: Bearer ", cfg->api_key);
 		if (!ctx->auth_header) {
 			if (!cfg->api_key || !*cfg->api_key)
 				fyai_error(ctx, "no API key (set one via --api-key, the "
@@ -2854,9 +2856,9 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	if (rc)
 		return -1;
 
-	if (cfg->api_mode == FYAI_API_MESSAGES) {
+	for (hdr = grammar->headers; hdr->name; hdr++) {
 		rc = append_header(&ctx->headers,
-				   "anthropic-version: " ANTHROPIC_VERSION);
+				   fy_sprintfa("%s: %s", hdr->name, hdr->value));
 		if (rc)
 			return -1;
 	}
@@ -4640,17 +4642,4 @@ int fyai_execute(struct fyai_ctx *ctx)
 
 	/* The verb reported why; printing where it was noticed only buried it. */
 	return rc ? EXIT_FAILURE : EXIT_SUCCESS;
-}
-
-const char *fyai_api_to_string(enum fyai_api_mode api)
-{
-	static const char * const apis[] = {
-		[FYAI_API_RESPONSES]		= "responses",
-		[FYAI_API_CHAT_COMPLETIONS]	= "chat-completions",
-		[FYAI_API_MESSAGES]		= "messages",
-	};
-
-	if ((unsigned int)api >= ARRAY_SIZE(apis))
-		return NULL;
-	return apis[(unsigned int)api];
 }

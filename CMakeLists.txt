@@ -563,6 +563,10 @@ set(FYAI_SOURCES
     src/fyai_jsonrpc.c
     src/fyai_patch.c
     src/fyai_prof.c
+    src/fyai_grammar.c
+    src/fyai_grammar_chat.c
+    src/fyai_grammar_messages.c
+    src/fyai_grammar_responses.c
     src/fyai_provider.c
     src/fyai_render.c
     src/fyai_sandbox.c
