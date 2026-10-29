@@ -401,7 +401,7 @@ struct fyai_cfg {
 	int agent_max_live_agents;
 	const char *tool_detail;
 	bool transcript_system;
-	float temperature;
+	double temperature;
 	bool enable_tools;
 	/* Opt in to the selected provider's native web search facility. */
 	bool web_search;

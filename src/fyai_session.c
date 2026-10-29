@@ -1481,7 +1481,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	if (fyai_model_supports_temperature(model_entry) &&
 	    (!cfg->reasoning_effort || !*cfg->reasoning_effort) &&
 	    (!cfg->reasoning_summary || !*cfg->reasoning_summary))
-		snprintf(temp, sizeof(temp), " · temp %g", (double)cfg->temperature);
+		snprintf(temp, sizeof(temp), " · temp %g", cfg->temperature);
 
 	window = fyai_context_window(ctx);
 	if (window > 0) {
