@@ -929,7 +929,8 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 				      fyai_extract_usage(ctx, response_doc));
 
 	if (cfg->debug && fy_is_valid(response_doc))
-		emit_generic_to_stdout(ctx, "response", response_doc, cfg->pretty);
+		emit_generic_to_stdout(ctx, "response",
+				       fy_get(response_doc, "doc"), cfg->pretty);
 	if (cfg->debug && cfg->cache_info &&
 	    fy_is_valid(response_doc))
 		fyai_print_cache_info(ctx, response_doc);
@@ -971,8 +972,8 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 		(void)fyai_log_generic(ctx, "conversation",
 			fy_mapping(ctx->transient_gb,
 				"kind", "response",
-				"api", fyai_api_to_string(cfg->api_mode),
-				"body", response_doc));
+				"api", fyai_grammar(cfg)->name,
+				"body", fy_get(response_doc, "doc")));
 	}
 	if (fy_is_invalid(response_doc)) {
 		fyai_error(ctx, "could not retain the provider response");
@@ -1003,6 +1004,9 @@ static void fyai_model_step_buffered_complete(
 
 	step = userdata;
 	response_doc = fyai_buffered_request_collect(request);
+	if (fy_is_valid(response_doc))
+		response_doc = fyai_response_canonical(step->ctx,
+						       response_doc);
 	fyai_buffered_request_destroy(request);
 	step->buffered_request = NULL;
 	fyai_model_step_request_complete(step, response_doc);

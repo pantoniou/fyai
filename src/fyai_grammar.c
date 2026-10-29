@@ -10,6 +10,7 @@
 #endif
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "fyai_grammar.h"
@@ -84,6 +85,48 @@ fy_generic fyai_grammar_build_request(struct fyai_ctx *ctx,
 				      const struct fyai_grammar_request *req)
 {
 	return fyai_grammar(ctx->cfg)->build_request(ctx, req);
+}
+
+int fyai_grammar_stream_open(struct fyai_ctx *ctx, struct fyai_stream_parse *p)
+{
+	p->grammar = fyai_grammar(ctx->cfg);
+	p->state = calloc(1, p->grammar->stream_state_size ?
+			     p->grammar->stream_state_size : 1);
+	if (!p->state)
+		return -1;
+	if (p->grammar->stream_init)
+		p->grammar->stream_init(p);
+	return 0;
+}
+
+void fyai_grammar_stream_close(struct fyai_stream_parse *p)
+{
+	free(p->state);
+	p->state = NULL;
+}
+
+int fyai_grammar_stream_event(struct fyai_stream_parse *p, fy_generic event)
+{
+	return p->grammar->stream_event(p, event);
+}
+
+fy_generic fyai_grammar_stream_finish(struct fyai_stream_parse *p)
+{
+	return p->grammar->stream_finish(p);
+}
+
+fy_generic fyai_grammar_response(struct fyai_ctx *ctx, fy_generic doc)
+{
+	return fyai_grammar(ctx->cfg)->response(ctx, doc);
+}
+
+bool fyai_grammar_chain_miss(struct fyai_ctx *ctx, long status,
+			     const char *body)
+{
+	const struct fyai_grammar *grammar = fyai_grammar(ctx->cfg);
+
+	return ctx->response_chain_linked && grammar->chain_miss &&
+	       grammar->chain_miss(status, body);
 }
 
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg)

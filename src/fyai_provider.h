@@ -30,6 +30,12 @@ bool fyai_provider_is_openrouter(const struct fyai_cfg *cfg);
 /* Return true for a transient error in an HTTP stream. */
 bool fyai_provider_error_transient(fy_generic err);
 fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item);
+/*
+ * The canonical response of the reply document @doc of the configured
+ * grammar (see struct fyai_grammar), with the tool calls of the user taken
+ * away. The fyai_response_*() readers and fyai_extract_usage() read it.
+ */
+fy_generic fyai_response_canonical(struct fyai_ctx *ctx, fy_generic doc);
 fy_generic fyai_response_output_text(struct fyai_ctx *ctx, fy_generic doc);
 fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx, fy_generic doc);
 fy_generic fyai_response_id(struct fyai_ctx *ctx, fy_generic doc);

@@ -1449,21 +1449,6 @@ void parse_diag_report(struct fyai_ctx *ctx, fy_generic v,
 	fyai_error(ctx, "%s: %s", what, have_why ? why : fallback);
 }
 
-fy_generic response_content(struct fy_generic_builder *gb, fy_generic doc)
-{
-	return fy_get_at_path(gb, doc, "choices", 0, "message", "content");
-}
-
-fy_generic response_message(struct fy_generic_builder *gb, fy_generic doc)
-{
-	return fy_get_at_path(gb, doc, "choices", 0, "message");
-}
-
-fy_generic response_tool_calls(struct fy_generic_builder *gb, fy_generic doc)
-{
-	return fy_get_at_path(gb, doc, "choices", 0, "message", "tool_calls");
-}
-
 fy_generic fyai_join_strings(struct fy_generic_builder *gb, fy_generic chunks)
 {
 	struct fy_generic_op_args args = {};
