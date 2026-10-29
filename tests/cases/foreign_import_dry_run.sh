@@ -127,7 +127,7 @@ run_fyai --branch imported-loss import --from codex \
 assert_status 0
 run_fyai --branch imported-loss export -o imported-loss.md
 assert_status 0
-grep -q '\[foreign content omitted\]' imported-loss.md || \
+grep -q '\[content omitted\]' imported-loss.md || \
 	fail "unsupported content did not receive a transcript placeholder"
 
 # A real import publishes the source's final context on a new branch.  The
