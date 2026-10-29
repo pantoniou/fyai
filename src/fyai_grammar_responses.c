@@ -71,8 +71,8 @@ static fy_generic responses_make_tools(struct fyai_ctx *ctx)
 	}
 	if (fyai_provider_native_web_search(cfg))
 		response_tools = fy_append(response_tools,
-				fy_mapping("type", fyai_provider_is_openrouter(cfg) ?
-					"openrouter:web_search" : "web_search"));
+				fy_mapping("type", cfg->web_search_type ?
+					cfg->web_search_type : "web_search"));
 
 	response_tools = fy_gb_internalize(ctx->gb, response_tools);
 	return fyai_provider_result(ctx, response_tools,

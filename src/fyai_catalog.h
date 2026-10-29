@@ -78,6 +78,13 @@ bool fyai_catalog_endpoint_has_hosted_tool(fy_generic endpoint,
 						const char *tool);
 
 /*
+ * The tool type that an endpoint declares the hosted tool @tool with, or
+ * fy_invalid for the default of its protocol.
+ */
+fy_generic fyai_catalog_endpoint_hosted_tool_type(fy_generic endpoint,
+						  const char *tool);
+
+/*
  * The embedded catalogue schema, parsed one time into a builder that lives
  * as long as the process; @gb is not used.
  */

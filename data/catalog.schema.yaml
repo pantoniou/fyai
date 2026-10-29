@@ -235,6 +235,15 @@ $defs:
         type: array
         items:
           type: string
+      hosted_tool_types:
+        description: >-
+          The tool type that the endpoint declares a hosted tool with, by the
+          name of the tool, when the protocol has no standard type for it or
+          the endpoint takes another one. A protocol that takes the tool as a
+          request option takes it as a tool of this type.
+        type: object
+        additionalProperties:
+          type: string
       local_tools:
         description: Built-in tools whose calls the caller executes (function_calling, bash/local_shell, computer_use). Curated per (provider, protocol).
         type: array

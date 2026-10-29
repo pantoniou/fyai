@@ -13,7 +13,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
 #include "fyai_grammar.h"
 #include "fyai_provider.h"
@@ -316,12 +315,6 @@ bool fyai_provider_native_shell(const struct fyai_cfg *cfg)
 bool fyai_provider_native_web_search(const struct fyai_cfg *cfg)
 {
 	return cfg && cfg->web_search && cfg->web_search_supported;
-}
-
-bool fyai_provider_is_openrouter(const struct fyai_cfg *cfg)
-{
-	return cfg && cfg->provider &&
-		!strcasecmp(cfg->provider, "openrouter");
 }
 
 /* Detect transient errors that arrive inside a successful HTTP stream. */

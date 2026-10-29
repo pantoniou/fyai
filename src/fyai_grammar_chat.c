@@ -185,12 +185,16 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 	if (!fy_str_empty(cfg->reasoning_effort))
 		request = fy_assoc(gb, request, "reasoning_effort",
 				   cfg->reasoning_effort);
+	/*
+	 * An endpoint that names a tool type for its search declares it as a
+	 * tool; the others take a request option.
+	 */
 	if (fyai_provider_native_web_search(cfg)) {
-		if (fyai_provider_is_openrouter(cfg))
+		if (cfg->web_search_type)
 			request = fy_assoc(gb, request, "tools",
 				fy_append(gb, ctx->tools,
 					  fy_mapping(gb, "type",
-						     "openrouter:web_search")));
+						     cfg->web_search_type)));
 		else
 			request = fy_assoc(gb, request, "web_search_options",
 					   fy_map_empty);

@@ -26,7 +26,6 @@ fy_generic fyai_token_extents_append(struct fy_generic_builder *gb,
 fy_generic fyai_chunk_extents(struct fy_generic_builder *gb, fy_generic chunks);
 bool fyai_provider_native_shell(const struct fyai_cfg *cfg);
 bool fyai_provider_native_web_search(const struct fyai_cfg *cfg);
-bool fyai_provider_is_openrouter(const struct fyai_cfg *cfg);
 /* Return true for a transient error in an HTTP stream. */
 bool fyai_provider_error_transient(fy_generic err);
 fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item);
