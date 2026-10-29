@@ -64,6 +64,7 @@
 #include "fyai_cmd.h"
 #include "fyai_stream.h"
 #include "fyai_transport_boot.h"
+#include "fyai_transport_cfg.h"
 #include "fyai_transport_client.h"
 #include "fyai_xfer.h"
 #include "fyai_ui.h"
@@ -267,8 +268,7 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	fy_generic prev_head, messages, input, request, response, output;
 	fy_generic turn, meta;
 	const char *body;
-	const char *url;
-	size_t url_len;
+	char url[1024];
 	bool endpoint_valid;
 	int rc;
 
@@ -277,7 +277,7 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	response = fy_invalid;
 	prev_head = ctx->last_message;
 	messages = fyai_turn_messages_since(ctx, prev_head, fy_invalid);
-	input = fyai_responses_input(ctx, messages);
+	input = fyai_grammar_input(ctx, messages);
 	fyai_error_check(ctx, fy_is_valid(input), out,
 			 "compact: cannot build the Responses input");
 
@@ -293,16 +293,12 @@ static int session_compact_responses(struct fyai_ctx *ctx, const char *hint)
 	fyai_error_check(ctx, fy_is_valid(request), out,
 			 "compact: cannot build the Responses request");
 
-	url_len = strlen(cfg->api_url);
-	endpoint_valid = url_len >= strlen("/responses") &&
-		!strcmp(cfg->api_url + url_len - strlen("/responses"),
-			"/responses");
+	endpoint_valid = fyai_transport_compact_url(cfg, url, sizeof(url));
 	fyai_error_check(ctx, endpoint_valid, out,
 			 "compact: cannot derive the Responses compact endpoint from %s",
 			 cfg->api_url);
-	url = fy_sprintfa("%s/compact", cfg->api_url);
 	body = emit_request_body(ctx->transient_gb, request);
-	fyai_error_check(ctx, url && body, out,
+	fyai_error_check(ctx, body, out,
 			 "compact: cannot encode the Responses request");
 
 	if (cfg->conversation_logging)
@@ -398,7 +394,7 @@ out:
 
 bool fyai_session_compact_v2(const struct fyai_cfg *cfg)
 {
-	return fyai_grammar(cfg)->compaction &&
+	return fyai_grammar_compacts(cfg) &&
 		cfg->response_compaction_supported && cfg->chatgpt_auth;
 }
 
@@ -516,7 +512,7 @@ int fyai_session_compact(struct fyai_ctx *ctx, const char *hint)
 	if (fyai_session_compact_v2(cfg))
 		return session_compact_responses_v2(ctx, hint);
 
-	if (fyai_grammar(cfg)->compaction &&
+	if (fyai_grammar_compacts(cfg) &&
 	    cfg->response_compaction_supported)
 		return session_compact_responses(ctx, hint);
 

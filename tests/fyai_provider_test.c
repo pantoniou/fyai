@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_cost.h"
 #include "fyai_media.h"
@@ -40,6 +41,13 @@ FYAI_TEST_ENTRY(provider, image_input, provider_image_input)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
+
+/* The context, with @grammar selected. */
+static struct fyai_ctx *as(const struct fyai_grammar *grammar)
+{
+	test_cfg.api_mode = grammar->mode;
+	return &test_ctx;
+}
 
 static fy_generic parse(const char *json)
 {
@@ -105,7 +113,7 @@ static void test_responses_input(void)
 		"{\"role\": \"assistant\",\"content\": \"the answer\"}"
 		"]");
 
-	out = emit(fyai_responses_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_responses), messages));
 
 	/* the system turn is carried via `instructions`, never in input */
 	expect_absent("responses_input", out, "\"system\"");
@@ -145,7 +153,7 @@ static void test_chat_input(void)
 		"{\"type\": \"output_text\",\"text\": \"part two\"}]}"
 		"]");
 
-	out = emit(fyai_chat_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_chat), messages));
 
 	/* reasoning has no Chat analogue */
 	expect_absent("chat_input", out, "reasoning");
@@ -326,13 +334,13 @@ static void test_chatgpt_shell_tool(void)
 	test_cfg.enable_builtin_shell = true;
 	test_cfg.shell_tool_supported = true;
 	test_cfg.chatgpt_auth = true;
-	out = emit(fyai_make_responses_tools(&test_ctx));
+	out = emit(fyai_grammar_make_tools(as(&fyai_grammar_responses)));
 	expect_contains("chatgpt_tools", out,
 			"\"type\": \"function\", \"name\": \"exec_command\"");
 	expect_absent("chatgpt_tools", out, "\"type\": \"shell\"");
 
 	test_cfg.chatgpt_auth = false;
-	out = emit(fyai_make_responses_tools(&test_ctx));
+	out = emit(fyai_grammar_make_tools(as(&fyai_grammar_responses)));
 	expect_contains("responses_tools", out, "\"type\": \"shell\"");
 	test_cfg.enable_tools = false;
 	test_cfg.enable_builtin_shell = false;
@@ -361,13 +369,13 @@ static void test_responses_shell_downgrade(void)
 	/* An endpoint that accepts the tool receives unchanged native items. */
 	test_cfg.shell_tool_supported = true;
 	test_cfg.chatgpt_auth = false;
-	out = emit(fyai_responses_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_responses), messages));
 	expect_contains("native", out, "\"type\": \"shell_call\"");
 	expect_contains("native", out, "\"type\": \"shell_call_output\"");
 
 	/* The ChatGPT backend receives no declaration or native item. */
 	test_cfg.chatgpt_auth = true;
-	out = emit(fyai_responses_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_responses), messages));
 	expect_absent("chatgpt", out, "shell_call");
 	expect_contains("chatgpt", out, "\"name\": \"exec_command\"");
 	expect_contains("chatgpt", out, "echo hi");
@@ -375,7 +383,7 @@ static void test_responses_shell_downgrade(void)
 	/* Another provider receives a function call and a string result. */
 	test_cfg.chatgpt_auth = false;
 	test_cfg.shell_tool_supported = false;
-	out = emit(fyai_responses_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_responses), messages));
 	expect_absent("foreign", out, "shell_call");
 	expect_contains("foreign", out, "\"type\": \"function_call\"");
 	expect_contains("foreign", out, "\"type\": \"function_call_output\"");
@@ -405,7 +413,7 @@ static void test_responses_shell_outcome(void)
 
 	test_cfg.shell_tool_supported = true;
 	test_cfg.chatgpt_auth = false;
-	out = emit(fyai_responses_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_responses), messages));
 	/* A time limit keeps its type, without the limit that expired. */
 	expect_contains("timeout", out, "\"type\": \"timeout\"");
 	expect_absent("timeout", out, "timeout_ms");
@@ -431,7 +439,7 @@ static void test_foreign_shell_tool(void)
 	test_cfg.chatgpt_auth = false;
 	/* The catalogue specifies that this endpoint does not accept the tool. */
 	test_cfg.shell_tool_supported = false;
-	out = emit(fyai_make_responses_tools(&test_ctx));
+	out = emit(fyai_grammar_make_tools(as(&fyai_grammar_responses)));
 	expect_contains("foreign_tools", out,
 			"\"type\": \"function\", \"name\": \"exec_command\"");
 	expect_absent("foreign_tools", out, "\"type\": \"shell\"");
@@ -505,7 +513,7 @@ static void test_messages_input(void)
 		"{\"role\": \"assistant\",\"content\": \"the answer\"}"
 		"]");
 
-	out = emit(fyai_messages_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_messages), messages));
 
 	/* system travels in the request `system` field, reasoning is dropped */
 	expect_absent("messages_input", out, "\"system\"");
@@ -676,19 +684,19 @@ static void test_agent_message_input(void)
 		"\"reply_to\":\"main:steer1\"}}]");
 	const char *out;
 
-	out = emit(fyai_responses_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_responses), messages));
 	expect_contains("agent responses", out, "\"role\": \"user\"");
 	expect_contains("agent responses", out, "main/agent:worker");
 	expect_contains("agent responses", out, "reply_to=main:steer1");
 	expect_contains("agent responses", out, "done");
 	expect_absent("agent responses", out, "\"role\": \"agent\"");
 
-	out = emit(fyai_chat_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_chat), messages));
 	expect_contains("agent chat", out, "\"role\": \"user\"");
 	expect_contains("agent chat", out, "main/agent:worker");
 	expect_contains("agent chat", out, "reply_to=main:steer1");
 
-	out = emit(fyai_messages_input(&test_ctx, messages));
+	out = emit(fyai_grammar_input(as(&fyai_grammar_messages), messages));
 	expect_contains("agent messages", out, "\"role\": \"user\"");
 	expect_contains("agent messages", out, "main/agent:worker");
 	expect_contains("agent messages", out, "reply_to=main:steer1");
@@ -767,17 +775,17 @@ static void test_native_web_search_tools(void)
 	test_cfg.web_search_supported = true;
 	test_cfg.api_mode = FYAI_API_RESPONSES;
 	test_cfg.provider = "openrouter";
-	out = emit(fyai_make_responses_tools(&test_ctx));
+	out = emit(fyai_grammar_make_tools(as(&fyai_grammar_responses)));
 	expect_contains("openrouter_responses_web_search", out,
 			"\"type\": \"openrouter:web_search\"");
 
 	test_cfg.provider = "openai";
-	out = emit(fyai_make_responses_tools(&test_ctx));
+	out = emit(fyai_grammar_make_tools(as(&fyai_grammar_responses)));
 	expect_contains("responses_web_search", out,
 			"\"type\": \"web_search\"");
 
 	test_cfg.api_mode = FYAI_API_MESSAGES;
-	out = emit(fyai_make_messages_tools(&test_ctx));
+	out = emit(fyai_grammar_make_tools(as(&fyai_grammar_messages)));
 	expect_contains("messages_web_search", out,
 			"web_search_20250305");
 }
@@ -981,7 +989,7 @@ static void test_image_input(void)
 	expect_absent("image canonical", text, "base64");
 
 	test_cfg.api_mode = FYAI_API_RESPONSES;
-	out = fyai_responses_input(&test_ctx, messages);
+	out = fyai_grammar_input(as(&fyai_grammar_responses), messages);
 	text = emit(out);
 	expect_contains("image responses", text, "\"type\": \"input_image\"");
 	expect_contains("image responses", text,
@@ -990,14 +998,14 @@ static void test_image_input(void)
 	expect_contains("image responses", text, "what is wrong here?");
 	expect_absent("image responses", text, "\"type\": \"image\"");
 
-	out = fyai_chat_input(&test_ctx, messages);
+	out = fyai_grammar_input(as(&fyai_grammar_chat), messages);
 	text = emit(out);
 	expect_contains("image chat", text, "\"type\": \"image_url\"");
 	expect_contains("image chat", text,
 			"\"url\": \"data:image/png;base64,iVBORw0KGgo");
 	expect_contains("image chat", text, "\"type\": \"text\"");
 
-	out = fyai_messages_input(&test_ctx, messages);
+	out = fyai_grammar_input(as(&fyai_grammar_messages), messages);
 	text = emit(out);
 	expect_contains("image messages", text, "\"type\": \"image\"");
 	expect_contains("image messages", text, "\"type\": \"base64\"");
@@ -1008,7 +1016,7 @@ static void test_image_input(void)
 
 	/* A model without the image modality rejects the request. */
 	test_cfg.image_input_supported = false;
-	out = fyai_responses_input(&test_ctx, messages);
+	out = fyai_grammar_input(as(&fyai_grammar_responses), messages);
 	if (fy_is_valid(out)) {
 		fprintf(stderr, "image: a model without image input took one\n");
 		exit(1);

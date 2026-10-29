@@ -49,16 +49,7 @@ bool fyai_transport_credential_source(const struct fyai_cfg *cfg, char *out,
 
 bool fyai_transport_compact_url(const struct fyai_cfg *cfg, char *out, size_t size)
 {
-	static const char suffix[] = "/responses";
-	size_t len;
-
-	if (!cfg->api_url || !fyai_grammar(cfg)->compaction)
-		return false;
-	len = strlen(cfg->api_url);
-	if (len < sizeof(suffix) - 1 ||
-	    strcmp(cfg->api_url + len - (sizeof(suffix) - 1), suffix))
-		return false;
-	return snprintf(out, size, "%s/compact", cfg->api_url) < (int)size;
+	return fyai_grammar_compact_url(cfg, out, size);
 }
 
 static uint32_t fnv(uint32_t h, const char *s)

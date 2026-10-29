@@ -37,6 +37,7 @@
 #include "fyai_jsonrpc.h"
 #include "fyai_media.h"
 #include "fyai_output.h"
+#include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_session.h"
 #include "fyai_storage.h"
