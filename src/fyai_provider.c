@@ -403,3 +403,85 @@ fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item)
 {
 	return fyai_media_text(ctx->transient_gb, fy_get(item, "content"));
 }
+
+void fyai_wire_loss(struct fyai_ctx *ctx, fy_generic *lossesp,
+		    const char *kind, fy_generic type)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+
+	if (!lossesp)
+		return;
+	*lossesp = fy_append(gb, *lossesp, fy_mapping(gb,
+		"kind", kind,
+		"content_type", fy_is_string(type) ? type :
+						      fy_value(gb, "unknown")));
+}
+
+/*
+ * The words of the content parts of a wire message. A part of another kind
+ * than text is a loss when @lossesp collects them, and its place in the
+ * text keeps a placeholder; a reply passes NULL and drops such a part.
+ */
+fy_generic fyai_wire_parts_text(struct fyai_ctx *ctx, fy_generic content,
+				fy_generic *lossesp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic part, type, text, joined;
+
+	if (fy_is_string(content))
+		return content;
+	joined = fy_value(gb, "");
+	fy_foreach(part, content) {
+		type = fy_get(part, "type", fy_invalid);
+		/* Calls and results are items of their own. */
+		if (fy_any_equal(type, "tool_use", "tool_result", "thinking",
+				 "redacted_thinking"))
+			continue;
+		if (fy_any_equal(type, "text", "input_text", "output_text")) {
+			text = fy_get(part, "text", fy_invalid);
+			if (fy_is_string(text))
+				joined = fy_join(gb, "", joined, text);
+			continue;
+		}
+		if (!lossesp)
+			continue;
+		fyai_wire_loss(ctx, lossesp, "unsupported_content", type);
+		joined = fy_join(gb, "", joined, "[content omitted]");
+	}
+	return joined;
+}
+
+/* The output of a tool result as text: the words of its parts, else JSON. */
+fy_generic fyai_wire_output_text(struct fyai_ctx *ctx, fy_generic output)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic part, text, joined;
+	const char *json;
+
+	if (fy_is_string(output))
+		return output;
+	if (!fy_is_valid(output) || fy_is_null(output))
+		return fy_value(gb, "");
+	if (fy_is_sequence(output)) {
+		joined = fy_value(gb, "");
+		fy_foreach(part, output) {
+			text = fy_get(part, "text", fy_invalid);
+			if (fy_is_string(text))
+				joined = fy_join(gb, "", joined, text);
+		}
+		return joined;
+	}
+	json = emit_json_string(gb, output);
+	return fy_value(gb, json ? json : "");
+}
+
+fy_generic fyai_wire_calls(struct fyai_ctx *ctx, fy_generic messages)
+{
+	fy_generic calls, item;
+
+	calls = fy_seq_empty;
+	fy_foreach(item, messages)
+		if (fyai_item_type_is_call(fy_get(item, "type")))
+			calls = fy_append(ctx->transient_gb, calls, item);
+	return calls;
+}

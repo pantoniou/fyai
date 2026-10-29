@@ -112,6 +112,13 @@ bool fyai_grammar_chain_miss(struct fyai_ctx *ctx, long status,
 	       grammar->chain_miss(status, body);
 }
 
+fy_generic fyai_grammar_history(const struct fyai_grammar *grammar,
+				struct fyai_ctx *ctx, fy_generic wire,
+				fy_generic *lossesp)
+{
+	return grammar->history(ctx, wire, lossesp);
+}
+
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg)
 {
 	return fyai_grammar(cfg)->compact_url != NULL;

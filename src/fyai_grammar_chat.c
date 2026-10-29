@@ -470,34 +470,60 @@ static fy_generic chat_usage(struct fy_generic_builder *gb, fy_generic usage)
 }
 
 /*
- * The text of the message, then each call as a call item: the shapes every
- * grammar stores. The message is the wire record of the turn.
+ * Chat messages as canonical messages: the words of a message, then each of
+ * its calls as a call item; a tool message is an output item. An assistant
+ * message with calls and no words keeps no text message.
  */
+static fy_generic chat_history(struct fyai_ctx *ctx, fy_generic wire,
+			       fy_generic *lossesp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic out, m, role, text, calls, call;
+
+	out = fy_seq_empty;
+	fy_foreach(m, wire) {
+		role = fy_get(m, "role", fy_invalid);
+		if (!fy_is_string(role))
+			role = fy_value(gb, "user");
+		if (fy_equal(role, "tool")) {
+			out = fy_append(gb, out, fy_mapping(gb,
+				"type", "function_call_output",
+				"call_id", fy_get(m, "tool_call_id", ""),
+				"output", fyai_wire_output_text(ctx,
+					fy_get(m, "content", fy_invalid))));
+			continue;
+		}
+		text = fyai_wire_parts_text(ctx,
+			fy_get(m, "content", fy_seq_empty), lossesp);
+		calls = fy_get(m, "tool_calls", fy_invalid);
+		if (!fy_is_sequence(calls) || !fy_empty(text))
+			out = fy_append(gb, out, fy_mapping(gb,
+					"role", role, "content", text));
+		fy_foreach(call, calls) {
+			out = fy_append(gb, out, fy_mapping(gb,
+				"type", "function_call",
+				"call_id", fy_get(call, "id", ""),
+				"name", fy_get_at_path(call, "function", "name"),
+				"arguments", fy_get_at_path(call, "function",
+							    "arguments")));
+		}
+	}
+	return out;
+}
+
+/* The message is the wire record of the turn. */
 static fy_generic chat_response(struct fyai_ctx *ctx, fy_generic doc)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic message, content, text, calls, call, messages, tool_calls;
+	fy_generic message, content, text, calls, messages;
 	bool final;
 
 	message = fy_get_at_path(doc, "choices", 0, "message");
 	content = fy_get(message, "content");
 	text = fy_is_string(content) ? content : fy_value(gb, "");
-	calls = fy_seq_empty;
-	tool_calls = fy_get(message, "tool_calls");
-	fy_foreach(call, tool_calls) {
-		calls = fy_append(gb, calls, fy_mapping(gb,
-			"type", "function_call",
-			"call_id", fy_get(call, "id", ""),
-			"name", fy_get_at_path(call, "function", "name"),
-			"arguments", fy_get_at_path(call, "function",
-						    "arguments")));
-	}
+	messages = chat_history(ctx, fy_sequence(gb, message), NULL);
+	calls = fyai_wire_calls(ctx, messages);
 	final = !fy_len(calls);
-	messages = fy_seq_empty;
-	if (final || *fy_castp(&text, ""))
-		messages = fy_sequence(gb, fy_mapping(gb,
-				"role", "assistant", "content", text));
-	messages = fy_concat(gb, messages, calls);
 	return fy_mapping(gb,
 		"id", fy_get(doc, "id", ""),
 		"text", text,
@@ -535,6 +561,7 @@ const struct fyai_grammar fyai_grammar_chat = {
 	.stream_event		= chat_stream_event,
 	.stream_finish		= chat_stream_finish,
 	.response		= chat_response,
+	.history		= chat_history,
 	.reasoning		= true,
 	.logprobs		= true,
 };

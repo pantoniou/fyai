@@ -564,6 +564,63 @@ static fy_generic responses_response(struct fyai_ctx *ctx, fy_generic doc)
 		"doc", doc);
 }
 
+/*
+ * Responses items as canonical messages: a message item keeps its words,
+ * calls and outputs keep their shape with text outputs, and reasoning is
+ * dropped. Any other item is a loss.
+ */
+static fy_generic responses_history(struct fyai_ctx *ctx, fy_generic wire,
+				    fy_generic *lossesp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic out, item, type, role, args;
+	const char *json;
+
+	out = fy_seq_empty;
+	fy_foreach(item, wire) {
+		type = fy_get(item, "type", fy_invalid);
+		if (!fy_is_string(type) || fy_equal(type, "message")) {
+			role = fy_get(item, "role", fy_invalid);
+			out = fy_append(gb, out, fy_mapping(gb,
+				"role", fy_is_string(role) ? role :
+							     fy_value(gb, "user"),
+				"content", fyai_wire_parts_text(ctx,
+					fy_get(item, "content", fy_invalid),
+					lossesp)));
+			continue;
+		}
+		if (fy_equal(type, "function_call")) {
+			args = fy_get(item, "arguments", fy_invalid);
+			if (!fy_is_string(args)) {
+				json = emit_json_string(gb, fy_is_mapping(args) ?
+							args : fy_map_empty);
+				args = fy_value(gb, json ? json : "{}");
+			}
+			out = fy_append(gb, out, fy_mapping(gb,
+				"type", "function_call",
+				"call_id", fy_get(item, "call_id", ""),
+				"name", fy_get(item, "name", ""),
+				"arguments", args));
+			continue;
+		}
+		if (fy_equal(type, "function_call_output")) {
+			out = fy_append(gb, out, fy_mapping(gb,
+				"type", "function_call_output",
+				"call_id", fy_get(item, "call_id", ""),
+				"output", fyai_wire_output_text(ctx,
+					fy_get(item, "output", fy_invalid))));
+			continue;
+		}
+		if (fy_any_equal(type, "shell_call", "shell_call_output")) {
+			out = fy_append(gb, out, item);
+			continue;
+		}
+		if (fy_not_equal(type, "reasoning"))
+			fyai_wire_loss(ctx, lossesp, "unsupported_item", type);
+	}
+	return out;
+}
+
 static bool responses_chain_miss(long status, const char *body)
 {
 	if ((status != 400 && status != 404) || !body)
@@ -599,6 +656,7 @@ const struct fyai_grammar fyai_grammar_responses = {
 	.stream_finish		= responses_stream_finish,
 	.response		= responses_response,
 	.chain_miss		= responses_chain_miss,
+	.history		= responses_history,
 	.compact_url		= responses_compact_url,
 	.reasoning		= true,
 	.logprobs		= true,

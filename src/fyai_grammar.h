@@ -126,6 +126,13 @@ struct fyai_grammar {
 	fy_generic (*response)(struct fyai_ctx *ctx, fy_generic doc);
 	/* True when a failed reply says that the previous response is gone. */
 	bool (*chain_miss)(long status, const char *body);
+	/*
+	 * Wire messages of the grammar as canonical messages: the inverse of
+	 * the input. *lossesp collects what the canonical form cannot hold,
+	 * as {kind, content_type}; NULL drops it.
+	 */
+	fy_generic (*history)(struct fyai_ctx *ctx, fy_generic wire,
+			      fy_generic *lossesp);
 	/* The compact URL of the endpoint; NULL when there is none. */
 	bool (*compact_url)(const struct fyai_cfg *cfg, char *out, size_t size);
 
@@ -202,6 +209,15 @@ fy_generic fyai_grammar_response(struct fyai_ctx *ctx, fy_generic doc);
 bool fyai_grammar_chain_miss(struct fyai_ctx *ctx, long status,
 			     const char *body);
 
+/*
+ * Wire messages in the shape of @grammar as canonical messages. A file of
+ * another program names its grammar; it is not the one the configuration
+ * selects, so the caller names it too.
+ */
+fy_generic fyai_grammar_history(const struct fyai_grammar *grammar,
+				struct fyai_ctx *ctx, fy_generic wire,
+				fy_generic *lossesp);
+
 /* True when an endpoint of the grammar can offer /compact. */
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg);
 
@@ -260,6 +276,23 @@ int fyai_stream_hosted(struct fyai_stream_parse *p, const char *name,
 /* Report a failure event of the provider and fail the reply. */
 void fyai_stream_fail(struct fyai_stream_parse *p, fy_generic type,
 		      fy_generic event);
+
+/* Record a loss of @kind for content of @type when @lossesp is not NULL. */
+void fyai_wire_loss(struct fyai_ctx *ctx, fy_generic *lossesp,
+		    const char *kind, fy_generic type);
+
+/*
+ * The words of the content parts of a wire message. With @lossesp, a part
+ * that is not text is a loss and leaves a placeholder in the text.
+ */
+fy_generic fyai_wire_parts_text(struct fyai_ctx *ctx, fy_generic content,
+				fy_generic *lossesp);
+
+/* The output of a tool result as text. */
+fy_generic fyai_wire_output_text(struct fyai_ctx *ctx, fy_generic output);
+
+/* The call items of the canonical @messages. */
+fy_generic fyai_wire_calls(struct fyai_ctx *ctx, fy_generic messages);
 
 /*
  * The canonical messages as Anthropic Messages blocks, without the cache
