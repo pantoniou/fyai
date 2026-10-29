@@ -659,54 +659,85 @@ static fy_generic messages_usage(struct fy_generic_builder *gb,
 }
 
 /*
- * The joined text and each tool_use block as a call item, the shapes every
- * grammar stores. `input` arrives as parsed JSON; it is encoded again so
- * the canonical `arguments` is a JSON string. A turn that pause_turn ends
- * keeps its content blocks in a message, because a server tool continues
- * only from the complete block array.
+ * Messages of content blocks as canonical messages: the words of a message,
+ * then each tool_use block as a call item and each tool_result block as an
+ * output item. `input` arrives as parsed JSON; it is encoded again so the
+ * canonical `arguments` is a JSON string.
+ */
+static fy_generic messages_history(struct fyai_ctx *ctx, fy_generic wire,
+				   fy_generic *lossesp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic out, m, role, content, text, block, type;
+	const char *args;
+
+	out = fy_seq_empty;
+	fy_foreach(m, wire) {
+		role = fy_get(m, "role", fy_invalid);
+		if (!fy_is_string(role))
+			role = fy_value(gb, "user");
+		content = fy_get(m, "content", fy_invalid);
+		if (fy_is_string(content)) {
+			out = fy_append(gb, out, fy_mapping(gb,
+					"role", role, "content", content));
+			continue;
+		}
+		text = fyai_wire_parts_text(ctx, content, lossesp);
+		if (!fy_empty(text))
+			out = fy_append(gb, out, fy_mapping(gb,
+					"role", role, "content", text));
+		fy_foreach(block, content) {
+			type = fy_get(block, "type", fy_invalid);
+			if (fy_equal(type, "tool_use")) {
+				args = emit_json_string(gb, fy_get(block,
+						"input", fy_map_empty));
+				out = fy_append(gb, out, fy_mapping(gb,
+					"type", "function_call",
+					"call_id", fy_get(block, "id", ""),
+					"name", fy_get(block, "name", ""),
+					"arguments", args ? args : "{}"));
+			} else if (fy_equal(type, "tool_result")) {
+				out = fy_append(gb, out, fy_mapping(gb,
+					"type", "function_call_output",
+					"call_id", fy_get(block, "tool_use_id", ""),
+					"output", fyai_wire_output_text(ctx,
+						fy_get(block, "content",
+						       fy_invalid))));
+			}
+		}
+	}
+	return out;
+}
+
+/*
+ * A turn that pause_turn ends keeps its content blocks in a message,
+ * because a server tool continues only from the complete block array.
  */
 static fy_generic messages_response(struct fyai_ctx *ctx, fy_generic doc)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic content, block, chunks, text, calls, messages;
-	const char *args;
+	fy_generic content, history, calls, text, first, messages;
 	bool paused, final;
 
 	content = fy_get(doc, "content");
-	chunks = fy_seq_empty;
-	calls = fy_seq_empty;
-	fy_foreach(block, content) {
-		if (fy_equal(fy_get(block, "type"), "text")) {
-			chunks = fy_append(gb, chunks,
-					   fy_get(block, "text", ""));
-			continue;
-		}
-		if (fy_not_equal(fy_get(block, "type"), "tool_use"))
-			continue;
-		args = emit_json_string(gb, fy_get(block, "input",
-						   fy_map_empty));
-		calls = fy_append(gb, calls, fy_mapping(gb,
-			"type", "function_call",
-			"call_id", fy_get(block, "id", ""),
-			"name", fy_get(block, "name", ""),
-			"arguments", args ? args : "{}"));
-	}
-	text = fyai_join_strings(gb, chunks);
+	history = messages_history(ctx, fy_sequence(gb, fy_mapping(gb,
+					"role", "assistant",
+					"content", fy_is_sequence(content) ?
+						content : fy_seq_empty)),
+				   NULL);
+	calls = fyai_wire_calls(ctx, history);
+	first = fy_get_at(history, 0);
+	text = fy_is_string(fy_get(first, "role", fy_invalid)) ?
+		fy_get(first, "content") : fy_value(gb, "");
 	paused = fy_equal(fy_get(doc, "stop_reason"), "pause_turn");
 	final = !paused && !fy_len(calls);
 
-	messages = fy_seq_empty;
-	if (paused) {
-		if (fy_is_sequence(content) && fy_len(content))
-			messages = fy_sequence(gb, fy_mapping(gb,
-					"role", "assistant",
-					"content", content));
-	} else if (*fy_castp(&text, "")) {
-		messages = fy_sequence(gb, fy_mapping(gb,
-				"role", "assistant", "content", text));
-	}
-	if (!final)
-		messages = fy_concat(gb, messages, calls);
+	messages = history;
+	if (paused)
+		messages = fy_concat(gb, fy_len(content) ?
+			fy_sequence(gb, fy_mapping(gb, "role", "assistant",
+						   "content", content)) :
+			fy_seq_empty, calls);
 	return fy_mapping(gb,
 		"id", fy_get(doc, "id", ""),
 		"text", text,
@@ -744,4 +775,5 @@ const struct fyai_grammar fyai_grammar_messages = {
 	.stream_event		= messages_stream_event,
 	.stream_finish		= messages_stream_finish,
 	.response		= messages_response,
+	.history		= messages_history,
 };
