@@ -179,6 +179,12 @@ initialize each generic field explicitly.
   never the name of a platform. `src/fyai_orphan_linux.c` and
   `src/fyai_cover_linux.c` are the Linux code of the scope and the cover; the
   `_none.c` files hold their stubs.
+- `src/fyai_grammar.c`: the dispatch to the provider API grammars
+  (`src/fyai_grammar.h`). `src/fyai_grammar_responses.c`,
+  `src/fyai_grammar_chat.c` and `src/fyai_grammar_messages.c` each build the
+  requests and parse the replies of one grammar (`doc/provider-grammars.md`).
+  `src/fyai_provider.c` holds what the grammars share and the readers of the
+  canonical response. Put grammar code in a grammar file.
 - `src/fyai_secret.c`: the `secret` verb and the machine-local secrets.
   `src/fyai_secret_store.h` is the interface of the stores: the kernel keyring
   (`fyai_secret_keyctl.c`), the macOS keychain (`fyai_secret_keychain.c`), the
@@ -342,8 +348,8 @@ are PNG, JPEG, GIF, and WebP; `doc/media.md` is the design.
   Markdown row per image, `![image: PNG 1024x768, 96 KiB](fyai-media:DIGEST)`.
   The transcript card, the offline views, and the export all take it from
   there, so the row reads the same everywhere. The model never sees it.
-- A wire form is derived at the request boundary in `src/fyai_provider.c`,
-  as every other canonical item is. Nothing wire-shaped is stored, so a
+- A wire form is derived at the request boundary by the `image_part`
+  operation of each grammar, as every other canonical item is. Nothing wire-shaped is stored, so a
   conversation can continue on another grammar.
 - Image input is a model property: `image_input_supported` is derived from
   `image` in the model's `modalities`. Do not infer it from the provider name
@@ -567,11 +573,30 @@ act on the request.
 
 The supported grammars are Responses, Chat Completions, and Anthropic
 Messages. The `api` configuration key selects the grammar. Do not add separate
-grammar flags.
+grammar flags. `doc/provider-grammars.md` gives the design.
 
-Normalize inbound provider items at the parse boundary. Store one canonical
-shape. Adapt that shape in each request builder so that a conversation can
-continue on another provider.
+A grammar is a backend: `struct fyai_grammar` holds its identity, its headers,
+its capabilities and its operations. Do not test `cfg->api_mode` outside the
+grammar files. Ask the table (`fyai_grammar(cfg)`) for a property, add a
+capability or an operation when a new difference appears, and call an
+operation through its `fyai_grammar_*()` wrapper.
+
+Normalize inbound provider items at the parse boundary. The `response`
+operation reads a reply into the canonical response, which
+`fyai_response_canonical()` gives the core; the readers, the tool loop and
+the turn store read only that. Store one canonical shape: calls and results
+are items, for every grammar. Adapt that shape in each request builder so
+that a conversation can continue on another provider.
+
+Read a provider difference from the catalogue, such as the tool type of a
+hosted search (`hosted_tool_types`), never from the provider name. The
+session importer reads a Codex or Claude Code session through the `history`
+operation of its grammar; keep wire shapes out of the importer.
+
+A provider caches a prefix of the request. A stored turn goes back as the
+provider sent it, and each request starts with the request before it.
+`tests/fyai_grammar_test.c` and the `grammar_cache_prefix_*` cases check
+both; keep them passing when a builder changes.
 
 Read endpoint capabilities from the catalogue. Do not infer them from a
 provider name. `fyai_config_resolve_model()` derives
