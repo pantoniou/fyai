@@ -26,7 +26,8 @@ messages. In practice, a user input, an assistant tool request, a tool result,
 and a final assistant answer may each become separate linked nodes even though
 the display treats them as one conversational exchange.
 
-Persisted turn data currently contains:
+Persisted turn data currently contains (`doc/canonical-format.md` gives the
+whole turn):
 
 - `messages`: canonical provider-independent content used for model replay;
 - `provider_stream`: provider-specific wire output, including reasoning;

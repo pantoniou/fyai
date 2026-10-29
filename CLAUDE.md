@@ -587,6 +587,8 @@ operation reads a reply into the canonical response, which
 the turn store read only that. Store one canonical shape: calls and results
 are items, for every grammar. Adapt that shape in each request builder so
 that a conversation can continue on another provider.
+`doc/canonical-format.md` gives the stored turn and its vocabulary; change it
+with any change of that shape.
 
 Read a provider difference from the catalogue, such as the tool type of a
 hosted search (`hosted_tool_types`), never from the provider name. The

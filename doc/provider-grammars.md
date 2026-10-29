@@ -115,6 +115,8 @@ and `arguments`. A result is a `function_call_output` or `shell_call_output`
 item. Every grammar stores these shapes. The input of each grammar converts
 them back to its wire. Chat Completions joins an assistant text message and
 the calls that follow it into one message. No Chat-shaped message is stored.
+`doc/canonical-format.md` gives the whole format, with the replies and requests
+of each grammar.
 
 ## The prompt cache
 

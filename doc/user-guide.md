@@ -191,7 +191,7 @@ This gives batch commands, scripts, interactive sessions, and delegated agents t
 - OpenAI-style Chat Completions;
 - Anthropic-style Messages.
 
-Provider request and response details may be retained for inspection, but the durable conversation is represented canonically. A continuation can therefore be resolved through another provider or API grammar without making the provider's wire transcript the permanent conversation format.
+Provider request and response details may be retained for inspection, but the durable conversation is represented canonically. A continuation can therefore be resolved through another provider or API grammar without making the provider's wire transcript the permanent conversation format. `doc/canonical-format.md` describes that format.
 
 Capabilities still vary by provider and model. Model resolution determines the provider, endpoint, API grammar, wire model identifier, context window, token limit, and relevant feature support.
 
