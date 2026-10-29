@@ -176,6 +176,8 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic options;
 	fy_generic request;
+	fy_generic tools;
+	bool hosted_tool;
 
 	request = fy_mapping(gb,
 		"model", cfg->model,
@@ -185,18 +187,26 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 	if (!fy_str_empty(cfg->reasoning_effort))
 		request = fy_assoc(gb, request, "reasoning_effort",
 				   cfg->reasoning_effort);
+	/*
+	 * OpenRouter declares its search as a tool beside the function tools;
+	 * the other providers take an option of the request.
+	 */
+	tools = fy_is_sequence(ctx->tools) ? ctx->tools : fy_seq_empty;
+	hosted_tool = false;
 	if (fyai_provider_native_web_search(cfg)) {
-		if (fyai_provider_is_openrouter(cfg))
-			request = fy_assoc(gb, request, "tools",
-				fy_append(gb, ctx->tools,
+		hosted_tool = fyai_provider_is_openrouter(cfg);
+		if (hosted_tool)
+			tools = fy_append(gb, tools,
 					  fy_mapping(gb, "type",
-						     "openrouter:web_search")));
+						     "openrouter:web_search"));
 		else
 			request = fy_assoc(gb, request, "web_search_options",
 					   fy_map_empty);
 	}
+	if (hosted_tool && !fyai_grammar_tools_wanted(ctx))
+		request = fy_assoc(gb, request, "tools", tools);
 	if (fyai_grammar_tools_wanted(ctx)) {
-		request = fy_assoc(gb, request, "tools", ctx->tools,
+		request = fy_assoc(gb, request, "tools", tools,
 				   "tool_choice", "auto");
 		if (cfg->parallel_tool_calls)
 			request = fy_assoc(gb, request,
