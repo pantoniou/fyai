@@ -205,36 +205,6 @@ fy_generic fyai_turn_messages_since(struct fyai_ctx *ctx, fy_generic turn,
 }
 
 /*
- * Reduce a provider's assistant message to canonical, provider-agnostic
- * content: role plus content, and tool_calls when present
- * since the protocol needs them for call/result pairing. Provider wire
- * fields (reasoning_content, refusal, reasoning_details, ...) are dropped
- * from canonical content; the full message is preserved separately in the
- * turn's provider stream. This is what lets a conversation continue against
- * a different provider without leaking one provider's wire fields to another.
- */
-static fy_generic fyai_canonical_assistant_message(struct fyai_ctx *ctx,
-						   fy_generic raw)
-{
-	struct fy_generic_builder *gb;
-	fy_generic content, tool_calls, msg;
-
-	gb = fyai_ctx_transient_gb(ctx);
-	content = fy_get(raw, "content");
-	msg = fy_mapping(gb,
-		"role", fy_get(raw, "role", "assistant"),
-		"content", fy_is_valid(content) ? content : fy_null);
-
-	tool_calls = fy_get(raw, "tool_calls");
-	if (fy_is_valid(tool_calls) && !fy_is_null(tool_calls))
-		msg = fy_assoc(gb, msg, "tool_calls", tool_calls);
-
-	if (fy_is_invalid(msg))
-		fyai_error(ctx, "could not build the assistant message");
-	return msg;
-}
-
-/*
  * Attach the provider's verbatim wire messages to @turn under a
  * provider-streams map keyed by provider identity. The canonical
  * `messages` remain the only thing replayed to a model; this parallel stream
@@ -299,6 +269,7 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 	struct fy_generic_builder *gb;
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic raw;
+	fy_generic text;
 	fy_generic usage;
 	fy_generic output;
 	fy_generic messages;
@@ -331,9 +302,24 @@ fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
 		break;
 
 	case FYAI_API_CHAT_COMPLETIONS:
-		raw = response_message(gb, response_doc);
-		messages = fy_sequence(gb, fyai_canonical_assistant_message(ctx, raw));
+		/*
+		 * The text of the message, then the calls as function_call
+		 * items: the shapes the other grammars store. The message is
+		 * kept as the provider stream.
+		 */
+		messages = fy_seq_empty;
+		text = fyai_response_output_text(ctx, response_doc);
+		if (fyai_response_is_final(ctx, response_doc) ||
+		    *fy_castp(&text, ""))
+			messages = fy_append(gb, messages,
+					fy_mapping(gb,
+						"role", "assistant",
+						"content", fy_is_string(text) ?
+							text : fy_value("")));
+		messages = fy_concat(gb, messages,
+				fyai_response_tool_calls(ctx, response_doc));
 		turn = fyai_turn_append(ctx, turn, messages);
+		raw = response_message(gb, response_doc);
 		turn = fyai_turn_attach_provider(ctx, turn, fy_sequence(gb, raw));
 		break;
 	case FYAI_API_MESSAGES:

@@ -72,33 +72,12 @@ const char *fyai_tool_name_canonical(const char *name)
 
 const char *fyai_tool_call_name(struct fyai_ctx *ctx, fy_generic tool_call)
 {
-	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic v;
 
 	if (fy_equal(fy_get(tool_call, "type"), "shell_call"))
 		return "shell";
 
-	switch (cfg->api_mode) {
-
-	case FYAI_API_RESPONSES:
-		v = fy_get_at_path(tool_call, "name");
-		break;
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		v = fy_get_at_path(tool_call, "function", "name");
-		break;
-
-	case FYAI_API_MESSAGES:
-		/* normalized to Responses-style function_call items */
-		v = fy_get_at_path(tool_call, "name");
-		break;
-
-	default:
-		assert(0);
-		__builtin_unreachable();
-		break;
-	}
-
+	v = fy_get(tool_call, "name");
 	return fyai_tool_name_canonical(
 		fy_gb_intern_string(ctx->transient_gb, fy_cast(v, "")));
 }
@@ -138,19 +117,7 @@ fy_generic fyai_tool_call_args(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	const char *args_text;
 
-	switch (ctx->cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-	case FYAI_API_MESSAGES:
-		args_text = fy_get(tool_call, "arguments", "");
-		break;
-	case FYAI_API_CHAT_COMPLETIONS:
-		args_text = fy_get(fy_get(tool_call, "function"),
-				   "arguments", "");
-		break;
-	default:
-		assert(0);
-		__builtin_unreachable();
-	}
+	args_text = fy_get(tool_call, "arguments", "");
 	return fyai_tool_args_normalize(fyai_ctx_transient_gb(ctx),
 		fyai_tool_call_name(ctx, tool_call),
 		parse_json_string(fyai_ctx_transient_gb(ctx), args_text));
@@ -160,10 +127,7 @@ const char *fyai_tool_call_id(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	fy_generic id;
 
-	id = ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS &&
-	     !fy_equal(fy_get(tool_call, "type"), "shell_call") ?
-		fy_get(tool_call, "id", fy_invalid) :
-		fy_get(tool_call, "call_id", fy_invalid);
+	id = fy_get(tool_call, "call_id", fy_invalid);
 	return fy_gb_intern_string(fyai_ctx_transient_gb(ctx),
 				   fy_castp(&id, ""));
 }
@@ -180,10 +144,6 @@ fy_generic fyai_tool_call_set_args(struct fyai_ctx *ctx, fy_generic tool_call,
 	json = emit_json_string(gb, args);
 	if (!json)
 		return fy_invalid;
-	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		return fy_assoc(gb, tool_call, "function",
-			fy_assoc(gb, fy_get(tool_call, "function", fy_map_empty),
-				 "arguments", fy_value(gb, json)));
 	return fy_assoc(gb, tool_call, "arguments", fy_value(gb, json));
 }
 
@@ -209,20 +169,13 @@ static fy_generic fyai_tool_call_effective(struct fyai_ctx *ctx,
 	args = fyai_tool_call_args(ctx, tool_call);
 	if (!fy_is_mapping(args))
 		return tool_call;
-	id = ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS ?
-		fy_get(tool_call, "id", fy_invalid) :
-		fy_get(tool_call, "call_id", fy_invalid);
+	id = fy_get(tool_call, "call_id", fy_invalid);
 	call_id = fy_castp(&id, "");
 	if (!def->expand(ctx, args, call_id, &name, &args))
 		return tool_call;
 	json = emit_json_string(gb, args);
 	if (!json)
 		return tool_call;
-	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		return fy_assoc(gb, tool_call, "function",
-			fy_assoc(gb, fy_get(tool_call, "function", fy_map_empty),
-				 "name", fy_value(gb, name),
-				 "arguments", fy_value(gb, json)));
 	return fy_assoc(gb, tool_call, "name", fy_value(gb, name),
 			"arguments", fy_value(gb, json));
 }
@@ -518,7 +471,6 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name;
-	const char *args_text;
 	const char *command;
 	struct response_buffer body = {0};
 	char *header;
@@ -534,25 +486,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 		cmdv = fy_get_at_path(tool_call, "action", "commands", 0);
 		command = fy_castp(&cmdv, "");
 	} else if (fy_equal(name, "shell")) {
-
-		switch (cfg->api_mode) {
-		case FYAI_API_RESPONSES:
-			args_text = fy_get(tool_call, "arguments", "");
-			break;
-		case FYAI_API_CHAT_COMPLETIONS:
-			args_text = fy_get(fy_get(tool_call, "function"), "arguments", "");
-			break;
-		case FYAI_API_MESSAGES:
-			args_text = fy_get(tool_call, "arguments", "");
-			break;
-		default:
-			assert(0);
-			__builtin_unreachable();
-			break;
-		}
-
-		args = fyai_tool_args_normalize(ctx->transient_gb, name,
-			parse_json_string(ctx->transient_gb, args_text));
+		args = fyai_tool_call_args(ctx, tool_call);
 		command = fy_get(args, "command", "");
 	} else {
 		command = "";
@@ -1887,7 +1821,6 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *sandbox;
 	const char *name;
-	const char *args_text;
 	fy_generic type;
 	fy_generic args;
 	fy_generic result_generic;
@@ -2040,27 +1973,8 @@ fy_generic fyai_execute_tool_call(struct fyai_ctx *ctx,
 		goto out;
 	}
 
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		name = fy_get(tool_call, "name", "");
-		args_text = fy_get(tool_call, "arguments", "");
-		break;
-	case FYAI_API_CHAT_COMPLETIONS:
-		name = fy_get(fy_get(tool_call, "function"), "name", "");
-		args_text = fy_get(fy_get(tool_call, "function"), "arguments", "");
-		break;
-	case FYAI_API_MESSAGES:
-		/* normalized to Responses-style function_call items */
-		name = fy_get(tool_call, "name", "");
-		args_text = fy_get(tool_call, "arguments", "");
-		break;
-	default:
-		assert(0);
-		__builtin_unreachable();
-		break;
-	}
-	args = fyai_tool_args_normalize(ctx->transient_gb, name,
-		parse_json_string(ctx->transient_gb, args_text));
+	name = fy_get(tool_call, "name", "");
+	args = fyai_tool_call_args(ctx, tool_call);
 	if (fy_is_invalid(args))
 		return fy_value(ctx->transient_gb, "tool error: invalid JSON arguments");
 	if (!fyai_skill_tool_allowed(ctx, fyai_tool_name_canonical(name)))
@@ -6641,7 +6555,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 	struct fyai_tool_job *job = NULL;
 	struct fyai_view_run *view_run = NULL;
 	struct response_buffer view = {0};
-	const char *name, *args_text, *command;
+	const char *name, *command;
 	const char *asked, *cmdtext;
 	fy_generic args, progress_args, agent_name, monitor_v;
 	bool agent_stored = false;
@@ -6667,21 +6581,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		"tool call is not eligible for asynchronous submission");
 	name = fyai_tool_call_name(ctx, tool_call);
 	native_call = fy_equal(fy_get(tool_call, "type"), "shell_call");
-	if (native_call) {
-		args_text = NULL;
-	} else if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
-		args_text = fy_get(fy_get(tool_call, "function"),
-				   "arguments", "");
-	} else if (ctx->cfg->api_mode == FYAI_API_RESPONSES ||
-		   ctx->cfg->api_mode == FYAI_API_MESSAGES) {
-		args_text = fy_get(tool_call, "arguments", "");
-	} else {
-		fyai_error_check(ctx, false, err,
-				 "unsupported API mode for tool submission");
-	}
-	args = native_call ? tool_call :
-		fyai_tool_args_normalize(ctx->transient_gb, name,
-			parse_json_string(ctx->transient_gb, args_text));
+	args = native_call ? tool_call : fyai_tool_call_args(ctx, tool_call);
 	fyai_error_check(ctx, fy_is_valid(args), err,
 			 "invalid tool call arguments");
 	if (!native_call && fyai_shell_args_lack_command(name, args)) {
@@ -7947,17 +7847,10 @@ static int fyai_tools_user_start(struct fyai_ctx *ctx, const char *command,
 		args = fy_assoc(gb, args, "_fyai_env_keep", env_keep,
 				"_fyai_unconfined", true);
 	args_text = emit_json_string(gb, args);
-	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		call = fy_mapping(gb,
-				  "type", "function",
-				  "function", fy_mapping(gb,
-					  "name", "shell",
-					  "arguments", args_text ? args_text : ""));
-	else
-		call = fy_mapping(gb,
-				  "type", "function_call",
-				  "name", "shell",
-				  "arguments", args_text ? args_text : "");
+	call = fy_mapping(gb,
+			  "type", "function_call",
+			  "name", "shell",
+			  "arguments", args_text ? args_text : "");
 	fyai_error_check(ctx, fy_is_valid(call), err,
 			 "could not build the %s request", what);
 	/* Retain the call beyond transient interactive storage. */

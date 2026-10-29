@@ -545,10 +545,7 @@ static int stream_emit_tool(struct stream_response *stream, size_t index,
 
 	if (!stream->callbacks.tool)
 		return 0;
-	if (stream->ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		key = fy_get(tool_call, "id", "");
-	else
-		key = fy_get(tool_call, "call_id", "");
+	key = fy_get(tool_call, "call_id", "");
 	fy_foreach(emitted, stream->emitted_tools)
 		if (*key && fy_equal(emitted, key))
 			return 0;
@@ -593,11 +590,10 @@ static fy_generic stream_chat_tool_call(struct stream_response *stream,
 	arguments = fyai_join_strings(gb,
 			fy_get(function, "argument_chunks", fy_seq_empty));
 	return fy_mapping(gb,
-		"id", fy_get(tool_call, "id", ""),
-		"type", fy_get(tool_call, "type", "function"),
-		"function", fy_mapping(
-			"name", name,
-			"arguments", arguments));
+		"type", "function_call",
+		"call_id", fy_get(tool_call, "id", ""),
+		"name", name,
+		"arguments", arguments);
 }
 
 static fy_generic stream_messages_tool_call(struct stream_response *stream,

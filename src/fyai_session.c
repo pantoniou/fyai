@@ -1845,13 +1845,8 @@ int fyai_session_btw(struct fyai_ctx *ctx, const char *arg)
 	json = emit_json_string(ctx->transient_gb, args);
 	fyai_error_check(ctx, json, err,
 			 "btw: could not encode the question");
-	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		call = fy_mapping(ctx->transient_gb, "type", "function",
-			"function", fy_mapping(ctx->transient_gb,
-				"name", "agent", "arguments", json));
-	else
-		call = fy_mapping(ctx->transient_gb, "type", "function_call",
-			"name", "agent", "arguments", json);
+	call = fy_mapping(ctx->transient_gb, "type", "function_call",
+			  "name", "agent", "arguments", json);
 	run = calloc(1, sizeof(*run));
 	fyai_error_check(ctx, run, err,
 			 "btw: could not allocate the side question");

@@ -896,13 +896,8 @@ fy_generic fyai_agent_background(struct fyai_ctx *ctx, fy_generic args,
 	json = emit_json_string(gb, args);
 	fyai_error_check(ctx, json, err,
 			 "agent: could not encode the background call");
-	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		call = fy_mapping(gb, "type", "function",
-			"function", fy_mapping(gb,
-				"name", "agent", "arguments", json));
-	else
-		call = fy_mapping(gb, "type", "function_call",
-			"name", "agent", "arguments", json);
+	call = fy_mapping(gb, "type", "function_call",
+			  "name", "agent", "arguments", json);
 	run = calloc(1, sizeof(*run));
 	fyai_error_check(ctx, run, err,
 			 "agent: could not allocate the background run");

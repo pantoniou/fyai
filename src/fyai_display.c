@@ -120,9 +120,6 @@ static fy_generic fyai_export_role(fy_generic message)
 	fy_generic type;
 
 	role = fy_get(message, "role", fy_invalid);
-	/* Chat grammar answers a call with role "tool". */
-	if (fy_equal(role, "tool"))
-		return fy_value("tool_result");
 	if (fy_is_string(role) && fy_len(role))
 		return role;
 	type = fy_get(message, "type", fy_invalid);
@@ -227,8 +224,6 @@ static fy_generic fyai_export_result_id(fy_generic message)
 	type = fy_get(message, "type", fy_invalid);
 	if (fyai_item_type_is_call_output(type))
 		return fy_get(message, "call_id");
-	if (fy_equal(fy_get(message, "role", fy_invalid), "tool"))
-		return fy_get(message, "tool_call_id");
 	return fy_invalid;
 }
 
@@ -548,7 +543,7 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 				     fy_generic messages)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic message, content, calls_in_message, call, function;
+	fy_generic message, content;
 	fy_generic args, gid, gname, role;
 	const char *role_text, *text, *args_text;
 	bool assistant_open = false;
@@ -604,28 +599,6 @@ static int fyai_export_turn_messages(struct fyai_ctx *ctx, FILE *fp,
 				fyai_error_check(ctx, !rc, err,
 						 "export: cannot write a message");
 				assistant_open = true;
-			}
-			calls_in_message = fy_get(message, "tool_calls");
-			if (fy_is_sequence(calls_in_message)) {
-				if (!assistant_open) {
-					rc = fyai_export_message(ctx, fp, role_text,
-								 "", fy_invalid);
-					fyai_error_check(ctx, !rc, err,
-							 "export: cannot write a message");
-					assistant_open = true;
-				}
-				fy_foreach(call, calls_in_message) {
-					function = fy_get(call, "function");
-					gid = fy_get(call, "id");
-					gname = fy_get(function, "name");
-					args_text = fy_get(function, "arguments", "{}");
-					args = parse_json_string(gb, args_text);
-					rc = fyai_export_tool_call(ctx, fp, calls,
-						fy_castp(&gid, ""),
-						fy_castp(&gname, "tool"), args);
-					fyai_error_check(ctx, !rc, err,
-							 "export: cannot write a tool call");
-				}
 			}
 		}
 		if (fy_equal(role, "tool_result"))
@@ -2159,27 +2132,6 @@ void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 }
 
 /*
- * Render the tool call carried by a stored chat-shape assistant message
- * (function.name + JSON arguments). The args are parsed into @tgb.
- */
-static void fyai_emit_tool_call_chat(struct fyai_ctx *ctx, FILE *mf,
-				     struct fy_generic_builder *tgb,
-				     fy_generic call, int preview_lines)
-{
-	const char *name;
-	const char *args_str;
-	fy_generic args;
-	fy_generic fn;
-
-	fn = fy_get(call, "function");
-	name = fyai_tool_name_canonical(fy_get(fn, "name", "?"));
-	args_str = fy_get(fn, "arguments", "");
-
-	args = parse_json_string(tgb, args_str);
-	fyai_emit_tool_call(ctx, mf, tgb, name, args, preview_lines, NULL);
-}
-
-/*
  * Classification of a single canonical message, shared by the offline
  * `history` view and the live turn rendering so both agree on roles, tool
  * relatedness and inter-turn separation.
@@ -2187,9 +2139,8 @@ static void fyai_emit_tool_call_chat(struct fyai_ctx *ctx, FILE *mf,
 struct fyai_msg_class {
 	fy_generic msg;
 	fy_generic role;
-	fy_generic type;	/* Responses native item type, "" if chat-shaped */
+	fy_generic type;	/* the item type, "" for a role message */
 	fy_generic content;
-	fy_generic tc;
 	bool is_str;
 	bool has_text;
 	bool is_tool_msg;
@@ -2226,10 +2177,9 @@ static struct fyai_msg_class fyai_classify_message(fy_generic m)
 	type = fy_castp(&c.type, "");
 
 	/*
-	 * Responses native output items (function_call, function_call_output,
-	 * reasoning, message, builtin shell_call/_output) carry a `type` rather
-	 * than a chat `role`. Classify them so the display view renders a
-	 * Responses-produced history the same as a Chat-produced one.
+	 * Items (function_call, function_call_output, reasoning, message,
+	 * shell_call and shell_call_output) carry a `type` rather than a
+	 * `role`.
 	 */
 	if (*type) {
 		is_call = fyai_item_type_is_call(c.type);
@@ -2253,12 +2203,8 @@ static struct fyai_msg_class fyai_classify_message(fy_generic m)
 
 	c.role = fy_get(m, "role");
 	c.content = fy_get(m, "content");
-	c.tc = fy_get(m, "tool_calls");
 	c.is_str = fy_is_string(c.content);
 	c.has_text = c.is_str && *fyai_msg_text(&c);
-	c.is_tool_msg = fy_equal(c.role, "tool");
-	c.has_tc = fy_is_sequence(c.tc) && !fy_empty(c.tc);
-	c.tool_related = c.is_tool_msg || (c.has_tc && !c.has_text);
 	c.is_assistant = fy_equal(c.role, "assistant");
 	return c;
 }
@@ -2555,7 +2501,7 @@ static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
 				 int preview_lines, const char *result_lang,
 				 bool thinking)
 {
-	fy_generic part, origin, rowtext;
+	fy_generic origin, rowtext;
 	const char *text;
 	char *s;
 
@@ -2582,13 +2528,7 @@ static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
 		return;
 	}
 
-	if (c->is_tool_msg && c->is_str) {
-		fyai_emit_tool_result(mf, text, preview_lines, result_lang);
-	} else if (c->is_tool_msg && fy_is_valid(c->content) &&
-		   !fy_is_null(c->content)) {
-		/* Structured builtin shell result (stdout/stderr/outcome). */
-		fyai_emit_shell_output(mf, c->content, preview_lines);
-	} else if (c->is_str && fy_equal(c->role, "system")) {
+	if (c->is_str && fy_equal(c->role, "system")) {
 		fprintf(mf, "**System**\n\n");
 		fyai_emit_italic(mf, text);
 	} else if (c->is_str && fy_equal(c->role, "user")) {
@@ -2600,8 +2540,7 @@ static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
 			fy_get(origin, "id", "?"), text);
 	} else if (c->has_text) {
 		fprintf(mf, "%s\n\n", text);
-	} else if (!c->has_tc && fy_is_valid(c->content) &&
-		   !fy_is_null(c->content)) {
+	} else if (fy_is_valid(c->content) && !fy_is_null(c->content)) {
 		s = NULL;
 		(void)fy_emit(tgb, c->content,
 			FYOPEF_OUTPUT_TYPE_STRING |
@@ -2610,11 +2549,6 @@ static void fyai_emit_message_md(struct fyai_ctx *ctx, FILE *mf,
 			FYOPEF_WIDTH_INF, &s);
 		fprintf(mf, "```yaml\n%s\n```\n\n", s ? s : "");
 		free(s);
-	}
-
-	if (c->has_tc) {
-		fy_foreach(part, c->tc)
-			fyai_emit_tool_call_chat(ctx, mf, tgb, part, preview_lines);
 	}
 }
 
@@ -2775,17 +2709,9 @@ static int fyai_tool_view_init(struct fyai_ctx *ctx, struct fyai_tool_view *tv,
 		gcmd = fy_get_at_path(tool_call, "action", "commands", 0);
 		tv->args = fy_mapping(gb, "command", fy_castp(&gcmd, ""));
 	} else {
-		if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS) {
-			tv->name = fyai_tool_name_canonical(
-				fy_get(fy_get(tool_call, "function"), "name", ""));
-			args_text = fy_get(fy_get(tool_call, "function"),
-					   "arguments", "");
-		} else {
-			/* Responses items; Messages is normalized to that shape. */
-			tv->name = fyai_tool_name_canonical(
-				fy_get(tool_call, "name", ""));
-			args_text = fy_get(tool_call, "arguments", "");
-		}
+		tv->name = fyai_tool_name_canonical(
+			fy_get(tool_call, "name", ""));
+		args_text = fy_get(tool_call, "arguments", "");
 		tv->args = parse_json_string(gb, args_text);
 	}
 	if (!*tv->name)
@@ -3291,35 +3217,17 @@ static void fyai_read_map_free(struct fyai_read_map *rm)
 static void fyai_read_map_scan(struct fyai_read_map *rm,
 			       struct fy_generic_builder *tgb, fy_generic m)
 {
-	fy_generic tc;
-	fy_generic call;
-	fy_generic fn;
 	fy_generic args;
 	fy_generic gid;
 	fy_generic gpath;
 
-	if (fy_equal(fy_get(m, "type"), "function_call")) {
-		if (fy_not_equal(fy_get(m, "name"), "read_file"))
-			return;
-		args = parse_json_string(tgb, fy_get(m, "arguments", ""));
-		gid = fy_get(m, "call_id");
-		gpath = fy_get(args, "path");
-		fyai_read_map_add(rm, fy_castp(&gid, ""), fy_castp(&gpath, ""));
+	if (fy_not_equal(fy_get(m, "type"), "function_call") ||
+	    fy_not_equal(fy_get(m, "name"), "read_file"))
 		return;
-	}
-
-	tc = fy_get(m, "tool_calls");
-	if (!fy_is_sequence(tc))
-		return;
-	fy_foreach(call, tc) {
-		fn = fy_get(call, "function");
-		if (fy_not_equal(fy_get(fn, "name"), "read_file"))
-			continue;
-		args = parse_json_string(tgb, fy_get(fn, "arguments", ""));
-		gid = fy_get(call, "id");
-		gpath = fy_get(args, "path");
-		fyai_read_map_add(rm, fy_castp(&gid, ""), fy_castp(&gpath, ""));
-	}
+	args = parse_json_string(tgb, fy_get(m, "arguments", ""));
+	gid = fy_get(m, "call_id");
+	gpath = fy_get(args, "path");
+	fyai_read_map_add(rm, fy_castp(&gid, ""), fy_castp(&gpath, ""));
 }
 
 /*
@@ -3337,17 +3245,10 @@ static char *fyai_read_result_lang(const struct fyai_read_map *rm,
 	const char *out;
 	const char *path;
 
-	if (c->is_native) {
-		if (fy_not_equal(c->type, "function_call_output"))
-			return NULL;
-		gid = fy_get(c->msg, "call_id");
-		gout = fy_get(c->msg, "output");
-	} else if (c->is_tool_msg) {
-		gid = fy_get(c->msg, "tool_call_id");
-		gout = c->content;
-	} else {
+	if (fy_not_equal(c->type, "function_call_output"))
 		return NULL;
-	}
+	gid = fy_get(c->msg, "call_id");
+	gout = fy_get(c->msg, "output");
 
 	if (!fy_is_string(gout))
 		return NULL;
@@ -3363,38 +3264,29 @@ static char *fyai_read_result_lang(const struct fyai_read_map *rm,
 }
 
 /*
- * True when @c is a tool result (a chat tool message or a Responses
- * function_call_output/shell_call_output), returning its result content generic
- * (string or shell mapping/sequence) in *out. Lets the history view route the
+ * True when @c is a tool result (a function_call_output or shell_call_output
+ * item), returning its result content generic (string or shell
+ * mapping/sequence) in *out. Lets the history view route the
  * result through the shared frameless fyai_render_tool_result() path, exactly as
  * the live loop does, so tool output renders identically in both.
  */
 static bool fyai_msg_is_tool_result(const struct fyai_msg_class *c,
 				    fy_generic *out)
 {
-	if (c->is_native) {
-		if (fy_not_equal(c->type, "function_call_output") &&
-		    fy_not_equal(c->type, "shell_call_output"))
-			return false;
-		*out = fy_get(c->msg, "output");
-		return true;
-	}
-	if (c->is_tool_msg) {
-		*out = c->content;
-		return true;
-	}
-	return false;
+	if (!c->is_tool_msg)
+		return false;
+	*out = fy_get(c->msg, "output");
+	return true;
 }
 
 /* Return true when a call belongs to a recorded terminal session. */
 static bool stored_call_is_session(struct fyai_ctx *ctx, fy_generic call)
 {
 	struct fy_generic_builder *gb;
-	fy_generic fn, args, name;
+	fy_generic args, name;
 	const char *n;
 
-	fn = fy_get(call, "function");
-	name = fy_is_mapping(fn) ? fy_get(fn, "name") : fy_get(call, "name");
+	name = fy_get(call, "name");
 	n = fy_castp(&name, "");
 	if (fy_str_empty(n))
 		return false;
@@ -3403,8 +3295,7 @@ static bool stored_call_is_session(struct fyai_ctx *ctx, fy_generic call)
 	if (strcmp(n, FYAI_TOOL_EXEC_WIRE_NAME) && strcmp(n, "shell"))
 		return false;
 	/* A named shell is a session. */
-	args = fy_is_mapping(fn) ? fy_get(fn, "arguments") :
-				   fy_get(call, "arguments");
+	args = fy_get(call, "arguments");
 	gb = fyai_ctx_transient_gb(ctx);
 	if (gb && fy_is_string(args))
 		args = parse_json_string(gb, fy_castp(&args, ""));
@@ -3418,7 +3309,6 @@ static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
 {
 	struct fyai_msg_class c;
 	fy_generic outputs, output, fragments, fragment, msgs, msg, result;
-	fy_generic call;
 	size_t users = 0, assistants = 0;
 	size_t user_outputs = 0, assistant_outputs = 0;
 	size_t tool_results = 0, tool_fragments = 0;
@@ -3433,17 +3323,8 @@ static bool fyai_display_outputs_complete(struct fyai_ctx *ctx,
 			c = fyai_classify_message(msg);
 			if (fyai_msg_is_tool_result(&c, &result))
 				tool_results++;
-			if (!c.has_tc)
-				continue;
-			/* Native items contain one call; chat messages contain a list. */
-			if (c.is_native) {
-				if (stored_call_is_session(ctx, msg))
-					session_calls++;
-				continue;
-			}
-			fy_foreach(call, c.tc)
-				if (stored_call_is_session(ctx, call))
-					session_calls++;
+			if (c.has_tc && stored_call_is_session(ctx, msg))
+				session_calls++;
 		}
 		outputs = fy_get(stack->items[i], "display_outputs", fy_seq_empty);
 		fy_foreach(output, outputs) {
