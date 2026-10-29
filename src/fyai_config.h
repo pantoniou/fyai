@@ -186,8 +186,8 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg);
 const char *fyai_config_provider_env_key(struct fy_generic_builder *gb,
 					 const char *name);
 
-/* Reject/downgrade options with no Messages-API mapping; no-op otherwise. */
-int fyai_config_messages_gate(struct fyai_cfg *cfg);
+/* Disable or reject the options that the grammar or the endpoint cannot carry. */
+int fyai_config_grammar_gate(struct fyai_cfg *cfg);
 
 int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[]);
 

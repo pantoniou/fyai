@@ -23,6 +23,7 @@
 #include "fyai_catalog.h"
 #include "fyai_image.h"
 #include "fyai_config.h"
+#include "fyai_grammar.h"
 #include "fyai_markdown.h"
 #include "fyai_schema.h"
 #include "fyai_secret.h"
@@ -186,27 +187,13 @@ fy_generic fyai_catalog_offering(fy_generic provider, const char *model,
 	return fy_invalid;
 }
 
-/* The catalogue names protocols with underscores. */
-static const char *api_to_protocol(enum fyai_api_mode api)
-{
-	switch (api) {
-	case FYAI_API_RESPONSES:
-		return "responses";
-	case FYAI_API_CHAT_COMPLETIONS:
-		return "chat_completions";
-	case FYAI_API_MESSAGES:
-		return "messages";
-	}
-	return "";
-}
-
 fy_generic fyai_catalog_endpoint(fy_generic provider, enum fyai_api_mode api)
 {
 	fy_generic eps, e;
 	const char *proto;
 
 	eps = fy_get(provider, "endpoints");
-	proto = api_to_protocol(api);
+	proto = fyai_grammar_get(api)->protocol;
 	fy_foreach(e, eps) {
 		if (fy_equal(fy_get(e, "protocol"), proto))
 			return e;

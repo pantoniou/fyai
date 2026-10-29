@@ -36,6 +36,7 @@
 #include "fyai_markdown.h"
 #include "fyai_render.h"
 #include "fyai_config.h"
+#include "fyai_grammar.h"
 
 /* Subscription credentials are sent only to these trusted OpenAI endpoints. */
 #define AUTH_ISSUER FYAI_AUTH_ISSUER
@@ -1571,7 +1572,7 @@ int fyai_auth_chatgpt_eligible(const struct fyai_cfg *cfg, const char **why)
 		*why = "ChatGPT subscriptions support only the OpenAI provider";
 		return -ENOTSUP;
 	}
-	if (cfg->api_mode != FYAI_API_RESPONSES || cfg->response_chain) {
+	if (!fyai_grammar(cfg)->chatgpt || cfg->response_chain) {
 		*why = "ChatGPT requires Responses API with "
 		       "response_chain disabled";
 		return -EINVAL;
