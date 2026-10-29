@@ -3438,7 +3438,7 @@ static int config_resolve_catalog_model(struct fyai_cfg *cfg,
 /* Resolve model settings from the catalogue and provider defaults. */
 int fyai_config_resolve_model(struct fyai_cfg *cfg)
 {
-	fy_generic catalog, cat_prov, cat_ep, cat_model;
+	fy_generic catalog, cat_prov, cat_ep, cat_model, search_type;
 	const char *env, *val;
 	const char *secret_name;
 	char *secret = NULL;
@@ -3507,6 +3507,10 @@ int fyai_config_resolve_model(struct fyai_cfg *cfg)
 				fy_value("image"));
 	cfg->web_search_supported =
 		fyai_catalog_endpoint_has_hosted_tool(cat_ep, "web_search");
+	search_type = fyai_catalog_endpoint_hosted_tool_type(cat_ep,
+							     "web_search");
+	cfg->web_search_type = fy_is_string(search_type) ?
+		fy_gb_intern_string(cfg->gb, fy_castp(&search_type, "")) : NULL;
 	cfg->response_compaction_supported =
 		fy_get(fy_get(cat_ep, "capabilities"),
 		       "response_compaction_supported", false);

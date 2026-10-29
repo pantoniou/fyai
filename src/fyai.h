@@ -233,6 +233,11 @@ struct fyai_cfg {
 	bool shell_tool_supported;
 	/* The selected endpoint declares a provider-hosted web search tool. */
 	bool web_search_supported;
+	/*
+	 * The tool type the endpoint declares that search with, from the
+	 * catalogue, or NULL for the default of the grammar. Not persisted.
+	 */
+	const char *web_search_type;
 	/* An unsupported-search notice is emitted once per invocation. */
 	bool web_search_notice_emitted;
 	/* The endpoint implements the OpenAI-specific /responses/compact route. */

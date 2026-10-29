@@ -201,6 +201,15 @@ fy_generic fyai_catalog_endpoint(fy_generic provider, enum fyai_api_mode api)
 	return fy_invalid;
 }
 
+fy_generic fyai_catalog_endpoint_hosted_tool_type(fy_generic endpoint,
+						  const char *tool)
+{
+	fy_generic type;
+
+	type = fy_get(fy_get(endpoint, "hosted_tool_types"), tool, fy_invalid);
+	return fy_is_string(type) ? type : fy_invalid;
+}
+
 bool fyai_catalog_endpoint_has_hosted_tool(fy_generic endpoint,
 						const char *tool)
 {

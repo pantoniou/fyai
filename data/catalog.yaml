@@ -3174,6 +3174,8 @@ providers:
     endpoint: /api/v1/chat/completions
     hosted_tools:
     - web_search
+    hosted_tool_types:
+      web_search: openrouter:web_search
     local_tools:
     - function_calling
     capabilities:
@@ -3195,6 +3197,8 @@ providers:
     endpoint: /api/v1/responses
     hosted_tools:
     - web_search
+    hosted_tool_types:
+      web_search: openrouter:web_search
     local_tools:
     - function_calling
     - mcp
