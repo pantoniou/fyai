@@ -119,7 +119,8 @@ attachment.
 ## The wire form
 
 Each provider grammar carries the image in its own shape, derived at the
-request boundary from the canonical part, exactly as tool calls are:
+request boundary from the canonical part by the `image_part` operation of the
+grammar (`doc/provider-grammars.md`), exactly as tool calls are:
 
 | Grammar | Image part |
 | --- | --- |

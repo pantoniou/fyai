@@ -53,6 +53,14 @@ discover/select -> snapshot -> parse -> reconstruct source context
 Parse JSON directly into libfyaml generics.  Keep the native Markdown parser
 unchanged and do not use Markdown as an intermediate foreign format.
 
+A session holds the wire history of a provider grammar: a Codex record holds
+Responses items, and a Claude Code record holds a Messages message.  The
+normalize step is the `history` operation of that grammar
+(`doc/provider-grammars.md`), which reads wire messages into canonical
+messages and reports what it cannot hold.  The adapter of a source keeps the
+framing of its session and maps the tools of its agent to the native tools at
+the wire level, before the grammar reads them.
+
 Claude Code discovery scans `projects/` beneath `CLAUDE_CONFIG_DIR` or
 `~/.claude`.  Exclude subagent JSONL files.  Reconstruct the active path using
 UUID/parent links and active-leaf metadata.  Coalesce assistant records that
