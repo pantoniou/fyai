@@ -262,103 +262,24 @@ static fy_generic fyai_turn_attach_tokens(struct fyai_ctx *ctx,
 	return fyai_turn_meta_set(ctx, turn, "tokens", extents);
 }
 
+/*
+ * Store a model reply: the canonical messages of the grammar, which a
+ * conversation can continue on another grammar, and the wire record of the
+ * reply as the provider stream, which is never sent.
+ */
 fy_generic fyai_append_assistant_response(struct fyai_ctx *ctx,
-						 fy_generic turn,
-						 fy_generic response_doc)
+					  fy_generic turn,
+					  fy_generic response)
 {
-	struct fy_generic_builder *gb;
-	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic raw;
-	fy_generic text;
 	fy_generic usage;
-	fy_generic output;
-	fy_generic messages;
+	fy_generic wire;
 
-	gb = fyai_ctx_transient_gb(ctx);
-	usage = fyai_extract_usage(ctx, response_doc);
-
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		/*
-		 * Responses mode: the provider's wire representation of the turn is
-		 * the `output` array. Preserve it as the provider stream so that
-		 * `dump providers` is populated for Responses conversations too, the
-		 * same way the Chat Completions path keeps its raw message.
-		 */
-		output = fy_get(response_doc, "output");
-
-		if (fyai_response_is_final(ctx, response_doc)) {
-			messages = fy_sequence(gb,
-					fy_mapping(gb,
-						"role", "assistant",
-						"content", fyai_response_output_text(ctx, response_doc)));
-			turn = fyai_turn_append(ctx, turn, messages);
-		} else {
-			turn = fyai_turn_append(ctx, turn, output);
-		}
-
-		if (fy_is_valid(output) && !fy_is_null(output))
-			turn = fyai_turn_attach_provider(ctx, turn, output);
-		break;
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		/*
-		 * The text of the message, then the calls as function_call
-		 * items: the shapes the other grammars store. The message is
-		 * kept as the provider stream.
-		 */
-		messages = fy_seq_empty;
-		text = fyai_response_output_text(ctx, response_doc);
-		if (fyai_response_is_final(ctx, response_doc) ||
-		    *fy_castp(&text, ""))
-			messages = fy_append(gb, messages,
-					fy_mapping(gb,
-						"role", "assistant",
-						"content", fy_is_string(text) ?
-							text : fy_value("")));
-		messages = fy_concat(gb, messages,
-				fyai_response_tool_calls(ctx, response_doc));
-		turn = fyai_turn_append(ctx, turn, messages);
-		raw = response_message(gb, response_doc);
-		turn = fyai_turn_attach_provider(ctx, turn, fy_sequence(gb, raw));
-		break;
-	case FYAI_API_MESSAGES:
-		/*
-		 * Messages mode: the wire representation is the `content`
-		 * block array; preserve it as the provider stream.
-		 * Canonically store the joined text as a plain assistant
-		 * message plus, for a tool-use turn, the function_call items
-		 * normalized by fyai_response_tool_calls() - the same shapes
-		 * a Responses turn stores, so display and cross-provider
-		 * replay work unchanged.
-		 */
-		output = fy_get(response_doc, "content");
-
-		messages = fy_seq_empty;
-		raw = fyai_response_output_text(ctx, response_doc);
-		if (fy_equal(fy_get(response_doc, "stop_reason"), "pause_turn")) {
-			/* Anthropic server tools require the complete assistant block
-			 * array on the continuation request. It remains provider-stream
-			 * data, but is carried transiently in the message shape so the
-			 * next Messages request can resume the paused turn. */
-			if (fy_is_sequence(output) && fy_len(output))
-				messages = fy_append(gb, messages,
-						fy_mapping("role", "assistant",
-							   "content", output));
-		} else if (*fy_cast(raw, ""))
-			messages = fy_append(gb, messages,
-					fy_mapping(gb,
-						"role", "assistant",
-						"content", raw));
-		if (!fyai_response_is_final(ctx, response_doc))
-			messages = fy_concat(gb, messages,
-					fyai_response_tool_calls(ctx, response_doc));
-		turn = fyai_turn_append(ctx, turn, messages);
-
-		if (fy_is_valid(output) && !fy_is_null(output))
-			turn = fyai_turn_attach_provider(ctx, turn, output);
-		break;
-	}
+	usage = fyai_extract_usage(ctx, response);
+	turn = fyai_turn_append(ctx, turn,
+				fy_get(response, "messages", fy_seq_empty));
+	wire = fy_get(response, "wire", fy_invalid);
+	if (fy_is_valid(wire) && !fy_is_null(wire))
+		turn = fyai_turn_attach_provider(ctx, turn, wire);
 
 	turn = fyai_turn_attach_usage(ctx, turn, usage);
 	return fyai_turn_attach_tokens(ctx, turn);

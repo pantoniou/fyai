@@ -297,9 +297,6 @@ const char *emit_request_body(struct fy_generic_builder *gb,
 fy_generic parse_response(struct fy_generic_builder *gb, const char *response);
 void parse_diag_report(struct fyai_ctx *ctx, fy_generic v,
 		       const char *fallback, const char *what);
-fy_generic response_content(struct fy_generic_builder *gb, fy_generic doc);
-fy_generic response_message(struct fy_generic_builder *gb, fy_generic doc);
-fy_generic response_tool_calls(struct fy_generic_builder *gb, fy_generic doc);
 fy_generic fyai_join_strings(struct fy_generic_builder *gb, fy_generic chunks);
 
 struct fyai_editor_request;

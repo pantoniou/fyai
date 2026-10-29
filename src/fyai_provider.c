@@ -45,67 +45,6 @@ fy_generic fyai_agent_wire_text(struct fyai_ctx *ctx, fy_generic message)
 		fy_castp(&content, ""));
 }
 
-fy_generic fyai_response_output_text(struct fyai_ctx *ctx,
-					    fy_generic response_doc)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic content;
-	fy_generic chunks;
-	fy_generic output;
-	fy_generic item;
-	fy_generic part;
-	fy_generic out;
-	const char *text;
-
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		text = fy_get(response_doc, "output_text", "");
-		if (*text) {
-			out = fy_value(text);
-			break;
-		}
-
-		chunks = fy_seq_empty;
-		output = fy_get(response_doc, "output");
-		fy_foreach(item, output) {
-			content = fy_get(item, "content");
-			fy_foreach(part, content) {
-				if (fy_not_equal(fy_get(part, "type"), "output_text"))
-					continue;
-				chunks = fy_append(chunks, fy_get(part, "text", ""));
-			}
-		}
-
-		out = fyai_join_strings(ctx->transient_gb, chunks);
-		break;
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		out = response_content(ctx->transient_gb, response_doc);
-		break;
-
-	case FYAI_API_MESSAGES:
-		/* Anthropic: join the text content blocks. */
-		chunks = fy_seq_empty;
-		content = fy_get(response_doc, "content");
-		fy_foreach(part, content) {
-			if (fy_not_equal(fy_get(part, "type"), "text"))
-				continue;
-			chunks = fy_append(chunks, fy_get(part, "text", ""));
-		}
-		out = fyai_join_strings(ctx->transient_gb, chunks);
-		break;
-
-	default:
-		assert(0);
-		__builtin_unreachable();
-		break;
-	}
-
-	out = fy_gb_internalize(ctx->transient_gb, out);
-	return fyai_provider_result(ctx, out, "could not extract the response text");
-}
-
-
 /*
  * Only fyai_tools_bang() confers user ownership, with server-built
  * arguments. A provider call carrying _fyai_user_owned smuggles it:
@@ -174,124 +113,59 @@ static fy_generic fyai_tool_calls_take_ownership(struct fyai_ctx *ctx,
 	return tool_calls;
 }
 
-fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
-					   fy_generic response_doc)
+fy_generic fyai_response_canonical(struct fyai_ctx *ctx, fy_generic doc)
 {
-	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic tool_calls;
-	fy_generic output;
-	fy_generic item;
-	fy_generic tmp;
-	fy_generic type;
-	const char *args;
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic response;
 
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		tool_calls = fy_seq_empty;
-		output = fy_get(response_doc, "output");
-		fy_foreach(item, output) {
-			type = fy_get(item, "type");
-			if (fyai_item_type_is_call(type))
-				tool_calls = fy_append(tool_calls, item);
-		}
-		break;
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		/* Chat nests each call: give it the shape of a call item. */
-		tool_calls = fy_seq_empty;
-		output = response_tool_calls(ctx->transient_gb, response_doc);
-		fy_foreach(item, output) {
-			tmp = fy_mapping(
-				"type", "function_call",
-				"call_id", fy_get(item, "id", ""),
-				"name", fy_get_at_path(item, "function", "name"),
-				"arguments", fy_get_at_path(item, "function",
-							    "arguments"));
-			tool_calls = fy_append(tool_calls, tmp);
-		}
-		break;
-
-	case FYAI_API_MESSAGES:
-		/*
-		 * Normalize Anthropic tool_use content blocks into
-		 * Responses-style function_call items right here at the parse
-		 * boundary, so the tool loop, canonical storage, display and
-		 * the cross-provider translators all see the shape they
-		 * already understand. `input` arrives as parsed JSON;
-		 * re-encode it so canonical `arguments` stays a JSON string
-		 * like the other modes.
-		 */
-		tool_calls = fy_seq_empty;
-		output = fy_get(response_doc, "content");
-		fy_foreach(item, output) {
-			if (fy_not_equal(fy_get(item, "type"), "tool_use"))
-				continue;
-			args = emit_json_string(ctx->transient_gb,
-					fy_get(item, "input", fy_map_empty));
-			tmp = fy_mapping(
-				"type", "function_call",
-				"call_id", fy_get(item, "id", ""),
-				"name", fy_get(item, "name", ""),
-				"arguments", args ? args : "{}");
-			tool_calls = fy_append(tool_calls, tmp);
-		}
-		break;
-
-	default:
-		assert(0);
-		__builtin_unreachable();
-		break;
-
-	}
-
-	tool_calls = fyai_tool_calls_take_ownership(ctx, tool_calls);
-
-	/*
-	 * A plain answer carries no tool_calls key, so the lookup yields an
-	 * invalid generic; normalise it to an empty sequence (callers count it
-	 * with fy_len()). Only internalize a real result.
-	 */
-	if (fy_is_invalid(tool_calls) || fy_is_null(tool_calls))
-		return fy_seq_empty;
-
-	tool_calls = fy_gb_internalize(ctx->transient_gb, tool_calls);
-	return fyai_provider_result(ctx, tool_calls,
-			       "could not collect the response tool calls");
+	response = fyai_grammar_response(ctx, doc);
+	if (fy_is_valid(response))
+		response = fy_assoc(gb, response,
+			"calls", fyai_tool_calls_take_ownership(ctx,
+					fy_get(response, "calls", fy_seq_empty)),
+			"messages", fyai_tool_calls_take_ownership(ctx,
+					fy_get(response, "messages", fy_seq_empty)));
+	response = fy_gb_internalize(gb, response);
+	return fyai_provider_result(ctx, response,
+				    "could not read the provider response");
 }
 
-fy_generic fyai_response_id(struct fyai_ctx *ctx, fy_generic response_doc)
+fy_generic fyai_response_output_text(struct fyai_ctx *ctx, fy_generic response)
 {
-	fy_generic v;
-	const char *id;
+	(void)ctx;
+	return fy_get(response, "text", fy_invalid);
+}
 
-	id = fy_get(response_doc, "id", "");
-	if (!*id)
-		return fy_invalid;
-	v = fy_value(id);
+fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx, fy_generic response)
+{
+	(void)ctx;
+	return fy_get(response, "calls", fy_seq_empty);
+}
 
-	v = fy_gb_internalize(ctx->transient_gb, v);
-	return fyai_provider_result(ctx, v, "could not retain the response id");
+fy_generic fyai_response_id(struct fyai_ctx *ctx, fy_generic response)
+{
+	fy_generic id;
+
+	(void)ctx;
+	id = fy_get(response, "id", fy_invalid);
+	return fy_is_string(id) && fy_len(id) ? id : fy_invalid;
 }
 
 bool fyai_response_needs_tool_calls(struct fyai_ctx *ctx,
-					   fy_generic response_doc)
+				    fy_generic response)
 {
-	return fy_len(fyai_response_tool_calls(ctx, response_doc)) > 0;
+	return fy_len(fyai_response_tool_calls(ctx, response)) > 0;
 }
 
-bool fyai_response_is_final(struct fyai_ctx *ctx, fy_generic response_doc)
+bool fyai_response_is_final(struct fyai_ctx *ctx, fy_generic response)
 {
-	if (ctx->cfg->api_mode == FYAI_API_MESSAGES &&
-	    fy_equal(fy_get(response_doc, "stop_reason"), "pause_turn"))
-		return false;
-	return !fyai_response_needs_tool_calls(ctx, response_doc);
+	(void)ctx;
+	return fy_get(response, "final", true);
 }
 
-fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc)
+fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic response)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic out_details;
-	fy_generic in_details;
 	fy_generic usage;
 	fy_generic out;
 	long long cache_write;
@@ -304,47 +178,16 @@ fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc)
 	double cost;
 	bool estimated;
 
-	usage = fy_get(doc, "usage");
-	if (fy_is_invalid(usage))
+	usage = fy_get(response, "usage");
+	if (!fy_is_mapping(usage))
 		return fy_invalid;
 
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		in_details = fy_get(usage, "input_tokens_details");
-		out_details = fy_get(usage, "output_tokens_details");
-		input = fy_get(usage, "input_tokens", 0LL);
-		output = fy_get(usage, "output_tokens", 0LL);
-		break;
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		in_details = fy_get(usage, "prompt_tokens_details");
-		out_details = fy_get(usage, "completion_tokens_details");
-		input = fy_get(usage, "prompt_tokens", 0LL);
-		output = fy_get(usage, "completion_tokens", 0LL);
-		break;
-
-	case FYAI_API_MESSAGES:
-		in_details = out_details = fy_invalid;
-		input = fy_get(usage, "input_tokens", 0LL);
-		output = fy_get(usage, "output_tokens", 0LL);
-		break;
-
-	default:
-		assert(0);
-		__builtin_unreachable();
-		break;
-	}
-
-	cached = fy_get(in_details, "cached_tokens", 0LL);
-	cache_write = fy_get(in_details, "cache_write_tokens", 0LL);
-	reasoning = fy_get(out_details, "reasoning_tokens", 0LL);
-	/* Anthropic reports cache traffic at the usage top level. */
-	if (cfg->api_mode == FYAI_API_MESSAGES) {
-		cached = fy_get(usage, "cache_read_input_tokens", 0LL);
-		cache_write = fy_get(usage, "cache_creation_input_tokens", 0LL);
-		input += cached + cache_write;
-	}
-	total = fy_get(usage, "total_tokens", 0LL);
+	input = fy_get(usage, "input", 0LL);
+	cached = fy_get(usage, "cached", 0LL);
+	cache_write = fy_get(usage, "cache_write", 0LL);
+	output = fy_get(usage, "output", 0LL);
+	reasoning = fy_get(usage, "reasoning", 0LL);
+	total = fy_get(usage, "total", 0LL);
 	if (!total)
 		total = input + output;
 	/* Some providers (e.g. OpenRouter) report a per-call dollar cost. */

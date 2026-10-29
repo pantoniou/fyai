@@ -24,6 +24,7 @@
 #include "fyai_display.h"
 #include "fyai_tools.h"
 #include "fyai_log.h"
+#include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_curl.h"
 #include "fyai_xfer.h"
@@ -59,37 +60,22 @@ struct stream_response {
 	struct response_buffer line;
 	struct response_buffer reasoning_text;
 	size_t reasoning_active_rows;
-	fy_generic content_chunks;
-	fy_generic tool_calls;
-	/* Messages server_tool_use blocks: {index, id, name, chunks}. */
-	fy_generic hosted_calls;
-	fy_generic response_items;
+	/* What the grammar parses the reply into. */
+	struct fyai_stream_parse parse;
 	fy_generic emitted_tools;
-	fy_generic metadata;
-	fy_generic logprob_content;
-	fy_generic logprob_refusal;
-	fy_generic finish_reason;
-	fy_generic usage;
-	fy_generic completed_response;
-	bool done;
 	bool printed_content;
 	bool printed_reasoning;
-	bool failed;
 	bool cancel_requested;
 	size_t received_bytes;
 	size_t content_bytes;
 	size_t content_chunks_count;
-	/*
-	 * Token extents collected for turn metadata (cfg->token_extents):
-	 * {text, pos, lp} per logprob token, or {text, pos} per content chunk
-	 * on the fallback paths. extents_pos is the running byte offset into
-	 * the joined content, advanced only where extent entries are added -
-	 * not the content counters above, which follow every chunk received.
-	 */
-	fy_generic token_extents;
-	size_t extents_pos;
-	bool extents_lp;
 };
+
+static struct stream_response *parse_stream(struct fyai_stream_parse *p)
+{
+	return (struct stream_response *)
+		((char *)p - offsetof(struct stream_response, parse));
+}
 
 static bool stream_state_terminal(enum fyai_stream_state state)
 {
@@ -194,6 +180,7 @@ static void stream_response_cleanup(struct stream_response *stream)
 	free(stream->raw.data);
 	free(stream->line.data);
 	free(stream->reasoning_text.data);
+	fyai_grammar_stream_close(&stream->parse);
 	if (stream->gb)
 		fy_generic_builder_destroy(stream->gb);
 }
@@ -210,37 +197,20 @@ static int stream_response_init(struct stream_response *stream,
 	gb_cfg.parent = ctx->gb;
 
 	stream->ctx = ctx;
-	stream->content_chunks = fy_seq_empty;
-	stream->tool_calls = fy_seq_empty;
-	stream->hosted_calls = fy_seq_empty;
-	stream->response_items = fy_seq_empty;
+	stream->parse.ctx = ctx;
+	stream->parse.content_chunks = fy_seq_empty;
+	stream->parse.tool_calls = fy_seq_empty;
 	stream->emitted_tools = fy_seq_empty;
-	stream->metadata = fy_map_empty;
-	stream->logprob_content = fy_seq_empty;
-	stream->logprob_refusal = fy_invalid;
-	stream->finish_reason = fy_invalid;
-	stream->usage = fy_invalid;
-	stream->completed_response = fy_invalid;
-	stream->token_extents = fy_seq_empty;
+	stream->parse.metadata = fy_map_empty;
+	stream->parse.finish_reason = fy_invalid;
+	stream->parse.usage = fy_invalid;
+	stream->parse.token_extents = fy_seq_empty;
 	stream->result = fy_invalid;
 	stream->gb = fy_generic_builder_create(&gb_cfg);
 	if (!stream->gb)
 		return -1;
-	return 0;
-}
-
-static bool response_chain_miss(struct fyai_ctx *ctx, long status,
-				const char *body)
-{
-	if (!ctx->response_chain_linked ||
-	    ctx->cfg->api_mode != FYAI_API_RESPONSES ||
-	    (status != 400 && status != 404) || !body)
-		return false;
-
-	/* OpenAI identifies this either through error.param or in the message.
-	 * Keep the match narrow so an unrelated endpoint 404 is not replayed. */
-	return strstr(body, "previous_response_id") ||
-	       strstr(body, "Previous response");
+	stream->parse.gb = stream->gb;
+	return fyai_grammar_stream_open(ctx, &stream->parse);
 }
 
 static size_t count_newlines(const char *s, size_t len)
@@ -264,7 +234,7 @@ static void stream_write_content(struct stream_response *stream,
 	len = strlen(text);
 	/* Record and present the response through the active output document. */
 	if (fyai_output_append(ctx, text, len))
-		stream->failed = true;
+		stream->parse.failed = true;
 	fyai_acp_worker_text(ctx, text, len);
 	fyai_text_observe(ctx, text, len);
 	/* Send sub-agent prose to the parent tool band through JSON-RPC. */
@@ -359,7 +329,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 	if (!*text)
 		return;
 	if (fyai_output_reasoning_append(ctx, text))
-		stream->failed = true;
+		stream->parse.failed = true;
 	/* Record delegated reasoning, but do not write it to the terminal. */
 	if (fyai_agent_delegated(ctx)) {
 		stream->printed_reasoning = true;
@@ -400,7 +370,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 	    terminal_is_tty(STDERR_FILENO)) {
 		if (response_buffer_append(&stream->reasoning_text, text) ||
 		    stream_write_reasoning_md(stream))
-			stream->failed = true;
+			stream->parse.failed = true;
 	} else {
 		(void)fyai_sink_write(ctx->sink, FYAI_SINK_STATUS, text,
 				      strlen(text));
@@ -431,7 +401,7 @@ static void stream_finish_reasoning(struct stream_response *stream)
 
 	color = ansi_color_on(cfg->color, STDERR_FILENO);
 	if (fyai_output_reasoning_finish(ctx))
-		stream->failed = true;
+		stream->parse.failed = true;
 	/* Nothing was printed, so there is no trailer to close. */
 	if (fyai_agent_delegated(ctx)) {
 		stream->reasoning_active_rows = 0;
@@ -465,79 +435,57 @@ static void stream_finish_content(struct stream_response *stream)
 	stream->printed_content = false;
 }
 
-static int stream_ensure_tool_call(struct stream_response *stream, size_t index)
+int fyai_stream_tool_slot(struct fyai_stream_parse *p, size_t index)
 {
-	struct fy_generic_builder *gb = stream->gb;
 	fy_generic tool_call;
 
-	while (fy_len(stream->tool_calls) <= index) {
+	while (fy_len(p->tool_calls) <= index) {
 		tool_call = fy_mapping(
 			"function", fy_mapping(
 				"name_chunks", fy_seq_empty,
 				"argument_chunks", fy_seq_empty));
-		stream->tool_calls = fy_append(gb, stream->tool_calls, tool_call);
-		if (fy_is_invalid(stream->tool_calls))
+		p->tool_calls = fy_append(p->gb, p->tool_calls, tool_call);
+		if (fy_is_invalid(p->tool_calls))
 			return -1;
 	}
 
 	return 0;
 }
 
-static int stream_apply_tool_call_delta(struct stream_response *stream,
-					fy_generic delta_tool_call)
+int fyai_stream_content(struct fyai_stream_parse *p, const char *text)
 {
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic tool_call;
-	fy_generic function, delta_function;
-	fy_generic chunks;
-	const char *text;
-	long long index;
+	struct stream_response *stream = parse_stream(p);
 
-	index = fy_get(delta_tool_call, "index", 0LL);
-	if (index < 0)
+	stream_finish_reasoning(stream);
+	p->content_chunks = fy_append(p->gb, p->content_chunks, text);
+	if (fy_is_invalid(p->content_chunks))
 		return -1;
-
-	if (stream_ensure_tool_call(stream, (size_t)index))
-		return -1;
-
-	tool_call = fy_get(stream->tool_calls, (size_t)index);
-	function = fy_get(tool_call, "function");
-	delta_function = fy_get(delta_tool_call, "function");
-
-	text = fy_get(delta_tool_call, "id", "");
-	if (*text)
-		tool_call = fy_assoc(gb, tool_call, "id", text);
-
-	text = fy_get(delta_tool_call, "type", "");
-	if (*text)
-		tool_call = fy_assoc(gb, tool_call, "type", text);
-
-	text = fy_get(delta_function, "name", "");
-	if (*text) {
-		function = fy_get(tool_call, "function");
-		chunks = fy_get(function, "name_chunks", fy_seq_empty);
-		chunks = fy_append(gb, chunks, text);
-		function = fy_assoc(gb, function, "name_chunks", chunks);
-		tool_call = fy_assoc(gb, tool_call, "function", function);
-	}
-
-	text = fy_get(delta_function, "arguments", "");
-	if (*text) {
-		function = fy_get(tool_call, "function");
-		chunks = fy_get(function, "argument_chunks", fy_seq_empty);
-		chunks = fy_append(gb, chunks, text);
-		function = fy_assoc(gb, function, "argument_chunks", chunks);
-		tool_call = fy_assoc(gb, tool_call, "function", function);
-	}
-
-	stream->tool_calls = fy_replace(gb, stream->tool_calls,
-					(size_t)index, tool_call);
-	return fy_is_invalid(stream->tool_calls) ? -1 : 0;
+	stream_write_content(stream, text);
+	return 0;
 }
 
-static int stream_emit_tool(struct stream_response *stream, size_t index,
-			    fy_generic tool_call)
+void fyai_stream_reasoning(struct fyai_stream_parse *p, const char *text)
 {
+	stream_write_reasoning(parse_stream(p), text);
+}
+
+void fyai_stream_done(struct fyai_stream_parse *p)
+{
+	p->done = true;
+	stream_finish_content(parse_stream(p));
+}
+
+int fyai_stream_hosted(struct fyai_stream_parse *p, const char *name,
+		       fy_generic args, bool ok, const char *cause)
+{
+	stream_finish_reasoning(parse_stream(p));
+	return fyai_present_hosted_call(p->ctx, name, args, ok, cause);
+}
+
+int fyai_stream_tool_emit(struct fyai_stream_parse *p, size_t index,
+			  fy_generic tool_call)
+{
+	struct stream_response *stream = parse_stream(p);
 	struct fy_generic_builder *gb;
 	fy_generic emitted;
 	fy_generic slot;
@@ -549,14 +497,14 @@ static int stream_emit_tool(struct stream_response *stream, size_t index,
 	fy_foreach(emitted, stream->emitted_tools)
 		if (*key && fy_equal(emitted, key))
 			return 0;
-	if (index < fy_len(stream->tool_calls)) {
-		slot = fy_get(stream->tool_calls, index);
+	if (index < fy_len(stream->parse.tool_calls)) {
+		slot = fy_get(stream->parse.tool_calls, index);
 		if (fy_get(slot, "_emitted", false))
 			return 0;
 		slot = fy_assoc(stream->gb, slot, "_emitted", true);
-		stream->tool_calls = fy_replace(stream->gb, stream->tool_calls,
+		stream->parse.tool_calls = fy_replace(stream->gb, stream->parse.tool_calls,
 						index, slot);
-		if (fy_is_invalid(stream->tool_calls))
+		if (fy_is_invalid(stream->parse.tool_calls))
 			return -1;
 	}
 	gb = stream->gb;
@@ -571,184 +519,6 @@ static int stream_emit_tool(struct stream_response *stream, size_t index,
 	stream->callbacks.tool(stream, tool_call, index,
 			       stream->callbacks.userdata);
 	return 0;
-}
-
-static fy_generic stream_chat_tool_call(struct stream_response *stream,
-					size_t index)
-{
-	struct fy_generic_builder *gb;
-	fy_generic tool_call;
-	fy_generic function;
-	fy_generic name;
-	fy_generic arguments;
-
-	gb = stream->gb;
-	tool_call = fy_get(stream->tool_calls, index);
-	function = fy_get(tool_call, "function");
-	name = fyai_join_strings(gb,
-			fy_get(function, "name_chunks", fy_seq_empty));
-	arguments = fyai_join_strings(gb,
-			fy_get(function, "argument_chunks", fy_seq_empty));
-	return fy_mapping(gb,
-		"type", "function_call",
-		"call_id", fy_get(tool_call, "id", ""),
-		"name", name,
-		"arguments", arguments);
-}
-
-static fy_generic stream_messages_tool_call(struct stream_response *stream,
-					    size_t index)
-{
-	struct fy_generic_builder *gb;
-	fy_generic tool_call;
-	fy_generic function;
-	fy_generic arguments;
-
-	gb = stream->gb;
-	tool_call = fy_get(stream->tool_calls, index);
-	function = fy_get(tool_call, "function");
-	arguments = fyai_join_strings(gb,
-			fy_get(function, "argument_chunks", fy_seq_empty));
-	return fy_mapping(gb,
-		"type", "function_call",
-		"call_id", fy_get(tool_call, "id", ""),
-		"name", fy_get(tool_call, "name", ""),
-		"arguments", arguments);
-}
-
-static int stream_emit_chat_tools(struct stream_response *stream)
-{
-	size_t i;
-
-	for (i = 0; i < fy_len(stream->tool_calls); i++)
-		if (stream_emit_tool(stream, i,
-				     stream_chat_tool_call(stream, i)))
-			return -1;
-	return 0;
-}
-
-static void stream_report_failure(struct stream_response *stream,
-				  fy_generic type, fy_generic event);
-
-static int chat_stream_apply_chunk(struct stream_response *stream,
-				   fy_generic chunk)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	struct fyai_cfg *cfg = stream->ctx->cfg;
-	fy_generic choice, delta, tool_calls, tool_call, usage, logprobs;
-	const char *text;
-
-	/* Handle an error object that arrives with HTTP status 200. */
-	if (fy_is_valid(fy_get(chunk, "error"))) {
-		stream_report_failure(stream, fy_get(chunk, "type"), chunk);
-		stream->failed = true;
-		return -1;
-	}
-
-	usage = fy_get(chunk, "usage");
-	if (!fy_is_invalid(usage))
-		stream->usage = usage;
-
-	stream->metadata = fy_assoc(gb, stream->metadata,
-		"id", fy_get(chunk, "id", ""),
-		"created", fy_get(chunk, "created", 0LL),
-		"model", fy_get(chunk, "model", ""),
-		"service_tier", fy_get(chunk, "service_tier", ""),
-		"system_fingerprint", fy_get(chunk, "system_fingerprint", ""));
-
-	choice = fy_get_at_path(chunk, "choices", 0);
-	if (fy_is_invalid(choice))
-		return 0;
-
-	logprobs = fy_get(choice, "logprobs");
-	if (!fy_is_invalid(logprobs) &&
-	    !fy_is_null(logprobs)) {
-		fy_generic content, refusal;
-
-		content = fy_get(logprobs, "content");
-		if (!fy_is_invalid(content)) {
-			stream->logprob_content = fy_concat(gb,
-					stream->logprob_content, content);
-			if (cfg->token_extents &&
-			    fy_is_valid(stream->token_extents)) {
-				stream->token_extents =
-					fyai_token_extents_append(gb,
-						stream->token_extents, content,
-						&stream->extents_pos);
-				stream->extents_lp = true;
-			}
-		}
-		refusal = fy_get(logprobs, "refusal");
-		if (!fy_is_invalid(refusal))
-			stream->logprob_refusal = refusal;
-	}
-
-	text = fy_get(choice, "finish_reason", "");
-	if (*text)
-		stream->finish_reason = fy_value(gb, text);
-
-	delta = fy_get(choice, "delta");
-
-	/*
-	 * Some Chat Completions providers (deepseek, openrouter) stream a
-	 * reasoning trace alongside the answer under `reasoning_content`. Show
-	 * it live (dim, on stderr); it is provider wire detail dropped from
-	 * canonical content, not part of the answer.
-	 */
-	text = fy_get(delta, "reasoning_content", "");
-	if (*text)
-		stream_write_reasoning(stream, text);
-
-	text = fy_get(delta, "content", "");
-	if (*text) {
-		stream_finish_reasoning(stream);
-		stream->content_chunks = fy_append(gb,
-					stream->content_chunks, text);
-		if (fy_is_invalid(stream->content_chunks))
-			return -1;
-		stream_write_content(stream, text);
-	}
-
-	tool_calls = fy_get(delta, "tool_calls");
-	fy_foreach(tool_call, tool_calls) {
-		if (stream_apply_tool_call_delta(stream, tool_call))
-			return -1;
-	}
-	if (fy_equal(stream->finish_reason, "tool_calls"))
-		return stream_emit_chat_tools(stream);
-
-	return 0;
-}
-
-/*
- * Collect extents for one Responses output-text delta. When logprobs were
- * included the event's `logprobs` array delimits the tokens exactly; without
- * them the delta itself becomes one chunk extent. Both advance extents_pos by
- * byte length, so mixed streams stay position-consistent.
- */
-static void responses_collect_extents(struct stream_response *stream,
-				      fy_generic event, const char *delta)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic entries;
-
-	if (fy_is_invalid(stream->token_extents))
-		return;
-
-	entries = fy_get(event, "logprobs");
-	if (fy_is_valid(entries) && fy_len(entries)) {
-		stream->token_extents = fyai_token_extents_append(gb,
-				stream->token_extents, entries,
-				&stream->extents_pos);
-		stream->extents_lp = true;
-		return;
-	}
-
-	stream->token_extents = fy_append(gb, stream->token_extents,
-			fy_mapping(gb,
-				"text", delta,
-				"pos", (long long)stream->extents_pos));
-	stream->extents_pos += strlen(delta);
 }
 
 /*
@@ -804,326 +574,11 @@ static void stream_report_failure(struct stream_response *stream,
 		fyai_error(ctx, "%s", text);
 }
 
-/* Present a provider-run search; the item stays in response_items. */
-static int responses_hosted_search(struct stream_response *stream,
-				   fy_generic item)
+void fyai_stream_fail(struct fyai_stream_parse *p, fy_generic type,
+		      fy_generic event)
 {
-	fy_generic action, query, status, args;
-	bool ok;
-
-	action = fy_get(item, "action");
-	query = fy_get(action, "query");
-	if (!fy_is_string(query))
-		query = fy_get(fy_get(action, "queries"), 0);
-	status = fy_get(item, "status");
-	ok = fy_not_equal(status, "failed");
-	args = fy_mapping(stream->gb,
-		"query", fy_is_string(query) ? query : fy_value(""),
-		"action", fy_get(action, "type", ""),
-		"url", fy_get(action, "url", ""),
-		"pattern", fy_get(action, "pattern", ""),
-		"ref_id", fy_get(action, "ref_id", ""));
-	stream_finish_reasoning(stream);
-	return fyai_present_hosted_call(stream->ctx, "web_search",
-			args,
-			ok, ok ? NULL : "search failed");
-}
-
-static int responses_stream_apply_event(struct stream_response *stream,
-					fy_generic event)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	struct fyai_cfg *cfg = stream->ctx->cfg;
-	fy_generic item;
-	fy_generic type;
-	const char *delta;
-	long long index;
-
-	type = fy_get(event, "type");
-
-	if (fy_any_equal(type, "response.reasoning_summary_text.delta",
-			 "response.reasoning_text.delta")) {
-		stream_write_reasoning(stream, fy_get(event, "delta", ""));
-		return 0;
-	}
-
-	if (fy_equal(type, "response.output_text.delta")) {
-		delta = fy_get(event, "delta", "");
-		if (*delta) {
-			stream_finish_reasoning(stream);
-			if (cfg->token_extents)
-				responses_collect_extents(stream, event, delta);
-			stream->content_chunks = fy_append(gb,
-						stream->content_chunks, delta);
-			if (fy_is_invalid(stream->content_chunks))
-				return -1;
-			stream_write_content(stream, delta);
-		}
-		return 0;
-	}
-
-	if (fy_equal(type, "response.output_item.done")) {
-		item = fy_get(event, "item");
-		index = fy_get(event, "output_index", 0LL);
-		if (index < 0)
-			return -1;
-		while (fy_len(stream->response_items) <= (size_t)index) {
-			stream->response_items = fy_append(gb,
-						stream->response_items, fy_null);
-			if (fy_is_invalid(stream->response_items))
-				return -1;
-		}
-		stream->response_items = fy_replace(gb, stream->response_items,
-						    (size_t)index, item);
-		if (fy_is_invalid(stream->response_items))
-			return -1;
-		type = fy_get(item, "type");
-		if (fy_equal(type, "web_search_call"))
-			return responses_hosted_search(stream, item);
-		if (fy_not_equal(type, "function_call") &&
-		    fy_not_equal(type, "shell_call"))
-			return 0;
-		return stream_emit_tool(stream, (size_t)index, item);
-	}
-
-	if (fy_equal(type, "response.completed")) {
-		stream->completed_response = fy_get(event, "response");
-		stream->done = true;
-		stream_finish_content(stream);
-		return fy_is_invalid(stream->completed_response) ? -1 : 0;
-	}
-
-	/*
-	 * The provider says why on the event itself: an error object, or
-	 * incomplete_details naming the limit that stopped it (commonly
-	 * max_output_tokens). Report it - dropping it leaves the engine with
-	 * nothing but a bare "request failed".
-	 */
-	if (fy_any_equal(type, "response.failed", "response.incomplete",
-			 "error")) {
-		stream_report_failure(stream, type, event);
-		stream->failed = true;
-		return -1;
-	}
-
-	return 0;
-}
-
-/*
- * Find the server_tool_use block with content index @index, or with the
- * block ID @id when @id is not NULL. Return its position or -1.
- */
-static ssize_t messages_hosted_find(struct stream_response *stream,
-				    long long index, const char *id)
-{
-	fy_generic call;
-	size_t i;
-
-	fy_foreach_idx_item(i, call, stream->hosted_calls) {
-		if (id ? fy_equal(fy_get(call, "id"), id) :
-			 fy_get(call, "index", -1LL) == index)
-			return (ssize_t)i;
-	}
-	return -1;
-}
-
-static int messages_hosted_append(struct stream_response *stream,
-				  long long index, const char *text)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic call;
-	ssize_t pos;
-
-	pos = messages_hosted_find(stream, index, NULL);
-	call = fy_get(stream->hosted_calls, (size_t)pos);
-	call = fy_assoc(gb, call, "chunks",
-			fy_append(gb, fy_get(call, "chunks", fy_seq_empty),
-				  text));
-	stream->hosted_calls = fy_replace(gb, stream->hosted_calls,
-					  (size_t)pos, call);
-	return fy_is_invalid(stream->hosted_calls) ? -1 : 0;
-}
-
-/*
- * A web_search_tool_result block ends the server_tool_use block that it
- * names. Its content is a list of results, or an error object.
- */
-static int messages_hosted_result(struct stream_response *stream,
-				  fy_generic block)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic call, args, content, code, json;
-	const char *id;
-	ssize_t pos;
-	bool ok;
-
-	id = fy_get(block, "tool_use_id", "");
-	pos = messages_hosted_find(stream, -1, id);
-	call = pos >= 0 ? fy_get(stream->hosted_calls, (size_t)pos) :
-			  fy_map_empty;
-	json = fyai_join_strings(gb, fy_get(call, "chunks", fy_seq_empty));
-	args = parse_json_string(gb, fy_castp(&json, ""));
-	if (!fy_is_mapping(args))
-		args = fy_map_empty;
-	content = fy_get(block, "content");
-	ok = !fy_is_mapping(content);
-	code = fy_get(content, "error_code");
-	stream_finish_reasoning(stream);
-	return fyai_present_hosted_call(stream->ctx, "web_search", args, ok,
-			ok ? NULL : fy_is_string(code) ? fy_castp(&code, "") :
-							 "search failed");
-}
-
-/*
- * Anthropic Messages SSE: content arrives as indexed block events. Text
- * deltas stream straight to the renderer; tool_use blocks reuse the chat
- * tool-call slots (indexed by content-block index, id/name at block start,
- * input_json_delta fragments accumulated as argument chunks). Usage arrives
- * split across message_start (input) and message_delta (output). There is no
- * [DONE]; message_stop ends the stream.
- */
-static int messages_stream_apply_event(struct stream_response *stream,
-				       fy_generic event)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic message, block, tool_call, function, chunks, usage;
-	fy_generic type;
-	fy_generic reason;
-	const char *text;
-	long long index;
-
-	type = fy_get(event, "type");
-
-	if (fy_equal(type, "message_start")) {
-		message = fy_get(event, "message");
-		stream->metadata = fy_assoc(gb, stream->metadata,
-			"id", fy_get(message, "id", ""),
-			"model", fy_get(message, "model", ""));
-		usage = fy_get(message, "usage");
-		if (fy_is_valid(usage))
-			stream->usage = usage;
-		return 0;
-	}
-
-	if (fy_equal(type, "content_block_start")) {
-		block = fy_get(event, "content_block");
-		index = fy_get(event, "index", 0LL);
-		if (fy_equal(fy_get(block, "type"), "server_tool_use")) {
-			stream->hosted_calls = fy_append(gb,
-				stream->hosted_calls,
-				fy_mapping(gb, "index", index,
-					   "id", fy_get(block, "id", ""),
-					   "name", fy_get(block, "name", ""),
-					   "chunks", fy_seq_empty));
-			return fy_is_invalid(stream->hosted_calls) ? -1 : 0;
-		}
-		if (fy_equal(fy_get(block, "type"), "web_search_tool_result"))
-			return messages_hosted_result(stream, block);
-		if (fy_not_equal(fy_get(block, "type"), "tool_use"))
-			return 0;
-		index = fy_get(event, "index", 0LL);
-		if (index < 0 || stream_ensure_tool_call(stream, (size_t)index))
-			return -1;
-		tool_call = fy_get(stream->tool_calls, (size_t)index);
-		tool_call = fy_assoc(gb, tool_call,
-			"id", fy_get(block, "id", ""),
-			"name", fy_get(block, "name", ""));
-		stream->tool_calls = fy_replace(gb, stream->tool_calls,
-						(size_t)index, tool_call);
-		return fy_is_invalid(stream->tool_calls) ? -1 : 0;
-	}
-
-	if (fy_equal(type, "content_block_delta")) {
-		block = fy_get(event, "delta");
-		type = fy_get(block, "type");
-
-		if (fy_equal(type, "text_delta")) {
-			text = fy_get(block, "text", "");
-			if (*text) {
-				stream_finish_reasoning(stream);
-				stream->content_chunks = fy_append(gb,
-						stream->content_chunks, text);
-				if (fy_is_invalid(stream->content_chunks))
-					return -1;
-				stream_write_content(stream, text);
-			}
-			return 0;
-		}
-
-		if (fy_equal(type, "thinking_delta")) {
-			stream_write_reasoning(stream,
-					fy_get(block, "thinking", ""));
-			return 0;
-		}
-
-		if (fy_equal(type, "input_json_delta")) {
-			text = fy_get(block, "partial_json", "");
-			if (!*text)
-				return 0;
-			index = fy_get(event, "index", 0LL);
-			if (messages_hosted_find(stream, index, NULL) >= 0)
-				return messages_hosted_append(stream, index,
-							      text);
-			if (index < 0 ||
-			    stream_ensure_tool_call(stream, (size_t)index))
-				return -1;
-			tool_call = fy_get(stream->tool_calls, (size_t)index);
-			function = fy_get(tool_call, "function");
-			chunks = fy_append(gb,
-					fy_get(function, "argument_chunks",
-					       fy_seq_empty), text);
-			function = fy_assoc(gb, function,
-					    "argument_chunks", chunks);
-			tool_call = fy_assoc(gb, tool_call,
-					     "function", function);
-			stream->tool_calls = fy_replace(gb, stream->tool_calls,
-							(size_t)index, tool_call);
-			return fy_is_invalid(stream->tool_calls) ? -1 : 0;
-		}
-
-		return 0;
-	}
-
-	if (fy_equal(type, "content_block_stop")) {
-		index = fy_get(event, "index", -1LL);
-		if (index < 0 || (size_t)index >= fy_len(stream->tool_calls))
-			return 0;
-		tool_call = fy_get(stream->tool_calls, (size_t)index);
-		if (!*fy_get(tool_call, "id", ""))
-			return 0;
-		return stream_emit_tool(stream, (size_t)index,
-			stream_messages_tool_call(stream, (size_t)index));
-	}
-
-	if (fy_equal(type, "message_delta")) {
-		reason = fy_get_at_path(event, "delta", "stop_reason");
-		text = fy_castp(&reason, "");
-		if (*text)
-			stream->finish_reason = fy_value(gb, text);
-		usage = fy_get(event, "usage");
-		if (fy_is_valid(usage))
-			stream->usage = fy_assoc(gb,
-				fy_is_valid(stream->usage) ?
-					stream->usage : fy_map_empty,
-				"output_tokens",
-				fy_get(usage, "output_tokens", 0LL));
-		return 0;
-	}
-
-	if (fy_equal(type, "message_stop")) {
-		stream->done = true;
-		stream_finish_content(stream);
-		return 0;
-	}
-
-	if (fy_equal(type, "error")) {
-		stream_report_failure(stream, type, event);
-		stream->failed = true;
-		return -1;
-	}
-
-	/* ping, content_block_stop, unknown future events: ignore. */
-	return 0;
+	stream_report_failure(parse_stream(p), type, event);
+	p->failed = true;
 }
 
 static int stream_handle_data(struct stream_response *stream,
@@ -1137,7 +592,7 @@ static int stream_handle_data(struct stream_response *stream,
 		data++;
 
 	if (!strcmp(data, "[DONE]")) {
-		stream->done = true;
+		stream->parse.done = true;
 		stream_finish_content(stream);
 		return 0;
 	}
@@ -1156,22 +611,11 @@ static int stream_handle_data(struct stream_response *stream,
 		(void)fyai_log_generic(ctx, "stream",
 				fy_mapping(stream->gb,
 					"kind", "event",
-					"api", fyai_api_to_string(cfg->api_mode),
+					"api", stream->parse.grammar->name,
 					"data", chunk));
 	}
 
-	switch (cfg->api_mode) {
-
-	case FYAI_API_RESPONSES:
-		return responses_stream_apply_event(stream, chunk);
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		return chat_stream_apply_chunk(stream, chunk);
-
-	case FYAI_API_MESSAGES:
-		return messages_stream_apply_event(stream, chunk);
-	}
-	return -1;
+	return fyai_grammar_stream_event(&stream->parse, chunk);
 }
 
 static int stream_handle_line(struct stream_response *stream,
@@ -1232,7 +676,7 @@ static size_t write_stream_response(void *ptr, size_t size, size_t nmemb,
 			return 0;
 		if (stream_handle_line(stream, stream->line.data,
 				       stream->line.len)) {
-			stream->failed = true;
+			stream->parse.failed = true;
 			return 0;
 		}
 		stream->line.len = 0;
@@ -1244,236 +688,31 @@ static size_t write_stream_response(void *ptr, size_t size, size_t nmemb,
 	return bytes;
 }
 
-static fy_generic stream_build_tool_calls(struct stream_response *stream)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic tool_calls, tool_call, function;
-	fy_generic name, arguments;
-
-	tool_calls = fy_seq_empty;
-
-	fy_foreach(tool_call, stream->tool_calls) {
-		function = fy_get(tool_call, "function");
-		name = fyai_join_strings(gb,
-				fy_get(function, "name_chunks", fy_seq_empty));
-		arguments = fyai_join_strings(gb,
-				fy_get(function, "argument_chunks", fy_seq_empty));
-
-		tool_call = fy_mapping(
-			"id", fy_get(tool_call, "id", ""),
-			"type", fy_get(tool_call, "type", "function"),
-			"function", fy_mapping(
-				"name", name,
-				"arguments", arguments));
-		tool_calls = fy_append(tool_calls, tool_call);
-	}
-
-	tool_calls = fy_gb_internalize(gb, tool_calls);
-	if (fy_is_invalid(tool_calls))
-		fyai_error(stream->ctx, "could not build the streamed tool calls");
-	return tool_calls;
-}
-
-static fy_generic stream_build_response_doc(struct stream_response *stream)
-{
-	struct fyai_ctx *ctx = stream->ctx;
-	struct fyai_cfg *cfg = ctx->cfg;
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic message, choice, doc;
-
-	message = fy_mapping("role", "assistant");
-	if (fy_len(stream->content_chunks))
-		message = fy_assoc(message,
-			"content", fyai_join_strings(gb, stream->content_chunks));
-	if (!fy_len(stream->tool_calls))
-		message = fy_assoc(message,
-			"refusal", fy_null,
-			"annotations", fy_seq_empty);
-	if (fy_len(stream->tool_calls))
-		message = fy_assoc(message,
-			"tool_calls", stream_build_tool_calls(stream));
-
-	choice = fy_mapping(
-		"index", 0,
-		"message", message,
-		"logprobs", cfg->logprobs ?
-			fy_mapping(
-				"content", stream->logprob_content,
-				"refusal", fy_is_valid(stream->logprob_refusal) ?
-					stream->logprob_refusal : fy_null) :
-			fy_null,
-		"finish_reason", fy_is_valid(stream->finish_reason) ?
-			stream->finish_reason : fy_string("stop"));
-
-	doc = fy_mapping(
-		"id", fy_get(stream->metadata, "id", ""),
-		"object", "chat.completion",
-		"created", fy_get(stream->metadata, "created", 0LL),
-		"model", fy_get(stream->metadata, "model", ""),
-		"choices", fy_sequence(choice));
-	if (!fy_is_invalid(stream->usage))
-		doc = fy_assoc(doc, "usage", stream->usage);
-	doc = fy_assoc(doc,
-		"service_tier", fy_get(stream->metadata, "service_tier", ""),
-		"system_fingerprint", fy_get(stream->metadata,
-					     "system_fingerprint", ""));
-
-	if (fy_is_invalid(doc)) {
-		fyai_error(ctx, "could not build the streamed response");
-		return fy_invalid;
-	}
-	doc = fy_gb_internalize(gb, doc);
-	if (fy_is_invalid(doc))
-		fyai_error(ctx, "could not retain the streamed response");
-	return doc;
-}
-
-/*
- * Assemble a full Anthropic message document from the stream state so the
- * streamed path hands the engine the same shape a buffered /v1/messages
- * reply has: {id, model, role, content: [text?, tool_use...], stop_reason,
- * usage}. tool_use input is the parsed JSON of the accumulated
- * input_json_delta fragments.
- */
-static fy_generic messages_build_response_doc(struct stream_response *stream)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic content, tool_call, function, arguments, input, doc, text;
-
-	content = fy_seq_empty;
-	if (fy_len(stream->content_chunks)) {
-		text = fyai_join_strings(gb, stream->content_chunks);
-		content = fy_append(gb, content, fy_mapping(
-				"type", "text",
-				"text", text));
-	}
-
-	fy_foreach(tool_call, stream->tool_calls) {
-		/* skip slots never opened as tool_use blocks (text indexes) */
-		if (!*fy_get(tool_call, "id", ""))
-			continue;
-		function = fy_get(tool_call, "function");
-		arguments = fyai_join_strings(gb,
-				fy_get(function, "argument_chunks", fy_seq_empty));
-		input = parse_json_string(gb, fy_cast(arguments, "{}"));
-		if (fy_is_invalid(input))
-			input = fy_map_empty;
-		content = fy_append(gb, content, fy_mapping(
-				"type", "tool_use",
-				"id", fy_get(tool_call, "id", ""),
-				"name", fy_get(tool_call, "name", ""),
-				"input", input));
-	}
-
-	doc = fy_mapping(
-		"id", fy_get(stream->metadata, "id", ""),
-		"type", "message",
-		"role", "assistant",
-		"model", fy_get(stream->metadata, "model", ""),
-		"content", content,
-		"stop_reason", fy_is_valid(stream->finish_reason) ?
-			stream->finish_reason : fy_string("end_turn"));
-	if (!fy_is_invalid(stream->usage))
-		doc = fy_assoc(doc, "usage", stream->usage);
-
-	if (fy_is_invalid(doc)) {
-		fyai_error(stream->ctx, "could not build the streamed message");
-		return fy_invalid;
-	}
-	doc = fy_gb_internalize(gb, doc);
-	if (fy_is_invalid(doc))
-		fyai_error(stream->ctx, "could not retain the streamed message");
-	return doc;
-}
-
-/*
- * Some Responses-compatible streaming endpoints leave `output` empty in the
- * response.completed event. Rebuild it from the output-item events, with the
- * text deltas as a fallback when the endpoint omits the message item too.
- */
-static fy_generic responses_complete_response(struct stream_response *stream)
-{
-	struct fy_generic_builder *gb = stream->gb;
-	fy_generic response, output, item, text;
-
-	response = stream->completed_response;
-	output = fy_get(response, "output", fy_invalid);
-	if (fy_is_valid(output) && !fy_is_null(output) &&
-	    fy_len(output))
-		return response;
-
-	output = fy_seq_empty;
-	fy_foreach(item, stream->response_items) {
-		if (!fy_is_null(item))
-			output = fy_append(gb, output, item);
-	}
-	if (!fy_len(output) && fy_len(stream->content_chunks)) {
-		text = fyai_join_strings(gb, stream->content_chunks);
-		item = fy_mapping(
-			"type", "message",
-			"role", "assistant",
-			"content", fy_sequence(
-				fy_mapping(
-					"type", "output_text",
-					"text", text)));
-		output = fy_append(gb, output, item);
-	}
-	if (fy_is_invalid(output))
-		return fy_invalid;
-	return fy_assoc(gb, response, "output", output);
-}
-
 /*
  * Hand the collected token extents to the engine for the turn-metadata
- * attach. Fail-soft by design: any inconsistency (offset drift against the
- * final content, collection failure) silently drops the extents - the call,
- * canonical content and usage are never affected. Chat without logprob
- * entries and Messages (no logprobs at all) rebuild {text, pos} chunk extents
- * from the accumulated content chunks, whose offsets are consistent with the
- * join by construction.
+ * attach. Fail-soft by design: an offset that drifts from the final text
+ * drops the extents - the call, canonical content and usage are never
+ * affected. Extents that logprobs do not delimit are the content chunks,
+ * whose offsets are consistent with the join by construction.
  */
 static void stream_store_token_extents(struct stream_response *stream,
 				       fy_generic response)
 {
 	struct fyai_ctx *ctx = stream->ctx;
-	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder *gb = stream->gb;
 	fy_generic extents;
-	fy_generic chunk;
-	fy_generic out;
-	const char *text;
-	size_t total;
+	fy_generic text;
 
-	if (!cfg->token_extents)
+	if (!ctx->cfg->token_extents)
 		return;
 
-	extents = stream->token_extents;
-	switch (cfg->api_mode) {
-	case FYAI_API_CHAT_COMPLETIONS:
-		if (!stream->extents_lp) {
-			extents = fyai_chunk_extents(gb,
-						     stream->content_chunks);
-			break;
-		}
-		total = 0;
-		fy_foreach(chunk, stream->content_chunks) {
-			text = fy_castp(&chunk, "");
-			total += strlen(text);
-		}
-		if (stream->extents_pos != total)
+	if (stream->parse.extents_lp) {
+		extents = stream->parse.token_extents;
+		text = fy_get(response, "text");
+		if (stream->parse.extents_pos != strlen(fy_castp(&text, "")))
 			extents = fy_invalid;
-		break;
-
-	case FYAI_API_MESSAGES:
-		extents = fyai_chunk_extents(gb, stream->content_chunks);
-		break;
-
-	case FYAI_API_RESPONSES:
-		out = fyai_response_output_text(ctx, response);
-		text = fy_castp(&out, "");
-		if (stream->extents_pos != strlen(text))
-			extents = fy_invalid;
-		break;
+	} else {
+		extents = fyai_chunk_extents(gb, stream->parse.content_chunks);
 	}
 
 	if (fy_is_invalid(extents) || !fy_len(extents))
@@ -1761,7 +1000,6 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 {
 	struct stream_response *stream;
 	struct fyai_ctx *ctx;
-	struct fyai_cfg *cfg;
 	CURLcode res;
 	fy_generic ret;
 	fy_generic tool_calls;
@@ -1773,7 +1011,6 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 
 	stream = userdata;
 	ctx = stream->ctx;
-	cfg = ctx->cfg;
 	status = 0;
 	ret = fy_invalid;
 	res = fyai_xfer_result(transfer);
@@ -1788,7 +1025,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 
 	status = fyai_xfer_last_status(ctx);
 	/* Use the stream error before the curl callback error. */
-	if (stream->failed && (!status || (status >= 200 && status < 300))) {
+	if (stream->parse.failed && (!status || (status >= 200 && status < 300))) {
 		stream->attempt++;
 		retry_rc = stream_retry_arm(stream, 0, CURLE_OK);
 		if (retry_rc > 0)
@@ -1837,7 +1074,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 			goto done;
 		}
 		ctx->response_chain_miss =
-			response_chain_miss(ctx, status, stream->raw.data);
+			fyai_grammar_chain_miss(ctx, status, stream->raw.data);
 		if (ctx->response_chain_miss) {
 			stream_state_transition(stream, FYAISS_FAILED);
 			goto done;
@@ -1849,28 +1086,22 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 		goto done;
 	}
 
-	if (stream->failed) {
+	if (stream->parse.failed) {
 		stream_state_transition(stream, FYAISS_FAILED);
 		goto done;
 	}
-	if (!stream->done) {
+	if (!stream->parse.done) {
 		fyai_error(ctx, "the response stream ended before it completed "
 			   "(after %zu bytes)", stream->received_bytes);
 		stream_state_transition(stream, FYAISS_FAILED);
 		goto done;
 	}
 
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		ret = responses_complete_response(stream);
-		break;
-	case FYAI_API_CHAT_COMPLETIONS:
-		ret = stream_build_response_doc(stream);
-		break;
-	case FYAI_API_MESSAGES:
-		ret = messages_build_response_doc(stream);
-		break;
-	}
+	ret = fyai_grammar_stream_finish(&stream->parse);
+	if (fy_is_invalid(ret))
+		fyai_error(ctx, "could not build the streamed response");
+	else
+		ret = fyai_response_canonical(ctx, ret);
 
 	if (fy_is_valid(ret))
 		stream_store_token_extents(stream, ret);
@@ -1878,7 +1109,7 @@ static void stream_request_complete(struct fyai_xfer *transfer, void *userdata)
 		tool_calls = fyai_response_tool_calls(ctx, ret);
 		tool_index = 0;
 		fy_foreach(tool_call, tool_calls) {
-			rc = stream_emit_tool(stream, tool_index++, tool_call);
+			rc = fyai_stream_tool_emit(&stream->parse, tool_index++, tool_call);
 			if (rc) {
 				ret = fy_invalid;
 				break;
@@ -2170,8 +1401,8 @@ static void buffered_request_complete(struct fyai_xfer *transfer, void *userdata
 			goto done;
 		}
 		ctx->response_chain_miss =
-			response_chain_miss(ctx, status,
-					    request->response.data);
+			fyai_grammar_chain_miss(ctx, status,
+						request->response.data);
 		if (ctx->response_chain_miss)
 			goto done;
 		fyai_error(ctx, "request returned HTTP %ld%s%s", status,
