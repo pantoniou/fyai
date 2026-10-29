@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "fyai_grammar.h"
+#include "fyai_tools.h"
 
 /* Indexed by enum fyai_api_mode; the order is the order of preference. */
 static const struct fyai_grammar *const grammars[] = {
@@ -59,15 +60,68 @@ bool fyai_grammar_default_url(const char *url)
 	return false;
 }
 
+fy_generic fyai_grammar_input(struct fyai_ctx *ctx, fy_generic messages)
+{
+	return fyai_grammar(ctx->cfg)->input(ctx, messages);
+}
+
+fy_generic fyai_grammar_make_tools(struct fyai_ctx *ctx)
+{
+	return fyai_grammar(ctx->cfg)->make_tools(ctx);
+}
+
+fy_generic fyai_grammar_tool_def(struct fyai_ctx *ctx, fy_generic spec)
+{
+	return fyai_grammar(ctx->cfg)->tool_def(ctx, spec);
+}
+
+fy_generic fyai_grammar_image_part(struct fyai_ctx *ctx, fy_generic part)
+{
+	return fyai_grammar(ctx->cfg)->image_part(ctx, part);
+}
+
+fy_generic fyai_grammar_build_request(struct fyai_ctx *ctx,
+				      const struct fyai_grammar_request *req)
+{
+	return fyai_grammar(ctx->cfg)->build_request(ctx, req);
+}
+
 bool fyai_grammar_compacts(const struct fyai_cfg *cfg)
 {
-	return fyai_grammar(cfg)->compaction;
+	return fyai_grammar(cfg)->compact_url != NULL;
+}
+
+bool fyai_grammar_compact_url(const struct fyai_cfg *cfg, char *out,
+			      size_t size)
+{
+	const struct fyai_grammar *grammar = fyai_grammar(cfg);
+
+	return grammar->compact_url && grammar->compact_url(cfg, out, size);
+}
+
+bool fyai_grammar_tools_wanted(struct fyai_ctx *ctx)
+{
+	return ctx->cfg->enable_tools || ctx->cfg->enable_builtin_shell ||
+	       fyai_mcp_enabled(ctx);
 }
 
 bool fyai_grammar_reasoning_set(const struct fyai_cfg *cfg)
 {
 	return !fy_str_empty(cfg->reasoning_effort) ||
 	       !fy_str_empty(cfg->reasoning_summary);
+}
+
+fy_generic fyai_grammar_add_stream(struct fyai_ctx *ctx, fy_generic request,
+				   fy_generic options)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+
+	if (!ctx->cfg->stream)
+		return request;
+	request = fy_assoc(gb, request, "stream", true);
+	if (fy_len(options))
+		request = fy_assoc(gb, request, "stream_options", options);
+	return request;
 }
 
 const char *fyai_api_to_string(enum fyai_api_mode api)

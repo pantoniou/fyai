@@ -15,14 +15,15 @@
 #include <string.h>
 #include <strings.h>
 
+#include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_cost.h"
 #include "fyai_media.h"
 #include "fyai_tool_spec.h"
 #include "fyai_tools.h"
 
-static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
-				  const char *what)
+fy_generic fyai_provider_result(struct fyai_ctx *ctx, fy_generic v,
+				const char *what)
 {
 	if (fy_is_invalid(v))
 		fyai_error(ctx, "%s", what);
@@ -30,7 +31,7 @@ static fy_generic provider_result(struct fyai_ctx *ctx, fy_generic v,
 }
 
 /* Provider grammars carry an agent message as attributed user-role text. */
-static fy_generic fyai_agent_wire_text(struct fyai_ctx *ctx, fy_generic message)
+fy_generic fyai_agent_wire_text(struct fyai_ctx *ctx, fy_generic message)
 {
 	fy_generic origin = fy_get(message, "origin", fy_invalid);
 	fy_generic content = fy_get(message, "content", fy_invalid);
@@ -101,7 +102,7 @@ fy_generic fyai_response_output_text(struct fyai_ctx *ctx,
 	}
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return provider_result(ctx, out, "could not extract the response text");
+	return fyai_provider_result(ctx, out, "could not extract the response text");
 }
 
 
@@ -254,7 +255,7 @@ fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 		return fy_seq_empty;
 
 	tool_calls = fy_gb_internalize(ctx->transient_gb, tool_calls);
-	return provider_result(ctx, tool_calls,
+	return fyai_provider_result(ctx, tool_calls,
 			       "could not collect the response tool calls");
 }
 
@@ -269,7 +270,7 @@ fy_generic fyai_response_id(struct fyai_ctx *ctx, fy_generic response_doc)
 	v = fy_value(id);
 
 	v = fy_gb_internalize(ctx->transient_gb, v);
-	return provider_result(ctx, v, "could not retain the response id");
+	return fyai_provider_result(ctx, v, "could not retain the response id");
 }
 
 bool fyai_response_needs_tool_calls(struct fyai_ctx *ctx,
@@ -369,7 +370,7 @@ fy_generic fyai_extract_usage(struct fyai_ctx *ctx, fy_generic doc)
 		"model", cfg->model ? cfg->model : "");
 
 	out = fy_gb_internalize(ctx->transient_gb, out);
-	return provider_result(ctx, out, "could not extract the response usage");
+	return fyai_provider_result(ctx, out, "could not extract the response usage");
 }
 
 /*
@@ -445,87 +446,6 @@ fy_generic fyai_chunk_extents(struct fy_generic_builder *gb, fy_generic chunks)
 	return extents;
 }
 
-fy_generic fyai_make_responses_tools(struct fyai_ctx *ctx)
-{
-	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic response_tools;
-	fy_generic response_tool;
-	fy_generic function;
-	fy_generic tools;
-	fy_generic tool;
-	bool native_shell;
-
-	response_tools = fy_seq_empty;
-
-	native_shell = cfg->enable_builtin_shell &&
-		       fyai_provider_native_shell(cfg);
-
-	if (cfg->enable_tools) {
-		tools = make_tools_filtered(ctx);
-		fy_foreach(tool, tools) {
-			function = fy_get(tool, "function");
-			/* Replace the function tool with the native tool. */
-			if (native_shell &&
-			    fy_equal(fy_get(function, "name"),
-				     FYAI_TOOL_EXEC_WIRE_NAME))
-				continue;
-			response_tool = fy_mapping(
-				"type", "function",
-				"name", fy_get(function, "name", ""),
-				"description", fy_get(function, "description", ""),
-				"parameters", fy_get(function, "parameters"));
-			response_tools = fy_append(response_tools, response_tool);
-		}
-	}
-
-	/* Add the native Responses shell only when explicitly enabled. */
-	if (native_shell) {
-		response_tool = fy_mapping(
-				"type", "shell",
-				"environment", fy_mapping("type", "local"));
-		response_tools = fy_append(response_tools, response_tool);
-	}
-	if (fyai_provider_native_web_search(cfg))
-		response_tools = fy_append(response_tools,
-				fy_mapping("type", fyai_provider_is_openrouter(cfg) ?
-					"openrouter:web_search" : "web_search"));
-
-	response_tools = fy_gb_internalize(ctx->gb, response_tools);
-	return provider_result(ctx, response_tools,
-			       "could not build the Responses tool definitions");
-}
-
-fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
-{
-	fy_generic messages_tools;
-	fy_generic function;
-	fy_generic tools;
-	fy_generic tool;
-	fy_generic tmp;
-
-	/* Anthropic tools are flat: {name, description, input_schema} - no
-	 * "function" wrapper, and the JSON schema key is input_schema. */
-	messages_tools = fy_seq_empty;
-	if (ctx->cfg->enable_tools || ctx->cfg->enable_builtin_shell) {
-		tools = make_tools_filtered(ctx);
-		fy_foreach(tool, tools) {
-			function = fy_get(tool, "function");
-			tmp = fy_mapping("name", fy_get(function, "name", ""),
-						 "description", fy_get(function, "description", ""),
-						 "input_schema", fy_get(function, "parameters"));
-			messages_tools = fy_append(messages_tools, tmp);
-		}
-	}
-	if (fyai_provider_native_web_search(ctx->cfg))
-		messages_tools = fy_append(messages_tools,
-				fy_mapping("type", "web_search_20250305",
-						   "name", "web_search"));
-
-	messages_tools = fy_gb_internalize(ctx->gb, messages_tools);
-	return provider_result(ctx, messages_tools,
-			       "could not build the Messages tool definitions");
-}
-
 /*
  * Return true if this endpoint accepts OpenAI's built-in shell tool.
  *
@@ -546,7 +466,7 @@ fy_generic fyai_make_messages_tools(struct fyai_ctx *ctx)
  */
 bool fyai_provider_native_shell(const struct fyai_cfg *cfg)
 {
-	return cfg->api_mode == FYAI_API_RESPONSES && !cfg->chatgpt_auth &&
+	return fyai_grammar(cfg)->builtin_shell && !cfg->chatgpt_auth &&
 	       cfg->shell_tool_supported;
 }
 
@@ -583,36 +503,11 @@ bool fyai_provider_error_transient(fy_generic err)
 			    "overloaded_error", "api_error");
 }
 
-/* Convert a shell result to a provider-supported outcome. */
-static fy_generic fyai_shell_outcome_sanitized(struct fy_generic_builder *gb,
-					       fy_generic entry)
-{
-	fy_generic outcome;
-	long long signal;
-
-	outcome = fy_get(entry, "outcome");
-	if (fy_equal(fy_get(outcome, "type"), "timeout"))
-		outcome = fy_mapping(gb, "type", "timeout");
-	else if (fy_equal(fy_get(outcome, "type"), "signal")) {
-		signal = fy_get(outcome, "signal", 0LL);
-		outcome = fy_mapping(gb, "type", "exit",
-					"exit_code", 128 + signal);
-	} else {
-		outcome = fy_mapping(gb, "type", "exit",
-					"exit_code",
-					fy_get(outcome, "exit_code", 0LL));
-	}
-	return fy_mapping(gb, "stdout", fy_get(entry, "stdout", ""),
-			     "stderr", fy_get(entry, "stderr", ""),
-			     "outcome", outcome);
-}
-
-/* @m, a shell_call_output item, with every outcome of its output sanitized. */
 /*
  * A tool result that is a structure goes on the wire as its JSON text: every grammar
  * takes a string as the output of a function call, and an object is a request error.
  */
-static fy_generic wire_tool_text(struct fyai_ctx *ctx, fy_generic output)
+fy_generic fyai_wire_tool_text(struct fyai_ctx *ctx, fy_generic output)
 {
 	const char *text;
 
@@ -624,59 +519,14 @@ static fy_generic wire_tool_text(struct fyai_ctx *ctx, fy_generic output)
 	return fy_value(ctx->transient_gb, text ? text : "");
 }
 
-/* The base64 bytes of one image, as the part of @api that carries them. */
-static fy_generic wire_image_part(struct fyai_ctx *ctx, fy_generic part,
-				  enum fyai_api_mode api)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	const char *type;
-	fy_generic out;
-	char *data;
-
-	type = fy_get(part, "media_type", "");
-	switch (api) {
-	case FYAI_API_RESPONSES:
-		data = fyai_media_part_data_url(ctx, part);
-		if (!data)
-			return fy_invalid;
-		out = fy_mapping(gb, "type", "input_image",
-				 "image_url", fy_value(gb, data));
-		free(data);
-		return out;
-	case FYAI_API_CHAT_COMPLETIONS:
-		data = fyai_media_part_data_url(ctx, part);
-		if (!data)
-			return fy_invalid;
-		out = fy_mapping(gb, "type", "image_url",
-				 "image_url", fy_mapping(gb,
-						"url", fy_value(gb, data)));
-		free(data);
-		return out;
-	case FYAI_API_MESSAGES:
-		data = fyai_media_part_base64(ctx, part);
-		if (!data)
-			return fy_invalid;
-		out = fy_mapping(gb, "type", "image",
-				 "source", fy_mapping(gb,
-						"type", "base64",
-						"media_type", type,
-						"data", fy_value(gb, data)));
-		free(data);
-		return out;
-	default:
-		assert(0);
-		__builtin_unreachable();
-	}
-}
-
 /*
- * Canonical content as the wire of @api takes it: the text runs under
+ * Canonical content as the wire of the grammar takes it: the text runs under
  * @text_type, and each image in the shape of the grammar. Content with no
  * image part is returned borrowed, so a text-only message keeps the shape it
  * always had and a stored provider block array is not rewritten.
  */
-static fy_generic wire_content(struct fyai_ctx *ctx, fy_generic content,
-			       enum fyai_api_mode api, const char *text_type)
+fy_generic fyai_wire_content(struct fyai_ctx *ctx, fy_generic content,
+			     const char *text_type)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic out, part, wire;
@@ -693,7 +543,7 @@ static fy_generic wire_content(struct fyai_ctx *ctx, fy_generic content,
 	out = fy_seq_empty;
 	fy_foreach(part, content) {
 		if (fyai_media_part_is_image(part)) {
-			wire = wire_image_part(ctx, part, api);
+			wire = fyai_grammar_image_part(ctx, part);
 			if (fy_is_invalid(wire))
 				return fy_invalid;
 			out = fy_append(gb, out, wire);
@@ -708,144 +558,6 @@ static fy_generic wire_content(struct fyai_ctx *ctx, fy_generic content,
 	return out;
 }
 
-static fy_generic fyai_shell_output_sanitized(struct fyai_ctx *ctx,
-					      fy_generic m)
-{
-	fy_generic outputs = fy_seq_empty;
-	fy_generic output;
-	fy_generic entry;
-	fy_generic sanitized;
-
-	output = fy_get(m, "output");
-	if (!fy_is_sequence(output))
-		return m;
-	fy_foreach(entry, output) {
-		sanitized = fyai_shell_outcome_sanitized(ctx->transient_gb, entry);
-		outputs = fy_append(ctx->transient_gb, outputs,
-				    sanitized);
-	}
-	return fy_null_filtered_mapping(ctx->transient_gb,
-			"type", fy_get(m, "type", "shell_call_output"),
-			"call_id", fy_get(m, "call_id", ""),
-			"output", outputs,
-			"max_output_length",
-			fyai_generic_or_null(fy_get(m, "max_output_length")));
-}
-
-fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
-{
-	fy_generic type;
-	fy_generic role;
-	fy_generic content;
-	fy_generic input;
-	fy_generic output;
-	fy_generic m;
-	fy_generic tmp;
-	fy_generic cmdv;
-	const char *cmd, *args, *text;
-	bool native_shell;
-
-	input = fy_seq_empty;
-	native_shell = fyai_provider_native_shell(ctx->cfg);
-
-	fy_foreach(m, messages) {
-		type = fy_get(m, "type");
-
-		/*
-		 * A stored `reasoning` item references server-side state by id.
-		 * With store=false that item is not persisted, so replaying it
-		 * in `input` 404s ("Item with id rs_... not found"). Reasoning
-		 * is non-canonical anyway, so never replay it.
-		 */
-		if (fy_equal(type, "reasoning"))
-			continue;
-
-		/*
-		 * This provider does not accept a native shell item. Convert
-		 * the item to the standard `shell` function tool. The Messages
-		 * and Chat builders use the same format. The capability check
-		 * enables the function tool before this conversion.
-		 */
-		if (!native_shell && fy_equal(type, "shell_call")) {
-			cmdv = fy_get_at_path(m, "action", "commands", 0);
-			cmd = fy_castp(&cmdv, "");
-			args = emit_json_string(ctx->transient_gb,
-						fy_mapping("command", cmd));
-			input = fy_append(ctx->transient_gb, input,
-					fy_mapping(
-						"type", "function_call",
-						"call_id", fy_get(m, "call_id", ""),
-						"name", FYAI_TOOL_EXEC_WIRE_NAME,
-						"arguments", args ? args : "{}"));
-			continue;
-		}
-		if (!native_shell && fy_equal(type, "shell_call_output")) {
-			output = fy_get(m, "output");
-			if (!fy_is_string(output)) {
-				text = emit_json_string(ctx->transient_gb,
-							output);
-				output = fy_value(text ? text : "");
-			}
-			input = fy_append(ctx->transient_gb, input,
-					fy_mapping(
-						"type", "function_call_output",
-						"call_id", fy_get(m, "call_id", ""),
-						"output", output));
-			continue;
-		}
-
-		/*
-		 * Remove canonical outcome fields that the endpoint rejects.
-		 */
-		if (native_shell && fy_equal(type, "shell_call_output")) {
-			input = fy_append(ctx->transient_gb, input,
-				fyai_shell_output_sanitized(ctx, m));
-			continue;
-		}
-
-		/* Other native Responses items (function_call,
-		 * function_call_output, message, ...): pass through. */
-		if (fy_equal(type, "function_call_output"))
-			m = fy_assoc(ctx->transient_gb, m, "output",
-				     wire_tool_text(ctx, fy_get(m, "output", fy_invalid)));
-		if (fy_is_string(type)) {
-			input = fy_append(ctx->transient_gb, input, m);
-			continue;
-		}
-
-		role = fy_get(m, "role");
-		content = fy_get(m, "content");
-
-		/* The system prompt is surfaced via the request `instructions`
-		 * field, so drop the canonical system turn from `input` to
-		 * avoid sending it twice. */
-		if (fy_equal(role, "system"))
-			continue;
-
-		/* Plain role message: Responses rejects null content. */
-		if (fy_equal(role, "agent")) {
-			input = fy_append(ctx->transient_gb, input,
-				fy_mapping("role", "user", "content",
-					fyai_agent_wire_text(ctx, m)));
-			continue;
-		}
-		if (fy_is_invalid(content) ||
-		    fy_is_null(content))
-			content = fy_value("");
-		content = wire_content(ctx, content, FYAI_API_RESPONSES,
-				       "input_text");
-		if (fy_is_invalid(content))
-			return provider_result(ctx, content,
-					       "could not build the Responses input");
-		tmp = fy_mapping("role", fy_is_string(role) ? role : fy_value("user"),
-				 "content", content);
-		input = fy_append(ctx->transient_gb, input, tmp);
-	}
-
-	input = fy_gb_internalize(ctx->transient_gb, input);
-	return provider_result(ctx, input, "could not build the Responses input");
-}
-
 /*
  * The words of a native message item. Such an item is the output of a model:
  * it carries no file part, which only a message of the user does, and
@@ -854,321 +566,4 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item)
 {
 	return fyai_media_text(ctx->transient_gb, fy_get(item, "content"));
-}
-
-/*
- * Chat Completions carries the text of an assistant turn and the calls it
- * makes in one message. The stored turn holds them as a text message and
- * call items: put a held assistant text into the message of the calls that
- * follow it, so the turn goes back on the wire as the provider sent it.
- */
-static fy_generic chat_flush(struct fyai_ctx *ctx, fy_generic out,
-			     fy_generic *heldp, fy_generic *pendingp)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic msg;
-
-	if (fy_is_valid(*pendingp)) {
-		msg = fy_mapping("role", "assistant",
-				 "content", fy_is_valid(*heldp) ?
-					fy_get(*heldp, "content") : fy_null,
-				 "tool_calls", *pendingp);
-		out = fy_append(gb, out, msg);
-	} else if (fy_is_valid(*heldp)) {
-		out = fy_append(gb, out, *heldp);
-	}
-	*heldp = fy_invalid;
-	*pendingp = fy_invalid;
-	return out;
-}
-
-fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic out = fy_seq_empty;
-	fy_generic pending = fy_invalid;	/* the calls of an assistant turn */
-	fy_generic held = fy_invalid;		/* its text, before the calls */
-	fy_generic m, call, function, tmp;
-	fy_generic type, content;
-	const char *cmd;
-	const char *args;
-
-	fy_foreach(m, messages) {
-		type = fy_get(m, "type");
-
-		if (fyai_item_type_is_call(type)) {
-			if (fy_equal(type, "shell_call")) {
-				cmd = fy_cast(fy_get_at_path(m, "action", "commands", 0), "");
-				args = emit_json_string(gb, fy_mapping("command", cmd));
-				function = fy_mapping(
-						"name", FYAI_TOOL_EXEC_WIRE_NAME,
-						"arguments", args ? args : "{}");
-			} else {
-				function = fy_mapping(
-						"name", fy_get(m, "name", ""),
-						"arguments", fy_get(m, "arguments", ""));
-			}
-
-			call = fy_mapping(
-					"id", fy_get(m, "call_id", ""),
-					"type", "function",
-					"function", function);
-			pending = fy_is_valid(pending) ?
-					fy_append(gb, pending, call) :
-					fy_sequence(gb, call);
-			continue;
-		}
-
-		out = chat_flush(ctx, out, &held, &pending);
-
-		if (fyai_item_type_is_call_output(type)) {
-			tmp = fy_mapping("role", "tool",
-					 "tool_call_id", fy_get(m, "call_id", ""),
-					 "content", wire_tool_text(ctx, fy_get(m, "output", fy_invalid)));
-			out = fy_append(gb, out, tmp);
-			continue;
-		}
-
-		if (fy_equal(type, "message")) {
-			tmp = fy_mapping("role", fy_get(m, "role", "assistant"),
-					 "content", fyai_item_text(ctx, m));
-			if (fy_equal(fy_get(tmp, "role"), "assistant"))
-				held = tmp;
-			else
-				out = fy_append(gb, out, tmp);
-			continue;
-		}
-
-		/* reasoning and other native items: no Chat analogue. */
-		if (fy_is_string(type))
-			continue;
-
-		if (fy_equal(fy_get(m, "role"), "agent")) {
-			out = fy_append(gb, out,
-				fy_mapping("role", "user", "content",
-					fyai_agent_wire_text(ctx, m)));
-			continue;
-		}
-		if (fyai_media_content_has_attachments(fy_get(m, "content"))) {
-			content = wire_content(ctx, fy_get(m, "content"),
-					       FYAI_API_CHAT_COMPLETIONS, "text");
-			if (fy_is_invalid(content))
-				return provider_result(ctx, content,
-						       "could not build the Chat input");
-			m = fy_assoc(gb, m, "content", content);
-		}
-		if (fy_is_valid(fy_get(m, "acp_message_id", fy_invalid)))
-			m = fy_mapping("role", fy_get(m, "role", "user"),
-				       "content", fy_get(m, "content", ""));
-		if (fy_equal(fy_get(m, "role"), "assistant") &&
-		    fy_is_string(fy_get(m, "content", fy_invalid)))
-			held = m;
-		else
-			out = fy_append(gb, out, m);
-	}
-	out = chat_flush(ctx, out, &held, &pending);
-
-	out = fy_gb_internalize(gb, out);
-	return provider_result(ctx, out, "could not build the Chat input");
-}
-
-/*
- * Append @block to the Anthropic message list @out under @role: the Messages
- * API requires strictly alternating user/assistant roles, so a block whose
- * role matches the last message's is merged into that message's content
- * array instead of opening a new message. Content is always a block array.
- */
-static fy_generic messages_append_block(struct fyai_ctx *ctx, fy_generic out,
-					const char *role, fy_generic block)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic last, content;
-	size_t n;
-
-	n = fy_len(out);
-	if (n) {
-		last = fy_get_at(out, n - 1);
-		if (fy_equal(fy_get(last, "role"), role)) {
-			content = fy_append(gb,
-					fy_get(last, "content", fy_seq_empty),
-					block);
-			last = fy_assoc(gb, last, "content", content);
-			return fy_replace(gb, out, n - 1, last);
-		}
-	}
-	return fy_append(gb, out,
-			fy_mapping("role", role,
-				   "content", fy_sequence(gb, block)));
-}
-
-/*
- * Build the block in the builder, not as a builder-less scratch generic: a
- * scratch generic lives in the creating function's stack frame and dies with
- * it, so it must never be returned (same lifetime family as the fy_cast
- * short-string rule in CLAUDE.md). Text travels as a generic, not a char *,
- * for the same reason.
- */
-static fy_generic messages_text_block(struct fyai_ctx *ctx, fy_generic text)
-{
-	return fy_mapping(ctx->transient_gb, "type", "text", "text", text);
-}
-
-/*
- * Translate canonical messages into Anthropic Messages shape so any
- * conversation (native, or begun under Responses/Chat Completions) can be
- * continued against the Messages API. The system turn is dropped here - it
- * travels in the request's top-level `system` field. Tool requests
- * (Responses-style function_call/shell_call items, or Chat assistant
- * tool_calls) become assistant `tool_use` blocks; tool results
- * (function_call_output/shell_call_output items, or Chat {role: tool})
- * become user `tool_result` blocks. Reasoning items are provider wire
- * detail with no Messages analogue and are dropped. It adds no cache
- * marker. The result is in the transient builder.
- */
-fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic out = fy_seq_empty;
-	fy_generic m, content, input, output;
-	fy_generic type, role;
-	fy_generic tmp;
-	fy_generic blocks, block;
-	const char *cmd, *text;
-	const char *role_name;
-
-	fy_foreach(m, messages) {
-		type = fy_get(m, "type");
-
-		/* Responses-style native call items -> assistant tool_use. */
-		if (fy_equal(type, "function_call")) {
-			input = parse_json_string(gb, fy_get(m, "arguments", "{}"));
-			if (fy_is_invalid(input))
-				input = fy_map_empty;
-			tmp = fy_mapping("type", "tool_use",
-					 "id", fy_get(m, "call_id", ""),
-					 "name", fy_get(m, "name", ""),
-					 "input", input);
-			out = messages_append_block(ctx, out, "assistant", tmp);
-			continue;
-		}
-		if (fy_equal(type, "shell_call")) {
-			cmd = fy_cast(fy_get_at_path(m, "action", "commands", 0), "");
-			tmp = fy_mapping("type", "tool_use",
-					 "id", fy_get(m, "call_id", ""),
-					 "name", FYAI_TOOL_EXEC_WIRE_NAME,
-					 "input", fy_mapping("command", cmd));
-			out = messages_append_block(ctx, out, "assistant", tmp);
-			continue;
-		}
-
-		/* Native output items -> user tool_result. */
-		if (fyai_item_type_is_call_output(type)) {
-			output = fy_get(m, "output");
-			if (!fy_is_string(output)) {
-				text = emit_json_string(gb, output);
-				output = fy_value(text ? text : "");
-			}
-			tmp = fy_mapping("type", "tool_result",
-					 "tool_use_id", fy_get(m, "call_id", ""),
-					 "content", output);
-			out = messages_append_block(ctx, out, "user", tmp);
-			continue;
-		}
-
-		/* A Responses `message` item -> its joined text. */
-		if (fy_equal(type, "message")) {
-			out = messages_append_block(ctx, out,
-					fy_cast(fy_get(m, "role", "assistant"), ""),
-					messages_text_block(ctx, fyai_item_text(ctx, m)));
-			continue;
-		}
-
-		/* reasoning and other native items: no Messages analogue. */
-		if (fy_is_string(type))
-			continue;
-
-		role = fy_get(m, "role");
-		if (fy_equal(role, "agent")) {
-			out = messages_append_block(ctx, out, "user",
-				messages_text_block(ctx,
-					fyai_agent_wire_text(ctx, m)));
-			continue;
-		}
-
-		/* The system prompt travels in the request `system` field. */
-		if (fy_equal(role, "system"))
-			continue;
-
-		/* Plain role message. */
-		content = fy_get(m, "content");
-		if (fy_is_invalid(content) ||
-		    fy_is_null(content))
-			content = fy_value("");
-		/* Files without images are the text of one block. */
-		if (!fyai_media_content_has_images(content) &&
-		    fyai_media_content_has_files(content))
-			content = fyai_media_model_text(gb, content);
-		if (fyai_media_content_has_images(content)) {
-			blocks = wire_content(ctx, content, FYAI_API_MESSAGES,
-					      "text");
-			if (fy_is_invalid(blocks))
-				return provider_result(ctx, blocks,
-					"could not build the Messages input");
-			role_name = fy_is_string(role) ? fy_castp(&role, "") :
-						       "user";
-			fy_foreach(block, blocks)
-				out = messages_append_block(ctx, out, role_name,
-							    block);
-			continue;
-		}
-		if (fy_is_sequence(content)) {
-			out = fy_append(gb, out,
-					fy_mapping("role", fy_is_string(role) ?
-							fy_castp(&role, "") : "user",
-						   "content", content));
-			continue;
-		}
-		out = messages_append_block(ctx, out,
-				fy_is_string(role) ? fy_castp(&role, "") : "user",
-				messages_text_block(ctx, content));
-	}
-	return fy_gb_internalize(gb, out);
-}
-
-/* The Messages request input: the blocks with a prompt-cache breakpoint. */
-fy_generic fyai_messages_input(struct fyai_ctx *ctx, fy_generic messages)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic out, m, content, tc;
-	size_t j, n;
-
-	out = fyai_messages_blocks(ctx, messages);
-	if (fy_is_invalid(out))
-		return provider_result(ctx, out,
-				       "could not build the Messages input");
-
-	/*
-	 * Prompt-cache breakpoint on the last block of the history: Anthropic
-	 * caches the exact prefix up to a cache_control marker and ignores
-	 * the markers themselves when matching, so moving the breakpoint
-	 * forward each turn re-reads the previous span and extends it. Only
-	 * the outbound request carries the marker; canonical state does not.
-	 */
-	n = fy_len(out);
-	if (n) {
-		m = fy_get_at(out, n - 1);
-		content = fy_get(m, "content", fy_seq_empty);
-		j = fy_len(content);
-		if (j) {
-			tc = fy_get_at(content, j - 1);
-			tc = fy_assoc(gb, tc, "cache_control",
-				      fy_mapping(gb, "type", "ephemeral"));
-			content = fy_replace(gb, content, j - 1, tc);
-			m = fy_assoc(gb, m, "content", content);
-			out = fy_replace(gb, out, n - 1, m);
-		}
-	}
-
-	out = fy_gb_internalize(ctx->transient_gb, out);
-	return provider_result(ctx, out, "could not build the Messages input");
 }

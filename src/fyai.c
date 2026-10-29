@@ -393,19 +393,6 @@ err:
  * (anything carrying a `type`) pass through verbatim.
  */
 
-/* Join the text parts of a Responses `message` output item into one string. */
-
-/*
- * Symmetric to fyai_responses_input(): translate canonical messages into Chat
- * Completions message shape so a conversation begun under the Responses API can
- * be continued against a Chat Completions provider. Responses native output
- * items are converted: function_call (and builtin shell_call) accumulate into
- * an assistant message carrying tool_calls; function_call_output /
- * shell_call_output -> {role: tool}; a `message` item -> {role, content};
- * reasoning items are provider wire detail with no Chat analogue and are
- * dropped. Chat-shaped messages (role present, no type) pass through.
- */
-
 /*
  * Attach a diagnostic message to a generic: a manual
  * FYGIF_DIAG indirect. @value may be fy_invalid (hard failure - the result
@@ -662,42 +649,6 @@ static void fyai_model_step_buffered_complete(
 static void fyai_model_step_request_complete(struct fyai_model_step *step,
 					     fy_generic response_doc);
 
-static fy_generic fyai_model_step_add_reasoning(struct fy_generic_builder *gb,
-						struct fyai_cfg *cfg,
-						fy_generic request)
-{
-	fy_generic reasoning;
-
-	if ((!cfg->reasoning_effort || !*cfg->reasoning_effort) &&
-	    (!cfg->reasoning_summary || !*cfg->reasoning_summary))
-		return request;
-
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		reasoning = fy_map_empty;
-		if (cfg->reasoning_effort && *cfg->reasoning_effort)
-			reasoning = fy_assoc(gb, reasoning, "effort",
-					     cfg->reasoning_effort);
-		if (cfg->reasoning_summary && *cfg->reasoning_summary)
-			reasoning = fy_assoc(gb, reasoning, "summary",
-					     cfg->reasoning_summary);
-		return fy_assoc(gb, request, "reasoning", reasoning);
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		if (cfg->reasoning_effort && *cfg->reasoning_effort)
-			request = fy_assoc(gb, request, "reasoning_effort",
-					   cfg->reasoning_effort);
-		return request;
-
-	case FYAI_API_MESSAGES:
-		return request;
-
-	default:
-		assert(0);
-		__builtin_unreachable();
-	}
-}
-
 /* Serialize and submit the fully-built request. */
 static int fyai_model_step_submit_request(struct fyai_model_step *step,
 						  fy_generic request,
@@ -774,166 +725,6 @@ static long long fyai_model_step_max_tokens(struct fyai_ctx *ctx,
 	       ctx->context_max_tokens : cfg->max_tokens;
 }
 
-static fy_generic
-fyai_model_step_request_base(struct fyai_cfg *cfg, struct fyai_ctx *ctx,
-			     fy_generic messages, const char *instructions)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		return fy_mapping(gb,
-			"model", cfg->model,
-			"instructions", instructions,
-			"input", fyai_responses_input(ctx, messages),
-			"store", cfg->response_chain);
-	case FYAI_API_CHAT_COMPLETIONS:
-		return fy_mapping(gb,
-			"model", cfg->model,
-			"messages", fyai_chat_input(ctx, messages));
-	case FYAI_API_MESSAGES:
-		/* Anthropic only caches on explicit cache_control breakpoints. */
-		return fy_mapping(gb,
-			"model", cfg->model,
-			"max_tokens", fyai_model_step_max_tokens(ctx, cfg),
-			"system", fy_sequence(gb,
-					fy_mapping(gb, "type", "text",
-						   "text", instructions,
-						   "cache_control", fy_mapping(gb, "type", "ephemeral"))),
-			"messages", fyai_messages_input(ctx, messages));
-	default:
-		assert(0);
-		__builtin_unreachable();
-	}
-}
-
-static fy_generic
-fyai_model_step_add_model_options(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
-				   fy_generic request, fy_generic cat_model,
-				   fy_generic previous_response_id)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	bool response_linked;
-
-	/* Reasoning models reject an explicit temperature. */
-	if (fyai_model_supports_temperature(cat_model) &&
-	    (!cfg->reasoning_effort || !*cfg->reasoning_effort) &&
-	    (!cfg->reasoning_summary || !*cfg->reasoning_summary) &&
-	    cfg->api_mode != FYAI_API_MESSAGES)
-		request = fy_assoc(gb, request, "temperature", cfg->temperature);
-
-	response_linked = cfg->api_mode == FYAI_API_RESPONSES &&
-		cfg->response_chain &&
-		fy_is_valid(previous_response_id) &&
-		!fy_is_null(previous_response_id);
-	if (response_linked)
-		request = fy_assoc(gb, request, "previous_response_id",
-				   previous_response_id);
-
-	return request;
-}
-
-static fy_generic
-fyai_model_step_add_tools(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
-				  fy_generic request)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic tool_choice;
-
-	if (!cfg->enable_tools && !cfg->enable_builtin_shell &&
-	    !fyai_mcp_enabled(ctx) && !fyai_provider_native_web_search(cfg))
-		return request;
-	if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS &&
-	    fyai_provider_native_web_search(cfg)) {
-		if (fyai_provider_is_openrouter(cfg)) {
-			fy_generic tools = fy_append(gb, ctx->tools,
-				fy_mapping(gb, "type", "openrouter:web_search"));
-			request = fy_assoc(gb, request, "tools", tools);
-		} else {
-			request = fy_assoc(gb, request, "web_search_options",
-					   fy_map_empty);
-		}
-	}
-	if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS &&
-	    !cfg->enable_tools && !cfg->enable_builtin_shell &&
-	    !fyai_mcp_enabled(ctx))
-		return request;
-
-	/* Messages spells tool_choice as an object, not a string. */
-	tool_choice = cfg->api_mode == FYAI_API_MESSAGES ?
-			fy_mapping(gb, "type", "auto", "disable_parallel_tool_use",
-				   cfg->parallel_tool_calls ? fy_false : fy_true) :
-			fy_value(gb, "auto");
-	request = fy_assoc(gb, request, "tools", ctx->tools,
-				  "tool_choice", tool_choice);
-	if (cfg->parallel_tool_calls && cfg->api_mode != FYAI_API_MESSAGES)
-		request = fy_assoc(gb, request, "parallel_tool_calls", true);
-	return request;
-}
-
-static fy_generic
-fyai_model_step_add_logprobs(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
-				     fy_generic request, fy_generic cat_model,
-				     bool *want_extents_lp)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-
-	*want_extents_lp = cfg->token_extents && cfg->stream &&
-		!ctx->token_extents_off && cfg->api_mode != FYAI_API_MESSAGES &&
-		(!cfg->reasoning_effort || !*cfg->reasoning_effort) &&
-		(!cfg->reasoning_summary || !*cfg->reasoning_summary) &&
-		fyai_model_supports_logprobs(cat_model);
-
-	if (!cfg->logprobs && !*want_extents_lp)
-		return request;
-
-	switch (cfg->api_mode) {
-	case FYAI_API_CHAT_COMPLETIONS:
-		request = fy_assoc(gb, request, "logprobs", true);
-		break;
-	case FYAI_API_RESPONSES:
-		if (*want_extents_lp)
-			request = fy_assoc(gb, request, "top_logprobs", 0,
-					  "include", fy_sequence(gb, fy_string(
-						  "message.output_text.logprobs")));
-		break;
-	default:
-		break;
-	}
-	return request;
-}
-
-static fy_generic
-fyai_model_step_add_stream_options(struct fyai_ctx *ctx, struct fyai_cfg *cfg,
-				   fy_generic request)
-{
-	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic stream_options;
-
-	if (!cfg->stream)
-		return request;
-
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-	case FYAI_API_MESSAGES:
-		stream_options = fy_map_empty;
-		break;
-	case FYAI_API_CHAT_COMPLETIONS:
-		stream_options = fy_mapping(gb, "include_usage", true);
-		break;
-	default:
-		assert(0);
-		__builtin_unreachable();
-	}
-	if (cfg->no_obfuscation && cfg->api_mode != FYAI_API_MESSAGES)
-		stream_options = fy_assoc(gb, stream_options,
-					  "include_obfuscation", false);
-	request = fy_assoc(gb, request, "stream", true);
-	if (fy_len(stream_options))
-		request = fy_assoc(gb, request, "stream_options", stream_options);
-	return request;
-}
-
 /* Reject full prompts and limit output to the remaining context space. */
 static int fyai_model_step_context_check(struct fyai_ctx *ctx, fy_generic turn)
 {
@@ -969,23 +760,24 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 {
 	struct fyai_ctx *ctx;
 	struct fyai_cfg *cfg;
+	const struct fyai_grammar *grammar;
+	struct fyai_grammar_request req;
 	fy_generic turn;
 	fy_generic previous;
-	const char *instructions;
 	fy_generic previous_response_id;
 	fy_generic catalog;
 	fy_generic cat_model;
 	fy_generic request;
 	fy_generic messages;
 	fy_generic m;
-	fy_generic v;
 	struct timespec t_emit;
-	bool want_extents_lp;
 	bool response_linked;
+	bool reasoning;
 	int rc;
 
 	ctx = step->ctx;
 	cfg = ctx->cfg;
+	grammar = fyai_grammar(cfg);
 	turn = step->turn;
 	previous = step->previous;
 	step->spinner.ctx = ctx;
@@ -993,7 +785,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	step->tool_sink.group = step->tool_group;
 
 	if (cfg->chatgpt_auth) {
-		fyai_error_check(ctx, cfg->api_mode == FYAI_API_RESPONSES &&
+		fyai_error_check(ctx, grammar->chatgpt &&
 			!cfg->response_chain && cfg->api_url &&
 			!strcmp(cfg->api_url, OPENAI_RESPONSES_URL), out,
 			"ChatGPT plan usage requires the public, stateless Responses endpoint");
@@ -1014,45 +806,42 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 
 	/* Prefer the conversation's own canonical system turn so the
 	 * instructions stay stable even if cfg.system_prompt differs from
-	 * what the conversation was started with. Responses surfaces it as
-	 * `instructions`, Messages as the top-level `system` field. */
-	instructions = cfg->system_prompt;
+	 * what the conversation was started with. */
+	req.instructions = cfg->system_prompt;
 	fy_foreach(m, messages) {
 		if (fy_equal(fy_get(m, "role"), "system")) {
-			instructions = fy_get(m, "content", instructions);
+			req.instructions = fy_get(m, "content", req.instructions);
 			break;
 		}
 	}
 
-	v = fyai_model_step_request_base(cfg, ctx, messages, instructions);
-
-	fyai_error_check(ctx, fy_is_valid(v), out,
-			 "could not build the model request");
-	request = v;
-
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
 	cat_model = fyai_catalog_resolved_model(catalog, cfg->model);
-	request = fyai_model_step_add_model_options(ctx, cfg, request, cat_model,
-						     previous_response_id);
+	reasoning = fyai_grammar_reasoning_set(cfg);
+	response_linked = grammar->chaining && cfg->response_chain &&
+		fy_is_valid(previous_response_id) &&
+		!fy_is_null(previous_response_id);
 
-	request = fyai_model_step_add_reasoning(ctx->transient_gb, cfg,
-						request);
-
-	request = fyai_model_step_add_tools(ctx, cfg, request);
+	req.messages = messages;
+	req.previous_response_id = response_linked ? previous_response_id :
+						     fy_invalid;
+	req.max_tokens = fyai_model_step_max_tokens(ctx, cfg);
+	/* Reasoning models reject an explicit temperature. */
+	req.temperature = fyai_model_supports_temperature(cat_model) &&
+			  !reasoning;
 	/*
 	 * token_extents wants per-token delimitation, which only logprobs
 	 * provide. Gate on the catalogue (reasoning models reject the params)
-	 * and on the session fail-soft latch; the Messages API has no
-	 * logprobs at all. Gated-off calls still record chunk extents from
-	 * the stream.
+	 * and on the session fail-soft latch. Gated-off calls still record
+	 * chunk extents from the stream.
 	 */
-	request = fyai_model_step_add_logprobs(ctx, cfg, request, cat_model,
-						      &want_extents_lp);
+	req.extents_lp = cfg->token_extents && cfg->stream &&
+		!ctx->token_extents_off && grammar->logprobs && !reasoning &&
+		fyai_model_supports_logprobs(cat_model);
 
-	if (cfg->top_logprobs >= 0)
-		request = fy_assoc(ctx->transient_gb, request, "top_logprobs",
-				   cfg->top_logprobs);
-	request = fyai_model_step_add_stream_options(ctx, cfg, request);
+	request = fyai_grammar_build_request(ctx, &req);
+	fyai_error_check(ctx, fy_is_valid(request), out,
+			 "could not build the model request");
 	if (cfg->chatgpt_auth)
 		request = fyai_auth_subscription_request(ctx->transient_gb, request);
 	fyai_error_check(ctx, fy_is_valid(request), out,
@@ -1065,17 +854,13 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		(void)fyai_log_generic(ctx, "conversation",
 			fy_mapping(ctx->transient_gb,
 				"kind", "request",
-				"api", fyai_api_to_string(cfg->api_mode),
+				"api", grammar->name,
 				"url", cfg->api_url,
 				"body", request));
 	}
 
-	response_linked = cfg->api_mode == FYAI_API_RESPONSES &&
-		cfg->response_chain &&
-		fy_is_valid(previous_response_id) &&
-		!fy_is_null(previous_response_id);
 	rc = fyai_model_step_submit_request(step, request, response_linked,
-					    want_extents_lp, &t_emit);
+					    req.extents_lp, &t_emit);
 	fyai_error_check(ctx, !rc, out, "could not submit the model request");
 	return 0;
 
@@ -2832,20 +2617,7 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 	if (cfg->enable_tools || cfg->enable_builtin_shell ||
 	    fyai_mcp_enabled(ctx) || cfg->web_search) {
 
-		switch (cfg->api_mode) {
-		case FYAI_API_RESPONSES:
-			ctx->tools = fyai_make_responses_tools(ctx);
-			break;
-		case FYAI_API_CHAT_COMPLETIONS:
-			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ?
-				make_tools_filtered(ctx) : fy_seq_empty;
-			break;
-		case FYAI_API_MESSAGES:
-			ctx->tools = cfg->enable_tools || cfg->enable_builtin_shell ||
-				cfg->web_search ?
-				fyai_make_messages_tools(ctx) : fy_seq_empty;
-			break;
-		}
+		ctx->tools = fyai_grammar_make_tools(ctx);
 		/* MCP discovery and resources remain available in an MCP-only run. */
 		if (fyai_mcp_enabled(ctx) && !cfg->enable_tools &&
 		    !cfg->enable_builtin_shell) {
@@ -2857,16 +2629,8 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 				if (strcmp(name, "tool_search") &&
 				    strcmp(name, "mcp_resource"))
 					continue;
-				if (cfg->api_mode == FYAI_API_RESPONSES)
-					tool = fy_mapping("type", "function",
-						"name", name,
-						"description", fy_get(fn, "description", ""),
-						"parameters", fy_get(fn, "parameters"));
-				else if (cfg->api_mode == FYAI_API_MESSAGES)
-					tool = fy_mapping("name", name,
-						"description", fy_get(fn, "description", ""),
-						"input_schema", fy_get(fn, "parameters"));
-				ctx->tools = fy_append(ctx->gb, ctx->tools, tool);
+				ctx->tools = fy_append(ctx->gb, ctx->tools,
+						fyai_grammar_tool_def(ctx, tool));
 			}
 		}
 
@@ -2880,16 +2644,8 @@ int fyai_request_state_apply(struct fyai_ctx *ctx)
 				    (fyai_mcp_deferred(ctx) &&
 				     !fyai_mcp_tool_active(ctx, name)))
 					continue;
-				if (cfg->api_mode == FYAI_API_RESPONSES)
-					tool = fy_mapping("type", "function",
-						"name", name,
-						"description", fy_get(fn, "description", ""),
-						"parameters", fy_get(fn, "parameters"));
-				else if (cfg->api_mode == FYAI_API_MESSAGES)
-					tool = fy_mapping("name", name,
-						"description", fy_get(fn, "description", ""),
-						"input_schema", fy_get(fn, "parameters"));
-				converted = fy_append(ctx->gb, converted, tool);
+				converted = fy_append(ctx->gb, converted,
+						fyai_grammar_tool_def(ctx, tool));
 			}
 			ctx->tools = fy_concat(ctx->gb, ctx->tools, converted);
 		}
@@ -3045,9 +2801,9 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	/*
 	 * Seed the system prompt as the first canonical turn for both API
 	 * modes, so it is provider-agnostic content that survives a provider
-	 * switch and shows up in `history`/`dump state`. In Responses mode it is
-	 * additionally surfaced as the request `instructions` field (and dropped
-	 * from `input` to avoid duplication) by fyai_responses_input().
+	 * switch and shows up in `history`/`dump state`. A grammar that carries
+	 * it in a field of its own, such as `instructions` or `system`, drops it
+	 * from the input.
 	 */
 	if (fy_is_invalid(ctx->last_message)) {
 		ctx->last_message = fyai_turn_append(ctx, ctx->last_message,
