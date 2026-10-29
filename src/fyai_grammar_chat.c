@@ -176,6 +176,8 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 	struct fyai_cfg *cfg = ctx->cfg;
 	fy_generic options;
 	fy_generic request;
+	fy_generic tools;
+	bool hosted_tool;
 
 	request = fy_mapping(gb,
 		"model", cfg->model,
@@ -187,20 +189,24 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 				   cfg->reasoning_effort);
 	/*
 	 * An endpoint that names a tool type for its search declares it as a
-	 * tool; the others take a request option.
+	 * tool beside the function tools; the others take a request option.
 	 */
+	tools = fy_is_sequence(ctx->tools) ? ctx->tools : fy_seq_empty;
+	hosted_tool = false;
 	if (fyai_provider_native_web_search(cfg)) {
-		if (cfg->web_search_type)
-			request = fy_assoc(gb, request, "tools",
-				fy_append(gb, ctx->tools,
+		hosted_tool = cfg->web_search_type != NULL;
+		if (hosted_tool)
+			tools = fy_append(gb, tools,
 					  fy_mapping(gb, "type",
-						     cfg->web_search_type)));
+						     cfg->web_search_type));
 		else
 			request = fy_assoc(gb, request, "web_search_options",
 					   fy_map_empty);
 	}
+	if (hosted_tool && !fyai_grammar_tools_wanted(ctx))
+		request = fy_assoc(gb, request, "tools", tools);
 	if (fyai_grammar_tools_wanted(ctx)) {
-		request = fy_assoc(gb, request, "tools", ctx->tools,
+		request = fy_assoc(gb, request, "tools", tools,
 				   "tool_choice", "auto");
 		if (cfg->parallel_tool_calls)
 			request = fy_assoc(gb, request,
