@@ -305,13 +305,8 @@ static fy_generic monitor_start(struct fyai_ctx *ctx, fy_generic args,
 	json = emit_json_string(gb, shell_args);
 	fyai_error_check(ctx, json, err,
 			 "monitor: could not encode the command");
-	if (ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		call = fy_mapping(gb, "type", "function",
-			"function", fy_mapping(gb,
-				"name", "shell", "arguments", json));
-	else
-		call = fy_mapping(gb, "type", "function_call",
-			"name", "shell", "arguments", json);
+	call = fy_mapping(gb, "type", "function_call",
+			  "name", "shell", "arguments", json);
 
 	run = calloc(1, sizeof(*run));
 	fyai_error_check(ctx, run, err, "monitor: could not allocate the run");

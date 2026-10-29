@@ -259,13 +259,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	assert(ctx->transient_gb);
 
 	tool_call_type = fy_get(tool_call, "type");
-	if (fy_equal(tool_call_type, "shell_call"))
-		name = "shell";
-	else if (cfg->api_mode == FYAI_API_CHAT_COMPLETIONS)
-		name = fyai_tool_name_canonical(
-			fy_get(fy_get(tool_call, "function"), "name", ""));
-	else
-		name = fyai_tool_name_canonical(fy_get(tool_call, "name", ""));
+	name = fyai_tool_call_name(ctx, tool_call);
 	shell = fy_equal(name, "shell");
 	agent = fy_equal(name, "agent");
 	/*
@@ -346,63 +340,32 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	if (cfg->debug)
 		emit_generic_to_stdout(ctx, "tool-result", tool_result,
 				       cfg->pretty);
-	switch (cfg->api_mode) {
-	case FYAI_API_RESPONSES:
-		tool_call_id = fy_get(tool_call, "call_id", "");
+	tool_call_id = fy_get(tool_call, "call_id", "");
 
-		/*
-		 * The output item type must match the call item type: a native
-		 * `shell_call` is answered with `shell_call_output`, while every
-		 * regular function tool (read_file, write_file, shell, ask_user)
-		 * arrives as a `function_call` and must be answered with
-		 * `function_call_output`. Submitting a shell_call_output for a
-		 * function_call is rejected by the API, so the tool reads as
-		 * "failed".
-		 */
-		if (fy_equal(tool_call_type, "shell_call")) {
-
-			tool_call_output_type = "shell_call_output";
-
-			max_output_length = fy_get_at_path(tool_call, "action", "max_output_length");
-			if (!fy_is_valid(max_output_length))
-				max_output_length = fy_null;
-		} else {
-			tool_call_output_type = "function_call_output";
+	/*
+	 * The output item type must match the call item type: a native
+	 * `shell_call` is answered with `shell_call_output`, while every
+	 * function tool (read_file, write_file, shell, ask_user) arrives as a
+	 * `function_call` and is answered with `function_call_output`. The
+	 * Responses API rejects a shell_call_output for a function_call, so
+	 * the tool reads as "failed".
+	 */
+	if (fy_equal(tool_call_type, "shell_call")) {
+		tool_call_output_type = "shell_call_output";
+		max_output_length = fy_get_at_path(tool_call, "action",
+						   "max_output_length");
+		if (!fy_is_valid(max_output_length))
 			max_output_length = fy_null;
-		}
-
-
-		tool_message = fy_null_filtered_mapping(
-				"type", tool_call_output_type,
-				"call_id", tool_call_id,
-				"output", tool_result,
-				"max_output_length", max_output_length);
-		break;
-
-	case FYAI_API_CHAT_COMPLETIONS:
-		tool_call_id = fy_get(tool_call, "id", "");
-		tool_message = fy_mapping(
-				"role", "tool",
-				"tool_call_id", tool_call_id,
-				"content", tool_result);
-		break;
-
-	case FYAI_API_MESSAGES:
-		/* Tool calls were normalized to function_call items at the
-		 * parse boundary; answer with the matching canonical output
-		 * item (fyai_messages_input puts a tool_result on the wire). */
-		tool_call_id = fy_get(tool_call, "call_id", "");
-		tool_message = fy_mapping(
-				"type", "function_call_output",
-				"call_id", tool_call_id,
-				"output", tool_result);
-		break;
-
-	default:
-		assert(0);
-		__builtin_unreachable();
-		break;
+	} else {
+		tool_call_output_type = "function_call_output";
+		max_output_length = fy_null;
 	}
+
+	tool_message = fy_null_filtered_mapping(
+			"type", tool_call_output_type,
+			"call_id", tool_call_id,
+			"output", tool_result,
+			"max_output_length", max_output_length);
 
 	out = fyai_turn_append(ctx, turn, fy_sequence(tool_message));
 

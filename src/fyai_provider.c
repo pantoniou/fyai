@@ -117,21 +117,19 @@ static fy_generic fyai_tool_call_strip_user_owned(struct fyai_ctx *ctx,
 						  fy_generic tool_call)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	fy_generic args, holder;
+	fy_generic args;
 	const char *field;
 	const char *text;
-	bool native, nested;
+	bool native;
 
 	/*
 	 * A native shell call carries a mapping action. A function call
-	 * carries a JSON arguments string, under function for chat. Write
-	 * the stripped arguments back to the key they came from.
+	 * carries a JSON arguments string. Write the stripped arguments back
+	 * to the key they came from.
 	 */
 	native = fy_equal(fy_get(tool_call, "type"), "shell_call");
-	nested = !native && ctx->cfg->api_mode == FYAI_API_CHAT_COMPLETIONS;
 	field = native ? "action" : "arguments";
-	holder = nested ? fy_get(tool_call, "function") : tool_call;
-	args = fy_get(holder, field);
+	args = fy_get(tool_call, field);
 	if (fy_is_string(args))
 		args = parse_json_string(gb, fy_cast(args, ""));
 	/* A native shell call reads the flag beside the action. */
@@ -148,12 +146,6 @@ static fy_generic fyai_tool_call_strip_user_owned(struct fyai_ctx *ctx,
 		if (!text)
 			return tool_call;
 		args = fy_string(text);
-	}
-	if (nested) {
-		holder = fy_disassoc(gb, holder, field);
-		holder = fy_assoc(gb, holder, field, args);
-		return fy_assoc(gb, fy_disassoc(gb, tool_call, "function"),
-				"function", holder);
 	}
 	tool_call = fy_disassoc(gb, tool_call, field);
 	return fy_assoc(gb, tool_call, field, args);
@@ -204,7 +196,18 @@ fy_generic fyai_response_tool_calls(struct fyai_ctx *ctx,
 		break;
 
 	case FYAI_API_CHAT_COMPLETIONS:
-		tool_calls = response_tool_calls(ctx->transient_gb, response_doc);
+		/* Chat nests each call: give it the shape of a call item. */
+		tool_calls = fy_seq_empty;
+		output = response_tool_calls(ctx->transient_gb, response_doc);
+		fy_foreach(item, output) {
+			tmp = fy_mapping(
+				"type", "function_call",
+				"call_id", fy_get(item, "id", ""),
+				"name", fy_get_at_path(item, "function", "name"),
+				"arguments", fy_get_at_path(item, "function",
+							    "arguments"));
+			tool_calls = fy_append(tool_calls, tmp);
+		}
 		break;
 
 	case FYAI_API_MESSAGES:
@@ -733,13 +736,10 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 {
 	fy_generic type;
 	fy_generic role;
-	fy_generic tool_calls;
 	fy_generic content;
 	fy_generic input;
 	fy_generic output;
 	fy_generic m;
-	fy_generic fn;
-	fy_generic tc;
 	fy_generic tmp;
 	fy_generic cmdv;
 	const char *cmd, *args, *text;
@@ -815,50 +815,12 @@ fy_generic fyai_responses_input(struct fyai_ctx *ctx, fy_generic messages)
 
 		role = fy_get(m, "role");
 		content = fy_get(m, "content");
-		tool_calls = fy_get(m, "tool_calls");
 
 		/* The system prompt is surfaced via the request `instructions`
 		 * field, so drop the canonical system turn from `input` to
 		 * avoid sending it twice. */
 		if (fy_equal(role, "system"))
 			continue;
-
-		/* Chat tool result -> function_call_output item. */
-		if (fy_equal(role, "tool")) {
-			input = fy_append(ctx->transient_gb, input,
-					fy_mapping(
-						"type", "function_call_output",
-						"call_id", fy_get(m, "tool_call_id", ""),
-						"output",
-						fy_is_valid(content) && !fy_is_null(content) ?
-							wire_tool_text(ctx, content) :
-							fy_value("")));
-			continue;
-		}
-
-		/* Chat assistant tool request -> one function_call item per
-		 * call; the accompanying null content is dropped, any real
-		 * prose is preserved as a leading assistant message. */
-		if (fy_equal(role, "assistant") &&
-		    fy_is_valid(tool_calls) &&
-		    !fy_is_null(tool_calls)) {
-			if (fy_is_valid(content) &&
-			    !fy_is_null(content))
-				input = fy_append(ctx->transient_gb, input,
-						fy_mapping(
-							"role", "assistant",
-							"content", content));
-
-			fy_foreach(tc, tool_calls) {
-				fn = fy_get(tc, "function");
-			       	tmp = fy_mapping("type", "function_call",
-						 "call_id", fy_get(tc, "id", ""),
-						 "name", fy_get(fn, "name", ""),
-						 "arguments", fy_get(fn, "arguments", ""));
-				input = fy_append(ctx->transient_gb, input, tmp);
-			}
-			continue;
-		}
 
 		/* Plain role message: Responses rejects null content. */
 		if (fy_equal(role, "agent")) {
@@ -894,45 +856,50 @@ fy_generic fyai_item_text(struct fyai_ctx *ctx, fy_generic item)
 	return fyai_media_text(ctx->transient_gb, fy_get(item, "content"));
 }
 
+/*
+ * Chat Completions carries the text of an assistant turn and the calls it
+ * makes in one message. The stored turn holds them as a text message and
+ * call items: put a held assistant text into the message of the calls that
+ * follow it, so the turn goes back on the wire as the provider sent it.
+ */
+static fy_generic chat_flush(struct fyai_ctx *ctx, fy_generic out,
+			     fy_generic *heldp, fy_generic *pendingp)
+{
+	struct fy_generic_builder *gb = ctx->transient_gb;
+	fy_generic msg;
+
+	if (fy_is_valid(*pendingp)) {
+		msg = fy_mapping("role", "assistant",
+				 "content", fy_is_valid(*heldp) ?
+					fy_get(*heldp, "content") : fy_null,
+				 "tool_calls", *pendingp);
+		out = fy_append(gb, out, msg);
+	} else if (fy_is_valid(*heldp)) {
+		out = fy_append(gb, out, *heldp);
+	}
+	*heldp = fy_invalid;
+	*pendingp = fy_invalid;
+	return out;
+}
+
 fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 {
+	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic out = fy_seq_empty;
-	fy_generic pending = fy_invalid;	/* accumulated tool_calls */
-	fy_generic tmp;
-	size_t i, count;
-	fy_generic m, call, function;
-	fy_generic type;
-	fy_generic content;
+	fy_generic pending = fy_invalid;	/* the calls of an assistant turn */
+	fy_generic held = fy_invalid;		/* its text, before the calls */
+	fy_generic m, call, function, tmp;
+	fy_generic type, content;
 	const char *cmd;
 	const char *args;
-	bool is_call;
 
+	fy_foreach(m, messages) {
+		type = fy_get(m, "type");
 
-	count = fy_len(messages);
-	/* One extra iteration to flush a trailing run of call items. */
-	for (i = 0; i <= count; i++) {
-
-		m = i < count ? fy_get(messages, i) : fy_invalid;
-		type = i < count ? fy_get(m, "type") : fy_invalid;
-		is_call = fyai_item_type_is_call(type);
-
-		if (fy_is_valid(pending) && !is_call) {
-			tmp = fy_mapping("role", "assistant",
-					 "content", fy_null,
-					 "tool_calls", pending);
-			out = fy_append(ctx->transient_gb, out, tmp);
-			pending = fy_invalid;
-		}
-
-		if (i == count)
-			break;
-
-		if (is_call) {
+		if (fyai_item_type_is_call(type)) {
 			if (fy_equal(type, "shell_call")) {
 				cmd = fy_cast(fy_get_at_path(m, "action", "commands", 0), "");
-				args = NULL;
-
-				args = emit_json_string(ctx->transient_gb, fy_mapping("command", cmd));
+				args = emit_json_string(gb, fy_mapping("command", cmd));
 				function = fy_mapping(
 						"name", FYAI_TOOL_EXEC_WIRE_NAME,
 						"arguments", args ? args : "{}");
@@ -947,23 +914,28 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 					"type", "function",
 					"function", function);
 			pending = fy_is_valid(pending) ?
-					fy_append(ctx->transient_gb, pending, call) :
-					fy_sequence(ctx->transient_gb, call);
+					fy_append(gb, pending, call) :
+					fy_sequence(gb, call);
 			continue;
 		}
+
+		out = chat_flush(ctx, out, &held, &pending);
 
 		if (fyai_item_type_is_call_output(type)) {
 			tmp = fy_mapping("role", "tool",
 					 "tool_call_id", fy_get(m, "call_id", ""),
 					 "content", wire_tool_text(ctx, fy_get(m, "output", fy_invalid)));
-			out = fy_append(ctx->transient_gb, out, tmp);
+			out = fy_append(gb, out, tmp);
 			continue;
 		}
 
 		if (fy_equal(type, "message")) {
 			tmp = fy_mapping("role", fy_get(m, "role", "assistant"),
 					 "content", fyai_item_text(ctx, m));
-			out = fy_append(ctx->transient_gb, out, tmp);
+			if (fy_equal(fy_get(tmp, "role"), "assistant"))
+				held = tmp;
+			else
+				out = fy_append(gb, out, tmp);
 			continue;
 		}
 
@@ -971,31 +943,32 @@ fy_generic fyai_chat_input(struct fyai_ctx *ctx, fy_generic messages)
 		if (fy_is_string(type))
 			continue;
 
-		/* Already Chat-shaped. */
 		if (fy_equal(fy_get(m, "role"), "agent")) {
-			out = fy_append(ctx->transient_gb, out,
+			out = fy_append(gb, out,
 				fy_mapping("role", "user", "content",
 					fyai_agent_wire_text(ctx, m)));
 			continue;
 		}
-		if (fy_equal(fy_get(m, "role"), "tool") && fy_is_mapping(fy_get(m, "content", fy_invalid)))
-			m = fy_assoc(ctx->transient_gb, m, "content",
-				     wire_tool_text(ctx, fy_get(m, "content", fy_invalid)));
 		if (fyai_media_content_has_attachments(fy_get(m, "content"))) {
 			content = wire_content(ctx, fy_get(m, "content"),
 					       FYAI_API_CHAT_COMPLETIONS, "text");
 			if (fy_is_invalid(content))
 				return provider_result(ctx, content,
 						       "could not build the Chat input");
-			m = fy_assoc(ctx->transient_gb, m, "content", content);
+			m = fy_assoc(gb, m, "content", content);
 		}
 		if (fy_is_valid(fy_get(m, "acp_message_id", fy_invalid)))
 			m = fy_mapping("role", fy_get(m, "role", "user"),
 				       "content", fy_get(m, "content", ""));
-		out = fy_append(ctx->transient_gb, out, m);
+		if (fy_equal(fy_get(m, "role"), "assistant") &&
+		    fy_is_string(fy_get(m, "content", fy_invalid)))
+			held = m;
+		else
+			out = fy_append(gb, out, m);
 	}
+	out = chat_flush(ctx, out, &held, &pending);
 
-	out = fy_gb_internalize(ctx->transient_gb, out);
+	out = fy_gb_internalize(gb, out);
 	return provider_result(ctx, out, "could not build the Chat input");
 }
 
@@ -1056,7 +1029,7 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic out = fy_seq_empty;
-	fy_generic m, tool_calls, tc, fn, content, input, output;
+	fy_generic m, content, input, output;
 	fy_generic type, role;
 	fy_generic tmp;
 	fy_generic blocks, block;
@@ -1125,45 +1098,6 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 		/* The system prompt travels in the request `system` field. */
 		if (fy_equal(role, "system"))
 			continue;
-
-		/* Chat tool result -> user tool_result. */
-		if (fy_equal(role, "tool")) {
-			content = fy_get(m, "content");
-			if (fy_is_invalid(content) ||
-			    fy_is_null(content))
-				content = fy_value("");
-			tmp = fy_mapping("type", "tool_result",
-					 "tool_use_id", fy_get(m, "tool_call_id", ""),
-					 "content", content);
-			out = messages_append_block(ctx, out, "user", tmp);
-			continue;
-		}
-
-		/* Chat assistant tool request -> text (if any) + tool_use. */
-		tool_calls = fy_get(m, "tool_calls");
-		if (fy_equal(role, "assistant") &&
-		    fy_is_valid(tool_calls) &&
-		    !fy_is_null(tool_calls)) {
-			content = fy_get(m, "content");
-			if (*fy_cast(content, ""))
-				out = messages_append_block(ctx, out,
-						"assistant",
-						messages_text_block(ctx, content));
-			fy_foreach(tc, tool_calls) {
-				fn = fy_get(tc, "function");
-				input = parse_json_string(gb,
-						fy_get(fn, "arguments", "{}"));
-				if (fy_is_invalid(input))
-					input = fy_map_empty;
-				tmp = fy_mapping("type", "tool_use",
-						 "id", fy_get(tc, "id", ""),
-						 "name", fy_get(fn, "name", ""),
-						 "input", input);
-				out = messages_append_block(ctx, out,
-						"assistant", tmp);
-			}
-			continue;
-		}
 
 		/* Plain role message. */
 		content = fy_get(m, "content");
