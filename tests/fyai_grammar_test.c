@@ -8,14 +8,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "fyai.h"
 #include "fyai_grammar.h"
 #include "fyai_provider.h"
+#include "fyai_reqcache.h"
+#include "fyai_turn.h"
 #include "utils.h"
 
 #include "fyai_test_registry.h"
 
+FYAI_TEST_ENTRY(grammar, request_cache_bench, grammar_request_cache_bench)
 FYAI_TEST_ENTRY(grammar, lookup, grammar_lookup)
 FYAI_TEST_ENTRY(grammar, canonical, grammar_canonical)
 FYAI_TEST_ENTRY(grammar, reply_round_trip, grammar_reply_round_trip)
@@ -28,6 +32,7 @@ FYAI_TEST_ENTRY(grammar, history_round_trip, grammar_history_round_trip)
 FYAI_TEST_ENTRY(grammar, history_losses, grammar_history_losses)
 FYAI_TEST_ENTRY(grammar, temperature, grammar_temperature)
 FYAI_TEST_ENTRY(grammar, paused_turn, grammar_paused_turn)
+FYAI_TEST_ENTRY(grammar, request_cache, grammar_request_cache)
 
 static struct fyai_cfg test_cfg;
 static struct fyai_ctx test_ctx;
@@ -776,6 +781,337 @@ static void test_paused_turn(void)
 		     text, "");
 }
 
+/*
+ * The request cache. A request made from the kept text and the turns after it
+ * must be, byte for byte, the request made from the whole conversation.
+ */
+#define CACHE_SENTINEL	"fyai-request-input-7c1f5a39e2"
+#define CACHE_TURNS	7
+
+static void cache_request(struct fyai_grammar_request *req)
+{
+	memset(req, 0, sizeof(*req));
+	req->input = fy_invalid;
+	req->messages = fy_invalid;
+	req->previous_response_id = fy_invalid;
+	req->instructions = test_cfg.system_prompt;
+	req->max_tokens = 1000;
+}
+
+/* The body of the request at @turn, made from the whole conversation. */
+static const char *cache_full_body(const struct fyai_grammar *grammar,
+				   fy_generic turn)
+{
+	struct fyai_grammar_request req;
+	fy_generic messages, m, request;
+
+	use_grammar(grammar);
+	cache_request(&req);
+	messages = fyai_turn_messages_since(&test_ctx, turn, fy_invalid);
+	fy_foreach(m, messages) {
+		if (fy_equal(fy_get(m, "role"), "system")) {
+			req.instructions = fy_get(m, "content", req.instructions);
+			break;
+		}
+	}
+	req.messages = messages;
+	request = fyai_grammar_build_request(&test_ctx, &req);
+	if (fy_is_invalid(request))
+		fail("%s: could not build the request%s", grammar->name, "");
+	return emit(request);
+}
+
+/* The text of a request after its input: what the cache pastes after it. */
+static const char *cache_post(const struct fyai_grammar *grammar)
+{
+	struct fyai_grammar_request req;
+	const char *text, *at;
+
+	use_grammar(grammar);
+	cache_request(&req);
+	req.input = fy_sequence(test_ctx.transient_gb, CACHE_SENTINEL);
+	text = emit(fyai_grammar_build_request(&test_ctx, &req));
+	at = strstr(text, "\"" CACHE_SENTINEL "\"");
+	if (!at)
+		fail("%s: no placeholder in the request%s", grammar->name, "");
+	return at + strlen(CACHE_SENTINEL) + 2;
+}
+
+/*
+ * Make the request at @turn through the cache and compare it with the request
+ * made without it. @hit says whether the kept text must serve it. The body
+ * belongs to the cache, so it is returned as a copy.
+ */
+static char *cache_check(const struct fyai_grammar *grammar, fy_generic turn,
+			 const char *what, bool hit)
+{
+	struct fyai_grammar_request req;
+	unsigned long h0, m0, h1, m1;
+	const char *want, *got = NULL;
+	char *copy;
+	int rv;
+
+	want = cache_full_body(grammar, turn);
+	fyai_request_cache_stats(&test_ctx, &h0, &m0);
+	use_grammar(grammar);
+	cache_request(&req);
+	rv = fyai_request_cache_body(&test_ctx, turn, &req, &got);
+	if (rv != 1)
+		fail("%s: the cache made no body for %s", grammar->name, what);
+	if (strcmp(want, got))
+		fail("the cached body differs from the whole one:\n%s\n--\n%s",
+		     want, got);
+	fyai_request_cache_stats(&test_ctx, &h1, &m1);
+	if (hit ? (h1 != h0 + 1 || m1 != m0) : (m1 != m0 + 1 || h1 != h0))
+		fail("%s: %s was served the wrong way", grammar->name, what);
+	copy = strdup(got);
+	if (!copy)
+		fail("out of memory%s%s", "", "");
+	return copy;
+}
+
+static void test_request_cache(void)
+{
+	static const char *const line =
+		"[{\"role\":\"user\",\"content\":\"another question\"}]";
+	static const char *const tools_plain =
+		"[{\"type\":\"function\",\"function\":{\"name\":\"read_file\","
+		"\"description\":\"read\",\"parameters\":{}}}]";
+	const struct fyai_grammar *grammar;
+	fy_generic turns[CACHE_TURNS], groups[CACHE_TURNS], other;
+	const char *post;
+	char *prev, *next;
+	size_t i, gi, keep;
+
+	test_cfg.model = "mock-model";
+	test_cfg.api_url = "http://localhost/v1";
+	test_cfg.system_prompt = "be brief";
+	test_cfg.request_cache = true;
+	test_cfg.enable_tools = true;
+	test_cfg.top_logprobs = -1;
+	test_ctx.tools = parse(tools_plain);
+
+	for (gi = 0; gi < GRAMMARS; gi++) {
+		grammar = test_grammars[gi];
+		if (!grammar->input_split)
+			continue;
+		use_grammar(grammar);
+		fyai_request_cache_release(&test_ctx);
+
+		/* Question, calls, results, answer, line, calls, results. */
+		groups[0] = parse(history_start);
+		groups[1] = fy_get(reply(grammar, reply_calls[gi]), "messages");
+		groups[2] = parse(tool_results);
+		groups[3] = fy_get(reply(grammar, reply_final[gi]), "messages");
+		groups[4] = parse(user_line);
+		groups[5] = fy_get(reply(grammar, reply_calls[gi]), "messages");
+		groups[6] = parse(tool_results);
+		for (i = 0; i < CACHE_TURNS; i++)
+			turns[i] = fyai_turn_append(&test_ctx,
+						    i ? turns[i - 1] : fy_invalid,
+						    groups[i]);
+
+		/* The first request makes the text, each later request adds. */
+		prev = NULL;
+		for (i = 0; i < CACHE_TURNS; i++) {
+			next = cache_check(grammar, turns[i], "a turn", i > 0);
+			if (prev && grammar == &fyai_grammar_chat) {
+				/*
+				 * Snip the end of the input and paste the new
+				 * turn: the old body, less its closing text, is
+				 * the start of the new one.
+				 */
+				post = cache_post(grammar);
+				keep = strlen(prev) - strlen(post);
+				if (strncmp(prev, next, keep) ||
+				    strcmp(next + strlen(next) - strlen(post),
+					   post))
+					fail("%s: the body is not the old body "
+					     "and the new turn%s", grammar->name,
+					     "");
+			}
+			free(prev);
+			prev = next;
+		}
+		free(prev);
+
+		/* The same turn again, as a retry: nothing new to add. */
+		free(cache_check(grammar, turns[CACHE_TURNS - 1], "a retry", true));
+
+		/*
+		 * Another line from an earlier turn does not extend the kept
+		 * text, and the cache then keeps that line.
+		 */
+		other = fyai_turn_append(&test_ctx, turns[2], parse(line));
+		free(cache_check(grammar, other, "another line", false));
+		/*
+		 * Chat keeps the end of the other line, which the first line
+		 * does not share. In Messages the other line joined the last
+		 * message of an earlier turn, so the kept text ends in a turn
+		 * that both lines share.
+		 */
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "the first line again",
+				 grammar != &fyai_grammar_chat));
+		free(cache_check(grammar, turns[CACHE_TURNS - 1], "its retry",
+				 true));
+
+		/* A rewind to an earlier turn is not an extension either. */
+		free(cache_check(grammar, turns[3], "a rewind", false));
+
+		/* The cache goes with the builder of the turns. */
+		fyai_request_cache_forget(&test_ctx);
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "the turns after the cache was forgotten", false));
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "the turns again", true));
+
+		/* A change of the configuration makes the text again. */
+		test_cfg.config_doc = fy_mapping(test_ctx.gb, "model", "another-model");
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "another configuration", false));
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "another configuration, again", true));
+		test_cfg.config_doc = fy_invalid;
+
+		/* A tool text that looks like an input item is not cut. */
+		test_ctx.tools = fy_sequence(test_ctx.transient_gb,
+					     CACHE_SENTINEL);
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "a tool that names the sentinel", false));
+		test_ctx.tools = parse(tools_plain);
+		fyai_request_cache_release(&test_ctx);
+	}
+}
+
+/*
+ * Benchmark of the request cache: FYAI_BENCH=1 ./build/fyai_test
+ * grammar/request_cache_bench. A conversation of N exchanges, a tools array of
+ * about 30 KB, and ROUNDS requests that each add an exchange, as the rounds of
+ * a tool loop do. Without it the test does nothing.
+ */
+#define BENCH_ROUNDS	10
+#define BENCH_TOOLS	30
+
+static double bench_ms(void)
+{
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return t.tv_sec * 1e3 + t.tv_nsec / 1e6;
+}
+
+static fy_generic bench_tools(void)
+{
+	char *json, *at;
+	size_t cap = BENCH_TOOLS * 1400 + 16;
+	int i, j;
+	fy_generic v;
+
+	json = malloc(cap);
+	if (!json)
+		fail("out of memory%s%s", "", "");
+	at = json;
+	at += sprintf(at, "[");
+	for (i = 0; i < BENCH_TOOLS; i++) {
+		at += sprintf(at, "%s{\"type\":\"function\",\"function\":{"
+			      "\"name\":\"tool_%d\",\"description\":\"", i ? "," : "", i);
+		for (j = 0; j < 100; j++)
+			at += sprintf(at, "word%02d ", j);
+		at += sprintf(at, "\",\"parameters\":{\"type\":\"object\","
+			      "\"properties\":{\"path\":{\"type\":\"string\","
+			      "\"description\":\"the path\"}}}}}");
+	}
+	sprintf(at, "]");
+	v = parse(json);
+	free(json);
+	return v;
+}
+
+static void bench_one(const struct fyai_grammar *grammar, size_t gi,
+		       size_t exchanges)
+{
+	fy_generic turn, calls, results, line;
+	struct fyai_grammar_request req;
+	double t0, t_full = 0, t_first = 0, t_hits = 0;
+	const char *got = NULL;
+	size_t i, body_len = 0;
+	int rv;
+
+	use_grammar(grammar);
+	calls = fy_get(reply(grammar, reply_calls[gi]), "messages");
+	results = parse(tool_results);
+	line = parse(user_line);
+
+	turn = fyai_turn_append(&test_ctx, fy_invalid, parse(history_start));
+	for (i = 0; i < exchanges; i++) {
+		turn = fyai_turn_append(&test_ctx, turn, line);
+		turn = fyai_turn_append(&test_ctx, turn, calls);
+		turn = fyai_turn_append(&test_ctx, turn, results);
+	}
+	turn = fyai_turn_append(&test_ctx, turn, line);
+
+	/* The rounds of one exchange without the cache. */
+	for (i = 0; i < BENCH_ROUNDS; i++) {
+		t0 = bench_ms();
+		got = cache_full_body(grammar, turn);
+		t_full += bench_ms() - t0;
+		body_len = strlen(got);
+		turn = fyai_turn_append(&test_ctx, turn, calls);
+		turn = fyai_turn_append(&test_ctx, turn, results);
+	}
+
+	/* The same rounds with it: the first makes the text, the rest add. */
+	fyai_request_cache_release(&test_ctx);
+	for (i = 0; i < BENCH_ROUNDS; i++) {
+		cache_request(&req);
+		t0 = bench_ms();
+		rv = fyai_request_cache_body(&test_ctx, turn, &req, &got);
+		if (i)
+			t_hits += bench_ms() - t0;
+		else
+			t_first += bench_ms() - t0;
+		if (rv != 1)
+			fail("%s: the cache made no body%s", grammar->name, "");
+		turn = fyai_turn_append(&test_ctx, turn, calls);
+		turn = fyai_turn_append(&test_ctx, turn, results);
+	}
+	fyai_request_cache_release(&test_ctx);
+
+	printf("%-17s %5zu exchanges %7zu KB body  no cache %8.3f ms/req  "
+	       "cache: first %8.3f ms, next %8.3f ms/req  speedup %5.1fx\n",
+	       grammar->name, exchanges, body_len / 1024, t_full / BENCH_ROUNDS,
+	       t_first, t_hits / (BENCH_ROUNDS - 1),
+	       (t_full / BENCH_ROUNDS) / (t_hits / (BENCH_ROUNDS - 1)));
+}
+
+static void test_request_cache_bench(void)
+{
+	static const size_t sizes[] = { 10, 50, 200, 1000 };
+	const struct fyai_grammar *grammar;
+	size_t gi, si;
+
+	if (!getenv("FYAI_BENCH"))
+		return;
+
+	test_cfg.model = "mock-model";
+	test_cfg.api_url = "http://localhost/v1";
+	test_cfg.system_prompt = "be brief";
+	test_cfg.request_cache = true;
+	test_cfg.enable_tools = true;
+	test_cfg.top_logprobs = -1;
+	test_ctx.tools = bench_tools();
+
+	for (gi = 0; gi < GRAMMARS; gi++) {
+		grammar = test_grammars[gi];
+		if (!grammar->input_split)
+			continue;
+		for (si = 0; si < sizeof(sizes) / sizeof(sizes[0]); si++)
+			bench_one(grammar, gi, sizes[si]);
+	}
+}
+
+
 static int grammar_run(void (*testfn)(void))
 {
 	struct fy_generic_builder_cfg gb_cfg = {
@@ -860,4 +1196,14 @@ int grammar_temperature(void)
 int grammar_paused_turn(void)
 {
 	return grammar_run(test_paused_turn);
+}
+
+int grammar_request_cache(void)
+{
+	return grammar_run(test_request_cache);
+}
+
+int grammar_request_cache_bench(void)
+{
+	return grammar_run(test_request_cache_bench);
 }
