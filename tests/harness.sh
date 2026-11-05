@@ -114,12 +114,17 @@ fyai_test_cleanup() {
 	[ -z "${TEST_SCRATCH:-}" ] || rm -rf "$TEST_SCRATCH"
 	if [ -n "$TEST_DIR" ]; then
 		fyai_sanitizer_report
+		fyai_ui_model_report
 		rm -rf "$TEST_DIR"
 		TEST_DIR=""
 	fi
 	# Fail after reporting sanitizer findings.
 	if [ "${FYAI_SANITIZER_FAILED:-0}" = 1 ]; then
 		FYAI_SANITIZER_FAILED=0
+		exit 1
+	fi
+	if [ "${FYAI_UI_MODEL_FAILED:-0}" = 1 ]; then
+		FYAI_UI_MODEL_FAILED=0
 		exit 1
 	fi
 }
@@ -140,6 +145,18 @@ fyai_sanitizer_report() {
 		echo "FAIL: a sanitizer reported during this case" >&2
 		FYAI_SANITIZER_FAILED=1
 	fi
+}
+
+# Report a divergence of the UI model from the legacy renderer path. It fails
+# the case as a sanitizer finding does.
+fyai_ui_model_report() {
+	local log="$TEST_DIR/ui-model.log"
+
+	[ -s "$log" ] || return 0
+	echo "--- ui model divergence ---" >&2
+	head -c 8000 "$log" >&2
+	echo "FAIL: the UI model diverged from the legacy renderer" >&2
+	FYAI_UI_MODEL_FAILED=1
 }
 
 # A signal leaves no scratch behind: the shell runs the EXIT trap only on a
@@ -207,6 +224,8 @@ fyai_test_setup_bare() {
 	export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}log_path=$TEST_DIR/sanitizer.log"
 	# Treat undefined behavior as a fatal sanitizer finding.
 	export UBSAN_OPTIONS="${UBSAN_OPTIONS:+$UBSAN_OPTIONS:}log_path=$TEST_DIR/sanitizer.log:print_stacktrace=1:halt_on_error=1"
+	# What a renderer makes from the UI model must match the legacy path.
+	export FYAI_UI_MODEL_CHECK="$TEST_DIR/ui-model.log"
 
 	# FYAI_TEST_TRANSPORT=level-b (or auto) runs every case with credential
 	# isolation on, as the compatibility gate of the transport.
