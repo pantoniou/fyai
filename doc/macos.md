@@ -341,15 +341,14 @@ These parts of a profile are not available on macOS:
 
 - **Network limits.** TCP and UDP ports are not restricted: network access
   stays open. A profile that lists network ports still runs, but each model
-  request reports warnings such as these:
+  request reports a warning such as this:
 
   ```text
   config: warning: sandbox 'dev': TCP egress remains open; Landlock ABI 4 is unavailable
-  config: warning: sandbox 'dev': UDP egress remains open; Landlock ABI 10 is unavailable
   ```
 
-  The warnings are correct. They say that the network part of the profile
-  does nothing here. The profile `lockdown` is thus not isolated from the
+  `fyai sandbox show` reports the same for UDP. The warnings are correct.
+  They say that the network part of the profile does nothing here. The profile `lockdown` is thus not isolated from the
   network on macOS.
 - **Mounts, covers, `home` and `expose`.** A profile that needs a mount
   namespace is rejected. The profile `yocto`, which has a private home, is

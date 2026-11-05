@@ -14,7 +14,8 @@ sockets whole.
 A profile that lists a UDP port is not filtered. A seccomp filter sees only
 the syscall number and the argument registers. The port is in a `sockaddr`
 that `connect()` and `sendto()` receive by pointer, and a filter cannot read
-it. Such a profile keeps UDP open on a kernel below ABI 10, and fyai warns.
+it. Such a profile keeps UDP open on a kernel below ABI 10. `fyai sandbox show`
+reports it; a run does not.
 
 ## The filter
 

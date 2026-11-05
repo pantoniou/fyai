@@ -1354,7 +1354,7 @@ sandbox_profiles:
 - `network.tcp.ports` and `network.udp.ports` list the permitted destination ports. `bind_ports` lists the permitted local ports. An empty list denies the operation. A protocol that is not listed is unrestricted.
 - A UDP send also permits an ephemeral source bind. Local Unix sockets stay available.
 - TCP limits need Landlock ABI 4. UDP limits need ABI 10. On an older ABI, fyai reports that the restriction is not available. A kernel with no network rights leaves egress open, and fyai warns once for each process.
-- On a kernel below ABI 10, a profile that permits no UDP port is enforced with a seccomp filter instead, and fyai does not warn. The filter denies datagram and raw IP sockets and `io_uring_setup()`. It cannot test a port, so a profile that lists a UDP port, such as `dev` with port 53, keeps UDP open there and fyai warns. `doc/seccomp-network-filter.md` describes the filter.
+- On a kernel below ABI 10, a profile that permits no UDP port is enforced with a seccomp filter instead, and fyai does not warn. The filter denies datagram and raw IP sockets and `io_uring_setup()`. It cannot test a port, so a profile that lists a UDP port, such as `dev` with port 53, keeps UDP open there. A run does not report this; `fyai sandbox show`, `fyai sandbox enter` and `fyai view enter --profile` do. `doc/seccomp-network-filter.md` describes the filter.
 - On a system without Landlock, the portable tool policy stays in force.
 
 ### Profiles
