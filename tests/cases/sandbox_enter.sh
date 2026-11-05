@@ -87,6 +87,28 @@ run_fyai sandbox enter --profile dev -- sh -c "$UDP"
 assert_status 0
 assert_stdout_contains udp-open
 
+# The dev profile permits DNS. Without Landlock ABI 10 its UDP stays open:
+# `sandbox show` reports that as `sandbox enter` does, and a tool run does not.
+if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
+	UDP_REPORT=yes
+else
+	UDP_REPORT=no
+fi
+run_fyai sandbox show dev
+assert_status 0
+if [ "$UDP_REPORT" = yes ]; then
+	assert_stderr_contains 'UDP egress remains open'
+else
+	assert_stderr_not_contains 'UDP egress remains open'
+fi
+run_fyai config set sandbox_profile dev
+assert_status 0
+run_fyai tool shell '{"command": "echo ran"}'
+assert_stdout_contains ran
+assert_stderr_not_contains 'UDP egress remains open'
+run_fyai config set sandbox_profile lockdown
+assert_status 0
+
 # With a project the list follows the stored configuration: lockdown is in use.
 run_fyai sandbox profiles --output yaml
 assert_status 0

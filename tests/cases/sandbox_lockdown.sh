@@ -27,6 +27,18 @@ shell_with() {
 	run_fyai --config "$TEST_DIR/lockdown.yaml" tool shell '{"command": "'"$2"'"}'
 }
 
+# What a UDP send under configuration $1 prints: `sandbox show` says whether
+# the host leaves the UDP part of the profile open.
+udp_expect() {
+	printf '%s\n' "$1" >"$TEST_DIR/lockdown.yaml"
+	run_fyai --config "$TEST_DIR/lockdown.yaml" sandbox show
+	if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
+		echo udp-connected
+	else
+		echo udp-denied
+	fi
+}
+
 # The none profile does not confine the tools: the key file and the network are open.
 shell_with 'sandbox_profile: none' "cat ~/.ssh/id_test; $CONNECT"
 assert_status 0
@@ -48,23 +60,18 @@ if [ "$(printf '%s\n6.7\n' "${RELEASE%%-*}" | sort -V | head -n 1)" = 6.7 ]; the
 	shell_with 'sandbox_profile: lockdown' "$CONNECT || echo net-denied"
 	assert_stdout_contains net-denied
 	assert_stdout_not_contains connected
+	EXPECT="$(udp_expect 'sandbox_profile: lockdown')"
 	shell_with 'sandbox_profile: lockdown' "$UDP_CONNECT || echo udp-denied"
-	if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
-		assert_stdout_contains udp-connected
-	else
-		assert_stdout_contains udp-denied
-	fi
+	assert_stdout_contains "$EXPECT"
 	# A port that the profile lists is open.
 	shell_with "sandbox_profile: lockdown
 sandbox_lockdown: { network: { tcp: { ports: [$PORT] } } }" "$CONNECT || echo net-denied"
 	assert_stdout_contains connected
+	EXPECT="$(udp_expect "sandbox_profile: lockdown
+sandbox_lockdown: { network: { tcp: { ports: [$PORT] } } }")"
 	shell_with "sandbox_profile: lockdown
 sandbox_lockdown: { network: { tcp: { ports: [$PORT] } } }" "$UDP_CONNECT || echo udp-denied"
-	if grep -q 'UDP egress remains open' "$TEST_DIR/stderr"; then
-		assert_stdout_contains udp-connected
-	else
-		assert_stdout_contains udp-denied
-	fi
+	assert_stdout_contains "$EXPECT"
 fi
 
 # A key that the profile names does not drop the default deny.
