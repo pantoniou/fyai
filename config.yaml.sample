@@ -334,6 +334,8 @@ no_obfuscation: false
 whitewash_api_keys: true # Redact API keys in wire logs.
 response_chain: false    # Use previous_response_id for Responses requests;
                           # replay local history if server state is unavailable.
+request_cache: true      # Keep the text of the conversation that the last
+                          # request sent, and make only the new turns.
 no_auth: false           # Do not require or send an API key.
 
 # By default, fyai finds .fyai by walking up from the working directory.

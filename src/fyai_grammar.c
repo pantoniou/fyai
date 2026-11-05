@@ -66,6 +66,17 @@ fy_generic fyai_grammar_input(struct fyai_ctx *ctx, fy_generic messages)
 	return fyai_grammar(ctx->cfg)->input(ctx, messages);
 }
 
+bool fyai_grammar_input_splits(struct fyai_ctx *ctx)
+{
+	return fyai_grammar(ctx->cfg)->input_split != NULL;
+}
+
+fy_generic fyai_grammar_input_split(struct fyai_ctx *ctx, fy_generic messages,
+				    size_t *stable, size_t *from)
+{
+	return fyai_grammar(ctx->cfg)->input_split(ctx, messages, stable, from);
+}
+
 fy_generic fyai_grammar_make_tools(struct fyai_ctx *ctx)
 {
 	return fyai_grammar(ctx->cfg)->make_tools(ctx);

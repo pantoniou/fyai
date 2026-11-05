@@ -29,6 +29,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "fyai_reqcache.h"
 #include "fyai_sink.h"
 #include "fyai_terminal.h"
 #include "fyai_prof.h"
@@ -1014,6 +1015,9 @@ int fyai_arena_reopen(struct fyai_ctx *ctx)
 	struct fyai_cfg *cfg = ctx->cfg;
 	bool new_conversation;
 	int rc;
+
+	/* The turns that the cache names may move with the arena. */
+	fyai_request_cache_release(ctx);
 
 	/* A second setup would strdup over the first. */
 	free(ctx->head_branch);

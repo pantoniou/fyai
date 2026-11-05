@@ -21,6 +21,7 @@
 
 #include <fcntl.h>
 #include <termios.h>
+#include "fyai_reqcache.h"
 #include "fyai_host.h"
 #include <sys/ioctl.h>
 #include <sys/wait.h>
@@ -5590,6 +5591,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
 	fyai_monitor_abandon(ctx);		/* and its monitors */
 	fyai_events_release(ctx);		/* and what they queued for it */
+	fyai_request_cache_release(ctx);	/* its conversation text */
 	fyai_patch_display_clear(ctx);		/* patches it resolved */
 	free(ctx->patch_display);
 	ctx->patch_display = NULL;

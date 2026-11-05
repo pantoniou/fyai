@@ -58,13 +58,16 @@ static fy_generic messages_make_tools(struct fyai_ctx *ctx)
 }
 
 /*
- * Append @block to the Anthropic message list @out under @role: the Messages
+ * Append @block of the canonical message @index to the Anthropic message list
+ * @out under @role. *openedp is the index of the message that opened the last
+ * message of @out. The Messages
  * API requires strictly alternating user/assistant roles, so a block whose
  * role matches the last message's is merged into that message's content
  * array instead of opening a new message. Content is always a block array.
  */
 static fy_generic messages_append_block(struct fyai_ctx *ctx, fy_generic out,
-					const char *role, fy_generic block)
+					const char *role, fy_generic block,
+					size_t index, size_t *openedp)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic last, content;
@@ -81,6 +84,7 @@ static fy_generic messages_append_block(struct fyai_ctx *ctx, fy_generic out,
 			return fy_replace(gb, out, n - 1, last);
 		}
 	}
+	*openedp = index;
 	return fy_append(gb, out,
 			fy_mapping("role", role,
 				   "content", fy_sequence(gb, block)));
@@ -128,7 +132,8 @@ static fy_generic messages_text_block(struct fyai_ctx *ctx, fy_generic text)
  * detail with no Messages analogue and are dropped. It adds no cache
  * marker. The result is in the transient builder.
  */
-fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
+static fy_generic messages_blocks(struct fyai_ctx *ctx, fy_generic messages,
+				  size_t *openedp)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic out = fy_seq_empty;
@@ -138,8 +143,11 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 	fy_generic blocks, block;
 	const char *cmd, *text;
 	const char *role_name;
+	size_t index = (size_t)-1;
 
+	*openedp = 0;
 	fy_foreach(m, messages) {
+		index++;
 		type = fy_get(m, "type");
 
 		/*
@@ -157,7 +165,7 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 					 "id", fy_get(m, "call_id", ""),
 					 "name", fy_get(m, "name", ""),
 					 "input", input);
-			out = messages_append_block(ctx, out, "assistant", tmp);
+			out = messages_append_block(ctx, out, "assistant", tmp, index, openedp);
 			continue;
 		}
 		if (fy_equal(type, "shell_call")) {
@@ -166,7 +174,7 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 					 "id", fy_get(m, "call_id", ""),
 					 "name", FYAI_TOOL_EXEC_WIRE_NAME,
 					 "input", fy_mapping("command", cmd));
-			out = messages_append_block(ctx, out, "assistant", tmp);
+			out = messages_append_block(ctx, out, "assistant", tmp, index, openedp);
 			continue;
 		}
 
@@ -180,7 +188,7 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 			tmp = fy_mapping("type", "tool_result",
 					 "tool_use_id", fy_get(m, "call_id", ""),
 					 "content", output);
-			out = messages_append_block(ctx, out, "user", tmp);
+			out = messages_append_block(ctx, out, "user", tmp, index, openedp);
 			continue;
 		}
 
@@ -188,7 +196,8 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 		if (fy_equal(type, "message")) {
 			out = messages_append_block(ctx, out,
 					fy_cast(fy_get(m, "role", "assistant"), ""),
-					messages_text_block(ctx, fyai_item_text(ctx, m)));
+					messages_text_block(ctx, fyai_item_text(ctx, m)),
+					index, openedp);
 			continue;
 		}
 
@@ -200,7 +209,8 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 		if (fy_equal(role, "agent")) {
 			out = messages_append_block(ctx, out, "user",
 				messages_text_block(ctx,
-					fyai_agent_wire_text(ctx, m)));
+					fyai_agent_wire_text(ctx, m)),
+				index, openedp);
 			continue;
 		}
 
@@ -226,10 +236,12 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 						       "user";
 			fy_foreach(block, blocks)
 				out = messages_append_block(ctx, out, role_name,
-							    block);
+							    block, index,
+							    openedp);
 			continue;
 		}
 		if (fy_is_sequence(content)) {
+			*openedp = index;
 			out = fy_append(gb, out,
 					fy_mapping("role", fy_is_string(role) ?
 							fy_castp(&role, "") : "user",
@@ -238,19 +250,33 @@ fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
 		}
 		out = messages_append_block(ctx, out,
 				fy_is_string(role) ? fy_castp(&role, "") : "user",
-				messages_text_block(ctx, content));
+				messages_text_block(ctx, content), index, openedp);
 	}
 	return fy_gb_internalize(gb, out);
 }
 
-/* The Messages request input: the blocks with a prompt-cache breakpoint. */
-static fy_generic messages_input(struct fyai_ctx *ctx, fy_generic messages)
+fy_generic fyai_messages_blocks(struct fyai_ctx *ctx, fy_generic messages)
+{
+	size_t opened;
+
+	return messages_blocks(ctx, messages, &opened);
+}
+
+/*
+ * The Messages request input: the blocks with a prompt-cache breakpoint. Only
+ * the last message of the input can change when messages follow: a message of
+ * the same role is merged into it, and the breakpoint moves to its last block.
+ * The items before it are stable, and the last item is made again from the
+ * message that opened it.
+ */
+static fy_generic messages_input_split(struct fyai_ctx *ctx, fy_generic messages,
+				       size_t *stable, size_t *from)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic out, m, content, tc;
-	size_t j, n;
+	size_t j, n, opened;
 
-	out = fyai_messages_blocks(ctx, messages);
+	out = messages_blocks(ctx, messages, &opened);
 	if (fy_is_invalid(out))
 		return fyai_provider_result(ctx, out,
 				       "could not build the Messages input");
@@ -277,8 +303,17 @@ static fy_generic messages_input(struct fyai_ctx *ctx, fy_generic messages)
 		}
 	}
 
+	*stable = n ? n - 1 : 0;
+	*from = n ? opened : fy_len(messages);
 	out = fy_gb_internalize(ctx->transient_gb, out);
 	return fyai_provider_result(ctx, out, "could not build the Messages input");
+}
+
+static fy_generic messages_input(struct fyai_ctx *ctx, fy_generic messages)
+{
+	size_t stable, from;
+
+	return messages_input_split(ctx, messages, &stable, &from);
 }
 
 static fy_generic messages_image_part(struct fyai_ctx *ctx, fy_generic part)
@@ -318,7 +353,8 @@ static fy_generic messages_build_request(struct fyai_ctx *ctx,
 				fy_mapping(gb, "type", "text",
 					   "text", req->instructions,
 					   "cache_control", fy_mapping(gb, "type", "ephemeral"))),
-		"messages", messages_input(ctx, req->messages));
+		"messages", fy_is_valid(req->input) ? req->input :
+			    messages_input(ctx, req->messages));
 	/* Messages spells tool_choice as an object, not a string. */
 	if (fyai_grammar_tools_wanted(ctx) ||
 	    fyai_provider_native_web_search(cfg))
@@ -793,6 +829,7 @@ const struct fyai_grammar fyai_grammar_messages = {
 	.make_tools		= messages_make_tools,
 	.tool_def		= messages_tool_def,
 	.image_part		= messages_image_part,
+	.input_split		= messages_input_split,
 	.build_request		= messages_build_request,
 	.stream_state_size	= sizeof(struct messages_stream),
 	.stream_init		= messages_stream_init,

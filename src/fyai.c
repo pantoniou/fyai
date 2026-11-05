@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_reqcache.h"
 #include "fyai_cmd.h"
 #include "fyai_agent.h"
 #include "fyai_monitor.h"
@@ -649,22 +650,24 @@ static void fyai_model_step_buffered_complete(
 static void fyai_model_step_request_complete(struct fyai_model_step *step,
 					     fy_generic response_doc);
 
-/* Serialize and submit the fully-built request. */
+/* Serialize (unless @request_body is made) and submit the request. */
 static int fyai_model_step_submit_request(struct fyai_model_step *step,
 						  fy_generic request,
+						  const char *request_body,
 						  bool response_linked,
 						  bool want_extents_lp,
 						  const struct timespec *t_emit)
 {
 	struct fyai_ctx *ctx;
 	struct fyai_cfg *cfg;
-	const char *request_body;
 	struct fyai_stream_callbacks callbacks;
 	int rc;
 
 	ctx = step->ctx;
 	cfg = ctx->cfg;
-	request_body = emit_request_body(ctx->transient_gb, request);
+	/* A body that the request cache made needs no value. */
+	if (!request_body)
+		request_body = emit_request_body(ctx->transient_gb, request);
 	fyai_error_check(ctx, request_body, out,
 			 "could not serialize the model request");
 
@@ -771,8 +774,10 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	fy_generic messages;
 	fy_generic m;
 	struct timespec t_emit;
+	const char *body;
 	bool response_linked;
 	bool reasoning;
+	int cached;
 	int rc;
 
 	ctx = step->ctx;
@@ -801,19 +806,10 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 	/* Never let a stale streamed collection attach to this step's turn. */
 	ctx->last_token_extents = fy_invalid;
 
-	messages = fyai_turn_messages_since(ctx, turn, previous);
 	previous_response_id = fy_get(fyai_turn_meta(previous), "response_id");
-
-	/* Prefer the conversation's own canonical system turn so the
-	 * instructions stay stable even if cfg.system_prompt differs from
-	 * what the conversation was started with. */
 	req.instructions = cfg->system_prompt;
-	fy_foreach(m, messages) {
-		if (fy_equal(fy_get(m, "role"), "system")) {
-			req.instructions = fy_get(m, "content", req.instructions);
-			break;
-		}
-	}
+	req.input = fy_invalid;
+	req.messages = fy_invalid;
 
 	catalog = fyai_catalog_effective(cfg->catalog, cfg->gb);
 	cat_model = fyai_catalog_resolved_model(catalog, cfg->model);
@@ -822,7 +818,6 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		fy_is_valid(previous_response_id) &&
 		!fy_is_null(previous_response_id);
 
-	req.messages = messages;
 	req.previous_response_id = response_linked ? previous_response_id :
 						     fy_invalid;
 	req.max_tokens = fyai_model_step_max_tokens(ctx, cfg);
@@ -839,27 +834,59 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 		!ctx->token_extents_off && grammar->logprobs && !reasoning &&
 		fyai_model_supports_logprobs(cat_model);
 
-	request = fyai_grammar_build_request(ctx, &req);
-	fyai_error_check(ctx, fy_is_valid(request), out,
-			 "could not build the model request");
-	if (cfg->chatgpt_auth)
-		request = fyai_auth_subscription_request(ctx->transient_gb, request);
-	fyai_error_check(ctx, fy_is_valid(request), out,
-			 "could not finish the model request");
+	/*
+	 * The request cache makes the body from the text that the last request
+	 * kept and the turns that came after it. It leaves the request as a
+	 * value to the paths that need one.
+	 */
+	body = NULL;
+	if (fyai_request_cache_usable(ctx, previous)) {
+		cached = fyai_request_cache_body(ctx, turn, &req, &body);
+		fyai_error_check(ctx, cached >= 0, out,
+				 "could not make the model request");
+	}
+	if (!body) {
+		messages = fyai_turn_messages_since(ctx, turn, previous);
 
-	if (cfg->debug)
-		emit_generic_to_stdout(ctx, "request", request, cfg->pretty);
+		/* Prefer the conversation's own canonical system turn so the
+		 * instructions stay stable even if cfg.system_prompt differs from
+		 * what the conversation was started with. */
+		req.instructions = cfg->system_prompt;
+		fy_foreach(m, messages) {
+			if (fy_equal(fy_get(m, "role"), "system")) {
+				req.instructions = fy_get(m, "content",
+							  req.instructions);
+				break;
+			}
+		}
+		req.messages = messages;
+		req.input = fy_invalid;
 
-	if (cfg->conversation_logging) {
-		(void)fyai_log_generic(ctx, "conversation",
-			fy_mapping(ctx->transient_gb,
-				"kind", "request",
-				"api", grammar->name,
-				"url", cfg->api_url,
-				"body", request));
+		request = fyai_grammar_build_request(ctx, &req);
+		fyai_error_check(ctx, fy_is_valid(request), out,
+				 "could not build the model request");
+		if (cfg->chatgpt_auth)
+			request = fyai_auth_subscription_request(ctx->transient_gb,
+								 request);
+		fyai_error_check(ctx, fy_is_valid(request), out,
+				 "could not finish the model request");
+
+		if (cfg->debug)
+			emit_generic_to_stdout(ctx, "request", request, cfg->pretty);
+
+		if (cfg->conversation_logging) {
+			(void)fyai_log_generic(ctx, "conversation",
+				fy_mapping(ctx->transient_gb,
+					"kind", "request",
+					"api", grammar->name,
+					"url", cfg->api_url,
+					"body", request));
+		}
+	} else {
+		request = fy_invalid;
 	}
 
-	rc = fyai_model_step_submit_request(step, request, response_linked,
+	rc = fyai_model_step_submit_request(step, request, body, response_linked,
 					    req.extents_lp, &t_emit);
 	fyai_error_check(ctx, !rc, out, "could not submit the model request");
 	return 0;
@@ -2374,6 +2401,7 @@ done:
 void fyai_cleanup_transient_builder(struct fyai_ctx *ctx)
 {
 	if (ctx->transient_gb) {
+		fyai_request_cache_forget(ctx);
 		fy_generic_builder_destroy(ctx->transient_gb);
 		ctx->transient_gb = NULL;
 	}
@@ -2487,6 +2515,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	ctx->agent_spawn_json = NULL;
 	free(ctx->tool_submit_error);
 	ctx->tool_submit_error = NULL;
+	fyai_request_cache_release(ctx);
 	fyai_patch_display_clear(ctx);
 	free(ctx->patch_display);
 	ctx->patch_display = NULL;

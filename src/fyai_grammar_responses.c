@@ -268,7 +268,8 @@ static fy_generic responses_build_request(struct fyai_ctx *ctx,
 	request = fy_mapping(gb,
 		"model", cfg->model,
 		"instructions", req->instructions,
-		"input", responses_input(ctx, req->messages),
+		"input", fy_is_valid(req->input) ? req->input :
+			 responses_input(ctx, req->messages),
 		"store", cfg->response_chain);
 	if (req->temperature)
 		request = fy_assoc(gb, request, "temperature", cfg->temperature);

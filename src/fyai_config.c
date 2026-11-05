@@ -643,6 +643,8 @@ int fyai_config_apply(struct fyai_cfg *cfg, fy_generic root)
 					     cfg->whitewash_api_keys);
 	cfg->response_chain = apply_bool(root, "response_chain",
 					 cfg->response_chain);
+	cfg->request_cache = apply_bool(root, "request_cache",
+					cfg->request_cache);
 	cfg->no_auth = apply_bool(root, "no_auth", cfg->no_auth);
 
 	v = fy_get(root, "logging");
@@ -3126,6 +3128,7 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg)
 	cfg->whitewash_api_keys = true;
 	/* This is an opt-in because provider-side response retention is lossy. */
 	cfg->response_chain = false;
+	cfg->request_cache = true;
 	cfg->markdown_mode = DEFAULT_MARKDOWN_MODE;
 	cfg->markdown_update_interval_ms =
 		DEFAULT_MARKDOWN_UPDATE_INTERVAL_MS;

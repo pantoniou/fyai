@@ -173,6 +173,22 @@ static fy_generic chat_image_part(struct fyai_ctx *ctx, fy_generic part)
 	return out;
 }
 
+/*
+ * A message of the input depends on the messages around it only inside one
+ * assistant turn, and a request ends between two turns, so the whole input of
+ * a request is the start of the next one.
+ */
+static fy_generic chat_input_split(struct fyai_ctx *ctx, fy_generic messages,
+				   size_t *stable, size_t *from)
+{
+	fy_generic out;
+
+	out = chat_input(ctx, messages);
+	*stable = fy_is_valid(out) ? fy_len(out) : 0;
+	*from = fy_len(messages);
+	return out;
+}
+
 static fy_generic chat_build_request(struct fyai_ctx *ctx,
 				     const struct fyai_grammar_request *req)
 {
@@ -185,7 +201,8 @@ static fy_generic chat_build_request(struct fyai_ctx *ctx,
 
 	request = fy_mapping(gb,
 		"model", cfg->model,
-		"messages", chat_input(ctx, req->messages));
+		"messages", fy_is_valid(req->input) ? req->input :
+			    chat_input(ctx, req->messages));
 	if (req->temperature)
 		request = fy_assoc(gb, request, "temperature", cfg->temperature);
 	if (!fy_str_empty(cfg->reasoning_effort))
@@ -559,6 +576,7 @@ const struct fyai_grammar fyai_grammar_chat = {
 	.make_tools		= chat_make_tools,
 	.tool_def		= chat_tool_def,
 	.image_part		= chat_image_part,
+	.input_split		= chat_input_split,
 	.build_request		= chat_build_request,
 	.stream_state_size	= sizeof(struct chat_stream),
 	.stream_init		= chat_stream_init,

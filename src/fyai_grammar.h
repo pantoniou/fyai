@@ -35,6 +35,8 @@ struct fyai_grammar_header {
  */
 struct fyai_grammar_request {
 	fy_generic messages;		/* the canonical messages */
+	/* The input in wire form, when the caller made it; else fy_invalid. */
+	fy_generic input;
 	const char *instructions;	/* the system prompt */
 	/* The response this request continues, or fy_invalid. */
 	fy_generic previous_response_id;
@@ -93,6 +95,14 @@ struct fyai_grammar {
 	 * transient builder. The system message is not part of it.
 	 */
 	fy_generic (*input)(struct fyai_ctx *ctx, fy_generic messages);
+	/*
+	 * The input in a split for the request cache: the first *stable items
+	 * stay as they are when messages follow @messages. The other items
+	 * are made from the messages at index *from. NULL when the grammar
+	 * cannot say this.
+	 */
+	fy_generic (*input_split)(struct fyai_ctx *ctx, fy_generic messages,
+				  size_t *stable, size_t *from);
 	/* The tool declarations of the configuration, in ctx->gb. */
 	fy_generic (*make_tools)(struct fyai_ctx *ctx);
 	/* One function tool, given as {type: function, function: ...}. */
@@ -185,6 +195,13 @@ bool fyai_grammar_reasoning_set(const struct fyai_cfg *cfg);
 
 /* The canonical @messages as the request input, in the transient builder. */
 fy_generic fyai_grammar_input(struct fyai_ctx *ctx, fy_generic messages);
+
+/* True when the grammar can split its input for the request cache. */
+bool fyai_grammar_input_splits(struct fyai_ctx *ctx);
+
+/* The input of @messages and its split, as the operation above. */
+fy_generic fyai_grammar_input_split(struct fyai_ctx *ctx, fy_generic messages,
+				    size_t *stable, size_t *from);
 
 /* The tool declarations of the configuration, in ctx->gb. */
 fy_generic fyai_grammar_make_tools(struct fyai_ctx *ctx);

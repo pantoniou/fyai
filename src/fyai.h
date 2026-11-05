@@ -451,6 +451,11 @@ struct fyai_cfg {
 	 */
 	bool response_chain;
 	/*
+	 * Keep the text of the input of the last request and make only the
+	 * text of the new turns for the next one (`request_cache`).
+	 */
+	bool request_cache;
+	/*
 	 * Skip the api_key requirement and the Authorization/x-api-key
 	 * header, for local no-auth model servers (Ollama, llama.cpp's
 	 * llama-server, vLLM, ...) speaking the Chat Completions wire
@@ -675,6 +680,8 @@ struct fyai_usage_sum {
 struct fyai_ask_pending;
 struct fyai_skill_dir;
 
+struct fyai_request_cache;
+
 struct fyai_ctx {
 	struct fyai_cfg *cfg;
 	struct fy_allocator *durable_allocator;
@@ -693,6 +700,8 @@ struct fyai_ctx {
 	struct fy_generic_builder *transient_gb;
 	/* Release idle-operation scratch storage on the next loop iteration. */
 	bool transient_autorelease;
+	/* The body of the last request, kept for the next (fyai_reqcache.c). */
+	struct fyai_request_cache *request_cache;
 	CURL *curl;
 	/* Channel to the credential transport; NULL when this process talks to
 	 * the provider itself. See fyai_xfer.h. */

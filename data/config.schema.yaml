@@ -1034,6 +1034,14 @@ properties:
       Chain Responses API requests with previous_response_id. This is off by default;
       a stale or evicted stored response automatically falls back to replaying
       the canonical local turn chain.
+  request_cache:
+    x-fyai-model: hidden
+    type: boolean
+    default: true
+    description: >-
+      Keep the text of the conversation that the last request sent, and make only
+      the text of the new turns for the next request. This changes how the
+      request is made and not what it says.
   no_auth:
     x-fyai-model: read
     type: boolean
