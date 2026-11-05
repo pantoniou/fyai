@@ -42,4 +42,11 @@ void fyai_sandbox_profile_names(struct fyai_cfg *cfg, fy_generic root,
  */
 bool fyai_sandbox_udp_ports_listed(fy_generic udp);
 
+/*
+ * True when the `network.udp` mapping @udp restricts UDP and this host cannot
+ * enforce it: Landlock ABI 10 is unavailable, and the seccomp filter cannot
+ * deny UDP or the mapping permits a port.
+ */
+bool fyai_sandbox_udp_open(fy_generic udp);
+
 #endif

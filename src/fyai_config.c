@@ -2611,7 +2611,7 @@ static void config_cover_report(struct fyai_ctx *ctx, const char *key)
 void fyai_config_sandbox_report(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	fy_generic net, tcp, udp;
+	fy_generic tcp;
 	const char *key;
 
 	if (cfg->tool_child || cfg->agent_child)
@@ -2629,15 +2629,10 @@ void fyai_config_sandbox_report(struct fyai_ctx *ctx)
 	if (cfg->sandbox_reported && !strcmp(cfg->sandbox_reported, key))
 		return;
 	cfg->sandbox_reported = fy_gb_intern_string(cfg->gb, key);
-	net = fy_get(cfg->sandbox, "network", fy_invalid);
-	tcp = fy_get(net, "tcp", fy_invalid);
-	udp = fy_get(net, "udp", fy_invalid);
+	/* UDP that stays open is reported by `sandbox show`, not by each run. */
+	tcp = fy_get(fy_get(cfg->sandbox, "network", fy_invalid), "tcp", fy_invalid);
 	if (fy_is_valid(tcp) && !fyai_sandbox_net_restrictable(-1))
 		fyai_cfg_warning(cfg, "sandbox '%s': TCP egress remains open; Landlock ABI 4 "
-				 "is unavailable", key);
-	if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
-	    (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable()))
-		fyai_cfg_warning(cfg, "sandbox '%s': UDP egress remains open; Landlock ABI 10 "
 				 "is unavailable", key);
 	config_cover_report(ctx, key);
 }

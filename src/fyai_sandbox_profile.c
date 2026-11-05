@@ -23,6 +23,7 @@
 #include <sys/utsname.h>
 
 #include "fyai.h"
+#include "fyai_sandbox.h"
 #include "fyai_sandbox_profile.h"
 #include "fyai_yaml_flags.h"
 
@@ -412,4 +413,10 @@ bool fyai_sandbox_udp_ports_listed(fy_generic udp)
 
 	return (fy_is_sequence(ports) && !fy_empty(ports)) ||
 	       (fy_is_sequence(bind) && !fy_empty(bind));
+}
+
+bool fyai_sandbox_udp_open(fy_generic udp)
+{
+	return fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
+	       (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable());
 }

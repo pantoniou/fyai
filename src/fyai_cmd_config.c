@@ -753,7 +753,7 @@ int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result)
 {
 	struct fyai_ctx *ctx = call->ctx;
 	const char *name = fyai_cmd_arg_str(call, "profile");
-	fy_generic v;
+	fy_generic v, net;
 
 	if (sandbox_config_ready(ctx))
 		return -1;
@@ -767,6 +767,11 @@ int fyai_cmd_sandbox_show(struct fyai_cmd_call *call, fy_generic *result)
 	v = fyai_sandbox_profile_policy(ctx->cfg, ctx->cfg->config_doc, name);
 	if (fy_is_invalid(v))
 		return -1;
+	net = fy_get(v, "network", fy_invalid);
+	if (fyai_sandbox_udp_open(fy_get(net, "udp", fy_invalid)))
+		fyai_warning(ctx, "sandbox '%s': UDP egress remains open; Landlock ABI 10 "
+			     "is unavailable and a seccomp filter cannot permit only "
+			     "the listed ports", name);
 	*result = v;
 	return 0;
 err:
@@ -891,8 +896,7 @@ int fyai_cmd_sandbox_enter(struct fyai_cmd_call *call, fy_generic *result)
 		fyai_warning(ctx, "sandbox enter: this kernel cannot restrict network "
 			     "egress: it stays open");
 	udp = fy_get(net, "udp", fy_invalid);
-	if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
-	    (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable()))
+	if (fyai_sandbox_udp_open(udp))
 		fyai_warning(ctx, "sandbox enter: UDP egress remains open; Landlock "
 			     "ABI 10 is unavailable");
 

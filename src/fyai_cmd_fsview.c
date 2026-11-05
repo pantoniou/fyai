@@ -2030,8 +2030,7 @@ int fyai_cmd_view_enter(struct fyai_cmd_call *call, fy_generic *result)
 				     "egress: it stays open", name);
 		udp = fy_get(fy_get(call->ctx->cfg->sandbox, "network", fy_invalid), "udp",
 			     fy_invalid);
-		if (fy_is_valid(udp) && !fyai_sandbox_udp_restrictable(-1) &&
-		    (fyai_sandbox_udp_ports_listed(udp) || !fyai_sandbox_udp_deniable()))
+		if (fyai_sandbox_udp_open(udp))
 			fyai_warning(call->ctx, "view '%s': UDP egress remains open; Landlock "
 				     "ABI 10 is unavailable", name);
 	}
