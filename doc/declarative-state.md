@@ -282,6 +282,7 @@ under it, except the rows below it that name a deeper key.
 | `retry` | review | cost; `max_delay_ms: 0` removes the bound |
 | `catalog_update` | read | execution |
 | `catalog_update/credentials` | hidden | credential names |
+| `request_cache` | hidden | how a request is made, not what it says |
 | `shell` | write | defaults below the ceilings: `timeout_ms`, `max_output_tokens`, `session_timeout_ms`, `tty*`, `input_poll_ms` |
 | `shell/max_timeout_ms`, `shell/hard_max_output_tokens` | read | ceiling |
 | `shell/shell`, `shell/login` | read | execution |

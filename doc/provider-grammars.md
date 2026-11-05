@@ -32,8 +32,8 @@ The table holds data and operations:
 - **Capabilities:** `reasoning`, `logprobs`, `builtin_shell`, `chaining` and
   `chatgpt`. `fyai_config_grammar_gate()` disables or rejects the options
   that a grammar cannot carry.
-- **Operations:** the input, the tool declarations, the image part, the
-  request body, the stream parse, the canonical response, the history, the
+- **Operations:** the input, the split of the input, the tool declarations,
+  the image part, the request body, the stream parse, the canonical response, the history, the
   chain miss and the compact URL.
 
 The core calls an operation through its wrapper, such as
@@ -135,3 +135,75 @@ A provider caches a prefix of the request. Two rules keep the cached prefix:
 conversation that moves from one grammar to the next. The
 `grammar_cache_prefix_*` cases check them on the requests that the mock
 records.
+
+## The request cache
+
+A request that does not continue a stored response carries the whole
+conversation, and the conversation grows with each turn. Making the text of
+all the turns again for each request costs more with each turn: the core
+collects the messages, the grammar builds the input from them, and the emitter
+writes the input as JSON. The stored turns never change, so `src/fyai_reqcache.c`
+keeps the text.
+
+The cache keeps the text of the part of the input that the next request
+repeats. The body of the next request is the text before the input, the kept
+text, the text of the turns that came after it, and the text after the input.
+The text before and after the input holds the tools and the options. The
+cache keeps it with the word of the request that made it. The transient
+builder dedups, so a request of the same value has the same word, and the
+emitter writes the tools one time for the exchange. A request that is not the
+same is written one time, pair by pair, and cut at the pair that holds the
+input.
+
+What the grammar can say about its input decides how much is kept. The
+operation `input_split` makes the input of some messages and says two things:
+how many items at its start do not change when messages follow, and the index
+of the first message that makes the other items.
+
+- Chat Completions keeps all the input. A request ends between two turns, and
+  an item depends on the items around it only inside one assistant turn.
+- Messages keeps all the messages but the last. The last message can gain the
+  blocks of the messages that follow it, and its `cache_control` breakpoint
+  moves to its last block in each request. The request makes the last message
+  again, from the first message that made it.
+- Responses has no split. It chains requests with `previous_response_id` and
+  sends only the new items, so it needs none. A grammar that does not split
+  its input makes the request as before.
+
+The cache serves a request when these are true:
+
+- the configuration and the catalogue are the same. Any change of them, such
+  as another model, endpoint or system prompt, clears the cache;
+- the request extends the last request of the exchange. The cache keeps the
+  turn where the last request ended, named by the word of the turn. A turn
+  holds the turn before it, so the word stands for the whole chain up to it.
+  The request walks back from its last turn to that turn and reads only the
+  turns after it. A request on an earlier turn, or on another branch, is not an
+  extension: it makes the text again, and the cache then keeps that request;
+- the request needs no value of the request: debug output and conversation
+  logging print the request, and a subscription request changes it.
+
+The cache keeps one body: the text before the input, the stable items, and the
+open items. The next request copies the stable items and emits only the items
+of the new messages and the open items. The cache hashes no text to find the
+turn. `$FYAI_TRACE` records the bytes that the emitter made for each request.
+
+The word of a turn names storage of the builder that holds it. A run
+makes its turns in the transient builder, and the cache is scoped to that
+builder: it serves the requests of one exchange, and the transient builder
+clears it when it goes away. Publishing copies the turns to the arena under
+other words, so the first request of the next exchange makes the text of the
+conversation again, and the later requests of that exchange use it.
+
+The `request_cache` key of the configuration turns the cache off.
+`$FYAI_TRACE` records each request as a hit or a miss, and the cause of a miss.
+
+`tests/fyai_grammar_test.c` makes the request at each turn of a conversation
+with and without the cache and requires the same bytes. For Chat Completions it
+also checks that the old body, less its text after the input, is the start of the new
+body. It also checks a request that is not an extension and the end of the
+builder. The cases `request_cache_chat`, `request_cache_messages` and
+`request_cache_responses` run a session of one process, with tool calls, for
+each grammar, with the cache and without it, and require the same requests from
+the mock. For the two grammars that split their input they also require that
+the second request of a line emits only the new items.
