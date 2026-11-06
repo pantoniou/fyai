@@ -909,6 +909,7 @@ if(BUILD_TESTING)
     set(FYAI_CASE_TIMEOUT_tool_terminate 120)
     set(FYAI_CASE_TIMEOUT_tool_timeout 120)
     set(FYAI_CASE_TIMEOUT_ui_page_layouts 240)
+    set(FYAI_CASE_TIMEOUT_perf_pathological 300)
     # The transport cases wait on states with generous failure bounds: a slow
     # runner can stall for minutes, and a pass does not wait for the bound.
     set(FYAI_CASE_TIMEOUT_transport_verb 300)

@@ -120,9 +120,11 @@ for mode in chat-completions responses messages; do
 	printf '%-18s %7d %8d %10d %8d\n' \
 		"$mode" "$turn1" "$turn2" "$req_bytes" "$arena_kb"
 
-	# soft guard: a couple of fat turns must stay interactive
-	[ "$turn1" -le 15000 ] && [ "$turn2" -le 15000 ] || \
-		fail "$mode: pathological turn exceeded 15s"
+	# soft guard: a couple of fat turns must stay interactive. A sanitized
+	# build or a loaded runner takes several times as long.
+	limit=$(( 15000 * FYAI_TIMEOUT_SCALE ))
+	[ "$turn1" -le "$limit" ] && [ "$turn2" -le "$limit" ] || \
+		fail "$mode: pathological turn exceeded $(( limit / 1000 ))s"
 
 	mock_stop 3
 done
