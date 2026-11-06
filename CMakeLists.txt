@@ -34,7 +34,7 @@ execute_process(
 )
 
 # Parse version components
-string(REGEX MATCH "^([0-9]+)(\\.([0-9]+)(\\.([0-9]+))?)?(-(.*))?$" _ "${PROJECT_VERSION}")
+string(REGEX MATCH "^([0-9]+)(\\.([0-9]+)(\\.([0-9]+))?)?([-.](.*))?$" _ "${PROJECT_VERSION}")
 set(VERSION_MAJOR "${CMAKE_MATCH_1}")
 if("${VERSION_MAJOR}" STREQUAL "")
     # No git history and no .tarball-version: build with a version that says so.
