@@ -16,8 +16,7 @@ pty_run "$TEST_DIR/pty.out" \
 timeout: 30
 steps:
   - type: "!cat"
-  - wait: "Ctrl-] returns to the prompt"
-    timeout: session
+  - wait-screen: "Ctrl-] returns to the prompt"
   - write: "\x1d"
   - wait-screen: "^]"
   - wait-screen: "Ctrl-] returns to the prompt"
