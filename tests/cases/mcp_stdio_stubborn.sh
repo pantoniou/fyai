@@ -27,7 +27,7 @@ assert_stdout_contains "Stdio MCP completed."
 # The call itself succeeded, so the shutdown - not the protocol - is what this
 # case is about: it must terminate, and within the escalation budget rather
 # than hanging on a server that never leaves.
-[ "$elapsed" -lt 30 ] || fail "shutdown took ${elapsed}s; escalation did not terminate the server"
+[ "$elapsed" -lt $((30 * FYAI_TIMEOUT_SCALE)) ] || fail "shutdown took ${elapsed}s; escalation did not terminate the server"
 
 # The server and its descendants must stop before the invocation exits. The
 # server has this run's scratch directory in its arguments, so the search finds

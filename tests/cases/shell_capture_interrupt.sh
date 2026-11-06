@@ -48,7 +48,7 @@ FPID=$!
 # The command signals fyai on its own; nothing to time from here.
 # The whole run must still finish promptly - a hang here is the regression,
 # the old path blocked in waitpid() with the capture already abandoned.
-for i in $(seq 1 100); do
+for i in $(seq 1 $((100 * FYAI_TIMEOUT_SCALE))); do
 	kill -0 "$FPID" 2>/dev/null || break
 	sleep 0.1
 done

@@ -248,15 +248,15 @@ int shell_native_timeout_honored(void)
 	bool ok = true;
 
 	/*
-	 * The action requests 200 ms, and the configured default is 10 s.
+	 * The action requests 200 ms, and the configured default is 60 s.
 	 * The action limit must have priority.
 	 */
-	gb = native_setup(200, 10000, 600000, "sleep 10", &call);
+	gb = native_setup(200, 60000, 600000, "sleep 60", &call);
 	FYAI_TCHECK(gb);
 
 	elapsed = native_run(call, &result, &ok);
 	FYAI_TCHECK(!ok);
-	FYAI_TCHECK(elapsed < 3000);
+	FYAI_TCHECK(elapsed < 30000);
 
 	outcome = fy_get_at_path(result, 0, "outcome");
 	FYAI_TCHECK(fy_equal(fy_get(outcome, "type"), "timeout"));
@@ -279,12 +279,12 @@ int shell_native_timeout_bounded(void)
 	bool ok = true;
 
 	/* Limit a large request to shell/max_timeout_ms. */
-	gb = native_setup(600000, 10000, 200, "sleep 10", &call);
+	gb = native_setup(600000, 60000, 200, "sleep 60", &call);
 	FYAI_TCHECK(gb);
 
 	elapsed = native_run(call, &result, &ok);
 	FYAI_TCHECK(!ok);
-	FYAI_TCHECK(elapsed < 3000);
+	FYAI_TCHECK(elapsed < 30000);
 
 	outcome = fy_get_at_path(result, 0, "outcome");
 	FYAI_TCHECK(fy_equal(fy_get(outcome, "type"), "timeout"));

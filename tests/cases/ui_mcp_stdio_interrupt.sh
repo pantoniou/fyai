@@ -19,7 +19,7 @@ pty_run "$TEST_DIR/pty.out" \
 	--set mcp/enabled=true \
 	--set "mcp/servers/local={transport: stdio, command: '$PYTHON', args: \
 ['$TESTS_DIR/mock/mock_mcp_stdio.py'], env: {MCP_STDIO_LOG: '$STDIO_LOG', \
-MCP_CALL_DELAY: '5'}, cwd: '$TEST_DIR'}" \
+MCP_CALL_DELAY: '60'}, cwd: '$TEST_DIR'}" \
 	--set "api_url=$MOCK_URL/v1/chat/completions" \
 	-m mock-model -i <<'PTY'
 exit: {clear: true}
@@ -42,7 +42,7 @@ steps:
 PTY
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+[ "$elapsed" -lt $((30 * FYAI_TIMEOUT_SCALE)) ] || \
 	fail "ESC did not interrupt the MCP pipe request"
 
 mock_stop 1

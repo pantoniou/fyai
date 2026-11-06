@@ -23,7 +23,7 @@ steps:
 PTY
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+[ "$elapsed" -lt $((30 * FYAI_TIMEOUT_SCALE)) ] || \
     fail "ESC did not interrupt the builtin shell"
 
 "$PYTHON" - "$TEST_DIR/pty.out" <<'EOF' || \

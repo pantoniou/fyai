@@ -18,7 +18,7 @@
                   "type": "function",
                   "function": {
                     "name": "exec_command",
-                    "arguments": "{\"command\":\"echo interrupt-early; sleep 8; touch interrupt-late.marker\"}"
+                    "arguments": "{\"command\":\"echo interrupt-early; sleep 60; touch interrupt-late.marker\"}"
                   }
                 }
               ]

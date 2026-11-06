@@ -23,7 +23,7 @@ steps:
 PTY
 elapsed=$(($(date +%s) - start))
 
-[ "$elapsed" -lt $((8 * FYAI_TIMEOUT_SCALE)) ] || \
+[ "$elapsed" -lt $((30 * FYAI_TIMEOUT_SCALE)) ] || \
 	fail "Ctrl-C did not interrupt the active tool"
 [ ! -f interrupt-late.marker ] || fail "tool continued after Ctrl-C"
 

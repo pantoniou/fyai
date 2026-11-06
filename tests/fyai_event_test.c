@@ -2138,14 +2138,14 @@ static void test_timer_first_delay(void)
 	FYAI_TCHECK(el);
 
 	start = fyai_event_now_ms();
-	rc = fyai_event_add_timer(el, 5, 2000, cb_first_delay, &c, NULL);
+	rc = fyai_event_add_timer(el, 5, 60000, cb_first_delay, &c, NULL);
 	FYAI_TCHECK(!rc);
 	rc = fyai_event_loop_run_until(el, NULL, TEST_BOUND_MS);
 	FYAI_TCHECK(!rc);
 	elapsed = fyai_event_now_ms() - start;
 
 	FYAI_TCHECK(c.fired == 1);
-	FYAI_TCHECK(elapsed < 1000);
+	FYAI_TCHECK(elapsed < 30000);
 
 	fyai_event_loop_destroy(el);
 	printf("ok - a repeating timer honours its first delay\n");

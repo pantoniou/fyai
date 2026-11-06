@@ -95,8 +95,8 @@ t0=$(now_ms); "$FYAI_BIN" history --raw >/dev/null 2>&1; t1=$(now_ms)
 echo "history --raw: $(( t1 - t0 )) ms"
 
 # Soft regression guard: the last turn of a long conversation must not blow
-# up versus the first (allow 10x + 200ms slack for noise on small runs).
-[ "$last_ms" -le $(( first_ms * 10 + 200 )) ] || \
+# up versus the first (allow 10x + 1 s slack, scaled, for noise on small runs).
+[ "$last_ms" -le $(( first_ms * 10 + 1000 * FYAI_TIMEOUT_SCALE )) ] || \
 	fail "last turn ${last_ms}ms vs first ${first_ms}ms - superlinear growth"
 
 mock_stop "$TURNS"

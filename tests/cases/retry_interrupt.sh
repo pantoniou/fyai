@@ -22,7 +22,7 @@ i=0
 while ! grep -q "retrying in" "$TEST_DIR/stderr" 2>/dev/null; do
 	kill -0 "$pid" 2>/dev/null || fail "the run exited before it waited"
 	i=$((i + 1))
-	[ "$i" -lt 200 ] || fail "the backoff was never armed"
+	[ "$i" -lt $((200 * FYAI_TIMEOUT_SCALE)) ] || fail "the backoff was never armed"
 	sleep 0.05
 done
 
@@ -34,7 +34,7 @@ status=$?
 set -e
 [ "$status" -ne 0 ] || fail "the interrupted run reported success"
 # It must end because of the signal, not because the backoff expired.
-[ $((SECONDS - start)) -lt 30 ] || fail "the interrupt did not end the wait"
+[ $((SECONDS - start)) -lt $((30 * FYAI_TIMEOUT_SCALE)) ] || fail "the interrupt did not end the wait"
 
 mock_stop 1
 pass

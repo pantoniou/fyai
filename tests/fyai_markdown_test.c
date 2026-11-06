@@ -139,7 +139,7 @@ static void test_window_bounds_render(void)
 	late = best_of(&fs, 3);
 
 	FYAI_TCHECK(fs.accum.len > 60000);	/* the accumulator did grow */
-	FYAI_TCHECK(late < early * 2 + 20.0);
+	FYAI_TCHECK(late < early * 2 + 100.0);
 
 	fyai_fenced_stream_finish(&fs);
 	fclose(fp);

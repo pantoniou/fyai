@@ -15,7 +15,7 @@
             "action": {
               "type": "exec",
               "commands": [
-                "printf '%s\\n' nsiRAN; sleep 5"
+                "printf '%s\\n' nsiRAN; sleep 60"
               ],
               "max_output_length": 4096
             }

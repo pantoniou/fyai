@@ -15,7 +15,7 @@ while ! grep -q "Open this link" "$TEST_DIR/stdout"; do
 	kill -0 "$pid" 2>/dev/null ||
 		fail "auth login exited before opening the receiver"
 	i=$((i + 1))
-	[ "$i" -lt 100 ] || fail "auth login did not start"
+	[ "$i" -lt $((100 * FYAI_TIMEOUT_SCALE)) ] || fail "auth login did not start"
 	sleep 0.05
 done
 
