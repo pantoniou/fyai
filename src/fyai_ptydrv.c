@@ -337,6 +337,18 @@ static bool ends_with_prefix(const unsigned char *buf, size_t len,
  * terminal answers it, and the fyai probe ends with it) and, when the script
  * sets a background, OSC 11. Return the bytes read, or -1 at the end.
  */
+/* The first place of @text in the @len bytes at @p, or NULL. */
+static const unsigned char *find_text(const unsigned char *p, size_t len,
+				      const char *text)
+{
+	size_t tl;
+
+	if (!p || !text || !len)
+		return NULL;
+	tl = strlen(text);
+	return tl ? memmem(p, len, text, tl) : NULL;
+}
+
 static ssize_t term_read(struct driver *d)
 {
 	static const char *const fixed[] = { CPR_QUERY, DA1_QUERY };
@@ -374,9 +386,7 @@ static ssize_t term_read(struct driver *d)
 		for (i = 0; i < nq; i++) {
 			const unsigned char *hit;
 
-			hit = start < blen ?
-			      memmem(buf + start, blen - start, queries[i],
-				     strlen(queries[i])) : NULL;
+			hit = find_text(buf + start, blen - start, queries[i]);
 			if (!hit)
 				continue;
 			at = (size_t)(hit - buf);
@@ -459,7 +469,7 @@ static size_t count_of(const unsigned char *p, size_t len, const char *text)
 	size_t tl = strlen(text), n = 0;
 	const unsigned char *hit;
 
-	if (!tl || !len)
+	if (!tl || !len || !p || !text)
 		return 0;
 	while ((hit = memmem(p, len, text, tl))) {
 		n++;

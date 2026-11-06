@@ -586,6 +586,7 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 	char cwd[PATH_MAX], from[sizeof(SDK_BRANCH_PREFIX) + SDK_ID_MAX + 1];
 	char *last;
 	bool fork, named;
+	int idlen;
 	char id[SDK_ID_MAX + 1], name[sizeof(SDK_BRANCH_PREFIX) + SDK_ID_MAX];
 	char *file = NULL;
 	char opt[64];
@@ -682,7 +683,10 @@ int fyai_cmd_claude_sdk_early(struct fyai_cfg *cfg, fy_generic args)
 		fyai_cfg_error_check(cfg, valid, err,
 				     "claude-sdk: invalid session ID '%s'",
 				     resume ? resume : sid);
-		snprintf(id, sizeof(id), "%s", resume ? resume : sid);
+		idlen = snprintf(id, sizeof(id), "%s", resume ? resume : sid);
+		fyai_cfg_error_check(cfg, idlen < (int)sizeof(id), err,
+				     "claude-sdk: session ID '%s' is too long",
+				     resume ? resume : sid);
 	} else {
 		valid = sdk_uuid(id, sizeof(id));
 		fyai_cfg_error_check(cfg, valid, err,

@@ -784,7 +784,7 @@ static int capture_scan_dir(struct project_capture *capture, size_t index, unsig
 	struct fyai_mobject base_directory;
 	size_t child, base_count = 0;
 	ssize_t length;
-	int source = -1, other = -1, current, target = -1, rc = -1, saved, iterator;
+	int source = -1, other = -1, current, target = -1, rc = -1, saved, iterator, n;
 	bool secondary = false, projected;
 
 	if (depth > FYAI_PROJECT_MAX_DEPTH) {
@@ -869,11 +869,11 @@ next_directory:
 		 * capture_add(), which says so.
 		 */
 		if ((capture->gitignore || capture->ignore_config) && !capture->nodes[index].git &&
-		    (depth || strcmp(dent->d_name, ".git")) &&
-		    strlen(path) + strlen(dent->d_name) + 2 < PATH_MAX) {
-			snprintf(child_path, sizeof(child_path), "%s%s%s", path, *path ? "/" : "",
-				 dent->d_name);
-			if (fyai_ignore_match(capture->ignore_config, capture->nodes[index].ignore,
+		    (depth || strcmp(dent->d_name, ".git"))) {
+			n = snprintf(child_path, sizeof(child_path), "%s%s%s", path,
+				     *path ? "/" : "", dent->d_name);
+			if (n < (int)sizeof(child_path) &&
+			    fyai_ignore_match(capture->ignore_config, capture->nodes[index].ignore,
 					      child_path, S_ISDIR(before.st_mode)))
 				continue;
 		}

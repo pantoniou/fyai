@@ -2067,7 +2067,7 @@ int fyai_page_layout(const struct fyai_page *pg, int cols, int rows,
 	bool side;
 
 	memset(lay, 0, sizeof(*lay));
-	snprintf(lay->name, sizeof(lay->name), "band");
+	memcpy(lay->name, "band", sizeof("band"));
 	layouts = pg ? fy_get(pg->doc, "layouts", fy_invalid) : fy_invalid;
 	if (!fy_is_sequence(layouts))
 		return 0;

@@ -249,7 +249,7 @@ void fyai_diag_tracef(const char *kind, const char *fmt, ...)
 	char *head;
 
 	/* The tap sees the event even when no file takes it. */
-	if (trace_open() < 0 && !trace_tap)
+	if (!fmt || (trace_open() < 0 && !trace_tap))
 		return;
 	va_start(ap, fmt);
 	body = fy_vsprintfa(fmt, ap);
@@ -398,6 +398,8 @@ void fyai_diagf(struct fyai_diag *diag, enum fyai_error_type type,
 	va_list ap;
 	char *msg;
 
+	if (!fmt)
+		return;
 	va_start(ap, fmt);
 	msg = fy_vsprintfa(fmt, ap);
 	va_end(ap);

@@ -220,7 +220,7 @@ void fyai_cast_output(struct fyai_cast *c, const void *data, size_t len)
 	const char *p = data, *b, *e;
 	size_t used;
 
-	if (!c || c->failed)
+	if (!c || c->failed || !data)
 		return;
 	while (len) {
 		if (!c->in_sync) {
