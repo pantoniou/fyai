@@ -46,8 +46,11 @@ FYAI_TERM_WAIT='prompt>' FYAI_TERM_SEND='ping\n' FYAI_TERM_WAIT2='got:ping' \
 screen_at "$TEST_DIR/term.out" "got:ping" > "$TEST_DIR/term.screen"
 grep -q "got:ping" "$TEST_DIR/term.screen" ||
 	{ cat "$TEST_DIR/term.screen" >&2; fail "the typed answer was never painted"; }
-grep -q "fyai term" "$TEST_DIR/term.screen" ||
-	{ cat "$TEST_DIR/term.screen" >&2; fail "the status row was never painted"; }
+# The status row is painted by a frame of its own, which can come before or
+# after the frame that shows the answer: read the screen at that frame.
+screen_at "$TEST_DIR/term.out" "fyai term" > "$TEST_DIR/term.status"
+grep -q "fyai term" "$TEST_DIR/term.status" ||
+	{ cat "$TEST_DIR/term.status" >&2; fail "the status row was never painted"; }
 
 # 2. The prefix key belongs to fyai: ^\ q leaves while the program still runs.
 # The two keys go in one write, which is the case that needs them to arrive in
