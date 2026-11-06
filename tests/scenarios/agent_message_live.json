@@ -49,6 +49,7 @@
       "match": {
         "body_contains": "started in the background"
       },
+      "wait_for": "child-started",
       "response": {
         "choices": [
           {

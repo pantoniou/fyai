@@ -15,6 +15,9 @@ pty_run "$TEST_DIR/pty.out" \
 timeout: 30
 steps:
   - type: start message test
+  - wait-file: "${TEST_DIR}/served"
+    equals: "3"
+  - touch: "${TEST_DIR}/child-started"
   - wait: MESSAGE SUBMITTED
     timeout: session
   - wait-screen: agent_message ping1 queued

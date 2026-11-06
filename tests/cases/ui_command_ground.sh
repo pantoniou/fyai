@@ -34,6 +34,7 @@ steps:
   - type: first question
   - wait: banana
     timeout: session
+  - wait-screen: "▌❯"
   - type: "/status"
   - wait-screen: Auth / provider
   - snapshot: "${TEST_DIR}/status.out"

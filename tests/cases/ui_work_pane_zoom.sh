@@ -21,6 +21,7 @@ steps:
   - type: "/zoom box"
   - wait: "Ctrl-]"
   - type: echo FROM-THE-USER
+  - wait-row: "▌ FROM-THE-USER"
   - write: "\x1d"
   - type: read it back
   - wait: read the session.

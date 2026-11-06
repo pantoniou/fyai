@@ -70,10 +70,33 @@
    "match": {
     "http": "POST",
     "path": "/v1/chat/completions",
-    "body_contains": "line-c"
+    "body_contains": "monitor 'feed' ended"
    },
    "response": {
-    "id": "p3",
+    "id": "p4",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+       "role": "assistant",
+       "content": "Monitor done."
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "[monitor 'feed' started"
+   },
+   "response": {
+    "id": "pw0",
     "object": "chat.completion",
     "created": 1735689600,
     "model": "mock-model",
@@ -103,20 +126,96 @@
    "match": {
     "http": "POST",
     "path": "/v1/chat/completions",
-    "body_contains": "monitor 'feed' ended"
+    "body_contains": "[monitor 'feed' started"
    },
    "response": {
-    "id": "p4",
+    "id": "pw1",
     "object": "chat.completion",
     "created": 1735689600,
     "model": "mock-model",
     "choices": [
      {
       "index": 0,
-      "finish_reason": "stop",
+      "finish_reason": "tool_calls",
       "message": {
        "role": "assistant",
-       "content": "Monitor done."
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "c_w3",
+         "type": "function",
+         "function": {
+          "name": "wait",
+          "arguments": "{\"for\": \"feed\", \"seconds\": 20}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "[monitor 'feed' started"
+   },
+   "response": {
+    "id": "pw2",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "c_w4",
+         "type": "function",
+         "function": {
+          "name": "wait",
+          "arguments": "{\"for\": \"feed\", \"seconds\": 20}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "match": {
+    "http": "POST",
+    "path": "/v1/chat/completions",
+    "body_contains": "[monitor 'feed' started"
+   },
+   "response": {
+    "id": "pw3",
+    "object": "chat.completion",
+    "created": 1735689600,
+    "model": "mock-model",
+    "choices": [
+     {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "c_w5",
+         "type": "function",
+         "function": {
+          "name": "wait",
+          "arguments": "{\"for\": \"feed\", \"seconds\": 20}"
+         }
+        }
+       ]
       }
      }
     ]

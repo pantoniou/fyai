@@ -25,8 +25,7 @@ timeout: 10
 background: "${background}"
 steps:
   - type: "!sh -c 'printf READY; sleep 2'"
-  - wait: READY
-    timeout: session
+  - wait-row: "▌ READY"
   - write: "\x1d"
 PTY
     cp "$TEST_DIR/pty.out" "$CAPTURES/$label.out"

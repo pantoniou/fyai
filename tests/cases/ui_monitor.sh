@@ -40,5 +40,5 @@ for want in ("[monitor 'feed' started", "[monitor 'feed'] line-a",
         raise SystemExit("missing %r in %r" % (want, results))
 PYEOF
 
-mock_stop 4
+mock_stop
 pass
