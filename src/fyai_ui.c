@@ -37,6 +37,7 @@
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
 #include "fyai_uimodel.h"
+#include "fyai_uilog.h"
 #include "fyai_wait.h"
 #include "fyai_ask.h"
 #include "fyai_page.h"
@@ -3675,6 +3676,8 @@ void fyai_ui_pane_begin(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 
+	/* The span of the command: the log store records its output. */
+	fyai_uilog_begin(ctx);
 	if (!ui)
 		return;
 	free(ui->pane_kept);
@@ -3783,6 +3786,8 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	char *heading;
 	enum fyai_error_type level = FYAIET_INFO;
 
+	/* The span of the command ends: its output enters the log store. */
+	fyai_uilog_end(ctx, title, error);
 	if (ui) {
 		/* The popup shows a diagnostic as its cause, with no module. */
 		fyai_diag_set_bare(false);

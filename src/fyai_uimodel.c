@@ -369,6 +369,7 @@ bool fyai_uimodel_check(struct fyai_ctx *ctx, enum fyai_ui_store store,
 void fyai_uimodel_view_detach(struct fyai_ctx *view)
 {
 	view->uimodel = NULL;
+	view->uilog = NULL;
 	view->ask_entries = NULL;
 	view->uimodel_detached = true;
 }

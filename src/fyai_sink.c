@@ -18,6 +18,7 @@
 #include "fyai_event.h"
 #include "fyai_markdown.h"
 #include "fyai_sink.h"
+#include "fyai_uilog.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_view.h"
 #include "fyai_ui.h"
@@ -1722,6 +1723,8 @@ int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 
 	if (!s || !s->ops->markdown)
 		return 0;
+	if (md && *md)
+		fyai_uilog_sink(s->ctx, stream, true, md, strlen(md));
 	rc = s->ops->markdown(s, stream, md);
 	/* A rendered block closes its last row. */
 	if (!rc && (stream == FYAI_SINK_TRANSCRIPT || stream == FYAI_SINK_NOTICE)) {
@@ -1738,6 +1741,8 @@ int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 
 	if (!s || !s->ops->write)
 		return 0;
+	if (buf && len)
+		fyai_uilog_sink(s->ctx, stream, false, buf, len);
 	rc = s->ops->write(s, stream, buf, len);
 	/* Only the scrollback streams share this medium. */
 	if (!rc && len && (stream == FYAI_SINK_TRANSCRIPT ||
