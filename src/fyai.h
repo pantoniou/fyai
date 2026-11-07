@@ -870,7 +870,7 @@ struct fyai_ctx {
 	struct fyai_workpane_manager *workpane;
 	struct fyai_wait *waits;	/* named waits, live for this run */
 	struct fyai_ask_pending *asks;	/* background questions that wait for the user */
-	/* The sets of questions that wait for an answer (src/fyai_ask.c). */
+	/* The sets of questions in the questions store (src/fyai_ask.c). */
 	struct fyai_ask_entry *ask_entries;
 	unsigned long long ask_serial;
 	unsigned int asks_seq;		/* the number of the last question named by default */

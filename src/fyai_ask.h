@@ -84,11 +84,11 @@ typedef void (*fyai_ask_done_fn)(void *user,
 				 const struct fyai_ask_reply *replies, size_t n);
 
 /*
- * Put @questions, a normalized sequence, to the user in the input area, as
- * @from asks them (NULL for the model). @done gets the answer one time, from
- * the event loop, unless fyai_ask_close() takes the questions back first.
- * Returns 0, or -1 when the input area cannot put them, and the caller then
- * asks as text.
+ * Put @questions, a normalized sequence, to the user through the questions
+ * store of the UI model, as @from asks them (NULL for the model). @done gets
+ * the answer one time, unless fyai_ask_close() takes the questions back first.
+ * Returns 0, or -1 when no renderer can put them, and the caller then asks as
+ * text.
  */
 int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 		  fyai_ask_done_fn done, void *user);
@@ -97,8 +97,9 @@ int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 void fyai_ask_close(struct fyai_ctx *ctx, void *user);
 
 /*
- * The input area settles the set @qid with the @n replies that the user gave,
- * or NULL for none. A @qid that is no longer open is ignored.
+ * The renderer settles the set @qid of the questions store with the @n
+ * replies that the user gave, or NULL for none. A @qid that is no longer open
+ * is ignored.
  */
 void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
 		     const struct fyai_ask_reply *replies, size_t n);

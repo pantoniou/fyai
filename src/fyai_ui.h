@@ -105,15 +105,15 @@ const struct fyai_page *fyai_ui_page(struct fyai_ctx *ctx);
 struct fyai_page_action;
 void fyai_ui_page_actions(const struct fyai_page_action **actions, size_t *n);
 /*
- * Put @questions, a sequence normalized by fyai_ask_normalize(), to the user in
- * the input area, after the questions before them, as the set @qid. @from names
- * the sub-agent that asks, or is NULL. Returns 0, or -1 after it reported why
- * they cannot be put. The answer goes to fyai_ask_settle().
+ * Keep a copy of the set @qid of @questions as the legacy path makes it, the
+ * oracle of the questions store. The input area shows the set from the store
+ * and compares the two when it does. Returns 0, or -1 after it reported why
+ * the copy cannot be kept.
  */
-int fyai_ui_ask(struct fyai_ctx *ctx, const char *qid, fy_generic questions,
-		const char *from);
-/* Take back the set @qid without an answer: nobody waits for it. */
-void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, const char *qid);
+int fyai_ui_ask_oracle(struct fyai_ctx *ctx, const char *qid,
+		       fy_generic questions, const char *from);
+/* Drop the oracle copy of the set @qid, if the input area did not take it. */
+void fyai_ui_ask_oracle_drop(struct fyai_ctx *ctx, const char *qid);
 /* An interrupt reached the session (Escape, or SIGINT from ^C). Discards a
  * half-typed line on an idle prompt, ends the session when there is nothing to
  * discard, and cancels the turn while busy. */

@@ -8,6 +8,7 @@
 
 #include "fyai_ask.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 #include "utils.h"
 
 static fy_generic ask_option(struct fy_generic_builder *gb, fy_generic option,
@@ -368,7 +369,7 @@ char *fyai_ask_echo(fy_generic questions, const struct fyai_ask_reply *replies,
 	return buf;
 }
 
-/* One set of questions that waits for the user. */
+/* One set of questions that waits in the questions store. */
 struct fyai_ask_entry {
 	struct fyai_ask_entry *next;
 	char qid[32];
@@ -376,11 +377,31 @@ struct fyai_ask_entry {
 	void *user;
 };
 
+/* Rewrite the member "open" of the questions store without the set @qid. */
+static void ask_store_remove(struct fyai_ctx *ctx, const char *qid)
+{
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+	fy_generic open = fy_seq_empty, item;
+
+	if (gb) {
+		fy_foreach(item, fy_get(fyai_uimodel_get(ctx, FYAI_UI_QUESTIONS),
+					"open", fy_seq_empty))
+			if (strcmp(fy_get(item, "qid", ""), qid))
+				open = fy_append(gb, open, item);
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_QUESTIONS, "open",
+					      open);
+	}
+	fyai_uimodel_end(ctx);
+}
+
 int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 		  fyai_ask_done_fn done, void *user)
 {
 	struct fyai_ask_entry *e, **ep;
+	struct fy_generic_builder *gb;
+	fy_generic item, open;
 	size_t nq;
+	int rc;
 
 	nq = fy_is_sequence(questions) ? fy_len(questions) : 0;
 	if (!done || !nq || nq > FYAI_ASK_QUESTIONS_MAX ||
@@ -391,11 +412,29 @@ int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 	snprintf(e->qid, sizeof(e->qid), "q%llu", ++ctx->ask_serial);
 	e->done = done;
 	e->user = user;
+	gb = fyai_uimodel_begin(ctx);
+	rc = -1;
+	if (gb) {
+		item = fy_mapping(gb, "qid", e->qid, "questions", questions);
+		if (!fy_str_empty(from))
+			item = fy_assoc(gb, item, "from", fy_value(gb, from));
+		open = fy_append(gb, fy_get(fyai_uimodel_get(ctx,
+				FYAI_UI_QUESTIONS), "open", fy_seq_empty), item);
+		rc = fyai_uimodel_set_member(ctx, FYAI_UI_QUESTIONS, "open",
+					     open);
+	}
+	fyai_uimodel_end(ctx);
+	if (rc < 0) {
+		free(e);
+		return -1;
+	}
 	for (ep = &ctx->ask_entries; *ep; ep = &(*ep)->next)
 		;
 	*ep = e;
-	if (fyai_ui_ask(ctx, e->qid, questions, from)) {
+	/* The legacy path: the oracle of the store. */
+	if (fyai_ui_ask_oracle(ctx, e->qid, questions, from)) {
 		*ep = NULL;
+		ask_store_remove(ctx, e->qid);
 		free(e);
 		return -1;
 	}
@@ -417,7 +456,8 @@ void fyai_ask_close(struct fyai_ctx *ctx, void *user)
 			continue;
 		}
 		*ep = e->next;
-		fyai_ui_ask_withdraw(ctx, e->qid);
+		fyai_ui_ask_oracle_drop(ctx, e->qid);
+		ask_store_remove(ctx, e->qid);
 		free(e);
 	}
 }
@@ -433,6 +473,7 @@ void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
 	if (!e)
 		return;
 	*ep = e->next;
+	ask_store_remove(ctx, e->qid);
 	/* The callback can open the next set: it is linked again by then. */
 	e->done(e->user, replies, n);
 	free(e);

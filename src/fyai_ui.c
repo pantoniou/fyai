@@ -87,7 +87,7 @@ struct ui_question {
 	size_t cursor[FYAI_ASK_QUESTIONS_MAX];
 	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 	bool given[FYAI_ASK_QUESTIONS_MAX];
-	char qid[32];		/* the set of the ask registry */
+	char qid[32];		/* the set in the questions store */
 };
 struct ui_spool { int saved, reader; off_t off; };
 
@@ -145,6 +145,9 @@ struct fyai_ui {
 	char page_focus[FYTIM_PAGE_ID_MAX + 1];
 	struct fyai_page_keys page_keys;	/* the keys the page has bound */
 	struct ui_question *questions;	/* first the one the input area shows */
+	/* The legacy copies of the sets of questions, the oracle of the store. */
+	struct ui_question *oracle;
+	unsigned long long questions_seq;
 	char *editor_path;
 	size_t tool_body_len;
 	int activity_phase;
@@ -1649,16 +1652,18 @@ bool fyai_ui_ask_available(struct fyai_ctx *ctx)
 	return fyai_ui_active(ctx) && ctx->ui->page != NULL;
 }
 
-int fyai_ui_ask(struct fyai_ctx *ctx, const char *qid, fy_generic questions,
-		const char *from)
+/* Make a question of the input area from the set @qid of @questions. */
+static struct ui_question *ui_question_make(struct fyai_ctx *ctx,
+					    const char *qid,
+					    fy_generic questions,
+					    const char *from)
 {
-	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct ui_question *q, **qp;
+	struct ui_question *q;
 	size_t nq;
 
 	nq = fy_is_sequence(questions) ? fy_len(questions) : 0;
-	if (!ui || !ui->page || !nq || nq > FYAI_ASK_QUESTIONS_MAX)
-		return -1;
+	fyai_error_check(ctx, nq && nq <= FYAI_ASK_QUESTIONS_MAX, err_out,
+			 "a set of questions holds %zu questions", nq);
 	q = calloc(1, sizeof(*q));
 	fyai_error_check(ctx, q, err_out, "cannot allocate a question");
 	snprintf(q->qid, sizeof(q->qid), "%s", qid);
@@ -1669,19 +1674,157 @@ int fyai_ui_ask(struct fyai_ctx *ctx, const char *qid, fy_generic questions,
 		fyai_error_check(ctx, q->from, err_free,
 				 "cannot keep who asks a question");
 	}
-	for (qp = &ui->questions; *qp; qp = &(*qp)->next)
-		;
-	*qp = q;
-	if (ui->questions == q)
-		ui->page_focus[0] = '\0';
-	ui->frame_pending = true;
-	fyai_ui_wake(ctx);
-	return 0;
-
+	return q;
 err_free:
 	ui_question_free(q);
 err_out:
-	return -1;
+	return NULL;
+}
+
+/* The text of @q in one string, to compare a question with its oracle. */
+static char *ui_question_canonical(const struct ui_question *q)
+{
+	struct response_buffer out = {0};
+	const struct ui_qtext *t;
+	size_t i, o;
+	int rc;
+
+	rc = response_buffer_append(&out, fy_sprintfa("from: %s\n",
+						      q->from ? q->from : ""));
+	for (i = 0; !rc && i < q->nq; i++) {
+		t = &q->text[i];
+		rc = response_buffer_append(&out, fy_sprintfa(
+			"%zu: %s | %s | %s | %s | %s\n", i, t->header,
+			t->question, t->multi ? "multi" : "one", t->proposal,
+			t->diff));
+		for (o = 0; !rc && o < t->nopts; o++)
+			rc = response_buffer_append(&out, fy_sprintfa(
+				"  %zu: %s | %s | %s\n", o, t->opt[o].label,
+				t->opt[o].description, t->opt[o].preview));
+	}
+	if (rc) {
+		free(out.data);
+		return NULL;
+	}
+	return out.data;
+}
+
+int fyai_ui_ask_oracle(struct fyai_ctx *ctx, const char *qid,
+		       fy_generic questions, const char *from)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct ui_question *q;
+
+	if (!ui || !ui->page)
+		return -1;
+	q = ui_question_make(ctx, qid, questions, from);
+	if (!q)
+		return -1;
+	q->next = ui->oracle;
+	ui->oracle = q;
+	ui->frame_pending = true;
+	fyai_ui_wake(ctx);
+	return 0;
+}
+
+/* Unlink the oracle copy of the set @qid and return it, or NULL. */
+static struct ui_question *ui_oracle_take(struct fyai_ui *ui, const char *qid)
+{
+	struct ui_question **qp, *q;
+
+	for (qp = &ui->oracle; (q = *qp); qp = &q->next) {
+		if (strcmp(q->qid, qid))
+			continue;
+		*qp = q->next;
+		return q;
+	}
+	return NULL;
+}
+
+void fyai_ui_ask_oracle_drop(struct fyai_ctx *ctx, const char *qid)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (ui)
+		ui_question_free(ui_oracle_take(ui, qid));
+}
+
+/* Whether the member "open" of the questions store holds the set @qid. */
+static bool ui_questions_open(fy_generic open, const char *qid)
+{
+	fy_generic item;
+
+	fy_foreach(item, open)
+		if (!strcmp(fy_get(item, "qid", ""), qid))
+			return true;
+	return false;
+}
+
+/*
+ * Make the questions of the input area those of the questions store: drop
+ * each set that the store no longer holds, and add each new set after the
+ * others, compared with its oracle copy. What the user chose for a set that
+ * stays is kept.
+ */
+static void ui_questions_sync(struct fyai_ui *ui)
+{
+	struct fyai_ctx *ctx = ui->ctx;
+	struct ui_question **qp, *q, *oracle;
+	fy_generic open, item;
+	const char *qid;
+	char *model, *legacy;
+	bool found;
+
+	if (fyai_uimodel_seq(ctx, FYAI_UI_QUESTIONS) == ui->questions_seq)
+		return;
+	ui->questions_seq = fyai_uimodel_seq(ctx, FYAI_UI_QUESTIONS);
+	open = fy_get(fyai_uimodel_get(ctx, FYAI_UI_QUESTIONS), "open",
+		      fy_seq_empty);
+	qp = &ui->questions;
+	while ((q = *qp)) {
+		if (ui_questions_open(open, q->qid)) {
+			qp = &q->next;
+			continue;
+		}
+		/* What was typed for the question that was shown goes with it. */
+		if (q == ui->questions) {
+			if (ui->ft)
+				(void)fytim_set_input(ui->ft, NULL);
+			ui->page_focus[0] = '\0';
+		}
+		*qp = q->next;
+		ui_question_free(q);
+	}
+	fy_foreach(item, open) {
+		qid = fy_get(item, "qid", "");
+		found = false;
+		for (q = ui->questions; q && !found; q = q->next)
+			found = !strcmp(q->qid, qid);
+		if (found)
+			continue;
+		q = ui_question_make(ctx, qid, fy_get(item, "questions",
+						      fy_invalid),
+				     fy_get(item, "from", (const char *)NULL));
+		if (!q) {
+			/* Nobody can answer what cannot be shown. */
+			fyai_ask_settle(ctx, qid, NULL, 0);
+			continue;
+		}
+		oracle = ui_oracle_take(ui, qid);
+		model = ui_question_canonical(q);
+		legacy = oracle ? ui_question_canonical(oracle) : NULL;
+		fyai_uimodel_check(ctx, FYAI_UI_QUESTIONS, "question", model,
+				   legacy);
+		free(model);
+		free(legacy);
+		ui_question_free(oracle);
+		for (qp = &ui->questions; *qp; qp = &(*qp)->next)
+			;
+		*qp = q;
+		if (ui->questions == q)
+			ui->page_focus[0] = '\0';
+	}
+	ui->frame_pending = true;
 }
 
 /* Settle the question at the head of the queue with the replies, or none. */
@@ -1699,28 +1842,6 @@ static void ui_question_finish(struct fyai_ui *ui, bool answered)
 	fyai_ask_settle(ui->ctx, q->qid, answered ? q->replies : NULL, q->nq);
 	ui_question_free(q);
 	fyai_ui_wake(ui->ctx);
-}
-
-void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, const char *qid)
-{
-	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct ui_question **qp, *q;
-
-	if (!ui)
-		return;
-	qp = &ui->questions;
-	while ((q = *qp)) {
-		if (strcmp(q->qid, qid)) {
-			qp = &q->next;
-			continue;
-		}
-		/* What was typed for the question that was shown goes with it. */
-		if (q == ui->questions && ui->ft)
-			(void)fytim_set_input(ui->ft, NULL);
-		*qp = q->next;
-		ui_question_free(q);
-	}
-	ui->frame_pending = true;
 }
 
 /* The question the user is on. The caller has checked that it is not the
@@ -2508,6 +2629,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	}
 	/* A question takes the input area; its options take the number keys
 	 * while nothing is typed. */
+	ui_questions_sync(ui);
 	q = ui->questions;
 	st.input_focus = ui->page_focus;
 	st.input_mode = "prompt";
@@ -3505,6 +3627,11 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	while (ui->questions) {
 		q = ui->questions;
 		ui->questions = q->next;
+		ui_question_free(q);
+	}
+	while (ui->oracle) {
+		q = ui->oracle;
+		ui->oracle = q->next;
 		ui_question_free(q);
 	}
 	fyai_ask_settle_all(ctx);
