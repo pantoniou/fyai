@@ -1389,6 +1389,11 @@ static void session_token_count(char *buf, size_t size, long long tokens)
 		snprintf(buf, size, "%lld", tokens);
 }
 
+void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
+{
+	fyai_ui_set_busy(ctx, busy);
+}
+
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;

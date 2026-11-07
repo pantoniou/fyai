@@ -3288,7 +3288,7 @@ fyai_interactive_finish_turn(struct fyai_ctx *ctx,
 	result = fyai_turn_run_collect(run);
 	fyai_turn_run_destroy(run);
 	*runp = NULL;
-	fyai_ui_set_busy(ctx, false);
+	fyai_session_turn_set(ctx, false);
 	/* add a cause if neither the result nor the sink has one */
 	diag = fy_generic_get_diag(result);
 	if (fy_is_invalid(result) && (!fy_is_valid(diag) || fy_is_null(diag)) &&
@@ -3592,7 +3592,7 @@ fyai_interactive_start_line(struct fyai_ctx *ctx, const char *histfile,
 	run->accept_pending_user = true;
 	run->histfile = histfile;
 	*runp = run;
-	fyai_ui_set_busy(ctx, true);
+	fyai_session_turn_set(ctx, true);
 	return 0;
 
 err_cleanup:
@@ -3732,7 +3732,7 @@ static int fyai_interactive_submit_initial(struct fyai_ctx *ctx,
 	run->accept_pending_user = true;
 	run->histfile = histfile;
 	*runp = run;
-	fyai_ui_set_busy(ctx, true);
+	fyai_session_turn_set(ctx, true);
 	return 0;
 err_cleanup:
 	fyai_cleanup_transient_builder(ctx);
@@ -3765,7 +3765,7 @@ static int fyai_interactive_submit_event(struct fyai_ctx *ctx,
 	run->accept_pending_user = true;
 	run->histfile = histfile;
 	*runp = run;
-	fyai_ui_set_busy(ctx, true);
+	fyai_session_turn_set(ctx, true);
 	return 0;
 
 err_cleanup:
@@ -4020,7 +4020,7 @@ out:
 	if (run) {
 		fyai_turn_run_cancel(run);
 		fyai_turn_run_destroy(run);
-		fyai_ui_set_busy(ctx, false);
+		fyai_session_turn_set(ctx, false);
 	}
 	if (ctx->config_edit) {
 		fyai_config_edit_cancel(ctx->config_edit);
@@ -4199,9 +4199,9 @@ int fyai_prompt_interactive(struct fyai_ctx *ctx)
 			continue;
 		}
 
-		fyai_ui_set_busy(ctx, true);
+		fyai_session_turn_set(ctx, true);
 		v = fyai_run_turn(ctx, v);
-		fyai_ui_set_busy(ctx, false);
+		fyai_session_turn_set(ctx, false);
 		/* A failed/interrupted run may carry a diagnostic; print it and
 		 * unwrap to the (possibly partial) turn. */
 		v = fyai_report_diag(ctx, v);
