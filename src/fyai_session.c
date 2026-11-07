@@ -1389,11 +1389,6 @@ static void session_token_count(char *buf, size_t size, long long tokens)
 		snprintf(buf, size, "%lld", tokens);
 }
 
-void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
-{
-	fyai_ui_set_busy(ctx, busy);
-}
-
 #define SESSION_HEADER_VARS	17
 
 /*
@@ -1475,7 +1470,11 @@ static int session_header_expand(struct fyai_ctx *ctx,
 	return *topp && *bottomp ? 0 : -1;
 }
 
-void fyai_session_banner_update(struct fyai_ctx *ctx)
+/*
+ * The header and the status from the state of the context, as the templates
+ * expand them. The caller frees @topp and @bottomp.
+ */
+static int session_banner(struct fyai_ctx *ctx, char **topp, char **bottomp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_tmpl_var vars[SESSION_HEADER_VARS];
@@ -1488,22 +1487,16 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	char used_str[24], window_str[24], cached_str[24];
 	long long used;
 	double delta;
-	char *top, *bottom, *cwd, *directory, *branch, *location;
+	char *cwd, *directory, *branch, *location;
 	char *tilde, *home_real, *cwd_real;
 	const char *home, *pwd;
 	struct stat pwd_st, cwd_st;
 	size_t i;
 	struct fyai_context_prompt prompt;
-	char *top_md;
 	long long window;
 	int rc;
 
-	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
-		return;
-	/* A delegated sub-agent has no header: the head of its tile in the
-	 * parent names it. */
-	if (fyai_agent_delegated(ctx))
-		return;
+	*topp = *bottomp = NULL;
 	cwd = getcwd(NULL, 0);
 	/*
 	 * The shell names a directory that it reached through a symbolic link
@@ -1547,7 +1540,7 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		fyai_warning(ctx, "cannot build the prompt location");
 		free(directory);
 		free(branch);
-		return;
+		return -1;
 	}
 	model_entry = session_model_entry(ctx);
 
@@ -1651,9 +1644,32 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 		for (i = 3; i < 10; i++)
 			vars[i].val = "";
 	}
-
 	rc = session_header_expand(ctx, vars, fyai_agents_attached(ctx) != NULL,
-				   profile, &top, &bottom);
+				   profile, topp, bottomp);
+	free(location);
+	free(directory);
+	free(branch);
+	return rc;
+}
+
+void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
+{
+	fyai_ui_set_busy(ctx, busy);
+}
+
+void fyai_session_banner_update(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	char *top = NULL, *bottom = NULL, *top_md;
+	int rc;
+
+	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
+		return;
+	/* A delegated sub-agent has no header: the head of its tile in the
+	 * parent names it. */
+	if (fyai_agent_delegated(ctx))
+		return;
+	rc = session_banner(ctx, &top, &bottom);
 	if (!rc) {
 		top_md = fyai_prompt_row_markdown(cfg, top);
 		if (fyai_ui_active(ctx))
@@ -1663,9 +1679,6 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	}
 	free(top);
 	free(bottom);
-	free(location);
-	free(directory);
-	free(branch);
 }
 
 /* ---- slash dispatch ------------------------------------------------------ */
