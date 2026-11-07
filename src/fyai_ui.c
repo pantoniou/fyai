@@ -2590,24 +2590,12 @@ static void ui_page_update(struct fyai_ui *ui)
 	 * so a publish on this or another branch can change it.
 	 */
 	if (ctx->branch_prev.v != ui->todo_entry) {
-		const char *panel;
-
 		ui->todo_entry = ctx->branch_prev.v;
 		free(ui->todo_source);
-		ui->todo_source = NULL;
 		ui->todo_rows = 0;
 		ui->todo_cols = 0;
-		ui->todo_shown = false;
-		panel = fyai_todo_panel(ctx);
-		if (panel) {
-			ui->todo_source = strdup(panel);
-			free((char *)panel);
-			if (!ui->todo_source) {
-				fyai_warning(ctx, "cannot show the todo list");
-			} else {
-				ui->todo_shown = true;
-			}
-		}
+		ui->todo_source = fyai_todo_panel(ctx);
+		ui->todo_shown = ui->todo_source != NULL;
 		ui->frame_pending = true;
 	}
 	if (ui->todo_source && ui->todo_cols != cols) {

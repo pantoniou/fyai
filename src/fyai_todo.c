@@ -274,20 +274,19 @@ static const char *todo_mark(const char *status)
 	return " ";
 }
 
-const char *fyai_todo_panel(struct fyai_ctx *ctx)
+char *fyai_todo_panel_source(fy_generic rows)
 {
 	struct response_buffer out = {0};
-	fy_generic stored, item, g;
+	fy_generic item, g;
 	const char *text, *status;
 	const char *escaped;
 	bool first;
 	int rc;
 
-	stored = todo_stored_generic(ctx);
-	if (fy_is_invalid(stored))
+	if (!fy_is_sequence(rows) || fy_empty(rows))
 		return NULL;
 	first = true;
-	fy_foreach(item, stored) {
+	fy_foreach(item, rows) {
 		g = fy_get(item, "content", fy_invalid);
 		text = fy_castp(&g, "");
 		g = fy_get(item, "status", fy_invalid);
@@ -314,6 +313,11 @@ const char *fyai_todo_panel(struct fyai_ctx *ctx)
 		return NULL;
 	}
 	return out.data;
+}
+
+char *fyai_todo_panel(struct fyai_ctx *ctx)
+{
+	return fyai_todo_panel_source(todo_stored_generic(ctx));
 }
 
 char *fyai_todo_format(struct fyai_ctx *ctx)
