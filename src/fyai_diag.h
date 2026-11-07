@@ -107,6 +107,18 @@ void fyai_diag_cleanup(struct fyai_diag *diag);
  */
 void fyai_diag_drain(struct fyai_diag *diag);
 
+/*
+ * Give each record that a drain reports to @fn, before it is written: a
+ * mapping of type, module, msg, file, line and func, borrowed for the call.
+ * The tap belongs to this process; NULL removes it.
+ */
+typedef void (*fyai_diag_drain_fn)(void *user, fy_generic item);
+void fyai_diag_drain_tap(fyai_diag_drain_fn fn, void *user);
+
+/* Write @item, a record of a drain, as the drain writes it. */
+void fyai_diag_format_item(FILE *fp, fy_generic item, bool source,
+			   bool module_prefix);
+
 /* Render collected errors but do not remove them. The caller owns the string. */
 char *fyai_diag_string(struct fyai_diag *diag);
 

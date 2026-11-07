@@ -79,6 +79,8 @@ static char *trace_file;
 static enum fyai_error_type trace_level = FYAIET_DEBUG;
 static char trace_tag[128];
 static fyai_diag_tap_fn trace_tap;
+static fyai_diag_drain_fn drain_tap;
+static void *drain_tap_user;
 static void *trace_tap_user;
 
 static bool trace_off_value(const char *v)
@@ -483,6 +485,18 @@ static void diag_emit_item(FILE *fp, bool source, bool module_prefix,
 		  (int)fy_get(item, "line", 0LL), fy_castp(&func, ""));
 }
 
+void fyai_diag_drain_tap(fyai_diag_drain_fn fn, void *user)
+{
+	drain_tap = fn;
+	drain_tap_user = user;
+}
+
+void fyai_diag_format_item(FILE *fp, fy_generic item, bool source,
+			   bool module_prefix)
+{
+	diag_emit_item(fp, source, module_prefix, item);
+}
+
 void fyai_diag_drain(struct fyai_diag *diag)
 {
 	fy_generic item, list;
@@ -498,6 +512,8 @@ void fyai_diag_drain(struct fyai_diag *diag)
 		if (fy_get(item, "type", 0LL) > (long long)diag_drained_max)
 			diag_drained_max = (enum fyai_error_type)
 				fy_get(item, "type", 0LL);
+		if (drain_tap)
+			drain_tap(drain_tap_user, item);
 		diag_emit_item(diag->fp, diag->source, !diag_bare, item);
 	}
 	fflush(diag->fp);
