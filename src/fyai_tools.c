@@ -67,6 +67,7 @@
 #include "fyai_uimodel.h"
 #include "fyai_uilog.h"
 #include "fyai_uiwork.h"
+#include "fyai_uitranscript.h"
 #include "fyai_workpane.h"
 
 const char *fyai_tool_name_canonical(const char *name)
@@ -5632,6 +5633,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_ask_abandon(ctx);			/* the questions the parent put */
 	fyai_uilog_release(ctx);		/* the span of its command */
 	fyai_uiwork_release(ctx);		/* the bands of the parent */
+	fyai_uitranscript_release(ctx);		/* the document of the parent */
 	fyai_uimodel_abandon(ctx);		/* the renderers of the parent */
 	fyai_waiters_abandon(ctx);		/* and the waits that hold a call */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */

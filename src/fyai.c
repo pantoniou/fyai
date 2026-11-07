@@ -52,6 +52,7 @@
 #include "fyai_ui.h"
 #include "fyai_uimodel.h"
 #include "fyai_uilog.h"
+#include "fyai_uitranscript.h"
 #include "fyai_tools.h"
 #include "fyai_home.h"
 #include "fyai_orphan.h"
@@ -2552,6 +2553,7 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
 	fyai_uilog_release(ctx);
+	fyai_uitranscript_release(ctx);
 	/* Last: a renderer reads it, and closing the storage writes it. */
 	fyai_uimodel_release(ctx);
 

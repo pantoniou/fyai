@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "fyai_output.h"
+#include "fyai_uitranscript.h"
 #include "fyai_acp.h"
 #include "fyai_agents.h"
 #include "fyai_session.h"
@@ -60,6 +61,8 @@ void fyai_output_cleanup(struct fyai_ctx *ctx)
 {
 	if (!ctx || !ctx->display_output)
 		return;
+	/* A document that ends unrecorded is discarded. */
+	fyai_uitranscript_end(ctx, "discarded");
 	fyai_sink_doc_discard(ctx->sink);
 	free(ctx->display_output->markdown.data);
 	free(ctx->display_output);
@@ -80,6 +83,7 @@ int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 	output->tag = tag;
 	output->fragments = fy_seq_empty;
 	ctx->display_output = output;
+	fyai_uitranscript_begin(ctx, fyai_output_tag_name(tag));
 	rc = fyai_sink_doc_begin(ctx->sink, fyai_output_doc_kind(tag));
 	fyai_error_check(ctx, !rc,
 		err_output, "could not start display output");
@@ -119,6 +123,7 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 	rc = fyai_output_record_source(ctx, text, len);
 	fyai_error_check(ctx, !rc, err,
 			 "could not grow display output");
+	fyai_uitranscript_append(ctx, text, len, true);
 	rc = fyai_sink_doc_append(ctx->sink, text, len);
 	fyai_error_check(ctx, !rc, err,
 			 "could not render display output");
@@ -141,7 +146,10 @@ int fyai_output_append_recorded(struct fyai_ctx *ctx, const char *text,
 		return -1;
 	if (!len)
 		return 0;
-	return fyai_output_record_source(ctx, text, len);
+	if (fyai_output_record_source(ctx, text, len))
+		return -1;
+	fyai_uitranscript_append(ctx, text, len, false);
+	return 0;
 }
 
 int fyai_output_append_string(struct fyai_ctx *ctx, const char *text)
@@ -280,6 +288,7 @@ int fyai_output_add_fragment(struct fyai_ctx *ctx, const char *kind,
 		"end", (long long)end,
 		"lang", lang && *lang ? fy_value(lang) : fy_null,
 		"tool", tool && *tool ? fy_value(tool) : fy_null);
+	fyai_uitranscript_fragment(ctx, fragment);
 	output->fragments = fy_append(ctx->transient_gb, output->fragments,
 				      fragment);
 	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
@@ -307,6 +316,7 @@ int fyai_output_add_tool_head_fragment(struct fyai_ctx *ctx, size_t start,
 		"tool", !fy_str_empty(tool) ? fy_value(tool) : fy_null,
 		"ok", ok ? fy_true : fy_false,
 		"cause", !fy_str_empty(cause) ? fy_value(cause) : fy_null);
+	fyai_uitranscript_fragment(ctx, fragment);
 	output->fragments = fy_append(ctx->transient_gb, output->fragments,
 				      fragment);
 	fyai_error_check(ctx, fy_is_valid(output->fragments), err,
@@ -370,6 +380,7 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 		"state", aborted ? "aborted" : "finalized",
 		"fragments", output->fragments);
 	turn = fyai_turn_append_display_output(ctx, turn, record);
+	fyai_uitranscript_end(ctx, aborted ? "aborted" : "finalized");
 	fyai_agents_output(ctx);
 	fyai_output_cleanup(ctx);
 	return turn;
