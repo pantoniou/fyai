@@ -22,6 +22,7 @@
 #include "fyai_tools.h"
 #include "fyai_turn.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 #include "fyai_workpane.h"
 
 struct browser_row {
@@ -1655,6 +1656,7 @@ static char *browser_capture(struct fyai_browser *b, char *name,
 	browser_warn_check(b, gb, none, "cannot build the branch preview of %s", name);
 	view.cfg = &cfg;
 	view.ui = NULL;
+	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.browser = NULL;
 	view.branch = name;
@@ -1729,6 +1731,7 @@ static char *browser_foreign_capture(struct fyai_browser *b,
 		return NULL;
 	view.cfg = &cfg;
 	view.ui = NULL;
+	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.browser = NULL;
 	view.transient_gb = gb;

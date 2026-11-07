@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "fyai.h"
+#include "fyai_uimodel.h"
 #include "fyai_display.h"
 #include "fyai_flow.h"
 #include "fyai_markdown.h"
@@ -925,6 +926,7 @@ static int view_render_exchange(void *user, size_t index, int width,
 	fyai_error_check(ctx, gb, out, "cannot build the transcript view");
 	view.cfg = &cfg;
 	view.ui = NULL;
+	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.browser = NULL;
 	view.transient_gb = gb;

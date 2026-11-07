@@ -535,6 +535,7 @@ set(FYAI_SOURCES
     src/fyai.c
     src/fyai_agent.c
     src/fyai_acp.c
+    src/fyai_uimodel.c
     src/fyai_claude_sdk.c
     src/fyai_structured.c
     src/fyai_settings.c

@@ -20,6 +20,7 @@
 #include "fyai_tools.h"
 #include "fyai_wait.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 #include "fyai_workpane.h"
 
 struct agent_record {
@@ -1149,6 +1150,7 @@ static char *agents_history(struct fyai_ctx *ctx, const char *name)
 		return NULL;
 	view.cfg = &cfg;
 	view.ui = NULL;
+	fyai_uimodel_view_detach(&view);
 	view.display_output = NULL;
 	view.last_message = branch.head;
 	view.transient_gb = gb;

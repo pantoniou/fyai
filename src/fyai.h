@@ -29,6 +29,7 @@
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
+struct fyai_uimodel;
 struct fyai_ask_entry;
 struct jsonrpc_conn;
 struct fyai_display_output;
@@ -743,6 +744,10 @@ struct fyai_ctx {
 	int dump_fd;
 	char *dump_dir, *dump_file;	/* the dump file; NULL for dump_fd */
 	struct fyai_ui *ui;
+	/* The state that renderers read (src/fyai_uimodel.h). */
+	struct fyai_uimodel *uimodel;
+	/* A copy that renders stored output: it has no UI model. */
+	bool uimodel_detached;
 	struct fyai_browser *browser;
 	struct fyai_agents *agents;
 	long long agent_execution, agent_parent;

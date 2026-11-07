@@ -50,6 +50,7 @@
 #include "fyai_prof.h"
 #include "fyai_ask.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 #include "fyai_tools.h"
 #include "fyai_home.h"
 #include "fyai_orphan.h"
@@ -2549,6 +2550,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 
 	if (!fyai_cfg_no_storage(cfg))
 		fyai_close_storage(ctx);
+	/* Last: a renderer reads it, and closing the storage writes it. */
+	fyai_uimodel_release(ctx);
 
 	if (ctx->dump_fd >= 0) {
 		close(ctx->dump_fd);
@@ -2748,6 +2751,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 	ctx->last_token_extents = fy_invalid;
 	ctx->media_pending = fy_seq_empty;
 	if (fyai_signals_open(ctx))
+		goto err;
+	if (fyai_uimodel_create(ctx))	/* it says why it cannot */
 		goto err;
 
 	/* A verb whose storage is optional runs without an arena that is not
