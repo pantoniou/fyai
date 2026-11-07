@@ -904,7 +904,7 @@ void fyai_agents_conn_closed(struct fyai_ctx *ctx, struct jsonrpc_conn *conn)
 	if (!a || !conn)
 		return;
 	if (a->questions && a->questions->from == conn && a->question_presented) {
-		fyai_ui_ask_withdraw(ctx, a->questions);
+		fyai_ask_close(ctx, a->questions);
 		fyai_ui_input_set(ctx, a->question_draft);
 		free(a->question_draft);
 		a->question_draft = NULL;
@@ -1667,7 +1667,7 @@ static void agents_present_question(struct fyai_ctx *ctx, struct fyai_agents *a)
 	if (fyai_ui_ask_available(ctx)) {
 		a->question_presented = true;
 		fyai_workpane_clear_focus(ctx->workpane);
-		if (!fyai_ui_ask(ctx, fy_get(params, "questions", fy_invalid),
+		if (!fyai_ask_open(ctx, fy_get(params, "questions", fy_invalid),
 				 fy_get(params, "branch", "agent"),
 				 agents_ask_done, a->questions))
 			return;

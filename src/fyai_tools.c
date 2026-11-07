@@ -1642,7 +1642,7 @@ static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, fy_generic questions,
 	fy_generic result;
 	char *echo;
 
-	if (fyai_ui_ask(ctx, questions, from, fyai_ask_user_done, &w))
+	if (fyai_ask_open(ctx, questions, from, fyai_ask_user_done, &w))
 		return fy_value(ctx->transient_gb,
 				"tool error: the questions could not be asked");
 	while (!w.done) {
@@ -1650,7 +1650,7 @@ static fy_generic fyai_ask_user_page(struct fyai_ctx *ctx, fy_generic questions,
 			break;
 	}
 	if (!w.done) {
-		fyai_ui_ask_withdraw(ctx, &w);
+		fyai_ask_close(ctx, &w);
 		fyai_error(ctx, "ask_user: the event loop stopped while waiting "
 			   "for an answer");
 		return fyai_ask_declined(ctx);

@@ -1189,13 +1189,13 @@ static int settings_review(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 	questions = settings_review_questions(gb, c, explanation);
 	fyai_error_check(ctx, fy_is_valid(questions), err_out,
 			 "settings: cannot build the review of the change");
-	if (fyai_ui_ask(ctx, questions, NULL, settings_review_done, &r))
+	if (fyai_ask_open(ctx, questions, NULL, settings_review_done, &r))
 		return -1;
 	while (!r.done)
 		if (fyai_event_loop_step(fyai_ctx_loop(ctx), -1) < 0)
 			break;
 	if (!r.done) {
-		fyai_ui_ask_withdraw(ctx, &r);
+		fyai_ask_close(ctx, &r);
 		fyai_error(ctx, "settings: the event loop stopped during the "
 			   "review of a change");
 		return -1;

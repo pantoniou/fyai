@@ -21,6 +21,7 @@
 #include <sys/wait.h>
 
 #include "fyai.h"
+#include "fyai_ask.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
@@ -279,7 +280,7 @@ static void config_approve_answered(void *user,
 
 static void config_approve_cancel(struct fyai_cmd_call *call)
 {
-	fyai_ui_ask_withdraw(call->ctx, call);
+	fyai_ask_close(call->ctx, call);
 	fyai_cmd_done(call, 0, fy_mapping(call->gb, "id",
 		fyai_cmd_arg_str(call, "id"), "status", "pending"));
 }
@@ -315,7 +316,7 @@ int fyai_cmd_config_approve(struct fyai_cmd_call *call, fy_generic *result)
 	call->priv = r;
 	call->cleanup = config_approve_cleanup;
 	call->cancel = config_approve_cancel;
-	rc = fyai_ui_ask(call->ctx, fyai_settings_review_questions(r), NULL,
+	rc = fyai_ask_open(call->ctx, fyai_settings_review_questions(r), NULL,
 			 config_approve_answered, call);
 	fyai_error_check(call->ctx, !rc, err,
 			 "config approve: cannot show the review panel");

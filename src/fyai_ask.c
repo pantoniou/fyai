@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "fyai_ask.h"
+#include "fyai_ui.h"
 #include "utils.h"
 
 static fy_generic ask_option(struct fy_generic_builder *gb, fy_generic option,
@@ -365,4 +366,15 @@ char *fyai_ask_echo(fy_generic questions, const struct fyai_ask_reply *replies,
 		return NULL;
 	}
 	return buf;
+}
+
+int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
+		  fyai_ask_done_fn done, void *user)
+{
+	return fyai_ui_ask(ctx, questions, from, done, user);
+}
+
+void fyai_ask_close(struct fyai_ctx *ctx, void *user)
+{
+	fyai_ui_ask_withdraw(ctx, user);
 }

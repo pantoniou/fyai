@@ -76,4 +76,24 @@ char *fyai_ask_text(fy_generic question);
 char *fyai_ask_echo(fy_generic questions, const struct fyai_ask_reply *replies,
 		    size_t n);
 
+/*
+ * The settlement of a set of questions: the @n replies, or NULL when nobody
+ * answered. The replies are borrowed for the call.
+ */
+typedef void (*fyai_ask_done_fn)(void *user,
+				 const struct fyai_ask_reply *replies, size_t n);
+
+/*
+ * Put @questions, a normalized sequence, to the user in the input area, as
+ * @from asks them (NULL for the model). @done gets the answer one time, from
+ * the event loop, unless fyai_ask_close() takes the questions back first.
+ * Returns 0, or -1 when the input area cannot put them, and the caller then
+ * asks as text.
+ */
+int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
+		  fyai_ask_done_fn done, void *user);
+
+/* Take back each set of questions that @user opened, without settling it. */
+void fyai_ask_close(struct fyai_ctx *ctx, void *user);
+
 #endif

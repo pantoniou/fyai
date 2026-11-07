@@ -176,7 +176,7 @@ char *fyai_asks_start(struct fyai_ctx *ctx, const char *name,
 			 "ask_user: cannot keep the questions of '%s'", name);
 	p->next = ctx->asks;
 	ctx->asks = p;
-	rc = fyai_ui_ask(ctx, p->questions, NULL, asks_done, p);
+	rc = fyai_ask_open(ctx, p->questions, NULL, asks_done, p);
 	if (rc) {
 		asks_unlink(ctx, p);
 		asks_free(p);
@@ -204,7 +204,7 @@ bool fyai_asks_cancel(struct fyai_ctx *ctx, const char *name)
 
 	if (!p)
 		return false;
-	fyai_ui_ask_withdraw(ctx, p);
+	fyai_ask_close(ctx, p);
 	asks_unlink(ctx, p);
 	asks_free(p);
 	fyai_waiters_kick(ctx);
@@ -236,7 +236,7 @@ void fyai_asks_release(struct fyai_ctx *ctx)
 		return;
 	for (p = ctx->asks; p; p = next) {
 		next = p->next;
-		fyai_ui_ask_withdraw(ctx, p);
+		fyai_ask_close(ctx, p);
 		asks_free(p);
 	}
 	ctx->asks = NULL;
