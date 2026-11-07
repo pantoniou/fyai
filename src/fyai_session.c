@@ -1394,15 +1394,93 @@ void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
 	fyai_ui_set_busy(ctx, busy);
 }
 
+#define SESSION_HEADER_VARS	17
+
+/*
+ * Colour and expand the header and the status from @vars, the
+ * SESSION_HEADER_VARS values of the templates. @attached says that the header
+ * names an attached agent; @profile is the sandbox profile, or NULL. The
+ * caller frees @topp and @bottomp.
+ */
+static int session_header_expand(struct fyai_ctx *ctx,
+				 const struct fyai_tmpl_var *vars,
+				 bool attached, const char *profile,
+				 char **topp, char **bottomp)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_tmpl_var top_vars[SESSION_HEADER_VARS];
+	const struct fyai_tmpl_var *header_vars;
+	char *coloured[14], *name_c = NULL, *sandbox_c = NULL;
+	const char *tmpl;
+	bool colour_ok;
+	size_t i;
+
+	/*
+	 * Each value of the header and of the status takes a colour of the
+	 * palette series in turn: the branch and the directory first, so the two
+	 * parts of the location differ. The values are escaped as Markdown, so
+	 * the same source is the Markdown of the band stack and the UI Markdown
+	 * of the page.
+	 */
+	memset(coloured, 0, sizeof(coloured));
+	colour_ok = true;
+	for (i = 0; i < 12 && colour_ok; i++) {
+		coloured[i] = session_series_text(cfg, i == 10 ? 0 :
+						  i == 11 ? 1 : (unsigned int)i + 2,
+						  vars[i].val, i < 10);
+		colour_ok = coloured[i] != NULL;
+		top_vars[i].key = vars[i].key;
+		top_vars[i].val = coloured[i];
+	}
+	if (colour_ok)
+		colour_ok = asprintf(&coloured[12], "%s: %s · %s",
+				     attached ? "attached" : "fyai",
+				     coloured[10], coloured[11]) >= 0;
+	if (!colour_ok) {
+		coloured[12] = NULL;
+		fyai_warning(ctx, "cannot colour the prompt header");
+	}
+	top_vars[12] = (struct fyai_tmpl_var){ "location", coloured[12] };
+	if (colour_ok) {
+		coloured[13] = session_series_text(cfg, 12, vars[13].val, true);
+		colour_ok = coloured[13] != NULL;
+		if (!colour_ok)
+			fyai_warning(ctx, "cannot colour the layout of the "
+				     "prompt header");
+	}
+	top_vars[13] = (struct fyai_tmpl_var){ "layout", coloured[13] };
+	top_vars[14] = vars[14];
+	top_vars[15] = vars[15];
+	/* The name of the profile takes a colour, and is escaped, as the layout does. */
+	top_vars[16] = vars[16];
+	if (colour_ok && profile) {
+		name_c = session_series_text(cfg, 13, profile, true);
+		colour_ok = name_c && asprintf(&sandbox_c, " · sandbox %s", name_c) >= 0;
+		if (!colour_ok)
+			fyai_warning(ctx, "cannot colour the sandbox of the prompt header");
+		top_vars[16].val = sandbox_c;
+	}
+	header_vars = colour_ok ? top_vars : vars;
+
+	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
+		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
+	*bottomp = fyai_prompt_expand(tmpl, header_vars, SESSION_HEADER_VARS);
+	*topp = fyai_prompt_expand(fy_str_empty(cfg->prompt_top) ?
+				   DEFAULT_PROMPT_TOP : cfg->prompt_top,
+				   header_vars, SESSION_HEADER_VARS);
+	for (i = 0; i < 14; i++)
+		free(coloured[i]);
+	free(name_c);
+	free(sandbox_c);
+	return *topp && *bottomp ? 0 : -1;
+}
+
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct fyai_tmpl_var vars[17], top_vars[17];
+	struct fyai_tmpl_var vars[SESSION_HEADER_VARS];
 	char isolation[64], view[64], sandbox[128];
 	const char *profile;
-	char *coloured[14], *name_c = NULL, *sandbox_c = NULL;
-	const struct fyai_tmpl_var *header_vars;
-	bool colour_ok;
 	fy_generic model_entry;
 	char effort[64], summary[64], temp[32], ctxpct[32];
 	char tokens[64], cost[96], cache[64], amount[32];
@@ -1417,8 +1495,8 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	size_t i;
 	struct fyai_context_prompt prompt;
 	char *top_md;
-	const char *tmpl;
 	long long window;
+	int rc;
 
 	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
 		return;
@@ -1574,72 +1652,17 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 			vars[i].val = "";
 	}
 
-	/*
-	 * Each value of the header and of the status takes a colour of the
-	 * palette series in turn: the branch and the directory first, so the two
-	 * parts of the location differ. The values are escaped as Markdown, so
-	 * the same source is the Markdown of the band stack and the UI Markdown
-	 * of the page.
-	 */
-	memset(coloured, 0, sizeof(coloured));
-	colour_ok = true;
-	for (i = 0; i < 12 && colour_ok; i++) {
-		coloured[i] = session_series_text(cfg, i == 10 ? 0 :
-						  i == 11 ? 1 : (unsigned int)i + 2,
-						  vars[i].val, i < 10);
-		colour_ok = coloured[i] != NULL;
-		top_vars[i].key = vars[i].key;
-		top_vars[i].val = coloured[i];
+	rc = session_header_expand(ctx, vars, fyai_agents_attached(ctx) != NULL,
+				   profile, &top, &bottom);
+	if (!rc) {
+		top_md = fyai_prompt_row_markdown(cfg, top);
+		if (fyai_ui_active(ctx))
+			fyai_ui_update_banner(ctx, top_md ? top_md : top, top,
+					      bottom);
+		free(top_md);
 	}
-	if (colour_ok)
-		colour_ok = asprintf(&coloured[12], "%s: %s · %s",
-				     fyai_agents_attached(ctx) ?
-				     "attached" : "fyai",
-				     coloured[10], coloured[11]) >= 0;
-	if (!colour_ok) {
-		coloured[12] = NULL;
-		fyai_warning(ctx, "cannot colour the prompt header");
-	}
-	top_vars[12] = (struct fyai_tmpl_var){ "location", coloured[12] };
-	if (colour_ok) {
-		coloured[13] = session_series_text(cfg, 12, vars[13].val, true);
-		colour_ok = coloured[13] != NULL;
-		if (!colour_ok)
-			fyai_warning(ctx, "cannot colour the layout of the "
-				     "prompt header");
-	}
-	top_vars[13] = (struct fyai_tmpl_var){ "layout", coloured[13] };
-	top_vars[14] = vars[14];
-	top_vars[15] = vars[15];
-	/* The name of the profile takes a colour, and is escaped, as the layout does. */
-	top_vars[16] = vars[16];
-	if (colour_ok && profile) {
-		name_c = session_series_text(cfg, 13, profile, true);
-		colour_ok = name_c && asprintf(&sandbox_c, " · sandbox %s", name_c) >= 0;
-		if (!colour_ok)
-			fyai_warning(ctx, "cannot colour the sandbox of the prompt header");
-		top_vars[16].val = sandbox_c;
-	}
-	header_vars = colour_ok ? top_vars : vars;
-
-	tmpl = cfg->prompt_bottom && *cfg->prompt_bottom ?
-		cfg->prompt_bottom : DEFAULT_PROMPT_BOTTOM;
-	bottom = fyai_prompt_expand(tmpl, header_vars,
-				    sizeof(vars) / sizeof(vars[0]));
-	top = fyai_prompt_expand(fy_str_empty(cfg->prompt_top) ?
-				DEFAULT_PROMPT_TOP : cfg->prompt_top, header_vars,
-				sizeof(vars) / sizeof(vars[0]));
-	top_md = fyai_prompt_row_markdown(cfg, top);
-	if (fyai_ui_active(ctx))
-		fyai_ui_update_banner(ctx, top_md ? top_md : top, top,
-				      bottom);
-	free(top_md);
 	free(top);
 	free(bottom);
-	for (i = 0; i < 14; i++)
-		free(coloured[i]);
-	free(name_c);
-	free(sandbox_c);
 	free(location);
 	free(directory);
 	free(branch);
