@@ -859,7 +859,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 		ctx->arena_config = b.config;
 		ctx->branch_desc = b.description;
 		ctx->branch_agent = b.agent;
-		ctx->branch_prev = b.entry;
+		fyai_ctx_branch_prev_set(ctx, b.entry);
 		/*
 		 * A fresh session takes the configuration of the branch last
 		 * updated in this directory, else of the branch HEAD names, and
@@ -925,7 +925,7 @@ int fyai_setup_storage(struct fyai_ctx *ctx)
 					 "could not keep the new session name");
 			ctx->branch_desc = fy_invalid;
 			ctx->branch_agent = fy_invalid;
-			ctx->branch_prev = fy_invalid;
+			fyai_ctx_branch_prev_set(ctx, fy_invalid);
 			if (cfg->fresh_session_from)
 				fyai_branch_op_set(ctx, FYAI_BRANCH_OP_CREATE,
 						   cfg->fresh_session_from);
@@ -1005,7 +1005,7 @@ int fyai_branches_refresh(struct fyai_ctx *ctx)
 	ctx->arena_branches = r.branches;
 	/* Keep the branch predecessor in the root that was adopted. */
 	fyai_branch_lookup(r.branches, fyai_ctx_branch(ctx), &cur);
-	ctx->branch_prev = cur.entry;
+	fyai_ctx_branch_prev_set(ctx, cur.entry);
 	return 0;
 }
 
@@ -1220,7 +1220,7 @@ static int fyai_root_publish_try(struct fyai_ctx *ctx)
 		ctx->session_unstored = NULL;
 	}
 	/* Chain the next publish to the entry that was written. */
-	ctx->branch_prev = fy_get(branchesv, fyai_ctx_branch(ctx));
+	fyai_ctx_branch_prev_set(ctx, fy_get(branchesv, fyai_ctx_branch(ctx)));
 	fyai_prof_since("commit_durable", &t_commit);
 	return 0;
 
@@ -1511,7 +1511,7 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 
 	/* Our branch is where we left it: nothing of ours is at stake. */
 	if (cur.entry.v == ctx->branch_prev.v) {
-		ctx->branch_prev = cur.entry;
+		fyai_ctx_branch_prev_set(ctx, cur.entry);
 		return 0;
 	}
 
@@ -1527,7 +1527,7 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 			return -1;
 		if (ctx->last_message.v == base.head.v)
 			ctx->last_message = cur.head;
-		ctx->branch_prev = cur.entry;
+		fyai_ctx_branch_prev_set(ctx, cur.entry);
 		return 0;
 	}
 
@@ -1544,7 +1544,7 @@ static int publish_reconcile(struct fyai_ctx *ctx)
 	if (publish_store_merge(ctx, &cur))
 		return -1;
 	ctx->last_message = head;
-	ctx->branch_prev = cur.entry;
+	fyai_ctx_branch_prev_set(ctx, cur.entry);
 	fyai_notice(ctx, "branch '%s' changed while this command was running; "
 		    "replayed on top of it", fyai_ctx_branch(ctx));
 	return 0;
@@ -1875,7 +1875,7 @@ int fyai_close_storage(struct fyai_ctx *ctx)
 	ctx->arena_catalog = fy_invalid;
 	ctx->arena_skills = fy_invalid;
 	ctx->arena_branches = fy_invalid;
-	ctx->branch_prev = fy_invalid;
+	fyai_ctx_branch_prev_set(ctx, fy_invalid);
 	ctx->branch_desc = fy_invalid;
 	ctx->branch_agent = fy_invalid;
 	ctx->branch_store = fy_invalid;
@@ -2179,7 +2179,7 @@ int fyai_init_storage(struct fyai_ctx *ctx)
 			head = b.head;
 			config = b.config;
 			catalog = b.catalog;
-			ctx->branch_prev = b.entry;
+			fyai_ctx_branch_prev_set(ctx, b.entry);
 			ctx->branch_desc = b.description;
 			ctx->branch_agent = b.agent;
 		}

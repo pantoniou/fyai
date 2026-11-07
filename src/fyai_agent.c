@@ -569,7 +569,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 		/* Add the sub-agent branch to subsequent trace records. */
 		fyai_diag_trace_tag(ctx->agent_branch);
 		/* Keep last_message as the fork point unless the call is fresh. */
-		ctx->branch_prev = fy_invalid;
+		fyai_ctx_branch_prev_set(ctx, fy_invalid);
 		ctx->branch_desc = fy_invalid;
 		ctx->branch_agent = fy_invalid;
 		/* Continue the stored conversation identified by this name. */
@@ -577,7 +577,7 @@ fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp)
 					    ctx->agent_branch, &stored) &&
 			 fy_is_valid(stored.head);
 		if (revive) {
-			ctx->branch_prev = stored.entry;
+			fyai_ctx_branch_prev_set(ctx, stored.entry);
 			ctx->branch_desc = stored.description;
 			ctx->branch_agent = stored.agent;
 			if (fy_is_valid(stored.catalog))

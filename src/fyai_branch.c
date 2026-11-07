@@ -18,6 +18,11 @@
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
+void fyai_ctx_branch_prev_set(struct fyai_ctx *ctx, fy_generic entry)
+{
+	ctx->branch_prev = entry;
+}
+
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx)
 {
 	if (ctx->branch && *ctx->branch)
@@ -1511,7 +1516,7 @@ int fyai_branch_rename(struct fyai_ctx *ctx, const char *from, const char *to)
 	 */
 	if (renamed_current) {
 		fyai_branch_lookup(branches, fyai_ctx_branch(ctx), &b);
-		ctx->branch_prev = b.entry;
+		fyai_ctx_branch_prev_set(ctx, b.entry);
 		fyai_branch_op_set(ctx, FYAI_BRANCH_OP_RENAME, from);
 	}
 	rc = branches_publish(ctx, branches);
@@ -1545,7 +1550,7 @@ int fyai_branch_adopt(struct fyai_ctx *ctx, const char *name, bool keep_head)
 	ctx->arena_skills = b.skills;
 	ctx->branch_desc = b.description;
 	ctx->branch_agent = b.agent;
-	ctx->branch_prev = b.entry;
+	fyai_ctx_branch_prev_set(ctx, b.entry);
 	fyai_background_reset(ctx);
 	return 0;
 

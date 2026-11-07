@@ -2906,7 +2906,7 @@ static void sdk_clear(struct sdk_server *srv)
 			 "claude-sdk: cannot keep the new session name");
 	ctx->branch_desc = fy_invalid;
 	ctx->branch_agent = fy_invalid;
-	ctx->branch_prev = fy_invalid;
+	fyai_ctx_branch_prev_set(ctx, fy_invalid);
 	old = srv->session_id;
 	srv->session_id = sid;
 	sid = NULL;
