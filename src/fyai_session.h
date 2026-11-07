@@ -128,6 +128,18 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
 void fyai_session_banner_update(struct fyai_ctx *ctx);
 /* Start or end a turn of the session. */
 void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy);
+/*
+ * The values of the header and the status, for the session store of the UI
+ * model (src/fyai_uimodel.h): data, without templates, colours or escapes.
+ */
+fy_generic fyai_session_values(struct fyai_ctx *ctx,
+			       struct fy_generic_builder *gb);
+/*
+ * Expand the header and the status templates from @values, the session store,
+ * for a page with the layout @layout. The caller frees @top and @bottom.
+ */
+int fyai_session_header_format(struct fyai_ctx *ctx, fy_generic values,
+			       const char *layout, char **top, char **bottom);
 /* Total the stored usage of the conversation again after a head change. */
 void fyai_usage_sync(struct fyai_ctx *ctx);
 /*

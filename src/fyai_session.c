@@ -68,6 +68,7 @@
 #include "fyai_transport_client.h"
 #include "fyai_xfer.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
 #include "fyai_tools.h"
@@ -1471,10 +1472,12 @@ static int session_header_expand(struct fyai_ctx *ctx,
 }
 
 /*
- * The header and the status from the state of the context, as the templates
- * expand them. The caller frees @topp and @bottomp.
+ * The header and the status as the legacy path makes them, from the context.
+ * The caller frees @topp and @bottomp. This is the oracle of the session store
+ * while the model path replaces it.
  */
-static int session_banner(struct fyai_ctx *ctx, char **topp, char **bottomp)
+static int session_banner_legacy(struct fyai_ctx *ctx, char **topp,
+				 char **bottomp)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct fyai_tmpl_var vars[SESSION_HEADER_VARS];
@@ -1652,6 +1655,291 @@ static int session_banner(struct fyai_ctx *ctx, char **topp, char **bottomp)
 	return rc;
 }
 
+/*
+ * The current directory as the header names it: the name the shell used for
+ * it, and under ~ when it is in the home directory. The caller frees it.
+ */
+static char *session_display_cwd(void)
+{
+	char *cwd, *tilde, *home_real, *cwd_real;
+	const char *home, *pwd;
+	struct stat pwd_st, cwd_st;
+
+	cwd = getcwd(NULL, 0);
+	/*
+	 * The shell names a directory that it reached through a symbolic link
+	 * as the user typed it. Use that name when it is the same directory, so
+	 * that a home directory behind a link still reads as ~.
+	 */
+	pwd = getenv("PWD");
+	if (cwd && pwd && *pwd == '/' && strcmp(pwd, cwd) &&
+	    !stat(pwd, &pwd_st) && !stat(cwd, &cwd_st) &&
+	    pwd_st.st_dev == cwd_st.st_dev && pwd_st.st_ino == cwd_st.st_ino) {
+		free(cwd);
+		cwd = strdup(pwd);
+	}
+	home = getenv("HOME");
+	tilde = session_home_relative(cwd, home);
+	if (!tilde) {
+		/*
+		 * $HOME can name the home directory through a symbolic link
+		 * while getcwd() answers with the canonical path. Compare the
+		 * canonical form of both, so the two name the same directory.
+		 */
+		home_real = home ? realpath(home, NULL) : NULL;
+		cwd_real = cwd ? realpath(cwd, NULL) : NULL;
+		tilde = session_home_relative(cwd_real ? cwd_real : cwd,
+					      home_real ? home_real : home);
+		free(home_real);
+		free(cwd_real);
+	}
+	if (tilde) {
+		free(cwd);
+		cwd = tilde;
+	}
+	return cwd;
+}
+
+/* @v with @key set to @value; @v itself when it holds @value already. */
+static fy_generic session_put(struct fy_generic_builder *gb, fy_generic v,
+			      const char *key, fy_generic value)
+{
+	if (fy_equal(fy_get(v, key, fy_invalid), value))
+		return v;
+	return fy_assoc(gb, v, key, value);
+}
+
+/* @v without @key; @v itself when it holds none. */
+static fy_generic session_drop(struct fy_generic_builder *gb, fy_generic v,
+			       const char *key)
+{
+	if (fy_is_invalid(fy_get(v, key, fy_invalid)))
+		return v;
+	return fy_disassoc(gb, v, key);
+}
+
+/* @v with @key set to @str, or without it when @str is NULL. */
+static fy_generic session_put_str(struct fy_generic_builder *gb, fy_generic v,
+				  const char *key, const char *str)
+{
+	if (!str)
+		return session_drop(gb, v, key);
+	return session_put(gb, v, key, fy_value(gb, str));
+}
+
+fy_generic fyai_session_values(struct fyai_ctx *ctx,
+			       struct fy_generic_builder *gb)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct fyai_context_prompt prompt;
+	const char *attached = fyai_agents_attached(ctx);
+	const char *model, *state, *profile;
+	fy_generic v;
+	char *cwd;
+	long long window;
+	double cost;
+
+	/*
+	 * Most values stay the same from one call to the next. Start from the
+	 * stored ones and touch only what changed, so a call with no change
+	 * returns the stored mapping.
+	 */
+	v = fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION), "header", fy_invalid);
+	if (!fy_is_mapping(v))
+		v = fy_map_empty;
+	v = session_put_str(gb, v, "branch", fyai_ctx_branch(ctx));
+	v = session_put(gb, v, "api",
+			fy_value(gb, fyai_api_to_string(cfg->api_mode)));
+	cwd = session_display_cwd();
+	v = session_put_str(gb, v, "cwd", cwd);
+	free(cwd);
+	model = fyai_agents_model(ctx) ? fyai_agents_model(ctx) : cfg->model;
+	v = session_put_str(gb, v, "model", model);
+	v = session_put_str(gb, v, "provider", cfg->provider);
+	v = session_put_str(gb, v, "effort",
+			    fy_str_empty(cfg->reasoning_effort) ? NULL :
+			    cfg->reasoning_effort);
+	v = session_put_str(gb, v, "summary",
+			    fy_str_empty(cfg->reasoning_summary) ? NULL :
+			    cfg->reasoning_summary);
+	if (fyai_model_supports_temperature(session_model_entry(ctx)))
+		v = session_put(gb, v, "temperature",
+				fy_value(gb, cfg->temperature));
+	else
+		v = session_drop(gb, v, "temperature");
+	window = fyai_context_window(ctx);
+	if (window > 0) {
+		fyai_context_prompt_at(ctx, ctx->last_message, &prompt);
+		/* Streamed bytes are already in the estimate; do not add them twice. */
+		v = session_put(gb, v, "context", fy_mapping(gb,
+			"used", session_projected_tokens(ctx, &prompt),
+			"window", window));
+	} else {
+		v = session_drop(gb, v, "context");
+	}
+	fyai_usage_sync(ctx);
+	/* What the sub-agents used is a part of the cost of the session. */
+	cost = ctx->usage_cost + ctx->usage_agents.cost;
+	if (cost > 0.0)
+		v = session_put(gb, v, "cost", fy_mapping(gb, "amount", cost,
+			"estimated", (_Bool)(ctx->usage_cost_est +
+					     ctx->usage_agents.cost_est > 0.0)));
+	else
+		v = session_drop(gb, v, "cost");
+	/* The next request has no cache on the model just chosen. */
+	if (ctx->switch_pending)
+		v = session_put(gb, v, "switch_delta", fy_value(gb,
+				ctx->switch_fresh - ctx->switch_stay));
+	else
+		v = session_drop(gb, v, "switch_delta");
+	if (ctx->usage_input > 0)
+		v = session_put(gb, v, "cache", fy_mapping(gb,
+			"input", ctx->usage_input, "cached", ctx->usage_cached));
+	else
+		v = session_drop(gb, v, "cache");
+	v = session_put_str(gb, v, "attached", attached);
+	state = attached ? fyai_agents_state(ctx, attached) : NULL;
+	v = session_put_str(gb, v, "attached_state", state);
+	if (ctx->tclient)
+		v = session_put(gb, v, "isolation", fy_mapping(gb,
+			"level", fyai_transport_effective_level(ctx),
+			"alive", fyai_tclient_alive(ctx->tclient)));
+	else
+		v = session_drop(gb, v, "isolation");
+	v = session_put_str(gb, v, "view", fyai_view_session_name(ctx));
+	profile = cfg->enable_sandbox ? cfg->sandbox_profile : NULL;
+	v = session_put_str(gb, v, "sandbox", profile);
+	return v;
+}
+
+int fyai_session_header_format(struct fyai_ctx *ctx, fy_generic values,
+			       const char *layout, char **topp,
+			       char **bottomp)
+{
+	struct fyai_tmpl_var vars[SESSION_HEADER_VARS];
+	const char *isolation, *view, *sandbox;
+	const char *effort = "", *summary = "", *temp = "", *ctxpct = "";
+	const char *tokens = "", *cost = "", *cache = "";
+	char amount[32];
+	/* Wide enough for any long long, so the abbreviation never truncates. */
+	char used_str[24], window_str[24], cached_str[24];
+	const char *attached, *profile, *text;
+	fy_generic item;
+	long long used, window, input, cached;
+	double delta;
+	char *directory, *branch, *location = NULL;
+	size_t i;
+	int rc;
+
+	*topp = *bottomp = NULL;
+	attached = fy_get(values, "attached", (const char *)NULL);
+	directory = fyai_prompt_literal(fy_get(values, "cwd", "?"));
+	branch = fyai_prompt_literal(attached ? attached :
+				     fy_get(values, "branch", ""));
+	if (!directory || !branch ||
+	    asprintf(&location, "%s: %s · %s", attached ? "attached" : "fyai",
+		     branch, directory) < 0) {
+		fyai_warning(ctx, "cannot build the prompt location");
+		free(directory);
+		free(branch);
+		return -1;
+	}
+
+	/* Each optional field carries its own " · label" so a template can place
+	 * it unconditionally; empty when the field does not apply. */
+	text = fy_get(values, "effort", (const char *)NULL);
+	if (text)
+		effort = fy_sprintfa(" · effort %s", text);
+	text = fy_get(values, "summary", (const char *)NULL);
+	if (text)
+		summary = fy_sprintfa(" · summary %s", text);
+	item = fy_get(values, "temperature", fy_invalid);
+	if (fy_is_valid(item) && !*effort && !*summary)
+		temp = fy_sprintfa(" · temp %g", fy_number(item, 0.0));
+	item = fy_get(values, "context", fy_invalid);
+	if (fy_is_mapping(item)) {
+		used = fy_get(item, "used", 0LL);
+		window = fy_get(item, "window", 1LL);
+		ctxpct = fy_sprintfa(" · ctx ~%.0f%%",
+				     (double)used * 100.0 / (double)window);
+		session_token_count(used_str, sizeof(used_str), used);
+		session_token_count(window_str, sizeof(window_str), window);
+		tokens = fy_sprintfa(" · ctx %s/%s (%.0f%%)", used_str,
+				     window_str,
+				     (double)used * 100.0 / (double)window);
+	}
+	item = fy_get(values, "cost", fy_invalid);
+	if (fy_is_mapping(item)) {
+		fyai_cost_format(amount, sizeof(amount),
+				 fy_get(item, "amount", 0.0),
+				 fy_get(item, "estimated", false));
+		cost = fy_sprintfa(" · %s", amount);
+	}
+	item = fy_get(values, "switch_delta", fy_invalid);
+	if (fy_is_valid(item)) {
+		delta = fy_number(item, 0.0);
+		cost = fy_sprintfa("%s · cache miss ~%s$%.4f", cost,
+				   delta < 0.0 ? "-" : "+",
+				   delta < 0.0 ? -delta : delta);
+	}
+	item = fy_get(values, "cache", fy_invalid);
+	if (fy_is_mapping(item)) {
+		input = fy_get(item, "input", 1LL);
+		cached = fy_get(item, "cached", 0LL);
+		session_token_count(cached_str, sizeof(cached_str), cached);
+		cache = fy_sprintfa(" · cache %s (%.0f%%)", cached_str,
+				    (double)cached * 100.0 / (double)input);
+	}
+
+	vars[0] = (struct fyai_tmpl_var){ "model", fy_get(values, "model", "?") };
+	vars[1] = (struct fyai_tmpl_var){ "provider",
+					  fy_get(values, "provider", "?") };
+	vars[2] = (struct fyai_tmpl_var){ "api", fy_get(values, "api", "") };
+	vars[3] = (struct fyai_tmpl_var){ "effort", effort };
+	vars[4] = (struct fyai_tmpl_var){ "summary", summary };
+	vars[5] = (struct fyai_tmpl_var){ "temp", temp };
+	vars[6] = (struct fyai_tmpl_var){ "ctx", ctxpct };
+	vars[7] = (struct fyai_tmpl_var){ "tokens", tokens };
+	vars[8] = (struct fyai_tmpl_var){ "cost", cost };
+	vars[9] = (struct fyai_tmpl_var){ "cache", cache };
+	vars[10] = (struct fyai_tmpl_var){ "branch", branch };
+	vars[11] = (struct fyai_tmpl_var){ "cwd", directory };
+	vars[12] = (struct fyai_tmpl_var){ "location", location };
+	vars[13] = (struct fyai_tmpl_var){ "layout", layout };
+	/* Empty unless credentials are isolated, like the other optional fields. */
+	isolation = "";
+	item = fy_get(values, "isolation", fy_invalid);
+	if (fy_is_mapping(item))
+		isolation = fy_sprintfa(" · isolated %s%s",
+					fy_get(item, "level", ""),
+					fy_get(item, "alive", false) ? "" :
+					" (down)");
+	vars[14] = (struct fyai_tmpl_var){ "isolation", isolation };
+	/* Empty unless the session itself runs in a view. */
+	view = "";
+	text = fy_get(values, "view", (const char *)NULL);
+	if (text)
+		view = fy_sprintfa(" · view %s", text);
+	vars[15] = (struct fyai_tmpl_var){ "view", view };
+	/* The sandbox of the tools: the profile in use, or that there is none. */
+	profile = fy_get(values, "sandbox", (const char *)NULL);
+	sandbox = fy_sprintfa(" · %s%s", profile ? "sandbox " : "no sandbox",
+			      profile ? profile : "");
+	vars[16] = (struct fyai_tmpl_var){ "sandbox", sandbox };
+	if (attached) {
+		vars[1].val = "agent";
+		vars[2].val = fy_get(values, "attached_state", (const char *)NULL);
+		for (i = 3; i < 10; i++)
+			vars[i].val = "";
+	}
+	rc = session_header_expand(ctx, vars, attached != NULL, profile,
+				   topp, bottomp);
+	free(location);
+	free(directory);
+	free(branch);
+	return rc;
+}
+
 void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
 {
 	fyai_ui_set_busy(ctx, busy);
@@ -1660,7 +1948,9 @@ void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
+	struct fy_generic_builder *gb;
 	char *top = NULL, *bottom = NULL, *top_md;
+	char *legacy_top = NULL, *legacy_bottom = NULL;
 	int rc;
 
 	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
@@ -1669,16 +1959,34 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	 * parent names it. */
 	if (fyai_agent_delegated(ctx))
 		return;
-	rc = session_banner(ctx, &top, &bottom);
+	if (!fyai_ui_active(ctx))
+		return;
+	/* Called for each chunk of a stream: the scratch builder is reset by
+	 * each write, where the transient builder would grow until the turn
+	 * ends. */
+	gb = fyai_uimodel_begin(ctx);
+	if (!gb)
+		return;
+	rc = fyai_session_header_format(ctx, fyai_session_values(ctx, gb),
+					fyai_ui_page_layout(ctx), &top,
+					&bottom);
 	if (!rc) {
 		top_md = fyai_prompt_row_markdown(cfg, top);
-		if (fyai_ui_active(ctx))
-			fyai_ui_update_banner(ctx, top_md ? top_md : top, top,
-					      bottom);
+		fyai_ui_update_banner(ctx, top_md ? top_md : top, top, bottom);
 		free(top_md);
+		/* The legacy path is the oracle of what the values made. */
+		if (!session_banner_legacy(ctx, &legacy_top, &legacy_bottom)) {
+			fyai_uimodel_check(ctx, FYAI_UI_SESSION, "header", top,
+					   legacy_top);
+			fyai_uimodel_check(ctx, FYAI_UI_SESSION, "status",
+					   bottom, legacy_bottom);
+		}
 	}
+	fyai_uimodel_end(ctx);
 	free(top);
 	free(bottom);
+	free(legacy_top);
+	free(legacy_bottom);
 }
 
 /* ---- slash dispatch ------------------------------------------------------ */
