@@ -126,7 +126,10 @@ int fyai_session_slash(struct fyai_ctx *ctx, const char *line);
  * the context fill. No-op outside an interactive markdown tty session.
  */
 void fyai_session_banner_update(struct fyai_ctx *ctx);
-/* Start or end a turn of the session. */
+/*
+ * Start or end a turn: write the member "turn" of the session store, whether
+ * a turn runs and its start as milliseconds of the real-time clock.
+ */
 void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy);
 /*
  * The values of the header and the status, for the session store of the UI
@@ -159,6 +162,8 @@ struct fyai_tmpl_var {
 char *fyai_prompt_expand(const char *tmpl, const struct fyai_tmpl_var *vars,
 			size_t nvars);
 char *fyai_prompt_literal(const char *text);
+/* Render a header template expansion to one row; NULL to use the source. */
+char *fyai_prompt_row_markdown(struct fyai_cfg *cfg, const char *text);
 
 /* Read one edited line through the active frontend. */
 char *fyai_readline(struct fyai_ctx *ctx, const char *prompt);

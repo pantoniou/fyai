@@ -134,6 +134,8 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo);
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,
 			   const char *top_source,
 			   const char *bottom);
+/* Present the header and the status from the session store of the UI model. */
+void fyai_ui_header_refresh(struct fyai_ctx *ctx);
 int fyai_ui_update_prompt_style(struct fyai_ctx *ctx);
 int fyai_ui_external_begin(struct fyai_ctx *ctx);
 int fyai_ui_external_end(struct fyai_ctx *ctx);

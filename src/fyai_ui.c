@@ -36,6 +36,7 @@
 #include "fyai_terminal.h"
 #include "fyai_terminal_session.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 #include "fyai_wait.h"
 #include "fyai_ask.h"
 #include "fyai_page.h"
@@ -2400,6 +2401,28 @@ static void ui_pending_fit(struct fyai_ui *ui, struct fyai_page_state *st,
 	}
 }
 
+/*
+ * The time since @started, milliseconds of the real-time clock, as the status
+ * shows it. A clock set back shows no time.
+ */
+static void ui_elapsed_format(char *buf, size_t size, long long started)
+{
+	struct timespec now;
+	long long secs;
+
+	buf[0] = '\0';
+	if (started <= 0 || clock_gettime(CLOCK_REALTIME, &now))
+		return;
+	secs = ((long long)now.tv_sec * 1000 + now.tv_nsec / 1000000 -
+		started) / 1000;
+	if (secs < 0)
+		secs = 0;
+	if (secs < 60)
+		snprintf(buf, size, " %llds", secs);
+	else
+		snprintf(buf, size, " %lldm%02llds", secs / 60, secs % 60);
+}
+
 static void ui_page_update(struct fyai_ui *ui)
 {
 	struct fyai_ctx *ctx = ui->ctx;
@@ -2418,8 +2441,9 @@ static void ui_page_update(struct fyai_ui *ui)
 	struct fyai_transcript_view *blocks;
 	const char *rule_off, *typed, *tail;
 	char *activity = NULL;
+	fy_generic turn;
 	int cols = 0, rows = 0, n, i, sep_cols, rc;
-	bool side;
+	bool side, busy;
 
 	if (!ui->page)
 		return;
@@ -2452,9 +2476,16 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.header_right_cols = ui->panel_cols;
 	st.header_acts = ui->panel ? ui->panel_acts : NULL;
 	st.header_nacts = ui->panel_nacts;
-	if (ui->busy) {
-		fyai_event_elapsed_format(elapsed, sizeof(elapsed),
-					  ui->busy_since_ms);
+	/* The turn state comes from the session store; ui->busy is the
+	 * oracle of it while the legacy path still sets it. */
+	turn = fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION), "turn",
+		      fy_invalid);
+	busy = fy_get(turn, "busy", false);
+	fyai_uimodel_check(ctx, FYAI_UI_SESSION, "busy",
+			   busy ? "busy" : "idle", ui->busy ? "busy" : "idle");
+	if (busy) {
+		ui_elapsed_format(elapsed, sizeof(elapsed),
+				  fy_get(turn, "started", 0LL));
 		if (!fyai_agent_delegated(ctx))
 			st.elapsed = elapsed;
 		activity = ui_indicator(ui, FYMD_INDICATOR_PENDING,
@@ -4527,6 +4558,31 @@ void fyai_ui_panel_update(struct fyai_ctx *ctx)
 		}
 	}
 	ui->frame_pending = true;
+}
+
+/*
+ * Present the header and the status from the session store of the UI model,
+ * at the layout of the last frame.
+ */
+void fyai_ui_header_refresh(struct fyai_ctx *ctx)
+{
+	char *top = NULL, *bottom = NULL, *top_md;
+
+	if (!fyai_ui_active(ctx))
+		return;
+	if (fyai_session_header_format(ctx,
+			fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION),
+			       "header", fy_invalid),
+			fyai_ui_page_layout(ctx), &top, &bottom)) {
+		free(top);
+		free(bottom);
+		return;
+	}
+	top_md = fyai_prompt_row_markdown(ctx->cfg, top);
+	fyai_ui_update_banner(ctx, top_md ? top_md : top, top, bottom);
+	free(top_md);
+	free(top);
+	free(bottom);
 }
 
 void fyai_ui_update_banner(struct fyai_ctx *ctx, const char *top,

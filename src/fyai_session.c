@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -1279,7 +1280,7 @@ fail:
  * the prompt block accounting. The returned string is heap-owned by the caller;
  * NULL means "use the unrendered template expansion".
  */
-static char *fyai_prompt_row_markdown(struct fyai_cfg *cfg, const char *text)
+char *fyai_prompt_row_markdown(struct fyai_cfg *cfg, const char *text)
 {
 	struct response_buffer out = {0};
 	const char *start;
@@ -1942,47 +1943,57 @@ int fyai_session_header_format(struct fyai_ctx *ctx, fy_generic values,
 
 void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
 {
+	struct fy_generic_builder *gb;
+	struct timespec now;
+	long long started = 0;
+
+	if (busy && !clock_gettime(CLOCK_REALTIME, &now))
+		started = (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+	gb = fyai_uimodel_begin(ctx);
+	if (gb)
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_SESSION, "turn",
+			fy_mapping(gb, "busy", busy, "started", started));
+	fyai_uimodel_end(ctx);
+	/* The legacy path: the oracle of the turn member. */
 	fyai_ui_set_busy(ctx, busy);
 }
 
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
-	struct fyai_cfg *cfg = ctx->cfg;
 	struct fy_generic_builder *gb;
-	char *top = NULL, *bottom = NULL, *top_md;
-	char *legacy_top = NULL, *legacy_bottom = NULL;
+	char *top = NULL, *bottom = NULL, *legacy_top = NULL;
+	char *legacy_bottom = NULL;
 	int rc;
 
-	if (!cfg->interactive || !cfg->markdown || !ctx->stdout_tty)
+	if (!ctx->cfg->interactive || !ctx->cfg->markdown || !ctx->stdout_tty)
 		return;
 	/* A delegated sub-agent has no header: the head of its tile in the
 	 * parent names it. */
 	if (fyai_agent_delegated(ctx))
 		return;
-	if (!fyai_ui_active(ctx))
-		return;
 	/* Called for each chunk of a stream: the scratch builder is reset by
 	 * each write, where the transient builder would grow until the turn
 	 * ends. */
 	gb = fyai_uimodel_begin(ctx);
-	if (!gb)
-		return;
-	rc = fyai_session_header_format(ctx, fyai_session_values(ctx, gb),
-					fyai_ui_page_layout(ctx), &top,
-					&bottom);
-	if (!rc) {
-		top_md = fyai_prompt_row_markdown(cfg, top);
-		fyai_ui_update_banner(ctx, top_md ? top_md : top, top, bottom);
-		free(top_md);
-		/* The legacy path is the oracle of what the values made. */
-		if (!session_banner_legacy(ctx, &legacy_top, &legacy_bottom)) {
-			fyai_uimodel_check(ctx, FYAI_UI_SESSION, "header", top,
-					   legacy_top);
-			fyai_uimodel_check(ctx, FYAI_UI_SESSION, "status",
-					   bottom, legacy_bottom);
-		}
-	}
+	rc = gb ? fyai_uimodel_set_member(ctx, FYAI_UI_SESSION, "header",
+					  fyai_session_values(ctx, gb)) : -1;
 	fyai_uimodel_end(ctx);
+	if (rc < 0)
+		return;
+	if (!fyai_ui_active(ctx))
+		return;
+	fyai_ui_header_refresh(ctx);
+	/* The legacy path is the oracle of what the renderer made. */
+	rc = fyai_session_header_format(ctx,
+		fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION), "header",
+		       fy_invalid),
+		fyai_ui_page_layout(ctx), &top, &bottom);
+	if (!rc && !session_banner_legacy(ctx, &legacy_top, &legacy_bottom)) {
+		fyai_uimodel_check(ctx, FYAI_UI_SESSION, "header", top,
+				   legacy_top);
+		fyai_uimodel_check(ctx, FYAI_UI_SESSION, "status", bottom,
+				   legacy_bottom);
+	}
 	free(top);
 	free(bottom);
 	free(legacy_top);
