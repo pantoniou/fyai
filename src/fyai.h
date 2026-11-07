@@ -29,6 +29,7 @@
 
 struct fyai_fenced_stream;	/* live progressive shell output (fyai_markdown.h) */
 struct fyai_ui;
+struct fyai_ask_entry;
 struct jsonrpc_conn;
 struct fyai_display_output;
 struct fyai_tool_job;
@@ -864,6 +865,9 @@ struct fyai_ctx {
 	struct fyai_workpane_manager *workpane;
 	struct fyai_wait *waits;	/* named waits, live for this run */
 	struct fyai_ask_pending *asks;	/* background questions that wait for the user */
+	/* The sets of questions that wait for an answer (src/fyai_ask.c). */
+	struct fyai_ask_entry *ask_entries;
+	unsigned long long ask_serial;
 	unsigned int asks_seq;		/* the number of the last question named by default */
 	struct fyai_waiter *waiters;	/* waits that hold a call, active */
 	struct fyai_event_source *waiter_tick;	/* earliest deadline of a waiter */

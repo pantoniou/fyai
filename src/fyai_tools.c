@@ -5587,6 +5587,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_tool_jobs_abandon(ctx);		/* its running tool children */
 	fyai_waits_abandon(ctx);		/* its named waits */
 	fyai_asks_abandon(ctx);			/* and its pending questions */
+	fyai_ask_abandon(ctx);			/* the questions the parent put */
 	fyai_waiters_abandon(ctx);		/* and the waits that hold a call */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
 	fyai_monitor_abandon(ctx);		/* and its monitors */

@@ -96,4 +96,17 @@ int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 /* Take back each set of questions that @user opened, without settling it. */
 void fyai_ask_close(struct fyai_ctx *ctx, void *user);
 
+/*
+ * The input area settles the set @qid with the @n replies that the user gave,
+ * or NULL for none. A @qid that is no longer open is ignored.
+ */
+void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
+		     const struct fyai_ask_reply *replies, size_t n);
+
+/* Settle every open set with no answer: the renderer that showed them went. */
+void fyai_ask_settle_all(struct fyai_ctx *ctx);
+
+/* Drop the open sets in a forked child: the parent settles them. */
+void fyai_ask_abandon(struct fyai_ctx *ctx);
+
 #endif

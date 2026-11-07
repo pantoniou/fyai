@@ -75,11 +75,6 @@ void fyai_ui_repaint(struct fyai_ctx *ctx);
 char *fyai_ui_input_copy(struct fyai_ctx *ctx);
 void fyai_ui_input_set(struct fyai_ctx *ctx, const char *text);
 
-/* Called once with the replies to the questions, or with NULL when the user
- * gave none. The replies are valid for the call. */
-struct fyai_ask_reply;
-typedef void (*fyai_ui_ask_fn)(void *user, const struct fyai_ask_reply *replies,
-			       size_t n);
 /* Whether the input area can put a question to the user: the page renderer
  * draws it. */
 bool fyai_ui_ask_available(struct fyai_ctx *ctx);
@@ -111,14 +106,14 @@ struct fyai_page_action;
 void fyai_ui_page_actions(const struct fyai_page_action **actions, size_t *n);
 /*
  * Put @questions, a sequence normalized by fyai_ask_normalize(), to the user in
- * the input area, after the questions before them. @from names the sub-agent
- * that asks, or is NULL. @done is called once, from the event loop, with
- * @user. Returns 0, or -1 after it reported why they cannot be put.
+ * the input area, after the questions before them, as the set @qid. @from names
+ * the sub-agent that asks, or is NULL. Returns 0, or -1 after it reported why
+ * they cannot be put. The answer goes to fyai_ask_settle().
  */
-int fyai_ui_ask(struct fyai_ctx *ctx, fy_generic questions, const char *from,
-		fyai_ui_ask_fn done, void *user);
-/* Take back the questions of @user without an answer: nobody waits for them. */
-void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user);
+int fyai_ui_ask(struct fyai_ctx *ctx, const char *qid, fy_generic questions,
+		const char *from);
+/* Take back the set @qid without an answer: nobody waits for it. */
+void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, const char *qid);
 /* An interrupt reached the session (Escape, or SIGINT from ^C). Discards a
  * half-typed line on an idle prompt, ends the session when there is nothing to
  * discard, and cancels the turn while busy. */

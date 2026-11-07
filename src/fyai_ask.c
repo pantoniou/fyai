@@ -368,13 +368,88 @@ char *fyai_ask_echo(fy_generic questions, const struct fyai_ask_reply *replies,
 	return buf;
 }
 
+/* One set of questions that waits for the user. */
+struct fyai_ask_entry {
+	struct fyai_ask_entry *next;
+	char qid[32];
+	fyai_ask_done_fn done;
+	void *user;
+};
+
 int fyai_ask_open(struct fyai_ctx *ctx, fy_generic questions, const char *from,
 		  fyai_ask_done_fn done, void *user)
 {
-	return fyai_ui_ask(ctx, questions, from, done, user);
+	struct fyai_ask_entry *e, **ep;
+	size_t nq;
+
+	nq = fy_is_sequence(questions) ? fy_len(questions) : 0;
+	if (!done || !nq || nq > FYAI_ASK_QUESTIONS_MAX ||
+	    !fyai_ui_ask_available(ctx))
+		return -1;
+	e = calloc(1, sizeof(*e));
+	fyai_error_check(ctx, e, err, "cannot keep a set of questions");
+	snprintf(e->qid, sizeof(e->qid), "q%llu", ++ctx->ask_serial);
+	e->done = done;
+	e->user = user;
+	for (ep = &ctx->ask_entries; *ep; ep = &(*ep)->next)
+		;
+	*ep = e;
+	if (fyai_ui_ask(ctx, e->qid, questions, from)) {
+		*ep = NULL;
+		free(e);
+		return -1;
+	}
+	return 0;
+err:
+	return -1;
 }
 
 void fyai_ask_close(struct fyai_ctx *ctx, void *user)
 {
-	fyai_ui_ask_withdraw(ctx, user);
+	struct fyai_ask_entry **ep, *e;
+
+	if (!ctx)
+		return;
+	ep = &ctx->ask_entries;
+	while ((e = *ep)) {
+		if (e->user != user) {
+			ep = &e->next;
+			continue;
+		}
+		*ep = e->next;
+		fyai_ui_ask_withdraw(ctx, e->qid);
+		free(e);
+	}
+}
+
+void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
+		     const struct fyai_ask_reply *replies, size_t n)
+{
+	struct fyai_ask_entry **ep, *e;
+
+	for (ep = &ctx->ask_entries; (e = *ep); ep = &e->next)
+		if (!strcmp(e->qid, qid))
+			break;
+	if (!e)
+		return;
+	*ep = e->next;
+	/* The callback can open the next set: it is linked again by then. */
+	e->done(e->user, replies, n);
+	free(e);
+}
+
+void fyai_ask_settle_all(struct fyai_ctx *ctx)
+{
+	while (ctx && ctx->ask_entries)
+		fyai_ask_settle(ctx, ctx->ask_entries->qid, NULL, 0);
+}
+
+void fyai_ask_abandon(struct fyai_ctx *ctx)
+{
+	struct fyai_ask_entry *e;
+
+	while (ctx && (e = ctx->ask_entries)) {
+		ctx->ask_entries = e->next;
+		free(e);
+	}
 }

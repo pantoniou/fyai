@@ -48,6 +48,7 @@
 #include "fyai_browser.h"
 #include "fyai_agents.h"
 #include "fyai_prof.h"
+#include "fyai_ask.h"
 #include "fyai_ui.h"
 #include "fyai_tools.h"
 #include "fyai_home.h"
@@ -2486,6 +2487,8 @@ void fyai_cleanup(struct fyai_ctx *ctx)
 	fyai_cleanup_transient_builder(ctx);
 	fyai_sink_destroy(ctx->sink);
 	ctx->sink = NULL;
+	/* After the renderers, which settle what they showed. */
+	fyai_ask_abandon(ctx);
 
 	if (ctx->headers) {
 		curl_slist_free_all(ctx->headers);

@@ -86,8 +86,7 @@ struct ui_question {
 	size_t cursor[FYAI_ASK_QUESTIONS_MAX];
 	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
 	bool given[FYAI_ASK_QUESTIONS_MAX];
-	fyai_ui_ask_fn done;
-	void *user;
+	char qid[32];		/* the set of the ask registry */
 };
 struct ui_spool { int saved, reader; off_t off; };
 
@@ -1648,20 +1647,19 @@ bool fyai_ui_ask_available(struct fyai_ctx *ctx)
 	return fyai_ui_active(ctx) && ctx->ui->page != NULL;
 }
 
-int fyai_ui_ask(struct fyai_ctx *ctx, fy_generic questions, const char *from,
-		fyai_ui_ask_fn done, void *user)
+int fyai_ui_ask(struct fyai_ctx *ctx, const char *qid, fy_generic questions,
+		const char *from)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct ui_question *q, **qp;
 	size_t nq;
 
 	nq = fy_is_sequence(questions) ? fy_len(questions) : 0;
-	if (!ui || !ui->page || !done || !nq || nq > FYAI_ASK_QUESTIONS_MAX)
+	if (!ui || !ui->page || !nq || nq > FYAI_ASK_QUESTIONS_MAX)
 		return -1;
 	q = calloc(1, sizeof(*q));
 	fyai_error_check(ctx, q, err_out, "cannot allocate a question");
-	q->done = done;
-	q->user = user;
+	snprintf(q->qid, sizeof(q->qid), "%s", qid);
 	fyai_error_check(ctx, ui_question_copy(q, questions), err_free,
 			 "cannot keep a question");
 	if (from && *from) {
@@ -1695,12 +1693,13 @@ static void ui_question_finish(struct fyai_ui *ui, bool answered)
 	ui->page_focus[0] = '\0';
 	ui->frame_pending = true;
 	(void)fytim_set_input(ui->ft, NULL);
-	q->done(q->user, answered ? q->replies : NULL, q->nq);
+	/* The answer goes to the engine, which owns the set. */
+	fyai_ask_settle(ui->ctx, q->qid, answered ? q->replies : NULL, q->nq);
 	ui_question_free(q);
 	fyai_ui_wake(ui->ctx);
 }
 
-void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user)
+void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, const char *qid)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct ui_question **qp, *q;
@@ -1709,7 +1708,7 @@ void fyai_ui_ask_withdraw(struct fyai_ctx *ctx, void *user)
 		return;
 	qp = &ui->questions;
 	while ((q = *qp)) {
-		if (q->user != user) {
+		if (strcmp(q->qid, qid)) {
 			qp = &q->next;
 			continue;
 		}
@@ -3466,9 +3465,9 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	while (ui->questions) {
 		q = ui->questions;
 		ui->questions = q->next;
-		q->done(q->user, NULL, 0);
 		ui_question_free(q);
 	}
+	fyai_ask_settle_all(ctx);
 	fymd_set_glyph_width(NULL);
 	fytim_destroy(ui->ft);
 	fyai_diag_trace_tap(NULL, NULL);
