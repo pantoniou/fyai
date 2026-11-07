@@ -19,6 +19,7 @@
 #include <libfymd4c.h>
 
 #include "fyai_markdown.h"
+#include "fyai_uiwork.h"
 #include "fyai_sink.h"
 #include "fyai_ui.h"
 #include "fyai.h"
@@ -2394,6 +2395,26 @@ out:
 }
 
 /* Accumulate data and repaint at the configured interval. */
+/*
+ * Give the source to the work store of the band that the stream paints: its
+ * own band, or the shared band of a live stream. Plain output is the bytes of
+ * a program, which a renderer replays as a terminal does.
+ */
+static void fenced_stream_tap(struct fyai_fenced_stream *fs,
+			      const char *data, size_t len)
+{
+	struct fyai_sink_band *band = fs->band;
+
+	if (!band && fs->live)
+		band = fyai_sink_band_shared(fs->ctx->sink);
+	if (!band)
+		return;
+	fyai_uiwork_band_source(fs->ctx, band, fs,
+				fs->markdown_quote ? "markdown" :
+				fs->lang ? "code" : "terminal",
+				fs->lang, data, len);
+}
+
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 			    const char *data, size_t len)
 {
@@ -2410,6 +2431,7 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 		fs->accum.len += len;
 		fs->accum.data[fs->accum.len] = '\0';
 	}
+	fenced_stream_tap(fs, data, len);
 	/* Off a terminal there is nothing to repaint; just accumulate and render
 	 * once at finish (avoids re-rendering the whole block on every chunk). */
 	if (!fs->live)

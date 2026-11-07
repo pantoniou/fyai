@@ -19,6 +19,7 @@
 #include "fyai_markdown.h"
 #include "fyai_sink.h"
 #include "fyai_uilog.h"
+#include "fyai_uiwork.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_view.h"
 #include "fyai_ui.h"
@@ -1580,6 +1581,9 @@ void fyai_sink_destroy(struct fyai_sink *s)
 {
 	if (!s)
 		return;
+	/* The bands of the display go with the sink that holds them. */
+	if (s->ctx && s == s->ctx->sink)
+		fyai_uiwork_release(s->ctx);
 	if (s->ops->destroy)
 		s->ops->destroy(s);
 	free(s);
@@ -1654,15 +1658,23 @@ struct fyai_sink_band *fyai_sink_band_open(struct fyai_sink *s, bool shared,
 					   const char *title,
 					   const char *command)
 {
+	struct fyai_sink_band *b;
+
 	if (!s || !s->ops->band_open)
 		return NULL;
-	return s->ops->band_open(s, shared, title, command);
+	b = s->ops->band_open(s, shared, title, command);
+	/* The work store takes the bands of the display at their input. */
+	if (b && s == s->ctx->sink)
+		fyai_uiwork_band_open(s->ctx, b, shared, title, command);
+	return b;
 }
 
 void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 			  const char *command, const char *body, size_t len,
 			  const char *margin)
 {
+	if (b && b->ctx)
+		fyai_uiwork_band_paint(b->ctx, b, title, command, body, len);
 	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_paint)
 		b->ctx->sink->ops->band_paint(b, title, command, body, len,
 					      margin);
@@ -1670,6 +1682,8 @@ void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 
 void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
+	if (s && s == s->ctx->sink)
+		fyai_uiwork_band_end(s->ctx, NULL);
 	if (s && s->ops->band_close)
 		s->ops->band_close(s, ok, cause);
 }
@@ -1693,12 +1707,16 @@ void fyai_sink_band_set_repaint(struct fyai_sink_band *b,
 
 void fyai_sink_band_commit(struct fyai_sink_band *b)
 {
+	if (b && b->ctx)
+		fyai_uiwork_band_end(b->ctx, b);
 	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_commit)
 		b->ctx->sink->ops->band_commit(b);
 }
 
 void fyai_sink_band_destroy(struct fyai_sink_band *b)
 {
+	if (b && b->ctx)
+		fyai_uiwork_band_end(b->ctx, b);
 	if (b && b->ctx && b->ctx->sink && b->ctx->sink->ops->band_destroy)
 		b->ctx->sink->ops->band_destroy(b);
 }

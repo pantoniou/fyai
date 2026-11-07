@@ -66,6 +66,7 @@
 #include "fyai_ui.h"
 #include "fyai_uimodel.h"
 #include "fyai_uilog.h"
+#include "fyai_uiwork.h"
 #include "fyai_workpane.h"
 
 const char *fyai_tool_name_canonical(const char *name)
@@ -3061,6 +3062,7 @@ struct fyai_tool_job {
 	fy_generic display;		/* tool-resolved presentation, if any */
 	fy_generic diag;		/* diagnostics collected by the child */
 	char *origin;			/* who the child was, for a diagnostic */
+	bool is_agent;			/* the call delegates to a sub-agent */
 	pid_t pid;
 	uint64_t transport_exec;	/* the transport's id for this sub-agent, or 0 */
 	int rfd;
@@ -3198,11 +3200,42 @@ static void fyai_agent_tty_size(struct fyai_ctx *ctx, int *rowsp, int *colsp)
 	*colsp = cols;
 }
 
+/*
+ * Write the live work of the session to the work store of the UI model: each
+ * program that runs in a terminal session, the user's or the model's, and
+ * each sub-agent that runs.
+ */
+static void fyai_tools_work_update(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	fy_generic items = fy_seq_empty;
+
+	if (gb) {
+		for (sess = ctx->shell_sessions; sess; sess = sess->next)
+			if (!sess->exited)
+				items = fy_append(gb, items, fy_mapping(gb,
+					"kind", sess->user_owned ?
+						"user-shell" : "shell",
+					"name", sess->name ? sess->name : ""));
+		for (job = ctx->tool_jobs; job; job = job->next)
+			if (job->is_agent && !job->done)
+				items = fy_append(gb, items, fy_mapping(gb,
+					"kind", "agent",
+					"name", job->branch ? job->branch : ""));
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_WORK, "items",
+					      items);
+	}
+	fyai_uimodel_end(ctx);
+}
+
 /* Keep the live jobs reachable, so that a resize finds every child. */
 static void fyai_tool_job_link(struct fyai_ctx *ctx, struct fyai_tool_job *job)
 {
 	job->next = ctx->tool_jobs;
 	ctx->tool_jobs = job;
+	fyai_tools_work_update(ctx);
 }
 
 static void fyai_tool_job_unlink(struct fyai_ctx *ctx,
@@ -3215,6 +3248,7 @@ static void fyai_tool_job_unlink(struct fyai_ctx *ctx,
 			continue;
 		*pp = job->next;
 		job->next = NULL;
+		fyai_tools_work_update(ctx);
 		return;
 	}
 }
@@ -3578,6 +3612,7 @@ fyai_shell_session_create(struct fyai_ctx *ctx, const char *name,
 	}
 	sess->next = ctx->shell_sessions;
 	ctx->shell_sessions = sess;
+	fyai_tools_work_update(ctx);
 	/* The program of the session outlives the exchange that started it. */
 	sess->pinned = true;
 	fyai_scope_pin(ctx);
@@ -4066,6 +4101,7 @@ static void fyai_shell_session_exited(struct fyai_shell_session *sess,
 	sess->exited = true;
 	sess->exit_code = exit_code;
 	sess->signal = signal;
+	fyai_tools_work_update(sess->ctx);
 	/* The program has gone, so the session no longer needs the scope. */
 	if (sess->pinned) {
 		sess->pinned = false;
@@ -4200,6 +4236,7 @@ static void fyai_shell_session_dismiss(struct fyai_shell_session *sess)
 	if (*link)
 		*link = sess->next;
 	fyai_shell_session_release_one(sess, false);
+	fyai_tools_work_update(ctx);
 	fyai_ui_wake(ctx);
 }
 
@@ -4239,6 +4276,7 @@ void fyai_shell_sessions_release(struct fyai_ctx *ctx, bool force)
 		ctx->shell_sessions = sess->next;
 		fyai_shell_session_release_one(sess, force);
 	}
+	fyai_tools_work_update(ctx);
 }
 
 /*
@@ -4261,6 +4299,7 @@ void fyai_shell_sessions_release_turn(struct fyai_ctx *ctx)
 		*link = sess->next;
 		fyai_shell_session_release_one(sess, true);
 	}
+	fyai_tools_work_update(ctx);
 }
 
 /* The reading a session offers: what appeared, the screen, or part of it. */
@@ -5324,6 +5363,7 @@ static void fyai_tool_job_update_done(struct fyai_tool_job *job)
 	job->done = job->session ? !job->out_open :
 				   (job->reaped && !job->out_open);
 	if (!was_done && job->done) {
+		fyai_tools_work_update(job->ctx);
 		fyai_tool_job_drop(&job->band_delay);
 		job->elapsed_ms = fyai_event_now_ms() - job->started_ms;
 		if (job->agent && job->timeout_ms &&
@@ -5591,6 +5631,7 @@ static void fyai_ctx_fork_disown(struct fyai_ctx *ctx)
 	fyai_asks_abandon(ctx);			/* and its pending questions */
 	fyai_ask_abandon(ctx);			/* the questions the parent put */
 	fyai_uilog_release(ctx);		/* the span of its command */
+	fyai_uiwork_release(ctx);		/* the bands of the parent */
 	fyai_uimodel_abandon(ctx);		/* the renderers of the parent */
 	fyai_waiters_abandon(ctx);		/* and the waits that hold a call */
 	fyai_agent_background_abandon(ctx);	/* its background sub-agents */
@@ -6713,6 +6754,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 		"could not spawn tool job");
 	job->view_run = view_run;
 	view_run = NULL;
+	job->is_agent = fy_equal(name, "agent");
 	fyai_tool_job_link(ctx, job);
 	if (have_session) {
 		user_owned = fy_get(args, "_fyai_user_owned", false);

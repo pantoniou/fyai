@@ -370,6 +370,7 @@ void fyai_uimodel_view_detach(struct fyai_ctx *view)
 {
 	view->uimodel = NULL;
 	view->uilog = NULL;
+	view->uiwork = NULL;
 	view->ask_entries = NULL;
 	view->uimodel_detached = true;
 }

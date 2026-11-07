@@ -17,6 +17,7 @@
 
 #include "fyai.h"
 #include "fyai_chrome.h"
+#include "fyai_uimodel.h"
 #include "fyai_diag.h"
 #include "fyai_markdown.h"
 #include "fyai_terminal.h"
@@ -382,6 +383,33 @@ int fyai_chrome_focus_cells(struct fyai_ctx *ctx, struct fytim_cell *cells,
 	return 0;
 }
 
+/*
+ * The live user shells, model shells and sub-agents of the work store, in
+ * @counts. The counts of the tools are the oracle of the store.
+ */
+static void chrome_work_counts(struct fyai_ctx *ctx, int counts[3])
+{
+	fy_generic item;
+	const char *kind;
+	int legacy[3];
+
+	counts[0] = counts[1] = counts[2] = 0;
+	fy_foreach(item, fy_get(fyai_uimodel_get(ctx, FYAI_UI_WORK), "items",
+				fy_seq_empty)) {
+		kind = fy_get(item, "kind", "");
+		if (!strcmp(kind, "user-shell"))
+			counts[0]++;
+		else if (!strcmp(kind, "shell"))
+			counts[1]++;
+		else if (!strcmp(kind, "agent"))
+			counts[2]++;
+	}
+	fyai_tools_counts(ctx, &legacy[0], &legacy[1], &legacy[2]);
+	fyai_uimodel_check(ctx, FYAI_UI_WORK, "counts",
+		fy_sprintfa("%d %d %d", counts[0], counts[1], counts[2]),
+		fy_sprintfa("%d %d %d", legacy[0], legacy[1], legacy[2]));
+}
+
 int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
 		      int messages, enum fyai_error_type level,
 		      struct fyai_chrome_panel_info *info)
@@ -402,7 +430,7 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
 	bool hidden, color, work;
 
 	memset(info, 0, sizeof(*info));
-	fyai_tools_counts(ctx, &counts[0], &counts[1], &counts[2]);
+	chrome_work_counts(ctx, counts);
 	hidden = fyai_workpane_hidden(ctx->workpane);
 	work = hidden || counts[0] || counts[1] || counts[2];
 	if (!work && messages <= 0)
