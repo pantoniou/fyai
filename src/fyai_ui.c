@@ -218,6 +218,7 @@ struct fyai_ui {
 	char *pending_fit;
 	/* The entry the todo panel was built from, to see it change. */
 	fy_generic_value todo_entry;
+	unsigned long long todo_seq;	/* of the panels store */
 	/* The rendered preview of the option under the cursor of a question. */
 	struct ui_rendered preview;
 	int note_nlines;
@@ -2440,7 +2441,7 @@ static void ui_page_update(struct fyai_ui *ui)
 	char hint_fit[256];
 	struct fyai_transcript_view *blocks;
 	const char *rule_off, *typed, *tail;
-	char *activity = NULL;
+	char *activity = NULL, *legacy;
 	fy_generic turn;
 	int cols = 0, rows = 0, n, i, sep_cols, rc;
 	bool side, busy;
@@ -2615,17 +2616,25 @@ static void ui_page_update(struct fyai_ui *ui)
 	st.note_lines = (const char *const *)ui->note;
 	st.note_nlines = ui->note_nlines;
 	/*
-	 * The todo panel follows the stored list: rebuild it when the branch
-	 * entry moved. The panel is branch state, as the configuration is,
-	 * so a publish on this or another branch can change it.
+	 * The todo panel follows the panels store. The legacy reading of the
+	 * branch entry is the oracle of the store: each change of either
+	 * compares the two.
 	 */
-	if (ctx->branch_prev.v != ui->todo_entry) {
+	if (fyai_uimodel_seq(ctx, FYAI_UI_PANELS) != ui->todo_seq ||
+	    ctx->branch_prev.v != ui->todo_entry) {
+		ui->todo_seq = fyai_uimodel_seq(ctx, FYAI_UI_PANELS);
 		ui->todo_entry = ctx->branch_prev.v;
 		free(ui->todo_source);
 		ui->todo_rows = 0;
 		ui->todo_cols = 0;
-		ui->todo_source = fyai_todo_panel(ctx);
+		ui->todo_source = fyai_todo_panel_source(fy_get(
+			fyai_uimodel_get(ctx, FYAI_UI_PANELS), "todo",
+			fy_seq_empty));
 		ui->todo_shown = ui->todo_source != NULL;
+		legacy = fyai_todo_panel(ctx);
+		fyai_uimodel_check(ctx, FYAI_UI_PANELS, "todo",
+				   ui->todo_source, legacy);
+		free(legacy);
 		ui->frame_pending = true;
 	}
 	if (ui->todo_source && ui->todo_cols != cols) {

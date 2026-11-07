@@ -9,8 +9,9 @@
 /* Return the active branch or FYAI_BRANCH_DEFAULT. */
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx);
 /*
- * Adopt @entry as the entry of the current branch. Each path that adopts a
- * root sets the entry through it.
+ * Adopt @entry as the entry of the current branch, and give the branch state
+ * that the display shows to the UI model. Each path that adopts a root sets
+ * the entry through it.
  */
 void fyai_ctx_branch_prev_set(struct fyai_ctx *ctx, fy_generic entry);
 

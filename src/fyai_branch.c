@@ -14,6 +14,7 @@
 #include "fyai_branch.h"
 #include "fyai_render.h"
 #include "fyai_storage.h"
+#include "fyai_todo.h"
 #include "fyai_turn.h"
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
@@ -21,6 +22,7 @@
 void fyai_ctx_branch_prev_set(struct fyai_ctx *ctx, fy_generic entry)
 {
 	ctx->branch_prev = entry;
+	fyai_todo_model_update(ctx);
 }
 
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx)

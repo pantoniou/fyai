@@ -21,6 +21,7 @@
 #include "fyai_markdown.h"
 #include "fyai_storage.h"
 #include "fyai_todo.h"
+#include "fyai_uimodel.h"
 #include "utils.h"
 
 /* Whether @s names a usable todo state. */
@@ -318,6 +319,22 @@ char *fyai_todo_panel_source(fy_generic rows)
 char *fyai_todo_panel(struct fyai_ctx *ctx)
 {
 	return fyai_todo_panel_source(todo_stored_generic(ctx));
+}
+
+void fyai_todo_model_update(struct fyai_ctx *ctx)
+{
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+	fy_generic rows;
+
+	if (!gb)
+		return;
+	rows = fyai_todo_rows(ctx, gb);
+	if (fy_is_invalid(rows))
+		fyai_warning(ctx, "cannot keep the todo list for the display");
+	else
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_PANELS, "todo",
+					      rows);
+	fyai_uimodel_end(ctx);
 }
 
 char *fyai_todo_format(struct fyai_ctx *ctx)
