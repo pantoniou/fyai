@@ -18,10 +18,11 @@ models:
   - predicted_outputs
   - web_search
   open_source: false
-  introduced: 2023-11-08
+  introduced: 2026-09-28
 - name: auto-beta
   display_name: Auto Router (Beta)
   context_window: 2000000
+  max_output_tokens: 65536
   modalities:
   - text
   - image
@@ -30,13 +31,12 @@ models:
   - pdf
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
   - reasoning_effort
   - logprobs
-  - predicted_outputs
-  - web_search
   open_source: false
   introduced: 2026-07-17
 - name: big-pickle
@@ -202,12 +202,31 @@ models:
   modalities:
   - text
   capabilities:
+  - tool_calling
   - structured_outputs
   - json_mode
   open_source: false
   introduced: 2025-03-13
+- name: crouton-alpha
+  display_name: Crouton Alpha
+  context_window: 1048576
+  max_output_tokens: 943718
+  modalities:
+  - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-11-03
 - name: deepseek-flash
-  display_name: DeepSeek-V4.1-Flash
+  display_name: DeepSeek-V4.1-Flash-1017
   context_window: 1000000
   max_output_tokens: 384000
   modalities:
@@ -217,6 +236,7 @@ models:
   - json_mode
   - prefix_completion
   open_source: true
+  updated: 2026-10-17
 - name: deepseek-flash-latest
   display_name: 'DeepSeek: DeepSeek Flash Latest'
   context_window: 1048576
@@ -226,6 +246,7 @@ models:
   - image
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -236,7 +257,7 @@ models:
 - name: deepseek-pro-latest
   display_name: 'DeepSeek: DeepSeek Pro Latest'
   context_window: 1048576
-  max_output_tokens: 943718
+  max_output_tokens: 393216
   modalities:
   - text
   capabilities:
@@ -249,9 +270,9 @@ models:
   open_source: false
   introduced: 2026-09-14
 - name: deepseek-v4-flash
-  display_name: DeepSeek V4 Flash
+  display_name: 'DeepSeek: DeepSeek V4 Flash 0423'
   context_window: 1048576
-  max_output_tokens: 943718
+  max_output_tokens: 943717
   modalities:
   - text
   capabilities:
@@ -273,6 +294,7 @@ models:
   - tool_calling
   - json_mode
   - prefix_completion
+  - web_search
   open_source: true
   introduced: 2026-04-24
   updated: 2026-08-13
@@ -365,10 +387,10 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-09-02
-- name: gemini-3.8-flash:batch
-  display_name: 'Google: Gemini 3.8 Flash (batch)'
+- name: gemini-4-argon
+  display_name: 'Google: Gemini 4 Argon'
   context_window: 1048576
-  max_output_tokens: 65536
+  max_output_tokens: 943718
   modalities:
   - text
   - image
@@ -485,7 +507,7 @@ models:
 - name: glm-5.3-flash
   display_name: GLM 5.3 Flash
   context_window: 1048576
-  max_output_tokens: 943718
+  max_output_tokens: 943717
   modalities:
   - text
   - image
@@ -503,7 +525,7 @@ models:
 - name: glm-flash-latest
   display_name: 'Z.ai: GLM Flash Latest'
   context_window: 1048576
-  max_output_tokens: 943718
+  max_output_tokens: 131072
   modalities:
   - text
   - image
@@ -589,7 +611,7 @@ models:
   agents:
   - codex
 - name: gpt-6-sol
-  display_name: 'OpenAI: GPT-6 Sol'
+  display_name: GPT 6 Sol
   context_window: 1050000
   max_output_tokens: 128000
   modalities:
@@ -603,7 +625,7 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
-  introduced: 2026-09-14
+  introduced: 2026-09-22
   agents:
   - codex
 - name: gpt-6.1-sol
@@ -622,6 +644,24 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-09-27
+  agents:
+  - codex
+- name: gpt-6.1-terra
+  display_name: 'OpenAI: GPT-6.1 Terra'
+  context_window: 1050000
+  max_output_tokens: 128000
+  modalities:
+  - text
+  - image
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  open_source: false
+  introduced: 2026-10-13
   agents:
   - codex
 - name: gpt-astra-latest
@@ -659,7 +699,7 @@ models:
 - name: gpt-oss-120b
   display_name: 'OpenAI: gpt-oss-120b'
   context_window: 131072
-  max_output_tokens: 117964
+  max_output_tokens: 65536
   modalities:
   - text
   capabilities:
@@ -692,7 +732,7 @@ models:
 - name: gpt-oss-20b
   display_name: 'OpenAI: gpt-oss-20b'
   context_window: 131072
-  max_output_tokens: 32768
+  max_output_tokens: 117964
   modalities:
   - text
   capabilities:
@@ -801,12 +841,13 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-07-06
-- name: hy4-preview
-  display_name: 'Tencent: Hy4 preview'
+- name: hy4
+  display_name: 'Tencent: Hy4'
   context_window: 1048576
-  max_output_tokens: 64000
+  max_output_tokens: 65536
   modalities:
   - text
+  - image
   capabilities:
   - tool_calling
   - structured_outputs
@@ -814,7 +855,7 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
-  introduced: 2026-08-28
+  introduced: 2026-11-04
 - name: inkling
   display_name: Inkling
   context_window: 1048576
@@ -843,45 +884,10 @@ models:
   - reasoning_effort
   open_source: false
   introduced: 2026-07-30
-- name: inkling-small:free
-  display_name: 'Thinking Machines: Inkling Small (free)'
-  context_window: 1048576
-  max_output_tokens: 262144
-  modalities:
-  - text
-  - image
-  - audio
-  capabilities:
-  - tool_calling
-  - reasoning
-  - reasoning_effort
-  open_source: false
-  introduced: 2026-07-30
-- name: inkling:free
-  display_name: 'Thinking Machines: Inkling (free)'
-  context_window: 1048576
-  max_output_tokens: 262144
-  modalities:
-  - text
-  - image
-  - audio
-  capabilities:
-  - tool_calling
-  - reasoning
-  - reasoning_effort
-  open_source: false
-  introduced: 2026-07-17
-- name: jev-1.13
-  modalities:
-  - text
-  open_source: false
-- name: jev-1.13-free
-  modalities:
-  - text
-  open_source: false
 - name: jev-router
   display_name: 'TypeSafe: Jev Router'
   context_window: 1000000
+  max_output_tokens: 65536
   modalities:
   - text
   - image
@@ -908,6 +914,7 @@ models:
   - video
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -924,8 +931,8 @@ models:
   - tool_calling
   open_source: false
   introduced: 2026-07-19
-- name: kimi-latest
-  display_name: 'MoonshotAI: Kimi Latest'
+- name: kimi-k3.1-pro
+  display_name: Kimi K3.1 Pro
   context_window: 1048576
   max_output_tokens: 943718
   modalities:
@@ -939,30 +946,26 @@ models:
   - reasoning
   - reasoning_effort
   - logprobs
+  open_source: true
+  introduced: 2026-10-23
+- name: kimi-latest
+  display_name: 'MoonshotAI: Kimi Latest'
+  context_window: 1048576
+  max_output_tokens: 943718
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - tool_calling
+  - parallel_tool_calls
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
   open_source: false
   introduced: 2026-04-27
-- name: laguna-s-2.1
-  display_name: 'Poolside: Laguna S 2.1'
-  context_window: 1048576
-  max_output_tokens: 131072
-  modalities:
-  - text
-  capabilities:
-  - tool_calling
-  - reasoning
-  open_source: false
-  introduced: 2026-07-21
-- name: laguna-s-2.1:free
-  display_name: 'Poolside: Laguna S 2.1 (free)'
-  context_window: 262144
-  max_output_tokens: 32768
-  modalities:
-  - text
-  capabilities:
-  - tool_calling
-  - reasoning
-  open_source: false
-  introduced: 2026-07-21
 - name: lfm-2.5-2.6b:free
   display_name: 'LiquidAI: LFM2.5-2.6B (free)'
   context_window: 65536
@@ -977,23 +980,34 @@ models:
   - logprobs
   open_source: true
   introduced: 2026-08-11
-- name: ling-3.1-flash
-  display_name: 'inclusionAI: Ling 3.1 Flash'
-  context_window: 262144
-  max_output_tokens: 235929
+- name: lfm-2.5-24b-a2b
+  display_name: 'LiquidAI: LFM2.5-24B-A2B'
+  context_window: 128000
+  max_output_tokens: 8192
   modalities:
   - text
   capabilities:
   - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - logprobs
+  open_source: true
+  introduced: 2026-10-13
+- name: ling-3.1-flash
+  display_name: 'inclusionAI: Ling 3.1 Flash'
+  context_window: 1000000
+  max_output_tokens: 262144
+  modalities:
+  - text
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
   - reasoning
   - logprobs
   open_source: false
   introduced: 2026-10-02
-- name: ling-3.1-flash-free
-  display_name: Ling 3.1 Flash Free
-  modalities:
-  - text
-  open_source: false
 - name: longcat-2.0
   display_name: 'Meituan: LongCat 2.0'
   context_window: 1048756
@@ -1005,15 +1019,10 @@ models:
   - reasoning
   open_source: false
   introduced: 2026-07-20
-- name: longcat-2.5-preview-free
-  display_name: LongCat 2.5 Preview Free
-  modalities:
-  - text
-  open_source: false
-- name: mercury-2.5
-  display_name: 'Inception: Mercury 2.5'
-  context_window: 260000
-  max_output_tokens: 65536
+- name: mercury-3
+  display_name: 'Inception: Mercury 3'
+  context_window: 1000000
+  max_output_tokens: 131072
   modalities:
   - text
   capabilities:
@@ -1023,7 +1032,7 @@ models:
   - reasoning
   - reasoning_effort
   open_source: false
-  introduced: 2026-09-08
+  introduced: 2026-10-16
 - name: mimo-v2.6-flash
   display_name: 'Xiaomi: MiMo-V2.6-Flash'
   context_window: 1050000
@@ -1035,6 +1044,7 @@ models:
   - video
   capabilities:
   - tool_calling
+  - parallel_tool_calls
   - structured_outputs
   - json_mode
   - reasoning
@@ -1060,6 +1070,7 @@ models:
   - structured_outputs
   - json_mode
   - reasoning
+  - logprobs
   open_source: false
   introduced: 2026-09-21
 - name: minimax-m3
@@ -1078,6 +1089,23 @@ models:
   - logprobs
   open_source: true
   introduced: 2026-05-31
+- name: minimax-m3.1-flash
+  display_name: MiniMax M3.1 Flash
+  context_window: 1048576
+  max_output_tokens: 524288
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
+  open_source: true
+  introduced: 2026-10-17
 - name: mistral-large-4
   display_name: Mistral Large 4
   modalities:
@@ -1133,10 +1161,20 @@ models:
   - web_search
   open_source: false
   introduced: 2026-09-02
-- name: muse-spark-1.3-contributor-free
-  display_name: Muse Spark 1.3 Free
+- name: muse-wonder-1.0
+  context_window: 1048576
   modalities:
   - text
+  - image
+  - audio
+  - video
+  - pdf
+  capabilities:
+  - tool_calling
+  - structured_outputs
+  - reasoning
+  - reasoning_effort
+  - web_search
   open_source: false
 - name: mythomax-l2-13b
   display_name: MythoMax 13B
@@ -1163,17 +1201,6 @@ models:
   display_name: 'NVIDIA: Nemotron 3.5 Content Safety'
   context_window: 131072
   max_output_tokens: 117964
-  modalities:
-  - text
-  - image
-  capabilities:
-  - reasoning
-  open_source: true
-  introduced: 2026-06-04
-- name: nemotron-3.5-content-safety:free
-  display_name: 'NVIDIA: Nemotron 3.5 Content Safety (free)'
-  context_window: 128000
-  max_output_tokens: 8192
   modalities:
   - text
   - image
@@ -1211,6 +1238,23 @@ models:
   - reasoning
   open_source: true
   introduced: 2026-08-11
+- name: nemotron-3.5-super-vl-120b-a12b
+  display_name: Nemotron 3.5 Super VL 120B A12B
+  context_window: 1048576
+  max_output_tokens: 8192
+  modalities:
+  - text
+  - image
+  - video
+  capabilities:
+  - tool_calling
+  - reasoning
+  open_source: true
+  introduced: 2026-10-15
+- name: nemotron-4-340b-instruct
+  modalities:
+  - text
+  open_source: false
 - name: nemotron-lightning-3.5-30b-a3b
   display_name: Nemotron Lightning 3.5 30B A3B
   context_window: 262144
@@ -1220,23 +1264,19 @@ models:
   - tool_calling
   open_source: true
   introduced: 2026-08-07
-- name: pareto
-  display_name: Pareto
-  context_window: 262144
-  max_output_tokens: 131072
-  modalities:
-  - text
-  - image
-  capabilities:
-  - tool_calling
-  - json_mode
-  open_source: false
-  introduced: 2026-09-17
 - name: pareto-code
   display_name: Pareto Code Router
   context_window: 2000000
   modalities:
   - text
+  capabilities:
+  - tool_calling
+  - parallel_tool_calls
+  - structured_outputs
+  - json_mode
+  - reasoning
+  - reasoning_effort
+  - logprobs
   open_source: false
   introduced: 2026-04-21
 - name: phi-4
@@ -1281,7 +1321,7 @@ models:
   introduced: 2026-08-12
 - name: qwen3.8-27b
   display_name: 'Qwen: Qwen3.8 27B'
-  context_window: 1000000
+  context_window: 1024000
   max_output_tokens: 235929
   modalities:
   - text
@@ -1321,6 +1361,18 @@ models:
   - tool_calling
   open_source: true
   introduced: 2026-08-05
+- name: ripple-65b-preview
+  display_name: 'Ricursive: Ripple 65B Preview'
+  context_window: 1048576
+  max_output_tokens: 131072
+  modalities:
+  - text
+  capabilities:
+  - tool_calling
+  - json_mode
+  - logprobs
+  open_source: false
+  introduced: 2026-11-04
 - name: schematron-v2-turbo
   display_name: 'Inference.net: Schematron V2 Turbo'
   context_window: 128000
@@ -1347,14 +1399,9 @@ models:
   - reasoning
   open_source: false
   introduced: 2026-08-12
-- name: space-bunny-free
-  display_name: Space Bunny Free
-  modalities:
-  - text
-  open_source: false
 - name: step-5-preview
   display_name: 'StepFun: Step 5 Preview'
-  context_window: 1000000
+  context_window: 1048576
   max_output_tokens: 64000
   modalities:
   - text
@@ -1369,11 +1416,6 @@ models:
   - logprobs
   open_source: false
   introduced: 2026-10-08
-- name: step-5-preview-free
-  display_name: Step 5 Preview Free
-  modalities:
-  - text
-  open_source: false
 - name: switchyard
   display_name: 'NVIDIA: Switchyard'
   context_window: 1000000
@@ -1581,8 +1623,32 @@ providers:
       system_prompt_supported: true
       developer_role_supported: false
       automatic_prompt_caching_supported: true
+  - protocol: responses
+    endpoint: /responses
+    hosted_tools:
+    - web_search
+    local_tools:
+    - function_calling
+    capabilities:
+      streaming_supported: true
+      function_calling_supported: true
+      parallel_tool_calls_supported: true
+      tool_choice_supported: true
+      strict_json_schema_supported: true
+      shell_tool_supported: false
+      mcp_supported: false
+      server_side_conversation_state_supported: false
+      previous_response_id_supported: false
+      response_lifecycle_supported: false
+      system_prompt_supported: true
+      developer_role_supported: true
+      automatic_prompt_caching_supported: true
+      reasoning_controls_supported: true
+      response_compaction_supported: false
   - protocol: messages
     endpoint: /anthropic/v1/messages
+    hosted_tools:
+    - web_search
     local_tools:
     - function_calling
     capabilities:
@@ -1597,16 +1663,24 @@ providers:
       system_prompt_supported: true
       developer_role_supported: false
       automatic_prompt_caching_supported: true
+  - protocol: search
+    endpoint: /v1/tools/search
+    hosted_tools:
+    - web_search
+  - protocol: fetch
+    endpoint: /v1/tools/fetch
+    hosted_tools:
+    - web_fetch
   models:
   - canonical_id: deepseek-flash
     provider_model_id: deepseek-flash
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.15
-      output: 0.6
+      input: 0.3
+      output: 1.2
       extra:
-        cache_read: 0.003
+        cache_read: 0.006
     reported_modalities:
     - text
     reported_capabilities:
@@ -1620,10 +1694,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.66
-      output: 1.98
+      input: 1.32
+      output: 3.96
       extra:
-        cache_read: 0.022
+        cache_read: 0.044
     reported_modalities:
     - text
     reported_capabilities:
@@ -1632,6 +1706,7 @@ providers:
     - json_output
     - responses_api
     - tool_calls
+    - web_search
   personas:
     orchestrate:
     - deepseek-v4-pro
@@ -1793,6 +1868,20 @@ providers:
     - image
     reported_capabilities:
     - function_calling
+  - canonical_id: kimi-k3.1-pro
+    provider_model_id: accounts/fireworks/models/kimi-k3p1-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
+      output: 10.0
+      extra:
+        cache_read: 0.2
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - function_calling
   - canonical_id: minimax-m3
     provider_model_id: accounts/fireworks/models/minimax-m3
     pricing:
@@ -1804,6 +1893,20 @@ providers:
         cache_read: 0.06
     reported_modalities:
     - text
+    reported_capabilities:
+    - function_calling
+  - canonical_id: minimax-m3.1-flash
+    provider_model_id: accounts/fireworks/models/minimax-m3p1-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.15
+      output: 0.6
+      extra:
+        cache_read: 0.015
+    reported_modalities:
+    - text
+    - image
     reported_capabilities:
     - function_calling
   - canonical_id: nemotron-3-ultra-nvfp4
@@ -1892,67 +1995,79 @@ providers:
     orchestrate:
     - accounts/fireworks/models/ember-1
     - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/kimi-k3p1-pro
     - accounts/fireworks/models/qwen3p8-max
     - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/minimax-m3p1-flash
     - accounts/fireworks/models/gpt-oss-120b
     - accounts/fireworks/models/glm-5p3-flash
     - accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b
     plan:
     - accounts/fireworks/models/ember-1
     - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/kimi-k3p1-pro
     - accounts/fireworks/models/qwen3p8-max
     - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/minimax-m3p1-flash
     - accounts/fireworks/models/gpt-oss-120b
     - accounts/fireworks/models/glm-5p3-flash
     - accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b
     code:
     - accounts/fireworks/models/ember-1
     - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/kimi-k3p1-pro
     - accounts/fireworks/models/qwen3p8-max
     - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/minimax-m3p1-flash
     - accounts/fireworks/models/gpt-oss-120b
     - accounts/fireworks/models/glm-5p3-flash
     - accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b
     explore:
     - accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b
     - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/minimax-m3p1-flash
     - accounts/fireworks/models/gpt-oss-120b
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/qwen3p8-max
+    - accounts/fireworks/models/kimi-k3p1-pro
     - accounts/fireworks/models/ember-1
     - accounts/fireworks/models/kimi-k3
     review:
     - accounts/fireworks/models/ember-1
     - accounts/fireworks/models/kimi-k3
+    - accounts/fireworks/models/kimi-k3p1-pro
     - accounts/fireworks/models/qwen3p8-max
     - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/minimax-m3
+    - accounts/fireworks/models/minimax-m3p1-flash
     - accounts/fireworks/models/gpt-oss-120b
     - accounts/fireworks/models/glm-5p3-flash
     - accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b
     summarize:
     - accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b
     - accounts/fireworks/models/glm-5p3-flash
+    - accounts/fireworks/models/minimax-m3p1-flash
     - accounts/fireworks/models/gpt-oss-120b
     - accounts/fireworks/models/minimax-m3
     - accounts/fireworks/models/nemotron-3-ultra-nvfp4
     - accounts/fireworks/models/inkling
     - accounts/fireworks/models/glm-5p3
     - accounts/fireworks/models/qwen3p8-max
+    - accounts/fireworks/models/kimi-k3p1-pro
     - accounts/fireworks/models/ember-1
     - accounts/fireworks/models/kimi-k3
 - name: google
@@ -2003,10 +2118,14 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.75
-      output: 3.75
+      input: 0.825
+      output: 4.125
       extra:
-        cache_read: 0.075
+        cache_read: 0.0825
+        cache_write: 0.041667
+        web_search: 14000.0
+        reasoning: 4.125
+        image: 0.825
     reported_modalities:
     - text
     - image
@@ -2026,25 +2145,25 @@ providers:
     - tool_choice
     - tools
     - top_p
-  - canonical_id: gemini-3.8-flash:batch
-    provider_model_id: gemini-3.8-flash:batch
+  - canonical_id: gemini-4-argon
+    provider_model_id: gemini-4-argon
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.375
-      output: 1.875
+      input: 2.0
+      output: 10.0
       extra:
-        cache_read: 0.0375
-        cache_write: 0.041667
+        cache_read: 0.1
+        cache_write: 0.1875
         web_search: 14000.0
-        reasoning: 1.875
-        image: 0.375
+        reasoning: 10.0
+        image: 2.0
     reported_modalities:
-    - text
-    - image
-    - video
-    - file
     - audio
+    - file
+    - image
+    - text
+    - video
     reported_capabilities:
     - include_reasoning
     - max_tokens
@@ -2054,17 +2173,19 @@ providers:
     - seed
     - stop
     - structured_outputs
+    - temperature
     - tool_choice
     - tools
+    - top_p
   - canonical_id: gemma-4-26b-a4b-it
     provider_model_id: gemma-4-26b-a4b-it
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.09
-      output: 0.3
+      input: 0.0675
+      output: 0.225
       extra:
-        cache_read: 0.05
+        cache_read: 0.0375
     reported_modalities:
     - image
     - text
@@ -2074,6 +2195,7 @@ providers:
     - include_reasoning
     - logit_bias
     - logprobs
+    - max_completion_tokens
     - max_tokens
     - min_p
     - presence_penalty
@@ -2115,10 +2237,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.09
-      output: 0.34
-      extra:
-        cache_read: 0.05
+      input: 0.2
+      output: 0.4
     reported_modalities:
     - image
     - text
@@ -2128,6 +2248,7 @@ providers:
     - include_reasoning
     - logit_bias
     - logprobs
+    - max_completion_tokens
     - max_tokens
     - min_p
     - presence_penalty
@@ -2166,22 +2287,22 @@ providers:
     - top_p
   personas:
     orchestrate:
+    - gemini-4-argon
     - gemini-3.8-flash
-    - gemini-3.8-flash:batch
     - gemma-4-31b-it
     - gemma-4-26b-a4b-it
     - gemma-4-31b-it:free
     - gemma-4-26b-a4b-it:free
     plan:
+    - gemini-4-argon
     - gemini-3.8-flash
-    - gemini-3.8-flash:batch
     - gemma-4-31b-it
     - gemma-4-26b-a4b-it
     - gemma-4-31b-it:free
     - gemma-4-26b-a4b-it:free
     code:
+    - gemini-4-argon
     - gemini-3.8-flash
-    - gemini-3.8-flash:batch
     - gemma-4-31b-it
     - gemma-4-26b-a4b-it
     - gemma-4-31b-it:free
@@ -2191,11 +2312,11 @@ providers:
     - gemma-4-26b-a4b-it:free
     - gemma-4-26b-a4b-it
     - gemma-4-31b-it
-    - gemini-3.8-flash:batch
     - gemini-3.8-flash
+    - gemini-4-argon
     review:
+    - gemini-4-argon
     - gemini-3.8-flash
-    - gemini-3.8-flash:batch
     - gemma-4-31b-it
     - gemma-4-26b-a4b-it
     - gemma-4-31b-it:free
@@ -2205,8 +2326,8 @@ providers:
     - gemma-4-26b-a4b-it:free
     - gemma-4-26b-a4b-it
     - gemma-4-31b-it
-    - gemini-3.8-flash:batch
     - gemini-3.8-flash
+    - gemini-4-argon
 - name: meta
   root_url: https://api.meta.ai/v1
   endpoints:
@@ -2303,25 +2424,125 @@ providers:
     - reasoning
     - reasoning_effort
     - web_search
+  - canonical_id: muse-wonder-1.0
+    provider_model_id: muse-wonder-1.0
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 4.0
+      output: 20.0
+      extra:
+        cache_read: 0.2
+    reported_modalities:
+    - text
+    - image
+    - video
+    - audio
+    - pdf
+    reported_capabilities:
+    - tool_calling
+    - structured_outputs
+    - reasoning
+    - reasoning_effort
+    - web_search
   personas:
     orchestrate:
+    - muse-wonder-1.0
     - muse-spark-1.3
     - muse-spark-1.3-contributor
     plan:
+    - muse-wonder-1.0
     - muse-spark-1.3
     - muse-spark-1.3-contributor
     code:
+    - muse-wonder-1.0
     - muse-spark-1.3
     - muse-spark-1.3-contributor
     explore:
     - muse-spark-1.3-contributor
     - muse-spark-1.3
+    - muse-wonder-1.0
     review:
+    - muse-wonder-1.0
     - muse-spark-1.3
     - muse-spark-1.3-contributor
     summarize:
     - muse-spark-1.3-contributor
     - muse-spark-1.3
+    - muse-wonder-1.0
+- name: nvidia
+  root_url: https://integrate.api.nvidia.com/v1
+  endpoints:
+  - protocol: chat_completions
+    endpoint: /chat/completions
+    local_tools:
+    - function_calling
+    capabilities:
+      streaming_supported: true
+      system_prompt_supported: true
+  models:
+  - canonical_id: nemotron-3.5-super-vl-120b-a12b
+    provider_model_id: nvidia/nemotron-3.5-super-vl-120b-a12b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    - video
+    reported_capabilities:
+    - function_calling
+    - reasoning
+  - canonical_id: nemotron-4-340b-instruct
+    provider_model_id: nvidia/nemotron-4-340b-instruct
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+    reported_modalities:
+    - text
+  - canonical_id: glm-5.3-flash
+    provider_model_id: z-ai/glm-5.3-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    reported_capabilities:
+    - function_calling
+    - structured_outputs
+    - reasoning
+  personas:
+    orchestrate:
+    - nvidia/nemotron-3.5-super-vl-120b-a12b
+    - z-ai/glm-5.3-flash
+    - nvidia/nemotron-4-340b-instruct
+    plan:
+    - nvidia/nemotron-3.5-super-vl-120b-a12b
+    - z-ai/glm-5.3-flash
+    - nvidia/nemotron-4-340b-instruct
+    code:
+    - nvidia/nemotron-3.5-super-vl-120b-a12b
+    - z-ai/glm-5.3-flash
+    - nvidia/nemotron-4-340b-instruct
+    explore:
+    - nvidia/nemotron-3.5-super-vl-120b-a12b
+    - z-ai/glm-5.3-flash
+    - nvidia/nemotron-4-340b-instruct
+    review:
+    - nvidia/nemotron-3.5-super-vl-120b-a12b
+    - z-ai/glm-5.3-flash
+    - nvidia/nemotron-4-340b-instruct
+    summarize:
+    - nvidia/nemotron-3.5-super-vl-120b-a12b
+    - z-ai/glm-5.3-flash
+    - nvidia/nemotron-4-340b-instruct
 - name: openai
   root_url: https://api.openai.com
   endpoints:
@@ -2386,6 +2607,31 @@ providers:
       extra:
         cache_read: 0.075
         web_search: 10000.0
+    reported_modalities:
+    - file
+    - image
+    - text
+    reported_capabilities:
+    - include_reasoning
+    - max_completion_tokens
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - seed
+    - structured_outputs
+    - tool_choice
+    - tools
+    - verbosity
+  - canonical_id: gpt-6.1-terra
+    provider_model_id: gpt-6.1-terra
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 1.0
+      output: 5.0
+      extra:
+        cache_read: 0.05
     reported_modalities:
     - file
     - image
@@ -2477,40 +2723,15 @@ providers:
     - tool_choice
     - tools
     - verbosity
-  - canonical_id: gpt-6-sol
-    provider_model_id: gpt-6-sol
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 2.0
-      output: 10.0
-      extra:
-        cache_read: 0.2
-        cache_write: 2.5
-        web_search: 10000.0
-    reported_modalities:
-    - file
-    - image
-    - text
-    reported_capabilities:
-    - include_reasoning
-    - max_completion_tokens
-    - max_tokens
-    - reasoning
-    - reasoning_effort
-    - response_format
-    - seed
-    - structured_outputs
-    - tool_choice
-    - tools
-    - verbosity
   - canonical_id: gpt-oss-120b
     provider_model_id: gpt-oss-120b
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.037
-      output: 0.17
+      input: 0.018
+      output: 0.065
+      extra:
+        cache_read: 0.016
     reported_modalities:
     - text
     reported_capabilities:
@@ -2540,10 +2761,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.018
-      output: 0.09
+      input: 0.03
+      output: 0.13
       extra:
-        cache_read: 0.009
+        cache_read: 0.03
     reported_modalities:
     - text
     reported_capabilities:
@@ -2571,50 +2792,50 @@ providers:
     orchestrate:
     - gpt-6-astra
     - gpt-6.1-sol
-    - gpt-6-sol
+    - gpt-6.1-terra
     - gpt-5.4-mini
     - gpt-6-luna
-    - gpt-oss-120b
     - gpt-oss-20b
+    - gpt-oss-120b
     plan:
     - gpt-6-astra
     - gpt-6.1-sol
-    - gpt-6-sol
+    - gpt-6.1-terra
     - gpt-5.4-mini
     - gpt-6-luna
-    - gpt-oss-120b
     - gpt-oss-20b
+    - gpt-oss-120b
     code:
     - gpt-6-astra
     - gpt-6.1-sol
-    - gpt-6-sol
+    - gpt-6.1-terra
     - gpt-5.4-mini
     - gpt-6-luna
-    - gpt-oss-120b
     - gpt-oss-20b
+    - gpt-oss-120b
     explore:
-    - gpt-oss-20b
     - gpt-oss-120b
+    - gpt-oss-20b
     - gpt-6-luna
     - gpt-5.4-mini
+    - gpt-6.1-terra
     - gpt-6.1-sol
-    - gpt-6-sol
     - gpt-6-astra
     review:
     - gpt-6-astra
     - gpt-6.1-sol
-    - gpt-6-sol
+    - gpt-6.1-terra
     - gpt-5.4-mini
     - gpt-6-luna
-    - gpt-oss-120b
     - gpt-oss-20b
+    - gpt-oss-120b
     summarize:
-    - gpt-oss-20b
     - gpt-oss-120b
+    - gpt-oss-20b
     - gpt-6-luna
     - gpt-5.4-mini
+    - gpt-6.1-terra
     - gpt-6.1-sol
-    - gpt-6-sol
     - gpt-6-astra
 - name: opencode
   root_url: https://opencode.ai/zen/v1
@@ -2673,7 +2894,6 @@ providers:
       output: 0.0
       extra:
         cache_read: 0.0
-        cache_write: 0.0
     reported_modalities:
     - text
   - canonical_id: claude-fable-5.1
@@ -2724,24 +2944,13 @@ providers:
         cache_write: 2.5
     reported_modalities:
     - text
-  - canonical_id: deepseek-v4-flash
-    provider_model_id: deepseek-v4-flash
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.14
-      output: 0.28
-      extra:
-        cache_read: 0.028
-    reported_modalities:
-    - text
   - canonical_id: deepseek-v4-pro
     provider_model_id: deepseek-v4-pro
     pricing:
       currency: USD
       unit: per_million_tokens
       input: 1.74
-      output: 3.84
+      output: 3.48
       extra:
         cache_read: 0.145
     reported_modalities:
@@ -2838,14 +3047,6 @@ providers:
         cache_read: 0.5
     reported_modalities:
     - text
-  - canonical_id: jev-1.13
-    provider_model_id: jev-1.13
-    reported_modalities:
-    - text
-  - canonical_id: jev-1.13-free
-    provider_model_id: jev-1.13-free
-    reported_modalities:
-    - text
   - canonical_id: kimi-k3
     provider_model_id: kimi-k3
     pricing:
@@ -2855,28 +3056,7 @@ providers:
       output: 15.0
       extra:
         cache_read: 0.3
-    reported_modalities:
-    - text
-  - canonical_id: ling-3.1-flash-free
-    provider_model_id: ling-3.1-flash-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
-    reported_modalities:
-    - text
-  - canonical_id: longcat-2.5-preview-free
-    provider_model_id: longcat-2.5-preview-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
+        cache_write: 3.0
     reported_modalities:
     - text
   - canonical_id: mimo-v2.6-flash-free
@@ -2923,17 +3103,6 @@ providers:
         cache_read: 0.15
     reported_modalities:
     - text
-  - canonical_id: muse-spark-1.3-contributor-free
-    provider_model_id: muse-spark-1.3-contributor-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
-    reported_modalities:
-    - text
   - canonical_id: nemotron-3.5-lightning-free
     provider_model_id: nemotron-3.5-lightning-free
     pricing:
@@ -2969,29 +3138,6 @@ providers:
         cache_write: 2.5
     reported_modalities:
     - text
-  - canonical_id: space-bunny-free
-    provider_model_id: space-bunny-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
-        cache_write: 0.0
-    reported_modalities:
-    - text
-  - canonical_id: step-5-preview-free
-    provider_model_id: step-5-preview-free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-      extra:
-        cache_read: 0.0
-    reported_modalities:
-    - text
   personas:
     orchestrate:
     - claude-fable-5-1
@@ -3005,23 +3151,17 @@ providers:
     - grok-4.7
     - qwen3.8-max
     - glm-5.3
-    - deepseek-v4-pro
     - muse-spark-1.3
+    - deepseek-v4-pro
     - mistral-large-4
     - minimax-m3
     - glm-5.3-flash
     - qwen3.8-flash
     - claude-haiku-5-5
     - gpt-6-luna
-    - deepseek-v4-flash
-    - step-5-preview-free
-    - ling-3.1-flash-free
     - mimo-v2.6-flash-free
-    - muse-spark-1.3-contributor-free
     - nemotron-3.5-lightning-free
     - big-pickle
-    - longcat-2.5-preview-free
-    - space-bunny-free
     plan:
     - claude-fable-5-1
     - gpt-6-astra
@@ -3042,15 +3182,9 @@ providers:
     - claude-haiku-5-5
     - gpt-6-luna
     - qwen3.8-flash
-    - deepseek-v4-flash
-    - step-5-preview-free
-    - ling-3.1-flash-free
     - mimo-v2.6-flash-free
-    - muse-spark-1.3-contributor-free
     - nemotron-3.5-lightning-free
     - big-pickle
-    - longcat-2.5-preview-free
-    - space-bunny-free
     code:
     - claude-fable-5-1
     - gpt-6-astra
@@ -3063,35 +3197,23 @@ providers:
     - grok-4.7
     - qwen3.8-max
     - glm-5.3
-    - deepseek-v4-pro
     - muse-spark-1.3
+    - deepseek-v4-pro
     - mistral-large-4
     - minimax-m3
     - glm-5.3-flash
     - qwen3.8-flash
     - claude-haiku-5-5
     - gpt-6-luna
-    - deepseek-v4-flash
-    - step-5-preview-free
-    - ling-3.1-flash-free
     - mimo-v2.6-flash-free
-    - muse-spark-1.3-contributor-free
     - nemotron-3.5-lightning-free
     - big-pickle
-    - longcat-2.5-preview-free
-    - space-bunny-free
     explore:
-    - step-5-preview-free
-    - ling-3.1-flash-free
     - mimo-v2.6-flash-free
-    - muse-spark-1.3-contributor-free
     - nemotron-3.5-lightning-free
     - big-pickle
-    - longcat-2.5-preview-free
-    - space-bunny-free
     - claude-haiku-5-5
     - gpt-6-luna
-    - deepseek-v4-flash
     - qwen3.8-flash
     - glm-5.3-flash
     - minimax-m3
@@ -3129,27 +3251,15 @@ providers:
     - qwen3.8-flash
     - claude-haiku-5-5
     - gpt-6-luna
-    - deepseek-v4-flash
-    - step-5-preview-free
-    - ling-3.1-flash-free
     - mimo-v2.6-flash-free
-    - muse-spark-1.3-contributor-free
     - nemotron-3.5-lightning-free
     - big-pickle
-    - longcat-2.5-preview-free
-    - space-bunny-free
     summarize:
-    - step-5-preview-free
-    - ling-3.1-flash-free
     - mimo-v2.6-flash-free
-    - muse-spark-1.3-contributor-free
     - nemotron-3.5-lightning-free
     - big-pickle
-    - longcat-2.5-preview-free
-    - space-bunny-free
     - claude-haiku-5-5
     - gpt-6-luna
-    - deepseek-v4-flash
     - qwen3.8-flash
     - glm-5.3-flash
     - minimax-m3
@@ -3494,6 +3604,8 @@ providers:
     - stop
     - structured_outputs
     - temperature
+    - tool_choice
+    - tools
     - top_k
     - top_p
   - canonical_id: deepseek-v4-flash
@@ -3501,10 +3613,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.03
-      output: 1.28
+      input: 0.091
+      output: 0.182
       extra:
-        cache_read: 0.03
+        cache_read: 0.0182
     reported_modalities:
     - text
     reported_capabilities:
@@ -3535,10 +3647,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0336
-      output: 1.188
+      input: 0.006
+      output: 0.5
       extra:
-        cache_read: 0.0336
+        cache_read: 0.005
     reported_modalities:
     - text
     - image
@@ -3547,8 +3659,10 @@ providers:
     - include_reasoning
     - logit_bias
     - logprobs
+    - max_completion_tokens
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -3568,10 +3682,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.95526
-      output: 1.91052
+      input: 0.717924
+      output: 1.435848
       extra:
-        cache_read: 0.079605
+        cache_read: 0.059827
     reported_modalities:
     - text
     reported_capabilities:
@@ -3601,10 +3715,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.25
-      output: 5.0
+      input: 0.0999
+      output: 8.0
       extra:
-        cache_read: 0.2
+        cache_read: 0.0999
     reported_modalities:
     - text
     reported_capabilities:
@@ -3684,14 +3798,14 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.75
-      output: 3.75
+      input: 0.825
+      output: 4.125
       extra:
-        cache_read: 0.075
+        cache_read: 0.0825
         cache_write: 0.041667
         web_search: 14000.0
-        reasoning: 3.75
-        image: 0.75
+        reasoning: 4.125
+        image: 0.825
     reported_modalities:
     - text
     - image
@@ -3748,10 +3862,8 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.09
-      output: 0.34
-      extra:
-        cache_read: 0.05
+      input: 0.2
+      output: 0.4
     reported_modalities:
     - image
     - text
@@ -3761,6 +3873,7 @@ providers:
     - include_reasoning
     - logit_bias
     - logprobs
+    - max_completion_tokens
     - max_tokens
     - min_p
     - presence_penalty
@@ -3823,15 +3936,15 @@ providers:
     - top_k
     - top_logprobs
     - top_p
-  - canonical_id: mercury-2.5
-    provider_model_id: inception/mercury-2.5
+  - canonical_id: mercury-3
+    provider_model_id: inception/mercury-3
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.04
-      output: 0.15
+      input: 0.1
+      output: 0.35
       extra:
-        cache_read: 0.004
+        cache_read: 0.01
     reported_modalities:
     - text
     reported_capabilities:
@@ -3850,20 +3963,26 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0
-      output: 0.0
+      input: 0.045
+      output: 0.135
+      extra:
+        cache_read: 0.009
     reported_modalities:
     - text
     reported_capabilities:
     - frequency_penalty
     - include_reasoning
+    - logit_bias
     - logprobs
     - max_tokens
+    - min_p
     - presence_penalty
     - reasoning
     - repetition_penalty
+    - response_format
     - seed
     - stop
+    - structured_outputs
     - temperature
     - tool_choice
     - tools
@@ -3902,6 +4021,37 @@ providers:
       unit: per_million_tokens
       input: 0.0
       output: 0.0
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logprobs
+    - max_completion_tokens
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
+  - canonical_id: lfm-2.5-24b-a2b
+    provider_model_id: liquid/lfm-2.5-24b-a2b
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.05
+      output: 0.7
+      extra:
+        cache_read: 0.025
     reported_modalities:
     - text
     reported_capabilities:
@@ -4063,13 +4213,47 @@ providers:
     - top_k
     - top_logprobs
     - top_p
+  - canonical_id: minimax-m3.1-flash
+    provider_model_id: minimax/minimax-m3.1-flash
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.15
+      output: 0.6
+      extra:
+        cache_read: 0.015
+    reported_modalities:
+    - text
+    - image
+    - video
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_tokens
+    - min_p
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
   - canonical_id: mistral-large-4-0
     provider_model_id: mistralai/mistral-large-4-0
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.68
-      output: 2.09
+      input: 0.7
+      output: 2.1
       extra:
         cache_read: 0.07
     reported_modalities:
@@ -4097,10 +4281,46 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.73
+      input: 0.192
+      output: 16.0
+      extra:
+        cache_read: 0.182
+    reported_modalities:
+    - text
+    - image
+    - video
+    reported_capabilities:
+    - frequency_penalty
+    - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_completion_tokens
+    - max_tokens
+    - min_p
+    - parallel_tool_calls
+    - presence_penalty
+    - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_k
+    - top_logprobs
+    - top_p
+  - canonical_id: kimi-k3.1-pro
+    provider_model_id: moonshotai/kimi-k3.1-pro
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 2.0
       output: 10.0
       extra:
-        cache_read: 0.55
+        cache_read: 0.2
     reported_modalities:
     - text
     - image
@@ -4131,10 +4351,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.73
-      output: 10.0
+      input: 0.1719
+      output: 9.3388
       extra:
-        cache_read: 0.55
+        cache_read: 0.17
     reported_modalities:
     - text
     - image
@@ -4144,8 +4364,10 @@ providers:
     - include_reasoning
     - logit_bias
     - logprobs
+    - max_completion_tokens
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -4183,23 +4405,6 @@ providers:
     - stop
     - temperature
     - top_k
-    - top_p
-  - canonical_id: nemotron-3.5-content-safety:free
-    provider_model_id: nvidia/nemotron-3.5-content-safety:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    - image
-    reported_capabilities:
-    - include_reasoning
-    - max_tokens
-    - reasoning
-    - seed
-    - temperature
     - top_p
   - canonical_id: nemotron-3.5-lightning
     provider_model_id: nvidia/nemotron-3.5-lightning
@@ -4448,8 +4653,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.037
-      output: 0.17
+      input: 0.018
+      output: 0.065
+      extra:
+        cache_read: 0.016
     reported_modalities:
     - text
     reported_capabilities:
@@ -4507,10 +4714,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.018
-      output: 0.09
+      input: 0.03
+      output: 0.13
       extra:
-        cache_read: 0.009
+        cache_read: 0.03
     reported_modalities:
     - text
     reported_capabilities:
@@ -4630,9 +4837,10 @@ providers:
     - include_reasoning
     - logit_bias
     - logprobs
+    - max_completion_tokens
     - max_tokens
     - min_p
-    - prediction
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -4648,7 +4856,7 @@ providers:
     - top_k
     - top_logprobs
     - top_p
-    - web_search_options
+    - verbosity
   - canonical_id: bodybuilder
     provider_model_id: openrouter/bodybuilder
     reported_modalities:
@@ -4692,40 +4900,31 @@ providers:
     provider_model_id: openrouter/pareto-code
     reported_modalities:
     - text
-  - canonical_id: laguna-s-2.1
-    provider_model_id: poolside/laguna-s-2.1
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.09
-      output: 0.18
-      extra:
-        cache_read: 0.009
-    reported_modalities:
-    - text
     reported_capabilities:
+    - frequency_penalty
     - include_reasoning
+    - logit_bias
+    - logprobs
+    - max_completion_tokens
     - max_tokens
+    - min_p
+    - parallel_tool_calls
+    - presence_penalty
     - reasoning
+    - reasoning_effort
+    - repetition_penalty
+    - response_format
+    - seed
+    - stop
+    - structured_outputs
     - temperature
     - tool_choice
     - tools
-  - canonical_id: laguna-s-2.1:free
-    provider_model_id: poolside/laguna-s-2.1:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    reported_capabilities:
-    - include_reasoning
-    - max_tokens
-    - reasoning
-    - temperature
-    - tool_choice
-    - tools
+    - top_a
+    - top_k
+    - top_logprobs
+    - top_p
+    - verbosity
   - canonical_id: ternary-bonsai-2-27b
     provider_model_id: prism-ml/ternary-bonsai-2-27b
     pricing:
@@ -4771,10 +4970,8 @@ providers:
     reported_capabilities:
     - frequency_penalty
     - include_reasoning
-    - logit_bias
     - logprobs
     - max_tokens
-    - min_p
     - presence_penalty
     - reasoning
     - reasoning_effort
@@ -4794,10 +4991,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.04
-      output: 2.3
+      input: 0.15
+      output: 1.875
       extra:
-        cache_read: 0.0198
+        cache_read: 0.0375
     reported_modalities:
     - text
     - image
@@ -4854,6 +5051,51 @@ providers:
     - top_k
     - top_logprobs
     - top_p
+  - canonical_id: ripple-65b-preview
+    provider_model_id: ricursiveai/ripple-65b-preview
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.2
+      output: 0.6
+      extra:
+        cache_read: 0.05
+    reported_modalities:
+    - text
+    reported_capabilities:
+    - logprobs
+    - max_tokens
+    - response_format
+    - seed
+    - temperature
+    - tool_choice
+    - tools
+    - top_logprobs
+    - top_p
+  - canonical_id: crouton-alpha
+    provider_model_id: stealth/crouton-alpha
+    pricing:
+      currency: USD
+      unit: per_million_tokens
+      input: 0.0
+      output: 0.0
+    reported_modalities:
+    - text
+    - image
+    - video
+    - file
+    - audio
+    reported_capabilities:
+    - include_reasoning
+    - max_tokens
+    - reasoning
+    - reasoning_effort
+    - response_format
+    - structured_outputs
+    - temperature
+    - tool_choice
+    - tools
+    - top_p
   - canonical_id: step-5-preview
     provider_model_id: stepfun/step-5-preview
     pricing:
@@ -4862,7 +5104,7 @@ providers:
       input: 1.0
       output: 2.7
       extra:
-        cache_read: 0.05
+        cache_read: 0.1
     reported_modalities:
     - text
     - image
@@ -4872,13 +5114,19 @@ providers:
     - include_reasoning
     - logprobs
     - max_tokens
+    - min_p
+    - presence_penalty
     - reasoning
     - reasoning_effort
+    - repetition_penalty
     - response_format
+    - seed
     - stop
     - structured_outputs
     - temperature
+    - tool_choice
     - tools
+    - top_k
     - top_logprobs
     - top_p
   - canonical_id: hy3
@@ -4912,37 +5160,30 @@ providers:
     - tools
     - top_k
     - top_p
-  - canonical_id: hy4-preview
-    provider_model_id: tencent/hy4-preview
+  - canonical_id: hy4
+    provider_model_id: tencent/hy4
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.834
-      output: 2.501
+      input: 0.417
+      output: 1.2505
       extra:
-        cache_read: 0.042
+        cache_read: 0.021
     reported_modalities:
     - text
+    - image
     reported_capabilities:
-    - frequency_penalty
     - include_reasoning
-    - logit_bias
     - max_completion_tokens
     - max_tokens
-    - min_p
-    - presence_penalty
     - reasoning
     - reasoning_effort
-    - repetition_penalty
     - response_format
-    - seed
     - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
-    - top_k
-    - top_p
   - canonical_id: inkling
     provider_model_id: thinkingmachines/inkling
     pricing:
@@ -4966,35 +5207,11 @@ providers:
     - reasoning
     - reasoning_effort
     - repetition_penalty
-    - seed
     - stop
     - temperature
     - tool_choice
     - tools
     - top_k
-    - top_p
-  - canonical_id: inkling:free
-    provider_model_id: thinkingmachines/inkling:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    - image
-    - audio
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - max_tokens
-    - presence_penalty
-    - reasoning
-    - reasoning_effort
-    - seed
-    - stop
-    - temperature
-    - tools
     - top_p
   - canonical_id: inkling-small
     provider_model_id: thinkingmachines/inkling-small
@@ -5025,29 +5242,6 @@ providers:
     - tool_choice
     - tools
     - top_k
-    - top_p
-  - canonical_id: inkling-small:free
-    provider_model_id: thinkingmachines/inkling-small:free
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 0.0
-      output: 0.0
-    reported_modalities:
-    - text
-    - image
-    - audio
-    reported_capabilities:
-    - frequency_penalty
-    - include_reasoning
-    - max_tokens
-    - presence_penalty
-    - reasoning
-    - reasoning_effort
-    - seed
-    - stop
-    - temperature
-    - tools
     - top_p
   - canonical_id: jev-router
     provider_model_id: typesafe/jev-router
@@ -5082,25 +5276,6 @@ providers:
     - top_logprobs
     - top_p
     - verbosity
-  - canonical_id: pareto
-    provider_model_id: unbiased/pareto
-    pricing:
-      currency: USD
-      unit: per_million_tokens
-      input: 2.5
-      output: 7.5
-      extra:
-        cache_read: 0.25
-    reported_modalities:
-    - text
-    - image
-    reported_capabilities:
-    - max_tokens
-    - response_format
-    - temperature
-    - tool_choice
-    - tools
-    - top_p
   - canonical_id: grok-4.7
     provider_model_id: x-ai/grok-4.7
     pricing:
@@ -5123,10 +5298,12 @@ providers:
     - reasoning_effort
     - response_format
     - seed
+    - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
+    - top_k
     - top_logprobs
     - top_p
   - canonical_id: grok-latest
@@ -5138,7 +5315,8 @@ providers:
       output: 6.0
       extra:
         cache_read: 0.5
-        web_search: 5000.0
+        cache_write: 0.0
+        web_search: 10000.0
     reported_modalities:
     - text
     - image
@@ -5151,10 +5329,12 @@ providers:
     - reasoning_effort
     - response_format
     - seed
+    - stop
     - structured_outputs
     - temperature
     - tool_choice
     - tools
+    - top_k
     - top_logprobs
     - top_p
   - canonical_id: mimo-v2.6-flash
@@ -5178,6 +5358,7 @@ providers:
     - logprobs
     - max_tokens
     - min_p
+    - parallel_tool_calls
     - presence_penalty
     - reasoning
     - repetition_penalty
@@ -5209,6 +5390,7 @@ providers:
     - frequency_penalty
     - include_reasoning
     - logit_bias
+    - logprobs
     - max_tokens
     - min_p
     - presence_penalty
@@ -5222,16 +5404,17 @@ providers:
     - tool_choice
     - tools
     - top_k
+    - top_logprobs
     - top_p
   - canonical_id: glm-5.3
     provider_model_id: z-ai/glm-5.3
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.079
-      output: 4.8
+      input: 0.0699
+      output: 1.4
       extra:
-        cache_read: 0.059
+        cache_read: 0.0689
     reported_modalities:
     - text
     reported_capabilities:
@@ -5261,10 +5444,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0232
-      output: 1.2
+      input: 0.15
+      output: 0.5
       extra:
-        cache_read: 0.0232
+        cache_read: 0.03
     reported_modalities:
     - text
     - image
@@ -5296,10 +5479,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.0232
-      output: 1.2
+      input: 0.0285
+      output: 0.0923
       extra:
-        cache_read: 0.0232
+        cache_read: 0.0285
     reported_modalities:
     - text
     - image
@@ -5331,10 +5514,10 @@ providers:
     pricing:
       currency: USD
       unit: per_million_tokens
-      input: 0.055
-      output: 5.0
+      input: 0.0699
+      output: 1.4
       extra:
-        cache_read: 0.06
+        cache_read: 0.0689
     reported_modalities:
     - text
     reported_capabilities:
@@ -5368,70 +5551,69 @@ providers:
     - anthropic/claude-opus-5.5
     - ~anthropic/claude-opus-latest
     - fireworks/ember-1
+    - moonshotai/kimi-k3
     - cohere/command-a
+    - moonshotai/kimi-k3.1-pro
     - anthropic/claude-sonnet-5.5
     - openai/gpt-6.1-sol
     - openai/gpt-6-sol
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
-    - moonshotai/kimi-k3
     - ~moonshotai/kimi-latest
-    - unbiased/pareto
+    - ~deepseek/deepseek-pro-latest
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
     - meta/muse-spark-1.3
-    - ~deepseek/deepseek-pro-latest
-    - ~z-ai/glm-latest
     - thinkingmachines/inkling
-    - z-ai/glm-5.3
     - google/gemini-3.8-flash
     - ~google/gemini-flash-latest
     - stepfun/step-5-preview
-    - tencent/hy4-preview
     - bytedance-seed/seed-2-1-turbo
-    - deepseek/deepseek-v4-pro
     - mistralai/mistral-large-4-0
+    - deepseek/deepseek-v4-pro
     - qwen/qwen3.8-27b
+    - tencent/hy4
     - thinkingmachines/inkling-small
     - meituan/longcat-2.0
     - minimax/minimax-m3
-    - deepseek/deepseek-v4-flash
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
     - xiaomi/mimo-v2.6-pro
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - ~deepseek/deepseek-flash-latest
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
+    - ricursiveai/ripple-65b-preview
+    - minimax/minimax-m3.1-flash
+    - liquid/lfm-2.5-24b-a2b
     - tencent/hy3
+    - z-ai/glm-5.3-flash
     - qwen/qwen3.8-flash
+    - google/gemma-4-31b-it
     - anthropic/claude-haiku-5.5
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
     - prism-ml/ternary-bonsai-2-27b
-    - google/gemma-4-31b-it
+    - ~deepseek/deepseek-flash-latest
+    - inception/mercury-3
     - xiaomi/mimo-v2.6-flash
     - nvidia/nemotron-3.5-content-safety
     - openai/gpt-oss-safeguard-20b
     - meta/muse-spark-1.3-contributor
+    - deepseek/deepseek-v4-flash
     - nvidia/nemotron-3.5-lightning
-    - poolside/laguna-s-2.1
     - microsoft/phi-4
-    - openai/gpt-oss-120b
-    - inception/mercury-2.5
     - gryphe/mythomax-l2-13b
+    - inclusionai/ling-3.1-flash
     - inference-net/schematron-v2-turbo
     - openai/gpt-oss-120b:batch
-    - openai/gpt-oss-20b:batch
     - openai/gpt-oss-20b
-    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-20b:batch
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-120b
+    - stealth/crouton-alpha
     - dots-studio/dots-3-note-preview:free
     - liquid/lfm-2.5-2.6b:free
     - nvidia/nemotron-3.5-lightning:free
-    - thinkingmachines/inkling-small:free
-    - poolside/laguna-s-2.1:free
-    - thinkingmachines/inkling:free
-    - nvidia/nemotron-3.5-content-safety:free
     - google/gemma-4-31b-it:free
     - openrouter/free
     plan:
@@ -5442,41 +5624,41 @@ providers:
     - anthropic/claude-opus-5.5
     - ~anthropic/claude-opus-latest
     - fireworks/ember-1
+    - moonshotai/kimi-k3
     - cohere/command-a
+    - moonshotai/kimi-k3.1-pro
     - anthropic/claude-sonnet-5.5
     - openai/gpt-6.1-sol
     - openai/gpt-6-sol
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
-    - moonshotai/kimi-k3
     - ~moonshotai/kimi-latest
-    - unbiased/pareto
+    - ~deepseek/deepseek-pro-latest
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
-    - ~deepseek/deepseek-pro-latest
-    - ~z-ai/glm-latest
     - meta/muse-spark-1.3
-    - z-ai/glm-5.3
     - thinkingmachines/inkling
     - google/gemini-3.8-flash
     - ~google/gemini-flash-latest
     - stepfun/step-5-preview
-    - tencent/hy4-preview
     - bytedance-seed/seed-2-1-turbo
     - mistralai/mistral-large-4-0
-    - deepseek/deepseek-v4-pro
     - qwen/qwen3.8-27b
+    - deepseek/deepseek-v4-pro
+    - tencent/hy4
     - thinkingmachines/inkling-small
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
     - meituan/longcat-2.0
     - minimax/minimax-m3
-    - deepseek/deepseek-v4-flash
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - ~deepseek/deepseek-flash-latest
     - xiaomi/mimo-v2.6-pro
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
+    - liquid/lfm-2.5-24b-a2b
+    - ricursiveai/ripple-65b-preview
+    - minimax/minimax-m3.1-flash
     - tencent/hy3
+    - z-ai/glm-5.3-flash
     - anthropic/claude-haiku-5.5
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
@@ -5484,28 +5666,27 @@ providers:
     - qwen/qwen3.8-flash
     - prism-ml/ternary-bonsai-2-27b
     - google/gemma-4-31b-it
+    - ~deepseek/deepseek-flash-latest
+    - inception/mercury-3
     - xiaomi/mimo-v2.6-flash
     - openai/gpt-oss-safeguard-20b
     - nvidia/nemotron-3.5-content-safety
     - meta/muse-spark-1.3-contributor
     - nvidia/nemotron-3.5-lightning
-    - poolside/laguna-s-2.1
-    - openai/gpt-oss-120b
+    - deepseek/deepseek-v4-flash
     - microsoft/phi-4
-    - inception/mercury-2.5
     - inference-net/schematron-v2-turbo
+    - inclusionai/ling-3.1-flash
     - gryphe/mythomax-l2-13b
     - openai/gpt-oss-120b:batch
-    - openai/gpt-oss-20b:batch
     - openai/gpt-oss-20b
-    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-20b:batch
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-120b
+    - stealth/crouton-alpha
     - dots-studio/dots-3-note-preview:free
     - liquid/lfm-2.5-2.6b:free
     - nvidia/nemotron-3.5-lightning:free
-    - thinkingmachines/inkling-small:free
-    - poolside/laguna-s-2.1:free
-    - thinkingmachines/inkling:free
-    - nvidia/nemotron-3.5-content-safety:free
     - google/gemma-4-31b-it:free
     - openrouter/free
     code:
@@ -5516,97 +5697,95 @@ providers:
     - anthropic/claude-opus-5.5
     - ~anthropic/claude-opus-latest
     - fireworks/ember-1
+    - moonshotai/kimi-k3
     - cohere/command-a
+    - moonshotai/kimi-k3.1-pro
     - anthropic/claude-sonnet-5.5
     - openai/gpt-6.1-sol
     - openai/gpt-6-sol
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
-    - unbiased/pareto
-    - moonshotai/kimi-k3
     - ~moonshotai/kimi-latest
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
+    - ~deepseek/deepseek-pro-latest
     - meta/muse-spark-1.3
     - thinkingmachines/inkling
-    - ~deepseek/deepseek-pro-latest
-    - ~z-ai/glm-latest
-    - z-ai/glm-5.3
     - google/gemini-3.8-flash
     - ~google/gemini-flash-latest
     - stepfun/step-5-preview
-    - tencent/hy4-preview
-    - deepseek/deepseek-v4-pro
     - bytedance-seed/seed-2-1-turbo
     - mistralai/mistral-large-4-0
+    - deepseek/deepseek-v4-pro
     - qwen/qwen3.8-27b
+    - tencent/hy4
     - thinkingmachines/inkling-small
     - meituan/longcat-2.0
     - minimax/minimax-m3
     - xiaomi/mimo-v2.6-pro
-    - deepseek/deepseek-v4-flash
-    - ~deepseek/deepseek-flash-latest
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
+    - ricursiveai/ripple-65b-preview
+    - minimax/minimax-m3.1-flash
+    - liquid/lfm-2.5-24b-a2b
     - tencent/hy3
+    - z-ai/glm-5.3-flash
+    - google/gemma-4-31b-it
     - qwen/qwen3.8-flash
     - anthropic/claude-haiku-5.5
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
     - prism-ml/ternary-bonsai-2-27b
+    - ~deepseek/deepseek-flash-latest
     - nvidia/nemotron-3.5-content-safety
+    - inception/mercury-3
     - xiaomi/mimo-v2.6-flash
-    - google/gemma-4-31b-it
     - openai/gpt-oss-safeguard-20b
     - meta/muse-spark-1.3-contributor
-    - poolside/laguna-s-2.1
+    - deepseek/deepseek-v4-flash
     - nvidia/nemotron-3.5-lightning
     - microsoft/phi-4
     - gryphe/mythomax-l2-13b
-    - openai/gpt-oss-120b
-    - inception/mercury-2.5
+    - inclusionai/ling-3.1-flash
     - inference-net/schematron-v2-turbo
     - openai/gpt-oss-120b:batch
-    - openai/gpt-oss-20b:batch
     - openai/gpt-oss-20b
-    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-20b:batch
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-120b
+    - stealth/crouton-alpha
     - dots-studio/dots-3-note-preview:free
     - liquid/lfm-2.5-2.6b:free
     - nvidia/nemotron-3.5-lightning:free
-    - thinkingmachines/inkling-small:free
-    - poolside/laguna-s-2.1:free
-    - thinkingmachines/inkling:free
-    - nvidia/nemotron-3.5-content-safety:free
     - google/gemma-4-31b-it:free
     - openrouter/free
     explore:
-    - inclusionai/ling-3.1-flash
+    - stealth/crouton-alpha
     - dots-studio/dots-3-note-preview:free
     - liquid/lfm-2.5-2.6b:free
     - nvidia/nemotron-3.5-lightning:free
-    - thinkingmachines/inkling-small:free
-    - poolside/laguna-s-2.1:free
-    - thinkingmachines/inkling:free
-    - nvidia/nemotron-3.5-content-safety:free
     - google/gemma-4-31b-it:free
     - openrouter/free
-    - openai/gpt-oss-20b
+    - openai/gpt-oss-120b
     - openai/gpt-oss-20b:batch
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-20b
     - openai/gpt-oss-120b:batch
     - inference-net/schematron-v2-turbo
-    - inception/mercury-2.5
-    - openai/gpt-oss-120b
+    - inclusionai/ling-3.1-flash
+    - ~deepseek/deepseek-flash-latest
     - microsoft/phi-4
     - gryphe/mythomax-l2-13b
     - nvidia/nemotron-3.5-lightning
-    - poolside/laguna-s-2.1
+    - deepseek/deepseek-v4-flash
     - openai/gpt-oss-safeguard-20b
     - meta/muse-spark-1.3-contributor
-    - google/gemma-4-31b-it
+    - inception/mercury-3
     - prism-ml/ternary-bonsai-2-27b
+    - liquid/lfm-2.5-24b-a2b
     - anthropic/claude-haiku-5.5
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
@@ -5614,40 +5793,40 @@ providers:
     - xiaomi/mimo-v2.6-flash
     - tencent/hy3
     - qwen/qwen3.8-flash
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
     - nvidia/nemotron-3.5-content-safety
-    - ~deepseek/deepseek-flash-latest
-    - deepseek/deepseek-v4-flash
+    - z-ai/glm-5.3-flash
+    - minimax/minimax-m3.1-flash
+    - google/gemma-4-31b-it
+    - ricursiveai/ripple-65b-preview
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
     - qwen/qwen3.8-27b
     - meituan/longcat-2.0
     - minimax/minimax-m3
     - xiaomi/mimo-v2.6-pro
+    - tencent/hy4
     - thinkingmachines/inkling-small
-    - z-ai/glm-5.3
-    - ~z-ai/glm-latest
     - bytedance-seed/seed-2-1-turbo
-    - mistralai/mistral-large-4-0
-    - ~deepseek/deepseek-pro-latest
-    - tencent/hy4-preview
     - deepseek/deepseek-v4-pro
-    - google/gemini-3.8-flash
+    - mistralai/mistral-large-4-0
     - ~google/gemini-flash-latest
     - stepfun/step-5-preview
+    - ~deepseek/deepseek-pro-latest
+    - google/gemini-3.8-flash
     - thinkingmachines/inkling
+    - ~moonshotai/kimi-latest
     - meta/muse-spark-1.3
     - moonshotai/kimi-k3
-    - ~moonshotai/kimi-latest
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
+    - moonshotai/kimi-k3.1-pro
     - anthropic/claude-sonnet-5.5
     - openai/gpt-6.1-sol
     - openai/gpt-6-sol
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
-    - unbiased/pareto
     - cohere/command-a
     - fireworks/ember-1
     - anthropic/claude-opus-5.5
@@ -5665,38 +5844,38 @@ providers:
     - ~anthropic/claude-opus-latest
     - fireworks/ember-1
     - cohere/command-a
+    - moonshotai/kimi-k3.1-pro
     - anthropic/claude-sonnet-5.5
     - openai/gpt-6.1-sol
     - openai/gpt-6-sol
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
-    - unbiased/pareto
+    - moonshotai/kimi-k3
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
-    - moonshotai/kimi-k3
     - ~moonshotai/kimi-latest
     - meta/muse-spark-1.3
+    - ~deepseek/deepseek-pro-latest
     - thinkingmachines/inkling
     - google/gemini-3.8-flash
     - ~google/gemini-flash-latest
     - stepfun/step-5-preview
-    - ~deepseek/deepseek-pro-latest
-    - tencent/hy4-preview
-    - deepseek/deepseek-v4-pro
-    - ~z-ai/glm-latest
-    - z-ai/glm-5.3
     - mistralai/mistral-large-4-0
     - bytedance-seed/seed-2-1-turbo
+    - deepseek/deepseek-v4-pro
     - thinkingmachines/inkling-small
+    - tencent/hy4
     - xiaomi/mimo-v2.6-pro
     - qwen/qwen3.8-27b
     - meituan/longcat-2.0
     - minimax/minimax-m3
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
-    - deepseek/deepseek-v4-flash
-    - ~deepseek/deepseek-flash-latest
-    - ~z-ai/glm-flash-latest
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - ricursiveai/ripple-65b-preview
+    - google/gemma-4-31b-it
+    - minimax/minimax-m3.1-flash
     - z-ai/glm-5.3-flash
     - qwen/qwen3.8-flash
     - tencent/hy3
@@ -5705,97 +5884,95 @@ providers:
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
+    - liquid/lfm-2.5-24b-a2b
     - xiaomi/mimo-v2.6-flash
     - prism-ml/ternary-bonsai-2-27b
-    - google/gemma-4-31b-it
+    - inception/mercury-3
     - meta/muse-spark-1.3-contributor
     - openai/gpt-oss-safeguard-20b
-    - poolside/laguna-s-2.1
+    - deepseek/deepseek-v4-flash
+    - ~deepseek/deepseek-flash-latest
     - nvidia/nemotron-3.5-lightning
     - gryphe/mythomax-l2-13b
     - microsoft/phi-4
-    - openai/gpt-oss-120b
-    - inception/mercury-2.5
+    - inclusionai/ling-3.1-flash
     - inference-net/schematron-v2-turbo
     - openai/gpt-oss-120b:batch
-    - openai/gpt-oss-20b:batch
     - openai/gpt-oss-20b
-    - inclusionai/ling-3.1-flash
+    - openai/gpt-oss-20b:batch
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-120b
+    - stealth/crouton-alpha
     - dots-studio/dots-3-note-preview:free
     - liquid/lfm-2.5-2.6b:free
     - nvidia/nemotron-3.5-lightning:free
-    - thinkingmachines/inkling-small:free
-    - poolside/laguna-s-2.1:free
-    - thinkingmachines/inkling:free
-    - nvidia/nemotron-3.5-content-safety:free
     - google/gemma-4-31b-it:free
     - openrouter/free
     summarize:
-    - inclusionai/ling-3.1-flash
+    - stealth/crouton-alpha
     - dots-studio/dots-3-note-preview:free
     - liquid/lfm-2.5-2.6b:free
     - nvidia/nemotron-3.5-lightning:free
-    - thinkingmachines/inkling-small:free
-    - poolside/laguna-s-2.1:free
-    - thinkingmachines/inkling:free
-    - nvidia/nemotron-3.5-content-safety:free
     - google/gemma-4-31b-it:free
     - openrouter/free
-    - openai/gpt-oss-20b
+    - openai/gpt-oss-120b
     - openai/gpt-oss-20b:batch
+    - ~z-ai/glm-flash-latest
+    - openai/gpt-oss-20b
     - openai/gpt-oss-120b:batch
     - inference-net/schematron-v2-turbo
-    - openai/gpt-oss-120b
-    - inception/mercury-2.5
+    - inclusionai/ling-3.1-flash
+    - ~deepseek/deepseek-flash-latest
     - microsoft/phi-4
     - gryphe/mythomax-l2-13b
     - nvidia/nemotron-3.5-lightning
     - openai/gpt-oss-safeguard-20b
-    - poolside/laguna-s-2.1
+    - deepseek/deepseek-v4-flash
     - meta/muse-spark-1.3-contributor
-    - google/gemma-4-31b-it
+    - liquid/lfm-2.5-24b-a2b
     - prism-ml/ternary-bonsai-2-27b
+    - inception/mercury-3
     - anthropic/claude-haiku-5.5
     - openai/gpt-6-luna
     - ~openai/gpt-luna-latest
     - ~anthropic/claude-haiku-latest
-    - ~z-ai/glm-flash-latest
-    - z-ai/glm-5.3-flash
-    - ~deepseek/deepseek-flash-latest
     - xiaomi/mimo-v2.6-flash
-    - deepseek/deepseek-v4-flash
     - tencent/hy3
     - qwen/qwen3.8-flash
+    - z-ai/glm-5.3-flash
+    - minimax/minimax-m3.1-flash
     - nvidia/nemotron-3.5-content-safety
-    - qwen/qwen3.8-27b
+    - ~z-ai/glm-latest
+    - z-ai/glm-5.3
+    - google/gemma-4-31b-it
+    - ricursiveai/ripple-65b-preview
     - cognitivecomputations/dolphin-mistral-24b-venice-edition
+    - qwen/qwen3.8-27b
     - meituan/longcat-2.0
     - minimax/minimax-m3
     - xiaomi/mimo-v2.6-pro
+    - tencent/hy4
     - thinkingmachines/inkling-small
-    - ~z-ai/glm-latest
-    - z-ai/glm-5.3
     - bytedance-seed/seed-2-1-turbo
-    - ~deepseek/deepseek-pro-latest
-    - mistralai/mistral-large-4-0
-    - tencent/hy4-preview
-    - google/gemini-3.8-flash
-    - ~google/gemini-flash-latest
     - deepseek/deepseek-v4-pro
+    - mistralai/mistral-large-4-0
+    - ~deepseek/deepseek-pro-latest
+    - ~google/gemini-flash-latest
+    - ~moonshotai/kimi-latest
+    - google/gemini-3.8-flash
     - stepfun/step-5-preview
     - thinkingmachines/inkling
     - meta/muse-spark-1.3
     - moonshotai/kimi-k3
-    - ~moonshotai/kimi-latest
     - x-ai/grok-4.7
     - qwen/qwen3.8-2.4t-a95b
     - ~x-ai/grok-latest
+    - moonshotai/kimi-k3.1-pro
     - anthropic/claude-sonnet-5.5
     - openai/gpt-6.1-sol
     - openai/gpt-6-sol
     - ~openai/gpt-sol-latest
     - ~anthropic/claude-sonnet-latest
-    - unbiased/pareto
     - cohere/command-a
     - fireworks/ember-1
     - anthropic/claude-opus-5.5

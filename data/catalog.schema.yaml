@@ -220,27 +220,25 @@ $defs:
     additionalProperties: false
     properties:
       protocol:
-        description: "Wire format: OpenAI chat/completions, OpenAI Responses, Anthropic Messages, or Google generateContent."
+        description: "Wire format of a model surface (OpenAI chat/completions, OpenAI Responses, Anthropic Messages, Google generateContent), or of a standalone tool API that takes no model in the request: `search` and `fetch` are DeepSeek's raw JSON web-search and page-fetch endpoints, billed per request and callable beside any model."
         type: string
         enum:
         - chat_completions
         - responses
         - messages
         - generate_content
+        - search
+        - fetch
       endpoint:
         description: Request path relative to the provider's `root_url`.
         type: string
       hosted_tools:
-        description: Built-in tools that run on the provider (web_search, code_interpreter). Curated per (provider, protocol) — no provider API enumerates these.
+        description: Built-in tools that run on the provider (web_search, web_fetch, code_interpreter). Curated per (provider, protocol) — no provider API enumerates these.
         type: array
         items:
           type: string
       hosted_tool_types:
-        description: >-
-          The tool type that the endpoint declares a hosted tool with, by the
-          name of the tool, when the protocol has no standard type for it or
-          the endpoint takes another one. A protocol that takes the tool as a
-          request option takes it as a tool of this type.
+        description: The tool type that the endpoint declares a hosted tool with, by the name of the tool, when the protocol has no standard type for it or the endpoint takes another one (OpenRouter's web_search is openrouter:web_search). A protocol that takes the tool as a request option takes it as a tool of this type.
         type: object
         additionalProperties:
           type: string
