@@ -80,15 +80,22 @@ struct fyai_remote_peer {
 	bool authenticated, failed;
 	bool handed;			/* given to a project server */
 	bool native;			/* a fyai session: the client said hello */
+	bool watcher;			/* reads a session that another client drives */
+	struct fyai_remote_peer *wnext;	/* the next watcher of the session */
 };
 
 struct fyai_remote_session {
 	struct fyai_remote_session *next;
 	struct fyai_remote_server *server;
 	struct fyai_remote_peer *peer;
+	struct fyai_remote_peer *watchers;
+	/* The snapshot of the UI model that answers an initialize goes to the
+	 * client that asked for it alone. */
+	struct fyai_remote_peer *snapshot_peer;
 	struct jsonrpc_conn *worker;
 	int fd;
 	pid_t pid;
+	bool snapshot;
 	struct fyai_event_source *child;
 	bool exited;
 	/* A session that no branch names ends with its client. */
@@ -163,12 +170,50 @@ static const char *remote_status_text(int status, char *buf, size_t size)
 	return buf;
 }
 
+/* A request of a watcher goes to the worker under this prefix and the number
+ * of the watcher, so the answer finds its way back. */
+#define REMOTE_WATCH_PREFIX "fyai-watch-"
+
+/* The watcher that the request ID @id names, and the ID it gave, or NULL. */
+static struct fyai_remote_peer *remote_watcher_of(struct fyai_remote_session *session,
+					     const char *id, const char **restp)
+{
+	struct fyai_remote_peer *watcher;
+	unsigned long n;
+	size_t len;
+	char *end;
+
+	len = strlen(REMOTE_WATCH_PREFIX);
+	if (strncmp(id, REMOTE_WATCH_PREFIX, len))
+		return NULL;
+	n = strtoul(id + len, &end, 10);
+	if (*end != ':')
+		return NULL;
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext) {
+		if (watcher->id == n) {
+			*restp = end + 1;
+			return watcher;
+		}
+	}
+	return NULL;
+}
+
+static void remote_peer_send(struct fyai_remote_peer *peer, fy_generic frame)
+{
+	if (peer && !peer->failed && fyai_remote_send(peer->conn, frame))
+		peer->failed = true;
+}
+
 static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 				void *data)
 {
 	struct fyai_remote_session *session = data;
 	struct fyai_ctx *ctx = session->server->call->ctx;
-	const char *branch;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct fyai_remote_peer *owner, *watcher;
+	const char *branch, *id, *rest;
+	fy_generic response;
+	bool begin;
 	char *copy;
 
 	(void)conn;
@@ -189,14 +234,51 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 			   (long)session->pid, branch);
 		return;
 	}
-	if (session->peer && !session->peer->failed &&
-	    fyai_remote_send(session->peer->conn, frame))
-		session->peer->failed = true;
+	/* The model of the UI is sent whole to the client that initialized,
+	 * between a begin and an end: a text that another client has would
+	 * arrive twice. */
+	if (fy_equal(fy_get(frame, "type", ""), "fyai") &&
+	    fy_equal(fy_get(frame, "subtype", ""), "snapshot")) {
+		id = fy_get(frame, "request_id", "");
+		begin = fy_equal(fy_get(frame, "phase", ""), "begin");
+		owner = remote_watcher_of(session, id, &rest);
+		if (begin) {
+			session->snapshot_peer = owner ? owner : session->peer;
+			session->snapshot = true;
+		}
+		if (owner)
+			frame = fy_assoc(gb, frame, "request_id", rest);
+		remote_peer_send(session->snapshot_peer, frame);
+		if (!begin) {
+			session->snapshot = false;
+			session->snapshot_peer = NULL;
+		}
+		return;
+	}
+	if (session->snapshot) {
+		remote_peer_send(session->snapshot_peer, frame);
+		return;
+	}
+	/* An answer goes to the client that asked. */
+	if (fy_equal(fy_get(frame, "type", ""), "control_response")) {
+		response = fy_get(frame, "response", fy_invalid);
+		id = fy_get(response, "request_id", "");
+		watcher = remote_watcher_of(session, id, &rest);
+		if (watcher)
+			frame = fy_assoc(gb, frame, "response", fy_assoc(gb,
+				response, "request_id", rest));
+		remote_peer_send(watcher ? watcher : session->peer, frame);
+		return;
+	}
+	remote_peer_send(session->peer, frame);
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
+		remote_peer_send(watcher, frame);
 }
 
 static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 {
 	struct fyai_remote_session *session = ev->userdata;
+	struct fyai_remote_peer *watcher;
 	char how[64];
 
 	session->child = NULL;
@@ -206,6 +288,8 @@ static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
 		   remote_status_text(ev->status, how, sizeof(how)));
 	if (session->peer)
 		session->peer->failed = true;
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
+		watcher->failed = true;
 	return FYAIEA_CONTINUE;
 }
 
@@ -770,6 +854,37 @@ static int remote_reply(struct fyai_remote_peer *peer, fy_generic id,
 	return rc;
 }
 
+/*
+ * A frame of a watcher: it may ask the worker for the model of the UI and for
+ * stored turns, and nothing else. Its IDs get the prefix that routes the
+ * answer.
+ */
+static void remote_watch_request(struct fyai_remote_peer *peer, fy_generic frame,
+				 fy_generic id, const char *subtype)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(peer->server->call->ctx);
+	struct fyai_remote_session *session = peer->session;
+	const char *text;
+
+	if (!fy_is_string(id)) {
+		peer->failed = true;
+		return;
+	}
+	if (strcmp(subtype, "initialize") && strcmp(subtype, "fyai_sync")) {
+		remote_reply(peer, id, "a watcher only reads", fy_invalid);
+		return;
+	}
+	if (!session->worker) {
+		peer->failed = true;
+		return;
+	}
+	text = fy_castp(&id, "");
+	frame = fy_assoc(gb, frame, "request_id", fy_stringf(gb,
+		REMOTE_WATCH_PREFIX "%lu:%s", peer->id, text));
+	if (fyai_remote_send(session->worker, frame))
+		peer->failed = true;
+}
+
 /* The first frame of a peer that needs a token: the token, or nothing. */
 static void remote_authenticate(struct fyai_remote_peer *peer, fy_generic frame)
 {
@@ -805,7 +920,7 @@ static void remote_authenticate(struct fyai_remote_peer *peer, fy_generic frame)
  * global options @words.
  */
 static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
-			  const char *branch, fy_generic words)
+			  const char *branch, fy_generic words, bool watch)
 {
 	struct fyai_remote_server *server = peer->server;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(server->call->ctx);
@@ -815,6 +930,25 @@ static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
 		if (!session->exited && session->branch &&
 		    !strcmp(session->branch, branch))
 			break;
+	if (watch) {
+		/* A watcher reads a session that is running: it starts none and
+		 * takes nothing from the client that drives it. */
+		if (!session || peer->session) {
+			remote_log(server, "client %lu: refused: no session of '%s'"
+				   "to watch", peer->id, branch);
+			remote_reply(peer, id, session ? "the client has a session" :
+				     "no live session on the branch", fy_invalid);
+			return;
+		}
+		peer->watcher = true;
+		peer->session = session;
+		peer->wnext = session->watchers;
+		session->watchers = peer;
+		remote_log(server, "client %lu: watches the worker %ld on"
+			   "branch '%s'", peer->id, (long)session->pid, branch);
+		remote_reply(peer, id, NULL, fy_mapping(gb, "branch", branch));
+		return;
+	}
 	if (session && session->peer && session->peer != peer) {
 		remote_log(server, "client %lu: refused: the session of '%s' has "
 			   "a client", peer->id, branch);
@@ -1174,6 +1308,16 @@ static void remote_project(struct fyai_remote_peer *peer, fy_generic id,
 	free(root);
 }
 
+static size_t remote_watchers(const struct fyai_remote_session *session)
+{
+	const struct fyai_remote_peer *watcher;
+	size_t n = 0;
+
+	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
+		n++;
+	return n;
+}
+
 /* The state of the server, for `serve status`. */
 static fy_generic remote_status(struct fyai_remote_server *server)
 {
@@ -1191,7 +1335,8 @@ static fy_generic remote_status(struct fyai_remote_server *server)
 			sessions = fy_append(gb, sessions, fy_mapping(gb,
 				"pid", (long long)session->pid,
 				"branch", session->branch ? session->branch : "",
-				"attached", (_Bool)(session->peer != NULL)));
+				"attached", (_Bool)(session->peer != NULL),
+				"watchers", (long long)remote_watchers(session)));
 	value = fy_mapping(gb, "pid", (long long)getpid());
 	if (server->path)
 		value = fy_assoc(gb, value, "socket", server->path);
@@ -1324,6 +1469,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	struct fyai_remote_server *server = peer->server;
 	fy_generic request, id, words;
 	const char *subtype, *text, *why = NULL;
+	bool watch;
 	char *resumed;
 
 	(void)conn;
@@ -1374,6 +1520,10 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		peer->failed = true;
 		return;
 	}
+	if (peer->watcher) {
+		remote_watch_request(peer, frame, id, subtype);
+		return;
+	}
 	if (peer->run) {
 		remote_run_client(peer, frame);
 		return;
@@ -1383,10 +1533,11 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		peer->failed = true;
 		return;
 	}
+	watch = fy_get(request, "watch", false);
 	/* An SDK session attaches to a branch; the rest is the fyai protocol. */
 	if ((!strcmp(subtype, "fyai_run") ||
 	     (!strcmp(subtype, "fyai_session_attach") &&
-	      (!fy_empty(words) ||
+	      (watch || !fy_empty(words) ||
 	       fy_is_valid(fy_get(request, "resume", fy_invalid)) ||
 	       !fy_get(request, "branch", (const char *)NULL)))) &&
 	    remote_needs_hello(peer, id, subtype))
@@ -1408,8 +1559,11 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 			peer->failed = true;
 			return;
 		}
-		if (text) {
-			remote_attach(peer, id, text, words);
+		if (watch && !text) {
+			remote_reply(peer, id, "a watcher names the branch to watch",
+				     fy_invalid);
+		} else if (text) {
+			remote_attach(peer, id, text, words, watch);
 			free(resumed);
 		} else if (peer->session) {
 			remote_reply(peer, id, "the client has a session", fy_invalid);
@@ -1434,6 +1588,12 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		return;
 	}
 	if (!peer->session && remote_spawn(peer, NULL, fy_seq_empty)) {
+		peer->failed = true;
+		return;
+	}
+	/* The prefix of a watcher is not for a client that drives. */
+	if (!strncmp(fy_get(frame, "request_id", ""), REMOTE_WATCH_PREFIX,
+		     strlen(REMOTE_WATCH_PREFIX))) {
 		peer->failed = true;
 		return;
 	}
@@ -1596,6 +1756,7 @@ static void remote_reap(struct fyai_remote_server *server)
 	struct fyai_remote_peer **link = &server->peers, *peer;
 	struct fyai_remote_session **slink = &server->sessions, *session;
 	struct fyai_remote_project **plink = &server->projects, *project;
+	struct fyai_remote_peer **wlink, *watcher;
 
 	while ((peer = *link)) {
 		remote_run_settle(peer);
@@ -1607,9 +1768,21 @@ static void remote_reap(struct fyai_remote_server *server)
 		if (!peer->handed)
 			remote_log(server, "client %lu: disconnected", peer->id);
 		session = peer->session;
-		if (session) {
+		if (session && peer->watcher) {
+			for (wlink = &session->watchers; *wlink != peer;
+			     wlink = &(*wlink)->wnext)
+				;
+			*wlink = peer->wnext;
+			if (session->snapshot_peer == peer)
+				session->snapshot_peer = NULL;
+		} else if (session) {
 			session->peer = NULL;
+			if (session->snapshot_peer == peer)
+				session->snapshot_peer = NULL;
 			if (session->anonymous && !session->exited) {
+				for (watcher = session->watchers; watcher;
+				     watcher = watcher->wnext)
+					watcher->failed = true;
 				jsonrpc_conn_destroy(session->worker);
 				session->worker = NULL;
 				close(session->fd);
@@ -1624,7 +1797,7 @@ static void remote_reap(struct fyai_remote_server *server)
 		free(peer);
 	}
 	while ((session = *slink)) {
-		if (!session->exited || session->peer) {
+		if (!session->exited || session->peer || session->watchers) {
 			slink = &session->next;
 			continue;
 		}

@@ -2252,7 +2252,7 @@ static void sdk_model_text(void *data, long long id, size_t offset,
  * then the root of each store, then each change. The texts go first, so a
  * store never names a text the client does not have.
  */
-static void sdk_model_start(struct sdk_server *srv)
+static void sdk_model_start(struct sdk_server *srv, fy_generic id)
 {
 	struct fyai_ctx *ctx = srv->ctx;
 	enum fyai_ui_store store;
@@ -2270,6 +2270,10 @@ static void sdk_model_start(struct sdk_server *srv)
 		return;
 	}
 	srv->model_stream = true;
+	/* The server of a session sends the snapshot to the client that asked
+	 * for it alone: it ends at the second marker. */
+	sdk_send(srv, fy_mapping("type", "fyai", "subtype", "snapshot",
+				 "phase", "begin", "request_id", id));
 	/* The state goes first: the client opens its display with it. */
 	fyai_uimodel_state_update(ctx);
 	fyai_uimodel_text_foreach(ctx, sdk_model_text, srv);
@@ -2283,6 +2287,8 @@ static void sdk_model_start(struct sdk_server *srv)
 			sdk_model_store(srv, store,
 					fyai_uimodel_seq(ctx, store), root);
 	}
+	sdk_send(srv, fy_mapping("type", "fyai", "subtype", "snapshot",
+				 "phase", "end", "request_id", id));
 	/* The header is written when it changes: write it for the client. */
 	fyai_session_banner_update(ctx);
 }
@@ -2305,7 +2311,7 @@ static void sdk_respond_init(struct sdk_server *srv, fy_generic id)
 				(unsigned long long)srv->epoch)));
 	}
 	sdk_respond(srv, id, response, NULL);
-	sdk_model_start(srv);
+	sdk_model_start(srv, id);
 }
 
 /*

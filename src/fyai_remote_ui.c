@@ -98,6 +98,7 @@ struct fyai_remote_ui {
 	fy_generic held;
 	bool opened;			/* the display is open */
 	bool initialized, busy, failed;
+	bool watch;			/* reads a session that another client drives */
 	char *error;			/* the cause of the last failed turn */
 };
 
@@ -110,6 +111,10 @@ static int remote_ui_request(struct fyai_remote_ui *view, const char *subtype,
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(view->ctx);
 	const char *id;
 
+	/* A watcher asks for the model and the turns, which change nothing. */
+	if (view->watch && strcmp(subtype, "initialize") &&
+	    strcmp(subtype, "fyai_sync"))
+		return 0;
 	id = fy_gb_intern_string(gb, fy_sprintfa("ui-%s-%llu", subtype,
 						 ++view->requests));
 	return jsonrpc_conn_send_frame(view->conn, fy_mapping(gb,
@@ -474,6 +479,15 @@ static int remote_ui_display_open(struct fyai_remote_ui *view)
 	fyai_error_check(ctx, !rc && fyai_ui_active(ctx), err,
 			 "the client of a session needs a terminal; use "
 			 "--protocol sdk for SDK frames");
+	/* Nobody types into a watching view: it has no prompt. */
+	if (view->watch) {
+		fyai_ui_prompt_enabled(ctx, false);
+		fyai_ui_pane_begin(ctx);
+		(void)fyai_sink_printf(ctx->sink, FYAI_SINK_NOTICE,
+				       "watching: this client sends no input; "
+				       "^C leaves\n");
+		fyai_ui_pane_end(ctx, "remote", true, true);
+	}
 	view->opened = true;
 	return 0;
 err:
@@ -797,6 +811,11 @@ err:
 	return NULL;
 }
 
+void fyai_remote_ui_watch(struct fyai_remote_ui *view, bool watch)
+{
+	view->watch = watch;
+}
+
 void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame)
 {
 	fy_generic inbox;
@@ -820,6 +839,8 @@ static int remote_ui_line(struct fyai_remote_ui *view, const char *line)
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(view->ctx);
 
+	if (view->watch)
+		return 0;
 	fyai_echo_user_turn(view->ctx, line);
 	fyai_ui_drain_output(view->ctx);
 	if (fyai_uidraw_echoed(view->ctx, line))

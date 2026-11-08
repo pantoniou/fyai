@@ -409,7 +409,7 @@ int fyai_cmd_remote_connect_prepare(struct fyai_cfg *cfg, fy_generic args)
 }
 
 /* Run the full-screen client until the user detaches or the worker goes. */
-static int remote_view_run(struct remote_client *client)
+static int remote_view_run(struct remote_client *client, bool watch)
 {
 	struct fyai_ctx *ctx = client->ctx;
 	int rc = 0;
@@ -417,6 +417,7 @@ static int remote_view_run(struct remote_client *client)
 	client->view = fyai_remote_ui_open(ctx, client->peer);
 	if (!client->view)
 		return -1;
+	fyai_remote_ui_watch(client->view, watch);
 	while (!client->failed && !jsonrpc_conn_closed(client->peer) &&
 	       !ctx->terminate_pending) {
 		rc = fyai_remote_ui_step(client->view);
@@ -489,9 +490,14 @@ int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 	/* The branch is the global option: -b, else $FYAI_BRANCH. */
 	const char *branch = ctx->cfg->branch_explicit ? ctx->cfg->branch : NULL;
 	char *path = NULL;
+	bool watch;
 	int rc = -1;
 
 	(void)result;
+	watch = fyai_cmd_arg_bool(call, "watch");
+	fyai_error_check(ctx, !watch || (branch && !fyai_cmd_arg_str(call,
+			 "protocol")), out, "--watch needs -b and the "
+			 "full-screen client");
 	path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"), false,
 				  false);
 	if (!path)
@@ -504,14 +510,16 @@ int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 	if (branch) {
 		rc = remote_request(&client, "attach", fy_mapping(call->gb,
-			"subtype", "fyai_session_attach", "branch", branch));
+			"subtype", "fyai_session_attach", "branch", branch,
+			"watch", watch));
 		if (rc) {
-			fyai_error(ctx, "cannot attach the branch '%s'", branch);
+			fyai_error(ctx, "cannot %s the branch '%s'",
+				   watch ? "watch" : "attach", branch);
 			goto out;
 		}
 	}
 	if (!fyai_cmd_arg_str(call, "protocol"))
-		rc = remote_view_run(&client);
+		rc = remote_view_run(&client, watch);
 	else
 		rc = remote_sdk_run(&client, path);
 out:
@@ -768,7 +776,7 @@ int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 		request = fy_assoc(call->gb, request, "branch", cfg->branch);
 	rc = remote_request(&client, "attach", request);
 	if (!rc)
-		rc = remote_view_run(&client);
+		rc = remote_view_run(&client, false);
 out:
 	remote_client_close(&client);
 	free(cwd);

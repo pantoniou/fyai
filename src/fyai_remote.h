@@ -25,6 +25,11 @@ struct fyai_remote_ui;
  */
 struct fyai_remote_ui *fyai_remote_ui_open(struct fyai_ctx *ctx,
 					   struct jsonrpc_conn *conn);
+/*
+ * A watching view sends the worker no input: not a line, a key, an answer or
+ * an interrupt. It asks for the model of the UI and for stored turns only.
+ */
+void fyai_remote_ui_watch(struct fyai_remote_ui *view, bool watch);
 /* Keep a frame of the worker for the next step. */
 void fyai_remote_ui_receive(struct fyai_remote_ui *view, fy_generic frame);
 /* Serve the frames and the typed input; 1 to detach, -1 on error. */
