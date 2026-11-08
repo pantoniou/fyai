@@ -6556,12 +6556,21 @@ static size_t fyai_tool_history_lines(const struct fyai_ctx *ctx)
 static void fyai_tool_job_band_open(struct fyai_tool_job *job)
 {
 	struct fyai_ctx *ctx = job->ctx;
+	size_t lines = fyai_tool_history_lines(ctx);
+	int rc = -1;
 
 	job->band = fyai_sink_band_open(ctx->sink, false, NULL, NULL);
-	if (!job->band ||
-	    fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg, NULL,
-		fyai_tool_history_lines(ctx),
-		markdown_tool_output_indent(ctx->cfg), NULL, true)) {
+	if (job->band && job->agent) {
+		/* The progress of a sub-agent is its prose: a quoted stream. */
+		rc = fyai_markdown_quote_stream_start(&job->stream, ctx,
+				ctx->cfg, lines, NULL, true);
+	} else if (job->band) {
+		rc = fyai_fenced_stream_start(&job->stream, ctx, ctx->cfg,
+				NULL, lines,
+				markdown_tool_output_indent(ctx->cfg), NULL,
+				true);
+	}
+	if (rc) {
 		fyai_tool_job_live_close(job, false);
 		return;
 	}
