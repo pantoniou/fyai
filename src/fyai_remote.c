@@ -159,7 +159,8 @@ out:
 struct remote_client {
 	struct fyai_ctx *ctx;
 	struct fy_generic_builder *gb;	/* the answers are copied here */
-	struct jsonrpc_conn *peer;
+	struct jsonrpc_conn *peer, *stdio;
+	struct fyai_remote_ui *view;	/* the full-screen client, or NULL */
 	int fd;
 	bool failed;
 	/* The control request in flight, and its answer when it came. */
@@ -167,7 +168,38 @@ struct remote_client {
 	bool answered;
 	fy_generic answer;
 	const char *refusal;
+	/* A client that ends its input waits for the result of each message. */
+	unsigned long long messages, results;
+	/* A command that runs at the server, and its exit status when it ended. */
+	bool running, ended;
+	int status;
+	struct fyai_event_source *input;
 };
+
+/* A frame of the command that runs at the server: output, or its end. */
+static void remote_run_output(struct remote_client *client, fy_generic frame)
+{
+	fy_generic data = fy_get(frame, "data", fy_invalid);
+	const char *subtype = fy_get(frame, "subtype", "");
+
+	if (!fy_equal(fy_get(frame, "type", ""), "fyai")) {
+		client->failed = true;
+		return;
+	}
+	if (!strcmp(subtype, "exit")) {
+		client->status = fy_get(frame, "status", 1);
+		client->ended = true;
+		return;
+	}
+	if (!strcmp(subtype, "stderr")) {
+		if (fy_is_string(data))
+			(void)fyai_sink_write(client->ctx->sink, FYAI_SINK_DIAG,
+					      fy_castp(&data, ""), fy_len(data));
+		return;
+	}
+	if (fyai_sink_frames_present(client->ctx, frame))
+		client->failed = true;
+}
 
 static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 			  void *data)
@@ -194,9 +226,37 @@ static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 				fy_get(response, "error", "the endpoint refused the request"));
 		return;
 	}
-	client->failed = true;
+	if (client->view) {
+		fyai_remote_ui_receive(client->view, frame);
+		return;
+	}
+	if (client->running) {
+		remote_run_output(client, frame);
+		return;
+	}
+	if (!client->stdio) {
+		client->failed = true;
+		return;
+	}
+	if (fy_equal(fy_get(frame, "type", ""), "result"))
+		client->results++;
+	if (fyai_remote_send(client->stdio, frame))
+		client->failed = true;
 }
 
+static void remote_input(struct jsonrpc_conn *conn, fy_generic frame,
+			 void *data)
+{
+	struct remote_client *client = data;
+
+	(void)conn;
+	if (fy_equal(fy_get(frame, "type", ""), "user"))
+		client->messages++;
+	if (fyai_remote_send(client->peer, frame))
+		client->failed = true;
+}
+
+/* Read the launch token: 64 characters and a newline on @fd, which closes. */
 static int remote_read_token(struct fyai_ctx *ctx, int fd, char token[65])
 {
 	ssize_t n = 0;
@@ -331,11 +391,133 @@ static int remote_hello(struct remote_client *client)
 static void remote_client_close(struct remote_client *client)
 {
 	fyai_event_interrupt_ack(client->ctx);
+	jsonrpc_conn_destroy(client->stdio);
+	client->stdio = NULL;
 	jsonrpc_conn_destroy(client->peer);
 	client->peer = NULL;
 	if (client->fd >= 0)
 		close(client->fd);
 	client->fd = -1;
+}
+
+int fyai_cmd_remote_connect_prepare(struct fyai_cfg *cfg, fy_generic args)
+{
+	/* The client of a session, unless SDK frames go on standard I/O. Its
+	 * display takes the configuration that the worker sends. */
+	cfg->interactive = fy_is_invalid(fy_get(args, "protocol", fy_invalid));
+	return 0;
+}
+
+/* Run the full-screen client until the user detaches or the worker goes. */
+static int remote_view_run(struct remote_client *client)
+{
+	struct fyai_ctx *ctx = client->ctx;
+	int rc = 0;
+
+	client->view = fyai_remote_ui_open(ctx, client->peer);
+	if (!client->view)
+		return -1;
+	while (!client->failed && !jsonrpc_conn_closed(client->peer) &&
+	       !ctx->terminate_pending) {
+		rc = fyai_remote_ui_step(client->view);
+		if (rc)
+			break;
+		rc = fyai_event_loop_step(fyai_ctx_loop(ctx), -1);
+		if (rc < 0)
+			break;
+	}
+	fyai_remote_ui_close(client->view);
+	client->view = NULL;
+	if (rc < 0 || client->failed)
+		return -1;
+	fyai_error_check(ctx, rc == 1 || ctx->terminate_pending, err,
+			 "the endpoint closed the connection");
+	return 0;
+err:
+	return -1;
+}
+
+/* Carry SDK frames between standard input and output and the endpoint. */
+static int remote_sdk_run(struct remote_client *client, const char *path)
+{
+	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_event_loop *loop = fyai_ctx_loop(ctx);
+	bool input_ended = false;
+	int rc;
+
+	client->stdio = jsonrpc_conn_stdio(ctx, STDOUT_FILENO, STDIN_FILENO, 0,
+					   "remote SDK", NULL);
+	fyai_error_check(ctx, client->stdio, err,
+			 "cannot open standard input and output");
+	jsonrpc_conn_expect_close(client->stdio);
+	rc = jsonrpc_conn_frames(client->stdio, remote_input, client);
+	fyai_error_check(ctx, !rc, err, "cannot read standard input");
+	/*
+	 * The end of the input is the end of the requests, as it is for the
+	 * CLI: the answers to them still come. The write side closes when
+	 * each message has its result, and the server then closes.
+	 */
+	while (!client->failed && !jsonrpc_conn_closed(client->peer) &&
+	       !ctx->terminate_pending && !fyai_interrupt_check(ctx)) {
+		fyai_event_interrupt_ack(ctx);
+		if (!input_ended && jsonrpc_conn_closed(client->stdio) &&
+		    !jsonrpc_conn_has_output(client->peer) &&
+		    client->results >= client->messages) {
+			shutdown(client->fd, SHUT_WR);
+			input_ended = true;
+		}
+		rc = fyai_event_loop_step(loop, -1);
+		fyai_error_check(ctx, rc >= 0, err,
+				 "the event loop of the connection stopped");
+	}
+	while (!client->failed && jsonrpc_conn_has_output(client->stdio)) {
+		rc = fyai_event_loop_step(loop, -1);
+		fyai_error_check(ctx, rc >= 0, err,
+				 "the event loop of the connection stopped");
+	}
+	fyai_error_check(ctx, !client->failed, err,
+			 "the connection to '%s' failed", path);
+	return 0;
+err:
+	return -1;
+}
+
+int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
+	/* The branch is the global option: -b, else $FYAI_BRANCH. */
+	const char *branch = ctx->cfg->branch_explicit ? ctx->cfg->branch : NULL;
+	char *path = NULL;
+	int rc = -1;
+
+	(void)result;
+	path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"), false,
+				  false);
+	if (!path)
+		goto out;
+	rc = remote_client_open(&client, path, fy_get(call->args, "token_fd", -1));
+	/* SDK frames make an SDK session; the full-screen client is fyai. */
+	if (!rc && !fyai_cmd_arg_str(call, "protocol"))
+		rc = remote_hello(&client);
+	if (rc)
+		goto out;
+	if (branch) {
+		rc = remote_request(&client, "attach", fy_mapping(call->gb,
+			"subtype", "fyai_session_attach", "branch", branch));
+		if (rc) {
+			fyai_error(ctx, "cannot attach the branch '%s'", branch);
+			goto out;
+		}
+	}
+	if (!fyai_cmd_arg_str(call, "protocol"))
+		rc = remote_view_run(&client);
+	else
+		rc = remote_sdk_run(&client, path);
+out:
+	remote_client_close(&client);
+	free(path);
+	return rc ? -1 : 0;
 }
 
 /* Ask the server at the endpoint of @call for @subtype, and give its answer. */
@@ -369,4 +551,227 @@ int fyai_cmd_remote_serve_stop(struct fyai_cmd_call *call, fy_generic *result)
 int fyai_cmd_remote_serve_status(struct fyai_cmd_call *call, fy_generic *result)
 {
 	return remote_server_ask(call, "fyai_server_status", result);
+}
+
+/* Send what standard input gives to the command at the server. */
+static enum fyai_event_action remote_run_stdin(const struct fyai_event *ev)
+{
+	struct remote_client *client = ev->userdata;
+	char buf[16384];
+	ssize_t n;
+
+	n = read(STDIN_FILENO, buf, sizeof(buf));
+	if (n < 0 && (errno == EAGAIN || errno == EINTR))
+		return FYAIEA_CONTINUE;
+	if (n <= 0) {
+		client->input = NULL;
+		fyai_event_source_remove(ev->src);
+		if (fyai_remote_send(client->peer, fy_mapping(client->gb, "type", "fyai",
+				"subtype", "stdin", "closed", true)))
+			client->failed = true;
+		return FYAIEA_CONTINUE;
+	}
+	if (fyai_remote_send(client->peer, fy_mapping(client->gb, "type", "fyai",
+			"subtype", "stdin",
+			"data", fy_gb_string_size_create(client->gb, buf, (size_t)n))))
+		client->failed = true;
+	return FYAIEA_CONTINUE;
+}
+
+/* Send the file on standard input to the command at the server, and its end. */
+static int remote_run_file(struct remote_client *client)
+{
+	char buf[16384];
+	ssize_t n;
+
+	for (;;) {
+		n = read(STDIN_FILENO, buf, sizeof(buf));
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0)
+			return -1;
+		if (fyai_remote_send(client->peer, n ?
+				fy_mapping(client->gb, "type", "fyai", "subtype", "stdin",
+					   "data", fy_gb_string_size_create(client->gb,
+									    buf, (size_t)n)) :
+				fy_mapping(client->gb, "type", "fyai", "subtype", "stdin",
+					   "closed", true)))
+			return -1;
+		if (!n)
+			return 0;
+	}
+}
+
+/*
+ * Run the command line of --remote at the server and present its output.
+ * Its exit status is the exit status of this process. ^C goes to the command.
+ */
+static int remote_command_run(struct remote_client *client)
+{
+	struct fyai_ctx *ctx = client->ctx;
+	struct fyai_cfg *cfg = ctx->cfg;
+	bool input = false, stream = false;
+	struct stat st;
+	int rc;
+
+	/*
+	 * A pipe or a socket is read as it comes, and a file whole; a terminal
+	 * or a device gives the command no input.
+	 */
+	if (!terminal_is_tty(STDIN_FILENO) && !fstat(STDIN_FILENO, &st)) {
+		stream = S_ISFIFO(st.st_mode) || S_ISSOCK(st.st_mode);
+		input = stream || S_ISREG(st.st_mode);
+	}
+
+	rc = remote_request(client, "run", fy_mapping(client->gb,
+		"subtype", "fyai_run", "args", cfg->remote_args, "stdin", input,
+		"cols", (long long)(ctx->stdout_tty ? ctx->tty_cols : 0)));
+	if (rc)
+		return -1;
+	client->running = true;
+	if (stream) {
+		rc = fyai_event_add_fd(fyai_ctx_loop(ctx), STDIN_FILENO, FYAIEV_READ,
+				       remote_run_stdin, client, &client->input);
+		fyai_error_check(ctx, !rc, err, "cannot read standard input");
+	} else if (input) {
+		rc = remote_run_file(client);
+		fyai_error_check(ctx, !rc, err, "cannot send standard input");
+	}
+	while (!client->ended && !client->failed &&
+	       !jsonrpc_conn_closed(client->peer) && !ctx->terminate_pending) {
+		if (fyai_interrupt_check(ctx)) {
+			fyai_event_interrupt_ack(ctx);
+			if (fyai_remote_send(client->peer, fy_mapping(client->gb,
+					"type", "fyai", "subtype", "signal",
+					"signal", "INT")))
+				client->failed = true;
+		}
+		rc = fyai_event_loop_step(fyai_ctx_loop(ctx), -1);
+		fyai_error_check(ctx, rc >= 0, err,
+				 "the event loop of the connection stopped");
+	}
+	fyai_event_source_remove(client->input);
+	client->input = NULL;
+	fyai_sink_flush(ctx->sink);
+	fyai_error_check(ctx, client->ended, err, "the server ended the command "
+			 "without its exit status");
+	cfg->exit_status = client->status;
+	return 0;
+err:
+	fyai_event_source_remove(client->input);
+	client->input = NULL;
+	return -1;
+}
+
+/*
+ * The arguments of `resume` when the words of --remote are that command, else
+ * fy_invalid. It is interactive: the server selects its branch, and this
+ * process shows the session.
+ */
+static fy_generic remote_run_resume(struct fyai_cfg *cfg)
+{
+	struct fyai_cmd_parsed parsed;
+	const char **words;
+	size_t i, n = fy_len(cfg->remote_args) - cfg->remote_globals;
+	fy_generic first;
+	int rc;
+
+	first = fy_get_at(cfg->remote_args, cfg->remote_globals, fy_invalid);
+	if (!n || !fyai_cmd_is_verb(fy_castp(&first, "")))
+		return fy_invalid;
+	words = fy_gb_alloc(cfg->gb, n * sizeof(*words), _Alignof(const char *));
+	if (!words)
+		return fy_invalid;
+	for (i = 0; i < n; i++)
+		words[i] = fy_get_at(cfg->remote_args, cfg->remote_globals + i, "");
+	memset(&parsed, 0, sizeof(parsed));
+	rc = fyai_cmd_parse(cfg, cfg->gb, FYAI_CMD_CLI, n, words, NULL, NULL, &parsed);
+	if (rc || parsed.help || !parsed.path || strcmp(parsed.path, "resume"))
+		return fy_invalid;
+	return parsed.args;
+}
+
+int fyai_cmd_remote_run_prepare(struct fyai_cfg *cfg, fy_generic args)
+{
+	(void)args;
+	fyai_cfg_error_check(cfg, cfg->remote, err, "remote run: give the command "
+			     "line to the global option --remote");
+	cfg->remote_resume = remote_run_resume(cfg);
+	/* With no command line, the session is interactive, as it is here. */
+	if (fy_is_valid(cfg->remote_resume) ||
+	    (!cfg->remote_words && (cfg->interactive || terminal_is_tty(STDIN_FILENO))))
+		cfg->interactive = true;
+	return 0;
+err:
+	return -1;
+}
+
+/*
+ * The endpoint of --remote TARGET: a socket; else, for ".", the server of the project
+ * when one serves it and --project does not name another; else the server of
+ * projects.
+ */
+static char *remote_run_endpoint(struct fyai_ctx *ctx)
+{
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct stat st;
+	char *path;
+
+	if (cfg->remote_socket)
+		return fyai_remote_socket_path(ctx, cfg->remote_socket, false, false);
+	if (!cfg->project) {
+		path = fyai_remote_socket_path(ctx, NULL, false, false);
+		if (!path || (!stat(path, &st) && S_ISSOCK(st.st_mode)))
+			return path;
+		free(path);
+	}
+	return fyai_remote_socket_path(ctx, NULL, true, false);
+}
+
+int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct fyai_cfg *cfg = ctx->cfg;
+	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
+	fy_generic request, globals = fy_seq_empty;
+	char *path = NULL, *cwd = NULL;
+	size_t i;
+	int rc = -1;
+
+	(void)result;
+	path = remote_run_endpoint(ctx);
+	if (!path)
+		goto out;
+	cwd = cfg->project ? NULL : getcwd(NULL, 0);
+	fyai_error_check(ctx, cfg->project || cwd, out,
+			 "cannot read the current directory: %s", strerror(errno));
+	if (remote_client_open(&client, path, -1) || remote_hello(&client))
+		goto out;
+	/* The directory to work in, which also names the project. */
+	rc = remote_request(&client, "project", fy_mapping(call->gb,
+		"subtype", "fyai_project", "path", cfg->project ? cfg->project : cwd));
+	if (rc)
+		goto out;
+	if (!cfg->interactive) {
+		rc = remote_command_run(&client);
+		goto out;
+	}
+	/* An interactive session: the global options start its worker. */
+	for (i = 0; i < cfg->remote_globals; i++)
+		globals = fy_append(call->gb, globals,
+				    fy_get_at(cfg->remote_args, i, fy_invalid));
+	request = fy_mapping(call->gb, "subtype", "fyai_session_attach",
+			     "args", globals);
+	if (fy_is_valid(cfg->remote_resume))
+		request = fy_assoc(call->gb, request, "resume", cfg->remote_resume);
+	else if (cfg->branch)
+		request = fy_assoc(call->gb, request, "branch", cfg->branch);
+	rc = remote_request(&client, "attach", request);
+	if (!rc)
+		rc = remote_view_run(&client);
+out:
+	remote_client_close(&client);
+	free(cwd);
+	free(path);
+	return rc ? -1 : 0;
 }

@@ -3218,6 +3218,8 @@ enum {
 	OPT_VIEW_PROJECT,
 	OPT_VIEW_SCRATCH,
 	OPT_VIEW_ARENA_FD,
+	OPT_PROJECT,
+	OPT_REMOTE,
 	OPT_SINK_FRAMES,
 };
 
@@ -3233,6 +3235,8 @@ static const struct option long_options[] = {
 	{ "view-project", required_argument, NULL, OPT_VIEW_PROJECT },
 	{ "view-scratch", required_argument, NULL, OPT_VIEW_SCRATCH },
 	{ "view-arena-fd", required_argument, NULL, OPT_VIEW_ARENA_FD },
+	{ "project", required_argument, NULL, OPT_PROJECT },
+	{ "remote", required_argument, NULL, OPT_REMOTE },
 	{ "sink-frames", no_argument, NULL, OPT_SINK_FRAMES },
 	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
@@ -3741,6 +3745,8 @@ struct config_cli_options {
 	const char *api_key;
 	int arg_index;
 	bool help;
+	/* The words of the options that a client of --remote keeps for itself. */
+	bool *remote_own;
 };
 
 static int config_parse_set_option(struct fyai_cfg *cfg, int argc, char *argv[])
@@ -3773,19 +3779,29 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 	struct stat st;
 	char *end;
 	long fd;
-	int opt;
+	int opt, first, i;
 
 	options->config = NULL;
 	options->env = NULL;
 	options->api_key = NULL;
 	options->help = false;
+	options->remote_own = fy_gb_alloc(cfg->gb, (size_t)argc * sizeof(bool),
+					  _Alignof(bool));
+	if (!options->remote_own) {
+		fyai_cfg_error(cfg, "cannot allocate the options of the command line");
+		return -1;
+	}
+	memset(options->remote_own, 0, (size_t)argc * sizeof(bool));
 
 	optind = 0;
 	optarg = NULL;
 
 	/* '+' stops parsing at the first non-option (the verb or prompt). */
-	while ((opt = getopt_long(argc, argv, "+hvC:e:m:k:b:id",
-				  long_options, NULL)) != -1) {
+	for (;;) {
+		first = optind > 0 ? optind : 1;
+		opt = getopt_long(argc, argv, "+hvC:e:m:k:b:id", long_options, NULL);
+		if (opt == -1)
+			break;
 		switch (opt) {
 		case 'h':
 			options->help = true;
@@ -3907,6 +3923,20 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 		case OPT_TRANSIENT:
 			cfg->transient = true;
 			break;
+		case OPT_PROJECT:
+		case OPT_REMOTE:
+			if (opt == OPT_PROJECT) {
+				cfg->project = fy_gb_intern_string(cfg->gb, optarg);
+			} else {
+				/* "." is the server that this directory finds. */
+				cfg->remote = true;
+				cfg->remote_socket = strcmp(optarg, ".") ?
+					fy_gb_intern_string(cfg->gb, optarg) : NULL;
+			}
+			/* A long option without a short form has words of its own. */
+			for (i = first; i < optind && i < argc; i++)
+				options->remote_own[i] = true;
+			break;
 		case OPT_SINK_FRAMES:
 			cfg->sink_frames = true;
 			break;
@@ -3969,6 +3999,7 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	char *prompt = NULL;
 	int ret = -1;
 	char **help_argv = NULL;
+	char *remote_argv[4];
 	const char *version;
 	int i;
 
@@ -3990,6 +4021,8 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 
 	fyai_config_set_defaults(cfg);
 	cfg->config_session = fy_invalid;
+	cfg->remote_args = fy_invalid;
+	cfg->remote_resume = fy_invalid;
 	if (getenv(FYAI_RELOAD_FD_ENV)) {
 		cfg->reload_state = config_reload_read(cfg);
 		if (!fy_is_mapping(cfg->reload_state))
@@ -4023,6 +4056,37 @@ int fyai_config_setup(struct fyai_cfg *cfg, int argc, char *argv[])
 	if (rc < 0)
 		goto err_out;
 	arg_index = cli.arg_index;
+
+	/*
+	 * --remote keeps its own options and gives every other word to the
+	 * server; this process runs `remote run`. Without it, --project is the
+	 * directory to work in.
+	 */
+	if (cfg->remote) {
+		cfg->remote_args = fy_seq_empty;
+		for (i = 1; i < argc; i++) {
+			if (i < arg_index && cli.remote_own[i])
+				continue;
+			cfg->remote_args = fy_append(cfg->gb, cfg->remote_args,
+						     fy_value(cfg->gb, argv[i]));
+			if (i < arg_index)
+				cfg->remote_globals++;
+		}
+		fyai_cfg_error_check(cfg, fy_is_sequence(cfg->remote_args), err_out,
+				     "cannot keep the command line of --remote");
+		cfg->remote_words = arg_index < argc;
+		remote_argv[0] = argv[0];
+		remote_argv[1] = (char *)"remote";
+		remote_argv[2] = (char *)"run";
+		remote_argv[3] = NULL;
+		argv = remote_argv;
+		argc = 3;
+		arg_index = 1;
+		cli.help = false;
+	} else if (cfg->project && chdir(cfg->project)) {
+		fyai_cfg_error(cfg, "--project '%s': %s", cfg->project, strerror(errno));
+		goto err_out;
+	}
 
 	/*
 	 * -h is the help command: `fyai -h WORDS` is `fyai help WORDS`. The

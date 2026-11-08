@@ -14,6 +14,8 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `-m`, `--model MODEL` | model, optionally as provider/model |
 | `-b`, `--branch BRANCH` | work on this branch (else $FYAI_BRANCH, else HEAD) |
 | `--root HANDLE` | read one exact state by root handle (read-only) |
+| `--project DIR` | work in the directory DIR; with --remote, DIR is relative to the directory of the server of projects |
+| `--remote TARGET` | run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server |
 | `--view-project DIR` | use this project root in an internal view child |
 | `--sink-frames` | send each output as a frame on standard output, for a server that runs a remote command |
 | `--view-scratch DIR` | use this scratch directory in an internal view child |
@@ -3515,6 +3517,43 @@ Show the server, its projects, and its sessions.
 | --- | --- |
 | `--socket PATH` | override the endpoint |
 | `--projects` | show the server of projects at ~/.fyai/unix/serve.sock |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai remote
+
+connect to a remote session
+
+**Usage:** `fyai remote {connect} ...`
+
+Connect to a remote fyai endpoint.
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `connect` | connect through a Unix socket |
+
+## fyai remote connect
+
+connect through a Unix socket
+
+**Usage:** `fyai remote connect [--protocol VALUE] [--token-fd VALUE] [VALUE]`
+
+Open the full-screen client of a session that a local fyai serves, or carry its SDK frames on standard input and output. The global option -b names the branch of the session, which the client attaches to or starts.
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `VALUE` | override the project endpoint at .fyai/unix/remote.sock |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--protocol VALUE` | carry SDK JSON frames on standard input and output instead of opening the terminal UI (sdk) |
+| `--token-fd VALUE` | authenticate with the launch token read from this descriptor |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 

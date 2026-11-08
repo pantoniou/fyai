@@ -520,6 +520,18 @@ struct fyai_cfg {
 	 * process presents it and ends.
 	 */
 	const char *serve_daemon;
+	/* --remote: the rest of the command line runs at a server (`remote run`). */
+	bool remote;
+	const char *remote_socket;	/* the socket of --remote TARGET, or NULL */
+	/* The global options and the words to run there, without the above. */
+	fy_generic remote_args;
+	size_t remote_globals;		/* how many of them are global options */
+	/* The arguments of a `resume` at the server, which is interactive. */
+	fy_generic remote_resume;
+	/* The command line of --remote has a verb or a prompt. */
+	bool remote_words;
+	/* --project: the directory to work in; with --remote, the server's. */
+	const char *project;
 	/* --sink-frames: the sink sends each output as a frame on standard output. */
 	bool sink_frames;
 	/* Serve the agent protocol on standard input and output. */

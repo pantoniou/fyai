@@ -129,6 +129,8 @@ static const struct {
 	{ "remote_serve",	fyai_cmd_remote_serve },
 	{ "remote_serve_stop",	fyai_cmd_remote_serve_stop },
 	{ "remote_serve_status", fyai_cmd_remote_serve_status },
+	{ "remote_connect",	fyai_cmd_remote_connect },
+	{ "remote_run",		fyai_cmd_remote_run },
 	{ "transport",		fyai_cmd_transport },
 	{ "setting",		fyai_cmd_setting },
 	{ "lockdown",		fyai_cmd_lockdown },
@@ -212,7 +214,9 @@ static const struct {
 	fyai_cmd_prepare_fn fn;
 } cmd_prepares[] = {
 	{ "term",		fyai_cmd_term_prepare },
+	{ "remote_connect",	fyai_cmd_remote_connect_prepare },
 	{ "remote_serve",	fyai_cmd_remote_serve_prepare },
+	{ "remote_run",		fyai_cmd_remote_run_prepare },
 	{ "init",		fyai_cmd_init_prepare },
 	{ "agent",		fyai_cmd_agent_prepare },
 	{ "acp",		fyai_cmd_acp_prepare },
