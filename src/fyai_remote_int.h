@@ -9,6 +9,8 @@
 #include "fyai.h"
 #include "fyai_jsonrpc.h"
 
+/* A peer that reads no more than this is dropped, not buffered without end. */
+#define REMOTE_OUTPUT_MAX	(32u * 1024u * 1024u)
 /* The time a peer has to authenticate or to have its branch attached. */
 #define REMOTE_ADMIT_MS		10000
 

@@ -204,6 +204,16 @@ static void remote_peer_send(struct fyai_remote_peer *peer, fy_generic frame)
 		peer->failed = true;
 }
 
+/* Queue a line that jsonrpc_frame_encode() made, as fyai_remote_send() does. */
+static void remote_peer_send_line(struct fyai_remote_peer *peer, const char *line)
+{
+	if (!peer || peer->failed)
+		return;
+	if (jsonrpc_conn_output_size(peer->conn) >= REMOTE_OUTPUT_MAX ||
+	    jsonrpc_conn_send_encoded(peer->conn, line))
+		peer->failed = true;
+}
+
 static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 				void *data)
 {
@@ -211,7 +221,7 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	struct fyai_ctx *ctx = session->server->call->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_remote_peer *owner, *watcher;
-	const char *branch, *id, *rest;
+	const char *branch, *id, *rest, *line;
 	fy_generic response;
 	bool begin;
 	char *copy;
@@ -270,9 +280,19 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		remote_peer_send(watcher ? watcher : session->peer, frame);
 		return;
 	}
-	remote_peer_send(session->peer, frame);
+	/* The same frame goes to the driver and to each watcher: encode it
+	 * once. */
+	if (!session->watchers) {
+		remote_peer_send(session->peer, frame);
+		return;
+	}
+	line = jsonrpc_frame_encode(gb, frame);
+	fyai_error_check(ctx, line, out, "cannot encode a frame for the watchers");
+	remote_peer_send_line(session->peer, line);
 	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
-		remote_peer_send(watcher, frame);
+		remote_peer_send_line(watcher, line);
+out:
+	return;
 }
 
 static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)

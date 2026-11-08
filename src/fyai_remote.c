@@ -39,8 +39,6 @@
 
 #define FYAI_MODULE FYAIEM_REMOTE
 
-/* A peer that reads no more than this is dropped, not buffered without end. */
-#define REMOTE_OUTPUT_MAX	(32u * 1024u * 1024u)
 
 /* Mark @fd close-on-exec; macOS has no flag that makes it so at creation. */
 int fyai_remote_cloexec(int fd)

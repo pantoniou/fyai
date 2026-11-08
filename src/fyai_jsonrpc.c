@@ -695,6 +695,25 @@ err:
 	return -1;
 }
 
+const char *jsonrpc_frame_encode(struct fy_generic_builder *gb, fy_generic frame)
+{
+	return emit_json_string(gb, frame);
+}
+
+int jsonrpc_conn_send_encoded(struct jsonrpc_conn *conn, const char *line)
+{
+	int rc;
+
+	if (!conn || conn->transport != JSONRPC_STDIO || conn->write_failed)
+		return -1;
+	rc = jsonrpc_conn_send(conn, line);
+	fyai_error_check(conn->ctx, !rc, err,
+			 "%s could not queue a frame", conn->name);
+	return 0;
+err:
+	return -1;
+}
+
 static enum fyai_event_action jsonrpc_stdio_timeout(const struct fyai_event *ev)
 {
 	struct jsonrpc_request *req = ev->userdata;

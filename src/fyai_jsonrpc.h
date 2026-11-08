@@ -96,6 +96,14 @@ int jsonrpc_conn_frames(struct jsonrpc_conn *conn, jsonrpc_frame_fn fn,
 /* Queue @frame as one line of compact JSON. */
 int jsonrpc_conn_send_frame(struct jsonrpc_conn *conn, fy_generic frame);
 
+/*
+ * Encode @frame as one line of compact JSON in @gb, and queue that line on
+ * each connection that must send the same frame: the frame is encoded once.
+ * The line lives as long as @gb.
+ */
+const char *jsonrpc_frame_encode(struct fy_generic_builder *gb, fy_generic frame);
+int jsonrpc_conn_send_encoded(struct jsonrpc_conn *conn, const char *line);
+
 /* Enable JSON-RPC batch frames on a stdio server connection. */
 void jsonrpc_conn_accept_batches(struct jsonrpc_conn *conn);
 bool jsonrpc_conn_in_batch(const struct jsonrpc_conn *conn);
