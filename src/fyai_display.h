@@ -120,6 +120,21 @@ struct fyai_md_blocks {
 	size_t cap;
 };
 
+/*
+ * As fyai_tool_call_view(), and *@sourcep the input of the render, built in
+ * @gb: {text, blocks: [{start, end, lang}], preview}, which
+ * fyai_tool_view_render() renders again.
+ */
+int fyai_tool_call_view_source(struct fyai_ctx *ctx, const char *name,
+			       fy_generic args, int preview_lines, char **title,
+			       struct response_buffer *body,
+			       struct fy_generic_builder *gb,
+			       fy_generic *sourcep);
+/* Render the @len bytes of the view @md with its code @blocks. */
+int fyai_tool_view_render(struct fyai_ctx *ctx, const char *md, size_t len,
+			  const struct fyai_md_blocks *blocks, size_t max_lines,
+			  char **title, struct response_buffer *body);
+
 void fyai_md_blocks_free(struct fyai_md_blocks *blocks);
 void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,
 			 struct fy_generic_builder *gb,

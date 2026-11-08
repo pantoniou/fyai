@@ -441,7 +441,8 @@ void fyai_patch_display_clear(struct fyai_ctx *ctx)
 
 /* Build an apply_patch work band. */
 static int patch_band_view(struct fyai_ctx *ctx, fy_generic tool_call,
-			   char **title, struct response_buffer *body)
+			   char **title, struct response_buffer *body,
+			   fy_generic *sourcep)
 {
 	const char *resolved;
 	fy_generic args;
@@ -450,23 +451,28 @@ static int patch_band_view(struct fyai_ctx *ctx, fy_generic tool_call,
 	resolved = fyai_patch_display_text(ctx, tool_call);
 	if (resolved)
 		args = fy_mapping("patch", resolved);
-	return fyai_tool_call_view(ctx, "apply_patch", args,
+	return fyai_tool_call_view_source(ctx, "apply_patch", args,
 			fyai_tool_preview_lines(ctx->cfg, "apply_patch"),
-			title, body);
+			title, body, ctx->transient_gb, sourcep);
 }
 
 void fyai_patch_band_refresh(struct fyai_ctx *ctx, fy_generic tool_call)
 {
 	struct response_buffer body = {0};
+	fy_generic source;
 	char *title = NULL;
 
 	if (!fyai_sink_bands_available(ctx->sink) || !ctx->cfg->markdown)
 		return;
 	if (!fyai_patch_display_text(ctx, tool_call))
 		return;
-	if (!patch_band_view(ctx, tool_call, &title, &body) && body.len)
+	if (!patch_band_view(ctx, tool_call, &title, &body, &source) &&
+	    body.len) {
 		fyai_sink_band_paint(fyai_sink_band_shared(ctx->sink), NULL,
 				     NULL, body.data, body.len, NULL);
+		fyai_uiwork_band_view(ctx, fyai_sink_band_shared(ctx->sink),
+				      source);
+	}
 	free(body.data);
 	free(title);
 }
@@ -479,7 +485,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 	const char *command;
 	struct response_buffer body = {0};
 	char *header;
-	fy_generic args;
+	fy_generic args, source;
 	fy_generic cmdv;
 
 	/* A delegated agent prints tool calls only on its own terminal. */
@@ -557,30 +563,37 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 	} else if (cfg->markdown && fyai_sink_bands_available(ctx->sink) &&
 		   fy_equal(name, "apply_patch")) {
 		/* Show the patch in a marked work band. */
-		if (patch_band_view(ctx, tool_call, &header, &body))
+		if (patch_band_view(ctx, tool_call, &header, &body, &source))
 			header = NULL;
 		fyai_sink_band_open(ctx->sink, true,
 				    header ? header : "**patch**", NULL);
-		if (body.len)
+		if (body.len) {
 			fyai_sink_band_paint(fyai_sink_band_shared(ctx->sink),
 					     NULL, NULL, body.data, body.len,
 					     NULL);
+			fyai_uiwork_band_view(ctx,
+				fyai_sink_band_shared(ctx->sink), source);
+		}
 		free(body.data);
 		free(header);
 		ctx->tool_output_displayed = true;
 	} else if (cfg->markdown && fyai_sink_bands_available(ctx->sink) &&
 		   fy_any_equal(name, "read_file", "write_file")) {
 		args = fyai_tool_call_args(ctx, tool_call);
-		if (fyai_tool_call_view(ctx, name, args,
+		if (fyai_tool_call_view_source(ctx, name, args,
 					fyai_tool_preview_lines(cfg, name),
-					&header, &body))
+					&header, &body, ctx->transient_gb,
+					&source))
 			header = NULL;
 		fyai_sink_band_open(ctx->sink, true, header ? header : name,
 				    NULL);
-		if (body.len)
+		if (body.len) {
 			fyai_sink_band_paint(fyai_sink_band_shared(ctx->sink),
 					     NULL, NULL, body.data, body.len,
 					     NULL);
+			fyai_uiwork_band_view(ctx,
+				fyai_sink_band_shared(ctx->sink), source);
+		}
 		free(body.data);
 		memset(&body, 0, sizeof(body));
 		free(header);

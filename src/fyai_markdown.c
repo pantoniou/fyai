@@ -2412,7 +2412,8 @@ static void fenced_stream_tap(struct fyai_fenced_stream *fs,
 	fyai_uiwork_band_source(fs->ctx, band, fs,
 				fs->markdown_quote ? "markdown" :
 				fs->lang ? "code" : "terminal",
-				fs->lang, data, len);
+				fs->lang, fs->max_lines, fs->indent != NULL,
+				data, len);
 }
 
 int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,

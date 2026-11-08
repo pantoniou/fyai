@@ -298,8 +298,10 @@ int uimodel_bands(void)
 	FYAI_TCHECK(!strcmp(fy_get(band, "text", ""), "rows\n"));
 	FYAI_TCHECK(!strcmp(fy_get(band, "command", ""), "ls"));
 	/* The source of a stream replaces what was painted. */
-	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, "ab", 2);
-	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, "\rc", 2);
+	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, 8, true,
+				"ab", 2);
+	fyai_uiwork_band_source(&ctx, a, &owner_a, "terminal", NULL, 8, true,
+				"\rc", 2);
 	band = uimodel_band(&ctx, 0);
 	FYAI_TCHECK(!strcmp(fy_get(band, "format", ""), "terminal"));
 	FYAI_TCHECK(fy_is_invalid(fy_get(band, "text", fy_invalid)));
@@ -311,7 +313,8 @@ int uimodel_bands(void)
 	FYAI_TCHECK(fy_is_invalid(fy_get(uimodel_band(&ctx, 0), "text",
 					 fy_invalid)));
 	/* Another stream starts the source again. */
-	fyai_uiwork_band_source(&ctx, a, &owner_b, "code", "c", "int", 3);
+	fyai_uiwork_band_source(&ctx, a, &owner_b, "code", "c", 8, true,
+				"int", 3);
 	band = uimodel_band(&ctx, 0);
 	FYAI_TCHECK(fy_get(band, "length", 0LL) == 3);
 	FYAI_TCHECK(!strcmp(fy_get(band, "language", ""), "c"));
@@ -323,8 +326,8 @@ int uimodel_bands(void)
 	FYAI_TCHECK(!strcmp(fy_get(uimodel_band(&ctx, 1), "title", ""),
 			    "again"));
 	FYAI_TCHECK(fy_is_invalid(uimodel_band(&ctx, 2)));
-	fyai_uiwork_band_end(&ctx, NULL);
-	fyai_uiwork_band_end(&ctx, b);
+	fyai_uiwork_band_end(&ctx, NULL, "closed", false, NULL);
+	fyai_uiwork_band_end(&ctx, b, "committed", true, NULL);
 	FYAI_TCHECK(fy_is_invalid(uimodel_band(&ctx, 0)));
 	fyai_uiwork_release(&ctx);
 	fyai_uimodel_release(&ctx);

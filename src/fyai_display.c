@@ -1844,17 +1844,29 @@ out:
 	return -1;
 }
 
-int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
-			int preview_lines, char **title,
-			struct response_buffer *body)
+int fyai_tool_view_render(struct fyai_ctx *ctx, const char *md, size_t len,
+			  const struct fyai_md_blocks *blocks, size_t max_lines,
+			  char **title, struct response_buffer *body)
+{
+	return view_split(ctx, md, len, blocks, max_lines, title, body);
+}
+
+int fyai_tool_call_view_source(struct fyai_ctx *ctx, const char *name,
+			       fy_generic args, int preview_lines, char **title,
+			       struct response_buffer *body,
+			       struct fy_generic_builder *gb,
+			       fy_generic *sourcep)
 {
 	struct fyai_md_blocks blocks = {0};
+	fy_generic items = fy_seq_empty;
 	char *md = NULL;
-	size_t mdlen = 0;
+	size_t mdlen = 0, i;
 	FILE *mf;
 	int rc;
 
 	*title = NULL;
+	if (sourcep)
+		*sourcep = fy_invalid;
 	mf = open_memstream(&md, &mdlen);
 	fyai_error_check(ctx, mf, out, "could not create the tool view");
 	fyai_emit_tool_call(ctx, mf, ctx->transient_gb, name, args, preview_lines,
@@ -1865,6 +1877,19 @@ int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
 	rc = view_split(ctx, md, mdlen, &blocks,
 			preview_lines > 0 ? (size_t)preview_lines : 0,
 			title, body);
+	/* The input of the render: a client renders the same view again. */
+	for (i = 0; !rc && sourcep && gb && i < blocks.count; i++)
+		items = fy_append(gb, items, fy_mapping(gb,
+			"start", (long long)blocks.item[i].start,
+			"end", (long long)blocks.item[i].end,
+			"lang", blocks.item[i].lang ?
+				fy_value(gb, blocks.item[i].lang) : fy_null));
+	if (!rc && sourcep && gb)
+		*sourcep = fy_mapping(gb,
+			"text", fy_gb_string_size_create(gb, md, mdlen),
+			"blocks", items,
+			"preview", (long long)(preview_lines > 0 ?
+					       preview_lines : 0));
 	fyai_md_blocks_free(&blocks);
 	free(md);
 	return 0;
@@ -1874,6 +1899,14 @@ out:
 	fyai_md_blocks_free(&blocks);
 	free(md);
 	return -1;
+}
+
+int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
+			int preview_lines, char **title,
+			struct response_buffer *body)
+{
+	return fyai_tool_call_view_source(ctx, name, args, preview_lines, title,
+					  body, NULL, NULL);
 }
 
 struct patch_emit_ctx {
