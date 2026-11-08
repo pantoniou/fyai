@@ -3538,7 +3538,7 @@ Connect to a remote fyai endpoint.
 
 connect through a Unix socket
 
-**Usage:** `fyai remote connect [--protocol VALUE] [--watch] [--token-fd VALUE] [VALUE]`
+**Usage:** `fyai remote connect [--protocol VALUE] [--last] [--watch] [--token-fd VALUE] [VALUE]`
 
 Open the full-screen client of a session that a local fyai serves, or carry its SDK frames on standard input and output. The global option -b names the branch of the session, which the client attaches to or starts.
 
@@ -3553,7 +3553,8 @@ Open the full-screen client of a session that a local fyai serves, or carry its 
 | Option | Description |
 | --- | --- |
 | `--protocol VALUE` | carry SDK JSON frames on standard input and output instead of opening the terminal UI (sdk) |
-| `--watch` | only watch the live session of the branch of -b, which another client may drive; the client sends no input to it |
+| `--last` | take the session that fyai resume --last takes, the last session that started in this directory, instead of a branch of -b |
+| `--watch` | only watch the live session of -b or --last, which another client may drive; the client sends no input to it |
 | `--token-fd VALUE` | authenticate with the launch token read from this descriptor |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |

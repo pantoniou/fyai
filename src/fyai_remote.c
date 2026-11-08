@@ -489,15 +489,19 @@ int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
 	/* The branch is the global option: -b, else $FYAI_BRANCH. */
 	const char *branch = ctx->cfg->branch_explicit ? ctx->cfg->branch : NULL;
+	fy_generic request;
 	char *path = NULL;
-	bool watch;
+	bool watch, last;
 	int rc = -1;
 
 	(void)result;
 	watch = fyai_cmd_arg_bool(call, "watch");
-	fyai_error_check(ctx, !watch || (branch && !fyai_cmd_arg_str(call,
-			 "protocol")), out, "--watch needs -b and the "
-			 "full-screen client");
+	last = fyai_cmd_arg_bool(call, "last");
+	fyai_error_check(ctx, !(last && branch), out,
+			 "--last and -b name the session twice");
+	fyai_error_check(ctx, !watch || ((branch || last) &&
+			 !fyai_cmd_arg_str(call, "protocol")), out,
+			 "--watch needs -b or --last and the full-screen client");
 	path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"), false,
 				  false);
 	if (!path)
@@ -508,13 +512,17 @@ int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result)
 		rc = remote_hello(&client);
 	if (rc)
 		goto out;
-	if (branch) {
-		rc = remote_request(&client, "attach", fy_mapping(call->gb,
-			"subtype", "fyai_session_attach", "branch", branch,
-			"watch", watch));
+	if (branch || last) {
+		request = fy_mapping(call->gb, "subtype", "fyai_session_attach",
+				     "watch", watch);
+		request = branch ? fy_assoc(call->gb, request, "branch", branch) :
+			fy_assoc(call->gb, request, "resume",
+				 fy_mapping(call->gb, "last", true));
+		rc = remote_request(&client, "attach", request);
 		if (rc) {
-			fyai_error(ctx, "cannot %s the branch '%s'",
-				   watch ? "watch" : "attach", branch);
+			fyai_error(ctx, "cannot %s the session of %s",
+				   watch ? "watch" : "attach",
+				   branch ? branch : "--last");
 			goto out;
 		}
 	}

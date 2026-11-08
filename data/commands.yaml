@@ -4185,9 +4185,13 @@ commands:
               enum: [sdk]
               description: carry SDK JSON frames on standard input and output instead of opening the terminal UI
               x-fyai-long: protocol
+            last:
+              type: boolean
+              description: take the session that fyai resume --last takes, the last session that started in this directory, instead of a branch of -b
+              x-fyai-long: last
             watch:
               type: boolean
-              description: only watch the live session of the branch of -b, which another client may drive; the client sends no input to it
+              description: only watch the live session of -b or --last, which another client may drive; the client sends no input to it
               x-fyai-long: watch
             token_fd:
               type: integer
