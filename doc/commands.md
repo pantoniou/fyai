@@ -15,6 +15,7 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `-b`, `--branch BRANCH` | work on this branch (else $FYAI_BRANCH, else HEAD) |
 | `--root HANDLE` | read one exact state by root handle (read-only) |
 | `--view-project DIR` | use this project root in an internal view child |
+| `--sink-frames` | send each output as a frame on standard output, for a server that runs a remote command |
 | `--view-scratch DIR` | use this scratch directory in an internal view child |
 | `--view-arena-fd FD` | use the arena behind this inherited descriptor in an internal view child |
 | `--set KEY=VALUE` | set a configuration key for this run and store it |

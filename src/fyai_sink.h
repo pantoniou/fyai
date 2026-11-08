@@ -189,6 +189,11 @@ struct fyai_sink *fyai_sink_create_capture(struct fyai_ctx *ctx);
  * diagnostic stream. The caller owns @out.
  */
 struct fyai_sink *fyai_sink_create_render(struct fyai_ctx *ctx, FILE *out);
+/*
+ * The sink of a command that a client runs with --remote: it sends each
+ * operation as a frame on @fd and presents nothing (src/fyai_sink_frames.c).
+ */
+struct fyai_sink *fyai_sink_create_frames(struct fyai_ctx *ctx, int fd);
 /* The captured text, NUL terminated. @lenp may be NULL. */
 const char *fyai_sink_captured(const struct fyai_sink *s, size_t *lenp);
 void fyai_sink_capture_reset(struct fyai_sink *s);

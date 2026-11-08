@@ -589,6 +589,7 @@ set(FYAI_SOURCES
     src/fyai_session.c
     src/fyai_browser.c
     src/fyai_sink.c
+    src/fyai_sink_frames.c
     src/fyai_storage.c
     src/fyai_stream.c
     src/fyai_term.c

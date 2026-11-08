@@ -58,6 +58,10 @@ global:
         description: use this project root in an internal view child
         x-fyai-meta: DIR
         x-fyai-hidden: true
+      sink-frames:
+        type: boolean
+        description: send each output as a frame on standard output, for a server that runs a remote command
+        x-fyai-hidden: true
       view-scratch:
         type: string
         description: use this scratch directory in an internal view child

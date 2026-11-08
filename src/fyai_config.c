@@ -3218,6 +3218,7 @@ enum {
 	OPT_VIEW_PROJECT,
 	OPT_VIEW_SCRATCH,
 	OPT_VIEW_ARENA_FD,
+	OPT_SINK_FRAMES,
 };
 
 static const struct option long_options[] = {
@@ -3232,6 +3233,7 @@ static const struct option long_options[] = {
 	{ "view-project", required_argument, NULL, OPT_VIEW_PROJECT },
 	{ "view-scratch", required_argument, NULL, OPT_VIEW_SCRATCH },
 	{ "view-arena-fd", required_argument, NULL, OPT_VIEW_ARENA_FD },
+	{ "sink-frames", no_argument, NULL, OPT_SINK_FRAMES },
 	{ "sandbox", required_argument, NULL, OPT_SANDBOX },
 	{ "color", required_argument, NULL, OPT_COLOR },
 	{ "theme", required_argument, NULL, OPT_THEME },
@@ -3904,6 +3906,9 @@ static int config_parse_cli_options(struct fyai_cfg *cfg, int argc, char *argv[]
 			break;
 		case OPT_TRANSIENT:
 			cfg->transient = true;
+			break;
+		case OPT_SINK_FRAMES:
+			cfg->sink_frames = true;
 			break;
 		default:
 			fyai_cfg_error(cfg, "run 'fyai help' for the commands and "

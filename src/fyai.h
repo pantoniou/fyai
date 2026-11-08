@@ -520,6 +520,8 @@ struct fyai_cfg {
 	 * process presents it and ends.
 	 */
 	const char *serve_daemon;
+	/* --sink-frames: the sink sends each output as a frame on standard output. */
+	bool sink_frames;
 	/* Serve the agent protocol on standard input and output. */
 	bool agent_rpc;
 	bool acp_worker;

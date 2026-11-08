@@ -2728,7 +2728,8 @@ int fyai_setup(struct fyai_ctx *ctx, struct fyai_cfg *cfg)
 					   &ctx->tty_cols);
 
 	/* Before anything can render: every later step reports through it. */
-	ctx->sink = fyai_sink_create(ctx);
+	ctx->sink = cfg->sink_frames ? fyai_sink_create_frames(ctx, STDOUT_FILENO) :
+		    fyai_sink_create(ctx);
 	if (!ctx->sink)
 		goto err;
 
