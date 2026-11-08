@@ -1,0 +1,94 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-band-1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_band_1",
+                  "type": "function",
+                  "function": {
+                    "name": "shell",
+                    "arguments": "{\"command\": \"printf 'band-row-1\\\\nband-row-2\\\\n'; until [ -e release ]; do sleep 0.05; done\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-band-r",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_band_2",
+                  "type": "function",
+                  "function": {
+                    "name": "write_file",
+                    "arguments": "{\"path\": \"notes.txt\", \"content\": \"view-line-1\\nview-line-2\\n\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "wait_for": "viewed",
+      "response": {
+        "id": "chatcmpl-band-2",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Shell finished."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    }
+  ]
+}

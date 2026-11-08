@@ -1,0 +1,83 @@
+{
+  "steps": [
+    {
+      "response": {
+        "id": "chatcmpl-agent-1",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_agent_1",
+                  "type": "function",
+                  "function": {
+                    "name": "agent",
+                    "arguments": "{\"name\": \"greeter\", \"description\": \"greet\", \"task\": \"Say the remote greeting.\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-agent-2",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Remote agent greeting."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "response": {
+        "id": "chatcmpl-agent-3",
+        "object": "chat.completion",
+        "created": 1735689600,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Delegated and done."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    }
+  ]
+}
