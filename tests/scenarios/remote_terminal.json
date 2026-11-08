@@ -18,7 +18,7 @@
                   "type": "function",
                   "function": {
                     "name": "shell",
-                    "arguments": "{\"command\": \"printf 'term-screen-row'; read answer; printf '\\\\ngot-%s' \\\"$answer\\\"; read again\", \"tty\": true, \"name\": \"watch\"}"
+                    "arguments": "{\"command\": \"stty -echo; printf 'term-screen-row'; read answer; printf '\\\\ngot-%s' \\\"$answer\\\"; read again\", \"tty\": true, \"name\": \"watch\"}"
                   }
                 }
               ]
