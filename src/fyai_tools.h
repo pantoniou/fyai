@@ -131,6 +131,12 @@ bool fyai_shell_session_display(struct fyai_ctx *ctx, fy_generic tool_call);
 /* Tell every live tool child that the terminal of the user changed size. */
 void fyai_tool_jobs_resize(struct fyai_ctx *ctx, int rows, int cols);
 /* Publish what every live tile has drawn since the last frame. */
+/*
+ * Paint again each block of the transcript whose separation from the rows
+ * above it changed: text that arrived above a block moves it. The frame calls
+ * it before it draws.
+ */
+void fyai_tools_inline_refence(struct fyai_ctx *ctx);
 void fyai_tool_surfaces_publish(struct fyai_ctx *ctx);
 /* Return true while a terminal owns a work-pane surface. */
 bool fyai_tool_surfaces_active(const struct fyai_ctx *ctx);

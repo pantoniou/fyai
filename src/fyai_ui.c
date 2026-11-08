@@ -3104,6 +3104,8 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 	/* Consume this request before callbacks can queue another frame. */
 	if (painted_frame)
 		ui->frame_pending = false;
+	/* A block takes the separation of the rows the frame presents. */
+	fyai_tools_inline_refence(ui->ctx);
 	/* Update layout state before reconciliation. */
 	fyai_workpane_reconcile(ui->ctx->workpane);
 	ui_page_update(ui);

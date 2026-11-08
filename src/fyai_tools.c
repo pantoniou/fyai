@@ -3111,6 +3111,8 @@ struct fyai_tool_job {
 	struct fytim_surface *surface;		/* and where that is shown */
 	/* The screen is a block of the transcript at the call, not a tile. */
 	bool inline_block;
+	/* The rows that separated the block when it was painted. */
+	int inline_sep;
 	struct fyai_event_source *ptysrc;
 	struct fyai_event_source *animation;
 	size_t animation_frame;
@@ -3182,6 +3184,8 @@ struct fyai_shell_session {
 	int resize_cols;
 	/* The screen is a block of the transcript at the call, not a tile. */
 	bool inline_block;
+	/* The rows that separated the block when it was painted. */
+	int inline_sep;
 };
 
 /* Size an agent terminal to its display surface. */
@@ -3375,6 +3379,22 @@ static void fyai_shell_session_head_paint(void *owner)
 
 static void fyai_shell_session_inline_paint(struct fyai_shell_session *sess,
 					    bool done);
+
+/*
+ * The rows that the flow puts before a block of the transcript now. A block
+ * takes them when it is painted, so a block that is painted before the text
+ * above it arrives is painted again when they change.
+ */
+static int fyai_inline_sep(struct fyai_ctx *ctx)
+{
+	struct fyai_flow *flow = fyai_sink_flow(ctx->sink);
+	struct fyai_flow_sep sep;
+
+	if (!flow)
+		return 0;
+	sep = fyai_flow_before(flow, FYAI_FLOW_TOOL_HEAD);
+	return (int)sep.rows + (sep.markdown ? 1 : 0);
+}
 static void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
 				    bool ok);
 
@@ -3958,6 +3978,7 @@ static void fyai_shell_session_inline_paint(struct fyai_shell_session *sess,
 
 	/* The paint draws every row: the damage is taken. */
 	(void)fyai_terminal_view_take_damage(sess->view, &first, &last);
+	sess->inline_sep = fyai_inline_sep(sess->ctx);
 	if (!done && fyai_ui_inline_focused(sess->ctx) == (uintptr_t)sess)
 		indent = fyai_ui_inline_margin(sess->ctx, indent, edge,
 					       sizeof(edge));
@@ -4857,6 +4878,7 @@ static void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
 	if (!job->view)
 		return;
 	(void)fyai_terminal_view_take_damage(job->view, &first, &last);
+	job->inline_sep = fyai_inline_sep(job->ctx);
 	indent = markdown_tool_output_indent(job->ctx->cfg);
 	if (!done && fyai_ui_inline_focused(job->ctx) == (uintptr_t)job)
 		indent = fyai_ui_inline_margin(job->ctx, indent, edge,
@@ -4885,6 +4907,23 @@ static void fyai_agent_inline_follow(struct fyai_tool_job *job)
 
 	if (want != job->pty_cols)
 		fyai_agent_apply_grant(job, job->pty_rows, want);
+}
+
+void fyai_tools_inline_refence(struct fyai_ctx *ctx)
+{
+	struct fyai_shell_session *sess;
+	struct fyai_tool_job *job;
+	int sep;
+
+	if (!ctx)
+		return;
+	sep = fyai_inline_sep(ctx);
+	for (sess = ctx->shell_sessions; sess; sess = sess->next)
+		if (sess->inline_block && sess->inline_sep != sep)
+			fyai_shell_session_inline_paint(sess, false);
+	for (job = ctx->tool_jobs; job; job = job->next)
+		if (job->inline_block && job->inline_sep != sep)
+			fyai_agent_inline_paint(job, false, true);
 }
 
 /* Publish what every live tile has drawn since the last frame. */
