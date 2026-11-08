@@ -13,6 +13,8 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_session.h"
+#include "fyai_sink.h"
 #include "fyai_uilog.h"
 #include "fyai_uimodel.h"
 #include "fyai_uitranscript.h"
@@ -30,6 +32,8 @@ FYAI_TEST_ENTRY(uimodel, log_bounded, uimodel_log_bounded)
 FYAI_TEST_ENTRY(uimodel, bands, uimodel_bands)
 FYAI_TEST_ENTRY(uimodel, view_detached, uimodel_view_detached)
 FYAI_TEST_ENTRY(uimodel, transcript_live, uimodel_transcript_live)
+FYAI_TEST_ENTRY(uimodel, draw_live, uimodel_draw_live)
+FYAI_TEST_ENTRY(uimodel, session_head, uimodel_session_head)
 
 struct seen {
 	int calls;
@@ -278,12 +282,29 @@ static fy_generic uimodel_band(struct fyai_ctx *ctx, size_t index)
 	return index < fy_len(bands) ? fy_get_at(bands, index) : fy_invalid;
 }
 
+/* The state of the last band that a write of the work store ended. */
+static void uimodel_band_state(void *data, enum fyai_ui_store store,
+			       unsigned long long seq, fy_generic root)
+{
+	char *state = data;
+	fy_generic band;
+
+	(void)seq;
+	if (store != FYAI_UI_WORK)
+		return;
+	fy_foreach(band, fy_get(root, "bands", fy_seq_empty))
+		if (fy_is_valid(fy_get(band, "state", fy_invalid)))
+			snprintf(state, 32, "%s %s", fy_get(band, "state", ""),
+				 fy_get(band, "cause", "-"));
+}
+
 int uimodel_bands(void)
 {
 	struct fyai_cfg cfg = { 0 };
 	struct fyai_ctx ctx = { .cfg = &cfg };
 	/* The registry knows a band by its address only. */
-	char one = 0, two = 0, owner_a = 0, owner_b = 0;
+	char one, two, owner_a, owner_b, state[32] = "";
+	int rc;
 	struct fyai_sink_band *a = (struct fyai_sink_band *)&one;
 	struct fyai_sink_band *b = (struct fyai_sink_band *)&two;
 	fy_generic band;
@@ -326,8 +347,13 @@ int uimodel_bands(void)
 	FYAI_TCHECK(!strcmp(fy_get(uimodel_band(&ctx, 1), "title", ""),
 			    "again"));
 	FYAI_TCHECK(fy_is_invalid(uimodel_band(&ctx, 2)));
-	fyai_uiwork_band_end(&ctx, NULL, "closed", false, NULL);
+	/* A consumer sees how a band ended, then the band goes. */
+	rc = fyai_uimodel_subscribe(&ctx, uimodel_band_state, state);
+	FYAI_TCHECK(!rc);
+	fyai_uiwork_band_end(&ctx, NULL, "closed", false, "failed");
+	FYAI_TCHECK(!strcmp(state, "closed failed"));
 	fyai_uiwork_band_end(&ctx, b, "committed", true, NULL);
+	FYAI_TCHECK(!strcmp(state, "committed -"));
 	FYAI_TCHECK(fy_is_invalid(uimodel_band(&ctx, 0)));
 	fyai_uiwork_release(&ctx);
 	fyai_uimodel_release(&ctx);
@@ -398,5 +424,60 @@ int uimodel_transcript_live(void)
 	fyai_uitranscript_release(&ctx);
 	fyai_uimodel_release(&ctx);
 	printf("ok - the transcript store holds the live document\n");
+	return 0;
+}
+
+int uimodel_draw_live(void)
+{
+	struct fyai_cfg cfg = { 0 };
+	struct fyai_ctx ctx = { .cfg = &cfg };
+	const char *out;
+	size_t len;
+
+	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
+	ctx.sink = fyai_sink_create_capture(&ctx);
+	FYAI_TCHECK(ctx.sink);
+	/* The renderer gives the sink the source that no band presented. */
+	fyai_uitranscript_begin(&ctx, "assistant");
+	fyai_uitranscript_append(&ctx, "Hello ", 6, true);
+	fyai_uitranscript_pause(&ctx, true);
+	fyai_uitranscript_append(&ctx, "[tool]", 6, false);
+	fyai_uitranscript_pause(&ctx, false);
+	fyai_uitranscript_append(&ctx, "done", 4, true);
+	fyai_uitranscript_end(&ctx, "finalized");
+	out = fyai_sink_captured(ctx.sink, &len);
+	FYAI_TCHECK(len == 10 && !memcmp(out, "Hello done", 10));
+	/* A discarded document gives the sink nothing. */
+	fyai_uitranscript_begin(&ctx, "assistant");
+	fyai_uitranscript_append(&ctx, "lost", 4, true);
+	fyai_uitranscript_end(&ctx, "discarded");
+	out = fyai_sink_captured(ctx.sink, &len);
+	FYAI_TCHECK(len == 10);
+	fyai_uitranscript_release(&ctx);
+	fyai_uimodel_release(&ctx);
+	fyai_sink_destroy(ctx.sink);
+	printf("ok - the renderer draws the live document from the store\n");
+	return 0;
+}
+
+int uimodel_session_head(void)
+{
+	struct fyai_cfg cfg = { 0 };
+	struct fyai_ctx ctx = { .cfg = &cfg };
+	fy_generic head;
+
+	FYAI_TCHECK(!fyai_uimodel_create(&ctx));
+	fyai_session_head_set(&ctx, fy_mapping("updated", 1700000000000001LL,
+					       "op", "turn"));
+	head = fy_get(fyai_uimodel_get(&ctx, FYAI_UI_SESSION), "head",
+		      fy_invalid);
+	FYAI_TCHECK(fy_get(head, "updated", 0LL) == 1700000000000001LL);
+	FYAI_TCHECK(!strcmp(fy_get(head, "op", ""), "turn"));
+	/* No entry is null. */
+	fyai_session_head_set(&ctx, fy_invalid);
+	FYAI_TCHECK(fy_is_null(fy_get(fyai_uimodel_get(&ctx, FYAI_UI_SESSION),
+				      "head", fy_invalid)));
+	fyai_uimodel_release(&ctx);
+	printf("ok - the session store holds the head of the branch\n");
 	return 0;
 }

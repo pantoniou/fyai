@@ -12,15 +12,18 @@
 
 #define FYAI_MODULE FYAIEM_UNKNOWN
 
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/socket.h>
 
 #include "fyai.h"
 #include "fyai_event.h"
+#include "fyai_host.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_test.h"
 
@@ -42,6 +45,7 @@ FYAI_TEST_ENTRY(jsonrpc, malformed_frame_fails_pending, jsonrpc_malformed_frame_
 FYAI_TEST_ENTRY(jsonrpc, destroy_settles_pending, jsonrpc_destroy_settles_pending)
 FYAI_TEST_ENTRY(jsonrpc, closed_peer_is_no_error, jsonrpc_closed_peer_is_no_error)
 FYAI_TEST_ENTRY(jsonrpc, frames, jsonrpc_frames)
+FYAI_TEST_ENTRY(jsonrpc, socket_frames, jsonrpc_socket_frames)
 FYAI_TEST_ENTRY(jsonrpc, tunnel_request, jsonrpc_tunnel_request)
 FYAI_TEST_ENTRY(jsonrpc, tunnel_notification, jsonrpc_tunnel_notification)
 FYAI_TEST_ENTRY(jsonrpc, tunnel_close_settles, jsonrpc_tunnel_close_settles)
@@ -596,6 +600,43 @@ static void test_frames(void)
 	printf("ok - a frame connection passes objects both ways\n");
 }
 
+static void test_socket_frames(void)
+{
+	struct frame_log log = {};
+	struct jsonrpc_conn *conn;
+	int fd[2], rc;
+	uid_t uid;
+	char buf[256];
+	ssize_t n;
+	const char *request = "{\"type\":\"user\",\"id\":1}\n";
+
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_STREAM, 0, fd));
+	rc = fyai_host_peer_uid(fd[0], &uid);
+	FYAI_TCHECK(rc == -ENOSYS || (!rc && uid == geteuid()));
+	conn = jsonrpc_conn_socket(&test_ctx, fd[0], 1, "socket", NULL);
+	FYAI_TCHECK(conn);
+	FYAI_TCHECK(!jsonrpc_conn_frames(conn, on_frame, &log));
+	FYAI_TCHECK(write(fd[1], request, strlen(request)) == (ssize_t)strlen(request));
+	while (!log.count) {
+		rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+		FYAI_TCHECK(rc > 0);
+	}
+	FYAI_TCHECK(!strcmp(log.last, "user"));
+	FYAI_TCHECK(!jsonrpc_conn_send_frame(conn, fy_mapping(test_ctx.transient_gb,
+							   "type", "result")));
+	while (jsonrpc_conn_has_output(conn)) {
+		rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+		FYAI_TCHECK(rc > 0);
+	}
+	n = read(fd[1], buf, sizeof(buf) - 1);
+	FYAI_TCHECK(n > 0);
+	buf[n] = 0;
+	FYAI_TCHECK(strstr(buf, "result") && buf[n - 1] == '\n');
+	jsonrpc_conn_destroy(conn);
+	close(fd[0]);
+	close(fd[1]);
+}
+
 struct tunnel_log {
 	int count;
 	long long id;
@@ -796,4 +837,9 @@ int jsonrpc_tunnel_notification(void)
 int jsonrpc_tunnel_close_settles(void)
 {
 	return jsonrpc_run(test_tunnel_close_settles);
+}
+
+int jsonrpc_socket_frames(void)
+{
+	return jsonrpc_run(test_socket_frames);
 }
