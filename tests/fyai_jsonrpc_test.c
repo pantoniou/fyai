@@ -46,6 +46,8 @@ FYAI_TEST_ENTRY(jsonrpc, destroy_settles_pending, jsonrpc_destroy_settles_pendin
 FYAI_TEST_ENTRY(jsonrpc, closed_peer_is_no_error, jsonrpc_closed_peer_is_no_error)
 FYAI_TEST_ENTRY(jsonrpc, frames, jsonrpc_frames)
 FYAI_TEST_ENTRY(jsonrpc, socket_frames, jsonrpc_socket_frames)
+FYAI_TEST_ENTRY(jsonrpc, image_frames, jsonrpc_image_frames)
+FYAI_TEST_ENTRY(jsonrpc, image_damaged, jsonrpc_image_damaged)
 FYAI_TEST_ENTRY(jsonrpc, tunnel_request, jsonrpc_tunnel_request)
 FYAI_TEST_ENTRY(jsonrpc, tunnel_notification, jsonrpc_tunnel_notification)
 FYAI_TEST_ENTRY(jsonrpc, tunnel_close_settles, jsonrpc_tunnel_close_settles)
@@ -637,6 +639,135 @@ static void test_socket_frames(void)
 	close(fd[1]);
 }
 
+struct image_log {
+	int count;
+	size_t length;
+	long long id;
+};
+
+static void on_image_frame(struct jsonrpc_conn *conn, fy_generic frame,
+			   void *data)
+{
+	struct image_log *log = data;
+	fy_generic text = fy_get(frame, "data", fy_invalid);
+
+	(void)conn;
+	log->length = strlen(fy_castp(&text, ""));
+	log->id = fy_get(frame, "id", 0LL);
+	log->count++;
+}
+
+static void image_pair(struct jsonrpc_conn *conn[2], int fd[2],
+		       struct image_log log[2])
+{
+	int i;
+
+	memset(log, 0, 2 * sizeof(*log));
+	FYAI_TCHECK(!socketpair(AF_UNIX, SOCK_STREAM, 0, fd));
+	for (i = 0; i < 2; i++) {
+		conn[i] = jsonrpc_conn_socket(&test_ctx, fd[i], 1, "image", NULL);
+		FYAI_TCHECK(conn[i]);
+		FYAI_TCHECK(!jsonrpc_conn_set_image(conn[i]));
+		FYAI_TCHECK(!jsonrpc_conn_frames(conn[i], on_image_frame, &log[i]));
+	}
+}
+
+static void test_image_frames(void)
+{
+	struct image_log log[2] = {};
+	struct jsonrpc_conn *conn[2];
+	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	size_t sizes[] = { 1, 5000, 300000 }, i;
+	char *text;
+	int fd[2], rc;
+
+	if (!jsonrpc_image_available()) {
+		printf("ok - no image mode here\n");
+		return;
+	}
+	image_pair(conn, fd, log);
+	for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+		text = malloc(sizes[i] + 1);
+		FYAI_TCHECK(text);
+		memset(text, 'x', sizes[i]);
+		text[sizes[i]] = '\0';
+		FYAI_TCHECK(!jsonrpc_conn_send_frame(conn[0], fy_mapping(gb,
+			"type", "t", "id", (long long)i + 1, "data", (const char *)text)));
+		while (log[1].count != (int)i + 1) {
+			rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+			FYAI_TCHECK(rc > 0);
+		}
+		FYAI_TCHECK(log[1].length == sizes[i] && log[1].id == (long long)i + 1);
+		free(text);
+	}
+	jsonrpc_conn_destroy(conn[0]);
+	jsonrpc_conn_destroy(conn[1]);
+	close(fd[0]);
+	close(fd[1]);
+	printf("ok - frames cross a connection as images\n");
+}
+
+/* A peer that sends a damaged image or a wrong length ends the connection. */
+static void test_image_damaged(void)
+{
+	struct image_log log[2] = {};
+	struct jsonrpc_conn *conn[2];
+	struct fy_generic_builder *gb = test_ctx.transient_gb;
+	unsigned char *image, *frame;
+	size_t size, i, bad = 0;
+	uint64_t len;
+	int fd[2], rc;
+
+	if (!jsonrpc_image_available()) {
+		printf("ok - no image mode here\n");
+		return;
+	}
+	image = jsonrpc_image_encode(NULL, fy_mapping(gb, "type", "t", "id", 1LL,
+		"data", "a string that is long enough to be out of line",
+		"list", fy_sequence(gb, "x", "another string out of line, too")),
+		&size);
+	FYAI_TCHECK(image);
+	frame = malloc(sizeof(len) + size);
+	FYAI_TCHECK(frame);
+	len = size;
+	/* each damaged copy goes to a connection of its own */
+	for (i = 32; i < size; i += 8) {
+		memcpy(frame, &len, sizeof(len));
+		memcpy(frame + sizeof(len), image, size);
+		memset(frame + sizeof(len) + i, 0xff, 8);
+		image_pair(conn, fd, log);
+		FYAI_TCHECK(write(fd[1], frame, sizeof(len) + size) ==
+			    (ssize_t)(sizeof(len) + size));
+		/* The frame is read, or refused and the connection ends. */
+		while (!log[0].count && !jsonrpc_conn_closed(conn[0])) {
+			rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+			FYAI_TCHECK(rc > 0);
+		}
+		bad += !log[0].count;
+		jsonrpc_conn_destroy(conn[0]);
+		jsonrpc_conn_destroy(conn[1]);
+		close(fd[0]);
+		close(fd[1]);
+	}
+	FYAI_TCHECK(bad > 0);
+	/* a length that is no image */
+	len = ~(uint64_t)0;
+	image_pair(conn, fd, log);
+	FYAI_TCHECK(write(fd[1], &len, sizeof(len)) == (ssize_t)sizeof(len));
+	while (!jsonrpc_conn_closed(conn[0])) {
+		rc = fyai_event_loop_step(loop(), TEST_BOUND_MS);
+		FYAI_TCHECK(rc > 0);
+	}
+	FYAI_TCHECK(jsonrpc_conn_closed(conn[0]) && !log[0].count);
+	jsonrpc_conn_destroy(conn[0]);
+	jsonrpc_conn_destroy(conn[1]);
+	close(fd[0]);
+	close(fd[1]);
+	free(frame);
+	jsonrpc_image_free(image);
+	printf("ok - a damaged image ends the connection\n");
+}
+
 struct tunnel_log {
 	int count;
 	long long id;
@@ -842,4 +973,14 @@ int jsonrpc_tunnel_close_settles(void)
 int jsonrpc_socket_frames(void)
 {
 	return jsonrpc_run(test_socket_frames);
+}
+
+int jsonrpc_image_frames(void)
+{
+	return jsonrpc_run(test_image_frames);
+}
+
+int jsonrpc_image_damaged(void)
+{
+	return jsonrpc_run(test_image_damaged);
 }
