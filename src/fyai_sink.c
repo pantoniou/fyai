@@ -19,6 +19,7 @@
 #include "fyai_markdown.h"
 #include "fyai_sink.h"
 #include "fyai_uilog.h"
+#include "fyai_uimodel.h"
 #include "fyai_uidraw.h"
 #include "fyai_uiwork.h"
 #include "fyai_terminal.h"
@@ -949,7 +950,9 @@ static void sink_term_destroy(struct fyai_sink *s)
 /* A shared sequential band or an independently owned parallel band. */
 struct fyai_sink_band {
 	struct fyai_ctx *ctx;
-	/* The band has no tile and presents nothing. */
+	/* The band has no tile and presents nothing. A process with no
+	 * display has such bands, which a remote client reads from the work
+	 * store. */
 	bool headless;
 	/* The band of a producer while the renderer draws the work bands. It
 	 * keeps its last paint, which is compared with the band that the
@@ -991,9 +994,15 @@ static bool sink_term_shadowing(const struct fyai_sink *s)
 	return !s->drawing && s == s->ctx->sink && fyai_uidraw_bands(s->ctx);
 }
 
+/* A process with no display has bands when a client reads its model. */
+static bool sink_term_bands_headless(const struct fyai_sink *s)
+{
+	return !fyai_ui_active(s->ctx) && fyai_uimodel_consumed(s->ctx);
+}
+
 static bool sink_term_bands_available(const struct fyai_sink *s)
 {
-	return fyai_ui_active(s->ctx);
+	return fyai_ui_active(s->ctx) || sink_term_bands_headless(s);
 }
 
 static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
@@ -1004,7 +1013,7 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 	struct sink_term *t = sink_term_state(s);
 	struct fyai_sink_band *b, **slot;
 
-	if (!fyai_ui_active(s->ctx))
+	if (!sink_term_bands_available(s))
 		return NULL;
 	slot = s->band_shadow ? &t->shadow_shared : &t->shared_band;
 	if (shared && *slot) {
@@ -1017,7 +1026,7 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 		return NULL;
 	b->ctx = s->ctx;
 	b->shared = shared;
-	if (s->band_shadow) {
+	if (!fyai_ui_active(s->ctx) || s->band_shadow) {
 		b->headless = true;
 		b->shadow = s->band_shadow;
 		if (shared)
@@ -1095,7 +1104,7 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 {
 	int rc;
 
-	if (!b)
+	if (!b || (b->headless && !b->shadow))
 		return;
 	/* The shared band keeps the title it opened with; only the body moves. */
 	if (b->shared || b->shadow) {
@@ -1182,8 +1191,13 @@ static void sink_term_band_close(struct fyai_sink *s, bool ok,
 		t->shadow_shared = NULL;
 		return;
 	}
-	if (!fyai_ui_active(s->ctx))
+	if (!fyai_ui_active(s->ctx)) {
+		if (t->shared_band && t->shared_band->headless) {
+			sink_term_band_free(t->shared_band);
+			t->shared_band = NULL;
+		}
 		return;
+	}
 	fyai_ui_tool_end(s->ctx, ok, cause);
 	if (t->shared_band)
 		sink_term_band_free(t->shared_band);

@@ -3520,7 +3520,7 @@ static int fyai_interactive_handle_bang(struct fyai_ctx *ctx,
 	rc = fyai_scratch_enter(ctx, &st);
 	fyai_error_check(ctx, !rc, out,
 			 "could not create transient shell storage");
-	rc = fyai_tools_bang(ctx, line + 1);
+	rc = fyai_tools_bang(ctx, line + 1, 0, 0);
 	fyai_error_check(ctx, !rc, out,
 			 "could not start the bang shell");
 	rc = 0;

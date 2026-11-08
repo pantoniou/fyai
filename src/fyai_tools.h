@@ -150,6 +150,25 @@ const char *fyai_tools_zoom(struct fyai_ctx *ctx, const char *name);
 /* Cycle focus through the prompt and live tiles. */
 bool fyai_tools_focus_next(struct fyai_ctx *ctx);
 /* Count active user shells, model shells, and sub-agents. */
+/*
+ * Write @len bytes to the program of the terminal session @name, as the keys
+ * of its focused tile go: the keys of a remote client. A finished command of
+ * the user takes Escape or q to dismiss it. Returns 0, or -1 when no live
+ * session has the name.
+ */
+int fyai_tools_session_input(struct fyai_ctx *ctx, const char *name,
+			     const char *data, size_t len);
+/*
+ * For the client of a remote session, which shows the session @name: give its
+ * terminal @rows and @cols, through the barrier of a local resize; close it
+ * (@force ends the program at once); or drop the screen that stays after its
+ * program. Return -1 when no session has the name.
+ */
+int fyai_tools_session_resize(struct fyai_ctx *ctx, const char *name,
+			      int rows, int cols);
+int fyai_tools_session_close(struct fyai_ctx *ctx, const char *name,
+			     bool force);
+int fyai_tools_session_dismiss(struct fyai_ctx *ctx, const char *name);
 void fyai_tools_counts(struct fyai_ctx *ctx, int *userp, int *shellp,
 		       int *agentp);
 /* Apply a changed configuration to the live sessions and jobs. */
@@ -174,7 +193,53 @@ void fyai_tools_unzoom(struct fyai_ctx *ctx);
 /* Give the keys to the prompt: the action of Ctrl-] on a surface. */
 void fyai_tools_keys_to_prompt(struct fyai_ctx *ctx);
 /* Start a user-owned TTY shell in the work pane. */
-int fyai_tools_bang(struct fyai_ctx *ctx, const char *command);
+int fyai_tools_bang(struct fyai_ctx *ctx, const char *command, int rows,
+		    int cols);
+/*
+ * The size that the tile of a bang of @command gets now, in *@rowsp and
+ * *@colsp, or 0 when the display has no layout: the client of a remote
+ * session starts the program of the worker at that size, as a local tile
+ * starts it.
+ */
+int fyai_tools_bang_size(struct fyai_ctx *ctx, const char *command,
+			 int *rowsp, int *colsp);
+
+/*
+ * What reaches the program of a terminal session that runs in a remote
+ * worker, which @name names there: the keys, a size, a close (@force ends it
+ * at once), and the dismissal of a screen that stays after its program.
+ */
+struct fyai_tools_remote {
+	void (*input)(void *data, const char *name, const char *bytes,
+		      size_t len);
+	void (*resize)(void *data, const char *name, int rows, int cols);
+	void (*close)(void *data, const char *name, bool force);
+	void (*dismiss)(void *data, const char *name);
+};
+
+struct fyai_shell_session;
+
+/* The terminal session named @name, or NULL. */
+struct fyai_shell_session *fyai_shell_session_find(struct fyai_ctx *ctx,
+						   const char *name);
+
+/*
+ * Mirror the terminal session that @item, an item of the work store of a
+ * worker, names: a session of this process whose program runs in the worker.
+ * It has the tile or the block, the chrome and the keys that a local session
+ * has; @remote takes what goes to the program, with @data. NULL with a
+ * diagnostic when it cannot be made.
+ */
+struct fyai_shell_session *fyai_tools_mirror_open(struct fyai_ctx *ctx,
+		fy_generic item, const struct fyai_tools_remote *remote,
+		void *data);
+/* Give the mirror the bytes that the program of the worker wrote. */
+void fyai_tools_mirror_feed(struct fyai_shell_session *sess,
+			    const char *data, size_t len);
+/* Take the size and the end of the program from a new @item of the worker. */
+void fyai_tools_mirror_update(struct fyai_shell_session *sess, fy_generic item);
+/* The worker dropped the session: drop the mirror. */
+void fyai_tools_mirror_drop(struct fyai_shell_session *sess);
 /*
  * Confine this process as the tool sandbox confines a tool call. Call it in a
  * child that runs a program, after the child enters its view. Returns 0, or -1

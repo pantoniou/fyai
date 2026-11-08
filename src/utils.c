@@ -41,6 +41,7 @@
 #include "fyai_terminal_view.h"
 #include "fyai_tools.h"
 #include "fyai_ui.h"
+#include "fyai_uimodel.h"
 
 int response_buffer_reserve(struct response_buffer *buf, size_t need)
 {
@@ -1890,9 +1891,14 @@ fyai_editor_child_complete(const struct fyai_event *ev)
 
 bool fyai_editor_in_pane(struct fyai_ctx *ctx)
 {
-	return ctx && ctx->cfg && fyai_ui_active(ctx) &&
-	       (!ctx->cfg->editor_mode ||
-		strcmp(ctx->cfg->editor_mode, "terminal"));
+	if (!ctx || !ctx->cfg)
+		return false;
+	/* A worker has no terminal: the client of its model shows the editor
+	 * in a tile, which a remote terminal session has. */
+	if (!fyai_ui_active(ctx))
+		return fyai_uimodel_consumed(ctx);
+	return !ctx->cfg->editor_mode ||
+	       strcmp(ctx->cfg->editor_mode, "terminal");
 }
 
 /* The editor in a tile ended. Its wait status is made as a child's. */

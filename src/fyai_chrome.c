@@ -397,6 +397,9 @@ static void chrome_work_counts(struct fyai_ctx *ctx, int counts[3])
 	fy_foreach(item, fy_get(fyai_uimodel_get(ctx, FYAI_UI_WORK), "items",
 				fy_seq_empty)) {
 		kind = fy_get(item, "kind", "");
+		/* A finished command of the user is not live work. */
+		if (fy_get(item, "exited", false))
+			continue;
 		if (!strcmp(kind, "user-shell"))
 			counts[0]++;
 		else if (!strcmp(kind, "shell"))

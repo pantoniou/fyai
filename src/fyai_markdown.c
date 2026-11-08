@@ -1956,6 +1956,17 @@ int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
 	return 0;
 }
 
+/*
+ * A stream paints a band, not its file: under a display, with a band of its
+ * own, or with no file, as a stream of a worker whose band only a remote
+ * client draws.
+ */
+static bool fenced_stream_banded(const struct fyai_fenced_stream *fs)
+{
+	return fyai_ui_active(fs->ctx) || fs->band || !fs->fp;
+}
+
+
 static void fenced_stream_band_update(struct fyai_fenced_stream *fs);
 static int fenced_stream_render(struct fyai_fenced_stream *fs);
 
@@ -2333,7 +2344,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	}
 	out.data[out.len] = '\0';
 
-	if (fyai_ui_active(fs->ctx)) {
+	if (fenced_stream_banded(fs)) {
 		mf = open_memstream(&indented, &ilen);
 		fyai_error_check(fs->ctx, mf, err_out,
 				 "could not open the Markdown indent buffer");
@@ -2467,7 +2478,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 	if (!fs->active)
 		return;
 	fenced_stream_flush_disarm(fs);
-	if (fs->live && fyai_ui_active(fs->ctx)) {
+	if (fs->live && fenced_stream_banded(fs)) {
 		/*
 		 * The live body is rendered at the width in effect when the tool
 		 * started. Never promote those transient bytes into scrollback:
@@ -2486,7 +2497,7 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 		}
 	} else if (fs->live) {
 		fputc('\n', fs->fp);
-	} else if (!fs->live && !fs->markdown_quote) {
+	} else if (fs->fp && !fs->markdown_quote) {
 		/* Non-terminal: render the whole accumulated block once, bounded,
 		 * and write it indented (matches the history view). */
 		memset(&opts, 0, sizeof(opts));
@@ -2506,7 +2517,8 @@ void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs)
 			fymd_free(rendered);
 		}
 	}
-	fflush(fs->fp);
+	if (fs->fp)
+		fflush(fs->fp);
 	if (fs->r)
 	fymd_renderer_destroy(fs->r);
 	free(fs->first_margin);
