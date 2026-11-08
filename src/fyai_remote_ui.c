@@ -281,17 +281,19 @@ static bool remote_ui_term_keys(void *data, struct fytim_surface *sf,
 	struct fyai_remote_ui *view = data;
 	struct fyai_ctx *ctx = view->ctx;
 	struct remote_ui_term *t;
+	size_t keylen;
 
 	for (t = view->terms; t && t->surface != sf; t = t->next)
 		;
 	if (!t || !len)
 		return false;
 	if (t->exited) {
+		keylen = len > 1 ? 1 : len;
 		/* A program that ended reads nothing more. */
 		if (!remote_ui_term_closes(bytes, len))
 			return true;
 		if (remote_ui_request(view, "fyai_terminal_input", fy_mapping(
-				"name", t->name, "data", fy_string_size(bytes, 1))))
+				"name", t->name, "data", fy_string_size(bytes, keylen))))
 			view->failed = true;
 		t->dismissed = true;
 		fyai_tools_unzoom(ctx);
