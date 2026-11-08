@@ -6,7 +6,11 @@
 #
 # The two runs must send the same requests, whatever the grammar. A grammar that
 # splits its input also uses the kept text for the second request of a line,
-# and emits only the new items there.
+# and emits only the new items there. The kept text serves the next line too,
+# when the turn that it ends at is the one that the line stored: the first
+# request of a line then emits the tools and the options again, and the new
+# items. A line with a tool call stores that turn with its display, as another
+# value, so the line after it makes the text again.
 printf 'hello\n' > notes.txt
 
 "$PYTHON" - "$TEST_DIR/cache.json" "$api" <<'PYEOF'
@@ -143,16 +147,19 @@ hits_on="$(grep -c 'request-cache: hit' "$TEST_DIR/trace.on" || true)"
 misses_on="$(grep -c 'request-cache: miss' "$TEST_DIR/trace.on" || true)"
 used_off="$(grep -c 'request-cache:' "$TEST_DIR/trace.log" || true)"
 if [ "$splits" = yes ]; then
-	[ "$hits_on" -eq 2 ] || fail "expected 2 requests from the kept text, got $hits_on"
-	[ "$misses_on" -eq 4 ] || fail "expected 4 requests from the whole conversation, got $misses_on"
+	[ "$hits_on" -eq 3 ] || fail "expected 3 requests from the kept text, got $hits_on"
+	[ "$misses_on" -eq 3 ] || fail "expected 3 requests from the whole conversation, got $misses_on"
 	# A request that extends the kept text makes the text of the new items
-	# only: the emitter does not write the kept text or the tools again.
-	grep 'request-cache: hit' "$TEST_DIR/trace.on" |
-		sed -n 's/.*hit: \([0-9]*\) bytes, [0-9]* stable, \([0-9]*\) emitted.*/\1 \2/p' |
-		while read -r body emitted; do
-			[ "$((emitted * 4))" -lt "$body" ] ||
-				fail "a hit made $emitted of $body bytes again"
-		done
+	# only. Inside a line the emitter does not write the kept text or the
+	# tools again; the first request of a line writes the tools again.
+	small=0
+	while read -r body emitted; do
+		[ "$emitted" -lt "$body" ] ||
+			fail "a hit made all of its $body bytes again"
+		[ "$((emitted * 4))" -ge "$body" ] || small=$((small + 1))
+	done < <(grep 'request-cache: hit' "$TEST_DIR/trace.on" |
+		sed -n 's/.*hit: \([0-9]*\) bytes, [0-9]* stable, \([0-9]*\) emitted.*/\1 \2/p')
+	[ "$small" -ge 2 ] || fail "only $small hits made the new items alone"
 else
 	# The grammar chains requests and has no input to keep.
 	[ "$((hits_on + misses_on))" -eq 0 ] ||

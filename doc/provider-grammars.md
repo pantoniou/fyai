@@ -188,12 +188,16 @@ open items. The next request copies the stable items and emits only the items
 of the new messages and the open items. The cache hashes no text to find the
 turn. `$FYAI_TRACE` records the bytes that the emitter made for each request.
 
-The word of a turn names storage of the builder that holds it. A run
-makes its turns in the transient builder, and the cache is scoped to that
-builder: it serves the requests of one exchange, and the transient builder
-clears it when it goes away. Publishing copies the turns to the arena under
-other words, so the first request of the next exchange makes the text of the
-conversation again, and the later requests of that exchange use it.
+The word of a turn names storage of the builder that holds it. A turn that the
+transient builder holds has a word that a new object can take when the builder
+goes away, so the cache forgets it with the builder. A turn that the arena
+holds has a word that stays: the arena does not move. When the transient
+builder goes away, the cache keeps the text and the turn if the arena holds the
+turn, and forgets the text of the request that the builder made, which is the
+head and the tail. The next exchange then finds the turn in its chain, and its
+first request emits the head again and the messages that came after the turn.
+A line with a tool call stores its turn with the display of the call, as
+another value, so the line after it makes the text again.
 
 The `request_cache` key of the configuration turns the cache off.
 `$FYAI_TRACE` records each request as a hit or a miss, and the cause of a miss.

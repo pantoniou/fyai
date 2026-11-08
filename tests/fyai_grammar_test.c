@@ -959,12 +959,14 @@ static void test_request_cache(void)
 		/* A rewind to an earlier turn is not an extension either. */
 		free(cache_check(grammar, turns[3], "a rewind", false));
 
-		/* The cache goes with the builder of the turns. */
+		/*
+		 * The end of an exchange forgets the text of the request that
+		 * the builder made. The turns are in the arena: the kept text
+		 * serves the next exchange.
+		 */
 		fyai_request_cache_forget(&test_ctx);
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],
-				 "the turns after the cache was forgotten", false));
-		free(cache_check(grammar, turns[CACHE_TURNS - 1],
-				 "the turns again", true));
+				 "the turns after the exchange", true));
 
 		/* A change of the configuration makes the text again. */
 		test_cfg.config_doc = fy_mapping(test_ctx.gb, "model", "another-model");
