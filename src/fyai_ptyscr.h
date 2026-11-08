@@ -9,8 +9,10 @@
 #ifndef FYAI_PTYSCR_H
 #define FYAI_PTYSCR_H
 
+#include <regex.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 struct fyvt;
 struct fyvt_screen;
@@ -43,6 +45,7 @@ struct fyai_ptyscr {
 	size_t ncopy;
 	char selbuf[4096];		/* the emulator decodes a copy here */
 	bool emoji_narrow;		/* U+FE0F joins the cell before it */
+	bool cursor_hidden;		/* the program hid the cursor */
 	bool failed;			/* an allocation failed */
 };
 
@@ -76,5 +79,18 @@ bool fyai_ptyscr_has(const struct fyai_ptyscr *s, const char *text,
 /* The first cell of the first @text on the display. */
 bool fyai_ptyscr_locate(const struct fyai_ptyscr *s, const char *text,
 			int *row, int *col);
+
+/*
+ * Write the screen to @f as text that two screens compare by: a line "B|" for
+ * each row that left the top, with its text; a line for each
+ * row, "R|" and its text without the blanks at its end; a line "S|ROW|" with
+ * the style runs of each row that has a style, "COL-COL STYLE" with the style
+ * as the colours in RGB and the attributes; and "C|ROW,COL", the cursor, or
+ * "C|hidden". A
+ * cell under a match of one of the @nmasks patterns of @masks is '?' with the
+ * style '*'. Return -1 when memory is short or the write fails.
+ */
+int fyai_ptyscr_dump(const struct fyai_ptyscr *s, const regex_t *masks,
+		     size_t nmasks, FILE *f);
 
 #endif

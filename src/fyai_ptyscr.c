@@ -18,6 +18,7 @@
 #endif
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -156,6 +157,183 @@ size_t fyai_ptyscr_row(const struct fyai_ptyscr *s, int r, char *buf)
 	return len;
 }
 
+/* The colour @c of a cell as "#rrggbb", or "d" for the default colour. */
+static void dump_color(const struct fyai_ptyscr *s, union fyvt_color c,
+		       bool bg, char *buf, size_t size)
+{
+	if (bg ? FYVT_COLOR_IS_DEFAULT_BG(&c) : FYVT_COLOR_IS_DEFAULT_FG(&c)) {
+		snprintf(buf, size, "d");
+		return;
+	}
+	fyvt_screen_convert_color_to_rgb(s->screen, &c);
+	snprintf(buf, size, "#%02x%02x%02x", c.rgb.red, c.rgb.green,
+		 c.rgb.blue);
+}
+
+/* The style of @cell as text; "-" is the default style. */
+static void dump_style(const struct fyai_ptyscr *s,
+		       const struct fyvt_screen_cell *cell, char *buf,
+		       size_t size)
+{
+	const struct fyvt_screen_cell_attrs *a = &cell->attrs;
+	char fg[8], bg[8];
+
+	dump_color(s, cell->fg, false, fg, sizeof(fg));
+	dump_color(s, cell->bg, true, bg, sizeof(bg));
+	snprintf(buf, size, "%s/%s/%s%s%.*s%s%s%s%s%s%s", fg, bg,
+		 a->bold ? "b" : "", a->italic ? "i" : "",
+		 a->underline, "uu", a->blink ? "k" : "",
+		 a->reverse ? "r" : "", a->conceal ? "c" : "",
+		 a->strike ? "s" : "", a->dim ? "d" : "",
+		 a->overline ? "o" : "");
+	if (!strcmp(buf, "d/d/"))
+		snprintf(buf, size, "-");
+}
+
+/* Mark in @masked each column of row text @buf under a match of @masks. */
+static void dump_masks(const char *buf, const size_t *offs, int cols,
+		       const regex_t *masks, size_t nmasks, bool *masked)
+{
+	regmatch_t m;
+	size_t i, at, so, eo;
+	int c;
+
+	for (i = 0; i < nmasks; i++) {
+		for (at = 0; buf[at] &&
+		     !regexec(&masks[i], buf + at, 1, &m,
+			      at ? REG_NOTBOL : 0); ) {
+			so = at + (size_t)m.rm_so;
+			eo = at + (size_t)m.rm_eo;
+			for (c = 0; c < cols; c++)
+				if (offs[c] >= so && offs[c] < eo)
+					masked[c] = true;
+			at = eo > so ? eo : eo + 1;
+		}
+	}
+}
+
+/* Write a row that left the top, "B|" and its text, with each match of
+ * @masks as '?'. */
+static int dump_text(const char *text, const regex_t *masks, size_t nmasks,
+		     FILE *f)
+{
+	char *copy = strdup(text);
+	regmatch_t m;
+	size_t i, at, k;
+
+	if (!copy)
+		return -1;
+	for (i = 0; i < nmasks; i++)
+		for (at = 0; copy[at] &&
+		     !regexec(&masks[i], copy + at, 1, &m,
+			      at ? REG_NOTBOL : 0); ) {
+			for (k = (size_t)m.rm_so; k < (size_t)m.rm_eo; k++)
+				copy[at + k] = '?';
+			at += m.rm_eo > m.rm_so ? (size_t)m.rm_eo :
+			      (size_t)m.rm_eo + 1;
+		}
+	i = strlen(copy);
+	while (i && copy[i - 1] == ' ')
+		copy[--i] = '\0';
+	k = fprintf(f, "B|%s\n", copy) < 0;
+	free(copy);
+	return k ? -1 : 0;
+}
+
+int fyai_ptyscr_dump(const struct fyai_ptyscr *s, const regex_t *masks,
+		     size_t nmasks, FILE *f)
+{
+	struct fyvt_screen_cell cell;
+	struct fyvt_pos pos;
+	char *buf = NULL, *line = NULL, style[64], prev[64];
+	size_t *offs = NULL, len, n, seg;
+	bool *masked = NULL, styled;
+	int r, c, start, row, col;
+
+	buf = malloc(fyai_ptyscr_row_size(s));
+	line = malloc(fyai_ptyscr_row_size(s));
+	offs = calloc((size_t)s->cols + 1, sizeof(*offs));
+	masked = calloc((size_t)s->cols, sizeof(*masked));
+	if (!buf || !line || !offs || !masked)
+		goto err;
+	for (n = 0; n < s->scrollback.n; n++)
+		if (dump_text(s->scrollback.v[n], masks, nmasks, f))
+			goto err;
+	for (r = 0; r < s->rows; r++) {
+		len = row_build(s, r, buf, offs);
+		buf[len] = '\0';
+		memset(masked, 0, (size_t)s->cols * sizeof(*masked));
+		dump_masks(buf, offs, s->cols, masks, nmasks, masked);
+		for (n = 0, c = 0; c < s->cols; c++) {
+			seg = offs[c + 1] - offs[c];
+			if (masked[c] && seg) {
+				line[n++] = '?';
+				continue;
+			}
+			memcpy(line + n, buf + offs[c], seg);
+			n += seg;
+		}
+		n = trim_end(line, n);
+		line[n] = '\0';
+		if (fprintf(f, "R|%s\n", line) < 0)
+			goto err;
+	}
+	for (r = 0; r < s->rows; r++) {
+		styled = false;
+		start = 0;
+		prev[0] = '\0';
+		len = row_build(s, r, buf, offs);
+		buf[len] = '\0';
+		memset(masked, 0, (size_t)s->cols * sizeof(*masked));
+		dump_masks(buf, offs, s->cols, masks, nmasks, masked);
+		for (c = 0; c <= s->cols; c++) {
+			style[0] = '\0';
+			if (c < s->cols) {
+				pos.row = r;
+				pos.col = c;
+				if (masked[c])
+					snprintf(style, sizeof(style), "*");
+				else if (fyvt_screen_get_cell(s->screen, pos,
+							      &cell))
+					dump_style(s, &cell, style,
+						   sizeof(style));
+				else
+					snprintf(style, sizeof(style), "-");
+			}
+			if (c && !strcmp(style, prev))
+				continue;
+			if (c && strcmp(prev, "-")) {
+				if (!styled && fprintf(f, "S|%d|", r) < 0)
+					goto err;
+				if (fprintf(f, "%s%d-%d %s", styled ? " " : "",
+					    start, c - 1, prev) < 0)
+					goto err;
+				styled = true;
+			}
+			start = c;
+			snprintf(prev, sizeof(prev), "%s", style);
+		}
+		if (styled && fputc('\n', f) == EOF)
+			goto err;
+	}
+	/* Where a hidden cursor stands is not on the screen. */
+	fyai_ptyscr_cursor(s, &row, &col);
+	if ((s->cursor_hidden ? fprintf(f, "C|hidden\n") :
+	     fprintf(f, "C|%d,%d\n", row, col)) < 0)
+		goto err;
+	free(masked);
+	free(offs);
+	free(line);
+	free(buf);
+	return 0;
+err:
+	free(masked);
+	free(offs);
+	free(line);
+	free(buf);
+	return -1;
+}
+
 static int cb_pushline(int cols, const struct fyvt_screen_cell *cells,
 		       bool continuation, void *user)
 {
@@ -249,7 +427,19 @@ static void cb_output(const char *bytes, size_t len, void *user)
 	(void)user;
 }
 
+/* The emulator reports the cursor shown or hidden as a property. */
+static int cb_settermprop(enum fyvt_prop prop, union fyvt_value *val,
+			  void *user)
+{
+	struct fyai_ptyscr *s = user;
+
+	if (prop == FYVT_PROP_CURSORVISIBLE)
+		s->cursor_hidden = !val->boolean;
+	return 1;
+}
+
 static const struct fyvt_screen_callbacks screen_cbs = {
+	.settermprop = cb_settermprop,
 	.sb_pushline4 = cb_pushline,
 	.preerase = cb_preerase,
 };

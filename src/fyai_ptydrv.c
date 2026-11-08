@@ -81,6 +81,7 @@ enum step_kind {
 	STEP_TOUCH,
 	STEP_SIGNAL,
 	STEP_SNAPSHOT,
+	STEP_CHECKPOINT,
 	STEP_MARK,
 	STEP_SLEEP,
 	STEP_WAIT,
@@ -123,6 +124,7 @@ static const struct step_def step_defs[] = {
 	{ "touch",		STEP_TOUCH,		0, 0 },
 	{ "signal",		STEP_SIGNAL,		0, 0 },
 	{ "snapshot",		STEP_SNAPSHOT,		0, 0 },
+	{ "checkpoint",		STEP_CHECKPOINT,	MOD_TIMEOUT | MOD_EXPECT, 0 },
 	{ "mark",		STEP_MARK,		0, 0 },
 	{ "sleep",		STEP_SLEEP,		0, 0 },
 	{ "wait",		STEP_WAIT,		MOD_TIMEOUT, 0 },
@@ -171,6 +173,8 @@ struct driver {
 	bool background_starting;
 	bool emoji_narrow;
 	const char *snapshot;
+	regex_t *masks;		/* the text that a checkpoint hides */
+	size_t nmasks;
 	int exit_status;
 	int exit_signal;
 	bool exit_clear;
@@ -517,6 +521,8 @@ static void mark(struct driver *d)
 
 struct step_wait {
 	const struct step *st;
+	char *expect;		/* checkpoint: the screen to reach */
+	size_t expect_len;
 	long target;		/* wait-count: the count to reach */
 	size_t checked;		/* wait-input: the capture last checked */
 	bool held;		/* and what it said */
@@ -738,6 +744,74 @@ static int touch_file(const char *path)
 	return 0;
 }
 
+static double step_deadline(const struct driver *d, const struct step *st);
+
+/* Write the window as two screens compare it to @path. */
+static int checkpoint_write(struct driver *d, const char *path)
+{
+	FILE *f = fopen(path, "w");
+	int rc;
+
+	if (!f)
+		return -1;
+	view_sync(d);
+	rc = fyai_ptyscr_dump(&d->view, d->masks, d->nmasks, f);
+	if (fclose(f))
+		rc = -1;
+	return rc;
+}
+
+/* Whether the window, as a checkpoint writes it, is the expected screen. */
+static bool p_checkpoint(struct driver *d, struct step_wait *w)
+{
+	char *text = NULL;
+	size_t len = 0;
+	FILE *f;
+	bool same;
+	int rc;
+
+	view_sync(d);
+	f = open_memstream(&text, &len);
+	if (!f)
+		return false;
+	rc = fyai_ptyscr_dump(&d->view, d->masks, d->nmasks, f);
+	if (fclose(f))
+		rc = -1;
+	same = !rc && len == w->expect_len && !memcmp(text, w->expect, len);
+	free(text);
+	return same;
+}
+
+/*
+ * With @expect, the checkpoint of another run, wait until the window is that
+ * screen, or until the deadline of the step: a frame that the other run did
+ * not show is not a screen that a reader reads. Then write the window to
+ * @path in either case, and the runs are compared from the files.
+ */
+static int checkpoint_step(struct driver *d, const struct step *st)
+{
+	struct step_wait w = { .st = st };
+	FILE *f;
+	long size;
+
+	f = st->extra ? fopen(st->extra, "r") : NULL;
+	if (f) {
+		if (!fseek(f, 0, SEEK_END) && (size = ftell(f)) >= 0 &&
+		    !fseek(f, 0, SEEK_SET)) {
+			w.expect = malloc((size_t)size + 1);
+			if (w.expect &&
+			    fread(w.expect, 1, (size_t)size, f) == (size_t)size)
+				w.expect_len = (size_t)size;
+		}
+		fclose(f);
+		if (w.expect)
+			(void)wait_until(d, p_checkpoint, &w,
+					 step_deadline(d, st));
+		free(w.expect);
+	}
+	return checkpoint_write(d, st->text);
+}
+
 static int write_file(const char *path, const void *data, size_t len)
 {
 	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -871,6 +945,12 @@ static int run_step(struct driver *d, const struct step *st)
 		return 0;
 	case STEP_SNAPSHOT:
 		rc = write_file(st->text, d->data, d->len);
+		fyai_error_check(d->ctx, !rc, err,
+				 "step %zu: cannot write %s: %s", st->index,
+				 st->text, strerror(errno));
+		return 0;
+	case STEP_CHECKPOINT:
+		rc = checkpoint_step(d, st);
 		fyai_error_check(d->ctx, !rc, err,
 				 "step %zu: cannot write %s: %s", st->index,
 				 st->text, strerror(errno));
@@ -1258,6 +1338,7 @@ static int step_parse(struct driver *d, fy_generic step, size_t index,
 
 	switch (def->kind) {
 	case STEP_SNAPSHOT:
+	case STEP_CHECKPOINT:
 	case STEP_TOUCH:
 	case STEP_WAIT_FILE:
 		text = value_str(d, main_value, index, def->name);
@@ -1371,12 +1452,40 @@ err:
 	return -1;
 }
 
+/* The patterns of "mask": extended regular expressions, one for each item. */
+static int masks_load(struct driver *d, fy_generic list)
+{
+	fy_generic item;
+	const char *text;
+	size_t n = 0;
+	int rc;
+
+	if (fy_is_invalid(list))
+		return 0;
+	fyai_error_check(d->ctx, fy_is_sequence(list), err,
+			 "script: mask is a list of patterns");
+	d->masks = calloc(fy_len(list) + 1, sizeof(*d->masks));
+	fyai_error_check(d->ctx, d->masks, err, "script: cannot keep the masks");
+	fy_foreach(item, list) {
+		text = value_str(d, item, 0, "mask");
+		if (!text)
+			return -1;
+		rc = regcomp(&d->masks[n], text, REG_EXTENDED);
+		fyai_error_check(d->ctx, !rc, err,
+				 "script: mask '%s' is not a pattern", text);
+		d->nmasks = ++n;
+	}
+	return 0;
+err:
+	return -1;
+}
+
 static int script_load(struct driver *d, const char *path)
 {
 	static const char *const keys[] = {
 		"rows", "cols", "timeout", "wait_timeout", "ready",
 		"background", "background_while_starting", "emoji_vs",
-		"snapshot", "exit", "steps",
+		"snapshot", "mask", "exit", "steps",
 	};
 	fy_generic doc, key, value, steps, exit, v;
 	const char *name, *text;
@@ -1453,6 +1562,8 @@ static int script_load(struct driver *d, const char *path)
 		if (!d->snapshot)
 			return -1;
 	}
+	if (masks_load(d, fy_get(doc, "mask", fy_invalid)))
+		return -1;
 	exit = fy_get(doc, "exit", fy_invalid);
 	if (fy_is_valid(exit)) {
 		fyai_error_check(d->ctx, fy_is_mapping(exit), err,
@@ -1692,6 +1803,9 @@ static void driver_free(struct driver *d)
 	for (i = 0; i < d->nowned; i++)
 		free(d->owned[i]);
 	free(d->owned);
+	for (i = 0; i < d->nmasks; i++)
+		regfree(&d->masks[i]);
+	free(d->masks);
 	free(d->steps);
 	free(d->data);
 	free(d->held);
