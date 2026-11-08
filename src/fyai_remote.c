@@ -203,9 +203,8 @@ static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 			  void *data)
 {
 	struct remote_client *client = data;
-	fy_generic response;
+	fy_generic response, feature, features;
 
-	(void)conn;
 	/* While a control request waits, only its answer can come. */
 	if (client->waiting) {
 		response = fy_get(frame, "response", fy_invalid);
@@ -216,10 +215,17 @@ static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 		}
 		client->waiting = NULL;
 		client->answered = true;
-		if (fy_equal(fy_get(response, "subtype", ""), "success"))
+		if (fy_equal(fy_get(response, "subtype", ""), "success")) {
 			client->answer = fy_gb_internalize(client->gb,
 				fy_get(response, "response", fy_map_empty));
-		else
+			/* The server speaks images from its next frame on: the
+			 * bytes of it may be in the buffer already. */
+			features = fy_get(client->answer, "features", fy_seq_empty);
+			fy_foreach(feature, features)
+				if (fy_equal(feature, "image") &&
+				    fy_equal(fy_get(response, "request_id", ""), "hello"))
+					(void)jsonrpc_conn_set_image(conn);
+		} else
 			client->refusal = fy_gb_intern_string(client->gb,
 				fy_get(response, "error", "the endpoint refused the request"));
 		return;
@@ -381,6 +387,9 @@ static int remote_hello(struct remote_client *client)
 	for (i = 0; i < ARRAY_SIZE(remote_features); i++)
 		features = fy_append(client->gb, features,
 				     fy_value(client->gb, remote_features[i]));
+	if (jsonrpc_image_available())
+		features = fy_append(client->gb, features,
+				     fy_value(client->gb, "image"));
 	return remote_request(client, "hello", fy_mapping(client->gb,
 		"subtype", "fyai_hello", "version", VERSION,
 		"protocol", FYAI_REMOTE_PROTOCOL, "features", features));

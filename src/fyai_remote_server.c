@@ -207,14 +207,55 @@ static void remote_peer_send(struct fyai_remote_peer *peer, fy_generic frame)
 		peer->failed = true;
 }
 
-/* Queue a line that jsonrpc_frame_encode() made, as fyai_remote_send() does. */
-static void remote_peer_send_line(struct fyai_remote_peer *peer, const char *line)
+/* A frame in each form that a client can read, made when a client needs it. */
+struct remote_wire {
+	fy_generic frame;
+	const char *line;
+	void *image;
+	size_t size;
+};
+
+/* Queue @wire on @peer as fyai_remote_send() does, in the form that it reads. */
+static void remote_peer_send_wire(struct fyai_remote_peer *peer,
+				  struct remote_wire *wire)
 {
+	struct fyai_remote_server *server;
+	int rc;
+
 	if (!peer || peer->failed)
 		return;
-	if (jsonrpc_conn_output_size(peer->conn) >= REMOTE_OUTPUT_MAX ||
-	    jsonrpc_conn_send_encoded(peer->conn, line))
+	server = peer->server;
+	if (jsonrpc_conn_output_size(peer->conn) >= REMOTE_OUTPUT_MAX) {
 		peer->failed = true;
+		return;
+	}
+	if (jsonrpc_conn_image(peer->conn)) {
+		if (!wire->image)
+			wire->image = jsonrpc_image_encode(peer->conn,
+							   wire->frame, &wire->size);
+		fyai_error_check(server->call->ctx, wire->image, err,
+				 "cannot encode an image for a watcher");
+		rc = jsonrpc_conn_send_image(peer->conn, wire->image, wire->size);
+	} else {
+		if (!wire->line) {
+			if (!server->frame_gb)
+				server->frame_gb = fy_generic_builder_create(NULL);
+			else
+				fy_generic_builder_reset(server->frame_gb);
+			fyai_error_check(server->call->ctx, server->frame_gb, err,
+					 "cannot make a builder for the frames of watchers");
+			wire->line = jsonrpc_frame_encode(server->frame_gb,
+							  wire->frame);
+		}
+		fyai_error_check(server->call->ctx, wire->line, err,
+				 "cannot encode a frame for a watcher");
+		rc = jsonrpc_conn_send_encoded(peer->conn, wire->line);
+	}
+	if (rc)
+		peer->failed = true;
+	return;
+err:
+	peer->failed = true;
 }
 
 static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
@@ -224,7 +265,8 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	struct fyai_ctx *ctx = session->server->call->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	struct fyai_remote_peer *owner, *watcher;
-	const char *branch, *id, *rest, *line;
+	const char *branch, *id, *rest;
+	struct remote_wire wire = { 0 };
 	fy_generic response;
 	bool begin;
 	char *copy;
@@ -289,19 +331,12 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		remote_peer_send(session->peer, frame);
 		return;
 	}
-	if (!session->server->frame_gb)
-		session->server->frame_gb = fy_generic_builder_create(NULL);
-	else
-		fy_generic_builder_reset(session->server->frame_gb);
-	fyai_error_check(ctx, session->server->frame_gb, out,
-			 "cannot make a builder for the frames of watchers");
-	line = jsonrpc_frame_encode(session->server->frame_gb, frame);
-	fyai_error_check(ctx, line, out, "cannot encode a frame for the watchers");
-	remote_peer_send_line(session->peer, line);
+	wire.frame = frame;
+	remote_peer_send_wire(session->peer, &wire);
 	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
-		remote_peer_send_line(watcher, line);
-out:
-	return;
+		remote_peer_send_wire(watcher, &wire);
+	if (wire.image)
+		jsonrpc_image_free(wire.image);
 }
 
 static enum fyai_event_action remote_worker_exit(const struct fyai_event *ev)
@@ -481,6 +516,8 @@ static int remote_spawn(struct fyai_remote_peer *peer, const char *branch,
 	fyai_error_check(ctx, session->worker, out,
 			 "cannot open the channel of a worker");
 	jsonrpc_conn_expect_close(session->worker);
+	/* Both ends are this program: the worker sets the same mode. */
+	(void)jsonrpc_conn_set_image(session->worker);
 	rc = jsonrpc_conn_frames(session->worker, remote_worker_frame,
 				 session);
 	fyai_error_check(ctx, !rc, out, "cannot read the channel of a worker");
@@ -1294,7 +1331,8 @@ static void remote_hand_over(struct fyai_remote_peer *peer, fy_generic id,
 	}
 	text = emit_json_string(gb, fy_mapping(gb, "client", (long long)peer->id,
 					       "dir", dir, "request_id", id,
-					       "native", peer->native));
+					       "native", peer->native,
+					       "image", jsonrpc_conn_image(peer->conn)));
 	if (!text || remote_send_fd(project->fd, text, peer->fd)) {
 		remote_log(server, "client %lu: cannot give the client to the project "
 			   "server %ld: %s", peer->id, (long)project->pid,
@@ -1408,12 +1446,21 @@ static void remote_hello_answer(struct fyai_remote_peer *peer, fy_generic id,
 			if (feature && !strcmp(feature, remote_features[i]))
 				common = fy_append(gb, common,
 						   fy_value(gb, remote_features[i]));
+	/* A client that checks images and this server both speak them. */
+	fy_foreach(feature, theirs)
+		if (feature && !strcmp(feature, "image") &&
+		    jsonrpc_image_available())
+			common = fy_append(gb, common, fy_value(gb, "image"));
 	peer->native = true;
 	remote_log(server, "client %lu: fyai %s, protocol %lld", peer->id, version,
 		   protocol);
 	remote_reply(peer, id, NULL, fy_mapping(gb, "version", VERSION,
 						"protocol", FYAI_REMOTE_PROTOCOL,
 						"features", common, "session", "fyai"));
+	/* The reply is the last line: the client sends images after it. */
+	fy_foreach(feature, common)
+		if (!strcmp(feature, "image"))
+			(void)jsonrpc_conn_set_image(peer->conn);
 }
 
 /* A request of the fyai protocol from a client that did not say hello. */
@@ -1744,11 +1791,13 @@ static enum fyai_event_action remote_front_receive(const struct fyai_event *ev)
 		close(fd);
 		return FYAIEA_CONTINUE;
 	}
-	peer = remote_peer_add(server, fd, (unsigned long)fy_get(msg, "client", 0LL),
-			       true);
+	peer = remote_peer_add(server, fd, fy_get(msg, "client", 0UL), true);
 	if (!peer || peer->failed)
 		return FYAIEA_CONTINUE;
 	peer->native = fy_get(msg, "native", false);
+	/* The client switched to images when it said hello to the front. */
+	if (fy_get(msg, "image", false))
+		(void)jsonrpc_conn_set_image(peer->conn);
 	peer->dir = strdup(dir);
 	if (!peer->dir) {
 		remote_reply(peer, id, "cannot keep the directory", fy_invalid);

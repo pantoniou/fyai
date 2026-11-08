@@ -15,6 +15,8 @@
 #include "config.h"
 #endif
 
+#include <errno.h>
+#include <fcntl.h>
 #include <fnmatch.h>
 #include <regex.h>
 #include <stdio.h>
@@ -3430,6 +3432,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	fy_generic allowed, names, tool;
 	double budget;
 	bool found;
+	int chan_out, chan_in, devnull;
 	int rc = -1;
 
 	(void)result;
@@ -3496,10 +3499,34 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 		goto out;
 
 	rc = -1;
-	srv.conn = jsonrpc_conn_stdio(ctx, STDOUT_FILENO, STDIN_FILENO, 0,
+	/*
+	 * The channel of a worker is a private descriptor: a stray write to
+	 * standard output goes nowhere, and cannot break the framing of an
+	 * image, and nothing else reads the channel from standard input.
+	 */
+	chan_out = STDOUT_FILENO;
+	chan_in = STDIN_FILENO;
+	if (srv.remote_worker) {
+		chan_out = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 10);
+		chan_in = fcntl(STDIN_FILENO, F_DUPFD_CLOEXEC, 10);
+		devnull = open("/dev/null", O_RDWR | O_CLOEXEC);
+		fyai_error_check(ctx, chan_out >= 0 && chan_in >= 0 && devnull >= 0,
+				 out, "claude-sdk: cannot keep the channel: %s",
+				 strerror(errno));
+		rc = dup2(devnull, STDOUT_FILENO) < 0 ||
+		     dup2(devnull, STDIN_FILENO) < 0;
+		close(devnull);
+		fyai_error_check(ctx, !rc, out,
+				 "claude-sdk: cannot free the standard descriptors");
+		rc = -1;
+	}
+	srv.conn = jsonrpc_conn_stdio(ctx, chan_out, chan_in, 0,
 				      "claude-sdk", NULL);
 	fyai_error_check(ctx, srv.conn, out,
 			 "claude-sdk: cannot open standard input and output");
+	/* The server of a remote session speaks images to its worker. */
+	if (srv.remote_worker)
+		(void)jsonrpc_conn_set_image(srv.conn);
 	rc = jsonrpc_conn_frames(srv.conn, sdk_frame, &srv);
 	fyai_error_check(ctx, !rc, out,
 			 "claude-sdk: cannot read standard input");
