@@ -94,6 +94,7 @@ The script is a YAML mapping. Each key is optional, except `steps`.
 | `background_while_starting` | When true, the driver stops the answer to `OSC 11` after it is ready. |
 | `emoji_vs` | `narrow` plays a terminal that draws a base with U+FE0F in one column. |
 | `snapshot` | A file for the capture at the end of the steps. A `snapshot` step takes the capture earlier. |
+| `mask` | A list of extended regular expressions. A `checkpoint` writes each cell of a match as `?` with no style: text that differs by design, such as the name of a temporary file. |
 | `exit` | How the program must end: `status` (default 0), `signal` (a number or a name), and `clear` (send Ctrl-U before the exit line). |
 | `steps` | The sequence of steps. |
 
@@ -116,6 +117,22 @@ The driver does these things in order. It starts the program and waits for
 one. It sends the line `/exit` and waits for the program to end. If the
 program does not end by the deadline, the driver sends SIGTERM, then SIGKILL.
 
+## Checkpoints
+
+A checkpoint is the window as a file that two runs compare with `diff`. It
+holds a line `B|TEXT` for each row that scrolled off the top, a line `R|TEXT`
+for each row of the window without the blanks at its end, a line
+`S|ROW|COL-COL STYLE ...` with the style runs of each row that has a style, and
+the cursor as `C|ROW,COL`, or `C|hidden`. A style is the foreground and the
+background in RGB (`d` is the default colour) and the attributes: `b` bold,
+`i` italic, `u` underline (twice for a double one), `k` blink, `r` reverse,
+`c` conceal, `s` strike, `d` dim and `o` overline. `-` is the default style.
+
+An oracle case (`tests/oracle-harness.sh`) runs one script two times, in a
+local session and through `--remote .`, and compares the checkpoints. The
+remote run gives each checkpoint the checkpoint of the local run as
+`expect`: a frame that is drawn on the way to a screen is not the screen.
+
 ## The steps
 
 A step is a mapping. One key names the step and holds its value. The other
@@ -137,6 +154,7 @@ and `wait-count` with `more` count from the mark.
 | `touch: PATH` | Make an empty file. A held fixture waits for it. |
 | `signal: N` | Send the signal to the program. N is a number or a name. |
 | `snapshot: PATH` | Write the capture to PATH. |
+| `checkpoint: PATH` | Write the window to PATH as text that two runs compare (see "Checkpoints"). With `expect: FILE`, the checkpoint of another run, wait first until the window is that screen, or until the deadline of the step. |
 | `mark: true` | Set the mark. |
 
 ### Steps that wait
