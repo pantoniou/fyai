@@ -4030,6 +4030,114 @@ commands:
           description: serve one ACP turn in a child process
           x-fyai-hidden: true
 
+  - command: serve
+    title: serve remote sessions on a Unix socket
+    description: |
+      Serve remote sessions and remote commands on a Unix socket until
+      interrupted or stopped. In a project, serve that project at
+      .fyai/unix/remote.sock. With `--projects DIR`, serve every project under
+      DIR at ~/.fyai/unix/serve.sock: a client names its project, and the server
+      starts one project server for each project. A client connects with the
+      global option `--remote`. The server writes a log line for each
+      connection, session, and worker to standard error.
+    surfaces: [cli]
+    default: start
+    commands:
+      - command: start
+        title: start the server
+        description: Serve until interrupted, or until `fyai serve stop`.
+        surfaces: [cli]
+        handler: remote_serve
+        prepare: remote_serve
+        flags: [no-storage]
+        render:
+          message:
+            - "serve: started the server {pid} at {socket}"
+            - "serve: log {log}"
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            socket:
+              type: string
+              description: override the endpoint; only a socket that nobody serves is replaced
+              x-fyai-long: socket
+              x-fyai-meta: PATH
+              x-fyai-complete: file
+            projects:
+              type: string
+              description: serve the projects under DIR, not the project of the current directory
+              x-fyai-long: projects
+              x-fyai-meta: DIR
+              x-fyai-complete: dir
+            daemon:
+              type: boolean
+              description: run in the background; the log goes to the file that --log names
+              x-fyai-long: daemon
+            log:
+              type: string
+              description: "the log file of a daemon (default: .fyai/logs/serve.log of the project, or ~/.fyai/logs/serve.log with --projects)"
+              x-fyai-long: log
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+            token_fd:
+              type: integer
+              minimum: 3
+              maximum: 2147483647
+              description: require token admission and write the generated launch token to this descriptor
+              x-fyai-long: token-fd
+            front_fd:
+              type: integer
+              minimum: 3
+              maximum: 2147483647
+              description: take the clients of a server of projects from this descriptor
+              x-fyai-long: front-fd
+              x-fyai-hidden: true
+      - command: stop
+        title: stop the server
+        description: Stop the server of the project, or of the projects with `--projects`, and its workers.
+        surfaces: [cli]
+        handler: remote_serve_stop
+        flags: [no-storage]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            socket:
+              type: string
+              description: override the endpoint
+              x-fyai-long: socket
+              x-fyai-meta: PATH
+              x-fyai-complete: file
+            projects:
+              type: boolean
+              description: stop the server of projects at ~/.fyai/unix/serve.sock
+              x-fyai-long: projects
+        render:
+          message: "serve: stopped the server {pid} at {socket}"
+      - command: status
+        title: show the server
+        description: Show the server, its projects, and its sessions.
+        surfaces: [cli]
+        handler: remote_serve_status
+        flags: [no-storage]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            socket:
+              type: string
+              description: override the endpoint
+              x-fyai-long: socket
+              x-fyai-meta: PATH
+              x-fyai-complete: file
+            projects:
+              type: boolean
+              description: show the server of projects at ~/.fyai/unix/serve.sock
+              x-fyai-long: projects
+        render:
+          document: yaml
+
   - command: claude-sdk
     title: serve the Claude Agent SDK protocol
     description: |

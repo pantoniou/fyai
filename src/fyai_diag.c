@@ -70,6 +70,7 @@ static const char *const diag_module_names[FYAIEM_COUNT] = {
 	[FYAIEM_EVENT]		= "event",
 	[FYAIEM_SKILL]		= "skill",
 	[FYAIEM_MEDIA]		= "media",
+	[FYAIEM_REMOTE]		= "remote",
 };
 
 /* Per-process state for the append-only, unbuffered trace log. */

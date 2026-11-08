@@ -540,6 +540,8 @@ set(FYAI_SOURCES
     src/fyai_uiwork.c
     src/fyai_uitranscript.c
     src/fyai_uidraw.c
+    src/fyai_remote.c
+    src/fyai_remote_server.c
     src/fyai_claude_sdk.c
     src/fyai_structured.c
     src/fyai_settings.c

@@ -174,6 +174,8 @@ void fyai_config_set_defaults(struct fyai_cfg *cfg);
  */
 char *fyai_project_instructions(void);
 char *fyai_discover_project_root(void);
+/* The project root at or above the directory @dir, or NULL. The caller frees it. */
+char *fyai_discover_project_root_from(const char *dir);
 
 /*
  * Resolve `model` against the effective catalogue (provider pin, endpoint,

@@ -1202,11 +1202,17 @@ static bool dir_is_project_root(const char *dir)
 char *fyai_discover_project_root(void)
 {
 	char cwd[PATH_MAX];
-	char *cur, *slash, *out = NULL;
 
 	if (!getcwd(cwd, sizeof(cwd)))
 		return NULL;
-	cur = strdup(cwd);
+	return fyai_discover_project_root_from(cwd);
+}
+
+char *fyai_discover_project_root_from(const char *dir)
+{
+	char *cur, *slash, *out = NULL;
+
+	cur = strdup(dir);
 	if (!cur)
 		return NULL;
 	for (;;) {

@@ -126,6 +126,9 @@ static const struct {
 	{ "agent",		fyai_cmd_agent },
 	{ "acp",		fyai_cmd_acp },
 	{ "claude_sdk",		fyai_cmd_claude_sdk },
+	{ "remote_serve",	fyai_cmd_remote_serve },
+	{ "remote_serve_stop",	fyai_cmd_remote_serve_stop },
+	{ "remote_serve_status", fyai_cmd_remote_serve_status },
 	{ "transport",		fyai_cmd_transport },
 	{ "setting",		fyai_cmd_setting },
 	{ "lockdown",		fyai_cmd_lockdown },
@@ -209,6 +212,7 @@ static const struct {
 	fyai_cmd_prepare_fn fn;
 } cmd_prepares[] = {
 	{ "term",		fyai_cmd_term_prepare },
+	{ "remote_serve",	fyai_cmd_remote_serve_prepare },
 	{ "init",		fyai_cmd_init_prepare },
 	{ "agent",		fyai_cmd_agent_prepare },
 	{ "acp",		fyai_cmd_acp_prepare },

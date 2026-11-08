@@ -3438,6 +3438,85 @@ invocation. See doc/acp.md.
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
+## fyai serve
+
+serve remote sessions on a Unix socket
+
+**Usage:** `fyai serve {start|status|stop} ...`
+
+Serve remote sessions and remote commands on a Unix socket until
+interrupted or stopped. In a project, serve that project at
+.fyai/unix/remote.sock. With `--projects DIR`, serve every project under
+DIR at ~/.fyai/unix/serve.sock: a client names its project, and the server
+starts one project server for each project. A client connects with the
+global option `--remote`. The server writes a log line for each
+connection, session, and worker to standard error.
+
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `start` | start the server |
+| `status` | show the server |
+| `stop` | stop the server |
+
+With no command, `start` runs.
+
+## fyai serve start
+
+start the server
+
+**Usage:** `fyai serve start [--socket PATH] [--projects DIR] [--daemon] [--log FILE] [--token-fd VALUE]`
+
+Serve until interrupted, or until `fyai serve stop`.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--socket PATH` | override the endpoint; only a socket that nobody serves is replaced |
+| `--projects DIR` | serve the projects under DIR, not the project of the current directory |
+| `--daemon` | run in the background; the log goes to the file that --log names |
+| `--log FILE` | the log file of a daemon (default: .fyai/logs/serve.log of the project, or ~/.fyai/logs/serve.log with --projects) |
+| `--token-fd VALUE` | require token admission and write the generated launch token to this descriptor |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai serve stop
+
+stop the server
+
+**Usage:** `fyai serve stop [--socket PATH] [--projects]`
+
+Stop the server of the project, or of the projects with `--projects`, and its workers.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--socket PATH` | override the endpoint |
+| `--projects` | stop the server of projects at ~/.fyai/unix/serve.sock |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai serve status
+
+show the server
+
+**Usage:** `fyai serve status [--socket PATH] [--projects]`
+
+Show the server, its projects, and its sessions.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--socket PATH` | override the endpoint |
+| `--projects` | show the server of projects at ~/.fyai/unix/serve.sock |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
 ## fyai transport
 
 serve model requests for isolated agents

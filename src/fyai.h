@@ -515,6 +515,11 @@ struct fyai_cfg {
 	bool tool_child;
 	/* The command line of this process, kept to run it again in a view. */
 	char *const *argv;
+	/*
+	 * `serve --daemon`: what the server in the background reported. This
+	 * process presents it and ends.
+	 */
+	const char *serve_daemon;
 	/* Serve the agent protocol on standard input and output. */
 	bool agent_rpc;
 	bool acp_worker;
