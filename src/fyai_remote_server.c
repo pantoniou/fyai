@@ -120,6 +120,9 @@ struct fyai_remote_server {
 	struct fyai_remote_session *sessions;
 	struct fyai_remote_project *projects;
 	struct fyai_event_source *listener, *front;
+	/* Encodes the frame that goes to several clients, and is reset for
+	 * each: the builder of the context lives as long as the server. */
+	struct fy_generic_builder *frame_gb;
 	char *path;			/* the endpoint, or NULL behind a front */
 	char *base;			/* a server of projects: their directory */
 	char *root;			/* a project server: the project */
@@ -286,7 +289,13 @@ static void remote_worker_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		remote_peer_send(session->peer, frame);
 		return;
 	}
-	line = jsonrpc_frame_encode(gb, frame);
+	if (!session->server->frame_gb)
+		session->server->frame_gb = fy_generic_builder_create(NULL);
+	else
+		fy_generic_builder_reset(session->server->frame_gb);
+	fyai_error_check(ctx, session->server->frame_gb, out,
+			 "cannot make a builder for the frames of watchers");
+	line = jsonrpc_frame_encode(session->server->frame_gb, frame);
 	fyai_error_check(ctx, line, out, "cannot encode a frame for the watchers");
 	remote_peer_send_line(session->peer, line);
 	for (watcher = session->watchers; watcher; watcher = watcher->wnext)
@@ -2212,6 +2221,8 @@ out:
 	if (ready_fd >= 0)
 		close(ready_fd);
 	memset(server.token, 0, sizeof(server.token));
+	if (server.frame_gb)
+		fy_generic_builder_destroy(server.frame_gb);
 	free(server.path);
 	free(server.base);
 	free(server.root);
