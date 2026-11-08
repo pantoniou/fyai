@@ -146,10 +146,15 @@ void fyai_request_cache_release(struct fyai_ctx *ctx)
 }
 
 /*
- * Forget the kept text. It names a turn by the word of its storage, and the
- * transient builder that holds the storage is going away: a new object can
- * take the address of an old one, and the old text would then serve another
- * turn. The cache serves the requests of one exchange.
+ * The transient builder that holds the request values is going away. The text
+ * that its word made, the head and the tail of the request, is forgotten: a
+ * new object can take the address of an old one, and the old text would then
+ * serve another request.
+ *
+ * The turns are not in that builder. The exchange stored them in the arena,
+ * which does not move, and the next exchange has the turn that the text ends
+ * at in its chain: the text and the turn stay. A turn that the arena does not
+ * hold is forgotten with everything else.
  *
  * A line that runs beside a turn uses a scratch builder. Its end must not
  * forget the text of the turn: a request in flight reads that text.
@@ -158,8 +163,20 @@ void fyai_request_cache_forget(struct fyai_ctx *ctx)
 {
 	struct fyai_request_cache *rc = ctx->request_cache;
 
-	if (rc && (!rc->owner || rc->owner == ctx->transient_gb))
+	if (!rc || (rc->owner && rc->owner != ctx->transient_gb))
+		return;
+	if (!rc->valid || !rc->owner || !rc->body || !ctx->gb ||
+	    !fy_generic_builder_contains_out_of_place(ctx->gb,
+						      (fy_generic){ .v = rc->turn })) {
 		rc_forget_all(rc);
+		return;
+	}
+	free(rc->head);
+	rc->head = NULL;
+	free(rc->tail);
+	rc->tail = NULL;
+	rc->probe_word = 0;
+	rc->owner = NULL;
 }
 
 void fyai_request_cache_stats(const struct fyai_ctx *ctx,

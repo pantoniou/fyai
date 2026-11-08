@@ -46,9 +46,9 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 			    const char **bodyp);
 
 /*
- * Forget what the cache keeps for the turns of a transient builder that is
- * going away. The cache is scoped to the builder: it serves the requests of
- * one exchange.
+ * The transient builder that holds the values of the requests is going away.
+ * Forget the text that its words made. Keep the text of the conversation when
+ * the arena holds the turn that it ends at: the next exchange continues it.
  */
 void fyai_request_cache_forget(struct fyai_ctx *ctx);
 
