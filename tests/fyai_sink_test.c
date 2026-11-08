@@ -16,6 +16,7 @@
 #include "fyai_output.h"
 #include "fyai_sink.h"
 #include "fyai_terminal.h"
+#include "fyai_uimodel.h"
 
 #include "fyai_test_registry.h"
 
@@ -74,6 +75,11 @@ static void fixture_open(struct sink_fixture *f)
 	f->ctx.branch_desc = fy_invalid;
 	f->ctx.branch_agent = fy_invalid;
 	f->ctx.last_token_extents = fy_invalid;
+	/* The live document is drawn from the transcript store. */
+	if (fyai_uimodel_create(&f->ctx)) {
+		fprintf(stderr, "could not open the UI model fixture\n");
+		exit(1);
+	}
 	f->ctx.sink = fyai_sink_create_capture(&f->ctx);
 	/* Fragments and turns are built here, as they are in a real run. */
 	if (!f->ctx.sink || !fyai_ctx_transient_gb(&f->ctx)) {
@@ -86,6 +92,7 @@ static void fixture_close(struct sink_fixture *f)
 {
 	fyai_output_cleanup(&f->ctx);
 	fyai_sink_destroy(f->ctx.sink);
+	fyai_uimodel_release(&f->ctx);
 	f->ctx.sink = NULL;
 	fyai_cleanup_transient_builder(&f->ctx);
 }
@@ -451,6 +458,7 @@ static void test_reflow_follows_width(void)
 	f.ctx.branch_desc = fy_invalid;
 	f.ctx.branch_agent = fy_invalid;
 	f.ctx.last_token_extents = fy_invalid;
+	expect_true("the UI model opened", !fyai_uimodel_create(&f.ctx));
 	f.ctx.sink = fyai_sink_create(&f.ctx);
 	expect_true("the terminal sink opened", f.ctx.sink != NULL);
 	if (!f.ctx.sink || !fyai_ctx_transient_gb(&f.ctx))
@@ -488,6 +496,7 @@ static void test_reflow_follows_width(void)
 	fyai_output_abort(&f.ctx);
 	fyai_sink_destroy(f.ctx.sink);
 	f.ctx.sink = NULL;
+	fyai_uimodel_release(&f.ctx);
 	fyai_cleanup_transient_builder(&f.ctx);
 }
 

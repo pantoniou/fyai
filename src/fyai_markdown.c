@@ -2142,6 +2142,11 @@ static void fenced_stream_band_update(struct fyai_fenced_stream *fs)
 			     fs->first_margin);
 }
 
+void fyai_fenced_stream_repaint(struct fyai_fenced_stream *fs)
+{
+	fenced_stream_band_update(fs);
+}
+
 /* Render the rows again at the new width of the band tile. */
 static bool fenced_stream_repaint(void *arg)
 {

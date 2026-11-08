@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "fyai_diag.h"
+
 struct fyai_ctx;
 struct fyai_cfg;
 struct response_buffer;
@@ -228,6 +230,20 @@ void fyai_ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
  * to the transcript, whatever display/command_output says. */
 void fyai_ui_pane_status(struct fyai_ctx *ctx, bool status);
 char *fyai_ui_pane_take(struct fyai_ctx *ctx);
+/*
+ * Capture what the sink presents, and take it: the renderer of the UI model
+ * makes the rows of an entry of the log store this way. The caller frees the
+ * rows; NULL with a diagnostic.
+ */
+void fyai_ui_pane_capture(struct fyai_ctx *ctx);
+char *fyai_ui_pane_captured(struct fyai_ctx *ctx, size_t *lenp);
+/*
+ * Show @len bytes of @rows, the output of the command @title, at @level, as
+ * the output of a command is placed. The renderer of the UI model calls it
+ * for each new entry of the log store.
+ */
+void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
+		      enum fyai_error_type level, const char *rows, size_t len);
 void fyai_ui_diag_drain(struct fyai_ctx *ctx, const char *title);
 
 /* A grid of terminal cells displayed in a work band. */

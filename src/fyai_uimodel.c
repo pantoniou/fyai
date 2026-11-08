@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "fyai.h"
+#include "fyai_uidraw.h"
 #include "fyai_scratch.h"
 #include "fyai_uimodel.h"
 #include "utils.h"
@@ -175,6 +176,9 @@ int fyai_uimodel_set(struct fyai_ctx *ctx, enum fyai_ui_store store,
 	s->cur = next;
 	s->root = copy;
 	s->seq++;
+	/* The renderer of this process draws the change before a consumer
+	 * sends it. */
+	fyai_uidraw_store(ctx, store, s->root);
 	for (i = 0; i < m->nsub; i++)
 		m->sub[i].fn(m->sub[i].data, store, s->seq, s->root);
 	return 1;
@@ -372,6 +376,7 @@ void fyai_uimodel_view_detach(struct fyai_ctx *view)
 	view->uilog = NULL;
 	view->uiwork = NULL;
 	view->uitranscript = NULL;
+	view->uidraw = NULL;
 	view->ask_entries = NULL;
 	view->uimodel_detached = true;
 }
@@ -381,6 +386,7 @@ void fyai_uimodel_release(struct fyai_ctx *ctx)
 	struct fyai_uimodel *m = uimodel(ctx);
 	int i;
 
+	fyai_uidraw_release(ctx);
 	if (!m)
 		return;
 	for (i = 0; i < FYAI_UI_STORE_COUNT; i++) {
@@ -401,5 +407,6 @@ void fyai_uimodel_abandon(struct fyai_ctx *ctx)
 	/* The copy is the child's own memory; its consumers are the parent's. */
 	if (m)
 		m->nsub = 0;
+	fyai_uidraw_abandon(ctx);
 	fyai_uimodel_release(ctx);
 }

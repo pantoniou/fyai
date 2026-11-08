@@ -20,6 +20,7 @@ struct fyai_uitranscript {
 	/* The last recorded range, open while appends continue it. */
 	size_t open_start, open_end;
 	bool open;
+	bool paused;
 };
 
 static struct fyai_uitranscript *uitranscript(struct fyai_ctx *ctx)
@@ -51,7 +52,7 @@ static void uitranscript_publish(struct fyai_ctx *ctx)
 			fy_mapping(gb, "tag", t->tag, "source", t->source,
 				   "length", (long long)t->length,
 				   "fragments", t->fragments,
-				   "recorded", recorded));
+				   "recorded", recorded, "paused", t->paused));
 	} else if (gb) {
 		(void)fyai_uimodel_set_member(ctx, FYAI_UI_TRANSCRIPT, "live",
 					      fy_null);
@@ -80,6 +81,7 @@ void fyai_uitranscript_begin(struct fyai_ctx *ctx, const char *tag)
 	snprintf(t->tag, sizeof(t->tag), "%s", tag);
 	t->length = 0;
 	t->open = false;
+	t->paused = false;
 	t->fragments = fy_seq_empty;
 	t->recorded = fy_seq_empty;
 	uitranscript_publish(ctx);
@@ -114,6 +116,16 @@ void fyai_uitranscript_append(struct fyai_ctx *ctx, const char *text,
 		t->open_end = t->length + len;
 	}
 	t->length += len;
+	uitranscript_publish(ctx);
+}
+
+void fyai_uitranscript_pause(struct fyai_ctx *ctx, bool paused)
+{
+	struct fyai_uitranscript *t = ctx ? ctx->uitranscript : NULL;
+
+	if (!t || !t->source || t->paused == paused)
+		return;
+	t->paused = paused;
 	uitranscript_publish(ctx);
 }
 

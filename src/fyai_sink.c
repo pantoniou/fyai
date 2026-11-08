@@ -19,6 +19,7 @@
 #include "fyai_markdown.h"
 #include "fyai_sink.h"
 #include "fyai_uilog.h"
+#include "fyai_uidraw.h"
 #include "fyai_uiwork.h"
 #include "fyai_terminal.h"
 #include "fyai_terminal_view.h"
@@ -527,6 +528,9 @@ struct sink_term {
 	int render_cols;		/* width used to wrap the rows */
 	int64_t last_draw_ms;		/* monotonic time of the last repaint */
 	struct fyai_sink_band *shared_band;
+	/* The shared band of a producer, kept as a shadow while the renderer
+	 * draws the work bands. shared_band is then the one the renderer drew. */
+	struct fyai_sink_band *shadow_shared;
 	struct fyai_sink_band *inline_bands;	/* blocks of the transcript */
 	enum fyai_sink_doc_kind kind;
 	bool render_live;
@@ -547,6 +551,7 @@ static FILE *sink_term_out(const struct sink_term *t)
 }
 
 static int sink_term_write_failed(struct fyai_sink *s, FILE *fp);
+static void sink_term_band_free(struct fyai_sink_band *b);
 static int sink_term_put(struct fyai_sink *s, enum fyai_sink_stream stream,
 			 const char *buf, size_t len);
 static bool sink_term_via_ui(const struct fyai_sink *s,
@@ -931,7 +936,10 @@ static void sink_term_destroy(struct fyai_sink *s)
 	if (!t)
 		return;
 	markdown_renderer_destroy(&t->renderer);
-	free(t->shared_band);
+	if (t->shared_band)
+		sink_term_band_free(t->shared_band);
+	if (t->shadow_shared)
+		sink_term_band_free(t->shadow_shared);
 	free(t->source.data);
 	free(t->pending.data);
 	free(t);
@@ -941,6 +949,12 @@ static void sink_term_destroy(struct fyai_sink *s)
 /* A shared sequential band or an independently owned parallel band. */
 struct fyai_sink_band {
 	struct fyai_ctx *ctx;
+	/* The band has no tile and presents nothing. */
+	bool headless;
+	/* The band of a producer while the renderer draws the work bands. It
+	 * keeps its last paint, which is compared with the band that the
+	 * renderer drew. */
+	bool shadow;
 	struct fytim_workband *wb;	/* NULL for the shared band */
 	bool shared;
 	bool tile;			/* independent work-pane tile */
@@ -971,6 +985,12 @@ static const struct fyai_workpane_tile_ops sink_term_band_ops = {
 	.repaint_head = sink_term_band_repaint,
 };
 
+/* The renderer of the UI model draws the bands of the producers. */
+static bool sink_term_shadowing(const struct fyai_sink *s)
+{
+	return !s->drawing && s == s->ctx->sink && fyai_uidraw_bands(s->ctx);
+}
+
 static bool sink_term_bands_available(const struct fyai_sink *s)
 {
 	return fyai_ui_active(s->ctx);
@@ -982,20 +1002,28 @@ static struct fyai_sink_band *sink_term_band_open(struct fyai_sink *s,
 						  const char *command)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct fyai_sink_band *b;
+	struct fyai_sink_band *b, **slot;
 
 	if (!fyai_ui_active(s->ctx))
 		return NULL;
-	if (shared && t->shared_band) {
+	slot = s->band_shadow ? &t->shadow_shared : &t->shared_band;
+	if (shared && *slot) {
 		/* One shared band at a time: the previous one is replaced. */
-		free(t->shared_band);
-		t->shared_band = NULL;
+		sink_term_band_free(*slot);
+		*slot = NULL;
 	}
 	b = calloc(1, sizeof(*b));
 	if (!b)
 		return NULL;
 	b->ctx = s->ctx;
 	b->shared = shared;
+	if (s->band_shadow) {
+		b->headless = true;
+		b->shadow = s->band_shadow;
+		if (shared)
+			*slot = b;
+		return b;
+	}
 	if (shared) {
 		if (command)
 			fyai_ui_shell_begin(s->ctx, title, command);
@@ -1070,8 +1098,15 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 	if (!b)
 		return;
 	/* The shared band keeps the title it opened with; only the body moves. */
-	if (b->shared) {
+	if (b->shared || b->shadow) {
+		rc = response_buffer_reserve(&b->body, len + 1);
+		fyai_error_check(b->ctx, !rc, err_out,
+				 "cannot keep the body of a work band");
 		if (len)
+			memcpy(b->body.data, body, len);
+		b->body.len = len;
+		b->body.data[len] = '\0';
+		if (!b->shadow && len)
 			fyai_ui_tool_update(b->ctx, body, len);
 		return;
 	}
@@ -1140,10 +1175,18 @@ static void sink_term_band_close(struct fyai_sink *s, bool ok,
 {
 	struct sink_term *t = sink_term_state(s);
 
+	/* A producer closes its shadow; the renderer closes the band. */
+	if (sink_term_shadowing(s)) {
+		if (t->shadow_shared)
+			sink_term_band_free(t->shadow_shared);
+		t->shadow_shared = NULL;
+		return;
+	}
 	if (!fyai_ui_active(s->ctx))
 		return;
 	fyai_ui_tool_end(s->ctx, ok, cause);
-	free(t->shared_band);
+	if (t->shared_band)
+		sink_term_band_free(t->shared_band);
 	t->shared_band = NULL;
 }
 
@@ -1160,13 +1203,19 @@ static struct fyai_sink_band *sink_term_band_shared(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
 
-	return t ? t->shared_band : NULL;
+	if (!t)
+		return NULL;
+	return sink_term_shadowing(s) ? t->shadow_shared : t->shared_band;
 }
 
 static void sink_term_band_commit(struct fyai_sink_band *b)
 {
 	if (!b)
 		return;
+	if (b->headless) {
+		sink_term_band_free(b);
+		return;
+	}
 	/* A held paint is the content of the band. Present it before the
 	 * commit. */
 	if (b->wb && b->held)
@@ -1582,8 +1631,10 @@ void fyai_sink_destroy(struct fyai_sink *s)
 	if (!s)
 		return;
 	/* The bands of the display go with the sink that holds them. */
-	if (s->ctx && s == s->ctx->sink)
+	if (s->ctx && s == s->ctx->sink) {
+		fyai_uidraw_bands_release(s->ctx);
 		fyai_uiwork_release(s->ctx);
+	}
 	if (s->ops->destroy)
 		s->ops->destroy(s);
 	free(s);
@@ -1662,9 +1713,14 @@ struct fyai_sink_band *fyai_sink_band_open(struct fyai_sink *s, bool shared,
 
 	if (!s || !s->ops->band_open)
 		return NULL;
+	/* The band of a producer is a shadow while the renderer of the UI
+	 * model draws the bands from the work store. */
+	s->band_shadow = !s->drawing && s == s->ctx->sink &&
+			 fyai_uidraw_bands(s->ctx);
 	b = s->ops->band_open(s, shared, title, command);
+	s->band_shadow = false;
 	/* The work store takes the bands of the display at their input. */
-	if (b && s == s->ctx->sink)
+	if (b && s == s->ctx->sink && !s->drawing)
 		fyai_uiwork_band_open(s->ctx, b, shared, title, command);
 	return b;
 }
@@ -1682,15 +1738,25 @@ void fyai_sink_band_paint(struct fyai_sink_band *b, const char *title,
 
 void fyai_sink_band_close(struct fyai_sink *s, bool ok, const char *cause)
 {
-	if (s && s == s->ctx->sink)
+	if (s && s == s->ctx->sink && !s->drawing)
 		fyai_uiwork_band_end(s->ctx, NULL, "closed", ok, cause);
 	if (s && s->ops->band_close)
 		s->ops->band_close(s, ok, cause);
 }
 
 /* Return the granted tile width, or zero for a full-width band. */
+const char *fyai_sink_band_body(const struct fyai_sink_band *b, size_t *lenp)
+{
+	*lenp = b ? b->body.len : 0;
+	return b && b->body.data ? b->body.data : "";
+}
+
 int fyai_sink_band_cols(const struct fyai_sink_band *b)
 {
+	/* A shadow renders at the width of the band that the renderer of the
+	 * UI model draws for it. */
+	if (b && b->shadow)
+		return fyai_uidraw_band_cols(b->ctx, b);
 	if (!b || !b->tile || !b->wb)
 		return 0;
 	return fyai_ui_work_tile_cols(b->ctx, b->wb);

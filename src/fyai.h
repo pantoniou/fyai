@@ -33,6 +33,7 @@ struct fyai_uimodel;
 struct fyai_uilog;
 struct fyai_uiwork;
 struct fyai_uitranscript;
+struct fyai_uidraw;
 struct fyai_ask_entry;
 struct jsonrpc_conn;
 struct fyai_display_output;
@@ -754,6 +755,7 @@ struct fyai_ctx {
 	bool uimodel_detached;
 	struct fyai_uitranscript *uitranscript;	/* the live document (src/fyai_uitranscript.h) */
 	struct fyai_uilog *uilog;	/* the span of a command (src/fyai_uilog.h) */
+	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/fyai_uidraw.h) */
 	struct fyai_browser *browser;
 	struct fyai_agents *agents;
 	long long agent_execution, agent_parent;

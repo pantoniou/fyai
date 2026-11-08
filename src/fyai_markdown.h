@@ -354,6 +354,8 @@ int fyai_fenced_stream_set_indicator(struct fyai_fenced_stream *fs,
 int fyai_fenced_stream_animate(struct fyai_fenced_stream *fs,
 			       int64_t now);
 void fyai_fenced_stream_finish(struct fyai_fenced_stream *fs);
+/* Paint the band of @fs again: its head changed. */
+void fyai_fenced_stream_repaint(struct fyai_fenced_stream *fs);
 size_t fyai_common_complete_lines(const char *a, size_t alen,
 				  const char *b, size_t blen);
 size_t fyai_count_newlines(const char *data, size_t len);

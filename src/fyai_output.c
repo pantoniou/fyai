@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "fyai_output.h"
+#include "fyai_uidraw.h"
 #include "fyai_uitranscript.h"
 #include "fyai_acp.h"
 #include "fyai_agents.h"
@@ -26,21 +27,9 @@ struct fyai_display_output {
 	fy_generic fragments;
 	size_t banner_len;
 	bool reasoning;
+	bool paused;		/* the live render stopped at a checkpoint */
+	bool ended;		/* the transcript store has its end */
 };
-
-static enum fyai_sink_doc_kind fyai_output_doc_kind(enum fyai_output_tag tag)
-{
-	switch (tag) {
-	case FYAI_OUTPUT_SYSTEM:
-		return FYAI_SINK_DOC_SYSTEM;
-	case FYAI_OUTPUT_USER:
-	case FYAI_OUTPUT_AGENT:
-		return FYAI_SINK_DOC_USER;
-	case FYAI_OUTPUT_ASSISTANT:
-		break;
-	}
-	return FYAI_SINK_DOC_ASSISTANT;
-}
 
 const char *fyai_output_tag_name(enum fyai_output_tag tag)
 {
@@ -61,9 +50,13 @@ void fyai_output_cleanup(struct fyai_ctx *ctx)
 {
 	if (!ctx || !ctx->display_output)
 		return;
-	/* A document that ends unrecorded is discarded. */
-	fyai_uitranscript_end(ctx, "discarded");
-	fyai_sink_doc_discard(ctx->sink);
+	/* A document that ends unrecorded is discarded. The renderer of the
+	 * UI model draws the live document from the transcript store; the
+	 * oracle records what the legacy path gave the sink. */
+	if (!ctx->display_output->ended) {
+		fyai_uidraw_oracle(ctx, "<end discarded>", 15);
+		fyai_uitranscript_end(ctx, "discarded");
+	}
 	free(ctx->display_output->markdown.data);
 	free(ctx->display_output);
 	ctx->display_output = NULL;
@@ -72,7 +65,6 @@ void fyai_output_cleanup(struct fyai_ctx *ctx)
 int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 {
 	struct fyai_display_output *output;
-	int rc;
 
 	if (!ctx)
 		return -1;
@@ -84,12 +76,9 @@ int fyai_output_begin(struct fyai_ctx *ctx, enum fyai_output_tag tag)
 	output->fragments = fy_seq_empty;
 	ctx->display_output = output;
 	fyai_uitranscript_begin(ctx, fyai_output_tag_name(tag));
-	rc = fyai_sink_doc_begin(ctx->sink, fyai_output_doc_kind(tag));
-	fyai_error_check(ctx, !rc,
-		err_output, "could not start display output");
+	fyai_uidraw_oracle_printf(ctx, "<begin %s>",
+				  fyai_output_tag_name(tag));
 	return 0;
-err_output:
-	fyai_output_cleanup(ctx);
 err:
 	return -1;
 }
@@ -123,10 +112,8 @@ int fyai_output_append(struct fyai_ctx *ctx, const char *text, size_t len)
 	rc = fyai_output_record_source(ctx, text, len);
 	fyai_error_check(ctx, !rc, err,
 			 "could not grow display output");
+	fyai_uidraw_oracle(ctx, text, len);
 	fyai_uitranscript_append(ctx, text, len, true);
-	rc = fyai_sink_doc_append(ctx->sink, text, len);
-	fyai_error_check(ctx, !rc, err,
-			 "could not render display output");
 	if (ctx->display_output->tag == FYAI_OUTPUT_ASSISTANT &&
 	    ctx->display_output->markdown.len -
 	    ctx->display_output->banner_len >= 256) {
@@ -330,38 +317,32 @@ err:
 
 int fyai_output_checkpoint(struct fyai_ctx *ctx)
 {
-	int rc;
-
 	if (!fyai_output_renders_live(ctx))
 		return 0;
-	rc = fyai_sink_doc_pause(ctx->sink);
-	fyai_error_check(ctx, !rc, err,
-			 "could not checkpoint display output");
+	ctx->display_output->paused = true;
+	fyai_uidraw_oracle(ctx, "<pause>", 7);
+	fyai_uitranscript_pause(ctx, true);
 	return 0;
-err:
-	return -1;
 }
 
 int fyai_output_resume(struct fyai_ctx *ctx)
 {
-	int rc;
-
 	if (!ctx || !ctx->display_output)
 		return -1;
-	rc = fyai_sink_doc_resume(ctx->sink);
-	fyai_error_check(ctx, !rc, err,
-			 "could not resume display output");
+	if (!ctx->display_output->paused)
+		return 0;
+	ctx->display_output->paused = false;
+	fyai_uidraw_oracle(ctx, "<resume>", 8);
+	fyai_uitranscript_pause(ctx, false);
 	return 0;
-err:
-	return -1;
 }
 
 fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 				bool aborted)
 {
 	struct fyai_display_output *output;
+	const char *state = aborted ? "aborted" : "finalized";
 	fy_generic record;
-	int rc;
 
 	if (!ctx || !ctx->display_output || fy_is_invalid(turn))
 		return turn;
@@ -371,22 +352,18 @@ fy_generic fyai_output_finalize(struct fyai_ctx *ctx, fy_generic turn,
 	}
 	output = ctx->display_output;
 	(void)fyai_output_reasoning_finish(ctx);
-	rc = fyai_sink_doc_end(ctx->sink, aborted);
-	fyai_error_check(ctx, !rc, err,
-			 "could not finalize display renderer");
+	fyai_uidraw_oracle_printf(ctx, "<end %s>", state);
+	fyai_uitranscript_end(ctx, state);
+	output->ended = true;
 	record = fy_mapping(
 		"tag", fyai_output_tag_name(output->tag),
 		"markdown", output->markdown.data ? output->markdown.data : "",
-		"state", aborted ? "aborted" : "finalized",
+		"state", state,
 		"fragments", output->fragments);
 	turn = fyai_turn_append_display_output(ctx, turn, record);
-	fyai_uitranscript_end(ctx, aborted ? "aborted" : "finalized");
 	fyai_agents_output(ctx);
 	fyai_output_cleanup(ctx);
 	return turn;
-err:
-	fyai_output_cleanup(ctx);
-	return fy_invalid;
 }
 
 fy_generic fyai_output_record(struct fyai_ctx *ctx, fy_generic turn,

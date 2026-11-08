@@ -156,6 +156,12 @@ struct fyai_ui {
 	off_t capture_out;
 	off_t capture_err;
 	struct response_buffer pane_out;	/* what a pane captured */
+	/* The span of a command that ends: its capture, the oracle of the
+	 * rows the renderer makes from the log store, and how it is placed. */
+	struct response_buffer pane_oracle;
+	enum fyai_error_type pane_level;
+	bool pane_ending, pane_shown;
+	bool pane_show_output, pane_command;
 	char *pane_kept;		/* output drawn into the transcript */
 	bool pane_status;		/* the command output is a status */
 	struct response_buffer open_row;	/* a row not ended yet */
@@ -3621,6 +3627,7 @@ void fyai_ui_close(struct fyai_ctx *ctx)
 	free(ui->pane_grid.data);
 	free(ui->stream_rows.data);
 	free(ui->pane_out.data);
+	free(ui->pane_oracle.data);
 	free(ui->open_row.data);
 	free(ui->pane_kept);
 	ui_preview_clear(ui);
@@ -3776,18 +3783,79 @@ static void ui_notice_to_transcript(struct fyai_ui *ui,
 	fyai_flow_emitted(flow, FYAI_FLOW_NOTICE, true);
 }
 
-/* @command: the output of a slash command, which display/command_output
- * places. */
+static void ui_log_check(struct fyai_ui *ui, const char *title,
+			 enum fyai_error_type level, const char *rows,
+			 size_t len);
+
+/*
+ * Place the output @out of a command: in the transcript, above the status, in
+ * the popup of the log, or in a notice band. @command: the output of a slash
+ * command, which display/command_output places.
+ */
+static void ui_pane_place(struct fyai_ui *ui, const char *title, bool error,
+			  enum fyai_error_type level, bool show_output,
+			  bool command, struct response_buffer *out)
+{
+	struct fyai_ctx *ctx = ui->ctx;
+	char *heading;
+
+	if (!out->len)
+		return;
+	/* A command that waits for input must keep the prompt accessible. */
+	if ((ctx->cmd_call && ctx->cmd_call->input) ||
+	    (command && !ui->pane_status &&
+	     !strcmp(ctx->cfg->command_output, "transcript"))) {
+		ui_pane_to_transcript(ui, out);
+		return;
+	}
+	heading = ui_pane_heading(ui, title, error);
+	if (!heading) {
+		fyai_error(ctx, "could not make the heading of %s",
+			   title ? title : "the command");
+		return;
+	}
+	if (!command && !error &&
+	    !strcmp(ctx->cfg->notice_output, "transcript")) {
+		ui_notice_to_transcript(ui, heading, out);
+		free(heading);
+		return;
+	}
+	/* A fullscreen page has no scrollback for a view: it shows it in the
+	 * notice band. */
+	if (!show_output && !error && !ui->fullscreen) {
+		(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
+		(void)fytim_commit(ui->ft, out->data, out->len);
+		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->sink : NULL),
+				  out->data, out->len);
+		free(heading);
+		return;
+	}
+	/* A fullscreen page shows it above the status, or in its popup. */
+	if (ui->fullscreen) {
+		ui_popup_append(ui, level, heading, out->data, out->len);
+		free(heading);
+		return;
+	}
+	ui->message_band = ui_band_open(ui, FYAI_WORKPANE_TILE_NOTICE, 12);
+	if (ui->message_band) {
+		(void)fytim_workband_set_top(ui->message_band, heading);
+		(void)fytim_workband_set(ui->message_band, out->data, out->len);
+	}
+	free(heading);
+}
+
+/*
+ * End the span of a command. Its output enters the log store, and the
+ * renderer of the model shows the entry through fyai_ui_log_show(). What the
+ * span captured is the oracle of what that renderer made.
+ */
 static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 			bool show_output, bool command)
 {
 	struct response_buffer out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	char *heading;
 	enum fyai_error_type level = FYAIET_INFO;
 
-	/* The span of the command ends: its output enters the log store. */
-	fyai_uilog_end(ctx, title, error);
 	if (ui) {
 		/* The popup shows a diagnostic as its cause, with no module. */
 		fyai_diag_set_bare(false);
@@ -3797,8 +3865,10 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		if (error && level < FYAIET_ERROR)
 			level = FYAIET_ERROR;
 	}
-	if (!ui || !ui->capture)
+	if (!ui || !ui->capture) {
+		fyai_uilog_end(ctx, title, error);
 		return;
+	}
 	/* What the sink presented, then what a stray writer spooled. */
 	if (ui->pane_out.len &&
 	    response_buffer_append_data(&out, ui->pane_out.data,
@@ -3806,6 +3876,7 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 		fyai_error(ctx, "could not keep the output of %s",
 			   title ? title : "the command");
 		ui->capture = false;
+		fyai_uilog_end(ctx, title, error);
 		return;
 	}
 	ui->pane_out.len = 0;
@@ -3814,56 +3885,99 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	spool_capture(&ui->out, ui->capture_out, &out);
 	spool_capture(&ui->err, ui->capture_err, &out);
 	ui->capture = false;
-	if (!out.len) {
-		free(out.data);
+	free(ui->pane_oracle.data);
+	ui->pane_oracle = out;
+	ui->pane_level = level;
+	ui->pane_show_output = show_output;
+	ui->pane_command = command;
+	ui->pane_ending = true;
+	ui->pane_shown = false;
+	fyai_uilog_end(ctx, title, error);
+	ui->pane_ending = false;
+	if (!ui->pane_shown && ui->pane_oracle.len)
+		ui_log_check(ui, title, level, "", 0);
+	free(ui->pane_oracle.data);
+	memset(&ui->pane_oracle, 0, sizeof(ui->pane_oracle));
+}
+
+/* Compare the rows that the renderer made from the log store with the
+ * capture of the span, with the title and the level of each. */
+static void ui_log_check(struct fyai_ui *ui, const char *title,
+			 enum fyai_error_type level, const char *rows,
+			 size_t len)
+{
+	char *model = NULL, *oracle = NULL;
+
+	if (asprintf(&model, "<%s %d>%.*s", title ? title : "", (int)level,
+		     (int)len, rows) < 0)
+		model = NULL;
+	if (asprintf(&oracle, "<%s %d>%.*s", title ? title : "",
+		     (int)ui->pane_level, (int)ui->pane_oracle.len,
+		     ui->pane_oracle.data ? ui->pane_oracle.data : "") < 0)
+		oracle = NULL;
+	if (model && oracle)
+		(void)fyai_uimodel_check(ui->ctx, FYAI_UI_LOG, "output", model,
+					 oracle);
+	free(model);
+	free(oracle);
+}
+
+void fyai_ui_pane_capture(struct fyai_ctx *ctx)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+
+	if (!ui)
 		return;
-	}
-	/* A command that waits for input must keep the prompt accessible. */
-	if ((ctx->cmd_call && ctx->cmd_call->input) ||
-	    (command && !ui->pane_status &&
-	     !strcmp(ctx->cfg->command_output, "transcript"))) {
-		ui_pane_to_transcript(ui, &out);
-		free(out.data);
+	ui->pane_out.len = 0;
+	ui->capture = true;
+}
+
+char *fyai_ui_pane_captured(struct fyai_ctx *ctx, size_t *lenp)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	char *rows;
+
+	*lenp = 0;
+	if (!ui)
+		return NULL;
+	ui->capture = false;
+	rows = malloc(ui->pane_out.len + 1);
+	fyai_error_check(ctx, rows, err, "cannot keep the output of a command");
+	if (ui->pane_out.len)
+		memcpy(rows, ui->pane_out.data, ui->pane_out.len);
+	rows[ui->pane_out.len] = '\0';
+	*lenp = ui->pane_out.len;
+	ui->pane_out.len = 0;
+	return rows;
+err:
+	ui->pane_out.len = 0;
+	return NULL;
+}
+
+void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
+		      enum fyai_error_type level, const char *rows, size_t len)
+{
+	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
+	struct response_buffer out = {0};
+	bool show_output = true, command = true;
+
+	if (!ui)
 		return;
+	/* The entry of the span that ends: placed as the span says. */
+	if (ui->pane_ending && !ui->pane_shown) {
+		ui->pane_shown = true;
+		show_output = ui->pane_show_output;
+		command = ui->pane_command;
+		ui_log_check(ui, title, level, rows, len);
 	}
-	heading = ui_pane_heading(ui, title, error);
-	if (!heading) {
-		fyai_error(ctx, "could not make the heading of %s",
+	if (!len)
+		return;
+	if (response_buffer_append_data(&out, rows, len)) {
+		fyai_error(ctx, "could not keep the output of %s",
 			   title ? title : "the command");
-		free(out.data);
 		return;
 	}
-	if (!command && !error &&
-	    !strcmp(ctx->cfg->notice_output, "transcript")) {
-		ui_notice_to_transcript(ui, heading, &out);
-		free(heading);
-		free(out.data);
-		return;
-	}
-	/* A fullscreen page has no scrollback for a view: it shows it in the
-	 * notice band. */
-	if (!show_output && !error && !ui->fullscreen) {
-		(void)ui_flow_fence(ui->ctx, FYAI_FLOW_NOTICE);
-		(void)fytim_commit(ui->ft, out.data, out.len);
-		fyai_flow_observe(fyai_sink_flow(ui->ctx ? ui->ctx->sink : NULL),
-				  out.data, out.len);
-		free(heading);
-		free(out.data);
-		return;
-	}
-	/* A fullscreen page shows it above the status, or in its popup. */
-	if (ui->fullscreen) {
-		ui_popup_append(ui, level, heading, out.data, out.len);
-		free(heading);
-		free(out.data);
-		return;
-	}
-	ui->message_band = ui_band_open(ui, FYAI_WORKPANE_TILE_NOTICE, 12);
-	if (ui->message_band) {
-		(void)fytim_workband_set_top(ui->message_band, heading);
-		(void)fytim_workband_set(ui->message_band, out.data, out.len);
-	}
-	free(heading);
+	ui_pane_place(ui, title, error, level, show_output, command, &out);
 	free(out.data);
 }
 
