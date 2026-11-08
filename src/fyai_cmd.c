@@ -2087,6 +2087,30 @@ bool fyai_cmd_session_ends(const char *line)
 	return ends;
 }
 
+bool fyai_cmd_session_local(const char *line)
+{
+	struct fyai_cmd_walk w;
+	const char *key;
+	char **words;
+	size_t *offs;
+	bool local;
+	int n;
+
+	n = fyai_cmd_split(line, false, &words, &offs);
+	local = n > 0 && !fyai_cmd_walk(FYAI_CMD_SESSION, (size_t)n,
+					(const char *const *)words, (size_t)n,
+					&w);
+	if (local) {
+		/* A display setting is view state: the client's, as a
+		 * command of the view is. */
+		key = fy_get(fy_get(w.def, "setting", fy_invalid), "key", "");
+		local = fy_equal(fy_get(w.def, "scope", ""), "view") ||
+			!strncmp(key, "display/", 8);
+	}
+	fyai_cmd_split_free(words, n, offs);
+	return local;
+}
+
 bool fyai_cmd_session_is_status(const char *line)
 {
 	struct fyai_cmd_walk w;

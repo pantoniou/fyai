@@ -134,6 +134,12 @@ $defs:
           enum: [model, model-state, no-storage, storage-optional, transient,
                  interactive]
       view: {type: boolean}
+      scope:
+        description: >-
+          where the command runs when the session is remote: view, in the
+          client, for a command that changes only what the client shows;
+          engine, the default, in the process that owns the session
+        enum: [view, engine]
       ends_session: {type: boolean}
       status: {type: boolean}
       setting:

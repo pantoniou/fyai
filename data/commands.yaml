@@ -203,6 +203,7 @@ topics:
 
 commands:
   - command: help
+    scope: view
     title: describe commands and topics
     description: |
       With no argument, list the commands and the skills of the branch. With
@@ -2617,6 +2618,7 @@ commands:
           x-fyai-meta: SURFACE
 
   - command: history
+    scope: view
     aliases: [transcript, display]
     title: show the conversation of the branch
     description: |
@@ -2991,6 +2993,7 @@ commands:
           x-fyai-complete: session
 
   - command: zoom
+    scope: view
     title: give a live tile the pane and the keys
     description: |
       Give the tile NAME, or the newest tile, the pane and the keys, to
@@ -3015,6 +3018,7 @@ commands:
           x-fyai-meta: NAME
 
   - command: page
+    scope: view
     title: show and review the page of the screen
     description: |
       Show the page that draws the screen, or paint and name its areas to

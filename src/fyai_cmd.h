@@ -152,6 +152,11 @@ size_t fyai_cmd_session_prefix(const char *name, size_t len);
 
 /* True when the slash command @line ends the session. */
 bool fyai_cmd_session_ends(const char *line);
+/*
+ * True when the slash command @line runs in the client of a remote session:
+ * its scope is view, or it sets a display key, which is view state.
+ */
+bool fyai_cmd_session_local(const char *line);
 /* True when the output of the slash command is a status, not conversation. */
 bool fyai_cmd_session_is_status(const char *line);
 
