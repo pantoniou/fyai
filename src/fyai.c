@@ -3663,7 +3663,7 @@ static void fyai_interactive_catalog_update_step(struct fyai_ctx *ctx)
 	fyai_ui_diag_drain(ctx, "catalog");
 }
 
-static int fyai_interactive_config_edit_step(struct fyai_ctx *ctx)
+int fyai_interactive_config_edit_step(struct fyai_ctx *ctx)
 {
 	int rc;
 

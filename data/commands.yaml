@@ -4049,6 +4049,17 @@ commands:
       type: object
       additionalProperties: false
       properties:
+        remote_worker:
+          type: boolean
+          description: serve as a session worker of `fyai serve`, which a client can initialize again
+          x-fyai-long: remote-worker
+          x-fyai-hidden: true
+        session_type:
+          type: string
+          enum: [fyai, sdk]
+          description: "the client of a session worker: fyai, which keeps the policy of a local session, or an SDK client"
+          x-fyai-long: session-type
+          x-fyai-hidden: true
         output_format:
           type: string
           enum: [stream-json]

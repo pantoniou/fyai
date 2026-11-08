@@ -27,6 +27,8 @@
 #include <openssl/rand.h>
 
 #include "fyai.h"
+#include "fyai_display.h"
+#include "fyai_host.h"
 #include "fyai_auth_util.h"
 #include "fyai_branch.h"
 #include "fyai_claude_sdk.h"
@@ -40,6 +42,8 @@
 #include "fyai_grammar.h"
 #include "fyai_provider.h"
 #include "fyai_session.h"
+#include "fyai_ask.h"
+#include "fyai_uimodel.h"
 #include "fyai_storage.h"
 #include "fyai_tool_registry.h"
 #include "fyai_tool_spec.h"
@@ -52,6 +56,10 @@
 
 #define SDK_BRANCH_PREFIX	"sdk/"
 #define SDK_ID_MAX		64
+/* The size of the id of a turn on the wire, and the most turns that follow
+ * the newest turn a client holds in one answer. */
+#define SDK_TURN_ID_SIZE	24
+#define SDK_SYNC_MAX		4096
 
 /* An image block of a user message: the bytes, decoded. */
 struct sdk_image {
@@ -68,6 +76,7 @@ struct sdk_input {
 	char *text;
 	struct sdk_image *images;	/* the image blocks, in order */
 	char *origin_json;		/* the origin that the SDK stamped */
+	char *command_id;		/* a slash command of a remote client */
 	bool composed;			/* the text goes as written */
 };
 
@@ -166,6 +175,14 @@ struct sdk_server {
 	const char *append;		/* --append-system-prompt */
 	const char *permission_mode;
 	bool initialized;
+	/* A worker of `fyai serve`: a client that reattaches initializes again,
+	 * and the serving process learns the branch from internal frames. */
+	bool remote_worker;
+	char *reported_branch;		/* the branch the serving process knows */
+	/* The client reads the UI model: its stores and texts go as frames. */
+	bool model_wanted, model_stream;
+	unsigned long long epoch;	/* the incarnation of the model stream */
+	char *command_id;		/* the async command that runs */
 	bool mcp_starting;		/* the servers of --mcp-config connect */
 	char *init_id;			/* an initialize that waits for them */
 	bool busy;
@@ -747,8 +764,39 @@ int fyai_cmd_claude_sdk_prepare(struct fyai_cfg *cfg, fy_generic args)
 	return 0;
 }
 
+/*
+ * Tell the serving process the branch of this worker before the frame that
+ * follows a change of it, so a client that reattaches by the new name finds
+ * this worker. The serving process gives the frame to no client.
+ */
+static void sdk_report_branch(struct sdk_server *srv)
+{
+	const char *branch = fyai_ctx_branch(srv->ctx);
+	char *copy;
+	int rc;
+
+	if (!srv->remote_worker || (srv->reported_branch &&
+				    !strcmp(srv->reported_branch, branch)))
+		return;
+	copy = strdup(branch);
+	fyai_error_check(srv->ctx, copy, err,
+			 "claude-sdk: cannot keep the worker branch");
+	rc = jsonrpc_conn_send_frame(srv->conn,
+		fy_mapping("type", "fyai_worker", "branch", branch));
+	free(srv->reported_branch);
+	srv->reported_branch = copy;
+	fyai_error_check(srv->ctx, !rc, err,
+			 "claude-sdk: cannot report the worker branch");
+	return;
+err:
+	srv->failed = true;
+}
+
 static void sdk_send(struct sdk_server *srv, fy_generic frame)
 {
+	if (srv->failed)
+		return;
+	sdk_report_branch(srv);
 	if (srv->failed)
 		return;
 	if (fy_is_invalid(frame) || jsonrpc_conn_send_frame(srv->conn, frame)) {
@@ -1304,6 +1352,69 @@ static void sdk_permission_done(struct sdk_server *srv, struct sdk_pending *p,
 	sdk_decision_release(srv, d);
 }
 
+/* A permission that waits for the answer of a client of the UI model. */
+struct sdk_permission_ask {
+	struct sdk_server *srv;
+	struct sdk_decision *d;
+};
+
+static void sdk_permission_answered(void *user,
+				    const struct fyai_ask_reply *replies,
+				    size_t n)
+{
+	struct sdk_permission_ask *ask = user;
+	struct sdk_server *srv = ask->srv;
+	struct sdk_decision *d = ask->d;
+
+	free(ask);
+	d->waiting--;
+	/* The first option allows the call. */
+	if (replies && n && (replies[0].selected & 1u))
+		sdk_allow(srv, d);
+	else
+		sdk_deny(srv, d, "the user declined the call", false);
+	sdk_decision_release(srv, d);
+}
+
+/*
+ * Put the permission of @d to a client of the UI model as a question: allow
+ * the call, or decline it. Returns 0, or -1 when it cannot be put.
+ */
+static int sdk_permission_question(struct sdk_server *srv,
+				   struct sdk_decision *d, fy_generic input)
+{
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	struct sdk_permission_ask *ask;
+	const char *json = emit_json_string(gb, input);
+	fy_generic questions;
+
+	ask = calloc(1, sizeof(*ask));
+	if (!ask)
+		return -1;
+	ask->srv = srv;
+	ask->d = d;
+	questions = fy_sequence(gb, fy_mapping(gb,
+		"id", "permission", "header", "Permission",
+		"question", fy_stringf(gb, "Allow %s?", d->claude_name),
+		"multi_select", false,
+		"options", fy_sequence(gb,
+			fy_mapping(gb, "id", "allow", "label", "Allow",
+				"description", "Run this call.",
+				"preview", fy_stringf(gb, "```json\n%s\n```\n",
+						      json ? json : "{}")),
+			fy_mapping(gb, "id", "deny", "label", "Deny",
+				"description", "Decline this call.",
+				"preview", ""))));
+	d->waiting++;
+	if (fyai_ask_open(srv->ctx, questions, NULL, sdk_permission_answered,
+			  ask)) {
+		d->waiting--;
+		free(ask);
+		return -1;
+	}
+	return 0;
+}
+
 /*
  * Decide by the permission mode, the rules and the SDK, after the hooks
  * have not decided. @ask says that a hook asked for a question.
@@ -1330,6 +1441,10 @@ static void sdk_permission(struct sdk_server *srv, struct sdk_decision *d,
 			return;
 		}
 	}
+	/* A client of the UI model answers in the questions store. */
+	if (strcmp(mode, "dontAsk") && !srv->can_use_tool &&
+	    srv->model_stream && !sdk_permission_question(srv, d, input))
+		return;
 	/* With no one to ask, a call that needs permission does not run. */
 	if (!strcmp(mode, "dontAsk") || !srv->can_use_tool) {
 		sdk_deny(srv, d, fy_sprintfa("permission to use %s was not "
@@ -1717,6 +1832,167 @@ static int sdk_mcp_send(void *userdata, fy_generic frame)
 	return 0;
 }
 
+/* The id of a stored turn on the wire: its arena word, in hexadecimal. */
+static void sdk_turn_id(fy_generic turn, char id[SDK_TURN_ID_SIZE])
+{
+	snprintf(id, SDK_TURN_ID_SIZE, "%llx", (unsigned long long)turn.v);
+}
+
+/*
+ * What a client that has no arena needs of one stored turn: its display
+ * records, its user message as the card shows it, and the outputs of its
+ * calls, which the tool rows replay from. The provider stream, the
+ * configuration and the credentials stay here.
+ */
+static fy_generic sdk_model_turn(struct fy_generic_builder *gb, fy_generic turn)
+{
+	fy_generic outputs, output, messages, message, type;
+	const char *user = "";
+
+	outputs = fy_get(turn, "display_outputs", fy_seq_empty);
+	fy_foreach(output, outputs)
+		if (fy_any_equal(fy_get(output, "tag", fy_invalid),
+				 "user", "agent"))
+			user = fy_get(output, "markdown", "");
+	messages = fyai_turn_has_user_message(turn) ?
+		fy_sequence(gb, fy_mapping(gb, "role", "user",
+					   "content", user)) :
+		fy_seq_empty;
+	/* The calls go with their outputs: a replay counts the calls that
+	 * store no result fragment. */
+	fy_foreach(message, fy_get(turn, "messages", fy_seq_empty)) {
+		type = fy_get(message, "type", fy_invalid);
+		if (fyai_item_type_is_call(type) ||
+		    fyai_item_type_is_call_output(type))
+			messages = fy_append(gb, messages, message);
+	}
+	return fy_mapping(gb, "messages", messages, "display_outputs", outputs);
+}
+
+/*
+ * Answer `fyai_sync {have, depth}`: the turns of the branch that the client
+ * lacks. @have lists the ids of turns the client holds. The turns after the
+ * newest of them go, oldest first, each with its id, and @base names that
+ * newest turn. When the client holds none of the turns of this chain, or
+ * more than SDK_SYNC_MAX turns follow the one it holds, @base is null and
+ * the newest @depth turns go, with @more true when older ones exist. An id
+ * that is not in this chain matches nothing.
+ */
+static fy_generic sdk_model_sync(struct sdk_server *srv, fy_generic req)
+{
+	struct fyai_ctx *ctx = srv->ctx;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	struct fyai_turn_stack stack = { 0 };
+	long long depth = fy_get(req, "depth", 64LL);
+	fy_generic have = fy_get(req, "have", fy_seq_empty), turns = fy_seq_empty;
+	fy_generic id_v, base = fy_null, head = fy_null;
+	char id[SDK_TURN_ID_SIZE], epoch[24];
+	size_t i, begin;
+	bool found, more;
+
+	if (fyai_turn_stack_init(&stack, ctx->last_message, fy_invalid))
+		return fy_invalid;
+	if (depth < 1)
+		depth = 1;
+	/* The newest turn the client holds. */
+	begin = stack.count > (size_t)depth ? stack.count - (size_t)depth : 0;
+	more = begin > 0;
+	for (i = stack.count; i-- > 0;) {
+		sdk_turn_id(stack.items[i], id);
+		found = false;
+		fy_foreach(id_v, have)
+			if (fy_equal(id_v, id)) {
+				found = true;
+				break;
+			}
+		if (!found)
+			continue;
+		if (stack.count - i - 1 <= SDK_SYNC_MAX) {
+			base = fy_value(gb, id);
+			begin = i + 1;
+			more = false;
+		}
+		break;
+	}
+	for (i = begin; i < stack.count; i++) {
+		fyai_diag_tracef("sync", "worker: turn %zu has %zu messages and %zu "
+				 "display outputs", i,
+				 fy_len(fy_get(stack.items[i], "messages", fy_seq_empty)),
+				 fy_len(fy_get(stack.items[i], "display_outputs",
+					       fy_seq_empty)));
+		sdk_turn_id(stack.items[i], id);
+		turns = fy_append(gb, turns, fy_assoc(gb,
+			sdk_model_turn(gb, stack.items[i]), "id",
+			fy_value(gb, id)));
+	}
+	if (stack.count) {
+		sdk_turn_id(stack.items[stack.count - 1], id);
+		head = fy_value(gb, id);
+	}
+	fyai_diag_tracef("sync", "worker: held %zu ids, chain %zu turns, base %s, "
+			 "sent %zu", fy_len(have), stack.count,
+			 fy_is_string(base) ? "found" : "none",
+			 stack.count - begin);
+	fyai_turn_stack_cleanup(&stack);
+	snprintf(epoch, sizeof(epoch), "%llx",
+		 (unsigned long long)srv->epoch);
+	return fy_mapping(gb, "epoch", fy_value(gb, epoch), "head", head,
+			  "base", base, "turns", turns, "more", more);
+}
+
+/*
+ * Queue the slash command @line of a remote client behind the inputs before
+ * it: it runs between turns, as a typed command does.
+ */
+static void sdk_model_command(struct sdk_server *srv, fy_generic id,
+			      const char *line)
+{
+	struct sdk_input *in;
+
+	if (!fy_is_string(id) || fy_str_empty(line) || line[0] != '/') {
+		sdk_respond(srv, id, fy_invalid, "a command starts with '/'");
+		return;
+	}
+	in = calloc(1, sizeof(*in));
+	if (in) {
+		in->text = strdup(line);
+		in->command_id = strdup(fy_castp(&id, ""));
+	}
+	if (!in || !in->text || !in->command_id) {
+		if (in) {
+			free(in->text);
+			free(in->command_id);
+			free(in);
+		}
+		sdk_respond(srv, id, fy_invalid, "cannot queue the command");
+		return;
+	}
+	*srv->tail = in;
+	srv->tail = &in->next;
+}
+
+/*
+ * Run a slash command of a remote client. Its output enters the log store
+ * through the span of the command; the answer says only that it ran. An
+ * async command answers when it is done.
+ */
+static void sdk_model_command_run(struct sdk_server *srv, struct sdk_input *in)
+{
+	struct fyai_ctx *ctx = srv->ctx;
+	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
+	int rc;
+
+	rc = fyai_session_slash(ctx, in->text);
+	if (ctx->cmd_call) {
+		srv->command_id = in->command_id;
+		in->command_id = NULL;
+		return;
+	}
+	sdk_respond(srv, fy_value(gb, in->command_id), fy_invalid,
+		    rc == 1 ? "the command ends the session of the client" :
+		    rc ? "the command failed" : NULL);
+}
+
 static void sdk_respond_init(struct sdk_server *srv, fy_generic id);
 
 /* The servers have settled: answer the initialize that waits for them. */
@@ -1942,15 +2218,127 @@ static fy_generic sdk_context_usage(struct sdk_server *srv,
 		"agents", fy_seq_empty);
 }
 
+/* A change of a store of the UI model, as a frame for the client. */
+static void sdk_model_store(void *data, enum fyai_ui_store store,
+			    unsigned long long seq, fy_generic root)
+{
+	struct sdk_server *srv = data;
+
+	if (srv->model_stream)
+		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "store",
+			"store", fyai_ui_store_name(store),
+			"seq", (long long)seq, "root", root));
+}
+
+/* Bytes appended to a text of the UI model, or its end, as a frame. */
+static void sdk_model_text(void *data, long long id, size_t offset,
+			   const char *bytes, size_t len, bool closed)
+{
+	struct sdk_server *srv = data;
+
+	if (!srv->model_stream)
+		return;
+	if (closed)
+		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "text",
+					 "id", id, "closed", true));
+	else
+		sdk_send(srv, fy_mapping("type", "fyai", "subtype", "text",
+			"id", id, "offset", (long long)offset,
+			"data", fy_string_size(bytes, len)));
+}
+
+/*
+ * Stream the UI model to the client that asked for it: each open text whole,
+ * then the root of each store, then each change. The texts go first, so a
+ * store never names a text the client does not have.
+ */
+static void sdk_model_start(struct sdk_server *srv)
+{
+	struct fyai_ctx *ctx = srv->ctx;
+	enum fyai_ui_store store;
+	fy_generic root;
+
+	if (!srv->model_wanted) {
+		srv->model_stream = false;
+		return;
+	}
+	if (!srv->model_stream &&
+	    (fyai_uimodel_subscribe(ctx, sdk_model_store, srv) ||
+	     fyai_uimodel_text_subscribe(ctx, sdk_model_text, srv))) {
+		fyai_uimodel_unsubscribe(ctx, sdk_model_store, srv);
+		fyai_warning(ctx, "claude-sdk: cannot stream the UI model");
+		return;
+	}
+	srv->model_stream = true;
+	/* The state goes first: the client opens its display with it. */
+	fyai_uimodel_state_update(ctx);
+	fyai_uimodel_text_foreach(ctx, sdk_model_text, srv);
+	root = fyai_uimodel_get(ctx, FYAI_UI_STATE);
+	if (fy_is_valid(root))
+		sdk_model_store(srv, FYAI_UI_STATE,
+				fyai_uimodel_seq(ctx, FYAI_UI_STATE), root);
+	for (store = 0; store < FYAI_UI_STORE_COUNT; store++) {
+		root = fyai_uimodel_get(ctx, store);
+		if (store != FYAI_UI_STATE && fy_is_valid(root))
+			sdk_model_store(srv, store,
+					fyai_uimodel_seq(ctx, store), root);
+	}
+	/* The header is written when it changes: write it for the client. */
+	fyai_session_banner_update(ctx);
+}
+
 static void sdk_respond_init(struct sdk_server *srv, fy_generic id)
 {
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(srv->ctx);
+	fy_generic response;
 
-	sdk_respond(srv, id, fy_mapping(gb,
+	response = fy_mapping(gb,
 		"commands", fy_seq_empty,
 		"output_style", "default",
 		"available_output_styles", fy_sequence(gb, "default"),
-		"models", fy_seq_empty), NULL);
+		"models", fy_seq_empty);
+	if (srv->model_wanted) {
+		if (!srv->epoch)
+			fyai_host_random(&srv->epoch, sizeof(srv->epoch));
+		response = fy_assoc(gb, response, "fyai", fy_mapping(gb,
+			"model", 1LL, "epoch", fy_stringf(gb, "%llx",
+				(unsigned long long)srv->epoch)));
+	}
+	sdk_respond(srv, id, response, NULL);
+	sdk_model_start(srv);
+}
+
+/*
+ * The answer of the client to a set of questions of the questions store:
+ * {qid, replies: [{selected: [index...], other}]}, or no replies for none.
+ * Returns NULL, or why the answer is not valid.
+ */
+static const char *sdk_model_answer(struct sdk_server *srv, fy_generic req)
+{
+	struct fyai_ask_reply replies[FYAI_ASK_QUESTIONS_MAX];
+	fy_generic values, reply, selected;
+	const char *qid = fy_get(req, "qid", "");
+	long long index;
+	size_t n = 0;
+
+	memset(replies, 0, sizeof(replies));
+	values = fy_get(req, "replies", fy_seq_empty);
+	if (!fy_is_sequence(values) || fy_len(values) > FYAI_ASK_QUESTIONS_MAX)
+		return "replies must be a sequence of at most four";
+	fy_foreach(reply, values) {
+		fy_foreach(selected, fy_get(reply, "selected", fy_seq_empty)) {
+			index = fy_number(selected, -1LL);
+			if (index < 0 || index >= FYAI_ASK_OPTIONS_MAX)
+				return "an option index is not valid";
+			replies[n].selected |= 1u << index;
+		}
+		/* Borrowed from the frame for the settlement. */
+		replies[n].other = (char *)fy_get(reply, "other",
+						  (const char *)NULL);
+		n++;
+	}
+	fyai_ask_settle(srv->ctx, qid, n ? replies : NULL, n);
+	return NULL;
 }
 
 static void sdk_control(struct sdk_server *srv, fy_generic frame)
@@ -1968,7 +2356,16 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 	}
 	if (!strcmp(subtype, "initialize")) {
 		if (srv->initialized) {
-			sdk_respond(srv, id, fy_invalid, "already initialized");
+			/* A client of a worker reattaches with its own
+			 * initialize; the session goes on. */
+			if (srv->remote_worker) {
+				srv->model_wanted = fy_get(fy_get(req, "fyai",
+					fy_invalid), "model", 0LL) == 1;
+				sdk_respond_init(srv, id);
+			}
+			else
+				sdk_respond(srv, id, fy_invalid,
+					    "already initialized");
 			return;
 		}
 		if (fy_is_mapping(fy_get(req, "hooks", fy_invalid))) {
@@ -1988,6 +2385,8 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 			}
 		}
 		srv->forward_text = fy_get(req, "forwardSubagentText", false);
+		srv->model_wanted = fy_get(fy_get(req, "fyai", fy_invalid),
+					   "model", 0LL) == 1;
 		srv->initialized = true;
 		/* As Claude Code, answer once the MCP servers have connected. */
 		if (srv->mcp_starting) {
@@ -2000,7 +2399,64 @@ static void sdk_control(struct sdk_server *srv, fy_generic frame)
 		sdk_respond_init(srv, id);
 		return;
 	}
-	if (!strcmp(subtype, "interrupt")) {
+	/* A command of the user runs at once, beside a turn, as typed. */
+	if (!strcmp(subtype, "fyai_bang") && srv->model_stream) {
+		why = fy_str_empty(fy_get(req, "command", "")) ?
+			"the command of the user is empty" :
+			fyai_tools_bang(srv->ctx, fy_get(req, "command", ""),
+					fy_get(req, "rows", 0),
+					fy_get(req, "cols", 0)) ?
+			"the command of the user could not start" : NULL;
+		sdk_respond(srv, id, fy_invalid, why);
+		return;
+	}
+	if (!strcmp(subtype, "fyai_terminal_size") && srv->model_stream) {
+		sdk_respond(srv, id, fy_invalid, fyai_tools_session_resize(
+			srv->ctx, fy_get(req, "name", ""),
+			fy_get(req, "rows", 0),
+			fy_get(req, "cols", 0)) ?
+			"no live terminal session has the name and the size" :
+			NULL);
+		return;
+	}
+	if (!strcmp(subtype, "fyai_terminal_close") && srv->model_stream) {
+		sdk_respond(srv, id, fy_invalid, fyai_tools_session_close(
+			srv->ctx, fy_get(req, "name", ""),
+			fy_get(req, "force", false)) ?
+			"no terminal session has the name" : NULL);
+		return;
+	}
+	if (!strcmp(subtype, "fyai_terminal_dismiss") && srv->model_stream) {
+		sdk_respond(srv, id, fy_invalid, fyai_tools_session_dismiss(
+			srv->ctx, fy_get(req, "name", "")) ?
+			"no ended terminal session has the name" : NULL);
+		return;
+	}
+		if (!strcmp(subtype, "fyai_terminal_input") && srv->model_stream) {
+		model = fy_get(req, "data", fy_invalid);
+		sdk_respond(srv, id, fy_invalid, fyai_tools_session_input(
+			srv->ctx, fy_get(req, "name", ""), fy_castp(&model, ""),
+			strlen(fy_castp(&model, ""))) ?
+			"no live terminal session has the name" : NULL);
+		return;
+	}
+		if (!strcmp(subtype, "fyai_command") && srv->model_stream) {
+		sdk_model_command(srv, id, fy_get(req, "line",
+						  (const char *)NULL));
+		return;
+	}
+		if (!strcmp(subtype, "fyai_sync") && srv->model_stream) {
+		model = sdk_model_sync(srv, req);
+		sdk_respond(srv, id, model, fy_is_valid(model) ? NULL :
+			    "cannot read the stored turns");
+		return;
+	}
+		if (!strcmp(subtype, "fyai_answer") && srv->model_stream) {
+		why = sdk_model_answer(srv, req);
+		sdk_respond(srv, id, fy_invalid, why);
+		return;
+	}
+		if (!strcmp(subtype, "interrupt")) {
 		if (srv->busy)
 			srv->ctx->interrupt_pending = true;
 		sdk_respond(srv, id, fy_invalid, NULL);
@@ -2611,7 +3067,9 @@ static char *sdk_run(struct sdk_server *srv, bool *okp)
 	ctx->tool_gate = sdk_gate_needed(srv) ? &sdk_gate_ops : NULL;
 	ctx->tool_gate_data = srv;
 	srv->busy = true;
+	fyai_session_turn_set(ctx, true);
 	turn = fyai_run_turn(ctx, ctx->last_message);
+	fyai_session_turn_set(ctx, false);
 	srv->busy = false;
 	ctx->tool_gate = NULL;
 	ctx->tool_gate_data = NULL;
@@ -2962,7 +3420,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	struct sdk_pending *p;
 	struct sdk_decision *d;
 	struct sdk_tunnel *t;
-	const char *branch, *mode, *text;
+	const char *branch, *mode, *text, *session_type;
 	fy_generic allowed, names, tool;
 	double budget;
 	bool found;
@@ -2970,6 +3428,20 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 
 	(void)result;
 	memset(&srv, 0, sizeof(srv));
+	srv.remote_worker = fyai_cmd_arg_bool(call, "remote_worker");
+	/*
+	 * A worker presents nothing: its sink gives the client Markdown and
+	 * bands, which the client renders at its own width. The invocation
+	 * layer keeps it over each change of the configuration.
+	 */
+	if (srv.remote_worker) {
+		rc = fyai_config_invocation_set(ctx, "display/markdown",
+						fy_true);
+		if (!rc)
+			rc = fyai_config_rederive(ctx);
+		fyai_error_check(ctx, !rc, out,
+				 "claude-sdk: cannot render for a remote client");
+	}
 	srv.ctx = ctx;
 	srv.tail = &srv.head;
 	srv.denials = fy_seq_empty;
@@ -2983,8 +3455,15 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 				branch);
 	fyai_error_check(ctx, srv.session_id, out,
 			 "claude-sdk: cannot keep the session ID");
+	/*
+	 * The session of a fyai client runs as a local session does: the sandbox
+	 * and the gates of fyai decide, and no tool call asks for permission.
+	 */
 	mode = fyai_cmd_arg_str(call, "permission_mode");
-	srv.permission_mode = mode ? mode : "default";
+	session_type = fyai_cmd_arg_str(call, "session_type");
+	srv.permission_mode = mode ? mode :
+			      session_type && !strcmp(session_type, "fyai") ?
+			      "bypassPermissions" : "default";
 	/* A change of the configuration during the session keeps them. */
 	rc = fyai_setup_transient_builder(ctx);
 	if (!rc)
@@ -3080,15 +3559,38 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	}
 
 	while (!srv.failed) {
+		/* An edit that the user finished in a tile applies between
+		 * turns, as it does in a local session. */
+		if (ctx->config_edit)
+			(void)fyai_interactive_config_edit_step(ctx);
+		/* An async command holds the inputs behind it. */
+		if (ctx->cmd_call) {
+			if (fyai_cmd_session_step(ctx)) {
+				sdk_respond(&srv, fy_value(fyai_ctx_transient_gb(
+					ctx), srv.command_id), fy_invalid, NULL);
+				free(srv.command_id);
+				srv.command_id = NULL;
+				continue;
+			}
+			if (jsonrpc_conn_closed(srv.conn))
+				break;
+			rc = fyai_event_loop_step(el, -1);
+			fyai_error_check(ctx, rc >= 0, out,
+					 "claude-sdk: the event loop stopped");
+			continue;
+		}
 		if (srv.head) {
 			in = srv.head;
 			srv.head = in->next;
 			if (!srv.head)
 				srv.tail = &srv.head;
-			if (sdk_is_clear(in->text))
+			if (in->command_id)
+				sdk_model_command_run(&srv, in);
+			else if (sdk_is_clear(in->text))
 				sdk_clear(&srv);
 			else
 				sdk_turn(&srv, in);
+			free(in->command_id);
 			free(in->text);
 			sdk_images_free(in->images);
 			free(in->origin_json);
@@ -3110,6 +3612,11 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 out:
 	rc = -1;
 done:
+	if (ctx->config_edit) {
+		fyai_config_edit_cancel(ctx->config_edit);
+		fyai_config_edit_destroy(ctx->config_edit);
+		ctx->config_edit = NULL;
+	}
 	ctx->turn_observe = NULL;
 	ctx->turn_observe_data = NULL;
 	ctx->agent_observe = NULL;
@@ -3124,8 +3631,11 @@ done:
 		fyai_mcp_cleanup(ctx);
 	for (t = srv.tunnels; t; t = t->next)
 		t->conn = NULL;
+	fyai_cmd_session_cancel(ctx);
+	free(srv.command_id);
 	while ((in = srv.head)) {
 		srv.head = in->next;
+		free(in->command_id);
 		free(in->text);
 		sdk_images_free(in->images);
 		free(in->origin_json);
@@ -3135,6 +3645,9 @@ done:
 		srv.pending = p->next;
 		sdk_pending_free(p);
 	}
+	fyai_uimodel_unsubscribe(ctx, sdk_model_store, &srv);
+	fyai_uimodel_text_unsubscribe(ctx, sdk_model_text, &srv);
+	free(srv.reported_branch);
 	free(srv.session_id);
 	while ((d = srv.decisions)) {
 		srv.decisions = d->next;
