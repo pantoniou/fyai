@@ -33,6 +33,9 @@ enum jsonrpc_transport {
 	JSONRPC_TUNNEL,
 };
 
+/* The length of an image frame, before its image. */
+#define JSONRPC_IMAGE_LEN	sizeof(uint64_t)
+
 /* Maximum newline-terminated standard-I/O frame size. */
 #define JSONRPC_FRAME_MAX	(16UL << 20)
 
@@ -59,6 +62,11 @@ struct jsonrpc_conn {
 	/* Parses each line that a raw frame handler gets. A handler keeps no
 	 * borrowed value, so each line resets it. */
 	struct fy_generic_builder *rx_gb;
+	/* Image mode: each frame is a length and the image of a generic. The
+	 * image of the frame in hand stays until the next one arrives. */
+	bool image;
+	void *image_rx;
+	size_t image_hint;		/* the size of the last frame sent */
 	size_t tx_off;
 	struct jsonrpc_request *pending;
 	struct jsonrpc_request *flush_wait;	/* notifications awaiting write */
@@ -483,17 +491,90 @@ static void jsonrpc_conn_fail_pending(struct jsonrpc_conn *conn,
 	jsonrpc_conn_settle(conn, why, false);
 }
 
+/*
+ * Hand the frame that holds @len bytes at @data to the frame handler. The
+ * image is copied to memory aligned for it, and the load checks each pointer,
+ * so a peer cannot make a bad word of a frame be read.
+ */
+static void jsonrpc_conn_image_frame(struct jsonrpc_conn *conn,
+				     const void *data, size_t len)
+{
+	fy_generic doc = fy_invalid;
+	void *buf;
+	int rc;
+
+	if (!conn->frame) {
+		fyai_error(conn->ctx, "%s got an image frame with no handler",
+			   conn->name);
+		conn->protocol_failed = true;
+		return;
+	}
+	fy_align_free(conn->image_rx);
+	conn->image_rx = NULL;
+	buf = fy_align_alloc(FY_GENERIC_IMAGE_ALIGN,
+			     FY_ALIGN((size_t)FY_GENERIC_IMAGE_ALIGN, len));
+	fyai_error_check(conn->ctx, buf, err, "%s cannot keep a frame",
+			 conn->name);
+	conn->image_rx = buf;
+	memcpy(buf, data, len);
+	rc = fy_generic_image_load(buf, len, &doc);
+	if (rc || !fy_is_mapping(doc)) {
+		fyai_error(conn->ctx, "%s received an image that is not a frame",
+			   conn->name);
+		conn->protocol_failed = true;
+		return;
+	}
+	conn->frame(conn, doc, conn->frame_userdata);
+	return;
+err:
+	conn->protocol_failed = true;
+}
+
+/* Take each whole frame out of the receive buffer; 0, or -1 on a bad length. */
+static int jsonrpc_conn_image_frames(struct jsonrpc_conn *conn)
+{
+	uint64_t len;
+	size_t used = 0;
+
+	while (conn->image && conn->rx.len - used >= JSONRPC_IMAGE_LEN) {
+		memcpy(&len, conn->rx.data + used, sizeof(len));
+		if (len > JSONRPC_FRAME_MAX || !len) {
+			fyai_error(conn->ctx, "%s sent an image of %llu bytes",
+				   conn->name, (unsigned long long)len);
+			return -1;
+		}
+		if (conn->rx.len - used - JSONRPC_IMAGE_LEN < len)
+			break;
+		jsonrpc_conn_image_frame(conn, conn->rx.data + used +
+					 JSONRPC_IMAGE_LEN, (size_t)len);
+		used += JSONRPC_IMAGE_LEN + (size_t)len;
+		if (conn->protocol_failed)
+			break;
+	}
+	conn->rx.len -= used;
+	memmove(conn->rx.data, conn->rx.data + used, conn->rx.len);
+	conn->rx.data[conn->rx.len] = '\0';
+	return 0;
+}
+
 static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 {
 	struct jsonrpc_conn *conn = ev->userdata;
-	char chunk[4096];
+	char chunk[65536];
+	size_t want;
 	char *newline;
 	size_t consumed, remaining;
 	ssize_t n;
 	int rc;
 
+	/*
+	 * The size of one read, not of a frame: a frame accumulates in the
+	 * receive buffer up to JSONRPC_FRAME_MAX. A line is read in small parts
+	 * so that other sources get a turn.
+	 */
+	want = conn->image ? sizeof(chunk) : 4096;
 	do {
-		n = read(ev->fd, chunk, sizeof(chunk));
+		n = read(ev->fd, chunk, want);
 	} while (n < 0 && errno == EINTR);
 	if (n > 0) {
 		/* Reject an oversized frame before growing the receive buffer. */
@@ -515,7 +596,9 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 		memcpy(conn->rx.data + conn->rx.len, chunk, (size_t)n);
 		conn->rx.len += (size_t)n;
 		conn->rx.data[conn->rx.len] = '\0';
-		while ((newline = memchr(conn->rx.data, '\n', conn->rx.len))) {
+		/* The frame that switches to images ends the lines. */
+		while (!conn->image &&
+		       (newline = memchr(conn->rx.data, '\n', conn->rx.len))) {
 			*newline = '\0';
 			consumed = (size_t)(newline - conn->rx.data) + 1;
 			jsonrpc_conn_line(conn, conn->rx.data);
@@ -525,6 +608,8 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 			conn->rx.len = remaining;
 			conn->rx.data[remaining] = '\0';
 		}
+		if (conn->image && jsonrpc_conn_image_frames(conn))
+			conn->protocol_failed = true;
 		if (conn->protocol_failed) {
 			jsonrpc_drop_source(&conn->read_src);
 			jsonrpc_conn_fail_pending(conn,
@@ -669,12 +754,81 @@ int jsonrpc_conn_frames(struct jsonrpc_conn *conn, jsonrpc_frame_fn fn,
 	return jsonrpc_conn_arm_read(conn);
 }
 
+bool jsonrpc_image_available(void)
+{
+	return !getenv("FYAI_REMOTE_NO_IMAGE");
+}
+
+int jsonrpc_conn_set_image(struct jsonrpc_conn *conn)
+{
+	if (!conn || conn->transport != JSONRPC_STDIO ||
+	    !jsonrpc_image_available())
+		return -1;
+	conn->image = true;
+	return 0;
+}
+
+bool jsonrpc_conn_image(const struct jsonrpc_conn *conn)
+{
+	return conn && conn->image;
+}
+
+void *jsonrpc_image_encode(struct jsonrpc_conn *conn, fy_generic frame,
+			   size_t *sizep)
+{
+	size_t hint = conn && conn->image_hint ? conn->image_hint : 16384;
+	void *image;
+
+	image = fy_generic_image_create_with_hint(frame, hint, sizep);
+	if (image && conn)
+		conn->image_hint = *sizep + 4096;
+	return image;
+}
+
+void jsonrpc_image_free(void *image)
+{
+	fy_generic_image_destroy(image);
+}
+
+int jsonrpc_conn_send_image(struct jsonrpc_conn *conn, const void *image,
+			    size_t size)
+{
+	uint64_t len = size;
+	int rc;
+
+	if (!conn || !conn->image || conn->write_failed)
+		return -1;
+	rc = response_buffer_reserve(&conn->tx, conn->tx.len + sizeof(len) +
+				     size + 1);
+	fyai_error_check(conn->ctx, !rc, err, "%s could not queue a frame",
+			 conn->name);
+	memcpy(conn->tx.data + conn->tx.len, &len, sizeof(len));
+	memcpy(conn->tx.data + conn->tx.len + sizeof(len), image, size);
+	conn->tx.len += sizeof(len) + size;
+	rc = jsonrpc_conn_arm_write(conn);
+	fyai_error_check(conn->ctx, !rc, err, "%s could not queue a frame",
+			 conn->name);
+	return 0;
+err:
+	return -1;
+}
+
 int jsonrpc_conn_send_frame(struct jsonrpc_conn *conn, fy_generic frame)
 {
 	struct fy_generic_builder *gb;
 	const char *body;
+	void *image;
+	size_t size;
 	int rc;
 
+	if (conn && conn->image) {
+		image = jsonrpc_image_encode(conn, frame, &size);
+		fyai_error_check(conn->ctx, image, err,
+				 "%s could not encode a frame", conn->name);
+		rc = jsonrpc_conn_send_image(conn, image, size);
+		jsonrpc_image_free(image);
+		return rc;
+	}
 	/* A peer that closed its output can still read: only a failed write
 	 * ends the frames that go to it. */
 	if (!conn || conn->transport != JSONRPC_STDIO || conn->write_failed)
@@ -1048,6 +1202,7 @@ void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 		jsonrpc_conn_settle(conn, "was destroyed", true);
 		if (conn->owned_fd >= 0)
 			close(conn->owned_fd);
+		fy_align_free(conn->image_rx);
 		free(conn->rx.data);
 		free(conn->tx.data);
 		conn->rx.data = conn->tx.data = NULL;

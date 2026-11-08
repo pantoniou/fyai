@@ -104,6 +104,25 @@ int jsonrpc_conn_send_frame(struct jsonrpc_conn *conn, fy_generic frame);
 const char *jsonrpc_frame_encode(struct fy_generic_builder *gb, fy_generic frame);
 int jsonrpc_conn_send_encoded(struct jsonrpc_conn *conn, const char *line);
 
+/*
+ * Image mode: both ends are fyai and send each frame as a length and the image
+ * of its generic, in place of a line of JSON. Each side sets the mode after the
+ * ends agree on it in JSON. Only a connection with a frame handler reads
+ * images. False when FYAI_REMOTE_NO_IMAGE is set.
+ */
+bool jsonrpc_image_available(void);
+int jsonrpc_conn_set_image(struct jsonrpc_conn *conn);
+bool jsonrpc_conn_image(const struct jsonrpc_conn *conn);
+/*
+ * The image of @frame, for each connection in image mode that must send it:
+ * @conn only sizes it. Free it with jsonrpc_image_free(). NULL on failure.
+ */
+void *jsonrpc_image_encode(struct jsonrpc_conn *conn, fy_generic frame,
+			   size_t *sizep);
+void jsonrpc_image_free(void *image);
+int jsonrpc_conn_send_image(struct jsonrpc_conn *conn, const void *image,
+			    size_t size);
+
 /* Enable JSON-RPC batch frames on a stdio server connection. */
 void jsonrpc_conn_accept_batches(struct jsonrpc_conn *conn);
 bool jsonrpc_conn_in_batch(const struct jsonrpc_conn *conn);
