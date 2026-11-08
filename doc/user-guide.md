@@ -2091,6 +2091,44 @@ gives the whole terminal to the editor, as before:
 fyai --set display/editor=terminal -i
 ```
 
+### Remote sessions
+
+`fyai serve` serves the project of the current directory on a Unix socket,
+`.fyai/unix/remote.sock`. The global option `--remote .` runs a command at that
+server as it runs here: the same output, at the width of your terminal, and
+the same exit status. Standard input goes to the command, and `^C` interrupts
+it. With no command line on a terminal, `--remote .` opens the interactive
+session of the server; `--branch` attaches to the live session of a branch, or
+starts one there, and `resume NAME` or `resume --last` attaches to the session
+that resume selects. `--remote PATH` names the socket of a server.
+
+```sh
+fyai serve --daemon                # serve this project in the background
+fyai --remote . branch list        # a command at the server
+echo 'Explain the build.' | fyai --remote .
+fyai --remote . --branch work/a    # the interactive session of work/a
+fyai --remote . resume --last      # the last session of this directory
+fyai serve status
+fyai serve stop
+```
+
+`fyai serve --projects DIR` serves each project under DIR on
+`~/.fyai/unix/serve.sock`. A client names its project with `--project`,
+relative to DIR, or by its own directory. The server starts one project server
+for each project, in that project, and gives it the client. A client in a
+project that no project server serves uses this server.
+
+```sh
+fyai serve --projects ~/work --daemon
+fyai --remote . --project fyai branch list
+```
+
+The server writes one line for each connection, project, session, and
+command to standard error. With `--daemon`, it runs in the background and the
+log goes to `.fyai/logs/serve.log` of the project, to
+`~/.fyai/logs/serve.log` with `--projects`, or to the file that `--log` names.
+A server accepts only clients of its own user.
+
 ## 13. CLI reference
 
 ```text

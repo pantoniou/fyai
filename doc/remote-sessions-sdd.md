@@ -1,6 +1,14 @@
 # Software Design Document: Remote sessions
 
-**Status:** design. No part is implemented.
+**Status:** P1 Unix-socket transport is implemented: a server in the
+foreground or as a daemon, a server of projects, SDK workers, launch-token
+admission, a command-line SDK connection, and the global option `--remote`
+for commands and the interactive session. Named
+branches run concurrently and a disconnected client can reattach to its live
+worker. A watcher reads a session that another client drives
+(section 6.1.5). Runtime discovery, semantic subscriptions, several clients
+that drive one session, interactive terminal clients and network transports
+remain design work.
 
 **Scope:** remote observation and control of fyai sessions: an endpoint in an
 interactive session, a `fyai serve` process that owns several sessions, the
@@ -51,7 +59,7 @@ Goals:
 4. Show each state as data, not as terminal cells, so that a client renders it
    for its own screen. Also mirror the terminal screen as it is, for a client
    that asks for that.
-5. Keep every rule of `CLAUDE.md`: no daemon, canonical state in the arena,
+5. Keep every rule of `CLAUDE.md`: no hidden resident process, canonical state in the arena,
    credentials never leave the credential boundary.
 
 Non-goals:
@@ -61,7 +69,8 @@ Non-goals:
 - Push notifications to a device that is not connected.
 - Several users. A session belongs to the user that started it, and every
   paired device acts as that user.
-- A process that outlives the invocation that started it.
+- A process that outlives the invocation that started it. A `fyai serve
+  --daemon` is itself that invocation: the user stops it.
 
 ## 2. What exists
 
@@ -77,11 +86,11 @@ sub-agents (`doc/agent-protocol.md`). It shows that the engine can already
 stream terminal bytes, resize a terminal, forward a question and gate a call.
 It has no external endpoint.
 
-fyai has no listener for a client. The two loopback listeners are the mock
+Before P1, fyai had no listener for a client. The two loopback listeners were the mock
 provider (`src/fyai_mock.c`) and the OAuth redirect catcher
-(`oauth_listen`, `src/fyai_oauth.c:417`). Each `AF_UNIX` socket is an
-anonymous pair inside one invocation. A second process cannot learn that a
-session runs; it sees only what the session publishes to the arena.
+(`oauth_listen`, `src/fyai_oauth.c:417`). Each `AF_UNIX` socket was an
+anonymous pair inside one invocation. A second process could not learn that a
+session ran; it sees only what the session publishes to the arena.
 `doc/events.md` lists the same gaps: no WebSocket source and no event feed of a
 live session.
 
@@ -97,7 +106,9 @@ show a terminal.
 1. **The endpoint lives with its invocation.** A listener belongs to the
    process that opened it, and it closes when that process exits. No process
    survives the invocation (`doc/exchange-scope.md`, rule 5). `fyai serve` is an
-   invocation that the user starts and stops.
+   invocation that the user starts and stops. `fyai serve --daemon` runs it in
+   the background; `fyai serve stop` ends it, and it keeps no canonical
+   state.
 2. **The arena stays canonical.** A remote client changes state only through
    the operations that a local user has: a turn, a command, an answer. These
    publish through the normal CAS path. The runtime directory of section 4.4
@@ -126,7 +137,7 @@ show a terminal.
 | Adversary                                | Defence                                                                          |
 | ---------------------------------------- | -------------------------------------------------------------------------------- |
 | A web page in a browser of the same user | no wildcard CORS; an origin check; a token that a page cannot read               |
-| A process of the same user               | a Unix socket in a 0700 directory, `SO_PEERCRED`; a token for each connection    |
+| A process of the same user               | a Unix socket in a 0700 directory, `SO_PEERCRED`; an optional launch token    |
 | A host on the network                    | TLS with a pinned certificate; a device token; no plain TCP outside loopback     |
 | A stolen device                          | revocation by device; scopes; tokens kept in the keyring of the device           |
 | A model that wants more authority        | the model never sees the remote surface; `x-fyai-remote` and `x-fyai-model` are separate |
@@ -196,10 +207,14 @@ editor integration or a scheduler.
 
 ### 4.4 Rendezvous
 
-A client on the same host finds the live sessions in a runtime directory:
+A client on the same host finds the project endpoint in `.fyai/unix`.
+The server uses `remote.sock`. Future discovery records and interactive
+endpoints share this directory:
 
 ```text
-$XDG_RUNTIME_DIR/fyai/            mode 0700, else ~/.fyai/run/ (mode 0700)
+.fyai/unix/                      mode 0700
+  remote.sock                      Unix socket of the project server
+  remote.yaml                      server record (planned)
   <pid>.sock                       Unix socket of one serving process
   <pid>.yaml                       {pid, started, kind: serve|interactive, cwd,
                                     sessions: [{id, branch}], tcp: ADDR?, fingerprint?}
@@ -221,7 +236,7 @@ $XDG_RUNTIME_DIR/fyai/            mode 0700, else ~/.fyai/run/ (mode 0700)
 | Transport           | Use                                | Authentication                                    |
 | ------------------- | ---------------------------------- | ------------------------------------------------- |
 | stdio               | `fyai claude-sdk`, an SDK          | the owner of the pipes                            |
-| Unix socket         | Electron, `fyai remote`, local tools | `SO_PEERCRED` uid, and a token                  |
+| Unix socket         | Electron, `fyai remote`, local tools | `SO_PEERCRED` uid; optional launch token                  |
 | TCP on loopback     | a browser on the same host         | a token; an origin check                          |
 | TLS over TCP        | a device on the network            | a device token; a pinned certificate              |
 
@@ -275,6 +290,348 @@ The host keeps the device list in the auth store (`fyai_auth_state_path()`,
 `src/fyai_auth_util.c`): a file of mode 0600, written atomically under its lock.
 Each entry has the device name, the hash of its token, its scopes, and the
 times of pairing and last use. The arena holds no token and no hash.
+
+### 6.1.1 Unix-socket admission for P1
+
+The initial command-line surface is `fyai serve` and `fyai remote connect`.
+The server creates its endpoint at `.fyai/unix/remote.sock` under the project
+root, in a private `unix` directory. The client finds the same endpoint from
+the project root or a subdirectory. The server accepts `--socket PATH` and the
+client accepts a positional `PATH` to override that endpoint. Both endpoints check that the kernel-reported peer
+UID equals their effective UID. The socket is mode 0600. Plain Unix sockets
+need no token and accept SDK frames immediately after the UID check.
+
+Both commands accept an optional `--token-fd FD`. On the server, this option
+requires launch-token admission for every connection. On the client, it sends
+the launch-token admission request before SDK frames. The server generates a launch
+token from 32 bytes of cryptographic entropy and writes its hexadecimal text,
+followed by a newline, to the supplied descriptor. The client reads that line
+from its descriptor. Both close the descriptor after transfer. The token is
+never an argument, configuration value, runtime record member, or trace field.
+The descriptor must not name standard output, which carries protocol frames.
+
+When token admission is enabled, the server accepts only this first request:
+
+```json
+{"type":"control_request","request_id":"auth","request":{"subtype":"fyai_authenticate","token":"<launch token>"}}
+```
+
+Successful admission replies with a stock `control_response`, with the same
+request ID and subtype `success`. Failed admission closes the connection. Compare equal-length tokens in constant time. An invalid
+request, wrong token, oversized frame, or ten-second admission timeout closes
+the connection. No worker is started before admission succeeds. Admission grants
+the launch owner's scopes; the worker receives neither the token nor the client
+socket. Admission parsing uses the existing raw-frame connection and timer
+sources. Disable protocol logging on this connection because its first frame
+contains a credential. Token admission is retained for future HTTP, TCP and
+SSH transports; omitting it applies only to the local Unix-socket endpoint.
+
+After admission, the client sends the normal SDK initialize request. Clients
+that manage admission themselves can use the stock SDK frame vocabulary from
+this point. The CLI must complete admission before forwarding any SDK frames.
+Socket EOF detaches the client. It does not close the worker of a branch
+session, which the client can attach again. A session that no branch names
+has nothing to attach to: its worker ends with its client. Server shutdown
+closes the listener and ends its workers through the existing child
+termination path before removing the socket. A socket path where a live
+server answers is an error: the server does not unlink the endpoint of
+another invocation. A socket where nothing answers is what a server that was
+killed left; the next server removes it and binds. Any other file at the path
+stays, and the bind fails.
+
+`fyai remote connect` opens the full-screen client. `--protocol sdk` carries
+SDK NDJSON on standard input and output instead; it is then a protocol client. The global option `-b NAME` sends `fyai_session_attach {branch: NAME}`
+after admission and before forwarding SDK frames. The front creates a worker
+with that branch when none is live, or reattaches its existing worker. It
+rejects a second simultaneous attachment to the same worker. A worker runs
+`claude-sdk --remote-worker`: a reconnect initializes its SDK connection again,
+and the worker answers each initialize. The worker reports its branch to the
+front in a `fyai_worker` frame that no client sees, so a checkout on the
+worker also changes the name a reconnect attaches by. Output produced while
+detached is drained, with no replay in P1. Extensions are not granted until
+their full subscription semantics are available.
+
+The end of standard input ends the requests of the CLI, as it does for the
+Claude Code CLI, not the session: the CLI forwards the answers that follow,
+and closes its side of the socket when each user message has its result.
+
+For example, from the project directory:
+
+```sh
+fyai serve
+# In separate terminals: the full-screen client, and SDK frames on stdin.
+fyai -b work/a remote connect
+fyai -b work/b remote connect --protocol sdk
+```
+
+To require a token, start the server with `--token-fd 3` and pass descriptor 3
+to it. Each client then supplies the token through its own `--token-fd`
+descriptor. A launcher can use pipes or a private token file (`umask 077`).
+Neither command prints the token.
+
+### 6.1.2 The global option `--remote`
+
+A client runs a command line at a server with the global option
+`--remote TARGET`. It keeps `--remote TARGET` and `--project DIR` for itself,
+and runs the hidden command `remote run`, which opens no arena. The words that
+getopt consumed for those options are not forwarded; every other word is.
+
+A TARGET other than `.` is the socket of a server. For `.`, the endpoint is
+that of the project of the current directory when a socket is there and
+`--project` is not given; else `~/.fyai/unix/serve.sock`, the server of
+projects. After admission, the client says hello (section 6.1.3) and names the
+directory it works in:
+
+```json
+{"type":"control_request","request_id":"project","request":{"subtype":"fyai_project","path":"<DIR or the current directory>"}}
+```
+
+A relative path is relative to the directory that the server serves. A project
+server accepts a directory in its project and answers `{root, dir}`. A server
+of projects accepts a directory under its directory of projects: it finds the
+project root of the directory, starts the project server of that root when
+none runs (`fyai serve start --front-fd 3` in the root), and sends it the
+client socket with `SCM_RIGHTS`, with `{client, dir, request_id}` as the
+message. The project server answers the request, so the client sends nothing
+until it has the answer, and no byte of the connection stays in the front. A
+project server ends when the channel of its front closes. Without
+`fyai_project`, a project server serves the client in its own directory.
+
+A command line, or a prompt on standard input, is a command:
+
+```json
+{"type":"control_request","request_id":"run","request":{"subtype":"fyai_run","args":["branch","list"],"stdin":false,"cols":120}}
+```
+
+The server starts `fyai --sink-frames ARGS` in the directory of the client,
+with `COLUMNS` set to `cols`, in the environment of the server. Its sink
+(`src/fyai_sink_frames.c`) presents nothing and sends each operation on its
+standard output:
+
+- `{type: fyai, subtype: display, config}` comes first: the `display`
+  settings of the command. The client applies them to its own configuration
+  for this run, so it renders as a local run of the command does.
+- `{type: fyai, subtype: sink, op, stream, data, kind, aborted}` is one
+  operation: `markdown` and `write` on a stream, and `doc_begin`,
+  `doc_append`, `doc_end`, `doc_discard`, `doc_pause` and `doc_resume`. The
+  client gives each to its own sink.
+
+The server sends the standard error of the command as
+`{type: fyai, subtype: stderr, data}`, which the client writes on its
+diagnostic stream. When the command ended and both of its outputs closed, the
+server sends `{type: fyai, subtype: exit, status}`; the status is the exit
+status of the client. The client sends standard input as
+`{type: fyai, subtype: stdin, data}` and `{..., closed: true}`, and `^C` as
+`{type: fyai, subtype: signal, signal: INT}`. A pipe or a socket is sent as it
+comes, a file whole; a terminal or a device gives the command no input. A
+command of a client that goes is ended.
+
+With no command line and a terminal, the session is interactive.
+`fyai_session_attach` then carries the global options of the client as `args`:
+the server starts the worker with them after its own. Without `branch`, it
+starts a session on a new branch. `resume` is interactive too: the client
+sends its arguments as `resume: {session, last, all}` in place of `branch`,
+and the server selects the branch as `resume` does here: the session it
+names, or with `last` the session updated last that started in the directory
+of the client (every directory with `all`). A `resume` without either is
+refused, because the picker is not remote.
+
+`{subtype: fyai_server_status}` answers the state of the server, and
+`{subtype: fyai_server_stop}` also stops it: `fyai serve status` and
+`fyai serve stop`.
+
+The server writes one line on its status stream for each connection,
+refusal, directory, project server, worker, command and exit, with the time
+and its process. `fyai serve --daemon` forks before the arena and the
+credential transport exist. The child starts a session of its own, writes the
+log (`--log FILE`, else `.fyai/logs/serve.log` of the project, or of the home
+for a server of projects), and writes its process and endpoint on a pipe when
+it serves. The parent waits for that line, presents it as its result, and
+ends; without the line, it names the log.
+
+### 6.1.3 Sessions: fyai and SDK
+
+A connection is an SDK session or a fyai session. A stock Claude Agent SDK
+client sends no fyai request, and its session is an SDK session: it keeps the
+protocol and the defaults of the SDK, such as the permission mode `default`
+and `can_use_tool`, and it can attach to a branch with
+`fyai_session_attach {branch}`. fyai must stay compatible with such a client.
+
+A fyai client says hello after admission, before any other request:
+
+```json
+{"type":"control_request","request_id":"hello","request":{"subtype":"fyai_hello","version":"0.4.2","protocol":1,"features":["project","run","frames","session","resume","server","model"]}}
+```
+
+`protocol` is `FYAI_REMOTE_PROTOCOL` (`src/fyai_remote.h`). A change of a
+request, an answer or a frame of a fyai session increments it. A server of
+the same protocol answers with its own version, the features that both have,
+and the type of the session:
+
+```json
+{"version":"0.4.2","protocol":1,"features":["project","run"],"session":"fyai"}
+```
+
+A server of another protocol refuses the hello and names both protocols and
+its version, so the user knows which side to change. A client that gets no
+answer, or a refusal, stops.
+
+Only a fyai session can send `fyai_project`, `fyai_run`,
+`fyai_server_status`, `fyai_server_stop`, and a `fyai_session_attach` with
+`args`, with `resume` or without a branch. An SDK session that sends one is
+refused with the reason. The type goes with the client: a server of projects
+gives it to the project server with the client socket, and a session worker
+gets it as `--session-type fyai|sdk`. A worker keeps the type of the client
+that started it, also for a client that attaches later.
+
+`fyai remote connect` makes a fyai session; with `--protocol sdk`, it carries
+the frames of an SDK program, which makes an SDK session.
+
+### 6.1.4 The UI model stream
+
+The full-screen client does not render frames of the SDK. It renders the UI
+model of the worker (`doc/ui-model.md`), which the worker streams to it:
+
+- The client asks for the model in its initialize, `fyai: {model: 1}`, and the
+  answer carries the same member when the worker streams it.
+- The worker subscribes to its model and sends each open text whole, then the
+  root of each store, then each change:
+  `{type: fyai, subtype: store, store, seq, root}` replaces the root of a
+  store, and `{type: fyai, subtype: text, id, offset, data}` appends to a text,
+  or ends it with `closed: true`. A store names a text by its id and length;
+  the texts go first, so a store never names a text the client lacks.
+- A writer that a display gates, such as the header and the questions, also
+  writes for a consumer of the model, so a worker with no display streams
+  them.
+- `fyai_sync {have, depth}` returns the stored turns that the client lacks,
+  each with its id, its display records, its user message, its calls and
+  their outputs (`doc/state-sync-sdd.md`). `have` lists the ids of the newest
+  turn the client holds and of the turns 1, 2, 4, 8, ... before it. The
+  worker answers with the turns after the newest of them and names it in
+  `base`, or, when it finds none, with the newest `depth` turns and a null
+  `base`. The client has no arena; it keeps the turns in a replica, drops
+  those after `base` and appends the new ones, and makes the screen again
+  when it dropped any. It asks when the `head` member of the session store
+  changes, and the stored turns replace the live rows, as a published turn
+  replaces them in a local session. A replay counts the calls, so the calls go
+  with their outputs. The answer to `initialize` carries the `epoch` of the
+  worker, which a client uses to drop its replica when a worker restarts.
+- `fyai_answer {qid, replies: [{selected, other}]}` answers a set of the
+  questions store; the worker settles it.
+
+The worker sends the `state` store first: the stored display configuration of
+the branch. The client has no arena; it starts from that configuration, as a
+local session starts from it, and the display settings that the client changes
+stay over it. The client opens its display when the first stored turns
+arrive, as a local session opens on its conversation, and replays them as a
+local session replays them when it opens.
+
+The model of the client is a mirror: the frames of the worker write it, and the
+writers of the client write nothing. The renderer draws the header, the turn
+state, the todo panel, the questions and the counts of the work from it as it
+draws a local session. The renderer of the model (`src/fyai_uidraw.c`) draws
+the live document, the log and the bands of the mirror as it draws them in a
+local session. It gives the sink the bytes of the live document up to the
+length that the transcript store names, less the recorded ranges, so a text
+frame that arrives before the store frame that records it draws nothing. The
+entries of the log in the snapshot were shown before the client attached. Escape and `^C` interrupt the turn of the worker.
+
+A slash command runs where its state is. A command whose definition has
+`scope: view`, and every setting of a `display/` key, changes only what the
+client shows: it runs in the client, whose settings hold for its invocation
+because it stores nothing. Every other command goes to the worker as
+`fyai_command {line}`, which queues it behind the inputs before it and runs it
+as a typed command; an async command holds the inputs behind it until it is
+done. Its output enters the log store through the span of the command, and
+the client shows it in the pane. A worker runs with Markdown on, so a table
+reaches the client as Markdown, which the client renders at its width. `//`
+sends a line that starts with a slash. A line that the user types is echoed in
+the client, as a local session echoes it, and the card of its document from
+the worker is not drawn again. A command of the user (`!`) goes to the worker
+as `fyai_bang {command, rows, cols}`, which starts it as a user-owned terminal
+session at once, as a typed bang starts it. The size is the grant of the tile
+that the client opens for it: the client registers that tile and solves the
+layout, as a local session does before its program starts. When the program
+ends, the work store keeps the item, `exited` with its outcome, so the screen
+stays to read until Escape or `q` dismisses it. An editor that a command of
+the worker starts runs as a terminal session of the worker, which takes the
+pane and the keys of the client.
+
+The worker has bands while a client reads its model, which present nothing
+there: the work store carries each one at its input. The renderer of the
+client opens a band of its own for each, feeds a stream from the source of the
+band with the rows and the indent of the stream of the worker, or paints the
+rows of a band without source, and ends it as the work store says the band of
+the worker ended: committed, destroyed, or closed with its outcome. The rows
+of the transcript that a band presented are recorded ranges of the live
+document, which the client does not draw again. A shell or agent job of the
+worker opens its band as a job of a display does, after the open delay, and
+streams the output of the call into it while the call runs. The view of a
+tool call, such as a file that the model writes or a patch, carries the
+Markdown that the worker rendered it from, with its code blocks; the client
+renders it with the same view renderer at its own width.
+
+A terminal session of the worker gives the bytes of its program to a text of
+the model, as the cast protocol records output. The text starts with a
+snapshot of the screen: the bytes that clear it, draw its rows with their
+styles and place the cursor. A new text starts when the text grows past
+256 KiB, so a client that attaches replays little, and the text stays
+bounded. The item of the session in the work store names the text and the
+size of the terminal. The client makes a mirror session of it: a terminal
+session of `src/fyai_tools.c` whose program runs in the worker, with the
+tile or the block of the transcript, the head, the keys and the end of a local
+session. The keys go to the worker as `fyai_terminal_input {name, data}`. The
+grant of the tile or the block goes as `fyai_terminal_size {name, rows,
+cols}`, which resizes the program through the barrier of a local resize; the
+size it took comes back in the item, after the bytes written at the old size.
+The close button goes as `fyai_terminal_close {name, force}`, and the
+dismissal of a screen kept after its program as `fyai_terminal_dismiss
+{name}`. A sub-agent of the
+worker has a terminal while a client reads the model, as it has one under a
+display, at the width of a terminal of its own. Its item in the work store,
+named by its branch, names the text of its screen, and the client shows it in
+a tile that takes keys as the tile of a session does.
+
+The worker of a fyai session (section 6.1.3) runs with the permission mode
+`bypassPermissions` when the client gives none, so it decides on tool calls as
+a local session does: the sandbox and the gates of fyai. The worker of an SDK
+session keeps the default of the SDK. A call that needs permission
+under another mode, when the SDK client gave no prompt tool, goes to a client
+of the model as a question of the questions store: allow the call, with its
+input as the preview, or decline it.
+
+### 6.1.5 Watching a session
+
+A watcher shows a session that another client drives. It does not drive it.
+`fyai -b NAME remote connect --watch` sends
+`fyai_session_attach {branch, watch: true}` after the hello.
+
+- `fyai remote connect --last` names the session without a branch: the server
+  takes the last session that started in the directory, as `fyai resume --last`
+  does, and the request is `fyai_session_attach {resume: {last: true}}`. It
+  works with `--watch` and without it, and is refused with `-b`.
+- The branch must have a live session. A watcher starts no session, and it
+  takes nothing from the client that drives: the session keeps its one
+  driver, and any number of watchers can attach beside it.
+- The server sends each frame of the worker to the driver and to each watcher.
+  An answer goes to the client that asked. A watcher can send two requests,
+  `initialize` and `fyai_sync`, which read the model and the stored turns.
+  The server gives each of its request IDs the prefix `fyai-watch-N:` to route
+  the answer, and refuses the prefix from a driver. Any other request gets the
+  error "a watcher only reads". A frame that is not a request ends the watcher.
+- A worker answers an `initialize` with the model of the UI whole. The
+  snapshot is `{type: fyai, subtype: snapshot, phase: begin}`, the texts and
+  the stores, then `phase: end`, each with the `request_id` of the initialize.
+  The server sends the snapshot to the client that asked and to no other,
+  because a text that a client holds arrives again at its end and breaks the
+  order of its deltas.
+- The client opens the display as a driver does, with its model as a mirror.
+  It sends no intent: not a line, a key, a bang command, an answer or an
+  interrupt. It draws no prompt and says so in a notice, and a line that the
+  user types goes nowhere. `^C` leaves, and the commands of the view work.
+- A watcher that goes does not affect the session. The end of the worker, or of
+  the driver of a session that no branch names, ends the watchers.
+- `serve status` shows the number of `watchers` of each session.
 
 ### 6.2 Pairing
 
