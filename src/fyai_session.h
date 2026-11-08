@@ -132,6 +132,12 @@ void fyai_session_banner_update(struct fyai_ctx *ctx);
  */
 void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy);
 /*
+ * Write the member "head" of the session store from the branch entry that
+ * the context adopted: {updated, op}, or null for none. A renderer that has
+ * no arena reads the stored turns again when it changes.
+ */
+void fyai_session_head_set(struct fyai_ctx *ctx, fy_generic entry);
+/*
  * The values of the header and the status, for the session store of the UI
  * model (src/fyai_uimodel.h): data, without templates, colours or escapes.
  */

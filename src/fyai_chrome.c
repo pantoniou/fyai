@@ -324,7 +324,7 @@ static const char *chrome_hint(struct fyai_ctx *ctx, struct fytim_surface *sf)
 {
 	if (fyai_tools_btw_surface(ctx, sf))
 		return "Esc closes \xc2\xb7 PgUp/PgDn scroll \xc2\xb7 Ctrl-] returns to the prompt";
-	if (fyai_tools_kept_surface(ctx, sf))
+	if (fyai_tools_kept_surface(ctx, sf) || fyai_uimodel_tile_kept(ctx, sf))
 		return "Esc closes \xc2\xb7 Ctrl-] returns to the prompt \xc2\xb7 Ctrl-Tab/Ctrl-T moves focus";
 	return "Ctrl-] returns to the prompt \xc2\xb7 Ctrl-Tab/Ctrl-T moves focus";
 }

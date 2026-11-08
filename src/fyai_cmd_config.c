@@ -22,6 +22,7 @@
 
 #include "fyai.h"
 #include "fyai_ask.h"
+#include "fyai_uimodel.h"
 #include "fyai_cmd.h"
 #include "fyai_cmd_int.h"
 #include "fyai_config.h"
@@ -1054,7 +1055,13 @@ int fyai_cmd_setting(struct fyai_cmd_call *call, fy_generic *result)
 				 fyai_grammar(ctx->cfg)->title);
 		if (setting_value(call, key, typed, &value))
 			return -1;
-		if (fyai_config_session_scoped(key)) {
+		/* A client of a remote session stores nothing: what it sets
+		 * holds for its invocation. */
+		if (fyai_uimodel_mirrored(ctx)) {
+			if (fyai_config_invocation_set(ctx, key, value) ||
+			    fyai_config_rederive(ctx))
+				return -1;
+		} else if (fyai_config_session_scoped(key)) {
 			if (fyai_config_session_set(ctx, key, value))
 				return -1;
 		} else {

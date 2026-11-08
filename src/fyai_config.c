@@ -32,6 +32,7 @@
 #include "fyai_catalog.h"
 #include "fyai_branch.h"
 #include "fyai_config.h"
+#include "fyai_uimodel.h"
 #include "fyai_cover.h"
 #include "fyai_sandbox.h"
 #include "fyai_sandbox_profile.h"
@@ -2660,6 +2661,7 @@ static int config_rederive_doc(struct fyai_ctx *ctx, fy_generic doc,
 	/* A live display holds display configuration of its own. */
 	if (fyai_ui_active(ctx))
 		fyai_ui_config_changed(ctx);
+	fyai_uimodel_state_update(ctx);
 
 	if (!resolve)
 		return 0;

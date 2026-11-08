@@ -240,8 +240,9 @@ int fyai_config_session_set(struct fyai_ctx *ctx, const char *key,
 
 /*
  * The same for any @key: the invocation owns the value, as a protocol front
- * end owns the settings its client gives. A session command does not use it;
- * it changes only the keys that a session may change for itself.
+ * end owns the settings its client gives. A session command uses it only in
+ * the client of a remote session, which stores nothing; else it changes only
+ * the keys that a session may change for itself.
  */
 int fyai_config_invocation_set(struct fyai_ctx *ctx, const char *key,
 			       fy_generic value);

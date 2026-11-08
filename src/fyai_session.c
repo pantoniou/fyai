@@ -1958,6 +1958,19 @@ void fyai_session_turn_set(struct fyai_ctx *ctx, bool busy)
 	fyai_ui_set_busy(ctx, busy);
 }
 
+void fyai_session_head_set(struct fyai_ctx *ctx, fy_generic entry)
+{
+	struct fy_generic_builder *gb;
+
+	gb = fyai_uimodel_begin(ctx);
+	if (gb)
+		(void)fyai_uimodel_set_member(ctx, FYAI_UI_SESSION, "head",
+			fy_is_mapping(entry) ? fy_mapping(gb,
+				"updated", fy_get(entry, "updated", 0LL),
+				"op", fy_get(entry, "op", "")) : fy_null);
+	fyai_uimodel_end(ctx);
+}
+
 void fyai_session_banner_update(struct fyai_ctx *ctx)
 {
 	struct fy_generic_builder *gb;
@@ -1965,7 +1978,10 @@ void fyai_session_banner_update(struct fyai_ctx *ctx)
 	char *legacy_bottom = NULL;
 	int rc;
 
-	if (!ctx->cfg->interactive || !ctx->cfg->markdown || !ctx->stdout_tty)
+	/* A remote consumer reads the header of a process with no display. */
+	if (!fyai_uimodel_consumed(ctx) &&
+	    (!ctx->cfg->interactive || !ctx->cfg->markdown ||
+	     !ctx->stdout_tty))
 		return;
 	/* A delegated sub-agent has no header: the head of its tile in the
 	 * parent names it. */

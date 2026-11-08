@@ -33,6 +33,11 @@ struct uimodel_subscriber {
 	void *data;
 };
 
+struct uimodel_text_subscriber {
+	fyai_uimodel_text_fn fn;
+	void *data;
+};
+
 /* An append-only text that a store names by its id. */
 struct uimodel_text {
 	struct uimodel_text *next;
@@ -49,6 +54,15 @@ struct fyai_uimodel {
 	int depth;
 	struct uimodel_subscriber sub[UIMODEL_SUBSCRIBERS_MAX];
 	size_t nsub;
+	struct uimodel_text_subscriber tsub[UIMODEL_SUBSCRIBERS_MAX];
+	size_t ntsub;
+	/* A mirror holds the model of another process: the frames of that
+	 * process write it, and the writers of this one do not. */
+	bool mirror, applying;
+	fyai_uimodel_intent_fn intent;
+	void *intent_data;
+	const struct fyai_uimodel_tile_ops *tiles;
+	void *tiles_data;
 };
 
 static const char *const store_names[FYAI_UI_STORE_COUNT] = {
@@ -58,6 +72,7 @@ static const char *const store_names[FYAI_UI_STORE_COUNT] = {
 	[FYAI_UI_LOG] = "log",
 	[FYAI_UI_WORK] = "work",
 	[FYAI_UI_TRANSCRIPT] = "transcript",
+	[FYAI_UI_STATE] = "state",
 };
 
 const char *fyai_ui_store_name(enum fyai_ui_store store)
@@ -163,6 +178,8 @@ int fyai_uimodel_set(struct fyai_ctx *ctx, enum fyai_ui_store store,
 
 	if (!m || (unsigned int)store >= FYAI_UI_STORE_COUNT)
 		return -1;
+	if (m->mirror && !m->applying)
+		return 0;
 	s = &m->store[store];
 	if (fy_is_valid(s->root) && fy_equal(s->root, root))
 		return 0;
@@ -264,7 +281,7 @@ long long fyai_uimodel_text_open(struct fyai_ctx *ctx)
 	struct fyai_uimodel *m = uimodel(ctx);
 	struct uimodel_text *t;
 
-	if (!m)
+	if (!m || m->mirror)
 		return 0;
 	t = calloc(1, sizeof(*t));
 	fyai_error_check(ctx, t, err, "cannot keep a text of the UI model");
@@ -279,13 +296,18 @@ err:
 int fyai_uimodel_text_append(struct fyai_ctx *ctx, long long id,
 			     const char *data, size_t len)
 {
-	struct uimodel_text *t = uimodel_text_find(uimodel(ctx), id);
+	struct fyai_uimodel *m = uimodel(ctx);
+	struct uimodel_text *t = uimodel_text_find(m, id);
+	size_t offset, i;
 	int rc;
 
 	if (!t)
 		return -1;
+	offset = t->buf.len;
 	rc = response_buffer_append_data(&t->buf, data, len);
 	fyai_error_check(ctx, !rc, err, "cannot grow a text of the UI model");
+	for (i = 0; i < m->ntsub; i++)
+		m->tsub[i].fn(m->tsub[i].data, id, offset, data, len, false);
 	return 0;
 err:
 	return -1;
@@ -305,14 +327,86 @@ void fyai_uimodel_text_close(struct fyai_ctx *ctx, long long id)
 	struct fyai_uimodel *m = uimodel(ctx);
 	struct uimodel_text **tp, *t;
 
+	size_t i;
+
 	for (tp = m ? &m->texts : NULL; tp && (t = *tp); tp = &t->next) {
 		if (t->id != id)
 			continue;
 		*tp = t->next;
+		for (i = 0; i < m->ntsub; i++)
+			m->tsub[i].fn(m->tsub[i].data, id, t->buf.len, NULL, 0,
+				      true);
 		free(t->buf.data);
 		free(t);
 		return;
 	}
+}
+
+void fyai_uimodel_text_foreach(struct fyai_ctx *ctx, fyai_uimodel_text_fn fn,
+			       void *data)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+	struct uimodel_text *t;
+
+	for (t = m ? m->texts : NULL; t; t = t->next)
+		fn(data, t->id, 0, t->buf.data ? t->buf.data : "", t->buf.len,
+		   false);
+}
+
+int fyai_uimodel_text_subscribe(struct fyai_ctx *ctx, fyai_uimodel_text_fn fn,
+				void *data)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	if (!m || !fn)
+		return -1;
+	fyai_error_check(ctx, m->ntsub < UIMODEL_SUBSCRIBERS_MAX, err,
+			 "the UI model has no room for another text consumer");
+	m->tsub[m->ntsub].fn = fn;
+	m->tsub[m->ntsub].data = data;
+	m->ntsub++;
+	return 0;
+err:
+	return -1;
+}
+
+void fyai_uimodel_text_unsubscribe(struct fyai_ctx *ctx,
+				   fyai_uimodel_text_fn fn, void *data)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+	size_t i;
+
+	for (i = 0; m && i < m->ntsub; i++) {
+		if (m->tsub[i].fn != fn || m->tsub[i].data != data)
+			continue;
+		memmove(&m->tsub[i], &m->tsub[i + 1],
+			(m->ntsub - i - 1) * sizeof(m->tsub[0]));
+		m->ntsub--;
+		return;
+	}
+}
+
+bool fyai_uimodel_consumed(struct fyai_ctx *ctx)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	return m && m->nsub > 0;
+}
+
+void fyai_uimodel_state_update(struct fyai_ctx *ctx)
+{
+	fy_generic display;
+
+	if (!fyai_uimodel_consumed(ctx) || fyai_uimodel_mirrored(ctx))
+		return;
+	/* The stored configuration: the layers of this invocation, such as
+	 * the Markdown that a worker forces, are not the client's. */
+	display = fy_get(ctx->arena_config, "display", fy_map_empty);
+	if (fyai_uimodel_set_member(ctx, FYAI_UI_STATE, "display",
+				    fy_is_mapping(display) ? display :
+				    fy_map_empty) < 0)
+		fyai_warning(ctx, "cannot write the display configuration to "
+			     "the UI model");
 }
 
 /* The byte offset of the first difference of @a and @b. */
@@ -352,7 +446,9 @@ bool fyai_uimodel_check(struct fyai_ctx *ctx, enum fyai_ui_store store,
 	const char *record;
 	size_t at;
 
-	(void)ctx;
+	/* A mirror has no legacy path: its oracle is in the other process. */
+	if (ctx && ctx->uimodel && ctx->uimodel->mirror)
+		return true;
 	model = model ? model : "";
 	oracle = oracle ? oracle : "";
 	if (!strcmp(model, oracle))
@@ -368,6 +464,115 @@ bool fyai_uimodel_check(struct fyai_ctx *ctx, enum fyai_ui_store store,
 			     at, model, oracle);
 	uimodel_check_record(path, record);
 	return false;
+}
+
+int fyai_uimodel_mirror(struct fyai_ctx *ctx, fyai_uimodel_intent_fn intent,
+			void *data)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	if (!m)
+		return -1;
+	m->mirror = true;
+	m->intent = intent;
+	m->intent_data = data;
+	return 0;
+}
+
+bool fyai_uimodel_mirrored(struct fyai_ctx *ctx)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	return m && m->mirror;
+}
+
+int fyai_uimodel_mirror_store(struct fyai_ctx *ctx, const char *name,
+			      fy_generic root)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+	int store, rc;
+
+	if (!m || !m->mirror)
+		return -1;
+	for (store = 0; store < FYAI_UI_STORE_COUNT; store++)
+		if (!strcmp(store_names[store], name))
+			break;
+	/* A store this build does not know is not an error of the peer. */
+	if (store == FYAI_UI_STORE_COUNT)
+		return 0;
+	m->applying = true;
+	rc = fyai_uimodel_set(ctx, store, root);
+	m->applying = false;
+	return rc < 0 ? -1 : 0;
+}
+
+int fyai_uimodel_mirror_text(struct fyai_ctx *ctx, long long id, size_t offset,
+			     const char *data, size_t len, bool closed)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+	struct uimodel_text *t;
+
+	if (!m || !m->mirror || id <= 0)
+		return -1;
+	t = uimodel_text_find(m, id);
+	if (closed) {
+		if (t)
+			fyai_uimodel_text_close(ctx, id);
+		return 0;
+	}
+	if (!t) {
+		t = calloc(1, sizeof(*t));
+		fyai_error_check(ctx, t, err, "cannot keep a text of the UI model");
+		t->id = id;
+		t->next = m->texts;
+		m->texts = t;
+	}
+	/* The deltas of one text arrive in order: a gap is a defect. */
+	fyai_error_check(ctx, offset == t->buf.len, err,
+			 "text %lld of the peer skips from %zu to %zu", id,
+			 t->buf.len, offset);
+	return fyai_uimodel_text_append(ctx, id, data, len);
+err:
+	return -1;
+}
+
+void fyai_uimodel_mirror_tiles(struct fyai_ctx *ctx,
+			       const struct fyai_uimodel_tile_ops *ops,
+			       void *data)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	if (!m || !m->mirror)
+		return;
+	m->tiles = ops;
+	m->tiles_data = data;
+}
+
+bool fyai_uimodel_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
+		       const char *data, size_t len)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	return m && m->mirror && m->tiles && m->tiles->keys &&
+	       m->tiles->keys(m->tiles_data, sf, data, len);
+}
+
+bool fyai_uimodel_tile_kept(struct fyai_ctx *ctx, struct fytim_surface *sf)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	return m && m->mirror && m->tiles && m->tiles->kept &&
+	       m->tiles->kept(m->tiles_data, sf);
+}
+
+int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
+			fy_generic request)
+{
+	struct fyai_uimodel *m = uimodel(ctx);
+
+	if (!m || !m->mirror || !m->intent)
+		return -1;
+	return m->intent(m->intent_data, subtype, request);
 }
 
 void fyai_uimodel_view_detach(struct fyai_ctx *view)
@@ -406,7 +611,7 @@ void fyai_uimodel_abandon(struct fyai_ctx *ctx)
 
 	/* The copy is the child's own memory; its consumers are the parent's. */
 	if (m)
-		m->nsub = 0;
+		m->nsub = m->ntsub = 0;
 	fyai_uidraw_abandon(ctx);
 	fyai_uimodel_release(ctx);
 }

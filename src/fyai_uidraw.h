@@ -11,7 +11,8 @@ struct fyai_ctx;
 
 /*
  * The renderer of the UI model. It draws the stores of the model of a context
- * with the sink of that context, from the stores alone. The
+ * with the sink of that context, from the stores alone: a local session and
+ * the client of a remote session draw the same model with the same code. The
  * model gives it each change of a store when the change is made, so it draws
  * in the order of the writes. doc/ui-model.md gives the design.
  */
@@ -29,6 +30,20 @@ void fyai_uidraw_oracle(struct fyai_ctx *ctx, const char *data, size_t len);
 /* As fyai_uidraw_oracle(), for an operation that @fmt formats. */
 void fyai_uidraw_oracle_printf(struct fyai_ctx *ctx, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));
+
+/*
+ * The snapshot of a mirror is complete: the entries of the log that it held
+ * were shown before the client attached, and the entries after it are new.
+ */
+void fyai_uidraw_attached(struct fyai_ctx *ctx);
+
+/*
+ * A mirror echoed @line, which the user typed in this process, as a local
+ * session echoes it: the card of the document of the line, when the process
+ * that owns the model records it, is not drawn again. Return -1 when memory
+ * is short.
+ */
+int fyai_uidraw_echoed(struct fyai_ctx *ctx, const char *line);
 
 /*
  * Whether this renderer draws the bands of the producers of @ctx: a display

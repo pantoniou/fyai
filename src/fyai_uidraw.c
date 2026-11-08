@@ -42,9 +42,18 @@ struct fyai_uidraw {
 	/* What this renderer gave the sink for the live document, and what
 	 * the legacy path gave it. */
 	struct response_buffer trace, oracle;
-	/* The newest entry of the log shown. */
+	/* The newest entry of the log shown. A mirror does not show the
+	 * entries of its snapshot: they were shown before it attached. */
 	long long log_shown;
+	bool attached;
 	struct uidraw_band *bands;
+	/* The lines that this mirror echoed, oldest first, whose cards the
+	 * owner of the model records later. */
+	char **echoed;
+	size_t nechoed;
+	/* The text of a card that a mirror draws when its document ends: the
+	 * text of the model closes with the document. */
+	struct response_buffer card;
 };
 
 static struct fyai_uidraw *uidraw(struct fyai_ctx *ctx)
@@ -71,7 +80,8 @@ err:
 static void uidraw_trace(struct fyai_ctx *ctx, struct response_buffer *buf,
 			 const char *data, size_t len)
 {
-	if (!len)
+	/* A mirror has no legacy path to compare with. */
+	if (fyai_uimodel_mirrored(ctx) || !len)
 		return;
 	if (response_buffer_append_data(buf, data, len))
 		fyai_warning(ctx, "cannot keep the trace of the live document");
@@ -139,6 +149,10 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		len = end;
 	if (len <= d->live_shown)
 		return;
+	if (fyai_uimodel_mirrored(ctx) && strcmp(d->live_tag, "assistant") &&
+	    response_buffer_append_data(&d->card, text + d->live_shown,
+					len - d->live_shown))
+		fyai_warning(ctx, "cannot keep the text of a card");
 	from = d->live_shown;
 	recorded = fy_get(live, "recorded", fy_seq_empty);
 	fy_foreach(range, recorded) {
@@ -166,7 +180,8 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 static void uidraw_live_end(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 			    const char *state)
 {
-	const char *op;
+	const char *op, *text;
+	size_t len;
 	int rc = 0;
 
 	op = fy_sprintfa("<end %s>", state);
@@ -176,12 +191,30 @@ static void uidraw_live_end(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	else
 		rc = fyai_sink_doc_end(ctx->sink, !strcmp(state, "aborted"));
 	uidraw_warn_check(ctx, !rc, "the end of the live document");
+	/* A mirror draws a card whole when its document ends: the line was
+	 * typed in the process that owns the model. */
+	if (fyai_uimodel_mirrored(ctx) && strcmp(d->live_tag, "assistant") &&
+	    strcmp(state, "discarded")) {
+		text = d->card.data ? d->card.data : "";
+		len = d->card.len;
+		if (!strcmp(d->live_tag, "user") && d->nechoed &&
+		    strlen(d->echoed[0]) == len &&
+		    !memcmp(d->echoed[0], text, len)) {
+			free(d->echoed[0]);
+			memmove(d->echoed, d->echoed + 1,
+				--d->nechoed * sizeof(*d->echoed));
+		} else {
+			(void)fyai_render_display_output(ctx, d->live_tag,
+							 text);
+		}
+	}
 	if (d->trace.data || d->oracle.data)
 		(void)fyai_uimodel_check(ctx, FYAI_UI_TRANSCRIPT,
 			"live document",
 			d->trace.data ? d->trace.data : "",
 			d->oracle.data ? d->oracle.data : "");
 	uidraw_trace_reset(d);
+	d->card.len = 0;
 	d->live_source = 0;
 	d->live_shown = 0;
 	d->live_paused = false;
@@ -273,6 +306,7 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		       fy_generic root)
 {
 	fy_generic entry, part, entries, parts;
+	bool skip = !d->attached && fyai_uimodel_mirrored(ctx);
 	char *rows;
 	size_t len;
 	long long id;
@@ -284,7 +318,7 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 		if (id <= d->log_shown)
 			continue;
 		d->log_shown = id;
-		if (!fyai_ui_active(ctx))
+		if (skip || !fyai_ui_active(ctx))
 			continue;
 		rc = 0;
 		fyai_ui_pane_capture(ctx);
@@ -307,7 +341,8 @@ static void uidraw_log(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 
 bool fyai_uidraw_bands(struct fyai_ctx *ctx)
 {
-	return ctx && !ctx->uimodel_detached && fyai_ui_active(ctx);
+	return ctx && !ctx->uimodel_detached && fyai_ui_active(ctx) &&
+	       !fyai_uimodel_mirrored(ctx);
 }
 
 /* The sink calls of this renderer open the bands of the display. */
@@ -599,7 +634,8 @@ static void uidraw_work(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	bool saved;
 	int rc;
 
-	if (!fyai_ui_active(ctx) || !fyai_uidraw_bands(ctx))
+	if (!fyai_ui_active(ctx) ||
+	    (!fyai_uidraw_bands(ctx) && !fyai_uimodel_mirrored(ctx)))
 		return;
 	saved = uidraw_sink_begin(ctx);
 	rc = uidraw_bands_draw(ctx, d, root);
@@ -661,6 +697,33 @@ void fyai_uidraw_store(struct fyai_ctx *ctx, enum fyai_ui_store store,
 	}
 }
 
+void fyai_uidraw_attached(struct fyai_ctx *ctx)
+{
+	struct fyai_uidraw *d = uidraw(ctx);
+
+	if (d)
+		d->attached = true;
+}
+
+int fyai_uidraw_echoed(struct fyai_ctx *ctx, const char *line)
+{
+	struct fyai_uidraw *d = uidraw(ctx);
+	char **v;
+
+	if (!d)
+		return -1;
+	v = realloc(d->echoed, (d->nechoed + 1) * sizeof(*v));
+	fyai_error_check(ctx, v, err, "cannot keep the line that was echoed");
+	d->echoed = v;
+	d->echoed[d->nechoed] = strdup(line);
+	fyai_error_check(ctx, d->echoed[d->nechoed], err,
+			 "cannot keep the line that was echoed");
+	d->nechoed++;
+	return 0;
+err:
+	return -1;
+}
+
 void fyai_uidraw_finish(struct fyai_ctx *ctx)
 {
 	struct fyai_uidraw *d = ctx ? ctx->uidraw : NULL;
@@ -677,6 +740,10 @@ void fyai_uidraw_release(struct fyai_ctx *ctx)
 	if (!d)
 		return;
 	fyai_uidraw_bands_release(ctx);
+	while (d->nechoed)
+		free(d->echoed[--d->nechoed]);
+	free(d->echoed);
+	free(d->card.data);
 	free(d->trace.data);
 	free(d->oracle.data);
 	free(d);

@@ -12,6 +12,7 @@
 #include "fyai_sink.h"
 #include "fyai.h"
 #include "fyai_branch.h"
+#include "fyai_session.h"
 #include "fyai_render.h"
 #include "fyai_storage.h"
 #include "fyai_todo.h"
@@ -23,6 +24,7 @@ void fyai_ctx_branch_prev_set(struct fyai_ctx *ctx, fy_generic entry)
 {
 	ctx->branch_prev = entry;
 	fyai_todo_model_update(ctx);
+	fyai_session_head_set(ctx, entry);
 }
 
 const char *fyai_ctx_branch(const struct fyai_ctx *ctx)

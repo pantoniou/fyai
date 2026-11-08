@@ -462,11 +462,44 @@ void fyai_ask_close(struct fyai_ctx *ctx, void *user)
 	}
 }
 
+/* Send the answer to set @qid of a mirror to the process that owns it. */
+static void ask_settle_remote(struct fyai_ctx *ctx, const char *qid,
+			      const struct fyai_ask_reply *replies, size_t n)
+{
+	struct fy_generic_builder *gb = fyai_uimodel_begin(ctx);
+	fy_generic values = fy_seq_empty, selected;
+	unsigned int j;
+	size_t i;
+
+	if (gb) {
+		for (i = 0; replies && i < n; i++) {
+			selected = fy_seq_empty;
+			for (j = 0; j < FYAI_ASK_OPTIONS_MAX; j++)
+				if (replies[i].selected & (1u << j))
+					selected = fy_append(gb, selected,
+							     (long long)j);
+			values = fy_append(gb, values, fy_mapping(gb,
+				"selected", selected,
+				"other", replies[i].other ?
+					fy_value(gb, replies[i].other) : fy_null));
+		}
+		if (fyai_uimodel_intent(ctx, "fyai_answer", fy_mapping(gb,
+				"qid", fy_value(gb, qid), "replies", values)))
+			fyai_error(ctx, "cannot send the answer to the questions");
+	}
+	fyai_uimodel_end(ctx);
+}
+
 void fyai_ask_settle(struct fyai_ctx *ctx, const char *qid,
 		     const struct fyai_ask_reply *replies, size_t n)
 {
 	struct fyai_ask_entry **ep, *e;
 
+	/* The set of a mirror belongs to the process that owns the model. */
+	if (fyai_uimodel_mirrored(ctx)) {
+		ask_settle_remote(ctx, qid, replies, n);
+		return;
+	}
 	for (ep = &ctx->ask_entries; (e = *ep); ep = &e->next)
 		if (!strcmp(e->qid, qid))
 			break;

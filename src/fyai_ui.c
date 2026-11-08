@@ -1656,7 +1656,11 @@ int fyai_ui_page_review(struct fyai_ctx *ctx, const char *how, bool *on)
 
 bool fyai_ui_ask_available(struct fyai_ctx *ctx)
 {
-	return fyai_ui_active(ctx) && ctx->ui->page != NULL;
+	/* A remote consumer of the model shows the questions of a process
+	 * with no display. */
+	if (!fyai_ui_active(ctx))
+		return fyai_uimodel_consumed(ctx);
+	return ctx->ui->page != NULL;
 }
 
 /* Make a question of the input area from the set @qid of @questions. */
@@ -1722,7 +1726,10 @@ int fyai_ui_ask_oracle(struct fyai_ctx *ctx, const char *qid,
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	struct ui_question *q;
 
-	if (!ui || !ui->page)
+	/* With no display the questions go to a remote consumer only. */
+	if (!ui)
+		return 0;
+	if (!ui->page)
 		return -1;
 	q = ui_question_make(ctx, qid, questions, from);
 	if (!q)
@@ -3126,6 +3133,10 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 			switch (ev.type) {
 		case FYTIM_EVENT_LINE:
 			ui_message_clear(ui);
+			/* A line of a mirror is for the process that owns the
+			 * model: it is queued for the client. */
+			if (fyai_uimodel_mirrored(ui->ctx))
+				goto queue;
 			if (fyai_cmd_session_input(ui->ctx, ev.text))
 				break;
 			if (fyai_browser_input(ui->ctx, ev.text))
@@ -3141,6 +3152,7 @@ static enum fyai_event_action ui_service(struct fyai_ui *ui)
 					fyai_report(ui->ctx, "no reachable live agent named %s", ev.text + 15);
 				break;
 			}
+queue:
 			if (!ui_line_blank(ev.text)) {
 				ui_queue(ui, ev.text);
 				(void)fytim_history_add(ui->ft, ev.text);
@@ -3896,7 +3908,12 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	ui->pane_shown = false;
 	fyai_uilog_end(ctx, title, error);
 	ui->pane_ending = false;
-	if (!ui->pane_shown && ui->pane_oracle.len)
+	/* No entry of the store: a command of a mirror runs here and writes no
+	 * store, so its capture is its output. */
+	if (!ui->pane_shown && fyai_uimodel_mirrored(ctx))
+		ui_pane_place(ui, title, error, level, show_output, command,
+			      &ui->pane_oracle);
+	else if (!ui->pane_shown && ui->pane_oracle.len)
 		ui_log_check(ui, title, level, "", 0);
 	free(ui->pane_oracle.data);
 	memset(&ui->pane_oracle, 0, sizeof(ui->pane_oracle));

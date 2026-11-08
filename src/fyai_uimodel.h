@@ -25,6 +25,7 @@ enum fyai_ui_store {
 	FYAI_UI_LOG,		/* the results of commands (src/fyai_uilog.h) */
 	FYAI_UI_WORK,		/* the live work and the bands (src/fyai_uiwork.h) */
 	FYAI_UI_TRANSCRIPT,	/* the live document (src/fyai_uitranscript.h) */
+	FYAI_UI_STATE,		/* the state a renderer reads from the arena */
 	FYAI_UI_STORE_COUNT
 };
 
@@ -104,6 +105,22 @@ const char *fyai_uimodel_text(struct fyai_ctx *ctx, long long id,
 void fyai_uimodel_text_close(struct fyai_ctx *ctx, long long id);
 
 /*
+ * A consumer of texts: @len bytes appended at @offset of text @id, borrowed
+ * for the call, or with @closed the end of the text. A remote encoder sends
+ * them as deltas.
+ */
+typedef void (*fyai_uimodel_text_fn)(void *data, long long id, size_t offset,
+				     const char *bytes, size_t len,
+				     bool closed);
+int fyai_uimodel_text_subscribe(struct fyai_ctx *ctx, fyai_uimodel_text_fn fn,
+				void *data);
+void fyai_uimodel_text_unsubscribe(struct fyai_ctx *ctx,
+				   fyai_uimodel_text_fn fn, void *data);
+/* Give @fn each open text whole, at offset 0: a snapshot for a new consumer. */
+void fyai_uimodel_text_foreach(struct fyai_ctx *ctx, fyai_uimodel_text_fn fn,
+			       void *data);
+
+/*
  * A consumer of changes. @root is the new root of @store, borrowed for the
  * call. A consumer that renders in a frame reads the root again at frame time
  * and does not keep @root.
@@ -117,6 +134,20 @@ void fyai_uimodel_unsubscribe(struct fyai_ctx *ctx, fyai_uimodel_fn fn,
 			      void *data);
 
 /*
+ * Whether a consumer reads the model. A writer that a local display gates,
+ * such as the header, also writes for a consumer in a process without one.
+ */
+bool fyai_uimodel_consumed(struct fyai_ctx *ctx);
+
+/*
+ * Write the state store for a consumer: what a local renderer reads from the
+ * arena and a client has not, such as the stored display configuration of the
+ * branch. A process that nothing consumes writes nothing: its renderer reads
+ * the arena.
+ */
+void fyai_uimodel_state_update(struct fyai_ctx *ctx);
+
+/*
  * Compare what a renderer made from the model, @model, with what the legacy
  * path made, @oracle. A difference is a defect of the model: it goes to the
  * trace and, when $FYAI_UI_MODEL_CHECK names a file, to that file. Returns
@@ -125,6 +156,51 @@ void fyai_uimodel_unsubscribe(struct fyai_ctx *ctx, fyai_uimodel_fn fn,
 bool fyai_uimodel_check(struct fyai_ctx *ctx, enum fyai_ui_store store,
 			const char *what, const char *model,
 			const char *oracle);
+
+/*
+ * What a renderer of a mirror asks of the process that owns the model, such
+ * as the answer to a question. @request is borrowed for the call.
+ */
+typedef int (*fyai_uimodel_intent_fn)(void *data, const char *subtype,
+				      fy_generic request);
+
+/*
+ * Make the model of @ctx a mirror of the model of another process. The frames
+ * of that process write it, through the two functions below; the writers of
+ * this process write nothing, and no oracle runs. @intent carries what the
+ * renderer asks of the other process.
+ */
+int fyai_uimodel_mirror(struct fyai_ctx *ctx, fyai_uimodel_intent_fn intent,
+			void *data);
+bool fyai_uimodel_mirrored(struct fyai_ctx *ctx);
+/* Apply the root of the store @name; a name this build does not know is
+ * ignored. */
+int fyai_uimodel_mirror_store(struct fyai_ctx *ctx, const char *name,
+			      fy_generic root);
+/* Apply @len bytes at @offset of text @id, or its end with @closed. */
+int fyai_uimodel_mirror_text(struct fyai_ctx *ctx, long long id, size_t offset,
+			     const char *data, size_t len, bool closed);
+/*
+ * The tiles of a mirror show programs of the owner. @keys takes the keys of
+ * the tile @sf, and says whether it is a tile of the mirror; @kept says
+ * whether its program ended and its screen stays to read.
+ */
+struct fytim_surface;
+struct fyai_uimodel_tile_ops {
+	bool (*keys)(void *data, struct fytim_surface *sf, const char *bytes,
+		     size_t len);
+	bool (*kept)(void *data, struct fytim_surface *sf);
+};
+void fyai_uimodel_mirror_tiles(struct fyai_ctx *ctx,
+			       const struct fyai_uimodel_tile_ops *ops,
+			       void *data);
+bool fyai_uimodel_keys(struct fyai_ctx *ctx, struct fytim_surface *sf,
+		       const char *data, size_t len);
+bool fyai_uimodel_tile_kept(struct fyai_ctx *ctx, struct fytim_surface *sf);
+
+/* Ask the owner of a mirror; -1 when the model is not a mirror. */
+int fyai_uimodel_intent(struct fyai_ctx *ctx, const char *subtype,
+			fy_generic request);
 
 /*
  * Detach @view, a copy of a context that renders stored output offscreen,

@@ -77,8 +77,8 @@ void fyai_ui_repaint(struct fyai_ctx *ctx);
 char *fyai_ui_input_copy(struct fyai_ctx *ctx);
 void fyai_ui_input_set(struct fyai_ctx *ctx, const char *text);
 
-/* Whether the input area can put a question to the user: the page renderer
- * draws it. */
+/* Whether a question can be put to the user: the page renderer draws it, or,
+ * in a process with no display, a remote consumer of the UI model shows it. */
 bool fyai_ui_ask_available(struct fyai_ctx *ctx);
 
 /*
