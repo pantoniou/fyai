@@ -197,4 +197,9 @@ void fyai_transport_sync_logging(struct fyai_ctx *ctx);
 /* Close the client. The process that started the transport also ends it. */
 void fyai_transport_detach(struct fyai_ctx *ctx);
 
+/* Attach and admit an exec worker to the inherited credential transport. */
+int fyai_transport_worker_attach(int sync_fd, int agent_fd, int ctl_fd);
+int fyai_transport_worker_admit(struct fyai_ctx *ctx, pid_t pid,
+			      int agent_fd, int ctl_fd, int sync_fd);
+
 #endif

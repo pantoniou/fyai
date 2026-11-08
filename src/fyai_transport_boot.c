@@ -1294,3 +1294,54 @@ void fyai_transport_detach(struct fyai_ctx *ctx)
 	}
 	ctx->transport_pid = 0;
 }
+
+int fyai_transport_worker_attach(int sync_fd, int agent_fd, int ctl_fd)
+{
+	uint64_t exec_id;
+	char value[32];
+	const char *old;
+	int old_fd;
+	ssize_t len;
+
+	len = read(sync_fd, &exec_id, sizeof(exec_id));
+	if (len != sizeof(exec_id))
+		return -1;
+	old = getenv(FYAI_TRANSPORT_FD_ENV);
+	old_fd = old ? atoi(old) : -1;
+	if (old_fd > STDERR_FILENO)
+		close(old_fd);
+	old = getenv(FYAI_TRANSPORT_CTL_ENV);
+	old_fd = old ? atoi(old) : -1;
+	if (old_fd > STDERR_FILENO)
+		close(old_fd);
+	snprintf(value, sizeof(value), "%d", agent_fd);
+	if (setenv(FYAI_TRANSPORT_FD_ENV, value, 1))
+		return -1;
+	snprintf(value, sizeof(value), "%d", ctl_fd);
+	if (setenv(FYAI_TRANSPORT_CTL_ENV, value, 1))
+		return -1;
+	snprintf(value, sizeof(value), "%llu", (unsigned long long)exec_id);
+	return setenv(FYAI_TRANSPORT_EXEC_ENV, value, 1);
+}
+
+int fyai_transport_worker_admit(struct fyai_ctx *ctx, pid_t pid,
+				      int agent_fd, int ctl_fd, int sync_fd)
+{
+	uint64_t exec_id;
+	int pidfd = -1, rc;
+	ssize_t len;
+
+	pidfd = fyai_host_pidfd_open(pid);
+	rc = fyai_transport_admit_child(ctx, pid, pidfd, agent_fd, ctl_fd,
+					&exec_id);
+	if (pidfd >= 0)
+		close(pidfd);
+	if (rc)
+		return -1;
+	len = write(sync_fd, &exec_id, sizeof(exec_id));
+	fyai_error_check(ctx, len == sizeof(exec_id), err,
+			 "could not start worker transport: %s", strerror(errno));
+	return 0;
+err:
+	return -1;
+}

@@ -337,56 +337,6 @@ static fy_generic acp_child_serve(struct jsonrpc_conn *conn,
 	return fy_invalid;
 }
 
-static int acp_worker_transport_attach(int sync_fd, int agent_fd, int ctl_fd)
-{
-	uint64_t exec_id;
-	char value[32];
-	const char *old;
-	int old_fd;
-	ssize_t len;
-
-	len = read(sync_fd, &exec_id, sizeof(exec_id));
-	if (len != sizeof(exec_id))
-		return -1;
-	old = getenv(FYAI_TRANSPORT_FD_ENV);
-	old_fd = old ? atoi(old) : -1;
-	if (old_fd > STDERR_FILENO)
-		acp_close_fd(&old_fd);
-	old = getenv(FYAI_TRANSPORT_CTL_ENV);
-	old_fd = old ? atoi(old) : -1;
-	if (old_fd > STDERR_FILENO)
-		acp_close_fd(&old_fd);
-	snprintf(value, sizeof(value), "%d", agent_fd);
-	if (setenv(FYAI_TRANSPORT_FD_ENV, value, 1))
-		return -1;
-	snprintf(value, sizeof(value), "%d", ctl_fd);
-	if (setenv(FYAI_TRANSPORT_CTL_ENV, value, 1))
-		return -1;
-	snprintf(value, sizeof(value), "%llu", (unsigned long long)exec_id);
-	return setenv(FYAI_TRANSPORT_EXEC_ENV, value, 1);
-}
-
-static int acp_worker_transport_admit(struct fyai_ctx *ctx, pid_t pid,
-				      int agent_fd, int ctl_fd, int sync_fd)
-{
-	uint64_t exec_id;
-	int pidfd = -1, rc;
-	ssize_t len;
-
-	pidfd = fyai_host_pidfd_open(pid);
-	rc = fyai_transport_admit_child(ctx, pid, pidfd, agent_fd, ctl_fd,
-					&exec_id);
-	acp_close_fd(&pidfd);
-	if (rc)
-		return -1;
-	len = write(sync_fd, &exec_id, sizeof(exec_id));
-	fyai_error_check(ctx, len == sizeof(exec_id), err,
-			 "could not start ACP worker transport: %s", strerror(errno));
-	return 0;
-err:
-	return -1;
-}
-
 static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 			    const char *text)
 {
@@ -442,7 +392,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 			acp_close_fd(&agent[1]);
 			acp_close_fd(&ctl[1]);
 			acp_close_fd(&sync[1]);
-			if (acp_worker_transport_attach(sync[0], agent[0], ctl[0]))
+			if (fyai_transport_worker_attach(sync[0], agent[0], ctl[0]))
 				_exit(126);
 			acp_close_fd(&sync[0]);
 		}
@@ -464,7 +414,7 @@ static int acp_spawn_worker(struct acp_session *s, fy_generic content,
 		acp_close_fd(&agent[0]);
 		acp_close_fd(&ctl[0]);
 		acp_close_fd(&sync[0]);
-		admit_rc = acp_worker_transport_admit(ctx, pid, agent[1], ctl[1],
+		admit_rc = fyai_transport_worker_admit(ctx, pid, agent[1], ctl[1],
 						    sync[1]);
 		fyai_error_check(ctx, !admit_rc, out,
 				 "could not admit ACP worker to transport");
