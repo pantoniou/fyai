@@ -230,6 +230,12 @@ struct fyai_sink_band *fyai_sink_band_shared(struct fyai_sink *s);
 
 int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 		       const char *md);
+/*
+ * Write the Markdown @md as its source, as a display with Markdown off shows
+ * it. A consumer of the model still gets it as Markdown.
+ */
+int fyai_sink_markdown_source(struct fyai_sink *s,
+			      enum fyai_sink_stream stream, const char *md);
 int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 		    const char *buf, size_t len);
 /*

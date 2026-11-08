@@ -15,9 +15,11 @@ struct fyai_ctx;
  * the span of a command gave the sink and the diagnostics it drained, as
  * source:
  *
- *   {id, title, error, level, parts: [{stream, md | text | item}]}
+ *   {id, title, error, level, parts: [{stream, md | text | item, source}]}
  *
- * @stream is the sink stream, or "drain" for a drained record in @item. The
+ * @stream is the sink stream, or "drain" for a drained record in @item.
+ * @source says that the medium was given Markdown as written: the producer
+ * shows the source with display/markdown off. The
  * store keeps the last FYAI_UILOG_MAX entries.
  */
 #define FYAI_UILOG_MAX	200
@@ -38,6 +40,9 @@ void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error);
  */
 void fyai_uilog_sink(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 		     bool markdown, const char *text, size_t len);
+/* Record Markdown that the medium was given as written. */
+void fyai_uilog_sink_source(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
+			    const char *md, size_t len);
 
 /* Release the span at cleanup, and drop it in a forked child. */
 void fyai_uilog_release(struct fyai_ctx *ctx);

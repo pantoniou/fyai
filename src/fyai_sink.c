@@ -1752,6 +1752,23 @@ int fyai_sink_markdown(struct fyai_sink *s, enum fyai_sink_stream stream,
 	return rc;
 }
 
+int fyai_sink_markdown_source(struct fyai_sink *s,
+			      enum fyai_sink_stream stream, const char *md)
+{
+	size_t len = md ? strlen(md) : 0;
+	int rc;
+
+	if (!s || !s->ops->write || !len)
+		return 0;
+	/* The model takes Markdown; the medium takes it as written. */
+	fyai_uilog_sink_source(s->ctx, stream, md, len);
+	rc = s->ops->write(s, stream, md, len);
+	if (!rc && (stream == FYAI_SINK_TRANSCRIPT ||
+		    stream == FYAI_SINK_NOTICE))
+		fyai_flow_observe(&s->flow, md, len);
+	return rc;
+}
+
 int fyai_sink_write(struct fyai_sink *s, enum fyai_sink_stream stream,
 		    const char *buf, size_t len)
 {

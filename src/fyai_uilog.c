@@ -103,6 +103,18 @@ void fyai_uilog_sink(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
 		fy_gb_string_size_create(l->gb, text, len)));
 }
 
+void fyai_uilog_sink_source(struct fyai_ctx *ctx, enum fyai_sink_stream stream,
+			    const char *md, size_t len)
+{
+	struct fyai_uilog *l = ctx ? ctx->uilog : NULL;
+
+	if (!l || !l->open)
+		return;
+	uilog_append(l, fy_mapping(l->gb, "stream", uilog_stream_name(stream),
+		"md", fy_gb_string_size_create(l->gb, md, len),
+		"source", true));
+}
+
 void fyai_uilog_end(struct fyai_ctx *ctx, const char *title, bool error)
 {
 	struct fyai_uilog *l = ctx ? ctx->uilog : NULL;
