@@ -41,6 +41,18 @@ struct fyai_request_cache {
 	const void *owner;	/* the transient builder that holds the turns */
 	uint64_t turn;		/* word of the turn that holds the first new message */
 	size_t skip;		/* messages of that turn that the text holds */
+	/*
+	 * A turn that the exchange made in the transient builder is stored as
+	 * another value, with the display of a call. The text then holds the
+	 * turns up to the newest turn of the chain that the arena holds,
+	 * @anchor, which the next exchange has too, and the first @anchored_n
+	 * messages after it, whose text is @check: they must be what the
+	 * exchange stored.
+	 */
+	bool anchored;
+	uint64_t anchor;
+	size_t anchored_n;
+	char *check;
 	char *instructions;	/* the system prompt of the conversation */
 	/*
 	 * The text of the request before the items of its input, up to the
@@ -130,6 +142,9 @@ static void rc_forget_all(struct fyai_request_cache *rc)
 	rc->head = NULL;
 	free(rc->tail);
 	rc->tail = NULL;
+	free(rc->check);
+	rc->check = NULL;
+	rc->anchored = false;
 	rc->valid = false;
 	rc->owner = NULL;
 }
@@ -143,6 +158,60 @@ void fyai_request_cache_release(struct fyai_ctx *ctx)
 	rc_forget_all(rc);
 	free(rc);
 	ctx->request_cache = NULL;
+}
+
+static fy_generic rc_turn_messages(fy_generic turn)
+{
+	return fy_get(turn, "messages", fy_seq_empty);
+}
+
+/* The text of the first @count messages of the turns on @stack, or NULL. */
+static char *rc_stack_text(struct fyai_ctx *ctx,
+			   const struct fyai_turn_stack *stack, size_t count)
+{
+	fy_generic list, *items, seq;
+	const char *text;
+	char *copy = NULL;
+	size_t i, j, n, k = 0;
+
+	items = malloc((count + 1) * sizeof(*items));
+	if (!items)
+		return NULL;
+	for (i = 0; i < stack->count && k < count; i++) {
+		list = rc_turn_messages(stack->items[i]);
+		n = fy_len(list);
+		for (j = 0; j < n && k < count; j++)
+			items[k++] = fy_get_at(list, j);
+	}
+	if (k == count) {
+		seq = fy_gb_sequence_create(ctx->transient_gb, count, items);
+		if (fy_is_valid(seq)) {
+			text = emit_request_body(ctx->transient_gb, seq);
+			copy = text ? strdup(text) : NULL;
+		}
+	}
+	free(items);
+	return copy;
+}
+
+/*
+ * True when the turns after @stop at @turn begin with the @rc->anchored_n
+ * messages that the exchange sent, as the exchange stored them.
+ */
+static bool rc_check(struct fyai_ctx *ctx, const struct fyai_request_cache *rc,
+		     fy_generic turn, fy_generic stop)
+{
+	struct fyai_turn_stack stack = { 0 };
+	char *text = NULL;
+	bool same = false;
+
+	if (!rc->check || fyai_turn_stack_init(&stack, turn, stop))
+		return false;
+	text = rc_stack_text(ctx, &stack, rc->anchored_n);
+	same = text && !strcmp(text, rc->check);
+	free(text);
+	fyai_turn_stack_cleanup(&stack);
+	return same;
 }
 
 /*
@@ -162,14 +231,52 @@ void fyai_request_cache_release(struct fyai_ctx *ctx)
 void fyai_request_cache_forget(struct fyai_ctx *ctx)
 {
 	struct fyai_request_cache *rc = ctx->request_cache;
+	struct fyai_turn_stack stack = { 0 };
+	fy_generic cur, anchor = fy_invalid, turn;
+	char *check = NULL;
+	size_t i, n = 0;
 
 	if (!rc || (rc->owner && rc->owner != ctx->transient_gb))
 		return;
-	if (!rc->valid || !rc->owner || !rc->body || !ctx->gb ||
-	    !fy_generic_builder_contains_out_of_place(ctx->gb,
-						      (fy_generic){ .v = rc->turn })) {
+	if (!rc->valid || !rc->owner || !rc->body || !ctx->gb) {
 		rc_forget_all(rc);
 		return;
+	}
+	turn.v = rc->turn;
+	/*
+	 * When the last turn is in the arena, the word of the turn and the text
+	 * stay as they are. A line with a tool call stores its last turn as
+	 * another value, so the word names a value of the transient builder. In
+	 * that case the text is anchored at the newest turn of the chain that the
+	 * arena holds: the next exchange finds that turn again. The messages
+	 * after it are not in the arena, so their text is kept in @check and
+	 * compared with what the exchange stored before the text is reused.
+	 */
+	if (!fy_generic_builder_contains_out_of_place(ctx->gb, turn)) {
+		/* The newest turn of its chain that the arena holds. */
+		fyai_turn_foreach(cur, turn) {
+			if (fy_generic_builder_contains_out_of_place(ctx->gb, cur)) {
+				anchor = cur;
+				break;
+			}
+		}
+		if (fy_is_invalid(anchor) ||
+		    fyai_turn_stack_init(&stack, turn, anchor) || !stack.count)
+			goto drop;
+		for (i = 0; i + 1 < stack.count; i++)
+			n += fy_len(rc_turn_messages(stack.items[i]));
+		n += rc->skip;
+		check = rc_stack_text(ctx, &stack, n);
+		if (!check)
+			goto drop;
+		fyai_turn_stack_cleanup(&stack);
+		free(rc->check);
+		rc->check = check;
+		rc->anchored = true;
+		rc->anchor = anchor.v;
+		rc->anchored_n = n;
+		/* The word of a turn that the builder held can name another. */
+		rc->turn = 0;
 	}
 	free(rc->head);
 	rc->head = NULL;
@@ -177,6 +284,11 @@ void fyai_request_cache_forget(struct fyai_ctx *ctx)
 	rc->tail = NULL;
 	rc->probe_word = 0;
 	rc->owner = NULL;
+	return;
+drop:
+	fyai_turn_stack_cleanup(&stack);
+	free(check);
+	rc_forget_all(rc);
 }
 
 void fyai_request_cache_stats(const struct fyai_ctx *ctx,
@@ -203,30 +315,25 @@ bool fyai_request_cache_usable(struct fyai_ctx *ctx, fy_generic previous)
 	return fyai_grammar_input_splits(ctx);
 }
 
-static fy_generic rc_turn_messages(fy_generic turn)
-{
-	return fy_get(turn, "messages", fy_seq_empty);
-}
-
 /*
- * The messages of the turns on @stack, the first @skip messages of the first
- * turn left out, and in @counts the number of messages that each turn gave.
+ * The messages of the turns on @stack, the first @skip messages left out, and
+ * in @counts the number of messages that each turn gave. The messages that
+ * are left out can span the first turns.
  */
 static fy_generic rc_messages(struct fyai_ctx *ctx,
 			      const struct fyai_turn_stack *stack, size_t skip,
 			      size_t *counts)
 {
 	fy_generic list, *items, stream;
-	size_t i, j, n, off, total = 0, k = 0;
+	size_t i, j, n, off, take, total = 0, k = 0;
 
 	off = skip;
 	for (i = 0; i < stack->count; i++) {
 		n = fy_len(rc_turn_messages(stack->items[i]));
-		if (off > n)
-			off = n;
-		counts[i] = n - off;
+		take = off < n ? off : n;
+		counts[i] = n - take;
 		total += counts[i];
-		off = 0;
+		off -= take;
 	}
 	if (!total)
 		return fy_seq_empty;
@@ -237,11 +344,10 @@ static fy_generic rc_messages(struct fyai_ctx *ctx,
 	for (i = 0; i < stack->count; i++) {
 		list = rc_turn_messages(stack->items[i]);
 		n = fy_len(list);
-		if (off > n)
-			off = n;
-		for (j = off; j < n; j++)
+		take = off < n ? off : n;
+		for (j = take; j < n; j++)
 			items[k++] = fy_get_at(list, j);
-		off = 0;
+		off -= take;
 	}
 	stream = fy_gb_sequence_create(ctx->transient_gb, total, items);
 	free(items);
@@ -269,7 +375,7 @@ err:
  * gave up. After the last message, the position is the end of the last turn.
  */
 static void rc_position(const struct fyai_turn_stack *stack,
-			const size_t *counts, size_t skip, size_t from,
+			const size_t *counts, size_t from,
 			size_t *indexp, size_t *skipp)
 {
 	fy_generic last;
@@ -278,7 +384,8 @@ static void rc_position(const struct fyai_turn_stack *stack,
 	for (i = 0; i < stack->count; i++) {
 		if (from < counts[i]) {
 			*indexp = i;
-			*skipp = (i == 0 ? skip : 0) + from;
+			*skipp = fy_len(rc_turn_messages(stack->items[i])) -
+				 counts[i] + from;
 			return;
 		}
 		from -= counts[i];
@@ -443,14 +550,26 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 			if (cur.v != rc->turn)
 				continue;
 			hit = true;
+			skip = rc->skip;
 			stop = fy_get(cur, "previous", fy_invalid);
 			break;
 		}
+		/* An exchange that ended stored its last turns as other values. */
+		if (!hit && rc->anchored && !rc->owner) {
+			fyai_turn_foreach(cur, turn) {
+				if (cur.v != rc->anchor)
+					continue;
+				stop = cur;
+				hit = rc_check(ctx, rc, turn, stop);
+				skip = rc->anchored_n;
+				break;
+			}
+		}
+		if (!hit)
+			stop = fy_invalid;
 	}
-	if (hit) {
-		skip = rc->skip;
+	if (hit)
 		old_len = rc->stable_len;
-	}
 	rv = rc_stack(ctx, turn, stop, &stack);
 	if (rv)
 		goto err;
@@ -530,7 +649,7 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 	strcpy(copy, tail_text);
 
 	/* Where the next request starts: the first message that is not stable. */
-	rc_position(&stack, counts, skip, from, &index, &new_skip);
+	rc_position(&stack, counts, from, &index, &new_skip);
 	if (!hit) {
 		kept = strdup(instructions ? instructions : "");
 		fyai_error_check(ctx, kept, err, "could not keep the request cache");
