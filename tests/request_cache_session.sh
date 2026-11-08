@@ -6,11 +6,11 @@
 #
 # The two runs must send the same requests, whatever the grammar. A grammar that
 # splits its input also uses the kept text for the second request of a line,
-# and emits only the new items there. The kept text serves the next line too,
-# when the turn that it ends at is the one that the line stored: the first
-# request of a line then emits the tools and the options again, and the new
-# items. A line with a tool call stores that turn with its display, as another
-# value, so the line after it makes the text again.
+# and emits only the new items there. The kept text serves the next line too:
+# the first request of a line emits the tools and the options again, and the new
+# items. A line with a tool call stores its last turn as another value, with the
+# display of the call; the text then ends at the newest turn that the arena
+# held before, and the messages after it must be the ones that were sent.
 printf 'hello\n' > notes.txt
 
 "$PYTHON" - "$TEST_DIR/cache.json" "$api" <<'PYEOF'
@@ -147,8 +147,8 @@ hits_on="$(grep -c 'request-cache: hit' "$TEST_DIR/trace.on" || true)"
 misses_on="$(grep -c 'request-cache: miss' "$TEST_DIR/trace.on" || true)"
 used_off="$(grep -c 'request-cache:' "$TEST_DIR/trace.log" || true)"
 if [ "$splits" = yes ]; then
-	[ "$hits_on" -eq 3 ] || fail "expected 3 requests from the kept text, got $hits_on"
-	[ "$misses_on" -eq 3 ] || fail "expected 3 requests from the whole conversation, got $misses_on"
+	[ "$hits_on" -eq 5 ] || fail "expected 5 requests from the kept text, got $hits_on"
+	[ "$misses_on" -eq 1 ] || fail "expected 1 request from the whole conversation, got $misses_on"
 	# A request that extends the kept text makes the text of the new items
 	# only. Inside a line the emitter does not write the kept text or the
 	# tools again; the first request of a line writes the tools again.

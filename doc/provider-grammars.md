@@ -196,8 +196,11 @@ builder goes away, the cache keeps the text and the turn if the arena holds the
 turn, and forgets the text of the request that the builder made, which is the
 head and the tail. The next exchange then finds the turn in its chain, and its
 first request emits the head again and the messages that came after the turn.
-A line with a tool call stores its turn with the display of the call, as
-another value, so the line after it makes the text again.
+A line with a tool call stores its last turn with the display of the call, as
+another value. The cache then keeps the newest turn of the chain that the arena
+held, the number of messages that follow it in the text, and the text of those
+messages. The next exchange finds that turn in its chain and uses the kept text
+only if the messages after it say the same text.
 
 The `request_cache` key of the configuration turns the cache off.
 `$FYAI_TRACE` records each request as a hit or a miss, and the cause of a miss.
