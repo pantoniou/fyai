@@ -4825,7 +4825,9 @@ void fyai_ui_header_refresh(struct fyai_ctx *ctx)
 {
 	char *top = NULL, *bottom = NULL, *top_md;
 
-	if (!fyai_ui_active(ctx))
+	/* The header and the status are Markdown: without it there are none,
+	 * in a local session and in the client of a remote one. */
+	if (!fyai_ui_active(ctx) || !ctx->cfg->markdown)
 		return;
 	if (fyai_session_header_format(ctx,
 			fy_get(fyai_uimodel_get(ctx, FYAI_UI_SESSION),
