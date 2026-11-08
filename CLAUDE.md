@@ -4,14 +4,18 @@ Use this file when you change this repository.
 
 ## Project
 
-`fyai` is a stateless AI coding assistant written in C. It does not use a
-daemon. One invocation runs one complete tool-use loop. It commits the
-canonical state and then exits. An interactive invocation owns its terminal UI
-only while its process runs.
+`fyai` is a stateless AI coding assistant written in C. One invocation runs
+one complete tool-use loop. It commits the canonical state and then exits. An
+interactive invocation owns its terminal UI only while its process runs. The
+one server is `fyai serve`, which the user starts and stops: it runs
+invocations for clients and keeps no state of its own.
 
 ### Architecture rules
 
-- Do not add a daemon, resident process, or hidden process state.
+- Do not add a resident process or hidden process state. `fyai serve`, also
+  with `--daemon`, is a server that the user starts and stops explicitly
+  (`fyai serve stop`). It keeps no canonical state: its workers are
+  invocations that commit to the arena as a local run does.
 - Store persistent manifests, references, configuration, and other structured
   state in content-addressed libfyaml arenas under `~/.fyai`. Project file bytes
   may also live in immutable content-addressed blob files under the project's
@@ -137,6 +141,16 @@ initialize each generic field explicitly.
 - `src/fyai_cmd_*.c`: the handlers of the commands, one file for each group.
 - `src/fyai.c`: engine orchestration.
 - `src/fyai_sink.c`: the one rendering component and its backends.
+- `src/fyai_sink_frames.c`: the sink of a command that a client runs with
+  `--remote TARGET`. It sends each sink operation as a frame, and the client presents
+  the frame with its own sink.
+- `src/fyai_remote_server.c`: `fyai serve`, its project servers and workers
+  (`doc/remote-sessions-sdd.md`, section 6.1.2).
+- `src/fyai_remote.c`: the client of `--remote` and of `remote connect`, and
+  what it shares with the server (`src/fyai_remote_int.h`).
+- `src/fyai_uidraw.c`: the renderer of the UI model. It draws the live
+  document, the log and the bands from the stores with the sink
+  (`doc/ui-model.md`).
 - `src/fyai_flow.c`: the output separation manager.
 - `src/fyai_output.c`: transcript document source and fragments.
 - `src/fyai_session.c`: interactive input and slash commands.
@@ -302,7 +316,9 @@ a slash table entry, or a hand-written parser.
   and `interactive` opens the terminal UI. `while_busy` says whether a
   slash command runs beside a turn: `run`, `wait` (the default), or `bare`
   (only with no arguments). `view: true` keeps the result in the
-  scrollback of a session.
+  scrollback of a session. `scope: view` says that the command changes only
+  what a client shows, so the client of a remote session runs it itself; a
+  setting of a `display/` key is such a command without the property.
 - A session setting is a command with `setting: {key: PATH}`: the
   configuration schema gives its values and completion, and its
   `x-fyai-scope` decides whether a change is stored or goes into the session
@@ -1815,7 +1831,9 @@ addresses another process by mistake, or answers with what belongs to it: an
 inherited session took the name a sub-agent asked for and returned what the
 program of the parent wrote, and an inherited wait took its name. Drop every
 one of them in `fyai_ctx_fork_disown()`, which ends nothing, and add a new kind
-of live context state to that list.
+of live context state to that list. Drop the UI model there first: a release
+after it closes texts of the model, and a consumer of the parent would send
+that on its connection.
 
 A child that serves a terminal session ends its program when its control
 channel closes. The child is in a session of its own, so no signal of the
