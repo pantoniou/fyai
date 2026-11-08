@@ -138,6 +138,11 @@ int fyai_host_ns_ino(pid_t pid, int ns, uint64_t *ino)
 	return backend->ns_ino ? backend->ns_ino(pid, ns, ino) : -ENOSYS;
 }
 
+int fyai_host_peer_uid(int fd, uid_t *uid)
+{
+	return backend->peer_uid ? backend->peer_uid(fd, uid) : -ENOSYS;
+}
+
 int fyai_host_channel_prepare(int channel)
 {
 	return backend->channel_prepare ? backend->channel_prepare(channel) : -ENOSYS;

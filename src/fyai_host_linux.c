@@ -272,6 +272,19 @@ static int linux_ns_ino(pid_t pid, int ns, uint64_t *ino)
 	return 0;
 }
 
+static int linux_peer_uid(int fd, uid_t *uid)
+{
+	struct ucred cred;
+	socklen_t len = sizeof(cred);
+
+	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) < 0)
+		return -errno;
+	if (len != sizeof(cred))
+		return -EIO;
+	*uid = cred.uid;
+	return 0;
+}
+
 static int linux_channel_prepare(int channel)
 {
 	int on = 1;
@@ -348,6 +361,7 @@ const struct fyai_host_backend fyai_host_backend_linux = {
 	.in_cgroup = linux_in_cgroup,
 	.ns_ino = linux_ns_ino,
 	.channel_prepare = linux_channel_prepare,
+	.peer_uid = linux_peer_uid,
 	.harden = linux_harden,
 	.memfd = linux_memfd,
 	.mount_root = linux_mount_root,

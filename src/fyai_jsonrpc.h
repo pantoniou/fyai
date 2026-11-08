@@ -45,6 +45,10 @@ struct jsonrpc_http_hooks {
 struct jsonrpc_conn *
 jsonrpc_conn_stdio(struct fyai_ctx *ctx, int stdin_fd, int stdout_fd,
 		   int timeout_s, const char *name, const char *log_channel);
+/* A full-duplex socket; the socket is borrowed. */
+struct jsonrpc_conn *
+jsonrpc_conn_socket(struct fyai_ctx *ctx, int fd, int timeout_s,
+                    const char *name, const char *log_channel);
 struct jsonrpc_conn *
 jsonrpc_conn_http(struct fyai_ctx *ctx, const char *endpoint, int timeout_s,
 		  const char *name, const char *log_channel,
@@ -98,6 +102,8 @@ bool jsonrpc_conn_in_batch(const struct jsonrpc_conn *conn);
 
 /* Return true while the connection has queued output it can still write. */
 bool jsonrpc_conn_has_output(const struct jsonrpc_conn *conn);
+/* Bytes queued for a stdio peer; zero for other transports. */
+size_t jsonrpc_conn_output_size(const struct jsonrpc_conn *conn);
 bool jsonrpc_conn_closed(const struct jsonrpc_conn *conn);
 
 void jsonrpc_conn_defer(struct jsonrpc_conn *conn);

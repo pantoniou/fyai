@@ -23,6 +23,7 @@
 #include "fyai_curl.h"
 #include "fyai_event.h"
 #include "fyai_jsonrpc.h"
+#include "fyai_scratch.h"
 #include "fyai_log.h"
 #include "utils.h"
 
@@ -46,10 +47,18 @@ struct jsonrpc_conn {
 	/* Standard input and output state belongs to the connection. */
 	int stdin_fd;
 	int stdout_fd;
+	int owned_fd;
 	struct fyai_event_source *read_src;
 	struct fyai_event_source *write_src;
 	struct response_buffer rx;
 	struct response_buffer tx;
+	/* Encodes one frame; each frame resets it, as its bytes are copied to
+	 * @tx at once. The builder has a tag of its own, so a reset gives its
+	 * memory back. */
+	struct fy_generic_builder *frame_gb;
+	/* Parses each line that a raw frame handler gets. A handler keeps no
+	 * borrowed value, so each line resets it. */
+	struct fy_generic_builder *rx_gb;
 	size_t tx_off;
 	struct jsonrpc_request *pending;
 	struct jsonrpc_request *flush_wait;	/* notifications awaiting write */
@@ -358,7 +367,15 @@ static void jsonrpc_conn_line(struct jsonrpc_conn *conn, const char *line)
 			   conn->name, line);
 		return;
 	}
-	gb = fyai_ctx_transient_gb(conn->ctx);
+	if (conn->frame) {
+		if (!conn->rx_gb)
+			conn->rx_gb = fy_generic_builder_create(NULL);
+		else
+			fy_generic_builder_reset(conn->rx_gb);
+		gb = conn->rx_gb;
+	} else {
+		gb = fyai_ctx_transient_gb(conn->ctx);
+	}
 	if (!gb) {
 		fyai_error(conn->ctx, "%s could not acquire transient storage",
 			   conn->name);
@@ -612,6 +629,11 @@ bool jsonrpc_conn_has_output(const struct jsonrpc_conn *conn)
 	       !conn->write_failed && conn->tx_off < conn->tx.len;
 }
 
+size_t jsonrpc_conn_output_size(const struct jsonrpc_conn *conn)
+{
+	return jsonrpc_conn_has_output(conn) ? conn->tx.len - conn->tx_off : 0;
+}
+
 void jsonrpc_conn_defer(struct jsonrpc_conn *conn)
 {
 	if (conn)
@@ -657,7 +679,11 @@ int jsonrpc_conn_send_frame(struct jsonrpc_conn *conn, fy_generic frame)
 	 * ends the frames that go to it. */
 	if (!conn || conn->transport != JSONRPC_STDIO || conn->write_failed)
 		return -1;
-	gb = fyai_ctx_transient_gb(conn->ctx);
+	if (!conn->frame_gb)
+		conn->frame_gb = fy_generic_builder_create(NULL);
+	else
+		fy_generic_builder_reset(conn->frame_gb);
+	gb = conn->frame_gb;
 	body = gb ? emit_json_string(gb, frame) : NULL;
 	fyai_error_check(conn->ctx, body, err,
 			 "%s could not encode a frame", conn->name);
@@ -930,6 +956,7 @@ jsonrpc_conn_stdio(struct fyai_ctx *ctx, int stdin_fd, int stdout_fd,
 	conn->name = name;
 	conn->log_channel = log_channel;
 	conn->timeout_s = timeout_s;
+	conn->owned_fd = -1;
 	conn->stdin_fd = stdin_fd;
 	conn->stdout_fd = stdout_fd;
 	conn->closed = false;
@@ -937,6 +964,27 @@ jsonrpc_conn_stdio(struct fyai_ctx *ctx, int stdin_fd, int stdout_fd,
 
 err_out:
 	return NULL;
+}
+
+struct jsonrpc_conn *
+jsonrpc_conn_socket(struct fyai_ctx *ctx, int fd, int timeout_s,
+                    const char *name, const char *log_channel)
+{
+	struct jsonrpc_conn *conn;
+	int write_fd;
+
+	write_fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+	if (write_fd < 0) {
+		fyai_error(ctx, "%s: cannot duplicate socket: %s", name, strerror(errno));
+		return NULL;
+	}
+	conn = jsonrpc_conn_stdio(ctx, write_fd, fd, timeout_s, name, log_channel);
+	if (!conn) {
+		close(write_fd);
+		return NULL;
+	}
+	conn->owned_fd = write_fd;
+	return conn;
 }
 
 struct jsonrpc_conn *
@@ -979,9 +1027,15 @@ void jsonrpc_conn_destroy(struct jsonrpc_conn *conn)
 		jsonrpc_drop_source(&conn->write_src);
 		/* Settle and detach requests before destroying the connection. */
 		jsonrpc_conn_settle(conn, "was destroyed", true);
+		if (conn->owned_fd >= 0)
+			close(conn->owned_fd);
 		free(conn->rx.data);
 		free(conn->tx.data);
 		conn->rx.data = conn->tx.data = NULL;
+		fy_generic_builder_destroy(conn->frame_gb);
+		conn->frame_gb = NULL;
+		fy_generic_builder_destroy(conn->rx_gb);
+		conn->rx_gb = NULL;
 	}
 	free(conn);
 }
@@ -991,6 +1045,10 @@ void jsonrpc_conn_stdio_set_fds(struct jsonrpc_conn *conn, int stdin_fd,
 {
 	if (!conn)
 		return;
+	if (conn->owned_fd >= 0) {
+		close(conn->owned_fd);
+		conn->owned_fd = -1;
+	}
 	conn->stdin_fd = stdin_fd;
 	conn->stdout_fd = stdout_fd;
 	conn->closed = false;

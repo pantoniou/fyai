@@ -98,6 +98,13 @@ static void mac_sort(void *base, size_t count, size_t size,
 	qsort_r(base, count, size, &sort, mac_sort_compare);
 }
 
+static int mac_peer_uid(int fd, uid_t *uid)
+{
+	gid_t gid;
+
+	return getpeereid(fd, uid, &gid) < 0 ? -errno : 0;
+}
+
 const struct fyai_host_backend fyai_host_backend_macos = {
 	.name = "macos",
 	.exec_self = mac_exec_self,
@@ -106,6 +113,7 @@ const struct fyai_host_backend fyai_host_backend_macos = {
 	.random = mac_random,
 	.openpty = mac_openpty,
 	.sort = mac_sort,
+	.peer_uid = mac_peer_uid,
 	.open_url = "open",
 };
 

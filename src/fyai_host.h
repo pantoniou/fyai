@@ -58,6 +58,9 @@ int fyai_host_ns_ino(pid_t pid, int ns, uint64_t *ino);
 /* Ask the kernel to attach the credentials of the sender to each message of @channel. */
 int fyai_host_channel_prepare(int channel);
 
+/* Return the connected Unix socket peer UID, or a negative errno. */
+int fyai_host_peer_uid(int fd, uid_t *uid);
+
 /* The transport runs here: it needs the peer credentials of the system. */
 bool fyai_host_isolation_available(void);
 

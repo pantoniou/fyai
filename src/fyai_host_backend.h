@@ -53,6 +53,7 @@ struct fyai_host_backend {
 	int (*in_cgroup)(const char *root, pid_t pid);
 	int (*ns_ino)(pid_t pid, int ns, uint64_t *ino);
 	int (*channel_prepare)(int channel);
+	int (*peer_uid)(int fd, uid_t *uid);
 	int (*harden)(const char **step);
 	int (*memfd)(const char *name, bool cloexec);
 	bool (*mount_root)(const char *path);
