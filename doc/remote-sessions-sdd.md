@@ -255,6 +255,8 @@ The frames are the NDJSON frames of the Agent SDK protocol
 - On stdio and on a Unix socket, the frames are lines, carried by the raw-frame
   mode of `jsonrpc_conn_stdio()` (`src/fyai_jsonrpc.c`), as
   `fyai_claude_sdk.c` uses it today.
+- Two ends that are both fyai can send images in place of lines (section
+  5.2.1).
 - On a WebSocket, a text message is one frame. A binary message carries
   terminal and screen bytes (section 8.3).
 - The frame limit stays `JSONRPC_FRAME_MAX` (16 MiB).
@@ -262,6 +264,37 @@ The frames are the NDJSON frames of the Agent SDK protocol
 The dispatcher of the SDK front (`sdk_frame`, `src/fyai_claude_sdk.c:2147`) does
 not depend on a connection kind. It gets frames and a reply function. Thus
 stdio, a Unix socket and a WebSocket share it.
+
+#### 5.2.1 Images
+
+The frames are generics, so a fyai end can send a frame as the image of its
+generic (`fy_generic_image_create()` of libfyaml): the receiver checks and
+relocates the image in place, and does not parse text. For a frame of 64 KiB
+this takes 5 microseconds in place of 2.5 milliseconds, and the frame is 12%
+smaller.
+
+- The feature is `image` in the hello (section 6.1.3). A client sends it when
+  `jsonrpc_image_available()` is true: `FYAI_REMOTE_NO_IMAGE` is not set. The
+  server answers with it when it has the same. The reply to the hello is the last
+  line: the next frame of each end is an image. The server gives a client to
+  a project server with `image` set.
+- The connection of a server and its worker is in image mode at once, with no
+  hello. The worker moves its channel to a private descriptor and gives
+  standard input and output to `/dev/null`, so a stray write cannot break the
+  framing.
+- A frame is a 64-bit length in native byte order and then the image. The
+  limit is `JSONRPC_FRAME_MAX`. An end on the same machine has the byte order
+  and word size of its peer; the magic of the image says it, and a peer that
+  differs fails the load.
+- A frame that does not load, is not a mapping, or has a bad length ends the
+  connection with a diagnostic. The load checks each pointer, the extent of its
+  object, the alignment, the end of a string, an escape, and a value that
+  contains itself, so an authenticated client cannot make the server read
+  outside the image. A hostile client can still send a frame that is valid
+  and large: the limits of section 5.3 apply.
+- A client that is not fyai, such as an SDK program, sends and gets lines. The
+  server sends each frame to a driver and its watchers in the form each reads,
+  and makes each form one time.
 
 ### 5.3 Flow control
 
@@ -471,6 +504,9 @@ and the type of the session:
 ```json
 {"version":"0.4.2","protocol":1,"features":["project","run"],"session":"fyai"}
 ```
+
+The feature `image` is in the answer when both ends have it: the next frame of
+each end is an image (section 5.2.1).
 
 A server of another protocol refuses the hello and names both protocols and
 its version, so the user knows which side to change. A client that gets no

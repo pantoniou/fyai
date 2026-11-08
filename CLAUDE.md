@@ -205,7 +205,8 @@ initialize each generic field explicitly.
   Secret Service (`fyai_secret_libsecret.c`) and none. The login uses
   `fyai_secret_store_keyring()`.
 - `src/fyai_oauth.c`: provider-independent OAuth browser flow.
-- `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP.
+- `src/fyai_jsonrpc.c`: JSON-RPC over standard I/O and HTTP, and the image
+  mode of two fyai ends (`doc/remote-sessions-sdd.md`, section 5.2.1).
 - `src/fyai_config.c`: layered configuration and config commands.
 - `src/fyai_branch.c`: branch storage, references, and root selection.
 - `src/fyai_merge.c`: branch merge and rebase.
