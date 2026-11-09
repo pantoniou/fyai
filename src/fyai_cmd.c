@@ -129,6 +129,7 @@ static const struct {
 	{ "remote_serve",	fyai_cmd_remote_serve },
 	{ "remote_serve_stop",	fyai_cmd_remote_serve_stop },
 	{ "remote_serve_status", fyai_cmd_remote_serve_status },
+	{ "remote_bridge",	fyai_cmd_remote_bridge },
 	{ "remote_connect",	fyai_cmd_remote_connect },
 	{ "remote_run",		fyai_cmd_remote_run },
 	{ "transport",		fyai_cmd_transport },

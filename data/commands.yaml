@@ -60,7 +60,7 @@ global:
         x-fyai-complete: dir
       remote:
         type: string
-        description: "run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server"
+        description: "run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR"
         x-fyai-meta: TARGET
         x-fyai-complete: file
       view-project:
@@ -4165,6 +4165,29 @@ commands:
         handler: remote_run
         prepare: remote_run
         flags: [no-storage]
+      - command: bridge
+        title: relay standard input and output to the server
+        description: |
+          Relay standard input and output to the Unix socket of the server of
+          this user, byte for byte. A client of an `ssh://` target runs it
+          through ssh: `ssh HOST fyai remote bridge`. It takes the server of the
+          project in the current directory, else the server of projects.
+        surfaces: [cli]
+        handler: remote_bridge
+        flags: [no-storage]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            socket:
+              type: string
+              description: relay to this socket instead of the server that the directory finds
+              x-fyai-positional: 0
+            nonce:
+              type: string
+              description: write the line "FYAI-BRIDGE NONCE" before anything else, which a client of an ssh target waits for, so that the output of a login script before it is skipped
+              x-fyai-meta: NONCE
+              x-fyai-long: nonce
       - command: connect
         title: connect through a Unix socket
         description: Open the full-screen client of a session that a local fyai serves, or carry its SDK frames on standard input and output. The global option -b names the branch of the session, which the client attaches to or starts.

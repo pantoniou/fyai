@@ -236,6 +236,7 @@ int fyai_cmd_remote_serve_stop(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_remote_serve_status(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_remote_connect_prepare(struct fyai_cfg *cfg, fy_generic args);
 int fyai_cmd_remote_connect(struct fyai_cmd_call *call, fy_generic *result);
+int fyai_cmd_remote_bridge(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_remote_run_prepare(struct fyai_cfg *cfg, fy_generic args);
 int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result);
 int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result);

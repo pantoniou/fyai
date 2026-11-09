@@ -2,6 +2,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -197,6 +198,7 @@ struct remote_client {
 	struct jsonrpc_conn *peer, *stdio;
 	struct fyai_remote_ui *view;	/* the full-screen client, or NULL */
 	int fd;
+	pid_t ssh;			/* the ssh child of an ssh:// target, or -1 */
 	bool failed;
 	/* The control request in flight, and its answer when it came. */
 	const char *waiting;
@@ -365,6 +367,167 @@ err:
 	return -1;
 }
 
+#define REMOTE_SSH_SCHEME	"ssh://"
+
+/* The part of @target after ssh://, or NULL when @target is not an ssh target. */
+static const char *remote_ssh_rest(const char *target)
+{
+	size_t n = strlen(REMOTE_SSH_SCHEME);
+
+	return target && !strncmp(target, REMOTE_SSH_SCHEME, n) ? target + n : NULL;
+}
+
+/* The directory of ssh://[USER@]HOST[:PORT]/DIR, without its first slash, or NULL. */
+static const char *remote_ssh_dir(const char *target)
+{
+	const char *rest = remote_ssh_rest(target), *slash;
+
+	slash = rest ? strchr(rest, '/') : NULL;
+	return slash && slash[1] ? slash + 1 : NULL;
+}
+
+/*
+ * Split the host part of an ssh target into @host (with its user) and @port.
+ * The host must be a name that ssh takes as a host and never as an option, so
+ * it has no leading '-' and holds only the characters of a host and a user.
+ */
+static int remote_ssh_split(const char *target, char *host, size_t size,
+			    char *port, size_t psize)
+{
+	const char *rest = remote_ssh_rest(target), *end, *colon, *at;
+	size_t n, i;
+
+	if (!rest)
+		return -1;
+	end = strchr(rest, '/');
+	n = end ? (size_t)(end - rest) : strlen(rest);
+	at = memchr(rest, '@', n);
+	colon = NULL;
+	for (i = at ? (size_t)(at - rest) + 1 : 0; i < n; i++)
+		if (rest[i] == ':' && !colon)
+			colon = rest + i;
+	if (colon) {
+		if (rest[0] == '[' || (size_t)(n - (colon - rest) - 1) >= psize ||
+		    n - (colon - rest) - 1 == 0)
+			return -1;
+		memcpy(port, colon + 1, n - (colon - rest) - 1);
+		port[n - (colon - rest) - 1] = '\0';
+		n = colon - rest;
+	} else {
+		port[0] = '\0';
+	}
+	if (!n || n >= size || rest[0] == '-')
+		return -1;
+	memcpy(host, rest, n);
+	host[n] = '\0';
+	for (i = 0; i < n; i++)
+		if (!(isalnum((unsigned char)host[i]) || strchr("._-@%", host[i])))
+			return -1;
+	for (i = 0; port[i]; i++)
+		if (!isdigit((unsigned char)port[i]))
+			return -1;
+	return 0;
+}
+
+/* The most that ssh and the shell of the host may write before the bridge. */
+#define REMOTE_SSH_PREAMBLE_MAX	(64u * 1024u)
+
+/*
+ * Read from the channel of ssh up to the line "FYAI-BRIDGE NONCE" and drop
+ * what came before it on that line and before: a banner, or the output of a
+ * login script. One byte at a time, so no byte of a frame is read here. The
+ * server speaks only after the client has, so nothing follows the line until
+ * the hello.
+ */
+static int remote_ssh_preamble(struct remote_client *client, const char *nonce)
+{
+	struct fyai_ctx *ctx = client->ctx;
+	char marker[64], *text;
+	size_t used = 0, len;
+	ssize_t n;
+	char c;
+
+	len = (size_t)snprintf(marker, sizeof(marker), "FYAI-BRIDGE %s", nonce);
+	text = malloc(REMOTE_SSH_PREAMBLE_MAX + 1);
+	fyai_error_check(ctx, text, err, "cannot read the start of ssh");
+	for (;;) {
+		do {
+			n = read(client->fd, &c, 1);
+		} while (n < 0 && errno == EINTR);
+		if (n != 1)
+			break;
+		/* The line may follow text that had no end, such as a prompt. */
+		if (c == '\n' && used >= len &&
+		    !memcmp(text + used - len, marker, len)) {
+			free(text);
+			return 0;
+		}
+		if (used >= REMOTE_SSH_PREAMBLE_MAX) {
+			fyai_error(ctx, "ssh wrote more than %u bytes before the "
+				   "bridge: not an fyai bridge", REMOTE_SSH_PREAMBLE_MAX);
+			goto err;
+		}
+		text[used++] = c;
+	}
+	text[used] = '\0';
+	/* A line without its end, such as a prompt, is part of the cause. */
+	while (used && (text[used - 1] == '\n' || text[used - 1] == '\r'))
+		text[--used] = '\0';
+	fyai_error(ctx, "ssh ended before the bridge started%s%s: is fyai on the "
+		   "PATH of the host, and does a server run there?",
+		   used ? ": " : "", text);
+err:
+	free(text);
+	return -1;
+}
+
+/*
+ * Start `ssh HOST fyai remote bridge` for @target on one end of a socket pair
+ * and keep the other end in @client->fd. The program is $FYAI_SSH, else ssh.
+ * The child keeps the agent and the display of ssh and nothing else of the
+ * environment that holds a credential.
+ */
+static int remote_ssh_open(struct remote_client *client, const char *target)
+{
+	static const char *const keep[] = { "SSH_AUTH_SOCK", "SSH_ASKPASS",
+		"SSH_ASKPASS_REQUIRE", "DISPLAY", NULL };
+	struct fyai_ctx *ctx = client->ctx;
+	char host[256], port[8], nonce[33], *args[14];
+	unsigned char raw[16];
+	const char *program = getenv("FYAI_SSH");
+	int rc, n = 0, n2;
+
+	rc = remote_ssh_split(target, host, sizeof(host), port, sizeof(port));
+	fyai_error_check(ctx, !rc, err, "'%s' is not an ssh target: use "
+			 "ssh://[USER@]HOST[:PORT][/DIR]", target);
+	args[n++] = (char *)(program && *program ? program : "ssh");
+	args[n++] = "-T";
+	if (*port) {
+		args[n++] = "-p";
+		args[n++] = port;
+	}
+	args[n++] = "--";
+	args[n++] = host;
+	args[n++] = "fyai";
+	args[n++] = "remote";
+	args[n++] = "bridge";
+	/* The bridge says this word first, and the client skips what ssh and the
+	 * shell of the host wrote before it. */
+	fyai_host_random(raw, sizeof(raw));
+	for (n2 = 0; n2 < (int)sizeof(raw); n2++)
+		snprintf(nonce + 2 * n2, 3, "%02x", raw[n2]);
+	args[n++] = "--nonce";
+	args[n++] = nonce;
+	args[n] = NULL;
+	rc = fyai_remote_spawn(ctx, args, keep, &client->fd, &client->ssh);
+	if (rc)
+		goto err;
+	return remote_ssh_preamble(client, nonce);
+err:
+	return -1;
+}
+
+
 /*
  * Connect @client to the endpoint at @path: a server of the current user,
  * and with @token_fd, the launch token it asks for.
@@ -379,20 +542,30 @@ static int remote_client_open(struct remote_client *client, const char *path,
 	int rc;
 
 	client->fd = -1;
+	client->ssh = -1;
 	if (token_fd >= 0 && remote_read_token(ctx, token_fd, token))
 		return -1;
-	fyai_error_check(ctx, strlen(path) < sizeof(address.sun_path), err,
-			 "the socket path '%s' is too long", path);
-	memcpy(address.sun_path, path, strlen(path) + 1);
-	client->fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	rc = fyai_remote_cloexec(client->fd);
-	fyai_error_check(ctx, client->fd >= 0 && !rc, err, "socket: %s",
-			 strerror(errno));
-	rc = connect(client->fd, (struct sockaddr *)&address, sizeof(address));
-	fyai_error_check(ctx, !rc, err, "connect '%s': %s", path, strerror(errno));
-	rc = fyai_host_peer_uid(client->fd, &uid);
-	fyai_error_check(ctx, !rc && uid == geteuid(), err,
-			 "the endpoint '%s' does not run as the current user", path);
+	if (remote_ssh_rest(path)) {
+		/* ssh authenticates the user, and the bridge is the user there. */
+		if (remote_ssh_open(client, path))
+			goto err;
+	} else {
+		fyai_error_check(ctx, strlen(path) < sizeof(address.sun_path), err,
+				 "the socket path '%s' is too long", path);
+		memcpy(address.sun_path, path, strlen(path) + 1);
+		client->fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		rc = fyai_remote_cloexec(client->fd);
+		fyai_error_check(ctx, client->fd >= 0 && !rc, err, "socket: %s",
+				 strerror(errno));
+		rc = connect(client->fd, (struct sockaddr *)&address,
+			     sizeof(address));
+		fyai_error_check(ctx, !rc, err, "connect '%s': %s", path,
+				 strerror(errno));
+		rc = fyai_host_peer_uid(client->fd, &uid);
+		fyai_error_check(ctx, !rc && uid == geteuid(), err,
+				 "the endpoint '%s' does not run as the current user",
+				 path);
+	}
 	client->peer = jsonrpc_conn_socket(ctx, client->fd, 0, "remote", NULL);
 	fyai_error_check(ctx, client->peer, err,
 			 "cannot open the connection to '%s'", path);
@@ -443,6 +616,13 @@ static void remote_client_close(struct remote_client *client)
 	if (client->fd >= 0)
 		close(client->fd);
 	client->fd = -1;
+	if (client->ssh > 0) {
+		/* The end of the channel ends the bridge, and ssh with it. */
+		kill(client->ssh, SIGTERM);
+		while (waitpid(client->ssh, NULL, 0) < 0 && errno == EINTR)
+			;
+	}
+	client->ssh = -1;
 }
 
 int fyai_cmd_remote_connect_prepare(struct fyai_cfg *cfg, fy_generic args)
@@ -795,6 +975,7 @@ int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct remote_client client = { .ctx = ctx, .gb = call->gb, .fd = -1 };
 	fy_generic request, globals = fy_seq_empty;
+	const char *project;
 	char *path = NULL, *cwd = NULL;
 	size_t i;
 	int rc = -1;
@@ -803,14 +984,18 @@ int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 	path = remote_run_endpoint(ctx);
 	if (!path)
 		goto out;
-	cwd = cfg->project ? NULL : getcwd(NULL, 0);
-	fyai_error_check(ctx, cfg->project || cwd, out,
+	/* At an ssh target the directory is the project there, never ours. */
+	project = cfg->project ? cfg->project : remote_ssh_dir(path);
+	fyai_error_check(ctx, project || !remote_ssh_rest(path), out,
+			 "an ssh target needs a directory: ssh://HOST/DIR, or --project");
+	cwd = project ? NULL : getcwd(NULL, 0);
+	fyai_error_check(ctx, project || cwd, out,
 			 "cannot read the current directory: %s", strerror(errno));
 	if (remote_client_open(&client, path, -1) || remote_hello(&client))
 		goto out;
 	/* The directory to work in, which also names the project. */
 	rc = remote_request(&client, "project", fy_mapping(call->gb,
-		"subtype", "fyai_project", "path", cfg->project ? cfg->project : cwd));
+		"subtype", "fyai_project", "path", project ? project : cwd));
 	if (rc)
 		goto out;
 	if (!cfg->interactive) {
@@ -835,4 +1020,99 @@ out:
 	free(cwd);
 	free(path);
 	return rc ? -1 : 0;
+}
+
+/*
+ * The bridge of an ssh target: relay standard input and output to the
+ * endpoint of the server here, byte for byte. The hello, the images and the
+ * frames pass through it unread, so it knows no protocol.
+ */
+int fyai_cmd_remote_bridge(struct fyai_cmd_call *call, fy_generic *result)
+{
+	struct fyai_ctx *ctx = call->ctx;
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+	struct pollfd pfd[2];
+	const char *nonce = fyai_cmd_arg_str(call, "nonce");
+	char buffer[65536], *path;
+	ssize_t got, put;
+	bool in_open = true;
+	int fd = -1, rc = -1;
+	size_t off;
+
+	(void)result;
+	path = fyai_cmd_arg_str(call, "socket") ?
+		fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"),
+					false, false) :
+		remote_run_endpoint(ctx);
+	if (!path)
+		return -1;
+	fyai_error_check(ctx, strlen(path) < sizeof(address.sun_path), out,
+			 "the socket path '%s' is too long", path);
+	memcpy(address.sun_path, path, strlen(path) + 1);
+	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	fyai_error_check(ctx, fd >= 0, out, "socket: %s", strerror(errno));
+	rc = connect(fd, (struct sockaddr *)&address, sizeof(address));
+	fyai_error_check(ctx, !rc, out, "no fyai server at '%s': %s; start one "
+			 "with fyai serve", path, strerror(errno));
+	rc = -1;
+	if (nonce) {
+		for (off = 0; nonce[off]; off++)
+			fyai_error_check(ctx, off < 64 && isxdigit((unsigned char)nonce[off]),
+					 out, "the nonce is up to 64 hexadecimal digits");
+		fyai_error_check(ctx, off, out, "the nonce is empty");
+		/* The first words on standard output: the client waits for them. */
+		put = snprintf(buffer, sizeof(buffer), "FYAI-BRIDGE %s\n", nonce);
+		fyai_error_check(ctx, write(STDOUT_FILENO, buffer, put) == put, out,
+				 "write to the client: %s", strerror(errno));
+	}
+	signal(SIGPIPE, SIG_IGN);
+	for (;;) {
+		pfd[0] = (struct pollfd){ .fd = in_open ? STDIN_FILENO : -1,
+					  .events = POLLIN };
+		pfd[1] = (struct pollfd){ .fd = fd, .events = POLLIN };
+		if (poll(pfd, 2, -1) < 0) {
+			if (errno == EINTR)
+				continue;
+			fyai_error(ctx, "poll: %s", strerror(errno));
+			break;
+		}
+		if (pfd[0].revents) {
+			got = read(STDIN_FILENO, buffer, sizeof(buffer));
+			if (got <= 0) {
+				/* The client has no more to say; the server answers. */
+				in_open = false;
+				shutdown(fd, SHUT_WR);
+			}
+			for (off = 0; got > 0 && off < (size_t)got; off += put) {
+				put = write(fd, buffer + off, got - off);
+				if (put < 0 && errno == EINTR)
+					put = 0;
+				fyai_error_check(ctx, put >= 0, out,
+						 "write to the server: %s",
+						 strerror(errno));
+			}
+		}
+		if (pfd[1].revents) {
+			got = read(fd, buffer, sizeof(buffer));
+			if (got < 0 && errno == EINTR)
+				continue;
+			if (got <= 0) {
+				rc = 0;
+				break;
+			}
+			for (off = 0; off < (size_t)got; off += put) {
+				put = write(STDOUT_FILENO, buffer + off, got - off);
+				if (put < 0 && errno == EINTR)
+					put = 0;
+				fyai_error_check(ctx, put >= 0, out,
+						 "write to the client: %s",
+						 strerror(errno));
+			}
+		}
+	}
+out:
+	if (fd >= 0)
+		close(fd);
+	free(path);
+	return rc;
 }

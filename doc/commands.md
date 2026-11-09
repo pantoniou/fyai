@@ -15,7 +15,7 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `-b`, `--branch BRANCH` | work on this branch (else $FYAI_BRANCH, else HEAD) |
 | `--root HANDLE` | read one exact state by root handle (read-only) |
 | `--project DIR` | work in the directory DIR; with --remote, DIR is relative to the directory of the server of projects |
-| `--remote TARGET` | run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server |
+| `--remote TARGET` | run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR |
 | `--view-project DIR` | use this project root in an internal view child |
 | `--sink-frames` | send each output as a frame on standard output, for a server that runs a remote command |
 | `--view-scratch DIR` | use this scratch directory in an internal view child |
@@ -3524,7 +3524,7 @@ Show the server, its projects, and its sessions.
 
 connect to a remote session
 
-**Usage:** `fyai remote {connect} ...`
+**Usage:** `fyai remote {bridge|connect} ...`
 
 Connect to a remote fyai endpoint.
 
@@ -3532,7 +3532,34 @@ Connect to a remote fyai endpoint.
 
 | Command | Description |
 | --- | --- |
+| `bridge` | relay standard input and output to the server |
 | `connect` | connect through a Unix socket |
+
+## fyai remote bridge
+
+relay standard input and output to the server
+
+**Usage:** `fyai remote bridge [--nonce NONCE] [VALUE]`
+
+Relay standard input and output to the Unix socket of the server of
+this user, byte for byte. A client of an `ssh://` target runs it
+through ssh: `ssh HOST fyai remote bridge`. It takes the server of the
+project in the current directory, else the server of projects.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `VALUE` | relay to this socket instead of the server that the directory finds |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--nonce NONCE` | write the line "FYAI-BRIDGE NONCE" before anything else, which a client of an ssh target waits for, so that the output of a login script before it is skipped |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
 
 ## fyai remote connect
 
