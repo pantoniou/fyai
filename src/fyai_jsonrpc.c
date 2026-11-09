@@ -759,6 +759,17 @@ bool jsonrpc_image_available(void)
 	return !getenv("FYAI_REMOTE_NO_IMAGE");
 }
 
+const char *jsonrpc_image_feature(void)
+{
+	if (!jsonrpc_image_available())
+		return NULL;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	return sizeof(void *) == 8 ? "image-be64" : "image-be32";
+#else
+	return sizeof(void *) == 8 ? "image-le64" : "image-le32";
+#endif
+}
+
 int jsonrpc_conn_set_image(struct jsonrpc_conn *conn)
 {
 	if (!conn || conn->transport != JSONRPC_STDIO ||

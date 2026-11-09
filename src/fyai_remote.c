@@ -222,7 +222,8 @@ static void remote_output(struct jsonrpc_conn *conn, fy_generic frame,
 			 * bytes of it may be in the buffer already. */
 			features = fy_get(client->answer, "features", fy_seq_empty);
 			fy_foreach(feature, features)
-				if (fy_equal(feature, "image") &&
+				if (jsonrpc_image_feature() &&
+				    fy_equal(feature, jsonrpc_image_feature()) &&
 				    fy_equal(fy_get(response, "request_id", ""), "hello"))
 					(void)jsonrpc_conn_set_image(conn);
 		} else
@@ -387,9 +388,9 @@ static int remote_hello(struct remote_client *client)
 	for (i = 0; i < ARRAY_SIZE(remote_features); i++)
 		features = fy_append(client->gb, features,
 				     fy_value(client->gb, remote_features[i]));
-	if (jsonrpc_image_available())
+	if (jsonrpc_image_feature())
 		features = fy_append(client->gb, features,
-				     fy_value(client->gb, "image"));
+				     fy_value(client->gb, jsonrpc_image_feature()));
 	return remote_request(client, "hello", fy_mapping(client->gb,
 		"subtype", "fyai_hello", "version", VERSION,
 		"protocol", FYAI_REMOTE_PROTOCOL, "features", features));

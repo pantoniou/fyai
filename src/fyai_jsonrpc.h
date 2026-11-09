@@ -111,6 +111,13 @@ int jsonrpc_conn_send_encoded(struct jsonrpc_conn *conn, const char *line);
  * images. False when FYAI_REMOTE_NO_IMAGE is set.
  */
 bool jsonrpc_image_available(void);
+/*
+ * The hello feature of the image mode: "image-le64" or "image-be32" and so on,
+ * the byte order and the word size of this process, which an image has. NULL
+ * when this build or $FYAI_REMOTE_NO_IMAGE has no image mode. Two ends speak
+ * images only when each offers the feature of the other.
+ */
+const char *jsonrpc_image_feature(void);
 int jsonrpc_conn_set_image(struct jsonrpc_conn *conn);
 bool jsonrpc_conn_image(const struct jsonrpc_conn *conn);
 /*

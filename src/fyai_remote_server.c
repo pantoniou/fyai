@@ -1446,11 +1446,12 @@ static void remote_hello_answer(struct fyai_remote_peer *peer, fy_generic id,
 			if (feature && !strcmp(feature, remote_features[i]))
 				common = fy_append(gb, common,
 						   fy_value(gb, remote_features[i]));
-	/* A client that checks images and this server both speak them. */
+	/* Images of the same byte order and word size are spoken by both. */
 	fy_foreach(feature, theirs)
-		if (feature && !strcmp(feature, "image") &&
-		    jsonrpc_image_available())
-			common = fy_append(gb, common, fy_value(gb, "image"));
+		if (feature && jsonrpc_image_feature() &&
+		    !strcmp(feature, jsonrpc_image_feature()))
+			common = fy_append(gb, common,
+					   fy_value(gb, jsonrpc_image_feature()));
 	peer->native = true;
 	remote_log(server, "client %lu: fyai %s, protocol %lld", peer->id, version,
 		   protocol);
@@ -1459,7 +1460,8 @@ static void remote_hello_answer(struct fyai_remote_peer *peer, fy_generic id,
 						"features", common, "session", "fyai"));
 	/* The reply is the last line: the client sends images after it. */
 	fy_foreach(feature, common)
-		if (!strcmp(feature, "image"))
+		if (jsonrpc_image_feature() &&
+		    !strcmp(feature, jsonrpc_image_feature()))
 			(void)jsonrpc_conn_set_image(peer->conn);
 }
 
