@@ -49,7 +49,7 @@ PTY
 # another protocol is refused, and a client that does not say hello is an SDK
 # client: it runs no fyai request.
 "$PYTHON" - "$TEST_DIR/.fyai/unix/remote.sock" "$FYAI_TIMEOUT_SCALE" <<'PY'
-import json, socket, sys
+import json, socket, struct, sys
 path, scale = sys.argv[1], int(sys.argv[2])
 def ask(request):
     s = socket.socket(socket.AF_UNIX)
@@ -72,6 +72,19 @@ r = ask({'subtype': 'fyai_hello', 'version': 'x', 'protocol': 1,
          'features': ['run', 'nosuch']})
 assert r['subtype'] == 'success' and r['response']['session'] == 'fyai', r
 assert r['response']['features'] == ['run'], r
+# Images go between ends of the same byte order and word size: the feature
+# names both, and an end of another kind is never offered images.
+mine = 'image-%s%d' % ('le' if sys.byteorder == 'little' else 'be',
+                       8 * struct.calcsize('P'))
+other = 'image-%s%d' % ('be' if sys.byteorder == 'little' else 'le',
+                        8 * struct.calcsize('P'))
+for odd in (other, 'image-le16', 'image'):
+    r = ask({'subtype': 'fyai_hello', 'version': 'x', 'protocol': 1,
+             'features': ['run', odd]})
+    assert r['response']['features'] == ['run'], (odd, r)
+r = ask({'subtype': 'fyai_hello', 'version': 'x', 'protocol': 1,
+         'features': ['run', mine]})
+assert r['response']['features'] in (['run'], ['run', mine]), r
 PY
 
 # resume is interactive: the server selects the session, here by its name and
