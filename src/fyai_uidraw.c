@@ -680,7 +680,7 @@ void fyai_uidraw_store(struct fyai_ctx *ctx, enum fyai_ui_store store,
 {
 	struct fyai_uidraw *d = uidraw(ctx);
 
-	if (!d)
+	if (!d || ctx->uidraw_off)
 		return;
 	switch (store) {
 	case FYAI_UI_TRANSCRIPT:

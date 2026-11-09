@@ -3444,6 +3444,7 @@ int fyai_cmd_claude_sdk(struct fyai_cmd_call *call, fy_generic *result)
 	 * layer keeps it over each change of the configuration.
 	 */
 	if (srv.remote_worker) {
+		ctx->uidraw_off = true;
 		rc = fyai_config_invocation_set(ctx, "display/markdown",
 						fy_true);
 		if (!rc)

@@ -772,6 +772,11 @@ struct fyai_ctx {
 	struct fyai_uiwork *uiwork;	/* the bands of the display (src/fyai_uiwork.h) */
 	/* A copy that renders stored output: it has no UI model. */
 	bool uimodel_detached;
+	/*
+	 * The process publishes the model and draws nothing: a remote worker,
+	 * whose client draws the model it replicates.
+	 */
+	bool uidraw_off;
 	struct fyai_uitranscript *uitranscript;	/* the live document (src/fyai_uitranscript.h) */
 	struct fyai_uilog *uilog;	/* the span of a command (src/fyai_uilog.h) */
 	struct fyai_uidraw *uidraw;	/* the renderer of the model (src/fyai_uidraw.h) */
