@@ -64,6 +64,13 @@ struct fyai_request_cache {
 	size_t head_len;
 	char *tail;
 	uint64_t probe_word;
+	/*
+	 * The request that made @head and @tail, with an empty input, in a
+	 * builder of the cache. The next exchange has other values, so it
+	 * compares by content: an equal request has the same text.
+	 */
+	struct fy_generic_builder *probe_gb;
+	fy_generic probe_copy;
 	size_t emitted;		/* bytes that the emitter made for this request */
 	char *body;		/* the last body, which the caller reads */
 	size_t stable_off;	/* the stable items in @body */
@@ -142,6 +149,8 @@ static void rc_forget_all(struct fyai_request_cache *rc)
 	rc->head = NULL;
 	free(rc->tail);
 	rc->tail = NULL;
+	rc->probe_copy = fy_invalid;
+	rc->probe_word = 0;
 	free(rc->check);
 	rc->check = NULL;
 	rc->anchored = false;
@@ -156,6 +165,8 @@ void fyai_request_cache_release(struct fyai_ctx *ctx)
 	if (!rc)
 		return;
 	rc_forget_all(rc);
+	if (rc->probe_gb)
+		fy_generic_builder_destroy(rc->probe_gb);
 	free(rc);
 	ctx->request_cache = NULL;
 }
@@ -278,10 +289,10 @@ void fyai_request_cache_forget(struct fyai_ctx *ctx)
 		/* The word of a turn that the builder held can name another. */
 		rc->turn = 0;
 	}
-	free(rc->head);
-	rc->head = NULL;
-	free(rc->tail);
-	rc->tail = NULL;
+	/*
+	 * The head and the tail stay: the next request compares its own with
+	 * @probe_copy. Their word names a value of the builder that goes.
+	 */
 	rc->probe_word = 0;
 	rc->owner = NULL;
 	return;
@@ -461,7 +472,10 @@ static int rc_split_request(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 	fyai_error_check(ctx, fy_is_valid(request), err,
 			 "could not build the model request");
 	word = request.v;
-	if (rc->head && word == rc->probe_word) {
+	if (rc->head && (word == rc->probe_word ||
+			 (fy_is_valid(rc->probe_copy) &&
+			  fy_equal(request, rc->probe_copy)))) {
+		rc->probe_word = word;
 		*headp = rc->head;
 		*tailp = rc->tail;
 		return 0;
@@ -495,6 +509,13 @@ static int rc_split_request(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 	rv = response_buffer_append(&tail, "}");
 	fyai_error_check(ctx, !rv, err, "could not keep the request text");
 
+	if (!rc->probe_gb)
+		rc->probe_gb = fy_generic_builder_create(NULL);
+	else
+		fy_generic_builder_reset(rc->probe_gb);
+	fyai_error_check(ctx, rc->probe_gb, err,
+			 "could not keep the request cache");
+	rc->probe_copy = fy_gb_internalize(rc->probe_gb, request);
 	free(rc->head);
 	free(rc->tail);
 	rc->head = head.data;
