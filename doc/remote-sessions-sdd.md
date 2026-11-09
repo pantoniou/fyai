@@ -237,12 +237,38 @@ endpoints share this directory:
 | ------------------- | ---------------------------------- | ------------------------------------------------- |
 | stdio               | `fyai claude-sdk`, an SDK          | the owner of the pipes                            |
 | Unix socket         | Electron, `fyai remote`, local tools | `SO_PEERCRED` uid; optional launch token                  |
+| ssh                 | a client of another host           | ssh; `SO_PEERCRED` uid at the host                |
 | TCP on loopback     | a browser on the same host         | a token; an origin check                          |
 | TLS over TCP        | a device on the network            | a device token; a pinned certificate              |
 
 Each TCP connection carries HTTP. A request to `/` serves the page files when
 `fyai serve` serves them (section 16). An upgrade on `/api/fyai/session` opens
 a WebSocket. Each WebSocket text message is one frame.
+
+#### 5.1.1 ssh
+
+`--remote ssh://[USER@]HOST[:PORT]/DIR` runs `ssh -T [-p PORT] -- HOST fyai
+remote bridge` on one end of a socket pair. The program is `$FYAI_SSH`, else
+`ssh`. The child keeps `SSH_AUTH_SOCK`, `SSH_ASKPASS`, `SSH_ASKPASS_REQUIRE`
+and `DISPLAY` and no other variable that `fyai_env_sanitize()` removes. A host
+that starts with `-` or holds a character that a host does not is refused, so
+the host never reads as an ssh option.
+
+`fyai remote bridge` relays standard input and output to the socket of the
+server of the project in its directory, else of the server of projects. It
+reads no frame, so the hello, the images and the frames pass unchanged. The
+server sees a local client of the same user, and the uid check holds at the
+host. ssh authenticates and encrypts: the bridge opens no listener and takes no
+token. `DIR` is the project, relative to the projects of the server, as
+`--project` is; an ssh target needs one of them.
+
+The client gives the bridge a random `--nonce`. The bridge writes the line
+`FYAI-BRIDGE NONCE` before anything else, and the client reads the channel one
+byte at a time up to that line, so a banner or the output of a login script
+before it is dropped. The line can follow text that has no end, such as a
+prompt. The client reads at most 64 KiB before the line. If ssh ends first, the
+error has what ssh wrote, which is usually the cause: `fyai` is not on the
+`PATH` of the host.
 
 A plain TCP listener outside loopback is refused. The listener address comes
 from `remote/listen`, which a remote client cannot change.
