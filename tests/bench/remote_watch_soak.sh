@@ -117,8 +117,8 @@ class Watcher:
                 self.seen = 'init'
 
 print('watchers turn_ms(med max) | cpu ms/turn: worker server | KB/turn per watcher | rss MB worker server')
-for n in counts:
-    branch = 'bench/w%d' % n
+for idx, n in enumerate(counts):
+    branch = 'bench/w%d-%d' % (idx, n)
     client = subprocess.Popen([binary, '-b', branch, 'remote', 'connect', '--protocol', 'sdk'],
                               cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pend = bytearray()
