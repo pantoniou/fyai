@@ -968,6 +968,20 @@ static void test_request_cache(void)
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],
 				 "the turns after the exchange", true));
 
+		/*
+		 * The head is kept for the next exchange only when its request
+		 * is equal: other tools make it again, and the messages stay.
+		 */
+		fyai_request_cache_forget(&test_ctx);
+		test_ctx.tools = fy_sequence(test_ctx.transient_gb, parse(tools_plain),
+					     parse(tools_plain));
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "other tools in the next exchange", true));
+		test_ctx.tools = parse(tools_plain);
+		fyai_request_cache_forget(&test_ctx);
+		free(cache_check(grammar, turns[CACHE_TURNS - 1],
+				 "the first tools again", true));
+
 		/* A change of the configuration makes the text again. */
 		test_cfg.config_doc = fy_mapping(test_ctx.gb, "model", "another-model");
 		free(cache_check(grammar, turns[CACHE_TURNS - 1],

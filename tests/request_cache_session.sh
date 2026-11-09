@@ -7,9 +7,10 @@
 # The two runs must send the same requests, whatever the grammar. A grammar that
 # splits its input also uses the kept text for the second request of a line,
 # and emits only the new items there. The kept text serves the next line too:
-# the first request of a line emits the tools and the options again, and the new
-# items. A line with a tool call stores its last turn as another value, with the
-# display of the call; the text then ends at the newest turn that the arena
+# the first request of a line keeps the tools and the options too, when the
+# request is equal to the last, and emits the new items only. A line with a
+# tool call stores its last turn as another value, with the display of the
+# call; the text then ends at the newest turn that the arena
 # held before, and the messages after it must be the ones that were sent.
 printf 'hello\n' > notes.txt
 
@@ -159,7 +160,7 @@ if [ "$splits" = yes ]; then
 		[ "$((emitted * 4))" -ge "$body" ] || small=$((small + 1))
 	done < <(grep 'request-cache: hit' "$TEST_DIR/trace.on" |
 		sed -n 's/.*hit: \([0-9]*\) bytes, [0-9]* stable, \([0-9]*\) emitted.*/\1 \2/p')
-	[ "$small" -ge 2 ] || fail "only $small hits made the new items alone"
+	[ "$small" -ge 5 ] || fail "only $small hits made the new items alone"
 else
 	# The grammar chains requests and has no input to keep.
 	[ "$((hits_on + misses_on))" -eq 0 ] ||

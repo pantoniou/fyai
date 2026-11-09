@@ -149,11 +149,13 @@ The cache keeps the text of the part of the input that the next request
 repeats. The body of the next request is the text before the input, the kept
 text, the text of the turns that came after it, and the text after the input.
 The text before and after the input holds the tools and the options. The
-cache keeps it with the word of the request that made it. The transient
-builder dedups, so a request of the same value has the same word, and the
-emitter writes the tools one time for the exchange. A request that is not the
-same is written one time, pair by pair, and cut at the pair that holds the
-input.
+cache keeps it with the word of the request that made it, and a copy of that
+request in a builder of its own. The transient builder dedups, so a request of
+the same value has the same word, and the emitter writes the tools one time for
+the exchange. In a later exchange the word is of no use, and the cache compares
+the request with its copy: an equal request has the same text. A request that
+is not the same is written one time, pair by pair, and cut at the pair that
+holds the input.
 
 What the grammar can say about its input decides how much is kept. The
 operation `input_split` makes the input of some messages and says two things:
@@ -193,9 +195,10 @@ transient builder holds has a word that a new object can take when the builder
 goes away, so the cache forgets it with the builder. A turn that the arena
 holds has a word that stays: the arena does not move. When the transient
 builder goes away, the cache keeps the text and the turn if the arena holds the
-turn, and forgets the text of the request that the builder made, which is the
-head and the tail. The next exchange then finds the turn in its chain, and its
-first request emits the head again and the messages that came after the turn.
+turn, and forgets the word of the request that the builder made. The head and
+the tail stay with their copy of the request. The next exchange finds the turn
+in its chain, and its first request emits only the messages that came after
+the turn, unless its tools or options differ from the copy.
 A line with a tool call stores its last turn with the display of the call, as
 another value. The cache then keeps the newest turn of the chain that the arena
 held, the number of messages that follow it in the text, and the text of those
