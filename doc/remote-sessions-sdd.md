@@ -273,9 +273,12 @@ relocates the image in place, and does not parse text. For a frame of 64 KiB
 this takes 5 microseconds in place of 2.5 milliseconds, and the frame is 12%
 smaller.
 
-- The feature is `image` in the hello (section 6.1.3). A client sends it when
-  `jsonrpc_image_available()` is true: `FYAI_REMOTE_NO_IMAGE` is not set. The
-  server answers with it when it has the same. The reply to the hello is the last
+- The feature is `image-ORDERBITS` in the hello (section 6.1.3), for example
+  `image-le64`: the byte order and the word size of the sender. A client sends
+  it when `jsonrpc_image_feature()` gives one: `FYAI_REMOTE_NO_IMAGE` is not
+  set. The server answers with it when its own feature is the same. An end of
+  another byte order or word size gets no image feature, and both ends keep
+  lines. The reply to the hello is the last
   line: the next frame of each end is an image. The server gives a client to
   a project server with `image` set.
 - The connection of a server and its worker is in image mode at once, with no
@@ -283,9 +286,9 @@ smaller.
   standard input and output to `/dev/null`, so a stray write cannot break the
   framing.
 - A frame is a 64-bit length in native byte order and then the image. The
-  limit is `JSONRPC_FRAME_MAX`. An end on the same machine has the byte order
-  and word size of its peer; the magic of the image says it, and a peer that
-  differs fails the load.
+  limit is `JSONRPC_FRAME_MAX`. The hello has made sure that the peer has the
+  byte order and word size of the sender. The magic of the image says it too,
+  and an image that differs fails the load.
 - A frame that does not load, is not a mapping, or has a bad length ends the
   connection with a diagnostic. The load checks each pointer, the extent of its
   object, the alignment, the end of a string, an escape, and a value that
@@ -505,8 +508,8 @@ and the type of the session:
 {"version":"0.4.2","protocol":1,"features":["project","run"],"session":"fyai"}
 ```
 
-The feature `image` is in the answer when both ends have it: the next frame of
-each end is an image (section 5.2.1).
+The feature `image-ORDERBITS` is in the answer when both ends have the same
+one: the next frame of each end is an image (section 5.2.1).
 
 A server of another protocol refuses the hello and names both protocols and
 its version, so the user knows which side to change. A client that gets no
