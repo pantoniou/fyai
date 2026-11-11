@@ -431,6 +431,8 @@ Each connection has an output queue with a limit in bytes.
 | launch token   | one process                 | memory; given to Electron through a descriptor or its standard output    |
 | pairing code   | five minutes, one use       | memory of the serving process                                           |
 | device token   | until revoked               | host: hash only, in the auth store; device: keyring or secure storage    |
+| bearer token   | until the file changes      | host: `~/.fyai/serve.token`, mode 0600; client: `$FYAI_REMOTE_TOKEN` or its own copy of the file (section 5.1.2) |
+| JWT            | until `exp`                 | not stored by the host; a client holds it (section 6.6, not built)       |
 
 The host keeps the device list in the auth store (`fyai_auth_state_path()`,
 `src/fyai_auth_util.c`): a file of mode 0600, written atomically under its lock.
@@ -822,6 +824,71 @@ and ends its connections.
   that is `HttpOnly`, `SameSite=Strict`, and `Secure` on TLS.
 - A WebSocket upgrade must have the origin of the server, else fyai refuses it.
 - No response has `access-control-allow-origin: *`.
+
+### 6.6 Signed bearer tokens (JWT)
+
+Not built. Sections 5.1.2 and 5.1.3 give the HTTP and HTTPS listeners one shared
+bearer token, which carries every right. A signed token replaces it where a
+client must have fewer rights, a limited time, or a name in the log. It goes
+through the same hook, `struct fyai_remote_auth`, which already returns a
+`struct fyai_remote_identity`. The listener does not change.
+
+**Token.** A JWT of RFC 7519, in a JWS compact form (RFC 7515), sent as `Authorization: Bearer`.
+
+- Algorithms: `ES256` and `HS256` first, and `RS256` after them. The server takes
+  only the algorithms that its configured keys allow. A key has one algorithm, so
+  a token cannot name a weaker one (the confusion of an RSA public key used as an
+  HMAC secret). `none` is never taken. A header with `jku`, `x5u`, `jwk` or
+  `crit` is refused: the server fetches no key and trusts no key in a token.
+- `kid` selects one of several configured keys, so a key can be replaced with
+  both valid for a time.
+- Claims that must be present: `exp`, `iss` equal to the configured issuer, `aud`
+  that names this server, and `sub`. `nbf` and `iat` are checked when present,
+  with a leeway of 60 seconds. A token with no valid scope is refused.
+- Scopes are in `scope`, a string of words separated by blanks as in OAuth, or in
+  `scopes`, an array. The words are those of section 6.4. A word that is not one
+  of them is dropped and logged; the shared token has every scope.
+- The size of a token is limited (8 KiB). The parser reads base64url with
+  `fyai_base64url_decode()` and the signature with OpenSSL `EVP`: no new
+  dependency.
+
+**Keys.** Keys are files, as the token file is, and the arena holds none. The
+server takes `--jwt-key FILE` (repeated; a PEM public key for `ES256` and
+`RS256`, or a secret file of mode 0600 for `HS256`), `--jwt-issuer NAME` and
+`--jwt-audience NAME`. A JWKS file is a later addition. A server with no key
+accepts the shared token only; with a key it accepts both, unless
+`--no-shared-token` is given.
+
+**Issuing.** `fyai remote token --key FILE --sub NAME --scopes LIST --ttl 1h`
+signs a token with a private key (or an HS256 secret) on the machine of the user
+who issues it, and prints it. The host needs only the public key. `fyai remote
+keygen` makes an ES256 pair. A client passes the token in `$FYAI_REMOTE_TOKEN`,
+as it does the shared token.
+
+**Enforcement.** The listener gives the identity and its scopes to the server
+with the client. A scope is checked where the server reads a frame, never in the
+client: a frame that needs `prompt` from a connection that has `observe` gets an
+error response, and a request that needs `pair` or `configure` is refused the same
+way. The scopes go with the client when the front of a server of projects gives it
+to a project server, in the message that carries the directory. A client of a Unix
+socket or of ssh is the user and has every scope.
+
+**Lifetime.** A WebSocket outlives the check of the token. The server closes it
+with the code 1008 at `exp`, and the client connects again with a new token.
+A token is revoked by its `jti`, which `fyai remote revoke` puts in the auth store
+of section 6.1; a short `exp` is the first defence, and the list is the second.
+
+**Browsers.** A browser cannot set `Authorization` on a WebSocket. The page of
+section 6.5 takes the token in a `Secure` cookie, or in the subprotocol
+`fyai.bearer.TOKEN` of `Sec-WebSocket-Protocol`, which the server then echoes
+without the token. Section 16 asks which.
+
+**Tests.** Unit tests of the parser and the check: the examples of RFC 7515 and
+RFC 7519, an expired token, a token that is not yet valid, a wrong issuer or
+audience, a changed signature, `alg: none`, a key of another algorithm, a `kid`
+that is not known, an oversize token, and a header with `jku`. A functional case
+issues tokens with `remote token` and runs a client of each scope against the
+refusals of section 6.4.
 
 ## 7. Protocol
 
@@ -1260,6 +1327,41 @@ a client goes back to that client as an error with its cause, as
 | P7    | fyai web on the protocol; Electron on `fyai serve`                                           | the e2e tests of `web/` against `fyai serve`                                                              |
 | P8    | mobile packaging                                                                            | the page on a device over a paired TLS connection                                                         |
 
+### 15.1 Status of P6
+
+P6 is split into steps. The first is done and committed; the rest is open.
+
+| Step | Work                                                                                  | State |
+| ---- | ------------------------------------------------------------------------------------- | ----- |
+| P6a  | `ssh://` target: `remote bridge`, with the nonce line that skips login output (5.1.1)  | done  |
+| P6b  | HTTP and WebSocket listener, one shared bearer token, `remote relay` (5.1.2)           | done  |
+| P6c  | HTTPS: TLS listener, self-signed key and its fingerprint, `--tls-cert`, `--tls-key`, pin and CA in the client, `remote fingerprint`, `remote rekey` (5.1.3) | done |
+| P6d  | JWT bearer tokens, scopes at the frame dispatch, `remote token`, `remote keygen` (6.6) | open  |
+| P6e  | Pairing, device tokens, `remote devices`, `remote revoke` (6.2, 6.4)                   | open  |
+| P6f  | `x-fyai-remote` access of configuration keys (11)                                      | open  |
+| P6g  | Known servers: trust on first use for a pin                                            | open  |
+
+Tests of the done steps: `tests/cases/remote_ssh.sh`, `remote_http.sh` and
+`remote_https.sh`, `tests/fyai_ws_test.c` and `tests/fyai_httpd_test.c`. They run the client against the
+mock provider, compare its output with that of `--remote .`, and run raw clients
+for each refusal.
+
+Open points of the done steps:
+
+- Every valid shared token has every scope. Scopes begin with P6d.
+- The listeners are in the process that owns the Unix socket. The cases cover the
+  server of one project; the server of projects works by the same code and has
+  no case of its own with `--listen`.
+- Image mode is not offered over a WebSocket, and a binary message closes the
+  connection (1003). Binary messages are for terminal bytes (section 8.3).
+- The client takes trust roots from the default paths of OpenSSL. A system with
+  its roots elsewhere, such as macOS, needs `$FYAI_REMOTE_CA` or a pin.
+- A flood of TLS handshakes is limited by the 256 connections and the admit
+  window, and by nothing else.
+- A failed relay prints a second line, "the endpoint did not answer the request
+  'hello'", after the line that has the cause.
+- A browser cannot send the bearer token (section 6.6).
+
 Each phase adds unit tests, functional cases with the mock provider, and PTY
 cases where a terminal takes part. The cases follow `CLAUDE.md`: no delay, wait
 for state, and hold a reply of the mock with a marker. A protocol test client
@@ -1304,3 +1406,9 @@ reads a YAML script of frames and waits on frames.
    turn waits or fails). It changes guarantee 3 in one direction only: the
    client supplies a key to the session, on demand, and still never receives
    one. Not designed yet.
+9. **JWT keys and algorithms.** `ES256` and `HS256` first, or `ES256` alone. Whether
+   the server also reads a JWKS file, and whether a token may carry its own `kid`
+   rotation.
+10. **JWT lifetime of a connection.** Close at `exp` (the design above), or let a
+    client refresh the token in a frame without a new connection.
+11. **Token for a browser.** A cookie or a subprotocol (section 6.6).
