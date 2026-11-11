@@ -23,6 +23,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "fyai_filc_compat.h"
+
 #include "fyai.h"
 #include "fyai_fsview_backend.h"
 #include "fyai_project_capture.h"

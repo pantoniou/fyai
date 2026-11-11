@@ -20,6 +20,8 @@
 #include <sys/xattr.h>
 #include <linux/openat2.h>
 
+#include "fyai_filc_compat.h"
+
 static int linux_open_beneath(int root, const char *path, int flags, unsigned int mode)
 {
 	struct open_how how = { .flags = flags | O_NOFOLLOW | O_CLOEXEC,

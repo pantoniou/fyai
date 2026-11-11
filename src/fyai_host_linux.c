@@ -26,6 +26,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include "fyai_filc_compat.h"
+
 #include <pty.h>
 
 #include "fyai_transport.h"
