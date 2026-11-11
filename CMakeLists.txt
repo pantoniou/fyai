@@ -462,7 +462,7 @@ configure_file(
 )
 
 # fyai
-find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto SSL)
 if(ENABLE_LIBSECRET)
     if(FYAI_STATIC_DEPS)
         message(FATAL_ERROR "ENABLE_LIBSECRET is incompatible with static dependency builds")
@@ -543,6 +543,7 @@ set(FYAI_SOURCES
     src/fyai_remote.c
     src/fyai_remote_server.c
     src/fyai_remote_ui.c
+    src/fyai_net.c
     src/fyai_claude_sdk.c
     src/fyai_structured.c
     src/fyai_settings.c
@@ -698,7 +699,7 @@ target_compile_options(fyai PRIVATE ${FYAI_C_DIALECT} ${FYAI_C_WARNINGS}
     ${ASAN_C_FLAGS})
 target_link_libraries(fyai PRIVATE libfyaml::libfyaml ${FYAI_LIBFYMD4C_TARGET}
     ${FYAI_LIBFYPALETTE_TARGET}
-    ${FYAI_LIBFYTIMUI_TARGET} ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl OpenSSL::Crypto
+    ${FYAI_LIBFYTIMUI_TARGET} ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl OpenSSL::SSL OpenSSL::Crypto
     ${FYAI_LIBFYVTERM_TARGET} ${ASAN_LINK_OPTS})
 if(UNIX AND NOT APPLE)
     target_link_libraries(fyai PRIVATE util)
@@ -837,7 +838,7 @@ if(BUILD_TESTING)
     target_link_libraries(fyai_test PRIVATE libfyaml::libfyaml
         ${FYAI_LIBFYMD4C_TARGET} ${FYAI_LIBFYPALETTE_TARGET} ${FYAI_LIBFYTIMUI_TARGET}
         ${FYAI_LIBFYMERMAID_TARGET} CURL::libcurl
-        OpenSSL::Crypto Threads::Threads ${FYAI_LIBFYVTERM_TARGET}
+        OpenSSL::SSL OpenSSL::Crypto Threads::Threads ${FYAI_LIBFYVTERM_TARGET}
         ${ASAN_LINK_OPTS})
     if(FYAI_HAVE_BACKTRACE)
         target_compile_definitions(fyai_test PRIVATE HAVE_EXECINFO)
