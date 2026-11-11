@@ -282,7 +282,16 @@ static int view_namespace(bool pid_namespace)
 	gid_t gid = getgid();
 	int rc;
 
-	rc = unshare(CLONE_NEWUSER | CLONE_NEWNS | (pid_namespace ? CLONE_NEWPID : 0));
+	int flags = CLONE_NEWUSER | CLONE_NEWNS;
+
+#ifndef __FILC__
+	/* Fil-C creates the PID namespace in view_clone_init(). */
+	if (pid_namespace)
+		flags |= CLONE_NEWPID;
+#else
+	(void)pid_namespace;
+#endif
+	rc = unshare(flags);
 	if (rc)
 		return -1;
 	rc = view_write_file("/proc/self/setgroups", "deny\n");
@@ -297,6 +306,20 @@ static int view_namespace(bool pid_namespace)
 	if (rc)
 		return -1;
 	return mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL);
+}
+
+/*
+ * Create the init of the PID namespace. After unshare(CLONE_NEWPID) the kernel
+ * refuses thread creation in the caller, which the Fil-C collector needs.
+ * Under Fil-C, a fork-style clone() puts only the child in the new namespace.
+ */
+static pid_t view_clone_init(void)
+{
+#ifdef __FILC__
+	return (pid_t)syscall(SYS_clone, SIGCHLD | CLONE_NEWPID, 0, 0, 0, 0);
+#else
+	return fork();
+#endif
 }
 
 static const char *view_overlay_options(bool metacopy)
@@ -615,7 +638,7 @@ static int linux_hide(const char *const *paths, size_t n,
 	 * waits for the init of the namespace and ends with its status, so the
 	 * caller sees one child, as it did.
 	 */
-	child = fork();
+	child = view_clone_init();
 	if (child < 0)
 		return -1;
 	if (child) {
@@ -759,7 +782,7 @@ static int linux_holder(const char *const *paths, size_t n, int hold,
 		for (i = 0; i < n; i++)
 			if (view_hide_one(paths[i]))
 				_exit(127);
-		second = fork();
+		second = view_clone_init();
 		if (second < 0)
 			_exit(127);
 		if (!second) {
@@ -1024,7 +1047,7 @@ static int linux_enter(struct fyai_cfg *cfg, const struct fyai_fsview *view,
 		rc = -1;
 		goto out;
 	}
-	child = fork();
+	child = view_clone_init();
 	if (child < 0) {
 		rc = -1;
 		goto out;
