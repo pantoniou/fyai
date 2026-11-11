@@ -11,6 +11,9 @@
 #include "config.h"
 #endif
 
+#ifdef __FILC__
+#include <stdfil.h>
+#endif
 #include <errno.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -2946,14 +2949,127 @@ static void fyai_tool_child_session(struct fyai_ctx *ctx,
 	tc->relay = NULL;
 }
 
-static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
+/* Flush the output of a tool child and exit. */
+static void fyai_tool_child_finish(struct fyai_ctx *ctx, struct jsonrpc_conn *conn,
+				   struct fyai_event_loop *el, bool ok)
+{
+	while (jsonrpc_conn_has_output(conn))
+		if (fyai_event_loop_step(el, 1000) <= 0)
+			break;
+	/*
+	 * This child leaves through _exit and never returns to main(), so it
+	 * removes the skills it wrote out itself.
+	 */
+	fyai_skill_dirs_release(ctx);
+	fyai_prof_report();
+	_exit(ok ? 0 : 1);
+}
+
+/* Run the call of a tool child, reply and exit. Does not return. */
+static void fyai_tool_child_dispatch(struct fyai_ctx *ctx, struct fyai_tool_child *tc,
+				     struct jsonrpc_conn *conn, struct fyai_event_loop *el)
 {
 	const char *env_keep[FYAI_TOOL_ENV_KEEP_MAX + 1];
+	fy_generic result, diag;
+	bool ok = false, unconfined, agent_call;
+	bool reopen_failed = false;
+
+#ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
+	/* On the fresh stack, before a callee holds the call. */
+	if (ctx->agent_branch && fy_equal(fyai_tool_call_name(ctx, tc->args), "agent"))
+		reopen_failed = fyai_agent_reopen_for_call(ctx, &tc->args) != 0;
+#endif
+
+	/*
+	 * A sub-agent needs provider credentials after a persona
+	 * changes its model. Its own tool children sanitize again.
+	 */
+	fyai_tool_env_keep(fyai_tool_call_args(ctx, tc->args),
+			   env_keep);
+	if (!fy_equal(fyai_tool_call_name(ctx, tc->args), "agent") &&
+	    fyai_env_sanitize(env_keep))
+		fyai_error(ctx,
+			   "could not remove every credential from the tool environment");
+	/*
+	 * A sub-agent runtime publishes to the arena that the sandbox
+	 * denies. Each tool that it runs is confined in its own child.
+	 */
+	/* What a program detaches becomes a child of this one. */
+	agent_call = fy_equal(fyai_tool_call_name(ctx, tc->args), "agent");
+	if (!agent_call)
+		fyai_orphan_subreaper();
+	unconfined = !fy_equal(fyai_tool_call_name(ctx, tc->args), "agent") &&
+		     fyai_tool_apply_sandbox(ctx);
+	/* A joined scope forked the program: it is the parent that counts. */
+	if (!agent_call)
+		fyai_orphan_subreaper();
+	if (!unconfined && fyai_shell_session_call(ctx, tc->args)) {
+		fyai_tool_child_session(ctx, tc, conn);
+		/* Exit according to whether the session opened. */
+		fyai_tool_child_finish(ctx, conn, el, tc->session_started);
+	}
+	if (unconfined) {
+		result = fy_value(fyai_ctx_transient_gb(ctx),
+			"tool error: the sandbox could not confine the tool");
+	} else if (reopen_failed) {
+		result = fy_value(fyai_ctx_transient_gb(ctx),
+			"tool error: the sub-agent could not re-open the arena");
+	} else if (tc->spawn_failed) {
+		result = fy_value(fyai_ctx_transient_gb(ctx),
+			"tool error: the sub-agent could not "
+			"adopt the state of its parent");
+	} else if (fy_equal(fyai_tool_call_name(ctx, tc->args),
+			    "agent") &&
+		   fyai_agents_enter(ctx)) {
+		result = fy_value(fyai_ctx_transient_gb(ctx),
+			"tool error: agent admission refused");
+	} else {
+		result = fyai_execute_tool_call(ctx, tc->args, &ok);
+	}
+	fyai_agents_leave(ctx, ok);
+	result = fyai_tool_result_note(ctx, agent_call, result);
+	/* Return child diagnostics with the tool result. */
+	diag = fyai_diag_take_generic(&ctx->cfg->diag,
+				      fyai_ctx_transient_gb(ctx));
+	jsonrpc_conn_respond(conn, tc->id,
+		fy_gb_mapping(fyai_ctx_transient_gb(ctx),
+			      "result", result, "ok", ok,
+			      "display", ctx->patch_display ?
+				fy_value(ctx->patch_display) :
+				fy_null,
+			      "detached", fyai_orphan_children(
+				fyai_ctx_transient_gb(ctx)),
+			      "diag", diag),
+		fy_invalid);
+	fyai_tool_child_finish(ctx, conn, el, ok);
+}
+
+#ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
+/* Arguments of fyai_tool_child_dispatch() on the fresh stack. */
+struct fyai_tool_child_dispatch_args {
+	struct fyai_ctx *ctx;
+	struct fyai_tool_child *tc;
+	struct jsonrpc_conn *conn;
+	struct fyai_event_loop *el;
+};
+
+static void *fyai_tool_child_dispatch_entry(void *arg)
+{
+	struct fyai_tool_child_dispatch_args *da = arg;
+
+	fyai_tool_child_dispatch(da->ctx, da->tc, da->conn, da->el);
+	return NULL;
+}
+#endif
+
+static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
+{
 	struct fyai_tool_child tc;
 	struct fyai_event_loop *el;
 	struct jsonrpc_conn *conn;
-	fy_generic result, diag;
-	bool ok = false, unconfined, agent_call;
+#ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
+	struct fyai_tool_child_dispatch_args da;
+#endif
 
 	memset(&tc, 0, sizeof(tc));
 	tc.ctx = ctx;
@@ -2983,81 +3099,26 @@ static void fyai_tool_child_serve_loop(struct fyai_ctx *ctx)
 			if (fy_is_string(tc.branch))
 				ctx->agent_branch =
 					strdup(fy_castp(&tc.branch, ""));
+#ifdef FILC_HAS_ZCALL_ON_FRESH_STACK
 			/*
-			 * A sub-agent needs provider credentials after a persona
-			 * changes its model. Its own tool children sanitize again.
+			 * Run a sub-agent call on a fresh stack: no frame of this
+			 * function or its callers may point into the old arena.
 			 */
-			fyai_tool_env_keep(fyai_tool_call_args(ctx, tc.args),
-					   env_keep);
-			if (!fy_equal(fyai_tool_call_name(ctx, tc.args), "agent") &&
-			    fyai_env_sanitize(env_keep))
-				fyai_error(ctx,
-					   "could not remove every credential from the tool environment");
-			/*
-			 * A sub-agent runtime publishes to the arena that the sandbox
-			 * denies. Each tool that it runs is confined in its own child.
-			 */
-			/* What a program detaches becomes a child of this one. */
-			agent_call = fy_equal(fyai_tool_call_name(ctx, tc.args), "agent");
-			if (!agent_call)
-				fyai_orphan_subreaper();
-			unconfined = !fy_equal(fyai_tool_call_name(ctx, tc.args), "agent") &&
-				     fyai_tool_apply_sandbox(ctx);
-			/* A joined scope forked the program: it is the parent that counts. */
-			if (!agent_call)
-				fyai_orphan_subreaper();
-			if (!unconfined && fyai_shell_session_call(ctx, tc.args)) {
-				fyai_tool_child_session(ctx, &tc, conn);
-				/* Exit according to whether the session opened. */
-				ok = tc.session_started;
-				break;
+			if (ctx->agent_branch) {
+				da.ctx = ctx;
+				da.tc = &tc;
+				da.conn = conn;
+				da.el = el;
+				zcall_on_fresh_stack(fyai_tool_child_dispatch_entry, &da);
 			}
-			if (unconfined) {
-				result = fy_value(fyai_ctx_transient_gb(ctx),
-					"tool error: the sandbox could not confine the tool");
-			} else if (tc.spawn_failed) {
-				result = fy_value(fyai_ctx_transient_gb(ctx),
-					"tool error: the sub-agent could not "
-					"adopt the state of its parent");
-			} else if (fy_equal(fyai_tool_call_name(ctx, tc.args),
-					    "agent") &&
-				   fyai_agents_enter(ctx)) {
-				result = fy_value(fyai_ctx_transient_gb(ctx),
-					"tool error: agent admission refused");
-			} else {
-				result = fyai_execute_tool_call(ctx, tc.args, &ok);
-			}
-			fyai_agents_leave(ctx, ok);
-			result = fyai_tool_result_note(ctx, agent_call, result);
-			/* Return child diagnostics with the tool result. */
-			diag = fyai_diag_take_generic(&ctx->cfg->diag,
-						      fyai_ctx_transient_gb(ctx));
-			jsonrpc_conn_respond(conn, tc.id,
-				fy_gb_mapping(fyai_ctx_transient_gb(ctx),
-					      "result", result, "ok", ok,
-					      "display", ctx->patch_display ?
-						fy_value(ctx->patch_display) :
-						fy_null,
-					      "detached", fyai_orphan_children(
-						fyai_ctx_transient_gb(ctx)),
-					      "diag", diag),
-				fy_invalid);
-			break;
+#endif
+			fyai_tool_child_dispatch(ctx, &tc, conn, el);
 		}
 		if (fyai_event_loop_step(el, -1) < 0)
 			_exit(1);
 	}
 
-	while (jsonrpc_conn_has_output(conn))
-		if (fyai_event_loop_step(el, 1000) <= 0)
-			break;
-	/*
-	 * This child leaves through _exit and never returns to main(), so it
-	 * removes the skills it wrote out itself.
-	 */
-	fyai_skill_dirs_release(ctx);
-	fyai_prof_report();
-	_exit(ok ? 0 : 1);
+	fyai_tool_child_finish(ctx, conn, el, false);
 }
 
 /*

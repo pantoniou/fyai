@@ -8,6 +8,8 @@ extern const char fyai_agent_system_prompt[];
 
 /* Return the sub-agent report, or fy_invalid after an error. */
 fy_generic fyai_agent_run(struct fyai_ctx *ctx, fy_generic args, bool *okp);
+/* Reopen the arena for a sub-agent call. Return 0, or -1 after an error. */
+int fyai_agent_reopen_for_call(struct fyai_ctx *ctx, fy_generic *call);
 
 int fyai_agent_verb(struct fyai_ctx *ctx);
 

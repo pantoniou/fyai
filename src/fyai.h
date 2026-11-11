@@ -831,6 +831,8 @@ struct fyai_ctx {
 	char *session_unstored;
 	/* Durable branch for a sub-agent conversation. */
 	char *agent_branch;
+	/* The arena was reopened by fyai_agent_reopen_for_call(). */
+	bool arena_reopened;
 	/* The spawn state an executed sub-agent child received, as JSON. */
 	char *agent_spawn_json;
 	char *tool_submit_error;
