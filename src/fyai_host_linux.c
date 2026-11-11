@@ -34,7 +34,7 @@
 
 static int linux_close_range(unsigned int from, unsigned int to)
 {
-#ifdef SYS_close_range
+#if defined(SYS_close_range) && !defined(__FILC__)
 	return syscall(SYS_close_range, from, to, 0U) ? -1 : 0;
 #else
 	(void)from;

@@ -21,7 +21,7 @@
 #include <unistd.h>
 #endif
 
-#if defined(__linux__) && defined(SYS_keyctl) && defined(SYS_add_key)
+#if defined(__linux__) && defined(SYS_keyctl) && defined(SYS_add_key) && !defined(__FILC__)
 static long keyctl_call(long cmd, unsigned long a2, unsigned long a3,
 			unsigned long a4, unsigned long a5)
 {

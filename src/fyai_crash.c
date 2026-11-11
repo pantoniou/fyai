@@ -247,6 +247,10 @@ void fyai_crash_install(void)
 	stack_t ss;
 	size_t i;
 
+#ifdef __FILC__
+	/* The runtime refuses sigaltstack() and reports its own safety stops. */
+	return;
+#endif
 	if (crash_ready)
 		return;
 
@@ -296,7 +300,9 @@ bool fyai_crash_armed(int signo)
 
 void fyai_crash_uninstall(void)
 {
+#ifndef __FILC__
 	stack_t ss;
+#endif
 	size_t i;
 
 	for (i = 0; i < FYAI_CRASH_NSIGNS; i++) {
@@ -308,8 +314,10 @@ void fyai_crash_uninstall(void)
 	crash_ready = false;
 	crash_active = 0;
 
+#ifndef __FILC__
 	ss.ss_flags = SS_DISABLE;
 	ss.ss_sp = NULL;
 	ss.ss_size = 0;
 	(void)sigaltstack(&ss, NULL);
+#endif
 }
