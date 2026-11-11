@@ -30,6 +30,7 @@
 #include "fyai.h"
 #include "fyai_auth_util.h"
 #include "fyai_event.h"
+#include "fyai_httpd.h"
 #include "fyai_oauth.h"
 
 char *fyai_oauth_query_value(CURL *curl, const char *request, const char *key)
@@ -140,34 +141,18 @@ void fyai_oauth_open_browser(const char *url)
 
 /* The redirect receiver. */
 #define OAUTH_CB_MAX_CONNS	8
-
-/* Per-connection state. A connection is only interesting until its request
- * headers are complete; after that it is either the winner or closed. */
-enum oauth_conn_state {
-	OAUTH_CONN_FREE = 0,		/* slot unused */
-	OAUTH_CONN_READING,		/* accumulating request headers */
-	OAUTH_CONN_HELD,		/* carried the code; owed a response */
-};
-
-struct oauth_conn {
-	struct fyai_oauth_flow *flow;
-	struct fyai_event_source *src;
-	enum oauth_conn_state state;
-	int fd;
-	size_t len;
-	char buf[8192];
-};
+/* The time a browser has to send its request; the flow has its own limit. */
+#define OAUTH_CB_HEAD_MS	10000
 
 struct fyai_oauth_flow {
 	struct fyai_ctx *ctx;
 	struct fyai_event_loop *el;		/* borrowed */
-	struct fyai_event_source *listen_src;
+	struct fyai_httpd *httpd;
 	struct fyai_event_source *timer_src;
 
 	enum fyai_oauth_state state;
 	bool settled;				/* completion already reported */
 
-	int listen_fd;
 	unsigned short port;
 	const char *path;
 	const char *expect_state;
@@ -175,23 +160,16 @@ struct fyai_oauth_flow {
 	char *code;
 	char *client_id;
 	char *error;
-	int winner;				/* conn index owed a response */
+	struct fyai_httpd_conn *held;		/* the connection owed a response */
 
 	fyai_oauth_done_cb done_cb;
 	void *done_user;
-
-	struct oauth_conn conns[OAUTH_CB_MAX_CONNS];
 };
 
-static const char oauth_resp_ok[] =
-	"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
-	"Login complete. You may close this window.\n";
-static const char oauth_resp_bad[] =
-	"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
-	"Login failed.\n";
-static const char oauth_resp_notfound[] =
-	"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
-	"Not found.\n";
+static const char oauth_body_ok[] = "Login complete. You may close this window.\n";
+static const char oauth_body_bad[] = "Login failed.\n";
+static const char oauth_body_notfound[] = "Not found.\n";
+static const char oauth_text[] = "Content-Type: text/plain\r\n";
 
 bool fyai_oauth_state_is_terminal(enum fyai_oauth_state st)
 {
@@ -210,37 +188,9 @@ const char *fyai_oauth_state_string(enum fyai_oauth_state st)
 	return "unknown";
 }
 
-/* Best effort: the responses are a couple of hundred bytes into a fresh
- * socket buffer, and the browser is being told to close regardless. */
-static void oauth_respond(int fd, const char *resp, size_t len)
-{
-	ssize_t wrn;
-
-	if (fd < 0)
-		return;
-	do {
-		wrn = write(fd, resp, len);
-	} while (wrn == -1 && errno == EINTR);
-}
-
-static void oauth_conn_close(struct oauth_conn *c)
-{
-	if (c->state == OAUTH_CONN_FREE)
-		return;
-	fyai_event_source_remove(c->src);
-	c->src = NULL;
-	if (c->fd >= 0)
-		close(c->fd);
-	c->fd = -1;
-	c->len = 0;
-	c->state = OAUTH_CONN_FREE;
-}
-
 /* Move the flow to a terminal state exactly once. */
 static void oauth_settle(struct fyai_oauth_flow *f, enum fyai_oauth_state st)
 {
-	size_t i;
-
 	if (f->settled)
 		return;
 	f->settled = true;
@@ -248,43 +198,11 @@ static void oauth_settle(struct fyai_oauth_flow *f, enum fyai_oauth_state st)
 
 	fyai_event_source_remove(f->timer_src);
 	f->timer_src = NULL;
-	fyai_event_source_remove(f->listen_src);
-	f->listen_src = NULL;
-
 	/* Drop every connection except the one owed a response. */
-	for (i = 0; i < OAUTH_CB_MAX_CONNS; i++) {
-		if ((int)i == f->winner && f->conns[i].state == OAUTH_CONN_HELD) {
-			/* keep the fd, but stop watching it */
-			fyai_event_source_remove(f->conns[i].src);
-			f->conns[i].src = NULL;
-			continue;
-		}
-		oauth_conn_close(&f->conns[i]);
-	}
+	fyai_httpd_stop(f->httpd, f->held);
 
 	if (f->done_cb)
 		f->done_cb(f, f->done_user);
-}
-
-/* Consume one connection's request once its headers are complete. */
-static void oauth_consume(struct fyai_oauth_flow *f, struct oauth_conn *c)
-{
-	size_t plen;
-
-	plen = strlen(f->path);
-
-	if (strncmp(c->buf, "GET ", 4) || strncmp(c->buf + 4, f->path, plen) ||
-	    c->buf[4 + plen] != '?') {
-		/* Ignore browser probes and keep waiting for the redirect. */
-		oauth_respond(c->fd, oauth_resp_notfound,
-			      sizeof(oauth_resp_notfound) - 1);
-		oauth_conn_close(c);
-		return;
-	}
-
-	c->state = OAUTH_CONN_HELD;
-	f->winner = (int)(c - f->conns);
-	fyai_oauth_flow_redirect(f, c->buf);
 }
 
 void fyai_oauth_flow_redirect(struct fyai_oauth_flow *f, const char *request)
@@ -321,84 +239,40 @@ const char *fyai_oauth_flow_error(const struct fyai_oauth_flow *f)
 	return f->error;
 }
 
-static enum fyai_event_action oauth_on_client(const struct fyai_event *ev)
+/* A request head is whole: the redirect, or a probe of the browser. */
+static void oauth_request(void *data, struct fyai_httpd_conn *c,
+			  const struct fyai_http_request *req)
 {
-	struct oauth_conn *c = ev->userdata;
-	ssize_t n;
-
-	/* EOF arrives with READ while bytes remain, so only a bare EOF or an
-	 * error means this connection is finished. */
-	if ((ev->events & (FYAIEV_ERROR | FYAIEV_EOF)) &&
-	    !(ev->events & FYAIEV_READ)) {
-		oauth_conn_close(c);
-		return FYAIEA_CONTINUE;
-	}
-
-	n = read(c->fd, c->buf + c->len, sizeof(c->buf) - 1 - c->len);
-	if (n < 0) {
-		if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
-			return FYAIEA_CONTINUE;
-		oauth_conn_close(c);
-		return FYAIEA_CONTINUE;
-	}
-	if (!n) {			/* closed before a full request */
-		oauth_conn_close(c);
-		return FYAIEA_CONTINUE;
-	}
-
-	c->len += (size_t)n;
-	c->buf[c->len] = '\0';
-
-	/* Wait for the blank line ending the headers rather than trusting one read to
-	 * deliver them. */
-	if (!strstr(c->buf, "\r\n\r\n") && c->len < sizeof(c->buf) - 1)
-		return FYAIEA_CONTINUE;
-
-	oauth_consume(c->flow, c);
-
-	return FYAIEA_CONTINUE;
-}
-
-static enum fyai_event_action oauth_on_accept(const struct fyai_event *ev)
-{
-	struct fyai_oauth_flow *f = ev->userdata;
-	struct oauth_conn *c = NULL;
-	size_t i;
-	int fd;
+	struct fyai_oauth_flow *f = data;
+	size_t plen = strlen(f->path);
+	char *line = NULL;
 	int rc;
 
-	fd = accept(ev->fd, NULL, NULL);
-	if (fd < 0)
-		return FYAIEA_CONTINUE;
-
-	for (i = 0; i < OAUTH_CB_MAX_CONNS; i++) {
-		if (f->conns[i].state == OAUTH_CONN_FREE) {
-			c = &f->conns[i];
-			break;
-		}
+	if (strcmp(req->method, "GET") || strncmp(req->target, f->path, plen) ||
+	    req->target[plen] != '?') {
+		/* Ignore browser probes and keep waiting for the redirect. */
+		fyai_httpd_respond(c, 404, NULL, oauth_text, oauth_body_notfound,
+				   sizeof(oauth_body_notfound) - 1);
+		return;
 	}
-	if (!c) {			/* all slots busy; shed this one */
-		close(fd);
-		return FYAIEA_CONTINUE;
+	rc = asprintf(&line, "GET %s HTTP/1.1\r\n", req->target);
+	if (rc < 0) {
+		fyai_httpd_respond(c, 400, NULL, oauth_text, oauth_body_bad,
+				   sizeof(oauth_body_bad) - 1);
+		return;
 	}
+	fyai_httpd_conn_hold(c);
+	f->held = c;
+	fyai_oauth_flow_redirect(f, line);
+	free(line);
+}
 
-	(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
-	(void)fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+static void oauth_closed(void *data, struct fyai_httpd_conn *c)
+{
+	struct fyai_oauth_flow *f = data;
 
-	c->flow = f;
-	c->fd = fd;
-	c->len = 0;
-	c->state = OAUTH_CONN_READING;
-	rc = fyai_event_add_fd(f->el, fd, FYAIEV_READ, oauth_on_client, c,
-			       &c->src);
-	if (rc) {
-		close(fd);
-		c->fd = -1;
-		c->state = OAUTH_CONN_FREE;
-		return FYAIEA_CONTINUE;
-	}
-
-	return FYAIEA_CONTINUE;
+	if (f->held == c)
+		f->held = NULL;
 }
 
 static enum fyai_event_action oauth_on_timeout(const struct fyai_event *ev)
@@ -472,8 +346,18 @@ int fyai_oauth_flow_start(struct fyai_ctx *ctx, struct fyai_event_loop *el,
 			  struct fyai_oauth_flow **flowp)
 {
 	struct fyai_oauth_flow *f;
-	size_t i;
-	int rc;
+	struct fyai_httpd_opts opts = {
+		.loop = el,
+		.max_conns = OAUTH_CB_MAX_CONNS,
+		.max_message = 1,
+		.max_output = 1,
+		.head_ms = OAUTH_CB_HEAD_MS,
+	};
+	struct fyai_httpd_ops ops = {
+		.request = oauth_request,
+		.closed = oauth_closed,
+	};
+	int rc, fd;
 
 	if (!ctx || !el || !params || !flowp)
 		return -1;
@@ -488,20 +372,19 @@ int fyai_oauth_flow_start(struct fyai_ctx *ctx, struct fyai_event_loop *el,
 	f->expect_state = params->state;
 	f->done_cb = cb;
 	f->done_user = user;
-	f->winner = -1;
-	f->listen_fd = -1;
-	for (i = 0; i < OAUTH_CB_MAX_CONNS; i++)
-		f->conns[i].fd = -1;
-
-	f->listen_fd = oauth_listen(ctx, params->ports, params->nports,
-				    &f->port);
-	if (f->listen_fd < 0)
+	ops.data = f;
+	f->httpd = fyai_httpd_new(ctx, &opts, &ops);
+	if (!f->httpd)
 		goto err_out;
 
-	rc = fyai_event_add_fd(el, f->listen_fd, FYAIEV_READ, oauth_on_accept,
-			       f, &f->listen_src);
-	if (rc)
+	fd = oauth_listen(ctx, params->ports, params->nports, &f->port);
+	if (fd < 0)
 		goto err_out;
+	rc = fyai_httpd_adopt(f->httpd, fd, NULL);
+	if (rc) {
+		close(fd);
+		goto err_out;
+	}
 
 	if (params->timeout_ms > 0) {
 		rc = fyai_event_add_timer(el, params->timeout_ms, 0,
@@ -535,37 +418,27 @@ const char *fyai_oauth_flow_code(const struct fyai_oauth_flow *f)
 
 void fyai_oauth_flow_finish(struct fyai_oauth_flow *f, bool ok)
 {
-	struct oauth_conn *c;
+	struct fyai_httpd_conn *c;
 
-	if (!f || f->winner < 0)
+	if (!f || !f->held)
 		return;
-
-	c = &f->conns[f->winner];
-	if (c->state != OAUTH_CONN_HELD)
-		return;
-
+	c = f->held;
+	f->held = NULL;
 	if (ok)
-		oauth_respond(c->fd, oauth_resp_ok, sizeof(oauth_resp_ok) - 1);
+		fyai_httpd_respond(c, 200, NULL, oauth_text, oauth_body_ok,
+				   sizeof(oauth_body_ok) - 1);
 	else
-		oauth_respond(c->fd, oauth_resp_bad, sizeof(oauth_resp_bad) - 1);
-
-	oauth_conn_close(c);
-	f->winner = -1;
+		fyai_httpd_respond(c, 400, NULL, oauth_text, oauth_body_bad,
+				   sizeof(oauth_body_bad) - 1);
 }
 
 void fyai_oauth_flow_destroy(struct fyai_oauth_flow *f)
 {
-	size_t i;
-
 	if (!f)
 		return;
 
 	fyai_event_source_remove(f->timer_src);
-	fyai_event_source_remove(f->listen_src);
-	for (i = 0; i < OAUTH_CB_MAX_CONNS; i++)
-		oauth_conn_close(&f->conns[i]);
-	if (f->listen_fd >= 0)
-		close(f->listen_fd);
+	fyai_httpd_close(f->httpd);
 	free(f->code);
 	free(f->client_id);
 	free(f->error);
