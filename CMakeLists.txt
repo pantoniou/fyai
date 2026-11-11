@@ -548,6 +548,8 @@ set(FYAI_SOURCES
     src/fyai_remote_tls.c
     src/fyai_httpd.c
     src/fyai_ws_client.c
+    src/fyai_remote_http.c
+    src/fyai_remote_relay.c
     src/fyai_claude_sdk.c
     src/fyai_structured.c
     src/fyai_settings.c

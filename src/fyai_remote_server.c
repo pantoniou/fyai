@@ -2,6 +2,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -30,7 +31,9 @@
 #include "fyai_host.h"
 #include "fyai_jsonrpc.h"
 #include "fyai_remote.h"
+#include "fyai_remote_http.h"
 #include "fyai_remote_int.h"
+#include "fyai_remote_tls.h"
 #include "fyai_sink.h"
 #include "fyai_storage.h"
 #include "fyai_terminal.h"
@@ -80,6 +83,7 @@ struct fyai_remote_peer {
 	bool authenticated, failed;
 	bool handed;			/* given to a project server */
 	bool native;			/* a fyai session: the client said hello */
+	bool lines_only;		/* its transport carries lines: no image mode */
 	bool watcher;			/* reads a session that another client drives */
 	struct fyai_remote_peer *wnext;	/* the next watcher of the session */
 };
@@ -129,6 +133,8 @@ struct fyai_remote_server {
 	int fd, front_fd;
 	unsigned long clients;
 	char token[65];
+	struct fyai_remote_http *http;	/* the HTTP listener, or NULL */
+	char http_token[65];		/* the bearer token of the HTTP clients */
 	bool require_token;
 	bool accept_failed;		/* reported once */
 	bool stop;
@@ -1448,7 +1454,7 @@ static void remote_hello_answer(struct fyai_remote_peer *peer, fy_generic id,
 						   fy_value(gb, remote_features[i]));
 	/* Images of the same byte order and word size are spoken by both. */
 	fy_foreach(feature, theirs)
-		if (feature && jsonrpc_image_feature() &&
+		if (feature && jsonrpc_image_feature() && !peer->lines_only &&
 		    !strcmp(feature, jsonrpc_image_feature()))
 			common = fy_append(gb, common,
 					   fy_value(gb, jsonrpc_image_feature()));
@@ -1460,7 +1466,7 @@ static void remote_hello_answer(struct fyai_remote_peer *peer, fy_generic id,
 						"features", common, "session", "fyai"));
 	/* The reply is the last line: the client sends images after it. */
 	fy_foreach(feature, common)
-		if (jsonrpc_image_feature() &&
+		if (jsonrpc_image_feature() && !peer->lines_only &&
 		    !strcmp(feature, jsonrpc_image_feature()))
 			(void)jsonrpc_conn_set_image(peer->conn);
 }
@@ -1754,6 +1760,173 @@ static enum fyai_event_action remote_accept(const struct fyai_event *ev)
 	remote_log(server, "client %lu: connected", server->clients);
 	remote_peer_add(server, fd, server->clients, !server->require_token);
 	return FYAIEA_CONTINUE;
+}
+
+/* The HTTP front gives a client that passed its token: a socket of lines. */
+static int remote_http_admit(void *data, int fd,
+			     const struct fyai_remote_identity *id, const char *from,
+			     bool tls)
+{
+	struct fyai_remote_server *server = data;
+	struct fyai_remote_peer *peer;
+
+	server->clients++;
+	remote_log(server, "client %lu: connected over %s from %s%s%s",
+		   server->clients, tls ? "https" : "http", from,
+		   id->subject[0] ? " as " : "", id->subject);
+	peer = remote_peer_add(server, fd, server->clients, true);
+	if (!peer)
+		return -1;
+	/* The WebSocket carries a frame as a message: lines, never images. */
+	peer->lines_only = true;
+	return 0;
+}
+
+static void remote_http_log(void *data, const char *line)
+{
+	remote_log(data, "%s", line);
+}
+
+/*
+ * The bearer token of the HTTP clients: the 64 hexadecimal digits in @path,
+ * which only the user may read, else a new random one that the file then
+ * holds. The default is ~/.fyai/serve.token.
+ */
+static int remote_http_token(struct fyai_remote_server *server, const char *file,
+			     char **pathp)
+{
+	struct fyai_ctx *ctx = server->call->ctx;
+	unsigned char random[32];
+	char *path = NULL, *dir, line[66];
+	const char *home = getenv("HOME");
+	struct stat st;
+	ssize_t n = 0;
+	int fd = -1, i, rc = -1;
+
+	line[0] = '\0';
+	if (file) {
+		path = strdup(file);
+	} else {
+		fyai_error_check(ctx, home && *home, out, "no HOME for the token file");
+		if (asprintf(&dir, "%s/.fyai", home) < 0)
+			dir = NULL;
+		fyai_error_check(ctx, dir, out, "cannot make the path of the token file");
+		i = fyai_remote_mkdirs(ctx->cfg, strlen(home), dir);
+		free(dir);
+		if (i)
+			goto out;
+		if (asprintf(&path, "%s/.fyai/serve.token", home) < 0)
+			path = NULL;
+	}
+	fyai_error_check(ctx, path, out, "cannot make the path of the token file");
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd >= 0) {
+		i = fstat(fd, &st);
+		fyai_error_check(ctx, !i && S_ISREG(st.st_mode) && !(st.st_mode & 077),
+				 out, "the token file '%s' must be a file that only "
+				 "you can read", path);
+		do {
+			n = read(fd, line, sizeof(line) - 1);
+		} while (n < 0 && errno == EINTR);
+		fyai_error_check(ctx, n >= 64, out, "the token file '%s' holds no "
+				 "token of 64 digits", path);
+		for (i = 0; i < 64; i++)
+			if (!isxdigit((unsigned char)line[i]))
+				n = 0;
+		fyai_error_check(ctx, n >= 64 && (n == 64 || line[64] == '\n'), out,
+				 "the token file '%s' holds no token of 64 digits", path);
+		memcpy(server->http_token, line, 64);
+	} else {
+		fyai_error_check(ctx, file == NULL && errno == ENOENT, out,
+				 "cannot open the token file '%s': %s", path,
+				 strerror(errno));
+		fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+		fyai_error_check(ctx, fd >= 0, out, "cannot make the token file "
+				 "'%s': %s", path, strerror(errno));
+		fyai_host_random(random, sizeof(random));
+		for (i = 0; i < 32; i++)
+			snprintf(server->http_token + i * 2, 3, "%02x", random[i]);
+		memset(random, 0, sizeof(random));
+		memcpy(line, server->http_token, 64);
+		line[64] = '\n';
+		n = write(fd, line, 65);
+		fyai_error_check(ctx, n == 65, out, "cannot write the token file '%s'",
+				 path);
+	}
+	*pathp = path;
+	path = NULL;
+	rc = 0;
+out:
+	memset(line, 0, sizeof(line));
+	if (fd >= 0)
+		close(fd);
+	free(path);
+	return rc;
+}
+
+/* True for a loopback address in the form fyai_remote_http_open() reports. */
+static bool remote_http_loopback(const char *bound)
+{
+	return !strncmp(bound, "127.", 4) || !strncmp(bound, "[::1]:", 6);
+}
+
+/*
+ * Open the listeners of @server: each entry of @listens is ADDRESS, or
+ * http://ADDRESS or https://ADDRESS. A bare address is plain http.
+ */
+static int remote_http_start(struct fyai_remote_server *server, fy_generic listens,
+			     const char *token_file, const char *tls_cert,
+			     const char *tls_key, fy_generic tls_names)
+{
+	struct fyai_ctx *ctx = server->call->ctx;
+	struct fyai_remote_auth auth = { .verify = fyai_remote_token_verify,
+					 .data = server->http_token };
+	struct fyai_remote_http_ops ops = { .admit = remote_http_admit,
+		.log = remote_http_log, .data = server };
+	char bound[96], fp[FYAI_TLS_FP_SIZE], *path = NULL;
+	const char **names = NULL, *spec, *address, *name;
+	SSL_CTX *tls = NULL;
+	size_t n = 0;
+	bool secure;
+	int rc = -1;
+
+	if (fy_is_valid(tls_names))
+		n = fy_len(tls_names);
+	names = calloc(n + 1, sizeof(*names));
+	fyai_error_check(ctx, names, out, "cannot keep the TLS names");
+	n = 0;
+	if (fy_is_valid(tls_names))
+		fy_foreach(name, tls_names)
+			names[n++] = name;
+	if (remote_http_token(server, token_file, &path))
+		goto out;
+	server->http = fyai_remote_http_new(ctx, &auth, &ops);
+	if (!server->http)
+		goto out;
+	fy_foreach(spec, listens) {
+		secure = !strncmp(spec, "https://", 8);
+		address = secure ? spec + 8 : !strncmp(spec, "http://", 7) ? spec + 7 : spec;
+		if (secure && !tls) {
+			tls = fyai_tls_server_ctx(ctx, tls_cert, tls_key, names, fp);
+			if (!tls)
+				goto out;
+			remote_log(server, "the key of the server is %s", fp);
+		}
+		if (fyai_remote_http_listen(server->http, address, secure ? tls : NULL,
+					    bound, sizeof(bound)))
+			goto out;
+		remote_log(server, "listening on %s://%s/ with the token in '%s'",
+			   secure ? "https" : "http", bound, path);
+		if (!secure && !remote_http_loopback(bound))
+			remote_log(server, "warning: plain http on %s: the token and "
+				   "the frames cross the network in the clear", bound);
+	}
+	rc = 0;
+out:
+	SSL_CTX_free(tls);
+	free(names);
+	free(path);
+	return rc;
 }
 
 /*
@@ -2168,6 +2341,8 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	struct fyai_ctx *ctx = call->ctx;
 	struct fyai_event_loop *loop = fyai_ctx_loop(ctx);
 	const char *projects = fyai_cmd_arg_str(call, "projects");
+	fy_generic listens = fy_get(call->args, "listen", fy_invalid);
+	bool listening = fy_is_valid(listens) && !fy_empty(listens);
 	struct fyai_remote_project *project;
 	struct fyai_remote_session *session;
 	struct fyai_remote_peer *peer;
@@ -2192,8 +2367,9 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 				 "directory");
 	}
 	if (server.front_fd >= 0) {
-		fyai_error_check(ctx, !projects && token_fd < 0, out, "a project "
-				 "server of a server of projects has no endpoint");
+		fyai_error_check(ctx, !projects && token_fd < 0 && !listening,
+				 out, "a project server of a server of projects has no "
+				 "endpoint");
 		rc = fyai_remote_cloexec(server.front_fd);
 		if (!rc)
 			rc = fcntl(server.front_fd, F_SETFL,
@@ -2208,7 +2384,20 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	} else {
 		server.path = fyai_remote_socket_path(ctx, fyai_cmd_arg_str(call, "socket"),
 						 projects, true);
-		if (!server.path || remote_listen(&server))
+		/* The Unix socket is the last to open: a client that waits for it
+		 * finds the listeners ready, and their log lines written. */
+		if (!server.path)
+			goto out;
+		if (listening) {
+			rc = remote_http_start(&server, listens,
+					       fyai_cmd_arg_str(call, "token_file"),
+					       fyai_cmd_arg_str(call, "tls_cert"),
+					       fyai_cmd_arg_str(call, "tls_key"),
+					       fy_get(call->args, "tls_name", fy_invalid));
+			if (rc)
+				goto out;
+		}
+		if (remote_listen(&server))
 			goto out;
 		if (token_fd >= 0) {
 			rc = remote_token(&server, token_fd);
@@ -2246,6 +2435,7 @@ int fyai_cmd_remote_serve(struct fyai_cmd_call *call, fy_generic *result)
 	remote_log(&server, "stopped");
 	success = true;
 out:
+	fyai_remote_http_close(server.http);
 	fyai_event_source_remove(server.listener);
 	fyai_event_source_remove(server.front);
 	fyai_event_interrupt_ack(ctx);
@@ -2272,6 +2462,7 @@ out:
 	if (ready_fd >= 0)
 		close(ready_fd);
 	memset(server.token, 0, sizeof(server.token));
+	memset(server.http_token, 0, sizeof(server.http_token));
 	if (server.frame_gb)
 		fy_generic_builder_destroy(server.frame_gb);
 	free(server.path);

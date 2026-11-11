@@ -377,6 +377,33 @@ static const char *remote_ssh_rest(const char *target)
 	return target && !strncmp(target, REMOTE_SSH_SCHEME, n) ? target + n : NULL;
 }
 
+#define REMOTE_HTTP_SCHEME	"http://"
+#define REMOTE_HTTPS_SCHEME	"https://"
+
+/*
+ * The part of @target after http:// or https://, or NULL when @target is
+ * neither.
+ */
+static const char *remote_http_rest(const char *target)
+{
+	if (!target)
+		return NULL;
+	if (!strncmp(target, REMOTE_HTTP_SCHEME, strlen(REMOTE_HTTP_SCHEME)))
+		return target + strlen(REMOTE_HTTP_SCHEME);
+	if (!strncmp(target, REMOTE_HTTPS_SCHEME, strlen(REMOTE_HTTPS_SCHEME)))
+		return target + strlen(REMOTE_HTTPS_SCHEME);
+	return NULL;
+}
+
+/* The directory of http(s)://HOST:PORT/DIR, without its first slash, or NULL. */
+static const char *remote_http_dir(const char *target)
+{
+	const char *rest = remote_http_rest(target), *slash;
+
+	slash = rest ? strchr(rest, '/') : NULL;
+	return slash && slash[1] ? slash + 1 : NULL;
+}
+
 /* The directory of ssh://[USER@]HOST[:PORT]/DIR, without its first slash, or NULL. */
 static const char *remote_ssh_dir(const char *target)
 {
@@ -427,6 +454,35 @@ static int remote_ssh_split(const char *target, char *host, size_t size,
 		if (!isdigit((unsigned char)port[i]))
 			return -1;
 	return 0;
+}
+
+/* Start `fyai remote relay URL` for the http:// or https:// target @url. */
+static int remote_http_open(struct remote_client *client, const char *url)
+{
+	static const char *const keep[] = { "FYAI_REMOTE_TOKEN", "FYAI_REMOTE_PIN",
+		"FYAI_REMOTE_CA", NULL };
+	struct fyai_ctx *ctx = client->ctx;
+	char *self, *args[5], *base, *slash;
+	int rc;
+
+	/* The relay needs the server, not the directory: cut the URL at its path. */
+	base = strdup(url);
+	fyai_error_check(ctx, base, err, "cannot copy the URL");
+	slash = strchr(base + (remote_http_rest(base) - base), '/');
+	if (slash)
+		*slash = '\0';
+	self = realpath(ctx->cfg->argv[0], NULL);
+	args[0] = self ? self : ctx->cfg->argv[0];
+	args[1] = "remote";
+	args[2] = "relay";
+	args[3] = base;
+	args[4] = NULL;
+	rc = fyai_remote_spawn(ctx, args, keep, &client->fd, &client->ssh);
+	free(self);
+	free(base);
+	return rc;
+err:
+	return -1;
 }
 
 /* The most that ssh and the shell of the host may write before the bridge. */
@@ -548,6 +604,10 @@ static int remote_client_open(struct remote_client *client, const char *path,
 	if (remote_ssh_rest(path)) {
 		/* ssh authenticates the user, and the bridge is the user there. */
 		if (remote_ssh_open(client, path))
+			goto err;
+	} else if (remote_http_rest(path)) {
+		/* The relay is the client of the HTTP server, with its token. */
+		if (remote_http_open(client, path))
 			goto err;
 	} else {
 		fyai_error_check(ctx, strlen(path) < sizeof(address.sun_path), err,
@@ -988,6 +1048,11 @@ int fyai_cmd_remote_run(struct fyai_cmd_call *call, fy_generic *result)
 	project = cfg->project ? cfg->project : remote_ssh_dir(path);
 	fyai_error_check(ctx, project || !remote_ssh_rest(path), out,
 			 "an ssh target needs a directory: ssh://HOST/DIR, or --project");
+	/* So at an http target. */
+	if (!project)
+		project = remote_http_dir(path);
+	fyai_error_check(ctx, project || !remote_http_rest(path), out,
+			 "an http target needs a directory: http://HOST:PORT/DIR, or --project");
 	cwd = project ? NULL : getcwd(NULL, 0);
 	fyai_error_check(ctx, project || cwd, out,
 			 "cannot read the current directory: %s", strerror(errno));

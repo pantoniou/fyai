@@ -60,7 +60,7 @@ global:
         x-fyai-complete: dir
       remote:
         type: string
-        description: "run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR"
+        description: "run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR; `http://HOST:PORT/DIR` and `https://HOST:PORT/DIR` are servers that `serve --listen` opened"
         x-fyai-meta: TARGET
         x-fyai-complete: file
       view-project:
@@ -4100,6 +4100,38 @@ commands:
               maximum: 2147483647
               description: require token admission and write the generated launch token to this descriptor
               x-fyai-long: token-fd
+            listen:
+              type: array
+              items: {type: string}
+              description: "also serve clients over HTTP or HTTPS at this numeric ADDRESS, HOST:PORT or [HOST]:PORT, with the scheme http:// (the default) or https://; a client enters with a bearer token; plain http is for loopback or a tunnel; port 0 takes one, and the log names it"
+              x-fyai-repeat: true
+              x-fyai-long: listen
+              x-fyai-meta: ADDRESS
+            token_file:
+              type: string
+              description: "the file of the bearer token of --listen: 64 hexadecimal digits that only you can read (default: ~/.fyai/serve.token, made when it is missing)"
+              x-fyai-long: token-file
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+            tls_cert:
+              type: string
+              description: "the certificate of an https:// listener, in PEM, with --tls-key (default: a self-signed one in ~/.fyai/tls/server.pem, made when it is missing)"
+              x-fyai-long: tls-cert
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+            tls_key:
+              type: string
+              description: the private key of --tls-cert, in PEM, a file that only you can read
+              x-fyai-long: tls-key
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+            tls_name:
+              type: array
+              items: {type: string}
+              description: a DNS name or an IP address for the self-signed certificate, which is made once; see `remote rekey`
+              x-fyai-repeat: true
+              x-fyai-long: tls-name
+              x-fyai-meta: NAME
             front_fd:
               type: integer
               minimum: 3
@@ -4188,6 +4220,71 @@ commands:
               description: write the line "FYAI-BRIDGE NONCE" before anything else, which a client of an ssh target waits for, so that the output of a login script before it is skipped
               x-fyai-meta: NONCE
               x-fyai-long: nonce
+      - command: fingerprint
+        title: show the key of the TLS server
+        description: |
+          Show the fingerprint of the public key in the certificate of `fyai
+          serve --listen https://ADDRESS`, as `sha256:` and 64 hexadecimal
+          digits. A client pins it with `$FYAI_REMOTE_PIN`.
+        surfaces: [cli]
+        handler: remote_fingerprint
+        flags: [no-storage]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            file:
+              type: string
+              description: "the PEM file with the certificate (default: ~/.fyai/tls/server.pem)"
+              x-fyai-positional: 0
+              x-fyai-meta: FILE
+              x-fyai-complete: file
+        render:
+          message: "{fingerprint}"
+      - command: rekey
+        title: make a new key for the TLS server
+        description: |
+          Replace the self-signed key and certificate in ~/.fyai/tls/server.pem
+          with new ones. A server that runs keeps the old key until it restarts,
+          and every client that pinned the old key refuses the new one.
+        surfaces: [cli]
+        handler: remote_rekey
+        flags: [no-storage]
+        arguments:
+          type: object
+          additionalProperties: false
+          properties:
+            tls_name:
+              type: array
+              items: {type: string}
+              description: a DNS name or an IP address for the certificate, besides localhost, the loopback addresses and the host name
+              x-fyai-repeat: true
+              x-fyai-long: tls-name
+              x-fyai-meta: NAME
+        render:
+          message: "rekey: the new key is {fingerprint} in {file}"
+      - command: relay
+        title: relay standard input and output over a WebSocket
+        description: |
+          Relay standard input and output, as lines, over the WebSocket of a
+          server at an `http://HOST:PORT` or `https://HOST:PORT` URL. A client of
+          such a target runs it. The bearer token is `$FYAI_REMOTE_TOKEN`, else
+          the first line of `~/.fyai/serve.token`. For https, `$FYAI_REMOTE_PIN`
+          pins the key of the server, and `$FYAI_REMOTE_CA` names the file of the
+          CA that signed it.
+        surfaces: [cli]
+        handler: remote_relay
+        flags: [no-storage]
+        arguments:
+          type: object
+          additionalProperties: false
+          required: [url]
+          properties:
+            url:
+              type: string
+              description: the URL of the server, http://HOST:PORT
+              x-fyai-positional: 0
+              x-fyai-meta: URL
       - command: connect
         title: connect through a Unix socket
         description: Open the full-screen client of a session that a local fyai serves, or carry its SDK frames on standard input and output. The global option -b names the branch of the session, which the client attaches to or starts.

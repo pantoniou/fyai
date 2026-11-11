@@ -15,7 +15,7 @@ Do not edit; run `ninja docs-commands` to write it again.
 | `-b`, `--branch BRANCH` | work on this branch (else $FYAI_BRANCH, else HEAD) |
 | `--root HANDLE` | read one exact state by root handle (read-only) |
 | `--project DIR` | work in the directory DIR; with --remote, DIR is relative to the directory of the server of projects |
-| `--remote TARGET` | run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR |
+| `--remote TARGET` | run the command, or the interactive session, at the server TARGET: `.` is the server of the project (`fyai serve`), else the server of projects; a path is the socket of a server; `ssh://[USER@]HOST[:PORT]/DIR` is the server of projects of HOST, reached through ssh, with the project DIR; `http://HOST:PORT/DIR` and `https://HOST:PORT/DIR` are servers that `serve --listen` opened |
 | `--view-project DIR` | use this project root in an internal view child |
 | `--sink-frames` | send each output as a frame on standard output, for a server that runs a remote command |
 | `--view-scratch DIR` | use this scratch directory in an internal view child |
@@ -3470,7 +3470,7 @@ With no command, `start` runs.
 
 start the server
 
-**Usage:** `fyai serve start [--socket PATH] [--projects DIR] [--daemon] [--log FILE] [--token-fd VALUE]`
+**Usage:** `fyai serve start [--socket PATH] [--projects DIR] [--daemon] [--log FILE] [--token-fd VALUE] [--listen ADDRESS] [--token-file FILE] [--tls-cert FILE] [--tls-key FILE] [--tls-name NAME]`
 
 Serve until interrupted, or until `fyai serve stop`.
 
@@ -3483,6 +3483,11 @@ Serve until interrupted, or until `fyai serve stop`.
 | `--daemon` | run in the background; the log goes to the file that --log names |
 | `--log FILE` | the log file of a daemon (default: .fyai/logs/serve.log of the project, or ~/.fyai/logs/serve.log with --projects) |
 | `--token-fd VALUE` | require token admission and write the generated launch token to this descriptor |
+| `--listen ADDRESS` | also serve clients over HTTP or HTTPS at this numeric ADDRESS, HOST:PORT or [HOST]:PORT, with the scheme http:// (the default) or https://; a client enters with a bearer token; plain http is for loopback or a tunnel; port 0 takes one, and the log names it |
+| `--token-file FILE` | the file of the bearer token of --listen: 64 hexadecimal digits that only you can read (default: ~/.fyai/serve.token, made when it is missing) |
+| `--tls-cert FILE` | the certificate of an https:// listener, in PEM, with --tls-key (default: a self-signed one in ~/.fyai/tls/server.pem, made when it is missing) |
+| `--tls-key FILE` | the private key of --tls-cert, in PEM, a file that only you can read |
+| `--tls-name NAME` | a DNS name or an IP address for the self-signed certificate, which is made once; see `remote rekey` |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
@@ -3524,7 +3529,7 @@ Show the server, its projects, and its sessions.
 
 connect to a remote session
 
-**Usage:** `fyai remote {bridge|connect} ...`
+**Usage:** `fyai remote {bridge|connect|fingerprint|rekey|relay} ...`
 
 Connect to a remote fyai endpoint.
 
@@ -3534,6 +3539,9 @@ Connect to a remote fyai endpoint.
 | --- | --- |
 | `bridge` | relay standard input and output to the server |
 | `connect` | connect through a Unix socket |
+| `fingerprint` | show the key of the TLS server |
+| `rekey` | make a new key for the TLS server |
+| `relay` | relay standard input and output over a WebSocket |
 
 ## fyai remote bridge
 
@@ -3558,6 +3566,76 @@ project in the current directory, else the server of projects.
 | Option | Description |
 | --- | --- |
 | `--nonce NONCE` | write the line "FYAI-BRIDGE NONCE" before anything else, which a client of an ssh target waits for, so that the output of a login script before it is skipped |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai remote fingerprint
+
+show the key of the TLS server
+
+**Usage:** `fyai remote fingerprint [FILE]`
+
+Show the fingerprint of the public key in the certificate of `fyai
+serve --listen https://ADDRESS`, as `sha256:` and 64 hexadecimal
+digits. A client pins it with `$FYAI_REMOTE_PIN`.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `FILE` | the PEM file with the certificate (default: ~/.fyai/tls/server.pem) |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai remote rekey
+
+make a new key for the TLS server
+
+**Usage:** `fyai remote rekey [--tls-name NAME]`
+
+Replace the self-signed key and certificate in ~/.fyai/tls/server.pem
+with new ones. A server that runs keeps the old key until it restarts,
+and every client that pinned the old key refuses the new one.
+
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--tls-name NAME` | a DNS name or an IP address for the certificate, besides localhost, the loopback addresses and the host name |
+| `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
+| `-h`, `--help` | show this help |
+
+## fyai remote relay
+
+relay standard input and output over a WebSocket
+
+**Usage:** `fyai remote relay URL`
+
+Relay standard input and output, as lines, over the WebSocket of a
+server at an `http://HOST:PORT` or `https://HOST:PORT` URL. A client of
+such a target runs it. The bearer token is `$FYAI_REMOTE_TOKEN`, else
+the first line of `~/.fyai/serve.token`. For https, `$FYAI_REMOTE_PIN`
+pins the key of the server, and `$FYAI_REMOTE_CA` names the file of the
+CA that signed it.
+
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `URL` | the URL of the server, http://HOST:PORT |
+
+### Options
+
+| Option | Description |
+| --- | --- |
 | `--output FORMAT` | write the result as markdown, json, or yaml; see `help output` |
 | `-h`, `--help` | show this help |
 
