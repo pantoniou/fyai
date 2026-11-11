@@ -238,6 +238,8 @@ endpoints share this directory:
 | stdio               | `fyai claude-sdk`, an SDK          | the owner of the pipes                            |
 | Unix socket         | Electron, `fyai remote`, local tools | `SO_PEERCRED` uid; optional launch token                  |
 | ssh                 | a client of another host           | ssh; `SO_PEERCRED` uid at the host                |
+| HTTP and WebSocket  | a client or a browser, by `serve --listen` | a bearer token; an origin check           |
+| HTTPS and WebSocket | a device on the network            | a bearer token; a pinned key or a CA     |
 | TCP on loopback     | a browser on the same host         | a token; an origin check                          |
 | TLS over TCP        | a device on the network            | a device token; a pinned certificate              |
 
@@ -270,8 +272,90 @@ prompt. The client reads at most 64 KiB before the line. If ssh ends first, the
 error has what ssh wrote, which is usually the cause: `fyai` is not on the
 `PATH` of the host.
 
-A plain TCP listener outside loopback is refused. The listener address comes
-from `remote/listen`, which a remote client cannot change.
+#### 5.1.2 HTTP and WebSocket
+
+`fyai serve --listen HOST:PORT` (or `[HOST]:PORT`, a numeric address; port 0
+takes one) opens a TCP listener beside the Unix socket. The log names the
+address, `listening on http://ADDRESS/`. `--listen` repeats, and an entry takes
+the scheme `http://` (the default) or `https://` (section 5.1.3). A plain http
+listener outside loopback is allowed because the user names its address, and
+the log then warns that the token and the frames cross the network in the
+clear. Use loopback with a tunnel, a proxy that ends TLS, or `https://`.
+
+A connection has ten seconds to send its request head (`REMOTE_ADMIT_MS`). The
+head is at most 8 KiB, HTTP/1.1, with CRLF line ends, no folded line and one
+value of `Host`, `Authorization`, `Origin` and `Sec-WebSocket-Key`. The server
+answers in this order, with no body:
+
+1. 400, 431 or 505 for a head that is not well formed;
+2. 401 with `WWW-Authenticate: Bearer` when the bearer token is missing or not
+   valid. This comes before any answer about the route;
+3. 405 for a method other than GET, and 404 for a path other than
+   `/api/fyai/session`;
+4. 426 for a request that is not a WebSocket upgrade, or has another
+   `Sec-WebSocket-Version` than 13;
+5. 403 when `Origin` is present and is not `http://` and the `Host`;
+6. 101 with the accept key of RFC 6455.
+
+The token is checked by `struct fyai_remote_auth` before the upgrade, so a
+client that fails it never reaches the server code. The verifier of this step
+is one shared token: 64 hexadecimal digits in `--token-file`, default
+`~/.fyai/serve.token`. The server makes the file with mode 0600 when it is
+missing, and refuses a file that group or others can read. The client takes the
+token from `$FYAI_REMOTE_TOKEN`, else from the same file under its own home. A
+verifier that reads a signed token (JWT) and its scopes uses the same hook
+(`struct fyai_remote_identity`).
+
+After the upgrade each text message is one frame, and the server gives the
+client to its own code as a socket of lines, so the hello, the requests and the
+session are those of a Unix client. The relay is in the event loop of the
+server: it joins the pieces of a message, answers a ping, closes with 1002 for
+a frame that breaks the protocol, 1003 for a binary message, 1007 for a text
+message with a newline in it, and 1000 when the server ends the client. A
+message is at most 16 MiB. A client that reads slowly makes the server stop
+reading its session, and one that is 32 MiB behind is dropped. At most 256
+connections are open. Image mode (section 5.2.1) is not offered over a
+WebSocket: the hello answer holds no `image-` feature, and the frames are text.
+
+`--remote http://HOST:PORT/DIR` is the client. It runs `fyai remote relay
+http://HOST:PORT` on a socket pair, as ssh runs for an `ssh://` target, so
+the client code reads lines from a socket. `DIR` is the project, as for ssh.
+
+The transport has three layers that other code reuses. `src/fyai_net.c` holds
+the sockets, `src/fyai_httpd.c` the HTTP server with the server end of a
+WebSocket, and `src/fyai_ws_client.c` the client end. `src/fyai_remote_http.c`
+and `src/fyai_remote_relay.c` add the token, the route and the lines. The
+loopback receiver of the OAuth redirect uses the same server.
+
+#### 5.1.3 TLS
+
+An `https://` listener speaks TLS 1.2 or 1.3 with ALPN `http/1.1`, no
+compression and no renegotiation, and carries what 5.1.2 describes. The
+handshake is part of the admit window of ten seconds. The `Origin` of a browser
+must be the `https://` origin of the server.
+
+The key of the server is an ECDSA P-256 key. `--tls-cert` and `--tls-key` give a
+certificate from a CA, as PEM files; the key file is readable by its owner
+alone. Else the server uses `~/.fyai/tls/server.pem`, which it makes when it is
+missing: the key and then a self-signed certificate valid for ten years, for
+`localhost`, the loopback addresses, the host name and each `--tls-name`. It is
+one file, so one rename publishes both, and it does not change from one start to
+the next, so a pin stays valid. The log gives the fingerprint of the key,
+`sha256:` and 64 digits of the hash of its SubjectPublicKeyInfo, and `fyai remote
+fingerprint` shows it. `fyai remote rekey` replaces the file: a running server
+keeps the old key until it restarts, and every pin of the old key fails.
+
+A client of `https://HOST:PORT/DIR` checks the server one of three ways:
+
+1. `$FYAI_REMOTE_PIN=sha256:HEX` pins the key, as ssh does. Nothing else is
+   checked: the name and the issuer are of no use for a key that the user pinned.
+   Capitals and colons in the pin are ignored.
+2. Else the certificate must chain to the roots of the system, or to the PEM file
+   in `$FYAI_REMOTE_CA`, and name the host (an IP address is matched as an IP).
+3. A server that passes neither is refused, and the error gives the fingerprint
+   that it showed, so the user can pin it after checking it by another route.
+
+Trust on first use, with a file of known servers, is a later step.
 
 ### 5.2 Framing
 
@@ -712,10 +796,11 @@ A watcher shows a session that another client drives. It does not drive it.
 
 ### 6.3 TLS
 
-`fyai serve` makes a self-signed key and certificate the first time a TLS
-listener opens, and keeps them in the auth state directory. The certificate
-does not change, so the pinned fingerprint stays valid. `fyai remote rekey`
-replaces it and invalidates all pairings.
+`fyai serve` makes a self-signed key and certificate the first time an
+`https://` listener opens, and keeps them in `~/.fyai/tls/server.pem` (section
+5.1.3). The certificate does not change, so the pinned fingerprint stays valid.
+`fyai remote rekey` replaces it and so invalidates every pin. The pairing of
+section 6.2 carries the fingerprint in its code, and is not built yet.
 
 ### 6.4 Scopes
 

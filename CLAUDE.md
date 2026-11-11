@@ -147,7 +147,13 @@ initialize each generic field explicitly.
 - `src/fyai_remote_server.c`: `fyai serve`, its project servers and workers
   (`doc/remote-sessions-sdd.md`, section 6.1.2).
 - `src/fyai_remote.c`: the client of `--remote` and of `remote connect`, and
-  what it shares with the server (`src/fyai_remote_int.h`).
+  what it shares with the server (`src/fyai_remote_int.h`). It reaches a
+  server by a Unix socket, by `ssh://` through `remote bridge`, and by
+  `http://` and `https://` through `remote relay`.
+- `src/fyai_remote_http.c`: the HTTP front of `fyai serve --listen`: the
+  bearer-token check, the route of the session, and the bridge of a WebSocket
+  to a socket of lines, on `fyai_httpd`. `src/fyai_remote_relay.c` is the
+  client end of the relay, on `fyai_ws_client`.
 - `src/fyai_buf.c`: the growing byte buffer, `struct fyai_buf`. It holds text
   or a queue that is read from the front with `fyai_buf_consume()`. Use it
   for every buffer of bytes and do not write another.
