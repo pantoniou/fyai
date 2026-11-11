@@ -76,7 +76,7 @@ static const char *skill_file_lang(const char *file)
 static fy_generic skill_md_escape_dollar(struct fy_generic_builder *gb,
 					 const char *text)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const char *line, *eol, *p, *q, *close;
 	char fence;
 	size_t fence_len, run, n, ind;
@@ -108,20 +108,20 @@ static fy_generic skill_md_escape_dollar(struct fy_generic_builder *gb,
 						    strspn(close, "`") == run)
 							break;
 					q = close < eol ? close + run : p + run;
-					rc = response_buffer_append_data(&out, p,
+					rc = fyai_buf_append_data(&out, p,
 							(size_t)(q - p));
 					p = q - 1;
 					continue;
 				}
 				if (*p == '$' && (p == line || p[-1] != '\\'))
-					rc = response_buffer_append(&out, "\\");
-				rc = rc || response_buffer_append_data(&out, p, 1);
+					rc = fyai_buf_append(&out, "\\");
+				rc = rc || fyai_buf_append_data(&out, p, 1);
 			}
 			if (!rc && *eol)
-				rc = response_buffer_append(&out, "\n");
+				rc = fyai_buf_append(&out, "\n");
 			continue;
 		}
-		rc = response_buffer_append_data(&out, line,
+		rc = fyai_buf_append_data(&out, line,
 				(size_t)(eol - line) + (*eol ? 1 : 0));
 	}
 	v = rc ? fy_invalid : fy_value(gb, out.data ? out.data : "");

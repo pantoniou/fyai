@@ -63,7 +63,7 @@ struct fyai_term {
 	struct fyai_terminal_view *view;
 	struct fytim_surface *surface;
 	struct fyai_terminal_opts opts;
-	struct response_buffer input;	/* keys the program could not take yet */
+	struct fyai_buf input;	/* keys the program could not take yet */
 	const char *command;
 	int master;
 	pid_t pid;
@@ -204,7 +204,7 @@ static void term_input_queue(struct fyai_term *t, const char *data, size_t len)
 {
 	if (!len)
 		return;
-	if (response_buffer_append_data(&t->input, data, len))
+	if (fyai_buf_append_data(&t->input, data, len))
 		return;
 	term_input_flush(t);
 }

@@ -41,7 +41,7 @@ struct fyai_uidraw {
 	bool live_paused;
 	/* What this renderer gave the sink for the live document, and what
 	 * the legacy path gave it. */
-	struct response_buffer trace, oracle;
+	struct fyai_buf trace, oracle;
 	/* The newest entry of the log shown. A mirror does not show the
 	 * entries of its snapshot: they were shown before it attached. */
 	long long log_shown;
@@ -53,7 +53,7 @@ struct fyai_uidraw {
 	size_t nechoed;
 	/* The text of a card that a mirror draws when its document ends: the
 	 * text of the model closes with the document. */
-	struct response_buffer card;
+	struct fyai_buf card;
 };
 
 static struct fyai_uidraw *uidraw(struct fyai_ctx *ctx)
@@ -77,13 +77,13 @@ err:
 			fyai_warning((_ctx), "cannot draw %s", (_what));\
 	} while (0)
 
-static void uidraw_trace(struct fyai_ctx *ctx, struct response_buffer *buf,
+static void uidraw_trace(struct fyai_ctx *ctx, struct fyai_buf *buf,
 			 const char *data, size_t len)
 {
 	/* A mirror has no legacy path to compare with. */
 	if (fyai_uimodel_mirrored(ctx) || !len)
 		return;
-	if (response_buffer_append_data(buf, data, len))
+	if (fyai_buf_append_data(buf, data, len))
 		fyai_warning(ctx, "cannot keep the trace of the live document");
 }
 
@@ -150,7 +150,7 @@ static void uidraw_live_feed(struct fyai_ctx *ctx, struct fyai_uidraw *d,
 	if (len <= d->live_shown)
 		return;
 	if (fyai_uimodel_mirrored(ctx) && strcmp(d->live_tag, "assistant") &&
-	    response_buffer_append_data(&d->card, text + d->live_shown,
+	    fyai_buf_append_data(&d->card, text + d->live_shown,
 					len - d->live_shown))
 		fyai_warning(ctx, "cannot keep the text of a card");
 	from = d->live_shown;
@@ -438,7 +438,7 @@ static int uidraw_band_view(struct fyai_ctx *ctx, struct uidraw_band *b,
 {
 	struct fyai_md_block blocks[64];
 	struct fyai_md_blocks list = { .item = blocks };
-	struct response_buffer body = {0};
+	struct fyai_buf body = {0};
 	fy_generic text = fy_get(item, "text", fy_invalid), block, blks;
 	const char *str;
 	char *title = NULL;

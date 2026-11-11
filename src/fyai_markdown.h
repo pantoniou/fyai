@@ -108,7 +108,7 @@ bool markdown_command_ground(const struct fyai_cfg *cfg, uint32_t *rgb);
  */
 int markdown_ground_rows(const struct fyai_cfg *cfg, uint32_t rgb,
 			 const char *text, size_t len,
-			 struct response_buffer *out);
+			 struct fyai_buf *out);
 /* Write the palette ground escape for a fullscreen page using theme ground.
  * Return its length, or zero with an empty buffer when no ground applies. */
 int markdown_fullscreen_ground_sgr(const struct fyai_cfg *cfg,
@@ -142,12 +142,12 @@ int markdown_renderer_push(struct markdown_renderer *renderer,
 			   const char *text, size_t len,
 			   struct markdown_update *update);
 int markdown_renderer_finish(struct markdown_renderer *renderer,
-			     struct response_buffer *out);
+			     struct fyai_buf *out);
 void markdown_renderer_destroy(struct markdown_renderer *renderer);
 int markdown_render(struct fyai_cfg *cfg, const char *text, size_t len,
-		    struct response_buffer *out, bool color, const char *theme);
+		    struct fyai_buf *out, bool color, const char *theme);
 int markdown_render_margins(struct fyai_cfg *cfg, const char *text, size_t len,
-			    struct response_buffer *out,
+			    struct fyai_buf *out,
 			    const char *first_margin,
 			    const char *next_margin);
 /*
@@ -155,7 +155,7 @@ int markdown_render_margins(struct fyai_cfg *cfg, const char *text, size_t len,
  * not write with markdown_ui_escape().
  */
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
-			    struct response_buffer *out, bool color,
+			    struct fyai_buf *out, bool color,
 			    const char *theme);
 /* A clickable region of a UI Markdown render: its id and the cells of its
  * label, from the first cell of the render. */
@@ -180,7 +180,7 @@ char *markdown_ui_escape(const char *text);
  * as nothing and reports no regions.
  */
 int markdown_render_margins_ui(struct fyai_cfg *cfg, const char *text,
-			       size_t len, struct response_buffer *out,
+			       size_t len, struct fyai_buf *out,
 			       const char *first_margin,
 			       const char *next_margin,
 			       struct markdown_region **regionsp,
@@ -190,7 +190,7 @@ int markdown_render_tool_head_ui(struct fyai_cfg *cfg, const char *title,
 				 size_t len, const char *cause,
 				 const char *first_margin,
 				 const char *next_margin,
-				 struct response_buffer *out,
+				 struct fyai_buf *out,
 				 struct markdown_region **regionsp,
 				 size_t *countp);
 /* Tool-state title rendering. Returned strings belong to the caller. */
@@ -231,7 +231,7 @@ char *markdown_indicator_margin_cfg(struct fyai_cfg *cfg,
 int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 			      size_t len, const char *cause,
 			      const char *first_margin, const char *next_margin,
-			      struct response_buffer *out);
+			      struct fyai_buf *out);
 int fyai_print_markdown(const char *text, struct fyai_cfg *cfg);
 /* Apply @extra renderer flags to this render. */
 int fyai_print_markdown_flags(const char *text, struct fyai_cfg *cfg,
@@ -265,12 +265,12 @@ int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
 /* Render a marked, frameless fenced block into @out. */
 int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
 			      size_t len, const char *lang, size_t max_lines,
-			      const char *indent, struct response_buffer *out);
+			      const char *indent, struct fyai_buf *out);
 /* @extra adds renderer flags for this render only, such as
  * FYMD_RF_CODE_MARKER for the marked (hanging-indent) fenced-block shape. */
 int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
 			      size_t len, const char *lang,
-			      struct response_buffer *out,
+			      struct fyai_buf *out,
 			      enum fymd_cfg_flags extra);
 /*
  * Write @data/@len to @fp with each non-empty line prefixed by the @ind indent
@@ -300,9 +300,9 @@ struct fyai_fenced_stream {
 	const char *command;	     /* frameless highlighted shell command */
 	char *first_margin;	     /* theme-rendered activity marker */
 	struct fymd_renderer *r;
-	struct response_buffer accum;	/* raw source accumulated so far */
-	struct response_buffer shown;	/* last rendered (un-indented) output */
-	struct response_buffer body;	/* last rendered band body, indented */
+	struct fyai_buf accum;	/* raw source accumulated so far */
+	struct fyai_buf shown;	/* last rendered (un-indented) output */
+	struct fyai_buf body;	/* last rendered band body, indented */
 	struct fyai_event_source *flush_src;	/* deferred-render timer */
 	const char *lang;		/* highlighter language, NULL => plain */
 	const char *indent;		/* per-line indent decoration */

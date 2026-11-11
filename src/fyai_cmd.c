@@ -1051,7 +1051,7 @@ static int parse_format(const char *s, enum fyai_cmd_format *fmtp)
 /* The text of the rest of a line that starts at word @i. */
 static const char *parse_rest(struct fyai_cmd_parse_state *st, size_t i)
 {
-	struct response_buffer buf = { 0 };
+	struct fyai_buf buf = { 0 };
 	const char *text;
 	size_t len;
 
@@ -1064,9 +1064,9 @@ static const char *parse_rest(struct fyai_cmd_parse_state *st, size_t i)
 					   fy_sprintfa("%.*s", (int)len, text));
 	}
 	for (; i < st->nwords; i++) {
-		if (buf.len && response_buffer_append(&buf, " "))
+		if (buf.len && fyai_buf_append(&buf, " "))
 			break;
-		if (response_buffer_append(&buf, st->words[i]))
+		if (fyai_buf_append(&buf, st->words[i]))
 			break;
 	}
 	text = fy_gb_intern_string(st->gb, buf.data ? buf.data : "");
@@ -1401,7 +1401,7 @@ int fyai_cmd_parse(struct fyai_cfg *cfg, struct fy_generic_builder *gb,
 int fyai_cmd_split(const char *line, bool partial, char ***wordsp,
 		   size_t **offsp)
 {
-	struct response_buffer word = { 0 };
+	struct fyai_buf word = { 0 };
 	char **words = NULL, **nw;
 	size_t *offs = NULL, *no;
 	const char *p;
@@ -1427,7 +1427,7 @@ int fyai_cmd_split(const char *line, bool partial, char ***wordsp,
 		offs = no;
 		offs[n] = (size_t)(p - line);
 		word.len = 0;
-		if (response_buffer_append(&word, ""))
+		if (fyai_buf_append(&word, ""))
 			goto err;
 		quote = 0;
 		in_word = true;
@@ -1435,7 +1435,7 @@ int fyai_cmd_split(const char *line, bool partial, char ***wordsp,
 			if (quote == '\'') {
 				if (*p == '\'')
 					quote = 0;
-				else if (response_buffer_append_data(&word, p, 1))
+				else if (fyai_buf_append_data(&word, p, 1))
 					goto err;
 				p++;
 			} else if (quote == '"') {
@@ -1446,7 +1446,7 @@ int fyai_cmd_split(const char *line, bool partial, char ***wordsp,
 				}
 				if (*p == '\\' && (p[1] == '"' || p[1] == '\\'))
 					p++;
-				if (response_buffer_append_data(&word, p, 1))
+				if (fyai_buf_append_data(&word, p, 1))
 					goto err;
 				p++;
 			} else if (*p == '\'' || *p == '"') {
@@ -1456,7 +1456,7 @@ int fyai_cmd_split(const char *line, bool partial, char ***wordsp,
 			} else {
 				if (*p == '\\' && p[1])
 					p++;
-				if (response_buffer_append_data(&word, p, 1))
+				if (fyai_buf_append_data(&word, p, 1))
 					goto err;
 				p++;
 			}
@@ -1567,7 +1567,7 @@ static int present_machine(struct fyai_cmd_call *call, fy_generic value)
  * {?key} is such a test that writes nothing.
  * Returns -1 when @buf cannot grow.
  */
-static int present_template(struct response_buffer *buf, const char *tmpl,
+static int present_template(struct fyai_buf *buf, const char *tmpl,
 			    fy_generic result)
 {
 	size_t start = buf->len, len;
@@ -1580,7 +1580,7 @@ static int present_template(struct response_buffer *buf, const char *tmpl,
 		end = *p == '{' ? strchr(p, '}') : NULL;
 		len = end ? (size_t)(end - p - 1) : 0;
 		if (!end || !len || len >= sizeof(key)) {
-			if (response_buffer_append_data(buf, p, 1))
+			if (fyai_buf_append_data(buf, p, 1))
 				return -1;
 			p++;
 			continue;
@@ -1600,10 +1600,10 @@ static int present_template(struct response_buffer *buf, const char *tmpl,
 		if (test)
 			continue;
 		s = fy_is_string(v) ? fy_castp(&v, "") : fy_str(v);
-		if (response_buffer_append(buf, s ? s : "?"))
+		if (fyai_buf_append(buf, s ? s : "?"))
 			return -1;
 	}
-	return response_buffer_append(buf, "\n") ? -1 : 0;
+	return fyai_buf_append(buf, "\n") ? -1 : 0;
 }
 
 /*
@@ -1652,7 +1652,7 @@ err:
 static int present_result(struct fyai_cmd_call *call, fy_generic result)
 {
 	struct fyai_ctx *ctx = call->ctx;
-	struct response_buffer text = { 0 };
+	struct fyai_buf text = { 0 };
 	fy_generic render, table, message, line, document;
 	const char *s;
 	bool markdown;
@@ -1960,7 +1960,7 @@ int fyai_cmd_configure(struct fyai_cfg *cfg, int argc, char **argv)
 static int cmd_help_present(struct fyai_ctx *ctx, enum fyai_cmd_surface s,
 			    const char *path)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	char **words;
 	size_t *offs;
 	int n, rc;

@@ -288,8 +288,8 @@ int markdown_final_render_is_whole(void)
  */
 static void test_tool_head_chrome(void)
 {
-	struct response_buffer ok_out = {0};
-	struct response_buffer bad_out = {0};
+	struct fyai_buf ok_out = {0};
+	struct fyai_buf bad_out = {0};
 	char *ok_mark, *bad_mark;
 
 	ok_mark = markdown_indicator_margin_cfg(&test_cfg,
@@ -643,7 +643,7 @@ int markdown_reasoning_palette(void)
 {
 	static const char doc[] =
 		FYAI_REASONING_HEAD "> weigh the cache\n\nThe answer.\n";
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	int rc;
 
 	rc = fyai_diag_setup(&test_cfg.diag);
@@ -731,7 +731,7 @@ int markdown_ui_escape_test(void)
  */
 int markdown_head_regions_test(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct markdown_region *rg = NULL;
 	size_t n = 0;
 	char *title;
@@ -781,7 +781,7 @@ int markdown_ground_rows_keep_ground(void)
 		"      \x1b[0m\n"
 		"\x1b[48;2;1;2;3m\x1b[38;2;5;0;0mx\x1b[0;1m\x1b[48;2;1;2;3my"
 		"\x1b[38;2;2;0;0mz         \x1b[0m\n";
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_cfg cfg;
 
 	memset(&cfg, 0, sizeof(cfg));

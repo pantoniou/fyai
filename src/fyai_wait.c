@@ -533,27 +533,27 @@ static enum fyai_wait_for_kind fyai_wait_for_resolve(struct fyai_ctx *ctx,
 /* Join the reports that a wait collected, each one as its own paragraph. */
 static char *fyai_waiter_report(const struct fyai_waiter *w)
 {
-	struct response_buffer out = {0}, pending = {0};
+	struct fyai_buf out = {0}, pending = {0};
 	const char *sep = "";
 	size_t i;
 
 	for (i = 0; i < w->n; i++) {
 		if (!w->items[i].text) {
-			if ((pending.len && response_buffer_append(&pending, ", ")) ||
-			    response_buffer_append(&pending, "'") ||
-			    response_buffer_append(&pending, w->items[i].name) ||
-			    response_buffer_append(&pending, "'"))
+			if ((pending.len && fyai_buf_append(&pending, ", ")) ||
+			    fyai_buf_append(&pending, "'") ||
+			    fyai_buf_append(&pending, w->items[i].name) ||
+			    fyai_buf_append(&pending, "'"))
 				goto fail;
 			continue;
 		}
-		if (response_buffer_append(&out, sep) ||
-		    response_buffer_append(&out, w->items[i].text))
+		if (fyai_buf_append(&out, sep) ||
+		    fyai_buf_append(&out, w->items[i].text))
 			goto fail;
 		sep = "\n\n";
 	}
 	if (pending.len) {
-		if (response_buffer_append(&out, sep) ||
-		    response_buffer_append(&out, w->poll ?
+		if (fyai_buf_append(&out, sep) ||
+		    fyai_buf_append(&out, w->poll ?
 				fy_sprintfa("[still running: %s]", pending.data) :
 				fy_sprintfa("[still waiting for %s after %.3g seconds]",
 					    pending.data, w->seconds)))

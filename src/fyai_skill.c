@@ -163,7 +163,7 @@ static bool skill_user_invocable(fy_generic skill)
 fy_generic fyai_skill_join(struct fy_generic_builder *gb, fy_generic seq,
 			   const char *sep)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	fy_generic item, v;
 	bool first;
 	int rc;
@@ -171,8 +171,8 @@ fy_generic fyai_skill_join(struct fy_generic_builder *gb, fy_generic seq,
 	rc = 0;
 	first = true;
 	fy_foreach(item, fy_is_sequence(seq) ? seq : fy_seq_empty) {
-		rc = (!first && response_buffer_append(&out, sep)) ||
-		     response_buffer_append(&out, fy_castp(&item, ""));
+		rc = (!first && fyai_buf_append(&out, sep)) ||
+		     fyai_buf_append(&out, fy_castp(&item, ""));
 		if (rc)
 			break;
 		first = false;
@@ -1612,7 +1612,7 @@ static const char *skill_dir(struct fyai_ctx *ctx, fy_generic skill)
 static fy_generic skill_split_args(struct fy_generic_builder *gb,
 				   const char *args)
 {
-	struct response_buffer word = {0};
+	struct fyai_buf word = {0};
 	fy_generic words;
 	bool in_word;
 	char quote;
@@ -1629,7 +1629,7 @@ static fy_generic skill_split_args(struct fy_generic_builder *gb,
 				in_word = true;
 				continue;
 			}
-			if (response_buffer_append_data(&word, p, 1))
+			if (fyai_buf_append_data(&word, p, 1))
 				goto err;
 			in_word = true;
 			continue;
@@ -1658,7 +1658,7 @@ err:
 fy_generic fyai_skill_expand(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 			     fy_generic skill, const char *args)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	fy_generic body_v, fm, name_v, words, w;
 	const char *body, *p, *name, *dir;
 	bool named;
@@ -1684,7 +1684,7 @@ fy_generic fyai_skill_expand(struct fyai_ctx *ctx, struct fy_generic_builder *gb
 			idx = strtol(p + 11, &end, 10);
 			if (end != p + 11 && *end == ']') {
 				w = fy_get_at(words, (size_t)idx);
-				rc = response_buffer_append(&out,
+				rc = fyai_buf_append(&out,
 					fy_is_string(w) ? fy_castp(&w, "") : "");
 				named = true;
 				p = end + 1;
@@ -1692,7 +1692,7 @@ fy_generic fyai_skill_expand(struct fyai_ctx *ctx, struct fy_generic_builder *gb
 			}
 		}
 		if (!strncmp(p, "$ARGUMENTS", 10)) {
-			rc = response_buffer_append(&out, args);
+			rc = fyai_buf_append(&out, args);
 			named = true;
 			p += 10;
 			continue;
@@ -1700,28 +1700,28 @@ fy_generic fyai_skill_expand(struct fyai_ctx *ctx, struct fy_generic_builder *gb
 		if (p[0] == '$' && p[1] >= '0' && p[1] <= '9') {
 			idx = strtol(p + 1, &end, 10);
 			w = fy_get_at(words, (size_t)idx);
-			rc = response_buffer_append(&out,
+			rc = fyai_buf_append(&out,
 				fy_is_string(w) ? fy_castp(&w, "") : "");
 			named = true;
 			p = end;
 			continue;
 		}
 		if (!strncmp(p, "${CLAUDE_SKILL_DIR}", 19)) {
-			rc = response_buffer_append(&out, dir ? dir :
+			rc = fyai_buf_append(&out, dir ? dir :
 				fy_sprintfa("skill:%s", name));
 			p += 19;
 			continue;
 		}
 		if (!strncmp(p, "${CLAUDE_SESSION_ID}", 20)) {
-			rc = response_buffer_append(&out, fyai_ctx_branch(ctx));
+			rc = fyai_buf_append(&out, fyai_ctx_branch(ctx));
 			p += 20;
 			continue;
 		}
-		rc = response_buffer_append_data(&out, p, 1);
+		rc = fyai_buf_append_data(&out, p, 1);
 		p++;
 	}
 	if (!rc && !named && *args)
-		rc = response_buffer_append(&out,
+		rc = fyai_buf_append(&out,
 			fy_sprintfa("%sARGUMENTS: %s\n",
 				    out.len && out.data[out.len - 1] != '\n' ?
 				    "\n\n" : "\n", args));
@@ -2126,7 +2126,7 @@ static fy_generic tool_describe_skill(struct fyai_ctx *ctx,
 				      struct fy_generic_builder *gb,
 				      fy_generic tool)
 {
-	struct response_buffer list = {0};
+	struct fyai_buf list = {0};
 	fy_generic fn, skill, fm, desc, when, hint;
 	const char **names;
 	size_t i, n;
@@ -2142,7 +2142,7 @@ static fy_generic tool_describe_skill(struct fyai_ctx *ctx,
 		desc = fy_get(fm, "description", fy_invalid);
 		when = fy_get(fm, "when_to_use", fy_invalid);
 		hint = fy_get(fm, "argument-hint", fy_invalid);
-		rc = response_buffer_append(&list, fy_sprintfa(
+		rc = fyai_buf_append(&list, fy_sprintfa(
 			"\n- `%s`%s%s%s: %s%s%s", names[i],
 			fy_is_string(hint) ? " (arguments: " : "",
 			fy_is_string(hint) ? fy_castp(&hint, "") : "",

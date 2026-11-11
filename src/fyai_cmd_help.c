@@ -34,16 +34,16 @@ static const char *surface_prefix(enum fyai_cmd_surface s)
 }
 
 /* Append @s; a failed append is kept in @failp and reported one time. */
-static void put(struct response_buffer *out, bool *failp, const char *s)
+static void put(struct fyai_buf *out, bool *failp, const char *s)
 {
-	if (!*failp && response_buffer_append(out, s))
+	if (!*failp && fyai_buf_append(out, s))
 		*failp = true;
 }
 
-static void putf(struct response_buffer *out, bool *failp, const char *fmt,
+static void putf(struct fyai_buf *out, bool *failp, const char *fmt,
 		 ...) __attribute__((format(printf, 3, 4)));
 
-static void putf(struct response_buffer *out, bool *failp, const char *fmt,
+static void putf(struct fyai_buf *out, bool *failp, const char *fmt,
 		 ...)
 {
 	va_list ap;
@@ -62,7 +62,7 @@ static void putf(struct response_buffer *out, bool *failp, const char *fmt,
 }
 
 /* A table cell holds no line break and no bar. */
-static void put_cell(struct response_buffer *out, bool *failp, const char *s)
+static void put_cell(struct fyai_buf *out, bool *failp, const char *s)
 {
 	char c[2] = { 0, 0 };
 
@@ -97,7 +97,7 @@ static const char *gstr(fy_generic *v)
 }
 
 /* The name of @def and its aliases, each as code: `/reset`, `/rewind`. */
-static void put_names(struct response_buffer *out, bool *failp,
+static void put_names(struct fyai_buf *out, bool *failp,
 		      fy_generic def, const char *pfx)
 {
 	fy_generic name, alias;
@@ -110,7 +110,7 @@ static void put_names(struct response_buffer *out, bool *failp,
 
 /* ---- usage ---------------------------------------------------------------- */
 
-static void usage_prop(struct response_buffer *out, bool *failp,
+static void usage_prop(struct fyai_buf *out, bool *failp,
 		       struct fyai_cmd_prop *cp, bool required)
 {
 	const char *open = required ? "" : "[", *close = required ? "" : "]";
@@ -139,7 +139,7 @@ char *fyai_cmd_usage(fy_generic def, const char *path,
 		     enum fyai_cmd_surface surface)
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	fy_generic subs, sub, name, *sdefs;
 	bool fail = false, first;
 	long long pos;
@@ -197,7 +197,7 @@ out:
 
 /* ---- help of one command ---------------------------------------------------- */
 
-static void help_prop_row(struct response_buffer *out, bool *failp,
+static void help_prop_row(struct fyai_buf *out, bool *failp,
 			  struct fyai_cmd_prop *cp)
 {
 	fy_generic d, dflt, en, v;
@@ -236,7 +236,7 @@ static void help_prop_row(struct response_buffer *out, bool *failp,
 	put(out, failp, " |\n");
 }
 
-static void help_command(struct response_buffer *out, bool *failp,
+static void help_command(struct fyai_buf *out, bool *failp,
 			 fy_generic def, const char *path,
 			 enum fyai_cmd_surface surface)
 {
@@ -354,7 +354,7 @@ static void help_command(struct response_buffer *out, bool *failp,
 
 /* ---- the command list ------------------------------------------------------- */
 
-static void help_list(struct response_buffer *out, bool *failp,
+static void help_list(struct fyai_buf *out, bool *failp,
 		      enum fyai_cmd_surface surface)
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
@@ -423,7 +423,7 @@ static void help_list(struct response_buffer *out, bool *failp,
  * of the registry, so only a help of a running session lists them, and the
  * reference that the registry gives does not.
  */
-static void help_skills(struct fyai_ctx *ctx, struct response_buffer *out,
+static void help_skills(struct fyai_ctx *ctx, struct fyai_buf *out,
 			bool *failp, enum fyai_cmd_surface surface)
 {
 	fy_generic names, item, name, desc, hint;
@@ -453,7 +453,7 @@ static void help_skills(struct fyai_ctx *ctx, struct response_buffer *out,
 }
 
 /* Help for the skill @word, when no command or topic has the name. */
-static bool help_skill(struct fyai_ctx *ctx, struct response_buffer *out,
+static bool help_skill(struct fyai_ctx *ctx, struct fyai_buf *out,
 		       bool *failp, const char *word)
 {
 	fy_generic skill, fm, desc, hint, when;
@@ -490,7 +490,7 @@ static fy_generic help_topic(const char *word)
 
 int fyai_cmd_help_source(struct fyai_cfg *cfg, enum fyai_cmd_surface surface,
 			 size_t nwords, const char *const *words,
-			 struct response_buffer *out)
+			 struct fyai_buf *out)
 {
 	struct fyai_cmd_walk w;
 	fy_generic topic, v;
@@ -546,7 +546,7 @@ out:
 
 /* ---- the generated reference -------------------------------------------- */
 
-static void reference_command(struct response_buffer *out, bool *failp,
+static void reference_command(struct fyai_buf *out, bool *failp,
 			      fy_generic def, fy_generic inherited,
 			      const char *parent, enum fyai_cmd_surface surface)
 {
@@ -567,7 +567,7 @@ static void reference_command(struct response_buffer *out, bool *failp,
 }
 
 /* Every command of the registry and every topic, as one Markdown document. */
-int fyai_cmd_reference_markdown(struct response_buffer *out)
+int fyai_cmd_reference_markdown(struct fyai_buf *out)
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
 	fy_generic reg, def, topic, v;
@@ -605,7 +605,7 @@ int fyai_cmd_reference_markdown(struct response_buffer *out)
 }
 
 /* Text for roff: no Markdown code marks, and escapes for the roff specials. */
-static void roff_text(struct response_buffer *out, bool *failp, const char *s)
+static void roff_text(struct fyai_buf *out, bool *failp, const char *s)
 {
 	bool bol = true;
 	char c[2] = { 0, 0 };
@@ -629,7 +629,7 @@ static void roff_text(struct response_buffer *out, bool *failp, const char *s)
 		put(out, failp, "\n");
 }
 
-static void roff_props(struct response_buffer *out, bool *failp,
+static void roff_props(struct fyai_buf *out, bool *failp,
 		       fy_generic def, enum fyai_cmd_surface surface)
 {
 	struct fyai_cmd_prop props[FYAI_CMD_MAX_PROPS];
@@ -657,7 +657,7 @@ static void roff_props(struct response_buffer *out, bool *failp,
 	}
 }
 
-static void roff_command(struct response_buffer *out, bool *failp,
+static void roff_command(struct fyai_buf *out, bool *failp,
 			 fy_generic def, fy_generic inherited,
 			 const char *parent)
 {
@@ -687,7 +687,7 @@ static void roff_command(struct response_buffer *out, bool *failp,
 }
 
 /* The manual page, fyai(1). */
-int fyai_cmd_reference_man(struct response_buffer *out)
+int fyai_cmd_reference_man(struct fyai_buf *out)
 {
 	fy_generic reg, def, topic, v;
 	bool fail = false;
@@ -721,7 +721,7 @@ int fyai_cmd_reference_man(struct response_buffer *out)
 
 int fyai_cmd_help(struct fyai_cmd_call *call, fy_generic *result)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	const char *words[16];
 	bool fail = false;
 	fy_generic w;

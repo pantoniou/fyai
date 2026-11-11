@@ -10,7 +10,7 @@
 
 struct fyai_ctx;
 struct fyai_cfg;
-struct response_buffer;
+struct fyai_buf;
 struct markdown_update;
 struct fytim_workband;
 struct fytim_surface;
@@ -323,7 +323,7 @@ char *fyai_ui_indicator(struct fyai_ctx *ctx, enum fyai_ui_mark mark,
 			size_t frame, unsigned int *interval_msp);
 /* Append the command row of a tile head to @out. */
 int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
-				 struct response_buffer *out,
+				 struct fyai_buf *out,
 				 const char *command);
 
 /* Keep the last screen: it goes into the transcript and @sf is retired. */

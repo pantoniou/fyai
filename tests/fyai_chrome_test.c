@@ -185,7 +185,7 @@ int chrome_bar(void)
 
 static void expect_cut(const char *src, int max, const char *want)
 {
-	struct response_buffer cut = {};
+	struct fyai_buf cut = {};
 
 	(void)fyai_chrome_markup_cols(src, &cut, max);
 	if (!strcmp(cut.data ? cut.data : "", want)) {

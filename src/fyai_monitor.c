@@ -106,7 +106,7 @@ void fyai_monitor_output(struct fyai_ctx *ctx, const char *name,
 			 const char *data, size_t len)
 {
 	struct fyai_monitor_run *run = monitor_find(ctx, name);
-	struct response_buffer lines = {0};
+	struct fyai_buf lines = {0};
 	char *nl, *buf, *line;
 	size_t total;
 
@@ -129,8 +129,8 @@ void fyai_monitor_output(struct fyai_ctx *ctx, const char *name,
 		*nl = '\0';
 		if (nl - line > FYAI_MONITOR_LINE_MAX)
 			line[FYAI_MONITOR_LINE_MAX] = '\0';
-		if (response_buffer_append(&lines, line) ||
-		    response_buffer_append(&lines, "\n"))
+		if (fyai_buf_append(&lines, line) ||
+		    fyai_buf_append(&lines, "\n"))
 			goto done;
 	}
 	if (line < buf + total) {

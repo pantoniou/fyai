@@ -14,6 +14,8 @@
 #include <curl/curl.h>
 #include <libfyaml.h>
 #include <libfyaml/libfyaml-util.h>
+
+#include "fyai_buf.h"
 #include <libfyaml/libfyaml-generic.h>
 
 #define assert_valid_generic(_v, _msg) \
@@ -71,11 +73,6 @@ bool generic_ptr_in_dead_stack(fy_generic v, const void *live_floor);
 #endif
 
 /* utility methods */
-struct response_buffer {
-	char *data;
-	size_t len;
-	size_t cap;
-};
 
 /* Stage at which a child failed before exec. */
 /*
@@ -197,13 +194,6 @@ fy_generic fyai_bytes_to_generic(struct fy_generic_builder *gb,
 				 const char *data, size_t len);
 /* Take the bytes back out. The caller frees the result. */
 char *fyai_bytes_from_generic(fy_generic value, size_t *lenp);
-int response_buffer_reserve(struct response_buffer *buf, size_t need);
-int response_buffer_append(struct response_buffer *buf, const char *text);
-int response_buffer_append_data(struct response_buffer *buf, const void *data,
-				size_t len);
-int response_buffer_append_line(struct response_buffer *buf, const void *data,
-				size_t len);
-void response_buffer_trim(struct response_buffer *buf);
 size_t write_response(void *ptr, size_t size, size_t nmemb, void *userdata);
 int append_header(struct curl_slist **headers, const char *header);
 char *make_header(const char *prefix, const char *value);
@@ -368,7 +358,7 @@ int hex_nibble(char c);
 int hex_decode(const char *text, unsigned char *bytes, size_t *count);
 
 /* Append @s to @out in single quotes, so that a shell reads it as one word. */
-int fyai_shell_quote(struct response_buffer *out, const char *s);
+int fyai_shell_quote(struct fyai_buf *out, const char *s);
 /* True when @path is @root or a path under it. A '/' at the end of @root is ignored. */
 bool fyai_path_beneath(const char *path, const char *root);
 

@@ -142,7 +142,7 @@ struct fyai_ui {
 	/* The columns of the transcript beside a side column of tiles, or 0.
 	 * While it is set, it is the render width in place of @render_cols. */
 	int side_cols;
-	struct response_buffer pane_grid;	/* the pane source of the page */
+	struct fyai_buf pane_grid;	/* the pane source of the page */
 	char page_focus[FYTIM_PAGE_ID_MAX + 1];
 	struct fyai_page_keys page_keys;	/* the keys the page has bound */
 	struct ui_question *questions;	/* first the one the input area shows */
@@ -155,16 +155,16 @@ struct fyai_ui {
 	unsigned int activity_interval_ms;
 	off_t capture_out;
 	off_t capture_err;
-	struct response_buffer pane_out;	/* what a pane captured */
+	struct fyai_buf pane_out;	/* what a pane captured */
 	/* The span of a command that ends: its capture, the oracle of the
 	 * rows the renderer makes from the log store, and how it is placed. */
-	struct response_buffer pane_oracle;
+	struct fyai_buf pane_oracle;
 	enum fyai_error_type pane_level;
 	bool pane_ending, pane_shown;
 	bool pane_show_output, pane_command;
 	char *pane_kept;		/* output drawn into the transcript */
 	bool pane_status;		/* the command output is a status */
-	struct response_buffer open_row;	/* a row not ended yet */
+	struct fyai_buf open_row;	/* a row not ended yet */
 	bool capture;
 	bool recalled;
 	bool frame_pending;
@@ -185,7 +185,7 @@ struct fyai_ui {
 	uintptr_t inline_focus;
 	fyai_ui_keys_fn inline_keys_fn;	/* takes what is typed for it */
 	void *inline_keys_data;
-	struct response_buffer stream_rows;	/* full rendered stream */
+	struct fyai_buf stream_rows;	/* full rendered stream */
 	size_t stream_frozen;		/* immutable prefix of stream_rows */
 	bool stream_changed;
 	int view_rows;			/* rows of its region in the last frame */
@@ -281,10 +281,10 @@ char *fyai_ui_indicator(struct fyai_ctx *ctx, enum fyai_ui_mark mark,
 }
 
 int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
-				 struct response_buffer *out,
+				 struct fyai_buf *out,
 				 const char *command)
 {
-	struct response_buffer rendered = {};
+	struct fyai_buf rendered = {};
 	char mark[FYAI_GLYPH_MAX];
 	size_t start;
 	size_t rows;
@@ -305,7 +305,7 @@ int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
 				rendered.data[rendered.len - 1] == '\r'))
 		rendered.len--;
 	if (out->len && out->data[out->len - 1] != '\n') {
-		rc = response_buffer_append(out, "\n");
+		rc = fyai_buf_append(out, "\n");
 		if (rc)
 			goto out;
 	}
@@ -313,20 +313,20 @@ int fyai_ui_append_shell_command(struct fyai_cfg *cfg,
 	for (start = 0, rows = 0, i = 0; i <= rendered.len; i++) {
 		if (i < rendered.len && rendered.data[i] != '\n')
 			continue;
-		rc = response_buffer_append(out, markdown_gutter_blank(cfg));
+		rc = fyai_buf_append(out, markdown_gutter_blank(cfg));
 		if (rc)
 			goto out;
-		rc = response_buffer_append(out, rows ? FYAI_TOOL_MARKER_PAD :
+		rc = fyai_buf_append(out, rows ? FYAI_TOOL_MARKER_PAD :
 						       mark);
 		if (rc)
 			goto out;
-		rc = response_buffer_reserve(out, out->len + i - start + 1);
+		rc = fyai_buf_reserve(out, out->len + i - start + 1);
 		if (rc)
 			goto out;
 		memcpy(out->data + out->len, rendered.data + start, i - start);
 		out->len += i - start;
 		out->data[out->len] = '\0';
-		rc = response_buffer_append(out, "\n");
+		rc = fyai_buf_append(out, "\n");
 		if (rc)
 			goto out;
 		start = i + 1;
@@ -345,8 +345,8 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 			  bool commit)
 {
-	struct response_buffer head = {0};
-	struct response_buffer out = {0};
+	struct fyai_buf head = {0};
+	struct fyai_buf out = {0};
 	const char *body, *title;
 	size_t body_len;
 	size_t title_len;
@@ -366,7 +366,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 	if (ui->tool_command &&
 	    fyai_ui_append_shell_command(ui->ctx->cfg, &head, ui->tool_command))
 		goto out;
-	response_buffer_trim(&head);
+	fyai_buf_trim(&head);
 	if (ui->tool_inline) {
 		body = ui->tool_body;
 		body_len = ui->tool_body_len;
@@ -402,7 +402,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		rc = 0;
 		goto out;
 	}
-	if (response_buffer_reserve(&out, head.len + body_len + 3))
+	if (fyai_buf_reserve(&out, head.len + body_len + 3))
 		goto out;
 	memcpy(out.data, head.data, head.len);
 	out.len = head.len;
@@ -412,7 +412,7 @@ static int ui_tool_render(struct fyai_ui *ui, const char *first_margin,
 		out.len += body_len;
 	}
 	out.data[out.len] = '\0';
-	response_buffer_trim(&out);
+	fyai_buf_trim(&out);
 	/* The separation above the band was drawn when it opened. */
 	trc = fytim_workband_set_commit(ui->tool_band, out.data, out.len);
 	if (ui->ctx)
@@ -499,13 +499,13 @@ out:
 static char *ui_pending_source(const struct fyai_ui *ui, size_t count,
 			       size_t skip)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	const struct ui_line *line;
 	char *literal;
 	size_t i = 0;
 	int rc;
 
-	rc = response_buffer_append(&out, fy_sprintfa(
+	rc = fyai_buf_append(&out, fy_sprintfa(
 		"<fy-role name=\"chrome\">\u25cf</fy-role> **pending** (%zu)",
 		count));
 	for (line = ui->head; !rc && line; line = line->next, i++) {
@@ -513,9 +513,9 @@ static char *ui_pending_source(const struct fyai_ui *ui, size_t count,
 			continue;
 		literal = fyai_prompt_literal(line->text);
 		rc = !literal ||
-		     response_buffer_append(&out,
+		     fyai_buf_append(&out,
 				"\\\n<fy-space n=\"2\"/>\u203a ") ||
-		     response_buffer_append(&out, literal);
+		     fyai_buf_append(&out, literal);
 		free(literal);
 	}
 	if (rc) {
@@ -990,7 +990,7 @@ static void ui_popup_append(struct fyai_ui *ui, enum fyai_error_type level,
  */
 static int ui_commit_rows(struct fyai_ui *ui, const char *buf, size_t len)
 {
-	struct response_buffer *o = &ui->open_row;
+	struct fyai_buf *o = &ui->open_row;
 	size_t whole;
 	int rc = 0;
 
@@ -998,9 +998,9 @@ static int ui_commit_rows(struct fyai_ui *ui, const char *buf, size_t len)
 	for (whole = len; whole && buf[whole - 1] != '\n'; whole--)
 		;
 	if (!whole)
-		return response_buffer_append_data(o, buf, len);
+		return fyai_buf_append_data(o, buf, len);
 	if (o->len) {
-		if (response_buffer_append_data(o, buf, whole))
+		if (fyai_buf_append_data(o, buf, whole))
 			return -1;
 		rc = fytim_commit(ui->ft, o->data, o->len) == FYTIM_OK ? 0 : -1;
 		o->len = 0;
@@ -1008,7 +1008,7 @@ static int ui_commit_rows(struct fyai_ui *ui, const char *buf, size_t len)
 		rc = fytim_commit(ui->ft, buf, whole) == FYTIM_OK ? 0 : -1;
 	}
 	if (!rc && whole < len)
-		rc = response_buffer_append_data(o, buf + whole, len - whole);
+		rc = fyai_buf_append_data(o, buf + whole, len - whole);
 	return rc;
 }
 
@@ -1090,13 +1090,13 @@ static int ui_flow_fence(struct fyai_ctx *ctx, enum fyai_flow_unit unit)
 
 static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	char buf[4096];
 	ssize_t n;
 
 	if (s->reader < 0) return;
 	while ((n = pread(s->reader, buf, sizeof(buf), s->off)) > 0) {
-		if (response_buffer_reserve(&out, out.len + (size_t)n + 1))
+		if (fyai_buf_reserve(&out, out.len + (size_t)n + 1))
 			break;
 		memcpy(out.data + out.len, buf, (size_t)n);
 		out.len += (size_t)n;
@@ -1113,7 +1113,7 @@ static void spool_drain(struct fyai_ui *ui, struct ui_spool *s)
 }
 
 static void spool_capture(struct ui_spool *s, off_t start,
-			  struct response_buffer *out)
+			  struct fyai_buf *out)
 {
 	char buf[4096];
 	ssize_t n;
@@ -1121,7 +1121,7 @@ static void spool_capture(struct ui_spool *s, off_t start,
 	if (s->reader < 0)
 		return;
 	while ((n = pread(s->reader, buf, sizeof(buf), start)) > 0) {
-		if (response_buffer_reserve(out, out->len + (size_t)n + 1))
+		if (fyai_buf_reserve(out, out->len + (size_t)n + 1))
 			break;
 		memcpy(out->data + out->len, buf, (size_t)n);
 		out->len += (size_t)n;
@@ -1153,7 +1153,7 @@ int fyai_ui_present(struct fyai_ctx *ctx, const char *buf, size_t len)
 		return 0;
 	ui = ctx->ui;
 	if (ui->capture) {
-		rc = response_buffer_append_data(&ui->pane_out, buf, len);
+		rc = fyai_buf_append_data(&ui->pane_out, buf, len);
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not keep the output of a command");
 		return 0;
@@ -1605,7 +1605,7 @@ static bool ui_question_copy(struct ui_question *q, fy_generic questions)
 int fyai_ui_page_report(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct response_buffer md = {0};
+	struct fyai_buf md = {0};
 	int rc;
 
 	if (!ui || !ui->page) {
@@ -1695,21 +1695,21 @@ err_out:
 /* The text of @q in one string, to compare a question with its oracle. */
 static char *ui_question_canonical(const struct ui_question *q)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const struct ui_qtext *t;
 	size_t i, o;
 	int rc;
 
-	rc = response_buffer_append(&out, fy_sprintfa("from: %s\n",
+	rc = fyai_buf_append(&out, fy_sprintfa("from: %s\n",
 						      q->from ? q->from : ""));
 	for (i = 0; !rc && i < q->nq; i++) {
 		t = &q->text[i];
-		rc = response_buffer_append(&out, fy_sprintfa(
+		rc = fyai_buf_append(&out, fy_sprintfa(
 			"%zu: %s | %s | %s | %s | %s\n", i, t->header,
 			t->question, t->multi ? "multi" : "one", t->proposal,
 			t->diff));
 		for (o = 0; !rc && o < t->nopts; o++)
-			rc = response_buffer_append(&out, fy_sprintfa(
+			rc = fyai_buf_append(&out, fy_sprintfa(
 				"  %zu: %s | %s | %s\n", o, t->opt[o].label,
 				t->opt[o].description, t->opt[o].preview));
 	}
@@ -2339,7 +2339,7 @@ err_out:
 static int ui_rendered_update(struct fyai_ui *ui, struct ui_rendered *r,
 			      const char *text, int cols, int cap)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	struct fyai_cfg *cfg = ui->ctx->cfg;
 	int saved, rc;
 
@@ -3742,10 +3742,10 @@ static char *ui_pane_heading(struct fyai_ui *ui, const char *title, bool error)
 /* Draw the output of a command into the transcript, under the card of the
  * command, which names it, and keep it for the record of the command. */
 static void ui_pane_to_transcript(struct fyai_ui *ui,
-				  struct response_buffer *out)
+				  struct fyai_buf *out)
 {
 	struct fyai_flow *flow = fyai_sink_flow(ui->ctx->sink);
-	struct response_buffer washed = {0};
+	struct fyai_buf washed = {0};
 	uint32_t bg;
 	int rc;
 
@@ -3773,7 +3773,7 @@ static void ui_pane_to_transcript(struct fyai_ui *ui,
 /* Keep an asynchronous notice distinct from conversation prose. */
 static void ui_notice_to_transcript(struct fyai_ui *ui,
 				    const char *heading,
-				    struct response_buffer *out)
+				    struct fyai_buf *out)
 {
 	struct fyai_flow *flow = fyai_sink_flow(ui->ctx->sink);
 	int rc;
@@ -3808,7 +3808,7 @@ static void ui_log_check(struct fyai_ui *ui, const char *title,
  */
 static void ui_pane_place(struct fyai_ui *ui, const char *title, bool error,
 			  enum fyai_error_type level, bool show_output,
-			  bool command, struct response_buffer *out)
+			  bool command, struct fyai_buf *out)
 {
 	struct fyai_ctx *ctx = ui->ctx;
 	char *heading;
@@ -3866,7 +3866,7 @@ static void ui_pane_place(struct fyai_ui *ui, const char *title, bool error,
 static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 			bool show_output, bool command)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
 	enum fyai_error_type level = FYAIET_INFO;
 
@@ -3885,7 +3885,7 @@ static void ui_pane_end(struct fyai_ctx *ctx, const char *title, bool error,
 	}
 	/* What the sink presented, then what a stray writer spooled. */
 	if (ui->pane_out.len &&
-	    response_buffer_append_data(&out, ui->pane_out.data,
+	    fyai_buf_append_data(&out, ui->pane_out.data,
 					ui->pane_out.len)) {
 		fyai_error(ctx, "could not keep the output of %s",
 			   title ? title : "the command");
@@ -3977,7 +3977,7 @@ void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
 		      enum fyai_error_type level, const char *rows, size_t len)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	bool show_output = true, command = true;
 
 	if (!ui)
@@ -3991,7 +3991,7 @@ void fyai_ui_log_show(struct fyai_ctx *ctx, const char *title, bool error,
 	}
 	if (!len)
 		return;
-	if (response_buffer_append_data(&out, rows, len)) {
+	if (fyai_buf_append_data(&out, rows, len)) {
 		fyai_error(ctx, "could not keep the output of %s",
 			   title ? title : "the command");
 		return;
@@ -4547,7 +4547,7 @@ int fyai_ui_commit(struct fyai_ctx *ctx, const char *buf, size_t len)
 		return -1;
 	ui = ctx->ui;
 	if (ui->capture) {
-		rc = response_buffer_append_data(&ui->pane_out, buf, len);
+		rc = fyai_buf_append_data(&ui->pane_out, buf, len);
 		fyai_error_check(ctx, !rc, err_out,
 				 "could not keep the output of a command");
 		return 0;
@@ -4577,7 +4577,7 @@ err_out:
 static int ui_stream_apply(struct fyai_ui *ui,
 			   const struct markdown_update *u)
 {
-	struct response_buffer *b = &ui->stream_rows;
+	struct fyai_buf *b = &ui->stream_rows;
 	size_t pos = b->len, k, frozen;
 	const char *nl;
 
@@ -4588,7 +4588,7 @@ static int ui_stream_apply(struct fyai_ui *ui,
 		while (pos > ui->stream_frozen && b->data[pos - 1] != '\n')
 			pos--;
 	}
-	if (response_buffer_reserve(b, pos + u->content_len + 1))
+	if (fyai_buf_reserve(b, pos + u->content_len + 1))
 		return -1;
 	b->len = pos;
 	if (u->content_len) {
@@ -4797,7 +4797,7 @@ void fyai_ui_signal(struct fyai_ctx *ctx, int signo)
 void fyai_ui_panel_update(struct fyai_ctx *ctx)
 {
 	struct fyai_ui *ui = ctx ? ctx->ui : NULL;
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_chrome_panel_info info;
 	int rc, messages;
 
@@ -4954,7 +4954,7 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 			 size_t hlen, const char *body, size_t blen,
 			 int max_rows, bool commit, bool fenced)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_flow_sep sep;
 	struct fyai_flow *flow;
 	fyai_event_ms_t now;
@@ -4972,26 +4972,26 @@ static int ui_inline_set(struct fyai_ui *ui, uintptr_t key, const char *head,
 	} else if (flow && !fenced) {
 		sep = fyai_flow_before(flow, FYAI_FLOW_TOOL_HEAD);
 		if (sep.markdown &&
-		    (response_buffer_append_data(&out, sep.markdown,
+		    (fyai_buf_append_data(&out, sep.markdown,
 						  strlen(sep.markdown)) ||
-		     response_buffer_append_data(&out, "\n", 1)))
+		     fyai_buf_append_data(&out, "\n", 1)))
 			goto out;
 		for (i = 0; i < sep.rows; i++)
-			if (response_buffer_append_data(&out, "\n", 1))
+			if (fyai_buf_append_data(&out, "\n", 1))
 				goto out;
 	}
-	if (hlen && response_buffer_append_data(&out, head, hlen))
+	if (hlen && fyai_buf_append_data(&out, head, hlen))
 		goto out;
 	if (blen) {
 		from = commit ? 0 : ui_last_rows(body, blen, max_rows);
 		if (hlen && head[hlen - 1] != '\n' &&
-		    response_buffer_append_data(&out, "\n", 1))
+		    fyai_buf_append_data(&out, "\n", 1))
 			goto out;
-		if (response_buffer_append_data(&out, body + from, blen - from))
+		if (fyai_buf_append_data(&out, body + from, blen - from))
 			goto out;
 	}
 	if (out.len && out.data[out.len - 1] != '\n' &&
-	    response_buffer_append_data(&out, "\n", 1))
+	    fyai_buf_append_data(&out, "\n", 1))
 		goto out;
 	if (commit) {
 		rc = out.len ? ui_present(ui, out.data, out.len) : 0;
@@ -5024,7 +5024,7 @@ static int ui_band_update(struct fyai_ctx *ctx, struct fytim_workband *band,
 			  const char *first_margin)
 {
 	struct fyai_ui *ui;
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	fyai_event_ms_t now;
 	size_t title_len;
 	char *margin = NULL;
@@ -5045,7 +5045,7 @@ static int ui_band_update(struct fyai_ctx *ctx, struct fytim_workband *band,
 				    margin, markdown_gutter_blank(ctx->cfg)))
 		goto out;
 	if (key) {
-		response_buffer_trim(&out);
+		fyai_buf_trim(&out);
 		if (max_rows < 1)
 			max_rows = ctx->cfg->tool_preview_lines > 0 ?
 				   ctx->cfg->tool_preview_lines : 1;
@@ -5055,18 +5055,18 @@ static int ui_band_update(struct fyai_ctx *ctx, struct fytim_workband *band,
 	}
 	if (len) {
 		if (out.len && out.data[out.len - 1] != '\n') {
-			if (response_buffer_reserve(&out, out.len + 2))
+			if (fyai_buf_reserve(&out, out.len + 2))
 				goto out;
 			out.data[out.len++] = '\n';
 			out.data[out.len] = '\0';
 		}
-		if (response_buffer_reserve(&out, out.len + len + 1))
+		if (fyai_buf_reserve(&out, out.len + len + 1))
 			goto out;
 		memcpy(out.data + out.len, body, len);
 		out.len += len;
 		out.data[out.len] = '\0';
 	}
-	response_buffer_trim(&out);
+	fyai_buf_trim(&out);
 	if (fytim_workband_set(band, out.data, out.len) != FYTIM_OK)
 		goto out;
 	now = fyai_event_now_ms();
@@ -5101,9 +5101,9 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 				size_t len, const char *first_margin)
 {
 	struct fyai_ui *ui;
-	struct response_buffer top = {0};
-	struct response_buffer head = {0};
-	struct response_buffer out = {0};
+	struct fyai_buf top = {0};
+	struct fyai_buf head = {0};
+	struct fyai_buf out = {0};
 	fyai_event_ms_t now;
 	char *margin = NULL;
 	size_t start;
@@ -5130,7 +5130,7 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 	while (end > start && (top.data[end - 1] == '\n' ||
 				 top.data[end - 1] == '\r'))
 		end--;
-	if (response_buffer_reserve(&head, end - start + 2))
+	if (fyai_buf_reserve(&head, end - start + 2))
 		goto out;
 	memcpy(head.data, top.data + start, end - start);
 	head.len = end - start;
@@ -5138,7 +5138,7 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 	head.data[head.len] = '\0';
 	if (fyai_ui_append_shell_command(ctx->cfg, &head, command))
 		goto out;
-	response_buffer_trim(&head);
+	fyai_buf_trim(&head);
 	/* Remove the renderer's leading row below separate chrome. */
 	while (len && (*body == '\n' || *body == '\r')) {
 		body++;
@@ -5163,7 +5163,7 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 	if (fytim_workband_set(band, body, len) != FYTIM_OK)
 		goto out;
 	/* Commit chrome and output together. */
-	if (response_buffer_reserve(&out, head.len + len + 2))
+	if (fyai_buf_reserve(&out, head.len + len + 2))
 		goto out;
 	memcpy(out.data, head.data, head.len);
 	out.len = head.len;
@@ -5173,7 +5173,7 @@ static int ui_shell_band_update(struct fyai_ctx *ctx,
 		out.len += len;
 	}
 	out.data[out.len] = '\0';
-	response_buffer_trim(&out);
+	fyai_buf_trim(&out);
 	if (ctx)
 		fyai_flow_observe(fyai_sink_flow(ctx->sink), out.data, out.len);
 	if (fytim_workband_set_commit(band, out.data, out.len) != FYTIM_OK)

@@ -21,7 +21,7 @@
 
 struct fyai_cfg;
 struct fyai_ctx;
-struct response_buffer;
+struct fyai_buf;
 
 enum fyai_cmd_surface {
 	FYAI_CMD_CLI,
@@ -244,11 +244,11 @@ void fyai_cmd_split_free(char **words, int n, size_t *offs);
  */
 int fyai_cmd_help_source(struct fyai_cfg *cfg, enum fyai_cmd_surface surface,
 			 size_t nwords, const char *const *words,
-			 struct response_buffer *out);
+			 struct fyai_buf *out);
 
 /* The whole reference as Markdown, and as the manual page fyai(1). */
-int fyai_cmd_reference_markdown(struct response_buffer *out);
-int fyai_cmd_reference_man(struct response_buffer *out);
+int fyai_cmd_reference_markdown(struct fyai_buf *out);
+int fyai_cmd_reference_man(struct fyai_buf *out);
 
 /* The usage line of @def at @path on @surface, allocated. */
 char *fyai_cmd_usage(fy_generic def, const char *path,

@@ -312,7 +312,7 @@ err_out:
  * from row @skip of the drawing. */
 static int sink_render(struct fyai_sink *s, const char *md, const char *source,
 		       const char *selection, int skip, bool diagram_gap, int cols,
-		       struct response_buffer *out)
+		       struct fyai_buf *out)
 {
 	struct fyai_cfg cfg;
 	char *diagram = NULL;
@@ -328,7 +328,7 @@ static int sink_render(struct fyai_sink *s, const char *md, const char *source,
 	diagram = fyai_sink_diagram_render(&cfg, source, selection, cols);
 	if (!diagram)
 		return -1;
-	if (diagram_gap && response_buffer_append(out, "\n")) {
+	if (diagram_gap && fyai_buf_append(out, "\n")) {
 		fymm_free(diagram);
 		return -1;
 	}
@@ -339,7 +339,7 @@ static int sink_render(struct fyai_sink *s, const char *md, const char *source,
 			break;
 		p = e + 1;
 	}
-	rc = response_buffer_append(out, p);
+	rc = fyai_buf_append(out, p);
 	fymm_free(diagram);
 	return rc;
 }
@@ -374,7 +374,7 @@ none:
 
 int fyai_sink_markdown_measure(struct fyai_sink *s, const char *md, int cols)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	struct fyai_cfg cfg;
 	size_t i;
 	int rows = 0;
@@ -417,7 +417,7 @@ int fyai_sink_page_rows(const struct fyai_sink_page *page, int rows, int cols)
 static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 		     const struct fyai_sink_page *page)
 {
-	struct response_buffer out = {}, aside = {}, footer = {};
+	struct fyai_buf out = {}, aside = {}, footer = {};
 	struct sink_pane panes[3];
 	struct sink_rule rule = {};
 	bool ascii;
@@ -459,7 +459,7 @@ static int sink_page(struct fyai_sink *s, struct fytim_surface *surface,
 	}
 	if (split != FYAI_SINK_SPLIT_NONE) {
 		if (page->aside_rendered)
-			rc = response_buffer_append(&aside, page->aside);
+			rc = fyai_buf_append(&aside, page->aside);
 		else
 			rc = sink_render(s, page->aside, NULL, NULL, 0, false,
 					 split == FYAI_SINK_SPLIT_RIGHT ? extent : cols,
@@ -523,8 +523,8 @@ int fyai_sink_page_split(struct fyai_sink *s, struct fytim_surface *surface,
 /* The only progressive Markdown renderer in the process. */
 struct sink_term {
 	struct markdown_renderer renderer;
-	struct response_buffer source;	/* the document as given so far */
-	struct response_buffer pending;	/* appended, not yet pushed */
+	struct fyai_buf source;	/* the document as given so far */
+	struct fyai_buf pending;	/* appended, not yet pushed */
 	size_t active_rows;		/* rows the live region occupies */
 	int render_cols;		/* width used to wrap the rows */
 	int64_t last_draw_ms;		/* monotonic time of the last repaint */
@@ -657,7 +657,7 @@ static int sink_term_push_pending(struct fyai_sink *s)
 static int sink_term_render_finish(struct fyai_sink *s)
 {
 	struct sink_term *t = sink_term_state(s);
-	struct response_buffer rendered = {0};
+	struct fyai_buf rendered = {0};
 	size_t end;
 	bool line_start;
 
@@ -763,7 +763,7 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 		return sink_term_put(s, FYAI_SINK_TRANSCRIPT, text, len);
 	}
 	if (t->oneshot) {
-		rc = response_buffer_append_data(&t->source, text, len);
+		rc = fyai_buf_append_data(&t->source, text, len);
 		fyai_error_check(ctx, !rc, err,
 			"could not grow the display buffer");
 		return 0;
@@ -771,10 +771,10 @@ static int sink_term_doc_append(struct fyai_sink *s, const char *text,
 	if (!t->render_live)
 		return 0;
 	/* Retain live source for width reflow. */
-	rc = response_buffer_append_data(&t->source, text, len);
+	rc = fyai_buf_append_data(&t->source, text, len);
 	fyai_error_check(ctx, !rc, err,
 		"could not grow the display source buffer");
-	rc = response_buffer_reserve(&t->pending, t->pending.len + len + 1);
+	rc = fyai_buf_reserve(&t->pending, t->pending.len + len + 1);
 	fyai_error_check(ctx, !rc,
 		err, "could not grow the progressive display buffer");
 	memcpy(t->pending.data + t->pending.len, text, len);
@@ -972,7 +972,7 @@ struct fyai_sink_band {
 	char *title;
 	char *command;
 	char *margin;
-	struct response_buffer body;
+	struct fyai_buf body;
 	bool painted;			/* a paint was kept */
 	bool held;			/* the kept paint is not presented */
 
@@ -1108,7 +1108,7 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 		return;
 	/* The shared band keeps the title it opened with; only the body moves. */
 	if (b->shared || b->shadow) {
-		rc = response_buffer_reserve(&b->body, len + 1);
+		rc = fyai_buf_reserve(&b->body, len + 1);
 		fyai_error_check(b->ctx, !rc, err_out,
 				 "cannot keep the body of a work band");
 		if (len)
@@ -1129,7 +1129,7 @@ static void sink_term_band_paint(struct fyai_sink_band *b, const char *title,
 	rc = sink_term_band_keep_string(b->ctx, &b->margin, margin);
 	if (rc)
 		goto err_out;
-	rc = response_buffer_reserve(&b->body, len + 1);
+	rc = fyai_buf_reserve(&b->body, len + 1);
 	fyai_error_check(b->ctx, !rc, err_out,
 			 "cannot keep the body of a work band");
 	if (len)
@@ -1427,8 +1427,8 @@ static const struct fyai_sink_ops sink_terminal_ops = {
  * same order a document format would write it in.
  */
 struct sink_capture {
-	struct response_buffer text;	/* everything presented so far */
-	struct response_buffer source;	/* the open document */
+	struct fyai_buf text;	/* everything presented so far */
+	struct fyai_buf source;	/* the open document */
 	bool doc_open;
 };
 
@@ -1452,7 +1452,7 @@ static int sink_capture_doc_append(struct fyai_sink *s, const char *text,
 
 	if (!c->doc_open || !len)
 		return 0;
-	return response_buffer_append_data(&c->source, text, len);
+	return fyai_buf_append_data(&c->source, text, len);
 }
 
 static int sink_capture_doc_end(struct fyai_sink *s, bool aborted)
@@ -1462,7 +1462,7 @@ static int sink_capture_doc_end(struct fyai_sink *s, bool aborted)
 
 	(void)aborted;
 	if (c->source.len)
-		rc = response_buffer_append_data(&c->text, c->source.data,
+		rc = fyai_buf_append_data(&c->text, c->source.data,
 						 c->source.len);
 	c->source.len = 0;
 	c->doc_open = false;
@@ -1485,7 +1485,7 @@ static int sink_capture_text(struct fyai_sink *s, enum fyai_sink_stream stream,
 	(void)stream;
 	if (!buf || !len)
 		return 0;
-	return response_buffer_append_data(&c->text, buf, len);
+	return fyai_buf_append_data(&c->text, buf, len);
 }
 
 static int sink_capture_markdown(struct fyai_sink *s,

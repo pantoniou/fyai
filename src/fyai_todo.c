@@ -277,7 +277,7 @@ static const char *todo_mark(const char *status)
 
 char *fyai_todo_panel_source(fy_generic rows)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	fy_generic item, g;
 	const char *text, *status;
 	const char *escaped;
@@ -297,10 +297,10 @@ char *fyai_todo_panel_source(fy_generic rows)
 			free(out.data);
 			return NULL;
 		}
-		rc = response_buffer_append(&out, first ? "- [" : "\n- [");
-		rc = rc || response_buffer_append(&out, todo_mark(status));
-		rc = rc || response_buffer_append(&out, "] ");
-		rc = rc || response_buffer_append(&out, escaped);
+		rc = fyai_buf_append(&out, first ? "- [" : "\n- [");
+		rc = rc || fyai_buf_append(&out, todo_mark(status));
+		rc = rc || fyai_buf_append(&out, "] ");
+		rc = rc || fyai_buf_append(&out, escaped);
 		free((char *)escaped);
 		if (rc) {
 			free(out.data);
@@ -308,7 +308,7 @@ char *fyai_todo_panel_source(fy_generic rows)
 		}
 		first = false;
 	}
-	rc = response_buffer_append(&out, "\n");
+	rc = fyai_buf_append(&out, "\n");
 	if (rc) {
 		free(out.data);
 		return NULL;
@@ -340,7 +340,7 @@ void fyai_todo_model_update(struct fyai_ctx *ctx)
 char *fyai_todo_format(struct fyai_ctx *ctx)
 {
 	fy_generic stored, item, g;
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const char *text, *status;
 	bool first;
 	int rc;
@@ -354,17 +354,17 @@ char *fyai_todo_format(struct fyai_ctx *ctx)
 		text = fy_castp(&g, "");
 		g = fy_get(item, "status", fy_invalid);
 		status = fy_castp(&g, "");
-		rc = response_buffer_append(&out, first ? "- [" : "\n- [");
-		rc = rc || response_buffer_append(&out, todo_mark(status));
-		rc = rc || response_buffer_append(&out, "] ");
-		rc = rc || response_buffer_append(&out, text ? text : "");
+		rc = fyai_buf_append(&out, first ? "- [" : "\n- [");
+		rc = rc || fyai_buf_append(&out, todo_mark(status));
+		rc = rc || fyai_buf_append(&out, "] ");
+		rc = rc || fyai_buf_append(&out, text ? text : "");
 		if (rc) {
 			free(out.data);
 			return NULL;
 		}
 		first = false;
 	}
-	rc = response_buffer_append(&out, "\n");
+	rc = fyai_buf_append(&out, "\n");
 	if (rc) {
 		free(out.data);
 		return NULL;

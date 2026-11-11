@@ -44,14 +44,14 @@ struct fyai_terminal_view {
 	struct fyai_ctx *ctx;
 	struct fyvt *vt;
 	struct fyvt_screen *screen;
-	struct response_buffer sb;	/* rows that left the top of the screen */
+	struct fyai_buf sb;	/* rows that left the top of the screen */
 	/* Scrollback rows. The view owns each row in this ring buffer. */
 	struct tty_history_row **hist;
 	int hist_max;
 	int hist_head;
 	int hist_count;
 	int scroll;			/* rows shown above the live screen */
-	struct response_buffer log;	/* the line log, sequences removed */
+	struct fyai_buf log;	/* the line log, sequences removed */
 	size_t log_line;		/* where the line being written begins */
 	size_t log_read;		/* how much of the log was read */
 	size_t max_bytes;		/* retained text, 0 = no limit */
@@ -143,7 +143,7 @@ static size_t tty_put_utf8(char *out, uint32_t cp)
 }
 
 /* Append a row as text, preserving combining and double-width characters. */
-static int tty_append_cells(struct response_buffer *out,
+static int tty_append_cells(struct fyai_buf *out,
 			    const struct fyvt_screen_cell *cells, int cols)
 {
 	char utf8[4];
@@ -158,7 +158,7 @@ static int tty_append_cells(struct response_buffer *out,
 
 	for (col = 0; col <= last; col++) {
 		if (!cells[col].chars[0]) {
-			rc = response_buffer_append_data(out, " ", 1);
+			rc = fyai_buf_append_data(out, " ", 1);
 			if (rc)
 				return -1;
 			continue;
@@ -167,7 +167,7 @@ static int tty_append_cells(struct response_buffer *out,
 			if (!cells[col].chars[i])
 				break;
 			n = tty_put_utf8(utf8, cells[col].chars[i]);
-			rc = response_buffer_append_data(out, utf8, n);
+			rc = fyai_buf_append_data(out, utf8, n);
 			if (rc)
 				return -1;
 		}
@@ -180,7 +180,7 @@ static int tty_append_cells(struct response_buffer *out,
 /* Return the nearest nonempty row at or above the cursor. */
 char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view)
 {
-	struct response_buffer buf = {};
+	struct fyai_buf buf = {};
 	struct fyvt_screen_cell *cells;
 	struct fyvt_pos pos;
 	char *line;
@@ -211,7 +211,7 @@ char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view)
 }
 
 /* Bound retained text by dropping old complete lines. */
-static size_t tty_compact(struct response_buffer *buf, size_t max_bytes)
+static size_t tty_compact(struct fyai_buf *buf, size_t max_bytes)
 {
 	size_t drop, keep;
 	char *nl;
@@ -280,7 +280,7 @@ static int tty_sb_pushline4(int cols, const struct fyvt_screen_cell *cells,
 
 	tty_history_push(view, cols, cells);
 	if (!continuation && view->sb.len &&
-	    response_buffer_append_data(&view->sb, "\n", 1))
+	    fyai_buf_append_data(&view->sb, "\n", 1))
 		return 0;
 	if (tty_append_cells(&view->sb, cells, cols))
 		return 0;
@@ -443,7 +443,7 @@ static void tty_csi_alt_screen(struct fyai_terminal_view *view,
 
 static void tty_log_putc(struct fyai_terminal_view *view, char c)
 {
-	if (response_buffer_append_data(&view->log, &c, 1))
+	if (fyai_buf_append_data(&view->log, &c, 1))
 		return;
 }
 
@@ -788,7 +788,7 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 			     int last, int col, int cols, bool with_sb,
 			     size_t *lenp)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	struct fyvt_screen_cell *cells;
 	struct fyvt_pos pos;
 	int row, i, rc;
@@ -798,7 +798,7 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 			 "terminal: could not allocate screen cells");
 
 	if (with_sb && view->sb.len) {
-		rc = response_buffer_append_data(&out, view->sb.data,
+		rc = fyai_buf_append_data(&out, view->sb.data,
 						  view->sb.len);
 		fyai_error_check(view->ctx, !rc, fail,
 				 "terminal: could not retain scrollback");
@@ -806,7 +806,7 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 
 	for (row = first; row < last; row++) {
 		if (out.len && !tty_row_continues(view, row)) {
-			rc = response_buffer_append_data(&out, "\n", 1);
+			rc = fyai_buf_append_data(&out, "\n", 1);
 			fyai_error_check(view->ctx, !rc, fail,
 					 "terminal: could not join screen rows");
 		}
@@ -824,7 +824,7 @@ static char *tty_screen_text(struct fyai_terminal_view *view, int first,
 	free(cells);
 
 	/* A screen is mostly blank at the bottom; do not send empty rows. */
-	response_buffer_trim(&out);
+	fyai_buf_trim(&out);
 	/* A command that printed nothing leaves an empty screen. That is a
 	 * result, not a failure, so it must not be a null buffer. */
 	if (!out.data) {
@@ -1111,7 +1111,7 @@ bool fyai_terminal_view_used_alt_screen(const struct fyai_terminal_view *view)
 }
 
 /* Append the UTF-8 form of @cp to @out. */
-static int tty_sgr_utf8(struct response_buffer *out, uint32_t cp)
+static int tty_sgr_utf8(struct fyai_buf *out, uint32_t cp)
 {
 	char b[4];
 	size_t n;
@@ -1135,7 +1135,7 @@ static int tty_sgr_utf8(struct response_buffer *out, uint32_t cp)
 		b[3] = (char)(0x80 | (cp & 0x3f));
 		n = 4;
 	}
-	return response_buffer_append_data(out, b, n);
+	return fyai_buf_append_data(out, b, n);
 }
 
 /* Whether two cells draw with the same style. */
@@ -1156,7 +1156,7 @@ static bool tty_sgr_same(const struct fyai_term_cell *a,
 }
 
 /* Append the escape that selects the style of @c from the default. */
-static int tty_sgr_style(struct response_buffer *out,
+static int tty_sgr_style(struct fyai_buf *out,
 			 const struct fyai_term_cell *c)
 {
 	char buf[96];
@@ -1166,21 +1166,21 @@ static int tty_sgr_style(struct response_buffer *out,
 		     c->bold ? ";1" : "", c->italic ? ";3" : "",
 		     c->underline ? ";4" : "", c->blink ? ";5" : "",
 		     c->reverse ? ";7" : "", c->strike ? ";9" : "");
-	if (n < 0 || response_buffer_append_data(out, buf, (size_t)n))
+	if (n < 0 || fyai_buf_append_data(out, buf, (size_t)n))
 		return -1;
 	if (!c->fg.is_default) {
 		n = snprintf(buf, sizeof(buf), ";38;2;%u;%u;%u",
 			     c->fg.r, c->fg.g, c->fg.b);
-		if (n < 0 || response_buffer_append_data(out, buf, (size_t)n))
+		if (n < 0 || fyai_buf_append_data(out, buf, (size_t)n))
 			return -1;
 	}
 	if (!c->bg.is_default) {
 		n = snprintf(buf, sizeof(buf), ";48;2;%u;%u;%u",
 			     c->bg.r, c->bg.g, c->bg.b);
-		if (n < 0 || response_buffer_append_data(out, buf, (size_t)n))
+		if (n < 0 || fyai_buf_append_data(out, buf, (size_t)n))
 			return -1;
 	}
-	return response_buffer_append_data(out, "m", 1);
+	return fyai_buf_append_data(out, "m", 1);
 }
 
 /* Whether @c draws nothing: a blank with no style of its own. */
@@ -1192,7 +1192,7 @@ static bool tty_sgr_blank(const struct fyai_term_cell *c)
 
 int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
 				const char *margin, bool cursor,
-				struct response_buffer *out)
+				struct fyai_buf *out)
 {
 	struct fyai_term_cell cell, prev, plain;
 	int rows = 0, cols = 0, crow = -1, ccol = -1, row, col, last, i;
@@ -1208,7 +1208,7 @@ int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
 	memset(&plain, 0, sizeof(plain));
 	plain.fg.is_default = plain.bg.is_default = true;
 	for (row = 0; row < rows; row++) {
-		if (margin && response_buffer_append_data(out, margin,
+		if (margin && fyai_buf_append_data(out, margin,
 							  strlen(margin)))
 			return -1;
 		/* The blanks that end a row are not drawn. */
@@ -1234,7 +1234,7 @@ int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
 				styled = true;
 			}
 			if (!cell.chars[0]) {
-				if (response_buffer_append_data(out, " ", 1))
+				if (fyai_buf_append_data(out, " ", 1))
 					return -1;
 				continue;
 			}
@@ -1246,9 +1246,9 @@ int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
 			if (cell.width > 1)
 				col += cell.width - 1;
 		}
-		if (styled && response_buffer_append_data(out, "\x1b[0m", 4))
+		if (styled && fyai_buf_append_data(out, "\x1b[0m", 4))
 			return -1;
-		if (response_buffer_append_data(out, "\n", 1))
+		if (fyai_buf_append_data(out, "\n", 1))
 			return -1;
 	}
 	return 0;

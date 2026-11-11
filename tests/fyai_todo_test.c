@@ -126,7 +126,7 @@ out:
 /* The panel source of a stored list, without a context. */
 static char *todo_panel_of(struct fy_generic_builder *gb, fy_generic todos)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	fy_generic item, g;
 	const char *text, *status;
 	const char *mark;
@@ -140,11 +140,11 @@ static char *todo_panel_of(struct fy_generic_builder *gb, fy_generic todos)
 		mark = !strcmp(status, "completed") ? "x" :
 		       !strcmp(status, "in_progress") ? ">" :
 		       !strcmp(status, "cancelled") ? "-" : " ";
-		if (response_buffer_append(&out, first ? "- [" : "\n- [") ||
-		    response_buffer_append(&out, mark) ||
-		    response_buffer_append(&out, "] ") ||
-		    response_buffer_append(&out, text) ||
-		    response_buffer_append(&out, "") ||
+		if (fyai_buf_append(&out, first ? "- [" : "\n- [") ||
+		    fyai_buf_append(&out, mark) ||
+		    fyai_buf_append(&out, "] ") ||
+		    fyai_buf_append(&out, text) ||
+		    fyai_buf_append(&out, "") ||
 		    0) {
 			free(out.data);
 			return NULL;
@@ -152,7 +152,7 @@ static char *todo_panel_of(struct fy_generic_builder *gb, fy_generic todos)
 		first = false;
 	}
 	(void)gb;
-	if (response_buffer_append(&out, "\n")) {
+	if (fyai_buf_append(&out, "\n")) {
 		free(out.data);
 		return NULL;
 	}

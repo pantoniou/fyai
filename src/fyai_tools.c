@@ -251,7 +251,7 @@ static char *fyai_format_tool_header(struct fyai_ctx *ctx, const char *tool,
 /* Build the shared live and stored shell view. */
 static int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
 			   fy_generic args, char **title,
-			   struct response_buffer *body)
+			   struct fyai_buf *body)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
 	fy_generic desc, workdir, timeout;
@@ -272,7 +272,7 @@ static int fyai_shell_view(struct fyai_ctx *ctx, const char *command,
 /* Print a tool title row and its rendered body to @fp. */
 /* The tool title and its already-rendered body, on the status stream. */
 static void fyai_print_tool_view(struct fyai_ctx *ctx, const char *title,
-				 struct response_buffer *body)
+				 struct fyai_buf *body)
 {
 	if (title && *title)
 		(void)fyai_sink_markdown(ctx->sink, FYAI_SINK_STATUS, title);
@@ -444,7 +444,7 @@ void fyai_patch_display_clear(struct fyai_ctx *ctx)
 
 /* Build an apply_patch work band. */
 static int patch_band_view(struct fyai_ctx *ctx, fy_generic tool_call,
-			   char **title, struct response_buffer *body,
+			   char **title, struct fyai_buf *body,
 			   fy_generic *sourcep)
 {
 	const char *resolved;
@@ -461,7 +461,7 @@ static int patch_band_view(struct fyai_ctx *ctx, fy_generic tool_call,
 
 void fyai_patch_band_refresh(struct fyai_ctx *ctx, fy_generic tool_call)
 {
-	struct response_buffer body = {0};
+	struct fyai_buf body = {0};
 	fy_generic source;
 	char *title = NULL;
 
@@ -486,7 +486,7 @@ void fyai_print_tool_call(struct fyai_ctx *ctx, fy_generic tool_call,
 	struct fyai_cfg *cfg = ctx->cfg;
 	const char *name;
 	const char *command;
-	struct response_buffer body = {0};
+	struct fyai_buf body = {0};
 	char *header;
 	fy_generic args, source;
 	fy_generic cmdv;
@@ -1394,7 +1394,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 	struct fyai_cfg *cfg = ctx->cfg;
 	struct shell_command_result result = {};
 	struct shell_command_opts opts = {};
-	struct response_buffer buf = {};
+	struct fyai_buf buf = {};
 	struct fyai_shell_sandbox sb;
 	const struct fyai_sandbox_spec *sandbox;
 	fy_generic command, workdir;
@@ -1428,12 +1428,12 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 		fyai_error_check(ctx, tty_text, out,
 				 "shell: command produced no terminal result");
 
-		rc = response_buffer_append(&buf, tty_text);
+		rc = fyai_buf_append(&buf, tty_text);
 		free(tty_text);
 		fyai_error_check(ctx, !rc, out,
 				 "shell: could not retain terminal output");
 		if (tty_result.binary) {
-			rc = response_buffer_append(&buf, "\n");
+			rc = fyai_buf_append(&buf, "\n");
 			fyai_error_check(ctx, !rc, out,
 					 "shell: could not finish binary output");
 		}
@@ -1472,7 +1472,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 			msg = NULL;
 			*okp = true;
 		}
-		if (msg && response_buffer_append(&buf, msg))
+		if (msg && fyai_buf_append(&buf, msg))
 			goto out;
 
 		ret = buf.data;
@@ -1498,11 +1498,11 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				  result.stdout_len);
 		if (!cfg->markdown)
 			fyai_report(ctx, "%s", msg);
-		if (response_buffer_append(&buf, msg))
+		if (fyai_buf_append(&buf, msg))
 			goto out;
 	} else {
 		bounded = fyai_shell_bound_alloc(result.stdout_data, out_bytes);
-		rc = response_buffer_append(&buf, bounded ? bounded :
+		rc = fyai_buf_append(&buf, bounded ? bounded :
 						  result.stdout_data);
 		free(bounded);
 		if (rc)
@@ -1514,11 +1514,11 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 				  result.stderr_len);
 		if (!cfg->markdown)
 			fyai_report(ctx, "%s", msg);
-		if (response_buffer_append(&buf, msg))
+		if (fyai_buf_append(&buf, msg))
 			goto out;
 	} else {
 		bounded = fyai_shell_bound_alloc(result.stderr_data, err_bytes);
-		rc = response_buffer_append(&buf, bounded ? bounded :
+		rc = fyai_buf_append(&buf, bounded ? bounded :
 						  result.stderr_data);
 		free(bounded);
 		if (rc)
@@ -1536,7 +1536,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 			msg = fy_sprintfa(
 				"\ntool error: command killed by signal %d\n",
 				result.signal);
-		if (response_buffer_append(&buf, msg))
+		if (fyai_buf_append(&buf, msg))
 			goto out;
 	} else if (result.exit_code) {
 		start_why = fyai_child_start_text(&result.start, opts.shell,
@@ -1558,7 +1558,7 @@ static char *fyai_run_shell_command(struct fyai_ctx *ctx, fy_generic args,
 			msg = fy_sprintfa(
 				"\ntool error: " FYAI_SHELL_EXIT_FMT "\n",
 				result.exit_code);
-		if (response_buffer_append(&buf, msg))
+		if (fyai_buf_append(&buf, msg))
 			goto out;
 	} else {
 		*okp = true;
@@ -3146,7 +3146,7 @@ struct fyai_tool_job {
 	struct fyai_fenced_stream stream;
 	struct fyai_sink_band *band;
 	struct fyai_event_source *band_delay;
-	struct response_buffer pending_output;
+	struct fyai_buf pending_output;
 	char *title;
 	char *command;
 	struct fyai_event_source *csrc;
@@ -3187,7 +3187,7 @@ struct fyai_tool_job {
 	unsigned int hang_timeout_ms;
 	fyai_event_ms_t started_ms;
 	fyai_event_ms_t elapsed_ms;
-	struct response_buffer progress;	/* tail, for a timeout report */
+	struct fyai_buf progress;	/* tail, for a timeout report */
 	char *branch;			/* sub-agent branch, allocated by us */
 	char *monitor;			/* monitor that this command feeds */
 	struct fyai_event_source *deadline;
@@ -3374,7 +3374,7 @@ static void fyai_terminal_tap(struct fyai_ctx *ctx,
 			      long long *textp, const char *name,
 			      const char *data, size_t len)
 {
-	struct response_buffer snap = {0}, rows = {0};
+	struct fyai_buf snap = {0}, rows = {0};
 	size_t have = 0, i;
 	int row, col;
 	bool visible;
@@ -3395,12 +3395,12 @@ static void fyai_terminal_tap(struct fyai_ctx *ctx,
 		fyai_terminal_view_cursor(view, &row, &col, &visible);
 		rc = fyai_terminal_view_rows_sgr(view, NULL, false, &rows);
 		/* Clear, the rows, each newline with a return, the cursor. */
-		rc = rc || response_buffer_append(&snap, "\033[H\033[2J");
+		rc = rc || fyai_buf_append(&snap, "\033[H\033[2J");
 		for (i = 0; !rc && i < rows.len; i++)
-			rc = response_buffer_append_data(&snap,
+			rc = fyai_buf_append_data(&snap,
 				rows.data[i] == '\n' ? "\r\n" : rows.data + i,
 				rows.data[i] == '\n' ? 2 : 1);
-		rc = rc || response_buffer_append(&snap, fy_sprintfa(
+		rc = rc || fyai_buf_append(&snap, fy_sprintfa(
 			"\033[%d;%dH%s", row + 1, col + 1,
 			visible ? "" : "\033[?25l"));
 		rc = rc || fyai_uimodel_text_append(ctx, *textp, snap.data,
@@ -4184,7 +4184,7 @@ static size_t fyai_inline_screen_trim(struct fyai_ctx *ctx, const char *screen,
 static void fyai_shell_session_inline_paint(struct fyai_shell_session *sess,
 					    bool done)
 {
-	struct response_buffer screen = {0};
+	struct fyai_buf screen = {0};
 	const char *indent = markdown_tool_output_indent(sess->ctx->cfg);
 	char *cause = NULL;
 	char edge[256];
@@ -4592,7 +4592,7 @@ static char *fyai_shell_session_result(struct fyai_ctx *ctx,
 				       enum fyai_terminal_read what,
 				       const struct fyai_terminal_region *region)
 {
-	struct response_buffer buf = {};
+	struct fyai_buf buf = {};
 	char *text = NULL;
 	char *bounded = NULL;
 	size_t len = 0;
@@ -4607,11 +4607,11 @@ static char *fyai_shell_session_result(struct fyai_ctx *ctx,
 			 "shell: could not read session '%s'", sess->name);
 
 	if (screen)
-		rc = response_buffer_append(&buf,
+		rc = fyai_buf_append(&buf,
 			fy_sprintfa("[shell '%s': the screen it draws, %dx%d]\n",
 				    sess->name, rows, cols));
 	else
-		rc = response_buffer_append(&buf,
+		rc = fyai_buf_append(&buf,
 			fy_sprintfa("[shell '%s': %s]\n", sess->name,
 				what == FYAITR_NEW ? "the lines since the last read" :
 				"its output"));
@@ -4620,7 +4620,7 @@ static char *fyai_shell_session_result(struct fyai_ctx *ctx,
 
 	bounded = fyai_shell_bound_alloc(text,
 					 fyai_shell_output_bytes(ctx, args));
-	rc = response_buffer_append(&buf, bounded ? bounded : text);
+	rc = fyai_buf_append(&buf, bounded ? bounded : text);
 	fyai_error_check(ctx, !rc, err,
 			 "shell: could not retain session '%s' output", sess->name);
 	free(bounded);
@@ -4630,12 +4630,12 @@ static char *fyai_shell_session_result(struct fyai_ctx *ctx,
 
 	if (sess->exited) {
 		if (sess->signal)
-			rc = response_buffer_append(&buf,
+			rc = fyai_buf_append(&buf,
 				fy_sprintfa("\n[shell '%s' ended: signal %d%s]\n",
 					    sess->name, sess->signal,
 					    sess->timed_out ? ", idle limit" : ""));
 		else
-			rc = response_buffer_append(&buf,
+			rc = fyai_buf_append(&buf,
 				fy_sprintfa("\n[shell '%s' ended: status %d]\n",
 					    sess->name, sess->exit_code));
 		fyai_error_check(ctx, !rc, err,
@@ -4776,7 +4776,7 @@ static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 	struct fyai_terminal_region region = {};
 	struct fyai_shell_session *sess;
 	struct fy_generic_builder *gb;
-	struct response_buffer in = {};
+	struct fyai_buf in = {};
 	fy_generic input;
 	const char *text;
 	long long wait, idle, max_wait;
@@ -4801,12 +4801,12 @@ static char *fyai_shell_input_tool(struct fyai_ctx *ctx, fy_generic args,
 
 	input = fy_get(args, "input", fy_invalid);
 	text = fy_castp(&input, "");
-	rc = response_buffer_append(&in, text);
+	rc = fyai_buf_append(&in, text);
 	fyai_error_check(ctx, !rc, out,
 			 "shell: could not retain session input");
 	/* End the line as the session's terminal or pipe expects. */
 	if (fy_get(args, "enter", true)) {
-		rc = response_buffer_append(&in, sess->pipes ? "\n" : "\r");
+		rc = fyai_buf_append(&in, sess->pipes ? "\n" : "\r");
 		fyai_error_check(ctx, !rc, out,
 				 "shell: could not append return to session input");
 	}
@@ -5096,7 +5096,7 @@ static const struct fyai_workpane_tile_ops fyai_agent_tile_ops = {
 static void fyai_agent_inline_paint(struct fyai_tool_job *job, bool done,
 				    bool ok)
 {
-	struct response_buffer screen = {0};
+	struct fyai_buf screen = {0};
 	const char *indent;
 	char edge[256];
 	int first, last, rc;
@@ -5432,7 +5432,7 @@ static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 				   bool *okp)
 {
 	struct fyai_tool_job *job;
-	struct response_buffer in = {};
+	struct fyai_buf in = {};
 	fy_generic name_v, input_v;
 	const char *name;
 	const char *text;
@@ -5455,11 +5455,11 @@ static char *fyai_agent_input_tool(struct fyai_ctx *ctx, fy_generic args,
 
 	input_v = fy_get(args, "input", fy_invalid);
 	text = fy_castp(&input_v, "");
-	fyai_error_check(ctx, !response_buffer_append(&in, text), err,
+	fyai_error_check(ctx, !fyai_buf_append(&in, text), err,
 			 "agent: could not retain input for '%s'", name);
 	/* Its terminal turns the return into the end of a line for it. */
 	if (fy_get(args, "enter", true))
-		fyai_error_check(ctx, !response_buffer_append(&in, "\r"), err,
+		fyai_error_check(ctx, !fyai_buf_append(&in, "\r"), err,
 				 "agent: could not append return for '%s'", name);
 	for (off = 0; off < in.len; off += (size_t)n) {
 		n = write(job->pty, in.data + off, in.len - off);
@@ -6906,7 +6906,7 @@ struct fyai_tool_job *fyai_tool_job_submit(struct fyai_ctx *ctx,
 {
 	struct fyai_tool_job *job = NULL;
 	struct fyai_view_run *view_run = NULL;
-	struct response_buffer view = {0};
+	struct fyai_buf view = {0};
 	const char *name, *command;
 	const char *asked, *cmdtext;
 	fy_generic args, progress_args, agent_name, monitor_v;
@@ -7266,10 +7266,10 @@ err:
 static void fyai_tool_job_progress_retain(struct fyai_tool_job *job,
 					  const char *p, size_t len)
 {
-	struct response_buffer *buf = &job->progress;
+	struct fyai_buf *buf = &job->progress;
 	int rc;
 
-	rc = response_buffer_reserve(buf, buf->len + len + 1);
+	rc = fyai_buf_reserve(buf, buf->len + len + 1);
 	if (rc)
 		return;
 	memcpy(buf->data + buf->len, p, len);
@@ -7405,7 +7405,7 @@ static fy_generic fyai_tool_job_serve(struct jsonrpc_conn *conn,
 	if (job->band_progress && job->stream.active)
 		(void)fyai_fenced_stream_push(&job->stream, p, len);
 	else if (job->band_delay &&
-		 !response_buffer_reserve(&job->pending_output,
+		 !fyai_buf_reserve(&job->pending_output,
 					  job->pending_output.len + len + 1)) {
 		memcpy(job->pending_output.data + job->pending_output.len, p, len);
 		job->pending_output.len += len;

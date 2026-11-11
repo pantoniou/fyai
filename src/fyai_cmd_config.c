@@ -172,7 +172,7 @@ static int config_settings_rows(struct fyai_cmd_call *call, const char *member,
 				fy_generic *result)
 {
 	fy_generic log, item, rows, p;
-	struct response_buffer keys = { 0 };
+	struct fyai_buf keys = { 0 };
 	size_t i, n;
 	int rc;
 
@@ -186,9 +186,9 @@ static int config_settings_rows(struct fyai_cmd_call *call, const char *member,
 		keys.len = 0;
 		rc = 0;
 		fy_foreach(p, fy_get(item, "paths", fy_invalid))
-			rc |= response_buffer_append(&keys, keys.len ?
+			rc |= fyai_buf_append(&keys, keys.len ?
 						     ", " : "") |
-			      response_buffer_append(&keys, fy_castp(&p, ""));
+			      fyai_buf_append(&keys, fy_castp(&p, ""));
 		fyai_error_check(call->ctx, !rc, err,
 				 "config: cannot list the keys of a change");
 		rows = fy_append(call->gb, rows, fy_mapping(call->gb,
@@ -225,17 +225,17 @@ int fyai_cmd_config_proposals(struct fyai_cmd_call *call, fy_generic *result)
 static const char *config_quote(struct fy_generic_builder *gb,
 				const char *text)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	const char *line, *nl, *quoted;
 	int rc = 0;
 
 	for (line = text; *line && !rc; line = nl ? nl + 1 : line +
 							   strlen(line)) {
 		nl = strchr(line, '\n');
-		rc = response_buffer_append(&out, "> ") ||
-		     response_buffer_append_data(&out, line, nl ?
+		rc = fyai_buf_append(&out, "> ") ||
+		     fyai_buf_append_data(&out, line, nl ?
 				(size_t)(nl - line) : strlen(line)) ||
-		     response_buffer_append(&out, "\n");
+		     fyai_buf_append(&out, "\n");
 	}
 	quoted = rc ? NULL : fy_gb_intern_string(gb, out.data ? out.data :
 						 "> _no explanation_\n");

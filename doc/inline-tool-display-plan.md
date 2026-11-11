@@ -97,7 +97,7 @@ In `fyai_tools.c` the inline path opens the band at once (no
 - The terminal session gets its size from the block, not from a tile grant:
   `tool/run` carries `size = {inline_terminal_rows, block cols}`;
   `fyai_ui_surface_granted_rows/cols()` answer from the block.
-- New `fyai_terminal_view_rows_sgr(view, struct response_buffer *out)`:
+- New `fyai_terminal_view_rows_sgr(view, struct fyai_buf *out)`:
   serializes the grid (`fyai_terminal_view_cell()`) to SGR rows, with the
   cursor reversed and OSC 8 links kept. Called only when
   `fyai_terminal_view_take_damage()` reports damage; the result goes to

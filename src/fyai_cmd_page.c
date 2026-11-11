@@ -89,7 +89,7 @@ static void page_sample_state(const char *name, int height,
 static int page_sample_tiles(struct fyai_ctx *ctx,
 			     const struct fyai_page_layout *lay,
 			     struct fyai_page_state *st,
-			     struct response_buffer *grid)
+			     struct fyai_buf *grid)
 {
 	struct fyai_page_cell cells[PAGE_SAMPLE_TILES];
 	struct fyai_workpane_grid g;
@@ -130,7 +130,7 @@ int fyai_cmd_page_review_sample(struct fyai_cmd_call *call,
 				fy_generic *result)
 {
 	struct fyai_ctx *ctx = call->ctx;
-	struct response_buffer picture = {0}, grid = {0};
+	struct fyai_buf picture = {0}, grid = {0};
 	struct fyai_page_layout lay;
 	const struct fyai_page_action *actions;
 	struct fyai_page_state st;

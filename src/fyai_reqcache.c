@@ -88,7 +88,7 @@ struct fyai_request_cache {
  * between two items.
  */
 static int rc_emit_items(struct fyai_ctx *ctx, struct fyai_request_cache *cache,
-			 struct response_buffer *t, fy_generic wire, size_t from,
+			 struct fyai_buf *t, fy_generic wire, size_t from,
 			 size_t to)
 {
 	const char *text;
@@ -101,11 +101,11 @@ static int rc_emit_items(struct fyai_ctx *ctx, struct fyai_request_cache *cache,
 				 "could not serialize an item of the request");
 		cache->emitted += strlen(text);
 		if (t->len) {
-			rc = response_buffer_append_data(t, RC_SEP, RC_SEPLEN);
+			rc = fyai_buf_append_data(t, RC_SEP, RC_SEPLEN);
 			fyai_error_check(ctx, !rc, err,
 					 "could not keep the request text");
 		}
-		rc = response_buffer_append(t, text);
+		rc = fyai_buf_append(t, text);
 		fyai_error_check(ctx, !rc, err, "could not keep the request text");
 	}
 	return 0;
@@ -411,7 +411,7 @@ static void rc_position(const struct fyai_turn_stack *stack,
  * holds a pair already. @prefix is what @out must hold before any pair.
  */
 static int rc_emit_pair(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
-			struct response_buffer *out, size_t prefix,
+			struct fyai_buf *out, size_t prefix,
 			fy_generic key, const char *value_text, fy_generic value)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
@@ -423,15 +423,15 @@ static int rc_emit_pair(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 			 "could not serialize the model request");
 	rc->emitted += strlen(key_text);
 	if (out->len > prefix) {
-		rv = response_buffer_append(out, ", ");
+		rv = fyai_buf_append(out, ", ");
 		fyai_error_check(ctx, !rv, err, "could not keep the request text");
 	}
-	rv = response_buffer_append(out, key_text);
+	rv = fyai_buf_append(out, key_text);
 	fyai_error_check(ctx, !rv, err, "could not keep the request text");
-	rv = response_buffer_append(out, ": ");
+	rv = fyai_buf_append(out, ": ");
 	fyai_error_check(ctx, !rv, err, "could not keep the request text");
 	if (value_text) {
-		rv = response_buffer_append(out, value_text);
+		rv = fyai_buf_append(out, value_text);
 		fyai_error_check(ctx, !rv, err, "could not keep the request text");
 		return 0;
 	}
@@ -439,7 +439,7 @@ static int rc_emit_pair(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 	fyai_error_check(ctx, text, err,
 			 "could not serialize the model request");
 	rc->emitted += strlen(text);
-	rv = response_buffer_append(out, text);
+	rv = fyai_buf_append(out, text);
 	fyai_error_check(ctx, !rv, err, "could not keep the request text");
 	return 0;
 err:
@@ -460,7 +460,7 @@ static int rc_split_request(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 			    const char **headp, const char **tailp)
 {
 	struct fy_generic_builder *gb = ctx->transient_gb;
-	struct response_buffer head = { 0 }, tail = { 0 };
+	struct fyai_buf head = { 0 }, tail = { 0 };
 	fy_generic request, probe, key, value;
 	bool found = false;
 	uint64_t word;
@@ -483,14 +483,14 @@ static int rc_split_request(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 	if (!fy_is_mapping(request))
 		return 1;
 
-	rv = response_buffer_append(&head, "{");
+	rv = fyai_buf_append(&head, "{");
 	fyai_error_check(ctx, !rv, err, "could not keep the request text");
 	fy_foreach_key_value(key, value, request) {
 		if (!found && fy_equal(value, probe)) {
 			rv = rc_emit_pair(ctx, rc, &head, 1, key, "[", fy_invalid);
 			if (rv)
 				goto err;
-			rv = response_buffer_append(&tail, "]");
+			rv = fyai_buf_append(&tail, "]");
 			fyai_error_check(ctx, !rv, err,
 					 "could not keep the request text");
 			found = true;
@@ -506,7 +506,7 @@ static int rc_split_request(struct fyai_ctx *ctx, struct fyai_request_cache *rc,
 		free(tail.data);
 		return 1;
 	}
-	rv = response_buffer_append(&tail, "}");
+	rv = fyai_buf_append(&tail, "}");
 	fyai_error_check(ctx, !rv, err, "could not keep the request text");
 
 	if (!rc->probe_gb)
@@ -537,7 +537,7 @@ int fyai_request_cache_body(struct fyai_ctx *ctx, fy_generic turn,
 {
 	struct fyai_request_cache *rc = ctx->request_cache;
 	struct fyai_turn_stack stack = { 0 };
-	struct response_buffer added = { 0 }, tail = { 0 };
+	struct fyai_buf added = { 0 }, tail = { 0 };
 	const char *head, *tail_text, *instructions;
 	char *body = NULL, *kept = NULL, *copy;
 	size_t *counts = NULL;

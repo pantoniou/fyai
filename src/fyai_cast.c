@@ -48,12 +48,12 @@ struct fyai_cast {
 	double t0;
 	bool failed;
 	/* The repaired text of the event that is made. */
-	struct response_buffer text;
+	struct fyai_buf text;
 	/* The start of a character that a write cut: per kind of event. */
 	unsigned char hold[2][CAST_UTF8_MAX];
 	size_t nhold[2];
 	/* A synchronized update that has begun and not ended: held until it ends. */
-	struct response_buffer block;
+	struct fyai_buf block;
 	bool in_sync;
 	/* The body of the last update that only put the cursor, as it was recorded. */
 	char *noop;
@@ -82,11 +82,11 @@ static int put_text(struct fyai_cast *c, int kind, const void *in, size_t n)
 		}
 		c->nhold[kind] = 0;
 		if (take > 0) {
-			rc |= response_buffer_append_data(&c->text, buf, take);
+			rc |= fyai_buf_append_data(&c->text, buf, take);
 			i = (size_t)take - len;
 		} else {
 			/* The bytes after the lead start again. */
-			rc |= response_buffer_append_data(&c->text,
+			rc |= fyai_buf_append_data(&c->text,
 							  CAST_REPLACEMENT, 3);
 		}
 	}
@@ -99,10 +99,10 @@ static int put_text(struct fyai_cast *c, int kind, const void *in, size_t n)
 			return rc;
 		}
 		if (take > 0) {
-			rc |= response_buffer_append_data(&c->text, p + i, take);
+			rc |= fyai_buf_append_data(&c->text, p + i, take);
 			i += take;
 		} else {
-			rc |= response_buffer_append_data(&c->text,
+			rc |= fyai_buf_append_data(&c->text,
 							  CAST_REPLACEMENT, 3);
 			i++;
 		}
@@ -243,7 +243,7 @@ void fyai_cast_output(struct fyai_cast *c, const void *data, size_t len)
 		}
 		/* Look for the end where it can start: the held part and this chunk. */
 		used = c->block.len;
-		if (response_buffer_append_data(&c->block, p, len)) {
+		if (fyai_buf_append_data(&c->block, p, len)) {
 			fyai_warning(c->ctx, "cast: out of memory");
 			c->failed = true;
 			return;

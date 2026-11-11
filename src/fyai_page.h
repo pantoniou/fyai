@@ -256,7 +256,7 @@ int fyai_page_fit_document(struct fyai_page *pg, struct fyai_page_state *st,
  * out or the document does not transcribe.
  */
 int fyai_page_source(const struct fyai_page_state *st,
-		     struct response_buffer *out);
+		     struct fyai_buf *out);
 
 /*
  * Transcribe @doc, a page document with `page` and `pages`, with @state into
@@ -269,7 +269,7 @@ int fyai_page_source(const struct fyai_page_state *st,
 int fyai_page_transcribe(struct fyai_ctx *ctx, fy_generic doc,
 			 fy_generic state,
 			 const struct fyai_page_action *actions, size_t n,
-			 struct response_buffer *out,
+			 struct fyai_buf *out,
 			 struct fyai_page_keys *keys, bool review);
 
 /*
@@ -342,7 +342,7 @@ struct fyai_page_cell {
  */
 int fyai_page_grid(struct fyai_ctx *ctx, const struct fyai_workpane_grid *g,
 		   const struct fyai_page_cell *cells, int n, int height,
-		   const char *sep, int sep_cols, struct response_buffer *out,
+		   const char *sep, int sep_cols, struct fyai_buf *out,
 		   int *rowsp);
 /*
  * As fyai_page_grid(), and when @lead is not NULL, column 0 of @g is one cell
@@ -353,7 +353,7 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			const struct fyai_workpane_grid *g,
 			const struct fyai_page_cell *cells, int n, int height,
 			const char *sep, int sep_cols, const char *lead,
-			struct response_buffer *out, int *rowsp);
+			struct fyai_buf *out, int *rowsp);
 
 struct fyai_page_layout;
 /*
@@ -419,7 +419,7 @@ const char *fyai_page_document_path(const struct fyai_page *pg);
  * display/page is not used, and the state, source and regions of the last
  * frame. Returns 0, or -1.
  */
-int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md);
+int fyai_page_report(const struct fyai_page *pg, struct fyai_buf *md);
 void fyai_page_destroy(struct fyai_page *pg);
 /*
  * The place of the region @id in the last frame: its first row and column
@@ -463,6 +463,6 @@ int fyai_page_review_paint(const struct fyai_cfg *cfg,
  */
 int fyai_page_review(struct fyai_page *pg, fy_generic state, int cols,
 		     int rows, struct fy_generic_builder *gb,
-		     struct response_buffer *picture, fy_generic *areas);
+		     struct fyai_buf *picture, fy_generic *areas);
 
 #endif

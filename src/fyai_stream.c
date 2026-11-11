@@ -56,9 +56,9 @@ struct stream_response {
 	enum fyai_stream_state state;
 	struct fy_generic_builder *gb;
 	struct stream_spinner spinner;
-	struct response_buffer raw;
-	struct response_buffer line;
-	struct response_buffer reasoning_text;
+	struct fyai_buf raw;
+	struct fyai_buf line;
+	struct fyai_buf reasoning_text;
 	size_t reasoning_active_rows;
 	/* What the grammar parses the reply into. */
 	struct fyai_stream_parse parse;
@@ -150,9 +150,9 @@ static void stream_state_transition(struct stream_response *stream,
 	stream->state = state;
 }
 
-static int append_mem(struct response_buffer *buf, const char *data, size_t len)
+static int append_mem(struct fyai_buf *buf, const char *data, size_t len)
 {
-	if (response_buffer_reserve(buf, buf->len + len + 1))
+	if (fyai_buf_reserve(buf, buf->len + len + 1))
 		return -1;
 
 	memcpy(buf->data + buf->len, data, len);
@@ -245,7 +245,7 @@ static void stream_write_content(struct stream_response *stream,
 }
 
 static int stream_reasoning_markdown(struct stream_response *stream,
-				     struct response_buffer *md)
+				     struct fyai_buf *md)
 {
 	const char *nl;
 	const char *p;
@@ -253,7 +253,7 @@ static int stream_reasoning_markdown(struct stream_response *stream,
 	int len;
 
 	quoted = markdown_reasoning_quoted(stream->ctx->cfg);
-	if (!quoted && response_buffer_append(md, "**💭 reasoning**\n\n"))
+	if (!quoted && fyai_buf_append(md, "**💭 reasoning**\n\n"))
 		return -1;
 
 	p = stream->reasoning_text.data ? stream->reasoning_text.data : "";
@@ -261,24 +261,24 @@ static int stream_reasoning_markdown(struct stream_response *stream,
 		nl = strchr(p, '\n');
 		len = nl ? (int)(nl - p) : (int)strlen(p);
 		if (len) {
-			if (response_buffer_append(md, quoted ? "> " : "*") ||
+			if (fyai_buf_append(md, quoted ? "> " : "*") ||
 			    append_mem(md, p, (size_t)len) ||
-			    response_buffer_append(md, quoted ? "\n" : "*\n"))
+			    fyai_buf_append(md, quoted ? "\n" : "*\n"))
 				return -1;
-		} else if (response_buffer_append(md, quoted ? ">\n" : "\n")) {
+		} else if (fyai_buf_append(md, quoted ? ">\n" : "\n")) {
 			return -1;
 		}
 		p = nl ? nl + 1 : NULL;
 	} while (p && *p);
-	return response_buffer_append(md, "\n");
+	return fyai_buf_append(md, "\n");
 }
 
 static int stream_write_reasoning_md(struct stream_response *stream)
 {
 	struct fyai_ctx *ctx = stream->ctx;
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct response_buffer md = {0};
-	struct response_buffer out = {0};
+	struct fyai_buf md = {0};
+	struct fyai_buf out = {0};
 	size_t rows;
 	int rc;
 
@@ -368,7 +368,7 @@ static void stream_write_reasoning(struct stream_response *stream,
 	}
 	if (cfg->markdown && markdown_available(cfg) &&
 	    terminal_is_tty(STDERR_FILENO)) {
-		if (response_buffer_append(&stream->reasoning_text, text) ||
+		if (fyai_buf_append(&stream->reasoning_text, text) ||
 		    stream_write_reasoning_md(stream))
 			stream->parse.failed = true;
 	} else {
@@ -1226,7 +1226,7 @@ struct fyai_buffered_request {
 	bool retry_band;		/* the shared band is ours */
 	fyai_buffered_complete_fn complete;
 	void *userdata;
-	struct response_buffer response;
+	struct fyai_buf response;
 	fy_generic result;
 	bool done;
 	bool cancel_requested;

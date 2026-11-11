@@ -1205,7 +1205,7 @@ fy_generic fyai_session_context_data(struct fyai_ctx *ctx,
 
 char *fyai_prompt_literal(const char *text)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	const unsigned char *p;
 	int rc;
 
@@ -1213,11 +1213,11 @@ char *fyai_prompt_literal(const char *text)
 		if (*p < 32 || *p == 127)
 			continue;
 		if (*p < 128 && ispunct(*p)) {
-			rc = response_buffer_append_data(&out, "\\", 1);
+			rc = fyai_buf_append_data(&out, "\\", 1);
 			if (rc)
 				goto fail;
 		}
-		rc = response_buffer_append_data(&out, (const char *)p, 1);
+		rc = fyai_buf_append_data(&out, (const char *)p, 1);
 		if (rc)
 			goto fail;
 	}
@@ -1231,7 +1231,7 @@ fail:
 char *fyai_prompt_expand(const char *tmpl, const struct fyai_tmpl_var *vars,
 			size_t nvars)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	const char *p;
 	const char *e;
 	const char *val;
@@ -1242,7 +1242,7 @@ char *fyai_prompt_expand(const char *tmpl, const struct fyai_tmpl_var *vars,
 	for (p = tmpl ? tmpl : ""; *p; ) {
 		if ((p[0] == '{' && p[1] == '{') ||
 		    (p[0] == '}' && p[1] == '}')) {
-			rc = response_buffer_append_data(&out, p, 1);
+			rc = fyai_buf_append_data(&out, p, 1);
 			if (rc)
 				goto fail;
 			p += 2;
@@ -1257,13 +1257,13 @@ char *fyai_prompt_expand(const char *tmpl, const struct fyai_tmpl_var *vars,
 					val = vars[i].val ? vars[i].val : "";
 					break;
 				}
-			rc = response_buffer_append_data(&out, val, strlen(val));
+			rc = fyai_buf_append_data(&out, val, strlen(val));
 			if (rc)
 				goto fail;
 			p = e + 1;
 			continue;
 		}
-		rc = response_buffer_append_data(&out, p++, 1);
+		rc = fyai_buf_append_data(&out, p++, 1);
 		if (rc)
 			goto fail;
 	}
@@ -1282,7 +1282,7 @@ fail:
  */
 char *fyai_prompt_row_markdown(struct fyai_cfg *cfg, const char *text)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const char *start;
 	const char *end;
 	char *row;

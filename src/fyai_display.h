@@ -108,7 +108,7 @@ int fyai_render_display_output(struct fyai_ctx *ctx, const char *tag,
 /* Build the title and marked body of a tool call. */
 int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
 			int preview_lines, char **title,
-			struct response_buffer *body);
+			struct fyai_buf *body);
 /* One fenced tool-body range in emitted Markdown. */
 struct fyai_md_block {
 	size_t start;
@@ -129,13 +129,13 @@ struct fyai_md_blocks {
  */
 int fyai_tool_call_view_source(struct fyai_ctx *ctx, const char *name,
 			       fy_generic args, int preview_lines, char **title,
-			       struct response_buffer *body,
+			       struct fyai_buf *body,
 			       struct fy_generic_builder *gb,
 			       fy_generic *sourcep);
 /* Render the @len bytes of the view @md with its code @blocks. */
 int fyai_tool_view_render(struct fyai_ctx *ctx, const char *md, size_t len,
 			  const struct fyai_md_blocks *blocks, size_t max_lines,
-			  char **title, struct response_buffer *body);
+			  char **title, struct fyai_buf *body);
 
 void fyai_md_blocks_free(struct fyai_md_blocks *blocks);
 void fyai_emit_tool_call(struct fyai_ctx *ctx, FILE *mf,

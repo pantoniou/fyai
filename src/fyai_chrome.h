@@ -156,7 +156,7 @@ struct fyai_chrome_panel_info {
  * panel is due: the pane is shown, there is no live work and no result.
  * Returns -1 when memory runs out; @out is then empty.
  */
-int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
+int fyai_chrome_panel(struct fyai_ctx *ctx, struct fyai_buf *out,
 		      int messages, enum fyai_error_type level,
 		      struct fyai_chrome_panel_info *info);
 
@@ -165,7 +165,7 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
  * sequences and emphasis markers take none. With @out, copy the source of @s,
  * markup included, up to @max columns.
  */
-int fyai_chrome_markup_cols(const char *s, struct response_buffer *out,
+int fyai_chrome_markup_cols(const char *s, struct fyai_buf *out,
 			    int max);
 
 /* Map "none" to absent chrome; an empty string stays a rule. */

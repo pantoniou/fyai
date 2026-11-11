@@ -1171,7 +1171,7 @@ void fyai_cmd_complete_help_topics(const char *const *path, size_t npath,
 
 struct machine_cands {
 	struct fyai_ctx *ctx;
-	struct response_buffer out;
+	struct fyai_buf out;
 	bool fail;
 };
 
@@ -1181,12 +1181,12 @@ static void machine_cand(void *arg, const char *value, const char *desc)
 	const char *p;
 	size_t n;
 
-	if (mc->fail || response_buffer_append(&mc->out, value)) {
+	if (mc->fail || fyai_buf_append(&mc->out, value)) {
 		mc->fail = true;
 		return;
 	}
 	if (desc && *desc) {
-		if (response_buffer_append(&mc->out, "\t")) {
+		if (fyai_buf_append(&mc->out, "\t")) {
 			mc->fail = true;
 			return;
 		}
@@ -1194,13 +1194,13 @@ static void machine_cand(void *arg, const char *value, const char *desc)
 		for (p = desc, n = 0; *p && *p != '\n' && n < 72; p++, n++) {
 			if (*p == '.' && (!p[1] || p[1] == ' '))
 				break;
-			if (response_buffer_append_data(&mc->out, p, 1)) {
+			if (fyai_buf_append_data(&mc->out, p, 1)) {
 				mc->fail = true;
 				return;
 			}
 		}
 	}
-	if (response_buffer_append(&mc->out, "\n"))
+	if (fyai_buf_append(&mc->out, "\n"))
 		mc->fail = true;
 }
 
@@ -1228,7 +1228,7 @@ int fyai_cmd_complete_verb(struct fyai_cmd_call *call, fy_generic *result)
 	directives = fyai_cmd_complete(call->ctx, FYAI_CMD_CLI, n, words,
 				       machine_cand, &mc);
 	snprintf(tail, sizeof(tail), ":%u\n", directives);
-	if (!mc.fail && response_buffer_append(&mc.out, tail))
+	if (!mc.fail && fyai_buf_append(&mc.out, tail))
 		mc.fail = true;
 	fyai_error_check(call->ctx, !mc.fail, err_free,
 			 "__complete: cannot build the candidates");

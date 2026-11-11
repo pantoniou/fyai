@@ -684,7 +684,7 @@ static bool view_diff_side_binary(const struct view_diff_side *side)
 }
 
 /* Append the diff of one path in the extended git format; a side may be absent. */
-static int view_diff_part(struct response_buffer *out, const char *path,
+static int view_diff_part(struct fyai_buf *out, const char *path,
 			  const struct view_diff_side *a, const struct view_diff_side *b)
 {
 	char line[PATH_MAX * 2 + 64], *text = NULL;
@@ -696,7 +696,7 @@ static int view_diff_part(struct response_buffer *out, const char *path,
 	if (a->present && b->present && a->mode == b->mode && view_diff_side_same(a, b))
 		return 0;
 	snprintf(line, sizeof(line), "diff --git a/%s b/%s\n", path, path);
-	if (response_buffer_append(out, line))
+	if (fyai_buf_append(out, line))
 		return -1;
 	if (!a->present)
 		snprintf(line, sizeof(line), "new file mode %06o\n", b->mode);
@@ -706,24 +706,24 @@ static int view_diff_part(struct response_buffer *out, const char *path,
 		snprintf(line, sizeof(line), "old mode %06o\nnew mode %06o\n", a->mode, b->mode);
 	else
 		line[0] = '\0';
-	if (response_buffer_append(out, line))
+	if (fyai_buf_append(out, line))
 		return -1;
 	if (a->present && b->present && view_diff_side_same(a, b))
 		return 0;
 	if (view_diff_side_binary(a) || view_diff_side_binary(b)) {
 		snprintf(line, sizeof(line), "Binary files %s and %s differ\n", aname, bname);
-		return response_buffer_append(out, line);
+		return fyai_buf_append(out, line);
 	}
 	if (fyai_diff_unified(a->data ? (const char *)a->data : "", a->length,
 			      b->data ? (const char *)b->data : "", b->length, aname, bname, 3,
 			      &text))
 		return -1;
-	rc = response_buffer_append(out, text);
+	rc = fyai_buf_append(out, text);
 	free(text);
 	return rc;
 }
 
-static int view_diff_path(struct response_buffer *out, struct fyai_manifest manifests[2],
+static int view_diff_path(struct fyai_buf *out, struct fyai_manifest manifests[2],
 			  int objects[2], const char *path)
 {
 	struct view_diff_side side[2] = { { 0 }, { 0 } };
@@ -1062,7 +1062,7 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	const char *given_other = fyai_cmd_arg_str(call, "other");
 	const char *name, *other = NULL;
 	char names[2][PATH_MAX], scopes[2][PATH_MAX];
-	struct response_buffer listing = { 0 };
+	struct fyai_buf listing = { 0 };
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
 	struct view_state left = { 0 }, right = { 0 };
 	struct fyai_mobject probe;
@@ -1147,10 +1147,10 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 	}
 	if (fyai_cmd_arg_bool(call, "stat")) {
 		fy_foreach(row, changes) {
-			if (response_buffer_append(&listing, fy_get(row, "status", "")) ||
-			    response_buffer_append(&listing, " ") ||
-			    response_buffer_append(&listing, fy_get(row, "path", "")) ||
-			    response_buffer_append(&listing, "\n"))
+			if (fyai_buf_append(&listing, fy_get(row, "status", "")) ||
+			    fyai_buf_append(&listing, " ") ||
+			    fyai_buf_append(&listing, fy_get(row, "path", "")) ||
+			    fyai_buf_append(&listing, "\n"))
 				goto out;
 		}
 		*result = fy_assoc(call->gb, *result, "patch", fy_value(call->gb, listing.data));
@@ -1189,9 +1189,9 @@ int fyai_cmd_view_diff(struct fyai_cmd_call *call, fy_generic *result)
 			       FYOPEF_DISABLE_DIRECTORY | FYOPEF_NO_ENDING_NEWLINE |
 				       FYOPEF_MODE_JSON | FYOPEF_STYLE_COMPACT | FYOPEF_WIDTH_INF,
 			       NULL);
-		if (!fy_is_string(note) || response_buffer_append(&listing, "# metadata ") ||
-		    response_buffer_append(&listing, fy_castp(&note, "")) ||
-		    response_buffer_append(&listing, "\n")) {
+		if (!fy_is_string(note) || fyai_buf_append(&listing, "# metadata ") ||
+		    fyai_buf_append(&listing, fy_castp(&note, "")) ||
+		    fyai_buf_append(&listing, "\n")) {
 			rc = -1;
 			goto out;
 		}
@@ -1823,7 +1823,7 @@ static void view_terminal_exited(void *userdata, int exit_code, int signal)
 
 static int view_enter_terminal(struct fyai_cmd_call *call)
 {
-	struct response_buffer line = { 0 };
+	struct fyai_buf line = { 0 };
 	struct fyai_shell_session *session;
 	const char *argument;
 	fy_generic arena;
@@ -1847,25 +1847,25 @@ static int view_enter_terminal(struct fyai_cmd_call *call)
 		fyai_error(call->ctx, "view: cannot encode the terminal child's arena path");
 		return -1;
 	}
-	rc = fyai_shell_quote(&line, executable) || response_buffer_append(&line, " --set ") ||
+	rc = fyai_shell_quote(&line, executable) || fyai_buf_append(&line, " --set ") ||
 	     fyai_shell_quote(&line, fy_sprintfa("arena_dir=%s", fy_castp(&arena, ""))) ||
-	     response_buffer_append(&line, " --branch ") ||
+	     fyai_buf_append(&line, " --branch ") ||
 	     fyai_shell_quote(&line, fyai_ctx_branch(call->ctx)) ||
-	     response_buffer_append(&line, " view enter ");
+	     fyai_buf_append(&line, " view enter ");
 	if (!rc && fyai_cmd_arg_bool(call, "verify"))
-		rc = response_buffer_append(&line, "--verify ");
+		rc = fyai_buf_append(&line, "--verify ");
 	if (!rc && fyai_cmd_arg_bool(call, "lockdown"))
-		rc = response_buffer_append(&line, "--lockdown ");
+		rc = fyai_buf_append(&line, "--lockdown ");
 	if (!rc && fyai_cmd_arg_str(call, "profile"))
-		rc = response_buffer_append(&line, "--profile ") ||
+		rc = fyai_buf_append(&line, "--profile ") ||
 		     fyai_shell_quote(&line, fyai_cmd_arg_str(call, "profile")) ||
-		     response_buffer_append(&line, " ");
+		     fyai_buf_append(&line, " ");
 	if (!rc)
 		rc = fyai_shell_quote(&line, fyai_cmd_arg_str(call, "name")) ||
-		     response_buffer_append(&line, " --");
+		     fyai_buf_append(&line, " --");
 	fy_foreach(argument, fy_get(call->args, "command", fy_seq_empty))
 		if (!rc)
-			rc = response_buffer_append(&line, " ") ||
+			rc = fyai_buf_append(&line, " ") ||
 			     fyai_shell_quote(&line, argument);
 	if (rc) {
 		fyai_error(call->ctx, "view: cannot allocate the terminal command");
@@ -3959,7 +3959,7 @@ void fyai_tool_diff_cleanup(struct fyai_ctx *ctx)
 int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb, fy_generic before,
 			    fy_generic after, size_t limit, fy_generic *text)
 {
-	struct response_buffer listing = { 0 };
+	struct fyai_buf listing = { 0 };
 	struct fyai_manifest manifests[2] = { { 0 }, { 0 } };
 	fy_generic snapshots[2] = { before, after }, changes, row;
 	const char *stores[2], *path;
@@ -3995,7 +3995,7 @@ int fyai_project_state_diff(struct fyai_ctx *ctx, struct fy_generic_builder *gb,
 		if (!strcmp(path, "."))
 			continue;
 		if (listing.len >= limit) {
-			if (response_buffer_append(&listing, "# the rest of the changes is not shown\n"))
+			if (fyai_buf_append(&listing, "# the rest of the changes is not shown\n"))
 				goto out;
 			break;
 		}

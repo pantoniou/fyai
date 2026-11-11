@@ -342,7 +342,7 @@ int cmd_usage(void)
 
 int cmd_help_text(void)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	const char *path[] = { "branch", "new" };
 	const char *topic[] = { "refs" };
 	struct cmd_test t;
@@ -423,7 +423,7 @@ int cmd_sorted(void)
 {
 	struct cmd_test t;
 	struct cands c;
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	const char *top[] = { "" };
 	const char *sub[] = { "branch", "" };
 	const char *branch[] = { "branch" };

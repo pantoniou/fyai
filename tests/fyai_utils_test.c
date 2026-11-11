@@ -80,7 +80,7 @@ int utils_utf8_length(void)
 
 int utils_shell_quote(void)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 
 	FYAI_TCHECK(!fyai_shell_quote(&out, "it's a $x"));
 	FYAI_TCHECK(!strcmp(out.data, "'it'\\''s a $x'"));

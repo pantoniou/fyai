@@ -133,7 +133,7 @@ static void conn_feed(struct mock_conn *c);
 
 /* ---- text buffer ----------------------------------------------------------- */
 
-static int buf_addf(struct response_buffer *buf, const char *fmt, ...)
+static int buf_addf(struct fyai_buf *buf, const char *fmt, ...)
 {
 	va_list ap, ap2;
 	char *tmp;
@@ -149,7 +149,7 @@ static int buf_addf(struct response_buffer *buf, const char *fmt, ...)
 	va_end(ap2);
 	if (!tmp)
 		return -1;
-	rc = response_buffer_append_data(buf, tmp, (size_t)n);
+	rc = fyai_buf_append_data(buf, tmp, (size_t)n);
 	free(tmp);
 	return rc;
 }
@@ -260,15 +260,15 @@ static const char *status_text(int status)
 static int op_head(struct mock_conn *c, int status, const char *ctype,
 		   const char *extra, size_t clen)
 {
-	struct response_buffer sb = { 0 };
+	struct fyai_buf sb = { 0 };
 	int rc;
 
 	rc = buf_addf(&sb, "HTTP/1.1 %d %s\r\nContent-Type: %s\r\n", status,
 		     status_text(status), ctype);
 	if (!rc && extra)
-		rc = response_buffer_append(&sb, extra);
+		rc = fyai_buf_append(&sb, extra);
 	if (!rc && c->close_after)
-		rc = response_buffer_append(&sb, "Connection: close\r\n");
+		rc = fyai_buf_append(&sb, "Connection: close\r\n");
 	if (!rc)
 		rc = buf_addf(&sb, "Content-Length: %zu\r\n\r\n", clen);
 	if (!rc)
@@ -280,19 +280,19 @@ static int op_head(struct mock_conn *c, int status, const char *ctype,
 static int op_reply(struct mock_conn *c, int status, const char *ctype,
 		    const char *extra, const char *body, size_t blen)
 {
-	struct response_buffer sb = { 0 };
+	struct fyai_buf sb = { 0 };
 	int rc;
 
 	rc = buf_addf(&sb, "HTTP/1.1 %d %s\r\nContent-Type: %s\r\n", status,
 		     status_text(status), ctype);
 	if (!rc && extra)
-		rc = response_buffer_append(&sb, extra);
+		rc = fyai_buf_append(&sb, extra);
 	if (!rc && c->close_after)
-		rc = response_buffer_append(&sb, "Connection: close\r\n");
+		rc = fyai_buf_append(&sb, "Connection: close\r\n");
 	if (!rc)
 		rc = buf_addf(&sb, "Content-Length: %zu\r\n\r\n", blen);
 	if (!rc)
-		rc = response_buffer_append_data(&sb, body, blen);
+		rc = fyai_buf_append_data(&sb, body, blen);
 	if (!rc)
 		rc = op_add(c, MOCK_WRITE, sb.data, sb.len, 0);
 	free(sb.data);
@@ -535,7 +535,7 @@ static void hdr_get(const char *hdrs, size_t hlen, const char *name, char *out,
 static int chunked_decode(const char *p, size_t n, char **bodyp, size_t *lenp,
 			  size_t *usedp)
 {
-	struct response_buffer sb = { 0 };
+	struct fyai_buf sb = { 0 };
 	size_t pos = 0, size;
 	const char *eol;
 	char *endp;
@@ -553,7 +553,7 @@ static int chunked_decode(const char *p, size_t n, char **bodyp, size_t *lenp,
 			break;
 		if (n - pos < size + 2)
 			goto more;
-		if (response_buffer_append_data(&sb, p + pos, size))
+		if (fyai_buf_append_data(&sb, p + pos, size))
 			goto bad;
 		pos += size + 2;
 	}
@@ -567,7 +567,7 @@ static int chunked_decode(const char *p, size_t n, char **bodyp, size_t *lenp,
 		if (size <= 1)
 			break;
 	}
-	if (!sb.data && response_buffer_append_data(&sb, "", 0))
+	if (!sb.data && fyai_buf_append_data(&sb, "", 0))
 		goto bad;
 	*bodyp = sb.data;
 	*lenp = sb.len;
@@ -743,18 +743,18 @@ static fyai_event_ms_t secs_to_ms(double s)
 static char *expand_base(const struct mock *m, const char *value)
 {
 	static const char tag[] = "{{BASE_URL}}";
-	struct response_buffer sb = { 0 };
+	struct fyai_buf sb = { 0 };
 	const char *p = value, *hit;
 	int rc = 0;
 
 	while (!rc && (hit = strstr(p, tag))) {
-		rc = response_buffer_append_data(&sb, p, (size_t)(hit - p));
+		rc = fyai_buf_append_data(&sb, p, (size_t)(hit - p));
 		if (!rc)
 			rc = buf_addf(&sb, "http://127.0.0.1:%u", m->port);
 		p = hit + sizeof(tag) - 1;
 	}
 	if (!rc)
-		rc = response_buffer_append(&sb, p);
+		rc = fyai_buf_append(&sb, p);
 	if (rc) {
 		free(sb.data);
 		return NULL;
@@ -776,7 +776,7 @@ static const char *step_body(struct mock *m, fy_generic step)
 	return s ? s : "{}";
 }
 
-static int event_text(struct mock *m, fy_generic ev, struct response_buffer *sb)
+static int event_text(struct mock *m, fy_generic ev, struct fyai_buf *sb)
 {
 	fy_generic type;
 	const char *json;
@@ -797,7 +797,7 @@ static int event_text(struct mock *m, fy_generic ev, struct response_buffer *sb)
 
 /* Build the SSE parts; @ends gets the end offset of each in the payload. */
 static int sse_build(struct mock *m, fy_generic step, bool truncated,
-		     struct response_buffer *payload, size_t **endsp, size_t *nendsp)
+		     struct fyai_buf *payload, size_t **endsp, size_t *nendsp)
 {
 	fy_generic events, raw, ev, line;
 	size_t *ends = NULL, *grown, n = 0, cap = 0, limit;
@@ -842,7 +842,7 @@ static int sse_build(struct mock *m, fy_generic step, bool truncated,
 		ends[n++] = payload->len;
 	}
 	if (fy_get(step, "done", false) && !truncated) {
-		rc = response_buffer_append(payload, "data: [DONE]\n\n");
+		rc = fyai_buf_append(payload, "data: [DONE]\n\n");
 		if (rc)
 			goto out;
 		if (n == cap) {
@@ -867,7 +867,7 @@ out:
 static int reply_sse(struct mock_conn *c, fy_generic step, int status)
 {
 	struct mock *m = c->m;
-	struct response_buffer payload = { 0 };
+	struct fyai_buf payload = { 0 };
 	size_t *ends = NULL, n = 0, i, pos, split;
 	fy_generic wait_after, wait_for, splits, v;
 	fyai_event_ms_t delay_ms;
@@ -880,7 +880,7 @@ static int reply_sse(struct mock_conn *c, fy_generic step, int status)
 	rc = sse_build(m, step, truncated, &payload, &ends, &n);
 	if (rc)
 		goto out;
-	rc = response_buffer_append_data(&payload, "", 0);
+	rc = fyai_buf_append_data(&payload, "", 0);
 	if (rc)
 		goto out;
 	rc = op_head(c, status, "text/event-stream", NULL,
@@ -932,7 +932,7 @@ out:
 }
 
 /* The lines `Key: value` of the `headers` of @step, with the base URL set. */
-static int step_headers(struct mock *m, fy_generic step, struct response_buffer *sb)
+static int step_headers(struct mock *m, fy_generic step, struct fyai_buf *sb)
 {
 	fy_generic headers, key, value;
 	char *text;
@@ -962,7 +962,7 @@ static int reply_exhausted(struct mock_conn *c)
 static int reply_post(struct mock_conn *c, fy_generic step)
 {
 	struct mock *m = c->m;
-	struct response_buffer extra = { 0 };
+	struct fyai_buf extra = { 0 };
 	fy_generic wait_for, wait_after;
 	const char *body;
 	char marker[256];

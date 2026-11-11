@@ -444,7 +444,7 @@ static size_t markdown_sgr_resets_bg(const char *p, size_t len)
 
 int markdown_ground_rows(const struct fyai_cfg *cfg, uint32_t rgb,
 			 const char *text, size_t len,
-			 struct response_buffer *out)
+			 struct fyai_buf *out)
 {
 	const char *p = text, *end = text + len, *nl, *q;
 	char ground[32];
@@ -459,7 +459,7 @@ int markdown_ground_rows(const struct fyai_cfg *cfg, uint32_t rgb,
 	while (p < end) {
 		nl = memchr(p, '\n', (size_t)(end - p));
 		n = nl ? (size_t)(nl - p) : (size_t)(end - p);
-		if (response_buffer_append_data(out, ground, glen))
+		if (fyai_buf_append_data(out, ground, glen))
 			return -1;
 		/* An SGR that resets the background, a whole reset or 49 alone
 		 * or among other parameters, ends the ground: set it again. */
@@ -469,23 +469,23 @@ int markdown_ground_rows(const struct fyai_cfg *cfg, uint32_t rgb,
 			sl = markdown_sgr_resets_bg(p + k, n - k);
 			if (!sl)
 				continue;
-			if (response_buffer_append_data(out, q,
+			if (fyai_buf_append_data(out, q,
 					(size_t)(p + k + sl - q)) ||
-			    response_buffer_append_data(out, ground, glen))
+			    fyai_buf_append_data(out, ground, glen))
 				return -1;
 			q = p + k + sl;
 			k += sl - 1;
 		}
-		if (response_buffer_append_data(out, q, (size_t)(p + n - q)))
+		if (fyai_buf_append_data(out, q, (size_t)(p + n - q)))
 			return -1;
 		/* The ground runs to the edge of the render, a band. */
 		cols = markdown_visible_cols(p, n);
 		for (pad = width - cols; pad > 0; pad--)
-			if (response_buffer_append_data(out, " ", 1))
+			if (fyai_buf_append_data(out, " ", 1))
 				return -1;
-		if (response_buffer_append_data(out, "\x1b[0m", 4))
+		if (fyai_buf_append_data(out, "\x1b[0m", 4))
 			return -1;
-		if (nl && response_buffer_append_data(out, "\n", 1))
+		if (nl && fyai_buf_append_data(out, "\n", 1))
 			return -1;
 		p = nl ? nl + 1 : end;
 	}
@@ -1122,7 +1122,7 @@ int markdown_renderer_push(struct markdown_renderer *renderer,
 }
 
 int markdown_renderer_finish(struct markdown_renderer *renderer,
-			     struct response_buffer *out)
+			     struct fyai_buf *out)
 {
 	const char *s;
 	size_t len;
@@ -1131,7 +1131,7 @@ int markdown_renderer_finish(struct markdown_renderer *renderer,
 		return -1;
 	if (fymd_render_finish(renderer->renderer, &s, &len))
 		return -1;
-	if (response_buffer_reserve(out, out->len + len + 1))
+	if (fyai_buf_reserve(out, out->len + len + 1))
 		return -1;
 	memcpy(out->data + out->len, s, len);
 	out->len += len;
@@ -1171,7 +1171,7 @@ static void markdown_set_line_limit(struct fymd_renderer *r, size_t max_lines)
 
 static int markdown_render_flags(struct fyai_cfg *fcfg, const char *text,
 				 size_t len,
-				 struct response_buffer *out, bool color,
+				 struct fyai_buf *out, bool color,
 				 const char *theme, enum fymd_cfg_flags extra,
 				 size_t max_lines)
 {
@@ -1198,7 +1198,7 @@ static int markdown_render_flags(struct fyai_cfg *fcfg, const char *text,
 	free(stripped);
 	if (rc)
 		goto raw_reset;
-	if (response_buffer_reserve(out, out->len + slen + 1))
+	if (fyai_buf_reserve(out, out->len + slen + 1))
 		goto raw_reset;
 	memcpy(out->data + out->len, s, slen);
 	out->len += slen;
@@ -1214,7 +1214,7 @@ raw_reset:
 	if (out->data)
 		out->data[out->len] = '\0';
 raw:
-	if (!response_buffer_reserve(out, out->len + len + 1)) {
+	if (!fyai_buf_reserve(out, out->len + len + 1)) {
 		memcpy(out->data + out->len, text, len);
 		out->len += len;
 		out->data[out->len] = '\0';
@@ -1223,7 +1223,7 @@ raw:
 }
 
 int markdown_render(struct fyai_cfg *cfg, const char *text, size_t len,
-		    struct response_buffer *out, bool color, const char *theme)
+		    struct fyai_buf *out, bool color, const char *theme)
 {
 	return markdown_render_flags(cfg, text, len, out, color, theme, 0, 0);
 }
@@ -1241,7 +1241,7 @@ static const char *markdown_margin_cb(void *userdata, size_t row)
 }
 
 static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text,
-					 size_t len, struct response_buffer *out,
+					 size_t len, struct fyai_buf *out,
 					 const char *first_margin,
 					 const char *next_margin,
 					 enum fymd_cfg_flags flags,
@@ -1249,7 +1249,7 @@ static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text
 					 size_t *countp);
 
 int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
-			    struct response_buffer *out,
+			    struct fyai_buf *out,
 			    const char *first_margin,
 			    const char *next_margin)
 {
@@ -1258,7 +1258,7 @@ int markdown_render_margins(struct fyai_cfg *fcfg, const char *text, size_t len,
 }
 
 static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text,
-					 size_t len, struct response_buffer *out,
+					 size_t len, struct fyai_buf *out,
 					 const char *first_margin,
 					 const char *next_margin,
 					 enum fymd_cfg_flags flags,
@@ -1307,7 +1307,7 @@ static int markdown_render_margins_flags(struct fyai_cfg *fcfg, const char *text
 			*countp = count;
 		}
 	}
-	if (response_buffer_reserve(out, out->len + slen + 1)) {
+	if (fyai_buf_reserve(out, out->len + slen + 1)) {
 		fymd_free(s);
 		fymd_renderer_destroy(r);
 		return -1;
@@ -1409,7 +1409,7 @@ char *markdown_ui_escape(const char *text)
 }
 
 int markdown_render_margins_ui(struct fyai_cfg *cfg, const char *text,
-			       size_t len, struct response_buffer *out,
+			       size_t len, struct fyai_buf *out,
 			       const char *first_margin,
 			       const char *next_margin,
 			       struct markdown_region **regionsp,
@@ -1424,14 +1424,14 @@ static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,
 				      size_t len, const char *cause,
 				      const char *first_margin,
 				      const char *next_margin,
-				      struct response_buffer *out,
+				      struct fyai_buf *out,
 				      struct markdown_region **regionsp,
 				      size_t *countp);
 
 int markdown_render_tool_head(struct fyai_cfg *cfg, const char *title,
 			      size_t len, const char *cause,
 			      const char *first_margin, const char *next_margin,
-			      struct response_buffer *out)
+			      struct fyai_buf *out)
 {
 	return markdown_render_tool_head_(cfg, title, len, cause, first_margin,
 					  next_margin, out, NULL, NULL);
@@ -1441,7 +1441,7 @@ int markdown_render_tool_head_ui(struct fyai_cfg *cfg, const char *title,
 				 size_t len, const char *cause,
 				 const char *first_margin,
 				 const char *next_margin,
-				 struct response_buffer *out,
+				 struct fyai_buf *out,
 				 struct markdown_region **regionsp,
 				 size_t *countp)
 {
@@ -1453,7 +1453,7 @@ static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,
 				      size_t len, const char *cause,
 				      const char *first_margin,
 				      const char *next_margin,
-				      struct response_buffer *out,
+				      struct fyai_buf *out,
 				      struct markdown_region **regionsp,
 				      size_t *countp)
 {
@@ -1482,7 +1482,7 @@ static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,
 	glyph = markdown_glyph(cfg, "tool.cause", NULL);
 	need = out->len + strlen(on) + (glyph ? strlen(glyph) + 1 : 0) +
 	       strlen(cause) + strlen(off) + 3;
-	if (response_buffer_reserve(out, need))
+	if (fyai_buf_reserve(out, need))
 		return -1;
 	out->len += (size_t)snprintf(out->data + out->len, need - out->len,
 				     " %s%s%s%s%s\n", on, glyph ? glyph : "",
@@ -1491,7 +1491,7 @@ static int markdown_render_tool_head_(struct fyai_cfg *cfg, const char *title,
 }
 
 int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
-			    struct response_buffer *out, bool color,
+			    struct fyai_buf *out, bool color,
 			    const char *theme)
 {
 	return markdown_render_flags(cfg, text, len, out, color, theme,
@@ -1501,7 +1501,7 @@ int markdown_render_reverse(struct fyai_cfg *cfg, const char *text, size_t len,
 static int markdown_fprint(FILE *fp, const char *text, struct fyai_cfg *cfg,
 			   size_t max_lines, enum fymd_cfg_flags extra)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	bool color;
 	size_t start;
 	size_t end;
@@ -1578,7 +1578,7 @@ int fyai_fprint_markdown(FILE *fp, const char *text, struct fyai_cfg *cfg,
 static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 				  size_t len, const char *lang,
 				  fy_generic template_vars, size_t max_lines,
-				  struct response_buffer *out, bool color,
+				  struct fyai_buf *out, bool color,
 				  enum fymd_cfg_flags extra)
 {
 	struct fymd_fenced_block_opts opts;
@@ -1610,7 +1610,7 @@ static int markdown_render_fenced(struct fyai_cfg *fcfg, const char *text,
 
 	if (fymd_render_fenced_block(r, text, len, &opts, &s, &slen))
 		goto raw_reset;
-	if (response_buffer_reserve(out, out->len + slen + 1))
+	if (fyai_buf_reserve(out, out->len + slen + 1))
 		goto raw_reset;
 	memcpy(out->data + out->len, s, slen);
 	out->len += slen;
@@ -1626,7 +1626,7 @@ raw_reset:
 	if (out->data)
 		out->data[out->len] = '\0';
 raw:
-	if (!response_buffer_reserve(out, out->len + len + 1)) {
+	if (!fyai_buf_reserve(out, out->len + len + 1)) {
 		memcpy(out->data + out->len, text, len);
 		out->len += len;
 		out->data[out->len] = '\0';
@@ -1636,7 +1636,7 @@ raw:
 
 int fyai_render_fenced_buffer(struct fyai_cfg *cfg, const char *text,
 			      size_t len, const char *lang,
-			      struct response_buffer *out,
+			      struct fyai_buf *out,
 			      enum fymd_cfg_flags extra)
 {
 	return markdown_render_fenced(cfg, text, len, lang, fy_invalid, 0, out,
@@ -1668,7 +1668,7 @@ void fyai_fwrite_indented(FILE *fp, const char *ind, const char *data,
 
 /* Append marked rows to @out. */
 static int buffer_append_marked(struct fyai_ctx *ctx,
-				struct response_buffer *out, const char *indent,
+				struct fyai_buf *out, const char *indent,
 				const char *data, size_t len)
 {
 	char mark[FYAI_GLYPH_MAX];
@@ -1683,11 +1683,11 @@ static int buffer_append_marked(struct fyai_ctx *ctx,
 		if (i < len && data[i] != '\n')
 			continue;
 		pfx = rows ? FYAI_TOOL_MARKER_PAD : mark;
-		rc = response_buffer_append(out, indent ? indent : "");
+		rc = fyai_buf_append(out, indent ? indent : "");
 		fyai_error_check(ctx, !rc, out, "could not append the tool indent");
-		rc = response_buffer_append(out, pfx);
+		rc = fyai_buf_append(out, pfx);
 		fyai_error_check(ctx, !rc, out, "could not append the tool marker");
-		rc = response_buffer_append_line(out, data + start, i - start);
+		rc = fyai_buf_append_line(out, data + start, i - start);
 		fyai_error_check(ctx, !rc, out, "could not append a tool row");
 		start = i + 1;
 		rows++;
@@ -1699,9 +1699,9 @@ out:
 
 int fyai_render_fenced_marked(struct fyai_ctx *ctx, const char *text,
 			      size_t len, const char *lang, size_t max_lines,
-			      const char *indent, struct response_buffer *out)
+			      const char *indent, struct fyai_buf *out)
 {
-	struct response_buffer rendered = {0};
+	struct fyai_buf rendered = {0};
 	size_t start;
 	size_t end;
 	int saved;
@@ -1740,7 +1740,7 @@ out:
 int fyai_print_markdown_body(struct fyai_sink *sink, struct fyai_cfg *cfg,
 			     const char *text, size_t len)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const char *indent = markdown_tool_output_indent(cfg);
 	char *indented = NULL;
 	size_t ilen = 0, start = 0, end;
@@ -1785,7 +1785,7 @@ int fyai_print_fenced(struct fyai_sink *sink, struct fyai_cfg *cfg,
 		      const char *lang, fy_generic template_vars,
 		      size_t max_lines)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	char *indented = NULL;
 	size_t ilen = 0;
 	FILE *mf;
@@ -2228,9 +2228,9 @@ static void fenced_stream_set_scroll_limit(struct fyai_fenced_stream *fs,
 static int fenced_stream_render(struct fyai_fenced_stream *fs)
 {
 	struct fymd_fenced_block_opts opts;
-	struct response_buffer quoted = { 0 };
-	struct response_buffer reopen = { 0 };
-	struct response_buffer out = { 0 };
+	struct fyai_buf quoted = { 0 };
+	struct fyai_buf reopen = { 0 };
+	struct fyai_buf out = { 0 };
 	const struct fyai_fenced_mark *mark;
 	const char *source, *p, *end;
 	size_t lines, qlen, start, omitted, slen;
@@ -2274,7 +2274,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	slen = fs->accum.len - start;
 	/* Reopen a fence that starts before the live window. */
 	if (mark && mark->in_fence) {
-		rc = response_buffer_reserve(&reopen,
+		rc = fyai_buf_reserve(&reopen,
 					     slen + sizeof(mark->info) + 8);
 		fyai_error_check(fs->ctx, !rc, err_out,
 				 "could not reserve the reopened Markdown fence");
@@ -2294,7 +2294,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 			if (*p == '\n')
 				lines++;
 		qlen = slen + lines * 2;
-		rc = response_buffer_reserve(&quoted, qlen + 1);
+		rc = fyai_buf_reserve(&quoted, qlen + 1);
 		fyai_error_check(fs->ctx, !rc, err_out,
 				 "could not reserve the quoted Markdown window");
 		p = source;
@@ -2329,14 +2329,14 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 			     fs->markdown_quote ? "> " : "", omitted);
 		fyai_error_check(fs->ctx, n >= 0, err_out,
 				 "could not format the Markdown omission line");
-		rc = response_buffer_reserve(&out, rlen + (size_t)n + 1);
+		rc = fyai_buf_reserve(&out, rlen + (size_t)n + 1);
 		fyai_error_check(fs->ctx, !rc, err_out,
 				 "could not reserve the rendered Markdown window");
 		memcpy(out.data, sep, (size_t)n);
 		memcpy(out.data + n, rendered, rlen);
 		out.len = rlen + (size_t)n;
 	} else {
-		rc = response_buffer_reserve(&out, rlen + 1);
+		rc = fyai_buf_reserve(&out, rlen + 1);
 		fyai_error_check(fs->ctx, !rc, err_out,
 				 "could not reserve the rendered Markdown window");
 		memcpy(out.data, rendered, rlen);
@@ -2355,7 +2355,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 				 "could not close the Markdown indent buffer");
 		/* Keep the body for indicator repaints. */
 		fs->body.len = 0;
-		rc = response_buffer_reserve(&fs->body, ilen + 1);
+		rc = fyai_buf_reserve(&fs->body, ilen + 1);
 		fyai_error_check(fs->ctx, !rc, err_out,
 				 "failed to reserve the Markdown band buffer");
 		memcpy(fs->body.data, indented, ilen);
@@ -2388,7 +2388,7 @@ static int fenced_stream_render(struct fyai_fenced_stream *fs)
 	fflush(fs->fp);
 
 	fs->shown.len = 0;
-	rc = response_buffer_reserve(&fs->shown, out.len + 1);
+	rc = fyai_buf_reserve(&fs->shown, out.len + 1);
 	fyai_error_check(fs->ctx, !rc, err_out,
 			 "could not reserve the displayed Markdown buffer");
 	memcpy(fs->shown.data, out.data, out.len);
@@ -2440,7 +2440,7 @@ int fyai_fenced_stream_push(struct fyai_fenced_stream *fs,
 	if (!fs->active)
 		return -1;
 	if (len) {
-		rc = response_buffer_reserve(&fs->accum,
+		rc = fyai_buf_reserve(&fs->accum,
 					     fs->accum.len + len + 1);
 		fyai_error_check(fs->ctx, !rc, err,
 				 "failed to reserve the Markdown input buffer");

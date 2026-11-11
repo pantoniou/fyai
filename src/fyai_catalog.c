@@ -266,7 +266,7 @@ fy_generic fyai_catalog_schema(struct fy_generic_builder *gb)
 static int catalog_check(struct fyai_ctx *ctx, fy_generic doc,
 			 const char *origin)
 {
-	struct response_buffer msg = {0};
+	struct fyai_buf msg = {0};
 	fy_generic schema, report, problem;
 
 	if (!fy_is_mapping(doc)) {
@@ -282,8 +282,8 @@ static int catalog_check(struct fyai_ctx *ctx, fy_generic doc,
 	if (fyai_schema_valid(report))
 		return 0;
 	fy_foreach(problem, fy_get(report, "problems", fy_seq_empty)) {
-		if (response_buffer_append(&msg, "\n  ") ||
-		    response_buffer_append(&msg, fy_castp(&problem, "")))
+		if (fyai_buf_append(&msg, "\n  ") ||
+		    fyai_buf_append(&msg, fy_castp(&problem, "")))
 			break;
 	}
 	fyai_error(ctx, "%s does not match the catalogue schema:%s", origin,
@@ -661,9 +661,9 @@ int fyai_catalog_reset(struct fyai_ctx *ctx)
 }
 
 /* Append a blank and @s quoted for /bin/sh to @out. */
-static int catalog_shell_quote(struct response_buffer *out, const char *s)
+static int catalog_shell_quote(struct fyai_buf *out, const char *s)
 {
-	if (response_buffer_append(out, " "))
+	if (fyai_buf_append(out, " "))
 		return -1;
 	return fyai_shell_quote(out, s);
 }
@@ -733,17 +733,17 @@ static char *catalog_update_command(struct fyai_ctx *ctx,
 				    size_t count, bool curated)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct response_buffer cmd = {0};
+	struct fyai_buf cmd = {0};
 	size_t i;
 	int rc;
 
 	fyai_error_check(ctx, !fy_str_empty(cfg->catalog_update_command), err,
 			 "catalog_update/command is empty");
-	rc = response_buffer_append(&cmd, cfg->catalog_update_command) ||
-	     response_buffer_append(&cmd, " --format yaml") ||
-	     (curated && response_buffer_append(&cmd, " --curated"));
+	rc = fyai_buf_append(&cmd, cfg->catalog_update_command) ||
+	     fyai_buf_append(&cmd, " --format yaml") ||
+	     (curated && fyai_buf_append(&cmd, " --curated"));
 	for (i = 0; !rc && i < count; i++)
-		rc = response_buffer_append(&cmd, " --provider") ||
+		rc = fyai_buf_append(&cmd, " --provider") ||
 		     catalog_shell_quote(&cmd, providers[i]);
 	fyai_error_check(ctx, !rc, err, "out of memory building the "
 			 "catalogue command");
@@ -888,7 +888,7 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 			   size_t count, bool curated)
 {
 	struct fyai_catalog_update_request *request;
-	struct response_buffer line = {0};
+	struct fyai_buf line = {0};
 	const char *env_names[FYAI_CATALOG_ENV_KEEP_MAX + 1];
 	const char *tmp;
 	int rc;
@@ -915,8 +915,8 @@ fyai_catalog_update_submit(struct fyai_ctx *ctx, const char *const *providers,
 		 request->dir);
 
 	/* Standard error stays on the tile; the catalogue goes to the file. */
-	rc = response_buffer_append(&line, request->cmd) ||
-	     response_buffer_append(&line, " >") ||
+	rc = fyai_buf_append(&line, request->cmd) ||
+	     fyai_buf_append(&line, " >") ||
 	     catalog_shell_quote(&line, request->out);
 	fyai_error_check(ctx, !rc, err_line, "out of memory building the "
 			 "catalogue command");
@@ -956,7 +956,7 @@ bool fyai_catalog_update_done(
 
 int fyai_catalog_update_collect(struct fyai_catalog_update_request *request)
 {
-	struct response_buffer buf = {0};
+	struct fyai_buf buf = {0};
 	struct fyai_ctx *ctx;
 	char chunk[65536];
 	size_t n;
@@ -978,7 +978,7 @@ int fyai_catalog_update_collect(struct fyai_catalog_update_request *request)
 			 "wrote: %s", request->cmd, strerror(errno));
 	rc = 0;
 	while (!rc && (n = fread(chunk, 1, sizeof(chunk), fp)) > 0)
-		rc = response_buffer_append_data(&buf, chunk, n);
+		rc = fyai_buf_append_data(&buf, chunk, n);
 	if (!rc && ferror(fp))
 		rc = -1;
 	fclose(fp);

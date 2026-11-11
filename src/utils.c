@@ -43,33 +43,9 @@
 #include "fyai_ui.h"
 #include "fyai_uimodel.h"
 
-int response_buffer_reserve(struct response_buffer *buf, size_t need)
-{
-	size_t cap;
-	char *data;
-
-	if (need <= buf->cap)
-		return 0;
-
-	cap = buf->cap ? buf->cap : 4096;
-	while (cap < need) {
-		if (cap > SIZE_MAX / 2)
-			return -1;
-		cap *= 2;
-	}
-
-	data = realloc(buf->data, cap);
-	if (!data)
-		return -1;
-
-	buf->data = data;
-	buf->cap = cap;
-	return 0;
-}
-
 size_t write_response(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
-	struct response_buffer *buf = userdata;
+	struct fyai_buf *buf = userdata;
 	size_t bytes;
 
 	bytes = size * nmemb;
@@ -77,7 +53,7 @@ size_t write_response(void *ptr, size_t size, size_t nmemb, void *userdata)
 	if (!bytes)
 		return 0;
 
-	if (response_buffer_reserve(buf, buf->len + bytes + 1))
+	if (fyai_buf_reserve(buf, buf->len + bytes + 1))
 		return 0;
 
 	memcpy(buf->data + buf->len, ptr, bytes);
@@ -234,43 +210,6 @@ char *fyai_bytes_from_generic(fy_generic value, size_t *lenp)
 	return out;
 }
 
-int response_buffer_append(struct response_buffer *buf, const char *text)
-{
-	return response_buffer_append_data(buf, text, strlen(text));
-}
-
-int response_buffer_append_data(struct response_buffer *buf, const void *data,
-				size_t len)
-{
-	if (response_buffer_reserve(buf, buf->len + len + 1))
-		return -1;
-
-	memcpy(buf->data + buf->len, data, len);
-	buf->len += len;
-	buf->data[buf->len] = '\0';
-	return 0;
-}
-
-int response_buffer_append_line(struct response_buffer *buf, const void *data,
-				size_t len)
-{
-	int rc;
-
-	rc = response_buffer_append_data(buf, data, len);
-	if (rc)
-		return rc;
-	return response_buffer_append_data(buf, "\n", 1);
-}
-
-void response_buffer_trim(struct response_buffer *buf)
-{
-	while (buf->len && (buf->data[buf->len - 1] == '\n' ||
-			    buf->data[buf->len - 1] == '\r'))
-		buf->len--;
-	if (buf->data)
-		buf->data[buf->len] = '\0';
-}
-
 int append_header(struct curl_slist **headers, const char *header)
 {
 	struct curl_slist *next;
@@ -331,7 +270,7 @@ char *join_args(int argc, char **argv)
 
 char *read_text_file_limited(const char *path, size_t max_bytes, size_t *fullp)
 {
-	struct response_buffer buf = {};
+	struct fyai_buf buf = {};
 	char drain[4096];
 	size_t nread, want, total;
 	char *msg;
@@ -352,7 +291,7 @@ char *read_text_file_limited(const char *path, size_t max_bytes, size_t *fullp)
 			want = max_bytes - buf.len;
 		if (!want)
 			break;
-		if (response_buffer_reserve(&buf, buf.len + want + 1))
+		if (fyai_buf_reserve(&buf, buf.len + want + 1))
 			goto err_close;
 		nread = fread(buf.data + buf.len, 1, want, fp);
 		buf.len += nread;
@@ -378,7 +317,7 @@ char *read_text_file_limited(const char *path, size_t max_bytes, size_t *fullp)
 		return msg;
 	}
 
-	if (response_buffer_reserve(&buf, buf.len + 1))
+	if (fyai_buf_reserve(&buf, buf.len + 1))
 		goto err;
 	buf.data[buf.len] = '\0';
 	return buf.data;
@@ -396,7 +335,7 @@ char *read_text_file_window(const char *path, long long offset,
 			    struct read_text_info *info)
 {
 	struct read_text_info local = {};
-	struct response_buffer buf = {};
+	struct fyai_buf buf = {};
 	long long lineno, collected;
 	char *line = NULL;
 	size_t cap = 0;
@@ -441,7 +380,7 @@ char *read_text_file_window(const char *path, long long offset,
 			local.byte_capped = true;
 		}
 		if (take) {
-			if (response_buffer_reserve(&buf, buf.len + take + 1))
+			if (fyai_buf_reserve(&buf, buf.len + take + 1))
 				goto err_close;
 			if (!buf.len)
 				local.first_byte = line_start + skip;
@@ -475,7 +414,7 @@ char *read_text_file_window(const char *path, long long offset,
 		return msg;
 	}
 
-	if (response_buffer_reserve(&buf, buf.len + 1))
+	if (fyai_buf_reserve(&buf, buf.len + 1))
 		goto err;
 	buf.data[buf.len] = '\0';
 	if (info)
@@ -527,7 +466,7 @@ err_out:
 /* Each participant owns its own source pointer so that withdrawing is
  * idempotent. */
 struct shell_capture {
-	struct response_buffer *buf;
+	struct fyai_buf *buf;
 	enum shell_output_stream stream;
 	shell_output_fn output_fn;
 	void *userdata;
@@ -562,7 +501,7 @@ static int read_shell_pipe(int fd, struct shell_capture *cap,
 
 	if (cap->view)
 		return fyai_terminal_view_feed(cap->view, tmp, (size_t)nread) ? -1 : 1;
-	if (response_buffer_reserve(cap->buf, cap->buf->len + (size_t)nread + 1))
+	if (fyai_buf_reserve(cap->buf, cap->buf->len + (size_t)nread + 1))
 		return -1;
 	memcpy(cap->buf->data + cap->buf->len, tmp, (size_t)nread);
 	cap->buf->len += (size_t)nread;
@@ -1159,8 +1098,8 @@ int run_shell_command_capture_cb(struct fyai_ctx *ctx, const char *command,
 				 const struct shell_command_opts *opts)
 {
 	unsigned int timeout_ms = opts ? opts->timeout_ms : 0;
-	struct response_buffer stdout_buf = {};
-	struct response_buffer stderr_buf = {};
+	struct fyai_buf stdout_buf = {};
+	struct fyai_buf stderr_buf = {};
 	struct shell_capture_job job = {};
 	struct fyai_event_loop *el = NULL;
 	int stdout_pipe[2] = { -1, -1 };
@@ -2117,14 +2056,14 @@ int hex_decode(const char *text, unsigned char *bytes, size_t *count)
 	return 0;
 }
 
-int fyai_shell_quote(struct response_buffer *out, const char *s)
+int fyai_shell_quote(struct fyai_buf *out, const char *s)
 {
-	int rc = response_buffer_append(out, "'");
+	int rc = fyai_buf_append(out, "'");
 
 	for (; !rc && *s; s++)
-		rc = *s == '\'' ? response_buffer_append(out, "'\\''") :
-				  response_buffer_append_data(out, s, 1);
-	return rc ? rc : response_buffer_append(out, "'");
+		rc = *s == '\'' ? fyai_buf_append(out, "'\\''") :
+				  fyai_buf_append_data(out, s, 1);
+	return rc ? rc : fyai_buf_append(out, "'");
 }
 
 bool fyai_path_beneath(const char *path, const char *root)

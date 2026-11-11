@@ -424,7 +424,7 @@ int term_view_rows_sgr(void)
 		"> \n"
 		"> \n";
 	struct fyai_terminal_view *view;
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 
 	view = fyai_terminal_view_create(NULL, 4, 20, 0);
 	FYAI_TCHECK(view != NULL);

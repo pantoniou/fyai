@@ -171,10 +171,10 @@ char *fyai_terminal_view_read(struct fyai_terminal_view *view,
  * the blanks that end it. With @cursor, a visible cursor is drawn reversed.
  * Returns 0, or -1 when memory runs out.
  */
-struct response_buffer;
+struct fyai_buf;
 int fyai_terminal_view_rows_sgr(const struct fyai_terminal_view *view,
 				const char *margin, bool cursor,
-				struct response_buffer *out);
+				struct fyai_buf *out);
 
 /* Return the owned prompt row nearest the cursor, or NULL. */
 char *fyai_terminal_view_last_line(const struct fyai_terminal_view *view);

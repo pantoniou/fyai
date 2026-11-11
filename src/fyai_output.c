@@ -23,7 +23,7 @@
 /* Durable Markdown source and fragment markers for one transcript document. */
 struct fyai_display_output {
 	enum fyai_output_tag tag;
-	struct response_buffer markdown;
+	struct fyai_buf markdown;
 	fy_generic fragments;
 	size_t banner_len;
 	bool reasoning;
@@ -89,7 +89,7 @@ static int fyai_output_record_source(struct fyai_ctx *ctx, const char *text,
 	struct fyai_display_output *output = ctx->display_output;
 	int rc;
 
-	rc = response_buffer_reserve(&output->markdown,
+	rc = fyai_buf_reserve(&output->markdown,
 				     output->markdown.len + len + 1);
 	fyai_error_check(ctx, !rc, err,
 		"could not grow display output");

@@ -2567,7 +2567,7 @@ err:
 /* The text of the content of a user message, or NULL. Owned by the caller. */
 static char *sdk_user_text(struct sdk_server *srv, fy_generic content)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	fy_generic block, type;
 	const char *s;
 
@@ -2587,8 +2587,8 @@ static char *sdk_user_text(struct sdk_server *srv, fy_generic content)
 			continue;
 		}
 		s = fy_get(block, "text", "");
-		if ((out.len && response_buffer_append_data(&out, "\n", 1)) ||
-		    response_buffer_append_data(&out, s, strlen(s))) {
+		if ((out.len && fyai_buf_append_data(&out, "\n", 1)) ||
+		    fyai_buf_append_data(&out, s, strlen(s))) {
 			free(out.data);
 			return NULL;
 		}
@@ -2633,7 +2633,7 @@ static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 	struct fyai_ctx *ctx = srv->ctx;
 	struct fy_generic_builder *gb = fyai_ctx_transient_gb(ctx);
 	const struct fyai_tool_def *read = fyai_tool_find("read_file");
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	const char *p, *json, *head, *res = prompt;
 	char *path, *content;
 	size_t len;
@@ -2642,7 +2642,7 @@ static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 
 	if (!read || !read->run_text)
 		return prompt;
-	rc = response_buffer_append_data(&out, prompt, strlen(prompt));
+	rc = fyai_buf_append_data(&out, prompt, strlen(prompt));
 	for (p = prompt; !rc && (p = strchr(p, '@')); p++) {
 		if (p != prompt && !strchr(" \t\r\n", p[-1]))
 			continue;
@@ -2657,9 +2657,9 @@ static const char *sdk_mentions(struct sdk_server *srv, const char *prompt)
 			"%s\n\nResult of calling the Read tool:\n", json)) :
 			NULL;
 		if (content && ok && head)
-			rc = response_buffer_append_data(&out, head,
+			rc = fyai_buf_append_data(&out, head,
 							 strlen(head)) ||
-			     response_buffer_append_data(&out, content,
+			     fyai_buf_append_data(&out, content,
 							 strlen(content));
 		else
 			fyai_warning(ctx, "claude-sdk: cannot read %s, which "
@@ -2770,7 +2770,7 @@ static fy_generic sdk_usage(struct fy_generic_builder *gb, long long input,
 /* Keep the text blocks of an answer as the text of the result. */
 static void sdk_keep_text(struct sdk_server *srv, fy_generic content)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	fy_generic block;
 	const char *s;
 
@@ -2778,7 +2778,7 @@ static void sdk_keep_text(struct sdk_server *srv, fy_generic content)
 		if (!fy_equal(fy_get(block, "type", fy_invalid), "text"))
 			continue;
 		s = fy_get(block, "text", "");
-		if (response_buffer_append_data(&out, s, strlen(s))) {
+		if (fyai_buf_append_data(&out, s, strlen(s))) {
 			free(out.data);
 			return;
 		}

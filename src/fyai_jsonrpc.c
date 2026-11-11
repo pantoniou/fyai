@@ -53,8 +53,8 @@ struct jsonrpc_conn {
 	int owned_fd;
 	struct fyai_event_source *read_src;
 	struct fyai_event_source *write_src;
-	struct response_buffer rx;
-	struct response_buffer tx;
+	struct fyai_buf rx;
+	struct fyai_buf tx;
 	/* Encodes one frame; each frame resets it, as its bytes are copied to
 	 * @tx at once. The builder has a tag of its own, so a reset gives its
 	 * memory back. */
@@ -118,7 +118,7 @@ struct jsonrpc_request {
 	CURL *curl;
 	struct curl_slist *headers;
 	struct curl_slist *response_headers;
-	struct response_buffer response;
+	struct fyai_buf response;
 	char *body;
 
 	/* Standard input and output request state. */
@@ -254,7 +254,7 @@ static int jsonrpc_conn_send(struct jsonrpc_conn *conn, const char *json)
 	size_t len = strlen(json);
 	int rc;
 
-	rc = response_buffer_reserve(&conn->tx, conn->tx.len + len + 2);
+	rc = fyai_buf_reserve(&conn->tx, conn->tx.len + len + 2);
 	if (rc)
 		return -1;
 	memcpy(conn->tx.data + conn->tx.len, json, len);
@@ -586,7 +586,7 @@ static enum fyai_event_action jsonrpc_conn_readable(const struct fyai_event *ev)
 			jsonrpc_conn_fail_pending(conn, "overflowed");
 			return FYAIEA_CONTINUE;
 		}
-		rc = response_buffer_reserve(&conn->rx,
+		rc = fyai_buf_reserve(&conn->rx,
 					     conn->rx.len + (size_t)n + 1);
 		if (rc) {
 			fyai_error(conn->ctx, "%s frame is too large", conn->name);
@@ -809,7 +809,7 @@ int jsonrpc_conn_send_image(struct jsonrpc_conn *conn, const void *image,
 
 	if (!conn || !conn->image || conn->write_failed)
 		return -1;
-	rc = response_buffer_reserve(&conn->tx, conn->tx.len + sizeof(len) +
+	rc = fyai_buf_reserve(&conn->tx, conn->tx.len + sizeof(len) +
 				     size + 1);
 	fyai_error_check(conn->ctx, !rc, err, "%s could not queue a frame",
 			 conn->name);

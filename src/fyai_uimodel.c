@@ -42,7 +42,7 @@ struct uimodel_text_subscriber {
 struct uimodel_text {
 	struct uimodel_text *next;
 	long long id;
-	struct response_buffer buf;
+	struct fyai_buf buf;
 };
 
 struct fyai_uimodel {
@@ -304,7 +304,7 @@ int fyai_uimodel_text_append(struct fyai_ctx *ctx, long long id,
 	if (!t)
 		return -1;
 	offset = t->buf.len;
-	rc = response_buffer_append_data(&t->buf, data, len);
+	rc = fyai_buf_append_data(&t->buf, data, len);
 	fyai_error_check(ctx, !rc, err, "cannot grow a text of the UI model");
 	for (i = 0; i < m->ntsub; i++)
 		m->tsub[i].fn(m->tsub[i].data, id, offset, data, len, false);

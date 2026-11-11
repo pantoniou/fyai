@@ -229,7 +229,7 @@ static const struct {
 
 static char *normalize_dup(const char *s)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	char *trimmed;
 	const unsigned char *p;
 	size_t i, n, k;
@@ -245,7 +245,7 @@ static char *normalize_dup(const char *s)
 		for (k = 0; k < ARRAY_SIZE(uni_fold); k++) {
 			if (i + uni_fold[k].len <= n &&
 			    !memcmp(p + i, uni_fold[k].seq, uni_fold[k].len)) {
-				if (response_buffer_reserve(&out, out.len + 2)) {
+				if (fyai_buf_reserve(&out, out.len + 2)) {
 					free(trimmed);
 					free(out.data);
 					return NULL;
@@ -259,7 +259,7 @@ static char *normalize_dup(const char *s)
 		}
 		if (matched)
 			continue;
-		if (response_buffer_reserve(&out, out.len + 2)) {
+		if (fyai_buf_reserve(&out, out.len + 2)) {
 			free(trimmed);
 			free(out.data);
 			return NULL;
@@ -457,9 +457,9 @@ out:
 	return rc;
 }
 
-static int append_range(struct response_buffer *buf, const char *p, size_t len)
+static int append_range(struct fyai_buf *buf, const char *p, size_t len)
 {
-	if (response_buffer_reserve(buf, buf->len + len + 1))
+	if (fyai_buf_reserve(buf, buf->len + len + 1))
 		return -1;
 	memcpy(buf->data + buf->len, p, len);
 	buf->len += len;
@@ -467,10 +467,10 @@ static int append_range(struct response_buffer *buf, const char *p, size_t len)
 	return 0;
 }
 
-static int buf_append_line(struct response_buffer *buf,
+static int buf_append_line(struct fyai_buf *buf,
 			   struct patch_line *line, size_t off)
 {
-	if (response_buffer_reserve(buf, buf->len + line->len - off + 2))
+	if (fyai_buf_reserve(buf, buf->len + line->len - off + 2))
 		return -1;
 	memcpy(buf->data + buf->len, line->p + off, line->len - off);
 	buf->len += line->len - off;
@@ -549,7 +549,7 @@ static int lines_from_content(const char *content, struct str_list *out)
 
 static char *join_lines(struct str_list *lines)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	size_t i;
 	char *pad;
 
@@ -1019,7 +1019,7 @@ static char *parse_add(struct patch_reader *r, const char *path,
 		       struct patch_line *line, bool *have_line,
 		       char **out_content)
 {
-	struct response_buffer content = {};
+	struct fyai_buf content = {};
 	bool saw_marker;
 
 	(void)path;
@@ -1136,22 +1136,22 @@ static char *patch_ops_commit(struct patch_op *ops)
 
 #define PATCH_UNIFIED_CONTEXT 3
 
-static int unified_row(struct fyai_ctx *ctx, struct response_buffer *out,
+static int unified_row(struct fyai_ctx *ctx, struct fyai_buf *out,
 		       char kind, const char *text)
 {
 	char c = kind;
 	int rc;
 
-	rc = response_buffer_append_data(out, &c, 1);
+	rc = fyai_buf_append_data(out, &c, 1);
 	fyai_error_check(ctx, !rc, out, "could not append a patch marker");
-	rc = response_buffer_append_line(out, text, strlen(text));
+	rc = fyai_buf_append_line(out, text, strlen(text));
 	fyai_error_check(ctx, !rc, out, "could not append a patch row");
 	return 0;
 out:
 	return -1;
 }
 
-static int unified_headers(struct fyai_ctx *ctx, struct response_buffer *out,
+static int unified_headers(struct fyai_ctx *ctx, struct fyai_buf *out,
 			   const char *old_path,
 			   const char *new_path)
 {
@@ -1159,7 +1159,7 @@ static int unified_headers(struct fyai_ctx *ctx, struct response_buffer *out,
 	int rc;
 
 	s = fy_sprintfa("--- %s\n+++ %s\n", old_path, new_path);
-	rc = response_buffer_append(out, s);
+	rc = fyai_buf_append(out, s);
 	fyai_error_check(ctx, !rc, out, "could not append patch headers");
 	return 0;
 out:
@@ -1167,7 +1167,7 @@ out:
 }
 
 /* Write one unified-diff hunk. */
-static int unified_hunk(struct fyai_ctx *ctx, struct response_buffer *out,
+static int unified_hunk(struct fyai_ctx *ctx, struct fyai_buf *out,
 			struct str_list *lines,
 			struct replacement *repl, long new_delta)
 {
@@ -1204,7 +1204,7 @@ static int unified_hunk(struct fyai_ctx *ctx, struct response_buffer *out,
 	new_count = old_count - core_old + core_new;
 	s = fy_sprintfa("@@ -%zu,%zu +%ld,%zu @@\n", start + 1, old_count,
 			 (long)(start + 1) + new_delta, new_count);
-	rc = response_buffer_append(out, s);
+	rc = fyai_buf_append(out, s);
 	fyai_error_check(ctx, !rc, out, "could not append a patch hunk");
 
 	for (i = start; i < repl->idx + pre; i++) {
@@ -1229,7 +1229,7 @@ out:
 }
 
 /* Every line of @path as an added or removed side of a whole-file hunk. */
-static int unified_whole_file(struct fyai_ctx *ctx, struct response_buffer *out,
+static int unified_whole_file(struct fyai_ctx *ctx, struct fyai_buf *out,
 			      const char *path,
 			      bool added)
 {
@@ -1246,7 +1246,7 @@ static int unified_whole_file(struct fyai_ctx *ctx, struct response_buffer *out,
 	fyai_error_check(ctx, !rc, out, "could not split file content");
 	s = fy_sprintfa("@@ -%s +%s @@\n",
 			 added ? "0,0" : "1", added ? "1" : "0,0");
-	rc = response_buffer_append(out, s);
+	rc = fyai_buf_append(out, s);
 	fyai_error_check(ctx, !rc, out, "could not append a whole-file hunk");
 	for (i = 0; !rc && i < lines.count; i++)
 		rc = unified_row(ctx, out, added ? '+' : '-', lines.item[i]);
@@ -1258,7 +1258,7 @@ out:
 }
 
 /* The added lines of an "*** Add File" body, as a whole-file hunk. */
-static int unified_added_lines(struct fyai_ctx *ctx, struct response_buffer *out,
+static int unified_added_lines(struct fyai_ctx *ctx, struct fyai_buf *out,
 			       const char *content)
 {
 	struct str_list lines = {};
@@ -1278,7 +1278,7 @@ out:
 }
 
 /* One "*** Update File" hunk, resolved against the file it patches. */
-static int unified_update(struct fyai_ctx *ctx, struct response_buffer *out,
+static int unified_update(struct fyai_ctx *ctx, struct fyai_buf *out,
 			  const char *path,
 			  const char *new_path,
 			  struct update_chunk_list *chunks)
@@ -1318,7 +1318,7 @@ out:
 
 char *fyai_patch_to_unified_ctx(struct fyai_ctx *ctx, const char *patch)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	struct update_chunk_list chunks = {};
 	struct patch_reader r = { .p = patch };
 	struct patch_line line;
@@ -1453,7 +1453,7 @@ static void unified_file_clear(struct unified_file *f)
 /* The added lines of every chunk, joined as the content of a new file. */
 static char *unified_added_content(struct unified_file *f)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	size_t i, j;
 
 	for (i = 0; i < f->chunks.count; i++) {

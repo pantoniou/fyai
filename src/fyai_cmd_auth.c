@@ -187,7 +187,7 @@ static void auth_child_cleanup(struct fyai_cmd_call *call)
 
 static int auth_login_child(struct fyai_cmd_call *call)
 {
-	struct response_buffer line = {0};
+	struct fyai_buf line = {0};
 	struct auth_child *child;
 	const char *account = fyai_cmd_arg_str(call, "account");
 	char exe[4096];
@@ -202,17 +202,17 @@ static int auth_login_child(struct fyai_cmd_call *call)
 	fyai_error_check(call->ctx, child, err, "login: out of memory");
 	child->call = call;
 	rc = fyai_shell_quote(&line, exe) ||
-	     response_buffer_append(&line, " auth openai login");
+	     fyai_buf_append(&line, " auth openai login");
 	if (!rc && fyai_cmd_arg_bool(call, "no_browser"))
-		rc = response_buffer_append(&line, " --no-browser");
+		rc = fyai_buf_append(&line, " --no-browser");
 	if (!rc && fyai_cmd_arg_bool(call, "manual"))
-		rc = response_buffer_append(&line, " --manual");
+		rc = fyai_buf_append(&line, " --manual");
 	if (!rc && fyai_cmd_arg_bool(call, "device_code"))
-		rc = response_buffer_append(&line, " --device-code");
+		rc = fyai_buf_append(&line, " --device-code");
 	if (!rc && fyai_cmd_arg_bool(call, "new_account"))
-		rc = response_buffer_append(&line, " --new-account");
+		rc = fyai_buf_append(&line, " --new-account");
 	if (!rc && account && *account)
-		rc = response_buffer_append(&line, " --account ") ||
+		rc = fyai_buf_append(&line, " --account ") ||
 		     fyai_shell_quote(&line, account);
 	fyai_error_check(call->ctx, !rc, err_child, "login: out of memory");
 	call->priv = child;

@@ -1412,7 +1412,7 @@ static bool publish_conflict_replays(struct fyai_ctx *ctx)
  */
 static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *cur)
 {
-	struct response_buffer paths = {0};
+	struct fyai_buf paths = {0};
 	struct fyai_branch base, ours, merged;
 	fy_generic store, base_store, conflicts, p;
 	bool decoded;
@@ -1451,8 +1451,8 @@ static int publish_store_merge(struct fyai_ctx *ctx, const struct fyai_branch *c
 
 	if (!fy_empty(conflicts)) {
 		fy_foreach(p, conflicts) {
-			if ((paths.len && response_buffer_append(&paths, ", ")) ||
-			    response_buffer_append(&paths, fy_castp(&p, "")))
+			if ((paths.len && fyai_buf_append(&paths, ", ")) ||
+			    fyai_buf_append(&paths, fy_castp(&p, "")))
 				break;
 		}
 		if (!publish_conflict_replays(ctx)) {

@@ -63,7 +63,7 @@ struct fyai_page {
 	struct fymd_renderer *renderer;	/* UI renderer at @cols */
 	int cols;
 	int margin_cols;
-	struct response_buffer source;
+	struct fyai_buf source;
 	/* The page drawn as cells: a surface in the "canvas" slot under every
 	 * other slot, and the grid it is drawn from. */
 	struct fytim_surface *canvas;
@@ -71,7 +71,7 @@ struct fyai_page {
 	struct fytim_links *links;	/* the canvas links, for this frame */
 	int cells_rows, cells_cols;
 	size_t cells_alloc;
-	struct response_buffer blank;	/* the blank rows the page is set with */
+	struct fyai_buf blank;	/* the blank rows the page is set with */
 	/* The ids of the acts of the heads, which the page is set with. */
 	char act_ids[FYTIM_PAGE_REGIONS_MAX][FYTIM_PAGE_ID_MAX + 1];
 	/* The document the page transcribes: the embedded one, or the file of
@@ -198,7 +198,7 @@ static void page_panels_prune(struct fyai_page *pg, bool all)
  * and leading blanks are removed: four of them make an indented code block.
  * *@row_start is cleared once the row holds text.
  */
-static int page_append_text(struct response_buffer *out, const char *text,
+static int page_append_text(struct fyai_buf *out, const char *text,
 			    bool *row_start)
 {
 	char *copy, *p, *o;
@@ -225,7 +225,7 @@ static int page_append_text(struct response_buffer *out, const char *text,
 		*o++ = (*p == '\n' || *p == '\r') ? ' ' : *p;
 	}
 	*o = '\0';
-	rc = response_buffer_append(out, copy);
+	rc = fyai_buf_append(out, copy);
 	free(copy);
 	return rc;
 }
@@ -251,7 +251,7 @@ static bool page_text_visible(const char *text)
 	return false;
 }
 
-static int page_slot(struct response_buffer *out, const char *id, int rows)
+static int page_slot(struct fyai_buf *out, const char *id, int rows)
 {
 	char buf[256];
 
@@ -259,7 +259,7 @@ static int page_slot(struct response_buffer *out, const char *id, int rows)
 		return 0;
 	snprintf(buf, sizeof(buf), "<fy-slot id=\"%s\" height=\"%d\"/>\n\n",
 		 id, rows);
-	return response_buffer_append(out, buf);
+	return fyai_buf_append(out, buf);
 }
 
 /* The header row and the blank row above it, as the band stack draws them. */
@@ -418,31 +418,31 @@ void fyai_page_fit(struct fyai_page_state *st, int height)
 }
 
 /* @n blanks that Markdown keeps at the start of a row: a margin. */
-static int page_space(struct response_buffer *out, int n)
+static int page_space(struct fyai_buf *out, int n)
 {
 	char tag[32];
 
 	if (n < 1)
 		return 0;
 	if (n == 1)
-		return response_buffer_append(out, "<fy-space/>");
+		return fyai_buf_append(out, "<fy-space/>");
 	snprintf(tag, sizeof(tag), "<fy-space n=\"%d\"/>", n);
-	return response_buffer_append(out, tag);
+	return fyai_buf_append(out, tag);
 }
 
-static int page_style(struct response_buffer *out, const char *sgr)
+static int page_style(struct fyai_buf *out, const char *sgr)
 {
-	return fy_str_empty(sgr) ? 0 : response_buffer_append(out, sgr);
+	return fy_str_empty(sgr) ? 0 : fyai_buf_append(out, sgr);
 }
 
 /*
  * The gutter of the status row: the activity mark without its colour, padded
  * to @cols, or a blank gutter. The mark keeps the status text in its column.
  */
-static int page_gutter(struct response_buffer *out, const char *activity,
+static int page_gutter(struct fyai_buf *out, const char *activity,
 		       int cols)
 {
-	struct response_buffer mark = {0};
+	struct fyai_buf mark = {0};
 	bool row_start = true;
 	int width = 0, rc;
 
@@ -452,7 +452,7 @@ static int page_gutter(struct response_buffer *out, const char *activity,
 	if (!rc && mark.data)
 		width = (int)fymd_str_width(mark.data, mark.len);
 	if (!rc && width > 0 && width <= cols)
-		rc = response_buffer_append(out, mark.data) ||
+		rc = fyai_buf_append(out, mark.data) ||
 		     page_space(out, cols - width);
 	else if (!rc)
 		rc = page_space(out, cols);
@@ -598,7 +598,7 @@ void fyai_page_side_place(const struct fyai_page_layout *lay, int n,
 
 int fyai_page_grid(struct fyai_ctx *ctx, const struct fyai_workpane_grid *g,
 		   const struct fyai_page_cell *cells, int n, int height,
-		   const char *sep, int sep_cols, struct response_buffer *out,
+		   const char *sep, int sep_cols, struct fyai_buf *out,
 		   int *rowsp)
 {
 	return fyai_page_grid_lead(ctx, g, cells, n, height, sep, sep_cols,
@@ -609,7 +609,7 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			const struct fyai_workpane_grid *g,
 			const struct fyai_page_cell *cells, int n, int height,
 			const char *sep, int sep_cols, const char *lead,
-			struct response_buffer *out, int *rowsp)
+			struct fyai_buf *out, int *rowsp)
 {
 	int h[FYAI_WORKPANE_GRID_MAX];
 	char buf[256];
@@ -628,16 +628,16 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 	if (!out)
 		return 0;
 
-	rc = response_buffer_append(out, "<fy-grid rows=\"");
+	rc = fyai_buf_append(out, "<fy-grid rows=\"");
 	fyai_error_check(ctx, !rc, err_out, "cannot write the page grid rows");
 	for (r = 0; r < g->rows; r++) {
 		rc = snprintf(buf, sizeof(buf), "%s%d", r ? "," : "", h[r]);
 		fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf), err_out,
 				 "cannot format page grid row %d", r);
-		rc = response_buffer_append(out, buf);
+		rc = fyai_buf_append(out, buf);
 		fyai_error_check(ctx, !rc, err_out, "cannot write page grid row %d", r);
 	}
-	rc = response_buffer_append(out, "\" cols=\"");
+	rc = fyai_buf_append(out, "\" cols=\"");
 	fyai_error_check(ctx, !rc, err_out, "cannot write the page grid columns");
 	for (c = 0; c < g->cols; c++) {
 		if (g->col_size[c] > 0)
@@ -647,7 +647,7 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			rc = snprintf(buf, sizeof(buf), "%s*", c ? "," : "");
 		fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf), err_out,
 				 "cannot format page grid column %d", c);
-		rc = response_buffer_append(out, buf);
+		rc = fyai_buf_append(out, buf);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot write page grid column %d", c);
 	}
@@ -657,20 +657,20 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 	rc = snprintf(buf, sizeof(buf), "\" gap=\"%d\"", sep_cols);
 	fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf), err_out,
 			 "cannot format the page grid gap");
-	rc = response_buffer_append(out, buf);
+	rc = fyai_buf_append(out, buf);
 	fyai_error_check(ctx, !rc, err_out, "cannot write the page grid gap");
 	if (sep_cols > 0) {
-		rc = response_buffer_append(out, " sep=\"");
+		rc = fyai_buf_append(out, " sep=\"");
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot start the page grid separator");
-		rc = response_buffer_append(out, sep);
+		rc = fyai_buf_append(out, sep);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot write the page grid separator");
-		rc = response_buffer_append(out, "\"");
+		rc = fyai_buf_append(out, "\"");
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot end the page grid separator");
 	}
-	rc = response_buffer_append(out, ">\n");
+	rc = fyai_buf_append(out, ">\n");
 	fyai_error_check(ctx, !rc, err_out, "cannot open the page grid");
 	if (lead) {
 		rc = snprintf(buf, sizeof(buf),
@@ -679,7 +679,7 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			 "\n\n</fy-cell>\n", g->rows, lead, rows);
 		fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf), err_out,
 				 "cannot format the lead cell of the page grid");
-		rc = response_buffer_append(out, buf);
+		rc = fyai_buf_append(out, buf);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot write the lead cell of the page grid");
 	}
@@ -703,7 +703,7 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			 cells[i].row, cells[i].col, rs, cs);
 		fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf), err_out,
 				 "cannot format page grid cell %d", i);
-		rc = response_buffer_append(out, buf);
+		rc = fyai_buf_append(out, buf);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot write page grid cell %d", i);
 		if (head > 0 && cells[i].present != FYAI_WORKPANE_PRESENT_OUTPUT) {
@@ -713,7 +713,7 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf),
 					 err_out, "cannot format tile %u head slot",
 					 cells[i].slot);
-			rc = response_buffer_append(out, buf);
+			rc = fyai_buf_append(out, buf);
 			fyai_error_check(ctx, !rc, err_out,
 					 "cannot write tile %u head slot", cells[i].slot);
 		}
@@ -724,11 +724,11 @@ int fyai_page_grid_lead(struct fyai_ctx *ctx,
 			 cells[i].slot, span - head);
 		fyai_error_check(ctx, rc >= 0 && (size_t)rc < sizeof(buf), err_out,
 				 "cannot format tile %u content slot", cells[i].slot);
-		rc = response_buffer_append(out, buf);
+		rc = fyai_buf_append(out, buf);
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot write tile %u content slot", cells[i].slot);
 	}
-	rc = response_buffer_append(out, "</fy-grid>\n\n");
+	rc = fyai_buf_append(out, "</fy-grid>\n\n");
 	fyai_error_check(ctx, !rc, err_out, "cannot close the page grid");
 	return 0;
 
@@ -980,7 +980,7 @@ struct page_doc_ctx {
 	struct fyai_page *page;
 	fy_generic pages;
 	fy_generic state;
-	struct response_buffer *out;
+	struct fyai_buf *out;
 	int depth;
 	/* The actions a document may name, and where the keys of its active
 	 * cases go. */
@@ -1105,7 +1105,7 @@ static long long page_doc_int(const struct page_doc_ctx *c, fy_generic v)
 
 /* Expand the bindings "{a.b}" of @tmpl with the state into @buf. */
 static int page_doc_expand(const struct page_doc_ctx *c, const char *tmpl,
-			   struct response_buffer *buf)
+			   struct fyai_buf *buf)
 {
 	const char *p, *close;
 	char path[64], one[2];
@@ -1120,7 +1120,7 @@ static int page_doc_expand(const struct page_doc_ctx *c, const char *tmpl,
 		if (!close || len >= sizeof(path)) {
 			one[0] = *p;
 			one[1] = '\0';
-			rc = response_buffer_append(buf, one);
+			rc = fyai_buf_append(buf, one);
 			fyai_error_check(c->ctx, !rc, err_out,
 					 "cannot expand page document text");
 			continue;
@@ -1131,7 +1131,7 @@ static int page_doc_expand(const struct page_doc_ctx *c, const char *tmpl,
 			rc = snprintf(path, sizeof(path), "%lld", pos);
 			fyai_error_check(c->ctx, rc >= 0 && (size_t)rc < sizeof(path),
 					 err_out, "cannot format a page item position");
-			rc = response_buffer_append(buf, path);
+			rc = fyai_buf_append(buf, path);
 			fyai_error_check(c->ctx, !rc, err_out,
 					 "cannot expand a page item position");
 			p = close;
@@ -1139,7 +1139,7 @@ static int page_doc_expand(const struct page_doc_ctx *c, const char *tmpl,
 		}
 		v = page_doc_lookup(c, path);
 		if (fy_is_string(v)) {
-			rc = response_buffer_append(buf, fy_castp(&v, ""));
+			rc = fyai_buf_append(buf, fy_castp(&v, ""));
 			fyai_error_check(c->ctx, !rc, err_out,
 					 "cannot expand a page document value");
 		}
@@ -1147,7 +1147,7 @@ static int page_doc_expand(const struct page_doc_ctx *c, const char *tmpl,
 			rc = snprintf(path, sizeof(path), "%lld", fy_cast(v, 0LL));
 			fyai_error_check(c->ctx, rc >= 0 && (size_t)rc < sizeof(path),
 					 err_out, "cannot format a page document value");
-			rc = response_buffer_append(buf, path);
+			rc = fyai_buf_append(buf, path);
 			fyai_error_check(c->ctx, !rc, err_out,
 					 "cannot expand a page document value");
 		}
@@ -1186,7 +1186,7 @@ static bool page_id_chars(const char *s)
 static int page_doc_act(struct page_doc_ctx *c, fy_generic act,
 			bool *row_start)
 {
-	struct response_buffer arg = {0}, text = {0};
+	struct fyai_buf arg = {0}, text = {0};
 	const char *action = fy_get(act, "action", "");
 	const char *role;
 	fy_generic v;
@@ -1227,7 +1227,7 @@ static int page_doc_act(struct page_doc_ctx *c, fy_generic act,
 	rc = page_doc_expand(c, fy_castp(&v, ""), &text);
 	fyai_error_check(c->ctx, !rc, err_out,
 			 "cannot expand the text of page action '%s'", action);
-	rc = response_buffer_append(c->out, tag);
+	rc = fyai_buf_append(c->out, tag);
 	fyai_error_check(c->ctx, !rc, err_out,
 			 "cannot open page action '%s'", action);
 	if (text.data) {
@@ -1235,7 +1235,7 @@ static int page_doc_act(struct page_doc_ctx *c, fy_generic act,
 		fyai_error_check(c->ctx, !rc, err_out,
 				 "cannot write page action '%s'", action);
 	}
-	rc = response_buffer_append(c->out, "</fy-act>");
+	rc = fyai_buf_append(c->out, "</fy-act>");
 	fyai_error_check(c->ctx, !rc, err_out,
 			 "cannot close page action '%s'", action);
 	goto out;
@@ -1255,7 +1255,7 @@ static int page_doc_items(struct page_doc_ctx *c, fy_generic items,
 		"text", "space", "sgr", "gutter", "role", "fill",
 		"markup", "act",
 	};
-	struct response_buffer text = {0};
+	struct fyai_buf text = {0};
 	fy_generic item, v, sub, bound;
 	const char *s;
 	char tag[160];
@@ -1299,10 +1299,10 @@ static int page_doc_items(struct page_doc_ctx *c, fy_generic items,
 			sub = fy_get(item, "role", fy_invalid);
 			snprintf(tag, sizeof(tag), "<fy-role name=\"%s\">",
 				 fy_get(sub, "name", ""));
-			rc = response_buffer_append(c->out, tag) ||
+			rc = fyai_buf_append(c->out, tag) ||
 			     page_doc_items(c, fy_get(sub, "items", fy_invalid),
 					    row_start) ||
-			     response_buffer_append(c->out, "</fy-role>");
+			     fyai_buf_append(c->out, "</fy-role>");
 			break;
 		case PDI_FILL:
 			sub = fy_get(item, "fill", fy_invalid);
@@ -1312,13 +1312,13 @@ static int page_doc_items(struct page_doc_ctx *c, fy_generic items,
 					 s);
 			else
 				snprintf(tag, sizeof(tag), "<fy-fill/>");
-			rc = response_buffer_append(c->out, tag);
+			rc = fyai_buf_append(c->out, tag);
 			break;
 		case PDI_MARKUP:
 			v = fy_get(item, "markup", fy_invalid);
 			bound = page_doc_lookup(c, fy_castp(&v, ""));
 			s = fy_castp(&bound, "");
-			rc = *s ? response_buffer_append(c->out, s) : 0;
+			rc = *s ? fyai_buf_append(c->out, s) : 0;
 			/* Text after the markup is not at the start of the row. */
 			if (*s)
 				*row_start = false;
@@ -1536,7 +1536,7 @@ static int page_review_mark(struct page_doc_ctx *c, bool blank)
 		 "<fy-mark id=\"" PAGE_REVIEW_MARK "%s%s%s%s\"/>",
 		 c->each ? c->each : "", c->each ? "/" : "", c->area,
 		 blank ? "/blank" : "");
-	return response_buffer_append(c->out, tag);
+	return fyai_buf_append(c->out, tag);
 }
 
 static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
@@ -1551,7 +1551,7 @@ static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
 	long long saved_index, index;
 	const char *s;
 	char tag[192];
-	struct response_buffer lbuf, *saved_out;
+	struct fyai_buf lbuf, *saved_out;
 	int rc, lcols, total, saved_cols, saved_left;
 
 	if (!page_doc_shown(c, node))
@@ -1568,7 +1568,7 @@ static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
 		saved_left = c->left_rows;
 		/* The left cell is written aside: the right cell takes its
 		 * height. */
-		lbuf = (struct response_buffer){0};
+		lbuf = (struct fyai_buf){0};
 		saved_out = c->out;
 		c->out = &lbuf;
 		c->cell_cols = lcols;
@@ -1581,13 +1581,13 @@ static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
 		snprintf(tag, sizeof(tag),
 			 "<fy-grid rows=\"fit\" cols=\"%d,*\" gap=\"1\">\n"
 			 "<fy-cell row=\"0\" col=\"0\">\n\n", lcols);
-		rc = rc || response_buffer_append(c->out, tag) ||
-		     (lbuf.len && response_buffer_append(c->out, lbuf.data)) ||
-		     response_buffer_append(c->out,
+		rc = rc || fyai_buf_append(c->out, tag) ||
+		     (lbuf.len && fyai_buf_append(c->out, lbuf.data)) ||
+		     fyai_buf_append(c->out,
 			"</fy-cell>\n<fy-cell row=\"0\" col=\"1\">\n\n");
 		c->cell_cols = total - lcols - 1;
 		rc = rc || page_doc_nodes(c, fy_get(sub, "right", fy_invalid)) ||
-		     response_buffer_append(c->out, "</fy-cell>\n</fy-grid>\n\n");
+		     fyai_buf_append(c->out, "</fy-cell>\n</fy-grid>\n\n");
 		free(lbuf.data);
 		c->cell_cols = saved_cols;
 		c->left_rows = saved_left;
@@ -1614,7 +1614,7 @@ static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
 			fy_equal(v, "diff") ? FYAI_PANEL_DIFF : FYAI_PANEL_MARKDOWN,
 			fy_castp(&bound, "")));
 	case PDN_TIGHT:
-		return response_buffer_append(c->out, "<fy-tight>\n\n");
+		return fyai_buf_append(c->out, "<fy-tight>\n\n");
 	case PDN_SLOT:
 		sub = fy_get(node, "slot", fy_invalid);
 		return page_slot(c->out, fy_get(sub, "id", ""),
@@ -1679,9 +1679,9 @@ static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
 	case PDN_DROP:
 		snprintf(tag, sizeof(tag), "<fy-drop order=\"%lld\">\n\n",
 			 page_doc_int(c, fy_get(node, "drop", fy_invalid)));
-		return response_buffer_append(c->out, tag) ||
+		return fyai_buf_append(c->out, tag) ||
 		       page_doc_nodes(c, fy_get(node, "body", fy_invalid)) ||
-		       response_buffer_append(c->out, "</fy-drop>\n\n");
+		       fyai_buf_append(c->out, "</fy-drop>\n\n");
 	case PDN_PAGE:
 		v = fy_get(node, "page", fy_invalid);
 		if (c->depth >= PAGE_DOC_DEPTH_MAX)
@@ -1701,16 +1701,16 @@ static int page_doc_node_body(struct page_doc_ctx *c, fy_generic node)
 		v = fy_get(node, "markup", fy_invalid);
 		bound = page_doc_lookup(c, fy_castp(&v, ""));
 		s = fy_castp(&bound, "");
-		return *s ? response_buffer_append(c->out, s) : 0;
+		return *s ? fyai_buf_append(c->out, s) : 0;
 	case PDN_ROW:
 		row_start = true;
 		return page_review_mark(c, false) ||
 		       page_doc_items(c, fy_get(node, "row", fy_invalid),
 				      &row_start) ||
-		       response_buffer_append(c->out, "\n\n");
+		       fyai_buf_append(c->out, "\n\n");
 	case PDN_BLANK:
 		return page_review_mark(c, true) ||
-		       response_buffer_append(c->out, "<fy-space/>\n\n");
+		       fyai_buf_append(c->out, "<fy-space/>\n\n");
 	default:
 		return page_doc_fail(c, "a node is none of tight, slot, switch, "
 				     "each, drop, page, markup, row, blank, columns, panel or keys");
@@ -1750,7 +1750,7 @@ static int page_doc_nodes(struct page_doc_ctx *c, fy_generic nodes)
 static int page_doc_walk(struct fyai_ctx *ctx, fy_generic doc,
 			 fy_generic state,
 			 const struct fyai_page_action *actions, size_t n,
-			 struct response_buffer *out,
+			 struct fyai_buf *out,
 			 struct fyai_page_keys *keys, bool check, bool review,
 			 char *why, size_t why_size, struct fyai_page *page)
 {
@@ -1787,7 +1787,7 @@ static int page_doc_walk(struct fyai_ctx *ctx, fy_generic doc,
 int fyai_page_transcribe(struct fyai_ctx *ctx, fy_generic doc,
 			 fy_generic state,
 			 const struct fyai_page_action *actions, size_t n,
-			 struct response_buffer *out,
+			 struct fyai_buf *out,
 			 struct fyai_page_keys *keys, bool review)
 {
 	return page_doc_walk(ctx, doc, state, actions, n, out, keys, false,
@@ -1797,7 +1797,7 @@ int fyai_page_transcribe(struct fyai_ctx *ctx, fy_generic doc,
 int fyai_page_check(fy_generic doc, const struct fyai_page_action *actions,
 		    size_t n, char *why, size_t why_size)
 {
-	struct response_buffer scratch = {0};
+	struct fyai_buf scratch = {0};
 	int rc;
 
 	rc = page_doc_walk(NULL, doc, fy_map_empty, actions, n, &scratch, NULL,
@@ -1915,7 +1915,7 @@ out:
 }
 
 int fyai_page_source(const struct fyai_page_state *st,
-		     struct response_buffer *out)
+		     struct fyai_buf *out)
 {
 	struct fy_generic_builder_cfg cfg = {
 		.flags = FYGBCF_SCOPE_LEADER | FYGBCF_DEDUP_ENABLED,
@@ -2501,14 +2501,14 @@ static int page_chrome_rows(const char *s)
 static int page_rule_draw(struct fyai_page *pg, int y, int x, int width,
 			  const char *chrome)
 {
-	struct response_buffer rule = {0};
+	struct fyai_buf rule = {0};
 	int i, n, rc;
 
-	rc = response_buffer_append(&rule, chrome);
+	rc = fyai_buf_append(&rule, chrome);
 	fyai_error_check(pg->ctx, !rc, err_out,
 			 "cannot write the page rule style");
 	for (i = 0; i < width; i++) {
-		rc = response_buffer_append(&rule, "\xe2\x94\x80");
+		rc = fyai_buf_append(&rule, "\xe2\x94\x80");
 		fyai_error_check(pg->ctx, !rc, err_out,
 				 "cannot write column %d of the page rule", i);
 	}
@@ -2538,7 +2538,7 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 {
 	const char *content, *top, *bottom, *p, *nl, *base;
 	struct fyai_chrome_frame frame;
-	struct response_buffer bar = {0};
+	struct fyai_buf bar = {0};
 	enum fyai_chrome_bar_part part;
 	const char *style;
 	int lines = 0, rows, top_rows, bottom_rows, max, y, skip, n, i, rc;
@@ -2620,7 +2620,7 @@ static int page_text_draw(struct fyai_page *pg, struct fyai_page_tile *t,
 			part = fyai_chrome_bar_part(lines, skip, rows, rows,
 						    true, i);
 			style = part == FYAI_CHROME_BAR_TRACK ? chrome : control;
-			rc = response_buffer_append(&bar,
+			rc = fyai_buf_append(&bar,
 				fy_sprintfa("%s%s\x1b[0m\n", style ? style : "",
 					    fyai_chrome_bar_glyph(part)));
 			fyai_error_check(pg->ctx, !rc, bar_err,
@@ -3056,7 +3056,7 @@ int fyai_page_fit_document(struct fyai_page *pg, struct fyai_page_state *st,
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb;
 	struct fyai_page_state base = *st;
-	struct response_buffer source = {0};
+	struct fyai_buf source = {0};
 	size_t rows;
 	int rc, left, framing;
 
@@ -3165,7 +3165,7 @@ int fyai_page_publish(struct fyai_page *pg, struct fytim *ft,
 	}
 	pg->blank.len = 0;
 	for (r = 0; r < nrows; r++) {
-		rc = response_buffer_append(&pg->blank, "\n");
+		rc = fyai_buf_append(&pg->blank, "\n");
 		fyai_error_check(ctx, !rc, err_out,
 				 "cannot build the rows of the page");
 	}
@@ -3295,16 +3295,16 @@ err_out:
 }
 
 /* Append @text and, when it does not end one, a newline. */
-static int page_report_block(struct response_buffer *md, const char *text)
+static int page_report_block(struct fyai_buf *md, const char *text)
 {
 	size_t len = text ? strlen(text) : 0;
 
-	return (len && response_buffer_append(md, text)) ||
+	return (len && fyai_buf_append(md, text)) ||
 	       ((!len || text[len - 1] != '\n') &&
-		response_buffer_append(md, "\n"));
+		fyai_buf_append(md, "\n"));
 }
 
-int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md)
+int fyai_page_report(const struct fyai_page *pg, struct fyai_buf *md)
 {
 	char line[FYTIM_PAGE_ID_MAX + 96];
 	fy_generic yaml;
@@ -3312,39 +3312,39 @@ int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md)
 
 	if (!pg || !md)
 		return -1;
-	if (response_buffer_append(md, "## The page\n\n"))
+	if (fyai_buf_append(md, "## The page\n\n"))
 		return -1;
 	if (pg->doc_path && !pg->rejected) {
-		if (response_buffer_append(md, "The document is the file of "
+		if (fyai_buf_append(md, "The document is the file of "
 					   "`display/page`:\n\n```text\n") ||
 		    page_report_block(md, pg->doc_path) ||
-		    response_buffer_append(md, "```\n\n"))
+		    fyai_buf_append(md, "```\n\n"))
 			return -1;
-	} else if (response_buffer_append(md, "The document is the embedded "
+	} else if (fyai_buf_append(md, "The document is the embedded "
 					  "`data/page.yaml`.\n\n")) {
 		return -1;
 	}
 	if (pg->rejected &&
-	    (response_buffer_append(md, "The file of `display/page` is not "
+	    (fyai_buf_append(md, "The file of `display/page` is not "
 				    "used:\n\n```text\n") ||
 	     page_report_block(md, pg->rejected) ||
-	     response_buffer_append(md, "```\n\n")))
+	     fyai_buf_append(md, "```\n\n")))
 		return -1;
-	if (response_buffer_append(md, "### State\n\n"))
+	if (fyai_buf_append(md, "### State\n\n"))
 		return -1;
 	if (pg->frame_gb && fy_is_mapping(pg->last_state)) {
 		yaml = fy_gb_emit(pg->frame_gb, pg->last_state,
 				  FYAI_YAML_EMIT_FLAGS, NULL);
-		if (response_buffer_append(md, "```yaml\n") ||
+		if (fyai_buf_append(md, "```yaml\n") ||
 		    page_report_block(md, fy_castp(&yaml, "")) ||
-		    response_buffer_append(md, "```\n\n"))
+		    fyai_buf_append(md, "```\n\n"))
 			return -1;
-	} else if (response_buffer_append(md, "No frame is drawn yet.\n\n")) {
+	} else if (fyai_buf_append(md, "No frame is drawn yet.\n\n")) {
 		return -1;
 	}
-	if (response_buffer_append(md, "### Source\n\n````text\n") ||
+	if (fyai_buf_append(md, "### Source\n\n````text\n") ||
 	    page_report_block(md, pg->source.data) ||
-	    response_buffer_append(md, "````\n\n### Regions\n\n```text\n"))
+	    fyai_buf_append(md, "````\n\n### Regions\n\n```text\n"))
 		return -1;
 	for (i = 0; i < pg->last_nregions; i++) {
 		snprintf(line, sizeof(line), "%-24s %-4s row %d col %d %dx%d\n",
@@ -3352,10 +3352,10 @@ int fyai_page_report(const struct fyai_page *pg, struct response_buffer *md)
 			 pg->last_regions[i].act ? "act" : "slot",
 			 pg->last_regions[i].row, pg->last_regions[i].col,
 			 pg->last_regions[i].width, pg->last_regions[i].height);
-		if (response_buffer_append(md, line))
+		if (fyai_buf_append(md, line))
 			return -1;
 	}
-	return response_buffer_append(md, "```\n");
+	return fyai_buf_append(md, "```\n");
 }
 
 /* The name of the area that @r shows in a review, or NULL. */
@@ -3434,7 +3434,7 @@ int fyai_page_review_paint(const struct fyai_cfg *cfg,
 
 /* The SGR parameters of @colour as a foreground (@base 30) or a background
  * (@base 40). */
-static int page_colour_sgr(struct response_buffer *out, uint32_t colour,
+static int page_colour_sgr(struct fyai_buf *out, uint32_t colour,
 			   int base)
 {
 	char buf[32];
@@ -3455,12 +3455,12 @@ static int page_colour_sgr(struct response_buffer *out, uint32_t colour,
 			 (colour >> 16) & 0xff, (colour >> 8) & 0xff,
 			 colour & 0xff);
 	}
-	return response_buffer_append(out, buf);
+	return fyai_buf_append(out, buf);
 }
 
 /* @cells as rows of text, with SGR when @colour is set. */
 static int page_cells_sgr(const struct fytim_cell *cells, int nrows,
-			  int cols, bool colour, struct response_buffer *out)
+			  int cols, bool colour, struct fyai_buf *out)
 {
 	static const struct {
 		uint32_t attr;
@@ -3486,21 +3486,21 @@ static int page_cells_sgr(const struct fytim_cell *cells, int nrows,
 			if (colour && (!prev || prev->fg != cell->fg ||
 				       prev->bg != cell->bg ||
 				       prev->attrs != cell->attrs)) {
-				rc = response_buffer_append(out, "\x1b[0");
+				rc = fyai_buf_append(out, "\x1b[0");
 				for (a = 0; !rc && a < sizeof(attrs) /
 					    sizeof(attrs[0]); a++)
 					if (cell->attrs & attrs[a].attr)
-						rc = response_buffer_append(
+						rc = fyai_buf_append(
 							out, attrs[a].sgr);
 				rc = rc || page_colour_sgr(out, cell->fg, 30) ||
 				     page_colour_sgr(out, cell->bg, 40) ||
-				     response_buffer_append(out, "m");
+				     fyai_buf_append(out, "m");
 				if (rc)
 					return -1;
 			}
 			prev = cell;
 			if (!cell->chars[0] &&
-			    response_buffer_append(out, " "))
+			    fyai_buf_append(out, " "))
 				return -1;
 			for (j = 0; j < FYTIM_CELL_CHARS && cell->chars[j];
 			     j++) {
@@ -3524,11 +3524,11 @@ static int page_cells_sgr(const struct fytim_cell *cells, int nrows,
 					utf8[3] = (char)(0x80 | (cp & 0x3f));
 					utf8[4] = '\0';
 				}
-				if (response_buffer_append(out, utf8))
+				if (fyai_buf_append(out, utf8))
 					return -1;
 			}
 		}
-		if (response_buffer_append(out, colour ? "\x1b[0m\n" : "\n"))
+		if (fyai_buf_append(out, colour ? "\x1b[0m\n" : "\n"))
 			return -1;
 	}
 	return 0;
@@ -3536,10 +3536,10 @@ static int page_cells_sgr(const struct fytim_cell *cells, int nrows,
 
 int fyai_page_review(struct fyai_page *pg, fy_generic state, int cols,
 		     int rows, struct fy_generic_builder *gb,
-		     struct response_buffer *picture, fy_generic *areas)
+		     struct fyai_buf *picture, fy_generic *areas)
 {
 	struct fyai_ctx *ctx;
-	struct response_buffer source = {0};
+	struct fyai_buf source = {0};
 	struct fytim_cell *cells = NULL;
 	const struct fymd_region *fr;
 	const char *name;

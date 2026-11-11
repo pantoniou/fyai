@@ -61,7 +61,7 @@ int fyai_panel_update(struct fyai_panel *p, const char *source,
 		      int cols, int rows)
 {
 	struct fyai_cfg *cfg = p->ctx->cfg;
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	char *copy;
 	size_t *offsets, i;
 	int saved, rc, total, n;

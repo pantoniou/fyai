@@ -100,7 +100,7 @@ static char *chrome_buttons(struct fyai_ctx *ctx)
 		{ "tile:maximize", "tile.maximize", "\xe2\x96\xa1" },	/* □ */
 		{ "tile:close", "tile.close", "\xc3\x97" },		/* × */
 	};
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	char *glyph;
 	size_t i;
 	int rc = 0;
@@ -110,7 +110,7 @@ static char *chrome_buttons(struct fyai_ctx *ctx)
 		glyph = markdown_ui_escape(markdown_glyph(ctx->cfg,
 							  buttons[i].glyph,
 							  buttons[i].fallback));
-		rc = !glyph || response_buffer_append(&out,
+		rc = !glyph || fyai_buf_append(&out,
 			fy_sprintfa(" <fy-act id=\"%s\">%s</fy-act>",
 				    buttons[i].id, glyph));
 		free(glyph);
@@ -145,7 +145,7 @@ static bool chrome_intraword(const char *s, const char *p, const char *end)
  * markup included, until a codepoint would pass @max columns. Return the
  * columns.
  */
-int fyai_chrome_markup_cols(const char *s, struct response_buffer *out,
+int fyai_chrome_markup_cols(const char *s, struct fyai_buf *out,
 			    int max)
 {
 	unsigned int cp, prev = 0;
@@ -181,7 +181,7 @@ int fyai_chrome_markup_cols(const char *s, struct response_buffer *out,
 			prev = cp;
 			p += n;
 		}
-		if (out && response_buffer_append_data(out, start,
+		if (out && fyai_buf_append_data(out, start,
 						       (size_t)(p - start)))
 			break;
 	}
@@ -204,7 +204,7 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 		       unsigned int *interval_msp)
 {
 	enum fyai_workpane_tile_kind kind = FYAI_WORKPANE_TILE_SHELL;
-	struct response_buffer out = {0}, cut = {0};
+	struct fyai_buf out = {0}, cut = {0};
 	struct markdown_region *regions = NULL;
 	size_t nregions = 0;
 	const char *short_title = NULL;
@@ -236,7 +236,7 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	if (granted > 0 && room > 1 &&
 	    fyai_chrome_markup_cols(spec->title, NULL, 0) > room) {
 		(void)fyai_chrome_markup_cols(spec->title, &cut, room - 1);
-		if (!response_buffer_append(&cut, "\xe2\x80\xa6"))
+		if (!fyai_buf_append(&cut, "\xe2\x80\xa6"))
 			short_title = cut.data;
 	}
 	/*
@@ -282,13 +282,13 @@ int fyai_chrome_update(struct fyai_ctx *ctx, struct fytim_surface *sf,
 	/* The tile keeps the regions of the head it shows. */
 	fyai_workpane_tile_set_regions(ctx->workpane, sf, regions, nregions);
 	if (!rc) {
-		response_buffer_trim(&out);
+		fyai_buf_trim(&out);
 		if (!fy_str_empty(spec->command))
 			rc = fyai_ui_append_shell_command(ctx->cfg, &out,
 							  spec->command);
 	}
 	if (!rc) {
-		response_buffer_trim(&out);
+		fyai_buf_trim(&out);
 		rc = fyai_workpane_tile_set_head(ctx->workpane, sf,
 						 out.data ? out.data : "");
 		fyai_diag_tracef("page", "tile=%p head=%zu", (void *)sf,
@@ -413,7 +413,7 @@ static void chrome_work_counts(struct fyai_ctx *ctx, int counts[3])
 		fy_sprintfa("%d %d %d", legacy[0], legacy[1], legacy[2]));
 }
 
-int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
+int fyai_chrome_panel(struct fyai_ctx *ctx, struct fyai_buf *out,
 		      int messages, enum fyai_error_type level,
 		      struct fyai_chrome_panel_info *info)
 {
@@ -451,7 +451,7 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
 		if (color)
 			fyai_ui_theme_pair(ctx, "text", FYMD_STYLE_STRONG, &on,
 					   &off);
-		rc = response_buffer_append(out, fy_sprintfa("%s%s%s",
+		rc = fyai_buf_append(out, fy_sprintfa("%s%s%s",
 				on ? on : "", glyph, off ? off : ""));
 		n = fymd_str_width(glyph, strlen(glyph));
 		cols = n > 0 ? n : 1;
@@ -466,7 +466,7 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
 		if (color)
 			fyai_ui_theme_pair(ctx, kinds[i].role, kinds[i].element,
 					   &on, &off);
-		rc = response_buffer_append(out, fy_sprintfa(" %s%s%d%s",
+		rc = fyai_buf_append(out, fy_sprintfa(" %s%s%d%s",
 				on ? on : "", glyph, counts[i], off ? off : ""));
 		n = fymd_str_width(glyph, strlen(glyph));
 		cols += 1 + (n > 0 ? n : 1) +
@@ -488,7 +488,7 @@ int fyai_chrome_panel(struct fyai_ctx *ctx, struct response_buffer *out,
 		else if (color)
 			fyai_ui_theme_pair(ctx, "text", FYMD_STYLE_STRONG, &on,
 					   &off);
-		rc = response_buffer_append(out, fy_sprintfa("%s%s%s%d%s",
+		rc = fyai_buf_append(out, fy_sprintfa("%s%s%s%d%s",
 				work ? " " : "", on ? on : "", glyph, messages,
 				off ? off : ""));
 		n = fymd_str_width(glyph, strlen(glyph));

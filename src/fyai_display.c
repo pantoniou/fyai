@@ -806,7 +806,7 @@ err:
 static int fyai_diff_present(struct fyai_ctx *ctx, const char *diff)
 {
 	const struct fyai_cfg *cfg = ctx->cfg;
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const char *line, *nl, *role, *fallback;
 	size_t len;
 	int rc;
@@ -832,16 +832,16 @@ static int fyai_diff_present(struct fyai_ctx *ctx, const char *diff)
 			fallback = NULL;
 		}
 		if (role)
-			rc = response_buffer_append(&out,
+			rc = fyai_buf_append(&out,
 					markdown_role_on(cfg, role, fallback));
 		if (!rc)
-			rc = response_buffer_append_data(&out, line, len);
+			rc = fyai_buf_append_data(&out, line, len);
 		if (!rc && role)
-			rc = response_buffer_append(&out,
+			rc = fyai_buf_append(&out,
 					markdown_role_off(cfg, role,
 							  FYAI_ANSI_RESET));
 		if (!rc)
-			rc = response_buffer_append(&out, "\n");
+			rc = fyai_buf_append(&out, "\n");
 	}
 	fyai_error_check(ctx, !rc, out, "diff: out of memory colouring the "
 			 "diff");
@@ -878,7 +878,7 @@ static int fyai_diff_view(struct fyai_ctx *ctx, const char *diff)
  */
 static char *fyai_diff_expand_tabs(struct fyai_ctx *ctx, const char *diff)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	const char *line, *nl, *p, *end;
 	size_t len, col, pad;
 	bool hunk;
@@ -896,26 +896,26 @@ static char *fyai_diff_expand_tabs(struct fyai_ctx *ctx, const char *diff)
 			hunk = true;
 		if (!hunk || !(*line == ' ' || *line == '+' || *line == '-') ||
 		    !memchr(line, '\t', len)) {
-			rc = response_buffer_append_data(&out, line, len);
+			rc = fyai_buf_append_data(&out, line, len);
 		} else {
-			rc = response_buffer_append_data(&out, line, 1);
+			rc = fyai_buf_append_data(&out, line, 1);
 			col = 0;
 			for (p = line + 1; !rc && p < end; p++) {
 				if (*p != '\t') {
 					/* Count code points, not UTF-8 continuation bytes. */
 					if (((unsigned char)*p & 0xc0) != 0x80)
 						col++;
-					rc = response_buffer_append_data(&out, p, 1);
+					rc = fyai_buf_append_data(&out, p, 1);
 					continue;
 				}
 				pad = FYAI_DIFF_TAB - col % FYAI_DIFF_TAB;
 				col += pad;
 				while (!rc && pad--)
-					rc = response_buffer_append_data(&out, " ", 1);
+					rc = fyai_buf_append_data(&out, " ", 1);
 			}
 		}
 		if (!rc && nl)
-			rc = response_buffer_append_data(&out, "\n", 1);
+			rc = fyai_buf_append_data(&out, "\n", 1);
 	}
 	fyai_error_check(ctx, !rc, err, "diff: out of memory expanding tabs");
 	return out.data ? out.data : strdup("");
@@ -1495,7 +1495,7 @@ static void fyai_emit_patch(struct fyai_ctx *ctx, FILE *mf, const char *patch,
 struct patch_op_view {
 	char *title;			/* "**update** `path`" */
 	char *lang;			/* "diff:c", the file language, or NULL */
-	struct response_buffer body;	/* raw block text, un-rendered */
+	struct fyai_buf body;	/* raw block text, un-rendered */
 };
 
 static void patch_op_view_clear(struct patch_op_view *op)
@@ -1623,7 +1623,7 @@ static int patch_walk_unified(struct fyai_ctx *ctx, const char *patch, void *use
 			in_body = true;
 		if (!in_body)
 			continue;	/* git extended headers */
-		rc = response_buffer_append_line(&op.body, p, len);
+		rc = fyai_buf_append_line(&op.body, p, len);
 		fyai_error_check(ctx, !rc, out,
 				 "could not append a patch row");
 	}
@@ -1711,13 +1711,13 @@ static int patch_walk(struct fyai_ctx *ctx, const char *patch, void *user,
 		if (in_add) {
 			/* Added lines carry a leading '+'; strip it. */
 			if (len > 0 && p[0] == '+')
-				rc = response_buffer_append_line(&op.body, p + 1,
+				rc = fyai_buf_append_line(&op.body, p + 1,
 							      (size_t)len - 1);
 			else
-				rc = response_buffer_append_line(&op.body, p,
+				rc = fyai_buf_append_line(&op.body, p,
 							      (size_t)len);
 		} else if (in_upd) {
-			rc = response_buffer_append_line(&op.body, p, (size_t)len);
+			rc = fyai_buf_append_line(&op.body, p, (size_t)len);
 		}
 		fyai_error_check(ctx, !rc, out, "could not append a patch row");
 	}
@@ -1734,10 +1734,10 @@ out:
 
 /* Append tool-call prose to @out. */
 static int view_append_markdown(struct fyai_ctx *ctx,
-				struct response_buffer *out,
+				struct fyai_buf *out,
 				const char *md, size_t len)
 {
-	struct response_buffer rendered = {0};
+	struct fyai_buf rendered = {0};
 	size_t start;
 	size_t end;
 	int rc;
@@ -1762,7 +1762,7 @@ static int view_append_markdown(struct fyai_ctx *ctx,
 	while (end > start && (rendered.data[end - 1] == '\n' ||
 			       rendered.data[end - 1] == '\r'))
 		end--;
-	rc = response_buffer_reserve(out, out->len + end - start + 2);
+	rc = fyai_buf_reserve(out, out->len + end - start + 2);
 	if (!rc) {
 		memcpy(out->data + out->len, rendered.data + start, end - start);
 		out->len += end - start;
@@ -1778,7 +1778,7 @@ out:
 }
 
 /* Append a marked, frameless tool body to @out. */
-static int view_append_block(struct fyai_ctx *ctx, struct response_buffer *out,
+static int view_append_block(struct fyai_ctx *ctx, struct fyai_buf *out,
 			     const char *md, size_t len, const char *lang,
 			     size_t max_lines)
 {
@@ -1811,7 +1811,7 @@ static int view_append_block(struct fyai_ctx *ctx, struct response_buffer *out,
 /* Split tool-call Markdown into its title and body. */
 static int view_split(struct fyai_ctx *ctx, const char *md, size_t len,
 		      const struct fyai_md_blocks *blocks, size_t max_lines,
-		      char **title, struct response_buffer *body)
+		      char **title, struct fyai_buf *body)
 {
 	size_t head;
 	size_t pos;
@@ -1846,14 +1846,14 @@ out:
 
 int fyai_tool_view_render(struct fyai_ctx *ctx, const char *md, size_t len,
 			  const struct fyai_md_blocks *blocks, size_t max_lines,
-			  char **title, struct response_buffer *body)
+			  char **title, struct fyai_buf *body)
 {
 	return view_split(ctx, md, len, blocks, max_lines, title, body);
 }
 
 int fyai_tool_call_view_source(struct fyai_ctx *ctx, const char *name,
 			       fy_generic args, int preview_lines, char **title,
-			       struct response_buffer *body,
+			       struct fyai_buf *body,
 			       struct fy_generic_builder *gb,
 			       fy_generic *sourcep)
 {
@@ -1903,7 +1903,7 @@ out:
 
 int fyai_tool_call_view(struct fyai_ctx *ctx, const char *name, fy_generic args,
 			int preview_lines, char **title,
-			struct response_buffer *body)
+			struct fyai_buf *body)
 {
 	return fyai_tool_call_view_source(ctx, name, args, preview_lines, title,
 					  body, NULL, NULL);
@@ -1975,7 +1975,7 @@ static void fyai_emit_patch(struct fyai_ctx *ctx, FILE *mf, const char *patch,
 void fyai_print_login_url(struct fyai_ctx *ctx, const char *lead,
 			  const char *label, const char *url)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	char *plain;
 	char *md;
 
@@ -2797,7 +2797,7 @@ static void fyai_render_tool_exchange_common(struct fyai_ctx *ctx,
 					     bool render_call, bool tool_ok)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct response_buffer body = {0};
+	struct fyai_buf body = {0};
 	struct fyai_tool_view tv;
 	char *title;
 	char *cause;
@@ -3417,7 +3417,7 @@ out:
 static int fyai_display_tool_head(struct fyai_ctx *ctx, const char *md,
 				  size_t len, bool ok, const char *cause)
 {
-	struct response_buffer head = {0};
+	struct fyai_buf head = {0};
 	char *margin;
 	int rc;
 
@@ -3446,7 +3446,7 @@ static int fyai_display_tool_body(struct fyai_ctx *ctx, const char *md,
 				  size_t len, const char *lang,
 				  size_t max_lines)
 {
-	struct response_buffer body = {0};
+	struct fyai_buf body = {0};
 	int rc;
 
 	rc = view_append_block(ctx, &body, md, len, lang, max_lines);
@@ -3720,7 +3720,7 @@ static void fyai_display_command_output(struct fyai_ctx *ctx,
 	fy_generic gtext = fy_get(output, "output");
 	const char *text = fy_castp(&gtext, "");
 	size_t len = strlen(text);
-	struct response_buffer washed = {0};
+	struct fyai_buf washed = {0};
 	uint32_t bg;
 
 	(void)fyai_render_display_output(ctx, "user", line);
@@ -5060,7 +5060,7 @@ static void fyai_print_user_turn(struct fyai_ctx *ctx, const char *line,
 static void fyai_print_card(struct fyai_ctx *ctx, const char *line, bool live)
 {
 	struct fyai_cfg *cfg = ctx->cfg;
-	struct response_buffer rb = {0};
+	struct fyai_buf rb = {0};
 	struct fyai_flow *flow;
 	const char *on;
 	const char *off;

@@ -196,7 +196,7 @@ static bool acp_mcp_empty(fy_generic params)
 
 static char *acp_prompt_text(fy_generic blocks)
 {
-	struct response_buffer out = { 0 };
+	struct fyai_buf out = { 0 };
 	fy_generic block, type;
 	const char *s, *uri, *name;
 	char *text;
@@ -221,9 +221,9 @@ static char *acp_prompt_text(fy_generic blocks)
 		} else {
 			goto invalid;
 		}
-		if (out.len && response_buffer_append_data(&out, "\n", 1))
+		if (out.len && fyai_buf_append_data(&out, "\n", 1))
 			goto invalid;
-		if (response_buffer_append_data(&out, s, strlen(s)))
+		if (fyai_buf_append_data(&out, s, strlen(s)))
 			goto invalid;
 	}
 	if (!out.data)

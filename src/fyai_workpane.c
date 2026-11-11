@@ -334,7 +334,7 @@ int fyai_workpane_cap_source(const struct fyai_workpane_manager *wm,
  */
 static void workpane_cap_update(struct fyai_workpane_manager *wm)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_cfg *cfg;
 	char source[512];
 	char *top;
@@ -359,7 +359,7 @@ static void workpane_cap_update(struct fyai_workpane_manager *wm)
 		return;
 	}
 	cfg->render_width = saved_width;
-	response_buffer_trim(&out);
+	fyai_buf_trim(&out);
 	if (!out.data || asprintf(&top, "\n%s", out.data) < 0) {
 		free(out.data);
 		return;
@@ -649,7 +649,7 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 			    const char *sep, int sep_cols,
 			    const struct fyai_page_layout *lay,
 			    const char *lead,
-			    struct response_buffer *out, int *rowsp)
+			    struct fyai_buf *out, int *rowsp)
 {
 	struct fyai_workpane_tile_info info[FYAI_WORKPANE_TILES_MAX];
 	struct fyai_workpane_tile *order[FYAI_WORKPANE_TILES_MAX];

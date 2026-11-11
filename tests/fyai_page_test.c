@@ -245,7 +245,7 @@ static void page_golden_state(unsigned i, struct fyai_page_state *st)
 #define PAGE_GOLDEN_CASES 600
 
 /* The sources of every golden case, one after another. */
-static int page_golden_sources(struct response_buffer *all)
+static int page_golden_sources(struct fyai_buf *all)
 {
 	struct fyai_page_state st;
 	char head[48];
@@ -254,13 +254,13 @@ static int page_golden_sources(struct response_buffer *all)
 	for (i = 0; i < PAGE_GOLDEN_CASES; i++) {
 		page_golden_state(i, &st);
 		snprintf(head, sizeof(head), "=== case %u\n", i);
-		if (response_buffer_append(all, head) ||
+		if (fyai_buf_append(all, head) ||
 		    fyai_page_source(&st, all) ||
-		    response_buffer_append(all, "\n"))
+		    fyai_buf_append(all, "\n"))
 			return -1;
 	}
 	/* The file ends on a line of text, not on the blank line of a source. */
-	return response_buffer_append(all, "=== end\n");
+	return fyai_buf_append(all, "=== end\n");
 }
 
 static const char *after(const char *hay, const char *needle)
@@ -272,7 +272,7 @@ static const char *after(const char *hay, const char *needle)
 
 static int page_source_orders_the_chrome_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	const char *p;
 	int rc;
@@ -296,7 +296,7 @@ static int page_source_orders_the_chrome_run(void)
 
 static int page_source_escapes_text_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	int rc;
 
@@ -321,7 +321,7 @@ static int page_source_escapes_text_run(void)
 
 static int page_source_omits_empty_slots_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	const char *p;
 	int rc;
@@ -334,7 +334,7 @@ static int page_source_omits_empty_slots_run(void)
 	free(out.data);
 
 	/* a pane below the prompt comes after the status */
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st.pane_rows = 4;
 	st.pane_below = true;
 	rc = fyai_page_source(&st, &out);
@@ -344,7 +344,7 @@ static int page_source_omits_empty_slots_run(void)
 	free(out.data);
 
 	/* completion takes the place of the hint, and no prompt has no rules */
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st = page_state();
 	st.completion = true;
 	st.hint = "HINTMARK";
@@ -370,7 +370,7 @@ static const char *no_margin(void *userdata, size_t row)
 static char *page_render(const struct fyai_page_state *st, int height,
 			 struct fymd_renderer **rp)
 {
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	struct fymd_renderer_cfg cfg;
 	struct fymd_renderer *r;
 	char *out = NULL;
@@ -463,7 +463,7 @@ int page_review_diff_on_right(void)
 	const struct fymd_region *preview, *diff, *input;
 	struct fyai_page_keys keys = {0};
 	char *out;
-	struct response_buffer source = {0};
+	struct fyai_buf source = {0};
 	size_t i;
 	bool up = false, down = false;
 
@@ -518,7 +518,7 @@ int page_review_diff_on_right(void)
 	FYAI_TCHECK(!strcmp(page_key_action(&keys, "Down"),
 			    "panel.scroll:permission-diff/down"));
 	free(source.data);
-	source = (struct response_buffer){0};
+	source = (struct fyai_buf){0};
 	st.input_focus = "prompt";
 	keys.count = 0;
 	FYAI_TCHECK(!fyai_page_source(&st, &source));
@@ -533,7 +533,7 @@ int page_panel_in_any_page(void)
 {
 	struct fy_generic_builder_cfg cfg = { .flags = FYGBCF_SCOPE_LEADER };
 	struct fy_generic_builder *gb = fy_generic_builder_create(&cfg);
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	fy_generic doc, state;
 	int rc;
 
@@ -675,7 +675,7 @@ static int page_blank_activity_is_not_code_run(void)
 /* The cap row is fyai's UI Markdown, kept as it is, and goes first. */
 static int page_cap_stands_over_the_pane_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	const char *p;
 	int rc;
@@ -691,7 +691,7 @@ static int page_cap_stands_over_the_pane_run(void)
 	free(out.data);
 
 	/* no pane, no cap */
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st.pane_rows = 0;
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
@@ -703,7 +703,7 @@ static int page_cap_stands_over_the_pane_run(void)
 /* The todo panel stands above the prompt with the work pane, and only then. */
 static int page_todo_stands_over_the_prompt_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	const char *p;
 	int rc;
@@ -720,7 +720,7 @@ static int page_todo_stands_over_the_prompt_run(void)
 	free(out.data);
 
 	/* hidden, nothing is drawn */
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st.todo_shown = false;
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
@@ -748,7 +748,7 @@ static int page_todo_stands_over_the_prompt_run(void)
 /* The waiting lines stand under a blank row, right above the header. */
 static int page_pending_stands_over_the_input_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	const char *p;
 	int rc;
@@ -763,7 +763,7 @@ static int page_pending_stands_over_the_input_run(void)
 	free(out.data);
 
 	/* no rows, nothing is drawn */
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st.pending_rows = 0;
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
@@ -821,7 +821,7 @@ static int page_pending_is_bounded_run(void)
 /* A prompt on a card is one slot two rows taller, with no rules. */
 static int page_prompt_card_takes_the_rules_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	struct fymd_renderer *r;
 	const struct fymd_region *prompt;
@@ -851,7 +851,7 @@ static int page_prompt_card_takes_the_rules_run(void)
  * SGR pair of the theme. The canvas draws the header. */
 static int page_chrome_keeps_the_margins_run(void)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	int rc;
 
@@ -868,7 +868,7 @@ static int page_chrome_keeps_the_margins_run(void)
 	free(out.data);
 
 	/* no activity: a blank gutter of the same width */
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st.activity = NULL;
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc);
@@ -937,7 +937,7 @@ static int page_grid_places_the_tiles_run(void)
 		  .rows = 3 },
 	};
 	struct fyai_workpane_grid g;
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	struct fyai_page_state st = page_state();
 	const struct fymd_region *a, *b;
 	struct fymd_renderer *r;
@@ -980,7 +980,7 @@ static int page_grid_shares_the_height_run(void)
 		  .rows = 2 },
 	};
 	struct fyai_workpane_grid g;
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	int rows = -1, rc;
 
 	memset(&g, 0, sizeof(g));
@@ -995,7 +995,7 @@ static int page_grid_shares_the_height_run(void)
 	free(src.data);
 
 	/* no height keeps what the tiles ask for */
-	src = (struct response_buffer){0};
+	src = (struct fyai_buf){0};
 	rc = fyai_page_grid(NULL, &g, cells, 2, 0, "", 0, &src, &rows);
 	FYAI_TCHECK(!rc && rows == 6 && strstr(src.data, "rows=\"4,2\""));
 	free(src.data);
@@ -1014,7 +1014,7 @@ static int page_grid_fits_and_spans_run(void)
 		  .rows = 1 },
 	};
 	struct fyai_workpane_grid g;
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	int rows = -1, rc;
 
 	memset(&g, 0, sizeof(g));
@@ -1032,7 +1032,7 @@ static int page_grid_fits_and_spans_run(void)
 
 	/* a cell outside the grid is left out */
 	free(src.data);
-	src = (struct response_buffer){0};
+	src = (struct fyai_buf){0};
 	g.rows = 1;
 	rc = fyai_page_grid(NULL, &g, cells, 3, 0, "", 0, &src, &rows);
 	FYAI_TCHECK(!rc && !strstr(src.data, "tile:1") &&
@@ -1113,7 +1113,7 @@ static int page_review_marks_each_row_run(void)
 		.header = "Go", .question = "Proceed?", .options = opts,
 		.noptions = 2, .count = 1,
 	};
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 	struct fyai_page_state st = page_state();
 	int rc;
 
@@ -1133,7 +1133,7 @@ static int page_review_marks_each_row_run(void)
 	FYAI_TCHECK(strstr(out.data, "<fy-mark id=\"review:question_details\"/>"));
 	free(out.data);
 
-	out = (struct response_buffer){0};
+	out = (struct fyai_buf){0};
 	st.review = false;
 	rc = fyai_page_source(&st, &out);
 	FYAI_TCHECK(!rc && out.data && !strstr(out.data, "fy-mark"));
@@ -1156,7 +1156,7 @@ static int page_side_column_of_panels_run(void)
 		.name = "side", .side = true, .pane_cols = 82, .tile_rows = 25,
 	};
 	struct fyai_page_cell cells[2];
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	struct fyai_workpane_grid g;
 	int i, rows, rc;
 
@@ -1243,7 +1243,7 @@ static int page_grid_stands_heads_level_run(void)
 		  .rows = 3, .head_rows = 3 },
 	};
 	struct fyai_workpane_grid g;
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	struct fyai_page_state st = page_state();
 	const struct fymd_region *h1, *t1, *t2, *h3, *t3;
 	struct fymd_renderer *r;
@@ -1333,7 +1333,7 @@ static char *page_test_transcribe(struct fy_generic_builder *gb,
 				  const char *doc, const char *state,
 				  struct fyai_page_keys *keys)
 {
-	struct response_buffer out = {0};
+	struct fyai_buf out = {0};
 
 	if (fyai_page_transcribe(NULL, page_yaml(gb, doc), page_yaml(gb, state),
 				 page_test_actions, PAGE_TEST_NACTIONS, &out,
@@ -1730,7 +1730,7 @@ static int page_load_takes_the_embedded_document_run(void)
 static int page_fullscreen_takes_the_transcript_run(void)
 {
 	struct fyai_page_state full = page_state(), inl = page_state();
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	struct fy_generic_builder *gb = page_test_builder();
 	fy_generic schema, report;
 	char *problems;
@@ -1817,7 +1817,7 @@ static int page_source_matches_golden_run(void)
 {
 	const char *golden = (const char *)FYAI_EMBEDDED_PAGE_GOLDEN;
 	const char *path = getenv("FYAI_PAGE_GOLDEN_WRITE");
-	struct response_buffer all = {0};
+	struct fyai_buf all = {0};
 	size_t i, n, head;
 	FILE *fp;
 
@@ -1923,7 +1923,7 @@ static int page_grid_names_what_the_page_draws_run(void)
 		  .rows = 1 },
 	};
 	struct fyai_workpane_grid g;
-	struct response_buffer src = {0};
+	struct fyai_buf src = {0};
 	int rows = -1, rc;
 
 	memset(&g, 0, sizeof(g));

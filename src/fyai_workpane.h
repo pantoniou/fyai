@@ -160,7 +160,7 @@ void fyai_workpane_destroy(struct fyai_workpane_manager *wm);
  * with the last, so a session that runs no program shows no pane.
  */
 struct fytim_workpane *fyai_workpane_acquire(struct fyai_workpane_manager *wm);
-struct response_buffer;
+struct fyai_buf;
 struct fyai_page_layout;
 /*
  * Append the pane as an fy-grid of tile slots to @out (NULL to size it only):
@@ -174,7 +174,7 @@ int fyai_workpane_page_grid(struct fyai_workpane_manager *wm, int height,
 			    const char *sep, int sep_cols,
 			    const struct fyai_page_layout *lay,
 			    const char *lead,
-			    struct response_buffer *out, int *rowsp);
+			    struct fyai_buf *out, int *rowsp);
 /* The pane while a tile holds it, or NULL. Borrowed. */
 struct fytim_workpane *fyai_workpane_pane(const struct fyai_workpane_manager *wm);
 void fyai_workpane_release(struct fyai_workpane_manager *wm);

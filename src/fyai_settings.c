@@ -694,7 +694,7 @@ static const char *settings_diff_block(struct fy_generic_builder *gb,
 static int settings_change_diff(struct settings_walk *w,
 				struct settings_change *c)
 {
-	struct response_buffer all = { 0 };
+	struct fyai_buf all = { 0 };
 	fy_generic shown0, stored, session, old_layer, new_layer, item, value;
 	const char *a, *b, *p, *scope, *body;
 	const char *path, *layer;
@@ -751,7 +751,7 @@ static int settings_change_diff(struct settings_walk *w,
 					"b/config.yaml", 2, &part))
 				goto out;
 		}
-		rc = response_buffer_append(&all, part);
+		rc = fyai_buf_append(&all, part);
 		free(part);
 		if (rc)
 			goto out;
@@ -778,7 +778,7 @@ static int settings_change_diff(struct settings_walk *w,
 					"b/session.yaml", 2, &part))
 				goto out;
 		}
-		rc = response_buffer_append(&all, part);
+		rc = fyai_buf_append(&all, part);
 		free(part);
 		if (rc)
 			goto out;

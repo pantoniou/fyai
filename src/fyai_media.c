@@ -977,7 +977,7 @@ static bool media_is_text(const unsigned char *p, size_t len)
  */
 static char *media_file_block(const char *path, const char *data, size_t len)
 {
-	struct response_buffer out = {};
+	struct fyai_buf out = {};
 	size_t run = 0, longest = 0, i, fence;
 	int rc;
 
@@ -987,17 +987,17 @@ static char *media_file_block(const char *path, const char *data, size_t len)
 			longest = run;
 	}
 	fence = longest >= 3 ? longest + 1 : 3;
-	rc = response_buffer_append(&out, "File: ") ||
-	     response_buffer_append(&out, path) ||
-	     response_buffer_append(&out, "\n");
+	rc = fyai_buf_append(&out, "File: ") ||
+	     fyai_buf_append(&out, path) ||
+	     fyai_buf_append(&out, "\n");
 	for (i = 0; !rc && i < fence; i++)
-		rc = response_buffer_append_data(&out, "`", 1);
-	rc = rc || response_buffer_append(&out, "\n") ||
-	     response_buffer_append_data(&out, data, len);
+		rc = fyai_buf_append_data(&out, "`", 1);
+	rc = rc || fyai_buf_append(&out, "\n") ||
+	     fyai_buf_append_data(&out, data, len);
 	if (!rc && len && data[len - 1] != '\n')
-		rc = response_buffer_append(&out, "\n");
+		rc = fyai_buf_append(&out, "\n");
 	for (i = 0; !rc && i < fence; i++)
-		rc = response_buffer_append_data(&out, "`", 1);
+		rc = fyai_buf_append_data(&out, "`", 1);
 	if (rc) {
 		free(out.data);
 		return NULL;

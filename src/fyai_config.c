@@ -56,7 +56,7 @@
 /* The descriptor carries invocation state without putting credentials in argv. */
 static fy_generic config_reload_read(struct fyai_cfg *cfg)
 {
-	struct response_buffer buf = {0};
+	struct fyai_buf buf = {0};
 	fy_generic state = fy_invalid;
 	const char *fd_text;
 	char chunk[4096];
@@ -89,7 +89,7 @@ static fy_generic config_reload_read(struct fyai_cfg *cfg)
 			failed = true;
 			break;
 		}
-		rc = response_buffer_append_data(&buf, chunk, (size_t)n);
+		rc = fyai_buf_append_data(&buf, chunk, (size_t)n);
 		if (rc) {
 			fyai_cfg_error(cfg, "reload: cannot read saved state");
 			failed = true;
@@ -2046,14 +2046,14 @@ fy_generic fyai_config_validate_report(struct fyai_cfg *cfg, fy_generic doc,
 
 void fyai_config_report_problems(struct fyai_cfg *cfg, fy_generic report)
 {
-	struct response_buffer msg = {0};
+	struct fyai_buf msg = {0};
 	fy_generic problems, problem;
 
 	problems = fy_get(report, "problems", fy_seq_empty);
 	fy_foreach(problem, problems) {
-		if (msg.len && response_buffer_append(&msg, "\nconfig: "))
+		if (msg.len && fyai_buf_append(&msg, "\nconfig: "))
 			break;
-		if (response_buffer_append(&msg, fy_castp(&problem, "")))
+		if (fyai_buf_append(&msg, fy_castp(&problem, "")))
 			break;
 	}
 	fyai_cfg_error(cfg, "%s", msg.len ? msg.data : "invalid");

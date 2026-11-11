@@ -126,7 +126,7 @@ struct fyai_mcp_ctx {
 	/* Asynchronous teardown state, driven by fyai_mcp_cleanup(). */
 	struct fyai_curl_transfer *del_xfer;
 	struct curl_slist *del_headers;
-	struct response_buffer del_resp;
+	struct fyai_buf del_resp;
 	struct fyai_event_source *term_src;
 	bool del_done;
 	bool term_done;
@@ -734,7 +734,7 @@ struct mcp_oauth_discovery {
 	struct mcp_startup *startup;
 	struct fyai_curl_transfer *transfer;
 	CURL *curl;
-	struct response_buffer response;
+	struct fyai_buf response;
 	struct curl_slist *headers;
 	struct fyai_oauth_flow *flow;
 	struct fyai_oauth_pkce pkce;
