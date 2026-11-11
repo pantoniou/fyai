@@ -91,7 +91,8 @@ if grep -q cover-works "$TEST_DIR/stdout"; then
 	# and the procfs lists its own processes, not those of the host.
 	shell_with 'sandbox_profile: dev' 'echo pid=$$; echo procs=$(ls /proc | grep -c ^[0-9])'
 	pid="$(sed -n 's/.*pid=\([0-9]*\).*/\1/p' "$TEST_DIR/stdout" | head -n 1)"
-	[ -n "$pid" ] && [ "$pid" -lt 10 ] || fail "the tool has process id $pid, not one of a PID namespace"
+	# The Fil-C runtime threads take process ids of the namespace.
+	[ -n "$pid" ] && [ "$pid" -lt 100 ] || fail "the tool has process id $pid, not one of a PID namespace"
 	procs="$(sed -n 's/.*procs=\([0-9]*\).*/\1/p' "$TEST_DIR/stdout" | head -n 1)"
 	[ -n "$procs" ] && [ "$procs" -lt 10 ] || fail "the tool sees $procs processes"
 	# The root of the parent process does not show it either.
