@@ -148,6 +148,28 @@ initialize each generic field explicitly.
   (`doc/remote-sessions-sdd.md`, section 6.1.2).
 - `src/fyai_remote.c`: the client of `--remote` and of `remote connect`, and
   what it shares with the server (`src/fyai_remote_int.h`).
+- `src/fyai_buf.c`: the growing byte buffer, `struct fyai_buf`. It holds text
+  or a queue that is read from the front with `fyai_buf_consume()`. Use it
+  for every buffer of bytes and do not write another.
+- `src/fyai_net.c`: sockets for the network code: a connection that is TCP or
+  TLS over TCP, and the listen, connect (blocking, or started without
+  blocking) and URL helpers. The URL parse uses the URL API of libcurl. It
+  owns no event source.
+- `src/fyai_httpd.c`: the HTTP/1.1 server on the event loop: listeners with
+  optional TLS, the request parser, request bodies, kept connections,
+  answers (its own, or bytes that the handler writes), and the server end of a
+  WebSocket. It knows no route, no credential and no protocol over the
+  WebSocket; a handler gets each request and message
+  (`src/fyai_httpd.h`). Use it for every listener of HTTP in this program,
+  and do not write a second one.
+- `src/fyai_ws.c`: RFC 6455 as pure functions: the codec, the frame encoder and
+  the text of the handshake. `src/fyai_ws_client.c` is the client end, in two
+  forms: a blocking connection (`fyai_ws_client`) for a standalone command, and
+  a connection on the event loop (`fyai_wsc`) that never blocks. Each connects,
+  makes the TLS handshake, checks the pin, upgrades, sends masked frames and
+  gets whole messages. Use `fyai_wsc` in code that runs on the loop.
+- `src/fyai_remote_tls.c`: the self-signed key of a server, the context of a
+  TLS listener, and the pin and chain checks of a client of one.
 - `src/fyai_uidraw.c`: the renderer of the UI model. It draws the live
   document, the log and the bands from the stores with the sink
   (`doc/ui-model.md`).
