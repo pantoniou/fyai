@@ -296,13 +296,15 @@ unshare -Urnm sh -eu -c '
 mkfifo project/fifo
 run_fyai view update demo
 assert_status 1
-assert_stderr_contains 'Operation not supported'
+# glibc: "Operation not supported", musl: "Not supported"
+assert_stderr_contains 'ot supported'
 run_fyai view enter demo cat file
 assert_status 0
 assert_stdout_contains 'host changed'
 run_fyai view create unsupported "$TEST_DIR/project"
 assert_status 1
-assert_stderr_contains 'Operation not supported'
+# glibc: "Operation not supported", musl: "Not supported"
+assert_stderr_contains 'ot supported'
 mkdir -p git-project/.git/objects
 printf 'git object' > git-project/.git/objects/object
 chmod 444 git-project/.git/objects/object
