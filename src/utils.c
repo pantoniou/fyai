@@ -771,16 +771,20 @@ shell_capture_deadline(const struct fyai_event *ev)
 /* Close the descriptors from @from to @to, both included. */
 static void close_fds_range(unsigned int from, unsigned int to)
 {
+	int saved = errno;
 	long max_fd;
 	unsigned int fd;
 
-	if (!fyai_host_close_range(from, to))
+	if (!fyai_host_close_range(from, to)) {
+		errno = saved;
 		return;
+	}
 	max_fd = sysconf(_SC_OPEN_MAX);
 	if (max_fd < 0)
 		max_fd = 1024;
 	for (fd = from; fd <= to && fd < (unsigned int)max_fd; fd++)
 		close((int)fd);
+	errno = saved;
 }
 
 void fyai_close_fds_from(int lowfd)
