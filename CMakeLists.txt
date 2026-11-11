@@ -861,6 +861,33 @@ if(BUILD_TESTING)
         add_test(NAME fyai/macos/sandbox COMMAND fyai_macos_sandbox_test)
     endif()
 
+    # Tests that do not apply under Fil-C are registered and disabled, so a run
+    # lists them. Each entry states its reason.
+    include(CheckCSourceCompiles)
+    check_c_source_compiles("
+#ifndef __FILC__
+#error not Fil-C
+#endif
+int main(void) { return 0; }
+" FYAI_FILC)
+    set(FYAI_FILC_DISABLED_UNIT
+        # The crash handler is not installed: Fil-C refuses sigaltstack().
+        crash/install
+        crash/report
+        # Fil-C keeps a local alive while a pointer to it exists, so no generic
+        # dangles in a dead frame.
+        stackcheck/run
+    )
+
+    # The functional cases that do not apply under Fil-C.
+    set(FYAI_FILC_DISABLED_CASES
+        # Absolute limits in milliseconds, tuned for native speed.
+        ui_agents_mixed
+        ui_bang_user_owned
+        # Valgrind cannot run a Fil-C program.
+        vg_shell_interrupt
+    )
+
     # Add one CTest test for each registry entry. Each runs through
     # tests/unit_run.sh so that a run can put FYAI_VALGRIND in front of the
     # binary, the same variable the functional cases take.
@@ -876,6 +903,9 @@ if(BUILD_TESTING)
         add_test(NAME fyai/unit/${_suite}/${_name}
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_run.sh
                 $<TARGET_FILE:fyai_test> ${_suite}/${_name})
+        if(FYAI_FILC AND "${_suite}/${_name}" IN_LIST FYAI_FILC_DISABLED_UNIT)
+            set_tests_properties(fyai/unit/${_suite}/${_name} PROPERTIES DISABLED TRUE)
+        endif()
     endforeach()
     # The native view test runs the view commands of the fyai binary.
     set_tests_properties(fyai/unit/view/native_commands PROPERTIES
@@ -952,6 +982,9 @@ if(BUILD_TESTING)
         endif()
         math(EXPR case_timeout "${case_timeout} * ${FYAI_TIMEOUT_SCALE}")
         add_test(NAME fyai/case_${case_name} COMMAND bash ${case_script})
+        if(FYAI_FILC AND "${case_name}" IN_LIST FYAI_FILC_DISABLED_CASES)
+            set_tests_properties(fyai/case_${case_name} PROPERTIES DISABLED TRUE)
+        endif()
         set_tests_properties(fyai/case_${case_name} PROPERTIES
             TIMEOUT ${case_timeout}
             SKIP_RETURN_CODE 77
