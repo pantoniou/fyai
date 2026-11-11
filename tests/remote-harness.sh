@@ -29,7 +29,8 @@ remote_test_setup() {
 
 # remote_serve_start: serve the sandbox, and wait until the server listens.
 remote_serve_start() {
-	"$FYAI_BIN" serve >"$TEST_DIR/server.out" 2>"$TEST_DIR/server.err" &
+	# A case that serves more than the socket names the options here.
+	"$FYAI_BIN" serve ${REMOTE_SERVE_ARGS:-} >"$TEST_DIR/server.out" 2>"$TEST_DIR/server.err" &
 	SERVER_PID=$!
 	trap remote_test_cleanup EXIT
 	# The socket accepts a connection once the server listens.
