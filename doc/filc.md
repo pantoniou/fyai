@@ -7,6 +7,10 @@ the durable arenas at their configured base as natively (see
 
 ## Building
 
+`scripts/build-filc.sh` runs the steps below: it builds zlib and OpenSSL from
+source into a private prefix and then fyai with static libraries. The steps
+are listed for a build by hand.
+
 Everything that fyai links must be built with Fil-C. Host libraries cannot be
 used:
 
