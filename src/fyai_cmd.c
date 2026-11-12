@@ -1534,12 +1534,26 @@ bool fyai_cmd_arg_bool(struct fyai_cmd_call *call, const char *name)
 
 /* ---- presentation ---------------------------------------------------------- */
 
+/* Write machine bytes as they stand. A failed write is the cause of the stop. */
+int fyai_cmd_machine_write(struct fyai_cmd_call *call, const char *buf,
+			   size_t len)
+{
+	int rc;
+
+	rc = fyai_sink_write(call->ctx->sink, FYAI_SINK_MACHINE, buf, len);
+	fyai_error_check(call->ctx, !rc, err,
+			 "%s: cannot write the result", call->path);
+	return 0;
+err:
+	return -1;
+}
+
 static int present_machine(struct fyai_cmd_call *call, fy_generic value)
 {
 	enum fy_op_emit_flags flags;
 	fy_generic emitted;
 	const char *text;
-	struct fyai_sink *sink = call->ctx->sink;
+	int rc;
 
 	flags = FYOPEF_DISABLE_DIRECTORY | FYOPEF_WIDTH_INF |
 		FYOPEF_BINARY_BASE64;
@@ -1557,11 +1571,19 @@ static int present_machine(struct fyai_cmd_call *call, fy_generic value)
 	text = fy_castp(&emitted, "");
 	/* Machine output is written as emitted, never rendered. */
 	if (call->format == FYAI_CMD_OUT_YAML && call->mode ==
-	    FYAI_CMD_MODE_STREAM)
-		(void)fyai_sink_write(sink, FYAI_SINK_MACHINE, "---\n", 4);
-	(void)fyai_sink_write(sink, FYAI_SINK_MACHINE, text, strlen(text));
-	if (!*text || text[strlen(text) - 1] != '\n')
-		(void)fyai_sink_write(sink, FYAI_SINK_MACHINE, "\n", 1);
+	    FYAI_CMD_MODE_STREAM) {
+		rc = fyai_cmd_machine_write(call, "---\n", 4);
+		if (rc)
+			return -1;
+	}
+	rc = fyai_cmd_machine_write(call, text, strlen(text));
+	if (rc)
+		return -1;
+	if (!*text || text[strlen(text) - 1] != '\n') {
+		rc = fyai_cmd_machine_write(call, "\n", 1);
+		if (rc)
+			return -1;
+	}
 	return 0;
 }
 

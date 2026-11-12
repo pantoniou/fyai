@@ -182,6 +182,10 @@ void fyai_cmd_session_cancel(struct fyai_ctx *ctx);
 /* Emit one stream item. Returns -1 when the consumer stops the stream. */
 int fyai_cmd_emit(struct fyai_cmd_call *call, fy_generic item);
 
+/* Write @len bytes of machine output unrendered; report and return -1 on failure. */
+int fyai_cmd_machine_write(struct fyai_cmd_call *call, const char *buf,
+			   size_t len);
+
 /* End an async call. @result is built in @call->gb. */
 void fyai_cmd_done(struct fyai_cmd_call *call, int rc, fy_generic result);
 

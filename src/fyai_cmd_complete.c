@@ -1212,6 +1212,7 @@ int fyai_cmd_complete_verb(struct fyai_cmd_call *call, fy_generic *result)
 	unsigned int directives;
 	size_t n;
 	char tail[32];
+	int rc;
 
 	(void)result;
 	n = 0;
@@ -1233,10 +1234,9 @@ int fyai_cmd_complete_verb(struct fyai_cmd_call *call, fy_generic *result)
 	fyai_error_check(call->ctx, !mc.fail, err_free,
 			 "__complete: cannot build the candidates");
 	/* The protocol of the completion scripts: never rendered. */
-	(void)fyai_sink_write(call->ctx->sink, FYAI_SINK_MACHINE, mc.out.data,
-			      mc.out.len);
+	rc = fyai_cmd_machine_write(call, mc.out.data, mc.out.len);
 	free(mc.out.data);
-	return 0;
+	return rc ? -1 : 0;
 err_free:
 	free(mc.out.data);
 err:
@@ -1337,7 +1337,5 @@ int fyai_cmd_completion(struct fyai_cmd_call *call, fy_generic *result)
 	else
 		script = completion_bash;
 	/* A script is written as it stands. */
-	(void)fyai_sink_write(call->ctx->sink, FYAI_SINK_MACHINE, script,
-			      strlen(script));
-	return 0;
+	return fyai_cmd_machine_write(call, script, strlen(script)) ? -1 : 0;
 }

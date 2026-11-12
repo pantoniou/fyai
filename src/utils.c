@@ -1284,20 +1284,21 @@ void shell_command_result_cleanup(struct shell_command_result *result)
 	memset(result, 0, sizeof(*result));
 }
 
-void emit_generic_to_stdout(struct fyai_ctx *ctx, const char *label,
+void emit_generic_to_sink(struct fyai_ctx *ctx, const char *label,
 			    fy_generic value, bool pretty)
 {
-	emit_generic_to_stdout_anchored(ctx, label, value, pretty, false);
+	emit_generic_to_sink_anchored(ctx, label, value, pretty, false);
 }
 
 /* Send emitted machine data through the sink without rendering it. */
-void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
+void emit_generic_to_sink_anchored(struct fyai_ctx *ctx, const char *label,
 				     fy_generic value,
 				     bool pretty, bool auto_anchor)
 {
 	enum fy_op_emit_flags flags;
 	fy_generic emitted;
 	const char *text;
+	int rc;
 
 	if (pretty) {
 		flags = FYOPEF_DISABLE_DIRECTORY |
@@ -1317,15 +1318,23 @@ void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
 
 	if (label) {
 		text = fy_sprintfa("\n# %s:\n", label);
-		if (text)
-			(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE,
-					      text, strlen(text));
+		if (text) {
+			rc = fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE,
+					     text, strlen(text));
+			fyai_error_check(ctx, !rc, err,
+					 "could not write the %s label", label);
+		}
 	}
 	emitted = fy_emit(fyai_ctx_transient_gb(ctx), value, flags, NULL);
-	if (fy_is_invalid(emitted))
-		return;
+	fyai_error_check(ctx, fy_is_string(emitted), err,
+			 "could not emit the %s as machine data",
+			 label ? label : "value");
 	text = fy_castp(&emitted, "");
-	(void)fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
+	rc = fyai_sink_write(ctx->sink, FYAI_SINK_MACHINE, text, strlen(text));
+	fyai_error_check(ctx, !rc, err, "could not write the %s",
+			 label ? label : "value");
+err:
+	return;
 }
 const char *emit_request_body(struct fy_generic_builder *gb, fy_generic request)
 {

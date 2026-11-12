@@ -605,7 +605,7 @@ static int stream_handle_data(struct stream_response *stream,
 	}
 
 	if (cfg->debug > 1)
-		emit_generic_to_stdout(stream->ctx, "stream", chunk, true);
+		emit_generic_to_sink(stream->ctx, "stream", chunk, true);
 
 	if (cfg->stream_logging) {
 		(void)fyai_log_generic(ctx, "stream",

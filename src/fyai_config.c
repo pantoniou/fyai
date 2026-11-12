@@ -1456,7 +1456,7 @@ int fyai_config_show(struct fyai_ctx *ctx)
 		fyai_cfg_error(cfg, "no configuration; run fyai init or fyai config import");
 		return -1;
 	}
-	emit_generic_to_stdout(ctx, NULL, cfg->config_doc, true);
+	emit_generic_to_sink(ctx, NULL, cfg->config_doc, true);
 	return 0;
 }
 

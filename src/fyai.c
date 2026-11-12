@@ -305,7 +305,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 	     (marked && fyai_sink_bands_available(ctx->sink))))
 		fyai_print_tool_call(ctx, tool_call, execute);
 	if (cfg->debug)
-		emit_generic_to_stdout(ctx, "tool-call", tool_call, cfg->pretty);
+		emit_generic_to_sink(ctx, "tool-call", tool_call, cfg->pretty);
 
 	if (execute)
 		tool_result = fyai_execute_tool_call(ctx, tool_call, &tool_ok);
@@ -343,7 +343,7 @@ static fy_generic fyai_finish_tool_call(struct fyai_ctx *ctx, fy_generic turn,
 		fyai_render_tool_exchange(ctx, tool_call, tool_result,
 					  tool_ok);
 	if (cfg->debug)
-		emit_generic_to_stdout(ctx, "tool-result", tool_result,
+		emit_generic_to_sink(ctx, "tool-result", tool_result,
 				       cfg->pretty);
 	tool_call_id = fy_get(tool_call, "call_id", "");
 
@@ -876,7 +876,7 @@ static int fyai_model_step_start(struct fyai_model_step *step)
 				 "could not finish the model request");
 
 		if (cfg->debug)
-			emit_generic_to_stdout(ctx, "request", request, cfg->pretty);
+			emit_generic_to_sink(ctx, "request", request, cfg->pretty);
 
 		if (cfg->conversation_logging) {
 			(void)fyai_log_generic(ctx, "conversation",
@@ -960,7 +960,7 @@ static void fyai_model_step_request_complete(struct fyai_model_step *step,
 				      fyai_extract_usage(ctx, response_doc));
 
 	if (cfg->debug && fy_is_valid(response_doc))
-		emit_generic_to_stdout(ctx, "response",
+		emit_generic_to_sink(ctx, "response",
 				       fy_get(response_doc, "doc"), cfg->pretty);
 	if (cfg->debug && cfg->cache_info &&
 	    fy_is_valid(response_doc))
@@ -2100,6 +2100,7 @@ fyai_turn_run_append_response(struct fyai_turn_run *run, fy_generic response)
 	fy_generic response_id;
 	fy_generic out_text;
 	const char *text;
+	int rc;
 
 	ctx = run->ctx;
 	cfg = ctx->cfg;
@@ -2107,7 +2108,9 @@ fyai_turn_run_append_response(struct fyai_turn_run *run, fy_generic response)
 	if (!cfg->stream) {
 		out_text = fyai_response_output_text(ctx, response);
 		text = fy_castp(&out_text, "");
-		(void)fyai_output_append_string(ctx, text);
+		rc = fyai_output_append_string(ctx, text);
+		fyai_error_check(ctx, !rc, err,
+				 "could not record the text of the reply");
 		fyai_acp_worker_text(ctx, text, strlen(text));
 		fyai_text_observe(ctx, text, strlen(text));
 		fyai_tool_progress_emit(ctx, text, strlen(text));

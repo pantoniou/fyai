@@ -940,6 +940,7 @@ int fyai_cmd_sandbox_apparmor(struct fyai_cmd_call *call, fy_generic *result)
 	size_t exe_len, count = 0, i, o;
 	char exe[PATH_MAX], *out;
 	ssize_t got;
+	int rc;
 
 	(void)result;
 	got = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
@@ -970,9 +971,9 @@ int fyai_cmd_sandbox_apparmor(struct fyai_cmd_call *call, fy_generic *result)
 		}
 	}
 	/* A profile is written as it stands, for a pipe to tee. */
-	(void)fyai_sink_write(call->ctx->sink, FYAI_SINK_MACHINE, out, o);
+	rc = fyai_cmd_machine_write(call, out, o);
 	free(out);
-	return 0;
+	return rc ? -1 : 0;
 err:
 	return -1;
 }

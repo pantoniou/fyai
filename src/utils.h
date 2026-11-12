@@ -277,9 +277,9 @@ struct fyai_child_spec {
 /* Apply @spec before exec, returning the child's failure exit status. */
 int fyai_child_exec_prepare(struct fyai_ctx *ctx,
 			    const struct fyai_child_spec *spec);
-void emit_generic_to_stdout(struct fyai_ctx *ctx, const char *label,
+void emit_generic_to_sink(struct fyai_ctx *ctx, const char *label,
 			    fy_generic value, bool pretty);
-void emit_generic_to_stdout_anchored(struct fyai_ctx *ctx, const char *label,
+void emit_generic_to_sink_anchored(struct fyai_ctx *ctx, const char *label,
 				     fy_generic value,
 				     bool pretty, bool auto_anchor);
 const char *emit_request_body(struct fy_generic_builder *gb,

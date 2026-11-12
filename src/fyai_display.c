@@ -4626,7 +4626,7 @@ int fyai_dump_view(struct fyai_ctx *ctx)
 
 	/* The anchored view dumps the full turn graph, no selection. */
 	if (args->anchors) {
-		emit_generic_to_stdout_anchored(ctx, "conversation",
+		emit_generic_to_sink_anchored(ctx, "conversation",
 			fy_is_valid(ctx->last_message) ?
 			ctx->last_message : fy_null, true, true);
 		rc = 0;
