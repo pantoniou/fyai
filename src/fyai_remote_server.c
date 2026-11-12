@@ -70,6 +70,14 @@ struct fyai_remote_session;
 
 struct fyai_remote_run;
 
+/* What a client is. It moves forward only, and a failed peer keeps its role. */
+enum remote_peer_role {
+	REMOTE_PEER_PENDING,	/* it has not shown the launch token */
+	REMOTE_PEER_CLIENT,	/* it drives a command or a session */
+	REMOTE_PEER_WATCHER,	/* it reads a session that another client drives */
+	REMOTE_PEER_HANDED,	/* it was given to a project server */
+};
+
 struct fyai_remote_peer {
 	struct fyai_remote_peer *next;
 	struct fyai_remote_server *server;
@@ -80,11 +88,10 @@ struct fyai_remote_peer {
 	unsigned long id;		/* names the client in the log */
 	char *dir;			/* the directory of the client, or NULL */
 	int fd;
-	bool authenticated, failed;
-	bool handed;			/* given to a project server */
+	enum remote_peer_role role;
+	bool failed;
 	bool native;			/* a fyai session: the client said hello */
 	bool lines_only;		/* its transport carries lines: no image mode */
-	bool watcher;			/* reads a session that another client drives */
 	struct fyai_remote_peer *wnext;	/* the next watcher of the session */
 };
 
@@ -977,7 +984,7 @@ static void remote_authenticate(struct fyai_remote_peer *peer, fy_generic frame)
 		peer->failed = true;
 		return;
 	}
-	peer->authenticated = true;
+	peer->role = REMOTE_PEER_CLIENT;
 	fyai_event_source_remove(peer->deadline);
 	peer->deadline = NULL;
 	if (jsonrpc_conn_send_frame(peer->conn, fy_mapping(gb,
@@ -1012,7 +1019,7 @@ static void remote_attach(struct fyai_remote_peer *peer, fy_generic id,
 				     "no live session on the branch", fy_invalid);
 			return;
 		}
-		peer->watcher = true;
+		peer->role = REMOTE_PEER_WATCHER;
 		peer->session = session;
 		peer->wnext = session->watchers;
 		session->watchers = peer;
@@ -1348,7 +1355,7 @@ static void remote_hand_over(struct fyai_remote_peer *peer, fy_generic id,
 	}
 	remote_log(server, "client %lu: directory '%s' of the project server %ld",
 		   peer->id, dir, (long)project->pid);
-	peer->handed = true;
+	peer->role = REMOTE_PEER_HANDED;
 	peer->failed = true;
 }
 
@@ -1559,7 +1566,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 	(void)conn;
 	if (peer->failed)
 		return;
-	if (!peer->authenticated) {
+	if (peer->role == REMOTE_PEER_PENDING) {
 		remote_authenticate(peer, frame);
 		return;
 	}
@@ -1604,7 +1611,7 @@ static void remote_admit_frame(struct jsonrpc_conn *conn, fy_generic frame,
 		peer->failed = true;
 		return;
 	}
-	if (peer->watcher) {
+	if (peer->role == REMOTE_PEER_WATCHER) {
 		remote_watch_request(peer, frame, id, subtype);
 		return;
 	}
@@ -1710,7 +1717,7 @@ static struct fyai_remote_peer *remote_peer_add(struct fyai_remote_server *serve
 		return NULL;
 	}
 	peer->id = id;
-	peer->authenticated = authenticated;
+	peer->role = authenticated ? REMOTE_PEER_CLIENT : REMOTE_PEER_PENDING;
 	peer->server = server;
 	peer->fd = fd;
 	peer->next = server->peers;
@@ -2018,10 +2025,10 @@ static void remote_reap(struct fyai_remote_server *server)
 			continue;
 		}
 		*link = peer->next;
-		if (!peer->handed)
+		if (peer->role != REMOTE_PEER_HANDED)
 			remote_log(server, "client %lu: disconnected", peer->id);
 		session = peer->session;
-		if (session && peer->watcher) {
+		if (session && peer->role == REMOTE_PEER_WATCHER) {
 			for (wlink = &session->watchers; *wlink != peer;
 			     wlink = &(*wlink)->wnext)
 				;
