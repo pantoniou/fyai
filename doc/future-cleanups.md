@@ -243,37 +243,76 @@ is rejected with a warning.
   agent), so it is never cleared. `interrupt_pending` is acknowledged and
   cleared. Several sites still rebuild `interrupt_pending` from
   `seq != seen`.
-- Scope lifetime (`scope_open`, `scope_pins`, `sandbox_scope`): the scope ends
-  when `!scope_open && scope_pins == 0` and the scope is not `"session"`. A
-  `pinned` bit repeats in `fyai_shell_session`, `fyai_monitor_run` and
-  `fyai_agent_bg_run`. `unpin` clamps at zero, which hides an unbalanced pair.
-  Change: a pin handle that owns its bit, and the scope kind as an enum.
+- Scope lifetime (`scope_open`, `scope_pins`, `sandbox_scope`): done. A
+  `struct fyai_scope_pin` in the session, the monitor and the background
+  agent owns the one count of its object: pinning a held handle and unpinning
+  a free one change nothing, so the pair balances without a clamp. The clamp
+  at zero stays for one case: a forked child resets the count and drops the
+  objects of its parent. `enum fyai_scope_kind` (EXCHANGE, SESSION, CALL) is
+  derived once from `sandbox_scope` and replaces the `strcmp()` at six sites.
+  `scope_open` stays a bool: it is the fact that an exchange runs, which is
+  independent of the pins.
 - Response chain (`response_chain_linked`, `response_chain_miss`,
-  `model_step->response_linked`): UNLINKED, LINKED, MISSED. A stale miss can
-  pass to the next request. `token_extents_off` is a one-way latch that is
-  never re-armed. Change: a `chain_state` enum.
-- httpd connection (`fyai_httpd.c`): `upgraded`, `dispatched`, `dead`,
-  `closing`, and `reap_queued` on the server. States: HEAD, DISPATCHED,
-  UPGRADED, CLOSING, DEAD. `struct fyai_ws` holds the parser state in
-  `opcode`, `fin`, `masked`, `message`.
+  `model_step->response_linked`): done. `enum fyai_chain_state` (UNLINKED,
+  LINKED, MISSED) on the context replaces the two flags and the copy in the
+  step. The claim that a stale miss passes to the next request is wrong for
+  the model step: `fyai_model_step_submit_request()` resets the state for each
+  request. A stale LINKED was real, though: `/compact` submits a buffered
+  request outside the step, so a refusal of it that matched the chain-miss text
+  was taken as a miss and raised no error. `/compact` now sets UNLINKED.
+  `token_extents_off` stays a bool: it is a one-way latch that is never
+  re-armed, and not a phase.
+- httpd connection (`fyai_httpd.c`): done. `enum httpd_conn_state` (HEAD,
+  DISPATCHED, UPGRADED, CLOSING, DEAD) replaces `upgraded`, `dispatched`,
+  `closing` and `dead`. HEAD and DISPATCHED alternate for each request of a
+  kept connection, so the order is not monotone; the code uses `>=` only for
+  "takes no request" (UPGRADED on) and "takes no output" (CLOSING on), and
+  says so at the enum. `keep` and `continue_sent` are facts about the request
+  in hand, and `reap_queued` is a fact about the server, so they stay bools.
+  `fyai_httpd_ws_accept()` and `fyai_httpd_ws_close()` now refuse a connection
+  that is closing or dead, which the flags allowed. `struct fyai_ws` holds the
+  parser state in `opcode`, `fin`, `masked`, `message`: not changed here.
 - Terminal child (`struct tty_run`, `struct fyai_terminal_relay`): checked, no
   change for `tty_run`. The result states its precedence: `timed_out` wins,
   and `cancelled` is `cancelling && !timed_out`, whichever came first. A
   state enum would record the first cause and change that. `relay_finish()`
   can still set `done` without `reaped`.
 - Terminal view screen mode (`screen_mode`, `alt_screen`, `alt_screen_seen`,
-  `alt_screen_used`): the choice of surface is one predicate over three sticky
-  flags. States: LINE, SCREEN, ALT_ACTIVE, ALT_EXITED.
-- Tool child handshake (`pending`, `done`, `session_started`, `spawn_failed`):
-  `done` is set before the work runs, so it means "taken".
+  `alt_screen_used`): done. `enum tty_screen_mode` (LINE, SCREEN, ALT_ACTIVE,
+  ALT_EXITED) replaces the first three. `alt_screen_used` stays a latch: a
+  program can leave the alternate buffer before it ever entered it (a reset
+  at the start), which is ALT_EXITED but not a full-screen program, and the
+  tile of a full-screen program is closed on that fact. One edge changes: a
+  sequence such as `CSI ?25;1049h`, where the alternate buffer is not the first
+  parameter, now counts as a screen; it set only the alternate flags before.
+- Tool child handshake (`pending`, `done`, `session_started`,
+  `spawn_failed`): done for `pending` and `done`:
+  `enum fyai_tool_child_phase` (IDLE, REQUESTED, TAKEN). `session_started` and
+  `spawn_failed` stay bools: each is the outcome of its own step, and neither
+  is a phase.
 - JSON-RPC connection (`closed`, `write_failed`, `protocol_failed`,
-  `peer_closed`, `expect_close`): independent bits that lose the reason for
-  the close. The request has `done`, `ok`, `cancel_requested`.
+  `peer_closed`, `expect_close`): partly done. The request has
+  `enum jsonrpc_request_state` (PENDING, OK, FAILED) in place of `done` and
+  `ok`; `cancel_requested` stays a bool: it is the owner's request, recorded
+  while a transfer is in flight. The connection flags are checked, no change:
+  the input and the output of a stdio peer end apart (an end of input leaves
+  the output usable, and a failed write can come before or after it), so one
+  close reason would lose one of them. `expect_close` is a policy of the
+  owner. `peer_closed` is a local variable. The reason of the close stays in
+  the `why` text of the settle.
 - Agent message acknowledgement (`pending`, `cancelled`, `ask_parent`,
-  `request`, `branch`): the lookup loops test four combinations of these to
-  mean queued, outstanding or settled.
-- MCP teardown (`del_done`, `term_done`, `pid`, `session_id`): a structure that
-  never began teardown and one that is tearing down look the same.
+  `request`, `branch`): done. `enum agent_ack_state` (WAITING, SENT,
+  CANCELLING, SETTLED, CANCELLED) replaces `pending` and `cancelled`. The
+  state only moves forward, so "outstanding" is `state < SETTLED`. A message
+  that waits for a branch is WAITING; the lookup of an admitted branch tests
+  that one state. `ask_parent` stays a bool: it is the kind of message.
+- MCP teardown (`del_done`, `term_done`, `pid`, `session_id`): checked, no
+  change. The session delete and the stop of the child are independent events
+  that finish in either order, and `mcp_teardown_settled()` is their join. A
+  structure that never began teardown cannot be read as one that is tearing
+  down: `fyai_mcp_stop_done()` needs `mcp_stopping`, and `fyai_mcp_stop()`
+  begins every server in the pass that sets it. A server added after that
+  pass would block the join, but no path adds one then.
 - UI input owner (`busy`, `marker_busy`, `questions`, `head`,
   `editor_request`, `external`, `editor_external`, `inline_focus`): the marker
   derives from three sources, and the key routing is a priority list.
